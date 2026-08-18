@@ -65,12 +65,12 @@ services:
         test -f /usr/share/icons/hicolor/512x512/apps/dsh-desktop.png
         test ! -e /usr/share/icons/hicolor/1024x1024/apps/dsh-desktop.png
         desktop="$(ls /usr/share/applications/*.desktop | head -1)"
-        cat "$desktop"
-        grep -q 'Icon=dsh-desktop' "$desktop"
-        grep -q 'Categories=Development;' "$desktop"
-        grep -qF 'Exec="/opt/DSH Desktop/dsh-desktop"' "$desktop"
+        cat "$$desktop"
+        grep -q 'Icon=dsh-desktop' "$$desktop"
+        grep -q 'Categories=Development;' "$$desktop"
+        grep -qF 'Exec="/opt/DSH Desktop/dsh-desktop"' "$$desktop"
         ls -l '/opt/DSH Desktop/chrome-sandbox'
-        dpkg-query -W -f='${Package} ${Maintainer}\n' "$(dpkg-deb -f ./dsh-plugin-desktop/dist/*.deb Package)"
+        dpkg-query -W -f='$${Package} $${Maintainer}\n' "$(dpkg-deb -f ./dsh-plugin-desktop/dist/*.deb Package)"
 
   # Install the rpm in a current Fedora and assert the same layout. The tag is
   # `latest` on purpose: dnf needs live repositories, and an EOL Fedora tag's
@@ -95,8 +95,8 @@ services:
         test -f /usr/share/icons/hicolor/512x512/apps/dsh-desktop.png
         test ! -e /usr/share/icons/hicolor/1024x1024/apps/dsh-desktop.png
         desktop="$(ls /usr/share/applications/*.desktop | head -1)"
-        cat "$desktop"
-        grep -q 'Icon=dsh-desktop' "$desktop"
+        cat "$$desktop"
+        grep -q 'Icon=dsh-desktop' "$$desktop"
 
 volumes:
   dsh-cache:
