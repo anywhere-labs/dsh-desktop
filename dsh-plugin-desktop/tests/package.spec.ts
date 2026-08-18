@@ -615,13 +615,14 @@ describe('published package surface', () => {
       useZip: false,
       artifactName: 'DSH-Desktop-${version}-${arch}-Setup.${ext}',
     })
-    expect(manifest.build?.linux?.icon).toBe('build/app-icon.png')
+    expect(manifest.build?.linux?.icon).toBe('build/icons')
   })
 
   it('separates unsigned smoke packaging from the signed macOS release', () => {
     const packageDir = readFileSync(new URL('scripts/package-dir.mjs', packageRoot), 'utf8')
 
     expect(manifest.scripts?.build).toContain('node scripts/generate-mac-app-icon.mjs')
+    expect(manifest.scripts?.build).toContain('node scripts/generate-linux-icons.mjs')
     expect(manifest.scripts?.['package:dir']).toBe('yarn run build && node scripts/package-dir.mjs')
     expect(packageDir).toContain("CSC_IDENTITY_AUTO_DISCOVERY: 'false'")
     expect(manifest.scripts?.['dist:mac']).toBe('node scripts/release-mac.ts')
@@ -733,6 +734,27 @@ describe('published package surface', () => {
       'tray-icon-blue@2x.png',
     ]) {
       expect(readFileSync(new URL(`build/${filename}`, packageRoot)).byteLength).toBeGreaterThan(0)
+    }
+  })
+
+  it('generates the freedesktop icon theme sizes capped at 512 pixels', async () => {
+    const sizes = [16, 24, 32, 48, 64, 96, 128, 256, 512]
+    const expected = sizes.map(size => `${String(size)}x${String(size)}.png`).sort()
+
+    expect(readdirSync(new URL('build/icons/', packageRoot)).sort()).toEqual(expected)
+
+    for (const size of sizes) {
+      const metadata = await sharp(
+        readFileSync(new URL(`build/icons/${String(size)}x${String(size)}.png`, packageRoot)),
+      ).metadata()
+
+      expect(metadata).toEqual(expect.objectContaining({
+        format: 'png',
+        width: size,
+        height: size,
+        channels: 4,
+        hasAlpha: true,
+      }))
     }
   })
 
