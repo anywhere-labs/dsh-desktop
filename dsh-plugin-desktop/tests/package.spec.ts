@@ -47,7 +47,17 @@ const manifest = JSON.parse(readFileSync(new URL('package.json', packageRoot), '
     win?: { icon?: unknown; target?: unknown; artifactName?: unknown }
     nsis?: Record<string, unknown>
     portable?: Record<string, unknown>
-    linux?: { icon?: unknown }
+    linux?: {
+      icon?: unknown
+      target?: unknown
+      executableName?: unknown
+      category?: unknown
+      maintainer?: unknown
+    }
+    deb?: Record<string, unknown>
+    rpm?: Record<string, unknown>
+    appImage?: Record<string, unknown>
+    toolsets?: Record<string, unknown>
   }
   dependencies?: Record<string, unknown>
   optionalDependencies?: Record<string, unknown>
@@ -616,6 +626,25 @@ describe('published package surface', () => {
       artifactName: 'DSH-Desktop-${version}-${arch}-Setup.${ext}',
     })
     expect(manifest.build?.linux?.icon).toBe('build/icons')
+    expect(manifest.build?.linux?.target).toEqual([
+      { target: 'deb', arch: ['x64'] },
+      { target: 'rpm', arch: ['x64'] },
+      { target: 'AppImage', arch: ['x64'] },
+    ])
+    expect(manifest.build?.linux?.executableName).toBe('dsh-desktop')
+    expect(manifest.build?.linux?.category).toBe('Development')
+    expect(manifest.build?.linux?.maintainer)
+      .toBe('anywhere-labs <anywhere-labs@users.noreply.github.com>')
+    expect(manifest.build?.deb).toEqual({
+      artifactName: 'DSH-Desktop-${version}-linux-amd64.deb',
+    })
+    expect(manifest.build?.rpm).toEqual({
+      artifactName: 'DSH-Desktop-${version}-linux-x86_64.rpm',
+    })
+    expect(manifest.build?.appImage).toEqual({
+      artifactName: 'DSH-Desktop-${version}-linux-x86_64.AppImage',
+    })
+    expect(manifest.build?.toolsets).toEqual({ appimage: '1.0.3' })
   })
 
   it('separates unsigned smoke packaging from the signed macOS release', () => {

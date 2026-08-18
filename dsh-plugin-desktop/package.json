@@ -365,9 +365,41 @@
     },
     "linux": {
       "target": [
-        "dir"
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
-      "icon": "build/icons"
+      "icon": "build/icons",
+      "executableName": "dsh-desktop",
+      "category": "Development",
+      "maintainer": "anywhere-labs <anywhere-labs@users.noreply.github.com>"
+    },
+    "deb": {
+      "artifactName": "DSH-Desktop-${version}-linux-amd64.deb"
+    },
+    "rpm": {
+      "artifactName": "DSH-Desktop-${version}-linux-x86_64.rpm"
+    },
+    "appImage": {
+      "artifactName": "DSH-Desktop-${version}-linux-x86_64.AppImage"
+    },
+    "toolsets": {
+      "appimage": "1.0.3"
     }
   }
 }
