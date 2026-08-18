@@ -74,6 +74,48 @@ describe('Linux x64 package build', () => {
     ])
   })
 
+  it('reuses a completed CI package gate when explicitly requested', () => {
+    const calls: CommandCall[] = []
+    const logs: string[] = []
+    const value = {
+      ...options(calls, logs),
+      env: {
+        ...options(calls).env,
+        DSH_PACKAGE_CHECK_ALREADY_RAN: '1',
+      },
+    }
+
+    packageLinuxInstallers(value)
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toEqual({
+      command: '/usr/local/bin/node',
+      args: [
+        '/repo/node_modules/electron-builder/cli.js',
+        '--linux',
+        'deb',
+        'rpm',
+        'AppImage',
+        '--x64',
+        '--publish',
+        'never',
+        '--config.npmRebuild=false',
+      ],
+      cwd: '/repo/dsh-plugin-desktop',
+      env: { PATH: '/usr/bin', SAFE_VALUE: 'kept', DSH_PACKAGE_CHECK_ALREADY_RAN: '1' },
+    })
+    expect(calls[1]).toEqual({
+      command: '/usr/local/bin/node',
+      args: ['/repo/dsh-plugin-desktop/scripts/verify-linux-installer.ts'],
+      cwd: '/repo/dsh-plugin-desktop',
+      env: { PATH: '/usr/bin', SAFE_VALUE: 'kept', DSH_PACKAGE_CHECK_ALREADY_RAN: '1' },
+    })
+    expect(logs).toEqual([
+      'Building unsigned Linux x64 deb, rpm, and AppImage artifacts; the rpm target requires host rpmbuild.',
+      'Skipping the Linux package preflight; the CI shared gate already passed.',
+    ])
+  })
+
   it.each([
     ['darwin', 'x64', '22.23.2', 'native Linux host'],
     ['linux', 'arm64', '22.23.2', 'requires x64 Node'],

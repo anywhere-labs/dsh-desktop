@@ -96,12 +96,16 @@ export function packageLinuxInstallers(
   options.log(
     'Building unsigned Linux x64 deb, rpm, and AppImage artifacts; the rpm target requires host rpmbuild.',
   )
-  options.run(
-    options.corepackExecutable,
-    ['yarn', 'workspace', 'dsh-plugin-desktop', 'check:linux-package'],
-    options.workspaceRoot,
-    options.env,
-  )
+  if (options.env.DSH_PACKAGE_CHECK_ALREADY_RAN !== '1') {
+    options.run(
+      options.corepackExecutable,
+      ['yarn', 'workspace', 'dsh-plugin-desktop', 'check:linux-package'],
+      options.workspaceRoot,
+      options.env,
+    )
+  } else {
+    options.log('Skipping the Linux package preflight; the CI shared gate already passed.')
+  }
   options.run(
     options.nodeExecutable,
     [
