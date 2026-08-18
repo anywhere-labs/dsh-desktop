@@ -258,7 +258,7 @@ docker compose -f docker/linux-package/compose.yml run --rm verify-deb
 docker compose -f docker/linux-package/compose.yml run --rm verify-rpm
 ```
 
-Linux 没有 code signing，三个产物均未签名。CI 会在钉版本的 `ubuntu-24.04` runner 上构建同样的三个产物。AppImage 打包使用 `toolsets.appimage: "1.0.3"` 的静态运行时，因此产物既不会注入 `--no-sandbox`，也不要求用户安装 `libfuse2`；electron-builder 26.15.3 的 schema 把这个值归在 `Betas:` 分组下，而非默认值（`"0.0.0"`，旧版 FUSE2 路径），因此这是一次刻意的、已验证过的选择，而非沿用了官方的稳定默认值。
+Linux 没有 code signing，三个产物均未签名。CI 会在钉版本的 `ubuntu-24.04` runner 上构建同样的三个产物。AppImage 打包使用 `toolsets.appimage: "1.0.3"` 的静态运行时，因此产物既不会注入 `--no-sandbox`，也不要求用户安装 `libfuse2`；electron-builder 的 schema 把这个值归在 `Betas:` 分组下，而非默认值（`"0.0.0"`，旧版 FUSE2 路径），因此这是一次刻意的、已验证过的选择，而非沿用了官方的稳定默认值。这个 schema（枚举值、`"0.0.0"` 默认值、`Betas:` 分组）在钉定的 `electron-builder` 从 26.15.3 升到 26.15.7 后经确认保持不变。
 
 ## 模型体验
 
