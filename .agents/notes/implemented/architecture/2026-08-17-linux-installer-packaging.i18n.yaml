@@ -1,4 +1,4 @@
 # Bilingual-pair consistency record: the git blob hash of each side as of the last
 # confirmed-consistent state. Both languages carry equal authority.
-2026-08-17-linux-installer-packaging.md: e1743cb90614736a5e68ce35aea86b78f0299cb0
-2026-08-17-linux-installer-packaging.zh.md: 17d5bf3e135885fe91549c1b2edf0848d65bf294
+2026-08-17-linux-installer-packaging.md: c196a3d3a8ae9058b0dc4ba58e9896bae62fea01
+2026-08-17-linux-installer-packaging.zh.md: f7c52bc262e72aa72a3cac69126fa887671a591f

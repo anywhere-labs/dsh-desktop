@@ -4,7 +4,7 @@
 
 从产品下载入口获取 macOS、Windows 或 Linux 安装包。安装后的 DSH Desktop 自带运行所需的 Electron、Node 和 DSH 依赖，普通用户不需要另行安装 Node.js 或 pnpm。
 
-Linux 用户可以从 GitHub Releases 下载 deb、rpm 或 AppImage：Debian/Ubuntu 建议 `sudo apt install ./DSH-Desktop-<version>-linux-amd64.deb`；Fedora/RHEL/openSUSE 建议 `sudo dnf install ./DSH-Desktop-<version>-linux-x86_64.rpm`；其他发行版，或者不想把应用装进系统包管理器时，下载 AppImage 后执行 `chmod +x DSH-Desktop-<version>-linux-x86_64.AppImage` 即可直接运行。deb 和 rpm 都会装到 `/opt/DSH Desktop`，并提供命令 `dsh-desktop`。升级时重新下载并安装新版本即可；Linux 没有应用内更新下载，托盘只会提示有新版本可用。
+Linux 用户可以从 GitHub Releases 下载 deb、rpm 或 AppImage：Debian/Ubuntu 建议 `sudo apt install ./DSH-Desktop-<version>-linux-amd64.deb`；Fedora/RHEL/openSUSE 建议 `sudo dnf install ./DSH-Desktop-<version>-linux-x86_64.rpm`；其他发行版，或者不想把应用装进系统包管理器时，下载 AppImage 后执行 `chmod +x DSH-Desktop-<version>-linux-x86_64.AppImage` 即可直接运行。deb 和 rpm 都会装到 `/opt/DSH Desktop`，并提供命令 `dsh-desktop`。升级时重新下载并安装新版本即可；Linux 没有应用内更新下载，也没有被动的更新提示，需要在托盘手动执行 **Check for Updates…** 才能知道是否有新版本。
 
 首次启动时，应用会准备默认 profile，并在本机启动官方 DSH Web surface。关闭窗口通常只会隐藏窗口；可以从托盘重新打开，选择 **退出** 才会结束应用和 Host 进程。
 

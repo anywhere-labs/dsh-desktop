@@ -14,7 +14,7 @@ DSH Desktop 是面向 Windows、macOS 和 Linux 的开源 DeepSeek Harness 桌�
 
 ## 支持哪些操作系统？
 
-当前正式安装包支持 Windows x64、universal macOS（Intel 与 Apple Silicon），以及 Linux x64（deb、rpm、AppImage）。不支持 Linux arm64；不要根据源码中存在跨平台兼容代码推断已经发布了对应安装包。Linux 版只提供兼容模式，不含打包终端，也没有应用内更新下载——托盘只会提示有新版本可用。精简桌面环境或容器镜像可能缺少 `libasound2`、`libgbm1`、`libdrm2`、`libgl1`；普通桌面发行版通常已经预装这些库。
+当前正式安装包支持 Windows x64、universal macOS（Intel 与 Apple Silicon），以及 Linux x64（deb、rpm、AppImage）。不支持 Linux arm64；不要根据源码中存在跨平台兼容代码推断已经发布了对应安装包。Linux 版只提供兼容模式，不含打包终端，也没有应用内更新下载，也没有被动的更新提示；需要在托盘手动执行 **Check for Updates…** 才能知道是否有新版本。精简桌面环境或容器镜像可能缺少 `libasound2`、`libgbm1`、`libdrm2`、`libgl1`；普通桌面发行版通常已经预装这些库。
 
 ## 需要安装 Node.js、pnpm 或 DSH 吗？
 

@@ -258,7 +258,7 @@ docker compose -f docker/linux-package/compose.yml run --rm verify-deb
 docker compose -f docker/linux-package/compose.yml run --rm verify-rpm
 ```
 
-Linux has no code signing; all three artifacts are unsigned. CI builds the same three artifacts on a version-pinned `ubuntu-24.04` runner. AppImage packaging uses `toolsets.appimage: "1.0.3"`'s static runtime, so the artifact neither injects `--no-sandbox` nor requires users to install `libfuse2`.
+Linux has no code signing; all three artifacts are unsigned. CI builds the same three artifacts on a version-pinned `ubuntu-24.04` runner. AppImage packaging uses `toolsets.appimage: "1.0.3"`'s static runtime, so the artifact neither injects `--no-sandbox` nor requires users to install `libfuse2`; electron-builder 26.15.3's schema lists this value under a `Betas:` heading rather than as its default (`"0.0.0"`, the legacy FUSE2 path), so this is a deliberate, verified choice rather than the vendor's stable default.
 
 ## Model Experience
 

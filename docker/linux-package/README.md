@@ -34,8 +34,8 @@ Two named volumes persist across runs:
 
 - `dsh-cache` — Yarn's package cache and electron-builder's downloaded
   toolsets (fpm, AppImage, 7zip).
-- `dsh-home` — the container build user's `$HOME`, including electron-builder
-  and Electron's own download caches.
+- `dsh-home` — the container build user's `$HOME`, including Electron's own
+  download caches.
 
 Clear both with:
 
