@@ -2,4 +2,4 @@
 # confirmed-consistent state. Both languages carry equal authority; after editing
 # either side, bring the other along and record both new Git blob hashes below.
 README.md: e25980d2767ecbc3b30c5a1df9f104fa747e653e
-README.zh.md: 6fab946dd5773c666f208af7d9262eaa72c14c31
+README.zh.md: e317062abb69c254a358ac527b97396240cf2677

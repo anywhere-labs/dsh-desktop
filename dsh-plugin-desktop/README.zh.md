@@ -249,7 +249,7 @@ corepack yarn dist:linux
 
 该命令先执行 `check:linux-package`——build、全部 TypeScript compiler face、打包与运行时相关的测试文件，以及 runtime-closure verifier——随后一次性调用 Electron Builder 的 `--linux deb rpm AppImage --x64`，最后校验全部四个产物路径及其文件格式魔数。版本 `2.0.1` 会写出到 `dsh-plugin-desktop/dist/DSH-Desktop-2.0.1-linux-amd64.deb`、`DSH-Desktop-2.0.1-linux-x86_64.rpm` 与 `DSH-Desktop-2.0.1-linux-x86_64.AppImage`；未封装的可执行文件仍位于 `dsh-plugin-desktop/dist/linux-unpacked/dsh-desktop`。
 
-rpm 目标要求宿主具备 `rpmbuild`，apt 的 `rpm` 包可以提供它。开发机若没有，可改用 `docker/linux-package/` 里的 Docker 哈得斯，它还会在一次性的 Ubuntu 与 Fedora 容器中为 deb 与 rpm 做安装级验证：
+rpm 目标要求宿主具备 `rpmbuild`，apt 的 `rpm` 包可以提供它。开发机若没有，可改用 `docker/linux-package/` 里的 Docker 工具集，它还会在一次性的 Ubuntu 与 Fedora 容器中为 deb 与 rpm 做安装级验证：
 
 ```sh
 docker compose -f docker/linux-package/compose.yml build package
@@ -282,4 +282,4 @@ Linux 没有 code signing，三个产物均未签名。CI 会在钉版本的 `ub
 - `package:dir` 是用于 smoke 的未封装产物。`dist:win` 会额外生成未签名的 NSIS 测试安装包，但不会建立 Authenticode 身份或 SmartScreen 信誉。安装与升级行为、原生通知与终端、Windows ACL sandbox，以及每台目标机器上的原生材质外观仍属于目标平台验证边界。
 - deb 与 rpm 安装包会把应用装到 `/opt/DSH Desktop`，目录名带有空格。该路径由 `sanitizedProductName` 决定，Electron Builder 26.x 未开放安装前缀选项；`.desktop` 的 `Exec` 行会被正确加引号，功能正常，但不符合 Debian 惯常的路径习惯。
 - deb 与 rpm 的 `depends` 列表使用 Electron Builder 自身的默认值，而非覆盖值。默认集合的完整传递闭包不包含 `libasound2`、`libgbm1`、`libdrm2`、`libgl1`；普通桌面环境已预装这些库，但极简系统或容器镜像需要自行补齐。
-- AppImage 的挂载需要 FUSE，容器内不可用，因此 AppImage 的图形界面启动只能在宿主图形会话中验证。`docker/linux-package` 哈得斯只做产物级检查，以及 deb/rpm 的安装级验证。
+- AppImage 的挂载需要 FUSE，容器内不可用，因此 AppImage 的图形界面启动只能在宿主图形会话中验证。`docker/linux-package` 工具集只做产物级检查，以及 deb/rpm 的安装级验证。

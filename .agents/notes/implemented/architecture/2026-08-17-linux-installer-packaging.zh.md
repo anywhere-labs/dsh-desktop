@@ -8,7 +8,7 @@
 
 `dsh-plugin-desktop/scripts/package-linux.ts` 为 DSH Desktop 提供 `yarn dist:linux` 命令，一次性产出 Linux x64 的 deb、rpm 与 AppImage 三种安装包，形状对齐 `package-win.ts` 与 `package-mac.ts`：它会拒绝非 Linux 宿主、非 x64 架构，以及除 22.19+ 或 24.x 之外的其他 Node 版本；先执行 `check:linux-package`（build、全部 TypeScript compiler face、打包与运行时相关的测试文件，以及 runtime-closure verifier）；再一次性调用 Electron Builder 的 `--linux deb rpm AppImage --x64`；最后通过 `verify-linux-installer.ts` 校验全部四个产物路径及其文件格式魔数。选择用单脚本覆盖三个目标，而不是拆成三个按格式划分的子脚本，是因为无论一次 CLI 调用请求多少个 Linux 目标，Electron Builder 内部都只会 pack 一次 `linux-unpacked`；三个子脚本会各自重复这同一次 pack 步骤，而且某个子脚本若静默产出少于自身目标数量的产物，也不会被另外两个子脚本发现。一个"要么产出全部三个已验证产物，要么直接抛错"的命令是 fail-loud 的；三个各自可能部分成功的命令则不是。
 
-Linux 打包不会碰 `dsh-plugin-desktop/src/` 下任何文件。三处按平台限制 desktop 专属能力的逻辑在本次工作之前就已存在，且无需改动：打包终端插件已在 `cordis.patch.yml` 中被 `disabled: !!js process.platform === 'linux'` 禁用；高级模式的 shell 组合已在 `src/index.ts` 中显式拒绝 Linux；更新流程已经通过 `src/electron-runtime.ts` / `src/updates.ts` 中现有的 `canDownload` 检查降级为"有新版本，但本构建不提供下载"的提示。因此 Linux 安装包支持只是打包层的改动——`build.linux` 目标、图标集、打包脚本、校验器、CI job 与 Docker 哈得斯——没有引入任何新的运行时代码路径。
+Linux 打包不会碰 `dsh-plugin-desktop/src/` 下任何文件。三处按平台限制 desktop 专属能力的逻辑在本次工作之前就已存在，且无需改动：打包终端插件已在 `cordis.patch.yml` 中被 `disabled: !!js process.platform === 'linux'` 禁用；高级模式的 shell 组合已在 `src/index.ts` 中显式拒绝 Linux；更新流程已经通过 `src/electron-runtime.ts` / `src/updates.ts` 中现有的 `canDownload` 检查降级为"有新版本，但本构建不提供下载"的提示。因此 Linux 安装包支持只是打包层的改动——`build.linux` 目标、图标集、打包脚本、校验器、CI job 与 Docker 工具集——没有引入任何新的运行时代码路径。
 
 ## Electron Builder 配置
 
@@ -17,11 +17,11 @@ Linux 打包不会碰 `dsh-plugin-desktop/src/` 下任何文件。三处按平�
 - **三份 `artifactName` 都是字面量字符串，而非 `${arch}`。** 当目标架构等于默认架构（x64）且用户未强制要求写架构名时，`expandArtifactNamePattern` 会把 arch 宏整体剥除。`deb` 与 `rpm` 目标内部带有 `isUseArchIfX64 = true` 的兜底逻辑，会把 arch 段重新加回去，但 AppImage 没有等价的兜底——它的默认名会解析成 `DSH Desktop-<version>.AppImage`，带一个字面空格且没有架构标记。把三个名字都写成字面量绕开了这个不一致，也让 `verify-linux-installer.ts` 可以像 `verify-win-installer.ts` 校验 NSIS 安装包那样，断言三条确定、可预测的路径。
 - **`linux.executableName` 必须显式给出。** 该字段缺省时，`LinuxPackager` 会回退到 `appInfo.sanitizedName.toLowerCase()`，其结果是 `dsh-plugin-desktop`（npm 包名），而不是产品其余部分已经在使用的 `dsh-desktop` 命令名。该字段只作用于 Linux，不影响 Windows 或 macOS 的可执行文件名；它同时决定 `/usr/bin` 软链名、安装后的图标文件名，以及 `.desktop` 文件的 `Icon=` 值，因此必须与 `dsh-desktop` 一致，这三处才能相互吻合。
 
-## CI 与 Docker 哈得斯
+## CI 与 Docker 工具集
 
 CI job（`.github/workflows/ci.yml` 里的 `desktop-linux`）把 `runs-on` 钉在 `ubuntu-24.04`，而不是 `ubuntu-latest`——这是本仓库第一个钉版本的 job；其余 job 仍然浮动在 `*-latest` 上。`ubuntu-24.04` 镜像预装了 apt 的 `rpm` 包（`rpm 4.18.2`），提供了 rpm 目标的硬性宿主依赖 `/usr/bin/rpmbuild`。`ubuntu-latest` 未来会解析到的 `ubuntu-26.04` 镜像带的是 `rpm 6.x`，与 Electron Builder 在打包时下载的 `fpm 1.17.0` 二进制的组合未经验证；钉版本避免了 GitHub 把 `latest` 标签往前滚动时静默继承这个风险。
 
-`docker/linux-package/` 存在的理由有两条，都是 CI 不需要面对的。第一，开发机是基于 Debian 的系统，没装 `rpmbuild`，本地打包要么一次性 `sudo apt-get install rpm`，要么用一个隔离的、可丢弃的构建环境。第二，rpm 的真实安装行为——依赖解析、文件布局、图标路径、包元数据——在没有 rpm 系发行版的情况下，开发机完全无法检查；打包期的校验器只能确认产物自身的文件格式，而不能确认系统安装它之后会发生什么。哈得斯的三个 Compose service 分别覆盖这两类需求：`package` 在一个 Node 版本与 CI 一致的 Debian 12 容器里构建全部三个产物；`verify-deb` 把构建好的 deb 装进一个干净的 `ubuntu:24.04` 容器并断言安装后的布局；`verify-rpm` 把构建好的 rpm 装进 `fedora:latest` 容器做同样的事。CI 刻意不为自己的构建采用这个容器：`ubuntu-24.04` runner 本身已经预装了 `rpmbuild`，容器化就意味着每次运行都要在容器镜像里装 `rpm` 与原生构建工具链（`build-essential`、`python3`）——这恰恰会使钉 `ubuntu-24.04` 的理由本身失效，还会白白增加 CI 耗时。
+`docker/linux-package/` 存在的理由有两条，都是 CI 不需要面对的。第一，开发机是基于 Debian 的系统，没装 `rpmbuild`，本地打包要么一次性 `sudo apt-get install rpm`，要么用一个隔离的、可丢弃的构建环境。第二，rpm 的真实安装行为——依赖解析、文件布局、图标路径、包元数据——在没有 rpm 系发行版的情况下，开发机完全无法检查；打包期的校验器只能确认产物自身的文件格式，而不能确认系统安装它之后会发生什么。该工具集的三个 Compose service 分别覆盖这两类需求：`package` 在一个 Node 版本与 CI 一致的 Debian 12 容器里构建全部三个产物；`verify-deb` 把构建好的 deb 装进一个干净的 `ubuntu:24.04` 容器并断言安装后的布局；`verify-rpm` 把构建好的 rpm 装进 `fedora:latest` 容器做同样的事。CI 刻意不为自己的构建采用这个容器：`ubuntu-24.04` runner 本身已经预装了 `rpmbuild`，容器化就意味着每次运行都要在容器镜像里装 `rpm` 与原生构建工具链（`build-essential`、`python3`）——这恰恰会使钉 `ubuntu-24.04` 的理由本身失效，还会白白增加 CI 耗时。
 
 ## 实测确认的行为（Task 7）
 
