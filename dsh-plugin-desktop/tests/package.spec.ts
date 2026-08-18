@@ -769,6 +769,20 @@ describe('published package surface', () => {
     expect(ciWorkflow).toContain('Documentation-only change; product build and tests are not required.')
   })
 
+  it('pins the Docker packaging image to the CI Node version', () => {
+    const dockerfile = readFileSync(new URL('docker/linux-package/Dockerfile', workspaceRoot), 'utf8')
+    const compose = readFileSync(new URL('docker/linux-package/compose.yml', workspaceRoot), 'utf8')
+    const ciNodeVersion = /node-version:\s*(\S+)/u.exec(ciWorkflow)?.[1]
+
+    expect(ciNodeVersion).toBe('22.23.2')
+    expect(dockerfile).toContain(`ARG NODE_VERSION=${String(ciNodeVersion)}`)
+    expect(dockerfile).toContain('rpm')
+    expect(dockerfile).toContain('build-essential')
+    expect(compose).toContain('corepack yarn rebuild && corepack yarn dist:linux')
+    expect(compose).toContain('ubuntu:24.04')
+    expect(compose).toContain('fedora')
+  })
+
   it('keeps one fixed brand-blue tray source for generated native assets', () => {
     const source = readFileSync(new URL('build/tray-icon.svg', packageRoot), 'utf8')
 
