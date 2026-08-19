@@ -59,6 +59,7 @@ describe('Linux x64 package build', () => {
         '--publish',
         'never',
         '--config.npmRebuild=false',
+        '--config.electronVersion=42.9.3',
       ],
       cwd: '/repo/dsh-plugin-desktop',
       env: { PATH: '/usr/bin', SAFE_VALUE: 'kept' },
@@ -71,6 +72,7 @@ describe('Linux x64 package build', () => {
     })
     expect(logs).toEqual([
       'Building unsigned Linux x64 deb, rpm, and AppImage artifacts; the rpm target requires host rpmbuild.',
+      'Bundling Electron 42.9.3 for Linux; Electron 43.x tray icons are dropped by the stock GNOME AppIndicator extension v58.',
     ])
   })
 
@@ -100,6 +102,7 @@ describe('Linux x64 package build', () => {
         '--publish',
         'never',
         '--config.npmRebuild=false',
+        '--config.electronVersion=42.9.3',
       ],
       cwd: '/repo/dsh-plugin-desktop',
       env: { PATH: '/usr/bin', SAFE_VALUE: 'kept', DSH_PACKAGE_CHECK_ALREADY_RAN: '1' },
@@ -112,6 +115,7 @@ describe('Linux x64 package build', () => {
     })
     expect(logs).toEqual([
       'Building unsigned Linux x64 deb, rpm, and AppImage artifacts; the rpm target requires host rpmbuild.',
+      'Bundling Electron 42.9.3 for Linux; Electron 43.x tray icons are dropped by the stock GNOME AppIndicator extension v58.',
       'Skipping the Linux package preflight; the CI shared gate already passed.',
     ])
   })

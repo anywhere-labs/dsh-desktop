@@ -260,6 +260,8 @@ docker compose -f docker/linux-package/compose.yml run --rm verify-rpm
 
 Linux has no code signing; all three artifacts are unsigned. CI builds the same three artifacts on a version-pinned `ubuntu-24.04` runner. AppImage packaging uses `toolsets.appimage: "1.0.3"`'s static runtime, so the artifact neither injects `--no-sandbox` nor requires users to install `libfuse2`; electron-builder's schema lists this value under a `Betas:` heading rather than as its default (`"0.0.0"`, the legacy FUSE2 path), so this is a deliberate, verified choice rather than the vendor's stable default. This schema (the enum, the `"0.0.0"` default, and the `Betas:` grouping) was confirmed unchanged when the pinned `electron-builder` version moved from 26.15.3 to 26.15.7.
 
+Linux artifacts deliberately bundle Electron 42.9.3 through an `electronVersion` override in `scripts/package-linux.ts`, while development, tests, and the Windows and macOS packages keep the workspace Electron pin. Electron 43.x tray icons die on the GNOME AppIndicator extension v58 that Ubuntu 24.04 LTS ships by default: 43.4.0's SNI `IconPixmap` property `Get` fails, so the extension drops the icon after about three seconds, and 43.4.1's combined name-and-path registration string is rejected outright. Electron 42.9.3 registers cleanly and embeds the same Node 24.18.1 as the workspace pin. Remove the override once an Electron release restores tray compatibility with extension v58.
+
 ## Model Experience
 
 None. The desktop package changes application composition and native presentation; it does not add model-visible instructions, tools, events, or request fields.

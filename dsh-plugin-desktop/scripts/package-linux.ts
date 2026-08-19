@@ -5,6 +5,19 @@ import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+/**
+ * Electron bundled into Linux artifacts. Electron 43.x tray icons die on the
+ * GNOME AppIndicator extension v58 that Ubuntu 24.04 LTS ships by default:
+ * 43.4.0's SNI IconPixmap property Get errors, so the extension drops the
+ * item after ~3 seconds, and 43.4.1's combined "name/path" registration
+ * string is rejected outright. Electron 42.9.3 registers cleanly and embeds
+ * the same Node 24.18.1 as the workspace pin. Development, tests, and the
+ * Windows and macOS packages keep the workspace Electron version. Remove
+ * this override once an Electron release restores tray compatibility with
+ * extension v58.
+ */
+const LINUX_BUNDLED_ELECTRON_VERSION = '42.9.3'
+
 /** Injectable native Linux packaging boundary used by focused tests. */
 export interface LinuxPackageOptions {
   /** Environment inherited by the packaging command. */
@@ -96,6 +109,9 @@ export function packageLinuxInstallers(
   options.log(
     'Building unsigned Linux x64 deb, rpm, and AppImage artifacts; the rpm target requires host rpmbuild.',
   )
+  options.log(
+    `Bundling Electron ${LINUX_BUNDLED_ELECTRON_VERSION} for Linux; Electron 43.x tray icons are dropped by the stock GNOME AppIndicator extension v58.`,
+  )
   if (options.env.DSH_PACKAGE_CHECK_ALREADY_RAN !== '1') {
     options.run(
       options.corepackExecutable,
@@ -118,6 +134,7 @@ export function packageLinuxInstallers(
       '--publish',
       'never',
       '--config.npmRebuild=false',
+      `--config.electronVersion=${LINUX_BUNDLED_ELECTRON_VERSION}`,
     ],
     options.desktopRoot,
     options.env,

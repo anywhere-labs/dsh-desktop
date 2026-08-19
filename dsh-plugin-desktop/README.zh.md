@@ -260,6 +260,8 @@ docker compose -f docker/linux-package/compose.yml run --rm verify-rpm
 
 Linux 没有 code signing，三个产物均未签名。CI 会在钉版本的 `ubuntu-24.04` runner 上构建同样的三个产物。AppImage 打包使用 `toolsets.appimage: "1.0.3"` 的静态运行时，因此产物既不会注入 `--no-sandbox`，也不要求用户安装 `libfuse2`；electron-builder 的 schema 把这个值归在 `Betas:` 分组下，而非默认值（`"0.0.0"`，旧版 FUSE2 路径），因此这是一次刻意的、已验证过的选择，而非沿用了官方的稳定默认值。这个 schema（枚举值、`"0.0.0"` 默认值、`Betas:` 分组）在钉定的 `electron-builder` 从 26.15.3 升到 26.15.7 后经确认保持不变。
 
+Linux 产物通过 `scripts/package-linux.ts` 中的 `electronVersion` 覆盖刻意捆绑 Electron 42.9.3；开发、测试以及 Windows 与 macOS 安装包继续使用工作区钉定的 Electron 版本。Electron 43.x 的托盘图标在 Ubuntu 24.04 LTS 默认附带的 GNOME AppIndicator 扩展 v58 上无法存活：43.4.0 的 SNI `IconPixmap` 属性 `Get` 会报错，扩展约三秒后丢弃图标；43.4.1 改用的"名称加路径"合并注册字符串则被直接拒绝。Electron 42.9.3 可正常注册，且内嵌与工作区钉定版本相同的 Node 24.18.1。待后续 Electron 版本恢复与扩展 v58 的托盘兼容后，应移除该覆盖。
+
 ## 模型体验
 
 无。desktop package 只改变应用组合与原生呈现，不增加任何模型可见的指令、工具、事件或请求字段。
