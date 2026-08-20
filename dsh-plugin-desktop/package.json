@@ -306,7 +306,8 @@
       "buildResources": "build"
     },
     "toolsets": {
-      "nsis": "1.2.1"
+      "nsis": "1.2.1",
+      "appimage": "1.0.3"
     },
     "files": [
       "build/app-icon.png",
@@ -399,9 +400,6 @@
     },
     "appImage": {
       "artifactName": "DSH-Desktop-${version}-linux-x86_64.AppImage"
-    },
-    "toolsets": {
-      "appimage": "1.0.3"
     }
   }
 }

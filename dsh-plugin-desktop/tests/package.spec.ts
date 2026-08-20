@@ -57,7 +57,6 @@ const manifest = JSON.parse(readFileSync(new URL('package.json', packageRoot), '
     deb?: Record<string, unknown>
     rpm?: Record<string, unknown>
     appImage?: Record<string, unknown>
-    toolsets?: Record<string, unknown>
   }
   dependencies?: Record<string, unknown>
   optionalDependencies?: Record<string, unknown>
@@ -585,7 +584,7 @@ describe('published package surface', () => {
       'node_modules/**',
     ])
     expect(manifest.build?.electronFuses).toEqual({ runAsNode: true })
-    expect(manifest.build?.toolsets).toEqual({ nsis: '1.2.1' })
+    expect(manifest.build?.toolsets?.nsis).toBe('1.2.1')
     expect(manifest.files).toEqual(expect.arrayContaining([
       'build/app-icon.png',
       'build/app-icon-mac.png',
@@ -644,7 +643,7 @@ describe('published package surface', () => {
     expect(manifest.build?.appImage).toEqual({
       artifactName: 'DSH-Desktop-${version}-linux-x86_64.AppImage',
     })
-    expect(manifest.build?.toolsets).toEqual({ appimage: '1.0.3' })
+    expect(manifest.build?.toolsets?.appimage).toBe('1.0.3')
   })
 
   it('separates unsigned smoke packaging from the signed macOS release', () => {
