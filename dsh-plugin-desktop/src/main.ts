@@ -667,6 +667,27 @@ async function start(): Promise<void> {
       generationId,
       externalMarketInstallEnabled: prepared.market.effective === 'dsh-market',
     }
+    if (prepared.requiresDependencyMigration) {
+      electronLogger.error(`${BIN_NAME}: migrating legacy Profile dependency layout with packaged pnpm`)
+      try {
+        await materializeProfile({
+          appExecutable: process.execPath,
+          clearEnvironmentPath: pnpmRuntime.clearEnvironmentPath,
+          pnpmBinPath,
+          nodeBinDir: pnpmRuntime.nodeBinDir,
+          nodeShimPath: pnpmRuntime.nodeShimPath,
+          homeDir,
+          profileDir: prepared.profile.dir,
+          electronVersion,
+          updateLockfile: true,
+        })
+      } catch (migrationCause) {
+        const detail = migrationCause instanceof ProfileMaterializationError
+          ? migrationCause.result?.stderr || migrationCause.message
+          : migrationCause instanceof Error ? migrationCause.message : String(migrationCause)
+        throw new Error(`${BIN_NAME}: Profile dependency migration failed: ${maskSecrets(detail)}`)
+      }
+    }
     const restoreProfileCheckpoint = async (
       checkpoint: DesktopProfileCheckpoint,
       profileName: string,

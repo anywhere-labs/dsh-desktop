@@ -23,6 +23,8 @@ export interface ProfileMaterializerOptions {
   readonly signal?: AbortSignal
   readonly timeoutMs?: number
   readonly maxOutputBytes?: number
+  /** Permit a one-time Profile migration to reconcile stale lockfile settings. */
+  readonly updateLockfile?: boolean
   /** Injectable only for headless tests; production uses node:child_process.spawn. */
   readonly spawn?: ProfileMaterializerSpawn
 }
@@ -104,8 +106,8 @@ function appendOutput(
 
 /**
  * Restore dependencies for an already-restored profile without creating a
- * Host or using a shell. This intentionally performs only the fixed command
- * `pnpm install --frozen-lockfile`.
+ * Host or using a shell. Restores use a frozen lockfile; an explicit Profile
+ * layout migration may reconcile obsolete pnpm settings in that lockfile.
  */
 export async function materializeProfile(
   options: ProfileMaterializerOptions,
@@ -134,7 +136,7 @@ export async function materializeProfile(
     pathToFileURL(options.clearEnvironmentPath).href,
     options.pnpmBinPath,
     'install',
-    '--frozen-lockfile',
+    options.updateLockfile === true ? '--no-frozen-lockfile' : '--frozen-lockfile',
   ] as const
   const path = inheritedPath()
   const environment: NodeJS.ProcessEnv = {

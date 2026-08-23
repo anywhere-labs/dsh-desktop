@@ -88,6 +88,29 @@ describe('profile materializer', () => {
     expect(result.exitCode).toBe(0)
   })
 
+  it('allows a controlled lockfile update while migrating an old Profile layout', async () => {
+    const child = fakeChild()
+    let args: readonly string[] = []
+    const spawn = vi.fn((_command: string, selectedArgs: readonly string[]) => {
+      args = selectedArgs
+      return child as unknown as ChildProcess
+    }) as unknown as ProfileMaterializerSpawn
+
+    const resultPromise = materializeProfile({ ...options(spawn), updateLockfile: true })
+    child.stdout.end('migrated\n')
+    child.stderr.end('')
+    child.emit('close', 0, null)
+    await resultPromise
+
+    expect(args).toEqual([
+      '--import',
+      pathToFileURL('/private/clear-env.mjs').href,
+      '/private/pnpm/bin/pnpm.mjs',
+      'install',
+      '--no-frozen-lockfile',
+    ])
+  })
+
   it('rejects a non-zero package-manager exit and preserves bounded diagnostics', async () => {
     const child = fakeChild()
     const spawn = vi.fn(() => child as unknown as ChildProcess) as unknown as ProfileMaterializerSpawn

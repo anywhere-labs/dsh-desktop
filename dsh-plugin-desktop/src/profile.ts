@@ -211,6 +211,8 @@ export interface PreparedDesktopProfile {
   market: DesktopMarketSnapshot
   /** Internal boot diagnostic when the requested provider was disabled. */
   marketFailure?: string
+  /** Whether packaged pnpm must rebuild a legacy Profile dependency layout. */
+  requiresDependencyMigration: boolean
 }
 
 /** Optional observations emitted before profile preparation can fail. */
@@ -273,6 +275,82 @@ export function ensureDesktopProfile(home: string = resolveDshHome()): string {
     })
   }
   return dir
+}
+
+interface ParsedProfileYaml {
+  readonly document: ReturnType<typeof parseDocument>
+  readonly value: Record<string, unknown>
+}
+
+/** Parse one Profile-owned pnpm document as a YAML map. */
+function parseProfileYaml(path: string): ParsedProfileYaml {
+  const document = parseDocument(readFileSync(path, 'utf8'), { prettyErrors: true })
+  if (document.errors.length > 0) {
+    throw new Error(`${BIN_NAME}: invalid Profile pnpm document at ${path}: ${document.errors.map(error => error.message).join('; ')}`)
+  }
+  const value = document.toJS()
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${BIN_NAME}: Profile pnpm document ${path} must hold a YAML map`)
+  }
+  return { document, value: value as Record<string, unknown> }
+}
+
+/** Apply the current out-of-tree plugin linker contract while preserving other workspace settings. */
+function reconcileProfilePnpmWorkspace(profileDir: string): boolean {
+  const path = join(profileDir, 'pnpm-workspace.yaml')
+  if (!existsSync(path)) {
+    writeFileSync(path, `packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n`)
+    return true
+  }
+  const { document } = parseProfileYaml(path)
+  let changed = false
+  if (document.get('packages') === undefined) {
+    document.set('packages', ['.'])
+    changed = true
+  }
+  if (document.get('nodeLinker') !== 'hoisted') {
+    document.set('nodeLinker', 'hoisted')
+    changed = true
+  }
+  if (document.get('autoInstallPeers') !== false) {
+    document.set('autoInstallPeers', false)
+    changed = true
+  }
+  if (changed) writeFileSync(path, document.toString())
+  return changed
+}
+
+/** Detect pnpm state that cannot satisfy the current hoisted Profile contract. */
+function profileDependencyMigrationRequired(profileDir: string, workspaceChanged: boolean): boolean {
+  const manifest = readProfileManifest(BIN_NAME, profileDir)
+  const hasDependencies = Object.keys(manifest.dependencies ?? {}).length > 0
+  const modulesDir = join(profileDir, 'node_modules')
+  const hasModules = existsSync(modulesDir)
+  if (!hasDependencies && !hasModules) return false
+
+  let modulesCompatible = false
+  const modulesStatePath = join(modulesDir, '.modules.yaml')
+  if (existsSync(modulesStatePath)) {
+    try {
+      modulesCompatible = parseProfileYaml(modulesStatePath).value.nodeLinker === 'hoisted'
+    } catch {
+      // pnpm can replace malformed or obsolete private module metadata.
+    }
+  }
+
+  const lockfilePath = join(profileDir, 'pnpm-lock.yaml')
+  let lockfileCompatible = !existsSync(lockfilePath) && !hasDependencies
+  if (existsSync(lockfilePath)) {
+    try {
+      const settings = parseProfileYaml(lockfilePath).value.settings
+      lockfileCompatible = typeof settings === 'object' && settings !== null
+        && !Array.isArray(settings)
+        && (settings as Record<string, unknown>).autoInstallPeers === false
+    } catch {
+      // A controlled non-frozen install owns lockfile reconciliation below.
+    }
+  }
+  return workspaceChanged || !modulesCompatible || !lockfileCompatible
 }
 
 interface RecoveryFilteredProfile {
@@ -583,6 +661,8 @@ export function prepareDesktopProfile(
   const profileDir = profileName === DESKTOP_PROFILE_NAME
     ? ensureDesktopProfile(home)
     : resolveProfileDir(profileName, home)
+  const workspaceChanged = reconcileProfilePnpmWorkspace(profileDir)
+  const requiresDependencyMigration = profileDependencyMigrationRequired(profileDir, workspaceChanged)
   healProfilesModuleFallback(INSTALL_ANCHOR, home)
   // `plugin-management` is the community market's user-facing scope. Startup
   // recovery has its own state file so switching to another provider cannot
@@ -868,6 +948,7 @@ export function prepareDesktopProfile(
     port,
     settingsDocument,
     market: desktopMarketSnapshotWithEffective(marketSelection, effectiveMarket),
+    requiresDependencyMigration,
     ...(marketFailure === undefined ? {} : { marketFailure }),
   }
 }
