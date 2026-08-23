@@ -214,9 +214,58 @@ settings:
     writeFileSync(join(modulesDir, '.modules.yaml'), `layoutVersion: 5
 nodeLinker: hoisted
 packageManager: pnpm@11.7.0
+virtualStoreDirMaxLength: 120
 `)
 
     const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+
+    expect(prepared.requiresDependencyMigration).toBe(false)
+  })
+
+  it('migrates a hoisted Profile dependency tree created by pnpm 9', () => {
+    const home = temporaryHome()
+    const dir = ensureDesktopProfile(home)
+    const modulesDir = join(dir, 'node_modules')
+    mkdirSync(modulesDir, { recursive: true })
+    writeFileSync(join(modulesDir, '.modules.yaml'), `layoutVersion: 5
+nodeLinker: hoisted
+packageManager: pnpm@9.12.0
+virtualStoreDirMaxLength: 120
+`)
+
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+
+    expect(prepared.requiresDependencyMigration).toBe(true)
+  })
+
+  it('migrates Windows Profile metadata created with the non-Windows virtual store limit', () => {
+    const home = temporaryHome()
+    const dir = ensureDesktopProfile(home)
+    const modulesDir = join(dir, 'node_modules')
+    mkdirSync(modulesDir, { recursive: true })
+    writeFileSync(join(modulesDir, '.modules.yaml'), `layoutVersion: 5
+nodeLinker: hoisted
+packageManager: pnpm@11.7.0
+virtualStoreDirMaxLength: 120
+`)
+
+    const prepared = prepareDesktopProfile(undefined, home, 'win32')
+
+    expect(prepared.requiresDependencyMigration).toBe(true)
+  })
+
+  it('leaves current Windows Profile dependency metadata untouched', () => {
+    const home = temporaryHome()
+    const dir = ensureDesktopProfile(home)
+    const modulesDir = join(dir, 'node_modules')
+    mkdirSync(modulesDir, { recursive: true })
+    writeFileSync(join(modulesDir, '.modules.yaml'), `layoutVersion: 5
+nodeLinker: hoisted
+packageManager: pnpm@11.7.0
+virtualStoreDirMaxLength: 60
+`)
+
+    const prepared = prepareDesktopProfile(undefined, home, 'win32')
 
     expect(prepared.requiresDependencyMigration).toBe(false)
   })

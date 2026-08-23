@@ -320,8 +320,29 @@ function reconcileProfilePnpmWorkspace(profileDir: string): boolean {
   return changed
 }
 
+/** Read the virtual-store path limit pnpm applies to this Profile. */
+function profileVirtualStoreDirMaxLength(profileDir: string, platform: NodeJS.Platform): number {
+  const configured = parseProfileYaml(join(profileDir, 'pnpm-workspace.yaml')).value.virtualStoreDirMaxLength
+  if (configured === undefined) return platform === 'win32' ? 60 : 120
+  if (typeof configured !== 'number' || !Number.isInteger(configured) || configured < 0) {
+    throw new Error(`${BIN_NAME}: pnpm-workspace.yaml virtualStoreDirMaxLength must be a non-negative integer`)
+  }
+  return configured
+}
+
+/** Return whether private module metadata was written by a compatible pnpm generation. */
+function compatiblePnpmPackageManager(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  const match = /^pnpm@(\d+)(?:\.|$)/.exec(value)
+  return match !== null && Number(match[1]) >= 10
+}
+
 /** Detect pnpm state that cannot satisfy the current hoisted Profile contract. */
-function profileDependencyMigrationRequired(profileDir: string, workspaceChanged: boolean): boolean {
+function profileDependencyMigrationRequired(
+  profileDir: string,
+  workspaceChanged: boolean,
+  platform: NodeJS.Platform,
+): boolean {
   const manifest = readProfileManifest(BIN_NAME, profileDir)
   const hasDependencies = Object.keys(manifest.dependencies ?? {}).length > 0
   const modulesDir = join(profileDir, 'node_modules')
@@ -332,7 +353,10 @@ function profileDependencyMigrationRequired(profileDir: string, workspaceChanged
   const modulesStatePath = join(modulesDir, '.modules.yaml')
   if (existsSync(modulesStatePath)) {
     try {
-      modulesCompatible = parseProfileYaml(modulesStatePath).value.nodeLinker === 'hoisted'
+      const modulesState = parseProfileYaml(modulesStatePath).value
+      modulesCompatible = modulesState.nodeLinker === 'hoisted'
+        && compatiblePnpmPackageManager(modulesState.packageManager)
+        && modulesState.virtualStoreDirMaxLength === profileVirtualStoreDirMaxLength(profileDir, platform)
     } catch {
       // pnpm can replace malformed or obsolete private module metadata.
     }
@@ -662,7 +686,7 @@ export function prepareDesktopProfile(
     ? ensureDesktopProfile(home)
     : resolveProfileDir(profileName, home)
   const workspaceChanged = reconcileProfilePnpmWorkspace(profileDir)
-  const requiresDependencyMigration = profileDependencyMigrationRequired(profileDir, workspaceChanged)
+  const requiresDependencyMigration = profileDependencyMigrationRequired(profileDir, workspaceChanged, platform)
   healProfilesModuleFallback(INSTALL_ANCHOR, home)
   // `plugin-management` is the community market's user-facing scope. Startup
   // recovery has its own state file so switching to another provider cannot
