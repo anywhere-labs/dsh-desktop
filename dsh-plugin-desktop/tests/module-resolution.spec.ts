@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 
@@ -94,6 +94,14 @@ describe('installProfilePackageResolver', () => {
     )).toEqual({
       specifier: 'dsh-plugin-desktop/profile',
       context: { parentURL: profileBaseUrl },
+    })
+    expect(harness.resolve?.(
+      '@deepseek-ai/dsh-web-app',
+      { parentURL: profileBaseUrl },
+      nextResolve,
+    )).toEqual({
+      specifier: '@deepseek-ai/dsh-web-app',
+      context: { parentURL: expect.stringMatching(/\/lib\/index\.js$/u) },
     })
     expect(harness.overlay).toHaveBeenCalledWith('@deepseek-ai/dsh-web-app', expect.any(Object))
     expect(harness.overlay).toHaveBeenCalledWith('dsh-plugin-desktop', expect.any(Object))
@@ -201,6 +209,11 @@ describe('installProfilePackageResolver', () => {
     expect(resolveFilename(
       '@deepseek-ai/dsh-client-modules/package.json',
       { filename: profileManifestPath },
+      false,
+    )).toBe('/install/@deepseek-ai/dsh-client-modules/package.json')
+    expect(resolveFilename(
+      '@deepseek-ai/dsh-client-modules/package.json',
+      { filename: join(dirname(profileManifestPath), 'noop.js') },
       false,
     )).toBe('/install/@deepseek-ai/dsh-client-modules/package.json')
     expect(resolveFilename(

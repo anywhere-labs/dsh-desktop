@@ -610,7 +610,8 @@ describe('published package surface', () => {
       '!node_modules/@koromix/koffi-win32-{arm64,ia32}/**',
       '!node_modules/node-addon-require-builtin-win32-{arm64,ia32}-msvc/**',
       '!node_modules/node-pty/build/**',
-      '!node_modules/node-pty/prebuilds/!(${platform}-${arch})/**',
+      '!node_modules/node-pty/prebuilds/!(${platform}-*)/**',
+      '!node_modules/node-pty/prebuilds/!(${platform}-${arch}|darwin-*)/**',
       '!node_modules/node-pty/third_party/**',
     ])
     expect(manifest.build?.mac?.icon).toBe('build/app-icon-mac.png')
