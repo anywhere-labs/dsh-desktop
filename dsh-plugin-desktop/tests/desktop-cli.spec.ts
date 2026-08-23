@@ -107,6 +107,7 @@ describe('packaged dsh bootstrap', () => {
       expect(JSON.parse(readFileSync(statePath, 'utf8'))).toMatchObject({
         profileName: 'desktop',
         packageName: 'manual-plugin-install',
+        ownerProcessId: process.pid,
         phase: 'awaiting-restart',
       })
     } finally {
