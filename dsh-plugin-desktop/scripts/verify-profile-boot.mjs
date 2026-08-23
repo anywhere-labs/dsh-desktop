@@ -227,7 +227,7 @@ try {
     throw new Error('assembled desktop profile is missing the update tray command')
   }
   if (process.platform !== 'linux'
-    && !trayItems.some(item => item.label() === 'Open DSH Terminal')) {
+    && !trayItems.some(item => item.label() === 'Open Aera Code Terminal')) {
     throw new Error('assembled desktop profile is missing the terminal tray command')
   }
   const profileMenu = trayItems.find(item => item.label() === 'Profile: desktop')

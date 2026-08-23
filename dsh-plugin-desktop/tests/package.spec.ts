@@ -147,6 +147,9 @@ describe('published package surface', () => {
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop/diagnostics')
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop/notifications')
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop/updates')
+    expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('provider: aera-gateway')
+    expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('model: aera/active')
+    expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toMatch(/- id: llm-deepseek\n\s+disabled: true/u)
   })
 
   it('pins both selectable Market providers in the published runtime', () => {
@@ -774,8 +777,8 @@ describe('published package surface', () => {
 
   it('fixes the installed application identity', () => {
     expect(manifest.version).toBe(workspaceManifest.version)
-    expect(manifest.build?.productName).toBe('DSH Desktop')
-    expect(manifest.build?.appId).toBe('ai.deepseek.dsh.desktop')
+    expect(manifest.build?.productName).toBe('Aera Code')
+    expect(manifest.build?.appId).toBe('dev.aerastudios.code')
     expect(manifest.build?.asarUnpack).toEqual([
       'package.json',
       'cordis.patch.yml',
@@ -786,31 +789,31 @@ describe('published package surface', () => {
     expect(manifest.build?.electronFuses).toEqual({ runAsNode: true })
     expect(manifest.build?.toolsets).toEqual({ nsis: '1.2.1' })
     expect(manifest.files).toEqual(expect.arrayContaining([
-      'build/app-icon.png',
-      'build/app-icon-mac.png',
-      'build/tray-icon.svg',
-      'build/tray-icon*.png',
+      'build/aera-code-icon.png',
+      'build/aera-code-icon-mac.png',
+      'build/aera-aperture.png',
+      'build/aera-aperture-tray*.png',
       'docs/**',
     ]))
     expect(manifest.build?.files).toEqual([
-      'build/app-icon.png',
-      'build/app-icon-mac.png',
-      'build/tray-icon.svg',
-      'build/tray-icon*.png',
+      'build/aera-code-icon.png',
+      'build/aera-code-icon-mac.png',
+      'build/aera-aperture.png',
+      'build/aera-aperture-tray*.png',
       'cordis.patch.yml',
       'lib/**',
       'package.json',
       '!node_modules/node-pty/build/**',
     ])
-    expect(manifest.build?.mac?.icon).toBe('build/app-icon-mac.png')
+    expect(manifest.build?.mac?.icon).toBe('build/aera-code-icon-mac.png')
     expect(manifest.build?.mac?.mergeASARs).toBe(false)
     expect(manifest.build?.mac?.signIgnore).toEqual(['\\.(?:pak|dat|wasm)$'])
-    expect(manifest.build?.win?.icon).toBe('build/app-icon.png')
+    expect(manifest.build?.win?.icon).toBe('build/aera-code-icon.png')
     expect(manifest.build?.win?.target).toEqual([{
       target: 'nsis',
       arch: ['x64'],
     }])
-    expect(manifest.build?.win?.artifactName).toBe('DSH-Desktop-${version}-${arch}-Portable.${ext}')
+    expect(manifest.build?.win?.artifactName).toBe('Aera-Code-${version}-${arch}-Portable.${ext}')
     expect(manifest.build?.nsis).toEqual({
       include: 'installer.nsh',
       license: 'THIRD_PARTY_NOTICES.md',
@@ -821,11 +824,11 @@ describe('published package surface', () => {
       createDesktopShortcut: true,
       createStartMenuShortcut: true,
       differentialPackage: false,
-      shortcutName: 'DSH Desktop',
+      shortcutName: 'Aera Code',
       useZip: false,
-      artifactName: 'DSH-Desktop-${version}-${arch}-Setup.${ext}',
+      artifactName: 'Aera-Code-${version}-${arch}-Setup.${ext}',
     })
-    expect(manifest.build?.linux?.icon).toBe('build/app-icon.png')
+    expect(manifest.build?.linux?.icon).toBe('build/aera-code-icon.png')
   })
 
   it('separates unsigned smoke packaging from the signed macOS release', () => {
@@ -872,6 +875,7 @@ describe('published package surface', () => {
         CFBundleAllowMixedLocalizations: true,
         CFBundleDevelopmentRegion: 'en',
         CFBundleLocalizations: ['en', 'zh_CN'],
+        NSHumanReadableCopyright: 'Copyright © 2026 Aera Studios. Upstream licences are preserved in Third-Party Notices.',
       },
       hardenedRuntime: true,
       mergeASARs: false,
@@ -931,56 +935,46 @@ describe('published package surface', () => {
     expect(ciWorkflow).toContain('Documentation-only change; product build and tests are not required.')
   })
 
-  it('keeps one fixed brand-blue tray source for generated native assets', () => {
-    const source = readFileSync(new URL('build/tray-icon.svg', packageRoot), 'utf8')
+  it('derives every tray surface from the canonical Aera aperture', () => {
+    const digest = createHash('sha256')
+      .update(readFileSync(new URL('build/aera-aperture.png', packageRoot)))
+      .digest('hex')
 
-    expect(source.match(/#4D6BFE/gu)).toHaveLength(1)
-    expect(source).not.toMatch(/<style\b|prefers-color-scheme/iu)
+    expect(digest).toBe('e42ec031ff31ab83b6db26b39611d7b30ef6cf086e0d742b0a8f320eb43b8352')
     for (const filename of [
-      'tray-iconTemplate.png',
-      'tray-iconTemplate@2x.png',
-      'tray-icon-blue.png',
-      'tray-icon-blue@1.25x.png',
-      'tray-icon-blue@1.5x.png',
-      'tray-icon-blue@2x.png',
+      'aera-aperture-trayTemplate.png',
+      'aera-aperture-trayTemplate@2x.png',
+      'aera-aperture-tray-blue.png',
+      'aera-aperture-tray-blue@1.25x.png',
+      'aera-aperture-tray-blue@1.5x.png',
+      'aera-aperture-tray-blue@2x.png',
     ]) {
       expect(readFileSync(new URL(`build/${filename}`, packageRoot)).byteLength).toBeGreaterThan(0)
     }
   })
 
-  it('keeps the iOS Default source icon unmodified', () => {
+  it('keeps the canonical Aera Office Pro application icon unmodified', () => {
     const digest = createHash('sha256')
-      .update(readFileSync(new URL('build/app-icon.png', packageRoot)))
+      .update(readFileSync(new URL('build/aera-code-icon.png', packageRoot)))
       .digest('hex')
 
-    expect(digest).toBe('315fbc6e57ff1f34894f21f66fb7f9f26deccf78333c71fad21a6cec64e7de80')
+    expect(digest).toBe('ea0ba98808b633b6c585095fd0e5ce0e498d324ca2377278873ceb9ce9f651ca')
   })
 
-  it('generates a centered macOS icon with a 100-pixel visual inset', async () => {
-    const source = await sharp(readFileSync(new URL('build/app-icon.png', packageRoot))).metadata()
-    const icon = sharp(readFileSync(new URL('build/app-icon-mac.png', packageRoot)))
-    const metadata = await icon.metadata()
-    const { info } = await icon
-      .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 }, threshold: 0 })
-      .toBuffer({ resolveWithObject: true })
+  it('materializes the canonical Aera icon as the macOS package icon', async () => {
+    const sourceBytes = readFileSync(new URL('build/aera-code-icon.png', packageRoot))
+    const macBytes = readFileSync(new URL('build/aera-code-icon-mac.png', packageRoot))
+    const metadata = await sharp(macBytes).metadata()
 
     expect(metadata).toEqual(expect.objectContaining({
       format: 'png',
       width: 1024,
       height: 1024,
-      space: 'rgb16',
-      depth: 'ushort',
-      bitsPerSample: 16,
       channels: 4,
       hasAlpha: true,
     }))
-    expect(metadata.icc).toEqual(source.icc)
-    expect(info).toEqual(expect.objectContaining({
-      width: 824,
-      height: 824,
-      trimOffsetLeft: -100,
-      trimOffsetTop: -100,
-    }))
+    expect(createHash('sha256').update(macBytes).digest('hex'))
+      .toBe(createHash('sha256').update(sourceBytes).digest('hex'))
   })
 
   it('keeps Electron out of production dependencies consumed by electron-builder', () => {

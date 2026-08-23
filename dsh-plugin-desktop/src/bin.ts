@@ -1,4 +1,4 @@
-/** Headless-safe npm launcher for the DSH Desktop Electron executable. */
+/** Headless-safe npm launcher for the Aera Code Electron executable. */
 
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -6,6 +6,7 @@ import { homedir } from 'node:os'
 import { posix, resolve, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { exportDesktopDiagnostics } from './diagnostic-export.ts'
+import { AERA_CODE_PRODUCT } from './product-brand.ts'
 
 /** Parsed launcher action. */
 export type DesktopCliAction = 'export-diagnostics' | 'help' | 'version' | 'launch'
@@ -13,7 +14,7 @@ export type DesktopCliAction = 'export-diagnostics' | 'help' | 'version' | 'laun
 /** Human-readable launcher help. */
 export const DESKTOP_CLI_HELP = `Usage: dsh-plugin-desktop [options]
 
-Launch DSH Desktop with the selected Web-capable profile.
+Launch ${AERA_CODE_PRODUCT.productName} with the selected Web-capable profile.
 
 Options:
   --export-diagnostics  export logs and crash evidence without launching the app
@@ -51,13 +52,13 @@ export function defaultDesktopUserDataDirectory(
   if (platform === 'win32') {
     const appData = environment.APPDATA
     if (appData === undefined || appData.length === 0) {
-      throw new Error('APPDATA is unavailable; cannot locate DSH Desktop diagnostics')
+      throw new Error(`APPDATA is unavailable; cannot locate ${AERA_CODE_PRODUCT.productName} diagnostics`)
     }
-    return path.join(appData, 'DSH Desktop')
+    return path.join(appData, AERA_CODE_PRODUCT.userDataDirectoryName)
   }
-  if (platform === 'darwin') return path.join(homeDirectory, 'Library', 'Application Support', 'DSH Desktop')
+  if (platform === 'darwin') return path.join(homeDirectory, 'Library', 'Application Support', AERA_CODE_PRODUCT.userDataDirectoryName)
   const config = environment.XDG_CONFIG_HOME
-  return path.join(config === undefined || config.length === 0 ? path.join(homeDirectory, '.config') : config, 'DSH Desktop')
+  return path.join(config === undefined || config.length === 0 ? path.join(homeDirectory, '.config') : config, AERA_CODE_PRODUCT.userDataDirectoryName)
 }
 
 export interface DesktopCliOptions {
@@ -82,7 +83,7 @@ async function launchElectron(): Promise<number> {
       + '  npm install -g dsh-plugin-desktop\n'
       + 'Or add electron to the profile before launching:\n'
       + '  dsh plugin --profile <name> add electron\n'
-      + 'Or use the packaged DSH Desktop application.\n',
+      + 'Or use the packaged Aera Code application.\n',
     )
     return 1
   }

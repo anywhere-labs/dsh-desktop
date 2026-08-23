@@ -18,6 +18,9 @@
       name: dsh-plugin-desktop/profiles
     - id: desktop-updates
       name: dsh-plugin-desktop/updates
+      # Aera Code releases are source-custodied. The inherited upstream update
+      # service must not offer a differently branded Desktop artifact.
+      disabled: true
 
 # A desktop launch has no terminal operator waiting for the Web readiness line.
 - id: web-runtime
@@ -26,3 +29,15 @@
     printUrl: false
     surfaceContext: true
     trustedHosts: []
+
+# Aera Code is an AERA Gateway client. Its deployment default must not fall
+# back to the upstream provider when shared user settings are absent.
+- id: agent-default-model
+  config:
+    provider: aera-gateway
+    model: aera/active
+
+# Keep the upstream adapter in the dependency closure for provenance and
+# compatibility tests, but remove it from the Aera Code runtime catalogue.
+- id: llm-deepseek
+  disabled: true

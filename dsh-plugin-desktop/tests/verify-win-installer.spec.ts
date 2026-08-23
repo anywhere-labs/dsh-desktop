@@ -24,8 +24,8 @@ function fixture(version = '2.0.0'): {
   const dist = join(root, 'dist')
   const unpacked = join(dist, 'win-unpacked')
   mkdirSync(unpacked, { recursive: true })
-  const installer = join(dist, `DSH-Desktop-${version}-x64-Setup.exe`)
-  const application = join(unpacked, 'DSH Desktop.exe')
+  const installer = join(dist, `Aera-Code-${version}-x64-Setup.exe`)
+  const application = join(unpacked, 'Aera Code.exe')
   writeFileSync(installer, portableExecutable())
   writeFileSync(application, portableExecutable())
   return { root, installer, application }
@@ -49,7 +49,7 @@ describe('Windows installer artifact verification', () => {
     const value = fixture('1.9.0')
 
     expect(() => verifyWindowsInstaller({ desktopRoot: value.root, version: '2.0.0' }))
-      .toThrow('DSH-Desktop-2.0.0-x64-Setup.exe')
+      .toThrow('Aera-Code-2.0.0-x64-Setup.exe')
   })
 
   it('rejects an artifact without a Windows PE header', () => {

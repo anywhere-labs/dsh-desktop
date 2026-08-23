@@ -25,8 +25,8 @@ vi.mock('electron', () => ({
 import { prepareTrayIcon } from '../src/tray-icons.ts'
 
 const assets: DesktopTrayIcons = {
-  templatePath: '/tmp/tray-iconTemplate.png',
-  bluePath: '/tmp/tray-icon-blue.png',
+  templatePath: '/tmp/aera-aperture-trayTemplate.png',
+  bluePath: '/tmp/aera-aperture-tray-blue.png',
 }
 
 describe('platform tray icons', () => {

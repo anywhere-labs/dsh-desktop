@@ -31,7 +31,7 @@ function fakeChild(): FakeChild {
 
 function options(spawn: ProfileMaterializerSpawn): ProfileMaterializerOptions {
   return {
-    appExecutable: '/Applications/DSH Desktop.app/Contents/MacOS/DSH Desktop',
+    appExecutable: '/Applications/Aera Code.app/Contents/MacOS/Aera Code',
     clearEnvironmentPath: '/private/clear-env.mjs',
     pnpmBinPath: '/private/pnpm/bin/pnpm.mjs',
     nodeBinDir: '/private/node-bin',
@@ -62,7 +62,7 @@ describe('profile materializer', () => {
     child.emit('close', 0, null)
     const result = await resultPromise
 
-    expect(command).toBe('/Applications/DSH Desktop.app/Contents/MacOS/DSH Desktop')
+    expect(command).toBe('/Applications/Aera Code.app/Contents/MacOS/Aera Code')
     expect(args).toEqual([
       '--import',
       pathToFileURL('/private/clear-env.mjs').href,

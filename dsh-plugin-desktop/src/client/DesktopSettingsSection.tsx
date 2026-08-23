@@ -134,20 +134,6 @@ function Choice({
   )
 }
 
-function RepositoryLink({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <a
-      className="dshDesktopSettingsChoiceLink"
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={event => { event.stopPropagation() }}
-    >
-      {children}
-    </a>
-  )
-}
-
 function ToggleRow({
   label,
   badge,
@@ -198,28 +184,12 @@ const MARKET_OPTIONS: readonly {
   { id: 'dsh-market', title: 'dshMarket', body: 'dshMarketBody' },
 ]
 
-const COMMUNITY_MARKET_URL = 'https://github.com/anywhere-labs/deepseek-harness-desktop/tree/master/dsh-community-market'
-const DSH_MARKET_URL = 'https://github.com/dsh-market/dsh-market'
-const AWESOME_DSH_PLUGIN_URL = 'https://github.com/awesome-dsh-plugin/awesome-dsh-plugin'
-
 function marketTitle(option: (typeof MARKET_OPTIONS)[number], t: Translate): ReactNode {
-  if (option.id === 'community-market') {
-    return <RepositoryLink href={COMMUNITY_MARKET_URL}>{t(option.title)}</RepositoryLink>
-  }
-  if (option.id === 'dsh-market') {
-    return <RepositoryLink href={DSH_MARKET_URL}>{t(option.title)}</RepositoryLink>
-  }
   return t(option.title)
 }
 
 function marketBody(option: (typeof MARKET_OPTIONS)[number], t: Translate): ReactNode {
-  if (option.id !== 'dsh-market') return t(option.body)
-  return (
-    <>
-      {t(option.body)}{' '}
-      <RepositoryLink href={AWESOME_DSH_PLUGIN_URL}>awesome-dsh-plugin</RepositoryLink>
-    </>
-  )
+  return t(option.body)
 }
 
 /** Render the Desktop settings page. */

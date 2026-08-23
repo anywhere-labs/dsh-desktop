@@ -46,7 +46,7 @@ describe('electronPlatformStrategy', () => {
     expect(strategy.canPickDirectory).toBe(true)
     expect(strategy.canToggleShellMode).toBe(true)
 
-    strategy.configureApplication(icon, 'DSH Desktop')
+    strategy.configureApplication(icon, 'Aera Code')
     strategy.configureWindow(window as never)
     strategy.refreshThemeMaterial(window as never, 'mica')
     strategy.refreshThemeMaterial(window as never, 'acrylic')
@@ -70,7 +70,7 @@ describe('electronPlatformStrategy', () => {
     expect(strategy.canPickDirectory).toBe(false)
     expect(strategy.canToggleShellMode).toBe(true)
 
-    strategy.configureApplication(icon, 'DSH Desktop')
+    strategy.configureApplication(icon, 'Aera Code')
     strategy.configureWindow(window as never)
     strategy.refreshThemeMaterial(window as never, 'transparent')
 
@@ -90,7 +90,7 @@ describe('electronPlatformStrategy', () => {
     expect(strategy.canPickDirectory).toBe(false)
     expect(strategy.canToggleShellMode).toBe(false)
 
-    strategy.configureApplication({} as never, 'DSH Desktop')
+    strategy.configureApplication({} as never, 'Aera Code')
     strategy.configureWindow(window as never)
     strategy.refreshThemeMaterial(window as never, 'off')
 

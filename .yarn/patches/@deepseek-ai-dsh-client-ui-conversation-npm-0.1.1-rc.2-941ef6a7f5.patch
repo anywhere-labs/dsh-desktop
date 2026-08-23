@@ -1,0 +1,13 @@
+diff --git a/lib/client.js b/lib/client.js
+index c6be13412e7a47a3a999b4bd6cc11cb4aa4cf20e..8fcdd04ddae7e86b6a31386b24d9982487043e11 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -4961,7 +4961,7 @@ window.__ModuleLoader__.load({
+ 					(0, react_jsx_runtime.jsx)("span", {
+ 						className: ContextInjectionRow_module_css_default.source,
+ 						"data-context-source": true,
+-						children: provenance.label
++						children: provenance.label === "@deepseek-ai/dsh-system-prompt" ? "Aera Code system context" : provenance.label
+ 					}),
+ 					summary !== null && (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)("span", {
+ 						className: ContextInjectionRow_module_css_default.sep,
