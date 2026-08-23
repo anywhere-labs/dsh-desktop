@@ -8,6 +8,7 @@ import {
   mkdir,
   open,
   readFile,
+  rename,
   rm,
   unlink,
 } from 'node:fs/promises'
@@ -20,6 +21,7 @@ const STATE_VERSION = 1
 const STATE_DIRECTORY_NAME = 'plugin-install-recovery'
 const STATE_FILENAME = 'state.json'
 const BACKUP_DIRECTORY_NAME = 'backups'
+const ABANDONED_STATE_FILENAME = 'abandoned-state.json'
 const STATE_FILE_MODE = 0o600
 const PRIVATE_DIRECTORY_MODE = 0o700
 const MAX_STATE_BYTES = 64 * 1024
@@ -451,6 +453,27 @@ export class DesktopInstallRecoveryStore {
       await rm(backupDir, { recursive: true, force: true }).catch(() => {})
       throw cause
     }
+  }
+
+  /**
+   * Archive a pending transaction that binds to another profile.
+   *
+   * Only the owning profile can verify or restore a transaction, so a stale
+   * cross-profile obligation would otherwise block every install in this
+   * profile forever. The WAL record moves next to the retained preimages,
+   * keeping the evidence available for manual recovery of the other profile.
+   */
+  async archiveForeignPending(): Promise<DesktopInstallRecoveryTransaction | undefined> {
+    return await this.withMutationLock(async () => {
+      const state = await this.read()
+      if (state === undefined || this.matchesCurrentProfile(state)) return undefined
+      const destination = join(this.backupDirectory(state.transactionId), ABANDONED_STATE_FILENAME)
+      await this.ensurePrivateDirectory(dirname(destination))
+      await rm(destination, { force: true })
+      await rename(this.statePath, destination)
+      await chmod(destination, STATE_FILE_MODE)
+      return state
+    })
   }
 
   /** Seal exact post-install hashes before exposing success or a restart grant. */

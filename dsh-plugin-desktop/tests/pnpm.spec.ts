@@ -1,7 +1,8 @@
 import { PassThrough } from 'node:stream'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import type {
@@ -83,6 +84,48 @@ function bootstrap(root = '/desktop runtime'): DesktopPnpmBootstrap {
     installRecoveryStatePath: join(root, 'plugin-install-recovery', 'state.json'),
     generationId: 'test-generation-0001',
     externalMarketInstallEnabled: false,
+  }
+}
+
+/** A sealed transaction that belongs to profile web, as a terminal add would leave it. */
+function foreignProfileTransaction(profileDir: string) {
+  return {
+    version: 1 as const,
+    transactionId: 'archived-terminal-0001',
+    profileName: 'web',
+    profileIdentity: createHash('sha256').update(resolve(profileDir)).digest('hex'),
+    packageName: 'foreign-plugin',
+    packageVersion: '1.0.0',
+    receiptId: 'receipt:foreign-install-01',
+    createdByGeneration: 'terminal:test-generation',
+    createdAt: new Date(0).toISOString(),
+    phase: 'awaiting-restart' as const,
+    files: [
+      { name: 'package.json', before: { present: false } },
+      { name: 'pnpm-lock.yaml', before: { present: false } },
+      { name: 'pnpm-workspace.yaml', before: { present: false } },
+    ],
+  }
+}
+
+/** A pending transaction that binds to the harness's own active profile. */
+function ownProfileTransaction(selectedBootstrap: DesktopPnpmBootstrap) {
+  return {
+    version: 1 as const,
+    transactionId: 'pending-desktop-0001',
+    profileName: selectedBootstrap.activeProfileName,
+    profileIdentity: createHash('sha256').update(resolve(selectedBootstrap.activeProfileDir)).digest('hex'),
+    packageName: 'pending-plugin',
+    packageVersion: '1.0.0',
+    receiptId: 'receipt:pending-install-001',
+    createdByGeneration: 'terminal:test-generation',
+    createdAt: new Date(0).toISOString(),
+    phase: 'awaiting-restart' as const,
+    files: [
+      { name: 'package.json', before: { present: false } },
+      { name: 'pnpm-lock.yaml', before: { present: false } },
+      { name: 'pnpm-workspace.yaml', before: { present: false } },
+    ],
   }
 }
 
@@ -300,6 +343,81 @@ describe('desktop pnpm Host service', () => {
         packageVersion: '1.0.0',
         receiptId: 'receipt:test-install-0001',
         phase: 'awaiting-restart',
+      })
+      await harness.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('archives a pending transaction from another profile before a new install', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-pnpm-foreign-recovery-'))
+    const selectedBootstrap = bootstrap(root)
+    const manifestPath = join(selectedBootstrap.activeProfileDir, 'package.json')
+    const child = controlledSubprocess()
+    try {
+      mkdirSync(selectedBootstrap.activeProfileDir, { recursive: true })
+      writeFileSync(manifestPath, JSON.stringify({ dependencies: {} }))
+      mkdirSync(join(selectedBootstrap.installRecoveryStatePath, '..'), { recursive: true })
+      writeFileSync(
+        selectedBootstrap.installRecoveryStatePath,
+        `${JSON.stringify(foreignProfileTransaction(selectedBootstrap.activeProfileDir), undefined, 2)}\n`,
+      )
+      const harness = await createHarness([child], selectedBootstrap)
+
+      const operation = await harness.service.installPlugin({
+        invokingDir: '/workspace',
+        recovery: {
+          packageName: 'example-plugin',
+          packageVersion: '1.0.0',
+          receiptId: 'receipt:test-install-0002',
+        },
+      })
+      writeFileSync(manifestPath, JSON.stringify({ dependencies: { 'example-plugin': '1.0.0' } }))
+      finish(child)
+      await expect(operation.done).resolves.toEqual({ exitCode: 0, signal: null })
+
+      expect(JSON.parse(readFileSync(selectedBootstrap.installRecoveryStatePath, 'utf8'))).toMatchObject({
+        packageName: 'example-plugin',
+        receiptId: 'receipt:test-install-0002',
+        phase: 'awaiting-restart',
+      })
+      expect(readFileSync(
+        join(root, 'plugin-install-recovery', 'backups', 'archived-terminal-0001', 'abandoned-state.json'),
+        'utf8',
+      )).toContain('foreign-plugin')
+      expect(existsSync(join(root, 'plugin-install-recovery', 'state.json'))).toBe(true)
+      await harness.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses an install while this profile still owns a pending transaction', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-pnpm-own-recovery-'))
+    const selectedBootstrap = bootstrap(root)
+    try {
+      mkdirSync(selectedBootstrap.activeProfileDir, { recursive: true })
+      writeFileSync(join(selectedBootstrap.activeProfileDir, 'package.json'), JSON.stringify({ dependencies: {} }))
+      mkdirSync(join(selectedBootstrap.installRecoveryStatePath, '..'), { recursive: true })
+      writeFileSync(
+        selectedBootstrap.installRecoveryStatePath,
+        `${JSON.stringify(ownProfileTransaction(selectedBootstrap), undefined, 2)}\n`,
+      )
+      const harness = await createHarness([], selectedBootstrap)
+
+      await expect(harness.service.installPlugin({
+        invokingDir: '/workspace',
+        recovery: {
+          packageName: 'example-plugin',
+          packageVersion: '1.0.0',
+          receiptId: 'receipt:test-install-0003',
+        },
+      })).rejects.toThrow('another plugin install recovery transaction is pending')
+
+      expect(JSON.parse(readFileSync(selectedBootstrap.installRecoveryStatePath, 'utf8'))).toMatchObject({
+        packageName: 'pending-plugin',
+        transactionId: 'pending-desktop-0001',
       })
       await harness.dispose()
     } finally {

@@ -360,6 +360,9 @@ class DesktopPnpmService extends Service implements DesktopPnpm {
     this.installPreparationActive = true
     let transaction: Awaited<ReturnType<DesktopInstallRecoveryStore['begin']>> | undefined
     try {
+      // A pending transaction bound to another profile can never be resolved by
+      // this generation, so archive it instead of blocking every install here.
+      await this.installRecovery.archiveForeignPending()
       transaction = await this.installRecovery.begin(request.recovery)
       const handle = this.start({
         argv: [
