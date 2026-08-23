@@ -1,6 +1,7 @@
 /** Profile-relative package resolution for Electron's restricted Node runtime. */
 
 import Module, { registerHooks } from 'node:module'
+import { dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { unpackedAsarPath } from './packaged-runtime-path.ts'
 import {
@@ -45,14 +46,15 @@ function isBareSpecifier(specifier: string): boolean {
  */
 export function installProfilePackageResolver(profileBaseUrl: string): () => void {
   const profileManifestPath = fileURLToPath(profileBaseUrl)
+  const profileDirectoryPath = dirname(profileManifestPath)
 
   // ClientModuleRegistry intentionally uses createRequire(ctx.baseUrl) to
   // resolve each browser bundle from the config tree. Node's ESM resolve hook
   // does not observe that CommonJS manifest lookup, so without this narrow
   // bridge the Loader can activate the Desktop copy while the browser receives
   // an older Profile copy of the same package. Intercept only exact package
-  // manifests requested from this Profile anchor; every other CJS resolution
-  // remains untouched.
+  // manifests requested from this Profile manifest or createRequire's noop.js
+  // directory anchor; every other CJS resolution remains untouched.
   const commonJsModule = Module as unknown as CommonJsModuleResolver
   const previousResolveFilename = commonJsModule._resolveFilename
   const overlayResolveFilename: CommonJsModuleResolver['_resolveFilename'] = function (
@@ -62,7 +64,9 @@ export function installProfilePackageResolver(profileBaseUrl: string): () => voi
     isMain,
     options,
   ) {
-    const packageName = parent?.filename === profileManifestPath
+    const fromProfileAnchor = parent?.filename === profileManifestPath
+      || (parent?.filename !== undefined && dirname(parent.filename) === profileDirectoryPath)
+    const packageName = fromProfileAnchor
       ? packageNameFromManifestSpecifier(request)
       : undefined
     if (packageName !== undefined) {
@@ -80,8 +84,9 @@ export function installProfilePackageResolver(profileBaseUrl: string): () => voi
   const overlayModuleUrls = new Set<string>()
   const hooks = registerHooks({
     resolve(specifier, context, nextResolve) {
-      const fromLoader = context.parentURL === LOADER_ENTRY_URL
-      const packageName = fromLoader ? packageNameFromSpecifier(specifier) : undefined
+      const fromOverlayRoot = context.parentURL === LOADER_ENTRY_URL
+        || context.parentURL === profileBaseUrl
+      const packageName = fromOverlayRoot ? packageNameFromSpecifier(specifier) : undefined
       if (packageName !== undefined) {
         const overlay = resolveOverlayPackage(packageName, {
           installPackageUrl: DESKTOP_PACKAGE_URL,
