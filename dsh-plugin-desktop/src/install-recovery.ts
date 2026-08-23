@@ -97,6 +97,8 @@ export interface DesktopInstallRecoveryTransaction {
   readonly packageVersion: string
   readonly receiptId: string
   readonly createdByGeneration: string
+  /** Terminal process that owns an unsealed prepare; absent for Desktop-managed installs. */
+  readonly ownerProcessId?: number
   readonly createdAt: string
   readonly phase: DesktopInstallRecoveryPhase
   readonly files: readonly DesktopInstallRecoveryFileRecord[]
@@ -116,6 +118,8 @@ export interface BeginDesktopInstallRecoveryInput {
   readonly packageVersion: string
   /** Host-generated before the package operation so every crash window can reconcile the receipt. */
   readonly receiptId: string
+  /** Process whose confirmed exit permits the next terminal install to recover this prepare. */
+  readonly ownerProcessId?: number
 }
 
 export interface DesktopInstallRecoveryStoreOptions {
@@ -126,6 +130,8 @@ export interface DesktopInstallRecoveryStoreOptions {
   /** Opaque identity minted once for the current Electron main generation. */
   readonly generationId: string
   readonly now?: () => number
+  /** Fail-closed process liveness seam used to reclaim interrupted terminal prepares. */
+  readonly processExists?: (processId: number) => boolean
   /** Operation-private filesystem seam for deterministic durable-stage tests. */
   readonly io?: Partial<DesktopInstallRecoveryIO>
 }
@@ -195,6 +201,22 @@ function assertOpaqueId(label: string, value: string): void {
 function assertPackageVersion(value: string): void {
   if (value.length < 1 || value.length > 128 || /[\0\r\n]/u.test(value)) {
     throw new Error(`${BIN_NAME}: invalid plugin install recovery package version`)
+  }
+}
+
+function assertProcessId(value: number): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${BIN_NAME}: invalid plugin install recovery owner process id`)
+  }
+}
+
+/** Treat every probe failure except a confirmed missing process as still active. */
+function processExists(processId: number): boolean {
+  try {
+    process.kill(processId, 0)
+    return true
+  } catch (cause) {
+    return (cause as NodeJS.ErrnoException | null)?.code !== 'ESRCH'
   }
 }
 
@@ -276,6 +298,8 @@ function parseTransaction(value: unknown): DesktopInstallRecoveryTransaction {
     || !OPAQUE_ID_PATTERN.test(state.receiptId)
     || typeof state.createdByGeneration !== 'string'
     || !OPAQUE_ID_PATTERN.test(state.createdByGeneration)
+    || (state.ownerProcessId !== undefined
+      && (!Number.isSafeInteger(state.ownerProcessId) || (state.ownerProcessId as number) <= 0))
     || typeof state.createdAt !== 'string'
     || Number.isNaN(Date.parse(state.createdAt))
     || typeof state.phase !== 'string'
@@ -348,6 +372,7 @@ export class DesktopInstallRecoveryStore {
   readonly profileDir: string
   readonly generationId: string
   private readonly now: () => number
+  private readonly processExists: (processId: number) => boolean
   private readonly io: DesktopInstallRecoveryIO
 
   constructor(options: DesktopInstallRecoveryStoreOptions) {
@@ -364,6 +389,7 @@ export class DesktopInstallRecoveryStore {
     assertOpaqueId('generation id', options.generationId)
     this.generationId = options.generationId
     this.now = options.now ?? Date.now
+    this.processExists = options.processExists ?? processExists
     this.io = { writeFileAtomic, ...options.io }
   }
 
@@ -403,7 +429,9 @@ export class DesktopInstallRecoveryStore {
     }
     assertPackageVersion(input.packageVersion)
     assertOpaqueId('receipt id', input.receiptId)
-    if (await this.read() !== undefined) {
+    if (input.ownerProcessId !== undefined) assertProcessId(input.ownerProcessId)
+    const pending = await this.read()
+    if (pending !== undefined && !await this.recoverInterruptedTerminalPrepareLocked(pending, input)) {
       throw new Error(`${BIN_NAME}: another plugin install recovery transaction is pending`)
     }
     await this.assertProfileDirectory()
@@ -441,6 +469,7 @@ export class DesktopInstallRecoveryStore {
         packageVersion: input.packageVersion,
         receiptId: input.receiptId,
         createdByGeneration: this.generationId,
+        ...(input.ownerProcessId === undefined ? {} : { ownerProcessId: input.ownerProcessId }),
         createdAt: timestamp(this.now),
         phase: 'prepared',
         files,
@@ -451,6 +480,25 @@ export class DesktopInstallRecoveryStore {
       await rm(backupDir, { recursive: true, force: true }).catch(() => {})
       throw cause
     }
+  }
+
+  /** Reclaim only an unsealed terminal prepare whose owning process is confirmed gone. */
+  private async recoverInterruptedTerminalPrepareLocked(
+    pending: DesktopInstallRecoveryTransaction,
+    input: BeginDesktopInstallRecoveryInput,
+  ): Promise<boolean> {
+    if (input.ownerProcessId === undefined
+      || pending.phase !== 'prepared'
+      || pending.ownerProcessId === undefined
+      || !this.matchesCurrentProfile(pending)
+      || this.processExists(pending.ownerProcessId)) return false
+
+    const result = await this.restoreLocked(pending.transactionId, 'interrupted-install')
+    if (result.status === 'manual-recovery-required') {
+      throw new Error(`${BIN_NAME}: interrupted plugin install requires manual recovery`)
+    }
+    await this.clearLocked(pending.transactionId)
+    return true
   }
 
   /** Seal exact post-install hashes before exposing success or a restart grant. */

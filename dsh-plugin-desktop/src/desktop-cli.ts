@@ -121,6 +121,7 @@ async function loadWithInstallRecovery(
     packageName: 'manual-plugin-install',
     packageVersion: 'unresolved',
     receiptId: `manual:${randomUUID()}`,
+    ownerProcessId: process.pid,
   })
   const originalExit = process.exit
   let capturedExitCode: number | undefined

@@ -61,6 +61,7 @@ function store(
   target: Fixture,
   generationId = 'generation-0001',
   atomicWrite: typeof writeFileAtomic = writeFileAtomic,
+  processExists?: (processId: number) => boolean,
 ): DesktopInstallRecoveryStore {
   return new DesktopInstallRecoveryStore({
     statePath: target.statePath,
@@ -68,6 +69,7 @@ function store(
     profileDir: target.profileDir,
     generationId,
     now: () => 1_800_000_000_000,
+    ...(processExists === undefined ? {} : { processExists }),
     io: { writeFileAtomic: atomicWrite },
   })
 }
@@ -161,6 +163,116 @@ describe('Desktop plugin install recovery WAL', () => {
     expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
     expect(results.filter(result => result.status === 'rejected')).toHaveLength(1)
     expect((await store(target).read())?.phase).toBe('prepared')
+  })
+
+  it('reclaims an untouched terminal prepare only after its owner process exits', async () => {
+    const target = fixture()
+    const interrupted = await store(target, 'terminal-origin').begin({
+      packageName: 'plugin-a',
+      packageVersion: '1.0.0',
+      receiptId: 'receipt-0001',
+      ownerProcessId: 41_001,
+    })
+    const processProbe = (processId: number) => {
+      expect(processId).toBe(41_001)
+      return false
+    }
+
+    const replacement = await store(
+      target,
+      'terminal-replacement',
+      writeFileAtomic,
+      processProbe,
+    ).begin({
+      packageName: 'plugin-b',
+      packageVersion: '2.0.0',
+      receiptId: 'receipt-0002',
+      ownerProcessId: 41_002,
+    })
+
+    expect(replacement.transactionId).not.toBe(interrupted.transactionId)
+    expect(replacement).toMatchObject({
+      phase: 'prepared',
+      packageName: 'plugin-b',
+      ownerProcessId: 41_002,
+    })
+    expectProfile(target, PREINSTALL)
+    expect(existsSync(join(
+      dirname(target.statePath),
+      'backups',
+      interrupted.transactionId,
+    ))).toBe(false)
+  })
+
+  it('keeps a terminal prepare locked while its owner process is alive', async () => {
+    const target = fixture()
+    const interrupted = await store(target, 'terminal-origin').begin({
+      packageName: 'plugin-a',
+      packageVersion: '1.0.0',
+      receiptId: 'receipt-0001',
+      ownerProcessId: process.pid,
+    })
+
+    await expect(store(target, 'terminal-concurrent').begin({
+      packageName: 'plugin-b',
+      packageVersion: '2.0.0',
+      receiptId: 'receipt-0002',
+      ownerProcessId: process.pid,
+    })).rejects.toThrow('another plugin install recovery transaction is pending')
+    await expect(store(target).read()).resolves.toMatchObject({
+      transactionId: interrupted.transactionId,
+      phase: 'prepared',
+    })
+  })
+
+  it('preserves unknown writes when an interrupted terminal prepare needs manual recovery', async () => {
+    const target = fixture()
+    await store(target, 'terminal-origin').begin({
+      packageName: 'plugin-a',
+      packageVersion: '1.0.0',
+      receiptId: 'receipt-0001',
+      ownerProcessId: 43_001,
+    })
+    writeFileSync(join(target.profileDir, 'package.json'), POSTINSTALL['package.json'], { mode: 0o640 })
+
+    await expect(store(
+      target,
+      'terminal-replacement',
+      writeFileAtomic,
+      () => false,
+    ).begin({
+      packageName: 'plugin-b',
+      packageVersion: '2.0.0',
+      receiptId: 'receipt-0002',
+      ownerProcessId: 43_002,
+    })).rejects.toThrow('interrupted plugin install requires manual recovery')
+    expect(readFileSync(join(target.profileDir, 'package.json'), 'utf8')).toBe(POSTINSTALL['package.json'])
+    await expect(store(target).read()).resolves.toMatchObject({
+      phase: 'manual-recovery-required',
+      failureReason: 'interrupted-install',
+      mismatchedFiles: ['package.json'],
+    })
+  })
+
+  it('does not reclaim legacy or Desktop-managed prepares without an owner process', async () => {
+    const target = fixture()
+    const pending = await begin(target)
+
+    await expect(store(
+      target,
+      'terminal-replacement',
+      writeFileAtomic,
+      () => false,
+    ).begin({
+      packageName: 'plugin-b',
+      packageVersion: '2.0.0',
+      receiptId: 'receipt-0002',
+      ownerProcessId: 44_002,
+    })).rejects.toThrow('another plugin install recovery transaction is pending')
+    await expect(store(target).read()).resolves.toMatchObject({
+      transactionId: pending.transactionId,
+      phase: 'prepared',
+    })
   })
 
   it('seals postimages, lets only the next generation claim verification, and clears healthy state', async () => {
