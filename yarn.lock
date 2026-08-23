@@ -1802,6 +1802,37 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-client-ui-primitives@patch:@deepseek-ai/dsh-client-ui-primitives@npm%3A0.1.1-rc.2#./patches/dsh-client-ui-primitives@0.1.1-rc.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.1-rc.2
+  resolution: "@deepseek-ai/dsh-client-ui-primitives@patch:@deepseek-ai/dsh-client-ui-primitives@npm%3A0.1.1-rc.2#./patches/dsh-client-ui-primitives@0.1.1-rc.2.patch::version=0.1.1-rc.2&hash=c971ce&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    "@shikijs/langs": "npm:^4.3.1"
+    "@types/mdast": "npm:^4.0.4"
+    anser: "npm:^2.3.5"
+    clsx: "npm:^2.0.0"
+    katex: "npm:^0.16.47"
+    mdast-util-from-markdown: "npm:^2.0.3"
+    mdast-util-gfm: "npm:^3.1.0"
+    mdast-util-math: "npm:^3.0.0"
+    micromark-core-commonmark: "npm:^2.0.3"
+    micromark-extension-gfm: "npm:^3.0.0"
+    micromark-extension-math: "npm:^3.1.0"
+    micromark-factory-space: "npm:^2.0.1"
+    micromark-util-character: "npm:^2.1.1"
+    micromark-util-classify-character: "npm:^2.0.1"
+    micromark-util-sanitize-uri: "npm:^2.0.1"
+    micromark-util-symbol: "npm:^2.0.1"
+    micromark-util-types: "npm:^2.0.2"
+    react: "npm:^18.2.0"
+    react-dom: "npm:^18.2.0"
+    shiki: "npm:^4.3.1"
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.1
+    "@deepseek-ai/dsh-invariants": ^0.1.1-rc.2
+  checksum: 10c0/3f17f56a224fff9e6ff2de75bba93386561189ff1208940ca29f43a8c284af3b4f63a12a8fbb798177808f988512d60f53a23ee2a8e57fcf45a27c5b347daff5
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-client-ui-reference@npm:^0.1.1-rc.2":
   version: 0.1.1-rc.2
   resolution: "@deepseek-ai/dsh-client-ui-reference@npm:0.1.1-rc.2"
