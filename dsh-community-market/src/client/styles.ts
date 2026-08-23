@@ -671,6 +671,46 @@ const css = `
   overflow-wrap: anywhere;
 }
 
+.dshMarketErrorHead {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.dshMarketErrorToggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+}
+
+.dshMarketErrorToggle:hover {
+  background: rgba(127, 127, 127, 0.18);
+}
+
+.dshMarketErrorLog {
+  max-height: 220px;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.12);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .dshMarketLauncher {
   flex: none;
   box-sizing: border-box;

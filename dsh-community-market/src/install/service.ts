@@ -114,7 +114,12 @@ export type MarketInstallErrorCode =
 
 /** Error whose message is safe to return through the loopback API. */
 export class MarketInstallError extends Error {
-  constructor(readonly code: MarketInstallErrorCode, message: string) {
+  constructor(
+    readonly code: MarketInstallErrorCode,
+    message: string,
+    /** Optional captured diagnostics (for example package-manager output) shown on demand. */
+    readonly detail?: string,
+  ) {
     super(message)
     this.name = 'MarketInstallError'
   }
@@ -164,11 +169,10 @@ class RecentOutput {
   }
 }
 
-/** Attach retained package-manager output to a failure message without masking it. */
-function withPackageManagerOutput(base: string, stderrTail: RecentOutput, stdoutTail: RecentOutput): string {
+/** Render retained package-manager output for a failure's expandable log. */
+function packageManagerDetail(stderrTail: RecentOutput, stdoutTail: RecentOutput): string | undefined {
   const detail = stderrTail.text().length > 0 ? stderrTail.text() : stdoutTail.text()
-  if (detail.length === 0) return base
-  return `${base}\n\n${detail}`
+  return detail.length === 0 ? undefined : detail
 }
 
 interface InstallCandidate {
@@ -1237,7 +1241,8 @@ export class MarketInstallService {
       combinedSignal.throwIfAborted()
       throw new MarketInstallError(
         'operation-failed',
-        withPackageManagerOutput('The desktop package manager failed.', stderrTail, stdoutTail),
+        'The desktop package manager failed.',
+        packageManagerDetail(stderrTail, stdoutTail),
       )
     }
     finally { combinedSignal.removeEventListener('abort', cancel) }
@@ -1245,7 +1250,8 @@ export class MarketInstallService {
     if (outcome.exitCode !== 0 || outcome.signal !== null) {
       throw new MarketInstallError(
         'operation-failed',
-        withPackageManagerOutput('The desktop package manager did not complete successfully.', stderrTail, stdoutTail),
+        'The desktop package manager did not complete successfully.',
+        packageManagerDetail(stderrTail, stdoutTail),
       )
     }
   }

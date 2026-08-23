@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Button,
   IconCheckOutline16,
@@ -48,6 +48,7 @@ import {
   readMarketState,
   readMoreMarketCatalog,
   requestMarketRestart,
+  MarketApiError,
 } from './api.js'
 
 type MarketItem = CatalogSnapshot['items'][number]
@@ -127,6 +128,13 @@ function operationErrorMessage(cause: unknown, fallback: string): string {
     : fallback
 }
 
+/** Captured diagnostics carried by the Host for an expandable error log. */
+function errorDetailOf(cause: unknown): string | undefined {
+  return cause instanceof MarketApiError && cause.detail !== undefined && cause.detail.trim().length > 0
+    ? cause.detail
+    : undefined
+}
+
 function catalogFailureMessage(
   cause: unknown,
   source: MarketSourceView,
@@ -158,6 +166,38 @@ function PluginIcon({ item, large = false }: { item: MarketItem; large?: boolean
           onError={event => { event.currentTarget.remove() }}
         />
       )}
+    </div>
+  )
+}
+
+/** Error message with an optional expandable diagnostics log behind one icon. */
+function MarketErrorNotice({ message, detail, logLabel, footer }: {
+  message: string
+  detail?: string | undefined
+  logLabel: string
+  footer?: ReactNode | undefined
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const hasLog = detail !== undefined && detail.trim().length > 0
+  return (
+    <div className="dshMarketError" role="alert">
+      <div className="dshMarketErrorHead">
+        <span>{message}</span>
+        {hasLog && (
+          <button
+            type="button"
+            className="dshMarketErrorToggle"
+            title={logLabel}
+            aria-label={logLabel}
+            aria-expanded={expanded}
+            onClick={() => setExpanded(value => !value)}
+          >
+            {expanded ? <IconChevronUpOutline14 /> : <IconChevronDownOutline14 />}
+          </button>
+        )}
+      </div>
+      {hasLog && expanded && <pre className="dshMarketErrorLog">{detail}</pre>}
+      {footer}
     </div>
   )
 }
@@ -285,6 +325,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
   const [operationPreview, setOperationPreview] = useState<MarketOperationPreviewResponse>()
   const [operationSuccess, setOperationSuccess] = useState<CompletedOperation>()
   const [operationError, setOperationError] = useState<string>()
+  const [operationErrorDetail, setOperationErrorDetail] = useState<string>()
   const [operationPending, setOperationPending] = useState(false)
   const [desktopActionError, setDesktopActionError] = useState<string>()
   const [desktopActionPending, setDesktopActionPending] = useState(false)
@@ -299,6 +340,12 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
   const desktopActionRequest = useRef<AbortController>()
   const selectedKeyRef = useRef<string>()
   const viewRef = useRef<MarketView>(initialView)
+
+  /** Clear or set the operation failure together with its expandable log. */
+  const setOperationFailure = (message: string | undefined, detail?: string): void => {
+    setOperationError(message)
+    setOperationErrorDetail(message === undefined ? undefined : detail)
+  }
 
   const rememberCategories = useCallback((next: MarketCatalogResponse) => {
     setCategoryOptions([...next.categories]
@@ -657,7 +704,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
     setView(next)
     selectedKeyRef.current = undefined
     setSelected(undefined)
-    setOperationError(undefined)
+    setOperationFailure(undefined)
     if (next === 'installable') {
       installationsRequest.current?.abort()
       installationsRequest.current = undefined
@@ -695,7 +742,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
     operationStage.current = 'preview'
     operationBundleId.current = undefined
     setOperationPending(true)
-    setOperationError(undefined)
+    setOperationFailure(undefined)
     setDesktopActionError(undefined)
     setOperationSuccess(undefined)
     try {
@@ -712,13 +759,13 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
       if (isDesktopUnavailable(cause)) {
         setInstallationsUnavailable(true)
         setInstallationsError(t('desktopUnavailable'))
-        setOperationError(t('desktopUnavailable'))
+        setOperationFailure(t('desktopUnavailable'))
       } else {
-        setOperationError(operationErrorMessage(cause, t(requestValue.action === 'install'
+        setOperationFailure(operationErrorMessage(cause, t(requestValue.action === 'install'
           ? 'previewError'
           : requestValue.action === 'uninstall'
             ? 'uninstallPreviewError'
-            : requestValue.action === 'disable' ? 'disablePreviewError' : 'enablePreviewError')))
+            : requestValue.action === 'disable' ? 'disablePreviewError' : 'enablePreviewError')), errorDetailOf(cause))
       }
     } finally {
       if (operationRequest.current === request) {
@@ -745,7 +792,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
     setSelectedInventoryError(undefined)
     setOperationPreview(undefined)
     setOperationSuccess(undefined)
-    setOperationError(undefined)
+    setOperationFailure(undefined)
     setDesktopActionError(undefined)
     const beginInstallPreview = () => {
       if (selectedKeyRef.current !== selectionKey) return
@@ -799,7 +846,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
     setSelectedInventoryLoading(false)
     setSelectedInventoryError(undefined)
     setOperationPreview(undefined)
-    setOperationError(undefined)
+    setOperationFailure(undefined)
     setDesktopActionError(undefined)
   }
 
@@ -811,7 +858,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
     operationRequest.current = request
     operationStage.current = 'execute'
     setOperationPending(true)
-    setOperationError(undefined)
+    setOperationFailure(undefined)
     setDesktopActionError(undefined)
     try {
       const result = await executeMarketOperation(preview.previewId, request.signal)
@@ -898,9 +945,9 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
       if (isDesktopUnavailable(cause)) {
         setInstallationsUnavailable(true)
         setInstallationsError(t('desktopUnavailable'))
-        setOperationError(t('desktopUnavailable'))
+        setOperationFailure(t('desktopUnavailable'))
       } else {
-        setOperationError(operationErrorMessage(cause, t('executeError')))
+        setOperationFailure(operationErrorMessage(cause, t('executeError')), errorDetailOf(cause))
       }
     } finally {
       if (operationRequest.current === request) {
@@ -1075,6 +1122,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
           preview={operationPreview?.action === 'install' ? operationPreview : undefined}
           pending={operationPending}
           operationError={operationError}
+          operationErrorDetail={operationErrorDetail}
           desktopActionError={desktopActionError}
           desktopActionPending={desktopActionPending}
           canOpenTerminal={state?.desktopActions.openTerminal === true}
@@ -1112,7 +1160,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
             if (operationPending) return
             operationBundleId.current = undefined
             setOperationPreview(undefined)
-            setOperationError(undefined)
+            setOperationFailure(undefined)
           }}
           onConfirm={() => { void executePreview() }}
           t={t}
@@ -1996,6 +2044,7 @@ function ItemActionModal({
   preview,
   pending,
   operationError,
+  operationErrorDetail,
   desktopActionError,
   desktopActionPending,
   canOpenTerminal,
@@ -2016,6 +2065,7 @@ function ItemActionModal({
   preview: MarketOperationPreviewResponse | undefined
   pending: boolean
   operationError?: string | undefined
+  operationErrorDetail?: string | undefined
   desktopActionError?: string | undefined
   desktopActionPending: boolean
   canOpenTerminal: boolean
@@ -2085,7 +2135,9 @@ function ItemActionModal({
             </div>
             <div className="dshMarketOperationWarning"><StateDot state="warning" size={12} /><span>{t('restartAfterOperation')}</span></div>
             {pending && <div className="dshMarketOperationProgress" role="status"><StateDot state="ongoing" size={12} />{t('installing')}</div>}
-            {operationError !== undefined && <div className="dshMarketError" role="alert">{operationError}</div>}
+            {operationError !== undefined && (
+              <MarketErrorNotice message={operationError} detail={operationErrorDetail} logLabel={t('operationLogToggle')} />
+            )}
           </div>
         ) : (
           <div className="dshMarketDetails">
@@ -2124,10 +2176,16 @@ function ItemActionModal({
             {installation === undefined && !inventoryLoading && !checking && operationError !== undefined && (
               <div className="dshMarketBanner" role="alert">
                 <StateDot state="warning" />
-                <span>{operationError}</span>
-                <a href={verificationHelpHref} target="_blank" rel="noopener noreferrer">
-                  {t('verificationDetails')} <IconRightUpOutline16 size={12} />
-                </a>
+                <MarketErrorNotice
+                  message={operationError}
+                  detail={operationErrorDetail}
+                  logLabel={t('operationLogToggle')}
+                  footer={(
+                    <a href={verificationHelpHref} target="_blank" rel="noopener noreferrer">
+                      {t('verificationDetails')} <IconRightUpOutline16 size={12} />
+                    </a>
+                  )}
+                />
               </div>
             )}
             {installation === undefined && !inventoryLoading && inventoryError === undefined && !checking && manualInstall !== undefined ? (

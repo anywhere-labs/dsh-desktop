@@ -730,7 +730,8 @@ describe('market install service', () => {
     const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
     await expect(service.executeInstall(preview.intent, new AbortController().signal)).rejects.toMatchObject({
       code: 'operation-failed',
-      message: expect.stringContaining('ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION'),
+      message: 'The desktop package manager did not complete successfully.',
+      detail: expect.stringContaining('ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION'),
     })
   })
 
@@ -760,7 +761,8 @@ describe('market install service', () => {
     const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
     await expect(service.executeInstall(preview.intent, new AbortController().signal)).rejects.toMatchObject({
       code: 'operation-failed',
-      message: expect.stringContaining('partial resolution state before the crash'),
+      message: 'The desktop package manager failed.',
+      detail: expect.stringContaining('partial resolution state before the crash'),
     })
   })
 
@@ -792,11 +794,12 @@ describe('market install service', () => {
     const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
     const failure = await service.executeInstall(preview.intent, new AbortController().signal).then(
       () => { throw new Error('install should have failed') },
-      (cause: unknown) => cause as Error,
+      cause => cause as MarketInstallError,
     )
-    expect(failure.message).toContain('[ERROR] ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION')
-    expect(failure.message).toContain('…')
-    expect(failure.message.length).toBeLessThan(10000)
+    expect(failure.message).toBe('The desktop package manager did not complete successfully.')
+    expect(failure.detail).toContain('[ERROR] ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION')
+    expect(failure.detail).toContain('…')
+    expect(failure.detail?.length ?? 0).toBeLessThan(10000)
   })
 
   it('refuses changed profile state and nonzero package-manager outcomes without issuing receipts', async () => {

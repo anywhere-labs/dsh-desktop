@@ -25,10 +25,12 @@ import {
   readMarketState,
   readMoreMarketCatalog,
   requestMarketRestart,
+  MarketApiError,
 } from '../src/client/api.js'
 import { en, type MarketLocaleKey } from '../src/client/locales.js'
 
-vi.mock('../src/client/api.js', () => ({
+vi.mock('../src/client/api.js', async importOriginal => ({
+  ...(await importOriginal<object>()),
   executeMarketOperation: vi.fn(),
   mutateMarketSource: vi.fn(),
   openMarketTerminal: vi.fn(),
@@ -638,6 +640,48 @@ describe('MarketSettingsTab', () => {
     fireEvent.click(screen.getByRole('button', { name: en.confirmInstall }))
     await waitFor(() => expect(executeMarketOperation).toHaveBeenCalledTimes(2))
     expect(await screen.findByRole('dialog', { name: en.installComplete })).toBeTruthy()
+  })
+
+  it('reveals captured package-manager output behind the error log toggle', async () => {
+    const item = makeInstallableItem(firstSource, 'log-toggle', 'Log Toggle Plugin', 'dsh-plugin-log-toggle')
+    vi.mocked(readMarketState).mockResolvedValue(enabledState)
+    vi.mocked(readMarketCatalog).mockResolvedValue(catalogForSource(firstSource, [item]))
+    vi.mocked(readMarketInstallable).mockResolvedValue(installableResponse([item]))
+    vi.mocked(readMarketInstallations).mockResolvedValue({ installations: [] })
+    vi.mocked(previewMarketOperation).mockResolvedValue({
+      action: 'install',
+      profileName: 'web',
+      packageName: item.package!.name,
+      version: item.latestVersion!,
+      displayName: item.displayName,
+      expiresAt: '2026-08-18T00:05:00.000Z',
+      previewId: 'opaque-log-toggle-preview',
+    })
+    vi.mocked(executeMarketOperation).mockRejectedValue(new MarketApiError(
+      'The desktop package manager did not complete successfully.',
+      502,
+      'operation-failed',
+      '[ERROR] ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION: 21 lockfile entries failed verification',
+    ))
+    render(<MarketSettingsTab {...props} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: en.installable }))
+    fireEvent.click(await screen.findByRole('button', { name: `${en.install}: ${item.displayName}` }))
+    const confirmation = await screen.findByRole('dialog', { name: en.confirmInstallTitle })
+    fireEvent.click(within(confirmation).getByRole('button', { name: en.confirmInstall }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('The desktop package manager did not complete successfully.')
+    expect(alert.textContent).not.toContain('ERR_PNPM')
+    const toggle = within(alert).getByRole('button', { name: en.operationLogToggle })
+    fireEvent.click(toggle)
+    const expanded = within(alert).getByRole('button', { name: en.operationLogToggle })
+    expect(expanded.getAttribute('aria-expanded')).toBe('true')
+    expect(within(screen.getByRole('dialog', { name: en.confirmInstallTitle })).getByRole('alert').textContent)
+      .toContain('ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION')
+    fireEvent.click(expanded)
+    expect(within(screen.getByRole('dialog', { name: en.confirmInstallTitle })).getByRole('alert').textContent)
+      .not.toContain('ERR_PNPM')
   })
 
   it('renders an unsafe item source as plain text without an external link', async () => {
