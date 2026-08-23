@@ -331,6 +331,7 @@
       "!node_modules/node-addon-require-builtin-win32-{arm64,ia32}-msvc/**",
       "!node_modules/node-pty/build/**",
       "!node_modules/node-pty/prebuilds/!(${platform}-*)/**",
+      "!node_modules/node-pty/prebuilds/!(${platform}-${arch}|darwin-*)/**",
       "!node_modules/node-pty/third_party/**"
     ],
     "mac": {
@@ -360,9 +361,6 @@
       "format": "ULFO"
     },
     "win": {
-      "files": [
-        "!node_modules/node-pty/prebuilds/{win32-arm64,win32-ia32}/**"
-      ],
       "target": [
         {
           "target": "nsis",
@@ -389,9 +387,6 @@
       "artifactName": "DSH-Desktop-${version}-${arch}-Setup.${ext}"
     },
     "linux": {
-      "files": [
-        "!node_modules/node-pty/prebuilds/!(${platform}-${arch})/**"
-      ],
       "target": [
         {
           "target": "AppImage",

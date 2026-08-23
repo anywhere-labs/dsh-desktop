@@ -46,7 +46,7 @@ const manifest = JSON.parse(readFileSync(new URL('package.json', packageRoot), '
       x64ArchFiles?: unknown
     }
     dmg?: Record<string, unknown>
-    win?: { icon?: unknown; target?: unknown; artifactName?: unknown; compression?: unknown; files?: unknown }
+    win?: { icon?: unknown; target?: unknown; artifactName?: unknown; compression?: unknown }
     nsis?: Record<string, unknown>
     portable?: Record<string, unknown>
     linux?: Record<string, unknown>
@@ -611,6 +611,7 @@ describe('published package surface', () => {
       '!node_modules/node-addon-require-builtin-win32-{arm64,ia32}-msvc/**',
       '!node_modules/node-pty/build/**',
       '!node_modules/node-pty/prebuilds/!(${platform}-*)/**',
+      '!node_modules/node-pty/prebuilds/!(${platform}-${arch}|darwin-*)/**',
       '!node_modules/node-pty/third_party/**',
     ])
     expect(manifest.build?.mac?.icon).toBe('build/app-icon-mac.png')
@@ -627,9 +628,6 @@ describe('published package surface', () => {
     }])
     expect(manifest.build?.win?.artifactName).toBe('DSH-Desktop-${version}-${arch}-Portable.${ext}')
     expect(manifest.build?.win?.compression).toBe('normal')
-    expect(manifest.build?.win?.files).toEqual([
-      '!node_modules/node-pty/prebuilds/{win32-arm64,win32-ia32}/**',
-    ])
     expect(manifest.build?.nsis).toEqual({
       license: 'THIRD_PARTY_NOTICES.md',
       oneClick: false,
@@ -644,7 +642,6 @@ describe('published package surface', () => {
       artifactName: 'DSH-Desktop-${version}-${arch}-Setup.${ext}',
     })
     expect(manifest.build?.linux).toEqual({
-      files: ['!node_modules/node-pty/prebuilds/!(${platform}-${arch})/**'],
       target: [
         { target: 'AppImage', arch: ['x64', 'arm64'] },
         { target: 'deb', arch: ['x64', 'arm64'] },

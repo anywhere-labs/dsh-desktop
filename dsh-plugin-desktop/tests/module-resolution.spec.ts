@@ -95,6 +95,14 @@ describe('installProfilePackageResolver', () => {
       specifier: 'dsh-plugin-desktop/profile',
       context: { parentURL: profileBaseUrl },
     })
+    expect(harness.resolve?.(
+      '@deepseek-ai/dsh-web-app',
+      { parentURL: profileBaseUrl },
+      nextResolve,
+    )).toEqual({
+      specifier: '@deepseek-ai/dsh-web-app',
+      context: { parentURL: expect.stringMatching(/\/lib\/index\.js$/u) },
+    })
     expect(harness.overlay).toHaveBeenCalledWith('@deepseek-ai/dsh-web-app', expect.any(Object))
     expect(harness.overlay).toHaveBeenCalledWith('dsh-plugin-desktop', expect.any(Object))
   })

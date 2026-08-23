@@ -83,8 +83,9 @@ export function installProfilePackageResolver(profileBaseUrl: string): () => voi
   const overlayModuleUrls = new Set<string>()
   const hooks = registerHooks({
     resolve(specifier, context, nextResolve) {
-      const fromLoader = context.parentURL === LOADER_ENTRY_URL
-      const packageName = fromLoader ? packageNameFromSpecifier(specifier) : undefined
+      const fromOverlayRoot = context.parentURL === LOADER_ENTRY_URL
+        || context.parentURL === profileBaseUrl
+      const packageName = fromOverlayRoot ? packageNameFromSpecifier(specifier) : undefined
       if (packageName !== undefined) {
         const overlay = resolveOverlayPackage(packageName, {
           installPackageUrl: DESKTOP_PACKAGE_URL,
