@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { EventEmitter } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Readable } from 'node:stream'
+import { PassThrough, Readable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { FileSettingsProvider } from '@deepseek-ai/dsh-settings-file'
@@ -652,6 +652,116 @@ describe('market install service', () => {
       '--@example:registry=https://registry.npmjs.org/',
       `${scopedPackage}@${version}`,
     ])
+  })
+
+  it('explains a pending recovery transaction instead of masking the start failure', async () => {
+    const profileDir = await createProfile()
+    const pnpm: MarketDesktopPnpm = {
+      runPlugin() { throw new Error('add must use the recoverable install boundary') },
+      async installPlugin() {
+        throw new Error('dsh-plugin-desktop: another plugin install recovery transaction is pending')
+      },
+      async recoveredInstallReceiptIds() { return [] },
+      async acknowledgeRecoveredInstall() {},
+      async rollbackPluginInstall() { return false },
+    }
+    const service = new MarketInstallService(
+      memoryScope().scope,
+      () => ({ name: 'web', dir: profileDir }),
+      pnpm,
+      { verify: vi.fn(async () => verification) },
+    )
+    service.observeCatalog(snapshot())
+    const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
+    await expect(service.executeInstall(preview.intent, new AbortController().signal)).rejects.toMatchObject({
+      code: 'operation-failed',
+      message: 'A previous plugin installation is still awaiting recovery confirmation. Restart DSH Desktop once so it can complete or roll back that installation, then try again.',
+    })
+  })
+
+  it('preserves the underlying cause when the package manager fails to start', async () => {
+    const profileDir = await createProfile()
+    const pnpm: MarketDesktopPnpm = {
+      runPlugin() { throw new Error('add must use the recoverable install boundary') },
+      async installPlugin() {
+        throw new Error('dsh-plugin-desktop: desktop pnpm subprocess did not expose piped output')
+      },
+      async recoveredInstallReceiptIds() { return [] },
+      async acknowledgeRecoveredInstall() {},
+      async rollbackPluginInstall() { return false },
+    }
+    const service = new MarketInstallService(
+      memoryScope().scope,
+      () => ({ name: 'web', dir: profileDir }),
+      pnpm,
+      { verify: vi.fn(async () => verification) },
+    )
+    service.observeCatalog(snapshot())
+    const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
+    await expect(service.executeInstall(preview.intent, new AbortController().signal)).rejects.toMatchObject({
+      code: 'operation-failed',
+      message: 'The desktop package manager could not start: dsh-plugin-desktop: desktop pnpm subprocess did not expose piped output',
+    })
+  })
+
+  it('attaches recent package-manager output when the add exits nonzero', async () => {
+    const profileDir = await createProfile()
+    const stderr = new PassThrough()
+    stderr.write('[ERROR] ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION: @example/dsh-plugin-safe was published within the minimumReleaseAge cutoff')
+    const stdout = new PassThrough()
+    stdout.write('harmless progress noise')
+    const pnpm = recoverableRunner(profileDir, {
+      runPlugin() {
+        return {
+          stdout,
+          stderr,
+          done: new Promise(resolve => { setImmediate(() => resolve({ exitCode: 1, signal: null })) }),
+          cancel: vi.fn(),
+        }
+      },
+    })
+    const service = new MarketInstallService(
+      memoryScope().scope,
+      () => ({ name: 'web', dir: profileDir }),
+      pnpm,
+      { verify: vi.fn(async () => verification) },
+    )
+    service.observeCatalog(snapshot())
+    const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
+    await expect(service.executeInstall(preview.intent, new AbortController().signal)).rejects.toMatchObject({
+      code: 'operation-failed',
+      message: expect.stringContaining('ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION'),
+    })
+  })
+
+  it('falls back to stdout output when the package manager stream fails', async () => {
+    const profileDir = await createProfile()
+    const stdout = new PassThrough()
+    stdout.write('partial resolution state before the crash')
+    const stderr = new PassThrough()
+    const pnpm = recoverableRunner(profileDir, {
+      runPlugin() {
+        return {
+          stdout,
+          stderr,
+          // Let the buffered output drain before the handle settles, like a real process.
+          done: new Promise((_resolve, reject) => { setImmediate(() => reject(new Error('output stream collapsed'))) }),
+          cancel: vi.fn(),
+        }
+      },
+    })
+    const service = new MarketInstallService(
+      memoryScope().scope,
+      () => ({ name: 'web', dir: profileDir }),
+      pnpm,
+      { verify: vi.fn(async () => verification) },
+    )
+    service.observeCatalog(snapshot())
+    const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
+    await expect(service.executeInstall(preview.intent, new AbortController().signal)).rejects.toMatchObject({
+      code: 'operation-failed',
+      message: expect.stringContaining('partial resolution state before the crash'),
+    })
   })
 
   it('refuses changed profile state and nonzero package-manager outcomes without issuing receipts', async () => {

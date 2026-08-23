@@ -119,6 +119,51 @@ export class MarketInstallError extends Error {
   }
 }
 
+const PENDING_RECOVERY_DETAIL = 'another plugin install recovery transaction is pending'
+
+/** Explain a package-manager start failure without masking the underlying cause. */
+export function packageManagerStartFailure(cause: unknown): string {
+  const detail = cause instanceof Error && cause.message.trim().length > 0
+    ? cause.message
+    : String(cause)
+  if (detail.includes(PENDING_RECOVERY_DETAIL)) {
+    return 'A previous plugin installation is still awaiting recovery confirmation. Restart DSH Desktop once so it can complete or roll back that installation, then try again.'
+  }
+  return `The desktop package manager could not start: ${detail}`
+}
+
+const OUTPUT_TAIL_LINES = 40
+const OUTPUT_TAIL_CHARS = 2000
+
+/** Retain the most recent lines of one package-manager output stream for failure diagnostics. */
+class RecentOutput {
+  private readonly lines: string[] = []
+  private remainder = ''
+
+  append(chunk: unknown): void {
+    this.remainder += String(chunk).replace(/\r/g, '')
+    const parts = this.remainder.split('\n')
+    this.remainder = parts.pop() ?? ''
+    for (const line of parts) {
+      this.lines.push(line)
+      if (this.lines.length > OUTPUT_TAIL_LINES) this.lines.shift()
+    }
+  }
+
+  text(): string {
+    const pending = this.remainder.trim().length > 0 ? [this.remainder] : []
+    return [...this.lines.slice(-OUTPUT_TAIL_LINES), ...pending].join('\n').trim()
+  }
+}
+
+/** Attach retained package-manager output to a failure message without masking it. */
+function withPackageManagerOutput(base: string, stderrTail: RecentOutput, stdoutTail: RecentOutput): string {
+  const detail = stderrTail.text().length > 0 ? stderrTail.text() : stdoutTail.text()
+  if (detail.length === 0) return base
+  const clipped = detail.length > OUTPUT_TAIL_CHARS ? `…${detail.slice(-OUTPUT_TAIL_CHARS)}` : detail
+  return `${base}\n\n${clipped}`
+}
+
 interface InstallCandidate {
   readonly key: string
   readonly sourceRecordId: string
@@ -1169,21 +1214,32 @@ export class MarketInstallService {
             signal: combinedSignal,
           })
     }
-    catch { throw new MarketInstallError('operation-failed', 'The desktop package manager could not start.') }
-    handle.stdout.resume()
-    handle.stderr.resume()
+    catch (cause) {
+      throw new MarketInstallError('operation-failed', packageManagerStartFailure(cause))
+    }
+    // Keep recent output instead of discarding it, so pnpm failures stay diagnosable.
+    const stdoutTail = new RecentOutput()
+    const stderrTail = new RecentOutput()
+    handle.stdout.on('data', chunk => stdoutTail.append(chunk))
+    handle.stderr.on('data', chunk => stderrTail.append(chunk))
     const cancel = () => handle.cancel()
     combinedSignal.addEventListener('abort', cancel, { once: true })
     let outcome: MarketDesktopPnpmOutcome
     try { outcome = await handle.done }
     catch {
       combinedSignal.throwIfAborted()
-      throw new MarketInstallError('operation-failed', 'The desktop package manager failed.')
+      throw new MarketInstallError(
+        'operation-failed',
+        withPackageManagerOutput('The desktop package manager failed.', stderrTail, stdoutTail),
+      )
     }
     finally { combinedSignal.removeEventListener('abort', cancel) }
     combinedSignal.throwIfAborted()
     if (outcome.exitCode !== 0 || outcome.signal !== null) {
-      throw new MarketInstallError('operation-failed', 'The desktop package manager did not complete successfully.')
+      throw new MarketInstallError(
+        'operation-failed',
+        withPackageManagerOutput('The desktop package manager did not complete successfully.', stderrTail, stdoutTail),
+      )
     }
   }
 
