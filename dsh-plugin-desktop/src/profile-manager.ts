@@ -54,6 +54,21 @@ export interface DesktopProfileSummary {
   readonly problem?: string
 }
 
+/** Minimal recovery reader used while deleting a profile. */
+export interface DesktopProfileInstallRecoveryReader {
+  read(): Promise<{ readonly profileName: string } | undefined>
+}
+
+/** Inputs for the narrow, restart-safe profile deletion boundary. */
+export interface DesktopProfileDeletionOptions {
+  readonly home: string
+  readonly selectionStatePath: string
+  readonly currentProfileName: string
+  readonly installRecovery?: DesktopProfileInstallRecoveryReader
+  readonly clearDisabledState?: () => void | Promise<void>
+  readonly clearCheckpoint?: () => void | Promise<void>
+}
+
 /** Private desktop selection state persisted outside `$DSH_HOME/profiles`. */
 export interface DesktopProfileStateV1 {
   /** Stored format discriminator. */
@@ -262,6 +277,92 @@ function selectableProfile(home: string, name: string): DesktopProfileSummary {
     )
   }
   return summary
+}
+
+function deletionTarget(options: DesktopProfileDeletionOptions, name: string): string {
+  assertDesktopProfileName(name)
+  if (name === options.currentProfileName) {
+    throw new Error(`${BIN_NAME}: current profile ${JSON.stringify(name)} cannot be deleted`)
+  }
+  const target = resolveProfileDir(name, options.home)
+  let item
+  try {
+    item = lstatSync(target)
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`${BIN_NAME}: profile ${JSON.stringify(name)} does not exist`)
+    }
+    throw cause
+  }
+  if (!item.isDirectory() || item.isSymbolicLink()) {
+    throw new Error(`${BIN_NAME}: profile ${JSON.stringify(name)} is not a real directory`)
+  }
+  let manifest
+  try {
+    manifest = lstatSync(join(target, PROFILE_MANIFEST_FILENAME))
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`${BIN_NAME}: profile ${JSON.stringify(name)} does not exist`)
+    }
+    throw cause
+  }
+  if (!manifest.isFile() || manifest.isSymbolicLink()) {
+    throw new Error(`${BIN_NAME}: profile ${JSON.stringify(name)} has an unsafe manifest`)
+  }
+  return target
+}
+
+/** Return whether a profile is eligible for deletion using current selection state. */
+export function canDeleteDesktopProfile(options: DesktopProfileDeletionOptions, name: string): boolean {
+  try {
+    deletionTarget(options, name)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Remove one inactive user profile through a same-filesystem staging rename.
+ * Selection and filesystem checks are repeated immediately before the rename;
+ * an install recovery transaction for the target profile always wins over a
+ * deletion request.
+ */
+export async function deleteDesktopProfile(
+  options: DesktopProfileDeletionOptions,
+  name: string,
+): Promise<void> {
+  const target = deletionTarget(options, name)
+  const transaction = await options.installRecovery?.read()
+  if (transaction?.profileName === name) {
+    throw new Error(`${BIN_NAME}: profile ${JSON.stringify(name)} has a pending install recovery transaction`)
+  }
+  // Re-read selection state after the asynchronous recovery check to close the
+  // most important stale-selection window before the atomic rename.
+  const confirmedTarget = deletionTarget(options, name)
+  if (confirmedTarget !== target) {
+    throw new Error(`${BIN_NAME}: profile deletion target changed during validation`)
+  }
+  const parent = dirname(target)
+  const parentInfo = lstatSync(parent)
+  if (!parentInfo.isDirectory() || parentInfo.isSymbolicLink()) {
+    throw new Error(`${BIN_NAME}: profile directory parent is not a real directory`)
+  }
+  const staging = join(parent, `.${basename(target)}.deleting-${process.pid}-${randomUUID()}`)
+  renameSync(target, staging)
+  try {
+    await options.clearDisabledState?.()
+    await options.clearCheckpoint?.()
+    const stagedInfo = lstatSync(staging)
+    if (!stagedInfo.isDirectory() || stagedInfo.isSymbolicLink()) {
+      throw new Error(`${BIN_NAME}: profile deletion staging entry is unsafe`)
+    }
+    rmSync(staging, { recursive: true, force: false })
+  } catch (cause) {
+    // A failed cleanup or final removal leaves the user's profile recoverable.
+    try { renameSync(staging, target) } catch { /* preserve the original failure */ }
+    throw cause
+  }
 }
 
 /** Parse the complete state document and reject unknown format versions. */

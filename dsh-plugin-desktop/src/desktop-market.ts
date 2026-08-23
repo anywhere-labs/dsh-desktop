@@ -24,6 +24,20 @@ const MAX_STATE_BYTES = 4 * 1024
 /** Market implementation selected for the next Desktop generation. */
 export type DesktopMarketProvider = 'disabled' | 'community-market' | 'dsh-market'
 
+/** Canonical Loader identities owned by the Desktop provider switch. */
+export const DESKTOP_MARKET_IDENTITIES = Object.freeze({
+  community: Object.freeze({
+    provider: 'community-market' as const,
+    rowId: 'community-market',
+    packageName: 'dsh-community-market',
+  }),
+  dshMarket: Object.freeze({
+    provider: 'dsh-market' as const,
+    rowId: 'dsh-market',
+    packageName: 'dshmarket',
+  }),
+})
+
 /** Persisted machine-level provider selection. Effective state is derived at boot. */
 export interface DesktopMarketStateV1 {
   readonly version: 1
@@ -52,6 +66,22 @@ function snapshot(
     requested,
     effective: requested,
     legacyDefaulted,
+  })
+}
+
+/** Preserve the explicit request while projecting a generation-local effective provider. */
+export function desktopMarketSnapshotWithEffective(
+  current: DesktopMarketSnapshot,
+  effective: DesktopMarketProvider,
+): DesktopMarketSnapshot {
+  if (!isProvider(current.requested) || !isProvider(current.effective)
+    || typeof current.legacyDefaulted !== 'boolean' || !isProvider(effective)) {
+    throw new TypeError(`${BIN_NAME}: invalid Desktop Market snapshot`)
+  }
+  return Object.freeze({
+    requested: current.requested,
+    effective,
+    legacyDefaulted: current.legacyDefaulted,
   })
 }
 

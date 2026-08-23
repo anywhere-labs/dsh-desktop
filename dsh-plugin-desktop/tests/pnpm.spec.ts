@@ -82,6 +82,7 @@ function bootstrap(root = '/desktop runtime'): DesktopPnpmBootstrap {
     dshBootstrapPath: join(root, 'app.asar', 'lib', 'desktop-cli.js'),
     installRecoveryStatePath: join(root, 'plugin-install-recovery', 'state.json'),
     generationId: 'test-generation-0001',
+    externalMarketInstallEnabled: false,
   }
 }
 
@@ -188,6 +189,71 @@ describe('desktop pnpm Host service', () => {
 
     finish(child, { exitCode: 7, signal: null })
     await expect(operation.done).resolves.toEqual({ exitCode: 7, signal: null })
+    await harness.dispose()
+  })
+
+  it('allows an unpatched dsh-market runtime to add through the external boundary', async () => {
+    const child = controlledSubprocess()
+    const harness = await createHarness([child], { ...bootstrap(), externalMarketInstallEnabled: true })
+    const operation = harness.service.runPlugin(
+      ['add', 'dshmarket@1.18.0', '--reporter=ndjson'],
+      '/workspace/dsh-market',
+    )
+
+    expect(harness.spawn.mock.calls[0]?.[0].argv).toContain('dshmarket@1.18.0')
+    finish(child)
+    await operation.done
+    await harness.dispose()
+  })
+
+  it('runs the selected dsh-market install without creating a per-install WAL', async () => {
+    const child = controlledSubprocess()
+    const selectedBootstrap = { ...bootstrap(), externalMarketInstallEnabled: true }
+    const harness = await createHarness([child], selectedBootstrap)
+    const operation = harness.service.runExternalMarketPluginInstall(
+      ['add', '--reporter=ndjson', '@scope/example-plugin@1.2.3'],
+      '/workspace/dsh-market',
+    )
+
+    expect(harness.spawn.mock.calls[0]?.[0].argv).toEqual([
+      selectedBootstrap.appExecutable,
+      '--expose-internals',
+      selectedBootstrap.dshBootstrapPath,
+      'plugin',
+      '--profile',
+      selectedBootstrap.activeProfileName,
+      'add',
+      '--reporter=ndjson',
+      '@scope/example-plugin@1.2.3',
+    ])
+    expect(harness.spawn.mock.calls[0]?.[0].cwd).toBe('/workspace/dsh-market')
+    expect(existsSync(selectedBootstrap.installRecoveryStatePath)).toBe(false)
+
+    finish(child)
+    await operation.done
+    await harness.dispose()
+  })
+
+  it('rejects the external Market boundary unless dsh-market is selected', async () => {
+    const harness = await createHarness([])
+    expect(() => harness.service.runExternalMarketPluginInstall(
+      ['add', 'example-plugin@1.0.0'],
+      '/workspace',
+    )).toThrow('unavailable for the selected Market provider')
+    await harness.dispose()
+  })
+
+  it('accepts only add with one exact npm target and flag options for dsh-market', async () => {
+    const harness = await createHarness([], { ...bootstrap(), externalMarketInstallEnabled: true })
+    for (const args of [
+      ['remove', 'example-plugin@1.0.0'],
+      ['add', 'example-plugin'],
+      ['add', 'example-plugin@latest'],
+      ['add', 'example-plugin@1.0.0', 'other-plugin@1.0.0'],
+      ['add', '--registry', 'https://registry.example', 'example-plugin@1.0.0'],
+    ]) {
+      expect(() => harness.service.runExternalMarketPluginInstall(args, '/workspace')).toThrow()
+    }
     await harness.dispose()
   })
 

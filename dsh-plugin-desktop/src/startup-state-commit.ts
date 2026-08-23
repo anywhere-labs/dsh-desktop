@@ -83,6 +83,14 @@ export class DesktopStartupStateCommit {
     }
   }
 
+  /** Persist an explicit, already-quiesced return to the last healthy Profile. */
+  restoreLastKnownGoodProfile(): string {
+    return markDesktopProfileFailed(
+      this.options.profileStatePath,
+      this.options.profile.profileName,
+    ).active
+  }
+
   /** Quiesce before persisting a failure for an install that changed this generation. */
   async commitFailure(
     input: DesktopStartupFailureCommitInput,

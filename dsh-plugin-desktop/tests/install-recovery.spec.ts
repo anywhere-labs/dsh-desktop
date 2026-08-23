@@ -4,6 +4,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -11,6 +12,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   DESKTOP_INSTALL_RECOVERY_FILES,
@@ -55,13 +57,18 @@ function fixture(files: readonly (keyof typeof PREINSTALL)[] = DESKTOP_INSTALL_R
   }
 }
 
-function store(target: Fixture, generationId = 'generation-0001'): DesktopInstallRecoveryStore {
+function store(
+  target: Fixture,
+  generationId = 'generation-0001',
+  atomicWrite: typeof writeFileAtomic = writeFileAtomic,
+): DesktopInstallRecoveryStore {
   return new DesktopInstallRecoveryStore({
     statePath: target.statePath,
     profileName: 'desktop',
     profileDir: target.profileDir,
     generationId,
     now: () => 1_800_000_000_000,
+    io: { writeFileAtomic: atomicWrite },
   })
 }
 
@@ -404,6 +411,141 @@ describe('Desktop plugin install recovery WAL', () => {
 })
 
 describe('Desktop plugin install recovery filesystem boundaries', () => {
+  it('removes incomplete backups when a preimage write fails before WAL publication', async () => {
+    const target = fixture()
+    const failing = store(target, 'generation-0001', async (path, contents, options) => {
+      if (path.endsWith('package.json.before')) throw new Error('injected backup write failure')
+      await writeFileAtomic(path, contents, options)
+    })
+
+    await expect(failing.begin({
+      packageName: 'plugin-a',
+      packageVersion: '1.0.0',
+      receiptId: 'receipt-0001',
+    })).rejects.toThrow('injected backup write failure')
+
+    expect(existsSync(target.statePath)).toBe(false)
+    expectProfile(target, PREINSTALL)
+    expect(readdirSync(join(dirname(target.statePath), 'backups'))).toEqual([])
+  })
+
+  it('removes complete backups when WAL publication fails', async () => {
+    const target = fixture()
+    const failing = store(target, 'generation-0001', async (path, contents, options) => {
+      if (path === target.statePath) throw new Error('injected WAL publication failure')
+      await writeFileAtomic(path, contents, options)
+    })
+
+    await expect(failing.begin({
+      packageName: 'plugin-a',
+      packageVersion: '1.0.0',
+      receiptId: 'receipt-0001',
+    })).rejects.toThrow('injected WAL publication failure')
+
+    expect(existsSync(target.statePath)).toBe(false)
+    expectProfile(target, PREINSTALL)
+    expect(readdirSync(join(dirname(target.statePath), 'backups'))).toEqual([])
+  })
+
+  it('keeps a prepared WAL when postimage sealing fails and denies unknown automatic rollback', async () => {
+    const target = fixture()
+    const origin = store(target)
+    const prepared = await origin.begin({
+      packageName: 'plugin-a',
+      packageVersion: '1.0.0',
+      receiptId: 'receipt-0001',
+    })
+    writePostinstall(target)
+    const failing = store(target, 'generation-0001', async (path, contents, options) => {
+      if (path === target.statePath) throw new Error('injected seal failure')
+      await writeFileAtomic(path, contents, options)
+    })
+
+    await expect(failing.seal(prepared.transactionId)).rejects.toThrow('injected seal failure')
+    expect((await origin.read())?.phase).toBe('prepared')
+    expectProfile(target, POSTINSTALL)
+
+    const restarted = store(target, 'generation-0002')
+    await expect(restarted.claim()).resolves.toMatchObject({
+      action: 'prompt',
+      reason: 'interrupted-install',
+      transaction: { phase: 'recovery-pending' },
+    })
+    await expect(restarted.restore(prepared.transactionId, 'interrupted-install')).resolves.toMatchObject({
+      status: 'manual-recovery-required',
+      mismatchedFiles: DESKTOP_INSTALL_RECOVERY_FILES,
+    })
+    expectProfile(target, POSTINSTALL)
+  })
+
+  it('retains recovery authority when rollback fails after restoring one file', async () => {
+    const target = fixture()
+    const origin = store(target)
+    const prepared = await origin.begin({
+      packageName: 'plugin-a',
+      packageVersion: '1.0.0',
+      receiptId: 'receipt-0001',
+    })
+    writePostinstall(target)
+    await origin.seal(prepared.transactionId)
+    const restarted = store(target, 'generation-0002')
+    await restarted.claim()
+    await restarted.recordFailure(prepared.transactionId, 'startup-failed')
+    const failing = store(target, 'generation-0002', async (path, contents, options) => {
+      if (path === join(target.profileDir, 'pnpm-lock.yaml')) {
+        throw new Error('injected rollback write failure')
+      }
+      await writeFileAtomic(path, contents, options)
+    })
+
+    await expect(failing.restore(prepared.transactionId, 'startup-failed'))
+      .rejects.toThrow('injected rollback write failure')
+    expect(readFileSync(join(target.profileDir, 'package.json'), 'utf8')).toBe(PREINSTALL['package.json'])
+    expect(readFileSync(join(target.profileDir, 'pnpm-lock.yaml'), 'utf8')).toBe(POSTINSTALL['pnpm-lock.yaml'])
+    expect((await restarted.read())?.phase).toBe('recovery-pending')
+
+    const nextGeneration = store(target, 'generation-0003')
+    await expect(nextGeneration.claim()).resolves.toMatchObject({ action: 'prompt' })
+    await expect(nextGeneration.restore(prepared.transactionId, 'recovery-failed')).resolves.toMatchObject({
+      status: 'restored',
+      transaction: { phase: 'rolled-back' },
+    })
+    expectProfile(target, PREINSTALL)
+  })
+
+  it('replays rollback when terminal WAL publication fails after files are restored', async () => {
+    const target = fixture()
+    const origin = store(target)
+    const prepared = await origin.begin({
+      packageName: 'plugin-a',
+      packageVersion: '1.0.0',
+      receiptId: 'receipt-0001',
+    })
+    writePostinstall(target)
+    await origin.seal(prepared.transactionId)
+    const restarted = store(target, 'generation-0002')
+    await restarted.claim()
+    await restarted.recordFailure(prepared.transactionId, 'startup-failed')
+    const failing = store(target, 'generation-0002', async (path, contents, options) => {
+      if (path === target.statePath && String(contents).includes('"phase": "rolled-back"')) {
+        throw new Error('injected terminal WAL failure')
+      }
+      await writeFileAtomic(path, contents, options)
+    })
+
+    await expect(failing.restore(prepared.transactionId, 'startup-failed'))
+      .rejects.toThrow('injected terminal WAL failure')
+    expectProfile(target, PREINSTALL)
+    expect((await restarted.read())?.phase).toBe('recovery-pending')
+
+    const nextGeneration = store(target, 'generation-0003')
+    await expect(nextGeneration.restore(prepared.transactionId, 'recovery-failed')).resolves.toMatchObject({
+      status: 'restored',
+      transaction: { phase: 'rolled-back' },
+    })
+    expectProfile(target, PREINSTALL)
+  })
+
   it.skipIf(process.platform === 'win32')('rejects symlinked profile files', async () => {
     const linked = fixture([])
     const outside = join(linked.root, 'outside-package.json')

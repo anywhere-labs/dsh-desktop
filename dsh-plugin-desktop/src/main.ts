@@ -1,6 +1,7 @@
 /** DSH Desktop executable: minimal Electron bootstrap around the Host Cordis root. */
 
 import { app, crashReporter, dialog } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -52,18 +53,29 @@ import {
 } from './install-recovery.ts'
 import {
   beginDesktopProfileStartup,
+  assertDesktopProfileName,
+  createDesktopWebProfile,
   listDesktopProfiles,
+  canDeleteDesktopProfile,
+  deleteDesktopProfile,
   readDesktopProfileState,
   selectDesktopProfile,
   type DesktopProfileStartup,
 } from './profile-manager.ts'
 import { DesktopProfileService } from './profile-service.ts'
 import { DesktopActionsService } from './desktop-actions.ts'
-import { DesktopPluginsService } from './desktop-plugins.ts'
+import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
+import {
+  desktopMarketSnapshotWithEffective,
+  readDesktopMarketStateForUserData,
+  selectDesktopMarketProvider,
+} from './desktop-market.ts'
+import DesktopSettingsController from './desktop-settings-controller.ts'
 import { DesktopStartupRecoveryController } from './startup-recovery-controller.ts'
 import {
   DesktopStartupRecoveryWindow,
   type DesktopStartupRecoveryConfigurationPaths,
+  type DesktopStartupRecoveryProfileActions,
   type DesktopStartupFailureStage,
 } from './startup-recovery-window.ts'
 import { routeDesktopStartupFailure } from './startup-failure-routing.ts'
@@ -74,6 +86,8 @@ import {
   prepareDesktopProfile,
   type SkippedOptionalEntry,
 } from './profile.ts'
+import { clearDesktopProfileCheckpoint, DesktopProfileCheckpoint } from './profile-checkpoint.ts'
+import { materializeProfile, ProfileMaterializationError } from './profile-materializer.ts'
 import type { DesktopPnpmBootstrap } from './pnpm.ts'
 import {
   createDesktopExitCoordinator,
@@ -162,6 +176,41 @@ async function showInstallRollbackNotice(
   }
 }
 
+/** Explain an automatic last-known-good profile restore before relaunching. */
+async function showProfileCheckpointRestoreNotice(
+  profileName: string,
+  locale: 'en' | 'zh',
+  logger: DesktopLogger,
+): Promise<void> {
+  const copy = locale === 'zh'
+    ? {
+        title: '已恢复最近一次可用配置',
+        message: `DSH Desktop 已恢复最近一次成功启动的配置「${profileName}」。`,
+        detail: '诊断信息已尽可能保存在本地；如果恢复涉及依赖声明，插件依赖也已按锁文件重新同步。DSH Desktop 现在将重新启动。',
+        confirm: '重新启动',
+      }
+    : {
+        title: 'Last healthy configuration restored',
+        message: `DSH Desktop restored Profile “${profileName}” from the last successful startup.`,
+        detail: 'Diagnostics were saved locally when possible. When dependency declarations were restored, plugin dependencies were synchronized from the lockfile. DSH Desktop will now restart.',
+        confirm: 'Restart',
+      }
+  try {
+    await dialog.showMessageBox({
+      type: 'info',
+      title: copy.title,
+      message: copy.message,
+      detail: copy.detail,
+      buttons: [copy.confirm],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    })
+  } catch (cause) {
+    logger.error(`${BIN_NAME}: failed to show profile restore notice: ${cause instanceof Error ? cause.message : String(cause)}`)
+  }
+}
+
 /** Report optional user UI plugins skipped to keep startup recoverable. */
 function notifySkippedOptionalEntries(
   runtime: ElectronDesktopRuntime,
@@ -230,6 +279,14 @@ async function start(): Promise<void> {
   let startupRecoveryConfigurationPaths: DesktopStartupRecoveryConfigurationPaths | undefined
   let startupStateCommit: DesktopStartupStateCommit | undefined
   let rolledBackInstallToNotify: DesktopInstallRecoveryTransaction | undefined
+  let profileCheckpoint: DesktopProfileCheckpoint | undefined
+  let restoreHealthyProfile: (() => Promise<boolean>) | undefined
+  let restoreLastKnownGoodProfile: ((token: string) => Promise<void>) | undefined
+  let startupRecoveryProfileActions: DesktopStartupRecoveryProfileActions | undefined
+  let profileRecoveryActionUsed = false
+  let recoveryTerminalAvailable = false
+  let profileRollbackPrepared = false
+  let protectedInstallVerificationActive = false
   let startupStage: DesktopStartupFailureStage = 'electron-ready'
   const appVersion = desktopProductVersion()
   try {
@@ -355,6 +412,9 @@ async function start(): Promise<void> {
           crashDumpsDir: app.getPath('crashDumps'),
           signal,
         }),
+        ...(recoveryTerminalAvailable ? { openTerminal: () => { runtime.openTerminal() } } : {}),
+        ...(startupRecoveryProfileActions === undefined ? {} : { profileActions: startupRecoveryProfileActions }),
+        ...(restoreLastKnownGoodProfile === undefined ? {} : { rollbackLastKnownGood: restoreLastKnownGoodProfile }),
       })
       return await startupRecoveryWindow.run()
     } catch (cause) {
@@ -424,12 +484,60 @@ async function start(): Promise<void> {
     const releasePnpmRuntime = generation.own(() => { pnpmRuntime.dispose() })
     const selectionStatePath = join(app.getPath('userData'), 'profile-selection', 'state.json')
     const pluginManagementStatePath = join(app.getPath('userData'), 'plugin-management', 'state.json')
+    const startupRecoveryStatePath = join(app.getPath('userData'), 'startup-recovery', 'state.json')
     startupStage = 'profile-selection'
     lifecycleRecorder.transitionStartupStage(startupStage)
     profileStartup = beginDesktopProfileStartup(selectionStatePath, homeDir)
     const activeProfileName = profileStartup.profileName
     const activeProfileDir = resolveProfileDir(activeProfileName, homeDir)
+    const recoveryProfileToken = randomUUID()
+    startupRecoveryProfileActions = {
+      token: recoveryProfileToken,
+      list: () => listDesktopProfiles(homeDir).map(profile => ({
+        name: profile.name,
+        current: profile.name === activeProfileName,
+        selectable: profile.webCapable && profile.problem === undefined,
+      })),
+      switchProfile: (name, token) => {
+        if (token !== recoveryProfileToken || profileRecoveryActionUsed) {
+          throw new Error(`${BIN_NAME}: the Profile recovery action is no longer valid`)
+        }
+        profileRecoveryActionUsed = true
+        assertDesktopProfileName(name)
+        const selection = readDesktopProfileState(selectionStatePath)
+        if (selection.active !== activeProfileName) throw new Error(`${BIN_NAME}: active Profile changed before recovery`)
+        const target = listDesktopProfiles(homeDir).find(profile => profile.name === name)
+        if (target === undefined || !target.webCapable || target.problem !== undefined) {
+          throw new Error(`${BIN_NAME}: Profile ${JSON.stringify(name)} is unavailable`)
+        }
+        selectDesktopProfile(selectionStatePath, homeDir, name)
+      },
+      openCreator: () => {
+        runtime.openProfileCreateWindow({
+          onSubmit: async name => {
+            assertDesktopProfileName(name)
+            const selection = readDesktopProfileState(selectionStatePath)
+            if (selection.active !== activeProfileName) throw new Error(`${BIN_NAME}: active Profile changed before recovery`)
+            createDesktopWebProfile(homeDir, name)
+            selectDesktopProfile(selectionStatePath, homeDir, name)
+          },
+        })
+      },
+    }
+    try {
+      profileCheckpoint = new DesktopProfileCheckpoint({
+        userDataDir: app.getPath('userData'),
+        profileDir: activeProfileDir,
+        profileName: activeProfileName,
+        provider: 'desktop-profile',
+      })
+    } catch (cause) {
+      electronLogger.error(
+        `${BIN_NAME}: healthy profile checkpoints are unavailable: ${cause instanceof Error ? cause.message : String(cause)}`,
+      )
+    }
     startupRecoveryConfigurationPaths = {
+      settingsDocument: join(homeDir, 'settings.yaml'),
       profilePatch: join(activeProfileDir, PROFILE_PATCH_FILENAME),
       profileManifest: join(activeProfileDir, 'package.json'),
       profileDirectory: activeProfileDir,
@@ -452,7 +560,7 @@ async function start(): Promise<void> {
       pluginState: {
         profileName: activeProfileName,
         homeDir,
-        statePath: pluginManagementStatePath,
+        statePath: startupRecoveryStatePath,
       },
       generationId,
       currentGeneration: () => ({
@@ -465,6 +573,7 @@ async function start(): Promise<void> {
     lifecycleRecorder.transitionStartupStage(startupStage)
     const recoveryClaim = await installRecovery.claim()
     stateCommit.observeInstallRecoveryClaim(recoveryClaim)
+    protectedInstallVerificationActive = recoveryClaim.action === 'verify'
     if (recoveryClaim.action === 'prompt') {
       electronLogger.error(
         `${BIN_NAME}: protected plugin install ${recoveryClaim.transaction.packageName} (${recoveryClaim.transaction.transactionId}) requires a recovery choice after ${recoveryClaim.reason}`,
@@ -497,13 +606,41 @@ async function start(): Promise<void> {
     }
     startupStage = 'profile-composition'
     lifecycleRecorder.transitionStartupStage(startupStage)
-    const prepared = prepareDesktopProfile(
+    const marketUserDataDir = app.getPath('userData')
+    const marketSelection = readDesktopMarketStateForUserData(marketUserDataDir)
+    const preparationHooks = {
+      onSettingsDocumentResolved: (settingsDocument: string) => {
+        if (startupRecoveryConfigurationPaths === undefined) return
+        startupRecoveryConfigurationPaths = {
+          ...startupRecoveryConfigurationPaths,
+          settingsDocument,
+        }
+      },
+    }
+    let prepared = prepareDesktopProfile(
       process.env.DSH_TELEMETRY_DISABLED,
       homeDir,
       process.platform,
       activeProfileName,
       pluginManagementStatePath,
+      marketSelection,
+      startupRecoveryStatePath,
+      preparationHooks,
     )
+    if (profileCheckpoint === undefined) {
+      try {
+        profileCheckpoint = new DesktopProfileCheckpoint({
+          userDataDir: app.getPath('userData'),
+          profileDir: prepared.profile.dir,
+          profileName: activeProfileName,
+          provider: 'desktop-profile',
+        })
+      } catch (cause) {
+        electronLogger.error(
+          `${BIN_NAME}: healthy profile checkpoints remain unavailable: ${cause instanceof Error ? cause.message : String(cause)}`,
+        )
+      }
+    }
     startupStage = 'runtime-bootstrap'
     lifecycleRecorder.transitionStartupStage(startupStage)
     const dshBootstrapPath = fileURLToPath(new URL('./desktop-cli.js', import.meta.url))
@@ -520,6 +657,45 @@ async function start(): Promise<void> {
         })
       : undefined
     const releaseDshRuntime = generation.own(() => { dshRuntime?.dispose() })
+    if (prepared.requiresDependencyMigration) {
+      electronLogger.error(`${BIN_NAME}: migrating legacy Profile dependency layout with packaged pnpm`)
+      try {
+        await materializeProfile({
+          appExecutable: process.execPath,
+          clearEnvironmentPath: pnpmRuntime.clearEnvironmentPath,
+          pnpmBinPath,
+          nodeBinDir: pnpmRuntime.nodeBinDir,
+          nodeShimPath: pnpmRuntime.nodeShimPath,
+          homeDir,
+          profileDir: prepared.profile.dir,
+          electronVersion,
+          updateLockfile: true,
+        })
+        prepared = prepareDesktopProfile(
+          process.env.DSH_TELEMETRY_DISABLED,
+          homeDir,
+          process.platform,
+          activeProfileName,
+          pluginManagementStatePath,
+          marketSelection,
+          startupRecoveryStatePath,
+          preparationHooks,
+        )
+        if (prepared.requiresDependencyMigration) {
+          throw new Error(`${BIN_NAME}: packaged pnpm did not produce compatible Profile dependency metadata`)
+        }
+      } catch (migrationCause) {
+        const detail = migrationCause instanceof ProfileMaterializationError
+          ? migrationCause.result?.stderr || migrationCause.message
+          : migrationCause instanceof Error ? migrationCause.message : String(migrationCause)
+        throw new Error(`${BIN_NAME}: Profile dependency migration failed: ${maskSecrets(detail)}`)
+      }
+    }
+    if (prepared.marketFailure !== undefined) {
+      electronLogger.error(
+        `${BIN_NAME}: requested Market provider ${prepared.market.requested} was disabled for this generation: ${prepared.marketFailure}`,
+      )
+    }
     const desktopPnpmBootstrap: DesktopPnpmBootstrap = {
       activeProfileName,
       activeProfileDir: prepared.profile.dir,
@@ -533,10 +709,122 @@ async function start(): Promise<void> {
       dshBootstrapPath,
       installRecoveryStatePath,
       generationId,
+      externalMarketInstallEnabled: prepared.market.effective === 'dsh-market',
+    }
+    const restoreProfileCheckpoint = async (
+      checkpoint: DesktopProfileCheckpoint,
+      profileName: string,
+      profileDir: string,
+      attemptId: string,
+      forceMaterialization = false,
+      showNotice = true,
+    ): Promise<boolean> => {
+      const inspection = checkpoint.inspectRestore(attemptId)
+      if (!inspection.snapshotExists || inspection.restoreAttempted
+        || (!inspection.currentDiffers && !forceMaterialization)) return false
+      try {
+        const diagnosticsPath = await exportDesktopDiagnostics(app.getPath('userData'), {
+          appVersion,
+          crashDumpsDir: app.getPath('crashDumps'),
+        })
+        electronLogger.error(`${BIN_NAME}: startup diagnostics saved before profile restore: ${diagnosticsPath}`)
+      } catch (diagnosticCause) {
+        electronLogger.error(
+          `${BIN_NAME}: failed to export diagnostics before profile restore: ${diagnosticCause instanceof Error ? diagnosticCause.message : String(diagnosticCause)}`,
+        )
+      }
+      const restored = checkpoint.restoreLatest(attemptId)
+      if (restored.status !== 'restored') return false
+      const dependencyFilesChanged = restored.changedFiles.some(name =>
+        name === 'package.json' || name === 'pnpm-lock.yaml' || name === 'pnpm-workspace.yaml')
+      if (dependencyFilesChanged || forceMaterialization) {
+        try {
+          await materializeProfile({
+            appExecutable: process.execPath,
+            clearEnvironmentPath: pnpmRuntime.clearEnvironmentPath,
+            pnpmBinPath,
+            nodeBinDir: pnpmRuntime.nodeBinDir,
+            nodeShimPath: pnpmRuntime.nodeShimPath,
+            homeDir,
+            profileDir,
+            electronVersion,
+          })
+        } catch (materializationCause) {
+          const detail = materializationCause instanceof ProfileMaterializationError
+            ? materializationCause.result?.stderr || materializationCause.message
+            : materializationCause instanceof Error ? materializationCause.message : String(materializationCause)
+          electronLogger.error(`${BIN_NAME}: restored profile dependency synchronization failed: ${maskSecrets(detail)}`)
+          return false
+        }
+      }
+      if (showNotice) {
+        await showProfileCheckpointRestoreNotice(
+          profileName,
+          desktopLocaleFromLanguageTag(app.getLocale()),
+          electronLogger,
+        )
+      }
+      return true
+    }
+    restoreHealthyProfile = async () => {
+      const checkpoint = profileCheckpoint
+      if (checkpoint === undefined) return false
+      return await restoreProfileCheckpoint(
+        checkpoint,
+        activeProfileName,
+        activeProfileDir,
+        generationId,
+      )
+    }
+    restoreLastKnownGoodProfile = async (token: string) => {
+      if (token !== recoveryProfileToken || profileRecoveryActionUsed) {
+        throw new Error(`${BIN_NAME}: the Profile recovery action is no longer valid`)
+      }
+      profileRecoveryActionUsed = true
+      const selection = readDesktopProfileState(selectionStatePath)
+      if (selection.active !== activeProfileName) throw new Error(`${BIN_NAME}: active Profile changed before recovery`)
+      const targetProfile = selection.lastKnownGood
+      const target = listDesktopProfiles(homeDir).find(profile => profile.name === targetProfile)
+      if (target === undefined || !target.webCapable || target.problem !== undefined) {
+        throw new Error(`${BIN_NAME}: last-known-good Profile is unavailable`)
+      }
+      const targetDir = resolveProfileDir(targetProfile, homeDir)
+      const targetCheckpoint = targetProfile === activeProfileName && profileCheckpoint !== undefined
+        ? profileCheckpoint
+        : new DesktopProfileCheckpoint({
+            userDataDir: app.getPath('userData'),
+            profileDir: targetDir,
+            profileName: targetProfile,
+            provider: 'desktop-profile',
+          })
+      if (!targetCheckpoint.inspectRestore().snapshotExists) {
+        throw new Error(`${BIN_NAME}: no healthy configuration snapshot is available`)
+      }
+      if (!await generation.quiesceForRecovery()) {
+        throw new Error(`${BIN_NAME}: Host could not be stopped safely for Profile recovery`)
+      }
+      const restored = await restoreProfileCheckpoint(
+        targetCheckpoint,
+        targetProfile,
+        targetDir,
+        `manual-${generationId}-${randomUUID()}`,
+        true,
+        false,
+      )
+      if (!restored) throw new Error(`${BIN_NAME}: healthy Profile snapshot was not restored`)
+      selectDesktopProfile(selectionStatePath, homeDir, targetProfile)
     }
     startupStage = 'host-boot'
     lifecycleRecorder.transitionStartupStage(startupStage)
     const releasePackageResolver = installProfilePackageResolver(prepared.bareModuleBaseUrl)
+    // Configure the launcher-owned terminal before Host boot so the native
+    // recovery window can still open it when profile composition fails.
+    runtime.configureTerminal({
+      profileName: activeProfileName,
+      profileDir: prepared.profile.dir,
+      homeDir: prepared.homeDir,
+    })
+    recoveryTerminalAvailable = true
     const ctx = await boot(
       BIN_NAME,
       prepared.rootConfig,
@@ -564,12 +852,15 @@ async function start(): Promise<void> {
           openTerminal: () => { runtime.openTerminal() },
           requestRestart: () => runtime.requestRestart(),
         })
-        await hostCtx.plugin(DesktopPluginsService, {
-          profileName: activeProfileName,
-          homeDir,
-          statePath: pluginManagementStatePath,
-          installAnchor: desktopInstallAnchor(),
-        })
+        if (prepared.market.effective === 'community-market') {
+          await hostCtx.plugin(DesktopPluginsService, {
+            profileName: activeProfileName,
+            homeDir,
+            statePath: pluginManagementStatePath,
+            recoveryStatePath: startupRecoveryStatePath,
+            installAnchor: desktopInstallAnchor(),
+          })
+        }
         if (logSink !== undefined) {
           fileExporter = new FileExporter(logSink)
           hostCtx.logger.exporter(fileExporter)
@@ -579,10 +870,138 @@ async function start(): Promise<void> {
             name: activeProfileName,
             dir: prepared.profile.dir,
           },
+          create: name => createDesktopWebProfile(homeDir, name),
           list: () => listDesktopProfiles(homeDir),
+          canDelete: name => canDeleteDesktopProfile({
+            home: homeDir,
+            selectionStatePath,
+            currentProfileName: activeProfileName,
+          }, name),
+          delete: name => deleteDesktopProfile({
+            home: homeDir,
+            selectionStatePath,
+            currentProfileName: activeProfileName,
+            ...(installRecovery === undefined ? {} : { installRecovery }),
+            clearDisabledState: () => clearDesktopProfilePluginState(pluginManagementStatePath, name),
+            clearCheckpoint: () => clearDesktopProfileCheckpoint(app.getPath('userData'), resolveProfileDir(name, homeDir)),
+          }, name),
           persistSelection: name => { selectDesktopProfile(selectionStatePath, homeDir, name) },
           requestRestart: () => runtime.requestRestart(),
         })
+        let pendingSettingsRestart: ReturnType<typeof setImmediate> | undefined
+        const scheduleSettingsRestart = (): void => {
+          pendingSettingsRestart ??= setImmediate(() => {
+            pendingSettingsRestart = undefined
+            void runtime.requestRestart().catch((cause: unknown) => {
+              hostCtx.logger.error(
+                `${BIN_NAME}: failed to restart after Desktop setting change: ${cause instanceof Error ? cause.message : String(cause)}`,
+              )
+            })
+          })
+        }
+        hostCtx.effect(() => () => {
+          if (pendingSettingsRestart !== undefined) clearImmediate(pendingSettingsRestart)
+          pendingSettingsRestart = undefined
+        }, 'dsh-plugin-desktop: pending Desktop settings restart')
+        const readMarket = () => desktopMarketSnapshotWithEffective(
+          readDesktopMarketStateForUserData(marketUserDataDir),
+          prepared.market.effective,
+        )
+        const prepareProfileRollback = () => {
+          if (profileRollbackPrepared) {
+            throw new Error(`${BIN_NAME}: a last-known-good Profile restore is already pending`)
+          }
+          const selection = readDesktopProfileState(selectionStatePath)
+          if (selection.active !== activeProfileName) {
+            throw new Error(`${BIN_NAME}: active Profile changed before recovery`)
+          }
+          const targetProfile = selection.lastKnownGood
+          const target = listDesktopProfiles(homeDir).find(candidate => candidate.name === targetProfile)
+          if (target === undefined || !target.webCapable || target.problem !== undefined) {
+            throw new Error(`${BIN_NAME}: last-known-good Profile is unavailable`)
+          }
+          const targetDir = resolveProfileDir(targetProfile, homeDir)
+          let targetCheckpoint: DesktopProfileCheckpoint | undefined
+          let targetSnapshotExists = false
+          if (target.exists) {
+            targetCheckpoint = targetProfile === activeProfileName && profileCheckpoint !== undefined
+              ? profileCheckpoint
+              : new DesktopProfileCheckpoint({
+                  userDataDir: app.getPath('userData'),
+                  profileDir: targetDir,
+                  profileName: targetProfile,
+                  provider: 'desktop-profile',
+                })
+            targetSnapshotExists = targetCheckpoint.inspectRestore().snapshotExists
+          }
+          if (targetCheckpoint === undefined || !targetSnapshotExists) {
+            throw new Error(`${BIN_NAME}: no healthy configuration snapshot is available`)
+          }
+          profileRollbackPrepared = true
+          return Object.freeze({
+            response: Object.freeze({
+              accepted: true as const,
+              restartRequired: true as const,
+              targetProfile,
+            }),
+            afterResponse: () => {
+              void (async () => {
+                const fresh = readDesktopProfileState(selectionStatePath)
+                if (fresh.active !== activeProfileName || fresh.lastKnownGood !== targetProfile) {
+                  throw new Error(`${BIN_NAME}: Profile selection changed before recovery`)
+                }
+                if (!await generation.quiesceForRecovery()) {
+                  throw new Error(`${BIN_NAME}: Host could not be stopped safely for Profile recovery`)
+                }
+                const restored = await restoreProfileCheckpoint(
+                  targetCheckpoint,
+                  targetProfile,
+                  targetDir,
+                  `manual-${generationId}`,
+                  true,
+                )
+                if (!restored) throw new Error(`${BIN_NAME}: healthy Profile snapshot was not restored`)
+                stateCommit.restoreLastKnownGoodProfile()
+                nativeExit.requestRelaunch()
+                await shutdown?.request(0)
+              })().catch(async (cause: unknown) => {
+                const detail = cause instanceof Error ? cause.message : String(cause)
+                electronLogger.error(
+                  `${BIN_NAME}: explicit last-known-good Profile restore failed: ${detail}`,
+                )
+                const recoveryResult = await openStartupRecoveryWindow(
+                  `The requested last-known-good Profile restore could not be completed: ${detail}`,
+                  startupRecoveryController,
+                )
+                if (recoveryResult === 'restart') nativeExit.requestRelaunch()
+                await shutdown?.request(recoveryResult === 'restart' ? 0 : 1)
+              })
+            },
+          })
+        }
+        hostCtx.provide('desktopSettingsController', new DesktopSettingsController({
+          profiles: hostCtx.desktopProfiles,
+          persistProfileSelection: name => {
+            selectDesktopProfile(selectionStatePath, homeDir, name)
+          },
+          readMarket,
+          selectMarket: async provider => desktopMarketSnapshotWithEffective(
+            await selectDesktopMarketProvider(marketUserDataDir, provider),
+            prepared.market.effective,
+          ),
+          scheduleRestart: scheduleSettingsRestart,
+          openTerminal: () => { runtime.openTerminal() },
+          exportDiagnostics: () => runtime.exportDiagnostics(),
+          openProfileCreator: () => {
+            runtime.openProfileCreateWindow({
+              onSubmit: async name => {
+                hostCtx.desktopProfiles.create(name)
+                await hostCtx.desktopProfiles.select(name)
+              },
+            })
+          },
+          prepareProfileRollback,
+        }))
         provideCmdline(hostCtx, {
           args: ['--host', '127.0.0.1', '--port', String(prepared.port)],
           exit: requestQuit,
@@ -599,11 +1018,6 @@ async function start(): Promise<void> {
       if (namespace !== DESKTOP_SETTINGS_NAMESPACE) return
       fileExporter?.setThreshold((next as DesktopSettings).logLevel)
     })
-    runtime.configureTerminal({
-      profileName: activeProfileName,
-      profileDir: prepared.profile.dir,
-      homeDir: prepared.homeDir,
-    })
     startupStage = 'renderer-startup'
     lifecycleRecorder.transitionStartupStage(startupStage)
     lifecycleRecorder.startRendererBoot()
@@ -613,6 +1027,13 @@ async function start(): Promise<void> {
         startupStage = 'health-commit'
         lifecycleRecorder.transitionStartupStage(startupStage)
         await stateCommit.commitHealthy()
+        try {
+          profileCheckpoint?.captureHealthy()
+        } catch (cause) {
+          electronLogger.error(
+            `${BIN_NAME}: failed to checkpoint the healthy profile configuration: ${cause instanceof Error ? cause.message : String(cause)}`,
+          )
+        }
       },
     })
     const [, rendererVerdict] = await Promise.all([
@@ -629,7 +1050,15 @@ async function start(): Promise<void> {
         )
         if (notified && installRecovery !== undefined) {
           try {
-            await installRecovery.markRollbackNotified(rolledBackInstallToNotify.transactionId)
+            const transaction = rolledBackInstallToNotify
+            if (transaction.receiptId.startsWith('dsh-market:')) {
+              // dsh-market has no receipt ledger to reconcile. Its Desktop
+              // compatibility receipt exists only to bind the recovery WAL,
+              // so the launcher owns cleanup after the user sees the result.
+              await installRecovery.clear(transaction.transactionId)
+            } else {
+              await installRecovery.markRollbackNotified(transaction.transactionId)
+            }
             rolledBackInstallToNotify = undefined
           } catch (cause) {
             electronLogger.error(
@@ -663,6 +1092,23 @@ async function start(): Promise<void> {
     const failureReason: DesktopInstallRecoveryFailureReason = cause instanceof RendererStartupFailure
       ? cause.reason
       : runtime.rendererBootFailureReason ?? 'startup-failed'
+    if (!protectedInstallVerificationActive && restoreHealthyProfile !== undefined) {
+      const recoveryActionsSafe = await generation.quiesceForRecovery()
+      if (recoveryActionsSafe) {
+        try {
+          if (await restoreHealthyProfile()) {
+            nativeExit.requestRelaunch()
+            startupRecoveryController?.dispose()
+            await shutdown.request(0)
+            return
+          }
+        } catch (restoreCause) {
+          electronLogger.error(
+            `${BIN_NAME}: latest healthy profile restore was unavailable: ${restoreCause instanceof Error ? restoreCause.message : String(restoreCause)}`,
+          )
+        }
+      }
+    }
     const failureCommit = startupStateCommit === undefined
       ? {
           route: routeDesktopStartupFailure({

@@ -13,7 +13,9 @@ import {
   prepareDesktopProfile,
   readDesktopShellMode,
   shippedPresetRoot,
+  validateDshMarketBundlePatches,
 } from '../src/profile.ts'
+import { DESKTOP_MARKET_IDENTITIES } from '../src/desktop-market.ts'
 
 const homes: string[] = []
 
@@ -36,6 +38,7 @@ function installWebClient(
   mkdirSync(packageDir, { recursive: true })
   writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
     name: packageName,
+    version: '1.0.0',
     type: 'module',
     dsh: { client: { platform: 'web' } },
     ...manifest,
@@ -44,14 +47,16 @@ function installWebClient(
   return webDir
 }
 
-function installBundle(home: string, packageName: string, patch: string): void {
+function installBundle(home: string, packageName: string, patch: string, version = '1.0.0'): string {
   const bundleDir = join(home, 'profiles', 'desktop', 'node_modules', packageName)
   mkdirSync(bundleDir, { recursive: true })
   writeFileSync(join(bundleDir, 'package.json'), JSON.stringify({
     name: packageName,
+    version,
     dsh: { bundle: { patch: './cordis.patch.yml' } },
   }) + '\n')
   writeFileSync(join(bundleDir, 'cordis.patch.yml'), patch)
+  return bundleDir
 }
 
 afterEach(() => {
@@ -172,6 +177,99 @@ describe('desktop profile composition', {
     ])
   })
 
+  it('marks legacy isolated Profile dependencies for one-time migration', () => {
+    const home = temporaryHome()
+    const dir = ensureDesktopProfile(home)
+    const modulesDir = join(dir, 'node_modules')
+    mkdirSync(modulesDir, { recursive: true })
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), `packages:
+  - .
+
+nodeLinker: isolated
+autoInstallPeers: true
+customSetting: preserved
+`)
+    writeFileSync(join(modulesDir, '.modules.yaml'), `layoutVersion: 5
+nodeLinker: isolated
+packageManager: pnpm@9.12.0
+`)
+    writeFileSync(join(dir, 'pnpm-lock.yaml'), `lockfileVersion: '9.0'
+settings:
+  autoInstallPeers: true
+`)
+
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+
+    expect(prepared.requiresDependencyMigration).toBe(true)
+    expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain('nodeLinker: hoisted')
+    expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain('autoInstallPeers: false')
+    expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain('customSetting: preserved')
+  })
+
+  it('leaves an already-hoisted Profile dependency tree untouched', () => {
+    const home = temporaryHome()
+    const dir = ensureDesktopProfile(home)
+    const modulesDir = join(dir, 'node_modules')
+    mkdirSync(modulesDir, { recursive: true })
+    writeFileSync(join(modulesDir, '.modules.yaml'), `layoutVersion: 5
+nodeLinker: hoisted
+packageManager: pnpm@11.7.0
+virtualStoreDirMaxLength: 120
+`)
+
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+
+    expect(prepared.requiresDependencyMigration).toBe(false)
+  })
+
+  it('migrates a hoisted Profile dependency tree created by pnpm 9', () => {
+    const home = temporaryHome()
+    const dir = ensureDesktopProfile(home)
+    const modulesDir = join(dir, 'node_modules')
+    mkdirSync(modulesDir, { recursive: true })
+    writeFileSync(join(modulesDir, '.modules.yaml'), `layoutVersion: 5
+nodeLinker: hoisted
+packageManager: pnpm@9.12.0
+virtualStoreDirMaxLength: 120
+`)
+
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+
+    expect(prepared.requiresDependencyMigration).toBe(true)
+  })
+
+  it('migrates Windows Profile metadata created with the non-Windows virtual store limit', () => {
+    const home = temporaryHome()
+    const dir = ensureDesktopProfile(home)
+    const modulesDir = join(dir, 'node_modules')
+    mkdirSync(modulesDir, { recursive: true })
+    writeFileSync(join(modulesDir, '.modules.yaml'), `layoutVersion: 5
+nodeLinker: hoisted
+packageManager: pnpm@11.7.0
+virtualStoreDirMaxLength: 120
+`)
+
+    const prepared = prepareDesktopProfile(undefined, home, 'win32')
+
+    expect(prepared.requiresDependencyMigration).toBe(true)
+  })
+
+  it('leaves current Windows Profile dependency metadata untouched', () => {
+    const home = temporaryHome()
+    const dir = ensureDesktopProfile(home)
+    const modulesDir = join(dir, 'node_modules')
+    mkdirSync(modulesDir, { recursive: true })
+    writeFileSync(join(modulesDir, '.modules.yaml'), `layoutVersion: 5
+nodeLinker: hoisted
+packageManager: pnpm@11.7.0
+virtualStoreDirMaxLength: 60
+`)
+
+    const prepared = prepareDesktopProfile(undefined, home, 'win32')
+
+    expect(prepared.requiresDependencyMigration).toBe(false)
+  })
+
   it('rejects malformed persistent bundle metadata', () => {
     const home = temporaryHome()
     const dir = ensureDesktopProfile(home)
@@ -195,7 +293,13 @@ describe('desktop profile composition', {
     }))
     expect(patches).toContainEqual(expect.objectContaining({
       id: 'webserver',
-      config: { host: '127.0.0.1', port: 0 },
+      name: '@deepseek-ai/dsh-host-webserver',
+      disabled: true,
+    }))
+    expect(inserted).toContainEqual(expect.objectContaining({
+      id: 'desktop-webserver',
+      name: 'dsh-plugin-desktop/webserver',
+      config: { host: '127.0.0.1', port: 43_120 },
     }))
     expect(patches).toContainEqual(expect.objectContaining({
       id: 'agent-presets',
@@ -257,6 +361,217 @@ describe('desktop profile composition', {
     }))
   })
 
+  it('keeps both Market providers absent until the user explicitly enables one', () => {
+    const home = temporaryHome()
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+    const rows = composeEntries([prepared.patches])
+
+    expect(prepared.market).toEqual({
+      requested: 'disabled',
+      effective: 'disabled',
+      legacyDefaulted: true,
+    })
+    expect(rows.some(row => row.id === DESKTOP_MARKET_IDENTITIES.community.rowId
+      || row.id === DESKTOP_MARKET_IDENTITIES.dshMarket.rowId)).toBe(false)
+  })
+
+  it('inserts the community Market as one canonical row only after explicit selection', () => {
+    const home = temporaryHome()
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin', 'desktop', undefined, {
+      requested: 'community-market',
+      effective: 'community-market',
+      legacyDefaulted: false,
+    })
+    const rows = composeEntries([prepared.patches])
+
+    expect(prepared.market.effective).toBe('community-market')
+    expect(rows.filter(row => row.id === DESKTOP_MARKET_IDENTITIES.community.rowId)).toEqual([{
+      id: DESKTOP_MARKET_IDENTITIES.community.rowId,
+      name: DESKTOP_MARKET_IDENTITIES.community.packageName,
+    }])
+    expect(rows.some(row => row.id === DESKTOP_MARKET_IDENTITIES.dshMarket.rowId)).toBe(false)
+  })
+
+  it('loads the exact dshmarket dependency as a direct bundle only after explicit selection', () => {
+    const home = temporaryHome()
+    const profileMarketDir = installBundle(home, DESKTOP_MARKET_IDENTITIES.dshMarket.packageName, [
+      '- insert:',
+      '    - id: dsh-market',
+      '      name: dshmarket',
+      '',
+    ].join('\n'), '99.0.0')
+    const profileManifestPath = join(ensureDesktopProfile(home), 'package.json')
+    const profileManifest = JSON.parse(readFileSync(profileManifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    profileManifest.dsh.profile.bundles.push(DESKTOP_MARKET_IDENTITIES.dshMarket.packageName)
+    writeFileSync(profileManifestPath, JSON.stringify(profileManifest) + '\n')
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin', 'desktop', undefined, {
+      requested: 'dsh-market',
+      effective: 'dsh-market',
+      legacyDefaulted: false,
+    })
+    const rows = composeEntries([prepared.patches])
+
+    expect(prepared.market.effective).toBe('dsh-market')
+    expect(prepared.profile.layers.find(layer =>
+      layer.packageName === DESKTOP_MARKET_IDENTITIES.dshMarket.packageName)?.packageDir,
+    ).toBe(profileMarketDir)
+    expect(rows.filter(row => row.id === DESKTOP_MARKET_IDENTITIES.dshMarket.rowId)).toEqual([{
+      id: DESKTOP_MARKET_IDENTITIES.dshMarket.rowId,
+      name: DESKTOP_MARKET_IDENTITIES.dshMarket.packageName,
+    }])
+    expect(rows.some(row => row.id === DESKTOP_MARKET_IDENTITIES.community.rowId)).toBe(false)
+  })
+
+  it('keeps the newer Desktop dshmarket when a Profile copy is older', () => {
+    const home = temporaryHome()
+    const oldProfileMarketDir = installBundle(home, DESKTOP_MARKET_IDENTITIES.dshMarket.packageName, [
+      '- insert:',
+      '    - id: dsh-market',
+      '      name: dshmarket',
+      '',
+    ].join('\n'), '0.1.0')
+    const profileManifestPath = join(ensureDesktopProfile(home), 'package.json')
+    const profileManifest = JSON.parse(readFileSync(profileManifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    profileManifest.dsh.profile.bundles.push(DESKTOP_MARKET_IDENTITIES.dshMarket.packageName)
+    writeFileSync(profileManifestPath, `${JSON.stringify(profileManifest)}\n`)
+
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin', 'desktop', undefined, {
+      requested: 'dsh-market',
+      effective: 'dsh-market',
+      legacyDefaulted: false,
+    })
+    const selected = prepared.profile.layers.find(layer =>
+      layer.packageName === DESKTOP_MARKET_IDENTITIES.dshMarket.packageName)
+    expect(selected?.packageDir).not.toBe(oldProfileMarketDir)
+    expect(JSON.parse(readFileSync(join(selected!.packageDir, 'package.json'), 'utf8'))).toMatchObject({
+      name: 'dshmarket',
+      version: '1.17.1',
+    })
+  })
+
+  it('does not let community-management disables suppress a third-party market', () => {
+    const home = temporaryHome()
+    const packageName = 'third-party-plugin'
+    installBundle(home, packageName, '- insert:\n    - id: third-party-marker\n      name: cordis:example\n')
+    const profileManifestPath = join(ensureDesktopProfile(home), 'package.json')
+    const profileManifest = JSON.parse(readFileSync(profileManifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    profileManifest.dsh.profile.bundles.push(packageName)
+    writeFileSync(profileManifestPath, JSON.stringify(profileManifest) + '\n')
+    const managementStatePath = join(home, 'user-data', 'plugin-management', 'state.json')
+    const recoveryStatePath = join(home, 'user-data', 'startup-recovery', 'state.json')
+    mkdirSync(dirname(managementStatePath), { recursive: true })
+    writeFileSync(managementStatePath, JSON.stringify({
+      version: 1,
+      profiles: [{ profileName: 'desktop', disabledBundles: [packageName] }],
+    }) + '\n')
+
+    const external = prepareDesktopProfile(
+      undefined,
+      home,
+      'darwin',
+      'desktop',
+      managementStatePath,
+      { requested: 'dsh-market', effective: 'dsh-market', legacyDefaulted: false },
+      recoveryStatePath,
+    )
+    expect(composeEntries([external.patches])).toContainEqual(expect.objectContaining({
+      id: 'third-party-marker',
+    }))
+
+    const community = prepareDesktopProfile(
+      undefined,
+      home,
+      'darwin',
+      'desktop',
+      managementStatePath,
+      { requested: 'community-market', effective: 'community-market', legacyDefaulted: false },
+      recoveryStatePath,
+    )
+    expect(composeEntries([community.patches])).not.toContainEqual(expect.objectContaining({
+      id: 'third-party-marker',
+    }))
+  })
+
+  it('keeps a startup-recovery disable effective for every market provider', () => {
+    const home = temporaryHome()
+    const packageName = 'third-party-plugin'
+    installBundle(home, packageName, '- insert:\n    - id: third-party-marker\n      name: cordis:example\n')
+    const profileManifestPath = join(ensureDesktopProfile(home), 'package.json')
+    const profileManifest = JSON.parse(readFileSync(profileManifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    profileManifest.dsh.profile.bundles.push(packageName)
+    writeFileSync(profileManifestPath, JSON.stringify(profileManifest) + '\n')
+    const managementStatePath = join(home, 'user-data', 'plugin-management', 'state.json')
+    const recoveryStatePath = join(home, 'user-data', 'startup-recovery', 'state.json')
+    mkdirSync(dirname(recoveryStatePath), { recursive: true })
+    writeFileSync(recoveryStatePath, JSON.stringify({
+      version: 1,
+      profiles: [{ profileName: 'desktop', disabledBundles: [packageName] }],
+    }) + '\n')
+
+    const prepared = prepareDesktopProfile(
+      undefined,
+      home,
+      'darwin',
+      'desktop',
+      managementStatePath,
+      { requested: 'dsh-market', effective: 'dsh-market', legacyDefaulted: false },
+      recoveryStatePath,
+    )
+    expect(composeEntries([prepared.patches])).not.toContainEqual(expect.objectContaining({
+      id: 'third-party-marker',
+    }))
+  })
+
+  it('filters an unselected dshmarket bundle before resolving or parsing its patch', () => {
+    const home = temporaryHome()
+    const dir = ensureDesktopProfile(home)
+    const manifestPath = join(dir, 'package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    manifest.dsh.profile.bundles.push(DESKTOP_MARKET_IDENTITIES.dshMarket.packageName)
+    writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\n')
+    installBundle(home, DESKTOP_MARKET_IDENTITIES.dshMarket.packageName, 'not: [valid yaml')
+
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+    const rows = composeEntries([prepared.patches])
+
+    expect(prepared.market.effective).toBe('disabled')
+    expect(rows.some(row => row.id === DESKTOP_MARKET_IDENTITIES.dshMarket.rowId)).toBe(false)
+  })
+
+  it('fails a conflicting provider identity closed without blocking the core profile', () => {
+    const home = temporaryHome()
+    writeFileSync(join(home, 'cordis.patch.yml'), `- insert:\n    - id: community-market\n      name: dsh-community-market\n`)
+
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin', 'desktop', undefined, {
+      requested: 'community-market',
+      effective: 'community-market',
+      legacyDefaulted: false,
+    })
+    const rows = composeEntries([prepared.patches])
+
+    expect(prepared.market.effective).toBe('disabled')
+    expect(prepared.marketFailure).toContain('conflicting Market provider Loader identity')
+    expect(rows.some(row => row.id === DESKTOP_MARKET_IDENTITIES.community.rowId
+      || row.id === DESKTOP_MARKET_IDENTITIES.dshMarket.rowId)).toBe(false)
+    expect(rows.some(row => row.id === 'webserver')).toBe(true)
+  })
+
+  it('rejects a non-canonical dshmarket bundle patch before it reaches the Loader', () => {
+    expect(() => validateDshMarketBundlePatches([{
+      insert: [{ id: 'dsh-market', name: 'unexpected-market' }],
+    }])).toThrow('must insert exactly the canonical dsh-market row')
+  })
+
   it('boots a selected Web profile without overriding its compatibility UI rows', () => {
     const home = temporaryHome()
     const webDir = join(home, 'profiles', 'web')
@@ -305,6 +620,11 @@ describe('desktop profile composition', {
       config: expect.objectContaining({ mode: 'advanced', port: 43_189 }),
     }))
     expect(rows.find(row => row.id === 'webserver')).toEqual(expect.objectContaining({
+      name: '@deepseek-ai/dsh-host-webserver',
+      disabled: true,
+    }))
+    expect(rows.find(row => row.id === 'desktop-webserver')).toEqual(expect.objectContaining({
+      name: 'dsh-plugin-desktop/webserver',
       config: { host: '127.0.0.1', port: 43_189 },
     }))
     expect(rows.find(row => row.id === 'settings')).toEqual(expect.objectContaining({
@@ -327,7 +647,7 @@ describe('desktop profile composition', {
     })
     expect(desktopStartupSettingsFromSettings({ 'dsh-desktop': { mode: 'advanced' } })).toEqual({
       mode: 'advanced',
-      port: 0,
+      port: 43_120,
     })
     expect(desktopShellModeFromSettings({ unrelated: { enabled: true } })).toBe('compatibility')
   })

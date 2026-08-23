@@ -112,12 +112,14 @@ describe('Desktop startup recovery document', () => {
     expect(html).not.toContain('dsh-recovery://preview-retry')
     expect(html).not.toContain('dsh-recovery://confirm-')
     expect(html).not.toContain('dsh-recovery://open-profile-patch')
+    expect(html).not.toContain('dsh-recovery://open-settings-document')
   })
 
   it('offers only fixed profile configuration targets when main provides them', () => {
     const html = renderDesktopStartupRecoveryHtml(viewModel({ configurationAvailable: true }))
 
     expect(html).toContain('手动编辑配置')
+    expect(html).toContain('dsh-recovery://open-settings-document')
     expect(html).toContain('dsh-recovery://open-profile-patch')
     expect(html).toContain('dsh-recovery://open-profile-manifest')
     expect(html).toContain('dsh-recovery://open-profile-directory')
@@ -336,6 +338,7 @@ describe('Desktop startup recovery action parser', () => {
       'home',
       'export-diagnostics',
       'show-diagnostics',
+      'open-settings-document',
       'open-profile-patch',
       'open-profile-manifest',
       'open-profile-directory',

@@ -126,6 +126,12 @@ export interface DesktopInstallRecoveryStoreOptions {
   /** Opaque identity minted once for the current Electron main generation. */
   readonly generationId: string
   readonly now?: () => number
+  /** Operation-private filesystem seam for deterministic durable-stage tests. */
+  readonly io?: Partial<DesktopInstallRecoveryIO>
+}
+
+interface DesktopInstallRecoveryIO {
+  readonly writeFileAtomic: typeof writeFileAtomic
 }
 
 export type DesktopInstallRecoveryClaim =
@@ -342,6 +348,7 @@ export class DesktopInstallRecoveryStore {
   readonly profileDir: string
   readonly generationId: string
   private readonly now: () => number
+  private readonly io: DesktopInstallRecoveryIO
 
   constructor(options: DesktopInstallRecoveryStoreOptions) {
     this.statePath = assertAbsoluteFile('plugin install recovery state path', options.statePath)
@@ -357,6 +364,7 @@ export class DesktopInstallRecoveryStore {
     assertOpaqueId('generation id', options.generationId)
     this.generationId = options.generationId
     this.now = options.now ?? Date.now
+    this.io = { writeFileAtomic, ...options.io }
   }
 
   /** Read and validate the current WAL without changing its phase. */
@@ -416,7 +424,7 @@ export class DesktopInstallRecoveryStore {
           if (!Buffer.from(text, 'utf8').equals(image.bytes!)) {
             throw new Error(`${BIN_NAME}: plugin install recovery only accepts UTF-8 profile files`)
           }
-          await writeFileAtomic(join(backupDir, backupFile), text, {
+          await this.io.writeFileAtomic(join(backupDir, backupFile), text, {
             mode: STATE_FILE_MODE,
             dirMode: PRIVATE_DIRECTORY_MODE,
           })
@@ -688,7 +696,7 @@ export class DesktopInstallRecoveryStore {
       if (!file.before.present) {
         await unlink(target)
       } else {
-        await writeFileAtomic(target, backups.get(file.name)!.toString('utf8'), {
+        await this.io.writeFileAtomic(target, backups.get(file.name)!.toString('utf8'), {
           mode: file.before.mode,
         })
       }
@@ -816,7 +824,7 @@ export class DesktopInstallRecoveryStore {
       throw new Error(`${BIN_NAME}: plugin install recovery state is too large`)
     }
     await this.ensurePrivateDirectory(dirname(this.statePath))
-    await writeFileAtomic(this.statePath, rendered, {
+    await this.io.writeFileAtomic(this.statePath, rendered, {
       mode: STATE_FILE_MODE,
       dirMode: PRIVATE_DIRECTORY_MODE,
     })

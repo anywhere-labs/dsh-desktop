@@ -17,6 +17,8 @@ import { assertDesktopProfileName } from './profile-manager.ts'
 const BIN_NAME = 'dsh-plugin-desktop'
 const ELECTRON_HEADERS_URL = 'https://electronjs.org/headers'
 const TERMINATION_GRACE_MS = 3_000
+const NPM_PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
+const NPM_EXACT_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u
 
 /** Launcher-resolved values used by the active desktop pnpm generation. */
 export interface DesktopPnpmBootstrap {
@@ -44,6 +46,8 @@ export interface DesktopPnpmBootstrap {
   readonly installRecoveryStatePath: string
   /** Opaque identity shared by every install surface in this Electron generation. */
   readonly generationId: string
+  /** Whether the selected Market provider may use the non-WAL external install boundary. */
+  readonly externalMarketInstallEnabled: boolean
 }
 
 /** Exit facts for one desktop-owned package-manager operation. */
@@ -88,6 +92,15 @@ export interface DesktopPluginInstallRequest {
 export interface DesktopPnpm {
   run(args: readonly string[], signal?: AbortSignal): DesktopPnpmHandle
   runPlugin(args: readonly string[], invokingDir: string, signal?: AbortSignal): DesktopPnpmHandle
+  /**
+   * Run the dsh-market add operation without its per-install WAL.
+   * The launcher enables this boundary only for the selected dsh-market provider.
+   */
+  runExternalMarketPluginInstall(
+    args: readonly string[],
+    invokingDir: string,
+    signal?: AbortSignal,
+  ): DesktopPnpmHandle
   /** @deprecated Use `installPlugin()` so Desktop constructs the exact package target. */
   runPluginInstall(
     args: readonly string[],
@@ -142,9 +155,35 @@ function validatedArgs(args: readonly string[]): string[] {
   return [...args]
 }
 
+/** Validate the narrow dsh-market command shape before it crosses the process boundary. */
+function validateExternalMarketInstallArgs(args: readonly string[]): string[] {
+  const resolvedArgs = validatedArgs(args)
+  if (resolvedArgs[0] !== 'add' || resolvedArgs.length < 2) {
+    throw new Error(`${BIN_NAME}: external Market plugin install requires add with one exact npm package target`)
+  }
+  const targets = resolvedArgs.slice(1).filter(argument => !argument.startsWith('-'))
+  const target = targets[0]
+  if (targets.length !== 1 || target === undefined) {
+    throw new Error(`${BIN_NAME}: external Market plugin install accepts exactly one npm package target and flag options`)
+  }
+  const at = target.lastIndexOf('@')
+  const packageName = at > 0 ? target.slice(0, at) : ''
+  const packageVersion = at > 0 ? target.slice(at + 1) : ''
+  if (
+    !NPM_PACKAGE_NAME_PATTERN.test(packageName)
+    || !NPM_EXACT_VERSION_PATTERN.test(packageVersion)
+  ) {
+    throw new Error(`${BIN_NAME}: external Market plugin install requires an exact npm package target`)
+  }
+  return resolvedArgs
+}
+
 /** Validate the immutable launcher values once, before the service is published. */
 function validateBootstrap(bootstrap: DesktopPnpmBootstrap): void {
   assertDesktopProfileName(bootstrap.activeProfileName)
+  if (typeof bootstrap.externalMarketInstallEnabled !== 'boolean') {
+    throw new Error(`${BIN_NAME}: external Market install capability must be a boolean`)
+  }
   for (const [label, value] of [
     ['active profile directory', bootstrap.activeProfileDir],
     ['Harness home', bootstrap.homeDir],
@@ -232,8 +271,37 @@ class DesktopPnpmService extends Service implements DesktopPnpm {
   ): DesktopPnpmHandle {
     const resolvedArgs = validatedArgs(args)
     if (resolvedArgs[0] === 'add') {
+      if (this.bootstrap.externalMarketInstallEnabled) {
+        return this.runExternalMarketPluginInstall(resolvedArgs, invokingDir, signal)
+      }
       throw new Error(`${BIN_NAME}: plugin add must use the recoverable install boundary`)
     }
+    assertAbsolutePath('plugin invoking directory', invokingDir)
+    return this.start({
+      argv: [
+        this.bootstrap.appExecutable,
+        '--expose-internals',
+        this.bootstrap.dshBootstrapPath,
+        'plugin',
+        '--profile',
+        this.bootstrap.activeProfileName,
+        ...resolvedArgs,
+      ],
+      cwd: invokingDir,
+      ...(signal === undefined ? {} : { signal }),
+    })
+  }
+
+  /** Run one dsh-market install without creating a per-install recovery WAL. */
+  runExternalMarketPluginInstall(
+    args: readonly string[],
+    invokingDir: string,
+    signal?: AbortSignal,
+  ): DesktopPnpmHandle {
+    if (!this.bootstrap.externalMarketInstallEnabled) {
+      throw new Error(`${BIN_NAME}: external Market plugin install is unavailable for the selected Market provider`)
+    }
+    const resolvedArgs = validateExternalMarketInstallArgs(args)
     assertAbsolutePath('plugin invoking directory', invokingDir)
     return this.start({
       argv: [

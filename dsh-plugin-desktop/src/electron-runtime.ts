@@ -57,6 +57,7 @@ import {
   type WindowsVolumeQuery,
 } from './windows-volume-diagnostics.ts'
 import { ElectronWorkspaceAdmission } from './workspace-admission.ts'
+import { ProfileCreateWindow, type ProfileCreateWindowOptions } from './profile-create-window.ts'
 
 /** Return the presentation mode opposite the active generation. */
 export function nextDesktopShellMode(mode: DesktopShellSpec['mode']): DesktopShellSpec['mode'] {
@@ -110,6 +111,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   private readonly workspaceAdmission: ElectronWorkspaceAdmission
   private updateCleanupTask: Promise<void> | undefined
   private rendererHealthGate: DesktopRendererHealthGate | undefined
+  private profileCreateWindow: ProfileCreateWindow | undefined
 
   constructor(
     private readonly restart: () => Promise<void>,
@@ -196,6 +198,8 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         await this.mountTask
       } finally {
         try {
+          this.profileCreateWindow?.close()
+          this.profileCreateWindow = undefined
           await this.generation?.release()
         } finally {
           this.generation = undefined
@@ -221,6 +225,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         platform: this.platformStrategy,
         spec,
         preloadPath: desktopPreloadPath(),
+        buildApplicationMenuItems: () => this.buildApplicationMenuItems(),
         isQuitting: () => this.quitting,
         buildTrayTemplate: () => this.buildTrayTemplate(spec),
         stopRendererBootMonitoring: () => { this.stopRendererBootMonitoring() },
@@ -263,20 +268,35 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   }
 
   /** @inheritdoc */
+  openProfileCreateWindow(options: Omit<ProfileCreateWindowOptions, 'locale'>): void {
+    if (this.profileCreateWindow === undefined) {
+      this.profileCreateWindow = new ProfileCreateWindow({
+        ...options,
+        locale: this.locale,
+      })
+    }
+    this.profileCreateWindow.open()
+  }
+
+  /** @inheritdoc */
   registerTrayItem(item: DesktopTrayItem): DesktopTrayItemRegistration {
     const key = Symbol()
     this.trayItems.set(key, item)
     this.rebuildTrayMenu()
+    this.rebuildApplicationMenu()
     let active = true
     return {
       refresh: () => {
-        if (active) this.rebuildTrayMenu()
+        if (!active) return
+        this.rebuildTrayMenu()
+        this.rebuildApplicationMenu()
       },
       dispose: () => {
         if (!active) return
         active = false
         this.trayItems.delete(key)
         this.rebuildTrayMenu()
+        this.rebuildApplicationMenu()
       },
     }
   }
@@ -387,6 +407,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     if (locale === this.currentLocale) return
     this.currentLocale = locale
     this.rebuildTrayMenu()
+    this.rebuildApplicationMenu()
   }
 
   /** @inheritdoc */
@@ -728,5 +749,21 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     const spec = this.scheduled
     if (spec === undefined) return
     this.generation?.refreshTrayMenu()
+  }
+
+  /** Rebuild the macOS application menu from the same native, Host-owned commands as the tray. */
+  private rebuildApplicationMenu(): void {
+    this.platformStrategy.refreshApplicationMenu(this.buildApplicationMenuItems())
+  }
+
+  /** Keep the app menu renderer-free by reusing trusted native tray contributions. */
+  private buildApplicationMenuItems(): Electron.MenuItemConstructorOptions[] {
+    const tools = this.contributedTrayItems('tools')
+    const profiles = this.contributedTrayItems('profiles')
+    const items: Electron.MenuItemConstructorOptions[] = []
+    if (tools.length > 0) items.push(...tools)
+    if (tools.length > 0 && profiles.length > 0) items.push({ type: 'separator' })
+    if (profiles.length > 0) items.push(...profiles)
+    return items
   }
 }

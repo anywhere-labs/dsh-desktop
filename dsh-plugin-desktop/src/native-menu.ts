@@ -122,14 +122,18 @@ export function nativeMenuLocale(preferredLanguages: readonly string[]): NativeM
 export function macApplicationMenuTemplate(
   appName: string,
   locale: NativeMenuLocale,
+  additions: readonly MenuItemConstructorOptions[] = [],
 ): MenuItemConstructorOptions[] {
   const label = LABELS[locale]
+  const nativeAdditions = additions.length === 0
+    ? [{ type: 'separator' as const }]
+    : [{ type: 'separator' as const }, ...additions, { type: 'separator' as const }]
   return [
     {
       label: appName,
       submenu: [
         { label: `${label.about} ${appName}`, role: 'about' },
-        { type: 'separator' },
+        ...nativeAdditions,
         { label: label.services, role: 'services' },
         { type: 'separator' },
         { label: `${label.hide} ${appName}`, role: 'hide' },

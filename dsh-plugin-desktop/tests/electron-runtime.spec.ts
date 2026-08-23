@@ -89,6 +89,7 @@ const electron = vi.hoisted(() => {
     setTemplateImage: vi.fn(),
   }
   const webContents = {
+    executeJavaScript: vi.fn(async (_code: string, _userGesture?: boolean) => null as string | null),
     getZoomLevel: vi.fn(() => zoomLevel),
     on: vi.fn(),
     off: vi.fn(),
@@ -1093,6 +1094,14 @@ describe('Electron desktop runtime', () => {
     ])
     profile?.submenu?.[0]?.click?.()
     await vi.waitFor(() => { expect(invoke).toHaveBeenCalledOnce() })
+
+    const application = (electron.applicationMenuTemplates.at(-1) as Array<{
+      label?: string
+      submenu?: Array<{ label?: string, submenu?: unknown }>
+    }>).find(item => item.label === 'DSH Desktop')
+    expect(application?.submenu).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'Profile: desktop' }),
+    ]))
 
     await release()
   })

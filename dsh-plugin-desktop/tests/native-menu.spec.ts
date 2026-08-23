@@ -1,5 +1,5 @@
 import type { MenuItemConstructorOptions } from 'electron'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { macApplicationMenuTemplate, nativeMenuLocale } from '../src/native-menu.ts'
 
 function submenu(item: MenuItemConstructorOptions): MenuItemConstructorOptions[] {
@@ -50,5 +50,25 @@ describe('native macOS application menu', () => {
       expect.objectContaining({ label: 'About DSH Desktop', role: 'about' }),
       expect.objectContaining({ label: 'Quit DSH Desktop', role: 'quit' }),
     ]))
+  })
+
+  it('places trusted desktop actions in the application submenu', () => {
+    const invokeTerminal = vi.fn()
+    const template = macApplicationMenuTemplate('DSH Desktop', 'en', [{
+      label: 'Open DSH Terminal',
+      click: invokeTerminal,
+    }, {
+      label: 'Profile: desktop',
+      submenu: [{ label: 'web', type: 'radio', checked: false }],
+    }])
+
+    expect(submenu(template[0]!)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'Open DSH Terminal' }),
+      expect.objectContaining({
+        label: 'Profile: desktop',
+        submenu: [expect.objectContaining({ label: 'web', type: 'radio', checked: false })],
+      }),
+    ]))
+    expect(submenu(template[0]!).filter(item => item.type === 'separator')).toHaveLength(4)
   })
 })
