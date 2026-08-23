@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import { StringDecoder } from 'node:string_decoder'
 import type { Readable } from 'node:stream'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { prerelease, satisfies, valid } from 'semver'
@@ -132,16 +133,19 @@ export function packageManagerStartFailure(cause: unknown): string {
   return `The desktop package manager could not start: ${detail}`
 }
 
-const OUTPUT_TAIL_LINES = 40
-const OUTPUT_TAIL_CHARS = 2000
+const OUTPUT_TAIL_LINES = 80
+const OUTPUT_TAIL_CHARS = 8000
+const OUTPUT_TAIL_HEAD_CHARS = 600
 
 /** Retain the most recent lines of one package-manager output stream for failure diagnostics. */
 class RecentOutput {
+  private readonly decoder = new StringDecoder('utf8')
   private readonly lines: string[] = []
   private remainder = ''
 
   append(chunk: unknown): void {
-    this.remainder += String(chunk).replace(/\r/g, '')
+    const text = typeof chunk === 'string' ? chunk : this.decoder.write(chunk as Buffer)
+    this.remainder += text.replace(/\r/g, '')
     const parts = this.remainder.split('\n')
     this.remainder = parts.pop() ?? ''
     for (const line of parts) {
@@ -150,9 +154,13 @@ class RecentOutput {
     }
   }
 
+  /** Render the retained window, keeping the leading error header when clipping. */
   text(): string {
     const pending = this.remainder.trim().length > 0 ? [this.remainder] : []
-    return [...this.lines.slice(-OUTPUT_TAIL_LINES), ...pending].join('\n').trim()
+    const joined = [...this.lines.slice(-OUTPUT_TAIL_LINES), ...pending].join('\n').trim()
+    if (joined.length <= OUTPUT_TAIL_CHARS) return joined
+    const head = joined.slice(0, OUTPUT_TAIL_HEAD_CHARS)
+    return `${head}\n…\n${joined.slice(-OUTPUT_TAIL_CHARS)}`
   }
 }
 
@@ -160,8 +168,7 @@ class RecentOutput {
 function withPackageManagerOutput(base: string, stderrTail: RecentOutput, stdoutTail: RecentOutput): string {
   const detail = stderrTail.text().length > 0 ? stderrTail.text() : stdoutTail.text()
   if (detail.length === 0) return base
-  const clipped = detail.length > OUTPUT_TAIL_CHARS ? `…${detail.slice(-OUTPUT_TAIL_CHARS)}` : detail
-  return `${base}\n\n${clipped}`
+  return `${base}\n\n${detail}`
 }
 
 interface InstallCandidate {

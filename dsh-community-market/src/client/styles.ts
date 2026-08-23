@@ -666,6 +666,9 @@ const css = `
   margin-top: 8px;
   color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
+  /* Package-manager diagnostics are multi-line; keep their line breaks visible. */
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .dshMarketLauncher {

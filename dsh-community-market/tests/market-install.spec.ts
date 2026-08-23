@@ -764,6 +764,41 @@ describe('market install service', () => {
     })
   })
 
+  it('keeps the leading error header when long output is clipped', async () => {
+    const profileDir = await createProfile()
+    const stderr = new PassThrough()
+    stderr.write('[ERROR] ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION: 21 lockfile entries failed verification:')
+    for (let index = 0; index < 60; index += 1) {
+      stderr.write(`  @example/example-plugin@${index}.0.0 was published within the minimumReleaseAge cutoff window (active policy cutoff 2026-08-21T15:36:40.263Z)\n`)
+    }
+    const stdout = new PassThrough()
+    const pnpm = recoverableRunner(profileDir, {
+      runPlugin() {
+        return {
+          stdout,
+          stderr,
+          done: new Promise(resolve => { setImmediate(() => resolve({ exitCode: 1, signal: null })) }),
+          cancel: vi.fn(),
+        }
+      },
+    })
+    const service = new MarketInstallService(
+      memoryScope().scope,
+      () => ({ name: 'web', dir: profileDir }),
+      pnpm,
+      { verify: vi.fn(async () => verification) },
+    )
+    service.observeCatalog(snapshot())
+    const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
+    const failure = await service.executeInstall(preview.intent, new AbortController().signal).then(
+      () => { throw new Error('install should have failed') },
+      (cause: unknown) => cause as Error,
+    )
+    expect(failure.message).toContain('[ERROR] ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION')
+    expect(failure.message).toContain('…')
+    expect(failure.message.length).toBeLessThan(10000)
+  })
+
   it('refuses changed profile state and nonzero package-manager outcomes without issuing receipts', async () => {
     const profileDir = await createProfile()
     const calls: Array<{ args: readonly string[]; dir: string }> = []
