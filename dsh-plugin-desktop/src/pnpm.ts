@@ -19,6 +19,9 @@ const ELECTRON_HEADERS_URL = 'https://electronjs.org/headers'
 const TERMINATION_GRACE_MS = 3_000
 const NPM_PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
 const NPM_EXACT_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u
+const GITHUB_OWNER_PATTERN = /^[a-z0-9][a-z0-9-]{0,99}$/iu
+const GITHUB_REPOSITORY_PATTERN = /^[a-z0-9._-]{1,100}$/iu
+const GIT_COMMIT_PATTERN = /^[0-9a-f]{40}$/u
 
 /** Launcher-resolved values used by the active desktop pnpm generation. */
 export interface DesktopPnpmBootstrap {
@@ -78,12 +81,34 @@ export interface DesktopPluginInstallRecovery {
   readonly receiptId: string
 }
 
+export interface DesktopPluginInstallNpmSource {
+  readonly kind: 'npm'
+  readonly packageName: string
+  readonly version: string
+}
+
+export interface DesktopPluginInstallGitSource {
+  readonly kind: 'git'
+  readonly provider: 'github'
+  readonly owner: string
+  readonly repo: string
+  readonly commit: string
+  /** Repository-relative path without dot-segments. */
+  readonly subpath?: string
+}
+
+export type DesktopPluginInstallSource =
+  | DesktopPluginInstallNpmSource
+  | DesktopPluginInstallGitSource
+
 /** Complete request for one Desktop-owned, recoverable plugin installation. */
 export interface DesktopPluginInstallRequest {
   /** pnpm flags after the enforced `add` command and before the exact generated target. */
   readonly pnpmOptions?: readonly string[]
   /** Absolute caller directory used to anchor relative package specifications. */
   readonly invokingDir: string
+  /** Optional exact source descriptor; omitted defaults to the exact npm receipt target. */
+  readonly source?: DesktopPluginInstallSource
   readonly recovery: DesktopPluginInstallRecovery
   readonly signal?: AbortSignal
 }
@@ -176,6 +201,45 @@ function validateExternalMarketInstallArgs(args: readonly string[]): string[] {
     throw new Error(`${BIN_NAME}: external Market plugin install requires an exact npm package target`)
   }
   return resolvedArgs
+}
+
+function safeGitSubpath(value: string): boolean {
+  return value.length > 0
+    && !value.startsWith('/')
+    && !value.endsWith('/')
+    && !value.includes('\\')
+    && !/[#&:\0\r\n]/u.test(value)
+    && value.split('/').every(segment =>
+      segment.length > 0
+      && segment !== '.'
+      && segment !== '..')
+}
+
+function validatedInstallTarget(request: DesktopPluginInstallRequest): string {
+  const { recovery } = request
+  const source = request.source
+  if (source === undefined) return `${recovery.packageName}@${recovery.packageVersion}`
+  if (source.kind === 'npm') {
+    if (
+      !NPM_PACKAGE_NAME_PATTERN.test(source.packageName)
+      || !NPM_EXACT_VERSION_PATTERN.test(source.version)
+      || source.packageName !== recovery.packageName
+      || source.version !== recovery.packageVersion
+    ) {
+      throw new Error(`${BIN_NAME}: recoverable plugin install requires the exact receipt target`)
+    }
+    return `${source.packageName}@${source.version}`
+  }
+  if (
+    source.provider !== 'github'
+    || !GITHUB_OWNER_PATTERN.test(source.owner)
+    || !GITHUB_REPOSITORY_PATTERN.test(source.repo)
+    || !GIT_COMMIT_PATTERN.test(source.commit)
+    || (source.subpath !== undefined && !safeGitSubpath(source.subpath))
+  ) {
+    throw new Error(`${BIN_NAME}: recoverable plugin install source is invalid`)
+  }
+  return `github:${source.owner}/${source.repo}#${source.commit}${source.subpath === undefined ? '' : `&path:/${source.subpath}`}`
 }
 
 /** Validate the immutable launcher values once, before the service is published. */
@@ -352,6 +416,7 @@ class DesktopPnpmService extends Service implements DesktopPnpm {
       throw new Error(`${BIN_NAME}: desktop pnpm arguments must not contain NUL`)
     }
     assertAbsolutePath('plugin invoking directory', request.invokingDir)
+    const target = validatedInstallTarget(request)
     if (this.closed) throw new Error(`${BIN_NAME}: desktop pnpm generation is closed`)
     if (this.active !== undefined || this.installPreparationActive) {
       throw new Error(`${BIN_NAME}: another desktop pnpm operation is already running`)
@@ -371,7 +436,7 @@ class DesktopPnpmService extends Service implements DesktopPnpm {
           this.bootstrap.activeProfileName,
           'add',
           ...resolvedOptions,
-          `${request.recovery.packageName}@${request.recovery.packageVersion}`,
+          target,
         ],
         cwd: request.invokingDir,
         recoveryTransactionId: transaction.transactionId,

@@ -307,6 +307,61 @@ describe('desktop pnpm Host service', () => {
     }
   })
 
+  it('supports a recoverable GitHub install source pinned to one commit and optional subpath', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-pnpm-git-install-'))
+    const selectedBootstrap = bootstrap(root)
+    const manifestPath = join(selectedBootstrap.activeProfileDir, 'package.json')
+    const child = controlledSubprocess()
+    const commit = '97edff6f525f192a3f83cea1944765f769ae2678'
+    try {
+      mkdirSync(selectedBootstrap.activeProfileDir, { recursive: true })
+      writeFileSync(manifestPath, JSON.stringify({ dependencies: {} }))
+      const harness = await createHarness([child], selectedBootstrap)
+
+      const operation = await harness.service.installPlugin({
+        pnpmOptions: ['--save-exact'],
+        invokingDir: '/workspace',
+        source: {
+          kind: 'git',
+          provider: 'github',
+          owner: 'example-owner',
+          repo: 'example-plugin-repo',
+          commit,
+          subpath: 'packages/example-plugin',
+        },
+        recovery: {
+          packageName: 'example-plugin',
+          packageVersion: '1.0.0',
+          receiptId: 'receipt:test-git-install-0001',
+        },
+      })
+      writeFileSync(manifestPath, JSON.stringify({ dependencies: { 'example-plugin': '1.0.0' } }))
+      finish(child)
+
+      await expect(operation.done).resolves.toEqual({ exitCode: 0, signal: null })
+      expect(harness.spawn.mock.calls[0]?.[0].argv).toEqual([
+        selectedBootstrap.appExecutable,
+        '--expose-internals',
+        selectedBootstrap.dshBootstrapPath,
+        'plugin',
+        '--profile',
+        selectedBootstrap.activeProfileName,
+        'add',
+        '--save-exact',
+        `github:example-owner/example-plugin-repo#${commit}&path:/packages/example-plugin`,
+      ])
+      expect(JSON.parse(readFileSync(selectedBootstrap.installRecoveryStatePath, 'utf8'))).toMatchObject({
+        packageName: 'example-plugin',
+        packageVersion: '1.0.0',
+        receiptId: 'receipt:test-git-install-0001',
+        phase: 'awaiting-restart',
+      })
+      await harness.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('restores partial profile writes when a recoverable plugin install exits nonzero', async () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-pnpm-recovery-failure-'))
     const selectedBootstrap = bootstrap(root)
@@ -393,6 +448,73 @@ describe('desktop pnpm Host service', () => {
       '/workspace',
       recovery,
     )).rejects.toThrow('requires the exact receipt target')
+    expect(harness.spawn).not.toHaveBeenCalled()
+    await harness.dispose()
+  })
+
+  it('rejects a recoverable npm source that does not match the receipt target', async () => {
+    const harness = await createHarness([])
+
+    await expect(harness.service.installPlugin({
+      invokingDir: '/workspace',
+      source: {
+        kind: 'npm',
+        packageName: 'other-plugin',
+        version: '1.0.0',
+      },
+      recovery: {
+        packageName: 'expected-plugin',
+        packageVersion: '1.0.0',
+        receiptId: 'receipt:test-npm-source-mismatch-0001',
+      },
+    })).rejects.toThrow('recoverable plugin install requires the exact receipt target')
+    expect(harness.spawn).not.toHaveBeenCalled()
+    await harness.dispose()
+  })
+
+  it.each([
+    ['short commit hash', {
+      kind: 'git',
+      provider: 'github',
+      owner: 'example-owner',
+      repo: 'example-plugin',
+      commit: '97edff6',
+    }],
+    ['branch ref', {
+      kind: 'git',
+      provider: 'github',
+      owner: 'example-owner',
+      repo: 'example-plugin',
+      commit: 'refs/heads/main',
+    }],
+    ['path traversal subpath', {
+      kind: 'git',
+      provider: 'github',
+      owner: 'example-owner',
+      repo: 'example-plugin',
+      commit: '97edff6f525f192a3f83cea1944765f769ae2678',
+      subpath: '../escape',
+    }],
+    ['ampersand in subpath', {
+      kind: 'git',
+      provider: 'github',
+      owner: 'example-owner',
+      repo: 'example-plugin',
+      commit: '97edff6f525f192a3f83cea1944765f769ae2678',
+      subpath: 'packages/a&b',
+    }],
+  ] as const)('rejects a recoverable git source with %s', async (_label, source) => {
+    const harness = await createHarness([])
+
+    await expect(harness.service.installPlugin({
+      invokingDir: '/workspace',
+      source,
+      recovery: {
+        packageName: 'example-plugin',
+        packageVersion: '1.0.0',
+        receiptId: 'receipt:test-git-source-invalid-0001',
+      },
+    })).rejects.toThrow('recoverable plugin install source is invalid')
     expect(harness.spawn).not.toHaveBeenCalled()
     await harness.dispose()
   })

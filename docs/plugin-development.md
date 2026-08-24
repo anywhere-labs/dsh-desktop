@@ -94,7 +94,7 @@ export function apply(ctx: Context, config: { profile?: string }): void {
 
 `desktopPnpm.run(args)` 是低层 pnpm operation，cwd 是当前 profile。它不保证 DSH 的 profile 初始化、调用方相对 `file:`/`link:` source 锚定或 `dsh.profile.bundles` reconcile。
 
-`desktopPnpm.runPlugin(args, invokingDir)` 为非安装 mutation 执行打包的 `dsh plugin --profile <active>`，并保留上游插件管理语义。它会拒绝 `add`。`installPlugin(request)` 是可恢复安装路径：它从 receipt metadata 生成精确 package 目标，并拥有 profile 快照/WAL 生命周期。
+`desktopPnpm.runPlugin(args, invokingDir)` 为非安装 mutation 执行打包的 `dsh plugin --profile <active>`，并保留上游插件管理语义。它会拒绝 `add`。`installPlugin(request)` 是可恢复安装路径：它会根据 receipt metadata 与可选的结构化 source 描述生成 package 目标，并拥有 profile 快照/WAL 生命周期。
 
 ```ts
 await desktopPnpm.installPlugin({
@@ -103,12 +103,26 @@ await desktopPnpm.installPlugin({
   recovery: { packageName, packageVersion, receiptId },
   signal,
 })
+
+await desktopPnpm.installPlugin({
+  invokingDir,
+  source: {
+    kind: 'git',
+    provider: 'github',
+    owner: 'example-owner',
+    repo: 'example-plugin-repo',
+    commit: '97edff6f525f192a3f83cea1944765f769ae2678',
+    subpath: 'packages/example-plugin',
+  },
+  recovery: { packageName, packageVersion, receiptId },
+  signal,
+})
 desktopPnpm.runPlugin(['remove', packageName], invokingDir, signal)
 desktopPnpm.runPlugin(['update'], invokingDir, signal)
 desktopPnpm.runPlugin(['install', '--no-frozen-lockfile'], invokingDir, signal)
 ```
 
-参数始终作为 argv 传递；不要拼接 shell 字符串，也不要依赖 Windows `.cmd` shim。服务会在完整子进程树退出后 settle，并在 generation dispose 时终止仍在运行的 operation。
+参数始终作为 argv 传递；不要拼接 shell 字符串，也不要依赖 Windows `.cmd` shim。若提供 `source`，必须保持结构化：Desktop 只接受与 receipt 精确一致的 npm `{ kind: 'npm', packageName, version }` 目标，或固定 commit 的 GitHub `{ kind: 'git', ... }` 目标（可带一个规范化 subpath）。服务会在完整子进程树退出后 settle，并在 generation dispose 时终止仍在运行的 operation。
 
 ## 不要依赖的接口
 

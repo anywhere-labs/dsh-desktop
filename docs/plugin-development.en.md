@@ -94,7 +94,7 @@ The ordinary DSH fallback remains the plugin's authoritative implementation. Do 
 
 `desktopPnpm.run(args)` is a low-level pnpm operation with the active profile as its cwd. It does not promise DSH profile initialization, caller-relative `file:`/`link:` anchoring, or `dsh.profile.bundles` reconciliation.
 
-`desktopPnpm.runPlugin(args, invokingDir)` runs packaged `dsh plugin --profile <active>` for non-install mutations and preserves upstream plugin-management semantics. It rejects `add`. `installPlugin(request)` is the recoverable install path: it generates the exact package target from receipt metadata and owns the profile snapshot/WAL lifecycle.
+`desktopPnpm.runPlugin(args, invokingDir)` runs packaged `dsh plugin --profile <active>` for non-install mutations and preserves upstream plugin-management semantics. It rejects `add`. `installPlugin(request)` is the recoverable install path: it generates the package target from receipt metadata plus an optional structured source descriptor, then owns the profile snapshot/WAL lifecycle.
 
 ```ts
 await desktopPnpm.installPlugin({
@@ -103,12 +103,26 @@ await desktopPnpm.installPlugin({
   recovery: { packageName, packageVersion, receiptId },
   signal,
 })
+
+await desktopPnpm.installPlugin({
+  invokingDir,
+  source: {
+    kind: 'git',
+    provider: 'github',
+    owner: 'example-owner',
+    repo: 'example-plugin-repo',
+    commit: '97edff6f525f192a3f83cea1944765f769ae2678',
+    subpath: 'packages/example-plugin',
+  },
+  recovery: { packageName, packageVersion, receiptId },
+  signal,
+})
 desktopPnpm.runPlugin(['remove', packageName], invokingDir, signal)
 desktopPnpm.runPlugin(['update'], invokingDir, signal)
 desktopPnpm.runPlugin(['install', '--no-frozen-lockfile'], invokingDir, signal)
 ```
 
-Arguments are passed as argv. Do not concatenate shell strings or depend on Windows `.cmd` shims. The service settles only after the whole subprocess tree exits and terminates active operations during generation disposal.
+Arguments are passed as argv. Do not concatenate shell strings or depend on Windows `.cmd` shims. When you provide `source`, keep it structural: Desktop accepts only exact npm `{ kind: 'npm', packageName, version }` targets that match the receipt, or fixed-commit GitHub `{ kind: 'git', ... }` targets with an optional normalized subpath. The service settles only after the whole subprocess tree exits and terminates active operations during generation disposal.
 
 ## APIs not to depend on
 

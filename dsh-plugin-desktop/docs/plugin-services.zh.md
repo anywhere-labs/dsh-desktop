@@ -157,6 +157,20 @@ interface DesktopPnpm {
   installPlugin(request: {
     readonly pnpmOptions?: readonly string[]
     readonly invokingDir: string
+    readonly source?:
+      | {
+          readonly kind: 'npm'
+          readonly packageName: string
+          readonly version: string
+        }
+      | {
+          readonly kind: 'git'
+          readonly provider: 'github'
+          readonly owner: string
+          readonly repo: string
+          readonly commit: string
+          readonly subpath?: string
+        }
     readonly recovery: {
       readonly packageName: string
       readonly packageVersion: string
@@ -187,7 +201,7 @@ interface DesktopPnpmHandle {
 | `run(args, signal?)` | 直接执行已打包 pnpm JavaScript entry，以激活 profile 目录为 `cwd`。 | 调用方明确不需要 DSH 插件 reconcile 的低层 pnpm 工作。 |
 | `runPlugin(args, invokingDir, signal?)` | 以调用方绝对目录为 CLI `cwd`，执行已打包 `dsh plugin --profile <active> ...`；上游 DSH 会为 pnpm 进入 profile。 | 插件 remove、update、collection 修复或 dependency 修复。它会拒绝 `add`。 |
 | `runPluginInstall(args, invokingDir, recovery, signal?)` | 仅当 v2.0.1 `add` 形式中的唯一精确目标与恢复 receipt 一致时接受调用，随后委托给 `installPlugin()`。 | 为已发布插件管理器保留的废弃兼容入口；新集成不得使用。 |
-| `installPlugin(request)` | 先快照 profile，生成精确 `name@version` 目标，再执行强制的 `dsh plugin ... add`；`done` settle 前会封存或恢复快照。 | Desktop 唯一受支持的插件安装路径。 |
+| `installPlugin(request)` | 先快照 profile，生成默认的精确 npm `name@version` 目标或一个显式结构化 source 目标，再执行强制的 `dsh plugin ... add`；`done` settle 前会封存或恢复快照。 | Desktop 唯一受支持的插件安装路径。 |
 
 `run()` 不是 `runPlugin()` 的短写。直接 pnpm 不承诺首次 profile 初始化、调用方相对 `file:` 或 `link:` source 锚定，也不承诺成功后的 `dsh.profile.bundles` reconcile。插件管理器若使用错误方法，package 可能已经出现在 dependency 中，却没有加入 Loader layer stack。
 
@@ -199,13 +213,13 @@ interface DesktopPnpmHandle {
 ['install', '--no-frozen-lockfile']
 ```
 
-`installPlugin()` 拥有可恢复的 `add` 生命周期。调用方提供 pnpm flag、绝对调用目录和持久 receipt 身份。Desktop 会生成精确的 `${packageName}@${packageVersion}` 目标，在 spawn 前快照 profile manifest 与 lockfile，命令失败后恢复，成功后封存安装后图像。`receiptId` 把调用方的持久 receipt ledger 与 Desktop WAL 关联起来。启动回滚后，必须先删除精确 receipt，然后才调用 `acknowledgeRecoveredInstall(receiptId)`；确认操作是幂等的。`rollbackPluginInstall(receiptId)` 仅适用于当前 generation 中匹配的 transaction。
+`installPlugin()` 拥有可恢复的 `add` 生命周期。调用方提供 pnpm flag、绝对调用目录、持久 receipt 身份，并可选提供结构化 `source`。若省略 `source`，Desktop 仍会从 receipt 生成精确 `${packageName}@${packageVersion}` 目标。若 `source.kind === 'npm'`，它必须与同一个 receipt 目标完全一致。若 `source.kind === 'git'`，Desktop 目前只接受固定 commit 的 GitHub 目标，可选一个规范化的仓库 subpath，并由 Desktop 自行重建最终的 `github:owner/repo#commit` 或 `github:owner/repo#commit&path:/subpath` argv token。Desktop 会在 spawn 前快照 profile manifest 与 lockfile，命令失败后恢复，成功后封存安装后图像。`receiptId` 把调用方的持久 receipt ledger 与 Desktop WAL 关联起来。启动回滚后，必须先删除精确 receipt，然后才调用 `acknowledgeRecoveredInstall(receiptId)`；确认操作是幂等的。`rollbackPluginInstall(receiptId)` 仅适用于当前 generation 中匹配的 transaction。
 
 `runPluginInstall()` 仅为避免破坏 v2.0.1 插件管理器而保留。它只接受 `['add', ...flags, exactTarget]`，其中 `exactTarget` 必须精确等于 `${recovery.packageName}@${recovery.packageVersion}`，中间参数必须全部是 flag。命令、目标不符，存在额外位置参数，或参数格式错误时，都会在启动进程前拒绝。
 
 Service 在每个 generation 同时最多启动一个 package operation；已有 operation 活跃时再次调用会同步抛错。它只暴露输出，不选择 progress UI，也没有内置 timeout。Consumer 拥有 deadline、读取两个 stream、报告 progress、在需要时调用 `cancel()` 或 abort signal、等待 `done`，并同时检查 `exitCode` 与 `signal`。
 
-无效 argv、无效 `invokingDir`、已经关闭或忙碌的 generation，以及调用前就已 abort 的 signal，都会在返回 handle 前同步抛错。Handle 存在后，cancellation 与 generation teardown 会作用于完整 subprocess tree。`done` 不会仅因直接 wrapper 退出而 settle；在后代进程消失前，operation gate 始终保持占用。异步 spawn-level failure 会 reject `done`，普通命令失败则 resolve 为非零 exit code。在 Windows 上，provider 会使用 argv 启动准确的已打包 entry，并把进程树 ownership 委托给 subprocess service，因此插件作者无需发现 `.cmd` shim，也不应拼接 shell 文本。
+无效 argv、无效 `invokingDir`、格式错误的 `source`、已经关闭或忙碌的 generation，以及调用前就已 abort 的 signal，都会在返回 handle 前同步抛错。Handle 存在后，cancellation 与 generation teardown 会作用于完整 subprocess tree。`done` 不会仅因直接 wrapper 退出而 settle；在后代进程消失前，operation gate 始终保持占用。异步 spawn-level failure 会 reject `done`，普通命令失败则 resolve 为非零 exit code。在 Windows 上，provider 会使用 argv 启动准确的已打包 entry，并把进程树 ownership 委托给 subprocess service，因此插件作者无需发现 `.cmd` shim，也不应拼接 shell 文本。
 
 ## 内部与 launcher 私有 capability
 
