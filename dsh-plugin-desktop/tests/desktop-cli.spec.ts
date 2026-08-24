@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -10,6 +10,7 @@ import {
 } from '../src/desktop-cli.ts'
 import {
   DESKTOP_INSTALL_RECOVERY_STATE_ENV,
+  DesktopInstallRecoveryStore,
   desktopInstallRecoveryStatePath,
 } from '../src/install-recovery.ts'
 import { packagedDependencyPath, unpackedAsarPath } from '../src/packaged-runtime-path.ts'
@@ -147,6 +148,76 @@ describe('packaged dsh bootstrap', () => {
         phase: 'awaiting-restart',
       })
       expect(JSON.parse(readFileSync(desktopManifest, 'utf8'))).toEqual({ name: 'desktop-profile' })
+    } finally {
+      process.exitCode = originalExitCode
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not let a foreign built-in terminal snapshot block the next desktop-managed install', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-terminal-foreign-profile-'))
+    const homeDir = join(root, 'home')
+    const desktopDir = join(homeDir, 'profiles', 'desktop')
+    const webDir = join(homeDir, 'profiles', 'web')
+    const statePath = desktopInstallRecoveryStatePath(join(root, 'user-data'))
+    const desktopManifest = join(desktopDir, 'package.json')
+    const webManifest = join(webDir, 'package.json')
+    const originalExitCode = process.exitCode
+    try {
+      mkdirSync(desktopDir, { recursive: true })
+      mkdirSync(webDir, { recursive: true })
+      writeFileSync(desktopManifest, JSON.stringify({ name: 'desktop-profile', dependencies: {} }))
+      writeFileSync(webManifest, JSON.stringify({ name: 'web-profile', dependencies: {} }))
+
+      await runDesktopDshCli({
+        DSH_HOME: homeDir,
+        DSH_DESKTOP_DEFAULT_PROFILE: 'desktop',
+        [DESKTOP_INSTALL_RECOVERY_STATE_ENV]: statePath,
+      }, async () => {
+        writeFileSync(webManifest, JSON.stringify({
+          name: 'web-profile',
+          dependencies: { 'example-plugin': '1.0.0' },
+        }))
+        process.exit(0)
+      }, [process.execPath, '/app/desktop-cli.js', 'plugin', '--profile', 'web', 'add', 'example-plugin'])
+
+      const foreign = JSON.parse(readFileSync(statePath, 'utf8')) as { transactionId: string }
+      expect(foreign).toMatchObject({
+        profileName: 'web',
+        packageName: 'manual-plugin-install',
+        phase: 'awaiting-restart',
+      })
+
+      const desktopStore = new DesktopInstallRecoveryStore({
+        statePath,
+        profileName: 'desktop',
+        profileDir: desktopDir,
+        generationId: 'desktop-generation-0001',
+      })
+      const transaction = await desktopStore.begin({
+        packageName: 'market-plugin',
+        packageVersion: '1.0.0',
+        receiptId: 'receipt:test-foreign-profile-0001',
+      })
+
+      expect(transaction).toMatchObject({
+        profileName: 'desktop',
+        packageName: 'market-plugin',
+        phase: 'prepared',
+      })
+      expect(JSON.parse(readFileSync(statePath, 'utf8'))).toMatchObject({
+        transactionId: transaction.transactionId,
+        profileName: 'desktop',
+      })
+      expect(JSON.parse(readFileSync(
+        join(dirname(statePath), 'backups', foreign.transactionId, 'abandoned-state.json'),
+        'utf8',
+      ))).toMatchObject({
+        transactionId: foreign.transactionId,
+        profileName: 'web',
+        packageName: 'manual-plugin-install',
+        phase: 'awaiting-restart',
+      })
     } finally {
       process.exitCode = originalExitCode
       rmSync(root, { recursive: true, force: true })

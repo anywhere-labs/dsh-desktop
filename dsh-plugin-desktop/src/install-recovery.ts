@@ -20,6 +20,7 @@ const STATE_VERSION = 1
 const STATE_DIRECTORY_NAME = 'plugin-install-recovery'
 const STATE_FILENAME = 'state.json'
 const BACKUP_DIRECTORY_NAME = 'backups'
+const ABANDONED_STATE_FILENAME = 'abandoned-state.json'
 const STATE_FILE_MODE = 0o600
 const PRIVATE_DIRECTORY_MODE = 0o700
 const MAX_STATE_BYTES = 64 * 1024
@@ -403,8 +404,12 @@ export class DesktopInstallRecoveryStore {
     }
     assertPackageVersion(input.packageVersion)
     assertOpaqueId('receipt id', input.receiptId)
-    if (await this.read() !== undefined) {
-      throw new Error(`${BIN_NAME}: another plugin install recovery transaction is pending`)
+    const pending = await this.read()
+    if (pending !== undefined) {
+      if (this.matchesCurrentProfile(pending)) {
+        throw new Error(`${BIN_NAME}: another plugin install recovery transaction is pending`)
+      }
+      await this.archiveForeignTransaction(pending)
     }
     await this.assertProfileDirectory()
     const transactionId = randomUUID()
@@ -814,6 +819,23 @@ export class DesktopInstallRecoveryStore {
 
   private backupDirectory(transactionId: string): string {
     return join(dirname(this.statePath), BACKUP_DIRECTORY_NAME, transactionId)
+  }
+
+  private async archiveForeignTransaction(state: DesktopInstallRecoveryTransaction): Promise<void> {
+    const archiveDir = this.backupDirectory(state.transactionId)
+    const archiveInfo = await lstat(archiveDir)
+    if (archiveInfo.isSymbolicLink() || !archiveInfo.isDirectory()) {
+      throw new Error(`${BIN_NAME}: plugin install recovery backup directory must be a real directory`)
+    }
+    await chmod(archiveDir, PRIVATE_DIRECTORY_MODE)
+    for (const file of state.files) {
+      if (file.before.present) await this.readBackup(state.transactionId, file)
+    }
+    await this.io.writeFileAtomic(join(archiveDir, ABANDONED_STATE_FILENAME), `${JSON.stringify(state, undefined, 2)}\n`, {
+      mode: STATE_FILE_MODE,
+      dirMode: PRIVATE_DIRECTORY_MODE,
+    })
+    await unlink(this.statePath)
   }
 
   private async writeState(state: DesktopInstallRecoveryTransaction): Promise<void> {
