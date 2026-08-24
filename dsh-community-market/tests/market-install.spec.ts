@@ -581,7 +581,73 @@ describe('market install service', () => {
     expect(JSON.parse(await readFile(join(profileDir, 'package.json'), 'utf8')).dependencies).toEqual({})
   })
 
-  it('does not add install-specific rollback after a nonzero pnpm outcome', async () => {
+  it('decodes Windows-localized package-manager stderr before surfacing install failures', async () => {
+    const profileDir = await createProfile()
+    const settings = memoryScope()
+    const stderr = Buffer.concat([
+      Buffer.from('cfb5cdb3d5d2b2bbb5bdd6b8b6a8b5c4c2b7beb6a1a3', 'hex'),
+      Buffer.from(` dsh: pnpm failed in profile directory ${profileDir}`),
+    ])
+    const pnpm = recoverableRunner(profileDir, {
+      runPlugin() {
+        return {
+          stdout: Readable.from([]),
+          stderr: Readable.from([stderr]),
+          done: Promise.resolve({ exitCode: 1, signal: null }),
+          cancel: vi.fn(),
+        }
+      },
+    })
+    const service = new MarketInstallService(
+      settings.scope,
+      () => ({ name: 'web', dir: profileDir }),
+      pnpm,
+      { verify: vi.fn(async () => verification) },
+    )
+    service.observeCatalog(snapshot())
+    const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
+    let thrown: unknown
+    try {
+      await service.executeInstall(preview.intent, new AbortController().signal)
+    } catch (cause) {
+      thrown = cause
+    }
+    expect(thrown).toBeInstanceOf(MarketInstallError)
+    expect((thrown as Error | undefined)?.message).toContain(`系统找不到指定的路径。 dsh: pnpm failed in profile directory ${profileDir}`)
+    expect(settings.receipts()).toEqual([])
+  })
+
+  it('bounds package-manager stderr exposed through install failures', async () => {
+    const profileDir = await createProfile()
+    const settings = memoryScope()
+    const pnpm = recoverableRunner(profileDir, {
+      runPlugin() {
+        return {
+          stdout: Readable.from([]),
+          stderr: Readable.from([Buffer.from(`${'x'.repeat(20 * 1024)}tail-marker`)]),
+          done: Promise.resolve({ exitCode: 1, signal: null }),
+          cancel: vi.fn(),
+        }
+      },
+    })
+    const service = new MarketInstallService(
+      settings.scope,
+      () => ({ name: 'web', dir: profileDir }),
+      pnpm,
+      { verify: vi.fn(async () => verification) },
+    )
+    service.observeCatalog(snapshot())
+    const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
+
+    await expect(service.executeInstall(preview.intent, new AbortController().signal)).rejects.toSatisfy(
+      (cause: unknown) => cause instanceof MarketInstallError
+        && cause.message.length < 17 * 1024
+        && !cause.message.includes('tail-marker'),
+    )
+    expect(settings.receipts()).toEqual([])
+  })
+
+  it('rolls back a direct dependency written before a nonzero add outcome', async () => {
     const profileDir = await createProfile()
     const calls: string[] = []
     const settings = memoryScope()
