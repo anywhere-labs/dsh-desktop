@@ -11,6 +11,7 @@ import { applyDesktopSettings } from './desktop-settings.ts'
 import { installDesktopDirectoryPickerBridge, requestDesktopDirectoryValidation } from './directory-picker.ts'
 import { parseDesktopClientEnvironment } from './environment.ts'
 import { applyExtendedShell, applyFramedShell } from './extended-shell.ts'
+import { installDesktopSessionContextMenuBridge } from './session-context-menu.ts'
 import { installWorkspaceFolderDrop } from './workspace-folder-drop.ts'
 import { desktopWindowService, provideDesktopWindow } from './window-service.ts'
 
@@ -100,6 +101,10 @@ export function apply(ctx: ClientContext): void {
         : {}),
     }),
     'dsh-plugin-desktop: workspace folder drop',
+  )
+  ctx.effect(
+    () => installDesktopSessionContextMenuBridge(),
+    'dsh-plugin-desktop: session context menu bridge',
   )
   if (environment.platform === 'win32') {
     ctx.effect(

@@ -1,8 +1,73 @@
 diff --git a/lib/client.js b/lib/client.js
-index 2f0be4e..dfdc4fd 100644
+index 2f0be4e..e463065 100644
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -1878,6 +1878,7 @@ window.__ModuleLoader__.load({
+@@ -697,6 +697,7 @@ window.__ModuleLoader__.load({
+ 			const statuses = sessionStatuses(node, t);
+ 			const showStatus = statuses[0].state !== "done" || row.completed;
+ 			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
++			const [contextMenuPoint, setContextMenuPoint] = (0, react.useState)(null);
+ 			const sessionMenuItems = [
+ 				{
+ 					id: "rename",
+@@ -719,9 +720,18 @@ window.__ModuleLoader__.load({
+ 					className: clsx(Rows_module_css_default.sessionRow, selected && Rows_module_css_default.selected, menuOpen && Rows_module_css_default.menuOpen, flat && !showStatus && Rows_module_css_default.flatSessionRowWithoutStatus, drag?.marker === "before" && Rows_module_css_default.dropBefore, drag?.marker === "after" && Rows_module_css_default.dropAfter),
+ 					role: "treeitem",
+ 					"aria-selected": selected,
++					"data-dsh-session-context-menu": row.blank ? void 0 : "",
+ 					onClick: () => {
+ 						onOpen(node.id);
+ 					},
++					onContextMenu: (event) => {
++						const bridge = window.__DSH_DESKTOP_SESSION_CONTEXT_MENU__;
++						if (bridge === void 0) return;
++						const point = bridge(event, row.blank);
++						if (point === void 0) return;
++						setContextMenuPoint(point);
++						setMenuOpen(true);
++					},
+ 					draggable: drag !== void 0,
+ 					onDragStart: drag === void 0 ? void 0 : (e) => {
+ 						e.dataTransfer.effectAllowed = "move";
+@@ -759,22 +769,36 @@ window.__ModuleLoader__.load({
+ 								open: menuOpen,
+ 								onClose: () => {
+ 									setMenuOpen(false);
++									setContextMenuPoint(null);
+ 								},
+ 								items: sessionMenuItems,
+ 								onSelect: (id) => {
+ 									setMenuOpen(false);
++									setContextMenuPoint(null);
+ 									if (id === "rename") onRename(node.id, row.title);
+ 									if (id === "fork") onFork(node.id);
+ 									if (id === "archive") onArchive(node.id);
+ 								},
+ 								portal: true,
+-								closeOnPointerLeave: true,
++								closeOnPointerLeave: contextMenuPoint === null,
++								getAnchorRect: contextMenuPoint === null ? void 0 : () => ({
++									left: contextMenuPoint.x,
++									right: contextMenuPoint.x,
++									top: contextMenuPoint.y,
++									bottom: contextMenuPoint.y,
++									width: 0,
++									height: 0,
++									x: contextMenuPoint.x,
++									y: contextMenuPoint.y,
++									toJSON: () => ({})
++								}),
+ 								anchor: (0, react_jsx_runtime.jsx)("button", {
+ 									type: "button",
+ 									className: Rows_module_css_default.iconButton,
+ 									"aria-label": t("actions.session.aria", { name: title }),
+ 									onClick: (e) => {
+ 										e.stopPropagation();
++										setContextMenuPoint(null);
+ 										setMenuOpen((v) => !v);
+ 									},
+ 									children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEllipsisOutline16, {})
+@@ -1878,6 +1902,7 @@ window.__ModuleLoader__.load({
  			};
  			return (0, react_jsx_runtime.jsxs)("div", {
  				className: clsx(WorkspaceBrowser_module_css_default.root, !wide && WorkspaceBrowser_module_css_default.rail),
