@@ -147,6 +147,7 @@ Run `git diff --check` before handoff. Do not claim an unrun gate passed because
 6. Do not blame reporters or third-party maintainers, invent an ETA, promise a merge, or say “cannot reproduce” means “invalid.”
 7. For PR reviews, attach actionable findings to file/line references when possible. Put blocking findings before the overall decision.
 8. Drafting copy does not authorize posting it. Mutate GitHub only when the user explicitly asks.
+9. When bilingual copy is required, write a complete English block and a complete Chinese block as separate paragraphs or sections. Do not join translations on one line with `/`.
 
 Match the repository's established maintainer voice:
 

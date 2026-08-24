@@ -380,6 +380,7 @@ These templates use the same evidence and status definitions as the workflow abo
 ### 11.1 Writing rules
 
 - Default to the reporter's or author's language; add bilingual copy only when cross-language collaboration needs it.
+- When bilingual copy is required, use separate English and Chinese paragraphs or sections; do not join both languages on one line with `/`.
 - Lead with current status, then separate confirmed evidence, unknowns, and one concrete next action.
 - Thank a specific contribution such as reproduction steps, logs, or tests instead of using generic courtesy text.
 - Request only evidence that can distinguish live hypotheses; do not ask the reporter to repeat existing information.
