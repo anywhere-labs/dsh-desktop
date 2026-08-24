@@ -172,6 +172,22 @@ describe('published package surface', () => {
     expect(installedBoot).toContain(marker)
   })
 
+  it('patches the rc.2 LLM runtime with the explicit rc.1 adapter bridge', () => {
+    const patchPath = './patches/dsh-llm-legacy-adapter@0.1.1-rc.2.patch'
+    expect(workspaceManifest.resolutions).toMatchObject({
+      '@deepseek-ai/dsh-llm@npm:0.1.1-rc.2': expect.stringContaining(patchPath),
+      '@deepseek-ai/dsh-llm@npm:^0.1.1-rc.2': expect.stringContaining(patchPath),
+    })
+    const marker = 'does not implement the rc.2 prepareCall contract or the rc.1 resolveModel/stream contract'
+    const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
+    const installedLlm = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-llm/lib/index.js',
+      packageRoot,
+    ), 'utf8')
+    expect(patch).toContain(marker)
+    expect(installedLlm).toContain(marker)
+  })
+
   it('patches the browse panel with the Windows native-picker icon bridge', () => {
     const patchPath = './patches/dsh-client-ui-directory-picker-browse@0.1.1-rc.2.patch'
     expect(workspaceManifest.resolutions).toMatchObject({
