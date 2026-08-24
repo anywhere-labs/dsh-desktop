@@ -19,6 +19,7 @@ import type {
   DesktopSettingsProfileView,
   DesktopSettingsResponse,
   DesktopTerminalOpenResponse,
+  DesktopUninstallResponse,
 } from './desktop-settings-contract.ts'
 
 /** Launcher capabilities used without exposing their filesystem roots. */
@@ -34,6 +35,12 @@ export interface DesktopSettingsControllerBootstrap {
   selectMarket(provider: DesktopMarketProvider): Promise<DesktopMarketSnapshot>
   /** Queue an orderly restart after a response confirms persisted selection. */
   scheduleRestart(): void
+  /** Whether the running app has a registered Windows NSIS uninstaller. */
+  canUninstall(): boolean
+  /** Show the native destructive-action confirmation. */
+  confirmUninstall(): Promise<boolean>
+  /** Queue orderly shutdown and uninstaller launch after the response. */
+  scheduleUninstall(): void
   /** Open the launcher-owned DSH terminal. */
   openTerminal(): void
   /** Export diagnostics through the launcher-owned privacy flow. */
@@ -100,6 +107,7 @@ export class DesktopSettingsController {
         )),
       ),
       market: projectMarket(this.bootstrap.readMarket(), this.effectiveMarket),
+      canUninstall: this.bootstrap.canUninstall(),
     })
   }
 
@@ -159,6 +167,18 @@ export class DesktopSettingsController {
     return Object.freeze({
       response: Object.freeze({ accepted: true }),
       afterResponse: () => { this.bootstrap.scheduleRestart() },
+    })
+  }
+
+  /** Confirm uninstall natively and defer shutdown until after the response. */
+  async uninstall(): Promise<DesktopSettingsPostResponse<DesktopUninstallResponse>> {
+    if (!this.bootstrap.canUninstall()) {
+      throw new Error('dsh-plugin-desktop: Windows uninstaller is unavailable')
+    }
+    const uninstalling = await this.bootstrap.confirmUninstall()
+    return Object.freeze({
+      response: Object.freeze({ accepted: true, uninstalling }),
+      ...(uninstalling ? { afterResponse: () => { this.bootstrap.scheduleUninstall() } } : {}),
     })
   }
 

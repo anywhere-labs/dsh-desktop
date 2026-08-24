@@ -44,6 +44,60 @@ describe('application shutdown requests', () => {
     expect(native.exit).toHaveBeenCalledWith(1)
   })
 
+  it('runs a native handoff after cleanup and before a successful exit', async () => {
+    const events: string[] = []
+    const native = {
+      prepareToQuit: vi.fn(() => { events.push('prepare') }),
+      relaunch: vi.fn(),
+      exit: vi.fn(() => { events.push('exit') }),
+    }
+    const coordinator = createDesktopExitCoordinator(native, () => { events.push('cleanup') })
+    coordinator.requestBeforeExit(async () => {
+      events.push('handoff:start')
+      await Promise.resolve()
+      events.push('handoff:done')
+    })
+
+    await coordinator.finish(0)
+
+    expect(events).toEqual(['cleanup', 'prepare', 'handoff:start', 'handoff:done', 'exit'])
+    expect(native.relaunch).not.toHaveBeenCalled()
+  })
+
+  it('skips a native handoff on failed shutdown and exits nonzero when handoff fails', async () => {
+    const native = {
+      prepareToQuit: vi.fn(),
+      relaunch: vi.fn(),
+      exit: vi.fn(),
+    }
+    const skipped = vi.fn()
+    const failed = createDesktopExitCoordinator(native, () => {})
+    failed.requestBeforeExit(skipped)
+    await failed.finish(1)
+    expect(skipped).not.toHaveBeenCalled()
+    expect(native.exit).toHaveBeenLastCalledWith(1)
+
+    const rejected = createDesktopExitCoordinator(native, () => {})
+    rejected.requestBeforeExit(async () => { throw new Error('launch failed') })
+    await rejected.finish(0)
+    expect(native.exit).toHaveBeenLastCalledWith(1)
+  })
+
+  it('does not allow relaunch and native handoff requests to conflict', () => {
+    const native = {
+      prepareToQuit: vi.fn(),
+      relaunch: vi.fn(),
+      exit: vi.fn(),
+    }
+    const relaunch = createDesktopExitCoordinator(native, () => {})
+    relaunch.requestRelaunch()
+    expect(() => { relaunch.requestBeforeExit(() => {}) }).toThrow('native exit action')
+
+    const handoff = createDesktopExitCoordinator(native, () => {})
+    handoff.requestBeforeExit(() => {})
+    expect(() => { handoff.requestRelaunch() }).toThrow('native exit handoff')
+  })
+
   it('exits after graceful disposal and ignores later completions', async () => {
     const dispose = vi.fn(async () => {})
     const exit = vi.fn()
@@ -55,6 +109,26 @@ describe('application shutdown requests', () => {
     expect(dispose).toHaveBeenCalledOnce()
     expect(exit).toHaveBeenCalledOnce()
     expect(exit).toHaveBeenCalledWith(0)
+  })
+
+  it('awaits asynchronous finalization after graceful disposal', async () => {
+    const events: string[] = []
+    let finishExit!: () => void
+    const shutdown = createDesktopShutdown(
+      async () => { events.push('dispose') },
+      async () => {
+        events.push('exit:start')
+        await new Promise<void>(resolve => { finishExit = resolve })
+        events.push('exit:done')
+      },
+    )
+
+    const request = shutdown.request(0)
+    await vi.waitFor(() => { expect(events).toContain('exit:start') })
+    expect(events).toEqual(['dispose', 'exit:start'])
+    finishExit()
+    await request
+    expect(events).toEqual(['dispose', 'exit:start', 'exit:done'])
   })
 
   it('forces a wedged shutdown after the grace period', async () => {
@@ -85,6 +159,24 @@ describe('application shutdown requests', () => {
 
     expect(exit).toHaveBeenCalledOnce()
     expect(exit).toHaveBeenCalledWith(1)
+  })
+
+  it('keeps duplicate graceful quit requests idempotent while disposal is pending', async () => {
+    let finish!: () => void
+    const dispose = () => new Promise<void>((resolve) => { finish = resolve })
+    const exit = vi.fn()
+    const shutdown = createDesktopShutdown(dispose, exit, 5_000)
+    const first = shutdown.request(0)
+    await Promise.resolve()
+
+    const duplicate = shutdown.request(0)
+    expect(duplicate).toBe(first)
+    expect(exit).not.toHaveBeenCalled()
+
+    finish()
+    await first
+    expect(exit).toHaveBeenCalledOnce()
+    expect(exit).toHaveBeenCalledWith(0)
   })
 
   it('escalates a repeated request without waiting for disposal', async () => {

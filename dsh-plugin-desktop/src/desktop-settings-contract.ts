@@ -23,6 +23,9 @@ export const DESKTOP_TERMINAL_OPEN_PATH = '/api/desktop/terminal/open'
 /** Queue an orderly Desktop relaunch after acknowledging the renderer. */
 export const DESKTOP_RESTART_PATH = '/api/desktop/restart'
 
+/** Confirm and start the installed Windows application uninstaller. */
+export const DESKTOP_UNINSTALL_PATH = '/api/desktop/uninstall'
+
 /** Export one local diagnostic archive through the launcher-owned flow. */
 export const DESKTOP_DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 
@@ -64,6 +67,8 @@ export interface DesktopSettingsResponse {
   readonly profiles: readonly DesktopSettingsProfileView[]
   /** Market choice for the current and next generation. */
   readonly market: DesktopSettingsMarketView
+  /** Whether this process is an installed Windows build with an NSIS uninstaller. */
+  readonly canUninstall: boolean
 }
 
 /** Exact body accepted by the profile-creation endpoint. */
@@ -118,6 +123,15 @@ export type DesktopRestartRequest = Readonly<Record<string, never>>
 /** Successful handoff to the launcher's orderly relaunch flow. */
 export interface DesktopRestartResponse {
   readonly accepted: true
+}
+
+/** Exact empty body accepted by the Windows uninstall endpoint. */
+export type DesktopUninstallRequest = Readonly<Record<string, never>>
+
+/** Native confirmation result returned before any shutdown starts. */
+export interface DesktopUninstallResponse {
+  readonly accepted: true
+  readonly uninstalling: boolean
 }
 
 /** Exact empty body accepted by the diagnostic-export endpoint. */

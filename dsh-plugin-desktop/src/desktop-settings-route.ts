@@ -361,6 +361,36 @@ export async function handleDesktopRestartRequest(
   finishPostResponse(res, 202, controller.restart(), 'restart Desktop', reportError)
 }
 
+/** Confirm and start installed-app uninstall from an exact empty request. */
+export async function handleDesktopUninstallRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const value = await parsePostBody(req, res)
+  if (value === INVALID_BODY) return
+  if (!isEmptyRequest(value)) return finishJson(res, 400, error('invalid uninstall request'))
+  try {
+    const operation = await controller.uninstall()
+    finishPostResponse(
+      res,
+      operation.response.uninstalling ? 202 : 200,
+      operation,
+      'uninstall Desktop',
+      reportError,
+    )
+  } catch (cause) {
+    reportError('uninstall Desktop', cause)
+    finishJson(res, 409, error('Desktop uninstall is unavailable'))
+  }
+}
+
 /** Export diagnostics from an exact empty same-origin request. */
 export async function handleDesktopDiagnosticsExportRequest(
   req: IncomingMessage,

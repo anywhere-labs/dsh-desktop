@@ -16,6 +16,7 @@ import {
   handleDesktopRestartRequest,
   handleDesktopSettingsRequest,
   handleDesktopTerminalOpenRequest,
+  handleDesktopUninstallRequest,
   desktopSettingsRouteConstants,
 } from '../src/desktop-settings-route.ts'
 import type { DesktopProfileSummary } from '../src/profile-manager.ts'
@@ -70,6 +71,9 @@ function bootstrap(
     readMarket: () => market(),
     selectMarket: async provider => market(provider),
     scheduleRestart: () => {},
+    canUninstall: () => false,
+    confirmUninstall: async () => false,
+    scheduleUninstall: () => {},
     openTerminal: () => {},
     exportDiagnostics: async () => {},
     openProfileCreator: () => {},
@@ -141,6 +145,7 @@ describe('desktop settings controller', () => {
         { name: 'broken', exists: true, webCapable: false, selectable: false, deletable: false },
       ],
       market: { requested: 'disabled', effective: 'disabled', legacyDefaulted: false },
+      canUninstall: false,
     })
     expect(JSON.stringify(controller.read())).not.toContain('/private')
     expect(JSON.stringify(controller.read())).not.toContain('private-bundle')
@@ -167,6 +172,7 @@ describe('desktop settings controller', () => {
         { name: 'work', exists: true, webCapable: true, selectable: true, deletable: false },
       ],
       market: { requested: 'disabled', effective: 'disabled', legacyDefaulted: false },
+      canUninstall: false,
     })
     expect(create).toHaveBeenCalledWith('work')
     expect(persistProfileSelection).not.toHaveBeenCalled()
@@ -192,6 +198,7 @@ describe('desktop settings controller', () => {
         { name: 'work', exists: true, webCapable: true, selectable: true, deletable: true },
       ],
       market: { requested: 'disabled', effective: 'disabled', legacyDefaulted: false },
+      canUninstall: false,
     })
     expect(remove).toHaveBeenCalledWith('work')
   })
@@ -288,6 +295,47 @@ describe('desktop settings controller', () => {
     expect(scheduleRestart).toHaveBeenCalledOnce()
   })
 
+  it('confirms installed-app uninstall and schedules it only after the response', async () => {
+    const confirmUninstall = vi.fn(async () => true)
+    const scheduleUninstall = vi.fn()
+    const controller = new DesktopSettingsController(bootstrap({
+      canUninstall: () => true,
+      confirmUninstall,
+      scheduleUninstall,
+    }))
+
+    const operation = await controller.uninstall()
+
+    expect(operation.response).toEqual({ accepted: true, uninstalling: true })
+    expect(confirmUninstall).toHaveBeenCalledOnce()
+    expect(scheduleUninstall).not.toHaveBeenCalled()
+    operation.afterResponse?.()
+    expect(scheduleUninstall).toHaveBeenCalledOnce()
+  })
+
+  it('does not schedule uninstall when confirmation is cancelled or unavailable', async () => {
+    const confirmUninstall = vi.fn(async () => false)
+    const scheduleUninstall = vi.fn()
+    const cancelled = new DesktopSettingsController(bootstrap({
+      canUninstall: () => true,
+      confirmUninstall,
+      scheduleUninstall,
+    }))
+
+    await expect(cancelled.uninstall()).resolves.toEqual({
+      response: { accepted: true, uninstalling: false },
+    })
+    expect(scheduleUninstall).not.toHaveBeenCalled()
+
+    const unavailable = new DesktopSettingsController(bootstrap({
+      canUninstall: () => false,
+      confirmUninstall,
+      scheduleUninstall,
+    }))
+    await expect(unavailable.uninstall()).rejects.toThrow('uninstaller is unavailable')
+    expect(confirmUninstall).toHaveBeenCalledOnce()
+  })
+
   it('hands native diagnostics, Profile creation, and rollback to launcher capabilities', async () => {
     const exportDiagnostics = vi.fn(async () => {})
     const openProfileCreator = vi.fn()
@@ -368,6 +416,7 @@ describe('desktop settings HTTP boundary', () => {
         { name: 'work', exists: true, webCapable: true, selectable: true, deletable: false },
       ],
       market: { requested: 'disabled', effective: 'disabled', legacyDefaulted: false },
+      canUninstall: false,
     })
     expect(create).toHaveBeenCalledWith('work')
   })
@@ -542,6 +591,40 @@ describe('desktop settings HTTP boundary', () => {
     await handleDesktopRestartRequest(jsonRequest({ reason: 'untrusted' }), rejected, ORIGIN, controller)
     expect(rejected.statusCode).toBe(400)
     expect(scheduleRestart).toHaveBeenCalledOnce()
+  })
+
+  it('starts installed-app uninstall only after native confirmation and response completion', async () => {
+    const scheduleUninstall = vi.fn()
+    const controller = new DesktopSettingsController(bootstrap({
+      canUninstall: () => true,
+      confirmUninstall: async () => true,
+      scheduleUninstall,
+    }))
+    const accepted = response()
+
+    await handleDesktopUninstallRequest(jsonRequest({}), accepted, ORIGIN, controller)
+
+    expect(accepted.statusCode).toBe(202)
+    expect(JSON.parse(accepted.body)).toEqual({ accepted: true, uninstalling: true })
+    expect(scheduleUninstall).not.toHaveBeenCalled()
+    await new Promise<void>(resolve => { setImmediate(resolve) })
+    expect(scheduleUninstall).toHaveBeenCalledOnce()
+  })
+
+  it('keeps uninstall unavailable to portable, malformed, and cross-origin callers', async () => {
+    const confirmUninstall = vi.fn(async () => true)
+    const controller = new DesktopSettingsController(bootstrap({ confirmUninstall }))
+
+    for (const [req, statusCode] of [
+      [jsonRequest({}), 409],
+      [jsonRequest({ deleteAppData: true }), 400],
+      [jsonRequest({}, { headers: { origin: 'https://example.com' } }), 403],
+    ] as const) {
+      const rejected = response()
+      await handleDesktopUninstallRequest(req, rejected, ORIGIN, controller)
+      expect(rejected.statusCode).toBe(statusCode)
+    }
+    expect(confirmUninstall).not.toHaveBeenCalled()
   })
 
   it('exports diagnostics, opens the native creator, and starts rollback only after response', async () => {

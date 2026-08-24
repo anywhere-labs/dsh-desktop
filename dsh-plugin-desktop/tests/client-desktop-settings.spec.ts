@@ -8,6 +8,7 @@ import {
   parseDesktopActionAcceptance,
   parseDesktopRestartAcceptance,
   parseDesktopSettingsView,
+  parseDesktopUninstallAcceptance,
   type DesktopSettingsView,
 } from '../src/client/desktop-settings-api.ts'
 import {
@@ -25,6 +26,7 @@ const VIEW: DesktopSettingsView = {
     { name: 'work', exists: true, webCapable: true, selectable: true, deletable: true },
   ],
   market: { requested: 'disabled', effective: 'disabled', legacyDefaulted: true },
+  canUninstall: false,
 }
 
 function json(value: unknown, status = 200): Response {
@@ -46,6 +48,11 @@ describe('Desktop settings API', () => {
     expect(parseDesktopRestartAcceptance({ accepted: true, restartRequired: false }))
       .toEqual({ accepted: true, restartRequired: false })
     expect(() => parseDesktopRestartAcceptance({ accepted: true })).toThrow('invalid Desktop restart response')
+    expect(parseDesktopUninstallAcceptance({ accepted: true, uninstalling: true }))
+      .toEqual({ accepted: true, uninstalling: true })
+    expect(parseDesktopUninstallAcceptance({ accepted: true, uninstalling: false }))
+      .toEqual({ accepted: true, uninstalling: false })
+    expect(() => parseDesktopUninstallAcceptance({ accepted: true })).toThrow('invalid Desktop uninstall response')
     expect(parseDesktopActionAcceptance({ accepted: true })).toBeUndefined()
     expect(() => parseDesktopActionAcceptance({ accepted: true, detail: 'extra' }))
       .toThrow('invalid Desktop action response')
@@ -57,6 +64,7 @@ describe('Desktop settings API', () => {
       if (path === desktopSettingsPaths.terminalOpen || path === desktopSettingsPaths.restart) {
         return json({ accepted: true })
       }
+      if (path === desktopSettingsPaths.uninstall) return json({ accepted: true, uninstalling: true })
       return path === desktopSettingsPaths.settings || path === desktopSettingsPaths.profileCreate || path === desktopSettingsPaths.profileDelete
         ? json(VIEW)
         : json({ accepted: true, restartRequired: true })
@@ -70,6 +78,7 @@ describe('Desktop settings API', () => {
     await expect(api.selectMarket('community-market')).resolves.toEqual({ accepted: true, restartRequired: true })
     await expect(api.openTerminal()).resolves.toBeUndefined()
     await expect(api.restart()).resolves.toBeUndefined()
+    await expect(api.uninstall()).resolves.toEqual({ accepted: true, uninstalling: true })
 
     expect(fetcher.mock.calls.map(call => call[0])).toEqual([
       desktopSettingsPaths.settings,
@@ -79,6 +88,7 @@ describe('Desktop settings API', () => {
       desktopSettingsPaths.marketSelect,
       desktopSettingsPaths.terminalOpen,
       desktopSettingsPaths.restart,
+      desktopSettingsPaths.uninstall,
     ])
     expect(fetcher.mock.calls[1]?.[1]).toMatchObject({
       method: 'POST',

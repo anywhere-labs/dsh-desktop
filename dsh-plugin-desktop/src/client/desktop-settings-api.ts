@@ -7,6 +7,7 @@ const PROFILE_DELETE_PATH = '/api/desktop/profiles/delete'
 const MARKET_SELECT_PATH = '/api/desktop/market/select'
 const TERMINAL_OPEN_PATH = '/api/desktop/terminal/open'
 const RESTART_PATH = '/api/desktop/restart'
+const UNINSTALL_PATH = '/api/desktop/uninstall'
 const MAX_PROFILES = 256
 const MAX_PROFILE_NAME_LENGTH = 255
 
@@ -34,12 +35,19 @@ export interface DesktopSettingsView {
   readonly current: string
   readonly profiles: readonly DesktopProfileView[]
   readonly market: DesktopMarketView
+  readonly canUninstall: boolean
 }
 
 /** A persisted selection that requires a new Desktop generation. */
 export interface DesktopRestartAcceptance {
   readonly accepted: true
   readonly restartRequired: boolean
+}
+
+/** Native confirmation result returned before installed-app shutdown. */
+export interface DesktopUninstallAcceptance {
+  readonly accepted: true
+  readonly uninstalling: boolean
 }
 
 /** Browser operations consumed by the Desktop settings section. */
@@ -51,6 +59,7 @@ export interface DesktopSettingsApi {
   selectMarket(provider: DesktopMarketProvider): Promise<DesktopRestartAcceptance>
   openTerminal(): Promise<void>
   restart(): Promise<void>
+  uninstall(): Promise<DesktopUninstallAcceptance>
 }
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -94,7 +103,8 @@ export function parseDesktopSettingsView(value: unknown): DesktopSettingsView {
     || !isObject(value.market)
     || !isMarketProvider(value.market.requested)
     || !isMarketProvider(value.market.effective)
-    || typeof value.market.legacyDefaulted !== 'boolean') {
+    || typeof value.market.legacyDefaulted !== 'boolean'
+    || typeof value.canUninstall !== 'boolean') {
     throw new Error('dsh-plugin-desktop: invalid Desktop settings response')
   }
   const profiles = value.profiles.map(parseProfile)
@@ -109,6 +119,7 @@ export function parseDesktopSettingsView(value: unknown): DesktopSettingsView {
       effective: value.market.effective,
       legacyDefaulted: value.market.legacyDefaulted,
     }),
+    canUninstall: value.canUninstall,
   })
 }
 
@@ -118,6 +129,14 @@ export function parseDesktopRestartAcceptance(value: unknown): DesktopRestartAcc
     throw new Error('dsh-plugin-desktop: invalid Desktop restart response')
   }
   return Object.freeze({ accepted: true, restartRequired: value.restartRequired })
+}
+
+/** Validate the native uninstall confirmation result. */
+export function parseDesktopUninstallAcceptance(value: unknown): DesktopUninstallAcceptance {
+  if (!isObject(value) || value.accepted !== true || typeof value.uninstalling !== 'boolean') {
+    throw new Error('dsh-plugin-desktop: invalid Desktop uninstall response')
+  }
+  return Object.freeze({ accepted: true, uninstalling: value.uninstalling })
 }
 
 /** Validate the exact acknowledgement returned by a Desktop side effect. */
@@ -184,6 +203,9 @@ export function createDesktopSettingsApi(fetcher: FetchLike = globalThis.fetch.b
     async restart() {
       parseDesktopActionAcceptance(await readResponse(await post(fetcher, RESTART_PATH, {})))
     },
+    async uninstall() {
+      return parseDesktopUninstallAcceptance(await readResponse(await post(fetcher, UNINSTALL_PATH, {})))
+    },
   })
 }
 
@@ -195,4 +217,5 @@ export const desktopSettingsPaths = Object.freeze({
   marketSelect: MARKET_SELECT_PATH,
   terminalOpen: TERMINAL_OPEN_PATH,
   restart: RESTART_PATH,
+  uninstall: UNINSTALL_PATH,
 })

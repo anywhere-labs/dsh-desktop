@@ -67,6 +67,12 @@ export const zh = {
   turnFailure: '用户回合需要处理',
   jobCompletion: '后台任务完成',
   jobFailure: '后台任务需要处理',
+  appManagementTitle: '应用管理',
+  appManagementIntro: '管理这台 Windows 电脑上安装的 DSH Desktop。',
+  uninstallDesktop: '卸载 DSH Desktop',
+  uninstallDesktopBody: '关闭应用并打开 Windows 卸载程序。Profile、插件、设置、日志和缓存会保留。',
+  uninstallingDesktop: '正在卸载…',
+  uninstallingDesktopStatus: 'DSH Desktop 正在关闭，Windows 卸载程序即将打开。',
 } as const
 
 export type DesktopSettingsLocaleKey = keyof typeof zh
@@ -138,4 +144,10 @@ export const en: Record<DesktopSettingsLocaleKey, string> = {
   turnFailure: 'User turn needs attention',
   jobCompletion: 'Background job completed',
   jobFailure: 'Background job needs attention',
+  appManagementTitle: 'App management',
+  appManagementIntro: 'Manage the copy of DSH Desktop installed on this Windows PC.',
+  uninstallDesktop: 'Uninstall DSH Desktop',
+  uninstallDesktopBody: 'Close the app and open the Windows uninstaller. Profiles, plugins, settings, logs, and caches are kept.',
+  uninstallingDesktop: 'Uninstalling…',
+  uninstallingDesktopStatus: 'DSH Desktop is closing and the Windows uninstaller will open.',
 }

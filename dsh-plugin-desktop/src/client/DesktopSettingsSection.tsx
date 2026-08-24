@@ -46,7 +46,7 @@ export type DesktopSettingsSectionProps =
   & InjectFace<DesktopSettingsSectionInjected>
 
 type Translate = DesktopSettingsSectionProps['t']
-type BusyOperation = 'load' | 'create-profile' | 'select-profile' | 'delete-profile' | 'select-market' | 'mode' | 'material' | 'notification'
+type BusyOperation = 'load' | 'create-profile' | 'select-profile' | 'delete-profile' | 'select-market' | 'mode' | 'material' | 'notification' | 'uninstall'
 type RestartState = 'none' | 'restarting' | 'required'
 
 function useScope<T>(scope: SettingsScope<T>) {
@@ -208,6 +208,7 @@ export function DesktopSettingsSection({
   const [operationFailed, setOperationFailed] = useState(false)
   const [restart, setRestart] = useState<RestartState>('none')
   const [pendingProfileDelete, setPendingProfileDelete] = useState<string>()
+  const [uninstalling, setUninstalling] = useState(false)
 
   const load = useCallback(async () => {
     setBusy('load')
@@ -314,6 +315,13 @@ export function DesktopSettingsSection({
 
   const setNotification = (field: keyof DesktopNotificationSettings, checked: boolean): void => {
     void run('notification', async () => { await notificationSettings.set(field, checked) })
+  }
+
+  const uninstall = (): void => {
+    void run('uninstall', async () => {
+      const response = await api.uninstall()
+      if (response.uninstalling) setUninstalling(true)
+    })
   }
 
   return (
@@ -552,6 +560,30 @@ export function DesktopSettingsSection({
           />
         </div>
       </section>
+
+      {view?.canUninstall === true && (
+        <section className="dshDesktopSettingsGroup" aria-labelledby="dsh-desktop-app-management-title">
+          <div>
+            <h3 id="dsh-desktop-app-management-title">{t('appManagementTitle')}</h3>
+            <p className="dshDesktopSettingsGroupIntro">{t('appManagementIntro')}</p>
+          </div>
+          <div className="dshDesktopSettingsDangerRow">
+            <span className="dshDesktopSettingsChoiceCopy">
+              <span className="dshDesktopSettingsChoiceTitle">{t('uninstallDesktop')}</span>
+              <span className="dshDesktopSettingsChoiceBody">{t('uninstallDesktopBody')}</span>
+            </span>
+            <button
+              type="button"
+              className="dshDesktopSettingsButton dshDesktopSettingsButtonDanger"
+              disabled={busy !== undefined || restart !== 'none' || uninstalling}
+              onClick={uninstall}
+            >
+              {busy === 'uninstall' || uninstalling ? t('uninstallingDesktop') : t('uninstallDesktop')}
+            </button>
+          </div>
+          {uninstalling && <p className="dshDesktopSettingsSuccess" role="status">{t('uninstallingDesktopStatus')}</p>}
+        </section>
+      )}
     </div>
   )
 }

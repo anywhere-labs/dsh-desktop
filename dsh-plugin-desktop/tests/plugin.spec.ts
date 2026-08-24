@@ -99,6 +99,9 @@ function createHarness(platform: DesktopRuntime['platform'] = 'darwin'): PluginH
     setLocalePreference,
     setThemeSource,
     requestRestart: restart,
+    canUninstall: false,
+    confirmUninstall: async () => false,
+    requestUninstall: async () => {},
     prepareToQuit: () => {},
   }
   const settings = {

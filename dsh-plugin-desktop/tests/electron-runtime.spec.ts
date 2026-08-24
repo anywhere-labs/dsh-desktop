@@ -5,6 +5,7 @@ import type { DesktopShellSpec } from '../src/runtime.ts'
 const terminal = vi.hoisted(() => ({ open: vi.fn() }))
 const diagnostics = vi.hoisted(() => ({ export: vi.fn() }))
 const windowsAcrylic = vi.hoisted(() => ({ set: vi.fn(() => true) }))
+const filesystem = vi.hoisted(() => ({ exists: vi.fn(() => false) }))
 const updater = vi.hoisted(() => ({
   download: vi.fn(),
   filename: vi.fn(),
@@ -49,6 +50,11 @@ vi.mock('../src/diagnostic-export.ts', () => ({
 
 vi.mock('../src/windows-acrylic.ts', () => ({
   setWindowsAcrylic: windowsAcrylic.set,
+}))
+
+vi.mock('node:fs', async (importOriginal) => ({
+  ...await importOriginal<typeof import('node:fs')>(),
+  existsSync: filesystem.exists,
 }))
 
 vi.mock('../src/update-download.ts', () => ({
@@ -290,6 +296,8 @@ describe('Electron desktop runtime', () => {
     diagnostics.export.mockReset()
     windowsAcrylic.set.mockReset()
     windowsAcrylic.set.mockReturnValue(true)
+    filesystem.exists.mockReset()
+    filesystem.exists.mockReturnValue(false)
     electron.loadURL.mockReset()
     electron.loadURL.mockResolvedValue(undefined)
     electron.app.getPreferredSystemLanguages.mockReturnValue(['en-US'])
@@ -1456,6 +1464,57 @@ describe('Electron desktop runtime', () => {
     runtime.reportRendererBoot({ status: 'failed', plugins: ['dsh-vision-router'] })
     await rendererBoot
     await vi.waitFor(() => { expect(restart).toHaveBeenCalledOnce() })
+  })
+
+  it('exposes uninstall only for installed Windows builds and confirms it natively', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const uninstall = vi.fn(async () => {})
+    const runtime = new ElectronDesktopRuntime(async () => {}, undefined, undefined, undefined, uninstall)
+    const release = runtime.schedule(spec)
+
+    filesystem.exists.mockReturnValue(true)
+    expect(runtime.canUninstall).toBe(false)
+    electron.app.isPackaged = true
+    filesystem.exists.mockReturnValue(false)
+    expect(runtime.canUninstall).toBe(false)
+    filesystem.exists.mockReturnValue(true)
+    expect(runtime.canUninstall).toBe(true)
+    expect(filesystem.exists).toHaveBeenLastCalledWith(expect.stringMatching(/Uninstall DSH Desktop\.exe$/))
+
+    electron.dialog.showMessageBox.mockResolvedValueOnce({ response: 1, checkboxChecked: false })
+    await expect(runtime.confirmUninstall()).resolves.toBe(false)
+    expect(uninstall).not.toHaveBeenCalled()
+
+    runtime.setLocalePreference('zh')
+    electron.dialog.showMessageBox.mockResolvedValueOnce({ response: 0, checkboxChecked: false })
+    await expect(runtime.confirmUninstall()).resolves.toBe(true)
+    expect(electron.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({
+      title: '卸载 DSH Desktop',
+      defaultId: 1,
+      cancelId: 1,
+      buttons: ['卸载', '取消'],
+      detail: expect.stringContaining('会保留'),
+    }))
+
+    await runtime.requestUninstall()
+    expect(uninstall).toHaveBeenCalledOnce()
+    await release()
+  })
+
+  it('rejects uninstall requests from portable and non-Windows builds', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    electron.app.isPackaged = true
+    filesystem.exists.mockReturnValue(true)
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const uninstall = vi.fn(async () => {})
+    const runtime = new ElectronDesktopRuntime(async () => {}, undefined, undefined, undefined, uninstall)
+    runtime.schedule(spec)
+
+    expect(runtime.canUninstall).toBe(false)
+    await expect(runtime.confirmUninstall()).rejects.toThrow('uninstaller is unavailable')
+    await expect(runtime.requestUninstall()).rejects.toThrow('uninstaller is unavailable')
+    expect(uninstall).not.toHaveBeenCalled()
   })
 
   it('uses Electron networking and confirmation-gated macOS update handoff', async () => {

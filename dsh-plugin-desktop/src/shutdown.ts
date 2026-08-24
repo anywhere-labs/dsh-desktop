@@ -23,8 +23,10 @@ export interface DesktopNativeExit {
 export interface DesktopExitCoordinator {
   /** Mark the next successful exit as a relaunch. */
   requestRelaunch(): void
+  /** Run one native handoff after Host disposal and before a successful exit. */
+  requestBeforeExit(action: () => void | Promise<void>): void
   /** Complete one native exit after Cordis teardown. */
-  finish(code: number): void
+  finish(code: number): void | Promise<void>
 }
 
 /**
@@ -38,14 +40,30 @@ export function createDesktopExitCoordinator(
   beforeExit: () => void,
 ): DesktopExitCoordinator {
   let relaunchRequested = false
+  let beforeExitAction: (() => void | Promise<void>) | undefined
   return {
     requestRelaunch() {
+      if (beforeExitAction !== undefined) {
+        throw new Error('dsh-plugin-desktop: a native exit handoff is already pending')
+      }
       relaunchRequested = true
+    },
+    requestBeforeExit(action) {
+      if (relaunchRequested || beforeExitAction !== undefined) {
+        throw new Error('dsh-plugin-desktop: a native exit action is already pending')
+      }
+      beforeExitAction = action
     },
     finish(code) {
       beforeExit()
       native.prepareToQuit()
-      if (relaunchRequested && code === 0) native.relaunch()
+      if (code === 0 && beforeExitAction !== undefined) {
+        return Promise.resolve().then(beforeExitAction).then(
+          () => { native.exit(0) },
+          () => { native.exit(1) },
+        )
+      }
+      if (code === 0 && relaunchRequested) native.relaunch()
       native.exit(code)
     },
   }
@@ -60,31 +78,38 @@ export function createDesktopExitCoordinator(
  */
 export function createDesktopShutdown(
   dispose: () => Promise<void>,
-  exit: (code: number) => void,
+  exit: (code: number) => void | Promise<void>,
   timeoutMs = DESKTOP_SHUTDOWN_TIMEOUT_MS,
 ): DesktopShutdown {
   let pending: Promise<void> | undefined
   let timeout: ReturnType<typeof setTimeout> | undefined
-  let exited = false
+  let exitOperation: Promise<void> | undefined
 
-  const exitOnce = (code: number): void => {
-    if (exited) return
-    exited = true
+  const exitOnce = (code: number): Promise<void> => {
+    if (exitOperation !== undefined) return exitOperation
     if (timeout !== undefined) clearTimeout(timeout)
-    exit(code)
+    try {
+      exitOperation = Promise.resolve(exit(code))
+    } catch (cause) {
+      exitOperation = Promise.reject(cause)
+    }
+    return exitOperation
   }
 
   return {
     request(code) {
       if (pending !== undefined) {
-        exitOnce(code)
+        // Electron emits another before-quit when disposal closes the final
+        // window. Keep that normal quit idempotent so post-disposal actions
+        // such as relaunch and uninstall handoff are not skipped.
+        if (code !== 0) void exitOnce(code)
         return pending
       }
       const failureCode = code === 0 ? 1 : code
-      timeout = setTimeout(() => { exitOnce(failureCode) }, timeoutMs)
+      timeout = setTimeout(() => { void exitOnce(failureCode) }, timeoutMs)
       pending = Promise.resolve().then(dispose).then(
-        () => { exitOnce(code) },
-        () => { exitOnce(failureCode) },
+        async () => { await exitOnce(code) },
+        async () => { await exitOnce(failureCode) },
       )
       return pending
     },

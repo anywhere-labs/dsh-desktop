@@ -23,6 +23,7 @@ export {
   parseDesktopActionAcceptance,
   parseDesktopRestartAcceptance,
   parseDesktopSettingsView,
+  parseDesktopUninstallAcceptance,
 } from './desktop-settings-api.ts'
 export type {
   DesktopMarketProvider,
@@ -31,6 +32,7 @@ export type {
   DesktopRestartAcceptance,
   DesktopSettingsApi,
   DesktopSettingsView,
+  DesktopUninstallAcceptance,
 } from './desktop-settings-api.ts'
 export { DesktopSettingsSection } from './DesktopSettingsSection.tsx'
 export { DesktopTerminalSettingsAction } from './DesktopTerminalSettingsAction.tsx'
