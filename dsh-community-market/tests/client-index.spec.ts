@@ -48,6 +48,12 @@ function testContext(): TestContext {
       bind: vi.fn(() => vi.fn()),
       getLocale: vi.fn(() => ({ active: 'en' })),
     },
+    settingsScope: { bind: vi.fn(() => ({
+      getSnapshot: () => ({ status: 'loading', value: undefined, writable: false, mode: 'host' }),
+      subscribe: () => () => {},
+      set: vi.fn(async () => {}),
+      unset: vi.fn(async () => {}),
+    })) },
     slots: {
       inject: (name: string, factory: () => unknown) => { injections.push({ name, factory }) },
       register: (spec: Record<string, unknown>, component: unknown) => {
@@ -61,7 +67,7 @@ function testContext(): TestContext {
 
 describe('community market client registration', () => {
   it('publishes the expected Loader dependency contract', () => {
-    expect(inject).toEqual(['slots', 'locale'])
+    expect(inject).toEqual(['slots', 'locale', 'settingsScope'])
     expect(NS).toBe('community-market')
   })
 

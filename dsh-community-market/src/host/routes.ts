@@ -52,6 +52,7 @@ const SOURCE_SCHEMA = z.object({
   order: z.number().required(),
 })
 const SETTINGS_SCHEMA = z.object({
+  sidebarLauncherVisible: z.boolean().default(true),
   sources: z.array(SOURCE_SCHEMA).default([]),
   installReceipts: z.array(z.object({
     receiptId: z.string().required(),
