@@ -418,7 +418,13 @@ describe('market install service', () => {
     if (installedResult.action !== 'install') throw new Error('expected install result')
     const installed = installedResult
     expect(calls[0]).toMatchObject({
-      args: ['add', '--save-exact', '--registry=https://registry.npmjs.org/', `${packageName}@${version}`],
+      args: [
+        'add',
+        '--save-exact',
+        '--ignore-scripts',
+        '--registry=https://registry.npmjs.org/',
+        `${packageName}@${version}`,
+      ],
       dir: profileDir,
     })
     expect(verify).toHaveBeenCalledTimes(2)
@@ -648,6 +654,7 @@ describe('market install service', () => {
     expect(calls[0]?.args).toEqual([
       'add',
       '--save-exact',
+      '--ignore-scripts',
       '--registry=https://registry.npmjs.org/',
       '--@example:registry=https://registry.npmjs.org/',
       `${scopedPackage}@${version}`,

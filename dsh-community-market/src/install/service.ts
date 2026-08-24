@@ -1191,6 +1191,7 @@ export class MarketInstallService {
     const scope = packageName.startsWith('@') ? packageName.split('/', 1)[0] : undefined
     return [
       '--save-exact',
+      '--ignore-scripts',
       `--registry=${NPM_REGISTRY}`,
       ...(scope === undefined ? [] : [`--${scope}:registry=${NPM_REGISTRY}`]),
     ]
