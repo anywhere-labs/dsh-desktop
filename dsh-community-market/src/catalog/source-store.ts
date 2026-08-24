@@ -20,6 +20,8 @@ export interface MarketSettingsDocument {
   readonly sources: readonly LocalSourceRecord[]
   readonly installReceipts?: readonly MarketInstallReceipt[]
   readonly catalogCache?: MarketCatalogCache
+  /** Optional https npm registry origin. Empty/omitted uses registry.npmjs.org. */
+  readonly npmRegistry?: string
 }
 
 /**

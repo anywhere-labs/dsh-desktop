@@ -15,6 +15,34 @@ import { manualInstallHints } from './manual.js'
 
 const NPM_REGISTRY_ORIGIN = 'https://registry.npmjs.org'
 const NPM_REGISTRY = `${NPM_REGISTRY_ORIGIN}/`
+
+/** Official npm origin used for package verification and the default install registry. */
+export const OFFICIAL_NPM_REGISTRY_ORIGIN = NPM_REGISTRY_ORIGIN
+
+/**
+ * Resolve the pnpm --registry origin. Empty settings keep registry.npmjs.org.
+ * Verification still talks to the official registry.
+ */
+export function resolveNpmRegistryOrigin(value: unknown): string {
+  if (value === undefined || value === null) return NPM_REGISTRY_ORIGIN
+  if (typeof value !== 'string') {
+    throw new MarketInstallError('verification-failed', 'The npm registry setting is invalid.')
+  }
+  const trimmed = value.trim()
+  if (trimmed === '') return NPM_REGISTRY_ORIGIN
+  let parsed: URL
+  try { parsed = new URL(trimmed) }
+  catch {
+    throw new MarketInstallError('verification-failed', 'The npm registry setting must be an https URL.')
+  }
+  if (parsed.protocol !== 'https:' || parsed.username !== '' || parsed.password !== '' || parsed.hash !== '') {
+    throw new MarketInstallError(
+      'verification-failed',
+      'The npm registry setting must be an https URL without credentials.',
+    )
+  }
+  return parsed.origin
+}
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
 const MAX_MANIFEST_BYTES = 1024 * 1024
 const MAX_LOCKFILE_BYTES = 32 * 1024 * 1024
@@ -1188,11 +1216,12 @@ export class MarketInstallService {
   }
 
   private installOptions(packageName: string): readonly string[] {
+    const registry = `${resolveNpmRegistryOrigin(this.scope.get().npmRegistry)}/`
     const scope = packageName.startsWith('@') ? packageName.split('/', 1)[0] : undefined
     return [
       '--save-exact',
-      `--registry=${NPM_REGISTRY}`,
-      ...(scope === undefined ? [] : [`--${scope}:registry=${NPM_REGISTRY}`]),
+      `--registry=${registry}`,
+      ...(scope === undefined ? [] : [`--${scope}:registry=${registry}`]),
     ]
   }
 

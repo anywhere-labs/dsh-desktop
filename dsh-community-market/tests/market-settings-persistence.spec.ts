@@ -73,7 +73,11 @@ describe('community market file-backed settings', () => {
     await first.dispose()
 
     const second = await bootMarketSettings(path)
-    expect(second.scope.get()).toEqual({ sources: [source], installReceipts: [receipt] } satisfies MarketSettingsDocument)
+    expect(second.scope.get()).toEqual({
+      sources: [source],
+      installReceipts: [receipt],
+      npmRegistry: '',
+    } satisfies MarketSettingsDocument)
   })
 
   it('preserves install receipts when the source store persists a change', async () => {
@@ -85,7 +89,11 @@ describe('community market file-backed settings', () => {
     await first.dispose()
 
     const second = await bootMarketSettings(path)
-    expect(second.scope.get()).toEqual({ sources: [source], installReceipts: [receipt] } satisfies MarketSettingsDocument)
+    expect(second.scope.get()).toEqual({
+      sources: [source],
+      installReceipts: [receipt],
+      npmRegistry: '',
+    } satisfies MarketSettingsDocument)
   })
 
   it('preserves another plugin namespace while persisting market settings', async () => {
@@ -100,6 +108,10 @@ describe('community market file-backed settings', () => {
     const second = await bootMarketSettings(path)
     const secondSibling = second.ctx.settings.register(SIBLING_NAMESPACE, SiblingSchema)
     expect(secondSibling.get()).toEqual({ label: 'retained across restart' })
-    expect(second.scope.get()).toEqual({ sources: [source], installReceipts: [receipt] } satisfies MarketSettingsDocument)
+    expect(second.scope.get()).toEqual({
+      sources: [source],
+      installReceipts: [receipt],
+      npmRegistry: '',
+    } satisfies MarketSettingsDocument)
   })
 })

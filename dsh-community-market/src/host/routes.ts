@@ -53,6 +53,7 @@ const SOURCE_SCHEMA = z.object({
 })
 const SETTINGS_SCHEMA = z.object({
   sources: z.array(SOURCE_SCHEMA).default([]),
+  npmRegistry: z.string().default(''),
   installReceipts: z.array(z.object({
     receiptId: z.string().required(),
     profileName: z.string().required(),

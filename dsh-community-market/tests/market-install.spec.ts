@@ -16,6 +16,8 @@ import {
   createNpmRegistryVerifier,
   MarketInstallError,
   MarketInstallService,
+  OFFICIAL_NPM_REGISTRY_ORIGIN,
+  resolveNpmRegistryOrigin,
   type MarketDesktopPnpm,
   type MarketInstallReceipt,
 } from '../src/install/service.js'
@@ -194,11 +196,14 @@ async function removeInstalledPlugin(profileDir: string): Promise<void> {
   }))
 }
 
-function memoryScope(initial: readonly MarketInstallReceipt[] = []): {
+function memoryScope(
+  initial: readonly MarketInstallReceipt[] = [],
+  extra: Partial<MarketSettingsDocument> = {},
+): {
   readonly scope: SettingsScope<MarketSettingsDocument>
   readonly receipts: () => readonly MarketInstallReceipt[]
 } {
-  let document: MarketSettingsDocument = { sources: [], installReceipts: initial }
+  let document: MarketSettingsDocument = { sources: [], installReceipts: initial, ...extra }
   return {
     scope: {
       get: () => document,
@@ -439,6 +444,37 @@ describe('market install service', () => {
     profileName = 'other'
     expect(() => service.consumeRestartToken(removed.restartToken)).toThrow(/active desktop profile changed/u)
     expect(settings.receipts()).toEqual([])
+  })
+
+  it('uses a configured https npm registry for package manager installs', async () => {
+    const profileDir = await createProfile()
+    const calls: Array<{ args: readonly string[]; dir: string; signal?: AbortSignal }> = []
+    const settings = memoryScope([], { npmRegistry: 'https://registry.npmmirror.com/' })
+    const verify = vi.fn(async () => verification)
+    const service = new MarketInstallService(
+      settings.scope,
+      () => ({ name: 'web', dir: profileDir }),
+      runner(profileDir, calls),
+      { verify },
+    )
+    service.observeCatalog(snapshot())
+
+    const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
+    await service.executePreview(preview.intent, new AbortController().signal)
+    expect(calls[0]?.args).toEqual([
+      'add',
+      '--save-exact',
+      '--registry=https://registry.npmmirror.com/',
+      `${packageName}@${version}`,
+    ])
+    service.dispose()
+  })
+
+  it('resolves empty npm registry settings to the official origin', () => {
+    expect(resolveNpmRegistryOrigin(undefined)).toBe(OFFICIAL_NPM_REGISTRY_ORIGIN)
+    expect(resolveNpmRegistryOrigin('')).toBe(OFFICIAL_NPM_REGISTRY_ORIGIN)
+    expect(resolveNpmRegistryOrigin(' https://registry.npmmirror.com/path ')).toBe('https://registry.npmmirror.com')
+    expect(() => resolveNpmRegistryOrigin('http://registry.npmmirror.com')).toThrow(/https URL/u)
   })
 
   it('restores an installed receipt through a new service and file-backed settings context', async () => {
