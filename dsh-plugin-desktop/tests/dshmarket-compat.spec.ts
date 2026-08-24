@@ -240,8 +240,34 @@ describe('dsh-market Desktop install compatibility', () => {
       '@liustack/modlens@3.18.1',
     ])
     expect(runExternalMarketPluginInstall.mock.calls[0]?.[1]).toBe('/private/dsh-invoking')
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toBe(
+      'https://registry.npmjs.org/@liustack/modlens/latest',
+    )
 
     await runtime.dispose()
+  })
+
+  it('resolves a catalog bare npm name to an exact target before Desktop add', async () => {
+    for (const name of ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']) {
+      vi.stubEnv(name, '')
+    }
+    globalThis.fetch = vi.fn(async () => new Response(
+      JSON.stringify({ version: '0.1.20' }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ))
+    const require = createRequire(import.meta.url)
+    const manifest = require.resolve('dshmarket/package.json')
+    const moduleUrl = pathToFileURL(join(dirname(manifest), 'lib', 'dsh-cli.js')).href
+    const loaded = await import(moduleUrl) as {
+      resolveExactNpmInstallTarget: (target: string) => Promise<string | null>
+    }
+
+    await expect(loaded.resolveExactNpmInstallTarget('@linxin666/dsh-web-ui-all')).resolves.toBe(
+      '@linxin666/dsh-web-ui-all@0.1.20',
+    )
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0])).toBe(
+      'https://registry.npmjs.org/@linxin666/dsh-web-ui-all/latest',
+    )
   })
 
   it('keeps non-add operations on the ordinary managed command boundary', async () => {

@@ -21,7 +21,7 @@ index 0ad55132e3198e5c5e39b616d7e881751effa0e1..7425ebce919c8ee2389b9d9971b3fb8a
  											variant: "primary",
  											size: "sm",
 diff --git a/lib/dsh-cli.js b/lib/dsh-cli.js
-index 2bdfb2a1acc678c3e995e4f70ccba8ce95bc24b8..66fd882cbcdc74b626c0531baea52e2936e753b8 100644
+index 2bdfb2a1acc678c3e995e4f70ccba8ce95bc24b8..7a30eb6de73715fe6b4ebd0e426426404280bc44 100644
 --- a/lib/dsh-cli.js
 +++ b/lib/dsh-cli.js
 @@ -14,6 +14,7 @@ import { logEvent } from './log.js';
@@ -32,7 +32,7 @@ index 2bdfb2a1acc678c3e995e4f70ccba8ce95bc24b8..66fd882cbcdc74b626c0531baea52e29
  // 15 min default (slow networks + git installs), overridable for CI/tests.
  // (#6 by @qichuang321.)
  /**
-@@ -548,6 +549,25 @@ export function runDshPlugin(profile, pluginArgs) {
+@@ -548,6 +549,30 @@ export function runDshPlugin(profile, pluginArgs) {
   * market runner. There is no runtime import or dependency on Desktop: the
   * Host supplies this public service only when the package is mounted there.
   */
@@ -55,10 +55,15 @@ index 2bdfb2a1acc678c3e995e4f70ccba8ce95bc24b8..66fd882cbcdc74b626c0531baea52e29
 +        target: `${exactName}@${packageVersion}`,
 +    };
 +}
++/** Resolve a catalog npm name or `name@latest` to `name@<exact-semver>`. */
++export async function resolveExactNpmInstallTarget(target) {
++    const identity = await desktopInstallIdentity(target);
++    return identity === null ? null : identity.target;
++}
  export function createDesktopPluginRuntime(service, activeProfileDir, invokingDir = process.cwd(), timeoutMs = INSTALL_TIMEOUT_MS) {
      if (!isAbsolute(activeProfileDir) || activeProfileDir.includes('\0')) {
          throw new Error('dsh-market: Desktop profile directory must be an absolute path without NUL');
-@@ -575,7 +595,21 @@ export function createDesktopPluginRuntime(service, activeProfileDir, invokingDi
+@@ -575,7 +600,21 @@ export function createDesktopPluginRuntime(service, activeProfileDir, invokingDi
          const abort = new AbortController();
          let handle;
          try {
@@ -113,14 +118,16 @@ index 2672901966a04e97701286234568a649014c4c2f..345d59a9113fb4d74bf94dda6667c87b
   * Write the profile manifest atomically: a temp file in the same directory is
   * written first, then renamed over package.json, so a crash mid-toggle never
 diff --git a/lib/routes.js b/lib/routes.js
-index 6c461bdf34c2fa077de61ba1b3194cff73d9fa6c..53300b5d91797c55c95df850b9c64fbd6f9bff9f 100644
+index 6c461bdf34c2fa077de61ba1b3194cff73d9fa6c..4ccc354490fee0f07021341133350260faf861a1 100644
 --- a/lib/routes.js
 +++ b/lib/routes.js
-@@ -15,7 +15,7 @@ import { createGroup, deleteGroup, removeFromGroups, renameGroup, setGroupMember
+@@ -14,8 +14,8 @@ import { cleanHotDir, hotMount, hotUnmount, listHotMounts, mountClientOnlyDeps,
+ import { createGroup, deleteGroup, removeFromGroups, renameGroup, setGroupMembers } from './groups.js';
  import { exportLogs, logEvent } from './log.js';
  import { diagnosePackageManifests } from './diagnostics.js';
- import { BOOT_ID, cancelActive, probePnpm, progress, provisionPnpm, runDshPlugin, } from './dsh-cli.js';
+-import { BOOT_ID, cancelActive, probePnpm, progress, provisionPnpm, runDshPlugin, } from './dsh-cli.js';
 -import { addProfileBundle, hasLoadableEntry, INBOX_BUNDLES, profileDir, readInstalled, readInstalledManifest, readInstalledRepoEvidence, readInstalledVersion, readLockCommits, readManifestDeps, readProfileBundles, removeProfileBundle, restoreManifestDeps, setAllowBuilds } from './profile.js';
++import { BOOT_ID, cancelActive, probePnpm, progress, provisionPnpm, resolveExactNpmInstallTarget, runDshPlugin, } from './dsh-cli.js';
 +import { addProfileBundle, hasLoadableEntry, INBOX_BUNDLES, profileDir, readInstalled, readInstalledManifest, readInstalledRepoEvidence, readInstalledVersion, readLockCommits, readManifestDeps, readProfileBundles, removeProfileBundle, restoreManifestDeps, restoreProfileBundles, setAllowBuilds } from './profile.js';
  import { assessProfile, introducedDuplicateNames, introducedRisks } from './compatibility.js';
  import { runningAgentIds } from './agents.js';
@@ -342,11 +349,29 @@ index 6c461bdf34c2fa077de61ba1b3194cff73d9fa6c..53300b5d91797c55c95df850b9c64fbd
                              ok = result.ok;
                              detail = result.detail;
                          }
+@@ -2036,7 +2069,16 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+                         // every later pnpm run — of anything. Cancelled runs keep their
+                         // partial state on purpose (the user sees the diff and decides).
+                         const manifestBefore = readManifestDeps(config.profile, activeProfileDir);
+-                        const result = await runPlugin(config.profile, ['add', target]);
++                        let addTarget = target;
++                        if (!/^(?:file|link|github|git\+|https?):/.test(target)) {
++                            const exact = await resolveExactNpmInstallTarget(target);
++                            if (exact === null) {
++                                sendJson(response, 400, { error: 'plugin npm package has no exact published version' });
++                                return;
++                            }
++                            addTarget = exact;
++                        }
++                        const result = await runPlugin(config.profile, ['add', addTarget]);
+                         const cancelled = result.cancelled;
+                         if ((result.exitCode !== 0 || result.timedOut) && !cancelled) {
+                             const rolledBack = restoreManifestDeps(config.profile, manifestBefore, activeProfileDir);
 diff --git a/lib/types/dsh-cli.d.ts b/lib/types/dsh-cli.d.ts
-index 9e3ba5e405ec80f8efd5513e220d9ea9a9046ae5..24b65b0351606464d583af54f2c27a2a2b18cebc 100644
+index 9e3ba5e405ec80f8efd5513e220d9ea9a9046ae5..45b9c170d7d35a8005c9da350313fa17c82579b8 100644
 --- a/lib/types/dsh-cli.d.ts
 +++ b/lib/types/dsh-cli.d.ts
-@@ -131,6 +131,7 @@ export interface DesktopPnpmLike {
+@@ -131,11 +131,14 @@ export interface DesktopPnpmLike {
          }>;
          cancel(): void;
      };
@@ -354,6 +379,13 @@ index 9e3ba5e405ec80f8efd5513e220d9ea9a9046ae5..24b65b0351606464d583af54f2c27a2a
  }
  /** Desktop runtime also owns cleanup of any operation started by this fiber. */
  export interface DesktopPluginRuntime extends PluginCommandRuntime {
+     dispose(): Promise<void>;
+ }
++/** Resolve a catalog npm name or `name@latest` to `name@<exact-semver>`. */
++export declare function resolveExactNpmInstallTarget(target: string): Promise<string | null>;
+ /**
+  * Kill a spawned child and, on Windows, its whole process tree — `kill()`
+  * there only terminates the wrapper, leaving pnpm children running.
 diff --git a/lib/types/profile.d.ts b/lib/types/profile.d.ts
 index 1647c8c16a9872127a9059484892f8e4e4f3cd61..7c946b0929d4c1385e35893ed9dd8e3ff37c1bba 100644
 --- a/lib/types/profile.d.ts
@@ -386,10 +418,44 @@ index 626eed0c1008877b8b8880fb28abd755ac2990fd..1c7662e1fca395c6e735a47f6a3b472e
 -channelFor?: ReadonlyMap<string, Channel>): Promise<Record<string, UpdateStatus>>;
 +hostProvidedNpmVersions?: ReadonlyMap<string, string>): Promise<Record<string, UpdateStatus>>;
 diff --git a/lib/updates.js b/lib/updates.js
-index 33dd1769c35e1465f30c9922d5f6a0b1feee5a21..077bcb373aecb912cfeb46fb95a6eea367a7d615 100644
+index 33dd1769c35e1465f30c9922d5f6a0b1feee5a21..749f89fd4d5546b1fa613ea9b432b6d14134a730 100644
 --- a/lib/updates.js
 +++ b/lib/updates.js
-@@ -173,22 +173,36 @@ export async function checkUpdates(profile, force = false, explicitDir,
+@@ -144,10 +144,23 @@ const EXTRA_TAGS = {
+     beta: [DIST_TAG.beta],
+     dev: [DIST_TAG.beta, DIST_TAG.dev],
+ };
++/**
++ * npm registry path for a package name. encodeURIComponent(name) turns
++ * `@scope/pkg` into `%40scope%2Fpkg`, which some registry lookups miss.
++ * Keep the `@`, encode only the slash between scope and name.
++ */
++export function npmRegistryPackagePath(name) {
++    if (name.startsWith('@')) {
++        const slash = name.indexOf('/');
++        if (slash > 0)
++            return `${name.slice(0, slash)}/${encodeURIComponent(name.slice(slash + 1))}`;
++    }
++    return encodeURIComponent(name);
++}
+ /** One dist-tag's version, or null when it isn't published or can't be read. */
+ async function tagVersion(name, tag) {
+     try {
+-        const meta = (await fetchJson(`https://registry.npmjs.org/${encodeURIComponent(name)}/${tag}`));
++        const meta = (await fetchJson(`https://registry.npmjs.org/${npmRegistryPackagePath(name)}/${tag}`));
+         return typeof meta.version === 'string' ? meta.version : null;
+     }
+     catch {
+@@ -159,7 +172,7 @@ async function tagVersion(name, tag) {
+ }
+ export async function fetchNpmLatest(name) {
+     try {
+-        const meta = (await fetchJson(`https://registry.npmjs.org/${encodeURIComponent(name)}/latest`));
++        const meta = (await fetchJson(`https://registry.npmjs.org/${npmRegistryPackagePath(name)}/latest`));
+         return typeof meta.version === 'string' ? meta.version : null;
+     }
+     catch {
+@@ -173,22 +186,36 @@ export async function checkUpdates(profile, force = false, explicitDir,
   * ever the market itself: opting into early builds is volunteering to try
   * THIS plugin early, not a licence to pull every other author's
   * unreleased work.
@@ -454,7 +520,7 @@ index 3d06fdadd16fbf78070f9f79ca51d7dc6683613e..8fb6d93237725af3039fa159374e816a
                && (
                  <Button
 diff --git a/src/dsh-cli.ts b/src/dsh-cli.ts
-index 0cc2535e43e371e72700301e783694e0b7c2e4c7..adf1255db94bee340aa12e8f934ea87e91550e76 100644
+index 0cc2535e43e371e72700301e783694e0b7c2e4c7..a149620d96c927aa21aa56a66cceeff016f62df2 100644
 --- a/src/dsh-cli.ts
 +++ b/src/dsh-cli.ts
 @@ -16,6 +16,7 @@ import { logEvent } from './log.ts'
@@ -465,7 +531,7 @@ index 0cc2535e43e371e72700301e783694e0b7c2e4c7..adf1255db94bee340aa12e8f934ea87e
  
  // 15 min default (slow networks + git installs), overridable for CI/tests.
  // (#6 by @qichuang321.)
-@@ -252,6 +253,34 @@ export interface DesktopPnpmLike {
+@@ -252,6 +253,40 @@ export interface DesktopPnpmLike {
      }>
      cancel(): void
    }
@@ -497,10 +563,16 @@ index 0cc2535e43e371e72700301e783694e0b7c2e4c7..adf1255db94bee340aa12e8f934ea87e
 +    packageVersion,
 +    target: `${exactName}@${packageVersion}`,
 +  }
++}
++
++/** Resolve a catalog npm name or `name@latest` to `name@<exact-semver>`. */
++export async function resolveExactNpmInstallTarget(target: string): Promise<string | null> {
++  const identity = await desktopInstallIdentity(target)
++  return identity === null ? null : identity.target
  }
  
  /** Desktop runtime also owns cleanup of any operation started by this fiber. */
-@@ -685,7 +714,24 @@ export function createDesktopPluginRuntime(
+@@ -685,7 +720,24 @@ export function createDesktopPluginRuntime(
      const abort = new AbortController()
      let handle: ReturnType<DesktopPnpmLike['runPlugin']>
      try {
@@ -559,11 +631,15 @@ index 1726a84e0de1959f77be75d3d1df0fa917666e2b..90ca6e7a981a381e95753f28926569e6
   * Write the profile manifest atomically: a temp file in the same directory is
   * written first, then renamed over package.json, so a crash mid-toggle never
 diff --git a/src/routes.ts b/src/routes.ts
-index 5e5b0d517ddff8e5f634a3a890c9d2e12f7d42a0..e9f6c16c8a9fac58759e82c28d48d0a70b0fb189 100644
+index 5e5b0d517ddff8e5f634a3a890c9d2e12f7d42a0..958f9a7660dcf11d825cba177ba6d917382bae3f 100644
 --- a/src/routes.ts
 +++ b/src/routes.ts
-@@ -23,7 +23,7 @@ import {
-   BOOT_ID, cancelActive, probePnpm, progress, provisionPnpm, runDshPlugin,
+@@ -20,10 +20,10 @@ import { createGroup, deleteGroup, removeFromGroups, renameGroup, setGroupMember
+ import { exportLogs, logEvent } from './log.ts'
+ import { diagnosePackageManifests } from './diagnostics.ts'
+ import {
+-  BOOT_ID, cancelActive, probePnpm, progress, provisionPnpm, runDshPlugin,
++  BOOT_ID, cancelActive, probePnpm, progress, provisionPnpm, resolveExactNpmInstallTarget, runDshPlugin,
    type PluginCommandRuntime,
  } from './dsh-cli.ts'
 -import { addProfileBundle, hasLoadableEntry, INBOX_BUNDLES, profileDir, readInstalled, readInstalledManifest, readInstalledRepoEvidence, readInstalledVersion, readLockCommits, readManifestDeps, readProfileBundles, removeProfileBundle, restoreManifestDeps, setAllowBuilds } from './profile.ts'
@@ -806,11 +882,63 @@ index 5e5b0d517ddff8e5f634a3a890c9d2e12f7d42a0..e9f6c16c8a9fac58759e82c28d48d0a7
                ok = result.ok
                detail = result.detail
              } else {
+@@ -2091,7 +2138,16 @@ export function mountMarketRoutes(
+             // every later pnpm run — of anything. Cancelled runs keep their
+             // partial state on purpose (the user sees the diff and decides).
+             const manifestBefore = readManifestDeps(config.profile, activeProfileDir)
+-            const result = await runPlugin(config.profile, ['add', target])
++            let addTarget = target
++            if (!/^(?:file|link|github|git\+|https?):/.test(target)) {
++              const exact = await resolveExactNpmInstallTarget(target)
++              if (exact === null) {
++                sendJson(response, 400, { error: 'plugin npm package has no exact published version' })
++                return
++              }
++              addTarget = exact
++            }
++            const result = await runPlugin(config.profile, ['add', addTarget])
+             const cancelled = result.cancelled
+             if ((result.exitCode !== 0 || result.timedOut) && !cancelled) {
+               const rolledBack = restoreManifestDeps(config.profile, manifestBefore, activeProfileDir)
 diff --git a/src/updates.ts b/src/updates.ts
-index 99b500573d2e5c7fa9d4ab27555d4e507f7bb0c4..e67bfaf79ae0228e022f445bbe9be1d4ab0962ca 100644
+index 99b500573d2e5c7fa9d4ab27555d4e507f7bb0c4..d98531faa387369acb775fc20d014d8332877d35 100644
 --- a/src/updates.ts
 +++ b/src/updates.ts
-@@ -211,23 +211,36 @@ export async function checkUpdates(
+@@ -179,10 +179,23 @@ const EXTRA_TAGS: Record<Channel, string[]> = {
+   dev: [DIST_TAG.beta, DIST_TAG.dev],
+ }
+ 
++/**
++ * npm registry path for a package name. encodeURIComponent(name) turns
++ * `@scope/pkg` into `%40scope%2Fpkg`, which some registry lookups miss.
++ * Keep the `@`, encode only the slash between scope and name.
++ */
++export function npmRegistryPackagePath(name: string): string {
++  if (name.startsWith('@')) {
++    const slash = name.indexOf('/')
++    if (slash > 0) return `${name.slice(0, slash)}/${encodeURIComponent(name.slice(slash + 1))}`
++  }
++  return encodeURIComponent(name)
++}
++
+ /** One dist-tag's version, or null when it isn't published or can't be read. */
+ async function tagVersion(name: string, tag: string): Promise<string | null> {
+   try {
+-    const meta = (await fetchJson(`https://registry.npmjs.org/${encodeURIComponent(name)}/${tag}`)) as { version?: string }
++    const meta = (await fetchJson(`https://registry.npmjs.org/${npmRegistryPackagePath(name)}/${tag}`)) as { version?: string }
+     return typeof meta.version === 'string' ? meta.version : null
+   } catch {
+     // An unpublished tag is the ordinary case for a channel nobody has cut
+@@ -194,7 +207,7 @@ async function tagVersion(name: string, tag: string): Promise<string | null> {
+ 
+ export async function fetchNpmLatest(name: string): Promise<string | null> {
+   try {
+-    const meta = (await fetchJson(`https://registry.npmjs.org/${encodeURIComponent(name)}/latest`)) as { version?: string }
++    const meta = (await fetchJson(`https://registry.npmjs.org/${npmRegistryPackagePath(name)}/latest`)) as { version?: string }
+     return typeof meta.version === 'string' ? meta.version : null
+   } catch {
+     return null
+@@ -211,23 +224,36 @@ export async function checkUpdates(
     * ever the market itself: opting into early builds is volunteering to try
     * THIS plugin early, not a licence to pull every other author's
     * unreleased work.
