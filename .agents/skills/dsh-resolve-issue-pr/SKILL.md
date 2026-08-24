@@ -148,6 +148,8 @@ Run `git diff --check` before handoff. Do not claim an unrun gate passed because
 7. For PR reviews, attach actionable findings to file/line references when possible. Put blocking findings before the overall decision.
 8. Drafting copy does not authorize posting it. Mutate GitHub only when the user explicitly asks.
 9. When bilingual copy is required, write a complete English block and a complete Chinese block as separate paragraphs or sections. Do not join translations on one line with `/`.
+10. Treat requests to study reply style, organize templates, or prepare reply copy as draft-only. Posting a comment requires explicit authorization for that target; permission to submit a PR does not authorize an Issue reply.
+11. Describe a package built from a manifest version as a local test artifact. Call it a release only after verifying the live tag, GitHub Release, official assets, and provenance.
 
 Match the repository's established maintainer voice:
 

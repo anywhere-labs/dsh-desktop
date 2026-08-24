@@ -386,6 +386,8 @@ These templates use the same evidence and status definitions as the workflow abo
 - Request only evidence that can distinguish live hypotheses; do not ask the reporter to repeat existing information.
 - Do not promise an unconfirmed ETA, merge date, or release version.
 - Do not equate “not reproduced locally” with “does not exist,” or “PR merged” with “fixed in a release.”
+- “Study the reply style,” “organize the copy,” and “provide templates” authorize drafts only. Post a comment only when the user explicitly names that Issue or PR as a publication target. Permission to submit a PR does not authorize an Issue reply.
+- Call an artifact built from the current package manifest version a local test artifact. Before saying “official release,” “release build,” or “published,” verify the live tag, GitHub Release, official assets, and their provenance.
 - When routing third-party work, describe the ownership boundary and evidence without blaming a person or project.
 - Remove every unresolved placeholder and internal note before publishing.
 
