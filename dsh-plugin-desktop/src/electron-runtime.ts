@@ -59,6 +59,10 @@ import {
 import { ElectronWorkspaceAdmission } from './workspace-admission.ts'
 import { ProfileCreateWindow, type ProfileCreateWindowOptions } from './profile-create-window.ts'
 import { windowsBuildNumber } from './window-material.ts'
+import {
+  resolveWindowsUninstallerPath,
+  windowsUninstallCopy,
+} from './windows-uninstall.ts'
 
 /** Return the presentation mode opposite the active generation. */
 export function nextDesktopShellMode(mode: DesktopShellSpec['mode']): DesktopShellSpec['mode'] {
@@ -122,6 +126,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     private readonly onRendererBoot: (report: RendererBootReport) => boolean | void = () => {},
     private readonly logger: DesktopLogger | undefined = undefined,
     workspaceVolumeQuery: WindowsVolumeQuery | undefined = undefined,
+    private readonly uninstall: () => Promise<void> = async () => {},
   ) {
     this.platformStrategy = electronPlatformStrategy()
     this.platform = this.platformStrategy.platform
@@ -432,9 +437,50 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   }
 
   /** @inheritdoc */
+  get canUninstall(): boolean {
+    return this.windowsUninstallerPath() !== undefined
+  }
+
+  /** @inheritdoc */
+  async confirmUninstall(): Promise<boolean> {
+    if (!this.canUninstall) {
+      throw new Error('dsh-plugin-desktop: Windows uninstaller is unavailable')
+    }
+    const copy = windowsUninstallCopy(this.locale)
+    const result = await dialog.showMessageBox({
+      type: 'warning',
+      title: copy.title,
+      message: copy.message,
+      detail: copy.detail,
+      buttons: [copy.confirm, copy.cancel],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    })
+    return result.response === 0
+  }
+
+  /** @inheritdoc */
+  async requestUninstall(): Promise<void> {
+    if (!this.canUninstall) {
+      throw new Error('dsh-plugin-desktop: Windows uninstaller is unavailable')
+    }
+    await this.uninstall()
+  }
+
+  /** @inheritdoc */
   prepareToQuit(): void {
     this.quitting = true
     this.stopRendererBootMonitoring()
+  }
+
+  private windowsUninstallerPath(): string | undefined {
+    return resolveWindowsUninstallerPath({
+      platform: this.platform,
+      isPackaged: app.isPackaged,
+      executablePath: process.execPath,
+      productName: this.scheduled?.productName ?? '',
+    })
   }
 
   private failRendererBoot(reason: RendererHealthFailureReason, error: string): void {

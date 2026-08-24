@@ -37,6 +37,7 @@ import {
   DESKTOP_RESTART_PATH,
   DESKTOP_SETTINGS_PATH,
   DESKTOP_TERMINAL_OPEN_PATH,
+  DESKTOP_UNINSTALL_PATH,
 } from './desktop-settings-contract.ts'
 import {
   handleDesktopDiagnosticsExportRequest,
@@ -49,6 +50,7 @@ import {
   handleDesktopRestartRequest,
   handleDesktopSettingsRequest,
   handleDesktopTerminalOpenRequest,
+  handleDesktopUninstallRequest,
 } from './desktop-settings-route.ts'
 import type {} from './desktop-settings-controller.ts'
 import { desktopBootRecoveryInjections } from './desktop-boot-recovery.ts'
@@ -220,6 +222,7 @@ export function apply(ctx: Context, config: Config): void {
       [DESKTOP_MARKET_SELECT_PATH, handleDesktopMarketSelectRequest],
       [DESKTOP_TERMINAL_OPEN_PATH, handleDesktopTerminalOpenRequest],
       [DESKTOP_RESTART_PATH, handleDesktopRestartRequest],
+      [DESKTOP_UNINSTALL_PATH, handleDesktopUninstallRequest],
       [DESKTOP_DIAGNOSTICS_EXPORT_PATH, handleDesktopDiagnosticsExportRequest],
     ] as const
     for (const [path, handler] of settingsRoutes) {

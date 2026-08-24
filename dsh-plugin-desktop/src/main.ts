@@ -101,6 +101,10 @@ import {
 } from './windows-volume-diagnostics.ts'
 import type { RendererBootReport } from './renderer-boot-contract.ts'
 import { desktopLocaleFromLanguageTag } from './tray-locale.ts'
+import {
+  launchWindowsUninstaller,
+  resolveWindowsUninstallerPath,
+} from './windows-uninstall.ts'
 
 const BIN_NAME = 'dsh-plugin-desktop'
 const PRODUCT_NAME = 'DSH Desktop'
@@ -356,6 +360,7 @@ async function start(): Promise<void> {
     },
   )
   let restartRequested = false
+  let uninstallRequested = false
   runtime = new ElectronDesktopRuntime(async () => {
     if (shutdown === undefined) {
       throw new Error('dsh-plugin-desktop: shutdown coordinator is not ready')
@@ -374,8 +379,40 @@ async function start(): Promise<void> {
     // Main owns every pre-health failure branch. Returning true prevents the
     // legacy Renderer recovery dialog from racing the native startup window.
     return report.status === 'failed'
-  }, electronLogger)
-  const finalExit = (code: number): void => { nativeExit.finish(code) }
+  }, electronLogger, undefined, async () => {
+    if (shutdown === undefined) {
+      throw new Error('dsh-plugin-desktop: shutdown coordinator is not ready')
+    }
+    if (uninstallRequested) return
+    const uninstallerPath = resolveWindowsUninstallerPath({
+      platform: runtime.platform,
+      isPackaged: app.isPackaged,
+      executablePath: process.execPath,
+      productName: PRODUCT_NAME,
+    })
+    if (uninstallerPath === undefined) {
+      throw new Error('dsh-plugin-desktop: Windows uninstaller is unavailable')
+    }
+    nativeExit.requestBeforeExit(async () => {
+      try {
+        await launchWindowsUninstaller(uninstallerPath)
+      } catch (cause) {
+        const detail = cause instanceof Error ? cause.message : String(cause)
+        electronLogger.error(`${BIN_NAME}: failed to launch Windows uninstaller: ${detail}`)
+        try {
+          dialog.showErrorBox('Unable to Uninstall DSH Desktop', 'The Windows uninstaller could not be opened.')
+        } catch (dialogCause) {
+          electronLogger.error(
+            `${BIN_NAME}: failed to show uninstall error: ${dialogCause instanceof Error ? dialogCause.message : String(dialogCause)}`,
+          )
+        }
+        throw cause
+      }
+    })
+    uninstallRequested = true
+    await shutdown.request(0)
+  })
+  const finalExit = (code: number): void | Promise<void> => nativeExit.finish(code)
   shutdown = createDesktopShutdown(
     async () => { await generation.release() },
     finalExit,
@@ -981,6 +1018,15 @@ async function start(): Promise<void> {
             prepared.market.effective,
           ),
           scheduleRestart: scheduleSettingsRestart,
+          canUninstall: () => runtime.canUninstall,
+          confirmUninstall: () => runtime.confirmUninstall(),
+          scheduleUninstall: () => {
+            void runtime.requestUninstall().catch((cause: unknown) => {
+              hostCtx.logger.error(
+                `${BIN_NAME}: failed to start Desktop uninstall: ${cause instanceof Error ? cause.message : String(cause)}`,
+              )
+            })
+          },
           openTerminal: () => { runtime.openTerminal() },
           exportDiagnostics: () => runtime.exportDiagnostics(),
           openProfileCreator: () => {

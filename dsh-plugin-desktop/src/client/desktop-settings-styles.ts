@@ -46,6 +46,14 @@ const CSS = `
   border-radius: 10px;
   background: var(--dsw-alias-bg-layer-1);
 }
+.dshDesktopSettingsDangerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 4px 0;
+}
 .dshDesktopSettingsChoice {
   box-sizing: border-box;
   width: 100%;
@@ -262,8 +270,10 @@ const CSS = `
 }
 @media (max-width: 720px) {
   .dshDesktopSettingsChoice,
-  .dshDesktopSettingsToggleRow { align-items: flex-start; }
+  .dshDesktopSettingsToggleRow,
+  .dshDesktopSettingsDangerRow { align-items: flex-start; }
   .dshDesktopSettingsForm { align-items: stretch; flex-direction: column; }
+  .dshDesktopSettingsDangerRow { flex-direction: column; }
 }
 `
 

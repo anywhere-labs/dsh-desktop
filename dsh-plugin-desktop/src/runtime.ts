@@ -222,6 +222,15 @@ export interface DesktopRuntime {
   /** Request orderly Cordis teardown followed by an Electron relaunch. */
   requestRestart(): Promise<void>
 
+  /** Whether this process has an installed Windows NSIS uninstaller. */
+  readonly canUninstall: boolean
+
+  /** Ask the user to confirm closing Desktop and opening the Windows uninstaller. */
+  confirmUninstall(): Promise<boolean>
+
+  /** Request orderly Cordis teardown followed by the Windows uninstaller. */
+  requestUninstall(): Promise<void>
+
   /** Allow the final native quit after the Cordis tree has disposed. */
   prepareToQuit(): void
 }

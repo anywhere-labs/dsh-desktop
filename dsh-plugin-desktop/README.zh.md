@@ -213,7 +213,7 @@ corepack.cmd yarn dist:win
 
 该流程不要求 Python 或 Visual Studio C++ Build Tools。Windows 命令会直接使用 `node-pty` 内置的 x64 Node-API 二进制，而不会让 Electron Builder 从源码重新编译；如果安装包 staging tree 缺少这些二进制，packaged-runtime gate 会直接拒绝产物。
 
-`dist:win` 会拒绝非 Windows 或非 x64 宿主，先执行一组 Windows 可运行的 gate，其中包括 build、全部 TypeScript compiler face、打包与原生 shell 聚焦测试，以及 runtime-closure verifier；随后再构建 NSIS 安装向导，并校验生成的两个 PE 文件。完整跨平台 suite 仍由 CI 持有，因为其中部分 POSIX 执行测试不是 Windows 程序。安装向导支持当前用户安装或提升权限后的所有用户安装，可更改安装目录，会创建开始菜单与桌面快捷方式，并且卸载应用时保留 DSH 用户数据。版本 `2.0.4` 会输出到 `dsh-plugin-desktop\dist\DSH-Desktop-2.0.4-x64-Setup.exe`；用于 smoke 测试的未封装程序仍位于 `dsh-plugin-desktop\dist\win-unpacked\DSH Desktop.exe`。
+`dist:win` 会拒绝非 Windows 或非 x64 宿主，先执行一组 Windows 可运行的 gate，其中包括 build、全部 TypeScript compiler face、打包与原生 shell 聚焦测试，以及 runtime-closure verifier；随后再构建 NSIS 安装向导，并校验生成的两个 PE 文件。完整跨平台 suite 仍由 CI 持有，因为其中部分 POSIX 执行测试不是 Windows 程序。安装向导支持当前用户安装或提升权限后的所有用户安装，可更改安装目录，会创建开始菜单与桌面快捷方式，并且卸载应用时保留 DSH 用户数据。通过安装向导安装后，Desktop 设置页的“应用管理”区域会显示“卸载 DSH Desktop”；原生确认通过后，应用会先有序关闭 Host，再打开同目录的 NSIS 卸载程序。版本 `2.0.4` 会输出到 `dsh-plugin-desktop\dist\DSH-Desktop-2.0.4-x64-Setup.exe`；用于 smoke 测试的未封装程序仍位于 `dsh-plugin-desktop\dist\win-unpacked\DSH Desktop.exe`。
 
 该本地命令会主动移除 Windows 证书变量，并设置 `signExecutable=false`。产物可以安装测试，但没有 Authenticode publisher，因此 Windows 可能显示 Unknown publisher 或 SmartScreen 警告。签名后的 Windows release、证书校验、安装器升级与卸载测试，以及原生 UI 和 sandbox smoke 仍是独立的发布 gate。
 
@@ -225,7 +225,7 @@ corepack.cmd yarn dist:win
 corepack.cmd yarn dist:win-portable
 ```
 
-产物为 `dsh-plugin-desktop\\dist\\DSH-Desktop-2.0.4-x64-Portable.zip`。用户解压到任意可写目录后运行其中的 `DSH Desktop.exe`，不需要安装器、管理员权限、开始菜单注册或卸载步骤。它仍会把 profile、日志和缓存写入 Windows 默认用户数据目录，因此这是便携分发方式，不是把数据完全封装在 exe 旁边的自包含沙箱。绿色 ZIP 不会交给 NSIS 自动更新流程，新版本需要手动替换并重新解压。本地构建没有签名，Windows 可能显示 Unknown publisher 或 SmartScreen 警告；签名后的绿色版仍属于正式发布 gate。
+产物为 `dsh-plugin-desktop\\dist\\DSH-Desktop-2.0.4-x64-Portable.zip`。用户解压到任意可写目录后运行其中的 `DSH Desktop.exe`，不需要安装器、管理员权限、开始菜单注册或卸载步骤，因此设置页不会显示应用卸载入口。它仍会把 profile、日志和缓存写入 Windows 默认用户数据目录，因此这是便携分发方式，不是把数据完全封装在 exe 旁边的自包含沙箱。绿色 ZIP 不会交给 NSIS 自动更新流程，新版本需要手动替换并重新解压。本地构建没有签名，Windows 可能显示 Unknown publisher 或 SmartScreen 警告；签名后的绿色版仍属于正式发布 gate。
 
 ### macOS DMG 冒烟构建
 
