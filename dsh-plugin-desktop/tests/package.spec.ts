@@ -1087,4 +1087,40 @@ describe('published package surface', () => {
     expect(installedRuntime).toContain('api.createProcessAsUserW(token, null, commandLine, null, null, 1, 4, null')
     expect(installedRuntime).not.toContain('134217728')
   })
+
+  it('keeps web search credentials separate from the chat model key', () => {
+    const searchPatchPath = '.yarn/patches/@deepseek-ai-dsh-web-search-deepseek-npm-0.1.1-rc.2-cd944041d6.patch'
+    const settingsPatchPath = '.yarn/patches/@deepseek-ai-dsh-client-ui-settings-plugins-npm-0.1.1-rc.2-6e4feef83b.patch'
+    const searchResolution = `patch:@deepseek-ai/dsh-web-search-deepseek@npm%3A0.1.1-rc.2#./${searchPatchPath}`
+    const settingsResolution = `patch:@deepseek-ai/dsh-client-ui-settings-plugins@npm%3A0.1.1-rc.2#./${settingsPatchPath}`
+    const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
+    const workspaceRequire = createRequire(new URL('package.json', packageRoot))
+
+    const baseManifest = workspaceRequire.resolve('@deepseek-ai/dsh-base/package.json')
+    const baseRequire = createRequire(baseManifest)
+    const searchManifest = baseRequire.resolve('@deepseek-ai/dsh-web-search-deepseek/package.json')
+    const installedSearch = readFileSync(join(dirname(searchManifest), 'lib/index.js'), 'utf8')
+
+    const webAppManifest = workspaceRequire.resolve('@deepseek-ai/dsh-web-app/package.json')
+    const webAppRequire = createRequire(webAppManifest)
+    const settingsManifest = webAppRequire.resolve('@deepseek-ai/dsh-client-ui-settings-plugins/package.json')
+    const installedSettings = readFileSync(join(dirname(settingsManifest), 'lib/client.js'), 'utf8')
+
+    expect(workspaceManifest.resolutions).toMatchObject({
+      '@deepseek-ai/dsh-web-search-deepseek@npm:^0.1.1-rc.2': searchResolution,
+      '@deepseek-ai/dsh-client-ui-settings-plugins@npm:^0.1.1-rc.2': settingsResolution,
+    })
+    expect(lockfile).toContain('@deepseek-ai/dsh-web-search-deepseek@patch:')
+    expect(lockfile).toContain('@deepseek-ai/dsh-client-ui-settings-plugins@patch:')
+
+    expect(installedSearch).toContain('const DEFAULT_API_KEY_ENV = "DEEPSEEK_SEARCH_API_KEY";')
+    expect(installedSearch).toContain('const LEGACY_API_KEY_ENV = "DEEPSEEK_API_KEY";')
+    expect(installedSearch).toContain('apiKeyEnvName === DEFAULT_API_KEY_ENV ? credentialRef(LEGACY_API_KEY_ENV)')
+    expect(installedSearch).toContain('credentials.resolve(legacyApiKeyEnv)')
+
+    expect(installedSettings).toContain('const DEFAULT_API_KEY_REF = "DEEPSEEK_SEARCH_API_KEY";')
+    expect(installedSettings).toContain('const LEGACY_API_KEY_REF = "DEEPSEEK_API_KEY";')
+    expect(installedSettings).toContain('credentials.describe({ refs: refsOf(this.scope.getSnapshot()) })')
+    expect(installedSettings).toContain('return primary === DEFAULT_API_KEY_REF ? LEGACY_API_KEY_REF : void 0;')
+  })
 })

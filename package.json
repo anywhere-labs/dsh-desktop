@@ -47,7 +47,9 @@
     "@deepseek-ai/dsh-subprocess-local@npm:0.1.1-rc.2": "patch:@deepseek-ai/dsh-subprocess-local@npm%3A0.1.1-rc.2#./patches/dsh-subprocess-local@0.1.1-rc.2.patch",
     "@deepseek-ai/dsh-subprocess-local@npm:^0.1.1-rc.2": "patch:@deepseek-ai/dsh-subprocess-local@npm%3A0.1.1-rc.2#./patches/dsh-subprocess-local@0.1.1-rc.2.patch",
     "dshmarket@npm:1.17.1": "patch:dshmarket@npm%3A1.17.1#./.yarn/patches/dshmarket-npm-1.17.1-d9fe6da08c.patch",
-    "koffi@npm:^3.1.0": "3.1.5"
+    "koffi@npm:^3.1.0": "3.1.5",
+    "@deepseek-ai/dsh-client-ui-settings-plugins@npm:^0.1.1-rc.2": "patch:@deepseek-ai/dsh-client-ui-settings-plugins@npm%3A0.1.1-rc.2#./.yarn/patches/@deepseek-ai-dsh-client-ui-settings-plugins-npm-0.1.1-rc.2-6e4feef83b.patch",
+    "@deepseek-ai/dsh-web-search-deepseek@npm:^0.1.1-rc.2": "patch:@deepseek-ai/dsh-web-search-deepseek@npm%3A0.1.1-rc.2#./.yarn/patches/@deepseek-ai-dsh-web-search-deepseek-npm-0.1.1-rc.2-cd944041d6.patch"
   },
   "dependenciesMeta": {
     "@deepseek-ai/dsh-subprocess-local": {

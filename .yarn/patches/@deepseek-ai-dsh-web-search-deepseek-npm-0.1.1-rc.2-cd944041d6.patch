@@ -1,0 +1,132 @@
+diff --git a/README.md b/README.md
+index 25162a3e82a05bb17f31a69bc65f6552e42906ad..1d787e4f7acf375cca71c11500381a0a3278bd37 100644
+--- a/README.md
++++ b/README.md
+@@ -12,14 +12,14 @@ Exa and Perplexity expose dedicated search endpoints; DeepSeek does not. Instead
+ 
+ **Strict mode**: if the response carries no `web_search_tool_result` block (native search did not trigger), the provider throws `WebError` `WEB_PROVIDER_ERROR` rather than degrading to prose-scraping.
+ 
+-It reuses the `DEEPSEEK_API_KEY` credential reference (no new secret) but **not** `$DEEPSEEK_BASE_URL`: the search endpoint is the Anthropic-compatible base (`https://api.deepseek.com/anthropic/v1`), distinct from the chat-completions base (`https://api.deepseek.com`) the LLM adapter uses. A mounted credentials service is authoritative; without one, the provider falls back to the launching process environment. The reference is resolved for each search, so a key stored or rotated by the Web Models page reaches the next call without a restart.
++It uses the dedicated `DEEPSEEK_SEARCH_API_KEY` credential reference and keeps `DEEPSEEK_API_KEY` as a read-only fallback for existing profiles. It also does **not** reuse `$DEEPSEEK_BASE_URL`: the search endpoint is the Anthropic-compatible base (`https://api.deepseek.com/anthropic/v1`), distinct from the chat-completions base (`https://api.deepseek.com`) the LLM adapter uses. A mounted credentials service is authoritative; without one, the provider falls back to the launching process environment. The reference is resolved for each search, so a key stored or rotated by the Web Models page reaches the next call without a restart.
+ 
+ ## Config
+ 
+ | Key | Default | Meaning |
+ |---|---|---|
+ | `apiKey` | omitted | Literal DeepSeek API key. Prefer `apiKeyEnv` so no secret enters configuration; a non-empty literal wins. |
+-| `apiKeyEnv` | `DEEPSEEK_API_KEY` | Credential reference resolved for each search through `ctx.credentials`, or from the process environment when that seam is absent. A missing value fails the call as `WEB_PROVIDER_CREDENTIAL_MISSING`. |
++| `apiKeyEnv` | `DEEPSEEK_SEARCH_API_KEY` | Credential reference resolved for each search through `ctx.credentials`, or from the process environment when that seam is absent. The default reference reads `DEEPSEEK_API_KEY` only as a legacy fallback. A missing value fails the call as `WEB_PROVIDER_CREDENTIAL_MISSING`. |
+ | `baseURL` | `https://api.deepseek.com/anthropic/v1` | Anthropic-compatible endpoint base; `/messages` is appended. Falls back to `$DEEPSEEK_SEARCH_BASE_URL` from any environment layer; do not reuse `$DEEPSEEK_BASE_URL`, which belongs to the chat-completions LLM adapter. An unparseable value makes the provider unavailable. |
+ | `model` | `deepseek-v4-flash` | Anthropic-format model name. |
+ | `apiVersion` | `2023-06-01` | `anthropic-version` header value. |
+@@ -30,7 +30,7 @@ It reuses the `DEEPSEEK_API_KEY` credential reference (no new secret) but **not*
+ - id: web-search-deepseek
+   name: '@deepseek-ai/dsh-web-search-deepseek'
+   config:
+-    apiKeyEnv: DEEPSEEK_API_KEY
++    apiKeyEnv: DEEPSEEK_SEARCH_API_KEY
+     baseURL: https://gateway.internal/anthropic/v1
+ ```
+ 
+diff --git a/README.zh.md b/README.zh.md
+index 65b3c9175357b44ab07f84bdd10a4a250f55f43f..40ba9b25db1d057c739e665c1626f7fd8eb81fbb 100644
+--- a/README.zh.md
++++ b/README.zh.md
+@@ -12,14 +12,14 @@ Exa 和 Perplexity 提供专用搜索端点，DeepSeek 则没有。该提供方
+ 
+ **严格模式**：如果响应不含 `web_search_tool_result` 块（未触发原生搜索），提供方会抛出 `WebError` `WEB_PROVIDER_ERROR`，而非降级为文本抓取。
+ 
+-它复用 `DEEPSEEK_API_KEY` 凭据引用（不增加密钥），但**不会**复用 `$DEEPSEEK_BASE_URL`：搜索端点使用 Anthropic 兼容基址（`https://api.deepseek.com/anthropic/v1`），不同于 LLM（大语言模型）适配器使用的 chat-completions 基址（`https://api.deepseek.com`）。已挂载的凭据服务具有权威性；没有该服务时，提供方会回退到启动进程的环境变量。每次搜索都会解析该引用，因此在 Web 的 Models 页中存储或轮换的密钥无需重启，即可用于下一次调用。
++它使用独立的 `DEEPSEEK_SEARCH_API_KEY` 凭据引用，并为已有配置保留对 `DEEPSEEK_API_KEY` 的只读回退；同时**不会**复用 `$DEEPSEEK_BASE_URL`：搜索端点使用 Anthropic 兼容基址（`https://api.deepseek.com/anthropic/v1`），不同于 LLM（大语言模型）适配器使用的 chat-completions 基址（`https://api.deepseek.com`）。已挂载的凭据服务具有权威性；没有该服务时，提供方会回退到启动进程的环境变量。每次搜索都会解析该引用，因此在 Web 的 Models 页中存储或轮换的密钥无需重启，即可用于下一次调用。
+ 
+ ## 配置
+ 
+ | 配置键 | 默认值 | 含义 |
+ |---|---|---|
+ | `apiKey` | 未设置 | DeepSeek API 密钥字面值。优先使用 `apiKeyEnv`，避免密钥进入配置；非空字面值优先。 |
+-| `apiKeyEnv` | `DEEPSEEK_API_KEY` | 每次搜索都会通过 `ctx.credentials` 解析该凭据引用；没有该 seam 时则从进程环境解析。值缺失时，调用以 `WEB_PROVIDER_CREDENTIAL_MISSING` 失败。 |
++| `apiKeyEnv` | `DEEPSEEK_SEARCH_API_KEY` | 每次搜索都会通过 `ctx.credentials` 解析该凭据引用；没有该 seam 时则从进程环境解析。默认引用仅把 `DEEPSEEK_API_KEY` 作为旧配置的只读回退。值缺失时，调用以 `WEB_PROVIDER_CREDENTIAL_MISSING` 失败。 |
+ | `baseURL` | `https://api.deepseek.com/anthropic/v1` | Anthropic 兼容端点基址；追加 `/messages`。缺省时回退到任一环境层中的 `$DEEPSEEK_SEARCH_BASE_URL`；禁止复用属于 chat-completions LLM 适配器的 `$DEEPSEEK_BASE_URL`。无法解析时提供方不可用。 |
+ | `model` | `deepseek-v4-flash` | Anthropic 格式模型名称。 |
+ | `apiVersion` | `2023-06-01` | `anthropic-version` 标头值。 |
+@@ -30,7 +30,7 @@ Exa 和 Perplexity 提供专用搜索端点，DeepSeek 则没有。该提供方
+ - id: web-search-deepseek
+   name: '@deepseek-ai/dsh-web-search-deepseek'
+   config:
+-    apiKeyEnv: DEEPSEEK_API_KEY
++    apiKeyEnv: DEEPSEEK_SEARCH_API_KEY
+     baseURL: https://gateway.internal/anthropic/v1
+ ```
+ 
+diff --git a/lib/index.js b/lib/index.js
+index d9dc18dd73504ce966d056ad60886ea7a9c7b3c9..0a7199b58a77a72245bfd436f5d6f28bef9c7a92 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -227,7 +227,7 @@ function isPositiveInteger(value) {
+ //#region lib/types/index.js
+ /**
+ * Register a DeepSeek-backed provider in `ctx.web`. It calls the Anthropic-compatible Messages API
+-* with native `web_search_20250305`. The provider reuses `DEEPSEEK_API_KEY` but not
++* with native `web_search_20250305`. The provider uses `DEEPSEEK_SEARCH_API_KEY` but not
+ * `DEEPSEEK_BASE_URL`, because search and chat-completions use different bases.
+ * @module @deepseek-ai/dsh-web-search-deepseek
+ */
+@@ -235,7 +235,8 @@ function isPositiveInteger(value) {
+ const name = "web-search-deepseek";
+ /** The web seam this provider registers into. */
+ const inject = ["web"];
+-const DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY";
++const DEFAULT_API_KEY_ENV = "DEEPSEEK_SEARCH_API_KEY";
++const LEGACY_API_KEY_ENV = "DEEPSEEK_API_KEY";
+ const Config = z.object({
+ 	apiKey: z.string().role("secret"),
+ 	apiKeyEnv: z.string().role("credential-ref").default(DEFAULT_API_KEY_ENV),
+@@ -263,15 +264,24 @@ const WEB_SEARCH_DEEPSEEK_SETTINGS_NAMESPACE = settingsNamespace("web-search-dee
+ * @returns options for one search.
+ */
+ function resolveOptions(ctx, config) {
+-	const apiKeyEnv = credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV);
++	const apiKeyEnvName = config.apiKeyEnv ?? DEFAULT_API_KEY_ENV;
++	const apiKeyEnv = credentialRef(apiKeyEnvName);
++	const legacyApiKeyEnv = apiKeyEnvName === DEFAULT_API_KEY_ENV ? credentialRef(LEGACY_API_KEY_ENV) : void 0;
+ 	const literalApiKey = config.apiKey !== void 0 && config.apiKey.length > 0 ? config.apiKey : void 0;
+ 	return {
+ 		...literalApiKey === void 0 ? {} : { apiKey: literalApiKey },
+ 		resolveApiKey: async () => {
+ 			const credentials = ctx.get("credentials");
+-			if (credentials !== void 0) return (await credentials.resolve(apiKeyEnv))?.value;
++			if (credentials !== void 0) {
++				const primary = (await credentials.resolve(apiKeyEnv))?.value;
++				if (primary !== void 0 && primary.length > 0) return primary;
++				if (legacyApiKeyEnv !== void 0) return (await credentials.resolve(legacyApiKeyEnv))?.value;
++				return void 0;
++			}
+ 			const ambient = launchEnvironmentOf(ctx).get(apiKeyEnv);
+-			return ambient !== void 0 && ambient.value.length > 0 ? ambient.value : void 0;
++			if (ambient !== void 0 && ambient.value.length > 0) return ambient.value;
++			const legacyAmbient = legacyApiKeyEnv === void 0 ? void 0 : launchEnvironmentOf(ctx).get(legacyApiKeyEnv);
++			return legacyAmbient !== void 0 && legacyAmbient.value.length > 0 ? legacyAmbient.value : void 0;
+ 		},
+ 		apiKeyEnv,
+ 		baseURL: config.baseURL ?? launchEnvironmentOf(ctx).get(SEARCH_BASE_URL_ENV)?.value ?? "https://api.deepseek.com/anthropic/v1",
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 3372e2789af35f122301357d1449e7ecfcaf8953..a81b9a0e0e36e19400bace353ec07d1a04751ffe 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -1,6 +1,6 @@
+ /**
+  * Register a DeepSeek-backed provider in `ctx.web`. It calls the Anthropic-compatible Messages API
+- * with native `web_search_20250305`. The provider reuses `DEEPSEEK_API_KEY` but not
++ * with native `web_search_20250305`. The provider uses `DEEPSEEK_SEARCH_API_KEY` but not
+  * `DEEPSEEK_BASE_URL`, because search and chat-completions use different bases.
+  * @module @deepseek-ai/dsh-web-search-deepseek
+  */
+@@ -16,7 +16,7 @@ export declare const inject: string[];
+ export interface Config {
+     /** Literal DeepSeek API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
+     apiKey?: string;
+-    /** Credential reference resolved for each search; defaults to `DEEPSEEK_API_KEY`. */
++    /** Credential reference resolved for each search; defaults to `DEEPSEEK_SEARCH_API_KEY`. */
+     apiKeyEnv?: string;
+     /** Anthropic-compatible endpoint base; `/messages` is appended. */
+     baseURL?: string;
