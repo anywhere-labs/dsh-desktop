@@ -704,8 +704,8 @@ virtualStoreDirMaxLength: 60
     expect(() => readDesktopShellMode({ path })).toThrow('invalid settings document')
   })
 
-  it('treats an empty machine-wide patch file as no desktop patches', () => {
-    for (const content of ['', '# no machine-wide patches\n']) {
+  it('treats a semantically empty machine-wide patch file as no desktop patches', () => {
+    for (const content of ['', '  \r\n  \r\n', '# no machine-wide patches\n']) {
       const home = temporaryHome()
       writeFileSync(join(home, 'cordis.patch.yml'), content)
 
