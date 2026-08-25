@@ -602,6 +602,7 @@ describe('published package surface', () => {
       arch: ['x64'],
     }])
     expect(manifest.build?.win?.artifactName).toBe('DSH-Desktop-${version}-${arch}-Portable.${ext}')
+    expect(manifest.build?.win).not.toHaveProperty('compression')
     expect(manifest.build?.nsis).toEqual({
       include: 'installer.nsh',
       license: 'THIRD_PARTY_NOTICES.md',

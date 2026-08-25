@@ -123,6 +123,7 @@ export function packageWindowsArtifact(
   options: WindowsPackageOptions,
   target: 'nsis' | 'zip',
   artifact: 'installer' | 'portable archive',
+  builderArgs: readonly string[] = [],
 ): void {
   assertWindowsPackageHost(options, artifact)
 
@@ -154,6 +155,7 @@ export function packageWindowsArtifact(
       'never',
       '--config.win.signExecutable=false',
       '--config.npmRebuild=false',
+      ...builderArgs,
     ],
     options.desktopRoot,
     {
@@ -173,7 +175,12 @@ export function packageWindowsArtifact(
 export function packageWindowsInstaller(
   options: WindowsPackageOptions = createWindowsPackageOptions(),
 ): void {
-  packageWindowsArtifact(options, 'nsis', 'installer')
+  packageWindowsArtifact(
+    options,
+    'nsis',
+    'installer',
+    ['--config.win.compression=store'],
+  )
 }
 
 const invokedPath = process.argv[1]

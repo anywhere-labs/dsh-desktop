@@ -39,7 +39,7 @@ function options(calls: CommandCall[], logs: string[] = []): WindowsPackageOptio
 }
 
 describe('Windows x64 installer packaging', () => {
-  it('checks without credentials, builds an unsigned NSIS target, then verifies it', () => {
+  it('builds the unsigned NSIS target with store compression, then verifies it', () => {
     const calls: CommandCall[] = []
     const logs: string[] = []
 
@@ -68,6 +68,7 @@ describe('Windows x64 installer packaging', () => {
         'never',
         '--config.win.signExecutable=false',
         '--config.npmRebuild=false',
+        '--config.win.compression=store',
       ],
       cwd: 'C:\\repo\\dsh-plugin-desktop',
       env: {
@@ -87,7 +88,7 @@ describe('Windows x64 installer packaging', () => {
     ])
   })
 
-  it('checks without credentials, builds an unsigned portable ZIP target, then verifies it', () => {
+  it('keeps default compression for the unsigned portable ZIP, then verifies it', () => {
     const calls: CommandCall[] = []
     const logs: string[] = []
     const value = {
@@ -138,6 +139,7 @@ describe('Windows x64 installer packaging', () => {
       'never',
       '--config.win.signExecutable=false',
       '--config.npmRebuild=false',
+      '--config.win.compression=store',
     ])
     expect(logs).toEqual([
       'Building an unsigned Windows x64 installer; Authenticode is a separate release step.',

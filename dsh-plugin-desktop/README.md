@@ -223,6 +223,8 @@ Python and Visual Studio C++ Build Tools are not required. The Windows command u
 
 `dist:win` refuses non-Windows and non-x64 hosts, runs a Windows-safe gate containing the build, all TypeScript compiler faces, packaging and native-shell focused tests, and the runtime-closure verifier, then builds an assisted NSIS installer and verifies both generated PE files. The full cross-platform suite remains CI-owned because some POSIX execution tests are not Windows programs. The installer allows a per-user or elevated all-users installation, permits changing the installation directory, creates Start Menu and desktop shortcuts, and preserves DSH user data when the application is uninstalled. Version `2.0.3` is written to `dsh-plugin-desktop\dist\DSH-Desktop-2.0.3-x64-Setup.exe`; the unpacked application remains at `dsh-plugin-desktop\dist\win-unpacked\DSH Desktop.exe` for smoke testing.
 
+The NSIS installer built by `dist:win` uses Electron Builder's `store` compression mode. This produces a larger Setup download but avoids compressed-payload decoding during installation, prioritizing installation speed while retaining the established NSIS path (`useZip=false`). The portable ZIP keeps Electron Builder's default compression.
+
 This local command deliberately strips Windows certificate variables and sets `signExecutable=false`. Its output is installable for testing but has no Authenticode publisher, so Windows can display an Unknown publisher or SmartScreen warning. A signed Windows release, certificate verification, installer upgrade/uninstall testing, and native UI/sandbox smoke remain separate release gates.
 
 ### Windows x64 portable ZIP
