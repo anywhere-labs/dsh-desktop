@@ -351,6 +351,7 @@ async function start(): Promise<void> {
     if (startupRecoveryWindow !== undefined) startupRecoveryWindow.show()
     else runtime.show()
   })
+  if (process.platform === 'linux') app.setDesktopName('dsh-desktop.desktop')
   try {
     await app.whenReady()
     startupStage = 'shell-environment'
