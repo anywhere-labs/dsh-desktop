@@ -235,7 +235,7 @@ describe('published package surface', () => {
     expect(installedClient).toContain('data-dsh-workspace-drop-target')
   })
 
-  it('keeps API selection available after overriding a provider base URL', () => {
+  it('patches custom model API and image-input controls into the Models page', () => {
     const patchPath = './patches/dsh-client-ui-settings-models@0.1.1-rc.2.patch'
     expect(workspaceManifest.resolutions).toMatchObject({
       '@deepseek-ai/dsh-client-ui-settings-models@npm:0.1.1-rc.2': expect.stringContaining(patchPath),
@@ -250,6 +250,12 @@ describe('published package surface', () => {
       'const baseURLOverridden = schema.hasPath(draft, ["baseURL"])',
       'const canCustomizeApi = ownsIdentity || baseURLOverridden',
       'canCustomizeApi ? (0, react_jsx_runtime.jsxs)("div"',
+      'checked: acceptsImageInput(model)',
+      'patch(index, { input: event.target.checked ? ["text", "image"] : ["text"] })',
+      'className: ModelsSection_module_css_default["modelCapabilityField"]',
+      'className: ModelsSection_module_css_default["modelCapabilityTrack"]',
+      'modelImageInput: "Allow image input"',
+      'modelImageInput: "允许图片输入"',
     ]) {
       expect(patch).toContain(marker)
       expect(installedClient).toContain(marker)
