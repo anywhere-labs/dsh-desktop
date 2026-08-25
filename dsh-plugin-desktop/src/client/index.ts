@@ -6,6 +6,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { applyAdvancedShell } from './advanced-shell.ts'
+import {
+  claimDesktopEntryMarkers,
+  clearDesktopEntryMarkers,
+  isDesktopShellAlreadyApplied,
+} from './apply-guard.ts'
 import { startRendererBootReporter } from './boot-health.ts'
 import { applyDesktopSettings } from './desktop-settings.ts'
 import { installDesktopDirectoryPickerBridge, requestDesktopDirectoryValidation } from './directory-picker.ts'
@@ -78,38 +83,59 @@ export const inject = [
   'uiRenderer',
 ]
 
-/** Register desktop-owned client surfaces for the current BrowserWindow mode. @param ctx - browser Cordis context. */
+/**
+ * Register desktop-owned client surfaces for the current BrowserWindow mode.
+ *
+ * The mode markers are claimed synchronously before any effect walks, so a
+ * concurrent application observes the guard immediately; every registration
+ * step runs inside one try block and any failure clears the markers again —
+ * a stale marker would otherwise make the idempotency guard swallow every
+ * loader restart of this entry until the page is fully reloaded (#517).
+ * @param ctx - browser Cordis context.
+ */
 export function apply(ctx: ClientContext): void {
   const environment = parseDesktopClientEnvironment(window.location.search)
   if (!environment) return
-  ctx.effect(
-    () => provideDesktopWindow(ctx, desktopWindowService(environment)),
-    'dsh-plugin-desktop: native window geometry service',
-  )
-  const desktopSettings = applyDesktopSettings(ctx, environment)
-  ctx.effect(
-    () => startRendererBootReporter(ctx.loader),
-    'dsh-plugin-desktop: renderer boot health report',
-  )
-  ctx.effect(
-    () => installWorkspaceFolderDrop({
-      create: input => ctx.workspaces.create(input),
-      startSession: workspaceId => { ctx.workspaces.startSession(workspaceId) },
-      ...(environment.platform === 'win32'
-        ? { validateDirectory: (path: string) => requestDesktopDirectoryValidation(path) }
-        : {}),
-    }),
-    'dsh-plugin-desktop: workspace folder drop',
-  )
-  if (environment.platform === 'win32') {
-    ctx.effect(
-      () => installDesktopDirectoryPickerBridge(),
-      'dsh-plugin-desktop: native directory picker bridge',
-    )
+  if (isDesktopShellAlreadyApplied(document)) {
+    console.warn(`dsh-plugin-desktop: shell already applied for mode ${document.body.dataset.dshDesktopMode}; skipping re-application`)
+    return
   }
-  if (environment.mode === 'advanced') applyAdvancedShell(ctx, environment)
-  if (environment.mode === 'extended') applyExtendedShell(ctx, environment, desktopSettings)
-  if (environment.platform !== 'linux' && environment.mode === 'compatibility') {
-    applyFramedShell(ctx, environment, desktopSettings)
+  // Synchronous plain writes: effect scheduling is asynchronous, which would
+  // leave a re-entry window between apply() calls.
+  claimDesktopEntryMarkers(document, environment)
+  try {
+    ctx.effect(
+      () => provideDesktopWindow(ctx, desktopWindowService(environment)),
+      'dsh-plugin-desktop: native window geometry service',
+    )
+    const desktopSettings = applyDesktopSettings(ctx, environment)
+    ctx.effect(
+      () => startRendererBootReporter(ctx.loader),
+      'dsh-plugin-desktop: renderer boot health report',
+    )
+    ctx.effect(
+      () => installWorkspaceFolderDrop({
+        create: input => ctx.workspaces.create(input),
+        startSession: workspaceId => { ctx.workspaces.startSession(workspaceId) },
+        ...(environment.platform === 'win32'
+          ? { validateDirectory: (path: string) => requestDesktopDirectoryValidation(path) }
+          : {}),
+      }),
+      'dsh-plugin-desktop: workspace folder drop',
+    )
+    if (environment.platform === 'win32') {
+      ctx.effect(
+        () => installDesktopDirectoryPickerBridge(),
+        'dsh-plugin-desktop: native directory picker bridge',
+      )
+    }
+    if (environment.mode === 'advanced') applyAdvancedShell(ctx, environment)
+    if (environment.mode === 'extended') applyExtendedShell(ctx, environment, desktopSettings)
+    if (environment.platform !== 'linux' && environment.mode === 'compatibility') {
+      applyFramedShell(ctx, environment, desktopSettings)
+    }
+  } catch (cause) {
+    clearDesktopEntryMarkers(document)
+    throw cause
   }
 }

@@ -4,7 +4,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply } from '../src/client/index.ts'
 import { AdvancedFrame } from '../src/client/AdvancedFrame.tsx'
 import { applyAdvancedShell } from '../src/client/advanced-shell.ts'
-import { provideDesktopLayout } from '../src/client/layout-service.ts'
+import { claimDesktopLayout } from '../src/client/layout-service.ts'
 import { parseDesktopClientEnvironment } from '../src/client/environment.ts'
 import { ExtendedFrame } from '../src/client/ExtendedFrame.tsx'
 import { applyExtendedShell, applyFramedShell } from '../src/client/extended-shell.ts'
@@ -144,6 +144,7 @@ describe('advanced desktop layout', () => {
 
   it('releases the Cordis layout service with its owning effect', () => {
     let disposed = false
+    let uninstall: unknown
     const ctx = {
       reflect: {
         provide: (name: string, value: unknown) => {
@@ -152,11 +153,15 @@ describe('advanced desktop layout', () => {
           return () => { disposed = true }
         },
       },
+      // Cordis runs the factory eagerly and registers its result as the
+      // fiber-owned uninstaller; capture that result the same way.
+      effect: (factory: () => unknown) => { uninstall = factory() },
     } as unknown as ClientContext
 
-    const dispose = provideDesktopLayout(ctx, new DesktopLayoutState())
+    expect(claimDesktopLayout(ctx, new DesktopLayoutState())).toBe(true)
     expect(disposed).toBe(false)
-    dispose()
+    expect(typeof uninstall).toBe('function')
+    ;(uninstall as () => void)()
     expect(disposed).toBe(true)
   })
 
