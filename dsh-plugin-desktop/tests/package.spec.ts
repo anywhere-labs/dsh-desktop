@@ -601,6 +601,12 @@ describe('published package surface', () => {
       'lib/**',
       'package.json',
       '!node_modules/node-pty/build/**',
+      '!node_modules/@img/sharp-linux-arm64/**',
+      '!node_modules/@img/sharp-libvips-linux-arm64/**',
+      '!node_modules/@koromix/koffi-linux-arm64/**',
+      '!node_modules/@vscode/ripgrep-linux-arm64/**',
+      '!node_modules/node-addon-require-builtin-linux-arm64-gnu/**',
+      '!node_modules/@deepseek-ai/node-addon-landlock-run-linux-arm64/**',
     ])
     expect(manifest.build?.mac?.icon).toBe('build/app-icon-mac.png')
     expect(manifest.build?.mac?.mergeASARs).toBe(false)

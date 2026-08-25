@@ -262,6 +262,8 @@ Linux 没有 code signing，三个产物均未签名。CI 会在钉版本的 `ub
 
 Linux 产物通过 `scripts/package-linux.ts` 中的 `electronVersion` 覆盖刻意捆绑 Electron 42.9.3；开发、测试以及 Windows 与 macOS 安装包继续使用工作区钉定的 Electron 版本。Electron 43.x 的托盘图标在 Ubuntu 24.04 LTS 默认附带的 GNOME AppIndicator 扩展 v58 上无法存活：43.4.0 的 SNI `IconPixmap` 属性 `Get` 会报错，扩展约三秒后丢弃图标；43.4.1 改用的"名称加路径"合并注册字符串则被直接拒绝。Electron 42.9.3 可正常注册，且内嵌与工作区钉定版本相同的 Node 24.18.1。待后续 Electron 版本恢复与扩展 v58 的托盘兼容后，应移除该覆盖。
 
+顶层 `build.files` 把每个原生可选依赖（`sharp`、`koffi`、`ripgrep`、`node-addon-require-builtin`、`@deepseek-ai/node-addon-landlock-run`）的 arm64 版本都排除在外，作用等同于 `build.mac.x64ArchFiles` 之于 macOS universal 包在 Linux 上的对应版本。`node_modules` 里这些依赖包不论构建目标是什么，都会同时装上 `linux-x64` 与 `linux-arm64` 两份预编译——无论是普通的 `node-modules` linker 还是 electron-builder 自身的文件匹配逻辑，都不会自动只保留当前构建目标架构那一份——所以没有这份排除清单时，永远不会被加载的 arm64 二进制会被无端塞进每一个 Linux 安装包。这几条排除规则特意放在顶层共享数组里，而不是 `build.linux` 底下：只要 `build.linux.files` 是一个非空数组，electron-builder 的 Linux 打包就会悄悄退化成对整个包目录做裸 `**/*` 扫描（把 `src/`、`tests/`、`scripts/` 和所有配置文件都扫进去）——用它自己的 `builder-debug.yml` 模式转储实测验证过，一个本该只收窄文件集合的平台覆盖项，结果反而把它撑大了。放在共享数组里没有这个风险，对 macOS 和 Windows 也是纯粹的空操作，因为那两个平台上本来就不会装 `linux-arm64` 的预编译包。以后有新的原生依赖为 Linux 单独发布分架构预编译包时，应该扩展这同一个数组，而不是改 `asarUnpack`——也永远不要把这些规则挪回 `build.linux.files`。
+
 ## 模型体验
 
 无。desktop package 只改变应用组合与原生呈现，不增加任何模型可见的指令、工具、事件或请求字段。
