@@ -451,9 +451,11 @@ export const dsh1024StoreAdapter: CatalogAdapter = {
   adapterId: DSH_1024STORE_ADAPTER_ID,
   async fetch(queryValue, context) {
     const query = { ...queryValue, limit: Math.min(queryValue.limit ?? 50, 50) }
-    const expectedOrigin = new URL(DSH_1024STORE_ENDPOINT).origin
+    const endpoint = new URL(DSH_1024STORE_ENDPOINT)
+    if (query.q !== undefined) endpoint.searchParams.set('q', query.q)
+    const expectedOrigin = endpoint.origin
     const response = await context.http.getJson(
-      DSH_1024STORE_ENDPOINT,
+      endpoint.href,
       context.signal,
       { allowedOrigin: expectedOrigin },
     )
