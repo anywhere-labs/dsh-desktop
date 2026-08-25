@@ -1,0 +1,4 @@
+interface:
+  display_name: "DSH Issue/PR Workflow"
+  short_description: "Resolve and review DSH Desktop issues and PRs"
+  default_prompt: "Use $dsh-resolve-issue-pr to resolve this DSH Desktop issue end to end and prepare maintainer-ready replies and PR evidence."

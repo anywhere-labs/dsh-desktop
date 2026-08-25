@@ -28,6 +28,7 @@ Ordinary users can start with the [user guide](user-guide.en.md) and never need 
 | [VS Code extension-model research](../dsh-community-fabric/docs/research/vscode-extension-model.md) | Implemented declaration, Provider, UI, placement, and lifecycle patterns, with concrete constraints for the Fabric RFC |
 | [Community Market design](../dsh-community-market/README.md) | The proposed market shell, extensible catalog sources, user selection, install confirmation, and safety boundary |
 | [Market catalog provider contract](../dsh-community-market/docs/catalog-provider-contract.md) | Schemas, query parameters, multi-source behavior, and adapter rules for the implementation team |
+| [End-to-end Issue and PR workflow](maintainer-issue-pr-workflow.en.md) | Triage, reproduction, fixes, review, verification, maintainer copy, release, and closure |
 | [Architecture](architecture.en.md) | Electron, Host, loopback Web, profiles, and packaging |
 | [Desktop service reference](../dsh-plugin-desktop/docs/plugin-services.md) | Stable `desktopProfiles` and `desktopPnpm` contracts with TypeScript examples |
 | [Package reference](../dsh-plugin-desktop/README.md) | Detailed build, runtime, release, and limitation notes |
