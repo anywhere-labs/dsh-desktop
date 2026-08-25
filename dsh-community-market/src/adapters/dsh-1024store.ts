@@ -3,12 +3,14 @@ import type { CatalogQuery } from '../contracts/generated/catalog-query.js'
 import type { CatalogSnapshot } from '../contracts/generated/catalog-snapshot.js'
 import { parseCatalogSnapshot } from '../contracts/validate.js'
 import { normalizeRepositoryIdentity } from '../contracts/identity.js'
+import { CatalogNetworkError } from '../network/restricted-http.js'
 
 export const DSH_1024STORE_KEY = 'dsh-1024store'
 export const DSH_1024STORE_ENDPOINT = 'https://deepseek1024.com/api/v1/plugins'
 export const DSH_1024STORE_HOSTNAME = 'deepseek1024.com'
 export const DSH_1024STORE_PROVIDER_ID = 'com.deepseek1024.catalog'
 export const DSH_1024STORE_ADAPTER_ID = 'market.dsh-1024store-v1'
+const DSH_1024STORE_ORIGIN = new URL(DSH_1024STORE_ENDPOINT).origin
 
 export interface Dsh1024StoreRawItem {
   readonly id?: unknown
@@ -406,8 +408,12 @@ function buildCatalogScanSnapshots(
     ? new Date(generatedAt).toISOString()
     : undefined
   const providerRevision = plainText(meta.revision, 160, '') || undefined
-  const total = providerTotal(meta, raw.packages.length) ?? items.length
-  if (total !== items.length) throw new Error('1024Store scan did not reach the provider total')
+  // The frozen v1 endpoint caps `packages` at the first 500 entries while
+  // meta.total counts every matching installable plugin, so a scan may
+  // legitimately receive less than the provider total. The scan indexes what
+  // actually arrived instead of failing closed, and snapshot page totals
+  // report the normalized item count.
+  const total = items.length
   const fetchedAt = new Date().toISOString()
   const snapshots: CatalogSnapshot[] = []
   for (let offset = 0; offset < items.length; offset += 100) {
@@ -447,34 +453,100 @@ function buildCatalogScanSnapshots(
   return snapshots
 }
 
-export const dsh1024StoreAdapter: CatalogAdapter = {
-  adapterId: DSH_1024STORE_ADAPTER_ID,
-  async fetch(queryValue, context) {
-    const query = { ...queryValue, limit: Math.min(queryValue.limit ?? 50, 50) }
-    const expectedOrigin = new URL(DSH_1024STORE_ENDPOINT).origin
-    const response = await context.http.getJson(
-      DSH_1024STORE_ENDPOINT,
-      context.signal,
-      { allowedOrigin: expectedOrigin },
-    )
-    let finalOrigin: string
-    try { finalOrigin = new URL(response.finalUrl).origin }
-    catch { throw new Error('1024Store final URL is invalid') }
-    if (finalOrigin !== expectedOrigin) throw new Error('1024Store response changed the reviewed provider origin')
-    return buildSnapshot(response.value, context, response.finalUrl, query)
-  },
-  async scanCatalog(query, context) {
-    const expectedOrigin = new URL(DSH_1024STORE_ENDPOINT).origin
-    const response = await context.http.getJson(
-      DSH_1024STORE_ENDPOINT,
-      context.signal,
-      { allowedOrigin: expectedOrigin },
-    )
-    context.signal.throwIfAborted()
-    let finalOrigin: string
-    try { finalOrigin = new URL(response.finalUrl).origin }
-    catch { throw new Error('1024Store final URL is invalid') }
-    if (finalOrigin !== expectedOrigin) throw new Error('1024Store response changed the reviewed provider origin')
-    return buildCatalogScanSnapshots(response.value, context, response.finalUrl, query.locale)
-  },
+export interface Dsh1024StoreAdapterOptions {
+  /** Base delay for transient-failure retries; doubles per attempt with full jitter. */
+  readonly retryBaseDelayMs?: number
+  /** Injectable for tests; the default sleeps while staying abort-aware. */
+  readonly sleep?: (delayMs: number, signal: AbortSignal) => Promise<void>
+  /** Injectable full-jitter source for tests. */
+  readonly random?: () => number
 }
+
+const DEFAULT_RETRY_BASE_DELAY_MS = 600
+const MAX_1024STORE_ATTEMPTS = 3
+const RETRYABLE_NETWORK_CODES: ReadonlySet<string> = new Set(['timeout', 'http', 'response'])
+
+function defaultSleep(delayMs: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  if (delayMs === 0) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
+      reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError'))
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, delayMs)
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) onAbort()
+  })
+}
+
+function retryDelayMs(attempt: number, baseDelayMs: number, random: () => number): number {
+  return Math.floor(random() * baseDelayMs * 2 ** (attempt - 1))
+}
+
+async function getJsonWithRetry(
+  context: CatalogFetchContext,
+  sleep: (delayMs: number, signal: AbortSignal) => Promise<void>,
+  baseDelayMs: number,
+  random: () => number,
+): Promise<Awaited<ReturnType<CatalogFetchContext['http']['getJson']>>> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= MAX_1024STORE_ATTEMPTS; attempt += 1) {
+    try {
+      return await context.http.getJson(
+        DSH_1024STORE_ENDPOINT,
+        context.signal,
+        { allowedOrigin: DSH_1024STORE_ORIGIN },
+      )
+    } catch (cause) {
+      // Deterministic refusals (invalid URL, blocked address, origin-changing
+      // redirect) must surface immediately; only jitter-class transport
+      // failures are worth another attempt.
+      if (!(cause instanceof CatalogNetworkError) || !RETRYABLE_NETWORK_CODES.has(cause.code)) throw cause
+      lastError = cause
+      if (attempt < MAX_1024STORE_ATTEMPTS) {
+        await sleep(retryDelayMs(attempt, baseDelayMs, random), context.signal)
+      }
+    }
+  }
+  throw lastError
+}
+
+function assertReviewedOrigin(finalUrl: string): string {
+  let finalOrigin: string
+  try { finalOrigin = new URL(finalUrl).origin }
+  catch { throw new Error('1024Store final URL is invalid') }
+  if (finalOrigin !== DSH_1024STORE_ORIGIN) throw new Error('1024Store response changed the reviewed provider origin')
+  return finalUrl
+}
+
+export function createDsh1024StoreAdapter(options: Dsh1024StoreAdapterOptions = {}): CatalogAdapter {
+  const retryBaseDelayMs = options.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS
+  if (!Number.isSafeInteger(retryBaseDelayMs) || retryBaseDelayMs < 0) {
+    throw new TypeError('invalid 1024Store retry base delay')
+  }
+  const sleep = options.sleep ?? defaultSleep
+  const random = options.random ?? Math.random
+
+  return {
+    adapterId: DSH_1024STORE_ADAPTER_ID,
+    async fetch(queryValue, context) {
+      const query = { ...queryValue, limit: Math.min(queryValue.limit ?? 50, 50) }
+      const response = await getJsonWithRetry(context, sleep, retryBaseDelayMs, random)
+      const finalUrl = assertReviewedOrigin(response.finalUrl)
+      return buildSnapshot(response.value, context, finalUrl, query)
+    },
+    async scanCatalog(query, context) {
+      const response = await getJsonWithRetry(context, sleep, retryBaseDelayMs, random)
+      context.signal.throwIfAborted()
+      const finalUrl = assertReviewedOrigin(response.finalUrl)
+      return buildCatalogScanSnapshots(response.value, context, finalUrl, query.locale)
+    },
+  }
+}
+
+export const dsh1024StoreAdapter: CatalogAdapter = createDsh1024StoreAdapter()

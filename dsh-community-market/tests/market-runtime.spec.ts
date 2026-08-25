@@ -375,7 +375,12 @@ describe('1024Store adapter', () => {
     expect(snapshot.page).toEqual({ nextCursor: '50', total: 7635 })
   })
 
-  it('fails a complete 1024Store scan when provider metadata says more items exist', async () => {
+  it('indexes the capped 1024Store listing when provider metadata says more items exist', async () => {
+    // The frozen v1 endpoint caps `packages` at the first 500 entries while
+    // meta.total counts every matching installable plugin, so truncation is
+    // the steady state, not a transient failure mode. The scan now indexes
+    // what arrived instead of failing the whole market; page totals report
+    // the normalized item count.
     const packages = Array.from({ length: 51 }, (_, index) => ({
       ...rawCatalog.packages[0]!,
       id: `anywhere-labs/plugin-${index}`,
@@ -389,10 +394,14 @@ describe('1024Store adapter', () => {
       })),
     }
 
-    await expect(dsh1024StoreAdapter.scanCatalog!(
+    const snapshots = await dsh1024StoreAdapter.scanCatalog!(
       { limit: 100 },
       { source: source(), signal: new AbortController().signal, http, media: { register: () => fixtureAssetRef } },
-    )).rejects.toThrow(/provider total/u)
+    )
+
+    const items = snapshots.flatMap(snapshot => snapshot.items)
+    expect(items).toHaveLength(51)
+    expect(snapshots.every(snapshot => snapshot.page.total === 51)).toBe(true)
   })
 
   it('keeps the reviewed 1024Store adapter page size fixed at 50', async () => {
