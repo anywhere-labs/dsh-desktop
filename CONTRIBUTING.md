@@ -17,9 +17,9 @@ DSH 的核心是插件。如果你写插件，请先阅读：
 - [插件开发](docs/plugin-development.md)：如何编写普通 DSH 插件和 Desktop 插件。
 - [DSH 插件生态倡议书](docs/plugin-ecosystem.md)：开放、可组合、可持续的生态愿景，以及组合优先、声明清晰、兼容优先三条原则。
 - [DSH Community Fabric Draft](dsh-community-fabric/README.zh.md)：参与 Manifest、Capability、Host Descriptor 和事件 contract 的公开讨论。
-- [Community Market 设计](dsh-community-market/docs/market-shell.zh.md)：未来市场如何发现插件，以及为什么收录不等于安全审核。
+- [Community Market 设计与合同](dsh-community-market/docs/market-shell.zh.md)：内置市场如何发现和管理插件，以及为什么收录不等于安全审核。
 
-遵循倡议书的插件更容易与其他插件共存，也会在未来上线时更容易在插件市场中被发现和信任。
+遵循倡议书的插件更容易与其他插件共存，也更容易被市场来源描述和判断兼容性；市场收录本身不代表安全审核或推荐。
 
 ## 开发者：贡献代码
 
@@ -35,7 +35,7 @@ corepack yarn dev     # 有图形环境时启动应用
 ### 仓库边界（开始前务必了解）
 
 - `deepseek-harness/` 是固定版本的上游子模块，**桌面开发不修改其中的任何文件**；上游内容更新走独立的 pin 提交。
-- 桌面代码位于 `dsh-plugin-desktop/`；`dsh-community-fabric/` 保存社区标准 Draft，`dsh-community-market/` 保存市场壳设计。两个社区 package 当前都只有文档、尚不可加载，三个自有 package 共用外层 Yarn workspace。
+- 桌面代码位于 `dsh-plugin-desktop/`；`dsh-community-fabric/` 保存仍处于文档阶段的社区标准 Draft；`dsh-community-market/` 是已内置的私有 Market 实现，拥有 Host、Client、合同和测试，但不是独立发布的公共 package。三个自有 package 共用外层 Yarn workspace。
 - 构建、类型检查、单元测试和冒烟检查必须保持 headless-safe。
 
 ### 提交与 PR
