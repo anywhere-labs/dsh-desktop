@@ -209,6 +209,7 @@ Ecosystem projects and developer tools around DeepSeek Harness.
 | --- | --- | --- |
 | dshfind | The learning & sharing community for DeepSeek Harness (DSH). | [GitHub](https://github.com/hikariming/dshfind) · [Website](https://dshfind.com) |
 | DSH 1024Store | A community plugin directory for the DeepSeek Harness (DSH) ecosystem (4,120 plugins), open-sourcing an online marketplace, a collection pipeline, and a public query API — fork it to deploy your own marketplace. | [GitHub](https://github.com/imsai-sh/awesome-deepseek-harness-plugins) |
+| dsh-recommend | Transparent rankings and recommendations for the DSH plugin ecosystem, aggregating GitHub plugin data with a public scoring model for rankings, trends, search, and recommendations. | [GitHub](https://github.com/zp-home/dsh-recommend) · [Leaderboard](https://zp-home.github.io/dsh-recommend/site/) |
 | Awesome DSH Plugin | Curated list of DeepSeek Harness (DSH) plugins. | [GitHub](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) |
 | dsh-market | Visual plugin market for DeepSeek Harness, with browsing, search, and one-click installation. | [GitHub](https://github.com/dsh-market/dsh-market) |
 | ModLens | Adds OCR, layout, and semantic vision capabilities to DeepSeek Harness and text-only coding agents. | [GitHub](https://github.com/liustack/modlens) · [Website](https://liustack.dev) |
