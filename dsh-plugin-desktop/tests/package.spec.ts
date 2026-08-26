@@ -375,6 +375,28 @@ describe('published package surface', () => {
     expect(installedTypes).toContain("inputModalities?: readonly ('text' | 'image')[];")
   })
 
+  it('settles bounded unary calls in the published renderer carrier', () => {
+    const patchPath = './patches/dsh-client-connection-unary-settlement@0.1.1-rc.2.patch'
+    expect(workspaceManifest.resolutions).toMatchObject({
+      '@deepseek-ai/dsh-client-connection@npm:0.1.1-rc.2': expect.stringContaining(patchPath),
+      '@deepseek-ai/dsh-client-connection@npm:^0.1.1-rc.2': expect.stringContaining(patchPath),
+    })
+    const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
+    const installedClient = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-client-connection/lib/client.js',
+      packageRoot,
+    ), 'utf8')
+    for (const marker of [
+      'const response = await settleOnAbort(this.doFetch(',
+      'function settleOnAbort(pending, signal)',
+      'if (signal.aborted) onAbort();',
+      'carrier rejected without an Error',
+    ]) {
+      expect(patch).toContain(marker)
+      expect(installedClient).toContain(marker)
+    }
+  })
+
   it('localizes Trajectory toolbar labels in Simplified Chinese', () => {
     const patchPath = './patches/dsh-client-ui-trajectory@0.1.1-rc.2.patch'
     expect(workspaceManifest.resolutions).toMatchObject({

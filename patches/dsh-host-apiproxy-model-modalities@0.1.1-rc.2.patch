@@ -5,6 +5,63 @@ diff --git a/lib/index.js b/lib/index.js
 +	inputModalities: z$1.array(z$1.enum(["text", "image"])).optional(),
 @@ -1025,0 +1027 @@ async function buildModelCatalog(ctx) {
 +					...model.inputModalities === void 0 ? {} : { inputModalities: [...model.inputModalities] },
+@@ -5265,12 +5267,13 @@ var AbstractApiClient = class {
+ 	*/
+ 	async postJson(path, body, signal, timeoutPolicy = "default") {
+ 		const requestSignal = timeoutPolicy === "default" ? signal === void 0 ? AbortSignal.timeout(this.timeoutMs) : AbortSignal.any([AbortSignal.timeout(this.timeoutMs), signal]) : signal;
+-		const response = await this.doFetch(new URL(path, this.resolveBase()), {
++		if (requestSignal?.aborted === true) throw abortError(requestSignal);
++		const response = await settleOnAbort(this.doFetch(new URL(path, this.resolveBase()), {
+ 			method: "POST",
+ 			headers: { "content-type": "application/json" },
+ 			body: JSON.stringify(body),
+ 			...requestSignal === void 0 ? {} : { signal: requestSignal }
+-		});
++		}), requestSignal);
+ 		if (!response.ok) throw new Error(`transport failure for ${path}: HTTP ${response.status}`);
+ 		return response;
+ 	}
+@@ -5452,19 +5455,29 @@ var InProcessApiClient = class extends AbstractApiClient {
+ 	*/
+ 	doFetch(input, init) {
+ 		const signal = init?.signal ?? void 0;
+-		if (signal === void 0) return this.handler.fetch(input, init);
+-		if (signal.aborted) return Promise.reject(abortError(signal));
+-		return new Promise((resolve, reject) => {
+-			const onAbort = () => {
+-				reject(abortError(signal));
+-			};
+-			signal.addEventListener("abort", onAbort, { once: true });
+-			this.handler.fetch(input, init).then(resolve, reject).finally(() => {
+-				signal.removeEventListener("abort", onAbort);
+-			});
+-		});
++		return settleOnAbort(this.handler.fetch(input, init), signal);
+ 	}
+ };
++/** Settle at the abort boundary even when an injected or platform carrier ignores its signal. */
++function settleOnAbort(pending, signal) {
++	if (signal === void 0) return pending;
++	if (signal.aborted) return Promise.reject(abortError(signal));
++	return new Promise((resolve, reject) => {
++		const onAbort = () => {
++			signal.removeEventListener("abort", onAbort);
++			reject(abortError(signal));
++		};
++		signal.addEventListener("abort", onAbort, { once: true });
++		pending.then((value) => {
++			signal.removeEventListener("abort", onAbort);
++			resolve(value);
++		}, (error) => {
++			signal.removeEventListener("abort", onAbort);
++			reject(error instanceof Error ? error : new Error("carrier rejected without an Error", { cause: error }));
++		});
++		if (signal.aborted) onAbort();
++	});
++}
+ /** Mirror fetch's abort rejection: the signal's reason when present, else a DOMException-style AbortError. */
+ function abortError(signal) {
+ 	const reason = signal.reason;
 diff --git a/lib/types/api/sessions.schema.js b/lib/types/api/sessions.schema.js
 --- a/lib/types/api/sessions.schema.js
 +++ b/lib/types/api/sessions.schema.js
@@ -16,3 +73,67 @@ diff --git a/lib/types/api/sessions.d.ts b/lib/types/api/sessions.d.ts
 @@ -126,0 +127,2 @@ export interface ModelCatalogModel {
 +    /** Accepted request modalities advertised by the exact model route. */
 +    inputModalities?: readonly ('text' | 'image')[];
+diff --git a/lib/types/fetch/client.js b/lib/types/fetch/client.js
+--- a/lib/types/fetch/client.js
++++ b/lib/types/fetch/client.js
+@@ -153,12 +153,14 @@ export class AbstractApiClient {
+                 ? AbortSignal.timeout(this.timeoutMs)
+                 : AbortSignal.any([AbortSignal.timeout(this.timeoutMs), signal])
+             : signal;
+-        const response = await this.doFetch(new URL(path, this.resolveBase()), {
++        if (requestSignal?.aborted === true)
++            throw abortError(requestSignal);
++        const response = await settleOnAbort(this.doFetch(new URL(path, this.resolveBase()), {
+             method: 'POST',
+             headers: { 'content-type': 'application/json' },
+             body: JSON.stringify(body),
+             ...requestSignal === undefined ? {} : { signal: requestSignal },
+-        });
++        }), requestSignal);
+         if (!response.ok)
+             throw new Error(`transport failure for ${path}: HTTP ${response.status}`);
+         return response;
+@@ -345,19 +347,32 @@ export class InProcessApiClient extends AbstractApiClient {
+      */
+     doFetch(input, init) {
+         const signal = init?.signal ?? undefined;
+-        if (signal === undefined)
+-            return this.handler.fetch(input, init);
+-        if (signal.aborted)
+-            return Promise.reject(abortError(signal));
+-        return new Promise((resolve, reject) => {
+-            const onAbort = () => { reject(abortError(signal)); };
+-            signal.addEventListener('abort', onAbort, { once: true });
+-            this.handler.fetch(input, init)
+-                .then(resolve, reject)
+-                .finally(() => { signal.removeEventListener('abort', onAbort); });
+-        });
++        return settleOnAbort(this.handler.fetch(input, init), signal);
+     }
+ }
++/** Settle at the abort boundary even when an injected or platform carrier ignores its signal. */
++function settleOnAbort(pending, signal) {
++    if (signal === undefined)
++        return pending;
++    if (signal.aborted)
++        return Promise.reject(abortError(signal));
++    return new Promise((resolve, reject) => {
++        const onAbort = () => {
++            signal.removeEventListener('abort', onAbort);
++            reject(abortError(signal));
++        };
++        signal.addEventListener('abort', onAbort, { once: true });
++        pending.then((value) => {
++            signal.removeEventListener('abort', onAbort);
++            resolve(value);
++        }, (error) => {
++            signal.removeEventListener('abort', onAbort);
++            reject(error instanceof Error ? error : new Error('carrier rejected without an Error', { cause: error }));
++        });
++        if (signal.aborted)
++            onAbort();
++    });
++}
+ /** Mirror fetch's abort rejection: the signal's reason when present, else a DOMException-style AbortError. */
+ function abortError(signal) {
+     const reason = signal.reason;

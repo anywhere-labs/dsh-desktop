@@ -1,0 +1,48 @@
+{
+  "startedAt": "2026-08-26T10:10:42.792Z",
+  "pageUrl": "http://127.0.0.1:43120/?dsh-desktop-mode=compatibility&dsh-desktop-platform=win32&dsh-desktop-version=2.0.3&dsh-desktop-material=acrylic&dsh-desktop-titlebar-inset=36&dsh-desktop-mica=1",
+  "duringHang": {
+    "phase": "submitting",
+    "value": "Issue 641 deadline recovery proof",
+    "readOnly": true,
+    "disabled": false,
+    "sendDisabled": true,
+    "imagePresent": true,
+    "responseStatus": 200,
+    "responseReceivedAt": 1787739043065,
+    "signalAborted": false,
+    "signalReasonName": null,
+    "signalReasonMessage": null,
+    "helloCount": 1
+  },
+  "recoveredAfterMs": 30065,
+  "afterDeadline": {
+    "phase": "plain",
+    "value": "Issue 641 deadline recovery proof",
+    "readOnly": false,
+    "disabled": false,
+    "sendDisabled": false,
+    "imagePresent": true,
+    "responseStatus": 200,
+    "responseReceivedAt": 1787739043065,
+    "signalAborted": true,
+    "signalReasonName": "TimeoutError",
+    "signalReasonMessage": "signal timed out",
+    "helloCount": 1
+  },
+  "afterSecondSend": {
+    "phase": "plain",
+    "value": "",
+    "readOnly": false,
+    "disabled": false,
+    "sendDisabled": true,
+    "imagePresent": false,
+    "responseStatus": 200,
+    "responseReceivedAt": 1787739043065,
+    "signalAborted": true,
+    "signalReasonName": "TimeoutError",
+    "signalReasonMessage": "signal timed out",
+    "helloCount": 2
+  },
+  "completedAt": "2026-08-26T10:11:13.483Z"
+}

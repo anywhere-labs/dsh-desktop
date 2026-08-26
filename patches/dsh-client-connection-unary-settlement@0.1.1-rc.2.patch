@@ -1,0 +1,53 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -6186,12 +6186,13 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
+ 			*/
+ 			async postJson(path, body, signal, timeoutPolicy = "default") {
+ 				const requestSignal = timeoutPolicy === "default" ? signal === void 0 ? AbortSignal.timeout(this.timeoutMs) : AbortSignal.any([AbortSignal.timeout(this.timeoutMs), signal]) : signal;
+-				const response = await this.doFetch(new URL(path, this.resolveBase()), {
++				if (requestSignal?.aborted === true) throw abortError(requestSignal);
++				const response = await settleOnAbort(this.doFetch(new URL(path, this.resolveBase()), {
+ 					method: "POST",
+ 					headers: { "content-type": "application/json" },
+ 					body: JSON.stringify(body),
+ 					...requestSignal === void 0 ? {} : { signal: requestSignal }
+-				});
++				}), requestSignal);
+ 				if (!response.ok) throw new Error(`transport failure for ${path}: HTTP ${response.status}`);
+ 				return response;
+ 			}
+@@ -6358,6 +6359,33 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
+ 				return rpcReceiptSchema.parse(await response.json());
+ 			}
+ 		};
++		/** Settle at the abort boundary even when an injected or platform carrier ignores its signal. */
++		function settleOnAbort(pending, signal) {
++			if (signal === void 0) return pending;
++			if (signal.aborted) return Promise.reject(abortError(signal));
++			return new Promise((resolve, reject) => {
++				const onAbort = () => {
++					signal.removeEventListener("abort", onAbort);
++					reject(abortError(signal));
++				};
++				signal.addEventListener("abort", onAbort, { once: true });
++				pending.then((value) => {
++					signal.removeEventListener("abort", onAbort);
++					resolve(value);
++				}, (error) => {
++					signal.removeEventListener("abort", onAbort);
++					reject(error instanceof Error ? error : new Error("carrier rejected without an Error", { cause: error }));
++				});
++				if (signal.aborted) onAbort();
++			});
++		}
++		/** Mirror fetch's abort rejection: the signal's reason when present, else a DOMException-style AbortError. */
++		function abortError(signal) {
++			const reason = signal.reason;
++			if (reason instanceof Error) return reason;
++			if (typeof reason === "string") return new Error(reason);
++			return /* @__PURE__ */ new Error("This operation was aborted");
++		}
+ 		//#endregion
+ 		//#region lib/types/client/random-uuid.js
+ 		/** Browser-safe UUID generation for client-side wire correlation. */
