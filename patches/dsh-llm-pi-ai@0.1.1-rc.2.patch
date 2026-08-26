@@ -1,0 +1,96 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1945,10 +1945,12 @@
+ * Answering "which models can this provider serve?" for the configuration
+ * surface's "fetch available models" action.
+ *
+-* A route the installed pi-ai catalog ships is answered **from that catalog**,
+-* with no network call at all: pi-ai's registry is the authoritative list for
+-* its own providers, and it carries the capacities a listing endpoint would
+-* not disclose. Only a route the catalog does not describe — a gateway, a
++* A route the installed pi-ai catalog ships is answered **from that catalog**
++* unless the draft also names a `baseURL` whose protocol this build can list;
++* that explicit endpoint override is probed live, then enriched from the
++* catalog by id where the listing omits capacities. pi-ai's registry remains
++* the authoritative offline answer for its own providers. Only a route the
++* catalog does not describe — a gateway, a
+ * self-hosted server — is interrogated over the wire.
+ *
+ * Neither path is a catalog refresh. Nothing here is stored: the request
+@@ -2087,17 +2089,22 @@
+ *   refuses or fails the request, or the reply is not a model listing.
+ */
+ async function discoverModels(request, storedApiKey) {
+-	if (request.provider !== void 0) {
+-		const installed = catalogModels(request.provider);
+-		if (installed.size > 0) return [...installed.values()].map((model) => ({
+-			id: model.id,
+-			name: model.name,
+-			contextWindow: model.contextWindow,
+-			maxTokens: model.maxTokens
+-		}));
+-	}
++	const catalog = request.provider === void 0 ? void 0 : catalogModels(request.provider);
++	const catalogRows = catalog !== void 0 && catalog.size > 0 ? [...catalog.values()].map((model) => ({
++		id: model.id,
++		name: model.name,
++		contextWindow: model.contextWindow,
++		maxTokens: model.maxTokens
++	})) : void 0;
++	const hasBaseURL = request.baseURL !== void 0 && request.baseURL.length > 0;
++	const api = request.api ?? "openai-completions";
++	const probeCatalogRoute = catalogRows !== void 0 && hasBaseURL && LISTABLE_PROTOCOLS.has(api);
++	// A named catalog route keeps its offline answer unless the draft also names
++	// an explicit listable endpoint override. That narrower live path preserves
++	// the current no-network behavior for ordinary built-ins while letting a
++	// gateway-backed override surface new ids immediately.
++	if (catalogRows !== void 0 && !probeCatalogRoute) return catalogRows;
+ 	if (request.baseURL === void 0 || request.baseURL.length === 0) throw new LlmError(`pi-ai ships no catalog for provider "${request.provider ?? ""}", so its models can only come from its endpoint; set a baseURL, or enter this provider's models by hand`, "DISCOVERY_FAILED");
+-	const api = request.api ?? "openai-completions";
+ 	if (!LISTABLE_PROTOCOLS.has(api)) throw new LlmError(`pi-ai protocol "${api}" has no model listing this build can read; enter this provider's models by hand`, "DISCOVERY_UNSUPPORTED");
+ 	const url = listingUrl(request.baseURL);
+ 	const supplied = request.apiKey ?? await storedApiKey?.();
+@@ -2131,7 +2138,21 @@
+ 	} catch (error) {
+ 		throw new LlmError(`${url} did not answer with JSON`, "DISCOVERY_FAILED", { cause: error });
+ 	}
+-	return readListing(body);
++	const discovered = readListing(body);
++	if (catalog === void 0) return discovered;
++	return discovered.map((model) => {
++		const installed = catalog.get(model.id);
++		if (installed === void 0) return model;
++		const name = model.name ?? installed.name;
++		const contextWindow = model.contextWindow ?? installed.contextWindow;
++		const maxTokens = model.maxTokens ?? installed.maxTokens;
++		return {
++			id: model.id,
++			...name === void 0 ? {} : { name },
++			...contextWindow === void 0 ? {} : { contextWindow },
++			...maxTokens === void 0 ? {} : { maxTokens }
++		};
++	});
+ }
+ //#endregion
+ //#region lib/types/login.js
+diff --git a/lib/types/discovery.d.ts b/lib/types/discovery.d.ts
+--- a/lib/types/discovery.d.ts
++++ b/lib/types/discovery.d.ts
+@@ -2,10 +2,12 @@
+  * Answering "which models can this provider serve?" for the configuration
+  * surface's "fetch available models" action.
+  *
+- * A route the installed pi-ai catalog ships is answered **from that catalog**,
+- * with no network call at all: pi-ai's registry is the authoritative list for
+- * its own providers, and it carries the capacities a listing endpoint would
+- * not disclose. Only a route the catalog does not describe — a gateway, a
++ * A route the installed pi-ai catalog ships is answered **from that catalog**
++ * unless the draft also names a `baseURL` whose protocol this build can list;
++ * that explicit endpoint override is probed live, then enriched from the
++ * catalog by id where the listing omits capacities. pi-ai's registry remains
++ * the authoritative offline answer for its own providers. Only a route the
++ * catalog does not describe — a gateway, a
+  * self-hosted server — is interrogated over the wire.
+  *
+  * Neither path is a catalog refresh. Nothing here is stored: the request

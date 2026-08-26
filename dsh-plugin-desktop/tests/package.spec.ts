@@ -256,6 +256,27 @@ describe('published package surface', () => {
     }
   })
 
+  it('patches pi-ai discovery so explicit built-in endpoint overrides can probe live /models', () => {
+    const patchPath = './patches/dsh-llm-pi-ai@0.1.1-rc.2.patch'
+    expect(workspaceManifest.resolutions).toMatchObject({
+      '@deepseek-ai/dsh-llm-pi-ai@npm:0.1.1-rc.2': expect.stringContaining(patchPath),
+      '@deepseek-ai/dsh-llm-pi-ai@npm:^0.1.1-rc.2': expect.stringContaining(patchPath),
+    })
+    const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
+    const installedProvider = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js',
+      packageRoot,
+    ), 'utf8')
+    for (const marker of [
+      'const catalogRows = catalog !== void 0 && catalog.size > 0 ? [...catalog.values()].map((model) => ({',
+      'const probeCatalogRoute = catalogRows !== void 0 && hasBaseURL && LISTABLE_PROTOCOLS.has(api);',
+      'if (catalog === void 0) return discovered;',
+    ]) {
+      expect(patch).toContain(marker)
+      expect(installedProvider).toContain(marker)
+    }
+  })
+
   it('localizes Trajectory toolbar labels in Simplified Chinese', () => {
     const patchPath = './patches/dsh-client-ui-trajectory@0.1.1-rc.2.patch'
     expect(workspaceManifest.resolutions).toMatchObject({
