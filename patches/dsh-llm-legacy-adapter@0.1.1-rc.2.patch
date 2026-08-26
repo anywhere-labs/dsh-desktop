@@ -1,0 +1,43 @@
+diff --git a/lib/index.js b/lib/index.js
+index 61e6d90e7da02099362ba0b74e8c4c80d095a4e5..c6265d99a081ca1043b0894afc05282631c55436 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1486,6 +1486,20 @@ var LlmRuntime = class extends Service {
+ 		};
+ 	}
+ 	/**
++	* Adapt the 0.1.1-rc.1 LlmAdapter contract to rc.2's prepared-call shape.
++	* rc.1 adapters expose resolveModel() and stream(), while rc.2's base class
++	* adds prepareCall() with exactly this default composition. Keep malformed
++	* adapters explicit instead of turning every missing method into a fallback.
++	*/
++	async prepareAdapterCall(adapter, provider, model, signal) {
++		if (typeof adapter.prepareCall === "function") return adapter.prepareCall(provider, model, signal);
++		if (typeof adapter.resolveModel !== "function" || typeof adapter.stream !== "function") throw new LlmError(`adapter for provider "${provider}" does not implement the rc.2 prepareCall contract or the rc.1 resolveModel/stream contract`, "INVALID_ADAPTER");
++		return {
++			model: await adapter.resolveModel(provider, model, signal),
++			stream: (options) => adapter.stream(options)
++		};
++	}
++	/**
+ 	* Resolve one call under its current adapter registration. The returned
+ 	* one-shot handle keeps that registration across header logging and dispatch,
+ 	* so HMR cannot combine one adapter's capability result with another adapter.
+@@ -1495,7 +1509,7 @@ var LlmRuntime = class extends Service {
+ 	*/
+ 	async prepareCall(config, signal) {
+ 		const registration = this.registration(config.provider);
+-		const adapterCall = await registration.adapter.prepareCall(config.provider, config.model, signal);
++		const adapterCall = await this.prepareAdapterCall(registration.adapter, config.provider, config.model, signal);
+ 		const modelInfo = this.normalizeModelInfo(registration, config.model, adapterCall.model);
+ 		const resolved = this.resolveCallWithInfo(config, modelInfo);
+ 		const resolvedConfig = deepFreeze(structuredClone(resolved.config));
+@@ -1565,7 +1579,7 @@ var LlmRuntime = class extends Service {
+ 			let resolvedConfig;
+ 			let dispatch;
+ 			if (prepared === void 0) {
+-				const adapterCall = await adapter.prepareCall(options.provider, options.model, options.signal);
++				const adapterCall = await this.prepareAdapterCall(adapter, options.provider, options.model, options.signal);
+ 				modelInfo = this.normalizeModelInfo(registration, options.model, adapterCall.model);
+ 				resolvedConfig = this.resolveCallWithInfo(options, modelInfo).config;
+ 				dispatch = (options) => adapterCall.stream(options);
