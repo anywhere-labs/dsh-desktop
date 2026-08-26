@@ -1,0 +1,55 @@
+diff --git a/lib/client.js b/lib/client.js
+index 8665c97c2c1db717f0b973653f5115e9d5f64417..6bf9dd99b1849f449115d4a90683e4b67aa81260 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -993,7 +993,8 @@ window.__ModuleLoader__.load({
+ 		*/
+ 		const WEB_SEARCH_NS = "web-search-deepseek";
+ 		/** Credential reference the provider resolves when the section names none. */
+-		const DEFAULT_API_KEY_REF = "DEEPSEEK_API_KEY";
++		const DEFAULT_API_KEY_REF = "DEEPSEEK_SEARCH_API_KEY";
++		const LEGACY_API_KEY_REF = "DEEPSEEK_API_KEY";
+ 		/** Form field the credential control stages under. */
+ 		const API_KEY_FIELD = "apiKey";
+ 		/** Bridges the `web-search-deepseek` scope and the credentials domain onto the card. */
+@@ -1054,12 +1055,14 @@ window.__ModuleLoader__.load({
+ 				}
+ 				let response;
+ 				try {
+-					response = await this.api.credentials.describe({ refs: [ref] });
++					response = await this.api.credentials.describe({ refs: refsOf(this.scope.getSnapshot()) });
+ 				} catch (_credentialReadFailure) {
+ 					return;
+ 				}
+ 				if (!response.result.ok || ref !== refOf(this.scope.getSnapshot())) return;
+-				const view = response.result.value.credentials[ref];
++				const primary = response.result.value.credentials[ref];
++				const legacy = legacyFallbackRef(ref) === void 0 ? void 0 : response.result.value.credentials[LEGACY_API_KEY_REF];
++				const view = primary?.configured === true ? primary : legacy;
+ 				const next = {
+ 					ref,
+ 					configured: view?.configured ?? false,
+@@ -1078,7 +1081,7 @@ window.__ModuleLoader__.load({
+ 			* @param ref - the reference the Host reports as changed.
+ 			*/
+ 			refreshCredential(ref) {
+-				if (ref !== this.credential.ref) return;
++				if (!refsOf(this.scope.getSnapshot()).includes(ref)) return;
+ 				this.readCredential();
+ 			}
+ 			/**
+@@ -1116,6 +1119,14 @@ window.__ModuleLoader__.load({
+ 			const declared = snapshot.value?.apiKeyEnv;
+ 			return declared !== void 0 && declared.length > 0 ? declared : DEFAULT_API_KEY_REF;
+ 		}
++		function refsOf(snapshot) {
++			const primary = refOf(snapshot);
++			const legacy = legacyFallbackRef(primary);
++			return legacy === void 0 ? [primary] : [primary, legacy];
++		}
++		function legacyFallbackRef(primary) {
++			return primary === DEFAULT_API_KEY_REF ? LEGACY_API_KEY_REF : void 0;
++		}
+ 		//#endregion
+ 		//#region lib/types/client/locales.js
+ 		/** Locale bundles for the plugin configuration section and its plugin cards. */
