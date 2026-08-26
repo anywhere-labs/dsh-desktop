@@ -339,4 +339,43 @@ describe('dshfind install target normalization', () => {
     expect(items[0]).not.toHaveProperty('package')
     expect(items[0]).not.toHaveProperty('latestVersion')
   })
+
+  it('forwards dshfind search terms to the reviewed market provider endpoint', async () => {
+    const appshot = {
+      id: 'TaurusWood/dsh-plugin-appshot',
+      name: 'dsh-plugin-appshot',
+      displayName: 'dsh-plugin-appshot',
+      summary: 'dsh-plugin-appshot',
+      repository: { url: 'https://github.com/TaurusWood/dsh-plugin-appshot' },
+      publisher: { name: 'TaurusWood', url: 'https://github.com/TaurusWood' },
+      categories: ['tools'],
+      package: { registry: 'npm', name: 'dsh-plugin-appshot' },
+      latestVersion: '0.3.3',
+    }
+    const getJson = vi.fn(async (url: string) => ({
+      value: {
+        schemaVersion: '1.0.0',
+        generatedAt: '2026-08-25T08:51:53Z',
+        revision: 'sha256:1b2c6f9ae0b2b86f8ad2363d58bdc7ac39764bc90b2ecc775edad8f1b452bd3d',
+        items: [appshot],
+        page: { total: 1 },
+      },
+      finalUrl: url,
+    }))
+    const http: CatalogHttpClient = { getJson }
+    const adapter = createDshfindAdapter()
+
+    const snapshot = await adapter.fetch(
+      { q: 'appshot', limit: 50 },
+      { source: source(), signal: new AbortController().signal, http, media: { register: vi.fn() as any } },
+    )
+
+    const requestedCall = getJson.mock.calls[0] as unknown as [string, ...unknown[]] | undefined
+    const requestedUrl = requestedCall?.[0]
+    expect(requestedUrl).toBeDefined()
+    expect(new URL(requestedUrl!).pathname).toBe('/market/v1/plugins')
+    expect(new URL(requestedUrl!).searchParams.get('q')).toBe('appshot')
+    expect(snapshot.items.map(item => item.id)).toEqual(['TaurusWood/dsh-plugin-appshot'])
+    expect(snapshot.page).toEqual({ total: 1 })
+  })
 })

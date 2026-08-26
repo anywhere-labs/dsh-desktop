@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import https from 'node:https'
 import { describe, expect, it, vi } from 'vitest'
 import { dsh1024StoreAdapter, DSH_1024STORE_ADAPTER_ID, DSH_1024STORE_KEY, DSH_1024STORE_PROVIDER_ID } from '../src/adapters/dsh-1024store.js'
-import { DSHFIND_ADAPTER_ID, DSHFIND_KEY, DSHFIND_PROVIDER_ID } from '../src/adapters/dshfind.js'
+import { dshfindAdapter, DSHFIND_ADAPTER_ID, DSHFIND_KEY, DSHFIND_PROVIDER_ID } from '../src/adapters/dshfind.js'
 import { standardHttpAdapter } from '../src/adapters/standard-http.js'
 import { DefaultCatalogService, type CatalogFullIndex } from '../src/catalog/service.js'
 import { MemoryCatalogSourceStore, SettingsCatalogSourceStore } from '../src/catalog/source-store.js'
@@ -1118,6 +1118,59 @@ describe('catalog active-source reads', () => {
 
       expect(response.statusCode).toBe(200)
       expect(fetch).toHaveBeenCalledOnce()
+      expect(response.body.results[0]?.snapshot?.items.map((item: { id: string }) => item.id))
+        .toEqual(['TaurusWood/dsh-plugin-appshot'])
+      expect(response.body.categories).toEqual([])
+      expect(response.body.metadata).toBeUndefined()
+    } finally {
+      fetch.mockRestore()
+      scanCatalog.mockRestore()
+    }
+  })
+
+  it('returns provider-backed dshfind search results without requiring a full local scan', async () => {
+    const dshfindSourceRecord: LocalSourceRecord = {
+      sourceRecordId: '018f1f77-a5c4-7b73-a9ae-0242ac120003',
+      registrationKind: 'built-in',
+      adapterId: DSHFIND_ADAPTER_ID,
+      providerId: DSHFIND_PROVIDER_ID,
+      builtInProviderKey: DSHFIND_KEY,
+      enabled: true,
+      order: 0,
+    }
+    const fetch = vi.spyOn(dshfindAdapter, 'fetch').mockResolvedValue({
+      schemaVersion: '1.0.0',
+      source: {
+        sourceRecordId: dshfindSourceRecord.sourceRecordId,
+        providerId: dshfindSourceRecord.providerId,
+        adapterId: dshfindSourceRecord.adapterId,
+        registrationKind: dshfindSourceRecord.registrationKind,
+        fetchedAt: '2026-08-25T08:51:53.000Z',
+        finalUrl: 'https://api.dshfind.com/market/v1/plugins?q=appshot',
+      },
+      items: [{
+        id: 'TaurusWood/dsh-plugin-appshot',
+        name: 'dsh-plugin-appshot',
+        displayName: 'dsh-plugin-appshot',
+        summary: 'dsh-plugin-appshot',
+        repository: { url: 'https://github.com/TaurusWood/dsh-plugin-appshot' },
+        provenance: {
+          sourceRecordId: dshfindSourceRecord.sourceRecordId,
+          providerId: dshfindSourceRecord.providerId,
+          itemId: 'TaurusWood/dsh-plugin-appshot',
+        },
+      }],
+      page: { total: 1 },
+    })
+    const scanCatalog = vi.spyOn(dshfindAdapter, 'scanCatalog')
+      .mockRejectedValue(new Error('dshfind scan should not be called for search'))
+
+    try {
+      const response = await requestMarketCatalog([dshfindSourceRecord], `${marketRoutes.catalog}?q=appshot`)
+
+      expect(response.statusCode).toBe(200)
+      expect(fetch).toHaveBeenCalledOnce()
+      expect(scanCatalog).not.toHaveBeenCalled()
       expect(response.body.results[0]?.snapshot?.items.map((item: { id: string }) => item.id))
         .toEqual(['TaurusWood/dsh-plugin-appshot'])
       expect(response.body.categories).toEqual([])

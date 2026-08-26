@@ -88,7 +88,8 @@ function catalogScanKey(sourceRecordId: string, locale: string | undefined): str
 }
 
 function prefersProviderSearch(source: LocalSourceRecord, query: CatalogQuery): boolean {
-  return source.adapterId === DSH_1024STORE_ADAPTER_ID && query.q !== undefined
+  return (source.adapterId === DSH_1024STORE_ADAPTER_ID || source.adapterId === DSHFIND_ADAPTER_ID)
+    && query.q !== undefined
 }
 
 function cachedScanView(entry: CatalogFullIndexCacheEntry, cacheStatus: 'fresh' | 'cached'): CatalogFullIndex {

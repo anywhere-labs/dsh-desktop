@@ -941,7 +941,10 @@ export function registerMarketRoutes(
             return
           }
         }
-        if (q !== undefined && selectedSource?.adapterId === DSH_1024STORE_ADAPTER_ID) {
+        if (
+          q !== undefined
+          && (selectedSource?.adapterId === DSH_1024STORE_ADAPTER_ID || selectedSource?.adapterId === DSHFIND_ADAPTER_ID)
+        ) {
           let results: readonly MarketCatalogSourceResult[]
           try {
             results = await service.fetch(query, signal, scope)
@@ -949,18 +952,8 @@ export function registerMarketRoutes(
             if (!signal.aborted && !res.destroyed) sendCatalogFailure(res, cause)
             return
           }
-          let index: CatalogFullIndex | undefined
-          try {
-            index = await service.scanCatalog(signal, {
-              force,
-              ...(locale === null || locale === '' ? {} : { locale }),
-              ...(scope === undefined ? {} : { expectedSourceRecordId: scope.sourceRecordId }),
-            })
-          } catch {
-            index = undefined
-          }
           signal.throwIfAborted()
-          const response = buildCatalogResponse(index, query, scope, results)
+          const response = buildCatalogResponse(undefined, query, scope, results)
           if (!signal.aborted && !res.destroyed) sendJson(res, 200, response)
           return
         }

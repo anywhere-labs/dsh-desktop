@@ -35,7 +35,7 @@ export function assertStandardSourceTrustRoot(
   return manifestUrl.origin
 }
 
-function snapshotFromPage(
+export function snapshotFromPage(
   page: CatalogProviderPage,
   context: Pick<CatalogFetchContext, 'source' | 'media'>,
   finalUrl: string,

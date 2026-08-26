@@ -2,10 +2,12 @@ import type { CatalogAdapter, CatalogFetchContext } from '../contracts/types.js'
 import type { CatalogQuery } from '../contracts/generated/catalog-query.js'
 import type { CatalogSnapshot } from '../contracts/generated/catalog-snapshot.js'
 import { normalizeRepositoryIdentity } from '../contracts/identity.js'
-import { parseCatalogSnapshot } from '../contracts/validate.js'
+import { parseCatalogProviderPage, parseCatalogSnapshot } from '../contracts/validate.js'
+import { snapshotFromPage } from './standard-http.js'
 
 export const DSHFIND_KEY = 'dshfind'
 export const DSHFIND_ENDPOINT = 'https://api.dshfind.com/v1/plugins'
+export const DSHFIND_MARKET_ENDPOINT = 'https://api.dshfind.com/market/v1/plugins'
 export const DSHFIND_HOSTNAME = 'api.dshfind.com'
 export const DSHFIND_PROVIDER_ID = 'com.dshfind.catalog'
 export const DSHFIND_ADAPTER_ID = 'market.dshfind-v1'
@@ -399,6 +401,24 @@ function querySnapshot(query: CatalogQuery, snapshots: readonly CatalogSnapshot[
   })
 }
 
+async function fetchMarketSearch(
+  query: CatalogQuery,
+  context: CatalogFetchContext,
+): Promise<CatalogSnapshot> {
+  const url = new URL(DSHFIND_MARKET_ENDPOINT)
+  if (query.q !== undefined) url.searchParams.set('q', query.q)
+  if (query.limit !== undefined) url.searchParams.set('limit', String(Math.min(query.limit, DSHFIND_PAGE_SIZE)))
+  const response = await context.http.getJson(
+    url.href,
+    context.signal,
+    { allowedOrigin: DSHFIND_ORIGIN },
+  )
+  const finalUrl = assertFinalOrigin(response.finalUrl)
+  const limit = Math.min(query.limit ?? 50, DSHFIND_PAGE_SIZE)
+  const page = parseCatalogProviderPage(response.value, limit)
+  return snapshotFromPage(page, context, finalUrl)
+}
+
 export function createDshfindAdapter(options: DshfindAdapterOptions = {}): CatalogAdapter {
   const interPageDelayMs = options.interPageDelayMs ?? DEFAULT_INTER_PAGE_DELAY_MS
   if (!Number.isSafeInteger(interPageDelayMs) || interPageDelayMs < 0) {
@@ -465,6 +485,9 @@ export function createDshfindAdapter(options: DshfindAdapterOptions = {}): Catal
   return {
     adapterId: DSHFIND_ADAPTER_ID,
     async fetch(query, context) {
+      if (query.q !== undefined) {
+        return await fetchMarketSearch(query, context)
+      }
       return querySnapshot(query, await scanCatalog(query, context))
     },
     scanCatalog,
