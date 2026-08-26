@@ -235,6 +235,29 @@ function runner(
   }
 }
 
+function runnerWithStderr(
+  profileDir: string,
+  stderr: Buffer,
+  outcome: { exitCode: number | null; signal: NodeJS.Signals | null } = { exitCode: 1, signal: null },
+): MarketDesktopPnpm {
+  return {
+    run(args) {
+      const done = (async () => {
+        if (outcome.exitCode === 0 && outcome.signal === null && args[0] === 'add') {
+          await writeInstalledPlugin(profileDir)
+        }
+        return outcome
+      })()
+      return {
+        stdout: Readable.from([]),
+        stderr: Readable.from([stderr]),
+        done,
+        cancel: vi.fn(),
+      }
+    },
+  }
+}
+
 describe('npm registry verification', () => {
   it('pins exact identity, repository, origin, and rejects lifecycle/deprecated metadata', async () => {
     const getJson = vi.fn<(...args: any[]) => Promise<{ finalUrl: string; value: unknown }>>(async () => ({
@@ -588,16 +611,7 @@ describe('market install service', () => {
       Buffer.from('cfb5cdb3d5d2b2bbb5bdd6b8b6a8b5c4c2b7beb6a1a3', 'hex'),
       Buffer.from(` dsh: pnpm failed in profile directory ${profileDir}`),
     ])
-    const pnpm = recoverableRunner(profileDir, {
-      runPlugin() {
-        return {
-          stdout: Readable.from([]),
-          stderr: Readable.from([stderr]),
-          done: Promise.resolve({ exitCode: 1, signal: null }),
-          cancel: vi.fn(),
-        }
-      },
-    })
+    const pnpm = runnerWithStderr(profileDir, stderr)
     const service = new MarketInstallService(
       settings.scope,
       () => ({ name: 'web', dir: profileDir }),
@@ -620,16 +634,7 @@ describe('market install service', () => {
   it('bounds package-manager stderr exposed through install failures', async () => {
     const profileDir = await createProfile()
     const settings = memoryScope()
-    const pnpm = recoverableRunner(profileDir, {
-      runPlugin() {
-        return {
-          stdout: Readable.from([]),
-          stderr: Readable.from([Buffer.from(`${'x'.repeat(20 * 1024)}tail-marker`)]),
-          done: Promise.resolve({ exitCode: 1, signal: null }),
-          cancel: vi.fn(),
-        }
-      },
-    })
+    const pnpm = runnerWithStderr(profileDir, Buffer.from(`${'x'.repeat(20 * 1024)}tail-marker`))
     const service = new MarketInstallService(
       settings.scope,
       () => ({ name: 'web', dir: profileDir }),
