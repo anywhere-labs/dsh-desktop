@@ -1,0 +1,13 @@
+diff --git a/lib/Menu.module.css b/lib/Menu.module.css
+--- a/lib/Menu.module.css
++++ b/lib/Menu.module.css
+@@ -66,3 +66,4 @@
+ .scrollable {
+   max-height: calc(100vh - 24px);
++  overflow: hidden;
+ }
+@@ -76,3 +77,4 @@
+ .scrollable .viewport {
++  flex: 1 1 auto;
+   overflow-y: auto;
+ }

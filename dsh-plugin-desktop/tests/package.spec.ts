@@ -258,6 +258,23 @@ describe('published package surface', () => {
     expect(installedClient).toContain('data-dsh-workspace-drop-target')
   })
 
+  it('keeps long preset menus scrollable inside the viewport', () => {
+    const patchPath = './patches/dsh-client-ui-primitives@0.1.1-rc.2.patch'
+    expect(workspaceManifest.resolutions).toMatchObject({
+      '@deepseek-ai/dsh-client-ui-primitives@npm:0.1.1-rc.2': expect.stringContaining(patchPath),
+      '@deepseek-ai/dsh-client-ui-primitives@npm:^0.1.1-rc.2': expect.stringContaining(patchPath),
+    })
+    const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
+    const installedStyles = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/Menu.module.css',
+      packageRoot,
+    ), 'utf8')
+    for (const styles of [patch, installedStyles]) {
+      expect(styles).toMatch(/\.scrollable\s*\{[^}]*overflow:\s*hidden;/su)
+      expect(styles).toMatch(/\.scrollable \.viewport\s*\{[^}]*flex:\s*1 1 auto;[^}]*overflow-y:\s*auto;/su)
+    }
+  })
+
   it('keeps API selection available after overriding a provider base URL', () => {
     const patchPath = './.yarn/patches/@deepseek-ai-dsh-client-ui-settings-models-npm-0.1.1-rc.2-5348824733.patch'
     expect(workspaceManifest.resolutions).toMatchObject({
