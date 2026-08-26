@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { lstat, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import { finished } from 'node:stream/promises'
 import type { Readable } from 'node:stream'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { prerelease, satisfies, valid } from 'semver'
@@ -23,11 +24,14 @@ const CANDIDATE_TTL_MS = 30 * 60 * 1000
 const MAX_INTENTS = 256
 const MAX_CANDIDATES = 10_000
 const MAX_RECEIPTS = 512
+const MAX_OPERATION_STDERR_BYTES = 16 * 1024
 const LIFECYCLE_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare'] as const
 const BLOCKED_PRODUCT_PACKAGES = new Set(['dsh-plugin-desktop', 'dsh-community-market'])
 const DSH_RUNTIME_VERSION = '0.1.1-rc.2'
 const CORDIS_RUNTIME_VERSION = '4.0.1'
 const NODE_RUNTIME_VERSION = '24.18.1'
+const UTF8_REPLACEMENT = '\uFFFD'
+const HAN_SCRIPT = /\p{Script=Han}/u
 
 export type { MarketInstallReceipt } from '../api-types.js'
 
@@ -179,6 +183,30 @@ function candidateKey(sourceRecordId: string, itemId: string): string {
 
 function opaqueToken(): string {
   return randomBytes(32).toString('base64url')
+}
+
+function appendStderrChunk(chunks: Buffer[], chunk: string | Buffer, total: number): number {
+  if (total >= MAX_OPERATION_STDERR_BYTES) return total
+  const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+  const next = bytes.subarray(0, Math.max(0, MAX_OPERATION_STDERR_BYTES - total))
+  if (next.byteLength === 0) return total
+  chunks.push(next)
+  return total + next.byteLength
+}
+
+function decodedOperationStderr(chunks: readonly Buffer[]): string | undefined {
+  if (chunks.length === 0) return undefined
+  const bytes = Buffer.concat(chunks)
+  const utf8 = bytes.toString('utf8').replaceAll('\0', '').trim()
+  if (utf8.length === 0) return undefined
+  if (!utf8.includes(UTF8_REPLACEMENT)) return utf8
+  try {
+    const fallback = new TextDecoder('gb18030').decode(bytes).replaceAll('\0', '').trim()
+    if (fallback.length > 0 && !fallback.includes(UTF8_REPLACEMENT) && HAN_SCRIPT.test(fallback)) {
+      return fallback
+    }
+  } catch {}
+  return utf8
 }
 
 function own(object: object, key: PropertyKey): boolean {
@@ -1132,20 +1160,43 @@ export class MarketInstallService {
     let handle: MarketDesktopPnpmHandle
     try { handle = this.pnpm.run(args, combinedSignal) }
     catch { throw new MarketInstallError('operation-failed', 'The desktop package manager could not start.') }
+    const stderrChunks: Buffer[] = []
+    let stderrBytes = 0
+    const acceptStderr = (chunk: string | Buffer) => { stderrBytes = appendStderrChunk(stderrChunks, chunk, stderrBytes) }
     handle.stdout.resume()
+    handle.stderr.on('data', acceptStderr)
+    const stderrDone = finished(handle.stderr).catch(() => {})
     handle.stderr.resume()
     const cancel = () => handle.cancel()
     combinedSignal.addEventListener('abort', cancel, { once: true })
-    let outcome: MarketDesktopPnpmOutcome
-    try { outcome = await handle.done }
-    catch {
+    try {
+      let outcome: MarketDesktopPnpmOutcome
+      try { outcome = await handle.done }
+      catch {
+        await stderrDone
+        combinedSignal.throwIfAborted()
+        const detail = decodedOperationStderr(stderrChunks)
+        throw new MarketInstallError(
+          'operation-failed',
+          detail === undefined
+            ? 'The desktop package manager failed.'
+            : `The desktop package manager failed: ${detail}`,
+        )
+      }
+      await stderrDone
       combinedSignal.throwIfAborted()
-      throw new MarketInstallError('operation-failed', 'The desktop package manager failed.')
-    }
-    finally { combinedSignal.removeEventListener('abort', cancel) }
-    combinedSignal.throwIfAborted()
-    if (outcome.exitCode !== 0 || outcome.signal !== null) {
-      throw new MarketInstallError('operation-failed', 'The desktop package manager did not complete successfully.')
+      if (outcome.exitCode !== 0 || outcome.signal !== null) {
+        const detail = decodedOperationStderr(stderrChunks)
+        throw new MarketInstallError(
+          'operation-failed',
+          detail === undefined
+            ? 'The desktop package manager did not complete successfully.'
+            : `The desktop package manager did not complete successfully: ${detail}`,
+        )
+      }
+    } finally {
+      combinedSignal.removeEventListener('abort', cancel)
+      handle.stderr.off('data', acceptStderr)
     }
   }
 
