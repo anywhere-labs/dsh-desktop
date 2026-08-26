@@ -308,7 +308,6 @@ describe('desktop lifecycle events', () => {
       'shell-environment',
       'runtime-bootstrap',
       'profile-selection',
-      'install-recovery',
       'profile-composition',
       'host-boot',
       'renderer-startup',

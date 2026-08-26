@@ -1,0 +1,49 @@
+diff --git a/lib/index.js b/lib/index.js
+index 17e11c9df8..597c77594b 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -114,6 +114,24 @@ var RuntimeContextProjection = class {
+ * @param signal - abort signal shared by the step.
+ * @param acceptContext - accepts committed result context for the next step boundary.
+ */
++const EMPTY_TOOL_NAME_ERROR = "assistant emitted a tool call with an empty tool name";
++const EMPTY_TOOL_NAME_RESULT = "Error: assistant emitted a tool call with an empty tool name. This usually means an upstream proxy or cached long session dropped tool_call.name/id. Start a new session or use the official DeepSeek API directly.";
++function hasEmptyToolCallName(block) {
++	return typeof block.name === "string" && block.name.trim() === "";
++}
++function appendEmptyToolCallFailure(session, turn, step, block) {
++	const callSeq = appendToolCall(session, turn, step, block);
++	appendToolResult(session, turn, step, block, {
++		content: [{
++			type: "text",
++			text: EMPTY_TOOL_NAME_RESULT
++		}],
++		isError: true,
++		error: {
++			message: EMPTY_TOOL_NAME_ERROR
++		}
++	}, callSeq);
++}
+ async function executeToolCalls(ctx, turn, step, toolCalls, signal, acceptContext) {
+ 	const agent = ctx.agents.requireInitiator();
+ 	const { session } = agent;
+@@ -131,8 +149,18 @@ async function executeToolCalls(ctx, turn, step, toolCalls, signal, acceptContex
+ 	let concluded = false;
+ 	while (next < planned.length) {
+ 		const first = planned[next];
++		if (hasEmptyToolCallName(first.block)) {
++			appendEmptyToolCallFailure(session, turn, step, first.block);
++			return { concluded: true };
++		}
+ 		const mode = ctx.tools.executionMode(first.exec).kind;
+-		const outcome = await runGroup(ctx, turn, step, mode === "parallel" ? planned.slice(next) : [first], mode, signal, acceptContext);
++		const group = [first];
++		if (mode === "parallel") while (next + group.length < planned.length) {
++			const candidate = planned[next + group.length];
++			if (hasEmptyToolCallName(candidate.block)) break;
++			group.push(candidate);
++		}
++		const outcome = await runGroup(ctx, turn, step, group, mode, signal, acceptContext);
+ 		next += outcome.consumed;
+ 		concluded ||= outcome.concluded;
+ 		if (outcome.aborted) {

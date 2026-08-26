@@ -59,11 +59,11 @@ describe('desktop profiles Host plugin', () => {
       { label: 'desktop', checked: true, enabled: true },
       { label: '工作 profile', checked: false, enabled: true },
       { label: 'headless (Unavailable for Desktop)', checked: false, enabled: false },
-      { label: 'Add Profile…', checked: undefined, enabled: undefined },
+      { label: 'New Profile…', checked: undefined, enabled: undefined },
     ])
 
     locale = 'zh'
-    expect(trayItem?.label()).toBe('配置文件：desktop')
+    expect(trayItem?.label()).toBe('Profile：desktop')
     expect(trayItem?.submenu?.()[2]?.label()).toBe('headless（不可用于桌面端）')
 
     await commands[1]?.invoke()

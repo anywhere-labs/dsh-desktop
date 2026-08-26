@@ -205,13 +205,14 @@ describe('packaged desktop runtime verification', () => {
 
   it.each([
     'lib/client.js',
+    'lib/native-ui/setup-wizard.html',
     'lib/desktop-runtime-environment.js',
     'lib/profile-service.js',
     'lib/diagnostics.js',
     'lib/diagnostic-export-worker.js',
     'lib/pnpm.js',
     'lib/update-download.js',
-    'lib/windows-agent-presets.js',
+    'node_modules/open/index.js',
   ])('fails loud when required runtime entry %s is absent', (missing) => {
     const entries = completeArchiveEntries().filter(entry => entry !== `/${missing}`)
 
@@ -223,12 +224,15 @@ describe('packaged desktop runtime verification', () => {
     'package.json',
     'build/app-icon-mac.png',
     'build/tray-iconTemplate.png',
+    'lib/native-ui/setup-wizard.html',
     'lib/terminal.js',
     'lib/diagnostics.js',
     'lib/diagnostic-export-worker.js',
     'lib/update-download.js',
-    'lib/windows-agent-presets.js',
     'node_modules/@deepseek-ai/dsh/lib/bin.js',
+    'node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js',
+    'node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js',
+    'node_modules/open/index.js',
     'node_modules/pnpm/bin/pnpm.mjs',
     'node_modules/node-pty/prebuilds/win32-x64/conpty.node',
   ])('fails loud when physical runtime entry %s is absent from app.asar.unpacked', (missing) => {

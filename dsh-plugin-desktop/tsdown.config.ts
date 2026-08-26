@@ -27,7 +27,7 @@ export default defineConfig([
       'update-checker': 'src/update-checker.ts',
       'update-download': 'src/update-download.ts',
       updates: 'src/updates.ts',
-      'windows-agent-presets': 'src/windows-agent-presets.ts',
+      'windows-subprocess': 'src/windows-subprocess.ts',
       'windows-pwsh-sandbox': 'src/windows-pwsh-sandbox.ts',
       'windows-acl-runner': 'src/windows-acl-runner.ts',
       main: 'src/main.ts',
@@ -64,6 +64,9 @@ export default defineConfig([
     format: 'cjs',
     platform: 'browser',
     target: 'es2022',
+    define: {
+      'process.env.NODE_ENV': JSON.stringify('production'),
+    },
     fixedExtension: false,
     dts: false,
     clean: false,

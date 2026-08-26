@@ -42,6 +42,24 @@ See the [user guide](docs/user-guide.en.md) and [FAQ](docs/faq.en.md) for plugin
 
 Together with every plugin author, we want to build an open, composable, and sustainable DSH plugin ecosystem where plugins grow alongside each other. Read the [DSH plugin ecosystem manifesto](docs/plugin-ecosystem.en.md).
 
+<details open>
+<summary>❤️ Sponsors</summary>
+
+| Logo | Introduction |
+| --- | --- |
+| <a href="https://astraflow.ucloud.cn/modelverse/playground?ytag=geo_waituo_dsh"><img src="assets/sponsors/astraflow-logo.png" alt="UCloud AstraFlow" width="96"></a> | Thanks to UCloud AstraFlow for sponsoring this project. UCloud AstraFlow ModelVerse supports one-click access to 200+ models, including Kimi K3, DeepSeek V4/V3, Qwen 3, GLM5.2, happyhorse, and other leading open-source models worldwide, with no self-training required. [Website](https://astraflow.ucloud.cn/modelverse/playground?ytag=geo_waituo_dsh) |
+
+<details>
+<summary>More Sponsors</summary>
+
+| Logo | Introduction |
+| --- | --- |
+| <a href="https://88api.ai/sign-up?aff=VnEb"><img src="assets/sponsors/88api-logo.png" alt="88API" width="120"></a> | 88API is a one-stop multi-model API aggregation platform operated by an overseas company, with stable, efficient service and invoice support. It provides official-transfer and open-source DeepSeek channels, with pricing as low as 50% off, and is designed to work well with DSH Desktop. One API key can connect to many domestic and overseas models across text chat, image, audio, music, and video generation APIs for AI coding, agent automation, content creation, and application development. Register here to try a convenient unified AI model calling service. [Website](https://88api.ai/sign-up?aff=VnEb) |
+
+</details>
+
+</details>
+
 ## Documentation
 
 Ordinary users can start with the [user guide](docs/user-guide.en.md); the developer documentation is only needed when extending or maintaining the application.
@@ -52,6 +70,7 @@ Ordinary users can start with the [user guide](docs/user-guide.en.md); the devel
 | --- | --- |
 | Install and use the application | [User guide](docs/user-guide.en.md) |
 | Check platforms, prerequisites, and product boundaries | [FAQ](docs/faq.en.md) |
+| Understand data processing and privacy choices | [Privacy Policy](PRIVACY.md) |
 | Understand why the project exists | [Why DSH Desktop](docs/why-desktop.en.md) |
 | See the full documentation and README map | [Documentation index](docs/README.en.md) |
 
@@ -92,6 +111,16 @@ Ordinary users can start with the [user guide](docs/user-guide.en.md); the devel
     </td>
   </tr>
 </table>
+
+### First-run setup, browser access, and LAN exposure
+
+On the normal first launch of each uninitialized profile, Desktop shows its native Setup Wizard first. It can configure the window mode and system material, plugin marketplace, notifications, whether to open the system default browser automatically, and the Web access scope; it can also be skipped. The Host and main DSH window do not start until the wizard is completed or skipped. Completion or skip state is recorded separately for each profile; an explicit recovery launch still enters Recovery Assistant first.
+
+The Web service listens on the local loopback interface by default. When **Open in browser** is enabled, Desktop hands the page to the system default browser after the Web service is actually ready; this preference does not change the listener exposure. **Desktop settings** shows the actual local URL below the control. LAN access is a separate opt-in setting and exposes the currently available LAN URLs when enabled.
+
+> **Danger:** LAN exposure has no authentication. Anyone on the same local network can open DSH and directly operate your computer. Enable it only on a fully trusted network and with great care.
+
+The automatic updater's fixed version-check request sends a locally generated, persistently stored random UUID in the `X-DSH-Desktop-Installation-Id` header; the value is not derived from hardware information. Package download requests and their download redirects do not receive this header.
 
 ## Plugin Ecosystem
 
@@ -172,9 +201,6 @@ If you would like to join our technical team, contact us at [t4wefan@qq.com](mai
 
 Ecosystem projects and developer tools around DeepSeek Harness.
 
-<details>
-<summary>Show related links</summary>
-
 | Project | About | Link |
 | --- | --- | --- |
 | dshfind | The learning & sharing community for DeepSeek Harness (DSH). | [GitHub](https://github.com/hikariming/dshfind) · [Website](https://dshfind.com) |
@@ -195,8 +221,6 @@ Ecosystem projects and developer tools around DeepSeek Harness.
 | MkSaaS · TanStarter | Commercial SaaS starter templates for indie developers. MkSaaS is built on Next.js; TanStarter on TanStack Start and Cloudflare, with AI, auth, payments, and admin baked in. | [MkSaaS](https://mksaas.com) · [TanStarter](https://tanstarter.dev) |
 
 <sub>To list your project, join the WeChat group and message @王博升Benson, or contact t4wefan@qq.com, or <a href="https://github.com/anywhere-labs/deepseek-harness-desktop/issues">open an issue</a>.</sub>
-
-</details>
 
 ## License
 

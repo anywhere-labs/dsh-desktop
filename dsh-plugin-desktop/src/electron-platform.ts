@@ -2,6 +2,7 @@ import { app, Menu } from 'electron'
 import type { BrowserWindow, MenuItemConstructorOptions, NativeImage } from 'electron'
 import { macApplicationMenuTemplate, nativeMenuLocale } from './native-menu.ts'
 import type { DesktopPlatform } from './runtime.ts'
+import type { DesktopWindowMaterial } from './window-material.ts'
 import type { DesktopDownloadPlatform } from './update-download.ts'
 
 /** Native presentation and capability differences selected once at startup. */
@@ -17,7 +18,7 @@ export interface ElectronPlatformStrategy {
   ): void
   refreshApplicationMenu(applicationMenuItems: readonly MenuItemConstructorOptions[]): void
   configureWindow(window: BrowserWindow): void
-  refreshThemeMaterial(window: BrowserWindow): void
+  refreshThemeMaterial(window: BrowserWindow, material: DesktopWindowMaterial): void
 }
 
 class WindowsPlatformStrategy implements ElectronPlatformStrategy {
@@ -38,8 +39,8 @@ class WindowsPlatformStrategy implements ElectronPlatformStrategy {
     window.removeMenu()
   }
 
-  refreshThemeMaterial(window: BrowserWindow): void {
-    window.setBackgroundMaterial('mica')
+  refreshThemeMaterial(window: BrowserWindow, material: DesktopWindowMaterial): void {
+    if (material === 'mica' || material === 'acrylic') window.setBackgroundMaterial(material)
   }
 }
 
@@ -74,7 +75,7 @@ class MacPlatformStrategy implements ElectronPlatformStrategy {
 
   configureWindow(_window: BrowserWindow): void {}
 
-  refreshThemeMaterial(_window: BrowserWindow): void {}
+  refreshThemeMaterial(_window: BrowserWindow, _material: DesktopWindowMaterial): void {}
 }
 
 class LinuxPlatformStrategy implements ElectronPlatformStrategy {
@@ -93,7 +94,7 @@ class LinuxPlatformStrategy implements ElectronPlatformStrategy {
 
   configureWindow(_window: BrowserWindow): void {}
 
-  refreshThemeMaterial(_window: BrowserWindow): void {}
+  refreshThemeMaterial(_window: BrowserWindow, _material: DesktopWindowMaterial): void {}
 }
 
 /** Select the only platform adapter used by one Electron runtime generation. */

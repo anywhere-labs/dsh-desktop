@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:dsh-community-market:schema:catalog-provider-page:1.0.0",
   "title": "DSH Community Market standard provider page",
-  "description": "The untrusted page JSON returned by one standard HTTPS catalog endpoint. Only schemaVersion, items, and page are required. A page may contain at most 100 items and must also respect the effective requested or declared default limit. Host-observed provenance is intentionally absent and is injected only after validation.",
+  "description": "The untrusted page JSON returned by one standard HTTPS catalog endpoint. Only schemaVersion, items, and page are required. A page may contain at most 200 items and must also respect the effective requested or declared default limit. Host-observed provenance is intentionally absent and is injected only after validation.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -25,7 +25,7 @@
     },
     "items": {
       "type": "array",
-      "maxItems": 100,
+      "maxItems": 200,
       "items": {
         "$ref": "#/$defs/item"
       }
@@ -123,6 +123,23 @@
           "minLength": 1,
           "maxLength": 240,
           "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+$"
+        }
+      }
+    },
+    "installSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "commit"
+      ],
+      "properties": {
+        "kind": {
+          "const": "github"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
         }
       }
     },
@@ -312,6 +329,9 @@
         },
         "repository": {
           "$ref": "#/$defs/repository"
+        },
+        "installSource": {
+          "$ref": "#/$defs/installSource"
         },
         "package": {
           "$ref": "#/$defs/package"

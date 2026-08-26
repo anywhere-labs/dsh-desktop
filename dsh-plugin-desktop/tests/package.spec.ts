@@ -86,10 +86,11 @@ describe('published package surface', () => {
       types: './lib/types/windows-pwsh-sandbox.d.ts',
       default: './lib/windows-pwsh-sandbox.js',
     })
-    expect(manifest.exports).toHaveProperty('./windows-agent-presets', {
-      types: './lib/types/windows-agent-presets.d.ts',
-      default: './lib/windows-agent-presets.js',
+    expect(manifest.exports).toHaveProperty('./windows-subprocess', {
+      types: './lib/types/windows-subprocess.d.ts',
+      default: './lib/windows-subprocess.js',
     })
+    expect(manifest.exports).not.toHaveProperty('./windows-agent-presets')
     expect(manifest.exports).toHaveProperty('./terminal', {
       types: './lib/types/terminal.d.ts',
       default: './lib/terminal.js',
@@ -172,6 +173,28 @@ describe('published package surface', () => {
     expect(installedBoot).toContain(marker)
   })
 
+  it('patches the agent loop to stop after one empty-name tool call', () => {
+    const patchPath = './patches/dsh-agent-loop@0.1.1-rc.2.patch'
+    expect(workspaceManifest.resolutions).toMatchObject({
+      '@deepseek-ai/dsh-agent-loop@npm:0.1.1-rc.2': expect.stringContaining(patchPath),
+      '@deepseek-ai/dsh-agent-loop@npm:^0.1.1-rc.2': expect.stringContaining(patchPath),
+    })
+    const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
+    const installedLoop = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-agent-loop/lib/index.js',
+      packageRoot,
+    ), 'utf8')
+    for (const marker of [
+      'const EMPTY_TOOL_NAME_ERROR = "assistant emitted a tool call with an empty tool name";',
+      'const EMPTY_TOOL_NAME_RESULT = "Error: assistant emitted a tool call with an empty tool name.',
+      'appendEmptyToolCallFailure(session, turn, step, first.block);',
+      'if (hasEmptyToolCallName(candidate.block)) break;',
+    ]) {
+      expect(patch).toContain(marker)
+      expect(installedLoop).toContain(marker)
+    }
+  })
+
   it('patches the browse panel with the Windows native-picker icon bridge', () => {
     const patchPath = './patches/dsh-client-ui-directory-picker-browse@0.1.1-rc.2.patch'
     expect(workspaceManifest.resolutions).toMatchObject({
@@ -236,7 +259,7 @@ describe('published package surface', () => {
   })
 
   it('keeps API selection available after overriding a provider base URL', () => {
-    const patchPath = './patches/dsh-client-ui-settings-models@0.1.1-rc.2.patch'
+    const patchPath = './.yarn/patches/@deepseek-ai-dsh-client-ui-settings-models-npm-0.1.1-rc.2-5348824733.patch'
     expect(workspaceManifest.resolutions).toMatchObject({
       '@deepseek-ai/dsh-client-ui-settings-models@npm:0.1.1-rc.2': expect.stringContaining(patchPath),
       '@deepseek-ai/dsh-client-ui-settings-models@npm:^0.1.1-rc.2': expect.stringContaining(patchPath),
@@ -254,6 +277,103 @@ describe('published package surface', () => {
       expect(patch).toContain(marker)
       expect(installedClient).toContain(marker)
     }
+  })
+
+  it('adds bilingual search copy to the fetched-model picker', () => {
+    const patch = readFileSync(new URL(
+      '../patches/dsh-client-ui-settings-models@0.1.1-rc.2.patch',
+      packageRoot,
+    ), 'utf8')
+    const installedClient = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-client-ui-settings-models/lib/client.js',
+      packageRoot,
+    ), 'utf8')
+    for (const marker of [
+      'fetchSearch: "Search models"',
+      'fetchSearchPlaceholder: "Search by model ID or name"',
+      'fetchNoMatches: "No models match the current search."',
+      'fetchSearch: "搜索模型"',
+      'fetchSearchPlaceholder: "按模型 ID 或名称搜索"',
+      'fetchNoMatches: "当前搜索没有匹配的模型。"',
+    ]) {
+      expect(patch).toContain(marker)
+      expect(installedClient).toContain(marker)
+    }
+  })
+
+  it('filters fetched-model candidates before rendering and bulk selection', () => {
+    const patch = readFileSync(new URL(
+      '../patches/dsh-client-ui-settings-models@0.1.1-rc.2.patch',
+      packageRoot,
+    ), 'utf8')
+    const installedClient = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-client-ui-settings-models/lib/client.js',
+      packageRoot,
+    ), 'utf8')
+    for (const marker of [
+      'const [candidateQuery, setCandidateQuery] = (0, react.useState)("")',
+      'const normalizedCandidateQuery = candidateQuery.trim().toLowerCase();',
+      'const filteredCandidates = normalizedCandidateQuery.length === 0 ? activeCandidates : activeCandidates.filter((candidate) => {',
+      'const haystacks = [candidate.id, candidate.name].filter((value) => typeof value === "string");',
+      'filteredCandidates.length === 0 ? (0, react_jsx_runtime.jsx)("p", {',
+      'children: t("fetchNoMatches")',
+      'children: filteredCandidates.map((candidate) => (0, react_jsx_runtime.jsx)("li", {',
+    ]) {
+      expect(patch).toContain(marker)
+      expect(installedClient).toContain(marker)
+    }
+  })
+
+  it('preserves picked models outside the active filter when bulk-clearing matches', () => {
+    const patch = readFileSync(new URL(
+      '../patches/dsh-client-ui-settings-models@0.1.1-rc.2.patch',
+      packageRoot,
+    ), 'utf8')
+    const installedClient = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-client-ui-settings-models/lib/client.js',
+      packageRoot,
+    ), 'utf8')
+    for (const marker of [
+      'const allFilteredCandidatesPicked = filteredCandidates.length > 0 && filteredCandidates.every((candidate) => picked.has(candidate.id));',
+      'for (const candidate of filteredCandidates) next.delete(candidate.id);',
+      'for (const candidate of filteredCandidates) next.add(candidate.id);',
+      'disabled: filteredCandidates.length === 0',
+      'children: t(allFilteredCandidatesPicked ? "fetchDeselectAll" : "fetchSelectAll")',
+    ]) {
+      expect(patch).toContain(marker)
+      expect(installedClient).toContain(marker)
+    }
+  })
+
+  it('preserves model input modalities in the Host session catalog', () => {
+    const patchPath = './patches/dsh-host-apiproxy-model-modalities@0.1.1-rc.2.patch'
+    expect(workspaceManifest.resolutions).toMatchObject({
+      '@deepseek-ai/dsh-host-apiproxy@npm:0.1.1-rc.2': expect.stringContaining(patchPath),
+      '@deepseek-ai/dsh-host-apiproxy@npm:^0.1.1-rc.2': expect.stringContaining(patchPath),
+    })
+    const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
+    const installedRoot = new URL(
+      'node_modules/@deepseek-ai/dsh-host-apiproxy/',
+      packageRoot,
+    )
+    const installedRuntime = readFileSync(new URL('lib/index.js', installedRoot), 'utf8')
+    const installedSchema = readFileSync(
+      new URL('lib/types/api/sessions.schema.js', installedRoot),
+      'utf8',
+    )
+    const installedTypes = readFileSync(
+      new URL('lib/types/api/sessions.d.ts', installedRoot),
+      'utf8',
+    )
+    const schemaMarker = 'inputModalities: z.array(z.enum([\'text\', \'image\'])).optional()'
+    const projectionMarker = '{ inputModalities: [...model.inputModalities] }'
+
+    expect(patch).toContain(schemaMarker)
+    expect(patch).toContain(projectionMarker)
+    expect(installedRuntime).toContain('inputModalities: z$1.array(z$1.enum(["text", "image"])).optional()')
+    expect(installedRuntime).toContain(projectionMarker)
+    expect(installedSchema).toContain(schemaMarker)
+    expect(installedTypes).toContain("inputModalities?: readonly ('text' | 'image')[];")
   })
 
   it('localizes Trajectory toolbar labels in Simplified Chinese', () => {
@@ -286,17 +406,24 @@ describe('published package surface', () => {
     }
   })
 
-  it('keeps Desktop boot from opening an external browser and uses Electron Node mode for explicit helpers', () => {
+  it('keeps Desktop boot from opening an external browser and hides explicit Windows helpers', () => {
     const patchPath = './patches/dsh-web-app@0.1.1-rc.2.patch'
+    const openPatchPath = './patches/open@11.0.1.patch'
+    const openPatchResolution = `patch:open@npm%3A11.0.1#${openPatchPath}`
     expect(workspaceManifest.resolutions).toMatchObject({
       '@deepseek-ai/dsh-web-app@npm:0.1.1-rc.2': expect.stringContaining(patchPath),
       '@deepseek-ai/dsh-web-app@npm:^0.1.1-rc.2': expect.stringContaining(patchPath),
+      'open@npm:11.0.1': openPatchResolution,
+      'open@npm:^11.0.0': openPatchResolution,
     })
     const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
+    const openPatch = readFileSync(new URL(openPatchPath, workspaceRoot), 'utf8')
+    const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
     const installedWebApp = readFileSync(new URL(
       'node_modules/@deepseek-ai/dsh-web-app/lib/index.js',
       packageRoot,
     ), 'utf8')
+    const installedOpen = readFileSync(new URL('node_modules/open/index.js', packageRoot), 'utf8')
     const installedWebPatch = readFileSync(new URL(
       'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml',
       packageRoot,
@@ -309,6 +436,15 @@ describe('published package surface', () => {
       expect(patch).toContain(marker)
       expect(installedWebApp).toContain(marker)
     }
+    expect(patch).toContain('+\t\twindowsHide: true,')
+    expect(installedWebApp).toMatch(
+      /function spawnBrowserLauncher\(url\) \{\s+return spawn\(process\.execPath, \[[\s\S]*?\], \{\s+windowsHide: true,\s+env:/u,
+    )
+    expect(lockfile).toContain('open@patch:open@npm%3A11.0.1#./patches/open@11.0.1.patch')
+    expect(openPatch).toContain('+\t\t\tchildProcessOptions.windowsHide = true;')
+    expect(installedOpen).toMatch(
+      /if \(!isWsl\) \{\s+childProcessOptions\.windowsVerbatimArguments = true;\s+childProcessOptions\.windowsHide = true;\s+\}/u,
+    )
     expect(patch).toContain('openBrowser: false')
     expect(installedWebPatch).toContain('openBrowser: false')
     expect(installedWebPatch).not.toContain('openBrowser: !!js ctx.webStartup.openBrowser')
@@ -361,7 +497,8 @@ describe('published package surface', () => {
     const config = readFileSync(new URL('tsdown.config.ts', packageRoot), 'utf8')
 
     expect(config).toContain("'windows-pwsh-sandbox': 'src/windows-pwsh-sandbox.ts'")
-    expect(config).toContain("'windows-agent-presets': 'src/windows-agent-presets.ts'")
+    expect(config).toContain("'windows-subprocess': 'src/windows-subprocess.ts'")
+    expect(config).not.toContain("'windows-agent-presets': 'src/windows-agent-presets.ts'")
     expect(config).toContain("'windows-acl-runner': 'src/windows-acl-runner.ts'")
     expect(config).toContain("'desktop-cli': 'src/desktop-cli.ts'")
     expect(config).toContain("'desktop-runtime-environment': 'src/desktop-runtime-environment.ts'")
@@ -380,6 +517,14 @@ describe('published package surface', () => {
     expect(config).toContain("updates: 'src/updates.ts'")
   })
 
+  it('builds the browser client without Node process globals', () => {
+    const config = readFileSync(new URL('tsdown.config.ts', packageRoot), 'utf8')
+    const client = readFileSync(new URL('lib/client.js', packageRoot), 'utf8')
+
+    expect(config).toContain("'process.env.NODE_ENV': JSON.stringify('production')")
+    expect(client).not.toMatch(/\bprocess(?:\.|\[)/u)
+  })
+
   it('installs Host command PATHs after the launch snapshot and before profile boot', () => {
     const main = readFileSync(new URL('src/main.ts', packageRoot), 'utf8')
     const recover = main.indexOf('await resolveDesktopShellEnvironment')
@@ -390,8 +535,8 @@ describe('published package surface', () => {
     const installDsh = main.indexOf('const dshRuntime = process.platform === \'win32\'')
     const ownPnpm = main.indexOf('const releasePnpmRuntime = generation.own(')
     const ownDsh = main.indexOf('const releaseDshRuntime = generation.own(')
-    const materialize = main.indexOf('await materializeProfile({')
-    const reprepare = main.indexOf('prepared = prepareDesktopProfile(', prepare + 'let prepared'.length)
+    const materialize = main.indexOf('await materializeProfile({', prepare)
+    const reprepare = main.indexOf('prepared = prepareDesktopProfile(', materialize)
     const pnpmBootstrap = main.indexOf('const desktopPnpmBootstrap: DesktopPnpmBootstrap = {')
     const boot = main.indexOf('const ctx = await boot')
 
@@ -410,12 +555,23 @@ describe('published package surface', () => {
     expect(boot).toBeGreaterThan(installDsh)
     expect(main).toContain("'dsh-plugin-desktop: packaged pnpm runtime PATH'")
     expect(main).toContain("'dsh-plugin-desktop: packaged dsh runtime PATH'")
-    expect(main).toContain("args: ['--host', '127.0.0.1', '--port', String(prepared.port)]")
+    expect(main).toContain('pnpmBinDir: pnpmRuntime.pathDir')
+    expect(main).not.toContain("'--host'")
+    expect(readFileSync(new URL('src/profile.ts', packageRoot), 'utf8'))
+      .toContain('const webserverConfig = { host: desktopWebServerHost(networkExposure), port }')
     expect(main).not.toContain("'--port', '0'")
     expect(main).toContain("import { DesktopStartupGeneration } from './startup-generation.ts'")
     expect(main).toContain('async () => { await generation.release() }')
     expect(main).not.toContain('disposePnpmRuntime')
     expect(main).not.toContain('disposeDshRuntime')
+  })
+
+  it('keeps the release-age override in the shared process-local pnpm policy', () => {
+    const policy = readFileSync(new URL('src/pnpm-policy.ts', packageRoot), 'utf8')
+    const main = readFileSync(new URL('src/main.ts', packageRoot), 'utf8')
+
+    expect(policy).toContain("'--config.minimumReleaseAge=0'")
+    expect(main).not.toContain('allowYoungLockedDependencies')
   })
 
   it('injects profile creation into the generation-scoped Host service without selecting it', () => {
@@ -454,39 +610,63 @@ describe('published package surface', () => {
     expect(ready).toBeGreaterThan(markClean)
   })
 
-  it('claims plugin install recovery before profile composition and gates health in Electron main', () => {
+  it('creates unified Profile checkpoints before composition and records only after health', () => {
     const main = readFileSync(new URL('src/main.ts', packageRoot), 'utf8')
-    const fixedStatePath = main.indexOf("desktopInstallRecoveryStatePath(app.getPath('userData'))")
-    const beginProfile = main.indexOf('profileStartup = beginDesktopProfileStartup(')
-    const stateCommit = main.indexOf('const stateCommit = new DesktopStartupStateCommit({')
-    const claim = main.indexOf('const recoveryClaim = await installRecovery.claim()')
-    const observeClaim = main.indexOf('stateCommit.observeInstallRecoveryClaim(recoveryClaim)')
+    const beginProfile = main.indexOf('const profileStartup = beginDesktopProfileStartup(')
+    const checkpoint = main.indexOf('profileCheckpoint = new DesktopProfileCheckpoint({', beginProfile)
+    const recoveryController = main.indexOf('startupRecoveryController = new DesktopStartupRecoveryController({', checkpoint)
     const prepare = main.indexOf('let prepared = prepareDesktopProfile(')
     const monitor = main.indexOf('const rendererBoot = runtime.beginRendererBootMonitoring({')
     const commitHealthy = main.indexOf('commitHealthy: async () => {', monitor)
+    const captureHealthy = main.indexOf('profileCheckpoint?.captureHealthy()', commitHealthy)
     const awaitRenderer = main.indexOf('const [, rendererVerdict] = await Promise.all([')
     const mount = main.indexOf('runtime.mountScheduled(),', awaitRenderer)
-    const commitStateHealthy = main.indexOf('await stateCommit.commitHealthy()', commitHealthy)
 
-    expect(fixedStatePath).toBeGreaterThanOrEqual(0)
-    expect(main).toContain("import { DesktopStartupStateCommit } from './startup-state-commit.ts'")
-    expect(main).not.toContain("desktopInstallRecoveryStatePath(app.getPath('userData'), process.env)")
-    expect(main).not.toContain('process.env[DESKTOP_INSTALL_RECOVERY_STATE_ENV]')
-    expect(beginProfile).toBeGreaterThan(fixedStatePath)
-    expect(stateCommit).toBeGreaterThan(beginProfile)
-    expect(claim).toBeGreaterThan(stateCommit)
-    expect(observeClaim).toBeGreaterThan(claim)
-    expect(prepare).toBeGreaterThan(claim)
-    expect(main).toContain('installRecoveryStatePath,\n      generationId,')
+    expect(beginProfile).toBeGreaterThanOrEqual(0)
+    expect(checkpoint).toBeGreaterThan(beginProfile)
+    expect(recoveryController).toBeGreaterThan(checkpoint)
+    expect(prepare).toBeGreaterThan(recoveryController)
     expect(monitor).toBeGreaterThan(prepare)
     expect(commitHealthy).toBeGreaterThan(monitor)
-    expect(commitStateHealthy).toBeGreaterThan(commitHealthy)
-    expect(awaitRenderer).toBeGreaterThan(commitStateHealthy)
+    expect(captureHealthy).toBeGreaterThan(commitHealthy)
+    expect(awaitRenderer).toBeGreaterThan(captureHealthy)
     expect(mount).toBeGreaterThan(awaitRenderer)
-    expect(main).not.toContain('verifyingInstall')
-    expect(main).not.toContain('verifiedInstallToClear')
-    expect(main).not.toContain('await installRecovery.markHealthy(')
-    expect(main).not.toContain('markDesktopProfileHealthy(')
+    expect(main).not.toContain('DesktopStartupStateCommit')
+    expect(main).not.toContain('DesktopInstallRecoveryStore')
+    expect(main).not.toContain('lastKnownGood')
+  })
+
+  it('finishes or skips per-Profile native setup before Host boot and the main window', () => {
+    const main = readFileSync(new URL('src/main.ts', packageRoot), 'utf8')
+    const requestedRecovery = main.indexOf('if (recoveryModeRequested)')
+    const prepare = main.indexOf('let prepared = prepareDesktopProfile(')
+    const setupState = main.indexOf('readDesktopSetupWizardState(', prepare)
+    const setupWindow = main.indexOf('new DesktopSetupWizardWindow({', setupState)
+    const setupRun = main.indexOf('await setupWizardWindow.run()', setupWindow)
+    const updateSettings = main.indexOf('await updateDesktopSetupWizardSettings(', setupRun)
+    const selectMarket = main.indexOf('await selectDesktopMarketProvider(', updateSettings)
+    const reprepare = main.indexOf('prepared = prepareDesktopProfile(', selectMarket)
+    const completeMarker = main.indexOf("'completed',", reprepare)
+    const installDsh = main.indexOf("const dshRuntime = process.platform === 'win32'", completeMarker)
+    const boot = main.indexOf('const ctx = await boot', installDsh)
+    const mount = main.indexOf('runtime.mountScheduled(),', boot)
+
+    expect(requestedRecovery).toBeGreaterThanOrEqual(0)
+    expect(prepare).toBeGreaterThan(requestedRecovery)
+    expect(setupState).toBeGreaterThan(prepare)
+    expect(setupWindow).toBeGreaterThan(setupState)
+    expect(setupRun).toBeGreaterThan(setupWindow)
+    expect(updateSettings).toBeGreaterThan(setupRun)
+    expect(selectMarket).toBeGreaterThan(updateSettings)
+    expect(reprepare).toBeGreaterThan(selectMarket)
+    expect(completeMarker).toBeGreaterThan(reprepare)
+    expect(installDsh).toBeGreaterThan(completeMarker)
+    expect(boot).toBeGreaterThan(installDsh)
+    expect(mount).toBeGreaterThan(boot)
+    expect(main).toContain("setupResult.action === 'quit'")
+    expect(main).toContain("setupResult.action === 'skip'")
+    expect(main).toContain("'skipped',")
+    expect(main).toContain('clearDesktopSetupWizardState(app.getPath(\'userData\'), profileDir)')
   })
 
   it('wires lifecycle evidence through key startup stages and terminal outcomes', () => {
@@ -510,7 +690,6 @@ describe('published package surface', () => {
       'shell-environment',
       'runtime-bootstrap',
       'profile-selection',
-      'install-recovery',
       'profile-composition',
       'host-boot',
       'renderer-startup',
@@ -531,34 +710,36 @@ describe('published package surface', () => {
     expect(main).toContain('lifecycleStartupFailureReason(cause, runtime)')
   })
 
-  it('routes protected and ordinary startup failures through the native recovery window', () => {
+  it('routes requested and failed startup through the unified recovery window without automatic mutation', () => {
     const main = readFileSync(new URL('src/main.ts', packageRoot), 'utf8')
     const windows = [...main.matchAll(/await openStartupRecoveryWindow\(/gu)]
       .map(match => match.index)
-    const prompt = main.indexOf("if (recoveryClaim.action === 'prompt')")
+    const requested = main.indexOf('if (recoveryModeRequested)')
     const prepare = main.indexOf('let prepared = prepareDesktopProfile(')
-    const commitFailure = main.indexOf('await startupStateCommit.commitFailure({')
+    const quiesce = main.indexOf('const recoveryActionsSafe = await generation.quiesceForRecovery()')
+    const configureTerminal = main.indexOf('runtime.configureTerminal({')
+    const terminalAvailable = main.indexOf('recoveryTerminalAvailable = true')
 
-    expect(windows).toHaveLength(3)
-    expect(windows[0]).toBeGreaterThan(prompt)
+    expect(windows).toHaveLength(2)
+    expect(windows[0]).toBeGreaterThan(requested)
     expect(windows[0]).toBeLessThan(prepare)
-    expect(commitFailure).toBeGreaterThan(prepare)
-    expect(windows[1]).toBeGreaterThan(prepare)
-    expect(windows[1]).toBeLessThan(commitFailure)
-    expect(windows[2]).toBeGreaterThan(commitFailure)
-    expect(main).not.toContain('await installRecovery.restore(')
-    expect(main).not.toContain('await installRecovery.recordFailure(')
-    expect(main).not.toContain('markDesktopProfileFailed(')
-    expect(main).toContain('quiesceForRecovery: () => generation.quiesceForRecovery()')
-    expect(main).toContain('failureCommit.reopenLastKnownGood !== undefined')
+    expect(configureTerminal).toBeGreaterThanOrEqual(0)
+    expect(configureTerminal).toBeLessThan(requested)
+    expect(terminalAvailable).toBeGreaterThan(configureTerminal)
+    expect(terminalAvailable).toBeLessThan(requested)
+    expect(main.match(/runtime\.configureTerminal\(\{/gu)).toHaveLength(1)
+    expect(windows[1]).toBeGreaterThan(windows[0]!)
+    expect(quiesce).toBeGreaterThan(prepare)
+    expect(windows[1]).toBeGreaterThan(quiesce)
+    expect(main).not.toContain('installRecovery')
+    expect(main).not.toContain('restoreLatest')
+    expect(main).not.toContain('restoreLastKnownGood')
     expect(main).toContain('failureStage: startupStage')
     expect(main).toContain("startupStage = 'profile-composition'")
     expect(main).toContain("startupStage = 'host-boot'")
     expect(main).toContain("startupStage = 'renderer-startup'")
     expect(main).toContain("return report.status === 'failed'")
-    expect(main).not.toContain("return report.status === 'failed' && verifyingInstall !== undefined")
     expect(main).toContain('void run().catch(async (cause: unknown) => { await handleFatalLauncherFailure(cause) })')
-    expect(main).toContain('await installRecovery.markRollbackNotified(')
   })
 
   it('uses the upstream child-environment scrub around login-shell recovery', () => {
@@ -610,6 +791,7 @@ describe('published package surface', () => {
     }])
     expect(manifest.build?.win?.artifactName).toBe('DSH-Desktop-${version}-${arch}-Portable.${ext}')
     expect(manifest.build?.nsis).toEqual({
+      include: 'installer.nsh',
       license: 'THIRD_PARTY_NOTICES.md',
       oneClick: false,
       perMachine: false,
@@ -639,6 +821,8 @@ describe('published package surface', () => {
     expect(manifest.scripts?.['check:win-package']).toContain('yarn run build')
     expect(manifest.scripts?.['check:win-package']).toContain('yarn run typecheck')
     expect(manifest.scripts?.['check:win-package']).toContain('tests/package-win.spec.ts')
+    expect(manifest.scripts?.['check:win-package']).toContain('tests/desktop-installer-quit.spec.ts')
+    expect(manifest.scripts?.['check:win-package']).toContain('tests/installer-nsh.spec.ts')
     expect(manifest.scripts?.['check:win-package']).toContain('tests/verify-win-portable.spec.ts')
     expect(manifest.scripts?.['check:win-package']).toContain('tests/update-checker.spec.ts')
     expect(manifest.scripts?.['check:win-package']).toContain('tests/update-download.spec.ts')
@@ -782,7 +966,21 @@ describe('published package surface', () => {
     expect(manifest.dependencies).not.toHaveProperty('electron')
     expect(manifest.peerDependencies?.electron).toBe('43.4.0')
     expect(manifest.devDependencies?.electron).toBe('43.4.0')
-    expect(manifest.dependencies?.pnpm).toBe('11.7.0')
+    expect(manifest.dependencies?.pnpm).toBe('11.8.0')
+  })
+
+  it('keeps the packaged pnpm manifest, lock entry, and installed runtime on 11.8.0', () => {
+    const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
+    const workspaceRequire = createRequire(new URL('package.json', packageRoot))
+    const installedPnpm = JSON.parse(readFileSync(
+      workspaceRequire.resolve('pnpm'),
+      'utf8',
+    )) as { version?: unknown }
+
+    expect(manifest.dependencies?.pnpm).toBe('11.8.0')
+    expect(lockfile).toContain('"pnpm@npm:11.8.0":')
+    expect(lockfile).toContain('resolution: "pnpm@npm:11.8.0"')
+    expect(installedPnpm.version).toBe('11.8.0')
   })
 
   it('packages the native-compiled Koffi Windows runtime', () => {
@@ -796,6 +994,37 @@ describe('published package surface', () => {
     expect(lockfile).toContain('@koromix/koffi-win32-x64@npm:3.1.5')
     expect(lockfile).not.toContain('"koffi@npm:3.1.4":')
     expect(lockfile).not.toContain('@koromix/koffi-win32-x64@npm:3.1.4')
+  })
+
+  it('hides official plugin-manager and general subprocess consoles on Windows', () => {
+    const dshPatchPath = './patches/dsh@0.1.1-rc.2.patch'
+    const subprocessPatchPath = './patches/dsh-subprocess-local@0.1.1-rc.2.patch'
+    const dshPatchResolution = `patch:@deepseek-ai/dsh@npm%3A0.1.1-rc.2#${dshPatchPath}`
+    const subprocessPatchResolution = `patch:@deepseek-ai/dsh-subprocess-local@npm%3A0.1.1-rc.2#${subprocessPatchPath}`
+    const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
+    const dshPatch = readFileSync(new URL(dshPatchPath, workspaceRoot), 'utf8')
+    const subprocessPatch = readFileSync(new URL(subprocessPatchPath, workspaceRoot), 'utf8')
+    const workspaceRequire = createRequire(new URL('package.json', packageRoot))
+    const dshManifest = workspaceRequire.resolve('@deepseek-ai/dsh/package.json')
+    const dshPluginRuntime = readdirSync(join(dirname(dshManifest), 'lib'))
+      .filter(name => /^plugin-.*\.js$/u.test(name))
+      .map(name => readFileSync(join(dirname(dshManifest), 'lib', name), 'utf8'))
+      .join('\n')
+    const subprocessManifest = workspaceRequire.resolve('@deepseek-ai/dsh-subprocess-local/package.json')
+    const subprocessRuntime = readFileSync(join(dirname(subprocessManifest), 'lib/index.js'), 'utf8')
+
+    expect(workspaceManifest.resolutions).toMatchObject({
+      '@deepseek-ai/dsh@npm:0.1.1-rc.2': dshPatchResolution,
+      '@deepseek-ai/dsh@npm:^0.1.1-rc.2': dshPatchResolution,
+      '@deepseek-ai/dsh-subprocess-local@npm:0.1.1-rc.2': subprocessPatchResolution,
+      '@deepseek-ai/dsh-subprocess-local@npm:^0.1.1-rc.2': subprocessPatchResolution,
+    })
+    expect(lockfile).toContain('@deepseek-ai/dsh@patch:@deepseek-ai/dsh@npm%3A0.1.1-rc.2#./patches/dsh@0.1.1-rc.2.patch')
+    expect(lockfile).toContain('@deepseek-ai/dsh-subprocess-local@patch:@deepseek-ai/dsh-subprocess-local@npm%3A0.1.1-rc.2#./patches/dsh-subprocess-local@0.1.1-rc.2.patch')
+    expect(dshPatch).toContain('+\t\twindowsHide: true')
+    expect(dshPluginRuntime).toMatch(/spawnSync\("pnpm"[\s\S]*?shell: process\.platform === "win32",\s+windowsHide: true/u)
+    expect(subprocessPatch.match(/^\+\s*windowsHide: true\r?$/gmu)).toHaveLength(3)
+    expect(subprocessRuntime.match(/windowsHide: true/gu)).toHaveLength(3)
   })
 
   it('resolves electron-builder through the pinned app-builder-lib keychain patch', () => {

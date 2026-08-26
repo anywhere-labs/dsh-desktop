@@ -20,14 +20,26 @@ export const DESKTOP_MARKET_SELECT_PATH = '/api/desktop/market/select'
 /** Open the launcher-owned DSH terminal without accepting command text. */
 export const DESKTOP_TERMINAL_OPEN_PATH = '/api/desktop/terminal/open'
 
+/** Queue an orderly Desktop relaunch after acknowledging the renderer. */
+export const DESKTOP_RESTART_PATH = '/api/desktop/restart'
+
+/** Queue an orderly relaunch that opens the recovery assistant before Host boot. */
+export const DESKTOP_RECOVERY_RESTART_PATH = '/api/desktop/restart/recovery'
+
+/** Reload the renderer through the launcher without exposing Electron APIs. */
+export const DESKTOP_RENDERER_RELOAD_PATH = '/api/desktop/developer/reload'
+
+/** Toggle the mounted window's Developer Tools through the launcher. */
+export const DESKTOP_DEVELOPER_TOOLS_TOGGLE_PATH = '/api/desktop/developer/devtools'
+
+/** Run the generation-owned manual update check. */
+export const DESKTOP_UPDATE_CHECK_PATH = '/api/desktop/updates/check'
+
 /** Export one local diagnostic archive through the launcher-owned flow. */
 export const DESKTOP_DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 
 /** Open the isolated native Profile creator without accepting a path. */
 export const DESKTOP_PROFILE_CREATE_WINDOW_PATH = '/api/desktop/profiles/create-window'
-
-/** Restore the last successful Profile and its latest healthy configuration. */
-export const DESKTOP_PROFILE_ROLLBACK_PATH = '/api/desktop/profiles/rollback'
 
 /** Renderer-safe projection of one discovered profile. */
 export interface DesktopSettingsProfileView {
@@ -53,6 +65,14 @@ export interface DesktopSettingsMarketView {
   readonly legacyDefaulted: boolean
 }
 
+/** Marker-free ordinary-browser URLs for the running Web generation. */
+export interface DesktopSettingsWebView {
+  /** Always-available loopback URL using the actual listening port. */
+  readonly localUrl: string
+  /** Startup-sampled LAN URLs; empty while the generation is loopback-only. */
+  readonly lanUrls: readonly string[]
+}
+
 /** Complete renderer-safe Desktop settings state. */
 export interface DesktopSettingsResponse {
   /** Profile backing the currently running generation. */
@@ -61,6 +81,8 @@ export interface DesktopSettingsResponse {
   readonly profiles: readonly DesktopSettingsProfileView[]
   /** Market choice for the current and next generation. */
   readonly market: DesktopSettingsMarketView
+  /** Actual browser URLs for the current WebServer generation. */
+  readonly web: DesktopSettingsWebView
 }
 
 /** Exact body accepted by the profile-creation endpoint. */
@@ -109,6 +131,44 @@ export interface DesktopTerminalOpenResponse {
   readonly accepted: true
 }
 
+/** Exact empty body accepted by the explicit restart endpoint. */
+export type DesktopRestartRequest = Readonly<Record<string, never>>
+
+/** Successful handoff to the launcher's orderly relaunch flow. */
+export interface DesktopRestartResponse {
+  readonly accepted: true
+}
+
+/** Exact empty body accepted by the recovery-restart endpoint. */
+export type DesktopRecoveryRestartRequest = Readonly<Record<string, never>>
+
+/** Successful handoff to the launcher's recovery relaunch flow. */
+export type DesktopRecoveryRestartResponse = DesktopRestartResponse
+
+/** Exact empty body accepted by the renderer-reload endpoint. */
+export type DesktopRendererReloadRequest = Readonly<Record<string, never>>
+
+/** Successful handoff to the launcher-owned renderer reload. */
+export interface DesktopRendererReloadResponse {
+  readonly accepted: true
+}
+
+/** Exact empty body accepted by the Developer Tools endpoint. */
+export type DesktopDeveloperToolsToggleRequest = Readonly<Record<string, never>>
+
+/** Successful handoff to the launcher-owned Developer Tools action. */
+export interface DesktopDeveloperToolsToggleResponse {
+  readonly accepted: true
+}
+
+/** Exact empty body accepted by the manual update-check endpoint. */
+export type DesktopUpdateCheckRequest = Readonly<Record<string, never>>
+
+/** Successful completion of the interactive update-check flow. */
+export interface DesktopUpdateCheckResponse {
+  readonly accepted: true
+}
+
 /** Exact empty body accepted by the diagnostic-export endpoint. */
 export type DesktopDiagnosticsExportRequest = Readonly<Record<string, never>>
 
@@ -123,14 +183,6 @@ export type DesktopProfileCreateWindowRequest = Readonly<Record<string, never>>
 /** Successful handoff to the isolated native Profile creator. */
 export interface DesktopProfileCreateWindowResponse {
   readonly accepted: true
-}
-
-/** Exact empty body accepted by the last-known-good rollback endpoint. */
-export type DesktopProfileRollbackRequest = Readonly<Record<string, never>>
-
-/** Persisted rollback handoff returned before the running Host is quiesced. */
-export interface DesktopProfileRollbackResponse extends DesktopRestartAcceptance {
-  readonly targetProfile: string
 }
 
 /** Stable API failure shape that never contains native paths or raw causes. */

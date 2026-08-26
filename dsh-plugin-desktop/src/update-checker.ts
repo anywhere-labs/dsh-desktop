@@ -1,5 +1,11 @@
 /** Headless version checks against the public DSH Desktop release service. */
 
+import {
+  assertDesktopInstallationId,
+  DESKTOP_INSTALLATION_ID_HEADER,
+  type DesktopInstallationId,
+} from './desktop-installation-id.ts'
+
 /** Public endpoint returning the latest stable DSH Desktop version. */
 export const DESKTOP_VERSION_ENDPOINT = 'https://www.dshdesktop.cn/api/desktop/version'
 
@@ -33,6 +39,8 @@ export interface UpdateCheckOptions {
   readonly signal?: AbortSignal
   /** Optional fetch implementation for a host adapter or test. */
   readonly request?: UpdateRequest
+  /** Installation UUID attached only to the fixed version-check endpoint. */
+  readonly installationId?: DesktopInstallationId
 }
 
 /** Successful comparison returned by the stable version service. */
@@ -95,9 +103,16 @@ export async function checkForStableUpdate(
   const current = parseCanonicalStableVersion(options.currentVersion)
   if (current === null) return null
 
+  let headers: HeadersInit
+  try {
+    headers = desktopVersionRequestHeaders(options.installationId)
+  } catch {
+    return null
+  }
+
   const init: RequestInit = {
     method: 'GET',
-    headers: { Accept: 'application/json' },
+    headers,
     cache: 'no-store',
     redirect: 'error',
     ...(options.signal === undefined ? {} : { signal: options.signal }),
@@ -126,6 +141,18 @@ export async function checkForStableUpdate(
     currentVersion: current.version,
     latestVersion: latest.version,
   }
+}
+
+/** Build the complete header set for the fixed version-check request only. */
+export function desktopVersionRequestHeaders(
+  installationId?: string,
+): Readonly<Record<string, string>> {
+  return installationId === undefined
+    ? { Accept: 'application/json' }
+    : {
+        Accept: 'application/json',
+        [DESKTOP_INSTALLATION_ID_HEADER]: assertDesktopInstallationId(installationId),
+      }
 }
 
 async function defaultRequest(url: string, init: RequestInit): Promise<Response> {

@@ -205,7 +205,7 @@ describe('desktop notifications Host plugin', () => {
 
     expect(harness.notifyAttention.mock.calls).toEqual([
       [{ title: 'Background Job Completed', body: 'A background job has finished.' }],
-      [{ title: 'Background Job Failed', body: 'A background job needs attention.' }],
+      [{ title: 'Background Job Failed', body: 'A background job could not finish. Open DSH Desktop for details.' }],
     ])
     expect(JSON.stringify(harness.notifyAttention.mock.calls)).not.toMatch(/Users|private|secret|session-123/u)
   })
@@ -244,8 +244,8 @@ describe('desktop notifications Host plugin', () => {
     }, 6))
 
     expect(harness.notifyAttention.mock.calls).toEqual([
-      [{ title: 'Background Job Failed', body: 'A background job needs attention.' }],
-      [{ title: 'User Turn Failed', body: 'A direct user turn needs attention.' }],
+      [{ title: 'Background Job Failed', body: 'A background job could not finish. Open DSH Desktop for details.' }],
+      [{ title: 'User Turn Failed', body: 'A user-initiated turn could not finish. Open DSH Desktop for details.' }],
     ])
   })
 
@@ -299,8 +299,8 @@ describe('desktop notifications Host plugin', () => {
 
     expect(harness.notifyAttention).toHaveBeenCalledOnce()
     expect(harness.notifyAttention).toHaveBeenCalledWith({
-      title: 'Turn Completed',
-      body: 'A direct user turn has finished.',
+      title: 'User Turn Completed',
+      body: 'A user-initiated turn has finished.',
     })
   })
 
@@ -324,7 +324,7 @@ describe('desktop notifications Host plugin', () => {
     expect(harness.notifyAttention).toHaveBeenCalledOnce()
     expect(harness.notifyAttention).toHaveBeenCalledWith({
       title: 'User Turn Failed',
-      body: 'A direct user turn needs attention.',
+      body: 'A user-initiated turn could not finish. Open DSH Desktop for details.',
     })
   })
 

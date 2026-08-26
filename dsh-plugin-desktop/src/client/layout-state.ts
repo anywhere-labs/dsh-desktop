@@ -20,9 +20,9 @@ export interface DesktopColumns {
   details: number
 }
 
-/** Compatibility-mode compact rail used by the upstream Windows sidebar. */
+/** Default compact rail used by the upstream sidebar. */
 export const SIDEBAR_COLLAPSED = 56
-/** Wider compact rail reserved for the desktop-owned macOS sidebar. */
+/** Wider compact rail reserved only for the enhanced macOS presentation. */
 export const MACOS_SIDEBAR_COLLAPSED = 90
 export const SIDEBAR_DEFAULT = 280
 export const SIDEBAR_MIN = 264
@@ -32,6 +32,16 @@ export const DETAILS_DEFAULT = 360
 export const DETAILS_MIN = 300
 export const DETAILS_MAX = 520
 export const CENTER_MIN = 640
+
+/** Keep the wider macOS rail private to enhanced mode; extended uses upstream geometry. */
+export function collapsedSidebarWidth(
+  mode: 'extended' | 'advanced',
+  platform: 'darwin' | 'win32' | 'linux',
+): number {
+  return mode === 'advanced' && platform === 'darwin'
+    ? MACOS_SIDEBAR_COLLAPSED
+    : SIDEBAR_COLLAPSED
+}
 
 /**
  * Resolve three desktop columns without allowing details to squeeze the conversation below its floor.

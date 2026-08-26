@@ -44,6 +44,23 @@ describe('application shutdown requests', () => {
     expect(native.exit).toHaveBeenCalledWith(1)
   })
 
+  it('passes an explicit one-shot argument list to a successful relaunch', () => {
+    const native = {
+      prepareToQuit: vi.fn(),
+      relaunch: vi.fn(),
+      exit: vi.fn(),
+    }
+    const coordinator = createDesktopExitCoordinator(native, () => {})
+
+    coordinator.requestRelaunch(['desktop-main.cjs', '--dsh-desktop-recovery'])
+    coordinator.finish(0)
+
+    expect(native.relaunch).toHaveBeenCalledWith([
+      'desktop-main.cjs',
+      '--dsh-desktop-recovery',
+    ])
+  })
+
   it('exits after graceful disposal and ignores later completions', async () => {
     const dispose = vi.fn(async () => {})
     const exit = vi.fn()
@@ -106,7 +123,7 @@ describe('application shutdown requests', () => {
 
   it('routes native quit and process signals through one removable coordinator', () => {
     const signalListeners = new Map<string, () => void>()
-    const appListeners = new Map<string, (event: DesktopQuitEvent) => void>()
+    const appListeners = new Map<string, (...args: never[]) => void>()
     const signals: DesktopSignalSource = {
       on: (event, listener) => signalListeners.set(event, listener),
       off: (event, listener) => {
@@ -114,7 +131,7 @@ describe('application shutdown requests', () => {
       },
     }
     const app: DesktopQuitSource = {
-      on: (event, listener) => appListeners.set(event, listener),
+      on: (event, listener) => appListeners.set(event, listener as (...args: never[]) => void),
       off: (event, listener) => {
         if (appListeners.get(event) === listener) appListeners.delete(event)
       },
@@ -125,7 +142,8 @@ describe('application shutdown requests', () => {
 
     signalListeners.get('SIGINT')?.()
     signalListeners.get('SIGTERM')?.()
-    appListeners.get('before-quit')?.(quitEvent)
+    ;(appListeners.get('before-quit') as ((event: DesktopQuitEvent) => void) | undefined)?.(quitEvent)
+    appListeners.get('window-all-closed')?.()
 
     expect(requestQuit.mock.calls).toEqual([[130], [0], [0]])
     expect(quitEvent.preventDefault).toHaveBeenCalledOnce()

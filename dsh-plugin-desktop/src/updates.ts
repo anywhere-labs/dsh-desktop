@@ -2,6 +2,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import { DESKTOP_UPDATE_CHECK_PATH } from './desktop-settings-contract.ts'
+import { handleDesktopUpdateCheckRequest } from './desktop-settings-route.ts'
 import type {} from './runtime.ts'
 import { startDesktopUpdateLifecycle } from './update-lifecycle.ts'
 
@@ -9,7 +12,7 @@ import { startDesktopUpdateLifecycle } from './update-lifecycle.ts'
 export const name = 'desktop-updates'
 
 /** Native adapter required for network, tray, confirmation, and installer access. */
-export const inject = ['desktopRuntime']
+export const inject = ['desktopRuntime', 'webServer']
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 
@@ -46,6 +49,25 @@ export function apply(ctx: Context, config: Config): void {
       locale: () => ctx.desktopRuntime.locale,
       registerTrayItem: item => ctx.desktopRuntime.registerTrayItem(item),
     })
-    return () => lifecycle.dispose()
+    const rendererOrigin = `http://127.0.0.1:${String(ctx.webServer.port)}`
+    const unregister = ctx.webServer.register({
+      kind: 'exact',
+      path: DESKTOP_UPDATE_CHECK_PATH,
+      handler: (req, res) => handleDesktopUpdateCheckRequest(
+        req,
+        res,
+        rendererOrigin,
+        () => lifecycle.checkNow(),
+        (operation, cause) => {
+          ctx.logger.error(
+            `dsh-plugin-desktop: failed to ${operation}: ${cause instanceof Error ? cause.message : String(cause)}`,
+          )
+        },
+      ),
+    })
+    return async () => {
+      unregister()
+      await lifecycle.dispose()
+    }
   }, 'dsh-plugin-desktop: update polling, confirmation, and installer handoff')
 }

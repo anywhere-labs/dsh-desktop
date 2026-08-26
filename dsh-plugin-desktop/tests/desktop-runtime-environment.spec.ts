@@ -84,6 +84,8 @@ describe('desktop Host pnpm runtime', () => {
     expect(pnpm).toContain('ELECTRON_RUN_AS_NODE=1 npm_config_runtime=electron')
     expect(pnpm).toContain("npm_config_target='43.4.0'")
     expect(pnpm).toContain("npm_config_disturl='https://electronjs.org/headers'")
+    expect(pnpm.match(/--config\.minimumReleaseAge=0/gu)).toHaveLength(1)
+    expect(pnpm).toContain('--config.minimumReleaseAge=0 "$@"')
     expect(pnpm).toContain(`--import '${clearEnvironmentUrl}'`)
     expect(pnpm.indexOf(`--import '${clearEnvironmentUrl}'`)).toBeLessThan(pnpm.indexOf('pnpm/bin/pnpm.mjs'))
     const node = readFileSync(installation.nodeShimPath, 'utf8')
@@ -155,7 +157,8 @@ describe('desktop Host pnpm runtime', () => {
     const captureOutput = join(root, 'capture.json')
     writeFileSync(captureEntry, [
       "import { writeFileSync } from 'node:fs'",
-      'writeFileSync(process.argv[2], JSON.stringify({',
+      'writeFileSync(process.argv.at(-1), JSON.stringify({',
+      "  ignoresMinimumReleaseAge: process.argv.includes('--config.minimumReleaseAge=0'),",
       "  runAsNode: Object.keys(process.env).filter(name => name.toUpperCase() === 'ELECTRON_RUN_AS_NODE'),",
       '  runtime: process.env.npm_config_runtime,',
       '  target: process.env.npm_config_target,',
@@ -189,6 +192,7 @@ describe('desktop Host pnpm runtime', () => {
     expect(result.error).toBeUndefined()
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
     expect(JSON.parse(readFileSync(captureOutput, 'utf8'))).toEqual({
+      ignoresMinimumReleaseAge: true,
       runAsNode: [],
       runtime: 'electron',
       target: '43.4.0',
@@ -223,6 +227,8 @@ describe('desktop Host pnpm runtime', () => {
     expect(pnpm).toContain('set "npm_config_target=43.4.0"')
     expect(pnpm).toContain(`--import "${escapedClearEnvironmentUrl}"`)
     expect(pnpm.indexOf(`--import "${escapedClearEnvironmentUrl}"`)).toBeLessThan(pnpm.indexOf('pnpm\\bin\\pnpm.mjs'))
+    expect(pnpm.match(/--config\.minimumReleaseAge=0/gu)).toHaveLength(1)
+    expect(pnpm).toContain('--config.minimumReleaseAge=0 %*')
     const node = readFileSync(installation.nodeShimPath, 'utf8')
     expect(node).toContain('set "ELECTRON_RUN_AS_NODE=1"')
     expect(node).toContain(`--import "${escapedClearEnvironmentUrl}" %*`)
@@ -390,7 +396,6 @@ describe('desktop Host dsh runtime', () => {
       '  args: process.argv.slice(3),',
       '  defaultProfile: process.env.DSH_DESKTOP_DEFAULT_PROFILE,',
       '  home: process.env.DSH_HOME,',
-      '  installRecoveryStatePath: process.env.DSH_DESKTOP_INSTALL_RECOVERY_STATE_PATH,',
       '}))',
       '',
     ].join('\n'))
@@ -403,7 +408,6 @@ describe('desktop Host dsh runtime', () => {
       dshBootstrapPath: captureEntry,
       profileName: 'web',
       homeDir,
-      installRecoveryStatePath: join(root, 'plugin-install-recovery', 'state.json'),
       stateDir,
       environment,
     })
@@ -426,7 +430,6 @@ describe('desktop Host dsh runtime', () => {
       args: ['--probe'],
       defaultProfile: 'web',
       home: homeDir,
-      installRecoveryStatePath: join(root, 'plugin-install-recovery', 'state.json'),
     })
     expect(environment.Path).toBe(`${installation.pathDir};${original.Path ?? ''}`)
 

@@ -15,11 +15,6 @@ export function apply(ctx) {
       serviceName: pnpm.name,
       lookupRun: typeof ctx.get('desktopPnpm')?.run,
       run: typeof pnpm.run,
-      runPlugin: typeof pnpm.runPlugin,
-      installPlugin: typeof pnpm.installPlugin,
-      recoveredInstallReceiptIds: typeof pnpm.recoveredInstallReceiptIds,
-      acknowledgeRecoveredInstall: typeof pnpm.acknowledgeRecoveredInstall,
-      rollbackPluginInstall: typeof pnpm.rollbackPluginInstall,
     }),
   }))
 }

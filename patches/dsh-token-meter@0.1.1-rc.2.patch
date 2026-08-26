@@ -1,0 +1,84 @@
+diff --git a/lib/index.js b/lib/index.js
+index 4d7fc639..58caa027 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -165,7 +165,7 @@ const tokenCount = z$1.number().int().nonnegative();
+ */
+ const contextBreakdownProjectionDefinition = {
+ 	key: "contextBreakdown",
+-	stateVersion: 2,
++	stateVersion: 3,
+ 	stateSchema: z$1.object({
+ 		systemTokens: tokenCount,
+ 		toolsTokens: tokenCount,
+@@ -194,7 +194,7 @@ const contextBreakdownProjectionDefinition = {
+ 		return {
+ 			systemTokens,
+ 			toolsTokens,
+-			messageTokens: state.messageTokens + fold.deltaTokens,
++			messageTokens: Math.max(0, state.messageTokens + fold.deltaTokens),
+ 			...fold.claim === void 0 ? {} : { claim: fold.claim }
+ 		};
+ 	},
+@@ -345,7 +345,7 @@ const tokenUsageProjectionDefinition = {
+ */
+ const contextPressureProjectionDefinition = {
+ 	key: "contextPressure",
+-	stateVersion: 4,
++	stateVersion: 5,
+ 	stateSchema: contextPressureStateSchema,
+ 	init: () => ({ surfaceTokens: 0 }),
+ 	apply: (state, event) => {
+@@ -373,7 +373,7 @@ const contextPressureProjectionDefinition = {
+ 		}
+ 		if (fold.deltaTokens !== 0) next = {
+ 			...next,
+-			surfaceTokens: next.surfaceTokens + fold.deltaTokens
++			surfaceTokens: Math.max(0, next.surfaceTokens + fold.deltaTokens)
+ 		};
+ 		if (state.claim === void 0 && fold.claim === void 0) return next;
+ 		const { claim: _expired, ...withoutClaim } = next;
+diff --git a/lib/types/breakdown-projection.js b/lib/types/breakdown-projection.js
+index 49f817fa..c74c0983 100644
+--- a/lib/types/breakdown-projection.js
++++ b/lib/types/breakdown-projection.js
+@@ -39,7 +39,7 @@ const breakdownSchema = z.object({
+  */
+ export const contextBreakdownProjectionDefinition = {
+     key: 'contextBreakdown',
+-    stateVersion: 2,
++    stateVersion: 3,
+     stateSchema: contextBreakdownStateSchema,
+     init: () => ({ systemTokens: 0, toolsTokens: 0, messageTokens: 0 }),
+     apply: (state, event) => {
+@@ -60,7 +60,7 @@ export const contextBreakdownProjectionDefinition = {
+         return {
+             systemTokens,
+             toolsTokens,
+-            messageTokens: state.messageTokens + fold.deltaTokens,
++            messageTokens: Math.max(0, state.messageTokens + fold.deltaTokens),
+             ...fold.claim === undefined ? {} : { claim: fold.claim },
+         };
+     },
+diff --git a/lib/types/usage-projection.js b/lib/types/usage-projection.js
+index f46460d2..16e7a5ec 100644
+--- a/lib/types/usage-projection.js
++++ b/lib/types/usage-projection.js
+@@ -141,7 +141,7 @@ export const tokenUsageProjectionDefinition = {
+  */
+ export const contextPressureProjectionDefinition = {
+     key: 'contextPressure',
+-    stateVersion: 4,
++    stateVersion: 5,
+     stateSchema: contextPressureStateSchema,
+     init: () => ({ surfaceTokens: 0 }),
+     apply: (state, event) => {
+@@ -167,7 +167,7 @@ export const contextPressureProjectionDefinition = {
+             }
+         }
+         if (fold.deltaTokens !== 0) {
+-            next = { ...next, surfaceTokens: next.surfaceTokens + fold.deltaTokens };
++            next = { ...next, surfaceTokens: Math.max(0, next.surfaceTokens + fold.deltaTokens) };
+         }
+         // A defined fold.claim is always freshly built, so presence decides claim
+         // bookkeeping: no claim before or after this event leaves `next` as is.

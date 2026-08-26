@@ -8,7 +8,7 @@ operations:
     cancellation: { owner: DesktopRendererHealthGate, behavior: stop rejects pending verdict }
     exclusivity: one gate per renderer generation
     idempotency: first terminal verdict wins; later evidence is ignored
-    persistedState: { owner: startup-state-commit.ts, atomic: true, corruption: fail-loud, cleanup: startup lifecycle }
+    persistedState: { policy: lifecycle evidence only, recoveryAuthority: profile-health-checkpoints }
     retry: { policy: none, reason: retry belongs to startup recovery orchestration }
     recovery: durable failure reason is retained for next-generation recovery UI
     evidence: renderer boot report and durable healthy marker
@@ -24,30 +24,28 @@ operations:
     idempotency: selecting the current profile is a no-op; pending target cannot be replaced
     persistedState: { owner: profile-manager.ts, atomic: true, corruption: fail-loud, cleanup: profile manager }
     retry: { policy: explicit, authority: service after restart failure }
-    recovery: retain pending target and permit only its restart retry
+    recovery: startup boots only the exact persisted active profile; failures open Recovery without automatic substitution
     evidence: persisted selected profile and restart result
     faultContracts:
       - { id: profile-switch.stage.persist.failure, test: tests/profile-service.spec.ts, title: does not restart after persistence fails and permits a later valid selection }
       - { id: profile-switch.stage.restart.failure, test: tests/profile-service.spec.ts, title: retains a persisted target after restart failure and retries only that restart }
-  - id: plugin-install-recovery
-    owner: DesktopInstallRecoveryStore (src/install-recovery.ts)
-    entrypoints: [begin, seal, claim, restore, requestRetry]
-    deadline: { owner: package operation, maximum: delegated package manager deadline }
-    cancellation: { owner: package operation, behavior: WAL remains recoverable after interruption }
-    exclusivity: file lock and one active transaction per profile
-    idempotency: transaction and generation claims are opaque and phase-bound
-    persistedState: { owner: DesktopInstallRecoveryStore, atomic: true, corruption: manual-recovery, cleanup: explicit clear }
-    retry: { policy: one next-generation retry, authority: recovery UI }
-    recovery: rollback admitted pre/post images or require manual recovery on drift
-    evidence: hash-only WAL, receipt id, failure reason, lifecycle diagnostics
+  - id: profile-health-checkpoints
+    owner: DesktopProfileCheckpoint (src/profile-checkpoint.ts)
+    entrypoints: [listSlots, captureHealthy, inspectSlot, restoreSlot]
+    deadline: { policy: synchronous local files only }
+    cancellation: { policy: none, reason: each file publication is durable and atomic }
+    exclusivity: startup owns healthy capture; Recovery serializes explicit restore operations
+    idempotency: every healthy startup writes one slot; after three slots the oldest is replaced; one post-restore healthy capture is skipped
+    persistedState: { owner: DesktopProfileCheckpoint, slots: 3, manifestVersion: 3, legacyManifestVersion: 2, files: active Profile plus Harness-home settings.yaml and cordis.patch.yml, atomic: true, corruption: fail-loud }
+    retry: { policy: explicit, authority: user selects an exact slot in Recovery }
+    recovery: no automatic restore or profile fallback; restore only one user-selected slot
+    evidence: checkpoint metadata, file hashes, capture time, Desktop version, browsable slot directory
     faultContracts:
-      - { id: plugin-install-recovery.begin.before-publish, test: tests/install-recovery.spec.ts, title: removes incomplete backups when a preimage write fails before WAL publication }
-      - { id: plugin-install-recovery.begin.after-publish, test: tests/install-recovery.spec.ts, title: removes complete backups when WAL publication fails }
-      - { id: plugin-install-recovery.seal.after-publish, test: tests/install-recovery.spec.ts, title: keeps a prepared WAL when postimage sealing fails and denies unknown automatic rollback }
-      - { id: plugin-install-recovery.rollback.partial-write, test: tests/install-recovery.spec.ts, title: retains recovery authority when rollback fails after restoring one file }
-      - { id: plugin-install-recovery.rollback.terminal-publish, test: tests/install-recovery.spec.ts, title: replays rollback when terminal WAL publication fails after files are restored }
-      - { id: plugin-install-recovery.restore.malformed, test: tests/install-recovery.spec.ts, title: validates every backup before replacing any profile file }
-      - { id: plugin-install-recovery.claim.retry, test: tests/install-recovery.spec.ts, title: persists failed verification and consumes at most one retry in the next generation }
+      - { id: profile-health-checkpoints.stage.rotation, test: tests/profile-checkpoint.spec.ts, title: writes every healthy startup and replaces the oldest slot after three captures }
+      - { id: profile-health-checkpoints.stage.restore-skip, test: tests/profile-checkpoint.spec.ts, title: restores an explicitly selected slot and skips exactly the next healthy write }
+      - { id: profile-health-checkpoints.stage.global-config, test: tests/profile-checkpoint.spec.ts, title: restores Harness-home settings and patches with the selected Profile slot }
+      - { id: profile-health-checkpoints.stage.failed-health, test: tests/profile-checkpoint.spec.ts, title: keeps the post-restore skip marker until a healthy capture actually occurs }
+      - { id: profile-health-checkpoints.stage.safety, test: tests/profile-checkpoint.spec.ts, title: 'rejects missing package.json, symlinks, oversized files, and empty restore slots' }
   - id: update-check
     owner: checkForStableUpdate (src/update-checker.ts)
     entrypoints: [checkForStableUpdate]
@@ -90,3 +88,18 @@ operations:
     faultContracts:
       - { id: diagnostics-export.worker.timeout, test: tests/diagnostic-export.spec.ts, title: terminates a diagnostic Worker that does not respond before its deadline }
       - { id: diagnostics-export.worker.cancelled, test: tests/diagnostic-export.spec.ts, title: terminates a diagnostic Worker when its owning operation is cancelled }
+  - id: recovery-plugin-remove
+    owner: DesktopStartupRecoveryController and removeRecoveryPlugin (src/startup-recovery-controller.ts, src/recovery-plugin-uninstall.ts)
+    entrypoints: [previewUninstall, executeUninstall, removeRecoveryPlugin]
+    deadline: { owner: removeRecoveryPlugin, maximum: 120000ms }
+    cancellation: { owner: removeRecoveryPlugin, behavior: optional abort signal or deadline terminates the packaged DSH child process }
+    exclusivity: Recovery serializes plugin removal with every other mutating recovery operation
+    idempotency: confirmation is one-shot; success removes the bundle target so it cannot be previewed again
+    persistedState: { owner: official dsh plugin remove, scope: current Profile package manifest, lockfile, modules, and reconciled bundle list }
+    retry: { policy: explicit, authority: user after a failed command returns to Recovery }
+    recovery: no market receipt or disable state is required; failure keeps Recovery open and shows bounded command diagnostics
+    evidence: masked Desktop log entry, bounded stdout and stderr, and post-command Profile inventory revalidation
+    faultContracts:
+      - { id: recovery-plugin-remove.command.argv, test: tests/recovery-plugin-uninstall.spec.ts, title: runs the packaged official dsh plugin remove argv for the selected Profile }
+      - { id: recovery-plugin-remove.command.failure, test: tests/recovery-plugin-uninstall.spec.ts, title: retains bounded command diagnostics when dsh plugin remove fails }
+      - { id: recovery-plugin-remove.confirmation.one-shot, test: tests/startup-recovery-controller.spec.ts, title: uninstalls a direct Profile dependency with a one-shot preview }

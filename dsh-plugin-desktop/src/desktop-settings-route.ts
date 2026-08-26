@@ -185,7 +185,7 @@ function finishPostResponse<T extends object>(
     try {
       operation.afterResponse?.()
     } catch (cause) {
-      reportError(`${operationName} restart`, cause)
+      reportError(`${operationName} after response`, cause)
     }
   })
 }
@@ -343,6 +343,107 @@ export async function handleDesktopTerminalOpenRequest(
   }
 }
 
+/** Queue an orderly Desktop relaunch from an exact empty request. */
+export async function handleDesktopRestartRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const value = await parsePostBody(req, res)
+  if (value === INVALID_BODY) return
+  if (!isEmptyRequest(value)) return finishJson(res, 400, error('invalid restart request'))
+  finishPostResponse(res, 202, controller.restart(), 'restart Desktop', reportError)
+}
+
+/** Queue an orderly recovery-mode relaunch from an exact empty request. */
+export async function handleDesktopRecoveryRestartRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const value = await parsePostBody(req, res)
+  if (value === INVALID_BODY) return
+  if (!isEmptyRequest(value)) return finishJson(res, 400, error('invalid recovery restart request'))
+  finishPostResponse(res, 202, controller.restartToRecovery(), 'restart Desktop in recovery mode', reportError)
+}
+
+/** Reload the renderer after acknowledging an exact empty same-origin request. */
+export async function handleDesktopRendererReloadRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const value = await parsePostBody(req, res)
+  if (value === INVALID_BODY) return
+  if (!isEmptyRequest(value)) return finishJson(res, 400, error('invalid renderer reload request'))
+  finishPostResponse(res, 202, controller.reloadRenderer(), 'reload renderer', reportError)
+}
+
+/** Toggle Developer Tools from an exact empty same-origin request. */
+export async function handleDesktopDeveloperToolsToggleRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  controller: DesktopSettingsController,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const value = await parsePostBody(req, res)
+  if (value === INVALID_BODY) return
+  if (!isEmptyRequest(value)) return finishJson(res, 400, error('invalid Developer Tools request'))
+  try {
+    finishJson(res, 200, controller.toggleDeveloperTools())
+  } catch (cause) {
+    reportError('toggle Developer Tools', cause)
+    finishJson(res, 500, error('Developer Tools could not be toggled'))
+  }
+}
+
+/** Run the generation-owned interactive update flow from an exact empty request. */
+export async function handleDesktopUpdateCheckRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  checkNow: () => Promise<void>,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const value = await parsePostBody(req, res)
+  if (value === INVALID_BODY) return
+  if (!isEmptyRequest(value)) return finishJson(res, 400, error('invalid update check request'))
+  try {
+    await checkNow()
+    finishJson(res, 200, { accepted: true })
+  } catch (cause) {
+    reportError('check for updates', cause)
+    finishJson(res, 500, error('updates could not be checked'))
+  }
+}
+
 /** Export diagnostics from an exact empty same-origin request. */
 export async function handleDesktopDiagnosticsExportRequest(
   req: IncomingMessage,
@@ -386,35 +487,6 @@ export async function handleDesktopProfileCreateWindowRequest(
   } catch (cause) {
     reportError('open Profile creator', cause)
     finishJson(res, 500, error('Profile creator could not be opened'))
-  }
-}
-
-/** Restore the last-known-good Profile from an exact empty request. */
-export async function handleDesktopProfileRollbackRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  expectedOrigin: string,
-  controller: DesktopSettingsController,
-  reportError: (operation: string, cause: unknown) => void = () => {},
-): Promise<void> {
-  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
-  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
-    return finishJson(res, 403, error('forbidden'))
-  }
-  const value = await parsePostBody(req, res)
-  if (value === INVALID_BODY) return
-  if (!isEmptyRequest(value)) return finishJson(res, 400, error('invalid Profile rollback request'))
-  try {
-    finishPostResponse(
-      res,
-      202,
-      controller.rollbackProfile(),
-      'restore last-known-good Profile',
-      reportError,
-    )
-  } catch (cause) {
-    reportError('prepare last-known-good Profile restore', cause)
-    finishJson(res, 409, error('last-known-good Profile could not be restored'))
   }
 }
 

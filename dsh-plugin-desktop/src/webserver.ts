@@ -1,7 +1,14 @@
-/** Desktop-owned loopback WebServer wrapper with bounded bind-conflict retry. */
+/** Desktop-owned WebServer wrapper with bounded bind-conflict retry. */
 
+import type { ServerResponse } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { Service } from '@deepseek-ai/cordis'
-import WebServer, { type Config } from '@deepseek-ai/dsh-host-webserver'
+import WebServer, {
+  type Config,
+  type WebRoute,
+  type WebUpgradeRoute,
+} from '@deepseek-ai/dsh-host-webserver'
+import { decideDesktopBrowserAccess } from './desktop-browser-access.ts'
 import { DESKTOP_WEB_PORT_RETRY_LIMIT } from './desktop-port.ts'
 
 function isAddressInUse(cause: unknown): boolean {
@@ -19,6 +26,25 @@ function closeFailedServer(instance: unknown): void {
   }
 }
 
+function rejectBrowserRequest(res: ServerResponse): void {
+  res.statusCode = 403
+  res.setHeader('cache-control', 'no-store')
+  res.setHeader('content-type', 'text/plain; charset=utf-8')
+  res.setHeader('x-content-type-options', 'nosniff')
+  res.end('forbidden')
+}
+
+function rejectBrowserUpgrade(socket: Duplex): void {
+  socket.end([
+    'HTTP/1.1 403 Forbidden',
+    'Connection: close',
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Length: 9',
+    '',
+    'forbidden',
+  ].join('\r\n'))
+}
+
 /** Reuse the upstream WebServer while retrying only real bind collisions. */
 export class DesktopWebServer extends WebServer {
   static override Config = WebServer.Config
@@ -26,11 +52,45 @@ export class DesktopWebServer extends WebServer {
   private readonly desktopConfig: Config
 
   constructor(ctx: ConstructorParameters<typeof WebServer>[0], config: Config) {
-    if (config.host !== '127.0.0.1') {
-      throw new Error('dsh-plugin-desktop: Desktop WebServer requires a loopback host')
+    if (config.host !== '127.0.0.1' && config.host !== '0.0.0.0') {
+      throw new Error('dsh-plugin-desktop: Desktop WebServer requires a supported host')
     }
     super(ctx, config)
     this.desktopConfig = config
+  }
+
+  private permits(request: Parameters<WebRoute['handler']>[0]): boolean {
+    const access = this.ctx.get('desktopBrowserAccess')
+    // The Desktop-owned server remains usable in an ordinary `dsh` launch,
+    // where the Electron launcher capability is intentionally absent.
+    return access === undefined || decideDesktopBrowserAccess(access, request) !== 'denied'
+  }
+
+  override register(route: WebRoute): () => void {
+    return super.register({
+      ...route,
+      handler: async (req, res) => {
+        if (!this.permits(req)) return rejectBrowserRequest(res)
+        await route.handler(req, res)
+      },
+    })
+  }
+
+  override registerFallback(handler: WebRoute['handler']): () => void {
+    return super.registerFallback(async (req, res) => {
+      if (!this.permits(req)) return rejectBrowserRequest(res)
+      await handler(req, res)
+    })
+  }
+
+  override registerUpgrade(route: WebUpgradeRoute): () => void {
+    return super.registerUpgrade({
+      ...route,
+      handler: (req, socket, head) => {
+        if (!this.permits(req)) return rejectBrowserUpgrade(socket)
+        return route.handler(req, socket, head)
+      },
+    })
   }
 
   override async [Service.init](): Promise<void> {

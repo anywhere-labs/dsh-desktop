@@ -1,6 +1,6 @@
 /** Official Settings Slot registration for Desktop-owned preferences. */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { DesktopSettingsSection, type DesktopNotificationSettings, type DesktopShellSettings } from './DesktopSettingsSection.tsx'
@@ -17,6 +17,35 @@ export const DESKTOP_SETTINGS_LOCALE_NAMESPACE = 'desktop.settings'
 export const DESKTOP_SHELL_SETTINGS_NAMESPACE = 'dsh-desktop'
 export const DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE = 'dsh-desktop-notifications'
 
+/** Shared client controls consumed by settings and Desktop-owned window chrome. */
+export interface DesktopSettingsClientControl {
+  readonly api: ReturnType<typeof createDesktopSettingsApi>
+  setMode(mode: DesktopShellSettings['mode']): Promise<void>
+}
+
+/**
+ * Persist a native mode choice without leaving browser access in a mode the
+ * marker-free client cannot render. Custom modes withdraw browser and LAN
+ * access in ordered writes; the Host compares only effective generation state.
+ */
+export async function persistDesktopModeSelection(
+  desktopSettings: Pick<SettingsScope<DesktopShellSettings>, 'set'>,
+  mode: DesktopShellSettings['mode'],
+): Promise<void> {
+  if (mode === 'compatibility') {
+    await desktopSettings.set('mode', mode)
+    return
+  }
+  // The titlebar is interactive before the settings mirror necessarily reaches
+  // ready. Always withdraw both browser capabilities for a custom mode instead
+  // of treating an unavailable or stale snapshot as browser access being off.
+  // Withdraw the listener first so every intermediate persisted state remains
+  // valid while compatibility mode is still selected.
+  await desktopSettings.set('networkExposure', 'loopback')
+  await desktopSettings.set('openBrowser', false)
+  await desktopSettings.set('mode', mode)
+}
+
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Desktop-only settings page copy. */
@@ -25,7 +54,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Register the Desktop page in the settings.section list slot. */
-export function applyDesktopSettings(ctx: ClientContext, environment: DesktopClientEnvironment): void {
+export function applyDesktopSettings(
+  ctx: ClientContext,
+  environment: DesktopClientEnvironment,
+): DesktopSettingsClientControl {
   const desktopSettings = ctx.settingsScope.bind<DesktopShellSettings>({
     namespace: DESKTOP_SHELL_SETTINGS_NAMESPACE,
   })
@@ -34,6 +66,9 @@ export function applyDesktopSettings(ctx: ClientContext, environment: DesktopCli
   })
   const api = createDesktopSettingsApi()
   const t = ctx.locale.bind(DESKTOP_SETTINGS_LOCALE_NAMESPACE)
+  const setMode = async (mode: DesktopShellSettings['mode']): Promise<void> => {
+    await persistDesktopModeSelection(desktopSettings, mode)
+  }
 
   ctx.effect(
     () => ctx.locale.register(DESKTOP_SETTINGS_LOCALE_NAMESPACE, { zh, en }),
@@ -53,6 +88,8 @@ export function applyDesktopSettings(ctx: ClientContext, environment: DesktopCli
       api,
       platform: environment.platform,
       initialMode: environment.mode,
+      micaSupported: environment.micaSupported,
+      setMode,
       desktopSettings,
       notificationSettings,
     }),
@@ -64,4 +101,9 @@ export function applyDesktopSettings(ctx: ClientContext, environment: DesktopCli
     locale: DESKTOP_SETTINGS_LOCALE_NAMESPACE,
     inject: () => ({ api }),
   }, DesktopTerminalSettingsAction))
+
+  return Object.freeze({
+    api,
+    setMode,
+  })
 }

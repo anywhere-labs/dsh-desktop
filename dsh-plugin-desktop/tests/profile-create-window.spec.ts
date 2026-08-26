@@ -6,8 +6,10 @@ const electron = vi.hoisted(() => {
     loadURL: ReturnType<typeof vi.fn>
     show: ReturnType<typeof vi.fn>
     focus: ReturnType<typeof vi.fn>
+    restore: ReturnType<typeof vi.fn>
     close: ReturnType<typeof vi.fn>
     isDestroyed: ReturnType<typeof vi.fn>
+    isMinimized: ReturnType<typeof vi.fn>
     loadFile: ReturnType<typeof vi.fn>
     once: ReturnType<typeof vi.fn>
     on: ReturnType<typeof vi.fn>
@@ -22,8 +24,10 @@ const electron = vi.hoisted(() => {
       executeJavaScript: vi.fn(async () => {}),
     }
     readonly isDestroyed = vi.fn(() => false)
+    readonly isMinimized = vi.fn(() => false)
     readonly show = vi.fn()
     readonly focus = vi.fn()
+    readonly restore = vi.fn()
     readonly close = vi.fn()
     readonly loadFile = vi.fn(async () => {})
     readonly loadURL = vi.fn(async () => {})
@@ -35,18 +39,29 @@ const electron = vi.hoisted(() => {
       windows.push(this as unknown as typeof windows[number])
     }
   }
-  return { BrowserWindow, windows }
+  return {
+    app: {
+      isHidden: vi.fn(() => false),
+      show: vi.fn(),
+    },
+    BrowserWindow,
+    windows,
+  }
 })
 
-vi.mock('electron', () => ({ BrowserWindow: electron.BrowserWindow }))
+vi.mock('electron', () => ({ app: electron.app, BrowserWindow: electron.BrowserWindow }))
 
 import {
   ProfileCreateWindow,
   parseProfileCreateAction,
 } from '../src/profile-create-window.ts'
+import { auxiliaryWindowHasCustomFrame } from '../src/auxiliary-window-options.ts'
 
 describe('ProfileCreateWindow', () => {
-  beforeEach(() => { electron.windows.length = 0 })
+  beforeEach(() => {
+    electron.windows.length = 0
+    vi.clearAllMocks()
+  })
 
   it('parses only local submit and cancel actions', () => {
     expect(parseProfileCreateAction('dsh-profile-create://submit?name=work')).toEqual({ action: 'submit', name: 'work' })
@@ -65,7 +80,13 @@ describe('ProfileCreateWindow', () => {
     expect(electron.windows[0]?.focus).toHaveBeenCalledOnce()
     expect(electron.windows[0]?.loadFile).toHaveBeenCalledWith(
       expect.stringMatching(/[\\/]native-ui[\\/]profile-create\.html$/u),
-      { query: { locale: 'en' } },
+      {
+        query: {
+          locale: 'en',
+          platform: process.platform,
+          frame: String(auxiliaryWindowHasCustomFrame()),
+        },
+      },
     )
     expect(electron.windows[0]?.options).toEqual(expect.objectContaining({
       width: 480,
@@ -81,6 +102,23 @@ describe('ProfileCreateWindow', () => {
     }))
     expect(electron.windows[0]?.options).not.toHaveProperty('modal')
     expect(electron.windows[0]?.options).not.toHaveProperty('parent')
+  })
+
+  it('restores the hidden macOS application before showing the first profile window', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    electron.app.isHidden.mockReturnValue(true)
+    const creator = new ProfileCreateWindow({ locale: 'en', onSubmit: async () => {} })
+    creator.open()
+    const window = electron.windows[0]
+    window?.isMinimized.mockReturnValue(true)
+    const ready = window?.once.mock.calls.find(([event]) => event === 'ready-to-show')?.[1]
+
+    ready()
+
+    expect(electron.app.show).toHaveBeenCalledOnce()
+    expect(window?.restore).toHaveBeenCalledOnce()
+    expect(window?.show).toHaveBeenCalledOnce()
+    expect(window?.focus).toHaveBeenCalledOnce()
   })
 
   it('does not access destroyed web contents from the closed callback', () => {

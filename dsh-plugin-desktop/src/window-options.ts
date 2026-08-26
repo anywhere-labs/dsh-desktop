@@ -2,14 +2,52 @@
 
 import type { BrowserWindowConstructorOptions, NativeImage } from 'electron'
 import type { DesktopPlatform, DesktopShellSpec } from './runtime.ts'
-import { WINDOWS_TITLEBAR_HEIGHT } from './window-chrome.ts'
+import {
+  ADVANCED_MACOS_TRAFFIC_LIGHT_TOP,
+  ADVANCED_WINDOWS_TITLEBAR_HEIGHT,
+  DESKTOP_FRAME_HEIGHT,
+  DESKTOP_FRAME_MACOS_TRAFFIC_LIGHT_TOP,
+} from './window-chrome.ts'
+import {
+  windowsSupportsSystemBackdrop,
+  windowsUsesLegacyAcrylic,
+} from './window-material.ts'
+
+/** Stable persistent storage isolated from every auxiliary/default session. */
+export const DESKTOP_RENDERER_SESSION_PARTITION = 'persist:dsh-desktop-renderer'
+
+function baseWindowOptions(
+  spec: DesktopShellSpec,
+  icon: NativeImage,
+  platform: DesktopPlatform,
+  preload: string,
+): BrowserWindowConstructorOptions {
+  return {
+    title: platform === 'win32' ? spec.windowTitle : '',
+    width: spec.width,
+    height: spec.height,
+    minWidth: spec.minWidth,
+    minHeight: spec.minHeight,
+    show: false,
+    backgroundColor: '#202124',
+    icon,
+    webPreferences: {
+      preload,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      partition: DESKTOP_RENDERER_SESSION_PARTITION,
+    },
+  }
+}
 
 /**
- * Build a secure BrowserWindow while preserving the operating system frame.
+ * Build the independent Desktop frame around the official compatibility client.
  * @param spec - shell values resolved from the active Cordis row.
  * @param icon - validated application icon.
  * @param platform - current Electron platform.
- * @returns options with a native frame and no custom materials.
+ * @returns custom frame options on macOS/Windows and a native Linux fallback.
  */
 export function compatibilityWindowOptions(
   spec: DesktopShellSpec,
@@ -20,24 +58,15 @@ export function compatibilityWindowOptions(
   if (spec.mode !== 'compatibility') {
     throw new Error(`dsh-plugin-desktop: unsupported compatibility window mode ${spec.mode}`)
   }
-  const options: BrowserWindowConstructorOptions = {
-    title: platform === 'win32' ? spec.windowTitle : '',
-    width: spec.width,
-    height: spec.height,
-    minWidth: spec.minWidth,
-    minHeight: spec.minHeight,
-    show: false,
-    icon,
-    webPreferences: {
-      preload,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-    },
+  if (platform === 'darwin' || platform === 'win32') {
+    return customChromeWindowOptions(spec, icon, platform, preload, {
+      titlebarHeight: DESKTOP_FRAME_HEIGHT,
+      macosTrafficLightTop: DESKTOP_FRAME_MACOS_TRAFFIC_LIGHT_TOP,
+    })
   }
-  if (platform === 'win32') options.autoHideMenuBar = true
-  return options
+  const options = baseWindowOptions(spec, icon, platform, preload)
+  if (platform === 'linux') return options
+  throw new Error('dsh-plugin-desktop: compatibility mode is unsupported on this platform')
 }
 
 /**
@@ -54,36 +83,66 @@ export function advancedWindowOptions(
   preload: string,
 ): BrowserWindowConstructorOptions {
   if (spec.mode !== 'advanced') {
-    throw new Error(`dsh-plugin-desktop: unsupported advanced window mode ${spec.mode}`)
+    throw new Error(`dsh-plugin-desktop: unsupported enhanced window mode ${spec.mode}`)
   }
-  const options: BrowserWindowConstructorOptions = {
-    title: platform === 'win32' ? spec.windowTitle : '',
-    width: spec.width,
-    height: spec.height,
-    minWidth: spec.minWidth,
-    minHeight: spec.minHeight,
-    show: false,
-    icon,
-    webPreferences: {
-      preload,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-    },
+  return customChromeWindowOptions(spec, icon, platform, preload, {
+    titlebarHeight: ADVANCED_WINDOWS_TITLEBAR_HEIGHT,
+    macosTrafficLightTop: ADVANCED_MACOS_TRAFFIC_LIGHT_TOP,
+  })
+}
+
+/** Build the visible command-bar window used by extended mode. */
+export function extendedWindowOptions(
+  spec: DesktopShellSpec,
+  icon: NativeImage,
+  platform: DesktopPlatform,
+  preload: string,
+): BrowserWindowConstructorOptions {
+  if (spec.mode !== 'extended') {
+    throw new Error(`dsh-plugin-desktop: unsupported extended window mode ${spec.mode}`)
   }
+  return customChromeWindowOptions(spec, icon, platform, preload, {
+    titlebarHeight: DESKTOP_FRAME_HEIGHT,
+    macosTrafficLightTop: DESKTOP_FRAME_MACOS_TRAFFIC_LIGHT_TOP,
+  })
+}
+
+interface CustomChromeGeometry {
+  readonly titlebarHeight: number
+  readonly macosTrafficLightTop: number
+}
+
+function customChromeWindowOptions(
+  spec: DesktopShellSpec,
+  icon: NativeImage,
+  platform: DesktopPlatform,
+  preload: string,
+  geometry: CustomChromeGeometry,
+): BrowserWindowConstructorOptions {
+  const options = baseWindowOptions(spec, icon, platform, preload)
   if (platform === 'darwin') {
-    return {
+    const custom: BrowserWindowConstructorOptions = {
       ...options,
       titleBarStyle: 'hiddenInset',
-      trafficLightPosition: { x: 16, y: 16 },
-      transparent: true,
-      backgroundColor: '#00000000',
-      vibrancy: 'sidebar',
-      visualEffectState: 'followWindow',
+      trafficLightPosition: { x: 16, y: geometry.macosTrafficLightTop },
     }
+    return spec.material === 'transparent'
+      ? {
+          ...custom,
+          transparent: true,
+          backgroundColor: '#00000000',
+          vibrancy: 'sidebar',
+          visualEffectState: 'followWindow',
+        }
+      : custom
   }
   if (platform === 'win32') {
+    const systemMaterial = windowsSupportsSystemBackdrop(spec.windowsBuild)
+      && (spec.material === 'acrylic' || spec.material === 'mica')
+      ? spec.material
+      : undefined
+    const legacyAcrylic = spec.material === 'acrylic'
+      && windowsUsesLegacyAcrylic(spec.windowsBuild)
     return {
       ...options,
       autoHideMenuBar: true,
@@ -91,16 +150,17 @@ export function advancedWindowOptions(
       titleBarOverlay: {
         color: '#00000000',
         symbolColor: '#7f858f',
-        height: WINDOWS_TITLEBAR_HEIGHT,
+        height: geometry.titlebarHeight,
       },
-      backgroundColor: '#00000000',
-      backgroundMaterial: 'mica',
+      ...(systemMaterial === undefined && !legacyAcrylic ? {} : { backgroundColor: '#00000000' }),
+      ...(legacyAcrylic ? { transparent: true } : {}),
+      ...(systemMaterial === undefined ? {} : { backgroundMaterial: systemMaterial }),
       hasShadow: true,
       roundedCorners: true,
       thickFrame: true,
     }
   }
-  throw new Error('dsh-plugin-desktop: advanced shell mode is supported on macOS and Windows')
+  throw new Error('dsh-plugin-desktop: custom desktop shell modes are supported on macOS and Windows')
 }
 
 /**
@@ -116,7 +176,7 @@ export function desktopWindowOptions(
   platform: DesktopPlatform,
   preload: string,
 ): BrowserWindowConstructorOptions {
-  return spec.mode === 'compatibility'
-    ? compatibilityWindowOptions(spec, icon, platform, preload)
-    : advancedWindowOptions(spec, icon, platform, preload)
+  if (spec.mode === 'compatibility') return compatibilityWindowOptions(spec, icon, platform, preload)
+  if (spec.mode === 'extended') return extendedWindowOptions(spec, icon, platform, preload)
+  return advancedWindowOptions(spec, icon, platform, preload)
 }

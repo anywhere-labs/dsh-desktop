@@ -8,15 +8,19 @@ import type { DesktopProfileSummary } from './profile-manager.ts'
 import type { DesktopProfiles } from './profile-service.ts'
 import type {
   DesktopMarketSelectResponse,
+  DesktopDeveloperToolsToggleResponse,
   DesktopDiagnosticsExportResponse,
   DesktopProfileCreateResponse,
   DesktopProfileCreateWindowResponse,
   DesktopProfileDeleteResponse,
-  DesktopProfileRollbackResponse,
   DesktopProfileSelectResponse,
+  DesktopRestartResponse,
+  DesktopRecoveryRestartResponse,
+  DesktopRendererReloadResponse,
   DesktopSettingsMarketView,
   DesktopSettingsProfileView,
   DesktopSettingsResponse,
+  DesktopSettingsWebView,
   DesktopTerminalOpenResponse,
 } from './desktop-settings-contract.ts'
 
@@ -31,16 +35,22 @@ export interface DesktopSettingsControllerBootstrap {
   readMarket(): DesktopMarketSnapshot
   /** Persist an explicit provider request. */
   selectMarket(provider: DesktopMarketProvider): Promise<DesktopMarketSnapshot>
+  /** Read marker-free URLs from the generation's actual WebServer and LAN snapshot. */
+  readWeb(): DesktopSettingsWebView
   /** Queue an orderly restart after a response confirms persisted selection. */
   scheduleRestart(): void
+  /** Queue an orderly restart into the pre-Host recovery assistant. */
+  scheduleRecoveryRestart(): void
   /** Open the launcher-owned DSH terminal. */
   openTerminal(): void
+  /** Reload the mounted renderer after its HTTP acknowledgement is delivered. */
+  reloadRenderer(): void
+  /** Toggle Developer Tools for the mounted renderer. */
+  toggleDeveloperTools(): void
   /** Export diagnostics through the launcher-owned privacy flow. */
   exportDiagnostics(): void | Promise<void>
   /** Open the isolated native Profile creator. */
   openProfileCreator(): void
-  /** Prepare a last-known-good rollback without quiescing the Host yet. */
-  prepareProfileRollback(): DesktopSettingsPostResponse<DesktopProfileRollbackResponse>
 }
 
 /** A persisted response plus work that must run only after `res.end()`. */
@@ -58,7 +68,7 @@ export function projectDesktopSettingsProfile(
     name: profile.name,
     exists: profile.exists,
     webCapable: profile.webCapable,
-    selectable: profile.webCapable && profile.problem === undefined,
+    selectable: profile.exists && profile.webCapable && profile.problem === undefined,
     deletable,
   })
 }
@@ -90,6 +100,7 @@ export class DesktopSettingsController {
 
   /** Read a fresh, renderer-safe settings projection. */
   read(): DesktopSettingsResponse {
+    const web = this.bootstrap.readWeb()
     return Object.freeze({
       current: this.bootstrap.profiles.current.name,
       profiles: Object.freeze(
@@ -99,6 +110,10 @@ export class DesktopSettingsController {
         )),
       ),
       market: projectMarket(this.bootstrap.readMarket(), this.effectiveMarket),
+      web: Object.freeze({
+        localUrl: web.localUrl,
+        lanUrls: Object.freeze([...web.lanUrls]),
+      }),
     })
   }
 
@@ -153,6 +168,36 @@ export class DesktopSettingsController {
     return Object.freeze({ accepted: true })
   }
 
+  /** Acknowledge the renderer before queueing an orderly Desktop relaunch. */
+  restart(): DesktopSettingsPostResponse<DesktopRestartResponse> {
+    return Object.freeze({
+      response: Object.freeze({ accepted: true }),
+      afterResponse: () => { this.bootstrap.scheduleRestart() },
+    })
+  }
+
+  /** Acknowledge the renderer before queueing a recovery-mode relaunch. */
+  restartToRecovery(): DesktopSettingsPostResponse<DesktopRecoveryRestartResponse> {
+    return Object.freeze({
+      response: Object.freeze({ accepted: true }),
+      afterResponse: () => { this.bootstrap.scheduleRecoveryRestart() },
+    })
+  }
+
+  /** Acknowledge the renderer before replacing its current document. */
+  reloadRenderer(): DesktopSettingsPostResponse<DesktopRendererReloadResponse> {
+    return Object.freeze({
+      response: Object.freeze({ accepted: true }),
+      afterResponse: () => { this.bootstrap.reloadRenderer() },
+    })
+  }
+
+  /** Toggle Developer Tools without exposing an Electron bridge to the page. */
+  toggleDeveloperTools(): DesktopDeveloperToolsToggleResponse {
+    this.bootstrap.toggleDeveloperTools()
+    return Object.freeze({ accepted: true })
+  }
+
   /** Export diagnostics through the native confirmation and reveal flow. */
   async exportDiagnostics(): Promise<DesktopDiagnosticsExportResponse> {
     await this.bootstrap.exportDiagnostics()
@@ -165,10 +210,6 @@ export class DesktopSettingsController {
     return Object.freeze({ accepted: true })
   }
 
-  /** Hand off a validated rollback that starts only after the HTTP response. */
-  rollbackProfile(): DesktopSettingsPostResponse<DesktopProfileRollbackResponse> {
-    return this.bootstrap.prepareProfileRollback()
-  }
 }
 
 declare module '@deepseek-ai/cordis' {

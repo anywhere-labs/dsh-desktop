@@ -66,6 +66,16 @@ afterEach(() => {
 describe('desktop profile composition', {
   timeout: process.platform === 'win32' ? 10_000 : 5_000,
 }, () => {
+  it('ships a PowerShell-backed minimal preset for Windows', () => {
+    const minimalPreset = readFileSync(
+      join(shippedPresetRoot(), 'minimal', 'agent.cordis.yml'),
+      'utf8',
+    )
+
+    expect(minimalPreset).toContain("name: '@deepseek-ai/dsh-tool-pwsh-persistent'")
+    expect(minimalPreset).toContain("disabled: !!js process.platform !== 'win32'")
+  })
+
   it('reads packaged Cordis skills from the physical unpacked preset root', () => {
     const home = temporaryHome()
     const resources = join(home, 'resources')
@@ -309,6 +319,8 @@ virtualStoreDirMaxLength: 60
     expect(prepared.homeDir).toBe(home)
     expect(fileURLToPath(prepared.bareModuleBaseUrl)).toBe(join(prepared.profile.dir, 'package.json'))
     expect(prepared.mode).toBe('compatibility')
+    expect(prepared.openBrowser).toBe(false)
+    expect(prepared.networkExposure).toBe('loopback')
 
     const rows = composeEntries([prepared.patches])
     for (const [id, name] of [
@@ -331,6 +343,7 @@ virtualStoreDirMaxLength: 60
       id: 'subprocess',
       name: '@deepseek-ai/dsh-subprocess-local',
     })
+    expect(rows.map(row => row.id)).not.toContain('desktop-windows-subprocess')
     expect(rows.find(row => row.id === 'sandbox')).toEqual({
       id: 'sandbox',
       name: '@deepseek-ai/dsh-sandbox-local',
@@ -464,7 +477,6 @@ virtualStoreDirMaxLength: 60
     profileManifest.dsh.profile.bundles.push(packageName)
     writeFileSync(profileManifestPath, JSON.stringify(profileManifest) + '\n')
     const managementStatePath = join(home, 'user-data', 'plugin-management', 'state.json')
-    const recoveryStatePath = join(home, 'user-data', 'startup-recovery', 'state.json')
     mkdirSync(dirname(managementStatePath), { recursive: true })
     writeFileSync(managementStatePath, JSON.stringify({
       version: 1,
@@ -478,7 +490,6 @@ virtualStoreDirMaxLength: 60
       'desktop',
       managementStatePath,
       { requested: 'dsh-market', effective: 'dsh-market', legacyDefaulted: false },
-      recoveryStatePath,
     )
     expect(composeEntries([external.patches])).toContainEqual(expect.objectContaining({
       id: 'third-party-marker',
@@ -491,14 +502,13 @@ virtualStoreDirMaxLength: 60
       'desktop',
       managementStatePath,
       { requested: 'community-market', effective: 'community-market', legacyDefaulted: false },
-      recoveryStatePath,
     )
     expect(composeEntries([community.patches])).not.toContainEqual(expect.objectContaining({
       id: 'third-party-marker',
     }))
   })
 
-  it('keeps a startup-recovery disable effective for every market provider', () => {
+  it('ignores obsolete startup-recovery disable state for every market provider', () => {
     const home = temporaryHome()
     const packageName = 'third-party-plugin'
     installBundle(home, packageName, '- insert:\n    - id: third-party-marker\n      name: cordis:example\n')
@@ -523,9 +533,8 @@ virtualStoreDirMaxLength: 60
       'desktop',
       managementStatePath,
       { requested: 'dsh-market', effective: 'dsh-market', legacyDefaulted: false },
-      recoveryStatePath,
     )
-    expect(composeEntries([prepared.patches])).not.toContainEqual(expect.objectContaining({
+    expect(composeEntries([prepared.patches])).toContainEqual(expect.objectContaining({
       id: 'third-party-marker',
     }))
   })
@@ -606,15 +615,24 @@ virtualStoreDirMaxLength: 60
     }))
   })
 
-  it('projects YAML startup settings into the Host, Web server, and client Loader rows', () => {
+  it('keeps a custom layout and withdraws incompatible browser and LAN access', () => {
     const home = temporaryHome()
-    writeFileSync(join(home, 'settings.yaml'), 'dsh-desktop:\n  mode: advanced\n  port: 43189\n')
+    writeFileSync(join(home, 'settings.yaml'), [
+      'dsh-desktop:',
+      '  mode: advanced',
+      '  port: 43189',
+      '  openBrowser: true',
+      '  networkExposure: lan',
+      '',
+    ].join('\n'))
 
     const prepared = prepareDesktopProfile(undefined, home, 'darwin')
     const rows = composeEntries([prepared.patches])
 
     expect(prepared.mode).toBe('advanced')
     expect(prepared.port).toBe(43_189)
+    expect(prepared.openBrowser).toBe(false)
+    expect(prepared.networkExposure).toBe('loopback')
     expect(rows.find(row => row.id === 'desktop-shell')).toEqual(expect.objectContaining({
       disabled: false,
       config: expect.objectContaining({ mode: 'advanced', port: 43_189 }),
@@ -627,12 +645,72 @@ virtualStoreDirMaxLength: 60
       name: 'dsh-plugin-desktop/webserver',
       config: { host: '127.0.0.1', port: 43_189 },
     }))
+    expect(rows.find(row => row.id === 'web-runtime')).toEqual(expect.objectContaining({
+      config: expect.objectContaining({ openBrowser: false }),
+    }))
     expect(rows.find(row => row.id === 'settings')).toEqual(expect.objectContaining({
       config: expect.objectContaining({ dshHome: home }),
     }))
     expect(rows.find(row => row.id === 'ui-layout')?.disabled).toBe(true)
     expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBe(false)
     expect(rows.find(row => row.id === 'ui-conversation')?.disabled).toBe(false)
+  })
+
+  it('allows browser and LAN access when compatibility mode is already selected', () => {
+    const home = temporaryHome()
+    writeFileSync(join(home, 'settings.yaml'), [
+      'dsh-desktop:',
+      '  mode: compatibility',
+      '  port: 43189',
+      '  openBrowser: true',
+      '  networkExposure: lan',
+      '',
+    ].join('\n'))
+
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+    const rows = composeEntries([prepared.patches])
+
+    expect(prepared).toMatchObject({
+      mode: 'compatibility',
+      openBrowser: true,
+      networkExposure: 'lan',
+    })
+    expect(rows.find(row => row.id === 'desktop-webserver')).toEqual(expect.objectContaining({
+      config: { host: '0.0.0.0', port: 43_189 },
+    }))
+    expect(rows.find(row => row.id === 'web-runtime')).toEqual(expect.objectContaining({
+      config: expect.objectContaining({ openBrowser: false }),
+    }))
+  })
+
+  it('replaces the official root layout for extended window mode while retaining its occupants', () => {
+    const home = temporaryHome()
+    writeFileSync(join(home, 'settings.yaml'), [
+      'dsh-desktop:',
+      '  mode: extended',
+      '  macosMaterial: off',
+      '  windowsMaterial: mica',
+      '',
+    ].join('\n'))
+
+    const prepared = prepareDesktopProfile(undefined, home, 'win32')
+    const rows = composeEntries([prepared.patches])
+
+    expect(prepared).toEqual(expect.objectContaining({
+      mode: 'extended',
+      macosMaterial: 'off',
+      windowsMaterial: 'mica',
+    }))
+    expect(rows.find(row => row.id === 'ui-layout')?.disabled).toBe(true)
+    expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBe(false)
+    expect(rows.find(row => row.id === 'ui-conversation')?.disabled).toBe(false)
+    expect(rows.find(row => row.id === 'desktop-shell')).toEqual(expect.objectContaining({
+      config: expect.objectContaining({
+        mode: 'extended',
+        macosMaterial: 'off',
+        windowsMaterial: 'mica',
+      }),
+    }))
   })
 
   it('reads JSON settings and defaults an absent desktop namespace to compatibility', () => {
@@ -644,25 +722,62 @@ virtualStoreDirMaxLength: 60
     expect(desktopStartupSettingsFromSettings({ 'dsh-desktop': { mode: 'advanced', port: 43_189 } })).toEqual({
       mode: 'advanced',
       port: 43_189,
+      macosMaterial: 'transparent',
+      windowsMaterial: 'acrylic',
+      openBrowser: false,
+      networkExposure: 'loopback',
     })
     expect(desktopStartupSettingsFromSettings({ 'dsh-desktop': { mode: 'advanced' } })).toEqual({
       mode: 'advanced',
       port: 43_120,
+      macosMaterial: 'transparent',
+      windowsMaterial: 'acrylic',
+      openBrowser: false,
+      networkExposure: 'loopback',
     })
     expect(desktopShellModeFromSettings({ unrelated: { enabled: true } })).toBe('compatibility')
+  })
+
+  it('treats legacy LAN exposure as browser access only in compatibility mode', () => {
+    expect(desktopStartupSettingsFromSettings({
+      'dsh-desktop': {
+        mode: 'advanced',
+        openBrowser: false,
+        networkExposure: 'lan',
+      },
+    })).toMatchObject({
+      mode: 'advanced',
+      openBrowser: false,
+      networkExposure: 'loopback',
+    })
+    expect(desktopStartupSettingsFromSettings({
+      'dsh-desktop': {
+        mode: 'compatibility',
+        openBrowser: false,
+        networkExposure: 'lan',
+      },
+    })).toMatchObject({
+      mode: 'compatibility',
+      openBrowser: true,
+      networkExposure: 'lan',
+    })
   })
 
   it('rejects invalid settings roots, sections, modes, and YAML', () => {
     expect(() => desktopShellModeFromSettings([])).toThrow('must be a map')
     expect(() => desktopShellModeFromSettings({ 'dsh-desktop': true })).toThrow('settings must be a map')
     expect(() => desktopShellModeFromSettings({ 'dsh-desktop': { mode: 'glass' } })).toThrow(
-      'must be "compatibility" or "advanced"',
+      'must be "compatibility", "extended", or "advanced"',
     )
     for (const port of [-1, 1.5, 65_536, '43189']) {
       expect(() => desktopStartupSettingsFromSettings({ 'dsh-desktop': { port } })).toThrow(
         'port must be an integer from 0 through 65535',
       )
     }
+    expect(() => desktopStartupSettingsFromSettings({ 'dsh-desktop': { openBrowser: 'yes' } }))
+      .toThrow('openBrowser must be a boolean')
+    expect(() => desktopStartupSettingsFromSettings({ 'dsh-desktop': { networkExposure: 'internet' } }))
+      .toThrow('networkExposure must be "loopback" or "lan"')
 
     const home = temporaryHome()
     const path = join(home, 'invalid.yaml')
@@ -685,7 +800,7 @@ virtualStoreDirMaxLength: 60
     )
   })
 
-  it('keeps the Windows browse panel and desktop pwsh provider without replacing process boundaries', () => {
+  it('keeps the Windows browse panel, official agent presets, and desktop pwsh provider', () => {
     const home = temporaryHome()
     writeFileSync(join(home, 'cordis.patch.yml'), [
       '- id: pwsh-sandbox',
@@ -716,18 +831,24 @@ virtualStoreDirMaxLength: 60
     expect(rows.find(row => row.id === 'subprocess')).toEqual({
       id: 'subprocess',
       name: '@deepseek-ai/dsh-subprocess-local',
+      disabled: true,
     })
+    expect(rows).toContainEqual(expect.objectContaining({
+      id: 'desktop-windows-subprocess',
+      name: 'dsh-plugin-desktop/windows-subprocess',
+    }))
     expect(rows.find(row => row.id === 'sandbox')).toEqual({
       id: 'sandbox',
       name: '@deepseek-ai/dsh-sandbox-local',
     })
     expect(rows.find(row => row.id === 'agent-presets')).toEqual(expect.objectContaining({
       name: '@deepseek-ai/dsh-agent-presets',
-      disabled: true,
+      config: expect.objectContaining({
+        roots: [{ path: shippedPresetRoot(), trust: 'system' }],
+      }),
     }))
-    expect(rows.find(row => row.id === 'desktop-windows-agent-presets')).toEqual(expect.objectContaining({
-      name: 'dsh-plugin-desktop/windows-agent-presets',
-    }))
+    expect(rows.find(row => row.id === 'agent-presets')?.disabled).toBeFalsy()
+    expect(rows.map(row => row.id)).not.toContain('desktop-windows-agent-presets')
     expect(rows.find(row => row.id === 'pwsh-sandbox')).toEqual(expect.objectContaining({
       name: '@deepseek-ai/dsh-pwsh-sandbox',
       disabled: true,
@@ -856,7 +977,7 @@ virtualStoreDirMaxLength: 60
     expect(prepared.skippedOptionalEntries).toEqual([])
   })
 
-  it('preserves an explicitly disabled upstream pwsh provider and a third-party replacement', () => {
+  it('preserves explicitly disabled upstream Windows providers and third-party replacements', () => {
     const home = temporaryHome()
     writeFileSync(join(home, 'cordis.patch.yml'), [
       '- id: pwsh-sandbox',
@@ -865,6 +986,12 @@ virtualStoreDirMaxLength: 60
       '- insert:',
       '    - id: third-party-pwsh-sandbox',
       "      name: 'third-party-pwsh-sandbox'",
+      '- id: subprocess',
+      "  name: '@deepseek-ai/dsh-subprocess-local'",
+      '  disabled: true',
+      '- insert:',
+      '    - id: third-party-subprocess',
+      "      name: 'third-party-subprocess'",
       '',
     ].join('\n'))
 
@@ -880,5 +1007,14 @@ virtualStoreDirMaxLength: 60
       name: 'third-party-pwsh-sandbox',
     }))
     expect(rows.map(row => row.id)).not.toContain('desktop-windows-pwsh-sandbox')
+    expect(rows.find(row => row.id === 'subprocess')).toEqual(expect.objectContaining({
+      name: '@deepseek-ai/dsh-subprocess-local',
+      disabled: true,
+    }))
+    expect(rows).toContainEqual(expect.objectContaining({
+      id: 'third-party-subprocess',
+      name: 'third-party-subprocess',
+    }))
+    expect(rows.map(row => row.id)).not.toContain('desktop-windows-subprocess')
   })
 })

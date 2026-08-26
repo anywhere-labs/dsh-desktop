@@ -34,16 +34,16 @@ type NotificationOutcome = 'turn-completed' | 'turn-failed' | 'job-completed' | 
 
 const NOTIFICATION_COPY: Record<DesktopLocale, Record<NotificationOutcome, DesktopNotification>> = {
   en: {
-    'turn-completed': { title: 'Turn Completed', body: 'A direct user turn has finished.' },
-    'turn-failed': { title: 'User Turn Failed', body: 'A direct user turn needs attention.' },
+    'turn-completed': { title: 'User Turn Completed', body: 'A user-initiated turn has finished.' },
+    'turn-failed': { title: 'User Turn Failed', body: 'A user-initiated turn could not finish. Open DSH Desktop for details.' },
     'job-completed': { title: 'Background Job Completed', body: 'A background job has finished.' },
-    'job-failed': { title: 'Background Job Failed', body: 'A background job needs attention.' },
+    'job-failed': { title: 'Background Job Failed', body: 'A background job could not finish. Open DSH Desktop for details.' },
   },
   zh: {
-    'turn-completed': { title: '用户回合已完成', body: '有一个用户回合已结束。' },
-    'turn-failed': { title: '用户回合失败', body: '有一个用户回合需要处理。' },
+    'turn-completed': { title: '用户回合已完成', body: '一个由你发起的回合已完成。' },
+    'turn-failed': { title: '用户回合失败', body: '一个由你发起的回合未能完成，请打开 DSH Desktop 查看详情。' },
     'job-completed': { title: '后台任务已完成', body: '有一个后台任务已结束。' },
-    'job-failed': { title: '后台任务失败', body: '有一个后台任务需要处理。' },
+    'job-failed': { title: '后台任务失败', body: '一个后台任务未能完成，请打开 DSH Desktop 查看详情。' },
   },
 }
 

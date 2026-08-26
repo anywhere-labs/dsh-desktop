@@ -10,11 +10,19 @@ import type {
 } from './desktop-settings-api.ts'
 import type { DesktopSettingsLocaleKey } from './desktop-settings-locales.ts'
 import type { DesktopClientPlatform } from './environment.ts'
+import {
+  desktopBrowserAccessAvailable,
+  desktopBrowserAccessEnabled,
+} from '../desktop-network.ts'
 
 /** Browser view of the Host `dsh-desktop` settings namespace. */
 export interface DesktopShellSettings {
-  readonly mode: 'compatibility' | 'advanced'
+  readonly mode: 'compatibility' | 'extended' | 'advanced'
+  readonly macosMaterial: 'off' | 'transparent'
+  readonly windowsMaterial: 'off' | 'acrylic' | 'mica'
   readonly port: number
+  readonly openBrowser: boolean
+  readonly networkExposure: 'loopback' | 'lan'
   readonly logLevel: 'debug' | 'info' | 'warn' | 'error'
 }
 
@@ -32,6 +40,8 @@ export interface DesktopSettingsSectionInjected {
   readonly api: DesktopSettingsApi
   readonly platform: DesktopClientPlatform
   readonly initialMode: DesktopShellSettings['mode']
+  readonly micaSupported: boolean
+  readonly setMode: (mode: DesktopShellSettings['mode']) => Promise<void>
   readonly desktopSettings: SettingsScope<DesktopShellSettings>
   readonly notificationSettings: SettingsScope<DesktopNotificationSettings>
 }
@@ -43,8 +53,26 @@ export type DesktopSettingsSectionProps =
   & InjectFace<DesktopSettingsSectionInjected>
 
 type Translate = DesktopSettingsSectionProps['t']
-type BusyOperation = 'load' | 'create-profile' | 'select-profile' | 'delete-profile' | 'select-market' | 'mode' | 'notification'
+type BusyOperation = 'load' | 'create-profile' | 'select-profile' | 'delete-profile' | 'select-market' | 'mode' | 'material' | 'web' | 'notification'
 type RestartState = 'none' | 'restarting' | 'required'
+
+/** URLs are advertised only after the user explicitly enables browser access. */
+export function desktopBrowserUrlsShouldRender(
+  browserAccess: boolean,
+  _networkExposure: DesktopShellSettings['networkExposure'],
+): boolean {
+  return browserAccess
+}
+
+/** Keep cancellation side-effect free; only explicit confirmation enables LAN. */
+export function resolveDesktopLanConfirmation(
+  confirmed: boolean,
+  dismiss: () => void,
+  enableLan: () => void,
+): void {
+  dismiss()
+  if (confirmed) enableLan()
+}
 
 function useScope<T>(scope: SettingsScope<T>) {
   const subscribe = useCallback((listener: () => void) => scope.subscribe(listener), [scope])
@@ -61,6 +89,7 @@ function Choice({
   disabled,
   action,
   status,
+  badge,
 }: {
   title: ReactNode
   body: ReactNode
@@ -70,6 +99,7 @@ function Choice({
   disabled?: boolean
   action: () => void
   status?: ReactNode
+  badge?: ReactNode
 }) {
   const actionable = disabled !== true && (!selected || reselectable === true)
   const choose = (): void => {
@@ -94,6 +124,7 @@ function Choice({
       <span className="dshDesktopSettingsChoiceCopy">
         <span className="dshDesktopSettingsChoiceTitle">
           {title}
+          {badge !== undefined && <span className="dshDesktopSettingsBadge">{badge}</span>}
           {status !== undefined && <span className="dshDesktopSettingsBadge">{status}</span>}
         </span>
         <span className="dshDesktopSettingsChoiceBody">{body}</span>
@@ -119,11 +150,13 @@ function RepositoryLink({ href, children }: { href: string; children: ReactNode 
 
 function ToggleRow({
   label,
+  badge,
   checked,
   disabled,
   onChange,
 }: {
   label: ReactNode
+  badge?: ReactNode
   checked: boolean
   disabled: boolean
   onChange: (checked: boolean) => void
@@ -131,7 +164,10 @@ function ToggleRow({
   const labelId = useId()
   return (
     <div className="dshDesktopSettingsToggleRow">
-      <span id={labelId}>{label}</span>
+      <span className="dshDesktopSettingsToggleLabel" id={labelId}>
+        {label}
+        {badge !== undefined && <span className="dshDesktopSettingsBadge">{badge}</span>}
+      </span>
       <button
         type="button"
         role="switch"
@@ -148,8 +184,8 @@ function ToggleRow({
 }
 
 function profileState(profile: DesktopProfileView, t: Translate): string {
-  if (!profile.webCapable || !profile.selectable) return t('profileUnavailable')
-  return profile.exists ? t('profileReady') : t('profileMissing')
+  if (!profile.exists || !profile.webCapable || !profile.selectable) return t('profileUnavailable')
+  return t('profileReady')
 }
 
 const MARKET_OPTIONS: readonly {
@@ -192,6 +228,8 @@ export function DesktopSettingsSection({
   api,
   platform,
   initialMode,
+  micaSupported,
+  setMode: persistMode,
   desktopSettings,
   notificationSettings,
 }: DesktopSettingsSectionProps) {
@@ -204,6 +242,7 @@ export function DesktopSettingsSection({
   const [operationFailed, setOperationFailed] = useState(false)
   const [restart, setRestart] = useState<RestartState>('none')
   const [pendingProfileDelete, setPendingProfileDelete] = useState<string>()
+  const [confirmLan, setConfirmLan] = useState(false)
 
   const load = useCallback(async () => {
     setBusy('load')
@@ -240,7 +279,15 @@ export function DesktopSettingsSection({
   const requestRestart = (): void => { setRestart('restarting') }
   const settingsWritable = desktop.status === 'ready' && desktop.writable
   const notificationsWritable = notifications.status === 'ready' && notifications.writable
-  const mode = desktop.value?.mode ?? initialMode
+  const storedMode = desktop.value?.mode ?? initialMode
+  const configuredNetworkExposure = desktop.value?.networkExposure ?? 'loopback'
+  const browserAccess = desktopBrowserAccessEnabled(
+    storedMode,
+    desktop.value?.openBrowser ?? false,
+    configuredNetworkExposure,
+  )
+  const mode = storedMode
+  const networkExposure = browserAccess ? configuredNetworkExposure : 'loopback'
   const notificationValue = notifications.value ?? {
     enabled: true,
     notifyOnTurnCompletion: true,
@@ -286,13 +333,55 @@ export function DesktopSettingsSection({
 
   const setMode = (next: DesktopShellSettings['mode']): void => {
     void run('mode', async () => {
-      await desktopSettings.set('mode', next)
+      await persistMode(next)
+      requestRestart()
+    })
+  }
+
+  const setMaterial = (next: string): void => {
+    void run('material', async () => {
+      if (platform === 'darwin') {
+        if (next !== 'off' && next !== 'transparent') {
+          throw new Error(`dsh-plugin-desktop: invalid macOS material ${JSON.stringify(next)}`)
+        }
+        await desktopSettings.set('macosMaterial', next)
+      } else if (platform === 'win32') {
+        if (next !== 'off' && next !== 'acrylic' && (next !== 'mica' || !micaSupported)) {
+          throw new Error(`dsh-plugin-desktop: unavailable Windows material ${JSON.stringify(next)}`)
+        }
+        await desktopSettings.set('windowsMaterial', next)
+      }
       requestRestart()
     })
   }
 
   const setNotification = (field: keyof DesktopNotificationSettings, checked: boolean): void => {
     void run('notification', async () => { await notificationSettings.set(field, checked) })
+  }
+
+  const setBrowserAccess = (checked: boolean): void => {
+    void run('web', async () => {
+      if (checked) {
+        if (!desktopBrowserAccessAvailable(mode)) return
+        await desktopSettings.set('openBrowser', true)
+        requestRestart()
+        return
+      }
+      // LAN keeps legacy browser access effective until the listener is safely
+      // returned to loopback, so the queued writes cannot expose a hidden gate.
+      await desktopSettings.set('openBrowser', false)
+      if (configuredNetworkExposure === 'lan') {
+        await desktopSettings.set('networkExposure', 'loopback')
+      }
+      if (browserAccess) requestRestart()
+    })
+  }
+
+  const setNetworkExposure = (exposure: DesktopShellSettings['networkExposure']): void => {
+    void run('web', async () => {
+      await desktopSettings.set('networkExposure', exposure)
+      requestRestart()
+    })
   }
 
   return (
@@ -416,6 +505,7 @@ export function DesktopSettingsSection({
               <Choice
                 key={option.id}
                 title={marketTitle(option, t)}
+                badge={option.id === 'community-market' ? t('beta') : undefined}
                 body={marketBody(option, t)}
                 selected={view.market.requested === option.id}
                 reselectable={view.market.requested === option.id && view.market.requested !== view.market.effective}
@@ -446,6 +536,14 @@ export function DesktopSettingsSection({
             status={mode === 'compatibility' ? t('selected') : undefined}
           />
           <Choice
+            title={t('extendedMode')}
+            body={platform === 'linux' ? t('extendedUnavailableLinux') : t('extendedModeBody')}
+            selected={mode === 'extended'}
+            disabled={platform === 'linux' || !settingsWritable || busy !== undefined || restart !== 'none'}
+            action={() => { setMode('extended') }}
+            status={mode === 'extended' ? t('selected') : undefined}
+          />
+          <Choice
             title={t('advancedMode')}
             body={platform === 'linux' ? t('advancedUnavailableLinux') : t('advancedModeBody')}
             selected={mode === 'advanced'}
@@ -454,6 +552,68 @@ export function DesktopSettingsSection({
             status={mode === 'advanced' ? t('selected') : undefined}
           />
         </div>
+        {platform !== 'linux' && (
+          <label className="dshDesktopSettingsMaterialField">
+            <span className="dshDesktopSettingsMaterialCopy">
+              <span className="dshDesktopSettingsChoiceTitle">{t('windowMaterial')}</span>
+              <span className="dshDesktopSettingsChoiceBody">{t('windowMaterialBody')}</span>
+            </span>
+            <select
+              className="dshDesktopSettingsSelect"
+              value={platform === 'darwin'
+                ? desktop.value?.macosMaterial ?? 'transparent'
+                : !micaSupported && desktop.value?.windowsMaterial === 'mica'
+                  ? 'acrylic'
+                  : desktop.value?.windowsMaterial ?? 'acrylic'}
+              disabled={!settingsWritable || busy !== undefined || restart !== 'none'}
+              onChange={event => { setMaterial(event.currentTarget.value) }}
+            >
+              <option value="off">{t('windowMaterialOff')}</option>
+              {platform === 'darwin'
+                ? <option value="transparent">{t('windowMaterialTransparent')}</option>
+                : (
+                    <>
+                      <option value="acrylic">{t('windowMaterialAcrylic')}</option>
+                      {micaSupported && <option value="mica">{t('windowMaterialMica')}</option>}
+                    </>
+                  )}
+            </select>
+          </label>
+        )}
+      </section>
+
+      <section className="dshDesktopSettingsGroup" aria-labelledby="dsh-desktop-web-title">
+        <div>
+          <h3 id="dsh-desktop-web-title">{t('webTitle')}</h3>
+          <p className="dshDesktopSettingsGroupIntro">{t('webIntro')}</p>
+        </div>
+        <ToggleRow
+          label={t('openBrowser')}
+          checked={browserAccess}
+          disabled={!desktopBrowserAccessAvailable(mode) || !settingsWritable || busy !== undefined || restart !== 'none'}
+          onChange={setBrowserAccess}
+        />
+        <p className="dshDesktopSettingsNotice">{t('browserCompatibilityNotice')}</p>
+        <ToggleRow
+          label={t('lanAccess')}
+          badge={t('beta')}
+          checked={networkExposure === 'lan'}
+          disabled={!browserAccess || !settingsWritable || busy !== undefined || restart !== 'none'}
+          onChange={(checked) => {
+            if (checked) setConfirmLan(true)
+            else setNetworkExposure('loopback')
+          }}
+        />
+        {desktopBrowserUrlsShouldRender(browserAccess, networkExposure) && view !== undefined && (
+          <div className="dshDesktopSettingsUrls">
+            <span className="dshDesktopSettingsChoiceTitle">{t('browserUrls')}</span>
+            <a href={view.web.localUrl} target="_blank" rel="noopener noreferrer">{view.web.localUrl}</a>
+            {networkExposure === 'lan' && view.web.lanUrls.map(url => <a href={url} key={url} target="_blank" rel="noopener noreferrer">{url}</a>)}
+            {networkExposure === 'lan' && view.web.lanUrls.length === 0 && (
+              <span className="dshDesktopSettingsChoiceBody">{t('lanUrlsAfterRestart')}</span>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="dshDesktopSettingsGroup" aria-labelledby="dsh-desktop-notifications-title">
@@ -495,6 +655,34 @@ export function DesktopSettingsSection({
           />
         </div>
       </section>
+      {confirmLan && (
+        <div className="dshDesktopSettingsDialogBackdrop" role="presentation">
+          <div className="dshDesktopSettingsDialog" role="alertdialog" aria-modal="true" aria-labelledby="dsh-desktop-lan-warning-title" aria-describedby="dsh-desktop-lan-warning-body">
+            <h3 id="dsh-desktop-lan-warning-title">{t('lanWarningTitle')}</h3>
+            <p id="dsh-desktop-lan-warning-body">{t('lanWarningBody')}</p>
+            <div className="dshDesktopSettingsDialogActions">
+              <button
+                type="button"
+                className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary"
+                onClick={() => {
+                  resolveDesktopLanConfirmation(false, () => { setConfirmLan(false) }, () => { setNetworkExposure('lan') })
+                }}
+              >
+                {t('lanCancel')}
+              </button>
+              <button
+                type="button"
+                className="dshDesktopSettingsButton dshDesktopSettingsButtonDanger"
+                onClick={() => {
+                  resolveDesktopLanConfirmation(true, () => { setConfirmLan(false) }, () => { setNetworkExposure('lan') })
+                }}
+              >
+                {t('lanConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

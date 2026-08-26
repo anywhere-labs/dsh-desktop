@@ -12,7 +12,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { DESKTOP_INSTALL_RECOVERY_STATE_ENV } from './install-recovery.ts'
+import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
 import { assertDesktopProfileName } from './profile-manager.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
@@ -64,7 +64,6 @@ export interface DesktopDshRuntimeOptions {
   dshBootstrapPath: string
   profileName: string
   homeDir: string
-  installRecoveryStatePath: string
   stateDir: string
   environment?: NodeJS.ProcessEnv
 }
@@ -235,7 +234,7 @@ function posixPnpmShim(
       'npm_config_runtime=electron',
       `npm_config_target=${quoteSh(options.electronVersion)}`,
       `npm_config_disturl=${quoteSh(ELECTRON_HEADERS_URL)}`,
-      `exec ${quoteSh(options.appExecutable)} --import ${quoteSh(clearEnvironmentUrl)} ${quoteSh(options.pnpmBinPath)} "$@"`,
+      `exec ${quoteSh(options.appExecutable)} --import ${quoteSh(clearEnvironmentUrl)} ${quoteSh(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
     ].join(' '),
     '',
   ].join('\n')
@@ -269,7 +268,7 @@ function windowsPnpmShim(
     'set "npm_config_runtime=electron"',
     `set "npm_config_target=${escapeBatchSetValue(options.electronVersion)}"`,
     `set "npm_config_disturl=${ELECTRON_HEADERS_URL}"`,
-    `${quoteBatchWord(options.appExecutable)} --import ${quoteBatchWord(clearEnvironmentUrl)} ${quoteBatchWord(options.pnpmBinPath)} %*`,
+    `${quoteBatchWord(options.appExecutable)} --import ${quoteBatchWord(clearEnvironmentUrl)} ${quoteBatchWord(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} %*`,
     'exit /b %errorlevel%',
     '',
   ].join('\r\n')
@@ -283,7 +282,6 @@ function windowsDshShim(options: DesktopDshRuntimeOptions): string {
     `set "${RUN_AS_NODE}=1"`,
     `set "${DEFAULT_PROFILE}=${escapeBatchSetValue(options.profileName)}"`,
     `set "${DSH_HOME}=${escapeBatchSetValue(options.homeDir)}"`,
-    `set "${DESKTOP_INSTALL_RECOVERY_STATE_ENV}=${escapeBatchSetValue(options.installRecoveryStatePath)}"`,
     `${quoteBatchWord(options.appExecutable)} --expose-internals ${quoteBatchWord(options.dshBootstrapPath)} %*`,
     'exit /b %errorlevel%',
     '',
@@ -364,7 +362,6 @@ export function installDesktopDshRuntime(options: DesktopDshRuntimeOptions): Des
     ['application executable', options.appExecutable],
     ['DSH bootstrap', options.dshBootstrapPath],
     ['Harness home', options.homeDir],
-    ['install recovery state', options.installRecoveryStatePath],
     ['state directory', options.stateDir],
   ] as const) assertScriptValue(label, value)
 

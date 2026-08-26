@@ -28,23 +28,29 @@ import {
 } from './directory-picker-route.ts'
 import {
   DESKTOP_DIAGNOSTICS_EXPORT_PATH,
+  DESKTOP_DEVELOPER_TOOLS_TOGGLE_PATH,
   DESKTOP_MARKET_SELECT_PATH,
   DESKTOP_PROFILE_CREATE_PATH,
   DESKTOP_PROFILE_CREATE_WINDOW_PATH,
   DESKTOP_PROFILE_DELETE_PATH,
-  DESKTOP_PROFILE_ROLLBACK_PATH,
   DESKTOP_PROFILE_SELECT_PATH,
+  DESKTOP_RESTART_PATH,
+  DESKTOP_RECOVERY_RESTART_PATH,
+  DESKTOP_RENDERER_RELOAD_PATH,
   DESKTOP_SETTINGS_PATH,
   DESKTOP_TERMINAL_OPEN_PATH,
 } from './desktop-settings-contract.ts'
 import {
   handleDesktopDiagnosticsExportRequest,
+  handleDesktopDeveloperToolsToggleRequest,
   handleDesktopMarketSelectRequest,
   handleDesktopProfileCreateRequest,
   handleDesktopProfileCreateWindowRequest,
   handleDesktopProfileDeleteRequest,
-  handleDesktopProfileRollbackRequest,
   handleDesktopProfileSelectRequest,
+  handleDesktopRestartRequest,
+  handleDesktopRecoveryRestartRequest,
+  handleDesktopRendererReloadRequest,
   handleDesktopSettingsRequest,
   handleDesktopTerminalOpenRequest,
 } from './desktop-settings-route.ts'
@@ -53,6 +59,23 @@ import { desktopBootRecoveryInjections } from './desktop-boot-recovery.ts'
 import type { DesktopShellMode } from './runtime.ts'
 import type {} from './runtime.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
+import {
+  desktopBrowserAccessEnabled,
+  desktopBrowserAccessAvailable,
+  desktopNetworkExposureForBrowserAccess,
+  desktopWebServerHost,
+  type DesktopNetworkExposure,
+} from './desktop-network.ts'
+import { DESKTOP_FRAME_HEIGHT } from './window-chrome.ts'
+import {
+  DEFAULT_MACOS_WINDOW_MATERIAL,
+  DEFAULT_WINDOWS_WINDOW_MATERIAL,
+  effectiveDesktopWindowMaterial,
+  type DesktopWindowMaterial,
+  type MacosWindowMaterial,
+  type WindowsWindowMaterial,
+  windowsSupportsMica,
+} from './window-material.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'desktop-shell'
@@ -71,16 +94,28 @@ const UI_LOCALE_SETTINGS_NAMESPACE = settingsNamespace(LOCALE_SETTINGS_NAMESPACE
 export interface DesktopSettings {
   /** Native presentation selected for the next application generation. */
   mode: DesktopShellMode
+  /** Native translucency preference used on macOS custom-chrome modes. */
+  macosMaterial: MacosWindowMaterial
+  /** Native backdrop preference used on Windows custom-chrome modes. */
+  windowsMaterial: WindowsWindowMaterial
   /** Loopback Web port selected for the next application generation; zero requests a random port. */
   port: number
+  /** Whether Desktop advertises its marker-free compatibility client for browser use. */
+  openBrowser: boolean
+  /** Whether the next generation listens only on loopback or on every LAN interface. */
+  networkExposure: DesktopNetworkExposure
   /** Log verbosity threshold applied to the file logger. */
   logLevel: 'debug' | 'info' | 'warn' | 'error'
 }
 
 /** Schema registered with the standard settings service. */
 export const DesktopSettingsSchema: z<DesktopSettings> = z.object({
-  mode: z.union(['compatibility', 'advanced'] as const).default('compatibility'),
+  mode: z.union(['compatibility', 'extended', 'advanced'] as const).default('compatibility'),
+  macosMaterial: z.union(['off', 'transparent'] as const).default(DEFAULT_MACOS_WINDOW_MATERIAL),
+  windowsMaterial: z.union(['off', 'acrylic', 'mica'] as const).default(DEFAULT_WINDOWS_WINDOW_MATERIAL),
   port: z.number().step(1).min(0).max(65_535).default(DESKTOP_DEFAULT_WEB_PORT),
+  openBrowser: z.boolean().default(false),
+  networkExposure: z.union(['loopback', 'lan'] as const).default('loopback'),
   logLevel: z.union(['debug', 'info', 'warn', 'error'] as const).default('info'),
 })
 
@@ -88,8 +123,14 @@ export const DesktopSettingsSchema: z<DesktopSettings> = z.object({
 export interface Config {
   /** Native presentation mode selected before BrowserWindow construction. */
   mode: DesktopShellMode
+  /** Native translucency preference used on macOS custom-chrome modes. */
+  macosMaterial: MacosWindowMaterial
+  /** Native backdrop preference used on Windows custom-chrome modes. */
+  windowsMaterial: WindowsWindowMaterial
   /** Configured loopback Web port used to detect restart-applied settings changes. */
   port: number
+  /** Configured listener exposure used to detect restart-applied settings changes. */
+  networkExposure: DesktopNetworkExposure
   /** Initial window width in CSS pixels. */
   width: number
   /** Initial window height in CSS pixels. */
@@ -102,8 +143,11 @@ export interface Config {
 
 /** Validated native window configuration. */
 export const Config: z<Config> = z.object({
-  mode: z.union(['compatibility', 'advanced'] as const).default('compatibility'),
+  mode: z.union(['compatibility', 'extended', 'advanced'] as const).default('compatibility'),
+  macosMaterial: z.union(['off', 'transparent'] as const).default(DEFAULT_MACOS_WINDOW_MATERIAL),
+  windowsMaterial: z.union(['off', 'acrylic', 'mica'] as const).default(DEFAULT_WINDOWS_WINDOW_MATERIAL),
   port: z.number().step(1).min(0).max(65_535).default(DESKTOP_DEFAULT_WEB_PORT),
+  networkExposure: z.union(['loopback', 'lan'] as const).default('loopback'),
   width: z.number().step(1).min(800).default(1280),
   height: z.number().step(1).min(600).default(840),
   minWidth: z.number().step(1).min(640).default(900),
@@ -121,10 +165,23 @@ export function desktopRendererUrl(
   port: number,
   mode: DesktopShellMode,
   platform: Context['desktopRuntime']['platform'],
+  appVersion: string,
+  material: DesktopWindowMaterial = 'off',
+  windowsBuild?: number,
 ): string {
   const url = new URL(`http://127.0.0.1:${String(port)}/`)
   url.searchParams.set('dsh-desktop-mode', mode)
   url.searchParams.set('dsh-desktop-platform', platform)
+  url.searchParams.set('dsh-desktop-version', appVersion)
+  url.searchParams.set('dsh-desktop-material', material)
+  if (mode === 'extended' || (mode === 'compatibility' && platform !== 'linux')) {
+    // Body-level plugin portals do not inherit the framed root's geometry.
+    // Publish the exact content boundary so they can yield Desktop chrome.
+    url.searchParams.set('dsh-desktop-titlebar-inset', String(DESKTOP_FRAME_HEIGHT))
+  }
+  if (platform === 'win32') {
+    url.searchParams.set('dsh-desktop-mica', windowsSupportsMica(windowsBuild) ? '1' : '0')
+  }
   return url.href
 }
 
@@ -147,8 +204,12 @@ export function apply(ctx: Context, config: Config): void {
   if (appExit === undefined) {
     throw new Error('dsh-plugin-desktop: the launcher did not provide ctx.appExit')
   }
-  if (ctx.webServer.host !== '127.0.0.1') {
-    throw new Error('dsh-plugin-desktop: desktop shell requires a loopback Web server')
+  const browserAccess = ctx.get('desktopBrowserAccess')
+  if (browserAccess === undefined) {
+    throw new Error('dsh-plugin-desktop: the launcher did not provide ctx.desktopBrowserAccess')
+  }
+  if (ctx.webServer.host !== desktopWebServerHost(config.networkExposure)) {
+    throw new Error('dsh-plugin-desktop: desktop shell WebServer host does not match networkExposure')
   }
   const iconFilename = runtime.platform === 'darwin'
     ? 'app-icon-mac.png'
@@ -164,8 +225,12 @@ export function apply(ctx: Context, config: Config): void {
     {
       applies: 'restart',
       validate: (value) => {
-        if (value.mode === 'advanced' && runtime.platform === 'linux') {
-          throw new Error('dsh-plugin-desktop: advanced shell mode is supported on macOS and Windows')
+        if (!desktopBrowserAccessAvailable(value.mode)
+          && (value.openBrowser || value.networkExposure === 'lan')) {
+          throw new Error('dsh-plugin-desktop: browser and LAN access require compatibility mode')
+        }
+        if (value.mode !== 'compatibility' && runtime.platform === 'linux') {
+          throw new Error('dsh-plugin-desktop: custom desktop shell modes are supported on macOS and Windows')
         }
       },
     },
@@ -186,10 +251,13 @@ export function apply(ctx: Context, config: Config): void {
       [DESKTOP_PROFILE_CREATE_PATH, handleDesktopProfileCreateRequest],
       [DESKTOP_PROFILE_CREATE_WINDOW_PATH, handleDesktopProfileCreateWindowRequest],
       [DESKTOP_PROFILE_DELETE_PATH, handleDesktopProfileDeleteRequest],
-      [DESKTOP_PROFILE_ROLLBACK_PATH, handleDesktopProfileRollbackRequest],
       [DESKTOP_PROFILE_SELECT_PATH, handleDesktopProfileSelectRequest],
       [DESKTOP_MARKET_SELECT_PATH, handleDesktopMarketSelectRequest],
       [DESKTOP_TERMINAL_OPEN_PATH, handleDesktopTerminalOpenRequest],
+      [DESKTOP_RESTART_PATH, handleDesktopRestartRequest],
+      [DESKTOP_RECOVERY_RESTART_PATH, handleDesktopRecoveryRestartRequest],
+      [DESKTOP_RENDERER_RELOAD_PATH, handleDesktopRendererReloadRequest],
+      [DESKTOP_DEVELOPER_TOOLS_TOGGLE_PATH, handleDesktopDeveloperToolsToggleRequest],
       [DESKTOP_DIAGNOSTICS_EXPORT_PATH, handleDesktopDiagnosticsExportRequest],
     ] as const
     for (const [path, handler] of settingsRoutes) {
@@ -259,7 +327,21 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => {
     let pending: ReturnType<typeof setImmediate> | undefined
     const stopWatching = settings.watch((next) => {
-      if (next.mode === config.mode && next.port === config.port) {
+      const nextBrowserAccess = desktopBrowserAccessEnabled(
+        next.mode,
+        next.openBrowser,
+        next.networkExposure,
+      )
+      const nextNetworkExposure = desktopNetworkExposureForBrowserAccess(
+        nextBrowserAccess,
+        next.networkExposure,
+      )
+      if (next.mode === config.mode
+        && next.port === config.port
+        && nextNetworkExposure === config.networkExposure
+        && nextBrowserAccess === browserAccess.ordinaryBrowserEnabled
+        && next.macosMaterial === config.macosMaterial
+        && next.windowsMaterial === config.windowsMaterial) {
         if (pending !== undefined) clearImmediate(pending)
         pending = undefined
         return
@@ -277,7 +359,7 @@ export function apply(ctx: Context, config: Config): void {
       if (pending !== undefined) clearImmediate(pending)
     }
   }, 'dsh-plugin-desktop: restart after startup setting change')
-  if (config.mode === 'advanced') {
+  if (runtime.platform !== 'linux') {
     ctx.on('settings/updated', (namespace, next) => {
       if (namespace !== UI_THEME_SETTINGS_NAMESPACE) return
       runtime.setThemeSource((next as ThemeSettings).preference)
@@ -288,26 +370,51 @@ export function apply(ctx: Context, config: Config): void {
     runtime.setLocalePreference((next as LocaleSettings).preference)
   })
   ctx.effect(
-    () => runtime.schedule({
-      ...config,
-      url: desktopRendererUrl(ctx.webServer.port, config.mode, runtime.platform),
-      productName: 'DSH Desktop',
-      windowTitle: 'DeepSeek Harness Desktop',
-      iconPath,
-      trayIcons,
-      readLocalePreference: () => {
-        return (ctx.settings.get(UI_LOCALE_SETTINGS_NAMESPACE) as LocaleSettings | undefined)?.preference
-      },
-      readThemeSource: () => {
-        const theme = ctx.settings.get(UI_THEME_SETTINGS_NAMESPACE) as ThemeSettings | undefined
-        if (theme === undefined) {
-          throw new Error('dsh-plugin-desktop: advanced shell requires the ui-theme settings namespace')
-        }
-        return theme.preference
-      },
-      requestQuit: appExit,
-      requestModeChange: async mode => settings.update({ mode }),
-    }),
+    () => {
+      const material = effectiveDesktopWindowMaterial(
+        config.mode,
+        runtime.platform,
+        config.macosMaterial,
+        config.windowsMaterial,
+        runtime.windowsBuild,
+      )
+      return runtime.schedule({
+        ...config,
+        material,
+        ...(runtime.windowsBuild === undefined ? {} : { windowsBuild: runtime.windowsBuild }),
+        url: desktopRendererUrl(
+          ctx.webServer.port,
+          config.mode,
+          runtime.platform,
+          runtime.updates.currentVersion,
+          material,
+          runtime.windowsBuild,
+        ),
+        rendererAccessHeader: browserAccess.rendererHeader,
+        productName: 'DSH Desktop',
+        windowTitle: 'DeepSeek Harness Desktop',
+        iconPath,
+        trayIcons,
+        readLocalePreference: () => {
+          return (ctx.settings.get(UI_LOCALE_SETTINGS_NAMESPACE) as LocaleSettings | undefined)?.preference
+        },
+        readThemeSource: () => {
+          const theme = ctx.settings.get(UI_THEME_SETTINGS_NAMESPACE) as ThemeSettings | undefined
+          if (theme === undefined) {
+            throw new Error('dsh-plugin-desktop: custom shell requires the ui-theme settings namespace')
+          }
+          return theme.preference
+        },
+        requestQuit: appExit,
+        requestModeChange: async mode => {
+          const current = settings.get()
+          const storedBrowserCapability = current.openBrowser || current.networkExposure === 'lan'
+          await settings.update(mode !== 'compatibility' && storedBrowserCapability
+            ? { mode, openBrowser: false, networkExposure: 'loopback' }
+            : { mode })
+        },
+      })
+    },
     'dsh-plugin-desktop: native shell generation',
   )
 }

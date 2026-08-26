@@ -482,7 +482,7 @@ the package names, versions, and licenses for transparency.
 | picocolors | 1.1.1 | ISC |
 | picomatch | 4.0.5 | MIT |
 | pkce-challenge | 5.0.1 | MIT |
-| pnpm | 11.7.0 | MIT |
+| pnpm | 11.8.0 | MIT |
 | powershell-utils | 0.2.0 | MIT |
 | property-information | 7.2.0 | MIT |
 | protobufjs | 7.6.5 | BSD-3-Clause |
@@ -515,6 +515,7 @@ the package names, versions, and licenses for transparency.
 | side-channel-list | 1.0.1 | MIT |
 | side-channel-map | 1.0.1 | MIT |
 | side-channel-weakmap | 1.0.2 | MIT |
+| sonner | 2.0.8 | MIT |
 | space-separated-tokens | 2.0.2 | MIT |
 | statuses | 2.0.2 | MIT |
 | stringify-entities | 4.0.4 | MIT |

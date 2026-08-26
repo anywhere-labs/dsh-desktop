@@ -88,7 +88,11 @@ async function launchElectron(): Promise<number> {
   }
   const mainPath = fileURLToPath(new URL('./main.js', import.meta.url))
   return new Promise<number>((resolveExit, reject) => {
-    const child = spawn(electronPath, [mainPath], { stdio: 'inherit', env: process.env })
+    const child = spawn(electronPath, [mainPath], {
+      stdio: 'inherit',
+      env: process.env,
+      windowsHide: true,
+    })
     child.once('error', reject)
     child.once('exit', (code, signal) => {
       resolveExit(code ?? (signal === null ? 1 : 128))

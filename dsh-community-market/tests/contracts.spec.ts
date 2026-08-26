@@ -5,6 +5,7 @@ import {
   catalogIdentityChoices,
   CatalogContractError,
   normalizeCatalogQuery,
+  normalizeGitHubInstallSource,
   normalizeRepositoryIdentity,
   parseCatalogProviderPage,
   parseCatalogQuery,
@@ -91,9 +92,9 @@ describe('catalog schemas and semantics', () => {
     }, 1)).toThrow(/effective query limit/u)
   })
 
-  it('rejects provider and normalized pages above the 100-item safety cap', () => {
+  it('rejects provider and normalized pages above the 200-item safety cap', () => {
     const provider = providerFixture() as CatalogProviderPage
-    const providerItems = Array.from({ length: 101 }, (_, index) => ({
+    const providerItems = Array.from({ length: 201 }, (_, index) => ({
       ...provider.items[0]!,
       id: `provider-plugin-${index}`,
     }))
@@ -101,7 +102,7 @@ describe('catalog schemas and semantics', () => {
       .toThrow(CatalogContractError)
 
     const snapshot = snapshotFixture() as ReturnType<typeof parseCatalogSnapshot>
-    const snapshotItems = Array.from({ length: 101 }, (_, index) => ({
+    const snapshotItems = Array.from({ length: 201 }, (_, index) => ({
       ...snapshot.items[0]!,
       id: `snapshot-plugin-${index}`,
       provenance: {
@@ -111,6 +112,26 @@ describe('catalog schemas and semantics', () => {
     }))
     expect(() => parseCatalogSnapshot({ ...snapshot, items: snapshotItems }))
       .toThrow(CatalogContractError)
+  })
+
+  it('accepts a pinned GitHub install source in provider and normalized pages', () => {
+    const installSource = {
+      kind: 'github',
+      commit: '0123456789abcdef0123456789abcdef01234567',
+    } as const
+    const provider = providerFixture() as CatalogProviderPage
+    const providerWithSource = {
+      ...provider,
+      items: [{ ...provider.items[0]!, installSource }],
+    }
+    expect(parseCatalogProviderPage(providerWithSource).items[0]?.installSource).toEqual(installSource)
+
+    const snapshot = snapshotFixture() as ReturnType<typeof parseCatalogSnapshot>
+    const snapshotWithSource = {
+      ...snapshot,
+      items: [{ ...snapshot.items[0]!, installSource }],
+    }
+    expect(parseCatalogSnapshot(snapshotWithSource).items[0]?.installSource).toEqual(installSource)
   })
 
   it('enforces source limit and sort relationships beyond JSON Schema', () => {
@@ -204,6 +225,35 @@ describe('catalog identity and local source records', () => {
     })).toThrow(CatalogContractError)
     expect(() => normalizeRepositoryIdentity({ url: 'https://github.com/example/plugin/issues' }))
       .toThrow(/exactly owner and repository/u)
+  })
+
+  it('accepts pinned GitHub sources only when they match a canonical repository', () => {
+    expect(normalizeGitHubInstallSource({
+      url: 'https://github.com/Example/Plugin.git',
+      subdirectory: 'packages/market',
+    }, {
+      kind: 'github',
+      commit: '0123456789abcdef0123456789abcdef01234567',
+    })).toEqual({
+      kind: 'github',
+      owner: 'example',
+      repo: 'plugin',
+      commit: '0123456789abcdef0123456789abcdef01234567',
+      subdirectory: 'packages/market',
+    })
+
+    expect(() => normalizeGitHubInstallSource(
+      { url: 'https://github.com/example/plugin' },
+      { kind: 'github', commit: 'not-a-commit' },
+    )).toThrow(/40-character commit SHA/u)
+    expect(() => normalizeGitHubInstallSource(
+      { url: 'https://gitlab.example/example/plugin' },
+      { kind: 'github', commit: '0123456789abcdef0123456789abcdef01234567' },
+    )).toThrow(/GitHub repositories only/u)
+    expect(() => normalizeGitHubInstallSource(
+      undefined,
+      { kind: 'github', commit: '0123456789abcdef0123456789abcdef01234567' },
+    )).toThrow(/requires a repository identity/u)
   })
 
   it('requires one local source location and unique Host identities', () => {

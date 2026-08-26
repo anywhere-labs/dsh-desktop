@@ -19,6 +19,13 @@ import { DesktopProfileService } from '../lib/profile-service.js'
 const BIN_NAME = 'dsh-plugin-desktop-profile-smoke'
 const HOST_SERVICE_PLUGIN_NAME = 'dsh-desktop-host-services-smoke-plugin'
 const HOST_SERVICE_PROBE_KEY = 'desktopHostServiceProbe'
+const BROWSER_ACCESS = Object.freeze({
+  ordinaryBrowserEnabled: false,
+  rendererHeader: Object.freeze({
+    name: 'x-dsh-desktop-renderer',
+    value: Buffer.alloc(32, 2).toString('base64url'),
+  }),
+})
 const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-profile-'))
 let ctx
 let releasePackageResolver
@@ -74,6 +81,7 @@ try {
   releasePackageResolver = installProfilePackageResolver(prepared.bareModuleBaseUrl)
   const runtime = {
     platform: 'win32',
+    windowsBuild: 22_631,
     locale: 'en',
     updates: {
       isPackaged: false,
@@ -118,6 +126,7 @@ try {
     patches,
     async (host) => {
       host.provide(DSH_LAUNCH_ENVIRONMENT_KEY, createLaunchEnvironmentSnapshot([]))
+      host.provide('desktopBrowserAccess', BROWSER_ACCESS)
       host.provide('desktopRuntime', runtime)
       host.provide('desktopPnpmBootstrap', {
         activeProfileName: 'desktop',
@@ -130,9 +139,6 @@ try {
         nodeShimPath: pnpmRuntime.nodeShimPath,
         clearEnvironmentPath: pnpmRuntime.clearEnvironmentPath,
         dshBootstrapPath: fileURLToPath(new URL('../lib/desktop-cli.js', import.meta.url)),
-        installRecoveryStatePath: join(home, 'plugin-install-recovery', 'state.json'),
-        generationId: 'profile-smoke-generation',
-        externalMarketInstallEnabled: prepared.market.effective === 'dsh-market',
       })
       await host.plugin(DesktopProfileService, {
         current: {
@@ -170,27 +176,22 @@ try {
     throw new Error('assembled Windows profile is missing the agent preset roster')
   }
   const presetIds = (await agentPresets.list()).map(preset => preset.id)
-  if (presetIds.includes('minimal') || !presetIds.includes('standard')) {
+  if (!presetIds.includes('minimal') || !presetIds.includes('standard')) {
     throw new Error(`assembled Windows profile exposes unexpected presets: ${presetIds.join(', ')}`)
   }
-  if (agentPresets.defaultId !== 'standard') {
-    throw new Error(`assembled Windows profile selected unsupported default ${agentPresets.defaultId}`)
+  if (agentPresets.defaultId !== 'minimal') {
+    throw new Error(`assembled Windows profile selected unexpected default ${agentPresets.defaultId}`)
   }
-  const legacyPreset = await agentPresets.resolve('minimal')
-  if (legacyPreset.id !== 'minimal') {
-    throw new Error(`assembled Windows profile remapped legacy preset to ${legacyPreset.id}`)
+  const minimalPreset = await agentPresets.resolve('minimal')
+  if (minimalPreset.id !== 'minimal') {
+    throw new Error(`assembled Windows profile remapped minimal preset to ${minimalPreset.id}`)
   }
   const hostServiceProbe = ctx.get(HOST_SERVICE_PROBE_KEY)
   if (hostServiceProbe?.current?.name !== 'desktop'
     || hostServiceProbe.current.dir !== prepared.profile.dir
     || hostServiceProbe.pnpm?.serviceName !== 'desktopPnpm'
     || hostServiceProbe.pnpm.lookupRun !== 'function'
-    || hostServiceProbe.pnpm.run !== 'function'
-    || hostServiceProbe.pnpm.runPlugin !== 'function'
-    || hostServiceProbe.pnpm.installPlugin !== 'function'
-    || hostServiceProbe.pnpm.recoveredInstallReceiptIds !== 'function'
-    || hostServiceProbe.pnpm.acknowledgeRecoveredInstall !== 'function'
-    || hostServiceProbe.pnpm.rollbackPluginInstall !== 'function') {
+    || hostServiceProbe.pnpm.run !== 'function') {
     throw new Error(
       `profile-local Host service plugin produced an unexpected probe: ${JSON.stringify(hostServiceProbe)}`,
     )
@@ -205,12 +206,15 @@ try {
     throw new Error(`assembled Windows browse picker listed ${listing.path} instead of ${home}`)
   }
 
-  const expectedUrl = `http://127.0.0.1:${String(ctx.webServer.port)}/?dsh-desktop-mode=advanced&dsh-desktop-platform=win32`
+  const expectedUrl = `http://127.0.0.1:${String(ctx.webServer.port)}/?dsh-desktop-mode=advanced&dsh-desktop-platform=win32&dsh-desktop-version=2.0.0&dsh-desktop-material=acrylic&dsh-desktop-mica=1`
   if (mountedSpec?.url !== expectedUrl) {
     throw new Error(`desktop plugin produced an unexpected renderer URL: ${String(mountedSpec?.url)}`)
   }
   if (mountedSpec?.mode !== 'advanced') {
     throw new Error(`desktop plugin produced an unexpected shell mode: ${String(mountedSpec?.mode)}`)
+  }
+  if (mountedSpec?.rendererAccessHeader !== BROWSER_ACCESS.rendererHeader) {
+    throw new Error('assembled profile did not preserve the launcher browser capability')
   }
   if (nativeThemeSource !== 'system') {
     throw new Error(`desktop plugin produced an unexpected native theme source: ${nativeThemeSource}`)
@@ -230,7 +234,11 @@ try {
   if (profileMenu?.submenu?.()[0]?.label() !== 'desktop') {
     throw new Error('assembled desktop profile is missing the active profile tray submenu')
   }
-  const response = await fetch(expectedUrl)
+  const response = await fetch(expectedUrl, {
+    headers: {
+      [BROWSER_ACCESS.rendererHeader.name]: BROWSER_ACCESS.rendererHeader.value,
+    },
+  })
   const html = await response.text()
   if (response.status !== 200) {
     throw new Error(`assembled Web root returned HTTP ${String(response.status)}`)

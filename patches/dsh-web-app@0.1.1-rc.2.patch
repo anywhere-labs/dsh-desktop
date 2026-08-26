@@ -23,11 +23,12 @@ index 2857270..b27f4df 100644
  try {
    const { default: open } = await import(${JSON.stringify(BROWSER_OPENER_MODULE)})
    const launcher = await open(process.argv[1])
-@@ -122,7 +123,10 @@ function spawnBrowserLauncher(url) {
+@@ -122,7 +123,11 @@ function spawnBrowserLauncher(url) {
  		"--",
  		url
  	], {
 -		env: scrubbedParentEnv(),
++		windowsHide: true,
 +		env: {
 +			...scrubbedParentEnv(),
 +			ELECTRON_RUN_AS_NODE: "1"
