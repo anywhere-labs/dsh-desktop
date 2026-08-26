@@ -1,6 +1,7 @@
-/** DSH Desktop Host plugin: owns the selected native shell generation. */
+/** Aera Code Host plugin: owns the selected native shell generation. */
 
 import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-cmdline'
@@ -14,6 +15,8 @@ import {
   type ThemeSettings,
 } from '@deepseek-ai/dsh-client-ui-theme'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { AERA_CODE_PRODUCT } from './product-brand.ts'
+import { AERA_CODE_BRAND_ASSET_PATH } from './aera-brand-contract.ts'
 import {
   handleRendererBootRequest,
   RENDERER_BOOT_REPORT_PATH,
@@ -194,8 +197,8 @@ export function apply(ctx: Context, config: Config): void {
   const runtime = ctx.get('desktopRuntime')
   if (runtime === undefined) {
     process.stderr.write(
-      'dsh-plugin-desktop: this profile is composed with the DSH Desktop shell, which requires the desktop launcher (desktopRuntime).\n'
-      + 'Start it with `dsh-desktop`, or select this profile inside the packaged DSH Desktop application.\n'
+      'dsh-plugin-desktop: this profile is composed with the Aera Code shell, which requires the desktop launcher (desktopRuntime).\n'
+      + 'Start it with `dsh-desktop`, or select this profile inside the packaged Aera Code application.\n'
       + 'The desktop terminal, profile, and update rows stay inactive in an ordinary DSH boot.\n',
     )
     return
@@ -212,12 +215,13 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error('dsh-plugin-desktop: desktop shell WebServer host does not match networkExposure')
   }
   const iconFilename = runtime.platform === 'darwin'
-    ? 'app-icon-mac.png'
-    : 'app-icon.png'
+    ? AERA_CODE_PRODUCT.macIconFilename
+    : AERA_CODE_PRODUCT.iconFilename
   const iconPath = fileURLToPath(new URL(`../build/${iconFilename}`, import.meta.url))
+  const brandAsset = readFileSync(fileURLToPath(new URL('../build/aera-aperture.png', import.meta.url)))
   const trayIcons = {
-    templatePath: fileURLToPath(new URL('../build/tray-iconTemplate.png', import.meta.url)),
-    bluePath: fileURLToPath(new URL('../build/tray-icon-blue.png', import.meta.url)),
+    templatePath: fileURLToPath(new URL('../build/aera-aperture-trayTemplate.png', import.meta.url)),
+    bluePath: fileURLToPath(new URL('../build/aera-aperture-tray-blue.png', import.meta.url)),
   }
   const settings = ctx.settings.register(
     DESKTOP_SETTINGS_NAMESPACE,
@@ -234,6 +238,26 @@ export function apply(ctx: Context, config: Config): void {
         }
       },
     },
+  )
+  ctx.effect(
+    () => ctx.webServer.register({
+      kind: 'exact',
+      path: AERA_CODE_BRAND_ASSET_PATH,
+      handler: (req, res) => {
+        if (req.method !== 'GET') {
+          res.statusCode = 405
+          res.setHeader('allow', 'GET')
+          res.end()
+          return
+        }
+        res.statusCode = 200
+        res.setHeader('cache-control', 'public, max-age=31536000, immutable')
+        res.setHeader('content-type', 'image/png')
+        res.setHeader('x-content-type-options', 'nosniff')
+        res.end(brandAsset)
+      },
+    }),
+    'aera-code: canonical brand asset route',
   )
   const rendererOrigin = `http://127.0.0.1:${String(ctx.webServer.port)}`
   ctx.on('webserver/index-inject', table => {
@@ -391,8 +415,8 @@ export function apply(ctx: Context, config: Config): void {
           runtime.windowsBuild,
         ),
         rendererAccessHeader: browserAccess.rendererHeader,
-        productName: 'DSH Desktop',
-        windowTitle: 'DeepSeek Harness Desktop',
+        productName: AERA_CODE_PRODUCT.productName,
+        windowTitle: AERA_CODE_PRODUCT.windowTitle,
         iconPath,
         trayIcons,
         readLocalePreference: () => {

@@ -223,8 +223,8 @@ try {
   if (desktopSettings?.mode !== 'advanced') {
     throw new Error('assembled Host settings are missing the advanced dsh-desktop mode')
   }
-  if (!trayItems.some(item => item.label() === 'Check for Updates…')) {
-    throw new Error('assembled desktop profile is missing the update tray command')
+  if (trayItems.some(item => item.label() === 'Check for Updates…')) {
+    throw new Error('assembled Aera Code profile exposed the disabled upstream update command')
   }
   if (process.platform !== 'linux'
     && !trayItems.some(item => item.label() === 'Open Aera Code Terminal')) {

@@ -222,8 +222,8 @@ describe('packaged desktop runtime verification', () => {
 
   it.each([
     'package.json',
-    'build/app-icon-mac.png',
-    'build/tray-iconTemplate.png',
+    'build/aera-code-icon-mac.png',
+    'build/aera-aperture-trayTemplate.png',
     'lib/native-ui/setup-wizard.html',
     'lib/terminal.js',
     'lib/diagnostics.js',

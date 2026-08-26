@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-desktop",
   "version": "2.0.3",
-  "description": "DSH Desktop: an Electron shell composed as a DeepSeek Harness Cordis plugin",
+  "description": "Aera Code: an AERA-branded desktop agent workspace with governed Gateway integration",
   "license": "MIT",
   "publishConfig": {
     "registry": "https://registry.npmjs.org"
@@ -78,10 +78,10 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "build/app-icon.png",
-    "build/app-icon-mac.png",
-    "build/tray-icon.svg",
-    "build/tray-icon*.png",
+    "build/aera-code-icon.png",
+    "build/aera-code-icon-mac.png",
+    "build/aera-aperture.png",
+    "build/aera-aperture-tray*.png",
     "cordis.patch.yml",
     "docs/**",
     "lib/**/*.js",
@@ -290,8 +290,8 @@
     "vitest": "4.1.8"
   },
   "build": {
-    "appId": "ai.deepseek.dsh.desktop",
-    "productName": "DSH Desktop",
+    "appId": "dev.aerastudios.code",
+    "productName": "Aera Code",
     "asar": true,
     "asarUnpack": [
       "package.json",
@@ -312,10 +312,10 @@
       "nsis": "1.2.1"
     },
     "files": [
-      "build/app-icon.png",
-      "build/app-icon-mac.png",
-      "build/tray-icon.svg",
-      "build/tray-icon*.png",
+      "build/aera-code-icon.png",
+      "build/aera-code-icon-mac.png",
+      "build/aera-aperture.png",
+      "build/aera-aperture-tray*.png",
       "cordis.patch.yml",
       "lib/**",
       "package.json",
@@ -329,13 +329,14 @@
       "extendInfo": {
         "CFBundleAllowMixedLocalizations": true,
         "CFBundleDevelopmentRegion": "en",
+        "NSHumanReadableCopyright": "Copyright © 2026 Aera Studios. Upstream licences are preserved in Third-Party Notices.",
         "CFBundleLocalizations": [
           "en",
           "zh_CN"
         ]
       },
       "hardenedRuntime": true,
-      "icon": "build/app-icon-mac.png",
+      "icon": "build/aera-code-icon-mac.png",
       "mergeASARs": false,
       "notarize": true,
       "signIgnore": [
@@ -352,8 +353,8 @@
           ]
         }
       ],
-      "artifactName": "DSH-Desktop-${version}-${arch}-Portable.${ext}",
-      "icon": "build/app-icon.png"
+      "artifactName": "Aera-Code-${version}-${arch}-Portable.${ext}",
+      "icon": "build/aera-code-icon.png"
     },
     "nsis": {
       "include": "installer.nsh",
@@ -365,15 +366,15 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "differentialPackage": false,
-      "shortcutName": "DSH Desktop",
+      "shortcutName": "Aera Code",
       "useZip": false,
-      "artifactName": "DSH-Desktop-${version}-${arch}-Setup.${ext}"
+      "artifactName": "Aera-Code-${version}-${arch}-Setup.${ext}"
     },
     "linux": {
       "target": [
         "dir"
       ],
-      "icon": "build/app-icon.png"
+      "icon": "build/aera-code-icon.png"
     }
   }
 }

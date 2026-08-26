@@ -1656,7 +1656,7 @@ describe('Electron desktop runtime', () => {
       expect(() => { runtime.openTerminal() }).not.toThrow()
       await vi.waitFor(() => { expect(electron.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
         type: 'error',
-        title: 'Unable to Open DSH Terminal',
+        title: 'Unable to Open Aera Code Terminal',
         detail: 'cannot create launcher',
       })) })
 
@@ -1666,7 +1666,7 @@ describe('Electron desktop runtime', () => {
       runtime.openTerminal()
       await vi.waitFor(() => { expect(electron.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({
         type: 'error',
-        title: 'Unable to Open DSH Terminal',
+        title: 'Unable to Open Aera Code Terminal',
         detail: 'launcher exited with code 1',
       })) })
       expect(stderr).toHaveBeenCalledWith(expect.stringContaining('failed to open terminal'))
@@ -1701,7 +1701,7 @@ describe('Electron desktop runtime', () => {
       title: 'Plugin Load Failed',
       message: 'Some plugins could not be loaded.',
       detail: expect.stringContaining('dsh-vision-router'),
-      buttons: ['Open DSH Terminal', 'Restart DSH Desktop', 'Dismiss'],
+      buttons: ['Open Aera Code Terminal', 'Restart Aera Code', 'Dismiss'],
     }))
     const recoveryCalls = electron.dialog.showMessageBox.mock.calls as unknown as Array<[{ detail?: string }]>
     expect(recoveryCalls[0]?.[0].detail).toContain('vision_crop')
@@ -1797,7 +1797,7 @@ describe('Electron desktop runtime', () => {
 
     expect(restart).not.toHaveBeenCalled()
     expect(electron.dialog.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'question', title: 'Restart DSH Desktop', buttons: ['Restart', 'Cancel'], defaultId: 1, cancelId: 1,
+      type: 'question', title: 'Restart Aera Code', buttons: ['Restart', 'Cancel'], defaultId: 1, cancelId: 1,
     }))
 
     electron.dialog.showMessageBox.mockResolvedValueOnce({ response: 0, checkboxChecked: false })
@@ -1852,7 +1852,7 @@ describe('Electron desktop runtime', () => {
     expect(electron.dialog.showMessageBox).toHaveBeenLastCalledWith(
       activeWindow,
       expect.objectContaining({
-        title: 'DSH Desktop Is Up to Date',
+        title: 'Aera Code Is Up to Date',
         detail: 'Installed version: 2.0.0',
         buttons: ['OK'],
       }),
@@ -1902,7 +1902,7 @@ describe('Electron desktop runtime', () => {
     expect(electron.dialog.showMessageBox).toHaveBeenLastCalledWith(
       activeWindow,
       expect.objectContaining({
-        title: 'DSH Desktop Update Downloaded',
+        title: 'Aera Code Update Downloaded',
         buttons: ['OK'],
       }),
     )

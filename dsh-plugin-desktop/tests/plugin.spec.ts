@@ -278,17 +278,17 @@ describe('desktop Host plugin', () => {
     expect(harness.shell()).toEqual(expect.objectContaining({
       mode: 'compatibility',
       url: 'http://127.0.0.1:43120/?dsh-desktop-mode=compatibility&dsh-desktop-platform=darwin&dsh-desktop-version=2.0.0&dsh-desktop-material=transparent&dsh-desktop-titlebar-inset=36',
-      productName: 'DSH Desktop',
-      windowTitle: 'DeepSeek Harness Desktop',
+      productName: 'Aera Code',
+      windowTitle: 'Aera Code',
       rendererAccessHeader: {
         name: 'x-dsh-desktop-renderer',
         value: Buffer.alloc(32, 6).toString('base64url'),
       },
       readThemeSource: expect.any(Function),
     }))
-    expect(harness.shell()?.iconPath.endsWith(join('build', 'app-icon-mac.png'))).toBe(true)
-    expect(harness.shell()?.trayIcons.templatePath.endsWith(join('build', 'tray-iconTemplate.png'))).toBe(true)
-    expect(harness.shell()?.trayIcons.bluePath.endsWith(join('build', 'tray-icon-blue.png'))).toBe(true)
+    expect(harness.shell()?.iconPath.endsWith(join('build', 'aera-code-icon-mac.png'))).toBe(true)
+    expect(harness.shell()?.trayIcons.templatePath.endsWith(join('build', 'aera-aperture-trayTemplate.png'))).toBe(true)
+    expect(harness.shell()?.trayIcons.bluePath.endsWith(join('build', 'aera-aperture-tray-blue.png'))).toBe(true)
     expect(harness.shell()?.readThemeSource()).toBe('system')
     harness.notifyTheme('dark')
     expect(harness.setThemeSource).toHaveBeenCalledWith('dark')
@@ -396,7 +396,7 @@ describe('desktop Host plugin', () => {
 
       apply(harness.ctx, config)
 
-      expect(harness.shell()?.iconPath.endsWith(join('build', 'app-icon.png'))).toBe(true)
+      expect(harness.shell()?.iconPath.endsWith(join('build', 'aera-code-icon.png'))).toBe(true)
     },
   )
 

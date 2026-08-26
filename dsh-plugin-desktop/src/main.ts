@@ -1,4 +1,4 @@
-/** DSH Desktop executable: minimal Electron bootstrap around the Host Cordis root. */
+/** Aera Code executable: minimal Electron bootstrap around the Host Cordis root. */
 
 import { app, crashReporter, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
@@ -124,6 +124,9 @@ import {
 } from './windows-volume-diagnostics.ts'
 import type { RendererBootReport } from './renderer-boot-contract.ts'
 import { desktopLocaleFromLanguageTag } from './tray-locale.ts'
+import { AERA_CODE_PRODUCT } from './product-brand.ts'
+import { migrateAeraCodeUserData } from './aera-code-state-migration.ts'
+import { bootstrapAeraGatewayCredential } from './aera-gateway-keychain.ts'
 import { desktopNativeCopy } from './native-dialog-copy.ts'
 import {
   desktopDefaultRelaunchArguments,
@@ -137,7 +140,7 @@ import {
 import { windowsSupportsMica } from './window-material.ts'
 
 const BIN_NAME = 'dsh-plugin-desktop'
-const PRODUCT_NAME = 'DSH Desktop'
+const PRODUCT_NAME = AERA_CODE_PRODUCT.productName
 
 class RendererStartupFailure extends Error {
   constructor(
@@ -429,9 +432,16 @@ async function start(): Promise<void> {
   })
   try {
     await app.whenReady()
+    app.setAboutPanelOptions({
+      applicationName: AERA_CODE_PRODUCT.productName,
+      applicationVersion: app.getVersion(),
+      version: app.getVersion(),
+      copyright: 'Copyright © 2026 Aera Studios',
+      credits: 'Includes permissively licensed third-party software. See Third-Party Notices.',
+    })
     startupStage = 'shell-environment'
     lifecycleRecorder.transitionStartupStage(startupStage)
-    if (process.platform === 'win32') app.setAppUserModelId('ai.deepseek.dsh.desktop')
+    if (process.platform === 'win32') app.setAppUserModelId(AERA_CODE_PRODUCT.bundleIdentifier)
     if (app.isPackaged && process.cwd() === '/') process.chdir(app.getPath('home'))
     const shellEnvironmentResolution = await resolveDesktopShellEnvironment({
       environment: process.env,
@@ -1015,6 +1025,16 @@ async function start(): Promise<void> {
 
 async function run(): Promise<void> {
   app.setName(PRODUCT_NAME)
+  process.title = PRODUCT_NAME
+  const appData = app.getPath('appData')
+  const userDataDir = join(appData, AERA_CODE_PRODUCT.userDataDirectoryName)
+  app.setPath('userData', userDataDir)
+  migrateAeraCodeUserData(
+    join(appData, AERA_CODE_PRODUCT.legacyUserDataDirectoryName),
+    userDataDir,
+  )
+  const selection = readDesktopProfileState(join(userDataDir, 'profile-selection', 'state.json'))
+  bootstrapAeraGatewayCredential({ activeProfile: selection.active })
   if (process.argv.includes('--export-diagnostics')) {
     try {
       await app.whenReady()
