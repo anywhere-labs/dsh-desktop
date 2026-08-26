@@ -262,6 +262,72 @@ describe('published package surface', () => {
     }
   })
 
+  it('adds bilingual search copy to the fetched-model picker', () => {
+    const patch = readFileSync(new URL(
+      '../patches/dsh-client-ui-settings-models@0.1.1-rc.2.patch',
+      packageRoot,
+    ), 'utf8')
+    const installedClient = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-client-ui-settings-models/lib/client.js',
+      packageRoot,
+    ), 'utf8')
+    for (const marker of [
+      'fetchSearch: "Search models"',
+      'fetchSearchPlaceholder: "Search by model ID or name"',
+      'fetchNoMatches: "No models match the current search."',
+      'fetchSearch: "搜索模型"',
+      'fetchSearchPlaceholder: "按模型 ID 或名称搜索"',
+      'fetchNoMatches: "当前搜索没有匹配的模型。"',
+    ]) {
+      expect(patch).toContain(marker)
+      expect(installedClient).toContain(marker)
+    }
+  })
+
+  it('filters fetched-model candidates before rendering and bulk selection', () => {
+    const patch = readFileSync(new URL(
+      '../patches/dsh-client-ui-settings-models@0.1.1-rc.2.patch',
+      packageRoot,
+    ), 'utf8')
+    const installedClient = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-client-ui-settings-models/lib/client.js',
+      packageRoot,
+    ), 'utf8')
+    for (const marker of [
+      'const [candidateQuery, setCandidateQuery] = (0, react.useState)("")',
+      'const normalizedCandidateQuery = candidateQuery.trim().toLowerCase();',
+      'const filteredCandidates = normalizedCandidateQuery.length === 0 ? activeCandidates : activeCandidates.filter((candidate) => {',
+      'const haystacks = [candidate.id, candidate.name].filter((value) => typeof value === "string");',
+      'filteredCandidates.length === 0 ? (0, react_jsx_runtime.jsx)("p", {',
+      'children: t("fetchNoMatches")',
+      'children: filteredCandidates.map((candidate) => (0, react_jsx_runtime.jsx)("li", {',
+    ]) {
+      expect(patch).toContain(marker)
+      expect(installedClient).toContain(marker)
+    }
+  })
+
+  it('preserves picked models outside the active filter when bulk-clearing matches', () => {
+    const patch = readFileSync(new URL(
+      '../patches/dsh-client-ui-settings-models@0.1.1-rc.2.patch',
+      packageRoot,
+    ), 'utf8')
+    const installedClient = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-client-ui-settings-models/lib/client.js',
+      packageRoot,
+    ), 'utf8')
+    for (const marker of [
+      'const allFilteredCandidatesPicked = filteredCandidates.length > 0 && filteredCandidates.every((candidate) => picked.has(candidate.id));',
+      'for (const candidate of filteredCandidates) next.delete(candidate.id);',
+      'for (const candidate of filteredCandidates) next.add(candidate.id);',
+      'disabled: filteredCandidates.length === 0',
+      'children: t(allFilteredCandidatesPicked ? "fetchDeselectAll" : "fetchSelectAll")',
+    ]) {
+      expect(patch).toContain(marker)
+      expect(installedClient).toContain(marker)
+    }
+  })
+
   it('localizes Trajectory toolbar labels in Simplified Chinese', () => {
     const patchPath = './patches/dsh-client-ui-trajectory@0.1.1-rc.2.patch'
     expect(workspaceManifest.resolutions).toMatchObject({
@@ -609,6 +675,7 @@ describe('published package surface', () => {
     }])
     expect(manifest.build?.win?.artifactName).toBe('DSH-Desktop-${version}-${arch}-Portable.${ext}')
     expect(manifest.build?.nsis).toEqual({
+      include: 'installer.nsh',
       license: 'THIRD_PARTY_NOTICES.md',
       oneClick: false,
       perMachine: false,
@@ -638,6 +705,8 @@ describe('published package surface', () => {
     expect(manifest.scripts?.['check:win-package']).toContain('yarn run build')
     expect(manifest.scripts?.['check:win-package']).toContain('yarn run typecheck')
     expect(manifest.scripts?.['check:win-package']).toContain('tests/package-win.spec.ts')
+    expect(manifest.scripts?.['check:win-package']).toContain('tests/desktop-installer-quit.spec.ts')
+    expect(manifest.scripts?.['check:win-package']).toContain('tests/installer-nsh.spec.ts')
     expect(manifest.scripts?.['check:win-package']).toContain('tests/verify-win-portable.spec.ts')
     expect(manifest.scripts?.['check:win-package']).toContain('tests/update-checker.spec.ts')
     expect(manifest.scripts?.['check:win-package']).toContain('tests/update-download.spec.ts')
@@ -781,7 +850,7 @@ describe('published package surface', () => {
     expect(manifest.dependencies).not.toHaveProperty('electron')
     expect(manifest.peerDependencies?.electron).toBe('43.4.0')
     expect(manifest.devDependencies?.electron).toBe('43.4.0')
-    expect(manifest.dependencies?.pnpm).toBe('11.7.0')
+    expect(manifest.dependencies?.pnpm).toBe('11.8.0')
   })
 
   it('packages the native-compiled Koffi Windows runtime', () => {

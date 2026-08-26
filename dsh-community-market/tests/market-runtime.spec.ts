@@ -395,6 +395,34 @@ describe('1024Store adapter', () => {
     )).rejects.toThrow(/provider total/u)
   })
 
+  it('forwards 1024Store search terms to the reviewed provider endpoint', async () => {
+    const appshot = {
+      ...rawCatalog.packages[0]!,
+      id: 'TaurusWood/dsh-plugin-appshot',
+      name: 'dsh-plugin-appshot',
+      owner: 'TaurusWood',
+      url: 'https://github.com/TaurusWood/dsh-plugin-appshot',
+    }
+    const getJson = vi.fn(async () => ({
+      value: { ...rawCatalog, meta: { ...rawCatalog.meta, total: 1 }, packages: [appshot] },
+      finalUrl: 'https://deepseek1024.com/api/v1/plugins?q=appshot',
+    }))
+    const http: CatalogHttpClient = { getJson }
+
+    const snapshot = await dsh1024StoreAdapter.fetch(
+      { q: 'appshot', limit: 50 },
+      { source: source(), signal: new AbortController().signal, http, media: { register: () => fixtureAssetRef } },
+    )
+
+    const requestedCall = getJson.mock.calls[0] as unknown as [string, ...unknown[]] | undefined
+    const requestedUrl = requestedCall?.[0]
+    if (requestedUrl === undefined) throw new Error('expected the 1024Store adapter to issue one provider request')
+    expect(requestedUrl).toEqual(expect.any(String))
+    expect(new URL(requestedUrl).searchParams.get('q')).toBe('appshot')
+    expect(snapshot.items.map(item => item.id)).toEqual(['TaurusWood/dsh-plugin-appshot'])
+    expect(snapshot.page).toEqual({ total: 1 })
+  })
+
   it('keeps the reviewed 1024Store adapter page size fixed at 50', async () => {
     const packages = Array.from({ length: 51 }, (_, index) => ({
       ...rawCatalog.packages[0]!,
@@ -1020,6 +1048,84 @@ describe('catalog active-source reads', () => {
     expect(getJson).toHaveBeenCalledOnce()
     expect(results).toHaveLength(1)
     expect(results[0]?.snapshot?.items).toHaveLength(1)
+  })
+
+  it('routes 1024Store searches through provider fetch instead of the incomplete local scan', async () => {
+    const store = new MemoryCatalogSourceStore()
+    await store.save([source()])
+    const appshot = {
+      ...rawCatalog.packages[0]!,
+      id: 'TaurusWood/dsh-plugin-appshot',
+      name: 'dsh-plugin-appshot',
+      owner: 'TaurusWood',
+      url: 'https://github.com/TaurusWood/dsh-plugin-appshot',
+    }
+    const getJson = vi.fn(async (url: string) => ({
+      value: url.includes('q=appshot')
+        ? { ...rawCatalog, meta: { ...rawCatalog.meta, total: 1 }, packages: [appshot] }
+        : rawCatalog,
+      finalUrl: url,
+    }))
+    const scanCatalog = vi.spyOn(dsh1024StoreAdapter, 'scanCatalog')
+    const service = new DefaultCatalogService(store, { getJson })
+
+    try {
+      const results = await service.fetch({ q: 'appshot' }, new AbortController().signal)
+
+      expect(scanCatalog).not.toHaveBeenCalled()
+      const requestedCall = getJson.mock.calls[0] as unknown as [string, ...unknown[]] | undefined
+      const requestedUrl = requestedCall?.[0]
+      if (requestedUrl === undefined) throw new Error('expected the service to issue one 1024Store provider request')
+      expect(requestedUrl).toEqual(expect.any(String))
+      expect(new URL(requestedUrl).searchParams.get('q')).toBe('appshot')
+      expect(results).toHaveLength(1)
+      expect(results[0]?.snapshot?.items.map(item => item.id)).toEqual(['TaurusWood/dsh-plugin-appshot'])
+    } finally {
+      scanCatalog.mockRestore()
+    }
+  })
+
+  it('returns provider-backed 1024Store search results even when the full local scan is incomplete', async () => {
+    const fetch = vi.spyOn(dsh1024StoreAdapter, 'fetch').mockResolvedValue({
+      schemaVersion: '1.0.0',
+      source: {
+        sourceRecordId: source().sourceRecordId,
+        providerId: source().providerId,
+        adapterId: source().adapterId,
+        registrationKind: source().registrationKind,
+        fetchedAt: '2026-08-24T16:10:00.000Z',
+        finalUrl: 'https://deepseek1024.com/api/v1/plugins?q=appshot',
+      },
+      items: [{
+        id: 'TaurusWood/dsh-plugin-appshot',
+        name: 'dsh-plugin-appshot',
+        displayName: 'dsh-plugin-appshot',
+        summary: 'Appshot',
+        repository: { url: 'https://github.com/TaurusWood/dsh-plugin-appshot' },
+        provenance: {
+          sourceRecordId: source().sourceRecordId,
+          providerId: source().providerId,
+          itemId: 'TaurusWood/dsh-plugin-appshot',
+        },
+      }],
+      page: { total: 1 },
+    })
+    const scanCatalog = vi.spyOn(dsh1024StoreAdapter, 'scanCatalog')
+      .mockRejectedValue(new Error('1024Store scan did not reach the provider total'))
+
+    try {
+      const response = await requestMarketCatalog([source()], `${marketRoutes.catalog}?q=appshot`)
+
+      expect(response.statusCode).toBe(200)
+      expect(fetch).toHaveBeenCalledOnce()
+      expect(response.body.results[0]?.snapshot?.items.map((item: { id: string }) => item.id))
+        .toEqual(['TaurusWood/dsh-plugin-appshot'])
+      expect(response.body.categories).toEqual([])
+      expect(response.body.metadata).toBeUndefined()
+    } finally {
+      fetch.mockRestore()
+      scanCatalog.mockRestore()
+    }
   })
 
   it('reuses only an unexpired complete index and reports explicit cache status', async () => {

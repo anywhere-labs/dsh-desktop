@@ -12,6 +12,7 @@ import type {
   MarketCatalogErrorCode,
   MarketCatalogMetadata,
   MarketCatalogResponse,
+  MarketCatalogSourceResult,
   MarketInstallationView,
   MarketInstallReceipt,
   MarketManualInstallHint,
@@ -816,8 +817,9 @@ export function registerMarketRoutes(
     index: CatalogFullIndex | undefined,
     query: Record<string, unknown>,
     fetchScope: CatalogFetchScope | undefined,
+    resultsOverride?: readonly MarketCatalogSourceResult[],
   ): MarketCatalogResponse => {
-    const results = index === undefined ? [] : service.queryCatalog(index, query, fetchScope)
+    const results = resultsOverride ?? (index === undefined ? [] : service.queryCatalog(index, query, fetchScope))
     const responseQuery = fetchScope === undefined
       ? query
       : {
@@ -909,12 +911,13 @@ export function registerMarketRoutes(
               sourceRecordId: sourceRecordIds[0]!,
               ...(cursors.length === 0 ? {} : { cursor: cursors[0]! }),
             }
-        const activeSource = scope === undefined
-          ? undefined
-          : (await service.listSources()).find(source => (
+        const listedSources = await service.listSources()
+        const selectedSource = scope === undefined
+          ? listedSources.find(source => source.enabled)
+          : listedSources.find(source => (
               source.enabled && source.sourceRecordId === scope.sourceRecordId
             ))
-        if (scope !== undefined && activeSource === undefined) throw new Error('catalog source is not active')
+        if (scope !== undefined && selectedSource === undefined) throw new Error('catalog source is not active')
         const localeKey = locale ?? ''
         const previewSourceRecordId = q === undefined
           && categories.length === 0
@@ -929,14 +932,37 @@ export function registerMarketRoutes(
           : catalogPreviewKey(previewSourceRecordId, localeKey)
         if (force) refreshPreviewKey = previewKey
         if (!force && previewKey !== undefined && !servedCatalogPreviews.has(previewKey)) {
-          const cached = activeSource === undefined
+          const cached = selectedSource === undefined
             ? undefined
-            : cachedCatalogResponse(settingsScope.get().catalogCache, activeSource, localeKey)
+            : cachedCatalogResponse(settingsScope.get().catalogCache, selectedSource, localeKey)
           if (cached !== undefined) {
             servedCatalogPreviews.add(previewKey)
             if (!signal.aborted && !res.destroyed) sendJson(res, 200, cached)
             return
           }
+        }
+        if (q !== undefined && selectedSource?.adapterId === DSH_1024STORE_ADAPTER_ID) {
+          let results: readonly MarketCatalogSourceResult[]
+          try {
+            results = await service.fetch(query, signal, scope)
+          } catch (cause) {
+            if (!signal.aborted && !res.destroyed) sendCatalogFailure(res, cause)
+            return
+          }
+          let index: CatalogFullIndex | undefined
+          try {
+            index = await service.scanCatalog(signal, {
+              force,
+              ...(locale === null || locale === '' ? {} : { locale }),
+              ...(scope === undefined ? {} : { expectedSourceRecordId: scope.sourceRecordId }),
+            })
+          } catch {
+            index = undefined
+          }
+          signal.throwIfAborted()
+          const response = buildCatalogResponse(index, query, scope, results)
+          if (!signal.aborted && !res.destroyed) sendJson(res, 200, response)
+          return
         }
         let index: CatalogFullIndex | undefined
         try {

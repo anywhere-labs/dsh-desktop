@@ -1869,7 +1869,7 @@ __metadata:
 
 "@deepseek-ai/dsh-client-ui-settings-models@patch:@deepseek-ai/dsh-client-ui-settings-models@npm%3A0.1.1-rc.2#./patches/dsh-client-ui-settings-models@0.1.1-rc.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.1-rc.2
-  resolution: "@deepseek-ai/dsh-client-ui-settings-models@patch:@deepseek-ai/dsh-client-ui-settings-models@npm%3A0.1.1-rc.2#./patches/dsh-client-ui-settings-models@0.1.1-rc.2.patch::version=0.1.1-rc.2&hash=65208f&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-settings-models@patch:@deepseek-ai/dsh-client-ui-settings-models@npm%3A0.1.1-rc.2#./patches/dsh-client-ui-settings-models@0.1.1-rc.2.patch::version=0.1.1-rc.2&hash=aa1f2c&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-api-remotes": ^0.1.1-rc.2
@@ -1878,7 +1878,7 @@ __metadata:
     "@deepseek-ai/dsh-client-runtime": ^0.1.1-rc.2
     "@deepseek-ai/dsh-client-ui-settings": ^0.1.1-rc.2
     "@deepseek-ai/dsh-invariants": ^0.1.1-rc.2
-  checksum: 10c0/fd06c9d912adff6e19066048967f6a7fa0f0f7bbdc0bdf8fb7ce034f055acdda40441cbb15983d3301b61d5b5784170dce1c4cc1c9302ee7d7dcbf1891c0ee04
+  checksum: 10c0/2055a23c44b7416e3002960cce1fd067c88a68925c9c991f6e6815cffad5f96c5bfd97cbf7f196738abb2c757eea339ecca64ed1da3a621e33d0f60beac6cd17
   languageName: node
   linkType: hard
 
@@ -8349,7 +8349,7 @@ __metadata:
     koffi: "npm:3.1.5"
     lucide-react: "npm:^1.33.0"
     node-addon-require-builtin: "npm:^0.1.4"
-    pnpm: "npm:11.7.0"
+    pnpm: "npm:11.8.0"
     react: "npm:18.3.1"
     react-dom: "npm:18.3.1"
     semver: "npm:^7.8.5"
@@ -11834,9 +11834,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"pnpm@npm:11.7.0":
-  version: 11.7.0
-  resolution: "pnpm@npm:11.7.0"
+"pnpm@npm:11.8.0":
+  version: 11.8.0
+  resolution: "pnpm@npm:11.8.0"
   dependencies:
     node-gyp: "npm:latest"
   bin:
@@ -11844,7 +11844,7 @@ __metadata:
     pnpm: bin/pnpm.mjs
     pnpx: bin/pnpx.mjs
     pnx: bin/pnpx.mjs
-  checksum: 10c0/fdc13140f280771191b210385c7cffe288870ba14c6a5e7a212e90703a4327d8903fdcee6409daff9a3f8fba5cc2b323344ed59effeac66df0bdc2235a01cce0
+  checksum: 10c0/a24262bc503a6007a1948c2182377b30d22e8e192cb2b85e8dd7e2bbac0e87ed1426f454a73ed95943f36177d54938a02d5d6cbbadf01f58467c8c2d06d1a35d
   languageName: node
   linkType: hard
 

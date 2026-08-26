@@ -15,6 +15,7 @@ import {
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
+import { isDesktopInstallerQuitRequest } from './desktop-installer-quit.ts'
 import {
   installDesktopDshRuntime,
   installDesktopPnpmRuntime,
@@ -184,6 +185,10 @@ async function start(): Promise<void> {
     app.quit()
     return
   }
+  if (isDesktopInstallerQuitRequest(process.argv, process.platform)) {
+    app.quit()
+    return
+  }
 
   let shutdown: DesktopShutdown | undefined
   let removeShutdownRequests: (() => void) | undefined
@@ -347,7 +352,11 @@ async function start(): Promise<void> {
     }
   }
 
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    if (isDesktopInstallerQuitRequest(argv, process.platform)) {
+      requestQuit(0)
+      return
+    }
     if (startupRecoveryWindow !== undefined) startupRecoveryWindow.show()
     else runtime.show()
   })

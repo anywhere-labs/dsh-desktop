@@ -297,6 +297,12 @@ function compareCandidates(left: RegistryCandidate, right: RegistryCandidate, qu
   return right.stars - left.stars || left.item.displayName.localeCompare(right.item.displayName, 'en', { sensitivity: 'base' })
 }
 
+function fetchUrl(query: CatalogQuery): string {
+  const url = new URL(DSH_1024STORE_ENDPOINT)
+  if (query.q !== undefined) url.searchParams.set('q', query.q)
+  return url.href
+}
+
 function buildSnapshot(value: unknown, context: CatalogFetchContext, finalUrl: string, query: CatalogQuery): CatalogSnapshot {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('1024Store response is not an object')
   const raw = value as Dsh1024StoreCatalog
@@ -453,7 +459,7 @@ export const dsh1024StoreAdapter: CatalogAdapter = {
     const query = { ...queryValue, limit: Math.min(queryValue.limit ?? 50, 50) }
     const expectedOrigin = new URL(DSH_1024STORE_ENDPOINT).origin
     const response = await context.http.getJson(
-      DSH_1024STORE_ENDPOINT,
+      fetchUrl(query),
       context.signal,
       { allowedOrigin: expectedOrigin },
     )
