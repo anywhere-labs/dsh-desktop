@@ -26,6 +26,20 @@ function bench() {
   const entries = new Map<string, TestEntry[]>()
   const injections: Injection[] = []
   const effects: (() => void)[] = []
+  const marketSettings = {
+    getSnapshot: () => ({
+      status: 'ready' as const,
+      value: { sidebarLauncherVisible: true },
+      base: undefined,
+      user: undefined,
+      revision: 1,
+      writable: true,
+      mode: 'host' as const,
+    }),
+    subscribe: () => () => {},
+    set: vi.fn(async () => {}),
+    unset: vi.fn(async () => {}),
+  }
 
   const activate = (injection: Injection): void => {
     if (declarations.has(injection.name) && injection.active === undefined) injection.active = injection.factory()
@@ -71,6 +85,7 @@ function bench() {
   }
   const ctx = {
     locale: localeService,
+    settingsScope: { bind: vi.fn(() => marketSettings) },
     slots,
     effect(factory: () => void | (() => void)): void {
       const dispose = factory()
@@ -79,6 +94,7 @@ function bench() {
   }
 
   return {
+    marketSettings,
     apply: () => { apply(ctx as never) },
     declare(name: string): () => void {
       declarations.add(name)
@@ -133,7 +149,7 @@ describe('community market browser plugin', () => {
 
     b.apply()
 
-    expect(inject).toEqual(['slots', 'locale'])
+    expect(inject).toEqual(['slots', 'locale', 'settingsScope'])
     const settings = b.entries('settings.plugins.tab')
     const launcher = b.entries('sidebar.footer.action')
     const overlay = b.entries('shell.overlay')
@@ -147,6 +163,8 @@ describe('community market browser plugin', () => {
     expect(launcher[0]?.options).toMatchObject({ id: 'community-market', order: 10 })
     expect(overlay[0]?.options).toMatchObject({ id: 'community-market', order: 10 })
     expect(launcher[0]?.options.store).toBe(overlay[0]?.options.store)
+    expect(launcher[0]?.inject?.()).toMatchObject({ marketSettings: b.marketSettings })
+    expect(settings[0]?.inject?.()).toMatchObject({ marketSettings: b.marketSettings })
     expect(settings[0]?.locale).toBe(NS)
     expect(launcher[0]?.locale).toBe(NS)
     expect(overlay[0]?.locale).toBe(NS)

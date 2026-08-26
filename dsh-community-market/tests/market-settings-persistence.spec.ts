@@ -65,6 +65,18 @@ const SiblingSchema = z.object({ label: z.string().default('default') })
 const SIBLING_NAMESPACE = settingsNamespace('market-persistence-fixture')
 
 describe('community market file-backed settings', () => {
+  it('defaults the sidebar launcher to visible and persists an explicit hidden preference', async () => {
+    const path = await temporarySettingsFile()
+    const first = await bootMarketSettings(path)
+
+    expect(first.scope.get().sidebarLauncherVisible).toBe(true)
+    await first.scope.update({ sidebarLauncherVisible: false })
+    await first.dispose()
+
+    const second = await bootMarketSettings(path)
+    expect(second.scope.get().sidebarLauncherVisible).toBe(false)
+  })
+
   it('restores sources and install receipts in a new Host context', async () => {
     const path = await temporarySettingsFile()
     const first = await bootMarketSettings(path)
@@ -73,7 +85,11 @@ describe('community market file-backed settings', () => {
     await first.dispose()
 
     const second = await bootMarketSettings(path)
-    expect(second.scope.get()).toEqual({ sources: [source], installReceipts: [receipt] } satisfies MarketSettingsDocument)
+    expect(second.scope.get()).toEqual({
+      sidebarLauncherVisible: true,
+      sources: [source],
+      installReceipts: [receipt],
+    } satisfies MarketSettingsDocument)
   })
 
   it('preserves install receipts when the source store persists a change', async () => {
@@ -85,7 +101,11 @@ describe('community market file-backed settings', () => {
     await first.dispose()
 
     const second = await bootMarketSettings(path)
-    expect(second.scope.get()).toEqual({ sources: [source], installReceipts: [receipt] } satisfies MarketSettingsDocument)
+    expect(second.scope.get()).toEqual({
+      sidebarLauncherVisible: true,
+      sources: [source],
+      installReceipts: [receipt],
+    } satisfies MarketSettingsDocument)
   })
 
   it('preserves another plugin namespace while persisting market settings', async () => {
@@ -100,6 +120,10 @@ describe('community market file-backed settings', () => {
     const second = await bootMarketSettings(path)
     const secondSibling = second.ctx.settings.register(SIBLING_NAMESPACE, SiblingSchema)
     expect(secondSibling.get()).toEqual({ label: 'retained across restart' })
-    expect(second.scope.get()).toEqual({ sources: [source], installReceipts: [receipt] } satisfies MarketSettingsDocument)
+    expect(second.scope.get()).toEqual({
+      sidebarLauncherVisible: true,
+      sources: [source],
+      installReceipts: [receipt],
+    } satisfies MarketSettingsDocument)
   })
 })

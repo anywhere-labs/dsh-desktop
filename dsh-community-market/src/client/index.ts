@@ -10,6 +10,7 @@ import { MarketSettingsTab } from './MarketSettingsTab.js'
 import { createMarketViewStore } from './market-view-store.js'
 import { en, zh } from './locales.js'
 import { installMarketStyles } from './styles.js'
+import type { MarketSettingsDocument } from '../catalog/source-store.js'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -17,11 +18,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['slots', 'locale']
+export const inject = ['slots', 'locale', 'settingsScope']
 export const NS = 'community-market'
+export const MARKET_SETTINGS_NAMESPACE = 'dsh-community-market'
 
 export function apply(ctx: ClientContext): void {
   const marketView = createMarketViewStore()
+  const marketSettings = ctx.settingsScope.bind<MarketSettingsDocument>({ namespace: MARKET_SETTINGS_NAMESPACE })
   const readLocale = () => ctx.locale.getLocale().active
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'community-market: dictionaries')
   ctx.effect(() => installMarketStyles(), 'community-market: styles')
@@ -31,7 +34,7 @@ export function apply(ctx: ClientContext): void {
     order: 20,
     label: () => ctx.locale.bind(NS)('tab'),
     locale: NS,
-    inject: () => ({ readLocale }),
+    inject: () => ({ readLocale, marketSettings }),
   }, MarketSettingsTab))
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action',
@@ -40,6 +43,7 @@ export function apply(ctx: ClientContext): void {
     label: () => ctx.locale.bind(NS)('tab'),
     locale: NS,
     store: marketView,
+    inject: () => ({ marketSettings }),
   }, MarketLauncher))
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',

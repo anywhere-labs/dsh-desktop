@@ -23,6 +23,7 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CatalogSnapshot } from '../contracts/generated/catalog-snapshot.js'
 import type {
   MarketBuiltInProvider,
@@ -37,6 +38,8 @@ import type {
   MarketStateResponse,
 } from '../api-types.js'
 import { marketMediaAssetUrl } from '../media/ref.js'
+import type { MarketSettingsDocument } from '../catalog/source-store.js'
+import { MarketSidebarVisibilitySetting } from './MarketSidebarVisibilitySetting.js'
 import {
   executeMarketOperation,
   mutateMarketSource,
@@ -167,6 +170,7 @@ export type MarketSettingsTabProps = PropsRuntime<'settings.plugins.tab'>
   & {
     readLocale: () => string
     initialView?: MarketView
+    marketSettings: SettingsScope<MarketSettingsDocument>
   }
 
 export interface MarketSurfaceProps {
@@ -174,6 +178,7 @@ export interface MarketSurfaceProps {
   readonly t: MarketSettingsTabProps['t']
   readonly showHeader?: boolean
   readonly initialView?: MarketView
+  readonly marketSettings?: SettingsScope<MarketSettingsDocument>
 }
 
 function retainEnabledCatalog(
@@ -248,7 +253,7 @@ function mergeCatalogPages(
   return { ...catalog, results, manualInstall: [...hints.values()], fetchedAt: new Date().toISOString() }
 }
 
-export function MarketSurface({ initialView = 'installable', readLocale, t, showHeader = true }: MarketSurfaceProps) {
+export function MarketSurface({ initialView = 'installable', marketSettings, readLocale, t, showHeader = true }: MarketSurfaceProps) {
   const [view, setView] = useState<MarketView>(initialView)
   const [state, setState] = useState<MarketStateResponse>()
   const [catalog, setCatalog] = useState<MarketCatalogResponse>()
@@ -1054,6 +1059,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
           />
         ) : (
           <SourcesView
+            {...(marketSettings === undefined ? {} : { marketSettings })}
             state={state}
             catalog={catalog}
             error={mutationError}
@@ -1169,9 +1175,10 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
   )
 }
 
-export function MarketSettingsTab({ initialView, readLocale, t }: MarketSettingsTabProps) {
+export function MarketSettingsTab({ initialView, marketSettings, readLocale, t }: MarketSettingsTabProps) {
   return <MarketSurface
     {...(initialView === undefined ? {} : { initialView })}
+    marketSettings={marketSettings}
     readLocale={readLocale}
     t={t}
   />
@@ -1673,11 +1680,12 @@ function ItemSourceRow({ source, t }: {
   )
 }
 
-function SourcesView({ state, catalog, error, pending, adapterGuideHref, onMutation, onAddStandard, t }: {
+function SourcesView({ state, catalog, error, pending, marketSettings, adapterGuideHref, onMutation, onAddStandard, t }: {
   state?: MarketStateResponse | undefined
   catalog?: MarketCatalogResponse | undefined
   error?: string | undefined
   pending: boolean
+  marketSettings?: SettingsScope<MarketSettingsDocument>
   adapterGuideHref: string
   onMutation: (mutation: MarketSourceMutation) => void
   onAddStandard: () => void
@@ -1691,6 +1699,7 @@ function SourcesView({ state, catalog, error, pending, adapterGuideHref, onMutat
         <div><h2>{t('sources')}</h2><p>{t('sourceNotice')}</p></div>
         <Button variant="outline" disabled={pending} icon={<IconPlusOutline16 />} onClick={onAddStandard}>{t('addStandard')}</Button>
       </div>
+      {marketSettings !== undefined && <MarketSidebarVisibilitySetting marketSettings={marketSettings} t={t} />}
       <div className="dshMarketBanner dshMarketSourceGuide">
         <IconGlobeOutline14 size={14} />
         <span>

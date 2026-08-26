@@ -47,7 +47,22 @@ afterEach(() => {
 })
 
 const t = ((key: MarketLocaleKey): string => en[key]) as MarketSettingsTabProps['t']
-const props = { initialView: 'discover', t, readLocale: () => 'en' } as MarketSettingsTabProps
+const marketSettingsSnapshot = {
+  status: 'ready' as const,
+  value: { sources: [], sidebarLauncherVisible: true },
+  base: undefined,
+  user: undefined,
+  revision: 1,
+  writable: true,
+  mode: 'host' as const,
+}
+const marketSettings = {
+  getSnapshot: () => marketSettingsSnapshot,
+  subscribe: () => () => {},
+  set: vi.fn(async () => {}),
+  unset: vi.fn(async () => {}),
+}
+const props = { initialView: 'discover', t, readLocale: () => 'en', marketSettings } as MarketSettingsTabProps
 const desktopActions = { openTerminal: true, requestRestart: true } as const
 const emptyState: MarketStateResponse = { sources: [], builtIns: [], desktopActions }
 
@@ -1549,7 +1564,7 @@ describe('MarketSettingsTab', () => {
       () => selector(instance.getSnapshot()),
     )
     const shared = { actions: instance.actions, useStore }
-    const launcherProps = { ...shared, wide: true, t } as unknown as MarketLauncherProps
+    const launcherProps = { ...shared, wide: true, t, marketSettings } as unknown as MarketLauncherProps
     const overlayProps = { ...shared, readLocale: () => 'en', t } as unknown as MarketOverlayProps
     render(<>
       <MarketLauncher {...launcherProps} />

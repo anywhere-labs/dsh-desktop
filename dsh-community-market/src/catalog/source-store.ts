@@ -20,6 +20,8 @@ export interface MarketSettingsDocument {
   readonly sources: readonly LocalSourceRecord[]
   readonly installReceipts?: readonly MarketInstallReceipt[]
   readonly catalogCache?: MarketCatalogCache
+  /** Keep the official Market reachable from Settings while allowing a less crowded sidebar. */
+  readonly sidebarLauncherVisible?: boolean
 }
 
 /**
