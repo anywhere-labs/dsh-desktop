@@ -1,0 +1,106 @@
+diff --git a/lib/aera-policy-provenance.js b/lib/aera-policy-provenance.js
+new file mode 100644
+index 0000000..aera001
+--- /dev/null
++++ b/lib/aera-policy-provenance.js
+@@ -0,0 +1,72 @@
++import { createHash } from "node:crypto";
++
++const HEADER = "x-aera-policy-provenance-v1";
++
++function textOf(message) {
++	if (!Array.isArray(message?.content)) return "";
++	return message.content
++		.filter((block) => block?.type === "text" && typeof block.text === "string")
++		.map((block) => block.text)
++		.join("");
++}
++
++function identityOf(message, isCurrentUser) {
++	const kind = message?.source?.kind;
++	if (kind === "user") return {
++		source_type: "HUMAN_USER",
++		trust_class: "UNTRUSTED",
++		semantic_role: "USER_INTENT",
++		temporal_role: isCurrentUser ? "CURRENT_USER_TURN" : "CONVERSATION_HISTORY"
++	};
++	if (kind === "skill-catalog") return {
++		source_type: "RUNTIME_SKILL_CATALOGUE",
++		trust_class: "RUNTIME_SUPPLIED",
++		semantic_role: "CONTEXT_INTEGRITY",
++		temporal_role: "RUNTIME_CONTEXT"
++	};
++	if (message?.role === "system" || kind === "plugin") return {
++		source_type: "RUNTIME_PLUGIN_CONTEXT",
++		trust_class: "RUNTIME_SUPPLIED",
++		semantic_role: "CONTEXT_INTEGRITY",
++		temporal_role: "RUNTIME_CONTEXT"
++	};
++	return null;
++}
++
++/**
++ * Content-free projection of immutable Harness message provenance. Router
++ * validates each digest against the received wire body before using it.
++ */
++export function aeraPolicyProvenanceHeader(messages) {
++	if (!Array.isArray(messages)) return void 0;
++	let currentUserIndex = -1;
++	for (let index = messages.length - 1; index >= 0; index--) {
++		if (messages[index]?.source?.kind === "user") {
++			currentUserIndex = index;
++			break;
++		}
++	}
++	const segments = [];
++	for (const [retainedOrdinal, message] of messages.entries()) {
++		const identity = identityOf(message, retainedOrdinal === currentUserIndex);
++		const content = textOf(message);
++		if (identity === null || content.length === 0) continue;
++		if (typeof message.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(message.id)) continue;
++		segments.push({
++			correlation_id: message.id,
++			...identity,
++			retained_ordinal: retainedOrdinal,
++			content_sha256: createHash("sha256").update(content, "utf8").digest("hex")
++		});
++	}
++	return segments.length === 0 ? void 0 : JSON.stringify({ version: 1, segments });
++}
++
++/** Merge private policy evidence while rejecting profile-level collisions. */
++export function withAeraPolicyProvenance(headers, messages) {
++	const provenance = aeraPolicyProvenanceHeader(messages);
++	const retained = Object.fromEntries(Object.entries(headers ?? {}).filter(
++		([name]) => name.toLowerCase() !== HEADER
++	));
++	return provenance === void 0 ? retained : { ...retained, [HEADER]: provenance };
++}
+diff --git a/lib/index.js b/lib/index.js
+index 6e7a97d..aera002 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -13,5 +13,6 @@ import { homedir } from "node:os";
+ import { access } from "node:fs/promises";
+ import { resolve } from "node:path";
++import { withAeraPolicyProvenance } from "./aera-policy-provenance.js";
+ //#region lib/types/replay.js
+ /**
+ * Durable pi-ai replay metadata and assistant-history reconstruction.
+@@ -1266,3 +1267,7 @@ function classifyPiAiError(message) {
++	if (message.includes("SENTINEL_DENIED")) return "GOVERNANCE_POLICY";
++	if (message.includes("SENTINEL_POLICY_UNAVAILABLE")) return "GOVERNANCE_UNAVAILABLE";
++	if (message.includes("CURRENT_AUTHORITY_UNAVAILABLE") || message.includes("PROVIDER_EXECUTION_FORBIDDEN")) return "AUTHORITY";
++	if (message.includes("PROVIDER_DISABLED") || message.includes("PROVIDER_LOCKED") || message.includes("PROVIDER_DRAINING")) return "PROVIDER_STATE";
+ 	if (/\b(?:401|403)\b/.test(message)) return "AUTH";
+ 	if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE;
+ 	if (/\b429\b|rate.?limit/i.test(message)) return "RATE_LIMIT";
+@@ -1741,7 +1747,7 @@ var PiAiAdapter = class extends LlmAdapter {
+ 					...options.maxTokens === void 0 ? {} : { maxTokens: options.maxTokens },
+ 					...options.sessionId === void 0 ? {} : { sessionId: String(options.sessionId) },
+ 					signal: watchdog.signal,
+-					headers: requestHeaders(profile.headers)
++					headers: requestHeaders(withAeraPolicyProvenance(profile.headers, options.messages))
+ 				}), model.contextWindow)[Symbol.asyncIterator]();
+ 				let exhausted = false;
+ 				try {

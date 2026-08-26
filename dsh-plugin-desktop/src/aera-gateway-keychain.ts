@@ -36,12 +36,15 @@ function readMacKeychainPassword(service: string, account: string): string {
 export function bootstrapAeraGatewayCredential(options: AeraGatewayKeychainOptions): AeraGatewayCredentialBootstrap {
   const platform = options.platform ?? process.platform
   const environment = options.environment ?? process.env
-  if (options.activeProfile !== AERA_CODE_PRODUCT.gatewayProfileName || platform !== 'darwin') return 'not-required'
-  const name = AERA_CODE_PRODUCT.gatewayCredentialEnvironmentName
+  const profile = AERA_CODE_PRODUCT.gatewayProfiles[
+    options.activeProfile as keyof typeof AERA_CODE_PRODUCT.gatewayProfiles
+  ]
+  if (!profile || platform !== 'darwin') return 'not-required'
+  const name = profile.credentialEnvironmentName
   if (typeof environment[name] === 'string' && environment[name]!.length > 0) return 'already-present'
   const value = (options.readPassword ?? readMacKeychainPassword)(
-    AERA_CODE_PRODUCT.gatewayKeychainService,
-    AERA_CODE_PRODUCT.gatewayKeychainAccount,
+    profile.keychainService,
+    profile.keychainAccount,
   )
   if (value.length === 0) throw new Error('Aera Code could not resolve the governed AERA Gateway credential from Keychain')
   environment[name] = value

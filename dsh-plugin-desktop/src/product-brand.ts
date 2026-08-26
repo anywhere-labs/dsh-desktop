@@ -16,6 +16,18 @@ export const AERA_CODE_PRODUCT = Object.freeze({
   gatewayCredentialEnvironmentName: 'AERA_GATEWAY_DSH_EVAL_KEY',
   gatewayKeychainService: 'com.aera.gateway.canary.execution',
   gatewayKeychainAccount: 'Allyd',
+  gatewayProfiles: Object.freeze({
+    'aera-gateway-eval': Object.freeze({
+      credentialEnvironmentName: 'AERA_GATEWAY_DSH_EVAL_KEY',
+      keychainService: 'com.aera.gateway.canary.execution',
+      keychainAccount: 'Allyd',
+    }),
+    'aera-gateway-dev-eval': Object.freeze({
+      credentialEnvironmentName: 'AERA_GATEWAY_DEV_EXECUTION_KEY',
+      keychainService: 'com.aera.gateway.dev.execution',
+      keychainAccount: 'Alyshia Daley',
+    }),
+  }),
 } as const)
 
 export type AeraCodeProduct = typeof AERA_CODE_PRODUCT

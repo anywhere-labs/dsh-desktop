@@ -1,0 +1,32 @@
+diff --git a/lib/client.js b/lib/client.js
+index ba3cb21f72709cc91a733d4080266e452d6435d5..e02032eaf3a9e8011cc779a02dd260e8af34056e 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -9266,7 +9266,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
+ 				}
+ 				const persisted = this.selection.getSnapshot().sessionId;
+ 				if (current === void 0) {
+-					if (persisted !== void 0) this.selection.set({});
++					if (phase === "ready" && persisted !== void 0) this.selection.set({});
+ 				} else if (byId[current] !== void 0 && (persisted !== current || this.selection.getSnapshot().subagentAddress?.childSessionId !== currentAddress?.childSessionId || this.selection.getSnapshot().subagentAddress?.parentSessionId !== currentAddress?.parentSessionId || this.selection.getSnapshot().subagentAddress?.mode !== currentAddress?.mode)) this.selection.set({
+ 					sessionId: current,
+ 					...currentAddress === void 0 ? {} : { subagentAddress: currentAddress }
+@@ -10481,7 +10481,17 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
+ 		function displayFailureMessage(failure) {
+ 			if (failure === null || typeof failure !== "object") return String(failure);
+ 			const record = failure;
+-			if (record.code === "AUTH") return "API key is invalid";
++			if (record.code === "GOVERNANCE_POLICY") return "Aera Gateway governance policy denied this request.";
++			if (record.code === "GOVERNANCE_UNAVAILABLE") return "Aera Gateway governance is temporarily unavailable.";
++			if (record.code === "AUTHORITY") return "Aera Gateway execution is not authorised for this runtime Session.";
++			if (record.code === "PROVIDER_STATE") return "Aera Gateway provider execution is disabled.";
++			if (record.code === "AUTH") {
++				const message = typeof record.message === "string" ? record.message : "";
++				if (message.includes("provider_execution_unauthorized") || message.includes("PROVIDER_EXECUTION_UNAUTHORISED")) {
++					return "Aera Gateway authentication is required.";
++				}
++				return "API key is invalid";
++			}
+ 			return typeof record.message === "string" ? record.message : JSON.stringify(failure);
+ 		}
+ 		//#endregion
