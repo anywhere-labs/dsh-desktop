@@ -1,0 +1,21 @@
+diff --git a/lib/index.js b/lib/index.js
+index b819f847403e2bd76a7c04518da4652562a7a791..0370c48148039cd277c7ccda0cd0d9c4e355a160 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -648,7 +648,7 @@ function resolveRouteModels(request) {
+ 			api,
+ 			provider,
+ 			baseUrl,
+-			input: declaredInput(entry.input) ?? base?.input ?? [...request.defaultInput],
++			input: declaredInput(entry.input) ?? declaredInput(entry.inputModalities) ?? base?.input ?? [...request.defaultInput],
+ 			cost: base?.cost ?? NO_COST,
+ 			contextWindow,
+ 			maxTokens,
+@@ -920,6 +920,7 @@ const modelFields = {
+ 	contextWindow: z.number().step(1).min(1),
+ 	maxTokens: z.number().step(1).min(1),
+ 	input: z.array(z.union(MODALITIES)),
++	inputModalities: z.array(z.union(MODALITIES)),
+ 	reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
+ 	compat: compatProfile
+ };
