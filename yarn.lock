@@ -7001,7 +7001,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@vscode/ripgrep@npm:^1.18.0":
+"@vscode/ripgrep@npm:1.18.0":
   version: 1.18.0
   resolution: "@vscode/ripgrep@npm:1.18.0"
   dependencies:
@@ -7043,6 +7043,51 @@ __metadata:
     "@vscode/ripgrep-win32-x64":
       optional: true
   checksum: 10c0/163b64cbc864888392616d28df6ff1cbf3c10078f218d2a1f070c25b42cf20c7013b7bf4bbd87a0235d6379d01d17a9a3a7bdb310cb35f1f2d0977418739742d
+  languageName: node
+  linkType: hard
+
+"@vscode/ripgrep@patch:@vscode/ripgrep@npm%3A1.18.0#~/.yarn/patches/@vscode-ripgrep-npm-1.18.0-641e268f90.patch":
+  version: 1.18.0
+  resolution: "@vscode/ripgrep@patch:@vscode/ripgrep@npm%3A1.18.0#~/.yarn/patches/@vscode-ripgrep-npm-1.18.0-641e268f90.patch::version=1.18.0&hash=745fa2"
+  dependencies:
+    "@vscode/ripgrep-darwin-arm64": "npm:1.18.0"
+    "@vscode/ripgrep-darwin-x64": "npm:1.18.0"
+    "@vscode/ripgrep-linux-arm": "npm:1.18.0"
+    "@vscode/ripgrep-linux-arm64": "npm:1.18.0"
+    "@vscode/ripgrep-linux-ia32": "npm:1.18.0"
+    "@vscode/ripgrep-linux-ppc64": "npm:1.18.0"
+    "@vscode/ripgrep-linux-riscv64": "npm:1.18.0"
+    "@vscode/ripgrep-linux-s390x": "npm:1.18.0"
+    "@vscode/ripgrep-linux-x64": "npm:1.18.0"
+    "@vscode/ripgrep-win32-arm64": "npm:1.18.0"
+    "@vscode/ripgrep-win32-ia32": "npm:1.18.0"
+    "@vscode/ripgrep-win32-x64": "npm:1.18.0"
+  dependenciesMeta:
+    "@vscode/ripgrep-darwin-arm64":
+      optional: true
+    "@vscode/ripgrep-darwin-x64":
+      optional: true
+    "@vscode/ripgrep-linux-arm":
+      optional: true
+    "@vscode/ripgrep-linux-arm64":
+      optional: true
+    "@vscode/ripgrep-linux-ia32":
+      optional: true
+    "@vscode/ripgrep-linux-ppc64":
+      optional: true
+    "@vscode/ripgrep-linux-riscv64":
+      optional: true
+    "@vscode/ripgrep-linux-s390x":
+      optional: true
+    "@vscode/ripgrep-linux-x64":
+      optional: true
+    "@vscode/ripgrep-win32-arm64":
+      optional: true
+    "@vscode/ripgrep-win32-ia32":
+      optional: true
+    "@vscode/ripgrep-win32-x64":
+      optional: true
+  checksum: 10c0/d23b2452a4ebffcbf7f3ca4b0b4345f0fa22d0c67fe388cc362825137279123840db1191d83edef4b5ca75ec243a72be1960c8413558d1b711a9d5642e9be9e4
   languageName: node
   linkType: hard
 

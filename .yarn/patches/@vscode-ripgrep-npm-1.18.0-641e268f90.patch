@@ -1,0 +1,32 @@
+diff --git a/lib/index.js b/lib/index.js
+index fcbf79a0af3e6dd5e138705b8e18c9458ca7a8c4..643e7ae6bd6bcfa37588bb01411107bfec2da461 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,4 +1,6 @@
+ import { createRequire } from 'node:module';
++import { existsSync } from 'node:fs';
++import { sep } from 'node:path';
+ 
+ const require = createRequire(import.meta.url);
+ 
+@@ -16,4 +18,20 @@ try {
+     );
+ }
+ 
++// Electron packs the application into an asar archive, so require.resolve
++// above returns a virtual path inside app.asar. child_process.spawn cannot
++// execute a binary from inside an asar (it fails with ENOENT), while
++// electron-builder keeps files marked "unpacked" on disk next to the archive
++// under app.asar.unpacked. Redirect to the physical copy when it exists so
++// consumers that spawn ripgrep work in packaged builds, most notably on
++// Windows. Outside packaged asar builds this is a no-op: the marker path
++// segment never appears and resolved is returned unchanged.
++const asarMarker = `${sep}app.asar${sep}`;
++if (resolved.includes(asarMarker)) {
++    const unpacked = resolved.replace(asarMarker, `${sep}app.asar.unpacked${sep}`);
++    if (existsSync(unpacked)) {
++        resolved = unpacked;
++    }
++}
++
+ export const rgPath = resolved;
