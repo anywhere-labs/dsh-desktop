@@ -2,7 +2,9 @@
 
 ## Installation and first launch
 
-Download the macOS or Windows installer from the product download page. DSH Desktop includes Electron, Node, and its pinned DSH dependencies, so normal users do not need to install Node.js or pnpm separately.
+Download the macOS, Windows, or Linux installer from the product download page. DSH Desktop includes Electron, Node, and its pinned DSH dependencies, so normal users do not need to install Node.js or pnpm separately.
+
+On Linux the release provides `.AppImage` and `.deb` packages. The AppImage can be run directly (after `chmod +x`) or placed in a desktop shortcut; the deb can be installed with `sudo dpkg -i DSH-Desktop-*.deb` or `sudo apt install ./DSH-Desktop-*.deb`, then launched from the application menu. Linux currently provides compatibility mode only; extended/enhanced windows, the system terminal, and auto-updates remain macOS/Windows boundaries. To run from source, see the Development section of the repository README.
 
 On first launch, the application prepares the default profile and starts the official DSH Web surface locally. Closing the window normally hides it; use **Quit** from the tray when you want to stop the application and Host process.
 

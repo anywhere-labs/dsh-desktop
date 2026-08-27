@@ -14,7 +14,7 @@ No. DSH Desktop is an independent, community-maintained open-source project. It 
 
 ## Which operating systems are supported?
 
-Current release installers support Windows x64 and universal macOS (Intel and Apple Silicon). There is currently no Linux installer. Cross-platform compatibility code in the source tree does not imply that an installer has been released for that platform.
+Current release installers support Windows x64, universal macOS (Intel and Apple Silicon), and Linux x64 (AppImage and deb). On Linux the app currently provides compatibility mode, running the official DSH web UI in a native window; custom window/material styles, the system terminal, and auto-updates remain macOS/Windows boundaries.
 
 ## Do I need to install Node.js, pnpm, or DSH?
 

@@ -2,7 +2,9 @@
 
 ## 安装与首次启动
 
-从产品下载入口获取 macOS 或 Windows 安装包。安装后的 DSH Desktop 自带运行所需的 Electron、Node 和 DSH 依赖，普通用户不需要另行安装 Node.js 或 pnpm。
+从产品下载入口获取 macOS、Windows 或 Linux 安装包。安装后的 DSH Desktop 自带运行所需的 Electron、Node 和 DSH 依赖，普通用户不需要另行安装 Node.js 或 pnpm。
+
+Linux 上提供 `.AppImage` 和 `.deb` 两种安装包。AppImage 可直接运行（`chmod +x` 后执行），也可放到桌面快捷方式；deb 可用 `sudo dpkg -i DSH-Desktop-*.deb` 或 `sudo apt install ./DSH-Desktop-*.deb` 安装，之后从应用菜单启动。Linux 目前只提供兼容模式，扩展窗口、增强模式、系统终端和自动更新仍以 macOS/Windows 为边界；从源码运行方式见仓库 README 的[开发](#)章节。
 
 首次启动时，应用会准备默认 profile，并在本机启动官方 DSH Web surface。关闭窗口通常只会隐藏窗口；可以从托盘重新打开，选择 **退出** 才会结束应用和 Host 进程。
 
