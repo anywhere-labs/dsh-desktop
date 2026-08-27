@@ -239,6 +239,18 @@ corepack.cmd yarn dist:win-portable
 
 `yarn dist:mac-smoke` 会在原生 macOS 宿主机上构建一个未签名的 universal DMG，同一个安装包可以在 Intel 和 Apple Silicon Mac 上原生运行。该命令拒绝非 macOS 宿主，并在打包前运行完整产品 gate：仓库布局与社区契约检查、Market 的 build 与 check，然后再运行 Desktop build、全部 TypeScript compiler face、完整 unit-test suite、runtime-closure 验证、CLI/Loader/profile headless smoke 与 license audit；其中包括对 macOS runner 上已安装的每种受支持 shell 执行真实 login-shell 测试。随后它会在不接触任何签名材料的情况下打包，挂载 DMG，并检查属性列表、主程序执行权限、`x86_64` 与 `arm64` 两个架构切片，以及 `app.asar`。该命令与 `dist:win` 的密钥纪律一致：剥离 Electron Builder 能识别的全部 macOS 签名与公证变量、设置 `CSC_IDENTITY_AUTO_DISCOVERY=false`、关闭 notarization，且从不发布。产物没有 Developer ID 签名，因此 Gatekeeper 会在其他机器上拦截它；它的存在是为了让打包回归在人工发布之前就在 CI 中失败。签名并公证的 universal 正式发布仍是在持有凭证的 macOS 机器上执行 `yarn dist:mac`，产物写入 `dsh-plugin-desktop/dist/mac-release/`。
 
+### 本地 Linux x64 AppImage 与 deb
+
+在 Linux x64 机器上使用 Node `22.19+` 或 `24.x` 构建未签名的 AppImage 与 deb 产物：
+
+```bash
+git submodule update --init --recursive
+corepack yarn install --immutable
+corepack yarn dist:linux
+```
+
+`dist:linux` 会拒绝非 Linux 或非 x64 宿主，先执行 Linux 打包 gate（Desktop build、全部 TypeScript compiler face、打包与原生 shell 聚焦测试，以及 runtime-closure verifier），再为 `AppImage` 与 `deb` 两个 target 运行 Electron Builder，并校验两个产物。该命令设置 `CSC_IDENTITY_AUTO_DISCOVERY=false`、跳过依赖重建（`npmRebuild=false`），且从不发布。版本 `2.0.3` 会输出到 `dsh-plugin-desktop/dist/linux/DSH-Desktop-2.0.3-x86_64.AppImage` 与 `dsh-plugin-desktop/dist/linux/DSH-Desktop-2.0.3-amd64.deb`；用于 smoke 测试的未封装程序仍位于 `dsh-plugin-desktop/dist/linux/linux-unpacked/dsh-desktop`。Linux 产物未签名；AppImage 可在支持挂载 FUSE2 镜像的桌面环境直接运行（或使用 `--appimage-extract-and-run`），deb 可用 `sudo dpkg -i` 安装。签名后的 Linux 正式发布与升级/卸载测试仍是单独的 release gate。
+
 ## 模型体验
 
 无。desktop package 只改变应用组合与原生呈现，不增加任何模型可见的指令、工具、事件或请求字段。

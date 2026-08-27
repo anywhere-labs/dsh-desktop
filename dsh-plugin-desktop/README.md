@@ -239,6 +239,18 @@ The output is `dsh-plugin-desktop\\dist\\DSH-Desktop-2.0.3-x64-Portable.zip`. Ex
 
 `yarn dist:mac-smoke` builds one unsigned universal DMG on a native macOS host. The same package runs natively on Intel and Apple Silicon Macs. The command refuses non-macOS hosts and runs the complete product gate before packaging: repository layout and community-contract checks, the Market build and check, then the Desktop build, every TypeScript compiler face, the full unit-test suite, runtime-closure verification, CLI/Loader/profile headless smokes, and the license audit. This includes the real login-shell tests for each supported shell installed on the macOS runner. It then packages without code-signing material, mounts the DMG, and verifies the property list, executable bit, both `x86_64` and `arm64` slices, and `app.asar`. It mirrors `dist:win`'s secret discipline by stripping every Electron Builder macOS signing and notarization variable, sets `CSC_IDENTITY_AUTO_DISCOVERY=false`, disables notarization, and never publishes. The artifact has no Developer ID signature, so Gatekeeper will block it on other machines; it exists so packaging regressions fail in CI before a manual release. The signed and notarized universal release remains `yarn dist:mac` on a credentialed macOS machine and writes its artifact to `dsh-plugin-desktop/dist/mac-release/`.
 
+### Local Linux x64 AppImage and deb
+
+Use a Linux x64 machine with Node `22.19+` or `24.x` to build unsigned AppImage and deb artifacts:
+
+```bash
+git submodule update --init --recursive
+corepack yarn install --immutable
+corepack yarn dist:linux
+```
+
+`dist:linux` refuses non-Linux and non-x64 hosts, runs the Linux package gate (the Desktop build, every TypeScript compiler face, packaging and native-shell focused tests, and the runtime-closure verifier), then runs Electron Builder for the `AppImage` and `deb` targets and verifies both artifacts. It sets `CSC_IDENTITY_AUTO_DISCOVERY=false`, skips dependency rebuilds (`npmRebuild=false`), and never publishes. Version `2.0.3` is written to `dsh-plugin-desktop/dist/linux/DSH-Desktop-2.0.3-x86_64.AppImage` and `dsh-plugin-desktop/dist/linux/DSH-Desktop-2.0.3-amd64.deb`; the unpacked application remains at `dsh-plugin-desktop/dist/linux/linux-unpacked/dsh-desktop` for smoke testing. Linux artifacts are unsigned; the AppImage runs on desktop environments that can mount FUSE2 images (or with `--appimage-extract-and-run`), and the deb installs with `sudo dpkg -i`. A signed Linux release and upgrade/uninstall testing remain separate release gates.
+
 ## Model Experience
 
 None. The desktop package changes application composition and native presentation; it does not add model-visible instructions, tools, events, or request fields.
@@ -258,4 +270,4 @@ None. The same DSH Host and client feature plugins assemble model requests.
 - The update handoff validates the download container, not publisher identity. macOS still requires the user to replace the application from the opened DMG; Windows runs the downloaded NSIS installer but the local `dist:win` artifact is unsigned. Signed artifacts, Authenticode/publisher verification, SmartScreen reputation, and native upgrade testing remain release gates.
 - The shared carrier is HTTP and WebSocket, not Electron IPC. It defaults to loopback and supports an explicitly confirmed all-interface LAN bind. Replacing the carrier requires transport extension points in upstream DSH and is outside this standalone package.
 - This project pins both the published DSH `0.1.1-rc.2` family and the corresponding official `deepseek-harness/` release source. Product builds still resolve published package interfaces rather than linking the source checkout.
-- `package:dir` is an unpacked smoke artifact. `dist:win` adds an unsigned NSIS test installer but does not establish Authenticode identity or SmartScreen reputation. Installation and upgrade behavior, native notifications and terminals, the Windows ACL sandbox, and native-material appearance remain target-platform verification boundaries.
+- `package:dir` is an unpacked smoke artifact. `dist:win` adds an unsigned NSIS test installer but does not establish Authenticode identity or SmartScreen reputation; `dist:linux` adds unsigned AppImage and deb artifacts. Installation and upgrade behavior, native notifications and terminals, the Windows ACL sandbox, and native-material appearance remain target-platform verification boundaries.

@@ -5,7 +5,7 @@
 <h1 align="center">DSH Desktop</h1>
 
 <p align="center">
-  <strong>基于 DeepSeek Harness 构建的 Windows 和 macOS 开源桌面客户端。</strong>
+  <strong>基于 DeepSeek Harness 构建的 Windows、macOS 和 Linux 开源桌面客户端。</strong>
 </p>
 
 <h3 align="center"><a href="https://dshdesktop.cn">一键下载，开箱即用。</a></h3>
@@ -26,7 +26,7 @@
   <a href="https://github.com/anywhere-labs/deepseek-harness-desktop"><img src="https://img.shields.io/github/stars/anywhere-labs/deepseek-harness-desktop?style=flat&amp;label=%E2%98%85&amp;color=08C" alt="GitHub stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat" alt="MIT License"></a>
   <a href="https://discord.gg/TJeGqKRNM"><img src="https://img.shields.io/badge/Discord-5865F2?style=flat&amp;logo=discord&amp;logoColor=white" alt="Join Discord"></a>
-  <img src="https://img.shields.io/badge/macOS%20%7C%20Windows-4493F8?style=flat-square" alt="Supported platforms: macOS and Windows">
+  <img src="https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-4493F8?style=flat-square" alt="Supported platforms: macOS, Windows and Linux">
 </p>
 
 DSH Desktop 将 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的本地 Web UI、Host 服务和插件系统集成到原生桌面应用中。项目固定并原样运行特定上游版本；DSH Desktop 提供窗口、托盘、终端、更新和工作配置，并通过 DeepSeek Harness 提供的插件机制与上游能力组合。
@@ -35,12 +35,15 @@ DSH Desktop 将 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harne
 
 ## 下载与安装
 
-当前正式安装包支持 Windows x64 和 macOS Universal。无需额外环境，下载安装，一键使用。
+当前正式安装包支持 Windows x64、macOS Universal 和 Linux x64（AppImage 与 deb）。无需额外环境，下载安装，一键使用。
 
 | 平台 | 下载 | 安装方式 |
 | --- | --- | --- |
 | Windows x64 | [下载安装程序](https://www.dshdesktop.cn/api/downloads/windows) | 运行 NSIS 安装程序并按提示完成安装 |
 | macOS Universal | [下载 DMG](https://www.dshdesktop.cn/api/downloads/mac) | 打开 DMG，将 DSH Desktop 拖入 Applications |
+| Linux x64 | 从 [最新 GitHub Release](https://github.com/anywhere-labs/deepseek-harness-desktop/releases/latest) 下载 `.AppImage` 或 `.deb` | AppImage 直接运行；deb 用 `sudo dpkg -i` 或 `sudo apt install ./` 安装 |
+
+Linux 上当前提供兼容模式（原生窗口内运行官方 DSH Web 界面）。开发阶段也可以直接从源码运行，见[开发](#开发)。
 
 详细步骤、插件命令和故障排查见[用户指南](docs/user-guide.md)与[常见问题](docs/faq.md)。
 
@@ -149,7 +152,7 @@ DSH Desktop 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 - 桌面应用封装
 - 本地服务的启动、停止与恢复
 - 桌面窗口和系统托盘集成
-- macOS、Windows 安装包构建与发布
+- macOS、Windows、Linux 安装包构建与发布
 - 更适合桌面使用的界面体验
 
 如果你希望通过命令行运行 DeepSeek Harness，或者参与其核心功能开发，请优先查看上游仓库。

@@ -1,6 +1,7 @@
 {
   "name": "dsh-plugin-desktop",
   "version": "2.0.3",
+  "desktopName": "dsh-desktop",
   "description": "DSH Desktop: an Electron shell composed as a DeepSeek Harness Cordis plugin",
   "license": "MIT",
   "publishConfig": {
@@ -135,6 +136,8 @@
     "dist:mac-smoke": "node scripts/package-mac.ts",
     "dist:win": "node scripts/package-win.ts",
     "dist:win-portable": "node scripts/package-win-portable.ts",
+    "dist:linux": "node scripts/package-linux.ts",
+    "check:linux-package": "yarn workspace dsh-community-market build && yarn run build && yarn run typecheck && vitest run tests/package-linux.spec.ts tests/verify-linux-package.spec.ts && yarn run verify:closure",
     "prepack": "yarn run check"
   },
   "dependencies": {
@@ -371,9 +374,27 @@
     },
     "linux": {
       "target": [
-        "dir"
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
-      "icon": "build/app-icon.png"
+      "icon": "build/app-icon.png",
+      "category": "Development",
+      "executableName": "dsh-desktop",
+      "maintainer": "DSH Desktop maintainers",
+      "syncDesktopName": true,
+      "synopsis": "DSH Desktop: DeepSeek Harness desktop client",
+      "description": "DSH Desktop packages the local DeepSeek Harness web UI, Host service and plugin system into a native desktop application.",
+      "artifactName": "DSH-Desktop-${version}-${arch}.${ext}"
     }
   }
 }
