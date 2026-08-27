@@ -273,6 +273,7 @@
     "@types/react-dom": "^18",
     "@types/semver": "^7.7.1",
     "@vitejs/plugin-react": "^6",
+    "app-builder-lib": "26.15.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron": "43.4.0",

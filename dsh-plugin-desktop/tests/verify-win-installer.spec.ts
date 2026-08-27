@@ -1,8 +1,12 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { verifyWindowsInstaller } from '../scripts/verify-win-installer.ts'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  parseSevenZipArchiveEntries,
+  verifyWindowsInstaller,
+  verifyWindowsInstallerPayloadMirror,
+} from '../scripts/verify-win-installer.ts'
 
 const temporaryRoots: string[] = []
 
@@ -36,39 +40,104 @@ afterEach(() => {
 })
 
 describe('Windows installer artifact verification', () => {
-  it('accepts the exact versioned NSIS installer and unpacked application', () => {
+  it('accepts the exact versioned NSIS installer and verifies its embedded payload', async () => {
     const value = fixture()
+    const verifyPayload = vi.fn(async () => {})
 
-    expect(verifyWindowsInstaller({ desktopRoot: value.root, version: '2.0.0' })).toEqual({
+    await expect(verifyWindowsInstaller({
+      desktopRoot: value.root,
+      version: '2.0.0',
+      verifyPayload,
+    })).resolves.toEqual({
       installerPath: value.installer,
       applicationPath: value.application,
     })
+    expect(verifyPayload).toHaveBeenCalledWith(
+      value.installer,
+      join(value.root, 'dist', 'win-unpacked'),
+    )
   })
 
-  it('rejects a stale installer from a different version', () => {
+  it('rejects a stale installer from a different version', async () => {
     const value = fixture('1.9.0')
 
-    expect(() => verifyWindowsInstaller({ desktopRoot: value.root, version: '2.0.0' }))
-      .toThrow('DSH-Desktop-2.0.0-x64-Setup.exe')
+    await expect(verifyWindowsInstaller({
+      desktopRoot: value.root,
+      version: '2.0.0',
+      verifyPayload: async () => {},
+    })).rejects.toThrow('DSH-Desktop-2.0.0-x64-Setup.exe')
   })
 
-  it('rejects an artifact without a Windows PE header', () => {
+  it('rejects an artifact without a Windows PE header', async () => {
     const value = fixture()
     const invalid = portableExecutable()
     invalid.write('NO', 0, 'ascii')
     writeFileSync(value.installer, invalid)
 
-    expect(() => verifyWindowsInstaller({ desktopRoot: value.root, version: '2.0.0' }))
-      .toThrow('does not have a Windows PE header')
+    await expect(verifyWindowsInstaller({
+      desktopRoot: value.root,
+      version: '2.0.0',
+      verifyPayload: async () => {},
+    })).rejects.toThrow('does not have a Windows PE header')
   })
 
-  it('rejects an unpacked application without a Windows PE signature', () => {
+  it('rejects an unpacked application without a Windows PE signature', async () => {
     const value = fixture()
     const invalid = portableExecutable()
     invalid.fill(0, 128, 132)
     writeFileSync(value.application, invalid)
 
-    expect(() => verifyWindowsInstaller({ desktopRoot: value.root, version: '2.0.0' }))
-      .toThrow('does not have a Windows PE signature')
+    await expect(verifyWindowsInstaller({
+      desktopRoot: value.root,
+      version: '2.0.0',
+      verifyPayload: async () => {},
+    })).rejects.toThrow('does not have a Windows PE signature')
+  })
+
+  it('rejects an embedded payload verifier failure', async () => {
+    const value = fixture()
+
+    await expect(verifyWindowsInstaller({
+      desktopRoot: value.root,
+      version: '2.0.0',
+      verifyPayload: async () => {
+        throw new Error('embedded mirror is incomplete')
+      },
+    })).rejects.toThrow('embedded mirror is incomplete')
+  })
+
+  it('parses normalized entries from the pinned 7-Zip technical listing', () => {
+    expect(parseSevenZipArchiveEntries([
+      'Path = resources\\app.asar',
+      'Size = 42',
+      'Path = resources\\app.asar.unpacked\\package.json',
+    ].join('\r\n'))).toEqual(new Set([
+      'resources/app.asar',
+      'resources/app.asar.unpacked/package.json',
+    ]))
+  })
+
+  it('requires every ASAR entry in the actual installer payload mirror', () => {
+    expect(() => verifyWindowsInstallerPayloadMirror(
+      new Set(['resources/app.asar.unpacked/package.json']),
+      new Set(['package.json']),
+    )).toThrow('payload is missing resources/app.asar')
+
+    expect(() => verifyWindowsInstallerPayloadMirror(
+      new Set([
+        'resources/app.asar',
+        'resources/app.asar.unpacked/package.json',
+      ]),
+      new Set(['package.json', 'node_modules/@deepseek-ai/dsh-base/package.json']),
+    )).toThrow('node_modules/@deepseek-ai/dsh-base/package.json')
+
+    expect(() => verifyWindowsInstallerPayloadMirror(
+      new Set([
+        'resources/app.asar',
+        'resources/app.asar.unpacked/package.json',
+        'resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh-base/package.json',
+      ]),
+      new Set(['package.json', 'node_modules/@deepseek-ai/dsh-base/package.json']),
+    )).not.toThrow()
   })
 })
