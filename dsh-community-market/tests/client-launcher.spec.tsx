@@ -15,7 +15,6 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
     variant?: string
     [key: string]: unknown
   }) => <button {...props}>{icon}{children}</button>,
-  IconCordisPluginOutline14: () => null,
   Tooltip: ({ children }: { children: unknown }) => children,
 }))
 
@@ -44,6 +43,7 @@ describe('community market launcher', () => {
     expect(button.getAttribute('data-wide')).toBe('false')
     expect(button.getAttribute('aria-expanded')).toBe('false')
     expect(button.textContent).not.toContain('tab')
+    expect(button.querySelector('svg')?.getAttribute('data-icon')).toBe('market-store')
 
     fireEvent.click(button)
     expect(button.getAttribute('aria-expanded')).toBe('true')

@@ -50,6 +50,8 @@ Renderer 在安装时不会提交 package name 或 package-manager 命令，只�
 
 自动安装不可用时，详情弹窗可以显示 Host 根据标准化身份重建的、有界且只用于展示的 npm 命令。**打开 DSH 终端**只打开 Desktop 终端，不会粘贴或执行该命令。
 
+如果自动安装已经开始但 pnpm 失败，Desktop 会保留有上限的 stdout/stderr 尾部，将其写入 Desktop 日志，并在失败弹窗中显示同一份诊断输出。弹窗提供 Host 推导的精确命令和**打开 DSH 终端**，供用户手动继续；已经消费的确认不会被自动重试。
+
 ## 文档
 
 - [安装与卸载](docs/install-and-uninstall.zh.md)

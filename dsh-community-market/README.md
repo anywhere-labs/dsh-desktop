@@ -50,6 +50,8 @@ Source requests are HTTPS-only, credential-free, bounded, and protected against 
 
 When automatic installation is unavailable, the details dialog may show a bounded, display-only npm command reconstructed by the Host. **Open DSH Terminal** only opens Desktop's terminal; it does not paste or execute the command.
 
+If an automatic installation starts but pnpm fails, Desktop keeps a bounded tail of stdout and stderr, writes it to the Desktop log, and shows the same diagnostic output in a failure dialog. The dialog offers a Host-derived exact command and **Open DSH Terminal** for manual follow-up; it never retries the consumed confirmation automatically.
+
 ## Documentation
 
 - [Install and uninstall](docs/install-and-uninstall.md)

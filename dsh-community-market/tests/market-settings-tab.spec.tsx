@@ -629,7 +629,7 @@ describe('MarketSettingsTab', () => {
     })
   })
 
-  it('keeps an install preview retryable after execution fails', async () => {
+  it('shows detailed output and a terminal handoff after installation fails', async () => {
     const item = makeInstallableItem(firstSource, 'retry-install', 'Retry Install Plugin', 'dsh-plugin-retry-install')
     const target = makeOperationTarget({
       packageName: item.package!.name,
@@ -650,14 +650,11 @@ describe('MarketSettingsTab', () => {
       expiresAt: '2026-08-18T00:05:00.000Z',
       previewId: 'opaque-retry-install-preview',
     })
-    vi.mocked(executeMarketOperation)
-      .mockRejectedValueOnce(new Error('The package manager failed while changing the active Profile.'))
-      .mockResolvedValueOnce({
-        action: 'install',
-        packageName: target.packageName,
-        version: target.version,
-        restartToken: 'opaque-retry-install-restart',
-      })
+    vi.mocked(executeMarketOperation).mockRejectedValue(Object.assign(
+      new Error('The package manager failed while changing the active Profile.'),
+      { details: 'exitCode: 1\n\nstderr:\nERR_PNPM_BUILD_SCRIPT_FAILURE native dependency failed' },
+    ))
+    vi.mocked(openMarketTerminal).mockResolvedValue({ ok: true })
     render(<MarketSettingsTab {...props} />)
 
     fireEvent.click(await screen.findByRole('button', { name: en.installable }))
@@ -669,15 +666,20 @@ describe('MarketSettingsTab', () => {
       'opaque-retry-install-preview',
       expect.any(AbortSignal),
     ))
-    expect((await screen.findByRole('alert')).textContent).toContain(
+    const failure = await screen.findByRole('dialog', { name: en.installFailedTitle })
+    expect(within(failure).getByRole('alert').textContent).toContain(
       'The package manager failed while changing the active Profile.',
     )
-    expect(within(screen.getByRole('dialog', { name: en.confirmInstallTitle }))
-      .getByRole('button', { name: en.confirmInstall })).toBeTruthy()
+    expect(within(failure).getByText(/ERR_PNPM_BUILD_SCRIPT_FAILURE native dependency failed/u)).toBeTruthy()
+    expect(within(failure).getByText(
+      `dsh plugin add --save-exact ${target.packageName}@${target.version}`,
+    )).toBeTruthy()
+    expect(within(failure).getByText(en.installFailureTerminalHint)).toBeTruthy()
+    expect(within(failure).queryByRole('button', { name: en.confirmInstall })).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: en.confirmInstall }))
-    await waitFor(() => expect(executeMarketOperation).toHaveBeenCalledTimes(2))
-    expect(await screen.findByRole('dialog', { name: en.installComplete })).toBeTruthy()
+    fireEvent.click(within(failure).getByRole('button', { name: en.openTerminal }))
+    await waitFor(() => expect(openMarketTerminal).toHaveBeenCalledWith(expect.any(AbortSignal)))
+    expect(executeMarketOperation).toHaveBeenCalledTimes(1)
   })
 
   it('renders an unsafe item source as plain text without an external link', async () => {

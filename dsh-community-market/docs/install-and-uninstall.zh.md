@@ -61,6 +61,8 @@ Market 安装不会创建 receipt、checkpoint、重试、清理或回滚 operat
 | Preview 后 Profile 发生变化 | 拒绝一次性 preview |
 | pnpm 失败 | 报告错误；Market 不自动清理或回滚 |
 | pnpm 后 Profile reconcile 失败 | 报告错误，供诊断或显式恢复 checkpoint |
+
+pnpm 进程失败时，Host 只保留有上限的 stdout/stderr 尾部，将该诊断写入 Desktop 日志，并返回给本地失败弹窗。弹窗显示已验证 package 对应的命令，也可以打开 DSH 终端，但不会粘贴、执行或静默重试该命令。
 | 用户确认后 Renderer 关闭 | Host 持有的 package 操作继续，仅可能丢失响应 |
 
 修改成功后，用户可以立即重启或稍后重启；重启绝不会静默进行。

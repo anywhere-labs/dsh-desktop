@@ -215,6 +215,24 @@ describe('community market client API', () => {
     await expect(readMarketState()).rejects.toThrow('market state unavailable')
   })
 
+  it('preserves bounded package-manager details for the installation failure window', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      error: 'The desktop package manager did not complete successfully.',
+      code: 'operation-failed',
+      details: 'exitCode: 1\n\nstderr:\nERR_PNPM_BUILD_SCRIPT_FAILURE',
+    }), {
+      status: 502,
+      headers: { 'content-type': 'application/json' },
+    })))
+
+    await expect(executeMarketOperation('preview-1')).rejects.toMatchObject({
+      name: 'MarketApiError',
+      status: 502,
+      code: 'operation-failed',
+      details: expect.stringContaining('ERR_PNPM_BUILD_SCRIPT_FAILURE'),
+    })
+  })
+
   it.each<MarketSourceMutation>([
     { action: 'add-builtin', key: 'dsh-1024store' },
     { action: 'add-standard', manifestUrl: 'https://plugins.example.org/catalog-source.json' },

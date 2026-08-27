@@ -13,12 +13,13 @@ import type {
 const CATALOG_PAGE_LIMIT = 50
 
 async function readJson<T>(response: Response): Promise<T> {
-  const value = await response.json() as T & { error?: unknown; code?: unknown }
+  const value = await response.json() as T & { error?: unknown; code?: unknown; details?: unknown }
   if (!response.ok) {
     throw new MarketApiError(
       typeof value.error === 'string' ? value.error : `request failed: ${response.status}`,
       response.status,
       typeof value.code === 'string' ? value.code : undefined,
+      typeof value.details === 'string' ? value.details : undefined,
     )
   }
   return value
@@ -30,6 +31,7 @@ export class MarketApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    readonly details?: string,
   ) {
     super(message)
     this.name = 'MarketApiError'

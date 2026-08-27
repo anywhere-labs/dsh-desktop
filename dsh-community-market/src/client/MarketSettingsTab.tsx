@@ -112,6 +112,13 @@ function operationErrorMessage(cause: unknown, fallback: string): string {
     : fallback
 }
 
+function operationErrorDetails(cause: unknown): string | undefined {
+  const details = cause !== null && typeof cause === 'object' && 'details' in cause
+    ? (cause as { readonly details?: unknown }).details
+    : undefined
+  return typeof details === 'string' && details.trim().length > 0 ? details : undefined
+}
+
 function catalogFailureMessage(
   cause: unknown,
   source: MarketSourceView,
@@ -271,6 +278,8 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
   const [operationPreview, setOperationPreview] = useState<MarketOperationPreviewResponse>()
   const [operationSuccess, setOperationSuccess] = useState<CompletedOperation>()
   const [operationError, setOperationError] = useState<string>()
+  const [operationErrorDetailsValue, setOperationErrorDetailsValue] = useState<string>()
+  const [operationExecutionFailed, setOperationExecutionFailed] = useState(false)
   const [operationPending, setOperationPending] = useState(false)
   const [desktopActionError, setDesktopActionError] = useState<string>()
   const [desktopActionPending, setDesktopActionPending] = useState(false)
@@ -650,6 +659,8 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
     selectedKeyRef.current = undefined
     setSelected(undefined)
     setOperationError(undefined)
+    setOperationErrorDetailsValue(undefined)
+    setOperationExecutionFailed(false)
     if (next === 'installable') {
       installationsRequest.current?.abort()
       installationsRequest.current = undefined
@@ -689,6 +700,8 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
     operationStage.current = 'preview'
     setOperationPending(true)
     setOperationError(undefined)
+    setOperationErrorDetailsValue(undefined)
+    setOperationExecutionFailed(false)
     setDesktopActionError(undefined)
     setOperationSuccess(undefined)
     try {
@@ -734,6 +747,8 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
     setOperationPreview(undefined)
     setOperationSuccess(undefined)
     setOperationError(undefined)
+    setOperationErrorDetailsValue(undefined)
+    setOperationExecutionFailed(false)
     setDesktopActionError(undefined)
     const beginInstallPreview = () => {
       if (selectedKeyRef.current !== selectionKey) return
@@ -787,6 +802,8 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
     setSelectedInventoryError(undefined)
     setOperationPreview(undefined)
     setOperationError(undefined)
+    setOperationErrorDetailsValue(undefined)
+    setOperationExecutionFailed(false)
     setDesktopActionError(undefined)
   }
 
@@ -798,6 +815,8 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
     operationStage.current = 'execute'
     setOperationPending(true)
     setOperationError(undefined)
+    setOperationErrorDetailsValue(undefined)
+    setOperationExecutionFailed(false)
     setDesktopActionError(undefined)
     try {
       const result = await executeMarketOperation(preview.previewId, request.signal)
@@ -820,6 +839,8 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
       }
     } catch (cause) {
       if (request.signal.aborted || operationRequest.current !== request) return
+      setOperationExecutionFailed(true)
+      setOperationErrorDetailsValue(operationErrorDetails(cause))
       if (isDesktopUnavailable(cause)) {
         setInstallationsUnavailable(true)
         setInstallationsError(t('desktopUnavailable'))
@@ -999,6 +1020,8 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
           preview={operationPreview?.action === 'install' ? operationPreview : undefined}
           pending={operationPending}
           operationError={operationError}
+          operationDetails={operationErrorDetailsValue}
+          executionFailed={operationExecutionFailed}
           desktopActionError={desktopActionError}
           desktopActionPending={desktopActionPending}
           canOpenTerminal={state?.desktopActions.openTerminal === true}
@@ -1024,6 +1047,8 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
             if (operationPending) return
             setOperationPreview(undefined)
             setOperationError(undefined)
+            setOperationErrorDetailsValue(undefined)
+            setOperationExecutionFailed(false)
           }}
           onConfirm={() => { void executePreview() }}
           t={t}
@@ -1835,6 +1860,8 @@ function ItemActionModal({
   preview,
   pending,
   operationError,
+  operationDetails,
+  executionFailed,
   desktopActionError,
   desktopActionPending,
   canOpenTerminal,
@@ -1853,6 +1880,8 @@ function ItemActionModal({
   preview: MarketOperationPreviewResponse | undefined
   pending: boolean
   operationError?: string | undefined
+  operationDetails?: string | undefined
+  executionFailed: boolean
   desktopActionError?: string | undefined
   desktopActionPending: boolean
   canOpenTerminal: boolean
@@ -1864,7 +1893,21 @@ function ItemActionModal({
   t: MarketSettingsTabProps['t']
 }) {
   const checking = preview === undefined && pending && operationError === undefined
-  const footer = installation === undefined && preview !== undefined ? <>
+  const failureInstallCommand = preview === undefined
+    ? undefined
+    : preview.version === undefined
+      ? `dsh plugin add ${preview.packageName}`
+      : `dsh plugin add --save-exact ${preview.packageName}@${preview.version}`
+  const footer = executionFailed ? <>
+    {canOpenTerminal && (
+      <Button
+        variant="primary"
+        disabled={desktopActionPending}
+        onClick={onOpenTerminal}
+      >{desktopActionPending ? t('openingTerminal') : t('openTerminal')}</Button>
+    )}
+    <Button variant="ghost" disabled={desktopActionPending} onClick={onClose}>{t('close')}</Button>
+  </> : installation === undefined && preview !== undefined ? <>
     <Button variant="ghost" disabled={pending} onClick={onClose}>{t('cancel')}</Button>
     <Button
       variant="primary"
@@ -1899,14 +1942,39 @@ function ItemActionModal({
       className="dshMarketModal dshMarketWideModal"
       contentClassName="dshMarketModalContent"
       onClose={onClose}
-      title={preview === undefined ? value.item.displayName : t('confirmInstallTitle')}
+      title={executionFailed ? t('installFailedTitle') : preview === undefined ? value.item.displayName : t('confirmInstallTitle')}
       closeLabel={t('close')}
-      {...(preview === undefined ? {} : { description: t('confirmInstallBody') })}
+      {...(executionFailed
+        ? { description: t('installFailedBody') }
+        : preview === undefined ? {} : { description: t('confirmInstallBody') })}
       footer={<div className="dshMarketModalActions">{footer}</div>}
     >
       <>
         <ItemSourceRow source={value.source} t={t} />
-        {preview !== undefined ? (
+        {preview !== undefined && executionFailed ? (
+          <div className="dshMarketOperationReview">
+            <OperationFacts operation={preview} showExpiry={false} t={t} />
+            <div className="dshMarketFailureSummary" role="alert">
+              <StateDot state="error" size={12} />
+              <span>{operationError ?? t('executeError')}</span>
+            </div>
+            <div className="dshMarketOperationWarning">
+              <StateDot state="warning" size={12} />
+              <span>{t('installFailureTerminalHint')}</span>
+            </div>
+            {failureInstallCommand !== undefined && (
+              <div className="dshMarketCommand">
+                <span>{t('installCommand')}</span>
+                <code>{failureInstallCommand}</code>
+              </div>
+            )}
+            <div className="dshMarketFailureOutput">
+              <span>{t('failureOutput')}</span>
+              <pre>{operationDetails ?? t('noFailureOutput')}</pre>
+            </div>
+            {desktopActionError !== undefined && <div className="dshMarketError" role="alert">{desktopActionError}</div>}
+          </div>
+        ) : preview !== undefined ? (
           <div className="dshMarketOperationReview">
             <OperationFacts operation={preview} t={t} />
             <div className="dshMarketOperationWarning"><StateDot state="warning" size={12} /><span>{t('operationWarning')}</span></div>

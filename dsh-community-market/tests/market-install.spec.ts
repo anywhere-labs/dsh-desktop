@@ -257,6 +257,35 @@ describe('simplified Profile package operations', () => {
     expect(() => resolveNpmRegistryOrigin('http://registry.npmmirror.com')).toThrow(/https URL/u)
   })
 
+  it('returns bounded pnpm output and writes the same failure to the Desktop log', async () => {
+    const profileDir = await createProfile()
+    const logFailure = vi.fn()
+    const service = new MarketInstallService(
+      () => ({ name: 'desktop', dir: profileDir }),
+      {
+        run() {
+          return {
+            stdout: Readable.from(['resolved 42 packages\n']),
+            stderr: Readable.from(['ERR_PNPM_BUILD_SCRIPT_FAILURE native dependency failed\n']),
+            done: new Promise(resolve => setImmediate(() => resolve({ exitCode: 1, signal: null }))),
+            cancel: vi.fn(),
+          }
+        },
+      },
+      { verify: vi.fn(async () => ({ version })) },
+      { logFailure },
+    )
+    service.observeCatalog(snapshot())
+    const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
+
+    await expect(service.executePreview(preview.intent, new AbortController().signal)).rejects.toMatchObject({
+      code: 'operation-failed',
+      details: expect.stringContaining('ERR_PNPM_BUILD_SCRIPT_FAILURE native dependency failed'),
+    })
+    expect(logFailure).toHaveBeenCalledWith(expect.stringContaining('resolved 42 packages'))
+    expect(logFailure).toHaveBeenCalledWith(expect.stringContaining('exitCode: 1'))
+  })
+
   it('uninstalls a direct Profile plugin regardless of which market installed it', async () => {
     const profileDir = await createProfile()
     const otherMarketPackage = 'dsh-plugin-from-another-market'

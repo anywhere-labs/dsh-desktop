@@ -61,6 +61,8 @@ If automatic preview is unavailable, the Host may construct a bounded display-on
 | Profile changes after preview | The one-shot preview is rejected |
 | pnpm fails | The error is reported; Market performs no automatic cleanup or rollback |
 | Profile reconciliation fails after pnpm | The error is reported for diagnosis or explicit Recovery checkpoint restore |
+
+For a pnpm process failure, the Host retains only a bounded tail of stdout and stderr. It records that diagnostic in the Desktop log and returns it to the local failure dialog. The dialog shows the verified package command and can open DSH Terminal, but never pastes, executes, or silently retries it.
 | Renderer closes after confirmation | The Host-owned package operation continues; only the response may be lost |
 
 After a successful mutation, the user may restart now or later. Restart is never silent.

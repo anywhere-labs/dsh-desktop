@@ -57,6 +57,8 @@ const INSTALL_INTENT_TTL_MS = 5 * 60 * 1000
 const CANDIDATE_TTL_MS = 30 * 60 * 1000
 const MAX_INTENTS = 256
 const MAX_CANDIDATES = 10_000
+const MAX_PNPM_STREAM_OUTPUT_BYTES = 32 * 1024
+const MAX_FAILURE_CAUSE_LENGTH = 4 * 1024
 const BLOCKED_PRODUCT_PACKAGES = new Set(['dsh-plugin-desktop', 'dsh-community-market'])
 
 export interface MarketDesktopProfile {
@@ -124,10 +126,76 @@ export type MarketInstallErrorCode =
 
 /** Error whose message is safe to return through the loopback API. */
 export class MarketInstallError extends Error {
-  constructor(readonly code: MarketInstallErrorCode, message: string) {
+  constructor(
+    readonly code: MarketInstallErrorCode,
+    message: string,
+    readonly details?: string,
+  ) {
     super(message)
     this.name = 'MarketInstallError'
   }
+}
+
+interface BoundedOutputCapture {
+  read(): string
+  stop(): void
+}
+
+function captureBoundedOutput(stream: Readable): BoundedOutputCapture {
+  let output: Buffer<ArrayBufferLike> = Buffer.alloc(0)
+  let truncated = false
+  const onData = (chunk: string | Buffer) => {
+    const next = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    if (next.byteLength >= MAX_PNPM_STREAM_OUTPUT_BYTES) {
+      output = next.subarray(next.byteLength - MAX_PNPM_STREAM_OUTPUT_BYTES)
+      truncated = true
+      return
+    }
+    if (output.byteLength + next.byteLength > MAX_PNPM_STREAM_OUTPUT_BYTES) {
+      output = Buffer.concat([output, next]).subarray(-MAX_PNPM_STREAM_OUTPUT_BYTES)
+      truncated = true
+      return
+    }
+    output = Buffer.concat([output, next])
+  }
+  stream.on('data', onData)
+  stream.resume()
+  return {
+    read() {
+      const value = output.toString('utf8').trimEnd()
+      if (!truncated) return value
+      return `[earlier output truncated]\n${value}`
+    },
+    stop() { stream.off('data', onData) },
+  }
+}
+
+function failureCause(cause: unknown): string | undefined {
+  const value = cause instanceof Error ? cause.stack ?? cause.message : String(cause)
+  if (value.trim().length === 0) return undefined
+  return value.length <= MAX_FAILURE_CAUSE_LENGTH
+    ? value
+    : `${value.slice(0, MAX_FAILURE_CAUSE_LENGTH)}\n[cause truncated]`
+}
+
+function packageManagerDetails(
+  args: readonly string[],
+  stdout: string,
+  stderr: string,
+  outcome?: MarketDesktopPnpmOutcome,
+  cause?: unknown,
+): string {
+  const causeText = failureCause(cause)
+  const sections = [
+    `pnpm ${args.join(' ')}`,
+    ...(outcome === undefined ? [] : [
+      `exitCode: ${outcome.exitCode === null ? 'null' : outcome.exitCode}\nsignal: ${outcome.signal ?? 'none'}`,
+    ]),
+    ...(causeText === undefined ? [] : [`cause:\n${causeText}`]),
+    ...(stdout === '' ? [] : [`stdout:\n${stdout}`]),
+    ...(stderr === '' ? [] : [`stderr:\n${stderr}`]),
+  ]
+  return sections.join('\n\n')
 }
 
 interface InstallCandidate {
@@ -201,6 +269,8 @@ export interface MarketInstallServiceOptions {
   readonly maxCandidates?: number
   /** Optional Community Market settings; empty npmRegistry keeps registry.npmjs.org. */
   readonly settings?: MarketInstallSettings
+  /** Receives bounded package-manager failures for the Desktop persistent log. */
+  readonly logFailure?: (message: string) => void
 }
 
 function stableExactVersion(value: unknown): value is string {
@@ -430,6 +500,7 @@ export class MarketInstallService {
   private readonly candidateTtlMs: number
   private readonly maxIntents: number
   private readonly maxCandidates: number
+  private readonly logFailure: ((message: string) => void) | undefined
   private readonly generation = new AbortController()
   private operationActive = false
   private closed = false
@@ -447,6 +518,7 @@ export class MarketInstallService {
     this.candidateTtlMs = options.candidateTtlMs ?? CANDIDATE_TTL_MS
     this.maxIntents = options.maxIntents ?? MAX_INTENTS
     this.maxCandidates = options.maxCandidates ?? MAX_CANDIDATES
+    this.logFailure = options.logFailure
     for (const [label, value] of [
       ['intent TTL', this.intentTtlMs],
       ['candidate TTL', this.candidateTtlMs],
@@ -805,22 +877,37 @@ export class MarketInstallService {
     combinedSignal.throwIfAborted()
     let handle: MarketDesktopPnpmHandle
     try { handle = this.pnpm.run(args, combinedSignal) }
-    catch { throw new MarketInstallError('operation-failed', 'The desktop package manager could not start.') }
-    handle.stdout.resume()
-    handle.stderr.resume()
+    catch (cause) {
+      const details = packageManagerDetails(args, '', '', undefined, cause)
+      throw this.packageManagerError('The desktop package manager could not start.', details)
+    }
+    const stdout = captureBoundedOutput(handle.stdout)
+    const stderr = captureBoundedOutput(handle.stderr)
     const cancel = () => handle.cancel()
     combinedSignal.addEventListener('abort', cancel, { once: true })
     let outcome: MarketDesktopPnpmOutcome
-    try { outcome = await handle.done }
-    catch {
+    try {
+      try { outcome = await handle.done }
+      catch (cause) {
+        combinedSignal.throwIfAborted()
+        const details = packageManagerDetails(args, stdout.read(), stderr.read(), undefined, cause)
+        throw this.packageManagerError('The desktop package manager failed.', details)
+      }
       combinedSignal.throwIfAborted()
-      throw new MarketInstallError('operation-failed', 'The desktop package manager failed.')
+      if (outcome.exitCode !== 0 || outcome.signal !== null) {
+        const details = packageManagerDetails(args, stdout.read(), stderr.read(), outcome)
+        throw this.packageManagerError('The desktop package manager did not complete successfully.', details)
+      }
+    } finally {
+      combinedSignal.removeEventListener('abort', cancel)
+      stdout.stop()
+      stderr.stop()
     }
-    finally { combinedSignal.removeEventListener('abort', cancel) }
-    combinedSignal.throwIfAborted()
-    if (outcome.exitCode !== 0 || outcome.signal !== null) {
-      throw new MarketInstallError('operation-failed', 'The desktop package manager did not complete successfully.')
-    }
+  }
+
+  private packageManagerError(message: string, details: string): MarketInstallError {
+    try { this.logFailure?.(`dsh-community-market: ${message}\n${details}`) } catch {}
+    return new MarketInstallError('operation-failed', message, details)
   }
 
   private installOptions(packageName: string): readonly string[] {

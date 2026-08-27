@@ -71,7 +71,10 @@ export function apply(ctx: Context): void {
         () => profiles.current,
         pnpm,
         createMarketPackageVerifier(npmRegistryHttp),
-        { settings: scope },
+        {
+          settings: scope,
+          logFailure: message => ctx.logger.error(message),
+        },
       )
       installService = service
       return () => {

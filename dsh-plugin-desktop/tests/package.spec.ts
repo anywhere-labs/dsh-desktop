@@ -279,6 +279,27 @@ describe('published package surface', () => {
     }
   })
 
+  it('gives the Desktop settings section a dedicated display icon', () => {
+    const patchPath = './.yarn/patches/@deepseek-ai-dsh-client-ui-settings-general-npm-0.1.1-rc.2-ef120ba0cf.patch'
+    expect(workspaceManifest.resolutions).toMatchObject({
+      '@deepseek-ai/dsh-client-ui-settings-general@npm:0.1.1-rc.2': expect.stringContaining(patchPath),
+      '@deepseek-ai/dsh-client-ui-settings-general@npm:^0.1.1-rc.2': expect.stringContaining(patchPath),
+    })
+    const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
+    const installedClient = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-client-ui-settings-general/lib/client.js',
+      packageRoot,
+    ), 'utf8')
+    for (const marker of [
+      'function IconDesktopSettings',
+      'if (id === "desktop")',
+      'M5 14h6M8 11.5V14',
+    ]) {
+      expect(patch).toContain(marker)
+      expect(installedClient).toContain(marker)
+    }
+  })
+
   it('adds bilingual search copy to the fetched-model picker', () => {
     const patch = readFileSync(new URL(
       '../patches/dsh-client-ui-settings-models@0.1.1-rc.2.patch',
