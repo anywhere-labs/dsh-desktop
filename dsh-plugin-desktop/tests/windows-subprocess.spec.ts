@@ -1,8 +1,15 @@
 import { Buffer } from 'node:buffer'
-import type { SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import { describe, expect, it } from 'vitest'
+import type {
+  SubprocessHandle,
+  SubprocessSpawnSpec,
+  SubprocessTerminalSpawnSpec,
+} from '@deepseek-ai/dsh-subprocess'
+import { LocalSubprocessRuntime } from '@deepseek-ai/dsh-subprocess-local'
+import { describe, expect, it, vi } from 'vitest'
 import {
+  adaptWindowsPackagedExecutableSpawn,
   adaptWindowsAclTerminalSpawn,
+  DesktopWindowsSubprocess,
   desktopWindowsCommandPath,
   isOfficialWindowsPowerShell51Terminal,
   type WindowsAclTerminalAdaptation,
@@ -41,6 +48,146 @@ function terminalSpec(argv: readonly string[], env?: Record<string, string>): Su
     graceMs: 1_000,
   }
 }
+
+const desktopResourcesPath = 'C:\\Program Files\\DSH Desktop\\resources'
+const packagedRipgrep = `${desktopResourcesPath}\\app.asar\\node_modules\\@vscode\\ripgrep\\bin\\rg.exe`
+const unpackedRipgrep = `${desktopResourcesPath}\\app.asar.unpacked\\node_modules\\@vscode\\ripgrep\\bin\\rg.exe`
+
+function ordinarySpec(argv: readonly string[]): SubprocessSpawnSpec {
+  return {
+    argv,
+    cwd: 'C:\\workspace',
+    stdio: {
+      stdin: 'ignore',
+      stdout: { maxBytes: 16_384 },
+      stderr: { maxBytes: 16_384 },
+    },
+    graceMs: 2_000,
+    signal: new AbortController().signal,
+    env: { KEEP: 'value' },
+  }
+}
+
+describe('Windows packaged ordinary subprocess paths (#660)', () => {
+  it('maps only argv[0] from the real app.asar into its physical unpacked tree', () => {
+    const spec = ordinarySpec([packagedRipgrep, '--glob', packagedRipgrep])
+
+    const result = adaptWindowsPackagedExecutableSpawn(spec, 'win32', desktopResourcesPath)
+
+    expect(result).not.toBe(spec)
+    expect(result.argv).toEqual([unpackedRipgrep, '--glob', packagedRipgrep])
+    expect(result.argv).not.toBe(spec.argv)
+    expect(result.cwd).toBe(spec.cwd)
+    expect(result.stdio).toBe(spec.stdio)
+    expect(result.graceMs).toBe(spec.graceMs)
+    expect(result.signal).toBe(spec.signal)
+    expect(result.env).toBe(spec.env)
+    expect(spec.argv).toEqual([packagedRipgrep, '--glob', packagedRipgrep])
+  })
+
+  it('anchors the real archive even when an installation parent is also named app.asar', () => {
+    const resourcesPath = 'C:\\app.asar\\DSH Desktop\\resources'
+    const executable = `${resourcesPath}\\app.asar\\node_modules\\@vscode\\ripgrep\\bin\\rg.exe`
+
+    const result = adaptWindowsPackagedExecutableSpawn(
+      ordinarySpec([executable]),
+      'win32',
+      resourcesPath,
+    )
+
+    expect(result.argv[0]).toBe(
+      `${resourcesPath}\\app.asar.unpacked\\node_modules\\@vscode\\ripgrep\\bin\\rg.exe`,
+    )
+  })
+
+  it('matches the anchored archive case-insensitively', () => {
+    const executable = 'c:\\program files\\dsh desktop\\RESOURCES\\APP.ASAR\\node_modules\\@vscode\\ripgrep\\bin\\rg.exe'
+
+    const result = adaptWindowsPackagedExecutableSpawn(
+      ordinarySpec([executable]),
+      'win32',
+      desktopResourcesPath,
+    )
+
+    expect(result.argv[0]).toBe(unpackedRipgrep)
+  })
+
+  it('maps a fully qualified UNC executable on the same share', () => {
+    const resourcesPath = '\\\\build-server\\dsh-share\\DSH Desktop\\resources'
+    const executable = `${resourcesPath}\\app.asar\\node_modules\\@vscode\\ripgrep\\bin\\rg.exe`
+
+    const result = adaptWindowsPackagedExecutableSpawn(
+      ordinarySpec([executable]),
+      'win32',
+      resourcesPath,
+    )
+
+    expect(result.argv[0]).toBe(
+      `${resourcesPath}\\app.asar.unpacked\\node_modules\\@vscode\\ripgrep\\bin\\rg.exe`,
+    )
+  })
+
+  it.each([
+    ['already unpacked', unpackedRipgrep, 'win32' as const],
+    ['archive backup', `${desktopResourcesPath}\\app.asar.backup\\node_modules\\rg.exe`, 'win32' as const],
+    ['lookalike archive', `${desktopResourcesPath}\\my-app.asar\\node_modules\\rg.exe`, 'win32' as const],
+    ['unrelated archive', 'D:\\other\\app.asar\\node_modules\\rg.exe', 'win32' as const],
+    ['plain executable', 'C:\\tools\\rg.exe', 'win32' as const],
+    ['bare relative executable', 'resources\\app.asar\\node_modules\\rg.exe', 'win32' as const],
+    ['drive-relative executable', 'C:resources\\app.asar\\node_modules\\rg.exe', 'win32' as const],
+    ['root-relative executable', '\\Program Files\\DSH Desktop\\resources\\app.asar\\node_modules\\rg.exe', 'win32' as const],
+    ['archive escape', `${desktopResourcesPath}\\app.asar\\..\\outside\\rg.exe`, 'win32' as const],
+    ['non-Windows', packagedRipgrep, 'darwin' as const],
+  ])('leaves %s unchanged by identity', (_label, executable, platform) => {
+    const spec = ordinarySpec([executable, '--files'])
+
+    const result = adaptWindowsPackagedExecutableSpawn(spec, platform, desktopResourcesPath)
+
+    expect(result).toBe(spec)
+  })
+
+  it.each([
+    ['extended device', '\\\\?\\C:\\Program Files\\DSH Desktop\\resources'],
+    ['local device', '\\\\.\\C:\\Program Files\\DSH Desktop\\resources'],
+  ])('leaves a %s namespace unchanged by identity', (_label, resourcesPath) => {
+    const executable = `${resourcesPath}\\app.asar\\node_modules\\@vscode\\ripgrep\\bin\\rg.exe`
+    const spec = ordinarySpec([executable, '--files'])
+
+    const result = adaptWindowsPackagedExecutableSpawn(spec, 'win32', resourcesPath)
+
+    expect(result).toBe(spec)
+  })
+
+  it('leaves an empty argv unchanged', () => {
+    const spec = ordinarySpec([])
+    expect(adaptWindowsPackagedExecutableSpawn(spec, 'win32', desktopResourcesPath)).toBe(spec)
+  })
+
+  it('routes the class spawn override through the packaged-path adapter', () => {
+    const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+    const resourcesDescriptor = Object.getOwnPropertyDescriptor(process, 'resourcesPath')
+    const handle = {} as SubprocessHandle
+    const baseSpawn = vi.spyOn(LocalSubprocessRuntime.prototype, 'spawn').mockReturnValue(handle)
+    try {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      Object.defineProperty(process, 'resourcesPath', { configurable: true, value: desktopResourcesPath })
+      const runtime = Object.create(DesktopWindowsSubprocess.prototype) as DesktopWindowsSubprocess
+      const spec = ordinarySpec([packagedRipgrep, '--files'])
+
+      expect(runtime.spawn(spec)).toBe(handle)
+      expect(baseSpawn).toHaveBeenCalledOnce()
+      expect(baseSpawn.mock.calls[0]?.[0].argv).toEqual([unpackedRipgrep, '--files'])
+    } finally {
+      baseSpawn.mockRestore()
+      if (platformDescriptor !== undefined) Object.defineProperty(process, 'platform', platformDescriptor)
+      if (resourcesDescriptor !== undefined) {
+        Object.defineProperty(process, 'resourcesPath', resourcesDescriptor)
+      } else {
+        Reflect.deleteProperty(process, 'resourcesPath')
+      }
+    }
+  })
+})
 
 describe('Windows Electron persistent-terminal relay', () => {
   it('routes only the exact ACL runner through a cmd-owned ConPTY', () => {

@@ -4,6 +4,8 @@ import { statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { win32 } from 'node:path'
 import type {
+  SubprocessHandle,
+  SubprocessSpawnSpec,
   SubprocessTerminalHandle,
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
@@ -47,6 +49,55 @@ function systemRootOf(env: NodeJS.ProcessEnv): string | undefined {
 
 function sameWindowsPath(left: string, right: string): boolean {
   return win32.normalize(left).toUpperCase() === win32.normalize(right).toUpperCase()
+}
+
+function fullyQualifiedWindowsRoot(path: string): string | undefined {
+  const root = win32.normalize(win32.parse(path).root)
+  // Extended/device namespaces do not share node:path's lexical `..`
+  // normalization contract with CreateProcess. Preserve them verbatim.
+  if (/^\\\\[?.]\\/u.test(root)) return undefined
+  if (/^[A-Z]:\\$/iu.test(root)) return root
+  if (/^\\\\[^\\]+\\[^\\]+\\$/u.test(root)) return root
+  return undefined
+}
+
+/** Adapt an ordinary packaged spawn without mutating the caller-owned spec. */
+export function adaptWindowsPackagedExecutableSpawn(
+  spec: SubprocessSpawnSpec,
+  platform: NodeJS.Platform,
+  resourcesPath: string | undefined,
+): SubprocessSpawnSpec {
+  const executable = spec.argv[0]
+  if (platform !== 'win32'
+    || resourcesPath === undefined
+    || resourcesPath.length === 0
+    || executable === undefined) return spec
+
+  // argv[0] may legitimately be relative to spec.cwd. Never reinterpret a
+  // bare, drive-relative, or root-relative command against this host process.
+  const resourcesRoot = fullyQualifiedWindowsRoot(resourcesPath)
+  const executableRoot = fullyQualifiedWindowsRoot(executable)
+  if (resourcesRoot === undefined
+    || executableRoot === undefined
+    || !sameWindowsPath(resourcesRoot, executableRoot)) return spec
+
+  // Anchor the archive segment to Electron's actual resources directory. A
+  // broad first-segment replacement can redirect the wrong path when an
+  // installation parent is itself named app.asar.
+  const archiveRoot = win32.join(resourcesPath, 'app.asar')
+  const relative = win32.relative(archiveRoot, executable)
+  if (relative.length === 0
+    || win32.isAbsolute(relative)
+    || relative === '..'
+    || relative.startsWith(`..${win32.sep}`)) return spec
+
+  return {
+    ...spec,
+    argv: [
+      win32.join(resourcesPath, 'app.asar.unpacked', relative),
+      ...spec.argv.slice(1),
+    ],
+  }
 }
 
 /** Match only the official persistent-terminal argv when it falls back to Windows PowerShell 5.1. */
@@ -139,6 +190,14 @@ export function adaptWindowsAclTerminalSpawn(
 
 /** Official local subprocess provider with the Electron ACL terminal launch repaired through cmd-owned ConPTY. */
 export class DesktopWindowsSubprocess extends LocalSubprocessRuntime {
+  override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
+    return super.spawn(adaptWindowsPackagedExecutableSpawn(
+      spec,
+      process.platform,
+      process.resourcesPath,
+    ))
+  }
+
   override spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
     return super.spawnTerminal(adaptWindowsAclTerminalSpawn(spec, {
       platform: process.platform,
