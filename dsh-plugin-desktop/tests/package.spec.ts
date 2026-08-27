@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import sharp from 'sharp'
+import { approveEscalation } from '@deepseek-ai/dsh-sandbox'
 import { describe, expect, it } from 'vitest'
 
 const packageRoot = new URL('../', import.meta.url)
@@ -1141,5 +1142,44 @@ describe('published package surface', () => {
     expect(installedRuntime).toContain('api.createProcessAsUserW(token, null, commandLine, null, null, 1, 0, null')
     expect(installedRuntime).toContain('api.createProcessAsUserW(token, null, commandLine, null, null, 1, 4, null')
     expect(installedRuntime).not.toContain('134217728')
+  })
+
+  it('treats an already-effective sandbox permission as an unprompted no-op', async () => {
+    const patchPath = './patches/dsh-sandbox@0.1.1-rc.2.patch'
+    const patchResolution = `patch:@deepseek-ai/dsh-sandbox@npm%3A0.1.1-rc.2#${patchPath}`
+    const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
+    const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
+
+    expect(workspaceManifest.resolutions).toMatchObject({
+      '@deepseek-ai/dsh-sandbox@npm:0.1.1-rc.2': patchResolution,
+      '@deepseek-ai/dsh-sandbox@npm:^0.1.1-rc.2': patchResolution,
+    })
+    expect(lockfile).toContain('@deepseek-ai/dsh-sandbox@patch:@deepseek-ai/dsh-sandbox@npm%3A0.1.1-rc.2#./patches/dsh-sandbox@0.1.1-rc.2.patch')
+    expect(patch).toContain('+\tif (mode === effectiveMode) return effectiveMode;')
+
+    const granted = await approveEscalation({
+      requestedMode: 'danger-full-access',
+      effectiveMode: 'danger-full-access',
+      justification: 'the model repeated the active mode',
+      subject: 'command',
+    }, {
+      approver: undefined,
+      agent: undefined,
+      callId: 'same-mode',
+      toolName: 'bash',
+    })
+    expect(granted).toBe('danger-full-access')
+
+    await expect(approveEscalation({
+      requestedMode: 'workspace-write',
+      effectiveMode: 'danger-full-access',
+      justification: 'this request is narrower',
+      subject: 'command',
+    }, {
+      approver: undefined,
+      agent: undefined,
+      callId: 'narrower-mode',
+      toolName: 'bash',
+    })).rejects.toThrow('not strictly wider')
   })
 })
