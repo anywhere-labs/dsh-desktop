@@ -15,6 +15,7 @@
   ],
   "resolutions": {
     "app-builder-lib@npm:26.15.7": "patch:app-builder-lib@npm%3A26.15.7#./patches/app-builder-lib@26.15.7.patch",
+    "node-pty@npm:1.2.0-beta.15": "patch:node-pty@npm%3A1.2.0-beta.15#./patches/node-pty@1.2.0-beta.15.patch",
     "@deepseek-ai/dsh-app-boot@npm:0.1.1-rc.2": "patch:@deepseek-ai/dsh-app-boot@npm%3A0.1.1-rc.2#./patches/dsh-app-boot@0.1.1-rc.2.patch",
     "@deepseek-ai/dsh-app-boot@npm:^0.1.1-rc.2": "patch:@deepseek-ai/dsh-app-boot@npm%3A0.1.1-rc.2#./patches/dsh-app-boot@0.1.1-rc.2.patch",
     "@deepseek-ai/dsh-agent-loop@npm:0.1.1-rc.2": "patch:@deepseek-ai/dsh-agent-loop@npm%3A0.1.1-rc.2#./patches/dsh-agent-loop@0.1.1-rc.2.patch",

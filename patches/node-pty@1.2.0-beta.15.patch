@@ -1,0 +1,17 @@
+diff --git a/lib/unixTerminal.js b/lib/unixTerminal.js
+index 44ad820..6d3cfbf 100644
+--- a/lib/unixTerminal.js
++++ b/lib/unixTerminal.js
+@@ -29,6 +29,10 @@ var native = (0, utils_1.loadNativeModule)('pty');
+ var pty = native.module;
+ var helperPath = native.dir + '/spawn-helper';
+ helperPath = path.resolve(__dirname, helperPath);
+-helperPath = helperPath.replace('app.asar', 'app.asar.unpacked');
+-helperPath = helperPath.replace('node_modules.asar', 'node_modules.asar.unpacked');
++if (!helperPath.includes('app.asar.unpacked')) {
++    helperPath = helperPath.replace('app.asar', 'app.asar.unpacked');
++}
++if (!helperPath.includes('node_modules.asar.unpacked')) {
++    helperPath = helperPath.replace('node_modules.asar', 'node_modules.asar.unpacked');
++}
+ var DEFAULT_FILE = 'sh';
