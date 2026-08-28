@@ -114,12 +114,12 @@ export function DesktopOwnedFrame({ layout, mode, platform, renderSlot, useSessi
       style={{ gridTemplateColumns: `${columns.sidebar}px minmax(0, 1fr) ${columns.details}px` }}
     >
       {mode === 'advanced' && platform === 'darwin' && <div className="dshDesktopMacCaptionRow" aria-hidden="true" />}
-      <aside className="dshDesktopSidebarSurface">
+      <aside className="dshDesktopSidebarSurface" data-pane="sidebar">
         <div className="dshDesktopUpstreamSidebar">
           {renderSlot('sidebar', { collapsed, width: sidebarOwnerWidth })}
         </div>
       </aside>
-      <main className="dshDesktopConversationSurface">{renderSlot('conversation', {})}</main>
+      <main className="dshDesktopConversationSurface" data-pane="conversation">{renderSlot('conversation', {})}</main>
       <aside className="dshDesktopDetailsSurface">{renderSlot('details', {})}</aside>
       {/* Electron resolves app regions in DOM order; Desktop overlays must remain later. */}
       {mode === 'advanced' && platform === 'win32' && <div className="dshDesktopWindowsCaptionRow" aria-hidden="true" />}
