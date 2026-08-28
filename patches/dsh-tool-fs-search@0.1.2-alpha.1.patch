@@ -1,0 +1,20 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -106,5 +106,8 @@ function completeStdout(toolName, stdout, rawOutputMaxBytes) {
+ 	throw new SearchError(`${toolName} produced more raw output than the subprocess seam retained within the ${rawOutputMaxBytes}-byte cap; ${narrow}`, "SEARCH_RAW_OUTPUT_OVERFLOW");
+ }
+ let rgPathPromise;
++function unpackedAsarPath(filename) {
++	return filename.replace(/([\\/])app\.asar\1/u, "$1app.asar.unpacked$1");
++}
+ /**
+ * The packaged ripgrep binary path, resolved lazily once per process.
+@@ -123,6 +126,6 @@ function resolveRgPath() {
+ 		const executableSidecar = process.platform === "win32" ? join(executable.dir, `${executable.name}-rg.exe`) : `${process.execPath}-rg`;
+ 		if ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;
+-		return (await import("@vscode/ripgrep")).rgPath;
++		return unpackedAsarPath((await import("@vscode/ripgrep")).rgPath);
+ 	});
+ 	return rgPathPromise;
+ }
