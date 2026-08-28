@@ -1,5 +1,10 @@
+import { readFileSync } from 'node:fs'
 import type { ShellExecSpec } from '@deepseek-ai/dsh-shell'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  ensureWindowsConsoleHost,
+  type WindowsConsoleHostApi,
+} from '../src/windows-console-host.ts'
 import {
   adaptWindowsAclExecution,
   desktopWindowsPwshConfig,
@@ -14,6 +19,16 @@ import {
 } from '../src/windows-acl-relay.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
+
+function consoleApi(overrides: Partial<WindowsConsoleHostApi> = {}): WindowsConsoleHostApi {
+  return {
+    getConsoleWindow: vi.fn(() => ({})),
+    allocConsole: vi.fn(() => 1),
+    getLastError: vi.fn(() => 0),
+    showWindow: vi.fn(() => 1),
+    ...overrides,
+  }
+}
 
 function shellSpec(env?: Record<string, string>): ShellExecSpec {
   return {
@@ -220,6 +235,17 @@ describe('Windows ACL runner trampoline', () => {
     vi.restoreAllMocks()
   })
 
+  it('wires console allocation after runner validation and before the upstream import', () => {
+    const source = readFileSync(new URL('../src/windows-acl-runner.ts', import.meta.url), 'utf8')
+    const validation = source.indexOf('if (requestedRunner !== expectedRunner)')
+    const consoleHost = source.indexOf('ensureWindowsConsoleHost()')
+    const runnerImport = source.indexOf('await import(pathToFileURL(expectedRunner).href)')
+
+    expect([validation, consoleHost, runnerImport]).not.toContain(-1)
+    expect(consoleHost).toBeGreaterThan(validation)
+    expect(consoleHost).toBeLessThan(runnerImport)
+  })
+
   it('removes Node mode from the target environment before rejecting an unexpected runner', async () => {
     process.argv = [process.execPath, 'windows-acl-runner.js', 'unexpected-runner.js']
     process.env[RUN_AS_NODE] = '1'
@@ -260,5 +286,72 @@ describe('Windows ACL runner trampoline', () => {
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining(
       'windows-acl-run: desktop trampoline: desktop trampoline received an unexpected ACL runner',
     ))
+  })
+})
+
+describe('Windows ACL runner console host', () => {
+  it('does not load native APIs outside Windows', () => {
+    const loadApi = vi.fn(() => consoleApi())
+
+    ensureWindowsConsoleHost('darwin', loadApi)
+
+    expect(loadApi).not.toHaveBeenCalled()
+  })
+
+  it('keeps an existing console unchanged', () => {
+    const api = consoleApi()
+
+    ensureWindowsConsoleHost('win32', () => api)
+
+    expect(api.allocConsole).not.toHaveBeenCalled()
+    expect(api.showWindow).not.toHaveBeenCalled()
+  })
+
+  it('allocates and hides a console for a consoleless Windows runner', () => {
+    const allocatedWindow = {}
+    const calls: string[] = []
+    const api = consoleApi({
+      getConsoleWindow: vi.fn(() => {
+        calls.push('get-console')
+        return calls.length === 1 ? null : allocatedWindow
+      }),
+      allocConsole: vi.fn(() => {
+        calls.push('allocate')
+        return 1
+      }),
+      showWindow: vi.fn((window, command) => {
+        expect(window).toBe(allocatedWindow)
+        calls.push(`hide-${command}`)
+        return 1
+      }),
+    })
+
+    ensureWindowsConsoleHost('win32', () => api)
+
+    expect(calls).toEqual(['get-console', 'allocate', 'get-console', 'hide-0'])
+  })
+
+  it('fails closed with the native error when console allocation fails', () => {
+    const api = consoleApi({
+      getConsoleWindow: vi.fn(() => null),
+      allocConsole: vi.fn(() => 0),
+      getLastError: vi.fn(() => 5),
+    })
+
+    expect(() => ensureWindowsConsoleHost('win32', () => api)).toThrow(
+      'could not allocate a console for the Windows ACL runner (Win32 5)',
+    )
+    expect(api.showWindow).not.toHaveBeenCalled()
+  })
+
+  it('accepts a successful allocation without a visible console window', () => {
+    const api = consoleApi({
+      getConsoleWindow: vi.fn(() => null),
+    })
+
+    ensureWindowsConsoleHost('win32', () => api)
+
+    expect(api.allocConsole).toHaveBeenCalledOnce()
+    expect(api.showWindow).not.toHaveBeenCalled()
   })
 })

@@ -7,6 +7,7 @@ import {
   WINDOWS_ACL_RELAY_PAYLOAD,
   windowsAclRelayEnvironmentValue,
 } from './windows-acl-relay.ts'
+import { ensureWindowsConsoleHost } from './windows-console-host.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 const RUNNER_FAILURE_EXIT = 127
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
   if (requestedRunner !== expectedRunner) {
     throw new Error('desktop trampoline received an unexpected ACL runner')
   }
+  ensureWindowsConsoleHost()
   const args = relay?.args ?? process.argv.slice(3)
   process.argv = [process.argv[0] as string, expectedRunner, ...args]
   await import(pathToFileURL(expectedRunner).href)
