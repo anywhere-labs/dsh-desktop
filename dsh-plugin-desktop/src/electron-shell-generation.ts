@@ -350,8 +350,7 @@ export class ElectronShellGeneration {
       }
     }
 
-    app.on('activate', activate)
-    if (platform.platform === 'darwin') app.on('did-become-active', activate)
+    if (platform.platform === 'darwin') app.on('activate', activate)
     window.on('close', close)
     window.on('focus', clearAttention)
     window.on('move', scheduleWindowStateWrite)
@@ -379,8 +378,7 @@ export class ElectronShellGeneration {
     let tray: Tray | undefined
     let removeRendererAccessHeader: (() => void) | undefined
     this.cleanupListeners = () => {
-      app.off('activate', activate)
-      if (platform.platform === 'darwin') app.off('did-become-active', activate)
+      if (platform.platform === 'darwin') app.off('activate', activate)
       window.off('close', close)
       window.off('focus', clearAttention)
       window.off('move', scheduleWindowStateWrite)

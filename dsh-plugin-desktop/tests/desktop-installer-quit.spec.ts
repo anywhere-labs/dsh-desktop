@@ -43,4 +43,17 @@ describe('Desktop installer quit request', () => {
     expect(show).toBeGreaterThan(secondQuit)
     expect(main.slice(secondQuit, show)).toContain('requestQuit(0)')
   })
+
+  it('routes only explicit macOS activation through native surface reveal', () => {
+    const main = readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8')
+    const generation = readFileSync(join(process.cwd(), 'src', 'electron-shell-generation.ts'), 'utf8')
+    const recovery = readFileSync(join(process.cwd(), 'src', 'startup-recovery-window.ts'), 'utf8')
+
+    expect(main).toContain("if (process.platform === 'darwin') app.on('activate', () => { showPreHostSurface() })")
+    expect(main).not.toContain('did-become-active')
+    expect(generation).toContain("if (platform.platform === 'darwin') app.on('activate', activate)")
+    expect(generation).not.toContain('did-become-active')
+    expect(recovery).toContain("if (process.platform === 'darwin') app.on('activate', activate)")
+    expect(recovery).not.toContain('did-become-active')
+  })
 })

@@ -419,8 +419,7 @@ async function start(): Promise<void> {
     }
     return false
   }
-  app.on('activate', () => { showPreHostSurface() })
-  if (process.platform === 'darwin') app.on('did-become-active', () => { showPreHostSurface() })
+  if (process.platform === 'darwin') app.on('activate', () => { showPreHostSurface() })
   app.on('second-instance', (_event, argv) => {
     if (isDesktopInstallerQuitRequest(argv, process.platform)) {
       requestQuit(0)
