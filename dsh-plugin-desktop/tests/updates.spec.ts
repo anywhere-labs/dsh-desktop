@@ -1,7 +1,13 @@
 import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import type {
+  ConnectionRequestRejection,
+  ConnectionTrustRequest,
+} from '@deepseek-ai/dsh-client-connection'
+import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   DesktopNotification,
@@ -32,6 +38,10 @@ interface Harness {
   readonly downloadAndOpen: ReturnType<typeof vi.fn>
   readonly refresh: ReturnType<typeof vi.fn>
   readonly registrationDispose: ReturnType<typeof vi.fn>
+  readonly requestRejection: ReturnType<typeof vi.fn<(
+    request: ConnectionTrustRequest,
+  ) => ConnectionRequestRejection>>
+  readonly route: WebRoute
   dispose(): Promise<void>
 }
 
@@ -60,7 +70,11 @@ async function createHarness(options: {
   const confirmDownload = vi.fn(options.confirmDownload ?? (async () => false))
   const showManualCheckResult = vi.fn(options.showManualCheckResult ?? (async () => {}))
   const downloadAndOpen = vi.fn(options.downloadAndOpen ?? (async () => {}))
+  const requestRejection = vi.fn<(
+    request: ConnectionTrustRequest,
+  ) => ConnectionRequestRejection>(() => undefined)
   let tray: DesktopTrayItem | undefined
+  let route: WebRoute | undefined
   let disposer: (() => void | Promise<void>) | undefined
   const runtime = {
     locale: options.locale ?? 'en',
@@ -82,6 +96,14 @@ async function createHarness(options: {
   } as unknown as DesktopRuntime
   const ctx = {
     desktopRuntime: runtime,
+    webServer: {
+      port: 43120,
+      register: (registered: WebRoute) => {
+        route = registered
+        return () => {}
+      },
+    },
+    connection: { requestRejection },
     logger: { warn: (...args: unknown[]) => { warnings.push(args) } },
     effect: (register: () => (() => void | Promise<void>)) => {
       disposer = register()
@@ -91,6 +113,7 @@ async function createHarness(options: {
 
   apply(ctx, options.config ?? testConfig)
   if (tray === undefined) throw new Error('Update tray item was not registered.')
+  if (route === undefined) throw new Error('Update route was not registered.')
   return {
     statePath,
     tray,
@@ -101,6 +124,8 @@ async function createHarness(options: {
     downloadAndOpen,
     refresh,
     registrationDispose,
+    requestRejection,
+    route,
     dispose: async () => { await disposer?.() },
   }
 }
@@ -111,7 +136,7 @@ afterEach(() => {
 
 describe('desktop update Host plugin', () => {
   it('exposes the packaged 60-second and six-hour background policy', () => {
-    expect(inject).toEqual(['desktopRuntime'])
+    expect(inject).toEqual(['desktopRuntime', 'webServer', 'connection'])
     expect(Config({} as UpdateConfig)).toEqual({
       enabled: true,
       initialDelayMs: 60_000,
@@ -120,6 +145,65 @@ describe('desktop update Host plugin', () => {
     })
     expect(() => Config({ intervalMs: 0 } as UpdateConfig)).toThrow()
     expect(() => Config({ requestTimeoutMs: 0 } as UpdateConfig)).toThrow()
+  })
+
+  it.each([
+    [401, 'unauthorized'],
+    [403, 'forbidden'],
+  ] as const)('applies the Connection %i rejection before the interactive update route', async (
+    status,
+    body,
+  ) => {
+    const request = vi.fn(async () => versionResponse('2.0.0'))
+    const harness = await createHarness({ packaged: false, request })
+    harness.requestRejection.mockReturnValue(status)
+    const req = { headers: {} } as IncomingMessage
+    const writeHead = vi.fn()
+    const end = vi.fn()
+    const res = { writeHead, end } as unknown as ServerResponse
+
+    await harness.route.handler(req, res)
+
+    expect(harness.requestRejection).toHaveBeenCalledWith(req)
+    expect(writeHead).toHaveBeenCalledWith(status)
+    expect(end).toHaveBeenCalledWith(body)
+    expect(request).not.toHaveBeenCalled()
+    expect(harness.showManualCheckResult).not.toHaveBeenCalled()
+    await harness.dispose()
+  })
+
+  it('passes an authenticated interactive update request to the existing route handler', async () => {
+    const request = vi.fn(async () => versionResponse('2.0.0'))
+    const harness = await createHarness({ packaged: false, request })
+    const req = {
+      method: 'POST',
+      headers: {
+        host: '127.0.0.1:43120',
+        origin: 'http://127.0.0.1:43120',
+        'content-type': 'application/json',
+      },
+      socket: { remoteAddress: '127.0.0.1' },
+      async * [Symbol.asyncIterator]() { yield Buffer.from('{}') },
+    } as unknown as IncomingMessage
+    let body = ''
+    const res = {
+      statusCode: 200,
+      setHeader: vi.fn(),
+      end: vi.fn((value?: string) => { body = value ?? '' }),
+    } as unknown as ServerResponse
+
+    await harness.route.handler(req, res)
+
+    expect(harness.requestRejection).toHaveBeenCalledWith(req)
+    expect(request).toHaveBeenCalledOnce()
+    expect(harness.showManualCheckResult).toHaveBeenCalledWith({
+      status: 'up-to-date',
+      currentVersion: '2.0.0',
+      latestVersion: '2.0.0',
+    })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(body)).toEqual({ accepted: true })
+    await harness.dispose()
   })
 
   it('renders the update tray command in the active native locale', async () => {
@@ -158,19 +242,25 @@ describe('desktop update Host plugin', () => {
     expect(harness.warnings).toEqual([])
   })
 
-  it('prompts once for a background update and persists only state v2 prompt history', async () => {
+  it('announces a background update once without opening a confirmation dialog', async () => {
     vi.useFakeTimers()
     const request = vi.fn(async () => versionResponse('2.1.0'))
     const harness = await createHarness({ request })
 
     await vi.advanceTimersByTimeAsync(testConfig.initialDelayMs)
-    await vi.waitFor(() => { expect(harness.confirmDownload).toHaveBeenCalledWith('2.1.0') })
+    await vi.waitFor(() => {
+      expect(harness.notifications).toEqual([{
+        title: 'DSH Desktop Update Available',
+        body: 'Version 2.1.0 is ready to download. Open DSH Desktop to continue.',
+      }])
+    })
+    expect(harness.confirmDownload).not.toHaveBeenCalled()
     expect(harness.downloadAndOpen).not.toHaveBeenCalled()
     expect(harness.tray.label()).toBe('DSH Desktop 2.1.0 Available')
     await vi.waitFor(async () => {
       expect(JSON.parse(await readFile(harness.statePath, 'utf8'))).toEqual({
-        version: 2,
-        lastPromptedVersion: '2.1.0',
+        version: 3,
+        lastNotifiedVersion: '2.1.0',
       })
     })
     if (process.platform !== 'win32') {
@@ -179,8 +269,8 @@ describe('desktop update Host plugin', () => {
 
     await vi.advanceTimersByTimeAsync(testConfig.intervalMs)
     await vi.waitFor(() => { expect(request).toHaveBeenCalledTimes(2) })
-    expect(harness.confirmDownload).toHaveBeenCalledOnce()
-    expect(harness.notifications).toEqual([])
+    expect(harness.confirmDownload).not.toHaveBeenCalled()
+    expect(harness.notifications).toHaveLength(1)
     expect(harness.warnings).toEqual([])
   })
 
@@ -189,12 +279,13 @@ describe('desktop update Host plugin', () => {
     let resolveDownload!: () => void
     const download = new Promise<void>(resolve => { resolveDownload = resolve })
     const harness = await createHarness({
+      packaged: false,
       request: async () => versionResponse('2.1.0'),
       confirmDownload: async () => true,
       downloadAndOpen: async () => download,
     })
 
-    await vi.advanceTimersByTimeAsync(testConfig.initialDelayMs)
+    const pending = harness.tray.invoke()
     await vi.waitFor(() => { expect(harness.downloadAndOpen).toHaveBeenCalledOnce() })
     const [version, signal] = harness.downloadAndOpen.mock.calls[0] as [string, AbortSignal]
     expect(version).toBe('2.1.0')
@@ -204,6 +295,7 @@ describe('desktop update Host plugin', () => {
     expect(harness.notifications).toEqual([])
 
     resolveDownload()
+    await pending
     await vi.waitFor(() => { expect(harness.tray.label()).toBe('DSH Desktop 2.1.0 Available') })
     expect(harness.notifications).toEqual([])
     expect(harness.tray.label()).toBe('DSH Desktop 2.1.0 Available')
@@ -288,7 +380,7 @@ describe('desktop update Host plugin', () => {
     expect(harness.tray.label()).toBe('Check for Updates…')
   })
 
-  it('silently resets legacy state and does not use it as an available version cache', async () => {
+  it('silently resets invalid legacy state before announcing the available version', async () => {
     vi.useFakeTimers()
     const harness = await createHarness({
       request: async () => versionResponse('2.1.0'),
@@ -307,14 +399,35 @@ describe('desktop update Host plugin', () => {
 
     expect(harness.tray.label()).toBe('Check for Updates…')
     await vi.advanceTimersByTimeAsync(testConfig.initialDelayMs)
-    await vi.waitFor(() => { expect(harness.confirmDownload).toHaveBeenCalledWith('2.1.0') })
+    await vi.waitFor(() => { expect(harness.notifications).toHaveLength(1) })
+    expect(harness.confirmDownload).not.toHaveBeenCalled()
     await vi.waitFor(async () => {
       expect(JSON.parse(await readFile(harness.statePath, 'utf8'))).toEqual({
-        version: 2,
-        lastPromptedVersion: '2.1.0',
+        version: 3,
+        lastNotifiedVersion: '2.1.0',
       })
     })
     expect(harness.warnings).toEqual([])
+  })
+
+  it('migrates v2 prompt history without repeating the same background announcement', async () => {
+    vi.useFakeTimers()
+    const harness = await createHarness({
+      request: async () => versionResponse('2.1.0'),
+      state: JSON.stringify({ version: 2, lastPromptedVersion: '2.1.0' }),
+    })
+
+    await vi.advanceTimersByTimeAsync(testConfig.initialDelayMs)
+    await vi.waitFor(async () => {
+      expect(JSON.parse(await readFile(harness.statePath, 'utf8'))).toEqual({
+        version: 3,
+        lastNotifiedVersion: '2.1.0',
+      })
+    })
+
+    expect(harness.notifications).toEqual([])
+    expect(harness.confirmDownload).not.toHaveBeenCalled()
+    expect(harness.tray.label()).toBe('DSH Desktop 2.1.0 Available')
   })
 
   it('does not prompt on a platform without a fixed download entry', async () => {
@@ -399,6 +512,19 @@ describe('desktop update Host plugin', () => {
     expect(downloading.registrationDispose).toHaveBeenCalledOnce()
     expect(downloading.notifications).toEqual([])
     expect(downloading.warnings).toEqual([])
+  })
+
+  it('releases one update generation once and does not restart background polling', async () => {
+    vi.useFakeTimers()
+    const request = vi.fn(async () => versionResponse('2.0.0'))
+    const harness = await createHarness({ request })
+
+    await harness.dispose()
+    await harness.dispose()
+    await vi.advanceTimersByTimeAsync(testConfig.initialDelayMs + testConfig.intervalMs)
+
+    expect(request).not.toHaveBeenCalled()
+    expect(harness.registrationDispose).toHaveBeenCalledOnce()
   })
 
   it('does not wait for an open manual result dialog during disposal', async () => {

@@ -1,0 +1,105 @@
+version: 1
+schema: operation-reliability-matrix/v1
+operations:
+  - id: startup-renderer-health
+    owner: DesktopRendererHealthGate (src/renderer-health.ts)
+    entrypoints: [begin, report, acceptNativeMount, fail, stop]
+    deadline: { owner: DesktopRendererHealthGate, maximum: renderer-boot-timeout }
+    cancellation: { owner: DesktopRendererHealthGate, behavior: stop rejects pending verdict }
+    exclusivity: one gate per renderer generation
+    idempotency: first terminal verdict wins; later evidence is ignored
+    persistedState: { policy: lifecycle evidence only, recoveryAuthority: profile-health-checkpoints }
+    retry: { policy: none, reason: retry belongs to startup recovery orchestration }
+    recovery: durable failure reason is retained for next-generation recovery UI
+    evidence: renderer boot report and durable healthy marker
+    faultContracts:
+      - { id: startup-renderer-health.stage.timeout, test: tests/renderer-health.spec.ts, title: settles a timeout once without committing healthy }
+      - { id: startup-renderer-health.stage.commit.disk-full, test: tests/renderer-health.spec.ts, title: rejects the verdict when the durable healthy commit fails }
+  - id: profile-switch
+    owner: DesktopProfileService (src/profile-service.ts)
+    entrypoints: [select, create]
+    deadline: { owner: DesktopProfileService, maximum: delegated persistence/restart completion }
+    cancellation: { owner: DesktopProfileService, behavior: disposed service rejects retained calls }
+    exclusivity: one pending persisted target per service
+    idempotency: selecting the current profile is a no-op; pending target cannot be replaced
+    persistedState: { owner: profile-manager.ts, atomic: true, corruption: fail-loud, cleanup: profile manager }
+    retry: { policy: explicit, authority: service after restart failure }
+    recovery: startup boots only the exact persisted active profile; failures open Recovery without automatic substitution
+    evidence: persisted selected profile and restart result
+    faultContracts:
+      - { id: profile-switch.stage.persist.failure, test: tests/profile-service.spec.ts, title: does not restart after persistence fails and permits a later valid selection }
+      - { id: profile-switch.stage.restart.failure, test: tests/profile-service.spec.ts, title: retains a persisted target after restart failure and retries only that restart }
+  - id: profile-health-checkpoints
+    owner: DesktopProfileCheckpoint (src/profile-checkpoint.ts)
+    entrypoints: [listSlots, captureHealthy, inspectSlot, restoreSlot]
+    deadline: { policy: synchronous local files only }
+    cancellation: { policy: none, reason: each file publication is durable and atomic }
+    exclusivity: startup owns healthy capture; Recovery serializes explicit restore operations
+    idempotency: every healthy startup writes one slot; after three slots the oldest is replaced; one post-restore healthy capture is skipped
+    persistedState: { owner: DesktopProfileCheckpoint, slots: 3, manifestVersion: 3, legacyManifestVersion: 2, files: active Profile plus Harness-home settings.yaml and cordis.patch.yml, atomic: true, corruption: fail-loud }
+    retry: { policy: explicit, authority: user selects an exact slot in Recovery }
+    recovery: no automatic restore or profile fallback; restore only one user-selected slot
+    evidence: checkpoint metadata, file hashes, capture time, Desktop version, browsable slot directory
+    faultContracts:
+      - { id: profile-health-checkpoints.stage.rotation, test: tests/profile-checkpoint.spec.ts, title: writes every healthy startup and replaces the oldest slot after three captures }
+      - { id: profile-health-checkpoints.stage.restore-skip, test: tests/profile-checkpoint.spec.ts, title: restores an explicitly selected slot and skips exactly the next healthy write }
+      - { id: profile-health-checkpoints.stage.global-config, test: tests/profile-checkpoint.spec.ts, title: restores Harness-home settings and patches with the selected Profile slot }
+      - { id: profile-health-checkpoints.stage.failed-health, test: tests/profile-checkpoint.spec.ts, title: keeps the post-restore skip marker until a healthy capture actually occurs }
+      - { id: profile-health-checkpoints.stage.safety, test: tests/profile-checkpoint.spec.ts, title: 'rejects missing package.json, symlinks, oversized files, and empty restore slots' }
+  - id: update-check
+    owner: checkForStableUpdate (src/update-checker.ts)
+    entrypoints: [checkForStableUpdate]
+    deadline: { owner: caller, maximum: caller request deadline }
+    cancellation: { owner: caller, behavior: abort signal is passed to request }
+    exclusivity: caller-owned
+    idempotency: read-only comparison against current version
+    persistedState: { policy: none, reason: no durable state is created }
+    retry: { policy: none, reason: caller schedules later checks }
+    recovery: ignore malformed, non-success, network, and cancelled responses
+    evidence: typed comparison result or silent absence of update
+    faultContracts:
+      - { id: update-check.network.cancelled, test: tests/update-checker.spec.ts, title: silently ignores network failure and caller cancellation }
+      - { id: update-check.response.oversized, test: tests/update-checker.spec.ts, title: silently ignores declared and streamed oversized responses }
+  - id: update-download-handoff
+    owner: downloadDesktopUpdate (src/update-download.ts)
+    entrypoints: [downloadDesktopUpdate, recordDesktopUpdateArtifact, resolveDesktopUpdateArtifact]
+    deadline: { owner: caller, maximum: caller request deadline }
+    cancellation: { owner: caller, behavior: abort removes partial artifact }
+    exclusivity: atomic destination replacement
+    idempotency: validated destination may replace only after complete download
+    persistedState: { owner: update-download.ts, atomic: true, corruption: typed failure, cleanup: download operation }
+    retry: { policy: caller-controlled, authority: caller after partial cleanup }
+    recovery: preserve existing installer until replacement validates; never hand off partial artifact
+    evidence: validated artifact and pending installer receipt
+    faultContracts:
+      - { id: update-download-handoff.network.cancelled, test: tests/update-download.spec.ts, title: passes the caller signal and removes a partial file when aborted during streaming }
+      - { id: update-download-handoff.artifact.validation, test: tests/update-download.spec.ts, title: keeps an existing destination until its validated replacement is ready }
+  - id: diagnostics-export
+    owner: exportDiagnosticsZip (src/diagnostic-export.ts)
+    entrypoints: [exportDiagnosticsZip, exportDesktopDiagnostics]
+    deadline: { owner: exportDiagnosticsZip, maximum: 60000ms }
+    cancellation: { owner: exportDiagnosticsZip, behavior: abort terminates worker }
+    exclusivity: one short-lived worker per export request
+    idempotency: each export publishes a distinct archive and bounded retained history
+    persistedState: { owner: diagnostic-export-worker.ts, atomic: true, corruption: typed failure, cleanup: archive retention }
+    retry: { policy: caller-controlled, authority: diagnostics UI }
+    recovery: terminate stalled worker and preserve existing archives
+    evidence: bounded zip containing logs, lifecycle evidence, and system info
+    faultContracts:
+      - { id: diagnostics-export.worker.timeout, test: tests/diagnostic-export.spec.ts, title: terminates a diagnostic Worker that does not respond before its deadline }
+      - { id: diagnostics-export.worker.cancelled, test: tests/diagnostic-export.spec.ts, title: terminates a diagnostic Worker when its owning operation is cancelled }
+  - id: recovery-plugin-remove
+    owner: DesktopStartupRecoveryController and removeRecoveryPlugin (src/startup-recovery-controller.ts, src/recovery-plugin-uninstall.ts)
+    entrypoints: [previewUninstall, executeUninstall, removeRecoveryPlugin]
+    deadline: { owner: removeRecoveryPlugin, maximum: 120000ms }
+    cancellation: { owner: removeRecoveryPlugin, behavior: optional abort signal or deadline terminates the packaged DSH child process }
+    exclusivity: Recovery serializes plugin removal with every other mutating recovery operation
+    idempotency: confirmation is one-shot; success removes the bundle target so it cannot be previewed again
+    persistedState: { owner: official dsh plugin remove, scope: current Profile package manifest, lockfile, modules, and reconciled bundle list }
+    retry: { policy: explicit, authority: user after a failed command returns to Recovery }
+    recovery: no market receipt or disable state is required; failure keeps Recovery open and shows bounded command diagnostics
+    evidence: masked Desktop log entry, bounded stdout and stderr, and post-command Profile inventory revalidation
+    faultContracts:
+      - { id: recovery-plugin-remove.command.argv, test: tests/recovery-plugin-uninstall.spec.ts, title: runs the packaged official dsh plugin remove argv for the selected Profile }
+      - { id: recovery-plugin-remove.command.failure, test: tests/recovery-plugin-uninstall.spec.ts, title: retains bounded command diagnostics when dsh plugin remove fails }
+      - { id: recovery-plugin-remove.confirmation.one-shot, test: tests/startup-recovery-controller.spec.ts, title: uninstalls a direct Profile dependency with a one-shot preview }

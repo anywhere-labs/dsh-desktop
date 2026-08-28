@@ -4,7 +4,22 @@ import { applyScopedCatalogCursor, normalizeCatalogQuery, scopeCatalogCursor } f
 import { parseCatalogSnapshot } from '../contracts/validate.js'
 import type { CatalogAdapter, CatalogHttpClient, CatalogMediaRegistry, LocalSourceRecord, ScopedCatalogCursor } from '../contracts/types.js'
 import type { MarketCatalogSourceResult, MarketSourceView } from '../api-types.js'
-import { DSH_1024STORE_ADAPTER_ID, DSH_1024STORE_ENDPOINT, DSH_1024STORE_KEY, DSH_1024STORE_PROVIDER_ID, dsh1024StoreAdapter } from '../adapters/dsh-1024store.js'
+import {
+  DSH_1024STORE_ADAPTER_ID,
+  DSH_1024STORE_ENDPOINT,
+  DSH_1024STORE_KEY,
+  DSH_1024STORE_LEGACY_ADAPTER_ID,
+  DSH_1024STORE_PROVIDER_ID,
+  dsh1024StoreAdapter,
+  isDsh1024StoreAdapterId,
+} from '../adapters/dsh-1024store.js'
+import {
+  DSH_MARKETPLACE_ADAPTER_ID,
+  DSH_MARKETPLACE_KEY,
+  DSH_MARKETPLACE_PROVIDER_ID,
+  DSH_MARKETPLACE_PUBLIC_ENDPOINT,
+  dshMarketplaceAdapter,
+} from '../adapters/dsh-marketplace.js'
 import { DSHFIND_ADAPTER_ID, DSHFIND_ENDPOINT, DSHFIND_KEY, DSHFIND_PROVIDER_ID, dshfindAdapter } from '../adapters/dshfind.js'
 import { standardHttpAdapter } from '../adapters/standard-http.js'
 
@@ -39,6 +54,20 @@ export const BUILT_IN_PROVIDERS: readonly BuiltInProviderDefinition[] = [
     partnership: true,
   },
   {
+    key: DSH_MARKETPLACE_KEY,
+    name: 'DSH Marketplace',
+    description: '第三方社区目录，通过内置兼容适配器只读接入。目录收录不代表插件经过审核或推荐。',
+    providerId: DSH_MARKETPLACE_PROVIDER_ID,
+    adapterId: DSH_MARKETPLACE_ADAPTER_ID,
+    endpoint: DSH_MARKETPLACE_PUBLIC_ENDPOINT,
+    attribution: {
+      name: 'DSH Marketplace',
+      url: 'https://dsh-marketplace.qilewl.net',
+      notice: 'Third-party community catalog connected through a reviewed compatibility adapter.',
+    },
+    partnership: false,
+  },
+  {
     key: DSHFIND_KEY,
     name: 'dshfind',
     description: '合作提供方目录。需要用户明确添加并启用。目录收录不代表插件经过审核或推荐。',
@@ -57,6 +86,8 @@ export const BUILT_IN_PROVIDERS: readonly BuiltInProviderDefinition[] = [
 const adapters = new Map<string, CatalogAdapter>([
   [standardHttpAdapter.adapterId, standardHttpAdapter],
   [dsh1024StoreAdapter.adapterId, dsh1024StoreAdapter],
+  [DSH_1024STORE_LEGACY_ADAPTER_ID, dsh1024StoreAdapter],
+  [dshMarketplaceAdapter.adapterId, dshMarketplaceAdapter],
   [dshfindAdapter.adapterId, dshfindAdapter],
 ])
 
@@ -85,6 +116,10 @@ function sourceView(record: LocalSourceRecord): MarketSourceView {
 
 function catalogScanKey(sourceRecordId: string, locale: string | undefined): string {
   return `${sourceRecordId}\0${locale ?? ''}`
+}
+
+function prefersProviderSearch(source: LocalSourceRecord, query: CatalogQuery): boolean {
+  return source.adapterId === DSH_1024STORE_ADAPTER_ID && query.q !== undefined
 }
 
 function cachedScanView(entry: CatalogFullIndexCacheEntry, cacheStatus: 'fresh' | 'cached'): CatalogFullIndex {
@@ -117,6 +152,18 @@ function normalizedSearchText(item: CatalogItem): string {
     item.publisher?.name ?? '',
     ...(item.keywords ?? []),
   ].join('\n').toLocaleLowerCase('en-US')
+}
+
+function reviewedAdapterCategories(value: readonly string[]): readonly string[] {
+  if (value.length > 4_096 || value.some(category => (
+    typeof category !== 'string'
+    || category.length === 0
+    || category.length > 64
+    || !/^[a-z0-9][a-z0-9._:-]*$/u.test(category)
+  ))) throw new Error('catalog adapter categories are invalid')
+  const categories = [...new Set(value)]
+  if (categories.length !== value.length) throw new Error('catalog adapter categories contain duplicates')
+  return categories
 }
 
 function matchesCatalogQuery(item: CatalogItem, query: CatalogQuery): boolean {
@@ -193,6 +240,13 @@ function validateCompleteCatalogScan(
 
 export interface CatalogService {
   listSources(): Promise<readonly MarketSourceView[]>
+  /** Query the active provider directly instead of filtering a bounded local scan. */
+  fetchProvider(
+    query: unknown,
+    signal: AbortSignal,
+    scope?: CatalogFetchScope,
+    options?: { readonly force?: boolean },
+  ): Promise<readonly MarketCatalogSourceResult[]>
   fetch(
     query: unknown,
     signal: AbortSignal,
@@ -483,6 +537,82 @@ export class DefaultCatalogService implements CatalogService {
     return generation
   }
 
+  async fetchProvider(
+    value: unknown,
+    signal: AbortSignal,
+    scope?: CatalogFetchScope,
+    options: { readonly force?: boolean } = {},
+  ): Promise<readonly MarketCatalogSourceResult[]> {
+    if (options.force !== undefined && typeof options.force !== 'boolean') {
+      throw new TypeError('invalid catalog provider query options')
+    }
+    if (scope !== undefined && (
+      typeof scope.sourceRecordId !== 'string'
+      || scope.sourceRecordId.length === 0
+      || scope.cursor !== undefined && (typeof scope.cursor !== 'string' || scope.cursor.length === 0)
+    )) throw new Error('catalog source scope is invalid')
+    const baseQuery = normalizeCatalogQuery(value)
+    if (baseQuery.cursor !== undefined) throw new Error('catalog cursor requires an explicit source scope')
+    signal.throwIfAborted()
+    const records = [...await this.store.load()].sort((left, right) => left.order - right.order)
+    signal.throwIfAborted()
+    const source = records.find(record => record.enabled)
+    if (source === undefined) return []
+    if (scope !== undefined && scope.sourceRecordId !== source.sourceRecordId) {
+      throw new Error('catalog source is not active')
+    }
+    const generation = this.sourceGenerations.get(source.sourceRecordId) ?? 0
+    const query = scope?.cursor === undefined
+      ? baseQuery
+      : this.applyCursor(scope.cursor, source.sourceRecordId, baseQuery, generation)
+    const adapter = adapters.get(source.adapterId)
+    if (adapter === undefined) throw new Error('catalog adapter unavailable')
+    const delegate = this.adapterHttpClients.get(source.adapterId) ?? this.http
+    return await this.sourceConcurrency.run(signal, async () => {
+      const http: CatalogHttpClient = {
+        getJson: async (url, requestSignal, policy = {}) => await delegate.getJson(
+          url,
+          requestSignal,
+          options.force === true ? { ...policy, cacheMode: 'reload' } : policy,
+        ),
+      }
+      const context = {
+        signal,
+        source,
+        http,
+        media: this.media,
+      }
+      const [snapshotValue, categoryValues] = await Promise.all([
+        adapter.fetch(query, context),
+        adapter.fetchCategories?.(query, context),
+      ])
+      const snapshot = parseCatalogSnapshot(snapshotValue)
+      const categories = categoryValues === undefined ? undefined : reviewedAdapterCategories(categoryValues)
+      signal.throwIfAborted()
+      if ((this.sourceGenerations.get(source.sourceRecordId) ?? 0) !== generation) {
+        throw new Error('catalog source changed during provider query')
+      }
+      if (
+        snapshot.source.sourceRecordId !== source.sourceRecordId
+        || snapshot.source.providerId !== source.providerId
+        || snapshot.source.adapterId !== source.adapterId
+        || snapshot.source.registrationKind !== source.registrationKind
+        || snapshot.items.some(item => (
+          item.provenance.sourceRecordId !== source.sourceRecordId
+          || item.provenance.providerId !== source.providerId
+          || item.provenance.itemId !== item.id
+        ))
+      ) throw new Error('catalog provider query changed source identity')
+      try { this.observeSnapshot?.(snapshot) } catch { /* installation remains optional */ }
+      return [{
+        source: sourceView(source),
+        snapshot: this.exposeSnapshot(snapshot, source.sourceRecordId, baseQuery, generation),
+        ...(categories === undefined ? {} : { categories }),
+        stale: false,
+      }]
+    })
+  }
+
   async scanCatalog(
     signal: AbortSignal,
     options: CatalogScanOptions = {},
@@ -674,7 +804,7 @@ export class DefaultCatalogService implements CatalogService {
     }
     const limit = Math.min(
       query.limit ?? 50,
-      index.source.adapterId === DSH_1024STORE_ADAPTER_ID ? 50 : 100,
+      isDsh1024StoreAdapterId(index.source.adapterId) ? 50 : 100,
     )
     const end = Math.min(offset + limit, filtered.length)
     const baseSnapshot = index.snapshots[0]
@@ -695,6 +825,55 @@ export class DefaultCatalogService implements CatalogService {
     }]
   }
 
+  private async fetchProviderSearch(
+    query: CatalogQuery,
+    signal: AbortSignal,
+    scope?: CatalogFetchScope,
+  ): Promise<readonly MarketCatalogSourceResult[] | undefined> {
+    if (query.q === undefined) return undefined
+    const sourceGenerationsAtLoadStart = new Map(this.sourceGenerations)
+    const records = [...await this.store.load()].sort((left, right) => left.order - right.order)
+    signal.throwIfAborted()
+    const source = records.find(record => record.enabled)
+    if (scope !== undefined && source?.sourceRecordId !== scope.sourceRecordId) {
+      throw new Error('catalog source is not active')
+    }
+    if (source === undefined) return []
+    if (!prefersProviderSearch(source, query)) return undefined
+    const sourceGeneration = sourceGenerationsAtLoadStart.get(source.sourceRecordId) ?? 0
+    if ((this.sourceGenerations.get(source.sourceRecordId) ?? 0) !== sourceGeneration) {
+      throw new Error('catalog source changed during scan setup')
+    }
+    const adapter = adapters.get(source.adapterId)
+    if (adapter === undefined) throw new Error('catalog adapter unavailable')
+
+    return await this.sourceConcurrency.run(signal, async () => {
+      signal.throwIfAborted()
+      if ((this.sourceGenerations.get(source.sourceRecordId) ?? 0) !== sourceGeneration) {
+        throw new Error('catalog source changed while waiting to scan')
+      }
+      const delegate = this.adapterHttpClients.get(source.adapterId) ?? this.http
+      const effectiveQuery = scope?.cursor === undefined
+        ? query
+        : this.applyCursor(scope.cursor, scope.sourceRecordId, query, sourceGeneration)
+      const snapshot = parseCatalogSnapshot(await adapter.fetch(effectiveQuery, {
+        signal,
+        source,
+        http: delegate,
+        media: this.media,
+      }))
+      signal.throwIfAborted()
+      if ((this.sourceGenerations.get(source.sourceRecordId) ?? 0) !== sourceGeneration) {
+        throw new Error('catalog source changed during scan')
+      }
+      return [{
+        source: sourceView(source),
+        snapshot: this.exposeSnapshot(snapshot, source.sourceRecordId, query, sourceGeneration),
+        stale: false,
+      }]
+    })
+  }
+
   async fetch(
     value: unknown,
     signal: AbortSignal,
@@ -702,6 +881,8 @@ export class DefaultCatalogService implements CatalogService {
   ): Promise<readonly MarketCatalogSourceResult[]> {
     const query = normalizeCatalogQuery(value)
     if (query.cursor !== undefined) throw new Error('catalog cursor requires an explicit source scope')
+    const providerSearch = await this.fetchProviderSearch(query, signal, scope)
+    if (providerSearch !== undefined) return providerSearch
     const index = await this.scanCatalog(signal, {
       ...(query.locale === undefined ? {} : { locale: query.locale }),
       ...(scope === undefined ? {} : { expectedSourceRecordId: scope.sourceRecordId }),

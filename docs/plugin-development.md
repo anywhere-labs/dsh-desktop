@@ -21,11 +21,18 @@ Desktop 另外提供两个公开的 Host service：
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
+import { randomUUID } from 'node:crypto'
 import type {} from 'dsh-plugin-desktop/profile-service'
 import type { DesktopPnpmHandle } from 'dsh-plugin-desktop/pnpm'
 
 export const name = 'example-desktop-plugin'
 export const inject = ['desktopProfiles', 'desktopPnpm']
+
+declare function persistPendingReceipt(recovery: {
+  readonly packageName: string
+  readonly packageVersion: string
+  readonly receiptId: string
+}): Promise<void>
 
 export function apply(ctx: Context): void {
   ctx.logger.info(`profile: ${ctx.desktopProfiles.current.name}`)
@@ -33,10 +40,16 @@ export function apply(ctx: Context): void {
 
   // 将这个函数连接到插件界面的明确用户操作。
   async function installExample(): Promise<void> {
-    active = ctx.desktopPnpm.runPlugin(
-      ['add', 'example-plugin'],
-      process.cwd(),
-    )
+    const recovery = {
+      packageName: 'example-plugin',
+      packageVersion: '1.0.0',
+      receiptId: randomUUID(),
+    }
+    await persistPendingReceipt(recovery)
+    active = await ctx.desktopPnpm.installPlugin({
+      invokingDir: process.cwd(),
+      recovery,
+    })
     await active.done
   }
 
@@ -49,42 +62,121 @@ export function apply(ctx: Context): void {
 }
 ```
 
-实际项目应该把 package operation 放在明确的用户动作中，校验目标来源，读取 stdout/stderr，设置自己的 timeout，并同时检查 `exitCode` 和 `signal`。一个 generation 同时只允许一个 `desktopPnpm` package operation；插件卸载时必须取消并等待它结束。
+实际项目应该把 package operation 放在明确的用户动作中，校验目标来源，在安装前持久保存 recovery receipt，在启动时 reconcile 已恢复的 receipt id，读取 stdout/stderr，设置自己的 timeout，并同时检查 `exitCode` 和 `signal`。一个 generation 同时只允许一个 `desktopPnpm` package operation；插件卸载时必须取消并等待它结束。
 
 ## 兼容 Desktop 和普通 DSH
 
-如果同一个插件也要在普通 `dsh web` 中运行，不要把 Desktop service 放进顶层 required `inject`。先注入普通依赖，再在 callback 中动态探测：
+如果同一个插件也要在普通 `dsh web` 中运行，不要把 Desktop service 放进顶层 required `inject`。先用 `ctx.get('desktopProfiles')` 判断是否处于 Desktop，再把两个 Desktop service 一起放进同一个嵌套 injection，让 adapter 会随着任一 service 的 generation 一起卸载：
 
 ```ts
 export const inject = ['webServer', 'loader']
 
 export function apply(ctx: Context, config: { profile?: string }): void {
-  const profiles = ctx.get('desktopProfiles')
-  if (profiles === undefined) {
+  if (ctx.get('desktopProfiles') === undefined) {
     mountOrdinaryDshManager(ctx, config.profile ?? 'web')
     return
   }
 
-  ctx.inject(['desktopPnpm'], (desktopPnpm) => {
-    mountManager(ctx, {
-      profile: profiles.current.name,
-      profileDir: profiles.current.dir,
-      runPlugin: (args, cwd, signal) => desktopPnpm.runPlugin(args, cwd, signal),
-    })
+  ctx.inject(['desktopProfiles', 'desktopPnpm'], (desktopCtx) => {
+    desktopCtx.effect(() => mountManager(desktopCtx, {
+      profile: desktopCtx.desktopProfiles.current.name,
+      profileDir: desktopCtx.desktopProfiles.current.dir,
+      runPlugin: (args, cwd, signal) =>
+        desktopCtx.desktopPnpm.runPlugin(args, cwd, signal),
+    }), 'example: Desktop plugin manager')
   })
 }
 ```
 
 普通 DSH 的 fallback 仍然是插件自己的权威实现。不要从 `process.argv`、`ctx.baseUrl`、settings 或 `$DSH_HOME` 推断 Desktop profile；在 Desktop 中以 `desktopProfiles.current` 为准。
 
-## `run()` 和 `runPlugin()` 的区别
+## 外部开发沙箱
 
-`desktopPnpm.run(args)` 是低层 pnpm operation，cwd 是当前 profile。它不保证 DSH 的 profile 初始化、调用方相对 `file:`/`link:` source 锚定或 `dsh.profile.bundles` reconcile。
-
-`desktopPnpm.runPlugin(args, invokingDir)` 执行打包的 `dsh plugin --profile <active>`，保留上游插件管理语义。安装、卸载、更新和依赖修复应使用它，例如：
+外部开发沙箱是构建在 Desktop 旁边的普通 `dsh web` 镜像，不是第二个 Electron 应用。当前公开 service 已足够支撑一条生命周期安全的集成路径：
 
 ```ts
-desktopPnpm.runPlugin(['add', target], invokingDir, signal)
+import type { Context } from '@deepseek-ai/cordis'
+import type { DesktopPnpmHandle } from 'dsh-plugin-desktop/pnpm'
+import type {} from 'dsh-plugin-desktop/profile-service'
+import type {} from 'dsh-plugin-desktop/pnpm'
+
+declare function prepareSandboxProfile(options: {
+  readonly sourceProfileDir: string
+  readonly sandboxRoot: string
+  readonly pluginDir: string
+}): Promise<void>
+declare function launchExternalWebMirror(sandboxRoot: string): Promise<void>
+declare function removeSandbox(sandboxRoot: string): Promise<void>
+
+export function apply(ctx: Context): void {
+  if (ctx.get('desktopProfiles') === undefined) return
+
+  ctx.inject(['desktopProfiles', 'desktopPnpm'], (desktopCtx) => {
+    desktopCtx.effect(() => {
+      let build: DesktopPnpmHandle | undefined
+
+      async function buildAndLaunch(pluginDir: string, sandboxRoot: string): Promise<void> {
+        const sourceProfileDir = desktopCtx.desktopProfiles.current.dir
+        await prepareSandboxProfile({ sourceProfileDir, sandboxRoot, pluginDir })
+
+        const deadline = AbortSignal.timeout(5 * 60_000)
+        const operation = desktopCtx.desktopPnpm.run(
+          ['--dir', pluginDir, 'run', 'build'],
+          deadline,
+        )
+        build = operation
+        operation.stdout.resume()
+        operation.stderr.resume()
+
+        try {
+          const outcome = await operation.done
+          if (outcome.exitCode !== 0 || outcome.signal !== null) {
+            await removeSandbox(sandboxRoot)
+            throw new Error(
+              `sandbox build failed: exit=${String(outcome.exitCode)} signal=${String(outcome.signal)}`,
+            )
+          }
+        } catch (error) {
+          await removeSandbox(sandboxRoot)
+          throw error
+        } finally {
+          if (build === operation) build = undefined
+        }
+
+        await launchExternalWebMirror(sandboxRoot)
+      }
+
+      return async () => {
+        const operation = build
+        operation?.cancel()
+        await operation?.done.catch(() => {})
+      }
+    }, 'example: external development sandbox')
+  })
+}
+```
+
+这条模式里要注意：
+
+- 把 `desktopProfiles.current.dir` 当作当前 Host generation 的只读 `host-web` 镜像来源；不要修改它、跨 `select()` 缓存它，也不要猜测成 `profiles/web`。
+- 本地 checkout 的构建应使用 `desktopPnpm.run(['--dir', pluginDir, 'run', 'build'], signal)`，这样 Desktop 的打包 pnpm、Node ABI 与 subprocess ownership 才会继续保持权威，而且不会改动激活 profile。
+- 必须持续读取两个输出流，自己设置 deadline，并保留返回 handle，这样 dispose 时才能调用 `cancel()`，随后继续等待 `done`。
+- 只要 `done` rejection、`exitCode` 非零，或 `signal` 非空，就应删除临时沙箱并停止，而不是继续启动镜像。
+- 镜像启动器本身按设计属于外部组件；公开 Desktop contract 不会提供第二套 Electron bootstrap surface。
+
+## `run()`、`runPlugin()` 和 `installPlugin()` 的区别
+
+`desktopPnpm.run(args)` 是低层 pnpm operation，cwd 是当前 profile。当你需要像 `['--dir', pluginDir, 'run', 'build']` 这样的生命周期自管本地工作，并且希望继承 Desktop 打包的 pnpm 与 Node surface、又不修改激活 profile 时，它是合适的选择。它不保证 DSH 的 profile 初始化、调用方相对 `file:`/`link:` source 锚定或 `dsh.profile.bundles` reconcile。
+
+`desktopPnpm.runPlugin(args, invokingDir)` 为非安装 mutation 执行打包的 `dsh plugin --profile <active>`，并保留上游插件管理语义。它会拒绝 `add`。`installPlugin(request)` 是可恢复安装路径：它从 receipt metadata 生成精确 package 目标，并拥有 profile 快照/WAL 生命周期。
+
+```ts
+await desktopPnpm.installPlugin({
+  invokingDir,
+  pnpmOptions: ['--save-exact'],
+  recovery: { packageName, packageVersion, receiptId },
+  signal,
+})
 desktopPnpm.runPlugin(['remove', packageName], invokingDir, signal)
 desktopPnpm.runPlugin(['update'], invokingDir, signal)
 desktopPnpm.runPlugin(['install', '--no-frozen-lockfile'], invokingDir, signal)

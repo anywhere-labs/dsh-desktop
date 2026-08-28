@@ -8,7 +8,7 @@ import {
 } from './host/routes.js'
 import { createRestrictedHttpClient } from './network/restricted-http.js'
 import {
-  createNpmRegistryVerifier,
+  createMarketPackageVerifier,
   MarketInstallService,
   type MarketDesktopPnpm,
   type MarketDesktopProfile,
@@ -68,18 +68,11 @@ export function apply(ctx: Context): void {
     const pnpm = desktopCtx.get('desktopPnpm') as MarketDesktopPnpm
     desktopCtx.effect(() => {
       const service = new MarketInstallService(
-        scope,
         () => profiles.current,
         pnpm,
-        createNpmRegistryVerifier(npmRegistryHttp),
+        createMarketPackageVerifier(npmRegistryHttp),
         {
-          disabledPackageNames: () => {
-            const plugins = desktopPlugins
-            if (plugins === undefined) {
-              throw new Error('desktop plugin policy unavailable')
-            }
-            return plugins.disabledPackageNames()
-          },
+          logFailure: message => ctx.logger.error(message),
         },
       )
       installService = service
@@ -94,6 +87,7 @@ export function apply(ctx: Context): void {
 export { marketRoutes } from './host/routes.js'
 export { BUILT_IN_PROVIDERS, DefaultCatalogService } from './catalog/service.js'
 export { dsh1024StoreAdapter } from './adapters/dsh-1024store.js'
+export { dshMarketplaceAdapter } from './adapters/dsh-marketplace.js'
 export { dshfindAdapter } from './adapters/dshfind.js'
 export type * from './api-types.js'
 export * from './contracts/index.js'

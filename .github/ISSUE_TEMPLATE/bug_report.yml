@@ -78,7 +78,45 @@ body:
     attributes:
       label: DSH runtime version / DSH 运行时版本
       description: If a separate CLI is installed, run `dsh --version` / 如另装了 CLI，可运行 `dsh --version`
-      placeholder: "For example: 0.1.0-rc.7; or Unknown / 不知道"
+      placeholder: "For example: 0.1.0-rc.8; or Unknown / 不知道"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: profile_type
+    attributes:
+      label: Profile type / Profile 类型
+      description: Choose the Profile where the problem occurs / 选择发生问题的 Profile
+      options:
+        - Default or built-in Profile / 默认或内置 Profile
+        - Existing upgraded Profile / 从旧版本升级的 Profile
+        - Newly created Profile / 新建 Profile
+        - Custom Profile / 自定义 Profile
+        - Unknown / 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: third_party_plugins
+    attributes:
+      label: Third-party plugins / 第三方插件
+      description: List installed third-party plugins and versions, or write None / 列出已安装的第三方插件及版本；没有时填写“无”
+      placeholder: |
+        plugin-name@version
+        None / 无
+    validations:
+      required: true
+
+  - type: dropdown
+    id: fresh_profile_result
+    attributes:
+      label: Fresh Profile comparison / 全新 Profile 对照结果
+      description: If possible, create a fresh Profile without third-party plugins and retry / 如条件允许，请新建不含第三方插件的 Profile 后重试
+      options:
+        - Still reproduces in a fresh Profile / 全新 Profile 仍可复现
+        - Does not reproduce in a fresh Profile / 全新 Profile 不再复现
+        - Cannot test because the app will not start / 应用无法启动，不能测试
+        - Not tested / 未测试
     validations:
       required: true
 

@@ -36,7 +36,7 @@ const DISABLE_PREVIEW_ID_PATTERN = /^disable_[A-Za-z0-9_-]{43}$/u
 const ENABLE_PREVIEW_ID_PATTERN = /^enable_[A-Za-z0-9_-]{43}$/u
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
 const IMMUTABLE_BUNDLES = new Set([
-  ...(PROFILE_TEMPLATES.web ?? []),
+  ...(PROFILE_TEMPLATES.web?.bundles ?? []),
   '@deepseek-ai/dsh-desktop-app',
   'dsh-plugin-desktop',
   'dsh-community-market',
@@ -52,6 +52,8 @@ export interface DesktopPluginBundle {
   readonly status: 'active' | 'disabled'
   /** Whether Desktop permits this exact bundle to be disabled. */
   readonly mutable: boolean
+  /** Whether this bundle is a direct Profile dependency removable by the package manager. */
+  readonly uninstallable: boolean
 }
 
 /** Short-lived confirmation minted for one exact direct bundle. */
@@ -147,6 +149,7 @@ interface DesktopPluginPreviewRecord {
   readonly action: 'disable' | 'enable'
   readonly profileName: string
   readonly packageName: string
+  readonly statePath?: string
   readonly expiresAt: number
 }
 
@@ -175,6 +178,8 @@ export interface DesktopProfileManifestBundle {
   readonly packageName: string
   readonly status: 'active' | 'disabled'
   readonly mutable: boolean
+  /** Whether the package is a direct Profile dependency removable by `dsh plugin remove`. */
+  readonly uninstallable: boolean
 }
 
 function emptyState(): DesktopPluginStateV1 {
@@ -230,9 +235,14 @@ function readProfileManifestBytes(path: string): Buffer {
   }
 }
 
-function readDesktopProfileBundleNames(
+interface DesktopProfileManifestInventory {
+  readonly bundleNames: readonly string[]
+  readonly dependencyNames: ReadonlySet<string>
+}
+
+function readDesktopProfileManifestInventory(
   bootstrap: DesktopPluginStateBootstrap,
-): readonly string[] {
+): DesktopProfileManifestInventory {
   assertStateBootstrap(bootstrap)
   const profileDir = resolveProfileDir(bootstrap.profileName, bootstrap.homeDir)
   const bytes = readProfileManifestBytes(join(profileDir, 'package.json'))
@@ -248,24 +258,41 @@ function readDesktopProfileBundleNames(
     throw new Error(`${BIN_NAME}: active profile manifest must hold a JSON object`)
   }
   const root = parsed as Record<string, unknown>
+  const rawDependencies = root.dependencies
+  if (rawDependencies !== undefined && (
+    rawDependencies === null
+    || typeof rawDependencies !== 'object'
+    || Array.isArray(rawDependencies)
+  )) {
+    throw new Error(`${BIN_NAME}: active profile manifest dependencies must be an object`)
+  }
+  const dependencies = rawDependencies as Record<string, unknown> | undefined
+  const dependencyNames = Object.keys(dependencies ?? {})
+  if (dependencyNames.length > MAX_DIRECT_BUNDLES || dependencyNames.some(name => !safePackageName(name))) {
+    throw new Error(`${BIN_NAME}: active profile manifest dependencies are invalid`)
+  }
   const dsh = root.dsh
-  if (dsh === undefined) return []
+  if (dsh === undefined) return { bundleNames: [], dependencyNames: new Set(dependencyNames) }
   if (dsh === null || typeof dsh !== 'object' || Array.isArray(dsh)) {
     throw new Error(`${BIN_NAME}: active profile manifest dsh field must be an object`)
   }
   const profile = (dsh as Record<string, unknown>).profile
-  if (profile === undefined) return []
+  if (profile === undefined) return { bundleNames: [], dependencyNames: new Set(dependencyNames) }
   if (profile === null || typeof profile !== 'object' || Array.isArray(profile)) {
     throw new Error(`${BIN_NAME}: active profile manifest dsh.profile field must be an object`)
   }
   const bundles = (profile as Record<string, unknown>).bundles
-  if (bundles === undefined) return []
+  if (bundles === undefined) return { bundleNames: [], dependencyNames: new Set(dependencyNames) }
   if (!Array.isArray(bundles)
     || bundles.length > MAX_DIRECT_BUNDLES
     || bundles.some(bundle => !safePackageName(bundle))) {
     throw new Error(`${BIN_NAME}: active profile manifest dsh.profile.bundles is invalid`)
   }
-  return bundles as string[]
+  return { bundleNames: bundles as string[], dependencyNames: new Set(dependencyNames) }
+}
+
+function readDesktopProfileBundleNames(bootstrap: DesktopPluginStateBootstrap): readonly string[] {
+  return readDesktopProfileManifestInventory(bootstrap).bundleNames
 }
 
 function stableCompare(left: string, right: string): number {
@@ -357,6 +384,30 @@ export function readDesktopDisabledBundles(
   return new Set(profile?.disabledBundles ?? [])
 }
 
+/** Remove only the Desktop disable markers belonging to one deleted profile. */
+export async function clearDesktopProfilePluginState(
+  statePath: string,
+  profileName: string,
+): Promise<void> {
+  assertDesktopProfileName(profileName)
+  if (!isAbsolute(statePath) || statePath.includes('\0')) {
+    throw new Error(`${BIN_NAME}: plugin-management state path must be absolute and contain no NUL`)
+  }
+  await ensurePrivateStateDirectory(statePath)
+  await withFileLock(statePath, async () => {
+    const state = readState(statePath)
+    if (!state.profiles.some(profile => profile.profileName === profileName)) return
+    const next = parseState({
+      version: STATE_VERSION,
+      profiles: state.profiles.filter(profile => profile.profileName !== profileName),
+    })
+    await writeFileAtomic(statePath, renderState(next), {
+      mode: STATE_FILE_MODE,
+      dirMode: STATE_DIRECTORY_MODE,
+    })
+  })
+}
+
 /**
  * Read the active profile's direct bundle declarations without resolving or
  * parsing any bundle patch. This remains available when a bundle itself is
@@ -365,10 +416,11 @@ export function readDesktopDisabledBundles(
 export function readDesktopProfileBundleInventory(
   bootstrap: DesktopPluginStateBootstrap,
 ): readonly DesktopProfileManifestBundle[] {
-  const disabled = readDesktopDisabledBundles(bootstrap.statePath, bootstrap.profileName)
+  const manifest = readDesktopProfileManifestInventory(bootstrap)
+  const disabled = new Set(readDesktopDisabledBundles(bootstrap.statePath, bootstrap.profileName))
   const seen = new Set<string>()
   const bundles: DesktopProfileManifestBundle[] = []
-  for (const packageName of readDesktopProfileBundleNames(bootstrap)) {
+  for (const packageName of manifest.bundleNames) {
     if (seen.has(packageName)) continue
     seen.add(packageName)
     const mutable = desktopPluginBundleMutable(packageName)
@@ -376,6 +428,7 @@ export function readDesktopProfileBundleInventory(
       packageName,
       status: mutable && disabled.has(packageName) ? 'disabled' : 'active',
       mutable,
+      uninstallable: mutable && manifest.dependencyNames.has(packageName),
     })
   }
   return bundles
@@ -612,7 +665,7 @@ export class DesktopPluginsService extends Service implements DesktopPlugins {
 
   disabledPackageNames(): readonly string[] {
     this.assertActive()
-    return [...readDesktopDisabledBundles(this.bootstrap.statePath, this.bootstrap.profileName)]
+    return [...readDesktopDisabledBundles(this.bootstrap.statePath, this.bootstrap.profileName)].sort(stableCompare)
   }
 
   previewDisable(bundleId: string): DesktopPluginDisablePreview {
@@ -672,7 +725,7 @@ export class DesktopPluginsService extends Service implements DesktopPlugins {
     if (target.status === 'active') {
       throw new DesktopPluginsError('already-active', 'This Desktop bundle is already active.')
     }
-    const preview = this.mintPreview('enable', target.packageName)
+    const preview = this.mintPreview('enable', target.packageName, this.disabledStatePath(target.packageName))
     return {
       previewId: preview.previewId,
       profileName: preview.profileName,
@@ -719,6 +772,7 @@ export class DesktopPluginsService extends Service implements DesktopPlugins {
   private mintPreview(
     action: DesktopPluginPreviewRecord['action'],
     packageName: string,
+    statePath?: string,
   ): DesktopPluginPreviewRecord {
     this.prunePreviews()
     if (this.previews.size >= MAX_PREVIEWS) {
@@ -731,6 +785,7 @@ export class DesktopPluginsService extends Service implements DesktopPlugins {
       action,
       profileName: this.bootstrap.profileName,
       packageName,
+      ...(statePath === undefined ? {} : { statePath }),
       expiresAt: this.now() + PREVIEW_TTL_MS,
     }
     this.previews.set(previewId, preview)
@@ -772,7 +827,7 @@ export class DesktopPluginsService extends Service implements DesktopPlugins {
         throw new DesktopPluginsError('already-active', 'This Desktop bundle is already active.')
       }
       return await enableDesktopProfileBundle(
-        this.bootstrap,
+        { ...this.bootstrap, ...(preview.statePath === undefined ? {} : { statePath: preview.statePath }) },
         preview.packageName,
         () => { this.assertActive() },
       )
@@ -783,6 +838,13 @@ export class DesktopPluginsService extends Service implements DesktopPlugins {
         'Unable to persist the Desktop plugin change.',
       )
     }
+  }
+
+  private disabledStatePath(packageName: string): string | undefined {
+    if (readDesktopDisabledBundles(this.bootstrap.statePath, this.bootstrap.profileName).has(packageName)) {
+      return this.bootstrap.statePath
+    }
+    return undefined
   }
 
   private prunePreviews(): void {

@@ -71,6 +71,8 @@ export interface CatalogHttpResponse {
 export interface CatalogAdapter {
   readonly adapterId: string
   fetch(query: CatalogQuery, context: CatalogFetchContext): Promise<CatalogSnapshot>
+  /** Optional complete provider facets for APIs whose page envelope carries them. */
+  fetchCategories?(query: CatalogQuery, context: CatalogFetchContext): Promise<readonly string[]>
   /**
    * Optionally scan the adapter's complete normalized catalog independently
    * of the discovery query and page cursor.
@@ -92,6 +94,15 @@ export interface NormalizedRepositoryIdentity {
 export interface NormalizedPackageIdentity {
   readonly registry: 'npm'
   readonly name: string
+}
+
+/** A pinned GitHub source descriptor; metadata only until install support is enabled. */
+export interface NormalizedGitHubInstallSource {
+  readonly kind: 'github'
+  readonly owner: string
+  readonly repo: string
+  readonly commit: string
+  readonly subdirectory?: string
 }
 
 export type CatalogIdentityChoice =

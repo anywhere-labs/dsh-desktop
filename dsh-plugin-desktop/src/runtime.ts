@@ -1,12 +1,20 @@
 import type { Context } from '@deepseek-ai/cordis'
+import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
 import type { RendererBootReport } from './renderer-boot-contract.ts'
 import type { UpdateCheckResult, UpdateRequest } from './update-checker.ts'
+import type { DesktopInstallationId } from './desktop-installation-id.ts'
+import type { ProfileCreateWindowOptions } from './profile-create-window.ts'
+import type {
+  DesktopWindowMaterial,
+  MacosWindowMaterial,
+  PersistedWindowsWindowMaterial,
+} from './window-material.ts'
 
 /** Electron platforms supported by the DSH Desktop native adapter. */
 export type DesktopPlatform = 'darwin' | 'win32' | 'linux'
 
 /** Native presentation modes selected by the desktop-shell Cordis row. */
-export type DesktopShellMode = 'compatibility' | 'advanced'
+export type DesktopShellMode = 'compatibility' | 'extended' | 'advanced'
 
 /** Electron appearance source used by native frame and material rendering. */
 export type DesktopThemeSource = 'system' | 'light' | 'dark'
@@ -18,6 +26,10 @@ export type DesktopLocale = 'zh' | 'en'
 export interface DesktopWindowConfig {
   /** Native presentation mode selected before BrowserWindow construction. */
   mode: DesktopShellMode
+  /** macOS material preference retained independently across platforms. */
+  macosMaterial: MacosWindowMaterial
+  /** Windows material preference retained independently across platforms. */
+  windowsMaterial: PersistedWindowsWindowMaterial
   /** Initial window width in CSS pixels. */
   width: number
   /** Initial window height in CSS pixels. */
@@ -93,8 +105,10 @@ export interface DesktopUpdateAdapter {
   readonly canDownload: boolean
   /** Installed desktop product version. */
   readonly currentVersion: string
-  /** Private file used for update-prompt history. */
+  /** Private file used to suppress repeated background update announcements. */
   readonly statePath: string
+  /** Pseudonymous installation UUID attached only to the fixed version endpoint. */
+  readonly installationId?: DesktopInstallationId
   /** Request adapter backed by Electron's native network session. */
   readonly request: UpdateRequest
   /** Ask whether one strictly newer version may be downloaded. */
@@ -119,8 +133,16 @@ export interface DesktopTerminalSpec {
 
 /** Values the desktop-shell plugin hands to the Electron adapter. */
 export interface DesktopShellSpec extends DesktopWindowConfig {
+  /** Actual material after platform and Windows-build capability gating. */
+  material: DesktopWindowMaterial
+  /** Windows build used for material capability reporting, when applicable. */
+  windowsBuild?: number
   /** Unmodified Web root served by the active DSH profile. */
   url: string
+  /** Official one-time launch URL used to mint this Electron session's browser cookie. */
+  authenticationUrl: string
+  /** Ephemeral capability attached by Electron to this renderer generation's requests. */
+  rendererAccessHeader: DesktopRendererAccessHeader
   /** Native application and tray label. */
   productName: string
   /** Visible native caption on platforms that retain a title. */
@@ -143,6 +165,9 @@ export interface DesktopShellSpec extends DesktopWindowConfig {
 export interface DesktopRuntime {
   /** Current Electron platform. */
   readonly platform: DesktopPlatform
+
+  /** NT build number used to gate system backdrop materials. */
+  readonly windowsBuild: number | undefined
 
   /** Locale currently used for native tray contributions. */
   readonly locale: DesktopLocale
@@ -168,6 +193,9 @@ export interface DesktopRuntime {
   /** Reveal and focus the current window, if mounted. */
   show(): void
 
+  /** Request native attention for background activity while the window is unfocused. */
+  notifyAttention(notification: DesktopNotification): void
+
   /**
    * Contribute one command to the native tray for the current Cordis lifetime.
    * @param item - dynamic label, state, and invocation owned by the caller.
@@ -178,11 +206,20 @@ export interface DesktopRuntime {
   /** Open a native terminal containing packaged DSH command shims. */
   openTerminal(): void
 
+  /** Reload the mounted renderer without restarting the Host. */
+  reloadRenderer(): void
+
+  /** Toggle Developer Tools for the mounted renderer. */
+  toggleDeveloperTools(): void
+
   /** Export a diagnostics zip and reveal it in the system file manager. */
   exportDiagnostics(): Promise<void>
 
   /** Open the desktop operating system's native workspace-folder chooser. */
   pickDirectory(): Promise<string | null>
+
+  /** Open the isolated native Profile creator, focusing an existing instance. */
+  openProfileCreateWindow(options: Omit<ProfileCreateWindowOptions, 'locale'>): void
 
   /** Confirm that one renderer-selected workspace is safe to persist. */
   validateDirectory(path: string): Promise<boolean>
@@ -198,6 +235,9 @@ export interface DesktopRuntime {
 
   /** Request orderly Cordis teardown followed by an Electron relaunch. */
   requestRestart(): Promise<void>
+
+  /** Request orderly teardown followed by a one-shot recovery-mode relaunch. */
+  requestRecoveryRestart(): Promise<void>
 
   /** Allow the final native quit after the Cordis tree has disposed. */
   prepareToQuit(): void

@@ -1,6 +1,6 @@
 /** Headless artifact smoke for profile-local and launcher-owned Cordis plugins. */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -16,6 +16,34 @@ import { prepareDesktopProfile } from '../lib/profile.js'
 
 const BIN_NAME = 'dsh-plugin-desktop-loader-smoke'
 const THIRD_PARTY_NAME = 'dsh-desktop-loader-smoke-plugin'
+const THIRD_PARTY_DEPENDENCY_NAME = 'dsh-desktop-loader-smoke-dependency'
+const PRODUCT_VERSION = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version
+let ordinaryBrowserEnabled = false
+const BROWSER_ACCESS = Object.freeze({
+  get ordinaryBrowserEnabled() { return ordinaryBrowserEnabled },
+  rendererHeader: Object.freeze({
+    name: 'x-dsh-desktop-renderer',
+    value: Buffer.alloc(32, 1).toString('base64url'),
+  }),
+  setOrdinaryBrowserEnabled(enabled) { ordinaryBrowserEnabled = enabled },
+})
+const LAN_HTTPS_SNAPSHOT = Object.freeze({
+  state: 'inactive',
+  actualPort: null,
+  addresses: Object.freeze([]),
+  caFingerprint: null,
+  errorCode: null,
+})
+const LAN_HTTPS = Object.freeze({
+  caCertificate: null,
+  attach() {},
+  snapshot() { return LAN_HTTPS_SNAPSHOT },
+  async setEnabled() { return LAN_HTTPS_SNAPSHOT },
+  async stop() { return LAN_HTTPS_SNAPSHOT },
+})
+const AUTHENTICATION_TOKEN = Buffer.alloc(32, 3).toString('base64url')
 const RUNNER_ENVIRONMENT_NAMES = new Set([
   'ELECTRON_RUN_AS_NODE',
   'NPM_CONFIG_RUNTIME',
@@ -50,17 +78,31 @@ try {
     environment: process.env,
   })
   const prepared = prepareDesktopProfile(undefined, home)
-  const thirdPartyDir = join(prepared.profile.dir, 'node_modules', THIRD_PARTY_NAME)
+  const thirdPartyLink = join(prepared.profile.dir, 'node_modules', THIRD_PARTY_NAME)
+  const thirdPartyDir = join(home, 'linked-plugins', THIRD_PARTY_NAME)
+  const thirdPartyDependencyDir = join(home, 'profiles', 'node_modules', THIRD_PARTY_DEPENDENCY_NAME)
+  mkdirSync(join(prepared.profile.dir, 'node_modules'), { recursive: true })
   mkdirSync(thirdPartyDir, { recursive: true })
+  mkdirSync(thirdPartyDependencyDir, { recursive: true })
+  writeFileSync(join(thirdPartyDependencyDir, 'package.json'), JSON.stringify({
+    name: THIRD_PARTY_DEPENDENCY_NAME,
+    version: '0.0.0',
+    type: 'module',
+    exports: './index.js',
+  }) + '\n')
+  writeFileSync(join(thirdPartyDependencyDir, 'index.js'), 'export const marker = "profile dependency"\n')
   writeFileSync(join(thirdPartyDir, 'package.json'), JSON.stringify({
     name: THIRD_PARTY_NAME,
     version: '0.0.0',
     type: 'module',
     exports: './index.js',
+    dependencies: { [THIRD_PARTY_DEPENDENCY_NAME]: '0.0.0' },
   }) + '\n')
   writeFileSync(join(thirdPartyDir, 'index.js'), [
     "import { delimiter } from 'node:path'",
+    `import { marker } from '${THIRD_PARTY_DEPENDENCY_NAME}'`,
     'export function apply(ctx) {',
+    "  if (marker !== 'profile dependency') throw new Error('linked plugin did not resolve its profile dependency')",
     `  const expected = ${JSON.stringify(pnpmRuntime.pathDir)}`,
     '  const actual = (process.env.PATH ?? \'\').split(delimiter)[0]',
     '  if (actual !== expected) throw new Error(`third-party plugin received ${actual} instead of packaged pnpm PATH ${expected}`)',
@@ -72,6 +114,7 @@ try {
     '}',
     '',
   ].join('\n'))
+  symlinkSync(thirdPartyDir, thirdPartyLink, 'junction')
   releasePackageResolver = installProfilePackageResolver(prepared.bareModuleBaseUrl)
   const profileRequire = createRequire(prepared.bareModuleBaseUrl)
   const desktopManifest = fileURLToPath(new URL('../package.json', import.meta.url))
@@ -85,6 +128,7 @@ try {
 
   const runtime = {
     platform: 'darwin',
+    updates: { currentVersion: PRODUCT_VERSION },
     schedule(spec) {
       mountedSpec = spec
       return async () => { await mounted }
@@ -110,11 +154,23 @@ try {
       // Packaged Electron does not expose Node's internal ESM loader.
       host.loader.internal = undefined
       host.provide(DSH_LAUNCH_ENVIRONMENT_KEY, launchEnvironment)
+      host.provide('desktopBrowserAccess', BROWSER_ACCESS)
+      host.provide('desktopLanHttps', LAN_HTTPS)
       host.provide('desktopRuntime', runtime)
       host.provide('webServer', {
         host: '127.0.0.1',
         port: 43120,
         register() { return () => {} },
+      })
+      host.provide('connection', {
+        authenticatedUrl(baseUrl) {
+          const url = new URL(baseUrl)
+          url.pathname = '/'
+          url.search = ''
+          url.searchParams.set('token', AUTHENTICATION_TOKEN)
+          return url.href
+        },
+        requestRejection() { return undefined },
       })
       host.provide('webRuntime', {})
       host.provide('appExit', () => {})
@@ -148,8 +204,18 @@ try {
   if (mountedSpec?.mode !== 'compatibility') {
     throw new Error(`desktop plugin produced an unexpected shell mode: ${String(mountedSpec?.mode)}`)
   }
-  if (mountedSpec?.url !== 'http://127.0.0.1:43120/?dsh-desktop-mode=compatibility&dsh-desktop-platform=darwin') {
+  const expectedUrl = `http://127.0.0.1:43120/?dsh-desktop-mode=compatibility&dsh-desktop-platform=darwin&dsh-desktop-version=${PRODUCT_VERSION}&dsh-desktop-material=transparent&dsh-desktop-titlebar-inset=36`
+  if (mountedSpec?.url !== expectedUrl) {
     throw new Error(`desktop plugin produced an unexpected renderer URL: ${String(mountedSpec?.url)}`)
+  }
+  const expectedAuthenticationUrl = `http://127.0.0.1:43120/?token=${AUTHENTICATION_TOKEN}`
+  if (mountedSpec?.authenticationUrl !== expectedAuthenticationUrl) {
+    throw new Error(
+      `desktop plugin produced an unexpected authentication URL: ${String(mountedSpec?.authenticationUrl)}`,
+    )
+  }
+  if (mountedSpec?.rendererAccessHeader !== BROWSER_ACCESS.rendererHeader) {
+    throw new Error('desktop plugin did not preserve the launcher browser capability')
   }
 } finally {
   try {

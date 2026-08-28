@@ -5,17 +5,145 @@ import {
   Menu,
   nativeImage,
   nativeTheme,
+  Notification,
+  screen,
   shell,
   Tray,
 } from 'electron'
 import { formatDesktopExitCode } from './desktop-logger.ts'
+import { showDesktopMessageBox } from './desktop-dialog-window.ts'
+import { applicationNeedsReveal, revealApplication } from './electron-reveal.ts'
 import type { ElectronPlatformStrategy } from './electron-platform.ts'
-import type { DesktopShellSpec } from './runtime.ts'
+import type { DesktopNotification, DesktopShellSpec } from './runtime.ts'
 import { prepareTrayIcon } from './tray-icons.ts'
 import { desktopWindowOptions } from './window-options.ts'
+import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
+import {
+  fitMainWindowBounds,
+  sameMainWindowBounds,
+  type MainWindowBounds,
+  type MainWindowStateStore,
+} from './main-window-state.ts'
 
 const MIN_ZOOM_LEVEL = -4
 const MAX_ZOOM_LEVEL = 4
+const WINDOW_STATE_WRITE_DELAY_MS = 250
+
+function pairedWebSocketOrigin(origin: string): string {
+  const url = new URL(origin)
+  if (url.protocol === 'http:') url.protocol = 'ws:'
+  else if (url.protocol === 'https:') url.protocol = 'wss:'
+  else throw new Error(`dsh-plugin-desktop: unsupported renderer origin protocol ${url.protocol}`)
+  return url.origin
+}
+
+/**
+ * Exchange the upstream process token inside the BrowserWindow's own
+ * persistent session before its marker-bearing renderer URL is loaded.
+ * Keeping the exchange separate preserves the Desktop query markers across
+ * the upstream redirect and keeps the launch token out of renderer history.
+ */
+async function authenticateRendererSession(
+  window: BrowserWindow,
+  spec: DesktopShellSpec,
+): Promise<void> {
+  const session = window.webContents.session
+  const headers = {
+    [spec.rendererAccessHeader.name]: spec.rendererAccessHeader.value,
+  }
+  const authenticated = await session.fetch(spec.authenticationUrl, {
+    method: 'GET',
+    credentials: 'include',
+    redirect: 'follow',
+    cache: 'no-store',
+    headers,
+  })
+  if (authenticated.status !== 200) {
+    throw new Error(
+      `dsh-plugin-desktop: browser authentication failed with HTTP ${String(authenticated.status)}`,
+    )
+  }
+  await authenticated.body?.cancel()
+}
+
+function sameRendererCarrierOrigin(requestUrl: string, httpOrigin: string, webSocketOrigin: string): boolean {
+  try {
+    const origin = new URL(requestUrl).origin
+    return origin === httpOrigin || origin === webSocketOrigin
+  } catch {
+    return false
+  }
+}
+
+function withoutRendererAccessHeader(
+  requestHeaders: Record<string, string>,
+  headerName: string,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(requestHeaders)
+      .filter(([name]) => name.toLowerCase() !== headerName),
+  )
+}
+
+function requestBelongsToRenderer(
+  details: Electron.OnBeforeSendHeadersListenerDetails,
+  webContentsId: number,
+): boolean {
+  const providedIds = [details.webContentsId, details.webContents?.id]
+    .filter((value): value is number => value !== undefined)
+  return providedIds.length > 0 && providedIds.every(value => value === webContentsId)
+}
+
+function requestComesFromRendererOrigin(
+  details: Electron.OnBeforeSendHeadersListenerDetails,
+  origin: string,
+): boolean {
+  if (details.resourceType === 'mainFrame') return true
+  const frame = details.frame
+  if (frame === undefined || frame === null || frame.detached || frame.origin !== origin) return false
+  const top = frame.top ?? (frame.parent === null ? frame : undefined)
+  return top !== undefined && !top.detached && top.origin === origin
+}
+
+/**
+ * Attach one generation-only capability to the renderer's HTTP and WebSocket
+ * traffic. Query markers are intentionally insufficient because subresources,
+ * API requests, and upgrades do not retain the main-frame query string.
+ */
+function installRendererAccessHeader(
+  window: BrowserWindow,
+  origin: string,
+  header: DesktopRendererAccessHeader,
+): () => void {
+  const webSocketOrigin = pairedWebSocketOrigin(origin)
+  const webRequest = window.webContents.session.webRequest
+  const webContentsId = window.webContents.id
+  const listener = (
+    details: Electron.OnBeforeSendHeadersListenerDetails,
+    callback: (response: Electron.BeforeSendResponse) => void,
+  ): void => {
+    // This listener owns a dedicated renderer session and sees every target so
+    // a redirect can never carry the capability away from the local carrier.
+    const requestHeaders = withoutRendererAccessHeader(details.requestHeaders, header.name)
+    if (!requestBelongsToRenderer(details, webContentsId)
+      || !sameRendererCarrierOrigin(details.url, origin, webSocketOrigin)
+      || !requestComesFromRendererOrigin(details, origin)) {
+      callback({ requestHeaders })
+      return
+    }
+    requestHeaders[header.name] = header.value
+    callback({ requestHeaders })
+  }
+  webRequest.onBeforeSendHeaders({
+    urls: ['<all_urls>'],
+  }, listener)
+  let active = true
+  return () => {
+    if (!active) return
+    active = false
+    webRequest.onBeforeSendHeaders(null)
+  }
+}
 
 function clampedZoomLevel(level: number): number {
   return Math.min(MAX_ZOOM_LEVEL, Math.max(MIN_ZOOM_LEVEL, level))
@@ -33,11 +161,14 @@ export interface ElectronShellGenerationOptions {
   readonly platform: ElectronPlatformStrategy
   readonly spec: DesktopShellSpec
   readonly preloadPath: string
+  readonly buildApplicationMenuItems: () => readonly Electron.MenuItemConstructorOptions[]
   readonly isQuitting: () => boolean
   readonly buildTrayTemplate: () => Electron.MenuItemConstructorOptions[]
   readonly stopRendererBootMonitoring: () => void
+  readonly abortRendererBootMonitoring: (cause: unknown) => void
   readonly failRendererBoot: (error: string) => void
   readonly logError: (message: string) => void
+  readonly mainWindowState: MainWindowStateStore
 }
 
 /** Own one BrowserWindow and Tray generation, including every native listener. */
@@ -46,6 +177,10 @@ export class ElectronShellGeneration {
   private tray: Tray | undefined
   private mounted = false
   private released = false
+  private attentionCount = 0
+  private prepareFullscreenReveal: (() => void) | undefined
+  private refreshNativeMaterial: (() => void) | undefined
+  private flushWindowState: (() => void) | undefined
   private cleanupListeners: (() => void) | undefined
 
   constructor(private readonly options: ElectronShellGenerationOptions) {}
@@ -60,18 +195,131 @@ export class ElectronShellGeneration {
     if (icon.isEmpty()) {
       throw new Error(`dsh-plugin-desktop: failed to load application icon ${spec.iconPath}`)
     }
-    platform.configureApplication(icon)
+    platform.configureApplication(icon, spec.productName, this.options.buildApplicationMenuItems())
     const origin = new URL(spec.url).origin
-    if (spec.mode === 'advanced') nativeTheme.themeSource = spec.readThemeSource()
-    const window = new BrowserWindow(desktopWindowOptions(spec, icon, platform.platform, this.options.preloadPath))
+    if (platform.platform !== 'linux') nativeTheme.themeSource = spec.readThemeSource()
+    let persistedBounds: MainWindowBounds | undefined
+    let restoredBounds: MainWindowBounds | undefined
+    try {
+      persistedBounds = this.options.mainWindowState.read()
+      if (persistedBounds !== undefined) {
+        const display = screen.getDisplayMatching(persistedBounds)
+        restoredBounds = fitMainWindowBounds(persistedBounds, display.workArea, {
+          width: spec.minWidth,
+          height: spec.minHeight,
+        })
+      }
+    } catch (cause) {
+      this.options.logError(`dsh-plugin-desktop: failed to restore main-window state: ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
+    const window = new BrowserWindow({
+      ...desktopWindowOptions(spec, icon, platform.platform, this.options.preloadPath),
+      ...(restoredBounds ?? {}),
+    })
     window.accessibleTitle = spec.windowTitle
     platform.configureWindow(window)
+    const refreshNativeMaterial = (): void => {
+      platform.refreshThemeMaterial(window, spec.material)
+    }
+    this.refreshNativeMaterial = refreshNativeMaterial
+    refreshNativeMaterial()
     this.window = window
 
+    let stateWriteTimer: ReturnType<typeof setTimeout> | undefined
+    const persistWindowState = (): void => {
+      if (stateWriteTimer !== undefined) {
+        clearTimeout(stateWriteTimer)
+        stateWriteTimer = undefined
+      }
+      if (window.isDestroyed()) return
+      const bounds = window.getNormalBounds()
+      if (persistedBounds !== undefined && sameMainWindowBounds(bounds, persistedBounds)) return
+      try {
+        this.options.mainWindowState.write(bounds)
+        persistedBounds = { ...bounds }
+      } catch (cause) {
+        this.options.logError(`dsh-plugin-desktop: failed to save main-window state: ${cause instanceof Error ? cause.message : String(cause)}`)
+      }
+    }
+    const scheduleWindowStateWrite = (): void => {
+      if (stateWriteTimer !== undefined) clearTimeout(stateWriteTimer)
+      stateWriteTimer = setTimeout(persistWindowState, WINDOW_STATE_WRITE_DELAY_MS)
+      stateWriteTimer.unref()
+    }
+    this.flushWindowState = persistWindowState
+
     const show = (): void => { this.show() }
+    let startupSurfaceRevealed = false
+    const revealStartupSurface = (): void => {
+      if (window.isDestroyed()) return
+      if (startupSurfaceRevealed && !applicationNeedsReveal(window, platform.platform)) return
+      startupSurfaceRevealed = true
+      this.show()
+    }
+    const activate = (): void => {
+      if (applicationNeedsReveal(window, platform.platform)) this.show()
+    }
+    const clearAttention = (): void => { this.clearAttention() }
+    let fullscreenExitPending = false
+    let hideAfterFullscreenExit = false
+    let restoreAfterFullscreenExit = false
+    let restoreFullscreenOnShow = false
+    const finishFullscreenExit = (): void => {
+      if (!fullscreenExitPending) return
+      fullscreenExitPending = false
+      const shouldHide = hideAfterFullscreenExit
+      const shouldRestore = restoreAfterFullscreenExit
+      hideAfterFullscreenExit = false
+      restoreAfterFullscreenExit = false
+      if (window.isDestroyed()) return
+      if (shouldHide) {
+        window.hide()
+        return
+      }
+      if (shouldRestore) {
+        restoreFullscreenOnShow = false
+        window.setFullScreen(true)
+      }
+    }
+    const prepareFullscreenReveal = (): void => {
+      if (!restoreFullscreenOnShow || window.isDestroyed()) return
+      if (fullscreenExitPending) {
+        hideAfterFullscreenExit = false
+        restoreAfterFullscreenExit = true
+        return
+      }
+      if (window.isFullScreen()) {
+        restoreFullscreenOnShow = false
+        return
+      }
+      restoreFullscreenOnShow = false
+      window.setFullScreen(true)
+    }
+    const cleanupFullscreenTransition = (): void => {
+      if (fullscreenExitPending) window.off('leave-full-screen', finishFullscreenExit)
+      fullscreenExitPending = false
+      hideAfterFullscreenExit = false
+      restoreAfterFullscreenExit = false
+      restoreFullscreenOnShow = false
+    }
+    this.prepareFullscreenReveal = prepareFullscreenReveal
     const close = (event: Electron.Event): void => {
+      persistWindowState()
       if (this.options.isQuitting()) return
       event.preventDefault()
+      if (platform.platform === 'darwin' && fullscreenExitPending) {
+        hideAfterFullscreenExit = true
+        restoreAfterFullscreenExit = false
+        return
+      }
+      if (platform.platform === 'darwin' && window.isFullScreen()) {
+        fullscreenExitPending = true
+        hideAfterFullscreenExit = true
+        restoreFullscreenOnShow = true
+        window.once('leave-full-screen', finishFullscreenExit)
+        window.setFullScreen(false)
+        return
+      }
       window.hide()
     }
     const preserveBlankTitle = (event: Electron.Event): void => { event.preventDefault() }
@@ -131,8 +379,12 @@ export class ElectronShellGeneration {
       }
     }
 
-    app.on('activate', show)
+    app.on('activate', activate)
+    if (platform.platform === 'darwin') app.on('did-become-active', activate)
     window.on('close', close)
+    window.on('focus', clearAttention)
+    window.on('move', scheduleWindowStateWrite)
+    window.on('resize', scheduleWindowStateWrite)
     window.on('page-title-updated', preserveBlankTitle)
     window.webContents.on('before-input-event', handleZoomShortcut)
     window.webContents.on('will-frame-navigate', navigate)
@@ -152,22 +404,41 @@ export class ElectronShellGeneration {
       }
       return { action: 'deny' }
     })
-    window.once('ready-to-show', show)
+    window.once('ready-to-show', revealStartupSurface)
     let tray: Tray | undefined
+    let removeRendererAccessHeader: (() => void) | undefined
     this.cleanupListeners = () => {
-      app.off('activate', show)
+      app.off('activate', activate)
+      if (platform.platform === 'darwin') app.off('did-become-active', activate)
       window.off('close', close)
+      window.off('focus', clearAttention)
+      window.off('move', scheduleWindowStateWrite)
+      window.off('resize', scheduleWindowStateWrite)
       window.off('page-title-updated', preserveBlankTitle)
-      window.off('ready-to-show', show)
+      window.off('ready-to-show', revealStartupSurface)
+      cleanupFullscreenTransition()
       window.webContents.off('before-input-event', handleZoomShortcut)
       window.webContents.off('will-frame-navigate', navigate)
       window.webContents.off('will-redirect', redirect)
       window.webContents.off('render-process-gone', rendererGone)
       window.webContents.off('did-fail-load', loadFailed)
+      removeRendererAccessHeader?.()
+      removeRendererAccessHeader = undefined
       tray?.off('click', show)
+      if (stateWriteTimer !== undefined) {
+        clearTimeout(stateWriteTimer)
+        stateWriteTimer = undefined
+      }
     }
 
     try {
+      await authenticateRendererSession(window, spec)
+      removeRendererAccessHeader = installRendererAccessHeader(
+        window,
+        origin,
+        spec.rendererAccessHeader,
+      )
+      revealStartupSurface()
       await window.loadURL(spec.url)
       tray = new Tray(prepareTrayIcon(spec.trayIcons, platform.platform))
       this.tray = tray
@@ -177,6 +448,7 @@ export class ElectronShellGeneration {
       beforeInteractive?.()
       this.mounted = true
     } catch (cause) {
+      this.options.abortRendererBootMonitoring(cause)
       await this.release()
       throw cause
     }
@@ -185,9 +457,42 @@ export class ElectronShellGeneration {
   show(): void {
     const window = this.window
     if (window === undefined || window.isDestroyed()) return
-    if (window.isMinimized()) window.restore()
-    window.show()
-    window.focus()
+    this.clearAttention()
+    revealApplication(window, this.options.platform.platform)
+    this.prepareFullscreenReveal?.()
+  }
+
+  /** Reload the active renderer without permitting arbitrary renderer commands. */
+  reloadRenderer(): void {
+    const window = this.window
+    if (window === undefined || window.isDestroyed()) {
+      throw new Error('dsh-plugin-desktop: renderer reload requires a mounted window')
+    }
+    window.webContents.reloadIgnoringCache()
+  }
+
+  /** Toggle Developer Tools for the active renderer. */
+  toggleDeveloperTools(): void {
+    const window = this.window
+    if (window === undefined || window.isDestroyed()) {
+      throw new Error('dsh-plugin-desktop: Developer Tools require a mounted window')
+    }
+    if (window.webContents.isDevToolsOpened()) window.webContents.closeDevTools()
+    else window.webContents.openDevTools({ mode: 'detach', activate: true })
+  }
+
+  notifyAttention(notification: DesktopNotification): void {
+    const window = this.window
+    if (window === undefined || window.isDestroyed() || window.isFocused()) return
+
+    this.attentionCount += 1
+    if (this.options.platform.platform === 'win32') window.flashFrame(true)
+    else app.setBadgeCount(this.attentionCount)
+
+    if (!Notification.isSupported()) return
+    const nativeNotification = new Notification(notification)
+    nativeNotification.once('click', () => { this.show() })
+    nativeNotification.show()
   }
 
   async showOpenDialog(options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> {
@@ -197,13 +502,27 @@ export class ElectronShellGeneration {
       : await dialog.showOpenDialog(window, options)
   }
 
+  async showMessageBox(options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> {
+    const window = this.window
+    return window === undefined || window.isDestroyed()
+      ? await showDesktopMessageBox(options)
+      : await showDesktopMessageBox(options, window)
+  }
+
+  async showSaveDialog(options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue> {
+    const window = this.window
+    return window === undefined || window.isDestroyed()
+      ? await dialog.showSaveDialog(options)
+      : await dialog.showSaveDialog(window, options)
+  }
+
   refreshTrayMenu(): void {
     if (this.tray === undefined) return
     this.tray.setContextMenu(Menu.buildFromTemplate(this.options.buildTrayTemplate()))
   }
 
   refreshThemeMaterial(): void {
-    if (this.window !== undefined && !this.window.isDestroyed()) this.options.platform.refreshThemeMaterial(this.window)
+    if (this.window !== undefined && !this.window.isDestroyed()) this.refreshNativeMaterial?.()
   }
 
   async release(): Promise<void> {
@@ -213,13 +532,29 @@ export class ElectronShellGeneration {
 
     const window = this.window
     const tray = this.tray
+    this.clearAttention()
+    this.flushWindowState?.()
     this.window = undefined
     this.tray = undefined
+    this.prepareFullscreenReveal = undefined
+    this.refreshNativeMaterial = undefined
+    this.flushWindowState = undefined
     if (window === undefined) return
 
     this.cleanupListeners?.()
     this.cleanupListeners = undefined
     tray?.destroy()
     if (!window.isDestroyed()) window.destroy()
+  }
+
+  private clearAttention(): void {
+    if (this.attentionCount === 0) return
+    this.attentionCount = 0
+    if (this.options.platform.platform === 'win32') {
+      const window = this.window
+      if (window !== undefined && !window.isDestroyed()) window.flashFrame(false)
+    } else {
+      app.setBadgeCount(0)
+    }
   }
 }

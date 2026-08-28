@@ -54,6 +54,8 @@ export interface MarketManualInstallHint {
 export interface MarketCatalogSourceResult {
   readonly source: MarketSourceView
   readonly snapshot?: CatalogSnapshot
+  /** Complete provider categories when a reviewed paginated adapter exposes them. */
+  readonly categories?: readonly string[]
   readonly error?: string
   readonly stale: boolean
 }
@@ -68,6 +70,12 @@ export interface MarketCatalogResponse {
   readonly metadata?: MarketCatalogMetadata
   readonly fetchedAt: string
 }
+
+/** Bounded catalog failure identity returned by the Host without upstream details. */
+export type MarketCatalogErrorCode =
+  | 'catalog-timeout'
+  | 'catalog-invalid-response'
+  | 'catalog-unavailable'
 
 export interface MarketCatalogMetadata {
   readonly scannedAt: string
@@ -87,52 +95,13 @@ export type MarketSourceMutation =
   | { readonly action: 'move'; readonly sourceRecordId: string; readonly direction: 'up' | 'down' }
   | { readonly action: 'remove'; readonly sourceRecordId: string }
 
-/** Durable proof that the Market installed one exact npm package into one profile. */
-export interface MarketInstallReceipt {
-  readonly receiptId: string
-  readonly profileName: string
-  readonly packageName: string
-  readonly version: string
-  readonly integrity: string
-  readonly bundlePatch: string
-  readonly sourceRecordId: string
-  readonly providerId: string
-  readonly itemId: string
-  readonly displayName: string
-  readonly installedAt: string
-}
-
 export type MarketInstallationView =
   | {
-      readonly kind: 'managed'
+      readonly kind: 'profile'
       readonly status: 'active' | 'disabled'
-      readonly action: 'uninstall'
-      /** An active mutable bundle can be disabled without surrendering uninstall ownership. */
-      readonly disableBundleId?: string
-      /** A disabled mutable bundle can be enabled without surrendering uninstall ownership. */
-      readonly enableBundleId?: string
-      readonly receipt: MarketInstallReceipt
-    }
-  | {
-      readonly kind: 'external'
-      readonly status: 'active'
-      readonly action: 'disable'
-      /** Generation-scoped Host capability; never a path or package argument. */
+      readonly action: 'uninstall' | 'none'
+      /** Generation-scoped Host identity resolved from the active Profile inventory. */
       readonly bundleId: string
-      readonly packageName: string
-    }
-  | {
-      readonly kind: 'external'
-      readonly status: 'disabled'
-      readonly action: 'enable'
-      /** Generation-scoped Host capability; never a path or package argument. */
-      readonly bundleId: string
-      readonly packageName: string
-    }
-  | {
-      readonly kind: 'immutable'
-      readonly status: 'active' | 'disabled'
-      readonly action: 'none'
       readonly packageName: string
     }
 
@@ -141,12 +110,15 @@ export interface MarketInstallationsResponse {
   readonly installations: readonly MarketInstallationView[]
 }
 
-/** Complete Host-derived structural subset; local install state never changes catalog membership. */
+/** One Host-filtered provider page; local install state never changes catalog membership. */
 export interface MarketInstallableResponse {
   readonly source: MarketSourceView
   readonly items: CatalogSnapshot['items']
+  readonly categories: readonly string[]
   readonly manualInstall: readonly MarketManualInstallHint[]
-  readonly metadata: MarketCatalogMetadata
+  readonly nextCursor?: string
+  readonly metadata?: MarketCatalogMetadata
+  readonly fetchedAt: string
 }
 
 /** Renderer input for the non-mutating verification stage. */
@@ -158,22 +130,13 @@ export type MarketOperationPreviewRequest =
     }
   | {
       readonly action: 'uninstall'
-      readonly receiptId: string
-    }
-  | {
-      readonly action: 'disable'
-      /** Opaque exact target obtained from the current Host inventory. */
-      readonly bundleId: string
-    }
-  | {
-      readonly action: 'enable'
-      /** Opaque exact target obtained from the current Host inventory. */
+      /** Opaque exact target obtained from the current Profile inventory. */
       readonly bundleId: string
     }
 
 /** Host-verified facts shown before the user confirms a package mutation. */
 export interface MarketOperationPreviewResponse {
-  readonly action: 'install' | 'uninstall' | 'disable' | 'enable'
+  readonly action: 'install' | 'uninstall'
   readonly profileName: string
   readonly packageName: string
   readonly version?: string
@@ -185,22 +148,12 @@ export interface MarketOperationPreviewResponse {
 export type MarketOperationExecuteResponse =
   | {
       readonly action: 'install'
-      readonly receipt: MarketInstallReceipt
+      readonly packageName: string
+      readonly version: string
       readonly restartToken: string
     }
   | {
       readonly action: 'uninstall'
-      readonly receiptId: string
-      readonly packageName: string
-      readonly restartToken: string
-    }
-  | {
-      readonly action: 'disable'
-      readonly packageName: string
-      readonly restartToken: string
-    }
-  | {
-      readonly action: 'enable'
       readonly packageName: string
       readonly restartToken: string
     }

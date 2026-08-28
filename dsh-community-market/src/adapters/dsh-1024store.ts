@@ -5,10 +5,15 @@ import { parseCatalogSnapshot } from '../contracts/validate.js'
 import { normalizeRepositoryIdentity } from '../contracts/identity.js'
 
 export const DSH_1024STORE_KEY = 'dsh-1024store'
-export const DSH_1024STORE_ENDPOINT = 'https://deepseek1024.com/api/v1/plugins'
+export const DSH_1024STORE_ENDPOINT = 'https://deepseek1024.com/api/v2/plugins'
 export const DSH_1024STORE_HOSTNAME = 'deepseek1024.com'
 export const DSH_1024STORE_PROVIDER_ID = 'com.deepseek1024.catalog'
-export const DSH_1024STORE_ADAPTER_ID = 'market.dsh-1024store-v1'
+export const DSH_1024STORE_ADAPTER_ID = 'market.dsh-1024store-v2'
+export const DSH_1024STORE_LEGACY_ADAPTER_ID = 'market.dsh-1024store-v1'
+
+export function isDsh1024StoreAdapterId(value: string | undefined): boolean {
+  return value === DSH_1024STORE_ADAPTER_ID || value === DSH_1024STORE_LEGACY_ADAPTER_ID
+}
 
 export interface Dsh1024StoreRawItem {
   readonly id?: unknown
@@ -21,29 +26,25 @@ export interface Dsh1024StoreRawItem {
   readonly added?: unknown
   readonly stars?: unknown
   readonly installCount?: unknown
-  readonly installMethods?: unknown
+  readonly install?: unknown
   readonly media?: unknown
 }
 
-interface Dsh1024StoreInstallMethod {
-  readonly kind?: unknown
-  readonly spec?: unknown
-  readonly command?: unknown
-  readonly verification?: unknown
-  readonly code?: unknown
-  readonly requiresBuildAllowance?: unknown
-  readonly revision?: unknown
-}
-
-interface Dsh1024StoreMeta {
-  readonly updated?: unknown
+interface Dsh1024StoreV2Page {
+  readonly plugins?: unknown
+  readonly page?: unknown
+  readonly limit?: unknown
+  readonly total?: unknown
+  readonly totalPages?: unknown
+  readonly catalogTotal?: unknown
+  readonly categories?: unknown
   readonly generatedAt?: unknown
-  readonly revision?: unknown
+  readonly source?: unknown
 }
 
-interface Dsh1024StoreCatalog {
-  readonly packages?: unknown
-  readonly meta?: unknown
+interface Dsh1024StoreCategory {
+  readonly id?: unknown
+  readonly count?: unknown
 }
 
 interface RegistryCandidate {
@@ -61,10 +62,34 @@ interface MediaCandidate {
   readonly allowedHostnames: readonly string[]
 }
 
+interface ProviderPage {
+  readonly records: readonly unknown[]
+  readonly page: number
+  readonly limit: number
+  readonly total: number
+  readonly totalPages: number
+  readonly catalogTotal: number
+  readonly categories: readonly string[]
+  readonly generatedAt: string
+}
+
+interface ProviderPageRead {
+  readonly page: ProviderPage
+  readonly finalUrl: string
+}
+
+const DSH_1024STORE_ORIGIN = new URL(DSH_1024STORE_ENDPOINT).origin
 const GITHUB_OWNER_PATTERN = /^[a-z0-9][a-z0-9-]{0,99}$/iu
 const GITHUB_REPOSITORY_PATTERN = /^[a-z0-9._-]{1,100}$/iu
 const NPM_PACKAGE_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
-const STABLE_SEMVER_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u
+const PROFILE_PATTERN = /^[A-Za-z0-9_-]+$/u
+const COMMAND_TOKEN_PATTERN = /^[A-Za-z0-9@:/._#+=-]+$/u
+const CATEGORY_PATTERN = /^[a-z0-9][a-z0-9._:-]*$/u
+const ITEM_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/u
+const BROWSE_PAGE_SIZE = 200
+const MAX_PROVIDER_PAGE_SIZE = 200
+const MAX_PROVIDER_ITEMS = 100_000
+const MAX_PROVIDER_PAGES = MAX_PROVIDER_ITEMS
 
 function plainText(value: unknown, max: number, fallback: string): string {
   if (typeof value !== 'string' || value.length === 0 || value.length > max
@@ -72,30 +97,63 @@ function plainText(value: unknown, max: number, fallback: string): string {
   return value
 }
 
-/**
- * Convert only one provider-reviewed npm target into non-executable catalog
- * identity. The Host still revalidates the exact version against the npm
- * registry before it can create an install intent.
- */
-function reviewedNpmTarget(item: Dsh1024StoreRawItem): { name: string; version: string } | undefined {
-  if (!Array.isArray(item.installMethods)) return undefined
-  const targets = new Map<string, { name: string; version: string }>()
-  for (const value of item.installMethods) {
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) continue
-    const method = value as Dsh1024StoreInstallMethod
-    if (
-      method.kind !== 'npm'
-      || method.verification !== 'verified'
-      || method.code !== 'repository_backlink'
-      || method.requiresBuildAllowance !== false
-      || typeof method.spec !== 'string'
-      || typeof method.revision !== 'string'
-      || !NPM_PACKAGE_PATTERN.test(method.spec)
-      || !STABLE_SEMVER_PATTERN.test(method.revision)
-    ) continue
-    targets.set(`${method.spec}@${method.revision}`, { name: method.spec, version: method.revision })
+function safeInteger(value: unknown, label: string, minimum: number, maximum: number): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`1024Store ${label} is invalid`)
   }
-  return targets.size === 1 ? targets.values().next().value : undefined
+  return value
+}
+
+function dateTime(value: unknown, label: string): string {
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
+    throw new Error(`1024Store ${label} is invalid`)
+  }
+  return new Date(value).toISOString()
+}
+
+/**
+ * Extract only the npm package identity from the provider's displayed v2
+ * command. The command itself is never retained or executed. Version tags are
+ * deliberately discarded because npm `latest` remains Desktop's install
+ * authority during preview.
+ */
+function reviewedNpmTarget(item: Dsh1024StoreRawItem): { name: string } | undefined {
+  if (typeof item.install !== 'string' || item.install.length > 1024) return undefined
+  const tokens = item.install.trim().split(/\s+/u)
+  if (
+    tokens.length !== 6
+    || tokens[0] !== 'dsh'
+    || tokens[1] !== 'plugin'
+    || tokens[2] !== '--profile'
+    || !PROFILE_PATTERN.test(tokens[3]!)
+    || tokens[4] !== 'add'
+    || !tokens.every(token => COMMAND_TOKEN_PATTERN.test(token))
+  ) return undefined
+
+  const target = tokens[5]!
+  const versionSeparator = target.startsWith('@')
+    ? target.indexOf('@', target.indexOf('/') + 1)
+    : target.indexOf('@')
+  const name = versionSeparator < 0 ? target : target.slice(0, versionSeparator)
+  return NPM_PACKAGE_PATTERN.test(name) ? { name } : undefined
+}
+
+function providerSort(sort: CatalogQuery['sort']): string | undefined {
+  if (sort === 'name') return 'name'
+  if (sort === 'updated') return 'active'
+  if (sort === 'downloads') return 'installs'
+  return undefined
+}
+
+function providerEndpoint(query: CatalogQuery, page: number, limit: number, category?: string): string {
+  const url = new URL(DSH_1024STORE_ENDPOINT)
+  url.searchParams.set('page', String(page))
+  url.searchParams.set('limit', String(limit))
+  if (query.q !== undefined) url.searchParams.set('q', query.q)
+  if (category !== undefined) url.searchParams.set('category', category)
+  const sort = providerSort(query.sort)
+  if (sort !== undefined) url.searchParams.set('sort', sort)
+  return url.href
 }
 
 function repositoryFromItem(item: Dsh1024StoreRawItem): { url: string; subdirectory?: string } | undefined {
@@ -120,8 +178,6 @@ function repositoryFromItem(item: Dsh1024StoreRawItem): { url: string; subdirect
       && parts[0]!.toLowerCase() === owner.toLowerCase()
       && parts[1]!.replace(/\.git$/iu, '').toLowerCase() === repository.toLowerCase()
     return normalizeRepositoryIdentity({
-      // The provider item ID is source-local identity, not repository identity.
-      // Repository renames and transfers make the canonical URL authoritative.
       url: `https://github.com/${owner}/${repository}`,
       ...(idMatchesRepository && parts.length > 2 ? { subdirectory: parts.slice(2).join('/') } : {}),
     })
@@ -166,10 +222,7 @@ function explicitIcon(item: Dsh1024StoreRawItem): Omit<MediaCandidate, 'role'> |
   }
 }
 
-function mediaCandidates(
-  item: Dsh1024StoreRawItem,
-  repositoryUrl: string,
-): readonly MediaCandidate[] {
+function mediaCandidates(item: Dsh1024StoreRawItem, repositoryUrl: string): readonly MediaCandidate[] {
   const explicit = explicitIcon(item)
   const owner = githubOwner(repositoryUrl)
   return [
@@ -211,14 +264,14 @@ function normalizedItem(
   try {
     if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return undefined
     const item = entry as Dsh1024StoreRawItem
-    const id = plainText(item.id, 160, '')
+    const id = plainText(item.id, 201, '')
     const name = plainText(item.name, 120, '')
-    if (!id || !name || !/^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/u.test(id)) return undefined
+    if (!id || !name || !ITEM_ID_PATTERN.test(id)) return undefined
     const repository = repositoryFromItem(item)
     if (repository === undefined) return undefined
     const descriptionValue = item.description
-    const description = descriptionValue !== null && typeof descriptionValue === 'object'
-      ? (descriptionValue as Record<string, unknown>)
+    const description = descriptionValue !== null && typeof descriptionValue === 'object' && !Array.isArray(descriptionValue)
+      ? descriptionValue as Record<string, unknown>
       : {}
     const prefersChinese = locale?.toLowerCase().startsWith('zh') ?? false
     const summary = plainText(
@@ -226,7 +279,7 @@ function normalizedItem(
       1000,
       name,
     )
-    const category = typeof item.category === 'string' && /^[a-z0-9][a-z0-9._:-]*$/u.test(item.category)
+    const category = typeof item.category === 'string' && CATEGORY_PATTERN.test(item.category)
       ? item.category
       : undefined
     const repositoryOwner = githubOwner(repository.url)
@@ -249,10 +302,7 @@ function normalizedItem(
       ...(descriptionValue === undefined ? {} : { description: summary }),
       ...(category === undefined ? {} : { categories: [category] }),
       repository,
-      ...(npmTarget === undefined ? {} : {
-        latestVersion: npmTarget.version,
-        package: { registry: 'npm' as const, name: npmTarget.name },
-      }),
+      ...(npmTarget === undefined ? {} : { package: { registry: 'npm' as const, name: npmTarget.name } }),
       ...(owner === undefined ? {} : { publisher: { name: owner, url: `https://github.com/${owner}` } }),
       ...(pushedAt === undefined ? {} : { updatedAt: pushedAt }),
       provenance: {
@@ -273,6 +323,96 @@ function normalizedItem(
   }
 }
 
+function categoryIds(value: unknown, catalogTotal: number): readonly string[] {
+  if (!Array.isArray(value) || value.length > 100) throw new Error('1024Store categories are invalid')
+  const ids: string[] = []
+  const seen = new Set<string>()
+  let count = 0
+  for (const entry of value) {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('1024Store category is invalid')
+    }
+    const category = entry as Dsh1024StoreCategory
+    if (typeof category.id !== 'string' || !CATEGORY_PATTERN.test(category.id) || seen.has(category.id)) {
+      throw new Error('1024Store category is invalid')
+    }
+    const categoryCount = safeInteger(category.count, 'category count', 0, MAX_PROVIDER_ITEMS)
+    seen.add(category.id)
+    ids.push(category.id)
+    count += categoryCount
+  }
+  if (count !== catalogTotal) throw new Error('1024Store category counts are inconsistent')
+  return ids
+}
+
+function parseProviderPage(value: unknown, requestedPage: number, requestedLimit: number): ProviderPage {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('1024Store response is not an object')
+  }
+  const raw = value as Dsh1024StoreV2Page
+  if (!Array.isArray(raw.plugins)) throw new Error('1024Store plugins page is invalid')
+  const limit = safeInteger(raw.limit, 'page limit', 1, MAX_PROVIDER_PAGE_SIZE)
+  if (limit !== requestedLimit) throw new Error('1024Store changed the requested page limit')
+  const total = safeInteger(raw.total, 'query total', 0, MAX_PROVIDER_ITEMS)
+  const catalogTotal = safeInteger(raw.catalogTotal, 'catalog total', 0, MAX_PROVIDER_ITEMS)
+  if (total > catalogTotal) throw new Error('1024Store query total exceeds the catalog total')
+  const totalPages = safeInteger(raw.totalPages, 'page count', 1, MAX_PROVIDER_PAGES)
+  const expectedPages = Math.max(1, Math.ceil(total / limit))
+  if (totalPages !== expectedPages) throw new Error('1024Store page count is inconsistent')
+  const page = safeInteger(raw.page, 'page number', 1, totalPages)
+  if (page !== Math.min(requestedPage, totalPages)) throw new Error('1024Store returned an unexpected page')
+  const expectedRecords = total === 0 ? 0 : Math.min(limit, total - (page - 1) * limit)
+  if (raw.plugins.length !== expectedRecords) throw new Error('1024Store page length is inconsistent')
+  const generatedAt = dateTime(raw.generatedAt, 'generation time')
+  if (!plainText(raw.source, 80, '')) throw new Error('1024Store source status is invalid')
+  return {
+    records: raw.plugins,
+    page,
+    limit,
+    total,
+    totalPages,
+    catalogTotal,
+    categories: categoryIds(raw.categories, catalogTotal),
+    generatedAt,
+  }
+}
+
+function assertFinalUrl(value: string): string {
+  let url: URL
+  try { url = new URL(value) }
+  catch { throw new Error('1024Store final URL is invalid') }
+  if (url.origin !== DSH_1024STORE_ORIGIN) {
+    throw new Error('1024Store response changed the reviewed provider origin')
+  }
+  return url.href
+}
+
+async function readProviderPage(
+  query: CatalogQuery,
+  page: number,
+  limit: number,
+  context: CatalogFetchContext,
+  category?: string,
+): Promise<ProviderPageRead> {
+  context.signal.throwIfAborted()
+  const response = await context.http.getJson(
+    providerEndpoint(query, page, limit, category),
+    context.signal,
+    { allowedOrigin: DSH_1024STORE_ORIGIN },
+  )
+  context.signal.throwIfAborted()
+  return {
+    page: parseProviderPage(response.value, page, limit),
+    finalUrl: assertFinalUrl(response.finalUrl),
+  }
+}
+
+function sameDataset(reference: ProviderPage, page: ProviderPage): boolean {
+  return reference.generatedAt === page.generatedAt
+    && reference.catalogTotal === page.catalogTotal
+    && reference.categories.join('\0') === page.categories.join('\0')
+}
+
 function compareCandidates(left: RegistryCandidate, right: RegistryCandidate, query: CatalogQuery): number {
   if (query.sort === 'name') return left.item.displayName.localeCompare(right.item.displayName, 'en', { sensitivity: 'base' })
   if (query.sort === 'updated') return right.updatedAt - left.updatedAt || right.stars - left.stars
@@ -280,179 +420,139 @@ function compareCandidates(left: RegistryCandidate, right: RegistryCandidate, qu
   return right.stars - left.stars || left.item.displayName.localeCompare(right.item.displayName, 'en', { sensitivity: 'base' })
 }
 
-function buildSnapshot(value: unknown, context: CatalogFetchContext, finalUrl: string, query: CatalogQuery): CatalogSnapshot {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('1024Store response is not an object')
-  const raw = value as Dsh1024StoreCatalog
-  if (!Array.isArray(raw.packages) || raw.packages.length > 10_000) throw new Error('1024Store catalog is invalid')
-  if (query.cursor !== undefined && !/^\d+$/u.test(query.cursor)) throw new Error('1024Store cursor is invalid')
-  const requestedCategories = new Set(query.category ?? [])
-  const search = query.q?.toLocaleLowerCase('en-US')
-  const candidates = raw.packages
-    .map(entry => normalizedItem(entry, context, query.locale))
-    .filter((candidate): candidate is RegistryCandidate => candidate !== undefined)
-    .filter(candidate => requestedCategories.size === 0
-      || candidate.item.categories?.some(category => requestedCategories.has(category)) === true)
-    .filter(() => query.capability === undefined || query.capability.length === 0)
-    .filter(candidate => search === undefined || [
-      candidate.item.id,
-      candidate.item.displayName,
-      candidate.item.publisher?.name ?? '',
-      candidate.item.summary,
-    ].some(value => value.toLocaleLowerCase('en-US').includes(search)))
-    .sort((left, right) => compareCandidates(left, right, query))
-  const offset = Number(query.cursor ?? 0)
-  if (!Number.isSafeInteger(offset) || offset < 0 || offset > candidates.length) throw new Error('1024Store cursor is invalid')
-  const limit = Math.min(query.limit ?? 50, 50)
-  const end = Math.min(offset + limit, candidates.length)
-  const meta = raw.meta !== null && typeof raw.meta === 'object' && !Array.isArray(raw.meta)
-    ? raw.meta as Dsh1024StoreMeta
-    : {}
-  const generatedAt = typeof meta.generatedAt === 'string' ? meta.generatedAt : meta.updated
-  const providerGeneratedAt = typeof generatedAt === 'string' && !Number.isNaN(Date.parse(generatedAt))
-    ? new Date(generatedAt).toISOString()
-    : undefined
-  const providerRevision = plainText(meta.revision, 160, '') || undefined
+function snapshotSource(context: CatalogFetchContext, page: ProviderPage, finalUrl: string, fetchedAt: string) {
+  return {
+    sourceRecordId: context.source.sourceRecordId,
+    providerId: context.source.providerId,
+    adapterId: context.source.adapterId,
+    registrationKind: context.source.registrationKind,
+    fetchedAt,
+    finalUrl,
+    providerGeneratedAt: page.generatedAt,
+    providerRevision: page.generatedAt,
+  }
+}
+
+function resolvedItem(candidate: RegistryCandidate, context: CatalogFetchContext): CatalogSnapshot['items'][number] {
+  const media = resolvedMedia(candidate.mediaCandidates, candidate.item.id, context)
+  if (media === undefined) return candidate.item
+  if (candidate.item.repository === undefined) throw new Error('1024Store normalized item lost its repository identity')
+  return {
+    ...candidate.item,
+    repository: candidate.item.repository,
+    media,
+  } as CatalogSnapshot['items'][number]
+}
+
+function parseDirectPageCursor(value: string | undefined): number {
+  if (value === undefined) return 1
+  const match = /^page:(\d+)$/u.exec(value)
+  const page = match === null ? Number.NaN : Number(match[1])
+  if (!Number.isSafeInteger(page) || page < 2 || page > MAX_PROVIDER_PAGES) {
+    throw new Error('1024Store cursor is invalid')
+  }
+  return page
+}
+
+function parseOffsetCursor(value: string | undefined): number {
+  if (value === undefined) return 0
+  const match = /^offset:(\d+)$/u.exec(value)
+  const offset = match === null ? Number.NaN : Number(match[1])
+  if (!Number.isSafeInteger(offset) || offset < 1 || offset > MAX_PROVIDER_ITEMS) {
+    throw new Error('1024Store cursor is invalid')
+  }
+  return offset
+}
+
+async function directSnapshot(query: CatalogQuery, context: CatalogFetchContext): Promise<CatalogSnapshot> {
+  const requestedPage = parseDirectPageCursor(query.cursor)
+  const limit = Math.min(query.limit ?? 50, BROWSE_PAGE_SIZE)
+  const read = await readProviderPage(query, requestedPage, limit, context, query.category?.[0])
+  const fetchedAt = new Date().toISOString()
+  const candidates = (query.capability?.length ?? 0) > 0
+    ? []
+    : read.page.records
+        .map(entry => normalizedItem(entry, context, query.locale))
+        .filter((candidate): candidate is RegistryCandidate => candidate !== undefined)
   return parseCatalogSnapshot({
     schemaVersion: '1.0.0',
-    source: {
-      sourceRecordId: context.source.sourceRecordId,
-      providerId: context.source.providerId,
-      adapterId: context.source.adapterId,
-      registrationKind: context.source.registrationKind,
-      fetchedAt: new Date().toISOString(),
-      finalUrl,
-      ...(providerGeneratedAt === undefined ? {} : { providerGeneratedAt }),
-      ...(providerRevision === undefined ? {} : { providerRevision }),
-    },
-    items: candidates.slice(offset, end).map(candidate => {
-      const media = resolvedMedia(candidate.mediaCandidates, candidate.item.id, context)
-      return media === undefined ? candidate.item : { ...candidate.item, media }
-    }),
-    page: end < candidates.length
-      ? { nextCursor: String(end), total: candidates.length }
-      : { total: candidates.length },
+    source: snapshotSource(context, read.page, read.finalUrl, fetchedAt),
+    items: candidates.map(candidate => resolvedItem(candidate, context)),
+    page: (query.capability?.length ?? 0) > 0
+      ? { total: 0 }
+      : {
+          ...(read.page.page < read.page.totalPages ? { nextCursor: `page:${read.page.page + 1}` } : {}),
+          total: read.page.total,
+        },
   })
 }
 
-function buildCatalogScanSnapshots(
-  value: unknown,
+async function categoryPrefix(
+  query: CatalogQuery,
+  category: string,
+  required: number,
   context: CatalogFetchContext,
-  finalUrl: string,
-  locale: string | undefined,
-): readonly CatalogSnapshot[] {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('1024Store response is not an object')
-  }
-  const raw = value as Dsh1024StoreCatalog
-  if (!Array.isArray(raw.packages) || raw.packages.length > 10_000) {
-    throw new Error('1024Store catalog is invalid')
-  }
-  context.signal.throwIfAborted()
-
-  const items: CatalogSnapshot['items'][number][] = []
-  const seen = new Set<string>()
-  for (const entry of raw.packages) {
-    const candidate = normalizedItem(entry, context, locale)
-    if (candidate === undefined) continue
-    if (seen.has(candidate.item.id)) throw new Error('1024Store catalog contains duplicate item IDs')
-    seen.add(candidate.item.id)
-    if (
-      candidate.item.package?.registry === 'npm'
-      && candidate.item.latestVersion !== undefined
-      && candidate.item.repository !== undefined
-    ) {
-      // Registration creates only an opaque Host reference. It does not fetch
-      // remote image bytes during the catalog scan. Browse-only items do not
-      // consume media references.
-      const media = resolvedMedia(candidate.mediaCandidates, candidate.item.id, context)
-      const item: CatalogSnapshot['items'][number] = {
-        ...candidate.item,
-        repository: candidate.item.repository,
-        latestVersion: candidate.item.latestVersion,
-        package: candidate.item.package,
-        ...(media === undefined ? {} : { media }),
-      }
-      items.push(item)
-    } else {
-      items.push(candidate.item)
+): Promise<{ readonly reads: readonly ProviderPageRead[]; readonly candidates: readonly RegistryCandidate[] }> {
+  const pageSize = Math.min(Math.max(required, 1), MAX_PROVIDER_PAGE_SIZE)
+  const reads: ProviderPageRead[] = []
+  const candidates: RegistryCandidate[] = []
+  let pageNumber = 1
+  while (candidates.length < required) {
+    const read = await readProviderPage(query, pageNumber, pageSize, context, category)
+    reads.push(read)
+    for (const entry of read.page.records) {
+      const candidate = normalizedItem(entry, context, query.locale)
+      if (candidate !== undefined) candidates.push(candidate)
     }
+    if (pageNumber >= read.page.totalPages) break
+    pageNumber += 1
   }
+  return { reads, candidates }
+}
 
-  const meta = raw.meta !== null && typeof raw.meta === 'object' && !Array.isArray(raw.meta)
-    ? raw.meta as Dsh1024StoreMeta
-    : {}
-  const generatedAt = typeof meta.generatedAt === 'string' ? meta.generatedAt : meta.updated
-  const providerGeneratedAt = typeof generatedAt === 'string' && !Number.isNaN(Date.parse(generatedAt))
-    ? new Date(generatedAt).toISOString()
-    : undefined
-  const providerRevision = plainText(meta.revision, 160, '') || undefined
+async function multipleCategorySnapshot(query: CatalogQuery, context: CatalogFetchContext): Promise<CatalogSnapshot> {
+  const categories = query.category ?? []
+  const offset = parseOffsetCursor(query.cursor)
+  const limit = Math.min(query.limit ?? 50, BROWSE_PAGE_SIZE)
+  const required = Math.min(offset + limit, MAX_PROVIDER_ITEMS)
+  const groups = await Promise.all(categories.map(async category => await categoryPrefix(query, category, required, context)))
+  const reads = groups.flatMap(group => group.reads)
+  const reference = reads[0]?.page
+  if (reference === undefined || reads.some(read => !sameDataset(reference, read.page))) {
+    throw new Error('1024Store dataset changed during category pagination')
+  }
+  const total = groups.reduce((sum, group) => sum + group.reads[0]!.page.total, 0)
+  if (total > reference.catalogTotal) throw new Error('1024Store category totals are inconsistent')
+  const candidates = groups.flatMap(group => group.candidates).sort((left, right) => compareCandidates(left, right, query))
+  const seen = new Set<string>()
+  for (const candidate of candidates) {
+    const key = candidate.item.id.toLocaleLowerCase('en-US')
+    if (seen.has(key)) throw new Error('1024Store category results contain duplicate item IDs')
+    seen.add(key)
+  }
+  const end = Math.min(offset + limit, total)
   const fetchedAt = new Date().toISOString()
-  const snapshots: CatalogSnapshot[] = []
-  for (let offset = 0; offset < items.length; offset += 100) {
-    snapshots.push(parseCatalogSnapshot({
-      schemaVersion: '1.0.0',
-      source: {
-        sourceRecordId: context.source.sourceRecordId,
-        providerId: context.source.providerId,
-        adapterId: context.source.adapterId,
-        registrationKind: context.source.registrationKind,
-        fetchedAt,
-        finalUrl,
-        ...(providerGeneratedAt === undefined ? {} : { providerGeneratedAt }),
-        ...(providerRevision === undefined ? {} : { providerRevision }),
-      },
-      items: items.slice(offset, offset + 100),
-      page: { total: items.length },
-    }))
-  }
-  if (snapshots.length === 0) {
-    snapshots.push(parseCatalogSnapshot({
-      schemaVersion: '1.0.0',
-      source: {
-        sourceRecordId: context.source.sourceRecordId,
-        providerId: context.source.providerId,
-        adapterId: context.source.adapterId,
-        registrationKind: context.source.registrationKind,
-        fetchedAt,
-        finalUrl,
-        ...(providerGeneratedAt === undefined ? {} : { providerGeneratedAt }),
-        ...(providerRevision === undefined ? {} : { providerRevision }),
-      },
-      items: [],
-      page: { total: 0 },
-    }))
-  }
-  return snapshots
+  return parseCatalogSnapshot({
+    schemaVersion: '1.0.0',
+    source: snapshotSource(context, reference, reads[0]!.finalUrl, fetchedAt),
+    items: (query.capability?.length ?? 0) > 0
+      ? []
+      : candidates.slice(offset, end).map(candidate => resolvedItem(candidate, context)),
+    page: (query.capability?.length ?? 0) > 0
+      ? { total: 0 }
+      : { ...(end < total ? { nextCursor: `offset:${end}` } : {}), total },
+  })
 }
 
 export const dsh1024StoreAdapter: CatalogAdapter = {
   adapterId: DSH_1024STORE_ADAPTER_ID,
-  async fetch(queryValue, context) {
-    const query = { ...queryValue, limit: Math.min(queryValue.limit ?? 50, 50) }
-    const expectedOrigin = new URL(DSH_1024STORE_ENDPOINT).origin
-    const response = await context.http.getJson(
-      DSH_1024STORE_ENDPOINT,
-      context.signal,
-      { allowedOrigin: expectedOrigin },
-    )
-    let finalOrigin: string
-    try { finalOrigin = new URL(response.finalUrl).origin }
-    catch { throw new Error('1024Store final URL is invalid') }
-    if (finalOrigin !== expectedOrigin) throw new Error('1024Store response changed the reviewed provider origin')
-    return buildSnapshot(response.value, context, response.finalUrl, query)
+  async fetch(query, context) {
+    return (query.category?.length ?? 0) > 1
+      ? await multipleCategorySnapshot(query, context)
+      : await directSnapshot(query, context)
   },
-  async scanCatalog(query, context) {
-    const expectedOrigin = new URL(DSH_1024STORE_ENDPOINT).origin
-    const response = await context.http.getJson(
-      DSH_1024STORE_ENDPOINT,
-      context.signal,
-      { allowedOrigin: expectedOrigin },
-    )
-    context.signal.throwIfAborted()
-    let finalOrigin: string
-    try { finalOrigin = new URL(response.finalUrl).origin }
-    catch { throw new Error('1024Store final URL is invalid') }
-    if (finalOrigin !== expectedOrigin) throw new Error('1024Store response changed the reviewed provider origin')
-    return buildCatalogScanSnapshots(response.value, context, response.finalUrl, query.locale)
+  async fetchCategories(_query, context) {
+    const read = await readProviderPage({ limit: 1 }, 1, 1, context)
+    return read.page.categories
   },
 }

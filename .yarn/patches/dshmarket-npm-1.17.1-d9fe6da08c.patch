@@ -1,0 +1,852 @@
+diff --git a/client/client.js b/client/client.js
+index 0ad55132e3198e5c5e39b616d7e881751effa0e1..7425ebce919c8ee2389b9d9971b3fb8a05d7f3cf 100644
+--- a/client/client.js
++++ b/client/client.js
+@@ -4740,7 +4740,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
+ 					members: [...members, name]
+ 				});
+ 			}, [doGroupAction, groups]);
+-			const selfName = installed["dshmarket"] !== void 0 ? "dshmarket" : "dsh-market";
++			const selfName = installed["dshmarket"] !== void 0 || updates["dshmarket"] !== void 0 ? "dshmarket" : "dsh-market";
+ 			const updatableNames = Object.keys(installed).filter((name) => name !== selfName && !updatedNames.includes(name) && updates[name] && updates[name].updateAvailable);
+ 			const installedOtherCount = Object.keys(installed).filter((name) => name !== selfName).length;
+ 			const doUpdateAll = (0, react.useCallback)(() => {
+@@ -5410,7 +5410,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
+ 										children: ["v", version]
+ 									}),
+ 									(() => {
+-										const self = installed["dshmarket"] !== void 0 ? "dshmarket" : "dsh-market";
++										const self = selfName;
+ 										return updates[self] && updates[self].updateAvailable && !updatedNames.includes(self) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 											variant: "primary",
+ 											size: "sm",
+diff --git a/lib/dsh-cli.js b/lib/dsh-cli.js
+index 2bdfb2a1acc678c3e995e4f70ccba8ce95bc24b8..66fd882cbcdc74b626c0531baea52e2936e753b8 100644
+--- a/lib/dsh-cli.js
++++ b/lib/dsh-cli.js
+@@ -14,6 +14,7 @@ import { logEvent } from './log.js';
+ import { createProgressTracker } from './ndjson.js';
+ import { pluginArgsFor } from './pnpm-compat.js';
+ import { profileDir } from './profile.js';
++import { fetchNpmLatest } from './updates.js';
+ // 15 min default (slow networks + git installs), overridable for CI/tests.
+ // (#6 by @qichuang321.)
+ /**
+@@ -548,6 +549,25 @@ export function runDshPlugin(profile, pluginArgs) {
+  * market runner. There is no runtime import or dependency on Desktop: the
+  * Host supplies this public service only when the package is mounted there.
+  */
++const DESKTOP_NPM_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u;
++const DESKTOP_EXACT_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
++async function desktopInstallIdentity(target) {
++    const at = target.lastIndexOf('@');
++    const exactName = at > 0 ? target.slice(0, at) : target;
++    const exactVersion = at > 0 ? target.slice(at + 1) : undefined;
++    if (!DESKTOP_NPM_NAME_RE.test(exactName))
++        return null;
++    const packageVersion = exactVersion === undefined || exactVersion === 'latest'
++        ? await fetchNpmLatest(exactName)
++        : exactVersion;
++    if (packageVersion === null || !DESKTOP_EXACT_VERSION_RE.test(packageVersion))
++        return null;
++    return {
++        packageName: exactName,
++        packageVersion,
++        target: `${exactName}@${packageVersion}`,
++    };
++}
+ export function createDesktopPluginRuntime(service, activeProfileDir, invokingDir = process.cwd(), timeoutMs = INSTALL_TIMEOUT_MS) {
+     if (!isAbsolute(activeProfileDir) || activeProfileDir.includes('\0')) {
+         throw new Error('dsh-market: Desktop profile directory must be an absolute path without NUL');
+@@ -575,7 +595,21 @@ export function createDesktopPluginRuntime(service, activeProfileDir, invokingDi
+         const abort = new AbortController();
+         let handle;
+         try {
+-            handle = service.runPlugin(prepared.args, invokingDir, abort.signal);
++            if (prepared.args[0] === 'add') {
++                const identity = await desktopInstallIdentity(prepared.target);
++                if (identity === null) {
++                    throw new Error('dsh-market: DSH Desktop managed installation requires an npm package with an exact published version');
++                }
++                const packageTargets = prepared.args.slice(1).filter(argument => !argument.startsWith('-'));
++                if (packageTargets.length !== 1 || packageTargets[0] !== prepared.target) {
++                    throw new Error('dsh-market: DSH Desktop managed installation accepts exactly one npm package target');
++                }
++                const options = prepared.args.slice(1).filter(argument => argument.startsWith('-'));
++                handle = service.runExternalMarketPluginInstall(['add', ...options, identity.target], invokingDir, abort.signal);
++            }
++            else {
++                handle = service.runPlugin(prepared.args, invokingDir, abort.signal);
++            }
+         }
+         catch (error) {
+             const message = error instanceof Error ? error.message : String(error);
+diff --git a/lib/profile.js b/lib/profile.js
+index 2672901966a04e97701286234568a649014c4c2f..345d59a9113fb4d74bf94dda6667c87b43883f79 100644
+--- a/lib/profile.js
++++ b/lib/profile.js
+@@ -436,6 +436,26 @@ export function readProfileBundles(profileDirectory) {
+         return [];
+     }
+ }
++/** Restore `dsh.profile.bundles` to a pre-operation snapshot. */
++export function restoreProfileBundles(profileDirectory, snapshot) {
++    const manifestPath = join(profileDirectory, 'package.json');
++    let manifest;
++    try {
++        manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
++    }
++    catch {
++        return false;
++    }
++    const current = manifest.dsh?.profile?.bundles;
++    const bundles = Array.isArray(current) ? current.filter((entry) => typeof entry === 'string') : [];
++    if (bundles.length === snapshot.length && bundles.every((name, index) => name === snapshot[index]))
++        return false;
++    manifest.dsh ??= {};
++    manifest.dsh.profile ??= {};
++    manifest.dsh.profile.bundles = [...snapshot];
++    writeManifestAtomic(manifestPath, manifest);
++    return true;
++}
+ /**
+  * Write the profile manifest atomically: a temp file in the same directory is
+  * written first, then renamed over package.json, so a crash mid-toggle never
+diff --git a/lib/routes.js b/lib/routes.js
+index 6c461bdf34c2fa077de61ba1b3194cff73d9fa6c..53300b5d91797c55c95df850b9c64fbd6f9bff9f 100644
+--- a/lib/routes.js
++++ b/lib/routes.js
+@@ -15,7 +15,7 @@ import { createGroup, deleteGroup, removeFromGroups, renameGroup, setGroupMember
+ import { exportLogs, logEvent } from './log.js';
+ import { diagnosePackageManifests } from './diagnostics.js';
+ import { BOOT_ID, cancelActive, probePnpm, progress, provisionPnpm, runDshPlugin, } from './dsh-cli.js';
+-import { addProfileBundle, hasLoadableEntry, INBOX_BUNDLES, profileDir, readInstalled, readInstalledManifest, readInstalledRepoEvidence, readInstalledVersion, readLockCommits, readManifestDeps, readProfileBundles, removeProfileBundle, restoreManifestDeps, setAllowBuilds } from './profile.js';
++import { addProfileBundle, hasLoadableEntry, INBOX_BUNDLES, profileDir, readInstalled, readInstalledManifest, readInstalledRepoEvidence, readInstalledVersion, readLockCommits, readManifestDeps, readProfileBundles, removeProfileBundle, restoreManifestDeps, restoreProfileBundles, setAllowBuilds } from './profile.js';
+ import { assessProfile, introducedDuplicateNames, introducedRisks } from './compatibility.js';
+ import { runningAgentIds } from './agents.js';
+ import { analyzeProfile } from './check.js';
+@@ -33,28 +33,34 @@ import { carrierDisableIds, disableRow, enableRow, findUserPatchPath, isProtecte
+ import { createProfileBackup, downloadWebdav, MAX_BACKUP_BYTES, mergeRestoreManifest, restoreProfileBackup, unportableDeps, uploadWebdav, } from './backup.js';
+ import { createGist, fitsGistLimit, GistError, gistErrorCode, parseGistId, readGist, resolveGistTokenSource, updateGist, verifyGistToken, } from './gist.js';
+ const PROFILE_RE = /^[A-Za-z0-9_-]+$/;
++/** The market's own package names, as they appear in a profile manifest. */
++const SELF_NAMES = new Set(['dshmarket', 'dsh-market']);
+ /**
+- * The market's own version, read once from its installed package.json.
++ * The market's own package identity, read once from its installed package.json.
+  *
+  * The UI puts this in the page heading so a user's screenshot carries it:
+  * most bug reports arrive as a photo of the screen, and without a version
+  * in frame the first reply always has to ask which one it was.
+  */
+-let cachedVersion = null;
+-export function marketVersion() {
+-    if (cachedVersion !== null)
+-        return cachedVersion;
++let cachedIdentity = null;
++function marketIdentity() {
++    if (cachedIdentity !== null)
++        return cachedIdentity;
+     try {
+         const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+-        cachedVersion = manifest.version ?? 'unknown';
++        cachedIdentity = {
++            name: typeof manifest.name === 'string' && SELF_NAMES.has(manifest.name) ? manifest.name : 'dshmarket',
++            version: manifest.version ?? 'unknown',
++        };
+     }
+     catch {
+-        cachedVersion = 'unknown';
++        cachedIdentity = { name: 'dshmarket', version: 'unknown' };
+     }
+-    return cachedVersion;
++    return cachedIdentity;
++}
++export function marketVersion() {
++    return marketIdentity().version;
+ }
+-/** The market's own package names, as they appear in a profile manifest. */
+-const SELF_NAMES = new Set(['dshmarket', 'dsh-market']);
+ /**
+  * Whether an installed package declares a client part (`dsh.client`). Its UI
+  * is injected into the page, so toggling it needs a browser refresh to show
+@@ -315,9 +321,10 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+      * next start still fails. Re-run pnpm install against the restored
+      * manifest to rematerialize the previous build's files.
+      */
+-    async function rollbackUpdateBuild(name, manifestBefore) {
++    async function rollbackUpdateBuild(name, manifestBefore, bundlesBefore) {
+         const rolledBack = restoreManifestDeps(config.profile, manifestBefore, activeProfileDir);
+-        if (rolledBack.length === 0)
++        const bundlesRolledBack = restoreProfileBundles(activeProfileDir, bundlesBefore);
++        if (rolledBack.length === 0 && !bundlesRolledBack)
+             return { ok: true, detail: null };
+         // CI=true (the market always runs pnpm that way) turns frozen-lockfile
+         // on, and the restored manifest pin now disagrees with the lockfile the
+@@ -330,7 +337,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+         const reinstall = await runPlugin(config.profile, ['--no-frozen-lockfile', RELEASE_AGE_OVERRIDE, 'install']);
+         const ok = reinstall.exitCode === 0 && !reinstall.timedOut && !reinstall.cancelled;
+         if (ok)
+-            logEvent('info', 'update', `${name}: previous build rematerialized (${rolledBack.join(', ')})`);
++            logEvent('info', 'update', `${name}: previous build rematerialized (${rolledBack.join(', ')}${bundlesRolledBack ? '; bundle stack restored' : ''})`);
+         return { ok, detail: ok ? null : failureDetail(reinstall) };
+     }
+     const pendingRollbacks = new Map();
+@@ -341,11 +348,12 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+         return id;
+     }
+     /** Restore a github: update by re-adding the commit captured before the update. */
+-    async function rollbackGitBuild(name, manifestBefore, target, beforeCommit) {
++    async function rollbackGitBuild(name, manifestBefore, bundlesBefore, target, beforeCommit) {
+         if (beforeCommit === null) {
+             return { ok: false, detail: 'the previous commit is unknown; nothing to roll back to' };
+         }
+         restoreManifestDeps(config.profile, manifestBefore, activeProfileDir);
++        restoreProfileBundles(activeProfileDir, bundlesBefore);
+         const add = await runPlugin(config.profile, ['add', RELEASE_AGE_OVERRIDE, `${target}#${beforeCommit}`]);
+         if (add.exitCode !== 0 || add.timedOut || add.cancelled) {
+             return { ok: false, detail: failureDetail(add) };
+@@ -354,6 +362,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+         // the original `github:owner/repo` form. The lockfile keeps the restored
+         // commit resolution for the next boot.
+         restoreManifestDeps(config.profile, manifestBefore, activeProfileDir);
++        restoreProfileBundles(activeProfileDir, bundlesBefore);
+         logEvent('info', 'update-rollback', `${name}: restored github build at ${beforeCommit}`);
+         return { ok: true, detail: null };
+     }
+@@ -1150,10 +1159,21 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+                     // to try THIS plugin early, not to be handed every other author's
+                     // unreleased work.
+                     const channel = activeChannel();
+-                    const channelFor = new Map(Object.keys(readInstalled(config.profile, activeProfileDir))
+-                        .filter(name => SELF_NAMES.has(name))
++                    const installed = readInstalled(config.profile, activeProfileDir);
++                    const identity = marketIdentity();
++                    const installedSelfNames = Object.keys(installed).filter(name => SELF_NAMES.has(name));
++                    // Desktop provides dshmarket from the application dependency graph,
++                    // not the profile manifest. Keep that running build visible to the
++                    // ordinary update checker until the first upgrade installs a
++                    // profile-local version.
++                    const hostProvided = installedSelfNames.length === 0
++                        ? new Map([[identity.name, identity.version]])
++                        : new Map();
++                    const channelFor = new Map((installedSelfNames.length > 0 ? installedSelfNames : [identity.name])
+                         .map(name => [name, channel]));
+-                    sendJson(response, 200, { updates: await checkUpdates(config.profile, force, activeProfileDir, channelFor) });
++                    sendJson(response, 200, {
++                        updates: await checkUpdates(config.profile, force, activeProfileDir, channelFor, hostProvided),
++                    });
+                 }
+                 catch (error) {
+                     sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) });
+@@ -1178,7 +1198,9 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+                         const body = (await readJsonBody(request));
+                         const name = typeof body.name === 'string' ? body.name : '';
+                         const force = body.force === true;
+-                        const spec = readInstalled(config.profile, activeProfileDir)[name];
++                        const identity = marketIdentity();
++                        const installed = readInstalled(config.profile, activeProfileDir);
++                        const spec = installed[name] ?? (name === identity.name ? identity.version : undefined);
+                         if (spec === undefined) {
+                             sendJson(response, 400, { error: 'plugin is not installed' });
+                             return;
+@@ -1202,7 +1224,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+                             });
+                             return;
+                         }
+-                        const beforeInstalled = readInstalled(config.profile, activeProfileDir);
++                        const beforeInstalled = installed;
+                         // Re-running add re-resolves the source: git HEAD for github specs,
+                         // dist-tag latest for registry installs.
+                         const isGit = spec.startsWith('github:');
+@@ -1226,7 +1248,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+                         // at what is installed, and it compares against the target tag
+                         // rather than `latest`, which is not the tag being installed.
+                         if (!isGit) {
+-                            const installedVersion = readInstalledVersion(config.profile, name, activeProfileDir);
++                            const installedVersion = readInstalledVersion(config.profile, name, activeProfileDir)
++                                ?? (name === identity.name ? identity.version : null);
+                             const registryLatest = selfChannel === null
+                                 ? await fetchNpmLatest(name)
+                                 : await versionOnChannel(name, selfChannel, await fetchNpmLatest(name));
+@@ -1250,7 +1273,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+                         // one needs a refresh, not a restart.
+                         const wasLive = verifyActivation(config.profile, name, liveNames(), activeProfileDir, disabled.has(name)).state === 'live'
+                             && hasHostHalf(config.profile, name, activeProfileDir);
+-                        const beforeVersion = readInstalledVersion(config.profile, name, activeProfileDir);
++                        const beforeVersion = readInstalledVersion(config.profile, name, activeProfileDir)
++                            ?? (name === identity.name ? identity.version : null);
+                         const beforeCommit = repoKey !== null
+                             ? readLockCommits(config.profile, activeProfileDir).get(repoKey) ?? null
+                             : null;
+@@ -1263,12 +1287,18 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+                         pendingRollbacks.clear();
+                         const compatibilityBefore = assessProfile(config.profile, activeProfileDir);
+                         const manifestBefore = readManifestDeps(config.profile, activeProfileDir);
++                        const bundlesBefore = readProfileBundles(activeProfileDir);
++                        const trialBeforeStack = readBundleStack(activeProfileDir);
++                        const trialBefore = trialValidate(activeProfileDir, trialBeforeStack.community);
+                         const result = await runPlugin(config.profile, addArgs);
+                         const cancelled = result.cancelled;
+                         if ((result.exitCode !== 0 || result.timedOut) && !cancelled) {
+                             const rolledBack = restoreManifestDeps(config.profile, manifestBefore, activeProfileDir);
++                            const bundlesRolledBack = restoreProfileBundles(activeProfileDir, bundlesBefore);
+                             if (rolledBack.length > 0)
+                                 logEvent('warn', 'update', `${name}: rolled back manifest residue of the failed run: ${rolledBack.join(', ')}`);
++                            if (bundlesRolledBack)
++                                logEvent('warn', 'update', `${name}: rolled back bundle stack residue of the failed run`);
+                         }
+                         let ok = result.exitCode === 0 && !result.timedOut && !cancelled;
+                         let stale = false;
+@@ -1303,7 +1333,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+                         if (ok && !hasLoadableEntry(activeProfileDir, name)) {
+                             brokenEntry = true;
+                             ok = false;
+-                            const rollback = await rollbackUpdateBuild(name, manifestBefore);
++                            const rollback = await rollbackUpdateBuild(name, manifestBefore, bundlesBefore);
+                             rollbackOk = rollback.ok;
+                             rollbackDetail = rollback.detail;
+                             logEvent('error', 'update', `${name}: updated build has no loadable entry — ${rollback.ok ? 'previous build restored' : `could not restore previous files: ${rollback.detail ?? 'unknown'}`}`);
+@@ -1317,10 +1347,12 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+                         if (ok) {
+                             const stack = readBundleStack(activeProfileDir);
+                             const trial = trialValidate(activeProfileDir, stack.community);
+-                            if (!trial.ok) {
++                            const baselineErrors = new Set(trialBefore.errors.map(error => `${error.layer}\0${error.message}`));
++                            const introducedErrors = trial.errors.filter(error => !baselineErrors.has(`${error.layer}\0${error.message}`));
++                            if (introducedErrors.length > 0) {
+                                 ok = false;
+-                                const first = trial.errors[0]?.message ?? 'the composition would not boot';
+-                                const rollback = await rollbackUpdateBuild(name, manifestBefore);
++                                const first = introducedErrors[0]?.message ?? 'the composition would not boot';
++                                const rollback = await rollbackUpdateBuild(name, manifestBefore, bundlesBefore);
+                                 rollbackOk = rollback.ok;
+                                 rollbackDetail = rollback.detail;
+                                 trialError = rollback.ok
+@@ -1355,6 +1387,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+                                         kind: 'update',
+                                         names: [name],
+                                         manifestBefore,
++                                        bundlesBefore,
+                                         ...(isGit ? { gitTarget: target, beforeCommit } : {}),
+                                     }),
+                                 };
+@@ -1887,8 +1920,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup) {
+                         if (pending.kind === 'update') {
+                             const name = pending.names[0];
+                             const result = pending.gitTarget !== undefined
+-                                ? await rollbackGitBuild(name, pending.manifestBefore, pending.gitTarget, pending.beforeCommit ?? null)
+-                                : await rollbackUpdateBuild(name, pending.manifestBefore);
++                                ? await rollbackGitBuild(name, pending.manifestBefore, pending.bundlesBefore, pending.gitTarget, pending.beforeCommit ?? null)
++                                : await rollbackUpdateBuild(name, pending.manifestBefore, pending.bundlesBefore);
+                             ok = result.ok;
+                             detail = result.detail;
+                         }
+diff --git a/lib/types/dsh-cli.d.ts b/lib/types/dsh-cli.d.ts
+index 9e3ba5e405ec80f8efd5513e220d9ea9a9046ae5..24b65b0351606464d583af54f2c27a2a2b18cebc 100644
+--- a/lib/types/dsh-cli.d.ts
++++ b/lib/types/dsh-cli.d.ts
+@@ -131,6 +131,7 @@ export interface DesktopPnpmLike {
+         }>;
+         cancel(): void;
+     };
++    runExternalMarketPluginInstall(args: readonly string[], invokingDir: string, signal?: AbortSignal): ReturnType<DesktopPnpmLike['runPlugin']>;
+ }
+ /** Desktop runtime also owns cleanup of any operation started by this fiber. */
+ export interface DesktopPluginRuntime extends PluginCommandRuntime {
+diff --git a/lib/types/profile.d.ts b/lib/types/profile.d.ts
+index 1647c8c16a9872127a9059484892f8e4e4f3cd61..7c946b0929d4c1385e35893ed9dd8e3ff37c1bba 100644
+--- a/lib/types/profile.d.ts
++++ b/lib/types/profile.d.ts
+@@ -120,6 +120,8 @@ export declare function parsePatchRows(text: string): {
+ };
+ /** The profile manifest's `dsh.profile.bundles` — what the CLI reconciled. */
+ export declare function readProfileBundles(profileDirectory: string): string[];
++/** Restore `dsh.profile.bundles` to a pre-operation snapshot. */
++export declare function restoreProfileBundles(profileDirectory: string, snapshot: readonly string[]): boolean;
+ /**
+  * Drop one bundle from the profile manifest's `dsh.profile.bundles`, leaving
+  * the package installed as a dependency. This is the carrier-bundle half of a
+diff --git a/lib/types/updates.d.ts b/lib/types/updates.d.ts
+index 626eed0c1008877b8b8880fb28abd755ac2990fd..1c7662e1fca395c6e735a47f6a3b472efc971512 100644
+--- a/lib/types/updates.d.ts
++++ b/lib/types/updates.d.ts
+@@ -95,5 +95,12 @@ export declare function checkUpdates(profile: string, force?: boolean, explicitD
+  * ever the market itself: opting into early builds is volunteering to try
+  * THIS plugin early, not a licence to pull every other author's
+  * unreleased work.
++*/
++channelFor?: ReadonlyMap<string, Channel>, 
++/**
++ * npm packages supplied by the host rather than the profile manifest.
++ * DSH Desktop bundles the selected market provider with the application,
++ * so the running market is real and versioned even before its first
++ * profile-local upgrade adds it to dependencies.
+  */
+-channelFor?: ReadonlyMap<string, Channel>): Promise<Record<string, UpdateStatus>>;
++hostProvidedNpmVersions?: ReadonlyMap<string, string>): Promise<Record<string, UpdateStatus>>;
+diff --git a/lib/updates.js b/lib/updates.js
+index 33dd1769c35e1465f30c9922d5f6a0b1feee5a21..077bcb373aecb912cfeb46fb95a6eea367a7d615 100644
+--- a/lib/updates.js
++++ b/lib/updates.js
+@@ -173,22 +173,36 @@ export async function checkUpdates(profile, force = false, explicitDir,
+  * ever the market itself: opting into early builds is volunteering to try
+  * THIS plugin early, not a licence to pull every other author's
+  * unreleased work.
++*/
++channelFor = new Map(), 
++/**
++ * npm packages supplied by the host rather than the profile manifest.
++ * DSH Desktop bundles the selected market provider with the application,
++ * so the running market is real and versioned even before its first
++ * profile-local upgrade adds it to dependencies.
+  */
+-channelFor = new Map()) {
++hostProvidedNpmVersions = new Map()) {
+     const activeProfileDir = profileDir(profile, explicitDir);
+     // The channel is part of the key: switching to betas has to change the
+     // answer immediately, and a cache keyed on the profile alone would serve
+     // the stable verdict for the rest of the TTL — reading as "the setting did
+     // nothing".
+-    const cacheKey = `${activeProfileDir}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}`;
++    const cacheKey = `${activeProfileDir}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}\u0000${[...hostProvidedNpmVersions].map(([n, v]) => `${n}:${v}`).sort().join(',')}`;
+     if (!force && updatesCache?.key === cacheKey && Date.now() - updatesCache.at < UPDATES_TTL_MS) {
+         return updatesCache.data;
+     }
+     const installed = readInstalled(profile, activeProfileDir);
++    const provided = new Map();
++    for (const [name, version] of hostProvidedNpmVersions) {
++        if (installed[name] !== undefined)
++            continue;
++        installed[name] = version;
++        provided.set(name, version);
++    }
+     const lockCommits = readLockCommits(profile, activeProfileDir);
+     const result = {};
+     await Promise.all(Object.entries(installed).map(async ([name, spec]) => {
+-        const version = readInstalledVersion(profile, name, activeProfileDir);
++        const version = provided.get(name) ?? readInstalledVersion(profile, name, activeProfileDir);
+         if (spec.startsWith('link:') || spec.startsWith('file:')) {
+             result[name] = { kind: 'linked', version, current: null, latest: null, updateAvailable: false };
+             return;
+diff --git a/src/client/MarketSection.tsx b/src/client/MarketSection.tsx
+index 3d06fdadd16fbf78070f9f79ca51d7dc6683613e..8fb6d93237725af3039fa159374e816af3e006d6 100644
+--- a/src/client/MarketSection.tsx
++++ b/src/client/MarketSection.tsx
+@@ -1862,7 +1862,9 @@ export function MarketSection(props: MarketSectionProps) {
+ 
+   // The market itself stays out of the batch: its update reloads this page
+   // mid-run, which would strand the remaining items.
+-  const selfName = installed['dshmarket'] !== undefined ? 'dshmarket' : 'dsh-market'
++  const selfName = installed['dshmarket'] !== undefined || updates['dshmarket'] !== undefined
++    ? 'dshmarket'
++    : 'dsh-market'
+   const updatableNames = Object.keys(installed).filter(
+     name => name !== selfName && !updatedNames.includes(name) && updates[name] && updates[name].updateAvailable,
+   )
+@@ -2449,7 +2451,7 @@ export function MarketSection(props: MarketSectionProps) {
+           <a className={css.repoLink} href="https://github.com/dsh-market/dsh-market" target="_blank" rel="noreferrer" title="dsh-market · GitHub">dsh-market</a>
+           {version !== null && <span className={css.version} title={t('versionHint')}>v{version}</span>}
+           {(() => {
+-            const self = installed['dshmarket'] !== undefined ? 'dshmarket' : 'dsh-market'
++            const self = selfName
+             return updates[self] && updates[self].updateAvailable && !updatedNames.includes(self)
+               && (
+                 <Button
+diff --git a/src/dsh-cli.ts b/src/dsh-cli.ts
+index 0cc2535e43e371e72700301e783694e0b7c2e4c7..adf1255db94bee340aa12e8f934ea87e91550e76 100644
+--- a/src/dsh-cli.ts
++++ b/src/dsh-cli.ts
+@@ -16,6 +16,7 @@ import { logEvent } from './log.ts'
+ import { createProgressTracker, type ProgressPhase } from './ndjson.ts'
+ import { pluginArgsFor } from './pnpm-compat.ts'
+ import { profileDir } from './profile.ts'
++import { fetchNpmLatest } from './updates.ts'
+ 
+ // 15 min default (slow networks + git installs), overridable for CI/tests.
+ // (#6 by @qichuang321.)
+@@ -252,6 +253,34 @@ export interface DesktopPnpmLike {
+     }>
+     cancel(): void
+   }
++  runExternalMarketPluginInstall(
++    args: readonly string[],
++    invokingDir: string,
++    signal?: AbortSignal,
++  ): ReturnType<DesktopPnpmLike['runPlugin']>
++}
++
++const DESKTOP_NPM_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
++const DESKTOP_EXACT_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u
++
++async function desktopInstallIdentity(target: string): Promise<{
++  packageName: string
++  packageVersion: string
++  target: string
++} | null> {
++  const at = target.lastIndexOf('@')
++  const exactName = at > 0 ? target.slice(0, at) : target
++  const exactVersion = at > 0 ? target.slice(at + 1) : undefined
++  if (!DESKTOP_NPM_NAME_RE.test(exactName)) return null
++  const packageVersion = exactVersion === undefined || exactVersion === 'latest'
++    ? await fetchNpmLatest(exactName)
++    : exactVersion
++  if (packageVersion === null || !DESKTOP_EXACT_VERSION_RE.test(packageVersion)) return null
++  return {
++    packageName: exactName,
++    packageVersion,
++    target: `${exactName}@${packageVersion}`,
++  }
+ }
+ 
+ /** Desktop runtime also owns cleanup of any operation started by this fiber. */
+@@ -685,7 +714,24 @@ export function createDesktopPluginRuntime(
+     const abort = new AbortController()
+     let handle: ReturnType<DesktopPnpmLike['runPlugin']>
+     try {
+-      handle = service.runPlugin(prepared.args, invokingDir, abort.signal)
++      if (prepared.args[0] === 'add') {
++        const identity = await desktopInstallIdentity(prepared.target)
++        if (identity === null) {
++          throw new Error('dsh-market: DSH Desktop managed installation requires an npm package with an exact published version')
++        }
++        const packageTargets = prepared.args.slice(1).filter(argument => !argument.startsWith('-'))
++        if (packageTargets.length !== 1 || packageTargets[0] !== prepared.target) {
++          throw new Error('dsh-market: DSH Desktop managed installation accepts exactly one npm package target')
++        }
++        const options = prepared.args.slice(1).filter(argument => argument.startsWith('-'))
++        handle = service.runExternalMarketPluginInstall(
++          ['add', ...options, identity.target],
++          invokingDir,
++          abort.signal,
++        )
++      } else {
++        handle = service.runPlugin(prepared.args, invokingDir, abort.signal)
++      }
+     } catch (error) {
+       const message = error instanceof Error ? error.message : String(error)
+       const busy = /another desktop pnpm operation is already running/i.test(message)
+diff --git a/src/profile.ts b/src/profile.ts
+index 1726a84e0de1959f77be75d3d1df0fa917666e2b..90ca6e7a981a381e95753f28926569e6d1cac47e 100644
+--- a/src/profile.ts
++++ b/src/profile.ts
+@@ -452,6 +452,27 @@ export function readProfileBundles(profileDirectory: string): string[] {
+   }
+ }
+ 
++/** Restore `dsh.profile.bundles` to a pre-operation snapshot. */
++export function restoreProfileBundles(profileDirectory: string, snapshot: readonly string[]): boolean {
++  const manifestPath = join(profileDirectory, 'package.json')
++  let manifest: { dsh?: { profile?: { bundles?: unknown } } }
++  try {
++    manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
++      dsh?: { profile?: { bundles?: unknown } }
++    }
++  } catch {
++    return false
++  }
++  const current = manifest.dsh?.profile?.bundles
++  const bundles = Array.isArray(current) ? current.filter((entry): entry is string => typeof entry === 'string') : []
++  if (bundles.length === snapshot.length && bundles.every((name, index) => name === snapshot[index])) return false
++  manifest.dsh ??= {}
++  manifest.dsh.profile ??= {}
++  manifest.dsh.profile.bundles = [...snapshot]
++  writeManifestAtomic(manifestPath, manifest)
++  return true
++}
++
+ /**
+  * Write the profile manifest atomically: a temp file in the same directory is
+  * written first, then renamed over package.json, so a crash mid-toggle never
+diff --git a/src/routes.ts b/src/routes.ts
+index 5e5b0d517ddff8e5f634a3a890c9d2e12f7d42a0..e9f6c16c8a9fac58759e82c28d48d0a70b0fb189 100644
+--- a/src/routes.ts
++++ b/src/routes.ts
+@@ -23,7 +23,7 @@ import {
+   BOOT_ID, cancelActive, probePnpm, progress, provisionPnpm, runDshPlugin,
+   type PluginCommandRuntime,
+ } from './dsh-cli.ts'
+-import { addProfileBundle, hasLoadableEntry, INBOX_BUNDLES, profileDir, readInstalled, readInstalledManifest, readInstalledRepoEvidence, readInstalledVersion, readLockCommits, readManifestDeps, readProfileBundles, removeProfileBundle, restoreManifestDeps, setAllowBuilds } from './profile.ts'
++import { addProfileBundle, hasLoadableEntry, INBOX_BUNDLES, profileDir, readInstalled, readInstalledManifest, readInstalledRepoEvidence, readInstalledVersion, readLockCommits, readManifestDeps, readProfileBundles, removeProfileBundle, restoreManifestDeps, restoreProfileBundles, setAllowBuilds } from './profile.ts'
+ import { assessProfile, introducedDuplicateNames, introducedRisks, type CompatibilityRisk } from './compatibility.ts'
+ import { runningAgentIds, type AgentsLookup } from './agents.ts'
+ import { analyzeProfile, type DuplicateName } from './check.ts'
+@@ -81,27 +81,42 @@ export interface MarketConfig {
+ 
+ const PROFILE_RE = /^[A-Za-z0-9_-]+$/
+ 
++/** The market's own package names, as they appear in a profile manifest. */
++const SELF_NAMES = new Set(['dshmarket', 'dsh-market'])
++
++interface MarketIdentity {
++  name: string
++  version: string
++}
++
+ /**
+- * The market's own version, read once from its installed package.json.
++ * The market's own package identity, read once from its installed package.json.
+  *
+  * The UI puts this in the page heading so a user's screenshot carries it:
+  * most bug reports arrive as a photo of the screen, and without a version
+  * in frame the first reply always has to ask which one it was.
+  */
+-let cachedVersion: string | null = null
+-export function marketVersion(): string {
+-  if (cachedVersion !== null) return cachedVersion
++let cachedIdentity: MarketIdentity | null = null
++function marketIdentity(): MarketIdentity {
++  if (cachedIdentity !== null) return cachedIdentity
+   try {
+-    const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: string }
+-    cachedVersion = manifest.version ?? 'unknown'
++    const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
++      name?: string
++      version?: string
++    }
++    cachedIdentity = {
++      name: typeof manifest.name === 'string' && SELF_NAMES.has(manifest.name) ? manifest.name : 'dshmarket',
++      version: manifest.version ?? 'unknown',
++    }
+   } catch {
+-    cachedVersion = 'unknown'
++    cachedIdentity = { name: 'dshmarket', version: 'unknown' }
+   }
+-  return cachedVersion
++  return cachedIdentity
+ }
+ 
+-/** The market's own package names, as they appear in a profile manifest. */
+-const SELF_NAMES = new Set(['dshmarket', 'dsh-market'])
++export function marketVersion(): string {
++  return marketIdentity().version
++}
+ 
+ /**
+  * Whether an installed package declares a client part (`dsh.client`). Its UI
+@@ -358,9 +373,14 @@ export function mountMarketRoutes(
+    * next start still fails. Re-run pnpm install against the restored
+    * manifest to rematerialize the previous build's files.
+    */
+-  async function rollbackUpdateBuild(name: string, manifestBefore: Record<string, string>): Promise<{ ok: boolean; detail: string | null }> {
++  async function rollbackUpdateBuild(
++    name: string,
++    manifestBefore: Record<string, string>,
++    bundlesBefore: readonly string[],
++  ): Promise<{ ok: boolean; detail: string | null }> {
+     const rolledBack = restoreManifestDeps(config.profile, manifestBefore, activeProfileDir)
+-    if (rolledBack.length === 0) return { ok: true, detail: null }
++    const bundlesRolledBack = restoreProfileBundles(activeProfileDir, bundlesBefore)
++    if (rolledBack.length === 0 && !bundlesRolledBack) return { ok: true, detail: null }
+     // CI=true (the market always runs pnpm that way) turns frozen-lockfile
+     // on, and the restored manifest pin now disagrees with the lockfile the
+     // bad add just wrote — without the flag this restore run fails with
+@@ -371,7 +391,7 @@ export function mountMarketRoutes(
+     // same flags in front of `install`.
+     const reinstall = await runPlugin(config.profile, ['--no-frozen-lockfile', RELEASE_AGE_OVERRIDE, 'install'])
+     const ok = reinstall.exitCode === 0 && !reinstall.timedOut && !reinstall.cancelled
+-    if (ok) logEvent('info', 'update', `${name}: previous build rematerialized (${rolledBack.join(', ')})`)
++    if (ok) logEvent('info', 'update', `${name}: previous build rematerialized (${rolledBack.join(', ')}${bundlesRolledBack ? '; bundle stack restored' : ''})`)
+     return { ok, detail: ok ? null : failureDetail(reinstall) }
+   }
+ 
+@@ -380,6 +400,7 @@ export function mountMarketRoutes(
+     kind: 'update' | 'install'
+     names: string[]
+     manifestBefore?: Record<string, string>
++    bundlesBefore?: string[]
+     /** github: updates must re-add the pre-update commit, not just reinstall. */
+     gitTarget?: string
+     beforeCommit?: string | null
+@@ -398,6 +419,7 @@ export function mountMarketRoutes(
+   async function rollbackGitBuild(
+     name: string,
+     manifestBefore: Record<string, string>,
++    bundlesBefore: readonly string[],
+     target: string,
+     beforeCommit: string | null,
+   ): Promise<{ ok: boolean; detail: string | null }> {
+@@ -405,6 +427,7 @@ export function mountMarketRoutes(
+       return { ok: false, detail: 'the previous commit is unknown; nothing to roll back to' }
+     }
+     restoreManifestDeps(config.profile, manifestBefore, activeProfileDir)
++    restoreProfileBundles(activeProfileDir, bundlesBefore)
+     const add = await runPlugin(config.profile, ['add', RELEASE_AGE_OVERRIDE, `${target}#${beforeCommit}`])
+     if (add.exitCode !== 0 || add.timedOut || add.cancelled) {
+       return { ok: false, detail: failureDetail(add) }
+@@ -413,6 +436,7 @@ export function mountMarketRoutes(
+     // the original `github:owner/repo` form. The lockfile keeps the restored
+     // commit resolution for the next boot.
+     restoreManifestDeps(config.profile, manifestBefore, activeProfileDir)
++    restoreProfileBundles(activeProfileDir, bundlesBefore)
+     logEvent('info', 'update-rollback', `${name}: restored github build at ${beforeCommit}`)
+     return { ok: true, detail: null }
+   }
+@@ -1196,12 +1220,23 @@ export function mountMarketRoutes(
+           // to try THIS plugin early, not to be handed every other author's
+           // unreleased work.
+           const channel = activeChannel()
++          const installed = readInstalled(config.profile, activeProfileDir)
++          const identity = marketIdentity()
++          const installedSelfNames = Object.keys(installed).filter(name => SELF_NAMES.has(name))
++          // Desktop provides dshmarket from the application dependency graph,
++          // not the profile manifest. Keep that running build visible to the
++          // ordinary update checker until the first upgrade installs a
++          // profile-local version.
++          const hostProvided = installedSelfNames.length === 0
++            ? new Map([[identity.name, identity.version]])
++            : new Map<string, string>()
+           const channelFor = new Map(
+-            Object.keys(readInstalled(config.profile, activeProfileDir))
+-              .filter(name => SELF_NAMES.has(name))
++            (installedSelfNames.length > 0 ? installedSelfNames : [identity.name])
+               .map(name => [name, channel] as const),
+           )
+-          sendJson(response, 200, { updates: await checkUpdates(config.profile, force, activeProfileDir, channelFor) })
++          sendJson(response, 200, {
++            updates: await checkUpdates(config.profile, force, activeProfileDir, channelFor, hostProvided),
++          })
+         } catch (error) {
+           sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
+         }
+@@ -1226,7 +1261,9 @@ export function mountMarketRoutes(
+             const body = (await readJsonBody(request)) as { name?: unknown; force?: unknown }
+             const name = typeof body.name === 'string' ? body.name : ''
+             const force = body.force === true
+-            const spec = readInstalled(config.profile, activeProfileDir)[name]
++            const identity = marketIdentity()
++            const installed = readInstalled(config.profile, activeProfileDir)
++            const spec = installed[name] ?? (name === identity.name ? identity.version : undefined)
+             if (spec === undefined) {
+               sendJson(response, 400, { error: 'plugin is not installed' })
+               return
+@@ -1250,7 +1287,7 @@ export function mountMarketRoutes(
+               })
+               return
+             }
+-            const beforeInstalled = readInstalled(config.profile, activeProfileDir)
++            const beforeInstalled = installed
+             // Re-running add re-resolves the source: git HEAD for github specs,
+             // dist-tag latest for registry installs.
+             const isGit = spec.startsWith('github:')
+@@ -1275,6 +1312,7 @@ export function mountMarketRoutes(
+             // rather than `latest`, which is not the tag being installed.
+             if (!isGit) {
+               const installedVersion = readInstalledVersion(config.profile, name, activeProfileDir)
++                ?? (name === identity.name ? identity.version : null)
+               const registryLatest = selfChannel === null
+                 ? await fetchNpmLatest(name)
+                 : await versionOnChannel(name, selfChannel, await fetchNpmLatest(name))
+@@ -1299,6 +1337,7 @@ export function mountMarketRoutes(
+             const wasLive = verifyActivation(config.profile, name, liveNames(), activeProfileDir, disabled.has(name)).state === 'live'
+               && hasHostHalf(config.profile, name, activeProfileDir)
+             const beforeVersion = readInstalledVersion(config.profile, name, activeProfileDir)
++              ?? (name === identity.name ? identity.version : null)
+             const beforeCommit = repoKey !== null
+               ? readLockCommits(config.profile, activeProfileDir).get(repoKey) ?? null
+               : null
+@@ -1311,11 +1350,16 @@ export function mountMarketRoutes(
+             pendingRollbacks.clear()
+             const compatibilityBefore = assessProfile(config.profile, activeProfileDir)
+             const manifestBefore = readManifestDeps(config.profile, activeProfileDir)
++            const bundlesBefore = readProfileBundles(activeProfileDir)
++            const trialBeforeStack = readBundleStack(activeProfileDir)
++            const trialBefore = trialValidate(activeProfileDir, trialBeforeStack.community)
+             const result = await runPlugin(config.profile, addArgs)
+             const cancelled = result.cancelled
+             if ((result.exitCode !== 0 || result.timedOut) && !cancelled) {
+               const rolledBack = restoreManifestDeps(config.profile, manifestBefore, activeProfileDir)
++              const bundlesRolledBack = restoreProfileBundles(activeProfileDir, bundlesBefore)
+               if (rolledBack.length > 0) logEvent('warn', 'update', `${name}: rolled back manifest residue of the failed run: ${rolledBack.join(', ')}`)
++              if (bundlesRolledBack) logEvent('warn', 'update', `${name}: rolled back bundle stack residue of the failed run`)
+             }
+             let ok = result.exitCode === 0 && !result.timedOut && !cancelled
+             let stale = false
+@@ -1349,7 +1393,7 @@ export function mountMarketRoutes(
+             if (ok && !hasLoadableEntry(activeProfileDir, name)) {
+               brokenEntry = true
+               ok = false
+-              const rollback = await rollbackUpdateBuild(name, manifestBefore)
++              const rollback = await rollbackUpdateBuild(name, manifestBefore, bundlesBefore)
+               rollbackOk = rollback.ok
+               rollbackDetail = rollback.detail
+               logEvent('error', 'update',
+@@ -1364,10 +1408,12 @@ export function mountMarketRoutes(
+             if (ok) {
+               const stack = readBundleStack(activeProfileDir)
+               const trial = trialValidate(activeProfileDir, stack.community)
+-              if (!trial.ok) {
++              const baselineErrors = new Set(trialBefore.errors.map(error => `${error.layer}\0${error.message}`))
++              const introducedErrors = trial.errors.filter(error => !baselineErrors.has(`${error.layer}\0${error.message}`))
++              if (introducedErrors.length > 0) {
+                 ok = false
+-                const first = trial.errors[0]?.message ?? 'the composition would not boot'
+-                const rollback = await rollbackUpdateBuild(name, manifestBefore)
++                const first = introducedErrors[0]?.message ?? 'the composition would not boot'
++                const rollback = await rollbackUpdateBuild(name, manifestBefore, bundlesBefore)
+                 rollbackOk = rollback.ok
+                 rollbackDetail = rollback.detail
+                 trialError = rollback.ok
+@@ -1406,6 +1452,7 @@ export function mountMarketRoutes(
+                     kind: 'update',
+                     names: [name],
+                     manifestBefore,
++                    bundlesBefore,
+                     ...(isGit ? { gitTarget: target, beforeCommit } : {}),
+                   }),
+                 }
+@@ -1944,8 +1991,8 @@ export function mountMarketRoutes(
+             if (pending.kind === 'update') {
+               const name = pending.names[0]!
+               const result = pending.gitTarget !== undefined
+-                ? await rollbackGitBuild(name, pending.manifestBefore!, pending.gitTarget, pending.beforeCommit ?? null)
+-                : await rollbackUpdateBuild(name, pending.manifestBefore!)
++                ? await rollbackGitBuild(name, pending.manifestBefore!, pending.bundlesBefore!, pending.gitTarget, pending.beforeCommit ?? null)
++                : await rollbackUpdateBuild(name, pending.manifestBefore!, pending.bundlesBefore!)
+               ok = result.ok
+               detail = result.detail
+             } else {
+diff --git a/src/updates.ts b/src/updates.ts
+index 99b500573d2e5c7fa9d4ab27555d4e507f7bb0c4..e67bfaf79ae0228e022f445bbe9be1d4ab0962ca 100644
+--- a/src/updates.ts
++++ b/src/updates.ts
+@@ -211,23 +211,36 @@ export async function checkUpdates(
+    * ever the market itself: opting into early builds is volunteering to try
+    * THIS plugin early, not a licence to pull every other author's
+    * unreleased work.
+-   */
++  */
+   channelFor: ReadonlyMap<string, Channel> = new Map(),
++  /**
++   * npm packages supplied by the host rather than the profile manifest.
++   * DSH Desktop bundles the selected market provider with the application,
++   * so the running market is real and versioned even before its first
++   * profile-local upgrade adds it to dependencies.
++   */
++  hostProvidedNpmVersions: ReadonlyMap<string, string> = new Map(),
+ ): Promise<Record<string, UpdateStatus>> {
+   const activeProfileDir = profileDir(profile, explicitDir)
+   // The channel is part of the key: switching to betas has to change the
+   // answer immediately, and a cache keyed on the profile alone would serve
+   // the stable verdict for the rest of the TTL — reading as "the setting did
+   // nothing".
+-  const cacheKey = `${activeProfileDir}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}`
++  const cacheKey = `${activeProfileDir}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}\u0000${[...hostProvidedNpmVersions].map(([n, v]) => `${n}:${v}`).sort().join(',')}`
+   if (!force && updatesCache?.key === cacheKey && Date.now() - updatesCache.at < UPDATES_TTL_MS) {
+     return updatesCache.data
+   }
+   const installed = readInstalled(profile, activeProfileDir)
++  const provided = new Map<string, string>()
++  for (const [name, version] of hostProvidedNpmVersions) {
++    if (installed[name] !== undefined) continue
++    installed[name] = version
++    provided.set(name, version)
++  }
+   const lockCommits = readLockCommits(profile, activeProfileDir)
+   const result: Record<string, UpdateStatus> = {}
+   await Promise.all(Object.entries(installed).map(async ([name, spec]) => {
+-    const version = readInstalledVersion(profile, name, activeProfileDir)
++    const version = provided.get(name) ?? readInstalledVersion(profile, name, activeProfileDir)
+     if (spec.startsWith('link:') || spec.startsWith('file:')) {
+       result[name] = { kind: 'linked', version, current: null, latest: null, updateAvailable: false }
+       return

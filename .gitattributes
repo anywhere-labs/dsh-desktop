@@ -1,2 +1,3 @@
 * text=auto eol=lf
-patches/*.patch text eol=lf
+patches/*.patch text eol=lf whitespace=-space-before-tab
+.yarn/patches/*.patch text eol=lf whitespace=-space-before-tab,-blank-at-eol

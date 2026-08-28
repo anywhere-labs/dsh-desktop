@@ -2,14 +2,14 @@
 
 ## 总览
 
-DSH Desktop 是一个薄的 Electron 宿主。它在 Electron main 进程中启动官方 DSH Host，Host 再通过 loopback HTTP/WebSocket 提供普通 Web UI。Desktop 没有另造一条 renderer IPC 插件系统，也不把 Electron API暴露给页面。
+DSH Desktop 是一个薄的 Electron 宿主。它在 Electron main 进程中启动官方 DSH Host，Host 再通过 HTTP/WebSocket Web carrier 提供普通 Web UI；carrier 默认只监听回环地址，也可在用户明确确认风险后向局域网开放。Desktop 没有另造一条 renderer IPC 插件系统，也不把 Electron API 暴露给页面。
 
 ```mermaid
 flowchart LR
   User[用户] --> Native[Electron main / tray / window]
   Native --> Launcher[Profile launcher]
   Launcher --> Host[Host Cordis generation]
-  Host --> Carrier[Loopback HTTP + WebSocket]
+  Host --> Carrier[HTTP + WebSocket Web carrier]
   Carrier --> Renderer[Sandboxed Web renderer]
   Host --> Upstream[Upstream DSH services]
   Host --> Desktop[Desktop-owned plugins]
@@ -25,7 +25,7 @@ flowchart LR
 3. Launcher 提供当前 generation 的 native runtime、`desktopProfiles` bootstrap 和内置 pnpm 环境。
 4. Host Cordis root 启动 Loader entries。Desktop service 在第三方插件可读取前注册。
 5. 官方 `dsh-base`、`dsh-web-app` 和 profile 中的第三方 bundle 组成 Web carrier。
-6. Host 绑定 loopback 端口，Electron 创建 BrowserWindow 并加载同源页面。
+6. Host 默认绑定 loopback，也可按已确认的设置绑定所有网络接口；Electron 创建 BrowserWindow 并从 loopback 地址加载同源页面。
 7. Web surface 成功加载后才创建托盘并提交 profile 的 last-known-good 状态。
 
 任何 profile 或模式切换都会 dispose 当前 generation，再启动新的 generation。Service reference、窗口对象和 subprocess handle 都不能跨 generation 缓存。
@@ -34,10 +34,12 @@ flowchart LR
 
 - **Upstream Host**：agent、model、tool、session、settings、webServer 和 subprocess 等官方能力。
 - **Desktop Host**：窗口、托盘、profile、终端、更新，以及对第三方开放的两个 service。
-- **Web Client**：官方 Web UI 和第三方浏览器界面。它通过 loopback carrier 工作，不直接调用 Electron。
+- **Web Client**：官方 Web UI 和第三方浏览器界面。它通过共享 Web carrier 工作，不直接调用 Electron。
 - **Native runtime**：Electron BrowserWindow、系统托盘、文件/网络/安装器适配。`desktopRuntime` 只供 Desktop 自有 row 使用。
 
-兼容模式的 Client face 校验环境后直接返回，不注册 Desktop layout、root、sidebar 或 conversation override。高级模式才安装 Desktop-owned layout、frame 和原生材质，同时尊重上游和第三方 slot 组合。
+兼容模式的 Client face 会校验环境，并且只通过 overlay slot 加入一条独立的 36 像素 Desktop frame；官方 layout、root、sidebar 与 conversation 作为完全无关的内容 viewport 从它下方开始。扩展窗口会禁用官方 root layout，安装自己独立注册的 Desktop layout/sidebar surface，并在倒 L 材质 frame 中继续承载官方 sidebar、conversation 与 details occupant。增强模式保留独立 root registration 与最初的紧凑内部 caption 几何。macOS 与 Windows 会按系统能力使用原生材质，同时不改变上游 occupant slot 的所有权。
+
+Desktop 级确认、警告、错误与结果不会进入 Web Client 组件树。`DesktopDialogWindow` 会创建独立、沙箱化的模态 `BrowserWindow`，应用共享的空白 utility frame，并在可能时以当前 generation 窗口为 parent，只接受一次有界本地结果。恢复模式与新增 Profile 是使用同一套无标题 frame 的独立 Desktop-owned 窗口。恢复页面本身使用 shadcn，先展示原因，再提供四个工作流 Tab；破坏性恢复操作会把确认交回 `DesktopDialogWindow`。
 
 ### 原生 Shell generation 与平台 adapter
 

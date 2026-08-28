@@ -4,9 +4,16 @@ import {
   MAX_VERSION_RESPONSE_BYTES,
   checkForStableUpdate,
   compareSemVerVersions,
+  desktopVersionRequestHeaders,
   parseSemVer,
   type UpdateRequest,
 } from '../src/update-checker.ts'
+import {
+  assertDesktopInstallationId,
+  DESKTOP_INSTALLATION_ID_HEADER,
+} from '../src/desktop-installation-id.ts'
+
+const INSTALLATION_ID = assertDesktopInstallationId('01234567-89ab-4cde-8f01-23456789abcd')
 
 function versionResponse(version: unknown, init: ResponseInit = {}): Response {
   return Response.json({ version }, init)
@@ -62,6 +69,7 @@ describe('public Desktop version check', () => {
 
     await expect(checkForStableUpdate({
       currentVersion: '2.9.9',
+      installationId: INSTALLATION_ID,
       signal: controller.signal,
       request,
     })).resolves.toEqual({
@@ -81,8 +89,28 @@ describe('public Desktop version check', () => {
     })
     const headers = new Headers(calls[0]?.init.headers)
     expect(headers.get('accept')).toBe('application/json')
+    expect(headers.get(DESKTOP_INSTALLATION_ID_HEADER)).toBe(INSTALLATION_ID)
     expect(headers.has('if-none-match')).toBe(false)
     expect(headers.has('x-github-api-version')).toBe(false)
+  })
+
+  it('builds a bounded version-check header set and rejects malformed identities', () => {
+    expect(desktopVersionRequestHeaders(INSTALLATION_ID)).toEqual({
+      Accept: 'application/json',
+      [DESKTOP_INSTALLATION_ID_HEADER]: INSTALLATION_ID,
+    })
+    expect(desktopVersionRequestHeaders()).toEqual({ Accept: 'application/json' })
+    expect(() => desktopVersionRequestHeaders('not-a-uuid')).toThrow('canonical lowercase UUID v4')
+  })
+
+  it('skips the fixed endpoint when an invalid installation identity reaches the checker', async () => {
+    const request = vi.fn(async () => versionResponse('2.1.0'))
+    await expect(checkForStableUpdate({
+      currentVersion: '2.0.0',
+      installationId: 'not-a-uuid' as never,
+      request,
+    })).resolves.toBeNull()
+    expect(request).not.toHaveBeenCalled()
   })
 
   it.each([

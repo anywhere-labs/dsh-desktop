@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import { FileSettingsProvider } from '@deepseek-ai/dsh-settings-file'
@@ -18,6 +19,7 @@ import {
 const PACKAGE_NAME = 'dsh-plugin-market-integration'
 const PACKAGE_VERSION = '1.2.3'
 const INTEGRITY = `sha512-${Buffer.alloc(64).toString('base64')}`
+const BUNDLE_ID = 'bundle_market_integration'
 
 interface CommunityMarketModule {
   readonly name: string
@@ -40,9 +42,7 @@ function bootstrap(root: string, profileDir: string): DesktopPnpmBootstrap {
     nodeBinDir: join(root, 'runtime', 'node-bin'),
     nodeShimPath: join(root, 'runtime', 'node-bin', 'node'),
     clearEnvironmentPath: join(root, 'runtime', 'clear-env.mjs'),
-    dshBootstrapPath: join(root, 'app.asar', 'lib', 'desktop-cli.js'),
-    installRecoveryStatePath: join(root, 'plugin-install-recovery', 'state.json'),
-    generationId: 'market-integration-generation-0001',
+    dshBootstrapPath: join(root, 'runtime', 'desktop-cli.js'),
   }
 }
 
@@ -149,25 +149,12 @@ describe('desktop pnpm and community market integration', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-market-desktop-pnpm-'))
     const profileDir = join(root, 'profiles', 'web')
     const settingsPath = join(root, 'settings.yaml')
-    const receipt = {
-      receiptId: 'receipt:desktop-market-integration-0001',
-      profileName: 'web',
-      packageName: PACKAGE_NAME,
-      version: PACKAGE_VERSION,
-      integrity: INTEGRITY,
-      bundlePatch: './cordis.patch.yml',
-      sourceRecordId: 'source-integration-1',
-      providerId: 'provider-integration-1',
-      itemId: 'example/dsh-plugin-market-integration',
-      displayName: 'Market Integration Plugin',
-      installedAt: '2026-08-18T00:00:00.000Z',
-    }
     const ctx = new Context()
     const webServer = await createWebServer()
     try {
       await writeInstalledProfile(profileDir)
       await writeFile(settingsPath, stringifyYaml({
-        'dsh-community-market': { sources: [], installReceipts: [receipt] },
+        'dsh-community-market': { sources: [] },
       }))
 
       const selectedBootstrap = bootstrap(root, profileDir)
@@ -186,6 +173,15 @@ describe('desktop pnpm and community market integration', () => {
       }))
       ctx.provide('webServer', webServer.service as never)
       ctx.provide('desktopProfiles', { current: { name: 'web', dir: profileDir } })
+      ctx.provide('desktopPlugins', {
+        list: () => [{
+          bundleId: BUNDLE_ID,
+          packageName: PACKAGE_NAME,
+          status: 'active',
+          mutable: true,
+          uninstallable: true,
+        }],
+      })
       ctx.provide('desktopPnpmBootstrap', selectedBootstrap)
       ctx.provide('subprocess', { spawn } as unknown as SubprocessRuntime)
       await ctx.plugin(FileSettingsProvider, { path: settingsPath, watch: false })
@@ -194,7 +190,7 @@ describe('desktop pnpm and community market integration', () => {
 
       const preview = await webServer.post(market.marketRoutes.operationPreview, {
         action: 'uninstall',
-        receiptId: receipt.receiptId,
+        bundleId: BUNDLE_ID,
       })
       expect(preview).toMatchObject({
         status: 200,
@@ -209,7 +205,6 @@ describe('desktop pnpm and community market integration', () => {
         status: 200,
         body: {
           action: 'uninstall',
-          receiptId: receipt.receiptId,
           packageName: PACKAGE_NAME,
         },
       })
@@ -217,11 +212,10 @@ describe('desktop pnpm and community market integration', () => {
       expect(spawn.mock.calls[0]?.[0]).toMatchObject({
         argv: [
           selectedBootstrap.appExecutable,
-          '--expose-internals',
-          selectedBootstrap.dshBootstrapPath,
-          'plugin',
-          '--profile',
-          'web',
+          '--import',
+          pathToFileURL(selectedBootstrap.clearEnvironmentPath).href,
+          selectedBootstrap.pnpmBinPath,
+          '--config.minimumReleaseAge=0',
           'remove',
           PACKAGE_NAME,
         ],
@@ -230,9 +224,9 @@ describe('desktop pnpm and community market integration', () => {
       })
 
       const persisted = parseYaml(await readFile(settingsPath, 'utf8')) as {
-        'dsh-community-market': { installReceipts: unknown[] }
+        'dsh-community-market': { sources: unknown[]; installReceipts?: unknown[] }
       }
-      expect(persisted['dsh-community-market'].installReceipts).toEqual([])
+      expect(persisted['dsh-community-market']).toEqual({ sources: [] })
       const manifest = JSON.parse(await readFile(join(profileDir, 'package.json'), 'utf8')) as {
         dependencies: Record<string, string>
       }

@@ -153,6 +153,7 @@ export async function captureLoginShellEnvironment(
     detached: true,
     env: environment,
     stdio: ['ignore', 'pipe', 'ignore'],
+    windowsHide: true,
   })
   const killShellTree = (): void => {
     try {
