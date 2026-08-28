@@ -2,7 +2,7 @@
 
 import { app, crashReporter, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   boot,
@@ -472,6 +472,9 @@ async function start(): Promise<void> {
     if (electronVersion === undefined) {
       throw new Error(`${BIN_NAME}: plugin runtime requires the Electron runtime version`)
     }
+    // Host plugins may resolve DSH-provided packages from the packaged runtime.
+    // Keep an explicit override for local development and custom DSH installs.
+    process.env.DSH_ROOT ??= dirname(packagedDependencyPath(import.meta.url, '@deepseek-ai/dsh/package.json'))
     const pnpmBinPath = packagedDependencyPath(import.meta.url, 'pnpm/bin/pnpm.mjs')
     const pnpmRuntime = installDesktopPnpmRuntime({
       platform: process.platform,
