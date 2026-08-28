@@ -49,7 +49,7 @@ The renderer receives ordinary Web Client modules over the existing loopback car
 Import the Client contract from the supported client export and inject `desktopWindow` only in browser-side code:
 
 ```ts
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { DesktopWindowService } from 'dsh-plugin-desktop/client'
 
 export const inject = ['desktopWindow']
@@ -69,9 +69,9 @@ export function apply(ctx: ClientContext): void {
 interface DesktopWindowService {
   readonly mode: 'compatibility' | 'extended' | 'advanced'
   readonly platform: 'darwin' | 'win32' | 'linux'
-  readonly material: 'off' | 'transparent' | 'acrylic' | 'mica'
+  readonly material: 'off' | 'transparent' | 'mica'
   readonly micaSupported: boolean
-  readonly availableMaterials: readonly ('off' | 'transparent' | 'acrylic' | 'mica')[]
+  readonly availableMaterials: readonly ('off' | 'transparent' | 'mica')[]
   readonly safeAreaInsets: {
     readonly top: number
     readonly right: number
@@ -86,7 +86,7 @@ interface DesktopWindowService {
 }
 ```
 
-All values remain fixed for one renderer generation, and geometry uses CSS pixels. `material` is the effective, capability-gated backdrop rather than merely the persisted preference. `availableMaterials` is `off/transparent` on macOS, `off/acrylic` on Windows 10, and adds `mica` on Windows 11 build 22621 or newer.
+All values remain fixed for one renderer generation, and geometry uses CSS pixels. `material` is the effective, capability-gated backdrop rather than merely the persisted preference. `availableMaterials` is `off/transparent` on macOS, `off` on Windows 10, and `off/mica` on Windows 11 build 22621 or newer. The removed legacy `acrylic` preference is read as `off` and migrated when the settings document is writable.
 
 Compatibility and extended modes report the same 36-pixel top reservation and drag band on macOS and Windows; they exclude 80 pixels on the left for macOS traffic lights or 138 pixels on the right for Windows caption controls. Desktop shifts the complete official frame below this reservation in compatibility mode. Extended instead owns the root layout/sidebar surface and hosts the official sidebar, conversation, and details occupants below the same reservation, so ordinary occupants must not add it again. Linux compatibility keeps its ordinary native frame and therefore reports zero insets and a zero-height drag region. Advanced mode has independent compact geometry: macOS reports a 20-pixel content inset and 32-pixel drag band with an 80-pixel left exclusion, while Windows reports a 32-pixel content inset and drag band with a 138-pixel right exclusion.
 
@@ -173,11 +173,11 @@ New integrations should prefer direct pnpm argv, for example:
 ['install', '--no-frozen-lockfile']
 ```
 
-For `run()`, the caller owns package identity policy, command construction, `dsh.profile.bundles` reconciliation, receipts, and post-operation validation. The compatibility adapters delegate bundle reconciliation to the packaged DSH CLI. None of the three methods snapshots, rolls back, retries, protects, or records package operations. Desktop recovery is independent: each healthy startup writes one of three rotating Profile checkpoints, and the user may explicitly restore an exact slot from Recovery.
+For `run()`, the caller owns package identity policy, command construction, `dsh.profile.bundles` reconciliation, receipts, and post-operation validation. The compatibility adapters delegate bundle reconciliation to the packaged DSH CLI. None of the three methods snapshots, rolls back, retries, protects, or records package operations. Desktop recovery is independent: each healthy startup writes one of three rotating configuration checkpoints covering the active Profile plus shared Harness-home settings and patches, and the user may explicitly restore an exact slot from Recovery.
 
 The service starts at most one package operation per generation. A second call while one is active throws synchronously. It exposes output instead of choosing a progress UI, and it has no built-in timeout. The consumer owns deadlines, reads both streams, reports progress, calls `cancel()` or aborts its signal when needed, awaits `done`, and checks both `exitCode` and `signal`.
 
-Invalid argv, a closed or busy generation, and a signal that was already aborted all throw synchronously before a handle is returned. After a handle exists, cancellation and generation teardown target the complete subprocess tree. `done` does not settle merely because the direct wrapper exits; the operation gate remains held until descendants are gone. An asynchronous spawn-level failure rejects `done`, while a normal command failure resolves it with a nonzero exit code. On Windows the provider launches the exact packaged pnpm entry with argv and delegates tree ownership to the subprocess service, so plugin authors do not need to discover `.cmd` shims or concatenate shell text.
+Invalid argv, a closed or busy generation, and a signal that was already aborted all throw synchronously before a handle is returned. After a handle exists, cancellation and generation teardown target the complete subprocess tree. `done` does not settle merely because the direct wrapper exits; the operation gate remains held until descendants are gone. An asynchronous spawn-level failure rejects `done`, while a normal command failure resolves it with a nonzero exit code. Desktop process-locally adds exactly one `--config.minimumReleaseAge=0` at the final pnpm boundary, including packaged `dsh plugin` forwarding and terminal shims, without persisting a user configuration change. On Windows the provider launches the exact packaged pnpm entry with argv and delegates tree ownership to the subprocess service, so plugin authors do not need to discover `.cmd` shims or concatenate shell text.
 
 ## Internal and launcher-private capabilities
 

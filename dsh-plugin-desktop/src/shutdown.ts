@@ -111,8 +111,12 @@ export interface DesktopSignalSource {
 export interface DesktopQuitSource {
   /** Register the native quit guard. */
   on(event: 'before-quit', listener: (event: DesktopQuitEvent) => void): unknown
+  /** Keep the single-instance process alive while native startup windows transition. */
+  on(event: 'window-all-closed', listener: () => void): unknown
   /** Remove the native quit guard. */
   off(event: 'before-quit', listener: (event: DesktopQuitEvent) => void): unknown
+  /** Remove the windowless-transition guard. */
+  off(event: 'window-all-closed', listener: () => void): unknown
 }
 
 /**
@@ -133,12 +137,19 @@ export function installShutdownRequests(
     event.preventDefault()
     requestQuit(0)
   }
+  // Electron otherwise quits by default when the last pre-Host window is
+  // destroyed. Setup and recovery intentionally close before the main
+  // renderer mounts, so final process lifetime must stay under this explicit
+  // shutdown coordinator instead.
+  const windowAllClosed = (): void => {}
   signals.on('SIGINT', interrupt)
   signals.on('SIGTERM', terminate)
   nativeApp.on('before-quit', beforeQuit)
+  nativeApp.on('window-all-closed', windowAllClosed)
   return () => {
     signals.off('SIGINT', interrupt)
     signals.off('SIGTERM', terminate)
     nativeApp.off('before-quit', beforeQuit)
+    nativeApp.off('window-all-closed', windowAllClosed)
   }
 }

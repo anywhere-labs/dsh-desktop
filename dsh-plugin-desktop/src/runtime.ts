@@ -1,11 +1,13 @@
 import type { Context } from '@deepseek-ai/cordis'
+import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
 import type { RendererBootReport } from './renderer-boot-contract.ts'
 import type { UpdateCheckResult, UpdateRequest } from './update-checker.ts'
+import type { DesktopInstallationId } from './desktop-installation-id.ts'
 import type { ProfileCreateWindowOptions } from './profile-create-window.ts'
 import type {
   DesktopWindowMaterial,
   MacosWindowMaterial,
-  WindowsWindowMaterial,
+  PersistedWindowsWindowMaterial,
 } from './window-material.ts'
 
 /** Electron platforms supported by the DSH Desktop native adapter. */
@@ -27,7 +29,7 @@ export interface DesktopWindowConfig {
   /** macOS material preference retained independently across platforms. */
   macosMaterial: MacosWindowMaterial
   /** Windows material preference retained independently across platforms. */
-  windowsMaterial: WindowsWindowMaterial
+  windowsMaterial: PersistedWindowsWindowMaterial
   /** Initial window width in CSS pixels. */
   width: number
   /** Initial window height in CSS pixels. */
@@ -105,6 +107,8 @@ export interface DesktopUpdateAdapter {
   readonly currentVersion: string
   /** Private file used to suppress repeated background update announcements. */
   readonly statePath: string
+  /** Pseudonymous installation UUID attached only to the fixed version endpoint. */
+  readonly installationId?: DesktopInstallationId
   /** Request adapter backed by Electron's native network session. */
   readonly request: UpdateRequest
   /** Ask whether one strictly newer version may be downloaded. */
@@ -135,6 +139,10 @@ export interface DesktopShellSpec extends DesktopWindowConfig {
   windowsBuild?: number
   /** Unmodified Web root served by the active DSH profile. */
   url: string
+  /** Official one-time launch URL used to mint this Electron session's browser cookie. */
+  authenticationUrl: string
+  /** Ephemeral capability attached by Electron to this renderer generation's requests. */
+  rendererAccessHeader: DesktopRendererAccessHeader
   /** Native application and tray label. */
   productName: string
   /** Visible native caption on platforms that retain a title. */

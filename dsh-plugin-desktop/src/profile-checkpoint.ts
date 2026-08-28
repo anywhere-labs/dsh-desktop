@@ -1,10 +1,11 @@
 /**
- * Profile-scoped healthy-start checkpoints for Desktop recovery.
+ * Healthy-start configuration checkpoints for Desktop recovery.
  *
  * Exactly three rotating slots are retained. Restoring a slot never launches
- * pnpm and never copies node_modules; it only restores the declarative Profile
- * files listed below. The first healthy startup after a restore intentionally
- * consumes a skip marker instead of replacing a checkpoint.
+ * pnpm and never copies node_modules; it only restores the fixed declarative
+ * Profile and Harness-home files listed below. The first healthy startup after
+ * a restore intentionally consumes a skip marker instead of replacing a
+ * checkpoint.
  */
 
 import { createHash, randomUUID } from 'node:crypto'
@@ -27,7 +28,8 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 const BIN_NAME = 'dsh-plugin-desktop'
-const MANIFEST_VERSION = 2
+const MANIFEST_VERSION = 3
+const LEGACY_MANIFEST_VERSION = 2
 const SKIP_MARKER_VERSION = 1
 const SNAPSHOT_ROOT = 'health-snapshots'
 const MANIFEST_FILENAME = 'manifest.json'
@@ -41,8 +43,7 @@ const ID_PATTERN = /^[A-Za-z0-9._:@/-]{1,256}$/u
 export const DESKTOP_PROFILE_CHECKPOINT_SLOT_IDS = ['slot-1', 'slot-2', 'slot-3'] as const
 export type DesktopProfileCheckpointSlotId = typeof DESKTOP_PROFILE_CHECKPOINT_SLOT_IDS[number]
 
-/** Files covered by unified startup recovery. The market state is optional. */
-export const DESKTOP_PROFILE_CHECKPOINT_FILES = [
+const LEGACY_PROFILE_CHECKPOINT_FILES = [
   'package.json',
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
@@ -50,7 +51,15 @@ export const DESKTOP_PROFILE_CHECKPOINT_FILES = [
   '.dsh-market/state.json',
 ] as const
 
+/** Files covered by unified startup recovery. Optional files retain absence. */
+export const DESKTOP_PROFILE_CHECKPOINT_FILES = [
+  ...LEGACY_PROFILE_CHECKPOINT_FILES,
+  'home/settings.yaml',
+  'home/cordis.patch.yml',
+] as const
+
 export type DesktopProfileCheckpointFilename = typeof DESKTOP_PROFILE_CHECKPOINT_FILES[number]
+type LegacyProfileCheckpointFilename = typeof LEGACY_PROFILE_CHECKPOINT_FILES[number]
 
 const FILE_LIMITS: Record<DesktopProfileCheckpointFilename, number> = {
   'package.json': 1 * 1024 * 1024,
@@ -58,6 +67,8 @@ const FILE_LIMITS: Record<DesktopProfileCheckpointFilename, number> = {
   'pnpm-workspace.yaml': 1 * 1024 * 1024,
   'cordis.patch.yml': 1 * 1024 * 1024,
   '.dsh-market/state.json': 1 * 1024 * 1024,
+  'home/settings.yaml': 4 * 1024 * 1024,
+  'home/cordis.patch.yml': 1 * 1024 * 1024,
 }
 
 export interface ProfileCheckpointOptions {
@@ -65,6 +76,7 @@ export interface ProfileCheckpointOptions {
   readonly userData?: string
   readonly profileDir?: string
   readonly profilePath?: string
+  readonly homeDir?: string
   readonly profileIdentity?: string
   readonly profileName?: string
   readonly provider?: string
@@ -82,18 +94,28 @@ export interface ProfileCheckpointFileRecord {
   readonly mode?: number
 }
 
-export interface ProfileCheckpointManifest {
-  readonly version: 2
+interface ProfileCheckpointManifestMetadata {
   readonly snapshotId: string
   readonly capturedAt: string
   readonly profileIdentity: string
   readonly profileName: string
   readonly provider: string
-  readonly files: readonly ProfileCheckpointFileRecord[]
   readonly slotId: DesktopProfileCheckpointSlotId
   readonly reason: 'healthy-startup'
   readonly appVersion: string
 }
+
+export interface ProfileCheckpointManifestV2 extends ProfileCheckpointManifestMetadata {
+  readonly version: 2
+  readonly files: readonly (ProfileCheckpointFileRecord & { readonly name: LegacyProfileCheckpointFilename })[]
+}
+
+export interface ProfileCheckpointManifestV3 extends ProfileCheckpointManifestMetadata {
+  readonly version: 3
+  readonly files: readonly ProfileCheckpointFileRecord[]
+}
+
+export type ProfileCheckpointManifest = ProfileCheckpointManifestV2 | ProfileCheckpointManifestV3
 
 export interface ProfileCheckpointSlot {
   readonly slotId: DesktopProfileCheckpointSlotId
@@ -130,6 +152,8 @@ export interface RestoreResult {
   readonly status: 'restored'
   readonly slotId: DesktopProfileCheckpointSlotId
   readonly changedFiles: readonly DesktopProfileCheckpointFilename[]
+  /** Remains true across retries until packaged pnpm has reconciled the restored dependency files. */
+  readonly dependencyMaterializationRequired: boolean
   readonly snapshotDirectory: string
 }
 
@@ -137,6 +161,7 @@ interface SkipHealthyMarker {
   readonly version: 1
   readonly restoredSlotId: DesktopProfileCheckpointSlotId
   readonly restoredAt: string
+  readonly dependencyMaterializationPending: boolean
 }
 
 interface FileImage {
@@ -269,11 +294,31 @@ function filePath(root: string, name: DesktopProfileCheckpointFilename): string 
   return path
 }
 
-function assertProfileFileParent(profileDir: string, name: DesktopProfileCheckpointFilename): void {
-  const parent = dirname(filePath(profileDir, name))
+function checkpointFiles(version: unknown): readonly DesktopProfileCheckpointFilename[] {
+  if (version === LEGACY_MANIFEST_VERSION) return LEGACY_PROFILE_CHECKPOINT_FILES
+  if (version === MANIFEST_VERSION) return DESKTOP_PROFILE_CHECKPOINT_FILES
+  fail('checkpoint manifest is invalid')
+}
+
+function targetPath(
+  profileDir: string,
+  homeDir: string,
+  name: DesktopProfileCheckpointFilename,
+): string {
+  if (name === 'home/settings.yaml') return join(homeDir, 'settings.yaml')
+  if (name === 'home/cordis.patch.yml') return join(homeDir, 'cordis.patch.yml')
+  return filePath(profileDir, name)
+}
+
+function assertTargetParent(
+  profileDir: string,
+  homeDir: string,
+  name: DesktopProfileCheckpointFilename,
+): void {
+  const parent = dirname(targetPath(profileDir, homeDir, name))
   try {
     const item = lstatSync(parent)
-    if (item.isSymbolicLink() || !item.isDirectory()) fail(`profile checkpoint parent must be a real directory: ${name}`)
+    if (item.isSymbolicLink() || !item.isDirectory()) fail(`checkpoint target parent must be a real directory: ${name}`)
     realpathSync(parent)
   } catch (cause) {
     if (!isENOENT(cause)) throw cause
@@ -284,6 +329,7 @@ function assertProfileFileParent(profileDir: string, name: DesktopProfileCheckpo
 export class DesktopProfileCheckpoint {
   readonly userDataDir: string
   readonly profileDir: string
+  readonly homeDir: string
   readonly profileIdentity: string
   readonly profileName: string
   readonly provider: string
@@ -299,6 +345,7 @@ export class DesktopProfileCheckpoint {
     if (userData === undefined || profile === undefined) fail('userDataDir and profileDir are required')
     this.userDataDir = realDirectory('userDataDir', userData)
     this.profileDir = realDirectory('profileDir', profile)
+    this.homeDir = realDirectory('homeDir', options.homeDir ?? resolve(this.profileDir, '..', '..'))
     this.profileIdentity = assertIdentifier('profile identity', options.profileIdentity ?? hash(this.profileDir))
     this.profileName = assertProfileName(options.profileName ?? 'desktop')
     this.provider = assertIdentifier('provider', options.provider ?? 'unknown')
@@ -342,7 +389,7 @@ export class DesktopProfileCheckpoint {
   /** Capture every healthy startup, rotating the oldest of the three slots. */
   captureHealthy(): CaptureHealthyResult {
     this.recoverOrphanedSlots()
-    const current = this.readCurrentImages(true)
+    const current = this.readCurrentImages(DESKTOP_PROFILE_CHECKPOINT_FILES, true)
     const skip = this.readSkipMarker()
     if (skip !== undefined) {
       unlinkSync(join(this.profileRoot, SKIP_MARKER_FILENAME))
@@ -369,10 +416,10 @@ export class DesktopProfileCheckpoint {
         if (image.present) {
           const destination = filePath(staging, name)
           ensureDirectory(dirname(destination))
-          writeDurable(destination, readFileSync(filePath(this.profileDir, name)))
+          writeDurable(destination, readFileSync(targetPath(this.profileDir, this.homeDir, name)))
         }
       }
-      const manifest: ProfileCheckpointManifest = {
+      const manifest: ProfileCheckpointManifestV3 = {
         version: MANIFEST_VERSION,
         snapshotId,
         capturedAt: new Date(this.now()).toISOString(),
@@ -400,8 +447,9 @@ export class DesktopProfileCheckpoint {
     if (snapshot === undefined) {
       return { slotId: resolvedSlot, snapshotExists: false, currentDiffers: false, changedFiles: [] }
     }
-    const current = this.readCurrentImages(false)
-    const changedFiles = DESKTOP_PROFILE_CHECKPOINT_FILES.filter(
+    const names = checkpointFiles(snapshot.manifest.version)
+    const current = this.readCurrentImages(names, false)
+    const changedFiles = names.filter(
       (_, index) => !fileEqual(snapshot.manifest.files[index]!, current[index]!),
     )
     return {
@@ -419,24 +467,33 @@ export class DesktopProfileCheckpoint {
     this.recoverOrphanedSlot(resolvedSlot)
     const snapshot = this.readSnapshot(this.slotDirectory(resolvedSlot), true)
     if (snapshot === undefined) fail(`checkpoint ${resolvedSlot} is empty`)
-    const current = this.readCurrentImages(false)
-    const changedFiles = DESKTOP_PROFILE_CHECKPOINT_FILES.filter(
+    const names = checkpointFiles(snapshot.manifest.version)
+    const current = this.readCurrentImages(names, false)
+    const changedFiles = names.filter(
       (_, index) => !fileEqual(snapshot.manifest.files[index]!, current[index]!),
     )
+    const previousMarker = this.readSkipMarker()
+    const dependencyMaterializationRequired = previousMarker?.dependencyMaterializationPending === true
+      || changedFiles.some(name => name === 'package.json'
+        || name === 'pnpm-lock.yaml' || name === 'pnpm-workspace.yaml')
 
     // Persist before mutation. A failed restore must not cause a later healthy
-    // startup to overwrite the selected recovery point accidentally.
+    // startup to overwrite the selected recovery point accidentally. The
+    // materialization bit also makes a failed packaged-pnpm pass retryable even
+    // after the declarative files already match the selected checkpoint.
     writeDurable(join(this.profileRoot, SKIP_MARKER_FILENAME), Buffer.from(`${JSON.stringify({
       version: SKIP_MARKER_VERSION,
       restoredSlotId: resolvedSlot,
       restoredAt: new Date(this.now()).toISOString(),
+      dependencyMaterializationPending: dependencyMaterializationRequired,
     } satisfies SkipHealthyMarker)}\n`, 'utf8'))
 
-    for (let index = 0; index < DESKTOP_PROFILE_CHECKPOINT_FILES.length; index += 1) {
-      const name = DESKTOP_PROFILE_CHECKPOINT_FILES[index]!
+    for (const name of names) assertTargetParent(this.profileDir, this.homeDir, name)
+
+    for (let index = 0; index < names.length; index += 1) {
+      const name = names[index]!
       const record = snapshot.manifest.files[index]!
-      assertProfileFileParent(this.profileDir, name)
-      const target = filePath(this.profileDir, name)
+      const target = targetPath(this.profileDir, this.homeDir, name)
       if (record.present) {
         const bytes = readFileSync(filePath(snapshot.directory, name))
         if (hash(bytes) !== record.sha256 || bytes.byteLength !== record.size) fail(`checkpoint changed during restore: ${name}`)
@@ -451,17 +508,40 @@ export class DesktopProfileCheckpoint {
         }
       }
     }
-    return { status: 'restored', slotId: resolvedSlot, changedFiles, snapshotDirectory: snapshot.directory }
+    return {
+      status: 'restored',
+      slotId: resolvedSlot,
+      changedFiles,
+      dependencyMaterializationRequired,
+      snapshotDirectory: snapshot.directory,
+    }
+  }
+
+  /** Keep the checkpoint-preservation marker but clear its derived dependency work. */
+  completeDependencyMaterialization(slotId: DesktopProfileCheckpointSlotId): void {
+    const resolvedSlot = assertSlotId(slotId)
+    const marker = this.readSkipMarker()
+    if (marker === undefined || marker.restoredSlotId !== resolvedSlot) {
+      fail('checkpoint materialization completion does not match the active restore')
+    }
+    if (!marker.dependencyMaterializationPending) return
+    writeDurable(join(this.profileRoot, SKIP_MARKER_FILENAME), Buffer.from(`${JSON.stringify({
+      ...marker,
+      dependencyMaterializationPending: false,
+    } satisfies SkipHealthyMarker)}\n`, 'utf8'))
   }
 
   private slotDirectory(slotId: DesktopProfileCheckpointSlotId): string {
     return join(this.profileRoot, slotId)
   }
 
-  private readCurrentImages(requirePackage: boolean): FileImage[] {
-    return DESKTOP_PROFILE_CHECKPOINT_FILES.map(name => {
-      assertProfileFileParent(this.profileDir, name)
-      const path = filePath(this.profileDir, name)
+  private readCurrentImages(
+    names: readonly DesktopProfileCheckpointFilename[],
+    requirePackage: boolean,
+  ): FileImage[] {
+    return names.map(name => {
+      assertTargetParent(this.profileDir, this.homeDir, name)
+      const path = targetPath(this.profileDir, this.homeDir, name)
       let item
       try { item = lstatSync(path) } catch (cause) {
         if (isENOENT(cause)) {
@@ -470,7 +550,7 @@ export class DesktopProfileCheckpoint {
         }
         throw cause
       }
-      if (item.isSymbolicLink() || !item.isFile()) fail(`profile checkpoint entry must be a regular file: ${name}`)
+      if (item.isSymbolicLink() || !item.isFile()) fail(`checkpoint entry must be a regular file: ${name}`)
       if (item.size > this.limits[name]) fail(`profile checkpoint file is too large: ${name}`)
       const bytes = readFileSync(path)
       return { present: true, sha256: hash(bytes), size: bytes.byteLength, mode: item.mode & 0o777 }
@@ -526,13 +606,18 @@ export class DesktopProfileCheckpoint {
       if (value === null || typeof value !== 'object' || Array.isArray(value)) fail('skip healthy marker is invalid')
       const marker = value as Record<string, unknown>
       if (marker.version !== SKIP_MARKER_VERSION || typeof marker.restoredSlotId !== 'string'
-        || typeof marker.restoredAt !== 'string' || !Number.isFinite(Date.parse(marker.restoredAt))) {
+        || typeof marker.restoredAt !== 'string' || !Number.isFinite(Date.parse(marker.restoredAt))
+        || (marker.dependencyMaterializationPending !== undefined
+          && typeof marker.dependencyMaterializationPending !== 'boolean')) {
         fail('skip healthy marker is invalid')
       }
       return {
         version: SKIP_MARKER_VERSION,
         restoredSlotId: assertSlotId(marker.restoredSlotId),
         restoredAt: marker.restoredAt,
+        // Version-1 markers written before retryable materialization did not
+        // carry this optional field and are already safe to treat as complete.
+        dependencyMaterializationPending: marker.dependencyMaterializationPending === true,
       }
     } catch (cause) {
       if (isENOENT(cause)) return undefined
@@ -552,20 +637,20 @@ export class DesktopProfileCheckpoint {
       if (value === null || typeof value !== 'object' || Array.isArray(value)) fail('checkpoint manifest is invalid')
       const object = value as Record<string, unknown>
       const files = object.files
-      if (object.version !== MANIFEST_VERSION
-        || typeof object.snapshotId !== 'string' || !ID_PATTERN.test(object.snapshotId)
+      const expectedFiles = checkpointFiles(object.version)
+      if (typeof object.snapshotId !== 'string' || !ID_PATTERN.test(object.snapshotId)
         || typeof object.capturedAt !== 'string' || !Number.isFinite(Date.parse(object.capturedAt))
         || object.profileIdentity !== this.profileIdentity || object.profileName !== this.profileName
         || typeof object.provider !== 'string' || assertIdentifier('checkpoint provider', object.provider) !== object.provider
         || !Array.isArray(files)
-        || files.length !== DESKTOP_PROFILE_CHECKPOINT_FILES.length) fail('checkpoint manifest is invalid')
+        || files.length !== expectedFiles.length) fail('checkpoint manifest is invalid')
       if (object.slotId !== expectedSlotId || object.reason !== 'healthy-startup'
         || typeof object.appVersion !== 'string' || assertAppVersion(object.appVersion) !== object.appVersion) {
         fail('checkpoint metadata is invalid')
       }
-      for (let index = 0; index < DESKTOP_PROFILE_CHECKPOINT_FILES.length; index += 1) {
+      for (let index = 0; index < expectedFiles.length; index += 1) {
         const record = files[index]
-        const expected = DESKTOP_PROFILE_CHECKPOINT_FILES[index]!
+        const expected = expectedFiles[index]!
         if (record === null || typeof record !== 'object' || Array.isArray(record)) fail('checkpoint manifest is invalid')
         const item = record as Record<string, unknown>
         if (item.name !== expected || typeof item.present !== 'boolean') fail('checkpoint manifest is invalid')

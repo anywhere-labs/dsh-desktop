@@ -5,6 +5,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { SubprocessHandle, SubprocessOutcome, SubprocessRuntime, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { describe, expect, it, vi } from 'vitest'
 import { apply, inject, name, type DesktopPnpm, type DesktopPnpmBootstrap } from '../src/pnpm.ts'
+import { PNPM_IGNORE_MINIMUM_RELEASE_AGE, withDesktopPnpmPolicy } from '../src/pnpm-policy.ts'
 
 interface Deferred<T> { promise: Promise<T>; resolve(value: T): void; reject(cause: unknown): void }
 interface ControlledSubprocess extends SubprocessHandle {
@@ -78,6 +79,23 @@ function finish(process: ControlledSubprocess, exitCode = 0): void {
 }
 
 describe('desktop pnpm execution service', () => {
+  it('applies the release-age policy exactly once to direct pnpm argv', () => {
+    expect(withDesktopPnpmPolicy(['remove', 'example'])).toEqual([
+      PNPM_IGNORE_MINIMUM_RELEASE_AGE,
+      'remove',
+      'example',
+    ])
+    expect(withDesktopPnpmPolicy([
+      PNPM_IGNORE_MINIMUM_RELEASE_AGE,
+      'remove',
+      'example',
+    ])).toEqual([
+      PNPM_IGNORE_MINIMUM_RELEASE_AGE,
+      'remove',
+      'example',
+    ])
+  })
+
   it('starts packaged pnpm in the active Profile without recovery side effects', async () => {
     const process = child()
     const target = await harness([process])
@@ -91,6 +109,7 @@ describe('desktop pnpm execution service', () => {
         '--import',
         pathToFileURL(bootstrap().clearEnvironmentPath).href,
         bootstrap().pnpmBinPath,
+        '--config.minimumReleaseAge=0',
         'add',
         '--save-exact',
         'example@1.2.3',

@@ -1,6 +1,11 @@
 import { createServer, type Server } from 'node:http'
+import { connect } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import {
+  createDesktopBrowserAccess,
+  type DesktopBrowserAccess,
+} from '../src/desktop-browser-access.ts'
 import DesktopWebServer from '../src/webserver.ts'
 
 const occupied: Server[] = []
@@ -23,13 +28,53 @@ async function occupy(): Promise<{ server: Server; port: number }> {
   return { server, port: address.port }
 }
 
+async function startWebServer(access?: DesktopBrowserAccess): Promise<DesktopWebServer> {
+  const context = new Context()
+  contexts.push(context)
+  if (access !== undefined) context.provide('desktopBrowserAccess', access)
+  await context.plugin(DesktopWebServer, { host: '127.0.0.1', port: 0 })
+  const server = context.get('webServer')
+  if (!(server instanceof DesktopWebServer)) throw new Error('Desktop WebServer did not start')
+  return server
+}
+
+async function requestUpgrade(
+  port: number,
+  path: string,
+  headers: Readonly<Record<string, string>> = {},
+): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1')
+    let response = ''
+    socket.setTimeout(2_000)
+    socket.once('connect', () => {
+      socket.write([
+        `GET ${path} HTTP/1.1`,
+        `Host: 127.0.0.1:${String(port)}`,
+        'Connection: Upgrade',
+        'Upgrade: websocket',
+        ...Object.entries(headers).map(([name, value]) => `${name}: ${value}`),
+        '',
+        '',
+      ].join('\r\n'))
+    })
+    socket.on('data', chunk => { response += chunk.toString('utf8') })
+    socket.once('end', () => { resolve(response) })
+    socket.once('error', reject)
+    socket.once('timeout', () => {
+      socket.destroy()
+      reject(new Error('test upgrade request timed out'))
+    })
+  })
+}
+
 describe('Desktop WebServer port policy', () => {
-  it('rejects a non-loopback bind even when invoked outside profile composition', async () => {
+  it('fails closed when asked to bind all interfaces before LAN HTTPS exists', async () => {
     const context = new Context()
     contexts.push(context)
 
-    await expect(context.plugin(DesktopWebServer, { host: '0.0.0.0', port: 43_120 }))
-      .rejects.toThrow('requires a loopback host')
+    await expect(context.plugin(DesktopWebServer, { host: '0.0.0.0', port: 0 }))
+      .rejects.toThrow('requires loopback until LAN HTTPS is available')
   })
 
   it('increments only after the requested loopback bind reports EADDRINUSE', async () => {
@@ -49,5 +94,80 @@ describe('Desktop WebServer port policy', () => {
     await context.plugin(DesktopWebServer, { host: '127.0.0.1', port: 0 })
 
     expect(context.get('webServer')?.port).toBeGreaterThan(0)
+  })
+})
+
+describe('Desktop WebServer browser gate', () => {
+  it('keeps an ordinary dsh launch unrestricted when the launcher service is absent', async () => {
+    const server = await startWebServer()
+    server.registerFallback((_req, res) => { res.end('ordinary dsh') })
+
+    const response = await fetch(`http://127.0.0.1:${String(server.port)}/anything`)
+
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.toBe('ordinary dsh')
+  })
+
+  it('requires the exact Electron capability while ordinary browser access is disabled', async () => {
+    const access = createDesktopBrowserAccess(false, Buffer.alloc(32, 3).toString('base64url'))
+    const server = await startWebServer(access)
+    server.register({
+      kind: 'exact',
+      path: '/api/private',
+      handler: (_req, res) => { res.end('private') },
+    })
+    server.registerFallback((_req, res) => { res.end('fallback') })
+    const root = `http://127.0.0.1:${String(server.port)}`
+
+    expect((await fetch(`${root}/api/private`)).status).toBe(403)
+    expect((await fetch(`${root}/api/private`, {
+      headers: { [access.rendererHeader.name]: 'wrong' },
+    })).status).toBe(403)
+    const exact = await fetch(`${root}/api/private`, {
+      headers: { [access.rendererHeader.name]: access.rendererHeader.value },
+    })
+    expect(exact.status).toBe(200)
+    await expect(exact.text()).resolves.toBe('private')
+    const fallback = await fetch(`${root}/assets/app.js`, {
+      headers: { [access.rendererHeader.name]: access.rendererHeader.value },
+    })
+    expect(fallback.status).toBe(200)
+    await expect(fallback.text()).resolves.toBe('fallback')
+  })
+
+  it('allows marker-free browser routes but rejects Desktop marker impersonation', async () => {
+    const access = createDesktopBrowserAccess(true, Buffer.alloc(32, 4).toString('base64url'))
+    const server = await startWebServer(access)
+    server.registerFallback((_req, res) => { res.end('browser') })
+    const root = `http://127.0.0.1:${String(server.port)}`
+
+    const browser = await fetch(`${root}/?workspace=one`)
+    expect(browser.status).toBe(200)
+    await expect(browser.text()).resolves.toBe('browser')
+    const forged = await fetch(`${root}/?dsh-desktop-mode=compatibility`)
+    expect(forged.status).toBe(403)
+    expect(forged.headers.get('cache-control')).toBe('no-store')
+  })
+
+  it('applies the same gate to WebSocket upgrades', async () => {
+    const access = createDesktopBrowserAccess(false, Buffer.alloc(32, 5).toString('base64url'))
+    const server = await startWebServer(access)
+    server.registerUpgrade({
+      path: '/socket',
+      handler: (_req, socket) => {
+        socket.end([
+          'HTTP/1.1 101 Switching Protocols',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          '',
+          '',
+        ].join('\r\n'))
+      },
+    })
+
+    await expect(requestUpgrade(server.port, '/socket')).resolves.toContain('403 Forbidden')
+    await expect(requestUpgrade(server.port, '/socket', {
+      [access.rendererHeader.name]: access.rendererHeader.value,
+    })).resolves.toContain('101 Switching Protocols')
   })
 })

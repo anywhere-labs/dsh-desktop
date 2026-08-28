@@ -36,7 +36,7 @@ const DISABLE_PREVIEW_ID_PATTERN = /^disable_[A-Za-z0-9_-]{43}$/u
 const ENABLE_PREVIEW_ID_PATTERN = /^enable_[A-Za-z0-9_-]{43}$/u
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
 const IMMUTABLE_BUNDLES = new Set([
-  ...(PROFILE_TEMPLATES.web ?? []),
+  ...(PROFILE_TEMPLATES.web?.bundles ?? []),
   '@deepseek-ai/dsh-desktop-app',
   'dsh-plugin-desktop',
   'dsh-community-market',
@@ -52,6 +52,8 @@ export interface DesktopPluginBundle {
   readonly status: 'active' | 'disabled'
   /** Whether Desktop permits this exact bundle to be disabled. */
   readonly mutable: boolean
+  /** Whether this bundle is a direct Profile dependency removable by the package manager. */
+  readonly uninstallable: boolean
 }
 
 /** Short-lived confirmation minted for one exact direct bundle. */
@@ -159,8 +161,6 @@ export interface DesktopPluginsBootstrap {
   readonly homeDir: string
   /** Desktop-private state file outside the user's profile manifests. */
   readonly statePath: string
-  /** Optional independent startup-recovery disable state. */
-  readonly recoveryStatePath?: string
   /** Package manifest inside this exact Desktop installation. */
   readonly installAnchor: string
   /** Injectable clock used only by focused tests. */
@@ -178,6 +178,8 @@ export interface DesktopProfileManifestBundle {
   readonly packageName: string
   readonly status: 'active' | 'disabled'
   readonly mutable: boolean
+  /** Whether the package is a direct Profile dependency removable by `dsh plugin remove`. */
+  readonly uninstallable: boolean
 }
 
 function emptyState(): DesktopPluginStateV1 {
@@ -233,9 +235,14 @@ function readProfileManifestBytes(path: string): Buffer {
   }
 }
 
-function readDesktopProfileBundleNames(
+interface DesktopProfileManifestInventory {
+  readonly bundleNames: readonly string[]
+  readonly dependencyNames: ReadonlySet<string>
+}
+
+function readDesktopProfileManifestInventory(
   bootstrap: DesktopPluginStateBootstrap,
-): readonly string[] {
+): DesktopProfileManifestInventory {
   assertStateBootstrap(bootstrap)
   const profileDir = resolveProfileDir(bootstrap.profileName, bootstrap.homeDir)
   const bytes = readProfileManifestBytes(join(profileDir, 'package.json'))
@@ -251,24 +258,41 @@ function readDesktopProfileBundleNames(
     throw new Error(`${BIN_NAME}: active profile manifest must hold a JSON object`)
   }
   const root = parsed as Record<string, unknown>
+  const rawDependencies = root.dependencies
+  if (rawDependencies !== undefined && (
+    rawDependencies === null
+    || typeof rawDependencies !== 'object'
+    || Array.isArray(rawDependencies)
+  )) {
+    throw new Error(`${BIN_NAME}: active profile manifest dependencies must be an object`)
+  }
+  const dependencies = rawDependencies as Record<string, unknown> | undefined
+  const dependencyNames = Object.keys(dependencies ?? {})
+  if (dependencyNames.length > MAX_DIRECT_BUNDLES || dependencyNames.some(name => !safePackageName(name))) {
+    throw new Error(`${BIN_NAME}: active profile manifest dependencies are invalid`)
+  }
   const dsh = root.dsh
-  if (dsh === undefined) return []
+  if (dsh === undefined) return { bundleNames: [], dependencyNames: new Set(dependencyNames) }
   if (dsh === null || typeof dsh !== 'object' || Array.isArray(dsh)) {
     throw new Error(`${BIN_NAME}: active profile manifest dsh field must be an object`)
   }
   const profile = (dsh as Record<string, unknown>).profile
-  if (profile === undefined) return []
+  if (profile === undefined) return { bundleNames: [], dependencyNames: new Set(dependencyNames) }
   if (profile === null || typeof profile !== 'object' || Array.isArray(profile)) {
     throw new Error(`${BIN_NAME}: active profile manifest dsh.profile field must be an object`)
   }
   const bundles = (profile as Record<string, unknown>).bundles
-  if (bundles === undefined) return []
+  if (bundles === undefined) return { bundleNames: [], dependencyNames: new Set(dependencyNames) }
   if (!Array.isArray(bundles)
     || bundles.length > MAX_DIRECT_BUNDLES
     || bundles.some(bundle => !safePackageName(bundle))) {
     throw new Error(`${BIN_NAME}: active profile manifest dsh.profile.bundles is invalid`)
   }
-  return bundles as string[]
+  return { bundleNames: bundles as string[], dependencyNames: new Set(dependencyNames) }
+}
+
+function readDesktopProfileBundleNames(bootstrap: DesktopPluginStateBootstrap): readonly string[] {
+  return readDesktopProfileManifestInventory(bootstrap).bundleNames
 }
 
 function stableCompare(left: string, right: string): number {
@@ -391,17 +415,12 @@ export async function clearDesktopProfilePluginState(
  */
 export function readDesktopProfileBundleInventory(
   bootstrap: DesktopPluginStateBootstrap,
-  additionalStatePath?: string,
 ): readonly DesktopProfileManifestBundle[] {
+  const manifest = readDesktopProfileManifestInventory(bootstrap)
   const disabled = new Set(readDesktopDisabledBundles(bootstrap.statePath, bootstrap.profileName))
-  if (additionalStatePath !== undefined) {
-    for (const packageName of readDesktopDisabledBundles(additionalStatePath, bootstrap.profileName)) {
-      disabled.add(packageName)
-    }
-  }
   const seen = new Set<string>()
   const bundles: DesktopProfileManifestBundle[] = []
-  for (const packageName of readDesktopProfileBundleNames(bootstrap)) {
+  for (const packageName of manifest.bundleNames) {
     if (seen.has(packageName)) continue
     seen.add(packageName)
     const mutable = desktopPluginBundleMutable(packageName)
@@ -409,6 +428,7 @@ export function readDesktopProfileBundleInventory(
       packageName,
       status: mutable && disabled.has(packageName) ? 'disabled' : 'active',
       mutable,
+      uninstallable: mutable && manifest.dependencyNames.has(packageName),
     })
   }
   return bundles
@@ -603,10 +623,6 @@ function assertBootstrap(bootstrap: DesktopPluginsBootstrap): void {
       throw new Error(`${BIN_NAME}: desktop plugins ${label} must be an absolute path without NUL`)
     }
   }
-  if (bootstrap.recoveryStatePath !== undefined
-    && (!isAbsolute(bootstrap.recoveryStatePath) || bootstrap.recoveryStatePath.includes('\0'))) {
-    throw new Error(`${BIN_NAME}: desktop plugins recovery state path must be an absolute path without NUL`)
-  }
 }
 
 /** Generation-scoped direct bundle inventory with two-phase persistent state changes. */
@@ -633,7 +649,7 @@ export class DesktopPluginsService extends Service implements DesktopPlugins {
 
   list(): readonly DesktopPluginBundle[] {
     this.assertActive()
-    return readDesktopProfileBundleInventory(this.bootstrap, this.bootstrap.recoveryStatePath).map(item => ({
+    return readDesktopProfileBundleInventory(this.bootstrap).map(item => ({
       ...item,
       bundleId: this.bundleId(item.packageName),
     }))
@@ -649,13 +665,7 @@ export class DesktopPluginsService extends Service implements DesktopPlugins {
 
   disabledPackageNames(): readonly string[] {
     this.assertActive()
-    const disabled = new Set(readDesktopDisabledBundles(this.bootstrap.statePath, this.bootstrap.profileName))
-    if (this.bootstrap.recoveryStatePath !== undefined) {
-      for (const packageName of readDesktopDisabledBundles(this.bootstrap.recoveryStatePath, this.bootstrap.profileName)) {
-        disabled.add(packageName)
-      }
-    }
-    return [...disabled].sort(stableCompare)
+    return [...readDesktopDisabledBundles(this.bootstrap.statePath, this.bootstrap.profileName)].sort(stableCompare)
   }
 
   previewDisable(bundleId: string): DesktopPluginDisablePreview {
@@ -833,10 +843,6 @@ export class DesktopPluginsService extends Service implements DesktopPlugins {
   private disabledStatePath(packageName: string): string | undefined {
     if (readDesktopDisabledBundles(this.bootstrap.statePath, this.bootstrap.profileName).has(packageName)) {
       return this.bootstrap.statePath
-    }
-    if (this.bootstrap.recoveryStatePath !== undefined
-      && readDesktopDisabledBundles(this.bootstrap.recoveryStatePath, this.bootstrap.profileName).has(packageName)) {
-      return this.bootstrap.recoveryStatePath
     }
     return undefined
   }

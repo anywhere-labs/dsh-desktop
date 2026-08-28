@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from './contracts.ts'
 import type { DesktopClientPlatform } from './environment.ts'
 import {
@@ -26,12 +27,19 @@ export function AdvancedFrame(props: AdvancedFrameProps) {
 }
 
 /** Shared panel mechanics below the two mode-specific root boundaries. */
-export function DesktopOwnedFrame({ layout, mode, platform, renderSlot, useSessions }: AdvancedFrameProps & {
+export function DesktopOwnedFrame({
+  layout,
+  mode,
+  platform,
+  renderSlot,
+  SessionProvider,
+  useSessions,
+}: AdvancedFrameProps & {
   readonly mode: 'extended' | 'advanced'
 }) {
   const subscribeLayout = useCallback((listener: () => void) => layout.subscribe(listener), [layout])
   const readLayout = useCallback(() => layout.getSnapshot(), [layout])
-  const panels = useSyncExternalStore(subscribeLayout, readLayout)
+  const panels = useSyncExternalStore(subscribeLayout, readLayout, readLayout)
   const frameRef = useRef<HTMLDivElement>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
   const detailsSession = useSessions((state) => {
@@ -114,14 +122,17 @@ export function DesktopOwnedFrame({ layout, mode, platform, renderSlot, useSessi
       style={{ gridTemplateColumns: `${columns.sidebar}px minmax(0, 1fr) ${columns.details}px` }}
     >
       {mode === 'advanced' && platform === 'darwin' && <div className="dshDesktopMacCaptionRow" aria-hidden="true" />}
-      {mode === 'advanced' && platform === 'win32' && <div className="dshDesktopWindowsCaptionRow" aria-hidden="true" />}
       <aside className="dshDesktopSidebarSurface">
         <div className="dshDesktopUpstreamSidebar">
           {renderSlot('sidebar', { collapsed, width: sidebarOwnerWidth })}
         </div>
       </aside>
       <main className="dshDesktopConversationSurface">{renderSlot('conversation', {})}</main>
-      <aside className="dshDesktopDetailsSurface">{renderSlot('details', {})}</aside>
+      <aside className="dshDesktopDetailsSurface">
+        <SessionProvider>{renderSlot('details', {})}</SessionProvider>
+      </aside>
+      {/* Electron resolves app regions in DOM order; Desktop overlays must remain later. */}
+      {mode === 'advanced' && platform === 'win32' && <div className="dshDesktopWindowsCaptionRow" aria-hidden="true" />}
       <div className="dshDesktopOverlay" data-shell-overlay>
         {renderSlot('shell.overlay', {})}
       </div>

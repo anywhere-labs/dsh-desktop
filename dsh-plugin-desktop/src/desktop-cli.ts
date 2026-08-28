@@ -3,6 +3,7 @@
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { packagedDependencyPath } from './packaged-runtime-path.ts'
 import { assertDesktopProfileName } from './profile-manager.ts'
+import { withoutForwardedDesktopPnpmPolicy } from './pnpm-policy.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 const DEFAULT_PROFILE = 'DSH_DESKTOP_DEFAULT_PROFILE'
@@ -52,9 +53,10 @@ export async function runDesktopDshCli(
 ): Promise<void> {
   const profileName = takeDefaultProfile(environment)
   clearElectronRunAsNode(environment)
-  if (profileName !== undefined) {
-    argv.splice(2, argv.length - 2, ...withDefaultDesktopProfile(argv.slice(2), profileName))
-  }
+  const selected = profileName === undefined
+    ? argv.slice(2)
+    : withDefaultDesktopProfile(argv.slice(2), profileName)
+  argv.splice(2, argv.length - 2, ...withoutForwardedDesktopPnpmPolicy(selected))
   await load(DSH_ENTRY_URL)
 }
 

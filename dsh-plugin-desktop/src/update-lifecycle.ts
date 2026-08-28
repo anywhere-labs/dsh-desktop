@@ -154,6 +154,9 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
       try {
         return await checkForStableUpdate({
           currentVersion: this.options.adapter.currentVersion,
+          ...(this.options.adapter.installationId === undefined
+            ? {}
+            : { installationId: this.options.adapter.installationId }),
           signal: controller.signal,
           request: this.options.adapter.request,
         })

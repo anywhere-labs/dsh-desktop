@@ -19,6 +19,29 @@ import { DesktopProfileService } from '../lib/profile-service.js'
 const BIN_NAME = 'dsh-plugin-desktop-profile-smoke'
 const HOST_SERVICE_PLUGIN_NAME = 'dsh-desktop-host-services-smoke-plugin'
 const HOST_SERVICE_PROBE_KEY = 'desktopHostServiceProbe'
+let ordinaryBrowserEnabled = false
+const BROWSER_ACCESS = Object.freeze({
+  get ordinaryBrowserEnabled() { return ordinaryBrowserEnabled },
+  rendererHeader: Object.freeze({
+    name: 'x-dsh-desktop-renderer',
+    value: Buffer.alloc(32, 2).toString('base64url'),
+  }),
+  setOrdinaryBrowserEnabled(enabled) { ordinaryBrowserEnabled = enabled },
+})
+const LAN_HTTPS_SNAPSHOT = Object.freeze({
+  state: 'inactive',
+  actualPort: null,
+  addresses: Object.freeze([]),
+  caFingerprint: null,
+  errorCode: null,
+})
+const LAN_HTTPS = Object.freeze({
+  caCertificate: null,
+  attach() {},
+  snapshot() { return LAN_HTTPS_SNAPSHOT },
+  async setEnabled() { return LAN_HTTPS_SNAPSHOT },
+  async stop() { return LAN_HTTPS_SNAPSHOT },
+})
 const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-profile-'))
 let ctx
 let releasePackageResolver
@@ -118,7 +141,11 @@ try {
     prepared.rootConfig,
     patches,
     async (host) => {
+      // Match the public resolver path used by packaged Electron.
+      host.loader.internal = undefined
       host.provide(DSH_LAUNCH_ENVIRONMENT_KEY, createLaunchEnvironmentSnapshot([]))
+      host.provide('desktopBrowserAccess', BROWSER_ACCESS)
+      host.provide('desktopLanHttps', LAN_HTTPS)
       host.provide('desktopRuntime', runtime)
       host.provide('desktopPnpmBootstrap', {
         activeProfileName: 'desktop',
@@ -168,15 +195,15 @@ try {
     throw new Error('assembled Windows profile is missing the agent preset roster')
   }
   const presetIds = (await agentPresets.list()).map(preset => preset.id)
-  if (presetIds.includes('minimal') || !presetIds.includes('standard')) {
+  if (!presetIds.includes('minimal') || !presetIds.includes('standard')) {
     throw new Error(`assembled Windows profile exposes unexpected presets: ${presetIds.join(', ')}`)
   }
-  if (agentPresets.defaultId !== 'standard') {
-    throw new Error(`assembled Windows profile selected unsupported default ${agentPresets.defaultId}`)
+  if (agentPresets.defaultId !== 'minimal') {
+    throw new Error(`assembled Windows profile selected unexpected default ${agentPresets.defaultId}`)
   }
-  const legacyPreset = await agentPresets.resolve('minimal')
-  if (legacyPreset.id !== 'minimal') {
-    throw new Error(`assembled Windows profile remapped legacy preset to ${legacyPreset.id}`)
+  const minimalPreset = await agentPresets.resolve('minimal')
+  if (minimalPreset.id !== 'minimal') {
+    throw new Error(`assembled Windows profile remapped minimal preset to ${minimalPreset.id}`)
   }
   const hostServiceProbe = ctx.get(HOST_SERVICE_PROBE_KEY)
   if (hostServiceProbe?.current?.name !== 'desktop'
@@ -198,12 +225,15 @@ try {
     throw new Error(`assembled Windows browse picker listed ${listing.path} instead of ${home}`)
   }
 
-  const expectedUrl = `http://127.0.0.1:${String(ctx.webServer.port)}/?dsh-desktop-mode=advanced&dsh-desktop-platform=win32&dsh-desktop-version=2.0.0&dsh-desktop-material=acrylic&dsh-desktop-mica=1`
+  const expectedUrl = `http://127.0.0.1:${String(ctx.webServer.port)}/?dsh-desktop-mode=advanced&dsh-desktop-platform=win32&dsh-desktop-version=2.0.0&dsh-desktop-material=off&dsh-desktop-mica=1`
   if (mountedSpec?.url !== expectedUrl) {
     throw new Error(`desktop plugin produced an unexpected renderer URL: ${String(mountedSpec?.url)}`)
   }
   if (mountedSpec?.mode !== 'advanced') {
     throw new Error(`desktop plugin produced an unexpected shell mode: ${String(mountedSpec?.mode)}`)
+  }
+  if (mountedSpec?.rendererAccessHeader !== BROWSER_ACCESS.rendererHeader) {
+    throw new Error('assembled profile did not preserve the launcher browser capability')
   }
   if (nativeThemeSource !== 'system') {
     throw new Error(`desktop plugin produced an unexpected native theme source: ${nativeThemeSource}`)
@@ -223,7 +253,54 @@ try {
   if (profileMenu?.submenu?.()[0]?.label() !== 'desktop') {
     throw new Error('assembled desktop profile is missing the active profile tray submenu')
   }
-  const response = await fetch(expectedUrl)
+  const unauthenticated = await fetch(expectedUrl, {
+    headers: {
+      [BROWSER_ACCESS.rendererHeader.name]: BROWSER_ACCESS.rendererHeader.value,
+    },
+  })
+  await unauthenticated.body?.cancel()
+  if (unauthenticated.status !== 401) {
+    throw new Error(
+      `assembled Web root accepted a renderer without browser authentication: HTTP ${String(unauthenticated.status)}`,
+    )
+  }
+  if (typeof mountedSpec?.authenticationUrl !== 'string') {
+    throw new Error('desktop plugin did not provide an authentication URL')
+  }
+  const authenticationUrl = new URL(mountedSpec.authenticationUrl)
+  const rendererUrl = new URL(expectedUrl)
+  const authenticationTokens = authenticationUrl.searchParams.getAll('token')
+  if (authenticationUrl.origin !== rendererUrl.origin
+    || authenticationUrl.pathname !== '/'
+    || authenticationUrl.hash !== ''
+    || [...authenticationUrl.searchParams.keys()].some(key => key !== 'token')
+    || authenticationTokens.length !== 1
+    || !/^[A-Za-z0-9_-]{43}$/u.test(authenticationTokens[0])) {
+    throw new Error(`desktop plugin produced an invalid authentication URL: ${authenticationUrl.href}`)
+  }
+  const exchange = await fetch(authenticationUrl, {
+    headers: {
+      [BROWSER_ACCESS.rendererHeader.name]: BROWSER_ACCESS.rendererHeader.value,
+    },
+    redirect: 'manual',
+  })
+  await exchange.body?.cancel()
+  if (exchange.status !== 303 || exchange.headers.get('location') !== '/') {
+    throw new Error(
+      `browser authentication exchange returned HTTP ${String(exchange.status)} instead of a root redirect`,
+    )
+  }
+  const setCookie = exchange.headers.get('set-cookie')
+  const cookie = setCookie?.split(';', 1)[0]
+  if (cookie === undefined || cookie.length === 0) {
+    throw new Error('browser authentication exchange did not mint a cookie')
+  }
+  const response = await fetch(expectedUrl, {
+    headers: {
+      [BROWSER_ACCESS.rendererHeader.name]: BROWSER_ACCESS.rendererHeader.value,
+      Cookie: cookie,
+    },
+  })
   const html = await response.text()
   if (response.status !== 200) {
     throw new Error(`assembled Web root returned HTTP ${String(response.status)}`)
@@ -240,7 +317,11 @@ try {
     '@deepseek-ai/dsh-client-ui-sidebar',
     '@deepseek-ai/dsh-client-ui-directory-picker-browse',
   ]) {
-    if (!ids.has(id)) throw new Error(`assembled advanced Web graph is missing ${id}`)
+    if (!ids.has(id)) {
+      throw new Error(
+        `assembled advanced Web graph is missing ${id}; received ${[...ids].sort().join(', ')}`,
+      )
+    }
   }
   for (const id of [
     '@deepseek-ai/dsh-client-ui-layout',

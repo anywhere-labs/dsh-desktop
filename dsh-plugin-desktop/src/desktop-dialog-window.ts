@@ -14,6 +14,8 @@ const DIALOG_DOCUMENT = fileURLToPath(new URL('./native-ui/desktop-dialog.html',
 const MAX_BUTTONS = 4
 const DIALOG_WIDTH = 480
 const DIALOG_INITIAL_HEIGHT = 300
+const DIAGNOSTIC_DIALOG_WIDTH = 680
+const DIAGNOSTIC_DIALOG_INITIAL_HEIGHT = 460
 /** Electron omits the 2rem shadcn action row from the reported preferred height. */
 const DIALOG_PREFERRED_HEIGHT_OFFSET = 32
 const DIALOG_REVEAL_FALLBACK_MS = 250
@@ -26,6 +28,8 @@ export interface DesktopDialogOptions {
   readonly buttons: readonly string[]
   readonly defaultId?: number
   readonly cancelId?: number
+  /** Use a larger shadcn scroll surface for bounded technical diagnostics. */
+  readonly presentation?: 'default' | 'diagnostic'
   /** Override whether this dialog exposes native close/caption controls. */
   readonly windowControls?: boolean
 }
@@ -75,6 +79,7 @@ export class DesktopDialogWindow {
       buttons: this.options.buttons,
       defaultId,
       cancelId,
+      presentation: this.options.presentation ?? 'default',
     }), 'utf8').toString('base64url')
     const parent = this.parent !== undefined && !this.parent.isDestroyed() ? this.parent : undefined
     // Parented modal dialogs are action surfaces, not independently navigable
@@ -82,14 +87,16 @@ export class DesktopDialogWindow {
     // controls; standalone notices keep ordinary close controls.
     const windowControls = this.options.windowControls ?? parent === undefined
     const customFrame = auxiliaryWindowHasCustomFrame(process.platform, windowControls)
+    const diagnostic = this.options.presentation === 'diagnostic'
+    const dialogWidth = diagnostic ? DIAGNOSTIC_DIALOG_WIDTH : DIALOG_WIDTH
     const window = new BrowserWindow({
       title: this.options.title,
       ...auxiliaryWindowChromeOptions(process.platform, windowControls),
-      width: DIALOG_WIDTH,
-      height: DIALOG_INITIAL_HEIGHT,
+      width: dialogWidth,
+      height: diagnostic ? DIAGNOSTIC_DIALOG_INITIAL_HEIGHT : DIALOG_INITIAL_HEIGHT,
       useContentSize: true,
-      minWidth: 420,
-      maxWidth: 620,
+      minWidth: diagnostic ? 560 : 420,
+      maxWidth: diagnostic ? 860 : 620,
       resizable: windowControls,
       maximizable: false,
       fullscreenable: false,
@@ -157,7 +164,7 @@ export class DesktopDialogWindow {
         // Keep this as one content-area resize. On macOS modal sheets the
         // native geometry update can lag this call; reading outer bounds and
         // writing them back immediately can restore the stale, shorter height.
-        window.setContentSize(DIALOG_WIDTH, height, false)
+        window.setContentSize(dialogWidth, height, false)
         scheduleReveal()
       }
       const navigate = (event: Electron.Event, href: string): void => {

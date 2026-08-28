@@ -1,6 +1,7 @@
 import { AlertCircle, AlertTriangle, HelpCircle, Info } from 'lucide-react'
 import { useEffect } from 'react'
 import { Button } from '../components/ui/button.tsx'
+import { ScrollArea } from '../components/ui/scroll-area.tsx'
 import { DesktopFrame } from '../shared/DesktopFrame.tsx'
 
 const SCHEME = 'dsh-desktop-dialog:'
@@ -13,6 +14,7 @@ interface DesktopDialogState {
   readonly buttons: readonly string[]
   readonly defaultId: number
   readonly cancelId: number
+  readonly presentation?: 'default' | 'diagnostic'
 }
 
 function decodeState(): DesktopDialogState | undefined {
@@ -59,12 +61,19 @@ export function DesktopDialogApp(): JSX.Element {
   }, [state])
 
   if (state === undefined) return <><DesktopFrame /><main className="dshNativeContent flex items-center justify-center p-5"><p className="text-sm text-destructive">Desktop dialog state is unavailable.</p></main></>
+  const diagnostic = state.presentation === 'diagnostic'
   return <><DesktopFrame /><main className="dshNativeContent flex flex-col p-5">
     <section className="flex gap-4" role="dialog" aria-labelledby="desktop-dialog-title" aria-describedby={state.detail === undefined ? undefined : 'desktop-dialog-detail'}>
       <div className="mt-0.5 shrink-0"><ToneIcon type={state.type} /></div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <h1 className="text-base font-semibold leading-tight" id="desktop-dialog-title">{state.message}</h1>
-        {state.detail === undefined ? null : <p className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground" id="desktop-dialog-detail">{state.detail}</p>}
+        {state.detail === undefined
+          ? null
+          : diagnostic
+            ? <ScrollArea className="mt-3 h-64 rounded-lg border bg-muted/40">
+                <pre className="select-text whitespace-pre-wrap break-words p-3 font-mono text-xs leading-relaxed text-muted-foreground" id="desktop-dialog-detail">{state.detail}</pre>
+              </ScrollArea>
+            : <p className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground" id="desktop-dialog-detail">{state.detail}</p>}
       </div>
     </section>
     <footer className="mt-5 flex shrink-0 flex-wrap justify-end gap-2">

@@ -65,6 +65,22 @@ export interface DesktopSettingsMarketView {
   readonly legacyDefaulted: boolean
 }
 
+/** Marker-free ordinary-browser URLs for the running Web generation. */
+export interface DesktopSettingsWebView {
+  /** Always-available loopback URL using the actual listening port. */
+  readonly localUrl: string
+  /** Authenticated HTTPS URLs; non-empty only while the LAN edge is ready. */
+  readonly lanUrls: readonly string[]
+  /** Actual hot edge state, distinct from the persisted LAN preference. */
+  readonly lanState: 'inactive' | 'starting' | 'ready' | 'failed'
+  /** Stable certificate/bind failure category, present only for a failed edge. */
+  readonly lanError: string | null
+  /** SHA-256 identity for the installation-local CA, when available. */
+  readonly lanCaFingerprint: string | null
+  /** Public CA downloads on each ready HTTPS authority, without auth tokens. */
+  readonly lanCaUrls: readonly string[]
+}
+
 /** Complete renderer-safe Desktop settings state. */
 export interface DesktopSettingsResponse {
   /** Profile backing the currently running generation. */
@@ -73,6 +89,8 @@ export interface DesktopSettingsResponse {
   readonly profiles: readonly DesktopSettingsProfileView[]
   /** Market choice for the current and next generation. */
   readonly market: DesktopSettingsMarketView
+  /** Actual browser URLs for the current WebServer generation. */
+  readonly web: DesktopSettingsWebView
 }
 
 /** Exact body accepted by the profile-creation endpoint. */

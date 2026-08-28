@@ -55,6 +55,8 @@ describe('desktop profile discovery', () => {
     expect(() => assertDesktopProfileName('CON.txt')).toThrow('invalid desktop profile name')
     expect(() => assertDesktopProfileName('name.')).toThrow('invalid desktop profile name')
     expect(() => assertDesktopProfileName('name ')).toThrow('invalid desktop profile name')
+    expect(() => assertDesktopProfileName('.web.creating-123-12345678-1234-4123-8123-123456789abc'))
+      .toThrow('invalid desktop profile name')
     expect(() => assertDesktopProfileName('é'.repeat(128))).toThrow('invalid desktop profile name')
   })
 
@@ -91,7 +93,7 @@ describe('desktop profile discovery', () => {
     expect(existsSync(join(blockedHome, 'profiles', 'work'))).toBe(false)
   })
 
-  it('lists lazy defaults and existing profiles without creating or changing manifests', () => {
+  it('lists only profiles with real manifests without creating missing defaults', () => {
     const home = temporaryRoot()
     const webDir = writeProfile(home, 'work', [
       '@deepseek-ai/dsh-base',
@@ -110,8 +112,6 @@ describe('desktop profile discovery', () => {
     const before = readFileSync(join(webDir, 'package.json'), 'utf8')
 
     expect(listDesktopProfiles(home)).toEqual([
-      expect.objectContaining({ name: 'desktop', exists: false, webCapable: true }),
-      expect.objectContaining({ name: 'web', exists: false, webCapable: true }),
       expect.objectContaining({ name: 'broken', exists: true, webCapable: false, problem: expect.any(String) }),
       expect.objectContaining({
         name: 'embedded-desktop',
@@ -128,6 +128,7 @@ describe('desktop profile discovery', () => {
       }),
       expect.objectContaining({ name: 'wrong-order', exists: true, webCapable: false }),
     ])
+    expect(listDesktopProfiles(temporaryRoot())).toEqual([])
     expect(readFileSync(join(webDir, 'package.json'), 'utf8')).toBe(before)
     expect(readdirSync(join(home, 'profiles')).sort()).toEqual([
       'broken',
@@ -249,6 +250,53 @@ describe('desktop profile deletion', () => {
 })
 
 describe('desktop profile selection state', () => {
+  it('materializes one real desktop profile when no profiles exist', () => {
+    const root = temporaryRoot()
+    const home = join(root, 'harness')
+    const statePath = join(root, 'private', 'state.json')
+
+    expect(listDesktopProfiles(home)).toEqual([])
+    expect(beginDesktopProfileStartup(statePath, home)).toEqual({
+      profileName: 'desktop',
+      state: { version: 2, active: 'desktop' },
+      recoveredState: false,
+    })
+    expect(listDesktopProfiles(home)).toEqual([
+      expect.objectContaining({ name: 'desktop', exists: true, webCapable: true }),
+    ])
+    expect(existsSync(join(home, 'profiles', 'desktop', 'package.json'))).toBe(true)
+    expect(existsSync(join(home, 'profiles', 'desktop', 'pnpm-workspace.yaml'))).toBe(true)
+  })
+
+  it('ignores interrupted staging profiles when deciding that no real profile exists', () => {
+    const root = temporaryRoot()
+    const home = join(root, 'harness')
+    const statePath = join(root, 'private', 'state.json')
+    const stagingName = '.web.creating-123-12345678-1234-4123-8123-123456789abc'
+    writeProfile(home, stagingName, ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+
+    expect(listDesktopProfiles(home)).toEqual([])
+    expect(beginDesktopProfileStartup(statePath, home).profileName).toBe('desktop')
+    expect(listDesktopProfiles(home).map(profile => profile.name)).toEqual(['desktop'])
+    expect(existsSync(join(home, 'profiles', stagingName, 'package.json'))).toBe(true)
+  })
+
+  it('preserves an incomplete default directory while materializing the real desktop profile', () => {
+    const root = temporaryRoot()
+    const home = join(root, 'harness')
+    const statePath = join(root, 'private', 'state.json')
+    const partial = join(home, 'profiles', 'desktop')
+    mkdirSync(partial, { recursive: true })
+    writeFileSync(join(partial, 'keep.txt'), 'recoverable\n')
+
+    expect(beginDesktopProfileStartup(statePath, home).profileName).toBe('desktop')
+    expect(existsSync(join(partial, 'package.json'))).toBe(true)
+    const incomplete = readdirSync(join(home, 'profiles')).find(name => name.startsWith('.desktop.incomplete-'))
+    expect(incomplete).toBeDefined()
+    expect(readFileSync(join(home, 'profiles', incomplete!, 'keep.txt'), 'utf8')).toBe('recoverable\n')
+    expect(listDesktopProfiles(home).map(profile => profile.name)).toEqual(['desktop'])
+  })
+
   it('defaults to desktop and queues only a directly Web-capable profile', () => {
     const root = temporaryRoot()
     const home = join(root, 'harness')
@@ -315,9 +363,10 @@ describe('desktop profile selection state', () => {
       state: { version: 2, active: 'desktop' },
       recoveredState: true,
     })
+    expect(existsSync(join(home, 'profiles', 'desktop', 'pnpm-workspace.yaml'))).toBe(true)
   })
 
-  it('recovers malformed or symlinked private state without touching profile files', () => {
+  it('recovers malformed state by materializing the real default profile', () => {
     const root = temporaryRoot()
     const home = join(root, 'harness')
     const stateDir = join(root, 'private')
@@ -335,10 +384,11 @@ describe('desktop profile selection state', () => {
       active: 'desktop',
     })
     expect(lstatSync(statePath).isSymbolicLink()).toBe(false)
-    expect(existsSync(join(home, 'profiles'))).toBe(false)
+    expect(existsSync(join(home, 'profiles', 'desktop', 'package.json'))).toBe(true)
+    expect(existsSync(join(home, 'profiles', 'desktop', 'pnpm-workspace.yaml'))).toBe(true)
   })
 
-  it('does not substitute another profile when the selected profile disappears', () => {
+  it('recovers to a real desktop profile when the last selected profile disappears', () => {
     const root = temporaryRoot()
     const home = join(root, 'harness')
     const statePath = join(root, 'private', 'state.json')
@@ -346,7 +396,43 @@ describe('desktop profile selection state', () => {
     selectDesktopProfile(statePath, home, 'work')
     rmSync(profileDir, { recursive: true })
 
+    expect(beginDesktopProfileStartup(statePath, home)).toEqual({
+      profileName: 'desktop',
+      state: { version: 2, active: 'desktop' },
+      recoveredState: true,
+    })
+    expect(readDesktopProfileState(statePath)).toEqual({ version: 2, active: 'desktop' })
+  })
+
+  it('does not recreate a missing selected profile while another profile exists', () => {
+    const root = temporaryRoot()
+    const home = join(root, 'harness')
+    const statePath = join(root, 'private', 'state.json')
+    const workDir = writeProfile(home, 'work', ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+    writeProfile(home, 'other', ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+    selectDesktopProfile(statePath, home, 'work')
+    rmSync(workDir, { recursive: true })
+
     expect(() => beginDesktopProfileStartup(statePath, home)).toThrow('does not exist')
+    expect(listDesktopProfiles(home).map(profile => profile.name)).toEqual(['other'])
     expect(readDesktopProfileState(statePath)).toEqual({ version: 2, active: 'work' })
+  })
+
+  it('does not recreate deleted inactive web or desktop profiles', () => {
+    const root = temporaryRoot()
+    const home = join(root, 'harness')
+    const statePath = join(root, 'private', 'state.json')
+    const bundles = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
+    const desktopDir = writeProfile(home, 'desktop', bundles)
+    const webDir = writeProfile(home, 'web', bundles)
+    writeProfile(home, 'work', bundles)
+    selectDesktopProfile(statePath, home, 'work')
+    rmSync(desktopDir, { recursive: true })
+    rmSync(webDir, { recursive: true })
+
+    expect(beginDesktopProfileStartup(statePath, home).profileName).toBe('work')
+    expect(listDesktopProfiles(home).map(profile => profile.name)).toEqual(['work'])
+    expect(existsSync(desktopDir)).toBe(false)
+    expect(existsSync(webDir)).toBe(false)
   })
 })

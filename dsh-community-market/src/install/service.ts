@@ -1,35 +1,37 @@
 import { randomBytes, randomUUID } from 'node:crypto'
-import { lstat, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { lstat, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { isAbsolute, join, resolve } from 'node:path'
 import type { Readable } from 'node:stream'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
-import { prerelease, satisfies, valid } from 'semver'
-import { parse as parseYaml } from 'yaml'
-import type { MarketInstallableResponse, MarketInstallReceipt } from '../api-types.js'
-import type { CatalogFullIndex } from '../catalog/service.js'
-import type { MarketSettingsDocument } from '../catalog/source-store.js'
-import { normalizeRepositoryIdentity } from '../contracts/identity.js'
-import type { CatalogHttpClient, NormalizedRepositoryIdentity } from '../contracts/types.js'
-import type { CatalogSnapshot } from '../contracts/index.js'
+import { prerelease, valid } from 'semver'
+import type {
+  MarketCatalogMetadata,
+  MarketInstallableResponse,
+  MarketSourceView,
+} from '../api-types.js'
+import type { CatalogHttpClient } from '../contracts/types.js'
+import {
+  normalizeGitHubInstallSource,
+  type CatalogSnapshot,
+  type NormalizedGitHubInstallSource,
+} from '../contracts/index.js'
+import {
+  createGitHubPackageVerifier,
+  githubPackageTarget,
+  type GitHubPackageVerification,
+} from './github.js'
 import { manualInstallHints } from './manual.js'
 
 const NPM_REGISTRY_ORIGIN = 'https://registry.npmjs.org'
 const NPM_REGISTRY = `${NPM_REGISTRY_ORIGIN}/`
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
 const MAX_MANIFEST_BYTES = 1024 * 1024
-const MAX_LOCKFILE_BYTES = 32 * 1024 * 1024
 const INSTALL_INTENT_TTL_MS = 5 * 60 * 1000
 const CANDIDATE_TTL_MS = 30 * 60 * 1000
 const MAX_INTENTS = 256
 const MAX_CANDIDATES = 10_000
-const MAX_RECEIPTS = 512
-const LIFECYCLE_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare'] as const
+const MAX_PNPM_STREAM_OUTPUT_BYTES = 32 * 1024
+const MAX_FAILURE_CAUSE_LENGTH = 4 * 1024
 const BLOCKED_PRODUCT_PACKAGES = new Set(['dsh-plugin-desktop', 'dsh-community-market'])
-const DSH_RUNTIME_VERSION = '0.1.1-rc.2'
-const CORDIS_RUNTIME_VERSION = '4.0.1'
-const NODE_RUNTIME_VERSION = '24.18.1'
-
-export type { MarketInstallReceipt } from '../api-types.js'
 
 export interface MarketDesktopProfile {
   readonly name: string
@@ -67,17 +69,17 @@ export interface MarketUninstallPreview {
   readonly action: 'uninstall'
   readonly profileName: string
   readonly packageName: string
-  readonly version: string
+  readonly version?: string
   readonly displayName: string
   readonly expiresAt: string
 }
 
 export interface MarketInstallResult {
-  readonly receipt: MarketInstallReceipt
+  readonly packageName: string
+  readonly version: string
 }
 
 export interface MarketUninstallResult {
-  readonly receiptId: string
   readonly packageName: string
 }
 
@@ -96,10 +98,76 @@ export type MarketInstallErrorCode =
 
 /** Error whose message is safe to return through the loopback API. */
 export class MarketInstallError extends Error {
-  constructor(readonly code: MarketInstallErrorCode, message: string) {
+  constructor(
+    readonly code: MarketInstallErrorCode,
+    message: string,
+    readonly details?: string,
+  ) {
     super(message)
     this.name = 'MarketInstallError'
   }
+}
+
+interface BoundedOutputCapture {
+  read(): string
+  stop(): void
+}
+
+function captureBoundedOutput(stream: Readable): BoundedOutputCapture {
+  let output: Buffer<ArrayBufferLike> = Buffer.alloc(0)
+  let truncated = false
+  const onData = (chunk: string | Buffer) => {
+    const next = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    if (next.byteLength >= MAX_PNPM_STREAM_OUTPUT_BYTES) {
+      output = next.subarray(next.byteLength - MAX_PNPM_STREAM_OUTPUT_BYTES)
+      truncated = true
+      return
+    }
+    if (output.byteLength + next.byteLength > MAX_PNPM_STREAM_OUTPUT_BYTES) {
+      output = Buffer.concat([output, next]).subarray(-MAX_PNPM_STREAM_OUTPUT_BYTES)
+      truncated = true
+      return
+    }
+    output = Buffer.concat([output, next])
+  }
+  stream.on('data', onData)
+  stream.resume()
+  return {
+    read() {
+      const value = output.toString('utf8').trimEnd()
+      if (!truncated) return value
+      return `[earlier output truncated]\n${value}`
+    },
+    stop() { stream.off('data', onData) },
+  }
+}
+
+function failureCause(cause: unknown): string | undefined {
+  const value = cause instanceof Error ? cause.stack ?? cause.message : String(cause)
+  if (value.trim().length === 0) return undefined
+  return value.length <= MAX_FAILURE_CAUSE_LENGTH
+    ? value
+    : `${value.slice(0, MAX_FAILURE_CAUSE_LENGTH)}\n[cause truncated]`
+}
+
+function packageManagerDetails(
+  args: readonly string[],
+  stdout: string,
+  stderr: string,
+  outcome?: MarketDesktopPnpmOutcome,
+  cause?: unknown,
+): string {
+  const causeText = failureCause(cause)
+  const sections = [
+    `pnpm ${args.join(' ')}`,
+    ...(outcome === undefined ? [] : [
+      `exitCode: ${outcome.exitCode === null ? 'null' : outcome.exitCode}\nsignal: ${outcome.signal ?? 'none'}`,
+    ]),
+    ...(causeText === undefined ? [] : [`cause:\n${causeText}`]),
+    ...(stdout === '' ? [] : [`stdout:\n${stdout}`]),
+    ...(stderr === '' ? [] : [`stderr:\n${stderr}`]),
+  ]
+  return sections.join('\n\n')
 }
 
 interface InstallCandidate {
@@ -108,23 +176,23 @@ interface InstallCandidate {
   readonly providerId: string
   readonly itemId: string
   readonly displayName: string
-  readonly packageName: string
-  readonly version: string
-  readonly repository: NormalizedRepositoryIdentity
+  readonly packageName?: string
+  readonly source?: NormalizedGitHubInstallSource
   readonly savedAt: number
 }
 
 interface InstallIntent {
   readonly kind: 'install'
   readonly candidate: InstallCandidate
-  readonly verification: MarketNpmPackageVerification
+  readonly verification: MarketPackageVerification
   readonly profile: MarketDesktopProfile
   readonly expiresAt: number
 }
 
 interface UninstallIntent {
   readonly kind: 'uninstall'
-  readonly receipt: MarketInstallReceipt
+  readonly packageName: string
+  readonly displayName: string
   readonly profile: MarketDesktopProfile
   readonly expiresAt: number
 }
@@ -138,15 +206,27 @@ interface RestartIntent {
 
 export interface MarketNpmPackageVerifier {
   verify(
-    candidate: Pick<InstallCandidate, 'packageName' | 'version' | 'repository'>,
+    candidate: Pick<InstallCandidate, 'packageName'>,
     signal: AbortSignal,
   ): Promise<MarketNpmPackageVerification>
 }
 
 export interface MarketNpmPackageVerification {
-  readonly integrity: string
-  readonly bundlePatch: string
-  readonly tarball: string
+  readonly version: string
+}
+
+export interface MarketPackageVerification extends MarketNpmPackageVerification {
+  readonly packageName?: string
+  readonly source?: NormalizedGitHubInstallSource
+}
+
+export interface MarketInstallCandidateInput {
+  readonly packageName?: string
+  readonly source?: NormalizedGitHubInstallSource
+}
+
+export interface MarketPackageVerifier {
+  verify(candidate: MarketInstallCandidateInput, signal: AbortSignal): Promise<MarketPackageVerification>
 }
 
 export interface MarketInstallServiceOptions {
@@ -155,8 +235,8 @@ export interface MarketInstallServiceOptions {
   readonly candidateTtlMs?: number
   readonly maxIntents?: number
   readonly maxCandidates?: number
-  /** Host-owned policy state; Renderer values must never reach this callback. */
-  readonly disabledPackageNames?: () => readonly string[]
+  /** Receives bounded package-manager failures for the Desktop persistent log. */
+  readonly logFailure?: (message: string) => void
 }
 
 function stableExactVersion(value: unknown): value is string {
@@ -181,17 +261,6 @@ function opaqueToken(): string {
   return randomBytes(32).toString('base64url')
 }
 
-function own(object: object, key: PropertyKey): boolean {
-  return Object.prototype.hasOwnProperty.call(object, key)
-}
-
-function sha512Integrity(value: unknown): value is string {
-  if (typeof value !== 'string' || !/^sha512-[A-Za-z0-9+/]+={0,2}$/u.test(value)) return false
-  const encoded = value.slice('sha512-'.length)
-  const digest = Buffer.from(encoded, 'base64')
-  return digest.byteLength === 64 && digest.toString('base64') === encoded
-}
-
 function safeBundlePatch(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > 512 || value.includes('\0')) return false
   const path = value.startsWith('./') ? value.slice(2) : value
@@ -201,99 +270,17 @@ function safeBundlePatch(value: unknown): value is string {
     && path.split('/').every(segment => segment.length > 0 && segment !== '.' && segment !== '..' && !segment.includes(':'))
 }
 
-function npmRepository(value: unknown): NormalizedRepositoryIdentity | undefined {
-  const repository = typeof value === 'string'
-    ? { url: value }
-    : value !== null && typeof value === 'object' && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : undefined
-  if (repository === undefined || typeof repository.url !== 'string') return undefined
-  const rawUrl = repository.url.startsWith('git+') ? repository.url.slice(4) : repository.url
-  if (!rawUrl.startsWith('https://')) return undefined
-  try {
-    return normalizeRepositoryIdentity({
-      url: rawUrl,
-      ...(typeof repository.directory === 'string' ? { subdirectory: repository.directory } : {}),
-    })
-  } catch {
-    return undefined
-  }
-}
-
-function assertRuntimeCompatibility(manifest: Record<string, unknown>): void {
-  const accepts = (version: string, range: unknown): boolean => {
-    if (typeof range !== 'string') return false
-    try { return satisfies(version, range, { includePrerelease: true }) }
-    catch { return false }
-  }
-  for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies'] as const) {
-    const dependencies = manifest[field]
-    if (dependencies === undefined) continue
-    if (dependencies === null || typeof dependencies !== 'object' || Array.isArray(dependencies)) {
-      throw new MarketInstallError('verification-failed', 'The npm package dependency metadata was invalid.')
-    }
-    for (const [name, range] of Object.entries(dependencies)) {
-      if (name === 'cordis') {
-        throw new MarketInstallError(
-          'verification-failed',
-          'The plugin package depends on the legacy Cordis runtime and is not compatible with DSH Desktop.',
-        )
-      }
-      const runtimeVersion = name === '@deepseek-ai/cordis'
-        ? CORDIS_RUNTIME_VERSION
-        : name.startsWith('@deepseek-ai/dsh')
-          ? DSH_RUNTIME_VERSION
-          : undefined
-      if (runtimeVersion === undefined) continue
-      if (!accepts(runtimeVersion, range)) {
-        throw new MarketInstallError(
-          'verification-failed',
-          'The plugin package is not compatible with this DSH Desktop runtime.',
-        )
-      }
-    }
-  }
-  const engines = manifest.engines
-  if (engines === undefined) return
-  if (engines === null || typeof engines !== 'object' || Array.isArray(engines)) {
-    throw new MarketInstallError('verification-failed', 'The npm package engine metadata was invalid.')
-  }
-  const nodeRange = (engines as Record<string, unknown>).node
-  if (nodeRange !== undefined && !accepts(NODE_RUNTIME_VERSION, nodeRange)) {
-    throw new MarketInstallError(
-      'verification-failed',
-      'The plugin package does not support the Node.js runtime bundled with DSH Desktop.',
-    )
-  }
-}
-
-function officialNpmTarball(value: unknown): value is string {
-  if (typeof value !== 'string') return false
-  try {
-    const url = new URL(value)
-    return url.origin === NPM_REGISTRY_ORIGIN
-      && url.protocol === 'https:'
-      && !url.username
-      && !url.password
-      && !url.hash
-      && url.pathname.endsWith('.tgz')
-  } catch {
-    return false
-  }
-}
-
-/** Build the exact-version npm registry verifier used by the Host preview and execution paths. */
+/** Resolve npm `latest` and confirm only the minimum DSH package shape. */
 export function createNpmRegistryVerifier(http: CatalogHttpClient): MarketNpmPackageVerifier {
   return {
     async verify(candidate, signal) {
       if (
         !safePackageName(candidate.packageName)
         || !marketManagedPackage(candidate.packageName)
-        || !stableExactVersion(candidate.version)
       ) {
         throw new MarketInstallError('verification-failed', 'The plugin package target is invalid.')
       }
-      const url = `${NPM_REGISTRY_ORIGIN}/${encodeURIComponent(candidate.packageName)}/${encodeURIComponent(candidate.version)}`
+      const url = `${NPM_REGISTRY_ORIGIN}/${encodeURIComponent(candidate.packageName)}/latest`
       let response
       try {
         response = await http.getJson(url, signal, { allowedOrigin: NPM_REGISTRY_ORIGIN })
@@ -313,31 +300,9 @@ export function createNpmRegistryVerifier(http: CatalogHttpClient): MarketNpmPac
         throw new MarketInstallError('verification-failed', 'The npm verification response was invalid.')
       }
       const manifest = metadata as Record<string, unknown>
-      if (manifest.name !== candidate.packageName || manifest.version !== candidate.version) {
+      if (manifest.name !== candidate.packageName || !stableExactVersion(manifest.version)) {
         throw new MarketInstallError('verification-failed', 'The npm package identity did not match the catalog.')
       }
-      assertRuntimeCompatibility(manifest)
-      if (own(manifest, 'deprecated')) {
-        throw new MarketInstallError('verification-failed', 'Deprecated plugin packages cannot be installed from the market.')
-      }
-      const scripts = manifest.scripts
-      if (scripts !== undefined && (
-        scripts === null
-        || typeof scripts !== 'object'
-        || Array.isArray(scripts)
-        || LIFECYCLE_SCRIPTS.some(script => own(scripts, script))
-      )) {
-        throw new MarketInstallError('verification-failed', 'Plugin packages with install lifecycle scripts are not supported.')
-      }
-      const repository = npmRepository(manifest.repository)
-      if (
-        repository === undefined
-        || repository.url !== candidate.repository.url
-        || repository.subdirectory !== candidate.repository.subdirectory
-      ) {
-        throw new MarketInstallError('verification-failed', 'The npm package repository did not match the catalog.')
-      }
-      const dist = manifest.dist
       const dsh = manifest.dsh
       const bundle = dsh !== null && typeof dsh === 'object' && !Array.isArray(dsh)
         ? (dsh as Record<string, unknown>).bundle
@@ -345,16 +310,38 @@ export function createNpmRegistryVerifier(http: CatalogHttpClient): MarketNpmPac
       const patch = bundle !== null && typeof bundle === 'object' && !Array.isArray(bundle)
         ? (bundle as Record<string, unknown>).patch
         : undefined
-      const integrity = dist !== null && typeof dist === 'object' && !Array.isArray(dist)
-        ? (dist as Record<string, unknown>).integrity
-        : undefined
-      const tarball = dist !== null && typeof dist === 'object' && !Array.isArray(dist)
-        ? (dist as Record<string, unknown>).tarball
-        : undefined
-      if (!sha512Integrity(integrity) || !officialNpmTarball(tarball) || !safeBundlePatch(patch)) {
-        throw new MarketInstallError('verification-failed', 'The npm package is missing a verifiable DSH bundle artifact.')
+      if (!safeBundlePatch(patch)) {
+        throw new MarketInstallError('verification-failed', 'The npm package does not declare a valid DSH bundle.')
       }
-      return { integrity, bundlePatch: patch, tarball }
+      return { version: manifest.version }
+    },
+  }
+}
+
+/** Combine the stable npm verifier and the pinned GitHub manifest verifier. */
+export function createMarketPackageVerifier(
+  http: CatalogHttpClient,
+): MarketPackageVerifier {
+  const npm = createNpmRegistryVerifier(http)
+  return {
+    async verify(candidate, signal) {
+      if (candidate.source !== undefined) {
+        try {
+          const verification: GitHubPackageVerification = await createGitHubPackageVerifier(http)
+            .verify(candidate.source, signal)
+          return verification
+        } catch (cause) {
+          signal.throwIfAborted()
+          throw new MarketInstallError(
+            'verification-failed',
+            cause instanceof Error ? cause.message : 'The GitHub package could not be verified.',
+          )
+        }
+      }
+      if (candidate.packageName === undefined) {
+        throw new MarketInstallError('verification-failed', 'The plugin install source is incomplete.')
+      }
+      return await npm.verify({ packageName: candidate.packageName }, signal)
     },
   }
 }
@@ -443,138 +430,6 @@ function profileReferencesPlugin(manifest: JsonManifest, packageName: string): b
   return profileDependency(manifest, packageName) !== undefined || profileBundles(manifest).includes(packageName)
 }
 
-function bundlePatch(manifest: JsonManifest): string | undefined {
-  if (manifest.dsh === null || typeof manifest.dsh !== 'object' || Array.isArray(manifest.dsh)) return undefined
-  const bundle = (manifest.dsh as Record<string, unknown>).bundle
-  if (bundle === null || typeof bundle !== 'object' || Array.isArray(bundle)) return undefined
-  const patch = (bundle as Record<string, unknown>).patch
-  return typeof patch === 'string' && patch.length > 0 ? patch : undefined
-}
-
-function packageSegments(packageName: string): readonly string[] {
-  return packageName.startsWith('@') ? packageName.split('/') : [packageName]
-}
-
-function containedPath(parent: string, child: string): boolean {
-  const path = relative(parent, child)
-  return path === '' || path !== '..' && !path.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(path)
-}
-
-function supportedLockfileVersion(value: unknown): boolean {
-  if (typeof value !== 'string' && typeof value !== 'number') return false
-  const match = /^(\d+)(?:\.\d+)?$/u.exec(String(value))
-  return match !== null && (match[1] === '9' || match[1] === '11')
-}
-
-function exactLockResolution(value: unknown, version: string): value is string {
-  return typeof value === 'string' && (value === version || value.startsWith(`${version}(`))
-}
-
-function lockEntry(recordValue: UnknownRecord, keys: readonly string[]): UnknownRecord | undefined {
-  for (const key of keys) {
-    if (!own(recordValue, key)) continue
-    return record(recordValue[key])
-  }
-  return undefined
-}
-
-async function readProfileLock(profile: MarketDesktopProfile): Promise<UnknownRecord> {
-  const body = await readFile(join(profile.dir, 'pnpm-lock.yaml'))
-  if (body.byteLength > MAX_LOCKFILE_BYTES) throw new Error('lockfile too large')
-  const lockfile = record(parseYaml(body.toString('utf8')))
-  if (lockfile === undefined || !supportedLockfileVersion(lockfile.lockfileVersion)) {
-    throw new Error('unsupported lockfile')
-  }
-  return lockfile
-}
-
-function assertProfileLockRecord(
-  lockfile: UnknownRecord,
-  packageName: string,
-  version: string,
-  expectedIntegrity: string,
-): void {
-  const importer = record(record(lockfile.importers)?.['.'])
-  const dependencies = record(importer?.dependencies)
-  const dependency = dependencies !== undefined && own(dependencies, packageName)
-    ? record(dependencies[packageName])
-    : undefined
-  if (dependency?.specifier !== version || !exactLockResolution(dependency.version, version)) {
-    throw new Error('lockfile dependency mismatch')
-  }
-
-  const resolvedVersion = dependency.version
-  const baseKey = `${packageName}@${version}`
-  const resolvedKey = `${packageName}@${resolvedVersion}`
-  const packageKeys = [...new Set([baseKey, `/${baseKey}`, resolvedKey, `/${resolvedKey}`])]
-  const packageSnapshot = lockEntry(record(lockfile.packages) ?? {}, packageKeys)
-  const resolution = record(packageSnapshot?.resolution)
-  if (resolution?.integrity !== expectedIntegrity) throw new Error('lockfile integrity mismatch')
-
-  const snapshot = lockEntry(record(lockfile.snapshots) ?? {}, [resolvedKey, `/${resolvedKey}`])
-  if (snapshot === undefined) throw new Error('lockfile snapshot missing')
-}
-
-interface InstalledProfileSnapshot {
-  readonly manifest: JsonManifest
-  readonly lockfile: UnknownRecord
-  readonly nodeModules: string
-  readonly resolvedNodeModules: string
-}
-
-async function loadInstalledProfileSnapshot(profile: MarketDesktopProfile): Promise<InstalledProfileSnapshot> {
-  const nodeModules = resolve(profile.dir, 'node_modules')
-  const [manifest, lockfile, resolvedNodeModules] = await Promise.all([
-    readManifest(join(profile.dir, 'package.json')),
-    readProfileLock(profile),
-    realpath(nodeModules),
-  ])
-  return { manifest, lockfile, nodeModules, resolvedNodeModules }
-}
-
-async function assertInstalledBundleFromSnapshot(
-  snapshot: InstalledProfileSnapshot,
-  packageName: string,
-  version: string,
-  expectedPatch: string,
-  expectedIntegrity: string,
-): Promise<void> {
-  if (profileDependency(snapshot.manifest, packageName) !== version) throw new Error('dependency mismatch')
-  if (!profileBundles(snapshot.manifest).includes(packageName)) throw new Error('bundle missing')
-  const packageDir = join(snapshot.nodeModules, ...packageSegments(packageName))
-  const resolvedPackageDir = await realpath(packageDir)
-  if (!containedPath(snapshot.resolvedNodeModules, resolvedPackageDir)) throw new Error('package escaped profile')
-  const manifest = await readManifest(join(resolvedPackageDir, 'package.json'))
-  if (manifest.name !== packageName || manifest.version !== version) throw new Error('installed package mismatch')
-  const patch = bundlePatch(manifest)
-  if (patch === undefined || !safeBundlePatch(patch) || patch !== expectedPatch) {
-    throw new Error('bundle patch missing')
-  }
-  const patchPath = resolve(resolvedPackageDir, patch)
-  if (!containedPath(resolvedPackageDir, patchPath)) throw new Error('bundle patch invalid')
-  const resolvedPatchPath = await realpath(patchPath)
-  if (!containedPath(resolvedPackageDir, resolvedPatchPath) || !(await stat(resolvedPatchPath)).isFile()) {
-    throw new Error('bundle patch invalid')
-  }
-  assertProfileLockRecord(snapshot.lockfile, packageName, version, expectedIntegrity)
-}
-
-async function assertInstalledBundle(
-  profile: MarketDesktopProfile,
-  packageName: string,
-  version: string,
-  expectedPatch: string,
-  expectedIntegrity: string,
-): Promise<void> {
-  await assertInstalledBundleFromSnapshot(
-    await loadInstalledProfileSnapshot(profile),
-    packageName,
-    version,
-    expectedPatch,
-    expectedIntegrity,
-  )
-}
-
 async function assertNotInstalled(profile: MarketDesktopProfile, packageName: string): Promise<void> {
   const profileManifest = await readManifest(join(profile.dir, 'package.json'))
   if (profileReferencesPlugin(profileManifest, packageName)) {
@@ -589,21 +444,16 @@ async function assertRemoved(profile: MarketDesktopProfile, packageName: string)
   }
 }
 
-function validReceipt(value: unknown): value is MarketInstallReceipt {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
-  const receipt = value as Record<string, unknown>
-  return typeof receipt.receiptId === 'string' && receipt.receiptId.length >= 16 && receipt.receiptId.length <= 128
-    && typeof receipt.profileName === 'string' && receipt.profileName.length >= 1 && receipt.profileName.length <= 120
-    && safePackageName(receipt.packageName)
-    && marketManagedPackage(receipt.packageName)
-    && stableExactVersion(receipt.version)
-    && sha512Integrity(receipt.integrity)
-    && safeBundlePatch(receipt.bundlePatch)
-    && typeof receipt.sourceRecordId === 'string' && receipt.sourceRecordId.length >= 1 && receipt.sourceRecordId.length <= 200
-    && typeof receipt.providerId === 'string' && receipt.providerId.length >= 1 && receipt.providerId.length <= 200
-    && typeof receipt.itemId === 'string' && receipt.itemId.length >= 1 && receipt.itemId.length <= 200
-    && typeof receipt.displayName === 'string' && receipt.displayName.length >= 1 && receipt.displayName.length <= 240
-    && typeof receipt.installedAt === 'string' && !Number.isNaN(Date.parse(receipt.installedAt))
+async function directProfilePluginVersion(
+  profile: MarketDesktopProfile,
+  packageName: string,
+): Promise<string> {
+  const manifest = await readManifest(join(profile.dir, 'package.json'))
+  const version = profileDependency(manifest, packageName)
+  if (version === undefined || !profileBundles(manifest).includes(packageName)) {
+    throw new MarketInstallError('conflict', 'This plugin is no longer a direct dependency of the active Profile.')
+  }
+  return version
 }
 
 /** Host-owned install workflow. No provider command or Renderer package spec crosses this boundary. */
@@ -616,16 +466,15 @@ export class MarketInstallService {
   private readonly candidateTtlMs: number
   private readonly maxIntents: number
   private readonly maxCandidates: number
-  private readonly disabledPackageNames: () => readonly string[]
+  private readonly logFailure: ((message: string) => void) | undefined
   private readonly generation = new AbortController()
   private operationActive = false
   private closed = false
 
   constructor(
-    private readonly scope: SettingsScope<MarketSettingsDocument>,
     private readonly currentProfile: () => MarketDesktopProfile,
     private readonly pnpm: MarketDesktopPnpm,
-    private readonly verifier: MarketNpmPackageVerifier,
+    private readonly verifier: MarketPackageVerifier,
     options: MarketInstallServiceOptions = {},
   ) {
     this.now = options.now ?? Date.now
@@ -633,7 +482,7 @@ export class MarketInstallService {
     this.candidateTtlMs = options.candidateTtlMs ?? CANDIDATE_TTL_MS
     this.maxIntents = options.maxIntents ?? MAX_INTENTS
     this.maxCandidates = options.maxCandidates ?? MAX_CANDIDATES
-    this.disabledPackageNames = options.disabledPackageNames ?? (() => [])
+    this.logFailure = options.logFailure
     for (const [label, value] of [
       ['intent TTL', this.intentTtlMs],
       ['candidate TTL', this.candidateTtlMs],
@@ -650,21 +499,21 @@ export class MarketInstallService {
     for (const item of snapshot.items) {
       const key = candidateKey(snapshot.source.sourceRecordId, item.id)
       this.candidates.delete(key)
+      let source: NormalizedGitHubInstallSource | undefined
+      if (item.installSource !== undefined) {
+        try { source = normalizeGitHubInstallSource(item.repository, item.installSource) }
+        catch { continue }
+      }
+      const packageName = source === undefined && item.package?.registry === 'npm' && safePackageName(item.package.name)
+        ? item.package.name
+        : undefined
       if (
         item.provenance.sourceRecordId !== snapshot.source.sourceRecordId
         || item.provenance.providerId !== snapshot.source.providerId
         || item.provenance.itemId !== item.id
-        || item.package?.registry !== 'npm'
-        || !safePackageName(item.package.name)
-        || !marketManagedPackage(item.package.name)
-        || !stableExactVersion(item.latestVersion)
-        || item.repository === undefined
+        || (packageName === undefined && source === undefined)
+        || (packageName !== undefined && !marketManagedPackage(packageName))
       ) {
-        continue
-      }
-      let repository: NormalizedRepositoryIdentity
-      try { repository = normalizeRepositoryIdentity(item.repository) }
-      catch {
         continue
       }
       const candidate: InstallCandidate = {
@@ -673,9 +522,8 @@ export class MarketInstallService {
         providerId: snapshot.source.providerId,
         itemId: item.id,
         displayName: item.displayName,
-        packageName: item.package.name,
-        version: item.latestVersion,
-        repository,
+        ...(packageName === undefined ? {} : { packageName }),
+        ...(source === undefined ? {} : { source }),
         savedAt: this.now(),
       }
       this.candidates.set(key, candidate)
@@ -694,76 +542,31 @@ export class MarketInstallService {
     }
   }
 
-  async listReceipts(): Promise<readonly MarketInstallReceipt[]> {
-    this.assertOpen()
-    const profile = this.profile()
-    return this.receipts().filter(receipt => receipt.profileName === profile.name)
-  }
-
-  /** Receipts that still prove one exact installed bundle in the active profile. */
-  async listVerifiedReceipts(signal: AbortSignal = this.generation.signal): Promise<readonly MarketInstallReceipt[]> {
-    const operationSignal = this.operationSignal(signal)
-    operationSignal.throwIfAborted()
-    const profile = this.profile()
-    const receipts = this.receipts().filter(receipt => receipt.profileName === profile.name)
-    if (receipts.length === 0) return []
-    let snapshot: InstalledProfileSnapshot
-    try { snapshot = await loadInstalledProfileSnapshot(profile) }
-    catch {
-      operationSignal.throwIfAborted()
-      throw new MarketInstallError('operation-failed', 'The active desktop profile could not be verified.')
-    }
-    const verified: MarketInstallReceipt[] = []
-    for (const receipt of receipts) {
-      try {
-        await assertInstalledBundleFromSnapshot(
-          snapshot,
-          receipt.packageName,
-          receipt.version,
-          receipt.bundlePatch,
-          receipt.integrity,
-        )
-        operationSignal.throwIfAborted()
-        verified.push(receipt)
-      } catch {
-        operationSignal.throwIfAborted()
-      }
-    }
-    return verified
-  }
-
-  async listInstallable(
-    index: CatalogFullIndex,
+  listInstallablePage(
+    source: MarketSourceView,
+    snapshot: CatalogSnapshot,
+    categories: readonly string[],
     signal: AbortSignal,
-  ): Promise<MarketInstallableResponse> {
+    metadata?: MarketCatalogMetadata,
+  ): MarketInstallableResponse {
     const operationSignal = this.operationSignal(signal)
     operationSignal.throwIfAborted()
     this.purge()
-    const currentKeys = new Set(index.snapshots.flatMap(snapshot => (
-      snapshot.items.map(item => candidateKey(index.source.sourceRecordId, item.id))
-    )))
-    for (const [key, candidate] of this.candidates) {
-      if (candidate.sourceRecordId === index.source.sourceRecordId && !currentKeys.has(key)) {
-        this.candidates.delete(key)
-      }
-    }
-    for (const snapshot of index.snapshots) this.observeCatalog(snapshot)
-    operationSignal.throwIfAborted()
-    const items = index.snapshots.flatMap(snapshot => snapshot.items).filter(item => {
-      const candidate = this.candidates.get(candidateKey(index.source.sourceRecordId, item.id))
+    this.observeCatalog(snapshot)
+    const items = snapshot.items.filter(item => {
+      const candidate = this.candidates.get(candidateKey(source.sourceRecordId, item.id))
       return candidate !== undefined
         && candidate.providerId === item.provenance.providerId
     })
+    operationSignal.throwIfAborted()
     return {
-      source: index.source,
+      source,
       items,
+      categories,
       manualInstall: manualInstallHints(items),
-      metadata: {
-        scannedAt: index.scannedAt,
-        expiresAt: index.expiresAt,
-        ...(index.providerRevision === undefined ? {} : { providerRevision: index.providerRevision }),
-        cacheStatus: index.cacheStatus,
-      },
+      ...(snapshot.page.nextCursor === undefined ? {} : { nextCursor: snapshot.page.nextCursor }),
+      ...(metadata === undefined ? {} : { metadata }),
+      fetchedAt: new Date(this.now()).toISOString(),
     }
   }
 
@@ -780,13 +583,9 @@ export class MarketInstallService {
     if (candidate === undefined) {
       throw new MarketInstallError('not-available', 'This catalog item has no verified install target. Refresh the active source and try again.')
     }
-    if (this.disabledPackages().has(candidate.packageName)) {
-      throw new MarketInstallError('conflict', 'This plugin is disabled in the active desktop profile.')
-    }
     const profile = this.profile()
-    this.assertNoReceipt(profile, candidate.packageName)
-    await assertNotInstalled(profile, candidate.packageName)
-    let verification: MarketNpmPackageVerification
+    if (candidate.packageName !== undefined) await assertNotInstalled(profile, candidate.packageName)
+    let verification: MarketPackageVerification
     try { verification = await this.verifier.verify(candidate, operationSignal) }
     catch (cause) {
       operationSignal.throwIfAborted()
@@ -804,12 +603,17 @@ export class MarketInstallService {
       profile,
       expiresAt: this.now() + this.intentTtlMs,
     })
+    const packageName = verification.packageName ?? candidate.packageName
+    if (packageName === undefined || !safePackageName(packageName)) {
+      throw new MarketInstallError('verification-failed', 'The verified package name is invalid.')
+    }
+    await assertNotInstalled(profile, packageName)
     return {
       intent: token,
       action: 'install',
       profileName: profile.name,
-      packageName: candidate.packageName,
-      version: candidate.version,
+      packageName,
+      version: verification.version,
       displayName: candidate.displayName,
       expiresAt: new Date(this.now() + this.intentTtlMs).toISOString(),
     }
@@ -821,63 +625,30 @@ export class MarketInstallService {
       const intent = this.consumeIntent(token, 'install')
       const profile = this.sameProfile(intent.profile)
       const candidate = intent.candidate
-      const disabledPackages = this.disabledPackages()
-      if (disabledPackages.has(candidate.packageName)) {
-        throw new MarketInstallError('conflict', 'This plugin is disabled in the active desktop profile.')
-      }
       if (this.candidates.get(candidate.key) !== candidate) {
         throw new MarketInstallError('not-available', 'The verified catalog item is no longer available.')
       }
-      this.assertNoReceipt(profile, candidate.packageName)
-      await assertNotInstalled(profile, candidate.packageName)
-      let verification: MarketNpmPackageVerification
-      try { verification = await this.verifier.verify(candidate, operationSignal) }
-      catch (cause) {
-        operationSignal.throwIfAborted()
-        throw cause
+      const verification = intent.verification
+      const packageName = verification.packageName ?? candidate.packageName
+      if (packageName === undefined || !safePackageName(packageName)) {
+        throw new MarketInstallError('verification-failed', 'The verified package name is invalid.')
       }
-      operationSignal.throwIfAborted()
-      if (
-        verification.integrity !== intent.verification.integrity
-        || verification.bundlePatch !== intent.verification.bundlePatch
-        || verification.tarball !== intent.verification.tarball
-      ) {
-        throw new MarketInstallError('verification-failed', 'The npm package changed after preview. Preview the install again.')
-      }
-      await assertNotInstalled(profile, candidate.packageName)
+      await assertNotInstalled(profile, packageName)
       if (this.candidates.get(candidate.key) !== candidate) {
         throw new MarketInstallError('not-available', 'The catalog source changed before installation.')
       }
-      if (disabledPackages.has(candidate.packageName)) {
-        throw new MarketInstallError('conflict', 'This plugin is disabled in the active desktop profile.')
-      }
-      const receipt: MarketInstallReceipt = {
-        receiptId: randomUUID(),
-        profileName: profile.name,
-        packageName: candidate.packageName,
-        version: candidate.version,
-        integrity: verification.integrity,
-        bundlePatch: verification.bundlePatch,
-        sourceRecordId: candidate.sourceRecordId,
-        providerId: candidate.providerId,
-        itemId: candidate.itemId,
-        displayName: candidate.displayName,
-        installedAt: new Date(this.now()).toISOString(),
-      }
+      const target = candidate.source === undefined
+        ? `${packageName}@${verification.version}`
+        : githubPackageTarget(candidate.source)
       await this.runPnpm([
         'add',
-        ...this.installOptions(candidate.packageName),
-        `${candidate.packageName}@${candidate.version}`,
+        ...(candidate.source === undefined ? this.installOptions(packageName) : ['--save-exact']),
+        target,
       ], operationSignal)
       try {
-        await setProfileBundle(profile, candidate.packageName, true)
-        await assertInstalledBundle(
-          profile,
-          candidate.packageName,
-          candidate.version,
-          verification.bundlePatch,
-          verification.integrity,
-        )
+        await setProfileBundle(profile, packageName, true)
+        const installedVersion = await directProfilePluginVersion(profile, packageName)
+        if (installedVersion !== verification.version) throw new Error('installed version mismatch')
         operationSignal.throwIfAborted()
       } catch {
         throw new MarketInstallError(
@@ -885,15 +656,7 @@ export class MarketInstallService {
           'The package manager changed the Profile, but the plugin bundle could not be validated. Use a Recovery checkpoint if you need to restore the previous Profile state.',
         )
       }
-      try {
-        await this.saveReceipts([...this.receipts(), receipt])
-      } catch {
-        throw new MarketInstallError(
-          'persistence-failed',
-          'The plugin was installed, but its Market receipt could not be saved. Use a Recovery checkpoint if you need to restore the previous Profile state.',
-        )
-      }
-      return { receipt }
+      return { packageName, version: verification.version }
     })
   }
 
@@ -922,28 +685,30 @@ export class MarketInstallService {
     this.sameProfile(intent.profile)
   }
 
-  async previewUninstall(receiptId: string, signal: AbortSignal): Promise<MarketUninstallPreview> {
+  async previewUninstallPackage(packageName: string, signal: AbortSignal): Promise<MarketUninstallPreview> {
     const operationSignal = this.operationSignal(signal)
     operationSignal.throwIfAborted()
+    if (!safePackageName(packageName) || !marketManagedPackage(packageName)) {
+      throw new MarketInstallError('invalid-request', 'The Profile plugin package name is invalid.')
+    }
     const profile = this.profile()
-    const receipt = this.receipts().find(value => value.receiptId === receiptId && value.profileName === profile.name)
-    if (receipt === undefined) {
-      throw new MarketInstallError('not-available', 'This plugin is not owned by a market install receipt in the active profile.')
-    }
-    try {
-      await assertInstalledBundle(profile, receipt.packageName, receipt.version, receipt.bundlePatch, receipt.integrity)
-      operationSignal.throwIfAborted()
-    }
-    catch { throw new MarketInstallError('conflict', 'The installed plugin no longer matches its market receipt.') }
+    const version = await directProfilePluginVersion(profile, packageName)
+    operationSignal.throwIfAborted()
     const expiresAt = this.now() + this.intentTtlMs
-    const token = this.issueIntent({ kind: 'uninstall', receipt, profile, expiresAt })
+    const token = this.issueIntent({
+      kind: 'uninstall',
+      packageName,
+      displayName: packageName,
+      profile,
+      expiresAt,
+    })
     return {
       intent: token,
       action: 'uninstall',
       profileName: profile.name,
-      packageName: receipt.packageName,
-      version: receipt.version,
-      displayName: receipt.displayName,
+      packageName,
+      version,
+      displayName: packageName,
       expiresAt: new Date(expiresAt).toISOString(),
     }
   }
@@ -953,37 +718,19 @@ export class MarketInstallService {
       const operationSignal = this.operationSignal(signal)
       const intent = this.consumeIntent(token, 'uninstall')
       const profile = this.sameProfile(intent.profile)
-      const currentReceipt = this.receipts().find(receipt => receipt.receiptId === intent.receipt.receiptId)
-      if (currentReceipt === undefined || JSON.stringify(currentReceipt) !== JSON.stringify(intent.receipt)) {
-        throw new MarketInstallError('conflict', 'The market install receipt changed before uninstall.')
-      }
-      try {
-        await assertInstalledBundle(
-          profile,
-          currentReceipt.packageName,
-          currentReceipt.version,
-          currentReceipt.bundlePatch,
-          currentReceipt.integrity,
-        )
-        operationSignal.throwIfAborted()
-      }
-      catch { throw new MarketInstallError('conflict', 'The installed plugin no longer matches its market receipt.') }
-      await this.runPnpm(['remove', currentReceipt.packageName], operationSignal)
-      try { await setProfileBundle(profile, currentReceipt.packageName, false) }
+      await directProfilePluginVersion(profile, intent.packageName)
+      operationSignal.throwIfAborted()
+      await this.runPnpm(['remove', intent.packageName], operationSignal)
+      try { await setProfileBundle(profile, intent.packageName, false) }
       catch {
         throw new MarketInstallError(
           'operation-failed',
           'The package was removed, but the Profile bundle list could not be updated. Use a Recovery checkpoint to restore a consistent Profile state.',
         )
       }
-      try { await assertRemoved(profile, currentReceipt.packageName) }
+      try { await assertRemoved(profile, intent.packageName) }
       catch { throw new MarketInstallError('operation-failed', 'The package manager finished, but the plugin remains in the active profile.') }
-      try {
-        await this.saveReceipts(this.receipts().filter(receipt => receipt.receiptId !== currentReceipt.receiptId))
-      } catch {
-        throw new MarketInstallError('persistence-failed', 'The plugin was removed, but its market receipt could not be updated.')
-      }
-      return { receiptId: currentReceipt.receiptId, packageName: currentReceipt.packageName }
+      return { packageName: intent.packageName }
     })
   }
 
@@ -1010,43 +757,6 @@ export class MarketInstallService {
       throw new MarketInstallError('conflict', 'The active desktop profile changed after preview.')
     }
     return current
-  }
-
-  private receipts(): readonly MarketInstallReceipt[] {
-    const value = this.scope.get().installReceipts ?? []
-    if (!Array.isArray(value) || value.length > MAX_RECEIPTS || !value.every(validReceipt)) {
-      throw new MarketInstallError('persistence-failed', 'The market install receipt store is invalid.')
-    }
-    const ids = new Set(value.map(receipt => receipt.receiptId))
-    const ownedPackages = new Set(value.map(receipt => `${receipt.profileName}\0${receipt.packageName}`))
-    if (ids.size !== value.length || ownedPackages.size !== value.length) {
-      throw new MarketInstallError('persistence-failed', 'The market install receipt store is invalid.')
-    }
-    return value
-  }
-
-  private assertNoReceipt(profile: MarketDesktopProfile, packageName: string): void {
-    if (this.receipts().some(receipt => receipt.profileName === profile.name && receipt.packageName === packageName)) {
-      throw new MarketInstallError('conflict', 'This plugin already has a market install receipt in the active profile.')
-    }
-  }
-
-  private disabledPackages(): ReadonlySet<string> {
-    let names: readonly string[]
-    try { names = this.disabledPackageNames() }
-    catch (cause) {
-      if (cause instanceof MarketInstallError) throw cause
-      throw new MarketInstallError('operation-failed', 'Desktop plugin policy state is unavailable.')
-    }
-    if (!Array.isArray(names) || names.length > 10_000 || !names.every(safePackageName)) {
-      throw new MarketInstallError('operation-failed', 'Desktop plugin policy state is invalid.')
-    }
-    return new Set(names)
-  }
-
-  private async saveReceipts(receipts: readonly MarketInstallReceipt[]): Promise<void> {
-    if (receipts.length > MAX_RECEIPTS || !receipts.every(validReceipt)) throw new Error('invalid receipts')
-    await this.scope.update({ installReceipts: receipts })
   }
 
   private issueIntent(intent: MarketIntent): string {
@@ -1131,22 +841,37 @@ export class MarketInstallService {
     combinedSignal.throwIfAborted()
     let handle: MarketDesktopPnpmHandle
     try { handle = this.pnpm.run(args, combinedSignal) }
-    catch { throw new MarketInstallError('operation-failed', 'The desktop package manager could not start.') }
-    handle.stdout.resume()
-    handle.stderr.resume()
+    catch (cause) {
+      const details = packageManagerDetails(args, '', '', undefined, cause)
+      throw this.packageManagerError('The desktop package manager could not start.', details)
+    }
+    const stdout = captureBoundedOutput(handle.stdout)
+    const stderr = captureBoundedOutput(handle.stderr)
     const cancel = () => handle.cancel()
     combinedSignal.addEventListener('abort', cancel, { once: true })
     let outcome: MarketDesktopPnpmOutcome
-    try { outcome = await handle.done }
-    catch {
+    try {
+      try { outcome = await handle.done }
+      catch (cause) {
+        combinedSignal.throwIfAborted()
+        const details = packageManagerDetails(args, stdout.read(), stderr.read(), undefined, cause)
+        throw this.packageManagerError('The desktop package manager failed.', details)
+      }
       combinedSignal.throwIfAborted()
-      throw new MarketInstallError('operation-failed', 'The desktop package manager failed.')
+      if (outcome.exitCode !== 0 || outcome.signal !== null) {
+        const details = packageManagerDetails(args, stdout.read(), stderr.read(), outcome)
+        throw this.packageManagerError('The desktop package manager did not complete successfully.', details)
+      }
+    } finally {
+      combinedSignal.removeEventListener('abort', cancel)
+      stdout.stop()
+      stderr.stop()
     }
-    finally { combinedSignal.removeEventListener('abort', cancel) }
-    combinedSignal.throwIfAborted()
-    if (outcome.exitCode !== 0 || outcome.signal !== null) {
-      throw new MarketInstallError('operation-failed', 'The desktop package manager did not complete successfully.')
-    }
+  }
+
+  private packageManagerError(message: string, details: string): MarketInstallError {
+    try { this.logFailure?.(`dsh-community-market: ${message}\n${details}`) } catch {}
+    return new MarketInstallError('operation-failed', message, details)
   }
 
   private installOptions(packageName: string): readonly string[] {

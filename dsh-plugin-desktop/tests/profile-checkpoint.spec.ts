@@ -21,16 +21,20 @@ const roots: string[] = []
 
 function fixture(options: Partial<ProfileCheckpointOptions> = {}): {
   root: string
+  home: string
   profile: string
   userData: string
   checkpoint: DesktopProfileCheckpoint
 } {
   const root = mkdtempSync(join(tmpdir(), 'dsh-profile-checkpoint-'))
   roots.push(root)
-  const profile = join(root, 'profile')
+  const home = join(root, 'home')
+  const profile = join(home, 'profiles', 'work')
   const userData = join(root, 'user-data')
-  mkdirSync(profile)
+  mkdirSync(profile, { recursive: true })
   mkdirSync(userData)
+  writeFileSync(join(home, 'settings.yaml'), 'dsh-desktop:\n  mode: advanced\n')
+  writeFileSync(join(home, 'cordis.patch.yml'), '[]\n')
   writeFileSync(join(profile, 'package.json'), '{"name":"healthy-0"}\n')
   writeFileSync(join(profile, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n')
   writeFileSync(join(profile, 'pnpm-workspace.yaml'), 'packages: []\n')
@@ -38,13 +42,14 @@ function fixture(options: Partial<ProfileCheckpointOptions> = {}): {
   const checkpoint = new DesktopProfileCheckpoint({
     userDataDir: userData,
     profileDir: profile,
+    homeDir: home,
     profileIdentity: 'profile-identity',
     profileName: 'work',
     provider: 'dsh-market',
     appVersion: '2.0.3',
     ...options,
   })
-  return { root, profile, userData, checkpoint }
+  return { root, home, profile, userData, checkpoint }
 }
 
 afterEach(() => {
@@ -63,7 +68,7 @@ describe('Desktop profile health checkpoints', () => {
       status: 'captured',
       slotId: 'slot-1',
       manifest: {
-        version: 2,
+        version: 3,
         capturedAt: '2026-08-25T01:02:03.000Z',
         profileName: 'work',
         provider: 'dsh-market',
@@ -83,6 +88,17 @@ describe('Desktop profile health checkpoints', () => {
     expect(slots[0]!.totalBytes).toBe(
       slots[0]!.manifest!.files.reduce((total, file) => total + (file.present ? (file.size ?? 0) : 0), 0),
     )
+    expect(slots[0]!.manifest!.files.map(file => file.name)).toEqual([
+      'package.json',
+      'pnpm-lock.yaml',
+      'pnpm-workspace.yaml',
+      'cordis.patch.yml',
+      '.dsh-market/state.json',
+      'home/settings.yaml',
+      'home/cordis.patch.yml',
+    ])
+    expect(readFileSync(join(slots[0]!.snapshotDirectory, 'home', 'settings.yaml'), 'utf8'))
+      .toBe('dsh-desktop:\n  mode: advanced\n')
     expect(existsSync(join(slots[0]!.snapshotDirectory, 'manifest.json'))).toBe(true)
     if (process.platform !== 'win32') {
       expect(lstatSync(join(slots[0]!.snapshotDirectory, 'manifest.json')).mode & 0o777).toBe(0o600)
@@ -135,6 +151,58 @@ describe('Desktop profile health checkpoints', () => {
     expect(target.checkpoint.captureHealthy()).toMatchObject({ status: 'captured', slotId: 'slot-3' })
   })
 
+  it('restores Harness-home settings and patches with the selected Profile slot', () => {
+    const target = fixture()
+    target.checkpoint.captureHealthy()
+    writeFileSync(join(target.home, 'settings.yaml'), 'broken settings\n')
+    writeFileSync(join(target.home, 'cordis.patch.yml'), 'broken patch\n')
+
+    expect(target.checkpoint.restoreSlot('slot-1')).toMatchObject({
+      changedFiles: expect.arrayContaining(['home/settings.yaml', 'home/cordis.patch.yml']),
+    })
+    expect(readFileSync(join(target.home, 'settings.yaml'), 'utf8'))
+      .toBe('dsh-desktop:\n  mode: advanced\n')
+    expect(readFileSync(join(target.home, 'cordis.patch.yml'), 'utf8')).toBe('[]\n')
+  })
+
+  it('restores the absence of optional Harness-home configuration files', () => {
+    const target = fixture()
+    unlinkSync(join(target.home, 'settings.yaml'))
+    unlinkSync(join(target.home, 'cordis.patch.yml'))
+    target.checkpoint.captureHealthy()
+    writeFileSync(join(target.home, 'settings.yaml'), 'created later\n')
+    writeFileSync(join(target.home, 'cordis.patch.yml'), 'created later\n')
+
+    target.checkpoint.restoreSlot('slot-1')
+    expect(existsSync(join(target.home, 'settings.yaml'))).toBe(false)
+    expect(existsSync(join(target.home, 'cordis.patch.yml'))).toBe(false)
+  })
+
+  it('keeps version-two slots restorable without overwriting uncaptured global files', () => {
+    const target = fixture()
+    const captured = target.checkpoint.captureHealthy()
+    if (captured.status !== 'captured') throw new Error('expected a captured checkpoint')
+    const manifestPath = join(captured.snapshotDirectory, 'manifest.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      version: number
+      files: Array<{ name: string }>
+    }
+    writeFileSync(manifestPath, `${JSON.stringify({
+      ...manifest,
+      version: 2,
+      files: manifest.files.filter(file => !file.name.startsWith('home/')),
+    })}\n`)
+    rmSync(join(captured.snapshotDirectory, 'home'), { recursive: true, force: true })
+    writeFileSync(join(target.profile, 'package.json'), '{"name":"changed"}\n')
+    writeFileSync(join(target.home, 'settings.yaml'), 'new global settings\n')
+
+    expect(target.checkpoint.restoreSlot('slot-1')).toMatchObject({
+      changedFiles: expect.arrayContaining(['package.json']),
+    })
+    expect(readFileSync(join(target.profile, 'package.json'), 'utf8')).toBe('{"name":"healthy-0"}\n')
+    expect(readFileSync(join(target.home, 'settings.yaml'), 'utf8')).toBe('new global settings\n')
+  })
+
   it('keeps the post-restore skip marker until a healthy capture actually occurs', () => {
     const target = fixture()
     target.checkpoint.captureHealthy()
@@ -145,12 +213,35 @@ describe('Desktop profile health checkpoints', () => {
     expect(target.checkpoint.captureHealthy()).toMatchObject({ status: 'skipped-after-restore' })
   })
 
+  it('keeps dependency materialization pending across restore retries until completion', () => {
+    const target = fixture()
+    target.checkpoint.captureHealthy()
+    writeFileSync(join(target.profile, 'package.json'), '{"name":"with-new-plugin"}\n')
+    writeFileSync(join(target.profile, 'pnpm-lock.yaml'), 'lockfileVersion: 9\nnewPlugin: true\n')
+
+    expect(target.checkpoint.restoreSlot('slot-1')).toMatchObject({
+      dependencyMaterializationRequired: true,
+      changedFiles: expect.arrayContaining(['package.json', 'pnpm-lock.yaml']),
+    })
+    expect(target.checkpoint.restoreSlot('slot-1')).toMatchObject({
+      dependencyMaterializationRequired: true,
+      changedFiles: [],
+    })
+
+    target.checkpoint.completeDependencyMaterialization('slot-1')
+    expect(target.checkpoint.restoreSlot('slot-1')).toMatchObject({
+      dependencyMaterializationRequired: false,
+      changedFiles: [],
+    })
+  })
+
   it('keeps slots browseable when the current Market provider changes', () => {
     const target = fixture()
     target.checkpoint.captureHealthy()
     const reopened = new DesktopProfileCheckpoint({
       userDataDir: target.userData,
       profileDir: target.profile,
+      homeDir: target.home,
       profileIdentity: 'profile-identity',
       profileName: 'work',
       provider: 'other-market',
@@ -175,6 +266,15 @@ describe('Desktop profile health checkpoints', () => {
 
     const oversized = fixture({ maxFileBytes: { 'package.json': 4 } })
     expect(() => oversized.checkpoint.captureHealthy()).toThrow('too large')
+
+    const globalSymlink = fixture()
+    unlinkSync(join(globalSymlink.home, 'settings.yaml'))
+    writeFileSync(join(globalSymlink.root, 'outside-settings.yml'), 'outside\n')
+    symlinkSync(join(globalSymlink.root, 'outside-settings.yml'), join(globalSymlink.home, 'settings.yaml'))
+    expect(() => globalSymlink.checkpoint.captureHealthy()).toThrow('regular file')
+
+    const oversizedSettings = fixture({ maxFileBytes: { 'home/settings.yaml': 4 } })
+    expect(() => oversizedSettings.checkpoint.captureHealthy()).toThrow('too large')
     expect(() => fixture().checkpoint.restoreSlot('slot-3')).toThrow('slot-3 is empty')
   })
 })

@@ -3,8 +3,6 @@
 import { randomBytes } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import {
-  DesktopPluginsError,
-  disableDesktopProfileBundle,
   readDesktopProfileBundleInventory,
   type DesktopPluginStateBootstrap,
   type DesktopProfileManifestBundle,
@@ -14,17 +12,17 @@ import type {
   ProfileCheckpointSlot,
   RestoreResult,
 } from './profile-checkpoint.ts'
+import { maskSecrets } from './mask-secrets.ts'
 import { assertDesktopProfileName } from './profile-manager.ts'
 
 const BIN_NAME = 'dsh-plugin-desktop'
 const PREVIEW_TTL_MS = 5 * 60 * 1000
 const MAX_PREVIEWS = 256
-const MAX_MANAGED_PACKAGES = 1024
 const BUNDLE_ID_PATTERN = /^bundle_[A-Za-z0-9_-]{32}$/u
-const DISABLE_PREVIEW_ID_PATTERN = /^disable_[A-Za-z0-9_-]{43}$/u
+const UNINSTALL_PREVIEW_ID_PATTERN = /^uninstall_[A-Za-z0-9_-]{43}$/u
 const RESTORE_PREVIEW_ID_PATTERN = /^restore_[A-Za-z0-9_-]{43}$/u
 const OPAQUE_ID_PATTERN = /^[A-Za-z0-9._:-]{8,160}$/u
-const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
+const MAX_DIAGNOSTIC_DETAIL_CHARS = 24_000
 
 export interface DesktopStartupRecoveryGeneration {
   readonly profileName: string
@@ -34,14 +32,15 @@ export interface DesktopStartupRecoveryGeneration {
 export interface DesktopStartupRecoveryCheckpointStore {
   listSlots(): readonly ProfileCheckpointSlot[]
   restoreSlot(slotId: DesktopProfileCheckpointSlotId): RestoreResult
+  completeDependencyMaterialization(slotId: DesktopProfileCheckpointSlotId): void
 }
 
 export interface DesktopStartupRecoveryBundle {
   readonly bundleId: string
   readonly packageName: string
   readonly status: 'active' | 'disabled'
-  readonly owner: 'core' | 'managed' | 'external'
-  readonly action: 'disable' | null
+  readonly owner: 'core' | 'profile' | 'external'
+  readonly action: 'uninstall' | null
 }
 
 /** Renderer-safe metadata for one fixed checkpoint slot. Paths stay private. */
@@ -62,14 +61,14 @@ export interface DesktopStartupRecoverySnapshot {
   readonly checkpoints: readonly DesktopStartupRecoveryCheckpoint[]
 }
 
-export interface DesktopStartupRecoveryDisablePreview {
+export interface DesktopStartupRecoveryUninstallPreview {
   readonly previewId: string
   readonly packageName: string
   readonly expiresAt: string
 }
 
-export interface DesktopStartupRecoveryDisableResult {
-  readonly action: 'disable'
+export interface DesktopStartupRecoveryUninstallResult {
+  readonly action: 'uninstall'
   readonly packageName: string
 }
 
@@ -87,7 +86,6 @@ export interface DesktopStartupRecoveryCheckpointResult {
 }
 
 export type DesktopStartupRecoveryControllerErrorCode =
-  | 'already-disabled'
   | 'generation-changed'
   | 'immutable-target'
   | 'invalid-target'
@@ -96,10 +94,29 @@ export type DesktopStartupRecoveryControllerErrorCode =
   | 'preview-expired'
   | 'state-unavailable'
 
+export type DesktopStartupRecoveryOperationStage =
+  | 'checkpoint-restore'
+  | 'dependency-materialization'
+  | 'plugin-change'
+
+export interface DesktopStartupRecoveryControllerErrorOptions {
+  readonly operationStage?: DesktopStartupRecoveryOperationStage
+  readonly diagnosticDetail?: string
+}
+
 export class DesktopStartupRecoveryControllerError extends Error {
-  constructor(readonly code: DesktopStartupRecoveryControllerErrorCode, message: string) {
+  readonly operationStage: DesktopStartupRecoveryOperationStage | undefined
+  readonly diagnosticDetail: string | undefined
+
+  constructor(
+    readonly code: DesktopStartupRecoveryControllerErrorCode,
+    message: string,
+    options: DesktopStartupRecoveryControllerErrorOptions = {},
+  ) {
     super(message)
     this.name = 'DesktopStartupRecoveryControllerError'
+    this.operationStage = options.operationStage
+    this.diagnosticDetail = options.diagnosticDetail
   }
 }
 
@@ -107,7 +124,8 @@ export interface DesktopStartupRecoveryControllerOptions {
   readonly pluginState: DesktopPluginStateBootstrap
   readonly generationId: string
   readonly currentGeneration: () => DesktopStartupRecoveryGeneration
-  readonly managedPackageNames?: () => readonly string[] | Promise<readonly string[]>
+  /** Execute the official `dsh plugin remove` flow for one revalidated direct dependency. */
+  readonly uninstallPlugin: (packageName: string) => void | Promise<void>
   readonly checkpoints: DesktopStartupRecoveryCheckpointStore
   /** Synchronize dependency metadata after an explicit checkpoint restore. */
   readonly afterCheckpointRestore?: (result: RestoreResult) => void | Promise<void>
@@ -116,7 +134,7 @@ export interface DesktopStartupRecoveryControllerOptions {
   readonly now?: () => number
 }
 
-interface DisablePreviewRecord {
+interface UninstallPreviewRecord {
   readonly previewId: string
   readonly bundleId: string
   readonly packageName: string
@@ -133,10 +151,6 @@ interface RestorePreviewRecord {
   readonly profileName: string
   readonly generationId: string
   readonly expiresAt: number
-}
-
-function safePackageName(value: unknown): value is string {
-  return typeof value === 'string' && value.length <= 214 && PACKAGE_NAME_PATTERN.test(value)
 }
 
 function safeCheckpoint(slot: ProfileCheckpointSlot): DesktopStartupRecoveryCheckpoint {
@@ -159,7 +173,7 @@ export class DesktopStartupRecoveryController {
   private readonly now: () => number
   private readonly packageBundleIds = new Map<string, string>()
   private readonly bundlePackages = new Map<string, string>()
-  private readonly disablePreviews = new Map<string, DisablePreviewRecord>()
+  private readonly uninstallPreviews = new Map<string, UninstallPreviewRecord>()
   private readonly restorePreviews = new Map<string, RestorePreviewRecord>()
   private operationActive = false
   private disposed = false
@@ -186,12 +200,11 @@ export class DesktopStartupRecoveryController {
     this.assertCurrentGeneration()
     try {
       const inventory = readDesktopProfileBundleInventory(this.options.pluginState)
-      const managed = await this.readManagedPackages()
       const checkpoints = this.options.checkpoints.listSlots().map(safeCheckpoint)
       this.assertCurrentGeneration()
       return {
         profileName: this.profileName,
-        bundles: this.projectBundles(inventory, managed),
+        bundles: this.projectBundles(inventory),
         checkpoints,
       }
     } catch (cause) {
@@ -200,7 +213,7 @@ export class DesktopStartupRecoveryController {
     }
   }
 
-  async previewDisable(bundleId: string): Promise<DesktopStartupRecoveryDisablePreview> {
+  async previewUninstall(bundleId: string): Promise<DesktopStartupRecoveryUninstallPreview> {
     this.assertCurrentGeneration()
     if (!BUNDLE_ID_PATTERN.test(bundleId)) throw this.invalidTarget()
     try {
@@ -208,12 +221,12 @@ export class DesktopStartupRecoveryController {
       if (packageName === undefined) throw this.invalidTarget()
       const inventory = readDesktopProfileBundleInventory(this.options.pluginState)
       this.assertCurrentGeneration()
-      this.assertMutableActive(inventory, packageName)
+      this.assertUninstallable(inventory, packageName)
       this.prunePreviews()
-      this.trimPreviews(this.disablePreviews)
-      const previewId = `disable_${randomBytes(32).toString('base64url')}`
+      this.trimPreviews(this.uninstallPreviews)
+      const previewId = `uninstall_${randomBytes(32).toString('base64url')}`
       const expiresAt = this.now() + PREVIEW_TTL_MS
-      this.disablePreviews.set(previewId, {
+      this.uninstallPreviews.set(previewId, {
         previewId,
         bundleId,
         packageName,
@@ -227,28 +240,29 @@ export class DesktopStartupRecoveryController {
     }
   }
 
-  async executeDisable(previewId: string): Promise<DesktopStartupRecoveryDisableResult> {
+  async executeUninstall(previewId: string): Promise<DesktopStartupRecoveryUninstallResult> {
     this.assertCurrentGeneration()
-    if (!DISABLE_PREVIEW_ID_PATTERN.test(previewId)) throw this.expiredPreview()
+    if (!UNINSTALL_PREVIEW_ID_PATTERN.test(previewId)) throw this.expiredPreview()
     this.assertOperationAvailable()
-    const preview = this.disablePreviews.get(previewId)
-    this.disablePreviews.delete(previewId)
+    const preview = this.uninstallPreviews.get(previewId)
+    this.uninstallPreviews.delete(previewId)
     if (preview === undefined || preview.expiresAt <= this.now()
       || preview.profileName !== this.profileName || preview.generationId !== this.generationId) {
       throw this.expiredPreview()
     }
     this.operationActive = true
     try {
-      await this.authorizeDisable(preview.packageName)
-      const result = await disableDesktopProfileBundle(
-        this.options.pluginState,
-        preview.packageName,
-        async () => { await this.authorizeDisable(preview.packageName) },
-      )
-      if (result.packageName !== preview.packageName) {
-        throw new DesktopStartupRecoveryControllerError('operation-failed', 'The Desktop plugin change returned an invalid result.')
+      this.authorizeUninstall(preview.packageName)
+      await this.options.uninstallPlugin(preview.packageName)
+      this.assertCurrentGeneration()
+      if (readDesktopProfileBundleInventory(this.options.pluginState)
+        .some(bundle => bundle.packageName === preview.packageName)) {
+        throw new DesktopStartupRecoveryControllerError(
+          'operation-failed',
+          'The DSH plugin command completed, but the plugin remains in the current Profile.',
+        )
       }
-      return { action: 'disable', packageName: result.packageName }
+      return { action: 'uninstall', packageName: preview.packageName }
     } catch (cause) {
       throw this.safeMutationError(cause)
     } finally {
@@ -292,16 +306,26 @@ export class DesktopStartupRecoveryController {
       throw this.expiredPreview()
     }
     this.operationActive = true
+    let result: RestoreResult
     try {
       const slot = this.requireSlot(preview.slotId)
       if (slot.manifest!.snapshotId !== preview.snapshotId || slot.manifest!.capturedAt !== preview.capturedAt) {
         throw this.expiredPreview()
       }
-      const result = this.options.checkpoints.restoreSlot(preview.slotId)
+      result = this.options.checkpoints.restoreSlot(preview.slotId)
+    } catch (cause) {
+      this.operationActive = false
+      throw this.safeMutationError(cause, 'checkpoint-restore')
+    }
+    try {
       await this.options.afterCheckpointRestore?.(result)
+      this.options.checkpoints.completeDependencyMaterialization(result.slotId)
       return { action: 'restore-checkpoint', slotId: result.slotId, changedFiles: [...result.changedFiles] }
     } catch (cause) {
-      throw this.safeMutationError(cause)
+      throw this.safeMutationError(
+        cause,
+        result.dependencyMaterializationRequired ? 'dependency-materialization' : 'checkpoint-restore',
+      )
     } finally {
       this.operationActive = false
     }
@@ -323,7 +347,7 @@ export class DesktopStartupRecoveryController {
     this.disposed = true
     this.packageBundleIds.clear()
     this.bundlePackages.clear()
-    this.disablePreviews.clear()
+    this.uninstallPreviews.clear()
     this.restorePreviews.clear()
   }
 
@@ -337,7 +361,6 @@ export class DesktopStartupRecoveryController {
 
   private projectBundles(
     inventory: readonly DesktopProfileManifestBundle[],
-    managed: ReadonlySet<string>,
   ): readonly DesktopStartupRecoveryBundle[] {
     const activeNames = new Set(inventory.map(item => item.packageName))
     for (const [packageName, bundleId] of this.packageBundleIds) {
@@ -347,13 +370,13 @@ export class DesktopStartupRecoveryController {
     }
     return inventory.map(item => {
       const bundleId = this.bundleId(item.packageName)
-      const owner = !item.mutable ? 'core' : managed.has(item.packageName) ? 'managed' : 'external'
+      const owner = !item.mutable ? 'core' : item.uninstallable ? 'profile' : 'external'
       return {
         bundleId,
         packageName: item.packageName,
         status: item.status,
         owner,
-        action: item.mutable && item.status === 'active' ? 'disable' : null,
+        action: item.uninstallable ? 'uninstall' : null,
       }
     })
   }
@@ -368,33 +391,18 @@ export class DesktopStartupRecoveryController {
     return bundleId
   }
 
-  private async authorizeDisable(packageName: string): Promise<void> {
+  private authorizeUninstall(packageName: string): void {
     this.assertCurrentGeneration()
     const inventory = readDesktopProfileBundleInventory(this.options.pluginState)
     this.assertCurrentGeneration()
-    this.assertMutableActive(inventory, packageName)
+    this.assertUninstallable(inventory, packageName)
   }
 
-  private assertMutableActive(inventory: readonly DesktopProfileManifestBundle[], packageName: string): void {
+  private assertUninstallable(inventory: readonly DesktopProfileManifestBundle[], packageName: string): void {
     const target = inventory.find(item => item.packageName === packageName)
     if (target === undefined) throw this.invalidTarget()
-    if (!target.mutable) {
-      throw new DesktopStartupRecoveryControllerError('immutable-target', 'This Desktop bundle cannot be disabled.')
-    }
-    if (target.status === 'disabled') {
-      throw new DesktopStartupRecoveryControllerError('already-disabled', 'This Desktop bundle is already disabled.')
-    }
-  }
-
-  private async readManagedPackages(): Promise<ReadonlySet<string>> {
-    if (this.options.managedPackageNames === undefined) return new Set()
-    try {
-      const names = await this.options.managedPackageNames()
-      if (!Array.isArray(names) || names.length > MAX_MANAGED_PACKAGES
-        || names.some(name => !safePackageName(name))) return new Set()
-      return new Set(names)
-    } catch {
-      return new Set()
+    if (!target.uninstallable) {
+      throw new DesktopStartupRecoveryControllerError('immutable-target', 'This Desktop bundle cannot be uninstalled.')
     }
   }
 
@@ -422,7 +430,7 @@ export class DesktopStartupRecoveryController {
 
   private prunePreviews(): void {
     const now = this.now()
-    for (const [id, preview] of this.disablePreviews) if (preview.expiresAt <= now) this.disablePreviews.delete(id)
+    for (const [id, preview] of this.uninstallPreviews) if (preview.expiresAt <= now) this.uninstallPreviews.delete(id)
     for (const [id, preview] of this.restorePreviews) if (preview.expiresAt <= now) this.restorePreviews.delete(id)
   }
 
@@ -434,21 +442,31 @@ export class DesktopStartupRecoveryController {
 
   private safeReadError(cause: unknown): DesktopStartupRecoveryControllerError {
     if (cause instanceof DesktopStartupRecoveryControllerError) return cause
-    if (cause instanceof DesktopPluginsError) return this.mapDesktopPluginsError(cause)
     return new DesktopStartupRecoveryControllerError('state-unavailable', 'Desktop recovery state is unavailable.')
   }
 
-  private safeMutationError(cause: unknown): DesktopStartupRecoveryControllerError {
-    if (cause instanceof DesktopStartupRecoveryControllerError) return cause
-    if (cause instanceof DesktopPluginsError) return this.mapDesktopPluginsError(cause)
-    return new DesktopStartupRecoveryControllerError('operation-failed', 'Unable to apply the Desktop recovery operation.')
-  }
-
-  private mapDesktopPluginsError(cause: DesktopPluginsError): DesktopStartupRecoveryControllerError {
-    if (cause.code === 'invalid-target' || cause.code === 'immutable-target' || cause.code === 'already-disabled') {
-      return new DesktopStartupRecoveryControllerError(cause.code, cause.message)
+  private safeMutationError(
+    cause: unknown,
+    operationStage: DesktopStartupRecoveryOperationStage = 'plugin-change',
+  ): DesktopStartupRecoveryControllerError {
+    if (cause instanceof DesktopStartupRecoveryControllerError) {
+      if (cause.operationStage !== undefined) return cause
+      return new DesktopStartupRecoveryControllerError(cause.code, cause.message, {
+        operationStage,
+        ...(cause.diagnosticDetail === undefined ? {} : { diagnosticDetail: cause.diagnosticDetail }),
+      })
     }
-    return new DesktopStartupRecoveryControllerError('operation-failed', 'Unable to apply the Desktop recovery operation.')
+    const rendered = maskSecrets(cause instanceof Error ? cause.stack ?? cause.message : String(cause))
+    return new DesktopStartupRecoveryControllerError(
+      'operation-failed',
+      'Unable to apply the Desktop recovery operation.',
+      {
+        operationStage,
+        diagnosticDetail: rendered.length <= MAX_DIAGNOSTIC_DETAIL_CHARS
+          ? rendered
+          : `${rendered.slice(0, MAX_DIAGNOSTIC_DETAIL_CHARS)}\n… output truncated`,
+      },
+    )
   }
 
   private invalidTarget(): DesktopStartupRecoveryControllerError {

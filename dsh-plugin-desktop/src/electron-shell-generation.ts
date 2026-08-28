@@ -17,7 +17,7 @@ import type { ElectronPlatformStrategy } from './electron-platform.ts'
 import type { DesktopNotification, DesktopShellSpec } from './runtime.ts'
 import { prepareTrayIcon } from './tray-icons.ts'
 import { desktopWindowOptions } from './window-options.ts'
-import { setWindowsAcrylic } from './windows-acrylic.ts'
+import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
 import {
   fitMainWindowBounds,
   sameMainWindowBounds,
@@ -28,6 +28,122 @@ import {
 const MIN_ZOOM_LEVEL = -4
 const MAX_ZOOM_LEVEL = 4
 const WINDOW_STATE_WRITE_DELAY_MS = 250
+
+function pairedWebSocketOrigin(origin: string): string {
+  const url = new URL(origin)
+  if (url.protocol === 'http:') url.protocol = 'ws:'
+  else if (url.protocol === 'https:') url.protocol = 'wss:'
+  else throw new Error(`dsh-plugin-desktop: unsupported renderer origin protocol ${url.protocol}`)
+  return url.origin
+}
+
+/**
+ * Exchange the upstream process token inside the BrowserWindow's own
+ * persistent session before its marker-bearing renderer URL is loaded.
+ * Keeping the exchange separate preserves the Desktop query markers across
+ * the upstream redirect and keeps the launch token out of renderer history.
+ */
+async function authenticateRendererSession(
+  window: BrowserWindow,
+  spec: DesktopShellSpec,
+): Promise<void> {
+  const session = window.webContents.session
+  const headers = {
+    [spec.rendererAccessHeader.name]: spec.rendererAccessHeader.value,
+  }
+  const authenticated = await session.fetch(spec.authenticationUrl, {
+    method: 'GET',
+    credentials: 'include',
+    redirect: 'follow',
+    cache: 'no-store',
+    headers,
+  })
+  if (authenticated.status !== 200) {
+    throw new Error(
+      `dsh-plugin-desktop: browser authentication failed with HTTP ${String(authenticated.status)}`,
+    )
+  }
+  await authenticated.body?.cancel()
+}
+
+function sameRendererCarrierOrigin(requestUrl: string, httpOrigin: string, webSocketOrigin: string): boolean {
+  try {
+    const origin = new URL(requestUrl).origin
+    return origin === httpOrigin || origin === webSocketOrigin
+  } catch {
+    return false
+  }
+}
+
+function withoutRendererAccessHeader(
+  requestHeaders: Record<string, string>,
+  headerName: string,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(requestHeaders)
+      .filter(([name]) => name.toLowerCase() !== headerName),
+  )
+}
+
+function requestBelongsToRenderer(
+  details: Electron.OnBeforeSendHeadersListenerDetails,
+  webContentsId: number,
+): boolean {
+  const providedIds = [details.webContentsId, details.webContents?.id]
+    .filter((value): value is number => value !== undefined)
+  return providedIds.length > 0 && providedIds.every(value => value === webContentsId)
+}
+
+function requestComesFromRendererOrigin(
+  details: Electron.OnBeforeSendHeadersListenerDetails,
+  origin: string,
+): boolean {
+  if (details.resourceType === 'mainFrame') return true
+  const frame = details.frame
+  if (frame === undefined || frame === null || frame.detached || frame.origin !== origin) return false
+  const top = frame.top ?? (frame.parent === null ? frame : undefined)
+  return top !== undefined && !top.detached && top.origin === origin
+}
+
+/**
+ * Attach one generation-only capability to the renderer's HTTP and WebSocket
+ * traffic. Query markers are intentionally insufficient because subresources,
+ * API requests, and upgrades do not retain the main-frame query string.
+ */
+function installRendererAccessHeader(
+  window: BrowserWindow,
+  origin: string,
+  header: DesktopRendererAccessHeader,
+): () => void {
+  const webSocketOrigin = pairedWebSocketOrigin(origin)
+  const webRequest = window.webContents.session.webRequest
+  const webContentsId = window.webContents.id
+  const listener = (
+    details: Electron.OnBeforeSendHeadersListenerDetails,
+    callback: (response: Electron.BeforeSendResponse) => void,
+  ): void => {
+    // This listener owns a dedicated renderer session and sees every target so
+    // a redirect can never carry the capability away from the local carrier.
+    const requestHeaders = withoutRendererAccessHeader(details.requestHeaders, header.name)
+    if (!requestBelongsToRenderer(details, webContentsId)
+      || !sameRendererCarrierOrigin(details.url, origin, webSocketOrigin)
+      || !requestComesFromRendererOrigin(details, origin)) {
+      callback({ requestHeaders })
+      return
+    }
+    requestHeaders[header.name] = header.value
+    callback({ requestHeaders })
+  }
+  webRequest.onBeforeSendHeaders({
+    urls: ['<all_urls>'],
+  }, listener)
+  let active = true
+  return () => {
+    if (!active) return
+    active = false
+    webRequest.onBeforeSendHeaders(null)
+  }
+}
 
 function clampedZoomLevel(level: number): number {
   return Math.min(MAX_ZOOM_LEVEL, Math.max(MIN_ZOOM_LEVEL, level))
@@ -103,16 +219,6 @@ export class ElectronShellGeneration {
     window.accessibleTitle = spec.windowTitle
     platform.configureWindow(window)
     const refreshNativeMaterial = (): void => {
-      if (platform.platform === 'win32' && spec.material === 'acrylic') {
-        try {
-          if (!setWindowsAcrylic(window, true, nativeTheme.shouldUseDarkColors)) {
-            this.options.logError('dsh-plugin-desktop: Windows rejected the acrylic backdrop request')
-          }
-        } catch (cause) {
-          this.options.logError(`dsh-plugin-desktop: failed to apply Windows acrylic backdrop: ${cause instanceof Error ? cause.message : String(cause)}`)
-        }
-        return
-      }
       platform.refreshThemeMaterial(window, spec.material)
     }
     this.refreshNativeMaterial = refreshNativeMaterial
@@ -143,6 +249,13 @@ export class ElectronShellGeneration {
     this.flushWindowState = persistWindowState
 
     const show = (): void => { this.show() }
+    let startupSurfaceRevealed = false
+    const revealStartupSurface = (): void => {
+      if (window.isDestroyed()) return
+      if (startupSurfaceRevealed && !applicationNeedsReveal(window, platform.platform)) return
+      startupSurfaceRevealed = true
+      this.show()
+    }
     const activate = (): void => {
       if (applicationNeedsReveal(window, platform.platform)) this.show()
     }
@@ -291,8 +404,9 @@ export class ElectronShellGeneration {
       }
       return { action: 'deny' }
     })
-    window.once('ready-to-show', show)
+    window.once('ready-to-show', revealStartupSurface)
     let tray: Tray | undefined
+    let removeRendererAccessHeader: (() => void) | undefined
     this.cleanupListeners = () => {
       app.off('activate', activate)
       if (platform.platform === 'darwin') app.off('did-become-active', activate)
@@ -301,13 +415,15 @@ export class ElectronShellGeneration {
       window.off('move', scheduleWindowStateWrite)
       window.off('resize', scheduleWindowStateWrite)
       window.off('page-title-updated', preserveBlankTitle)
-      window.off('ready-to-show', show)
+      window.off('ready-to-show', revealStartupSurface)
       cleanupFullscreenTransition()
       window.webContents.off('before-input-event', handleZoomShortcut)
       window.webContents.off('will-frame-navigate', navigate)
       window.webContents.off('will-redirect', redirect)
       window.webContents.off('render-process-gone', rendererGone)
       window.webContents.off('did-fail-load', loadFailed)
+      removeRendererAccessHeader?.()
+      removeRendererAccessHeader = undefined
       tray?.off('click', show)
       if (stateWriteTimer !== undefined) {
         clearTimeout(stateWriteTimer)
@@ -316,6 +432,13 @@ export class ElectronShellGeneration {
     }
 
     try {
+      await authenticateRendererSession(window, spec)
+      removeRendererAccessHeader = installRendererAccessHeader(
+        window,
+        origin,
+        spec.rendererAccessHeader,
+      )
+      revealStartupSurface()
       await window.loadURL(spec.url)
       tray = new Tray(prepareTrayIcon(spec.trayIcons, platform.platform))
       this.tray = tray

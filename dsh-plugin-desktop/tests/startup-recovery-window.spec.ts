@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { DesktopStartupRecoveryController } from '../src/startup-recovery-controller.ts'
+import {
+  DesktopStartupRecoveryControllerError,
+  type DesktopStartupRecoveryController,
+} from '../src/startup-recovery-controller.ts'
 import {
   desktopStartupRecoveryWindowBounds,
   parseDesktopStartupRecoveryAction,
@@ -16,25 +19,27 @@ vi.mock('electron', () => ({
 
 const desktopDialog = vi.hoisted(() => ({
   show: vi.fn(async () => ({ response: 0, checkboxChecked: false })),
+  showDetailed: vi.fn(async () => ({ response: 0 })),
 }))
 
 vi.mock('../src/desktop-dialog-window.ts', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/desktop-dialog-window.ts')>(),
+  showDesktopDialog: desktopDialog.showDetailed,
   showDesktopMessageBox: desktopDialog.show,
 }))
 
 describe('Desktop startup recovery confirmations', () => {
   it('executes a plugin mutation only after the Desktop dialog accepts its preview', async () => {
     desktopDialog.show.mockClear()
-    const previewDisable = vi.fn(async () => ({
-      previewId: 'preview-disable-0001',
-      bundleId: 'bundle-disable-0001',
+    const previewUninstall = vi.fn(async () => ({
+      previewId: 'preview-uninstall-0001',
+      bundleId: 'bundle-uninstall-0001',
       packageName: 'example-plugin',
     }))
-    const executeDisable = vi.fn(async () => ({ packageName: 'example-plugin' }))
+    const executeUninstall = vi.fn(async () => ({ packageName: 'example-plugin' }))
     const controller = {
-      previewDisable,
-      executeDisable,
+      previewUninstall,
+      executeUninstall,
       snapshot: vi.fn(async () => ({ profileName: 'desktop', bundles: [] })),
     } as unknown as DesktopStartupRecoveryController
     const recovery = new DesktopStartupRecoveryWindow({
@@ -49,17 +54,138 @@ describe('Desktop startup recovery confirmations', () => {
 
     await (recovery as unknown as {
       handleAction: (action: { readonly action: string; readonly id: string }) => Promise<void>
-    }).handleAction({ action: 'preview-disable', id: 'bundle-disable-0001' })
+    }).handleAction({ action: 'preview-uninstall', id: 'bundle-uninstall-0001' })
 
     expect(desktopDialog.show).toHaveBeenCalledWith(expect.objectContaining({
       type: 'warning',
-      title: 'Disable this plugin?',
-      buttons: ['Disable', 'Cancel'],
+      title: 'Uninstall this plugin?',
+      buttons: ['Uninstall', 'Cancel'],
       defaultId: 1,
       cancelId: 1,
     }), parent)
-    expect(previewDisable).toHaveBeenCalledWith('bundle-disable-0001')
-    expect(executeDisable).toHaveBeenCalledWith('preview-disable-0001')
+    expect(previewUninstall).toHaveBeenCalledWith('bundle-uninstall-0001')
+    expect(executeUninstall).toHaveBeenCalledWith('preview-uninstall-0001')
+  })
+
+  it('opens a detailed Desktop window when checkpoint rollback fails', async () => {
+    desktopDialog.show.mockClear()
+    desktopDialog.showDetailed.mockClear()
+    const previewCheckpointRestore = vi.fn(async () => ({
+      previewId: 'preview-checkpoint-0001',
+      slotId: 'slot-1' as const,
+      capturedAt: '2026-08-25T00:00:00.000Z',
+      expiresAt: '2026-08-25T00:05:00.000Z',
+    }))
+    const executeCheckpointRestore = vi.fn(async () => {
+      throw new DesktopStartupRecoveryControllerError(
+        'operation-failed',
+        'The checkpoint files were restored, but Profile dependencies could not be rebuilt.',
+        {
+          operationStage: 'dependency-materialization',
+          diagnosticDetail: 'Exit code: 1\n\nstderr:\nERR_PNPM_OUTDATED_LOCKFILE',
+        },
+      )
+    })
+    const controller = {
+      previewCheckpointRestore,
+      executeCheckpointRestore,
+      snapshot: vi.fn(async () => ({ profileName: 'desktop', bundles: [], checkpoints: [] })),
+    } as unknown as DesktopStartupRecoveryController
+    const recovery = new DesktopStartupRecoveryWindow({
+      controller,
+      locale: 'zh',
+      failureStage: 'profile-composition',
+      failureDetail: 'rollback failure test',
+      exportDiagnostics: async () => '/tmp/diagnostics.zip',
+    })
+    const parent = { isDestroyed: () => false, loadFile: vi.fn(async () => {}) }
+    ;(recovery as unknown as { window: typeof parent }).window = parent
+
+    await (recovery as unknown as {
+      handleAction: (action: { readonly action: string; readonly id: string }) => Promise<void>
+    }).handleAction({ action: 'preview-checkpoint', id: 'slot-1' })
+
+    expect(desktopDialog.showDetailed).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'error',
+      title: '回滚失败',
+      presentation: 'diagnostic',
+      buttons: ['关闭'],
+      detail: expect.stringContaining('ERR_PNPM_OUTDATED_LOCKFILE'),
+    }), parent)
+  })
+
+  it('opens a detailed Desktop window when dsh plugin uninstall fails', async () => {
+    desktopDialog.show.mockClear()
+    desktopDialog.showDetailed.mockClear()
+    const controller = {
+      previewUninstall: vi.fn(async () => ({
+        previewId: 'preview-uninstall-failure-0001',
+        packageName: 'example-plugin',
+        expiresAt: '2026-08-25T00:05:00.000Z',
+      })),
+      executeUninstall: vi.fn(async () => {
+        throw new DesktopStartupRecoveryControllerError(
+          'operation-failed',
+          'The plugin could not be removed from the current Profile.',
+          { operationStage: 'plugin-change', diagnosticDetail: 'dsh plugin remove exited 7' },
+        )
+      }),
+      snapshot: vi.fn(async () => ({ profileName: 'desktop', bundles: [], checkpoints: [] })),
+    } as unknown as DesktopStartupRecoveryController
+    const recovery = new DesktopStartupRecoveryWindow({
+      controller,
+      locale: 'en',
+      failureStage: 'profile-composition',
+      failureDetail: 'plugin uninstall failure test',
+      exportDiagnostics: async () => '/tmp/diagnostics.zip',
+    })
+    const parent = { isDestroyed: () => false, loadFile: vi.fn(async () => {}) }
+    ;(recovery as unknown as { window: typeof parent }).window = parent
+
+    await (recovery as unknown as {
+      handleAction: (action: { readonly action: string; readonly id: string }) => Promise<void>
+    }).handleAction({ action: 'preview-uninstall', id: 'bundle-uninstall-0001' })
+
+    expect(desktopDialog.showDetailed).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'error',
+      title: 'Plugin uninstall failed',
+      presentation: 'diagnostic',
+      detail: expect.stringContaining('dsh plugin remove exited 7'),
+    }), parent)
+  })
+
+  it('does not open an extra window after a successful checkpoint rollback', async () => {
+    desktopDialog.show.mockClear()
+    desktopDialog.showDetailed.mockClear()
+    const controller = {
+      previewCheckpointRestore: vi.fn(async () => ({
+        previewId: 'preview-checkpoint-0002',
+        slotId: 'slot-2' as const,
+        capturedAt: '2026-08-25T00:00:00.000Z',
+        expiresAt: '2026-08-25T00:05:00.000Z',
+      })),
+      executeCheckpointRestore: vi.fn(async () => ({
+        action: 'restore-checkpoint' as const,
+        slotId: 'slot-2' as const,
+        changedFiles: ['package.json'],
+      })),
+      snapshot: vi.fn(async () => ({ profileName: 'desktop', bundles: [], checkpoints: [] })),
+    } as unknown as DesktopStartupRecoveryController
+    const recovery = new DesktopStartupRecoveryWindow({
+      controller,
+      locale: 'en',
+      failureStage: 'profile-composition',
+      failureDetail: 'rollback success test',
+      exportDiagnostics: async () => '/tmp/diagnostics.zip',
+    })
+    const parent = { isDestroyed: () => false, loadFile: vi.fn(async () => {}) }
+    ;(recovery as unknown as { window: typeof parent }).window = parent
+
+    await (recovery as unknown as {
+      handleAction: (action: { readonly action: string; readonly id: string }) => Promise<void>
+    }).handleAction({ action: 'preview-checkpoint', id: 'slot-2' })
+
+    expect(desktopDialog.showDetailed).not.toHaveBeenCalled()
   })
 
   it('delivers a recovery notice to the renderer exactly once', async () => {
@@ -276,8 +402,8 @@ describe('Desktop startup recovery action parser', () => {
     }
 
     expect(parseDesktopStartupRecoveryAction(
-      'dsh-recovery://preview-disable?id=opaque-id_0001',
-    )).toEqual({ action: 'preview-disable', id: 'opaque-id_0001' })
+      'dsh-recovery://preview-uninstall?id=opaque-id_0001',
+    )).toEqual({ action: 'preview-uninstall', id: 'opaque-id_0001' })
     for (const action of ['preview-checkpoint', 'open-checkpoint']) {
       expect(parseDesktopStartupRecoveryAction(
         `dsh-recovery://${action}?id=slot-2`,
@@ -295,11 +421,11 @@ describe('Desktop startup recovery action parser', () => {
     'dsh-recovery://home#fragment',
     'dsh-recovery://home?id=unexpected',
     'dsh-recovery://home?extra=value',
-    'dsh-recovery://preview-disable',
-    'dsh-recovery://preview-disable?id=short',
-    'dsh-recovery://preview-disable?id=opaque-id_0001&id=opaque-id_0002',
-    'dsh-recovery://preview-disable?id=opaque-id_0001&extra=value',
-    `dsh-recovery://preview-disable?id=${'x'.repeat(161)}`,
+    'dsh-recovery://preview-uninstall',
+    'dsh-recovery://preview-uninstall?id=short',
+    'dsh-recovery://preview-uninstall?id=opaque-id_0001&id=opaque-id_0002',
+    'dsh-recovery://preview-uninstall?id=opaque-id_0001&extra=value',
+    `dsh-recovery://preview-uninstall?id=${'x'.repeat(161)}`,
   ])('rejects invalid or over-privileged navigation: %s', href => {
     expect(parseDesktopStartupRecoveryAction(href)).toBeUndefined()
   })

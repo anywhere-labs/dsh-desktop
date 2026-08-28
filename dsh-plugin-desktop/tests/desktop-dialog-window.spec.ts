@@ -90,7 +90,13 @@ describe('DesktopDialogWindow', () => {
       resizable: false,
       height: 300,
       useContentSize: true,
-      webPreferences: expect.objectContaining({ enablePreferredSizeMode: true }),
+      webPreferences: expect.objectContaining({
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: true,
+        enablePreferredSizeMode: true,
+      }),
     }))
     expect(window?.options).not.toHaveProperty('minHeight')
     expect(window?.options).not.toHaveProperty('maxHeight')
@@ -115,6 +121,49 @@ describe('DesktopDialogWindow', () => {
     await expect(result).resolves.toEqual({ response: 0 })
     expect(event.preventDefault).toHaveBeenCalledOnce()
     expect(window?.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('uses a larger scrollable presentation for detailed recovery failures', async () => {
+    const parent = new electron.BrowserWindow({})
+    const result = new DesktopDialogWindow({
+      type: 'error',
+      title: 'Rollback failed',
+      message: 'Profile dependencies could not be rebuilt.',
+      detail: 'Exit code: 1\n\nstderr:\nERR_PNPM_OUTDATED_LOCKFILE',
+      buttons: ['Close'],
+      defaultId: 0,
+      cancelId: 0,
+      presentation: 'diagnostic',
+    }, parent as unknown as Electron.BrowserWindow).run()
+    await vi.waitFor(() => { expect(electron.windows).toHaveLength(2) })
+    const window = electron.windows[1]
+    expect(window?.options).toEqual(expect.objectContaining({
+      width: 680,
+      height: 460,
+      minWidth: 560,
+      maxWidth: 860,
+      parent,
+      modal: true,
+      frame: false,
+    }))
+    const loadCalls = window?.loadFile.mock.calls as unknown as readonly [
+      string,
+      { readonly query: { readonly state?: string } },
+    ][] | undefined
+    const query = loadCalls?.[0]?.[1].query
+    expect(JSON.parse(Buffer.from(query?.state ?? '', 'base64url').toString('utf8'))).toMatchObject({
+      presentation: 'diagnostic',
+      detail: expect.stringContaining('ERR_PNPM_OUTDATED_LOCKFILE'),
+    })
+    window?.onceListeners.get('ready-to-show')?.()
+    window?.webListeners.get('preferred-size-changed')?.({}, { width: 680, height: 390 })
+    window?.webListeners.get('did-finish-load')?.()
+    expect(window?.setContentSize).toHaveBeenCalledWith(680, 422, false)
+    window?.webListeners.get('will-navigate')?.(
+      { preventDefault: vi.fn() },
+      'dsh-desktop-dialog://response?id=0',
+    )
+    await expect(result).resolves.toEqual({ response: 0 })
   })
 
   it('maps window close to the configured cancel response', async () => {

@@ -9,7 +9,7 @@ import {
   auxiliaryWindowChromeOptions,
   auxiliaryWindowHasCustomFrame,
 } from './auxiliary-window-options.ts'
-import { showDesktopMessageBox } from './desktop-dialog-window.ts'
+import { showDesktopDialog, showDesktopMessageBox } from './desktop-dialog-window.ts'
 import type { DesktopLocale } from './runtime.ts'
 import { applicationNeedsReveal, revealApplication } from './electron-reveal.ts'
 import { desktopRestartConfirmationCopy } from './tray-locale.ts'
@@ -20,8 +20,9 @@ import {
 } from './recovery-copy.ts'
 import {
   DesktopStartupRecoveryController,
+  DesktopStartupRecoveryControllerError,
   type DesktopStartupRecoveryCheckpointPreview,
-  type DesktopStartupRecoveryDisablePreview,
+  type DesktopStartupRecoveryUninstallPreview,
   type DesktopStartupRecoverySnapshot,
 } from './startup-recovery-controller.ts'
 
@@ -185,7 +186,7 @@ export function parseDesktopStartupRecoveryAction(
     || url.hash.length > 0) return undefined
   const action = url.hostname
   const allowed = new Set([
-    'preview-disable',
+    'preview-uninstall',
     'preview-checkpoint',
     'open-checkpoint',
     'export-diagnostics',
@@ -303,16 +304,16 @@ export class DesktopStartupRecoveryWindow {
     if (this.busy || this.settled) return
     const copy = desktopRecoveryCopy(this.options.locale)
     try {
-      if (action.action === 'preview-disable' && action.id !== undefined) {
+      if (action.action === 'preview-uninstall' && action.id !== undefined) {
         this.activeTab = 'plugins'
-        const preview = await this.requireController().previewDisable(action.id)
-        if (await this.confirmRecoveryAction('disable', preview)) {
+        const preview = await this.requireController().previewUninstall(action.id)
+        if (await this.confirmRecoveryAction('uninstall', preview)) {
           await this.runBusy(async () => {
-            const result = await this.requireController().executeDisable(preview.previewId)
+            const result = await this.requireController().executeUninstall(preview.previewId)
             this.notice = {
               tone: 'success',
               title: result.packageName,
-              body: copy.disabledSuccess,
+              body: copy.uninstalledSuccess,
             }
             this.restartReady = true
             await this.refreshSnapshot()
@@ -345,7 +346,6 @@ export class DesktopStartupRecoveryWindow {
         this.activeTab = 'diagnostics'
         shell.showItemInFolder(this.diagnosticPath)
       } else if (action.action === 'open-terminal') {
-        this.activeTab = 'diagnostics'
         if (this.options.openTerminal === undefined) throw new Error('DSH Terminal is unavailable for this startup stage.')
         await this.options.openTerminal()
       } else if (action.action === 'open-profile-creator') {
@@ -401,19 +401,53 @@ export class DesktopStartupRecoveryWindow {
         this.finish('quit')
         return
       }
-    } catch {
+    } catch (cause) {
       this.notice = {
         tone: 'error',
         title: copy.title,
         body: copy.actionFailed,
       }
+      if (action.action === 'preview-checkpoint' || action.action === 'preview-uninstall') {
+        await this.showOperationFailure(cause, action.action).catch(() => {})
+      }
     }
     await this.render()
   }
 
+  private async showOperationFailure(
+    cause: unknown,
+    action: 'preview-checkpoint' | 'preview-uninstall',
+  ): Promise<void> {
+    const window = this.window
+    if (window === undefined || window.isDestroyed()) return
+    const copy = desktopRecoveryCopy(this.options.locale)
+    const error = cause instanceof DesktopStartupRecoveryControllerError ? cause : undefined
+    const stage = error?.operationStage ?? 'checkpoint-restore'
+    const message = error?.message ?? (cause instanceof Error ? cause.message : String(cause))
+    const detail = [
+      `${copy.operationStage}: ${copy.operationStageLabels[stage]}`,
+      `${copy.errorCode}: ${error?.code ?? 'operation-failed'}`,
+      '',
+      message,
+      ...(error?.diagnosticDetail === undefined
+        ? []
+        : ['', copy.technicalDetails, error.diagnosticDetail]),
+    ].join('\n')
+    await showDesktopDialog({
+      type: 'error',
+      title: action === 'preview-checkpoint' ? copy.rollbackFailedTitle : copy.uninstallFailedTitle,
+      message: action === 'preview-checkpoint' ? copy.rollbackFailedMessage : copy.uninstallFailedMessage,
+      detail,
+      buttons: [copy.close],
+      defaultId: 0,
+      cancelId: 0,
+      presentation: 'diagnostic',
+    }, window)
+  }
+
   private async confirmRecoveryAction(
-    kind: 'disable' | 'checkpoint',
-    preview: DesktopStartupRecoveryDisablePreview | DesktopStartupRecoveryCheckpointPreview,
+    kind: 'uninstall' | 'checkpoint',
+    preview: DesktopStartupRecoveryUninstallPreview | DesktopStartupRecoveryCheckpointPreview,
   ): Promise<boolean> {
     const window = this.window
     if (window === undefined || window.isDestroyed()) return false
@@ -426,16 +460,16 @@ export class DesktopStartupRecoveryWindow {
       ? new Date(preview.capturedAt).toLocaleString(this.options.locale === 'zh' ? 'zh-CN' : 'en-US')
       : copy.unknown
     const result = await showDesktopMessageBox({
-      type: kind === 'disable' ? 'warning' : 'question',
-      title: kind === 'disable'
-        ? copy.confirmDisable
+      type: kind === 'uninstall' ? 'warning' : 'question',
+      title: kind === 'uninstall'
+        ? copy.confirmUninstall
         : copy.confirmRollback,
       message,
-      detail: kind === 'disable'
-        ? copy.confirmDisableBody
+      detail: kind === 'uninstall'
+        ? copy.confirmUninstallBody
         : copy.confirmRollbackBody(checkpointTime),
       buttons: [
-        kind === 'disable' ? copy.disable : copy.confirmRollbackAction,
+        kind === 'uninstall' ? copy.uninstall : copy.confirmRollbackAction,
         copy.cancel,
       ],
       defaultId: 1,

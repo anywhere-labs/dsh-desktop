@@ -27,7 +27,6 @@ import {
 
 const BIN_NAME = 'dsh-plugin-desktop'
 const DEFAULT_PROFILE_NAME = 'desktop'
-const WEB_PROFILE_NAME = 'web'
 const BASE_BUNDLE_NAME = '@deepseek-ai/dsh-base'
 const WEB_BUNDLE_NAME = '@deepseek-ai/dsh-web-app'
 const DESKTOP_BUNDLE_NAME = 'dsh-plugin-desktop'
@@ -37,6 +36,7 @@ const MAX_STATE_BYTES = 4 * 1024
 const STATE_DIRECTORY_MODE = 0o700
 const STATE_FILE_MODE = 0o600
 const MAX_PROFILE_NAME_BYTES = 255
+const INTERNAL_PROFILE_STAGING_PATTERN = /^\..+\.(?:creating|deleting|incomplete)-\d+-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
 
 /** One discovered or lazily available DSH profile. */
 export interface DesktopProfileSummary {
@@ -102,6 +102,7 @@ export function assertDesktopProfileName(name: string): void {
   if (typeof name !== 'string' || name.length === 0
     || name.includes('/') || name.includes('\\') || name === '.' || name === '..'
     || name === 'node_modules' || Buffer.byteLength(name, 'utf8') > MAX_PROFILE_NAME_BYTES
+    || INTERNAL_PROFILE_STAGING_PATTERN.test(name)
     || /[\0-\x1f\x7f-\x9f]/.test(name)
     || /[<>:"|?*]/.test(name) || /[. ]$/.test(name)
     || /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i.test(name)) {
@@ -152,21 +153,6 @@ function existingProfile(name: string, home: string): DesktopProfileSummary {
   }
 }
 
-/** Describe one profile that upstream app-boot will lazily initialize. */
-function virtualProfile(name: typeof DEFAULT_PROFILE_NAME | typeof WEB_PROFILE_NAME, home: string): DesktopProfileSummary {
-  const bundles = PROFILE_TEMPLATES.web
-  if (bundles === undefined) {
-    throw new Error(`${BIN_NAME}: installed dsh-app-boot has no web profile template`)
-  }
-  return {
-    name,
-    dir: resolveProfileDir(name, home),
-    exists: false,
-    bundles: [...bundles],
-    webCapable: true,
-  }
-}
-
 /**
  * Create a safe Web profile using only the shipped template.
  *
@@ -192,7 +178,7 @@ export function createDesktopWebProfile(home: string, name: string): DesktopProf
 
   const staging = join(profilesDir, `.${basename(target)}.creating-${process.pid}-${randomUUID()}`)
   try {
-    initProfile(staging, [...template])
+    initProfile(staging, template.bundles, template.patchReload)
     const manifest = readProfileManifest(BIN_NAME, staging)
     writeProfileManifest(staging, { ...manifest, name: `dsh-profile-${name}` })
     // The target is checked again immediately before publication. `renameSync`
@@ -211,9 +197,46 @@ export function createDesktopWebProfile(home: string, name: string): DesktopProf
   return existingProfile(name, home)
 }
 
-/** Deterministic profile order with the product defaults first. */
+/**
+ * Publish the real default Profile while preserving an interrupted, incomplete
+ * directory under an internal sibling name. Ordinary files and symlinks fail
+ * closed instead of being replaced.
+ */
+function materializeDefaultDesktopProfile(home: string): DesktopProfileSummary {
+  const target = resolveProfileDir(DEFAULT_PROFILE_NAME, home)
+  if (existsSync(join(target, PROFILE_MANIFEST_FILENAME))) return existingProfile(DEFAULT_PROFILE_NAME, home)
+
+  let incomplete: string | undefined
+  try {
+    const item = lstatSync(target)
+    if (!item.isDirectory() || item.isSymbolicLink()) {
+      throw new Error(`${BIN_NAME}: default profile path is not a real directory`)
+    }
+    incomplete = join(dirname(target), `.${basename(target)}.incomplete-${process.pid}-${randomUUID()}`)
+    renameSync(target, incomplete)
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+  }
+
+  try {
+    return createDesktopWebProfile(home, DEFAULT_PROFILE_NAME)
+  } catch (cause) {
+    if (incomplete !== undefined) {
+      try {
+        lstatSync(target)
+      } catch (targetCause) {
+        if ((targetCause as NodeJS.ErrnoException).code === 'ENOENT') {
+          try { renameSync(incomplete, target) } catch { /* preserve the creation failure */ }
+        }
+      }
+    }
+    throw cause
+  }
+}
+
+/** Deterministic profile order with the actual Desktop profile first. */
 function compareProfiles(left: DesktopProfileSummary, right: DesktopProfileSummary): number {
-  const priority = (name: string): number => name === DEFAULT_PROFILE_NAME ? 0 : name === WEB_PROFILE_NAME ? 1 : 2
+  const priority = (name: string): number => name === DEFAULT_PROFILE_NAME ? 0 : 1
   const difference = priority(left.name) - priority(right.name)
   if (difference !== 0) return difference
   return left.name < right.name ? -1 : left.name > right.name ? 1 : 0
@@ -222,13 +245,14 @@ function compareProfiles(left: DesktopProfileSummary, right: DesktopProfileSumma
 /**
  * List profile manifests without initializing or modifying any profile.
  * @param home - Harness home containing the shared profile directory.
- * @returns existing profiles plus lazy desktop and Web defaults.
+ * @returns only profiles whose manifests currently exist on disk.
  */
 export function listDesktopProfiles(home: string): DesktopProfileSummary[] {
   const profilesDir = join(home, 'profiles')
   const summaries = new Map<string, DesktopProfileSummary>()
   try {
     for (const entry of readdirSync(profilesDir, { withFileTypes: true })) {
+      if (INTERNAL_PROFILE_STAGING_PATTERN.test(entry.name)) continue
       if (entry.name === 'node_modules' || (!entry.isDirectory() && !entry.isSymbolicLink())) continue
       try {
         assertDesktopProfileName(entry.name)
@@ -241,9 +265,6 @@ export function listDesktopProfiles(home: string): DesktopProfileSummary[] {
     }
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
-  }
-  for (const name of [DEFAULT_PROFILE_NAME, WEB_PROFILE_NAME] as const) {
-    if (!summaries.has(name)) summaries.set(name, virtualProfile(name, home))
   }
   return [...summaries.values()].sort(compareProfiles)
 }
@@ -451,21 +472,34 @@ export function selectDesktopProfile(statePath: string, home: string, name: stri
 }
 
 /**
- * Resolve the exact selected Profile. Startup failures are handled only by
- * the Recovery window; this boundary never substitutes another Profile.
+ * Resolve the exact selected Profile. When no Profile manifests exist, create
+ * one real default Desktop Profile and recover selection to it. A missing
+ * selection is otherwise left for the Recovery window instead of being
+ * silently replaced while another Profile remains available.
  * @param statePath - desktop-owned state file outside the Harness profile tree.
- * @param home - Harness home used only for read-only profile discovery.
+ * @param home - Harness home used for discovery and zero-Profile default materialization.
  * @returns profile decision persisted before profile preparation starts.
  */
 export function beginDesktopProfileStartup(statePath: string, home: string): DesktopProfileStartup {
   const loaded = loadState(statePath)
-  const current = loaded.state
+  const discovered = listDesktopProfiles(home)
+  const noProfilesExist = discovered.length === 0
+  let current = loaded.state
+  let recoveredState = loaded.recovered
+  if ((current.active === DEFAULT_PROFILE_NAME || noProfilesExist)
+    && !discovered.some(profile => profile.name === DEFAULT_PROFILE_NAME)) {
+    materializeDefaultDesktopProfile(home)
+  }
+  if (noProfilesExist && current.active !== DEFAULT_PROFILE_NAME) {
+    current = defaultState()
+    recoveredState = true
+  }
   selectableProfile(home, current.active)
   const next: DesktopProfileStateV2 = { version: STATE_VERSION, active: current.active }
   writeState(statePath, next)
   return {
     profileName: current.active,
     state: next,
-    recoveredState: loaded.recovered,
+    recoveredState,
   }
 }

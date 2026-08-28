@@ -49,7 +49,7 @@ Renderer 通过现有 loopback carrier 接收普通 Web Client module，无法�
 从受支持的 client export 导入 contract，并且只在浏览器侧代码中 inject `desktopWindow`：
 
 ```ts
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { DesktopWindowService } from 'dsh-plugin-desktop/client'
 
 export const inject = ['desktopWindow']
@@ -69,9 +69,9 @@ export function apply(ctx: ClientContext): void {
 interface DesktopWindowService {
   readonly mode: 'compatibility' | 'extended' | 'advanced'
   readonly platform: 'darwin' | 'win32' | 'linux'
-  readonly material: 'off' | 'transparent' | 'acrylic' | 'mica'
+  readonly material: 'off' | 'transparent' | 'mica'
   readonly micaSupported: boolean
-  readonly availableMaterials: readonly ('off' | 'transparent' | 'acrylic' | 'mica')[]
+  readonly availableMaterials: readonly ('off' | 'transparent' | 'mica')[]
   readonly safeAreaInsets: {
     readonly top: number
     readonly right: number
@@ -86,7 +86,7 @@ interface DesktopWindowService {
 }
 ```
 
-所有值都会在一个 renderer generation 内保持不变，几何值使用 CSS 像素。`material` 是经过系统能力门槛解析后的实际材质，而不只是持久化的偏好。macOS 的 `availableMaterials` 为 `off/transparent`；Windows 10 为 `off/acrylic`；Windows 11 build 22621 及以上还会加入 `mica`。
+所有值都会在一个 renderer generation 内保持不变，几何值使用 CSS 像素。`material` 是经过系统能力门槛解析后的实际材质，而不只是持久化的偏好。macOS 的 `availableMaterials` 为 `off/transparent`；Windows 10 为 `off`；Windows 11 build 22621 及以上为 `off/mica`。已移除的旧 `acrylic` 偏好会按 `off` 读取，并在设置文件可写时自动迁移。
 
 兼容模式与扩展窗口在 macOS 与 Windows 上都报告顶部 36 像素的预留区与拖动带，并在 macOS 左侧为红绿灯排除 80 像素，或在 Windows 右侧为原生标题栏按钮排除 138 像素。兼容模式会把完整官方 frame 下移到该区域下方。扩展窗口则由 Desktop 持有 root layout/sidebar surface，并在同一预留区下方承载官方 sidebar、conversation 与 details occupant，因此普通 occupant 不能再次叠加这一 inset。Linux 兼容模式保留普通原生 frame，因此报告零 inset 和零高度拖动区域。增强模式使用独立的紧凑几何：macOS 报告 20 像素内容 inset、32 像素拖动带与 80 像素左侧排除；Windows 报告 32 像素内容 inset、32 像素拖动带与 138 像素右侧排除。
 
@@ -173,11 +173,11 @@ interface DesktopPnpmHandle {
 ['install', '--no-frozen-lockfile']
 ```
 
-使用 `run()` 时，package 身份策略、命令构造、`dsh.profile.bundles` reconcile、receipt 和操作后验证均由调用方负责；兼容适配器会把 bundle reconcile 委托给已打包的 DSH CLI。三个方法都不会为 package operation 做快照、回滚、重试、保护或记录。Desktop 恢复与此独立：每次健康启动写入三个轮转 Profile checkpoint 之一，用户可在恢复页面明确选择精确槽位恢复。
+使用 `run()` 时，package 身份策略、命令构造、`dsh.profile.bundles` reconcile、receipt 和操作后验证均由调用方负责；兼容适配器会把 bundle reconcile 委托给已打包的 DSH CLI。三个方法都不会为 package operation 做快照、回滚、重试、保护或记录。Desktop 恢复与此独立：每次健康启动写入三个轮转配置 checkpoint 之一，同时覆盖激活 Profile 与共享 DSH home 设置和补丁；用户可在恢复页面明确选择精确槽位恢复。
 
 Service 在每个 generation 同时最多启动一个 package operation；已有 operation 活跃时再次调用会同步抛错。它只暴露输出，不选择 progress UI，也没有内置 timeout。Consumer 拥有 deadline、读取两个 stream、报告 progress、在需要时调用 `cancel()` 或 abort signal、等待 `done`，并同时检查 `exitCode` 与 `signal`。
 
-无效 argv、已经关闭或忙碌的 generation，以及调用前就已 abort 的 signal，都会在返回 handle 前同步抛错。Handle 存在后，cancellation 与 generation teardown 会作用于完整 subprocess tree。`done` 不会仅因直接 wrapper 退出而 settle；在后代进程消失前，operation gate 始终保持占用。异步 spawn-level failure 会 reject `done`，普通命令失败则 resolve 为非零 exit code。在 Windows 上，provider 会使用 argv 启动准确的已打包 pnpm entry，并把进程树 ownership 委托给 subprocess service，因此插件作者无需发现 `.cmd` shim，也不应拼接 shell 文本。
+无效 argv、已经关闭或忙碌的 generation，以及调用前就已 abort 的 signal，都会在返回 handle 前同步抛错。Handle 存在后，cancellation 与 generation teardown 会作用于完整 subprocess tree。`done` 不会仅因直接 wrapper 退出而 settle；在后代进程消失前，operation gate 始终保持占用。异步 spawn-level failure 会 reject `done`，普通命令失败则 resolve 为非零 exit code。Desktop 会仅在当前进程中、最终执行 pnpm 时为所有操作加入一次 `--config.minimumReleaseAge=0`，包括打包的 `dsh plugin` 转发和终端 shim，不会持久化修改用户配置。在 Windows 上，provider 会使用 argv 启动准确的已打包 pnpm entry，并把进程树 ownership 委托给 subprocess service，因此插件作者无需发现 `.cmd` shim，也不应拼接 shell 文本。
 
 ## 内部与 launcher 私有 capability
 

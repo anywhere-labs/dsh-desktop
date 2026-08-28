@@ -47,6 +47,37 @@ describe('packaged dsh bootstrap', () => {
     expect(load).toHaveBeenCalledOnce()
   })
 
+  it('leaves the release-age policy to the final pnpm shim exactly once', async () => {
+    const load = vi.fn(async () => {})
+    const defaulted = [
+      '/Applications/DSH Desktop',
+      '/app.asar/lib/desktop-cli.js',
+      'plugin',
+      '--config.minimumReleaseAge=0',
+      'remove',
+      'example-plugin',
+    ]
+    await runDesktopDshCli({ DSH_DESKTOP_DEFAULT_PROFILE: 'desktop' }, load, defaulted)
+    expect(defaulted.slice(2)).toEqual([
+      'plugin',
+      '--profile',
+      'desktop',
+      'remove',
+      'example-plugin',
+    ])
+
+    const explicit = [
+      '/Applications/DSH Desktop',
+      '/app.asar/lib/desktop-cli.js',
+      'plugin',
+      '--profile=work',
+      '--config.minimumReleaseAge=0',
+      'update',
+    ]
+    await runDesktopDshCli({}, load, explicit)
+    expect(explicit.slice(2)).toEqual(['plugin', '--profile=work', 'update'])
+  })
+
   it('defaults profile and plugin commands without overriding explicit or global modes', () => {
     expect(withDefaultDesktopProfile([], 'desktop')).toEqual(['--profile', 'desktop'])
     expect(withDefaultDesktopProfile(['--dump-config'], 'desktop')).toEqual([

@@ -54,6 +54,7 @@ import {
   type DesktopUpdateArtifact,
 } from './update-download.ts'
 import type { UpdateCheckResult } from './update-checker.ts'
+import type { DesktopInstallationId } from './desktop-installation-id.ts'
 import {
   type WindowsVolumeQuery,
 } from './windows-volume-diagnostics.ts'
@@ -130,6 +131,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     private readonly logger: DesktopLogger | undefined = undefined,
     workspaceVolumeQuery: WindowsVolumeQuery | undefined = undefined,
     private readonly mainWindowState: MainWindowStateStore = new FileMainWindowStateStore(app.getPath('userData')),
+    installationId?: DesktopInstallationId,
   ) {
     this.platformStrategy = electronPlatformStrategy()
     this.platform = this.platformStrategy.platform
@@ -151,6 +153,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       get canDownload() { return app.isPackaged && platformStrategy.updateDownloadPlatform !== undefined },
       get currentVersion() { return PRODUCT_VERSION },
       get statePath() { return join(app.getPath('userData'), 'updates', 'state.json') },
+      ...(installationId === undefined ? {} : { installationId }),
       request: (url, init) => net.fetch(url, init),
       confirmDownload: version => this.confirmUpdateDownload(version),
       showManualCheckResult: result => this.showManualUpdateCheckResult(result),
@@ -755,7 +758,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
           detached: true,
           stdio: 'ignore',
           shell: false,
-          windowsHide: false,
+          windowsHide: true,
         })
       } catch (cause) {
         reject(cause)

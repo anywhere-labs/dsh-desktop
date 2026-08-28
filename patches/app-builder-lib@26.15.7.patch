@@ -53,3 +53,86 @@ index 8d2992afbe79af270a0d08c38203166d3afc03f1..bd8dc7fd2bc01a4ec9ade821bbd5d7bd
 +++ b/templates/nsis/portable.nsi
 @@ -8,0 +9 @@
 +ManifestLongPathAware true
+diff --git a/templates/nsis/include/extractAppPackage.nsh b/templates/nsis/include/extractAppPackage.nsh
+--- a/templates/nsis/include/extractAppPackage.nsh
++++ b/templates/nsis/include/extractAppPackage.nsh
+@@ -92,47 +92,6 @@
+ !macro extractUsing7za FILE
+-  Push $OUTDIR
+-  CreateDirectory "$PLUGINSDIR\7z-out"
+-  ClearErrors
+-  SetOutPath "$PLUGINSDIR\7z-out"
+-  Nsis7z::Extract "${FILE}"
+-  Pop $R0
+-  SetOutPath $R0
+-
+-  # Retry counter
+-  StrCpy $R1 0
+-
+-  LoopExtract7za:
+-    IntOp $R1 $R1 + 1
+-
+-    # Attempt to copy files in atomic way
+-    CopyFiles /SILENT "$PLUGINSDIR\7z-out\*" $OUTDIR
+-    IfErrors 0 DoneExtract7za
+-
+-    DetailPrint `Can't modify "${PRODUCT_NAME}"'s files.`
+-    ${if} $R1 < 5
+-      # Try copying a few times before asking for a user action.
+-      Goto RetryExtract7za
+-    ${else}
+-      MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(appCannotBeClosed)" /SD IDRETRY IDCANCEL AbortExtract7za
+-    ${endIf}
+-
+-    # As an absolutely last resort after a few automatic attempts and user
+-    # intervention - we will just overwrite everything with `Nsis7z::Extract`
+-    # even though it is not atomic and will ignore errors.
+-
+-    # Clear the temporary folder first to make sure we don't use twice as
+-    # much disk space.
+-    RMDir /r "$PLUGINSDIR\7z-out"
+-
+-    Nsis7z::Extract "${FILE}"
+-    Goto DoneExtract7za
+-
+-  AbortExtract7za:
+-    Quit
+-
+-  RetryExtract7za:
+-    Sleep 1000
+-    Goto LoopExtract7za
+-
+-  DoneExtract7za:
++  # The Desktop package favors install speed over atomic replacement: avoid
++  # writing the entire app to $PLUGINSDIR and copying every file a second time.
++  SetOutPath "$INSTDIR"
++  Nsis7z::Extract "${FILE}"
+ !macroend
+diff --git a/templates/nsis/include/installUtil.nsh b/templates/nsis/include/installUtil.nsh
+--- a/templates/nsis/include/installUtil.nsh
++++ b/templates/nsis/include/installUtil.nsh
+@@ -128,6 +128,11 @@ Function handleUninstallResult
+   ${if} $R0 != 0
+-    MessageBox MB_OK|MB_ICONEXCLAMATION "$(uninstallFailed): $R0"
+-    DetailPrint `Uninstall was not successful. Uninstaller error code: $R0.`
+-    SetErrorLevel 2
+-    Quit
++    ${if} $R0 == 2
++      DetailPrint `Old uninstaller returned code 2; continuing with non-atomic in-place replacement.`
++      StrCpy $R0 0
++    ${else}
++      MessageBox MB_OK|MB_ICONEXCLAMATION "$(uninstallFailed): $R0"
++      DetailPrint `Uninstall was not successful. Uninstaller error code: $R0.`
++      SetErrorLevel 2
++      Quit
++    ${endif}
+   ${endif}
+@@ -233,4 +238,8 @@ Function uninstallOldVersion
+     CheckResult:
+       ${if} $R0 == 0
+         Return
+       ${endIf}
++      ${if} $R0 == 2
++        # Code 2 is handled by the non-atomic in-place replacement path.
++        Return
++      ${endIf}

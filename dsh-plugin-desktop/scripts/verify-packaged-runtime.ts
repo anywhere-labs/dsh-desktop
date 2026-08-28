@@ -1,9 +1,9 @@
 /** Fail-loud verification of the runtime entries sealed into Electron's app.asar. */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { listPackage } from '@electron/asar'
 import AdmZip from 'adm-zip'
@@ -11,6 +11,16 @@ import {
   FORBIDDEN_MACOS_UNIVERSAL_ENTRIES,
   MACOS_UNIVERSAL_NATIVE_ENTRIES,
 } from './mac-universal.ts'
+
+const DSH_PACKAGE_ROOT = dirname(createRequire(import.meta.url).resolve('@deepseek-ai/dsh/package.json'))
+
+/** Every generated JavaScript file shipped by the installed DSH CLI package. */
+export const REQUIRED_DSH_CLI_RUNTIME_ENTRIES = Object.freeze(
+  readdirSync(join(DSH_PACKAGE_ROOT, 'lib'), { withFileTypes: true })
+    .filter(entry => entry.isFile() && entry.name.endsWith('.js'))
+    .map(entry => `node_modules/@deepseek-ai/dsh/lib/${entry.name}`)
+    .sort(),
+)
 
 /** AfterPack fields consumed without importing Electron Builder's incomplete declaration graph. */
 export interface PackagedRuntimeContext {
@@ -35,6 +45,7 @@ export const REQUIRED_PACKAGED_RUNTIME_ENTRIES = [
   'lib/client.js',
   'lib/native-ui/profile-create.html',
   'lib/native-ui/recovery.html',
+  'lib/native-ui/setup-wizard.html',
   'lib/profile.js',
   'lib/profile-manager.js',
   'lib/profile-service.js',
@@ -49,11 +60,13 @@ export const REQUIRED_PACKAGED_RUNTIME_ENTRIES = [
   'lib/update-checker.js',
   'lib/update-download.js',
   'lib/updates.js',
-  'lib/windows-agent-presets.js',
   'lib/windows-acl-runner.js',
-  'node_modules/@deepseek-ai/dsh/lib/bin.js',
+  'lib/windows-subprocess.js',
+  ...REQUIRED_DSH_CLI_RUNTIME_ENTRIES,
+  'node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js',
   'node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html',
   'node_modules/@deepseek-ai/dsh-app-boot/lib/index.js',
+  'node_modules/open/index.js',
   'node_modules/pnpm/bin/pnpm.mjs',
 ] as const
 
@@ -69,6 +82,7 @@ export const REQUIRED_UNPACKED_RUNTIME_ENTRIES = [
   'lib/client.js',
   'lib/native-ui/profile-create.html',
   'lib/native-ui/recovery.html',
+  'lib/native-ui/setup-wizard.html',
   'lib/index.js',
   'lib/profile.js',
   'lib/profile-manager.js',
@@ -80,15 +94,18 @@ export const REQUIRED_UNPACKED_RUNTIME_ENTRIES = [
   'lib/terminal.js',
   'lib/update-download.js',
   'lib/updates.js',
-  'lib/windows-agent-presets.js',
   'lib/windows-pwsh-sandbox.js',
+  'lib/windows-subprocess.js',
   'node_modules/@deepseek-ai/dsh/package.json',
-  'node_modules/@deepseek-ai/dsh/config/agent-presets/cordis/agent.cordis.yml',
-  'node_modules/@deepseek-ai/dsh/config/agent-presets/cordis/skills/cordis-plugin-development/SKILL.md',
-  'node_modules/@deepseek-ai/dsh/config/agent-presets/cordis/skills/editing-cordis-compositions/SKILL.md',
-  'node_modules/@deepseek-ai/dsh/lib/bin.js',
+  'node_modules/@deepseek-ai/dsh-agent-presets/package.json',
+  'node_modules/@deepseek-ai/dsh-agent-presets/presets/cordis/agent.cordis.yml',
+  'node_modules/@deepseek-ai/dsh-agent-presets/presets/cordis/skills/cordis-plugin-development/SKILL.md',
+  'node_modules/@deepseek-ai/dsh-agent-presets/presets/cordis/skills/editing-cordis-compositions/SKILL.md',
+  ...REQUIRED_DSH_CLI_RUNTIME_ENTRIES,
+  'node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js',
   'node_modules/@deepseek-ai/dsh-app-boot/lib/index.js',
   'node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html',
+  'node_modules/open/index.js',
   'node_modules/pnpm/bin/pnpm.mjs',
 ] as const
 
@@ -117,8 +134,8 @@ export const REQUIRED_UNPACKED_PACKAGE_SPECIFIERS = [
   'dsh-plugin-desktop/diagnostics',
   'dsh-plugin-desktop/notifications',
   'dsh-plugin-desktop/updates',
-  'dsh-plugin-desktop/windows-agent-presets',
   'dsh-plugin-desktop/windows-pwsh-sandbox',
+  'dsh-plugin-desktop/windows-subprocess',
   'dsh-plugin-desktop/package.json',
   '@deepseek-ai/dsh-base/package.json',
   '@deepseek-ai/schemastery/package.json',

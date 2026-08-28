@@ -1,6 +1,7 @@
 /** Shared recovery copy used by the native page and its main-process actions. */
 
 import type { DesktopLocale } from './runtime.ts'
+import type { DesktopStartupRecoveryOperationStage } from './startup-recovery-controller.ts'
 
 export type DesktopRecoveryTab = 'plugins' | 'rollback' | 'profiles' | 'diagnostics'
 
@@ -32,10 +33,10 @@ export interface DesktopRecoveryCopy {
   readonly pluginsUnavailable: string
   readonly pluginsEmpty: string
   readonly core: string
-  readonly managed: string
+  readonly profileDependency: string
   readonly external: string
   readonly disabled: string
-  readonly disable: string
+  readonly uninstall: string
   readonly diagnostics: string
   readonly savingDiagnostics: string
   readonly diagnosticsSaved: string
@@ -70,15 +71,24 @@ export interface DesktopRecoveryCopy {
   readonly quit: string
   readonly working: string
   readonly cancel: string
-  readonly confirmDisable: string
-  readonly confirmDisableBody: string
+  readonly confirmUninstall: string
+  readonly confirmUninstallBody: string
   readonly confirmRollback: string
   readonly confirmRollbackBody: (capturedAt: string) => string
   readonly confirmRollbackAction: string
-  readonly disabledSuccess: string
+  readonly uninstalledSuccess: string
   readonly rollbackSuccess: (slotId: string) => string
   readonly profileSelectedSuccess: string
   readonly actionFailed: string
+  readonly rollbackFailedTitle: string
+  readonly rollbackFailedMessage: string
+  readonly uninstallFailedTitle: string
+  readonly uninstallFailedMessage: string
+  readonly operationStage: string
+  readonly operationStageLabels: Readonly<Record<DesktopStartupRecoveryOperationStage, string>>
+  readonly errorCode: string
+  readonly technicalDetails: string
+  readonly close: string
 }
 
 const COPY: Record<DesktopLocale, DesktopRecoveryCopy> = {
@@ -103,16 +113,16 @@ const COPY: Record<DesktopLocale, DesktopRecoveryCopy> = {
     tabs: { plugins: 'Plugin management', rollback: 'Rollback', profiles: 'Switch Profile', diagnostics: 'Diagnostics' },
     checkpoints: 'Healthy-start checkpoints',
     checkpointsUnavailable: 'Checkpoint information is unavailable for this startup stage.',
-    rollbackBody: 'Choose one of the three healthy-start slots to roll back the current Profile.',
+    rollbackBody: 'Choose one of the three healthy-start slots to restore the current Profile together with shared settings.yaml and the Harness-home patch.',
     plugins: 'Plugin management',
-    pluginsBody: 'Disable a manageable plugin for the next start without uninstalling its files.',
+    pluginsBody: 'Remove a direct plugin dependency from the current Profile with the official DSH plugin command.',
     pluginsUnavailable: 'Plugin information is unavailable for this startup stage.',
-    pluginsEmpty: 'No manageable plugins were found in the current Profile.',
+    pluginsEmpty: 'No plugins were found in the current Profile.',
     core: 'Built in',
-    managed: 'Installed by Plugin Market',
-    external: 'Installed another way',
+    profileDependency: 'Direct Profile dependency',
+    external: 'Not directly removable',
     disabled: 'Disabled',
-    disable: 'Disable',
+    uninstall: 'Uninstall',
     diagnostics: 'Diagnostic archive',
     savingDiagnostics: 'Saving a local diagnostic archive…',
     diagnosticsSaved: 'The diagnostic archive was saved locally and is never uploaded automatically.',
@@ -120,8 +130,8 @@ const COPY: Record<DesktopLocale, DesktopRecoveryCopy> = {
     saveDiagnostics: 'Export diagnostics',
     showDiagnostics: 'Show in folder',
     privacy: 'The archive may contain local paths, logs, system information, and crash-memory fragments. Review it before sharing.',
-    configurationFiles: 'Profile configuration files',
-    configurationFilesBody: 'View or edit the current Profile configuration. Restart DSH Desktop after making changes.',
+    configurationFiles: 'Configuration files',
+    configurationFilesBody: 'View or edit the current Profile and shared Harness-home configuration. Restart DSH Desktop after making changes.',
     openSettingsDocument: 'Open settings.yaml',
     openProfilePatch: 'Edit Profile patch',
     openProfileManifest: 'Edit plugin manifest',
@@ -147,15 +157,28 @@ const COPY: Record<DesktopLocale, DesktopRecoveryCopy> = {
     quit: 'Quit',
     working: 'Applying the recovery action…',
     cancel: 'Cancel',
-    confirmDisable: 'Disable this plugin?',
-    confirmDisableBody: 'The current Profile will skip this plugin after restart. Its files will remain installed.',
-    confirmRollback: 'Roll back the current Profile?',
-    confirmRollbackBody: capturedAt => `This immediately replaces the current Profile configuration with the checkpoint captured at ${capturedAt}. After restarting, DSH Desktop will use the rolled-back configuration.`,
+    confirmUninstall: 'Uninstall this plugin?',
+    confirmUninstallBody: 'DSH will remove this dependency from the current Profile and reconcile its plugin layers. This does not depend on which market installed it.',
+    confirmRollback: 'Roll back this configuration?',
+    confirmRollbackBody: capturedAt => `This immediately restores the current Profile plus the checkpointed settings.yaml and Harness-home patch captured at ${capturedAt}. After restarting, DSH Desktop will use the rolled-back configuration.`,
     confirmRollbackAction: 'Roll Back',
-    disabledSuccess: 'The plugin is disabled for the next start. Its files remain installed.',
+    uninstalledSuccess: 'The plugin was removed from the current Profile. Restart DSH Desktop to use the updated plugin configuration.',
     rollbackSuccess: slotId => `Rolled back to ${slotId}. Restart DSH Desktop to use this configuration; the first healthy start after rollback will preserve all three existing slots.`,
     profileSelectedSuccess: 'This Profile is now selected. Restart DSH Desktop to use it.',
     actionFailed: 'The recovery action could not be completed. Review the diagnostic archive and try again.',
+    rollbackFailedTitle: 'Rollback failed',
+    rollbackFailedMessage: 'The rollback did not finish. The Recovery Assistant remains open so you can review the details and try again.',
+    uninstallFailedTitle: 'Plugin uninstall failed',
+    uninstallFailedMessage: 'The plugin was not removed. The Recovery Assistant remains open so you can review the details and try again.',
+    operationStage: 'Operation stage',
+    operationStageLabels: {
+      'checkpoint-restore': 'Checkpoint file restore',
+      'dependency-materialization': 'Profile dependency rebuild',
+      'plugin-change': 'DSH plugin uninstall',
+    },
+    errorCode: 'Error code',
+    technicalDetails: 'Technical details',
+    close: 'Close',
   },
   zh: {
     title: 'DSH Desktop 恢复助手',
@@ -178,16 +201,16 @@ const COPY: Record<DesktopLocale, DesktopRecoveryCopy> = {
     tabs: { plugins: '插件管理', rollback: '回滚', profiles: '切换 Profile', diagnostics: '诊断' },
     checkpoints: '健康启动 Checkpoint',
     checkpointsUnavailable: '当前启动阶段无法读取 Checkpoint 信息。',
-    rollbackBody: '从三个健康启动槽位中选择一个，将当前 Profile 回滚到该状态。',
+    rollbackBody: '从三个健康启动槽位中选择一个，同时恢复当前 Profile、共享 settings.yaml 和 DSH home 补丁。',
     plugins: '插件管理',
-    pluginsBody: '下次启动时跳过可管理插件，但不卸载插件文件。',
+    pluginsBody: '使用官方 DSH 插件命令，从当前 Profile 中卸载直接依赖的插件。',
     pluginsUnavailable: '当前启动阶段无法读取插件信息。',
-    pluginsEmpty: '当前 Profile 中没有可管理的插件。',
+    pluginsEmpty: '当前 Profile 中没有插件。',
     core: '内置组件',
-    managed: '通过插件市场安装',
-    external: '通过其他方式安装',
+    profileDependency: 'Profile 直接依赖',
+    external: '不可直接卸载',
     disabled: '已禁用',
-    disable: '禁用',
+    uninstall: '卸载',
     diagnostics: '诊断包',
     savingDiagnostics: '正在保存本地诊断包…',
     diagnosticsSaved: '诊断包已保存在本地，不会自动上传。',
@@ -195,8 +218,8 @@ const COPY: Record<DesktopLocale, DesktopRecoveryCopy> = {
     saveDiagnostics: '导出诊断',
     showDiagnostics: '在文件夹中显示',
     privacy: '诊断包可能包含本地路径、日志、系统信息和崩溃内存片段，分享前请先检查。',
-    configurationFiles: 'Profile 配置文件',
-    configurationFilesBody: '查看或编辑当前 Profile 的配置文件。修改后需要重新启动 DSH Desktop。',
+    configurationFiles: '配置文件',
+    configurationFilesBody: '查看或编辑当前 Profile 与 DSH home 的共享配置。修改后需要重新启动 DSH Desktop。',
     openSettingsDocument: '打开 settings.yaml',
     openProfilePatch: '编辑 Profile 补丁',
     openProfileManifest: '编辑插件清单',
@@ -222,15 +245,28 @@ const COPY: Record<DesktopLocale, DesktopRecoveryCopy> = {
     quit: '退出',
     working: '正在执行恢复操作…',
     cancel: '取消',
-    confirmDisable: '禁用这个插件？',
-    confirmDisableBody: '重启后，当前 Profile 将跳过这个插件；插件文件仍会保留。',
-    confirmRollback: '回滚当前 Profile？',
-    confirmRollbackBody: capturedAt => `将立即使用 ${capturedAt} 创建的 Checkpoint 替换当前 Profile 的配置；重启后，DSH Desktop 将使用回滚后的配置。`,
+    confirmUninstall: '卸载这个插件？',
+    confirmUninstallBody: 'DSH 将从当前 Profile 中移除此依赖，并重新整理插件层。无论插件由哪个市场安装，都会使用相同的卸载流程。',
+    confirmRollback: '回滚这套配置？',
+    confirmRollbackBody: capturedAt => `将立即恢复 ${capturedAt} 创建的 Checkpoint 中的当前 Profile、settings.yaml 与 DSH home 补丁；重启后，DSH Desktop 将使用回滚后的配置。`,
     confirmRollbackAction: '回滚',
-    disabledSuccess: '此插件已在下次启动中禁用，插件文件仍然保留。',
+    uninstalledSuccess: '插件已从当前 Profile 中卸载。请重启 DSH Desktop 以使用更新后的插件配置。',
     rollbackSuccess: slotId => `已回滚到${slotId}。请重启 DSH Desktop 以使用该配置；回滚后的第一次健康启动会保留现有三个槽位。`,
     profileSelectedSuccess: '已设为当前 Profile。请重启 DSH Desktop 以使用该 Profile。',
     actionFailed: '无法完成恢复操作。请检查诊断包后重试。',
+    rollbackFailedTitle: '回滚失败',
+    rollbackFailedMessage: '回滚未能完成。恢复助手会保持打开，你可以查看详细错误后重试。',
+    uninstallFailedTitle: '插件卸载失败',
+    uninstallFailedMessage: '插件未能卸载。恢复助手会保持打开，你可以查看详细错误后重试。',
+    operationStage: '操作阶段',
+    operationStageLabels: {
+      'checkpoint-restore': 'Checkpoint 文件恢复',
+      'dependency-materialization': 'Profile 依赖重建',
+      'plugin-change': 'DSH 插件卸载',
+    },
+    errorCode: '错误代码',
+    technicalDetails: '技术详情',
+    close: '关闭',
   },
 }
 

@@ -1,6 +1,7 @@
 {
   "repository": "https://github.com/deepseek-ai/deepseek-harness.git",
-  "commit": "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
-  "sourceVersion": "0.1.1-rc.2",
-  "runtimePackageVersion": "0.1.1-rc.2"
+  "commit": "cd5ef8148158c3a752a658978873241fdf8e2bbc",
+  "sourceVersion": "0.1.2-alpha.1",
+  "runtimePackageVersion": "0.1.2-alpha.1",
+  "runtimeSource": "vendor/dsh-runtime/0.1.2-alpha.1/manifest.json"
 }
