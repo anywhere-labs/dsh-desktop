@@ -77,6 +77,13 @@ describe('advanced desktop layout', () => {
     expect(caption).toBeLessThan(overlay)
   })
 
+  it('preserves upstream pane semantics for DOM-based sidebar extensions', () => {
+    const frame = readFileSync(new URL('../src/client/AdvancedFrame.tsx', import.meta.url), 'utf8')
+
+    expect(frame).toContain('<aside className="dshDesktopSidebarSurface" data-pane="sidebar">')
+    expect(frame).toContain('<main className="dshDesktopConversationSurface" data-pane="conversation">')
+  })
+
   it('owns native caption geometry with one fixed macOS drag strip above page content', () => {
     expect(ADVANCED_MACOS_CONTENT_INSET).toBe(20)
     expect(ADVANCED_MACOS_DRAG_REGION_HEIGHT).toBe(32)
