@@ -429,6 +429,26 @@ describe('published package surface', () => {
     expect(installedTypes).toContain("inputModalities?: readonly ('text' | 'image')[];")
   })
 
+  it('accepts Desktop model modality settings as pi-ai input overrides', () => {
+    const patchPath = '~/.yarn/patches/@deepseek-ai-dsh-llm-pi-ai-npm-0.1.1-rc.2-bc3be41a56.patch'
+    expect(workspaceManifest.resolutions).toMatchObject({
+      '@deepseek-ai/dsh-llm-pi-ai@npm:0.1.1-rc.2': expect.stringContaining(patchPath),
+      '@deepseek-ai/dsh-llm-pi-ai@npm:^0.1.1-rc.2': expect.stringContaining(patchPath),
+    })
+    const patch = readFileSync(new URL(patchPath.slice(2), workspaceRoot), 'utf8')
+    const installedRuntime = readFileSync(new URL(
+      'node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js',
+      packageRoot,
+    ), 'utf8')
+    const aliasSchemaMarker = 'inputModalities: z.array(z.union(MODALITIES))'
+    const resolutionMarker = 'declaredInput(entry.input) ?? declaredInput(entry.inputModalities)'
+
+    expect(patch).toContain(aliasSchemaMarker)
+    expect(patch).toContain(resolutionMarker)
+    expect(installedRuntime).toContain('inputModalities:')
+    expect(installedRuntime).toContain(resolutionMarker)
+  })
+
   it('localizes Trajectory toolbar labels in Simplified Chinese', () => {
     const patchPath = './patches/dsh-client-ui-trajectory@0.1.1-rc.2.patch'
     expect(workspaceManifest.resolutions).toMatchObject({

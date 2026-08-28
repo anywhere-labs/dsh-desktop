@@ -2884,7 +2884,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@deepseek-ai/dsh-llm-pi-ai@npm:^0.1.1-rc.2":
+"@deepseek-ai/dsh-llm-pi-ai@npm:0.1.1-rc.2":
   version: 0.1.1-rc.2
   resolution: "@deepseek-ai/dsh-llm-pi-ai@npm:0.1.1-rc.2"
   dependencies:
@@ -2901,6 +2901,26 @@ __metadata:
     "@deepseek-ai/dsh-settings": ^0.1.1-rc.2
     "@deepseek-ai/dsh-timeout": ^0.1.1-rc.2
   checksum: 10c0/bbac1d7eca4c38e3c3e40e4cb297971e0174fad223484871351a602040ae03d1e91d28d30af3b13c8e756849d115a4fd9063438ba4a741aeb745e212613a9cb4
+  languageName: node
+  linkType: hard
+
+"@deepseek-ai/dsh-llm-pi-ai@patch:@deepseek-ai/dsh-llm-pi-ai@npm%3A0.1.1-rc.2#~/.yarn/patches/@deepseek-ai-dsh-llm-pi-ai-npm-0.1.1-rc.2-bc3be41a56.patch":
+  version: 0.1.1-rc.2
+  resolution: "@deepseek-ai/dsh-llm-pi-ai@patch:@deepseek-ai/dsh-llm-pi-ai@npm%3A0.1.1-rc.2#~/.yarn/patches/@deepseek-ai-dsh-llm-pi-ai-npm-0.1.1-rc.2-bc3be41a56.patch::version=0.1.1-rc.2&hash=3e02dc"
+  dependencies:
+    "@deepseek-ai/schemastery": "npm:^3.18.1"
+    "@earendil-works/pi-ai": "npm:^0.82.1"
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.1
+    "@deepseek-ai/dsh-attachment": ^0.1.1-rc.2
+    "@deepseek-ai/dsh-authorization": ^0.1.1-rc.2
+    "@deepseek-ai/dsh-credentials": ^0.1.1-rc.2
+    "@deepseek-ai/dsh-invariants": ^0.1.1-rc.2
+    "@deepseek-ai/dsh-launch-environment": ^0.1.1-rc.2
+    "@deepseek-ai/dsh-llm": ^0.1.1-rc.2
+    "@deepseek-ai/dsh-settings": ^0.1.1-rc.2
+    "@deepseek-ai/dsh-timeout": ^0.1.1-rc.2
+  checksum: 10c0/80c769210497c41aaca84c5e5f19c99a3d3e332511e7fcc122773fbb11c2b1a379d7a626326ba4409cdea204498e685ba08af77934fb3dd48a27ed83618416e0
   languageName: node
   linkType: hard
 
