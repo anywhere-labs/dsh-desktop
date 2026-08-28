@@ -1114,6 +1114,48 @@ describe('published package surface', () => {
     expect(installedNsisSingleInstance).not.toContain("$$_.Path.StartsWith('$INSTDIR', 'CurrentCultureIgnoreCase')}).Count")
   })
 
+  it('keeps node-pty spawn-helper rewrites idempotent in unpacked macOS applications', () => {
+    const patchPath = './patches/node-pty@1.2.0-beta.15.patch'
+    const patchResolution = `patch:node-pty@npm%3A1.2.0-beta.15#${patchPath}`
+    const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
+    const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
+    const packageRequire = createRequire(new URL('package.json', packageRoot))
+    const nodePtyManifest = packageRequire.resolve('node-pty/package.json')
+    const installedRuntime = readFileSync(join(dirname(nodePtyManifest), 'lib/unixTerminal.js'), 'utf8')
+
+    expect(workspaceManifest.resolutions).toMatchObject({
+      'node-pty@npm:1.2.0-beta.15': patchResolution,
+    })
+    expect(lockfile).toContain('node-pty@patch:node-pty@npm%3A1.2.0-beta.15#./patches/node-pty@1.2.0-beta.15.patch')
+    for (const marker of [
+      "if (!helperPath.includes('app.asar.unpacked')) {",
+      "if (!helperPath.includes('node_modules.asar.unpacked')) {",
+    ]) {
+      expect(patch).toContain(marker)
+      expect(installedRuntime).toContain(marker)
+    }
+
+    const alreadyUnpacked = '/Applications/DSH Desktop.app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper'
+    const packed = alreadyUnpacked.replace('app.asar.unpacked', 'app.asar')
+    const nodeModulesAlreadyUnpacked = '/Applications/DSH Desktop.app/Contents/Resources/app/node_modules.asar.unpacked/node-pty/prebuilds/darwin-arm64/spawn-helper'
+    const nodeModulesPacked = nodeModulesAlreadyUnpacked.replace('node_modules.asar.unpacked', 'node_modules.asar')
+    const resolveHelper = (helperPath: string): string => {
+      if (!helperPath.includes('app.asar.unpacked')) {
+        helperPath = helperPath.replace('app.asar', 'app.asar.unpacked')
+      }
+      if (!helperPath.includes('node_modules.asar.unpacked')) {
+        helperPath = helperPath.replace('node_modules.asar', 'node_modules.asar.unpacked')
+      }
+      return helperPath
+    }
+    expect(resolveHelper(packed)).toBe(alreadyUnpacked)
+    expect(resolveHelper(alreadyUnpacked)).toBe(alreadyUnpacked)
+    expect(resolveHelper(alreadyUnpacked)).not.toContain('app.asar.unpacked.unpacked')
+    expect(resolveHelper(nodeModulesPacked)).toBe(nodeModulesAlreadyUnpacked)
+    expect(resolveHelper(nodeModulesAlreadyUnpacked)).toBe(nodeModulesAlreadyUnpacked)
+    expect(resolveHelper(nodeModulesAlreadyUnpacked)).not.toContain('node_modules.asar.unpacked.unpacked')
+  })
+
   it('starts restricted Windows shells with a hidden console show state', () => {
     const patchResolution = 'patch:@deepseek-ai/dsh-sandbox-windows-acl@npm%3A0.1.1-rc.2#./patches/dsh-sandbox-windows-acl@0.1.1-rc.2.patch'
     const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
