@@ -5,7 +5,10 @@ import { mkdtempSync, readdirSync, rmdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { MACOS_UNIVERSAL_NATIVE_ENTRIES } from './mac-universal.ts'
+import {
+  MACOS_SHORT_NODE_PTY_HELPERS,
+  MACOS_UNIVERSAL_NATIVE_ENTRIES,
+} from './mac-universal.ts'
 
 /** Injectable filesystem and command boundaries for release verification. */
 export interface MacReleaseVerificationOptions {
@@ -82,6 +85,10 @@ export function verifyMacRelease(
     const unpackedRoot = join(appPath, 'Contents', 'Resources', 'app.asar.unpacked')
     for (const entry of MACOS_UNIVERSAL_NATIVE_ENTRIES) {
       options.run('lipo', [join(unpackedRoot, entry.path), '-verify_arch', entry.arch])
+    }
+    const resourcesRoot = join(appPath, 'Contents', 'Resources')
+    for (const entry of MACOS_SHORT_NODE_PTY_HELPERS) {
+      options.run('lipo', [join(resourcesRoot, entry.path), '-verify_arch', entry.arch])
     }
     options.run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath])
     options.run('spctl', ['--assess', '--type', 'execute', '--verbose=4', appPath])

@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
+import { MACOS_SHORT_NODE_PTY_HELPERS } from '../scripts/mac-universal.ts'
 
 const packageRoot = new URL('../', import.meta.url)
 const workspaceRoot = new URL('../', packageRoot)
@@ -35,6 +36,7 @@ const manifest = JSON.parse(readFileSync(new URL('package.json', packageRoot), '
     toolsets?: Record<string, unknown>
     files?: unknown
     mac?: {
+      extraResources?: unknown
       extendInfo?: unknown
       hardenedRuntime?: unknown
       icon?: unknown
@@ -60,6 +62,11 @@ const workspaceManifest = JSON.parse(readFileSync(new URL('package.json', worksp
   scripts?: Record<string, unknown>
 }
 const ciWorkflow = readFileSync(new URL('.github/workflows/ci.yml', workspaceRoot), 'utf8')
+const nodePtyPatchName = readdirSync(new URL('.yarn/patches/', workspaceRoot))
+  .filter(name => name.startsWith('node-pty-npm-1.2.0-beta.15-') && name.endsWith('.patch'))
+const nodePtyPatch = nodePtyPatchName.length === 1
+  ? readFileSync(new URL(`.yarn/patches/${nodePtyPatchName[0]}`, workspaceRoot), 'utf8')
+  : ''
 
 describe('published package surface', () => {
   it('runs desktop and community market typechecks from the root command', () => {
@@ -663,6 +670,12 @@ describe('published package surface', () => {
     ])
     expect(manifest.build?.mac?.icon).toBe('build/app-icon-mac.png')
     expect(manifest.build?.mac?.mergeASARs).toBe(false)
+    expect(manifest.build?.mac?.extraResources).toEqual(
+      MACOS_SHORT_NODE_PTY_HELPERS.map(entry => ({
+        from: entry.source,
+        to: entry.path,
+      })),
+    )
     expect(manifest.build?.mac?.signIgnore).toEqual(['\\.(?:pak|dat|wasm)$'])
     expect(manifest.build?.win?.icon).toBe('build/app-icon.png')
     expect(manifest.build?.win?.target).toEqual([{
@@ -742,6 +755,15 @@ describe('published package surface', () => {
     }))
     expect(manifest.build?.files).toContain('!node_modules/node-pty/build/**')
     expect(manifest.devDependencies?.['@electron/asar']).toBe('3.4.1')
+  })
+
+  it('patches node-pty to prefer packaged short helpers without user-specific paths', () => {
+    expect(nodePtyPatchName).toHaveLength(1)
+    expect(workspaceManifest.resolutions?.['node-pty@npm:1.2.0-beta.15'])
+      .toContain(nodePtyPatchName[0])
+    expect(nodePtyPatch).toContain('process.resourcesPath')
+    expect(nodePtyPatch).toContain("'pty', process.arch, 'spawn-helper'")
+    expect(nodePtyPatch).not.toContain('/Users/')
   })
 
   it('runs platform package gates before reusing native packaging outputs', () => {

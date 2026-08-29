@@ -1,0 +1,19 @@
+diff --git a/lib/unixTerminal.js b/lib/unixTerminal.js
+index af2d24c39deb60e77ad16e6b864f37a7ef58881c..cb00e99a546d0e7a8dbae4e4ee7e6d16bb9bd25a 100644
+--- a/lib/unixTerminal.js
++++ b/lib/unixTerminal.js
+@@ -32,6 +32,14 @@ var helperPath = native.dir + '/spawn-helper';
+ helperPath = path.resolve(__dirname, helperPath);
+ helperPath = helperPath.replace('app.asar', 'app.asar.unpacked');
+ helperPath = helperPath.replace('node_modules.asar', 'node_modules.asar.unpacked');
++// Electron packagers can stage a short macOS helper path outside app.asar.
++// This avoids posix_spawn failures on macOS 26 without changing plain Node.
++if (process.platform === 'darwin' && typeof process.resourcesPath === 'string') {
++    var shortHelperPath = path.join(process.resourcesPath, 'pty', process.arch, 'spawn-helper');
++    if (fs.existsSync(shortHelperPath)) {
++        helperPath = shortHelperPath;
++    }
++}
+ var DEFAULT_FILE = 'sh';
+ var DEFAULT_NAME = 'xterm';
+ var DESTROY_SOCKET_TIMEOUT_MS = 200;

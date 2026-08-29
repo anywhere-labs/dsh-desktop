@@ -21,7 +21,10 @@ import {
   type PackagedRuntimeContext,
   type PackagedDiagnosticWorkerLauncher,
 } from '../scripts/verify-packaged-runtime.ts'
-import { FORBIDDEN_MACOS_UNIVERSAL_ENTRIES } from '../scripts/mac-universal.ts'
+import {
+  FORBIDDEN_MACOS_UNIVERSAL_ENTRIES,
+  MACOS_SHORT_NODE_PTY_HELPERS,
+} from '../scripts/mac-universal.ts'
 
 function context(
   appOutDir: string,
@@ -145,6 +148,7 @@ describe('packaged desktop runtime verification', () => {
     expect(exists).toHaveBeenCalledTimes(
       REQUIRED_UNPACKED_RUNTIME_ENTRIES.length
         + (platform === 'win32' ? REQUIRED_WINDOWS_X64_NODE_PTY_ENTRIES.length : 0)
+        + (platform === 'darwin' ? MACOS_SHORT_NODE_PTY_HELPERS.length : 0)
         + completeArchiveEntries().length,
     )
     expect(resolvePackage.mock.calls.map(([specifier]) => specifier))
@@ -179,9 +183,26 @@ describe('packaged desktop runtime verification', () => {
     expect(exists).toHaveBeenCalledTimes(
       REQUIRED_UNPACKED_RUNTIME_ENTRIES.length
         + REQUIRED_MACOS_UNIVERSAL_ENTRIES.length
+        + MACOS_SHORT_NODE_PTY_HELPERS.length
         + FORBIDDEN_MACOS_UNIVERSAL_ENTRIES.length
         + completeArchiveEntries().length,
     )
+  })
+
+  it('requires short node-pty helpers for both universal macOS architectures', () => {
+    const runtimeContext = context('/build', 'darwin', 4)
+    const unpackedRoot = resolvePackagedUnpackedRoot(runtimeContext)
+    const resourcesRoot = join('/build', 'DSH Desktop.app', 'Contents', 'Resources')
+    const missing = MACOS_SHORT_NODE_PTY_HELPERS[0].path
+
+    expect(() => verifyPackagedRuntime(
+      runtimeContext,
+      () => completeArchiveEntries(),
+      filename => filename !== join(resourcesRoot, missing)
+        && !FORBIDDEN_MACOS_UNIVERSAL_ENTRIES
+          .some(entry => filename === join(unpackedRoot, entry)),
+      completePackageResolver(unpackedRoot),
+    )).toThrow(`missing short node-pty helpers: ${missing}`)
   })
 
   it('rejects any ASAR-declared unpacked dependency missing from the physical tree', () => {

@@ -359,6 +359,16 @@
       "icon": "build/app-icon-mac.png",
       "mergeASARs": false,
       "notarize": true,
+      "extraResources": [
+        {
+          "from": "node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper",
+          "to": "pty/arm64/spawn-helper"
+        },
+        {
+          "from": "node_modules/node-pty/prebuilds/darwin-x64/spawn-helper",
+          "to": "pty/x64/spawn-helper"
+        }
+      ],
       "signIgnore": [
         "\\.(?:pak|dat|wasm)$"
       ],

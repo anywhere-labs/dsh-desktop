@@ -65,6 +65,24 @@ export const MACOS_UNIVERSAL_NATIVE_ENTRIES = [
   },
 ] as const satisfies readonly { readonly arch: MacUniversalArch; readonly path: string }[]
 
+/** Short resource paths used by node-pty on macOS to avoid deep-path posix_spawn failures. */
+export const MACOS_SHORT_NODE_PTY_HELPERS = [
+  {
+    arch: 'arm64',
+    path: 'pty/arm64/spawn-helper',
+    source: 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper',
+  },
+  {
+    arch: 'x86_64',
+    path: 'pty/x64/spawn-helper',
+    source: 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper',
+  },
+] as const satisfies readonly {
+  readonly arch: MacUniversalArch
+  readonly path: string
+  readonly source: string
+}[]
+
 /** Generated host-architecture files that must never shadow the prebuilt pair. */
 export const FORBIDDEN_MACOS_UNIVERSAL_ENTRIES = [
   'node_modules/node-pty/build/Release/pty.node',
