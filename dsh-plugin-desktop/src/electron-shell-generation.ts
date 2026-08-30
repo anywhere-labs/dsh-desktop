@@ -219,7 +219,7 @@ export class ElectronShellGeneration {
     window.accessibleTitle = spec.windowTitle
     platform.configureWindow(window)
     const refreshNativeMaterial = (): void => {
-      platform.refreshThemeMaterial(window, spec.material)
+      platform.refreshThemeMaterial(window, spec.material, spec.windowsBuild)
     }
     this.refreshNativeMaterial = refreshNativeMaterial
     refreshNativeMaterial()

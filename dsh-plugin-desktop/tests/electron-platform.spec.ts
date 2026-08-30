@@ -48,7 +48,7 @@ describe('electronPlatformStrategy', () => {
 
     strategy.configureApplication(icon, 'DSH Desktop')
     strategy.configureWindow(window as never)
-    strategy.refreshThemeMaterial(window as never, 'mica')
+    strategy.refreshThemeMaterial(window as never, 'mica', 22_621)
 
     expect(electron.app.dock.setIcon).not.toHaveBeenCalled()
     expect(electron.Menu.setApplicationMenu).not.toHaveBeenCalled()
@@ -56,6 +56,19 @@ describe('electronPlatformStrategy', () => {
     expect(window.setBackgroundMaterial.mock.calls).toEqual([
       ['mica'],
     ])
+  })
+
+  it('clears the Windows backdrop only when the system supports native materials', () => {
+    const strategy = electronPlatformStrategy('win32')
+    const window = createWindow()
+
+    strategy.refreshThemeMaterial(window as never, 'off', 22_621)
+    expect(window.setBackgroundMaterial).toHaveBeenCalledOnce()
+    expect(window.setBackgroundMaterial).toHaveBeenCalledWith('none')
+
+    window.setBackgroundMaterial.mockClear()
+    strategy.refreshThemeMaterial(window as never, 'off', 22_000)
+    expect(window.setBackgroundMaterial).not.toHaveBeenCalled()
   })
 
   it('selects the macOS adapter and configures its native application chrome', () => {
@@ -70,7 +83,7 @@ describe('electronPlatformStrategy', () => {
 
     strategy.configureApplication(icon, 'DSH Desktop')
     strategy.configureWindow(window as never)
-    strategy.refreshThemeMaterial(window as never, 'transparent')
+    strategy.refreshThemeMaterial(window as never, 'transparent', undefined)
 
     expect(electron.app.dock.setIcon).toHaveBeenCalledWith(icon)
     expect(electron.Menu.buildFromTemplate).toHaveBeenCalledTimes(1)
@@ -90,7 +103,7 @@ describe('electronPlatformStrategy', () => {
 
     strategy.configureApplication({} as never, 'DSH Desktop')
     strategy.configureWindow(window as never)
-    strategy.refreshThemeMaterial(window as never, 'off')
+    strategy.refreshThemeMaterial(window as never, 'off', undefined)
 
     expect(electron.app.dock.setIcon).not.toHaveBeenCalled()
     expect(electron.Menu.setApplicationMenu).not.toHaveBeenCalled()
