@@ -2,7 +2,8 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { lstat, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import type { Readable } from 'node:stream'
-import { prerelease, valid } from 'semver'
+import { prerelease, valid, validRange } from 'semver'
+import { parse as parseYaml } from 'yaml'
 import type {
   MarketCatalogMetadata,
   MarketInstallableResponse,
@@ -15,8 +16,10 @@ import {
   type NormalizedGitHubInstallSource,
 } from '../contracts/index.js'
 import {
+  createGitHubHeadResolver,
   createGitHubPackageVerifier,
   githubPackageTarget,
+  parseGitHubDependencySpec,
   type GitHubPackageVerification,
 } from './github.js'
 import { manualInstallHints } from './manual.js'
@@ -74,6 +77,19 @@ export interface MarketUninstallPreview {
   readonly expiresAt: string
 }
 
+export interface MarketUpgradePreview {
+  readonly intent: string
+  readonly action: 'upgrade'
+  readonly profileName: string
+  readonly packageName: string
+  /** Newly verified target version. */
+  readonly version: string
+  /** Installed version or pinned commit shown before the change. */
+  readonly currentVersion: string
+  readonly displayName: string
+  readonly expiresAt: string
+}
+
 export interface MarketInstallResult {
   readonly packageName: string
   readonly version: string
@@ -83,14 +99,21 @@ export interface MarketUninstallResult {
   readonly packageName: string
 }
 
+export interface MarketUpgradeResult {
+  readonly packageName: string
+  readonly version: string
+}
+
 export type MarketOperationResult =
   | ({ readonly action: 'install'; readonly restartToken: string } & MarketInstallResult)
   | ({ readonly action: 'uninstall'; readonly restartToken: string } & MarketUninstallResult)
+  | ({ readonly action: 'upgrade'; readonly restartToken: string } & MarketUpgradeResult)
 
 export type MarketInstallErrorCode =
   | 'invalid-request'
   | 'not-available'
   | 'conflict'
+  | 'up-to-date'
   | 'intent-expired'
   | 'verification-failed'
   | 'operation-failed'
@@ -197,7 +220,22 @@ interface UninstallIntent {
   readonly expiresAt: number
 }
 
-type MarketIntent = InstallIntent | UninstallIntent
+interface UpgradeIntent {
+  readonly kind: 'upgrade'
+  readonly packageName: string
+  /** Raw dependency spec that was installed when the upgrade was previewed. */
+  readonly installedSpec: string
+  /** Resolved at preview time; `undefined` means the npm registry target. */
+  readonly source?: NormalizedGitHubInstallSource
+  /** Newly verified semver from the target manifest. */
+  readonly version: string
+  readonly currentVersion: string
+  readonly displayName: string
+  readonly profile: MarketDesktopProfile
+  readonly expiresAt: number
+}
+
+type MarketIntent = InstallIntent | UninstallIntent | UpgradeIntent
 
 interface RestartIntent {
   readonly profile: MarketDesktopProfile
@@ -225,8 +263,23 @@ export interface MarketInstallCandidateInput {
   readonly source?: NormalizedGitHubInstallSource
 }
 
+/** Resolved latest target for one installed direct dependency spec. */
+export interface MarketUpgradeTarget {
+  /** npm registry target; present when the installed spec is a semver. */
+  readonly packageName?: string
+  /** GitHub HEAD target; present when the installed spec is a pinned commit. */
+  readonly source?: NormalizedGitHubInstallSource
+  readonly version: string
+}
+
 export interface MarketPackageVerifier {
   verify(candidate: MarketInstallCandidateInput, signal: AbortSignal): Promise<MarketPackageVerification>
+  /**
+   * Resolve the current online target for an installed direct dependency
+   * (semver spec or commit-pinned GitHub spec). Throws `up-to-date` when the
+   * installed target already matches the resolved latest.
+   */
+  resolveUpgradeTarget(packageName: string, spec: string, signal: AbortSignal): Promise<MarketUpgradeTarget>
 }
 
 export interface MarketInstallServiceOptions {
@@ -318,11 +371,59 @@ export function createNpmRegistryVerifier(http: CatalogHttpClient): MarketNpmPac
   }
 }
 
+const MAX_LOCKFILE_BYTES = 16 * 1024 * 1024
+
+/**
+ * Resolve the version pnpm actually locked for a direct dependency from the
+ * Profile's `pnpm-lock.yaml`. The manifest spec alone (for example `^1.9.0`)
+ * only describes the allowed range, so "already at the latest version" must
+ * be decided against the locked version, never the spec.
+ */
+async function directProfilePluginResolvedVersion(
+  profile: MarketDesktopProfile,
+  packageName: string,
+): Promise<string | undefined> {
+  let body: Buffer
+  try {
+    body = await readFile(join(profile.dir, 'pnpm-lock.yaml'))
+  } catch {
+    return undefined
+  }
+  if (body.byteLength > MAX_LOCKFILE_BYTES) return undefined
+  let document: unknown
+  try {
+    document = parseYaml(body.toString('utf8'))
+  } catch {
+    return undefined
+  }
+  const record = (value: unknown): Record<string, unknown> | undefined =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : undefined
+  const root = record(document)
+  if (root === undefined) return undefined
+  // pnpm 9+ lockfiles nest under `importers.<path>.dependencies`; older
+  // formats keep `dependencies` at the root. Walk every importer so the
+  // profile layout cannot matter.
+  const candidates: unknown[] = []
+  const importers = record(root.importers)
+  if (importers !== undefined) candidates.push(...Object.values(importers))
+  else candidates.push(root)
+  for (const importer of candidates) {
+    const dependencies = record(record(importer)?.dependencies)
+    const entry = record(dependencies?.[packageName])
+    const version = entry?.version
+    if (typeof version === 'string' && version.length > 0 && version.length <= 128) return version
+  }
+  return undefined
+}
+
 /** Combine the stable npm verifier and the pinned GitHub manifest verifier. */
 export function createMarketPackageVerifier(
   http: CatalogHttpClient,
 ): MarketPackageVerifier {
   const npm = createNpmRegistryVerifier(http)
+  const githubHead = createGitHubHeadResolver(http)
   return {
     async verify(candidate, signal) {
       if (candidate.source !== undefined) {
@@ -342,6 +443,50 @@ export function createMarketPackageVerifier(
         throw new MarketInstallError('verification-failed', 'The plugin install source is incomplete.')
       }
       return await npm.verify({ packageName: candidate.packageName }, signal)
+    },
+    async resolveUpgradeTarget(packageName, spec, signal) {
+      const parsed = parseGitHubDependencySpec(spec)
+      if (parsed !== undefined) {
+        let commit: string
+        try {
+          commit = await githubHead.resolve(parsed.owner, parsed.repo, signal)
+        } catch (cause) {
+          signal.throwIfAborted()
+          throw new MarketInstallError(
+            'verification-failed',
+            cause instanceof Error ? cause.message : 'The GitHub repository HEAD could not be resolved.',
+          )
+        }
+        if (parsed.commit !== undefined && commit === parsed.commit) {
+          throw new MarketInstallError('up-to-date', 'This plugin is already at the latest version.')
+        }
+        const source: NormalizedGitHubInstallSource = {
+          kind: 'github',
+          owner: parsed.owner,
+          repo: parsed.repo,
+          commit,
+          ...(parsed.subdirectory === undefined ? {} : { subdirectory: parsed.subdirectory }),
+        }
+        let verification: GitHubPackageVerification
+        try {
+          verification = await createGitHubPackageVerifier(http).verify(source, signal)
+        } catch (cause) {
+          signal.throwIfAborted()
+          throw new MarketInstallError(
+            'verification-failed',
+            cause instanceof Error ? cause.message : 'The GitHub package could not be verified.',
+          )
+        }
+        return { source, version: verification.version }
+      }
+      if (!stableExactVersion(spec) && validRange(spec, { loose: false }) === null) {
+        throw new MarketInstallError(
+          'not-available',
+          'This plugin was not installed from a versioned npm package or a pinned GitHub commit, so it has no online upgrade source.',
+        )
+      }
+      const verification = await npm.verify({ packageName }, signal)
+      return { packageName, version: verification.version }
     },
   }
 }
@@ -669,7 +814,9 @@ export class MarketInstallService {
     }
     const result: MarketOperationResult = intent.kind === 'install'
       ? { action: 'install', ...await this.executeInstall(token, signal), restartToken: this.issueRestartToken() }
-      : { action: 'uninstall', ...await this.executeUninstall(token, signal), restartToken: this.issueRestartToken() }
+      : intent.kind === 'upgrade'
+        ? { action: 'upgrade', ...await this.executeUpgrade(token, signal), restartToken: this.issueRestartToken() }
+        : { action: 'uninstall', ...await this.executeUninstall(token, signal), restartToken: this.issueRestartToken() }
     return result
   }
 
@@ -731,6 +878,114 @@ export class MarketInstallService {
       try { await assertRemoved(profile, intent.packageName) }
       catch { throw new MarketInstallError('operation-failed', 'The package manager finished, but the plugin remains in the active profile.') }
       return { packageName: intent.packageName }
+    })
+  }
+
+  /**
+   * Verify the current online target for one installed direct dependency and
+   * mint a short-lived upgrade confirmation. GitHub installs re-pin to the
+   * repository's default-branch HEAD commit; npm installs resolve registry
+   * latest. A target that already matches the installed version (locked
+   * commit, or the version pnpm actually installed) fails with `up-to-date`
+   * so the Renderer can report it without a confirmation.
+   */
+  async previewUpgradePackage(packageName: string, signal: AbortSignal): Promise<MarketUpgradePreview> {
+    const operationSignal = this.operationSignal(signal)
+    operationSignal.throwIfAborted()
+    if (!safePackageName(packageName) || !marketManagedPackage(packageName)) {
+      throw new MarketInstallError('invalid-request', 'The Profile plugin package name is invalid.')
+    }
+    this.purge()
+    const profile = this.profile()
+    const currentSpec = await directProfilePluginVersion(profile, packageName)
+    operationSignal.throwIfAborted()
+    let target: MarketUpgradeTarget
+    try {
+      target = await this.verifier.resolveUpgradeTarget(packageName, currentSpec, operationSignal)
+    } catch (cause) {
+      operationSignal.throwIfAborted()
+      if (cause instanceof MarketInstallError) throw cause
+      throw new MarketInstallError('verification-failed', 'The latest plugin version could not be verified.')
+    }
+    operationSignal.throwIfAborted()
+    this.assertOpen()
+    const parsed = parseGitHubDependencySpec(currentSpec)
+    let currentVersion: string
+    if (parsed !== undefined) {
+      // GitHub targets are pinned commits or moving refs; the verifier already
+      // rejected an identical pinned commit with `up-to-date`.
+      currentVersion = parsed.commit !== undefined
+        ? parsed.commit.slice(0, 12)
+        : parsed.ref !== undefined
+          ? parsed.ref
+          : 'HEAD'
+    } else {
+      // npm targets: compare the version pnpm actually locked, never the
+      // declared range — `^1.9.0` with a locked 1.9.0 is NOT up to date when
+      // registry latest is 1.9.2.
+      const resolved = await directProfilePluginResolvedVersion(profile, packageName)
+      const installedVersion = resolved ?? (stableExactVersion(currentSpec) ? currentSpec : undefined)
+      if (installedVersion === target.version) {
+        throw new MarketInstallError('up-to-date', 'This plugin is already at the latest version.')
+      }
+      currentVersion = installedVersion ?? currentSpec
+    }
+    const token = this.issueIntent({
+      kind: 'upgrade',
+      packageName,
+      installedSpec: currentSpec,
+      ...(target.source === undefined ? {} : { source: target.source }),
+      version: target.version,
+      currentVersion,
+      displayName: packageName,
+      profile,
+      expiresAt: this.now() + this.intentTtlMs,
+    })
+    return {
+      intent: token,
+      action: 'upgrade',
+      profileName: profile.name,
+      packageName,
+      version: target.version,
+      currentVersion,
+      displayName: packageName,
+      expiresAt: new Date(this.now() + this.intentTtlMs).toISOString(),
+    }
+  }
+
+  async executeUpgrade(token: string, signal: AbortSignal): Promise<MarketUpgradeResult> {
+    return await this.runExclusive(async () => {
+      const operationSignal = this.operationSignal(signal)
+      const intent = this.consumeIntent(token, 'upgrade')
+      const profile = this.sameProfile(intent.profile)
+      const currentSpec = await directProfilePluginVersion(profile, intent.packageName)
+      if (currentSpec !== intent.installedSpec) {
+        throw new MarketInstallError('conflict', 'This plugin changed since the upgrade was previewed.')
+      }
+      operationSignal.throwIfAborted()
+      const target = intent.source === undefined
+        ? `${intent.packageName}@${intent.version}`
+        : githubPackageTarget(intent.source)
+      await this.runPnpm([
+        'add',
+        ...(intent.source === undefined ? this.installOptions(intent.packageName) : ['--save-exact']),
+        target,
+      ], operationSignal)
+      try {
+        await setProfileBundle(profile, intent.packageName, true)
+        const installedSpec = await directProfilePluginVersion(profile, intent.packageName)
+        const expected = intent.source === undefined
+          ? intent.version
+          : githubPackageTarget(intent.source)
+        if (installedSpec !== expected) throw new Error('installed version mismatch')
+        operationSignal.throwIfAborted()
+      } catch {
+        throw new MarketInstallError(
+          'operation-failed',
+          'The package manager changed the Profile, but the plugin bundle could not be validated. Use a Recovery checkpoint if you need to restore the previous Profile state.',
+        )
+      }
+      return { packageName: intent.packageName, version: intent.version }
     })
   }
 

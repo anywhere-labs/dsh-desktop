@@ -129,7 +129,7 @@ function sendInstallError(res: ServerResponse, cause: unknown): void {
   }
   const status = cause.code === 'invalid-request' ? 400
     : cause.code === 'not-available' ? 404
-      : cause.code === 'conflict' ? 409
+      : cause.code === 'conflict' || cause.code === 'up-to-date' ? 409
         : cause.code === 'intent-expired' ? 410
           : cause.code === 'verification-failed' ? 422
             : cause.code === 'operation-failed' ? 502
@@ -415,6 +415,7 @@ function asMutation(value: unknown): MarketSourceMutation {
 type MarketOperationPreviewRequest =
   | { readonly action: 'install'; readonly sourceRecordId: string; readonly itemId: string }
   | { readonly action: 'uninstall'; readonly bundleId: string }
+  | { readonly action: 'upgrade'; readonly bundleId: string }
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
   const actual = Object.keys(value).sort()
@@ -441,6 +442,11 @@ function asOperationPreview(value: unknown): MarketOperationPreviewRequest {
     && exactKeys(request, ['action', 'bundleId'])
     && boundedIdentifier(request.bundleId)
   ) return { action: 'uninstall', bundleId: request.bundleId }
+  if (
+    request.action === 'upgrade'
+    && exactKeys(request, ['action', 'bundleId'])
+    && boundedIdentifier(request.bundleId)
+  ) return { action: 'upgrade', bundleId: request.bundleId }
   throw new MarketInstallError('invalid-request', 'Invalid package operation preview request.')
 }
 
@@ -1106,9 +1112,11 @@ export function registerMarketRoutes(
             const desktopPlugins = desktopPluginsProvider?.get()
             const target = desktopPlugins?.list().find(bundle => bundle.bundleId === request.bundleId)
             if (target === undefined || !target.uninstallable) {
-              throw new MarketInstallError('not-available', 'The selected Profile plugin can no longer be uninstalled.')
+              throw new MarketInstallError('not-available', 'The selected Profile plugin can no longer be managed.')
             }
-            preview = await install.previewUninstallPackage(target.packageName, signal)
+            preview = request.action === 'upgrade'
+              ? await install.previewUpgradePackage(target.packageName, signal)
+              : await install.previewUninstallPackage(target.packageName, signal)
           }
           const { intent, ...summary } = preview
           if (!signal.aborted && !res.destroyed) sendJson(res, 200, { ...summary, previewId: intent })

@@ -209,6 +209,7 @@ async function fetchJson(
   resolveAddress: (hostname: string) => Promise<PinnedAddress>,
   request: (url: URL, signal: AbortSignal, pinned: PinnedAddress) => Promise<RestrictedHttpResponse>,
   allowedOrigin: string | undefined,
+  allowTextPlain: boolean,
   redirectCount = 0,
 ): Promise<CatalogHttpResponse> {
   if (signal.aborted) throw new CatalogNetworkError('timeout')
@@ -228,13 +229,16 @@ async function fetchJson(
       resolveAddress,
       request,
       allowedOrigin,
+      allowTextPlain,
       redirectCount + 1,
     )
   }
   if (status < 200 || status >= 300) throw new CatalogNetworkError('http')
   const contentType = response.headers['content-type'] ?? ''
   const encoding = response.headers['content-encoding']
-  if (!/^(?:application\/json|application\/[^;]+\+json)(?:;|$)/iu.test(contentType)
+  const jsonContentType = /^(?:application\/json|application\/[^;]+\+json)(?:;|$)/iu.test(contentType)
+  const allowedTextContentType = allowTextPlain && /^text\/plain(?:;|$)/iu.test(contentType)
+  if (!jsonContentType && !allowedTextContentType
     || encoding !== undefined && encoding !== 'identity') {
     throw new CatalogNetworkError('response')
   }
@@ -281,7 +285,7 @@ export function createRestrictedHttpClient(
           reject(cause)
         }, totalTimeoutMs)
       })
-      const operation = fetchJson(start, totalController.signal, resolveAddress, request, policy.allowedOrigin)
+      const operation = fetchJson(start, totalController.signal, resolveAddress, request, policy.allowedOrigin, policy.allowTextPlain === true)
       try {
         return await Promise.race([operation, aborted, timedOut])
       } finally {

@@ -716,6 +716,15 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
         setInstallationsUnavailable(true)
         setInstallationsError(t('desktopUnavailable'))
         setOperationError(t('desktopUnavailable'))
+      } else if (requestValue.action === 'upgrade') {
+        const code = cause !== null && typeof cause === 'object' && 'code' in cause
+          ? (cause as { code?: unknown }).code
+          : undefined
+        setOperationError(code === 'up-to-date'
+          ? t('alreadyLatest')
+          : code === 'not-available'
+            ? t('upgradeUnavailable')
+            : operationErrorMessage(cause, t('upgradePreviewError')))
       } else {
         setOperationError(operationErrorMessage(cause, t(requestValue.action === 'install'
           ? 'previewError'
@@ -824,7 +833,10 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
       if (result.action !== preview.action) throw new Error('operation response action mismatch')
       setInstallations(current => {
         if (result.action === 'install') return current
-        return current.filter(installation => installation.packageName !== result.packageName)
+        if (result.action === 'uninstall') {
+          return current.filter(installation => installation.packageName !== result.packageName)
+        }
+        return current
       })
       setInstallationsLoaded(true)
       setOperationPreview(undefined)
@@ -834,7 +846,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
       if (result.action === 'install' && viewRef.current === 'installable') {
         void loadInstallable(false, appliedInstallableQuery, installableCategories)
       }
-      if (result.action === 'uninstall' && viewRef.current === 'installed') {
+      if ((result.action === 'uninstall' || result.action === 'upgrade') && viewRef.current === 'installed') {
         void loadInstallations()
       }
     } catch (cause) {
@@ -995,6 +1007,9 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
             onUninstall={bundleId => {
               void beginOperationPreview({ action: 'uninstall', bundleId })
             }}
+            onUpgrade={bundleId => {
+              void beginOperationPreview({ action: 'upgrade', bundleId })
+            }}
             t={t}
           />
         ) : (
@@ -1034,6 +1049,12 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
             setSelected(undefined)
             setSelectedInstallation(undefined)
             void beginOperationPreview({ action: 'uninstall', bundleId })
+          }}
+          onUpgrade={bundleId => {
+            selectedKeyRef.current = undefined
+            setSelected(undefined)
+            setSelectedInstallation(undefined)
+            void beginOperationPreview({ action: 'upgrade', bundleId })
           }}
           t={t}
         />
@@ -1378,6 +1399,7 @@ function InstalledView(props: {
   operationPending: boolean
   onRetry: () => void
   onUninstall: (bundleId: string) => void
+  onUpgrade: (bundleId: string) => void
   t: MarketSettingsTabProps['t']
 }) {
   if (props.unavailable) return (
@@ -1420,6 +1442,7 @@ function InstalledView(props: {
               installation={installation}
               operationPending={props.operationPending}
               onUninstall={props.onUninstall}
+              onUpgrade={props.onUpgrade}
               t={props.t}
             />
           ))}
@@ -1433,6 +1456,7 @@ function InstallationCard(props: {
   installation: MarketInstallationView
   operationPending: boolean
   onUninstall: (bundleId: string) => void
+  onUpgrade: (bundleId: string) => void
   t: MarketSettingsTabProps['t']
 }) {
   const { installation } = props
@@ -1453,6 +1477,14 @@ function InstallationCard(props: {
         </div>
       </div>
       <div className="dshMarketReceiptActions">
+        {installation.action === 'uninstall' && <Button
+          variant="outline"
+          size="sm"
+          aria-label={`${props.t('upgrade')}: ${displayName}`}
+          disabled={props.operationPending}
+          icon={<IconRefreshOutline16 />}
+          onClick={() => props.onUpgrade(installation.bundleId)}
+        >{props.t('upgrade')}</Button>}
         {installation.action === 'uninstall' && <Button
           variant="outline"
           size="sm"
@@ -1739,6 +1771,7 @@ function OperationFacts({ operation, showExpiry = true, t }: {
     <dl className="dshMarketOperationFacts">
       <div><dt>{t('plugin')}</dt><dd>{operation.displayName}</dd></div>
       <div><dt>{t('package')}</dt><dd>{operation.packageName}</dd></div>
+      {operation.currentVersion !== undefined && <div><dt>{t('currentVersion')}</dt><dd>{operation.currentVersion}</dd></div>}
       {operation.version !== undefined && <div><dt>{t('exactVersion')}</dt><dd>{operation.version}</dd></div>}
       <div><dt>{t('profile')}</dt><dd>{operation.profileName}</dd></div>
       {showExpiry && <div><dt>{t('previewExpires')}</dt><dd>{operation.expiresAt}</dd></div>}
@@ -1754,20 +1787,29 @@ function OperationConfirmModal({ preview, pending, error, onCancel, onConfirm, t
   onConfirm: () => void
   t: MarketSettingsTabProps['t']
 }) {
-  const installing = preview.action === 'install'
-  const title = installing
+  const action = preview.action
+  const mutating = action === 'install' || action === 'upgrade'
+  const title = action === 'install'
     ? t('confirmInstallTitle')
-    : t('confirmUninstallTitle')
-  const description = installing
+    : action === 'upgrade'
+      ? t('confirmUpgradeTitle')
+      : t('confirmUninstallTitle')
+  const description = action === 'install'
     ? t('confirmInstallBody')
-    : t('confirmUninstallBody')
+    : action === 'upgrade'
+      ? t('confirmUpgradeBody')
+      : t('confirmUninstallBody')
   const confirmLabel = pending
-    ? installing
+    ? action === 'install'
       ? t('installing')
-      : t('uninstalling')
-    : installing
+      : action === 'upgrade'
+        ? t('upgrading')
+        : t('uninstalling')
+    : action === 'install'
       ? t('confirmInstall')
-      : t('confirmUninstall')
+      : action === 'upgrade'
+        ? t('confirmUpgrade')
+        : t('confirmUninstall')
   return (
     <Modal
       open
@@ -1782,15 +1824,19 @@ function OperationConfirmModal({ preview, pending, error, onCancel, onConfirm, t
         <Button
           variant="primary"
           disabled={pending}
-          icon={installing ? <IconDownloadOutline16 /> : <IconTrashOutline16 />}
+          icon={action === 'install'
+            ? <IconDownloadOutline16 />
+            : action === 'upgrade'
+              ? <IconRefreshOutline16 />
+              : <IconTrashOutline16 />}
           onClick={onConfirm}
         >{confirmLabel}</Button>
       </div>}
     >
       <div className="dshMarketOperationReview">
         <OperationFacts operation={preview} t={t} />
-        {installing && <div className="dshMarketOperationWarning"><StateDot state="warning" size={12} /><span>{t('operationWarning')}</span></div>}
-        {installing && (
+        {mutating && <div className="dshMarketOperationWarning"><StateDot state="warning" size={12} /><span>{t('operationWarning')}</span></div>}
+        {mutating && (
           <div className="dshMarketOperationWarning">
             <StateDot state="warning" size={12} />
             <span>
@@ -1819,7 +1865,9 @@ function OperationSuccessModal({ operation, canRestart, pending, error, onClose,
 }) {
   const title = operation.preview.action === 'install'
     ? t('installComplete')
-    : t('uninstallComplete')
+    : operation.preview.action === 'upgrade'
+      ? t('upgradeComplete')
+      : t('uninstallComplete')
   return (
     <Modal
       open
@@ -1870,6 +1918,7 @@ function ItemActionModal({
   onConfirm,
   onOpenTerminal,
   onUninstall,
+  onUpgrade,
   t,
 }: {
   value: VisibleItem
@@ -1890,6 +1939,7 @@ function ItemActionModal({
   onConfirm: () => void
   onOpenTerminal: () => void
   onUninstall: (bundleId: string) => void
+  onUpgrade: (bundleId: string) => void
   t: MarketSettingsTabProps['t']
 }) {
   const checking = preview === undefined && pending && operationError === undefined
@@ -2013,6 +2063,7 @@ function ItemActionModal({
                   installation={installation}
                   operationPending={pending}
                   onUninstall={onUninstall}
+                  onUpgrade={onUpgrade}
                   t={t}
                 />
               </div>
