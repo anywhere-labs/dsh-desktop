@@ -77,9 +77,9 @@ DOM 会把操作栏声明为 Desktop frame，并把下移后的上游 root 声�
 
 ## 增强模式
 
-增强模式是为 macOS 与 Windows 显式组合的 desktop 呈现。Launcher 会在读取全部用户 patch 后禁用官方 `ui-layout` Loader row，保持官方 `ui-sidebar` 与 `ui-conversation` row 启用，并把所选模式应用到 `desktop-shell`。
+增强模式是为 macOS 与 Windows 显式组合的 desktop 呈现。Launcher 会在读取全部用户 patch 后禁用官方 `ui-layout` Loader row，保持 `ui-conversation` 启用，保留 profile 已选择的 `ui-sidebar` 状态，并把所选模式应用到 `desktop-shell`。因此默认 profile 继续使用官方 sidebar，而 profile 插件可以禁用该 row，并通过同一个公开 `sidebar` slot 提供替代实现。
 
-desktop Client 会在所有呈现模式中提供不可变的 `desktopWindow` 原生几何 service。增强模式拥有独立的 Cordis effects、`layout` service 与 `root` slot registration，不会安装兼容/扩展模式的独立 frame。其 root 为不变的上游 sidebar、conversation、details 与 overlay contribution 声明 seat。官方 sidebar 继续作为 `sidebar` occupant，并继续声明 workspace browser、settings shell 与纯新增 footer action seat。这样会保留其组件行为、收起动画与第三方扩展点，而 desktop package 只拥有增强模式自己的紧凑内部 caption 几何与原生材质。
+desktop Client 会在所有呈现模式中提供不可变的 `desktopWindow` 原生几何 service。增强模式拥有独立的 Cordis effects、`layout` service 与 `root` slot registration，不会安装兼容/扩展模式的独立 frame。其 root 为 profile 选择的 sidebar、conversation、details 与 overlay contribution 声明 seat。官方 sidebar 默认继续作为 `sidebar` occupant，并声明 workspace browser、settings shell 与纯新增 footer action seat；profile 也可以替换该完整 occupant 及其子 slot 声明。这样既保留公开 slot 组合能力，也让 desktop package 只拥有自己的内部 caption 几何与原生材质。
 
 高级 theme presenter 会把当前上游 theme snapshot 投影到 document，包括 color scheme、解析后的 token 值、深色模式 marker 与 theme-color metadata。它订阅普通 theme 变化，generation dispose 时只移除由自身投影的状态。
 
@@ -87,7 +87,7 @@ desktop Client 会在所有呈现模式中提供不可变的 `desktopWindow` 原
 
 desktop sidebar surface 会把上游 sidebar-fill token 局部设为透明，因此官方 sidebar 与 session 列表渐隐可以透出原生材质，而无需改变其组件样式。
 
-在 macOS 上，增强窗口恢复最初的 hidden-inset 几何：红绿灯位于 `x=16, y=16`，内容使用紧凑的 20 CSS 像素 inset，原生拖拽区域为 32 CSS 像素。其 90 CSS 像素收起列会把官方 56 像素 rail 居中放在该紧凑 inset 下方，并继续支持可选的原生 `sidebar` vibrancy。按钮、链接、输入框、可编辑字段、菜单、标签页、开关、对话框与显式 `.dshDesktopNoDrag` contribution 会通过精确的 `app-region: no-drag` 排除规则保持可交互。在 Windows 上，官方 sidebar 保持兼容模式几何：收起 56 像素、默认展开 280 像素，并沿用相同的上游过渡行为；透明 surface 会透出当前系统支持且用户选择的材质。增强窗口保留最初的 32 CSS 像素内部 caption row 与原生 overlay 控件；这套几何与兼容/扩展模式的 36 像素独立 frame 无关。Linux 会拒绝增强模式，而不会静默降级到与持久化设置不同的呈现。
+在 macOS 上，增强窗口使用 hidden-inset 几何：红绿灯位于 `x=16, y=16`，内容预留与原生拖拽区域一致的 32 CSS 像素。完整的 conversation 与 details surface 会从该实色 caption 下方开始，避免拖拽层遮住它们的 header。其 90 CSS 像素收起列会把官方 56 像素 rail 居中放在同一预留区域下方，并继续支持可选的原生 `sidebar` vibrancy。按钮、链接、输入框、可编辑字段、菜单、标签页、开关、对话框与显式 `.dshDesktopNoDrag` contribution 会通过精确的 `app-region: no-drag` 排除规则保持可交互。在 Windows 上，官方 sidebar 保持兼容模式几何：收起 56 像素、默认展开 280 像素，并沿用相同的上游过渡行为；透明 surface 会透出当前系统支持且用户选择的材质。增强窗口保留 32 CSS 像素内部 caption row 与原生 overlay 控件；这套几何与兼容/扩展模式的 36 像素独立 frame 无关。Linux 会拒绝增强模式，而不会静默降级到与持久化设置不同的呈现。
 
 ## 开发
 

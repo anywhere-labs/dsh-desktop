@@ -967,7 +967,6 @@ export function prepareDesktopProfile(
     }
     patches.push(
       { id: 'ui-layout', disabled: true },
-      { id: 'ui-sidebar', disabled: false },
       { id: 'ui-conversation', disabled: false },
     )
   }
