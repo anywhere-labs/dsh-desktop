@@ -720,8 +720,8 @@ virtualStoreDirMaxLength: 60
       config: expect.objectContaining({ dshHome: home }),
     }))
     expect(rows.find(row => row.id === 'ui-layout')?.disabled).toBe(true)
-    expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBe(false)
-    expect(rows.find(row => row.id === 'ui-conversation')?.disabled).toBe(false)
+    expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBeFalsy()
+    expect(rows.find(row => row.id === 'ui-conversation')?.disabled).toBeFalsy()
   })
 
   it('keeps legacy browser intent but clamps LAN exposure when compatibility mode is selected', () => {
@@ -770,8 +770,8 @@ virtualStoreDirMaxLength: 60
       windowsMaterial: 'mica',
     }))
     expect(rows.find(row => row.id === 'ui-layout')?.disabled).toBe(true)
-    expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBe(false)
-    expect(rows.find(row => row.id === 'ui-conversation')?.disabled).toBe(false)
+    expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBeFalsy()
+    expect(rows.find(row => row.id === 'ui-conversation')?.disabled).toBeFalsy()
     expect(rows.find(row => row.id === 'desktop-shell')).toEqual(expect.objectContaining({
       config: expect.objectContaining({
         mode: 'extended',
@@ -780,6 +780,32 @@ virtualStoreDirMaxLength: 60
       }),
     }))
   })
+
+  it.each(['advanced', 'extended'] as const)(
+    'preserves explicitly disabled root occupants in %s mode',
+    (mode) => {
+      const home = temporaryHome()
+      writeFileSync(join(home, 'settings.yaml'), [
+        'dsh-desktop:',
+        `  mode: ${mode}`,
+        '',
+      ].join('\n'))
+      writeFileSync(join(home, 'cordis.patch.yml'), [
+        '- id: ui-sidebar',
+        '  disabled: true',
+        '- id: ui-conversation',
+        '  disabled: true',
+        '',
+      ].join('\n'))
+
+      const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+      const rows = composeEntries([prepared.patches])
+
+      expect(rows.find(row => row.id === 'ui-layout')?.disabled).toBe(true)
+      expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBe(true)
+      expect(rows.find(row => row.id === 'ui-conversation')?.disabled).toBe(true)
+    },
+  )
 
   it('reads JSON settings and defaults an absent desktop namespace to compatibility', () => {
     const home = temporaryHome()
