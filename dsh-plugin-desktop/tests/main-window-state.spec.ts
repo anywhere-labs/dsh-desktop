@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   FileMainWindowStateStore,
   fitMainWindowBounds,
+  resolveMainWindowLayout,
 } from '../src/main-window-state.ts'
 
 const temporaryDirectories: string[] = []
@@ -58,5 +59,46 @@ describe('main-window state', () => {
       workArea,
       minimum,
     )).toEqual({ x: -1440, y: 24, width: 1440, height: 876 })
+  })
+
+  it('lowers restored bounds and native minimums to a small work area', () => {
+    expect(resolveMainWindowLayout(
+      { x: 120, y: 80, width: 1280, height: 840 },
+      { x: 0, y: 0, width: 800, height: 520 },
+      { width: 1280, height: 840 },
+      { width: 900, height: 640 },
+    )).toEqual({
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 520,
+      minWidth: 800,
+      minHeight: 520,
+    })
+  })
+
+  it('fits first-launch dimensions without forcing display coordinates', () => {
+    expect(resolveMainWindowLayout(
+      undefined,
+      { x: -800, y: 24, width: 800, height: 520 },
+      { width: 1280, height: 840 },
+      { width: 900, height: 640 },
+    )).toEqual({
+      width: 800,
+      height: 520,
+      minWidth: 800,
+      minHeight: 520,
+    })
+    expect(resolveMainWindowLayout(
+      undefined,
+      { x: 0, y: 24, width: 1440, height: 876 },
+      { width: 800, height: 600 },
+      { width: 900, height: 640 },
+    )).toEqual({
+      width: 900,
+      height: 640,
+      minWidth: 900,
+      minHeight: 640,
+    })
   })
 })

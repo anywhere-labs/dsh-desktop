@@ -240,6 +240,9 @@ const electron = vi.hoisted(() => {
       getDisplayMatching: vi.fn(() => ({
         workArea: { x: 0, y: 0, width: 1920, height: 1080 },
       })),
+      getPrimaryDisplay: vi.fn(() => ({
+        workArea: { x: 0, y: 0, width: 1920, height: 1080 },
+      })),
     },
     shell: {
       openExternal: vi.fn(async () => {}),
@@ -633,14 +636,39 @@ describe('Electron desktop runtime', () => {
     expect(electron.browserWindowOff).toHaveBeenCalledWith('resize', expect.any(Function))
   })
 
-  it('fits stale saved bounds into the current display work area', async () => {
+  it('fits first-launch dimensions and minimums to a small primary work area', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    electron.screen.getPrimaryDisplay.mockReturnValueOnce({
+      workArea: { x: -800, y: 24, width: 800, height: 520 },
+    })
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const runtime = new ElectronDesktopRuntime(async () => {})
+    const release = runtime.schedule(spec)
+
+    await runtime.mountScheduled()
+
+    expect(electron.screen.getPrimaryDisplay).toHaveBeenCalledOnce()
+    expect(electron.screen.getDisplayMatching).not.toHaveBeenCalled()
+    expect(electron.browserWindowOptions[0]).toEqual(expect.objectContaining({
+      width: 800,
+      height: 520,
+      minWidth: 800,
+      minHeight: 520,
+    }))
+    expect(electron.browserWindowOptions[0]).not.toHaveProperty('x')
+    expect(electron.browserWindowOptions[0]).not.toHaveProperty('y')
+
+    await release()
+  })
+
+  it('fits stale saved bounds and minimums into the current display work area', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     const { FileMainWindowStateStore } = await import('../src/main-window-state.ts')
     const store = new FileMainWindowStateStore('/tmp/dsh-desktop-user-data')
     const stale = { x: 5_000, y: -2_000, width: 2_000, height: 1_400 }
     store.write(stale)
     electron.screen.getDisplayMatching.mockReturnValueOnce({
-      workArea: { x: 0, y: 24, width: 1440, height: 876 },
+      workArea: { x: 0, y: 24, width: 800, height: 520 },
     })
     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
     const runtime = new ElectronDesktopRuntime(async () => {})
@@ -652,8 +680,71 @@ describe('Electron desktop runtime', () => {
     expect(electron.browserWindowOptions[0]).toEqual(expect.objectContaining({
       x: 0,
       y: 24,
-      width: 1440,
-      height: 876,
+      width: 800,
+      height: 520,
+      minWidth: 800,
+      minHeight: 520,
+    }))
+
+    await release()
+  })
+
+  it('uses the first-launch layout after a saved-state read failure', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    electron.screen.getPrimaryDisplay.mockReturnValueOnce({
+      workArea: { x: 0, y: 24, width: 800, height: 520 },
+    })
+    const logger = { error: vi.fn(), errorCause: vi.fn() }
+    const mainWindowState = {
+      read: vi.fn(() => { throw new Error('invalid state') }),
+      write: vi.fn(),
+    }
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const runtime = new ElectronDesktopRuntime(
+      async () => {},
+      undefined,
+      logger,
+      undefined,
+      mainWindowState,
+    )
+    const release = runtime.schedule(spec)
+
+    await runtime.mountScheduled()
+
+    expect(logger.error).toHaveBeenCalledWith(
+      'dsh-plugin-desktop: failed to restore main-window state: invalid state',
+    )
+    expect(electron.screen.getPrimaryDisplay).toHaveBeenCalledOnce()
+    expect(electron.browserWindowOptions[0]).toEqual(expect.objectContaining({
+      width: 800,
+      height: 520,
+      minWidth: 800,
+      minHeight: 520,
+    }))
+
+    await release()
+  })
+
+  it('keeps static window options when the display work area is unavailable', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    electron.screen.getPrimaryDisplay.mockImplementationOnce(() => {
+      throw new Error('screen unavailable')
+    })
+    const logger = { error: vi.fn(), errorCause: vi.fn() }
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const runtime = new ElectronDesktopRuntime(async () => {}, undefined, logger)
+    const release = runtime.schedule(spec)
+
+    await runtime.mountScheduled()
+
+    expect(logger.error).toHaveBeenCalledWith(
+      'dsh-plugin-desktop: failed to fit main window to the display: screen unavailable',
+    )
+    expect(electron.browserWindowOptions[0]).toEqual(expect.objectContaining({
+      width: 1280,
+      height: 840,
+      minWidth: 900,
+      minHeight: 640,
     }))
 
     await release()
