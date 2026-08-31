@@ -61,6 +61,7 @@ import {
 } from './lan-https-runtime.ts'
 import { LogFileSink } from './log-files.ts'
 import { maskSecrets } from './mask-secrets.ts'
+import { watchDesktopPatchLayer } from './patch-watcher.ts'
 import { resolveDesktopShellEnvironment } from './shell-environment.ts'
 import { installProfilePackageResolver } from './module-resolution.ts'
 import { packagedDependencyPath } from './packaged-runtime-path.ts'
@@ -1031,6 +1032,16 @@ async function start(): Promise<void> {
     startupStage = 'host-boot'
     lifecycleRecorder.transitionStartupStage(startupStage)
     const releasePackageResolver = installProfilePackageResolver(prepared.bareModuleBaseUrl)
+    const generationMarketSelection = marketSelection
+    const recomposePrepared = (): ReturnType<typeof prepareDesktopProfile> => prepareDesktopProfile(
+      process.env.DSH_TELEMETRY_DISABLED,
+      homeDir,
+      process.platform,
+      activeProfileName,
+      pluginManagementStatePath,
+      generationMarketSelection,
+      preparationHooks,
+    )
     const ctx = await boot(
       BIN_NAME,
       prepared.rootConfig,
@@ -1203,6 +1214,26 @@ async function start(): Promise<void> {
       throw cause
     })
     generation.bindHost(ctx)
+    if (prepared.profile.patchReload === 'live') {
+      try {
+        const disposePatchWatch = await watchDesktopPatchLayer(ctx, {
+          binName: BIN_NAME,
+          filenames: [
+            prepared.profile.patchPath,
+            join(homeDir, PROFILE_PATCH_FILENAME),
+          ],
+          compose: () => recomposePrepared().patches,
+        })
+        ctx.effect(
+          () => disposePatchWatch,
+          `${BIN_NAME}: desktop patch-layer watcher`,
+        )
+      } catch (cause) {
+        ctx.logger.error(
+          `${BIN_NAME}: failed to start desktop patch-layer watcher: ${cause instanceof Error ? cause.message : String(cause)}`,
+        )
+      }
+    }
     fileExporter?.setThreshold((ctx.settings.get(DESKTOP_SETTINGS_NAMESPACE) as DesktopSettings | undefined)?.logLevel ?? 'info')
     ctx.on('settings/updated', (namespace, next) => {
       if (namespace === DESKTOP_SETTINGS_NAMESPACE) {
