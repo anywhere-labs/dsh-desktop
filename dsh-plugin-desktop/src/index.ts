@@ -11,6 +11,7 @@ import {
 } from '@deepseek-ai/dsh-client-locale'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-client-connection'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   THEME_SETTINGS_NAMESPACE,
   type ThemeSettings,
@@ -85,7 +86,7 @@ export const name = 'desktop-shell'
 
 /** Services required before the shell can register its renderer generation. */
 /** Services required by the desktop shell; `desktopRuntime` is probed, not required. */
-export const inject = ['webServer', 'webRuntime', 'appExit', 'settings', 'connection']
+export const inject = ['webServer', 'webRuntime', 'appExit', 'settings', 'connection', 'sessions']
 
 /** Standard settings namespace shared by tray and configuration surfaces. */
 export const DESKTOP_SETTINGS_NAMESPACE = settingsNamespace('dsh-desktop')
@@ -304,7 +305,6 @@ export function apply(ctx: Context, config: Config): void {
       [DESKTOP_PROFILE_DELETE_PATH, handleDesktopProfileDeleteRequest],
       [DESKTOP_PROFILE_SELECT_PATH, handleDesktopProfileSelectRequest],
       [DESKTOP_MARKET_SELECT_PATH, handleDesktopMarketSelectRequest],
-      [DESKTOP_TERMINAL_OPEN_PATH, handleDesktopTerminalOpenRequest],
       [DESKTOP_RESTART_PATH, handleDesktopRestartRequest],
       [DESKTOP_RECOVERY_RESTART_PATH, handleDesktopRecoveryRestartRequest],
       [DESKTOP_RENDERER_RELOAD_PATH, handleDesktopRendererReloadRequest],
@@ -330,6 +330,24 @@ export function apply(ctx: Context, config: Config): void {
         `dsh-plugin-desktop: private settings route ${path}`,
       )
     }
+    ctx.effect(
+      () => ctx.webServer.register({
+        kind: 'exact',
+        path: DESKTOP_TERMINAL_OPEN_PATH,
+        handler: (req, res) => {
+          if (rejectDesktopRequest(ctx, req, res)) return
+          return handleDesktopTerminalOpenRequest(
+            req,
+            res,
+            rendererOrigin,
+            desktopSettings,
+            reportSettingsError,
+            sessionId => ctx.sessions.get(SessionId(sessionId))?.header.cwd,
+          )
+        },
+      }),
+      `dsh-plugin-desktop: private settings route ${DESKTOP_TERMINAL_OPEN_PATH}`,
+    )
   }
   ctx.effect(
     () => ctx.webServer.register({

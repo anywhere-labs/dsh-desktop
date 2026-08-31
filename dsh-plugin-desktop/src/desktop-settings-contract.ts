@@ -17,7 +17,7 @@ export const DESKTOP_PROFILE_DELETE_PATH = '/api/desktop/profiles/delete'
 /** Persist the Market provider selected for the next Desktop generation. */
 export const DESKTOP_MARKET_SELECT_PATH = '/api/desktop/market/select'
 
-/** Open the launcher-owned DSH terminal without accepting command text. */
+/** Open the launcher-owned DSH terminal without accepting command text or paths. */
 export const DESKTOP_TERMINAL_OPEN_PATH = '/api/desktop/terminal/open'
 
 /** Queue an orderly Desktop relaunch after acknowledging the renderer. */
@@ -131,8 +131,10 @@ export interface DesktopMarketSelectRequest {
 /** Successful Market selection handoff. */
 export type DesktopMarketSelectResponse = DesktopRestartAcceptance
 
-/** Exact empty body accepted by the terminal endpoint. */
-export type DesktopTerminalOpenRequest = Readonly<Record<string, never>>
+/** Exact body accepted by the terminal endpoint. The Host resolves any session path. */
+export type DesktopTerminalOpenRequest = Readonly<Record<string, never>> | {
+  readonly sessionId: string
+}
 
 /** Successful handoff to the launcher-owned terminal action. */
 export interface DesktopTerminalOpenResponse {
