@@ -4201,6 +4201,27 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-tool-fs-search@patch:@deepseek-ai/dsh-tool-fs-search@file%3Avendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-fs-search-0.1.2-alpha.1.tgz#./patches/dsh-tool-fs-search@0.1.2-alpha.1.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.2-alpha.1
+  resolution: "@deepseek-ai/dsh-tool-fs-search@patch:@deepseek-ai/dsh-tool-fs-search@file%3Avendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-fs-search-0.1.2-alpha.1.tgz%23vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-fs-search-0.1.2-alpha.1.tgz%3A%3Ahash=68e39a&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-tool-fs-search@0.1.2-alpha.1.patch::version=0.1.2-alpha.1&hash=f77204&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    "@deepseek-ai/schemastery": "npm:^3.18.1"
+    "@vscode/ripgrep": "npm:^1.18.0"
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.1
+    "@deepseek-ai/dsh-invariants": ^0.1.2-alpha.1
+    "@deepseek-ai/dsh-llm": ^0.1.2-alpha.1
+    "@deepseek-ai/dsh-output-retention": ^0.1.2-alpha.1
+    "@deepseek-ai/dsh-session": ^0.1.2-alpha.1
+    "@deepseek-ai/dsh-spill": ^0.1.2-alpha.1
+    "@deepseek-ai/dsh-subprocess": ^0.1.2-alpha.1
+    "@deepseek-ai/dsh-system-prompt": ^0.1.2-alpha.1
+    "@deepseek-ai/dsh-timeout": ^0.1.2-alpha.1
+    "@deepseek-ai/dsh-tools": ^0.1.2-alpha.1
+  checksum: 10c0/7fd1f392c7f9f90efbb64c0477a99c12f707c9bb2b12d11fd831d530fa37a98f8825dcd9f4f1089d85a7e5b25317fe477f74015a6459a6d670c7bbeee78a2084
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-tool-fs@file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-fs-0.1.2-alpha.1.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.2-alpha.1
   resolution: "@deepseek-ai/dsh-tool-fs@file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-fs-0.1.2-alpha.1.tgz#vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-fs-0.1.2-alpha.1.tgz::hash=40be3e&locator=deepseek-harness-desktop%40workspace%3A."

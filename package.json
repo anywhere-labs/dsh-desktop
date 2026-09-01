@@ -127,7 +127,7 @@
     "@deepseek-ai/dsh-tool-bash": "file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-bash-0.1.2-alpha.1.tgz",
     "@deepseek-ai/dsh-tool-call-timeout-policy": "file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-call-timeout-policy-0.1.2-alpha.1.tgz",
     "@deepseek-ai/dsh-tool-fs": "file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-fs-0.1.2-alpha.1.tgz",
-    "@deepseek-ai/dsh-tool-fs-search": "file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-fs-search-0.1.2-alpha.1.tgz",
+    "@deepseek-ai/dsh-tool-fs-search": "patch:@deepseek-ai/dsh-tool-fs-search@file%3Avendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-fs-search-0.1.2-alpha.1.tgz#./patches/dsh-tool-fs-search@0.1.2-alpha.1.patch",
     "@deepseek-ai/dsh-tool-goal": "file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-goal-0.1.2-alpha.1.tgz",
     "@deepseek-ai/dsh-tool-jobs": "file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-jobs-0.1.2-alpha.1.tgz",
     "@deepseek-ai/dsh-tool-pwsh": "file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-pwsh-0.1.2-alpha.1.tgz",
