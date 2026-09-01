@@ -136,6 +136,36 @@ describe('public Desktop version check', () => {
     })
   })
 
+  it('surfaces per-platform installer digests with case normalization', async () => {
+    const upper = 'A'.repeat(64)
+    await expect(checkForStableUpdate({
+      currentVersion: '2.0.0',
+      request: async () => Response.json({
+        version: '2.1.0',
+        sha256: { windows: upper, mac: `  ${'b'.repeat(64)}  ` },
+      }),
+    })).resolves.toEqual({
+      status: 'update-available',
+      currentVersion: '2.0.0',
+      latestVersion: '2.1.0',
+      installerSha256: { win32: 'a'.repeat(64), darwin: 'b'.repeat(64) },
+    })
+  })
+
+  it('ignores malformed installer digest fields without failing the check', async () => {
+    await expect(checkForStableUpdate({
+      currentVersion: '2.0.0',
+      request: async () => Response.json({
+        version: '2.1.0',
+        sha256: { windows: 'not-hex', mac: 42, extra: true },
+      }),
+    })).resolves.toEqual({
+      status: 'update-available',
+      currentVersion: '2.0.0',
+      latestVersion: '2.1.0',
+    })
+  })
+
   it('compares service versions without overflowing JavaScript numbers', async () => {
     await expect(checkForStableUpdate({
       currentVersion: '9007199254740992.0.0',

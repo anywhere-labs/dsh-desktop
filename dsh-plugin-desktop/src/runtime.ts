@@ -115,8 +115,16 @@ export interface DesktopUpdateAdapter {
   confirmDownload(version: string): Promise<boolean>
   /** Present the outcome of a user-triggered version check. */
   showManualCheckResult(result: UpdateCheckResult | null): Promise<void>
-  /** Download and hand one confirmed update to the platform installer. */
-  downloadAndOpen(version: string, signal: AbortSignal): Promise<void>
+  /**
+   * Download and hand one confirmed update to the platform installer. The
+   * optional per-platform digests come from the recheck that confirmed the
+   * version; the adapter applies the one matching its download platform.
+   */
+  downloadAndOpen(
+    version: string,
+    signal: AbortSignal,
+    installerSha256?: Readonly<Partial<Record<'win32' | 'darwin', string>>>,
+  ): Promise<void>
   /** Present a native status notification without blocking the Host tree. */
   notify(notification: DesktopNotification): void
 }

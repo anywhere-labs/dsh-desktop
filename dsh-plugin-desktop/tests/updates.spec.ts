@@ -52,7 +52,11 @@ async function createHarness(options: {
   readonly request?: DesktopRuntime['updates']['request']
   readonly confirmDownload?: (version: string) => Promise<boolean>
   readonly showManualCheckResult?: (result: UpdateCheckResult | null) => Promise<void>
-  readonly downloadAndOpen?: (version: string, signal: AbortSignal) => Promise<void>
+  readonly downloadAndOpen?: (
+    version: string,
+    signal: AbortSignal,
+    installerSha256?: Readonly<Partial<Record<'win32' | 'darwin', string>>>,
+  ) => Promise<void>
   readonly notify?: (notification: DesktopNotification) => void
   readonly locale?: DesktopRuntime['locale']
   readonly state?: string
@@ -299,6 +303,62 @@ describe('desktop update Host plugin', () => {
     await vi.waitFor(() => { expect(harness.tray.label()).toBe('DSH Desktop 2.1.0 Available') })
     expect(harness.notifications).toEqual([])
     expect(harness.tray.label()).toBe('DSH Desktop 2.1.0 Available')
+  })
+
+  it('passes the rechecked installer digests to the download adapter', async () => {
+    vi.useFakeTimers()
+    const harness = await createHarness({
+      packaged: false,
+      request: async () => Response.json({
+        version: '2.1.0',
+        sha256: { windows: 'c'.repeat(64), mac: 'd'.repeat(64) },
+      }),
+      confirmDownload: async () => true,
+    })
+
+    const pending = harness.tray.invoke()
+    await vi.waitFor(() => { expect(harness.downloadAndOpen).toHaveBeenCalledOnce() })
+    const [version, , installerSha256] = harness.downloadAndOpen.mock.calls[0] as [
+      string,
+      AbortSignal,
+      Readonly<Partial<Record<'win32' | 'darwin', string>>> | undefined,
+    ]
+    expect(version).toBe('2.1.0')
+    expect(installerSha256).toEqual({ win32: 'c'.repeat(64), darwin: 'd'.repeat(64) })
+    await pending
+  })
+
+  it('uses the digest from the recheck, not the first check', async () => {
+    vi.useFakeTimers()
+    let call = 0
+    const harness = await createHarness({
+      packaged: false,
+      request: async () => {
+        call += 1
+        return Response.json({ version: '2.1.0', sha256: { mac: call === 1 ? 'c'.repeat(64) : 'd'.repeat(64) } })
+      },
+      confirmDownload: async () => true,
+    })
+
+    const pending = harness.tray.invoke()
+    await vi.waitFor(() => { expect(harness.downloadAndOpen).toHaveBeenCalledOnce() })
+    expect(harness.downloadAndOpen.mock.calls[0]?.[2]).toEqual({ darwin: 'd'.repeat(64) })
+    await pending
+  })
+
+  it('omits the digest argument when the service publishes none', async () => {
+    vi.useFakeTimers()
+    const harness = await createHarness({
+      packaged: false,
+      request: async () => versionResponse('2.1.0'),
+      confirmDownload: async () => true,
+    })
+
+    const pending = harness.tray.invoke()
+    await vi.waitFor(() => { expect(harness.downloadAndOpen).toHaveBeenCalledOnce() })
+    const thirdArgument = harness.downloadAndOpen.mock.calls[0]?.[2]
+    expect(thirdArgument).toBeUndefined()
+    await pending
   })
 
   it('treats a manual available-version selection as a fresh confirmation', async () => {

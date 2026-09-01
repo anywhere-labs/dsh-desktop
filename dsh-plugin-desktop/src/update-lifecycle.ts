@@ -65,6 +65,7 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
   private disposeTask: Promise<void> | undefined
   private checking = false
   private availableVersion: string | undefined
+  private latestInstallerSha256: UpdateCheckResult['installerSha256']
   private downloadingVersion: string | undefined
   private state: UpdateStateV3 = EMPTY_STATE
   private pollTimer: ReturnType<typeof setTimeout> | undefined
@@ -180,6 +181,7 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
     this.availableVersion = result.status === 'update-available' && this.options.adapter.canDownload
       ? result.latestVersion
       : undefined
+    this.latestInstallerSha256 = result.installerSha256
     this.registration.refresh()
     return this.availableVersion
   }
@@ -195,7 +197,8 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
       }
       if (!confirmed || this.disposed) return
 
-      const confirmedVersion = this.observeResult(await this.startCheck())
+      const recheck = await this.startCheck()
+      const confirmedVersion = this.observeResult(recheck)
       if (confirmedVersion !== version || this.disposed) return
 
       const controller = new AbortController()
@@ -203,7 +206,7 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
       this.downloadingVersion = version
       this.registration.refresh()
       try {
-        await this.options.adapter.downloadAndOpen(version, controller.signal)
+        await this.options.adapter.downloadAndOpen(version, controller.signal, this.latestInstallerSha256)
       } catch {
         // Network, filesystem, and installer-opening failures are deliberately silent.
       } finally {
