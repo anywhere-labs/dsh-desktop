@@ -105,11 +105,11 @@ describe('advanced desktop layout', () => {
   })
 
   it('owns native caption geometry with one fixed macOS drag strip above page content', () => {
-    expect(ADVANCED_MACOS_CONTENT_INSET).toBe(20)
+    expect(ADVANCED_MACOS_CONTENT_INSET).toBe(32)
     expect(ADVANCED_MACOS_DRAG_REGION_HEIGHT).toBe(32)
     expect(ADVANCED_MACOS_DRAG_LAYER_Z_INDEX).toBe(20)
     expect(ADVANCED_MACOS_DRAG_LAYER_Z_INDEX).toBeLessThan(25)
-    expect(ADVANCED_MACOS_DRAG_REGION_HEIGHT).toBeGreaterThan(ADVANCED_MACOS_CONTENT_INSET)
+    expect(ADVANCED_MACOS_CONTENT_INSET).toBe(ADVANCED_MACOS_DRAG_REGION_HEIGHT)
     expect(ADVANCED_WINDOWS_TITLEBAR_HEIGHT).toBe(32)
     let css = ''
     const remove = vi.fn()

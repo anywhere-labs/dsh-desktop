@@ -30,11 +30,11 @@ Settings watcher 会比较已提交模式与当前 generation，并在两者不�
 
 ### 高级 Client 组合
 
-在 bundle、profile 与 home patch 完成组合后，Launcher 会验证预期官方 row 身份。其最终高级 overlay 禁用官方 `ui-layout` row，并明确保持 `ui-sidebar` 与 `ui-conversation` 启用。兼容模式会保持三个官方 row 全部启用。
+在 bundle、profile 与 home patch 完成组合后，Launcher 会验证预期官方 row 身份。其最终高级 overlay 禁用官方 `ui-layout` row，并明确保持 `ui-conversation` 启用。它不会覆盖组合完成后的 `ui-sidebar` 启停状态：默认 profile 会保留官方 occupant，profile 也可以禁用该 row，并通过公开 `sidebar` slot 提供完整替代实现。兼容模式会保持三个官方 row 全部启用。
 
 desktop Client 会在安装高级 effect 前校验 Host 提供的模式与平台 URL marker。它通过 Cordis reflection 在一个 plugin fiber 生命期内提供由 `DesktopLayoutState` 支撑的 `layout` service。该 service 拥有 sidebar toggle 与 details open/close transition，并与安装它的同一 effect 一起消失。
 
-Client 注册 `root` occupant，并为 `sidebar`、`conversation`、`details` 与纯新增 `shell.overlay` entry 声明子 seat。不变的官方 `ui-sidebar` 会继续作为 sidebar occupant，并保留其 workspace、settings 与纯新增 footer-action seat 的所有权。不变的 `ui-conversation` plugin 继续拥有 conversation 与 details surface。第三方 feature 可以向与兼容模式相同的已文档化 seat 贡献内容。
+Client 注册 `root` occupant，并为 `sidebar`、`conversation`、`details` 与纯新增 `shell.overlay` entry 声明子 seat。官方 `ui-sidebar` 默认继续作为 sidebar occupant，并保留其 workspace、settings 与纯新增 footer-action seat 的所有权。Profile 也可以禁用该 row，并提供声明完整子 seat 集合的替代 occupant。不变的 `ui-conversation` plugin 继续拥有 conversation 与 details surface。第三方 feature 可以向与兼容模式相同的已文档化 seat 贡献内容。
 
 desktop frame 只拥有几何与 chrome：可折叠 sidebar 列、中心宽度下限、可选 details 列、resize handle 与原生 drag region。它不会复制 sidebar 控件、session、workspace、conversation、settings 或 feature 状态。
 
@@ -46,7 +46,7 @@ desktop frame 只拥有几何与 chrome：可折叠 sidebar 列、中心宽度�
 
 ### 原生材质
 
-在 macOS 上，高级 `BrowserWindow` 使用 `titleBarStyle: hiddenInset`、定位后的红黄绿按钮、透明背景、`vibrancy: sidebar` 与 `visualEffectState: followWindow`。Renderer 会在原生 vibrancy 上保持 sidebar surface 透明，并在官方 sidebar 外添加红绿灯 inset。其 90 CSS 像素收起列会把官方 56 像素 rail 居中。Sidebar surface 本身不可拖动，内容上方且位于红绿灯右侧的 desktop 自有透明条则提供 32 CSS 像素窗口拖动目标。另一条 caption row 会在 conversation 与 details 两列上方保留 20 CSS 像素间距，同时让透明的原生拖动命中区域也维持 32 CSS 像素高度。desktop shell 因此可以保留紧凑视觉间距，而无需检查或重排 feature 自有 Header 节点。语义化控件与显式 no-drag contribution 仍可交互；顶部 32 像素内的自定义 pointer target 必须退出原生拖动区域。
+在 macOS 上，高级 `BrowserWindow` 使用 `titleBarStyle: hiddenInset`、定位后的红黄绿按钮、透明背景、`vibrancy: sidebar` 与 `visualEffectState: followWindow`。Renderer 会在原生 vibrancy 上保持 sidebar surface 透明，并在官方 sidebar 外添加红绿灯 inset。其 90 CSS 像素收起列会把官方 56 像素 rail 居中。Sidebar surface 本身不可拖动，内容上方且位于红绿灯右侧的 desktop 自有条带则提供 32 CSS 像素窗口拖动目标。另一条实色 caption row 会在 conversation 与 details 两列上方预留同样的 32 CSS 像素。内容 inset 与拖动区域保持一致后，feature 自有 Header 节点无需被检查或重排，也不会进入覆盖层。语义化控件与显式 no-drag contribution 仍可交互。
 
 desktop sidebar surface 会把官方 sidebar-fill token 局部设为透明。官方 sidebar 与 session 列表会保留组件行为、滚动、间距与渐隐，但不会把 Web 不透明填充色绘制到原生材质上。
 

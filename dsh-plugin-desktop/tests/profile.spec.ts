@@ -720,7 +720,7 @@ virtualStoreDirMaxLength: 60
       config: expect.objectContaining({ dshHome: home }),
     }))
     expect(rows.find(row => row.id === 'ui-layout')?.disabled).toBe(true)
-    expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBe(false)
+    expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBeFalsy()
     expect(rows.find(row => row.id === 'ui-conversation')?.disabled).toBe(false)
   })
 
@@ -770,7 +770,7 @@ virtualStoreDirMaxLength: 60
       windowsMaterial: 'mica',
     }))
     expect(rows.find(row => row.id === 'ui-layout')?.disabled).toBe(true)
-    expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBe(false)
+    expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBeFalsy()
     expect(rows.find(row => row.id === 'ui-conversation')?.disabled).toBe(false)
     expect(rows.find(row => row.id === 'desktop-shell')).toEqual(expect.objectContaining({
       config: expect.objectContaining({
@@ -780,6 +780,31 @@ virtualStoreDirMaxLength: 60
       }),
     }))
   })
+
+  it.each(['advanced', 'extended'] as const)(
+    'preserves a profile-owned sidebar replacement in %s mode',
+    (mode) => {
+      const home = temporaryHome()
+      const profile = ensureDesktopProfile(home)
+      writeFileSync(join(profile, 'cordis.patch.yml'), [
+        '- id: ui-sidebar',
+        '  disabled: true',
+        '',
+      ].join('\n'))
+      writeFileSync(join(home, 'settings.yaml'), [
+        'dsh-desktop:',
+        `  mode: ${mode}`,
+        '',
+      ].join('\n'))
+
+      const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+      const rows = composeEntries([prepared.patches])
+
+      expect(rows.find(row => row.id === 'ui-layout')?.disabled).toBe(true)
+      expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBe(true)
+      expect(rows.find(row => row.id === 'ui-conversation')?.disabled).toBe(false)
+    },
+  )
 
   it('reads JSON settings and defaults an absent desktop namespace to compatibility', () => {
     const home = temporaryHome()

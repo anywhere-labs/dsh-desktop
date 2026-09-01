@@ -1,5 +1,5 @@
-/** Compact content inset retained by the macOS enhanced layout. */
-export const ADVANCED_MACOS_CONTENT_INSET = 20
+/** Keep macOS enhanced content below the complete native drag strip. */
+export const ADVANCED_MACOS_CONTENT_INSET = 32
 
 /** Native drag hit-region height retained by the macOS enhanced layout. */
 export const ADVANCED_MACOS_DRAG_REGION_HEIGHT = 32
