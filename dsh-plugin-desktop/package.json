@@ -109,7 +109,7 @@
     }
   },
   "scripts": {
-    "build": "node scripts/generate-mac-app-icon.mjs && node scripts/generate-tray-icons.mjs && node scripts/clean.mjs && tsdown && vite build --config vite.native-ui.config.ts && tsc -p tsconfig.json --emitDeclarationOnly && tsc -p tsconfig.client.json --emitDeclarationOnly",
+    "build": "node scripts/generate-mac-app-icon.mjs && node scripts/generate-tray-icons.mjs && node scripts/generate-linux-icons.mjs && node scripts/clean.mjs && tsdown && vite build --config vite.native-ui.config.ts && tsc -p tsconfig.json --emitDeclarationOnly && tsc -p tsconfig.client.json --emitDeclarationOnly",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.native-ui.json --noEmit && tsc -p tsconfig.tests.json --noEmit && tsc -p tsconfig.tests.client.json --noEmit",
     "test": "vitest run",
     "verify:closure": "node --test scripts/runtime-closure.spec.mjs && node scripts/verify-runtime-closure.mjs",
@@ -129,6 +129,8 @@
     "dist:mac-smoke": "node scripts/package-mac.ts",
     "dist:win": "node scripts/package-win.ts",
     "dist:win-portable": "node scripts/package-win-portable.ts",
+    "dist:linux": "node scripts/package-linux.ts",
+    "check:linux-package": "yarn run build && yarn run typecheck && vitest run tests/package.spec.ts tests/package-linux.spec.ts tests/verify-linux-installer.spec.ts tests/verify-packaged-runtime.spec.ts tests/window-options.spec.ts tests/terminal.spec.ts tests/plugin.spec.ts && yarn run verify:closure",
     "prepack": "yarn run check"
   },
   "dependencies": {
@@ -330,7 +332,8 @@
       "buildResources": "build"
     },
     "toolsets": {
-      "nsis": "1.2.1"
+      "nsis": "1.2.1",
+      "appimage": "1.0.3"
     },
     "files": [
       "build/app-icon.png",
@@ -340,7 +343,13 @@
       "cordis.patch.yml",
       "lib/**",
       "package.json",
-      "!node_modules/node-pty/build/**"
+      "!node_modules/node-pty/build/**",
+      "!node_modules/@img/sharp-linux-arm64/**",
+      "!node_modules/@img/sharp-libvips-linux-arm64/**",
+      "!node_modules/@koromix/koffi-linux-arm64/**",
+      "!node_modules/@vscode/ripgrep-linux-arm64/**",
+      "!node_modules/node-addon-require-builtin-linux-arm64-gnu/**",
+      "!node_modules/@deepseek-ai/node-addon-landlock-run-linux-arm64/**"
     ],
     "mac": {
       "target": [
@@ -392,9 +401,38 @@
     },
     "linux": {
       "target": [
-        "dir"
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
-      "icon": "build/app-icon.png"
+      "icon": "build/icons",
+      "executableName": "dsh-desktop",
+      "category": "Development",
+      "maintainer": "anywhere-labs <anywhere-labs@users.noreply.github.com>"
+    },
+    "deb": {
+      "artifactName": "DSH-Desktop-${version}-linux-amd64.deb"
+    },
+    "rpm": {
+      "artifactName": "DSH-Desktop-${version}-linux-x86_64.rpm"
+    },
+    "appImage": {
+      "artifactName": "DSH-Desktop-${version}-linux-x86_64.AppImage"
     }
   }
 }

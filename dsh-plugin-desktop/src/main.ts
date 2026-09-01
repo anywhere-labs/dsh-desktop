@@ -526,6 +526,7 @@ async function start(): Promise<void> {
     }
     if (!showPreHostSurface()) runtime.show()
   })
+  if (process.platform === 'linux') app.setDesktopName('dsh-desktop.desktop')
   try {
     await app.whenReady()
     startupStage = 'shell-environment'
