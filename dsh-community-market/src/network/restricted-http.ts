@@ -1,16 +1,18 @@
 import dns from 'node:dns'
-import { BlockList, isIP } from 'node:net'
+import { isIP } from 'node:net'
 import https from 'node:https'
 import type { IncomingHttpHeaders, IncomingMessage } from 'node:http'
 import type { CatalogHttpClient, CatalogHttpRequestPolicy, CatalogHttpResponse } from '../contracts/types.js'
+import {
+  createBlockedAddresses,
+  createSyntheticProxyAddresses,
+} from './blocked-subnets.js'
 
 const MAX_REDIRECTS = 3
 const MAX_BODY_BYTES = 2 * 1024 * 1024
 const CONNECT_TIMEOUT_MS = 8_000
 const FIRST_BYTE_TIMEOUT_MS = 12_000
 const TOTAL_TIMEOUT_MS = 30_000
-const SYNTHETIC_PROXY_NETWORK = '198.18.0.0'
-const SYNTHETIC_PROXY_PREFIX = 15
 
 export class CatalogNetworkError extends Error {
   constructor(readonly code: 'invalid-url' | 'blocked-address' | 'redirect' | 'timeout' | 'http' | 'response') {
@@ -19,30 +21,7 @@ export class CatalogNetworkError extends Error {
   }
 }
 
-const blockedAddresses = new BlockList()
-for (const [network, prefix] of [
-  ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
-  ['100.64.0.0', 10],
-  ['127.0.0.0', 8],
-  ['169.254.0.0', 16],
-  ['172.16.0.0', 12],
-  ['192.0.0.0', 24],
-  ['192.168.0.0', 16],
-  ['198.18.0.0', 15],
-  ['224.0.0.0', 3],
-] as const) {
-  blockedAddresses.addSubnet(network, prefix, 'ipv4')
-}
-for (const [network, prefix] of [
-  ['::', 128],
-  ['::1', 128],
-  ['fc00::', 7],
-  ['fe80::', 10],
-  ['ff00::', 8],
-] as const) {
-  blockedAddresses.addSubnet(network, prefix, 'ipv6')
-}
+const blockedAddresses = createBlockedAddresses()
 
 export interface PinnedAddress {
   readonly address: string
@@ -72,8 +51,7 @@ export interface RestrictedHttpClientOptions {
   readonly maxBodyBytes?: number
 }
 
-const syntheticProxyAddresses = new BlockList()
-syntheticProxyAddresses.addSubnet(SYNTHETIC_PROXY_NETWORK, SYNTHETIC_PROXY_PREFIX, 'ipv4')
+const syntheticProxyAddresses = createSyntheticProxyAddresses()
 
 function assertSafeAddress(address: string, allowSyntheticProxyAddress = false): 4 | 6 {
   const normalized = address.replace(/^\[|\]$/gu, '').split('%', 1)[0]!
@@ -295,6 +273,7 @@ export function createRestrictedHttpClient(
 export interface CachedCatalogHttpClientOptions {
   readonly ttlMs?: number
   readonly now?: () => number
+  readonly maxEntries?: number
 }
 
 interface CachedCatalogResponse {
@@ -303,6 +282,39 @@ interface CachedCatalogResponse {
   inFlight?: Promise<CatalogHttpResponse>
   inFlightController?: AbortController
   waiters: number
+}
+
+/**
+ * Drop expired or abandoned entries first, then the least recently used ones,
+ * until the cache is back within bounds. Entries whose request is still in
+ * flight are skipped so concurrent reads of the same URL keep collapsing into
+ * one delegate request; their object graph is collected once the last waiter
+ * settles if they were already removed.
+ */
+function isCachedEntryFresh(
+  entry: CachedCatalogResponse,
+  now: () => number,
+  ttlMs: number,
+): boolean {
+  return entry.response !== undefined && entry.savedAt !== undefined && now() - entry.savedAt < ttlMs
+}
+
+function evictCachedEntries(
+  cache: Map<string, CachedCatalogResponse>,
+  maxEntries: number,
+  now: () => number,
+  ttlMs: number,
+): void {
+  if (cache.size <= maxEntries) return
+  for (const [key, entry] of cache) {
+    if (entry.inFlight !== undefined) continue
+    if (entry.response === undefined || !isCachedEntryFresh(entry, now, ttlMs)) cache.delete(key)
+  }
+  for (const [key, entry] of cache) {
+    if (cache.size <= maxEntries) return
+    if (entry.inFlight !== undefined) continue
+    cache.delete(key)
+  }
 }
 
 function awaitCachedResponse(
@@ -340,6 +352,7 @@ export function createCachedCatalogHttpClient(
 ): CatalogHttpClient {
   const ttlMs = options.ttlMs ?? 5 * 60 * 1000
   const now = options.now ?? Date.now
+  const maxEntries = options.maxEntries ?? 256
   const cache = new Map<string, CachedCatalogResponse>()
   return {
     async getJson(url, signal, policy: CatalogHttpRequestPolicy = {}) {
@@ -351,20 +364,36 @@ export function createCachedCatalogHttpClient(
       if (entry === undefined || policy.cacheMode === 'reload') {
         entry = { waiters: 0 }
         cache.set(key, entry)
+      } else if (isCachedEntryFresh(entry, now, ttlMs)) {
+        // Refresh insertion order so eviction removes the least recently used entry.
+        cache.delete(key)
+        cache.set(key, entry)
       }
-      if (entry.response !== undefined && entry.savedAt !== undefined && now() - entry.savedAt < ttlMs) {
-        return entry.response
+      const cachedResponse = isCachedEntryFresh(entry, now, ttlMs) ? entry.response : undefined
+      if (cachedResponse !== undefined) {
+        return cachedResponse
       }
       if (entry.inFlight === undefined) {
         const inFlightController = new AbortController()
         entry.inFlightController = inFlightController
         const request = delegate.getJson(url, inFlightController.signal, policy)
         entry.inFlight = request
+        // Evict only once the new entry is in flight: entries without a
+        // response and without an in-flight request are eviction candidates,
+        // and the freshly created one must not sweep itself.
+        evictCachedEntries(cache, maxEntries, now, ttlMs)
         void request.then(
           response => {
             if (entry.inFlight !== request || inFlightController.signal.aborted) return
             entry.response = response
             entry.savedAt = now()
+            // A URL that just paid a network refetch is recently used; move
+            // it to the back of the LRU order unless eviction already
+            // removed it (re-inserting would resurrect a dead entry).
+            if (cache.get(key) === entry) {
+              cache.delete(key)
+              cache.set(key, entry)
+            }
           },
           () => {},
         ).finally(() => {
