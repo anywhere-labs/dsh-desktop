@@ -259,7 +259,8 @@
     "@deepseek-ai/dsh-tool-terminal": "file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-tool-terminal-0.1.2-alpha.1.tgz",
     "@deepseek-ai/dsh-typert-generator": "file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-typert-generator-0.1.2-alpha.1.tgz",
     "@deepseek-ai/dsh-web-search-exa": "file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-web-search-exa-0.1.2-alpha.1.tgz",
-    "@deepseek-ai/dsh-web-search-perplexity": "file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-web-search-perplexity-0.1.2-alpha.1.tgz"
+    "@deepseek-ai/dsh-web-search-perplexity": "file:vendor/dsh-runtime/0.1.2-alpha.1/deepseek-ai-dsh-web-search-perplexity-0.1.2-alpha.1.tgz",
+    "node-pty@npm:1.2.0-beta.15": "patch:node-pty@npm%3A1.2.0-beta.15#~/.yarn/patches/node-pty-npm-1.2.0-beta.15-b1c6ee3543.patch"
   },
   "dependenciesMeta": {
     "@deepseek-ai/dsh-subprocess-local": {

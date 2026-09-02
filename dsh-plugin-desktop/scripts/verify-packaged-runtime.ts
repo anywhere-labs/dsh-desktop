@@ -9,6 +9,7 @@ import { listPackage } from '@electron/asar'
 import AdmZip from 'adm-zip'
 import {
   FORBIDDEN_MACOS_UNIVERSAL_ENTRIES,
+  MACOS_SHORT_NODE_PTY_HELPERS,
   MACOS_UNIVERSAL_NATIVE_ENTRIES,
 } from './mac-universal.ts'
 
@@ -395,6 +396,17 @@ export function verifyPackagedRuntime(
     throw new Error(
       `dsh-plugin-desktop: packaged runtime at ${unpackedRoot} is missing required physical entries: ${missing.join(', ')}`,
     )
+  }
+  if (context.electronPlatformName === 'darwin') {
+    const resourcesRoot = dirname(resolvePackagedAsarPath(context))
+    const missingShortHelpers = MACOS_SHORT_NODE_PTY_HELPERS
+      .filter(entry => !exists(join(resourcesRoot, entry.path)))
+      .map(entry => entry.path)
+    if (missingShortHelpers.length > 0) {
+      throw new Error(
+        `dsh-plugin-desktop: macOS resources at ${resourcesRoot} are missing short node-pty helpers: ${missingShortHelpers.join(', ')}`,
+      )
+    }
   }
   if (context.electronPlatformName === 'darwin' && context.arch === 4) {
     const forbidden = FORBIDDEN_MACOS_UNIVERSAL_ENTRIES

@@ -12513,6 +12513,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"node-pty@patch:node-pty@npm%3A1.2.0-beta.15#~/.yarn/patches/node-pty-npm-1.2.0-beta.15-b1c6ee3543.patch":
+  version: 1.2.0-beta.15
+  resolution: "node-pty@patch:node-pty@npm%3A1.2.0-beta.15#~/.yarn/patches/node-pty-npm-1.2.0-beta.15-b1c6ee3543.patch::version=1.2.0-beta.15&hash=cb15bc"
+  dependencies:
+    node-addon-api: "npm:^7.1.0"
+    node-gyp: "npm:latest"
+  checksum: 10c0/aeb2e7bc5bf710304a4fb69f6aaa6fc50c69e3ecb4fefb4eb4c86be8dcea6564899778b11da2a51616a609b1953143770d595a0974dd76dabb6786f37906f277
+  languageName: node
+  linkType: hard
+
 "node-releases@npm:^2.0.53":
   version: 2.0.53
   resolution: "node-releases@npm:2.0.53"

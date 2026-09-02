@@ -6,7 +6,10 @@ import {
   verifyMacSmoke,
   type MacSmokeVerificationOptions,
 } from '../scripts/verify-mac-smoke.ts'
-import { MACOS_UNIVERSAL_NATIVE_ENTRIES } from '../scripts/mac-universal.ts'
+import {
+  MACOS_SHORT_NODE_PTY_HELPERS,
+  MACOS_UNIVERSAL_NATIVE_ENTRIES,
+} from '../scripts/mac-universal.ts'
 
 const temporaryRoots: string[] = []
 
@@ -43,6 +46,13 @@ function fixture(): AppFixture {
       chmodSync(path, 0o755)
       modeOverrides.set(path, 0o755)
     }
+  }
+  for (const entry of MACOS_SHORT_NODE_PTY_HELPERS) {
+    const path = join(resources, entry.path)
+    mkdirSync(join(path, '..'), { recursive: true })
+    writeFileSync(path, 'short helper')
+    chmodSync(path, 0o755)
+    modeOverrides.set(path, 0o755)
   }
   return { root, infoPlist, executable, appAsar, modeOverrides }
 }
@@ -123,6 +133,10 @@ describe('macOS DMG smoke artifact verification', () => {
         command: 'lipo',
         args: [join(`${value.appAsar}.unpacked`, entry.path), '-verify_arch', entry.arch],
       })),
+      ...MACOS_SHORT_NODE_PTY_HELPERS.map(entry => ({
+        command: 'lipo',
+        args: [join(value.root, 'DSH Desktop.app', 'Contents', 'Resources', entry.path), '-verify_arch', entry.arch],
+      })),
       { command: 'hdiutil', args: ['detach', value.root] },
     ])
     expect(harness.removeMountPoint).toHaveBeenCalledWith(value.root)
@@ -178,5 +192,37 @@ describe('macOS DMG smoke artifact verification', () => {
 
     expectSmokeFailure(harness, 'app.asar')
     expect(harness.removeMountPoint).toHaveBeenCalledWith(value.root)
+  })
+
+  it('rejects a missing or non-executable short node-pty helper', () => {
+    const missingFixture = fixture()
+    const missing = join(
+      missingFixture.root,
+      'DSH Desktop.app',
+      'Contents',
+      'Resources',
+      MACOS_SHORT_NODE_PTY_HELPERS[0].path,
+    )
+    rmSync(missing)
+    const missingHarness = options(
+      { makeMountPoint: () => missingFixture.root },
+      missingFixture.modeOverrides,
+    )
+    expectSmokeFailure(missingHarness, 'missing short node-pty helper')
+
+    const modeFixture = fixture()
+    const nonExecutable = join(
+      modeFixture.root,
+      'DSH Desktop.app',
+      'Contents',
+      'Resources',
+      MACOS_SHORT_NODE_PTY_HELPERS[1].path,
+    )
+    modeFixture.modeOverrides.set(nonExecutable, 0o644)
+    const modeHarness = options(
+      { makeMountPoint: () => modeFixture.root },
+      modeFixture.modeOverrides,
+    )
+    expectSmokeFailure(modeHarness, 'invalid short node-pty helper')
   })
 })

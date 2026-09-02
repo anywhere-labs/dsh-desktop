@@ -5,7 +5,10 @@ import { existsSync, mkdtempSync, readdirSync, rmdirSync, statSync } from 'node:
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { MACOS_UNIVERSAL_NATIVE_ENTRIES } from './mac-universal.ts'
+import {
+  MACOS_SHORT_NODE_PTY_HELPERS,
+  MACOS_UNIVERSAL_NATIVE_ENTRIES,
+} from './mac-universal.ts'
 
 /** Injectable filesystem and command boundaries for smoke verification. */
 export interface MacSmokeVerificationOptions {
@@ -140,6 +143,19 @@ export function verifyMacSmoke(
         throw new Error(`universal application has a non-executable node-pty helper: ${nativePath}`)
       }
       options.run('lipo', [nativePath, '-verify_arch', entry.arch])
+    }
+
+    const resourcesRoot = join(appPath, 'Contents', 'Resources')
+    for (const entry of MACOS_SHORT_NODE_PTY_HELPERS) {
+      const helperPath = join(resourcesRoot, entry.path)
+      if (!options.exists(helperPath)) {
+        throw new Error(`universal application is missing short node-pty helper ${helperPath}`)
+      }
+      const helperStat = options.stat(helperPath)
+      if (!helperStat.isFile || helperStat.size === 0 || (helperStat.mode & 0o111) === 0) {
+        throw new Error(`universal application has an invalid short node-pty helper: ${helperPath}`)
+      }
+      options.run('lipo', [helperPath, '-verify_arch', entry.arch])
     }
   } catch (cause) {
     failure = cause
