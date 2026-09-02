@@ -61,6 +61,12 @@ export interface CatalogHttpRequestPolicy {
   readonly allowedOrigin?: string
   /** Bypass and replace any completed or in-flight catalog response cache entry. */
   readonly cacheMode?: 'default' | 'reload'
+  /**
+   * Accept a `text/plain` body from a compiled-in trusted host (raw GitHub
+   * serves manifests as text/plain) as long as it still parses as JSON.
+   * Never set for provider-supplied endpoints.
+   */
+  readonly allowTextPlain?: boolean
 }
 
 export interface CatalogHttpResponse {

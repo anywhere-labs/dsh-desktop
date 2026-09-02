@@ -133,13 +133,20 @@ export type MarketOperationPreviewRequest =
       /** Opaque exact target obtained from the current Profile inventory. */
       readonly bundleId: string
     }
+  | {
+      readonly action: 'upgrade'
+      /** Opaque exact target obtained from the current Profile inventory. */
+      readonly bundleId: string
+    }
 
 /** Host-verified facts shown before the user confirms a package mutation. */
 export interface MarketOperationPreviewResponse {
-  readonly action: 'install' | 'uninstall'
+  readonly action: 'install' | 'uninstall' | 'upgrade'
   readonly profileName: string
   readonly packageName: string
   readonly version?: string
+  /** Installed version or pinned commit shown for an upgrade preview. */
+  readonly currentVersion?: string
   readonly displayName: string
   readonly expiresAt: string
   readonly previewId: string
@@ -155,6 +162,12 @@ export type MarketOperationExecuteResponse =
   | {
       readonly action: 'uninstall'
       readonly packageName: string
+      readonly restartToken: string
+    }
+  | {
+      readonly action: 'upgrade'
+      readonly packageName: string
+      readonly version: string
       readonly restartToken: string
     }
 
