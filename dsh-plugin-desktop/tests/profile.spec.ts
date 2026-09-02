@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -219,6 +219,25 @@ settings:
     expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain('nodeLinker: hoisted')
     expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain('autoInstallPeers: false')
     expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain('customSetting: preserved')
+  })
+
+  it('replaces a symlinked pnpm-workspace.yaml instead of writing through it', () => {
+    const home = temporaryHome()
+    const dir = ensureDesktopProfile(home)
+    const outsideDir = mkdtempSync(join(tmpdir(), 'dsh-outside-'))
+    const outsideFile = join(outsideDir, 'target.yaml')
+    writeFileSync(outsideFile, 'nodeLinker: isolated\n')
+    rmSync(join(dir, 'pnpm-workspace.yaml'))
+    symlinkSync(outsideFile, join(dir, 'pnpm-workspace.yaml'))
+
+    try {
+      prepareDesktopProfile(undefined, home, 'linux')
+      expect(readFileSync(outsideFile, 'utf8')).toBe('nodeLinker: isolated\n')
+      expect(realpathSync(join(dir, 'pnpm-workspace.yaml'))).toBe(join(dir, 'pnpm-workspace.yaml'))
+      expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain('nodeLinker: hoisted')
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
   })
 
   it('leaves an already-hoisted Profile dependency tree untouched', () => {

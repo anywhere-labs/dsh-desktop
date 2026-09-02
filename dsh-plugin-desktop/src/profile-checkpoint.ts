@@ -10,22 +10,19 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  closeSync,
   chmodSync,
   existsSync,
-  fsyncSync,
   lstatSync,
   mkdirSync,
-  openSync,
   readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
   rmSync,
   unlinkSync,
-  writeSync,
 } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { writeDurableFile } from './durable-write.ts'
 
 const BIN_NAME = 'dsh-plugin-desktop'
 const MANIFEST_VERSION = 3
@@ -84,6 +81,8 @@ export interface ProfileCheckpointOptions {
   readonly appVersion?: string
   readonly maxFileBytes?: Partial<Record<DesktopProfileCheckpointFilename, number>>
   readonly now?: () => number
+  /** Observability sink for slots that stop validating and self-heal as empty. */
+  readonly logError?: (message: string) => void
 }
 
 export interface ProfileCheckpointFileRecord {
@@ -180,6 +179,16 @@ function fail(message: string): never {
   throw new Error(`${BIN_NAME}: ${message}`)
 }
 
+/** errno codes that make a slot unreadable right now without corrupting it. */
+const TRANSIENT_SNAPSHOT_IO_CODES = new Set(['EACCES', 'EBUSY', 'EMFILE', 'EIO', 'EPERM', 'ENFILE'])
+
+function isTransientSnapshotIoFailure(cause: unknown): boolean {
+  return cause !== null
+    && typeof cause === 'object'
+    && typeof (cause as NodeJS.ErrnoException).code === 'string'
+    && TRANSIENT_SNAPSHOT_IO_CODES.has((cause as NodeJS.ErrnoException).code as string)
+}
+
 function assertAbsolute(label: string, value: string): string {
   if (typeof value !== 'string' || value.length === 0 || !isAbsolute(value) || value.includes('\0')) {
     fail(`${label} must be an absolute path without NUL`)
@@ -236,25 +245,13 @@ function ensureDirectory(path: string): void {
   if (CHECK_POSIX_MODE && (item.mode & 0o777) !== DIRECTORY_MODE) chmodSync(path, DIRECTORY_MODE)
 }
 
+/**
+ * Atomic durable file write for profile-owned configuration lives in
+ * ./durable-write.ts; the checkpoint writer keeps its directory conventions.
+ */
 function writeDurable(path: string, bytes: Uint8Array, mode = FILE_MODE): void {
   ensureDirectory(dirname(path))
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
-  let fd: number | undefined
-  try {
-    fd = openSync(temporary, 'wx', mode)
-    writeSync(fd, bytes)
-    fsyncSync(fd)
-    closeSync(fd)
-    fd = undefined
-    renameSync(temporary, path)
-    try {
-      const directoryFd = openSync(dirname(path), 'r')
-      try { fsyncSync(directoryFd) } finally { closeSync(directoryFd) }
-    } catch { /* directory fsync is not supported everywhere */ }
-  } finally {
-    if (fd !== undefined) closeSync(fd)
-    try { unlinkSync(temporary) } catch { /* already renamed */ }
-  }
+  writeDurableFile(path, bytes, mode)
 }
 
 function readJson(path: string): unknown {
@@ -338,6 +335,7 @@ export class DesktopProfileCheckpoint {
 
   private readonly limits: Record<DesktopProfileCheckpointFilename, number>
   private readonly now: () => number
+  private readonly logError: ((message: string) => void) | undefined
 
   constructor(options: ProfileCheckpointOptions) {
     const userData = options.userDataDir ?? options.userData
@@ -351,6 +349,7 @@ export class DesktopProfileCheckpoint {
     this.provider = assertIdentifier('provider', options.provider ?? 'unknown')
     this.appVersion = assertAppVersion(options.appVersion ?? 'unknown')
     this.now = options.now ?? Date.now
+    this.logError = options.logError
     this.limits = { ...FILE_LIMITS, ...(options.maxFileBytes ?? {}) }
     for (const name of DESKTOP_PROFILE_CHECKPOINT_FILES) {
       if (!Number.isSafeInteger(this.limits[name]) || this.limits[name] < 0) fail(`invalid size limit for ${name}`)
@@ -366,7 +365,10 @@ export class DesktopProfileCheckpoint {
     this.recoverOrphanedSlots()
     return DESKTOP_PROFILE_CHECKPOINT_SLOT_IDS.map(slotId => {
       const directory = this.slotDirectory(slotId)
-      const snapshot = this.readSnapshot(directory, false)
+      // A slot whose snapshot no longer validates (torn capture, disk-level
+      // corruption) is reported as empty: the recovery page stays browsable,
+      // rotation keeps writing, and the next healthy startup overwrites it.
+      const snapshot = this.tryReadSnapshot(directory, false)
       return snapshot === undefined
         ? { slotId, snapshotExists: false, snapshotDirectory: directory }
         : (() => {
@@ -417,6 +419,14 @@ export class DesktopProfileCheckpoint {
           const destination = filePath(staging, name)
           ensureDirectory(dirname(destination))
           writeDurable(destination, readFileSync(targetPath(this.profileDir, this.homeDir, name)))
+          // A concurrent package operation can rewrite the profile between
+          // the hash measurement and this copy. Verify the staged bytes
+          // against the measured image so a torn capture never lands in a
+          // slot; the failure only skips this checkpoint rotation.
+          const staged = readFileSync(destination)
+          if (staged.byteLength !== image.size || hash(staged) !== image.sha256) {
+            throw new Error(`profile checkpoint capture raced with a profile change: ${name}`)
+          }
         }
       }
       const manifest: ProfileCheckpointManifestV3 = {
@@ -622,6 +632,27 @@ export class DesktopProfileCheckpoint {
     } catch (cause) {
       if (isENOENT(cause)) return undefined
       throw cause
+    }
+  }
+
+  /** Read a slot snapshot, treating a structurally corrupted one as absent. */
+  private tryReadSnapshot(directory: string, requireComplete: boolean): LoadedSnapshot | undefined {
+    try {
+      return this.readSnapshot(directory, requireComplete)
+    } catch (cause) {
+      // Transient I/O failures (antivirus or indexer holding the file,
+      // EACCES/EBUSY/EMFILE/EIO/EPERM) must not mark a healthy slot as
+      // empty: captureHealthy would then overwrite and destroy it. Only a
+      // failed structural validation self-heals as an empty slot.
+      if (isTransientSnapshotIoFailure(cause)) throw cause
+      // The slot will be reported as empty and overwritten by the next
+      // healthy capture; surface why so silent corruption stays diagnosable.
+      this.logError?.(
+        `${BIN_NAME}: checkpoint slot ${basename(directory)} failed validation and will be recaptured: ${
+          cause instanceof Error ? cause.message : String(cause)
+        }`,
+      )
+      return undefined
     }
   }
 

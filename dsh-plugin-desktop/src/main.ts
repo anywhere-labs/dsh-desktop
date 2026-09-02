@@ -639,6 +639,7 @@ async function start(): Promise<void> {
         profileName: activeProfileName,
         provider: 'desktop-profile',
         appVersion,
+        logError: message => { electronLogger.error(message) },
       })
     } catch (cause) {
       electronLogger.error(
@@ -898,6 +899,7 @@ async function start(): Promise<void> {
           profileName: activeProfileName,
           provider: 'desktop-profile',
           appVersion,
+          logError: message => { electronLogger.error(message) },
         })
       } catch (cause) {
         electronLogger.error(

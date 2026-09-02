@@ -11,7 +11,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   DesktopProfileCheckpoint,
   type ProfileCheckpointOptions,
@@ -121,6 +121,67 @@ describe('Desktop profile health checkpoints', () => {
       '2026-08-25T00:00:01.000Z',
       '2026-08-25T00:00:02.000Z',
     ])
+  })
+
+  it('rejects a capture whose profile file changes between hashing and copying', () => {
+    const target = fixture()
+    // Simulate a concurrent package operation rewriting package.json after
+    // readCurrentImages hashed it but before captureHealthy copies the bytes.
+    const proto = DesktopProfileCheckpoint.prototype as unknown as {
+      readCurrentImages: (requirePackage: boolean) => unknown
+    }
+    const original = proto.readCurrentImages
+    const spy = vi.spyOn(proto, 'readCurrentImages').mockImplementation(
+      function (this: DesktopProfileCheckpoint, requirePackage: boolean) {
+        const images = original.call(this, requirePackage)
+        writeFileSync(join(target.profile, 'package.json'), '{"name":"raced"}\n')
+        return images
+      },
+    )
+    try {
+      expect(() => target.checkpoint.captureHealthy()).toThrow('raced with a profile change')
+    } finally {
+      spy.mockRestore()
+    }
+    expect(target.checkpoint.listSlots().every(slot => !slot.snapshotExists)).toBe(true)
+    expect(target.checkpoint.captureHealthy()).toMatchObject({ status: 'captured', slotId: 'slot-1' })
+  })
+
+  it('treats a corrupted slot as empty and heals it on the next healthy capture', () => {
+    const logError = vi.fn()
+    const target = fixture({ logError })
+    target.checkpoint.captureHealthy()
+    const slot = target.checkpoint.listSlots()[0]!
+    writeFileSync(join(slot.snapshotDirectory, 'package.json'), '{"name":"corrupted"}\n')
+
+    expect(target.checkpoint.listSlots()[0]).toMatchObject({ slotId: 'slot-1', snapshotExists: false })
+    expect(logError).toHaveBeenCalledTimes(1)
+    expect(logError.mock.calls[0]?.[0]).toContain('slot-1 failed validation')
+    expect(target.checkpoint.captureHealthy()).toMatchObject({ status: 'captured', slotId: 'slot-1' })
+    expect(target.checkpoint.listSlots()[0]).toMatchObject({ snapshotExists: true })
+  })
+
+  it('propagates transient I/O failures instead of treating the slot as empty', () => {
+    const target = fixture()
+    target.checkpoint.captureHealthy()
+    const slot = target.checkpoint.listSlots()[0]!
+    const proto = DesktopProfileCheckpoint.prototype as unknown as {
+      readSnapshot: (directory: string, requireComplete: boolean) => unknown
+    }
+    const spy = vi.spyOn(proto, 'readSnapshot').mockImplementation(function (this: DesktopProfileCheckpoint) {
+      const cause = new Error('file locked by another process') as NodeJS.ErrnoException
+      cause.code = 'EBUSY'
+      throw cause
+    })
+    try {
+      // A locked manifest must surface, not read as an empty slot that the
+      // next healthy capture would overwrite and destroy.
+      expect(() => target.checkpoint.listSlots()).toThrow('file locked by another process')
+    } finally {
+      spy.mockRestore()
+    }
+    expect(slot.snapshotExists).toBe(true)
+    expect(target.checkpoint.listSlots()[0]).toMatchObject({ snapshotExists: true })
   })
 
   it('restores an explicitly selected slot and skips exactly the next healthy write', () => {
