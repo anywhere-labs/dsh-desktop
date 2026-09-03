@@ -16,6 +16,7 @@ import { applicationNeedsReveal, revealApplication } from './electron-reveal.ts'
 import type { ElectronPlatformStrategy } from './electron-platform.ts'
 import type { DesktopNotification, DesktopShellSpec } from './runtime.ts'
 import { prepareTrayIcon } from './tray-icons.ts'
+import { readWindowsTaskbarUsesLightTheme } from './windows-taskbar-theme.ts'
 import { desktopWindowOptions } from './window-options.ts'
 import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
 import {
@@ -182,6 +183,7 @@ export class ElectronShellGeneration {
   private refreshNativeMaterial: (() => void) | undefined
   private flushWindowState: (() => void) | undefined
   private cleanupListeners: (() => void) | undefined
+  private taskbarThemeTimer: ReturnType<typeof setInterval> | undefined
 
   constructor(private readonly options: ElectronShellGenerationOptions) {}
 
@@ -445,6 +447,15 @@ export class ElectronShellGeneration {
       tray.setToolTip(spec.productName)
       this.refreshTrayMenu()
       tray.on('click', show)
+      if (platform.platform === 'win32') {
+        let lastTaskbarLight = readWindowsTaskbarUsesLightTheme()
+        this.taskbarThemeTimer = setInterval(() => {
+          const taskbarLight = readWindowsTaskbarUsesLightTheme()
+          if (taskbarLight === lastTaskbarLight) return
+          lastTaskbarLight = taskbarLight
+          tray?.setImage(prepareTrayIcon(spec.trayIcons, 'win32', taskbarLight))
+        }, 1000)
+      }
       beforeInteractive?.()
       this.mounted = true
     } catch (cause) {
@@ -543,6 +554,10 @@ export class ElectronShellGeneration {
 
     this.cleanupListeners?.()
     this.cleanupListeners = undefined
+    if (this.taskbarThemeTimer !== undefined) {
+      clearInterval(this.taskbarThemeTimer)
+      this.taskbarThemeTimer = undefined
+    }
     tray?.destroy()
     if (!window.isDestroyed()) window.destroy()
   }
