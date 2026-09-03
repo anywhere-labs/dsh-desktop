@@ -308,6 +308,15 @@ yarn workspace dsh-plugin-desktop-beta verify:profile
 
 This fixture is under `tests/`, is absent from the npm `files` list and Electron build files, and never enters a production archive.
 
+To smoke a built local plugin checkout through the same disposable Desktop profile, pass its directory to the external-plugin verifier:
+
+```sh
+yarn workspace dsh-plugin-desktop-beta build
+yarn workspace dsh-plugin-desktop-beta verify:external-plugin /absolute/path/to/plugin
+```
+
+The verifier installs the checkout through the regular `dsh plugin --profile desktop add` flow, boots the complete Host profile, checks every concrete Loader row inserted by the plugin's bundle patch, and, when the package declares `dsh.client`, confirms that its client appears in the renderer manifest. The temporary profile is removed afterward; the developer's normal DSH home is never changed. Build the plugin and install its own dependencies before running the smoke.
+
 ## Failure and teardown checklist
 
 1. Start package mutations only from an explicit user or administrator action.

@@ -1,8 +1,9 @@
 /** Headless smoke for the complete published DSH Web profile and renderer manifest. */
 
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { boot } from '@deepseek-ai/dsh-app-boot'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
@@ -13,12 +14,67 @@ import {
 import { DESKTOP_SETTINGS_NAMESPACE } from '../lib/index.js'
 import { installDesktopPnpmRuntime } from '../lib/desktop-runtime-environment.js'
 import { installProfilePackageResolver } from '../lib/module-resolution.js'
-import { prepareDesktopProfile } from '../lib/profile.js'
+import { ensureDesktopProfile, prepareDesktopProfile } from '../lib/profile.js'
 import { DesktopProfileService } from '../lib/profile-service.js'
 
 const BIN_NAME = 'dsh-plugin-desktop-profile-smoke'
+const EXTERNAL_PLUGIN_FLAG = '--external-plugin'
 const HOST_SERVICE_PLUGIN_NAME = 'dsh-desktop-host-services-smoke-plugin'
 const HOST_SERVICE_PROBE_KEY = 'desktopHostServiceProbe'
+
+function parseExternalPlugin(argv) {
+  if (argv.length === 0) return undefined
+  if (argv.length !== 2 || argv[0] !== EXTERNAL_PLUGIN_FLAG || argv[1]?.trim().length === 0) {
+    throw new Error(`usage: ${BIN_NAME} [${EXTERNAL_PLUGIN_FLAG} <directory>]`)
+  }
+  const dir = realpathSync(resolve(argv[1]))
+  const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new Error(`${BIN_NAME}: external plugin package.json must contain an object`)
+  }
+  if (typeof manifest.name !== 'string' || manifest.name.length === 0) {
+    throw new Error(`${BIN_NAME}: external plugin package.json declares no package name`)
+  }
+  if (typeof manifest.dsh?.bundle?.patch !== 'string' || manifest.dsh.bundle.patch.length === 0) {
+    throw new Error(`${BIN_NAME}: external plugin ${manifest.name} declares no dsh.bundle patch`)
+  }
+  return {
+    dir,
+    name: manifest.name,
+    hasClient: manifest.dsh?.client !== undefined,
+  }
+}
+
+function installExternalPlugin(home, plugin) {
+  ensureDesktopProfile(home)
+  const cliPath = fileURLToPath(new URL('../lib/desktop-cli.js', import.meta.url))
+  const result = spawnSync(process.execPath, [
+    cliPath,
+    'plugin',
+    '--profile',
+    'desktop',
+    'add',
+    '--save-exact',
+    plugin.dir,
+  ], {
+    cwd: plugin.dir,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      DSH_HOME: home,
+      DSH_TELEMETRY_DISABLED: '1',
+    },
+  })
+  if (result.error !== undefined) throw result.error
+  if (result.status !== 0) {
+    const detail = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join('\n')
+    throw new Error(
+      `${BIN_NAME}: external plugin install exited ${String(result.status)}${detail.length > 0 ? `\n${detail}` : ''}`,
+    )
+  }
+}
+
+const externalPlugin = parseExternalPlugin(process.argv.slice(2))
 let ordinaryBrowserEnabled = false
 const BROWSER_ACCESS = Object.freeze({
   get ordinaryBrowserEnabled() { return ordinaryBrowserEnabled },
@@ -43,6 +99,8 @@ const LAN_HTTPS = Object.freeze({
   async stop() { return LAN_HTTPS_SNAPSHOT },
 })
 const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-profile-'))
+const inheritedDshHome = process.env.DSH_HOME
+if (externalPlugin !== undefined) process.env.DSH_HOME = home
 let ctx
 let releasePackageResolver
 let pnpmRuntime
@@ -58,7 +116,22 @@ try {
     '  default: minimal',
     '',
   ].join('\n'))
+  if (externalPlugin !== undefined) installExternalPlugin(home, externalPlugin)
   const prepared = prepareDesktopProfile('1', home, 'win32')
+  const externalLayer = externalPlugin === undefined
+    ? undefined
+    : prepared.profile.layers.find(layer => layer.packageName === externalPlugin.name)
+  if (externalPlugin !== undefined && externalLayer === undefined) {
+    throw new Error(`${BIN_NAME}: external plugin ${externalPlugin.name} is absent from the prepared profile`)
+  }
+  const externalEntries = externalLayer?.patches.flatMap(patch =>
+    Array.isArray(patch.insert)
+      ? patch.insert.filter(row => row !== null
+        && typeof row === 'object'
+        && typeof row.id === 'string'
+        && typeof row.name === 'string')
+      : [],
+  ) ?? []
   const hostServicePluginDir = join(
     prepared.profile.dir,
     'node_modules',
@@ -182,6 +255,15 @@ try {
     prepared.bareModuleBaseUrl,
   )
   await runtime.mountScheduled()
+
+  for (const expected of externalEntries) {
+    const entry = ctx.loader.resolve(`include:${expected.id}`)
+    if (entry?.options.name !== expected.name || entry.fiber?.state !== ctx.fiber.state) {
+      throw new Error(
+        `external plugin Loader row ${expected.id} did not activate as ${expected.name}; state=${String(entry?.fiber?.state)}`,
+      )
+    }
+  }
 
   if (ctx.get('desktopPnpm') === undefined) {
     throw new Error('assembled desktop profile is missing the desktop pnpm Host capability')
@@ -311,6 +393,11 @@ try {
   }
   const graph = JSON.parse(bootMatch[1])
   const ids = new Set(graph.entries.map(entry => entry.id))
+  if (externalPlugin?.hasClient === true && !ids.has(externalPlugin.name)) {
+    throw new Error(
+      `assembled Web graph is missing external plugin client ${externalPlugin.name}; received ${[...ids].sort().join(', ')}`,
+    )
+  }
   for (const id of [
     'dsh-plugin-desktop',
     '@deepseek-ai/dsh-client-ui-conversation',
@@ -334,4 +421,12 @@ try {
   releasePackageResolver?.()
   pnpmRuntime?.dispose()
   rmSync(home, { recursive: true, force: true })
+  if (externalPlugin !== undefined) {
+    if (inheritedDshHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = inheritedDshHome
+  }
+}
+
+if (externalPlugin !== undefined) {
+  process.stdout.write(`verify-profile-boot: ${externalPlugin.name} activated in the disposable Desktop profile\n`)
 }

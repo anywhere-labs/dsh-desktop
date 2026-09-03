@@ -307,6 +307,15 @@ yarn workspace dsh-plugin-desktop verify:profile
 
 该 fixture 位于 `tests/`，不在 npm `files` 列表或 Electron build files 中，因此不会进入生产 archive。
 
+若要让一个已经构建的本地插件 checkout 通过同一套一次性 Desktop profile 做 smoke，请把插件目录传给 external-plugin verifier：
+
+```sh
+yarn workspace dsh-plugin-desktop build
+yarn workspace dsh-plugin-desktop verify:external-plugin /absolute/path/to/plugin
+```
+
+Verifier 会通过常规的 `dsh plugin --profile desktop add` 流程安装该 checkout，启动完整 Host profile，检查插件 bundle patch 插入的每个具体 Loader row，并在 package 声明了 `dsh.client` 时确认 renderer manifest 中包含它。临时 profile 随后会被删除，开发者日常使用的 DSH home 不会被修改。运行 smoke 前应先构建插件并安装它自己的依赖。
+
 ## Failure 与 teardown checklist
 
 1. 只有显式用户或管理员操作才能启动 package mutation。
