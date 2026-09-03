@@ -1,0 +1,3 @@
+- insert:
+    - id: desktop-external-plugin-smoke
+      name: dsh-desktop-external-plugin-smoke
