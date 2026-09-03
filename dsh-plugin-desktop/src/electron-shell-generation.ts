@@ -16,6 +16,7 @@ import { applicationNeedsReveal, revealApplication } from './electron-reveal.ts'
 import type { ElectronPlatformStrategy } from './electron-platform.ts'
 import type { DesktopNotification, DesktopShellSpec } from './runtime.ts'
 import { prepareTrayIcon } from './tray-icons.ts'
+import { readWindowsTaskbarUsesLightTheme } from './windows-taskbar-theme.ts'
 import { desktopWindowOptions } from './window-options.ts'
 import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
 import {
@@ -440,7 +441,10 @@ export class ElectronShellGeneration {
       )
       revealStartupSurface()
       await window.loadURL(spec.url)
-      tray = new Tray(prepareTrayIcon(spec.trayIcons, platform.platform))
+      const taskbarUsesLightTheme = platform.platform === 'win32'
+        ? await readWindowsTaskbarUsesLightTheme()
+        : false
+      tray = new Tray(prepareTrayIcon(spec.trayIcons, platform.platform, { taskbarUsesLightTheme }))
       this.tray = tray
       tray.setToolTip(spec.productName)
       this.refreshTrayMenu()

@@ -231,6 +231,8 @@ describe('packaged desktop runtime verification', () => {
     'package.json',
     'build/app-icon-mac.png',
     'build/tray-iconTemplate.png',
+    'build/tray-icon-win-dark-taskbar.png',
+    'build/tray-icon-win-light-taskbar.png',
     'lib/native-ui/setup-wizard.html',
     'lib/terminal.js',
     'lib/diagnostics.js',

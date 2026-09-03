@@ -77,6 +77,8 @@ export const REQUIRED_UNPACKED_RUNTIME_ENTRIES = [
   'build/app-icon-mac.png',
   'build/tray-iconTemplate.png',
   'build/tray-icon-blue.png',
+  'build/tray-icon-win-dark-taskbar.png',
+  'build/tray-icon-win-light-taskbar.png',
   'lib/main.js',
   'lib/client.js',
   'lib/native-ui/profile-create.html',

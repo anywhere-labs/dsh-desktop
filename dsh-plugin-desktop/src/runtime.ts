@@ -44,8 +44,12 @@ export interface DesktopWindowConfig {
 export interface DesktopTrayIcons {
   /** Black macOS template image with its Retina representation beside it. */
   templatePath: string
-  /** Brand-blue Windows/Linux image with DPI representations beside it. */
+  /** Brand-blue Linux image with DPI representations beside it. */
   bluePath: string
+  /** Light Windows glyph for the default dark taskbar, with DPI representations beside it. */
+  darkTaskbarPath: string
+  /** Dark Windows glyph for light taskbars, with DPI representations beside it. */
+  lightTaskbarPath: string
 }
 
 /** Stable placement groups for Host plugins that extend the native tray. */
