@@ -16,7 +16,7 @@ import { applicationNeedsReveal, revealApplication } from './electron-reveal.ts'
 import type { ElectronPlatformStrategy } from './electron-platform.ts'
 import type { DesktopNotification, DesktopShellSpec } from './runtime.ts'
 import { prepareTrayIcon } from './tray-icons.ts'
-import { readWindowsTaskbarUsesLightTheme } from './windows-taskbar-theme.ts'
+import { readWindowsTaskbarUsesLightTheme, readWindowsTaskbarUsesLightThemeAsync, WINDOWS_TASKBAR_THEME_POLL_MS } from './windows-taskbar-theme.ts'
 import { desktopWindowOptions } from './window-options.ts'
 import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
 import {
@@ -442,19 +442,34 @@ export class ElectronShellGeneration {
       )
       revealStartupSurface()
       await window.loadURL(spec.url)
-      tray = new Tray(prepareTrayIcon(spec.trayIcons, platform.platform))
+      const initialTaskbarLight = platform.platform === 'win32'
+        ? readWindowsTaskbarUsesLightTheme()
+        : undefined
+      tray = new Tray(prepareTrayIcon(spec.trayIcons, platform.platform, initialTaskbarLight))
       this.tray = tray
       tray.setToolTip(spec.productName)
       this.refreshTrayMenu()
       tray.on('click', show)
       if (platform.platform === 'win32') {
-        let lastTaskbarLight = readWindowsTaskbarUsesLightTheme()
-        this.taskbarThemeTimer = setInterval(() => {
-          const taskbarLight = readWindowsTaskbarUsesLightTheme()
+        let lastTaskbarLight = initialTaskbarLight ?? readWindowsTaskbarUsesLightTheme()
+        const refreshTaskbarIconIfNeeded = (taskbarLight: boolean): void => {
           if (taskbarLight === lastTaskbarLight) return
           lastTaskbarLight = taskbarLight
           tray?.setImage(prepareTrayIcon(spec.trayIcons, 'win32', taskbarLight))
-        }, 1000)
+        }
+        const pollTaskbarTheme = (): void => {
+          void readWindowsTaskbarUsesLightThemeAsync()
+            .then(refreshTaskbarIconIfNeeded)
+            .catch(() => {})
+        }
+        window.on('focus', pollTaskbarTheme)
+        this.taskbarThemeTimer = setInterval(pollTaskbarTheme, WINDOWS_TASKBAR_THEME_POLL_MS)
+        this.taskbarThemeTimer.unref?.()
+        const previousCleanup = this.cleanupListeners
+        this.cleanupListeners = () => {
+          previousCleanup?.()
+          window.off('focus', pollTaskbarTheme)
+        }
       }
       beforeInteractive?.()
       this.mounted = true

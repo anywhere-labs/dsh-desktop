@@ -23,6 +23,8 @@ const variants = [
   ['tray-icon-blue@1.5x.png', BRAND_BLUE, 24],
   ['tray-icon-blue@2x.png', BRAND_BLUE, 32],
   ['tray-icon-win-dark-taskbar.png', '#FFFFFF', 16],
+  ['tray-icon-win-dark-taskbar@1.25x.png', '#FFFFFF', 20],
+  ['tray-icon-win-dark-taskbar@1.5x.png', '#FFFFFF', 24],
   ['tray-icon-win-dark-taskbar@2x.png', '#FFFFFF', 32],
 ]
 

@@ -804,6 +804,8 @@ describe('published package surface', () => {
       'tray-icon-blue@1.5x.png',
       'tray-icon-blue@2x.png',
       'tray-icon-win-dark-taskbar.png',
+      'tray-icon-win-dark-taskbar@1.25x.png',
+      'tray-icon-win-dark-taskbar@1.5x.png',
       'tray-icon-win-dark-taskbar@2x.png',
     ]) {
       expect(readFileSync(new URL(`build/${filename}`, packageRoot)).byteLength).toBeGreaterThan(0)
