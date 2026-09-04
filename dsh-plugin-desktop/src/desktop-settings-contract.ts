@@ -38,9 +38,6 @@ export const DESKTOP_UPDATE_CHECK_PATH = '/api/desktop/updates/check'
 /** Export one local diagnostic archive through the launcher-owned flow. */
 export const DESKTOP_DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 
-/** Open the isolated native Profile creator without accepting a path. */
-export const DESKTOP_PROFILE_CREATE_WINDOW_PATH = '/api/desktop/profiles/create-window'
-
 /** Renderer-safe projection of one discovered profile. */
 export interface DesktopSettingsProfileView {
   /** Profile name accepted by the launcher. */
@@ -182,14 +179,6 @@ export type DesktopDiagnosticsExportRequest = Readonly<Record<string, never>>
 
 /** Successful handoff to the launcher-owned diagnostic export flow. */
 export interface DesktopDiagnosticsExportResponse {
-  readonly accepted: true
-}
-
-/** Exact empty body accepted by the native Profile-creator endpoint. */
-export type DesktopProfileCreateWindowRequest = Readonly<Record<string, never>>
-
-/** Successful handoff to the isolated native Profile creator. */
-export interface DesktopProfileCreateWindowResponse {
   readonly accepted: true
 }
 

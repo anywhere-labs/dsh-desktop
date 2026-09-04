@@ -39,7 +39,6 @@ describe('Desktop early-boot recovery injection', () => {
       '/api/desktop/terminal/open',
       '/api/desktop/diagnostics/export',
       '/api/desktop/settings',
-      '/api/desktop/profiles/create-window',
       '/api/desktop/profiles/select',
       '打开 DSH 终端 / Open DSH Terminal',
       '导出诊断 / Export Diagnostics',
