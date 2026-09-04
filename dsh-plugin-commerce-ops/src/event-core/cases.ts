@@ -1,0 +1,45 @@
+import { caseRecordSchema, type BusinessEvent, type CasePatch, type CaseRecord } from './contracts.js'
+
+export class CaseStore {
+  private readonly cases = new Map<string, CaseRecord>()
+
+  createFromEvent(event: BusinessEvent, title: string, ownerId: string | null = null): CaseRecord {
+    const existing = this.cases.get(event.correlationId)
+    if (existing) return existing
+    const now = new Date().toISOString()
+    const record = caseRecordSchema.parse({
+      caseId: event.correlationId,
+      tenantId: event.tenantId,
+      enterpriseId: event.enterpriseId,
+      brandId: event.brandId,
+      title,
+      triggerEventId: event.eventId,
+      status: 'OPEN',
+      ownerId,
+      responsibilityStatus: ownerId ? 'CLAIMED' : 'UNASSIGNED',
+      taskIds: [],
+      evidenceRefs: event.evidenceRefs,
+      createdAt: now,
+      updatedAt: now,
+    })
+    this.cases.set(record.caseId, record)
+    return record
+  }
+
+  patch(caseId: string, patch: CasePatch): CaseRecord {
+    const current = this.require(caseId)
+    const next = caseRecordSchema.parse({ ...current, ...patch, updatedAt: new Date().toISOString() })
+    this.cases.set(caseId, next)
+    return next
+  }
+
+  require(caseId: string): CaseRecord {
+    const record = this.cases.get(caseId)
+    if (!record) throw new Error(`case_not_found:${caseId}`)
+    return record
+  }
+
+  list(tenantId?: string): readonly CaseRecord[] {
+    return [...this.cases.values()].filter(item => !tenantId || item.tenantId === tenantId)
+  }
+}
