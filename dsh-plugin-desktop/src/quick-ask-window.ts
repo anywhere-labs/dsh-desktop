@@ -10,10 +10,11 @@ const QUICK_ASK_SCHEME = 'dsh-quick-ask:'
 const MAX_PROMPT_BYTES = 64 * 1024
 
 export interface QuickAskAction {
-  readonly action: 'submit' | 'hide' | 'open-main' | 'sessions'
+  readonly action: 'submit' | 'hide' | 'open-main' | 'sessions' | 'select-model'
   readonly prompt?: string
   readonly workspaceId?: string
   readonly sessionId?: string
+  readonly model?: { readonly provider: string, readonly model: string }
 }
 
 export function parseQuickAskAction(href: string): QuickAskAction | undefined {
@@ -28,12 +29,30 @@ export function parseQuickAskAction(href: string): QuickAskAction | undefined {
     if (sessionId !== null && Buffer.byteLength(sessionId, 'utf8') > 256) return undefined
     return keys.every(key => key === 'session') ? { action, sessionId: sessionId ?? '' } : undefined
   }
-  if (action !== 'submit' || keys.some(key => key !== 'prompt' && key !== 'workspace' && key !== 'session')) return undefined
+  if (action === 'select-model') {
+    const sessionId = url.searchParams.get('session')
+    const provider = url.searchParams.get('provider')
+    const model = url.searchParams.get('model')
+    if (sessionId && provider && model && keys.length === 3) {
+      return { action, sessionId, model: { provider, model } }
+    }
+    return undefined
+  }
+  if (action !== 'submit' || keys.some(key => key !== 'prompt' && key !== 'workspace' && key !== 'session' && key !== 'modelProvider' && key !== 'modelId')) return undefined
   const prompt = url.searchParams.get('prompt')
   if (prompt === null || Buffer.byteLength(prompt, 'utf8') > MAX_PROMPT_BYTES) return undefined
   const workspaceId = url.searchParams.get('workspace') ?? undefined
   const sessionId = url.searchParams.get('session') ?? undefined
-  return { action, prompt, ...(workspaceId === undefined ? {} : { workspaceId }), ...(sessionId === undefined ? {} : { sessionId }) }
+  const modelProvider = url.searchParams.get('modelProvider') ?? undefined
+  const modelId = url.searchParams.get('modelId') ?? undefined
+  const model = (modelProvider && modelId) ? { provider: modelProvider, model: modelId } : undefined
+  return {
+    action,
+    prompt,
+    ...(workspaceId === undefined ? {} : { workspaceId }),
+    ...(sessionId === undefined ? {} : { sessionId }),
+    ...(model === undefined ? {} : { model }),
+  }
 }
 
 export interface QuickLaunchElectronAdapter {
@@ -46,8 +65,8 @@ const electron: QuickLaunchElectronAdapter = { BrowserWindow, globalShortcut, sc
 
 function localized(locale: DesktopLocale) {
   return locale === 'zh'
-    ? { title: '快速任务', placeholder: '继续输入，按 Enter 发送', submit: '发送', open: '打开完整 DSH', workspace: '工作区', session: '会话', newSession: '新会话', defaultWorkspace: '默认目录', submitting: '正在思考…', accepted: '已完成', failed: '发送失败，请重试' }
-    : { title: 'Quick Ask', placeholder: 'Continue the conversation, press Enter to send', submit: 'Send', open: 'Open DSH', workspace: 'Workspace', session: 'Session', newSession: 'New session', defaultWorkspace: 'Default directory', submitting: 'Thinking…', accepted: 'Done', failed: 'Could not send. Try again.' }
+    ? { title: '快速任务', placeholder: '继续输入，按 Enter 发送', submit: '发送', open: '打开完整 DSH', workspace: '工作区', session: '会话', model: '模型', defaultModel: '默认模型', newSession: '新会话', defaultWorkspace: '默认目录', submitting: '正在思考…', accepted: '已完成', failed: '发送失败，请重试' }
+    : { title: 'Quick Ask', placeholder: 'Continue the conversation, press Enter to send', submit: 'Send', open: 'Open DSH', workspace: 'Workspace', session: 'Session', model: 'Model', defaultModel: 'Default model', newSession: 'New session', defaultWorkspace: 'Default directory', submitting: 'Thinking…', accepted: 'Done', failed: 'Could not send. Try again.' }
 }
 
 function shortcutPairValid(quickAsk: string, mainWindow: string): boolean {
@@ -176,12 +195,14 @@ export class QuickLaunchController implements DesktopQuickLaunchRegistration {
     window.on('closed', () => { if (this.window === window) this.window = undefined })
     const workspaces = this.spec.workspaces()
     const sessions = this.spec.sessions()
+    const models = this.spec.models()
     void window.loadFile(QUICK_ASK_DOCUMENT, {
       query: {
         locale: this.spec.locale(),
         copy: Buffer.from(JSON.stringify(copy)).toString('base64url'),
         workspaces: Buffer.from(JSON.stringify(workspaces)).toString('base64url'),
         sessions: Buffer.from(JSON.stringify(sessions)).toString('base64url'),
+        models: Buffer.from(JSON.stringify(models)).toString('base64url'),
       },
     }).catch(() => { if (!window.isDestroyed()) window.destroy() })
     return window
@@ -190,10 +211,15 @@ export class QuickLaunchController implements DesktopQuickLaunchRegistration {
   private async handleAction(window: BrowserWindow, action: QuickAskAction): Promise<void> {
     if (action.action === 'hide') { window.hide(); return }
     if (action.action === 'open-main') { window.hide(); this.spec.showMain(); return }
+    if (action.action === 'select-model' && action.sessionId && action.model) {
+      await this.spec.selectModel?.(action.sessionId, action.model)
+      return
+    }
     if (action.action === 'sessions') {
       this.sessionId = action.sessionId || undefined
       const history = this.sessionId === undefined ? [] : this.spec.history(this.sessionId)
-      await window.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent('dsh-quick-ask-history',{detail:${JSON.stringify({ sessionId: this.sessionId ?? '', messages: history })}}))`, true).catch(() => {})
+      const model = this.sessionId === undefined ? undefined : this.spec.sessionModel?.(this.sessionId)
+      await window.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent('dsh-quick-ask-history',{detail:${JSON.stringify({ sessionId: this.sessionId ?? '', messages: history, model })}}))`, true).catch(() => {})
       return
     }
     const prompt = action.prompt?.trim() ?? ''
@@ -203,6 +229,7 @@ export class QuickLaunchController implements DesktopQuickLaunchRegistration {
         prompt,
         ...(action.workspaceId === undefined ? {} : { workspaceId: action.workspaceId }),
         ...(action.sessionId === undefined ? {} : { sessionId: action.sessionId }),
+        ...(action.model === undefined ? {} : { model: action.model }),
       })
       this.sessionId = result.sessionId
       if (window.isDestroyed()) return

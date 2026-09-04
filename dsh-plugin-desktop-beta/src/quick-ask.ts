@@ -7,7 +7,7 @@ import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
-import type { DesktopQuickAskHistoryMessage, DesktopQuickAskSubmission, DesktopQuickAskUpdate, DesktopQuickLaunchSpec } from './runtime.ts'
+import type { DesktopQuickAskHistoryMessage, DesktopQuickAskModel, DesktopQuickAskSubmission, DesktopQuickAskUpdate, DesktopQuickLaunchSpec } from './runtime.ts'
 import { DEFAULT_MAIN_WINDOW_SHORTCUT, DEFAULT_QUICK_ASK_SHORTCUT } from './quick-ask-shortcut.ts'
 
 export const name = 'desktop-quick-ask'
@@ -51,6 +51,13 @@ export async function submitQuickAsk(ctx: Context, submission: DesktopQuickAskSu
       ctx.logger.warn(`dsh-plugin-desktop-beta: failed to name Quick Ask Session: ${cause instanceof Error ? cause.message : String(cause)}`)
     }
   }
+  if (submission.model?.provider && submission.model?.model) {
+    try {
+      await selectQuickAskModel(ctx, String(sessionId), submission.model)
+    } catch (cause) {
+      ctx.logger.warn(`dsh-plugin-desktop-beta: failed to select model for Quick Ask Session: ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
+  }
   await ctx.sessionController.prompt({
     requestId: randomUUID() as SessionRequestId,
     sessionId,
@@ -84,6 +91,58 @@ function assistantText(content: readonly { readonly type: string, readonly text?
   return content.filter(block => block.type === 'text').map(block => block.text ?? '').join('')
 }
 
+export function sessionActiveModel(session: { snapshotEvents(): readonly unknown[] }): { provider: string, model: string } | undefined {
+  const events = session.snapshotEvents()
+  for (let i = events.length - 1; i >= 0; i--) {
+    const candidate = events[i] as { readonly type?: string, readonly data?: Record<string, unknown> }
+    if (candidate.type === 'model/selection' && candidate.data?.provider && candidate.data?.model) {
+      return { provider: String(candidate.data.provider), model: String(candidate.data.model) }
+    }
+    const header = candidate.data?.header as { readonly config?: { readonly provider?: unknown, readonly model?: unknown } } | undefined
+    if (candidate.type === 'request/header' && header?.config?.provider && header?.config?.model) {
+      return { provider: String(header.config.provider), model: String(header.config.model) }
+    }
+  }
+  return undefined
+}
+
+export async function selectQuickAskModel(ctx: Context, sessionId: string, model: { provider: string, model: string }): Promise<void> {
+  const sessionController = ctx.get('sessionController') as unknown as { selectModel?(request: { sessionId: SessionId, provider: string, model: string }): Promise<unknown> } | undefined
+  if (typeof sessionController?.selectModel === 'function') {
+    await sessionController.selectModel({
+      sessionId: sessionId as SessionId,
+      provider: model.provider,
+      model: model.model,
+    })
+  }
+}
+
+let cachedModels: readonly DesktopQuickAskModel[] = []
+
+async function refreshModels(ctx: Context): Promise<void> {
+  try {
+    const sessionController = ctx.get('sessionController') as unknown as { modelCatalog?(): Promise<{ readonly default: { readonly provider: string, readonly model: string }, readonly groups: readonly { readonly id: string, readonly name: string, readonly models: readonly { readonly id: string, readonly name: string }[] }[] }> } | undefined
+    if (typeof sessionController?.modelCatalog !== 'function') return
+    const catalog = await sessionController.modelCatalog()
+    const result: DesktopQuickAskModel[] = []
+    const defaultKey = catalog.default ? `${catalog.default.provider}:${catalog.default.model}` : ''
+    for (const group of catalog.groups) {
+      for (const model of group.models) {
+        result.push({
+          provider: group.id,
+          model: model.id,
+          name: model.name || model.id,
+          group: group.name || group.id,
+          isDefault: `${group.id}:${model.id}` === defaultKey,
+        })
+      }
+    }
+    cachedModels = result
+  } catch (cause) {
+    ctx.logger.warn(`dsh-plugin-desktop-beta: failed to load model catalog: ${cause instanceof Error ? cause.message : String(cause)}`)
+  }
+}
+
 /** Register live settings, native shortcuts, and the one-shot Session bridge. */
 export function apply(ctx: Context): void {
   const settings = ctx.settings.register(
@@ -92,6 +151,9 @@ export function apply(ctx: Context): void {
     { applies: 'live' },
   )
   let value = settings.get()
+  void refreshModels(ctx)
+  const host = ctx as unknown as { on(event: string, listener: () => void): void }
+  host.on('llm/adapters-updated', () => { void refreshModels(ctx) })
   const listeners = new Set<(update: DesktopQuickAskUpdate) => void>()
   ctx.on('session/event', (session, event) => {
     const sessionId = String(session.header.id)
@@ -112,6 +174,13 @@ export function apply(ctx: Context): void {
     locale: () => ctx.desktopRuntime.locale,
     workspaces: () => ctx.workspaceRegistry.list().map(workspace => ({ id: String(workspace.id), title: workspace.title })),
     sessions: () => quickAskSessions(ctx),
+    models: () => cachedModels,
+    sessionModel: sessionId => {
+      const sessions = ctx.get('sessions') as unknown as { get(id: SessionId): QuickAskSession | undefined } | undefined
+      const session = sessions?.get(sessionId as SessionId)
+      return session === undefined ? undefined : sessionActiveModel(session)
+    },
+    selectModel: (sessionId, model) => selectQuickAskModel(ctx, sessionId, model),
     history: sessionId => {
       const sessions = ctx.get('sessions') as unknown as { get(id: SessionId): QuickAskSession | undefined } | undefined
       const session = sessions?.get(sessionId as SessionId)

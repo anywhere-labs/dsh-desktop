@@ -103,12 +103,26 @@ export interface DesktopQuickAskWorkspace {
   readonly title: string
 }
 
+/** One model displayed in the Quick Ask model selector. */
+export interface DesktopQuickAskModel {
+  readonly provider: string
+  readonly model: string
+  readonly name: string
+  readonly group?: string
+  readonly isDefault?: boolean
+}
+
 /** One Quick Ask submission admitted by the current Host. */
 export interface DesktopQuickAskSubmission {
   readonly prompt: string
   readonly workspaceId?: string
   /** Existing Quick Ask Session used for a follow-up message. */
   readonly sessionId?: string
+  /** Optional model selection for the Session. */
+  readonly model?: {
+    readonly provider: string
+    readonly model: string
+  }
 }
 
 /** Minimal selectable Session row rendered by the native Quick Ask window. */
@@ -143,7 +157,10 @@ export interface DesktopQuickLaunchSpec extends DesktopQuickLaunchUpdate {
   readonly locale: () => DesktopLocale
   readonly workspaces: () => readonly DesktopQuickAskWorkspace[]
   readonly sessions: () => readonly DesktopQuickAskSession[]
+  readonly models: () => readonly DesktopQuickAskModel[]
   readonly history: (sessionId: string) => readonly DesktopQuickAskHistoryMessage[]
+  readonly sessionModel?: (sessionId: string) => { readonly provider: string, readonly model: string } | undefined
+  readonly selectModel?: (sessionId: string, model: { readonly provider: string, readonly model: string }) => Promise<void>
   readonly submit: (submission: DesktopQuickAskSubmission) => Promise<{ readonly sessionId: string }>
   readonly subscribe: (listener: (update: DesktopQuickAskUpdate) => void) => () => void
   readonly showMain: () => void

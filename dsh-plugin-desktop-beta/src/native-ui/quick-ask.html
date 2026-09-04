@@ -27,8 +27,10 @@
     textarea { flex:1; height:58px; max-height:120px; resize:none; border:0; outline:0; padding:7px 4px; background:transparent; color:#fff; font-size:16px; line-height:1.45; }
     textarea::placeholder { color:#747985; }
     footer { display:flex; align-items:center; gap:7px; padding: 0 12px 11px; }
-    select { min-width:110px; max-width:230px; color:#cdd1d8; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.11); border-radius:9px; padding:6px 8px; font-size:12px; }
-    #status { flex:1; color:#8f96a3; font-size:12px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    select { flex-shrink:1; min-width:0; max-width:140px; color:#cdd1d8; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.11); border-radius:9px; padding:5px 7px; font-size:12px; outline:0; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; cursor:pointer; }
+    select:hover { background:rgba(255,255,255,.10); border-color:rgba(255,255,255,.18); }
+    select:focus { border-color:rgba(77,107,254,.7); background:rgba(255,255,255,.12); }
+    #status { flex:1; min-width:50px; color:#8f96a3; font-size:12px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; text-align:right; padding-right:4px; }
     #submit { border:0; border-radius:10px; padding:8px 16px; color:white; background:#4d6bfe; cursor:pointer; font-weight:600; }
     #submit:disabled { opacity:.55; cursor:default; }
     body[data-platform="darwin"] main { background:rgba(26,27,32,.82); backdrop-filter:blur(34px) saturate(150%); }
@@ -40,53 +42,240 @@
   <header><strong id="title">Quick Ask</strong><span></span><button id="open" type="button">Open DSH</button><button id="close" type="button" aria-label="Close">Esc</button></header>
   <div id="messages" aria-live="polite"></div>
   <div class="composer"><textarea id="prompt" autofocus></textarea><button id="submit" type="button">Send</button></div>
-  <footer><select id="session"></select><select id="workspace"></select><span id="status"></span></footer>
+  <footer>
+    <select id="workspace" title="Workspace"></select>
+    <select id="session" title="Session"></select>
+    <select id="model" title="Model"></select>
+    <span id="status"></span>
+  </footer>
 </main>
 <script>
   const params = new URLSearchParams(location.search)
-  const decode = key => JSON.parse(new TextDecoder().decode(Uint8Array.from(atob((params.get(key) || '').replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))))
-  const copy = decode('copy'); const workspaces = decode('workspaces'); const sessionRows = decode('sessions')
-  document.documentElement.lang = params.get('locale') || 'en'; document.body.dataset.platform = navigator.platform.toLowerCase().includes('mac') ? 'darwin' : 'other'
-  const prompt = document.getElementById('prompt'), status = document.getElementById('status'), submit = document.getElementById('submit'), workspace = document.getElementById('workspace'), sessionSelect = document.getElementById('session'), messages = document.getElementById('messages')
-  document.getElementById('title').textContent = copy.title; prompt.placeholder = copy.placeholder; submit.textContent = copy.submit; document.getElementById('open').textContent = copy.open
-  const fallback = document.createElement('option'); fallback.value = ''; fallback.textContent = copy.defaultWorkspace; workspace.append(fallback)
-  for (const item of workspaces) { const option = document.createElement('option'); option.value = item.id; option.textContent = item.title; workspace.append(option) }
-  const newSession = document.createElement('option'); newSession.value = ''; newSession.textContent = copy.newSession; sessionSelect.append(newSession)
-  for (const item of sessionRows) { const option = document.createElement('option'); option.value = item.id; option.textContent = item.title; sessionSelect.append(option) }
-  let busy = false, sessionId = '', currentTurn = 0, streamText = '', streamNode
-  function navigate(action, fields = {}) { const url = new URL(`dsh-quick-ask://${action}`); for (const [k,v] of Object.entries(fields)) if (v) url.searchParams.set(k,v); location.href = url.href }
-  function scroll() { messages.scrollTop = messages.scrollHeight }
-  function add(role, text) { const node = document.createElement('div'); node.className = `message ${role}`; node.textContent = text; messages.append(node); scroll(); return node }
-  function setBusy(next) { busy = next; submit.disabled = next; prompt.disabled = next; submit.textContent = next ? copy.submitting : copy.submit }
-  function run() {
-    const text = prompt.value.trim(); if (!text || busy) return
-    setBusy(true); status.textContent = copy.submitting; add('user', text); prompt.value = ''
-    navigate('submit', { prompt:text, workspace:workspace.value, session:sessionId })
+  const decode = key => {
+    const raw = params.get(key)
+    if (!raw) return []
+    try {
+      return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(raw.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))))
+    } catch {
+      return []
+    }
   }
+  const copy = decode('copy') || {}
+  const workspaces = decode('workspaces') || []
+  const sessionRows = decode('sessions') || []
+  const models = decode('models') || []
+
+  document.documentElement.lang = params.get('locale') || 'en'
+  document.body.dataset.platform = navigator.platform.toLowerCase().includes('mac') ? 'darwin' : 'other'
+
+  const prompt = document.getElementById('prompt')
+  const status = document.getElementById('status')
+  const submit = document.getElementById('submit')
+  const workspace = document.getElementById('workspace')
+  const sessionSelect = document.getElementById('session')
+  const modelSelect = document.getElementById('model')
+  const messages = document.getElementById('messages')
+
+  document.getElementById('title').textContent = copy.title || 'Quick Ask'
+  prompt.placeholder = copy.placeholder || 'Continue...'
+  submit.textContent = copy.submit || 'Send'
+  document.getElementById('open').textContent = copy.open || 'Open DSH'
+
+  workspace.title = copy.workspace || 'Workspace'
+  sessionSelect.title = copy.session || 'Session'
+  modelSelect.title = copy.model || 'Model'
+
+  // Populate Workspaces
+  const fallback = document.createElement('option')
+  fallback.value = ''
+  fallback.textContent = copy.defaultWorkspace || 'Default directory'
+  workspace.append(fallback)
+  for (const item of workspaces) {
+    const option = document.createElement('option')
+    option.value = item.id
+    option.textContent = item.title
+    workspace.append(option)
+  }
+
+  // Populate Sessions
+  const newSession = document.createElement('option')
+  newSession.value = ''
+  newSession.textContent = copy.newSession || 'New session'
+  sessionSelect.append(newSession)
+  for (const item of sessionRows) {
+    const option = document.createElement('option')
+    option.value = item.id
+    option.textContent = item.title
+    sessionSelect.append(option)
+  }
+
+  // Populate Models
+  const defaultModelOpt = document.createElement('option')
+  defaultModelOpt.value = ''
+  defaultModelOpt.textContent = copy.defaultModel || 'Default model'
+  modelSelect.append(defaultModelOpt)
+
+  let currentOptgroup = null
+  let currentGroup = null
+  for (const item of models) {
+    if (item.group && item.group !== currentGroup) {
+      currentGroup = item.group
+      currentOptgroup = document.createElement('optgroup')
+      currentOptgroup.label = currentGroup
+      modelSelect.append(currentOptgroup)
+    }
+    const option = document.createElement('option')
+    option.value = `${item.provider}:${item.model}`
+    option.textContent = item.name + (item.isDefault ? ` (${copy.defaultModel || 'Default'})` : '')
+    if (item.isDefault && !modelSelect.value) {
+      option.selected = true
+    }
+    ;(currentOptgroup || modelSelect).append(option)
+  }
+
+  let busy = false, sessionId = '', currentTurn = 0, streamText = '', streamNode
+
+  function navigate(action, fields = {}) {
+    const url = new URL(`dsh-quick-ask://${action}`)
+    for (const [k, v] of Object.entries(fields)) {
+      if (v !== undefined && v !== '') url.searchParams.set(k, v)
+    }
+    location.href = url.href
+  }
+
+  function scroll() { messages.scrollTop = messages.scrollHeight }
+
+  function add(role, text) {
+    const node = document.createElement('div')
+    node.className = `message ${role}`
+    node.textContent = text
+    messages.append(node)
+    scroll()
+    return node
+  }
+
+  function setBusy(next) {
+    busy = next
+    submit.disabled = next
+    prompt.disabled = next
+    submit.textContent = next ? copy.submitting : copy.submit
+  }
+
+  function getSelectedModel() {
+    const val = modelSelect.value
+    if (!val) return undefined
+    const colon = val.indexOf(':')
+    if (colon === -1) return undefined
+    return { provider: val.slice(0, colon), model: val.slice(colon + 1) }
+  }
+
+  function run() {
+    const text = prompt.value.trim()
+    if (!text || busy) return
+    setBusy(true)
+    status.textContent = copy.submitting
+    add('user', text)
+    prompt.value = ''
+    const selected = getSelectedModel()
+    const fields = { prompt: text, workspace: workspace.value, session: sessionId }
+    if (selected) {
+      fields.modelProvider = selected.provider
+      fields.modelId = selected.model
+    }
+    navigate('submit', fields)
+  }
+
   submit.addEventListener('click', run)
-  prompt.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); run() } else if (event.key === 'Escape') { event.preventDefault(); navigate('hide') } })
+  prompt.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      run()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      navigate('hide')
+    }
+  })
   document.getElementById('close').addEventListener('click', () => navigate('hide'))
   document.getElementById('open').addEventListener('click', () => navigate('open-main'))
-  sessionSelect.addEventListener('change', () => { messages.replaceChildren(); sessionId = sessionSelect.value; navigate('sessions', { session:sessionId }) })
-  workspace.addEventListener('change', () => { if (sessionId) { sessionId=''; sessionSelect.value=''; messages.replaceChildren(); navigate('sessions', { session:'' }) } })
+
+  modelSelect.addEventListener('change', () => {
+    const selected = getSelectedModel()
+    if (sessionId && selected) {
+      navigate('select-model', { session: sessionId, provider: selected.provider, model: selected.model })
+    }
+  })
+
+  sessionSelect.addEventListener('change', () => {
+    messages.replaceChildren()
+    sessionId = sessionSelect.value
+    if (!sessionId) {
+      const defaultItem = models.find(m => m.isDefault)
+      modelSelect.value = defaultItem ? `${defaultItem.provider}:${defaultItem.model}` : ''
+    }
+    navigate('sessions', { session: sessionId })
+  })
+
+  workspace.addEventListener('change', () => {
+    if (sessionId) {
+      sessionId = ''
+      sessionSelect.value = ''
+      messages.replaceChildren()
+      const defaultItem = models.find(m => m.isDefault)
+      modelSelect.value = defaultItem ? `${defaultItem.provider}:${defaultItem.model}` : ''
+      navigate('sessions', { session: '' })
+    }
+  })
+
   window.addEventListener('dsh-quick-ask-focus', () => prompt.focus())
+
   window.addEventListener('dsh-quick-ask-result', event => {
-    if (!event.detail.ok) { setBusy(false); status.textContent = copy.failed; prompt.focus(); return }
-    sessionId = event.detail.sessionId; sessionSelect.value = sessionId
+    if (!event.detail.ok) {
+      setBusy(false)
+      status.textContent = copy.failed
+      prompt.focus()
+      return
+    }
+    sessionId = event.detail.sessionId
+    sessionSelect.value = sessionId
   })
+
   window.addEventListener('dsh-quick-ask-history', event => {
-    messages.replaceChildren(); sessionId = event.detail.sessionId || ''; sessionSelect.value = sessionId
-    for (const message of event.detail.messages) add(message.role, message.text); scroll()
+    messages.replaceChildren()
+    sessionId = event.detail.sessionId || ''
+    sessionSelect.value = sessionId
+    for (const message of (event.detail.messages || [])) {
+      add(message.role, message.text)
+    }
+    if (event.detail.model?.provider && event.detail.model?.model) {
+      modelSelect.value = `${event.detail.model.provider}:${event.detail.model.model}`
+    } else {
+      const defaultItem = models.find(m => m.isDefault)
+      modelSelect.value = defaultItem ? `${defaultItem.provider}:${defaultItem.model}` : ''
+    }
+    scroll()
   })
+
   window.addEventListener('dsh-quick-ask-update', event => {
     const update = event.detail
     if (update.sessionId !== sessionId) return
     if (update.type === 'assistant-delta' && update.turn !== currentTurn) {
-      currentTurn = update.turn; streamText = ''; streamNode = add('assistant', ''); streamNode.dataset.streaming = 'true'
+      currentTurn = update.turn
+      streamText = ''
+      streamNode = add('assistant', '')
+      streamNode.dataset.streaming = 'true'
     }
-    if (update.type === 'assistant-delta') { streamText += update.text || ''; streamNode.textContent = streamText; scroll() }
-    else if (update.type === 'assistant-message' && update.turn === currentTurn && streamNode !== undefined) { streamNode.dataset.streaming = 'false' }
-    else if (update.type === 'turn-end') { if (streamNode !== undefined) streamNode.dataset.streaming = 'false'; setBusy(false); status.textContent = update.failed ? copy.failed : copy.accepted; prompt.focus() }
+    if (update.type === 'assistant-delta') {
+      streamText += update.text || ''
+      if (streamNode) streamNode.textContent = streamText
+      scroll()
+    } else if (update.type === 'assistant-message' && update.turn === currentTurn && streamNode !== undefined) {
+      streamNode.dataset.streaming = 'false'
+    } else if (update.type === 'turn-end') {
+      if (streamNode !== undefined) streamNode.dataset.streaming = 'false'
+      setBusy(false)
+      status.textContent = update.failed ? copy.failed : copy.accepted
+      prompt.focus()
+    }
   })
 </script>
 </body>

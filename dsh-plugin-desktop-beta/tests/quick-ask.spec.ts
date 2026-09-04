@@ -6,18 +6,20 @@ import { DesktopQuickAskSettingsSchema, submitQuickAsk } from '../src/quick-ask.
 import { parseQuickAskAction } from '../src/quick-ask-window.ts'
 import { desktopShortcutFromKeyboardEvent, isDesktopShortcut } from '../src/quick-ask-shortcut.ts'
 
-function context(renameRejects = false): { readonly ctx: Context, readonly create: ReturnType<typeof vi.fn>, readonly rename: ReturnType<typeof vi.fn>, readonly prompt: ReturnType<typeof vi.fn> } {
+function context(renameRejects = false): { readonly ctx: Context, readonly create: ReturnType<typeof vi.fn>, readonly rename: ReturnType<typeof vi.fn>, readonly prompt: ReturnType<typeof vi.fn>, readonly selectModel: ReturnType<typeof vi.fn> } {
   const create = vi.fn(async () => ({ sessionId: 'session-quick' as SessionId }))
   const rename = renameRejects ? vi.fn(async () => { throw new Error('title unavailable') }) : vi.fn(async () => ({ title: 'ok', seq: 1 }))
   const prompt = vi.fn(async () => ({ accepted: true as const }))
+  const selectModel = vi.fn(async () => ({ ok: true }))
   const ctx = {
-    sessionController: { create, rename, prompt },
+    sessionController: { create, rename, prompt, selectModel },
     workspaceRegistry: {
       list: () => [{ id: 'workspace-1' as WorkspaceId, title: 'Project', path: '/tmp/project' }],
     },
     logger: { warn: vi.fn() },
+    get: (key: string) => (key === 'sessionController' ? { create, rename, prompt, selectModel } : undefined),
   } as unknown as Context
-  return { ctx, create, rename, prompt }
+  return { ctx, create, rename, prompt, selectModel }
 }
 
 describe('Quick Ask Host bridge', () => {
@@ -77,6 +79,19 @@ describe('Quick Ask Host bridge', () => {
     expect(harness.prompt).toHaveBeenCalledOnce()
   })
 
+  it('selects the requested model during Session submission', async () => {
+    const harness = context()
+    await expect(submitQuickAsk(harness.ctx, {
+      prompt: 'hello',
+      model: { provider: 'deepseek-official', model: 'deepseek-chat' },
+    })).resolves.toEqual({ sessionId: 'session-quick' })
+    expect(harness.selectModel).toHaveBeenCalledWith({
+      sessionId: 'session-quick',
+      provider: 'deepseek-official',
+      model: 'deepseek-chat',
+    })
+  })
+
   it('rejects blank and oversized prompts before Session creation', async () => {
     const harness = context()
     await expect(submitQuickAsk(harness.ctx, { prompt: '   ' })).rejects.toThrow('empty')
@@ -88,6 +103,8 @@ describe('Quick Ask Host bridge', () => {
 describe('Quick Ask local action parser', () => {
   it('accepts only bounded local actions', () => {
     expect(parseQuickAskAction('dsh-quick-ask://submit?prompt=hello&workspace=workspace-1')).toEqual({ action: 'submit', prompt: 'hello', workspaceId: 'workspace-1' })
+    expect(parseQuickAskAction('dsh-quick-ask://submit?prompt=hello&modelProvider=deepseek&modelId=deepseek-chat')).toEqual({ action: 'submit', prompt: 'hello', model: { provider: 'deepseek', model: 'deepseek-chat' } })
+    expect(parseQuickAskAction('dsh-quick-ask://select-model?session=session-1&provider=deepseek&model=deepseek-chat')).toEqual({ action: 'select-model', sessionId: 'session-1', model: { provider: 'deepseek', model: 'deepseek-chat' } })
     expect(parseQuickAskAction('dsh-quick-ask://submit?prompt=follow&session=session-quick')).toEqual({ action: 'submit', prompt: 'follow', sessionId: 'session-quick' })
     expect(parseQuickAskAction('dsh-quick-ask://sessions?session=session-quick')).toEqual({ action: 'sessions', sessionId: 'session-quick' })
     expect(parseQuickAskAction('dsh-quick-ask://hide')).toEqual({ action: 'hide' })
