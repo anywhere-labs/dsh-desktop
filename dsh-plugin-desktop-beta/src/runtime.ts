@@ -97,6 +97,39 @@ export interface DesktopNotification {
   body: string
 }
 
+/** Minimal workspace row rendered by the native Quick Ask window. */
+export interface DesktopQuickAskWorkspace {
+  readonly id: string
+  readonly title: string
+}
+
+/** One Quick Ask submission admitted by the current Host. */
+export interface DesktopQuickAskSubmission {
+  readonly prompt: string
+  readonly workspaceId?: string
+}
+
+/** Native quick-launch settings update. */
+export interface DesktopQuickLaunchUpdate {
+  readonly quickAskShortcut: string
+  readonly mainWindowShortcut: string
+}
+
+/** Host callbacks and initial shortcuts installed into Electron. */
+export interface DesktopQuickLaunchSpec extends DesktopQuickLaunchUpdate {
+  readonly locale: () => DesktopLocale
+  readonly workspaces: () => readonly DesktopQuickAskWorkspace[]
+  readonly submit: (submission: DesktopQuickAskSubmission) => Promise<{ readonly sessionId: string }>
+  readonly showMain: () => void
+}
+
+/** Lifecycle handle for Quick Ask and main-window shortcuts. */
+export interface DesktopQuickLaunchRegistration {
+  update(update: DesktopQuickLaunchUpdate): { readonly ok: true } | { readonly ok: false, readonly action: 'quick-ask' | 'main-window', readonly reason: 'conflict' | 'unavailable' }
+  refresh(spec: DesktopQuickLaunchSpec): void
+  dispose(): void
+}
+
 /** Electron capabilities used by the headless update plugin. */
 export interface DesktopUpdateAdapter {
   /** Whether the running executable came from an Electron package. */
@@ -194,6 +227,9 @@ export interface DesktopRuntime {
 
   /** Reveal and focus the current window, if mounted. */
   show(): void
+
+  /** Register the native Quick Ask window and both global shortcuts. */
+  registerQuickLaunch(spec: DesktopQuickLaunchSpec): DesktopQuickLaunchRegistration
 
   /** Request native attention for background activity while the window is unfocused. */
   notifyAttention(notification: DesktopNotification): void

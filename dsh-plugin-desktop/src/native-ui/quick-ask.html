@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; form-action dsh-quick-ask:; base-uri 'none'; object-src 'none'" />
+  <title>Quick Ask</title>
+  <style>
+    :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 14px; background: transparent; color: #f4f5f7; }
+    main { height: 186px; border: 1px solid rgba(255,255,255,.13); border-radius: 18px; background: rgba(26,28,33,.96); box-shadow: 0 22px 70px rgba(0,0,0,.42); overflow: hidden; }
+    header { display:flex; align-items:center; gap:10px; padding: 11px 14px 6px; color:#aeb3bd; font-size:12px; user-select:none; -webkit-app-region:drag; }
+    header strong { color:#fff; font-size:13px; }
+    header span { flex:1; }
+    button, select, textarea { font:inherit; }
+    header button { -webkit-app-region:no-drag; border:0; background:transparent; color:#adb2bd; cursor:pointer; padding:3px 7px; border-radius:7px; }
+    header button:hover { background:#343740; color:#fff; }
+    textarea { width:100%; height:76px; resize:none; border:0; outline:0; padding:7px 15px; background:transparent; color:#fff; font-size:18px; line-height:1.45; }
+    textarea::placeholder { color:#747985; }
+    footer { display:flex; align-items:center; gap:8px; padding: 8px 12px 11px; border-top:1px solid rgba(255,255,255,.08); }
+    select { min-width:160px; max-width:250px; color:#cdd1d8; background:#252830; border:1px solid #393d47; border-radius:9px; padding:6px 9px; }
+    #status { flex:1; color:#949aa6; font-size:12px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    #submit { border:0; border-radius:9px; padding:7px 15px; color:white; background:#4d6bfe; cursor:pointer; font-weight:600; }
+    #submit:disabled { opacity:.55; cursor:default; }
+    body[data-platform="darwin"] main { background:rgba(28,29,34,.88); backdrop-filter:blur(30px) saturate(140%); }
+  </style>
+</head>
+<body>
+<main>
+  <header><strong id="title">Quick Ask</strong><span></span><button id="open" type="button">Open DSH</button><button id="close" type="button" aria-label="Close">Esc</button></header>
+  <textarea id="prompt" autofocus></textarea>
+  <footer><select id="workspace"></select><span id="status"></span><button id="submit" type="button">Run</button></footer>
+</main>
+<script>
+  const params = new URLSearchParams(location.search)
+  const decode = key => JSON.parse(new TextDecoder().decode(Uint8Array.from(atob((params.get(key) || '').replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))))
+  const copy = decode('copy'); const workspaces = decode('workspaces')
+  document.documentElement.lang = params.get('locale') || 'en'; document.body.dataset.platform = navigator.platform.toLowerCase().includes('mac') ? 'darwin' : 'other'
+  const prompt = document.getElementById('prompt'), status = document.getElementById('status'), submit = document.getElementById('submit'), workspace = document.getElementById('workspace')
+  document.getElementById('title').textContent = copy.title; prompt.placeholder = copy.placeholder; submit.textContent = copy.submit; document.getElementById('open').textContent = copy.open
+  const fallback = document.createElement('option'); fallback.value = ''; fallback.textContent = copy.defaultWorkspace; workspace.append(fallback)
+  for (const item of workspaces) { const option = document.createElement('option'); option.value = item.id; option.textContent = item.title; workspace.append(option) }
+  let busy = false
+  function navigate(action, fields = {}) { const url = new URL(`dsh-quick-ask://${action}`); for (const [k,v] of Object.entries(fields)) if (v) url.searchParams.set(k,v); location.href = url.href }
+  function run() { const text = prompt.value.trim(); if (!text || busy) return; busy = true; submit.disabled = true; prompt.disabled = true; status.textContent = copy.submitting; navigate('submit', { prompt:text, workspace:workspace.value }) }
+  submit.addEventListener('click', run)
+  prompt.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); run() } else if (event.key === 'Escape') { event.preventDefault(); navigate('hide') } })
+  document.getElementById('close').addEventListener('click', () => navigate('hide'))
+  document.getElementById('open').addEventListener('click', () => navigate('open-main'))
+  window.addEventListener('dsh-quick-ask-focus', () => prompt.focus())
+  window.addEventListener('dsh-quick-ask-result', event => { busy = false; submit.disabled = false; prompt.disabled = false; if (event.detail.ok) { prompt.value = ''; status.textContent = copy.accepted; setTimeout(() => navigate('hide'), 420) } else { status.textContent = copy.failed; prompt.focus() } })
+</script>
+</body>
+</html>
