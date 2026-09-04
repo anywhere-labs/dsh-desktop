@@ -1218,6 +1218,63 @@ describe('Electron desktop runtime', () => {
     await release()
   })
 
+  it('does not restore a startup surface minimized before ready-to-show', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const runtime = new ElectronDesktopRuntime(async () => {})
+    const release = runtime.schedule(spec)
+
+    await runtime.mountScheduled()
+
+    const window = electron.browserWindows[0]
+    const ready = window?.once.mock.calls.find(([event]) => event === 'ready-to-show')?.[1]
+    expect(ready).toEqual(expect.any(Function))
+    expect(window?.show).toHaveBeenCalledOnce()
+    expect(window?.focus).toHaveBeenCalledOnce()
+
+    window?.isVisible.mockReturnValue(true)
+    window?.isMinimized.mockReturnValue(true)
+    ready()
+
+    expect(window?.restore).not.toHaveBeenCalled()
+    expect(window?.show).toHaveBeenCalledOnce()
+    expect(window?.focus).toHaveBeenCalledOnce()
+
+    await release()
+  })
+
+  it('does not restore after ready-to-show wins the startup reveal race', async () => {
+    let resolveAuthentication!: (response: Response) => void
+    electron.sessionFetch.mockImplementationOnce(async () => await new Promise<Response>(resolve => {
+      resolveAuthentication = resolve
+    }))
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const runtime = new ElectronDesktopRuntime(async () => {})
+    const release = runtime.schedule(spec)
+
+    const mount = runtime.mountScheduled()
+    expect(electron.sessionFetch).toHaveBeenCalledOnce()
+
+    const window = electron.browserWindows[0]
+    const ready = window?.once.mock.calls.find(([event]) => event === 'ready-to-show')?.[1]
+    expect(ready).toEqual(expect.any(Function))
+    ready()
+    expect(window?.show).toHaveBeenCalledOnce()
+    expect(window?.focus).toHaveBeenCalledOnce()
+
+    window?.isVisible.mockReturnValue(true)
+    window?.isMinimized.mockReturnValue(true)
+    resolveAuthentication(new Response(null, { status: 200 }))
+    await mount
+
+    expect(window?.restore).not.toHaveBeenCalled()
+    expect(window?.show).toHaveBeenCalledOnce()
+    expect(window?.focus).toHaveBeenCalledOnce()
+
+    await release()
+  })
+
   it('shows privacy-safe macOS attention only while unfocused and clears it on notification click', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')

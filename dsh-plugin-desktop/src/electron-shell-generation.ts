@@ -251,8 +251,8 @@ export class ElectronShellGeneration {
     const show = (): void => { this.show() }
     let startupSurfaceRevealed = false
     const revealStartupSurface = (): void => {
-      if (window.isDestroyed()) return
-      if (startupSurfaceRevealed && !applicationNeedsReveal(window, platform.platform)) return
+      // A later startup callback must not undo a user's minimize or hide action.
+      if (window.isDestroyed() || startupSurfaceRevealed) return
       startupSurfaceRevealed = true
       this.show()
     }
