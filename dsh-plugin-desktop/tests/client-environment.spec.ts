@@ -372,13 +372,20 @@ describe('advanced desktop layout', () => {
     ])
   })
 
-  it('lets the rail re-expand without losing its wide preference on narrow windows', () => {
+  it('keeps the expanded sidebar visible on narrow windows and toggles only on explicit action', () => {
     const layout = new DesktopLayoutState()
     layout.setNarrow(true)
     expect(layout.getSnapshot()).toMatchObject({ sidebar: 280, narrow: true, narrowExpanded: false })
+    // 窄窗下显式收起（唯一允许隐藏侧栏的途径）
     layout.toggleSidebar()
-    expect(layout.getSnapshot()).toMatchObject({ sidebar: 280, narrow: true, narrowExpanded: true })
+    expect(layout.getSnapshot()).toMatchObject({ sidebar: 0, narrow: true, narrowExpanded: false })
+    // 显式收起后，窄窗 override 仍可临时展开 rail
+    layout.toggleSidebar()
+    expect(layout.getSnapshot()).toMatchObject({ sidebar: 0, narrow: true, narrowExpanded: true })
     layout.setNarrow(false)
+    // 恢复宽窗后保持用户显式收起的偏好
+    expect(layout.getSnapshot()).toMatchObject({ sidebar: 0, narrow: false, narrowExpanded: false })
+    layout.toggleSidebar()
     expect(layout.getSnapshot()).toMatchObject({ sidebar: 280, narrow: false, narrowExpanded: false })
   })
 })

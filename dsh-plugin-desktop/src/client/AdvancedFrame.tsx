@@ -70,7 +70,10 @@ export function DesktopOwnedFrame({ layout, mode, platform, renderSlot, SessionP
     previousSession.current = detailsSession
   }, [detailsSession, layout])
 
-  const collapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0
+  // The sidebar collapses ONLY on explicit user action (sidebar === 0); the
+  // narrow-viewport breakpoint never hides it on its own. The narrowExpanded
+  // override still lets a deliberately collapsed rail expand temporarily.
+  const collapsed = panels.sidebar === 0 ? !(panels.narrow && panels.narrowExpanded) : false
   const sidebarPreference = collapsed ? 0 : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
   const columns = computeDesktopColumns(
     viewport,
