@@ -23,7 +23,7 @@ function context(renameRejects = false): { readonly ctx: Context, readonly creat
 describe('Quick Ask Host bridge', () => {
   it('has distinct cross-platform shortcuts by default', () => {
     expect(DesktopQuickAskSettingsSchema({} as never)).toEqual({
-      quickAskShortcut: 'CommandOrControl+Alt+Space',
+      quickAskShortcut: 'CommandOrControl+Shift+K',
       mainWindowShortcut: 'CommandOrControl+Shift+Space',
       workspaceId: '',
     })
@@ -62,6 +62,14 @@ describe('Quick Ask Host bridge', () => {
     }), expect.any(AbortSignal))
   })
 
+  it('continues an existing Session without renaming it', async () => {
+    const harness = context()
+    await expect(submitQuickAsk(harness.ctx, { prompt: 'follow up', sessionId: 'session-quick' })).resolves.toEqual({ sessionId: 'session-quick' })
+    expect(harness.create).not.toHaveBeenCalled()
+    expect(harness.rename).not.toHaveBeenCalled()
+    expect(harness.prompt).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-quick', content: [{ type: 'text', text: 'follow up' }] }), expect.any(AbortSignal))
+  })
+
   it('falls back to the default cwd and still prompts when naming fails', async () => {
     const harness = context(true)
     await expect(submitQuickAsk(harness.ctx, { prompt: 'work', workspaceId: 'missing' })).resolves.toEqual({ sessionId: 'session-quick' })
@@ -80,6 +88,8 @@ describe('Quick Ask Host bridge', () => {
 describe('Quick Ask local action parser', () => {
   it('accepts only bounded local actions', () => {
     expect(parseQuickAskAction('dsh-quick-ask://submit?prompt=hello&workspace=workspace-1')).toEqual({ action: 'submit', prompt: 'hello', workspaceId: 'workspace-1' })
+    expect(parseQuickAskAction('dsh-quick-ask://submit?prompt=follow&session=session-quick')).toEqual({ action: 'submit', prompt: 'follow', sessionId: 'session-quick' })
+    expect(parseQuickAskAction('dsh-quick-ask://sessions?session=session-quick')).toEqual({ action: 'sessions', sessionId: 'session-quick' })
     expect(parseQuickAskAction('dsh-quick-ask://hide')).toEqual({ action: 'hide' })
     expect(parseQuickAskAction('https://example.com/')).toBeUndefined()
     expect(parseQuickAskAction('dsh-quick-ask://submit?prompt=ok&extra=no')).toBeUndefined()

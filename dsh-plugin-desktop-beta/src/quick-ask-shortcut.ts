@@ -1,6 +1,6 @@
 /** Shared validation and keyboard-event conversion for Desktop global shortcuts. */
 
-export const DEFAULT_QUICK_ASK_SHORTCUT = 'CommandOrControl+Alt+Space'
+export const DEFAULT_QUICK_ASK_SHORTCUT = 'CommandOrControl+Shift+K'
 export const DEFAULT_MAIN_WINDOW_SHORTCUT = 'CommandOrControl+Shift+Space'
 
 const MODIFIERS = new Set(['CommandOrControl', 'Command', 'Control', 'Alt', 'Option', 'AltGr', 'Shift', 'Super'])

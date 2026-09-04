@@ -8,48 +8,86 @@
   <style>
     :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 14px; background: transparent; color: #f4f5f7; }
-    main { height: 186px; border: 1px solid rgba(255,255,255,.13); border-radius: 18px; background: rgba(26,28,33,.96); box-shadow: 0 22px 70px rgba(0,0,0,.42); overflow: hidden; }
-    header { display:flex; align-items:center; gap:10px; padding: 11px 14px 6px; color:#aeb3bd; font-size:12px; user-select:none; -webkit-app-region:drag; }
+    body { margin: 0; padding: 12px; background: transparent; color: #f4f5f7; }
+    main { height: calc(100vh - 24px); min-height: 296px; display: flex; flex-direction: column; border-radius: 22px; background: rgba(24,26,31,.92); box-shadow: 0 24px 80px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.09); overflow: hidden; }
+    header { display:flex; align-items:center; gap:9px; padding: 11px 14px 8px; color:#8f96a3; font-size:12px; user-select:none; -webkit-app-region:drag; }
     header strong { color:#fff; font-size:13px; }
     header span { flex:1; }
     button, select, textarea { font:inherit; }
-    header button { -webkit-app-region:no-drag; border:0; background:transparent; color:#adb2bd; cursor:pointer; padding:3px 7px; border-radius:7px; }
-    header button:hover { background:#343740; color:#fff; }
-    textarea { width:100%; height:76px; resize:none; border:0; outline:0; padding:7px 15px; background:transparent; color:#fff; font-size:18px; line-height:1.45; }
+    header button { -webkit-app-region:no-drag; border:0; background:transparent; color:#9ca2ae; cursor:pointer; padding:4px 8px; border-radius:8px; }
+    header button:hover { background:rgba(255,255,255,.09); color:#fff; }
+    #messages { flex:1; overflow-y:auto; padding:2px 14px 10px; display:flex; flex-direction:column; gap:9px; scroll-behavior:smooth; }
+    #messages:empty::after { content:" "; flex:1; }
+    .message { max-width:84%; padding:9px 12px; border-radius:15px; font-size:14px; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .message.user { align-self:flex-end; color:white; background:#4d6bfe; border-bottom-right-radius:5px; }
+    .message.assistant { align-self:flex-start; color:#edf0f5; background:rgba(255,255,255,.085); border-bottom-left-radius:5px; }
+    .message.assistant[data-streaming="true"]::after { content:"▍"; color:#8fa2ff; animation:pulse 1s infinite; }
+    .message.system { align-self:center; max-width:92%; color:#aeb3bd; background:transparent; font-size:12px; }
+    .composer { display:flex; align-items:flex-end; gap:8px; padding:8px 12px 10px; border-top:1px solid rgba(255,255,255,.08); }
+    textarea { flex:1; height:58px; max-height:120px; resize:none; border:0; outline:0; padding:7px 4px; background:transparent; color:#fff; font-size:16px; line-height:1.45; }
     textarea::placeholder { color:#747985; }
-    footer { display:flex; align-items:center; gap:8px; padding: 8px 12px 11px; border-top:1px solid rgba(255,255,255,.08); }
-    select { min-width:160px; max-width:250px; color:#cdd1d8; background:#252830; border:1px solid #393d47; border-radius:9px; padding:6px 9px; }
-    #status { flex:1; color:#949aa6; font-size:12px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
-    #submit { border:0; border-radius:9px; padding:7px 15px; color:white; background:#4d6bfe; cursor:pointer; font-weight:600; }
+    footer { display:flex; align-items:center; gap:7px; padding: 0 12px 11px; }
+    select { min-width:110px; max-width:230px; color:#cdd1d8; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.11); border-radius:9px; padding:6px 8px; font-size:12px; }
+    #status { flex:1; color:#8f96a3; font-size:12px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    #submit { border:0; border-radius:10px; padding:8px 16px; color:white; background:#4d6bfe; cursor:pointer; font-weight:600; }
     #submit:disabled { opacity:.55; cursor:default; }
-    body[data-platform="darwin"] main { background:rgba(28,29,34,.88); backdrop-filter:blur(30px) saturate(140%); }
+    body[data-platform="darwin"] main { background:rgba(26,27,32,.82); backdrop-filter:blur(34px) saturate(150%); }
+    @keyframes pulse { 50% { opacity:.2 } }
   </style>
 </head>
 <body>
 <main>
   <header><strong id="title">Quick Ask</strong><span></span><button id="open" type="button">Open DSH</button><button id="close" type="button" aria-label="Close">Esc</button></header>
-  <textarea id="prompt" autofocus></textarea>
-  <footer><select id="workspace"></select><span id="status"></span><button id="submit" type="button">Run</button></footer>
+  <div id="messages" aria-live="polite"></div>
+  <div class="composer"><textarea id="prompt" autofocus></textarea><button id="submit" type="button">Send</button></div>
+  <footer><select id="session"></select><select id="workspace"></select><span id="status"></span></footer>
 </main>
 <script>
   const params = new URLSearchParams(location.search)
   const decode = key => JSON.parse(new TextDecoder().decode(Uint8Array.from(atob((params.get(key) || '').replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))))
-  const copy = decode('copy'); const workspaces = decode('workspaces')
+  const copy = decode('copy'); const workspaces = decode('workspaces'); const sessionRows = decode('sessions')
   document.documentElement.lang = params.get('locale') || 'en'; document.body.dataset.platform = navigator.platform.toLowerCase().includes('mac') ? 'darwin' : 'other'
-  const prompt = document.getElementById('prompt'), status = document.getElementById('status'), submit = document.getElementById('submit'), workspace = document.getElementById('workspace')
+  const prompt = document.getElementById('prompt'), status = document.getElementById('status'), submit = document.getElementById('submit'), workspace = document.getElementById('workspace'), sessionSelect = document.getElementById('session'), messages = document.getElementById('messages')
   document.getElementById('title').textContent = copy.title; prompt.placeholder = copy.placeholder; submit.textContent = copy.submit; document.getElementById('open').textContent = copy.open
   const fallback = document.createElement('option'); fallback.value = ''; fallback.textContent = copy.defaultWorkspace; workspace.append(fallback)
   for (const item of workspaces) { const option = document.createElement('option'); option.value = item.id; option.textContent = item.title; workspace.append(option) }
-  let busy = false
+  const newSession = document.createElement('option'); newSession.value = ''; newSession.textContent = copy.newSession; sessionSelect.append(newSession)
+  for (const item of sessionRows) { const option = document.createElement('option'); option.value = item.id; option.textContent = item.title; sessionSelect.append(option) }
+  let busy = false, sessionId = '', currentTurn = 0, streamText = '', streamNode
   function navigate(action, fields = {}) { const url = new URL(`dsh-quick-ask://${action}`); for (const [k,v] of Object.entries(fields)) if (v) url.searchParams.set(k,v); location.href = url.href }
-  function run() { const text = prompt.value.trim(); if (!text || busy) return; busy = true; submit.disabled = true; prompt.disabled = true; status.textContent = copy.submitting; navigate('submit', { prompt:text, workspace:workspace.value }) }
+  function scroll() { messages.scrollTop = messages.scrollHeight }
+  function add(role, text) { const node = document.createElement('div'); node.className = `message ${role}`; node.textContent = text; messages.append(node); scroll(); return node }
+  function setBusy(next) { busy = next; submit.disabled = next; prompt.disabled = next; submit.textContent = next ? copy.submitting : copy.submit }
+  function run() {
+    const text = prompt.value.trim(); if (!text || busy) return
+    setBusy(true); status.textContent = copy.submitting; add('user', text); prompt.value = ''
+    navigate('submit', { prompt:text, workspace:workspace.value, session:sessionId })
+  }
   submit.addEventListener('click', run)
   prompt.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); run() } else if (event.key === 'Escape') { event.preventDefault(); navigate('hide') } })
   document.getElementById('close').addEventListener('click', () => navigate('hide'))
   document.getElementById('open').addEventListener('click', () => navigate('open-main'))
+  sessionSelect.addEventListener('change', () => { messages.replaceChildren(); sessionId = sessionSelect.value; navigate('sessions', { session:sessionId }) })
+  workspace.addEventListener('change', () => { if (sessionId) { sessionId=''; sessionSelect.value=''; messages.replaceChildren(); navigate('sessions', { session:'' }) } })
   window.addEventListener('dsh-quick-ask-focus', () => prompt.focus())
-  window.addEventListener('dsh-quick-ask-result', event => { busy = false; submit.disabled = false; prompt.disabled = false; if (event.detail.ok) { prompt.value = ''; status.textContent = copy.accepted; setTimeout(() => navigate('hide'), 420) } else { status.textContent = copy.failed; prompt.focus() } })
+  window.addEventListener('dsh-quick-ask-result', event => {
+    if (!event.detail.ok) { setBusy(false); status.textContent = copy.failed; prompt.focus(); return }
+    sessionId = event.detail.sessionId; sessionSelect.value = sessionId
+  })
+  window.addEventListener('dsh-quick-ask-history', event => {
+    messages.replaceChildren(); sessionId = event.detail.sessionId || ''; sessionSelect.value = sessionId
+    for (const message of event.detail.messages) add(message.role, message.text); scroll()
+  })
+  window.addEventListener('dsh-quick-ask-update', event => {
+    const update = event.detail
+    if (update.sessionId !== sessionId) return
+    if (update.type === 'assistant-delta' && update.turn !== currentTurn) {
+      currentTurn = update.turn; streamText = ''; streamNode = add('assistant', ''); streamNode.dataset.streaming = 'true'
+    }
+    if (update.type === 'assistant-delta') { streamText += update.text || ''; streamNode.textContent = streamText; scroll() }
+    else if (update.type === 'assistant-message' && update.turn === currentTurn && streamNode !== undefined) { streamNode.dataset.streaming = 'false' }
+    else if (update.type === 'turn-end') { if (streamNode !== undefined) streamNode.dataset.streaming = 'false'; setBusy(false); status.textContent = update.failed ? copy.failed : copy.accepted; prompt.focus() }
+  })
 </script>
 </body>
 </html>

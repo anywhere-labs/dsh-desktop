@@ -107,6 +107,29 @@ export interface DesktopQuickAskWorkspace {
 export interface DesktopQuickAskSubmission {
   readonly prompt: string
   readonly workspaceId?: string
+  /** Existing Quick Ask Session used for a follow-up message. */
+  readonly sessionId?: string
+}
+
+/** Minimal selectable Session row rendered by the native Quick Ask window. */
+export interface DesktopQuickAskSession {
+  readonly id: string
+  readonly title: string
+}
+
+/** One renderer-safe update from a Quick Ask Session. */
+export interface DesktopQuickAskUpdate {
+  readonly sessionId: string
+  readonly type: 'assistant-delta' | 'assistant-message' | 'turn-end'
+  readonly turn?: number
+  readonly text?: string
+  readonly failed?: boolean
+}
+
+/** Renderer-safe persisted message shown when one existing Session is selected. */
+export interface DesktopQuickAskHistoryMessage {
+  readonly role: 'user' | 'assistant'
+  readonly text: string
 }
 
 /** Native quick-launch settings update. */
@@ -119,7 +142,10 @@ export interface DesktopQuickLaunchUpdate {
 export interface DesktopQuickLaunchSpec extends DesktopQuickLaunchUpdate {
   readonly locale: () => DesktopLocale
   readonly workspaces: () => readonly DesktopQuickAskWorkspace[]
+  readonly sessions: () => readonly DesktopQuickAskSession[]
+  readonly history: (sessionId: string) => readonly DesktopQuickAskHistoryMessage[]
   readonly submit: (submission: DesktopQuickAskSubmission) => Promise<{ readonly sessionId: string }>
+  readonly subscribe: (listener: (update: DesktopQuickAskUpdate) => void) => () => void
   readonly showMain: () => void
 }
 

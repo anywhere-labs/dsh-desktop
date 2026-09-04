@@ -10,9 +10,10 @@ const QUICK_ASK_SCHEME = 'dsh-quick-ask:'
 const MAX_PROMPT_BYTES = 64 * 1024
 
 export interface QuickAskAction {
-  readonly action: 'submit' | 'hide' | 'open-main'
+  readonly action: 'submit' | 'hide' | 'open-main' | 'sessions'
   readonly prompt?: string
   readonly workspaceId?: string
+  readonly sessionId?: string
 }
 
 export function parseQuickAskAction(href: string): QuickAskAction | undefined {
@@ -22,11 +23,17 @@ export function parseQuickAskAction(href: string): QuickAskAction | undefined {
   const action = url.hostname
   const keys = [...url.searchParams.keys()]
   if (action === 'hide' || action === 'open-main') return keys.length === 0 ? { action } : undefined
-  if (action !== 'submit' || keys.some(key => key !== 'prompt' && key !== 'workspace')) return undefined
+  if (action === 'sessions') {
+    const sessionId = url.searchParams.get('session')
+    if (sessionId !== null && Buffer.byteLength(sessionId, 'utf8') > 256) return undefined
+    return keys.every(key => key === 'session') ? { action, sessionId: sessionId ?? '' } : undefined
+  }
+  if (action !== 'submit' || keys.some(key => key !== 'prompt' && key !== 'workspace' && key !== 'session')) return undefined
   const prompt = url.searchParams.get('prompt')
   if (prompt === null || Buffer.byteLength(prompt, 'utf8') > MAX_PROMPT_BYTES) return undefined
   const workspaceId = url.searchParams.get('workspace') ?? undefined
-  return { action, prompt, ...(workspaceId === undefined ? {} : { workspaceId }) }
+  const sessionId = url.searchParams.get('session') ?? undefined
+  return { action, prompt, ...(workspaceId === undefined ? {} : { workspaceId }), ...(sessionId === undefined ? {} : { sessionId }) }
 }
 
 export interface QuickLaunchElectronAdapter {
@@ -39,8 +46,8 @@ const electron: QuickLaunchElectronAdapter = { BrowserWindow, globalShortcut, sc
 
 function localized(locale: DesktopLocale) {
   return locale === 'zh'
-    ? { title: '快速任务', placeholder: '输入一次性任务，按 Enter 提交', submit: '运行', open: '打开完整 DSH', workspace: '工作区', defaultWorkspace: '默认目录', submitting: '正在创建任务…', accepted: '任务已创建', failed: '提交失败，请重试' }
-    : { title: 'Quick Ask', placeholder: 'Describe a one-off task and press Enter', submit: 'Run', open: 'Open DSH', workspace: 'Workspace', defaultWorkspace: 'Default directory', submitting: 'Creating task…', accepted: 'Task created', failed: 'Could not submit. Try again.' }
+    ? { title: '快速任务', placeholder: '继续输入，按 Enter 发送', submit: '发送', open: '打开完整 DSH', workspace: '工作区', session: '会话', newSession: '新会话', defaultWorkspace: '默认目录', submitting: '正在思考…', accepted: '已完成', failed: '发送失败，请重试' }
+    : { title: 'Quick Ask', placeholder: 'Continue the conversation, press Enter to send', submit: 'Send', open: 'Open DSH', workspace: 'Workspace', session: 'Session', newSession: 'New session', defaultWorkspace: 'Default directory', submitting: 'Thinking…', accepted: 'Done', failed: 'Could not send. Try again.' }
 }
 
 function shortcutPairValid(quickAsk: string, mainWindow: string): boolean {
@@ -53,8 +60,11 @@ export class QuickLaunchController implements DesktopQuickLaunchRegistration {
   private disposed = false
   private quickAskShortcut = ''
   private mainWindowShortcut = ''
+  private sessionId: string | undefined
+  private stopUpdates: (() => void) | undefined
 
   constructor(private spec: DesktopQuickLaunchSpec, private readonly adapter: QuickLaunchElectronAdapter = electron) {
+    this.stopUpdates = spec.subscribe(update => { this.publishUpdate(update) })
     // Shortcut conflicts must not prevent the Desktop Host or tray from starting.
     this.update({ quickAskShortcut: spec.quickAskShortcut, mainWindowShortcut: spec.mainWindowShortcut })
   }
@@ -118,6 +128,8 @@ export class QuickLaunchController implements DesktopQuickLaunchRegistration {
     if (this.mainWindowShortcut) this.adapter.globalShortcut.unregister(this.mainWindowShortcut)
     this.quickAskShortcut = ''
     this.mainWindowShortcut = ''
+    this.stopUpdates?.()
+    this.stopUpdates = undefined
     const window = this.window
     this.window = undefined
     if (window !== undefined && !window.isDestroyed()) window.destroy()
@@ -129,7 +141,11 @@ export class QuickLaunchController implements DesktopQuickLaunchRegistration {
     const window = new this.adapter.BrowserWindow({
       width: 680,
       height: 214,
-      resizable: false,
+      resizable: true,
+      minWidth: 520,
+      minHeight: 320,
+      maxWidth: 920,
+      maxHeight: 760,
       frame: false,
       transparent: process.platform === 'darwin',
       alwaysOnTop: true,
@@ -159,11 +175,13 @@ export class QuickLaunchController implements DesktopQuickLaunchRegistration {
     window.on('blur', () => { if (!window.isDestroyed()) window.hide() })
     window.on('closed', () => { if (this.window === window) this.window = undefined })
     const workspaces = this.spec.workspaces()
+    const sessions = this.spec.sessions()
     void window.loadFile(QUICK_ASK_DOCUMENT, {
       query: {
         locale: this.spec.locale(),
         copy: Buffer.from(JSON.stringify(copy)).toString('base64url'),
         workspaces: Buffer.from(JSON.stringify(workspaces)).toString('base64url'),
+        sessions: Buffer.from(JSON.stringify(sessions)).toString('base64url'),
       },
     }).catch(() => { if (!window.isDestroyed()) window.destroy() })
     return window
@@ -172,15 +190,32 @@ export class QuickLaunchController implements DesktopQuickLaunchRegistration {
   private async handleAction(window: BrowserWindow, action: QuickAskAction): Promise<void> {
     if (action.action === 'hide') { window.hide(); return }
     if (action.action === 'open-main') { window.hide(); this.spec.showMain(); return }
+    if (action.action === 'sessions') {
+      this.sessionId = action.sessionId || undefined
+      const history = this.sessionId === undefined ? [] : this.spec.history(this.sessionId)
+      await window.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent('dsh-quick-ask-history',{detail:${JSON.stringify({ sessionId: this.sessionId ?? '', messages: history })}}))`, true).catch(() => {})
+      return
+    }
     const prompt = action.prompt?.trim() ?? ''
     if (!prompt) return
     try {
-      const result = await this.spec.submit({ prompt, ...(action.workspaceId === undefined ? {} : { workspaceId: action.workspaceId }) })
+      const result = await this.spec.submit({
+        prompt,
+        ...(action.workspaceId === undefined ? {} : { workspaceId: action.workspaceId }),
+        ...(action.sessionId === undefined ? {} : { sessionId: action.sessionId }),
+      })
+      this.sessionId = result.sessionId
       if (window.isDestroyed()) return
       await window.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent('dsh-quick-ask-result',{detail:${JSON.stringify({ ok: true, sessionId: result.sessionId })}}))`, true)
     } catch {
       if (window.isDestroyed()) return
       await window.webContents.executeJavaScript("window.dispatchEvent(new CustomEvent('dsh-quick-ask-result',{detail:{ok:false}}))", true).catch(() => {})
     }
+  }
+
+  private publishUpdate(update: import('./runtime.ts').DesktopQuickAskUpdate): void {
+    const window = this.window
+    if (window === undefined || window.isDestroyed() || update.sessionId !== this.sessionId) return
+    void window.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent('dsh-quick-ask-update',{detail:${JSON.stringify(update)}}))`, true).catch(() => {})
   }
 }
