@@ -277,12 +277,10 @@ export class DesktopStartupRecoveryWindow {
     const activate = (): void => {
       if (applicationNeedsReveal(window)) show()
     }
-    app.on('activate', activate)
-    if (process.platform === 'darwin') app.on('did-become-active', activate)
+    if (process.platform === 'darwin') app.on('activate', activate)
     window.once('ready-to-show', show)
     window.on('closed', () => {
-      app.off('activate', activate)
-      if (process.platform === 'darwin') app.off('did-become-active', activate)
+      if (process.platform === 'darwin') app.off('activate', activate)
       this.window = undefined
       this.finish('quit')
     })

@@ -1150,7 +1150,7 @@ describe('Electron desktop runtime', () => {
     await release()
   })
 
-  it('shows and hides one native window through ready, activation, tray, and close events', async () => {
+  it('shows and hides one native window through ready, tray, and close events', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
     const runtime = new ElectronDesktopRuntime(async () => {})
@@ -1160,13 +1160,12 @@ describe('Electron desktop runtime', () => {
 
     const window = electron.browserWindows[0]
     const ready = window?.once.mock.calls.find(([event]) => event === 'ready-to-show')?.[1]
-    const activate = electron.app.on.mock.calls.find(([event]) => event === 'activate')?.[1]
     const trayClick = electron.trays[0]?.on.mock.calls.find(([event]) => event === 'click')?.[1]
     const close = electron.browserWindowOn.mock.calls.find(([event]) => event === 'close')?.[1]
     expect(ready).toEqual(expect.any(Function))
-    expect(activate).toEqual(expect.any(Function))
     expect(trayClick).toEqual(expect.any(Function))
     expect(close).toEqual(expect.any(Function))
+    expect(electron.app.on.mock.calls.some(([event]) => event === 'activate')).toBe(false)
 
     expect(window?.show).toHaveBeenCalledOnce()
     expect(window?.focus).toHaveBeenCalledOnce()
@@ -1174,12 +1173,10 @@ describe('Electron desktop runtime', () => {
     window?.isVisible.mockReturnValue(true)
     ready()
     window?.isMinimized.mockReturnValue(true)
-    activate()
-    window?.isMinimized.mockReturnValue(false)
     trayClick()
     expect(window?.restore).toHaveBeenCalledOnce()
-    expect(window?.show).toHaveBeenCalledTimes(3)
-    expect(window?.focus).toHaveBeenCalledTimes(3)
+    expect(window?.show).toHaveBeenCalledTimes(2)
+    expect(window?.focus).toHaveBeenCalledTimes(2)
 
     const closeEvent = { preventDefault: vi.fn() }
     close(closeEvent)
@@ -1332,7 +1329,7 @@ describe('Electron desktop runtime', () => {
     expect(electron.browserWindowOff).toHaveBeenCalledWith('focus', expect.any(Function))
   })
 
-  it('restores a hidden macOS application before revealing its window without stealing focus when already visible', async () => {
+  it('uses explicit macOS activation for hidden and minimized window reveals', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
     const runtime = new ElectronDesktopRuntime(async () => {})
@@ -1342,15 +1339,14 @@ describe('Electron desktop runtime', () => {
 
     const window = electron.browserWindows[0]
     const activate = electron.app.on.mock.calls.find(([event]) => event === 'activate')?.[1]
-    const didBecomeActive = electron.app.on.mock.calls.find(([event]) => event === 'did-become-active')?.[1]
     expect(activate).toEqual(expect.any(Function))
-    expect(didBecomeActive).toEqual(expect.any(Function))
+    expect(electron.app.on.mock.calls.some(([event]) => event === 'did-become-active')).toBe(false)
 
     electron.app.isHidden.mockReturnValue(true)
     window?.isVisible.mockReturnValue(false)
     const appShowCount = electron.app.show.mock.calls.length
     const focusCountBeforeReveal = window?.focus.mock.calls.length ?? 0
-    didBecomeActive()
+    activate()
     expect(electron.app.show).toHaveBeenCalledTimes(appShowCount + 1)
     expect((electron.app.show.mock.invocationCallOrder.at(-1) ?? Infinity))
       .toBeLessThan(window?.show.mock.invocationCallOrder.at(-1) ?? Infinity)
@@ -1358,12 +1354,18 @@ describe('Electron desktop runtime', () => {
 
     electron.app.isHidden.mockReturnValue(false)
     window?.isVisible.mockReturnValue(true)
+    window?.isMinimized.mockReturnValue(true)
+    const restoreCount = window?.restore.mock.calls.length ?? 0
+    const showCount = window?.show.mock.calls.length ?? 0
     const focusCount = window?.focus.mock.calls.length ?? 0
     activate()
-    expect(window?.focus).toHaveBeenCalledTimes(focusCount)
+    expect(window?.restore).toHaveBeenCalledTimes(restoreCount + 1)
+    expect(window?.show).toHaveBeenCalledTimes(showCount + 1)
+    expect(window?.focus).toHaveBeenCalledTimes(focusCount + 1)
 
     await release()
-    expect(electron.app.off).toHaveBeenCalledWith('did-become-active', expect.any(Function))
+    expect(electron.app.off).toHaveBeenCalledWith('activate', expect.any(Function))
+    expect(electron.app.off.mock.calls.some(([event]) => event === 'did-become-active')).toBe(false)
   })
 
   it('releases the window and tray when post-load startup wiring fails', async () => {

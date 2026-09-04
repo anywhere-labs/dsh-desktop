@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { boot } from '@deepseek-ai/dsh-app-boot'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import {
   createLaunchEnvironmentSnapshot,
@@ -51,6 +52,13 @@ let nativeThemeSource = 'system'
 const trayItems = []
 
 try {
+  writeFileSync(join(home, '.credentials.yaml'), [
+    '# Issue 672: versioned credentials must remain readable after upgrade',
+    'version: 1',
+    'refs:',
+    '  DSH_CREDENTIAL_SMOKE: fixture-token',
+    '',
+  ].join('\n'), { mode: 0o600 })
   writeFileSync(join(home, 'settings.yaml'), [
     'dsh-desktop:',
     '  mode: advanced',
@@ -70,6 +78,14 @@ try {
     hostServicePluginDir,
     { recursive: true, force: false, errorOnExist: true },
   )
+  const isolatedProfilePatches = prepared.patches.map(patch => ({
+    ...patch,
+    ...(patch.insert === undefined ? {} : {
+      insert: patch.insert.map(entry => entry.id === 'credentials'
+        ? { ...entry, config: { ...(entry.config ?? {}), dshHome: home } }
+        : entry),
+    }),
+  }))
   const patches = [
     // Deliberately compose the consumer before the desktop-pnpm provider row.
     // Its required injection must keep it pending until that service mounts.
@@ -79,7 +95,7 @@ try {
         name: HOST_SERVICE_PLUGIN_NAME,
       }],
     },
-    ...prepared.patches,
+    ...isolatedProfilePatches,
   ]
   const packageRoot = new URL('../', import.meta.url)
   const pnpmBinPath = fileURLToPath(new URL('node_modules/pnpm/bin/pnpm.mjs', packageRoot))
@@ -182,6 +198,11 @@ try {
     prepared.bareModuleBaseUrl,
   )
   await runtime.mountScheduled()
+
+  const credential = await ctx.credentials.resolve(credentialRef('DSH_CREDENTIAL_SMOKE'))
+  if (credential?.value !== 'fixture-token') {
+    throw new Error('versioned credentials fixture was not resolved by the assembled Host')
+  }
 
   if (ctx.get('desktopPnpm') === undefined) {
     throw new Error('assembled desktop profile is missing the desktop pnpm Host capability')

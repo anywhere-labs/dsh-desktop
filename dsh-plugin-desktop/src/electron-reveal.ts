@@ -4,11 +4,11 @@ import type { BrowserWindow } from 'electron'
 /**
  * Return whether an activation event needs to bring the application forward.
  *
- * macOS emits activation events while a visible window is already in front of
- * the user.  Treating every activation as a reveal would steal focus from the
- * application the user just selected, so callers should use this guard for
- * app-level activation events and reserve revealApplication for explicit UI
- * actions such as a tray click or a ready-to-show event.
+ * The app-level `activate` event is an explicit macOS Dock/relaunch path.
+ * Broader lifecycle notifications such as `did-become-active` are deliberately
+ * not reveal signals: treating them as one would restore a window while the
+ * user is working in another application.  Other callers should reserve
+ * revealApplication for explicit UI actions such as a tray click or menu item.
  */
 export function applicationNeedsReveal(
   window: Pick<BrowserWindow, 'isMinimized' | 'isVisible'>,

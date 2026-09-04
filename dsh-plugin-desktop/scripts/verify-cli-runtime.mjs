@@ -12,6 +12,10 @@ const packageRoot = new URL('../', import.meta.url)
 const desktopCli = fileURLToPath(new URL('lib/desktop-cli.js', packageRoot))
 const dshAppBootPackage = fileURLToPath(new URL('node_modules/@deepseek-ai/dsh-app-boot/', packageRoot))
 const dshAtomicWritePackage = fileURLToPath(new URL('node_modules/@deepseek-ai/dsh-atomic-write/', packageRoot))
+const dshHomePathsPackage = fileURLToPath(new URL('node_modules/@deepseek-ai/dsh-home-paths/', packageRoot))
+const semverPackage = fileURLToPath(new URL('node_modules/semver/', packageRoot))
+const cordisLoaderPackage = fileURLToPath(new URL('node_modules/@deepseek-ai/cordis-plugin-loader/', packageRoot))
+const cosmokitPackage = fileURLToPath(new URL('node_modules/@deepseek-ai/cosmokit/', packageRoot))
 const dshPackage = fileURLToPath(new URL('node_modules/@deepseek-ai/dsh/', packageRoot))
 const pnpmCli = fileURLToPath(new URL('node_modules/pnpm/bin/pnpm.mjs', packageRoot))
 const dshVersion = JSON.parse(readFileSync(new URL('node_modules/@deepseek-ai/dsh/package.json', packageRoot), 'utf8')).version
@@ -162,6 +166,10 @@ function runFlatProfileDshEntry() {
   const desktopPackage = join(root, 'node_modules', 'dsh-plugin-desktop')
   const linkedAppBootPackage = join(root, 'node_modules', '@deepseek-ai', 'dsh-app-boot')
   const linkedAtomicWritePackage = join(root, 'node_modules', '@deepseek-ai', 'dsh-atomic-write')
+  const linkedHomePathsPackage = join(root, 'node_modules', '@deepseek-ai', 'dsh-home-paths')
+  const linkedSemverPackage = join(root, 'node_modules', 'semver')
+  const linkedCordisLoaderPackage = join(root, 'node_modules', '@deepseek-ai', 'cordis-plugin-loader')
+  const linkedCosmokitPackage = join(root, 'node_modules', '@deepseek-ai', 'cosmokit')
   const linkedDshPackage = join(root, 'node_modules', '@deepseek-ai', 'dsh')
   try {
     mkdirSync(join(root, 'node_modules', '@deepseek-ai'), { recursive: true })
@@ -169,7 +177,12 @@ function runFlatProfileDshEntry() {
     cpSync(fileURLToPath(new URL('package.json', packageRoot)), join(desktopPackage, 'package.json'))
     symlinkSync(dshAppBootPackage, linkedAppBootPackage, process.platform === 'win32' ? 'junction' : 'dir')
     symlinkSync(dshAtomicWritePackage, linkedAtomicWritePackage, process.platform === 'win32' ? 'junction' : 'dir')
+    symlinkSync(dshHomePathsPackage, linkedHomePathsPackage, process.platform === 'win32' ? 'junction' : 'dir')
+    symlinkSync(semverPackage, linkedSemverPackage, process.platform === 'win32' ? 'junction' : 'dir')
+    symlinkSync(cordisLoaderPackage, linkedCordisLoaderPackage, process.platform === 'win32' ? 'junction' : 'dir')
+    symlinkSync(cosmokitPackage, linkedCosmokitPackage, process.platform === 'win32' ? 'junction' : 'dir')
     symlinkSync(dshPackage, linkedDshPackage, process.platform === 'win32' ? 'junction' : 'dir')
+    const profileHome = join(root, 'home')
     runElectronEntry(
       'flat profile dsh plugin help',
       ['--expose-internals'],
@@ -177,6 +190,14 @@ function runFlatProfileDshEntry() {
       ['plugin', '--help'],
       undefined,
       { DSH_DESKTOP_DEFAULT_PROFILE: 'desktop' },
+    )
+    runElectronEntry(
+      'profile dsh web help',
+      ['--expose-internals'],
+      join(desktopPackage, 'lib', 'desktop-cli.js'),
+      ['web', '--help'],
+      /^Usage: dsh --profile web/u,
+      { DSH_HOME: profileHome },
     )
   } finally {
     rmSync(root, { recursive: true, force: true })

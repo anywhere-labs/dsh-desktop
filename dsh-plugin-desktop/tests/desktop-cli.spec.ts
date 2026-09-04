@@ -5,6 +5,8 @@ import { pathToFileURL } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import {
   clearElectronRunAsNode,
+  desktopCliProfilePackageUrl,
+  profileBootNameFromArgv,
   runDesktopDshCli,
   withDefaultDesktopProfile,
 } from '../src/desktop-cli.ts'
@@ -104,6 +106,111 @@ describe('packaged dsh bootstrap', () => {
       'update',
     ])
     expect(() => withDefaultDesktopProfile([], '../desktop')).toThrow('invalid desktop profile name')
+  })
+
+  it('identifies only launcher-owned profile boots', () => {
+    expect(profileBootNameFromArgv(['web'])).toBe('web')
+    expect(profileBootNameFromArgv(['web', '--help'])).toBe('web')
+    expect(profileBootNameFromArgv(['web', '--profile', 'inner-app'])).toBe('web')
+    expect(profileBootNameFromArgv(['web', '--profile=inner-app'])).toBe('web')
+    expect(profileBootNameFromArgv(['web', '--dump-config'])).toBeUndefined()
+    expect(profileBootNameFromArgv(['--profile', 'work', '--resume', 'abc'])).toBe('work')
+    expect(profileBootNameFromArgv(['--profile=work', '--patch', 'extra.yml'])).toBe('work')
+    expect(profileBootNameFromArgv(['plugin', '--profile', 'work', 'add', 'plugin'])).toBeUndefined()
+    expect(profileBootNameFromArgv(['--profile', 'work', '--', '--profile', 'other'])).toBe('work')
+    expect(profileBootNameFromArgv(['--profile', '../work'])).toBeUndefined()
+    expect(profileBootNameFromArgv(['--profile', 'work', '--profile', 'other'])).toBeUndefined()
+    expect(profileBootNameFromArgv(['--profile', 'work', '--patch='])).toBeUndefined()
+    expect(profileBootNameFromArgv(['--profile', 'work', '--dump-default-config'])).toBeUndefined()
+  })
+
+  it('installs the resolver against the selected DSH_HOME profile anchor', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-cli-home-'))
+    try {
+      const environment = {
+        DSH_HOME: home,
+        DSH_DESKTOP_DEFAULT_PROFILE: 'desktop',
+      }
+      const argv = ['/Applications/DSH Desktop', '/app.asar/lib/desktop-cli.js']
+      const installResolver = vi.fn(() => vi.fn())
+      const load = vi.fn(async () => {})
+
+      await runDesktopDshCli(environment, load, argv, installResolver)
+
+      expect(installResolver).toHaveBeenCalledWith(desktopCliProfilePackageUrl('desktop', { DSH_HOME: home }))
+      expect(installResolver).toHaveBeenCalledWith(pathToFileURL(join(home, 'profiles', 'desktop', 'package.json')).href)
+      expect(load).toHaveBeenCalledOnce()
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('awaits resolver installation before importing the packaged CLI', async () => {
+    const events: string[] = []
+
+    await runDesktopDshCli(
+      {},
+      async () => { events.push('load') },
+      ['/Applications/DSH Desktop', '/app.asar/lib/desktop-cli.js', '--profile', 'work'],
+      async () => {
+        events.push('install')
+        await Promise.resolve()
+        events.push('ready')
+        return () => {}
+      },
+    )
+
+    expect(events).toEqual(['install', 'ready', 'load'])
+  })
+
+  it('keeps the resolver installed after a successful profile boot', async () => {
+    const releaseResolver = vi.fn()
+    const installResolver = vi.fn(() => releaseResolver)
+
+    await runDesktopDshCli(
+      {},
+      async () => {},
+      ['/Applications/DSH Desktop', '/app.asar/lib/desktop-cli.js', '--profile', 'work'],
+      installResolver,
+    )
+
+    expect(releaseResolver).not.toHaveBeenCalled()
+  })
+
+  it('does not install the resolver for plugin management or config dumps', async () => {
+    const installResolver = vi.fn(() => vi.fn())
+    const load = vi.fn(async () => {})
+
+    await runDesktopDshCli(
+      { DSH_DESKTOP_DEFAULT_PROFILE: 'desktop' },
+      load,
+      ['/Applications/DSH Desktop', '/app.asar/lib/desktop-cli.js', '--dump-config'],
+      installResolver,
+    )
+    await runDesktopDshCli(
+      { DSH_DESKTOP_DEFAULT_PROFILE: 'desktop' },
+      load,
+      ['/Applications/DSH Desktop', '/app.asar/lib/desktop-cli.js', 'plugin', 'add', 'plugin'],
+      installResolver,
+    )
+
+    expect(installResolver).not.toHaveBeenCalled()
+  })
+
+  it('releases the resolver when importing the packaged CLI fails', async () => {
+    const releaseResolver = vi.fn()
+    const installResolver = vi.fn(() => releaseResolver)
+    const failure = new Error('boot failed')
+    const load = vi.fn(async () => { throw failure })
+
+    await expect(runDesktopDshCli(
+      {},
+      load,
+      ['/Applications/DSH Desktop', '/app.asar/lib/desktop-cli.js', '--profile', 'work'],
+      installResolver,
+    )).rejects.toBe(failure)
+
+    expect(releaseResolver).toHaveBeenCalledOnce()
   })
 
   it('uses the physical unpacked dependency tree only inside an Electron package', () => {
