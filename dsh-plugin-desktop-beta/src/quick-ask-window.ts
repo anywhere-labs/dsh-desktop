@@ -3,6 +3,7 @@
 import { BrowserWindow, globalShortcut, screen } from 'electron'
 import { fileURLToPath } from 'node:url'
 import type { DesktopLocale, DesktopQuickLaunchRegistration, DesktopQuickLaunchSpec, DesktopQuickLaunchUpdate } from './runtime.ts'
+import { isDesktopShortcut } from './quick-ask-shortcut.ts'
 
 const QUICK_ASK_DOCUMENT = fileURLToPath(new URL('./native-ui/quick-ask.html', import.meta.url))
 const QUICK_ASK_SCHEME = 'dsh-quick-ask:'
@@ -43,7 +44,7 @@ function localized(locale: DesktopLocale) {
 }
 
 function shortcutPairValid(quickAsk: string, mainWindow: string): boolean {
-  return quickAsk.length > 0 && mainWindow.length > 0 && quickAsk !== mainWindow
+  return isDesktopShortcut(quickAsk) && isDesktopShortcut(mainWindow) && quickAsk !== mainWindow
 }
 
 /** Owns one Quick Ask window and exactly the two shortcuts it registers. */

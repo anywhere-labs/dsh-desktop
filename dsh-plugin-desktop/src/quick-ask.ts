@@ -8,21 +8,22 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type { DesktopQuickAskSubmission, DesktopQuickLaunchSpec } from './runtime.ts'
+import { DEFAULT_MAIN_WINDOW_SHORTCUT, DEFAULT_QUICK_ASK_SHORTCUT } from './quick-ask-shortcut.ts'
 
 export const name = 'desktop-quick-ask'
 export const inject = ['desktopRuntime', 'sessionController', 'workspaceRegistry', 'settings']
 export const DESKTOP_QUICK_ASK_SETTINGS_NAMESPACE = settingsNamespace('dsh-desktop-quick-ask')
-export const QUICK_ASK_SHORTCUTS = ['CommandOrControl+Alt+Space', 'CommandOrControl+Shift+Space', 'Alt+Space'] as const
-
 export interface DesktopQuickAskSettings {
-  readonly quickAskShortcut: typeof QUICK_ASK_SHORTCUTS[number]
-  readonly mainWindowShortcut: typeof QUICK_ASK_SHORTCUTS[number]
+  readonly quickAskShortcut: string
+  readonly mainWindowShortcut: string
   readonly workspaceId: string
 }
 
+const DesktopShortcutSchema = z.string().pattern(/^(?=.{1,80}$)(?:(?:CommandOrControl|Command|Control|Alt|Option|AltGr|Shift|Super)\+)+(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Tab|Backspace|Delete|Insert|Return|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Esc|Plus|VolumeUp|VolumeDown|VolumeMute|MediaNextTrack|MediaPreviousTrack|MediaStop|MediaPlayPause|PrintScreen)$/u)
+
 export const DesktopQuickAskSettingsSchema: z<DesktopQuickAskSettings> = z.object({
-  quickAskShortcut: z.union([...QUICK_ASK_SHORTCUTS]).default('CommandOrControl+Alt+Space'),
-  mainWindowShortcut: z.union([...QUICK_ASK_SHORTCUTS]).default('CommandOrControl+Shift+Space'),
+  quickAskShortcut: DesktopShortcutSchema.default(DEFAULT_QUICK_ASK_SHORTCUT),
+  mainWindowShortcut: DesktopShortcutSchema.default(DEFAULT_MAIN_WINDOW_SHORTCUT),
   workspaceId: z.string().default(''),
 })
 

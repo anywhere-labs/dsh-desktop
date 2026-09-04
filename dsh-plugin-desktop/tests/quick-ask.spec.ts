@@ -4,6 +4,7 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { describe, expect, it, vi } from 'vitest'
 import { DesktopQuickAskSettingsSchema, submitQuickAsk } from '../src/quick-ask.ts'
 import { parseQuickAskAction } from '../src/quick-ask-window.ts'
+import { desktopShortcutFromKeyboardEvent, isDesktopShortcut } from '../src/quick-ask-shortcut.ts'
 
 function context(renameRejects = false): { readonly ctx: Context, readonly create: ReturnType<typeof vi.fn>, readonly rename: ReturnType<typeof vi.fn>, readonly prompt: ReturnType<typeof vi.fn> } {
   const create = vi.fn(async () => ({ sessionId: 'session-quick' as SessionId }))
@@ -26,6 +27,29 @@ describe('Quick Ask Host bridge', () => {
       mainWindowShortcut: 'CommandOrControl+Shift+Space',
       workspaceId: '',
     })
+  })
+
+  it('accepts custom Electron accelerators and rejects unsafe strings', () => {
+    expect(DesktopQuickAskSettingsSchema({
+      quickAskShortcut: 'CommandOrControl+Shift+K',
+      mainWindowShortcut: 'Alt+F12',
+    } as never)).toMatchObject({
+      quickAskShortcut: 'CommandOrControl+Shift+K',
+      mainWindowShortcut: 'Alt+F12',
+    })
+    expect(isDesktopShortcut('CommandOrControl+Alt+Space')).toBe(true)
+    expect(isDesktopShortcut('Shift+F12')).toBe(true)
+    expect(isDesktopShortcut('Space')).toBe(false)
+    expect(isDesktopShortcut('Control+')).toBe(false)
+    expect(isDesktopShortcut('CommandOrControl+Control+K')).toBe(false)
+    expect(() => DesktopQuickAskSettingsSchema({ quickAskShortcut: 'not a shortcut' } as never)).toThrow()
+  })
+
+  it('records browser key events as canonical cross-platform accelerators', () => {
+    expect(desktopShortcutFromKeyboardEvent({ key: 'k', metaKey: true, ctrlKey: false, altKey: true, shiftKey: false })).toBe('CommandOrControl+Alt+K')
+    expect(desktopShortcutFromKeyboardEvent({ key: 'ArrowUp', metaKey: false, ctrlKey: true, altKey: false, shiftKey: true })).toBe('CommandOrControl+Shift+Up')
+    expect(desktopShortcutFromKeyboardEvent({ key: 'a', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false })).toBeUndefined()
+    expect(desktopShortcutFromKeyboardEvent({ key: 'Shift', metaKey: false, ctrlKey: false, altKey: false, shiftKey: true })).toBeUndefined()
   })
 
   it('creates, names, and prompts one ordinary Session in the selected workspace', async () => {
