@@ -466,29 +466,6 @@ export async function handleDesktopDiagnosticsExportRequest(
   }
 }
 
-/** Open the isolated native Profile creator from an exact empty request. */
-export async function handleDesktopProfileCreateWindowRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  expectedOrigin: string,
-  controller: DesktopSettingsController,
-  reportError: (operation: string, cause: unknown) => void = () => {},
-): Promise<void> {
-  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
-  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
-    return finishJson(res, 403, error('forbidden'))
-  }
-  const value = await parsePostBody(req, res)
-  if (value === INVALID_BODY) return
-  if (!isEmptyRequest(value)) return finishJson(res, 400, error('invalid Profile creator request'))
-  try {
-    finishJson(res, 200, controller.openProfileCreator())
-  } catch (cause) {
-    reportError('open Profile creator', cause)
-    finishJson(res, 500, error('Profile creator could not be opened'))
-  }
-}
-
 export const desktopSettingsRouteConstants = Object.freeze({
   maxBodyBytes: MAX_SETTINGS_BODY_BYTES,
 })

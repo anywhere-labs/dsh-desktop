@@ -11,7 +11,6 @@ import type {
   DesktopDeveloperToolsToggleResponse,
   DesktopDiagnosticsExportResponse,
   DesktopProfileCreateResponse,
-  DesktopProfileCreateWindowResponse,
   DesktopProfileDeleteResponse,
   DesktopProfileSelectResponse,
   DesktopRestartResponse,
@@ -47,8 +46,6 @@ export interface DesktopSettingsControllerBootstrap {
   toggleDeveloperTools(): void
   /** Export diagnostics through the launcher-owned privacy flow. */
   exportDiagnostics(): void | Promise<void>
-  /** Open the isolated native Profile creator. */
-  openProfileCreator(): void
 }
 
 /** A persisted response plus work that must run only after `res.end()`. */
@@ -198,13 +195,6 @@ export class DesktopSettingsController {
     await this.bootstrap.exportDiagnostics()
     return Object.freeze({ accepted: true })
   }
-
-  /** Open the native creator that creates, selects, and restarts safely. */
-  openProfileCreator(): DesktopProfileCreateWindowResponse {
-    this.bootstrap.openProfileCreator()
-    return Object.freeze({ accepted: true })
-  }
-
 }
 
 declare module '@deepseek-ai/cordis' {
