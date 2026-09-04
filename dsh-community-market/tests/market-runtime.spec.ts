@@ -1296,6 +1296,35 @@ describe('catalog active-source reads', () => {
     expect(second).toMatchObject({ cacheStatus: 'cached', locale: 'zh-CN', scanKey: first?.scanKey })
   })
 
+  it('evicts the least recently used scan index when the cache entry limit is reached', async () => {
+    const store = new MemoryCatalogSourceStore()
+    await store.save([source()])
+    const getJson = vi.fn()
+      .mockResolvedValue({ value: rawCatalog, finalUrl: 'https://deepseek1024.com/api/v1/plugins' })
+    const service = new DefaultCatalogService(store, { getJson }, { maxCacheEntries: 2 })
+
+    await service.scanCatalog(new AbortController().signal, { locale: 'en' })
+    await service.scanCatalog(new AbortController().signal, { locale: 'zh-CN' })
+    // Touch 'en' again so 'zh-CN' becomes the least recently used entry.
+    await service.scanCatalog(new AbortController().signal, { locale: 'en' })
+    expect(getJson).toHaveBeenCalledTimes(2)
+
+    await service.scanCatalog(new AbortController().signal, { locale: 'ja' })
+    expect(getJson).toHaveBeenCalledTimes(3)
+
+    // 'zh-CN' was evicted; 'en' and 'ja' keep serving from the cache.
+    const en = await service.scanCatalog(new AbortController().signal, { locale: 'en' })
+    const ja = await service.scanCatalog(new AbortController().signal, { locale: 'ja' })
+    expect(getJson).toHaveBeenCalledTimes(3)
+    expect(en).toMatchObject({ cacheStatus: 'cached' })
+    expect(ja).toMatchObject({ cacheStatus: 'cached' })
+
+    // Reading the evicted locale must refetch instead of growing the cache.
+    const zh = await service.scanCatalog(new AbortController().signal, { locale: 'zh-CN' })
+    expect(getJson).toHaveBeenCalledTimes(4)
+    expect(zh).toMatchObject({ cacheStatus: 'fresh' })
+  })
+
   it('fails closed and revokes old cursors before rebuilding an expired complete index', async () => {
     const store = new MemoryCatalogSourceStore()
     await store.save([source()])

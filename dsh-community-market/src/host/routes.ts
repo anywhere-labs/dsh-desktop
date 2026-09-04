@@ -711,7 +711,16 @@ export function registerMarketRoutes(
     locale: string,
   ): Promise<void> => {
     const cache = catalogCacheFromResponse(response, sourceRecordId, locale)
-    if (cache !== undefined) await scope.update({ catalogCache: cache })
+    if (cache === undefined) return
+    try {
+      await scope.update({ catalogCache: cache })
+    } catch (cause) {
+      // Catalog browsing already succeeded; a failed cache write must not
+      // escalate into an unhandled rejection that terminates the host.
+      ctx.logger.error(`dsh-community-market: failed to persist the catalog cache: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`)
+    }
   }
   const settingsScope = scope
   const routes = [
