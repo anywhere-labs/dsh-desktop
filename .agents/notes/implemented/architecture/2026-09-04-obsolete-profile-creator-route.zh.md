@@ -1,6 +1,6 @@
 # Agent Note：移除废弃的 Profile 创建窗口路由
 
-状态：拟议
+状态：已实现
 
 [English](2026-09-04-obsolete-profile-creator-route.md) | 中文
 
@@ -77,12 +77,13 @@ flowchart LR
 
 仓库外如果有代码硬编码调用私有 `create-window` 地址，修改后会收到 `404`。该地址从未是受支持的公开 interface，因此不增加兼容 adapter，也不设置弃用期。
 
-## 验证计划
+## 验证
 
-- 确认两套 desktop package 都不再包含旧路径和路由专属符号。
-- 在 Stable 和 Beta 中运行受影响的路由、启动恢复和插件测试。
-- 运行根目录 typecheck 和 build。
-- 运行 architecture 与双语文档检查。
+旧路径及其路由专属符号在两套 desktop package 中都已归零。Stable 和 Beta 的 settings、启动恢复及 Host plugin 定点测试均通过（各 `59 passed`）。
+
+根目录 typecheck 和 build 通过，architecture 与双语文档检查也通过。Stable 全量测试结果为 `1023 passed`、`12 skipped` 和 1 个无关失败；Beta 为 `1043 passed`、`12 skipped` 和同一个失败。两套 package 都是 `recovery-plugin-uninstall.spec.ts` 的子进程找不到 pnpm，因此以 127 退出。
+
+Variant 检查仍会报告已有且未声明的换行差异：`client/assets.d.ts`、`client/theme-presenter.ts` 和 `tray-icons.ts`；本次没有修改这些文件。
 
 ## 后果
 

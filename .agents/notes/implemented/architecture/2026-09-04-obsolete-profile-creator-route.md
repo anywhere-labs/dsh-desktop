@@ -1,6 +1,6 @@
 # Agent Note: Retire the obsolete Profile creator route
 
-Status: proposed
+Status: implemented
 
 English | [中文](2026-09-04-obsolete-profile-creator-route.zh.md)
 
@@ -77,12 +77,13 @@ The useful modules remain in place. `ProfileCreateWindow` still owns the native 
 
 A repository-external caller that hard-codes the private `create-window` path will receive `404` after this change. The path has never been a supported public interface, so no compatibility adapter or deprecation period is added.
 
-## Verification plan
+## Verification
 
-- Confirm that neither desktop package contains the old path or its route-specific symbols.
-- Run the affected route, boot-recovery, and plugin tests in Stable and Beta.
-- Run root typecheck and build.
-- Run the architecture and bilingual-document checks.
+The old path and its route-specific symbols no longer occur in either desktop package. The focused settings, boot-recovery, and Host plugin suites passed in Stable and Beta (`59 passed` each).
+
+Root typecheck and build passed, as did the architecture and bilingual-document checks. The full Stable suite completed with `1023 passed`, `12 skipped`, and one unrelated failure; Beta completed with `1043 passed`, `12 skipped`, and the same failure. In both packages, `recovery-plugin-uninstall.spec.ts` exits with code 127 because its child process cannot find pnpm.
+
+The variant check still reports the existing undeclared line-ending drift in `client/assets.d.ts`, `client/theme-presenter.ts`, and `tray-icons.ts`; none is changed here.
 
 ## Consequences
 
