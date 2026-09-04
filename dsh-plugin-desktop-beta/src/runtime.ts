@@ -129,6 +129,9 @@ export interface DesktopQuickAskSubmission {
 export interface DesktopQuickAskSession {
   readonly id: string
   readonly title: string
+  readonly workspaceId?: string
+  readonly cwd?: string
+  readonly createdAt?: number
 }
 
 /** One renderer-safe update from a Quick Ask Session. */
@@ -158,8 +161,8 @@ export interface DesktopQuickLaunchSpec extends DesktopQuickLaunchUpdate {
   readonly workspaces: () => readonly DesktopQuickAskWorkspace[]
   readonly sessions: () => readonly DesktopQuickAskSession[]
   readonly models: () => readonly DesktopQuickAskModel[]
-  readonly history: (sessionId: string) => readonly DesktopQuickAskHistoryMessage[]
-  readonly sessionModel?: (sessionId: string) => { readonly provider: string, readonly model: string } | undefined
+  readonly history: (sessionId: string) => Promise<readonly DesktopQuickAskHistoryMessage[]> | readonly DesktopQuickAskHistoryMessage[]
+  readonly sessionModel?: (sessionId: string) => Promise<{ readonly provider: string, readonly model: string } | undefined> | { readonly provider: string, readonly model: string } | undefined
   readonly selectModel?: (sessionId: string, model: { readonly provider: string, readonly model: string }) => Promise<void>
   readonly submit: (submission: DesktopQuickAskSubmission) => Promise<{ readonly sessionId: string }>
   readonly subscribe: (listener: (update: DesktopQuickAskUpdate) => void) => () => void

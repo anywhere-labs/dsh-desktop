@@ -137,6 +137,8 @@ export class QuickLaunchController implements DesktopQuickLaunchRegistration {
     )
     window.show()
     window.focus()
+    const sessions = this.spec.sessions()
+    void window.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent('dsh-quick-ask-sessions',{detail:${JSON.stringify(sessions)}}))`, true).catch(() => {})
     void window.webContents.executeJavaScript("window.dispatchEvent(new Event('dsh-quick-ask-focus'))", true).catch(() => {})
   }
 
@@ -217,8 +219,8 @@ export class QuickLaunchController implements DesktopQuickLaunchRegistration {
     }
     if (action.action === 'sessions') {
       this.sessionId = action.sessionId || undefined
-      const history = this.sessionId === undefined ? [] : this.spec.history(this.sessionId)
-      const model = this.sessionId === undefined ? undefined : this.spec.sessionModel?.(this.sessionId)
+      const history = this.sessionId === undefined ? [] : await this.spec.history(this.sessionId)
+      const model = this.sessionId === undefined ? undefined : await this.spec.sessionModel?.(this.sessionId)
       await window.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent('dsh-quick-ask-history',{detail:${JSON.stringify({ sessionId: this.sessionId ?? '', messages: history, model })}}))`, true).catch(() => {})
       return
     }
@@ -233,7 +235,8 @@ export class QuickLaunchController implements DesktopQuickLaunchRegistration {
       })
       this.sessionId = result.sessionId
       if (window.isDestroyed()) return
-      await window.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent('dsh-quick-ask-result',{detail:${JSON.stringify({ ok: true, sessionId: result.sessionId })}}))`, true)
+      const sessions = this.spec.sessions()
+      await window.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent('dsh-quick-ask-result',{detail:${JSON.stringify({ ok: true, sessionId: result.sessionId, sessions })}}))`, true)
     } catch {
       if (window.isDestroyed()) return
       await window.webContents.executeJavaScript("window.dispatchEvent(new CustomEvent('dsh-quick-ask-result',{detail:{ok:false}}))", true).catch(() => {})

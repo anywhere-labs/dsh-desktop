@@ -62,7 +62,7 @@
   }
   const copy = decode('copy') || {}
   const workspaces = decode('workspaces') || []
-  const sessionRows = decode('sessions') || []
+  let sessionRows = decode('sessions') || []
   const models = decode('models') || []
 
   document.documentElement.lang = params.get('locale') || 'en'
@@ -97,17 +97,47 @@
     workspace.append(option)
   }
 
-  // Populate Sessions
-  const newSession = document.createElement('option')
-  newSession.value = ''
-  newSession.textContent = copy.newSession || 'New session'
-  sessionSelect.append(newSession)
-  for (const item of sessionRows) {
-    const option = document.createElement('option')
-    option.value = item.id
-    option.textContent = item.title
-    sessionSelect.append(option)
+  let busy = false, sessionId = '', currentTurn = 0, streamText = '', streamNode
+
+  function updateSessionDropdown() {
+    const currentSelected = sessionId || sessionSelect.value
+    sessionSelect.replaceChildren()
+
+    const newSessionOpt = document.createElement('option')
+    newSessionOpt.value = ''
+    newSessionOpt.textContent = copy.newSession || 'New session'
+    sessionSelect.append(newSessionOpt)
+
+    const selectedWorkspace = workspace.value
+    const filtered = sessionRows.filter(s => {
+      if (!selectedWorkspace) return true
+      return s.workspaceId === selectedWorkspace
+    })
+
+    for (const item of filtered) {
+      const option = document.createElement('option')
+      option.value = item.id
+      option.textContent = item.title
+      if (item.id === currentSelected) {
+        option.selected = true
+      }
+      sessionSelect.append(option)
+    }
+
+    if (currentSelected && !filtered.some(s => s.id === currentSelected)) {
+      const active = sessionRows.find(s => s.id === currentSelected)
+      if (active) {
+        const option = document.createElement('option')
+        option.value = active.id
+        option.textContent = active.title
+        option.selected = true
+        sessionSelect.append(option)
+      }
+    }
+    sessionSelect.value = currentSelected || ''
   }
+
+  updateSessionDropdown()
 
   // Populate Models
   const defaultModelOpt = document.createElement('option')
@@ -132,8 +162,6 @@
     }
     ;(currentOptgroup || modelSelect).append(option)
   }
-
-  let busy = false, sessionId = '', currentTurn = 0, streamText = '', streamNode
 
   function navigate(action, fields = {}) {
     const url = new URL(`dsh-quick-ask://${action}`)
@@ -208,7 +236,13 @@
   sessionSelect.addEventListener('change', () => {
     messages.replaceChildren()
     sessionId = sessionSelect.value
-    if (!sessionId) {
+    if (sessionId) {
+      const matched = sessionRows.find(s => s.id === sessionId)
+      if (matched?.workspaceId && matched.workspaceId !== workspace.value) {
+        workspace.value = matched.workspaceId
+        updateSessionDropdown()
+      }
+    } else {
       const defaultItem = models.find(m => m.isDefault)
       modelSelect.value = defaultItem ? `${defaultItem.provider}:${defaultItem.model}` : ''
     }
@@ -216,17 +250,23 @@
   })
 
   workspace.addEventListener('change', () => {
-    if (sessionId) {
-      sessionId = ''
-      sessionSelect.value = ''
-      messages.replaceChildren()
-      const defaultItem = models.find(m => m.isDefault)
-      modelSelect.value = defaultItem ? `${defaultItem.provider}:${defaultItem.model}` : ''
-      navigate('sessions', { session: '' })
-    }
+    sessionId = ''
+    updateSessionDropdown()
+    sessionSelect.value = ''
+    messages.replaceChildren()
+    const defaultItem = models.find(m => m.isDefault)
+    modelSelect.value = defaultItem ? `${defaultItem.provider}:${defaultItem.model}` : ''
+    navigate('sessions', { session: '' })
   })
 
   window.addEventListener('dsh-quick-ask-focus', () => prompt.focus())
+
+  window.addEventListener('dsh-quick-ask-sessions', event => {
+    if (Array.isArray(event.detail)) {
+      sessionRows = event.detail
+      updateSessionDropdown()
+    }
+  })
 
   window.addEventListener('dsh-quick-ask-result', event => {
     if (!event.detail.ok) {
@@ -236,12 +276,22 @@
       return
     }
     sessionId = event.detail.sessionId
+    if (Array.isArray(event.detail.sessions)) {
+      sessionRows = event.detail.sessions
+    } else if (!sessionRows.some(s => s.id === sessionId)) {
+      sessionRows.unshift({ id: sessionId, title: sessionId, workspaceId: workspace.value })
+    }
+    updateSessionDropdown()
     sessionSelect.value = sessionId
   })
 
   window.addEventListener('dsh-quick-ask-history', event => {
     messages.replaceChildren()
     sessionId = event.detail.sessionId || ''
+    if (sessionId && !sessionRows.some(s => s.id === sessionId)) {
+      sessionRows.unshift({ id: sessionId, title: sessionId, workspaceId: workspace.value })
+    }
+    updateSessionDropdown()
     sessionSelect.value = sessionId
     for (const message of (event.detail.messages || [])) {
       add(message.role, message.text)

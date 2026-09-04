@@ -2,7 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { describe, expect, it, vi } from 'vitest'
-import { DesktopQuickAskSettingsSchema, submitQuickAsk } from '../src/quick-ask.ts'
+import { DesktopQuickAskSettingsSchema, refreshSessions, submitQuickAsk } from '../src/quick-ask.ts'
 import { parseQuickAskAction } from '../src/quick-ask-window.ts'
 import { desktopShortcutFromKeyboardEvent, isDesktopShortcut } from '../src/quick-ask-shortcut.ts'
 
@@ -90,6 +90,24 @@ describe('Quick Ask Host bridge', () => {
       provider: 'deepseek-official',
       model: 'deepseek-chat',
     })
+  })
+
+  it('loads historical sessions and titles from sessionQuery', async () => {
+    const listSessions = vi.fn(async () => [
+      { header: { id: 'session-1' as SessionId, cwd: '/tmp/project', createdAt: 100 } },
+      { header: { id: 'subagent-1' as SessionId, origin: 'subagent', createdAt: 200 } },
+    ])
+    const readTitleSnapshots = vi.fn(async () => [
+      { status: 'fulfilled', value: { session: { id: 'session-1' as SessionId }, title: { title: 'Historical Task' } } },
+    ])
+    const ctx = {
+      workspaceRegistry: { list: () => [{ id: 'workspace-1' as WorkspaceId, title: 'Project', path: '/tmp/project' }] },
+      logger: { warn: vi.fn() },
+      get: (key: string) => (key === 'sessionQuery' ? { listSessions, readTitleSnapshots } : undefined),
+    } as unknown as Context
+    await refreshSessions(ctx)
+    expect(listSessions).toHaveBeenCalled()
+    expect(readTitleSnapshots).toHaveBeenCalledWith(['session-1'])
   })
 
   it('rejects blank and oversized prompts before Session creation', async () => {

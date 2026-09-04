@@ -7,7 +7,7 @@ import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
-import type { DesktopQuickAskHistoryMessage, DesktopQuickAskModel, DesktopQuickAskSubmission, DesktopQuickAskUpdate, DesktopQuickLaunchSpec } from './runtime.ts'
+import type { DesktopQuickAskHistoryMessage, DesktopQuickAskModel, DesktopQuickAskSession, DesktopQuickAskSubmission, DesktopQuickAskUpdate, DesktopQuickLaunchSpec } from './runtime.ts'
 import { DEFAULT_MAIN_WINDOW_SHORTCUT, DEFAULT_QUICK_ASK_SHORTCUT } from './quick-ask-shortcut.ts'
 
 export const name = 'desktop-quick-ask'
@@ -64,6 +64,7 @@ export async function submitQuickAsk(ctx: Context, submission: DesktopQuickAskSu
     mode: 'queue',
     content: [{ type: 'text', text: prompt }],
   }, new AbortController().signal)
+  void refreshSessions(ctx)
   return { sessionId: String(sessionId) }
 }
 
@@ -72,9 +73,69 @@ interface QuickAskSession {
   snapshotEvents(): readonly unknown[]
 }
 
-function quickAskSessions(ctx: Context): readonly { readonly id: string, readonly title: string }[] {
-  const sessions = ctx.get('sessions') as unknown as { list(): QuickAskSession[] } | undefined
-  return sessions?.list().map(session => ({ id: String(session.header.id), title: quickAskHistory(session)[0]?.text.slice(0, 64) || String(session.header.id) })) ?? []
+let cachedSessions: readonly DesktopQuickAskSession[] = []
+
+export async function refreshSessions(ctx: Context): Promise<void> {
+  try {
+    const workspaces = ctx.workspaceRegistry.list()
+    const workspaceByPath = new Map(workspaces.map(w => [w.path, String(w.id)]))
+    const query = ctx.get('sessionQuery') as unknown as {
+      listSessions?(signal?: AbortSignal): Promise<{ header: { id: SessionId, cwd?: string, origin?: string, createdAt: number } }[]>
+      readTitleSnapshots?(ids: readonly SessionId[], signal?: AbortSignal): Promise<{ status: string, value?: { session: { id: SessionId }, title?: { title: string } } }[]>
+    } | undefined
+
+    if (query && typeof query.listSessions === 'function') {
+      const records = await query.listSessions()
+      const topLevel = records
+        .filter(r => r.header.origin !== 'subagent')
+        .sort((a, b) => (b.header.createdAt || 0) - (a.header.createdAt || 0))
+      const ids = topLevel.map(r => r.header.id)
+      const titleMap = new Map<string, string>()
+      if (typeof query.readTitleSnapshots === 'function' && ids.length > 0) {
+        try {
+          const titles = await query.readTitleSnapshots(ids)
+          for (const res of titles) {
+            if (res.status === 'fulfilled' && res.value?.title?.title) {
+              titleMap.set(String(res.value.session.id), res.value.title.title)
+            }
+          }
+        } catch {
+          // ignore title failure
+        }
+      }
+      cachedSessions = topLevel.map(r => {
+        const id = String(r.header.id)
+        const title = titleMap.get(id) || id
+        const workspaceId = r.header.cwd ? workspaceByPath.get(r.header.cwd) : undefined
+        return {
+          id,
+          title,
+          ...(workspaceId === undefined ? {} : { workspaceId }),
+          ...(r.header.cwd === undefined ? {} : { cwd: r.header.cwd }),
+          ...(r.header.createdAt === undefined ? {} : { createdAt: r.header.createdAt }),
+        }
+      })
+      return
+    }
+
+    const sessions = ctx.get('sessions') as unknown as { list(): QuickAskSession[] } | undefined
+    if (sessions) {
+      cachedSessions = sessions.list().map(session => {
+        const id = String(session.header.id)
+        const title = quickAskHistory(session)[0]?.text.slice(0, 64) || id
+        const cwd = (session.header as { cwd?: string }).cwd
+        const workspaceId = cwd ? workspaceByPath.get(cwd) : undefined
+        return {
+          id,
+          title,
+          ...(workspaceId === undefined ? {} : { workspaceId }),
+          ...(cwd === undefined ? {} : { cwd }),
+        }
+      })
+    }
+  } catch (cause) {
+    ctx.logger.warn(`dsh-plugin-desktop: failed to load sessions for Quick Ask: ${cause instanceof Error ? cause.message : String(cause)}`)
+  }
 }
 
 export function quickAskHistory(session: { snapshotEvents(): readonly unknown[] }): readonly DesktopQuickAskHistoryMessage[] {
@@ -152,6 +213,7 @@ export function apply(ctx: Context): void {
   )
   let value = settings.get()
   void refreshModels(ctx)
+  void refreshSessions(ctx)
   const host = ctx as unknown as { on(event: string, listener: () => void): void }
   host.on('llm/adapters-updated', () => { void refreshModels(ctx) })
   const listeners = new Set<(update: DesktopQuickAskUpdate) => void>()
@@ -165,6 +227,7 @@ export function apply(ctx: Context): void {
     } else if (event.type === 'turn/end') {
       const reason = event.data.reason.kind
       update = { sessionId, type: 'turn-end', turn: event.data.turn, failed: reason === 'error' || reason === 'max-tokens' }
+      void refreshSessions(ctx)
     }
     if (update !== undefined) for (const listener of listeners) listener(update)
   })
@@ -173,18 +236,49 @@ export function apply(ctx: Context): void {
     mainWindowShortcut: value.mainWindowShortcut,
     locale: () => ctx.desktopRuntime.locale,
     workspaces: () => ctx.workspaceRegistry.list().map(workspace => ({ id: String(workspace.id), title: workspace.title })),
-    sessions: () => quickAskSessions(ctx),
+    sessions: () => {
+      void refreshSessions(ctx)
+      return cachedSessions
+    },
     models: () => cachedModels,
-    sessionModel: sessionId => {
+    sessionModel: async sessionId => {
       const sessions = ctx.get('sessions') as unknown as { get(id: SessionId): QuickAskSession | undefined } | undefined
       const session = sessions?.get(sessionId as SessionId)
-      return session === undefined ? undefined : sessionActiveModel(session)
+      if (session !== undefined) {
+        return sessionActiveModel(session)
+      }
+      const query = ctx.get('sessionQuery') as unknown as {
+        readSession?(id: SessionId): Promise<{ readonly events: readonly unknown[] }>
+      } | undefined
+      if (typeof query?.readSession === 'function') {
+        try {
+          const loaded = await query.readSession(sessionId as SessionId)
+          return sessionActiveModel({ snapshotEvents: () => loaded.events })
+        } catch {
+          return undefined
+        }
+      }
+      return undefined
     },
     selectModel: (sessionId, model) => selectQuickAskModel(ctx, sessionId, model),
-    history: sessionId => {
+    history: async sessionId => {
       const sessions = ctx.get('sessions') as unknown as { get(id: SessionId): QuickAskSession | undefined } | undefined
       const session = sessions?.get(sessionId as SessionId)
-      return session === undefined ? [] : quickAskHistory(session)
+      if (session !== undefined) {
+        return quickAskHistory(session)
+      }
+      const query = ctx.get('sessionQuery') as unknown as {
+        readSession?(id: SessionId): Promise<{ readonly events: readonly unknown[] }>
+      } | undefined
+      if (typeof query?.readSession === 'function') {
+        try {
+          const loaded = await query.readSession(sessionId as SessionId)
+          return quickAskHistory({ snapshotEvents: () => loaded.events })
+        } catch (cause) {
+          ctx.logger.warn(`dsh-plugin-desktop: failed to read history for session ${sessionId}: ${cause instanceof Error ? cause.message : String(cause)}`)
+        }
+      }
+      return []
     },
     submit: submission => submitQuickAsk(ctx, submission),
     subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener) } },
