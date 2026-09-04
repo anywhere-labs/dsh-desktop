@@ -969,11 +969,10 @@ export function prepareDesktopProfile(
         throw new Error(`${BIN_NAME}: ${mode} desktop mode must use ${packageName} in the ${id} row`)
       }
     }
-    patches.push(
-      { id: 'ui-layout', disabled: true },
-      { id: 'ui-sidebar', disabled: false },
-      { id: 'ui-conversation', disabled: false },
-    )
+    // Desktop owns only the replacement root layout. Preserve the final
+    // profile state of its documented occupants so a client bundle can disable
+    // the stock Sidebar or Conversation and register a compatible replacement.
+    patches.push({ id: 'ui-layout', disabled: true })
   }
   const presets = rows.get(AGENT_PRESETS_ROW_ID)
   if (presets !== undefined) {
