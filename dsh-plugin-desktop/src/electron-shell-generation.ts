@@ -19,9 +19,10 @@ import { prepareTrayIcon } from './tray-icons.ts'
 import { desktopWindowOptions } from './window-options.ts'
 import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
 import {
-  fitMainWindowBounds,
+  resolveMainWindowLayout,
   sameMainWindowBounds,
   type MainWindowBounds,
+  type MainWindowLayout,
   type MainWindowStateStore,
 } from './main-window-state.ts'
 
@@ -199,22 +200,28 @@ export class ElectronShellGeneration {
     const origin = new URL(spec.url).origin
     if (platform.platform !== 'linux') nativeTheme.themeSource = spec.readThemeSource()
     let persistedBounds: MainWindowBounds | undefined
-    let restoredBounds: MainWindowBounds | undefined
     try {
       persistedBounds = this.options.mainWindowState.read()
-      if (persistedBounds !== undefined) {
-        const display = screen.getDisplayMatching(persistedBounds)
-        restoredBounds = fitMainWindowBounds(persistedBounds, display.workArea, {
-          width: spec.minWidth,
-          height: spec.minHeight,
-        })
-      }
     } catch (cause) {
       this.options.logError(`dsh-plugin-desktop: failed to restore main-window state: ${cause instanceof Error ? cause.message : String(cause)}`)
     }
+    let windowLayout: MainWindowLayout | undefined
+    try {
+      const display = persistedBounds === undefined
+        ? screen.getPrimaryDisplay()
+        : screen.getDisplayMatching(persistedBounds)
+      windowLayout = resolveMainWindowLayout(
+        persistedBounds,
+        display.workArea,
+        { width: spec.width, height: spec.height },
+        { width: spec.minWidth, height: spec.minHeight },
+      )
+    } catch (cause) {
+      this.options.logError(`dsh-plugin-desktop: failed to fit main window to the display: ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
     const window = new BrowserWindow({
       ...desktopWindowOptions(spec, icon, platform.platform, this.options.preloadPath),
-      ...(restoredBounds ?? {}),
+      ...(windowLayout ?? {}),
     })
     window.accessibleTitle = spec.windowTitle
     platform.configureWindow(window)
