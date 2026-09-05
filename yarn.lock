@@ -12737,6 +12737,7 @@ __metadata:
     "@types/semver": "npm:^7.7.1"
     "@vitejs/plugin-react": "npm:^6"
     adm-zip: "npm:^0.6.0"
+    chokidar: "npm:^4.0.3"
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
     dsh-community-market: "npm:0.1.0-dev.0"
