@@ -46,6 +46,8 @@ export interface DesktopTrayIcons {
   templatePath: string
   /** Brand-blue Windows/Linux image with DPI representations beside it. */
   bluePath: string
+  /** White whale glyph for Windows dark taskbars (transparent canvas). */
+  winDarkTaskbarPath: string
 }
 
 /** Stable placement groups for Host plugins that extend the native tray. */
