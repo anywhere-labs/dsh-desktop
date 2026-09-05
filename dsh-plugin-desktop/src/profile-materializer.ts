@@ -5,6 +5,7 @@ import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import { delimiter, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 const ELECTRON_HEADERS_URL = 'https://electronjs.org/headers'
 const DEFAULT_TIMEOUT_MS = 120_000
@@ -27,6 +28,8 @@ export interface ProfileMaterializerOptions {
   readonly maxOutputBytes?: number
   /** Permit a one-time Profile migration to reconcile stale lockfile settings. */
   readonly updateLockfile?: boolean
+  /** Injectable only for headless tests; production scrubs the parent environment. */
+  readonly scrubParent?: () => NodeJS.ProcessEnv
   /** Injectable only for headless tests; production uses node:child_process.spawn. */
   readonly spawn?: ProfileMaterializerSpawn
 }
@@ -93,6 +96,67 @@ function inheritedPath(): string {
   if (exact !== undefined || process.platform !== 'win32') return exact ?? ''
   return Object.entries(process.env)
     .find(([key]) => key.toUpperCase() === 'PATH')?.[1] ?? ''
+}
+
+const MATERIALIZER_ENV_KEYS = [
+  'PATH',
+  'NODE',
+  'ELECTRON_RUN_AS_NODE',
+  'DSH_HOME',
+  'CI',
+  'npm_config_runtime',
+  'npm_config_target',
+  'npm_config_disturl',
+] as const
+
+/**
+ * Environment keys that inject code, resolution paths, trust anchors, or
+ * package sources into the install subprocess. The child runs the Electron
+ * binary with ELECTRON_RUN_AS_NODE=1, so NODE_OPTIONS/NODE_PATH would load
+ * attacker-chosen modules; the LD_ and DYLD_ families hijack native library
+ * loading; NODE_EXTRA_CA_CERTS and the SSL_CERT_ pair retarget TLS trust;
+ * the npm_config_ entries redirect dependency resolution. The shared
+ * scrubbedParentEnv does not strip these yet; removed here until it does.
+ */
+const MATERIALIZER_STRIPPED_ENV_KEYS = new Set([
+  'NODE_OPTIONS',
+  'NODE_PATH',
+  'NODE_EXTRA_CA_CERTS',
+  'LD_PRELOAD',
+  'LD_LIBRARY_PATH',
+  'DYLD_INSERT_LIBRARIES',
+  'DYLD_LIBRARY_PATH',
+  'DYLD_FRAMEWORK_PATH',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'npm_config_registry',
+  'npm_config_userconfig',
+  'npm_config_cafile',
+  'npm_config_strict_ssl',
+].map(key => key.toUpperCase()))
+
+/**
+ * Start from the credential-scrubbed parent environment, like the pnpm
+ * subprocess path does, so secrets and DSH-private entries never reach the
+ * install subprocess. Node loader-injection variables are removed outright.
+ * On Windows, where environment keys match case-insensitively, drop inherited
+ * spellings that collide with an explicit override to avoid handing spawn
+ * duplicate keys.
+ */
+function materializerParentEnv(scrubParent: () => NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const parent = { ...scrubParent() }
+  for (const inherited of Object.keys(parent)) {
+    if (MATERIALIZER_STRIPPED_ENV_KEYS.has(inherited.toUpperCase())) delete parent[inherited]
+  }
+  if (process.platform === 'win32') {
+    const explicit = new Set(MATERIALIZER_ENV_KEYS.map(key => key.toUpperCase()))
+    for (const inherited of Object.keys(parent)) {
+      if (explicit.has(inherited.toUpperCase()) && !(MATERIALIZER_ENV_KEYS as readonly string[]).includes(inherited)) {
+        delete parent[inherited]
+      }
+    }
+  }
+  return parent
 }
 
 function assertAbsolutePath(label: string, value: string): void {
@@ -172,7 +236,7 @@ export async function materializeProfile(
   ] as const
   const path = inheritedPath()
   const environment: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...materializerParentEnv(options.scrubParent ?? scrubbedParentEnv),
     PATH: path.length === 0 ? options.nodeBinDir : `${options.nodeBinDir}${delimiter}${path}`,
     NODE: options.nodeShimPath,
     ELECTRON_RUN_AS_NODE: '1',
