@@ -155,6 +155,12 @@ describe('pre-Host recovery plugin uninstall command', () => {
       dshBootstrapPath,
       environment: {
         PATH: systemBin,
+        ...(process.platform === 'win32'
+          ? {
+              ComSpec: process.env.ComSpec ?? 'C:\\Windows\\System32\\cmd.exe',
+              PATHEXT: process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD',
+            }
+          : {}),
         PNPM_SELECTION_MARKER: selectedMarker,
       },
     })).resolves.toMatchObject({ exitCode: 0 })
