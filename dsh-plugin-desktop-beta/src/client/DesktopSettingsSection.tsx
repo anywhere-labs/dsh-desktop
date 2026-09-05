@@ -10,6 +10,7 @@ import type {
 } from './desktop-settings-api.ts'
 import type { DesktopSettingsLocaleKey } from './desktop-settings-locales.ts'
 import type { DesktopClientPlatform } from './environment.ts'
+import { desktopShortcutFromKeyboardEvent, isDesktopShortcut } from '../quick-ask-shortcut.ts'
 import {
   desktopBrowserAccessAvailable,
   desktopBrowserAccessEnabled,
@@ -27,6 +28,13 @@ export interface DesktopShellSettings {
 }
 
 /** Browser view of the Host `dsh-desktop-notifications` settings namespace. */
+/** Browser view of the Host `dsh-desktop-quick-ask` settings namespace. */
+export interface DesktopQuickAskSettings {
+  readonly quickAskShortcut: string
+  readonly mainWindowShortcut: string
+  readonly workspaceId: string
+}
+
 export interface DesktopNotificationSettings {
   readonly enabled: boolean
   readonly notifyOnTurnCompletion: boolean
@@ -43,6 +51,7 @@ export interface DesktopSettingsSectionInjected {
   readonly micaSupported: boolean
   readonly setMode: (mode: DesktopShellSettings['mode']) => Promise<void>
   readonly desktopSettings: SettingsScope<DesktopShellSettings>
+  readonly quickAskSettings: SettingsScope<DesktopQuickAskSettings>
   readonly notificationSettings: SettingsScope<DesktopNotificationSettings>
 }
 
@@ -53,7 +62,7 @@ export type DesktopSettingsSectionProps =
   & InjectFace<DesktopSettingsSectionInjected>
 
 type Translate = DesktopSettingsSectionProps['t']
-type BusyOperation = 'load' | 'create-profile' | 'select-profile' | 'delete-profile' | 'select-market' | 'mode' | 'material' | 'web' | 'notification'
+type BusyOperation = 'load' | 'create-profile' | 'select-profile' | 'delete-profile' | 'select-market' | 'mode' | 'material' | 'web' | 'shortcut' | 'notification'
 type RestartState = 'none' | 'restarting' | 'required'
 type LanPollWait = (signal: AbortSignal) => Promise<void>
 
@@ -259,6 +268,62 @@ function ToggleRow({
   )
 }
 
+function ShortcutRecorder({
+  label,
+  value,
+  disabled,
+  conflict,
+  t,
+  onSave,
+}: {
+  label: string
+  value: string
+  disabled: boolean
+  conflict: boolean
+  t: Translate
+  onSave: (value: string) => void
+}) {
+  const [draft, setDraft] = useState(value)
+  const [recording, setRecording] = useState(false)
+  useEffect(() => { if (!recording) setDraft(value) }, [recording, value])
+  const valid = isDesktopShortcut(draft) && !conflict
+  return (
+    <div className="dshDesktopSettingsShortcutRow">
+      <div className="dshDesktopSettingsShortcutCopy">
+        <strong>{label}</strong>
+        <span>{recording ? t('shortcutRecording') : t('shortcutFieldHint')}</span>
+      </div>
+      <input
+        className="dshDesktopSettingsInput dshDesktopSettingsShortcutInput"
+        aria-label={label}
+        value={draft}
+        readOnly
+        disabled={disabled}
+        data-invalid={!valid ? 'true' : undefined}
+        onFocus={() => { setRecording(true) }}
+        onBlur={() => { setRecording(false); setDraft(value) }}
+        onKeyDown={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          if (event.key === 'Escape') { event.currentTarget.blur(); return }
+          const shortcut = desktopShortcutFromKeyboardEvent(event.nativeEvent)
+          if (shortcut !== undefined) setDraft(shortcut)
+        }}
+      />
+      <button
+        type="button"
+        className="dshDesktopSettingsButton"
+        disabled={disabled || draft === value || !valid}
+        onMouseDown={event => { event.preventDefault() }}
+        onClick={() => { onSave(draft); setRecording(false) }}
+      >
+        {t('shortcutSave')}
+      </button>
+      {!valid && <span className="dshDesktopSettingsShortcutError" role="alert">{t(conflict ? 'shortcutConflict' : 'shortcutInvalid')}</span>}
+    </div>
+  )
+}
+
 function profileState(profile: DesktopProfileView, t: Translate): string {
   if (!profile.exists || !profile.webCapable || !profile.selectable) return t('profileUnavailable')
   return t('profileReady')
@@ -307,9 +372,11 @@ export function DesktopSettingsSection({
   micaSupported,
   setMode: persistMode,
   desktopSettings,
+  quickAskSettings,
   notificationSettings,
 }: DesktopSettingsSectionProps) {
   const desktop = useScope(desktopSettings)
+  const quickAsk = useScope(quickAskSettings)
   const notifications = useScope(notificationSettings)
   const [view, setView] = useState<DesktopSettingsView>()
   const [profileName, setProfileName] = useState('')
@@ -367,6 +434,7 @@ export function DesktopSettingsSection({
 
   const requestRestart = (): void => { setRestart('restarting') }
   const settingsWritable = desktop.status === 'ready' && desktop.writable
+  const quickAskWritable = quickAsk.status === 'ready' && quickAsk.writable
   const notificationsWritable = notifications.status === 'ready' && notifications.writable
   const storedMode = desktop.value?.mode ?? initialMode
   const configuredNetworkExposure = desktop.value?.networkExposure ?? 'loopback'
@@ -442,6 +510,10 @@ export function DesktopSettingsSection({
       }
       requestRestart()
     })
+  }
+
+  const setShortcut = (field: 'quickAskShortcut' | 'mainWindowShortcut', shortcut: string): void => {
+    void run('shortcut', async () => { await quickAskSettings.set(field, shortcut) })
   }
 
   const setNotification = (field: keyof DesktopNotificationSettings, checked: boolean): void => {
@@ -723,6 +795,34 @@ export function DesktopSettingsSection({
               </div>
             )}
           </>
+        )}
+      </section>
+
+      <section className="dshDesktopSettingsGroup" aria-labelledby="dsh-desktop-shortcuts-title">
+        <div>
+          <h3 id="dsh-desktop-shortcuts-title">{t('shortcutsTitle')}</h3>
+          <p className="dshDesktopSettingsGroupIntro">{t('shortcutsIntro')}</p>
+        </div>
+        {quickAsk.status === 'unavailable' && <p className="dshDesktopSettingsNotice">{t('readOnly')}</p>}
+        {quickAsk.value !== undefined && (
+          <div className="dshDesktopSettingsShortcutList">
+            <ShortcutRecorder
+              label={t('quickAskShortcut')}
+              value={quickAsk.value.quickAskShortcut}
+              disabled={!quickAskWritable || busy !== undefined}
+              conflict={quickAsk.value.quickAskShortcut === quickAsk.value.mainWindowShortcut}
+              t={t}
+              onSave={value => { setShortcut('quickAskShortcut', value) }}
+            />
+            <ShortcutRecorder
+              label={t('mainWindowShortcut')}
+              value={quickAsk.value.mainWindowShortcut}
+              disabled={!quickAskWritable || busy !== undefined}
+              conflict={quickAsk.value.mainWindowShortcut === quickAsk.value.quickAskShortcut}
+              t={t}
+              onSave={value => { setShortcut('mainWindowShortcut', value) }}
+            />
+          </div>
         )}
       </section>
 

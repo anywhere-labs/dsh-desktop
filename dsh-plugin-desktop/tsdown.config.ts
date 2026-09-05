@@ -17,6 +17,7 @@ export default defineConfig([
       profiles: 'src/profiles.ts',
       diagnostics: 'src/diagnostics.ts',
       notifications: 'src/notifications.ts',
+      'quick-ask': 'src/quick-ask.ts',
       'diagnostic-export-worker': 'src/diagnostic-export-worker.ts',
       'packaged-runtime-smoke': 'src/packaged-runtime-smoke.ts',
       runtime: 'src/runtime.ts',

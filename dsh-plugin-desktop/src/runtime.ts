@@ -97,6 +97,85 @@ export interface DesktopNotification {
   body: string
 }
 
+/** Minimal workspace row rendered by the native Quick Ask window. */
+export interface DesktopQuickAskWorkspace {
+  readonly id: string
+  readonly title: string
+}
+
+/** One model displayed in the Quick Ask model selector. */
+export interface DesktopQuickAskModel {
+  readonly provider: string
+  readonly model: string
+  readonly name: string
+  readonly group?: string
+  readonly isDefault?: boolean
+}
+
+/** One Quick Ask submission admitted by the current Host. */
+export interface DesktopQuickAskSubmission {
+  readonly prompt: string
+  readonly workspaceId?: string
+  /** Existing Quick Ask Session used for a follow-up message. */
+  readonly sessionId?: string
+  /** Optional model selection for the Session. */
+  readonly model?: {
+    readonly provider: string
+    readonly model: string
+  }
+}
+
+/** Minimal selectable Session row rendered by the native Quick Ask window. */
+export interface DesktopQuickAskSession {
+  readonly id: string
+  readonly title: string
+  readonly workspaceId?: string
+  readonly cwd?: string
+  readonly createdAt?: number
+}
+
+/** One renderer-safe update from a Quick Ask Session. */
+export interface DesktopQuickAskUpdate {
+  readonly sessionId: string
+  readonly type: 'assistant-delta' | 'assistant-message' | 'turn-end'
+  readonly turn?: number
+  readonly text?: string
+  readonly failed?: boolean
+}
+
+/** Renderer-safe persisted message shown when one existing Session is selected. */
+export interface DesktopQuickAskHistoryMessage {
+  readonly role: 'user' | 'assistant'
+  readonly text: string
+}
+
+/** Native quick-launch settings update. */
+export interface DesktopQuickLaunchUpdate {
+  readonly quickAskShortcut: string
+  readonly mainWindowShortcut: string
+}
+
+/** Host callbacks and initial shortcuts installed into Electron. */
+export interface DesktopQuickLaunchSpec extends DesktopQuickLaunchUpdate {
+  readonly locale: () => DesktopLocale
+  readonly workspaces: () => readonly DesktopQuickAskWorkspace[]
+  readonly sessions: () => readonly DesktopQuickAskSession[]
+  readonly models: () => readonly DesktopQuickAskModel[]
+  readonly history: (sessionId: string) => Promise<readonly DesktopQuickAskHistoryMessage[]> | readonly DesktopQuickAskHistoryMessage[]
+  readonly sessionModel?: (sessionId: string) => Promise<{ readonly provider: string, readonly model: string } | undefined> | { readonly provider: string, readonly model: string } | undefined
+  readonly selectModel?: (sessionId: string, model: { readonly provider: string, readonly model: string }) => Promise<void>
+  readonly submit: (submission: DesktopQuickAskSubmission) => Promise<{ readonly sessionId: string }>
+  readonly subscribe: (listener: (update: DesktopQuickAskUpdate) => void) => () => void
+  readonly showMain: () => void
+}
+
+/** Lifecycle handle for Quick Ask and main-window shortcuts. */
+export interface DesktopQuickLaunchRegistration {
+  update(update: DesktopQuickLaunchUpdate): { readonly ok: true } | { readonly ok: false, readonly action: 'quick-ask' | 'main-window', readonly reason: 'conflict' | 'unavailable' }
+  refresh(spec: DesktopQuickLaunchSpec): void
+  dispose(): void
+}
+
 /** Electron capabilities used by the headless update plugin. */
 export interface DesktopUpdateAdapter {
   /** Whether the running executable came from an Electron package. */
@@ -194,6 +273,9 @@ export interface DesktopRuntime {
 
   /** Reveal and focus the current window, if mounted. */
   show(): void
+
+  /** Register the native Quick Ask window and both global shortcuts. */
+  registerQuickLaunch(spec: DesktopQuickLaunchSpec): DesktopQuickLaunchRegistration
 
   /** Request native attention for background activity while the window is unfocused. */
   notifyAttention(notification: DesktopNotification): void

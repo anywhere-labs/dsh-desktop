@@ -12,6 +12,8 @@
       name: dsh-plugin-desktop-beta/diagnostics
     - id: desktop-notifications
       name: dsh-plugin-desktop-beta/notifications
+    - id: desktop-quick-ask
+      name: dsh-plugin-desktop-beta/quick-ask
     - id: desktop-pnpm
       name: dsh-plugin-desktop-beta/pnpm
     - id: desktop-profiles
