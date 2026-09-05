@@ -156,6 +156,11 @@ describe('pre-Host recovery plugin uninstall command', () => {
       environment: {
         PATH: systemBin,
         PNPM_SELECTION_MARKER: selectedMarker,
+        // Windows needs ComSpec/PATHEXT to resolve and run the .cmd shim.
+        // The isolated fixture otherwise strips them (see #771).
+        ...(process.platform === 'win32'
+          ? { ComSpec: process.env.ComSpec, PATHEXT: process.env.PATHEXT }
+          : {}),
       },
     })).resolves.toMatchObject({ exitCode: 0 })
 
