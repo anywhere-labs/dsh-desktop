@@ -67,12 +67,17 @@ vi.mock('../src/update-download.ts', () => ({
   resolveDesktopUpdateArtifact: updater.resolve,
 }))
 
+vi.mock('../src/windows-taskbar-theme.ts', () => ({
+  readWindowsTaskbarUsesLightTheme: electron.taskbarTheme.readWindowsTaskbarUsesLightTheme,
+}))
+
 vi.mock('node:child_process', async (importOriginal) => ({
   ...await importOriginal<typeof import('node:child_process')>(),
   spawn: childProcess.spawn,
 }))
 
 const electron = vi.hoisted(() => {
+  const taskbarTheme = { readWindowsTaskbarUsesLightTheme: vi.fn(async () => false) }
   const browserWindowOptions: unknown[] = []
   const browserWindowThemeSources: string[] = []
   const browserWindows: BrowserWindow[] = []
@@ -101,6 +106,14 @@ const electron = vi.hoisted(() => {
     setTemplateImage: vi.fn(),
   }
   const blueIcon = {
+    isEmpty: vi.fn(() => false),
+    setTemplateImage: vi.fn(),
+  }
+  const darkTaskbarIcon = {
+    isEmpty: vi.fn(() => false),
+    setTemplateImage: vi.fn(),
+  }
+  const lightTaskbarIcon = {
     isEmpty: vi.fn(() => false),
     setTemplateImage: vi.fn(),
   }
@@ -183,6 +196,8 @@ const electron = vi.hoisted(() => {
     if (path.endsWith('app-icon.png')) return appIcon
     if (path.endsWith('tray-iconTemplate.png')) return templateIcon
     if (path.endsWith('tray-icon-blue.png')) return blueIcon
+    if (path.endsWith('tray-icon-win-dark-taskbar.png')) return darkTaskbarIcon
+    if (path.endsWith('tray-icon-win-light-taskbar.png')) return lightTaskbarIcon
     throw new Error(`unexpected image path ${path}`)
   })
 
@@ -213,8 +228,11 @@ const electron = vi.hoisted(() => {
     browserWindows,
     browserWindowOff,
     browserWindowOn,
+    darkTaskbarIcon,
+    lightTaskbarIcon,
     loadURL,
     sessionFetch,
+    taskbarTheme,
     dialog,
     Menu: {
       buildFromTemplate: vi.fn((template: unknown[]) => {
@@ -302,6 +320,8 @@ const spec: DesktopShellSpec = {
   trayIcons: {
     templatePath: '/tmp/tray-iconTemplate.png',
     bluePath: '/tmp/tray-icon-blue.png',
+    darkTaskbarPath: '/tmp/tray-icon-win-dark-taskbar.png',
+    lightTaskbarPath: '/tmp/tray-icon-win-light-taskbar.png',
   },
   readLocalePreference: vi.fn(() => undefined),
   readThemeSource: vi.fn(() => 'system' as const),
@@ -322,6 +342,8 @@ describe('Electron desktop runtime', () => {
     electron.notifications.length = 0
     childProcess.reset()
     vi.clearAllMocks()
+    electron.taskbarTheme.readWindowsTaskbarUsesLightTheme.mockReset()
+    electron.taskbarTheme.readWindowsTaskbarUsesLightTheme.mockResolvedValue(false)
     updater.download.mockReset()
     updater.filename.mockReset()
     updater.filename.mockImplementation((platform: string, version: string) => (
@@ -710,7 +732,7 @@ describe('Electron desktop runtime', () => {
     await release()
   })
 
-  it('uses the Windows caption, hidden menu bar, removed menu, and fixed blue tray image', async () => {
+  it('uses the Windows caption, hidden menu bar, and dark-taskbar tray glyph', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
     const runtime = new ElectronDesktopRuntime(async () => {})
@@ -726,8 +748,25 @@ describe('Electron desktop runtime', () => {
     expect(electron.browserWindows[0]?.removeMenu).toHaveBeenCalledOnce()
     expect(electron.app.dock.setIcon).not.toHaveBeenCalled()
     expect(electron.Menu.setApplicationMenu).not.toHaveBeenCalled()
-    expect(electron.trays[0]?.image).toBe(electron.blueIcon)
+    expect(electron.taskbarTheme.readWindowsTaskbarUsesLightTheme).toHaveBeenCalledOnce()
+    expect(electron.trays[0]?.image).toBe(electron.darkTaskbarIcon)
     expect(electron.templateIcon.setTemplateImage).not.toHaveBeenCalled()
+
+    await release()
+    expect(electron.trays[0]?.off).toHaveBeenCalledWith('click', expect.any(Function))
+  })
+
+  it('switches the Windows tray glyph when the taskbar uses the light theme', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    electron.taskbarTheme.readWindowsTaskbarUsesLightTheme.mockResolvedValue(true)
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const runtime = new ElectronDesktopRuntime(async () => {})
+    const release = runtime.schedule(spec)
+
+    await runtime.mountScheduled()
+
+    expect(electron.trays[0]?.image).toBe(electron.lightTaskbarIcon)
+    expect(electron.trays).toHaveLength(1)
 
     await release()
     expect(electron.trays[0]?.off).toHaveBeenCalledWith('click', expect.any(Function))

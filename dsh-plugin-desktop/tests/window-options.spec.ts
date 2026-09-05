@@ -36,6 +36,8 @@ const spec: DesktopShellSpec = {
   trayIcons: {
     templatePath: '/tmp/tray-iconTemplate.png',
     bluePath: '/tmp/tray-icon-blue.png',
+    darkTaskbarPath: '/tmp/tray-icon-win-dark-taskbar.png',
+    lightTaskbarPath: '/tmp/tray-icon-win-light-taskbar.png',
   },
   readLocalePreference: () => undefined,
   readThemeSource: () => 'system',

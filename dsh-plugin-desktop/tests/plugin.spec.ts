@@ -333,6 +333,8 @@ describe('desktop Host plugin', () => {
     expect(harness.shell()?.iconPath.endsWith(join('build', 'app-icon-mac.png'))).toBe(true)
     expect(harness.shell()?.trayIcons.templatePath.endsWith(join('build', 'tray-iconTemplate.png'))).toBe(true)
     expect(harness.shell()?.trayIcons.bluePath.endsWith(join('build', 'tray-icon-blue.png'))).toBe(true)
+    expect(harness.shell()?.trayIcons.darkTaskbarPath.endsWith(join('build', 'tray-icon-win-dark-taskbar.png'))).toBe(true)
+    expect(harness.shell()?.trayIcons.lightTaskbarPath.endsWith(join('build', 'tray-icon-win-light-taskbar.png'))).toBe(true)
     expect(harness.shell()?.readThemeSource()).toBe('system')
     harness.notifyTheme('dark')
     expect(harness.setThemeSource).toHaveBeenCalledWith('dark')

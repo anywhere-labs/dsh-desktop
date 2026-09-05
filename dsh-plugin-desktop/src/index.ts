@@ -244,6 +244,8 @@ export function apply(ctx: Context, config: Config): void {
   const trayIcons = {
     templatePath: fileURLToPath(new URL('../build/tray-iconTemplate.png', import.meta.url)),
     bluePath: fileURLToPath(new URL('../build/tray-icon-blue.png', import.meta.url)),
+    darkTaskbarPath: fileURLToPath(new URL('../build/tray-icon-win-dark-taskbar.png', import.meta.url)),
+    lightTaskbarPath: fileURLToPath(new URL('../build/tray-icon-win-light-taskbar.png', import.meta.url)),
   }
   const settings = ctx.settings.register(
     DESKTOP_SETTINGS_NAMESPACE,
