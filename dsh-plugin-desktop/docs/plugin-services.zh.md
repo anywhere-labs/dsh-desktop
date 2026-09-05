@@ -42,7 +42,7 @@ flowchart LR
 
 Launcher 会在 Loader tree 挂载前解析一个 profile。`desktopProfiles.current` 在整个 Cordis generation dispose 前保持不变。`desktop-pnpm` Host row 会根据 launcher 私有 fact 与上游 subprocess service 构造 `desktopPnpm`。切换 profile 或模式会 dispose 当前 generation 并启动新 generation；service reference 不能跨越该边界。
 
-Renderer 通过现有 loopback carrier 接收普通 Web Client module，无法直接读取这些 Host service；DSH Desktop 也不会为它们增加 preload 或 Electron IPC bridge。Desktop Client 会改为在自己的 Cordis fiber 生命周期内，通过 `desktopWindow` 提供不可变的原生布局信息。包含浏览器 UI 的插件继续使用普通 DSH Host route、RPC、client metadata、service 与 slot。
+Renderer 通过现有 loopback carrier 接收普通 Web Client module，无法直接读取这些 Host service；DSH Desktop 也不会为它们增加 preload 或 Electron IPC bridge。Desktop Client 会改为在自己的 Cordis fiber 生命周期内，通过 `desktopWindow` 提供不可变的原生布局信息与明确公布的有界操作。包含浏览器 UI 的插件继续使用普通 DSH Host route、RPC、client metadata、service 与 slot。
 
 ## 公开 Client Cordis service
 
@@ -72,6 +72,10 @@ interface DesktopWindowService {
   readonly material: 'off' | 'transparent' | 'mica'
   readonly micaSupported: boolean
   readonly availableMaterials: readonly ('off' | 'transparent' | 'mica')[]
+  readonly capabilities: {
+    readonly sessionTerminal: true
+  }
+  openSessionTerminal(sessionId: string): Promise<void>
   readonly safeAreaInsets: {
     readonly top: number
     readonly right: number
@@ -90,7 +94,9 @@ interface DesktopWindowService {
 
 兼容模式与扩展窗口在 macOS 与 Windows 上都报告顶部 36 像素的预留区与拖动带，并在 macOS 左侧为红绿灯排除 80 像素，或在 Windows 右侧为原生标题栏按钮排除 138 像素。兼容模式会把完整官方 frame 下移到该区域下方。扩展窗口则由 Desktop 持有 root layout/sidebar surface，并在同一预留区下方承载官方 sidebar、conversation 与 details occupant，因此普通 occupant 不能再次叠加这一 inset。Linux 兼容模式保留普通原生 frame，因此报告零 inset 和零高度拖动区域。增强模式使用独立的紧凑几何：macOS 报告 20 像素内容 inset、32 像素拖动带与 80 像素左侧排除；Windows 报告 32 像素内容 inset、32 像素拖动带与 138 像素右侧排除。
 
-`safeAreaInsets` 描述 Desktop 从哪里开始放置完整的上游内容 surface；`dragRegion` 则单独描述原生标题栏命中区域，consumer 不能假设两者高度相同。拖动带内的交互元素必须设置 `-webkit-app-region: no-drag`；Desktop 已经为标准按钮、链接、输入框、可编辑字段、菜单、标签页、开关与对话框设置该排除规则。该 service 只报告几何信息，不提供窗口 mutation、焦点、Electron 或 IPC capability；普通浏览器启动中不存在该 service。
+`safeAreaInsets` 描述 Desktop 从哪里开始放置完整的上游内容 surface；`dragRegion` 则单独描述原生标题栏命中区域，consumer 不能假设两者高度相同。拖动带内的交互元素必须设置 `-webkit-app-region: no-drag`；Desktop 已经为标准按钮、链接、输入框、可编辑字段、菜单、标签页、开关与对话框设置该排除规则。该 service 不提供通用窗口 mutation、焦点、Electron、IPC、路径或命令 capability；普通浏览器启动中不存在该 service。
+
+`capabilities.sessionTerminal` 用于声明有界的 `openSessionTerminal(sessionId)` 操作。调用方只能传当前 DSH 会话 ID。Desktop 会在 Host 内解析该 live session 不可变的绝对 `cwd`；会话或工作目录缺失时拒绝请求，并用当前 Profile 的私有 DSH shim 打开原生终端，同时把该工作区作为 shell 初始目录。调用方不能提交路径或命令。旧版 Desktop 不包含此 capability，可选集成必须先检查再渲染入口。
 
 兼容模式与扩展窗口都会让操作栏保持 Desktop 私有。它们不会声明标题栏 action slot；第一方图标组由 Desktop frame 直接渲染，在 macOS 位于右侧、在 Windows 位于左侧。Web Client 插件必须使用各自已有文档的内容 slot，不能把控件放到这些原生操作旁边。Renderer 重载与开发者工具切换仍是第一方私有 launcher 操作，不会加入公开的 `desktopWindow` service。
 
@@ -185,12 +191,12 @@ Service 在每个 generation 同时最多启动一个 package operation；已有
 | --- | --- | --- |
 | `desktopProfiles` | 作用于 generation 的 Host service。 | 公开；通过 `dsh-plugin-desktop/profile-service` 获得受支持 contract。 |
 | `desktopPnpm` | 作用于 generation 的 Host service。 | 公开；通过 `dsh-plugin-desktop/pnpm` 获得受支持 contract。 |
-| `desktopWindow` | 作用于 generation 的 Client service。 | 公开；通过 `dsh-plugin-desktop/client` 获得受支持 contract，只包含不可变几何信息。 |
+| `desktopWindow` | 作用于 generation 的 Client service。 | 公开；通过 `dsh-plugin-desktop/client` 获得受支持 contract，包含不可变几何信息与明确公布的有界操作。 |
 | `desktopRuntime` | Launcher 提供的 native adapter，供 Desktop 自有 shell、tray、terminal、profile 与 update row 使用。 | Desktop 内部。第三方插件不得 inject，也不得依赖其 window/tray 方法。 |
 | `desktopPnpmBootstrap` | 提供给 `desktop-pnpm` provider 的已打包绝对路径、被选 profile fact、Electron ABI 值与私有 Node helper。 | Launcher 私有。不得读取、provide、intercept 或声明为 dependency。 |
 | `DesktopProfileServiceBootstrap` | Launcher 注册 `desktopProfiles` 时使用的 constructor input；它不是 Cordis service。 | Launcher 私有实现细节。 |
 
-私有类型出现在生成的 declaration 中，并不代表其 runtime service 成为了受支持第三方 capability。两个公开 service 名称及其 contract module 才是兼容边界。
+私有类型出现在生成的 declaration 中，并不代表其 runtime service 成为了受支持第三方 capability。三个公开 service 名称及其 contract module 才是兼容边界。
 
 ## Injection 模式
 

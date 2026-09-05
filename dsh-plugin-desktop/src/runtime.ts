@@ -206,7 +206,7 @@ export interface DesktopRuntime {
   registerTrayItem(item: DesktopTrayItem): DesktopTrayItemRegistration
 
   /** Open a native terminal containing packaged DSH command shims. */
-  openTerminal(): void
+  openTerminal(workingDirectory?: string): void
 
   /** Reload the mounted renderer without restarting the Host. */
   reloadRenderer(): void

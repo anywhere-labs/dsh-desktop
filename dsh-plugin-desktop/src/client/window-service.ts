@@ -11,6 +11,10 @@ import {
 } from '../window-chrome.ts'
 import type { DesktopWindowService } from './contracts.ts'
 import type { DesktopClientEnvironment } from './environment.ts'
+import { createDesktopSettingsApi } from './desktop-settings-api.ts'
+
+/** Public Desktop client action used without exposing native paths or commands. */
+export type DesktopSessionTerminalOpener = (sessionId: string) => Promise<void>
 
 function frozenInsets(top: number) {
   return Object.freeze({ top, right: 0, bottom: 0, left: 0 })
@@ -21,7 +25,13 @@ function frozenDragRegion(height: number, leftInset: number, rightInset: number)
 }
 
 /** Derive the public native-window geometry from the validated renderer marker. */
-export function desktopWindowService(environment: DesktopClientEnvironment): DesktopWindowService {
+export function desktopWindowService(
+  environment: DesktopClientEnvironment,
+  openSessionTerminal: DesktopSessionTerminalOpener = async sessionId => {
+    await createDesktopSettingsApi().openTerminal(sessionId)
+  },
+): DesktopWindowService {
+  const capabilities = Object.freeze({ sessionTerminal: true as const })
   const availableMaterials = Object.freeze(environment.platform === 'darwin'
     ? ['off', 'transparent'] as const
     : environment.platform === 'win32'
@@ -34,6 +44,8 @@ export function desktopWindowService(environment: DesktopClientEnvironment): Des
       return Object.freeze({
         ...environment,
         availableMaterials,
+        capabilities,
+        openSessionTerminal,
         safeAreaInsets: frozenInsets(0),
         dragRegion: frozenDragRegion(0, 0, 0),
       })
@@ -41,6 +53,8 @@ export function desktopWindowService(environment: DesktopClientEnvironment): Des
     return Object.freeze({
       ...environment,
       availableMaterials,
+      capabilities,
+      openSessionTerminal,
       safeAreaInsets: frozenInsets(DESKTOP_FRAME_HEIGHT),
       dragRegion: frozenDragRegion(
         DESKTOP_FRAME_HEIGHT,
@@ -53,6 +67,8 @@ export function desktopWindowService(environment: DesktopClientEnvironment): Des
     return Object.freeze({
       ...environment,
       availableMaterials,
+      capabilities,
+      openSessionTerminal,
       safeAreaInsets: frozenInsets(DESKTOP_FRAME_HEIGHT),
       dragRegion: frozenDragRegion(
         DESKTOP_FRAME_HEIGHT,
@@ -65,6 +81,8 @@ export function desktopWindowService(environment: DesktopClientEnvironment): Des
     return Object.freeze({
       ...environment,
       availableMaterials,
+      capabilities,
+      openSessionTerminal,
       safeAreaInsets: frozenInsets(ADVANCED_MACOS_CONTENT_INSET),
       dragRegion: frozenDragRegion(
         ADVANCED_MACOS_DRAG_REGION_HEIGHT,
@@ -77,6 +95,8 @@ export function desktopWindowService(environment: DesktopClientEnvironment): Des
     return Object.freeze({
       ...environment,
       availableMaterials,
+      capabilities,
+      openSessionTerminal,
       safeAreaInsets: frozenInsets(ADVANCED_WINDOWS_TITLEBAR_HEIGHT),
       dragRegion: frozenDragRegion(
         ADVANCED_WINDOWS_TITLEBAR_HEIGHT,
@@ -88,6 +108,8 @@ export function desktopWindowService(environment: DesktopClientEnvironment): Des
   return Object.freeze({
     ...environment,
     availableMaterials,
+    capabilities,
+    openSessionTerminal,
     safeAreaInsets: frozenInsets(0),
     dragRegion: frozenDragRegion(0, 0, 0),
   })

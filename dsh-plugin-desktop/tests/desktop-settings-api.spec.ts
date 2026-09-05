@@ -324,8 +324,8 @@ describe('desktop settings controller', () => {
     const openTerminal = vi.fn()
     const controller = new DesktopSettingsController(bootstrap({ openTerminal }))
 
-    expect(controller.openTerminal()).toEqual({ accepted: true })
-    expect(openTerminal).toHaveBeenCalledOnce()
+    expect(controller.openTerminal('/private/workspace')).toEqual({ accepted: true })
+    expect(openTerminal).toHaveBeenCalledWith('/private/workspace')
   })
 
   it('defers an explicit Desktop restart until after its acceptance is returned', () => {
@@ -594,7 +594,7 @@ describe('desktop settings HTTP boundary', () => {
     expect(reportError).toHaveBeenCalledWith('select profile after response', expect.any(Error))
   })
 
-  it('opens the terminal only for an exact same-origin empty request', async () => {
+  it('opens the terminal only for an exact same-origin empty or session request', async () => {
     const openTerminal = vi.fn()
     const controller = new DesktopSettingsController(bootstrap({ openTerminal }))
     const accepted = response()
@@ -605,17 +605,53 @@ describe('desktop settings HTTP boundary', () => {
 
     expect(accepted.statusCode).toBe(200)
     expect(JSON.parse(accepted.body)).toEqual({ accepted: true })
-    expect(openTerminal).toHaveBeenCalledOnce()
+    expect(openTerminal).toHaveBeenCalledWith(undefined)
+
+    const sessionAccepted = response()
+    const sessionWorkingDirectory = vi.fn(() => '/private/workspaces/codex-ui')
+    await handleDesktopTerminalOpenRequest(
+      jsonRequest({ sessionId: 'session-codex-ui' }),
+      sessionAccepted,
+      ORIGIN,
+      controller,
+      undefined,
+      sessionWorkingDirectory,
+    )
+    expect(sessionAccepted.statusCode).toBe(200)
+    expect(JSON.parse(sessionAccepted.body)).toEqual({ accepted: true })
+    expect(sessionWorkingDirectory).toHaveBeenCalledWith('session-codex-ui')
+    expect(openTerminal).toHaveBeenLastCalledWith('/private/workspaces/codex-ui')
 
     for (const req of [
       jsonRequest({ command: 'dsh plugin add untrusted' }),
+      jsonRequest({ sessionId: '' }),
+      jsonRequest({ sessionId: 'session-codex-ui', path: '/private/untrusted' }),
       jsonRequest({}, { headers: { origin: 'https://example.com' } }),
     ]) {
       const rejected = response()
       await handleDesktopTerminalOpenRequest(req, rejected, ORIGIN, controller)
       expect(rejected.statusCode).toBe(req.headers.origin === ORIGIN ? 400 : 403)
     }
-    expect(openTerminal).toHaveBeenCalledOnce()
+    expect(openTerminal).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects a session terminal request when the Host has no working directory', async () => {
+    const openTerminal = vi.fn()
+    const controller = new DesktopSettingsController(bootstrap({ openTerminal }))
+    const rejected = response()
+
+    await handleDesktopTerminalOpenRequest(
+      jsonRequest({ sessionId: 'session-missing' }),
+      rejected,
+      ORIGIN,
+      controller,
+      undefined,
+      () => undefined,
+    )
+
+    expect(rejected.statusCode).toBe(404)
+    expect(JSON.parse(rejected.body)).toEqual({ error: 'session working directory unavailable' })
+    expect(openTerminal).not.toHaveBeenCalled()
   })
 
   it('runs the shared interactive update flow only for an exact empty request', async () => {

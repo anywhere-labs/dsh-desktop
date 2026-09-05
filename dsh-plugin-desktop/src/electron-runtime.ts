@@ -333,7 +333,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   }
 
   /** @inheritdoc */
-  openTerminal(): void {
+  openTerminal(workingDirectory?: string): void {
     try {
       const spec = this.terminalSpec
       if (spec === undefined) {
@@ -352,6 +352,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         profileName: spec.profileName,
         productVersion: PRODUCT_VERSION,
         profileDir: spec.profileDir,
+        ...(workingDirectory === undefined ? {} : { workingDirectory }),
         homeDir: spec.homeDir,
         stateDir: desktopTerminalStateDirectory(app.getPath('userData'), spec.profileName),
         spawn,

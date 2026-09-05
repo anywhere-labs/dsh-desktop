@@ -39,8 +39,8 @@ export interface DesktopSettingsControllerBootstrap {
   scheduleRestart(): void
   /** Queue an orderly restart into the pre-Host recovery assistant. */
   scheduleRecoveryRestart(): void
-  /** Open the launcher-owned DSH terminal. */
-  openTerminal(): void
+  /** Open the launcher-owned DSH terminal at one Host-resolved directory. */
+  openTerminal(workingDirectory?: string): void
   /** Reload the mounted renderer after its HTTP acknowledgement is delivered. */
   reloadRenderer(): void
   /** Toggle Developer Tools for the mounted renderer. */
@@ -158,8 +158,8 @@ export class DesktopSettingsController {
   }
 
   /** Open the native terminal through the launcher-owned action. */
-  openTerminal(): DesktopTerminalOpenResponse {
-    this.bootstrap.openTerminal()
+  openTerminal(workingDirectory?: string): DesktopTerminalOpenResponse {
+    this.bootstrap.openTerminal(workingDirectory)
     return Object.freeze({ accepted: true })
   }
 
