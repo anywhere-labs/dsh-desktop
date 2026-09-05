@@ -1,12 +1,10 @@
 /** Disposable, launcher-owned DSH environment used by Desktop Safe Mode. */
 
-import { randomUUID } from 'node:crypto'
 import {
   chmodSync,
   lstatSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -122,34 +120,28 @@ export function cleanupDesktopSafeModeEnvironment(userDataDir: string): boolean 
   return true
 }
 
-/** Create a fresh environment through a sibling staging directory. */
+/** Create a fresh environment and mark it ready only after directory preparation succeeds. */
 export function resetDesktopSafeModeEnvironment(
   userDataDir: string,
   now: () => Date = () => new Date(),
 ): DesktopSafeModePaths {
   const paths = desktopSafeModePaths(userDataDir)
-  const staging = `${paths.rootDir}.creating-${process.pid}-${randomUUID()}`
   cleanupDesktopSafeModeEnvironment(userDataDir)
-  rmSync(staging, { recursive: true, force: true })
   try {
-    const stagingHome = join(staging, 'dsh-home')
-    const stagingUserData = join(staging, 'desktop-state')
-    mkdirSync(stagingHome, { recursive: true, mode: DIRECTORY_MODE })
-    mkdirSync(stagingUserData, { recursive: true, mode: DIRECTORY_MODE })
-    writeFileSync(join(staging, SAFE_MODE_MARKER), `${JSON.stringify({
+    mkdirSync(paths.homeDir, { recursive: true, mode: DIRECTORY_MODE })
+    mkdirSync(paths.userDataDir, { recursive: true, mode: DIRECTORY_MODE })
+    chmodSync(paths.rootDir, DIRECTORY_MODE)
+    chmodSync(paths.homeDir, DIRECTORY_MODE)
+    chmodSync(paths.userDataDir, DIRECTORY_MODE)
+    writeFileSync(markerPath(paths), `${JSON.stringify({
       version: SAFE_MODE_VERSION,
       createdAt: now().toISOString(),
     } satisfies DesktopSafeModeMarkerV1, null, 2)}\n`, {
       flag: 'wx',
       mode: FILE_MODE,
     })
-    renameSync(staging, paths.rootDir)
-    chmodSync(paths.rootDir, DIRECTORY_MODE)
-    chmodSync(paths.homeDir, DIRECTORY_MODE)
-    chmodSync(paths.userDataDir, DIRECTORY_MODE)
     return paths
   } catch (cause) {
-    rmSync(staging, { recursive: true, force: true })
     cleanupDesktopSafeModeEnvironment(userDataDir)
     throw cause
   }

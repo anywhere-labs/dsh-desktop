@@ -1,3 +1,4 @@
+import * as fileSystem from 'node:fs'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -13,6 +14,10 @@ import {
   prepareDesktopSafeModeEnvironment,
   resetDesktopSafeModeEnvironment,
 } from '../src/safe-mode.ts'
+
+vi.mock('node:fs', async (importOriginal) => ({
+  ...await importOriginal<typeof import('node:fs')>(),
+}))
 
 describe('Desktop Safe Mode environment', () => {
   const roots: string[] = []
@@ -63,6 +68,61 @@ describe('Desktop Safe Mode environment', () => {
       version: 1,
       createdAt: '2026-09-03T00:00:00.000Z',
     })
+  })
+
+  it('creates a usable environment even when directory renames are denied on Windows', async () => {
+    const root = await userData()
+    const rename = vi.spyOn(fileSystem, 'renameSync').mockImplementation(() => {
+      throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' })
+    })
+
+    const paths = resetDesktopSafeModeEnvironment(root)
+
+    expect(rename).not.toHaveBeenCalled()
+    expect(existsSync(join(paths.rootDir, 'environment.json'))).toBe(true)
+    expect(ensureDesktopSafeModeEnvironment(root)).toEqual(paths)
+  })
+
+  it('publishes the completion marker only after directories and permissions are ready', async () => {
+    const root = await userData()
+    const paths = desktopSafeModePaths(root)
+    const permissions = vi.spyOn(fileSystem, 'chmodSync')
+
+    resetDesktopSafeModeEnvironment(root, () => {
+      expect(existsSync(paths.homeDir)).toBe(true)
+      expect(existsSync(paths.userDataDir)).toBe(true)
+      expect(permissions).toHaveBeenCalledWith(paths.rootDir, 0o700)
+      expect(permissions).toHaveBeenCalledWith(paths.homeDir, 0o700)
+      expect(permissions).toHaveBeenCalledWith(paths.userDataDir, 0o700)
+      expect(existsSync(join(paths.rootDir, 'environment.json'))).toBe(false)
+      return new Date('2026-09-03T00:00:00.000Z')
+    })
+
+    expect(existsSync(join(paths.rootDir, 'environment.json'))).toBe(true)
+  })
+
+  it('cleans an incomplete environment when writing the completion marker fails', async () => {
+    const root = await userData()
+    const paths = desktopSafeModePaths(root)
+    const failure = Object.assign(new Error('ENOSPC: cannot write completion marker'), { code: 'ENOSPC' })
+    vi.spyOn(fileSystem, 'writeFileSync').mockImplementationOnce(() => { throw failure })
+
+    expect(() => resetDesktopSafeModeEnvironment(root)).toThrow(failure)
+    expect(existsSync(paths.rootDir)).toBe(false)
+    expect(ensureDesktopSafeModeEnvironment(root)).toEqual(paths)
+    expect(existsSync(join(paths.rootDir, 'environment.json'))).toBe(true)
+  })
+
+  it('replaces an interrupted generation that has directories but no completion marker', async () => {
+    const root = await userData()
+    const paths = desktopSafeModePaths(root)
+    mkdirSync(paths.homeDir, { recursive: true })
+    mkdirSync(paths.userDataDir, { recursive: true })
+    writeFileSync(join(paths.homeDir, 'incomplete-session'), 'discard')
+
+    expect(ensureDesktopSafeModeEnvironment(root)).toEqual(paths)
+    expect(existsSync(join(paths.homeDir, 'incomplete-session'))).toBe(false)
+    expect(existsSync(join(paths.rootDir, 'environment.json'))).toBe(true)
   })
 
   it('adopts one prepared Safe Mode generation but resets an invalid environment', async () => {
