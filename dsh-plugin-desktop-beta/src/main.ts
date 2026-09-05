@@ -131,6 +131,11 @@ import {
   readDesktopSetupWizardState,
 } from './setup-wizard-state.ts'
 import {
+  offeredRuntimeInventoryOverNetwork,
+  previewUpgradeSupply,
+  readProfileBundleNames,
+} from './upgrade-supply-preview.ts'
+import {
   migrateDesktopBrowserAccessSettings,
   migrateDesktopWindowMaterialSettings,
   readDesktopSetupWizardSettings,
@@ -1413,6 +1418,22 @@ async function start(): Promise<void> {
       profilePreferencesStopping = true
       await profilePreferencesWriteTail
     }
+    // The Profile's bundles and their manifests are settled by this point, so an
+    // offered release can be described in the same terms the Loader uses later.
+    runtime.setUpgradeSupplyReporter(async () => {
+      const target = await offeredRuntimeInventoryOverNetwork(
+        DESKTOP_RELEASE_CHANNEL,
+        'beta',
+        undefined,
+        message => { electronLogger.error(`${BIN_NAME}: ${message}`) },
+      )
+      if (target === undefined) return undefined
+      return previewUpgradeSupply({
+        bundleNames: readProfileBundleNames(prepared.profile.dir),
+        profileDir: prepared.profile.dir,
+        target,
+      })
+    })
     startupStage = 'host-boot'
     lifecycleRecorder.transitionStartupStage(startupStage)
     const releasePackageResolver = installProfilePackageResolver(prepared.bareModuleBaseUrl)

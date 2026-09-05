@@ -103,6 +103,26 @@ export function desktopPreloadPath(moduleUrl: string = import.meta.url): string 
 
 const PRODUCT_VERSION = desktopProductVersion()
 
+/** How many affected bundles the update dialog names before summarizing the rest. */
+const UPGRADE_SUPPLY_LISTED = 5
+
+/** Scope every runtime package shares, dropped from dialog lines that repeat it. */
+const RUNTIME_SCOPE_PREFIX = '@deepseek-ai/'
+
+/**
+ * What an offered release would stop supplying to bundles already installed.
+ *
+ * Structural on purpose: the update dialog only needs the affected names and
+ * what each one expected, so it does not depend on how the reading was taken.
+ */
+export interface UpgradeSupplyReading {
+  /** Bundles the offered release cannot supply, in the order they were read. */
+  readonly unsupplied: readonly {
+    readonly packageName: string
+    readonly missing: readonly string[]
+  }[]
+}
+
 /** Main-process deadline for one Renderer generation to settle its client Loader. */
 export const RENDERER_BOOT_TIMEOUT_MS = 30_000
 
@@ -587,19 +607,73 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       : await this.generation.showSaveDialog(options)
   }
 
+  /**
+   * Reading of what an offered release would stop supplying to installed
+   * bundles. Left unset when no inventory for that release is available, in
+   * which case the update flow proceeds exactly as it did before.
+   */
+  private upgradeSupplyReporter:
+    | ((version: string, channel: DesktopReleaseChannel) => Promise<UpgradeSupplyReading | undefined>)
+    | undefined
+
+  /** Supply the reading used to describe an offered release before downloading it. */
+  setUpgradeSupplyReporter(
+    reporter: (version: string, channel: DesktopReleaseChannel) => Promise<UpgradeSupplyReading | undefined>,
+  ): void {
+    this.upgradeSupplyReporter = reporter
+  }
+
+  /**
+   * Describe the bundles an offered release would stop supplying.
+   *
+   * Returns nothing when there is no reading, or nothing to report, so the
+   * dialog stays exactly as it is today whenever this has nothing to add.
+   */
+  private async describeUpgradeSupply(
+    version: string,
+    channel: DesktopReleaseChannel,
+  ): Promise<string | undefined> {
+    if (this.upgradeSupplyReporter === undefined) return undefined
+    let reading: UpgradeSupplyReading | undefined
+    try {
+      reading = await this.upgradeSupplyReporter(version, channel)
+    } catch (cause) {
+      this.logError(`dsh-plugin-desktop: could not read what ${version} supplies: ${cause instanceof Error ? cause.message : String(cause)}`)
+      return undefined
+    }
+    if (reading === undefined || reading.unsupplied.length === 0) return undefined
+
+    const copy = desktopNativeCopy(this.currentLocale)
+    const shown = reading.unsupplied.slice(0, UPGRADE_SUPPLY_LISTED)
+    const lines = [copy.upgradeSupplyHeadline(reading.unsupplied.length)]
+    for (const bundle of shown) {
+      // The scope is the same for every runtime package, so repeating it on
+      // every line only pushes the names past the width the dialog gives them.
+      const missing = bundle.missing.map(name => name.replace(RUNTIME_SCOPE_PREFIX, '')).join(', ')
+      lines.push(copy.upgradeSupplyEntry(bundle.packageName, missing))
+    }
+    if (reading.unsupplied.length > shown.length) {
+      lines.push(copy.upgradeSupplyMore(reading.unsupplied.length - shown.length))
+    }
+    lines.push(copy.upgradeSupplyReversible)
+    return lines.join('\n')
+  }
+
   /** Ask before making the fixed download endpoint's counted request. */
   private async confirmUpdateDownload(
     version: string,
     channel: DesktopReleaseChannel = 'stable',
   ): Promise<boolean> {
     const copy = desktopNativeCopy(this.currentLocale)
+    const question = channel === DESKTOP_RELEASE_CHANNEL
+      ? copy.downloadUpdate
+      : copy.installStableAlongsideBeta
+    const supply = await this.describeUpgradeSupply(version, channel)
     const result = await this.showUpdateMessageBox({
-      type: 'info',
+      type: supply === undefined ? 'info' : 'warning',
       title: copy.updateAvailableTitle,
       message: copy.updateAvailableMessage(version),
-      detail: channel === DESKTOP_RELEASE_CHANNEL
-        ? copy.downloadUpdate
-        : copy.installStableAlongsideBeta,
+      detail: supply === undefined ? question : `${supply}\n\n${question}`,
       buttons: [copy.download, copy.later],
       defaultId: 1,
       cancelId: 1,

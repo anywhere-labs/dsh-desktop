@@ -15,6 +15,10 @@ export interface DesktopNativeCopy {
   readonly dismiss: string
   readonly updateAvailableTitle: string
   readonly updateAvailableMessage: (version: string) => string
+  readonly upgradeSupplyHeadline: (count: number) => string
+  readonly upgradeSupplyEntry: (bundleName: string, missing: string) => string
+  readonly upgradeSupplyMore: (count: number) => string
+  readonly upgradeSupplyReversible: string
   readonly downloadUpdate: string
   readonly installStableAlongsideBeta: string
   readonly download: string
@@ -83,6 +87,12 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     dismiss: 'Dismiss',
     updateAvailableTitle: 'DSH Desktop Update Available',
     updateAvailableMessage: version => `DSH Desktop ${version} is available.`,
+    upgradeSupplyHeadline: count => count === 1
+      ? '1 installed plugin expects a package this release does not ship:'
+      : `${count} installed plugins expect packages this release does not ship:`,
+    upgradeSupplyEntry: (bundleName, missing) => `  ${bundleName} — ${missing}`,
+    upgradeSupplyMore: count => `  and ${count} more`,
+    upgradeSupplyReversible: 'Desktop would open in Recovery Mode instead of starting. Nothing is uninstalled; disabling them there restores startup.',
     downloadUpdate: 'Download this update now?',
     installStableAlongsideBeta: 'Install the stable edition alongside DSH Desktop Beta? The Beta app will remain installed.',
     download: 'Download',
@@ -144,6 +154,10 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     dismiss: '关闭',
     updateAvailableTitle: 'DSH Desktop 有可用更新',
     updateAvailableMessage: version => `DSH Desktop ${version} 已可用。`,
+    upgradeSupplyHeadline: count => `已安装的插件中有 ${count} 个需要此版本不包含的组件：`,
+    upgradeSupplyEntry: (bundleName, missing) => `  ${bundleName} — ${missing}`,
+    upgradeSupplyMore: count => `  另有 ${count} 个`,
+    upgradeSupplyReversible: '这会使 Desktop 无法启动、转入恢复模式。插件不会被卸载，在那里禁用即可恢复。',
     downloadUpdate: '现在下载此更新？',
     installStableAlongsideBeta: '是否同时安装稳定版？DSH Desktop Beta 将继续保留。',
     download: '下载',
