@@ -57,7 +57,24 @@ describe('community market file-backed settings', () => {
     await first.dispose()
 
     const second = await bootMarketSettings(path)
-    expect(second.scope.get()).toEqual({ sources: [source] } satisfies MarketSettingsDocument)
+    expect(second.scope.get()).toEqual({
+      sources: [source],
+      npmRegistry: '',
+    } satisfies MarketSettingsDocument)
+  })
+
+  it('restores an optional npm registry setting in a new Host context', async () => {
+    const path = await temporarySettingsFile()
+    const first = await bootMarketSettings(path)
+
+    await first.scope.replace({ sources: [source], npmRegistry: 'https://registry.npmmirror.com' })
+    await first.dispose()
+
+    const second = await bootMarketSettings(path)
+    expect(second.scope.get()).toEqual({
+      sources: [source],
+      npmRegistry: 'https://registry.npmmirror.com',
+    } satisfies MarketSettingsDocument)
   })
 
   it('preserves another plugin namespace while persisting market settings', async () => {
@@ -72,6 +89,9 @@ describe('community market file-backed settings', () => {
     const second = await bootMarketSettings(path)
     const secondSibling = second.ctx.settings.register(SIBLING_NAMESPACE, SiblingSchema)
     expect(secondSibling.get()).toEqual({ label: 'retained across restart' })
-    expect(second.scope.get()).toEqual({ sources: [source] } satisfies MarketSettingsDocument)
+    expect(second.scope.get()).toEqual({
+      sources: [source],
+      npmRegistry: '',
+    } satisfies MarketSettingsDocument)
   })
 })
