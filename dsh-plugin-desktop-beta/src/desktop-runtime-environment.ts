@@ -51,7 +51,7 @@ export interface DesktopPnpmRuntimeInstallation {
   nodeBinDir: string
   /** Private Node command shim used by pnpm lifecycle scripts. */
   nodeShimPath: string
-  /** Preloaded module that removes Electron RunAsNode from child environments. */
+  /** Preloaded module that points POSIX descendants at the private Node shim and removes Electron RunAsNode. */
   clearEnvironmentPath: string
   /** Remove this installation's PATH entry without deleting persistent generated files. */
   dispose(): void
@@ -199,9 +199,10 @@ function replacePrivateFile(filename: string, contents: string, mode: number): v
   }
 }
 
-/** Module preloaded into RunAsNode children before their requested entry. */
-function clearEnvironmentModule(): string {
+/** Publish the POSIX shim as the Node identity, then clear Node mode before user code runs. */
+function clearEnvironmentModule(posixNodeShimPath: string | undefined): string {
   return [
+    ...(posixNodeShimPath === undefined ? [] : [`process.execPath = ${JSON.stringify(posixNodeShimPath)}`]),
     `for (const name of Object.keys(process.env)) {`,
     `  if (name.toUpperCase() === '${RUN_AS_NODE}') delete process.env[name]`,
     '}',
@@ -418,7 +419,7 @@ export function installDesktopPnpmRuntime(options: DesktopPnpmRuntimeOptions): D
   const pnpmShimPath = join(pathDir, pnpmShimName)
   const nodeShimPath = join(nodeBinDir, nodeShimName)
   const clearEnvironmentPath = join(privateDir, 'clear-env.mjs')
-  replacePrivateFile(clearEnvironmentPath, clearEnvironmentModule(), PRIVATE_FILE_MODE)
+  replacePrivateFile(clearEnvironmentPath, clearEnvironmentModule(windows ? undefined : nodeShimPath), PRIVATE_FILE_MODE)
   const clearEnvironmentUrl = pathToFileURL(clearEnvironmentPath).href
   replacePrivateFile(
     nodeShimPath,

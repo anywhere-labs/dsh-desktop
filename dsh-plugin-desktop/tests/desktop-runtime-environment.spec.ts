@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import {
+  chmodSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -44,6 +45,10 @@ function options(
     stateDir,
     environment,
   }
+}
+
+function quoteSh(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`
 }
 
 afterEach(() => {
@@ -92,9 +97,9 @@ describe('desktop Host pnpm runtime', () => {
     expect(node).toContain(`ELECTRON_RUN_AS_NODE=1 exec`)
     expect(node).toContain(`--import '${clearEnvironmentUrl}' "$@"`)
     expect(node).not.toContain('npm_config_')
-    expect(readFileSync(installation.clearEnvironmentPath, 'utf8')).toContain(
-      "name.toUpperCase() === 'ELECTRON_RUN_AS_NODE'",
-    )
+    const clearEnvironment = readFileSync(installation.clearEnvironmentPath, 'utf8')
+    expect(clearEnvironment).toContain(`process.execPath = ${JSON.stringify(installation.nodeShimPath)}`)
+    expect(clearEnvironment).toContain("name.toUpperCase() === 'ELECTRON_RUN_AS_NODE'")
 
     expect(environment).toEqual({
       ...original,
@@ -127,14 +132,14 @@ describe('desktop Host pnpm runtime', () => {
     expect(environment).toEqual(original)
   })
 
-  it('clears every RunAsNode casing before the requested Node entry executes', () => {
+  it('clears every RunAsNode casing and publishes the private Node identity', () => {
     const stateDir = join(temporaryDirectory(), 'runtime')
     const installation = installDesktopPnpmRuntime(options(stateDir, 'linux', { PATH: '/usr/bin' }))
     const result = spawnSync(process.execPath, [
       '--import',
       pathToFileURL(installation.clearEnvironmentPath).href,
       '-e',
-      'process.stdout.write(JSON.stringify(Object.keys(process.env).filter(name => name.toUpperCase() === "ELECTRON_RUN_AS_NODE")))',
+      'process.stdout.write(JSON.stringify({ execPath: process.execPath, runAsNode: Object.keys(process.env).filter(name => name.toUpperCase() === "ELECTRON_RUN_AS_NODE") }))',
     ], {
       encoding: 'utf8',
       env: {
@@ -146,9 +151,100 @@ describe('desktop Host pnpm runtime', () => {
 
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(0)
-    expect(result.stdout).toBe('[]')
+    expect(JSON.parse(result.stdout)).toEqual({
+      execPath: installation.nodeShimPath,
+      runAsNode: [],
+    })
     installation.dispose()
   })
+
+  it.runIf(process.platform === 'darwin' || process.platform === 'linux')(
+    'keeps process.execPath children headless without changing explicit application launches',
+    () => {
+      const root = temporaryDirectory()
+      const appExecutable = join(root, 'Fake Electron')
+      const guiLaunches = join(root, 'gui-launches.txt')
+      const childEntry = join(root, 'child.mjs')
+      const probeEntry = join(root, 'probe.mjs')
+      const probeOutput = join(root, 'probe.json')
+      const environment: NodeJS.ProcessEnv = { PATH: process.env.PATH }
+
+      writeFileSync(appExecutable, [
+        '#!/bin/sh',
+        `if [ "\${ELECTRON_RUN_AS_NODE:-}" = "1" ]; then`,
+        `  exec ${quoteSh(process.execPath)} "$@"`,
+        'fi',
+        `printf '%s\\n' "$*" >> ${quoteSh(guiLaunches)}`,
+        'exit 86',
+        '',
+      ].join('\n'))
+      chmodSync(appExecutable, 0o700)
+      writeFileSync(childEntry, [
+        "process.stdout.write('child-stdout')",
+        "process.stderr.write('child-stderr')",
+        'process.exitCode = 23',
+        '',
+      ].join('\n'))
+      writeFileSync(probeEntry, [
+        "import { spawnSync } from 'node:child_process'",
+        "import { writeFileSync } from 'node:fs'",
+        'const [preloadUrl, appExecutable, childEntry, output] = process.argv.slice(2)',
+        'process.execPath = appExecutable',
+        'await import(preloadUrl)',
+        'const inherited = spawnSync(process.execPath, [childEntry], { encoding: \'utf8\' })',
+        'const explicit = spawnSync(appExecutable, [childEntry], { encoding: \'utf8\' })',
+        'writeFileSync(output, JSON.stringify({',
+        '  execPath: process.execPath,',
+        "  runAsNode: Object.keys(process.env).filter(name => name.toUpperCase() === 'ELECTRON_RUN_AS_NODE'),",
+        '  inherited: { status: inherited.status, stdout: inherited.stdout, stderr: inherited.stderr },',
+        '  explicit: { status: explicit.status, stdout: explicit.stdout, stderr: explicit.stderr },',
+        '}))',
+        '',
+      ].join('\n'))
+
+      const installation = installDesktopPnpmRuntime({
+        platform: process.platform,
+        appExecutable,
+        pnpmBinPath: childEntry,
+        electronVersion: '43.3.0',
+        stateDir: join(root, 'runtime'),
+        environment,
+      })
+      const result = spawnSync(process.execPath, [
+        probeEntry,
+        pathToFileURL(installation.clearEnvironmentPath).href,
+        appExecutable,
+        childEntry,
+        probeOutput,
+      ], {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          ELECTRON_RUN_AS_NODE: '1',
+          electron_run_as_node: 'legacy',
+        },
+      })
+
+      expect(result.error).toBeUndefined()
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+      expect(JSON.parse(readFileSync(probeOutput, 'utf8'))).toEqual({
+        execPath: installation.nodeShimPath,
+        runAsNode: [],
+        inherited: {
+          status: 23,
+          stdout: 'child-stdout',
+          stderr: 'child-stderr',
+        },
+        explicit: {
+          status: 86,
+          stdout: '',
+          stderr: '',
+        },
+      })
+      expect(readFileSync(guiLaunches, 'utf8').trim().split('\n')).toEqual([childEntry])
+      installation.dispose()
+    },
+  )
 
   it('scopes Electron ABI settings to the pnpm process tree', () => {
     const root = temporaryDirectory()
@@ -233,6 +329,7 @@ describe('desktop Host pnpm runtime', () => {
     expect(node).toContain('set "ELECTRON_RUN_AS_NODE=1"')
     expect(node).toContain(`--import "${escapedClearEnvironmentUrl}" %*`)
     expect(node).not.toContain('npm_config_')
+    expect(readFileSync(installation.clearEnvironmentPath, 'utf8')).not.toContain('process.execPath =')
 
     expect(environment).toEqual({
       Path: `${installation.pathDir};C:\\Windows\\System32;C:\\Windows`,
