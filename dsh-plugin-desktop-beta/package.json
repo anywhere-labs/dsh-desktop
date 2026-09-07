@@ -67,6 +67,10 @@
       "types": "./lib/types/notifications.d.ts",
       "default": "./lib/notifications.js"
     },
+    "./quick-ask": {
+      "types": "./lib/types/quick-ask.d.ts",
+      "default": "./lib/quick-ask.js"
+    },
     "./updates": {
       "types": "./lib/types/updates.d.ts",
       "default": "./lib/updates.js"

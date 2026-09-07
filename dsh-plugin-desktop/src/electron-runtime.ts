@@ -21,6 +21,8 @@ import type {
   DesktopNotification,
   DesktopLocale,
   DesktopPlatform,
+  DesktopQuickLaunchRegistration,
+  DesktopQuickLaunchSpec,
   DesktopRuntime,
   DesktopShellSpec,
   DesktopTerminalSpec,
@@ -65,6 +67,7 @@ import { ElectronWorkspaceAdmission } from './workspace-admission.ts'
 import { ProfileCreateWindow, type ProfileCreateWindowOptions } from './profile-create-window.ts'
 import { windowsBuildNumber } from './window-material.ts'
 import { desktopNativeCopy } from './native-dialog-copy.ts'
+import { QuickLaunchController } from './quick-ask-window.ts'
 import {
   FileMainWindowStateStore,
   type MainWindowStateStore,
@@ -127,6 +130,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   private rendererHealthGate: DesktopRendererHealthGate | undefined
   private rendererBootHealthy = false
   private profileCreateWindow: ProfileCreateWindow | undefined
+  private quickLaunch: QuickLaunchController | undefined
   private restartRequest: Promise<void> | undefined
 
   constructor(
@@ -221,6 +225,8 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         try {
           this.profileCreateWindow?.close()
           this.profileCreateWindow = undefined
+          this.quickLaunch?.dispose()
+          this.quickLaunch = undefined
           await this.generation?.release()
         } finally {
           this.generation = undefined
@@ -288,6 +294,21 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   /** @inheritdoc */
   show(): void {
     this.generation?.show()
+  }
+
+  /** @inheritdoc */
+  registerQuickLaunch(spec: DesktopQuickLaunchSpec): DesktopQuickLaunchRegistration {
+    if (this.quickLaunch !== undefined) throw new Error('dsh-plugin-desktop: quick launch is already registered')
+    const controller = new QuickLaunchController(spec)
+    this.quickLaunch = controller
+    return {
+      update: update => controller.update(update),
+      refresh: next => controller.refresh(next),
+      dispose: () => {
+        controller.dispose()
+        if (this.quickLaunch === controller) this.quickLaunch = undefined
+      },
+    }
   }
 
   /** @inheritdoc */

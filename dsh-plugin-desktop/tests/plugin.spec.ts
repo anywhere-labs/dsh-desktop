@@ -131,6 +131,7 @@ function createHarness(
     },
     mountScheduled: async () => {},
     show: () => {},
+    registerQuickLaunch: () => ({ update: () => ({ ok: true }), refresh: () => {}, dispose: () => {} }),
     notifyAttention: () => {},
     registerTrayItem: () => ({ refresh: () => {}, dispose: () => {} }),
     openTerminal: () => {},

@@ -332,6 +332,23 @@ const CSS = `
   border-radius: 10px;
   background: var(--dsw-alias-bg-layer-1);
 }
+.dshDesktopSettingsShortcutList { display: grid; gap: 8px; }
+.dshDesktopSettingsShortcutRow {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(250px, 1.4fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+.dshDesktopSettingsShortcutCopy { display: grid; gap: 3px; min-width: 0; }
+.dshDesktopSettingsShortcutCopy strong { font-size: 14px; font-weight: 500; }
+.dshDesktopSettingsShortcutCopy span { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.4; }
+.dshDesktopSettingsShortcutInput { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.dshDesktopSettingsShortcutInput[data-invalid="true"] { border-color: var(--dsw-alias-state-error-primary); }
+.dshDesktopSettingsShortcutError { grid-column: 2 / -1; color: var(--dsw-alias-state-error-primary); font-size: 12px; }
 .dshDesktopSettingsUrls a {
   width: fit-content;
   max-width: 100%;
@@ -365,6 +382,8 @@ const CSS = `
   .dshDesktopSettingsChoice,
   .dshDesktopSettingsToggleRow { align-items: flex-start; }
   .dshDesktopSettingsForm { align-items: stretch; flex-direction: column; }
+  .dshDesktopSettingsShortcutRow { grid-template-columns: 1fr; }
+  .dshDesktopSettingsShortcutError { grid-column: 1; }
 }
 `
 

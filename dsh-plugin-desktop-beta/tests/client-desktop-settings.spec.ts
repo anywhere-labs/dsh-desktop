@@ -33,6 +33,7 @@ import {
 import {
   applyDesktopSettings,
   DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE,
+  DESKTOP_QUICK_ASK_SETTINGS_NAMESPACE,
   DESKTOP_SETTINGS_LOCALE_NAMESPACE,
   DESKTOP_SHELL_SETTINGS_NAMESPACE,
   persistDesktopModeSelection,
@@ -620,7 +621,8 @@ describe('Desktop settings Slot registration', () => {
     })
 
     expect(bind).toHaveBeenNthCalledWith(1, { namespace: DESKTOP_SHELL_SETTINGS_NAMESPACE })
-    expect(bind).toHaveBeenNthCalledWith(2, { namespace: DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE })
+    expect(bind).toHaveBeenNthCalledWith(2, { namespace: DESKTOP_QUICK_ASK_SETTINGS_NAMESPACE })
+    expect(bind).toHaveBeenNthCalledWith(3, { namespace: DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE })
     expect(inject).toHaveBeenCalledWith('settings.section', expect.any(Function))
     expect(inject).toHaveBeenCalledWith('settings.action', expect.any(Function))
     const [options, component] = register.mock.calls[0] as unknown as [
