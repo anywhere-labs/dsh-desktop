@@ -1,5 +1,6 @@
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -12,13 +13,18 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { composeEntries, initProfile, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-app-boot'
+import {
+  composeEntries,
+  initProfile,
+  PROFILE_TEMPLATES,
+} from '@deepseek-ai/dsh-app-boot'
 import {
   DESKTOP_PACKAGE_NAME,
   desktopShellModeFromSettings,
   desktopStartupSettingsFromSettings,
   desktopBundleList,
   ensureDesktopProfile,
+  healDesktopProfileModuleFallback,
   prepareDesktopProfile,
   readDesktopShellMode,
   removeObsoleteDesktopSharedModuleFallback,
@@ -129,6 +135,58 @@ describe('desktop profile composition', {
     expect(existsSync(userManagedShape)).toBe(true)
     expect(readFileSync(join(sharedModules, 'user-note.txt'), 'utf8')).toBe('preserve me\n')
     expect(removeObsoleteDesktopSharedModuleFallback(home)).toBe(0)
+  })
+
+  it('materializes ASAR shared fallbacks as physical ESM proxies', async () => {
+    const home = temporaryHome()
+    const resources = join(home, 'resources')
+    const appAsar = join(resources, 'app.asar')
+    const installAnchor = join(appAsar, 'package.json')
+    const dshPackage = join(
+      appAsar,
+      'node_modules',
+      '@deepseek-ai',
+      'dsh-tool-web',
+    )
+    mkdirSync(join(appAsar, 'lib'), { recursive: true })
+    mkdirSync(dshPackage, { recursive: true })
+    writeFileSync(installAnchor, JSON.stringify({
+      name: 'fixture-desktop',
+      version: '1.0.0',
+      type: 'module',
+      exports: { '.': './lib/index.js' },
+      dependencies: { '@deepseek-ai/dsh-tool-web': '1.0.0' },
+    }) + '\n')
+    writeFileSync(join(appAsar, 'lib', 'index.js'), 'export default {}\n')
+    writeFileSync(join(dshPackage, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-tool-web',
+      version: '2.0.0',
+      type: 'module',
+      exports: { '.': './index.js' },
+    }) + '\n')
+    const dshEntry = join(dshPackage, 'index.js')
+    writeFileSync(dshEntry, 'export const marker = "tool-web"\n')
+
+    const processWithPkg = process as NodeJS.Process & { pkg?: unknown }
+    const hadPkg = Object.prototype.hasOwnProperty.call(process, 'pkg')
+    const previousPkg = processWithPkg.pkg
+
+    await healDesktopProfileModuleFallback(home, undefined, installAnchor)
+
+    const proxy = join(home, 'profiles', 'node_modules', '@deepseek-ai', 'dsh-tool-web')
+    expect(lstatSync(proxy).isDirectory()).toBe(true)
+    const manifest = JSON.parse(readFileSync(join(proxy, 'package.json'), 'utf8')) as {
+      dsh?: { moduleFallback?: { targets?: Record<string, string> } }
+      exports?: Record<string, string>
+    }
+    expect(manifest.exports?.['.']).toBe('./entry-0.js')
+    expect(manifest.dsh?.moduleFallback?.targets?.['.'])
+      .toBe(pathToFileURL(dshEntry).href)
+    expect(readFileSync(join(proxy, 'entry-0.js'), 'utf8'))
+      .toContain(pathToFileURL(dshEntry).href)
+
+    expect(Object.prototype.hasOwnProperty.call(process, 'pkg')).toBe(hadPkg)
+    expect(processWithPkg.pkg).toBe(previousPkg)
   })
 
   it('ships a PowerShell-backed minimal preset for Windows', () => {

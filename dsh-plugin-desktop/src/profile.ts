@@ -42,7 +42,6 @@ import FileSettingsProvider, {
 } from '@deepseek-ai/dsh-settings-file'
 import { parseAllDocuments, parseDocument } from 'yaml'
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
-import { withAsarModuleResolver } from './asar-module-resolver-state.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
 import {
   desktopBrowserAccessEnabled,
@@ -1143,15 +1142,41 @@ export function prepareDesktopProfile(
 }
 
 /** Maintain the upstream module fallback for one fully resolved Desktop profile. */
-export function healDesktopProfileModuleFallback(home: string, profile?: Profile): Promise<void> {
-  const heal = () => healProfilesModuleFallback({
-    installAnchor: INSTALL_ANCHOR,
+export async function healDesktopProfileModuleFallback(
+  home: string,
+  profile?: Profile,
+  installAnchor: string = INSTALL_ANCHOR,
+): Promise<void> {
+  const heal = (): Promise<void> => healProfilesModuleFallback({
+    installAnchor,
     home,
     ...(profile === undefined ? {} : { profile }),
   })
-  if (!/([\\/])app\.asar\1/u.test(INSTALL_ANCHOR)) return heal()
+  if (!/([\\/])app\.asar\1/u.test(installAnchor)) return heal()
   removeObsoleteDesktopSharedModuleFallback(home)
-  return withAsarModuleResolver(heal)
+  // The upstream fallback only materializes ESM proxies for `pkg`
+  // executables. Electron ASAR needs the same proxy layout: ordinary
+  // filesystem symlinks cannot traverse into app.asar, so disk-based
+  // package probes such as agent-presets would report every row broken.
+  // Keep the marker scoped to the heal so upstream's runtime view of the
+  // process remains unchanged.
+  const processWithPkg = process as NodeJS.Process & { pkg?: unknown }
+  const hadPkg = Object.prototype.hasOwnProperty.call(process, 'pkg')
+  const previousPkg = processWithPkg.pkg
+  Object.defineProperty(process, 'pkg', { value: {}, configurable: true, writable: true })
+  try {
+    await heal()
+  } finally {
+    if (hadPkg) {
+      Object.defineProperty(process, 'pkg', {
+        value: previousPkg,
+        configurable: true,
+        writable: true,
+      })
+    } else {
+      delete (processWithPkg as unknown as Record<string, unknown>).pkg
+    }
+  }
 }
 
 function isDshManagedModuleProxy(directory: string): boolean {
