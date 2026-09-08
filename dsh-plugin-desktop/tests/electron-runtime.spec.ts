@@ -1845,7 +1845,7 @@ describe('Electron desktop runtime', () => {
     await release()
   })
 
-  it('opens the active profile through the packaged terminal adapter', async () => {
+  it('opens a Host-resolved workspace through the packaged terminal adapter', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     Object.defineProperty(process.versions, 'electron', {
       configurable: true,
@@ -1861,7 +1861,7 @@ describe('Electron desktop runtime', () => {
         homeDir: userDataPath,
       })
 
-      runtime.openTerminal()
+      runtime.openTerminal('/private/workspaces/codex-ui')
 
       expect(terminal.open).toHaveBeenCalledWith(expect.objectContaining({
         platform: 'darwin',
@@ -1870,6 +1870,7 @@ describe('Electron desktop runtime', () => {
         profileName: 'desktop',
         productVersion: '2.0.6',
         profileDir: expect.stringMatching(/profiles[\\/]+desktop$/u),
+        workingDirectory: '/private/workspaces/codex-ui',
         homeDir: expect.stringContaining('dsh-desktop-user-data'),
         spawn: expect.any(Function),
         onLaunchError: expect.any(Function),

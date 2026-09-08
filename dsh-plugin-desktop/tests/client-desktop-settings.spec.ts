@@ -387,7 +387,7 @@ describe('Desktop settings API', () => {
     await expect(api.selectProfile('work')).resolves.toEqual({ accepted: true, restartRequired: true })
     await expect(api.deleteProfile('work')).resolves.toEqual(VIEW)
     await expect(api.selectMarket('community-market')).resolves.toEqual({ accepted: true, restartRequired: true })
-    await expect(api.openTerminal()).resolves.toBeUndefined()
+    await expect(api.openTerminal('session-42')).resolves.toBeUndefined()
     await expect(api.restart()).resolves.toBeUndefined()
     await expect(api.restartToRecovery()).resolves.toBeUndefined()
     await expect(api.reloadRenderer()).resolves.toBeUndefined()
@@ -423,7 +423,7 @@ describe('Desktop settings API', () => {
     })
     expect(fetcher.mock.calls[5]?.[1]).toMatchObject({
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ sessionId: 'session-42' }),
     })
     expect(fetcher.mock.calls[6]?.[1]).toMatchObject({
       method: 'POST',

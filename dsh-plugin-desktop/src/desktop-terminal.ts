@@ -24,6 +24,7 @@ const WINDOWS_DSH_BOOTSTRAP = 'DSH_DESKTOP_DSH_BOOTSTRAP'
 const WINDOWS_ELECTRON_VERSION = 'DSH_DESKTOP_ELECTRON_VERSION'
 const WINDOWS_PNPM_ENTRY = 'DSH_DESKTOP_PNPM_ENTRY'
 const WINDOWS_PROFILE_DIRECTORY = 'DSH_DESKTOP_PROFILE_DIRECTORY'
+const WINDOWS_WORKING_DIRECTORY = 'DSH_DESKTOP_WORKING_DIRECTORY'
 const WINDOWS_PRODUCT_VERSION = 'DSH_DESKTOP_PRODUCT_VERSION'
 const WINDOWS_SHIM_DIRECTORY = 'DSH_DESKTOP_SHIM_DIRECTORY'
 const WINDOWS_POWERSHELL_WELCOME = 'DSH_DESKTOP_POWERSHELL_WELCOME'
@@ -36,6 +37,7 @@ const WINDOWS_GENERATED_ENVIRONMENT_KEYS = new Set([
   WINDOWS_ELECTRON_VERSION,
   WINDOWS_PNPM_ENTRY,
   WINDOWS_PROFILE_DIRECTORY,
+  WINDOWS_WORKING_DIRECTORY,
   WINDOWS_PRODUCT_VERSION,
   WINDOWS_SHIM_DIRECTORY,
   WINDOWS_POWERSHELL_WELCOME,
@@ -94,6 +96,8 @@ export interface DesktopTerminalOptions {
   productVersion: string
   /** Absolute working directory of the selected profile. */
   profileDir: string
+  /** Optional Host-resolved directory used as the interactive shell's initial cwd. */
+  workingDirectory?: string
   /** Harness home exported as `DSH_HOME` inside the terminal. */
   homeDir: string
   /** Private directory receiving the generated terminal files. */
@@ -163,6 +167,13 @@ function assertScriptValue(label: string, value: string): void {
 /** Quote one arbitrary value as a POSIX shell word. */
 function quoteSh(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`
+}
+
+/** Keep concurrent workspace launches from rewriting one shared macOS command file. */
+function macWelcomeFilename(options: DesktopTerminalOptions): string {
+  if (options.workingDirectory === undefined) return 'welcome.command'
+  const identity = createHash('sha256').update(options.workingDirectory, 'utf8').digest('hex')
+  return `welcome-${identity}.command`
 }
 
 /** Escape printable text following an `echo(` batch builtin. */
@@ -338,7 +349,7 @@ function macWelcome(
     `unset ${RUN_AS_NODE}`,
     `export ${DSH_HOME}=${quoteSh(options.homeDir)}`,
     `export PATH=${quoteSh(shimDir)}:"\${PATH:-}"`,
-    `cd ${quoteSh(options.profileDir)}`,
+    `cd ${quoteSh(options.workingDirectory ?? options.profileDir)}`,
     "printf '\\033[2J\\033[3J\\033[H'",
     `printf '%s\\n' ${quoteSh(`DSH Desktop ${options.productVersion} terminal`)}`,
     `printf '%s\\n' ${quoteSh(`Profile: ${options.profileName}`)}`,
@@ -382,7 +393,7 @@ function windowsWelcome(): string {
     `$dshDesktopShimDir = $env:${WINDOWS_SHIM_DIRECTORY}`,
     `$dshDesktopPath = @($env:${PATH} -split ';' | Where-Object { -not [string]::Equals($_, $dshDesktopShimDir, [StringComparison]::OrdinalIgnoreCase) })`,
     `$env:${PATH} = (@($dshDesktopShimDir) + $dshDesktopPath) -join ';'`,
-    `Set-Location -LiteralPath $env:${WINDOWS_PROFILE_DIRECTORY}`,
+    `Set-Location -LiteralPath $env:${WINDOWS_WORKING_DIRECTORY}`,
     `Write-Host ("DSH Desktop {0} terminal" -f $env:${WINDOWS_PRODUCT_VERSION})`,
     `Write-Host ("Profile: {0}" -f $env:${DEFAULT_PROFILE})`,
     `Write-Host ("Profile directory: {0}" -f $env:${WINDOWS_PROFILE_DIRECTORY})`,
@@ -408,7 +419,7 @@ function windowsCmdWelcome(): string {
     '@echo off',
     'setlocal EnableDelayedExpansion',
     `set "${RUN_AS_NODE}="`,
-    `cd /d "!${WINDOWS_PROFILE_DIRECTORY}!"`,
+    `cd /d "!${WINDOWS_WORKING_DIRECTORY}!"`,
     `echo(DSH Desktop !${WINDOWS_PRODUCT_VERSION}! terminal`,
     `echo(Profile: !${DEFAULT_PROFILE}!`,
     `echo(Profile directory: !${WINDOWS_PROFILE_DIRECTORY}!`,
@@ -437,6 +448,9 @@ function prepareDesktopTerminalFiles(options: DesktopTerminalOptions): DesktopTe
     ['pnpm entry', options.pnpmBinPath],
     ['Electron version', options.electronVersion],
     ['profile directory', options.profileDir],
+    ...options.workingDirectory === undefined
+      ? []
+      : [['working directory', options.workingDirectory] as const],
     ['Harness home', options.homeDir],
     ['state directory', options.stateDir],
     ['product version', options.productVersion],
@@ -451,7 +465,7 @@ function prepareDesktopTerminalFiles(options: DesktopTerminalOptions): DesktopTe
       dshShimPath: join(shimDir, 'dsh'),
       pnpmShimPath: join(shimDir, 'pnpm'),
       nodeShimPath: join(shimDir, 'node'),
-      welcomePath: join(options.stateDir, 'welcome.command'),
+      welcomePath: join(options.stateDir, macWelcomeFilename(options)),
     }
     const bashRcPath = join(options.stateDir, 'bashrc')
     replacePrivateFile(files.dshShimPath, macDshShim(options), EXECUTABLE_FILE_MODE)
@@ -512,6 +526,7 @@ function terminalEnvironment(options: DesktopTerminalOptions, files: DesktopTerm
     env[WINDOWS_ELECTRON_VERSION] = options.electronVersion
     env[WINDOWS_PNPM_ENTRY] = options.pnpmBinPath
     env[WINDOWS_PROFILE_DIRECTORY] = options.profileDir
+    env[WINDOWS_WORKING_DIRECTORY] = options.workingDirectory ?? options.profileDir
     env[WINDOWS_PRODUCT_VERSION] = options.productVersion
     env[WINDOWS_SHIM_DIRECTORY] = files.shimDir
     env[WINDOWS_POWERSHELL_WELCOME] = files.welcomePath
@@ -636,7 +651,7 @@ function windowsLaunchBroker(
   return [
     '@echo off',
     'setlocal EnableDelayedExpansion',
-    `start "DSH Desktop" /D "!${WINDOWS_PROFILE_DIRECTORY}!" ${target}`,
+    `start "DSH Desktop" /D "!${WINDOWS_WORKING_DIRECTORY}!" ${target}`,
     'exit /b %errorlevel%',
     '',
   ].join('\r\n')
@@ -669,7 +684,7 @@ export function openDesktopTerminal(options: DesktopTerminalOptions): DesktopTer
   let args: string[]
   let detached = true
   let windowsHide = false
-  let launcherCwd = options.profileDir
+  let launcherCwd = options.workingDirectory ?? options.profileDir
   let windowsLauncherPath: string | undefined
   if (options.platform === 'darwin') {
     command = '/usr/bin/open'

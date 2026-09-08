@@ -46,6 +46,13 @@ export interface DesktopWindowService {
   readonly micaSupported: boolean
   /** Materials available on the active platform and operating-system build. */
   readonly availableMaterials: readonly ('off' | 'transparent' | 'mica')[]
+  /** Native actions supported by this Desktop generation. */
+  readonly capabilities: {
+    /** The Host can resolve a session id and open its workspace in a terminal. */
+    readonly sessionTerminal: true
+  }
+  /** Open one live session's Host-resolved workspace in the native terminal. */
+  openSessionTerminal(sessionId: string): Promise<void>
   /** Content insets owned by the active Desktop presentation. */
   readonly safeAreaInsets: DesktopWindowInsets
   /** Top caption geometry; interactive children must opt out of app dragging. */

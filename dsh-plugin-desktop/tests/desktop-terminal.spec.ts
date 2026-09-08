@@ -242,7 +242,7 @@ describe('desktop terminal environment', () => {
     )
     const welcome = readFileSync(launch.welcomePath, 'utf8')
     expect(welcome).toContain('Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue')
-    expect(welcome).toContain('Set-Location -LiteralPath $env:DSH_DESKTOP_PROFILE_DIRECTORY')
+    expect(welcome).toContain('Set-Location -LiteralPath $env:DSH_DESKTOP_WORKING_DIRECTORY')
     expect(welcome).toContain('"DSH Desktop {0} terminal" -f $env:DSH_DESKTOP_PRODUCT_VERSION')
     expect(welcome).toContain('"Plugin commands without --profile modify the {0} profile."')
     expect(welcome).toContain('dsh --dump-config')
@@ -253,7 +253,7 @@ describe('desktop terminal environment', () => {
 
     expect(launch.windowsLauncherPath).toBe(join(stateDir, 'launch.cmd'))
     const launcher = readFileSync(launch.windowsLauncherPath!, 'utf8')
-    expect(launcher).toContain('start "DSH Desktop" /D "!DSH_DESKTOP_PROFILE_DIRECTORY!"')
+    expect(launcher).toContain('start "DSH Desktop" /D "!DSH_DESKTOP_WORKING_DIRECTORY!"')
     expect(launcher).toContain('"!DSH_DESKTOP_SHELL_EXECUTABLE!" -NoLogo -NoExit')
     expect(launcher).toContain('-File "!DSH_DESKTOP_POWERSHELL_WELCOME!"')
 
@@ -278,6 +278,7 @@ describe('desktop terminal environment', () => {
           DSH_DESKTOP_ELECTRON_VERSION: options.electronVersion,
           DSH_DESKTOP_PNPM_ENTRY: options.pnpmBinPath,
           DSH_DESKTOP_PROFILE_DIRECTORY: options.profileDir,
+          DSH_DESKTOP_WORKING_DIRECTORY: options.profileDir,
           DSH_DESKTOP_PRODUCT_VERSION: options.productVersion,
           DSH_DESKTOP_SHIM_DIRECTORY: launch.shimDir,
           DSH_DESKTOP_POWERSHELL_WELCOME: launch.welcomePath,
@@ -290,6 +291,22 @@ describe('desktop terminal environment', () => {
       },
     }])
     expect(harness.unref).toHaveBeenCalledOnce()
+  })
+
+  it('starts the shell in a Host-resolved workspace without changing profile identity', () => {
+    const stateDir = join(temporaryDirectory(), 'terminal state')
+    const harness = spawnHarness()
+    const options = macOptions(stateDir, harness.spawn)
+    options.workingDirectory = "/Users/example/Work/O'Brien"
+
+    const launch = openDesktopTerminal(options)
+
+    expect(basename(launch.welcomePath)).toMatch(/^welcome-[a-f0-9]{64}\.command$/u)
+    const welcome = readFileSync(launch.welcomePath, 'utf8')
+    expect(welcome).toContain(`cd '/Users/example/Work/O'"'"'Brien'`)
+    expect(welcome).toContain('Profile directory: /Users/example/Library/Application Support/DSH O')
+    expect(welcome).toContain('/profiles/desktop')
+    expect(harness.calls[0]?.options.cwd).toBe(options.workingDirectory)
   })
 
   it('opens a new Windows Terminal window when wt.exe is available', () => {
@@ -359,7 +376,7 @@ describe('desktop terminal environment', () => {
     const welcome = readFileSync(join(stateDir, 'welcome.cmd'), 'utf8')
     expect(welcome).toContain('setlocal EnableDelayedExpansion')
     expect(welcome).toContain('set "ELECTRON_RUN_AS_NODE="')
-    expect(welcome).toContain('cd /d "!DSH_DESKTOP_PROFILE_DIRECTORY!"')
+    expect(welcome).toContain('cd /d "!DSH_DESKTOP_WORKING_DIRECTORY!"')
     expect(welcome).toContain('echo(Profile directory: !DSH_DESKTOP_PROFILE_DIRECTORY!')
     const launcher = readFileSync(launch.windowsLauncherPath!, 'utf8')
     expect(launcher).toContain('"!DSH_DESKTOP_SHELL_EXECUTABLE!" /D /K call')
@@ -466,6 +483,7 @@ describe('desktop terminal environment', () => {
       DSH_DESKTOP_ELECTRON_VERSION: '43.4.0',
       DSH_DESKTOP_PNPM_ENTRY: 'C:\\程序\\resources\\app.asar.unpacked\\node_modules\\pnpm\\bin\\pnpm.mjs',
       DSH_DESKTOP_PROFILE_DIRECTORY: 'C:\\用户\\工作 profile',
+      DSH_DESKTOP_WORKING_DIRECTORY: 'C:\\用户\\工作 profile',
       DSH_DESKTOP_POWERSHELL_WELCOME: join(stateDir, 'welcome.ps1'),
       DSH_DESKTOP_CMD_WELCOME: join(stateDir, 'welcome.cmd'),
     }))

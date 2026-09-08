@@ -1558,7 +1558,7 @@ async function start(): Promise<void> {
               )
             })
           },
-          openTerminal: () => { runtime.openTerminal() },
+          openTerminal: workingDirectory => { runtime.openTerminal(workingDirectory) },
           reloadRenderer: () => { runtime.reloadRenderer() },
           toggleDeveloperTools: () => { runtime.toggleDeveloperTools() },
           exportDiagnostics: () => runtime.exportDiagnostics(),

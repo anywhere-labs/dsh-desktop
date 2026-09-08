@@ -74,7 +74,7 @@ export interface DesktopSettingsApi {
   selectProfile(name: string): Promise<DesktopRestartAcceptance>
   deleteProfile(name: string): Promise<DesktopSettingsView>
   selectMarket(provider: DesktopMarketProvider): Promise<DesktopRestartAcceptance>
-  openTerminal(): Promise<void>
+  openTerminal(sessionId?: string): Promise<void>
   restart(): Promise<void>
   restartToRecovery(): Promise<void>
   reloadRenderer(): Promise<void>
@@ -325,8 +325,9 @@ export function createDesktopSettingsApi(fetcher: FetchLike = globalThis.fetch.b
     async selectMarket(provider: DesktopMarketProvider) {
       return parseDesktopRestartAcceptance(await readResponse(await post(fetcher, MARKET_SELECT_PATH, { provider })))
     },
-    async openTerminal() {
-      parseDesktopActionAcceptance(await readResponse(await post(fetcher, TERMINAL_OPEN_PATH, {})))
+    async openTerminal(sessionId?: string) {
+      const body = sessionId === undefined ? {} : { sessionId }
+      parseDesktopActionAcceptance(await readResponse(await post(fetcher, TERMINAL_OPEN_PATH, body)))
     },
     async restart() {
       parseDesktopActionAcceptance(await readResponse(await post(fetcher, RESTART_PATH, {})))

@@ -262,7 +262,7 @@ describe('advanced desktop layout', () => {
     }
   })
 
-  it('reports generation-stable safe areas and drag geometry to client plugins', () => {
+  it('reports generation-stable safe areas, capabilities, and actions to client plugins', async () => {
     expect(desktopWindowService({
       version: '2.0.3', mode: 'compatibility', platform: 'darwin', material: 'off', micaSupported: false,
     })).toEqual({
@@ -272,6 +272,8 @@ describe('advanced desktop layout', () => {
       material: 'off',
       micaSupported: false,
       availableMaterials: ['off', 'transparent'],
+      capabilities: { sessionTerminal: true },
+      openSessionTerminal: expect.any(Function),
       safeAreaInsets: { top: DESKTOP_FRAME_HEIGHT, right: 0, bottom: 0, left: 0 },
       dragRegion: {
         height: DESKTOP_FRAME_HEIGHT,
@@ -279,9 +281,10 @@ describe('advanced desktop layout', () => {
         rightInset: 0,
       },
     })
+    const openSessionTerminal = vi.fn(async () => {})
     const mac = desktopWindowService({
       version: '2.0.3', mode: 'advanced', platform: 'darwin', material: 'transparent', micaSupported: false,
-    })
+    }, openSessionTerminal)
     expect(mac).toEqual({
       version: '2.0.3',
       mode: 'advanced',
@@ -289,6 +292,8 @@ describe('advanced desktop layout', () => {
       material: 'transparent',
       micaSupported: false,
       availableMaterials: ['off', 'transparent'],
+      capabilities: { sessionTerminal: true },
+      openSessionTerminal,
       safeAreaInsets: { top: ADVANCED_MACOS_CONTENT_INSET, right: 0, bottom: 0, left: 0 },
       dragRegion: {
         height: ADVANCED_MACOS_DRAG_REGION_HEIGHT,
@@ -297,8 +302,11 @@ describe('advanced desktop layout', () => {
       },
     })
     expect(Object.isFrozen(mac)).toBe(true)
+    expect(Object.isFrozen(mac.capabilities)).toBe(true)
     expect(Object.isFrozen(mac.safeAreaInsets)).toBe(true)
     expect(Object.isFrozen(mac.dragRegion)).toBe(true)
+    await expect(mac.openSessionTerminal('session-42')).resolves.toBeUndefined()
+    expect(openSessionTerminal).toHaveBeenCalledWith('session-42')
     expect(desktopWindowService({
       version: '2.0.3', mode: 'advanced', platform: 'win32', material: 'off', micaSupported: false,
     })).toEqual({
@@ -308,6 +316,8 @@ describe('advanced desktop layout', () => {
       material: 'off',
       micaSupported: false,
       availableMaterials: ['off'],
+      capabilities: { sessionTerminal: true },
+      openSessionTerminal: expect.any(Function),
       safeAreaInsets: { top: ADVANCED_WINDOWS_TITLEBAR_HEIGHT, right: 0, bottom: 0, left: 0 },
       dragRegion: {
         height: ADVANCED_WINDOWS_TITLEBAR_HEIGHT,
@@ -324,6 +334,8 @@ describe('advanced desktop layout', () => {
       material: 'mica',
       micaSupported: true,
       availableMaterials: ['off', 'mica'],
+      capabilities: { sessionTerminal: true },
+      openSessionTerminal: expect.any(Function),
       safeAreaInsets: { top: DESKTOP_FRAME_HEIGHT, right: 0, bottom: 0, left: 0 },
       dragRegion: {
         height: DESKTOP_FRAME_HEIGHT,

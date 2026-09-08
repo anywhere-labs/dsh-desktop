@@ -10,6 +10,7 @@ import type {
   DesktopProfileCreateRequest,
   DesktopProfileDeleteRequest,
   DesktopProfileSelectRequest,
+  DesktopTerminalOpenRequest,
   DesktopSettingsErrorResponse,
 } from './desktop-settings-contract.ts'
 
@@ -151,6 +152,13 @@ function parseMarketRequest(value: unknown): DesktopMarketSelectRequest | undefi
 function isEmptyRequest(value: unknown): boolean {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     && Object.keys(value).length === 0
+}
+
+function parseTerminalRequest(value: unknown): DesktopTerminalOpenRequest | undefined {
+  if (isEmptyRequest(value)) return {}
+  if (!isExactRecord(value, 'sessionId') || typeof value.sessionId !== 'string') return undefined
+  if (value.sessionId.length === 0 || value.sessionId.length > 1_024) return undefined
+  return { sessionId: value.sessionId }
 }
 
 async function parsePostBody(
@@ -319,13 +327,17 @@ export async function handleDesktopMarketSelectRequest(
   }
 }
 
-/** Open the launcher-owned DSH terminal from an exact empty request. */
+/** Resolve an optional session id to a trusted Host-owned working directory. */
+export type DesktopSessionWorkingDirectory = (sessionId: string) => string | undefined
+
+/** Open the launcher-owned DSH terminal without accepting command text or paths. */
 export async function handleDesktopTerminalOpenRequest(
   req: IncomingMessage,
   res: ServerResponse,
   expectedOrigin: string,
   controller: DesktopSettingsController,
   reportError: (operation: string, cause: unknown) => void = () => {},
+  sessionWorkingDirectory: DesktopSessionWorkingDirectory = () => undefined,
 ): Promise<void> {
   if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
   if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
@@ -333,9 +345,22 @@ export async function handleDesktopTerminalOpenRequest(
   }
   const value = await parsePostBody(req, res)
   if (value === INVALID_BODY) return
-  if (!isEmptyRequest(value)) return finishJson(res, 400, error('invalid terminal request'))
+  const request = parseTerminalRequest(value)
+  if (request === undefined) return finishJson(res, 400, error('invalid terminal request'))
+  let workingDirectory: string | undefined
   try {
-    finishJson(res, 200, controller.openTerminal())
+    workingDirectory = 'sessionId' in request
+      ? sessionWorkingDirectory(request.sessionId)
+      : undefined
+  } catch (cause) {
+    reportError('resolve session working directory', cause)
+    return finishJson(res, 500, error('session working directory unavailable'))
+  }
+  if ('sessionId' in request && workingDirectory === undefined) {
+    return finishJson(res, 404, error('session working directory unavailable'))
+  }
+  try {
+    finishJson(res, 200, controller.openTerminal(workingDirectory))
   } catch (cause) {
     reportError('open terminal', cause)
     finishJson(res, 500, error('terminal could not be opened'))
