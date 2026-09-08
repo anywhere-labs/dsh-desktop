@@ -1,0 +1,37 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -103,7 +103,10 @@ function taskkillTree(pid, force) {
+ 		String(pid),
+ 		"/T",
+ 		...force ? ["/F"] : []
+-	], { stdio: "ignore" });
++	], {
++		stdio: "ignore",
++		windowsHide: true
++	});
+ }
+ /**
+ * True for NULL and INVALID_HANDLE_VALUE returns from Win32 handle APIs.
+@@ -792,7 +795,10 @@ function taskkillProcessTree(pid) {
+ 		String(pid),
+ 		"/T",
+ 		"/F"
+-	], { stdio: "ignore" });
++	], {
++		stdio: "ignore",
++		windowsHide: true
++	});
+ }
+ /**
+ * Signal a detached process tree with platform-correct semantics: POSIX
+@@ -848,7 +854,8 @@ function spawnSubprocess(spec, internals = {}) {
+ 			outMode === "inherit" ? "inherit" : "pipe",
+ 			errMode === "inherit" ? "inherit" : "pipe"
+ 		],
+-		detached: platform !== "win32"
++		detached: platform !== "win32",
++		windowsHide: true
+ 	});
+ 	const collectStream = (mode, stream, label) => {
+ 		if (!isCollect(mode) || stream === null) return void 0;

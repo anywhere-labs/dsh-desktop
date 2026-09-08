@@ -20,13 +20,21 @@ const THIRD_PARTY_DEPENDENCY_NAME = 'dsh-desktop-loader-smoke-dependency'
 const PRODUCT_VERSION = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 ).version
+const AUTHENTICATION_TOKEN = Buffer.alloc(32, 3).toString('base64url')
 let ordinaryBrowserEnabled = false
 const BROWSER_ACCESS = Object.freeze({
   get ordinaryBrowserEnabled() { return ordinaryBrowserEnabled },
   rendererHeader: Object.freeze({
     name: 'x-dsh-desktop-renderer',
-    value: Buffer.alloc(32, 1).toString('base64url'),
+    value: AUTHENTICATION_TOKEN,
   }),
+  authenticatedUrl(baseUrl) {
+    const url = new URL(baseUrl)
+    url.pathname = '/'
+    url.search = ''
+    url.searchParams.set('token', AUTHENTICATION_TOKEN)
+    return url.href
+  },
   setOrdinaryBrowserEnabled(enabled) { ordinaryBrowserEnabled = enabled },
 })
 const LAN_HTTPS_SNAPSHOT = Object.freeze({
@@ -43,7 +51,6 @@ const LAN_HTTPS = Object.freeze({
   async setEnabled() { return LAN_HTTPS_SNAPSHOT },
   async stop() { return LAN_HTTPS_SNAPSHOT },
 })
-const AUTHENTICATION_TOKEN = Buffer.alloc(32, 3).toString('base64url')
 const RUNNER_ENVIRONMENT_NAMES = new Set([
   'ELECTRON_RUN_AS_NODE',
   'NPM_CONFIG_RUNTIME',

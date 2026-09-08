@@ -1,11 +1,18 @@
+import { execFile } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import { tmpdir } from 'node:os'
 import { PassThrough } from 'node:stream'
 import { delimiter, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { promisify } from 'node:util'
 import { Context } from '@deepseek-ai/cordis'
 import type { SubprocessHandle, SubprocessOutcome, SubprocessRuntime, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { describe, expect, it, vi } from 'vitest'
 import { apply, inject, name, type DesktopPnpm, type DesktopPnpmBootstrap } from '../src/pnpm.ts'
 import { PNPM_IGNORE_MINIMUM_RELEASE_AGE, withDesktopPnpmPolicy } from '../src/pnpm-policy.ts'
+
+const execFileAsync = promisify(execFile)
 
 interface Deferred<T> { promise: Promise<T>; resolve(value: T): void; reject(cause: unknown): void }
 interface ControlledSubprocess extends SubprocessHandle {
@@ -79,6 +86,57 @@ function finish(process: ControlledSubprocess, exitCode = 0): void {
 }
 
 describe('desktop pnpm execution service', () => {
+  it('disables release-age checks for zero and invalid policy values', async () => {
+    const server = createServer((_request, response) => {
+      const address = server.address()
+      if (address === null || typeof address === 'string') throw new Error('registry fixture is not listening')
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify({
+        name: 'dsh-minimum-release-age-fixture',
+        'dist-tags': { latest: '1.0.0' },
+        versions: {
+          '1.0.0': {
+            name: 'dsh-minimum-release-age-fixture',
+            version: '1.0.0',
+            dist: {
+              tarball: `http://127.0.0.1:${address.port}/fixture.tgz`,
+              shasum: '0000000000000000000000000000000000000000',
+            },
+          },
+        },
+        time: { '1.0.0': '2100-01-01T00:00:00.000Z' },
+      }))
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', resolve)
+    })
+    const address = server.address()
+    if (address === null || typeof address === 'string') throw new Error('registry fixture did not bind TCP')
+    const pnpmEntry = fileURLToPath(new URL('../node_modules/pnpm/dist/pnpm.mjs', import.meta.url))
+    const roots: string[] = []
+    try {
+      for (const value of ['0', 'invalid']) {
+        const root = await mkdtemp(join(tmpdir(), 'dsh-pnpm-minimum-release-age-'))
+        roots.push(root)
+        await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'fixture', private: true }))
+        await expect(execFileAsync(globalThis.process.execPath, [
+          pnpmEntry,
+          `--registry=http://127.0.0.1:${address.port}`,
+          `--config.minimumReleaseAge=${value}`,
+          'add',
+          '--lockfile-only',
+          'dsh-minimum-release-age-fixture',
+        ], { cwd: root })).resolves.toBeDefined()
+      }
+    } finally {
+      await Promise.all(roots.map(async root => await rm(root, { recursive: true, force: true })))
+      await new Promise<void>((resolve, reject) => {
+        server.close(error => { if (error === undefined) resolve(); else reject(error) })
+      })
+    }
+  }, 20_000)
+
   it('applies the release-age policy exactly once to direct pnpm argv', () => {
     expect(withDesktopPnpmPolicy(['remove', 'example'])).toEqual([
       PNPM_IGNORE_MINIMUM_RELEASE_AGE,

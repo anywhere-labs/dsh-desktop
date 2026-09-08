@@ -44,6 +44,7 @@ import {
   desktopLocaleFromLanguageTag,
   desktopRestartConfirmationCopy,
   desktopTrayLabel,
+  rendererRecoveryCopy,
 } from './tray-locale.ts'
 import {
   desktopUpdateFilename,
@@ -55,6 +56,8 @@ import {
 } from './update-download.ts'
 import type { UpdateCheckResult } from './update-checker.ts'
 import type { DesktopInstallationId } from './desktop-installation-id.ts'
+import { DESKTOP_RELEASE_CHANNEL } from './product-identity.ts'
+import type { DesktopReleaseChannel } from './update-checker.ts'
 import {
   type WindowsVolumeQuery,
 } from './windows-volume-diagnostics.ts'
@@ -66,20 +69,6 @@ import {
   FileMainWindowStateStore,
   type MainWindowStateStore,
 } from './main-window-state.ts'
-
-/** Return the presentation mode opposite the active generation. */
-export function nextDesktopShellMode(mode: DesktopShellSpec['mode']): DesktopShellSpec['mode'] {
-  if (mode === 'compatibility') return 'extended'
-  if (mode === 'extended') return 'advanced'
-  return 'compatibility'
-}
-
-/** Return the tray command describing the mode that will be activated. */
-export function modeToggleLabel(mode: DesktopShellSpec['mode'], locale: DesktopLocale = 'en'): string {
-  if (mode === 'compatibility') return desktopTrayLabel(locale, 'switchToExtended')
-  if (mode === 'extended') return desktopTrayLabel(locale, 'switchToAdvanced')
-  return desktopTrayLabel(locale, 'switchToCompatibility')
-}
 
 /**
  * Read the desktop package version instead of Electron's development-app version.
@@ -122,11 +111,12 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   private readonly workspaceAdmission: ElectronWorkspaceAdmission
   private updateCleanupTask: Promise<void> | undefined
   private rendererHealthGate: DesktopRendererHealthGate | undefined
+  private rendererBootHealthy = false
   private profileCreateWindow: ProfileCreateWindow | undefined
   private restartRequest: Promise<void> | undefined
 
   constructor(
-    private readonly restart: (target?: 'recovery') => Promise<void>,
+    private readonly restart: (target?: 'recovery' | 'safe-mode') => Promise<void>,
     private readonly onRendererBoot: (report: RendererBootReport) => boolean | void = () => {},
     private readonly logger: DesktopLogger | undefined = undefined,
     workspaceVolumeQuery: WindowsVolumeQuery | undefined = undefined,
@@ -152,12 +142,13 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       get isPackaged() { return app.isPackaged },
       get canDownload() { return app.isPackaged && platformStrategy.updateDownloadPlatform !== undefined },
       get currentVersion() { return PRODUCT_VERSION },
+      get releaseChannel() { return DESKTOP_RELEASE_CHANNEL },
       get statePath() { return join(app.getPath('userData'), 'updates', 'state.json') },
       ...(installationId === undefined ? {} : { installationId }),
       request: (url, init) => net.fetch(url, init),
-      confirmDownload: version => this.confirmUpdateDownload(version),
+      confirmDownload: (version, channel) => this.confirmUpdateDownload(version, channel),
       showManualCheckResult: result => this.showManualUpdateCheckResult(result),
-      downloadAndOpen: (version, signal) => this.downloadAndOpenUpdate(version, signal),
+      downloadAndOpen: (version, signal, channel) => this.downloadAndOpenUpdate(version, signal, channel),
       notify: notification => { this.showNotification(notification) },
     }
   }
@@ -247,6 +238,8 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         stopRendererBootMonitoring: () => { this.stopRendererBootMonitoring() },
         abortRendererBootMonitoring: cause => { this.rendererHealthGate?.stop(cause) },
         failRendererBoot: error => { this.failRendererBoot('renderer-failed', error) },
+        canRecoverRenderer: () => this.rendererBootHealthy,
+        rendererRecoveryCopy: () => rendererRecoveryCopy[this.currentLocale],
         logError: message => { this.logError(message) },
         mainWindowState: this.mainWindowState,
       })
@@ -412,9 +405,11 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   /** @inheritdoc */
   reportRendererBoot(report: RendererBootReport): void {
     this.rendererHealthGate?.report(report)
+    this.generation?.reportRendererRecovery(report)
   }
 
   private handleRendererBootVerdict(report: RendererBootReport): void {
+    this.rendererBootHealthy = report.status === 'healthy'
     if (report.status === 'failed') {
       const plugins = report.plugins.length === 0 ? 'Unknown client plugin' : report.plugins.join(', ')
       const error = report.error === undefined ? 'The client Loader did not provide an error message.' : report.error
@@ -475,7 +470,17 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     await request
   }
 
-  private async confirmAndRestart(target: 'normal' | 'recovery'): Promise<void> {
+  async requestSafeModeRestart(): Promise<void> {
+    if (this.quitting) return
+    if (this.restartRequest !== undefined) return await this.restartRequest
+    const request = this.confirmAndRestart('safe-mode').finally(() => {
+      if (this.restartRequest === request) this.restartRequest = undefined
+    })
+    this.restartRequest = request
+    await request
+  }
+
+  private async confirmAndRestart(target: 'normal' | 'recovery' | 'safe-mode'): Promise<void> {
     const copy = desktopRestartConfirmationCopy(this.currentLocale, target)
     const options: Electron.MessageBoxOptions = {
       type: 'question',
@@ -488,12 +493,13 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       noLink: true,
     }
     const result = await this.showDesktopMessageBox(options)
-    if (result.response === 0) await this.restart(target === 'recovery' ? 'recovery' : undefined)
+    if (result.response === 0) await this.restart(target === 'normal' ? undefined : target)
   }
 
   /** @inheritdoc */
   prepareToQuit(): void {
     this.quitting = true
+    this.generation?.stopRendererRecovery()
     this.stopRendererBootMonitoring()
   }
 
@@ -585,13 +591,18 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   }
 
   /** Ask before making the fixed download endpoint's counted request. */
-  private async confirmUpdateDownload(version: string): Promise<boolean> {
+  private async confirmUpdateDownload(
+    version: string,
+    channel: DesktopReleaseChannel = 'stable',
+  ): Promise<boolean> {
     const copy = desktopNativeCopy(this.currentLocale)
     const result = await this.showUpdateMessageBox({
       type: 'info',
       title: copy.updateAvailableTitle,
       message: copy.updateAvailableMessage(version),
-      detail: copy.downloadUpdate,
+      detail: channel === DESKTOP_RELEASE_CHANNEL
+        ? copy.downloadUpdate
+        : copy.installStableAlongsideBeta,
       buttons: [copy.download, copy.later],
       defaultId: 1,
       cancelId: 1,
@@ -641,18 +652,23 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   }
 
   /** Download a confirmed installer and hand it to the native installation flow. */
-  private async downloadAndOpenUpdate(version: string, signal: AbortSignal): Promise<void> {
+  private async downloadAndOpenUpdate(
+    version: string,
+    signal: AbortSignal,
+    channel: DesktopReleaseChannel = 'stable',
+  ): Promise<void> {
     const copy = desktopNativeCopy(this.currentLocale)
     const platform = this.platformStrategy.updateDownloadPlatform
     if (platform === undefined) {
       throw new Error(`dsh-plugin-desktop: updates are unavailable on ${this.platform}`)
     }
-    const destinationPath = await this.chooseUpdateDestination(version)
+    const destinationPath = await this.chooseUpdateDestination(version, channel)
     if (destinationPath === undefined) return
     signal.throwIfAborted()
     const artifactPath = await downloadDesktopUpdate({
       platform,
       version,
+      ...(channel === 'stable' ? {} : { channel }),
       destinationPath,
       request: (url, init) => net.fetch(url, init),
       signal,
@@ -701,10 +717,13 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     spec.requestQuit(0)
   }
 
-  private async chooseUpdateDestination(version: string): Promise<string | undefined> {
+  private async chooseUpdateDestination(
+    version: string,
+    channel: DesktopReleaseChannel = 'stable',
+  ): Promise<string | undefined> {
     if (this.platform !== 'darwin' && this.platform !== 'win32') return undefined
     const copy = desktopNativeCopy(this.currentLocale)
-    const filename = desktopUpdateFilename(this.platform, version)
+    const filename = desktopUpdateFilename(this.platform, version, channel)
     const extension = this.platform === 'darwin' ? 'dmg' : 'exe'
     const result = await this.showUpdateSaveDialog({
       title: copy.saveInstallerTitle,
@@ -749,7 +768,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     await resolveDesktopUpdateArtifact(userDataPath, artifact, result.response === 0)
   }
 
-  /** Start the downloaded NSIS installer before releasing the current process. */
+  /** Start the downloaded NSIS installer visibly before releasing the current process. */
   private async launchWindowsUpdateInstaller(installerPath: string): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       let child: ReturnType<typeof spawn>
@@ -758,7 +777,9 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
           detached: true,
           stdio: 'ignore',
           shell: false,
-          windowsHide: true,
+          // UV_PROCESS_WINDOWS_HIDE also applies SW_HIDE to GUI processes,
+          // which leaves an interactive NSIS installer running invisibly.
+          windowsHide: false,
         })
       } catch (cause) {
         reject(cause)
@@ -815,6 +836,12 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
 
   private buildTrayTemplate(spec: DesktopShellSpec): Electron.MenuItemConstructorOptions[] {
     const show = (): void => { this.show() }
+    const changeMode = (mode: DesktopShellSpec['mode']): void => {
+      if (!this.platformStrategy.canToggleShellMode || mode === spec.mode) return
+      void spec.requestModeChange(mode).catch((cause: unknown) => {
+        this.logError(`dsh-plugin-desktop: failed to change shell mode: ${cause instanceof Error ? cause.message : String(cause)}`)
+      })
+    }
     const tools = this.contributedTrayItems('tools')
     const profiles = this.contributedTrayItems('profiles')
     const status = this.contributedTrayItems('status')
@@ -827,13 +854,15 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     template.push(
       { type: 'separator' },
       {
-        label: modeToggleLabel(spec.mode, this.locale),
+        label: desktopTrayLabel(this.locale, 'shellMode', desktopTrayLabel(this.locale, spec.mode)),
         enabled: this.platformStrategy.canToggleShellMode,
-        click: () => {
-          void spec.requestModeChange(nextDesktopShellMode(spec.mode)).catch((cause: unknown) => {
-            this.logError(`dsh-plugin-desktop: failed to change shell mode: ${cause instanceof Error ? cause.message : String(cause)}`)
-          })
-        },
+        submenu: (['compatibility', 'extended', 'advanced'] as const).map(mode => ({
+          label: desktopTrayLabel(this.locale, mode),
+          type: 'radio',
+          checked: mode === spec.mode,
+          enabled: this.platformStrategy.canToggleShellMode,
+          click: () => { changeMode(mode) },
+        })),
       },
       { type: 'separator' },
       { label: desktopTrayLabel(this.locale, 'quit'), click: () => { spec.requestQuit(0) } },
@@ -860,6 +889,11 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     if (tools.length > 0) items.push(...tools)
     if (tools.length > 0 && profiles.length > 0) items.push({ type: 'separator' })
     if (profiles.length > 0) items.push(...profiles)
+    const status = this.contributedTrayItems('status')
+    if (status.length > 0) {
+      if (items.length > 0) items.push({ type: 'separator' })
+      items.push(...status)
+    }
     return items
   }
 }

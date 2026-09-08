@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
 import type { RendererBootReport } from './renderer-boot-contract.ts'
-import type { UpdateCheckResult, UpdateRequest } from './update-checker.ts'
+import type { DesktopReleaseChannel, UpdateCheckResult, UpdateRequest } from './update-checker.ts'
 import type { DesktopInstallationId } from './desktop-installation-id.ts'
 import type { ProfileCreateWindowOptions } from './profile-create-window.ts'
 import type {
@@ -105,6 +105,8 @@ export interface DesktopUpdateAdapter {
   readonly canDownload: boolean
   /** Installed desktop product version. */
   readonly currentVersion: string
+  /** Release stream selected by this packaged product. Legacy adapters default to stable. */
+  readonly releaseChannel?: DesktopReleaseChannel
   /** Private file used to suppress repeated background update announcements. */
   readonly statePath: string
   /** Pseudonymous installation UUID attached only to the fixed version endpoint. */
@@ -112,11 +114,11 @@ export interface DesktopUpdateAdapter {
   /** Request adapter backed by Electron's native network session. */
   readonly request: UpdateRequest
   /** Ask whether one strictly newer version may be downloaded. */
-  confirmDownload(version: string): Promise<boolean>
+  confirmDownload(version: string, channel?: DesktopReleaseChannel): Promise<boolean>
   /** Present the outcome of a user-triggered version check. */
   showManualCheckResult(result: UpdateCheckResult | null): Promise<void>
   /** Download and hand one confirmed update to the platform installer. */
-  downloadAndOpen(version: string, signal: AbortSignal): Promise<void>
+  downloadAndOpen(version: string, signal: AbortSignal, channel?: DesktopReleaseChannel): Promise<void>
   /** Present a native status notification without blocking the Host tree. */
   notify(notification: DesktopNotification): void
 }

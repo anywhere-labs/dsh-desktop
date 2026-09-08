@@ -1,0 +1,436 @@
+{
+  "name": "dsh-plugin-desktop-beta",
+  "version": "2.0.6-beta.1",
+  "description": "DSH Desktop Beta: an Electron shell composed as a DeepSeek Harness Cordis plugin",
+  "license": "MIT",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anywhere-labs/deepseek-harness-desktop.git",
+    "directory": "dsh-plugin-desktop-beta"
+  },
+  "type": "module",
+  "main": "lib/main.js",
+  "types": "lib/types/index.d.ts",
+  "bin": {
+    "dsh-desktop-beta": "lib/bin.js",
+    "dsh-plugin-desktop-beta": "lib/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./profile": {
+      "types": "./lib/types/profile.d.ts",
+      "default": "./lib/profile.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./webserver": {
+      "types": "./lib/types/webserver.d.ts",
+      "default": "./lib/webserver.js"
+    },
+    "./windows-pwsh-sandbox": {
+      "types": "./lib/types/windows-pwsh-sandbox.d.ts",
+      "default": "./lib/windows-pwsh-sandbox.js"
+    },
+    "./terminal": {
+      "types": "./lib/types/terminal.d.ts",
+      "default": "./lib/terminal.js"
+    },
+    "./pnpm": {
+      "types": "./lib/types/pnpm.d.ts",
+      "default": "./lib/pnpm.js"
+    },
+    "./profile-service": {
+      "types": "./lib/types/profile-service.d.ts",
+      "default": "./lib/profile-service.js"
+    },
+    "./desktop-plugins": {
+      "types": "./lib/types/desktop-plugins.d.ts",
+      "default": "./lib/desktop-plugins.js"
+    },
+    "./profiles": {
+      "types": "./lib/types/profiles.d.ts",
+      "default": "./lib/profiles.js"
+    },
+    "./diagnostics": {
+      "types": "./lib/types/diagnostics.d.ts",
+      "default": "./lib/diagnostics.js"
+    },
+    "./notifications": {
+      "types": "./lib/types/notifications.d.ts",
+      "default": "./lib/notifications.js"
+    },
+    "./updates": {
+      "types": "./lib/types/updates.d.ts",
+      "default": "./lib/updates.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "build/app-icon.png",
+    "build/app-icon-mac.png",
+    "build/tray-icon.svg",
+    "build/tray-icon*.png",
+    "cordis.patch.yml",
+    "docs/**",
+    "lib/**/*.js",
+    "lib/**/*.map",
+    "lib/native-ui/**",
+    "lib/types/**/*.d.ts",
+    "README.md",
+    "README.zh.md",
+    "README.i18n.yaml",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-theme"
+      ],
+      "platform": "web"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/generate-mac-app-icon.mjs && node scripts/generate-tray-icons.mjs && node scripts/clean.mjs && tsdown && vite build --config vite.native-ui.config.ts && tsc -p tsconfig.json --emitDeclarationOnly && tsc -p tsconfig.client.json --emitDeclarationOnly",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.native-ui.json --noEmit && tsc -p tsconfig.tests.json --noEmit && tsc -p tsconfig.tests.client.json --noEmit",
+    "test": "vitest run",
+    "verify:closure": "node --test scripts/runtime-closure.spec.mjs && node scripts/verify-runtime-closure.mjs",
+    "verify:cli": "node scripts/verify-cli-runtime.mjs",
+    "verify:loader": "node scripts/verify-loader-boot.mjs",
+    "verify:profile": "node scripts/verify-profile-boot.mjs",
+    "verify:licenses": "node scripts/verify-licenses.mjs",
+    "verify:operations": "node --test scripts/operation-reliability.spec.mjs && node scripts/verify-operation-reliability.mjs",
+    "verify:notices": "node scripts/verify-licenses.mjs --notices THIRD_PARTY_NOTICES.md",
+    "prepare:electron-native": "node scripts/prepare-fs-ext.ts",
+    "check": "yarn run build && yarn run typecheck && yarn run test && yarn run verify:closure && yarn run verify:cli && yarn run verify:loader && yarn run verify:profile && yarn run verify:aa && yarn run verify:licenses && yarn run verify:operations",
+    "check:win-package": "yarn workspace dsh-community-market build && yarn run build && yarn run typecheck && vitest run tests/package.spec.ts tests/package-win.spec.ts tests/desktop-installer-quit.spec.ts tests/installer-nsh.spec.ts tests/update-checker.spec.ts tests/update-download.spec.ts tests/verify-win-installer.spec.ts tests/verify-win-portable.spec.ts tests/verify-packaged-runtime.spec.ts tests/windows-pwsh-sandbox.spec.ts tests/windows-volume-diagnostics.spec.ts tests/window-options.spec.ts tests/safe-mode.spec.ts && yarn run verify:closure",
+    "check:mac-package": "yarn workspace dsh-community-market build && yarn run build && yarn run typecheck && vitest run tests/package.spec.ts tests/package-mac.spec.ts tests/verify-mac-smoke.spec.ts tests/verify-packaged-runtime.spec.ts tests/mac-universal.spec.ts && yarn run verify:closure",
+    "start": "node lib/bin.js",
+    "dev": "yarn run build && yarn run prepare:electron-native && node lib/bin.js",
+    "package:dir": "yarn run build && yarn run prepare:electron-native && node scripts/package-dir.mjs",
+    "dist:mac": "node scripts/release-mac.ts",
+    "dist:mac-smoke": "node scripts/package-mac.ts",
+    "dist:win": "node scripts/package-win.ts",
+    "dist:win-portable": "node scripts/package-win-portable.ts",
+    "prepack": "yarn run check",
+    "verify:aa": "DSH_VERIFY_AA=1 node scripts/verify-profile-boot.mjs"
+  },
+  "dependencies": {
+    "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-0.1.0-dev.0.desktop.3.tgz",
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis-plugin-group": "1.0.2",
+    "@deepseek-ai/cordis-plugin-include": "1.0.7",
+    "@deepseek-ai/cordis-plugin-loader": "1.0.3",
+    "@deepseek-ai/cordis-plugin-timer": "1.1.4",
+    "@deepseek-ai/dsh": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-agent": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-agent-default-model": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-agent-instructions": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-agent-loop": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-agent-presets": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-anonymous-user-id": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-api-gateway": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-api-remotes": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-api-session-controller": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-api-settings-controller": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-api-workspace-controller": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-app-boot": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-atomic-write": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-attachment": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-authorization": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-base": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-bash-local": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-brand": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-connection": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-file-upload": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-locale": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-modules": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-store": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-approval": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-attachment": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-chat": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-commands": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-directory-picker-browse": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-directory-picker-native": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-input-trigger": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-layout": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-session": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-theme": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-tool": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-trajectory": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-cmdline": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-code-runtime": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-command-feedback": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-commands": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-compaction": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-cordis-client-runner": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-cordis-host-runner": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-credentials": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-deepseek-llm-api-extensions": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-file-reference": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-fs": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-fs-local": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-goal": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-goal-round-driver": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-home-paths": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-hook-protocol": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-host-directory-picker": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-host-directory-picker-browse": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-host-directory-picker-native": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-host-plugin-inventory": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-host-webserver": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-http-proxy": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-invariants": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-jobs": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-jobs-local": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-launch-environment": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-llm": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-llm-deepseek": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-llm-retry": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-mcp-client": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-message-feedback": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-native-command": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-output-retention": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-permission-presets": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-plan-mode": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-pwsh-local": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-pwsh-sandbox": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-sandbox": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-sandbox-local": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-sandbox-policy": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-sandbox-windows-acl": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-scope": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-sdk-protocol": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session-persistence": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session-projection": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session-query": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session-reference": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session-stats": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session-telemetry": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session-title": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-session-title-llm": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-settings": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-settings-file": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-shell": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-shell-env": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-skill": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-skill-filesystem": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-spill": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-storage": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-storage-domain": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-subagent": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-subagent-in-process-driver": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-subprocess": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-subprocess-local": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-terminal": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-terminal-bash": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-timeout": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-token-meter": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-tool-bash": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-tool-goal": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-tool-jobs": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-tool-pwsh-persistent": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-tool-skill": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-tool-todo": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-tool-workflow": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-tools": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-typert-registry": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-user-approval": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-user-questions": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-util-crypto": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-util-time": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-util-values": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-util-workspace-path": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-web": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-web-app": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-webhook": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-workflow": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-workspace": "0.1.3-alpha.2",
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "adm-zip": "^0.6.0",
+    "dsh-community-market": "0.1.0-dev.0",
+    "dshmarket": "1.38.1",
+    "fs-ext": "2.1.1",
+    "koffi": "3.1.5",
+    "node-addon-require-builtin": "^0.1.4",
+    "pnpm": "11.8.0",
+    "react": "18.3.1",
+    "selfsigned": "5.5.0",
+    "semver": "^7.8.5",
+    "sonner": "^2.0.8",
+    "yaml": "^2.9.0"
+  },
+  "peerDependencies": {
+    "electron": "43.3.0"
+  },
+  "devDependencies": {
+    "@base-ui/react": "^1.7.0",
+    "@electron/asar": "3.4.1",
+    "@electron/fuses": "1.8.0",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@tailwindcss/vite": "^4",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.20.0",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/semver": "^7.7.1",
+    "@vitejs/plugin-react": "^6",
+    "builder-util": "26.15.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "electron": "43.3.0",
+    "electron-builder": "26.15.7",
+    "jsdom": "29.1.1",
+    "lucide-react": "^1.33.0",
+    "node-gyp": "13.0.1",
+    "react-dom": "18.3.1",
+    "shadcn": "^4.18.0",
+    "sharp": "0.35.3",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4",
+    "tsdown": "0.22.2",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "6.0.3",
+    "vite": "8.2.1",
+    "vitest": "4.1.8"
+  },
+  "build": {
+    "appId": "ai.deepseek.dsh.desktop.beta",
+    "productName": "DSH Desktop Beta",
+    "asar": {
+      "smartUnpack": true
+    },
+    "npmRebuild": false,
+    "afterPack": "./scripts/verify-packaged-runtime.ts",
+    "afterAllArtifactBuild": "./scripts/verify-electron-fuses.ts",
+    "electronFuses": {
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "resetAdHocDarwinSignature": true,
+      "runAsNode": true
+    },
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "toolsets": {
+      "nsis": "1.2.1"
+    },
+    "files": [
+      "build/app-icon.png",
+      "build/app-icon-mac.png",
+      "build/tray-icon.svg",
+      "build/tray-icon*.png",
+      "cordis.patch.yml",
+      "lib/**",
+      "package.json",
+      "!node_modules/node-pty/build/**",
+      "!node_modules/fs-ext/build/**"
+    ],
+    "mac": {
+      "asarUnpack": [
+        "build/app-icon-mac.png",
+        "build/tray-iconTemplate.png",
+        "build/tray-iconTemplate@2x.png",
+        "node_modules/@agents-anywhere/dsh-bridge-next/lib/bundled-connector/**"
+      ],
+      "artifactName": "DSH-Desktop-Beta-${version}-${arch}.${ext}",
+      "target": [
+        "dir"
+      ],
+      "category": "public.app-category.developer-tools",
+      "extendInfo": {
+        "CFBundleAllowMixedLocalizations": true,
+        "CFBundleDevelopmentRegion": "en",
+        "CFBundleLocalizations": [
+          "en",
+          "zh_CN"
+        ]
+      },
+      "hardenedRuntime": true,
+      "icon": "build/app-icon-mac.png",
+      "mergeASARs": false,
+      "notarize": true,
+      "signIgnore": [
+        "\\.(?:pak|dat|wasm)$"
+      ],
+      "x64ArchFiles": "**/node_modules/{node-pty/prebuilds/darwin-*/**,fs-ext/prebuilds/darwin-*/**,node-addon-require-builtin-darwin-*/**,@vscode/ripgrep-darwin-*/**,@img/sharp-darwin-*/**,@img/sharp-libvips-darwin-*/**,@koromix/koffi-darwin-*/**}"
+    },
+    "win": {
+      "asarUnpack": [
+        "build/app-icon.png",
+        "build/tray-icon-blue.png",
+        "build/tray-icon-blue@1.25x.png",
+        "build/tray-icon-blue@1.5x.png",
+        "build/tray-icon-blue@2x.png",
+        "node_modules/@agents-anywhere/dsh-bridge-next/lib/bundled-connector/**"
+      ],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "DSH-Desktop-Beta-${version}-${arch}-Portable.${ext}",
+      "icon": "build/app-icon.png"
+    },
+    "nsis": {
+      "include": "installer.nsh",
+      "license": "THIRD_PARTY_NOTICES.md",
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "differentialPackage": false,
+      "shortcutName": "DSH Desktop Beta",
+      "useZip": false,
+      "artifactName": "DSH-Desktop-Beta-${version}-${arch}-Setup.${ext}"
+    },
+    "linux": {
+      "asarUnpack": [
+        "build/app-icon.png",
+        "build/tray-icon-blue.png",
+        "build/tray-icon-blue@1.25x.png",
+        "build/tray-icon-blue@1.5x.png",
+        "build/tray-icon-blue@2x.png",
+        "node_modules/@agents-anywhere/dsh-bridge-next/lib/bundled-connector/**"
+      ],
+      "target": [
+        "dir"
+      ],
+      "icon": "build/app-icon.png"
+    }
+  }
+}

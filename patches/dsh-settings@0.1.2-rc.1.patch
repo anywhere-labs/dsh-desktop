@@ -1,0 +1,66 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -83,6 +83,13 @@ function parseSettingsNamespace(value) {
+ 	if (!NAMESPACE_PATTERN.test(value)) throw new TypeError(`settings namespace "${value}" must match ${String(NAMESPACE_PATTERN)}`);
+ 	return value;
+ }
++/**
++* Legacy namespace constructor retained for plugins built before alpha.2.
++* Validation remains owned by the alpha.2 parser.
++*/
++function settingsNamespace(value) {
++	return parseSettingsNamespace(value);
++}
+ /**
+ * A write refused because the namespace moved since the caller read it. The
+ * Service Definition's serialized write queue orders writes; it cannot tell a fresh writer
+@@ -605,5 +612,14 @@ function isUnloading(ctx) {
+ 	const state = ctx.fiber.state;
+ 	return state === FIBER_UNLOADING || state === FIBER_DISPOSED;
+ }
++/**
++* Legacy optional-settings adapter retained for plugins built before alpha.2.
++* The alpha.2 service method remains the single implementation of the wiring.
++*/
++function installSettingsSection(ctx, ns, schema, entry, hooks) {
++	ctx.inject(["settings"], (settingsCtx) => {
++		settingsCtx.settings.installSection(ctx, ns, schema, entry, hooks);
++	});
++}
+ //#endregion
+-export { SettingsConflictError, SettingsProvider, SettingsProvider as default, redactSecrets };
++export { SettingsConflictError, SettingsProvider, SettingsProvider as default, deepEqualJson, installSettingsSection, redactSecrets, settingsNamespace };
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -13,5 +13,12 @@ export { redactSecrets } from './redact.ts';
+ export type { RedactedSecret, RedactedValue } from './redact.ts';
+ export type { SettingsNamespace, SettingsUpdateSource } from './types.ts';
++/** @deprecated Import `deepEqualJson` from `@deepseek-ai/dsh-util-values`. */
++export { deepEqualJson } from '@deepseek-ai/dsh-util-values';
++/**
++ * Legacy namespace constructor retained for plugins built before alpha.2.
++ * @deprecated Pass a string namespace directly to the settings service methods.
++ */
++export declare function settingsNamespace(value: string): SettingsNamespace;
+ type LowercaseLetter = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j' | 'k' | 'l' | 'm' | 'n' | 'o' | 'p' | 'q' | 'r' | 's' | 't' | 'u' | 'v' | 'w' | 'x' | 'y' | 'z';
+ type DecimalDigit = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
+ type NamespaceCharacter = LowercaseLetter | DecimalDigit | '-';
+@@ -331,5 +338,16 @@ export interface SettingsSectionHooks<T> {
+      * @param value - the resolved section, schema-valid by construction.
+      */
+     validate?: (value: T) => void;
+ }
++/**
++ * Legacy optional-settings adapter retained for plugins built before alpha.2.
++ * @deprecated Use `ctx.settings.installSection(owner, ns, schema, entry, hooks)`.
++ */
++export declare function installSettingsSection<T>(
++    ctx: Context,
++    ns: SettingsNamespace,
++    schema: z<T>,
++    entry: T,
++    hooks: SettingsSectionHooks<T>,
++): void;
+ export default SettingsProvider;

@@ -13,23 +13,32 @@ const fail = message => { throw new Error(`verify-layout: ${message}`) }
 
 const workspace = readJson('package.json')
 const upstream = readJson('upstream.json')
-const plugin = readJson('dsh-plugin-desktop/package.json')
+const stablePlugin = readJson('dsh-plugin-desktop/package.json')
+const betaPlugin = readJson('dsh-plugin-desktop-beta/package.json')
 const fabric = readJson('dsh-community-fabric/package.json')
 const market = readJson('dsh-community-market/package.json')
 const upstreamPackage = readJson('deepseek-harness/package.json')
+
+if (stablePlugin.name !== 'dsh-plugin-desktop') fail('the stable Desktop workspace must retain dsh-plugin-desktop')
+if (betaPlugin.name !== 'dsh-plugin-desktop-beta') fail('the Beta Desktop workspace must publish as dsh-plugin-desktop-beta')
+if (upstream.activeChannel !== 'beta') fail('the pinned upstream checkout must follow the beta channel')
+const activeUpstream = upstream.channels?.[upstream.activeChannel]
+if (activeUpstream === undefined) fail('the active upstream channel is missing')
 
 if (workspace.packageManager !== 'yarn@4.18.0') {
   fail('the product workspace must pin yarn@4.18.0')
 }
 if (JSON.stringify(workspace.workspaces) !== JSON.stringify([
   'dsh-plugin-desktop',
+  'dsh-plugin-desktop-beta',
   'dsh-community-fabric',
   'dsh-community-market',
 ])) {
   fail('the root Yarn workspace must contain the desktop, community-fabric, and community-market packages')
 }
 for (const [name, manifest] of [
-  ['dsh-plugin-desktop', plugin],
+  ['dsh-plugin-desktop', stablePlugin],
+  ['dsh-plugin-desktop-beta', betaPlugin],
   ['dsh-community-fabric', fabric],
   ['dsh-community-market', market],
 ]) {
@@ -52,6 +61,8 @@ for (const legacyFile of [
   'pnpm-workspace.yaml',
   'dsh-plugin-desktop/pnpm-lock.yaml',
   'dsh-plugin-desktop/pnpm-workspace.yaml',
+  'dsh-plugin-desktop-beta/pnpm-lock.yaml',
+  'dsh-plugin-desktop-beta/pnpm-workspace.yaml',
   'dsh-community-fabric/pnpm-lock.yaml',
   'dsh-community-fabric/pnpm-workspace.yaml',
   'dsh-community-market/pnpm-lock.yaml',
@@ -71,7 +82,8 @@ if (typeof upstreamPackage.packageManager !== 'string' || !upstreamPackage.packa
 
 for (const [owner, manifest] of [
   ['root', workspace],
-  ['desktop', plugin],
+  ['stable desktop', stablePlugin],
+  ['beta desktop', betaPlugin],
   ['fabric', fabric],
   ['market', market],
 ]) {
@@ -88,10 +100,10 @@ for (const [owner, manifest] of [
 
 const [mode, object] = run('git', ['ls-files', '--stage', '--', 'deepseek-harness']).split(/\s+/u)
 if (mode !== '160000') fail('deepseek-harness must be tracked as a Git submodule')
-if (object !== upstream.commit) fail(`submodule index is ${object}, expected ${upstream.commit}`)
+if (object !== activeUpstream.commit) fail(`submodule index is ${object}, expected ${activeUpstream.commit}`)
 
 const upstreamDir = resolve(root, 'deepseek-harness')
-if (run('git', ['rev-parse', 'HEAD'], upstreamDir) !== upstream.commit) {
+if (run('git', ['rev-parse', 'HEAD'], upstreamDir) !== activeUpstream.commit) {
   fail('checked-out upstream commit differs from upstream.json')
 }
 if (run('git', ['status', '--porcelain'], upstreamDir) !== '') {
@@ -100,13 +112,17 @@ if (run('git', ['status', '--porcelain'], upstreamDir) !== '') {
 if (run('git', ['remote', 'get-url', 'origin'], upstreamDir) !== upstream.repository) {
   fail('deepseek-harness origin differs from upstream.json')
 }
-if (upstreamPackage.version !== upstream.sourceVersion) {
+if (upstreamPackage.version !== activeUpstream.sourceVersion) {
   fail('deepseek-harness package version differs from upstream.json')
 }
-for (const name of Object.keys(plugin.dependencies).filter(name => name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-'))) {
-  if (plugin.dependencies[name] !== upstream.runtimePackageVersion) {
-    fail(`${name} must use the recorded DSH runtime package family`)
+for (const [channel, plugin] of [['stable', stablePlugin], ['beta', betaPlugin]]) {
+  const metadata = upstream.channels?.[channel]
+  if (metadata?.package !== plugin.name) fail(`${channel} upstream metadata points at the wrong package`)
+  for (const name of Object.keys(plugin.dependencies).filter(name => name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-'))) {
+    if (plugin.dependencies[name] !== metadata.runtimePackageVersion) {
+      fail(`${plugin.name} ${name} must use the recorded ${channel} DSH runtime package family`)
+    }
   }
 }
 
-process.stdout.write(`verify-layout: Yarn workspace and upstream ${upstream.commit.slice(0, 10)} are consistent\n`)
+process.stdout.write(`verify-layout: dual Desktop workspaces and upstream ${activeUpstream.commit.slice(0, 10)} are consistent\n`)

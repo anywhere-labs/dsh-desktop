@@ -1,0 +1,25 @@
+diff --git a/lib/index.js b/lib/index.js
+index a9f2837..2c7647c 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -51,6 +51,7 @@ function launchedThroughSsh(ctx) {
+ }
+ const BROWSER_OPENER_MODULE = import.meta.resolve("open");
+ const BROWSER_OPENER_PROGRAM = `
++for (const name of Object.keys(process.env)) if (name.toUpperCase() === 'ELECTRON_RUN_AS_NODE') delete process.env[name]
+ try {
+   const { default: open } = await import(${JSON.stringify(BROWSER_OPENER_MODULE)})
+   const launcher = await open(process.argv[1])
+@@ -130,7 +131,11 @@ function spawnBrowserLauncher(url) {
+ 		"--",
+ 		url
+ 	], {
+-		env: scrubbedParentEnv(),
++		windowsHide: true,
++		env: {
++			...scrubbedParentEnv(),
++			ELECTRON_RUN_AS_NODE: "1"
++		},
+ 		stdio: [
+ 			"ignore",
+ 			"inherit",

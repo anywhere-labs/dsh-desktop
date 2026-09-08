@@ -17,6 +17,10 @@ import type { ElectronPlatformStrategy } from './electron-platform.ts'
 import type { DesktopNotification, DesktopShellSpec } from './runtime.ts'
 import { prepareTrayIcon } from './tray-icons.ts'
 import { desktopWindowOptions } from './window-options.ts'
+import type { DesktopRestartConfirmationCopy } from './tray-locale.ts'
+import type { RendererBootReport } from './renderer-boot-contract.ts'
+import { DesktopRendererRecovery } from './renderer-recovery.ts'
+import { RENDERER_SURFACE_PROBE, RendererSurfaceWatchdog } from './renderer-surface-watchdog.ts'
 import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
 import {
   fitMainWindowBounds,
@@ -167,6 +171,8 @@ export interface ElectronShellGenerationOptions {
   readonly stopRendererBootMonitoring: () => void
   readonly abortRendererBootMonitoring: (cause: unknown) => void
   readonly failRendererBoot: (error: string) => void
+  readonly canRecoverRenderer: () => boolean
+  readonly rendererRecoveryCopy: () => DesktopRestartConfirmationCopy
   readonly logError: (message: string) => void
   readonly mainWindowState: MainWindowStateStore
 }
@@ -182,8 +188,40 @@ export class ElectronShellGeneration {
   private refreshNativeMaterial: (() => void) | undefined
   private flushWindowState: (() => void) | undefined
   private cleanupListeners: (() => void) | undefined
+  private readonly rendererRecovery: DesktopRendererRecovery
+  private rendererRecoveryPending = false
+  private readonly surfaceWatchdog: RendererSurfaceWatchdog
+  private unresponsiveRenderer = false
+  private expectedRendererCrash = false
 
-  constructor(private readonly options: ElectronShellGenerationOptions) {}
+  constructor(private readonly options: ElectronShellGenerationOptions) {
+    this.rendererRecovery = new DesktopRendererRecovery({
+      available: () => !this.released && !this.options.isQuitting()
+        && this.window !== undefined && !this.window.isDestroyed(),
+      reload: () => { this.reloadRenderer() },
+      exhausted: () => { void this.offerRendererRecovery() },
+      log: message => { this.options.logError(`dsh-plugin-desktop: ${message}`) },
+      requireSurface: () => this.window !== undefined && this.window.isVisible() && !this.window.isMinimized(),
+    })
+    this.surfaceWatchdog = new RendererSurfaceWatchdog({
+      active: () => {
+        const renderer = this.window?.webContents
+        return !this.released && !this.options.isQuitting() && this.options.canRecoverRenderer()
+          && this.window !== undefined && !this.window.isDestroyed()
+          && this.window.isVisible() && !this.window.isMinimized()
+          && this.rendererRecovery.canProbeSurface
+          && renderer !== undefined && !renderer.isDestroyed() && !renderer.isLoadingMainFrame()
+      },
+      probe: () => this.window!.webContents.executeJavaScript(RENDERER_SURFACE_PROBE),
+      healthy: () => { this.rendererRecovery.confirmSurface() },
+      hidden: () => { this.rendererRecovery.surfaceBecameHidden() },
+      failed: (detail, unresponsive) => {
+        this.options.logError(`dsh-plugin-desktop: ${detail}`)
+        this.unresponsiveRenderer = unresponsive
+        this.rendererRecovery.fail(detail)
+      },
+    })
+  }
 
   async mount(beforeInteractive?: () => void): Promise<void> {
     if (this.mounted || this.window !== undefined) {
@@ -252,7 +290,9 @@ export class ElectronShellGeneration {
     let startupSurfaceRevealed = false
     const revealStartupSurface = (): void => {
       if (window.isDestroyed()) return
-      if (startupSurfaceRevealed && !applicationNeedsReveal(window, platform.platform)) return
+      // A late ready-to-show must not override the user's decision to hide the
+      // window after the startup surface was revealed early.
+      if (startupSurfaceRevealed) return
       startupSurfaceRevealed = true
       this.show()
     }
@@ -360,9 +400,18 @@ export class ElectronShellGeneration {
       if (targetOrigin !== origin) event.preventDefault()
     }
     const rendererGone = (_event: Electron.Event, details: Electron.RenderProcessGoneDetails): void => {
+      this.surfaceWatchdog.reset()
+      if (this.expectedRendererCrash && (details.reason === 'crashed' || details.reason === 'killed')) {
+        this.expectedRendererCrash = false
+        return
+      }
       const detail = `renderer process gone (reason: ${details.reason}, exitCode: ${formatDesktopExitCode(details.exitCode)})`
       this.options.logError(`dsh-plugin-desktop: ${detail}`)
       this.options.failRendererBoot(detail)
+      if (details.reason !== 'clean-exit' && details.reason !== 'killed'
+        && this.options.canRecoverRenderer()) {
+        this.rendererRecovery.fail(detail)
+      }
     }
     const loadFailed = (
       _event: Electron.Event,
@@ -376,10 +425,25 @@ export class ElectronShellGeneration {
         this.options.failRendererBoot(
           `renderer main frame failed to load (${String(errorCode)}: ${errorDescription})`,
         )
+        if (this.options.canRecoverRenderer()) {
+          this.rendererRecovery.fail(`renderer main frame failed to load (${String(errorCode)}: ${errorDescription})`)
+        }
       }
+    }
+    const loaded = (): void => {
+      this.expectedRendererCrash = false
+      this.rendererRecovery.loaded()
     }
 
     app.on('activate', activate)
+    const resetSurface = (): void => {
+      this.surfaceWatchdog.reset()
+      this.rendererRecovery.visibilityChanged()
+    }
+    window.on('hide', resetSurface)
+    window.on('minimize', resetSurface)
+    window.on('show', resetSurface)
+    window.on('restore', resetSurface)
     if (platform.platform === 'darwin') app.on('did-become-active', activate)
     window.on('close', close)
     window.on('focus', clearAttention)
@@ -391,6 +455,8 @@ export class ElectronShellGeneration {
     window.webContents.on('will-redirect', redirect)
     window.webContents.on('render-process-gone', rendererGone)
     window.webContents.on('did-fail-load', loadFailed)
+    window.webContents.on('did-start-loading', resetSurface)
+    window.webContents.on('did-finish-load', loaded)
     window.webContents.setWindowOpenHandler(({ url }) => {
       try {
         const target = new URL(url)
@@ -408,6 +474,10 @@ export class ElectronShellGeneration {
     let tray: Tray | undefined
     let removeRendererAccessHeader: (() => void) | undefined
     this.cleanupListeners = () => {
+      window.off('hide', resetSurface)
+      window.off('minimize', resetSurface)
+      window.off('show', resetSurface)
+      window.off('restore', resetSurface)
       app.off('activate', activate)
       if (platform.platform === 'darwin') app.off('did-become-active', activate)
       window.off('close', close)
@@ -422,6 +492,8 @@ export class ElectronShellGeneration {
       window.webContents.off('will-redirect', redirect)
       window.webContents.off('render-process-gone', rendererGone)
       window.webContents.off('did-fail-load', loadFailed)
+      window.webContents.off('did-start-loading', resetSurface)
+      window.webContents.off('did-finish-load', loaded)
       removeRendererAccessHeader?.()
       removeRendererAccessHeader = undefined
       tray?.off('click', show)
@@ -447,6 +519,7 @@ export class ElectronShellGeneration {
       tray.on('click', show)
       beforeInteractive?.()
       this.mounted = true
+      this.surfaceWatchdog.start()
     } catch (cause) {
       this.options.abortRendererBootMonitoring(cause)
       await this.release()
@@ -460,13 +533,57 @@ export class ElectronShellGeneration {
     this.clearAttention()
     revealApplication(window, this.options.platform.platform)
     this.prepareFullscreenReveal?.()
+    if (this.rendererRecovery.exhausted) void this.offerRendererRecovery()
+  }
+
+  reportRendererRecovery(report: RendererBootReport): void {
+    this.rendererRecovery.report(report)
+  }
+
+  stopRendererRecovery(): void {
+    this.surfaceWatchdog.stop()
+    this.rendererRecovery.stop()
+  }
+
+  private async offerRendererRecovery(): Promise<void> {
+    const window = this.window
+    if (this.rendererRecoveryPending || this.released || this.options.isQuitting()
+      || window === undefined || window.isDestroyed() || !this.rendererRecovery.exhausted) return
+    this.rendererRecoveryPending = true
+    try {
+      this.show()
+      const copy = this.options.rendererRecoveryCopy()
+      const result = await dialog.showMessageBox(window, {
+        type: 'warning',
+        title: copy.title,
+        message: copy.message,
+        detail: `${copy.detail}\n\n${this.rendererRecovery.detail}`,
+        buttons: [copy.confirm, copy.cancel],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      })
+      if (result.response !== 0 || this.released || this.options.isQuitting()
+        || this.window !== window || window.isDestroyed()) return
+      this.rendererRecovery.retry()
+    } catch (cause) {
+      this.options.logError(`dsh-plugin-desktop: renderer recovery failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+    } finally {
+      this.rendererRecoveryPending = false
+    }
   }
 
   /** Reload the active renderer without permitting arbitrary renderer commands. */
   reloadRenderer(): void {
+    this.surfaceWatchdog.reset()
     const window = this.window
     if (window === undefined || window.isDestroyed()) {
       throw new Error('dsh-plugin-desktop: renderer reload requires a mounted window')
+    }
+    if (this.unresponsiveRenderer) {
+      this.unresponsiveRenderer = false
+      this.expectedRendererCrash = true
+      this.window?.webContents!.forcefullyCrashRenderer()
     }
     window.webContents.reloadIgnoringCache()
   }
@@ -528,6 +645,8 @@ export class ElectronShellGeneration {
   async release(): Promise<void> {
     if (this.released) return
     this.released = true
+    this.surfaceWatchdog.stop()
+    this.rendererRecovery.stop()
     this.options.stopRendererBootMonitoring()
 
     const window = this.window

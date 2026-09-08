@@ -1,9 +1,13 @@
 /** Private RunAsNode bootstrap for the packaged DeepSeek Harness CLI. */
 
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { dirname, join } from 'node:path'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
 import { packagedDependencyPath } from './packaged-runtime-path.ts'
 import { assertDesktopProfileName } from './profile-manager.ts'
 import { withoutForwardedDesktopPnpmPolicy } from './pnpm-policy.ts'
+import { installProfilePackageResolver } from './module-resolution.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 const DEFAULT_PROFILE = 'DSH_DESKTOP_DEFAULT_PROFILE'
@@ -42,6 +46,40 @@ function takeDefaultProfile(environment: NodeJS.ProcessEnv): string | undefined 
   return profileName
 }
 
+/** Return the Profile selected by one normalized DSH invocation. */
+export function selectedDesktopCliProfile(argv: readonly string[]): string | undefined {
+  if (argv[0] === 'web') return 'web'
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]
+    if (argument === '--profile') {
+      const profile = argv[index + 1]
+      if (profile !== undefined && profile.length > 0) return profile
+    }
+    if (argument?.startsWith('--profile=') === true) {
+      const profile = argument.slice('--profile='.length)
+      if (profile.length > 0) return profile
+    }
+  }
+  return undefined
+}
+
+/** Resolve one CLI Profile through the official home/profile path contract. */
+export function desktopCliProfileManifestUrl(
+  profileName: string,
+  environment: NodeJS.ProcessEnv,
+): string {
+  const home = resolveDshHome(undefined, environment)
+  const profileRoot = join(home, 'profiles')
+  const profileDirectory = resolveProfileDir(profileName, home)
+  // resolveProfileDir currently rejects separators. Retain this containment
+  // check at the Desktop process boundary so an upstream contract regression
+  // cannot turn a CLI flag into an arbitrary module-resolution anchor.
+  if (dirname(profileDirectory) !== profileRoot) {
+    throw new Error(`dsh-desktop: unsafe CLI profile path for ${JSON.stringify(profileName)}`)
+  }
+  return pathToFileURL(join(profileDirectory, 'package.json')).href
+}
+
 /**
  * Enter the packaged DSH CLI without any plugin-install transaction wrapper.
  * Manual plugin commands and Market operations rely on unified checkpoints.
@@ -57,7 +95,28 @@ export async function runDesktopDshCli(
     ? argv.slice(2)
     : withDefaultDesktopProfile(argv.slice(2), profileName)
   argv.splice(2, argv.length - 2, ...withoutForwardedDesktopPnpmPolicy(selected))
-  await load(DSH_ENTRY_URL)
+  const selectedProfile = selectedDesktopCliProfile(argv.slice(2))
+  const releaseResolver = selectedProfile !== undefined
+    && /([\\/])app\.asar\1/u.test(fileURLToPath(DSH_ENTRY_URL))
+    ? installProfilePackageResolver(desktopCliProfileManifestUrl(selectedProfile, environment))
+    : undefined
+  // The DSH module finishes evaluating once a long-lived Profile is ready;
+  // later HMR and Loader imports still need the same process-wide resolver.
+  // Keep it until process exit rather than treating import settlement as app
+  // shutdown. A packaged CLI process owns exactly one Profile invocation.
+  if (releaseResolver === undefined) {
+    await load(DSH_ENTRY_URL)
+    return
+  }
+  const releaseAtExit = (): void => { releaseResolver() }
+  process.once('exit', releaseAtExit)
+  try {
+    await load(DSH_ENTRY_URL)
+  } catch (cause) {
+    process.off('exit', releaseAtExit)
+    releaseResolver()
+    throw cause
+  }
 }
 
 function isDirectExecution(): boolean {

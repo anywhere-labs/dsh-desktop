@@ -1,0 +1,69 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -658,6 +658,13 @@ function moduleFallbackCurrent(modulesDir, entries) {
+ */
+ async function healProfilesModuleFallback(options) {
+ 	const { installAnchor, profile, home = resolveDshHome() } = options;
++	const desktopResolverCount = globalThis[Symbol.for("dsh-plugin-desktop.asar-module-resolver")];
++	if (typeof desktopResolverCount === "number" && desktopResolverCount > 0 && /([\\/])app\.asar\1/u.test(installAnchor)) {
++		// Resolve installation membership only for dependencies of external
++		// bundles; the Desktop hook owns the ordinary installation closure.
++		if (profile !== void 0) healProfileModuleFallback(profile, /* @__PURE__ */ new Set(), installAnchor);
++		return;
++	}
+ 	const modulesDir = join(join(home, PROFILES_DIR), "node_modules");
+ 	mkdirSync(modulesDir, { recursive: true });
+ 	const { entries, packageNames } = resolveModuleFallbackEntries(installAnchor);
+@@ -677,7 +683,7 @@ function healProfilesModuleFallbackLocked(entries, modulesDir) {
+ 	}
+ }
+ /** Collect the first resolvable package directory for each dependency name. */
+-function dependencyClosure(anchors, reserved, exclude) {
++function dependencyClosure(anchors, reserved, exclude, isInstallationPackage = () => false) {
+ 	const links = /* @__PURE__ */ new Map();
+ 	const visited = new Set(reserved);
+ 	for (const anchor of anchors) {
+@@ -696,7 +702,10 @@ function dependencyClosure(anchors, reserved, exclude) {
+ 		for (let next = queue.shift(); next !== void 0; next = queue.shift())
+  /* v8 ignore next -- an installable package manifest always declares dependencies or peers */
+ 		for (const dep of profileDependencyNames(next.manifest)) {
+-			if (visited.has(dep)) continue;
++			if (visited.has(dep) || isInstallationPackage(dep)) {
++				visited.add(dep);
++				continue;
++			}
+ 			const dir = packageDirFromAnchor(next.anchor, dep, exclude);
+ 			if (dir === void 0) continue;
+ 			visited.add(dep);
+@@ -711,12 +720,19 @@ function dependencyClosure(anchors, reserved, exclude) {
+ 	return links;
+ }
+ /** Reconcile packages carried only by selected bundles into one profile. */
+-function healProfileModuleFallback(profile, installationPackageNames) {
++function healProfileModuleFallback(profile, installationPackageNames, installAnchor) {
+ 	const profileModulesDir = join(profile.dir, "node_modules");
+ 	const ownedModulesDir = join(profile.dir, PROFILE_MODULE_FALLBACK_DIR, "node_modules");
+ 	mkdirSync(profileModulesDir, { recursive: true });
+ 	mkdirSync(ownedModulesDir, { recursive: true });
+-	const bundleLinks = dependencyClosure(profile.layers.filter((layer) => !installationPackageNames.has(layer.packageName)).map((layer) => join(layer.packageDir, "package.json")), installationPackageNames, (candidate, packageName) => {
++	const installationPresence = /* @__PURE__ */ new Map();
++	const isInstallationPackage = (packageName) => {
++		if (installationPackageNames.has(packageName)) return true;
++		if (installAnchor === void 0) return false;
++		if (!installationPresence.has(packageName)) installationPresence.set(packageName, packageDirFromAnchor(installAnchor, packageName) !== void 0);
++		return installationPresence.get(packageName);
++	};
++	const bundleLinks = dependencyClosure(profile.layers.filter((layer) => !isInstallationPackage(layer.packageName)).map((layer) => join(layer.packageDir, "package.json")), installationPackageNames, (candidate, packageName) => {
+ 		const profileLink = join(profileModulesDir, packageName);
+ 		if (canonicalLinkPath(candidate) !== canonicalLinkPath(profileLink)) return false;
+ 		try {
+@@ -727,7 +743,7 @@ function healProfileModuleFallback(profile, installationPackageNames) {
+ 			/* v8 ignore next -- see the host-filesystem exception above */
+ 			throw error;
+ 		}
+-	});
++	}, isInstallationPackage);
+ 	for (const layer of profile.layers) bundleLinks.delete(layer.packageName);
+ 	for (const packageName of ownedPackageNames(ownedModulesDir)) if (!bundleLinks.has(packageName)) removeProfileSymlink(profileModulesDir, ownedModulesDir, packageName);
+ 	for (const [packageName, target] of bundleLinks) {

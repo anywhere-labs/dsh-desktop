@@ -1,0 +1,5 @@
+# Bilingual-pair consistency record: the git blob hash of each side as of the last
+# confirmed-consistent state. Both languages carry equal authority. Update both files
+# and re-record their hashes with git hash-object after editing either side.
+2026-08-30-legacy-agent-preset-alias.md: c4aa5c1281e069a124a48b982da8676ac2bde604
+2026-08-30-legacy-agent-preset-alias.zh.md: cbfa52d695f42372b054b103b4684dd3d87a4137

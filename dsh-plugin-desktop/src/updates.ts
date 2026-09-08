@@ -2,7 +2,6 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { DESKTOP_UPDATE_CHECK_PATH } from './desktop-settings-contract.ts'
 import { handleDesktopUpdateCheckRequest } from './desktop-settings-route.ts'
@@ -13,7 +12,7 @@ import { startDesktopUpdateLifecycle } from './update-lifecycle.ts'
 export const name = 'desktop-updates'
 
 /** Native adapter required for network, tray, confirmation, and installer access. */
-export const inject = ['desktopRuntime', 'webServer', 'connection']
+export const inject = ['desktopRuntime', 'webServer']
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 
@@ -55,12 +54,6 @@ export function apply(ctx: Context, config: Config): void {
       kind: 'exact',
       path: DESKTOP_UPDATE_CHECK_PATH,
       handler: (req, res) => {
-        const rejection = ctx.connection.requestRejection(req)
-        if (rejection !== undefined) {
-          res.writeHead(rejection)
-          res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
-          return
-        }
         return handleDesktopUpdateCheckRequest(
           req,
           res,

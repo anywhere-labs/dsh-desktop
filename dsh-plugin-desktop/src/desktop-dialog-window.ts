@@ -1,13 +1,13 @@
 /** Isolated shadcn-backed Desktop dialog rendered as a modal BrowserWindow. */
 
-import { BrowserWindow } from 'electron'
-import type { MessageBoxOptions, MessageBoxReturnValue } from 'electron'
+import type { BrowserWindow, MessageBoxOptions, MessageBoxReturnValue } from 'electron'
 import { fileURLToPath } from 'node:url'
 import {
   auxiliaryWindowChromeOptions,
   auxiliaryWindowHasCustomFrame,
 } from './auxiliary-window-options.ts'
 import { revealApplication } from './electron-reveal.ts'
+import { createDesktopLocalWindow } from './local-window-policy.ts'
 
 const DIALOG_SCHEME = 'dsh-desktop-dialog:'
 const DIALOG_DOCUMENT = fileURLToPath(new URL('./native-ui/desktop-dialog.html', import.meta.url))
@@ -20,16 +20,28 @@ const DIAGNOSTIC_DIALOG_INITIAL_HEIGHT = 460
 const DIALOG_PREFERRED_HEIGHT_OFFSET = 32
 const DIALOG_REVEAL_FALLBACK_MS = 250
 
+/** Windows and the content-sized compatibility notice already include the action row. */
+export function desktopDialogPreferredHeight(
+  preferredHeight: number,
+  platform: NodeJS.Platform = process.platform,
+  presentation: DesktopDialogOptions['presentation'] = 'default',
+): number {
+  return preferredHeight + (platform === 'win32' || presentation === 'profile-compatibility'
+    ? 0 : DIALOG_PREFERRED_HEIGHT_OFFSET)
+}
+
 export interface DesktopDialogOptions {
   readonly type?: 'none' | 'info' | 'error' | 'question' | 'warning'
   readonly title: string
   readonly message: string
   readonly detail?: string
+  /** Important guidance rendered after the detail instead of inside its scroll area. */
+  readonly advisory?: string
   readonly buttons: readonly string[]
   readonly defaultId?: number
   readonly cancelId?: number
   /** Use a larger shadcn scroll surface for bounded technical diagnostics. */
-  readonly presentation?: 'default' | 'diagnostic'
+  readonly presentation?: 'default' | 'diagnostic' | 'profile-compatibility'
   /** Override whether this dialog exposes native close/caption controls. */
   readonly windowControls?: boolean
 }
@@ -76,6 +88,7 @@ export class DesktopDialogWindow {
       title: this.options.title,
       message: this.options.message,
       ...(this.options.detail === undefined ? {} : { detail: this.options.detail }),
+      ...(this.options.advisory === undefined ? {} : { advisory: this.options.advisory }),
       buttons: this.options.buttons,
       defaultId,
       cancelId,
@@ -89,7 +102,9 @@ export class DesktopDialogWindow {
     const customFrame = auxiliaryWindowHasCustomFrame(process.platform, windowControls)
     const diagnostic = this.options.presentation === 'diagnostic'
     const dialogWidth = diagnostic ? DIAGNOSTIC_DIALOG_WIDTH : DIALOG_WIDTH
-    const window = new BrowserWindow({
+    const window = createDesktopLocalWindow({
+      partition: 'dsh-desktop-dialog',
+      preferredSizeMode: true,
       title: this.options.title,
       ...auxiliaryWindowChromeOptions(process.platform, windowControls),
       width: dialogWidth,
@@ -104,22 +119,9 @@ export class DesktopDialogWindow {
       autoHideMenuBar: true,
       backgroundColor: '#202124',
       ...(parent === undefined ? {} : { parent, modal: true, skipTaskbar: true }),
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-        nodeIntegrationInSubFrames: false,
-        sandbox: true,
-        webSecurity: true,
-        webviewTag: false,
-        spellcheck: false,
-        enablePreferredSizeMode: true,
-        partition: 'dsh-desktop-dialog',
-      },
     })
     window.accessibleTitle = this.options.title
     window.removeMenu()
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    window.webContents.on('will-attach-webview', event => { event.preventDefault() })
 
     return await new Promise<DesktopDialogResult>((resolve, reject) => {
       let settled = false
@@ -176,7 +178,7 @@ export class DesktopDialogWindow {
       window.webContents.on('will-redirect', navigate)
       window.webContents.on('preferred-size-changed', (_event, size) => {
         if (!Number.isSafeInteger(size.height) || size.height <= 0) return
-        preferredHeight = size.height + DIALOG_PREFERRED_HEIGHT_OFFSET
+        preferredHeight = desktopDialogPreferredHeight(size.height, process.platform, this.options.presentation)
         applyPreferredSize()
       })
       window.webContents.on('did-finish-load', () => {
