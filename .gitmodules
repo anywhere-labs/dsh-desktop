@@ -1,3 +1,7 @@
 [submodule "deepseek-harness"]
 	path = deepseek-harness
 	url = https://github.com/deepseek-ai/deepseek-harness.git
+[submodule "vendor/agents-anywhere-source"]
+	path = vendor/agents-anywhere-source
+	url = https://github.com/anywhere-labs/Agents-Anywhere.git
+	branch = v2
