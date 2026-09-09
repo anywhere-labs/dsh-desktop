@@ -31,8 +31,10 @@ export interface DesktopNotificationSettings {
   readonly enabled: boolean
   readonly notifyOnTurnCompletion: boolean
   readonly notifyOnTurnFailure: boolean
+  readonly notifyOnUserQuestion: boolean
   readonly notifyOnJobCompletion: boolean
   readonly notifyOnJobFailure: boolean
+  readonly showResponsePreview: boolean
 }
 
 /** Registration-side business face for the Desktop settings section. */
@@ -383,8 +385,10 @@ export function DesktopSettingsSection({
     enabled: true,
     notifyOnTurnCompletion: true,
     notifyOnTurnFailure: true,
+    notifyOnUserQuestion: true,
     notifyOnJobCompletion: true,
     notifyOnJobFailure: true,
+    showResponsePreview: true,
   }
 
   const createProfile = (event: FormEvent): void => {
@@ -788,6 +792,18 @@ export function DesktopSettingsSection({
           onChange={checked => { setNotification('enabled', checked) }}
         />
         <div className="dshDesktopSettingsDetails">
+          <ToggleRow
+            label={t('responsePreview')}
+            checked={notificationValue.showResponsePreview}
+            disabled={!notificationValue.enabled || (!notificationValue.notifyOnTurnCompletion && !notificationValue.notifyOnUserQuestion) || !notificationsWritable || busy !== undefined}
+            onChange={checked => { setNotification('showResponsePreview', checked) }}
+          />
+          <ToggleRow
+            label={t('userQuestion')}
+            checked={notificationValue.notifyOnUserQuestion}
+            disabled={!notificationValue.enabled || !notificationsWritable || busy !== undefined}
+            onChange={checked => { setNotification('notifyOnUserQuestion', checked) }}
+          />
           <ToggleRow
             label={t('turnCompletion')}
             checked={notificationValue.notifyOnTurnCompletion}

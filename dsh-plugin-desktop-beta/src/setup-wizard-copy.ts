@@ -65,6 +65,8 @@ export interface DesktopSetupWizardCopy {
   readonly notificationsTitle: string
   readonly notificationsBody: string
   readonly notificationsEnabled: string
+  readonly responsePreview: string
+  readonly userQuestion: string
   readonly turnCompletion: string
   readonly turnFailure: string
   readonly jobCompletion: string
@@ -145,8 +147,10 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     dshMarket: 'dsh-market',
     dshMarketBody: 'The popular community market powered by awesome-dsh-plugin data.',
     notificationsTitle: 'Set up Desktop notifications',
-    notificationsBody: 'Choose which completion and failure events send a system notification. Notification text never includes conversation content.',
+    notificationsBody: 'Get notified when the model needs your answer or finishes a turn. Content previews show questions or final responses; turn them off for brief notices.',
     notificationsEnabled: 'Enable Desktop notifications',
+    responsePreview: 'Show content previews in notifications',
+    userQuestion: 'Model needs your answer',
     turnCompletion: 'User turn completed',
     turnFailure: 'User turn failed',
     jobCompletion: 'Background job completed',
@@ -225,8 +229,10 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     dshMarket: 'dsh-market',
     dshMarketBody: '使用 awesome-dsh-plugin 数据的热门社区市场。',
     notificationsTitle: '设置桌面通知',
-    notificationsBody: '选择哪些完成或失败事件发送系统通知。通知文本不会包含会话内容。',
+    notificationsBody: '在模型需要你回答问题或回合结束时发送系统通知。内容预览会显示问题或最终回答；关闭后仅显示简短提示。',
     notificationsEnabled: '启用桌面通知',
+    responsePreview: '在通知中显示内容预览',
+    userQuestion: '模型需要你回答问题',
     turnCompletion: '用户回合完成',
     turnFailure: '用户回合失败',
     jobCompletion: '后台任务完成',

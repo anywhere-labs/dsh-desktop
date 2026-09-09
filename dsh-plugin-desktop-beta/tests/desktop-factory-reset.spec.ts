@@ -47,8 +47,10 @@ describe('Desktop factory reset', () => {
         enabled: false,
         notifyOnTurnCompletion: false,
         notifyOnTurnFailure: false,
+        notifyOnUserQuestion: false,
         notifyOnJobCompletion: false,
         notifyOnJobFailure: false,
+        showResponsePreview: false,
       },
     }
     for (const profile of [...profiles, unrelated]) {
