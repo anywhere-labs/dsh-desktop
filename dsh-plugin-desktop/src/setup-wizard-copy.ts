@@ -65,6 +65,7 @@ export interface DesktopSetupWizardCopy {
   readonly notificationsTitle: string
   readonly notificationsBody: string
   readonly notificationsEnabled: string
+  readonly responsePreview: string
   readonly turnCompletion: string
   readonly turnFailure: string
   readonly jobCompletion: string
@@ -145,8 +146,9 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     dshMarket: 'dsh-market',
     dshMarketBody: 'The popular community market powered by awesome-dsh-plugin data.',
     notificationsTitle: 'Set up Desktop notifications',
-    notificationsBody: 'Choose which completion and failure events send a system notification. Notification text never includes conversation content.',
+    notificationsBody: 'Choose which events send a system notification. Response previews show the final answer; turn them off for generic notices.',
     notificationsEnabled: 'Enable Desktop notifications',
+    responsePreview: 'Show response previews in notifications',
     turnCompletion: 'User turn completed',
     turnFailure: 'User turn failed',
     jobCompletion: 'Background job completed',
@@ -225,8 +227,9 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     dshMarket: 'dsh-market',
     dshMarketBody: '使用 awesome-dsh-plugin 数据的热门社区市场。',
     notificationsTitle: '设置桌面通知',
-    notificationsBody: '选择哪些完成或失败事件发送系统通知。通知文本不会包含会话内容。',
+    notificationsBody: '选择哪些事件发送系统通知。回答预览会显示最终回答；关闭后仅显示简短提示。',
     notificationsEnabled: '启用桌面通知',
+    responsePreview: '在通知中显示回答预览',
     turnCompletion: '用户回合完成',
     turnFailure: '用户回合失败',
     jobCompletion: '后台任务完成',

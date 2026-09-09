@@ -37,6 +37,7 @@ const PREFERENCES: DesktopProfilePreferences = Object.freeze({
     notifyOnTurnFailure: false,
     notifyOnJobCompletion: false,
     notifyOnJobFailure: true,
+    showResponsePreview: true,
   }),
   market: 'community-market',
 })
@@ -105,6 +106,26 @@ describe('Desktop Profile preferences', () => {
     expect(readDesktopProfilePreferences(userData, other)?.aaEnabled).toBe(false)
     await expect(writeDesktopProfilePreferences(userData, work, { ...PREFERENCES,
       aaEnabled: 'true' as unknown as boolean })).rejects.toThrow('aaEnabled')
+  })
+
+  it('reads legacy notification switches and persists a disabled response preview', async () => {
+    const userData = temporaryDirectory('dsh-preview-preferences-user-')
+    const profile = temporaryDirectory('dsh-preview-preferences-profile-')
+    const { showResponsePreview: _preview, ...legacy } = PREFERENCES.notifications
+    writeRawState(userData, profile, {
+      version: 1,
+      profileHash: desktopProfilePreferencesProfileHash(profile),
+      ...PREFERENCES,
+      notifications: legacy,
+      recordedAt: RECORDED_AT,
+    })
+    expect(readDesktopProfilePreferences(userData, profile)?.notifications)
+      .toEqual({ ...legacy, showResponsePreview: true })
+    await writeDesktopProfilePreferences(userData, profile, {
+      ...PREFERENCES,
+      notifications: { ...PREFERENCES.notifications, showResponsePreview: false },
+    }, RECORDED_AT)
+    expect(readDesktopProfilePreferences(userData, profile)?.notifications.showResponsePreview).toBe(false)
   })
 
   it('isolates strict state by sha256(Profile directory)', async () => {
@@ -193,7 +214,7 @@ describe('Desktop Profile preferences', () => {
         ...PREFERENCES.notifications,
         extra: true,
       } as DesktopProfilePreferences['notifications'],
-    }, RECORDED_AT)).rejects.toThrow('five supported boolean fields')
+    }, RECORDED_AT)).rejects.toThrow('supported notification boolean fields')
     await expect(writeDesktopProfilePreferences(userData, profile, PREFERENCES, '2026-08-28'))
       .rejects.toThrow('recordedAt')
 

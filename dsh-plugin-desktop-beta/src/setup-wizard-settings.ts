@@ -186,6 +186,7 @@ function notificationSettings(values: Record<string, unknown>): DesktopSetupWiza
     notifyOnTurnFailure: optionalBoolean(values, 'notifyOnTurnFailure', true),
     notifyOnJobCompletion: optionalBoolean(values, 'notifyOnJobCompletion', true),
     notifyOnJobFailure: optionalBoolean(values, 'notifyOnJobFailure', true),
+    showResponsePreview: optionalBoolean(values, 'showResponsePreview', true),
   })
 }
 
@@ -239,10 +240,11 @@ function normalizedUpdate(
     'notifyOnTurnFailure',
     'notifyOnJobCompletion',
     'notifyOnJobFailure',
+    'showResponsePreview',
   ]
   if (Object.keys(value.notifications).length !== notificationKeys.length
     || notificationKeys.some(key => typeof value.notifications[key] !== 'boolean')) {
-    throw new TypeError(`${BIN_NAME}: Setup Wizard update must contain all five notification booleans`)
+    throw new TypeError(`${BIN_NAME}: Setup Wizard update must contain all six notification booleans`)
   }
   return Object.freeze({
     mode: requestedMode,
@@ -256,6 +258,7 @@ function normalizedUpdate(
       notifyOnTurnFailure: value.notifications.notifyOnTurnFailure,
       notifyOnJobCompletion: value.notifications.notifyOnJobCompletion,
       notifyOnJobFailure: value.notifications.notifyOnJobFailure,
+      showResponsePreview: value.notifications.showResponsePreview,
     }),
   })
 }
@@ -275,6 +278,7 @@ export function sameDesktopSetupWizardSettings(
     && current.notifications.notifyOnTurnFailure === next.notifications.notifyOnTurnFailure
     && current.notifications.notifyOnJobCompletion === next.notifications.notifyOnJobCompletion
     && current.notifications.notifyOnJobFailure === next.notifications.notifyOnJobFailure
+    && current.notifications.showResponsePreview === next.notifications.showResponsePreview
 }
 
 function applyYamlUpdate(
@@ -470,6 +474,7 @@ export function defaultDesktopSetupWizardSettings(
       notifyOnTurnFailure: true,
       notifyOnJobCompletion: true,
       notifyOnJobFailure: true,
+      showResponsePreview: true,
     }),
   })
 }

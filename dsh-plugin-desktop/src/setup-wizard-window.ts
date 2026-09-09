@@ -38,6 +38,7 @@ const COMPLETE_KEYS = Object.freeze([
   'notifyOnTurnFailure',
   'notifyOnJobCompletion',
   'notifyOnJobFailure',
+  'showResponsePreview',
 ] as const)
 
 export interface DesktopSetupWizardWindowOptions {
@@ -103,11 +104,12 @@ export function parseDesktopSetupWizardAction(
   const notifyOnTurnFailure = exactBoolean(url.searchParams.get('notifyOnTurnFailure'))
   const notifyOnJobCompletion = exactBoolean(url.searchParams.get('notifyOnJobCompletion'))
   const notifyOnJobFailure = exactBoolean(url.searchParams.get('notifyOnJobFailure'))
+  const showResponsePreview = exactBoolean(url.searchParams.get('showResponsePreview'))
   if (mode === undefined || macosMaterial === undefined || windowsMaterial === undefined
     || aaEnabled === undefined || openBrowser === undefined || networkExposure === undefined || market === undefined
     || enabled === undefined || notifyOnTurnCompletion === undefined
     || notifyOnTurnFailure === undefined || notifyOnJobCompletion === undefined
-    || notifyOnJobFailure === undefined) return undefined
+    || notifyOnJobFailure === undefined || showResponsePreview === undefined) return undefined
 
   const selection = freezeDesktopSetupWizardSelection({
     mode,
@@ -123,6 +125,7 @@ export function parseDesktopSetupWizardAction(
       notifyOnTurnFailure,
       notifyOnJobCompletion,
       notifyOnJobFailure,
+      showResponsePreview,
     },
   })
   return Object.freeze({ action: 'complete' as const, selection })

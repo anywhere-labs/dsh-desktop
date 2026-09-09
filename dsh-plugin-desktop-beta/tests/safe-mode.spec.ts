@@ -73,6 +73,7 @@ describe('Desktop Safe Mode environment', () => {
           notifyOnTurnFailure: false,
           notifyOnJobCompletion: false,
           notifyOnJobFailure: false,
+          showResponsePreview: false,
         },
       },
     })

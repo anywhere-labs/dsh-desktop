@@ -49,12 +49,22 @@ function values(overrides: Partial<DesktopSetupWizardSettings> = {}): DesktopSet
       notifyOnTurnFailure: true,
       notifyOnJobCompletion: false,
       notifyOnJobFailure: true,
+      showResponsePreview: true,
     },
     ...overrides,
   }
 }
 
 describe('Desktop Setup Wizard settings document', () => {
+  it.each(['yaml', 'json'])('persists a preview-only change in %s without changing notification choices', async (extension) => {
+    const path = join(temporaryDirectory(), `settings.${extension}`)
+    const initial = defaultDesktopSetupWizardSettings()
+    await updateDesktopSetupWizardSettings(path, initial)
+    const next = { ...initial, notifications: { ...initial.notifications, showResponsePreview: false } }
+    await expect(updateDesktopSetupWizardSettings(path, next)).resolves.toEqual(next)
+    expect(readDesktopSetupWizardSettings(path)).toEqual(next)
+  })
+
   it('compares the normalized leaves used by the startup re-prepare gate', () => {
     const current = values()
 
@@ -129,6 +139,7 @@ describe('Desktop Setup Wizard settings document', () => {
       notifyOnTurnFailure: true,
       notifyOnJobCompletion: false,
       notifyOnJobFailure: true,
+      showResponsePreview: true,
       futureNotification: 'keep',
     })
     expect(readDesktopSetupWizardSettings(path)).toEqual(next)
@@ -226,7 +237,7 @@ describe('Desktop Setup Wizard settings document', () => {
       notifications: { enabled: true } as DesktopSetupWizardSettings['notifications'],
     })
     await expect(updateDesktopSetupWizardSettings(path, incomplete))
-      .rejects.toThrow('all five notification booleans')
+      .rejects.toThrow('all six notification booleans')
 
     const next = values({ openBrowser: false, networkExposure: 'lan' })
     await expect(updateDesktopSetupWizardSettings(path, next)).resolves.toMatchObject({

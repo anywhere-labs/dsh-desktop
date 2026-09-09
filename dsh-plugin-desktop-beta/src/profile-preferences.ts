@@ -45,6 +45,7 @@ const NOTIFICATION_KEYS = Object.freeze([
   'notifyOnJobFailure',
   'notifyOnTurnCompletion',
   'notifyOnTurnFailure',
+  'showResponsePreview',
 ] as const)
 
 const STATE_KEYS = Object.freeze([
@@ -147,18 +148,23 @@ function normalizedNotifications(
   value: unknown,
   error: ErrorFactory,
 ): Readonly<DesktopNotificationSettings> {
-  if (!isRecord(value) || !hasExactKeys(value, NOTIFICATION_KEYS)) {
-    throw error('notifications must contain exactly the five supported boolean fields')
+  // V1 files written before response previews contain the original five switches.
+  const normalized = isRecord(value) && !Object.hasOwn(value, 'showResponsePreview')
+    ? { ...value, showResponsePreview: true }
+    : value
+  if (!isRecord(normalized) || !hasExactKeys(normalized, NOTIFICATION_KEYS)) {
+    throw error('notifications must contain exactly the supported notification boolean fields')
   }
-  if (NOTIFICATION_KEYS.some(key => typeof value[key] !== 'boolean')) {
+  if (NOTIFICATION_KEYS.some(key => typeof normalized[key] !== 'boolean')) {
     throw error('notification values must be booleans')
   }
   return Object.freeze({
-    enabled: value.enabled as boolean,
-    notifyOnTurnCompletion: value.notifyOnTurnCompletion as boolean,
-    notifyOnTurnFailure: value.notifyOnTurnFailure as boolean,
-    notifyOnJobCompletion: value.notifyOnJobCompletion as boolean,
-    notifyOnJobFailure: value.notifyOnJobFailure as boolean,
+    enabled: normalized.enabled as boolean,
+    notifyOnTurnCompletion: normalized.notifyOnTurnCompletion as boolean,
+    notifyOnTurnFailure: normalized.notifyOnTurnFailure as boolean,
+    notifyOnJobCompletion: normalized.notifyOnJobCompletion as boolean,
+    notifyOnJobFailure: normalized.notifyOnJobFailure as boolean,
+    showResponsePreview: normalized.showResponsePreview as boolean,
   })
 }
 

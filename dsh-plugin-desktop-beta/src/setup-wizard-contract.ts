@@ -13,6 +13,7 @@ export interface DesktopSetupWizardNotifications {
   readonly notifyOnTurnFailure: boolean
   readonly notifyOnJobCompletion: boolean
   readonly notifyOnJobFailure: boolean
+  readonly showResponsePreview: boolean
 }
 
 /** Every value the launcher needs to persist after Setup completes. */
@@ -63,6 +64,7 @@ const NOTIFICATION_KEYS = Object.freeze([
   'notifyOnTurnFailure',
   'notifyOnJobCompletion',
   'notifyOnJobFailure',
+  'showResponsePreview',
 ] as const)
 
 function isObject(value: unknown): value is Record<string, unknown> {

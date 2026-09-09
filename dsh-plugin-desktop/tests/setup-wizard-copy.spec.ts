@@ -24,6 +24,7 @@ const input: DesktopSetupWizardInput = {
     notifyOnTurnFailure: true,
     notifyOnJobCompletion: true,
     notifyOnJobFailure: true,
+    showResponsePreview: true,
   },
 }
 
