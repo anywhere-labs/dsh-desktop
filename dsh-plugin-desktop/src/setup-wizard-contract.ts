@@ -11,6 +11,7 @@ export interface DesktopSetupWizardNotifications {
   readonly enabled: boolean
   readonly notifyOnTurnCompletion: boolean
   readonly notifyOnTurnFailure: boolean
+  readonly notifyOnUserQuestion: boolean
   readonly notifyOnJobCompletion: boolean
   readonly notifyOnJobFailure: boolean
   readonly showResponsePreview: boolean
@@ -55,6 +56,7 @@ const NOTIFICATION_KEYS = Object.freeze([
   'enabled',
   'notifyOnTurnCompletion',
   'notifyOnTurnFailure',
+  'notifyOnUserQuestion',
   'notifyOnJobCompletion',
   'notifyOnJobFailure',
   'showResponsePreview',

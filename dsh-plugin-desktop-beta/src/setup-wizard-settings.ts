@@ -184,6 +184,7 @@ function notificationSettings(values: Record<string, unknown>): DesktopSetupWiza
     enabled: optionalBoolean(values, 'enabled', true),
     notifyOnTurnCompletion: optionalBoolean(values, 'notifyOnTurnCompletion', true),
     notifyOnTurnFailure: optionalBoolean(values, 'notifyOnTurnFailure', true),
+    notifyOnUserQuestion: optionalBoolean(values, 'notifyOnUserQuestion', true),
     notifyOnJobCompletion: optionalBoolean(values, 'notifyOnJobCompletion', true),
     notifyOnJobFailure: optionalBoolean(values, 'notifyOnJobFailure', true),
     showResponsePreview: optionalBoolean(values, 'showResponsePreview', true),
@@ -238,13 +239,14 @@ function normalizedUpdate(
     'enabled',
     'notifyOnTurnCompletion',
     'notifyOnTurnFailure',
+    'notifyOnUserQuestion',
     'notifyOnJobCompletion',
     'notifyOnJobFailure',
     'showResponsePreview',
   ]
   if (Object.keys(value.notifications).length !== notificationKeys.length
     || notificationKeys.some(key => typeof value.notifications[key] !== 'boolean')) {
-    throw new TypeError(`${BIN_NAME}: Setup Wizard update must contain all six notification booleans`)
+    throw new TypeError(`${BIN_NAME}: Setup Wizard update must contain all seven notification booleans`)
   }
   return Object.freeze({
     mode: requestedMode,
@@ -256,6 +258,7 @@ function normalizedUpdate(
       enabled: value.notifications.enabled,
       notifyOnTurnCompletion: value.notifications.notifyOnTurnCompletion,
       notifyOnTurnFailure: value.notifications.notifyOnTurnFailure,
+      notifyOnUserQuestion: value.notifications.notifyOnUserQuestion,
       notifyOnJobCompletion: value.notifications.notifyOnJobCompletion,
       notifyOnJobFailure: value.notifications.notifyOnJobFailure,
       showResponsePreview: value.notifications.showResponsePreview,
@@ -276,6 +279,7 @@ export function sameDesktopSetupWizardSettings(
     && current.notifications.enabled === next.notifications.enabled
     && current.notifications.notifyOnTurnCompletion === next.notifications.notifyOnTurnCompletion
     && current.notifications.notifyOnTurnFailure === next.notifications.notifyOnTurnFailure
+    && current.notifications.notifyOnUserQuestion === next.notifications.notifyOnUserQuestion
     && current.notifications.notifyOnJobCompletion === next.notifications.notifyOnJobCompletion
     && current.notifications.notifyOnJobFailure === next.notifications.notifyOnJobFailure
     && current.notifications.showResponsePreview === next.notifications.showResponsePreview
@@ -472,6 +476,7 @@ export function defaultDesktopSetupWizardSettings(
       enabled: true,
       notifyOnTurnCompletion: true,
       notifyOnTurnFailure: true,
+      notifyOnUserQuestion: true,
       notifyOnJobCompletion: true,
       notifyOnJobFailure: true,
       showResponsePreview: true,

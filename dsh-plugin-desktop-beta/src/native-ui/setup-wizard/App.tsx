@@ -150,6 +150,7 @@ function finish(selection: DesktopSetupWizardSelection): void {
   url.searchParams.set('notificationsEnabled', String(selection.notifications.enabled))
   url.searchParams.set('notifyOnTurnCompletion', String(selection.notifications.notifyOnTurnCompletion))
   url.searchParams.set('notifyOnTurnFailure', String(selection.notifications.notifyOnTurnFailure))
+  url.searchParams.set('notifyOnUserQuestion', String(selection.notifications.notifyOnUserQuestion))
   url.searchParams.set('notifyOnJobCompletion', String(selection.notifications.notifyOnJobCompletion))
   url.searchParams.set('notifyOnJobFailure', String(selection.notifications.notifyOnJobFailure))
   url.searchParams.set('showResponsePreview', String(selection.notifications.showResponsePreview))
@@ -384,7 +385,8 @@ function NotificationOptions({
   return <div className="space-y-3" data-orientation="vertical">
     <ToggleRow checked={notifications.enabled} id="setup-notifications-enabled" label={copy.notificationsEnabled} onChange={checked => { set('enabled', checked) }} />
     <div className="space-y-3 border-l pl-4">
-      <ToggleRow checked={notifications.showResponsePreview} disabled={!notifications.enabled || !notifications.notifyOnTurnCompletion} id="setup-response-preview" label={copy.responsePreview} onChange={checked => { set('showResponsePreview', checked) }} />
+      <ToggleRow checked={notifications.showResponsePreview} disabled={!notifications.enabled || (!notifications.notifyOnTurnCompletion && !notifications.notifyOnUserQuestion)} id="setup-response-preview" label={copy.responsePreview} onChange={checked => { set('showResponsePreview', checked) }} />
+      <ToggleRow checked={notifications.notifyOnUserQuestion} disabled={!notifications.enabled} id="setup-user-question" label={copy.userQuestion} onChange={checked => { set('notifyOnUserQuestion', checked) }} />
       <ToggleRow checked={notifications.notifyOnTurnCompletion} disabled={!notifications.enabled} id="setup-turn-completion" label={copy.turnCompletion} onChange={checked => { set('notifyOnTurnCompletion', checked) }} />
       <ToggleRow checked={notifications.notifyOnTurnFailure} disabled={!notifications.enabled} id="setup-turn-failure" label={copy.turnFailure} onChange={checked => { set('notifyOnTurnFailure', checked) }} />
       <ToggleRow checked={notifications.notifyOnJobCompletion} disabled={!notifications.enabled} id="setup-job-completion" label={copy.jobCompletion} onChange={checked => { set('notifyOnJobCompletion', checked) }} />

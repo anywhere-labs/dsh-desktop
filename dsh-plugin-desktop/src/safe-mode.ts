@@ -45,6 +45,7 @@ export const DESKTOP_SAFE_MODE_DEFAULTS: Readonly<{
       enabled: false,
       notifyOnTurnCompletion: false,
       notifyOnTurnFailure: false,
+      notifyOnUserQuestion: false,
       notifyOnJobCompletion: false,
       notifyOnJobFailure: false,
       showResponsePreview: false,

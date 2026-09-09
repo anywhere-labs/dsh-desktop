@@ -46,6 +46,7 @@ function values(overrides: Partial<DesktopSetupWizardSettings> = {}): DesktopSet
       enabled: true,
       notifyOnTurnCompletion: false,
       notifyOnTurnFailure: true,
+      notifyOnUserQuestion: true,
       notifyOnJobCompletion: false,
       notifyOnJobFailure: true,
       showResponsePreview: true,
@@ -55,13 +56,16 @@ function values(overrides: Partial<DesktopSetupWizardSettings> = {}): DesktopSet
 }
 
 describe('Desktop Setup Wizard settings document', () => {
-  it.each(['yaml', 'json'])('persists a preview-only change in %s without changing notification choices', async (extension) => {
+  it.each(['yaml', 'json'])('persists independent preview and question notification changes in %s', async (extension) => {
     const path = join(temporaryDirectory(), `settings.${extension}`)
     const initial = defaultDesktopSetupWizardSettings()
     await updateDesktopSetupWizardSettings(path, initial)
     const next = { ...initial, notifications: { ...initial.notifications, showResponsePreview: false } }
     await expect(updateDesktopSetupWizardSettings(path, next)).resolves.toEqual(next)
     expect(readDesktopSetupWizardSettings(path)).toEqual(next)
+    const mutedQuestions = { ...next, notifications: { ...next.notifications, notifyOnUserQuestion: false } }
+    await expect(updateDesktopSetupWizardSettings(path, mutedQuestions)).resolves.toEqual(mutedQuestions)
+    expect(readDesktopSetupWizardSettings(path)).toEqual(mutedQuestions)
   })
 
   it('returns platform defaults for an absent exact settings document', () => {
@@ -123,6 +127,7 @@ describe('Desktop Setup Wizard settings document', () => {
       enabled: true,
       notifyOnTurnCompletion: false,
       notifyOnTurnFailure: true,
+      notifyOnUserQuestion: true,
       notifyOnJobCompletion: false,
       notifyOnJobFailure: true,
       showResponsePreview: true,
@@ -223,7 +228,7 @@ describe('Desktop Setup Wizard settings document', () => {
       notifications: { enabled: true } as DesktopSetupWizardSettings['notifications'],
     })
     await expect(updateDesktopSetupWizardSettings(path, incomplete))
-      .rejects.toThrow('all six notification booleans')
+      .rejects.toThrow('all seven notification booleans')
 
     const next = values({ openBrowser: false, networkExposure: 'lan' })
     await expect(updateDesktopSetupWizardSettings(path, next)).resolves.toMatchObject({

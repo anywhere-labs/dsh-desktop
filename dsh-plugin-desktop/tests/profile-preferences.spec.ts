@@ -35,6 +35,7 @@ const PREFERENCES: DesktopProfilePreferences = Object.freeze({
     enabled: true,
     notifyOnTurnCompletion: true,
     notifyOnTurnFailure: false,
+    notifyOnUserQuestion: false,
     notifyOnJobCompletion: false,
     notifyOnJobFailure: true,
     showResponsePreview: true,
@@ -111,7 +112,7 @@ describe('Desktop Profile preferences', () => {
   it('reads legacy notification switches and persists a disabled response preview', async () => {
     const userData = temporaryDirectory('dsh-preview-preferences-user-')
     const profile = temporaryDirectory('dsh-preview-preferences-profile-')
-    const { showResponsePreview: _preview, ...legacy } = PREFERENCES.notifications
+    const { showResponsePreview: _preview, notifyOnUserQuestion: _questions, ...legacy } = PREFERENCES.notifications
     writeRawState(userData, profile, {
       version: 1,
       profileHash: desktopProfilePreferencesProfileHash(profile),
@@ -120,12 +121,25 @@ describe('Desktop Profile preferences', () => {
       recordedAt: RECORDED_AT,
     })
     expect(readDesktopProfilePreferences(userData, profile)?.notifications)
-      .toEqual({ ...legacy, showResponsePreview: true })
+      .toEqual({ ...legacy, showResponsePreview: true, notifyOnUserQuestion: true })
     await writeDesktopProfilePreferences(userData, profile, {
       ...PREFERENCES,
-      notifications: { ...PREFERENCES.notifications, showResponsePreview: false },
+      notifications: { ...PREFERENCES.notifications, showResponsePreview: false, notifyOnUserQuestion: false },
     }, RECORDED_AT)
     expect(readDesktopProfilePreferences(userData, profile)?.notifications.showResponsePreview).toBe(false)
+    expect(readDesktopProfilePreferences(userData, profile)?.notifications.notifyOnUserQuestion).toBe(false)
+  })
+
+  it.each([true, false])('defaults the missing question switch without changing the existing preview choice (%s)', (showResponsePreview) => {
+    const userData = temporaryDirectory('dsh-question-preferences-user-')
+    const profile = temporaryDirectory('dsh-question-preferences-profile-')
+    const { notifyOnUserQuestion: _questions, ...notifications } = PREFERENCES.notifications
+    writeRawState(userData, profile, {
+      version: 1, profileHash: desktopProfilePreferencesProfileHash(profile), ...PREFERENCES,
+      notifications: { ...notifications, showResponsePreview }, recordedAt: RECORDED_AT,
+    })
+    expect(readDesktopProfilePreferences(userData, profile)?.notifications)
+      .toEqual({ ...notifications, showResponsePreview, notifyOnUserQuestion: true })
   })
 
   it('isolates strict state by sha256(Profile directory)', async () => {

@@ -36,6 +36,7 @@ const COMPLETE_KEYS = Object.freeze([
   'notificationsEnabled',
   'notifyOnTurnCompletion',
   'notifyOnTurnFailure',
+  'notifyOnUserQuestion',
   'notifyOnJobCompletion',
   'notifyOnJobFailure',
   'showResponsePreview',
@@ -102,13 +103,14 @@ export function parseDesktopSetupWizardAction(
   const enabled = exactBoolean(url.searchParams.get('notificationsEnabled'))
   const notifyOnTurnCompletion = exactBoolean(url.searchParams.get('notifyOnTurnCompletion'))
   const notifyOnTurnFailure = exactBoolean(url.searchParams.get('notifyOnTurnFailure'))
+  const notifyOnUserQuestion = exactBoolean(url.searchParams.get('notifyOnUserQuestion'))
   const notifyOnJobCompletion = exactBoolean(url.searchParams.get('notifyOnJobCompletion'))
   const notifyOnJobFailure = exactBoolean(url.searchParams.get('notifyOnJobFailure'))
   const showResponsePreview = exactBoolean(url.searchParams.get('showResponsePreview'))
   if (mode === undefined || macosMaterial === undefined || windowsMaterial === undefined
     || aaEnabled === undefined || openBrowser === undefined || networkExposure === undefined || market === undefined
     || enabled === undefined || notifyOnTurnCompletion === undefined
-    || notifyOnTurnFailure === undefined || notifyOnJobCompletion === undefined
+    || notifyOnTurnFailure === undefined || notifyOnUserQuestion === undefined || notifyOnJobCompletion === undefined
     || notifyOnJobFailure === undefined || showResponsePreview === undefined) return undefined
 
   const selection = freezeDesktopSetupWizardSelection({
@@ -123,6 +125,7 @@ export function parseDesktopSetupWizardAction(
       enabled,
       notifyOnTurnCompletion,
       notifyOnTurnFailure,
+      notifyOnUserQuestion,
       notifyOnJobCompletion,
       notifyOnJobFailure,
       showResponsePreview,

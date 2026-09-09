@@ -45,6 +45,7 @@ const NOTIFICATION_KEYS = Object.freeze([
   'notifyOnJobFailure',
   'notifyOnTurnCompletion',
   'notifyOnTurnFailure',
+  'notifyOnUserQuestion',
   'showResponsePreview',
 ] as const)
 
@@ -148,9 +149,9 @@ function normalizedNotifications(
   value: unknown,
   error: ErrorFactory,
 ): Readonly<DesktopNotificationSettings> {
-  // V1 files written before response previews contain the original five switches.
-  const normalized = isRecord(value) && !Object.hasOwn(value, 'showResponsePreview')
-    ? { ...value, showResponsePreview: true }
+  // Older V1 files lack the preview and/or pending-question switches.
+  const normalized = isRecord(value)
+    ? { showResponsePreview: true, notifyOnUserQuestion: true, ...value }
     : value
   if (!isRecord(normalized) || !hasExactKeys(normalized, NOTIFICATION_KEYS)) {
     throw error('notifications must contain exactly the supported notification boolean fields')
@@ -162,6 +163,7 @@ function normalizedNotifications(
     enabled: normalized.enabled as boolean,
     notifyOnTurnCompletion: normalized.notifyOnTurnCompletion as boolean,
     notifyOnTurnFailure: normalized.notifyOnTurnFailure as boolean,
+    notifyOnUserQuestion: normalized.notifyOnUserQuestion as boolean,
     notifyOnJobCompletion: normalized.notifyOnJobCompletion as boolean,
     notifyOnJobFailure: normalized.notifyOnJobFailure as boolean,
     showResponsePreview: normalized.showResponsePreview as boolean,
