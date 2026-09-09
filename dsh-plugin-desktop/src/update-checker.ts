@@ -66,6 +66,13 @@ export type UpdateCheckResult = {
   readonly currentVersion: string
   /** Canonical latest stable version returned by the service. */
   readonly latestVersion: string
+  /**
+   * Optional per-platform hex SHA-256 digests of the published installers.
+   * Whenever the service publishes them, the download path enforces them as
+   * a hard integrity gate before execution; they are optional only because
+   * the version endpoint does not publish digests yet.
+   */
+  readonly installerSha256?: Readonly<Partial<Record<'win32' | 'darwin', string>>>
 }
 
 const SEMVER_PATTERN =
@@ -152,15 +159,23 @@ export async function checkForDesktopUpdate(
     return null
   }
 
+  let digestInput: unknown
+  try {
+    digestInput = JSON.parse(body)
+  } catch {
+    digestInput = undefined
+  }
   const latest = parseVersionResponse(body, options.channel)
   if (latest === null) return null
   const comparison = compareParsedSemVer(latest, current)
+  const digests = parseInstallerDigestResponse(digestInput)
   return {
     status: comparison > 0 || (options.allowDowngrade === true && comparison !== 0)
       ? 'update-available'
       : 'up-to-date',
     currentVersion: current.version,
     latestVersion: latest.version,
+    ...(digests === undefined ? {} : { installerSha256: digests }),
   }
 }
 
@@ -255,6 +270,27 @@ function parseCanonicalChannelVersion(
     && isNumeric(parsed.prerelease[1]!)
     ? parsed
     : null
+}
+
+/**
+ * Extract optional per-platform installer digests from the parsed version
+ * response: `{ "version": "2.0.2", "sha256": { "windows": "<hex>", "mac": "<hex>" } }`.
+ * Hex digits are case-normalized; absent or malformed fields simply leave the
+ * digest gate unset for that platform.
+ */
+function parseInstallerDigestResponse(value: unknown): UpdateCheckResult['installerSha256'] | undefined {
+  if (!isRecord(value) || !isRecord(value.sha256)) return undefined
+  const digests: Partial<Record<'win32' | 'darwin', string>> = {}
+  const normalize = (digest: unknown): string | undefined => {
+    if (typeof digest !== 'string') return undefined
+    const normalized = digest.trim().toLowerCase()
+    return /^[0-9a-f]{64}$/u.test(normalized) ? normalized : undefined
+  }
+  const windows = normalize(value.sha256.windows)
+  const mac = normalize(value.sha256.mac)
+  if (windows !== undefined) digests.win32 = windows
+  if (mac !== undefined) digests.darwin = mac
+  return Object.keys(digests).length > 0 ? digests : undefined
 }
 
 function parseCanonicalSupportedVersion(input: string): ParsedSemVer | null {

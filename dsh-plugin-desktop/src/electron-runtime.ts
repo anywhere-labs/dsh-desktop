@@ -11,6 +11,7 @@ import {
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-terminal.ts'
 import { showDesktopMessageBox } from './desktop-dialog-window.ts'
@@ -53,6 +54,7 @@ import {
   recordDesktopUpdateArtifact,
   resolveDesktopUpdateArtifact,
   type DesktopUpdateArtifact,
+  type UpdateArtifactResponse,
 } from './update-download.ts'
 import type { UpdateCheckResult } from './update-checker.ts'
 import type { DesktopInstallationId } from './desktop-installation-id.ts'
@@ -92,6 +94,85 @@ const PRODUCT_VERSION = desktopProductVersion()
 
 /** Main-process deadline for one Renderer generation to settle its client Loader. */
 export const RENDERER_BOOT_TIMEOUT_MS = 30_000
+
+/** HTTP statuses whose Response must be constructed without a body stream. */
+const NULL_BODY_STATUSES = new Set([204, 205, 304])
+
+/**
+ * Download-request adapter over Electron `net.request`. `net.fetch` cannot
+ * back the download origin gate: its Response carries an empty `url` (a
+ * documented Electron limitation), so redirects are followed here and the
+ * settled URL is reported alongside the response for the gate to validate.
+ */
+export function requestDesktopArtifact(url: string, init: RequestInit): Promise<UpdateArtifactResponse> {
+  return new Promise((resolve, reject) => {
+    const request = net.request({ url, method: 'GET', redirect: 'manual' })
+    let finalUrl = url
+    let settled = false
+    const headers = new Headers(init.headers)
+    // Approximates the fetch `cache: 'no-store` intent over the Chromium net stack.
+    headers.set('cache-control', 'no-cache')
+    headers.forEach((value, key) => { request.setHeader(key, value) })
+    request.on('redirect', (_status, _method, redirectUrl) => {
+      finalUrl = redirectUrl
+      request.followRedirect()
+    })
+    request.on('response', incoming => {
+      if (settled) return
+      settled = true
+      const status = incoming.statusCode
+      if (status === undefined) {
+        reject(new Error('dsh-plugin-desktop: the update download response carried no HTTP status.'))
+        return
+      }
+      const headers = new Headers()
+      for (const [key, value] of Object.entries(incoming.headers)) {
+        for (const item of Array.isArray(value) ? value : [value]) headers.append(key, item)
+      }
+      try {
+        resolve({
+          // Constructing a Response with a body throws synchronously for
+          // null-body statuses (204/205/304), and a synchronous throw inside
+          // this event callback would escape the Promise and crash the main
+          // process, so those statuses resolve without a body stream and any
+          // construction failure rejects instead.
+          response: new Response(
+            NULL_BODY_STATUSES.has(status)
+              ? null
+              : Readable.toWeb(incoming as unknown as Readable) as unknown as ReadableStream<Uint8Array>,
+            { status, headers },
+          ),
+          finalUrl,
+        })
+      } catch (cause) {
+        reject(cause instanceof Error ? cause : new Error(String(cause)))
+      }
+    })
+    request.on('abort', () => {
+      if (settled) return
+      settled = true
+      // ClientRequest.abort() emits 'abort', not 'error', so without this
+      // handler a pre-response cancellation would leave the promise pending.
+      reject(init.signal instanceof AbortSignal && init.signal.reason !== undefined
+        ? init.signal.reason
+        : new DOMException('The operation was aborted', 'AbortError'))
+    })
+    request.on('error', cause => {
+      if (settled) return
+      settled = true
+      reject(cause)
+    })
+    const signal = init.signal
+    if (signal instanceof AbortSignal) {
+      if (signal.aborted) {
+        request.abort()
+        return
+      }
+      signal.addEventListener('abort', () => { request.abort() }, { once: true })
+    }
+    request.end()
+  })
+}
 
 /** Native adapter used by the DSH Desktop launcher and owned by its Cordis shell plugin. */
 export class ElectronDesktopRuntime implements DesktopRuntime {
@@ -148,7 +229,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       request: (url, init) => net.fetch(url, init),
       confirmDownload: (version, channel) => this.confirmUpdateDownload(version, channel),
       showManualCheckResult: result => this.showManualUpdateCheckResult(result),
-      downloadAndOpen: (version, signal, channel) => this.downloadAndOpenUpdate(version, signal, channel),
+      downloadAndOpen: (version, signal, channel, installerSha256) => this.downloadAndOpenUpdate(version, signal, channel, installerSha256),
       notify: notification => { this.showNotification(notification) },
     }
   }
@@ -656,6 +737,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     version: string,
     signal: AbortSignal,
     channel: DesktopReleaseChannel = 'stable',
+    installerSha256?: Readonly<Partial<Record<'win32' | 'darwin', string>>>,
   ): Promise<void> {
     const copy = desktopNativeCopy(this.currentLocale)
     const platform = this.platformStrategy.updateDownloadPlatform
@@ -670,8 +752,9 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       version,
       ...(channel === 'stable' ? {} : { channel }),
       destinationPath,
-      request: (url, init) => net.fetch(url, init),
+      request: requestDesktopArtifact,
       signal,
+      ...(installerSha256?.[platform] === undefined ? {} : { expectedSha256: installerSha256[platform] }),
     })
     signal.throwIfAborted()
     const artifact: DesktopUpdateArtifact = { platform, version, path: artifactPath }
