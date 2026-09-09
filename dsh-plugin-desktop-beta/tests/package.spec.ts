@@ -1201,9 +1201,10 @@ describe('published package surface', () => {
 
   it('hides official plugin-manager and general subprocess consoles on Windows', () => {
     const dshPatchPath = './patches/dsh@0.1.3-alpha.2.patch'
-    const retiredSubprocessPatchPath = './patches/dsh-subprocess-local@0.1.3-alpha.2.patch'
+    const subprocessPatchPath = './patches/dsh-subprocess-local@0.1.3-alpha.2.patch'
     const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
     const dshPatch = readFileSync(new URL(dshPatchPath, workspaceRoot), 'utf8')
+    const subprocessPatch = readFileSync(new URL(subprocessPatchPath, workspaceRoot), 'utf8')
     const workspaceRequire = createRequire(new URL('package.json', packageRoot))
     const dshManifest = workspaceRequire.resolve('@deepseek-ai/dsh/package.json')
     const dshBin = readFileSync(join(dirname(dshManifest), 'lib/bin.js'), 'utf8')
@@ -1219,9 +1220,9 @@ describe('published package surface', () => {
     const subprocessRuntime = readFileSync(join(dirname(subprocessManifest), 'lib', runnerEntry), 'utf8')
 
     expect(dshResolution('@deepseek-ai/dsh')).toContain(dshPatchPath)
-    expect(dshResolution('@deepseek-ai/dsh-subprocess-local')).not.toContain('patch:')
+    expect(dshResolution('@deepseek-ai/dsh-subprocess-local')).toContain(subprocessPatchPath)
     expect(lockfile).toContain(dshPatchPath)
-    expect(lockfile).not.toContain(retiredSubprocessPatchPath)
+    expect(lockfile).toContain(subprocessPatchPath)
     expect(dshPatch).toContain('+\t\twindowsHide: true')
     expect(dshPluginRuntime).toMatch(/spawnSync\("pnpm"[\s\S]*?shell: process\.platform === "win32",\s+windowsHide: true/u)
     let spawnCalls = 0
@@ -1246,6 +1247,13 @@ describe('published package surface', () => {
     expect(exitCode).toBe(17)
     expect(subprocessRuntime.match(/windowsHide: true/gu)).toHaveLength(2)
     expect(subprocessRuntime).toContain('windowsHide: platform === "win32"')
+    for (const source of [subprocessPatch, subprocessRuntime]) {
+      expect(source).toContain('mkdirSync(this.spillDir, { recursive: true, mode: 448 })')
+      expect(source).toContain('error?.code !== "ENOENT"')
+      expect(source).toContain('this.discardSpill()')
+    }
+    expect(subprocessPatch).toContain('diff --git a/lib/runner-launch-COYGu0Dl.js b/lib/runner-launch-COYGu0Dl.js')
+    expect(subprocessRuntime).toContain('lstatSync, mkdirSync, mkdtempSync')
   })
 
   it('resolves electron-builder through the pinned app-builder-lib product patch', () => {

@@ -1128,6 +1128,24 @@ describe('published package surface', () => {
     expect(subprocessRuntime.match(/windowsHide: true/gu)).toHaveLength(3)
   })
 
+  it('recovers subprocess spill writes after the temp spill directory is deleted (#865)', () => {
+    const subprocessPatchPath = './patches/dsh-subprocess-local@0.1.2-rc.1.patch'
+    const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
+    const subprocessPatch = readFileSync(new URL(subprocessPatchPath, workspaceRoot), 'utf8')
+    const workspaceRequire = createRequire(new URL('package.json', packageRoot))
+    const subprocessManifest = workspaceRequire.resolve('@deepseek-ai/dsh-subprocess-local/package.json')
+    const subprocessRuntime = readFileSync(join(dirname(subprocessManifest), 'lib/index.js'), 'utf8')
+
+    expect(dshResolution('@deepseek-ai/dsh-subprocess-local')).toContain(subprocessPatchPath)
+    expect(lockfile).toContain(subprocessPatchPath)
+    for (const source of [subprocessPatch, subprocessRuntime]) {
+      expect(source).toContain('mkdirSync(this.spillDir, { recursive: true, mode: 448 })')
+      expect(source).toContain('error?.code !== "ENOENT"')
+      expect(source).toContain('this.discardSpill()')
+    }
+    expect(subprocessRuntime).toContain('import { closeSync, constants, mkdirSync, mkdtempSync')
+  })
+
   it('resolves electron-builder through the pinned app-builder-lib keychain patch', () => {
     const patchResolution = 'patch:app-builder-lib@npm%3A26.15.7#./patches/app-builder-lib@26.15.7.patch'
     const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')

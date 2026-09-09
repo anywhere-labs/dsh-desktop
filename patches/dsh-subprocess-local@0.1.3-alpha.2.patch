@@ -1,25 +1,13 @@
-diff --git a/lib/index.js b/lib/index.js
---- a/lib/index.js
-+++ b/lib/index.js
+diff --git a/lib/runner-launch-COYGu0Dl.js b/lib/runner-launch-COYGu0Dl.js
+--- a/lib/runner-launch-COYGu0Dl.js
++++ b/lib/runner-launch-COYGu0Dl.js
 @@ -1,4 +1,4 @@
--import { closeSync, constants, mkdtempSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, statSync, unlinkSync, writeSync } from "node:fs";
-+import { closeSync, constants, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, statSync, unlinkSync, writeSync } from "node:fs";
- import { access, stat } from "node:fs/promises";
- import { delimiter, extname, isAbsolute, join, resolve } from "node:path";
- import * as nodePty from "node-pty";
-@@ -108,7 +108,10 @@ function taskkillTree(pid, force) {
- 		String(pid),
- 		"/T",
- 		...force ? ["/F"] : []
--	], { stdio: "ignore" });
-+	], {
-+		stdio: "ignore",
-+		windowsHide: true
-+	});
- }
- /**
- * True for NULL and INVALID_HANDLE_VALUE returns from Win32 handle APIs.
-@@ -713,11 +716,57 @@ var OutputCollector = class {
+-import { accessSync, chmodSync, closeSync, constants, existsSync, lstatSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, rmdirSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
++import { accessSync, chmodSync, closeSync, constants, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, rmdirSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+ import { basename, dirname, extname, isAbsolute, join } from "node:path";
+ import { scrubbedParentEnv } from "@deepseek-ai/dsh-subprocess";
+ import { execFileSync, spawn, spawnSync } from "node:child_process";
+@@ -762,11 +762,57 @@ var OutputCollector = class {
  			return;
  		}
  		if (this.spillFd === void 0) {
@@ -81,25 +69,3 @@ diff --git a/lib/index.js b/lib/index.js
  	}
  	/** Stop spilling and remove the file once it can no longer hold the complete stream. */
  	discardSpill() {
-@@ -797,7 +846,10 @@ function taskkillProcessTree(pid) {
- 		String(pid),
- 		"/T",
- 		"/F"
--	], { stdio: "ignore" });
-+	], {
-+		stdio: "ignore",
-+		windowsHide: true
-+	});
- }
- /**
- * Signal a detached process tree with platform-correct semantics: POSIX
-@@ -853,7 +905,8 @@ function spawnSubprocess(spec, internals = {}) {
- 			outMode === "inherit" ? "inherit" : "pipe",
- 			errMode === "inherit" ? "inherit" : "pipe"
- 		],
--		detached: platform !== "win32"
-+		detached: platform !== "win32",
-+		windowsHide: true
- 	});
- 	const collectStream = (mode, stream, label) => {
- 		if (!isCollect(mode) || stream === null) return void 0;
