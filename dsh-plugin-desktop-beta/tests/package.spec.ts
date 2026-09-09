@@ -107,7 +107,7 @@ describe('published package surface', () => {
     expect(main).toContain('app.setAppUserModelId(DESKTOP_APP_ID)')
     const setName = main.indexOf('app.setName(PRODUCT_NAME)')
     const start = main.indexOf('await start()', setName)
-    const lock = main.indexOf('app.requestSingleInstanceLock()')
+    const lock = main.indexOf('app.requestSingleInstanceLock({ workspaceLaunchArgs })')
     expect(setName).toBeGreaterThanOrEqual(0)
     expect(start).toBeGreaterThan(setName)
     expect(lock).toBeGreaterThanOrEqual(0)
