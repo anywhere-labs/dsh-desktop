@@ -41,6 +41,7 @@ import FileSettingsProvider, {
   type Config as SettingsFileConfig,
 } from '@deepseek-ai/dsh-settings-file'
 import { parseAllDocuments, parseDocument } from 'yaml'
+import { COMPAT_PRESET_DIRNAME, materializeLegacyPresetAliases } from './agent-preset-compat.ts'
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
 import { withAsarModuleResolver } from './asar-module-resolver-state.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
@@ -106,6 +107,8 @@ const UPSTREAM_PWSH_SANDBOX_PACKAGE = '@deepseek-ai/dsh-pwsh-sandbox'
 const DESKTOP_WINDOWS_PWSH_SANDBOX_ROW_ID = 'desktop-windows-pwsh-sandbox'
 const DESKTOP_WINDOWS_PWSH_SANDBOX_PACKAGE = `${DESKTOP_PACKAGE_NAME}/windows-pwsh-sandbox`
 const AGENT_PRESETS_ROW_ID = 'agent-presets'
+/** Harness-home directory holding locally authored presets (`agent-presets/discovery`). */
+const USER_PRESET_DIRNAME = '.agent-presets'
 const DEFAULT_DESKTOP_SHELL_MODE: DesktopShellMode = 'compatibility'
 const DEFAULT_DESKTOP_PORT = DESKTOP_DEFAULT_WEB_PORT
 const DESKTOP_WEB_SERVER_ROW_ID = 'desktop-webserver'
@@ -1056,11 +1059,24 @@ export function prepareDesktopProfile(
   }
   const presets = rows.get(AGENT_PRESETS_ROW_ID)
   if (presets !== undefined) {
-    const config = {
-      ...rowConfig(presets),
-      roots: [{ path: shippedPresetRoot(), trust: 'system' }],
-    }
-    patches.push({ id: AGENT_PRESETS_ROW_ID, config })
+    const shippedRoot = shippedPresetRoot()
+    const roots: Array<{ path: string, trust: 'system' | 'user' }> = [
+      { path: shippedRoot, trust: 'system' },
+      // The harness-home user root, taken over from `includeUserRoot` so it
+      // keeps precedence over the alias root below: a preset authored under a
+      // renamed id must still win over the launcher's alias copy of the
+      // shipped preset.
+      { path: join(home, USER_PRESET_DIRNAME), trust: 'user' },
+    ]
+    const compatRoot = materializeLegacyPresetAliases({
+      shippedRoot,
+      compatRoot: join(profileDir, COMPAT_PRESET_DIRNAME),
+    })
+    if (compatRoot !== undefined) roots.push({ path: compatRoot, trust: 'system' })
+    patches.push({
+      id: AGENT_PRESETS_ROW_ID,
+      config: { ...rowConfig(presets), roots, includeUserRoot: false },
+    })
   }
   const webserver = rows.get('webserver')
   if (webserver === undefined) {

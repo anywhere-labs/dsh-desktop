@@ -409,8 +409,21 @@ virtualStoreDirMaxLength: 60
     }))
     expect(patches).toContainEqual(expect.objectContaining({
       id: 'agent-presets',
-      config: expect.objectContaining({ roots: [expect.objectContaining({ trust: 'system' })] }),
+      config: expect.objectContaining({
+        roots: [
+          { path: shippedPresetRoot(), trust: 'system' },
+          { path: join(home, '.agent-presets'), trust: 'user' },
+          { path: join(prepared.profile.dir, 'agent-preset-compat'), trust: 'system' },
+        ],
+        includeUserRoot: false,
+      }),
     }))
+    expect(existsSync(join(
+      prepared.profile.dir,
+      'agent-preset-compat',
+      'code',
+      'agent.cordis.yml',
+    ))).toBe(true)
     expect(readFileSync(prepared.rootConfig, 'utf8')).toBe('[]\n')
     expect(prepared.homeDir).toBe(home)
     expect(fileURLToPath(prepared.bareModuleBaseUrl)).toBe(join(prepared.profile.dir, 'package.json'))
@@ -470,6 +483,30 @@ virtualStoreDirMaxLength: 60
     expect(rows.find(row => row.id === 'desktop-profiles')).toEqual(expect.objectContaining({
       name: 'dsh-plugin-desktop/profiles',
     }))
+  })
+
+  it('keeps a user-authored code preset ahead of the compatibility alias', () => {
+    const home = temporaryHome()
+    const userCodeDir = join(home, '.agent-presets', 'code')
+    mkdirSync(userCodeDir, { recursive: true })
+    writeFileSync(join(userCodeDir, 'agent.cordis.yml'), '[]\n')
+
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+    const rows = composeEntries([prepared.patches])
+    const presets = rows.find(row => row.id === 'agent-presets') as
+      | { config?: { roots?: Array<{ path: string }> } }
+      | undefined
+    const roots = presets?.config?.roots ?? []
+
+    expect(roots.map(root => root.path)).toEqual([
+      shippedPresetRoot(),
+      join(home, '.agent-presets'),
+      join(prepared.profile.dir, 'agent-preset-compat'),
+    ])
+    // The alias is still materialized for Sessions without a user preset,
+    // but discovery meets the user root first so it never shadows user data.
+    expect(existsSync(join(prepared.profile.dir, 'agent-preset-compat', 'code', 'agent.cordis.yml'))).toBe(true)
+    expect(existsSync(join(userCodeDir, 'agent.cordis.yml'))).toBe(true)
   })
 
   it('merges a frozen LAN IPv4 snapshot into existing Web runtime trust', () => {
@@ -1043,7 +1080,12 @@ virtualStoreDirMaxLength: 60
     expect(rows.find(row => row.id === 'agent-presets')).toEqual(expect.objectContaining({
       name: '@deepseek-ai/dsh-agent-presets',
       config: expect.objectContaining({
-        roots: [{ path: shippedPresetRoot(), trust: 'system' }],
+        roots: [
+          { path: shippedPresetRoot(), trust: 'system' },
+          { path: join(home, '.agent-presets'), trust: 'user' },
+          { path: join(prepared.profile.dir, 'agent-preset-compat'), trust: 'system' },
+        ],
+        includeUserRoot: false,
       }),
     }))
     expect(rows.find(row => row.id === 'agent-presets')?.disabled).toBeFalsy()
