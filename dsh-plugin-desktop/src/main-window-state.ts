@@ -26,6 +26,16 @@ export interface MainWindowBounds {
   readonly height: number
 }
 
+/** Display-aware dimensions used to construct the main BrowserWindow. */
+export interface MainWindowLayout {
+  readonly x?: number
+  readonly y?: number
+  readonly width: number
+  readonly height: number
+  readonly minWidth: number
+  readonly minHeight: number
+}
+
 interface MainWindowStateV1 {
   readonly version: 1
   readonly bounds: MainWindowBounds
@@ -132,8 +142,14 @@ export function fitMainWindowBounds(
 ): MainWindowBounds {
   const restored = parseBounds(bounds)
   const available = parseBounds(workArea)
-  const minWidth = isPositiveDimension(minimum.width) ? minimum.width : 1
-  const minHeight = isPositiveDimension(minimum.height) ? minimum.height : 1
+  const minWidth = Math.min(
+    isPositiveDimension(minimum.width) ? minimum.width : 1,
+    available.width,
+  )
+  const minHeight = Math.min(
+    isPositiveDimension(minimum.height) ? minimum.height : 1,
+    available.height,
+  )
   const width = Math.max(minWidth, Math.min(restored.width, available.width))
   const height = Math.max(minHeight, Math.min(restored.height, available.height))
   const visibleWidth = Math.max(
@@ -155,6 +171,39 @@ export function fitMainWindowBounds(
     y: Math.min(maxY, Math.max(available.y, restored.y)),
     width,
     height,
+  }
+}
+
+/** Resolve dimensions and native minimums against one selected display. */
+export function resolveMainWindowLayout(
+  savedBounds: MainWindowBounds | undefined,
+  workArea: MainWindowBounds,
+  initial: Pick<MainWindowBounds, 'width' | 'height'>,
+  minimum: Pick<MainWindowBounds, 'width' | 'height'>,
+): MainWindowLayout {
+  const available = parseBounds(workArea)
+  const minWidth = Math.min(
+    isPositiveDimension(minimum.width) ? minimum.width : 1,
+    available.width,
+  )
+  const minHeight = Math.min(
+    isPositiveDimension(minimum.height) ? minimum.height : 1,
+    available.height,
+  )
+  if (savedBounds !== undefined) {
+    return {
+      ...fitMainWindowBounds(savedBounds, available, { width: minWidth, height: minHeight }),
+      minWidth,
+      minHeight,
+    }
+  }
+  const initialWidth = isPositiveDimension(initial.width) ? initial.width : minWidth
+  const initialHeight = isPositiveDimension(initial.height) ? initial.height : minHeight
+  return {
+    width: Math.max(minWidth, Math.min(initialWidth, available.width)),
+    height: Math.max(minHeight, Math.min(initialHeight, available.height)),
+    minWidth,
+    minHeight,
   }
 }
 
