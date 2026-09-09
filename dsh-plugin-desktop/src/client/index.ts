@@ -1,3 +1,4 @@
+import { startWorkspaceLaunches } from './workspace-launch.ts'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -86,6 +87,9 @@ export function apply(ctx: ClientContext): void {
     () => provideDesktopWindow(ctx, desktopWindowService(environment)),
     'dsh-plugin-desktop: native window geometry service',
   )
+  ctx.inject(['workspaces', 'uiWorkspace'], scoped => {
+    scoped.effect(() => startWorkspaceLaunches(scoped), 'desktop: launch workspace requests')
+  })
   const desktopSettings = applyDesktopSettings(ctx, environment)
   ctx.effect(
     () => startRendererBootReporter(ctx.loader),

@@ -36,6 +36,7 @@ describe('desktop client environment', () => {
     const inject = vi.fn()
     const ctx = {
       effect,
+      inject: vi.fn(),
       slots: { inject },
       locale: { bind: () => (key: string) => key },
       settingsScope: { bind: () => ({}) },

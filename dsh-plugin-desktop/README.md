@@ -115,6 +115,19 @@ node lib/bin.js --help
 node lib/bin.js --version
 ```
 
+### Open a workspace from the command line
+
+After building, pass one directory to the launcher:
+
+```sh
+corepack yarn workspace dsh-plugin-desktop start "/path/to/my project"
+```
+
+The packaged executable also accepts one directory. Relative paths are resolved against the invoking process's working directory; quote paths containing spaces, and use `--` before names beginning with a dash. DSH waits for the selected Profile and client to be ready, then registers or reuses the workspace and opens its blank session using the existing workspace flow. If Desktop is already running, it handles the request in that instance. Invalid paths and failed workspace operations show an error without switching the current session. Existing Windows workspace-volume checks still apply.
+
+This does not install a shell command, file-manager context menu, or URL protocol.
+
+
 ## Plugin workflow
 
 Manage any profile with the ordinary DSH command:

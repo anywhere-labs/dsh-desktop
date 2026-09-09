@@ -5,13 +5,19 @@
     "noEmit": true,
     "emitDeclarationOnly": false
   },
-  "include": ["scripts/**/*.ts", "src/*.ts", "tests/**/*.ts", "tests/**/*.tsx"],
+  "include": [
+    "scripts/**/*.ts",
+    "src/*.ts",
+    "tests/**/*.ts",
+    "tests/**/*.tsx"
+  ],
   "exclude": [
     "tests/client-boot-health.spec.ts",
     "tests/client-aa-settings.spec.ts",
     "tests/client-desktop-settings.spec.ts",
     "tests/client-environment.spec.ts",
     "tests/client-layout-service.spec.ts",
-    "tests/theme-presenter.spec.ts"
+    "tests/theme-presenter.spec.ts",
+    "tests/workspace-launch.client.spec.ts"
   ]
 }
