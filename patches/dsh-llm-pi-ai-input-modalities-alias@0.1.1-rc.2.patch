@@ -1,0 +1,20 @@
+diff --git a/lib/index.js b/lib/index.js
+@@ -648,7 +648,7 @@
+ 			api,
+ 			provider,
+ 			baseUrl,
+-			input: declaredInput(entry.input) ?? base?.input ?? [...request.defaultInput],
++			input: declaredInput(entry.input) ?? declaredInput(entry.inputModalities) ?? declaredInput(base?.input) ?? declaredInput(base?.inputModalities) ?? [...request.defaultInput],
+ 			cost: base?.cost ?? NO_COST,
+ 			contextWindow,
+ 			maxTokens,
+@@ -919,7 +919,8 @@
+ 	name: z.string(),
+ 	contextWindow: z.number().step(1).min(1),
+ 	maxTokens: z.number().step(1).min(1),
+-	input: z.array(z.union(MODALITIES)),
++	input: z.array(z.union(MODALITIES)).default([]),
++	inputModalities: z.array(z.union(MODALITIES)).default([]),
+ 	reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
+ 	compat: compatProfile
+ };
