@@ -1,0 +1,139 @@
+diff --git a/lib/index.js b/lib/index.js
+index e06cf8d..e1c83df 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -2095,11 +2095,15 @@ function authContextFrom(ctx) {
+ * Answering "which models can this provider serve?" for the configuration
+ * surface's "fetch available models" action.
+ *
+-* A route the installed pi-ai catalog ships is answered **from that catalog**,
+-* with no network call at all: pi-ai's registry is the authoritative list for
+-* its own providers, and it carries the capacities a listing endpoint would
+-* not disclose. Only a route the catalog does not describe — a gateway, a
+-* self-hosted server — is interrogated over the wire.
++* A route whose endpoint can be interrogated — a base URL is configured and
++* the protocol's listing is readable — is answered **live**: the endpoint is
++* the authority on what it serves right now, so models added or retired after
++* this build shipped are reported as they are today, not as the bundled
++* catalog remembers them. Catalog entries still contribute the capacities a
++* listing endpoint may not disclose (`contextWindow`, `maxTokens`) whenever a
++* live row omits them, and when the endpoint cannot answer at all the catalog
++* is answered instead, so the action keeps working offline. A 401 or 403 is
++* always surfaced: a refused key must not look like a stale catalog.
+ *
+ * Neither path is a catalog refresh. Nothing here is stored: the request
+ * carries a draft the user is still editing, and the reply is candidate
+@@ -2260,32 +2264,90 @@ function usableProbeKey(raw) {
+ 	throw new LlmError(checked.reason === "empty" ? "this provider's API key is blank; enter it on the Models page, or clear it to probe unauthenticated" : "this provider's API key contains characters no HTTP header can carry; paste the raw key only", INVALID_CREDENTIAL_CODE);
+ }
+ /**
+-* Interrogate one draft provider endpoint for the models it advertises.
++* The installed catalog's listing for one provider, or `undefined` when the
++* catalog does not describe it. This is the fallback shape shared by the
++* no-endpoint path and the endpoint-failure path below.
++*/
++function catalogListing(request) {
++	if (request.provider === void 0) return void 0;
++	const installed = catalogModels(request.provider);
++	if (installed.size === 0) return void 0;
++	return [...installed.values()].map((model) => ({
++		id: model.id,
++		name: model.name,
++		contextWindow: model.contextWindow,
++		maxTokens: model.maxTokens
++	}));
++}
++/**
++* Fold the catalog's capacity metadata into a live listing. A row the endpoint
++* describes fully passes through untouched; a row that omits what the catalog
++* knows gains the catalog's numbers, matched by model id.
++*/
++function mergeCatalogCapacities(live, request) {
++	if (request.provider === void 0) return live;
++	const installed = catalogModels(request.provider);
++	if (installed.size === 0) return live;
++	return live.map((model) => {
++		const known = installed.get(model.id);
++		if (known === void 0) return model;
++		return {
++			...model,
++			...model.contextWindow === void 0 && known.contextWindow !== void 0 ? { contextWindow: known.contextWindow } : {},
++			...model.maxTokens === void 0 && known.maxTokens !== void 0 ? { maxTokens: known.maxTokens } : {}
++		};
++	});
++}
++/**
++* The no-endpoint answer: the catalog when it knows the provider, otherwise
++* the same diagnostics as before — a missing base URL or an unreadable
++* protocol — so the hand-entry guidance is unchanged.
++*/
++function catalogAnswer(request, api) {
++	const installed = catalogListing(request);
++	if (installed !== void 0) return installed;
++	if (request.baseURL === void 0 || request.baseURL.length === 0) throw new LlmError(`pi-ai ships no catalog for provider "${request.provider ?? ""}", so its models can only come from its endpoint; set a baseURL, or enter this provider's models by hand`, "DISCOVERY_FAILED");
++	throw new LlmError(`pi-ai protocol "${api}" has no model listing this build can read; enter this provider's models by hand`, "DISCOVERY_UNSUPPORTED");
++}
++/**
++* Interrogate one draft provider endpoint for the models it advertises, with
++* the installed catalog as the capacity enricher and the offline fallback.
+ * @param request - the endpoint, protocol, and one-shot credential to use.
+ * @param storedProfile - Host-owned headers and lazy credential resolution for
+ *   the named route. It is read only on the path that reaches the network; the
+ *   credential is resolved only when the draft carries none.
+-* @returns the advertised models in endpoint order.
++* @returns the advertised models in endpoint order, capacity-enriched from the
++*   catalog where the endpoint omits them.
+ * @throws LlmError when the protocol has no readable listing, the endpoint
+-*   refuses or fails the request, or the reply is not a model listing.
++*   refuses authentication, or the fallback path also has nothing to offer —
++*   an unreachable endpoint or unreadable reply with no catalog for the
++*   provider still reports exactly the pre-network diagnostics.
+ */
+ async function discoverModels(request, storedProfile) {
+-	if (request.provider !== void 0) {
+-		const installed = catalogModels(request.provider);
+-		if (installed.size > 0) return [...installed.values()].map((model) => ({
+-			id: model.id,
+-			name: model.name,
+-			contextWindow: model.contextWindow,
+-			maxTokens: model.maxTokens
+-		}));
+-	}
+-	if (request.baseURL === void 0 || request.baseURL.length === 0) throw new LlmError(`pi-ai ships no catalog for provider "${request.provider ?? ""}", so its models can only come from its endpoint; set a baseURL, or enter this provider's models by hand`, "DISCOVERY_FAILED");
+ 	const api = request.api ?? "openai-completions";
+-	if (!LISTABLE_PROTOCOLS.has(api)) throw new LlmError(`pi-ai protocol "${api}" has no model listing this build can read; enter this provider's models by hand`, "DISCOVERY_UNSUPPORTED");
++	const hasEndpoint = request.baseURL !== void 0 && request.baseURL.length > 0;
++	if (!hasEndpoint || !LISTABLE_PROTOCOLS.has(api)) return catalogAnswer(request, api);
+ 	const url = listingUrl(request.baseURL, api);
+ 	const stored = storedProfile?.();
+ 	const supplied = request.apiKey ?? await stored?.resolveApiKey();
+ 	const apiKey = supplied === void 0 ? void 0 : usableProbeKey(supplied);
++	try {
++		return await probeEndpoint(request, stored, api, url, apiKey);
++	} catch (error) {
++		const refused = error instanceof LlmError && typeof error.message === "string" && (error.message.includes("answered 401") || error.message.includes("answered 403"));
++		if (!refused && request.signal?.aborted !== true) {
++			const installed = catalogListing(request);
++			if (installed !== void 0) return installed;
++		}
++		throw error;
++	}
++}
++/**
++* The wire half of {@link discoverModels}, unchanged from the pre-network-first
++* flow: one listing GET with the protocol's auth headers, a size-bounded read,
++* and a listing parse. Split out so the fallback policy above stays readable.
++*/
++async function probeEndpoint(request, stored, api, url, apiKey) {
+ 	let response;
+ 	try {
+ 		const headers = new Headers(stored?.headers === void 0 ? void 0 : Object.entries(stored.headers));
+@@ -2318,7 +2380,7 @@ async function discoverModels(request, storedProfile) {
+ 	} catch (error) {
+ 		throw new LlmError(`${url} did not answer with JSON`, "DISCOVERY_FAILED", { cause: error });
+ 	}
+-	return readListing(body);
++	return mergeCatalogCapacities(readListing(body), request);
+ }
+ //#endregion
+ //#region lib/types/login.js
