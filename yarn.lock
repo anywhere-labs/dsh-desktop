@@ -9017,7 +9017,7 @@ __metadata:
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
     dsh-community-market: "npm:0.1.0-dev.0"
-    dshmarket: "npm:1.38.1"
+    dshmarket: "patch:dshmarket@npm%3A1.38.1#~/.yarn/patches/dshmarket-npm-1.38.1-775916754e.patch"
     electron: "npm:43.3.0"
     electron-builder: "npm:26.15.7"
     fs-ext: "npm:2.1.1"
@@ -9214,7 +9214,7 @@ __metadata:
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
     dsh-community-market: "npm:0.1.0-dev.0"
-    dshmarket: "npm:1.38.1"
+    dshmarket: "patch:dshmarket@npm%3A1.38.1#~/.yarn/patches/dshmarket-npm-1.38.1-775916754e.patch"
     electron: "npm:43.3.0"
     electron-builder: "npm:26.15.7"
     fs-ext: "npm:2.1.1"
@@ -9267,9 +9267,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"dshmarket@patch:dshmarket@npm%3A1.38.1#./.yarn/patches/dshmarket-npm-1.38.1-775916754e.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+"dshmarket@patch:dshmarket@npm%3A1.38.1#~/.yarn/patches/dshmarket-npm-1.38.1-775916754e.patch":
   version: 1.38.1
-  resolution: "dshmarket@patch:dshmarket@npm%3A1.38.1#./.yarn/patches/dshmarket-npm-1.38.1-775916754e.patch::version=1.38.1&hash=f62736&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "dshmarket@patch:dshmarket@npm%3A1.38.1#~/.yarn/patches/dshmarket-npm-1.38.1-775916754e.patch::version=1.38.1&hash=42b618"
   dependencies:
     js-yaml: "npm:^4.1.0"
     undici: "npm:^7.29.0"
@@ -9282,7 +9282,7 @@ __metadata:
       optional: true
     "@deepseek-ai/schemastery":
       optional: true
-  checksum: 10c0/1740f67e1e564345f6576046c717e04642ff0e1f7a18246987e3b02cf81e81b66ef458d54ac932341574a46c5fe91afc009b5b2bec522e4a43e8138b449ae084
+  checksum: 10c0/7e517eb7b3600428fdc55367278933ef063d4f528e04844c37055614ef9f37e025c8e0f5432c0295196886c5be53f00b4500fe7584ef7d899e332a332f77308b
   languageName: node
   linkType: hard
 
