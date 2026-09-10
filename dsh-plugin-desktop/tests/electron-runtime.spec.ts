@@ -40,9 +40,10 @@ const childProcess = vi.hoisted(() => {
   }
 })
 
-const PACKAGE_VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version
-
 const MAIN_WINDOW_STATE_PATH = '/tmp/dsh-desktop-user-data/main-window-state.json'
+const PRODUCT_VERSION = (JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+) as { readonly version: string }).version
 
 function clearMainWindowState(): void {
   try {
@@ -402,7 +403,7 @@ describe('Electron desktop runtime', () => {
     vi.restoreAllMocks()
   })
 
-  it('uses the single-document macOS compatibility frame, Dock icon, and template tray image', async () => {
+  it('uses the independent macOS compatibility frame, Dock icon, and template tray image', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     electron.app.getPreferredSystemLanguages.mockReturnValue(['zh-Hans-CN', 'en-US'])
     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
@@ -422,20 +423,28 @@ describe('Electron desktop runtime', () => {
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 16, y: 12 },
       webPreferences: {
-        preload: expect.stringMatching(/\/preload\.cjs$/),
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
         webSecurity: true,
-        partition: 'persist:dsh-desktop-renderer',
+        partition: 'dsh-desktop-compatibility-host',
       },
     }))
     expect(options).not.toHaveProperty('autoHideMenuBar')
     expect(options).not.toHaveProperty('titleBarOverlay')
-    expect(electron.contentViews).toHaveLength(0)
-    expect(electron.chromeWebContents.loadFile).not.toHaveBeenCalled()
-    expect(electron.browserWindows[0]?.loadURL).toHaveBeenCalledWith(spec.url)
-    expect(electron.browserWindows[0]?.webContents).toBe(electron.webContents)
+    expect(electron.contentViews).toHaveLength(2)
+    expect(electron.contentViews[1]?.options).toEqual({ webPreferences: {
+      preload: expect.stringMatching(/\/preload\.cjs$/),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      partition: 'persist:dsh-desktop-renderer',
+    } })
+    expect(electron.contentViews[1]?.setBounds).toHaveBeenCalledWith({ x: 0, y: 36, width: 1280, height: 804 })
+    expect(electron.chromeWebContents.loadFile).toHaveBeenCalledWith(expect.stringMatching(/compatibility-chrome\.html$/))
+    expect(electron.webContents.loadURL).toHaveBeenCalledWith(spec.url)
+    expect(electron.browserWindows[0]?.webContents).not.toBe(electron.webContents)
     expect(electron.browserWindows[0]?.accessibleTitle).toBe('DeepSeek Harness Desktop')
     expect(spec.readThemeSource).toHaveBeenCalledOnce()
     expect(electron.nativeTheme.themeSource).toBe('system')
@@ -1033,6 +1042,7 @@ describe('Electron desktop runtime', () => {
       const loadFailed = electron.webContents.on.mock.calls
         .find(([event]) => event === 'did-fail-load')?.[1]
       const healthy = () => {
+        electron.chromeWebContents.on.mock.calls.find(([event]) => event === 'did-finish-load')?.[1]()
         loaded()
         runtime.reportRendererBoot({ status: 'healthy' })
       }
@@ -1087,16 +1097,22 @@ describe('Electron desktop runtime', () => {
       await release()
     })
 
-    it('restores a minimized Windows compatibility window without extra views or reloads', async () => {
-      const { runtime, release, window } = await mountHealthyRenderer()
-      window.isMinimized.mockReturnValue(true)
-      runtime.show()
-      await vi.advanceTimersByTimeAsync(5000)
-      expect(window.restore).toHaveBeenCalledOnce()
-      expect(window.webContents).toBe(electron.webContents)
-      expect(electron.contentViews).toHaveLength(0)
-      expect(electron.webContents.reloadIgnoringCache).not.toHaveBeenCalled()
-      expect(electron.chromeWebContents.loadFile).not.toHaveBeenCalled()
+    it('recovers an isolated chrome crash and waits for both documents', async () => {
+      const { runtime, release, healthy, logger } = await mountHealthyRenderer()
+      const chromeGone = electron.chromeWebContents.on.mock.calls
+        .filter(([event]) => event === 'render-process-gone').at(-1)?.[1]
+      chromeGone({}, { reason: 'crashed', exitCode: 9 })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(electron.chromeWebContents.reloadIgnoringCache).toHaveBeenCalledOnce()
+      expect(electron.webContents.reloadIgnoringCache).toHaveBeenCalledOnce()
+      electron.webContents.on.mock.calls.find(([event]) => event === 'did-finish-load')?.[1]()
+      runtime.reportRendererBoot({ status: 'healthy' })
+      expect(logger.error).not.toHaveBeenCalledWith('dsh-plugin-desktop: automatic renderer recovery healthy')
+      healthy()
+      expect(logger.error).toHaveBeenCalledWith('dsh-plugin-desktop: automatic renderer recovery healthy')
+      await vi.advanceTimersByTimeAsync(90_000)
+      expect(electron.dialog.showMessageBox).not.toHaveBeenCalled()
+      expect(electron.chromeWebContents.reloadIgnoringCache).toHaveBeenCalledOnce()
       await release()
     })
 
@@ -1913,7 +1929,7 @@ describe('Electron desktop runtime', () => {
         appExecutable: process.execPath,
         electronVersion: '43.4.0',
         profileName: 'desktop',
-        productVersion: PACKAGE_VERSION,
+        productVersion: PRODUCT_VERSION,
         profileDir: expect.stringMatching(/profiles[\\/]+desktop$/u),
         homeDir: expect.stringContaining('dsh-desktop-user-data'),
         spawn: expect.any(Function),
@@ -1949,7 +1965,7 @@ describe('Electron desktop runtime', () => {
     expect(diagnostics.export).toHaveBeenCalledWith(
       expect.stringContaining('dsh-desktop-user-data'),
       expect.objectContaining({
-        appVersion: PACKAGE_VERSION,
+        appVersion: PRODUCT_VERSION,
         crashDumpsDir: expect.stringMatching(/[\\/]Crashpad$/u),
       }),
     )
@@ -2338,7 +2354,7 @@ describe('Electron desktop runtime', () => {
     expect(runtime.updates).toMatchObject({
       isPackaged: false,
       canDownload: false,
-      currentVersion: PACKAGE_VERSION,
+      currentVersion: PRODUCT_VERSION,
       statePath: join('/tmp/dsh-desktop-user-data', 'updates', 'state.json'),
     })
     electron.app.isPackaged = true
@@ -2695,7 +2711,7 @@ describe('Electron desktop runtime', () => {
       backgroundColor: '#202124',
       titleBarOverlay: expect.objectContaining({ height: DESKTOP_FRAME_HEIGHT }),
     }))
-    expect(electron.contentViews).toHaveLength(0)
+    expect(electron.contentViews).toHaveLength(2)
     expect(electron.browserWindowOptions[0]).not.toHaveProperty('transparent')
     expect(electron.browserWindowOptions[0]).not.toHaveProperty('backgroundMaterial')
     expect(electron.menuTemplates[0]).toEqual(expect.arrayContaining([

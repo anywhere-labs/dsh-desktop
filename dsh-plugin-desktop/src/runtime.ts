@@ -69,6 +69,7 @@ export interface DesktopTraySubmenuItem {
 
 /** One effect-scoped command or submenu contributed to the native tray menu. */
 export interface DesktopTrayItem {
+  readonly id?: 'check-for-updates'
   /** Menu section used for deterministic ordering and separators. */
   group: DesktopTrayItemGroup
   /** Relative position inside the selected group. */
@@ -163,6 +164,8 @@ export interface DesktopShellSpec extends DesktopWindowConfig {
   requestQuit(code: number): void
   /** Persist another mode through the registered desktop settings scope. */
   requestModeChange(mode: DesktopShellMode): Promise<void>
+  readRemoteControl?(): Promise<boolean>
+  enableRemoteControl?(): Promise<void>
 }
 
 /** Electron bootstrap capability supplied before the profile tree mounts. */

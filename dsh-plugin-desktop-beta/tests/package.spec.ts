@@ -76,7 +76,7 @@ const dshResolution = (name: string): unknown =>
 describe('published package surface', () => {
   it('keeps the private workspace version-neutral and versions the Beta package', () => {
     expect(workspaceManifest.version).toBeUndefined()
-    expect(manifest.version).toBe('2.0.7-beta.1')
+    expect(manifest.version).toBe('2.0.9-beta.1')
   })
 
   it('runs desktop and community market typechecks from the root command', () => {
@@ -839,7 +839,7 @@ describe('published package surface', () => {
 
   it('fixes the installed application identity', () => {
     expect(workspaceManifest.version).toBeUndefined()
-    expect(manifest.version).toBe('2.0.7-beta.1')
+    expect(manifest.version).toBe('2.0.9-beta.1')
     expect(manifest.name).toBe('dsh-plugin-desktop-beta')
     expect(manifest.bin).toEqual({
       'dsh-desktop-beta': 'lib/bin.js',
@@ -1193,6 +1193,40 @@ describe('published package surface', () => {
     expect(installedSessionRuntime).toContain('@deepseek-ai/node-addon-system/flock')
   })
 
+  it('starts the Windows Job runner in Electron Node mode without changing target environment', () => {
+    const workspaceRequire = createRequire(new URL('package.json', packageRoot))
+    const root = dirname(workspaceRequire.resolve('@deepseek-ai/dsh-subprocess-local/package.json'))
+    const index = readFileSync(join(root, 'lib/index.js'), 'utf8')
+    const entry = /from "(\.\/runner-launch-[^"/]+\.js)"/u.exec(index)?.[1]
+    if (entry === undefined) throw new Error('Cannot find the subprocess runner entry')
+    const source = readFileSync(join(root, 'lib', entry), 'utf8')
+    const body = /function runnerEnvironment\(selection, invocation\) \{[\s\S]*?\n\}/u.exec(source)?.[0]
+    if (body === undefined) throw new Error('Cannot find runnerEnvironment')
+    const target = { PATH: 'target-path', electron_run_as_node: '0', NODE_OPTIONS: '--trace-warnings' }
+    const evaluate = (platform: string, electron?: string, selection = 'windows') => runInNewContext(
+      `${body}\nrunnerEnvironment(selection, ['electron', 'runner.js'])`,
+      {
+        process: { platform, versions: electron === undefined ? {} : { electron } },
+        childEnv: () => ({ ...target }),
+        RUNNER_CONTROL_ENV_PREFIXES: ['NODE_', 'TSX_'],
+        SUBPROCESS_RUNNER_ENV: 'DSH_SUBPROCESS_RUNNER',
+        WINDOWS_RUNNER_SELECTION: 'windows',
+        selection,
+      },
+    ) as Record<string, string>
+
+    const runner = evaluate('win32', '43.3.0')
+    expect(runner.ELECTRON_RUN_AS_NODE).toBe('1')
+    expect(runner).not.toHaveProperty('electron_run_as_node')
+    expect(runner).not.toHaveProperty('NODE_OPTIONS')
+    expect(runner.PATH).toBe('target-path')
+    expect(runner.DSH_SUBPROCESS_RUNNER).toBe('windows')
+    expect(target).toEqual({ PATH: 'target-path', electron_run_as_node: '0', NODE_OPTIONS: '--trace-warnings' })
+    expect(evaluate('win32')).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
+    expect(evaluate('darwin', '43.3.0')).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
+    expect(evaluate('linux', '43.3.0', '/request')).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
+  })
+
   it('hides official plugin-manager and general subprocess consoles on Windows', () => {
     const dshPatchPath = './patches/dsh@0.1.5-rc.1.patch'
     const retiredSubprocessPatchPath = './patches/dsh-subprocess-local@0.1.5-rc.1.patch'
@@ -1213,7 +1247,7 @@ describe('published package surface', () => {
     const subprocessRuntime = readFileSync(join(dirname(subprocessManifest), 'lib', runnerEntry), 'utf8')
 
     expect(dshResolution('@deepseek-ai/dsh')).toContain(dshPatchPath)
-    expect(dshResolution('@deepseek-ai/dsh-subprocess-local')).not.toContain('patch:')
+    expect(dshResolution('@deepseek-ai/dsh-subprocess-local')).toContain('patches/dsh-subprocess-local-electron@0.1.5-rc.1.patch')
     expect(lockfile).toContain(dshPatchPath)
     expect(lockfile).not.toContain(retiredSubprocessPatchPath)
     expect(dshPatch).toContain('+\t\twindowsHide: true')

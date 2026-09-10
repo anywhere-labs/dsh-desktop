@@ -16,7 +16,7 @@ body:is([data-dsh-desktop-mode="compatibility"], [data-dsh-desktop-mode="extende
   height: 100%;
 }
 body:is([data-dsh-desktop-mode="compatibility"], [data-dsh-desktop-mode="extended"]) {
-  --dsh-desktop-frame-height: ${DESKTOP_FRAME_HEIGHT}px;
+  --dsh-desktop-frame-height: 0px;
   margin: 0;
   overflow: hidden;
   background: transparent !important;
@@ -24,7 +24,7 @@ body:is([data-dsh-desktop-mode="compatibility"], [data-dsh-desktop-mode="extende
 body:is([data-dsh-desktop-mode="compatibility"], [data-dsh-desktop-mode="extended"]) #root {
   box-sizing: border-box;
   position: fixed;
-  top: ${DESKTOP_FRAME_HEIGHT}px;
+  top: 0;
   right: 0;
   bottom: 0;
   left: 0;

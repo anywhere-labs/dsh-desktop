@@ -26,6 +26,7 @@ import { DialogClose } from '../src/native-ui/components/ui/dialog.tsx'
 import { desktopSetupWizardCopy } from '../src/setup-wizard-copy.ts'
 
 const input: DesktopSetupWizardInput = {
+  appVersion: '2.0.6-beta.1',
   profileName: 'work',
   platform: 'darwin',
   micaSupported: false,
@@ -136,6 +137,7 @@ describe('Setup Wizard step flow', () => {
 describe('Setup Wizard welcome page', () => {
   it('identifies the Profile and explains why first-run Desktop setup is shown', () => {
     const markup = renderToStaticMarkup(createElement(SetupWizardWelcome, {
+      appVersion: input.appVersion,
       copy,
       onSkip: () => {},
       onStart: () => {},
@@ -143,6 +145,12 @@ describe('Setup Wizard welcome page', () => {
     }))
     expect(markup).toContain('data-setup-step="welcome"')
     expect(markup).toContain(copy.welcomeTitle)
+    expect(markup).toContain(copy.beta)
+    expect(markup).toContain(`v${input.appVersion}`)
+    expect(markup).toContain('data-slot="badge"')
+    expect(markup).toContain('data-beta-placement="title-bottom-right"')
+    expect(markup).toContain('items-end')
+    expect(markup).toContain('text-[10px]')
     expect(markup).toContain(copy.welcomeBody)
     expect(markup).toContain(copy.firstProfileSetup)
     expect(markup).toContain(copy.profile)
@@ -153,6 +161,7 @@ describe('Setup Wizard welcome page', () => {
 
   it('offers Start setup and confirmed Skip without ordinary arrow navigation', () => {
     const markup = renderToStaticMarkup(createElement(SetupWizardWelcome, {
+      appVersion: input.appVersion,
       copy,
       onSkip: () => {},
       onStart: () => {},
@@ -420,13 +429,11 @@ describe('Setup Wizard native UI boundaries', () => {
       showCloseButton: false,
     })
     const text = elementText(content)
-    expect(text).toContain('这样很危险，所有在你局域网内的人都能直接操作你的电脑，请谨慎开启')
-    expect(text).toContain('本地 HTTPS 入口')
-    expect(text).toContain('不提供 HTTP 局域网回退')
-    expect(text).toContain('信任 Desktop 本地 CA')
-    expect(text).toContain('secure context')
-    expect(text).toContain('WebCrypto')
-    expect(text).toContain('确认开启局域网访问')
+    expect(text).toContain('持有访问链接')
+    expect(text).toContain('操作这台电脑')
+    expect(text).toContain('HTTPS')
+    expect(text).toContain('安装并信任')
+    expect(text).toContain('开启局域网访问')
     expect(text).toContain('保持仅本机访问')
     const descendants = elementTree(content)
     const close = descendants.find(element => element.type === DialogClose)

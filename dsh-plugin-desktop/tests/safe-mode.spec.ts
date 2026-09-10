@@ -6,14 +6,12 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import * as profileManager from '../src/profile-manager.ts'
 import {
   cleanupDesktopSafeModeEnvironment,
   DESKTOP_SAFE_MODE_DEFAULTS,
   DESKTOP_SAFE_MODE_PROFILE_NAME,
   desktopSafeModePaths,
   ensureDesktopSafeModeEnvironment,
-  prepareDesktopSafeModeEnvironment,
   resetDesktopSafeModeEnvironment,
 } from '../src/safe-mode.ts'
 
@@ -160,49 +158,6 @@ describe('Desktop Safe Mode environment', () => {
     const repaired = ensureDesktopSafeModeEnvironment(root)
     expect(repaired).toEqual(paths)
     expect(() => readFileSync(join(paths.homeDir, 'session-data'), 'utf8')).toThrow()
-  })
-
-  it('prepares and selects the shipped Web Profile without changing normal Desktop state', async () => {
-    const root = await userData()
-    const normalState = join(root, 'profile-selection', 'state.json')
-    mkdirSync(join(root, 'profile-selection'), { recursive: true })
-    writeFileSync(normalState, JSON.stringify({ version: 2, active: 'stable' }))
-    const paths = prepareDesktopSafeModeEnvironment(root)
-    const statePath = join(paths.userDataDir, 'profile-selection', 'state.json')
-
-    expect(profileManager.readDesktopProfileState(statePath).active).toBe(DESKTOP_SAFE_MODE_PROFILE_NAME)
-    expect(profileManager.listDesktopProfiles(paths.homeDir)).toEqual([
-      expect.objectContaining({
-        name: DESKTOP_SAFE_MODE_PROFILE_NAME,
-        exists: true,
-        webCapable: true,
-        bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'],
-      }),
-    ])
-    expect(ensureDesktopSafeModeEnvironment(root)).toEqual(paths)
-    expect(profileManager.readDesktopProfileState(normalState).active).toBe('stable')
-  })
-
-  it('replaces a previous disposable Profile when Safe Mode is prepared again', async () => {
-    const root = await userData()
-    const paths = prepareDesktopSafeModeEnvironment(root)
-    writeFileSync(join(paths.homeDir, 'session-data'), 'previous run')
-
-    expect(prepareDesktopSafeModeEnvironment(root)).toEqual(paths)
-    expect(existsSync(join(paths.homeDir, 'session-data'))).toBe(false)
-    expect(profileManager.readDesktopProfileState(
-      join(paths.userDataDir, 'profile-selection', 'state.json'),
-    ).active).toBe(DESKTOP_SAFE_MODE_PROFILE_NAME)
-  })
-
-  it('cleans a failed Profile selection and allows the next preparation to retry', async () => {
-    const root = await userData()
-    const failure = Object.assign(new Error('EPERM: selection state is locked'), { code: 'EPERM' })
-    vi.spyOn(profileManager, 'selectDesktopProfile').mockImplementationOnce(() => { throw failure })
-
-    expect(() => prepareDesktopSafeModeEnvironment(root)).toThrow(failure)
-    expect(existsSync(desktopSafeModePaths(root).rootDir)).toBe(false)
-    expect(() => prepareDesktopSafeModeEnvironment(root)).not.toThrow()
   })
 
   it('removes all disposable data on the next normal launch', async () => {

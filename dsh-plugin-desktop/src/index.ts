@@ -495,6 +495,16 @@ export function apply(ctx: Context, config: Config): void {
           }
           return theme.preference
         },
+        ...(desktopSettings === undefined ? {} : {
+          readRemoteControl: async () => {
+            const aa = desktopSettings.read().aa
+            return aa?.requested === true || aa?.effective === true
+          },
+          enableRemoteControl: async () => {
+            const result = await desktopSettings.selectAa(true)
+            result.afterResponse?.()
+          },
+        }),
         requestQuit: appExit,
         requestModeChange: async mode => {
           const current = settings.get()
