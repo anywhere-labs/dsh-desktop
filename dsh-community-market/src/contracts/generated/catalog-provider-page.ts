@@ -18,6 +18,7 @@ export type Item = Item1 & {
    */
   keywords?: string[]
   repository?: Repository
+  installSource?: InstallSource
   package?: Package
   publisher?: Publisher
   media?: Media
@@ -45,14 +46,14 @@ export type MediaAlt = PlainText
 export type CapabilityList = string[]
 
 /**
- * The untrusted page JSON returned by one standard HTTPS catalog endpoint. Only schemaVersion, items, and page are required. A page may contain at most 100 items and must also respect the effective requested or declared default limit. Host-observed provenance is intentionally absent and is injected only after validation.
+ * The untrusted page JSON returned by one standard HTTPS catalog endpoint. Only schemaVersion, items, and page are required. A page may contain at most 200 items and must also respect the effective requested or declared default limit. Host-observed provenance is intentionally absent and is injected only after validation.
  */
 export interface CatalogProviderPage {
   schemaVersion: '1.0.0'
   generatedAt?: string
   revision?: string
   /**
-   * @maxItems 100
+   * @maxItems 200
    */
   items: Item[]
   page: Page
@@ -60,6 +61,10 @@ export interface CatalogProviderPage {
 export interface Repository {
   url: HttpsUri
   subdirectory?: string
+}
+export interface InstallSource {
+  kind: 'github'
+  commit: string
 }
 export interface Package {
   registry: 'npm'

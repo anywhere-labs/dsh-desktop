@@ -66,33 +66,107 @@ Production code should invoke package operations from an explicit user action, v
 
 ## Plugins that work in Desktop and ordinary DSH
 
-When the same package must also run under ordinary `dsh web`, do not put Desktop services in the top-level required `inject` list. Inject ordinary dependencies first and dynamically detect Desktop:
+When the same package must also run under ordinary `dsh web`, do not put Desktop services in the top-level required `inject` list. Detect Desktop from `ctx.get('desktopProfiles')`, then keep both Desktop services together in one nested Desktop injection so the adapter unloads with either service generation:
 
 ```ts
 export const inject = ['webServer', 'loader']
 
 export function apply(ctx: Context, config: { profile?: string }): void {
-  const profiles = ctx.get('desktopProfiles')
-  if (profiles === undefined) {
+  if (ctx.get('desktopProfiles') === undefined) {
     mountOrdinaryDshManager(ctx, config.profile ?? 'web')
     return
   }
 
-  ctx.inject(['desktopPnpm'], (desktopPnpm) => {
-    mountManager(ctx, {
-      profile: profiles.current.name,
-      profileDir: profiles.current.dir,
-      runPlugin: (args, cwd, signal) => desktopPnpm.runPlugin(args, cwd, signal),
-    })
+  ctx.inject(['desktopProfiles', 'desktopPnpm'], (desktopCtx) => {
+    desktopCtx.effect(() => mountManager(desktopCtx, {
+      profile: desktopCtx.desktopProfiles.current.name,
+      profileDir: desktopCtx.desktopProfiles.current.dir,
+      runPlugin: (args, cwd, signal) =>
+        desktopCtx.desktopPnpm.runPlugin(args, cwd, signal),
+    }), 'example: Desktop plugin manager')
   })
 }
 ```
 
 The ordinary DSH fallback remains the plugin's authoritative implementation. Do not infer the Desktop profile from `process.argv`, `ctx.baseUrl`, settings, or `$DSH_HOME`; in Desktop, use `desktopProfiles.current`.
 
+## External development sandboxes
+
+An external development sandbox is an ordinary `dsh web` mirror built beside Desktop, not a second Electron application. The current public services are enough for a lifecycle-safe recipe:
+
+```ts
+import type { Context } from '@deepseek-ai/cordis'
+import type { DesktopPnpmHandle } from 'dsh-plugin-desktop/pnpm'
+import type {} from 'dsh-plugin-desktop/profile-service'
+import type {} from 'dsh-plugin-desktop/pnpm'
+
+declare function prepareSandboxProfile(options: {
+  readonly sourceProfileDir: string
+  readonly sandboxRoot: string
+  readonly pluginDir: string
+}): Promise<void>
+declare function launchExternalWebMirror(sandboxRoot: string): Promise<void>
+declare function removeSandbox(sandboxRoot: string): Promise<void>
+
+export function apply(ctx: Context): void {
+  if (ctx.get('desktopProfiles') === undefined) return
+
+  ctx.inject(['desktopProfiles', 'desktopPnpm'], (desktopCtx) => {
+    desktopCtx.effect(() => {
+      let build: DesktopPnpmHandle | undefined
+
+      async function buildAndLaunch(pluginDir: string, sandboxRoot: string): Promise<void> {
+        const sourceProfileDir = desktopCtx.desktopProfiles.current.dir
+        await prepareSandboxProfile({ sourceProfileDir, sandboxRoot, pluginDir })
+
+        const deadline = AbortSignal.timeout(5 * 60_000)
+        const operation = desktopCtx.desktopPnpm.run(
+          ['--dir', pluginDir, 'run', 'build'],
+          deadline,
+        )
+        build = operation
+        operation.stdout.resume()
+        operation.stderr.resume()
+
+        try {
+          const outcome = await operation.done
+          if (outcome.exitCode !== 0 || outcome.signal !== null) {
+            await removeSandbox(sandboxRoot)
+            throw new Error(
+              `sandbox build failed: exit=${String(outcome.exitCode)} signal=${String(outcome.signal)}`,
+            )
+          }
+        } catch (error) {
+          await removeSandbox(sandboxRoot)
+          throw error
+        } finally {
+          if (build === operation) build = undefined
+        }
+
+        await launchExternalWebMirror(sandboxRoot)
+      }
+
+      return async () => {
+        const operation = build
+        operation?.cancel()
+        await operation?.done.catch(() => {})
+      }
+    }, 'example: external development sandbox')
+  })
+}
+```
+
+For this pattern:
+
+- Treat `desktopProfiles.current.dir` as the read-only `host-web` mirror source for one Host generation. Do not mutate it, cache it across `select()`, or guess `profiles/web`.
+- Use `desktopPnpm.run(['--dir', pluginDir, 'run', 'build'], signal)` for the local checkout build so Desktop's packaged pnpm, Node ABI, and subprocess ownership remain authoritative without mutating the active profile.
+- Drain both streams, apply your own deadline, and keep the returned handle so disposal can call `cancel()` and still await `done`.
+- If `done` rejects, `exitCode` is nonzero, or `signal` is non-null, remove the temporary sandbox and stop there instead of launching the mirror.
+- The mirror launcher is external by design. The public Desktop contract does not expose a second Electron bootstrap surface.
+
 ## `run()`, `runPlugin()`, and `installPlugin()`
 
-`desktopPnpm.run(args)` is a low-level pnpm operation with the active profile as its cwd. It does not promise DSH profile initialization, caller-relative `file:`/`link:` anchoring, or `dsh.profile.bundles` reconciliation.
+`desktopPnpm.run(args)` is a low-level pnpm operation with the active profile as its cwd. It is appropriate for lifecycle-owned local work such as `['--dir', pluginDir, 'run', 'build']` when you need Desktop's packaged pnpm and Node surface without mutating the active profile. It does not promise DSH profile initialization, caller-relative `file:`/`link:` anchoring, or `dsh.profile.bundles` reconciliation.
 
 `desktopPnpm.runPlugin(args, invokingDir)` runs packaged `dsh plugin --profile <active>` for non-install mutations and preserves upstream plugin-management semantics. It rejects `add`. `installPlugin(request)` is the recoverable install path: it generates the exact package target from receipt metadata and owns the profile snapshot/WAL lifecycle.
 

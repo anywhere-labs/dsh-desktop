@@ -2,6 +2,7 @@ import { CatalogContractError, semanticIssue } from './errors.js'
 import type { CatalogProviderPage } from './generated/catalog-provider-page.js'
 import type {
   CatalogIdentityChoice,
+  NormalizedGitHubInstallSource,
   NormalizedPackageIdentity,
   NormalizedRepositoryIdentity,
 } from './types.js'
@@ -9,6 +10,8 @@ import type {
 type CatalogItem = CatalogProviderPage['items'][number]
 type RepositoryIdentity = NonNullable<CatalogItem['repository']>
 type PackageIdentity = NonNullable<CatalogItem['package']>
+type InstallSourceIdentity = NonNullable<CatalogItem['installSource']>
+const GITHUB_COMMIT_PATTERN = /^[0-9a-f]{40}$/u
 
 function normalizeSubdirectory(value: string): string {
   if (value.startsWith('/') || value.endsWith('/') || value.includes('\\')) {
@@ -83,6 +86,43 @@ export function normalizeRepositoryIdentity(repository: RepositoryIdentity): Nor
 
 export function normalizePackageIdentity(packageIdentity: PackageIdentity): NormalizedPackageIdentity {
   return { registry: 'npm', name: packageIdentity.name }
+}
+
+/** Validate a pinned GitHub source against the same canonical repository identity. */
+export function normalizeGitHubInstallSource(
+  repository: RepositoryIdentity | undefined,
+  installSource: InstallSourceIdentity,
+): NormalizedGitHubInstallSource {
+  if (installSource.kind !== 'github' || !GITHUB_COMMIT_PATTERN.test(installSource.commit)) {
+    throw new CatalogContractError('identity', [
+      semanticIssue('/installSource/commit', 'must be a lowercase 40-character commit SHA'),
+    ])
+  }
+  if (repository === undefined) {
+    throw new CatalogContractError('identity', [
+      semanticIssue('/installSource', 'requires a repository identity'),
+    ])
+  }
+  const normalized = normalizeRepositoryIdentity(repository)
+  const url = new URL(normalized.url)
+  if (url.hostname !== 'github.com') {
+    throw new CatalogContractError('identity', [
+      semanticIssue('/installSource', 'currently supports GitHub repositories only'),
+    ])
+  }
+  const [owner, repo] = url.pathname.split('/').filter(Boolean)
+  if (owner === undefined || repo === undefined) {
+    throw new CatalogContractError('identity', [
+      semanticIssue('/repository/url', 'must identify a GitHub owner and repository'),
+    ])
+  }
+  return {
+    kind: 'github',
+    owner,
+    repo,
+    commit: installSource.commit,
+    ...(normalized.subdirectory === undefined ? {} : { subdirectory: normalized.subdirectory }),
+  }
 }
 
 export function catalogIdentityChoices(item: CatalogItem): readonly CatalogIdentityChoice[] {

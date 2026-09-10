@@ -1,0 +1,21 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,1 +1,1 @@
+-import { isBuiltin } from "node:module";
++import { createRequire, isBuiltin } from "node:module";
+@@ -248,2 +248,14 @@
+ function packageInstalled(name, base) {
++	const desktopResolverCount = globalThis[Symbol.for("dsh-plugin-desktop.asar-module-resolver")];
++	if (typeof desktopResolverCount === "number" && desktopResolverCount > 0) {
++		// Desktop resolves Profile overlays and sealed installation packages
++		// through its public resolver, without a physical fallback tree.
++		// Resolve the full export but never evaluate the plugin during discovery.
++		try {
++			createRequire(base).resolve(name);
++			return true;
++		} catch {
++			return false;
++		}
++	}
+ 	const pkg = name.split("/").slice(0, name.startsWith("@") ? 2 : 1).join("/");

@@ -13,12 +13,13 @@ import type {
 const CATALOG_PAGE_LIMIT = 50
 
 async function readJson<T>(response: Response): Promise<T> {
-  const value = await response.json() as T & { error?: unknown; code?: unknown }
+  const value = await response.json() as T & { error?: unknown; code?: unknown; details?: unknown }
   if (!response.ok) {
     throw new MarketApiError(
       typeof value.error === 'string' ? value.error : `request failed: ${response.status}`,
       response.status,
       typeof value.code === 'string' ? value.code : undefined,
+      typeof value.details === 'string' ? value.details : undefined,
     )
   }
   return value
@@ -30,6 +31,7 @@ export class MarketApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    readonly details?: string,
   ) {
     super(message)
     this.name = 'MarketApiError'
@@ -104,12 +106,22 @@ export async function readMarketInstallations(signal?: AbortSignal): Promise<Mar
 
 export async function readMarketInstallable(
   locale: string,
-  refresh = false,
+  options: {
+    readonly q?: string
+    readonly categories?: readonly string[]
+    readonly sourceRecordId?: string
+    readonly cursor?: string
+    readonly refresh?: boolean
+  } = {},
   signal?: AbortSignal,
 ): Promise<MarketInstallableResponse> {
   const url = new URL('/api/community-market/installable', window.location.origin)
   url.searchParams.set('locale', locale)
-  if (refresh) url.searchParams.set('refresh', '1')
+  if (options.q?.trim()) url.searchParams.set('q', options.q.trim())
+  for (const category of options.categories ?? []) url.searchParams.append('category', category)
+  if (options.sourceRecordId !== undefined) url.searchParams.set('sourceRecordId', options.sourceRecordId)
+  if (options.cursor !== undefined) url.searchParams.set('cursor', options.cursor)
+  if (options.refresh === true) url.searchParams.set('refresh', '1')
   return await readJson(await fetch(url, {
     cache: 'no-store',
     ...(signal === undefined ? {} : { signal }),

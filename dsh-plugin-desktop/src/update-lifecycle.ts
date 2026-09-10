@@ -4,14 +4,16 @@ import { open } from 'node:fs/promises'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type {
   DesktopLocale,
+  DesktopNotification,
   DesktopTrayItem,
   DesktopTrayItemRegistration,
   DesktopUpdateAdapter,
 } from './runtime.ts'
 import { desktopTrayLabel } from './tray-locale.ts'
 import {
-  checkForStableUpdate,
+  checkForDesktopUpdate,
   parseSemVer,
+  type DesktopReleaseChannel,
   type UpdateCheckResult,
 } from './update-checker.ts'
 
@@ -35,15 +37,22 @@ export interface DesktopUpdateLifecycleOptions {
 
 /** Lifecycle handle for one generation's update operations. */
 export interface DesktopUpdateLifecycle {
+  /** Run the same interactive update flow exposed by the native tray. */
+  checkNow(): Promise<void>
   dispose(): Promise<void>
 }
 
-interface UpdateStateV2 {
-  readonly version: 2
-  readonly lastPromptedVersion?: string
+interface UpdateStateV3 {
+  readonly version: 3
+  readonly lastNotifiedVersion?: string
 }
 
-const EMPTY_STATE: UpdateStateV2 = { version: 2 }
+interface ParsedUpdateState {
+  readonly state: UpdateStateV3
+  readonly migrated: boolean
+}
+
+const EMPTY_STATE: UpdateStateV3 = { version: 3 }
 
 /** Start one update lifecycle whose mutable state and work are released together. */
 export function startDesktopUpdateLifecycle(
@@ -58,16 +67,18 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
   private checking = false
   private availableVersion: string | undefined
   private downloadingVersion: string | undefined
-  private state: UpdateStateV2 = EMPTY_STATE
+  private state: UpdateStateV3 = EMPTY_STATE
   private pollTimer: ReturnType<typeof setTimeout> | undefined
   private requestTimer: ReturnType<typeof setTimeout> | undefined
   private requestController: AbortController | undefined
   private downloadController: AbortController | undefined
   private checkTask: Promise<UpdateCheckResult | null> | undefined
+  private checkChannel: DesktopReleaseChannel | undefined
   private manualTask: Promise<void> | undefined
   private downloadTask: Promise<void> | undefined
   private readonly stateReady: Promise<void>
   private readonly registration: DesktopTrayItemRegistration
+  private readonly stableRegistration: DesktopTrayItemRegistration | undefined
 
   constructor(private readonly options: DesktopUpdateLifecycleOptions) {
     this.stateReady = this.loadState()
@@ -75,8 +86,16 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
       group: 'status',
       order: 10,
       label: () => this.trayLabel(),
-      invoke: () => this.runManualCheck(),
+      invoke: () => this.checkNow(),
     })
+    this.stableRegistration = options.adapter.releaseChannel === 'beta'
+      ? options.registerTrayItem({
+          group: 'status',
+          order: 11,
+          label: () => desktopTrayLabel(options.locale(), 'installStable'),
+          invoke: () => this.installStable(),
+        })
+      : undefined
     if (options.adapter.isPackaged && options.policy.enabled) {
       this.scheduleBackgroundCheck(options.policy.initialDelayMs)
     }
@@ -90,6 +109,7 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
     this.requestController?.abort()
     this.downloadController?.abort()
     this.registration.dispose()
+    this.stableRegistration?.dispose()
     // Native dialogs are not cancellable. Await only file state and the abortable version request.
     const pending: Promise<unknown>[] = [this.stateReady]
     if (this.checkTask !== undefined) pending.push(this.checkTask)
@@ -97,9 +117,31 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
     return this.disposeTask
   }
 
+  checkNow(): Promise<void> {
+    return this.runManualCheck()
+  }
+
+  private installStable(): Promise<void> {
+    if (this.options.adapter.releaseChannel !== 'beta') return Promise.resolve()
+    this.manualTask ??= (async () => {
+      const result = await this.startCheck('stable', true)
+      if (this.disposed) return
+      if (result?.status === 'update-available') {
+        await this.startDownload(result.latestVersion, 'stable', true)
+        return
+      }
+      await this.options.adapter.showManualCheckResult(result)
+    })().catch(() => undefined).finally(() => {
+      this.manualTask = undefined
+    })
+    return this.manualTask
+  }
+
   private async loadState(): Promise<void> {
     try {
-      this.state = parseState(await readState(this.options.adapter.statePath))
+      const parsed = parseState(await readState(this.options.adapter.statePath))
+      this.state = parsed.state
+      if (parsed.migrated && !this.disposed) await this.persistState()
     } catch (cause) {
       if (isEnoent(cause)) return
       this.state = EMPTY_STATE
@@ -118,16 +160,24 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
     }
   }
 
-  private async rememberPrompt(version: string): Promise<void> {
+  private async announceBackgroundUpdate(version: string): Promise<void> {
     await this.stateReady
-    if (this.state.lastPromptedVersion === version) return
-    this.state = { version: 2, lastPromptedVersion: version }
+    if (this.disposed || this.state.lastNotifiedVersion === version) return
+    this.state = { version: 3, lastNotifiedVersion: version }
     await this.persistState()
+    if (!this.disposed) this.options.adapter.notify(updateAvailableNotification(this.options.locale(), version))
   }
 
-  private startCheck(): Promise<UpdateCheckResult | null> {
-    if (this.checkTask !== undefined) return this.checkTask
+  private startCheck(
+    channel: DesktopReleaseChannel = this.options.adapter.releaseChannel ?? 'stable',
+    allowDowngrade: boolean = false,
+  ): Promise<UpdateCheckResult | null> {
+    if (this.checkTask !== undefined) {
+      if (this.checkChannel === channel) return this.checkTask
+      return this.checkTask.then(() => this.startCheck(channel, allowDowngrade))
+    }
     this.checking = true
+    this.checkChannel = channel
     this.registration.refresh()
     const controller = new AbortController()
     this.requestController = controller
@@ -137,8 +187,14 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
         controller.abort()
       }, this.options.policy.requestTimeoutMs)
       try {
-        return await checkForStableUpdate({
+        return await checkForDesktopUpdate({
           currentVersion: this.options.adapter.currentVersion,
+          channel,
+          currentChannel: this.options.adapter.releaseChannel ?? 'stable',
+          allowDowngrade,
+          ...(this.options.adapter.installationId === undefined
+            ? {}
+            : { installationId: this.options.adapter.installationId }),
           signal: controller.signal,
           request: this.options.adapter.request,
         })
@@ -150,6 +206,7 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
       this.requestTimer = undefined
       if (this.requestController === controller) this.requestController = undefined
       this.checkTask = undefined
+      this.checkChannel = undefined
       this.checking = false
       this.registration.refresh()
     })
@@ -166,18 +223,28 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
     return this.availableVersion
   }
 
-  private startDownload(version: string): Promise<void> {
+  private startDownload(
+    version: string,
+    channel: DesktopReleaseChannel = this.options.adapter.releaseChannel ?? 'stable',
+    allowDowngrade: boolean = false,
+  ): Promise<void> {
     if (this.downloadTask !== undefined) return this.downloadTask
     const task = (async () => {
       let confirmed: boolean
       try {
-        confirmed = await this.options.adapter.confirmDownload(version)
+        confirmed = this.options.adapter.releaseChannel === undefined && channel === 'stable'
+          ? await this.options.adapter.confirmDownload(version)
+          : await this.options.adapter.confirmDownload(version, channel)
       } catch {
         return
       }
       if (!confirmed || this.disposed) return
 
-      const confirmedVersion = this.observeResult(await this.startCheck())
+      const confirmedResult = await this.startCheck(channel, allowDowngrade)
+      const confirmedVersion = confirmedResult?.status === 'update-available'
+        ? confirmedResult.latestVersion
+        : undefined
+      if (channel === (this.options.adapter.releaseChannel ?? 'stable')) this.observeResult(confirmedResult)
       if (confirmedVersion !== version || this.disposed) return
 
       const controller = new AbortController()
@@ -185,7 +252,11 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
       this.downloadingVersion = version
       this.registration.refresh()
       try {
-        await this.options.adapter.downloadAndOpen(version, controller.signal)
+        if (this.options.adapter.releaseChannel === undefined && channel === 'stable') {
+          await this.options.adapter.downloadAndOpen(version, controller.signal)
+        } else {
+          await this.options.adapter.downloadAndOpen(version, controller.signal, channel)
+        }
       } catch {
         // Network, filesystem, and installer-opening failures are deliberately silent.
       } finally {
@@ -200,25 +271,22 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
     return task
   }
 
-  private async offerDownload(version: string, automatic: boolean): Promise<void> {
+  private async offerDownload(version: string): Promise<void> {
     if (this.disposed || !this.options.adapter.canDownload) return
-    await this.stateReady
-    if (this.disposed || (automatic && this.state.lastPromptedVersion === version)) return
-    await this.rememberPrompt(version)
-    if (!this.disposed) await this.startDownload(version)
+    await this.startDownload(version)
   }
 
   private runManualCheck(): Promise<void> {
     this.manualTask ??= (async () => {
       if (this.availableVersion !== undefined) {
-        await this.offerDownload(this.availableVersion, false)
+        await this.offerDownload(this.availableVersion)
         return
       }
       const result = await this.startCheck()
       if (this.disposed) return
       const version = this.observeResult(result)
       if (version !== undefined) {
-        await this.offerDownload(version, false)
+        await this.offerDownload(version)
         return
       }
       await this.options.adapter.showManualCheckResult(result)
@@ -232,7 +300,7 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
     if (this.checkTask !== undefined || this.disposed) return
     try {
       const version = this.observeResult(await this.startCheck())
-      if (version !== undefined) await this.offerDownload(version, true)
+      if (version !== undefined) await this.announceBackgroundUpdate(version)
     } catch {
       // Scheduled checks never surface failures to the user or the application log.
     }
@@ -258,17 +326,36 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
   }
 }
 
-function parseState(text: string): UpdateStateV2 {
+function parseState(text: string): ParsedUpdateState {
   const value: unknown = JSON.parse(text)
-  if (!isRecord(value)
-    || value.version !== 2
-    || (value.lastPromptedVersion !== undefined && !isStableVersion(value.lastPromptedVersion))
-    || Object.keys(value).some(key => !['version', 'lastPromptedVersion'].includes(key))) {
-    throw new Error('invalid v2 update state')
+  if (!isRecord(value)) throw new Error('invalid update state')
+  if (value.version === 3
+    && (value.lastNotifiedVersion === undefined || isSupportedVersion(value.lastNotifiedVersion))
+    && Object.keys(value).every(key => ['version', 'lastNotifiedVersion'].includes(key))) {
+    return {
+      state: value.lastNotifiedVersion === undefined
+        ? EMPTY_STATE
+        : { version: 3, lastNotifiedVersion: value.lastNotifiedVersion },
+      migrated: false,
+    }
   }
-  return value.lastPromptedVersion === undefined
-    ? EMPTY_STATE
-    : { version: 2, lastPromptedVersion: value.lastPromptedVersion as string }
+  if (value.version === 2
+    && (value.lastPromptedVersion === undefined || isSupportedVersion(value.lastPromptedVersion))
+    && Object.keys(value).every(key => ['version', 'lastPromptedVersion'].includes(key))) {
+    return {
+      state: value.lastPromptedVersion === undefined
+        ? EMPTY_STATE
+        : { version: 3, lastNotifiedVersion: value.lastPromptedVersion },
+      migrated: true,
+    }
+  }
+  throw new Error('invalid update state')
+}
+
+function updateAvailableNotification(locale: DesktopLocale, version: string): DesktopNotification {
+  return locale === 'zh'
+    ? { title: 'DSH Desktop 有可用更新', body: `版本 ${version} 已可下载。打开 DSH Desktop 即可继续。` }
+    : { title: 'DSH Desktop Update Available', body: `Version ${version} is ready to download. Open DSH Desktop to continue.` }
 }
 
 async function readState(filename: string): Promise<string> {
@@ -283,14 +370,18 @@ async function readState(filename: string): Promise<string> {
   }
 }
 
-function renderState(state: UpdateStateV2): string {
+function renderState(state: UpdateStateV3): string {
   return `${JSON.stringify(state, null, 2)}\n`
 }
 
-function isStableVersion(value: unknown): value is string {
+function isSupportedVersion(value: unknown): value is string {
   if (typeof value !== 'string') return false
   const parsed = parseSemVer(value)
-  return parsed !== null && parsed.prerelease.length === 0 && parsed.version === value
+  const supportedPrerelease = parsed?.prerelease.length === 0
+    || (parsed?.prerelease.length === 2
+      && parsed.prerelease[0] === 'beta'
+      && /^[0-9]+$/u.test(parsed.prerelease[1]!))
+  return parsed !== null && supportedPrerelease && parsed.version === value
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

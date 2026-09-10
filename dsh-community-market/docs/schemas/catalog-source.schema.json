@@ -94,7 +94,7 @@
     },
     "query": {
       "type": "object",
-      "description": "The endpoint query features advertised by this source. The minimal fixture uses supported=[q, category, cursor, limit], defaultLimit=50, maxLimit=50, and sorts=[]. Standard sources may declare limits through the Schema maximum of 100.",
+      "description": "The endpoint query features advertised by this source. The minimal fixture uses supported=[q, category, cursor, limit], defaultLimit=50, maxLimit=50, and sorts=[]. Standard sources may declare limits through the Schema maximum of 200.",
       "additionalProperties": false,
       "required": [
         "supported",
@@ -123,13 +123,13 @@
         "defaultLimit": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 100,
+          "maximum": 200,
           "default": 50
         },
         "maxLimit": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 100,
+          "maximum": 200,
           "default": 50
         },
         "sorts": {

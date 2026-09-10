@@ -99,13 +99,6 @@ function bootstrap(root: string, now?: () => number): DesktopPluginsBootstrap {
   }
 }
 
-function bootstrapWithRecovery(root: string): DesktopPluginsBootstrap {
-  return {
-    ...bootstrap(root),
-    recoveryStatePath: join(root, 'desktop-private', 'startup-recovery', 'state.json'),
-  }
-}
-
 async function createHarness(options: DesktopPluginsBootstrap): Promise<Harness> {
   const ctx = new Context()
   const fiber = ctx.plugin(DesktopPluginsService, options)
@@ -238,31 +231,6 @@ describe('desktop direct bundle management', () => {
     await harness.dispose()
   })
 
-  it('shows recovery-only disables and enables them in the recovery scope', async () => {
-    const root = temporaryRoot()
-    const options = bootstrapWithRecovery(root)
-    installBundle(options.homeDir, 'third-party-plugin')
-    addBundle(options.homeDir, 'third-party-plugin')
-    mkdirSync(dirname(options.recoveryStatePath!), { recursive: true })
-    writeFileSync(options.recoveryStatePath!, JSON.stringify({
-      version: 1,
-      profiles: [{ profileName: 'desktop', disabledBundles: ['third-party-plugin'] }],
-    }) + '\n')
-    const harness = await createHarness(options)
-    const disabled = harness.service.list().find(item => item.packageName === 'third-party-plugin')
-    if (disabled === undefined) throw new Error('missing recovery-disabled target')
-    expect(disabled.status).toBe('disabled')
-
-    await harness.service.executeEnable(harness.service.previewEnable(disabled.bundleId).previewId)
-    expect(JSON.parse(readFileSync(options.recoveryStatePath!, 'utf8'))).toEqual({
-      version: 1,
-      profiles: [],
-    })
-    expect(harness.service.list().find(item => item.packageName === 'third-party-plugin')?.status)
-      .toBe('active')
-    await harness.dispose()
-  })
-
   it('rejects active, immutable, unknown, expired, and disposed enable targets', async () => {
     const root = temporaryRoot()
     let now = 1_800_000_000_000
@@ -369,7 +337,11 @@ describe('desktop direct bundle management', () => {
     const preview = harness.service.previewDisable(target.bundleId)
     await harness.service.executeDisable(preview.previewId)
 
-    const prepared = prepareDesktopProfile(undefined, options.homeDir, 'darwin', 'desktop', options.statePath)
+    const prepared = prepareDesktopProfile(undefined, options.homeDir, 'darwin', 'desktop', options.statePath, {
+      requested: 'community-market',
+      effective: 'community-market',
+      legacyDefaulted: false,
+    })
     const inserted = prepared.patches.flatMap(patch => Array.isArray(patch.insert) ? patch.insert : [])
     expect(inserted.filter(row => row.id === 'external-marker')).toHaveLength(0)
 
@@ -546,6 +518,7 @@ describe('desktop direct bundle management', () => {
       'darwin',
       'desktop',
       options.statePath,
+      { requested: 'community-market', effective: 'community-market', legacyDefaulted: false },
     )).not.toThrow()
     await harness.dispose()
   })

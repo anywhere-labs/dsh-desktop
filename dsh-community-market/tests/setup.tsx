@@ -5,7 +5,7 @@ function Icon(): ReactNode {
   return <span aria-hidden="true" />
 }
 
-vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
+vi.mock('@deepseek-ai/dsh-client-store', () => ({
   defineStore: <T, A extends Record<string, (draft: T, ...params: never[]) => void>>(decl: {
     init: () => T
     actions: A

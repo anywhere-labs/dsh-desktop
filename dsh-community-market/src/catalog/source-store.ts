@@ -1,5 +1,4 @@
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
-import type { MarketInstallReceipt } from '../api-types.js'
 import type { CatalogSnapshot } from '../contracts/generated/catalog-snapshot.js'
 import { validateLocalSourceRecords } from '../contracts/validate.js'
 import type { CatalogSourceStore, LocalSourceRecord } from '../contracts/types.js'
@@ -18,7 +17,6 @@ export interface MarketCatalogCache {
 
 export interface MarketSettingsDocument {
   readonly sources: readonly LocalSourceRecord[]
-  readonly installReceipts?: readonly MarketInstallReceipt[]
   readonly catalogCache?: MarketCatalogCache
 }
 

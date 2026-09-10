@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { prepareFsExtForElectron } from './prepare-fs-ext.ts'
+import { electronBuilderEnvironment } from './electron-builder-environment.ts'
 
 const WINDOWS_SIGNING_KEYS = [
   'CSC_IDENTITY_AUTO_DISCOVERY',
@@ -32,6 +34,8 @@ export interface WindowsPackageOptions {
   readonly commandShell: string
   /** Absolute electron-builder CLI module. */
   readonly builderCli: string
+  /** Prepare platform-specific native runtime dependencies before packaging. */
+  readonly prepareRuntime: () => void
   /** Absolute packaged-installer verification script. */
   readonly verifier: string
   /** Node executable used to run package-local scripts. */
@@ -93,6 +97,9 @@ export function createWindowsPackageOptions(verifier = './verify-win-installer.t
       ? 'cmd.exe'
       : join(windowsRoot, 'System32', 'cmd.exe'),
     builderCli: require.resolve('electron-builder/cli.js'),
+    prepareRuntime: () => {
+      prepareFsExtForElectron({ platform: 'win32', arch: 'x64', desktopRoot })
+    },
     verifier: fileURLToPath(new URL(verifier, import.meta.url)),
     nodeExecutable: process.execPath,
     run,
@@ -143,6 +150,7 @@ export function packageWindowsArtifact(
   } else {
     options.log('Skipping the Windows package preflight; the package gate already passed.')
   }
+  options.prepareRuntime()
   options.run(
     options.nodeExecutable,
     [
@@ -156,10 +164,10 @@ export function packageWindowsArtifact(
       '--config.npmRebuild=false',
     ],
     options.desktopRoot,
-    {
+    electronBuilderEnvironment({
       ...cleanEnvironment,
       CSC_IDENTITY_AUTO_DISCOVERY: 'false',
-    },
+    }),
   )
   options.run(
     options.nodeExecutable,

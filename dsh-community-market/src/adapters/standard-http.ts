@@ -35,7 +35,7 @@ export function assertStandardSourceTrustRoot(
   return manifestUrl.origin
 }
 
-function snapshotFromPage(
+export function snapshotFromStandardPage(
   page: CatalogProviderPage,
   context: Pick<CatalogFetchContext, 'source' | 'media'>,
   finalUrl: string,
@@ -127,6 +127,6 @@ export const standardHttpAdapter: CatalogAdapter = {
       ? Math.min(query.limit ?? 50, manifest.query.maxLimit)
       : manifest.query.defaultLimit
     const page = parseCatalogProviderPage(response.value, effectiveLimit)
-    return snapshotFromPage(page, context, response.finalUrl)
+    return snapshotFromStandardPage(page, context, response.finalUrl)
   },
 }

@@ -5,6 +5,7 @@ export type { CatalogSnapshot } from './generated/catalog-snapshot.js'
 export type { CatalogSourceManifest } from './generated/catalog-source.js'
 export {
   catalogIdentityChoices,
+  normalizeGitHubInstallSource,
   normalizePackageIdentity,
   normalizeRepositoryIdentity,
 } from './identity.js'
@@ -25,6 +26,7 @@ export type {
   CatalogMediaRole,
   CatalogSourceStore,
   LocalSourceRecord,
+  NormalizedGitHubInstallSource,
   NormalizedPackageIdentity,
   NormalizedRepositoryIdentity,
   ScopedCatalogCursor,

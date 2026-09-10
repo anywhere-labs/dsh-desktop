@@ -1,17 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import {
   clearElectronRunAsNode,
+  desktopCliProfileManifestUrl,
   runDesktopDshCli,
+  selectedDesktopCliProfile,
   withDefaultDesktopProfile,
 } from '../src/desktop-cli.ts'
-import {
-  DESKTOP_INSTALL_RECOVERY_STATE_ENV,
-  desktopInstallRecoveryStatePath,
-} from '../src/install-recovery.ts'
 import { packagedDependencyPath, unpackedAsarPath } from '../src/packaged-runtime-path.ts'
 
 describe('packaged dsh bootstrap', () => {
@@ -27,13 +25,14 @@ describe('packaged dsh bootstrap', () => {
     expect(environment).toEqual({ Path: 'C:\\Windows' })
   })
 
-  it('clears Node mode before loading the fixed packaged CLI entry', async () => {
+  it('clears Node mode and dispatches the imported CLI exactly once', async () => {
     const environment = {
       ELECTRON_RUN_AS_NODE: '1',
       DSH_DESKTOP_DEFAULT_PROFILE: 'desktop',
       KEEP: 'value',
     }
     const argv = ['/Applications/DSH Desktop', '/app.asar/lib/desktop-cli.js', '--dump-config']
+    const runCli = vi.fn(async () => {})
     const load = vi.fn(async (url: string) => {
       expect(environment).toEqual({ KEEP: 'value' })
       expect(argv).toEqual([
@@ -44,11 +43,51 @@ describe('packaged dsh bootstrap', () => {
         '--dump-config',
       ])
       expect(url).toMatch(/\/node_modules\/@deepseek-ai\/dsh\/lib\/bin\.js$/u)
+      return { runCli }
     })
 
     await runDesktopDshCli(environment, load, argv)
 
     expect(load).toHaveBeenCalledOnce()
+    expect(runCli).toHaveBeenCalledOnce()
+    expect(runCli).toHaveBeenCalledWith({ allowDesktopProfile: true })
+  })
+
+  it('propagates a rejected upstream CLI invocation', async () => {
+    const failure = new Error('CLI startup failed')
+    const load = async () => ({ runCli: async () => { throw failure } })
+    await expect(runDesktopDshCli({}, load, ['node', 'desktop-cli', '--version'])).rejects.toBe(failure)
+  })
+
+  it('leaves the release-age policy to the final pnpm shim exactly once', async () => {
+    const load = vi.fn(async () => ({ runCli: async () => {} }))
+    const defaulted = [
+      '/Applications/DSH Desktop',
+      '/app.asar/lib/desktop-cli.js',
+      'plugin',
+      '--config.minimumReleaseAge=0',
+      'remove',
+      'example-plugin',
+    ]
+    await runDesktopDshCli({ DSH_DESKTOP_DEFAULT_PROFILE: 'desktop' }, load, defaulted)
+    expect(defaulted.slice(2)).toEqual([
+      'plugin',
+      '--profile',
+      'desktop',
+      'remove',
+      'example-plugin',
+    ])
+
+    const explicit = [
+      '/Applications/DSH Desktop',
+      '/app.asar/lib/desktop-cli.js',
+      'plugin',
+      '--profile=work',
+      '--config.minimumReleaseAge=0',
+      'update',
+    ]
+    await runDesktopDshCli({}, load, explicit)
+    expect(explicit.slice(2)).toEqual(['plugin', '--profile=work', 'update'])
   })
 
   it('defaults profile and plugin commands without overriding explicit or global modes', () => {
@@ -79,107 +118,24 @@ describe('packaged dsh bootstrap', () => {
     expect(() => withDefaultDesktopProfile([], '../desktop')).toThrow('invalid desktop profile name')
   })
 
-  it('snapshots plugin installs launched from the built-in DSH Terminal', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-terminal-recovery-'))
-    const homeDir = join(root, 'home')
-    const profileDir = join(homeDir, 'profiles', 'desktop')
-    const userDataDir = join(root, 'user-data')
-    const statePath = desktopInstallRecoveryStatePath(userDataDir)
-    const manifestPath = join(profileDir, 'package.json')
-    const originalExitCode = process.exitCode
-    try {
-      mkdirSync(profileDir, { recursive: true })
-      writeFileSync(manifestPath, JSON.stringify({ dependencies: {} }))
-      const environment = {
-        DSH_HOME: homeDir,
-        DSH_DESKTOP_DEFAULT_PROFILE: 'desktop',
-        [DESKTOP_INSTALL_RECOVERY_STATE_ENV]: statePath,
-      }
-      const argv = [process.execPath, '/app/desktop-cli.js', 'plugin', 'add', 'example-plugin']
-
-      await runDesktopDshCli(environment, async () => {
-        writeFileSync(manifestPath, JSON.stringify({ dependencies: { 'example-plugin': '1.0.0' } }))
-        process.exit(0)
-      }, argv)
-
-      expect(environment).toEqual({ DSH_HOME: homeDir })
-      expect(argv.slice(2)).toEqual(['plugin', '--profile', 'desktop', 'add', 'example-plugin'])
-      expect(JSON.parse(readFileSync(statePath, 'utf8'))).toMatchObject({
-        profileName: 'desktop',
-        packageName: 'manual-plugin-install',
-        phase: 'awaiting-restart',
-      })
-    } finally {
-      process.exitCode = originalExitCode
-      rmSync(root, { recursive: true, force: true })
-    }
+  it('finds the Profile selected by every supported CLI spelling', () => {
+    expect(selectedDesktopCliProfile(['--profile', 'desktop', '--dump-config'])).toBe('desktop')
+    expect(selectedDesktopCliProfile(['plugin', '--profile=work', 'update'])).toBe('work')
+    expect(selectedDesktopCliProfile(['web', '--help'])).toBe('web')
+    expect(selectedDesktopCliProfile(['--version'])).toBeUndefined()
   })
 
-  it('binds a built-in terminal snapshot to an explicitly selected profile', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-terminal-explicit-profile-'))
-    const homeDir = join(root, 'home')
-    const desktopDir = join(homeDir, 'profiles', 'desktop')
-    const webDir = join(homeDir, 'profiles', 'web')
-    const statePath = desktopInstallRecoveryStatePath(join(root, 'user-data'))
-    const desktopManifest = join(desktopDir, 'package.json')
-    const webManifest = join(webDir, 'package.json')
-    const originalExitCode = process.exitCode
-    try {
-      mkdirSync(desktopDir, { recursive: true })
-      mkdirSync(webDir, { recursive: true })
-      writeFileSync(desktopManifest, JSON.stringify({ name: 'desktop-profile' }))
-      writeFileSync(webManifest, JSON.stringify({ name: 'web-profile', dependencies: {} }))
-
-      await runDesktopDshCli({
-        DSH_HOME: homeDir,
-        DSH_DESKTOP_DEFAULT_PROFILE: 'desktop',
-        [DESKTOP_INSTALL_RECOVERY_STATE_ENV]: statePath,
-      }, async () => {
-        writeFileSync(webManifest, JSON.stringify({
-          name: 'web-profile',
-          dependencies: { 'example-plugin': '1.0.0' },
-        }))
-        process.exit(0)
-      }, [process.execPath, '/app/desktop-cli.js', 'plugin', '--profile', 'web', 'add', 'example-plugin'])
-
-      expect(JSON.parse(readFileSync(statePath, 'utf8'))).toMatchObject({
-        profileName: 'web',
-        phase: 'awaiting-restart',
-      })
-      expect(JSON.parse(readFileSync(desktopManifest, 'utf8'))).toEqual({ name: 'desktop-profile' })
-    } finally {
-      process.exitCode = originalExitCode
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('restores and clears a built-in terminal snapshot when plugin add fails', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-terminal-recovery-failure-'))
-    const homeDir = join(root, 'home')
-    const profileDir = join(homeDir, 'profiles', 'desktop')
-    const statePath = desktopInstallRecoveryStatePath(join(root, 'user-data'))
-    const manifestPath = join(profileDir, 'package.json')
-    const originalExitCode = process.exitCode
-    try {
-      mkdirSync(profileDir, { recursive: true })
-      const originalManifest = JSON.stringify({ dependencies: {} })
-      writeFileSync(manifestPath, originalManifest)
-      await runDesktopDshCli({
-        DSH_HOME: homeDir,
-        DSH_DESKTOP_DEFAULT_PROFILE: 'desktop',
-        [DESKTOP_INSTALL_RECOVERY_STATE_ENV]: statePath,
-      }, async () => {
-        writeFileSync(manifestPath, JSON.stringify({ dependencies: { 'broken-plugin': '0.0.0' } }))
-        process.exit(1)
-      }, [process.execPath, '/app/desktop-cli.js', 'plugin', 'add', 'broken-plugin'])
-
-      expect(readFileSync(manifestPath, 'utf8')).toBe(originalManifest)
-      expect(existsSync(statePath)).toBe(false)
-      expect(process.exitCode).toBe(1)
-    } finally {
-      process.exitCode = originalExitCode
-      rmSync(root, { recursive: true, force: true })
-    }
+  it('resolves CLI Profiles through DSH_HOME without allowing path traversal', () => {
+    const home = join(tmpdir(), 'dsh cli profile home')
+    expect(desktopCliProfileManifestUrl('工作 profile', { DSH_HOME: home })).toBe(
+      pathToFileURL(join(home, 'profiles', '工作 profile', 'package.json')).href,
+    )
+    expect(() => desktopCliProfileManifestUrl('../outside', { DSH_HOME: home }))
+      .toThrow('invalid profile name')
+    expect(() => desktopCliProfileManifestUrl('nested/profile', { DSH_HOME: home }))
+      .toThrow('invalid profile name')
+    expect(() => desktopCliProfileManifestUrl('node_modules', { DSH_HOME: home }))
+      .toThrow('invalid profile name')
   })
 
   it('uses the physical unpacked dependency tree only inside an Electron package', () => {
@@ -194,7 +150,7 @@ describe('packaged dsh bootstrap', () => {
       .toThrow('relative POSIX path')
   })
 
-  it('maps a resolved ASAR dependency to its physical unpacked path', () => {
+  it('keeps a resolved JavaScript dependency in the logical ASAR tree', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-asar-profile-'))
     const desktopLib = join(root, 'app.asar', 'lib')
     const dshPackage = join(root, 'app.asar', 'node_modules', '@deepseek-ai', 'dsh')
@@ -210,7 +166,7 @@ describe('packaged dsh bootstrap', () => {
       const moduleUrl = pathToFileURL(join(desktopLib, 'desktop-cli.js')).href
       expect(packagedDependencyPath(moduleUrl, '@deepseek-ai/dsh/lib/bin.js')).toBe(join(
         realpathSync(root),
-        'app.asar.unpacked',
+        'app.asar',
         'node_modules',
         '@deepseek-ai',
         'dsh',
