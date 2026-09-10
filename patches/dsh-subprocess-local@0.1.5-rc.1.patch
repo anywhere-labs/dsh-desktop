@@ -1,0 +1,12 @@
+diff --git a/lib/runner-launch-COYGu0Dl.js b/lib/runner-launch-COYGu0Dl.js
+index fbd9735..b1e5762 100644
+--- a/lib/runner-launch-COYGu0Dl.js
++++ b/lib/runner-launch-COYGu0Dl.js
+@@ -1451,6 +1451,7 @@ function runnerEnvironment(selection, invocation) {
+ 	}
+ 	return {
+ 		...env,
++		...(process.versions.electron === void 0 ? {} : { ELECTRON_RUN_AS_NODE: "1" }),
+ 		[SUBPROCESS_RUNNER_ENV]: selection,
+ 		SYSTEMD_LOG_TARGET: "null",
+ 		...entry?.endsWith(".ts") === true ? { TSX_TSCONFIG_PATH: SOURCE_TSCONFIG_PATH } : {}
