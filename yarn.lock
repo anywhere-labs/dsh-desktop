@@ -2921,6 +2921,26 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-plugin-package-inventory-deepseek@patch:@deepseek-ai/dsh-plugin-package-inventory-deepseek@file%3Avendor/dsh-runtime/0.1.5-rc.1/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.5-rc.1.tgz#./patches/dsh-plugin-package-inventory-deepseek@0.1.5-rc.1.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.5-rc.1
+  resolution: "@deepseek-ai/dsh-plugin-package-inventory-deepseek@patch:@deepseek-ai/dsh-plugin-package-inventory-deepseek@file%3Avendor/dsh-runtime/0.1.5-rc.1/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.5-rc.1.tgz%23vendor/dsh-runtime/0.1.5-rc.1/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.5-rc.1.tgz%3A%3Ahash=36e720&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-plugin-package-inventory-deepseek@0.1.5-rc.1.patch::version=0.1.5-rc.1&hash=9efbcb&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    "@deepseek-ai/dsh-brand": "npm:^0.1.5-rc.1"
+    "@deepseek-ai/schemastery": "npm:^3.18.2"
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.2
+    "@deepseek-ai/cordis-plugin-loader": ^1.0.3
+    "@deepseek-ai/dsh-agent": ^0.1.5-rc.1
+    "@deepseek-ai/dsh-agent-presets": ^0.1.5-rc.1
+    "@deepseek-ai/dsh-deepseek-llm-api-extensions": ^0.1.5-rc.1
+    "@deepseek-ai/dsh-session": ^0.1.5-rc.1
+  peerDependenciesMeta:
+    "@deepseek-ai/dsh-agent-presets":
+      optional: true
+  checksum: 10c0/fc9ee339c8dc9777431070c2a78e1fbd11c7d4a3d76945a57a9474387e7d5c6e3c8ee856abfd82390967241de6d427181788f716f4c62b7234debc69976a81a0
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-pwsh-local@file:vendor/dsh-runtime/0.1.5-rc.1/deepseek-ai-dsh-pwsh-local-0.1.5-rc.1.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.5-rc.1
   resolution: "@deepseek-ai/dsh-pwsh-local@file:vendor/dsh-runtime/0.1.5-rc.1/deepseek-ai-dsh-pwsh-local-0.1.5-rc.1.tgz#vendor/dsh-runtime/0.1.5-rc.1/deepseek-ai-dsh-pwsh-local-0.1.5-rc.1.tgz::hash=0b5f3b&locator=deepseek-harness-desktop%40workspace%3A."
