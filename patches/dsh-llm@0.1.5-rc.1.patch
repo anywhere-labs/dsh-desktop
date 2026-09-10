@@ -1,0 +1,45 @@
+diff --git a/lib/index.js b/lib/index.js
+index 4ed780e..345f1d0 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1686,6 +1686,22 @@ var LlmAdapter = class {
+ 	}
+ };
+ /**
++* Prepare one call on any registered adapter, old or new. Adapters written
++* before `prepareCall` existed — plain-object plugin adapters, not
++* `LlmAdapter` subclasses — expose only `resolveModel` and `stream`; calling
++* `adapter.prepareCall` on them throws, which surfaced as
++* "registration.adapter.prepareCall is not a function" for otherwise healthy
++* plugins after the 2.0.4 runtime. This passes modern adapters through
++* untouched and synthesizes the `LlmAdapter` default for the rest.
++*/
++async function adapterPrepareCall(adapter, provider, model, signal) {
++	if (typeof adapter.prepareCall === "function") return adapter.prepareCall(provider, model, signal);
++	return {
++		model: await (typeof adapter.resolveModel === "function" ? adapter.resolveModel(provider, model, signal) : { provider, id: model, name: model }),
++		stream: (options) => adapter.stream(options)
++	};
++}
++/**
+ * The abstract `llm` service: an adapter registry plus a streaming model-call
+ * API, interceptable via the `llm/stream` waterfall.
+ */
+@@ -2144,7 +2160,7 @@ let LlmRuntime = (() => {
+ 		*/
+ 		async prepareCall(config, signal) {
+ 			const registration = this.registration(config.provider);
+-			const adapterCall = await registration.adapter.prepareCall(config.provider, config.model, signal);
++			const adapterCall = await adapterPrepareCall(registration.adapter, config.provider, config.model, signal);
+ 			const modelInfo = this.normalizeModelInfo(registration, config.model, adapterCall.model);
+ 			const resolved = this.resolveCallWithInfo(config, modelInfo);
+ 			const resolvedConfig = deepFreeze(structuredClone(resolved.config));
+@@ -2229,7 +2245,7 @@ let LlmRuntime = (() => {
+ 				let resolvedConfig;
+ 				let dispatch;
+ 				if (prepared === void 0) {
+-					const adapterCall = await adapter.prepareCall(options.provider, options.model, options.signal);
++					const adapterCall = await adapterPrepareCall(adapter, options.provider, options.model, options.signal);
+ 					modelInfo = this.normalizeModelInfo(registration, options.model, adapterCall.model);
+ 					resolvedConfig = this.resolveCallWithInfo(options, modelInfo).config;
+ 					dispatch = (options) => adapterCall.stream(options);
