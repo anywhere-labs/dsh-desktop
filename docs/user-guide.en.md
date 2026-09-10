@@ -65,7 +65,7 @@ The welcome text shows the application version, active profile, profile director
 
 Packaged macOS and Windows applications check `https://www.dshdesktop.cn/api/desktop/version` in the background. Startup is not blocked; network errors, non-200 responses, invalid versions, and a server version that is not newer remain silent in the background. A newer version updates the tray and raises one non-blocking system notification per version instead of opening a download confirmation automatically; clicking the notification reveals Desktop.
 
-**Check for Updates…** in the tray is a manual check. It shows a result even when the installed version is current, and reports a retry message when the check fails. Only a server version strictly newer than the local version produces a download confirmation. Cancelling never requests the counted download endpoint.
+**Check for Updates…** in the tray checks the current release channel: stable receives only stable updates, while Beta receives only Beta updates. It shows a result even when the installed version is current and reports a retry message when the check fails. Beta also provides **Install Stable Edition…**, which installs stable alongside Beta. Cancelling never requests the counted download endpoint.
 
 After confirmation, the app first opens the native **Save Update Installer** dialog, defaulting to the Downloads directory. You can choose another directory and filename; cancelling the dialog does not start a download. After the destination is confirmed, the app requests the fixed platform download URL and remembers the installer location. macOS opens the DMG for the user to replace the application in Applications; Windows prepares the NSIS installer and then asks whether to quit and start installation. After the upgrade completes and the app starts again, it asks whether to delete the installer to free disk space or keep it. Download or installer failures do not damage the current version, and the tray operation can be retried.
 
@@ -80,7 +80,7 @@ Desktop confirmations, warnings, and operation results open as separate shadcn-b
   & "$env:LOCALAPPDATA\Programs\DSH Desktop\DSH Desktop.exe" --export-diagnostics
   ```
 
-  If the npm desktop launcher is installed, `dsh-desktop --export-diagnostics` provides the same archive. This command does not start Host, profiles, plugins, or a window. It prints the absolute diagnostics ZIP path when complete.
+  For npm installs, stable uses `dsh-desktop --export-diagnostics` and Beta uses `dsh-desktop-beta --export-diagnostics`. This command does not start Host, profiles, plugins, or a window. It prints the absolute diagnostics ZIP path when complete.
 - **Diagnostic archive contents**: recent application logs, local Crashpad `.dmp` files, the active-run marker, and `system-info.txt`. System information records Desktop, Electron, Node, platform, and architecture versions. Recognized credentials are masked in logs, but local paths, workspace IDs, session IDs, and crash-time memory fragments may remain. Review the archive before public upload and send sensitive dumps only through a trusted channel.
 - **The window disappeared**: check the system tray; closing the window is not quitting.
 - **A plugin is missing**: confirm the command targeted the intended profile and restart the application.

@@ -14,14 +14,12 @@ import { basename, join, relative, resolve } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
 const upstreamPath = join(root, 'upstream.json')
 const workspacePath = join(root, 'package.json')
-const pluginPaths = [
-  join(root, 'dsh-plugin-desktop', 'package.json'),
-  join(root, 'dsh-community-market', 'package.json'),
-]
 const mode = process.argv[2]
+const channelFlag = process.argv.indexOf('--channel')
+const requestedChannel = channelFlag === -1 ? undefined : process.argv[channelFlag + 1]
 
 if (mode !== '--write' && mode !== '--check') {
-  throw new Error('usage: node scripts/sync-vendored-runtime.mjs <--write|--check>')
+  throw new Error('usage: node scripts/sync-vendored-runtime.mjs <--write|--check> [--channel stable|beta]')
 }
 
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'))
@@ -33,7 +31,20 @@ const isDshResolution = selector => selector === '@deepseek-ai/dsh'
   || selector.startsWith('@deepseek-ai/dsh-')
 const fail = message => { throw new Error(`sync-vendored-runtime: ${message}`) }
 
-const upstream = readJson(upstreamPath)
+const upstreamDocument = readJson(upstreamPath)
+const channel = requestedChannel ?? upstreamDocument.activeChannel
+if (channel !== 'stable' && channel !== 'beta') fail(`unknown release channel ${JSON.stringify(channel)}`)
+const upstream = upstreamDocument.channels?.[channel]
+if (upstream === undefined || typeof upstream !== 'object') fail(`missing upstream metadata for ${channel}`)
+const otherChannel = channel === 'stable' ? 'beta' : 'stable'
+const otherVersion = upstreamDocument.channels?.[otherChannel]?.sourceVersion
+if (typeof otherVersion !== 'string' || !/^[0-9A-Za-z][0-9A-Za-z.-]*$/u.test(otherVersion)) {
+  fail(`unsafe ${otherChannel} source version ${JSON.stringify(otherVersion)}`)
+}
+const pluginPaths = [
+  join(root, upstream.package, 'package.json'),
+  ...(channel === 'beta' ? [join(root, 'dsh-community-market', 'package.json')] : []),
+]
 const version = upstream.sourceVersion
 if (typeof version !== 'string' || !/^[0-9A-Za-z][0-9A-Za-z.-]*$/u.test(version)) {
   fail(`unsafe source version ${JSON.stringify(version)}`)
@@ -42,6 +53,11 @@ if (typeof version !== 'string' || !/^[0-9A-Za-z][0-9A-Za-z.-]*$/u.test(version)
 const vendorRelative = `vendor/dsh-runtime/${version}`
 const vendorDirectory = join(root, ...vendorRelative.split('/'))
 const manifestPath = join(vendorDirectory, 'manifest.json')
+const resolutionSelector = (name, range = version) => `${name}@npm:${range}`
+const isChannelResolution = selector => selector.endsWith(`@npm:${version}`)
+  || selector.endsWith(`@npm:^${version}`)
+const isOtherChannelResolution = selector => selector.endsWith(`@npm:${otherVersion}`)
+  || selector.endsWith(`@npm:^${otherVersion}`)
 
 function packageName(filename) {
   const suffix = `-${version}.tgz`
@@ -100,7 +116,7 @@ function writeVendor() {
 
   const manifest = {
     formatVersion: 1,
-    repository: upstream.repository,
+    repository: upstreamDocument.repository,
     commit: upstream.commit,
     version,
     buildProfile: 'official',
@@ -110,12 +126,15 @@ function writeVendor() {
 
   upstream.runtimePackageVersion = version
   upstream.runtimeSource = `${vendorRelative}/manifest.json`
-  writeJson(upstreamPath, upstream)
+  writeJson(upstreamPath, upstreamDocument)
 
   const workspace = readJson(workspacePath)
   const resolutions = Object.fromEntries(Object.entries(workspace.resolutions ?? {})
-    .filter(([selector]) => !isDshResolution(selector)))
-  for (const entry of packages) resolutions[entry.name] = expectedResolution(entry)
+    .filter(([selector]) => !isDshResolution(selector) || isOtherChannelResolution(selector)))
+  for (const entry of packages) {
+    resolutions[resolutionSelector(entry.name)] = expectedResolution(entry)
+    resolutions[resolutionSelector(entry.name, `^${version}`)] = expectedResolution(entry)
+  }
   workspace.resolutions = resolutions
   writeJson(workspacePath, workspace)
 
@@ -136,7 +155,8 @@ function checkVendor() {
   const manifest = readJson(manifestPath)
   if (manifest.formatVersion !== 1) fail('unsupported vendored runtime manifest format')
   for (const field of ['repository', 'commit']) {
-    if (manifest[field] !== upstream[field]) fail(`manifest ${field} differs from upstream.json`)
+    const expected = field === 'repository' ? upstreamDocument.repository : upstream[field]
+    if (manifest[field] !== expected) fail(`manifest ${field} differs from upstream.json ${channel} channel`)
   }
   if (manifest.version !== version || upstream.runtimePackageVersion !== version) {
     fail('source, runtime, and manifest versions must match')
@@ -162,12 +182,14 @@ function checkVendor() {
     if (statSync(path).size !== entry.size || sha256(path) !== entry.sha256) {
       fail(`vendored tarball integrity differs for ${entry.filename}`)
     }
-    if (resolutions[entry.name] !== expectedResolution(entry)) {
+    if (resolutions[resolutionSelector(entry.name)] !== expectedResolution(entry)
+      || resolutions[resolutionSelector(entry.name, `^${version}`)] !== expectedResolution(entry)) {
       fail(`workspace resolution differs for ${entry.name}`)
     }
   }
-  for (const name of Object.keys(resolutions).filter(isDshResolution)) {
-    if (!names.has(name)) fail(`workspace has a stale DSH resolution for ${name}`)
+  for (const selector of Object.keys(resolutions).filter(isChannelResolution)) {
+    const name = selector.slice(0, selector.indexOf('@npm:'))
+    if (!names.has(name)) fail(`workspace has a stale ${channel} DSH resolution for ${selector}`)
   }
   for (const entry of readdirSync(vendorDirectory, { withFileTypes: true })) {
     if (!entry.isFile() || !expectedFiles.has(entry.name)) fail(`unexpected vendored runtime entry ${entry.name}`)
@@ -184,7 +206,7 @@ function checkVendor() {
     }
   }
   process.stdout.write(
-    `sync-vendored-runtime: ${String(manifest.packages.length)} packages from ${manifest.commit.slice(0, 10)} are verified\n`,
+    `sync-vendored-runtime: ${channel} ${String(manifest.packages.length)} packages from ${manifest.commit.slice(0, 10)} are verified\n`,
   )
 }
 

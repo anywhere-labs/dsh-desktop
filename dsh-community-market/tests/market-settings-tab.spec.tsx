@@ -272,6 +272,25 @@ describe('MarketSettingsTab', () => {
     )
   })
 
+  it.each(['pending', 'resolved before commit'] as const)('loads Discover when source state is %s', async timing => {
+    let resolveState!: (value: MarketStateResponse) => void
+    vi.mocked(readMarketState).mockImplementation(() => new Promise(resolve => { resolveState = resolve }))
+    vi.mocked(readMarketInstallable).mockResolvedValue(installableResponse([]))
+    vi.mocked(readMarketCatalog).mockResolvedValue(catalog)
+    render(<MarketSettingsTab {...({ t, readLocale: () => 'en' } as MarketSettingsTabProps)} />)
+
+    await act(async () => {
+      if (timing === 'pending') fireEvent.click(screen.getByRole('button', { name: en.discover }))
+      resolveState(enabledState)
+      // Finish loadState while React still batches its state updates.
+      await Promise.resolve()
+      if (timing === 'resolved before commit') fireEvent.click(screen.getByRole('button', { name: en.discover }))
+    })
+
+    expect(await screen.findByRole('button', { name: /Fixture Plugin/u })).toBeTruthy()
+    expect(readMarketCatalog).toHaveBeenCalledOnce()
+  })
+
   it('shows a persisted first page while refreshing it for the new Host generation', async () => {
     const persisted = {
       ...catalog,

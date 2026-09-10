@@ -65,7 +65,7 @@ dsh plugin update
 
 打包后的 macOS/Windows 应用会在后台检查 `https://www.dshdesktop.cn/api/desktop/version`。后台检查不阻塞启动；网络错误、非 200、非法版本或服务端版本不新时保持静默。发现新版本时，应用会更新托盘并且每个版本只发送一次非阻塞系统通知，不会自动弹出下载确认；点击通知会显示 Desktop。
 
-托盘中的 **Check for Updates…** 是手动检查：即使已经是当前版本，也会显示结果；检查失败会提示稍后重试。只有服务端版本严格高于本地版本时，应用才会询问是否下载。用户取消不会访问计数下载入口。
+托盘中的 **Check for Updates…** 是当前发行通道的手动检查：稳定版只接收稳定更新，Beta 只接收 Beta 更新。即使已经是当前版本，也会显示结果；检查失败会提示稍后重试。Beta 还提供 **安装稳定版…**，它会在保留 Beta 的同时安装稳定版。用户取消不会访问计数下载入口。
 
 确认下载后，应用会先打开原生的“保存更新安装包”对话框，默认建议保存到 Downloads；你可以改用其他目录和文件名，取消对话框则不会开始下载。保存后应用才会请求当前平台的固定下载地址，并记录安装包位置。macOS 会打开 DMG，由用户把应用替换到 Applications；Windows 会准备 NSIS 安装器，再询问是否退出并启动安装。升级完成并重新启动后，应用会询问是否删除安装包以释放磁盘空间，也可以选择保留。下载和安装失败不会破坏当前版本，托盘仍可重试。
 
@@ -80,7 +80,7 @@ Desktop 的确认、警告与操作结果会打开独立、基于 shadcn 的桌�
   & "$env:LOCALAPPDATA\Programs\DSH Desktop\DSH Desktop.exe" --export-diagnostics
   ```
 
-  通过 npm 安装过桌面启动器时，也可以运行 `dsh-desktop --export-diagnostics`。这个命令不会启动 Host、profile、插件或窗口；完成后会在终端输出诊断 ZIP 的绝对路径。
+  通过 npm 安装时，稳定版可运行 `dsh-desktop --export-diagnostics`，Beta 可运行 `dsh-desktop-beta --export-diagnostics`。这个命令不会启动 Host、profile、插件或窗口；完成后会在终端输出诊断 ZIP 的绝对路径。
 - **诊断包内容**：包含最近的应用日志、本地 Crashpad `.dmp`、当前运行标记和 `system-info.txt`。系统信息会记录 Desktop、Electron、Node、平台和架构版本。日志会对可识别的认证凭据脱敏，但本地路径、工作区 ID、会话 ID 和崩溃时的内存片段仍可能存在。公开上传前必须检查；不适合公开的 dump 应通过可信渠道提供。
 - **窗口消失了**：先检查系统托盘，关闭窗口不是退出。
 - **插件没有出现**：确认命令作用于目标 profile，并重启应用。

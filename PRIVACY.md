@@ -131,7 +131,6 @@ The default composition also provides DeepSeek `web_search`. When you invoke it,
 Community Market does not require a remote source to be selected by default. After you select and use a source, the Host sends requests to it. Current built-in optional sources include:
 
 - DSH 1024Store: `deepseek1024.com`;
-- DSH Marketplace: `dsh-marketplace.qilewl.net`;
 - dshfind: `api.dshfind.com`; and
 - a standard catalog source that you configure and confirm.
 
