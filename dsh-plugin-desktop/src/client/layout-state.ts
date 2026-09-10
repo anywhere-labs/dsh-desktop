@@ -72,14 +72,47 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.round(value)))
 }
 
+/** localStorage key persisting the user's explicit sidebar preference. */
+const LAYOUT_STORAGE_KEY = 'dsh-desktop:layout-preference'
+
+interface PersistedLayoutPreference {
+  /** Explicit sidebar width; zero means the user deliberately collapsed it. */
+  sidebar?: number
+  /** Explicit details width; zero means closed. */
+  details?: number
+}
+
+/** Read the persisted preference; anything unreadable falls back to defaults. */
+function loadPersistedPreference(): PersistedLayoutPreference {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return {}
+    const raw = window.localStorage.getItem(LAYOUT_STORAGE_KEY)
+    if (raw === null) return {}
+    const parsed = JSON.parse(raw) as PersistedLayoutPreference
+    return typeof parsed === 'object' && parsed !== null ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
 /** Small observable panel controller used by the advanced root registration. */
 export class DesktopLayoutState {
-  private snapshot: DesktopLayoutSnapshot = Object.freeze({
-    sidebar: SIDEBAR_DEFAULT,
-    details: 0,
-    narrow: false,
-    narrowExpanded: false,
-  })
+  private snapshot: DesktopLayoutSnapshot = DesktopLayoutState.initialSnapshot()
+
+  private static initialSnapshot(): DesktopLayoutSnapshot {
+    const persisted = loadPersistedPreference()
+    const sidebar = persisted.sidebar === undefined
+      ? SIDEBAR_DEFAULT
+      : persisted.sidebar === 0
+        ? 0
+        : clamp(persisted.sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
+    const details = persisted.details === undefined
+      ? 0
+      : persisted.details === 0
+        ? 0
+        : clamp(persisted.details, DETAILS_MIN, DETAILS_MAX)
+    return Object.freeze({ sidebar, details, narrow: false, narrowExpanded: false })
+  }
   private readonly listeners = new Set<() => void>()
 
   /** @returns the immutable current panel snapshot. */
@@ -95,11 +128,17 @@ export class DesktopLayoutState {
 
   /** Toggle the wide sidebar and the platform-selected compact rail. */
   toggleSidebar(): void {
-    if (this.snapshot.narrow) {
+    // Narrow-screen rail override only applies after the user deliberately
+    // collapsed the sidebar; an expanded sidebar is never auto-collapsed.
+    if (this.snapshot.narrow && this.snapshot.sidebar === 0) {
       this.publish({ ...this.snapshot, narrowExpanded: !this.snapshot.narrowExpanded })
       return
     }
-    this.publish({ ...this.snapshot, sidebar: this.snapshot.sidebar === 0 ? SIDEBAR_DEFAULT : 0 })
+    this.publish({
+      ...this.snapshot,
+      sidebar: this.snapshot.sidebar === 0 ? SIDEBAR_DEFAULT : 0,
+      narrowExpanded: false,
+    })
   }
 
   /** @param narrow - whether the frame is below the automatic-collapse breakpoint. */
@@ -130,6 +169,21 @@ export class DesktopLayoutState {
 
   private publish(next: DesktopLayoutSnapshot): void {
     this.snapshot = Object.freeze(next)
+    this.persist(next)
     for (const listener of this.listeners) listener()
+  }
+
+  /** Persist only the user's explicit panel choices; transient narrow state is never stored. */
+  private persist(snapshot: DesktopLayoutSnapshot): void {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return
+      const preference: PersistedLayoutPreference = {
+        sidebar: snapshot.sidebar,
+        details: snapshot.details,
+      }
+      window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(preference))
+    } catch {
+      // Storage may be unavailable (private mode); preference simply will not persist.
+    }
   }
 }
