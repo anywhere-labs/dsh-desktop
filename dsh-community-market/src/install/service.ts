@@ -23,6 +23,34 @@ import { manualInstallHints } from './manual.js'
 
 const NPM_REGISTRY_ORIGIN = 'https://registry.npmjs.org'
 const NPM_REGISTRY = `${NPM_REGISTRY_ORIGIN}/`
+
+/** Official npm origin used for package verification and the default install registry. */
+export const OFFICIAL_NPM_REGISTRY_ORIGIN = NPM_REGISTRY_ORIGIN
+
+/**
+ * Resolve the pnpm --registry origin. Empty settings keep registry.npmjs.org.
+ * Verification still talks to the official registry.
+ */
+export function resolveNpmRegistryOrigin(value: unknown): string {
+  if (value === undefined || value === null) return NPM_REGISTRY_ORIGIN
+  if (typeof value !== 'string') {
+    throw new MarketInstallError('verification-failed', 'The npm registry setting is invalid.')
+  }
+  const trimmed = value.trim()
+  if (trimmed === '') return NPM_REGISTRY_ORIGIN
+  let parsed: URL
+  try { parsed = new URL(trimmed) }
+  catch {
+    throw new MarketInstallError('verification-failed', 'The npm registry setting must be an https URL.')
+  }
+  if (parsed.protocol !== 'https:' || parsed.username !== '' || parsed.password !== '' || parsed.hash !== '') {
+    throw new MarketInstallError(
+      'verification-failed',
+      'The npm registry setting must be an https URL without credentials.',
+    )
+  }
+  return parsed.origin
+}
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
 const MAX_MANIFEST_BYTES = 1024 * 1024
 const INSTALL_INTENT_TTL_MS = 5 * 60 * 1000
@@ -233,12 +261,18 @@ export interface MarketPackageVerifier {
   verify(candidate: MarketInstallCandidateInput, signal: AbortSignal): Promise<MarketPackageVerification>
 }
 
+export interface MarketInstallSettings {
+  get(): { readonly npmRegistry?: string }
+}
+
 export interface MarketInstallServiceOptions {
   readonly now?: () => number
   readonly intentTtlMs?: number
   readonly candidateTtlMs?: number
   readonly maxIntents?: number
   readonly maxCandidates?: number
+  /** Optional Community Market settings; empty npmRegistry keeps registry.npmjs.org. */
+  readonly settings?: MarketInstallSettings
   /** Receives bounded package-manager failures for the Desktop persistent log. */
   readonly logFailure?: (message: string) => void
 }
@@ -474,6 +508,7 @@ export class MarketInstallService {
   private readonly generation = new AbortController()
   private operationActive = false
   private closed = false
+  private readonly settings: MarketInstallSettings | undefined
 
   constructor(
     private readonly currentProfile: () => MarketDesktopProfile,
@@ -481,6 +516,7 @@ export class MarketInstallService {
     private readonly verifier: MarketPackageVerifier,
     options: MarketInstallServiceOptions = {},
   ) {
+    this.settings = options.settings
     this.now = options.now ?? Date.now
     this.intentTtlMs = options.intentTtlMs ?? INSTALL_INTENT_TTL_MS
     this.candidateTtlMs = options.candidateTtlMs ?? CANDIDATE_TTL_MS
@@ -879,11 +915,12 @@ export class MarketInstallService {
   }
 
   private installOptions(packageName: string): readonly string[] {
+    const registry = `${resolveNpmRegistryOrigin(this.settings?.get().npmRegistry)}/`
     const scope = packageName.startsWith('@') ? packageName.split('/', 1)[0] : undefined
     return [
       '--save-exact',
-      `--registry=${NPM_REGISTRY}`,
-      ...(scope === undefined ? [] : [`--${scope}:registry=${NPM_REGISTRY}`]),
+      `--registry=${registry}`,
+      ...(scope === undefined ? [] : [`--${scope}:registry=${registry}`]),
     ]
   }
 
