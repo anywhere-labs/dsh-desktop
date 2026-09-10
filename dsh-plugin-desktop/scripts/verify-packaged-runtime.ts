@@ -156,6 +156,10 @@ export const REQUIRED_NON_MACOS_UNPACKED_RUNTIME_ENTRIES = [
   'build/tray-icon-blue@1.25x.png',
   'build/tray-icon-blue@1.5x.png',
   'build/tray-icon-blue@2x.png',
+  'build/tray-icon-win-dark-taskbar.png',
+  'build/tray-icon-win-dark-taskbar@1.25x.png',
+  'build/tray-icon-win-dark-taskbar@1.5x.png',
+  'build/tray-icon-win-dark-taskbar@2x.png',
 ] as const
 
 /** Complete cross-platform asset surface, used only as a closed allowlist. */
