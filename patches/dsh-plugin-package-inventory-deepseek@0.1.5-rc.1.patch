@@ -1,20 +1,28 @@
 diff --git a/lib/index.js b/lib/index.js
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -43,2 +43,16 @@
+@@ -41,4 +41,24 @@ function identityFromManifest(path, allowAnonymous) {
+ function barePackageManifest(packageName, anchors) {
  	for (const anchor of anchors) {
 +		const desktopResolverCount = globalThis[Symbol.for("dsh-plugin-desktop.asar-module-resolver")];
 +		if (typeof desktopResolverCount === "number" && desktopResolverCount > 0) {
-+			// Desktop's own package lives in app.asar rather than node_modules.
-+			// Honor the same resolver used to load it; resolving never evaluates it.
++			// Desktop's own package lives in app.asar rather than node_modules, so
++			// only the resolver that loaded it can report its manifest. Resolving
++			// a package manifest never evaluates the package.
 +			try {
 +				return createRequire(anchor).resolve(`${packageName}/package.json`);
 +			} catch (error) {
-+				// Packages may keep their manifest private. Retain the upstream
-+				// filesystem lookup for those packages, without hiding other errors.
++				// That resolver also declines packages the filesystem lookup below
++				// still serves: manifests kept private by their exports map, and
++				// packages installed only into the shared Profile fallback that the
++				// Desktop overlay excludes by policy. Keep the upstream lookup as the
++				// fallback, so one such entry cannot fail the whole request. Every
++				// other failure is a real one and keeps propagating from here.
 +				if (error?.code !== "MODULE_NOT_FOUND"
 +					&& error?.code !== "ERR_MODULE_NOT_FOUND"
-+					&& error?.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") throw error;
++					&& error?.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED"
++					&& error?.name !== "PackageOverlayNotFoundError") throw error;
 +			}
 +		}
  		const searchPaths = createRequire(anchor).resolve.paths(packageName);
+ 		/* v8 ignore next -- active non-builtin package entries always have Node package search paths */

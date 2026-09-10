@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 
-it('prepares request inventory for Desktop-owned entries and private-manifest plugins', () => {
+it('prepares request inventory for Desktop-owned entries and Profile-owned plugins', () => {
   const require = createRequire(import.meta.url)
   const script = `
     import assert from 'node:assert/strict';
@@ -17,8 +17,13 @@ it('prepares request inventory for Desktop-owned entries and private-manifest pl
     const root = mkdtempSync(join(tmpdir(), 'desktop-inventory-'));
     let release;
     try {
-      writeFileSync(join(root, 'package.json'), '{"type":"module"}');
-      const baseUrl = pathToFileURL(join(root, 'package.json')).href;
+      // Installed layout: <root>/profiles/desktop is the active Profile and
+      // <root>/profiles/node_modules is the shared fallback tree that the
+      // Desktop overlay deliberately refuses to select.
+      const profile = join(root, 'profiles', 'desktop');
+      mkdirSync(profile, { recursive: true });
+      writeFileSync(join(profile, 'package.json'), '{"type":"module"}');
+      const baseUrl = pathToFileURL(join(profile, 'package.json')).href;
       const collect = async names => {
         let provider;
         const tree = { ctx: { baseUrl }, entries: () => names.map(name => ({
@@ -37,13 +42,27 @@ it('prepares request inventory for Desktop-owned entries and private-manifest pl
         desktop.name + '/diagnostics', desktop.name + '/notifications',
         desktop.name + '/profiles', desktop.name + '/updates'
       ]), [{ name: desktop.name, version: desktop.version }]);
-      const plugin = join(root, 'node_modules', 'private-manifest-plugin');
+      const plugin = join(profile, 'node_modules', 'private-manifest-plugin');
       mkdirSync(plugin, { recursive: true });
       writeFileSync(join(plugin, 'package.json'), JSON.stringify({
         name: 'private-manifest-plugin', version: '1.2.3', exports: './index.js'
       }));
       writeFileSync(join(plugin, 'index.js'), 'throw new Error("inventory evaluated plugin")');
       assert.deepEqual(await collect(['private-manifest-plugin']), [{ name: 'private-manifest-plugin', version: '1.2.3' }]);
+      // A plugin the official CLI installed into the shared fallback still resolves
+      // through the physical lookup, so it must not fail the whole request.
+      const shared = join(root, 'profiles', 'node_modules', 'shared-fallback-plugin');
+      mkdirSync(shared, { recursive: true });
+      writeFileSync(join(shared, 'package.json'), JSON.stringify({
+        name: 'shared-fallback-plugin', version: '3.0.0', main: 'index.js'
+      }));
+      writeFileSync(join(shared, 'index.js'), 'throw new Error("inventory evaluated plugin")');
+      assert.deepEqual(await collect(['shared-fallback-plugin']), [{ name: 'shared-fallback-plugin', version: '3.0.0' }]);
+      // A broken manifest must fail loudly instead of being silently skipped.
+      const broken = join(profile, 'node_modules', 'malformed-manifest-plugin');
+      mkdirSync(broken, { recursive: true });
+      writeFileSync(join(broken, 'package.json'), '{ "name": "malformed-manifest-plugin",');
+      await assert.rejects(() => collect(['malformed-manifest-plugin']), /cannot read|Unexpected token|not valid JSON|must declare/u);
       await assert.rejects(() => collect(['inventory-nonexistent-package']), /cannot resolve.*package/);
       writeFileSync(join(plugin, 'package.json'), JSON.stringify({ name: 'private-manifest-plugin', exports: './index.js' }));
       await assert.rejects(() => collect(['private-manifest-plugin']), /non-empty name and version/);
