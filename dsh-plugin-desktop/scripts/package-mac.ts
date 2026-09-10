@@ -7,6 +7,8 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { withoutMacReleaseSecrets } from './release-preflight.ts'
 import { prepareInstalledMacUniversalRuntime } from './mac-universal.ts'
+import { prepareFsExtForElectron } from './prepare-fs-ext.ts'
+import { electronBuilderEnvironment } from './electron-builder-environment.ts'
 
 /** Injectable native macOS packaging boundary used by focused tests. */
 export interface MacSmokePackageOptions {
@@ -72,7 +74,11 @@ function defaultOptions(): MacSmokePackageOptions {
     desktopRoot,
     outputDir,
     resetOutput: () => rmSync(outputDir, { recursive: true, force: true }),
-    prepareRuntime: () => prepareInstalledMacUniversalRuntime(desktopRoot),
+    prepareRuntime: () => {
+      prepareFsExtForElectron({ platform: 'darwin', arch: 'arm64', desktopRoot })
+      prepareFsExtForElectron({ platform: 'darwin', arch: 'x64', desktopRoot })
+      prepareInstalledMacUniversalRuntime(desktopRoot)
+    },
     builderCli: require.resolve('electron-builder/cli.js'),
     verifier: fileURLToPath(new URL('./verify-mac-smoke.ts', import.meta.url)),
     nodeExecutable: process.execPath,
@@ -134,10 +140,10 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
       `--config.directories.output=${options.outputDir}`,
     ],
     options.desktopRoot,
-    {
+    electronBuilderEnvironment({
       ...cleanEnvironment,
       CSC_IDENTITY_AUTO_DISCOVERY: 'false',
-    },
+    }),
   )
   options.run(
     options.nodeExecutable,

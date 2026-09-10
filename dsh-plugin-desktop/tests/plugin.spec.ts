@@ -27,9 +27,9 @@ import {
 import {
   DESKTOP_DEVELOPER_TOOLS_TOGGLE_PATH,
   DESKTOP_DIAGNOSTICS_EXPORT_PATH,
+  DESKTOP_AA_SELECT_PATH,
   DESKTOP_MARKET_SELECT_PATH,
   DESKTOP_PROFILE_CREATE_PATH,
-  DESKTOP_PROFILE_CREATE_WINDOW_PATH,
   DESKTOP_PROFILE_DELETE_PATH,
   DESKTOP_PROFILE_SELECT_PATH,
   DESKTOP_RECOVERY_RESTART_PATH,
@@ -40,7 +40,7 @@ import {
 } from '../src/desktop-settings-contract.ts'
 import type { DesktopRuntime, DesktopShellSpec } from '../src/runtime.ts'
 import { createDesktopBrowserAccess } from '../src/desktop-browser-access.ts'
-import { DesktopLanHttpsRuntime } from '../src/lan-https-runtime.ts'
+import { DESKTOP_LAN_HTTPS_CA_PATH, DesktopLanHttpsRuntime } from '../src/lan-https-runtime.ts'
 import { RENDERER_BOOT_REPORT_PATH, type RendererBootReport } from '../src/renderer-boot-contract.ts'
 
 const config: DesktopConfig = {
@@ -246,6 +246,31 @@ describe('desktop Host plugin', () => {
     expect(String(DESKTOP_SETTINGS_NAMESPACE)).toBe('dsh-desktop')
   })
 
+  it('serves the CA created after startup without restarting the Host or exposing a missing certificate', async () => {
+    const harness = createHarness('win32')
+    const certificate = vi.spyOn(harness.lanHttps, 'caCertificate', 'get').mockReturnValue(null)
+    apply(harness.ctx, config)
+    const route = harness.route(DESKTOP_LAN_HTTPS_CA_PATH)!
+    const res = { statusCode: 0, setHeader: vi.fn(), end: vi.fn() }
+    const request = async (method: string) => {
+      res.end.mockClear()
+      await route.handler({ method } as IncomingMessage, res as unknown as ServerResponse)
+    }
+    await request('GET')
+    expect(res.statusCode).toBe(503)
+    expect(res.setHeader).toHaveBeenCalledWith('cache-control', 'no-store')
+    certificate.mockReturnValue('test CA certificate')
+    await request('GET')
+    expect(res.statusCode).toBe(200)
+    expect(res.end).toHaveBeenCalledWith('test CA certificate')
+    await request('HEAD')
+    expect(res.statusCode).toBe(200)
+    expect(res.end).toHaveBeenCalledWith(undefined)
+    await request('POST')
+    expect(res.statusCode).toBe(405)
+    certificate.mockRestore()
+  })
+
   it('prints a launcher reminder and registers nothing without desktopRuntime', () => {
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     const registerRoute = vi.fn()
@@ -394,10 +419,10 @@ describe('desktop Host plugin', () => {
     const expectedPaths = [
       DESKTOP_SETTINGS_PATH,
       DESKTOP_PROFILE_CREATE_PATH,
-      DESKTOP_PROFILE_CREATE_WINDOW_PATH,
       DESKTOP_PROFILE_DELETE_PATH,
       DESKTOP_PROFILE_SELECT_PATH,
-      DESKTOP_MARKET_SELECT_PATH,
+      DESKTOP_AA_SELECT_PATH,
+  DESKTOP_MARKET_SELECT_PATH,
       DESKTOP_TERMINAL_OPEN_PATH,
       DESKTOP_RESTART_PATH,
       DESKTOP_RECOVERY_RESTART_PATH,
@@ -408,7 +433,7 @@ describe('desktop Host plugin', () => {
       DESKTOP_DIRECTORY_PICKER_PATH,
       DESKTOP_DIRECTORY_VALIDATOR_PATH,
     ].sort()
-    const routes = harness.routes()
+    const routes = harness.routes().filter(route => route.path !== DESKTOP_LAN_HTTPS_CA_PATH)
     expect(routes.map(route => route.path).sort()).toEqual(expectedPaths)
 
     for (const route of routes) {

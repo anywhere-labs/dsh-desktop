@@ -17,6 +17,7 @@ import {
   migrateDesktopBrowserAccessSettings,
   migrateDesktopWindowMaterialSettings,
   readDesktopSetupWizardSettings,
+  sameDesktopSetupWizardSettings,
   updateDesktopSetupWizardSettings,
   type DesktopSetupWizardSettings,
 } from '../src/setup-wizard-settings.ts'
@@ -54,6 +55,19 @@ function values(overrides: Partial<DesktopSetupWizardSettings> = {}): DesktopSet
 }
 
 describe('Desktop Setup Wizard settings document', () => {
+  it('compares the normalized leaves used by the startup re-prepare gate', () => {
+    const current = values()
+
+    expect(sameDesktopSetupWizardSettings(current, structuredClone(current))).toBe(true)
+    expect(sameDesktopSetupWizardSettings(current, values({ mode: 'extended' }))).toBe(false)
+    expect(sameDesktopSetupWizardSettings(current, values({
+      notifications: {
+        ...current.notifications,
+        notifyOnTurnCompletion: true,
+      },
+    }))).toBe(false)
+  })
+
   it('returns platform defaults for an absent exact settings document', () => {
     const root = temporaryDirectory()
     expect(readDesktopSetupWizardSettings(join(root, 'settings.yaml')))

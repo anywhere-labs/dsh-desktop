@@ -91,7 +91,9 @@ async function launchElectron(): Promise<number> {
     const child = spawn(electronPath, [mainPath], {
       stdio: 'inherit',
       env: process.env,
-      windowsHide: true,
+      // This child is the graphical app. SW_HIDE suppresses its first window,
+      // including startup dialogs that wait for user input.
+      windowsHide: false,
     })
     child.once('error', reject)
     child.once('exit', (code, signal) => {

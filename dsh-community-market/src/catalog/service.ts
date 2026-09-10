@@ -13,13 +13,6 @@ import {
   dsh1024StoreAdapter,
   isDsh1024StoreAdapterId,
 } from '../adapters/dsh-1024store.js'
-import {
-  DSH_MARKETPLACE_ADAPTER_ID,
-  DSH_MARKETPLACE_KEY,
-  DSH_MARKETPLACE_PROVIDER_ID,
-  DSH_MARKETPLACE_PUBLIC_ENDPOINT,
-  dshMarketplaceAdapter,
-} from '../adapters/dsh-marketplace.js'
 import { DSHFIND_ADAPTER_ID, DSHFIND_ENDPOINT, DSHFIND_KEY, DSHFIND_PROVIDER_ID, dshfindAdapter } from '../adapters/dshfind.js'
 import { standardHttpAdapter } from '../adapters/standard-http.js'
 
@@ -54,20 +47,6 @@ export const BUILT_IN_PROVIDERS: readonly BuiltInProviderDefinition[] = [
     partnership: true,
   },
   {
-    key: DSH_MARKETPLACE_KEY,
-    name: 'DSH Marketplace',
-    description: '第三方社区目录，通过内置兼容适配器只读接入。目录收录不代表插件经过审核或推荐。',
-    providerId: DSH_MARKETPLACE_PROVIDER_ID,
-    adapterId: DSH_MARKETPLACE_ADAPTER_ID,
-    endpoint: DSH_MARKETPLACE_PUBLIC_ENDPOINT,
-    attribution: {
-      name: 'DSH Marketplace',
-      url: 'https://dsh-marketplace.qilewl.net',
-      notice: 'Third-party community catalog connected through a reviewed compatibility adapter.',
-    },
-    partnership: false,
-  },
-  {
     key: DSHFIND_KEY,
     name: 'dshfind',
     description: '合作提供方目录。需要用户明确添加并启用。目录收录不代表插件经过审核或推荐。',
@@ -87,7 +66,6 @@ const adapters = new Map<string, CatalogAdapter>([
   [standardHttpAdapter.adapterId, standardHttpAdapter],
   [dsh1024StoreAdapter.adapterId, dsh1024StoreAdapter],
   [DSH_1024STORE_LEGACY_ADAPTER_ID, dsh1024StoreAdapter],
-  [dshMarketplaceAdapter.adapterId, dshMarketplaceAdapter],
   [dshfindAdapter.adapterId, dshfindAdapter],
 ])
 

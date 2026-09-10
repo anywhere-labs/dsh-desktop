@@ -18,6 +18,7 @@ export default defineConfig([
       diagnostics: 'src/diagnostics.ts',
       notifications: 'src/notifications.ts',
       'diagnostic-export-worker': 'src/diagnostic-export-worker.ts',
+      'packaged-runtime-smoke': 'src/packaged-runtime-smoke.ts',
       runtime: 'src/runtime.ts',
       'electron-runtime': 'src/electron-runtime.ts',
       'desktop-runtime-environment': 'src/desktop-runtime-environment.ts',

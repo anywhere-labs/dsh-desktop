@@ -15,7 +15,6 @@ import {
   THEME_SETTINGS_NAMESPACE,
   type ThemeSettings,
 } from '@deepseek-ai/dsh-client-ui-theme'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
   handleRendererBootRequest,
   RENDERER_BOOT_REPORT_PATH,
@@ -31,9 +30,9 @@ import {
 import {
   DESKTOP_DIAGNOSTICS_EXPORT_PATH,
   DESKTOP_DEVELOPER_TOOLS_TOGGLE_PATH,
+  DESKTOP_AA_SELECT_PATH,
   DESKTOP_MARKET_SELECT_PATH,
   DESKTOP_PROFILE_CREATE_PATH,
-  DESKTOP_PROFILE_CREATE_WINDOW_PATH,
   DESKTOP_PROFILE_DELETE_PATH,
   DESKTOP_PROFILE_SELECT_PATH,
   DESKTOP_RESTART_PATH,
@@ -45,9 +44,9 @@ import {
 import {
   handleDesktopDiagnosticsExportRequest,
   handleDesktopDeveloperToolsToggleRequest,
+  handleDesktopAaSelectRequest,
   handleDesktopMarketSelectRequest,
   handleDesktopProfileCreateRequest,
-  handleDesktopProfileCreateWindowRequest,
   handleDesktopProfileDeleteRequest,
   handleDesktopProfileSelectRequest,
   handleDesktopRestartRequest,
@@ -79,6 +78,7 @@ import {
   type PersistedWindowsWindowMaterial,
   windowsSupportsMica,
 } from './window-material.ts'
+import { DESKTOP_PRODUCT_NAME } from './product-identity.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'desktop-shell'
@@ -88,10 +88,10 @@ export const name = 'desktop-shell'
 export const inject = ['webServer', 'webRuntime', 'appExit', 'settings', 'connection']
 
 /** Standard settings namespace shared by tray and configuration surfaces. */
-export const DESKTOP_SETTINGS_NAMESPACE = settingsNamespace('dsh-desktop')
+export const DESKTOP_SETTINGS_NAMESPACE = 'dsh-desktop'
 
-const UI_THEME_SETTINGS_NAMESPACE = settingsNamespace(THEME_SETTINGS_NAMESPACE)
-const UI_LOCALE_SETTINGS_NAMESPACE = settingsNamespace(LOCALE_SETTINGS_NAMESPACE)
+const UI_THEME_SETTINGS_NAMESPACE = THEME_SETTINGS_NAMESPACE
+const UI_LOCALE_SETTINGS_NAMESPACE = LOCALE_SETTINGS_NAMESPACE
 
 /** Apply the official Connection trust and browser-auth fence before a private Desktop route. */
 function rejectDesktopRequest(
@@ -262,32 +262,36 @@ export function apply(ctx: Context, config: Config): void {
     },
   )
   const rendererOrigin = `http://127.0.0.1:${String(ctx.webServer.port)}`
-  if (lanHttps.caCertificate !== null) {
-    const caCertificate = lanHttps.caCertificate
-    ctx.effect(
-      () => ctx.webServer.register({
-        kind: 'exact',
-        path: DESKTOP_LAN_HTTPS_CA_PATH,
-        handler: (req, res) => {
-          if (req.method !== 'GET' && req.method !== 'HEAD') {
-            res.statusCode = 405
-            res.setHeader('allow', 'GET, HEAD')
-            res.setHeader('cache-control', 'no-store')
-            res.end('method not allowed')
-            return
-          }
-          res.statusCode = 200
+  ctx.effect(
+    () => ctx.webServer.register({
+      kind: 'exact',
+      path: DESKTOP_LAN_HTTPS_CA_PATH,
+      handler: (req, res) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          res.statusCode = 405
+          res.setHeader('allow', 'GET, HEAD')
           res.setHeader('cache-control', 'no-store')
-          res.setHeader('content-type', 'application/x-x509-ca-cert')
-          res.setHeader('content-disposition', 'attachment; filename="dsh-desktop-local-ca.crt"')
-          res.setHeader('content-length', String(Buffer.byteLength(caCertificate)))
-          res.setHeader('x-content-type-options', 'nosniff')
-          res.end(req.method === 'HEAD' ? undefined : caCertificate)
-        },
-      }),
-      'dsh-plugin-desktop: public LAN HTTPS CA route',
-    )
-  }
+          res.end('method not allowed')
+          return
+        }
+        const caCertificate = lanHttps.caCertificate
+        if (caCertificate === null) {
+          res.statusCode = 503
+          res.setHeader('cache-control', 'no-store')
+          res.end(req.method === 'HEAD' ? undefined : 'LAN HTTPS certificate unavailable')
+          return
+        }
+        res.statusCode = 200
+        res.setHeader('cache-control', 'no-store')
+        res.setHeader('content-type', 'application/x-x509-ca-cert')
+        res.setHeader('content-disposition', 'attachment; filename="dsh-desktop-local-ca.crt"')
+        res.setHeader('content-length', String(Buffer.byteLength(caCertificate)))
+        res.setHeader('x-content-type-options', 'nosniff')
+        res.end(req.method === 'HEAD' ? undefined : caCertificate)
+      },
+    }),
+    'dsh-plugin-desktop: public LAN HTTPS CA route',
+  )
   ctx.on('webserver/index-inject', table => {
     table.push(...desktopBootRecoveryInjections())
   })
@@ -301,9 +305,9 @@ export function apply(ctx: Context, config: Config): void {
     const settingsRoutes = [
       [DESKTOP_SETTINGS_PATH, handleDesktopSettingsRequest],
       [DESKTOP_PROFILE_CREATE_PATH, handleDesktopProfileCreateRequest],
-      [DESKTOP_PROFILE_CREATE_WINDOW_PATH, handleDesktopProfileCreateWindowRequest],
       [DESKTOP_PROFILE_DELETE_PATH, handleDesktopProfileDeleteRequest],
       [DESKTOP_PROFILE_SELECT_PATH, handleDesktopProfileSelectRequest],
+      [DESKTOP_AA_SELECT_PATH, handleDesktopAaSelectRequest],
       [DESKTOP_MARKET_SELECT_PATH, handleDesktopMarketSelectRequest],
       [DESKTOP_TERMINAL_OPEN_PATH, handleDesktopTerminalOpenRequest],
       [DESKTOP_RESTART_PATH, handleDesktopRestartRequest],
@@ -475,7 +479,7 @@ export function apply(ctx: Context, config: Config): void {
         url,
         authenticationUrl: ctx.connection.authenticatedUrl(new URL(url).origin),
         rendererAccessHeader: browserAccess.rendererHeader,
-        productName: 'DSH Desktop',
+        productName: DESKTOP_PRODUCT_NAME,
         windowTitle: 'DeepSeek Harness Desktop',
         iconPath,
         trayIcons,

@@ -33,7 +33,7 @@ Market 安装不会创建 receipt、checkpoint、重试、清理或回滚 operat
 目录条目只有满足以下条件才能进入自动安装 preview：
 
 - 条目能标准化出且只标准化出一个合法 npm package name；
-- package 不是 `dsh-plugin-desktop` 或 `dsh-community-market`；
+- package 不是 `dsh-plugin-desktop`、`dsh-plugin-desktop-beta` 或 `dsh-community-market`；
 - npm `latest` 对同一 package 返回精确稳定版本；以及
 - npm manifest 声明安全的相对 DSH bundle patch 路径。
 

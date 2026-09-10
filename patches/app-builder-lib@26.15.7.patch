@@ -136,3 +136,17 @@ diff --git a/templates/nsis/include/installUtil.nsh b/templates/nsis/include/ins
 +        # Code 2 is handled by the non-atomic in-place replacement path.
 +        Return
 +      ${endIf}
+diff --git a/out/util/appFileCopier.js b/out/util/appFileCopier.js
+--- a/out/util/appFileCopier.js
++++ b/out/util/appFileCopier.js
+@@ -234,7 +234,9 @@ async function collectNodeModulesWithLogging(platformPackager) {
+     const packager = platformPackager.info;
+     const { tempDirManager, appDir, projectDir } = packager;
+     const searchDirectories = Array.from(new Set([appDir, projectDir, await packager.getWorkspaceRoot()])).filter((it) => (0, builder_util_1.isEmptyOrSpaces)(it) === false);
+-    const pmApproaches = [await packager.getPackageManager(), node_module_collector_1.PM.TRAVERSAL];
++    const pmApproaches = process.env.DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY === "1"
++        ? [node_module_collector_1.PM.TRAVERSAL]
++        : [await packager.getPackageManager(), node_module_collector_1.PM.TRAVERSAL];
+     // Validate against the as-declared (pre-extraMetadata) production dependencies so a configured
+     // `extraMetadata.dependencies` entry that isn't installed cannot reject a correct collection.
+     const deps = await resolveFirstMatchingCollection({

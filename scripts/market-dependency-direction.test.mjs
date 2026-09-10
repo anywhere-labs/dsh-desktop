@@ -11,6 +11,7 @@ test('allows product-name data in Market source', () => {
 test('rejects Market imports of Desktop implementation', () => {
   assert.throws(() => verifyMarketDependencyDirection([
     ['dsh-community-market/src/index.ts', "import type { DesktopRuntime } from 'dsh-plugin-desktop/runtime'\n"],
+    ['dsh-community-market/src/beta.ts', "import type { DesktopRuntime } from 'dsh-plugin-desktop-beta/runtime'\n"],
   ]), /must not import Desktop implementation/u)
   assert.throws(() => verifyMarketDependencyDirection([
     ['dsh-community-market/src/index.ts', "const desktop = await import('dsh-plugin-desktop')\n"],

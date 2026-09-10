@@ -15,22 +15,14 @@ import type { DesktopClientEnvironment } from './environment.ts'
 import { DesktopFrameTitlebar } from './ExtendedTitlebar.tsx'
 import { installExtendedStyles } from './extended-styles.ts'
 import { DesktopLayoutState } from './layout-state.ts'
-import { claimDesktopLayout } from './layout-service.ts'
+import { installDesktopLayout } from './layout-service.ts'
 import { installDesktopOwnedStyles } from './styles.ts'
 import { DesktopThemePresenter } from './theme-presenter.ts'
 
-/**
- * Own the extended root/sidebar surface without reusing enhanced-mode chrome.
- *
- * When the upstream `dsh-client-ui-layout` wins the shared `layout` service,
- * the owned presentation (layout, owned styles, presenter, root slot) is
- * skipped and `false` returned; the independent framed chrome can still be
- * layered over the upstream frame by the caller (#517).
- */
-function applyExtendedOwnedShell(ctx: ClientContext, environment: DesktopClientEnvironment): boolean {
-  const desktopLayout = new DesktopLayoutState()
-  const upstreamOwnsLayout = !claimDesktopLayout(ctx, desktopLayout)
-  if (upstreamOwnsLayout) return false
+/** Own the extended root/sidebar surface without reusing enhanced-mode chrome. */
+function applyExtendedOwnedShell(ctx: ClientContext, environment: DesktopClientEnvironment): void {
+  const desktopLayout = new DesktopLayoutState(id => ctx.slots.entries('main').some(entry => entry.options.key === id))
+  installDesktopLayout(ctx, desktopLayout)
 
   ctx.effect(
     () => installDesktopOwnedStyles(),
@@ -51,14 +43,13 @@ function applyExtendedOwnedShell(ctx: ClientContext, environment: DesktopClientE
     name: 'root',
     children: {
       'sidebar': { kind: 'single', scope: 'root' },
-      'conversation': { kind: 'single', scope: 'session-maybe' },
-      'details': { kind: 'single', scope: 'session' },
+      'main': { kind: 'keyed', scope: 'root' },
+      'rightbar': { kind: 'single', scope: 'root' },
       'shell.overlay': { kind: 'list', scope: 'root' },
     },
     inject: () => ({ layout: desktopLayout, platform: environment.platform }),
   }, ExtendedFrame), 'desktop: extended root slot')
 
-  return true
 }
 
 export function applyFramedShell(
@@ -114,8 +105,6 @@ export function applyExtendedShell(
   if (environment.mode !== 'extended') {
     throw new Error(`dsh-plugin-desktop: extended shell received mode ${JSON.stringify(environment.mode)}`)
   }
-  // Losing the layout race only drops the owned presentation; the framed
-  // chrome (titlebar overlay) still layers over whatever presents the root.
   applyExtendedOwnedShell(ctx, environment)
   applyFramedShell(ctx, environment, settingsControl)
 }

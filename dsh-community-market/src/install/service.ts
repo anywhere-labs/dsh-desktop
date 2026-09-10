@@ -31,7 +31,11 @@ const MAX_INTENTS = 256
 const MAX_CANDIDATES = 10_000
 const MAX_PNPM_STREAM_OUTPUT_BYTES = 32 * 1024
 const MAX_FAILURE_CAUSE_LENGTH = 4 * 1024
-const BLOCKED_PRODUCT_PACKAGES = new Set(['dsh-plugin-desktop', 'dsh-community-market'])
+const BLOCKED_PRODUCT_PACKAGES = new Set([
+  'dsh-plugin-desktop',
+  'dsh-plugin-desktop-beta',
+  'dsh-community-market',
+])
 
 export interface MarketDesktopProfile {
   readonly name: string

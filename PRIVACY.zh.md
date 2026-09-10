@@ -131,7 +131,6 @@ DSH Desktop 是可组合的插件平台。下列传输由您选择的服务、�
 Community Market 默认不需要选中远程来源。选择并使用来源后，Host 会向该来源发起请求。当前内置的可选来源包括：
 
 - DSH 1024Store：`deepseek1024.com`；
-- DSH Marketplace：`dsh-marketplace.qilewl.net`；
 - dshfind：`api.dshfind.com`；
 - 您自行配置并确认的标准目录来源。
 
