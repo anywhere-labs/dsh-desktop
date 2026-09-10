@@ -19,7 +19,7 @@ it('prepares request inventory for Desktop-owned entries and private-manifest pl
     try {
       writeFileSync(join(root, 'package.json'), '{"type":"module"}');
       const baseUrl = pathToFileURL(join(root, 'package.json')).href;
-      const collect = async names => {
+      const collect = async (baseUrl, names) => {
         let provider;
         const tree = { ctx: { baseUrl }, entries: () => names.map(name => ({
           options: { name }, fiber: { state: 2 }, parent: { tree }
@@ -30,9 +30,16 @@ it('prepares request inventory for Desktop-owned entries and private-manifest pl
         return (await provider.prepare({})).value.packages;
       };
       // A standalone Profile has no physical copy of the Desktop package.
-      await assert.rejects(() => collect([desktop.name]), /cannot resolve active package/);
+      await assert.rejects(() => collect(baseUrl, [desktop.name]), /cannot resolve active package/);
+      // A packaged Desktop is an ASAR root package, not a physical
+      // node_modules child. Inventory must still resolve its identity.
+      const asarRoot = join(root, 'app.asar');
+      mkdirSync(join(asarRoot, 'lib'), { recursive: true });
+      writeFileSync(join(asarRoot, 'package.json'), JSON.stringify({ name: desktop.name, version: desktop.version }));
+      const asarBaseUrl = pathToFileURL(join(asarRoot, 'package.json')).href;
+      assert.deepEqual(await collect(asarBaseUrl, [desktop.name + '/terminal']), [desktop]);
       release = installProfilePackageResolver(baseUrl);
-      assert.deepEqual(await collect([
+      assert.deepEqual(await collect(baseUrl, [
         desktop.name, desktop.name + '/terminal', desktop.name + '/pnpm',
         desktop.name + '/diagnostics', desktop.name + '/notifications',
         desktop.name + '/profiles', desktop.name + '/updates'
@@ -43,12 +50,12 @@ it('prepares request inventory for Desktop-owned entries and private-manifest pl
         name: 'private-manifest-plugin', version: '1.2.3', exports: './index.js'
       }));
       writeFileSync(join(plugin, 'index.js'), 'throw new Error("inventory evaluated plugin")');
-      assert.deepEqual(await collect(['private-manifest-plugin']), [{ name: 'private-manifest-plugin', version: '1.2.3' }]);
-      await assert.rejects(() => collect(['inventory-nonexistent-package']), /cannot resolve.*package/);
+      assert.deepEqual(await collect(baseUrl, ['private-manifest-plugin']), [{ name: 'private-manifest-plugin', version: '1.2.3' }]);
+      await assert.rejects(() => collect(baseUrl, ['inventory-nonexistent-package']), /cannot resolve.*package/);
       writeFileSync(join(plugin, 'package.json'), JSON.stringify({ name: 'private-manifest-plugin', exports: './index.js' }));
-      await assert.rejects(() => collect(['private-manifest-plugin']), /non-empty name and version/);
+      await assert.rejects(() => collect(baseUrl, ['private-manifest-plugin']), /non-empty name and version/);
       release(); release = undefined;
-      await assert.rejects(() => collect([desktop.name]), /cannot resolve active package/);
+      await assert.rejects(() => collect(baseUrl, [desktop.name]), /cannot resolve active package/);
       console.log('request inventory passed');
     } finally { release?.(); rmSync(root, { recursive: true, force: true }); }
   `

@@ -1,8 +1,23 @@
 diff --git a/lib/index.js b/lib/index.js
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -43,2 +43,16 @@
+@@ -43,2 +43,31 @@
  	for (const anchor of anchors) {
++		try {
++			let directory = dirname(fileURLToPath(anchor));
++			const root = parse(directory).root;
++			while (true) {
++				const manifest = join(directory, "package.json");
++				if (existsSync(manifest)) {
++					try {
++						const identity = JSON.parse(readFileSync(manifest, "utf8"));
++						if (identity !== null && typeof identity === "object" && identity.name === packageName) return manifest;
++					} catch {}
++				}
++				if (directory === root) break;
++				directory = dirname(directory);
++			}
++		} catch {}
 +		const desktopResolverCount = globalThis[Symbol.for("dsh-plugin-desktop.asar-module-resolver")];
 +		if (typeof desktopResolverCount === "number" && desktopResolverCount > 0) {
 +			// Desktop's own package lives in app.asar rather than node_modules.

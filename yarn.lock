@@ -2923,7 +2923,7 @@ __metadata:
 
 "@deepseek-ai/dsh-plugin-package-inventory-deepseek@patch:@deepseek-ai/dsh-plugin-package-inventory-deepseek@file%3Avendor/dsh-runtime/0.1.5-rc.1/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.5-rc.1.tgz#./patches/dsh-plugin-package-inventory-deepseek@0.1.5-rc.1.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.5-rc.1
-  resolution: "@deepseek-ai/dsh-plugin-package-inventory-deepseek@patch:@deepseek-ai/dsh-plugin-package-inventory-deepseek@file%3Avendor/dsh-runtime/0.1.5-rc.1/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.5-rc.1.tgz%23vendor/dsh-runtime/0.1.5-rc.1/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.5-rc.1.tgz%3A%3Ahash=36e720&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-plugin-package-inventory-deepseek@0.1.5-rc.1.patch::version=0.1.5-rc.1&hash=9efbcb&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-plugin-package-inventory-deepseek@patch:@deepseek-ai/dsh-plugin-package-inventory-deepseek@file%3Avendor/dsh-runtime/0.1.5-rc.1/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.5-rc.1.tgz%23vendor/dsh-runtime/0.1.5-rc.1/deepseek-ai-dsh-plugin-package-inventory-deepseek-0.1.5-rc.1.tgz%3A%3Ahash=36e720&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-plugin-package-inventory-deepseek@0.1.5-rc.1.patch::version=0.1.5-rc.1&hash=530cc1&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-brand": "npm:^0.1.5-rc.1"
     "@deepseek-ai/schemastery": "npm:^3.18.2"
@@ -2937,7 +2937,7 @@ __metadata:
   peerDependenciesMeta:
     "@deepseek-ai/dsh-agent-presets":
       optional: true
-  checksum: 10c0/fc9ee339c8dc9777431070c2a78e1fbd11c7d4a3d76945a57a9474387e7d5c6e3c8ee856abfd82390967241de6d427181788f716f4c62b7234debc69976a81a0
+  checksum: 10c0/2c14a6a2a727217b41e41c2226f66f2fd48d5376928184644b6ae3972d06de2e929198a9fa567edd49e28b282002e8e713aa81701839c8568ee5f32bdf7dcee7
   languageName: node
   linkType: hard
 
