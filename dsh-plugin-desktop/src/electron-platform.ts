@@ -3,6 +3,7 @@ import type { BrowserWindow, MenuItemConstructorOptions, NativeImage } from 'ele
 import { macApplicationMenuTemplate, nativeMenuLocale } from './native-menu.ts'
 import type { DesktopPlatform } from './runtime.ts'
 import type { DesktopWindowMaterial } from './window-material.ts'
+import { windowsSupportsSystemBackdrop } from './window-material.ts'
 import type { DesktopDownloadPlatform } from './update-download.ts'
 
 /** Native presentation and capability differences selected once at startup. */
@@ -18,7 +19,11 @@ export interface ElectronPlatformStrategy {
   ): void
   refreshApplicationMenu(applicationMenuItems: readonly MenuItemConstructorOptions[]): void
   configureWindow(window: BrowserWindow): void
-  refreshThemeMaterial(window: BrowserWindow, material: DesktopWindowMaterial): void
+  refreshThemeMaterial(
+    window: BrowserWindow,
+    material: DesktopWindowMaterial,
+    windowsBuild: number | undefined,
+  ): void
 }
 
 class WindowsPlatformStrategy implements ElectronPlatformStrategy {
@@ -39,8 +44,13 @@ class WindowsPlatformStrategy implements ElectronPlatformStrategy {
     window.removeMenu()
   }
 
-  refreshThemeMaterial(window: BrowserWindow, material: DesktopWindowMaterial): void {
-    if (material === 'mica') window.setBackgroundMaterial(material)
+  refreshThemeMaterial(
+    window: BrowserWindow,
+    material: DesktopWindowMaterial,
+    windowsBuild: number | undefined,
+  ): void {
+    if (!windowsSupportsSystemBackdrop(windowsBuild)) return
+    window.setBackgroundMaterial(material === 'mica' ? 'mica' : 'none')
   }
 }
 
@@ -75,7 +85,11 @@ class MacPlatformStrategy implements ElectronPlatformStrategy {
 
   configureWindow(_window: BrowserWindow): void {}
 
-  refreshThemeMaterial(_window: BrowserWindow, _material: DesktopWindowMaterial): void {}
+  refreshThemeMaterial(
+    _window: BrowserWindow,
+    _material: DesktopWindowMaterial,
+    _windowsBuild: number | undefined,
+  ): void {}
 }
 
 class LinuxPlatformStrategy implements ElectronPlatformStrategy {
@@ -94,7 +108,11 @@ class LinuxPlatformStrategy implements ElectronPlatformStrategy {
 
   configureWindow(_window: BrowserWindow): void {}
 
-  refreshThemeMaterial(_window: BrowserWindow, _material: DesktopWindowMaterial): void {}
+  refreshThemeMaterial(
+    _window: BrowserWindow,
+    _material: DesktopWindowMaterial,
+    _windowsBuild: number | undefined,
+  ): void {}
 }
 
 /** Select the only platform adapter used by one Electron runtime generation. */
