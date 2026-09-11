@@ -234,6 +234,25 @@ describe('restricted market image fetcher', () => {
     expect(request).not.toHaveBeenCalled()
   })
 
+  it('rejects NAT64 and 6to4 DNS results before issuing a request', async () => {
+    const request = vi.fn()
+    for (const address of [
+      '64:ff9b::a9fe:a9fe',
+      '64:ff9b::7f00:1',
+      '64:ff9b:1::c0a8:101',
+      '2001:0:4136:e378:8000:63bf:3fff:fdd2',
+      '2002:7f00:1::',
+    ]) {
+      const fetchImage = createRestrictedImageFetcher({
+        lookupAddresses: vi.fn(async (_hostname: string) => [{ address, family: 6 as const }]),
+        request,
+      })
+      await expect(fetchImage(candidate(), new AbortController().signal), address)
+        .rejects.toMatchObject({ code: 'blocked-address' })
+    }
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it('allows fake-IP proxy addresses only for an exact product-reviewed hostname', async () => {
     const request = vi.fn(async () => ({
       statusCode: 200,
