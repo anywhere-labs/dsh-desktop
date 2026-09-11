@@ -23,6 +23,8 @@ product-visual-backend/**/__pycache__/
 product-visual-backend/**/*.pyc
 product-visual-backend/.pytest_cache/
 
+.worktrees/
+
 .env.yarn
 .env.liblib.local
 .env.feishu.local
