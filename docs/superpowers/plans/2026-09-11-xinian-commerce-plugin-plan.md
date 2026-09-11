@@ -1,157 +1,171 @@
-# Xinian Commerce Plugin Implementation Plan
+# 昔年 AI 电商插件实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 Agent 执行者：** 推荐使用 `superpowers:subagent-driven-development` 或 `superpowers:executing-plans`，按任务逐项执行。以下步骤使用复选框跟踪。
 
-**Goal:** Build an isolated, runnable `dsh-plugin-xinian-commerce` with a verified product/content/task workflow and a newly designed React workbench.
+**目标：** 创建独立、可运行的 `dsh-plugin-xinian-commerce`，实现可验证的商品、内容、任务和交付闭环，并提供全新设计的 React 工作台。
 
-**Architecture:** The plugin owns ecommerce domain behavior and the UI, while `enterprise-agent-runtime` remains the reusable event/governance substrate. A single in-process Agent loop will provide Planner, Executor, Verifier, Repair, and Delivery roles before any concurrency is added.
+**架构：** 插件负责电商领域能力和界面，`enterprise-agent-runtime` 继续作为事件、治理和审批基础设施。第一阶段采用单 Agent 闭环，包含 Planner、Executor、Verifier、Repair 和 Delivery，暂不引入并发 Agent。
 
-**Tech Stack:** TypeScript ESM, Node.js 22+, DSH Cordis WebServer, React 18, Vite, Vitest, Zod, Yarn 4.18.0.
+**技术栈：** TypeScript ESM、Node.js 22+、DSH Cordis WebServer、React 18、Vite、Vitest、Zod、Yarn 4.18.0。
 
-**Spec:** `docs/superpowers/specs/2026-09-11-xinian-commerce-plugin-design.md`
+**对应规范：** `docs/superpowers/specs/2026-09-11-xinian-commerce-plugin-design.md`
 
-## Global Constraints
+## 全局约束
 
-- Do not edit `deepseek-harness/`; it is a pinned upstream submodule.
-- Do not overwrite or refactor `dsh-plugin-commerce-ops`; add a separate workspace package.
-- Keep all writes scoped to the new plugin and the root workspace manifest/lockfile needed to register it.
-- Do not store secrets, tokens, cookies, or `.env` files.
-- Mock/sandbox connectors must be the default; publish-like actions require an approval gate.
-- Do not claim delivery from HTTP 200, process exit, or Agent self-report; retain events, checkpoint, and artifact manifest.
+- 不修改 `deepseek-harness/`，它是固定版本的上游子模块。
+- 不覆盖或重构 `dsh-plugin-commerce-ops`，新增独立 workspace package。
+- 只修改新插件，以及注册新 workspace 所必需的根目录清单和锁文件。
+- 不保存密钥、Token、Cookie 或 `.env` 文件。
+- 默认使用 mock/sandbox 连接器；发布类动作必须经过人工审批。
+- 不能用 HTTP 200、进程退出或 Agent 自报成功代表交付；必须保留事件、checkpoint 和 artifact manifest。
 
-### Task 1: Create package shell and public contracts
+## 任务 1：创建插件骨架和公共契约
 
-**Files:**
-- Create: `dsh-plugin-xinian-commerce/package.json`
-- Create: `dsh-plugin-xinian-commerce/tsconfig.json`
-- Create: `dsh-plugin-xinian-commerce/vite.config.ts`
-- Create: `dsh-plugin-xinian-commerce/src/contracts/index.ts`
-- Create: `dsh-plugin-xinian-commerce/tests/contracts.spec.ts`
-- Modify: `package.json`
+**文件：**
 
-**Interfaces:**
-- Produces `TaskState`, `CommerceTask`, `ProductRecord`, `StoreConnection`, `ArtifactRef`, `VerificationResult`, `ApiError`, and Zod schemas used by every later task.
+- 新建：`dsh-plugin-xinian-commerce/package.json`
+- 新建：`dsh-plugin-xinian-commerce/tsconfig.json`
+- 新建：`dsh-plugin-xinian-commerce/vite.config.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/contracts/index.ts`
+- 新建：`dsh-plugin-xinian-commerce/tests/contracts.spec.ts`
+- 修改：`package.json`
 
-- [ ] Write failing schema tests for valid product/task payloads and rejection of missing title, invalid task state, traversal-like asset paths, and unknown platform ids.
-- [ ] Run `corepack yarn workspace dsh-plugin-xinian-commerce test contracts.spec.ts`; expect failure because package and contracts do not exist.
-- [ ] Add the package metadata, workspace entry, TypeScript/Vite configs, and strict Zod-backed contracts. Use `type: module`, `main: lib/index.js`, `build`, `typecheck`, `test`, and `build:client` scripts.
-- [ ] Run the focused test and typecheck; expect all contract assertions to pass.
-- [ ] Run `git diff --check` and stage only Task 1 files for review.
+**接口：**
 
-### Task 2: Implement Agent Control Plane and local persistence
+- 输出 `TaskState`、`CommerceTask`、`ProductRecord`、`StoreConnection`、`ArtifactRef`、`VerificationResult`、`ApiError` 及所有后续任务使用的 Zod schema。
 
-**Files:**
-- Create: `dsh-plugin-xinian-commerce/src/runtime/control-plane.ts`
-- Create: `dsh-plugin-xinian-commerce/src/runtime/event-store.ts`
-- Create: `dsh-plugin-xinian-commerce/src/runtime/message-bus.ts`
-- Create: `dsh-plugin-xinian-commerce/src/runtime/verifier.ts`
-- Create: `dsh-plugin-xinian-commerce/src/runtime/agent-runtime.ts`
-- Create: `dsh-plugin-xinian-commerce/tests/runtime.spec.ts`
+- [ ] 编写契约测试：验证合法商品/任务数据，并拒绝缺少标题、非法任务状态、目录穿越式素材路径和未知平台 ID。
+- [ ] 运行 `corepack yarn workspace dsh-plugin-xinian-commerce test contracts.spec.ts`，确认在契约不存在时失败。
+- [ ] 添加包配置、workspace 注册、TypeScript/Vite 配置和严格的 Zod 契约。配置 `type: module`、`main: lib/index.js`、`build`、`typecheck`、`test` 和 `build:client` 脚本。
+- [ ] 运行定向测试和类型检查，确认契约测试通过。
+- [ ] 运行 `git diff --check`，仅暂存本任务文件。
 
-**Interfaces:**
-- Consumes the contracts from Task 1 and `enterprise-agent-runtime` event/approval types.
-- Produces `TaskStore.create`, `TaskStore.transition`, `EventStore.list`, `MessageBus.claim`, `AgentRuntime.run`, and independent verification results.
+## 任务 2：实现 Agent 控制平面和本地持久化
 
-- [ ] Write failing tests for the legal lifecycle, illegal transition rejection, idempotent event append, `NO_PENDING_WORK`, and the distinction between `PROCESS_EXITED`, `OUTPUT_VALID`, `BUSINESS_ACCEPTED`, and `DELIVERED`.
-- [ ] Run the focused runtime tests; expect failures for missing services.
-- [ ] Implement an in-memory default store with optional JSONL path injection, explicit transition table, correlation ids, checkpoint retention, and artifact manifest preservation.
-- [ ] Implement the single-agent loop: Planner creates a plan, Executor calls a connector, Verifier checks output, Repair is bounded, and Delivery only marks delivered after all gates pass.
-- [ ] Run runtime tests and package typecheck; expect pass with no external service required.
+**文件：**
 
-### Task 3: Implement domain services and host API
+- 新建：`dsh-plugin-xinian-commerce/src/runtime/control-plane.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/runtime/event-store.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/runtime/message-bus.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/runtime/verifier.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/runtime/agent-runtime.ts`
+- 新建：`dsh-plugin-xinian-commerce/tests/runtime.spec.ts`
 
-**Files:**
-- Create: `dsh-plugin-xinian-commerce/src/domain/product-service.ts`
-- Create: `dsh-plugin-xinian-commerce/src/domain/content-service.ts`
-- Create: `dsh-plugin-xinian-commerce/src/domain/publish-service.ts`
-- Create: `dsh-plugin-xinian-commerce/src/domain/analytics-service.ts`
-- Create: `dsh-plugin-xinian-commerce/src/connectors/mock-connector.ts`
-- Create: `dsh-plugin-xinian-commerce/src/host/service.ts`
-- Create: `dsh-plugin-xinian-commerce/src/host/routes.ts`
-- Create: `dsh-plugin-xinian-commerce/src/plugin.ts`
-- Create: `dsh-plugin-xinian-commerce/src/index.ts`
-- Create: `dsh-plugin-xinian-commerce/tests/routes.spec.ts`
+**接口：**
 
-**Interfaces:**
-- Consumes Task 1 contracts and Task 2 runtime services.
-- Produces `/api/xinian/health`, dashboard, product CRUD, content generation/approval/retry, task lifecycle/events/artifacts/checkpoint, stores, publish preview/execute, and analytics endpoints.
+- 使用任务 1 的契约和 `enterprise-agent-runtime` 的事件/审批类型。
+- 输出 `TaskStore.create`、`TaskStore.transition`、`EventStore.list`、`MessageBus.claim`、`AgentRuntime.run` 和独立验证结果。
 
-- [ ] Write route tests for health, product create/list, task creation/start, approval-required publish preview, malformed JSON, same-origin rejection, and missing-input `WAITING_INPUT`.
-- [ ] Run focused route tests; expect failure because the host service and routes are absent.
-- [ ] Implement bounded JSON parsing, request ids, uniform API errors, same-origin checks, path validation, and mock data that is clearly labeled as mock.
-- [ ] Register routes through the existing `CommerceWebServer` shape without importing or modifying `dsh-plugin-commerce-ops`.
-- [ ] Run route tests and `corepack yarn workspace dsh-plugin-xinian-commerce build`; expect pass.
+- [ ] 编写生命周期测试：合法状态迁移、非法迁移拒绝、事件追加幂等、`NO_PENDING_WORK`，以及四级验证结果的区分。
+- [ ] 运行定向运行时测试，确认服务缺失时失败。
+- [ ] 实现默认内存存储和可注入 JSONL 路径，加入显式迁移表、关联 ID、checkpoint 保留和 artifact manifest 保留。
+- [ ] 实现单 Agent 循环：Planner 创建计划，Executor 调用连接器，Verifier 验证输出，Repair 限制重试，Delivery 仅在所有门禁通过后标记交付。
+- [ ] 运行运行时测试和包级类型检查。
 
-### Task 4: Build the React workbench shell and interaction state
+## 任务 3：实现领域服务和 Host API
 
-**Files:**
-- Create: `dsh-plugin-xinian-commerce/src/client/App.tsx`
-- Create: `dsh-plugin-xinian-commerce/src/client/api.ts`
-- Create: `dsh-plugin-xinian-commerce/src/client/state.ts`
-- Create: `dsh-plugin-xinian-commerce/src/client/main.tsx`
-- Create: `dsh-plugin-xinian-commerce/src/client/components/Sidebar.tsx`
-- Create: `dsh-plugin-xinian-commerce/src/client/components/TopBar.tsx`
-- Create: `dsh-plugin-xinian-commerce/src/client/components/TaskDrawer.tsx`
-- Create: `dsh-plugin-xinian-commerce/src/client/pages/DashboardPage.tsx`
-- Create: `dsh-plugin-xinian-commerce/src/client/pages/ProductLibraryPage.tsx`
-- Create: `dsh-plugin-xinian-commerce/src/client/pages/ContentStudioPage.tsx`
-- Create: `dsh-plugin-xinian-commerce/src/client/pages/PublishWorkspacePage.tsx`
-- Create: `dsh-plugin-xinian-commerce/src/client/pages/AnalyticsPage.tsx`
-- Create: `dsh-plugin-xinian-commerce/src/client/pages/AgentRunPage.tsx`
-- Create: `dsh-plugin-xinian-commerce/tests/client-state.spec.ts`
+**文件：**
 
-**Interfaces:**
-- Consumes the API client and `WorkspaceState`; produces navigation, task filters, product selection, task drawer, approval drawer, and responsive module rendering.
+- 新建：`dsh-plugin-xinian-commerce/src/domain/product-service.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/domain/content-service.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/domain/publish-service.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/domain/analytics-service.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/connectors/mock-connector.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/host/service.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/host/routes.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/plugin.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/index.ts`
+- 新建：`dsh-plugin-xinian-commerce/tests/routes.spec.ts`
 
-- [ ] Write state tests for module navigation, task filter changes, drawer open/close, and clearing selection after a task is cancelled.
-- [ ] Run the focused state tests; expect failure because the UI state module is absent.
-- [ ] Implement typed API calls with error envelopes and explicit loading/error/empty states; build the six modules with realistic mock responses from the local API.
-- [ ] Wire primary interactions: create product, generate content task, open task details, approve/reject, start/pause/cancel, repair, and inspect artifacts.
-- [ ] Run state tests and `corepack yarn workspace dsh-plugin-xinian-commerce build:client`; expect pass.
+**接口：**
 
-### Task 5: Add redesigned CSS, static serving, and desktop plugin registration
+- 使用任务 1 的契约和任务 2 的运行时服务。
+- 输出 `/api/xinian/health`、dashboard、商品 CRUD、内容生成/审批/重试、任务生命周期/事件/artifacts/checkpoint、店铺、发布预览/执行和分析接口。
 
-**Files:**
-- Create: `dsh-plugin-xinian-commerce/src/styles/tokens.css`
-- Create: `dsh-plugin-xinian-commerce/src/styles/layout.css`
-- Create: `dsh-plugin-xinian-commerce/src/styles/components.css`
-- Create: `dsh-plugin-xinian-commerce/src/styles/motion.css`
-- Modify: `dsh-plugin-xinian-commerce/src/client/main.tsx`
-- Modify: `dsh-plugin-xinian-commerce/src/host/routes.ts`
-- Modify: `dsh-plugin-xinian-commerce/src/plugin.ts`
-- Create: `dsh-plugin-xinian-commerce/tests/static-serving.spec.ts`
+- [ ] 编写路由测试：健康检查、商品创建/列表、任务创建/启动、需要审批的发布预览、非法 JSON、同源校验和缺少输入时的 `WAITING_INPUT`。
+- [ ] 运行定向路由测试，确认 Host 服务和路由缺失时失败。
+- [ ] 实现有大小限制的 JSON 解析、request ID、统一 API 错误、同源检查、路径校验和明确标记为 mock 的数据。
+- [ ] 按现有 `CommerceWebServer` 形态注册路由，不引入或修改 `dsh-plugin-commerce-ops`。
+- [ ] 运行路由测试和 `corepack yarn workspace dsh-plugin-xinian-commerce build`。
 
-**Interfaces:**
-- Consumes the workbench bundle from Task 4 and host registration from Task 3.
-- Produces `/xinian-commerce/` static serving with traversal protection, desktop-safe layout, and a mobile bottom navigation breakpoint.
+## 任务 4：构建 React 工作台和交互状态
 
-- [ ] Write static-serving tests for HTML entry, CSS/JS content types, unknown asset 404, encoded traversal rejection, and redirect from `/xinian-commerce` to `/xinian-commerce/`.
-- [ ] Run focused serving tests; expect failure until the static handler exists.
-- [ ] Implement fresh light-workbench tokens, focus-visible states, reduced-motion behavior, card/table/drawer styles, and responsive layout without hotlinked source assets.
-- [ ] Add static serving using the same safe-root pattern as existing desktop-owned pages, with `DSH_XINIAN_COMMERCE_DIST` override.
-- [ ] Run serving tests and client build; expect pass.
+**文件：**
 
-### Task 6: Verify the package and document runtime operations
+- 新建：`dsh-plugin-xinian-commerce/src/client/App.tsx`
+- 新建：`dsh-plugin-xinian-commerce/src/client/api.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/client/state.ts`
+- 新建：`dsh-plugin-xinian-commerce/src/client/main.tsx`
+- 新建：`dsh-plugin-xinian-commerce/src/client/components/Sidebar.tsx`
+- 新建：`dsh-plugin-xinian-commerce/src/client/components/TopBar.tsx`
+- 新建：`dsh-plugin-xinian-commerce/src/client/components/TaskDrawer.tsx`
+- 新建：`dsh-plugin-xinian-commerce/src/client/pages/DashboardPage.tsx`
+- 新建：`dsh-plugin-xinian-commerce/src/client/pages/ProductLibraryPage.tsx`
+- 新建：`dsh-plugin-xinian-commerce/src/client/pages/ContentStudioPage.tsx`
+- 新建：`dsh-plugin-xinian-commerce/src/client/pages/PublishWorkspacePage.tsx`
+- 新建：`dsh-plugin-xinian-commerce/src/client/pages/AnalyticsPage.tsx`
+- 新建：`dsh-plugin-xinian-commerce/src/client/pages/AgentRunPage.tsx`
+- 新建：`dsh-plugin-xinian-commerce/tests/client-state.spec.ts`
 
-**Files:**
-- Create: `dsh-plugin-xinian-commerce/README.md`
-- Create: `dsh-plugin-xinian-commerce/tests/smoke.spec.ts`
-- Modify: `docs/superpowers/specs/2026-09-11-xinian-commerce-plugin-design.md` only if implementation evidence requires a contract correction.
+**接口：**
 
-**Interfaces:**
-- Consumes all previous tasks and produces reproducible commands, endpoint examples, and honest verification evidence.
+- 使用 API 客户端和 `WorkspaceState`。
+- 输出导航、任务筛选、商品选择、任务抽屉、审批抽屉和响应式模块渲染。
 
-- [ ] Write a headless smoke test that instantiates the host route adapter, calls `/api/xinian/health`, creates a mock product, starts a content task, and verifies the final status and manifest without claiming external platform delivery.
-- [ ] Run package unit tests, typecheck, TypeScript build, Vite build, and the smoke test from a clean process.
-- [ ] Inspect generated file paths and `git diff --check`; confirm no secrets or upstream submodule changes.
-- [ ] Write README commands for install, build, test, typecheck, host integration, and mock connector limitations.
-- [ ] Run the complete root gate required by the repository where feasible: `corepack yarn check`.
+- [ ] 编写状态测试：模块导航、任务筛选、抽屉开关，以及任务取消后清理选择状态。
+- [ ] 运行定向状态测试，确认状态模块缺失时失败。
+- [ ] 实现带错误信封的类型化 API 调用，以及明确的加载、错误和空状态。
+- [ ] 完成六个工作台模块，使用本地 API 返回的真实 mock 响应。
+- [ ] 接通创建商品、生成内容任务、打开任务详情、审批/拒绝、启动/暂停/取消、修复和查看 artifacts。
+- [ ] 运行状态测试和 `corepack yarn workspace dsh-plugin-xinian-commerce build:client`。
 
-## Final Review Checklist
+## 任务 5：加入全新 CSS、静态服务和桌面插件注册
 
-- [ ] `dsh-plugin-xinian-commerce` is present in root workspaces and builds independently.
-- [ ] No files under `deepseek-harness/` changed.
-- [ ] No existing user changes were reset, staged, or committed by implementation work.
-- [ ] API errors, task states, events, checkpoints, artifacts, and approvals are independently testable.
-- [ ] Frontend primary interactions work against the local API and have explicit waiting/error/empty states.
-- [ ] Completion claims use fresh command output and distinguish process, output, business acceptance, and delivery evidence.
+**文件：**
+
+- 新建：`dsh-plugin-xinian-commerce/src/styles/tokens.css`
+- 新建：`dsh-plugin-xinian-commerce/src/styles/layout.css`
+- 新建：`dsh-plugin-xinian-commerce/src/styles/components.css`
+- 新建：`dsh-plugin-xinian-commerce/src/styles/motion.css`
+- 修改：`dsh-plugin-xinian-commerce/src/client/main.tsx`
+- 修改：`dsh-plugin-xinian-commerce/src/host/routes.ts`
+- 修改：`dsh-plugin-xinian-commerce/src/plugin.ts`
+- 新建：`dsh-plugin-xinian-commerce/tests/static-serving.spec.ts`
+
+**接口：**
+
+- 使用任务 4 生成的工作台构建产物和任务 3 的 Host 注册。
+- 输出 `/xinian-commerce/` 静态服务、目录穿越保护、桌面安全布局和移动端底部导航断点。
+
+- [ ] 编写静态服务测试：HTML 入口、CSS/JS Content-Type、未知资源 404、编码后的目录穿越拒绝，以及无尾斜杠路径重定向。
+- [ ] 运行定向静态服务测试，确认静态处理器缺失时失败。
+- [ ] 实现全新的浅色工作台 tokens、键盘焦点态、减少动效支持、卡片/表格/抽屉样式和响应式布局。
+- [ ] 使用与现有桌面页面相同的安全根目录模式，并支持 `DSH_XINIAN_COMMERCE_DIST` 覆盖路径。
+- [ ] 运行静态服务测试和前端构建。
+
+## 任务 6：完成包级验证和运行文档
+
+**文件：**
+
+- 新建：`dsh-plugin-xinian-commerce/README.md`
+- 新建：`dsh-plugin-xinian-commerce/tests/smoke.spec.ts`
+- 仅在实现证据要求调整契约时修改：`docs/superpowers/specs/2026-09-11-xinian-commerce-plugin-design.md`
+
+**接口：**
+
+- 使用前面所有任务的产物，输出可重复的运行命令、接口示例和真实验证证据。
+
+- [ ] 编写无头冒烟测试：实例化 Host 路由适配器、调用 `/api/xinian/health`、创建 mock 商品、启动内容任务，并验证最终状态和 manifest；不宣称真实平台交付。
+- [ ] 独立进程运行包级单元测试、类型检查、TypeScript 构建、Vite 构建和冒烟测试。
+- [ ] 检查生成文件路径和 `git diff --check`，确认没有密钥，也没有上游子模块变化。
+- [ ] 编写 README，说明安装、构建、测试、类型检查、Host 集成和 mock 连接器限制。
+- [ ] 在可行时运行仓库要求的完整门禁：`corepack yarn check`。
+
+## 最终检查清单
+
+- [ ] `dsh-plugin-xinian-commerce` 已加入根 workspace 并可独立构建。
+- [ ] `deepseek-harness/` 下没有文件变化。
+- [ ] 实施过程没有重置、暂存或提交既有用户改动。
+- [ ] API 错误、任务状态、事件、checkpoint、artifacts 和审批均可独立测试。
+- [ ] 前端主要交互连接本地 API，并具有明确的等待、错误和空状态。
+- [ ] 最终结论使用本轮新运行的命令输出，并区分进程、输出、业务接受和交付证据。
