@@ -1296,6 +1296,35 @@ describe('catalog active-source reads', () => {
     expect(second).toMatchObject({ cacheStatus: 'cached', locale: 'zh-CN', scanKey: first?.scanKey })
   })
 
+  it('evicts the least recently used scan index when the cache entry limit is reached', async () => {
+    const store = new MemoryCatalogSourceStore()
+    await store.save([source()])
+    const getJson = vi.fn()
+      .mockResolvedValue({ value: rawCatalog, finalUrl: 'https://deepseek1024.com/api/v1/plugins' })
+    const service = new DefaultCatalogService(store, { getJson }, { maxCacheEntries: 2 })
+
+    await service.scanCatalog(new AbortController().signal, { locale: 'en' })
+    await service.scanCatalog(new AbortController().signal, { locale: 'zh-CN' })
+    // Touch 'en' again so 'zh-CN' becomes the least recently used entry.
+    await service.scanCatalog(new AbortController().signal, { locale: 'en' })
+    expect(getJson).toHaveBeenCalledTimes(2)
+
+    await service.scanCatalog(new AbortController().signal, { locale: 'ja' })
+    expect(getJson).toHaveBeenCalledTimes(3)
+
+    // 'zh-CN' was evicted; 'en' and 'ja' keep serving from the cache.
+    const en = await service.scanCatalog(new AbortController().signal, { locale: 'en' })
+    const ja = await service.scanCatalog(new AbortController().signal, { locale: 'ja' })
+    expect(getJson).toHaveBeenCalledTimes(3)
+    expect(en).toMatchObject({ cacheStatus: 'cached' })
+    expect(ja).toMatchObject({ cacheStatus: 'cached' })
+
+    // Reading the evicted locale must refetch instead of growing the cache.
+    const zh = await service.scanCatalog(new AbortController().signal, { locale: 'zh-CN' })
+    expect(getJson).toHaveBeenCalledTimes(4)
+    expect(zh).toMatchObject({ cacheStatus: 'fresh' })
+  })
+
   it('fails closed and revokes old cursors before rebuilding an expired complete index', async () => {
     const store = new MemoryCatalogSourceStore()
     await store.save([source()])
@@ -1330,6 +1359,54 @@ describe('catalog active-source reads', () => {
     expect(() => service.queryCatalog(
       firstIndex,
       { limit: 1 },
+      { sourceRecordId: source().sourceRecordId, cursor: cursor! },
+    )).toThrow(/unknown or expired/u)
+  })
+
+  it('revokes paging cursors when eviction removes their scan index', async () => {
+    const store = new MemoryCatalogSourceStore()
+    await store.save([source()])
+    const secondItem = {
+      ...rawPlugin,
+      id: 'anywhere-labs/second-plugin',
+      name: 'second-plugin',
+      url: 'https://github.com/anywhere-labs/second-plugin',
+    }
+    const rebuiltItem = {
+      ...rawPlugin,
+      id: 'anywhere-labs/rebuilt-plugin',
+      name: 'rebuilt-plugin',
+      url: 'https://github.com/anywhere-labs/rebuilt-plugin',
+    }
+    const getJson = vi.fn()
+      .mockResolvedValueOnce({
+        value: catalogPage([rawPlugin, secondItem]),
+        finalUrl: 'https://deepseek1024.com/api/v2/plugins?page=1&limit=200',
+      })
+      .mockResolvedValueOnce({
+        // The post-eviction rebuild returns different content; an old cursor
+        // that still validates would page across the rebuild boundary.
+        value: catalogPage([rawPlugin, secondItem, rebuiltItem]),
+        finalUrl: 'https://deepseek1024.com/api/v2/plugins?page=1&limit=200',
+      })
+    const service = new DefaultCatalogService(store, { getJson }, { maxCacheEntries: 1 })
+
+    const firstIndex = (await service.scanCatalog(new AbortController().signal, { locale: 'en' }))!
+    const [page] = service.queryCatalog(
+      firstIndex,
+      { limit: 1, locale: 'en' },
+      { sourceRecordId: source().sourceRecordId },
+    )
+    const cursor = page?.snapshot?.page.nextCursor
+    expect(cursor).toBeDefined()
+
+    // A second locale evicts 'en' (limit 1); the eviction revokes the
+    // source's cursors instead of leaving them valid across the rebuild.
+    await service.scanCatalog(new AbortController().signal, { locale: 'zh-CN' })
+    expect(getJson).toHaveBeenCalledTimes(2)
+    expect(() => service.queryCatalog(
+      firstIndex,
+      { limit: 1, locale: 'en' },
       { sourceRecordId: source().sourceRecordId, cursor: cursor! },
     )).toThrow(/unknown or expired/u)
   })
