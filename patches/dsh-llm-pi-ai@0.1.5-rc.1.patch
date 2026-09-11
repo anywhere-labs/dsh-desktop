@@ -1,0 +1,36 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1720,6 +1720,23 @@ function reasoningInfo(model, defaultLevel) {
+ 	} };
+ }
+ /** Merge deployment headers while removing case-insensitive attribution collisions. */
++/**
++ * OpenCode routes (OpenCode Go and the main zen gateway) require a stable
++ * per-conversation id in `x-opencode-session` on every inference request for
++ * routing and prompt-caching optimization; requests without it are rejected
++ * with a 400 MissingSessionID since 2026-09-05. The harness session id is
++ * already that stable id: compaction, resume and retries keep it, while new
++ * conversations, forks and subagents mint fresh ones. Send its bare UUID when
++ * the id is `session-<uuid>`-shaped, otherwise the raw id.
++ */
++function openCodeHeaders(headers, provider, sessionId) {
++	if (typeof provider === "string" && provider.startsWith("opencode") && sessionId !== void 0) {
++		const value = String(sessionId);
++		const bareUuid = value.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)?.[1];
++		return { ...(headers ?? {}), "x-opencode-session": (bareUuid ?? value).toLowerCase() };
++	}
++	return headers;
++}
+ function requestHeaders(headers) {
+ 	const attribution = attributionHeaders();
+ 	const reserved = new Set(Object.keys(attribution).map((name) => name.toLowerCase()));
+@@ -1870,7 +1887,7 @@ var PiAiAdapter = class extends LlmAdapter {
+ 					...options.maxTokens === void 0 ? {} : { maxTokens: options.maxTokens },
+ 					...options.sessionId === void 0 ? {} : { sessionId: String(options.sessionId) },
+ 					signal: watchdog.signal,
+-					headers: requestHeaders(profile.headers)
++					headers: openCodeHeaders(requestHeaders(profile.headers), options.provider, options.sessionId)
+ 				}), model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]();
+ 				let exhausted = false;
+ 				try {
