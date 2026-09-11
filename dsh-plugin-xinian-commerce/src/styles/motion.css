@@ -1,0 +1,1 @@
+@media(prefers-reduced-motion:no-preference){.xn-quick-grid button,.xn-primary,.xn-sidebar button{transition:transform .18s ease,filter .18s ease,background .18s ease}.xn-orbit i{animation:xn-spin 13s linear infinite}.xn-orbit i:nth-child(2){animation-duration:9s}.xn-orbit i:nth-child(3){animation-duration:17s}}@keyframes xn-spin{to{transform:rotate(360deg)}}

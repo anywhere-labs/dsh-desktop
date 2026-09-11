@@ -1,0 +1,1 @@
+export function AnalyticsPage() { return <div className="xn-page-card"><span className="xn-eyebrow">ANALYTICS</span><h2>店铺数据</h2><div className="xn-chart-placeholder"><div className="xn-bars"><i /><i /><i /><i /><i /><i /><i /></div><span>本地 mock 数据缓存，连接店铺后显示真实趋势</span></div></div> }

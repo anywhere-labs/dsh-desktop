@@ -1,0 +1,3 @@
+async function request(path, init) { const response = await fetch(`/api/xinian${path}`, { headers: { 'content-type': 'application/json' }, ...init }); const value = await response.json(); if (!response.ok)
+    throw new Error(value.error?.message ?? `请求失败（${response.status}）`); return value; }
+export const api = { dashboard: () => request('/dashboard'), products: () => request('/products'), createProduct: (data) => request('/products', { method: 'POST', body: JSON.stringify(data) }), createTask: (data) => request('/tasks', { method: 'POST', body: JSON.stringify(data) }), generate: (productId) => request('/content/generate', { method: 'POST', body: JSON.stringify({ productId }) }) };

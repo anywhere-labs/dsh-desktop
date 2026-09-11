@@ -8174,7 +8174,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/react-dom@npm:^18":
+"@types/react-dom@npm:^18, @types/react-dom@npm:^18.3.0":
   version: 18.3.7
   resolution: "@types/react-dom@npm:18.3.7"
   peerDependencies:
@@ -10507,6 +10507,24 @@ __metadata:
   bin:
     dsh-desktop: lib/bin.js
     dsh-plugin-desktop: lib/bin.js
+  languageName: unknown
+  linkType: soft
+
+"dsh-plugin-xinian-commerce@workspace:dsh-plugin-xinian-commerce":
+  version: 0.0.0-use.local
+  resolution: "dsh-plugin-xinian-commerce@workspace:dsh-plugin-xinian-commerce"
+  dependencies:
+    "@deepseek-ai/cordis": "npm:4.0.1"
+    "@types/node": "npm:^22.0.0"
+    "@types/react": "npm:^18.3.0"
+    "@types/react-dom": "npm:^18.3.0"
+    "@vitejs/plugin-react": "npm:^4.3.4"
+    react: "npm:18.3.1"
+    react-dom: "npm:18.3.1"
+    typescript: "npm:^5.8.0"
+    vite: "npm:^5.4.0"
+    vitest: "npm:^3.2.0"
+    zod: "npm:^3.25.0"
   languageName: unknown
   linkType: soft
 
