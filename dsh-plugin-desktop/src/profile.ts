@@ -1034,8 +1034,11 @@ export function prepareDesktopProfile(
         throw new Error(`${BIN_NAME}: ${mode} desktop mode must use ${packageName} in the ${id} row`)
       }
     }
+    // Keep the upstream layout as a boot-safe fallback. The Desktop client
+    // tries to claim the shared service when it activates; if it is delayed
+    // or unavailable, sidebar and conversation must still have a provider.
     patches.push(
-      { id: 'ui-layout', disabled: true },
+      { id: 'ui-layout', disabled: false },
       { id: 'ui-sidebar', disabled: false },
       { id: 'ui-conversation', disabled: false },
     )

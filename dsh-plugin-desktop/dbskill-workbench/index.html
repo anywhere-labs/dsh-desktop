@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="DSH Desktop 中的 dbskill 商业诊断工作台">
+    <title>商业诊断 · DSH 工作台</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="home" type="button" data-home>← 返回 DSH</button>
+      <div class="brand"><span>DSH / WORKBENCH</span><strong>商业诊断</strong></div>
+      <a href="https://github.com/dontbesilent2025/dbskill" target="_blank" rel="noreferrer">项目来源 ↗</a>
+    </header>
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">DON'T BE SILENT · DBSKILL</p>
+          <h1>先把问题诊断清楚，<br>再决定下一步动作。</h1>
+          <p class="lead">这是 dbskill 在 DSH 内的工作台入口。选择工具后复制启动指令，回到 DSH 对话并补充你的真实材料。</p>
+        </div>
+        <aside>
+          <span>当前接入状态</span>
+          <strong>UI 工作台已接入</strong>
+          <p>上游提供 Skills 与知识库，没有独立应用 UI。本页是 DSH 的桌面适配层。</p>
+        </aside>
+      </section>
+      <section class="toolbar">
+        <label><span>⌕</span><input data-search type="search" placeholder="搜索诊断、内容、决策或执行工具"></label>
+        <nav data-filters aria-label="工具分类"></nav>
+      </section>
+      <section class="grid" data-grid aria-live="polite"></section>
+      <section class="license">
+        <div><span>授权边界</span><h2>可评估、可学习，不等于已获商业授权。</h2></div>
+        <p>dbskill 采用 CC BY-NC 4.0。个人、学习、研究与非商业使用可按协议进行；商业用途需要联系原作者取得单独授权。DSH 保留来源标注，不将接入状态表述为商业授权状态。</p>
+      </section>
+    </main>
+    <div class="toast" data-toast role="status"></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

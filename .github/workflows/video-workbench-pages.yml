@@ -1,0 +1,59 @@
+name: Workbenches Pages
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'dsh-video-workbench/**'
+      - 'dsh-product-visual-workbench/**'
+      - '.github/workflows/video-workbench-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: workbenches-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - name: Install video workbench dependencies
+        run: npm ci --workspaces=false
+        working-directory: dsh-video-workbench
+      - name: Build video workbench
+        run: npm run build
+        working-directory: dsh-video-workbench
+      - name: Install product visual dependencies
+        run: npm ci --workspaces=false
+        working-directory: dsh-product-visual-workbench
+      - name: Build product visual workbench
+        run: npm run build
+        working-directory: dsh-product-visual-workbench
+      - name: Assemble Pages artifact
+        run: |
+          mkdir -p site/product-visual-workbench
+          cp -R dsh-video-workbench/dist/. site/
+          cp -R dsh-product-visual-workbench/dist/. site/product-visual-workbench/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

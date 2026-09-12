@@ -12,5 +12,19 @@ node_modules/
 dsh-plugin-desktop/dist/
 dsh-plugin-desktop/lib/
 dsh-community-market/lib/
+dsh-video-workbench/dist/
+dsh-product-visual-workbench/dist/
+product-visual-backend/storage/
+product-visual-backend/runtime_logs/
+product-visual-backend/.env
+product-visual-backend/.venv/
+product-visual-backend/.runtime/
+product-visual-backend/**/__pycache__/
+product-visual-backend/**/*.pyc
+product-visual-backend/.pytest_cache/
+
+.worktrees/
 
 .env.yarn
+.env.liblib.local
+.env.feishu.local

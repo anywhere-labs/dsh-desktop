@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>立白 05 STP Strategy | 市场分群与定位策略看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- 导航 -->
+    <nav class="nav-bar" id="navbar">
+        <div class="nav-brand">
+            <div class="brand-logo">LIBY</div>
+            <span class="brand-title">05 STP Strategy Dashboard</span>
+        </div>
+        <div class="nav-links">
+            <a href="#segmentation" class="nav-link active">市场分群</a>
+            <a href="#scoring" class="nav-link">分群评分</a>
+            <a href="#targeting" class="nav-link">目标架构</a>
+            <a href="#positioning" class="nav-link">定位机会</a>
+            <a href="#tradeoffs" class="nav-link">战略权衡</a>
+        </div>
+        <div class="nav-meta">
+            <span class="meta-date">2026-09-05</span>
+            <span class="meta-status">Provisional</span>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <header class="hero">
+        <div class="hero-bg"></div>
+        <div class="hero-content">
+            <div class="hero-badge">05 STP Strategy</div>
+            <h1 class="hero-title">
+                立白市场分群、目标人群选择与<br>
+                <span class="highlight">差异化定位策略</span>
+            </h1>
+            <p class="hero-subtitle">
+                基于 01-04 研究层的市场洞察、消费者需求与竞争格局，<br>
+                推导核心增长人群、市场层级与 Positioning Opportunity
+            </p>
+            <div class="hero-stats">
+                <div class="stat-item">
+                    <div class="stat-num">5</div>
+                    <div class="stat-label">核心分群</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-num">7</div>
+                    <div class="stat-label">Need States</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-num">3</div>
+                    <div class="stat-label">市场层级</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-num">1</div>
+                    <div class="stat-label">核心定位</div>
+                </div>
+            </div>
+        </div>
+        <div class="hero-arrow">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12l7 7 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <!-- Section 1: Segmentation Model -->
+        <section class="section" id="segmentation">
+            <div class="section-header">
+                <div class="section-num">01</div>
+                <div class="section-info">
+                    <h2 class="section-title">市场分群模型</h2>
+                    <p class="section-desc">基于 7 大 Need States × 消费者画像特征 × 行为数据的三维聚类</p>
+                </div>
+            </div>
+
+            <div class="segment-tabs">
+                <button class="seg-tab active" data-seg="premium">品质精进族</button>
+                <button class="seg-tab" data-seg="health">健康安全派</button>
+                <button class="seg-tab" data-seg="efficiency">高效务实家</button>
+                <button class="seg-tab" data-seg="smart">精明尝新者</button>
+                <button class="seg-tab" data-seg="traditional">传统持家型</button>
+            </div>
+
+            <div class="segment-content" id="segmentContent">
+                <!-- Dynamic content populated by JS -->
+            </div>
+
+            <div class="segment-compare">
+                <h3 class="compare-title">分群对比矩阵</h3>
+                <div class="compare-table-wrap">
+                    <table class="compare-table" id="compareTable">
+                        <thead>
+                            <tr>
+                                <th>分群</th>
+                                <th>核心 Need State</th>
+                                <th>年龄层</th>
+                                <th>城市线级</th>
+                                <th>消费能力</th>
+                                <th>触媒偏好</th>
+                                <th>立白产品匹配</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr data-seg="premium" class="highlight-row">
+                                <td><span class="seg-tag tag-premium">品质精进族</span></td>
+                                <td>香氛体验 + 护衣 + 专护</td>
+                                <td>25-35岁</td>
+                                <td>一线/新一线</td>
+                                <td>中高</td>
+                                <td>小红书/抖音/私域</td>
+                                <td>大师香氛 · 花植柔护</td>
+                            </tr>
+                            <tr data-seg="health">
+                                <td><span class="seg-tag tag-health">健康安全派</span></td>
+                                <td>除菌 + 天然 + 母婴敏感</td>
+                                <td>25-38岁</td>
+                                <td>全城市线</td>
+                                <td>中上</td>
+                                <td>母婴社区/京东/微信</td>
+                                <td>立白卫仕 · 好爸爸</td>
+                            </tr>
+                            <tr data-seg="efficiency">
+                                <td><span class="seg-tag tag-efficiency">高效务实家</span></td>
+                                <td>快洗 + 便利 + 基础洁净</td>
+                                <td>28-40岁</td>
+                                <td>二线及以上</td>
+                                <td>中等</td>
+                                <td>天猫/超市/抖音</td>
+                                <td>洗衣凝珠 · 浓缩液</td>
+                            </tr>
+                            <tr data-seg="smart">
+                                <td><span class="seg-tag tag-smart">精明尝新者</span></td>
+                                <td>香氛 + 性价比 + 社交货币</td>
+                                <td>22-30岁</td>
+                                <td>一线/二线</td>
+                                <td>中低-中</td>
+                                <td>抖音/B站/小红书</td>
+                                <td>大师香氛 · 卫仕</td>
+                            </tr>
+                            <tr data-seg="traditional">
+                                <td><span class="seg-tag tag-traditional">传统持家型</span></td>
+                                <td>基础洁净 + 性价比 + 耐用</td>
+                                <td>35-55岁</td>
+                                <td>三四线为主</td>
+                                <td>中低</td>
+                                <td>电视/商超/拼多多</td>
+                                <td>超洁洗衣粉 · 洗洁精</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Segment Scoring -->
+        <section class="section" id="scoring">
+            <div class="section-header">
+                <div class="section-num">02</div>
+                <div class="section-info">
+                    <h2 class="section-title">分群评分矩阵</h2>
+                    <p class="section-desc">Attractiveness × Company Fit 双维度评估，权重按立白当前战略校准</p>
+                </div>
+            </div>
+
+            <div class="scoring-layout">
+                <div class="scoring-chart">
+                    <div id="scatterChart" style="width:100%;height:420px;"></div>
+                </div>
+                <div class="scoring-details">
+                    <div class="score-card score-premium">
+                        <div class="score-rank">#1</div>
+                        <div class="score-info">
+                            <div class="score-name">品质精进族</div>
+                            <div class="score-bar-wrap">
+                                <div class="score-bar" style="width:90%"></div>
+                            </div>
+                            <div class="score-num">8.05</div>
+                        </div>
+                        <div class="score-tags">
+                            <span class="score-tag tag-growth">核心增长</span>
+                        </div>
+                    </div>
+                    <div class="score-card score-health">
+                        <div class="score-rank">#2</div>
+                        <div class="score-info">
+                            <div class="score-name">健康安全派</div>
+                            <div class="score-bar-wrap">
+                                <div class="score-bar" style="width:84%"></div>
+                            </div>
+                            <div class="score-num">7.55</div>
+                        </div>
+                        <div class="score-tags">
+                            <span class="score-tag tag-defend">核心防守</span>
+                        </div>
+                    </div>
+                    <div class="score-card score-efficiency">
+                        <div class="score-rank">#3</div>
+                        <div class="score-info">
+                            <div class="score-name">高效务实家</div>
+                            <div class="score-bar-wrap">
+                                <div class="score-bar" style="width:77%"></div>
+                            </div>
+                            <div class="score-num">6.85</div>
+                        </div>
+                        <div class="score-tags">
+                            <span class="score-tag tag-secondary">次要增长</span>
+                        </div>
+                    </div>
+                    <div class="score-card score-smart">
+                        <div class="score-rank">#4</div>
+                        <div class="score-info">
+                            <div class="score-name">精明尝新者</div>
+                            <div class="score-bar-wrap">
+                                <div class="score-bar" style="width:74%"></div>
+                            </div>
+                            <div class="score-num">6.65</div>
+                        </div>
+                        <div class="score-tags">
+                            <span class="score-tag tag-secondary">次要增长</span>
+                        </div>
+                    </div>
+                    <div class="score-card score-traditional">
+                        <div class="score-rank">#5</div>
+                        <div class="score-info">
+                            <div class="score-name">传统持家型</div>
+                            <div class="score-bar-wrap">
+                                <div class="score-bar" style="width:67%"></div>
+                            </div>
+                            <div class="score-num">5.95</div>
+                        </div>
+                        <div class="score-tags">
+                            <span class="score-tag tag-defend">核心防守</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="score-breakdown">
+                <h3 class="breakdown-title">评分维度明细</h3>
+                <p class="breakdown-note">权重：市场潜力(25%) · 产品匹配(20%) · 心智匹配(15%) · 渠道可达(15%) · 竞争强度反向(10%) · 利润潜力(15%)</p>
+                <div id="radarChart" style="width:100%;height:400px;"></div>
+            </div>
+        </section>
+
+        <!-- Section 3: Targeting Architecture -->
+        <section class="section" id="targeting">
+            <div class="section-header">
+                <div class="section-num">03</div>
+                <div class="section-info">
+                    <h2 class="section-title">目标人群与市场层级架构</h2>
+                    <p class="section-desc">核心增长 / 核心防守 / 次要增长三层结构，明确资源分配优先级</p>
+                </div>
+            </div>
+
+            <div class="target-architecture">
+                <!-- 核心增长 -->
+                <div class="target-tier tier-growth">
+                    <div class="tier-header">
+                        <div class="tier-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                        </div>
+                        <div class="tier-label">核心增长市场</div>
+                        <div class="tier-priority">Priority 1</div>
+                    </div>
+                    <div class="tier-body">
+                        <div class="tier-segments">
+                            <div class="tier-seg active" data-tier="growth" data-seg="premium">
+                                <div class="seg-avatar" style="background: linear-gradient(135deg,#f093fb,#f5576c)">品</div>
+                                <div class="seg-meta">
+                                    <div class="seg-name">品质精进族</div>
+                                    <div class="seg-size">~25% 市场 / 40%+ 价值增长</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tier-strategy">
+                            <h4>战略意图</h4>
+                            <p>立白从「大众洗护领导者」向「高价值衣物护理领导者」转型的核心引擎。大师香氛系列已验证市场接受度，需持续投入构建「香氛衣物护理生态」。</p>
+                            <div class="strategy-kpis">
+                                <div class="kpi"><span class="kpi-label">目标</span><span class="kpi-value">大师香氛占比提升</span></div>
+                                <div class="kpi"><span class="kpi-label">战场</span><span class="kpi-value">洗衣液 / 凝珠 / 柔顺</span></div>
+                                <div class="kpi"><span class="kpi-label">对手</span><span class="kpi-value">蓝月亮 / 绽家 / 金纺</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 核心防守 -->
+                <div class="target-tier tier-defend">
+                    <div class="tier-header">
+                        <div class="tier-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                        </div>
+                        <div class="tier-label">核心防守市场</div>
+                        <div class="tier-priority">Priority 2</div>
+                    </div>
+                    <div class="tier-body">
+                        <div class="tier-segments">
+                            <div class="tier-seg" data-tier="defend" data-seg="health">
+                                <div class="seg-avatar" style="background: linear-gradient(135deg,#4facfe,#00f2fe)">安</div>
+                                <div class="seg-meta">
+                                    <div class="seg-name">健康安全派</div>
+                                    <div class="seg-size">~18% 市场</div>
+                                </div>
+                            </div>
+                            <div class="tier-seg" data-tier="defend" data-seg="traditional">
+                                <div class="seg-avatar" style="background: linear-gradient(135deg,#a18cd1,#fbc2eb)">传</div>
+                                <div class="seg-meta">
+                                    <div class="seg-name">传统持家型</div>
+                                    <div class="seg-size">~27% 市场（收缩中）</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tier-strategy">
+                            <h4>战略意图</h4>
+                            <p><strong>健康安全派</strong>是向高端迁移的桥梁人群，卫仕品牌需强化「植物除菌专家」心智。<strong>传统持家型</strong>是立白规模与现金流基石，需通过「基础产品升级」引导向洗衣液/凝珠迁移，而非简单收割。</p>
+                            <div class="strategy-kpis">
+                                <div class="kpi"><span class="kpi-label">目标</span><span class="kpi-value">基本盘稳定 + 用户迁移</span></div>
+                                <div class="kpi"><span class="kpi-label">战场</span><span class="kpi-value">卫仕 / 洗衣粉 / 洗洁精</span></div>
+                                <div class="kpi"><span class="kpi-label">对手</span><span class="kpi-value">纳爱斯 / 联合利华</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 次要增长 -->
+                <div class="target-tier tier-secondary">
+                    <div class="tier-header">
+                        <div class="tier-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                        </div>
+                        <div class="tier-label">次要增长市场</div>
+                        <div class="tier-priority">Priority 3</div>
+                    </div>
+                    <div class="tier-body">
+                        <div class="tier-segments">
+                            <div class="tier-seg" data-tier="secondary" data-seg="efficiency">
+                                <div class="seg-avatar" style="background: linear-gradient(135deg,#43e97b,#38f9d7)">效</div>
+                                <div class="seg-meta">
+                                    <div class="seg-name">高效务实家</div>
+                                    <div class="seg-size">~20% 市场</div>
+                                </div>
+                            </div>
+                            <div class="tier-seg" data-tier="secondary" data-seg="smart">
+                                <div class="seg-avatar" style="background: linear-gradient(135deg,#fa709a,#fee140)">新</div>
+                                <div class="seg-meta">
+                                    <div class="seg-name">精明尝新者</div>
+                                    <div class="seg-size">~10% 市场</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tier-strategy">
+                            <h4>战略意图</h4>
+                            <p><strong>高效务实家</strong>天然匹配洗衣凝珠「便利性」价值，是凝珠品类扩容的核心人群。<strong>精明尝新者</strong>是社交媒体传播的「关键节点」，虽规模小但影响大，需通过 KOL/UGC 策略渗透。</p>
+                            <div class="strategy-kpis">
+                                <div class="kpi"><span class="kpi-label">目标</span><span class="kpi-value">品类扩容 + 声量放大</span></div>
+                                <div class="kpi"><span class="kpi-label">战场</span><span class="kpi-value">凝珠 / 抖音 / 小红书</span></div>
+                                <div class="kpi"><span class="kpi-label">对手</span><span class="kpi-value">奥妙快洗 / 新消费品牌</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="target-flow">
+                <h3 class="flow-title">人群迁移路径</h3>
+                <div class="flow-diagram">
+                    <div class="flow-node flow-traditional">
+                        <div class="flow-label">传统持家型</div>
+                        <div class="flow-desc">洗衣粉 / 基础洗洁精</div>
+                    </div>
+                    <div class="flow-arrow">
+                        <svg width="40" height="20" viewBox="0 0 40 20"><path d="M0 10h35M28 3l7 7-7 7" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+                        <span class="flow-action">价值升级引导</span>
+                    </div>
+                    <div class="flow-node flow-health">
+                        <div class="flow-label">健康安全派</div>
+                        <div class="flow-desc">卫仕 / 好爸爸</div>
+                    </div>
+                    <div class="flow-arrow">
+                        <svg width="40" height="20" viewBox="0 0 40 20"><path d="M0 10h35M28 3l7 7-7 7" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+                        <span class="flow-action">场景细分深化</span>
+                    </div>
+                    <div class="flow-node flow-premium">
+                        <div class="flow-label">品质精进族</div>
+                        <div class="flow-desc">大师香氛 / 花植柔护</div>
+                    </div>
+                </div>
+                <p class="flow-note">立白的用户生命周期管理核心逻辑：不是一次性触达所有人，而是建立「基础 → 健康 → 品质」的价值阶梯，让老用户自然向上迁移。</p>
+            </div>
+        </section>
+
+        <!-- Section 4: Positioning -->
+        <section class="section" id="positioning">
+            <div class="section-header">
+                <div class="section-num">04</div>
+                <div class="section-info">
+                    <h2 class="section-title">Positioning Opportunity</h2>
+                    <p class="section-desc">基于竞争空白与消费者心智空位的差异化定位推导</p>
+                </div>
+            </div>
+
+            <div class="positioning-grid">
+                <!-- Frame of Reference -->
+                <div class="pos-card pos-for">
+                    <div class="pos-card-header">
+                        <span class="pos-icon">📌</span>
+                        <h3>Frame of Reference</h3>
+                        <span class="pos-sub">参考框架</span>
+                    </div>
+                    <div class="pos-card-body">
+                        <p class="pos-statement">中国家庭<span class="emph">衣物护理解决方案</span></p>
+                        <p class="pos-detail">不只是「洗衣液品牌」，而是从清洁到护理、从功能到情绪的全场景衣物护理伙伴。参考框架的扩大让立白能够合法进入香氛、柔顺、专护等高价值领域。</p>
+                    </div>
+                </div>
+
+                <!-- Target -->
+                <div class="pos-card pos-target">
+                    <div class="pos-card-header">
+                        <span class="pos-icon">🎯</span>
+                        <h3>Target Audience</h3>
+                        <span class="pos-sub">核心目标</span>
+                    </div>
+                    <div class="pos-card-body">
+                        <p class="pos-statement"><span class="emph">25-35岁</span>追求生活品质升级的当代中国家庭</p>
+                        <p class="pos-detail">她们已经过了「能洗干净就行」的阶段，开始关注「衣服闻起来怎样」「穿的时候感觉怎样」「我的生活品质怎样」。</p>
+                    </div>
+                </div>
+
+                <!-- Points of Parity -->
+                <div class="pos-card pos-pop">
+                    <div class="pos-card-header">
+                        <span class="pos-icon">⚖️</span>
+                        <h3>Points of Parity</h3>
+                        <span class="pos-sub">共同点 · 必须达到的基准</span>
+                    </div>
+                    <div class="pos-card-body">
+                        <ul class="pos-list">
+                            <li><span class="check">✓</span> <strong>清洁能力</strong> — 进入市场的门票，不能丢</li>
+                            <li><span class="check">✓</span> <strong>品牌信任</strong> — 30年国民品牌积累</li>
+                            <li><span class="check">✓</span> <strong>渠道便利性</strong> — 全国线上线下全覆盖</li>
+                            <li><span class="check">✓</span> <strong>价格可及性</strong> — 从大众到中高端完整阶梯</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Points of Difference -->
+                <div class="pos-card pos-pod">
+                    <div class="pos-card-header">
+                        <span class="pos-icon">💎</span>
+                        <h3>Points of Difference</h3>
+                        <span class="pos-sub">差异点 · 心智锚定</span>
+                    </div>
+                    <div class="pos-card-body">
+                        <ul class="pos-list">
+                            <li><span class="star">★</span> <strong>天然香氛衣物护理专家</strong> — 从「天然洗护」升级为「天然+香氛+护理」</li>
+                            <li><span class="star">★</span> <strong>大师香氛心智资产</strong> — 已验证的 TOP SKU，情感价值差异化</li>
+                            <li><span class="star">★</span> <strong>全场景产品矩阵</strong> — 从内衣到羊毛、从凝珠到柔顺的完整生态</li>
+                            <li><span class="star">★</span> <strong>国民品牌的温度感</strong> — 不像国际品牌那么冷，不像新品牌那么飘</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Value Proposition -->
+                <div class="pos-card pos-vp wide">
+                    <div class="pos-card-header">
+                        <span class="pos-icon">✨</span>
+                        <h3>Value Proposition</h3>
+                        <span class="pos-sub">价值主张</span>
+                    </div>
+                    <div class="pos-card-body">
+                        <blockquote class="vp-quote">
+                            「立白不只是把衣服洗干净，而是让每一次穿衣都成为值得期待的生活仪式——<br>
+                            <span class="vp-highlight">以天然为底，以香氛为媒，为当代中国家庭提供从清洁到护理的全场景衣物解决方案。</span>」
+                        </blockquote>
+                        <div class="vp-pillars">
+                            <div class="pillar">
+                                <div class="pillar-icon">🌿</div>
+                                <div class="pillar-title">天然为底</div>
+                                <div class="pillar-desc">30年天然洗护基因，安全可信赖</div>
+                            </div>
+                            <div class="pillar">
+                                <div class="pillar-icon">🌸</div>
+                                <div class="pillar-title">香氛为媒</div>
+                                <div class="pillar-desc">大师级调香，让洗衣成为情绪体验</div>
+                            </div>
+                            <div class="pillar">
+                                <div class="pillar-icon">🏠</div>
+                                <div class="pillar-title">全场景解决</div>
+                                <div class="pillar-desc">从内衣到羊毛，从凝珠到柔顺</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reasons to Believe -->
+                <div class="pos-card pos-rtb wide">
+                    <div class="pos-card-header">
+                        <span class="pos-icon">🔐</span>
+                        <h3>Reasons to Believe</h3>
+                        <span class="pos-sub">信任理由 · 产品/业务真相</span>
+                    </div>
+                    <div class="pos-card-body">
+                        <div class="rtb-grid">
+                            <div class="rtb-item">
+                                <div class="rtb-num">01</div>
+                                <div class="rtb-content">
+                                    <div class="rtb-title">大师香氛已验证市场</div>
+                                    <div class="rtb-detail">2026Q1 线下洗衣液 TOP5 SKU 中占据 2 席，凝珠单 SKU 市占第一</div>
+                                </div>
+                            </div>
+                            <div class="rtb-item">
+                                <div class="rtb-num">02</div>
+                                <div class="rtb-content">
+                                    <div class="rtb-title">硬核研发实力</div>
+                                    <div class="rtb-detail">300+ 专业技术人员，563 项有效专利，196 项授权发明专利</div>
+                                </div>
+                            </div>
+                            <div class="rtb-item">
+                                <div class="rtb-num">03</div>
+                                <div class="rtb-content">
+                                    <div class="rtb-title">凝珠品类领导者</div>
+                                    <div class="rtb-detail">2026Q2 洗衣凝珠集团份额第一，CR5 市场集中度下持续领先</div>
+                                </div>
+                            </div>
+                            <div class="rtb-item">
+                                <div class="rtb-num">04</div>
+                                <div class="rtb-content">
+                                    <div class="rtb-title">30年国民品牌信任</div>
+                                    <div class="rtb-detail">洗衣粉、洗洁精品类第一，渠道覆盖全国，品牌认知度极高</div>
+                                </div>
+                            </div>
+                            <div class="rtb-item">
+                                <div class="rtb-num">05</div>
+                                <div class="rtb-content">
+                                    <div class="rtb-title">完整价值阶梯</div>
+                                    <div class="rtb-detail">从 ¥12.5/kg 基础款到 ¥74.3/kg 专护款，覆盖全消费层级</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 5: Tradeoffs -->
+        <section class="section" id="tradeoffs">
+            <div class="section-header">
+                <div class="section-num">05</div>
+                <div class="section-info">
+                    <h2 class="section-title">Strategic Tradeoffs</h2>
+                    <p class="section-desc">每一个战略选择都有代价，明确权衡才能避免执行中的漂移</p>
+                </div>
+            </div>
+
+            <div class="tradeoff-cards">
+                <div class="tradeoff-card">
+                    <div class="tradeoff-header">
+                        <div class="tradeoff-icon tradeoff-icon-a">A</div>
+                        <h3>资源倾斜：传统基本盘 vs 价值升级</h3>
+                    </div>
+                    <div class="tradeoff-body">
+                        <div class="tradeoff-choice">
+                            <div class="choice-col choice-selected">
+                                <div class="choice-label">选择</div>
+                                <div class="choice-text">将新品/营销预算向香氛、凝珠、专护倾斜</div>
+                            </div>
+                            <div class="choice-col choice-sacrificed">
+                                <div class="choice-label">代价</div>
+                                <div class="choice-text">洗衣粉等传统品类创新投入减少，可能加速基本盘收缩</div>
+                            </div>
+                        </div>
+                        <div class="tradeoff-rationale">
+                            <strong> rationale：</strong>市场结构性迁移不可逆，防守基本盘的最佳方式不是固守，而是引导用户向上迁移到更高价值产品。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tradeoff-card">
+                    <div class="tradeoff-header">
+                        <div class="tradeoff-icon tradeoff-icon-b">B</div>
+                        <h3>竞争路径：技术对标 vs 情感差异化</h3>
+                    </div>
+                    <div class="tradeoff-body">
+                        <div class="tradeoff-choice">
+                            <div class="choice-col choice-selected">
+                                <div class="choice-label">选择</div>
+                                <div class="choice-text">以「天然香氛衣物护理」作为差异化心智，不正面挑战蓝月亮「洁净科技」</div>
+                            </div>
+                            <div class="choice-col choice-sacrificed">
+                                <div class="choice-label">代价</div>
+                                <div class="choice-text">在「专业洁净」维度上可能长期居于第二认知</div>
+                            </div>
+                        </div>
+                        <div class="tradeoff-rationale">
+                            <strong>rationale：</strong>蓝月亮在洁净科技上已建立强心智，正面技术军备竞赛成本高且胜算低。香氛+情绪价值是竞争空白，且与立白已有资产（大师香氛 TOP SKU）匹配。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tradeoff-card">
+                    <div class="tradeoff-header">
+                        <div class="tradeoff-icon tradeoff-icon-c">C</div>
+                        <h3>人群聚焦：一二线城市品质人群 vs 全人群覆盖</h3>
+                    </div>
+                    <div class="tradeoff-body">
+                        <div class="tradeoff-choice">
+                            <div class="choice-col choice-selected">
+                                <div class="choice-label">选择</div>
+                                <div class="choice-text">优先打透一二线城市 25-35 岁品质精进族</div>
+                            </div>
+                            <div class="choice-col choice-sacrificed">
+                                <div class="choice-label">代价</div>
+                                <div class="choice-text">短期内获客成本较高，三四线城市渗透速度放缓</div>
+                            </div>
+                        </div>
+                        <div class="tradeoff-rationale">
+                            <strong>rationale：</strong>结构升级首先从一二线城市开始，高价值人群的品牌偏好会向下线城市溢出。先建立「高端心智」，再向下兼容，比反过来更容易。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tradeoff-card">
+                    <div class="tradeoff-header">
+                        <div class="tradeoff-icon tradeoff-icon-d">D</div>
+                        <h3>品牌架构：单一品牌升级 vs 多品牌矩阵</h3>
+                    </div>
+                    <div class="tradeoff-body">
+                        <div class="tradeoff-choice">
+                            <div class="choice-col choice-selected">
+                                <div class="choice-label">选择</div>
+                                <div class="choice-text">立白主品牌承载「天然香氛护理」升级，大师香氛作为子系列强化</div>
+                            </div>
+                            <div class="choice-col choice-sacrificed">
+                                <div class="choice-label">代价</div>
+                                <div class="choice-text">立白主品牌的大众平价认知可能限制高端化天花板</div>
+                            </div>
+                        </div>
+                        <div class="tradeoff-rationale">
+                            <strong>rationale：</strong>完全另起新品牌成本高且会割裂渠道资源。更优路径是「主品牌升级 + 大师香氛系列化」，类似 Toyota → Lexus 的渐进逻辑。卫仕、好爸爸继续承担细分场景任务。
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="dashboard-footer">
+            <div class="footer-content">
+                <div class="footer-left">
+                    <div class="footer-brand">LIBY STP Strategy Dashboard</div>
+                    <div class="footer-meta">05 stp-strategy | Provisional | 2026-09-05</div>
+                </div>
+                <div class="footer-right">
+                    <div class="footer-upstream">
+                        <span class="upstream-label">Upstream Contracts:</span>
+                        <span class="upstream-tag done">01 Business Diagnosis</span>
+                        <span class="upstream-tag done">02 Market Opportunity</span>
+                        <span class="upstream-tag done">03 Consumer Insight</span>
+                        <span class="upstream-tag done">04 Competitive Analysis</span>
+                    </div>
+                    <div class="footer-downstream">
+                        <span class="downstream-label">Downstream Ready:</span>
+                        <span class="downstream-tag">06 Brand Strategy</span>
+                        <span class="downstream-tag">07 Marketing Mix</span>
+                    </div>
+                </div>
+            </div>
+        </footer>
+    </main>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

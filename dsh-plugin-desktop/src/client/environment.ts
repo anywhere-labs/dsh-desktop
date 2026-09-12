@@ -21,6 +21,8 @@ export interface DesktopClientEnvironment {
   micaSupported: boolean
 }
 
+export const DESKTOP_ENVIRONMENT_STORAGE_KEY = 'dsh-desktop-environment-search'
+
 const MODES = new Set<DesktopClientMode>(['compatibility', 'extended', 'advanced'])
 const PLATFORMS = new Set<DesktopClientPlatform>(['darwin', 'win32', 'linux'])
 const MATERIAL_MARKERS = new Set(['off', 'transparent', 'acrylic', 'mica'])

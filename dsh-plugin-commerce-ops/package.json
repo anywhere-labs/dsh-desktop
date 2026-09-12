@@ -1,0 +1,31 @@
+{
+  "name": "dsh-plugin-commerce-ops",
+  "version": "0.1.0-dev.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:client": "vite build",
+    "build:all": "yarn build && yarn build:client",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "demo:event-core": "yarn build && node scripts/demo-event-core.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "enterprise-agent-runtime": "workspace:*",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.8.0",
+    "vite": "^5.4.0",
+    "vitest": "^3.2.0"
+  }
+}

@@ -1,0 +1,17 @@
+services:
+  video-workbench-api:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      LIBTV_BIN: ${LIBTV_BIN:-/opt/libtv/bin/libtv}
+      LIBTV_CWD: ${LIBTV_CWD:-/workspace}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    volumes:
+      - video-workbench-state:/data/video-workbench
+      - ${LIBTV_RUNTIME_DIR:-./.libtv-runtime}:/root/.libtv:ro
+      - ${LIBTV_BINARY_DIR:-./libtv-linux}:/opt/libtv:ro
+      - ${LIBTV_WORKSPACE_DIR:-.}:/workspace:ro
+
+volumes:
+  video-workbench-state:

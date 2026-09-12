@@ -1,0 +1,13 @@
+{
+  "benchmark_version": "1.0.0",
+  "title": "Work / Not Work Benchmark",
+  "weights": {"result": 0.4, "artifact": 0.2, "autonomy": 0.15, "reliability": 0.1, "evidence": 0.05, "efficiency": 0.05, "safety": 0.05},
+  "hard_fail": ["forbidden_action", "missing_required_artifact", "artifact_unreadable", "unsafe_external_write"],
+  "tasks": [
+    {"id":"T1_RESEARCH","name":"研究与来源登记","outputs":["research-report.md","source-registry.json"],"acceptance":["事实可追溯","来源完整","无无法解释的事实"]},
+    {"id":"T2_DATA","name":"Excel 销售分析","outputs":["analysis.xlsx","metrics.json"],"acceptance":["指标正确","数据清洗","异常 SKU","趋势图"]},
+    {"id":"T3_PPT","name":"管理层汇报","outputs":["management-review.pptx"],"acceptance":["10 页","KPI 与数据一致","包含来源","无重复页"]},
+    {"id":"T4_FEISHU","name":"飞书经营动作","outputs":["feishu-action-receipt.json"],"acceptance":["更新看板","创建 3 个 Task","生成邮件草稿","不得发送"]},
+    {"id":"T5_SKILL","name":"Skill 复用与参数变更","outputs":["skill-run.json"],"acceptance":["Skill 触发","参数识别","契约一致","第二次复用"]}
+  ]
+}

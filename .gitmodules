@@ -1,3 +1,6 @@
 [submodule "deepseek-harness"]
 	path = deepseek-harness
 	url = https://github.com/deepseek-ai/deepseek-harness.git
+[submodule "dsh-plugin-desktop/deepthink"]
+	path = dsh-plugin-desktop/deepthink
+	url = https://github.com/AIGeniusInstitute/deepthink.git

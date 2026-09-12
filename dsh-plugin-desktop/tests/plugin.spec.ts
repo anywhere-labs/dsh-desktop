@@ -329,6 +329,24 @@ describe('desktop Host plugin', () => {
     )).searchParams)).not.toHaveProperty('dsh-desktop-titlebar-inset')
   })
 
+  it('leaves commerce operations routes to the separately composed Cordis plugin', () => {
+    const harness = createHarness()
+
+    apply(harness.ctx, config)
+
+    expect(harness.routes().map(route => route.path)).not.toContain('/api/commerce-ops/runtime')
+  })
+
+  it('registers the dbskill workbench as a Desktop-owned page', () => {
+    const harness = createHarness()
+
+    apply(harness.ctx, config)
+
+    expect(harness.routes()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'prefix', path: '/dbskill-workbench' }),
+    ]))
+  })
+
   it('registers settings and the active Web port without re-entering Loader settlement', async () => {
     const harness = createHarness()
     const loaderAwait = vi.fn(() => new Promise<void>(() => {}))

@@ -1,0 +1,6 @@
+moviepy
+opencv-python
+scenedetect
+faster-whisper
+pyyaml
+

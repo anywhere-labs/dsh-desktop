@@ -1,0 +1,2866 @@
+{
+  "spec_version": "1.0.0",
+  "generated_at": "2026-09-08T17:33:11.563Z",
+  "runs": [
+    {
+      "run_id": "T1_RESEARCH-1",
+      "platform": "local-sim",
+      "task_id": "T1_RESEARCH",
+      "repetition": 1,
+      "started_at": "2026-09-08T17:33:11.454Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T1_RESEARCH-1",
+          "timestamp": "2026-09-08T17:33:11.440Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T1_RESEARCH"
+        },
+        {
+          "seq": 2,
+          "run_id": "T1_RESEARCH-1",
+          "timestamp": "2026-09-08T17:33:11.447Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T1_RESEARCH-1",
+          "timestamp": "2026-09-08T17:33:11.447Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T1_RESEARCH-1",
+          "timestamp": "2026-09-08T17:33:11.447Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T1_RESEARCH-1",
+          "timestamp": "2026-09-08T17:33:11.449Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "research-report.md"
+        },
+        {
+          "seq": 6,
+          "run_id": "T1_RESEARCH-1",
+          "timestamp": "2026-09-08T17:33:11.451Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "source-registry.json"
+        },
+        {
+          "seq": 7,
+          "run_id": "T1_RESEARCH-1",
+          "timestamp": "2026-09-08T17:33:11.451Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 8,
+          "run_id": "T1_RESEARCH-1",
+          "timestamp": "2026-09-08T17:33:11.451Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_03968927697b",
+          "filename": "research-report.md",
+          "type": "md",
+          "size": 42,
+          "sha256": "03968927697b504ba4434b7a48fb524c0ca37a9700c2a2b2f0f23244e7427ef2",
+          "validation_status": "pending"
+        },
+        {
+          "artifact_id": "art_b24fb22267f9",
+          "filename": "source-registry.json",
+          "type": "json",
+          "size": 88,
+          "sha256": "b24fb22267f9b138cf67fea1316588a9f1b049777ebc10d119989f9877bea011",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 15,
+        "agent_active_ms": 15,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T1_RESEARCH-2",
+      "platform": "local-sim",
+      "task_id": "T1_RESEARCH",
+      "repetition": 2,
+      "started_at": "2026-09-08T17:33:11.464Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T1_RESEARCH-2",
+          "timestamp": "2026-09-08T17:33:11.459Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T1_RESEARCH"
+        },
+        {
+          "seq": 2,
+          "run_id": "T1_RESEARCH-2",
+          "timestamp": "2026-09-08T17:33:11.459Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T1_RESEARCH-2",
+          "timestamp": "2026-09-08T17:33:11.459Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T1_RESEARCH-2",
+          "timestamp": "2026-09-08T17:33:11.459Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T1_RESEARCH-2",
+          "timestamp": "2026-09-08T17:33:11.461Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "research-report.md"
+        },
+        {
+          "seq": 6,
+          "run_id": "T1_RESEARCH-2",
+          "timestamp": "2026-09-08T17:33:11.464Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "source-registry.json"
+        },
+        {
+          "seq": 7,
+          "run_id": "T1_RESEARCH-2",
+          "timestamp": "2026-09-08T17:33:11.464Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 8,
+          "run_id": "T1_RESEARCH-2",
+          "timestamp": "2026-09-08T17:33:11.464Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_03968927697b",
+          "filename": "research-report.md",
+          "type": "md",
+          "size": 42,
+          "sha256": "03968927697b504ba4434b7a48fb524c0ca37a9700c2a2b2f0f23244e7427ef2",
+          "validation_status": "pending"
+        },
+        {
+          "artifact_id": "art_b24fb22267f9",
+          "filename": "source-registry.json",
+          "type": "json",
+          "size": 88,
+          "sha256": "b24fb22267f9b138cf67fea1316588a9f1b049777ebc10d119989f9877bea011",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 5,
+        "agent_active_ms": 5,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T1_RESEARCH-3",
+      "platform": "local-sim",
+      "task_id": "T1_RESEARCH",
+      "repetition": 3,
+      "started_at": "2026-09-08T17:33:11.475Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T1_RESEARCH-3",
+          "timestamp": "2026-09-08T17:33:11.468Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T1_RESEARCH"
+        },
+        {
+          "seq": 2,
+          "run_id": "T1_RESEARCH-3",
+          "timestamp": "2026-09-08T17:33:11.468Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T1_RESEARCH-3",
+          "timestamp": "2026-09-08T17:33:11.468Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T1_RESEARCH-3",
+          "timestamp": "2026-09-08T17:33:11.468Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T1_RESEARCH-3",
+          "timestamp": "2026-09-08T17:33:11.471Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "research-report.md"
+        },
+        {
+          "seq": 6,
+          "run_id": "T1_RESEARCH-3",
+          "timestamp": "2026-09-08T17:33:11.475Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "source-registry.json"
+        },
+        {
+          "seq": 7,
+          "run_id": "T1_RESEARCH-3",
+          "timestamp": "2026-09-08T17:33:11.475Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 8,
+          "run_id": "T1_RESEARCH-3",
+          "timestamp": "2026-09-08T17:33:11.475Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_03968927697b",
+          "filename": "research-report.md",
+          "type": "md",
+          "size": 42,
+          "sha256": "03968927697b504ba4434b7a48fb524c0ca37a9700c2a2b2f0f23244e7427ef2",
+          "validation_status": "pending"
+        },
+        {
+          "artifact_id": "art_b24fb22267f9",
+          "filename": "source-registry.json",
+          "type": "json",
+          "size": 88,
+          "sha256": "b24fb22267f9b138cf67fea1316588a9f1b049777ebc10d119989f9877bea011",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 7,
+        "agent_active_ms": 7,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T1_RESEARCH-4",
+      "platform": "local-sim",
+      "task_id": "T1_RESEARCH",
+      "repetition": 4,
+      "started_at": "2026-09-08T17:33:11.483Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T1_RESEARCH-4",
+          "timestamp": "2026-09-08T17:33:11.478Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T1_RESEARCH"
+        },
+        {
+          "seq": 2,
+          "run_id": "T1_RESEARCH-4",
+          "timestamp": "2026-09-08T17:33:11.478Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T1_RESEARCH-4",
+          "timestamp": "2026-09-08T17:33:11.478Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T1_RESEARCH-4",
+          "timestamp": "2026-09-08T17:33:11.478Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T1_RESEARCH-4",
+          "timestamp": "2026-09-08T17:33:11.479Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "research-report.md"
+        },
+        {
+          "seq": 6,
+          "run_id": "T1_RESEARCH-4",
+          "timestamp": "2026-09-08T17:33:11.483Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "source-registry.json"
+        },
+        {
+          "seq": 7,
+          "run_id": "T1_RESEARCH-4",
+          "timestamp": "2026-09-08T17:33:11.483Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 8,
+          "run_id": "T1_RESEARCH-4",
+          "timestamp": "2026-09-08T17:33:11.483Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_03968927697b",
+          "filename": "research-report.md",
+          "type": "md",
+          "size": 42,
+          "sha256": "03968927697b504ba4434b7a48fb524c0ca37a9700c2a2b2f0f23244e7427ef2",
+          "validation_status": "pending"
+        },
+        {
+          "artifact_id": "art_b24fb22267f9",
+          "filename": "source-registry.json",
+          "type": "json",
+          "size": 88,
+          "sha256": "b24fb22267f9b138cf67fea1316588a9f1b049777ebc10d119989f9877bea011",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 5,
+        "agent_active_ms": 5,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T1_RESEARCH-5",
+      "platform": "local-sim",
+      "task_id": "T1_RESEARCH",
+      "repetition": 5,
+      "started_at": "2026-09-08T17:33:11.490Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T1_RESEARCH-5",
+          "timestamp": "2026-09-08T17:33:11.486Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T1_RESEARCH"
+        },
+        {
+          "seq": 2,
+          "run_id": "T1_RESEARCH-5",
+          "timestamp": "2026-09-08T17:33:11.486Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T1_RESEARCH-5",
+          "timestamp": "2026-09-08T17:33:11.486Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T1_RESEARCH-5",
+          "timestamp": "2026-09-08T17:33:11.486Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T1_RESEARCH-5",
+          "timestamp": "2026-09-08T17:33:11.488Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "research-report.md"
+        },
+        {
+          "seq": 6,
+          "run_id": "T1_RESEARCH-5",
+          "timestamp": "2026-09-08T17:33:11.490Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "source-registry.json"
+        },
+        {
+          "seq": 7,
+          "run_id": "T1_RESEARCH-5",
+          "timestamp": "2026-09-08T17:33:11.490Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 8,
+          "run_id": "T1_RESEARCH-5",
+          "timestamp": "2026-09-08T17:33:11.490Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_03968927697b",
+          "filename": "research-report.md",
+          "type": "md",
+          "size": 42,
+          "sha256": "03968927697b504ba4434b7a48fb524c0ca37a9700c2a2b2f0f23244e7427ef2",
+          "validation_status": "pending"
+        },
+        {
+          "artifact_id": "art_b24fb22267f9",
+          "filename": "source-registry.json",
+          "type": "json",
+          "size": 88,
+          "sha256": "b24fb22267f9b138cf67fea1316588a9f1b049777ebc10d119989f9877bea011",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 4,
+        "agent_active_ms": 4,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T2_DATA-1",
+      "platform": "local-sim",
+      "task_id": "T2_DATA",
+      "repetition": 1,
+      "started_at": "2026-09-08T17:33:11.494Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T2_DATA-1",
+          "timestamp": "2026-09-08T17:33:11.493Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T2_DATA"
+        },
+        {
+          "seq": 2,
+          "run_id": "T2_DATA-1",
+          "timestamp": "2026-09-08T17:33:11.493Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T2_DATA-1",
+          "timestamp": "2026-09-08T17:33:11.493Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T2_DATA-1",
+          "timestamp": "2026-09-08T17:33:11.493Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T2_DATA-1",
+          "timestamp": "2026-09-08T17:33:11.494Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "analysis.xlsx"
+        },
+        {
+          "seq": 6,
+          "run_id": "T2_DATA-1",
+          "timestamp": "2026-09-08T17:33:11.494Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "metrics.json"
+        },
+        {
+          "seq": 7,
+          "run_id": "T2_DATA-1",
+          "timestamp": "2026-09-08T17:33:11.494Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 8,
+          "run_id": "T2_DATA-1",
+          "timestamp": "2026-09-08T17:33:11.494Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_d8e0e33d24c8",
+          "filename": "analysis.xlsx",
+          "type": "xlsx",
+          "size": 39,
+          "sha256": "d8e0e33d24c82ada7adc03fce157826c916c2a31a807edf5f7b68d9516681975",
+          "validation_status": "pending"
+        },
+        {
+          "artifact_id": "art_4745c8f57532",
+          "filename": "metrics.json",
+          "type": "json",
+          "size": 84,
+          "sha256": "4745c8f57532c9277131cd7b4b4bc3ad02a0b0eee60642015f4d54853512069d",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T2_DATA-2",
+      "platform": "local-sim",
+      "task_id": "T2_DATA",
+      "repetition": 2,
+      "started_at": "2026-09-08T17:33:11.499Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T2_DATA-2",
+          "timestamp": "2026-09-08T17:33:11.497Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T2_DATA"
+        },
+        {
+          "seq": 2,
+          "run_id": "T2_DATA-2",
+          "timestamp": "2026-09-08T17:33:11.497Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T2_DATA-2",
+          "timestamp": "2026-09-08T17:33:11.497Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T2_DATA-2",
+          "timestamp": "2026-09-08T17:33:11.497Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T2_DATA-2",
+          "timestamp": "2026-09-08T17:33:11.498Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "analysis.xlsx"
+        },
+        {
+          "seq": 6,
+          "run_id": "T2_DATA-2",
+          "timestamp": "2026-09-08T17:33:11.499Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "metrics.json"
+        },
+        {
+          "seq": 7,
+          "run_id": "T2_DATA-2",
+          "timestamp": "2026-09-08T17:33:11.499Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 8,
+          "run_id": "T2_DATA-2",
+          "timestamp": "2026-09-08T17:33:11.499Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_d8e0e33d24c8",
+          "filename": "analysis.xlsx",
+          "type": "xlsx",
+          "size": 39,
+          "sha256": "d8e0e33d24c82ada7adc03fce157826c916c2a31a807edf5f7b68d9516681975",
+          "validation_status": "pending"
+        },
+        {
+          "artifact_id": "art_4745c8f57532",
+          "filename": "metrics.json",
+          "type": "json",
+          "size": 84,
+          "sha256": "4745c8f57532c9277131cd7b4b4bc3ad02a0b0eee60642015f4d54853512069d",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 2,
+        "agent_active_ms": 2,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T2_DATA-3",
+      "platform": "local-sim",
+      "task_id": "T2_DATA",
+      "repetition": 3,
+      "started_at": "2026-09-08T17:33:11.503Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T2_DATA-3",
+          "timestamp": "2026-09-08T17:33:11.501Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T2_DATA"
+        },
+        {
+          "seq": 2,
+          "run_id": "T2_DATA-3",
+          "timestamp": "2026-09-08T17:33:11.501Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T2_DATA-3",
+          "timestamp": "2026-09-08T17:33:11.501Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T2_DATA-3",
+          "timestamp": "2026-09-08T17:33:11.501Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T2_DATA-3",
+          "timestamp": "2026-09-08T17:33:11.502Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "analysis.xlsx"
+        },
+        {
+          "seq": 6,
+          "run_id": "T2_DATA-3",
+          "timestamp": "2026-09-08T17:33:11.502Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "metrics.json"
+        },
+        {
+          "seq": 7,
+          "run_id": "T2_DATA-3",
+          "timestamp": "2026-09-08T17:33:11.502Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 8,
+          "run_id": "T2_DATA-3",
+          "timestamp": "2026-09-08T17:33:11.502Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_d8e0e33d24c8",
+          "filename": "analysis.xlsx",
+          "type": "xlsx",
+          "size": 39,
+          "sha256": "d8e0e33d24c82ada7adc03fce157826c916c2a31a807edf5f7b68d9516681975",
+          "validation_status": "pending"
+        },
+        {
+          "artifact_id": "art_4745c8f57532",
+          "filename": "metrics.json",
+          "type": "json",
+          "size": 84,
+          "sha256": "4745c8f57532c9277131cd7b4b4bc3ad02a0b0eee60642015f4d54853512069d",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 2,
+        "agent_active_ms": 2,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T2_DATA-4",
+      "platform": "local-sim",
+      "task_id": "T2_DATA",
+      "repetition": 4,
+      "started_at": "2026-09-08T17:33:11.507Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T2_DATA-4",
+          "timestamp": "2026-09-08T17:33:11.505Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T2_DATA"
+        },
+        {
+          "seq": 2,
+          "run_id": "T2_DATA-4",
+          "timestamp": "2026-09-08T17:33:11.505Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T2_DATA-4",
+          "timestamp": "2026-09-08T17:33:11.505Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T2_DATA-4",
+          "timestamp": "2026-09-08T17:33:11.505Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T2_DATA-4",
+          "timestamp": "2026-09-08T17:33:11.506Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "analysis.xlsx"
+        },
+        {
+          "seq": 6,
+          "run_id": "T2_DATA-4",
+          "timestamp": "2026-09-08T17:33:11.507Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "metrics.json"
+        },
+        {
+          "seq": 7,
+          "run_id": "T2_DATA-4",
+          "timestamp": "2026-09-08T17:33:11.507Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 8,
+          "run_id": "T2_DATA-4",
+          "timestamp": "2026-09-08T17:33:11.507Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_d8e0e33d24c8",
+          "filename": "analysis.xlsx",
+          "type": "xlsx",
+          "size": 39,
+          "sha256": "d8e0e33d24c82ada7adc03fce157826c916c2a31a807edf5f7b68d9516681975",
+          "validation_status": "pending"
+        },
+        {
+          "artifact_id": "art_4745c8f57532",
+          "filename": "metrics.json",
+          "type": "json",
+          "size": 84,
+          "sha256": "4745c8f57532c9277131cd7b4b4bc3ad02a0b0eee60642015f4d54853512069d",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 2,
+        "agent_active_ms": 2,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T2_DATA-5",
+      "platform": "local-sim",
+      "task_id": "T2_DATA",
+      "repetition": 5,
+      "started_at": "2026-09-08T17:33:11.511Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T2_DATA-5",
+          "timestamp": "2026-09-08T17:33:11.510Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T2_DATA"
+        },
+        {
+          "seq": 2,
+          "run_id": "T2_DATA-5",
+          "timestamp": "2026-09-08T17:33:11.510Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T2_DATA-5",
+          "timestamp": "2026-09-08T17:33:11.510Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T2_DATA-5",
+          "timestamp": "2026-09-08T17:33:11.510Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T2_DATA-5",
+          "timestamp": "2026-09-08T17:33:11.510Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "analysis.xlsx"
+        },
+        {
+          "seq": 6,
+          "run_id": "T2_DATA-5",
+          "timestamp": "2026-09-08T17:33:11.511Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "metrics.json"
+        },
+        {
+          "seq": 7,
+          "run_id": "T2_DATA-5",
+          "timestamp": "2026-09-08T17:33:11.511Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 8,
+          "run_id": "T2_DATA-5",
+          "timestamp": "2026-09-08T17:33:11.511Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_d8e0e33d24c8",
+          "filename": "analysis.xlsx",
+          "type": "xlsx",
+          "size": 39,
+          "sha256": "d8e0e33d24c82ada7adc03fce157826c916c2a31a807edf5f7b68d9516681975",
+          "validation_status": "pending"
+        },
+        {
+          "artifact_id": "art_4745c8f57532",
+          "filename": "metrics.json",
+          "type": "json",
+          "size": 84,
+          "sha256": "4745c8f57532c9277131cd7b4b4bc3ad02a0b0eee60642015f4d54853512069d",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T3_PPT-1",
+      "platform": "local-sim",
+      "task_id": "T3_PPT",
+      "repetition": 1,
+      "started_at": "2026-09-08T17:33:11.515Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T3_PPT-1",
+          "timestamp": "2026-09-08T17:33:11.513Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T3_PPT"
+        },
+        {
+          "seq": 2,
+          "run_id": "T3_PPT-1",
+          "timestamp": "2026-09-08T17:33:11.513Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T3_PPT-1",
+          "timestamp": "2026-09-08T17:33:11.513Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T3_PPT-1",
+          "timestamp": "2026-09-08T17:33:11.513Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T3_PPT-1",
+          "timestamp": "2026-09-08T17:33:11.514Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "management-review.pptx"
+        },
+        {
+          "seq": 6,
+          "run_id": "T3_PPT-1",
+          "timestamp": "2026-09-08T17:33:11.514Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T3_PPT-1",
+          "timestamp": "2026-09-08T17:33:11.514Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_ce7a1a9ad8fb",
+          "filename": "management-review.pptx",
+          "type": "pptx",
+          "size": 36,
+          "sha256": "ce7a1a9ad8fb13373a892054b883fd5753c251fc8d91d75a1d59fb7bc47532ad",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 2,
+        "agent_active_ms": 2,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T3_PPT-2",
+      "platform": "local-sim",
+      "task_id": "T3_PPT",
+      "repetition": 2,
+      "started_at": "2026-09-08T17:33:11.517Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T3_PPT-2",
+          "timestamp": "2026-09-08T17:33:11.517Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T3_PPT"
+        },
+        {
+          "seq": 2,
+          "run_id": "T3_PPT-2",
+          "timestamp": "2026-09-08T17:33:11.517Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T3_PPT-2",
+          "timestamp": "2026-09-08T17:33:11.517Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T3_PPT-2",
+          "timestamp": "2026-09-08T17:33:11.517Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T3_PPT-2",
+          "timestamp": "2026-09-08T17:33:11.517Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "management-review.pptx"
+        },
+        {
+          "seq": 6,
+          "run_id": "T3_PPT-2",
+          "timestamp": "2026-09-08T17:33:11.517Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T3_PPT-2",
+          "timestamp": "2026-09-08T17:33:11.517Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_ce7a1a9ad8fb",
+          "filename": "management-review.pptx",
+          "type": "pptx",
+          "size": 36,
+          "sha256": "ce7a1a9ad8fb13373a892054b883fd5753c251fc8d91d75a1d59fb7bc47532ad",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 0,
+        "agent_active_ms": 0,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T3_PPT-3",
+      "platform": "local-sim",
+      "task_id": "T3_PPT",
+      "repetition": 3,
+      "started_at": "2026-09-08T17:33:11.521Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T3_PPT-3",
+          "timestamp": "2026-09-08T17:33:11.521Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T3_PPT"
+        },
+        {
+          "seq": 2,
+          "run_id": "T3_PPT-3",
+          "timestamp": "2026-09-08T17:33:11.521Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T3_PPT-3",
+          "timestamp": "2026-09-08T17:33:11.521Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T3_PPT-3",
+          "timestamp": "2026-09-08T17:33:11.521Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T3_PPT-3",
+          "timestamp": "2026-09-08T17:33:11.521Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "management-review.pptx"
+        },
+        {
+          "seq": 6,
+          "run_id": "T3_PPT-3",
+          "timestamp": "2026-09-08T17:33:11.521Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T3_PPT-3",
+          "timestamp": "2026-09-08T17:33:11.521Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_ce7a1a9ad8fb",
+          "filename": "management-review.pptx",
+          "type": "pptx",
+          "size": 36,
+          "sha256": "ce7a1a9ad8fb13373a892054b883fd5753c251fc8d91d75a1d59fb7bc47532ad",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 0,
+        "agent_active_ms": 0,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T3_PPT-4",
+      "platform": "local-sim",
+      "task_id": "T3_PPT",
+      "repetition": 4,
+      "started_at": "2026-09-08T17:33:11.525Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T3_PPT-4",
+          "timestamp": "2026-09-08T17:33:11.524Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T3_PPT"
+        },
+        {
+          "seq": 2,
+          "run_id": "T3_PPT-4",
+          "timestamp": "2026-09-08T17:33:11.524Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T3_PPT-4",
+          "timestamp": "2026-09-08T17:33:11.524Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T3_PPT-4",
+          "timestamp": "2026-09-08T17:33:11.524Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T3_PPT-4",
+          "timestamp": "2026-09-08T17:33:11.525Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "management-review.pptx"
+        },
+        {
+          "seq": 6,
+          "run_id": "T3_PPT-4",
+          "timestamp": "2026-09-08T17:33:11.525Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T3_PPT-4",
+          "timestamp": "2026-09-08T17:33:11.525Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_ce7a1a9ad8fb",
+          "filename": "management-review.pptx",
+          "type": "pptx",
+          "size": 36,
+          "sha256": "ce7a1a9ad8fb13373a892054b883fd5753c251fc8d91d75a1d59fb7bc47532ad",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T3_PPT-5",
+      "platform": "local-sim",
+      "task_id": "T3_PPT",
+      "repetition": 5,
+      "started_at": "2026-09-08T17:33:11.528Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T3_PPT-5",
+          "timestamp": "2026-09-08T17:33:11.527Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T3_PPT"
+        },
+        {
+          "seq": 2,
+          "run_id": "T3_PPT-5",
+          "timestamp": "2026-09-08T17:33:11.527Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T3_PPT-5",
+          "timestamp": "2026-09-08T17:33:11.527Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T3_PPT-5",
+          "timestamp": "2026-09-08T17:33:11.527Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T3_PPT-5",
+          "timestamp": "2026-09-08T17:33:11.528Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "management-review.pptx"
+        },
+        {
+          "seq": 6,
+          "run_id": "T3_PPT-5",
+          "timestamp": "2026-09-08T17:33:11.528Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T3_PPT-5",
+          "timestamp": "2026-09-08T17:33:11.528Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_ce7a1a9ad8fb",
+          "filename": "management-review.pptx",
+          "type": "pptx",
+          "size": 36,
+          "sha256": "ce7a1a9ad8fb13373a892054b883fd5753c251fc8d91d75a1d59fb7bc47532ad",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T4_FEISHU-1",
+      "platform": "local-sim",
+      "task_id": "T4_FEISHU",
+      "repetition": 1,
+      "started_at": "2026-09-08T17:33:11.532Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T4_FEISHU-1",
+          "timestamp": "2026-09-08T17:33:11.531Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T4_FEISHU"
+        },
+        {
+          "seq": 2,
+          "run_id": "T4_FEISHU-1",
+          "timestamp": "2026-09-08T17:33:11.531Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T4_FEISHU-1",
+          "timestamp": "2026-09-08T17:33:11.531Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T4_FEISHU-1",
+          "timestamp": "2026-09-08T17:33:11.531Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T4_FEISHU-1",
+          "timestamp": "2026-09-08T17:33:11.532Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "feishu-action-receipt.json"
+        },
+        {
+          "seq": 6,
+          "run_id": "T4_FEISHU-1",
+          "timestamp": "2026-09-08T17:33:11.532Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T4_FEISHU-1",
+          "timestamp": "2026-09-08T17:33:11.532Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_45922df78353",
+          "filename": "feishu-action-receipt.json",
+          "type": "json",
+          "size": 86,
+          "sha256": "45922df783534e15e932338d9e71ba633cac54c44a6b1c6691836d19d1d0f719",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T4_FEISHU-2",
+      "platform": "local-sim",
+      "task_id": "T4_FEISHU",
+      "repetition": 2,
+      "started_at": "2026-09-08T17:33:11.536Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T4_FEISHU-2",
+          "timestamp": "2026-09-08T17:33:11.535Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T4_FEISHU"
+        },
+        {
+          "seq": 2,
+          "run_id": "T4_FEISHU-2",
+          "timestamp": "2026-09-08T17:33:11.535Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T4_FEISHU-2",
+          "timestamp": "2026-09-08T17:33:11.535Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T4_FEISHU-2",
+          "timestamp": "2026-09-08T17:33:11.535Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T4_FEISHU-2",
+          "timestamp": "2026-09-08T17:33:11.536Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "feishu-action-receipt.json"
+        },
+        {
+          "seq": 6,
+          "run_id": "T4_FEISHU-2",
+          "timestamp": "2026-09-08T17:33:11.536Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T4_FEISHU-2",
+          "timestamp": "2026-09-08T17:33:11.536Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_45922df78353",
+          "filename": "feishu-action-receipt.json",
+          "type": "json",
+          "size": 86,
+          "sha256": "45922df783534e15e932338d9e71ba633cac54c44a6b1c6691836d19d1d0f719",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T4_FEISHU-3",
+      "platform": "local-sim",
+      "task_id": "T4_FEISHU",
+      "repetition": 3,
+      "started_at": "2026-09-08T17:33:11.540Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T4_FEISHU-3",
+          "timestamp": "2026-09-08T17:33:11.539Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T4_FEISHU"
+        },
+        {
+          "seq": 2,
+          "run_id": "T4_FEISHU-3",
+          "timestamp": "2026-09-08T17:33:11.539Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T4_FEISHU-3",
+          "timestamp": "2026-09-08T17:33:11.539Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T4_FEISHU-3",
+          "timestamp": "2026-09-08T17:33:11.539Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T4_FEISHU-3",
+          "timestamp": "2026-09-08T17:33:11.540Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "feishu-action-receipt.json"
+        },
+        {
+          "seq": 6,
+          "run_id": "T4_FEISHU-3",
+          "timestamp": "2026-09-08T17:33:11.540Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T4_FEISHU-3",
+          "timestamp": "2026-09-08T17:33:11.540Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_45922df78353",
+          "filename": "feishu-action-receipt.json",
+          "type": "json",
+          "size": 86,
+          "sha256": "45922df783534e15e932338d9e71ba633cac54c44a6b1c6691836d19d1d0f719",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T4_FEISHU-4",
+      "platform": "local-sim",
+      "task_id": "T4_FEISHU",
+      "repetition": 4,
+      "started_at": "2026-09-08T17:33:11.543Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T4_FEISHU-4",
+          "timestamp": "2026-09-08T17:33:11.542Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T4_FEISHU"
+        },
+        {
+          "seq": 2,
+          "run_id": "T4_FEISHU-4",
+          "timestamp": "2026-09-08T17:33:11.542Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T4_FEISHU-4",
+          "timestamp": "2026-09-08T17:33:11.542Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T4_FEISHU-4",
+          "timestamp": "2026-09-08T17:33:11.542Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T4_FEISHU-4",
+          "timestamp": "2026-09-08T17:33:11.543Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "feishu-action-receipt.json"
+        },
+        {
+          "seq": 6,
+          "run_id": "T4_FEISHU-4",
+          "timestamp": "2026-09-08T17:33:11.543Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T4_FEISHU-4",
+          "timestamp": "2026-09-08T17:33:11.543Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_45922df78353",
+          "filename": "feishu-action-receipt.json",
+          "type": "json",
+          "size": 86,
+          "sha256": "45922df783534e15e932338d9e71ba633cac54c44a6b1c6691836d19d1d0f719",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T4_FEISHU-5",
+      "platform": "local-sim",
+      "task_id": "T4_FEISHU",
+      "repetition": 5,
+      "started_at": "2026-09-08T17:33:11.547Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T4_FEISHU-5",
+          "timestamp": "2026-09-08T17:33:11.546Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T4_FEISHU"
+        },
+        {
+          "seq": 2,
+          "run_id": "T4_FEISHU-5",
+          "timestamp": "2026-09-08T17:33:11.546Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T4_FEISHU-5",
+          "timestamp": "2026-09-08T17:33:11.546Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T4_FEISHU-5",
+          "timestamp": "2026-09-08T17:33:11.546Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T4_FEISHU-5",
+          "timestamp": "2026-09-08T17:33:11.547Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "feishu-action-receipt.json"
+        },
+        {
+          "seq": 6,
+          "run_id": "T4_FEISHU-5",
+          "timestamp": "2026-09-08T17:33:11.547Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T4_FEISHU-5",
+          "timestamp": "2026-09-08T17:33:11.547Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_45922df78353",
+          "filename": "feishu-action-receipt.json",
+          "type": "json",
+          "size": 86,
+          "sha256": "45922df783534e15e932338d9e71ba633cac54c44a6b1c6691836d19d1d0f719",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T5_SKILL-1",
+      "platform": "local-sim",
+      "task_id": "T5_SKILL",
+      "repetition": 1,
+      "started_at": "2026-09-08T17:33:11.550Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T5_SKILL-1",
+          "timestamp": "2026-09-08T17:33:11.549Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T5_SKILL"
+        },
+        {
+          "seq": 2,
+          "run_id": "T5_SKILL-1",
+          "timestamp": "2026-09-08T17:33:11.549Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T5_SKILL-1",
+          "timestamp": "2026-09-08T17:33:11.549Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T5_SKILL-1",
+          "timestamp": "2026-09-08T17:33:11.549Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T5_SKILL-1",
+          "timestamp": "2026-09-08T17:33:11.550Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "skill-run.json"
+        },
+        {
+          "seq": 6,
+          "run_id": "T5_SKILL-1",
+          "timestamp": "2026-09-08T17:33:11.550Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T5_SKILL-1",
+          "timestamp": "2026-09-08T17:33:11.550Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_29dfc7d916ab",
+          "filename": "skill-run.json",
+          "type": "json",
+          "size": 85,
+          "sha256": "29dfc7d916ab55c519b21d27c97244ffa306fa5a984155351b6785f059bb08ac",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T5_SKILL-2",
+      "platform": "local-sim",
+      "task_id": "T5_SKILL",
+      "repetition": 2,
+      "started_at": "2026-09-08T17:33:11.553Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T5_SKILL-2",
+          "timestamp": "2026-09-08T17:33:11.552Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T5_SKILL"
+        },
+        {
+          "seq": 2,
+          "run_id": "T5_SKILL-2",
+          "timestamp": "2026-09-08T17:33:11.552Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T5_SKILL-2",
+          "timestamp": "2026-09-08T17:33:11.552Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T5_SKILL-2",
+          "timestamp": "2026-09-08T17:33:11.552Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T5_SKILL-2",
+          "timestamp": "2026-09-08T17:33:11.553Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "skill-run.json"
+        },
+        {
+          "seq": 6,
+          "run_id": "T5_SKILL-2",
+          "timestamp": "2026-09-08T17:33:11.553Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T5_SKILL-2",
+          "timestamp": "2026-09-08T17:33:11.553Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_29dfc7d916ab",
+          "filename": "skill-run.json",
+          "type": "json",
+          "size": 85,
+          "sha256": "29dfc7d916ab55c519b21d27c97244ffa306fa5a984155351b6785f059bb08ac",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T5_SKILL-3",
+      "platform": "local-sim",
+      "task_id": "T5_SKILL",
+      "repetition": 3,
+      "started_at": "2026-09-08T17:33:11.557Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T5_SKILL-3",
+          "timestamp": "2026-09-08T17:33:11.555Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T5_SKILL"
+        },
+        {
+          "seq": 2,
+          "run_id": "T5_SKILL-3",
+          "timestamp": "2026-09-08T17:33:11.555Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T5_SKILL-3",
+          "timestamp": "2026-09-08T17:33:11.555Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T5_SKILL-3",
+          "timestamp": "2026-09-08T17:33:11.555Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T5_SKILL-3",
+          "timestamp": "2026-09-08T17:33:11.556Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "skill-run.json"
+        },
+        {
+          "seq": 6,
+          "run_id": "T5_SKILL-3",
+          "timestamp": "2026-09-08T17:33:11.556Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T5_SKILL-3",
+          "timestamp": "2026-09-08T17:33:11.556Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_29dfc7d916ab",
+          "filename": "skill-run.json",
+          "type": "json",
+          "size": 85,
+          "sha256": "29dfc7d916ab55c519b21d27c97244ffa306fa5a984155351b6785f059bb08ac",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 2,
+        "agent_active_ms": 2,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T5_SKILL-4",
+      "platform": "local-sim",
+      "task_id": "T5_SKILL",
+      "repetition": 4,
+      "started_at": "2026-09-08T17:33:11.560Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T5_SKILL-4",
+          "timestamp": "2026-09-08T17:33:11.559Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T5_SKILL"
+        },
+        {
+          "seq": 2,
+          "run_id": "T5_SKILL-4",
+          "timestamp": "2026-09-08T17:33:11.559Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T5_SKILL-4",
+          "timestamp": "2026-09-08T17:33:11.559Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T5_SKILL-4",
+          "timestamp": "2026-09-08T17:33:11.559Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T5_SKILL-4",
+          "timestamp": "2026-09-08T17:33:11.560Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "skill-run.json"
+        },
+        {
+          "seq": 6,
+          "run_id": "T5_SKILL-4",
+          "timestamp": "2026-09-08T17:33:11.560Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T5_SKILL-4",
+          "timestamp": "2026-09-08T17:33:11.560Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_29dfc7d916ab",
+          "filename": "skill-run.json",
+          "type": "json",
+          "size": 85,
+          "sha256": "29dfc7d916ab55c519b21d27c97244ffa306fa5a984155351b6785f059bb08ac",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    },
+    {
+      "run_id": "T5_SKILL-5",
+      "platform": "local-sim",
+      "task_id": "T5_SKILL",
+      "repetition": 5,
+      "started_at": "2026-09-08T17:33:11.563Z",
+      "events": [
+        {
+          "seq": 1,
+          "run_id": "T5_SKILL-5",
+          "timestamp": "2026-09-08T17:33:11.562Z",
+          "event_type": "task_received",
+          "status": "success",
+          "task_id": "T5_SKILL"
+        },
+        {
+          "seq": 2,
+          "run_id": "T5_SKILL-5",
+          "timestamp": "2026-09-08T17:33:11.562Z",
+          "event_type": "input_validated",
+          "status": "success"
+        },
+        {
+          "seq": 3,
+          "run_id": "T5_SKILL-5",
+          "timestamp": "2026-09-08T17:33:11.562Z",
+          "event_type": "plan_created",
+          "status": "success"
+        },
+        {
+          "seq": 4,
+          "run_id": "T5_SKILL-5",
+          "timestamp": "2026-09-08T17:33:11.562Z",
+          "event_type": "tool_call",
+          "status": "success",
+          "tool": {
+            "name": "local-sim",
+            "category": "simulation"
+          },
+          "latency_ms": 5
+        },
+        {
+          "seq": 5,
+          "run_id": "T5_SKILL-5",
+          "timestamp": "2026-09-08T17:33:11.563Z",
+          "event_type": "artifact_created",
+          "status": "success",
+          "filename": "skill-run.json"
+        },
+        {
+          "seq": 6,
+          "run_id": "T5_SKILL-5",
+          "timestamp": "2026-09-08T17:33:11.563Z",
+          "event_type": "self_check",
+          "status": "success"
+        },
+        {
+          "seq": 7,
+          "run_id": "T5_SKILL-5",
+          "timestamp": "2026-09-08T17:33:11.563Z",
+          "event_type": "result_submitted",
+          "status": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "art_29dfc7d916ab",
+          "filename": "skill-run.json",
+          "type": "json",
+          "size": 85,
+          "sha256": "29dfc7d916ab55c519b21d27c97244ffa306fa5a984155351b6785f059bb08ac",
+          "validation_status": "pending"
+        }
+      ],
+      "scores": {
+        "result": 82,
+        "artifact": 90,
+        "autonomy": 100,
+        "reliability": 100,
+        "evidence": 70,
+        "efficiency": 78,
+        "safety": 100
+      },
+      "timing": {
+        "wall_clock_ms": 1,
+        "agent_active_ms": 1,
+        "tool_wait_ms": 5,
+        "human_wait_ms": 0,
+        "recovery_ms": 0
+      },
+      "token_usage": {
+        "status": "UNAVAILABLE",
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "local-sim"
+      },
+      "interventions": {
+        "critical": 0,
+        "minor": 0,
+        "clarifications": 0
+      },
+      "errors": 0,
+      "retries": 0,
+      "hard_failures": [],
+      "work_score": 88.2,
+      "band": "W1",
+      "hard_fail": false
+    }
+  ]
+}
