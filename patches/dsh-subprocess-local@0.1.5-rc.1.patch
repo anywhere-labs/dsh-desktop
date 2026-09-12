@@ -1,7 +1,8 @@
 diff --git a/lib/runner-launch-COYGu0Dl.js b/lib/runner-launch-COYGu0Dl.js
+index fbd9735..778b6f3 100644
 --- a/lib/runner-launch-COYGu0Dl.js
 +++ b/lib/runner-launch-COYGu0Dl.js
-@@ -1449,6 +1449,14 @@
+@@ -1449,6 +1449,23 @@ function runnerEnvironment(selection, invocation) {
  		const normalized = name.toUpperCase();
  		if (RUNNER_CONTROL_ENV_PREFIXES.some((prefix) => normalized.startsWith(prefix))) Reflect.deleteProperty(env, name);
  	}
@@ -11,6 +12,15 @@ diff --git a/lib/runner-launch-COYGu0Dl.js b/lib/runner-launch-COYGu0Dl.js
 +		for (const name of Object.keys(env)) {
 +			if (name.toUpperCase() === "ELECTRON_RUN_AS_NODE") Reflect.deleteProperty(env, name);
 +		}
++		env.ELECTRON_RUN_AS_NODE = "1";
++	}
++	// #943: the Linux scoped launch re-executes the packaged entry — the
++	// Electron binary itself — as the runner. Without this variable systemd
++	// starts a second GUI instance instead of a Node process, and every
++	// scoped subprocess tool dies before its bootstrap consumes the launch
++	// request. Mirror of the Windows guard above: the Linux runner has no
++	// private executable, its entry IS the host binary.
++	if (selection !== WINDOWS_RUNNER_SELECTION && process.versions.electron !== void 0) {
 +		env.ELECTRON_RUN_AS_NODE = "1";
 +	}
  	return {
