@@ -39,10 +39,13 @@ const input: DesktopSetupWizardInput = {
   market: 'community-market',
   notifications: {
     enabled: true,
+    notifyOnApprovalRequest: true,
     notifyOnTurnCompletion: true,
     notifyOnTurnFailure: true,
+    notifyOnUserQuestion: true,
     notifyOnJobCompletion: false,
     notifyOnJobFailure: true,
+    showResponsePreview: true,
   },
 }
 
@@ -280,8 +283,8 @@ describe('Setup Wizard setting pages', () => {
   it('uses the shadcn Switch component for every wizard toggle', () => {
     const notifications = renderStep('notifications')
     const browser = renderStep('browser')
-    expect(occurrences(notifications, 'data-slot="switch"')).toBe(5)
-    expect(occurrences(notifications, 'role="switch"')).toBe(5)
+    expect(occurrences(notifications, 'data-slot="switch"')).toBe(8)
+    expect(occurrences(notifications, 'role="switch"')).toBe(8)
     expect(occurrences(browser, 'data-slot="switch"')).toBe(1)
     expect(occurrences(browser, 'role="switch"')).toBe(1)
   })
@@ -429,11 +432,13 @@ describe('Setup Wizard native UI boundaries', () => {
       showCloseButton: false,
     })
     const text = elementText(content)
-    expect(text).toContain('持有访问链接')
-    expect(text).toContain('操作这台电脑')
-    expect(text).toContain('HTTPS')
-    expect(text).toContain('安装并信任')
-    expect(text).toContain('开启局域网访问')
+    expect(text).toContain('这样很危险，所有在你局域网内的人都能直接操作你的电脑，请谨慎开启')
+    expect(text).toContain('本地 HTTPS 入口')
+    expect(text).toContain('不提供 HTTP 局域网回退')
+    expect(text).toContain('信任 Desktop 本地 CA')
+    expect(text).toContain('secure context')
+    expect(text).toContain('WebCrypto')
+    expect(text).toContain('确认开启局域网访问')
     expect(text).toContain('保持仅本机访问')
     const descendants = elementTree(content)
     const close = descendants.find(element => element.type === DialogClose)
