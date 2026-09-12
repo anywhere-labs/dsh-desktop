@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const IMPORT_SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s*)['"]([^'"]+)['"]/gu
-const DESKTOP_MODULE = /(?:^|\/)dsh-plugin-desktop(?:\/|$)/u
+const DESKTOP_MODULE = /(?:^|\/)dsh-plugin-desktop(?:-beta)?(?:\/|$)/u
 
 function normalizePath(path) {
   return path.replaceAll('\\', '/')

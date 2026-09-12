@@ -63,7 +63,10 @@ try {
   $taskQuitStartInfo.CreateNoWindow = $true
   $taskQuitStartInfo.EnvironmentVariables['DSH_HOME'] = $taskDshHome
   $taskQuitRequest = [System.Diagnostics.Process]::Start($taskQuitStartInfo)
-  $taskQuitRequest.WaitForExit()
+  if (-not $taskQuitRequest.WaitForExit(15000)) {
+    Stop-Process -Id $taskQuitRequest.Id -Force -ErrorAction SilentlyContinue
+    throw 'Timed out waiting for the installer quit request to exit.'
+  }
   $taskResult.quitRequestExitCode = $taskQuitRequest.ExitCode
 
   Wait-TaskCondition {

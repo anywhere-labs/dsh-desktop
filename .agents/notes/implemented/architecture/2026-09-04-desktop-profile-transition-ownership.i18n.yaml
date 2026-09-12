@@ -1,0 +1,5 @@
+# Bilingual-pair consistency record: the git blob hash of each side as of the last
+# confirmed-consistent state. Both languages carry equal authority. Update both files
+# and re-record their hashes with git hash-object after editing either side.
+2026-09-04-desktop-profile-transition-ownership.md: f0a0087e3ad18d2e0586a05bfd9caee75f05ff8d
+2026-09-04-desktop-profile-transition-ownership.zh.md: 1d2c3913d9c011145c7e66dca20491eb2a91ad95

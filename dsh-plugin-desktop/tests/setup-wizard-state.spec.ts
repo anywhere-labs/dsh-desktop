@@ -29,7 +29,7 @@ const temporaryDirectories: string[] = []
 const RECORDED_AT = '2026-08-28T04:05:06.789Z'
 const CURRENT_VERSIONS: DesktopSetupWizardVersions = Object.freeze({
   desktopVersion: '2.0.3',
-  dshVersion: '0.1.2-alpha.1',
+  dshVersion: '0.1.1-rc.2',
   setupRevision: desktopSetupWizardStateConstants.setupRevision,
 })
 
@@ -120,7 +120,7 @@ describe('Desktop Setup Wizard state', () => {
     }
   })
 
-  it('reads legacy V1 markers and replaces them with current V2 evidence after Setup', async () => {
+  it('honors legacy V1 decisions and permits explicit V2 recording', async () => {
     const userData = temporaryDirectory('dsh-setup-state-user-')
     const profile = temporaryDirectory('dsh-setup-state-profile-')
     const profileHash = desktopSetupWizardProfileHash(profile)
@@ -132,7 +132,7 @@ describe('Desktop Setup Wizard state', () => {
 
     const legacy = readDesktopSetupWizardState(userData, profile)
     expect(legacy).toEqual({ version: 1, profileHash, outcome: 'skipped' })
-    expect(desktopSetupWizardRequired(legacy, CURRENT_VERSIONS)).toBe(true)
+    expect(desktopSetupWizardRequired(legacy, CURRENT_VERSIONS)).toBe(false)
 
     await recordSetup(userData, profile, 'completed')
     expect(readDesktopSetupWizardState(userData, profile)).toEqual({
@@ -144,7 +144,7 @@ describe('Desktop Setup Wizard state', () => {
     })
   })
 
-  it('requires Setup only for monotonic Desktop, DSH, or Wizard revision upgrades', async () => {
+  it('does not repeat Setup for Desktop, DSH, or Wizard revision changes', async () => {
     const userData = temporaryDirectory('dsh-setup-state-user-')
     const profile = temporaryDirectory('dsh-setup-state-profile-')
     await recordSetup(userData, profile, 'completed')
@@ -155,15 +155,15 @@ describe('Desktop Setup Wizard state', () => {
     expect(desktopSetupWizardRequired(state, {
       ...CURRENT_VERSIONS,
       desktopVersion: '2.0.4',
-    })).toBe(true)
+    })).toBe(false)
     expect(desktopSetupWizardRequired(state, {
       ...CURRENT_VERSIONS,
       dshVersion: '0.1.2-alpha.2',
-    })).toBe(true)
+    })).toBe(false)
     expect(desktopSetupWizardRequired(state, {
       ...CURRENT_VERSIONS,
       setupRevision: CURRENT_VERSIONS.setupRevision + 1,
-    })).toBe(true)
+    })).toBe(false)
 
     expect(desktopSetupWizardRequired(state, {
       ...CURRENT_VERSIONS,
@@ -171,13 +171,25 @@ describe('Desktop Setup Wizard state', () => {
     })).toBe(false)
     expect(desktopSetupWizardRequired(state, {
       ...CURRENT_VERSIONS,
-      dshVersion: '0.1.1',
+      dshVersion: '0.1.1-rc.1',
     })).toBe(false)
     expect(desktopSetupWizardRequired(state, {
       ...CURRENT_VERSIONS,
       desktopVersion: '2.0.4',
-      dshVersion: '0.1.1',
-    })).toBe(true)
+      dshVersion: '0.1.1-rc.1',
+    })).toBe(false)
+  })
+
+  it.each(['completed', 'skipped'] as const)('keeps %s decisions across Stable/Beta switches in either direction', async outcome => {
+    const userData = temporaryDirectory('dsh-setup-state-user-')
+    const profile = temporaryDirectory('dsh-setup-state-profile-')
+    for (const desktopVersion of ['2.0.5', '2.0.6-beta.1']) {
+      const state = await recordSetup(userData, profile, outcome, { ...CURRENT_VERSIONS, desktopVersion })
+      for (const nextVersion of ['2.0.4', '2.0.6', '2.0.7-beta.1']) {
+        expect(desktopSetupWizardRequired(state, { ...CURRENT_VERSIONS, desktopVersion: nextVersion })).toBe(false)
+      }
+      expect(readDesktopSetupWizardState(userData, profile)).toEqual(state)
+    }
   })
 
   it('strictly rejects malformed V2 version evidence and write inputs', async () => {

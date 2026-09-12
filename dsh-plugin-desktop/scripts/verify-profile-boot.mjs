@@ -1,6 +1,6 @@
 /** Headless smoke for the complete published DSH Web profile and renderer manifest. */
 
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,7 +24,7 @@ const BROWSER_ACCESS = Object.freeze({
   get ordinaryBrowserEnabled() { return ordinaryBrowserEnabled },
   rendererHeader: Object.freeze({
     name: 'x-dsh-desktop-renderer',
-    value: Buffer.alloc(32, 2).toString('base64url'),
+    value: Buffer.alloc(32, 4).toString('base64url'),
   }),
   setOrdinaryBrowserEnabled(enabled) { ordinaryBrowserEnabled = enabled },
 })
@@ -58,7 +58,19 @@ try {
     '  default: minimal',
     '',
   ].join('\n'))
-  const prepared = prepareDesktopProfile('1', home, 'win32')
+  const aaRequested = process.env.DSH_VERIFY_AA === '1'
+  const brokenAa = process.env.DSH_VERIFY_AA_BROKEN === '1'
+  if (brokenAa) {
+    const initial = prepareDesktopProfile('1', home, 'win32')
+    const brokenPackage = join(initial.profile.dir, 'node_modules', '@agents-anywhere', 'dsh-bridge-next')
+    mkdirSync(brokenPackage, { recursive: true })
+    writeFileSync(join(brokenPackage, 'package.json'), JSON.stringify({
+      name: '@agents-anywhere/dsh-bridge-next', version: '99.0.0',
+      dsh: { bundle: { patch: './missing.patch.yml' } },
+    }))
+  }
+  const prepared = prepareDesktopProfile('1', home, 'win32', undefined, undefined, undefined, { aaEnabled: aaRequested })
+  if (brokenAa && (!prepared.aaFailure || prepared.aaEnabled)) throw new Error('Broken AA bundle did not fail closed')
   const hostServicePluginDir = join(
     prepared.profile.dir,
     'node_modules',
@@ -80,6 +92,10 @@ try {
       }],
     },
     ...prepared.patches,
+    // Keep this headless probe independent of the operator's AA account.
+    ...(prepared.aaEnabled ? [{ id: 'agents-anywhere-bridge-next', config: {
+      dshHome: home, stateRoot: join(home, 'aa-smoke-state'),
+    } }] : []),
   ]
   const packageRoot = new URL('../', import.meta.url)
   const pnpmBinPath = fileURLToPath(new URL('node_modules/pnpm/bin/pnpm.mjs', packageRoot))
@@ -311,6 +327,17 @@ try {
   }
   const graph = JSON.parse(bootMatch[1])
   const ids = new Set(graph.entries.map(entry => entry.id))
+  const aaEnabled = aaRequested && !brokenAa
+  if (ids.has('@agents-anywhere/dsh-bridge-next') !== aaEnabled) throw new Error('AA client graph does not match explicit selection')
+  if (aaEnabled && (!ctx.get('agentsAnywhereRuntime') || !ctx.get('agentsAnywhereOnboarding'))) {
+    throw new Error('AA Host services did not activate in the actual Desktop profile')
+  }
+  if (aaEnabled) {
+    const endpoint = join(home, 'agents-anywhere', 'bridge', 'endpoint.json')
+    if (!existsSync(endpoint)) throw new Error('AA did not publish its native DSH home endpoint')
+    const snapshot = await ctx.get('agentsAnywhereOnboarding').inspect()
+    if (snapshot.account) throw new Error('A fresh Profile inherited an AA account')
+  }
   for (const id of [
     'dsh-plugin-desktop',
     '@deepseek-ai/dsh-client-ui-conversation',

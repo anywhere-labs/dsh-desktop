@@ -9,7 +9,6 @@ import {
   DSH_1024STORE_LEGACY_ADAPTER_ID,
   DSH_1024STORE_PROVIDER_ID,
 } from '../src/adapters/dsh-1024store.js'
-import { DSH_MARKETPLACE_ADAPTER_ID, DSH_MARKETPLACE_KEY, DSH_MARKETPLACE_PROVIDER_ID } from '../src/adapters/dsh-marketplace.js'
 import { DSHFIND_ADAPTER_ID, DSHFIND_KEY, DSHFIND_PROVIDER_ID } from '../src/adapters/dshfind.js'
 import { standardHttpAdapter } from '../src/adapters/standard-http.js'
 import { DefaultCatalogService, type CatalogFullIndex } from '../src/catalog/service.js'
@@ -1523,7 +1522,6 @@ describe('source mutation boundary', () => {
     const mutate = createMarketSourceMutator(scope)
 
     await mutate({ action: 'add-builtin', key: DSH_1024STORE_KEY }, new AbortController().signal)
-    await mutate({ action: 'add-builtin', key: DSH_MARKETPLACE_KEY }, new AbortController().signal)
     await mutate({ action: 'add-builtin', key: DSHFIND_KEY }, new AbortController().signal)
 
     expect(document.sources).toEqual([
@@ -1535,18 +1533,11 @@ describe('source mutation boundary', () => {
         order: 0,
       }),
       expect.objectContaining({
-        adapterId: DSH_MARKETPLACE_ADAPTER_ID,
-        providerId: DSH_MARKETPLACE_PROVIDER_ID,
-        builtInProviderKey: DSH_MARKETPLACE_KEY,
-        enabled: false,
-        order: 1,
-      }),
-      expect.objectContaining({
         adapterId: DSHFIND_ADAPTER_ID,
         providerId: DSHFIND_PROVIDER_ID,
         builtInProviderKey: DSHFIND_KEY,
         enabled: false,
-        order: 2,
+        order: 1,
       }),
     ])
 
@@ -1554,7 +1545,7 @@ describe('source mutation boundary', () => {
       { action: 'add-builtin', key: 'unknown-provider' },
       new AbortController().signal,
     )).rejects.toThrow(/built-in source unavailable/u)
-    expect(document.sources).toHaveLength(3)
+    expect(document.sources).toHaveLength(2)
   })
 
   it('serializes source writes so concurrent changes cannot overwrite each other', async () => {
