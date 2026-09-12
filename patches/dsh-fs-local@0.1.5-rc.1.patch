@@ -1,0 +1,41 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -138,9 +138,18 @@ async function readFileAbortable(absolutePath, verb, signal) {
+ 		throw new FsError(`${verb} aborted`, "FS_ABORTED");
+ 	}
+ }
++/** Nanoseconds for one stat timestamp, derived from milliseconds when absent. */
++function stampNs(ns, ms) {
++	if (typeof ns === "bigint") return ns;
++	return typeof ms === "number" ? BigInt(Math.trunc(ms * 1000000)) : 0n;
++}
++/** Permission bits for a bigint or plain Stats object. */
++function modeBits(info) {
++	return typeof info.mode === "bigint" ? Number(info.mode & 511n) : info.mode & 511;
++}
+ /** Opaque version token from high-resolution identity and freshness metadata. */
+ function versionOf(info) {
+-	return FsVersion(`${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`);
++	return FsVersion(`${info.dev}:${info.ino}:${info.size}:${stampNs(info.mtimeNs, info.mtimeMs)}:${stampNs(info.ctimeNs, info.ctimeMs)}`);
+ }
+ /**
+ * Resolve a path to its absolute display path and realpath identity. For a missing target,
+@@ -222,7 +231,7 @@ async function probe(absolutePath) {
+ 	if (!info) return null;
+ 	return {
+ 		version: versionOf(info),
+-		mode: Number(info.mode & 511n),
++		mode: modeBits(info),
+ 		type: pathType(info),
+ 		size: Number(info.size)
+ 	};
+@@ -237,7 +246,7 @@ async function probeNoFollow(absolutePath) {
+ 	if (!info) return null;
+ 	return {
+ 		version: versionOf(info),
+-		mode: Number(info.mode & 511n),
++		mode: modeBits(info),
+ 		type: pathLinkType(info),
+ 		size: Number(info.size)
+ 	};
