@@ -11,7 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { join, win32 as windowsPath } from 'node:path'
+import { basename, dirname, join, win32 as windowsPath } from 'node:path'
 import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
 import { assertDesktopProfileName } from './profile-manager.ts'
 
@@ -45,6 +45,8 @@ export interface DesktopPnpmRuntimeOptions {
 
 /** Files and reversible PATH update created for the Host runtime. */
 export interface DesktopPnpmRuntimeInstallation {
+  /** Physical executable used for Electron Node mode; the non-UI helper on macOS. */
+  nodeExecutable: string
   /** Public directory prepended to the Host PATH; it contains only pnpm. */
   pathDir: string
   /** Public pnpm command shim. */
@@ -90,6 +92,34 @@ function assertScriptValue(label: string, value: string): void {
 /** Quote one arbitrary value as a POSIX shell word. */
 function quoteSh(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`
+}
+
+/**
+ * Resolve the physical Electron executable safe for Node-only subprocesses.
+ * macOS LaunchServices treats the main app executable as a GUI even in RunAsNode
+ * mode, so Node-only work uses the LSUIElement Helper. Other platforms keep the
+ * provided executable. A path that is not inside Contents/MacOS is left unchanged
+ * so unpackaged development binaries keep working.
+ */
+export function desktopRunAsNodeExecutable(
+  platform: NodeJS.Platform,
+  appExecutable: string,
+): string {
+  if (platform !== 'darwin') return appExecutable
+  const macosDirectory = dirname(appExecutable)
+  const contentsDirectory = dirname(macosDirectory)
+  if (basename(macosDirectory) !== 'MacOS' || basename(contentsDirectory) !== 'Contents') {
+    return appExecutable
+  }
+  const executableName = basename(appExecutable)
+  return join(
+    contentsDirectory,
+    'Frameworks',
+    `${executableName} Helper.app`,
+    'Contents',
+    'MacOS',
+    `${executableName} Helper`,
+  )
 }
 
 /** Quote one Windows batch argv word without permitting quote injection. */
@@ -353,19 +383,19 @@ function clearEnvironmentModule(platform: NodeJS.Platform): string {
 }
 
 /** Build the private POSIX Node command used only by pnpm lifecycle scripts. */
-function posixNodeShim(appExecutable: string): string {
+function posixNodeShim(nodeExecutable: string): string {
   return [
     '#!/bin/sh',
     'runtime_node_bin_dir=${0%/*}',
     'runtime_private_dir=${runtime_node_bin_dir%/*}',
     'runtime_clear_environment="$runtime_private_dir/clear-env.cjs"',
-    `${RUN_AS_NODE}=1 exec ${quoteSh(appExecutable)} --require "$runtime_clear_environment" "$@"`,
+    `${RUN_AS_NODE}=1 exec ${quoteSh(nodeExecutable)} --require "$runtime_clear_environment" "$@"`,
     '',
   ].join('\n')
 }
 
 /** Build the public POSIX pnpm command. */
-function posixPnpmShim(options: DesktopPnpmRuntimeOptions): string {
+function posixPnpmShim(options: DesktopPnpmRuntimeOptions, nodeExecutable: string): string {
   return [
     '#!/bin/sh',
     'runtime_public_dir=${0%/*}',
@@ -381,7 +411,7 @@ function posixPnpmShim(options: DesktopPnpmRuntimeOptions): string {
       'npm_config_runtime=electron',
       `npm_config_target=${quoteSh(options.electronVersion)}`,
       `npm_config_disturl=${quoteSh(ELECTRON_HEADERS_URL)}`,
-      `exec ${quoteSh(options.appExecutable)} --require "$runtime_clear_environment" ${quoteSh(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
+      `exec ${quoteSh(nodeExecutable)} --require "$runtime_clear_environment" ${quoteSh(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
     ].join(' '),
     '',
   ].join('\n')
@@ -561,6 +591,7 @@ export function installDesktopPnpmRuntime(options: DesktopPnpmRuntimeOptions): D
   ] as const) assertScriptValue(label, value)
 
   const windows = options.platform === 'win32'
+  const nodeExecutable = desktopRunAsNodeExecutable(options.platform, options.appExecutable)
   const pnpmShimName = windows ? 'pnpm.cmd' : 'pnpm'
   const nodeShimName = windows ? 'node.cmd' : 'node'
   const plan = runtimeGenerationPlan(
@@ -575,12 +606,12 @@ export function installDesktopPnpmRuntime(options: DesktopPnpmRuntimeOptions): D
       },
       {
         relativePath: `private/node-bin/${nodeShimName}`,
-        contents: windows ? windowsNodeShim(options.appExecutable) : posixNodeShim(options.appExecutable),
+        contents: windows ? windowsNodeShim(options.appExecutable) : posixNodeShim(nodeExecutable),
         mode: windows ? PRIVATE_FILE_MODE : EXECUTABLE_FILE_MODE,
       },
       {
         relativePath: `bin/${pnpmShimName}`,
-        contents: windows ? windowsPnpmShim(options) : posixPnpmShim(options),
+        contents: windows ? windowsPnpmShim(options) : posixPnpmShim(options, nodeExecutable),
         mode: windows ? PRIVATE_FILE_MODE : EXECUTABLE_FILE_MODE,
       },
     ],
@@ -594,6 +625,7 @@ export function installDesktopPnpmRuntime(options: DesktopPnpmRuntimeOptions): D
   const clearEnvironmentPath = join(privateDir, 'clear-env.cjs')
 
   return {
+    nodeExecutable,
     pathDir,
     pnpmShimPath,
     nodeBinDir,
