@@ -8,6 +8,30 @@ import { ProductVisualSidecar } from './product-visual-sidecar.ts'
 
 const ROUTE_PAGE = '/product-visual-workbench'
 const ROUTE_API = '/api/product-visual'
+const ROUTE_CONFIG = '/api/config'
+const ROUTE_BACKEND_PREFIXES = [
+  '/api/account',
+  '/api/attribution',
+  '/api/benchmark',
+  '/api/brand-data',
+  '/api/brand-strategy',
+  '/api/dashboard',
+  '/api/edit',
+  '/api/external',
+  '/api/hotspot',
+  '/api/live-clips',
+  '/api/liveclip',
+  '/api/liveclip-feedback',
+  '/api/material',
+  '/api/publish',
+  '/api/report',
+  '/api/script',
+  '/api/tasks',
+  '/api/topic',
+  '/api/trace',
+  '/api/video-clip-viral-extraction',
+  '/api/video-generation',
+] as const
 const MAX_PROXY_BODY_BYTES = 50 * 1024 * 1024
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
@@ -108,6 +132,14 @@ export function registerProductVisualRoutes(ctx: Context): () => void {
       if (!sameOrigin(req, origin)) return sendJson(res, 403, { error: 'product visual API requires local same-origin access' })
       return proxy(req, res, sidecar)
     } }),
+    ctx.webServer.register({ kind: 'prefix', path: ROUTE_CONFIG, handler: (req, res) => {
+      if (!sameOrigin(req, origin)) return sendJson(res, 403, { error: 'product visual config requires local same-origin access' })
+      return proxy(req, res, sidecar)
+    } }),
+    ...ROUTE_BACKEND_PREFIXES.map(path => ctx.webServer.register({ kind: 'prefix', path, handler: (req, res) => {
+      if (!sameOrigin(req, origin)) return sendJson(res, 403, { error: 'product visual API requires local same-origin access' })
+      return proxy(req, res, sidecar)
+    } })),
     ctx.webServer.register({ kind: 'exact', path: `${ROUTE_API}/runtime`, handler: async (req, res) => {
       if (req.method !== 'GET' || !sameOrigin(req, origin)) return sendJson(res, 405, { error: 'runtime status requires local same-origin GET' })
       sendJson(res, 200, await sidecar.ensureReady())

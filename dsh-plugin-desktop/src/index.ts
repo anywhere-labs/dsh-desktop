@@ -58,6 +58,8 @@ import {
 } from './desktop-settings-route.ts'
 import { registerVideoWorkbenchPageRoute, registerVideoWorkbenchRoutes } from './video-workbench-route.ts'
 import { registerProductVisualRoutes } from './product-visual-route.ts'
+import { registerDbskillWorkbenchRoutes } from './dbskill-workbench-route.ts'
+import { registerDeepThinkRoutes } from './deepthink-route.ts'
 import type {} from './desktop-settings-controller.ts'
 import { DESKTOP_LAN_HTTPS_CA_PATH } from './lan-https-runtime.ts'
 import { desktopBootRecoveryInjections } from './desktop-boot-recovery.ts'
@@ -274,6 +276,14 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(
     () => registerProductVisualRoutes(ctx),
     'dsh-plugin-desktop: product visual page and sidecar routes',
+  )
+  ctx.effect(
+    () => registerDbskillWorkbenchRoutes(ctx),
+    'dsh-plugin-desktop: dbskill workbench page',
+  )
+  ctx.effect(
+    () => registerDeepThinkRoutes(ctx),
+    'dsh-plugin-desktop: DeepThink page, API proxy, and sidecar',
   )
   if (lanHttps.caCertificate !== null) {
     const caCertificate = lanHttps.caCertificate

@@ -18,6 +18,15 @@ export async function decideResponsibility(caseId, action, actorId = 'local-user
 export async function seedAgentSpaceDemo() {
     return json(await fetch('/api/commerce-ops/agent-space/demo', { method: 'POST' }));
 }
+export async function runInventoryAlertDemo(scenario = 'normal') {
+    return json(await fetch('/api/commerce-ops/inventory-alert/demo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ scenario }) }));
+}
+export async function runPlatformSandboxDemo(platformId, environment = 'demo', scenario = 'success') {
+    return json(await fetch('/api/commerce-ops/platform-sandbox/demo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ platformId, environment, scenario }) }));
+}
+export async function runVocDemo(scenario = 'normal') {
+    return json(await fetch('/api/commerce-ops/voc/demo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ scenario }) }));
+}
 export async function runDryRun(input) {
     const response = await fetch('/api/commerce-ops/dry-run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
     if (!response.ok)

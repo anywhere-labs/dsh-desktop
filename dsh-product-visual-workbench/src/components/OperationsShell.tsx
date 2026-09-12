@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { dshHomeUrl } from "../navigation";
+import { ProviderConfigModal } from "./ProviderConfigModal";
 
 type Props = {
   activeView: string;
@@ -7,6 +8,7 @@ type Props = {
   modelReady?: boolean;
   onNavigate: (view: string) => void;
   onRefresh?: () => void;
+  onConfigSaved?: () => void;
 };
 
 const navigation = [
@@ -28,8 +30,9 @@ function activeRoot(view: string) {
   return view;
 }
 
-export function OperationsShell({ activeView, children, modelReady = false, onNavigate, onRefresh }: Props) {
+export function OperationsShell({ activeView, children, modelReady = false, onNavigate, onRefresh, onConfigSaved }: Props) {
   const selected = activeRoot(activeView);
+  const [configOpen, setConfigOpen] = useState(false);
   return (
     <div className="ops-shell">
       <aside className="ops-sidebar" aria-label="主导航">
@@ -56,6 +59,7 @@ export function OperationsShell({ activeView, children, modelReady = false, onNa
           <label className="ops-global-search"><span>⌕</span><input aria-label="搜索工作台" placeholder="搜索任务、素材、Agent 或日志" /></label>
           <div className="ops-top-actions">
             <button className="ops-home-button" onClick={() => window.location.assign(dshHomeUrl(window.location.href))} type="button">返回 DSH 首页</button>
+            <button className="ops-config-button" onClick={() => setConfigOpen(true)} type="button"><span>⚙</span>配置</button>
             <span className="ops-date">今日 · 实时数据</span>
             <button aria-label="刷新当前页面" className="ops-icon-button" onClick={onRefresh} type="button">↻</button>
             <span className={modelReady ? "ops-health ready" : "ops-health"}><i />{modelReady ? "服务就绪" : "需配置"}</span>
@@ -64,6 +68,7 @@ export function OperationsShell({ activeView, children, modelReady = false, onNa
         </header>
         <main className="ops-content">{children}</main>
       </section>
+      {configOpen ? <ProviderConfigModal onClose={() => setConfigOpen(false)} onSaved={onConfigSaved} /> : null}
     </div>
   );
 }

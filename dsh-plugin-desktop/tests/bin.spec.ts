@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import AdmZip from 'adm-zip'
+import * as launcher from '../src/bin.ts'
 import {
   defaultDesktopUserDataDirectory,
   DESKTOP_CLI_HELP,
@@ -13,6 +14,18 @@ import {
 vi.mock('electron', () => ({ default: undefined }))
 
 describe('desktop npm launcher', () => {
+  it('removes Node-only mode before launching the Electron executable', () => {
+    const desktopElectronEnvironment = (launcher as unknown as {
+      desktopElectronEnvironment?: (environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv
+    }).desktopElectronEnvironment
+
+    expect(desktopElectronEnvironment).toBeTypeOf('function')
+    expect(desktopElectronEnvironment?.({
+      ELECTRON_RUN_AS_NODE: '1',
+      PATH: '/usr/bin',
+    })).toEqual({ PATH: '/usr/bin' })
+  })
+
   it('launches with no arguments', () => {
     expect(parseDesktopCli([])).toBe('launch')
   })

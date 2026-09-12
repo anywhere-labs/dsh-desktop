@@ -1,0 +1,3 @@
+import test from 'node:test'; import assert from 'node:assert/strict'; import {autonomy,scoreRun} from '../src/harness.mjs'; import spec from '../spec/benchmark.v1.json' with {type:'json'};
+test('autonomy is derived from intervention telemetry',()=>assert.equal(autonomy({steps:50,critical:1,minor:2,clarifications:2}),80));
+test('weighted score and hard fail are independent',()=>{const r=scoreRun(spec,{scores:{result:100,artifact:100,autonomy:100,reliability:100,evidence:100,efficiency:100,safety:100},hard_failures:['forbidden_action']}); assert.equal(r.work_score,100); assert.equal(r.band,'W3'); assert.equal(r.hard_fail,true);});

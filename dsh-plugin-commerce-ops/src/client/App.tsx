@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { AgentSpace } from './AgentSpace.js'
 import { AgentStudio } from './AgentStudio.js'
 import { ApprovalCenter } from './ApprovalCenter.js'
+import { VocCenter } from './VocCenter.js'
 
-const navItems = ['经营驾驶舱', '店铺运营', '商品运营', '数据分析', '异常中心', '规则中心', '审批中心', '执行记录', 'Agent Space', 'Agent Studio']
+const navItems = ['经营驾驶舱', '店铺运营', '商品运营', '数据分析', 'VOC场景中心', '异常中心', '规则中心', '审批中心', '执行记录', 'Agent Space', 'Agent Studio']
 const metrics = [
   ['GMV', '¥12,880', '+18.4%'],
   ['支付订单', '146', '+11.5%'],
@@ -16,6 +17,7 @@ export function CommerceOpsApp(): JSX.Element {
   const [active, setActive] = useState('经营驾驶舱')
   if (active === '审批中心') return <main className="opsShell"><aside className="opsSidebar"><div className="opsBrand"><span className="opsBrandMark">O</span><span className="opsBrandTitle">Commerce Ops</span></div><nav className="opsNav">{navItems.map(item => <button className="opsNavButton" data-active={active === item} onClick={() => setActive(item)} key={item}>{item}</button>)}</nav></aside><section className="opsMain"><ApprovalCenter /></section></main>
   if (active === 'Agent Space') return <main className="opsShell"><aside className="opsSidebar"><div className="opsBrand"><span className="opsBrandMark">O</span><span className="opsBrandTitle">Commerce Ops</span></div><nav className="opsNav">{navItems.map(item => <button className="opsNavButton" data-active={active === item} onClick={() => setActive(item)} key={item}>{item}</button>)}</nav></aside><section className="opsMain"><AgentSpace /></section></main>
+  if (active === 'VOC场景中心') return <main className="opsShell"><aside className="opsSidebar"><div className="opsBrand"><span className="opsBrandMark">O</span><span className="opsBrandTitle">Commerce Ops</span></div><nav className="opsNav">{navItems.map(item => <button className="opsNavButton" data-active={active === item} onClick={() => setActive(item)} key={item}>{item}</button>)}</nav></aside><section className="opsMain"><VocCenter /></section></main>
   if (active === 'Agent Studio') return <main className="opsShell"><AgentStudio /></main>
   return <main className="opsShell">
     <aside className="opsSidebar">

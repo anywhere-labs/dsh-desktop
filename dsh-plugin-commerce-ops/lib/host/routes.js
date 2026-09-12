@@ -41,6 +41,47 @@ export function registerCommerceOpsRoutes(webServer, service = new CommerceOpsSe
                     return sendJson(res, 405, { error: 'runtime requires local same-origin GET' });
                 sendJson(res, 200, service.runtime);
             } }),
+        webServer.register({ kind: 'exact', path: `${api}/inventory-alert/demo`, handler: async (req, res) => {
+                if (req.method !== 'POST' || !sameOrigin(req, origin))
+                    return sendJson(res, 405, { error: 'inventory alert demo requires local same-origin POST' });
+                try {
+                    const body = await readJson(req);
+                    const value = body.scenario;
+                    const scenario = value === 'approval_rejected' || value === 'action_failed' || value === 'missing_evidence' || value === 'normal' ? value : 'normal';
+                    return sendJson(res, 201, await service.runInventoryAlertDemo(scenario));
+                }
+                catch (cause) {
+                    return sendJson(res, 400, { error: cause instanceof Error ? cause.message : String(cause) });
+                }
+            } }),
+        webServer.register({ kind: 'exact', path: `${api}/platform-sandbox/demo`, handler: async (req, res) => {
+                if (req.method !== 'POST' || !sameOrigin(req, origin))
+                    return sendJson(res, 405, { error: 'platform sandbox demo requires local same-origin POST' });
+                try {
+                    const body = await readJson(req);
+                    const platformId = body.platformId === 'xiaohongshu' ? 'xiaohongshu' : body.platformId === 'douyin' ? 'douyin' : undefined;
+                    if (!platformId)
+                        return sendJson(res, 400, { error: 'platformId must be douyin or xiaohongshu' });
+                    const environment = body.environment === 'sandbox' || body.environment === 'production' || body.environment === 'demo' ? body.environment : 'demo';
+                    const scenario = body.scenario === 'approval_rejected' || body.scenario === 'action_failed' || body.scenario === 'credential_missing' || body.scenario === 'rate_limited' || body.scenario === 'unavailable' || body.scenario === 'failure' ? body.scenario : 'success';
+                    return sendJson(res, 201, await service.runPlatformSandboxDemo(platformId, scenario, environment));
+                }
+                catch (cause) {
+                    return sendJson(res, 400, { error: cause instanceof Error ? cause.message : String(cause) });
+                }
+            } }),
+        webServer.register({ kind: 'exact', path: `${api}/voc/demo`, handler: async (req, res) => {
+                if (req.method !== 'POST' || !sameOrigin(req, origin))
+                    return sendJson(res, 405, { error: 'voc demo requires local same-origin POST' });
+                try {
+                    const body = await readJson(req);
+                    const scenario = body.scenario === 'low_evidence' ? 'low_evidence' : 'normal';
+                    return sendJson(res, 201, await service.runVocDemo(scenario));
+                }
+                catch (cause) {
+                    return sendJson(res, 400, { error: cause instanceof Error ? cause.message : String(cause) });
+                }
+            } }),
         webServer.register({ kind: 'exact', path: `${api}/agent-space`, handler: async (req, res) => {
                 if (!sameOrigin(req, origin))
                     return sendJson(res, 403, { error: 'agent space requires local same-origin access' });

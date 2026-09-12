@@ -15,11 +15,15 @@ from backend.app.media.scene_detect import detect_basic_segments
 from backend.app.media.video_probe import probe_video
 from backend.app.models.task import Task
 from backend.app.video_generation.ingest import build_ingest_record
+from backend.app.video_generation.matting import build_matting_request
+from backend.app.video_generation.compositing import compose_with_original_audio
+from backend.app.video_generation.qa import evaluate_composite
 from backend.app.video_generation.tracking import build_tracking_request, validate_selections
 
 
 WORKFLOW = "pixel_preserved_background_replacement_v1"
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
+BACKGROUND_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov", ".m4v"}
 
 
 def create_task(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
@@ -77,6 +81,74 @@ async def upload_source(db: Session, task_id: str, upload: UploadFile) -> dict[s
     task.input_json = {**(task.input_json or {}), "assets": [{"role": "SOURCE_VIDEO", "path": rel_path(target)}], "ingest": ingest}
     db.commit()
     return {"status": "ok", "data": _serialize(task)}
+
+
+async def upload_background(db: Session, task_id: str, upload: UploadFile) -> dict[str, Any]:
+    task = db.get(Task, task_id)
+    if task is None or task.task_type != "video_replica":
+        return {"status": "blocked", "missing_inputs": ["task_id"], "data": {}}
+    filename = Path(upload.filename or "background.png").name
+    extension = Path(filename).suffix.lower()
+    if extension not in BACKGROUND_EXTENSIONS:
+        return {"status": "blocked", "missing_inputs": ["supported_background_format"], "data": {}}
+    target_dir = (UPLOADS_DIR / "video-replica" / task_id).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"background{extension}"
+    with target.open("wb") as handle:
+        while chunk := await upload.read(1024 * 1024):
+            handle.write(chunk)
+    task.input_json = {**(task.input_json or {}), "background": {"path": rel_path(target), "authorized": True}}
+    db.commit()
+    return {"status": "ok", "data": _serialize(task)}
+
+
+def run_composite(db: Session, task_id: str) -> dict[str, Any]:
+    task = db.get(Task, task_id)
+    if task is None or task.task_type != "video_replica":
+        return {"status": "blocked", "missing_inputs": ["task_id"], "data": {}}
+    payload = task.input_json or {}
+    source = Path(((payload.get("ingest") or {}).get("source") or {}).get("path") or "")
+    if not source.is_absolute():
+        source = Path(__file__).resolve().parents[3] / source
+    background = Path(((payload.get("background") or {}).get("path") or ""))
+    if not background.is_absolute():
+        background = Path(__file__).resolve().parents[3] / background
+    mask_dir = Path(((payload.get("tracking") or {}).get("mask_dir") or ""))
+    if not all([source.exists(), background.exists(), mask_dir.exists()]):
+        return {"status": "blocked", "missing_inputs": ["source_background_tracking"], "data": {}}
+    mask_count = sum(1 for path in mask_dir.glob("[0-9][0-9][0-9][0-9][0-9][0-9].png"))
+    expected_frames = int(round(float(((payload.get("ingest") or {}).get("probe") or {}).get("duration") or 0) * float(((payload.get("ingest") or {}).get("probe") or {}).get("fps") or 30)))
+    if expected_frames > 0 and mask_count < expected_frames:
+        return {"status": "blocked", "missing_inputs": ["complete_tracking_masks"], "warnings": [f"tracking masks cover {mask_count} frames; source requires about {expected_frames}"], "data": {}}
+    fps = float(((payload.get("ingest") or {}).get("probe") or {}).get("fps") or 30)
+    output = (UPLOADS_DIR / "video-replica" / task_id / "composite.mp4").resolve()
+    try:
+        artifact = compose_with_original_audio(source, background, mask_dir, output, fps)
+    except (OSError, RuntimeError) as exc:
+        return {"status": "failed", "missing_inputs": [], "warnings": [str(exc)], "data": {}}
+    task.input_json = {**payload, "composite": {**artifact, "path": rel_path(output)}}
+    task.status = "audio_remux"
+    db.commit()
+    return {"status": "ok", "data": _serialize(task)}
+
+
+def run_qa(db: Session, task_id: str) -> dict[str, Any]:
+    task = db.get(Task, task_id)
+    if task is None or task.task_type != "video_replica":
+        return {"status": "blocked", "missing_inputs": ["task_id"], "data": {}}
+    payload = task.input_json or {}
+    source = Path(((payload.get("ingest") or {}).get("source") or {}).get("path") or "")
+    output = Path(((payload.get("composite") or {}).get("path") or ""))
+    root = Path(__file__).resolve().parents[3]
+    if not source.is_absolute():
+        source = root / source
+    if not output.is_absolute():
+        output = root / output
+    report = evaluate_composite(source, output)
+    task.input_json = {**payload, "qa": report}
+    task.status = "completed" if report["passed"] else "repair_required"
+    db.commit()
+    return {"status": "ok" if report["passed"] else "blocked", "data": _serialize(task), "warnings": [item["message"] for item in report["failures"]]}
 
 
 def get_task(db: Session, task_id: str) -> dict[str, Any]:
@@ -144,8 +216,28 @@ def run_tracking(db: Session, task_id: str) -> dict[str, Any]:
         return {"status": "failed", "missing_inputs": [], "warnings": [process.stderr[-1000:] or "tracking runner exited with non-zero status"], "data": {}}
     summary_path = output_dir / "tracking-summary.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    if summary.get("tracking_quality") != "pass":
+        task.input_json = {**(task.input_json or {}), "tracking": summary}
+        task.status = "repair_required"
+        db.commit()
+        return {"status": "blocked", "missing_inputs": ["stable_tracking_masks"], "warnings": [f"tracking produced {len(summary.get('empty_frame_indices') or [])} empty masks"], "data": _serialize(task)}
     task.input_json = {**(task.input_json or {}), "tracking": summary}
     task.status = "tracking"
+    db.commit()
+    return {"status": "ok", "data": _serialize(task)}
+
+
+def prepare_matting(db: Session, task_id: str) -> dict[str, Any]:
+    task = db.get(Task, task_id)
+    if task is None or task.task_type != "video_replica":
+        return {"status": "blocked", "missing_inputs": ["task_id"], "data": {}}
+    selections = list((task.input_json or {}).get("selections") or [])
+    try:
+        request = build_matting_request(task_id, selections)
+    except (RuntimeError, ValueError) as exc:
+        return {"status": "blocked", "missing_inputs": ["matting_runtime"], "warnings": [str(exc)], "data": {}}
+    task.input_json = {**(task.input_json or {}), "matting_request": request}
+    task.status = "matting"
     db.commit()
     return {"status": "ok", "data": _serialize(task)}
 

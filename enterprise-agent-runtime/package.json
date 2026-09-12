@@ -1,0 +1,72 @@
+{
+  "name": "enterprise-agent-runtime",
+  "version": "0.1.0-dev.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./event-core/contracts.js": {
+      "types": "./lib/event-core/contracts.d.ts",
+      "default": "./lib/event-core/contracts.js"
+    },
+    "./event-core/ledger.js": {
+      "types": "./lib/event-core/ledger.d.ts",
+      "default": "./lib/event-core/ledger.js"
+    },
+    "./event-core/persistence.js": {
+      "types": "./lib/event-core/persistence.d.ts",
+      "default": "./lib/event-core/persistence.js"
+    },
+    "./event-core/router.js": {
+      "types": "./lib/event-core/router.d.ts",
+      "default": "./lib/event-core/router.js"
+    },
+    "./event-core/cases.js": {
+      "types": "./lib/event-core/cases.d.ts",
+      "default": "./lib/event-core/cases.js"
+    },
+    "./event-core/space.js": {
+      "types": "./lib/event-core/space.d.ts",
+      "default": "./lib/event-core/space.js"
+    },
+    "./governance/service.js": {
+      "types": "./lib/governance/service.d.ts",
+      "default": "./lib/governance/service.js"
+    },
+    "./approvals/service.js": {
+      "types": "./lib/approvals/service.d.ts",
+      "default": "./lib/approvals/service.js"
+    },
+    "./decision/service.js": {
+      "types": "./lib/decision/service.d.ts",
+      "default": "./lib/decision/service.js"
+    },
+    "./contracts/index.js": {
+      "types": "./lib/contracts/index.d.ts",
+      "default": "./lib/contracts/index.js"
+    },
+    "./actions/mock-executor.js": {
+      "types": "./lib/actions/mock-executor.d.ts",
+      "default": "./lib/actions/mock-executor.js"
+    }
+  }
+}

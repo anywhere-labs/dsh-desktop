@@ -12,6 +12,9 @@ import { buildAgentSpaceSnapshot, getHumanBoard } from '../event-core/space.js';
 import { runApprovedCompetitorPriceChangeSimulation } from '../event-core/simulation.js';
 import { HumanDecisionService } from '../decision/service.js';
 import { NotificationService, PermissionService, ResponsibilityService, SlaService } from '../governance/service.js';
+import { InventoryAlertWorkflow } from '../product-domain/workflow.js';
+import { runPlatformSandboxDemo } from '../connectors/sandbox/index.js';
+import { Voc3Workflow } from '../voc-domain/workflow.js';
 export class CommerceOpsService {
     runtime = { state: 'READY', mode: 'mock', connector: 'mock' };
     connector = new MockCommerceConnector();
@@ -25,12 +28,15 @@ export class CommerceOpsService {
     responsibilityService;
     notificationService;
     slaService;
+    inventoryAlertWorkflow;
+    voc3Workflow;
     constructor(options = {}) {
+        const supportedEventVersions = ['event.v1', 'commerce.event.v1'];
         const store = options.eventLogPath
-            ? new JsonlEventStore(options.eventLogPath)
-            : new PartitionedJsonlEventStore(options.eventLogDir ?? join(homedir(), '.commerce-ops', 'events'));
+            ? new JsonlEventStore(options.eventLogPath, supportedEventVersions)
+            : new PartitionedJsonlEventStore(options.eventLogDir ?? join(homedir(), '.commerce-ops', 'events'), supportedEventVersions);
         this.eventLedger = new EventLedger(store);
-        const context = { ledger: this.eventLedger, tenantId: 'tenant_demo_group', enterpriseId: 'enterprise_demo_a', brandId: 'brand_demo_alpha' };
+        const context = { ledger: this.eventLedger, tenantId: 'tenant_demo_group', enterpriseId: 'enterprise_demo_a', brandId: 'brand_demo_alpha', schemaVersion: 'commerce.event.v1' };
         this.approvalService = new ApprovalService(context);
         this.humanDecisionService = new HumanDecisionService(context);
         this.permissionService = new PermissionService(context);
@@ -39,6 +45,8 @@ export class CommerceOpsService {
         this.notificationService = new NotificationService(context);
         this.responsibilityService = new ResponsibilityService(context, this.permissionService);
         this.slaService = new SlaService(context, this.notificationService);
+        this.inventoryAlertWorkflow = new InventoryAlertWorkflow(this.eventLedger, this.approvalService);
+        this.voc3Workflow = new Voc3Workflow(this.eventLedger, this.approvalService);
     }
     getShopMetrics(shopId, from, to) {
         return this.connector.getShopMetrics({ shopId, from, to });
@@ -91,6 +99,15 @@ export class CommerceOpsService {
     startSla(caseId, ownerId, durationMs, now) { return this.slaService.start(caseId, ownerId, durationMs, now); }
     evaluateSla(now) { return this.slaService.evaluate(now); }
     listNotifications() { return this.notificationService.list(); }
+    runInventoryAlertDemo(scenario = 'normal') {
+        return this.inventoryAlertWorkflow.run(scenario);
+    }
+    runPlatformSandboxDemo(platformId, scenario = 'success', environment = 'demo') {
+        return runPlatformSandboxDemo(platformId, scenario, environment);
+    }
+    runVocDemo(scenario = 'normal') {
+        return this.voc3Workflow.run(scenario);
+    }
     getHumanBoard(actorId) {
         return getHumanBoard(this.getAgentSpaceSnapshot(), actorId);
     }

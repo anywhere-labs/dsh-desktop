@@ -12,6 +12,10 @@ import { buildAgentSpaceSnapshot, getHumanBoard, type AgentSpaceSnapshot, type H
 import { runApprovedCompetitorPriceChangeSimulation } from '../event-core/simulation.js'
 import { HumanDecisionService, type HumanDecision } from '../decision/service.js'
 import { NotificationService, PermissionService, ResponsibilityService, SlaService, type ResponsibilityRecord, type SlaRecord, type NotificationRecord } from '../governance/service.js'
+import { InventoryAlertWorkflow, type InventoryAlertDemoResult, type InventoryAlertScenario } from '../product-domain/workflow.js'
+import { runPlatformSandboxDemo, type PlatformDemoScenario, type PlatformSandboxDemoResult } from '../connectors/sandbox/index.js'
+import type { PlatformId, SandboxEnvironment } from '../connectors/sandbox/contracts.js'
+import { Voc3Workflow, type Voc3WorkflowResult, type VocWorkflowScenario } from '../voc-domain/workflow.js'
 
 export interface CommerceOpsRuntime {
   readonly state: 'READY'
@@ -32,13 +36,16 @@ export class CommerceOpsService {
   private readonly responsibilityService: ResponsibilityService
   private readonly notificationService: NotificationService
   private readonly slaService: SlaService
+  private readonly inventoryAlertWorkflow: InventoryAlertWorkflow
+  private readonly voc3Workflow: Voc3Workflow
 
   constructor(options: { readonly eventLogPath?: string; readonly eventLogDir?: string } = {}) {
+    const supportedEventVersions = ['event.v1', 'commerce.event.v1'] as const
     const store = options.eventLogPath
-      ? new JsonlEventStore(options.eventLogPath)
-      : new PartitionedJsonlEventStore(options.eventLogDir ?? join(homedir(), '.commerce-ops', 'events'))
+      ? new JsonlEventStore(options.eventLogPath, supportedEventVersions)
+      : new PartitionedJsonlEventStore(options.eventLogDir ?? join(homedir(), '.commerce-ops', 'events'), supportedEventVersions)
     this.eventLedger = new EventLedger(store)
-    const context = { ledger: this.eventLedger, tenantId: 'tenant_demo_group', enterpriseId: 'enterprise_demo_a', brandId: 'brand_demo_alpha' }
+    const context = { ledger: this.eventLedger, tenantId: 'tenant_demo_group', enterpriseId: 'enterprise_demo_a', brandId: 'brand_demo_alpha', schemaVersion: 'commerce.event.v1' }
     this.approvalService = new ApprovalService(context)
     this.humanDecisionService = new HumanDecisionService(context)
     this.permissionService = new PermissionService(context)
@@ -47,6 +54,8 @@ export class CommerceOpsService {
     this.notificationService = new NotificationService(context)
     this.responsibilityService = new ResponsibilityService(context, this.permissionService)
     this.slaService = new SlaService(context, this.notificationService)
+    this.inventoryAlertWorkflow = new InventoryAlertWorkflow(this.eventLedger, this.approvalService)
+    this.voc3Workflow = new Voc3Workflow(this.eventLedger, this.approvalService)
   }
 
   getShopMetrics(shopId: string, from: string, to: string): Promise<ShopMetricsResult> {
@@ -113,6 +122,18 @@ export class CommerceOpsService {
   startSla(caseId: string, ownerId: string, durationMs: number, now?: Date): SlaRecord { return this.slaService.start(caseId, ownerId, durationMs, now) }
   evaluateSla(now?: Date): readonly SlaRecord[] { return this.slaService.evaluate(now) }
   listNotifications(): readonly NotificationRecord[] { return this.notificationService.list() }
+
+  runInventoryAlertDemo(scenario: InventoryAlertScenario = 'normal'): Promise<InventoryAlertDemoResult> {
+    return this.inventoryAlertWorkflow.run(scenario)
+  }
+
+  runPlatformSandboxDemo(platformId: PlatformId, scenario: PlatformDemoScenario = 'success', environment: SandboxEnvironment = 'demo'): Promise<PlatformSandboxDemoResult> {
+    return runPlatformSandboxDemo(platformId, scenario, environment)
+  }
+
+  runVocDemo(scenario: VocWorkflowScenario = 'normal'): Promise<Voc3WorkflowResult> {
+    return this.voc3Workflow.run(scenario)
+  }
 
   getHumanBoard(actorId: string): HumanBoardView[] {
     return getHumanBoard(this.getAgentSpaceSnapshot(), actorId)

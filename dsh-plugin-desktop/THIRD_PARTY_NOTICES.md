@@ -621,3 +621,9 @@ the package names, versions, and licenses for transparency.
 | zustand | 4.4.7 | MIT |
 | zwitch | 2.0.4 | MIT |
 > Notice-required licenses in use: LGPL-3.0-or-later. Their license texts ship inside node_modules; see the package LICENSE files for the full terms.
+# dbskill
+
+The DSH commercial-diagnosis workbench adapts the public tool catalog from
+[`dontbesilent2025/dbskill`](https://github.com/dontbesilent2025/dbskill).
+dbskill is provided under CC BY-NC 4.0. Commercial use requires separate
+authorization from its author. This notice does not grant that authorization.

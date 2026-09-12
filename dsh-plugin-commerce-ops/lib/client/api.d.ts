@@ -60,6 +60,9 @@ export declare function getHumanBoard(actorId?: string): Promise<readonly HumanB
 export declare function decideApproval(approvalId: string, decision: 'approve' | 'reject'): Promise<ApprovalView>;
 export declare function decideResponsibility(caseId: string, action: ResponsibilityAction, actorId?: string, toUserId?: string): Promise<unknown>;
 export declare function seedAgentSpaceDemo(): Promise<AgentSpaceSnapshot>;
+export declare function runInventoryAlertDemo(scenario?: 'normal' | 'approval_rejected' | 'action_failed' | 'missing_evidence'): Promise<unknown>;
+export declare function runPlatformSandboxDemo(platformId: 'douyin' | 'xiaohongshu', environment?: 'demo' | 'sandbox' | 'production', scenario?: 'success' | 'approval_rejected' | 'action_failed'): Promise<unknown>;
+export declare function runVocDemo(scenario?: 'normal' | 'low_evidence'): Promise<unknown>;
 export declare function runDryRun(input: Record<string, unknown>): Promise<{
     readonly executed: false;
     readonly policy: {

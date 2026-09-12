@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { decideApproval, decideResponsibility, getAgentSpaceSnapshot, getHumanBoard, seedAgentSpaceDemo, type AgentSpaceSnapshot, type HumanBoardView, type ResponsibilityAction } from './api.js'
+import { decideApproval, decideResponsibility, getAgentSpaceSnapshot, getHumanBoard, runInventoryAlertDemo, runPlatformSandboxDemo, seedAgentSpaceDemo, type AgentSpaceSnapshot, type HumanBoardView, type ResponsibilityAction } from './api.js'
 
 type ViewKey = HumanBoardView['key']
 const viewLabels: Record<ViewKey, string> = {
@@ -16,6 +16,7 @@ export function AgentSpace(): JSX.Element {
   const [active, setActive] = useState<ViewKey>('all')
   const [error, setError] = useState<string>()
   const [working, setWorking] = useState(false)
+  const [sandboxEnvironment, setSandboxEnvironment] = useState<'demo' | 'sandbox' | 'production'>('demo')
 
   const refresh = async (): Promise<void> => {
     setWorking(true)
@@ -29,6 +30,8 @@ export function AgentSpace(): JSX.Element {
   }
   useEffect(() => { void refresh() }, [])
   const runDemo = async (): Promise<void> => { setWorking(true); try { await seedAgentSpaceDemo(); await refresh(); setError(undefined) } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) } finally { setWorking(false) } }
+  const runInventoryDemo = async (): Promise<void> => { setWorking(true); try { await runInventoryAlertDemo('normal'); await refresh(); setError(undefined) } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) } finally { setWorking(false) } }
+  const runPlatformDemo = async (platformId: 'douyin' | 'xiaohongshu'): Promise<void> => { setWorking(true); try { await runPlatformSandboxDemo(platformId, sandboxEnvironment); await refresh(); setError(undefined) } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) } finally { setWorking(false) } }
   const act = async (caseId: string, action: ResponsibilityAction, toUserId?: string): Promise<void> => { setWorking(true); try { await decideResponsibility(caseId, action, 'local-user', toUserId); await refresh(); setError(undefined) } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) } finally { setWorking(false) } }
   const decide = async (approvalId: string, decision: 'approve' | 'reject'): Promise<void> => { setWorking(true); try { await decideApproval(approvalId, decision); await refresh(); setError(undefined) } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) } finally { setWorking(false) } }
 
@@ -41,7 +44,11 @@ export function AgentSpace(): JSX.Element {
       <div><h1 className="opsPageTitle">Agent Space</h1><p className="opsPageSubtitle">事件驱动的企业协同空间 · 本地 JSONL 事件账本</p></div>
       <div className="opsActions">
         <button className="opsButton" onClick={() => void refresh()} disabled={working}>刷新</button>
-        <button className="opsButton opsButtonPrimary" onClick={() => void runDemo()} disabled={working}>载入竞品降价演示</button>
+        <button className="opsButton" onClick={() => void runDemo()} disabled={working}>载入竞品降价演示</button>
+        <button className="opsButton opsButtonPrimary" onClick={() => void runInventoryDemo()} disabled={working}>载入库存预警演示</button>
+        <select className="opsSelect" aria-label="平台演示环境" value={sandboxEnvironment} onChange={event => setSandboxEnvironment(event.target.value as typeof sandboxEnvironment)} disabled={working}><option value="demo">Demo 仅演示</option><option value="sandbox">Sandbox 本地模拟</option><option value="production">Production（安全阻断）</option></select>
+        <button className="opsButton" onClick={() => void runPlatformDemo('douyin')} disabled={working}>抖音预览</button>
+        <button className="opsButton" onClick={() => void runPlatformDemo('xiaohongshu')} disabled={working}>小红书预览</button>
       </div>
     </header>
     {error && <p className="opsError">{error}</p>}

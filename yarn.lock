@@ -5144,6 +5144,12 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@dsh/workbench-benchmark@workspace:workbench-benchmark":
+  version: 0.0.0-use.local
+  resolution: "@dsh/workbench-benchmark@workspace:workbench-benchmark"
+  languageName: unknown
+  linkType: soft
+
 "@earendil-works/pi-ai@npm:^0.84.2":
   version: 0.84.3
   resolution: "@earendil-works/pi-ai@npm:0.84.3"
@@ -10316,6 +10322,7 @@ __metadata:
     "@types/node": "npm:^22.0.0"
     "@types/react": "npm:^18.3.0"
     "@vitejs/plugin-react": "npm:^4.3.4"
+    enterprise-agent-runtime: "workspace:*"
     react: "npm:18.3.1"
     react-dom: "npm:18.3.1"
     typescript: "npm:^5.8.0"
@@ -10743,6 +10750,18 @@ __metadata:
   checksum: 10c0/43850479d7a51d36a9c924b518dcdc6373b5a8ae3401097d336b7b7e258324749d0ad37a1fcaa5706f04799baa05585cd7af19ebdf7667673e7694435fcea918
   languageName: node
   linkType: hard
+
+"enterprise-agent-runtime@workspace:*, enterprise-agent-runtime@workspace:enterprise-agent-runtime":
+  version: 0.0.0-use.local
+  resolution: "enterprise-agent-runtime@workspace:enterprise-agent-runtime"
+  dependencies:
+    "@deepseek-ai/cordis": "npm:4.0.1"
+    "@types/node": "npm:^22.0.0"
+    typescript: "npm:^5.8.0"
+    vitest: "npm:^3.2.0"
+    zod: "npm:^3.25.0"
+  languageName: unknown
+  linkType: soft
 
 "entities@npm:^8.0.0":
   version: 8.0.0

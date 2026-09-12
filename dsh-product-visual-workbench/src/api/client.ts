@@ -75,6 +75,10 @@ export async function getProductVisualResult(taskId: string) {
   return api(`/api/product-visual/tasks/${taskId}/result`);
 }
 
+export async function getProductVisualRuntime() {
+  return api("/api/product-visual/runtime");
+}
+
 export async function refreshProductVisualTitles(taskId: string) {
   return postJson(`/api/product-visual/tasks/${taskId}/titles/refresh`, {});
 }

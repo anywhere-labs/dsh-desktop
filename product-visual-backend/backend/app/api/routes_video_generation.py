@@ -42,6 +42,24 @@ def save_selections_api(task_id: str, payload: dict, db: Session = Depends(get_d
     return api_response(result["status"], "目标选择已保存" if result["status"] == "ok" else "目标选择被阻塞", result.get("data"), "", result.get("missing_inputs"))
 
 
+@router.post("/api/video-generation/tasks/{task_id}/background")
+async def upload_background_api(task_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    result = await service.upload_background(db, task_id, file)
+    return api_response(result["status"], "背景素材已接收" if result["status"] == "ok" else "背景素材接收被阻塞", result.get("data"), "", result.get("missing_inputs"), result.get("warnings"))
+
+
+@router.post("/api/video-generation/tasks/{task_id}/composite/run")
+def composite_run_api(task_id: str, db: Session = Depends(get_db)):
+    result = service.run_composite(db, task_id)
+    return api_response(result["status"], "合成与原音频回封完成" if result["status"] == "ok" else "合成未完成", result.get("data"), "", result.get("missing_inputs"), result.get("warnings"))
+
+
+@router.post("/api/video-generation/tasks/{task_id}/qa/run")
+def qa_run_api(task_id: str, db: Session = Depends(get_db)):
+    result = service.run_qa(db, task_id)
+    return api_response(result["status"], "视觉与音频 QA 通过" if result["status"] == "ok" else "QA 未通过，已进入返修", result.get("data"), "", result.get("missing_inputs"), result.get("warnings"), ["修复后重新执行合成和 QA"] if result["status"] != "ok" else [])
+
+
 @router.post("/api/video-generation/tasks/{task_id}/tracking/preflight")
 def tracking_preflight_api(task_id: str, db: Session = Depends(get_db)):
     result = service.prepare_tracking(db, task_id)

@@ -1,0 +1,2 @@
+#!/bin/sh
+printf '%s\n' '{"output":{"url":"https://mock.local/video.mp4"}}'

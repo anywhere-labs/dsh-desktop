@@ -43,9 +43,18 @@ body:is([data-dsh-desktop-mode="extended"], [data-dsh-desktop-mode="advanced"]) 
 .dshDesktopNoDrag, button, input, textarea, select, label, summary, a, [contenteditable="true"], [role="button"], [role="checkbox"], [role="dialog"], [role="menuitem"], [role="option"], [role="switch"], [role="tab"] { -webkit-app-region: no-drag !important; }
 [role="dialog"], [aria-modal="true"] { -webkit-app-region: no-drag !important; }
 html:has([aria-modal="true"]) .dshDesktopWindowsCaptionRow::before { -webkit-app-region: no-drag !important; }
-.dshProductVisualNavAction { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; padding: 0 10px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-fg-secondary); font: inherit; text-align: left; cursor: pointer; }
-.dshProductVisualNavAction:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-fg-primary); }
+.dshWorkbenchNavAction { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; padding: 0 10px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-fg-secondary); font: inherit; text-align: left; cursor: pointer; }
+.dshWorkbenchNavAction:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-fg-primary); }
 .dshProductVisualNavAction > span:first-child { color: #f59e0b; font-size: 15px; }
+.dshDbskillNavAction > span:first-child { color: #2f855a; font-size: 15px; }
+.dshDeepThinkNavAction > span:first-child { color: #38bdf8; font-size: 15px; }
+.dshProjectLauncherCopy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }
+.dshProjectLauncherCopy small { display: flex; align-items: center; gap: 5px; color: var(--dsw-alias-fg-tertiary); font-size: 10px; line-height: 1.2; }
+.dshProjectLauncherCopy i { width: 6px; height: 6px; border-radius: 50%; background: #94a3b8; }
+.dshProjectLauncherCopy i[data-state="运行中"] { background: #22c55e; }
+.dshProjectLauncherCopy i[data-state="启动中"] { background: #f59e0b; animation: dshProjectLauncherPulse 1.2s ease-in-out infinite; }
+.dshProjectLauncherCopy i[data-state="不可用"] { background: #ef4444; }
+@keyframes dshProjectLauncherPulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) {
   .dshDesktopFrame,
   .dshDesktopResizeHandle { transition: none !important; }

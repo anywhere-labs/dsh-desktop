@@ -145,20 +145,25 @@ def read_settings() -> dict[str, Any]:
 
 def save_settings(payload: dict[str, Any]) -> dict[str, Any]:
     current = _read_env_pairs()
+    field_map = {
+        "provider": "PRODUCT_VISUAL_IMAGE_PROVIDER",
+        "api_base": "OPENAI_API_BASE",
+        "model": "OPENAI_IMAGE_MODEL",
+        "text_model": "OPENAI_TEXT_MODEL",
+        "vision_model": "OPENAI_VISION_MODEL",
+        "size": "OPENAI_IMAGE_SIZE",
+        "resolution": "OPENAI_IMAGE_RESOLUTION",
+        "quality": "OPENAI_IMAGE_QUALITY",
+        "output_format": "OPENAI_IMAGE_OUTPUT_FORMAT",
+        "cfg_scale": "STEPFUN_IMAGE_CFG_SCALE",
+        "steps": "STEPFUN_IMAGE_STEPS",
+        "seed": "STEPFUN_IMAGE_SEED",
+        "text_mode": "STEPFUN_IMAGE_TEXT_MODE",
+    }
     mapped = {
-        "PRODUCT_VISUAL_IMAGE_PROVIDER": payload.get("provider", DEFAULT_SETTINGS["PRODUCT_VISUAL_IMAGE_PROVIDER"]),
-        "OPENAI_API_BASE": payload.get("api_base", DEFAULT_SETTINGS["OPENAI_API_BASE"]),
-        "OPENAI_IMAGE_MODEL": payload.get("model", DEFAULT_SETTINGS["OPENAI_IMAGE_MODEL"]),
-        "OPENAI_TEXT_MODEL": payload.get("text_model", DEFAULT_SETTINGS["OPENAI_TEXT_MODEL"]),
-        "OPENAI_VISION_MODEL": payload.get("vision_model", DEFAULT_SETTINGS["OPENAI_VISION_MODEL"]),
-        "OPENAI_IMAGE_SIZE": payload.get("size", DEFAULT_SETTINGS["OPENAI_IMAGE_SIZE"]),
-        "OPENAI_IMAGE_RESOLUTION": payload.get("resolution", DEFAULT_SETTINGS["OPENAI_IMAGE_RESOLUTION"]),
-        "OPENAI_IMAGE_QUALITY": payload.get("quality", DEFAULT_SETTINGS["OPENAI_IMAGE_QUALITY"]),
-        "OPENAI_IMAGE_OUTPUT_FORMAT": payload.get("output_format", DEFAULT_SETTINGS["OPENAI_IMAGE_OUTPUT_FORMAT"]),
-        "STEPFUN_IMAGE_CFG_SCALE": payload.get("cfg_scale", DEFAULT_SETTINGS["STEPFUN_IMAGE_CFG_SCALE"]),
-        "STEPFUN_IMAGE_STEPS": payload.get("steps", DEFAULT_SETTINGS["STEPFUN_IMAGE_STEPS"]),
-        "STEPFUN_IMAGE_SEED": payload.get("seed", DEFAULT_SETTINGS["STEPFUN_IMAGE_SEED"]),
-        "STEPFUN_IMAGE_TEXT_MODE": payload.get("text_mode", DEFAULT_SETTINGS["STEPFUN_IMAGE_TEXT_MODE"]),
+        env_key: payload[field]
+        for field, env_key in field_map.items()
+        if field in payload and payload[field] is not None and str(payload[field]).strip()
     }
     api_key = str(payload.get("api_key") or "").strip()
     if api_key:

@@ -7,7 +7,7 @@ configure_project_runtime()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api import routes_account, routes_attribution, routes_benchmark, routes_brand_data, routes_brand_strategy, routes_config, routes_dashboard, routes_edit, routes_external, routes_health, routes_hotspot, routes_live_clips, routes_liveclip_feedback, routes_material, routes_product_visual, routes_publish, routes_report, routes_script, routes_tasks, routes_topic, routes_trace, routes_video_generation
+from backend.app.api import routes_account, routes_attribution, routes_benchmark, routes_brand_data, routes_brand_strategy, routes_config, routes_dashboard, routes_edit, routes_external, routes_health, routes_hotspot, routes_live_clips, routes_liveclip_feedback, routes_material, routes_product_visual, routes_publish, routes_report, routes_script, routes_tasks, routes_topic, routes_trace, routes_video_generation, routes_video_matting
 from backend.app.core.config import PROJECT_NAME, VERSION
 from backend.app.core.customer_mode import liveclip_customer_route_whitelist_middleware
 from backend.app.core.database import init_db
@@ -51,5 +51,6 @@ for router in [
     routes_dashboard.router,
     routes_external.router,
     routes_video_generation.router,
+    routes_video_matting.router,
 ]:
     app.include_router(router)

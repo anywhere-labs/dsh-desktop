@@ -65,6 +65,15 @@ export interface DesktopCliOptions {
   readonly userDataDir?: string
 }
 
+/** Build the graphical Electron environment without inherited Node-only mode. */
+export function desktopElectronEnvironment(
+  environment: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const childEnvironment = { ...environment }
+  delete childEnvironment.ELECTRON_RUN_AS_NODE
+  return childEnvironment
+}
+
 /** Launch Electron and mirror its terminal exit status. */
 async function launchElectron(): Promise<number> {
   let electronPath: string
@@ -90,7 +99,7 @@ async function launchElectron(): Promise<number> {
   return new Promise<number>((resolveExit, reject) => {
     const child = spawn(electronPath, [mainPath], {
       stdio: 'inherit',
-      env: process.env,
+      env: desktopElectronEnvironment(),
       windowsHide: true,
     })
     child.once('error', reject)

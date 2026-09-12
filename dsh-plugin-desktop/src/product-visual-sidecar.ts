@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -28,6 +29,8 @@ function rootFromEnvironment(): string {
 function pythonFromEnvironment(root: string): string {
   const configured = process.env.DSH_PRODUCT_VISUAL_PYTHON?.trim()
   if (configured) return configured
+  const userRuntime = resolve(homedir(), '.dsh/product-visual-venv/bin/python')
+  if (existsSync(userRuntime)) return userRuntime
   const bundled = resolve(root, '.venv/bin/python')
   if (existsSync(bundled)) return bundled
   return 'python3'

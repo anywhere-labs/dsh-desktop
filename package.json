@@ -13,8 +13,10 @@
     "dsh-community-fabric",
     "dsh-community-market",
     "dsh-plugin-commerce-ops",
+    "enterprise-agent-runtime",
     "dsh-video-workbench",
-    "dsh-product-visual-workbench"
+    "dsh-product-visual-workbench",
+    "workbench-benchmark"
   ],
   "resolutions": {
     "app-builder-lib@npm:26.15.7": "patch:app-builder-lib@npm%3A26.15.7#./patches/app-builder-lib@26.15.7.patch",

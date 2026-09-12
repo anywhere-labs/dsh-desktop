@@ -89,6 +89,8 @@ def main() -> None:
         "sam2_score": float(scores.max()),
         "mask_dir": str(frames_dir),
         "foreground_pixels": foreground_counts,
+        "empty_frame_indices": [index for index, count in enumerate(foreground_counts) if count == 0],
+        "tracking_quality": "fail" if any(count == 0 for count in foreground_counts) else "pass",
         "preserve_original_pixels": True,
     }
     (args.output_dir / "tracking-summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

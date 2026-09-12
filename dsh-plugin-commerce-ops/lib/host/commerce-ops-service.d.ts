@@ -5,6 +5,10 @@ import { type CapturePage } from '../connectors/browser-capture.js';
 import { type AgentSpaceSnapshot, type HumanBoardView, type BoardViewKey } from '../event-core/space.js';
 import { HumanDecisionService, type HumanDecision } from '../decision/service.js';
 import { type ResponsibilityRecord, type SlaRecord, type NotificationRecord } from '../governance/service.js';
+import { type InventoryAlertDemoResult, type InventoryAlertScenario } from '../product-domain/workflow.js';
+import { type PlatformDemoScenario, type PlatformSandboxDemoResult } from '../connectors/sandbox/index.js';
+import type { PlatformId, SandboxEnvironment } from '../connectors/sandbox/contracts.js';
+import { type Voc3WorkflowResult, type VocWorkflowScenario } from '../voc-domain/workflow.js';
 export interface CommerceOpsRuntime {
     readonly state: 'READY';
     readonly mode: 'mock';
@@ -23,6 +27,8 @@ export declare class CommerceOpsService {
     private readonly responsibilityService;
     private readonly notificationService;
     private readonly slaService;
+    private readonly inventoryAlertWorkflow;
+    private readonly voc3Workflow;
     constructor(options?: {
         readonly eventLogPath?: string;
         readonly eventLogDir?: string;
@@ -57,6 +63,9 @@ export declare class CommerceOpsService {
     startSla(caseId: string, ownerId: string, durationMs: number, now?: Date): SlaRecord;
     evaluateSla(now?: Date): readonly SlaRecord[];
     listNotifications(): readonly NotificationRecord[];
+    runInventoryAlertDemo(scenario?: InventoryAlertScenario): Promise<InventoryAlertDemoResult>;
+    runPlatformSandboxDemo(platformId: PlatformId, scenario?: PlatformDemoScenario, environment?: SandboxEnvironment): Promise<PlatformSandboxDemoResult>;
+    runVocDemo(scenario?: VocWorkflowScenario): Promise<Voc3WorkflowResult>;
     getHumanBoard(actorId: string): HumanBoardView[];
     getBoardView(actorId: string, key: BoardViewKey): HumanBoardView;
     seedAgentSpaceDemo(): Promise<AgentSpaceSnapshot>;

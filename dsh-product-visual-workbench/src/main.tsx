@@ -77,7 +77,7 @@ function App() {
   else if (activeView === "brand") content = <BrandStrategyPage />;
   else content = <PipelinePage activeView={activeView} navigate={navigate} sharedProps={sharedProps} />;
 
-  return <OperationsShell activeView={activeView} modelReady={modelReady} onNavigate={navigate} onRefresh={() => setRefreshToken((value) => value + 1)}>{content}</OperationsShell>;
+  return <OperationsShell activeView={activeView} modelReady={modelReady} onNavigate={navigate} onRefresh={() => setRefreshToken((value) => value + 1)} onConfigSaved={() => setRefreshToken((value) => value + 1)}>{content}</OperationsShell>;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

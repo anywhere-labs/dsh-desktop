@@ -1,0 +1,16 @@
+[
+  {
+    "providerId": "third-party-example",
+    "displayName": "第三方视频 API（示例）",
+    "providerType": "async-video-api",
+    "baseUrl": "https://provider.example.com/v1",
+    "credentialRef": "VIDEO_PROVIDER_API_KEY",
+    "enabled": false,
+    "priority": 10,
+    "models": [
+      {"modelKey": "seedance-2.5", "displayName": "Seedance 2.5"},
+      {"modelKey": "seedance-1.0", "displayName": "Seedance 1.0"},
+      {"modelKey": "minimax-h3", "displayName": "MiniMax H3"}
+    ]
+  }
+]

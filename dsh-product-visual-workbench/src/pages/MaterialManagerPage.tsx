@@ -3,6 +3,7 @@ import {
   createProductVisualTask,
   exportProductVisualTask,
   getProductVisualResult,
+  getProductVisualRuntime,
   getProductVisualStatus,
   refreshProductVisualTitles,
   retryProductVisualAsset,
@@ -325,6 +326,18 @@ export function MaterialManagerPage({ state, setState, setResult, onNavigate, as
   const previews = result || emptyProductVisualPreview();
   const runState = status.status || "created";
   const steps = useMemo(() => status.steps?.length ? status.steps : stepLabels.map((label, index) => ({ label, status: index === 0 ? "completed" : "waiting" })), [status.steps]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getProductVisualRuntime().then((runtime) => {
+      const snapshot = runtime?.data || runtime;
+      if (cancelled || snapshot?.state === "READY") return;
+      setError(`商品视觉后端未就绪：${snapshot?.error || "请检查 FastAPI Sidecar"}`);
+    }).catch(() => {
+      if (!cancelled) setError("商品视觉后端未就绪：请重新启动 DSH 或检查 FastAPI Sidecar。");
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!taskId) return;

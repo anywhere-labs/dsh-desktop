@@ -2,3 +2,5 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 dist/
+.venv/
+.video-workbench/

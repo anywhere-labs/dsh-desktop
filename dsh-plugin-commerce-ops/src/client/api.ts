@@ -74,6 +74,18 @@ export async function seedAgentSpaceDemo(): Promise<AgentSpaceSnapshot> {
   return json(await fetch('/api/commerce-ops/agent-space/demo', { method: 'POST' }))
 }
 
+export async function runInventoryAlertDemo(scenario: 'normal' | 'approval_rejected' | 'action_failed' | 'missing_evidence' = 'normal'): Promise<unknown> {
+  return json(await fetch('/api/commerce-ops/inventory-alert/demo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ scenario }) }))
+}
+
+export async function runPlatformSandboxDemo(platformId: 'douyin' | 'xiaohongshu', environment: 'demo' | 'sandbox' | 'production' = 'demo', scenario: 'success' | 'approval_rejected' | 'action_failed' = 'success'): Promise<unknown> {
+  return json(await fetch('/api/commerce-ops/platform-sandbox/demo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ platformId, environment, scenario }) }))
+}
+
+export async function runVocDemo(scenario: 'normal' | 'low_evidence' = 'normal'): Promise<unknown> {
+  return json(await fetch('/api/commerce-ops/voc/demo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ scenario }) }))
+}
+
 export async function runDryRun(input: Record<string, unknown>): Promise<{ readonly executed: false; readonly policy: { readonly status: string; readonly matches: readonly unknown[] } }> {
   const response = await fetch('/api/commerce-ops/dry-run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) })
   if (!response.ok) throw new Error(`dry run failed: HTTP ${String(response.status)}`)
