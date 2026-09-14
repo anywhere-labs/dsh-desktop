@@ -10,6 +10,7 @@ import {
 } from 'electron'
 import { spawn } from 'node:child_process'
 import { RemoteControlOffer, remoteControlOfferCopy } from './remote-control-offer.ts'
+import { BrowserViewService, type DesktopNativeBrowser } from './browser-view-service.ts'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -100,6 +101,8 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   readonly windowsBuild: number | undefined
   private readonly platformStrategy: ElectronPlatformStrategy
   readonly updates: DesktopUpdateAdapter
+  readonly nativeBrowser: DesktopNativeBrowser
+  private readonly browserViews: BrowserViewService
 
   private generation: ElectronShellGeneration | undefined
   private currentLocale: DesktopLocale = 'en'
@@ -152,6 +155,14 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       downloadAndOpen: (version, signal, channel) => this.downloadAndOpenUpdate(version, signal, channel),
       notify: notification => { this.showNotification(notification) },
     }
+    // Guest views follow the active shell generation: they resolve its window
+    // lazily and are released when that generation goes away.
+    this.browserViews = new BrowserViewService({
+      window: () => this.generation?.mainWindow,
+      rendererOrigin: () => this.generation?.rendererViewportOrigin ?? { x: 0, y: 0 },
+      log: message => { this.logError(message) },
+    })
+    this.nativeBrowser = this.browserViews
   }
 
   /** Log an Electron-scope error to the sink, falling back to stderr without a logger. */
@@ -210,6 +221,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
           this.profileCreateWindow = undefined
           await this.generation?.release()
         } finally {
+          this.browserViews.closeAll()
           this.generation = undefined
           this.mountTask = undefined
           if (this.scheduled === spec) {

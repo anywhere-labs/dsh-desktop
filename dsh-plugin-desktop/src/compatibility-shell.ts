@@ -88,6 +88,11 @@ export class CompatibilityShell {
   get webContents(): WebContents { return this.content.webContents }
   get chromeWebContents(): WebContents { return this.chrome }
 
+  /** Offset of the renderer's CSS viewport inside the window content area. */
+  get viewportOrigin(): { x: number; y: number } {
+    return { x: this.contentBounds?.x ?? 0, y: this.contentBounds?.y ?? 0 }
+  }
+
   async load(): Promise<void> {
     await this.updateRemoteControl()
     await this.chrome.loadFile(this.documentPath)

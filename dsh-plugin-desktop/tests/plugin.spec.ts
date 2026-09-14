@@ -126,6 +126,19 @@ function createHarness(
       downloadAndOpen: async () => {},
       notify: () => {},
     },
+    nativeBrowser: {
+      version: 1,
+      createView: async () => ({ id: 'guest' }),
+      setBounds: async () => {},
+      setZoom: async () => {},
+      setVisible: async () => {},
+      focus: async () => {},
+      navigate: async () => {},
+      close: async () => {},
+      closeOwner: async () => {},
+      command: async () => undefined,
+      subscribe: () => () => {},
+    },
     schedule: (spec) => {
       shell = spec
       return async () => {}
@@ -191,6 +204,7 @@ function createHarness(
       if (String(key) === 'desktopLanHttps') return lanHttps
       return () => {}
     }),
+    provide: vi.fn(() => () => {}),
     effect: vi.fn((register: () => unknown) => register()),
     on: vi.fn((event: string, listener: (namespace: unknown, next: unknown) => void) => {
       if (event === 'settings/updated') settingsUpdated.add(listener)
@@ -294,6 +308,13 @@ describe('desktop Host plugin', () => {
     expect(registerRoute).not.toHaveBeenCalled()
     expect(vi.mocked(ctx.settings.register)).not.toHaveBeenCalled()
     stderr.mockRestore()
+  })
+
+  it('provides the native guest-browser service to Host plugins', () => {
+    const harness = createHarness('darwin')
+    apply(harness.ctx, config)
+    const provide = harness.ctx.provide as unknown as { mock: { calls: unknown[][] } }
+    expect(provide.mock.calls).toEqual([['desktopNativeBrowser', harness.runtime.nativeBrowser]])
   })
 
   it('builds the loopback root with validated renderer mode and platform markers', () => {

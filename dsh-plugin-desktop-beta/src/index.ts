@@ -237,6 +237,9 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error('dsh-plugin-desktop: desktop shell WebServer host does not match networkExposure')
   }
   lanHttps.attach(ctx.webServer.port)
+  // Host plugins in this process consume the same native surface the shell
+  // exposes; the service itself fails closed when no window can host a view.
+  ctx.provide?.('desktopNativeBrowser', runtime.nativeBrowser)
   const iconFilename = runtime.platform === 'darwin'
     ? 'app-icon-mac.png'
     : 'app-icon.png'
