@@ -30,6 +30,7 @@ function fixture(path: string): unknown {
 interface MarketServer {
   readonly baseUrl: string
   readonly close: () => Promise<void>
+  readonly logger: { readonly error: ReturnType<typeof vi.fn> }
 }
 
 interface SharedMarketSettings {
@@ -100,14 +101,16 @@ const standardSource = (overrides: Partial<LocalSourceRecord> = {}): LocalSource
 async function startMarketServer(
   initialSources: readonly LocalSourceRecord[],
   sharedSettings?: SharedMarketSettings,
+  updateOverride?: (patch: object) => Promise<void>,
 ): Promise<MarketServer> {
   const routes = new Map<string, RouteHandler>()
   const settings = sharedSettings ?? { document: { sources: initialSources } }
+  const logger = { error: vi.fn() }
   const scope = {
     get: () => settings.document,
-    update: async (patch: object) => {
+    update: updateOverride ?? (async (patch: object) => {
       settings.document = { ...settings.document, ...patch as Partial<MarketSettingsDocument> }
-    },
+    }),
   } as unknown as SettingsScope<MarketSettingsDocument>
   const server = createServer((req, res) => {
     const pathname = new URL(req.url ?? '/', 'http://localhost').pathname
@@ -135,7 +138,7 @@ async function startMarketServer(
         return () => { routes.delete(route.path) }
       },
     },
-    logger: { error: vi.fn() },
+    logger,
   } as unknown as Context
   const disposeRoutes = registerMarketRoutes(ctx, scope)
   return {
@@ -144,6 +147,7 @@ async function startMarketServer(
       disposeRoutes()
       await closeServer(server)
     },
+    logger,
   }
 }
 
@@ -317,6 +321,46 @@ describe('community market Host routes', () => {
       await expect(refresh).rejects.toMatchObject({ name: 'AbortError' })
     } finally {
       await second.close()
+      getJson.mockRestore()
+    }
+  })
+
+  it('keeps a successful catalog response when cache persistence fails', async () => {
+    const activeSource = standardSource({ enabled: true, order: 0 })
+    const providerPage = fixture('../docs/examples/catalog-provider-page.example.json') as {
+      readonly items: readonly unknown[]
+      readonly [key: string]: unknown
+    }
+    let requests = 0
+    const getJson = vi.spyOn(restrictedHttpClient, 'getJson').mockImplementation(async () => {
+      requests += 1
+      if (requests === 1) return { value: standardManifest, finalUrl: activeSource.manifestUrl! }
+      return {
+        value: { ...providerPage, page: { total: 1 } },
+        finalUrl: 'https://plugins.example.org/v1/plugins?limit=50',
+      }
+    })
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    const server = await startMarketServer(
+      [],
+      { document: { sources: [activeSource] } },
+      async () => { throw new Error('simulated settings write failure') },
+    )
+    try {
+      const response = await readRoute(
+        server,
+        `${marketRoutes.catalog}?sourceRecordId=${activeSource.sourceRecordId}&limit=50&locale=en`,
+      )
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({
+        results: [{ snapshot: { items: [{ id: 'better-sidebar' }] } }],
+      })
+      await vi.waitFor(() => expect(server.logger.error).toHaveBeenCalled())
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+      await server.close()
       getJson.mockRestore()
     }
   })
