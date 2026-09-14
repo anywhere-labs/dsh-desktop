@@ -1,5 +1,8 @@
 /** DSH Desktop Host plugin: owns the selected native shell generation. */
 
+import { WORKSPACE_LAUNCH_NEXT, WORKSPACE_LAUNCH_COMPLETE } from './workspace-launch-contract.ts'
+import { handleWorkspaceLaunch } from './workspace-launch-route.ts'
+import type {} from './workspace-launch.ts'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
@@ -351,6 +354,18 @@ export function apply(ctx: Context, config: Config): void {
     }),
     'dsh-plugin-desktop: renderer boot report route',
   )
+  const launches = ctx.get('desktopWorkspaceLaunches')
+  if (launches !== undefined) {
+    for (const path of [WORKSPACE_LAUNCH_NEXT, WORKSPACE_LAUNCH_COMPLETE]) {
+      ctx.effect(() => ctx.webServer.register({
+        kind: 'exact', path,
+        handler: (req, res) => {
+          if (rejectDesktopRequest(ctx, req, res)) return
+          return handleWorkspaceLaunch(req, res, rendererOrigin, launches, path === WORKSPACE_LAUNCH_COMPLETE)
+        },
+      }), `desktop: workspace launch route ${path}`)
+    }
+  }
   if (runtime.platform === 'win32') {
     ctx.effect(
       () => ctx.webServer.register({

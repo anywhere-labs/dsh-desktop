@@ -6,6 +6,7 @@ import { bootDesktopHost, type DesktopHostOptions } from './host-bootstrap.ts'
 import { createDesktopBrowserAccess } from './desktop-browser-access.ts'
 import { DesktopLanHttpsRuntime } from './lan-https-runtime.ts'
 import type { DesktopStartupGenerationHost } from './startup-generation.ts'
+import { createHostWorkspaceLaunches } from './workspace-launch-host-bridge.ts'
 
 const parentPort = process.parentPort
 if (!parentPort) throw new Error('DSH Host must be started by the Desktop supervisor')
@@ -40,7 +41,8 @@ rpc.handle('boot', async args => {
     prepareCertificate: () => rpc.call('certificate'),
   })
   inspectServices = await bootDesktopHost(options, runtime, browser, lan,
-    value => { host = value }, code => { void rpc.call('quit', [code]).catch(() => {}) })
+    value => { host = value }, code => { void rpc.call('quit', [code]).catch(() => {}) },
+    createHostWorkspaceLaunches(rpc))
   if (stopping) { await host?.fiber.dispose(); throw new Error('DSH Host stopped during startup') }
   await runtime.mountScheduled()
   return { pid: process.pid }

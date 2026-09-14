@@ -1,16 +1,19 @@
 import { fork, type Serializable } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { prepareDesktopProfile } from '../src/profile.ts'
 import { desktopReleaseUserDataLocations } from '../src/profile-channel-admission.ts'
 import { installDesktopPnpmRuntime } from '../src/desktop-runtime-environment.ts'
 import { HostRpc } from '../src/host-rpc.ts'
 import { bindNativeRuntime, runtimeSnapshot } from '../src/host-runtime-bridge.ts'
 import type { DesktopRuntime, DesktopShellSpec } from '../src/runtime.ts'
+import { WorkspaceLaunchQueue } from '../src/workspace-launch.ts'
+import { bindWorkspaceLaunches } from '../src/workspace-launch-host-bridge.ts'
+import { WORKSPACE_LAUNCH_NEXT, WORKSPACE_LAUNCH_COMPLETE, type WorkspaceLaunchRequest } from '../src/workspace-launch-contract.ts'
 
 it.each([false, true])('boots a separate Web Host with client plugins (AA enabled: %s)', async aaEnabled => {
   const home = mkdtempSync(join(tmpdir(), 'dsh-isolated-host-'))
@@ -20,6 +23,9 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
   let releaseNative: (() => Promise<void>) | undefined
   let pnpm: ReturnType<typeof installDesktopPnpmRuntime> | undefined
   let stderr = ''
+  const show = vi.fn()
+  const report = vi.fn()
+  const launches = new WorkspaceLaunchQueue(async () => true, report, show)
   try {
     writeFileSync(join(home, 'settings.yaml'), 'dsh-desktop:\n  mode: advanced\nagent-presets:\n  default: minimal\n')
     const prepared = prepareDesktopProfile('1', home, 'win32', undefined, undefined, undefined, { aaEnabled })
@@ -57,6 +63,10 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
       setLocalePreference() {}, setThemeSource() {},
     } as unknown as DesktopRuntime
     releaseNative = bindNativeRuntime(rpc, runtime)
+    bindWorkspaceLaunches(rpc, launches)
+    const workspace = join(home, '中文 workspace')
+    mkdirSync(workspace)
+    launches.submit(['中文 workspace'], home)
     rpc.handle('certificate', () => ({ failureCode: 'test-disabled' }))
     rpc.handle('quit', () => {})
     const result = await rpc.call<{ pid: number; services: { aaRuntime: boolean; aaOnboarding: boolean } }>('boot', [{
@@ -84,6 +94,30 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
     await authentication.body?.cancel()
     expect(authentication.status).toBe(303)
     const cookie = authentication.headers.get('set-cookie')!.split(';')[0]!
+    const launchHeaders = { ...headers, Cookie: cookie, Origin: new URL(spec.url).origin }
+    const nextLaunch = async () => {
+      const next = await fetch(new URL(WORKSPACE_LAUNCH_NEXT, spec.url), { method: 'POST', headers: launchHeaders })
+      expect(next.status).toBe(200)
+      return await next.json() as WorkspaceLaunchRequest
+    }
+    const completeLaunch = (id: string) => fetch(new URL(WORKSPACE_LAUNCH_COMPLETE, spec.url), {
+      method: 'POST', headers: launchHeaders, body: JSON.stringify({ id }),
+    })
+    const first = await nextLaunch()
+    expect(first.path).toBe(realpathSync(workspace))
+    expect(show).not.toHaveBeenCalled()
+    expect(await nextLaunch()).toEqual(first)
+    expect((await completeLaunch('stale')).status).toBe(409)
+    expect((await completeLaunch(first.id)).status).toBe(200)
+    expect(show).toHaveBeenCalledOnce()
+    expect((await completeLaunch(first.id)).status).toBe(409)
+    const waitingLaunch = nextLaunch()
+    launches.submit(['.'], home)
+    const second = await waitingLaunch
+    expect(second.path).toBe(realpathSync(home))
+    expect((await completeLaunch(second.id)).status).toBe(200)
+    expect(show).toHaveBeenCalledTimes(2)
+    expect(report).not.toHaveBeenCalled()
     const response = await fetch(spec.url, { headers: { ...headers, Cookie: cookie } })
     expect(response.status).toBe(200)
     const html = await response.text()
@@ -103,6 +137,7 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
   } catch (error) {
     throw new Error(`${error instanceof Error ? error.stack : String(error)}\n${stderr}`)
   } finally {
+    launches.dispose()
     await releaseNative?.()
     rpc?.close()
     if (child && child.exitCode === null) { const exit = once(child, 'exit'); child.kill(); await exit }

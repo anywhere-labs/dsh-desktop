@@ -1,7 +1,8 @@
 /** DSH Desktop executable: minimal Electron bootstrap around the Host Cordis root. */
 
+import { WorkspaceLaunchQueue, forwardedWorkspaceArguments } from './workspace-launch.ts'
 import { startIsolatedDesktopHost } from './host-process.ts'
-import { app, crashReporter, safeStorage, shell } from 'electron'
+import { app, crashReporter, dialog, safeStorage, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -381,7 +382,8 @@ async function mirrorDesktopProfilePreferences(
 
 /** Start one Electron process and leave lifetime to the mounted desktop plugin. */
 async function start(): Promise<void> {
-  if (!app.requestSingleInstanceLock()) {
+  const workspaceLaunchArgs = process.argv.slice(app.isPackaged ? 1 : 2)
+  if (!app.requestSingleInstanceLock({ workspaceLaunchArgs })) {
     app.quit()
     return
   }
@@ -390,6 +392,12 @@ async function start(): Promise<void> {
     return
   }
 
+  const earlyWorkspaceRequests: { argv: string[]; cwd: string; data: unknown }[] = []
+  let receiveSecondInstance = (argv: string[], cwd: string, data: unknown): void => {
+    if (earlyWorkspaceRequests.length < 16) earlyWorkspaceRequests.push({ argv, cwd, data })
+    else process.stderr.write(`${BIN_NAME}: too many startup requests\n`)
+  }
+  app.on('second-instance', (_event, argv, cwd, data: unknown) => { receiveSecondInstance(argv, cwd, data) })
   let shutdown: DesktopShutdown | undefined
   let removeShutdownRequests: (() => void) | undefined
   let removeUncaughtExceptionLogging: (() => void) | undefined
@@ -548,6 +556,25 @@ async function start(): Promise<void> {
     // legacy Renderer recovery dialog from racing the native startup window.
     return report.status === 'failed'
   }, electronLogger, undefined, undefined, installationId)
+  const workspaceLaunches = new WorkspaceLaunchQueue(
+    async path => { await app.whenReady(); return runtime.validateDirectory(path) },
+    message => {
+      electronLogger.error(`${BIN_NAME}: ${message}`)
+      void app.whenReady().then(() => dialog.showMessageBox({
+        type: 'error', title: runtime.locale === 'zh' ? '无法打开工作区' : 'Could Not Open Workspace',
+        message: runtime.locale === 'zh'
+          ? '无法打开指定工作区。请确认目录存在、可以访问，且工作区操作可用。'
+          : 'Could not open the requested workspace. Check that the directory is accessible and workspace operations are available.',
+        detail: message, buttons: [runtime.locale === 'zh' ? '确定' : 'OK'],
+      })).catch(error => { electronLogger.error(String(error)) })
+    },
+    () => runtime.show(),
+  )
+  const launchArgs = process.argv.slice(app.isPackaged ? 1 : 2).filter(
+    arg => arg !== '--dsh-desktop-recovery' && arg !== '--dsh-desktop-safe-mode',
+  )
+  workspaceLaunches.submit(launchArgs, process.cwd())
+  app.once('will-quit', () => workspaceLaunches.dispose())
   const finalExit = (code: number): void => { nativeExit.finish(code) }
   shutdown = createDesktopShutdown(
     async () => { await generation.release() },
@@ -620,16 +647,19 @@ async function start(): Promise<void> {
   }
   app.on('activate', () => { showPreHostSurface() })
   if (process.platform === 'darwin') app.on('did-become-active', () => { showPreHostSurface() })
-  app.on('second-instance', (_event, argv) => {
+  receiveSecondInstance = (argv, workingDirectory, data) => {
     if (isDesktopInstallerQuitRequest(argv, process.platform)) {
       requestQuit(0)
       return
     }
-    if (isDesktopBackgroundNodeRequest(argv)) {
-      return
-    }
+    const args = forwardedWorkspaceArguments(data)
+    const forwardedArgs = args === undefined ? argv : [argv[0]!, ...args]
+    if (isDesktopBackgroundNodeRequest(forwardedArgs, args === undefined ? undefined : workingDirectory)) return
+    // Legacy/foreign instances may wake the window, but cannot supply ambiguous argv paths.
+    if (args !== undefined) workspaceLaunches.submit(args, workingDirectory)
     if (!showPreHostSurface()) runtime.show()
-  })
+  }
+  for (const request of earlyWorkspaceRequests.splice(0)) receiveSecondInstance(request.argv, request.cwd, request.data)
   try {
     await app.whenReady()
     startupStage = 'shell-environment'
@@ -1409,7 +1439,7 @@ async function start(): Promise<void> {
         host: { prepared, profilePreferences, homeDir, activeProfileName, pluginManagementStatePath,
           selectionStatePath, marketUserDataDir, releaseUserDataLocations, desktopLaunchEnvironment,
           desktopPnpmBootstrap, logDirectory: join(desktopUserDataDir, 'logs', 'host') },
-        runtime, rendererToken: browserAccess.rendererHeader.value,
+        runtime, workspaceLaunches, rendererToken: browserAccess.rendererHeader.value,
         prepareCertificate: prepareHostCertificate,
         bindHost: host => generation.bindHost(host), requestQuit,
         onFailure: error => {
@@ -1478,6 +1508,7 @@ async function start(): Promise<void> {
           hostCtx.provide('desktopBrowserAccess', browserAccess)
           hostCtx.provide('desktopLanHttps', lanHttps)
           hostCtx.provide('desktopRuntime', runtime)
+          hostCtx.provide('desktopWorkspaceLaunches', workspaceLaunches)
           hostCtx.provide('desktopPnpmBootstrap', desktopPnpmBootstrap)
           await hostCtx.plugin(DesktopActionsService, {
             openTerminal: () => { runtime.openTerminal() },

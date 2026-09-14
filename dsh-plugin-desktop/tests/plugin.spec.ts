@@ -416,6 +416,8 @@ describe('desktop Host plugin', () => {
     harness.requestRejection.mockReturnValue(status)
     apply(harness.ctx, config)
     const expectedPaths = [
+      '/_dsh/desktop/workspace-launch/next',
+      '/_dsh/desktop/workspace-launch/complete',
       DESKTOP_SETTINGS_PATH,
       DESKTOP_PROFILE_CREATE_PATH,
       DESKTOP_PROFILE_DELETE_PATH,

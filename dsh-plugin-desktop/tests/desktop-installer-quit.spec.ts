@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
@@ -30,24 +31,44 @@ describe('Desktop installer quit request', () => {
     expect(isDesktopBackgroundNodeRequest(['DSH Desktop.exe', '--expose-internals', 'desktop-cli.js'])).toBe(true)
   })
 
+  it('allows real script-suffixed workspace directories without accepting Node scripts', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'dsh-workspace-node-'))
+    try {
+      for (const name of ['项目.js', 'project.mjs', 'project.cjs']) {
+        mkdirSync(join(cwd, name))
+        expect(isDesktopBackgroundNodeRequest(['Desktop', name], cwd)).toBe(false)
+        expect(isDesktopBackgroundNodeRequest(['Desktop', '--', name], cwd)).toBe(false)
+        expect(isDesktopBackgroundNodeRequest(['Desktop', name])).toBe(true)
+      }
+      writeFileSync(join(cwd, 'script.mjs'), '')
+      expect(isDesktopBackgroundNodeRequest(['Desktop', 'script.mjs'], cwd)).toBe(true)
+      expect(isDesktopBackgroundNodeRequest(['Desktop', 'missing.js'], cwd)).toBe(true)
+      expect(isDesktopBackgroundNodeRequest(['Desktop', '--import', 'project.mjs'], cwd)).toBe(true)
+      expect(isDesktopBackgroundNodeRequest(['Desktop', 'project.mjs', 'install'], cwd)).toBe(true)
+    } finally { rmSync(cwd, { recursive: true, force: true }) }
+  })
+
   it('handles first- and second-instance requests without showing a window', () => {
     const main = readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8')
-    const lock = main.indexOf('if (!app.requestSingleInstanceLock())')
+    const lock = main.indexOf('if (!app.requestSingleInstanceLock({ workspaceLaunchArgs }))')
     const earlyQuit = main.indexOf(
       'if (isDesktopInstallerQuitRequest(process.argv, process.platform))',
     )
     const startup = main.indexOf('let shutdown: DesktopShutdown')
-    const secondInstance = main.indexOf("app.on('second-instance', (_event, argv) => {")
+    const secondInstance = main.indexOf("receiveSecondInstance = (argv, workingDirectory, data) => {")
     const secondQuit = main.indexOf(
       'if (isDesktopInstallerQuitRequest(argv, process.platform))',
       secondInstance,
     )
-    const backgroundNode = main.indexOf('if (isDesktopBackgroundNodeRequest(argv))', secondInstance)
+    const backgroundNode = main.indexOf('if (isDesktopBackgroundNodeRequest(forwardedArgs, args === undefined ? undefined : workingDirectory))', secondInstance)
     const show = main.indexOf('if (!showPreHostSurface()) runtime.show()', secondInstance)
 
     expect(lock).toBeGreaterThanOrEqual(0)
     expect(earlyQuit).toBeGreaterThan(lock)
     expect(earlyQuit).toBeLessThan(startup)
+    const capture = main.indexOf("app.on('second-instance'")
+    expect(capture).toBeGreaterThan(earlyQuit)
+    expect(capture).toBeLessThan(startup)
     expect(secondInstance).toBeGreaterThan(startup)
     expect(secondQuit).toBeGreaterThan(secondInstance)
     expect(backgroundNode).toBeGreaterThan(secondQuit)

@@ -1,5 +1,6 @@
 /** Headless-safe npm launcher for the DSH Desktop Electron executable. */
 
+import { launchDirectory } from './workspace-launch.ts'
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -15,7 +16,7 @@ import {
 export type DesktopCliAction = 'export-diagnostics' | 'help' | 'version' | 'launch'
 
 /** Human-readable launcher help. */
-export const DESKTOP_CLI_HELP = `Usage: dsh-plugin-desktop-beta [options]
+export const DESKTOP_CLI_HELP = `Usage: dsh-plugin-desktop-beta [options] [directory]
 
 Launch DSH Desktop Beta with the selected Web-capable profile.
 
@@ -35,7 +36,8 @@ export function parseDesktopCli(argv: readonly string[]): DesktopCliAction {
   if (argv.length === 1 && argv[0] === '--export-diagnostics') return 'export-diagnostics'
   if (argv.length === 1 && (argv[0] === '--help' || argv[0] === '-h')) return 'help'
   if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-V')) return 'version'
-  throw new Error(`unknown arguments: ${argv.join(' ')}`)
+  launchDirectory(argv)
+  return 'launch'
 }
 
 /** Read the package version without importing Electron. */
@@ -70,7 +72,7 @@ export interface DesktopCliOptions {
 }
 
 /** Launch Electron and mirror its terminal exit status. */
-async function launchElectron(): Promise<number> {
+async function launchElectron(argv: readonly string[]): Promise<number> {
   let electronPath: string
   try {
     const imported = await import('electron') as { default?: unknown }
@@ -92,7 +94,7 @@ async function launchElectron(): Promise<number> {
   }
   const mainPath = fileURLToPath(new URL('./main.js', import.meta.url))
   return new Promise<number>((resolveExit, reject) => {
-    const child = spawn(electronPath, [mainPath], {
+    const child = spawn(electronPath, [mainPath, ...argv], {
       stdio: 'inherit',
       env: process.env,
       // This child is the graphical app. SW_HIDE suppresses its first window,
@@ -139,7 +141,7 @@ export async function runDesktopCli(
     process.stdout.write(`${path}\n`)
     return 0
   }
-  return launchElectron()
+  return launchElectron(argv)
 }
 
 const invokedPath = process.argv[1] === undefined ? undefined : resolve(process.argv[1])

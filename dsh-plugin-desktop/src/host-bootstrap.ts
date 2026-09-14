@@ -23,6 +23,7 @@ import type { DesktopRuntime } from './runtime.ts'
 import type { DesktopStartupGenerationHost } from './startup-generation.ts'
 import { FileExporter } from './file-exporter.ts'
 import { LogFileSink } from './log-files.ts'
+import type { WorkspaceLaunchDelivery } from './workspace-launch-contract.ts'
 
 function desktopProfileMarketSnapshot(market: DesktopMarketProvider): DesktopMarketSnapshot {
   return Object.freeze({
@@ -49,6 +50,7 @@ export interface DesktopHostOptions {
 export async function bootDesktopHost(options: DesktopHostOptions, runtime: DesktopRuntime,
   browserAccess: DesktopBrowserAccess, lanHttps: DesktopLanHttpsRuntime,
   bindHost: (host: DesktopStartupGenerationHost) => void, requestQuit: (code: number) => void,
+  workspaceLaunches: WorkspaceLaunchDelivery,
 ): Promise<() => { aaRuntime: boolean; aaOnboarding: boolean }> {
   const { prepared, profilePreferences, homeDir, activeProfileName, pluginManagementStatePath,
     selectionStatePath, marketUserDataDir, releaseUserDataLocations, desktopLaunchEnvironment,
@@ -111,6 +113,7 @@ export async function bootDesktopHost(options: DesktopHostOptions, runtime: Desk
         hostCtx.provide('desktopBrowserAccess', browserAccess)
         hostCtx.provide('desktopLanHttps', lanHttps)
         hostCtx.provide('desktopRuntime', runtime)
+        hostCtx.provide('desktopWorkspaceLaunches', workspaceLaunches)
         hostCtx.provide('desktopPnpmBootstrap', desktopPnpmBootstrap)
         await hostCtx.plugin(DesktopActionsService, {
           openTerminal: () => { runtime.openTerminal() },

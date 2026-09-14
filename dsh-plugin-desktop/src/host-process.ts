@@ -8,10 +8,13 @@ import type { DesktopHostOptions } from './host-bootstrap.ts'
 import type { DesktopRuntime } from './runtime.ts'
 import type { DesktopStartupGenerationHost } from './startup-generation.ts'
 import type { DesktopLanHttpsRuntimeOptions } from './lan-https-runtime.ts'
+import { bindWorkspaceLaunches } from './workspace-launch-host-bridge.ts'
+import type { WorkspaceLaunchDelivery } from './workspace-launch-contract.ts'
 
 export interface IsolatedHostOptions {
   host: DesktopHostOptions
   runtime: DesktopRuntime
+  workspaceLaunches: WorkspaceLaunchDelivery
   rendererToken: string
   prepareCertificate: NonNullable<DesktopLanHttpsRuntimeOptions['prepareCertificate']>
   bindHost(host: DesktopStartupGenerationHost): void
@@ -31,6 +34,7 @@ export async function startIsolatedDesktopHost(options: IsolatedHostOptions): Pr
     listen: receive => { child.on('message', receive); return () => { child.removeListener('message', receive) } },
   }, 120_000)
   const releaseNative = bindNativeRuntime(rpc, options.runtime)
+  const releaseWorkspaceLaunches = bindWorkspaceLaunches(rpc, options.workspaceLaunches)
   rpc.handle('certificate', () => options.prepareCertificate())
   rpc.handle('quit', ([code]) => { setImmediate(() => options.requestQuit(code)) })
   let stopping = false
@@ -60,6 +64,7 @@ export async function startIsolatedDesktopHost(options: IsolatedHostOptions): Pr
       await Promise.race([exit, timeoutExit])
     }
     await releaseNative()
+    releaseWorkspaceLaunches()
     rpc.close()
   })()
   options.bindHost({ fiber: { dispose: stop } })
