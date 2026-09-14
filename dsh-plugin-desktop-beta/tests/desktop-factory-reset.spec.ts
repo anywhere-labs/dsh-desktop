@@ -45,10 +45,13 @@ describe('Desktop factory reset', () => {
       market: 'community-market' as const,
       notifications: {
         enabled: false,
+        notifyOnApprovalRequest: true,
         notifyOnTurnCompletion: false,
         notifyOnTurnFailure: false,
+        notifyOnUserQuestion: false,
         notifyOnJobCompletion: false,
         notifyOnJobFailure: false,
+        showResponsePreview: false,
       },
     }
     for (const profile of [...profiles, unrelated]) {

@@ -182,10 +182,13 @@ function parseExposure(value: unknown): DesktopSetupWizardNetworkExposure {
 function notificationSettings(values: Record<string, unknown>): DesktopSetupWizardNotificationSettings {
   return Object.freeze({
     enabled: optionalBoolean(values, 'enabled', true),
+    notifyOnApprovalRequest: optionalBoolean(values, 'notifyOnApprovalRequest', true),
     notifyOnTurnCompletion: optionalBoolean(values, 'notifyOnTurnCompletion', true),
     notifyOnTurnFailure: optionalBoolean(values, 'notifyOnTurnFailure', true),
+    notifyOnUserQuestion: optionalBoolean(values, 'notifyOnUserQuestion', true),
     notifyOnJobCompletion: optionalBoolean(values, 'notifyOnJobCompletion', true),
     notifyOnJobFailure: optionalBoolean(values, 'notifyOnJobFailure', true),
+    showResponsePreview: optionalBoolean(values, 'showResponsePreview', true),
   })
 }
 
@@ -235,14 +238,17 @@ function normalizedUpdate(
   }
   const notificationKeys: readonly (keyof DesktopSetupWizardNotificationSettings)[] = [
     'enabled',
+    'notifyOnApprovalRequest',
     'notifyOnTurnCompletion',
     'notifyOnTurnFailure',
+    'notifyOnUserQuestion',
     'notifyOnJobCompletion',
     'notifyOnJobFailure',
+    'showResponsePreview',
   ]
   if (Object.keys(value.notifications).length !== notificationKeys.length
     || notificationKeys.some(key => typeof value.notifications[key] !== 'boolean')) {
-    throw new TypeError(`${BIN_NAME}: Setup Wizard update must contain all five notification booleans`)
+    throw new TypeError(`${BIN_NAME}: Setup Wizard update must contain all eight notification booleans`)
   }
   return Object.freeze({
     mode: requestedMode,
@@ -252,10 +258,13 @@ function normalizedUpdate(
     networkExposure,
     notifications: Object.freeze({
       enabled: value.notifications.enabled,
+      notifyOnApprovalRequest: value.notifications.notifyOnApprovalRequest,
       notifyOnTurnCompletion: value.notifications.notifyOnTurnCompletion,
       notifyOnTurnFailure: value.notifications.notifyOnTurnFailure,
+      notifyOnUserQuestion: value.notifications.notifyOnUserQuestion,
       notifyOnJobCompletion: value.notifications.notifyOnJobCompletion,
       notifyOnJobFailure: value.notifications.notifyOnJobFailure,
+      showResponsePreview: value.notifications.showResponsePreview,
     }),
   })
 }
@@ -271,10 +280,13 @@ export function sameDesktopSetupWizardSettings(
     && current.openBrowser === next.openBrowser
     && current.networkExposure === next.networkExposure
     && current.notifications.enabled === next.notifications.enabled
+    && current.notifications.notifyOnApprovalRequest === next.notifications.notifyOnApprovalRequest
     && current.notifications.notifyOnTurnCompletion === next.notifications.notifyOnTurnCompletion
     && current.notifications.notifyOnTurnFailure === next.notifications.notifyOnTurnFailure
+    && current.notifications.notifyOnUserQuestion === next.notifications.notifyOnUserQuestion
     && current.notifications.notifyOnJobCompletion === next.notifications.notifyOnJobCompletion
     && current.notifications.notifyOnJobFailure === next.notifications.notifyOnJobFailure
+    && current.notifications.showResponsePreview === next.notifications.showResponsePreview
 }
 
 function applyYamlUpdate(
@@ -466,10 +478,13 @@ export function defaultDesktopSetupWizardSettings(
     networkExposure: 'loopback',
     notifications: Object.freeze({
       enabled: true,
+      notifyOnApprovalRequest: true,
       notifyOnTurnCompletion: true,
       notifyOnTurnFailure: true,
+      notifyOnUserQuestion: true,
       notifyOnJobCompletion: true,
       notifyOnJobFailure: true,
+      showResponsePreview: true,
     }),
   })
 }

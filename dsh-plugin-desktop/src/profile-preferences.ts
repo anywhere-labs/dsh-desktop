@@ -41,10 +41,13 @@ const SELECTION_KEYS = Object.freeze([
 
 const NOTIFICATION_KEYS = Object.freeze([
   'enabled',
+  'notifyOnApprovalRequest',
   'notifyOnJobCompletion',
   'notifyOnJobFailure',
   'notifyOnTurnCompletion',
   'notifyOnTurnFailure',
+  'notifyOnUserQuestion',
+  'showResponsePreview',
 ] as const)
 
 const STATE_KEYS = Object.freeze([
@@ -147,18 +150,25 @@ function normalizedNotifications(
   value: unknown,
   error: ErrorFactory,
 ): Readonly<DesktopNotificationSettings> {
-  if (!isRecord(value) || !hasExactKeys(value, NOTIFICATION_KEYS)) {
-    throw error('notifications must contain exactly the five supported boolean fields')
+  // Older V1 files lack the preview and/or pending-question switches.
+  const normalized = isRecord(value)
+    ? { showResponsePreview: true, notifyOnUserQuestion: true, notifyOnApprovalRequest: true, ...value }
+    : value
+  if (!isRecord(normalized) || !hasExactKeys(normalized, NOTIFICATION_KEYS)) {
+    throw error('notifications must contain exactly the supported notification boolean fields')
   }
-  if (NOTIFICATION_KEYS.some(key => typeof value[key] !== 'boolean')) {
+  if (NOTIFICATION_KEYS.some(key => typeof normalized[key] !== 'boolean')) {
     throw error('notification values must be booleans')
   }
   return Object.freeze({
-    enabled: value.enabled as boolean,
-    notifyOnTurnCompletion: value.notifyOnTurnCompletion as boolean,
-    notifyOnTurnFailure: value.notifyOnTurnFailure as boolean,
-    notifyOnJobCompletion: value.notifyOnJobCompletion as boolean,
-    notifyOnJobFailure: value.notifyOnJobFailure as boolean,
+    enabled: normalized.enabled as boolean,
+    notifyOnApprovalRequest: normalized.notifyOnApprovalRequest as boolean,
+    notifyOnTurnCompletion: normalized.notifyOnTurnCompletion as boolean,
+    notifyOnTurnFailure: normalized.notifyOnTurnFailure as boolean,
+    notifyOnUserQuestion: normalized.notifyOnUserQuestion as boolean,
+    notifyOnJobCompletion: normalized.notifyOnJobCompletion as boolean,
+    notifyOnJobFailure: normalized.notifyOnJobFailure as boolean,
+    showResponsePreview: normalized.showResponsePreview as boolean,
   })
 }
 
