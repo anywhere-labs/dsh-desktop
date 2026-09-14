@@ -44,6 +44,7 @@ describe('macOS release command boundary', () => {
     const identityEnvironments: NodeJS.ProcessEnv[] = []
     const logs: string[] = []
     const resetOutput = vi.fn()
+    const prepareRuntime = vi.fn()
     const appPassword = 'notary-password-that-must-not-be-logged'
 
     releaseMac({
@@ -55,9 +56,11 @@ describe('macOS release command boundary', () => {
         APPLE_TEAM_ID: 'TEAM123456',
       }, calls, identityEnvironments, logs),
       resetOutput,
+      prepareRuntime,
     })
 
     expect(resetOutput).toHaveBeenCalledOnce()
+    expect(prepareRuntime).toHaveBeenCalledOnce()
     expect(identityEnvironments).toEqual([{ PATH: '/usr/bin', SAFE_BUILD_VALUE: 'kept' }])
     expect(calls).toHaveLength(3)
     expect(calls[0]).toEqual({
@@ -81,6 +84,7 @@ describe('macOS release command boundary', () => {
         APPLE_ID: 'developer@example.test',
         APPLE_APP_SPECIFIC_PASSWORD: appPassword,
         APPLE_TEAM_ID: 'TEAM123456',
+        DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY: '1',
       },
     })
     expect(calls[2]).toEqual({
@@ -125,6 +129,7 @@ describe('macOS release command boundary', () => {
     expect(calls[1]?.env.CSC_KEY_PASSWORD).toBe(p12Password)
     expect(calls[1]?.env.MAC_CERT_P12_BASE64).toBeUndefined()
     expect(calls[1]?.env.MACOS_SIGN_IDENTITY).toBeUndefined()
+    expect(calls[1]?.env.DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY).toBe('1')
     expect(calls[2]?.env).toEqual({ PATH: '/usr/bin' })
   })
 

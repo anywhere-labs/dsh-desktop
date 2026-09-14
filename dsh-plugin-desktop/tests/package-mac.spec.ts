@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   packageMacSmoke,
   type MacSmokePackageOptions,
@@ -50,9 +50,11 @@ describe('macOS DMG smoke packaging', () => {
   it('checks without credentials, builds an unsigned DMG, then verifies it', () => {
     const calls: CommandCall[] = []
     const logs: string[] = []
+    const prepareRuntime = vi.fn()
 
-    packageMacSmoke(options(calls, logs))
+    packageMacSmoke({ ...options(calls, logs), prepareRuntime })
 
+    expect(prepareRuntime).toHaveBeenCalledOnce()
     expect(calls).toHaveLength(3)
     expect(calls[0]).toEqual({
       command: 'corepack',
@@ -78,6 +80,7 @@ describe('macOS DMG smoke packaging', () => {
         PATH: '/usr/bin:/bin',
         SAFE_VALUE: 'kept',
         CSC_IDENTITY_AUTO_DISCOVERY: 'false',
+        DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY: '1',
       },
     })
     expect(calls[2]).toEqual({

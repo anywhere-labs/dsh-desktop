@@ -11,11 +11,11 @@ import {
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { verifyBundledSkills } from './packaged-filesystem-smoke.ts'
 import { rgPath } from '@vscode/ripgrep'
 import AdmZip from 'adm-zip'
-import { materializeLegacyPresetAliases } from './agent-preset-compat.ts'
 import { exportDiagnosticsZip } from './diagnostic-export.ts'
 import { installProfilePackageResolver } from './module-resolution.ts'
 
@@ -26,13 +26,18 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 const installAnchor = new URL('../package.json', import.meta.url)
+const packagedAsarRoot = /(?:^|[\\/])app\.asar(?:\.unpacked)?[\\/]/u
+const packagedDirectoryRoot = /(?:^|[\\/])app[\\/]/u
+const usesAsar = packagedAsarRoot.test(installAnchor.pathname)
 assert(
-  /([\\/])app\.asar\1/u.test(installAnchor.pathname),
-  `did not start from app.asar: ${installAnchor.pathname}`,
+  usesAsar || packagedDirectoryRoot.test(installAnchor.pathname),
+  `did not start from a packaged application root: ${installAnchor.pathname}`,
 )
 assert(
-  /([\\/])app\.asar\.unpacked\1/u.test(rgPath),
-  `resolved ripgrep outside app.asar.unpacked: ${rgPath}`,
+  usesAsar
+    ? /(?:^|[\\/])app\.asar\.unpacked[\\/]/u.test(rgPath)
+    : packagedDirectoryRoot.test(rgPath),
+  `resolved ripgrep outside the packaged application root: ${rgPath}`,
 )
 assert(existsSync(rgPath), `cannot find ripgrep at ${rgPath}`)
 const rgVersion = execFileSync(rgPath, ['--version'], { encoding: 'utf8', windowsHide: true })
@@ -48,27 +53,35 @@ if (process.platform === 'win32') {
   assert(typeof fsExt.flockSync === 'function', 'did not load the Electron ABI fs-ext binding')
 }
 
-/** Exercise the code-to-ptc compatibility copy through Electron's ASAR filesystem. */
-function smokeLegacyPresetAliases(): void {
-  const compatRoot = mkdtempSync(join(tmpdir(), 'dsh-packaged-preset-compat-'))
-  const installRequire = createRequire(installAnchor)
-  const shippedRoot = join(
-    dirname(installRequire.resolve('@deepseek-ai/dsh-agent-presets/package.json')),
-    'presets',
-  )
+/** Exercise upstream migration and native session locks from the packaged runtime. */
+async function smokeSessionMigration(): Promise<void> {
+  const { Context } = await import('@deepseek-ai/cordis')
+  const { SessionId } = await import('@deepseek-ai/dsh-session')
+  const { default: JsonlSessionPersistence } = await import('@deepseek-ai/dsh-session-persistence-jsonl')
+  const root = mkdtempSync(join(tmpdir(), 'dsh-packaged-session-migration-'))
+  const id = SessionId('packaged-migration')
+  const directory = join(root, '_no-cwd', id)
+  const source = JSON.stringify({
+    type: 'session', version: 2, id, createdAt: 1, isSeeded: false,
+    delegationDepth: 0, agentPreset: 'code',
+  }) + '\n'
+  const ctx = new Context()
   try {
-    assert(
-      materializeLegacyPresetAliases({ shippedRoot, compatRoot }) === compatRoot,
-      'did not materialize the legacy code preset alias',
-    )
-    const legacyComposition = readFileSync(join(compatRoot, 'code', 'agent.cordis.yml'), 'utf8')
-    const shippedComposition = readFileSync(join(shippedRoot, 'ptc', 'agent.cordis.yml'), 'utf8')
-    assert(
-      legacyComposition === shippedComposition,
-      'materialized code preset does not match the shipped ptc composition',
-    )
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(join(directory, 'session.v2.jsonl'), source)
+    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
+    const handle = await ctx.sessionPersistence.open(id, 'write')
+    try {
+      assert(handle.header.version === 3 && handle.header.agentPreset === 'ptc', 'did not migrate the legacy preset through the upstream worker')
+    } finally {
+      await handle.close()
+    }
+    await ctx.sessionPersistence.flush()
+    assert(existsSync(join(directory, 'session.v3.jsonl')), 'did not publish the V3 session log')
+    assert(readFileSync(join(directory, 'session.v2.jsonl'), 'utf8') === source, 'changed the original V2 session log')
   } finally {
-    rmSync(compatRoot, { recursive: true, force: true })
+    await ctx.fiber.dispose()
+    rmSync(root, { recursive: true, force: true })
   }
 }
 
@@ -186,9 +199,11 @@ try {
     assert(typeof consumer.yamlUtil?.createNode === 'function', 'did not resolve an exact conditional subpath')
     assert(
       typeof consumer.frontend === 'string'
-        && /([\\/])app\.asar\1/u.test(consumer.frontend)
+        && (usesAsar
+          ? /(?:^|[\\/])app\.asar[\\/]/u.test(consumer.frontend)
+          : packagedDirectoryRoot.test(consumer.frontend))
         && consumer.frontend.endsWith(join('dist', 'index.html')),
-      `did not resolve a wildcard export inside app.asar: ${String(consumer.frontend)}`,
+      `did not resolve a wildcard export inside the packaged application: ${String(consumer.frontend)}`,
     )
     assert(
       profileRequire('dsh-packaged-cjs-consumer/features/shape') === 'wildcard-cjs',
@@ -211,7 +226,8 @@ try {
   rmSync(root, { recursive: true, force: true })
 }
 
-smokeLegacyPresetAliases()
+await verifyBundledSkills(fileURLToPath(new URL('./', installAnchor)))
+await smokeSessionMigration()
 await smokeDiagnosticExportWorker()
 
 process.stdout.write(OK_MARKER)

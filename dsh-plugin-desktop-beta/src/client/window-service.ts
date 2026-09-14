@@ -2,12 +2,10 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import {
-  ADVANCED_MACOS_CONTENT_INSET,
   ADVANCED_MACOS_DRAG_REGION_HEIGHT,
   ADVANCED_WINDOWS_TITLEBAR_HEIGHT,
   MACOS_TRAFFIC_LIGHT_SAFE_WIDTH,
   WINDOWS_CAPTION_CONTROLS_WIDTH,
-  DESKTOP_FRAME_HEIGHT,
 } from '../window-chrome.ts'
 import type { DesktopWindowService } from './contracts.ts'
 import type { DesktopClientEnvironment } from './environment.ts'
@@ -29,7 +27,7 @@ export function desktopWindowService(environment: DesktopClientEnvironment): Des
         ? ['off', 'mica'] as const
         : ['off'] as const
       : ['off'] as const)
-  if (environment.mode === 'compatibility') {
+  if (environment.mode === 'compatibility' || environment.mode === 'extended') {
     return Object.freeze({
       ...environment,
       availableMaterials,
@@ -37,23 +35,11 @@ export function desktopWindowService(environment: DesktopClientEnvironment): Des
       dragRegion: frozenDragRegion(0, 0, 0),
     })
   }
-  if (environment.mode === 'extended') {
-    return Object.freeze({
-      ...environment,
-      availableMaterials,
-      safeAreaInsets: frozenInsets(DESKTOP_FRAME_HEIGHT),
-      dragRegion: frozenDragRegion(
-        DESKTOP_FRAME_HEIGHT,
-        environment.platform === 'darwin' ? MACOS_TRAFFIC_LIGHT_SAFE_WIDTH : 0,
-        environment.platform === 'win32' ? WINDOWS_CAPTION_CONTROLS_WIDTH : 0,
-      ),
-    })
-  }
   if (environment.platform === 'darwin') {
     return Object.freeze({
       ...environment,
       availableMaterials,
-      safeAreaInsets: frozenInsets(ADVANCED_MACOS_CONTENT_INSET),
+      safeAreaInsets: frozenInsets(ADVANCED_MACOS_DRAG_REGION_HEIGHT),
       dragRegion: frozenDragRegion(
         ADVANCED_MACOS_DRAG_REGION_HEIGHT,
         MACOS_TRAFFIC_LIGHT_SAFE_WIDTH,

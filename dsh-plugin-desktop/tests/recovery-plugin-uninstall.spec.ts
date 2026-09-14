@@ -1,5 +1,4 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -91,9 +90,7 @@ describe('pre-Host recovery plugin uninstall command', () => {
 
   it('uses packaged pnpm after runtime PATH release and preserves official bundle reconciliation', async () => {
     const base = fixture('')
-    const require = createRequire(import.meta.url)
-    const dshManifestPath = require.resolve('@deepseek-ai/dsh/package.json')
-    const dshBootstrapPath = join(dirname(dshManifestPath), 'lib', 'bin.js')
+    const dshBootstrapPath = join(import.meta.dirname, '../lib/desktop-cli.js')
     const systemBin = join(dirname(base.profileDir), 'system-bin')
     const selectedMarker = join(dirname(base.profileDir), 'selected-pnpm.txt')
     const packagedScript = join(base.pnpmBinDir, 'packaged-pnpm.cjs')

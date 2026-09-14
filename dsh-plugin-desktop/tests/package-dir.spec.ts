@@ -19,6 +19,7 @@ describe('unsigned directory packaging', () => {
     expect(environment).toEqual({
       CSC_IDENTITY_AUTO_DISCOVERY: 'false',
       DSH_PACKAGE_CHECK_ALREADY_RAN: '1',
+      DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY: '1',
     })
   })
 
@@ -28,6 +29,7 @@ describe('unsigned directory packaging', () => {
     packageDirectory({
       cwd: '/workspace/desktop',
       electronBuilderCli: '/workspace/electron-builder.js',
+      electronDistPath: '/workspace/electron/dist',
       env: { CSC_NAME: 'Developer ID Application: Release', KEEP: 'yes' },
       nodeExecutable: '/runtime/node',
       run: run as unknown as typeof import('node:child_process').spawnSync,
@@ -45,11 +47,16 @@ describe('unsigned directory packaging', () => {
     expect(run).toHaveBeenCalledOnce()
     expect(run).toHaveBeenCalledWith(
       '/runtime/node',
-      ['/workspace/electron-builder.js', ...UNSIGNED_DIRECTORY_BUILD_ARGS],
+      [
+        '/workspace/electron-builder.js',
+        ...UNSIGNED_DIRECTORY_BUILD_ARGS,
+        '--config.electronDist=/workspace/electron/dist',
+      ],
       {
         cwd: '/workspace/desktop',
         env: {
           CSC_IDENTITY_AUTO_DISCOVERY: 'false',
+          DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY: '1',
           KEEP: 'yes',
         },
         stdio: 'inherit',

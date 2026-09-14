@@ -2,10 +2,10 @@ import type {} from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import type { WorkspaceLaunchRequest } from './workspace-launch-contract.ts'
+import type { WorkspaceLaunchDelivery, WorkspaceLaunchRequest } from './workspace-launch-contract.ts'
 
 declare module '@deepseek-ai/cordis' {
-  interface Context { desktopWorkspaceLaunches: WorkspaceLaunchQueue }
+  interface Context { desktopWorkspaceLaunches: WorkspaceLaunchDelivery }
 }
 
 /** Parse one positional directory; -- permits directory names beginning with a dash. */

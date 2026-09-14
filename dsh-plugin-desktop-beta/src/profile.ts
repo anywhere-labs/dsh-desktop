@@ -41,7 +41,6 @@ import FileSettingsProvider, {
   type Config as SettingsFileConfig,
 } from '@deepseek-ai/dsh-settings-file'
 import { parseAllDocuments, parseDocument } from 'yaml'
-import { COMPAT_PRESET_DIRNAME, materializeLegacyPresetAliases } from './agent-preset-compat.ts'
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
 import { withAsarModuleResolver } from './asar-module-resolver-state.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
@@ -1046,17 +1045,8 @@ export function prepareDesktopProfile(
     const shippedRoot = shippedPresetRoot()
     const roots: Array<{ path: string, trust: 'system' | 'user' }> = [
       { path: shippedRoot, trust: 'system' },
-      // The harness-home user root, taken over from `includeUserRoot` so it
-      // keeps precedence over the alias root below: a preset authored under a
-      // renamed id must still win over the launcher's alias copy of the
-      // shipped preset.
       { path: join(home, USER_PRESET_DIRNAME), trust: 'user' },
     ]
-    const compatRoot = materializeLegacyPresetAliases({
-      shippedRoot,
-      compatRoot: join(profileDir, COMPAT_PRESET_DIRNAME),
-    })
-    if (compatRoot !== undefined) roots.push({ path: compatRoot, trust: 'system' })
     patches.push({
       id: AGENT_PRESETS_ROW_ID,
       config: { ...rowConfig(presets), roots, includeUserRoot: false },

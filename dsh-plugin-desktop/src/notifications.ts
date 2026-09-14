@@ -3,14 +3,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import type { DesktopLocale, DesktopNotification } from './runtime.ts'
 
 export const name = 'desktop-notifications'
 export const inject = ['desktopRuntime']
 
-export const DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE = settingsNamespace('dsh-desktop-notifications')
+export const DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE = 'dsh-desktop-notifications'
 
 export interface DesktopNotificationSettings {
   enabled: boolean

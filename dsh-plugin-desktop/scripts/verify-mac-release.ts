@@ -79,7 +79,7 @@ export function verifyMacRelease(
     const executablePath = join(appPath, 'Contents', 'MacOS', options.productName)
     options.run('lipo', [executablePath, '-verify_arch', 'x86_64'])
     options.run('lipo', [executablePath, '-verify_arch', 'arm64'])
-    const unpackedRoot = join(appPath, 'Contents', 'Resources', 'app.asar.unpacked')
+    const unpackedRoot = join(appPath, 'Contents', 'Resources', 'app')
     for (const entry of MACOS_UNIVERSAL_NATIVE_ENTRIES) {
       options.run('lipo', [join(unpackedRoot, entry.path), '-verify_arch', entry.arch])
     }

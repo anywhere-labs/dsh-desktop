@@ -2703,7 +2703,7 @@ describe('Electron desktop runtime', () => {
       backgroundColor: '#202124',
       titleBarOverlay: expect.objectContaining({ height: DESKTOP_FRAME_HEIGHT }),
     }))
-    expect(electron.contentViews).toHaveLength(0)
+    expect(electron.contentViews).toHaveLength(2)
     expect(electron.browserWindowOptions[0]).not.toHaveProperty('transparent')
     expect(electron.browserWindowOptions[0]).not.toHaveProperty('backgroundMaterial')
     expect(electron.menuTemplates[0]).toEqual(expect.arrayContaining([

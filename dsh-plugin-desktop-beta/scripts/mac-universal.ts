@@ -5,8 +5,16 @@ import { join, resolve } from 'node:path'
 
 export type MacUniversalArch = 'arm64' | 'x86_64'
 
-/** Thin native files that must be present for each CPU inside app.asar.unpacked. */
+/** Thin native files that must be present for each CPU inside the packaged app directory. */
 export const MACOS_UNIVERSAL_NATIVE_ENTRIES = [
+  {
+    arch: 'arm64',
+    path: 'node_modules/@deepseek-ai/node-addon-system-darwin-arm64/bin/system.node',
+  },
+  {
+    arch: 'x86_64',
+    path: 'node_modules/@deepseek-ai/node-addon-system-darwin-x64/bin/system.node',
+  },
   {
     arch: 'arm64',
     path: 'node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64-0.35.3.node',

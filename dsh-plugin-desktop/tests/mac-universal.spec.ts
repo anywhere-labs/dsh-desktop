@@ -6,6 +6,19 @@ import {
 } from '../scripts/mac-universal.ts'
 
 describe('universal macOS native runtime preparation', () => {
+  it('tracks the Electron 43 fs-ext binding for both CPU architectures', () => {
+    expect(MACOS_UNIVERSAL_NATIVE_ENTRIES).toEqual(expect.arrayContaining([
+      {
+        arch: 'arm64',
+        path: 'node_modules/fs-ext/prebuilds/darwin-arm64/electron.abi148.node',
+      },
+      {
+        arch: 'x86_64',
+        path: 'node_modules/fs-ext/prebuilds/darwin-x64/electron.abi148.node',
+      },
+    ]))
+  })
+
   it('requires every CPU-specific file and repairs both node-pty helpers', () => {
     const chmod = vi.fn()
     const desktopRoot = resolve('/desktop')

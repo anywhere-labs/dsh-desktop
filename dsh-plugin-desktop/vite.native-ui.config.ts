@@ -19,6 +19,7 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       input: {
+        'compatibility-chrome': resolve(uiRoot, 'compatibility-chrome.html'),
         'desktop-dialog': resolve(uiRoot, 'desktop-dialog.html'),
         recovery: resolve(uiRoot, 'recovery.html'),
         'profile-create': resolve(uiRoot, 'profile-create.html'),

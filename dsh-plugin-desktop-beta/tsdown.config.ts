@@ -31,6 +31,7 @@ export default defineConfig([
       'windows-pwsh-sandbox': 'src/windows-pwsh-sandbox.ts',
       'windows-acl-runner': 'src/windows-acl-runner.ts',
       main: 'src/main.ts',
+      'host-process-entry': 'src/host-process-entry.ts',
     },
     outDir: 'lib',
     format: 'esm',

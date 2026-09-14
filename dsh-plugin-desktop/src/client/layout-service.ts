@@ -9,7 +9,18 @@ export function installDesktopLayout(ctx: ClientContext, layout: DesktopLayoutSt
   }
 
   ctx.effect(() => {
+    const disposePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo: {
+      getSnapshot: () => layout.getPanelInfo(),
+      subscribe: listener => layout.subscribe(listener),
+    } } })
     const dispose = ctx.reflect.provide('layout', layout)
-    return () => { void dispose() }
+    const disposePanels = ctx.slots.subscribe('main', () => layout.retainMainPanels())
+    layout.retainMainPanels()
+    return () => {
+      layout.dispose()
+      disposePanels()
+      disposePanelInfo()
+      void dispose()
+    }
   }, 'desktop: layout service')
 }

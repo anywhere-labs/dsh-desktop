@@ -50,6 +50,7 @@ describe('packaged dsh bootstrap', () => {
 
     expect(load).toHaveBeenCalledOnce()
     expect(runCli).toHaveBeenCalledOnce()
+    expect(runCli).toHaveBeenCalledWith({ allowDesktopProfile: true })
   })
 
   it('propagates a rejected upstream CLI invocation', async () => {

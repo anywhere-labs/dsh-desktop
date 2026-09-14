@@ -30,6 +30,7 @@ import {
   REQUIRED_POSIX_FS_EXT_ENTRIES,
   REQUIRED_UNPACKED_RUNTIME_ENTRIES,
   REQUIRED_WINDOWS_X64_NODE_PTY_ENTRIES,
+  resolvePackagedApplicationRoot,
   resolvePackagedAsarPath,
   resolvePackagedExecutablePath,
   resolvePackagedUnpackedRoot,
@@ -211,7 +212,7 @@ describe('packaged desktop runtime verification', () => {
     expect(DESKTOP_RUNTIME_ENTRIES).toContain('lib/native-ui/setup-wizard.html')
   })
 
-  it('keeps the PTC compatibility source present and integrity-protected in app.asar', () => {
+  it('keeps the shipped PTC preset present and integrity-protected in app.asar', () => {
     expect(REQUIRED_AGENT_PRESET_RUNTIME_ENTRIES).toEqual([
       'node_modules/@deepseek-ai/dsh-agent-presets/presets/ptc/agent.cordis.yml',
       'node_modules/@deepseek-ai/dsh-agent-presets/presets/ptc/preset.yml',
@@ -315,6 +316,26 @@ describe('packaged desktop runtime verification', () => {
     expect(resolvePackagedExecutablePath(runtimeContext)).toBe(expectedExecutable)
     expect(readHeader).toHaveBeenCalledWith(expectedPath)
     expect(listUnpacked).toHaveBeenCalledWith(`${expectedPath}.unpacked`)
+  })
+
+  it.each(['win32', 'darwin', 'linux'] as const)('verifies a plain %s app and refuses an accidental ASAR entry', platform => {
+    const base = context('/build', platform, 1)
+    const runtimeContext: PackagedRuntimeContext = {
+      ...base, packager: { ...base.packager, platformSpecificBuildOptions: { asar: false } },
+    }
+    const appRoot = resolvePackagedApplicationRoot(runtimeContext)
+    const paths = [...new Set([
+      ...REQUIRED_PACKAGED_RUNTIME_ENTRIES, ...DESKTOP_RUNTIME_ENTRIES,
+      ...requiredPhysicalEntries(runtimeContext),
+    ])]
+    const files = paths.map(path => ({ path, bytes: 1 }))
+    const readHeader = vi.fn<ArchiveHeaderReader>(headerReader([]))
+    const exists = (filename: string) => paths.includes(relative(appRoot, filename).replaceAll('\\', '/'))
+    expect(() => verifyPackagedRuntime(runtimeContext, readHeader, exists, () => files)).not.toThrow()
+    expect(readHeader).not.toHaveBeenCalled()
+    expect(() => verifyPackagedRuntime(runtimeContext, readHeader,
+      filename => filename === resolvePackagedAsarPath(runtimeContext) || exists(filename),
+      () => files)).toThrow('unexpectedly contains app.asar')
   })
 
   it('uses LinuxPackager executableName instead of appInfo.productFilename', () => {

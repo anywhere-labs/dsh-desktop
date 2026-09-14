@@ -407,7 +407,6 @@ virtualStoreDirMaxLength: 60
         roots: [
           { path: shippedPresetRoot(), trust: 'system' },
           { path: join(home, '.agent-presets'), trust: 'user' },
-          { path: join(prepared.profile.dir, 'agent-preset-compat'), trust: 'system' },
         ],
         includeUserRoot: false,
       }),
@@ -417,7 +416,7 @@ virtualStoreDirMaxLength: 60
       'agent-preset-compat',
       'code',
       'agent.cordis.yml',
-    ))).toBe(true)
+    ))).toBe(false)
     expect(readFileSync(prepared.rootConfig, 'utf8')).toBe('[]\n')
     expect(prepared.homeDir).toBe(home)
     expect(fileURLToPath(prepared.bareModuleBaseUrl)).toBe(join(prepared.profile.dir, 'package.json'))
@@ -1053,7 +1052,6 @@ virtualStoreDirMaxLength: 60
         roots: [
           { path: shippedPresetRoot(), trust: 'system' },
           { path: join(home, '.agent-presets'), trust: 'user' },
-          { path: join(prepared.profile.dir, 'agent-preset-compat'), trust: 'system' },
         ],
         includeUserRoot: false,
       }),

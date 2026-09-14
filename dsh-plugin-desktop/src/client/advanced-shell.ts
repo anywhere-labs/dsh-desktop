@@ -14,7 +14,7 @@ export function applyAdvancedShell(ctx: ClientContext, environment: DesktopClien
     throw new Error(`dsh-plugin-desktop: advanced shell received mode ${JSON.stringify(environment.mode)}`)
   }
 
-  const desktopLayout = new DesktopLayoutState()
+  const desktopLayout = new DesktopLayoutState(id => ctx.slots.entries('main').some(entry => entry.options.key === id))
   installDesktopLayout(ctx, desktopLayout)
 
   ctx.effect(() => {
@@ -44,8 +44,8 @@ export function applyAdvancedShell(ctx: ClientContext, environment: DesktopClien
     name: 'root',
     children: {
       'sidebar': { kind: 'single', scope: 'root' },
-      'conversation': { kind: 'single', scope: 'session-maybe' },
-      'details': { kind: 'single', scope: 'session' },
+      'main': { kind: 'keyed', scope: 'root' },
+      'rightbar': { kind: 'single', scope: 'root' },
       'shell.overlay': { kind: 'list', scope: 'root' },
     },
     inject: () => ({ layout: desktopLayout, platform: environment.platform }),

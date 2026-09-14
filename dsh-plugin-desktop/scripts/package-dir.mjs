@@ -4,12 +4,14 @@ import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { electronBuilderEnvironment } from './electron-builder-environment.ts'
 import { withoutWindowsSigningSecrets } from './package-win.ts'
 import { withoutMacReleaseSecrets } from './release-preflight.ts'
 
 const require = createRequire(import.meta.url)
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const builderCli = require.resolve('electron-builder/cli.js')
+const electronDist = resolve(dirname(require.resolve('electron/package.json')), 'dist')
 
 /** Electron Builder overrides that make the directory build unconditionally unsigned. */
 export const UNSIGNED_DIRECTORY_BUILD_ARGS = Object.freeze([
@@ -28,10 +30,10 @@ export const UNSIGNED_DIRECTORY_BUILD_ARGS = Object.freeze([
  * @returns {NodeJS.ProcessEnv}
  */
 export function unsignedDirectoryBuildEnvironment(environment) {
-  return {
+  return electronBuilderEnvironment({
     ...withoutWindowsSigningSecrets(withoutMacReleaseSecrets(environment)),
     CSC_IDENTITY_AUTO_DISCOVERY: 'false',
-  }
+  })
 }
 
 /**
@@ -40,6 +42,7 @@ export function unsignedDirectoryBuildEnvironment(environment) {
  *   env?: NodeJS.ProcessEnv,
  *   cwd?: string,
  *   electronBuilderCli?: string,
+ *   electronDistPath?: string,
  *   nodeExecutable?: string,
  *   run?: typeof spawnSync,
  * }} [options]
@@ -48,9 +51,14 @@ export function packageDirectory(options = {}) {
   const run = options.run ?? spawnSync
   const nodeExecutable = options.nodeExecutable ?? process.execPath
   const electronBuilderCli = options.electronBuilderCli ?? builderCli
+  const configuredElectronDist = options.electronDistPath ?? electronDist
   const result = run(
     nodeExecutable,
-    [electronBuilderCli, ...UNSIGNED_DIRECTORY_BUILD_ARGS],
+    [
+      electronBuilderCli,
+      ...UNSIGNED_DIRECTORY_BUILD_ARGS,
+      `--config.electronDist=${configuredElectronDist}`,
+    ],
     {
       cwd: options.cwd ?? packageRoot,
       env: unsignedDirectoryBuildEnvironment(options.env ?? process.env),

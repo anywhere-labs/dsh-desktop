@@ -86,7 +86,7 @@ export function desktopCliProfileManifestUrl(
  */
 export async function runDesktopDshCli(
   environment: NodeJS.ProcessEnv = process.env,
-  load: (url: string) => Promise<unknown> = url => import(url),
+  load: (url: string) => Promise<{ runCli(options: { allowDesktopProfile: boolean }): Promise<void> }> = url => import(url),
   argv: string[] = process.argv,
 ): Promise<void> {
   const profileName = takeDefaultProfile(environment)
@@ -100,18 +100,18 @@ export async function runDesktopDshCli(
     && /([\\/])app\.asar\1/u.test(fileURLToPath(DSH_ENTRY_URL))
     ? installProfilePackageResolver(desktopCliProfileManifestUrl(selectedProfile, environment))
     : undefined
-  // The DSH module finishes evaluating once a long-lived Profile is ready;
+  // The DSH CLI settles once a long-lived Profile is ready;
   // later HMR and Loader imports still need the same process-wide resolver.
-  // Keep it until process exit rather than treating import settlement as app
+  // Keep it until process exit rather than treating CLI settlement as app
   // shutdown. A packaged CLI process owns exactly one Profile invocation.
   if (releaseResolver === undefined) {
-    await load(DSH_ENTRY_URL)
+    await (await load(DSH_ENTRY_URL)).runCli({ allowDesktopProfile: true })
     return
   }
   const releaseAtExit = (): void => { releaseResolver() }
   process.once('exit', releaseAtExit)
   try {
-    await load(DSH_ENTRY_URL)
+    await (await load(DSH_ENTRY_URL)).runCli({ allowDesktopProfile: true })
   } catch (cause) {
     process.off('exit', releaseAtExit)
     releaseResolver()

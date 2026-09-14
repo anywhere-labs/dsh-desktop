@@ -8,21 +8,62 @@ The source code is unchanged. The manifest has a Desktop build version and
 explicit peers for both Desktop runtime versions (including the emitted
 `dsh-llm` and `dsh-session` imports). The SHA-256 identifies the exact shipped artifact.
 
-## Updating
+## Release-time updates
 
-1. Check out the selected AA commit in a separate checkout.
-2. In `dsh-bridge-next`, run `corepack yarn install`, `corepack yarn check`.
-   Its integration tests also use `connector`, `contracts`, `desktop-workbench`,
-   `web-next`, and `server` from that same checkout, plus uv/Python. Initialize
-   Python dependencies before running the integration suite.
-3. In a staging copy, set a new exact Desktop build version and the reviewed
-   runtime peer ranges. Package `package.json`, `lib`, `cordis.patch.yml`,
-   `README.md`, `RUNTIME_READS.md`, and `USER_QUESTIONS.md` beneath `package/`
-   in an npm-compatible tarball. Do not run lifecycle scripts when consuming it.
-4. Update both Desktop dependencies, the root Yarn lockfile and provenance.
-5. Run both Desktop checks and `DSH_VERIFY_AA=1 corepack yarn workspace
-   <desktop-package> verify:profile`. Verify Python sources are unpacked outside
-   `app.asar`, then test device onboarding against the matching AA Server/Web.
+Root `dev`, `dev:beta`, `dist:*` and `package:dir*` commands first run
+`yarn aa:prepare-release`.
+This resolves the latest GitHub `main` commit once, fetches that exact commit into
+an isolated temporary checkout, and builds `dsh-bridge-next` with the Connector
+sources from the same commit. It never changes an adjacent AA checkout.
+Each development launch checks GitHub once before starting Desktop; it does
+not poll or update the running application. Direct workspace commands use the
+installed pin; PR CI continues to validate the committed pin without querying
+AA's moving branch.
+
+```sh
+# Read-only comparison with the current remote main head
+corepack yarn aa:check
+# Prepare the latest AA package without packaging Electron
+corepack yarn aa:prepare-release
+# Development: resolve latest AA, then launch Desktop
+corepack yarn dev
+# Normal release: resolve latest AA, then package Desktop
+corepack yarn dist:mac:beta
+# Reproduce the committed AA artifact without contacting GitHub
+DSH_AA_SOURCE_REF=pinned corepack yarn dist:mac:beta
+# Select an exact full 40-character commit instead of the moving branch
+DSH_AA_SOURCE_REF=<commit> corepack yarn aa:prepare-release
+```
+
+On Windows PowerShell, set `$env:DSH_AA_SOURCE_REF = 'pinned'` before running
+Yarn, then remove the variable when returning to latest builds. An alternative
+repository (for example an authenticated SSH URL) can be supplied through
+`DSH_AA_SOURCE_REPOSITORY`. The default is the public AA GitHub repository.
+`DSH_AA_SOURCE_REF` accepts a branch name, full commit SHA, or `pinned`.
+
+The preparation step runs AA's build, typecheck and build-artifact checks. It
+removes prepack/postpack hooks in staging because the full upstream integration
+suite requires additional Server/Web/Python fixtures. It updates both Desktop
+package dependencies, `yarn.lock`, and `provenance.json`. Artifacts have distinct
+versions keyed by source commit and Desktop peer ranges; unchanged, checksum-
+verified inputs reuse the current artifact. Old artifacts remain available.
+Review and commit the generated dependency, artifact and provenance changes
+when adopting an update into the repository.
+
+Network, source build, or dependency-install failures stop packaging; they do
+not silently ship the old plugin. On failure the dependency manifests, lockfile
+and provenance are restored. If root installation had started, rerun
+`corepack yarn install --immutable` to restore installed dependencies before
+retrying. The source SHA and artifact checksum identify exactly what shipped.
+`pinned` verifies the committed tarball checksum and requires dependencies to
+have been installed normally first.
+
+These checks do not guarantee compatibility with every future AA change.
+Before adopting an update, validate both Desktop variants and run
+`DSH_VERIFY_AA=1 corepack yarn workspace <desktop-package> verify:profile`.
+Verify Connector sources are unpacked outside `app.asar` and test onboarding
+against the matching AA Server/Web. The historical validation below applies
+only to its named commit.
 
 ## Product behavior
 
@@ -57,9 +98,15 @@ directory. Those files are preserved but are no longer selected automatically;
 users may need to sign in once using AA's native state directory. No account,
 credential, or device binding is silently copied between the two layouts.
 
-## Validation of this pin
+## Validation history
 
-The current artifact comes from AA v2 commit
+The current artifact was prepared by the release script from AA v2 commit
+`c26402633cb840d376048b0bdb42c2db59e7cb33`. Build, typecheck and build-artifact
+checks passed. Both Desktop variants passed actual AA Host/client profile
+loading, and repeating preparation reused the verified artifact. No signed
+Electron package or interactive device onboarding was tested for this update.
+
+The previous manually prepared artifact came from AA v2 commit
 `ae47731c50f02033728faed1ba55f95c8008ec86` and includes the matching Python
 Connector sources. This updates deleted-device recovery during a fresh login,
 Windows discovery (avoiding `os.kill(pid, 0)`), and Windows-safe `pwd` imports.
@@ -72,7 +119,6 @@ with `--test-concurrency=1`; 35 targeted Connector tests passed, including the
 Windows regression tests. This includes controlled Python/backend integration,
 not an interactive real-model, phone, or native Windows acceptance test.
 
-The source is unchanged. Desktop-specific manifest changes and the artifact
-SHA-256 are recorded in `provenance.json`. Desktop validation for this update
+That update left source code unchanged. Desktop validation for that update
 covers both variants' profile tests and actual Host/client loading, including
 failure fallback. A new signed release package is not part of this update.
