@@ -880,7 +880,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     }
     const tools = this.contributedTrayItems('tools')
     const profiles = this.contributedTrayItems('profiles')
-    const status = this.contributedTrayItems('status')
+    const status = this.buildStatusMenuItems()
     const template: Electron.MenuItemConstructorOptions[] = [
       { label: desktopTrayLabel(this.locale, 'openDesktop', spec.productName), click: show },
     ]
@@ -925,11 +925,22 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     if (tools.length > 0) items.push(...tools)
     if (tools.length > 0 && profiles.length > 0) items.push({ type: 'separator' })
     if (profiles.length > 0) items.push(...profiles)
-    const status = this.contributedTrayItems('status')
+    const status = this.buildStatusMenuItems()
     if (status.length > 0) {
       if (items.length > 0) items.push({ type: 'separator' })
       items.push(...status)
     }
     return items
+  }
+
+  /** Keep the repository available alongside updates, independent of Host contributions. */
+  private buildStatusMenuItems(): Electron.MenuItemConstructorOptions[] {
+    return [
+      ...this.contributedTrayItems('status'),
+      {
+        label: desktopTrayLabel(this.locale, 'openRepository'),
+        click: this.trayCommand(() => shell.openExternal('https://github.com/anywhere-labs/dsh-desktop')),
+      },
+    ]
   }
 }
