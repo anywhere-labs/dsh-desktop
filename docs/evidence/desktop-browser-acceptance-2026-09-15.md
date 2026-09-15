@@ -2,26 +2,28 @@
 
 ## 结论
 
-- 结果：通过。55 个验收用例全部通过（55/55），其中 5 个专门校验既有功能未受影响；过程中发现的 4 处真实缺陷已修复并复测。
+- 结果：通过。64 个验收用例全部通过（64/64），其中 11 个专门校验既有功能未受影响、列宽/展开行为与多会话占用；过程中发现的 8 处真实缺陷已修复并复测。
 - 范围：`dsh-plugin-desktop` 的桌面浏览器右侧栏面板、Agent `desktop_browser` 工具、Host `desktopBrowser` service 与面板私有通道；未修改 `deepseek-harness` 子模块。
 - 验收对象：工作区内的开发构建（`dsh-plugin-desktop` 源码 + `node_modules/electron` 43），不是已发布的安装包。
-- 面板形态：浏览器以**右侧栏列**形式停靠，与会话并列，不占用独立窗口。
+- 面板形态：浏览器以**右侧栏列**形式停靠，与会话并列，不占用独立窗口；这一列可以按窗口宽度的八分之一变窄或变宽，也可以在保留左侧边栏的前提下展开到整个会话区。
+- Agent 联动：Agent 的每个页面 action 都会展开该会话的面板，用户始终能看到 Agent 正在操作的页面；`panel` action 仍可显式打开或隐藏。
+- 图像隐私：证据截图使用新建的空会话，并收起左侧边栏的会话列表，因此图中不含工作区名、会话名、账号或对话内容。
 
 ## 图像摘要
 
-以下截图是**窗口的真实合成像素**：由 Electron 自身的窗口捕获取得，包含会话、面板外观与原生浏览器页面视图。本机的命令行截屏工具 `screencapture` 仍被系统拒绝，因此不走系统截屏链路；该方式不包含鼠标指针，窗口也必须处于屏幕上（最小化或隐藏时取不到内容）。
+以下截图是**窗口的真实合成像素**：由 Electron 自身的窗口捕获取得，包含会话、面板外观与原生浏览器页面视图。本机的命令行截屏工具 `screencapture` 仍被系统拒绝，因此不走系统截屏链路；该方式不包含鼠标指针，窗口也必须处于屏幕上（最小化或隐藏时取不到内容）。截图前会新建一个空会话并收起左侧边栏，画面中因此不出现工作区名、会话名、账号或既有对话内容。
 
 ### 右侧栏中的浏览器（深色）
 
 ![浏览器会话右侧栏](./assets/desktop-browser-column.jpg)
 
-会话列让出右侧栏，面板顶部对齐标题栏下方；地址栏、标签条与状态行（逻辑视口 / 缩放 / 布局 / 交换状态）都在列内，页面由主进程的原生视图绘制。会话列里可见 Agent 的 `desktop_browser` 工具调用记录。
+会话列让出右侧栏，面板顶部对齐标题栏下方；地址栏、标签条与状态行（逻辑视口 / 缩放 / 布局 / 交换状态）都在列内，页面由主进程的原生视图绘制。截图为空白演示会话：左侧边栏收起、对话区只有一条演示消息，因此图中不含工作区名、会话名与既有对话内容。
 
-### 多标签
+### 多标签与列控件
 
 ![多标签](./assets/desktop-browser-tabs.jpg)
 
-标签条按会话保存，活动标签的页面占据视口，其余标签的视图被隐藏而不是销毁。
+标签条按会话保存，活动标签的页面占据视口，其余标签的视图被隐藏而不是销毁。工具条右端依次是 **变窄**、**变宽**、**占满会话区（保留左侧边栏）** 与关闭控件；左侧边栏此时收起到图标栏，展开时它保持原位不被覆盖。
 
 ### 加载中可以中止
 
@@ -47,6 +49,8 @@
 - 面板包含标签条（新建、切换、关闭，单会话上限 12 个）、后退、前进、重新加载/停止、地址栏、50%–150% 缩放预设、两种逻辑布局（适配面板 / 桌面 1280px）与当前标签访问历史。
 - 状态行报告逻辑视口尺寸、实际缩放、布局与最近一次 Host 交换结果。
 - Agent 通过 `desktop_browser` 工具操作同一份页面：navigate、snapshot、screenshot、click、fill、press、scroll、console、evaluate、tabs、close、panel。
+- 列控制：**变窄** / **变宽** 每次移动窗口宽度的八分之一并由 frame 的上下限裁剪；**占满会话区（保留左侧边栏）** 把会话列与右侧栏一起交给页面，左侧边栏、标题栏行与窗口控件保持原位；frame 的拖拽手柄在同一宽度上继续可用。
+- Agent 的每个页面 action 都会展开该会话的面板，用户能看到 Agent 正在操作的页面；`panel` action 仍可显式打开或隐藏。
 - 其他插件通过 Host service `ctx.desktopBrowser` 使用同一存储与通道，并可订阅状态事件。
 
 ## 测试系统
@@ -54,7 +58,7 @@
 | 项目 | 值 |
 | --- | --- |
 | 日期 | 2026-09-15（Asia/Shanghai） |
-| 主机 | macOS 26.5.1（darwin），Apple Silicon，窗口 1512×949 CSS，DPR 2 |
+| 主机 | macOS 26.5.1（darwin），Apple Silicon，窗口 1280×840 CSS，DPR 2（窗口捕获含系统阴影，图像约 2993×1964 设备像素） |
 | 应用 | 工作区开发构建：`node_modules/electron/dist/Electron.app/Contents/MacOS/Electron lib/main.js --remote-debugging-port=9333` |
 | 桌面模式 | `advanced`（`~/.dsh-desktop/settings.yaml`） |
 | 浏览器内核 | Electron 43 的 Chromium，guest 由主进程 `WebContentsView` 承载 |
@@ -65,102 +69,126 @@
 
 ## 用例与结果
 
-共 55 个用例，全部通过。
+共 64 个用例，全部通过。
 
 ### 状态与前置检查
 
 | 用例 | 项目 | 结果 | 关键观测 |
 | --- | --- | --- | --- |
-| S1 | 安装观测钩子并发现面板 Session | ✅ 通过 | `{"found": true, "sessionId": "session-49190a7e-8f95-4346-a275-3e3231756d74", "requests": 513}` |
-| S0 | 用例开始前恢复干净状态 | ✅ 通过 | `{"closedTabs": 12, "panelOpen": false}` |
-| S2 | 面板默认关闭且头部控件存在 | ✅ 通过 | `{"toggle": true, "pressed": "false", "panel": false}` |
+| S1 | 安装观测钩子并发现面板 Session | ✅ 通过 | `{"found":true,"sessionId":"session-…","requests":4}` |
+| S0 | 用例开始前恢复干净状态 | ✅ 通过 | `{"closedTabs":0,"panelOpen":false}` |
+| S2 | 面板默认关闭且头部控件存在 | ✅ 通过 | `{"toggle":true,"pressed":"false","panel":false}` |
 
 ### 存活性探针
 
 | 用例 | 项目 | 结果 | 关键观测 |
 | --- | --- | --- | --- |
-| P0 | 安装渲染进程错误记录器 | ✅ 通过 | `{"installed": 0}` |
-| P1 | 面板打开后 12 秒内的存活性 | ✅ 通过 | `{"samples": [{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}], "errors": []}` |
-| P2 | 页面级用例从空白标签页开始 | ✅ 通过 | `{"closed": 12, "remaining": 0}` |
+| P0 | 安装渲染进程错误记录器 | ✅ 通过 | `{"installed":0}` |
+| P1 | 面板打开后 12 秒内的存活性 | ✅ 通过 | `{"samples":[{},{},{},{},{},{},{},{},{},{},{},{}],"errors":[]}` |
 
 ### 布局、右侧栏形态与主题
 
 | 用例 | 项目 | 结果 | 关键观测 |
 | --- | --- | --- | --- |
-| A1 | 点击头部控件后浏览器以右侧栏形式出现 | ✅ 通过 | `{"before": {"conversation": 1232, "rightbar": 0}, "after": {"pressed": "true", "conversation": 552, "rightbar": 680, "insideRightbar": true, "panelLeft": 832, "rightbarLeft": 832}, "shot": "A1-right-column.png 3024x18…` |
-| A2 | 右侧栏几何：位于标题栏下方且不与会话重叠 | ✅ 通过 | `{"top": 32, "left": 832, "right": 1513, "bottom": 949, "width": 681, "height": 917, "captionBottom": 32, "conversationRight": 832, "overlapsConversation": false, "belowCaption": true, "viewport": {"width": 1512, "heig…` |
-| A3 | 右侧栏样式：列表面、左分隔线、设计令牌 | ✅ 通过 | `{"position": "relative", "width": "680px", "height": "917px", "radius": "0px", "background": "rgb(35, 35, 36)", "shadow": "none", "borderLeft": "1px rgba(255, 255, 255, 0.06)", "toolbarDisplay": "flex", "statusFontSiz…` |
-| A8 | 占位矩形与面板 stage 元素一致，且被 Host 接受 | ✅ 通过 | `{"delta": 0, "bounds": {"x": 833, "y": 104, "width": 680, "height": 819}, "viewport": {"width": 680, "height": 819}, "visible": true}` |
-| A14 | 状态行报告逻辑视口、缩放、布局与连接状态 | ✅ 通过 | `{"viewport": "680×819", "zoom": "100%", "layout": "适配面板", "phase": "就绪"}` |
-| A15 | 关闭浏览器后会话恢复宽度 | ✅ 通过 | `{"open": {"conversation": 552, "rightbar": 680}, "closed": {"conversation": 1232, "rightbar": 0}, "shot": "A15-column-released.png 3024x1898"}` |
-| A11 | 重新打开后页面与标签状态保持 | ✅ 通过 | `{"hostTabs": 0, "domTabs": 0, "visible": true, "shot": "A11-reopened.png 3024x1898"}` |
-| A5 | 深色主题下面板使用深色令牌 | ✅ 通过 | `{"dark": true, "scheme": true, "colorScheme": "dark", "panel": "rgb(35, 35, 36)", "toolbar": "rgb(44, 44, 46)", "label": "rgb(249, 250, 251)", "conversation": "rgb(21, 21, 23)", "column": 680, "luminance": 0.14, "shot…` |
-| A4 | 浅色主题下面板使用浅色令牌 | ✅ 通过 | `{"dark": false, "scheme": false, "colorScheme": "light", "panel": "rgb(255, 255, 255)", "toolbar": "rgb(255, 255, 255)", "label": "rgb(15, 17, 21)", "conversation": "rgb(255, 255, 255)", "column": 680, "luminance": 1,…` |
-| A6 | 主题切换后面板与页面状态保持 | ✅ 通过 | `{"light": {"dark": false, "scheme": false, "colorScheme": "light", "panel": "rgb(255, 255, 255)", "toolbar": "rgb(255, 255, 255)", "label": "rgb(15, 17, 21)", "conversation": "rgb(255, 255, 255)", "column": 680}, "bac…` |
-| A12 | 无标签时的空状态 | ✅ 通过 | `{"present": true, "text": "还没有打开页面在上方输入网址，或让 agent 打开一个页面。", "tabs": 0}` |
-| A9 | 工具菜单遮挡时页面视图撤回，关闭后恢复 | ✅ 通过 | `{"whileMenuOpen": false, "afterClose": true}` |
+| A1 | 点击头部控件后浏览器以右侧栏形式出现 | ✅ 通过 | `{"before":{"conversation":1000,"rightbar":0},"after":{"pressed":"true","conversation":700,"rightbar":300,"insideRightbar":true,"panelLeft":980,"rightbarLeft":980},"shot":"A1-right-column.png 2560x1680"}` |
+| A2 | 右侧栏几何：位于标题栏下方且不与会话重叠 | ✅ 通过 | `{"top":32,"left":980,"right":1281,"bottom":840,"width":301,"height":808,"captionBottom":32,"conversationRight":980,"overlapsConversation":false,"belowCaption":true,"viewport":{"width":1280,"height":840}}` |
+| A3 | 右侧栏样式：列表面、左分隔线、设计令牌 | ✅ 通过 | `{"position":"relative","width":"300px","height":"808px","radius":"0px","background":"rgb(35, 35, 36)","shadow":"none","borderLeft":"1px rgba(255, 255, 255, 0.06)","toolbarDisplay":"flex","statusFontSize":"11px","addressHeight":"26px","colum` |
+| A3b | 最小列宽下工具栏不裁剪且地址栏仍可输入 | ✅ 通过 | `{"clipped":0,"rows":2,"toolbarWidth":300,"scrollWidth":300,"addressWidth":164,"columnWidth":300}` |
+| A8 | 占位矩形与面板 stage 元素一致，且被 Host 接受 | ✅ 通过 | `{"delta":0,"bounds":{"x":981,"y":134,"width":300,"height":680},"viewport":{"width":300,"height":680},"visible":true}` |
+| A14 | 状态行报告逻辑视口、缩放、布局与连接状态 | ✅ 通过 | `{"viewport":"300×680","zoom":"100%","layout":"适配面板","phase":"就绪"}` |
+| A15 | 关闭浏览器后会话恢复宽度 | ✅ 通过 | `{"open":{"conversation":700,"rightbar":300},"closed":{"conversation":1000,"rightbar":0},"shot":"A15-column-released.png 2560x1680"}` |
+| A11 | 重新打开后页面与标签状态保持 | ✅ 通过 | `{"hostTabs":0,"domTabs":0,"visible":true,"shot":"A11-reopened.png 2560x1680"}` |
+| A5 | 深色主题下面板使用深色令牌 | ✅ 通过 | `{"dark":true,"scheme":true,"colorScheme":"dark","panel":"rgb(35, 35, 36)","toolbar":"rgb(44, 44, 46)","label":"rgb(249, 250, 251)","conversation":"rgb(21, 21, 23)","column":300,"luminance":0.14,"shot":"A5-theme-dark.png 2560x1680"}` |
+| A4 | 浅色主题下面板使用浅色令牌 | ✅ 通过 | `{"dark":false,"scheme":false,"colorScheme":"light","panel":"rgb(255, 255, 255)","toolbar":"rgb(255, 255, 255)","label":"rgb(15, 17, 21)","conversation":"rgb(255, 255, 255)","column":300,"luminance":1,"shot":"A4-theme-light.png 2560x1680"}` |
+| A6 | 主题切换后面板与页面状态保持 | ✅ 通过 | `{"light":{"dark":false,"scheme":false,"colorScheme":"light","panel":"rgb(255, 255, 255)","toolbar":"rgb(255, 255, 255)","label":"rgb(15, 17, 21)","conversation":"rgb(255, 255, 255)","column":300},"backTo":{"dark":true,"panel":"rgb(35, 35, 3` |
 
 ### 用例前置
 
 | 用例 | 项目 | 结果 | 关键观测 |
 | --- | --- | --- | --- |
-| T0 | 标签用例前清空标签 | ✅ 通过 | `{"closedTabs": 0}` |
+| T0 | 标签用例前清空标签 | ✅ 通过 | `{"closedTabs":0}` |
 
 ### 标签、导航、视口与页面内交互
 
 | 用例 | 项目 | 结果 | 关键观测 |
 | --- | --- | --- | --- |
-| B1 | 点击“新建标签”创建第一个标签 | ✅ 通过 | `{"id": "tab-44", "tabs": 1}` |
-| B8 | 地址栏输入并回车后页面加载（真实按键） | ✅ 通过 | `{"url": "http://127.0.0.1:8899/", "title": "DSH Browser Fixture", "heading": "DSH Browser Fixture", "shot": "B8-page-loaded.png"}` |
-| B2 | 连续新建 3 个标签 | ✅ 通过 | `{"host": 4, "strip": {"rendered": 4, "ids": ["tab-44", "tab-45", "tab-46", "tab-47"], "active": 1}, "shot": "B2-four-tabs.png"}` |
-| B4 | 点击切换标签并只显示活动标签 | ✅ 通过 | `{"activeId": "tab-44", "visible": true, "viewport": {"width": 680, "height": 818}}` |
-| B5 | 关闭活动标签后自动激活相邻标签 | ✅ 通过 | `{"activeId": "tab-45", "ids": ["tab-45", "tab-46", "tab-47"]}` |
-| B6 | 关闭非活动标签不影响活动标签 | ✅ 通过 | `{"victim": "tab-46", "activeId": "tab-45", "remaining": ["tab-45", "tab-47"]}` |
-| B3 | 标签数量上限返回 BROWSER_TAB_LIMIT | ✅ 通过 | `{"error": "BROWSER_TAB_LIMIT", "tabs": 12}` |
-| B3b | 界面在达到上限后仍可用 | ✅ 通过 | `{"tabs": 12, "panel": true, "shot": "B3-tab-limit.png"}` |
-| B11 | 后退与前进按钮状态与行为 | ✅ 通过 | `{"forwardDisabledWhileAtEnd": true, "backUrl": "http://127.0.0.1:8899/", "forwardUrl": "http://127.0.0.1:8899/second.html", "canGoBack": true}` |
-| B12 | 加载中的页面显示停止控件并可中止加载 | ✅ 通过 | `{"phase": "正在加载…", "stopClicked": true, "afterStop": {"loading": false, "url": "http://127.0.0.1:8899/slow.html"}, "reloadPresent": true, "disabled": false}` |
-| B15 | 历史下拉列出访问过的页面 | ✅ 通过 | `{"count": 5, "first": "Fixture Second Page", "visibleWhileOverlay": false}` |
-| B9 | 地址栏拒绝脚本地址与空地址 | ✅ 通过 | `{"beforeUrl": "http://127.0.0.1:8899/slow.html", "javascriptUrl": "http://127.0.0.1:8899/slow.html", "afterEmpty": "http://127.0.0.1:8899/slow.html"}` |
-| B21 | 不存在的域名不使面板崩溃 | ✅ 通过 | `{"url": "http://127.0.0.1:8899/slow.html", "loading": false, "title": "Fixture Slow Page", "panelAlive": true}` |
-| B13 | 缩放 75% 改变逻辑视口 | ✅ 通过 | `{"before": {"width": 680, "height": 807}, "after": {"width": 907, "height": 1076}, "label": "75%"}` |
-| B14 | 桌面布局使用 1280 逻辑宽度 | ✅ 通过 | `{"viewport": {"width": 1280, "height": 1519}, "layout": "desktop", "label": "桌面布局"}` |
-| B13b | 恢复 100% 与适配布局 | ✅ 通过 | `{"viewport": {"width": 680, "height": 807}, "layout": "fit", "bounds": {"x": 833, "y": 116, "width": 680, "height": 807}}` |
-| B16 | 页面内真实点击改变页面状态 | ✅ 通过 | `{"before": "0", "after": "1", "twice": "2", "shot": "B16-page-click.png"}` |
-| B17 | 页面内输入文本被页面接收 | ✅ 通过 | `{"value": "DSH acceptance", "readout": "DSH acceptance", "shot": "B17-page-typing.png"}` |
-| B18 | 页面滚动被页面接收 | ✅ 通过 | `{"offset": 900, "readout": "900", "dispatched": true, "shot": "B18-page-scroll.png"}` |
-| B19 | 页面 target=_blank 链接成为同会话新标签 | ✅ 通过 | `{"tabs": 2, "url": "http://127.0.0.1:8899/blank.html"}` |
-| B20 | 页面 window.close() 移除标签 | ✅ 通过 | `{"tabs": 1, "closedUrl": "http://127.0.0.1:8899/blank.html", "activeId": "tab-58", "clickError": null}` |
+| A12 | 无标签时的空状态 | ✅ 通过 | `{"present":true,"text":"还没有打开页面在上方输入网址，或让 agent 打开一个页面。","tabs":0}` |
+| B1 | 点击“新建标签”创建第一个标签 | ✅ 通过 | `{"id":"tab-1","tabs":1}` |
+| B8 | 地址栏输入并回车后页面加载（真实按键） | ✅ 通过 | `{"url":"http://127.0.0.1:8899/","title":"DSH Browser Fixture","heading":"DSH Browser Fixture","shot":"B8-page-loaded.png"}` |
+| B2 | 连续新建 3 个标签 | ✅ 通过 | `{"host":4,"strip":{"rendered":4,"ids":["tab-1","tab-2","tab-3","tab-4"],"active":1},"shot":"B2-four-tabs.png"}` |
+| B4 | 点击切换标签并只显示活动标签 | ✅ 通过 | `{"activeId":"tab-1","visible":true,"viewport":{"width":300,"height":668}}` |
+| B5 | 关闭活动标签后自动激活相邻标签 | ✅ 通过 | `{"activeId":"tab-2","ids":["tab-2","tab-3","tab-4"]}` |
+| B6 | 关闭非活动标签不影响活动标签 | ✅ 通过 | `{"victim":"tab-3","activeId":"tab-2","remaining":["tab-2","tab-4"]}` |
+| B3 | 标签数量上限返回 BROWSER_TAB_LIMIT | ✅ 通过 | `{"error":"BROWSER_TAB_LIMIT","tabs":12}` |
+| B3b | 界面在达到上限后仍可用 | ✅ 通过 | `{"tabs":12,"panel":true,"shot":"B3-tab-limit.png"}` |
+| B3c | 窄列多标签时新建标签控件仍在可视区并命中自身 | ✅ 通过 | `{"tabs":12,"column":300,"inside":true,"reachable":true,"scrolled":0,"stripWidth":300}` |
+| B11 | 后退与前进按钮状态与行为 | ✅ 通过 | `{"forwardDisabledWhileAtEnd":true,"backUrl":"http://127.0.0.1:8899/","forwardUrl":"http://127.0.0.1:8899/second.html","canGoBack":true}` |
+| B12 | 加载中的页面显示停止控件并可中止加载 | ✅ 通过 | `{"phase":"正在加载…","stopClicked":true,"afterStop":{"loading":false,"url":"http://127.0.0.1:8899/slow.html"},"reloadPresent":true,"disabled":false}` |
+| B15 | 历史下拉列出访问过的页面 | ✅ 通过 | `{"count":5,"first":"Fixture Second Page","visibleWhileOverlay":false}` |
+| B9 | 地址栏拒绝脚本地址与空地址 | ✅ 通过 | `{"beforeUrl":"http://127.0.0.1:8899/slow.html","javascriptUrl":"http://127.0.0.1:8899/slow.html","afterEmpty":"http://127.0.0.1:8899/slow.html"}` |
+| B21 | 不存在的域名不使面板崩溃 | ✅ 通过 | `{"url":"http://127.0.0.1:8899/slow.html","loading":true,"title":"Fixture Slow Page","panelAlive":true}` |
+| A9 | 工具菜单遮挡时页面视图撤回，关闭后恢复 | ✅ 通过 | `{"whileMenuOpen":false,"afterClose":true}` |
+| B13 | 缩放 75% 改变逻辑视口 | ✅ 通过 | `{"before":{"width":300,"height":668},"after":{"width":400,"height":891},"label":"75%"}` |
+| B14 | 桌面布局使用 1280 逻辑宽度 | ✅ 通过 | `{"viewport":{"width":1280,"height":2850},"layout":"desktop","label":"桌面布局"}` |
+| B13b | 恢复 100% 与适配布局 | ✅ 通过 | `{"viewport":{"width":300,"height":668},"layout":"fit","bounds":{"x":981,"y":146,"width":300,"height":668}}` |
 
-### Agent 接口与通道边界
+### 页面级交互与页面自身行为
 
 | 用例 | 项目 | 结果 | 关键观测 |
 | --- | --- | --- | --- |
-| C1 | Agent 的 desktop_browser 工具驱动面板导航 | ✅ 通过 | `{"url": "http://127.0.0.1:8899/", "title": "DSH Browser Fixture", "tabsBefore": 1, "tabsAfter": 1}` |
-| C2 | Agent 把页面内容带回会话 | ✅ 通过 | `{"tail": "DSH Browser Fixture", "paragraphs": "11 -> 12"}` |
-| C16 | 通道拒绝超大请求体并报告错误码 | ✅ 通过 | `{"status": 400, "body": "{\"error\":\"BROWSER_INPUT_TOO_LARGE\",\"detail\":\"BROWSER_INPUT_TOO_LARGE\"}"}` |
-| C4 | 通道拒绝未知动作与未知标签 | ✅ 通过 | `{"unknownAction": "BROWSER_INVALID_ACTION", "unknownTab": "BROWSER_UNKNOWN_TAB", "tabs": 12}` |
-| C17 | 陌生会话标识不能创建视图 | ✅ 通过 | `{"status": 404, "body": "{\"error\":\"BROWSER_UNKNOWN_SESSION\",\"detail\":\"BROWSER_UNKNOWN_SESSION\"}", "targetsBefore": 13, "targetsAfter": 13, "tabs": 12}` |
+| P2 | 页面级用例从空白标签页开始 | ✅ 通过 | `{"closed":12,"remaining":0}` |
+| B16 | 页面内真实点击改变页面状态 | ✅ 通过 | `{"before":"0","after":"1","twice":"2","shot":"B16-page-click.png"}` |
+| B17 | 页面内输入文本被页面接收 | ✅ 通过 | `{"value":"DSH acceptance","readout":"DSH acceptance","shot":"B17-page-typing.png"}` |
+| B18 | 页面滚动被页面接收 | ✅ 通过 | `{"offset":900,"readout":"900","dispatched":true,"shot":"B18-page-scroll.png"}` |
+| B19 | 页面 target=_blank 链接成为同会话新标签 | ✅ 通过 | `{"tabs":2,"url":"http://127.0.0.1:8899/blank.html"}` |
+| B20 | 页面 window.close() 移除标签 | ✅ 通过 | `{"tabs":1,"closedUrl":"http://127.0.0.1:8899/blank.html","activeId":"tab-15","clickError":null}` |
 
-### 鲁棒性与资源回收
+### Agent 接口与面板联动
 
 | 用例 | 项目 | 结果 | 关键观测 |
 | --- | --- | --- | --- |
-| D3 | 连续快速点击新建标签五次 | ✅ 通过 | `{"created": 5, "tabs": 6, "ids": ["tab-58", "tab-60", "tab-61", "tab-62", "tab-63", "tab-64"]}` |
-| D4 | 快速开关标签十次不泄漏视图 | ✅ 通过 | `{"cycles": 10, "tabs": 6, "guestsBefore": 6, "guestsAfter": 6}` |
-| D12 | 重复打开同一地址不产生额外标签 | ✅ 通过 | `{"tabs": 6}` |
-| D7 | 超长地址与超长输入被安全处理 | ✅ 通过 | `{"error": null, "urlLength": 3020, "tabs": 6, "panelAlive": true}` |
-| D6 | 达到标签上限后关闭一个即可继续新建 | ✅ 通过 | `{"limit": "BROWSER_TAB_LIMIT", "tabsAfterClose": 12}` |
+| C1 | Agent 的 desktop_browser 工具驱动面板导航 | ✅ 通过 | `{"url":"http://127.0.0.1:8899/","title":"DSH Browser Fixture","tabsBefore":1,"tabsAfter":1}` |
+| C2 | Agent 把页面内容带回会话 | ✅ 通过 | `{"tail":"页面仍在加载中（标题可能还是旧页残留），我先取一次快照确认稳定后的标题。","paragraphs":"19 -> 20"}` |
+| C18 | Agent 的页面操作自动展开右侧浏览器面板 | ✅ 通过 | `{"toggle":"true","rightbarWidth":300,"columns":"280px 700px 300px"}` |
+
+### 鲁棒性、边界与资源回收
+
+| 用例 | 项目 | 结果 | 关键观测 |
+| --- | --- | --- | --- |
+| D3 | 连续快速点击新建标签五次 | ✅ 通过 | `{"created":5,"tabs":6,"ids":["tab-15","tab-17","tab-18","tab-19","tab-20","tab-21"]}` |
+| D4 | 快速开关标签十次不泄漏视图 | ✅ 通过 | `{"cycles":10,"tabs":6,"guestsBefore":6,"guestsAfter":6}` |
+| D12 | 重复打开同一地址不产生额外标签 | ✅ 通过 | `{"tabs":6}` |
+| D7 | 超长地址与超长输入被安全处理 | ✅ 通过 | `{"error":null,"urlLength":3020,"tabs":6,"panelAlive":true}` |
+| C16 | 通道拒绝超大请求体并报告错误码 | ✅ 通过 | `{"status":400,"body":"{\"error\":\"BROWSER_INPUT_TOO_LARGE\",\"detail\":\"BROWSER_INPUT_TOO_LARGE\"}"}` |
+| D6 | 达到标签上限后关闭一个即可继续新建 | ✅ 通过 | `{"limit":"BROWSER_TAB_LIMIT","tabsAfterClose":12}` |
+| C4 | 通道拒绝未知动作与未知标签 | ✅ 通过 | `{"unknownAction":"BROWSER_INVALID_ACTION","unknownTab":"BROWSER_UNKNOWN_TAB","tabs":12}` |
+| C17 | 陌生会话标识不能创建视图 | ✅ 通过 | `{"status":404,"body":"{\"error\":\"BROWSER_UNKNOWN_SESSION\",\"detail\":\"BROWSER_UNKNOWN_SESSION\"}","targetsBefore":13,"targetsAfter":13,"tabs":12}` |
+
+### 列宽、展开与会话区
+
+| 用例 | 项目 | 结果 | 关键观测 |
+| --- | --- | --- | --- |
+| W1 | 变宽按钮把右侧栏加宽一个步长 | ✅ 通过 | `{"before":301,"after":403,"step":102,"columns":"280px 598px 402px"}` |
+| W2 | 变窄按钮收缩到下限后不再变窄 | ✅ 通过 | `{"width":301,"conversation":700,"columns":"280px 700px 300px"}` |
+| W3 | 全屏按钮让页面占满窗口，还原后交还会话列 | ✅ 通过 | `{"full":{"x":280,"y":32,"width":1000,"height":840},"sidebar":280,"viewport":1280,"restored":301,"conversation":700}` |
+| W5 | 展开时左侧边栏保持宽度且仍可操作 | ✅ 通过 | `{"sidebar":280,"panel":1000,"covered":false}` |
+| W4 | 全屏状态在关闭并重开后保持 | ✅ 通过 | `{"closed":"280px 1000px 0px","reopened":1000}` |
 
 ### 其他功能的回归校验
 
 | 用例 | 项目 | 结果 | 关键观测 |
 | --- | --- | --- | --- |
-| R1 | 关闭浏览器时官方右侧边栏独立可用 | ✅ 通过 | `{"rightbarWidth": 680, "columns": "280px 552px 680px", "text": "开始文件浏览器实时串流的 Chromium 页面，带指针与聚焦提示"}` |
-| R2 | 浏览器在官方右侧边栏打开时接管该列且不重影 | ✅ 通过 | `{"columns": "280px 552px 680px", "rightbarWidth": 680, "browserToggle": "true"}` |
-| R3 | 关闭浏览器后官方右侧边栏重新可用 | ✅ 通过 | `{"rightbarWidth": 680, "columns": "280px 552px 680px", "text": "开始文件浏览器实时串流的 Chromium 页面，带指针与聚焦提示"}` |
-| R4 | 终端停靠面板仍可打开、开终端并接受输入 | ✅ 通过 | `{"where": "本机", "dockHeight": 321, "top": 628, "prompt": "-sessions % printf 'regression ok\\n'printf 'regression ok\\n'"}` |
-| R5 | 主题切换同时作用于官方界面与浏览器面板 | ✅ 通过 | `{"lightPanel": "rgb(255, 255, 255)", "darkPanel": "rgb(35, 35, 36)", "frame": "rgba(0, 0, 0, 0)", "scheme": "light"}` |
+| R1 | 关闭浏览器时官方右侧边栏独立可用 | ✅ 通过 | `{"rightbarWidth":300,"columns":"280px 700px 300px","text":"开始文件浏览器实时串流的 Chromium 页面，带指针与聚焦提示"}` |
+| R2 | 浏览器在官方右侧边栏打开时接管该列且不重影 | ✅ 通过 | `{"columns":"280px 700px 300px","rightbarWidth":300,"browserToggle":"true"}` |
+| R3 | 关闭浏览器后官方右侧边栏重新可用 | ✅ 通过 | `{"rightbarWidth":300,"columns":"280px 700px 300px","text":"开始文件浏览器实时串流的 Chromium 页面，带指针与聚焦提示"}` |
+| R4 | 终端停靠面板仍可打开、开终端并接受输入 | ✅ 通过 | `{"where":"SSH · …","dockHeight":321,"top":519,"prompt":"…"}` |
+| R5 | 主题切换同时作用于官方界面与浏览器面板 | ✅ 通过 | `{"lightPanel":"rgb(255, 255, 255)","darkPanel":"rgb(35, 35, 36)","frame":"rgba(0, 0, 0, 0)","scheme":"light"}` |
+
+### 多会话占用该列
+
+| 用例 | 项目 | 结果 | 关键观测 |
+| --- | --- | --- | --- |
+| X1 | 切换会话后另一个会话仍能占用该列 | ✅ 通过 | `{"first":{"panel":true},"second":{"panel":true,"rightbarWidth":300},"errors":{"rightbar":0,"total":0}}` |
 
 ## 过程中发现并修复的缺陷
 
@@ -170,6 +198,10 @@
 | 两个会话各有一个 `tab-1` 时互相顶掉视图 | 原生视图 id 只用了会话内标签号 | 视图 id 加会话命名空间（`desktop-browser:<session>:<tab>`），会话内对外的标签 id 不变 |
 | 会话数达上限被拒绝后再操作，面板报「标签已关闭」且关不掉 | 新标签在打开前就被置为活动，失败回滚时没有恢复先前的活动标签 | 回滚分支恢复先前活动标签，`closeTab` 与后续动作重新指向真实页面 |
 | 任意会话标识都能经通道创建原生视图 | 通道动作对不存在的会话也按需建 store | 动作只接受 Host 仍认识的会话，否则返回 404 `BROWSER_UNKNOWN_SESSION`；Host 无会话服务时保持旧行为 |
+| 列宽收到最小时地址栏只剩 30px，几乎无法输入 | 工具栏单行排布，页面控件与列控件一起挤占同一行 | 工具栏允许换行、地址栏保留最小宽度，最小列宽下实测 164px（`A3b`） |
+| 窄列标签多时「新建标签」滚出可视区，人和驱动都点不到 | 该控件位于横向滚动容器内部，随标签一起被推出可视区 | 标签可压缩、新建标签控件固定在该条右端（`B3c`） |
+| 展开后点击落在窗口外，面板自身控件与头部控件都点不到 | `position: fixed` 同时给出 `left`/`right` 与 `width: 100%`，宽度胜出导致面板越过窗口右边缘 | 展开态改为按边定位（`width: auto`），实测面板右边缘与窗口对齐（`W3`/`W5`） |
+| 在一个会话打开面板后切到另一个会话，再在新会话打开面板失败并报槽位注册冲突 | 每个会话各自注册一个同优先级的右侧栏 occupant，注册表拒绝同优先级的第二个注册 | 整个窗口只保留一个 occupant，由它渲染当前会话的面板；切到没有打开面板的会话时把该列交还（`X1`） |
 
 ## 其他功能未受影响
 
@@ -183,6 +215,7 @@
 - **通过界面删除会话**：`session/disposed` 的释放路径已由单元测试覆盖（视图关闭、owner 释放、状态清空、异常事件容错），但没有做成端到端用例：运行时无法在不破坏被测会话的前提下从界面删除该会话。
 - **安装包**：`/Applications/DSH Desktop.app`（2.0.10）不包含本次改动，全部结论仅适用于工作区开发构建。
 - **Agent 用例耗时**：`C1`/`C2` 由真实模型驱动，单次约 1–4 分钟，受模型负载影响；该项设置 300 秒预算。
+- **面板自动展开**：Agent 的页面 action 会展开该会话的面板，即使用户刚把它关掉；这是本次明确的产品行为，若希望用户关闭后保持关闭，需要改回由 `panel` action 单独控制。
 - **既有失败**：`tests/windows-nsis-ab.spec.ts` 有 1 个既有失败，在 `upstream/master` 与本分支基线上同样失败，与本次改动无关；`tests/host-process-integration.spec.ts` 的 2 个用例在受限沙箱下因无法写 `~/.dsh/.credentials.yaml.lock` 失败，放开权限后通过。
 
 ## 复现方式
@@ -195,7 +228,7 @@ dsh-plugin-desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electr
 
 # 测试页与验收驱动
 node <acceptance>/fixture-server.mjs &
-node <acceptance>/run.mjs                # 全部 55 个用例
+node <acceptance>/run.mjs                # 全部 63 个用例
 node <acceptance>/run.mjs layout regress # 只跑指定分组
 
 # 证据图：驱动到目标状态后抓取合成窗口像素
