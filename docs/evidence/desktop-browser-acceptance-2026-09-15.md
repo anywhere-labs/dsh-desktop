@@ -213,7 +213,7 @@
 
 - **截图链路**：命令行 `screencapture` 在本机被拒绝，窗口像素改由 Electron 自身的窗口捕获取得；该方式不含鼠标指针，窗口必须在屏幕上。
 - **通过界面删除会话**：`session/disposed` 的释放路径已由单元测试覆盖（视图关闭、owner 释放、状态清空、异常事件容错），但没有做成端到端用例：运行时无法在不破坏被测会话的前提下从界面删除该会话。
-- **安装包**：`/Applications/DSH Desktop.app`（2.0.10）不包含本次改动，全部结论仅适用于工作区开发构建。
+- **安装包**：`/Applications/DSH Desktop.app`（2.0.10）不包含本次改动，全部结论仅适用于工作区开发构建。开发构建与安装包共用同一个 Electron userData 目录，因此两者不能同时运行：安装包持有单实例锁时，开发实例会直接退出（`SingletonLock` 指向安装包进程）。
 - **Agent 用例耗时**：`C1`/`C2` 由真实模型驱动，单次约 1–4 分钟，受模型负载影响；该项设置 300 秒预算。
 - **面板自动展开**：Agent 的页面 action 会展开该会话的面板，即使用户刚把它关掉；这是本次明确的产品行为，若希望用户关闭后保持关闭，需要改回由 `panel` action 单独控制。
 - **既有失败**：`tests/windows-nsis-ab.spec.ts` 有 1 个既有失败，在 `upstream/master` 与本分支基线上同样失败，与本次改动无关；`tests/host-process-integration.spec.ts` 的 2 个用例在受限沙箱下因无法写 `~/.dsh/.credentials.yaml.lock` 失败，放开权限后通过。
