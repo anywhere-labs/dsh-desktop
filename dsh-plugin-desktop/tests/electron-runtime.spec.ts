@@ -219,6 +219,7 @@ const electron = vi.hoisted(() => {
     if (path.endsWith('app-icon.png')) return appIcon
     if (path.endsWith('tray-iconTemplate.png')) return templateIcon
     if (path.endsWith('tray-icon-blue.png')) return blueIcon
+    if (path.endsWith('tray-icon-win-dark-taskbar.png')) return blueIcon
     throw new Error(`unexpected image path ${path}`)
   })
 
@@ -306,6 +307,12 @@ vi.mock('../src/desktop-dialog-window.ts', async (importOriginal) => ({
   },
 }))
 
+vi.mock('../src/windows-taskbar-theme.ts', () => ({
+  WINDOWS_TASKBAR_THEME_POLL_MS: 15_000,
+  readWindowsTaskbarUsesLightTheme: () => true,
+  readWindowsTaskbarUsesLightThemeAsync: async () => true,
+}))
+
 vi.mock('electron', () => ({
   app: electron.app,
   BrowserWindow: electron.BrowserWindow,
@@ -342,6 +349,7 @@ const spec: DesktopShellSpec = {
   trayIcons: {
     templatePath: '/tmp/tray-iconTemplate.png',
     bluePath: '/tmp/tray-icon-blue.png',
+    winDarkTaskbarPath: '/tmp/tray-icon-win-dark-taskbar.png',
   },
   readLocalePreference: vi.fn(() => undefined),
   readThemeSource: vi.fn(() => 'system' as const),
