@@ -5,6 +5,8 @@
       name: dsh-plugin-desktop-beta
       config:
         mode: compatibility
+    - id: desktop-browser
+      name: dsh-plugin-desktop-beta/browser
     - id: desktop-terminal
       name: dsh-plugin-desktop-beta/terminal
       disabled: !!js process.platform === 'linux'

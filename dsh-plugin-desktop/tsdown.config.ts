@@ -23,6 +23,7 @@ export default defineConfig([
       'electron-runtime': 'src/electron-runtime.ts',
       'desktop-runtime-environment': 'src/desktop-runtime-environment.ts',
       'desktop-terminal': 'src/desktop-terminal.ts',
+      'desktop-browser': 'src/desktop-browser.ts',
       'desktop-cli': 'src/desktop-cli.ts',
       terminal: 'src/terminal.ts',
       'update-checker': 'src/update-checker.ts',

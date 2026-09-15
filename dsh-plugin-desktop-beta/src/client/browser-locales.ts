@@ -1,0 +1,62 @@
+/** Desktop browser panel copy. */
+
+/** English dictionary. */
+export const en = {
+  toggle: 'Browser',
+  toggleHint: 'Show the desktop browser',
+  title: 'Browser',
+  back: 'Back',
+  forward: 'Forward',
+  reload: 'Reload',
+  stop: 'Stop',
+  newTab: 'New tab',
+  closeTab: 'Close tab',
+  closePanel: 'Close browser',
+  address: 'Address',
+  addressPlaceholder: 'Enter an address',
+  open: 'Open',
+  tools: 'View options',
+  zoom: 'Zoom',
+  layoutFit: 'Fit panel',
+  layoutDesktop: 'Desktop layout',
+  history: 'Recent pages',
+  emptyTitle: 'No page open',
+  emptyBody: 'Enter an address above, or ask the agent to open one.',
+  loading: 'Loading…',
+  ready: 'Ready',
+  disconnected: 'Desktop browser unavailable',
+  dismissError: 'Dismiss',
+  tabs: 'Tabs',
+}
+
+/** Chinese dictionary. */
+export const zh: typeof en = {
+  toggle: '浏览器',
+  toggleHint: '显示桌面浏览器',
+  title: '浏览器',
+  back: '后退',
+  forward: '前进',
+  reload: '重新加载',
+  stop: '停止',
+  newTab: '新建标签',
+  closeTab: '关闭标签',
+  closePanel: '关闭浏览器',
+  address: '地址',
+  addressPlaceholder: '输入网址',
+  open: '打开',
+  tools: '视图选项',
+  zoom: '缩放',
+  layoutFit: '适配面板',
+  layoutDesktop: '桌面布局',
+  history: '最近访问',
+  emptyTitle: '还没有打开页面',
+  emptyBody: '在上方输入网址，或让 agent 打开一个页面。',
+  loading: '正在加载…',
+  ready: '就绪',
+  disconnected: '桌面浏览器不可用',
+  dismissError: '忽略',
+  tabs: '标签',
+}
+
+/** Keys of the Desktop browser dictionaries. */
+export type DesktopBrowserLocaleKey = keyof typeof en

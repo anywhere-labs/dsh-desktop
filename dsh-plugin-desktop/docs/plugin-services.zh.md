@@ -179,6 +179,55 @@ Service 在每个 generation 同时最多启动一个 package operation；已有
 
 无效 argv、已经关闭或忙碌的 generation，以及调用前就已 abort 的 signal，都会在返回 handle 前同步抛错。Handle 存在后，cancellation 与 generation teardown 会作用于完整 subprocess tree。`done` 不会仅因直接 wrapper 退出而 settle；在后代进程消失前，operation gate 始终保持占用。异步 spawn-level failure 会 reject `done`，普通命令失败则 resolve 为非零 exit code。Desktop 会仅在当前进程中、最终执行 pnpm 时为所有操作加入一次 `--config.minimumReleaseAge=0`，包括打包的 `dsh plugin` 转发和终端 shim，不会持久化修改用户配置。在 Windows 上，provider 会使用 argv 启动准确的已打包 pnpm entry，并把进程树 ownership 委托给 subprocess service，因此插件作者无需发现 `.cmd` shim，也不应拼接 shell 文本。
 
+### `desktopBrowser`
+
+```ts
+interface DesktopBrowserService {
+  readonly version: 1
+  readonly available: boolean
+  open(): readonly string[]
+  store(sessionId: string): DesktopBrowserStore
+  existing(sessionId: string): DesktopBrowserStore | undefined
+  state(sessionId: string): Promise<DesktopBrowserState>
+  openTab(sessionId: string, url?: string): Promise<string>
+  closeTab(sessionId: string, tabId?: string): Promise<void>
+  act(sessionId: string, action: DesktopBrowserAction): Promise<DesktopBrowserActionResult>
+  panel(sessionId: string, visible: boolean): void
+  directive(sessionId: string): DesktopBrowserPanelDirective
+  subscribe(listener: (event: DesktopBrowserEvent) => void): () => void
+}
+```
+
+`desktop-browser` Host row（`dsh-plugin-desktop/browser`）基于 shell 的 `desktopNativeBrowser` capability 提供该 service。该 capability 不存在时 service 也不存在，因此普通 DSH host 既没有该 service，也没有 `desktop_browser` 工具；请通过嵌套的 `ctx.inject()` callback 探测，不要放进顶层 `inject` 列表。
+
+- `version` 为 `1`；`available` 表示当前 Host generation 是否能承载原生 guest view。
+- `open()` 列出当前持有标签的 Session。每个 Session 拥有自己的标签 store：`store(sessionId)` 返回该 Session 的 store 并在首次使用时创建，`existing(sessionId)` 只在 store 已经存在时返回，`state(sessionId)` 读取 Session 状态而不会创建任何东西。
+- `openTab(sessionId, url?)` 打开一个标签、加载地址并返回新标签 id；`closeTab(sessionId, tabId?)` 关闭一个标签，未给出 id 时关闭当前标签。每个 Session 最多保留 12 个标签。
+- `act(sessionId, action)` 执行面板自有 action union 中的一个 action，覆盖导航、历史、viewport 放置、focus、指针与键盘输入、console 读取以及标签操作。
+- `panel(sessionId, visible)` 记录 renderer 必须应用的面板 directive，`directive(sessionId)` 读取已记录的值。Directive 携带单调递增的 `epoch`，renderer 对每个新 epoch 只应用一次，因此后续状态交换不会重新打开用户已经关闭的面板。
+- `subscribe(listener)` 观察所有 Session 的 service event，并返回用于移除 listener 的 disposer。`state` event 携带一个 Session 的状态及其当前生效的面板 directive；`console` event 携带一条已捕获页面日志的 level 与 text。该 row 当前发布 `state` event；已捕获的 console 行也可以通过 `act(sessionId, { action: 'console' })` 读取。
+
+```ts
+import type { Context } from '@deepseek-ai/cordis'
+import type { DesktopBrowserService } from 'dsh-plugin-desktop/browser'
+
+export const name = 'example-browser-observer'
+
+export function apply(ctx: Context): void {
+  // 普通 DSH host 下没有该 service，因此这段嵌套 callback 只在当前
+  // generation 的 desktop-browser row 处于激活状态时运行。
+  ctx.inject(['desktopBrowser'], (browserCtx) => {
+    const browser: DesktopBrowserService = browserCtx.desktopBrowser
+    browserCtx.effect(() => browser.subscribe((event) => {
+      if (event.type !== 'state') return
+      browserCtx.logger.info(`session ${event.sessionId}: ${String(event.state.tabs.length)} tabs`)
+    }), 'example: Desktop browser state observer')
+  })
+}
+```
+
+`desktopBrowser` 属于 Desktop Host face，contract 版本为 `1`。后续 Desktop release 可以增加成员、event variant 或 action variant，但不会移除成员或改变其含义；破坏性变更需要新的 service 名称或新版本。
+
 ## 内部与 launcher 私有 capability
 
 | 名称 | 边界 | 面向插件作者的状态 |
