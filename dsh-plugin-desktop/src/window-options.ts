@@ -134,9 +134,10 @@ function customChromeWindowOptions(
       : custom
   }
   if (platform === 'win32') {
+    // Omitting the option leaves DWM free to choose AUTO, which can retain a
+    // Mica backdrop even when the Desktop preference is explicitly off.
     const systemMaterial = windowsSupportsSystemBackdrop(spec.windowsBuild)
-      && spec.material === 'mica'
-      ? 'mica' as const
+      ? spec.material === 'mica' ? 'mica' as const : 'none' as const
       : undefined
     return {
       ...options,
@@ -147,7 +148,7 @@ function customChromeWindowOptions(
         symbolColor: '#7f858f',
         height: geometry.titlebarHeight,
       },
-      ...(systemMaterial === undefined ? {} : { backgroundColor: '#00000000' }),
+      ...(systemMaterial === 'mica' ? { backgroundColor: '#00000000' } : {}),
       ...(systemMaterial === undefined ? {} : { backgroundMaterial: systemMaterial }),
       hasShadow: true,
       roundedCorners: true,

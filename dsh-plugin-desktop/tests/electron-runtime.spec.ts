@@ -2706,6 +2706,7 @@ describe('Electron desktop runtime', () => {
     expect(electron.contentViews).toHaveLength(2)
     expect(electron.browserWindowOptions[0]).not.toHaveProperty('transparent')
     expect(electron.browserWindowOptions[0]).not.toHaveProperty('backgroundMaterial')
+    expect(electron.browserWindows[0]?.setBackgroundMaterial).not.toHaveBeenCalled()
     expect(electron.menuTemplates[0]).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: 'Mode: Extended Window', enabled: true }),
     ]))
@@ -2713,7 +2714,7 @@ describe('Electron desktop runtime', () => {
     await release()
   })
 
-  it('does not install a native backdrop when Windows material is off', async () => {
+  it('clears the native backdrop when Windows material is off', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     electron.nativeTheme.themeSource = 'light'
     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
@@ -2730,14 +2731,18 @@ describe('Electron desktop runtime', () => {
 
     expect(electron.browserWindowOptions[0]).toEqual(expect.objectContaining({
       backgroundColor: '#202124',
+      backgroundMaterial: 'none',
       roundedCorners: true,
       thickFrame: true,
     }))
     expect(electron.browserWindowOptions[0]).not.toHaveProperty('transparent')
     const window = electron.browserWindows[0]
+    expect(window?.setBackgroundMaterial).toHaveBeenCalledOnce()
+    expect(window?.setBackgroundMaterial).toHaveBeenCalledWith('none')
     window?.setBackgroundMaterial.mockClear()
     runtime.setThemeSource('light')
-    expect(window?.setBackgroundMaterial).not.toHaveBeenCalled()
+    expect(window?.setBackgroundMaterial).toHaveBeenCalledOnce()
+    expect(window?.setBackgroundMaterial).toHaveBeenCalledWith('none')
 
     await release()
   })
