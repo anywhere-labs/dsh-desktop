@@ -1,0 +1,47 @@
+diff --git a/lib/index.js b/lib/index.js
+index d78f1ff..a64f2b5 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -43,8 +43,13 @@ async function bridge(req, res, apiHandler, maxRequestBodyBytes = DEFAULT_MAX_RE
+ 		method,
+ 		url
+ 	});
++	// GET/HEAD requests cannot carry a body — undici's Request constructor
++	// rejects one outright, and the node:http server surfaces that as a bare
++	// 400. A route that forgot (or predates) its requestBody declaration must
++	// not turn every GET into a silent failure (#962).
++	const effectiveBodyMode = method === "GET" || method === "HEAD" ? "buffered" : bodyMode;
+ 	let request;
+-	if (bodyMode === "buffered") {
++	if (effectiveBodyMode === "buffered") {
+ 		const declaredLength = req.headers["content-length"];
+ 		if (declaredLength !== void 0 && Number(declaredLength) > maxRequestBodyBytes) {
+ 			res.writeHead(413, { connection: "close" });
+@@ -586,9 +591,10 @@ var HostConnectionService = class extends Service {
+ 	}
+ 	registerFetchRoute(owner, route) {
+ 		assertFetchRoute(route);
++		const methods = new Set(route.methods);
+ 		const registered = {
+-			methods: new Set(route.methods),
+-			requestBody: route.requestBody,
++			methods,
++			requestBody: route.requestBody ?? (methods.has("GET") || methods.has("HEAD") ? "buffered" : "streaming"),
+ 			fetch: route.fetch
+ 		};
+ 		return owner.effect(() => {
+diff --git a/lib/types/rpc.d.ts b/lib/types/rpc.d.ts
+index 8ae4740..363060b 100644
+--- a/lib/types/rpc.d.ts
++++ b/lib/types/rpc.d.ts
+@@ -86,8 +86,8 @@ export interface ConnectionFetchRoute {
+     readonly path: string;
+     /** Methods this route owns. Other methods continue through normal shared-channel dispatch. */
+     readonly methods: readonly ConnectionFetchMethod[];
+-    /** Buffered requests obey the configured JSON cap; streaming requests arrive with backpressure and no aggregate cap. */
+-    readonly requestBody: ConnectionRequestBodyMode;
++    /** Buffered requests obey the configured JSON cap; streaming requests arrive with backpressure and no aggregate cap. GET/HEAD routes default to buffered when omitted. */
++    readonly requestBody?: ConnectionRequestBodyMode;
+     /** Handle one request after the physical carrier has applied its trust and authentication policy. */
+     readonly fetch: (request: Request) => Promise<Response>;
+ }
