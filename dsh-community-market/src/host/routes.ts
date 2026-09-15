@@ -55,6 +55,7 @@ const SOURCE_SCHEMA = z.object({
 })
 const SETTINGS_SCHEMA = z.object({
   sources: z.array(SOURCE_SCHEMA).default([]),
+  npmRegistry: z.string().default(''),
   catalogCache: z.object({
     version: z.number().step(1),
     sourceRecordId: z.string(),

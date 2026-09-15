@@ -72,6 +72,7 @@ export function apply(ctx: Context): void {
         pnpm,
         createMarketPackageVerifier(npmRegistryHttp),
         {
+          settings: scope,
           logFailure: message => ctx.logger.error(message),
         },
       )

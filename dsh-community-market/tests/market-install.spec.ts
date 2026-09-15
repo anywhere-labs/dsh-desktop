@@ -12,6 +12,8 @@ import { marketRoutes, registerMarketRoutes } from '../src/host/routes.js'
 import {
   createNpmRegistryVerifier,
   MarketInstallService,
+  OFFICIAL_NPM_REGISTRY_ORIGIN,
+  resolveNpmRegistryOrigin,
   type MarketDesktopPnpm,
 } from '../src/install/service.js'
 
@@ -23,8 +25,8 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map(async path => await rm(path, { recursive: true, force: true })))
 })
 
-function memoryScope(): SettingsScope<MarketSettingsDocument> {
-  let document: MarketSettingsDocument = { sources: [] }
+function memoryScope(extra: Partial<MarketSettingsDocument> = {}): SettingsScope<MarketSettingsDocument> {
+  let document: MarketSettingsDocument = { sources: [], ...extra }
   return {
     get: () => document,
     watch: () => () => {},
@@ -223,6 +225,36 @@ describe('simplified Profile package operations', () => {
       dsh: { profile: { bundles: [packageName] } },
     })
     expect(verify).toHaveBeenCalledOnce()
+  })
+
+  it('uses a configured https npm registry for package manager installs', async () => {
+    const profileDir = await createProfile()
+    const calls: string[][] = []
+    const verify = vi.fn(async () => ({ version }))
+    const service = new MarketInstallService(
+      () => ({ name: 'desktop', dir: profileDir }),
+      runner(profileDir, calls),
+      { verify },
+      { settings: memoryScope({ npmRegistry: 'https://registry.npmmirror.com/' }) },
+    )
+    service.observeCatalog(snapshot())
+
+    const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
+    await service.executePreview(preview.intent, new AbortController().signal)
+    expect(calls).toEqual([[
+      'add',
+      '--save-exact',
+      '--registry=https://registry.npmmirror.com/',
+      `${packageName}@${version}`,
+    ]])
+    expect(verify).toHaveBeenCalledOnce()
+  })
+
+  it('resolves empty npm registry settings to the official origin', () => {
+    expect(resolveNpmRegistryOrigin(undefined)).toBe(OFFICIAL_NPM_REGISTRY_ORIGIN)
+    expect(resolveNpmRegistryOrigin('')).toBe(OFFICIAL_NPM_REGISTRY_ORIGIN)
+    expect(resolveNpmRegistryOrigin(' https://registry.npmmirror.com/path ')).toBe('https://registry.npmmirror.com')
+    expect(() => resolveNpmRegistryOrigin('http://registry.npmmirror.com')).toThrow(/https URL/u)
   })
 
   it('returns bounded pnpm output and writes the same failure to the Desktop log', async () => {
