@@ -22,6 +22,9 @@ const CLOSED_POLL_MS = 2_000
 /** Zoom levels offered by the panel's tool menu. */
 export const BROWSER_ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5] as const
 
+/** How much of the window one width step covers. */
+export const BROWSER_COLUMN_STEP_RATIO = 0.08
+
 /** Which transient surface currently covers the placeholder. */
 export type BrowserPanelOcclusion = 'none' | 'menu' | 'history'
 
@@ -45,6 +48,8 @@ export interface BrowserPanelSnapshot {
   readonly occlusion: BrowserPanelOcclusion
   /** Panel epoch last applied from an Agent directive. */
   readonly appliedEpoch: number
+  /** Whether the column currently covers the conversation instead of sharing the row. */
+  readonly fullscreen: boolean
   /** Pages the active tab visited, newest first; empty until requested. */
   readonly history: readonly { readonly url: string; readonly title: string }[]
 }
@@ -62,7 +67,13 @@ export interface DesktopBrowserPanelOptions {
   /** Notified whenever the panel's own visibility changes. */
   readonly onVisibility?: (open: boolean) => void
   /** Re-asserted while the panel stays open, so the column it lives in keeps its track. */
-  readonly onEnsure?: () => void
+  readonly onEnsure?: (fullscreen: boolean) => void
+  /** Ask the frame for another column width; the frame clamps it to its own limits. */
+  readonly onResize?: (width: number, viewport: number) => void
+  /** Ask the frame to give the column the whole row, or to share it again. */
+  readonly onFullscreen?: (fullscreen: boolean) => void
+  /** Release the column for a Session that is not showing the panel. */
+  readonly onIdle?: () => void
 }
 
 /** Client-side owner of the Desktop browser panel. */
@@ -80,9 +91,12 @@ export class DesktopBrowserPanelController {
     layout: 'fit',
     occlusion: 'none',
     appliedEpoch: 0,
+    fullscreen: false,
     history: [],
   }
   private stage: HTMLElement | null = null
+  private columnWidth = 0
+  private columnWidthViewport = 0
   private timer: ReturnType<typeof setTimeout> | undefined
   private frame: number | undefined
   private disposed = false
@@ -105,6 +119,38 @@ export class DesktopBrowserPanelController {
   start(): void {
     if (this.disposed || this.timer !== undefined) return
     void this.poll()
+  }
+
+  /** Remember the column the frame currently gives this panel. */
+  setColumn(width: number, viewport: number): void {
+    this.columnWidth = width
+    this.columnWidthViewport = viewport
+  }
+
+  /** Ask for a narrower column. */
+  narrower(): void {
+    this.stepColumn(-1)
+  }
+
+  /** Ask for a wider column. */
+  wider(): void {
+    this.stepColumn(1)
+  }
+
+  /** Give the column the whole row, or hand the conversation its width back. */
+  toggleFullscreen(): void {
+    const fullscreen = !this.snapshot.fullscreen
+    this.update({ fullscreen })
+    this.options.onFullscreen?.(fullscreen)
+    this.scheduleGeometry()
+  }
+
+  /** Move the column by one step; the frame owns the limits. */
+  private stepColumn(direction: -1 | 1): void {
+    if (this.columnWidth <= 0 || this.columnWidthViewport <= 0) return
+    const step = Math.round(this.columnWidthViewport * BROWSER_COLUMN_STEP_RATIO)
+    this.options.onResize?.(this.columnWidth + direction * step, this.columnWidthViewport)
+    this.scheduleGeometry()
   }
 
   /** Stop polling and release the placeholder. */
@@ -130,6 +176,8 @@ export class DesktopBrowserPanelController {
     if (this.snapshot.open === open) return
     this.update({ open, error: undefined })
     this.notifyVisibility(open)
+    // A column that was fullscreen when it closed comes back fullscreen.
+    if (open && this.snapshot.fullscreen) this.options.onFullscreen?.(true)
     if (open) void this.post({ action: 'focus' }).catch(() => {})
     this.scheduleGeometry()
     void this.poll()
@@ -145,6 +193,12 @@ export class DesktopBrowserPanelController {
       console.error('[dsh-plugin-desktop] desktop browser column failed', cause)
       this.update({ error: message, open: false })
     }
+  }
+
+  /** Hand the column back when this Session is not the one showing a panel. */
+  idle(): void {
+    if (this.snapshot.open) return
+    this.options.onIdle?.()
   }
 
   /** Flip the panel's visibility. */
@@ -285,7 +339,7 @@ export class DesktopBrowserPanelController {
     this.timer = setTimeout(() => { void this.poll() }, this.snapshot.open ? OPEN_POLL_MS : CLOSED_POLL_MS)
     if (this.snapshot.open) {
       try {
-        this.options.onEnsure?.()
+        this.options.onEnsure?.(this.snapshot.fullscreen)
       } catch {
         // The next round retries; a lost track is re-asserted here.
       }

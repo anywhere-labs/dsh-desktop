@@ -204,7 +204,7 @@ interface DesktopBrowserService {
 - `open()` 列出当前持有标签的 Session。每个 Session 拥有自己的标签 store：`store(sessionId)` 返回该 Session 的 store 并在首次使用时创建，`existing(sessionId)` 只在 store 已经存在时返回，`state(sessionId)` 读取 Session 状态而不会创建任何东西。
 - `openTab(sessionId, url?)` 打开一个标签、加载地址并返回新标签 id；`closeTab(sessionId, tabId?)` 关闭一个标签，未给出 id 时关闭当前标签。每个 Session 最多保留 12 个标签。
 - `act(sessionId, action)` 执行面板自有 action union 中的一个 action，覆盖导航、历史、viewport 放置、focus、指针与键盘输入、console 读取以及标签操作。
-- `panel(sessionId, visible)` 记录 renderer 必须应用的面板 directive，`directive(sessionId)` 读取已记录的值。Directive 携带单调递增的 `epoch`，renderer 对每个新 epoch 只应用一次，因此后续状态交换不会重新打开用户已经关闭的面板。
+- `panel(sessionId, visible)` 记录 renderer 必须应用的面板 directive，`directive(sessionId)` 读取已记录的值。`desktop_browser` 工具在除 `panel` 以外的每个页面 action 之前都会记录一次可见 directive，因此 Agent 的操作会自动展开该会话的面板。Directive 携带单调递增的 `epoch`，renderer 对每个新 epoch 只应用一次，因此后续状态交换不会重新打开用户已经关闭的面板。
 - `subscribe(listener)` 观察所有 Session 的 service event，并返回用于移除 listener 的 disposer。`state` event 携带一个 Session 的状态及其当前生效的面板 directive；`console` event 携带一条已捕获页面日志的 level 与 text。该 row 当前发布 `state` event；已捕获的 console 行也可以通过 `act(sessionId, { action: 'console' })` 读取。
 
 ```ts

@@ -30,10 +30,10 @@ export type DesktopBrowserToggleProps =
 type Translate = (key: DesktopBrowserLocaleKey) => string
 
 /** The overlay entry: resolves the Session and defers every hook to its child. */
-export function DesktopBrowserPanel({ t, useSessions, controller }: DesktopBrowserPanelProps): React.ReactElement | null {
+export function DesktopBrowserPanel({ t, useSessions, controller, width, viewportWidth }: DesktopBrowserPanelProps): React.ReactElement | null {
   const sessionId = useSessions(list => list.current)
   if (sessionId === undefined) return null
-  return <BrowserPanelForSession controller={controller(sessionId)} t={t} />
+  return <BrowserPanelForSession controller={controller(sessionId)} t={t} width={width} viewportWidth={viewportWidth} />
 }
 
 /** The header button that shows and hides the panel for one Session. */
@@ -63,15 +63,35 @@ export function DesktopBrowserToggle({ t, sessionId, controller }: DesktopBrowse
 }
 
 /** One Session's panel instance. */
-function BrowserPanelForSession({ controller, t }: { controller: DesktopBrowserPanelController; t: Translate }): React.ReactElement | null {
+function BrowserPanelForSession({ controller, t, width, viewportWidth }: {
+  controller: DesktopBrowserPanelController
+  t: Translate
+  /** Column width the frame currently gives this panel. */
+  width: number
+  /** Width of the whole window, so one step keeps its ratio. */
+  viewportWidth: number
+}): React.ReactElement | null {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const stage = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<'none' | 'tools' | 'history'>('none')
+  const [frameInsets, setFrameInsets] = useState({ top: 0, left: 0 })
 
   useEffect(() => {
     controller.start()
     return () => { controller.setStage(null) }
   }, [controller])
+
+  // The frame owns the column width; the panel only remembers it so its own
+  // width controls can ask for one step more or less.
+  useEffect(() => {
+    controller.setColumn(width, viewportWidth)
+  }, [controller, width, viewportWidth])
+
+  // Switching to a Session whose panel is closed hands the shared column back,
+  // so the shipped right Sidebar gets it instead of an empty track.
+  useEffect(() => {
+    controller.idle()
+  }, [controller, snapshot.open])
 
   // The page is composited above the renderer, so any transient surface drawn
   // over the placeholder must withdraw the view for as long as it is open.
@@ -86,7 +106,28 @@ function BrowserPanelForSession({ controller, t }: { controller: DesktopBrowserP
     const observer = new ResizeObserver(() => { controller.setStage(element) })
     observer.observe(element)
     return () => { observer.disconnect() }
-  }, [controller, snapshot.open])
+  }, [controller, snapshot.open, snapshot.fullscreen])
+
+  // An expanded panel takes the conversation column and the right column, so the
+  // left sidebar, the caption row, the traffic lights and the drag region all
+  // stay where the user left them.
+  useLayoutEffect(() => {
+    if (!snapshot.fullscreen) return () => {}
+    const measure = (): void => {
+      const row = document.querySelector('.dshDesktopMacCaptionRow, .dshDesktopWindowsCaptionRow')
+      const sidebar = document.querySelector('.dshDesktopSidebarSurface')
+      setFrameInsets({
+        top: row === null ? 0 : Math.round(row.getBoundingClientRect().height),
+        left: sidebar === null ? 0 : Math.round(sidebar.getBoundingClientRect().width),
+      })
+    }
+    measure()
+    const sidebar = document.querySelector('.dshDesktopSidebarSurface')
+    const observer = new ResizeObserver(measure)
+    if (sidebar !== null) observer.observe(sidebar)
+    window.addEventListener('resize', measure)
+    return () => { observer.disconnect(); window.removeEventListener('resize', measure) }
+  }, [snapshot.fullscreen])
 
   // The column is laid out by the frame, so a window resize only has to re-report
   // the placeholder the shell places the guest view into.
@@ -114,9 +155,11 @@ function BrowserPanelForSession({ controller, t }: { controller: DesktopBrowserP
       data-open="true"
       data-connected={snapshot.connected}
       data-layout={snapshot.layout}
+      data-fullscreen={snapshot.fullscreen || undefined}
       data-tabs={state?.tabs.length ?? 0}
       role="complementary"
       aria-label={t('title')}
+      style={snapshot.fullscreen ? { position: 'fixed', top: frameInsets.top, right: 0, bottom: 0, left: frameInsets.left, width: 'auto', zIndex: 30, borderLeft: 0 } : undefined}
     >
       <div className="dshDesktopBrowserPanelToolbar" data-dsh-desktop-browser="toolbar">
         <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-action="back" title={t('back')} disabled={state?.canGoBack !== true} onClick={() => { void controller.act({ action: 'back' }) }}>
@@ -143,6 +186,16 @@ function BrowserPanelForSession({ controller, t }: { controller: DesktopBrowserP
         </button>
         <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-action="tools" data-active={menu === 'tools'} title={t('tools')} onClick={() => { setMenu(menu === 'tools' ? 'none' : 'tools') }}>
           <DesktopBrowserGlyph name="menu" />
+        </button>
+        <span className="dshDesktopBrowserPanelDivider" aria-hidden="true" />
+        <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-action="narrower" title={t('narrower')} onClick={() => { controller.narrower() }}>
+          <DesktopBrowserGlyph name="narrower" />
+        </button>
+        <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-action="wider" title={t('wider')} onClick={() => { controller.wider() }}>
+          <DesktopBrowserGlyph name="wider" />
+        </button>
+        <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-action="fullscreen" data-active={snapshot.fullscreen} title={snapshot.fullscreen ? t('restore') : t('fullscreen')} onClick={() => { controller.toggleFullscreen() }}>
+          <DesktopBrowserGlyph name={snapshot.fullscreen ? 'restore' : 'fullscreen'} />
         </button>
         <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-action="close" title={t('closePanel')} onClick={() => { controller.setOpen(false) }}>
           <DesktopBrowserGlyph name="close" />
@@ -175,7 +228,7 @@ function BrowserPanelForSession({ controller, t }: { controller: DesktopBrowserP
             </button>
           </div>
         ))}
-        <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-action="new-tab" title={t('newTab')} onClick={() => { void controller.act({ action: 'tabs', op: 'new' }) }}>
+        <button type="button" className="dshDesktopBrowserPanelButton dshDesktopBrowserPanelNewTab" data-dsh-desktop-browser-action="new-tab" title={t('newTab')} onClick={() => { void controller.act({ action: 'tabs', op: 'new' }) }}>
           <DesktopBrowserGlyph name="plus" />
         </button>
       </div>
