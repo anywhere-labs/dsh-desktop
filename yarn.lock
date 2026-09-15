@@ -2781,6 +2781,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-llm@patch:@deepseek-ai/dsh-llm@file%3Avendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-llm-0.1.5-rc.2.tgz#./patches/dsh-llm@0.1.5-rc.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.5-rc.2
+  resolution: "@deepseek-ai/dsh-llm@patch:@deepseek-ai/dsh-llm@file%3Avendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-llm-0.1.5-rc.2.tgz%23vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-llm-0.1.5-rc.2.tgz%3A%3Ahash=37908b&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-llm@0.1.5-rc.2.patch::version=0.1.5-rc.2&hash=99874b&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    "@deepseek-ai/dsh-brand": "npm:^0.1.5-rc.2"
+    "@deepseek-ai/dsh-timeout": "npm:^0.1.5-rc.2"
+    "@deepseek-ai/dsh-typert-protocol": "npm:^0.1.5-rc.2"
+    "@deepseek-ai/dsh-util-crypto": "npm:^0.1.5-rc.2"
+    "@deepseek-ai/dsh-util-values": "npm:^0.1.5-rc.2"
+    "@deepseek-ai/schemastery": "npm:^3.18.2"
+    zod: "npm:^4.4.3"
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.2
+  checksum: 10c0/df0248e08569b1041cedcf209ee5c4a4d89f9ee153a1ee9dc265930b32d8a024470a8b1406c4938f7ad94b6ea285c6b1d02f442597a4143f4d1400c785b8ea5a
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-mcp-client@file:vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-mcp-client-0.1.5-rc.2.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.5-rc.2
   resolution: "@deepseek-ai/dsh-mcp-client@file:vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-mcp-client-0.1.5-rc.2.tgz#vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-mcp-client-0.1.5-rc.2.tgz::hash=5c895d&locator=deepseek-harness-desktop%40workspace%3A."
