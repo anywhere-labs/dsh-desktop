@@ -71,6 +71,12 @@ class ScriptedNativeBrowser implements DesktopNativeBrowser {
   readonly journal: string[] = []
   /** CDP methods that never answer, so a stalled renderer can be scripted. */
   readonly stalled = new Set<string>()
+  /** CDP methods that stall once and then answer, so a retry stays observable. */
+  readonly stallOnce = new Set<string>()
+  /** Box reported once the page has been scrolled, for a target the page reveals late. */
+  boxAfterScroll: DesktopBrowserRect | null | undefined = undefined
+  /** Answer of the candidate-name query that reports a locator miss. */
+  candidates: { names: readonly string[]; similar: readonly string[] } = { names: [], similar: [] }
   /** Replaces the automatic `navigated` event; `undefined` lands the address. */
   navigateHook: ((view: GuestView, url: string) => void) | undefined = undefined
   /** Answer for `document.body.innerText`. */
@@ -88,6 +94,8 @@ class ScriptedNativeBrowser implements DesktopNativeBrowser {
   }
   /** Object id `Runtime.evaluate` hands back for an element expression. */
   objectId: string | undefined = 'remote-1'
+  /** Text the element reports back after a fill; the last insertion by default. */
+  holdOverride: string | undefined = undefined
   /** Whether the resolved element reports itself as null. */
   nullObject = false
   /** Rectangle `getBoundingClientRect` reports, or `null` for a flat element. */
@@ -95,6 +103,8 @@ class ScriptedNativeBrowser implements DesktopNativeBrowser {
   /** Failure `createView` raises; set to script a shell that cannot host a view. */
   failCreate: Error | undefined = undefined
   private readonly listeners = new Set<(event: DesktopNativeBrowserEvent) => void>()
+  /** Whether the shell was asked to scroll a matched element into view. */
+  private scrolled = false
 
   /** Number of live event subscribers, so teardown can be observed. */
   get subscriptions(): number { return this.listeners.size }
@@ -180,6 +190,7 @@ class ScriptedNativeBrowser implements DesktopNativeBrowser {
     view.commands.push({ method, params })
     this.journal.push(`command ${id} ${method}`)
     if (this.stalled.has(method)) return await new Promise<never>(() => {})
+    if (this.stallOnce.delete(method)) return await new Promise<never>(() => {})
     const failure = this.failures.get(method)
     if (failure !== undefined) throw failure
     if (this.answers.has(method)) return this.answers.get(method)
@@ -247,6 +258,7 @@ class ScriptedNativeBrowser implements DesktopNativeBrowser {
     if (expression.includes('documentElement.outerHTML')) return { result: { type: 'string', value: this.html } }
     if (expression.includes("querySelectorAll('a[href]')")) return { result: { value: this.links } }
     if (expression.includes('window.innerWidth')) return { result: { value: this.layout } }
+    if (expression.includes('similar: names')) return { result: { value: this.candidates } }
     if (this.objectId === undefined) return { result: {} }
     return { result: { objectId: this.objectId } }
   }
@@ -255,7 +267,17 @@ class ScriptedNativeBrowser implements DesktopNativeBrowser {
   private callFunction(params: unknown): unknown {
     const declaration = String((params as { functionDeclaration?: unknown } | undefined)?.functionDeclaration ?? '')
     if (declaration.includes('this === null')) return { result: { value: this.nullObject } }
-    if (declaration.includes('getBoundingClientRect')) return { result: { value: this.box } }
+    if (declaration.includes('innerText')) {
+      const typed = this.params('tab-1', 'Input.insertText').at(-1) as { text?: string } | undefined
+      return { result: { value: this.holdOverride ?? typed?.text ?? '' } }
+    }
+    if (declaration.includes('scrollIntoView')) {
+      this.scrolled = true
+      return { result: { value: null } }
+    }
+    if (declaration.includes('getBoundingClientRect')) {
+      return { result: { value: this.scrolled && this.boxAfterScroll !== undefined ? this.boxAfterScroll : this.box } }
+    }
     return { result: { value: true } }
   }
 
@@ -357,16 +379,16 @@ describe('Desktop guest page', () => {
     expect(native.journal.filter(entry => entry.startsWith('navigate tab-1 '))).toEqual(['navigate tab-1 about:blank'])
   })
 
-  it('fails a CDP command that never answers at its own budget', async () => {
+  it('fails a mutating CDP command that never answers at its own budget', async () => {
     const { native, page } = createPage()
     await page.open()
-    native.stalled.add('Page.captureScreenshot')
+    native.stalled.add('Input.dispatchMouseEvent')
 
     vi.useFakeTimers()
     try {
-      const pending = page.screenshot()
+      const pending = page.click(10, 20)
       const rejected = expect(pending).rejects.toThrow(
-        `${DESKTOP_BROWSER_CDP_STALL}: Page.captureScreenshot did not answer within ${String(BROWSER_CDP_TIMEOUT)}ms`,
+        `${DESKTOP_BROWSER_CDP_STALL}: Input.dispatchMouseEvent did not answer within ${String(BROWSER_CDP_TIMEOUT)}ms`,
       )
       await vi.advanceTimersByTimeAsync(BROWSER_CDP_TIMEOUT)
       await rejected
@@ -374,7 +396,60 @@ describe('Desktop guest page', () => {
       vi.useRealTimers()
     }
 
-    expect(native.methods('tab-1')).toContain('Page.captureScreenshot')
+    // A click must never be repeated behind the caller's back: one budget, one attempt.
+    expect(native.methods('tab-1').filter(method => method === 'Input.dispatchMouseEvent')).toHaveLength(1)
+  })
+
+  it('retries one stalled read-only command instead of reporting a busy page', async () => {
+    const { native, page } = createPage()
+    await page.open()
+    native.stallOnce.add('Page.captureScreenshot')
+
+    vi.useFakeTimers()
+    try {
+      const pending = page.screenshot()
+      await vi.advanceTimersByTimeAsync(BROWSER_CDP_TIMEOUT)
+      const shot = await pending
+      expect(shot).toEqual({ data: 'ZmFrZS1qcGVn', mediaType: 'image/jpeg' })
+    } finally {
+      vi.useRealTimers()
+    }
+
+    expect(native.methods('tab-1').filter(method => method === 'Page.captureScreenshot')).toHaveLength(2)
+  })
+
+  it('reports the names the page renders when a locator matches nothing', async () => {
+    const { native, page } = createPage()
+    await page.open()
+    native.objectId = undefined
+    native.candidates = { names: ['Search arXiv', 'All fields'], similar: ['Search term or terms'] }
+
+    const failure = await page.fillTarget({ role: 'textbox', name: 'Search term' }, 'self-evolution')
+      .then(() => undefined, (cause: unknown) => cause as Error)
+    expect(failure?.message).toContain('BROWSER_ELEMENT_NOT_FOUND: no element matched textbox "Search term"')
+    expect(failure?.message).toContain('visible textbox names on the page: "Search arXiv", "All fields"')
+    expect(failure?.message).toContain('did you mean "Search term or terms"?')
+    expect(native.methods('tab-1')).not.toContain('Runtime.callFunctionOn')
+  })
+
+  it('scrolls a matched but flat target into view before declaring it invisible', async () => {
+    const { native, page } = createPage()
+    await page.open()
+    native.box = null
+    native.boxAfterScroll = { x: 4, y: 8, width: 20, height: 10 }
+
+    await expect(page.clickTarget({ role: 'button', name: 'Continue' })).resolves.toEqual({ x: 14, y: 13, width: 20, height: 10 })
+    expect(native.methods('tab-1')).toContain('Input.dispatchMouseEvent')
+  })
+
+  it('declares a target that stays flat invisible, and points at the snapshot', async () => {
+    const { native, page } = createPage()
+    await page.open()
+    native.box = null
+
+    await expect(page.clickTarget({ role: 'button', name: 'Continue' })).rejects.toThrow(
+      /^BROWSER_ELEMENT_NOT_VISIBLE: button "Continue" exists in the page but carries no visible box/u,
+    )
   })
 
   it('accepts allowlisted http pages and refuses every other address', async () => {
@@ -449,9 +524,12 @@ describe('Desktop guest page', () => {
 
     const box = await page.clickElement('#go')
     expect(box).toEqual({ x: 60, y: 40, width: 100, height: 40 })
-    expect(native.params('tab-1', 'Runtime.evaluate')).toEqual([
-      { expression: 'document.querySelector("#go")', returnByValue: false, awaitPromise: false },
-    ])
+    // A selector locator resolves through the same helper as a role locator, so a
+    // hidden twin of the node never wins over the one on screen.
+    const resolved = native.params('tab-1', 'Runtime.evaluate')[0] as { expression: string; returnByValue: boolean }
+    expect(resolved.expression).toContain('"#go"')
+    expect(resolved.expression).toContain('matches.find(visible)')
+    expect(resolved.returnByValue).toBe(false)
     const wheel = native.params('tab-1', 'Input.dispatchMouseEvent').at(-2)
     expect(wheel).toEqual({ type: 'mousePressed', x: 60, y: 40, button: 'left', buttons: 1, clickCount: 1 })
 
@@ -470,17 +548,59 @@ describe('Desktop guest page', () => {
     native.objectId = undefined
     await expect(page.fill('#missing', 'text')).rejects.toThrow('BROWSER_ELEMENT_NOT_FOUND')
     await expect(page.boundingBox('#missing')).resolves.toBeUndefined()
-    await expect(page.clickElement('#missing')).rejects.toThrow('BROWSER_ELEMENT_NOT_VISIBLE')
+    await expect(page.clickElement('#missing')).rejects.toThrow('BROWSER_ELEMENT_NOT_FOUND: no element matched #missing')
 
     native.objectId = 'remote-1'
     native.nullObject = true
     await expect(page.boundingBox('#gone')).resolves.toBeUndefined()
+    // A locator that resolves to nothing is a miss, not an invisible element:
+    // the Agent is told which names the page does render instead.
     await expect(page.clickTarget({ role: 'button', name: 'Sign in' }))
-      .rejects.toThrow('BROWSER_ELEMENT_NOT_VISIBLE: button "Sign in"')
+      .rejects.toThrow('BROWSER_ELEMENT_NOT_FOUND: no element matched button "Sign in"')
 
     native.nullObject = false
     native.box = null
     await expect(page.clickElement('#flat')).rejects.toThrow('BROWSER_ELEMENT_NOT_VISIBLE')
+  })
+
+  it('leaves the document of a rich editor alone and verifies the text landed', async () => {
+    const { native, page } = createPage()
+    await page.open()
+
+    await page.fill('div[contenteditable="true"]', '黑洞')
+    const preparation = native.params('tab-1', 'Runtime.callFunctionOn').at(-2) as { functionDeclaration: string }
+    // The editor owns its document: rewriting it would leave the framework's
+    // state ahead of the DOM and drop the keystrokes that follow.
+    expect(preparation.functionDeclaration).toContain('selectNodeContents')
+    expect(preparation.functionDeclaration).not.toContain('textContent = ')
+    expect(native.params('tab-1', 'Input.insertText').at(-1)).toEqual({ text: '黑洞' })
+    // The value is read back, so a page that silently refuses it is not reported
+    // as a successful fill.
+    expect((native.params('tab-1', 'Runtime.callFunctionOn').at(-1) as { functionDeclaration: string }).functionDeclaration)
+      .toContain('innerText')
+    expect(native.methods('tab-1').filter(method => method === 'Input.dispatchMouseEvent')).toHaveLength(0)
+  })
+
+  it('clicks a rich editor once and then reports a value the page refused', async () => {
+    const { native, page } = createPage()
+    await page.open()
+    native.box = { x: 10, y: 20, width: 100, height: 30 }
+    native.holdOverride = ''
+
+    await expect(page.fill('div[contenteditable="true"]', '黑洞')).rejects.toThrow('BROWSER_FILL_REJECTED')
+    // One trusted pointer attempt before giving up, and the Agent is told to
+    // type the value instead of assuming the field is filled.
+    expect(native.methods('tab-1').filter(method => method === 'Input.dispatchMouseEvent').length).toBeGreaterThan(0)
+    expect(native.params('tab-1', 'Input.insertText')).toHaveLength(2)
+  })
+
+  it('prefers the visible node when a selector matches several', async () => {
+    const expression = elementExpression({ selector: 'div[contenteditable="true"]:visible' })
+    // `:visible` is not CSS; it is dropped so the locator still matches, and the
+    // hidden twin some editors keep never wins over the editor on screen.
+    expect(expression).toContain('div[contenteditable=\\"true\\"]')
+    expect(expression).toContain("endsWith(':visible')")
+    expect(expression).toContain('matches.find(visible)')
   })
 
   it('types, fills, and clears a field through CDP input', async () => {
@@ -491,12 +611,15 @@ describe('Desktop guest page', () => {
     expect(native.params('tab-1', 'Input.insertText')).toEqual([{ text: 'hello' }])
 
     await page.fill('#name', 'Ada')
+    // `fill` addresses the field by its raw selector; the visibility preference
+    // belongs to the locator helper both forms share.
     expect(native.params('tab-1', 'Runtime.evaluate').at(-1)).toEqual({
       expression: '#name',
       returnByValue: false,
       awaitPromise: false,
     })
-    const focus = native.params('tab-1', 'Runtime.callFunctionOn').at(-1) as { objectId: string; functionDeclaration: string }
+    // The last call of a fill is the read-back; the focus and clear step precedes it.
+    const focus = native.params('tab-1', 'Runtime.callFunctionOn').at(-2) as { objectId: string; functionDeclaration: string }
     expect(focus.objectId).toBe('remote-1')
     expect(focus.functionDeclaration).toContain('this.focus()')
     expect(focus.functionDeclaration).toContain('this.select()')
@@ -736,7 +859,7 @@ describe('Desktop guest page', () => {
     expect(describeLocator({ role: 'link' })).toBe('link')
     expect(describeLocator({})).toBe('')
 
-    expect(elementExpression({ selector: '#go' })).toBe('document.querySelector("#go")')
+    expect(elementExpression({ selector: '#go' })).toContain('"#go"')
     const roleExpression = elementExpression({ role: 'button', name: 'Sign "in"' })
     expect(roleExpression).toContain('button,input[type=button]')
     expect(roleExpression).toContain(JSON.stringify('Sign "in"'))

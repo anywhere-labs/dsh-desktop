@@ -81,6 +81,23 @@ export class DesktopBrowserPanelController {
   private readonly sessionId: string
   private readonly options: DesktopBrowserPanelOptions
   private readonly listeners = new Set<() => void>()
+  /**
+   * The page the address field currently mirrors. A poll runs every second, so
+   * it follows the active tab and the page's own address instead of rewriting
+   * whatever the user is typing.
+   */
+  private mirror: { tabId: string | null; url: string } = { tabId: null, url: '' }
+  /** Whether the address draft is the user's own text rather than the page's address. */
+  private editingAddress = false
+  /**
+   * Whether the frame is showing this panel right now.
+   *
+   * One column is shared by the whole window, so only the panel on screen may
+   * hold it. A panel that stays open in another Session keeps its tabs and its
+   * width, but it must not reserve an empty track beside the Session the user is
+   * actually reading.
+   */
+  private active = false
   private snapshot: BrowserPanelSnapshot = {
     open: false,
     connected: false,
@@ -119,6 +136,19 @@ export class DesktopBrowserPanelController {
   start(): void {
     if (this.disposed || this.timer !== undefined) return
     void this.poll()
+  }
+
+  /**
+   * Report whether this panel is the one the frame is showing.
+   * @param active - true while the panel of the current Session is mounted.
+   */
+  setActive(active: boolean): void {
+    if (this.active === active) return
+    this.active = active
+    // Leaving the screen hands the shared column back; returning re-asserts it.
+    if (active === false) this.options.onIdle?.()
+    else if (this.snapshot.open) this.options.onEnsure?.(this.snapshot.fullscreen)
+    this.scheduleGeometry()
   }
 
   /** Remember the column the frame currently gives this panel. */
@@ -197,7 +227,7 @@ export class DesktopBrowserPanelController {
 
   /** Hand the column back when this Session is not the one showing a panel. */
   idle(): void {
-    if (this.snapshot.open) return
+    if (this.snapshot.open && this.active) return
     this.options.onIdle?.()
   }
 
@@ -206,8 +236,9 @@ export class DesktopBrowserPanelController {
     this.setOpen(!this.snapshot.open)
   }
 
-  /** Replace the address-bar draft. */
+  /** Replace the address-bar draft; the draft then belongs to the user. */
   setAddress(address: string): void {
+    this.editingAddress = true
     this.update({ address })
   }
 
@@ -239,7 +270,7 @@ export class DesktopBrowserPanelController {
       this.update({
         connected: true,
         error: undefined,
-        ...(state === undefined ? {} : { state, address: state.activeId === null ? this.snapshot.address : addressOf(state) }),
+        ...(state === undefined ? {} : { state, ...(state.activeId === null ? {} : { address: addressOf(state) }) }),
       })
     } catch (cause) {
       this.update({ connected: false, error: cause instanceof Error ? cause.message : String(cause) })
@@ -269,7 +300,32 @@ export class DesktopBrowserPanelController {
   async submitAddress(): Promise<void> {
     const url = this.snapshot.address.trim()
     if (url === '') return
-    await this.act({ action: 'navigate', url })
+    // The draft is now the address the user asked for: stop treating it as an
+    // edit, and let the next poll confirm it once the page arrives.
+    this.editingAddress = false
+    this.mirror = { ...this.mirror, url }
+    // An empty panel has no tab to navigate, so the address opens the first one.
+    if (this.snapshot.state?.activeId == null) await this.act({ action: 'tabs', op: 'new', url })
+    else await this.act({ action: 'navigate', url })
+  }
+
+  /**
+   * The address update for one Host state.
+   *
+   * The field follows the page when the active tab changes, or when the page
+   * itself moved while the user was not typing. A poll must never replace a
+   * draft, which is what made a fresh tab snap back to `about:blank` under the
+   * cursor.
+   */
+  private addressUpdate(state: DesktopBrowserState): { address?: string } {
+    if (state.activeId === null) return {}
+    const url = addressOf(state)
+    const tabChanged = this.mirror.tabId !== state.activeId
+    const pageMoved = this.mirror.url !== url
+    this.mirror = { tabId: state.activeId, url }
+    if (tabChanged) this.editingAddress = false
+    if (tabChanged || (pageMoved && !this.editingAddress)) return { address: url }
+    return {}
   }
 
   /** Recompute and send the placeholder rectangle. */
@@ -287,9 +343,11 @@ export class DesktopBrowserPanelController {
     // Window-level visibility belongs to the shell, which already hides the
     // guest view of a minimised or hidden window; this only reports the panel's
     // own state, so an occluded window never turns into a zero-sized page.
-    const open = this.snapshot.open && this.snapshot.occlusion === 'none'
+    // A panel that is not on screen places nothing: its Session keeps its tabs,
+    // but the guest view is withdrawn from the window.
+    const open = this.active && this.snapshot.open && this.snapshot.occlusion === 'none'
     let report: ViewportReport = { bounds: null, zoom: this.snapshot.zoom, layout: this.snapshot.layout, visible: false }
-    if (stage !== null && this.snapshot.open) {
+    if (stage !== null && this.snapshot.open && this.active) {
       const rect = stage.getBoundingClientRect()
       const visible = open && rect.width >= 1 && rect.height >= 1
       report = {
@@ -326,7 +384,7 @@ export class DesktopBrowserPanelController {
         error: undefined,
         ...(state === undefined ? {} : { state }),
         ...(directiveApplies ? { open: panel?.visible === true, appliedEpoch: epoch } : epoch > this.snapshot.appliedEpoch ? { appliedEpoch: epoch } : {}),
-        ...(state === undefined || state.activeId === null ? {} : { address: addressOf(state) }),
+        ...(state === undefined ? {} : this.addressUpdate(state)),
       })
       if (directiveApplies) {
         this.notifyVisibility(panel?.visible === true)
@@ -337,7 +395,7 @@ export class DesktopBrowserPanelController {
     }
     if (this.disposed) return
     this.timer = setTimeout(() => { void this.poll() }, this.snapshot.open ? OPEN_POLL_MS : CLOSED_POLL_MS)
-    if (this.snapshot.open) {
+    if (this.snapshot.open && this.active) {
       try {
         this.options.onEnsure?.(this.snapshot.fullscreen)
       } catch {

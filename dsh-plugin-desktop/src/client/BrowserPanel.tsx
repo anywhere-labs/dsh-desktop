@@ -81,6 +81,13 @@ function BrowserPanelForSession({ controller, t, width, viewportWidth }: {
     return () => { controller.setStage(null) }
   }, [controller])
 
+  // This instance only exists for the Session on screen, so it owns the shared
+  // column for as long as it is mounted and hands it back when it leaves.
+  useEffect(() => {
+    controller.setActive(true)
+    return () => { controller.setActive(false) }
+  }, [controller])
+
   // The frame owns the column width; the panel only remembers it so its own
   // width controls can ask for one step more or less.
   useEffect(() => {

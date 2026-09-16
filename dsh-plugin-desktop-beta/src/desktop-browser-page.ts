@@ -18,10 +18,27 @@ export const BROWSER_ACTION_TIMEOUT = 10_000
 export const BROWSER_NAVIGATION_TIMEOUT = 30_000
 /** Budget for the blank document that gives a fresh guest view its renderer. */
 export const BROWSER_BLANK_DOCUMENT_TIMEOUT = 5_000
-/** Budget of one CDP round trip; a stalled renderer must not hold the action queue. */
-export const BROWSER_CDP_TIMEOUT = 8_000
+/**
+ * Budget of one CDP round trip. A stalled renderer must not hold the action
+ * queue, but a page that is still loading or running heavy script blocks its
+ * main thread for seconds, so the budget is generous enough for real pages.
+ */
+export const BROWSER_CDP_TIMEOUT = 20_000
 /** Error code reported when a CDP round trip outlives its budget. */
 export const DESKTOP_BROWSER_CDP_STALL = 'BROWSER_CDP_STALL'
+
+/**
+ * Protocol methods that are safe to repeat after a stall. They only read page
+ * state, so a retry cannot double an effect the way a click or a navigation
+ * would.
+ */
+const CDP_RETRYABLE = new Set([
+  'Runtime.evaluate',
+  'Runtime.callFunctionOn',
+  'Accessibility.getFullAXTree',
+  'Page.getLayoutMetrics',
+  'Page.captureScreenshot',
+])
 
 /** Node bound on one accessibility snapshot so a deep page cannot flood the Agent. */
 const AX_NODE_LIMIT = 600
@@ -253,21 +270,11 @@ export function describeLocator(locator: DesktopBrowserLocator): string {
 }
 
 /**
- * Build the page expression that resolves one locator to a single element.
- *
- * Role matching follows the implicit HTML role of the common interactive
- * elements, then falls back to an explicit `role` attribute, so a snapshot line
- * such as `- button "Sign in"` is directly actionable.
- * @param locator - selector or role/name pair from the Agent.
- * @returns a JavaScript expression evaluating to one element or `null`.
+ * Page-side helpers shared by the locator matcher and the candidate report: the
+ * implicit role selectors, the accessible-name derivation, and the visibility
+ * test. This is plain JavaScript source, embedded into an evaluated expression.
  */
-export function elementExpression(locator: DesktopBrowserLocator): string {
-  if (locator.selector !== undefined) return `document.querySelector(${JSON.stringify(locator.selector)})`
-  const role = locator.role ?? ''
-  const name = locator.name ?? ''
-  return `(() => {
-    const role = ${JSON.stringify(role)}
-    const wanted = ${JSON.stringify(name)}
+const LOCATOR_HELPERS = `
     const implicit = {
       button: 'button,input[type=button],input[type=submit],input[type=reset]',
       link: 'a[href]',
@@ -278,9 +285,14 @@ export function elementExpression(locator: DesktopBrowserLocator): string {
       img: 'img',
       heading: 'h1,h2,h3,h4,h5,h6',
     }
-    const explicit = role === '' ? '' : '[role=' + JSON.stringify(role) + ']'
-    const selector = [implicit[role], explicit].filter(Boolean).join(',')
-    const candidates = selector === '' ? [] : Array.from(document.querySelectorAll(selector))
+    const selectorFor = role => {
+      const explicit = role === '' ? '' : '[role=' + JSON.stringify(role) + ']'
+      return [implicit[role], explicit].filter(Boolean).join(',')
+    }
+    const candidatesFor = role => {
+      const selector = selectorFor(role)
+      return selector === '' ? [] : Array.from(document.querySelectorAll(selector))
+    }
     const accessibilityName = element => {
       const labelled = element.getAttribute('aria-label')
       if (labelled) return labelled.trim()
@@ -303,12 +315,63 @@ export function elementExpression(locator: DesktopBrowserLocator): string {
       if (rect.width < 1 || rect.height < 1) return false
       const style = getComputedStyle(element)
       return style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0'
-    }
-    const named = candidates.filter(element => wanted === '' || accessibilityName(element) === wanted)
+    }`
+
+/**
+ * Build the page expression that resolves one locator to a single element.
+ *
+ * A hidden match never wins: the accessible name of a hidden element is not
+ * what the snapshot renders, so preferring the visible one keeps the locator
+ * and the snapshot in agreement.
+ * @param locator - selector, or role and accessible name.
+ * @returns a JavaScript expression evaluating to the element or to null.
+ */
+export function elementExpression(locator: DesktopBrowserLocator): string {
+  if (locator.selector !== undefined) {
+    return `(() => {
+    const selector = ${JSON.stringify(locator.selector)}
+${LOCATOR_HELPERS}
+    const wanted = selector.endsWith(':visible') ? selector.slice(0, -':visible'.length) : selector
+    let matches = []
+    try { matches = Array.from(document.querySelectorAll(wanted)) } catch { return null }
+    if (matches.length === 0) return null
+    return matches.find(visible) || matches[0]
+  })()`
+  }
+  const role = locator.role ?? ''
+  const name = locator.name ?? ''
+  return `(() => {
+    const role = ${JSON.stringify(role)}
+    const wanted = ${JSON.stringify(name)}
+${LOCATOR_HELPERS}
+    const named = candidatesFor(role).filter(element => wanted === '' || accessibilityName(element) === wanted)
     const exact = named.find(visible)
     if (exact) return exact
     if (wanted === '') return null
-    return candidates.filter(element => accessibilityName(element).includes(wanted)).find(visible) || null
+    return candidatesFor(role).filter(element => accessibilityName(element).includes(wanted)).find(visible) || null
+  })()`
+}
+
+/**
+ * Build the page expression that reports which names the page does offer.
+ *
+ * A locator that matches nothing is the Agent's most common dead end, and the
+ * answer is on the page itself: hand back the visible names for that role so
+ * the next attempt can use one of them instead of guessing again.
+ * @param locator - role and accessible name that missed.
+ * @returns a JavaScript expression evaluating to the visible names and their count.
+ */
+export function candidateNamesExpression(locator: DesktopBrowserLocator): string {
+  return `(() => {
+    const role = ${JSON.stringify(locator.role ?? '')}
+    const wanted = ${JSON.stringify(locator.name ?? '')}
+${LOCATOR_HELPERS}
+    const names = Array.from(new Set(candidatesFor(role).filter(visible).map(accessibilityName).filter(name => name !== '')))
+    return {
+      total: names.length,
+      names: names.slice(0, 6),
+      similar: names.filter(name => name.includes(wanted)).slice(0, 4),
+    }
   })()`
 }
 
@@ -433,13 +496,24 @@ export class DesktopBrowserPage {
   private async cdp<T = unknown>(method: string, params?: unknown): Promise<T> {
     if (this.closed) throw new Error('BROWSER_TAB_CLOSED: this tab is no longer open')
     // A protocol command must never outlive the caller's own budget: a wedged
-    // renderer would otherwise hold this Session's whole action queue.
-    const answer = await withDeadline(
-      this.service.command(this.viewId, method, params) as Promise<T>,
-      BROWSER_CDP_TIMEOUT,
-      `${DESKTOP_BROWSER_CDP_STALL}: ${method} did not answer within ${String(BROWSER_CDP_TIMEOUT)}ms`,
-    )
-    return answer
+    // renderer would otherwise hold this Session's whole action queue. A page
+    // that is still loading answers late rather than never, so a read-only
+    // command gets one more chance before the Agent is told to back off.
+    const attempts = CDP_RETRYABLE.has(method) ? 2 : 1
+    let stall: Error | undefined
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        return await withDeadline(
+          this.service.command(this.viewId, method, params) as Promise<T>,
+          BROWSER_CDP_TIMEOUT,
+          `${DESKTOP_BROWSER_CDP_STALL}: ${method} did not answer within ${String(BROWSER_CDP_TIMEOUT)}ms, so the page is busy or still loading; retry this action, or wait for the load to finish`,
+        )
+      } catch (cause) {
+        if (!(cause instanceof Error) || !cause.message.startsWith(DESKTOP_BROWSER_CDP_STALL)) throw cause
+        stall = cause
+      }
+    }
+    throw stall ?? new Error(`${DESKTOP_BROWSER_CDP_STALL}: ${method} did not answer`)
   }
 
   /** Route one native service event into page state. */
@@ -669,28 +743,28 @@ export class DesktopBrowserPage {
       awaitPromise: false,
     })
     const objectId = answer.result?.objectId
-    if (objectId === undefined) throw new Error(`BROWSER_ELEMENT_NOT_FOUND: ${expression}`)
+    if (objectId === undefined) throw new Error('BROWSER_ELEMENT_NOT_FOUND: no element matched')
     const detail = await this.cdp<{ result?: RemoteObject }>('Runtime.callFunctionOn', {
       objectId,
       functionDeclaration: 'function () { return this === null || this === undefined; }',
       returnByValue: true,
     })
-    if (detail.result?.value === true) throw new Error(`BROWSER_ELEMENT_NOT_FOUND: ${expression}`)
+    if (detail.result?.value === true) throw new Error('BROWSER_ELEMENT_NOT_FOUND: no element matched')
     return objectId
   }
 
   /**
    * Measure one element expression in the page.
    * @param expression - JavaScript expression evaluating to one element.
-   * @returns its viewport-relative box, or `undefined` when it is missing or flat.
+   * @returns whether nothing matched, and the box when the element is visible.
    */
-  async boxFor(expression: string): Promise<DesktopBrowserRect | undefined> {
+  private async measure(expression: string): Promise<{ missing: boolean; box?: DesktopBrowserRect }> {
     await this.enable()
     let objectId: string
     try {
       objectId = await this.resolveObject(expression)
     } catch (cause) {
-      if (cause instanceof Error && cause.message.startsWith('BROWSER_ELEMENT_NOT_FOUND')) return undefined
+      if (cause instanceof Error && cause.message.startsWith('BROWSER_ELEMENT_NOT_FOUND')) return { missing: true }
       throw cause
     }
     const answer = await this.cdp<{ result?: RemoteObject }>('Runtime.callFunctionOn', {
@@ -703,8 +777,71 @@ export class DesktopBrowserPage {
       returnByValue: true,
     })
     const value = byValue(answer.result)
-    if (value === null || typeof value !== 'object') return undefined
-    return value as DesktopBrowserRect
+    if (value === null || typeof value !== 'object') return { missing: false }
+    return { missing: false, box: value as DesktopBrowserRect }
+  }
+
+  /** Bring one element into view, for a match the page can still reach. */
+  private async scrollIntoView(expression: string): Promise<void> {
+    const objectId = await this.resolveObject(expression)
+    await this.cdp('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: 'function () { if (typeof this.scrollIntoView === "function") this.scrollIntoView({ block: "center", inline: "center" }) }',
+      returnByValue: true,
+    })
+  }
+
+  /**
+   * The correction the Agent needs when a locator matches nothing: the names
+   * the page actually renders for that role.
+   */
+  private async locatorMiss(locator: DesktopBrowserLocator): Promise<Error> {
+    const answer = await this.cdp<{ result?: RemoteObject }>('Runtime.evaluate', {
+      expression: candidateNamesExpression(locator),
+      returnByValue: true,
+    }).catch(() => undefined)
+    const value = byValue(answer?.result) as { names?: readonly string[]; similar?: readonly string[] } | undefined
+    const names = value?.names ?? []
+    const similar = value?.similar ?? []
+    const offered = names.length === 0
+      ? ''
+      : `; visible ${locator.role === undefined || locator.role === '' ? 'element' : locator.role} names on the page: ${names.map(name => JSON.stringify(name)).join(', ')}`
+    const close = similar.length === 0 ? '' : `; did you mean ${similar.map(name => JSON.stringify(name)).join(' or ')}?`
+    return new Error(
+      `BROWSER_ELEMENT_NOT_FOUND: no element matched ${describeLocator(locator)}${offered}${close}. Take a snapshot and address a name it renders.`,
+    )
+  }
+
+  /**
+   * Resolve one locator to a box that can be acted on.
+   *
+   * A match without a box is usually a control the page reveals on scroll, so
+   * one scroll gets a second measurement before the locator is declared
+   * invisible.
+   * @param locator - selector, or role and accessible name.
+   * @returns the viewport-relative box of the target.
+   */
+  private async locate(locator: DesktopBrowserLocator): Promise<DesktopBrowserRect> {
+    const expression = elementExpression(locator)
+    const first = await this.measure(expression)
+    if (first.box !== undefined) return first.box
+    if (first.missing) throw await this.locatorMiss(locator)
+    await this.scrollIntoView(expression).catch(() => undefined)
+    const second = await this.measure(expression)
+    if (second.box !== undefined) return second.box
+    throw new Error(
+      `BROWSER_ELEMENT_NOT_VISIBLE: ${describeLocator(locator)} exists in the page but carries no visible box; `
+      + 'take a snapshot and address a name it renders, or click the target by x and y coordinates.',
+    )
+  }
+
+  /**
+   * Measure one element expression in the page.
+   * @param expression - JavaScript expression evaluating to one element.
+   * @returns its viewport-relative box, or `undefined` when it is missing or flat.
+   */
+  async boxFor(expression: string): Promise<DesktopBrowserRect | undefined> {
+    return (await this.measure(expression)).box
   }
 
   /** The viewport-relative box of one CSS selector. */
@@ -718,9 +855,7 @@ export class DesktopBrowserPage {
    * @returns the box that was clicked.
    */
   async clickTarget(locator: { selector?: string; role?: string; name?: string }): Promise<DesktopBrowserRect> {
-    const expression = elementExpression(locator)
-    const box = await this.boxFor(expression)
-    if (box === undefined) throw new Error(`BROWSER_ELEMENT_NOT_VISIBLE: ${describeLocator(locator)}`)
+    const box = await this.locate(locator)
     const x = box.x + box.width / 2
     const y = box.y + box.height / 2
     await this.click(x, y)
@@ -733,6 +868,7 @@ export class DesktopBrowserPage {
    * @param value - text to enter.
    */
   async fillTarget(locator: { selector?: string; role?: string; name?: string }, value: string): Promise<void> {
+    await this.locate(locator)
     await this.fill(elementExpression(locator), value)
   }
 
@@ -773,20 +909,51 @@ export class DesktopBrowserPage {
       objectId,
       functionDeclaration: `function () {
         if (typeof this.focus === 'function') this.focus()
-        if (typeof this.select === 'function') this.select()
-        if (typeof this.value === 'string') {
+        if (this.isContentEditable === true) {
+          // A rich editor owns its own document: assigning textContent leaves its
+          // framework state ahead of the DOM, so the next real keystrokes are
+          // dropped and the field looks untouched. Selecting the existing text
+          // lets the browser replace it through the normal input pipeline.
+          const selection = this.ownerDocument.getSelection()
+          if (selection) {
+            selection.removeAllRanges()
+            const range = this.ownerDocument.createRange()
+            range.selectNodeContents(this)
+            selection.addRange(range)
+          }
+        } else if (typeof this.value === 'string') {
           const prototype = this instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
           const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
           if (setter) setter.call(this, '')
           else this.value = ''
-        } else if (this.isContentEditable === true) {
-          this.textContent = ''
+          if (typeof this.select === 'function') this.select()
         }
         return true
       }`,
       returnByValue: true,
     })
-    if (value !== '') await this.insertText(value)
+    if (value === '') return
+    await this.insertText(value)
+    if (await this.holdsValue(objectId, value)) return
+    // Some editors accept text only once a trusted pointer lands on them: click
+    // the target and type once more before reporting that the page refused it.
+    const placed = await this.measure(elementExpression({ selector }))
+    if (placed.box !== undefined) {
+      await this.click(placed.box.x + placed.box.width / 2, placed.box.y + placed.box.height / 2)
+      await this.insertText(value)
+      if (await this.holdsValue(objectId, value)) return
+    }
+    throw new Error(`BROWSER_FILL_REJECTED: ${selector} kept its own text, so the page ignored the value. Press its keys one at a time, or let the user type this value.`)
+  }
+
+  /** Whether one element reports the text that was just typed into it. */
+  private async holdsValue(objectId: string, value: string): Promise<boolean> {
+    const answer = await this.cdp<{ result?: { value?: unknown } }>('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: `function () { return this.isContentEditable === true ? (this.innerText || this.textContent || '') : String(this.value ?? '') }`,
+      returnByValue: true,
+    })
+    return String(answer.result?.value ?? '').includes(value)
   }
 
   /** Press one key or chord on the focused element. */

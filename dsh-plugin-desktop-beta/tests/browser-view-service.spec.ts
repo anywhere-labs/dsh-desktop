@@ -136,12 +136,12 @@ beforeEach(() => {
 })
 
 describe('guest browser view service', () => {
-  it('creates a hidden, sandboxed view in a per-owner session', async () => {
+  it('creates a hidden, sandboxed view in the shared browser profile', async () => {
     const { service, window, view, sessions } = fixture()
     await expect(service.createView({ id: 'tab-1', owner: 'session-a' })).resolves.toEqual({ id: 'tab-1' })
     expect(service.version).toBe(1)
     expect(view().options.webPreferences).toEqual({
-      partition: expect.stringMatching(/^persist:dsh-desktop-browser-[0-9a-f]{16}$/),
+      partition: 'persist:dsh-desktop-browser-profile',
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -167,14 +167,17 @@ describe('guest browser view service', () => {
     expect(download.preventDefault).toHaveBeenCalledOnce()
   })
 
-  it('keeps one session partition per owner and hides popups', async () => {
+  it('gives every owner the same browser profile and hides popups', async () => {
     const { service, views, events } = fixture()
     await service.createView({ id: 'a', owner: 'session-a' })
     await service.createView({ id: 'b', owner: 'session-a' })
     await service.createView({ id: 'c', owner: 'session-b' })
     const partition = (index: number) => views[index]!.options.webPreferences.partition
-    expect(partition(0)).toBe(partition(1))
-    expect(partition(2)).not.toBe(partition(0))
+    // One profile behind every conversation: a sign-in made in one Session is
+    // the sign-in the next Session opens the same site with.
+    expect(partition(0)).toBe('persist:dsh-desktop-browser-profile')
+    expect(partition(1)).toBe(partition(0))
+    expect(partition(2)).toBe(partition(0))
 
     const handler = views[0]!.webContents.setWindowOpenHandler.mock.calls[0]?.[0] as (
       details: { url: string },

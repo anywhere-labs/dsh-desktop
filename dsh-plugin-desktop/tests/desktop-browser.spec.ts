@@ -137,6 +137,7 @@ class ScriptedNativeBrowser implements DesktopNativeBrowser {
     if (method === 'Page.getNavigationHistory') {
       return { currentIndex: view.index, entries: view.entries.map(entry => ({ ...entry })) }
     }
+    if (method === 'Page.captureScreenshot') return { data: 'ZmFrZS1qcGVn' }
     return {}
   }
 
@@ -185,8 +186,12 @@ interface HarnessOptions {
   readonly connection?: boolean
   /** Register the Host session and sandbox-policy services. */
   readonly policy?: boolean
+  /** Session ids the fake Host does not know, so a refusal can be scripted. */
+  readonly unknownSessions?: readonly string[]
   /** Make `ctx.tools.register` reject, as a duplicate tool name does. */
   readonly toolNameTaken?: boolean
+  /** Register the Host attachment service, so screenshots take the image path. */
+  readonly attachments?: boolean
 }
 
 interface PluginHarness {
@@ -202,6 +207,8 @@ interface PluginHarness {
   readonly registerReceivers: unknown[]
   readonly sessions: { readonly get: ReturnType<typeof vi.fn> }
   readonly sandboxPolicy: { readonly resolve: ReturnType<typeof vi.fn> }
+  /** The attachment service's image sink, when the harness provides one. */
+  readonly saveImage: ReturnType<typeof vi.fn>
   /** The service `apply` provided, or a failure when it provided none. */
   service(): DesktopBrowserService
   /** The panel route `apply` registered. */
@@ -233,8 +240,8 @@ function createHarness(options: HarnessOptions = {}): PluginHarness {
   const registerReceivers: unknown[] = []
   let sandboxMode: string | undefined
 
-  // One live Session; any other id is unknown, as a deleted Session would be.
-  const sessions = { get: vi.fn((id: string) => (id === 'session-a' ? { id, header: { id } } : undefined)) }
+  const unknown = new Set(options.unknownSessions ?? [])
+  const sessions = { get: vi.fn((id: string) => (unknown.has(id) ? undefined : { id, header: { id } })) }
   const sandboxPolicy = {
     resolve: vi.fn((_input: { session?: unknown }) => (sandboxMode === undefined ? undefined : { mode: sandboxMode })),
   }
@@ -246,7 +253,9 @@ function createHarness(options: HarnessOptions = {}): PluginHarness {
   })
   fetchService.register = register
 
+  const saveImage = vi.fn(async (_input: { data: Uint8Array; mediaType: string; name: string }) => ({ attachmentId: 'sha256:test' }))
   if (options.native === true) services.set('desktopNativeBrowser', native)
+  if (options.attachments === true) services.set('attachments', { saveImage })
   if (options.connection !== false) services.set('connection', { fetch: fetchService })
   if (options.policy !== false) {
     services.set('sessions', sessions)
@@ -294,6 +303,7 @@ function createHarness(options: HarnessOptions = {}): PluginHarness {
     registerReceivers,
     sessions,
     sandboxPolicy,
+    saveImage,
     service() {
       const api = provided.get('desktopBrowser')
       if (api === undefined) throw new Error('the plugin did not provide desktopBrowser')
@@ -553,7 +563,7 @@ describe('Desktop browser Host plugin', () => {
   })
 
   it('refuses an action for a Session that does not exist', async () => {
-    const harness = createHarness({ native: true })
+    const harness = createHarness({ native: true, unknownSessions: ['session-ghost'] })
     apply(harness.ctx)
     const route = harness.route()
 
@@ -630,6 +640,33 @@ describe('Desktop browser Host plugin', () => {
       state: DesktopBrowserState
     }
     expect(idle.state).toMatchObject({ activeId: 'tab-1', tabs: [{ url: 'about:blank' }] })
+  })
+
+  it('hands a screenshot to the attachment service as image bytes', async () => {
+    const harness = createHarness({ native: true, attachments: true })
+    apply(harness.ctx)
+    const tool = harness.tools.get('desktop_browser')!
+
+    const answer = await tool.execute({ action: 'screenshot' }, harness.exec('session-a')) as { url: string; attachment: unknown }
+
+    // The service reads encoded bytes with the same decoder that admits user
+    // uploads, so base64 text would reach it as an unreadable blob.
+    expect(harness.saveImage).toHaveBeenCalledTimes(1)
+    const input = harness.saveImage.mock.calls[0]![0]
+    expect(input.mediaType).toBe('image/jpeg')
+    expect(input.data).toBeInstanceOf(Uint8Array)
+    expect(Buffer.from(input.data).toString('utf8')).toBe('fake-jpeg')
+    expect(answer.attachment).toEqual({ attachmentId: 'sha256:test' })
+  })
+
+  it('falls back to the base64 capture when the Host has no attachment service', async () => {
+    const harness = createHarness({ native: true, attachments: false })
+    apply(harness.ctx)
+    const tool = harness.tools.get('desktop_browser')!
+
+    const answer = await tool.execute({ action: 'screenshot' }, harness.exec('session-a')) as { data: string; mediaType: string }
+
+    expect(answer).toMatchObject({ data: 'ZmFrZS1qcGVn', mediaType: 'image/jpeg' })
   })
 
   it('keeps the Host alive when another plugin owns the browser tool name', async () => {

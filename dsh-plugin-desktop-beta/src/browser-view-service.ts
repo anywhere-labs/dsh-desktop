@@ -1,7 +1,6 @@
 /** Main-process owner of native guest browser views parented to the Desktop window. */
 
 import { WebContentsView, type BrowserWindow, type Session, type WebContents } from 'electron'
-import { createHash } from 'node:crypto'
 import {
   browserViewVisible,
   clampBrowserViewBounds,
@@ -37,7 +36,7 @@ export function browserViewError(code: string, detail: string): Error {
 export interface DesktopNativeBrowserViewOptions {
   /** Caller-owned view identity; creating an existing id replaces it. */
   id: string
-  /** Group used by `closeOwner` to release every view of one owner. */
+  /** Group used by `closeOwner` to release every view of one owner; it does not scope storage. */
   owner: string
   /** Initial page loaded once the view exists. */
   url?: string
@@ -99,11 +98,16 @@ interface BrowserViewEntry {
   shown: boolean
 }
 
-/** Stable per-owner partition suffix keeps one Session's storage out of every other. */
-function ownerPartition(owner: string): string {
-  const digest = createHash('sha256').update(owner, 'utf8').digest('hex').slice(0, 16)
-  return `persist:dsh-desktop-browser-${digest}`
-}
+/**
+ * The one Chromium profile every guest view shares.
+ *
+ * A profile is the unit people already know: signing in to a site once keeps
+ * that sign-in for every conversation, and the cookies, storage and cache on
+ * disk survive restarts exactly like a normal browser. Guest views stay owned
+ * per Session, so the tabs, history and panel column of one conversation never
+ * appear in another; only the profile behind them is common.
+ */
+const BROWSER_PROFILE_PARTITION = 'persist:dsh-desktop-browser-profile'
 
 /** Own every guest view of the current main window inside the Electron main process. */
 export class BrowserViewService implements DesktopNativeBrowser {
@@ -129,7 +133,7 @@ export class BrowserViewService implements DesktopNativeBrowser {
     // Replacement is a caller-owned refresh: it reports no close of its own.
     if (existing !== undefined) this.forget(existing)
     const view = new WebContentsView({ webPreferences: {
-      partition: ownerPartition(owner),
+      partition: BROWSER_PROFILE_PARTITION,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
