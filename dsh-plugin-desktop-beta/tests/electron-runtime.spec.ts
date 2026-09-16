@@ -1831,7 +1831,7 @@ describe('Electron desktop runtime', () => {
     expect(labels).toEqual([
       'Open DSH Desktop', undefined,
       'Earlier Tool', 'Later Tool', undefined,
-      'Check for Updates…', undefined,
+      'Check for Updates…', 'Project Repository', undefined,
       'Mode: Compatibility Mode', undefined,
       'Quit',
     ])
@@ -1852,6 +1852,52 @@ describe('Electron desktop runtime', () => {
       expect.objectContaining({ label: 'Earlier Tool' }),
     ]))
 
+    await release()
+  })
+
+  it.each([
+    { platform: 'win32', surface: 'tray' },
+    { platform: 'linux', surface: 'tray' },
+    { platform: 'darwin', surface: 'tray' },
+    { platform: 'darwin', surface: 'application' },
+  ] as const)('opens the project repository from the localized $platform $surface menu', async ({ platform, surface }) => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue(platform)
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const logger = { error: vi.fn(), errorCause: vi.fn() }
+    const runtime = new ElectronDesktopRuntime(async () => {}, undefined, logger)
+    const release = runtime.schedule(spec)
+    await runtime.mountScheduled()
+
+    type MenuCommand = { label?: string, click?: () => void }
+    const menuItems = (): MenuCommand[] => surface === 'application'
+      ? (electron.applicationMenuTemplates.at(-1)?.[0] as { submenu: MenuCommand[] }).submenu
+      : electron.menuTemplates.at(-1) as MenuCommand[]
+    const repository = (label: string): MenuCommand => {
+      const commands = menuItems().filter(item => item.label === label)
+      expect(commands).toHaveLength(1)
+      expect(commands[0]?.click).toEqual(expect.any(Function))
+      return commands[0]!
+    }
+    repository('Project Repository').click!()
+    await vi.waitFor(() => {
+      expect(electron.shell.openExternal).toHaveBeenCalledExactlyOnceWith('https://github.com/anywhere-labs/dsh-desktop')
+    })
+
+    const updates = runtime.registerTrayItem({
+      group: 'status', order: 10, label: () => 'Check for Updates…', invoke: vi.fn(),
+    })
+    updates.refresh()
+    repository('Project Repository')
+    updates.dispose()
+    runtime.setLocalePreference('zh')
+    expect(menuItems().some(item => item.label === 'Project Repository')).toBe(false)
+    electron.shell.openExternal.mockRejectedValueOnce(new Error('browser unavailable'))
+    repository('项目仓库').click!()
+    await vi.waitFor(() => {
+      expect(logger.error).toHaveBeenCalledWith('dsh-plugin-desktop: tray command failed: browser unavailable')
+    })
+    runtime.setLocalePreference('en')
+    repository('Project Repository')
     await release()
   })
 
