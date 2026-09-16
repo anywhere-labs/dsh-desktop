@@ -51,6 +51,10 @@
       "types": "./lib/types/profile-service.d.ts",
       "default": "./lib/profile-service.js"
     },
+    "./browser": {
+      "types": "./lib/types/desktop-browser.d.ts",
+      "default": "./lib/desktop-browser.js"
+    },
     "./desktop-plugins": {
       "types": "./lib/types/desktop-plugins.d.ts",
       "default": "./lib/desktop-plugins.js"

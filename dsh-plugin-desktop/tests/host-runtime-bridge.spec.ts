@@ -60,3 +60,58 @@ it('preserves the Web URL and authentication while projecting shell and tray cal
     expect(disposeShell).toHaveBeenCalledOnce()
   } finally { await release(); parent.close(); child.close(); port1.close(); port2.close() }
 })
+
+it('proxies native guest browser views and forwards their events to Host subscribers', async () => {
+  const { port1, port2 } = new MessageChannel()
+  const [parent, child] = [port1, port2].map(port => new HostRpc({
+    send: value => port.postMessage(value),
+    listen: receive => { port.on('message', receive); return () => { port.off('message', receive) } },
+  })) as [HostRpc, HostRpc]
+  const listeners = new Set<(event: unknown) => void>()
+  const createView = vi.fn(async () => ({ id: 'tab-1' }))
+  const setBounds = vi.fn(async () => {})
+  const command = vi.fn(async () => ({ frameId: 'frame-1' }))
+  const native = {
+    platform: 'darwin', windowsBuild: undefined, locale: 'en',
+    updates: { isPackaged: true, canDownload: true, currentVersion: '2.0.7', statePath: '/tmp/update' },
+    nativeBrowser: {
+      version: 1,
+      createView,
+      setBounds,
+      setZoom: vi.fn(async () => {}),
+      setVisible: vi.fn(async () => {}),
+      focus: vi.fn(async () => {}),
+      navigate: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      closeOwner: vi.fn(async () => {}),
+      command,
+      subscribe: (listener: (event: unknown) => void) => {
+        listeners.add(listener)
+        return () => { listeners.delete(listener) }
+      },
+    },
+  } as unknown as DesktopRuntime
+  const release = bindNativeRuntime(parent, native)
+  try {
+    const runtime = createHostRuntime(child, runtimeSnapshot(native))
+    const events: unknown[] = []
+    const unsubscribe = runtime.nativeBrowser.subscribe(event => { events.push(event) })
+    expect(runtime.nativeBrowser.version).toBe(1)
+    await runtime.nativeBrowser.createView({ id: 'tab-1', owner: 'session-a', allowOrigins: ['https://example.com'] })
+    expect(createView).toHaveBeenCalledWith({ id: 'tab-1', owner: 'session-a', allowOrigins: ['https://example.com'] })
+    await runtime.nativeBrowser.setBounds('tab-1', { x: 1, y: 2, width: 3, height: 4 })
+    expect(setBounds).toHaveBeenCalledWith('tab-1', { x: 1, y: 2, width: 3, height: 4 })
+    await expect(runtime.nativeBrowser.command('tab-1', 'Page.enable')).resolves.toEqual({ frameId: 'frame-1' })
+    expect(command).toHaveBeenCalledWith('tab-1', 'Page.enable', undefined)
+
+    for (const listener of listeners) listener({ type: 'navigated', id: 'tab-1', url: 'https://example.com/' })
+    await vi.waitFor(() => { expect(events).toHaveLength(1) })
+    expect(events[0]).toEqual({ type: 'navigated', id: 'tab-1', url: 'https://example.com/' })
+
+    unsubscribe()
+    await vi.waitFor(() => { expect(listeners.size).toBe(0) })
+    for (const listener of listeners) listener({ type: 'title', id: 'tab-1', title: 'Example' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(events).toHaveLength(1)
+  } finally { await release(); parent.close(); child.close(); port1.close(); port2.close() }
+})

@@ -194,6 +194,18 @@ DSH Desktop 将 UTF-8 日志写入 Electron 用户数据目录：Windows 位于 
 
 关闭窗口会隐藏窗口，Host Cordis 树继续运行。托盘可以重新打开窗口、选择激活 profile、打开隔离的 DSH 终端、检查 stable release、通过标准 settings namespace 更改模式，或请求显式退出。Profile 与模式切换都会先 dispose 当前 Cordis 树，再让 Electron relaunch。原生退出、`SIGINT` 与 `SIGTERM` 也会在退出前请求 dispose；超过五秒或收到重复请求时会强制完成最终退出。导航与重定向被限制在确切的 loopback origin；外部 HTTP、HTTPS 与邮件链接由操作系统打开；renderer 启用 `contextIsolation` 与 Chromium sandbox，并关闭 Node integration。
 
+## 桌面浏览器
+
+桌面浏览器是由 Desktop 窗口原生层持有的真实 Chromium guest view，而不是在 Web carrier 内渲染的页面。`desktop-browser` Host row（`dsh-plugin-desktop/browser`）消费 shell 的 `desktopNativeBrowser` capability，并在其上补充浏览语义：每个会话一个标签 store、放置规则、私有的面板通道和 Agent 工具。Host 没有原生浏览器 capability 时（普通 Web 启动或无界面 Host），该 row 不注册任何 service、tool 或 route，只记录一行信息说明原因；只有该 capability 随后出现在同一 generation 中，才安装这套界面。
+
+用户通过 conversation 头部的 **浏览器** 控件打开该界面，该控件在有标签时显示当前会话的打开标签数。Agent 通过 `desktop_browser` 工具的 `panel` action 为所在会话打开或隐藏同一面板，面板在下一次与 Host 交换时应用该指令；工具的其余 action 也会自行展开面板，让 Agent 正在操作的页面留在视野内。面板包含标签条、后退、前进、重新加载或停止、地址栏、50% 至 150% 的缩放预设，以及一个包含两种逻辑布局和当前标签访问历史的菜单。`fit` 布局把页面缩放并放入面板矩形；`desktop` 布局把逻辑视口固定为 1280 CSS 像素宽，再把该页面缩放进同一矩形。状态行报告逻辑视口尺寸、实际缩放、布局，以及最近一次 Host 交换是否成功。一个会话最多保留 12 个标签，再打开一个会以 `BROWSER_TAB_LIMIT` 失败。在页面控件之外，工具栏还带有该列自己的控件：**变窄** 与 **变宽** 按窗口宽度的八分之一移动该列，并由 frame 自己的上下限裁剪；**占满会话区（保留左侧边栏）** 把会话列与右侧栏一起交给页面，左侧边栏、标题栏行与窗口控件都保持原位，再按一次即恢复共享整行。拖拽手柄仍由 frame 掌管，因此拖拽与这些按钮作用于同一个宽度。关闭面板会保留标签，该列宽度由 frame 留到下次打开。
+
+面板界面随桌面 Client 模块分发并跟随 profile 模式，因此关掉 `desktop-browser` 行会移除 Host service、私有路由与 Agent 工具，而头部控件会保留到 shell 以 `compatibility` 模式运行。
+
+面板是普通 renderer DOM，但页面由 window server 合成在它上方。因此 renderer 上报占位矩形（单位 CSS 像素）以及它需要的缩放、布局与可见性，实际放置由 shell 完成，并被限制在内容区域内。面板通信使用私有的同源路径 `/api/dsh-desktop-browser`；每个请求只携带一个会话 id，每个 action 都是一个 JSON body。所有 guest view 共用一个持久化 Chromium profile（`persist:dsh-desktop-browser-profile`）：在一个会话里登录某个站点，下个会话打开同一站点就是登录态，cookie、存储与缓存重启后仍在；标签、历史与面板列仍归属打开它们的那个会话。
+
+其他插件使用 Host service `ctx.desktopBrowser`；只要原生 capability 存在，该 service 就存在。它公开 `version`、`available`、`open()`、`store()`、`existing()`、`state()`、`openTab()`、`closeTab()`、`act()`、`panel()`、`directive()` 与 `subscribe()`，各成员语义与稳定性见 [插件 service contract](docs/plugin-services.zh.md)。Agent 工具名为 `desktop_browser`，覆盖 navigate、snapshot、screenshot、click、fill、press、scroll、console、evaluate、tabs、close 与 panel。返回给 Agent 的页面文本属于不可信任务数据；截图需要具备图像能力的模型。
+
 ## 打包
 
 Stable 与 Beta 在 Windows、macOS 和 Linux 上均关闭 ASAR。打包后的 Electron smoke 会通过本地文件系统后端验证随包 Cordis 技能。
