@@ -70,7 +70,7 @@
 | 浏览器内核 | Electron 43 的 Chromium，guest 由主进程 `WebContentsView` 承载 |
 | 测试页 | 本地 fixture 服务 `127.0.0.1:8899`（含 4 秒延迟页 `/slow.html`） |
 | 驱动 | 验收脚本在与本仓库并列的工作区维护，不随后者提交：`run.mjs` + `cdp.mjs`，直接使用 DevTools 协议与真实指针/键盘事件，未使用任何浏览器自动化框架 |
-| 截图 | `window-capture.mjs`，经 Electron 的窗口捕获取得合成窗口像素 |
+| 截图 | `window-capture.mjs`，经 Electron 的窗口捕获取得合成窗口像素；动图由 `window-record.mjs` 以 20 fps 录制同一来源，再经 ffmpeg 转 GIF |
 | 观测口径 | Host 状态经面板私有通道读取；面板与页面断言分别取自渲染进程和 guest 页自身的调试目标；渲染进程错误经 `window.onerror` 钩子收集 |
 
 ## 用例与结果
@@ -285,7 +285,7 @@ dsh-plugin-desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electr
 
 # 测试页与验收驱动
 node <acceptance>/fixture-server.mjs &
-node <acceptance>/run.mjs                # 全部 63 个用例
+node <acceptance>/run.mjs                # 全部 64 个用例
 node <acceptance>/run.mjs layout regress # 只跑指定分组
 
 # 证据图：驱动到目标状态后抓取合成窗口像素
