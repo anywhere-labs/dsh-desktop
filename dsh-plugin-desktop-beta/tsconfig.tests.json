@@ -13,6 +13,7 @@
     "tests/client-browser-column.spec.ts",
     "tests/client-environment.spec.ts",
     "tests/client-layout-service.spec.ts",
+    "tests/client-sidebar-dom-anchor.spec.ts",
     "tests/theme-presenter.spec.ts"
   ]
 }

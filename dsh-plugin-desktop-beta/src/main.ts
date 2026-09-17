@@ -133,6 +133,7 @@ import {
 import {
   migrateDesktopBrowserAccessSettings,
   migrateDesktopWindowMaterialSettings,
+  migrateLegacyAgentPresetSettings,
   readDesktopSetupWizardSettings,
   updateDesktopSetupWizardSettings,
   type DesktopSetupWizardSettings,
@@ -1191,6 +1192,30 @@ async function start(): Promise<void> {
       marketSelection,
       preparationHooks,
     )
+    let legacyPresetMigrated = false
+    if (safeModePaths === undefined) {
+      try {
+        legacyPresetMigrated = await migrateLegacyAgentPresetSettings(prepared.settingsDocument)
+      } catch (cause) {
+        // A Profile whose settings document cannot be rewritten keeps the
+        // broken default it already had. Throwing here would trade that one
+        // failing preset id for the recovery window on every launch.
+        electronLogger.error(
+          `${BIN_NAME}: failed to persist legacy agent preset migration: ${cause instanceof Error ? cause.message : String(cause)}`,
+        )
+      }
+    }
+    if (legacyPresetMigrated) {
+      prepared = prepareDesktopProfile(
+        process.env.DSH_TELEMETRY_DISABLED,
+        homeDir,
+        process.platform,
+        activeProfileName,
+        pluginManagementStatePath,
+        marketSelection,
+        preparationHooks,
+      )
+    }
     if (safeModePaths !== undefined) {
       const safeModeDefaults = DESKTOP_SAFE_MODE_DEFAULTS
       await updateDesktopSetupWizardSettings(prepared.settingsDocument, safeModeDefaults.settings)
