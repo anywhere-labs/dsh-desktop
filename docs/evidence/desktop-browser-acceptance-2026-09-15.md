@@ -2,7 +2,7 @@
 
 ## 结论
 
-- 结果：通过。第一轮 64 个用例、第二轮 12 个、第三轮 14 个、第四轮 8 个、第五轮 7 个全部通过（含既有功能未受影响的 11 项回归），共发现并修复 27 处真实缺陷，每处都有一项以上用例复测。
+- 结果：通过。第一轮 64 个用例、第二轮 12 个、第三轮 14 个、第四轮 8 个、第五轮 7 个、第六轮 6 个全部通过（含既有功能未受影响的 11 项回归），共发现并修复 30 处真实缺陷，每处都有一项以上用例复测。
 - 范围：`dsh-plugin-desktop` 的桌面浏览器右侧栏面板、Agent `desktop_browser` 工具、Host `desktopBrowser` service 与面板私有通道；未修改 `deepseek-harness` 子模块。
 - 验收对象：工作区内的开发构建（`dsh-plugin-desktop` 源码 + `node_modules/electron` 43），不是已发布的安装包。
 - 面板形态：浏览器以**右侧栏列**形式停靠，与会话并列，不占用独立窗口；这一列可以在保留左侧边栏的前提下展开到整个会话区，宽度由会话列的分隔手柄直接拖拽。
@@ -401,6 +401,45 @@
 - 交接与登录使用不同配置：交接打开用户日常配置且不启动调试端口，登录使用隔离配置并只在登录期间监听本机调试端口。
 - 两个版本共用的源文件为 196 个（`check:desktop-variants`）。
 
+## 第六轮：右列归属与打开文件
+
+### 测试系统（第六轮）
+
+| 项目 | 值 |
+| --- | --- |
+| 日期 | 2026-09-17（Asia/Shanghai） |
+| 主机 | macOS 26.5.1（darwin），Apple Silicon，窗口 1280×840 CSS，DPR 2 |
+| 应用 | 已安装构建 `/Applications/DSH Desktop.app` 2.0.10（以 `--remote-debugging-port=9333` 启动） |
+| 桌面模式 | `advanced`（`~/.dsh-desktop/settings.yaml`），右侧边栏为官方 `ui-sidebar-right` |
+| 观测口径 | 面板与侧边栏的表面取自渲染进程 DOM（`[data-dsh-desktop-browser="panel"]`、`[data-sidebar-right-panel]`、`[data-sidebar-right-open]`、`iframe[src^="blob:"]`）与 frame 的 `grid-template-columns`；点击使用 `cdp-click.mjs` 派发真实指针事件 |
+| 驱动 | `cdp-eval.mjs`、`cdp-click.mjs` 经 DevTools 协议驱动渲染进程 |
+
+### 用例与结果（第六轮）
+
+| 编号 | 用例 | 结果 | 观测 |
+| --- | --- | --- | --- |
+| J1 | 面板打开时官方右侧边栏的会话表面仍在 | ✅ 通过 | `{"panel":true,"toggle":"true","sidebarMounted":true,"sidebarOpen":false,"column":{"x":704,"w":577},"grid":"280px minmax(0px, 1fr) 576px"}` |
+| J2 | 面板打开时点击文件卡「打开」不再报错，文件在侧边栏预览 | ✅ 通过 | `{"dialog":false,"panel":false,"toggle":"false","sidebarOpen":true,"preview":{"x":704,"w":576,"h":732},"sidebarTitle":"pelican-bicycle.html…"}`；预览为 `blob:` iframe，落在与面板相同的轨道 |
+| J3 | 上述步骤后浏览器面板让出该列 | ✅ 通过 | 同一读数中 `panel:false`、`toggle:"false"`，即面板关闭自身并保留标签 |
+| J4 | 侧边栏展开时重新打开面板，面板不被立即关闭 | ✅ 通过 | 打开后 4 秒复读：`{"panel":true,"toggle":"true","sidebarOpen":true,"sidebarMounted":true,"grid":"280px minmax(0px, 1fr) 576px","previewStill":true}` |
+| J5 | 面板自身功能不受影响 | ✅ 通过 | 地址栏输入 `example.com` 并点击打开后，DevTools 目标出现 `Example Domain / https://example.com/`，面板状态行报 `576×709 100% 适配面板` |
+| J6 | 列归属与接管语义由单元用例覆盖 | ✅ 通过 | `tests/client-browser-column.spec.ts` 8 项：呈现回落、接管标记的置位与清除、frame 把 `sidebarTakeover` 交给图层、面板占用的引用计数、释放不关闭侧边栏自己的轨道 |
+
+### 第六轮发现并修复的缺陷
+
+| 现象 | 根因 | 修复 |
+| --- | --- | --- |
+| 面板打开时点击「打开」弹出「无法打开文件 / sidebarRight: no session surface is mounted」 | 面板以 `rightbar` 的优先级 occupant 身份占住该槽位，官方右侧边栏的 seat 因此从未挂载，`sidebarRight` 没有绑定任何会话表面，`openResource` 直接抛错 | 面板改为注册自己的 `desktop.browser.column` 图层，官方侧边栏保有 `rightbar` 席位并全程挂载；空图层不接受指针事件 |
+| 面板占用该列时打开文件，预览被面板盖住 | 面板与侧边栏向同一个 layout 服务报告同一组字段，面板的占用在侧边栏显示内容后仍然生效 | layout 状态分别记录两方的呈现；面板占用期间侧边栏由隐藏变为显示时，frame 把 `sidebarTakeover` 交给面板图层，面板关闭自身并让出该列 |
+| 关闭面板会把正在显示的侧边栏一并收起 | 面板的释放路径直接调用 `closeRightbar()`，覆盖了侧边栏自己的报告 | 释放只撤销面板自己的占用，列归属回落到侧边栏的报告；侧边栏显示中则保留其轨道 |
+
+### 第六轮的系统观察
+
+- 官方侧边栏与浏览器面板现在同时存在：面板打开期间侧边栏的会话表面保持挂载，因此文件预览、`sidebarRight` 命令与后续扩展在面板可见时仍然可用。
+- 让位由状态决定而不是由事件顺序决定：面板的占用在存续期间优先，侧边栏自己抬起面板则接管；在一个已经显示的侧边栏之上重新打开面板不会被立刻关闭。
+- 该列只有一个根作用域的图层，跟随屏幕上的会话，因此多会话各自保持面板时不再注册互相竞争的 occupant。
+- 两个版本共用的源文件为 196 个（`check:desktop-variants`）；`check:bilingual-docs` 的 51 条记录一致；`dsh-plugin-desktop` 1522 个测试通过，仅剩与本轮无关的既有失败（`tests/windows-nsis-ab.spec.ts` 1 项、受限沙箱下 `tests/host-process-integration.spec.ts` 2 项）。
+
 ## 过程中发现并修复的缺陷
 
 | 现象 | 根因 | 修复 |
@@ -416,7 +455,7 @@
 
 ## 其他功能未受影响
 
-- `R1`–`R5` 在浏览器功能安装后复核既有界面：官方右侧边栏（文件/浏览器入口）在浏览器关闭时独立可用、在浏览器打开时让位、在浏览器关闭后重新可用；终端停靠面板仍可打开、新建终端并通过真实按键接受命令；明暗主题同时作用于官方界面与浏览器面板。
+- `R1`–`R5` 在浏览器功能安装后复核既有界面：官方右侧边栏（文件/浏览器入口）在浏览器关闭时独立可用，在浏览器打开时保持挂载并由面板图层覆盖、其内容随后可接管该列；终端停靠面板仍可打开、新建终端并通过真实按键接受命令；明暗主题同时作用于官方界面与浏览器面板。
 - `check:desktop-variants` 确认两个版本共用的 194 个源文件一致；`check:bilingual-docs`、`check:architecture`、`check:vendored-runtime`、`verify-layout` 均通过。
 - 兼容模式（`compatibility`）不加载浏览器面板，客户端环境用例覆盖该分支；`dsh-plugin-desktop` 的 1475 个测试通过，仅剩与本次改动无关的既有 NSIS 失败。
 

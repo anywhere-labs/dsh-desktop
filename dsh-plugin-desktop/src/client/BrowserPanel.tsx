@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExter
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from './contracts.ts'
 import { BROWSER_ZOOM_LEVELS, DesktopBrowserPanelController, type BrowserPanelSnapshot } from './browser-panel.ts'
 import type { DesktopBrowserLocaleKey } from './browser-locales.ts'
 import { DesktopBrowserGlyph } from './browser-glyphs.tsx'
@@ -16,9 +17,9 @@ export interface DesktopBrowserPanelInjected {
   readonly controller: (sessionId: string) => DesktopBrowserPanelController
 }
 
-/** Props of the panel's right-column entry. */
+/** Props of the panel's own layer over the right track. */
 export type DesktopBrowserPanelProps =
-  PropsRuntime<'rightbar'>
+  PropsRuntime<'desktop.browser.column'>
   & PropsLocale<'desktop.browser'>
   & InjectFace<DesktopBrowserPanelInjected>
 
@@ -31,10 +32,10 @@ export type DesktopBrowserToggleProps =
 type Translate = (key: DesktopBrowserLocaleKey) => string
 
 /** The overlay entry: resolves the Session and defers every hook to its child. */
-export function DesktopBrowserPanel({ t, useSessions, controller }: DesktopBrowserPanelProps): React.ReactElement | null {
+export function DesktopBrowserPanel({ t, useSessions, controller, sidebarTakeover }: DesktopBrowserPanelProps): React.ReactElement | null {
   const sessionId = useSessions(list => list.current)
   if (sessionId === undefined) return null
-  return <BrowserPanelForSession controller={controller(sessionId)} t={t} />
+  return <BrowserPanelForSession controller={controller(sessionId)} t={t} sidebarTakeover={sidebarTakeover} />
 }
 
 /** The header button that shows and hides the panel for one Session. */
@@ -76,9 +77,10 @@ function failureReason(snapshot: BrowserPanelSnapshot): string {
     : snapshot.loadError ?? ''
 }
 
-function BrowserPanelForSession({ controller, t }: {
+function BrowserPanelForSession({ controller, t, sidebarTakeover }: {
   controller: DesktopBrowserPanelController
   t: Translate
+  sidebarTakeover: boolean
 }): React.ReactElement | null {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const stage = useRef<HTMLDivElement>(null)
@@ -102,6 +104,14 @@ function BrowserPanelForSession({ controller, t }: {
   useEffect(() => {
     controller.idle()
   }, [controller, snapshot.open])
+
+  // The shipped right Sidebar raised its own panel — it just previewed a file the
+  // user opened — so the column is that content's; the panel steps aside and
+  // keeps its tabs for the next time the control opens it.
+  useEffect(() => {
+    if (!sidebarTakeover) return
+    controller.setOpen(false)
+  }, [controller, sidebarTakeover])
 
   // The page is composited above the renderer, so any transient surface drawn
   // over the placeholder must withdraw the view for as long as it is open.

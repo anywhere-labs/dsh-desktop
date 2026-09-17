@@ -24,6 +24,10 @@ interface DesktopRightbarControl {
   closeRightbar?(): void
   /** Give the column an explicit width; the frame clamps it to its own limits. */
   setRightbar?(width: number, viewport: number): void
+  /** Claim the column for the browser panel, above the shipped Sidebar's own report. */
+  showBrowserColumn?(track: boolean, fullscreen: boolean): void
+  /** Drop that claim, leaving the column to the shipped Sidebar's report. */
+  hideBrowserColumn?(): void
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -36,25 +40,40 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Register the header toggle and the browser's right column for desktop-owned presentations. */
 export function applyDesktopBrowser(ctx: ClientContext): void {
   const controllers = new Map<string, DesktopBrowserPanelController>()
+  /** Sessions whose panel is open; the column layer exists while this is not empty. */
+  const shown = new Set<string>()
   // The right column is one root-scoped surface, so the browser registers a
-  // single occupant for the whole app and lets it render whichever Session is
-  // current. One occupant per Session would collide at the same priority as
-  // soon as a second Session opened the panel.
-  let occupant: (() => void) | undefined
+  // single layer for the whole app and lets it render whichever Session is
+  // current. One layer per Session would collide at the same priority as soon
+  // as a second Session opened the panel.
+  let layer: (() => void) | undefined
   const t = ctx.locale.bind(DESKTOP_BROWSER_LOCALE_NAMESPACE)
 
   /** The frame's own layout service, which owns the right column's geometry. */
   const layout = (): DesktopRightbarControl | undefined => ctx.get('layout') as DesktopRightbarControl | undefined
+
+  /**
+   * Drop the browser's claim on the column.
+   *
+   * What happens next belongs to the shipped right Sidebar: it reports its own
+   * panel through `openRightbar`, so a Sidebar that is showing keeps its track
+   * and a column nobody claims closes.
+   */
+  const handBackColumn = (): void => { layout()?.hideBrowserColumn?.() }
 
   /** The per-Session controller factory shared by the toggle and the column. */
   const controller = (sessionId: string): DesktopBrowserPanelController => {
     const existing = controllers.get(sessionId)
     if (existing !== undefined) return existing
     const created = new DesktopBrowserPanelController(sessionId, {
-      onVisibility: open => { if (open) acquire(); else release() },
-      onIdle: () => { layout()?.closeRightbar?.() },
+      onVisibility: open => {
+        if (open) shown.add(sessionId)
+        else shown.delete(sessionId)
+        syncLayer()
+      },
+      onIdle: handBackColumn,
       onEnsure: ensureColumn,
-      onFullscreen: fullscreen => { layout()?.openRightbar?.(true, fullscreen) },
+      onFullscreen: fullscreen => { layout()?.showBrowserColumn?.(true, fullscreen) },
     })
     controllers.set(sessionId, created)
     return created
@@ -65,22 +84,29 @@ export function applyDesktopBrowser(ctx: ClientContext): void {
    * The panel's own fullscreen intent rides along, because a track re-asserted
    * without it would quietly hand the conversation its width back mid-session.
    */
-  const ensureColumn = (fullscreen: boolean): void => { layout()?.openRightbar?.(true, fullscreen) }
+  const ensureColumn = (fullscreen: boolean): void => { layout()?.showBrowserColumn?.(true, fullscreen) }
+
+  /** Register the panel's layer while any Session shows a panel, and drop it otherwise. */
+  const syncLayer = (): void => {
+    if (shown.size === 0) release()
+    else acquire()
+  }
 
   const release = (): void => {
-    const dispose = occupant
+    const dispose = layer
     if (dispose === undefined) return
-    occupant = undefined
+    layer = undefined
     dispose()
-    layout()?.closeRightbar?.()
+    handBackColumn()
   }
 
   const acquire = (): void => {
-    // The shipped right Sidebar owns `rightbar` at the default priority; the
-    // browser shadows it while open and hands the column back on close.
-    occupant ??= ctx.slots.inject('rightbar', () => ctx.slots.register({
-      name: 'rightbar',
-      priority: -1,
+    // The shipped right Sidebar owns the `rightbar` seat for good: the panel
+    // draws its own layer over the same track, so the Sidebar stays mounted and
+    // the commands that need its session surface keep working while it is
+    // covered.
+    layer ??= ctx.slots.inject('desktop.browser.column', () => ctx.slots.register({
+      name: 'desktop.browser.column',
       locale: DESKTOP_BROWSER_LOCALE_NAMESPACE,
       inject: () => ({ controller }),
     }, DesktopBrowserPanel))
@@ -98,11 +124,12 @@ export function applyDesktopBrowser(ctx: ClientContext): void {
   )
   ctx.effect(
     () => () => {
-      occupant?.()
-      occupant = undefined
+      layer?.()
+      layer = undefined
+      shown.clear()
       for (const panel of controllers.values()) panel.dispose()
       controllers.clear()
-      layout()?.closeRightbar?.()
+      layout()?.hideBrowserColumn?.()
     },
     'dsh-plugin-desktop: browser panels',
   )

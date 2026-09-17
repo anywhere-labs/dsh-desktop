@@ -2,7 +2,7 @@
 
 /** Panel stylesheet, kept as a string so the client bundle stays self-contained. */
 export const DESKTOP_BROWSER_STYLES = `
-.dshDesktopBrowserPanel { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; border-left: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-size: 13px; }
+.dshDesktopBrowserPanel { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; border-left: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-size: 13px; pointer-events: auto; }
 .dshDesktopBrowserPanelToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; row-gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-2); -webkit-app-region: no-drag; }
 .dshDesktopBrowserPanelButton { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
 .dshDesktopBrowserPanelButton:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }

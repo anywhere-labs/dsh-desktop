@@ -198,14 +198,21 @@ DSH Desktop 将 UTF-8 日志写入 Electron 用户数据目录：Windows 位于 
 
 桌面浏览器是由 Desktop 窗口原生层持有的真实 Chromium guest view，而不是在 Web carrier 内渲染的页面。`desktop-browser` Host row（`dsh-plugin-desktop/browser`）消费 shell 的 `desktopNativeBrowser` capability，并在其上补充浏览语义：每个会话一个标签 store、放置规则、私有的面板通道和 Agent 工具。Host 没有原生浏览器 capability 时（普通 Web 启动或无界面 Host），该 row 不注册任何 service、tool 或 route，只记录一行信息说明原因；只有该 capability 随后出现在同一 generation 中，才安装这套界面。
 
-用户通过 conversation 头部的 **浏览器** 控件打开该界面，该控件在有标签时显示当前会话的打开标签数。Agent 通过 `desktop_browser` 工具的 `panel` action 为所在会话打开或隐藏同一面板，面板在下一次与 Host 交换时应用该指令；工具的其余 action 也会自行展开面板，让 Agent 正在操作的页面留在视野内。面板包含标签条、后退、前进、重新加载或停止、地址栏、50% 至 150% 的缩放预设，以及一个包含两种逻辑布局和当前标签访问历史的菜单。`fit` 布局把页面缩放并放入面板矩形；`desktop` 布局把逻辑视口固定为 1280 CSS 像素宽，再把该页面缩放进同一矩形。状态行报告逻辑视口尺寸、实际缩放、布局，以及最近一次 Host 交换是否成功。一个会话最多保留 12 个标签，再打开一个会以 `BROWSER_TAB_LIMIT` 失败。在页面控件之外，工具栏还带有该列自己的控件：**变窄** 与 **变宽** 按窗口宽度的八分之一移动该列，并由 frame 自己的上下限裁剪；**占满会话区（保留左侧边栏）** 把会话列与右侧栏一起交给页面，左侧边栏、标题栏行与窗口控件都保持原位，再按一次即恢复共享整行。拖拽手柄仍由 frame 掌管，因此拖拽与这些按钮作用于同一个宽度。关闭面板会保留标签，该列宽度由 frame 留到下次打开。
+用户通过 conversation 头部的 **浏览器** 图标控件打开该界面：悬浮提示说明用途，按下态反映面板开关，标签数量变化不影响它的位置与宽度。Agent 通过 `desktop_browser` 工具的 `panel` action 为所在会话打开或隐藏同一面板，面板在下一次与 Host 交换时应用该指令；工具的其余 action 也会自行展开面板，让 Agent 正在操作的页面留在视野内。面板包含标签条、后退、前进、重新加载或停止、地址栏、50% 至 150% 的缩放预设，以及一个包含两种逻辑布局和当前标签访问历史的菜单。`fit` 布局把页面缩放并放入面板矩形；`desktop` 布局把逻辑视口固定为 1280 CSS 像素宽，再把该页面缩放进同一矩形。状态行报告逻辑视口尺寸、实际缩放、布局，以及最近一次 Host 交换是否成功。一个会话最多保留 12 个标签，再打开一个会以 `BROWSER_TAB_LIMIT` 失败。工具栏中该列自己的控件只保留 **占满会话区（保留左侧边栏）**：它把会话列与右侧栏一起交给页面，左侧边栏、标题栏行与窗口控件都保持原位，再按一次即恢复共享整行；列宽本身由 frame 的分隔手柄拖拽。关闭面板会保留标签，该列宽度由 frame 留到下次打开。
+
+不带 scheme 的地址按浏览器的方式补全：裸域名与 `域名:端口` 以 `https` 打开，而 `localhost`、`127.0.0.1`、`[::1]` 与 `*.localhost` 以 `http` 打开，因为本机服务器没有证书。具名 scheme 一律不改写，导航策略仍按原样判定 `file:`、`mailto:` 与 `javascript:` 地址。页面打不开时，地址保留在地址栏中，标签也保留该链接，页面区域显示面板自己的提示（原因、重试、关闭），而不是回退到空白页或用户正要离开的页面；被导航策略拒绝的地址同样保留当前文档，并以同一方式说明原因。
+
+guest view 以自己真实运行的浏览器身份对外：User-Agent、`navigator.userAgentData` 与 `sec-ch-ua*` 请求头只包含 Electron 所使用的 Chromium 版本、不带应用标识，`Accept-Language` 沿用面板自己的语言列表。
 
 面板界面随桌面 Client 模块分发并跟随 profile 模式，因此关掉 `desktop-browser` 行会移除 Host service、私有路由与 Agent 工具，而头部控件会保留到 shell 以 `compatibility` 模式运行。
+
 Google 账号页面无法在这个窗口里完成，因此面板把这件事交给 Chrome。只有带着近期输入的 guest 页面才能在需要 Google 账号时请求 Chrome——输入可以是用户自己的指针或键盘操作，也可以是 Agent 经面板派发的点击。面板随后打开原生 Chrome，等 Chrome 自己离开 Google 的登录表单后，把由此得到的 Google cookie 复制进共享 guest profile，并让每个已打开的 Google 标签重新加载为已登录。页面在没有近期输入的情况下自行走到这类地址时，不会打开任何窗口。状态行报告所处阶段，工具菜单可手动开始或取消同一次登录；同一个页面只询问一次，取消之后不再自行询问，而已经持有有效 Google 会话的 profile 不会因此打开 Chrome。
 
 工具栏的 Chrome 控件把整个标签条交出去：每个带 `http(s)` 地址的打开标签都会成为用户自己 Chrome 配置里一个新窗口的标签——那正是已经保存其登录态的配置——打开该窗口不需要调试端口，也不改动面板、标签与其历史。标签中没有这类地址时，该动作以 `BROWSER_NO_URLS` 失败。
 
 面板是普通 renderer DOM，但页面由 window server 合成在它上方。因此 renderer 上报占位矩形（单位 CSS 像素）以及它需要的缩放、布局与可见性，实际放置由 shell 完成，并被限制在内容区域内。面板通信使用私有的同源路径 `/api/dsh-desktop-browser`；每个请求只携带一个会话 id，每个 action 都是一个 JSON body。所有 guest view 共用一个持久化 Chromium profile（`persist:dsh-desktop-browser-profile`）：在一个会话里登录某个站点，下个会话打开同一站点就是登录态，cookie、存储与缓存重启后仍在；标签、历史与面板列仍归属打开它们的那个会话。
+
+面板把右侧轨道画成自己的一层，覆盖在官方右侧边栏之上，而该轨道的席位仍属于官方右侧边栏：面板打开期间它的会话表面保持挂载，它自己的命令因此照常可用——从会话里或工作区文件列表里打开文件仍在那里预览。当浏览器占用该列时，侧边栏抬起自己的面板会让面板让出该列，由侧边栏显示这份内容；头部控件可以把面板重新打开，而在一个已经显示的侧边栏之上打开的面板会留在原位。
 
 其他插件使用 Host service `ctx.desktopBrowser`；只要原生 capability 存在，该 service 就存在。它公开 `version`、`available`、`open()`、`store()`、`existing()`、`state()`、`openTab()`、`closeTab()`、`act()`、`panel()`、`directive()` 与 `subscribe()`，各成员语义与稳定性见 [插件 service contract](docs/plugin-services.zh.md)。Agent 工具名为 `desktop_browser`，覆盖 navigate、snapshot、screenshot、click、fill、press、scroll、console、evaluate、tabs、close 与 panel。返回给 Agent 的页面文本属于不可信任务数据；截图需要具备图像能力的模型。
 

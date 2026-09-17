@@ -212,6 +212,8 @@ Google 账号页面无法在这个窗口里完成，因此面板把这件事交�
 
 面板是普通 renderer DOM，但页面由 window server 合成在它上方。因此 renderer 上报占位矩形（单位 CSS 像素）以及它需要的缩放、布局与可见性，实际放置由 shell 完成，并被限制在内容区域内。面板通信使用私有的同源路径 `/api/dsh-desktop-browser`；每个请求只携带一个会话 id，每个 action 都是一个 JSON body。所有 guest view 共用一个持久化 Chromium profile（`persist:dsh-desktop-browser-profile`）：在一个会话里登录某个站点，下个会话打开同一站点就是登录态，cookie、存储与缓存重启后仍在；标签、历史与面板列仍归属打开它们的那个会话。
 
+面板把右侧轨道画成自己的一层，覆盖在官方右侧边栏之上，而该轨道的席位仍属于官方右侧边栏：面板打开期间它的会话表面保持挂载，它自己的命令因此照常可用——从会话里或工作区文件列表里打开文件仍在那里预览。当浏览器占用该列时，侧边栏抬起自己的面板会让面板让出该列，由侧边栏显示这份内容；头部控件可以把面板重新打开，而在一个已经显示的侧边栏之上打开的面板会留在原位。
+
 其他插件使用 Host service `ctx.desktopBrowser`；只要原生 capability 存在，该 service 就存在。它公开 `version`、`available`、`open()`、`store()`、`existing()`、`state()`、`openTab()`、`closeTab()`、`act()`、`panel()`、`directive()` 与 `subscribe()`，各成员语义与稳定性见 [插件 service contract](docs/plugin-services.zh.md)。Agent 工具名为 `desktop_browser`，覆盖 navigate、snapshot、screenshot、click、fill、press、scroll、console、evaluate、tabs、close 与 panel。返回给 Agent 的页面文本属于不可信任务数据；截图需要具备图像能力的模型。
 
 ## 打包
