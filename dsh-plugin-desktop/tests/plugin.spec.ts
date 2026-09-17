@@ -138,6 +138,10 @@ function createHarness(
       closeOwner: async () => {},
       command: async () => undefined,
       subscribe: () => () => {},
+      googleLoginStatus: async () => ({ phase: 'idle' }),
+      startGoogleLogin: async () => ({ phase: 'idle' }),
+      cancelGoogleLogin: async () => {},
+      openInChrome: async (urls: readonly string[]) => urls.length,
     },
     schedule: (spec) => {
       shell = spec

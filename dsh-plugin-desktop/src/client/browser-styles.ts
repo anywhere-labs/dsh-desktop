@@ -26,6 +26,11 @@ export const DESKTOP_BROWSER_STYLES = `
 .dshDesktopBrowserPanelStage { position: relative; flex: 1; min-height: 120px; background: var(--dsw-alias-bg-base); }
 .dshDesktopBrowserPanelEmpty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center; color: var(--dsw-alias-label-tertiary); }
 .dshDesktopBrowserPanelEmptyTitle { color: var(--dsw-alias-label-secondary); font-size: 14px; }
+.dshDesktopBrowserPanelFailure { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; background: var(--dsw-alias-bg-layer-1); text-align: center; }
+.dshDesktopBrowserPanelFailureTitle { color: var(--dsw-alias-label-primary); font-size: 14px; }
+.dshDesktopBrowserPanelFailureAddress { max-width: 100%; overflow-wrap: anywhere; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dshDesktopBrowserPanelFailureReason { max-width: 100%; overflow-wrap: anywhere; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.dshDesktopBrowserPanelFailureActions { display: flex; gap: 8px; }
 .dshDesktopBrowserPanelStatus { display: flex; align-items: center; gap: 10px; padding: 5px 10px; border-top: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-tertiary); font-size: 11px; }
 .dshDesktopBrowserPanelStatusSpacer { flex: 1; }
 .dshDesktopBrowserPanelDot { width: 7px; height: 7px; border-radius: 50%; background: var(--dsw-alias-label-dimmed); }
@@ -37,10 +42,9 @@ export const DESKTOP_BROWSER_STYLES = `
 .dshDesktopBrowserPanelMenuItem[data-selected="true"] { color: var(--dsw-alias-brand-primary); }
 .dshDesktopBrowserPanelMenuGroup { padding: 6px 8px 2px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
 .dshDesktopBrowserPanelHistory { max-height: 220px; overflow-y: auto; }
-.dshDesktopBrowserToggle { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; cursor: pointer; }
+.dshDesktopBrowserToggle { display: inline-flex; align-items: center; height: 28px; padding: 0 6px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; cursor: pointer; }
 .dshDesktopBrowserToggle:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .dshDesktopBrowserToggle[aria-pressed="true"] { border-color: var(--dsw-alias-button-ghost-active-border); background: var(--dsw-alias-button-ghost-active-fill); color: var(--dsw-alias-label-primary); }
-.dshDesktopBrowserToggleCount { padding: 0 5px; border-radius: 8px; background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-label-secondary); font-size: 11px; }
 `
 
 /** Install the panel stylesheet once per renderer generation. */

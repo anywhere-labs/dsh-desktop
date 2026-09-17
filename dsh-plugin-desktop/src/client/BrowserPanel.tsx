@@ -8,6 +8,7 @@ import { BROWSER_ZOOM_LEVELS, DesktopBrowserPanelController, type BrowserPanelSn
 import type { DesktopBrowserLocaleKey } from './browser-locales.ts'
 import { DesktopBrowserGlyph } from './browser-glyphs.tsx'
 import type { DesktopBrowserLayout } from '../desktop-browser-session.ts'
+import type { GoogleLoginStatus } from '../google-login-status.ts'
 
 /** Registration-side capability: the per-Session panel controller factory. */
 export interface DesktopBrowserPanelInjected {
@@ -30,10 +31,10 @@ export type DesktopBrowserToggleProps =
 type Translate = (key: DesktopBrowserLocaleKey) => string
 
 /** The overlay entry: resolves the Session and defers every hook to its child. */
-export function DesktopBrowserPanel({ t, useSessions, controller, width, viewportWidth }: DesktopBrowserPanelProps): React.ReactElement | null {
+export function DesktopBrowserPanel({ t, useSessions, controller }: DesktopBrowserPanelProps): React.ReactElement | null {
   const sessionId = useSessions(list => list.current)
   if (sessionId === undefined) return null
-  return <BrowserPanelForSession controller={controller(sessionId)} t={t} width={width} viewportWidth={viewportWidth} />
+  return <BrowserPanelForSession controller={controller(sessionId)} t={t} />
 }
 
 /** The header button that shows and hides the panel for one Session. */
@@ -45,31 +46,39 @@ export function DesktopBrowserToggle({ t, sessionId, controller }: DesktopBrowse
     // button can show whether the Agent opened the panel for this Session.
     panel.start()
   }, [panel])
-  const tabCount = snapshot.state?.tabs.length ?? 0
+  // The header is crowded, so the control is its icon alone and the tooltip
+  // carries the name; the panel itself reports the open tabs.
   return (
     <button
       type="button"
       className="dshDesktopBrowserToggle"
       data-dsh-desktop-browser-action="toggle"
       aria-pressed={snapshot.open}
-      title={t('toggleHint')}
+      aria-label={t('toggle')}
+      title={t('toggle')}
       onClick={() => { panel.toggle() }}
     >
       <DesktopBrowserGlyph name="browser" />
-      <span>{t('toggle')}</span>
-      {tabCount > 0 && <span className="dshDesktopBrowserToggleCount" data-dsh-desktop-browser="tab-count">{tabCount}</span>}
     </button>
   )
 }
 
 /** One Session's panel instance. */
-function BrowserPanelForSession({ controller, t, width, viewportWidth }: {
+/**
+ * Why a page did not open, without repeating the address shown above it.
+ * @param snapshot - panel state carrying the failure.
+ * @returns the reason alone when the Host prefixed it with the address.
+ */
+function failureReason(snapshot: BrowserPanelSnapshot): string {
+  const prefix = `${snapshot.address} `
+  return snapshot.loadError !== undefined && snapshot.loadError.startsWith(prefix)
+    ? snapshot.loadError.slice(prefix.length)
+    : snapshot.loadError ?? ''
+}
+
+function BrowserPanelForSession({ controller, t }: {
   controller: DesktopBrowserPanelController
   t: Translate
-  /** Column width the frame currently gives this panel. */
-  width: number
-  /** Width of the whole window, so one step keeps its ratio. */
-  viewportWidth: number
 }): React.ReactElement | null {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const stage = useRef<HTMLDivElement>(null)
@@ -88,12 +97,6 @@ function BrowserPanelForSession({ controller, t, width, viewportWidth }: {
     return () => { controller.setActive(false) }
   }, [controller])
 
-  // The frame owns the column width; the panel only remembers it so its own
-  // width controls can ask for one step more or less.
-  useEffect(() => {
-    controller.setColumn(width, viewportWidth)
-  }, [controller, width, viewportWidth])
-
   // Switching to a Session whose panel is closed hands the shared column back,
   // so the shipped right Sidebar gets it instead of an empty track.
   useEffect(() => {
@@ -103,8 +106,12 @@ function BrowserPanelForSession({ controller, t, width, viewportWidth }: {
   // The page is composited above the renderer, so any transient surface drawn
   // over the placeholder must withdraw the view for as long as it is open.
   useEffect(() => {
-    controller.setOcclusion(menu === 'none' ? 'none' : menu === 'history' ? 'history' : 'menu')
-  }, [controller, menu])
+    // A failure is drawn in the page area itself, which the native view would
+    // otherwise cover, so the guest steps aside while the notice is up.
+    controller.setOcclusion(snapshot.loadError !== undefined
+      ? 'error'
+      : menu === 'none' ? 'none' : menu === 'history' ? 'history' : 'menu')
+  }, [controller, menu, snapshot.loadError])
 
   useLayoutEffect(() => {
     const element = stage.current
@@ -155,6 +162,9 @@ function BrowserPanelForSession({ controller, t, width, viewportWidth }: {
 
   if (!snapshot.open) return null
 
+  const googlePhase = state?.googleLogin?.phase ?? 'idle'
+  const googleBusy = googlePhase === 'launching' || googlePhase === 'waiting' || googlePhase === 'importing'
+
   return (
     <aside
       className="dshDesktopBrowserPanel"
@@ -191,16 +201,11 @@ function BrowserPanelForSession({ controller, t, width, viewportWidth }: {
         <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-action="address-open" title={t('open')} onClick={() => { void controller.submitAddress() }}>
           <DesktopBrowserGlyph name="go" />
         </button>
+        <OpenInChromeButton controller={controller} t={t} />
         <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-action="tools" data-active={menu === 'tools'} title={t('tools')} onClick={() => { setMenu(menu === 'tools' ? 'none' : 'tools') }}>
           <DesktopBrowserGlyph name="menu" />
         </button>
         <span className="dshDesktopBrowserPanelDivider" aria-hidden="true" />
-        <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-action="narrower" title={t('narrower')} onClick={() => { controller.narrower() }}>
-          <DesktopBrowserGlyph name="narrower" />
-        </button>
-        <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-action="wider" title={t('wider')} onClick={() => { controller.wider() }}>
-          <DesktopBrowserGlyph name="wider" />
-        </button>
         <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-action="fullscreen" data-active={snapshot.fullscreen} title={snapshot.fullscreen ? t('restore') : t('fullscreen')} onClick={() => { controller.toggleFullscreen() }}>
           <DesktopBrowserGlyph name={snapshot.fullscreen ? 'restore' : 'fullscreen'} />
         </button>
@@ -247,6 +252,31 @@ function BrowserPanelForSession({ controller, t, width, viewportWidth }: {
             <div>{t('emptyBody')}</div>
           </div>
         )}
+        {snapshot.loadError !== undefined && (
+          <div className="dshDesktopBrowserPanelFailure" data-dsh-desktop-browser="failure">
+            <div className="dshDesktopBrowserPanelFailureTitle">{t('failureTitle')}</div>
+            <div className="dshDesktopBrowserPanelFailureAddress" data-dsh-desktop-browser="failure-address">{snapshot.address}</div>
+            <div className="dshDesktopBrowserPanelFailureReason" data-dsh-desktop-browser="failure-reason">{failureReason(snapshot)}</div>
+            <div className="dshDesktopBrowserPanelFailureActions">
+              <button
+                type="button"
+                className="dshDesktopBrowserPanelButton"
+                data-dsh-desktop-browser-action="failure-retry"
+                onClick={() => { void controller.act({ action: 'reload' }) }}
+              >
+                {t('failureRetry')}
+              </button>
+              <button
+                type="button"
+                className="dshDesktopBrowserPanelButton"
+                data-dsh-desktop-browser-action="failure-dismiss"
+                onClick={() => { controller.dismissError() }}
+              >
+                {t('failureDismiss')}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {menu !== 'none' && (
@@ -277,6 +307,20 @@ function BrowserPanelForSession({ controller, t, width, viewportWidth }: {
                 <button type="button" className="dshDesktopBrowserPanelMenuItem" data-dsh-desktop-browser-menu-item="history" onClick={() => { void controller.loadHistory(); setMenu('history') }}>
                   <span>{t('history')}</span>
                 </button>
+                <div className="dshDesktopBrowserPanelMenuGroup">{t('googleAccount')}</div>
+                <button
+                  type="button"
+                  className="dshDesktopBrowserPanelMenuItem"
+                  data-dsh-desktop-browser-menu-item="google-login"
+                  data-phase={googlePhase}
+                  title={t('googleLoginHint')}
+                  onClick={() => {
+                    void controller.act({ action: 'google-login', op: googleBusy ? 'cancel' : 'start' })
+                    setMenu('none')
+                  }}
+                >
+                  <span>{googleBusy ? t('googleLoginCancel') : t('googleLogin')}</span>
+                </button>
               </>
             )
             : (
@@ -302,9 +346,9 @@ function BrowserPanelForSession({ controller, t, width, viewportWidth }: {
         </div>
       )}
 
-      {snapshot.error !== undefined && (
+      {(snapshot.error ?? snapshot.loadError) !== undefined && (
         <div className="dshDesktopBrowserPanelError" data-dsh-desktop-browser="error">
-          <span data-dsh-desktop-browser="error-text">{snapshot.error}</span>
+          <span data-dsh-desktop-browser="error-text">{snapshot.error ?? snapshot.loadError}</span>
           <span className="dshDesktopBrowserPanelStatusSpacer" />
           <button type="button" className="dshDesktopBrowserPanelButton" data-dsh-desktop-browser-error-dismiss="true" title={t('dismissError')} onClick={() => { controller.dismissError() }}>
             <DesktopBrowserGlyph name="close" />
@@ -321,9 +365,49 @@ function BrowserPanelForSession({ controller, t, width, viewportWidth }: {
         <span data-dsh-desktop-browser="layout">{state?.layout === 'desktop' ? t('layoutDesktop') : t('layoutFit')}</span>
         <span className="dshDesktopBrowserPanelStatusSpacer" />
         <span data-dsh-desktop-browser="phase">{state?.loading === true ? t('loading') : snapshot.connected ? t('ready') : t('disconnected')}</span>
+        <span data-dsh-desktop-browser="google-login">{googleLoginLabel(t, state?.googleLogin)}</span>
       </div>
     </aside>
   )
+}
+
+function OpenInChromeButton({ controller, t }: {
+  controller: DesktopBrowserPanelController
+  t: Translate
+}): React.ReactElement {
+  const title = t('openInChrome')
+  return (
+    <button
+      type="button"
+      className="dshDesktopBrowserPanelButton"
+      data-dsh-desktop-browser-action="open-in-chrome"
+      title={title}
+      aria-label={title}
+      onClick={() => {
+        void controller.act({ action: 'open-in-chrome' })
+      }}
+    >
+      <DesktopBrowserGlyph name="chrome" />
+    </button>
+  )
+}
+
+function googleLoginLabel(t: Translate, status: GoogleLoginStatus | undefined): string {
+  switch (status?.phase) {
+    case 'launching':
+    case 'waiting':
+      return t('googleLoginWaiting')
+    case 'importing':
+      return t('googleLoginImporting')
+    case 'signed-in':
+      return t('googleLoginSignedIn')
+    case 'failed':
+      return status.error ?? t('googleLoginHint')
+    case 'cancelled':
+      return t('googleLoginHint')
+    default:
+      return ''
+  }
 }
 
 /** Layout levels the panel exposes to tests and to the Agent's contract. */

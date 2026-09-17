@@ -85,6 +85,9 @@ it('proxies native guest browser views and forwards their events to Host subscri
       close: vi.fn(async () => {}),
       closeOwner: vi.fn(async () => {}),
       command,
+      googleLoginStatus: vi.fn(async () => ({ phase: 'idle' })),
+      startGoogleLogin: vi.fn(async () => ({ phase: 'launching' })),
+      cancelGoogleLogin: vi.fn(async () => {}),
       subscribe: (listener: (event: unknown) => void) => {
         listeners.add(listener)
         return () => { listeners.delete(listener) }
@@ -103,6 +106,9 @@ it('proxies native guest browser views and forwards their events to Host subscri
     expect(setBounds).toHaveBeenCalledWith('tab-1', { x: 1, y: 2, width: 3, height: 4 })
     await expect(runtime.nativeBrowser.command('tab-1', 'Page.enable')).resolves.toEqual({ frameId: 'frame-1' })
     expect(command).toHaveBeenCalledWith('tab-1', 'Page.enable', undefined)
+    await expect(runtime.nativeBrowser.startGoogleLogin()).resolves.toEqual({ phase: 'launching' })
+    await expect(runtime.nativeBrowser.googleLoginStatus()).resolves.toEqual({ phase: 'idle' })
+    await runtime.nativeBrowser.cancelGoogleLogin()
 
     for (const listener of listeners) listener({ type: 'navigated', id: 'tab-1', url: 'https://example.com/' })
     await vi.waitFor(() => { expect(events).toHaveLength(1) })

@@ -1,10 +1,26 @@
 import { EventEmitter } from 'node:events'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { BrowserViewService, type DesktopNativeBrowserEvent } from '../src/browser-view-service.ts'
+import {
+  BrowserViewService,
+  type BrowserViewServiceOptions,
+  type DesktopNativeBrowserEvent,
+} from '../src/browser-view-service.ts'
+import { GOOGLE_LOGIN_GESTURE_MS } from '../src/chrome-login.ts'
+
+interface FakeCookie {
+  name: string
+  domain: string
+}
 
 interface FakeSession extends EventEmitter {
   setPermissionRequestHandler: ReturnType<typeof vi.fn>
   setPermissionCheckHandler: ReturnType<typeof vi.fn>
+  setUserAgent: ReturnType<typeof vi.fn>
+  cookies: {
+    get: ReturnType<typeof vi.fn>
+    set: ReturnType<typeof vi.fn>
+    remove: ReturnType<typeof vi.fn>
+  }
 }
 
 interface FakeDebugger extends EventEmitter {
@@ -24,6 +40,9 @@ interface FakeWebContents extends EventEmitter {
   focus: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
   isDestroyed: ReturnType<typeof vi.fn>
+  getURL: ReturnType<typeof vi.fn>
+  reload: ReturnType<typeof vi.fn>
+  executeJavaScript: ReturnType<typeof vi.fn>
 }
 
 interface FakeView {
@@ -36,6 +55,15 @@ interface FakeView {
 const electron = vi.hoisted(() => {
   const views: unknown[] = []
   const state: { create: ((options: unknown) => unknown) | undefined } = { create: undefined }
+  const cookies: FakeCookie[] = []
+  const guestSession = {
+    // Google answers the account console only to a live session; the fixture
+    // stands in for that answer.
+    cookies: {
+      get: vi.fn(async () => cookies.map(cookie => ({ ...cookie }))),
+      set: vi.fn(async (cookie: FakeCookie) => { cookies.push({ name: cookie.name, domain: cookie.domain }) }),
+    },
+  }
   class WebContentsView {
     readonly webContents: unknown
     readonly setBounds = vi.fn()
@@ -45,15 +73,31 @@ const electron = vi.hoisted(() => {
       views.push(this)
     }
   }
-  return { WebContentsView, views, state }
+  return {
+    WebContentsView,
+    views,
+    state,
+    cookies,
+    guestSession,
+    session: { fromPartition: vi.fn(() => guestSession) },
+  }
 })
 
-vi.mock('electron', () => ({ WebContentsView: electron.WebContentsView }))
+vi.mock('electron', () => ({
+  WebContentsView: electron.WebContentsView,
+  session: electron.session,
+}))
 
 function createSession(): FakeSession {
+  const cookies: FakeCookie[] = []
   return Object.assign(new EventEmitter(), {
     setPermissionRequestHandler: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
+    setUserAgent: vi.fn(),
+    cookies: {
+      get: vi.fn(async () => cookies.map(cookie => ({ ...cookie }))),
+      set: vi.fn(async (cookie: FakeCookie) => { cookies.push({ name: cookie.name, domain: cookie.domain }) }),
+    },
   }) as FakeSession
 }
 
@@ -79,11 +123,19 @@ function createWebContents(session: FakeSession): FakeWebContents {
     focus: vi.fn(),
     isDestroyed: vi.fn(() => destroyed),
     close: vi.fn(() => { destroyed = true; webContents.emit('destroyed') }),
+    getURL: vi.fn(() => 'about:blank'),
+    reload: vi.fn(async () => {}),
+    executeJavaScript: vi.fn(async () => undefined),
   }) as FakeWebContents
   return webContents
 }
 
-function fixture(origin: { x: number; y: number } = { x: 0, y: 36 }) {
+/** Reports the user's own input the way the injected guest script does. */
+function reportUserInput(webContents: FakeWebContents): void {
+  webContents.debugger.emit('message', {}, 'Runtime.bindingCalled', { name: 'dshDesktopBrowserGesture', payload: '' })
+}
+
+function fixture(origin: { x: number; y: number } = { x: 0, y: 36 }, chromeLogin?: BrowserViewServiceOptions['chromeLogin']) {
   const sessions: FakeSession[] = []
   const contents: FakeWebContents[] = []
   electron.views.length = 0
@@ -101,6 +153,7 @@ function fixture(origin: { x: number; y: number } = { x: 0, y: 36 }) {
     window: () => current as never,
     rendererOrigin: () => origin,
     log,
+    ...(chromeLogin === undefined ? {} : { chromeLogin }),
   })
   const events: DesktopNativeBrowserEvent[] = []
   service.subscribe(event => { events.push(event) })
@@ -133,6 +186,10 @@ type FakeWindow = ReturnType<typeof createWindow>
 beforeEach(() => {
   electron.views.length = 0
   electron.state.create = undefined
+  electron.cookies.length = 0
+  electron.guestSession.cookies.get.mockClear()
+  electron.guestSession.cookies.set.mockClear()
+  electron.guestSession.cookies.get.mockClear()
 })
 
 describe('guest browser view service', () => {
@@ -272,9 +329,12 @@ describe('guest browser view service', () => {
       return event
     }
     expect(navigate('https://allowed.example/page').preventDefault).not.toHaveBeenCalled()
+    guest.loadURL.mockClear()
     const blocked = navigate('https://blocked.example/page')
     expect(blocked.preventDefault).toHaveBeenCalledOnce()
-    expect(guest.loadURL).toHaveBeenLastCalledWith('about:blank')
+    // A refused link keeps the document on screen: the panel shows the refusal
+    // itself, so the tab never falls back to a blank page or the old address.
+    expect(guest.loadURL).not.toHaveBeenCalled()
     expect(events).toContainEqual({
       type: 'failed',
       id: 'b',
@@ -286,7 +346,7 @@ describe('guest browser view service', () => {
 
     guest.loadURL.mockClear()
     await service.navigate('b', 'https://blocked.example/other')
-    expect(guest.loadURL).toHaveBeenCalledExactlyOnceWith('about:blank')
+    expect(guest.loadURL).not.toHaveBeenCalled()
     await service.navigate('b', 'https://allowed.example/next')
     expect(guest.loadURL).toHaveBeenLastCalledWith('https://allowed.example/next')
     expect(view(0)!.webContents.loadURL).toHaveBeenCalledTimes(1)
@@ -317,13 +377,29 @@ describe('guest browser view service', () => {
     const { service, contents, events } = fixture()
     await service.createView({ id: 'a', owner: 'session-a' })
     const { debugger: session } = contents[0]!
+    // The view attaches its protocol session as it is created, because the
+    // client hints a page reads have to be in place before its first document.
+    expect(session.attach).toHaveBeenCalledExactlyOnceWith('1.3')
+    expect(session.sendCommand).toHaveBeenCalledWith('Emulation.setUserAgentOverride', expect.objectContaining({
+      userAgent: expect.stringContaining('Chrome/'),
+    }))
+    // The page reports the user's own input through one binding, so the shell
+    // never has to guess whether a navigation came from a click.
+    expect(session.sendCommand).toHaveBeenCalledWith('Runtime.addBinding', { name: 'dshDesktopBrowserGesture' })
+    // Frames other than the top one never see `dom-ready`, so the reporter is
+    // installed through the protocol for every document the view loads.
+    expect(session.sendCommand).toHaveBeenCalledWith('Page.addScriptToEvaluateOnNewDocument', {
+      source: expect.stringContaining('dshDesktopBrowserGesture'),
+    })
+    session.sendCommand.mockClear()
+
     await expect(service.command('missing', 'Page.enable')).rejects.toThrow('BROWSER_VIEW_UNKNOWN')
     await expect(service.command('a', 'Target.getTargets')).rejects.toThrow('BROWSER_VIEW_CDP_DENIED')
     await expect(service.command('a', 'Page.setDownloadBehavior', { behavior: 'allow' }))
       .rejects.toThrow('BROWSER_VIEW_CDP_DENIED')
     await expect(service.command('a', 'Page.navigate', { url: 'file:///etc/passwd' }))
       .rejects.toThrow('BROWSER_VIEW_CDP_DENIED')
-    expect(session.attach).not.toHaveBeenCalled()
+    expect(session.sendCommand).not.toHaveBeenCalled()
 
     session.sendCommand.mockResolvedValueOnce({ frameId: 'frame-1' })
     await expect(service.command('a', 'Page.navigate', { url: 'https://example.com/' }))
@@ -449,5 +525,172 @@ describe('guest browser view service', () => {
     await service.createView({ id: 'a', owner: 'session-a' })
     contents[0]!.emit('did-start-loading')
     expect(seen).toHaveLength(0)
+  })
+
+  it('imports Google cookies from Chrome and reloads a Google tab', async () => {
+    const run = vi.fn(async () => ([
+      { name: '__Secure-1PSID', value: 'session', domain: '.google.com', secure: true, path: '/' },
+      { name: 'theme', value: 'dark', domain: 'example.com' },
+    ]))
+    const { service, contents, events } = fixture({ x: 0, y: 36 }, {
+      resolveExecutable: () => '/chrome',
+      profileDir: () => '/tmp/chrome-login',
+      now: () => 1_700_000_000_000,
+      run,
+      open: async () => {},
+    })
+    await service.createView({ id: 'tab', owner: 'session-a' })
+    contents[0]!.getURL.mockReturnValue('https://gemini.google.com/app')
+    await expect(service.startGoogleLogin()).resolves.toMatchObject({ phase: 'launching' })
+    await vi.waitFor(async () => {
+      await expect(service.googleLoginStatus()).resolves.toEqual({
+        phase: 'signed-in',
+        imported: 1,
+        importedAt: 1_700_000_000_000,
+      })
+    })
+    expect(run).toHaveBeenCalledOnce()
+    expect(electron.guestSession.cookies.set).toHaveBeenCalledWith(expect.objectContaining({
+      name: '__Secure-1PSID',
+      domain: '.google.com',
+    }))
+    expect(contents[0]!.reload).toHaveBeenCalledOnce()
+    expect(events.some(event => event.type === 'google-login' && event.status.phase === 'signed-in')).toBe(true)
+  })
+
+  it('fails closed when Chrome is not installed', async () => {
+    const { window } = fixture()
+    const loginService = new BrowserViewService({
+      window: () => window as never,
+      rendererOrigin: () => ({ x: 0, y: 0 }),
+      chromeLogin: {
+        resolveExecutable: () => undefined,
+        profileDir: () => '/tmp/chrome-login',
+        now: () => 0,
+        run: async () => [],
+        open: async () => {},
+      },
+    })
+    await expect(loginService.startGoogleLogin()).resolves.toMatchObject({
+      phase: 'failed',
+      error: expect.stringContaining('BROWSER_CHROME_NOT_FOUND'),
+    })
+  })
+
+  it('opens Chrome by itself once the user asks a page for a Google account', async () => {
+    const run = vi.fn(async () => ([{ name: '__Secure-1PSID', value: 'session', domain: '.google.com' }]))
+    const { service, contents } = fixture({ x: 0, y: 36 }, {
+      resolveExecutable: () => '/chrome',
+      profileDir: () => '/tmp/chrome-login',
+      now: () => 1,
+      run,
+      open: async () => {},
+    })
+    await service.createView({ id: 'tab', owner: 'session-a' })
+    reportUserInput(contents[0]!)
+    // Gemini keeps this address while it shows its signed-out landing page.
+    contents[0]!.emit('did-navigate', {}, 'https://gemini.google.com/app')
+    await vi.waitFor(() => { expect(run).toHaveBeenCalledOnce() })
+    await vi.waitFor(async () => {
+      await expect(service.googleLoginStatus()).resolves.toMatchObject({ phase: 'signed-in' })
+    })
+  })
+
+  it("lets the Agent's own click entitle a page to ask for Chrome", async () => {
+    const run = vi.fn(async () => ([{ name: '__Secure-1PSID', value: 'session', domain: '.google.com' }]))
+    const { service, contents } = fixture({ x: 0, y: 36 }, {
+      resolveExecutable: () => '/chrome',
+      profileDir: () => '/tmp/chrome-login',
+      now: () => 1,
+      run,
+      open: async () => {},
+    })
+    const { id } = await service.createView({ id: 'tab', owner: 'session-a' })
+    await service.command(id, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: 531, y: 32, button: 'left', clickCount: 1 })
+    contents[0]!.emit('did-navigate', {}, 'https://accounts.google.com/v3/signin/identifier?flowName=GlifWebSignIn')
+    await vi.waitFor(() => { expect(run).toHaveBeenCalledOnce() })
+  })
+
+  it('keeps Chrome closed when a page reaches a Google account on its own', async () => {
+    const run = vi.fn(async () => [])
+    const { service, contents } = fixture({ x: 0, y: 36 }, {
+      resolveExecutable: () => '/chrome',
+      profileDir: () => '/tmp/chrome-login',
+      now: () => 0,
+      run,
+      open: async () => {},
+    })
+    await service.createView({ id: 'tab', owner: 'session-a' })
+    contents[0]!.emit('did-navigate', {}, 'https://gemini.google.com/app')
+    contents[0]!.emit('did-navigate', {}, 'https://accounts.google.com/v3/signin/identifier?flowName=GlifWebSignIn')
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+    expect(run).not.toHaveBeenCalled()
+    await expect(service.googleLoginStatus()).resolves.toMatchObject({ phase: 'idle' })
+  })
+
+  it("keeps Chrome closed when the user's own input is older than the asking window", async () => {
+    const run = vi.fn(async () => [])
+    const { service, contents } = fixture({ x: 0, y: 36 }, {
+      resolveExecutable: () => '/chrome',
+      profileDir: () => '/tmp/chrome-login',
+      now: () => 0,
+      run,
+      open: async () => {},
+    })
+    await service.createView({ id: 'tab', owner: 'session-a' })
+    reportUserInput(contents[0]!)
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + GOOGLE_LOGIN_GESTURE_MS + 1)
+    contents[0]!.emit('did-navigate', {}, 'https://gemini.google.com/app')
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('keeps a normal page from opening Chrome', async () => {
+    const run = vi.fn(async () => [])
+    const { service, contents } = fixture({ x: 0, y: 36 }, {
+      resolveExecutable: () => '/chrome',
+      profileDir: () => '/tmp/chrome-login',
+      now: () => 0,
+      run,
+      open: async () => {},
+    })
+    await service.createView({ id: 'tab', owner: 'session-a' })
+    contents[0]!.emit('did-navigate', {}, 'https://example.com/')
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('does not open Chrome again for a sign-in page the user dismissed', async () => {
+    const run = vi.fn(async () => [])
+    const { service, contents } = fixture({ x: 0, y: 36 }, {
+      resolveExecutable: () => '/chrome',
+      profileDir: () => '/tmp/chrome-login',
+      now: () => 0,
+      run,
+      open: async () => {},
+    })
+    await service.createView({ id: 'tab', owner: 'session-a' })
+    reportUserInput(contents[0]!)
+    contents[0]!.emit('did-navigate', {}, 'https://gemini.google.com/app')
+    await vi.waitFor(() => { expect(run).toHaveBeenCalledOnce() })
+    await service.cancelGoogleLogin()
+    contents[0]!.emit('did-navigate', {}, 'https://gemini.google.com/app?hl=en')
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+    expect(run).toHaveBeenCalledOnce()
+  })
+
+  it('hands the open tabs to the user’s own Chrome', async () => {
+    const open = vi.fn(async () => {})
+    const { service } = fixture({ x: 0, y: 36 }, {
+      resolveExecutable: () => '/chrome',
+      profileDir: () => '/tmp/chrome-login',
+      now: () => 0,
+      run: async () => [],
+      open,
+    })
+    await expect(service.openInChrome(['https://a.test/', 'about:blank', 'https://b.test/x'])).resolves.toBe(2)
+    expect(open).toHaveBeenCalledWith(['https://a.test/', 'https://b.test/x'])
+    await expect(service.openInChrome(['about:blank'])).resolves.toBe(0)
+    expect(open).toHaveBeenCalledOnce()
   })
 })

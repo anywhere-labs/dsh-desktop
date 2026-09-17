@@ -54,7 +54,6 @@ export function applyDesktopBrowser(ctx: ClientContext): void {
       onVisibility: open => { if (open) acquire(); else release() },
       onIdle: () => { layout()?.closeRightbar?.() },
       onEnsure: ensureColumn,
-      onResize: (width, viewport) => { layout()?.setRightbar?.(width, viewport) },
       onFullscreen: fullscreen => { layout()?.openRightbar?.(true, fullscreen) },
     })
     controllers.set(sessionId, created)

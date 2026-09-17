@@ -203,6 +203,21 @@ class ScriptedNativeBrowser implements DesktopNativeBrowser {
     return () => { this.listeners.delete(listener) }
   }
 
+  async googleLoginStatus(): Promise<{ phase: 'idle' }> {
+    return { phase: 'idle' }
+  }
+
+  async startGoogleLogin(): Promise<{ phase: 'idle' }> {
+    return { phase: 'idle' }
+  }
+
+  async cancelGoogleLogin(): Promise<void> {}
+
+  /** @inheritdoc */
+  async openInChrome(urls: readonly string[]): Promise<number> {
+    return urls.length
+  }
+
   /** Deliver one guest event to every current subscriber. */
   emit(event: DesktopNativeBrowserEvent): void {
     for (const listener of [...this.listeners]) listener(event)
@@ -460,6 +475,8 @@ describe('Desktop guest page', () => {
     expect(page.navigationTarget('allowed.example/docs')).toBe('https://allowed.example/docs')
     await expect(page.goto('https://blocked.example/')).rejects.toThrow('BROWSER_ORIGIN_DENIED')
     await expect(page.goto('ftp://allowed.example/file')).rejects.toThrow('BROWSER_HTTP_URL_REQUIRED')
+    await expect(page.goto('mailto:someone@allowed.example')).rejects.toThrow('BROWSER_HTTP_URL_REQUIRED')
+    await expect(page.goto('file:///etc/passwd')).rejects.toThrow('BROWSER_HTTP_URL_REQUIRED')
     await expect(page.goto('https://user:secret@allowed.example/')).rejects.toThrow('BROWSER_HTTP_URL_REQUIRED')
     await expect(page.goto('   ')).rejects.toThrow('BROWSER_INVALID_URL')
     expect(native.views.get('tab-1')?.navigations).toEqual(['about:blank'])
@@ -470,6 +487,24 @@ describe('Desktop guest page', () => {
       .toEqual(['about:blank', 'https://allowed.example/page'])
 
     await expect(page.goto('about:blank')).resolves.toMatchObject({ url: 'about:blank' })
+  })
+
+  it('reads an address without a scheme, including a host and port', async () => {
+    const { page } = createPage()
+    await page.open()
+
+    // A bare host is https, and its port and path survive.
+    expect(page.navigationTarget('example.com')).toBe('https://example.com/')
+    expect(page.navigationTarget('example.com:8443/docs')).toBe('https://example.com:8443/docs')
+    expect(page.navigationTarget('  example.com  ')).toBe('https://example.com/')
+    expect(page.navigationTarget('example.com/docs?q=1#top')).toBe('https://example.com/docs?q=1#top')
+    // Loopback is a local server, which has no certificate.
+    expect(page.navigationTarget('127.0.0.1:8899/slow.html')).toBe('http://127.0.0.1:8899/slow.html')
+    expect(page.navigationTarget('localhost:3000/')).toBe('http://localhost:3000/')
+    // A named scheme is kept as it is, so the policy can refuse it.
+    expect(page.navigationTarget('about:blank')).toBe('about:blank')
+    await expect(page.goto('file:///etc/passwd')).rejects.toThrow('BROWSER_HTTP_URL_REQUIRED')
+    await expect(page.goto('mailto:someone@example.com')).rejects.toThrow('BROWSER_HTTP_URL_REQUIRED')
   })
 
   it('places, zooms, and shows the guest view, and hides it without a rectangle', async () => {
@@ -952,9 +987,12 @@ describe('Desktop guest page', () => {
     expect(page.lastFailure).toBe('-105: ERR_NAME_NOT_RESOLVED')
     expect(page.console.at(-1)).toMatchObject({ level: 'error', text: 'navigation failed: https://nope.example/ -105: ERR_NAME_NOT_RESOLVED' })
     expect(events).toContainEqual({ type: 'failed', message: 'https://nope.example/ -105: ERR_NAME_NOT_RESOLVED' })
+    // The tab keeps the address that failed, so the panel can show the failure
+    // over that link instead of the page the user was leaving.
+    expect(page.state.url).toBe('https://nope.example/')
 
     native.emit({ type: 'navigated', id: 'other-view', url: 'https://elsewhere.example/' })
-    expect(page.state.url).toBe('https://example.com/')
+    expect(page.state.url).toBe('https://nope.example/')
   })
 
   it('contains a failing page listener', async () => {

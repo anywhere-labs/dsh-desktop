@@ -23,10 +23,12 @@ const CLOSED_POLL_MS = 2_000
 export const BROWSER_ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5] as const
 
 /** How much of the window one width step covers. */
-export const BROWSER_COLUMN_STEP_RATIO = 0.08
 
 /** Which transient surface currently covers the placeholder. */
-export type BrowserPanelOcclusion = 'none' | 'menu' | 'history'
+export type BrowserPanelOcclusion = 'none' | 'menu' | 'history' | 'error'
+
+/** Actions that ask the browser for a page, which is a new attempt at it. */
+const NAVIGATION_ACTIONS = new Set(['navigate', 'reload', 'back', 'forward'])
 
 /** Immutable view state the React panel renders. */
 export interface BrowserPanelSnapshot {
@@ -38,6 +40,8 @@ export interface BrowserPanelSnapshot {
   readonly state: DesktopBrowserState | null
   /** Last transport or policy failure, shown in the status row. */
   readonly error: string | undefined
+  /** A page the browser could not open, shown over the page area. */
+  readonly loadError: string | undefined
   /** Current address-bar draft. */
   readonly address: string
   /** Zoom factor asked for in the fit layout. */
@@ -68,8 +72,6 @@ export interface DesktopBrowserPanelOptions {
   readonly onVisibility?: (open: boolean) => void
   /** Re-asserted while the panel stays open, so the column it lives in keeps its track. */
   readonly onEnsure?: (fullscreen: boolean) => void
-  /** Ask the frame for another column width; the frame clamps it to its own limits. */
-  readonly onResize?: (width: number, viewport: number) => void
   /** Ask the frame to give the column the whole row, or to share it again. */
   readonly onFullscreen?: (fullscreen: boolean) => void
   /** Release the column for a Session that is not showing the panel. */
@@ -90,6 +92,11 @@ export class DesktopBrowserPanelController {
   /** Whether the address draft is the user's own text rather than the page's address. */
   private editingAddress = false
   /**
+   * Failure notice the user dismissed, together with the tab it belonged to, so
+   * polling does not bring it back on that tab and no other tab inherits it.
+   */
+  private dismissedError: { readonly tab: string | null; readonly text: string } | undefined
+  /**
    * Whether the frame is showing this panel right now.
    *
    * One column is shared by the whole window, so only the panel on screen may
@@ -103,6 +110,7 @@ export class DesktopBrowserPanelController {
     connected: false,
     state: null,
     error: undefined,
+    loadError: undefined,
     address: '',
     zoom: 1,
     layout: 'fit',
@@ -112,8 +120,6 @@ export class DesktopBrowserPanelController {
     history: [],
   }
   private stage: HTMLElement | null = null
-  private columnWidth = 0
-  private columnWidthViewport = 0
   private timer: ReturnType<typeof setTimeout> | undefined
   private frame: number | undefined
   private disposed = false
@@ -151,35 +157,11 @@ export class DesktopBrowserPanelController {
     this.scheduleGeometry()
   }
 
-  /** Remember the column the frame currently gives this panel. */
-  setColumn(width: number, viewport: number): void {
-    this.columnWidth = width
-    this.columnWidthViewport = viewport
-  }
-
-  /** Ask for a narrower column. */
-  narrower(): void {
-    this.stepColumn(-1)
-  }
-
-  /** Ask for a wider column. */
-  wider(): void {
-    this.stepColumn(1)
-  }
-
   /** Give the column the whole row, or hand the conversation its width back. */
   toggleFullscreen(): void {
     const fullscreen = !this.snapshot.fullscreen
     this.update({ fullscreen })
     this.options.onFullscreen?.(fullscreen)
-    this.scheduleGeometry()
-  }
-
-  /** Move the column by one step; the frame owns the limits. */
-  private stepColumn(direction: -1 | 1): void {
-    if (this.columnWidth <= 0 || this.columnWidthViewport <= 0) return
-    const step = Math.round(this.columnWidthViewport * BROWSER_COLUMN_STEP_RATIO)
-    this.options.onResize?.(this.columnWidth + direction * step, this.columnWidthViewport)
     this.scheduleGeometry()
   }
 
@@ -264,12 +246,16 @@ export class DesktopBrowserPanelController {
   /** Run one action against the Host and fold the answer into the snapshot. */
   async act(action: Record<string, unknown>): Promise<Record<string, unknown>> {
     let answer: Record<string, unknown> = {}
+    // Asking for a page again is a fresh attempt: a failure the user dismissed
+    // earlier must be able to come back when the same address fails again.
+    if (NAVIGATION_ACTIONS.has(String(action.action))) this.dismissedError = undefined
     try {
       answer = await this.post(action)
       const state = answer.state as DesktopBrowserState | undefined
       this.update({
         connected: true,
         error: undefined,
+        loadError: undefined,
         ...(state === undefined ? {} : { state, ...(state.activeId === null ? {} : { address: addressOf(state) }) }),
       })
     } catch (cause) {
@@ -293,13 +279,18 @@ export class DesktopBrowserPanelController {
 
   /** Dismiss the current failure banner. */
   dismissError(): void {
-    this.update({ error: undefined })
+    // Remember what was dismissed: the Host keeps reporting a failed load until
+    // the next navigation, and the notice must not reappear under the user.
+    const text = this.snapshot.loadError
+    this.dismissedError = text === undefined ? undefined : { tab: this.snapshot.state?.activeId ?? null, text }
+    this.update({ error: undefined, loadError: undefined })
   }
 
   /** Navigate to the address bar's draft. */
   async submitAddress(): Promise<void> {
     const url = this.snapshot.address.trim()
     if (url === '') return
+    this.dismissedError = undefined
     // The draft is now the address the user asked for: stop treating it as an
     // edit, and let the next poll confirm it once the page arrives.
     this.editingAddress = false
@@ -379,11 +370,18 @@ export class DesktopBrowserPanelController {
       const panel = answer.panel as { visible?: boolean; epoch?: number } | undefined
       const epoch = typeof panel?.epoch === 'number' ? panel.epoch : 0
       const directiveApplies = epoch > this.snapshot.appliedEpoch && panel?.visible !== this.snapshot.open
+      const reported = state?.error
+      const dismissed = this.dismissedError
+      const failed = reported !== undefined
+        && !(dismissed !== undefined && dismissed.text === reported && dismissed.tab === (state?.activeId ?? null))
       this.update({
         connected: true,
         error: undefined,
+        loadError: failed ? reported : undefined,
         ...(state === undefined ? {} : { state }),
         ...(directiveApplies ? { open: panel?.visible === true, appliedEpoch: epoch } : epoch > this.snapshot.appliedEpoch ? { appliedEpoch: epoch } : {}),
+        // The tab keeps the address that failed, so the field mirrors it like
+        // any other address instead of holding a draft that no longer matches.
         ...(state === undefined ? {} : this.addressUpdate(state)),
       })
       if (directiveApplies) {

@@ -19,6 +19,7 @@ import {
   type DesktopBrowserRect,
 } from '../src/desktop-browser-page.ts'
 import {
+  DESKTOP_BROWSER_NO_URLS,
   DESKTOP_BROWSER_TAB_LIMIT_COUNT,
   DesktopBrowserStore,
   type DesktopBrowserAction,
@@ -75,6 +76,9 @@ class ScriptedNativeBrowser implements DesktopNativeBrowser {
   readonly stalled = new Set<string>()
   /** Failure `createView` raises; set to script a shell that cannot host a view. */
   failCreate: Error | undefined = undefined
+  /** Addresses handed to the user's own Chrome. */
+  readonly opened: string[][] = []
+
   private readonly listeners = new Set<(event: DesktopNativeBrowserEvent) => void>()
 
   /** @inheritdoc */
@@ -184,6 +188,32 @@ class ScriptedNativeBrowser implements DesktopNativeBrowser {
     return () => { this.listeners.delete(listener) }
   }
 
+  googleLogin: { phase: 'idle' | 'launching' | 'signed-in'; imported?: number } = { phase: 'idle' }
+  started = 0
+  cancelled = 0
+
+  async googleLoginStatus(): Promise<{ phase: 'idle' | 'launching' | 'signed-in'; imported?: number }> {
+    return this.googleLogin
+  }
+
+  async startGoogleLogin(): Promise<{ phase: 'idle' | 'launching' | 'signed-in'; imported?: number }> {
+    this.started += 1
+    this.googleLogin = { phase: 'signed-in', imported: 2 }
+    this.emit({ type: 'google-login', status: this.googleLogin })
+    return this.googleLogin
+  }
+
+  async cancelGoogleLogin(): Promise<void> {
+    this.cancelled += 1
+    this.googleLogin = { phase: 'idle' }
+  }
+
+  /** @inheritdoc */
+  async openInChrome(urls: readonly string[]): Promise<number> {
+    this.opened.push([...urls])
+    return urls.length
+  }
+
   /** Deliver one guest event to every current subscriber. */
   emit(event: DesktopNativeBrowserEvent): void {
     for (const listener of [...this.listeners]) listener(event)
@@ -250,6 +280,7 @@ describe('Desktop browser Session store', () => {
       zoom: 1,
       layout: 'fit',
       visible: false,
+      googleLogin: { phase: 'idle' },
     })
 
     await expect(store.openTab()).resolves.toBe('tab-1')
@@ -272,6 +303,7 @@ describe('Desktop browser Session store', () => {
       zoom: 1,
       layout: 'fit',
       visible: false,
+      googleLogin: { phase: 'idle' },
     })
     expect([...native.views.values()].map(view => view.owner))
       .toEqual(['desktop-browser:session-a', 'desktop-browser:session-a'])
@@ -432,6 +464,37 @@ describe('Desktop browser Session store', () => {
     expect(native.views.get(viewId('tab-1'))?.focused).toBe(1)
   })
 
+  it('reports a failed load until the next navigation replaces it', async () => {
+    const { native, store } = createStore()
+    await store.openTab()
+    await store.run({ action: 'navigate', url: 'https://example.com/' })
+    expect((await store.run({ action: 'state' })).state.error).toBeUndefined()
+
+    native.emit({
+      type: 'failed',
+      id: viewId('tab-1'),
+      url: 'https://nope.example/',
+      error: '-105: ERR_NAME_NOT_RESOLVED',
+    })
+    expect((await store.run({ action: 'state' })).state.error)
+      .toBe('https://nope.example/ -105: ERR_NAME_NOT_RESOLVED')
+
+    // The notice belongs to the document that failed, so asking for another
+    // page clears it instead of leaving it over a page that did load.
+    const next = await store.run({ action: 'navigate', url: 'https://example.com/next' })
+    expect(next.state.error).toBeUndefined()
+
+    // It also belongs to that tab alone: another tab shows its own state, and
+    // coming back to the failed one brings its notice back.
+    native.emit({ type: 'failed', id: viewId('tab-1'), url: 'https://nope.example/', error: '-105: ERR_NAME_NOT_RESOLVED' })
+    expect((await store.run({ action: 'state' })).state.error).toBe('https://nope.example/ -105: ERR_NAME_NOT_RESOLVED')
+    const second = await store.openTab()
+    expect((await store.run({ action: 'state' })).state.error).toBeUndefined()
+    await store.selectTab('tab-1')
+    expect((await store.run({ action: 'state' })).state.error).toBe('https://nope.example/ -105: ERR_NAME_NOT_RESOLVED')
+    expect(second).toBe('tab-2')
+  })
+
   it('runs pointer, keyboard, viewport, and tab actions', async () => {
     const { native, store } = createStore()
     await store.openTab()
@@ -501,6 +564,7 @@ describe('Desktop browser Session store', () => {
       { action: 'tabs', op: 'new' },
       { action: 'tabs', op: 'select', tab: 'tab-1' },
       { action: 'tabs', op: 'close', tab: 'tab-1' },
+      { action: 'google-login', op: 'start' },
     ]
     for (const action of mutations) await expect(store.run(action)).rejects.toThrow('BROWSER_READ_ONLY')
     expect(native.views.get(viewId('tab-1'))?.navigations).toEqual(['about:blank'])
@@ -514,6 +578,7 @@ describe('Desktop browser Session store', () => {
     await expect(store.run({ action: 'viewport', bounds: null })).resolves.toBeDefined()
     await expect(store.run({ action: 'focus' })).resolves.toBeDefined()
     await expect(store.run({ action: 'stop' })).resolves.toBeDefined()
+    await expect(store.run({ action: 'google-login', op: 'status' })).resolves.toBeDefined()
 
     const writable = createStore({ readOnly: () => false })
     await writable.store.openTab()
@@ -704,6 +769,32 @@ describe('Desktop browser Session store', () => {
     expect(native.views.get(view)?.bounds.at(-1)).toEqual(bounds)
     expect(native.views.get(view)?.shown.at(-1)).toBe(true)
     expect(native.views.get(viewId('tab-1'))?.shown.at(-1)).toBe(false)
+  })
+
+  it('imports a Google session from Chrome into the shared profile', async () => {
+    const { native, store } = createStore()
+    const started = await store.run({ action: 'google-login', op: 'start' })
+    expect(native.started).toBe(1)
+    expect(started.state.googleLogin).toEqual({ phase: 'signed-in', imported: 2 })
+    await store.run({ action: 'google-login', op: 'cancel' })
+    expect(native.cancelled).toBe(1)
+  })
+
+  it('hands every open tab over to Chrome', async () => {
+    const { native, store } = createStore()
+    await store.openTab()
+    await store.openTab('https://example.com/')
+    await store.run({ action: 'open-in-chrome' })
+    expect(native.opened).toEqual([['https://example.com/']])
+  })
+
+  it('refuses the hand-off while no tab has a page', async () => {
+    const { native, store } = createStore()
+    await store.openTab()
+    await expect(store.run({ action: 'open-in-chrome' })).rejects.toThrow(
+      `${DESKTOP_BROWSER_NO_URLS}: no tab has a page to open in Chrome yet`,
+    )
+    expect(native.opened).toEqual([])
   })
 
   it('rejects a stalled command at its budget and keeps the queue moving', async () => {

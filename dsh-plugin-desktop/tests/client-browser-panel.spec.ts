@@ -12,7 +12,7 @@ import { DesktopBrowserPanelController } from '../src/client/browser-panel.ts'
 const tab = (id: string, url: string) => ({ id, url, title: url, loading: false })
 
 /** A Host state whose active tab is the first of `tabs`. */
-const stateOf = (tabs: readonly ReturnType<typeof tab>[], activeId = tabs[0]?.id ?? null) => ({
+const stateOf = (tabs: readonly ReturnType<typeof tab>[], activeId = tabs[0]?.id ?? null, error?: string) => ({
   activeId,
   tabs,
   canGoBack: false,
@@ -21,6 +21,7 @@ const stateOf = (tabs: readonly ReturnType<typeof tab>[], activeId = tabs[0]?.id
   visible: true,
   layout: 'fit',
   zoom: 1,
+  ...(error === undefined ? {} : { error }),
 })
 
 /** Answer every channel exchange with the next scripted state, then the last. */
@@ -91,6 +92,62 @@ describe('Desktop browser panel address field', () => {
 
     controller.setActive(true)
     expect(ensure).toHaveBeenCalled()
+    controller.dispose()
+  })
+
+  it('keeps a dismissed notice away from the tab it came from only', async () => {
+    vi.useFakeTimers()
+    const text = 'https://nope.example/ -105: ERR_NAME_NOT_RESOLVED'
+    let state = stateOf([tab('tab-1', 'https://nope.example/')], 'tab-1', text)
+    globalThis.fetch = vi.fn(async () => new Response(
+      JSON.stringify({ ok: true, state, panel: { visible: true, epoch: 0 } }),
+      { headers: { 'content-type': 'application/json' } },
+    )) as unknown as typeof fetch
+    const controller = new DesktopBrowserPanelController('session-a')
+    controller.setOpen(true)
+    controller.start()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(controller.getSnapshot().loadError).toBe(text)
+    controller.dismissError()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(controller.getSnapshot().loadError).toBeUndefined()
+
+    // Another tab reports the same failure, which this user has not dismissed.
+    state = stateOf([tab('tab-1', 'https://nope.example/'), tab('tab-2', 'https://nope.example/')], 'tab-2', text)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(controller.getSnapshot().loadError).toBe(text)
+    controller.dispose()
+  })
+
+  it('shows a failed load and keeps a dismissed notice dismissed', async () => {
+    vi.useFakeTimers()
+    scriptHost([stateOf([tab('tab-1', 'https://nope.example/')], 'tab-1', 'https://nope.example/ -105: ERR_NAME_NOT_RESOLVED')])
+    const controller = new DesktopBrowserPanelController('session-a')
+    controller.setOpen(true)
+    controller.start()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(controller.getSnapshot().loadError).toBe('https://nope.example/ -105: ERR_NAME_NOT_RESOLVED')
+    expect(controller.getSnapshot().error).toBeUndefined()
+
+    // The tab keeps the address that failed, so the field mirrors it, and a
+    // draft the user is still typing is left alone by the next polls.
+    expect(controller.getSnapshot().address).toBe('https://nope.example/')
+    controller.setAddress('nope.example/other')
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(controller.getSnapshot().address).toBe('nope.example/other')
+
+    controller.dismissError()
+    expect(controller.getSnapshot().loadError).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(controller.getSnapshot().loadError).toBeUndefined()
+    // The draft the user is typing survives the polls that follow.
+    expect(controller.getSnapshot().address).toBe('nope.example/other')
+
+    // Asking for the address again is a new attempt, so the same failure is
+    // reported once more instead of staying dismissed.
+    await controller.submitAddress()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(controller.getSnapshot().loadError).toBe('https://nope.example/ -105: ERR_NAME_NOT_RESOLVED')
     controller.dispose()
   })
 

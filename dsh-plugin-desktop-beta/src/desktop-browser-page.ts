@@ -76,6 +76,16 @@ const KEY_TABLE: Readonly<Record<string, { code: string; keyCode: number; text?:
   F5: { code: 'F5', keyCode: 116 },
 })
 
+/**
+ * Scheme for an address that does not name one.
+ * @param address - address without a scheme.
+ * @returns `http` for a loopback host, which a local server serves, else `https`.
+ */
+function defaultScheme(address: string): 'http' | 'https' {
+  const host = (address.split(/[/?#]/u)[0] ?? '').split(':')[0]?.toLowerCase() ?? ''
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost') ? 'http' : 'https'
+}
+
 /** Logical CSS viewport used until the panel reports its real rectangle. */
 export const DEFAULT_DESKTOP_BROWSER_VIEWPORT = Object.freeze({ width: 1280, height: 800 })
 
@@ -518,7 +528,7 @@ export class DesktopBrowserPage {
 
   /** Route one native service event into page state. */
   private handle(event: DesktopNativeBrowserEvent): void {
-    if (event.id !== this.viewId) return
+    if (event.type === 'google-login' || event.id !== this.viewId) return
     switch (event.type) {
       case 'navigated':
         this.currentUrl = event.url
@@ -534,6 +544,9 @@ export class DesktopBrowserPage {
         break
       case 'failed':
         this.failure = event.error
+        // The tab keeps the address the user asked for: the panel shows the
+        // failure over that address instead of falling back to the old page.
+        this.currentUrl = event.url
         this.consoleEntries.push({ level: 'error', text: `navigation failed: ${event.url} ${event.error}`, seq: ++this.sequence })
         this.settle('failed')
         this.emit({ type: 'failed', message: `${event.url} ${event.error}` })
@@ -625,13 +638,21 @@ export class DesktopBrowserPage {
 
   /**
    * Normalize one top-level navigation target.
+   *
+   * An address without a scheme is read as https, except on this machine: a
+   * loopback host is a local server, which has no certificate.
    * @param input - user- or Agent-supplied URL, with or without a scheme.
    * @returns the URL to load.
    */
   navigationTarget(input: string): string {
     const raw = input.trim()
     if (raw === '') throw new Error('BROWSER_INVALID_URL: an empty address cannot be opened')
-    const candidate = /^[a-zA-Z][a-zA-Z0-9+.-]*:/u.test(raw) ? raw : `https://${raw}`
+    // `example.com:8443` looks like a scheme with a numeric path, but it is a
+    // host and a port, which is exactly what someone types.
+    const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/u.exec(raw)
+    const named = scheme !== null
+      && (raw.startsWith(`${scheme[0]}//`) || !/^[0-9]+([/?#]|$)/u.test(raw.slice(scheme[0].length)))
+    const candidate = named ? raw : `${defaultScheme(raw)}://${raw}`
     let url: URL
     try {
       url = new URL(candidate)

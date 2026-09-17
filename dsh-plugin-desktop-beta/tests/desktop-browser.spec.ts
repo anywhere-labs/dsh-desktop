@@ -147,6 +147,21 @@ class ScriptedNativeBrowser implements DesktopNativeBrowser {
     return () => { this.listeners.delete(listener) }
   }
 
+  async googleLoginStatus(): Promise<{ phase: 'idle' }> {
+    return { phase: 'idle' }
+  }
+
+  async startGoogleLogin(): Promise<{ phase: 'idle' }> {
+    return { phase: 'idle' }
+  }
+
+  async cancelGoogleLogin(): Promise<void> {}
+
+  /** @inheritdoc */
+  async openInChrome(urls: readonly string[]): Promise<number> {
+    return urls.length
+  }
+
   /** Deliver one guest event to every current subscriber. */
   emit(event: DesktopNativeBrowserEvent): void {
     for (const listener of [...this.listeners]) listener(event)
@@ -349,6 +364,7 @@ function emptyState(): DesktopBrowserState {
     zoom: 1,
     layout: 'fit',
     visible: false,
+    googleLogin: { phase: 'idle' },
   }
 }
 

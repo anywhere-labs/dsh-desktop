@@ -10,6 +10,7 @@
  */
 
 import type { DesktopNativeBrowser } from './browser-view-service.ts'
+import type { GoogleLoginStatus } from './google-login-status.ts'
 import {
   DEFAULT_DESKTOP_BROWSER_VIEWPORT,
   DesktopBrowserPage,
@@ -38,6 +39,9 @@ export const DESKTOP_BROWSER_UNKNOWN_TAB = 'BROWSER_UNKNOWN_TAB'
 /** Stable code returned when the native guest view cannot be created. */
 export const DESKTOP_BROWSER_UNAVAILABLE = 'BROWSER_UNAVAILABLE'
 
+/** Stable code returned when no open tab has a page to hand to Chrome. */
+export const DESKTOP_BROWSER_NO_URLS = 'BROWSER_NO_URLS'
+
 /** Tabs one Session may keep open at once. */
 export const DESKTOP_BROWSER_TAB_LIMIT_COUNT = 12
 
@@ -46,6 +50,8 @@ export const DESKTOP_BROWSER_LAYOUT_WIDTH = 1280
 
 /** How the logical viewport is derived from the panel's rectangle. */
 export type DesktopBrowserLayout = 'fit' | 'desktop'
+
+export type { GoogleLoginPhase, GoogleLoginStatus } from './google-login-status.ts'
 
 /** The tab list the panel renders. */
 export interface DesktopBrowserTabInfo {
@@ -85,6 +91,8 @@ export interface DesktopBrowserState {
   readonly layout: DesktopBrowserLayout
   /** Whether the panel reports the page as visible. */
   readonly visible: boolean
+  /** Chrome Google-login snapshot for the shared guest profile. */
+  readonly googleLogin: GoogleLoginStatus
   /** Last failure code the store surfaced, if any. */
   readonly error?: string
 }
@@ -112,6 +120,8 @@ export type DesktopBrowserAction =
   | { readonly action: 'scroll'; readonly deltaY: number; readonly deltaX?: number }
   | { readonly action: 'console'; readonly since?: number }
   | { readonly action: 'history' }
+  | { readonly action: 'google-login'; readonly op?: 'start' | 'cancel' | 'status' }
+  | { readonly action: 'open-in-chrome' }
 
 /** Answer of one action call. */
 export interface DesktopBrowserActionResult {
@@ -151,6 +161,8 @@ export class DesktopBrowserStore {
   private placement: DesktopBrowserViewport = { bounds: null, zoom: 1, layout: 'fit', visible: false }
   private error: string | undefined
   private disposed = false
+  private googleLogin: GoogleLoginStatus = { phase: 'idle' }
+  private readonly unsubscribeNative: () => void
   /** Tail of the serialized action chain; see {@link queue}. */
   private serial: Promise<unknown> = Promise.resolve()
   /** Navigation position of the active tab, refreshed from its own history. */
@@ -164,6 +176,18 @@ export class DesktopBrowserStore {
     this.sessionId = sessionId
     this.owner = `desktop-browser:${sessionId}`
     this.options = options
+    this.unsubscribeNative = options.service.subscribe(event => {
+      if (event.type !== 'google-login') return
+      this.googleLogin = event.status
+      this.changed()
+    })
+    void options.service.googleLoginStatus().then(status => {
+      if (this.disposed) return
+      this.googleLogin = status
+      this.changed()
+    }).catch((cause: unknown) => {
+      this.options.report?.(`desktop browser could not read Google login status: ${cause instanceof Error ? cause.message : String(cause)}`)
+    })
   }
 
   /** The Session these tabs belong to. */
@@ -187,6 +211,7 @@ export class DesktopBrowserStore {
   /** The tab list and navigation state the panel renders. */
   get state(): DesktopBrowserState {
     const active = this.active
+    const failed = this.failure()
     return {
       tabs: this.tabs.map(tab => ({
         id: tab.id,
@@ -204,8 +229,23 @@ export class DesktopBrowserStore {
       zoom: this.placement.layout === 'desktop' ? this.desktopZoom() : this.placement.zoom,
       layout: this.placement.layout,
       visible: this.placement.visible,
-      ...(this.error === undefined ? {} : { error: this.error }),
+      googleLogin: this.googleLogin,
+      ...(failed === undefined ? {} : { error: failed }),
     }
+  }
+
+  /**
+   * What the panel should say about the page on screen.
+   *
+   * A load failure belongs to the tab that failed, so switching tabs shows the
+   * state of the tab in front of the user rather than the last failure anywhere
+   * in the Session.
+   * @returns the failure text of the active tab, else the last Host-level error.
+   */
+  private failure(): string | undefined {
+    const page = this.active?.page
+    const failed = page?.lastFailure
+    return failed === undefined ? this.error : `${page?.state.url ?? ''} ${failed}`.trim()
   }
 
   /** The logical width one report asks for, before the height follows the aspect ratio. */
@@ -322,6 +362,9 @@ export class DesktopBrowserStore {
   async selectTab(id: string): Promise<void> {
     const entry = this.tabs.find(tab => tab.id === id)
     if (entry === undefined) throw new Error(`${DESKTOP_BROWSER_UNKNOWN_TAB}: ${id}`)
+    // A refusal or a failed attempt belongs to the tab it happened on, so the
+    // state of the tab being shown starts without one.
+    this.error = undefined
     this.active = entry
     await this.placeAll()
     await this.refreshNavigation()
@@ -435,18 +478,21 @@ export class DesktopBrowserStore {
         return await this.runTabs(action)
       case 'navigate':
         this.assertWritable()
+        this.error = undefined
         await this.requireActive().goto(action.url)
         await this.refreshNavigation()
         return { state: this.state }
       case 'back':
       case 'forward': {
         this.assertWritable()
+        this.error = undefined
         await this.requireActive().historyStep(action.action === 'back' ? -1 : 1)
         await this.refreshNavigation()
         return { state: this.state }
       }
       case 'reload':
         this.assertWritable()
+        this.error = undefined
         await this.requireActive().reload()
         await this.refreshNavigation()
         return { state: this.state }
@@ -483,11 +529,33 @@ export class DesktopBrowserStore {
         this.assertWritable()
         await this.requireActive().scroll(action.deltaY, action.deltaX ?? 0)
         return { state: this.state }
+      case 'google-login':
+        return await this.runGoogleLogin(action.op ?? 'start')
+      case 'open-in-chrome':
+        return await this.runOpenInChrome()
       default: {
         const unknown = action as { readonly action?: unknown }
         throw new Error(`${DESKTOP_BROWSER_INVALID_ACTION}: ${String(unknown.action)}`)
       }
     }
+  }
+
+  /** Hand every open tab over to the user's own Chrome window. */
+  private async runOpenInChrome(): Promise<DesktopBrowserActionResult> {
+    const urls = this.tabs.map(tab => tab.page.state.url).filter(url => /^https?:\/\//i.test(url))
+    if (urls.length === 0) throw new Error(`${DESKTOP_BROWSER_NO_URLS}: no tab has a page to open in Chrome yet`)
+    await this.options.service.openInChrome(urls)
+    return { state: this.state }
+  }
+
+  /** Open, cancel, or refresh the Chrome Google login. */
+  private async runGoogleLogin(op: 'start' | 'cancel' | 'status'): Promise<DesktopBrowserActionResult> {
+    if (op === 'start') this.assertWritable()
+    if (op === 'start') this.googleLogin = await this.options.service.startGoogleLogin()
+    else if (op === 'cancel') await this.options.service.cancelGoogleLogin()
+    this.googleLogin = await this.options.service.googleLoginStatus()
+    this.changed()
+    return { state: this.state }
   }
 
   /** The tab branch of the action surface. */
@@ -499,6 +567,9 @@ export class DesktopBrowserStore {
       await this.openTab(action.url ?? 'about:blank')
       return { state: this.state }
     }
+    // Closing and selecting change which tab the Session reports, so a failure
+    // recorded for the previous one must not follow the user across.
+    this.error = undefined
     if (action.tab === undefined) throw new Error(`${DESKTOP_BROWSER_UNKNOWN_TAB}: ${op} needs a tab id`)
     if (op === 'select') await this.selectTab(action.tab)
     else await this.closeTab(action.tab)
@@ -556,6 +627,7 @@ export class DesktopBrowserStore {
   async dispose(): Promise<void> {
     if (this.disposed) return
     this.disposed = true
+    this.unsubscribeNative()
     const entries = [...this.tabs]
     this.tabs.length = 0
     this.active = undefined

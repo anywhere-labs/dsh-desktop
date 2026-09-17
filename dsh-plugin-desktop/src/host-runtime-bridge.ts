@@ -25,7 +25,7 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
   const shellSpecs = new Map<string, DesktopShellSpec>()
   const send = <T = void>(method: string, args: unknown[] = [], signal?: AbortSignal): Promise<T> => {
     const interactive = ['update:confirmDownload', 'update:showManualCheckResult', 'update:downloadAndOpen',
-      'native:pickDirectory', 'native:exportDiagnostics'].includes(method)
+      'native:pickDirectory', 'native:exportDiagnostics', 'browser:startGoogleLogin'].includes(method)
     const task = rpc.call<T>(method, args, signal, interactive ? 0 : undefined)
     calls.add(task)
     // Report fire-and-forget failures without creating an unhandled rejection.
@@ -51,6 +51,10 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
       close: id => send('browser:close', [id]),
       closeOwner: owner => send('browser:closeOwner', [owner]),
       command: (id, method, params) => send('browser:command', [id, method, params]),
+      googleLoginStatus: () => send('browser:googleLoginStatus'),
+      startGoogleLogin: () => send('browser:startGoogleLogin'),
+      cancelGoogleLogin: () => send('browser:cancelGoogleLogin'),
+      openInChrome: urls => send('browser:openInChrome', [urls]),
       subscribe(listener) {
         const callback = callbacks({ event: (event: DesktopNativeBrowserEvent) => listener(event) })
         void send('browser:subscribe', [callback.id]).catch((cause: unknown) => {
@@ -204,6 +208,10 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () => 
   handle('browser:close', ([id]) => runtime.nativeBrowser.close(id))
   handle('browser:closeOwner', ([owner]) => runtime.nativeBrowser.closeOwner(owner))
   handle('browser:command', ([id, method, params]) => runtime.nativeBrowser.command(id, method, params))
+  handle('browser:googleLoginStatus', () => runtime.nativeBrowser.googleLoginStatus())
+  handle('browser:startGoogleLogin', () => runtime.nativeBrowser.startGoogleLogin())
+  handle('browser:cancelGoogleLogin', () => runtime.nativeBrowser.cancelGoogleLogin())
+  handle('browser:openInChrome', ([urls]) => runtime.nativeBrowser.openInChrome(Array.isArray(urls) ? urls.map(String) : []))
   handle('browser:subscribe', ([id]) => {
     browserSubscriptions.get(id)?.()
     browserSubscriptions.set(id, runtime.nativeBrowser.subscribe(event => { report(callback(`${id}:event`, [event])) }))

@@ -106,6 +106,7 @@ function emptyState(): DesktopBrowserState {
     zoom: 1,
     layout: 'fit',
     visible: false,
+    googleLogin: { phase: 'idle' },
   }
 }
 
