@@ -262,7 +262,8 @@ function contains(parent: string, child: string, platform: NodeJS.Platform): boo
   return suffix === '' || (suffix !== '..' && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix))
 }
 
-function validDesktopProfileExists(homeDir: string): boolean {
+/** Report whether a directory already holds a Desktop-usable DSH home. */
+export function validDesktopProfileExists(homeDir: string): boolean {
   const profilesDir = join(homeDir, 'profiles')
   const profilesInfo = existingInfo(profilesDir)
   if (profilesInfo === undefined || !profilesInfo.isDirectory() || profilesInfo.isSymbolicLink()) return false

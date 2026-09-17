@@ -24,12 +24,14 @@ import {
 import { DesktopTerminalSettingsAction } from '../src/client/DesktopTerminalSettingsAction.tsx'
 import {
   createDesktopSettingsApi,
+  desktopRendererActionsBridge,
   desktopSettingsPaths,
   parseDesktopActionAcceptance,
   parseDesktopRestartAcceptance,
   parseDesktopSettingsView,
   type DesktopSettingsView,
 } from '../src/client/desktop-settings-api.ts'
+import { DESKTOP_RENDERER_ACTIONS_BRIDGE } from '../src/renderer-actions-contract.ts'
 import {
   applyDesktopSettings,
   DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE,
@@ -437,6 +439,55 @@ describe('Desktop settings API', () => {
       method: 'POST',
       body: JSON.stringify({}),
     })
+  })
+
+  it('keeps Desktop-owned actions on the Electron bridge, off the Host routes', async () => {
+    const fetcher = vi.fn(async () => json(VIEW))
+    const invoke = vi.fn(async () => {})
+    const api = createDesktopSettingsApi(fetcher, { invoke })
+
+    await expect(api.openTerminal()).resolves.toBeUndefined()
+    await expect(api.restart()).resolves.toBeUndefined()
+    await expect(api.restartToRecovery()).resolves.toBeUndefined()
+    await expect(api.reloadRenderer()).resolves.toBeUndefined()
+    await expect(api.toggleDeveloperTools()).resolves.toBeUndefined()
+    await expect(api.checkForUpdates()).resolves.toBeUndefined()
+    await expect(api.exportDiagnostics()).resolves.toBeUndefined()
+
+    expect(invoke.mock.calls.flat()).toEqual([
+      'terminal',
+      'restart',
+      'restart-recovery',
+      'reload',
+      'developer',
+      'check-for-updates',
+      'diagnostics',
+    ])
+    expect(fetcher).not.toHaveBeenCalled()
+
+    // Host-persisted state still belongs to the loopback settings routes.
+    await expect(api.read()).resolves.toEqual(VIEW)
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith(desktopSettingsPaths.settings, expect.anything())
+  })
+
+  it('surfaces a bridge failure instead of falling back to the Host routes', async () => {
+    const fetcher = vi.fn(async () => json({ accepted: true }))
+    const api = createDesktopSettingsApi(fetcher, {
+      invoke: async () => { throw new Error('untrusted Desktop action sender') },
+    })
+
+    await expect(api.restart()).rejects.toThrow('untrusted Desktop action sender')
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('detects only a usable preload bridge', () => {
+    const bridge = { invoke: async () => {} }
+    expect(desktopRendererActionsBridge({ [DESKTOP_RENDERER_ACTIONS_BRIDGE]: bridge })).toBe(bridge)
+    expect(desktopRendererActionsBridge({})).toBeUndefined()
+    expect(desktopRendererActionsBridge({ [DESKTOP_RENDERER_ACTIONS_BRIDGE]: null })).toBeUndefined()
+    expect(desktopRendererActionsBridge({ [DESKTOP_RENDERER_ACTIONS_BRIDGE]: {} })).toBeUndefined()
+    expect(desktopRendererActionsBridge({ [DESKTOP_RENDERER_ACTIONS_BRIDGE]: { invoke: 'restart' } }))
+      .toBeUndefined()
   })
 
   it('does not reflect an untrusted error body into its public error', async () => {

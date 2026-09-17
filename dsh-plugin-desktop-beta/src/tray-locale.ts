@@ -15,6 +15,7 @@ export type DesktopTrayLabelKey =
   | 'openTerminal'
   | 'profile'
   | 'quit'
+  | 'reloadRenderer'
   | 'shellMode'
   | 'advanced'
   | 'compatibility'
@@ -36,6 +37,7 @@ const labels: Record<DesktopLocale, Record<DesktopTrayLabelKey, (value: string) 
     openTerminal: () => 'Open DSH Terminal',
     profile: profileName => `Profile: ${profileName}`,
     quit: () => 'Quit',
+    reloadRenderer: () => 'Reload Interface',
     shellMode: mode => `Mode: ${mode}`,
     advanced: () => 'Enhanced Mode',
     compatibility: () => 'Compatibility Mode',
@@ -56,6 +58,7 @@ const labels: Record<DesktopLocale, Record<DesktopTrayLabelKey, (value: string) 
     openTerminal: () => '打开 DSH 终端',
     profile: profileName => `Profile：${profileName}`,
     quit: () => '退出',
+    reloadRenderer: () => '重新加载界面',
     shellMode: mode => `模式：${mode}`,
     advanced: () => '增强模式',
     compatibility: () => '兼容模式',

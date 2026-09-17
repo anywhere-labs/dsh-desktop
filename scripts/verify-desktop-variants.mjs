@@ -4,9 +4,16 @@ import { join, relative, resolve, sep } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
 const stableRoot = join(root, 'dsh-plugin-desktop', 'src')
 const betaRoot = join(root, 'dsh-plugin-desktop-beta', 'src')
-// Both editions share behavior. Only release identity and launcher wording differ.
+// Both editions share behavior. Only release identity, launcher wording, and the
+// channels' pinned core versions differ.
 const betaOnlyPaths = new Set([])
-const allowedDifferences = new Set(['product-identity.ts'])
+const allowedDifferences = new Set([
+  'product-identity.ts',
+  // Beta rides dsh 0.1.6-alpha.1, whose runArgv fuses confinement preparation into the
+  // execution deadline and returns { result, spawnRequested }; stable stays on
+  // 0.1.5-rc.2, whose override takes an argv array and returns ShellRunResult.
+  'windows-pwsh-sandbox.ts',
+])
 const normalizeIdentity = source => source.toString().replaceAll('dsh-plugin-desktop-beta', 'dsh-plugin-desktop').replaceAll('DSH Desktop Beta', 'DSH Desktop')
 
 function files(directory, base = directory) {

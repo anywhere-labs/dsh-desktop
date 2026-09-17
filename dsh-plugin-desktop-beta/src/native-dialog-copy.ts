@@ -65,6 +65,13 @@ export interface DesktopNativeCopy {
   readonly profileCompatibilityWarning: string
   readonly switchProfile: string
   readonly useProfileAnyway: string
+  readonly sharedDataDirectoryTitle: string
+  readonly sharedDataDirectoryMessage: (currentProductName: string, otherProductName: string) => string
+  readonly sharedDataDirectoryDetail: (currentDirectory: string, channelDirectory: string) => string
+  readonly sharedDataDirectoryWarning: (otherProductName: string, sessionsDirectory: string) => string
+  readonly useChannelDataDirectory: string
+  readonly shareDataDirectoryAnyway: string
+  readonly sharedDataDirectoryFailed: string
   readonly quit: string
   readonly unknownVersion: string
 }
@@ -128,6 +135,18 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     profileCompatibilityWarning: 'DSH version differences may cause:\n1. Historical session information to fail to load;\n2. Some plugins in the current Profile to be incompatible and possibly cause errors or crashes.\nWe recommend switching to a compatible Profile or creating a new Profile.',
     switchProfile: 'Switch Profile',
     useProfileAnyway: 'Use Anyway',
+    sharedDataDirectoryTitle: 'Shared Data Directory',
+    sharedDataDirectoryMessage: (currentProductName, otherProductName) =>
+      `${currentProductName} is sharing one data directory with ${otherProductName}.`,
+    sharedDataDirectoryDetail: (currentDirectory, channelDirectory) =>
+      `Current data directory:\n${currentDirectory}\n\nRecommended directory:\n${channelDirectory}`,
+    sharedDataDirectoryWarning: (otherProductName, sessionsDirectory) =>
+      'The two releases run different DSH cores. Sharing one data directory can make installed plugins fail to load intermittently.\n'
+      + `Switching leaves the current directory untouched, and ${otherProductName} keeps using it.\n`
+      + `Existing sessions stay in ${sessionsDirectory}. Copy that folder into the new data directory whenever you want them back.`,
+    useChannelDataDirectory: 'Use Its Own Directory',
+    shareDataDirectoryAnyway: 'Keep Sharing',
+    sharedDataDirectoryFailed: 'Could not switch to the dedicated data directory. The current directory is unchanged; you can try again on the next launch.',
     quit: 'Quit',
     unknownVersion: 'Unknown',
   },
@@ -189,6 +208,18 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     profileCompatibilityWarning: 'DSH 版本差异可能会导致：\n1. 历史会话信息加载出错；\n2. 当前 Profile 下的部分插件不兼容，甚至引发报错或崩溃。\n建议您切换到兼容的 Profile，或创建新的 Profile。',
     switchProfile: '切换 Profile',
     useProfileAnyway: '仍然使用',
+    sharedDataDirectoryTitle: '数据目录正在共用',
+    sharedDataDirectoryMessage: (currentProductName, otherProductName) =>
+      `${currentProductName} 正在与 ${otherProductName} 共用同一个数据目录。`,
+    sharedDataDirectoryDetail: (currentDirectory, channelDirectory) =>
+      `当前数据目录：\n${currentDirectory}\n\n建议改用：\n${channelDirectory}`,
+    sharedDataDirectoryWarning: (otherProductName, sessionsDirectory) =>
+      '两个版本使用不同的 DSH 内核，共用同一个数据目录可能导致已安装的插件间歇性加载失败。\n'
+      + `改用专属目录后，当前目录保持不变，${otherProductName} 继续使用它。\n`
+      + `此前的会话记录仍保存在 ${sessionsDirectory}，需要时把该目录复制到新的数据目录下即可。`,
+    useChannelDataDirectory: '改用专属目录',
+    shareDataDirectoryAnyway: '仍然共用',
+    sharedDataDirectoryFailed: '未能改用专属目录。当前数据目录未做任何修改，可在下次启动时重试。',
     quit: '退出',
     unknownVersion: '未知',
   },

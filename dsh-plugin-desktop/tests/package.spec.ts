@@ -294,7 +294,7 @@ describe('published package surface', () => {
       expect(String(resolution)).toContain(runtimeVersion)
     }
     for (const [selector, resolution] of betaResolutions) {
-      expect(selector).toMatch(/@npm:\^?0\.1\.5-rc\.2$/u)
+      expect(selector).toMatch(/@npm:\^?0\.1\.6-alpha\.1$/u)
       expect(String(resolution)).toContain(betaRuntimeVersion)
     }
   })
@@ -761,7 +761,7 @@ describe('published package surface', () => {
 
   it('fixes the installed application identity', () => {
     expect(workspaceManifest.version).toBeUndefined()
-    expect(manifest.version).toBe('2.0.10')
+    expect(manifest.version).toBe('2.0.11')
     expect(manifest.build?.productName).toBe('DSH Desktop')
     expect(manifest.build?.appId).toBe('ai.deepseek.dsh.desktop')
     expect(manifest.build?.asar).toBe(false)

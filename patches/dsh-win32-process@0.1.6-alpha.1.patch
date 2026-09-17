@@ -1,0 +1,24 @@
+diff --git a/lib/index.js b/lib/index.js
+index 3717138..e6c973d 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -428,7 +428,8 @@ function spawnPipedProcess(api, options) {
+ 		startupInfo = allocStartupInfo();
+ 		encodeStartupInfo(startupInfo, {
+ 			cb: 104,
+-			dwFlags: 256,
++			dwFlags: 257,
++			wShowWindow: 0,
+ 			hStdInput: stdIn.read,
+ 			hStdOutput: stdOut.write,
+ 			hStdError: stdErr.write
+@@ -594,7 +595,8 @@ function spawnJobProcess(api, options, resolveStdio, createName, create) {
+ 		startupInfo = allocStartupInfo();
+ 		encodeStartupInfo(startupInfo, {
+ 			cb: 104,
+-			dwFlags: 256,
++			dwFlags: 257,
++			wShowWindow: 0,
+ 			hStdInput: stdio.stdin,
+ 			hStdOutput: stdio.stdout,
+ 			hStdError: stdio.stderr,

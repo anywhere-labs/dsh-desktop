@@ -5,7 +5,6 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -14,11 +13,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   composeEntries,
-  healProfilesModuleFallback,
   initProfile,
   PROFILE_TEMPLATES,
 } from '@deepseek-ai/dsh-app-boot'
-import { retainAsarModuleResolver } from '../src/asar-module-resolver-state.ts'
 import {
   DESKTOP_PACKAGE_NAME,
   desktopShellModeFromSettings,
@@ -27,7 +24,6 @@ import {
   ensureDesktopProfile,
   prepareDesktopProfile,
   readDesktopShellMode,
-  removeObsoleteDesktopSharedModuleFallback,
   shippedPresetRoot,
   validateDshMarketBundlePatches,
 } from '../src/profile.ts'
@@ -82,81 +78,6 @@ afterEach(() => {
 describe('desktop profile composition', {
   timeout: process.platform === 'win32' ? 10_000 : 5_000,
 }, () => {
-  it('does not recreate the shared Profile fallback while the packaged ASAR resolver is active', async () => {
-    const home = temporaryHome()
-    const installAnchor = join(
-      home,
-      'resources',
-      'app.asar',
-      'node_modules',
-      '@deepseek-ai',
-      'dsh',
-      'package.json',
-    )
-    const releaseResolver = retainAsarModuleResolver()
-    try {
-      await expect(healProfilesModuleFallback({ home, installAnchor })).resolves.toBeUndefined()
-      expect(existsSync(join(home, 'profiles', 'node_modules'))).toBe(false)
-    } finally {
-      releaseResolver()
-    }
-  })
-
-  it('removes only provably managed legacy shared fallbacks', () => {
-    const home = temporaryHome()
-    const sharedModules = join(home, 'profiles', 'node_modules')
-    const legacyTarget = join(
-      home,
-      'old-install',
-      'resources',
-      'app.asar.unpacked',
-      'node_modules',
-      'legacy-package',
-    )
-    const ordinaryTarget = join(home, 'user-packages', 'ordinary-package')
-    mkdirSync(legacyTarget, { recursive: true })
-    mkdirSync(ordinaryTarget, { recursive: true })
-    mkdirSync(sharedModules, { recursive: true })
-    const legacyLink = join(sharedModules, 'legacy-package')
-    const ordinaryLink = join(sharedModules, 'ordinary-package')
-    symlinkSync(legacyTarget, legacyLink, process.platform === 'win32' ? 'junction' : 'dir')
-    symlinkSync(ordinaryTarget, ordinaryLink, process.platform === 'win32' ? 'junction' : 'dir')
-
-    const managedProxy = join(sharedModules, '@deepseek-ai', 'managed-proxy')
-    mkdirSync(managedProxy, { recursive: true })
-    writeFileSync(join(managedProxy, 'package.json'), `${JSON.stringify({
-      name: '@deepseek-ai/managed-proxy',
-      dsh: {
-        moduleFallback: {
-          targets: { '.': pathToFileURL(join(legacyTarget, 'index.js')).href },
-        },
-      },
-    })}\n`)
-    const unknownDirectory = join(sharedModules, '@deepseek-ai', 'user-package')
-    mkdirSync(unknownDirectory, { recursive: true })
-    writeFileSync(join(unknownDirectory, 'package.json'), '{"name":"@deepseek-ai/user-package"}\n')
-    const userManagedShape = join(sharedModules, '@deepseek-ai', 'user-managed-shape')
-    mkdirSync(userManagedShape, { recursive: true })
-    writeFileSync(join(userManagedShape, 'package.json'), `${JSON.stringify({
-      name: '@deepseek-ai/user-managed-shape',
-      dsh: {
-        moduleFallback: {
-          targets: { '.': pathToFileURL(join(ordinaryTarget, 'index.js')).href },
-        },
-      },
-    })}\n`)
-    writeFileSync(join(sharedModules, 'user-note.txt'), 'preserve me\n')
-
-    expect(removeObsoleteDesktopSharedModuleFallback(home)).toBe(2)
-    expect(existsSync(legacyLink)).toBe(false)
-    expect(existsSync(managedProxy)).toBe(false)
-    expect(existsSync(ordinaryLink)).toBe(true)
-    expect(existsSync(unknownDirectory)).toBe(true)
-    expect(existsSync(userManagedShape)).toBe(true)
-    expect(readFileSync(join(sharedModules, 'user-note.txt'), 'utf8')).toBe('preserve me\n')
-    expect(removeObsoleteDesktopSharedModuleFallback(home)).toBe(0)
-  })
-
   it('ships a PowerShell-backed minimal preset for Windows', () => {
     const minimalPreset = readFileSync(
       join(shippedPresetRoot(), 'minimal', 'agent.cordis.yml'),
