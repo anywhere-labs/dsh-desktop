@@ -42,10 +42,13 @@ export const DESKTOP_SAFE_MODE_DEFAULTS: Readonly<{
     networkExposure: 'loopback',
     notifications: Object.freeze({
       enabled: false,
+      notifyOnApprovalRequest: false,
       notifyOnTurnCompletion: false,
       notifyOnTurnFailure: false,
+      notifyOnUserQuestion: false,
       notifyOnJobCompletion: false,
       notifyOnJobFailure: false,
+      showResponsePreview: false,
     }),
   }),
 })

@@ -69,10 +69,13 @@ describe('Desktop Safe Mode environment', () => {
         networkExposure: 'loopback',
         notifications: {
           enabled: false,
+          notifyOnApprovalRequest: false,
           notifyOnTurnCompletion: false,
           notifyOnTurnFailure: false,
+          notifyOnUserQuestion: false,
           notifyOnJobCompletion: false,
           notifyOnJobFailure: false,
+          showResponsePreview: false,
         },
       },
     })
