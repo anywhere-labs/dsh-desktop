@@ -96,6 +96,21 @@ interface DesktopWindowService {
 
 Desktop 会用 `data-dsh-desktop-frame="titlebar"` 标记操作栏，并用 `data-dsh-desktop-content-viewport` 标记上游 root。Root 会成为操作栏下方独立的 fixed viewport，因此 fixed descendant 不能逃逸到 Desktop chrome；直接 portal 到 `document.body` 的全视口对话框会获得相同的内容偏移。Body 级插件 portal 可以读取 `dsh-desktop-titlebar-inset` URL contract，带 frame 的模式会发布精确的 36px 预留。插件不能重复补偿已经消费的边界。
 
+### 外壳 DOM 锚点
+
+extended 与 advanced 模式用 Desktop 自有 root 替换上游 Web frame，因此这两种模式下 `@deepseek-ai/dsh-client-ui-layout` **不在**客户端 boot 图中，它的 CSS module 类名一个都不会出现在 DOM 里。若插件靠查询上游列的类名来定位外壳区域，就会既查不到、也挂不上，而且没有任何可观测的报错。为此 Desktop 在每个外壳区域上都带一个稳定锚点；受支持的契约是这些锚点，而不是类名：
+
+| 区域 | 锚点 | 上游 Web frame 是否也发出 |
+| --- | --- | --- |
+| 侧边栏列 | `[data-pane="sidebar"]` | 否 |
+| 侧边栏列，兼容别名 | `.dshDesktop_sidebarCol` | `<hash>_sidebarCol` |
+| 右栏列 | `[data-rightbar-col]` | 是 |
+| 外壳 overlay 层 | `[data-shell-overlay]` | 是 |
+
+侧边栏锚点位于直接包裹 `sidebar` slot 的那个元素上，与上游列所处的位置一致，因此从锚点出发的 `element.querySelector` 在两套外壳里会到达同一批后代。`dshDesktop_sidebarCol` 不挂任何样式，它存在的唯一目的是让按上游 Web 列编写的选择器——通常是 `[data-pane="sidebar"], [class*="sidebarCol"]`——在 Desktop 下原样生效。对主题而言这有一个连带后果：针对 `[class*="sidebarCol"]` 的样式表现在会同时作用于 Desktop 和 Web。
+
+锚点名称是稳定的，其周围的结构不是。请先查询锚点，再在其内部检索。不要依赖 Desktop 的表现类（`dshDesktopSidebarSurface`、`dshDesktopUpstreamSidebar` 及其同级）、元素标签名或嵌套深度——它们都会随模式、平台和版本变化。compatibility 模式原样运行上游客户端并保留上游 frame，包括上游自己的锚点。
+
 ## 公开 Host Cordis service
 
 请从受支持的 contract 路径执行 type-only import：
