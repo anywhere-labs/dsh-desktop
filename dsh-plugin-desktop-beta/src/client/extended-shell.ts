@@ -38,6 +38,7 @@ function applyExtendedOwnedShell(ctx: ClientContext, environment: DesktopClientE
       'sidebar': { kind: 'single', scope: 'root' },
       'main': { kind: 'keyed', scope: 'root' },
       'rightbar': { kind: 'single', scope: 'root' },
+      'desktop.browser.column': { kind: 'single', scope: 'root' },
       'shell.overlay': { kind: 'list', scope: 'root' },
     },
     inject: () => ({ layout: desktopLayout, platform: environment.platform }),

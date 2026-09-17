@@ -50,7 +50,7 @@ Renderer 通过现有 loopback carrier 接收普通 Web Client module，无法�
 
 ```ts
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { DesktopWindowService } from 'dsh-plugin-desktop-beta/client'
+import type { DesktopWindowService } from 'dsh-plugin-desktop/client'
 
 export const inject = ['desktopWindow']
 
@@ -119,15 +119,15 @@ extended 与 advanced 模式用 Desktop 自有 root 替换上游 Web frame，因
 import type {
   DesktopCurrentProfile,
   DesktopProfiles,
-} from 'dsh-plugin-desktop-beta/profile-service'
+} from 'dsh-plugin-desktop/profile-service'
 import type {
   DesktopPnpm,
   DesktopPnpmHandle,
   DesktopPnpmOutcome,
-} from 'dsh-plugin-desktop-beta/pnpm'
+} from 'dsh-plugin-desktop/pnpm'
 ```
 
-`dsh-plugin-desktop-beta/profiles` 是 Desktop 自有托盘 consumer，不是 profile service contract。不要从该路径导入 service 类型。
+`dsh-plugin-desktop/profiles` 是 Desktop 自有托盘 consumer，不是 profile service contract。不要从该路径导入 service 类型。
 
 ### `desktopProfiles`
 
@@ -194,13 +194,62 @@ Service 在每个 generation 同时最多启动一个 package operation；已有
 
 无效 argv、已经关闭或忙碌的 generation，以及调用前就已 abort 的 signal，都会在返回 handle 前同步抛错。Handle 存在后，cancellation 与 generation teardown 会作用于完整 subprocess tree。`done` 不会仅因直接 wrapper 退出而 settle；在后代进程消失前，operation gate 始终保持占用。异步 spawn-level failure 会 reject `done`，普通命令失败则 resolve 为非零 exit code。Desktop 会仅在当前进程中、最终执行 pnpm 时为所有操作加入一次 `--config.minimumReleaseAge=0`，包括打包的 `dsh plugin` 转发和终端 shim，不会持久化修改用户配置。在 Windows 上，provider 会使用 argv 启动准确的已打包 pnpm entry，并把进程树 ownership 委托给 subprocess service，因此插件作者无需发现 `.cmd` shim，也不应拼接 shell 文本。
 
+### `desktopBrowser`
+
+```ts
+interface DesktopBrowserService {
+  readonly version: 1
+  readonly available: boolean
+  open(): readonly string[]
+  store(sessionId: string): DesktopBrowserStore
+  existing(sessionId: string): DesktopBrowserStore | undefined
+  state(sessionId: string): Promise<DesktopBrowserState>
+  openTab(sessionId: string, url?: string): Promise<string>
+  closeTab(sessionId: string, tabId?: string): Promise<void>
+  act(sessionId: string, action: DesktopBrowserAction): Promise<DesktopBrowserActionResult>
+  panel(sessionId: string, visible: boolean): void
+  directive(sessionId: string): DesktopBrowserPanelDirective
+  subscribe(listener: (event: DesktopBrowserEvent) => void): () => void
+}
+```
+
+`desktop-browser` Host row（`dsh-plugin-desktop/browser`）基于 shell 的 `desktopNativeBrowser` capability 提供该 service。该 capability 不存在时 service 也不存在，因此普通 DSH host 既没有该 service，也没有 `desktop_browser` 工具；请通过嵌套的 `ctx.inject()` callback 探测，不要放进顶层 `inject` 列表。
+
+- `version` 为 `1`；`available` 表示当前 Host generation 是否能承载原生 guest view。
+- `open()` 列出当前持有标签的 Session。每个 Session 拥有自己的标签 store：`store(sessionId)` 返回该 Session 的 store 并在首次使用时创建，`existing(sessionId)` 只在 store 已经存在时返回，`state(sessionId)` 读取 Session 状态而不会创建任何东西。
+- `openTab(sessionId, url?)` 打开一个标签、加载地址并返回新标签 id；`closeTab(sessionId, tabId?)` 关闭一个标签，未给出 id 时关闭当前标签。每个 Session 最多保留 12 个标签。
+- `act(sessionId, action)` 执行面板自有 action union 中的一个 action，覆盖导航、历史、viewport 放置、focus、指针与键盘输入、console 读取以及标签操作。
+- `panel(sessionId, visible)` 记录 renderer 必须应用的面板 directive，`directive(sessionId)` 读取已记录的值。`desktop_browser` 工具在除 `panel` 以外的每个页面 action 之前都会记录一次可见 directive，因此 Agent 的操作会自动展开该会话的面板。Directive 携带单调递增的 `epoch`，renderer 对每个新 epoch 只应用一次，因此后续状态交换不会重新打开用户已经关闭的面板。
+- `subscribe(listener)` 观察所有 Session 的 service event，并返回用于移除 listener 的 disposer。`state` event 携带一个 Session 的状态及其当前生效的面板 directive；`console` event 携带一条已捕获页面日志的 level 与 text。该 row 当前发布 `state` event；已捕获的 console 行也可以通过 `act(sessionId, { action: 'console' })` 读取。
+
+```ts
+import type { Context } from '@deepseek-ai/cordis'
+import type { DesktopBrowserService } from 'dsh-plugin-desktop/browser'
+
+export const name = 'example-browser-observer'
+
+export function apply(ctx: Context): void {
+  // 普通 DSH host 下没有该 service，因此这段嵌套 callback 只在当前
+  // generation 的 desktop-browser row 处于激活状态时运行。
+  ctx.inject(['desktopBrowser'], (browserCtx) => {
+    const browser: DesktopBrowserService = browserCtx.desktopBrowser
+    browserCtx.effect(() => browser.subscribe((event) => {
+      if (event.type !== 'state') return
+      browserCtx.logger.info(`session ${event.sessionId}: ${String(event.state.tabs.length)} tabs`)
+    }), 'example: Desktop browser state observer')
+  })
+}
+```
+
+`desktopBrowser` 属于 Desktop Host face，contract 版本为 `1`。后续 Desktop release 可以增加成员、event variant 或 action variant，但不会移除成员或改变其含义；破坏性变更需要新的 service 名称或新版本。
+
 ## 内部与 launcher 私有 capability
 
 | 名称 | 边界 | 面向插件作者的状态 |
 | --- | --- | --- |
-| `desktopProfiles` | 作用于 generation 的 Host service。 | 公开；通过 `dsh-plugin-desktop-beta/profile-service` 获得受支持 contract。 |
-| `desktopPnpm` | 作用于 generation 的 Host service。 | 公开；通过 `dsh-plugin-desktop-beta/pnpm` 获得受支持 contract。 |
-| `desktopWindow` | 作用于 generation 的 Client service。 | 公开；通过 `dsh-plugin-desktop-beta/client` 获得受支持 contract，只包含不可变几何信息。 |
+| `desktopProfiles` | 作用于 generation 的 Host service。 | 公开；通过 `dsh-plugin-desktop/profile-service` 获得受支持 contract。 |
+| `desktopPnpm` | 作用于 generation 的 Host service。 | 公开；通过 `dsh-plugin-desktop/pnpm` 获得受支持 contract。 |
+| `desktopWindow` | 作用于 generation 的 Client service。 | 公开；通过 `dsh-plugin-desktop/client` 获得受支持 contract，只包含不可变几何信息。 |
 | `desktopRuntime` | Launcher 提供的 native adapter，供 Desktop 自有 shell、tray、terminal、profile 与 update row 使用。 | Desktop 内部。第三方插件不得 inject，也不得依赖其 window/tray 方法。 |
 | `desktopPnpmBootstrap` | 提供给 `desktop-pnpm` provider 的已打包绝对路径、被选 profile fact、Electron ABI 值与私有 Node helper。 | Launcher 私有。不得读取、provide、intercept 或声明为 dependency。 |
 | `DesktopProfileServiceBootstrap` | Launcher 注册 `desktopProfiles` 时使用的 constructor input；它不是 Cordis service。 | Launcher 私有实现细节。 |
@@ -215,8 +264,8 @@ Service 在每个 generation 同时最多启动一个 package operation；已有
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from 'dsh-plugin-desktop-beta/profile-service'
-import type { DesktopPnpmHandle } from 'dsh-plugin-desktop-beta/pnpm'
+import type {} from 'dsh-plugin-desktop/profile-service'
+import type { DesktopPnpmHandle } from 'dsh-plugin-desktop/pnpm'
 
 export const name = 'example-desktop-plugin-manager'
 export const inject = ['desktopProfiles', 'desktopPnpm']
@@ -264,8 +313,8 @@ export function apply(ctx: Context): void {
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from 'dsh-plugin-desktop-beta/profile-service'
-import type {} from 'dsh-plugin-desktop-beta/pnpm'
+import type {} from 'dsh-plugin-desktop/profile-service'
+import type {} from 'dsh-plugin-desktop/pnpm'
 
 export const name = 'cross-environment-plugin-manager'
 export const inject = ['webServer', 'loader']
@@ -307,7 +356,7 @@ export function apply(ctx: Context, config: { profile?: string }): void {
 
 `desktopProfiles` 已存在后，绝不能回退到猜测的 `web` profile。部分缺失或启动失败的 Desktop provider set 属于 Desktop generation failure，不是通过 ambient CLI 修改另一个 profile 的许可。也不要用 `ctx.baseUrl`、settings、Loader inventory 或 launcher 的内部 `cmdlineArgs` 替代 `desktopProfiles.current`。
 
-Type-only import 会从 JavaScript 中消除。跨环境 package 可以把 `dsh-plugin-desktop-beta` 作为编译所需 dev dependency；若发布的 declaration 会暴露这些类型，也可以将其声明为 optional peer。仅为了探测 service，不需要 runtime import。
+Type-only import 会从 JavaScript 中消除。跨环境 package 可以把 `dsh-plugin-desktop` 作为编译所需 dev dependency；若发布的 declaration 会暴露这些类型，也可以将其声明为 optional peer。仅为了探测 service，不需要 runtime import。
 
 ## 最小可运行测试插件
 
@@ -316,8 +365,8 @@ Type-only import 会从 JavaScript 中消除。跨环境 package 可以把 `dsh-
 完整 Profile Loader smoke 会把该 package 复制到临时 profile 的 `node_modules`，以普通 bare-package Loader entry 加载，并在 probe 没有返回激活 profile 或 `run()` 时失败。运行命令：
 
 ```sh
-yarn workspace dsh-plugin-desktop-beta build
-yarn workspace dsh-plugin-desktop-beta verify:profile
+yarn workspace dsh-plugin-desktop build
+yarn workspace dsh-plugin-desktop verify:profile
 ```
 
 该 fixture 位于 `tests/`，不在 npm `files` 列表或 Electron build files 中，因此不会进入生产 archive。
@@ -341,4 +390,4 @@ yarn workspace dsh-plugin-desktop-beta verify:profile
 
 ## 稳定性边界
 
-受支持的插件作者 surface，是本文描述且由 `dsh-plugin-desktop-beta/profile-service`、`dsh-plugin-desktop-beta/pnpm` 与 `dsh-plugin-desktop-beta/client` 导出的 `desktopProfiles`、`desktopPnpm` 和 `desktopWindow` service contract。Launcher bootstrap 值、native adapter、生成 shim、状态文件格式、Loader row 顺序与 Electron 实现细节都可能变化，但不会因此成为第三方 API。Fallback 必须保持显式、限定在生命周期内，并且 headless-safe。
+受支持的插件作者 surface，是本文描述且由 `dsh-plugin-desktop/profile-service`、`dsh-plugin-desktop/pnpm` 与 `dsh-plugin-desktop/client` 导出的 `desktopProfiles`、`desktopPnpm` 和 `desktopWindow` service contract。Launcher bootstrap 值、native adapter、生成 shim、状态文件格式、Loader row 顺序与 Electron 实现细节都可能变化，但不会因此成为第三方 API。Fallback 必须保持显式、限定在生命周期内，并且 headless-safe。

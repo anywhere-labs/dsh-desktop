@@ -1,4 +1,5 @@
 /** Native capability adapters; frontend HTTP and WebSocket connections are unchanged. */
+import type { DesktopNativeBrowserEvent } from './browser-view-service.ts'
 import type { DesktopRuntime, DesktopShellSpec, DesktopTrayItem, DesktopTrayItemRegistration, DesktopUpdateAdapter } from './runtime.ts'
 import { HostRpc } from './host-rpc.ts'
 
@@ -24,7 +25,7 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
   const shellSpecs = new Map<string, DesktopShellSpec>()
   const send = <T = void>(method: string, args: unknown[] = [], signal?: AbortSignal): Promise<T> => {
     const interactive = ['update:confirmDownload', 'update:showManualCheckResult', 'update:downloadAndOpen',
-      'native:pickDirectory', 'native:exportDiagnostics'].includes(method)
+      'native:pickDirectory', 'native:exportDiagnostics', 'browser:startGoogleLogin'].includes(method)
     const task = rpc.call<T>(method, args, signal, interactive ? 0 : undefined)
     calls.add(task)
     // Report fire-and-forget failures without creating an unhandled rejection.
@@ -39,6 +40,36 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
   const runtime: DesktopRuntime = {
     platform: snapshot.platform, windowsBuild: snapshot.windowsBuild,
     get locale() { return locale },
+    nativeBrowser: {
+      version: 1,
+      createView: options => send('browser:createView', [options]),
+      setBounds: (id, bounds) => send('browser:setBounds', [id, bounds]),
+      setZoom: (id, factor) => send('browser:setZoom', [id, factor]),
+      setVisible: (id, visible) => send('browser:setVisible', [id, visible]),
+      focus: id => send('browser:focus', [id]),
+      navigate: (id, url) => send('browser:navigate', [id, url]),
+      close: id => send('browser:close', [id]),
+      closeOwner: owner => send('browser:closeOwner', [owner]),
+      command: (id, method, params) => send('browser:command', [id, method, params]),
+      googleLoginStatus: () => send('browser:googleLoginStatus'),
+      startGoogleLogin: () => send('browser:startGoogleLogin'),
+      cancelGoogleLogin: () => send('browser:cancelGoogleLogin'),
+      openInChrome: urls => send('browser:openInChrome', [urls]),
+      subscribe(listener) {
+        const callback = callbacks({ event: (event: DesktopNativeBrowserEvent) => listener(event) })
+        void send('browser:subscribe', [callback.id]).catch((cause: unknown) => {
+          callback.release()
+          process.stderr.write(`${String(cause)}\n`)
+        })
+        let active = true
+        return () => {
+          if (!active) return
+          active = false
+          callback.release()
+          void send('browser:unsubscribe', [callback.id])
+        }
+      },
+    },
     updates: {
       ...snapshot.updates,
       request: async (url, init) => {
@@ -120,6 +151,7 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () => 
   const trays = new Map<string, DesktopTrayItemRegistration>()
   const shells = new Map<string, () => Promise<void>>()
   const preferences = new Map<string, { locale: any; theme: any }>()
+  const browserSubscriptions = new Map<string, () => void>()
   const releases: (() => void)[] = []
   const handle = (name: string, fn: (args: any[], signal: AbortSignal) => unknown) => { releases.push(rpc.handle(name, fn)) }
   const callback = (method: string, args: unknown[] = []) => rpc.call(method, args)
@@ -167,6 +199,27 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () => 
     const response = await runtime.updates.request(url, { ...init, signal })
     return { body: await response.text(), status: response.status, headers: [...response.headers.entries()] }
   })
+  handle('browser:createView', ([options]) => runtime.nativeBrowser.createView(options))
+  handle('browser:setBounds', ([id, bounds]) => runtime.nativeBrowser.setBounds(id, bounds))
+  handle('browser:setZoom', ([id, factor]) => runtime.nativeBrowser.setZoom(id, factor))
+  handle('browser:setVisible', ([id, visible]) => runtime.nativeBrowser.setVisible(id, visible))
+  handle('browser:focus', ([id]) => runtime.nativeBrowser.focus(id))
+  handle('browser:navigate', ([id, url]) => runtime.nativeBrowser.navigate(id, url))
+  handle('browser:close', ([id]) => runtime.nativeBrowser.close(id))
+  handle('browser:closeOwner', ([owner]) => runtime.nativeBrowser.closeOwner(owner))
+  handle('browser:command', ([id, method, params]) => runtime.nativeBrowser.command(id, method, params))
+  handle('browser:googleLoginStatus', () => runtime.nativeBrowser.googleLoginStatus())
+  handle('browser:startGoogleLogin', () => runtime.nativeBrowser.startGoogleLogin())
+  handle('browser:cancelGoogleLogin', () => runtime.nativeBrowser.cancelGoogleLogin())
+  handle('browser:openInChrome', ([urls]) => runtime.nativeBrowser.openInChrome(Array.isArray(urls) ? urls.map(String) : []))
+  handle('browser:subscribe', ([id]) => {
+    browserSubscriptions.get(id)?.()
+    browserSubscriptions.set(id, runtime.nativeBrowser.subscribe(event => { report(callback(`${id}:event`, [event])) }))
+  })
+  handle('browser:unsubscribe', ([id]) => {
+    browserSubscriptions.get(id)?.()
+    browserSubscriptions.delete(id)
+  })
   handle('update:confirmDownload', ([version, channel]) => runtime.updates.confirmDownload(version, channel))
   handle('update:showManualCheckResult', ([result]) => runtime.updates.showManualCheckResult(result))
   handle('update:downloadAndOpen', ([version, channel], signal) => runtime.updates.downloadAndOpen(version, signal, channel))
@@ -174,6 +227,7 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () => 
   return async () => {
     trays.forEach(tray => tray.dispose()); trays.clear()
     await Promise.all([...shells.values()].map(dispose => dispose())); shells.clear(); preferences.clear()
+    browserSubscriptions.forEach(unsubscribe => { unsubscribe() }); browserSubscriptions.clear()
     releases.forEach(release => release())
   }
 }

@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import type { DesktopNativeBrowser } from './browser-view-service.ts'
 import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
 import type { RendererBootReport } from './renderer-boot-contract.ts'
 import type { DesktopReleaseChannel, UpdateCheckResult, UpdateRequest } from './update-checker.ts'
@@ -179,6 +180,9 @@ export interface DesktopRuntime {
 
   /** Native network, update-download, and notification adapter. */
   readonly updates: DesktopUpdateAdapter
+
+  /** Native guest browser views hosted by the Electron main process. */
+  readonly nativeBrowser: DesktopNativeBrowser
 
   /**
    * Register one shell generation while the Cordis profile is activating.

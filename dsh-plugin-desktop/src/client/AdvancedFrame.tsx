@@ -18,7 +18,7 @@ export interface AdvancedFrameInjected {
 
 /** Full enhanced-mode root slot props. */
 export type AdvancedFrameProps = PropsRuntime<'root'>
-  & PropsRenderSlots<'sidebar' | 'main' | 'rightbar' | 'shell.overlay'>
+  & PropsRenderSlots<'sidebar' | 'main' | 'rightbar' | 'desktop.browser.column' | 'shell.overlay'>
   & AdvancedFrameInjected
 
 /** Enhanced-mode owner preserving the original Desktop layout contract. */
@@ -133,6 +133,9 @@ export function DesktopOwnedFrame({
       <main className="dshDesktopConversationSurface"><MainPanel usePanelInfo={usePanelInfo} renderSlot={renderSlot} /></main>
       <aside className="dshDesktopRightbarSurface" data-rightbar-col>
         {renderSlot('rightbar', { width: normal.rightbar, viewportWidth: viewport, canShow: normal.rightbar > 0 })}
+        {/* The browser panel is its own layer over this track, so the shipped
+          * right Sidebar keeps the seat and stays mounted underneath. */}
+        <div className="dshDesktopBrowserColumn">{renderSlot('desktop.browser.column', { sidebarTakeover: panels.sidebarTakeover })}</div>
       </aside>
       {/* Electron resolves app regions in DOM order; Desktop overlays must remain later. */}
       {mode === 'advanced' && platform === 'win32' && <div className="dshDesktopWindowsCaptionRow" aria-hidden="true" />}

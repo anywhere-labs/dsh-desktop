@@ -791,6 +791,17 @@ export class ElectronShellGeneration {
     if (this.window !== undefined && !this.window.isDestroyed()) this.refreshNativeMaterial?.()
   }
 
+  /** Current main window while this generation is mounted. */
+  get mainWindow(): BrowserWindow | undefined {
+    const window = this.window
+    return window === undefined || window.isDestroyed() ? undefined : window
+  }
+
+  /** Offset of the renderer viewport inside the window content area. */
+  get rendererViewportOrigin(): { x: number; y: number } {
+    return this.compatibilityShell?.viewportOrigin ?? { x: 0, y: 0 }
+  }
+
   async release(): Promise<void> {
     if (this.released) return
     this.released = true

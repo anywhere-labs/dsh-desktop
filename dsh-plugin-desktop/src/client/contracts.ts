@@ -53,3 +53,25 @@ declare module '@deepseek-ai/cordis' {
     desktopWindow: DesktopWindowService
   }
 }
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    /**
+     * The Desktop browser panel's own layer over the right track.
+     *
+     * It is not the `rightbar` seat: the shipped right Sidebar keeps that one, so
+     * it stays mounted and its session surface keeps answering the commands that
+     * need it. The Desktop frame draws this layer above the same track instead.
+     */
+    'desktop.browser.column': { kind: 'single'; scope: 'root'; owner: DesktopBrowserColumnOwnerProps }
+  }
+}
+
+/** Column state the frame reports to the panel layer it draws. */
+export interface DesktopBrowserColumnOwnerProps {
+  /**
+   * Whether the shipped right Sidebar raised its panel while the browser held
+   * the column; the panel steps aside for the content that just arrived.
+   */
+  readonly sidebarTakeover: boolean
+}
