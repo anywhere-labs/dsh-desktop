@@ -2,10 +2,10 @@
 
 ## 结论
 
-- 结果：通过。64 个验收用例全部通过（64/64），其中 11 个专门校验既有功能未受影响、列宽/展开行为与多会话占用；过程中发现的 8 处真实缺陷已修复并复测。第二轮 12 个用例（真实站点、共享浏览器 profile、列归属与地址输入）同样全部通过，又发现并修复 9 处缺陷。
+- 结果：通过。第一轮 64 个用例、第二轮 12 个、第三轮 14 个、第四轮 8 个、第五轮 7 个全部通过（含既有功能未受影响的 11 项回归），共发现并修复 27 处真实缺陷，每处都有一项以上用例复测。
 - 范围：`dsh-plugin-desktop` 的桌面浏览器右侧栏面板、Agent `desktop_browser` 工具、Host `desktopBrowser` service 与面板私有通道；未修改 `deepseek-harness` 子模块。
 - 验收对象：工作区内的开发构建（`dsh-plugin-desktop` 源码 + `node_modules/electron` 43），不是已发布的安装包。
-- 面板形态：浏览器以**右侧栏列**形式停靠，与会话并列，不占用独立窗口；这一列可以按窗口宽度的八分之一变窄或变宽，也可以在保留左侧边栏的前提下展开到整个会话区。
+- 面板形态：浏览器以**右侧栏列**形式停靠，与会话并列，不占用独立窗口；这一列可以在保留左侧边栏的前提下展开到整个会话区，宽度由会话列的分隔手柄直接拖拽。
 - Agent 联动：Agent 的每个页面 action 都会展开该会话的面板，用户始终能看到 Agent 正在操作的页面；`panel` action 仍可显式打开或隐藏。
 - 图像隐私：证据图为窗口真实像素，录制前收起左侧边栏，画面中不出现工作区名、会话名或账号；会话区显示的是本次演示自身的问答内容。
 
@@ -23,9 +23,9 @@
 
 ![浏览器会话右侧栏](./assets/desktop-browser-column.gif)
 
-会话列让出右侧栏，面板顶部对齐标题栏下方；地址栏、标签条与状态行（逻辑视口 / 缩放 / 布局 / 交换状态）都在列内，页面由主进程的原生视图绘制。动图依次演示 **变窄**、**变宽**、**占满会话区（保留左侧边栏）**、还原与关闭，关闭后该列交还官方右侧边栏。
+会话列让出右侧栏，面板顶部对齐标题栏下方；地址栏、标签条与状态行（逻辑视口 / 缩放 / 布局 / 交换状态）都在列内，页面由主进程的原生视图绘制。动图依次演示打开面板、拖拽会话列与右列之间的分隔手柄改变列宽、**占满会话区（保留左侧边栏）**、还原与关闭，关闭后该列交还官方右侧边栏。
 
-### 多标签与列控件
+### 多标签与地址输入
 
 ![多标签](./assets/desktop-browser-tabs.gif)
 
@@ -49,13 +49,36 @@
 
 菜单展开时 Host 撤回原生页面视图，菜单关闭后恢复，因此该状态下页面区域是面板自身的底色。
 
+### Google 账号状态与交给 Chrome 的控件
+
+![面板中的 Google 状态](./assets/desktop-browser-google-account.png)
+
+工具栏右侧的圆形控件把侧边栏的标签交给用户自己的 Chrome；状态行右端报告 Google 登录阶段，此图为导入完成后的「已登录 Google」。
+
+### 交接后的 Chrome 标签
+
+![交接后的 Chrome 标签](./assets/desktop-browser-chrome-handoff.png)
+
+面板中的两个标签（Gemini 与验收探针页）成为用户日常 Chrome 配置里同一个新窗口的两个标签。
+
+### 面板中的 Google 标签与已登录状态
+
+![面板标签条中的 Google 页面](./assets/desktop-browser-google-tabs.png)
+
+![导入完成后的状态行](./assets/desktop-browser-google-session.png)
+
+上图为面板标签条里的两个 Google 页面，下图为同一窗口底部状态行的右端：导入完成后它报告「已登录 Google」。两图取自同一次窗口像素，只保留不含账号信息的部分。
+
 ## 功能范围
 
-- 会话头部新增 **浏览器** 控件，显示该会话的打开标签数；点击后浏览器停靠在右侧栏，再次点击或按面板的关闭控件即释放该列并恢复会话宽度。
+- 会话头部新增 **浏览器** 图标控件：悬停时以 `浏览器` 提示其用途，按下态反映面板开关，标签数量变化时位置与宽度保持不变；点击后浏览器停靠在右侧栏，再次点击或按面板的关闭控件即释放该列并恢复会话宽度。
 - 面板包含标签条（新建、切换、关闭，单会话上限 12 个）、后退、前进、重新加载/停止、地址栏、50%–150% 缩放预设、两种逻辑布局（适配面板 / 桌面 1280px）与当前标签访问历史。
 - 状态行报告逻辑视口尺寸、实际缩放、布局与最近一次 Host 交换结果。
 - Agent 通过 `desktop_browser` 工具操作同一份页面：navigate、snapshot、screenshot、click、fill、press、scroll、console、evaluate、tabs、close、panel。
-- 列控制：**变窄** / **变宽** 每次移动窗口宽度的八分之一并由 frame 的上下限裁剪；**占满会话区（保留左侧边栏）** 把会话列与右侧栏一起交给页面，左侧边栏、标题栏行与窗口控件保持原位；frame 的拖拽手柄在同一宽度上继续可用。
+- 列控制：**占满会话区（保留左侧边栏）** 把会话列与右侧栏一起交给页面，左侧边栏、标题栏行与窗口控件保持原位；列宽通过会话列与右侧栏之间的 frame 分隔手柄拖拽，上下限沿用 frame 自身约束。
+- 地址输入：不带 scheme 的地址按浏览器习惯补全，裸域名与 `域名:端口` 走 https，`localhost` / `127.0.0.1` / `[::1]` / `*.localhost` 走 http；具名 scheme 不做改写，仍由导航策略判定。
+- 加载失败：失败地址保留在标签与地址栏中，页面区域显示面板自身的报错（原因、重试、关闭），不回退到空白页或上一个页面；被导航策略拒绝的地址同样保留当前页面并由面板说明原因。
+- 浏览器身份：guest 视图与其请求以所运行的 Chromium 版本对外呈现为原生 Chrome（User-Agent、`navigator.userAgentData`、`sec-ch-ua*`），不暴露桌面应用标识；profile 为应用级共享持久分区，cookie 与登录态跨会话保留。
 - Agent 的每个页面 action 都会展开该会话的面板，用户能看到 Agent 正在操作的页面；`panel` action 仍可显式打开或隐藏。
 - 其他插件通过 Host service `ctx.desktopBrowser` 使用同一存储与通道，并可订阅状态事件。
 
@@ -174,8 +197,8 @@
 
 | 用例 | 项目 | 结果 | 关键观测 |
 | --- | --- | --- | --- |
-| W1 | 变宽按钮把右侧栏加宽一个步长 | ✅ 通过 | `{"before":301,"after":403,"step":102,"columns":"280px 598px 402px"}` |
-| W2 | 变窄按钮收缩到下限后不再变窄 | ✅ 通过 | `{"width":301,"conversation":700,"columns":"280px 700px 300px"}` |
+| W1 | 拖拽分隔手柄加宽右侧栏且页面跟进 | ✅ 通过 | `{"before":301,"after":560,"columns":"280px 440px 560px"}` |
+| W2 | 拖到下限后列宽停在该 frame 的最小值 | ✅ 通过 | `{"width":301,"again":301,"conversation":700,"columns":"280px 700px 300px"}` |
 | W3 | 全屏按钮让页面占满窗口，还原后交还会话列 | ✅ 通过 | `{"full":{"x":280,"y":32,"width":1000,"height":840},"sidebar":280,"viewport":1280,"restored":301,"conversation":700}` |
 | W5 | 展开时左侧边栏保持宽度且仍可操作 | ✅ 通过 | `{"sidebar":280,"panel":1000,"covered":false}` |
 | W4 | 全屏状态在关闭并重开后保持 | ✅ 通过 | `{"closed":"280px 1000px 0px","reopened":1000}` |
@@ -227,7 +250,7 @@
 | Y8 | 后台会话的面板不再占住共享列 | ✅ 通过 | 修复前 `{"panel":false,"columns":"90px 488px 702px"}`（无面板却留列）；修复后同场景 `280px 1000px 0px` |
 | Y9 | 关闭面板后官方右侧边栏回收该列 | ✅ 通过 | `{"columns":"280px 1000px 0px","emptyHints":1,"rightbarWidth":300}` |
 | Y10 | 截图以真实图片交给 Agent | ✅ 通过 | 通道的 base64 数据先解码再存为附件，Agent 会话内的截图可正常显示与阅读 |
-| Y11 | 浏览器指纹探针（记录当前事实） | ✅ 通过 | UA `…DSHDesktop/43.3.0 Chrome/150.0.7871.212 Electron/43.3.0 Safari/537.36`、`navigator.webdriver=false`、plugins 5 / mimeTypes 2、WebGL `ANGLE (Apple, M2 Pro)`、通知/定位/摄像头权限默认 `denied`、cookie 与 localStorage 为真实存储 |
+| Y11 | 浏览器指纹探针（第三轮已对齐，见 Z10/Z11） | ✅ 通过 | 第三轮改为原生 Chrome 身份：UA `…Chrome/150.0.0.0 Safari/537.36`、`userAgentData.brands` 含 `Google Chrome/150`、`platform=macOS`、`webdriver=false`；`navigator.languages` 仍为 `["zh-CN","zh-Hans-CN"]`、WebGL 报 `ANGLE (Apple, M2 Pro)`、plugins 5 / mimeTypes 2 |
 | Y12 | 录制链路兼容缺少 duration 的录屏 | ✅ 通过 | 时长回退到「帧数 ÷ 帧率」，GIF 生成不再报 `Error writing trailer` |
 
 ### 第二轮发现并修复的缺陷
@@ -243,6 +266,140 @@
 | `div[contenteditable="true"]:visible` 这类选择器定位到没有可见盒子的节点 | 选择器定位用 `querySelector` 取首个匹配，而 `:visible` 并不是 CSS | 选择器定位与角色/名字定位共用同一套可见性偏好：去掉 `:visible` 后缀、容忍非法选择器、多匹配优先可见节点 |
 | 每个会话一个浏览器存储分区，登录态无法复用 | 视图按会话派生 `partition` | 改为全应用共享持久分区 `persist:dsh-desktop-browser-profile`（设计变更，见「未覆盖与已知限制」） |
 | 切到没有面板的会话后，右侧留着一列宽度却什么都不渲染 | 右侧列由整窗口共享，任何已打开面板的会话都会持续声明占用，而交还只由当前显示的会话执行 | 面板增加「是否在屏」归属：只有在屏会话的面板可以占列与摆放视图，离屏立即交还该列并撤下视图 |
+
+## 第三轮：页内报错、图标控件与浏览器身份
+
+### 测试系统（第三轮）
+
+| 项目 | 值 |
+| --- | --- |
+| 日期 | 2026-09-16（Asia/Shanghai） |
+| 主机 | macOS 26.5.1（darwin），Apple Silicon，窗口 1280×840 CSS，DPR 2 |
+| 应用 | 工作区开发构建：`node_modules/electron/dist/Electron.app/Contents/MacOS/Electron lib/main.js --remote-debugging-port=9333` |
+| 桌面模式 | `advanced`（`~/.dsh-desktop/settings.yaml`） |
+| 浏览器内核 | Electron 43 的 Chromium，guest 由主进程 `WebContentsView` 承载 |
+| 测试页 | 本地 fixture 服务 `127.0.0.1:8899`（含 4 秒延迟页 `/slow.html` 与 `/whoami.json` 请求头回显） |
+| 驱动 | 同第一轮（`run.mjs` + `cdp.mjs`，DevTools 协议与真实指针/键盘事件）；本节用例为 `Z1`–`Z14` |
+| 观测口径 | 面板断言取自渲染进程 DOM，页面身份与请求头取自 guest 页面与其自身发出的请求 |
+
+### 用例与结果（第三轮）
+
+| 编号 | 用例 | 结果 | 观测 |
+| --- | --- | --- | --- |
+| Z1 | 头部控件是带悬浮提示的纯图标 | ✅ 通过 | `{"text":"","glyphs":1,"title":"浏览器","aria":"浏览器","pressed":"false","width":28,"openedWidth":28}`：无文字、单个图标，悬停提示为「浏览器」，打开前后宽度不变 |
+| Z2 | 工具栏动作集合固定且只保留一个列控件 | ✅ 通过 | `{"actions":["toggle","back","forward","reload","address-open","tools","fullscreen","close","new-tab"]}` |
+| Z3 | 不带 scheme 的地址按浏览器习惯补全 | ✅ 通过 | `{"https":"https://example.com:8443/docs?q=1#top","loopback":"http://localhost:8899/","fixture":"http://127.0.0.1:8899/"}` |
+| Z4 | 具名 scheme 不改写并由导航策略拒绝 | ✅ 通过 | `{"page":"http://127.0.0.1:8899/","field":"file:///etc/passwd","strip":"BROWSER_HTTP_URL_REQUIRED: only http and https pages can be opened"}`：页面停在原地址，被拒的文本留在地址栏供修改 |
+| Z5 | 打不开的页面保留链接而不是回到空白页 | ✅ 通过 | `{"tab":"https://nope.example.invalid/","field":"https://nope.example.invalid/"}` |
+| Z6 | 页内报错给出地址、原因、重试与关闭 | ✅ 通过 | `{"title":"这个页面没有打开","address":"https://nope.example.invalid/","reason":"-100: ERR_CONNECTION_CLOSED","actions":["重试","关闭"]}`；同时 guest 视图让位（`visible:false`），报错不被原生页面遮住 |
+| Z7 | 关闭报错后不再自行出现 | ✅ 通过 | `{"dismissed":true,"field":"https://nope.example.invalid/"}`：轮询继续报告同一次失败，提示不再自行弹出 |
+| Z8 | 重试按钮重新加载同一地址 | ✅ 通过 | `{"url":"https://nope.example.invalid/","loading":false}`：重试是同一次失败的新尝试，提示可以再次出现 |
+| Z9 | 页面内导航被策略拒绝时保留当前文档 | ✅ 通过 | `{"title":"DSH Browser Fixture","reason":"BROWSER_VIEW_NAVIGATION_DENIED: mailto:someone@example.com is outside the guest navigation policy"}`：页面仍在原文档 |
+| Z10 | guest 以原生 Chrome 身份上报版本 | ✅ 通过 | `{"userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36","brands":[{"brand":"Not)A;Brand","version":"8"},{"brand":"Chromium","version":"150"},{"brand":"Google Chrome","version":"150"}],"platform":"macOS","mobile":false,"webdriver":false}` |
+| Z11 | 请求头与页面身份一致 | ✅ 通过 | `{"chUa":"\"Not)A;Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\"","platform":"\"macOS\"","language":"zh-CN,zh;q=0.9,en;q=0.8"}`：`user-agent` 无 Electron/DSHDesktop 标记，`sec-ch-ua*` 与页面内 `userAgentData` 一致 |
+| Z12 | 同一 profile 的存储在一个面板的标签间共享 | ✅ 通过 | `{"marker":"kept","cookieVisible":true}`：一个标签写入的 `localStorage` 与 cookie 在另一个标签可见 |
+| Z13 | 失败后输入可用地址即恢复 | ✅ 通过 | `{"url":"http://127.0.0.1:8899/","title":"DSH Browser Fixture","field":"http://127.0.0.1:8899/"}`：报错随新页面消失 |
+| Z14 | 报错只属于失败的标签 | ✅ 通过 | 失败标签显示自己的地址与原因，切到正常标签后页面区不再有提示，切回失败标签提示恢复 |
+
+### 第三轮发现并修复的缺陷
+
+| 现象 | 根因 | 修复 |
+| --- | --- | --- |
+| 加载失败后页面区看不到面板自己的报错 | 面板用量子化的遮挡状态让 guest 视图让位，但该副作用只在工具菜单变化时重跑，失败状态变化不会触发 | 遮挡副作用跟随失败状态重新求值，失败时 guest 让位、报错绘制在页面区（`Z6`） |
+| 关闭过一次报错后，重新输入同一个地址不再提示 | 「已关闭」只记住文本，重试与刷新没有清掉它 | 每一次导航请求都视为新的尝试并清除该记录；记录同时绑定标签，其他标签不受影响（`Z8`、`Z14`） |
+| 切到另一个标签后，报错显示的是别的标签的地址 | 地址栏在失败期间不再跟随活动标签 | 失败地址写入标签自身，地址栏照常跟随活动标签（`Z14`） |
+| 打不开的地址只留在地址栏，标签本身回到空白页 | 失败事件没有把目标地址写回标签状态 | 页面层把失败地址记为标签当前地址，状态行与报错都基于它（`Z5`） |
+| 被策略拒绝的页面内导航会把文档换成空白页 | 拒绝分支先导航到 `about:blank` 再报错 | 拒绝时保持当前文档，只报告原因（`Z9`） |
+
+### 第三轮的系统观察
+
+- 官方右侧边栏打开时，它是绘制在会话列内、覆盖在会话头部之上的面板，因此头部右侧的工具（含浏览器图标）此时被它遮住；收起该侧边栏后图标可点，浏览器面板打开时接管该列（`R1`–`R5`、`Z1`）。这是既有界面结构，本轮只把它作为操作顺序记录下来。
+
+## 第四轮：Google 账号与交给 Chrome
+
+### 测试系统（第四轮）
+
+| 项目 | 值 |
+| --- | --- |
+| 日期 | 2026-09-17（Asia/Shanghai） |
+| 主机 | macOS 26.5.1（darwin），Apple Silicon，窗口 1280×840 CSS，DPR 2 |
+| 应用 | 已安装构建 `/Applications/DSH Desktop.app` 2.0.10（ad-hoc 签名，以 `--remote-debugging-port=9333` 启动） |
+| 桌面模式 | `advanced`（`~/.dsh-desktop/settings.yaml`） |
+| 浏览器内核 | Electron 43 的 Chromium，guest 由主进程 `WebContentsView` 承载，共享 profile `persist:dsh-desktop-browser-profile` |
+| 系统 Chrome | `/Applications/Google Chrome.app` 152；登录使用隔离配置 `userData/chrome-google-login`，交接使用用户日常配置 |
+| 测试页 | 本地探针服务 `127.0.0.1:8912`（逐条记录请求时间、UA、Accept-Language 与 Cookie）与既有 fixture `127.0.0.1:8899` |
+| 驱动 | `cdp-eval.mjs` / `cdp-click.mjs` 经 DevTools 协议驱动渲染进程并调用面板私有通道；`window-capture.mjs` 取窗口像素 |
+| 观测口径 | 登录阶段取自面板状态通道；Chrome 是否真的打开页面取自探针服务记录的请求；cookie 归属取自两个 profile 的 Cookies 库 |
+| 手势口径 | guest 页面注入的 `pointerdown`/`keydown` 监听把用户输入经 CDP binding 报告给主进程；只有一分钟内的用户输入才让页面有权请求 Chrome |
+
+### 用例与结果（第四轮）
+
+| 编号 | 用例 | 结果 | 观测 |
+| --- | --- | --- | --- |
+| G1 | 页面自行走到 Google 账号地址时不打开 Chrome | ✅ 通过 | 清空 guest 分区的 Google cookie 后状态为 `{"phase":"idle"}`；打开标签 `https://gemini.google.com/app` 并等待 30 秒，`phase` 保持 `idle`，没有 Chrome 进程出现 |
+| G2 | 登录完成后 cookie 导入共享 profile 并进入已登录态 | ✅ 通过 | `{"phase":"signed-in","imported":16,"importedAt":1789575112129}`；guest 的 Cookies 库中 SID、SSID、`__Secure-1PSID`、`__Secure-3PSID` 等 16 行在同一时刻重建 |
+| G3 | 用户点击页面上的登录控件后自行打开 Chrome | ✅ 通过 | 在未登录的 Gemini 页面上点击页面自身的登录控件，2 秒内出现 Chrome 进程，面板在 `phase: 'waiting'` 中等待，全程没有调用任何登录动作 |
+| G4 | 已登录时不再自动打开 Chrome | ✅ 通过 | 已登录状态下点击同一控件：状态保持 `{"phase":"signed-in"}`，没有新增 Chrome 进程 |
+| G5 | 侧边栏标签交给用户自己的 Chrome | ✅ 通过 | 面板中的两个标签（Gemini 与探针页）在点击后 4 秒内成为同一个 Chrome 新窗口的两个标签；探针日志新增 `Chrome/152.0.0.0` 的请求，并带用户日常配置的 `dsh-auth` cookie |
+| G6 | 没有可打开的页面时拒绝交接 | ✅ 通过 | `BROWSER_NO_URLS: no tab has a page to open in Chrome yet`，原页面保持不变 |
+| G7 | 工具栏动作集合只把登录入口移到工具菜单 | ✅ 通过 | `{"actions":["toggle","back","forward","reload","address-open","open-in-chrome","tools","fullscreen","close","new-tab"]}`；等待登录时菜单项显示「取消 Chrome 登录」 |
+| G8 | 交接不改动面板与标签 | ✅ 通过 | 交接前后标签条、地址栏与状态行不变，交接后面板仍可继续导航 |
+
+### 第四轮发现并修复的缺陷
+
+| 现象 | 根因 | 修复 |
+| --- | --- | --- |
+| 点击登录后 Chrome 窗口一闪即退，面板只留下报错 | Chrome 152 的浏览器级调试端点已移除 `Network.*` 域，首个取 cookie 的命令返回 `'Network.getAllCookies' wasn't found`，异常沿 `finally` 触发清理并杀掉刚打开的 Chrome | 先发 `Storage.getCookies`，仅在方法不存在的错误上回退旧命令；实测该端点只有 `Storage.getCookies` 可用 |
+| 用户没有操作时也会弹出 Chrome 窗口 | 触发只看地址，页面自己走到登录地址同样会开窗 | 触发绑定用户输入：guest 页面把 `pointerdown`/`keydown` 经 CDP binding 报给主进程，只有一分钟内的用户输入才让页面有权请求 Chrome |
+
+### 第四轮的系统观察
+
+- 手势判定在 guest 页面内完成：面板不拦截鼠标，页面只是把用户自己的输入报告出来，因此判定依据是真实发生过输入，而不是地址匹配。
+- 导入完成后所有已打开的 Google 标签一起刷新，因此每个会话不必各自登录一次；登录入口仍在工具菜单，等待中显示「取消 Chrome 登录」。
+- 交接刻意使用用户日常 Chrome 配置：页面带着用户已有的登录态打开，打开窗口不需要调试端口，也不读取该配置的 cookie。
+
+## 第五轮：登录判定与输入归属
+
+### 测试系统（第五轮）
+
+| 项目 | 值 |
+| --- | --- |
+| 日期 | 2026-09-17（Asia/Shanghai） |
+| 主机 | macOS 26.5.1（darwin），Apple Silicon，窗口 1280×840 CSS，DPR 2 |
+| 应用 | 已安装构建 `/Applications/DSH Desktop.app` 2.0.10（ad-hoc 签名，以 `--remote-debugging-port=9333` 启动） |
+| 桌面模式 | `advanced`（`~/.dsh-desktop/settings.yaml`） |
+| 浏览器内核 | Electron 43 的 Chromium，guest 由主进程 `WebContentsView` 承载，共享 profile `persist:dsh-desktop-browser-profile` |
+| 系统 Chrome | `/Applications/Google Chrome.app` 152；登录使用隔离配置 `userData/chrome-google-login`，交接使用用户日常配置 |
+| 驱动 | `cdp-eval.mjs` 经 DevTools 协议驱动渲染进程并调用面板私有通道；`guest-eval.mjs` 在 guest 页面内取值；`window-capture.mjs` 取窗口像素 |
+| 观测口径 | 登录阶段取自面板状态通道；导入结果取自 guest 的 Cookies 库与页面 DOM；Chrome 是否离开登录表单取自浏览器级 CDP 的 `Target.getTargets`；手势取自面板日志与页面内的注入标记 |
+
+### 用例与结果（第五轮）
+
+| 编号 | 用例 | 结果 | 观测 |
+| --- | --- | --- | --- |
+| H1 | 页面自行走到 Google 登录地址时不打开 Chrome | ✅ 通过 | 清空 guest 分区的 Google cookie 后打开 `https://gemini.google.com/app`，等待 15 秒 `phase` 保持 `{"phase":"idle"}`，没有 Chrome 进程出现 |
+| H2 | Agent 点击登录控件后自行打开 Chrome | ✅ 通过 | 面板经 `Input.dispatchMouseEvent` 点击页面自身的登录控件，3 秒内出现 Chrome 进程，`phase` 从 `launching` 进入 `waiting` |
+| H3 | 登录完成后导入共享 profile 并进入已登录态 | ✅ 通过 | `{"phase":"signed-in","imported":32,"importedAt":1789609955215}`；32 个 cookie 写入 guest，其中包含 `__Host-GAPS`、`__Host-1PLSID`、`__Host-3PLSID` |
+| H4 | 面板页面确实处于登录态 | ✅ 通过 | 导入后重载 `https://gemini.google.com/app`，页面内登录控件数为 0，正文为应用界面 |
+| H5 | Chrome 仍在登录表单上时不导入 | ✅ 通过 | 单元用例：cookie 已构成会话而 `Target.getTargets` 仍报登录表单时继续轮询，页面离开登录表单后才返回该会话 |
+| H6 | 工具栏控件把面板所有标签交给日常 Chrome | ✅ 通过 | 面板中的 Gemini 与 Google 两个标签交给同一个 Chrome 进程的新窗口（`--new-window`，日常配置，不带调试端口） |
+| H7 | 输入报告覆盖每个框架与后续文档 | ✅ 通过 | 两个标签页面内 `__dshDesktopBrowserGestureBound` 均为 true，派发 `pointerdown` 后计数为 1 |
+
+### 第五轮发现并修复的缺陷
+
+| 现象 | 根因 | 修复 |
+| --- | --- | --- |
+| 状态行报告「已登录 Google」，而页面仍是未登录 | 判定只看 cookie 名字，profile 里早已失效的会话同样满足名字条件 | 导入前要求 Chrome 自己离开 Google 的登录表单；只有真实完成一次登录才会导入，判定不再依赖 cookie 名字 |
+| `__Host-GAPS`、`__Host-1PLSID`、`__Host-3PLSID` 导入时报 `EXCLUDE_INVALID_PREFIX` | 导入时带上了 `Domain` 属性，`__Host-` 前缀禁止该属性 | `__Host-` cookie 只带 URL 与 `path: '/'` 写入，三个 cookie 现在都能导入 |
+| 用户点击登录控件没有打开窗口 | 输入报告只注入顶层文档，登录控件位于子框架时收不到输入 | 改用 `Page.addScriptToEvaluateOnNewDocument` 注入，覆盖每个框架与之后加载的每个文档；Agent 经面板派发的 `Input.*` 命令另行直接记为输入 |
+| 等待阶段长时间不结束 | 曾用 `myaccount.google.com` 的 HTTP 请求做存活校验，Google 对该请求返回 429，而 Electron 的会话 `fetch` 也不回填最终地址，有效会话被误判为无效 | 改为读取 Chrome 自身的页面，不再依赖第三方请求；每个调试命令另有 15 秒预算，Chrome 不应答时下一次轮询继续判定 |
+
+### 第五轮的系统观察
+
+- 判定权交给 Chrome 自己：面板不解释 cookie 内容，只看 Chrome 是否已经离开 Google 的登录表单；登录成功与否由当事浏览器回答。
+- 输入归属同时覆盖人和 Agent：页面内注入的监听报告真实的指针与键盘输入，Agent 经面板派发的 `Input.*` 命令直接记为输入，两者都在一分钟内有效。
+- 交接与登录使用不同配置：交接打开用户日常配置且不启动调试端口，登录使用隔离配置并只在登录期间监听本机调试端口。
+- 两个版本共用的源文件为 196 个（`check:desktop-variants`）。
 
 ## 过程中发现并修复的缺陷
 
@@ -271,7 +428,7 @@
 - **Agent 用例耗时**：`C1`/`C2` 由真实模型驱动，单次约 1–4 分钟，受模型负载影响；该项设置 300 秒预算。
 - **面板自动展开**：Agent 的页面 action 会展开该会话的面板，即使用户刚把它关掉；这是本次明确的产品行为，若希望用户关闭后保持关闭，需要改回由 `panel` action 单独控制。
 - **共享浏览器 profile**：全部会话共用同一个持久化分区（`persist:dsh-desktop-browser-profile`），因此任一会话在面板里的登录态、Cookie 与本地存储对其他会话同样可见，并会保留到下次启动。这是本轮确认的设计取舍——换取「登录一次、处处可用」；会话级隔离不再是默认行为，会话之间共享的是存储，标签、历史与列宽仍按会话独立。
-- **浏览器指纹**：面板不对站点做身份伪装，UA 仍带 `DSHDesktop/<version>` 与 Electron 标记，`navigator.userAgentData` 的品牌列表不完整，与普通 Chrome 存在差异；本轮只把它作为已知事实记录，未做对齐。
+- **浏览器指纹**：guest 视图与其请求以所运行的 Chromium 版本呈现为原生 Chrome（UA 与 `sec-ch-ua*` 都不含 Electron/DSHDesktop，`userAgentData` 品牌列表完整，`accept-language` 由 `setUserAgent` 统一），Z10/Z11 以真实站点读取核对。仍与真实 Chrome 存在差异的项：`navigator.languages` 为 `["zh-CN","zh-Hans-CN"]`（没有 `en`）、WebGL 报 `ANGLE (Apple, M2 Pro)`、plugins/mimeTypes 数量、无扩展、以及 Chromium 版本号 150 早于稳定版。面板不对站点做更多伪装，也不承诺通过任何站点的风控；同一 profile 下多个会话共享同一身份与登录态，站点可将它们关联起来。
 - **登录站点自动化**：千问等站点对未登录访客会拒答；面板复用共享 profile 的登录态，但需要用户先自行扫码登录一次，工具不会代为输入账号或验证码。
 - **既有失败**：`tests/windows-nsis-ab.spec.ts` 有 1 个既有失败，在 `upstream/master` 与本分支基线上同样失败，与本次改动无关；`tests/host-process-integration.spec.ts` 的 2 个用例在受限沙箱下因无法写 `~/.dsh/.credentials.yaml.lock` 失败，放开权限后通过。
 
