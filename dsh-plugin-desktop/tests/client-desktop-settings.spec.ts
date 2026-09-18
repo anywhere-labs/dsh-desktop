@@ -39,7 +39,7 @@ import {
   DESKTOP_SHELL_SETTINGS_NAMESPACE,
   persistDesktopModeSelection,
 } from '../src/client/desktop-settings.ts'
-import { en, zh, type DesktopSettingsLocaleKey } from '../src/client/desktop-settings-locales.ts'
+import { en, ru, zh, type DesktopSettingsLocaleKey } from '../src/client/desktop-settings-locales.ts'
 import { installDesktopSettingsStyles } from '../src/client/desktop-settings-styles.ts'
 
 const BROWSER_AUTH_TOKEN = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
@@ -644,13 +644,17 @@ describe('Desktop settings Slot registration', () => {
     const register = vi.fn(() => () => {})
     const inject = vi.fn((_name: string, mount: () => unknown) => mount())
     const localeRegister = vi.fn(() => () => {})
+    const addLanguage = vi.fn(() => () => {})
+    const effect = vi.fn()
     const ctx = {
       settingsScope: { bind },
       locale: {
         bind: (namespace: string) => (key: string) => `${namespace}:${key}`,
         register: localeRegister,
+        addLanguage,
+        getSnapshot: () => ({ locales: [{ id: 'en' }, { id: 'zh' }] }),
       },
-      effect: vi.fn(),
+      effect,
       slots: { inject, register },
     } as unknown as ClientContext
 
@@ -661,6 +665,14 @@ describe('Desktop settings Slot registration', () => {
       material: 'off',
       micaSupported: false,
     })
+
+    const registerDictionaries = effect.mock.calls[0]?.[0] as (() => () => void) | undefined
+    expect(registerDictionaries).toBeTypeOf('function')
+    const disposeDictionaries = registerDictionaries!()
+    expect(localeRegister).toHaveBeenCalledWith(DESKTOP_SETTINGS_LOCALE_NAMESPACE, { zh, en })
+    expect(localeRegister).toHaveBeenCalledWith(DESKTOP_SETTINGS_LOCALE_NAMESPACE, 'ru', ru)
+    expect(addLanguage).toHaveBeenCalledWith({ id: 'ru', label: 'Русский (Desktop)', fallback: 'en' })
+    disposeDictionaries()
 
     expect(bind).toHaveBeenNthCalledWith(1, { namespace: DESKTOP_SHELL_SETTINGS_NAMESPACE })
     expect(bind).toHaveBeenNthCalledWith(2, { namespace: DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE })

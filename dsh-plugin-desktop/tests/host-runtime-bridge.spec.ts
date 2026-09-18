@@ -25,7 +25,7 @@ it('preserves the Web URL and authentication while projecting shell and tray cal
   const release = bindNativeRuntime(parent, native)
   try {
     const runtime = createHostRuntime(child, runtimeSnapshot(native))
-    let language: 'zh' | undefined
+    let language: 'zh' | 'ru' | undefined
     const mode = vi.fn(async () => {})
     const invoke = vi.fn(async () => {})
     const spec = { url: 'http://127.0.0.1:1234/?dsh-desktop-mode=advanced',
@@ -41,6 +41,7 @@ it('preserves the Web URL and authentication while projecting shell and tray cal
       submenu: () => [{ label: () => 'Child', invoke }] })
     language = 'zh'
     await runtime.mountScheduled()
+    expect(runtime.locale).toBe('zh')
     expect(await shell.readRemoteControl?.()).toBe(false)
     await shell.enableRemoteControl?.()
     expect(spec.enableRemoteControl).toHaveBeenCalledTimes(1)
@@ -48,6 +49,10 @@ it('preserves the Web URL and authentication while projecting shell and tray cal
     expect(shell.authenticationUrl).toBe(spec.authenticationUrl)
     expect(shell.rendererAccessHeader).toEqual(spec.rendererAccessHeader)
     expect(shell.readLocalePreference()).toBe('zh')
+    language = 'ru'
+    await runtime.mountScheduled()
+    expect(runtime.locale).toBe('ru')
+    expect(shell.readLocalePreference()).toBe('ru')
     await shell.requestModeChange('extended')
     expect(mode).toHaveBeenCalledWith('extended')
     expect(tray.label()).toBe('Plugin action')

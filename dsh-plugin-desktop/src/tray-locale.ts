@@ -67,6 +67,27 @@ const labels: Record<DesktopLocale, Record<DesktopTrayLabelKey, (value: string) 
     unavailableForDesktop: profileName => `${profileName}（不可用于桌面端）`,
     updateAvailable: version => `DSH Desktop ${version} 可用`,
   },
+  ru: {
+    addProfile: () => 'Новый профиль…',
+    checkForUpdates: () => 'Проверить обновления…',
+    checkingForUpdates: () => 'Проверяем обновления…',
+    downloadingUpdate: version => `Загружаем DSH Desktop ${version}…`,
+    enterSafeMode: () => 'Перейти в безопасный режим…',
+    exportDiagnostics: () => 'Экспортировать данные диагностики…',
+    exitSafeMode: () => 'Выйти из безопасного режима и перезапустить…',
+    openDesktop: productName => `Открыть ${productName}`,
+    openTerminal: () => 'Открыть терминал DSH',
+    profile: profileName => `Профиль: ${profileName}`,
+    quit: () => 'Выйти',
+    reloadRenderer: () => 'Перезагрузить интерфейс',
+    shellMode: mode => mode,
+    advanced: () => 'Расширенный режим',
+    compatibility: () => 'Режим совместимости',
+    extended: () => 'Расширенное окно',
+    installStable: () => 'Установить стабильную версию…',
+    unavailableForDesktop: profileName => `${profileName} (недоступен в DSH Desktop)`,
+    updateAvailable: version => `Доступна версия DSH Desktop ${version}`,
+  },
 }
 
 export interface DesktopDiagnosticsPrivacyCopy {
@@ -99,6 +120,13 @@ export const rendererRecoveryCopy: Record<DesktopLocale, DesktopRestartConfirmat
     detail: '自动恢复连续失败，为避免重启循环已暂停。可以再次尝试恢复，无需重启后台服务。未发送的输入可能丢失。请从托盘导出诊断信息以继续调查。稍后可从托盘选择“打开 DSH Desktop”再次打开此提示。',
     confirm: '再次尝试恢复',
     cancel: '暂不处理',
+  },
+  ru: {
+    title: 'Восстановление DSH Desktop',
+    message: 'Не удалось автоматически восстановить интерфейс.',
+    detail: 'После нескольких неудачных попыток автоматическое восстановление приостановлено, чтобы избежать бесконечных перезапусков. Можно повторить попытку без перезапуска фоновой службы. Неотправленный текст может быть потерян. Для диагностики экспортируйте данные через меню приложения. Вернуться к этому окну позже можно через пункт «Открыть DSH Desktop» в меню приложения.',
+    confirm: 'Повторить восстановление',
+    cancel: 'Не сейчас',
   },
 }
 
@@ -135,6 +163,22 @@ const restartConfirmationCopy: Record<DesktopLocale, Record<'normal' | 'recovery
       cancel: '取消',
     },
   },
+  ru: {
+    normal: {
+      title: 'Перезапуск DSH Desktop',
+      message: 'Перезапустить DSH Desktop сейчас?',
+      detail: 'Выполняемые операции могут прерваться, а неотправленный текст — потеряться. Сохранённые настройки останутся без изменений.',
+      confirm: 'Перезапустить',
+      cancel: 'Отмена',
+    },
+    recovery: {
+      title: 'Перезапуск в режиме восстановления',
+      message: 'Перезапустить DSH Desktop в режиме восстановления?',
+      detail: 'Перед загрузкой текущего профиля и плагинов откроется помощник восстановления. Выполняемые операции могут прерваться, а неотправленный текст — потеряться.',
+      confirm: 'Перезапустить в режиме восстановления',
+      cancel: 'Отмена',
+    },
+  },
 }
 
 const diagnosticsPrivacyCopy: Record<DesktopLocale, DesktopDiagnosticsPrivacyCopy> = {
@@ -152,11 +196,20 @@ const diagnosticsPrivacyCopy: Record<DesktopLocale, DesktopDiagnosticsPrivacyCop
     confirm: '导出',
     cancel: '取消',
   },
+  ru: {
+    title: 'Экспорт данных диагностики',
+    message: 'Перед отправкой проверьте содержимое диагностического архива.',
+    detail: 'Архив содержит последние журналы приложения, локальные дампы сбоев и сведения о системе. В журналах могут быть локальные пути, идентификаторы рабочих областей и сеансов, а в дампах — фрагменты памяти процесса. Распознанные учётные данные в журналах маскируются, но перед публикацией архива всё равно проверьте его содержимое.',
+    confirm: 'Экспортировать',
+    cancel: 'Отмена',
+  },
 }
 
-/** Resolve DSH's zh/en locale from an Electron or browser language tag. */
+/** Resolve a native desktop locale from an Electron or browser language tag. */
 export function desktopLocaleFromLanguageTag(languageTag: string): DesktopLocale {
-  return /^zh(?:[-_]|$)/i.test(languageTag) ? 'zh' : 'en'
+  if (/^zh(?:[-_]|$)/i.test(languageTag)) return 'zh'
+  if (/^ru(?:[-_]|$)/i.test(languageTag)) return 'ru'
+  return 'en'
 }
 
 /** Resolve one native tray label in the active desktop locale. */

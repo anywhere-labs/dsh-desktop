@@ -59,7 +59,9 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
       })
       const { readLocalePreference, readThemeSource, requestQuit: _quit, requestModeChange: _mode, readRemoteControl: _remoteRead, enableRemoteControl: _remoteEnable, ...data } = spec
       shellSpecs.set(callback.id, spec)
-      trackSetup(send('shell:schedule', [callback.id, data, readLocalePreference(), readThemeSource(), Boolean(spec.readRemoteControl && spec.enableRemoteControl)]))
+      const preference = readLocalePreference()
+      locale = preference ?? snapshot.locale
+      trackSetup(send('shell:schedule', [callback.id, data, preference, readThemeSource(), Boolean(spec.readRemoteControl && spec.enableRemoteControl)]))
       return async () => { try { await send('shell:dispose', [callback.id]) } finally { shellSpecs.delete(callback.id); callback.release() } }
     },
     // The parent mounts only after Host boot and this barrier finish.
@@ -68,7 +70,10 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
       setup.length = 0
       booting = false
       for (const [id, spec] of shellSpecs) {
-        await send('shell:preferences', [id, spec.readLocalePreference(), spec.readThemeSource()])
+        const preference = spec.readLocalePreference()
+        locale = preference ?? snapshot.locale
+        trayPublishers.forEach(publish => publish())
+        await send('shell:preferences', [id, preference, spec.readThemeSource()])
       }
     },
     registerTrayItem(item) {

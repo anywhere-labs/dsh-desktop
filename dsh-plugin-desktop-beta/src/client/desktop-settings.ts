@@ -6,7 +6,7 @@ import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { DesktopSettingsSection, type DesktopNotificationSettings, type DesktopShellSettings } from './DesktopSettingsSection.tsx'
 import { DesktopTerminalSettingsAction } from './DesktopTerminalSettingsAction.tsx'
 import { createDesktopSettingsApi } from './desktop-settings-api.ts'
-import { en, zh, type DesktopSettingsLocaleKey } from './desktop-settings-locales.ts'
+import { en, ru, zh, type DesktopSettingsLocaleKey } from './desktop-settings-locales.ts'
 import { installDesktopSettingsStyles } from './desktop-settings-styles.ts'
 import type { DesktopClientEnvironment } from './environment.ts'
 
@@ -70,10 +70,19 @@ export function applyDesktopSettings(
     await persistDesktopModeSelection(desktopSettings, mode)
   }
 
-  ctx.effect(
-    () => ctx.locale.register(DESKTOP_SETTINGS_LOCALE_NAMESPACE, { zh, en }),
-    'dsh-plugin-desktop: settings dictionaries',
-  )
+  ctx.effect(() => {
+    const disposeBase = ctx.locale.register(DESKTOP_SETTINGS_LOCALE_NAMESPACE, { zh, en })
+    const disposeRussian = ctx.locale.register(DESKTOP_SETTINGS_LOCALE_NAMESPACE, 'ru', ru)
+    // A full upstream Russian pack may register the language before Desktop.
+    const disposeLanguage = ctx.locale.getSnapshot().locales.some(locale => locale.id === 'ru')
+      ? () => {}
+      : ctx.locale.addLanguage({ id: 'ru', label: 'Русский (Desktop)', fallback: 'en' })
+    return () => {
+      disposeLanguage()
+      disposeRussian()
+      disposeBase()
+    }
+  }, 'dsh-plugin-desktop: settings dictionaries and Russian locale')
   ctx.effect(
     () => installDesktopSettingsStyles(),
     'dsh-plugin-desktop: settings styles',

@@ -292,6 +292,37 @@ describe('desktop terminal environment', () => {
     expect(harness.unref).toHaveBeenCalledOnce()
   })
 
+  it('localizes macOS, PowerShell, and command-prompt welcome copy in Russian', () => {
+    const macHarness = spawnHarness()
+    const mac = macOptions(join(temporaryDirectory(), 'terminal-ru-mac'), macHarness.spawn)
+    mac.locale = 'ru'
+    const macLaunch = openDesktopTerminal(mac)
+    const macWelcomeText = readFileSync(macLaunch.welcomePath, 'utf8')
+
+    expect(macWelcomeText).toContain('Терминал DSH Desktop 2.0.0')
+    expect(macWelcomeText).toContain('Профиль: desktop')
+    expect(macWelcomeText).toContain('Команды управления плагинами без параметра --profile изменяют профиль «desktop».')
+    expect(macWelcomeText).toContain('dsh plugin update')
+    expect(macWelcomeText).toContain('После изменений в составе плагинов перезапустите DSH Desktop.')
+
+    const windowsHarness = spawnHarness()
+    const windowsStateDir = join(temporaryDirectory(), 'terminal-ru-windows')
+    const windows = windowsOptions(windowsStateDir, windowsHarness.spawn)
+    windows.locale = 'ru'
+    const windowsLaunch = openDesktopTerminal(windows)
+    const powershellWelcome = readFileSync(windowsLaunch.welcomePath, 'utf8')
+    const cmdWelcome = readFileSync(join(windowsStateDir, 'welcome.cmd'), 'utf8')
+
+    expect(powershellWelcome.startsWith('\uFEFF')).toBe(true)
+    expect(powershellWelcome).toContain('Терминал DSH Desktop {0}')
+    expect(powershellWelcome).toContain('Профиль: {0}')
+    expect(powershellWelcome).toContain('После изменений в составе плагинов перезапустите DSH Desktop.')
+    expect(cmdWelcome).toContain('chcp 65001 >nul')
+    expect(cmdWelcome).toContain('Терминал DSH Desktop !DSH_DESKTOP_PRODUCT_VERSION!')
+    expect(cmdWelcome).toContain('Команды управления плагинами без параметра --profile изменяют профиль «!DSH_DESKTOP_DEFAULT_PROFILE!».')
+    expect(cmdWelcome).toContain('dsh plugin update')
+  })
+
   it('opens a new Windows Terminal window when wt.exe is available', () => {
     const stateDir = join(temporaryDirectory(), 'terminal-state')
     const harness = spawnHarness()

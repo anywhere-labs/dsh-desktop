@@ -18,6 +18,13 @@ export const remoteControlOfferCopy = {
     confirm: 'Enable and restart', cancel: 'Not now',
     failed: 'Could not enable remote control', retry: 'Try again later, or enable Phone connection in Desktop settings.',
   },
+  ru: {
+    label: 'Удалённый доступ', title: 'Включить удалённый доступ?',
+    message: 'Используйте DeepSeek Harness на этом компьютере с другого устройства.',
+    detail: 'После включения и перезапуска откройте раздел «Подключение телефона» и завершите настройку. Затем вы сможете пользоваться DeepSeek Harness на этом компьютере с других устройств через интернет. Для удалённого доступа компьютер должен оставаться включённым и подключённым к сети.',
+    confirm: 'Включить и перезапустить', cancel: 'Не сейчас',
+    failed: 'Не удалось включить удалённый доступ', retry: 'Попробуйте позже или включите подключение телефона в настройках Desktop.',
+  },
 } as const
 
 export interface RemoteControlOfferState { readonly enabled: boolean; readonly seen: boolean }

@@ -108,7 +108,7 @@ function rejectDesktopRequest(
 
 /** Narrow the upstream locale preference to the translations bundled by Desktop chrome. */
 function desktopLocalePreference(preference: string | undefined): DesktopLocale | undefined {
-  return preference === 'zh' || preference === 'en' ? preference : undefined
+  return preference === 'zh' || preference === 'en' || preference === 'ru' ? preference : undefined
 }
 
 /** Desktop settings presented by the standard settings service. */

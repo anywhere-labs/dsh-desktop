@@ -354,6 +354,9 @@ function parseState(text: string): ParsedUpdateState {
 }
 
 function updateAvailableNotification(locale: DesktopLocale, version: string): DesktopNotification {
+  if (locale === 'ru') {
+    return { title: 'Доступно обновление DSH Desktop', body: `Версия ${version} готова к загрузке. Откройте DSH Desktop, чтобы продолжить.` }
+  }
   return locale === 'zh'
     ? { title: 'DSH Desktop 有可用更新', body: `版本 ${version} 已可下载。打开 DSH Desktop 即可继续。` }
     : { title: 'DSH Desktop Update Available', body: `Version ${version} is ready to download. Open DSH Desktop to continue.` }

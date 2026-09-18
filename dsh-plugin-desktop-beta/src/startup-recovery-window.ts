@@ -382,7 +382,7 @@ export class DesktopStartupRecoveryWindow {
           await this.runBusy(async () => {
             const result = await this.requireController().executeCheckpointRestore(preview.previewId)
             const slotNumber = result.slotId.slice(-1)
-            const slotLabel = this.options.locale === 'zh' ? `槽位 ${slotNumber}` : `Slot ${slotNumber}`
+            const slotLabel = this.options.locale === 'zh' ? `槽位 ${slotNumber}` : this.options.locale === 'ru' ? `Слот ${slotNumber}` : `Slot ${slotNumber}`
             this.notice = {
               tone: 'success',
               title: slotLabel,
@@ -599,9 +599,9 @@ export class DesktopStartupRecoveryWindow {
     const slotNumber = 'slotId' in preview ? preview.slotId.slice(-1) : undefined
     const message = 'packageName' in preview
       ? preview.packageName
-      : this.options.locale === 'zh' ? `槽位 ${slotNumber}` : `Slot ${slotNumber}`
+      : this.options.locale === 'zh' ? `槽位 ${slotNumber}` : this.options.locale === 'ru' ? `Слот ${slotNumber}` : `Slot ${slotNumber}`
     const checkpointTime = 'capturedAt' in preview && !Number.isNaN(Date.parse(preview.capturedAt))
-      ? new Date(preview.capturedAt).toLocaleString(this.options.locale === 'zh' ? 'zh-CN' : 'en-US')
+      ? new Date(preview.capturedAt).toLocaleString(this.options.locale === 'zh' ? 'zh-CN' : this.options.locale === 'ru' ? 'ru-RU' : 'en-US')
       : copy.unknown
     const result = await showDesktopMessageBox({
       type: kind === 'uninstall' ? 'warning' : 'question',

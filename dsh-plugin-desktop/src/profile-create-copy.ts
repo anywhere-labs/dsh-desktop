@@ -37,6 +37,17 @@ const COPY: Record<DesktopLocale, DesktopProfileCreateCopy> = {
     empty: '请输入 Profile 名称。',
     failed: '无法创建 Profile，请检查名称后重试。',
   },
+  ru: {
+    title: 'Новый профиль',
+    heading: 'Создать профиль',
+    description: 'Создайте профиль для DSH Desktop. Он будет выбран при следующем запуске.',
+    label: 'Название профиля',
+    placeholder: 'Например, work',
+    submit: 'Создать профиль',
+    cancel: 'Отмена',
+    empty: 'Введите название профиля.',
+    failed: 'Не удалось создать профиль. Проверьте название и попробуйте ещё раз.',
+  },
 }
 
 export function desktopProfileCreateCopy(locale: DesktopLocale): DesktopProfileCreateCopy {

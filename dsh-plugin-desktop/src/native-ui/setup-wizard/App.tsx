@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -19,6 +19,7 @@ import {
   type DesktopSetupWizardWindowsMaterial,
 } from '../../setup-wizard-contract.ts'
 import { desktopSetupWizardCopy, type DesktopSetupWizardCopy } from '../../setup-wizard-copy.ts'
+import type { DesktopLocale } from '../../runtime.ts'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert.tsx'
 import { Badge } from '../components/ui/badge.tsx'
 import { Button } from '../components/ui/button.tsx'
@@ -41,7 +42,7 @@ import { DesktopFrame } from '../shared/DesktopFrame.tsx'
 const SCHEME = 'dsh-setup-wizard:'
 const MAX_STATE_CHARACTERS = 32 * 1024
 
-type Locale = 'en' | 'zh'
+type Locale = DesktopLocale
 
 export type DesktopSetupWizardStep =
   | 'welcome'
@@ -81,7 +82,8 @@ export function nextDesktopSetupWizardStep(
 }
 
 function localLocale(search: string): Locale {
-  return new URLSearchParams(search).get('locale') === 'zh' ? 'zh' : 'en'
+  const locale = new URLSearchParams(search).get('locale')
+  return locale === 'zh' || locale === 'ru' ? locale : 'en'
 }
 
 function decodeBase64Url(value: string): string | undefined {
@@ -109,7 +111,7 @@ export function decodeDesktopSetupWizardInput(search: string): DesktopSetupWizar
     || expected.some(key => query.getAll(key).length !== 1)) return undefined
   const locale = query.get('locale')
   const frame = query.get('frame')
-  if ((locale !== 'en' && locale !== 'zh') || (frame !== 'true' && frame !== 'false')) return undefined
+  if ((locale !== 'en' && locale !== 'zh' && locale !== 'ru') || (frame !== 'true' && frame !== 'false')) return undefined
   const state = query.get('state')
   if (state === null) return undefined
   const decoded = decodeBase64Url(state)
@@ -665,6 +667,7 @@ export function desktopSetupWizardSkipRequiresLanAcknowledgement(
 export function SetupWizardApp(): JSX.Element {
   const locale = localLocale(window.location.search)
   const copy = desktopSetupWizardCopy(locale)
+  useEffect(() => { document.documentElement.lang = locale }, [locale])
   const input = decodeDesktopSetupWizardInput(window.location.search)
   const [selection, setSelection] = useState<DesktopSetupWizardSelection | undefined>(() => input === undefined ? undefined : normalizedSelection(input))
   const [step, setStep] = useState<DesktopSetupWizardStep>('welcome')

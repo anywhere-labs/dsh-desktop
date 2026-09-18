@@ -451,6 +451,7 @@ describe('Setup Wizard native UI boundaries', () => {
     const state = Buffer.from(JSON.stringify(input), 'utf8').toString('base64url')
     const valid = `?locale=zh&state=${state}&platform=darwin&frame=true`
     expect(decodeDesktopSetupWizardInput(valid)).toEqual(input)
+    expect(decodeDesktopSetupWizardInput(valid.replace('locale=zh', 'locale=ru'))).toEqual(input)
     expect(decodeDesktopSetupWizardInput(`${valid}&unexpected=true`)).toBeUndefined()
     expect(decodeDesktopSetupWizardInput(valid.replace('platform=darwin', 'platform=win32'))).toBeUndefined()
     expect(decodeDesktopSetupWizardInput(valid.replace('locale=zh', 'locale=fr'))).toBeUndefined()

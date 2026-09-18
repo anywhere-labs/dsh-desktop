@@ -44,6 +44,12 @@ const NOTIFICATION_COPY: Record<DesktopLocale, Record<NotificationOutcome, Deskt
     'job-completed': { title: '后台任务已完成', body: '有一个后台任务已结束。' },
     'job-failed': { title: '后台任务失败', body: '一个后台任务未能完成，请打开 DSH Desktop 查看详情。' },
   },
+  ru: {
+    'turn-completed': { title: 'Ответ готов', body: 'Запрос пользователя выполнен.' },
+    'turn-failed': { title: 'Не удалось завершить запрос', body: 'Откройте DSH Desktop, чтобы узнать подробности.' },
+    'job-completed': { title: 'Фоновая задача завершена', body: 'Выполнение фоновой задачи завершено.' },
+    'job-failed': { title: 'Ошибка фоновой задачи', body: 'Откройте DSH Desktop, чтобы узнать подробности.' },
+  },
 }
 
 interface OpenTurn {

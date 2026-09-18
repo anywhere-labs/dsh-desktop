@@ -307,7 +307,12 @@ function notifyWindowsVolumeConcerns(
       : concernLabel === 'desktop user data' ? '桌面用户数据'
         : concernLabel === 'DSH home' ? 'DSH 主目录'
           : '某个配置路径'
-    : concernLabel ?? 'A configured path'
+    : runtime.locale === 'ru'
+      ? concernLabel === 'application install' ? 'папка приложения'
+        : concernLabel === 'desktop user data' ? 'данные Desktop'
+          : concernLabel === 'DSH home' ? 'домашний каталог DSH'
+            : 'один из настроенных путей'
+      : concernLabel ?? 'A configured path'
   try {
     runtime.updates.notify({
       title: copy.unsupportedStorageTitle,

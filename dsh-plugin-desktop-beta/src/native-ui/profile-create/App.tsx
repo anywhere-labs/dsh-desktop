@@ -6,11 +6,13 @@ import { Input } from '../components/ui/input.tsx'
 import { Label } from '../components/ui/label.tsx'
 import { DesktopFrame } from '../shared/DesktopFrame.tsx'
 import { desktopProfileCreateCopy } from '../../profile-create-copy.ts'
+import type { DesktopLocale } from '../../runtime.ts'
 
 const SCHEME = 'dsh-profile-create:'
 
-function locale(): 'en' | 'zh' {
-  return new URLSearchParams(window.location.search).get('locale') === 'zh' ? 'zh' : 'en'
+function locale(): DesktopLocale {
+  const value = new URLSearchParams(window.location.search).get('locale')
+  return value === 'zh' || value === 'ru' ? value : 'en'
 }
 
 function submit(name: string): void {
@@ -20,7 +22,9 @@ function submit(name: string): void {
 }
 
 export function ProfileCreateApp(): JSX.Element {
-  const copy = desktopProfileCreateCopy(locale())
+  const currentLocale = locale()
+  const copy = desktopProfileCreateCopy(currentLocale)
+  useEffect(() => { document.documentElement.lang = currentLocale }, [currentLocale])
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   useEffect(() => {

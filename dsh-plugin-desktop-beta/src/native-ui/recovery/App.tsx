@@ -124,7 +124,16 @@ function decodeState(): RecoveryState | undefined {
 }
 
 function fallbackLocale(): DesktopLocale {
-  return new URLSearchParams(window.location.search).get('locale') === 'zh' ? 'zh' : 'en'
+  const locale = new URLSearchParams(window.location.search).get('locale')
+  return locale === 'zh' || locale === 'ru' ? locale : 'en'
+}
+
+function numberLocale(locale: DesktopLocale): string {
+  return locale === 'zh' ? 'zh-CN' : locale === 'ru' ? 'ru-RU' : 'en-US'
+}
+
+function checkpointSlot(locale: DesktopLocale, number: string): string {
+  return locale === 'zh' ? `槽位 ${number}` : locale === 'ru' ? `Слот ${number}` : `Slot ${number}`
 }
 
 function href(action: string, id?: string, name?: string, path?: string): string {
@@ -153,15 +162,15 @@ function PanelScroll({ children }: { readonly children: ReactNode }): JSX.Elemen
 }
 
 function formatCheckpointSize(bytes: number, locale: DesktopLocale): string {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ['KB', 'MB', 'GB']
+  if (bytes < 1024) return `${bytes} ${locale === 'ru' ? 'Б' : 'B'}`
+  const units = locale === 'ru' ? ['КБ', 'МБ', 'ГБ'] : ['KB', 'MB', 'GB']
   let value = bytes / 1024
   let unit = units[0]!
   for (let index = 1; value >= 1024 && index < units.length; index += 1) {
     value /= 1024
     unit = units[index]!
   }
-  return `${new Intl.NumberFormat(locale === 'zh' ? 'zh-CN' : 'en-US', { maximumFractionDigits: 1 }).format(value)} ${unit}`
+  return `${new Intl.NumberFormat(numberLocale(locale), { maximumFractionDigits: 1 }).format(value)} ${unit}`
 }
 
 function CheckpointFact({ label, value }: { readonly label: string; readonly value: ReactNode }): JSX.Element {
@@ -170,10 +179,10 @@ function CheckpointFact({ label, value }: { readonly label: string; readonly val
 
 function RollbackPanel({ copy, state }: { readonly copy: DesktopRecoveryCopy; readonly state: RecoveryState }): JSX.Element {
   if (state.snapshot === undefined) return <PanelScroll><Alert variant="destructive"><AlertTriangle /><AlertTitle>{copy.checkpoints}</AlertTitle><AlertDescription>{copy.checkpointsUnavailable}</AlertDescription></Alert></PanelScroll>
-  const numberLocale = state.locale === 'zh' ? 'zh-CN' : 'en-US'
+  const formattedLocale = numberLocale(state.locale)
   return <PanelScroll><div className="grid grid-cols-1 gap-4">{state.snapshot.checkpoints.map(checkpoint => {
     const slotNumber = checkpoint.slotId.slice(-1)
-    return <Card key={checkpoint.slotId} className="w-full overflow-hidden"><CardHeader className="gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0 space-y-1.5"><CardTitle>{state.locale === 'zh' ? `槽位 ${slotNumber}` : `Slot ${slotNumber}`}</CardTitle><CardDescription>{checkpoint.status === 'empty' ? copy.noHealthyStartup : checkpoint.capturedAt === undefined ? copy.rollbackBody : new Date(checkpoint.capturedAt).toLocaleString(numberLocale)}</CardDescription></div><span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{checkpoint.status === 'empty' ? copy.emptySlot : copy.availableSlot}</span></CardHeader>{checkpoint.status === 'empty' ? null : <><CardContent><dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"><CheckpointFact label={copy.desktopVersion} value={checkpoint.appVersion ?? copy.unknown} />{checkpoint.pluginCount === undefined ? null : <CheckpointFact label={copy.pluginCount} value={state.locale === 'zh' ? `${checkpoint.pluginCount} 个` : checkpoint.pluginCount.toLocaleString(numberLocale)} />}<CheckpointFact label={copy.configurationFileCount} value={state.locale === 'zh' ? `${checkpoint.fileCount ?? 0} 个` : (checkpoint.fileCount ?? 0).toLocaleString(numberLocale)} />{checkpoint.totalBytes === undefined ? null : <CheckpointFact label={copy.checkpointSize} value={formatCheckpointSize(checkpoint.totalBytes, state.locale)} />}</dl></CardContent><CardFooter className="flex-wrap justify-end gap-2 border-t bg-muted/20 px-6 py-4"><Action action="open-checkpoint" icon={<FolderOpen />} id={checkpoint.slotId}>{copy.openCheckpoint}</Action><Action action="preview-checkpoint" icon={<RotateCcw />} id={checkpoint.slotId} variant="default">{copy.rollbackCheckpoint}</Action></CardFooter></>}
+    return <Card key={checkpoint.slotId} className="w-full overflow-hidden"><CardHeader className="gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0 space-y-1.5"><CardTitle>{checkpointSlot(state.locale, slotNumber)}</CardTitle><CardDescription>{checkpoint.status === 'empty' ? copy.noHealthyStartup : checkpoint.capturedAt === undefined ? copy.rollbackBody : new Date(checkpoint.capturedAt).toLocaleString(formattedLocale)}</CardDescription></div><span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{checkpoint.status === 'empty' ? copy.emptySlot : copy.availableSlot}</span></CardHeader>{checkpoint.status === 'empty' ? null : <><CardContent><dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"><CheckpointFact label={copy.desktopVersion} value={checkpoint.appVersion ?? copy.unknown} />{checkpoint.pluginCount === undefined ? null : <CheckpointFact label={copy.pluginCount} value={state.locale === 'zh' ? `${checkpoint.pluginCount} 个` : checkpoint.pluginCount.toLocaleString(formattedLocale)} />}<CheckpointFact label={copy.configurationFileCount} value={state.locale === 'zh' ? `${checkpoint.fileCount ?? 0} 个` : (checkpoint.fileCount ?? 0).toLocaleString(formattedLocale)} />{checkpoint.totalBytes === undefined ? null : <CheckpointFact label={copy.checkpointSize} value={formatCheckpointSize(checkpoint.totalBytes, state.locale)} />}</dl></CardContent><CardFooter className="flex-wrap justify-end gap-2 border-t bg-muted/20 px-6 py-4"><Action action="open-checkpoint" icon={<FolderOpen />} id={checkpoint.slotId}>{copy.openCheckpoint}</Action><Action action="preview-checkpoint" icon={<RotateCcw />} id={checkpoint.slotId} variant="default">{copy.rollbackCheckpoint}</Action></CardFooter></>}
     </Card>
   })}</div></PanelScroll>
 }
@@ -257,8 +266,10 @@ export function RecoveryTerminalAction({ busy = false, copy, search }: { readonl
 
 export function RecoveryApp(): JSX.Element {
   const state = decodeState()
+  const locale = state?.locale ?? fallbackLocale()
   const [activeTab, setActiveTab] = useState<DesktopRecoveryTab>(state?.activeTab ?? 'quick')
   const focusDestination = useRef(false)
+  useEffect(() => { document.documentElement.lang = locale }, [locale])
   useEffect(() => {
     if (!focusDestination.current) return
     focusDestination.current = false
@@ -269,7 +280,7 @@ export function RecoveryApp(): JSX.Element {
     setActiveTab(tab)
   }
   if (state === undefined) {
-    const copy = desktopRecoveryCopy(fallbackLocale())
+    const copy = desktopRecoveryCopy(locale)
     return <><DesktopFrame /><main className="dshNativeContent flex h-screen items-center justify-center p-6"><Alert variant="destructive"><AlertTriangle /><AlertTitle>{copy.title}</AlertTitle><AlertDescription>{copy.fallbackBody}</AlertDescription></Alert></main></>
   }
   const copy = desktopRecoveryCopy(state.locale)

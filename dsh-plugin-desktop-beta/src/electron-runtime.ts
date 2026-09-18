@@ -372,6 +372,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       }
       openDesktopTerminal({
         platform: this.platform,
+        locale: this.currentLocale,
         appExecutable: process.execPath,
         dshBootstrapPath: fileURLToPath(new URL('./desktop-cli.js', import.meta.url)),
         pnpmBinPath: packagedDependencyPath(import.meta.url, 'pnpm/bin/pnpm.mjs'),
