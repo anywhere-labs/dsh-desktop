@@ -2,13 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createDshfindAdapter,
   DSHFIND_ADAPTER_ID,
+  DSHFIND_CATALOG_ENDPOINT,
+  DSHFIND_ENDPOINT,
   DSHFIND_KEY,
   DSHFIND_PROVIDER_ID,
 } from '../src/adapters/dshfind.js'
 import type { CatalogHttpClient, LocalSourceRecord } from '../src/contracts/index.js'
 
 const DATA_VERSION = `sha256:${'a'.repeat(64)}`
-const NEXT_DATA_VERSION = `sha256:${'b'.repeat(64)}`
 const AS_OF = '2026-08-18T03:30:27Z'
 
 const source = (): LocalSourceRecord => ({
@@ -33,9 +34,7 @@ function rawItem(index: number): Record<string, unknown> {
     language: 'TypeScript',
     pushed_at: '2026-08-17T12:00:00Z',
     category: 'memory',
-    score: 90,
-    grade: 'S',
-    is_featured: true,
+    is_plugin: true,
     is_risky: false,
     install: {
       cmd: `unsafe-command-${index}`,
@@ -46,57 +45,70 @@ function rawItem(index: number): Record<string, unknown> {
   }
 }
 
-function rawPage(
-  data: readonly unknown[],
-  page: number,
-  total: number,
-  dataVersion = DATA_VERSION,
-): Record<string, unknown> {
+function rawCatalog(data: readonly unknown[]): Record<string, unknown> {
   return {
     data,
-    page,
-    per_page: 100,
-    total,
-    total_pages: total === 0 ? 0 : Math.ceil(total / 100),
-    data_version: dataVersion,
+    total: data.length,
+    data_version: DATA_VERSION,
     as_of: AS_OF,
     generated_at: AS_OF,
   }
 }
 
+function providerPage(items: readonly unknown[], page: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    schemaVersion: '1.0.0',
+    generatedAt: AS_OF,
+    revision: DATA_VERSION,
+    items,
+    page,
+  }
+}
+
+function providerItem(index: number): Record<string, unknown> {
+  return {
+    id: `owner/plugin-${index}`,
+    name: `plugin-${index}`,
+    displayName: `Plugin ${index}`,
+    summary: `Plugin ${index} summary`,
+    repository: { url: `https://github.com/owner/plugin-${index}` },
+    package: { registry: 'npm', name: `dsh-plugin-${index}` },
+    latestVersion: '1.2.3',
+    categories: ['memory'],
+  }
+}
+
 describe('dshfind adapter', () => {
-  it('scans every REST page with one pinned data version and emits browse-only identity', async () => {
-    const firstPage = Array.from({ length: 100 }, (_, index) => rawItem(index))
-    const getJson = vi.fn(async (url: string) => {
-      const request = new URL(url)
-      const page = Number(request.searchParams.get('page'))
-      return {
-        value: page === 1 ? rawPage(firstPage, 1, 101) : rawPage([rawItem(100)], 2, 101),
-        finalUrl: url,
-      }
-    })
-    const register = vi.fn(() => 'mktimg_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
-    const adapter = createDshfindAdapter({
-      interPageDelayMs: 0,
-      now: () => new Date('2026-08-18T09:30:00Z'),
-    })
+  it('uses the bounded full-catalog endpoint once and keeps only confirmed plugins', async () => {
+    const unconfirmed = { ...rawItem(1), is_plugin: null }
+    const nonPlugin = { ...rawItem(2), is_plugin: false }
+    const risky = { ...rawItem(3), is_risky: true }
+    const getJson = vi.fn(async (url: string) => ({
+      value: rawCatalog([rawItem(0), unconfirmed, nonPlugin, risky]),
+      finalUrl: url,
+    }))
+    const adapter = createDshfindAdapter({ now: () => new Date('2026-08-18T09:30:00Z') })
 
     const snapshots = await adapter.scanCatalog!({}, {
       source: source(),
       signal: new AbortController().signal,
       http: { getJson },
-      media: { register },
+      media: { register: vi.fn() },
     })
 
-    const items = snapshots.flatMap(snapshot => snapshot.items)
-    expect(items).toHaveLength(101)
-    expect(snapshots).toHaveLength(2)
+    expect(getJson).toHaveBeenCalledOnce()
+    expect(getJson).toHaveBeenCalledWith(
+      DSHFIND_CATALOG_ENDPOINT,
+      expect.any(AbortSignal),
+      { allowedOrigin: 'https://api.dshfind.com' },
+    )
+    expect(snapshots).toHaveLength(1)
     expect(snapshots[0]?.source).toMatchObject({
       providerRevision: DATA_VERSION,
       providerGeneratedAt: '2026-08-18T03:30:27.000Z',
       fetchedAt: '2026-08-18T09:30:00.000Z',
     })
-    expect(items[0]).toEqual({
+    expect(snapshots[0]?.items).toEqual([{
       id: 'owner/plugin-0',
       name: 'plugin-0',
       displayName: 'plugin-0',
@@ -112,35 +124,53 @@ describe('dshfind adapter', () => {
         providerId: DSHFIND_PROVIDER_ID,
         itemId: 'owner/plugin-0',
       },
-    })
+    }])
     expect(JSON.stringify(snapshots)).not.toContain('unsafe-command')
-    expect(JSON.stringify(snapshots)).not.toContain('unsafe-package')
-    expect(register).not.toHaveBeenCalled()
-    expect(getJson).toHaveBeenCalledTimes(2)
+  })
 
-    const firstUrl = new URL(getJson.mock.calls[0]![0])
-    const secondUrl = new URL(getJson.mock.calls[1]![0])
-    expect(firstUrl.searchParams.get('per_page')).toBe('100')
-    expect(firstUrl.searchParams.has('data_version')).toBe(false)
-    expect(secondUrl.searchParams.get('data_version')).toBe(DATA_VERSION)
-    expect(getJson).toHaveBeenNthCalledWith(
-      1,
-      expect.any(String),
-      expect.any(AbortSignal),
-      { allowedOrigin: 'https://api.dshfind.com' },
-    )
+  it('uses dshfind standard provider paging for browse and search', async () => {
+    const getJson = vi.fn(async (url: string) => ({
+      value: providerPage([providerItem(0)], { total: 1 }),
+      finalUrl: url,
+    }))
+    const adapter = createDshfindAdapter()
+    const snapshot = await adapter.fetch({
+      q: 'memory',
+      category: ['memory'],
+      cursor: 'opaque-cursor',
+      limit: 80,
+    }, {
+      source: source(),
+      signal: new AbortController().signal,
+      http: { getJson },
+      media: { register: vi.fn() },
+    })
+
+    const request = new URL(getJson.mock.calls[0]![0])
+    expect(`${request.origin}${request.pathname}`).toBe(DSHFIND_ENDPOINT)
+    expect(request.searchParams.get('q')).toBe('memory')
+    expect(request.searchParams.getAll('category')).toEqual(['memory'])
+    expect(request.searchParams.get('cursor')).toBe('opaque-cursor')
+    expect(request.searchParams.get('limit')).toBe('80')
+    expect(snapshot.items[0]).toMatchObject({
+      id: 'owner/plugin-0',
+      package: { registry: 'npm', name: 'dsh-plugin-0' },
+      provenance: {
+        sourceRecordId: source().sourceRecordId,
+        providerId: DSHFIND_PROVIDER_ID,
+      },
+    })
   })
 
   it('rejects redirects outside the exact reviewed origin', async () => {
+    const adapter = createDshfindAdapter()
     const http: CatalogHttpClient = {
       getJson: vi.fn(async () => ({
-        value: rawPage([], 1, 0),
-        finalUrl: 'https://attacker.example/v1/plugins?page=1&per_page=100',
+        value: providerPage([], {}),
+        finalUrl: 'https://attacker.example/market/v1/plugins?limit=50',
       })),
     }
-    const adapter = createDshfindAdapter({ interPageDelayMs: 0 })
-
-    await expect(adapter.scanCatalog!({}, {
+    await expect(adapter.fetch({ limit: 50 }, {
       source: source(),
       signal: new AbortController().signal,
       http,
@@ -148,120 +178,97 @@ describe('dshfind adapter', () => {
     })).rejects.toThrow(/reviewed provider origin/u)
   })
 
-  it('omits explicitly risky items while retaining false and unknown risk states', async () => {
-    const unknownRisk = rawItem(2)
-    delete unknownRisk.is_risky
-    const risky = {
-      ...rawItem(1),
-      is_risky: true,
-      risk_note: 'Known impersonation fixture',
-    }
-    const adapter = createDshfindAdapter({ interPageDelayMs: 0 })
+  it('rejects oversized, truncated, and duplicate full catalogs', async () => {
+    const adapter = createDshfindAdapter()
+    const context = (value: unknown) => ({
+      source: source(),
+      signal: new AbortController().signal,
+      http: { getJson: vi.fn(async () => ({ value, finalUrl: DSHFIND_CATALOG_ENDPOINT })) },
+      media: { register: vi.fn() },
+    })
+
+    await expect(adapter.scanCatalog!({}, context({
+      ...rawCatalog([]),
+      total: 20_001,
+    }))).rejects.toThrow(/item limit/u)
+    await expect(adapter.scanCatalog!({}, context({
+      ...rawCatalog([rawItem(0)]),
+      total: 2,
+    }))).rejects.toThrow(/item count/u)
+    await expect(adapter.scanCatalog!({}, context(rawCatalog([rawItem(0), rawItem(0)]))))
+      .rejects.toThrow(/duplicate item IDs/u)
+  })
+})
+
+describe('dshfind install target normalization', () => {
+  const reviewedMethod = {
+    kind: 'npm',
+    verification: 'verified',
+    code: 'repository_backlink',
+    requiresBuildAllowance: false,
+    spec: 'dsh-plugin-0',
+    revision: '1.2.3',
+  }
+  const baseInstall = {
+    cmd: 'provider command text',
+    kind: 'npm',
+    pkg_name: 'dsh-plugin-0',
+    npm_published: true,
+  }
+
+  async function scanInstall(install: unknown) {
+    const adapter = createDshfindAdapter()
     const http: CatalogHttpClient = {
       getJson: vi.fn(async url => ({
-        value: rawPage([rawItem(0), risky, unknownRisk], 1, 3),
+        value: rawCatalog([{ ...rawItem(0), install }]),
         finalUrl: url,
       })),
     }
-
     const snapshots = await adapter.scanCatalog!({}, {
       source: source(),
       signal: new AbortController().signal,
       http,
       media: { register: vi.fn() },
     })
+    return snapshots.flatMap(snapshot => snapshot.items)
+  }
 
-    expect(snapshots.flatMap(snapshot => snapshot.items).map(item => item.id)).toEqual([
-      'owner/plugin-0',
-      'owner/plugin-2',
-    ])
-    expect(snapshots[0]?.page.total).toBe(2)
-  })
-
-  it('rejects catalogs above the bounded item and page limits', async () => {
-    const adapter = createDshfindAdapter({ interPageDelayMs: 0 })
-    const itemLimitHttp: CatalogHttpClient = {
-      getJson: vi.fn(async url => ({
-        value: { ...rawPage([], 1, 10_001), total_pages: 101 },
-        finalUrl: url,
-      })),
-    }
-
-    await expect(adapter.scanCatalog!({}, {
-      source: source(),
-      signal: new AbortController().signal,
-      http: itemLimitHttp,
-      media: { register: vi.fn() },
-    })).rejects.toThrow(/item limit/u)
-
-    const pageLimitHttp: CatalogHttpClient = {
-      getJson: vi.fn(async url => ({
-        value: { ...rawPage([], 1, 10_000), total_pages: 101 },
-        finalUrl: url,
-      })),
-    }
-    await expect(adapter.scanCatalog!({}, {
-      source: source(),
-      signal: new AbortController().signal,
-      http: pageLimitHttp,
-      media: { register: vi.fn() },
-    })).rejects.toThrow(/page limit/u)
-  })
-
-  it('rejects duplicate IDs and dataset metadata changes across pages', async () => {
-    const firstPage = Array.from({ length: 100 }, (_, index) => rawItem(index))
-    const adapter = createDshfindAdapter({ interPageDelayMs: 0 })
-    const duplicateHttp: CatalogHttpClient = {
-      getJson: vi.fn(async url => {
-        const page = Number(new URL(url).searchParams.get('page'))
-        return {
-          value: page === 1 ? rawPage(firstPage, 1, 101) : rawPage([rawItem(0)], 2, 101),
-          finalUrl: url,
-        }
-      }),
-    }
-    await expect(adapter.scanCatalog!({}, {
-      source: source(),
-      signal: new AbortController().signal,
-      http: duplicateHttp,
-      media: { register: vi.fn() },
-    })).rejects.toThrow(/duplicate item IDs/u)
-
-    const changedHttp: CatalogHttpClient = {
-      getJson: vi.fn(async url => {
-        const page = Number(new URL(url).searchParams.get('page'))
-        return {
-          value: page === 1
-            ? rawPage(firstPage, 1, 101)
-            : rawPage([rawItem(100)], 2, 101, NEXT_DATA_VERSION),
-          finalUrl: url,
-        }
-      }),
-    }
-    await expect(adapter.scanCatalog!({}, {
-      source: source(),
-      signal: new AbortController().signal,
-      http: changedHttp,
-      media: { register: vi.fn() },
-    })).rejects.toThrow(/dataset changed/u)
-  })
-
-  it('lets cancellation interrupt the anonymous-quota delay before the next page', async () => {
-    const firstPage = Array.from({ length: 100 }, (_, index) => rawItem(index))
-    const getJson = vi.fn(async (url: string) => ({ value: rawPage(firstPage, 1, 101), finalUrl: url }))
-    const adapter = createDshfindAdapter({ interPageDelayMs: 60_000 })
-    const controller = new AbortController()
-    const scan = adapter.scanCatalog!({}, {
-      source: source(),
-      signal: controller.signal,
-      http: { getJson },
-      media: { register: vi.fn() },
+  it('exposes one reviewed npm identity without exposing the provider command', async () => {
+    const items = await scanInstall({
+      ...baseInstall,
+      methods: [reviewedMethod, { ...reviewedMethod }],
     })
 
-    await vi.waitFor(() => expect(getJson).toHaveBeenCalledOnce())
-    controller.abort(new DOMException('fixture abort', 'AbortError'))
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      id: 'owner/plugin-0',
+      repository: { url: 'https://github.com/owner/plugin-0' },
+      package: { registry: 'npm', name: 'dsh-plugin-0' },
+      latestVersion: '1.2.3',
+    })
+    expect(JSON.stringify(items)).not.toContain('provider command text')
+  })
 
-    await expect(scan).rejects.toMatchObject({ name: 'AbortError' })
-    expect(getJson).toHaveBeenCalledOnce()
+  it.each([
+    ['missing methods', baseInstall],
+    ['a non-object install', 'npm install dsh-plugin-0'],
+    ['an unverified method', { ...baseInstall, methods: [{ ...reviewedMethod, verification: 'unverified' }] }],
+    ['a wrong verification code', { ...baseInstall, methods: [{ ...reviewedMethod, code: 'unlinked_package' }] }],
+    ['a build allowance requirement', { ...baseInstall, methods: [{ ...reviewedMethod, requiresBuildAllowance: true }] }],
+    ['a prerelease version', { ...baseInstall, methods: [{ ...reviewedMethod, revision: '1.2.4-rc.1' }] }],
+    ['a mutable tag instead of a version', { ...baseInstall, methods: [{ ...reviewedMethod, revision: 'latest' }] }],
+    ['an invalid package name', { ...baseInstall, methods: [{ ...reviewedMethod, spec: 'Not A Package!' }] }],
+    ['a spec disagreeing with pkg_name', { ...baseInstall, methods: [{ ...reviewedMethod, spec: 'other-package' }] }],
+    ['ambiguous reviewed targets', {
+      ...baseInstall,
+      pkg_name: undefined,
+      methods: [reviewedMethod, { ...reviewedMethod, spec: 'another-package', revision: '2.0.0' }],
+    }],
+  ] as const)('does not expose an install identity for %s', async (_label, install) => {
+    const items = await scanInstall(install)
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).not.toHaveProperty('package')
+    expect(items[0]).not.toHaveProperty('latestVersion')
   })
 })

@@ -1,0 +1,131 @@
+diff --git a/lib/client.js b/lib/client.js
+index fff5f43..b10f8d7 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -756,6 +756,7 @@ window.__ModuleLoader__.load({
+ 			const [busy, setBusy] = (0, react.useState)(false);
+ 			const [failure, setFailure] = (0, react.useState)(void 0);
+ 			const [candidates, setCandidates] = (0, react.useState)(void 0);
++			const [candidateQuery, setCandidateQuery] = (0, react.useState)("");
+ 			const [picked, setPicked] = (0, react.useState)(/* @__PURE__ */ new Set());
+ 			const [expanded, setExpanded] = (0, react.useState)(/* @__PURE__ */ new Set());
+ 			const [editing, setEditing] = (0, react.useState)(/* @__PURE__ */ new Map());
+@@ -816,6 +817,7 @@ window.__ModuleLoader__.load({
+ 					}
+ 					const known = new Set(models.map((model) => textOf(model, "id")));
+ 					setCandidates(found);
++					setCandidateQuery("");
+ 					setPicked(new Set(found.filter((model) => !known.has(model.id)).map((model) => model.id)));
+ 				} catch (error) {
+ 					setFailure(messageOf(error));
+@@ -825,6 +827,7 @@ window.__ModuleLoader__.load({
+ 			};
+ 			const closePicker = () => {
+ 				setCandidates(void 0);
++				setCandidateQuery("");
+ 				setPicked(/* @__PURE__ */ new Set());
+ 			};
+ 			const adoptPicked = () => {
+@@ -846,10 +849,21 @@ window.__ModuleLoader__.load({
+ 				});
+ 			};
+ 			const activeCandidates = candidates ?? [];
+-			const allCandidatesPicked = activeCandidates.length > 0 && activeCandidates.every((candidate) => picked.has(candidate.id));
++			const normalizedCandidateQuery = candidateQuery.trim().toLowerCase();
++			const filteredCandidates = normalizedCandidateQuery.length === 0 ? activeCandidates : activeCandidates.filter((candidate) => {
++				const haystacks = [candidate.id, candidate.name].filter((value) => typeof value === "string");
++				return haystacks.some((value) => value.toLowerCase().includes(normalizedCandidateQuery));
++			});
++			const allFilteredCandidatesPicked = filteredCandidates.length > 0 && filteredCandidates.every((candidate) => picked.has(candidate.id));
+ 			const toggleAllCandidates = () => {
+ 				setPicked((current) => {
+-					return activeCandidates.every((candidate) => current.has(candidate.id)) ? /* @__PURE__ */ new Set() : new Set(activeCandidates.map((candidate) => candidate.id));
++					const next = new Set(current);
++					if (filteredCandidates.every((candidate) => current.has(candidate.id))) {
++						for (const candidate of filteredCandidates) next.delete(candidate.id);
++					} else {
++						for (const candidate of filteredCandidates) next.add(candidate.id);
++					}
++					return next;
+ 				});
+ 			};
+ 			const askable = probe.provider !== void 0 || probe.baseURL !== void 0 && probe.baseURL.length > 0;
+@@ -1018,17 +1032,36 @@ window.__ModuleLoader__.load({
+ 							onClick: adoptPicked,
+ 							children: t("fetchAdopt")
+ 						})] }),
+-						children: [(0, react_jsx_runtime.jsx)("div", {
++						children: [(0, react_jsx_runtime.jsxs)("div", {
++							className: ModelsSection_module_css_default["field"],
++							children: [(0, react_jsx_runtime.jsx)("label", {
++								className: ModelsSection_module_css_default["hiddenLabel"],
++								children: t("fetchSearch")
++							}), (0, react_jsx_runtime.jsx)("input", {
++								className: ModelsSection_module_css_default["input"],
++								type: "search",
++								value: candidateQuery,
++								placeholder: t("fetchSearchPlaceholder"),
++								"aria-label": t("fetchSearch"),
++								onChange: (event) => {
++									setCandidateQuery(event.target.value);
++								}
++							})]
++						}), (0, react_jsx_runtime.jsx)("div", {
+ 							className: ModelsSection_module_css_default["candidateActions"],
+ 							children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 								variant: "ghost",
+ 								size: "sm",
++								disabled: filteredCandidates.length === 0,
+ 								onClick: toggleAllCandidates,
+-								children: t(allCandidatesPicked ? "fetchDeselectAll" : "fetchSelectAll")
++								children: t(allFilteredCandidatesPicked ? "fetchDeselectAll" : "fetchSelectAll")
+ 							})
+-						}), (0, react_jsx_runtime.jsx)("ul", {
++						}), filteredCandidates.length === 0 ? (0, react_jsx_runtime.jsx)("p", {
++							className: ModelsSection_module_css_default["modelEmpty"],
++							children: t("fetchNoMatches")
++						}) : null, (0, react_jsx_runtime.jsx)("ul", {
+ 							className: ModelsSection_module_css_default["candidateList"],
+-							children: (candidates ?? []).map((candidate) => (0, react_jsx_runtime.jsx)("li", {
++							children: filteredCandidates.map((candidate) => (0, react_jsx_runtime.jsx)("li", {
+ 								className: ModelsSection_module_css_default["candidate"],
+ 								children: (0, react_jsx_runtime.jsxs)("label", {
+ 									className: ModelsSection_module_css_default["candidateLabel"],
+@@ -1529,6 +1529,8 @@ window.__ModuleLoader__.load({
+ 			*/
+ 			const curatedFields = (family) => {
+ 				const ownsIdentity = family === "pi-ai" && props.declared === true;
++				const baseURLOverridden = schema.hasPath(draft, ["baseURL"]);
++				const canCustomizeApi = ownsIdentity || baseURLOverridden;
+ 				const customModels = schema.getPath(draft, ["models"]);
+ 				const modelsOverridden = schema.hasPath(draft, ["models"]);
+ 				const models = modelDrafts(modelsOverridden ? customModels : inheritedModels());
+@@ -1617,7 +1619,7 @@ window.__ModuleLoader__.load({
+ 									}
+ 								})]
+ 							}),
+-							ownsIdentity ? (0, react_jsx_runtime.jsxs)("div", {
++							canCustomizeApi ? (0, react_jsx_runtime.jsxs)("div", {
+ 								className: ModelsSection_module_css_default["field"],
+ 								children: [(0, react_jsx_runtime.jsx)("span", {
+ 									className: ModelsSection_module_css_default["fieldLabel"],
+@@ -2576,6 +2609,9 @@ window.__ModuleLoader__.load({
+ 			fetchEmpty: "The provider listed no models. Add them by hand.",
+ 			fetchTitle: "Choose models to add",
+ 			fetchDescription: "These are the models this provider has available. Choose the ones to add.",
++			fetchSearch: "Search models",
++			fetchSearchPlaceholder: "Search by model ID or name",
++			fetchNoMatches: "No models match the current search.",
+ 			fetchSelectAll: "Select all",
+ 			fetchDeselectAll: "Deselect all",
+ 			fetchAdopt: "Add selected",
+@@ -2674,6 +2710,9 @@ window.__ModuleLoader__.load({
+ 			fetchEmpty: "该提供方没有列出任何模型，请手动添加。",
+ 			fetchTitle: "选择要添加的模型",
+ 			fetchDescription: "以下是模型提供方的可用模型，勾选要添加的模型。",
++			fetchSearch: "搜索模型",
++			fetchSearchPlaceholder: "按模型 ID 或名称搜索",
++			fetchNoMatches: "当前搜索没有匹配的模型。",
+ 			fetchSelectAll: "全选",
+ 			fetchDeselectAll: "取消全选",
+ 			fetchAdopt: "添加所选",

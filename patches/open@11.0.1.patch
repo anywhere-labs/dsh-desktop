@@ -1,0 +1,9 @@
+diff --git a/index.js b/index.js
+index cbf34ac..c1bc3ed 100644
+--- a/index.js
++++ b/index.js
+@@ -173,3 +173,4 @@ const baseOpen = async options => {
+ 		if (!isWsl) {
+ 			childProcessOptions.windowsVerbatimArguments = true;
++			childProcessOptions.windowsHide = true;
+ 		}

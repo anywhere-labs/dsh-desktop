@@ -26,7 +26,7 @@ export interface CatalogSourceManifest {
     method: 'GET'
   }
   /**
-   * The endpoint query features advertised by this source. The minimal fixture uses supported=[q, category, cursor, limit], defaultLimit=50, maxLimit=50, and sorts=[]. Standard sources may declare limits through the Schema maximum of 100.
+   * The endpoint query features advertised by this source. The minimal fixture uses supported=[q, category, cursor, limit], defaultLimit=50, maxLimit=50, and sorts=[]. Standard sources may declare limits through the Schema maximum of 200.
    */
   query: {
     /**

@@ -12,8 +12,8 @@ import {
 } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { basename, dirname, join, win32 } from 'node:path'
-import { DESKTOP_INSTALL_RECOVERY_STATE_ENV } from './install-recovery.ts'
 import { assertDesktopProfileName } from './profile-manager.ts'
+import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
 import type { DesktopLocale } from './runtime.ts'
 import { desktopTerminalCopy } from './terminal-locale.ts'
 
@@ -48,7 +48,6 @@ const STATE_DIRECTORY_MODE = 0o700
 const EXECUTABLE_FILE_MODE = 0o700
 const PRIVATE_FILE_MODE = 0o600
 const WINDOWS_SHELL_COMMANDS = ['pwsh.exe', 'powershell.exe', 'cmd.exe'] as const
-const WINDOWS_TERMINAL_COMMAND = 'wt.exe'
 const ELECTRON_HEADERS_URL = 'https://electronjs.org/headers'
 
 /** Platforms with a native terminal launch contract owned by DSH Desktop. */
@@ -84,7 +83,7 @@ export interface DesktopTerminalOptions {
   /** Host platform selecting the generated scripts and native launcher. */
   platform: NodeJS.Platform
   /** Desktop locale used only for explanatory terminal welcome copy. */
-  locale: DesktopLocale
+  locale?: DesktopLocale
   /** Electron executable reused as Node by command shims. */
   appExecutable: string
   /** Desktop-owned bootstrap that clears Node mode before importing the `dsh` CLI. */
@@ -101,8 +100,6 @@ export interface DesktopTerminalOptions {
   profileDir: string
   /** Harness home exported as `DSH_HOME` inside the terminal. */
   homeDir: string
-  /** Desktop-private recovery WAL used by plugin installs from this terminal. */
-  installRecoveryStatePath: string
   /** Private directory receiving the generated terminal files. */
   stateDir: string
   /** Process launcher; production passes `node:child_process.spawn`. */
@@ -275,7 +272,7 @@ function macPnpmShim(options: DesktopTerminalOptions): string {
       'npm_config_runtime=electron',
       `npm_config_target=${quoteSh(options.electronVersion)}`,
       `npm_config_disturl=${quoteSh(ELECTRON_HEADERS_URL)}`,
-      `exec ${quoteSh(options.appExecutable)} ${quoteSh(options.pnpmBinPath)} "$@"`,
+      `exec ${quoteSh(options.appExecutable)} ${quoteSh(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
     ].join(' '),
     '',
   ].join('\n')
@@ -290,7 +287,7 @@ function windowsPnpmShim(): string {
     'set "npm_config_runtime=electron"',
     `set "npm_config_target=%${WINDOWS_ELECTRON_VERSION}%"`,
     `set "npm_config_disturl=${ELECTRON_HEADERS_URL}"`,
-    `"%${WINDOWS_APP_EXECUTABLE}%" "%${WINDOWS_PNPM_ENTRY}%" %*`,
+    `"%${WINDOWS_APP_EXECUTABLE}%" "%${WINDOWS_PNPM_ENTRY}%" ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} %*`,
     'exit /b %errorlevel%',
     '',
   ].join('\r\n')
@@ -336,7 +333,7 @@ function macWelcome(
   shimDir: string,
   bashRcPath: string,
 ): string {
-  const copy = desktopTerminalCopy(options.locale)
+  const copy = desktopTerminalCopy(options.locale ?? 'en')
   const commandHelp = 'dsh --dump-config'
   const pluginAdd = 'dsh plugin add <third-party-plugin>'
   const pluginRemove = 'dsh plugin remove <third-party-plugin>'
@@ -416,7 +413,7 @@ function windowsCmdWelcome(locale: DesktopLocale): string {
   const pluginUpdate = 'dsh plugin update'
   return [
     '@echo off',
-    'chcp 65001 >nul',
+    ...(locale === 'en' ? [] : ['chcp 65001 >nul']),
     'setlocal EnableDelayedExpansion',
     `set "${RUN_AS_NODE}="`,
     `cd /d "!${WINDOWS_PROFILE_DIRECTORY}!"`,
@@ -449,7 +446,6 @@ function prepareDesktopTerminalFiles(options: DesktopTerminalOptions): DesktopTe
     ['Electron version', options.electronVersion],
     ['profile directory', options.profileDir],
     ['Harness home', options.homeDir],
-    ['install recovery state', options.installRecoveryStatePath],
     ['state directory', options.stateDir],
     ['product version', options.productVersion],
   ] as const) assertScriptValue(label, value)
@@ -487,8 +483,8 @@ function prepareDesktopTerminalFiles(options: DesktopTerminalOptions): DesktopTe
     replacePrivateFile(files.dshShimPath, windowsDshShim(), PRIVATE_FILE_MODE)
     replacePrivateFile(files.pnpmShimPath, windowsPnpmShim(), PRIVATE_FILE_MODE)
     replacePrivateFile(files.nodeShimPath, windowsShim(), PRIVATE_FILE_MODE)
-    replacePrivateFile(files.welcomePath, windowsWelcome(options.locale), PRIVATE_FILE_MODE)
-    replacePrivateFile(windowsCmdWelcomePath, windowsCmdWelcome(options.locale), PRIVATE_FILE_MODE)
+    replacePrivateFile(files.welcomePath, windowsWelcome(options.locale ?? 'en'), PRIVATE_FILE_MODE)
+    replacePrivateFile(windowsCmdWelcomePath, windowsCmdWelcome(options.locale ?? 'en'), PRIVATE_FILE_MODE)
     return files
   }
   throw new Error(`dsh-plugin-desktop: terminal is unsupported on ${options.platform}`)
@@ -504,7 +500,6 @@ function terminalEnvironment(options: DesktopTerminalOptions, files: DesktopTerm
     if (
       normalized === RUN_AS_NODE
       || normalized === DSH_HOME
-      || normalized === DESKTOP_INSTALL_RECOVERY_STATE_ENV
     ) continue
     if (options.platform === 'win32' && WINDOWS_GENERATED_ENVIRONMENT_KEYS.has(normalized)) continue
     if (normalized === PATH) {
@@ -518,7 +513,6 @@ function terminalEnvironment(options: DesktopTerminalOptions, files: DesktopTerm
     ? files.shimDir
     : `${files.shimDir}${delimiter}${inheritedPath}`
   env[DSH_HOME] = options.homeDir
-  env[DESKTOP_INSTALL_RECOVERY_STATE_ENV] = options.installRecoveryStatePath
   if (options.platform === 'win32') {
     env[DEFAULT_PROFILE] = options.profileName
     env[WINDOWS_APP_EXECUTABLE] = options.appExecutable
@@ -559,12 +553,6 @@ function defaultWindowsExecutableResolver(
     if (comSpec !== undefined) candidates.push(comSpec)
     if (systemRoot !== undefined) candidates.push(win32.join(systemRoot, 'System32', 'cmd.exe'))
   }
-  if (command.toLowerCase() === WINDOWS_TERMINAL_COMMAND) {
-    const localAppData = windowsEnvironmentValue(environment, 'LocalAppData')
-    if (localAppData !== undefined) {
-      candidates.push(win32.join(localAppData, 'Microsoft', 'WindowsApps', WINDOWS_TERMINAL_COMMAND))
-    }
-  }
   const inheritedPath = windowsEnvironmentValue(environment, PATH)
   if (inheritedPath !== undefined) {
     for (const rawDir of inheritedPath.split(';')) {
@@ -583,26 +571,9 @@ interface ResolvedWindowsShell {
 /** Resolve the preferred Windows Terminal host, preserving an explicit adapter. */
 function resolveWindowsTerminal(
   options: DesktopTerminalOptions,
-  environment: Readonly<NodeJS.ProcessEnv>,
+  _environment: Readonly<NodeJS.ProcessEnv>,
 ): WindowsTerminalLauncher | undefined {
-  if (options.windowsTerminal !== undefined) return options.windowsTerminal
-  const exists = options.windowsExecutableExists ?? existsSync
-  const resolveExecutable = options.windowsExecutableResolver ?? defaultWindowsExecutableResolver
-  const executable = resolveExecutable(WINDOWS_TERMINAL_COMMAND, environment, exists)
-  if (executable === undefined) return undefined
-  assertScriptValue('wt.exe executable', executable)
-  return {
-    executable,
-    arguments: [
-      '--window',
-      'new',
-      'new-tab',
-      '--title',
-      'DSH Desktop',
-      '--startingDirectory',
-      options.profileDir,
-    ],
-  }
+  return options.windowsTerminal
 }
 
 /** Select PowerShell 7, Windows PowerShell, or the built-in command prompt. */

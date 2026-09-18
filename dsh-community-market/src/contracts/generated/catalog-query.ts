@@ -4,7 +4,7 @@ export type CategoryId = string
 export type CapabilityId = string
 
 /**
- * The normalized query accepted by the currently selected catalog adapter. The standard HTTPS endpoint encodes category and capability values as repeated parameters; repeated category values use OR semantics. The current UI defaults limit to 50, while the contract permits values through 100.
+ * The normalized query accepted by the currently selected catalog adapter. The standard HTTPS endpoint encodes category and capability values as repeated parameters; repeated category values use OR semantics. The current discovery UI defaults limit to 50, while the contract permits values through 200.
  */
 export interface CatalogQuery {
   q?: string

@@ -2,7 +2,7 @@
 
 [中文](catalog-provider-contract.zh.md)
 
-Status: **Implemented public v1 contract.** The versioned Schemas, generated types, strict validation, source persistence, constrained network and media boundaries, standard HTTP adapter, reviewed DSH 1024Store and browse-only dshfind adapters, complete local indexing, and loadable Host/Client entries are implemented and tested in DSH Desktop. This document and its fixtures are the public interoperability contract for `manifestVersion` and `schemaVersion` `1.x`.
+Status: **Implemented public v1 contract.** The versioned Schemas, generated types, strict validation, source persistence, constrained network and media boundaries, standard HTTP adapter, reviewed DSH 1024Store and dshfind adapters, complete local indexing, and loadable Host/Client entries are implemented and tested in DSH Desktop. This document and its fixtures are the public interoperability contract for `manifestVersion` and `schemaVersion` `1.x`.
 
 ## Decision summary
 
@@ -12,7 +12,7 @@ Status: **Implemented public v1 contract.** The versioned Schemas, generated typ
 - The catalog ecosystem is open: any person, community, or service may publish a conforming source and any user may register its manifest URL. No Market code change or partnership approval is required for the standard path.
 - Providers with an existing public API that cannot emit the standard page shape may propose a reviewed adapter integration. Cooperation adds local, tested Market code; it never allows a provider to send executable adapter code.
 - DSH 1024Store is one of the catalog providers currently cooperating with this project. A reviewed built-in adapter is included; it does not select or fall back to 1024Store automatically.
-- dshfind is another optional cooperating provider. Its reviewed adapter is browse-only and is neither selected by default nor used as a preferred, recommended, or fallback source.
+- dshfind is another optional cooperating provider. Its reviewed adapter accepts only unambiguous structured npm evidence for structural install candidacy; other entries remain browse-only. It is neither selected by default nor used as a preferred, recommended, or fallback source.
 - A source being bundled as a choice or supported by an adapter does not mean that Anywhere Labs has recommended, audited, or endorsed the source or the plugins it lists.
 - Every provider is converted into one normalized model before data reaches the market UI or installation boundary.
 
@@ -97,7 +97,7 @@ The manifest describes provider capability; it does not control local policy. Pu
 
 The source manifest URL and catalog endpoint are distinct. Adding the manifest URL is an explicit user action. The Host generates a fresh `sourceRecordId`, validates and stores a registration-time copy of the manifest with that local user-added record, exposes its disclosure fields in source management, and does not select it until the user chooses it.
 
-For direct standard integration, the user registers only the manifest URL. The smallest recommended manifest uses one public GET endpoint, advertises only `q`, `category`, `cursor`, and `limit`, sets both example page limits to 50, and leaves `sorts` empty. Fifty is a convenient starter value, not a standard-source ceiling: a manifest may declare limits through the Schema safety maximum of 100. Capability, sort, locale, icons, and richer display fields remain optional extensions. See the [minimal source manifest](examples/catalog-source.example.json) and [minimal provider page](examples/catalog-provider-page.minimal.example.json).
+For direct standard integration, the user registers only the manifest URL. The smallest recommended manifest uses one public GET endpoint, advertises only `q`, `category`, `cursor`, and `limit`, sets both example page limits to 50, and leaves `sorts` empty. Fifty is a convenient starter value, not a standard-source ceiling: a manifest may declare limits through the Schema safety maximum of 200. Capability, sort, locale, icons, and richer display fields remain optional extensions. See the [minimal source manifest](examples/catalog-source.example.json) and [minimal provider page](examples/catalog-provider-page.minimal.example.json).
 
 Registration also pins the provider claim and network origin. On every fetch, the manifest `providerId` must still equal the value saved in the local source record. The user-approved manifest URL, the manifest request's final URL, `transport.endpoint`, and the provider-page request's final URL must all remain on the same credential-free HTTPS origin. Public v1 network URLs and manifests use only standard HTTPS port 443; custom ports are not part of the standard-source contract. Same-origin redirects are allowed; crossing to another origin is rejected even when both origins use HTTPS. A deployment that requires a separate API origin or port uses the reviewed provider-adapter path unless a later contract revision defines that relationship explicitly.
 
@@ -179,7 +179,7 @@ The Host first builds and validates a [`CatalogQuery`](schemas/catalog-query.sch
 | `category` | zero or more | Stable category IDs. Repeated values mean “match any requested category”. Duplicates are invalid. |
 | `capability` | zero or more | Fabric/host capability IDs. Repeated values mean the item must declare all requested capabilities. Duplicates are invalid. |
 | `cursor` | zero or one | Opaque continuation value returned by the same source for the same effective filters and sort. Maximum 2048 characters. |
-| `limit` | zero or one | Integer from 1 through 100. The normalized Host query defaults to 50; the effective requested value cannot exceed the manifest's `maxLimit`. |
+| `limit` | zero or one | Integer from 1 through 200. The normalized Host query defaults to 50; the effective requested value cannot exceed the manifest's `maxLimit`. |
 | `sort` | zero or one | One of `relevance`, `updated`, `name`, or `downloads`, and also declared by the source manifest. |
 | `locale` | zero or one | A BCP 47-like language tag such as `zh-CN` or `en`. It is a preference, not permission to omit stable IDs. |
 
@@ -187,13 +187,13 @@ The Host first builds and validates a [`CatalogQuery`](schemas/catalog-query.sch
 
 Repeated `category` values are a multi-select OR filter for consumers that send provider-side filters: an item matches when it belongs to any selected category. The standard adapter sends this field only when the source manifest advertises `category` in `query.supported`; otherwise it omits the field instead of inventing provider semantics.
 
-The normalized Host query default and the provider default are separate. A valid consumer may request any value through 100, and the Host reduces it to the manifest's `maxLimit` when needed. The response must not contain more items than that effective requested limit. When a source does not support `limit`, the Host omits the parameter and accepts up to the source's declared `defaultLimit`. A manifest must keep `defaultLimit` less than or equal to `maxLimit`, and both values remain bounded by 100.
+The normalized Host query default and the provider default are separate. A valid consumer may request any value through 200, and the Host reduces it to the manifest's `maxLimit` when needed. The response must not contain more items than that effective requested limit. When a source does not support `limit`, the Host omits the parameter and accepts up to the source's declared `defaultLimit`. A manifest must keep `defaultLimit` less than or equal to `maxLimit`, and both values remain bounded by 200.
 
 A provider cursor is scoped to one selected source and one effective wire query. The Host never sends a cursor from one source to another or reuses it after that wire query changes.
 
-The current Desktop product first scans the complete selected source. For a standard source, the Host sends only supported scan fields such as `cursor`, `limit`, and locale preference, follows `page.nextCursor` until exhaustion, and uses the source's effective page limit rather than treating 50 as a network cap. It does not send the user's search text or selected categories during this scan. The reviewed 1024Store adapter instead downloads its full registry in one request and emits normalized chunks of at most 100 items.
+For a standard source, the current Desktop scans the bounded complete source by sending only supported scan fields such as `cursor`, `limit`, and locale preference, following `page.nextCursor` until exhaustion. It does not send the user's search text or selected categories during this scan. The reviewed 1024Store adapter instead forwards discovery queries to v2 remote pages and requests 200 registry entries per Installable batch before retaining only direct npm targets.
 
-Search, sorting, multi-category OR filtering, category enumeration, and pagination then run over the complete local index. The catalog response's category choices cover all categories present in that index, and each visible UI page contains at most 50 matching items. **Load more** advances a Host-owned local cursor; it does not send another filtered provider request.
+For adapters without reviewed remote-query support, search, sorting, multi-category OR filtering, category enumeration, and pagination run over a bounded complete local index. Reviewed adapters may instead forward those operations to the provider. In both cases the Renderer receives at most one visible page and only Host-owned opaque cursors.
 
 Only a successful JSON response that passes the provider-page schema is accepted from a standard source. The adapter then injects Host provenance and validates the normalized snapshot schema. A timeout, non-200 response, wrong content type, oversized body, parse error, unsupported schema version, or either validation error fails that source request without affecting application startup. A standard response containing more items than the effective `limit` is rejected.
 
@@ -202,12 +202,12 @@ Only a successful JSON response that passes the provider-page schema is accepted
 Saved sources remain independent, but the product reads only the selected one:
 
 - At most one saved source record is selected, and only that source receives catalog requests.
-- The selected source has its own timeout, cancellation, complete-index cache, local cursor, loading state, and error state.
-- Standard-source network pages follow the effective requested limit or declared `defaultLimit`, through the safety maximum of 100; visible local pages contain at most 50 items.
-- The 1024Store adapter obtains the registry with one request, normalizes the full result in bounded chunks, and exposes the same local 50-item UI pages.
-- Optional catalog metadata reports when the complete scan finished (`scannedAt`), when its cache expires (`expiresAt`), an optional consistent source revision (`providerRevision`), and whether the index was freshly scanned or reused (`cacheStatus`).
+- The selected source has its own timeout, cancellation, opaque cursor, loading state, error state, and any adapter-appropriate bounded cache.
+- Standard-source network pages follow the effective requested limit or declared `defaultLimit`, through the safety maximum of 200; visible discovery pages contain at most 50 items.
+- The 1024Store adapter requests v2 pages remotely, forwards supported query parameters, normalizes only the requested page, and exposes a Host-owned cursor for the next page.
+- Optional catalog metadata applies to adapters that build a bounded complete index and reports when that scan finished (`scannedAt`), when its cache expires (`expiresAt`), an optional consistent source revision (`providerRevision`), and whether the index was freshly scanned or reused (`cacheStatus`).
 - A failure stays attached to the selected source and offers Retry; the Host never falls back to or silently requests another saved source.
-- Explicit refresh invalidates the current index and bypasses the catalog HTTP cache before rebuilding it. Switching or removing the selected source cancels its in-flight work and clears the browsing session without restarting DSH.
+- Explicit refresh bypasses the relevant catalog HTTP cache and invalidates any applicable local index. Switching or removing the selected source cancels its in-flight work and clears the browsing session without restarting DSH.
 - Every card, detail view, search result, and install confirmation keeps visible attribution for the selected source.
 
 The canonical item identity is the pair `{ sourceRecordId, itemId }`. Two registrations—even for the same provider—remain distinct and may legitimately describe the same plugin differently. The selected-source UI does not group or merge records across saved sources. Switching sources replaces the browsing session, and no source silently overwrites another source's cache or identity. A name, repository name, or similar description alone is never enough to deduplicate items within the selected source.
@@ -216,13 +216,14 @@ The canonical item identity is the pair `{ sourceRecordId, itemId }`. Two regist
 
 [DSH 1024Store](https://github.com/imsai-sh/awesome-deepseek-harness-plugins) is one of the providers currently cooperating with DSH Community Market. Its existing registry API does not need to adopt the standard wire shape. The integration uses the public reviewed-adapter path and ships as a built-in provider adapter that:
 
-- requests the provider's documented public API under the same Host network limits;
-- maps its categories and plugin metadata into the normalized snapshot;
+- requests the provider's current paginated `/api/v2/plugins` API under the same Host network limits and never uses the frozen 500-item v1 compatibility feed as the directory;
+- maps its complete v2 category facets and paged plugin metadata into the normalized response;
 - treats the provider item `id` only as source-local identity and derives canonical GitHub repository and publisher identity from the validated repository URL, so repository renames or transfers do not silently point at the old name;
 - because the current 1024Store dataset has no direct plugin icon, derives a GitHub owner/avatar candidate only as a reviewed fallback, resolves it through the Host media boundary, and labels the result `role: "publisher-avatar"`;
-- normalizes the complete downloaded registry into Schema-bounded chunks of at most 100 items, then lets the Host expose local pages of at most 50 through its own cursor and **Load more**;
+- sends ordinary discovery, search, sort, and single-category queries to v2 pages; multi-category OR queries merge bounded provider-ranked prefixes behind an opaque Host cursor;
+- filters direct npm targets from each requested v2 page for Installable and carries the opaque provider cursor forward, so neither Host nor Renderer receives the complete directory at once;
 - injects and validates DSH 1024Store provenance and attribution;
-- never treats remote command text or install hints as executable input;
+- never treats remote command text or install hints as executable input; the adapter accepts only an exact inert `dsh plugin --profile … add <npm-package>` shape as package-name evidence, discards the command, and lets installation preview resolve npm `latest` independently;
 - reports the selected source as unavailable when the provider fails or returns invalid data, without falling back to another saved source.
 
 This relationship makes 1024Store a supported source choice. It does **not** make it the default, preferred, official, recommended, audited, or fallback source. The adapter does not auto-select it, and an empty or failed selection never triggers a hidden request to it. Its catalog remains an independent project, and catalog inclusion is not a security review of any listed plugin.
@@ -233,7 +234,7 @@ This relationship makes 1024Store a supported source choice. It does **not** mak
 
 dshfind documents an anonymous quota of 30 requests per minute with a burst of 10, while its current catalog requires more than 30 pages at 100 items per page. The adapter therefore uses a fixed sequential delay below the published sustained rate and makes the slower first synchronization visible as source loading rather than parallelizing around the provider limit. A rate-limit response rejects the whole scan and the ordinary source Retry action may start it again. A completed local index remains subject to the ordinary bounded cache; explicit refresh starts a new consistent full scan.
 
-The dshfind response may contain `install.cmd`, `install.kind`, `install.pkg_name`, `install.npm_published`, and `install.probed_at`, but it does not currently provide an exact stable npm version or equivalent `repository_backlink` evidence. These are untrusted provider claims, not execution authority. The adapter discards `install.cmd` before normalization, never displays or executes it, never parses a package/version from it, and does not emit `package` or `latestVersion` for dshfind. Consequently every dshfind item is browse-only and excluded from **Installable** and Host-reconstructed manual hints.
+The dshfind response may contain `install.cmd`, other installation claims, and `install.methods`. Command text and ordinary claims are not execution authority: the adapter discards `install.cmd` before normalization, never displays or executes it, and never parses package identity from it. The adapter may emit a structured npm package identity and an informational provider version, but automatic install preview ignores that provider version and resolves the official npm `latest` manifest. Preview requires matching npm identity, an exact stable latest version, a valid DSH bundle declaration, and active-Profile availability.
 
 The adapter may normalize bounded plain-text identity, description, tags/category, update time, and a canonical credential-free `https://github.com/owner/repository` link. The current API exposes no plugin icon or README field. Any owner-avatar fallback must be labelled `publisher-avatar` and resolved through the Host media boundary; the adapter does not fetch or render remote README content. dshfind scores, grades, `official`/featured labels, risk labels, and installation conclusions remain provider-owned operational claims and never become an Anywhere Labs security review, recommendation, or verification signal.
 
@@ -245,9 +246,9 @@ Catalog browsing and plugin installation are separate operations:
 
 - Fetching a manifest or snapshot is read-only and never invokes pnpm, DSH, a shell, or a lifecycle script.
 - Remote data cannot supply an install command, custom package-manager arguments, environment variables, or a working directory.
-- A browse record is not yet an install target. The current managed path accepts only a structurally eligible exact stable npm target with reviewed provider verification and a canonical repository backlink.
-- Preview independently verifies npm identity, repository, integrity, runtime, lifecycle scripts, DSH bundle evidence, and the active profile against authoritative local and registry state. A conflicting or unverifiable claim keeps installation disabled.
-- Execution repeats mutable checks and rejects changed package or profile evidence.
+- A browse record is not yet an install target. The current path requires one unambiguous valid npm package identity.
+- Preview resolves npm `latest` and requires matching identity, an exact stable version, a valid DSH bundle declaration, and active-Profile availability.
+- Execution consumes a one-shot preview and rejects changed catalog or Profile identity.
 - The final confirmation shows the exact source record, pinned npm package and version, active profile, and local-code warning.
 - Installation begins only after that explicit user gesture and uses the existing managed active-profile service.
 
@@ -270,7 +271,7 @@ The public v1 runtime budgets are part of the provider contract, not implementat
 | Boundary | Body and redirect budget | Deadlines | Additional rules |
 | --- | --- | --- | --- |
 | Standard source manifest and provider page | At most 2 MiB per JSON response and at most 3 redirects | 8 s connect, 12 s first-byte, 30 s total | These limits apply independently to the manifest request and each catalog request. |
-| DSH 1024Store built-in adapter | At most 16 MiB for its full-registry JSON response and at most 3 redirects | 8 s connect, 12 s first-byte, 30 s total | The larger body budget is a compiled-in exception for this reviewed adapter; it does not relax the 2 MiB standard-source limit. |
+| DSH 1024Store built-in adapter | At most 2 MiB per v2 JSON page and at most 3 redirects | 8 s connect, 12 s first-byte, 30 s total | Discovery and Installable both retain the remote page boundary; the complete registry is not returned to the Client. |
 | Icon asset service | At most 2 MiB per image response and at most 2 redirects | 8 s connect, 12 s first-byte, 30 s total | Input must be a single-frame PNG, JPEG, or WebP image with at most `16 * 1024 * 1024` decoded pixels. The Host emits a metadata-free 128 × 128 PNG. |
 
 The Host performs catalog I/O only for the selected source. The icon asset service performs at most two network-and-decode jobs at once. Its limit is global to one Market plugin generation.
@@ -316,10 +317,10 @@ An implementation must reject an unsupported major version. Any contract change 
 1. Load local source settings without contacting a provider.
 2. Resolve built-in adapter records and validate stored standard manifests.
 3. Wait for the UI or Host consumer to request catalog data; there is no startup-blocking fetch.
-4. Resolve the single selected source, scan all of its catalog pages, validate and normalize every chunk, and cache one complete local index for the current locale.
-5. Derive search results, the complete index category set, multi-category OR filters, and 50-item visible pages locally.
-6. Derive the fail-closed local **Installable** structural candidates from that same complete index; perform authoritative official-registry verification only when the user previews one candidate, then revalidate mutable evidence before execution. Keep source and item provenance visible throughout.
-7. Reuse the completed index until its bounded expiry; an explicit refresh invalidates it and bypasses the catalog HTTP cache before rescanning.
+4. Resolve the single selected source and prefer its reviewed remote query and pagination capabilities; validate and normalize each requested page before returning it.
+5. Forward supported search, category, and sort parameters to the provider and expose only opaque Host cursors. Adapters without reviewed remote query support may still use a bounded local index.
+6. Filter fail-closed **Installable** structural candidates from each visible page; perform authoritative official-registry verification only when the user previews one candidate, then revalidate mutable evidence before execution. Keep source and item provenance visible throughout.
+7. Reuse bounded HTTP and local-index caches where applicable; an explicit refresh bypasses the relevant catalog HTTP cache.
 8. Cancel owned requests and reset the session when the selected source changes, the selection is cleared, the plugin generation is disposed, or DSH shuts down.
 
 ## Implemented v1 checklist
@@ -344,11 +345,11 @@ The current package implements and tests every capability below.
 ### Fetch and selected-source session
 
 - [x] Share one constrained HTTP client across standard and reviewed provider adapters.
-- [x] Implement standard GET `/v1/plugins`, exact query serialization, full cursor scans, and complete local indexing.
-- [x] Ship reviewed optional DSH 1024Store and browse-only dshfind adapters.
-- [x] Enforce abort, deadlines, bounded caches, force refresh, Schema-bounded network pages, and local UI pages of at most 50.
+- [x] Implement standard GET `/v1/plugins`, exact query serialization, bounded complete indexing where required, and reviewed remote pagination where available.
+- [x] Ship reviewed optional DSH 1024Store and dshfind adapters with fail-closed structural install evidence.
+- [x] Enforce abort, deadlines, bounded caches, force refresh, Schema-bounded network pages, and Client pages of at most 50.
 - [x] Validate untrusted wire data before normalization and validate every normalized snapshot again.
-- [x] Preserve provenance through scanning, local filtering, pagination, cache, details, and installation confirmation.
+- [x] Preserve provenance through remote or local pagination, filtering, cache, details, and installation confirmation.
 
 ### Installation handoff
 
@@ -378,14 +379,14 @@ The current automated contract, adapter, Host, Client, media, and installation s
 | Selection | DSH 1024Store adapter is available on first run | It is visible as a choice but remains unselected until the user chooses it |
 | Query | All supported parameters are populated | Correct URL encoding; repeated `category`/`capability`; other fields appear once |
 | Query | A parameter is valid but absent from `query.supported` | Host omits it for that source |
-| Query | `limit` is zero, above 100, non-integer, or above provider maximum | Invalid values are rejected; a valid value above `maxLimit` is reduced before network I/O |
+| Query | `limit` is zero, above 200, non-integer, or above provider maximum | Invalid values are rejected; a valid value above `maxLimit` is reduced before network I/O |
 | Query | Cursor is reused with another source or changed filters | Cursor rejected locally; no request sent |
 | Query | Standard response exceeds the effective requested limit, or its declared `defaultLimit` when `limit` is unsupported | Response rejected before cache or UI update |
-| Query | Standard source validly returns 51–100 items within its effective manifest limit | Response accepted; 50 is only the current UI default, not a global contract cap |
+| Query | Standard source validly returns 51–200 items within its effective manifest limit | Response accepted; 50 is only the current discovery UI default, not a global contract cap |
 | Full index | Standard source returns several cursor pages | Every page is validated once; local search and multi-category OR filtering can find items beyond the first network page |
-| Full index | 1024Store has more than 100 valid entries | One registry request is normalized into chunks of at most 100; no query interaction refetches it |
-| Pagination | Complete local index has more than 50 matching entries | First visible page contains 50; **Load more** advances through the Host-owned local cursor without a filtered provider request |
-| Refresh | A completed index is cached, then explicitly refreshed | Cached reads report reuse; refresh bypasses the catalog HTTP cache and replaces the complete index |
+| Remote pagination | 1024Store has more than 100 valid entries | Each request normalizes at most one provider page; **Load more** uses the next opaque cursor and never returns the complete directory |
+| Pagination | A bounded local index has more than 50 matching entries | First visible page contains 50; **Load more** advances through the Host-owned local cursor |
+| Refresh | A page or completed local index is cached, then explicitly refreshed | Refresh bypasses the relevant catalog HTTP cache and replaces applicable local state |
 | Schema | Valid manifest, query, provider-page, and snapshot fixtures | Accepted and round-trip without losing defined data |
 | Schema | Unknown property or unsupported major version | Affected manifest/request/snapshot rejected |
 | Schema | Provider page attempts to supply Host provenance | Strict wire schema rejects the response |

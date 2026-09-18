@@ -2,14 +2,14 @@
 
 ## 总览
 
-DSH Desktop 是一个薄的 Electron 宿主。它在 Electron main 进程中启动官方 DSH Host，Host 再通过 loopback HTTP/WebSocket 提供普通 Web UI。Desktop 没有另造一条 renderer IPC 插件系统，也不把 Electron API暴露给页面。
+DSH Desktop 是一个薄的 Electron 宿主。它在 Electron main 进程中启动官方 DSH Host，Host 再通过 HTTP/WebSocket Web carrier 提供普通 Web UI；carrier 默认只监听回环地址，也可在用户明确确认风险后向局域网开放。Desktop 没有另造一条 renderer IPC 插件系统，也不把 Electron API 暴露给页面。
 
 ```mermaid
 flowchart LR
   User[用户] --> Native[Electron main / tray / window]
   Native --> Launcher[Profile launcher]
   Launcher --> Host[Host Cordis generation]
-  Host --> Carrier[Loopback HTTP + WebSocket]
+  Host --> Carrier[HTTP + WebSocket Web carrier]
   Carrier --> Renderer[Sandboxed Web renderer]
   Host --> Upstream[Upstream DSH services]
   Host --> Desktop[Desktop-owned plugins]
@@ -25,7 +25,7 @@ flowchart LR
 3. Launcher 提供当前 generation 的 native runtime、`desktopProfiles` bootstrap 和内置 pnpm 环境。
 4. Host Cordis root 启动 Loader entries。Desktop service 在第三方插件可读取前注册。
 5. 官方 `dsh-base`、`dsh-web-app` 和 profile 中的第三方 bundle 组成 Web carrier。
-6. Host 绑定 loopback 端口，Electron 创建 BrowserWindow 并加载同源页面。
+6. Host 默认绑定 loopback，也可按已确认的设置绑定所有网络接口；Electron 创建 BrowserWindow 并从 loopback 地址加载同源页面。
 7. Web surface 成功加载后才创建托盘并提交 profile 的 last-known-good 状态。
 
 任何 profile 或模式切换都会 dispose 当前 generation，再启动新的 generation。Service reference、窗口对象和 subprocess handle 都不能跨 generation 缓存。
@@ -34,10 +34,12 @@ flowchart LR
 
 - **Upstream Host**：agent、model、tool、session、settings、webServer 和 subprocess 等官方能力。
 - **Desktop Host**：窗口、托盘、profile、终端、更新，以及对第三方开放的两个 service。
-- **Web Client**：官方 Web UI 和第三方浏览器界面。它通过 loopback carrier 工作，不直接调用 Electron。
+- **Web Client**：官方 Web UI 和第三方浏览器界面。它通过共享 Web carrier 工作，不直接调用 Electron。
 - **Native runtime**：Electron BrowserWindow、系统托盘、文件/网络/安装器适配。`desktopRuntime` 只供 Desktop 自有 row 使用。
 
-兼容模式的 Client face 校验环境后直接返回，不注册 Desktop layout、root、sidebar 或 conversation override。高级模式才安装 Desktop-owned layout、frame 和原生材质，同时尊重上游和第三方 slot 组合。
+兼容模式的 Client face 会校验环境，并且只通过 overlay slot 加入一条独立的 36 像素 Desktop frame；官方 layout、root、sidebar 与 conversation 作为完全无关的内容 viewport 从它下方开始。扩展窗口会禁用官方 root layout，安装自己独立注册的 Desktop layout/sidebar surface，并在倒 L 材质 frame 中继续承载官方 sidebar、conversation 与 details occupant。增强模式保留独立 root registration 与最初的紧凑内部 caption 几何。macOS 与 Windows 会按系统能力使用原生材质，同时不改变上游 occupant slot 的所有权。
+
+Desktop 级确认、警告、错误与结果不会进入 Web Client 组件树。`DesktopDialogWindow` 会创建独立、沙箱化的模态 `BrowserWindow`，应用共享的空白 utility frame，并在可能时以当前 generation 窗口为 parent，只接受一次有界本地结果。恢复模式与新增 Profile 是使用同一套无标题 frame 的独立 Desktop-owned 窗口。恢复页面本身使用 shadcn，先展示原因，再提供四个工作流 Tab；破坏性恢复操作会把确认交回 `DesktopDialogWindow`。
 
 ### 原生 Shell generation 与平台 adapter
 
@@ -51,13 +53,21 @@ profile 的名字和绝对目录由 `desktopProfiles.current` 提供，不能从
 
 `desktopPnpm.run()` 直接跑内置 pnpm；`runPlugin()` 通过打包的 DSH CLI 维持 profile 初始化、相对 source 和 bundle reconcile。两者都属于当前 generation，并由 subprocess service 管理完整进程树。
 
-Launcher 私有的 `desktopRuntime`、`desktopPnpmBootstrap`、Electron executable、Node helper 和 ABI 环境不是第三方 API。公开 contract 只有 `dsh-plugin-desktop/profile-service` 与 `dsh-plugin-desktop/pnpm`。
+Launcher 私有的 `desktopRuntime`、`desktopPnpmBootstrap`、Electron executable、Node helper 和 ABI 环境不是第三方 API。稳定包的公开 contract 是 `dsh-plugin-desktop/profile-service` 与 `dsh-plugin-desktop/pnpm`；Beta 包提供对应的 `dsh-plugin-desktop-beta/*` 路径。
 
 ## 打包与运行时闭包
 
 发布包使用 Electron Builder 和 `app.asar`，但需要物理 unpack 的依赖（例如 pnpm、node-pty、Windows ACL/native 文件）会放在 `app.asar.unpacked`。Packaged runtime gate 会检查 ASAR 入口和物理运行时入口，profile fallback 不能把符号链接指向无法被 Node 解析的虚拟 ASAR 路径。
 
-根 workspace 使用 Yarn；固定的 `deepseek-harness/` 子模块保持上游自己的 pnpm workspace。桌面代码、测试、打包配置和发布脚本属于 `dsh-plugin-desktop/`，不修改上游子模块。
+根 workspace 使用 Yarn；固定的 `deepseek-harness/` 子模块保持上游自己的 pnpm workspace。稳定版与 Beta 的桌面代码分别位于 `dsh-plugin-desktop/` 和 `dsh-plugin-desktop-beta/`，共享功能由变体同步检查约束；两者都不修改上游子模块。
+
+## 发行通道协议
+
+稳定版与 Beta 是两个实体 npm 包和两个系统应用，不由 Git 分支区分。稳定版使用 `dsh-plugin-desktop`、`DSH Desktop` 与 `ai.deepseek.dsh.desktop`；Beta 使用 `dsh-plugin-desktop-beta`、`DSH Desktop Beta` 与 `ai.deepseek.dsh.desktop.beta`。`upstream.json` 同时记录两个通道的上游版本、提交和 vendored runtime 清单，根级精确 resolution 保证每个 workspace 只能解析自己的 DSH 运行时。
+
+版本检查和安装包下载均携带 `X-DSH-Desktop-Channel: stable|beta`。检查请求还携带当前版本；下载请求携带 `X-DSH-Desktop-Target-Version`，服务端必须返回与请求一致的通道与版本。没有通道 header 的旧客户端按稳定版处理；Beta 客户端则必须收到明确的 `channel: "beta"` 响应。稳定通道只接受正式 SemVer，Beta 通道只接受 `-beta.N`。Beta 自动更新只查询 Beta；“安装稳定版”是独立的显式操作，允许选择较低版本并将稳定版安装在 Beta 旁边。
+
+服务端必须在 Beta 发布前先支持上述选择与回显规则，并为两个通道分别准备完整的平台产物。否则客户端会把响应视为无效，不会静默跨通道下载。
 
 ## 维护者深入阅读
 
