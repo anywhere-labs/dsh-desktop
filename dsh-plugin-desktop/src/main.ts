@@ -1,5 +1,12 @@
 /** DSH Desktop executable: minimal Electron bootstrap around the Host Cordis root. */
 
+// Tool subprocesses start the private Node runner through this Electron binary,
+// so that runner child needs ELECTRON_RUN_AS_NODE. Exporting it from this
+// process would also reach every Chromium child — renderer, GPU, network
+// service, and the utility hosts — and each of them would start as Node and die
+// before it could launch. The dsh-subprocess-local patch scopes the flag to the
+// runner child alone.
+
 import { startIsolatedDesktopHost } from './host-process.ts'
 import { app, crashReporter, safeStorage, shell } from 'electron'
 import { randomUUID } from 'node:crypto'

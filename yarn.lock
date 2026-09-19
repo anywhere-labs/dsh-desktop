@@ -6970,7 +6970,7 @@ __metadata:
 
 "@deepseek-ai/dsh-subprocess-local@patch:@deepseek-ai/dsh-subprocess-local@file%3Avendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-subprocess-local-0.1.5-rc.2.tgz#./patches/dsh-subprocess-local@0.1.5-rc.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.5-rc.2
-  resolution: "@deepseek-ai/dsh-subprocess-local@patch:@deepseek-ai/dsh-subprocess-local@file%3Avendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-subprocess-local-0.1.5-rc.2.tgz%23vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-subprocess-local-0.1.5-rc.2.tgz%3A%3Ahash=f08213&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-subprocess-local@0.1.5-rc.2.patch::version=0.1.5-rc.2&hash=9f1343&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-subprocess-local@patch:@deepseek-ai/dsh-subprocess-local@file%3Avendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-subprocess-local-0.1.5-rc.2.tgz%23vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-subprocess-local-0.1.5-rc.2.tgz%3A%3Ahash=f08213&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-subprocess-local@0.1.5-rc.2.patch::version=0.1.5-rc.2&hash=2b315a&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-win32-process": "npm:^0.1.5-rc.2"
     koffi: "npm:^3.1.0"
@@ -6979,13 +6979,13 @@ __metadata:
     "@deepseek-ai/cordis": ^4.0.2
     "@deepseek-ai/dsh-subprocess": ^0.1.5-rc.2
     "@deepseek-ai/dsh-timeout": ^0.1.5-rc.2
-  checksum: 10c0/1a77d15078a3b76546fc81a27d3d208b737c8bc72381619d8983165da0a8c4767353bf3f3868c0a0a3215698bd23cef7666b5a823067278fd508e4f9d9565039
+  checksum: 10c0/e7d079e0746b0e272943856f4bd0822c0dab93e90ab888c0aba7999370ad8da48601dfe5c8688a4f895d62e997d8609ae7c5bda9f60474124066ce60ac70f19d
   languageName: node
   linkType: hard
 
 "@deepseek-ai/dsh-subprocess-local@patch:@deepseek-ai/dsh-subprocess-local@file%3Avendor/dsh-runtime/0.1.6-alpha.2/deepseek-ai-dsh-subprocess-local-0.1.6-alpha.2.tgz#./patches/dsh-subprocess-local@0.1.6-alpha.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.6-alpha.2
-  resolution: "@deepseek-ai/dsh-subprocess-local@patch:@deepseek-ai/dsh-subprocess-local@file%3Avendor/dsh-runtime/0.1.6-alpha.2/deepseek-ai-dsh-subprocess-local-0.1.6-alpha.2.tgz%23vendor/dsh-runtime/0.1.6-alpha.2/deepseek-ai-dsh-subprocess-local-0.1.6-alpha.2.tgz%3A%3Ahash=c499ed&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-subprocess-local@0.1.6-alpha.2.patch::version=0.1.6-alpha.2&hash=1144ab&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-subprocess-local@patch:@deepseek-ai/dsh-subprocess-local@file%3Avendor/dsh-runtime/0.1.6-alpha.2/deepseek-ai-dsh-subprocess-local-0.1.6-alpha.2.tgz%23vendor/dsh-runtime/0.1.6-alpha.2/deepseek-ai-dsh-subprocess-local-0.1.6-alpha.2.tgz%3A%3Ahash=c499ed&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-subprocess-local@0.1.6-alpha.2.patch::version=0.1.6-alpha.2&hash=7eed41&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-lazy-require": "npm:^0.1.6-alpha.2"
     "@deepseek-ai/dsh-win32-process": "npm:^0.1.6-alpha.2"
@@ -6995,7 +6995,7 @@ __metadata:
     "@deepseek-ai/cordis": ^4.0.2
     "@deepseek-ai/dsh-subprocess": ^0.1.6-alpha.2
     "@deepseek-ai/dsh-timeout": ^0.1.6-alpha.2
-  checksum: 10c0/2afac2f9a97cefa4caae5fe0a76494addfbcfc10742cf77e9a1860cd6481b6faee74b35792ef909b433ea98108f7f378d1d835d3dfddea7f5e7c81067c1a9e8c
+  checksum: 10c0/cc6339ffa9914ac971bffc0a7c3d33386e79621f008bff674a8a3a5e65b85834538af211ab68c19e668ad01136bfbf59cff1fbda2aac349c95aad369ad26e5cb
   languageName: node
   linkType: hard
 

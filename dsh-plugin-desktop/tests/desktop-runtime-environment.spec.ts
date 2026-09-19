@@ -696,3 +696,29 @@ describe('desktop Host dsh runtime', () => {
     expect(environment).toEqual(original)
   })
 })
+
+/**
+ * `ELECTRON_RUN_AS_NODE` belongs to the private runner bootstrap environment.
+ * Exporting it from the Electron main process also reaches every Chromium child
+ * (renderer, GPU process, network service, utility hosts), which then starts as
+ * Node, rejects its `--type=` switches, and exits before it can launch.
+ */
+describe("RunAsNode scope", () => {
+  it("never exports the flag from either Electron main process", () => {
+    for (const variant of ["dsh-plugin-desktop", "dsh-plugin-desktop-beta"]) {
+      const source = readFileSync(new URL(`../../${variant}/src/main.ts`, import.meta.url), "utf8")
+      expect(source).not.toMatch(/process\.env\.ELECTRON_RUN_AS_NODE\s*=/u)
+      expect(source).not.toMatch(/process\.env\[("|"'"')ELECTRON_RUN_AS_NODE\1\]\s*=/u)
+    }
+  })
+
+  it("scopes the flag to the runner child in every vendored patch", () => {
+    for (const channel of ["0.1.5-rc.2", "0.1.6-alpha.2"]) {
+      const patch = readFileSync(new URL(`../../patches/dsh-subprocess-local@${channel}.patch`, import.meta.url), "utf8")
+      // Electron hosts launch the private runner through process.execPath, so the
+      // flag is required on every platform, not only on the Windows selector.
+      expect(patch).toContain(`env.ELECTRON_RUN_AS_NODE = "1";`)
+      expect(patch).toMatch(/process\.versions\.electron !== void 0 && \(process\.platform !== "win32"/u)
+    }
+  })
+})

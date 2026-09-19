@@ -62,7 +62,7 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "build": "node scripts/clean.mjs && yarn run generate:types && tsdown && tsc -p tsconfig.json && tsc -p tsconfig.client.json --emitDeclarationOnly",
+    "build": "node scripts/clean.mjs && yarn run generate:types && tsdown && tsc -p tsconfig.json && tsc -p tsconfig.client.json --emitDeclarationOnly && node scripts/verify-client-externals.mjs",
     "generate:types": "node scripts/generate-contract-types.mjs",
     "typecheck": "node scripts/generate-contract-types.mjs --check && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.tests.json --noEmit",
     "test": "vitest run",
