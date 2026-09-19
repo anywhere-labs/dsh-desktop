@@ -171,6 +171,23 @@ describe('compatibility BrowserWindow options', () => {
     expect(options).not.toHaveProperty('backgroundMaterial')
   })
 
+  it('explicitly disables the system backdrop when material is off on supported Windows builds', () => {
+    const options = advancedWindowOptions(
+      { ...spec, mode: 'advanced', material: 'off', windowsBuild: 22_621 },
+      {} as NativeImage,
+      'win32',
+      preload,
+    )
+
+    expect(options).toEqual(expect.objectContaining({
+      backgroundColor: '#202124',
+      backgroundMaterial: 'none',
+      roundedCorners: true,
+      thickFrame: true,
+    }))
+    expect(options).not.toHaveProperty('transparent')
+  })
+
   it('uses the taller native caption and capability-gated material in extended mode', () => {
     const extended = {
       ...spec,
