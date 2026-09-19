@@ -2,9 +2,10 @@ import { MessageChannel } from 'node:worker_threads'
 import { expect, it, vi } from 'vitest'
 import { HostRpc } from '../src/host-rpc.ts'
 import { bindNativeRuntime, createHostRuntime, runtimeSnapshot } from '../src/host-runtime-bridge.ts'
-import type { DesktopRuntime, DesktopShellSpec, DesktopTrayItem } from '../src/runtime.ts'
+import { desktopTrayLabel } from '../src/tray-locale.ts'
+import type { DesktopLocale, DesktopRuntime, DesktopShellSpec, DesktopTrayItem } from '../src/runtime.ts'
 
-it('preserves the Web URL and authentication while projecting shell and tray callbacks', async () => {
+it.each(['zh', undefined] as const)('synchronizes tray language at boot and on changes (preference: %s)', async initialPreference => {
   const { port1, port2 } = new MessageChannel()
   const [parent, child] = [port1, port2].map(port => new HostRpc({
     send: value => port.postMessage(value),
@@ -14,8 +15,10 @@ it('preserves the Web URL and authentication while projecting shell and tray cal
   let tray!: DesktopTrayItem
   const disposeShell = vi.fn(async () => {})
   const disposeTray = vi.fn()
+  let nativeLocale: DesktopLocale = 'en'
   const native = {
-    platform: 'win32', windowsBuild: 22631, locale: 'en',
+    platform: 'win32', windowsBuild: 22631, get locale() { return nativeLocale },
+    setLocalePreference: (preference: DesktopLocale | undefined) => { nativeLocale = preference ?? 'zh' },
     updates: { isPackaged: true, canDownload: true, currentVersion: '2.0.7-beta.1', statePath: '/tmp/update',
       request: vi.fn(async () => new Response('{"version":"2.0.8-beta.1"}', { headers: { 'x-test': 'yes' } })),
     },
@@ -37,9 +40,9 @@ it('preserves the Web URL and authentication while projecting shell and tray cal
     spec.readRemoteControl = vi.fn(async () => false)
     spec.enableRemoteControl = vi.fn(async () => {})
     const stopShell = runtime.schedule(spec)
-    runtime.registerTrayItem({ group: 'tools', order: 1, label: () => 'Plugin action', invoke,
-      submenu: () => [{ label: () => 'Child', invoke }] })
-    language = 'zh'
+    runtime.registerTrayItem({ group: 'tools', order: 1, label: () => desktopTrayLabel(runtime.locale, 'openTerminal'), invoke,
+      submenu: () => [{ label: () => desktopTrayLabel(runtime.locale, 'checkForUpdates'), invoke }] })
+    language = initialPreference
     await runtime.mountScheduled()
     expect(await shell.readRemoteControl?.()).toBe(false)
     await shell.enableRemoteControl?.()
@@ -47,10 +50,21 @@ it('preserves the Web URL and authentication while projecting shell and tray cal
     expect(shell.url).toBe(spec.url)
     expect(shell.authenticationUrl).toBe(spec.authenticationUrl)
     expect(shell.rendererAccessHeader).toEqual(spec.rendererAccessHeader)
-    expect(shell.readLocalePreference()).toBe('zh')
+    expect(shell.readLocalePreference()).toBe(initialPreference)
     await shell.requestModeChange('extended')
     expect(mode).toHaveBeenCalledWith('extended')
-    expect(tray.label()).toBe('Plugin action')
+    expect(runtime.locale).toBe('zh')
+    expect(native.locale).toBe('zh')
+    expect(tray.label()).toBe('打开 DSH 终端')
+    expect(tray.submenu?.()[0]?.label()).toBe('检查更新…')
+    runtime.setLocalePreference('en')
+    await vi.waitFor(() => expect(tray.label()).toBe('Open DSH Terminal'))
+    expect(native.locale).toBe('en')
+    expect(tray.submenu?.()[0]?.label()).toBe('Check for Updates…')
+    runtime.setLocalePreference(undefined)
+    await vi.waitFor(() => expect(tray.label()).toBe('打开 DSH 终端'))
+    expect(runtime.locale).toBe('zh')
+    expect(native.locale).toBe('zh')
     await tray.submenu?.()[0]?.invoke()
     expect(invoke).toHaveBeenCalledOnce()
     const response = await runtime.updates.request('https://example.invalid', { headers: { accept: 'application/json' } })

@@ -272,6 +272,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
           restartToRecovery: () => this.requestRecoveryRestart(),
           reload: () => { this.reloadRenderer() },
           developerTools: () => { this.toggleDeveloperTools() },
+          exportDiagnostics: () => this.exportDiagnostics(),
           checkForUpdates: async () => {
             const command = [...this.trayItems.values()].find(item => item.id === 'check-for-updates')
             if (command === undefined || command.enabled?.() === false) throw new Error('Desktop update check is unavailable')
@@ -881,8 +882,19 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     const tools = this.contributedTrayItems('tools')
     const profiles = this.contributedTrayItems('profiles')
     const status = this.contributedTrayItems('status')
+    // The in-app "Reload interface" control lives inside the renderer, so it is
+    // gone exactly when it is needed. This native twin keeps one restore path
+    // reachable after the window has stopped drawing anything.
+    const reloadRenderer = (): void => {
+      try {
+        this.generation?.requestRendererReload()
+      } catch (cause) {
+        this.logError(`dsh-plugin-desktop: failed to reload the renderer from the tray: ${cause instanceof Error ? cause.message : String(cause)}`)
+      }
+    }
     const template: Electron.MenuItemConstructorOptions[] = [
       { label: desktopTrayLabel(this.locale, 'openDesktop', spec.productName), click: show },
+      { label: desktopTrayLabel(this.locale, 'reloadRenderer'), click: reloadRenderer },
     ]
     if (tools.length > 0) template.push({ type: 'separator' }, ...tools)
     if (profiles.length > 0) template.push({ type: 'separator' }, ...profiles)

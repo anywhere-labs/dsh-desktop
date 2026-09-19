@@ -1,19 +1,14 @@
 import { WebContentsView, type BrowserWindow, type WebContents } from 'electron'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { COMPATIBILITY_CHROME_CHANNEL, COMPATIBILITY_CHROME_STATE, type CompatibilityChromeState } from './compatibility-chrome-contract.ts'
+import type { DesktopRendererActionHandlers } from './renderer-actions-dispatch.ts'
 import type { DesktopLocale, DesktopPlatform, DesktopShellSpec } from './runtime.ts'
 import { DESKTOP_FRAME_HEIGHT } from './window-chrome.ts'
 import { DESKTOP_RENDERER_SESSION_PARTITION } from './window-options.ts'
 
-export interface CompatibilityShellActions {
+export interface CompatibilityShellActions extends DesktopRendererActionHandlers {
   locale(): DesktopLocale
   version: string
-  openTerminal(): void
-  restart(): Promise<void>
-  restartToRecovery(): Promise<void>
-  reload(): void
-  developerTools(): void
-  checkForUpdates(): Promise<void>
   remoteControl?: { read(): Promise<{ enabled: boolean; seen: boolean }>; open(): Promise<void> }
 }
 
@@ -49,9 +44,6 @@ export class CompatibilityShell {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
-      // Keep the embedded Windows renderer painting while minimized. Its
-      // compositor is separate from the native window and transparent chrome.
-      ...(platform === 'win32' ? { backgroundThrottling: false } : {}),
     } })
     // Let the native window material show through the extended sidebar.
     // CSS transparency alone cannot cross an opaque WebContentsView surface.
@@ -61,8 +53,8 @@ export class CompatibilityShell {
     window.contentView.addChildView(this.content)
     window.contentView.addChildView(this.chromeView)
     window.on('resize', this.resize)
-    window.on('restore', this.resize)
-    window.on('show', this.resize)
+    window.on('restore', this.reveal)
+    window.on('show', this.reveal)
     window.on('enter-full-screen', this.resize)
     window.on('leave-full-screen', this.resize)
     window.on('closed', this.dispose)
@@ -135,6 +127,29 @@ export class CompatibilityShell {
     }
   }
 
+  /**
+   * Lay out and repaint the embedded views when the window comes back.
+   *
+   * Each WebContentsView owns a compositor separate from the native window, so
+   * Chromium stops drawing them while the window is minimized and the restored
+   * frame can present a stale surface. resize() alone cannot cover that: it
+   * deliberately skips minimized windows and the degenerate client area
+   * Windows reports mid-restore, and its sameBounds guard makes it a no-op
+   * whenever the window returns at the size it already had.
+   *
+   * This replaces `backgroundThrottling: false` on the content view. Electron
+   * applies that flag to the whole window, so the entire frame kept drawing
+   * and swapping frames while minimized and the renderer was never
+   * backgrounded, which is also the state Chromium requires before it reclaims
+   * renderer memory.
+   */
+  private readonly reveal = (): void => {
+    if (this.disposed || this.window.isDestroyed() || this.window.isMinimized()) return
+    this.resize()
+    if (!this.chrome.isDestroyed()) this.chrome.invalidate()
+    if (!this.content.webContents.isDestroyed()) this.content.webContents.invalidate()
+  }
+
   private readonly preventNavigation = (event: Electron.Event): void => { event.preventDefault() }
 
   private readonly collapse = (): void => {
@@ -172,8 +187,8 @@ export class CompatibilityShell {
     this.window.off('blur', this.dismiss)
     this.window.off('hide', this.dismiss)
     this.window.off('resize', this.resize)
-    this.window.off('restore', this.resize)
-    this.window.off('show', this.resize)
+    this.window.off('restore', this.reveal)
+    this.window.off('show', this.reveal)
     this.window.off('enter-full-screen', this.resize)
     this.window.off('leave-full-screen', this.resize)
     this.window.off('closed', this.dispose)

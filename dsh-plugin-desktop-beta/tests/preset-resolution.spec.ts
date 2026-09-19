@@ -7,7 +7,8 @@ it('checks preset dependencies through the real Desktop resolver without importi
   const require = createRequire(import.meta.url)
   const script = `
     import assert from 'node:assert/strict';
-    import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+    import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+    import { createRequire } from 'node:module';
     import { tmpdir } from 'node:os';
     import { dirname, join } from 'node:path';
     import { pathToFileURL } from 'node:url';
@@ -37,10 +38,29 @@ it('checks preset dependencies through the real Desktop resolver without importi
       assert.equal(rows.find(p => p.id === 'subpath').broken, undefined);
       assert.ok(rows.find(p => p.id === 'missing').broken);
       assert.ok(rows.find(p => p.id === 'bad-export').broken);
-      const shipped = await scanRoot({ path: join(dirname(process.argv[1]), '../presets'), trust: 'system' }, base);
-      const standard = shipped.find(p => p.id === 'standard');
-      assert.ok(standard);
-      assert.equal(standard.broken, undefined);
+      // Every shipped preset, not just \`standard\`. Peer virtualization can strand any
+      // row's package inside another package's private node_modules, and the resolver
+      // only walks upward — it never descends into one. Guarding a single preset let
+      // \`minimal\`, \`ptc\` and \`cordis\` break unnoticed across a core bump.
+      // Checked before the scanRoot assertion below, because scanRoot honours
+      // \`disabled: !!js process.platform === 'win32'\`: a row that only runs on POSIX is
+      // invisible to it when the suite runs on Windows, and vice versa. Sweeping every row
+      // regardless of \`disabled\` keeps one platform's CI able to catch a dependency the
+      // other platform needs, and reports the superset when both checks would fail.
+      const presetRoot = join(dirname(process.argv[1]), '../presets');
+      const resolveFromProfile = createRequire(base);
+      const unresolvable = [];
+      for (const id of readdirSync(presetRoot)) {
+        const yaml = readFileSync(join(presetRoot, id, 'agent.cordis.yml'), 'utf8');
+        for (const [, name] of yaml.matchAll(/^\\s*-?\\s*name:\\s*'([^']+)'/gm)) {
+          if (name.startsWith('cordis:')) continue; // built-in, not a package
+          try { resolveFromProfile.resolve(name); } catch { unresolvable.push(id + ': ' + name); }
+        }
+      }
+      assert.deepEqual([...new Set(unresolvable)], []);
+      const shipped = await scanRoot({ path: presetRoot, trust: 'system' }, base);
+      assert.ok(shipped.find(p => p.id === 'standard'), 'the shipped preset root must be readable');
+      assert.deepEqual(shipped.filter(p => p.broken !== undefined).map(p => p.id + ': ' + p.broken), []);
       // Profile plugins are visible, but discovery must not evaluate their code.
       const override = join(profile, 'node_modules', '@desktop-regression', 'probe');
       mkdirSync(override, { recursive: true });

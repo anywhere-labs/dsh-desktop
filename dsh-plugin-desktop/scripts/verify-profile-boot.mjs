@@ -1,5 +1,6 @@
 /** Headless smoke for the complete published DSH Web profile and renderer manifest. */
 
+import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -60,6 +61,14 @@ try {
   ].join('\n'))
   const aaRequested = process.env.DSH_VERIFY_AA === '1'
   const brokenAa = process.env.DSH_VERIFY_AA_BROKEN === '1'
+  // A shared AA directory may already contain settings written by a newer channel.
+  const aaSettings = {
+    uvPath: '', uvPypiIndexUrl: '', uvPythonInstallMirror: '', syncIntervalSeconds: 37,
+  }
+  if (aaRequested && !brokenAa) {
+    mkdirSync(join(home, 'aa-smoke-state'))
+    writeFileSync(join(home, 'aa-smoke-state', 'connector-settings.json'), JSON.stringify(aaSettings))
+  }
   if (brokenAa) {
     const initial = prepareDesktopProfile('1', home, 'win32')
     const brokenPackage = join(initial.profile.dir, 'node_modules', '@agents-anywhere', 'dsh-bridge-next')
@@ -94,7 +103,7 @@ try {
     ...prepared.patches,
     // Keep this headless probe independent of the operator's AA account.
     ...(prepared.aaEnabled ? [{ id: 'agents-anywhere-bridge-next', config: {
-      dshHome: home, stateRoot: join(home, 'aa-smoke-state'),
+      dshHome: home, stateRoot: join(home, 'aa-smoke-state'), uvPath: 'uv',
     } }] : []),
   ]
   const packageRoot = new URL('../', import.meta.url)
@@ -337,6 +346,17 @@ try {
     if (!existsSync(endpoint)) throw new Error('AA did not publish its native DSH home endpoint')
     const snapshot = await ctx.get('agentsAnywhereOnboarding').inspect()
     if (snapshot.account) throw new Error('A fresh Profile inherited an AA account')
+    for (const [key, value] of Object.entries(aaSettings)) {
+      if (snapshot.connector.settings[key] !== value) {
+        throw new Error(`AA did not preserve the shared connector setting ${key}`)
+      }
+    }
+    const uvSuffix = join('node_modules', '@dataiku', `uv-${process.platform}-${process.arch}`, 'bin', process.platform === 'win32' ? 'uv.exe' : 'uv')
+    if (!snapshot.connector.resolvedUvPath?.endsWith(uvSuffix)) {
+      throw new Error('AA must resolve bundled uv instead of falling back to the operator PATH')
+    }
+    const uvVersion = execFileSync(snapshot.connector.resolvedUvPath, ['--version'], { encoding: 'utf8', timeout: 10_000 })
+    if (!/^uv \d+\./u.test(uvVersion)) throw new Error('Bundled AA uv did not return a version')
   }
   for (const id of [
     'dsh-plugin-desktop',

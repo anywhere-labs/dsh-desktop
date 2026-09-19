@@ -117,16 +117,18 @@ export function verifyMacSmoke(
     options.run('lipo', [executablePath, '-verify_arch', 'x86_64'])
     options.run('lipo', [executablePath, '-verify_arch', 'arm64'])
 
-    const appAsarPath = join(appPath, 'Contents', 'Resources', 'app.asar')
-    if (!options.exists(appAsarPath)) {
-      throw new Error(`packaged application is missing ${appAsarPath}`)
-    }
-    const appAsarStat = options.stat(appAsarPath)
-    if (!appAsarStat.isFile || appAsarStat.size === 0) {
-      throw new Error(`packaged application archive is empty: ${appAsarPath}`)
+    const unpackedRoot = join(appPath, 'Contents', 'Resources', 'app')
+    for (const entry of ['package.json', 'lib/main.js']) {
+      const entryPath = join(unpackedRoot, entry)
+      if (!options.exists(entryPath)) {
+        throw new Error(`packaged application is missing ${entryPath}`)
+      }
+      const entryStat = options.stat(entryPath)
+      if (!entryStat.isFile || entryStat.size === 0) {
+        throw new Error(`packaged application entry is empty: ${entryPath}`)
+      }
     }
 
-    const unpackedRoot = `${appAsarPath}.unpacked`
     for (const entry of MACOS_UNIVERSAL_NATIVE_ENTRIES) {
       const nativePath = join(unpackedRoot, entry.path)
       if (!options.exists(nativePath)) {

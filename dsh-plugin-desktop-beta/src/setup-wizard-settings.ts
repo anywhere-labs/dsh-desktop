@@ -34,6 +34,9 @@ import type {
 const BIN_NAME = 'dsh-plugin-desktop'
 const DESKTOP_NAMESPACE = 'dsh-desktop'
 const NOTIFICATIONS_NAMESPACE = 'dsh-desktop-notifications'
+const AGENT_PRESETS_NAMESPACE = 'agent-presets'
+const LEGACY_AGENT_PRESET = 'code'
+const CURRENT_AGENT_PRESET = 'ptc'
 const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
 const DOCUMENT_FILE_MODE = 0o600
 const DOCUMENT_DIRECTORY_MODE = 0o700
@@ -446,6 +449,45 @@ export async function migrateDesktopWindowMaterialSettings(
     const root = structuredClone(loaded.root)
     const desktop = { ...section(root, DESKTOP_NAMESPACE), windowsMaterial: 'off' }
     root[DESKTOP_NAMESPACE] = desktop
+    output = `${JSON.stringify(root, undefined, 2)}\n`
+  }
+  await writeFileAtomic(path, output, {
+    mode: DOCUMENT_FILE_MODE,
+    dirMode: DOCUMENT_DIRECTORY_MODE,
+  })
+  return true
+}
+
+/**
+ * Replace the released `code` preset default with its current `ptc` id.
+ * Session persistence migrates the same historical id, but the global
+ * setting is read before a new Session exists and therefore needs its own
+ * pre-Host migration. Unknown values remain untouched so user-authored
+ * presets keep failing visibly instead of being silently replaced.
+ */
+export async function migrateLegacyAgentPresetSettings(
+  documentPath: string,
+): Promise<boolean> {
+  const path = settingsPath(documentPath)
+  const needsMigration = (loaded: LoadedSettingsDocument): boolean =>
+    section(loaded.root, AGENT_PRESETS_NAMESPACE).default === LEGACY_AGENT_PRESET
+
+  if (!needsMigration(loadSettingsDocument(path))) return false
+
+  ensureDocumentDirectory(path)
+  const loaded = loadSettingsDocument(path)
+  if (!needsMigration(loaded)) return false
+
+  let output: string
+  if (loaded.format === 'yaml') {
+    loaded.yaml!.setIn([AGENT_PRESETS_NAMESPACE, 'default'], CURRENT_AGENT_PRESET)
+    output = loaded.yaml!.toString()
+  } else {
+    const root = structuredClone(loaded.root)
+    root[AGENT_PRESETS_NAMESPACE] = {
+      ...section(root, AGENT_PRESETS_NAMESPACE),
+      default: CURRENT_AGENT_PRESET,
+    }
     output = `${JSON.stringify(root, undefined, 2)}\n`
   }
   await writeFileAtomic(path, output, {

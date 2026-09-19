@@ -28,15 +28,17 @@ function fixture(): AppFixture {
   mkdirSync(resources, { recursive: true })
   const infoPlist = join(contents, 'Info.plist')
   const executable = join(macos, 'DSH Desktop Beta')
-  const appAsar = join(resources, 'app.asar')
+  const appAsar = join(resources, 'app', 'package.json')
   const modeOverrides = new Map<string, number>()
   writeFileSync(infoPlist, '<?xml version="1.0" encoding="UTF-8"?>')
   writeFileSync(executable, 'binary')
   chmodSync(executable, 0o755)
   modeOverrides.set(executable, 0o755)
-  writeFileSync(appAsar, 'packed')
+  mkdirSync(join(resources, 'app', 'lib'), { recursive: true })
+  writeFileSync(join(resources, 'app', 'lib', 'main.js'), 'main')
+  writeFileSync(appAsar, '{}')
   for (const entry of MACOS_UNIVERSAL_NATIVE_ENTRIES) {
-    const path = join(`${appAsar}.unpacked`, entry.path)
+    const path = join(join(appAsar, '..'), entry.path)
     mkdirSync(join(path, '..'), { recursive: true })
     writeFileSync(path, 'native')
     if (entry.path.endsWith('/spawn-helper')) {
@@ -121,7 +123,7 @@ describe('macOS DMG smoke artifact verification', () => {
       { command: 'lipo', args: [value.executable, '-verify_arch', 'arm64'] },
       ...MACOS_UNIVERSAL_NATIVE_ENTRIES.map(entry => ({
         command: 'lipo',
-        args: [join(`${value.appAsar}.unpacked`, entry.path), '-verify_arch', entry.arch],
+        args: [join(join(value.appAsar, '..'), entry.path), '-verify_arch', entry.arch],
       })),
       { command: 'hdiutil', args: ['detach', value.root] },
     ])
@@ -171,12 +173,12 @@ describe('macOS DMG smoke artifact verification', () => {
     expect(harness.removeMountPoint).toHaveBeenCalledWith(value.root)
   })
 
-  it('rejects a missing or empty application archive', () => {
+  it('rejects a missing or empty application manifest', () => {
     const value = fixture()
     rmSync(value.appAsar)
     const harness = options({ makeMountPoint: () => value.root }, value.modeOverrides)
 
-    expectSmokeFailure(harness, 'app.asar')
+    expectSmokeFailure(harness, 'package.json')
     expect(harness.removeMountPoint).toHaveBeenCalledWith(value.root)
   })
 })

@@ -1,7 +1,10 @@
 /** Fail-loud verification of the runtime entries sealed into Electron's app.asar. */
 
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
+  accessSync,
+  constants,
   existsSync,
   lstatSync,
   mkdtempSync,
@@ -13,7 +16,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, parse } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { getRawHeader } from '@electron/asar'
+import { extractFile, getRawHeader } from '@electron/asar'
 import {
   FORBIDDEN_MACOS_UNIVERSAL_ENTRIES,
   MACOS_UNIVERSAL_NATIVE_ENTRIES,
@@ -88,6 +91,7 @@ export const ALLOWED_SMART_UNPACK_PACKAGE_ROOTS = [
 
 /** Platform package families selected by native dependencies at package time. */
 export const ALLOWED_SMART_UNPACK_PACKAGE_PREFIXES = [
+  'node_modules/@dataiku/uv-',
   'node_modules/@deepseek-ai/node-addon-system-',
   'node_modules/@img/sharp-',
   'node_modules/@koromix/koffi-',
@@ -121,6 +125,10 @@ export interface PackagedRuntimeContext {
   readonly packager: {
     /** Electron Builder project root containing the completed lib/ build output. */
     readonly projectDir?: string
+    /** Effective platform-specific build settings selected by Electron Builder. */
+    readonly platformSpecificBuildOptions?: {
+      readonly asar?: boolean | null
+    }
     /** LinuxPackager's executable name differs from appInfo.productFilename by default. */
     readonly executableName?: string
     readonly appInfo: {
@@ -319,8 +327,8 @@ function packagedRuntimeRunnable(context: PackagedRuntimeContext): boolean {
 
 /**
  * Execute the real packaged runtime through Electron's supported RunAsNode
- * path. This proves DSH and pnpm can load from logical ASAR paths, the upstream
- * Profile proxy selects Electron, and smartUnpack exposes the ripgrep binary.
+ * path. This proves DSH and pnpm can load from the packaged application root,
+ * the upstream Profile proxy selects Electron, and native dependencies resolve.
  */
 export function smokePackagedElectronRuntime(
   context: PackagedRuntimeContext,
@@ -330,7 +338,7 @@ export function smokePackagedElectronRuntime(
   // intermediate apps are only executable on the matching packaging host.
   if (!packagedRuntimeRunnable(context)) return
   const executable = resolvePackagedExecutablePath(context)
-  const asarRoot = resolvePackagedAsarPath(context)
+  const runtimeRoot = resolvePackagedRuntimeRoot(context)
   const smokeHome = mkdtempSync(join(tmpdir(), 'dsh-packaged-cli-'))
   const environment = {
     ...process.env,
@@ -341,25 +349,25 @@ export function smokePackagedElectronRuntime(
   const checks = [
     {
       label: 'DSH CLI',
-      entry: join(asarRoot, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+      entry: join(runtimeRoot, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
       args: ['--version'],
       accepts: (stdout: string) => stdout.trim() === DSH_RUNTIME_VERSION,
     },
     {
       label: 'pnpm CLI',
-      entry: join(asarRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.mjs'),
+      entry: join(runtimeRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.mjs'),
       args: ['--version'],
       accepts: (stdout: string) => stdout.trim() === PNPM_RUNTIME_VERSION,
     },
     {
-      label: 'ASAR/Profile/CJS/ripgrep',
-      entry: join(asarRoot, 'lib', 'packaged-runtime-smoke.js'),
+      label: 'Packaged Profile/CJS/ripgrep',
+      entry: join(runtimeRoot, 'lib', 'packaged-runtime-smoke.js'),
       args: [],
       accepts: (stdout: string) => stdout.trim() === 'DSH_PACKAGED_RUNTIME_OK',
     },
     {
       label: 'Desktop CLI config composition',
-      entry: join(asarRoot, 'lib', 'desktop-cli.js'),
+      entry: join(runtimeRoot, 'lib', 'desktop-cli.js'),
       args: ['--profile', 'headless', '--dump-config'],
       accepts: (stdout: string) => stdout.includes('# == ') && stdout.includes('name:'),
     },
@@ -367,7 +375,7 @@ export function smokePackagedElectronRuntime(
       // This is deliberately the Desktop wrapper rather than DSH's bin.js:
       // a child RunAsNode process cannot inherit main's resolver hook.
       label: 'Desktop CLI Loader boot',
-      entry: join(asarRoot, 'lib', 'desktop-cli.js'),
+      entry: join(runtimeRoot, 'lib', 'desktop-cli.js'),
       args: ['--profile', 'headless', '--help'],
       accepts: (stdout: string) => stdout.includes('dsh --profile headless'),
     },
@@ -389,7 +397,8 @@ export function smokePackagedElectronRuntime(
       }
     }
     const obsoleteFallback = join(smokeHome, 'profiles', 'node_modules')
-    if (existsSync(obsoleteFallback) && readdirSync(obsoleteFallback).length > 0) {
+    if (usesAsarLayout(context)
+      && existsSync(obsoleteFallback) && readdirSync(obsoleteFallback).length > 0) {
       throw new Error(
         `dsh-plugin-desktop: packaged Desktop CLI recreated the obsolete shared Profile fallback at ${obsoleteFallback}`,
       )
@@ -429,6 +438,37 @@ export function resolvePackagedAsarPath(context: PackagedRuntimeContext): string
  */
 export function resolvePackagedUnpackedRoot(context: PackagedRuntimeContext): string {
   return `${resolvePackagedAsarPath(context)}.unpacked`
+}
+
+/** Resolve the physical application directory emitted when a target disables ASAR. */
+export function resolvePackagedApplicationRoot(context: PackagedRuntimeContext): string {
+  if (context.electronPlatformName === 'darwin') {
+    return join(
+      context.appOutDir,
+      `${context.packager.appInfo.productFilename}.app`,
+      'Contents',
+      'Resources',
+      'app',
+    )
+  }
+  if (context.electronPlatformName === 'win32' || context.electronPlatformName === 'linux') {
+    return join(context.appOutDir, 'resources', 'app')
+  }
+  throw new Error(
+    `dsh-plugin-desktop: unsupported Electron afterPack platform ${JSON.stringify(context.electronPlatformName)}`,
+  )
+}
+
+/** Return whether Electron Builder emitted the ASAR layout for this target. */
+export function usesAsarLayout(context: PackagedRuntimeContext): boolean {
+  return context.packager.platformSpecificBuildOptions?.asar !== false
+}
+
+/** Resolve the root containing executable JavaScript for either packaged layout. */
+export function resolvePackagedRuntimeRoot(context: PackagedRuntimeContext): string {
+  return usesAsarLayout(context)
+    ? resolvePackagedAsarPath(context)
+    : resolvePackagedApplicationRoot(context)
 }
 
 /** Normalize archive and physical-tree paths without allowing traversal aliases. */
@@ -749,12 +789,10 @@ export function verifyPackagedRuntime(
       { cause },
     )
   }
-  const archive = verifyPackagedAsar(
-    resolvePackagedAsarPath(context),
-    [...REQUIRED_PACKAGED_RUNTIME_ENTRIES, ...desktopRuntimeEntries],
-    readHeader,
-  )
-  const unpackedRoot = resolvePackagedUnpackedRoot(context)
+  const hasAsar = usesAsarLayout(context)
+  if (!hasAsar && exists(resolvePackagedAsarPath(context))) {
+    throw new Error('ASAR-disabled package unexpectedly contains app.asar')
+  }
   if (context.electronPlatformName === 'win32' && context.arch !== undefined && context.arch !== 1) {
     throw new Error(
       `dsh-plugin-desktop: unsupported Windows package architecture ${String(context.arch)}; only x64 is configured`,
@@ -781,32 +819,70 @@ export function verifyPackagedRuntime(
       : posixFsExtEntry === undefined
         ? desktopPhysicalEntries
         : [...desktopPhysicalEntries, posixFsExtEntry]
-  const missing = requiredPhysicalEntries.filter(entry => !exists(join(unpackedRoot, entry)))
+  const runtimeRoot = hasAsar ? resolvePackagedUnpackedRoot(context) : resolvePackagedApplicationRoot(context)
+  const requiredEntries = hasAsar
+    ? requiredPhysicalEntries
+    : [...new Set([
+        ...REQUIRED_PACKAGED_RUNTIME_ENTRIES,
+        ...desktopRuntimeEntries,
+        ...requiredPhysicalEntries,
+      ])]
+  const missing = requiredEntries.filter(entry => !exists(join(runtimeRoot, entry)))
   if (missing.length > 0) {
     throw new Error(
-      `dsh-plugin-desktop: packaged runtime at ${unpackedRoot} is missing required physical entries: ${missing.join(', ')}`,
+      `dsh-plugin-desktop: packaged runtime at ${runtimeRoot} is missing required physical entries: ${missing.join(', ')}`,
     )
   }
   if (context.electronPlatformName === 'darwin' && context.arch === 4) {
     const forbidden = FORBIDDEN_MACOS_UNIVERSAL_ENTRIES
-      .filter(entry => exists(join(unpackedRoot, entry)))
+      .filter(entry => exists(join(runtimeRoot, entry)))
     if (forbidden.length > 0) {
       throw new Error(
-        `dsh-plugin-desktop: universal macOS runtime at ${unpackedRoot} contains host-architecture build output: ${forbidden.join(', ')}`,
+        `dsh-plugin-desktop: universal macOS runtime at ${runtimeRoot} contains host-architecture build output: ${forbidden.join(', ')}`,
       )
     }
   }
-  return verifySelectiveUnpackedRuntime(
-    archive,
-    unpackedRoot,
-    listUnpacked(unpackedRoot),
-    desktopPhysicalEntries,
+  const files = listUnpacked(runtimeRoot)
+  if (!hasAsar) return summarizeUnpackedRuntime(files)
+  const archive = verifyPackagedAsar(
+    resolvePackagedAsarPath(context),
+    [...REQUIRED_PACKAGED_RUNTIME_ENTRIES, ...desktopRuntimeEntries],
+    readHeader,
   )
+  return verifySelectiveUnpackedRuntime(archive, runtimeRoot, files, desktopPhysicalEntries)
 }
 
 /** Emit one compact package-root inventory after the static ASAR check passes. */
 export function reportUnpackedRuntime(summary: UnpackedRuntimeSummary): void {
-  process.stdout.write(`dsh-plugin-desktop: selective ASAR unpacked inventory: ${formatUnpackedRuntimeSummary(summary)}\n`)
+  process.stdout.write(`dsh-plugin-desktop: packaged runtime inventory: ${formatUnpackedRuntimeSummary(summary)}\n`)
+}
+
+/** Verify the AA version and built entry sealed into the actual installation payload. */
+export function verifyPackagedAgentsAnywhere(
+  context: PackagedRuntimeContext,
+  readInstalled: (path: string) => Buffer = readFileSync,
+  readPackaged: (path: string) => Buffer = path => usesAsarLayout(context)
+    ? extractFile(resolvePackagedAsarPath(context), path)
+    : readFileSync(join(resolvePackagedApplicationRoot(context), path)),
+): void {
+  if (context.electronPlatformName === 'darwin') {
+    const root = usesAsarLayout(context) ? resolvePackagedUnpackedRoot(context) : resolvePackagedApplicationRoot(context)
+    for (const entry of MACOS_UNIVERSAL_NATIVE_ENTRIES.filter(entry => entry.path.endsWith('/bin/uv'))) {
+      accessSync(join(root, entry.path), constants.X_OK)
+    }
+  }
+  const packagePath = 'node_modules/@agents-anywhere/dsh-bridge-next'
+  const desktopRoot = context.packager.projectDir ?? DESKTOP_PACKAGE_ROOT
+  const expected = JSON.parse(readInstalled(join(desktopRoot, packagePath, 'package.json')).toString()) as { version: string }
+  const actual = JSON.parse(readPackaged(`${packagePath}/package.json`).toString()) as { version: string }
+  if (expected.version !== actual.version) {
+    throw new Error(`Packaged AA version mismatch: expected ${expected.version}, received ${actual.version}`)
+  }
+  const digest = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex')
+  if (digest(readInstalled(join(desktopRoot, packagePath, 'lib/index.js')))
+    !== digest(readPackaged(`${packagePath}/lib/index.js`))) {
+    throw new Error('Packaged AA entry differs from the prepared release dependency')
+  }
 }
 
 /**
@@ -818,8 +894,10 @@ export async function afterPack(
   context: PackagedRuntimeContext,
   verify: typeof verifyPackagedRuntime = verifyPackagedRuntime,
   report: (summary: UnpackedRuntimeSummary) => void = reportUnpackedRuntime,
+  verifyAa: typeof verifyPackagedAgentsAnywhere = verifyPackagedAgentsAnywhere,
 ): Promise<void> {
   const summary = verify(context)
+  verifyAa(context)
   report(summary)
 }
 

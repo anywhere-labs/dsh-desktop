@@ -161,6 +161,7 @@ describe('desktop pnpm and community market integration', () => {
       const spawn = vi.fn<(spec: SubprocessSpawnSpec) => SubprocessHandle>((_spec) => ({
         pid: 43_120,
         stdin: undefined,
+        control: undefined,
         stdout: Readable.from([]),
         stderr: Readable.from([]),
         collected: {},

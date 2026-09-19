@@ -4,7 +4,7 @@ import { startIsolatedDesktopHost } from './host-process.ts'
 import { app, crashReporter, safeStorage, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   boot,
@@ -15,7 +15,6 @@ import {
   type FailLoudProcess,
 } from '@deepseek-ai/dsh-app-boot'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
-import { defaultDshHome, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import {
   DSH_LAUNCH_ENVIRONMENT_KEY,
   type LaunchEnvironmentSnapshot,
@@ -79,6 +78,7 @@ import {
   selectDesktopProfile,
 } from './profile-manager.ts'
 import { DesktopProfileService } from './profile-service.ts'
+import { createDesktopProfileBoot } from './profile-context.ts'
 import { DesktopActionsService } from './desktop-actions.ts'
 import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
 import {
@@ -134,6 +134,7 @@ import {
 import {
   migrateDesktopBrowserAccessSettings,
   migrateDesktopWindowMaterialSettings,
+  migrateLegacyAgentPresetSettings,
   readDesktopSetupWizardSettings,
   updateDesktopSetupWizardSettings,
   type DesktopSetupWizardSettings,
@@ -203,7 +204,12 @@ import {
   DESKTOP_PACKAGE_NAME,
   DESKTOP_PRODUCT_NAME,
   DESKTOP_RELEASE_CHANNEL,
+  OTHER_DESKTOP_PRODUCT_IDENTITY,
 } from './product-identity.ts'
+import {
+  desktopSharedHomeNoticeRequired,
+  resolveDesktopChannelHome,
+} from './desktop-channel-home.ts'
 import { desktopRecoveryCopy } from './recovery-copy.ts'
 
 const BIN_NAME = DESKTOP_PACKAGE_NAME
@@ -686,9 +692,10 @@ async function start(): Promise<void> {
     })
     const dshBootstrapPath = fileURLToPath(new URL('./desktop-cli.js', import.meta.url))
     const releasePnpmRuntime = generation.own(() => { pnpmRuntime.dispose() })
-    const fallbackHome = resolveDshHome()
-    const defaultHome = resolve(defaultDshHome())
-    const fallbackSource = process.env.DSH_HOME === undefined ? 'default' : 'environment'
+    const channelHomeResolution = resolveDesktopChannelHome()
+    const fallbackHome = channelHomeResolution.homeDir
+    const defaultHome = channelHomeResolution.channelHome
+    const fallbackSource = channelHomeResolution.status === 'explicit' ? 'environment' : 'default'
     let dataDirectoryLocation: DesktopDataDirectoryLocation | undefined
     let homeDir: string
     if (safeModePaths !== undefined) {
@@ -849,6 +856,71 @@ async function start(): Promise<void> {
     }
     if (!recoveryModeRequested) {
       const copy = desktopNativeCopy(locale)
+      // Both releases used to share one DSH home, and with it the installation
+      // module index that each core generation rewrites. Offer the move once per
+      // launch; nothing is copied, so the shared directory keeps working as is.
+      if (dataDirectoryLocation !== undefined
+        && desktopSharedHomeNoticeRequired(channelHomeResolution, dataDirectoryLocation.source)) {
+        const sharedLocation = dataDirectoryLocation
+        const otherProductName = OTHER_DESKTOP_PRODUCT_IDENTITY.productName
+        const result = await showDesktopDialog({
+          type: 'warning',
+          title: copy.sharedDataDirectoryTitle,
+          message: copy.sharedDataDirectoryMessage(PRODUCT_NAME, otherProductName),
+          detail: copy.sharedDataDirectoryDetail(
+            sharedLocation.homeDir,
+            channelHomeResolution.channelHome,
+          ),
+          advisory: copy.sharedDataDirectoryWarning(
+            otherProductName,
+            join(sharedLocation.homeDir, 'sessions'),
+          ),
+          presentation: 'profile-compatibility',
+          buttons: [copy.useChannelDataDirectory, copy.shareDataDirectoryAnyway, copy.quit],
+          defaultId: 0,
+          cancelId: 1,
+        })
+        if (result.response === 2) {
+          await shutdown.request(0)
+          return
+        }
+        if (result.response === 0) {
+          let moved = false
+          const lease = acquireDesktopDataOperationLock(
+            desktopUserDataDir,
+            'move Desktop onto its release-channel data directory',
+          )
+          try {
+            await selectDesktopDataDirectory(
+              desktopUserDataDir,
+              sharedLocation,
+              channelHomeResolution.channelHome,
+              { createIfMissing: true },
+            )
+            moved = true
+          } catch (cause) {
+            electronLogger.error(
+              `${BIN_NAME}: could not select the release-channel data directory: `
+                + `${cause instanceof Error ? cause.message : String(cause)}`,
+            )
+          } finally {
+            lease.release()
+          }
+          if (moved) {
+            nativeExit.requestRelaunch()
+            await shutdown.request(0)
+            return
+          }
+          await showDesktopDialog({
+            type: 'error',
+            title: copy.sharedDataDirectoryTitle,
+            message: copy.sharedDataDirectoryFailed,
+            buttons: [copy.ok],
+            defaultId: 0,
+            cancelId: 0,
+          })
+        }
+      }
       while (true) {
         const admission = inspectDesktopProfileChannelAdmission(
           releaseUserDataLocations,
@@ -1121,6 +1193,30 @@ async function start(): Promise<void> {
       marketSelection,
       preparationHooks,
     )
+    let legacyPresetMigrated = false
+    if (safeModePaths === undefined) {
+      try {
+        legacyPresetMigrated = await migrateLegacyAgentPresetSettings(prepared.settingsDocument)
+      } catch (cause) {
+        // A Profile whose settings document cannot be rewritten keeps the
+        // broken default it already had. Throwing here would trade that one
+        // failing preset id for the recovery window on every launch.
+        electronLogger.error(
+          `${BIN_NAME}: failed to persist legacy agent preset migration: ${cause instanceof Error ? cause.message : String(cause)}`,
+        )
+      }
+    }
+    if (legacyPresetMigrated) {
+      prepared = prepareDesktopProfile(
+        process.env.DSH_TELEMETRY_DISABLED,
+        homeDir,
+        process.platform,
+        activeProfileName,
+        pluginManagementStatePath,
+        marketSelection,
+        preparationHooks,
+      )
+    }
     if (safeModePaths !== undefined) {
       const safeModeDefaults = DESKTOP_SAFE_MODE_DEFAULTS
       await updateDesktopSetupWizardSettings(prepared.settingsDocument, safeModeDefaults.settings)
@@ -1447,11 +1543,13 @@ async function start(): Promise<void> {
       startupStage = 'host-boot'
       lifecycleRecorder.transitionStartupStage(startupStage)
       const releasePackageResolver = installProfilePackageResolver(prepared.bareModuleBaseUrl)
+      const profileBoot = createDesktopProfileBoot(prepared, desktopPnpmBootstrap)
       const ctx = await boot(
         BIN_NAME,
         prepared.rootConfig,
         prepared.patches,
         async (hostCtx) => {
+          profileBoot.prepare(hostCtx)
           // Keep Host imports and browser bundle discovery on the same public
           // profile-overlay resolver used by packaged Electron.
           hostCtx.loader.internal = undefined
@@ -1617,6 +1715,7 @@ async function start(): Promise<void> {
         throw cause
       })
       generation.bindHost(ctx)
+      profileBoot.markReady()
       fileExporter?.setThreshold((ctx.settings.get(DESKTOP_SETTINGS_NAMESPACE) as DesktopSettings | undefined)?.logLevel ?? 'info')
       ctx.on('settings/updated', (namespace, next) => {
         if (namespace === DESKTOP_SETTINGS_NAMESPACE) {

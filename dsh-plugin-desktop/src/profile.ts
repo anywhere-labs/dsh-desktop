@@ -3,19 +3,11 @@
 import { createRequire } from 'node:module'
 import {
   existsSync,
-  lstatSync,
   readFileSync,
-  readdirSync,
-  readlinkSync,
-  rmSync,
-  rmdirSync,
-  statSync,
-  type Dirent,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { isIP } from 'node:net'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { evaluate, isJsExpr, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
@@ -42,7 +34,6 @@ import FileSettingsProvider, {
 } from '@deepseek-ai/dsh-settings-file'
 import { parseAllDocuments, parseDocument } from 'yaml'
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
-import { withAsarModuleResolver } from './asar-module-resolver-state.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
 import {
   desktopBrowserAccessEnabled,
@@ -114,7 +105,6 @@ const DESKTOP_WEB_SERVER_ROW_ID = 'desktop-webserver'
 const DESKTOP_WEB_SERVER_PACKAGE = `${DESKTOP_PACKAGE_NAME}/webserver`
 const SETTINGS_FILE_PACKAGE = '@deepseek-ai/dsh-settings-file'
 const DESKTOP_SETTINGS_NAMESPACE = 'dsh-desktop'
-const MAX_FALLBACK_MANIFEST_BYTES = 1024 * 1024
 const UI_LAYOUT_PACKAGE = '@deepseek-ai/dsh-client-ui-layout'
 const UI_SIDEBAR_PACKAGE = '@deepseek-ai/dsh-client-ui-sidebar'
 const UI_CONVERSATION_PACKAGE = '@deepseek-ai/dsh-client-ui-conversation'
@@ -1184,111 +1174,12 @@ export function prepareDesktopProfile(
 }
 
 /** Maintain the upstream module fallback for one fully resolved Desktop profile. */
-export function healDesktopProfileModuleFallback(home: string, profile?: Profile): Promise<void> {
-  const heal = () => healProfilesModuleFallback({
+export async function healDesktopProfileModuleFallback(home: string, profile?: Profile): Promise<void> {
+  await healProfilesModuleFallback({
     installAnchor: INSTALL_ANCHOR,
     home,
     ...(profile === undefined ? {} : { profile }),
   })
-  if (!/([\\/])app\.asar\1/u.test(INSTALL_ANCHOR)) return heal()
-  removeObsoleteDesktopSharedModuleFallback(home)
-  return withAsarModuleResolver(heal)
-}
-
-function isDshManagedModuleProxy(directory: string): boolean {
-  const manifestPath = join(directory, 'package.json')
-  try {
-    if (statSync(manifestPath).size > MAX_FALLBACK_MANIFEST_BYTES) return false
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-      dsh?: { moduleFallback?: { targets?: unknown } }
-    }
-    const targets = manifest.dsh?.moduleFallback?.targets
-    return targets !== null && typeof targets === 'object' && !Array.isArray(targets)
-      && Object.keys(targets).length > 0
-      && Object.values(targets).every((target) => {
-        if (typeof target !== 'string') return false
-        try {
-          const url = new URL(target)
-          return url.protocol === 'file:'
-            && /(^|[\\/])app\.asar(?:\.unpacked)?([\\/]|$)/iu.test(fileURLToPath(url))
-        } catch {
-          return false
-        }
-      })
-  } catch {
-    return false
-  }
-}
-
-function removeManagedFallbackEntry(entryPath: string): boolean {
-  let stat: ReturnType<typeof lstatSync>
-  try {
-    stat = lstatSync(entryPath)
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return false
-    return false
-  }
-  try {
-    if (stat.isSymbolicLink()) {
-      const target = readlinkSync(entryPath)
-      const absoluteTarget = isAbsolute(target) ? target : resolve(dirname(entryPath), target)
-      // Desktop releases that mirrored the whole dependency graph produced
-      // links into app.asar(.unpacked). No ordinary user Profile installation
-      // needs such a shared parent link.
-      if (!/(^|[\\/])app\.asar(?:\.unpacked)?([\\/]|$)/iu.test(absoluteTarget)) return false
-      unlinkSync(entryPath)
-      return true
-    }
-    if (!stat.isDirectory() || !isDshManagedModuleProxy(entryPath)) return false
-    rmSync(entryPath, { recursive: true, force: true })
-    return true
-  } catch {
-    // A locked legacy link must not make Desktop startup fail. The resolver
-    // also refuses shared/legacy ASAR results, so leaving it is safe.
-    return false
-  }
-}
-
-/**
- * Remove only provably DSH-generated installation fallbacks from releases
- * predating the ASAR resolver. Unknown files and directories are preserved.
- */
-export function removeObsoleteDesktopSharedModuleFallback(home: string): number {
-  const modulesDirectory = join(home, 'profiles', 'node_modules')
-  let entries: Dirent<string>[]
-  try {
-    entries = readdirSync(modulesDirectory, { withFileTypes: true, encoding: 'utf8' })
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return 0
-    return 0
-  }
-  let removed = 0
-  for (const entry of entries) {
-    const entryPath = join(modulesDirectory, entry.name)
-    if (entry.name.startsWith('@') && entry.isDirectory()) {
-      let scopedEntries: typeof entries
-      try {
-        scopedEntries = readdirSync(entryPath, { withFileTypes: true, encoding: 'utf8' })
-      } catch {
-        continue
-      }
-      let removedFromScope = 0
-      for (const scopedEntry of scopedEntries) {
-        if (removeManagedFallbackEntry(join(entryPath, scopedEntry.name))) removedFromScope += 1
-      }
-      removed += removedFromScope
-      if (removedFromScope > 0) {
-        try {
-          rmdirSync(entryPath)
-        } catch {
-          // The scope still contains unknown/user-owned data or another writer.
-        }
-      }
-      continue
-    }
-    if (removeManagedFallbackEntry(entryPath)) removed += 1
-  }
-  return removed
 }
 
 /** Expose the package anchor for focused resolution tests. */

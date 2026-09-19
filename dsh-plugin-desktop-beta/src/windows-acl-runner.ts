@@ -1,6 +1,7 @@
 /** Node-mode trampoline for the upstream Windows ACL runner. */
 
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { ensureWindowsConsoleHost } from './windows-console-host.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 const RUNNER_FAILURE_EXIT = 127
@@ -19,6 +20,7 @@ async function main(): Promise<void> {
   if (requestedRunner !== expectedRunner) {
     throw new Error('desktop trampoline received an unexpected ACL runner')
   }
+  ensureWindowsConsoleHost()
   process.argv = [process.argv[0] as string, expectedRunner, ...process.argv.slice(3)]
   await import(pathToFileURL(expectedRunner).href)
 }

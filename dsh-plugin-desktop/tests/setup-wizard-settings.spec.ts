@@ -16,6 +16,7 @@ import {
   defaultDesktopSetupWizardSettings,
   migrateDesktopBrowserAccessSettings,
   migrateDesktopWindowMaterialSettings,
+  migrateLegacyAgentPresetSettings,
   readDesktopSetupWizardSettings,
   sameDesktopSetupWizardSettings,
   updateDesktopSetupWizardSettings,
@@ -436,6 +437,50 @@ describe('Desktop Setup Wizard settings document', () => {
         future: 'retained',
       },
     })
+  })
+
+  it('atomically migrates the released code preset default to ptc', async () => {
+    const root = temporaryDirectory()
+    const yamlPath = join(root, 'legacy-preset.yaml')
+    writeFileSync(yamlPath, [
+      '# preserve preset migration comments',
+      'agent-presets:',
+      '  default: code',
+      '  future: retained',
+      'unrelated:',
+      '  keep: true',
+      '',
+    ].join('\n'), { mode: 0o600 })
+
+    await expect(migrateLegacyAgentPresetSettings(yamlPath)).resolves.toBe(true)
+    await expect(migrateLegacyAgentPresetSettings(yamlPath)).resolves.toBe(false)
+    const migrated = readFileSync(yamlPath, 'utf8')
+    expect(migrated).toContain('# preserve preset migration comments')
+    expect(parseDocument(migrated).toJS()).toEqual({
+      'agent-presets': { default: 'ptc', future: 'retained' },
+      unrelated: { keep: true },
+    })
+
+    const jsonPath = join(root, 'legacy-preset.json')
+    writeFileSync(jsonPath, `${JSON.stringify({
+      'agent-presets': { default: 'code', future: 'retained' },
+      unrelated: { keep: true },
+    })}\n`)
+    await expect(migrateLegacyAgentPresetSettings(jsonPath)).resolves.toBe(true)
+    expect(JSON.parse(readFileSync(jsonPath, 'utf8'))).toEqual({
+      'agent-presets': { default: 'ptc', future: 'retained' },
+      unrelated: { keep: true },
+    })
+  })
+
+  it('leaves current and user-authored preset defaults untouched', async () => {
+    for (const preset of ['ptc', 'my-local-preset']) {
+      const path = join(temporaryDirectory(), `${preset}.yaml`)
+      const contents = `agent-presets:\n  default: ${preset}\n`
+      writeFileSync(path, contents)
+      await expect(migrateLegacyAgentPresetSettings(path)).resolves.toBe(false)
+      expect(readFileSync(path, 'utf8')).toBe(contents)
+    }
   })
 
   it('serializes concurrent complete updates without producing a torn document', async () => {
