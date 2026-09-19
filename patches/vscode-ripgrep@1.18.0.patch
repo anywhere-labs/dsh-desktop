@@ -1,0 +1,15 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -16,4 +16,10 @@ try {
+     );
+ }
+ 
+-export const rgPath = resolved;
++// Electron Builder keeps executable payloads beside app.asar. Node's module
++// resolver deliberately reports the logical archive path, but spawn requires
++// the real operating-system path and Electron cannot rewrite spawn commands.
++export const rgPath = resolved.replace(
++    /([\\/])app\.asar\1/u,
++    '$1app.asar.unpacked$1',
++);

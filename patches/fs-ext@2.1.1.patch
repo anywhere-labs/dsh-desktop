@@ -1,0 +1,58 @@
+diff --git a/fs-ext.js b/fs-ext.js
+--- a/fs-ext.js
++++ b/fs-ext.js
+@@ -19,7 +19,17 @@
+-
++
+ "use strict";
+-
++
+-var binding = require('./build/Release/fs_ext.node');
++var bindingPath = './build/Release/fs_ext.node';
++
++if (process.versions.electron) {
++  if (!process.versions.modules) {
++    throw new Error('fs-ext cannot determine the Electron native module ABI');
++  }
++  bindingPath = './prebuilds/' + process.platform + '-' + process.arch
++    + '/electron.abi' + process.versions.modules + '.node';
++}
++
++var binding = require(bindingPath);
+-
++
+ // Used by flock
+ function stringToFlockFlags(flag) {
+diff --git a/install.js b/install.js
+new file mode 100644
+--- /dev/null
++++ b/install.js
+@@ -0,0 +1,16 @@
++"use strict";
++
++if (process.platform !== "win32") {
++  var result = require("node:child_process").spawnSync(
++    process.execPath,
++    [require.resolve("node-gyp/bin/node-gyp.js"), "configure", "build"],
++    { stdio: "inherit" }
++  );
++
++  if (result.error) {
++    throw result.error;
++  }
++  if (result.status !== 0) {
++    process.exit(result.status || 1);
++  }
++}
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -32,7 +32,7 @@
+     "web": "https://github.com/baudehlo/node-fs-ext/issues"
+   },
+   "scripts": {
+-    "install": "node-gyp configure build",
++    "install": "node install.js",
+     "test": "node ./run_tests",
+     "lint": "node ./node_modules/eslint/bin/eslint \"*.js\" \"tests/**/*.js\"",
+     "cover": "NODE_ENV=cov ./node_modules/.bin/istanbul cover node ./run_tests"

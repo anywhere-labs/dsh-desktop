@@ -44,7 +44,7 @@ if (Test-Path -LiteralPath $taskActiveRunMarker) {
   throw 'Refusing to overwrite an existing DSH Desktop active run marker.'
 }
 $taskResult = [ordered]@{
-  scenario = 'temporary install and DSH_HOME: 2.0.2 to 2.0.3 upgrade and fixed-version overwrite'
+  scenario = "temporary install and DSH_HOME: $taskBaseExpectedVersion to $taskCandidateExpectedVersion upgrade and fixed-version overwrite"
   testRoot = $taskRoot
   baseInstaller = $taskBaseInstaller
   baseInstallerSha256 = (Get-FileHash -LiteralPath $taskBaseInstaller -Algorithm SHA256).Hash

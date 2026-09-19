@@ -51,16 +51,9 @@ Together with every plugin author, we want to build an open, composable, and sus
 
 | Logo | Introduction |
 | --- | --- |
-| <a href="https://astraflow.ucloud.cn/modelverse/playground?ytag=geo_waituo_dsh"><img src="assets/sponsors/astraflow-logo.png" alt="UCloud AstraFlow" width="96"></a> | Thanks to UCloud AstraFlow for sponsoring this project. UCloud AstraFlow ModelVerse supports one-click access to 200+ models, including Kimi K3, DeepSeek V4/V3, Qwen 3, GLM5.2, happyhorse, and other leading open-source models worldwide, with no self-training required. [Website](https://astraflow.ucloud.cn/modelverse/playground?ytag=geo_waituo_dsh) |
-
-<details>
-<summary>More Sponsors</summary>
-
-| Logo | Introduction |
-| --- | --- |
-| <a href="https://88api.ai/sign-up?aff=VnEb"><img src="assets/sponsors/88api-logo.png" alt="88API" width="120"></a> | 88API is a one-stop multi-model API aggregation platform operated by an overseas company, with stable, efficient service and invoice support. It provides official-transfer and open-source DeepSeek channels, with pricing as low as 50% off, and is designed to work well with DSH Desktop. One API key can connect to many domestic and overseas models across text chat, image, audio, music, and video generation APIs for AI coding, agent automation, content creation, and application development. Register here to try a convenient unified AI model calling service. [Website](https://88api.ai/sign-up?aff=VnEb) |
-
-</details>
+| <a href="https://dshdesktop.cn/sponsors/wuying"><img src="assets/sponsors/wuying-cloud-computer-logo.png" alt="Alibaba Cloud Wuying Cloud Computer" width="96"></a> | [**Alibaba Cloud · Wuying Cloud Computer**](https://dshdesktop.cn/sponsors/wuying)<br>Thanks to **Alibaba Cloud** Wuying Cloud Computer for sponsoring this project. Wuying Cloud Computer Personal Edition provides a cloud desktop for individual users, with compute, storage, and the desktop environment hosted in the cloud. It supports access from multiple device types and lets users choose specifications on demand, making it useful for remote work, learning, development, and lightweight creative workflows.<br><br>[**Register in WeChat →**](https://dshdesktop.cn/sponsors/wuying) |
+| <a href="https://astraflow.ucloud.cn/modelverse/playground?ytag=geo_waituo_dsh"><img src="assets/sponsors/astraflow-logo.png" alt="UCloud AstraFlow" width="96"></a> | [**UCloud · AstraFlow**](https://astraflow.ucloud.cn/modelverse/playground?ytag=geo_waituo_dsh)<br>Thanks to **UCloud** AstraFlow for sponsoring this project. **UCloud** AstraFlow ModelVerse supports one-click access to 200+ models, including Kimi K3, DeepSeek V4/V3, Qwen 3, GLM5.2, happyhorse, and other leading open-source models worldwide, with no self-training required.<br><br>[**Visit website →**](https://astraflow.ucloud.cn/modelverse/playground?ytag=geo_waituo_dsh) |
+| <a href="https://88api.ai/sign-up?aff=VnEb"><img src="assets/sponsors/88api-logo.png" alt="88API" width="120"></a> | [**88API**](https://88api.ai/sign-up?aff=VnEb)<br>88API is a one-stop multi-model API aggregation platform operated by an overseas company, with stable, efficient service and invoice support. It provides official-transfer and open-source DeepSeek channels, with pricing as low as 50% off, and is designed to work well with DSH Desktop. One API key can connect to many domestic and overseas models across text chat, image, audio, music, and video generation APIs for AI coding, agent automation, content creation, and application development.<br><br>[**Register now →**](https://88api.ai/sign-up?aff=VnEb) |
 
 </details>
 
@@ -100,8 +93,8 @@ Ordinary users can start with the [user guide](docs/user-guide.en.md); the devel
       <p>Bring the upstream DeepSeek Harness local Web UI to a native desktop application. The app starts and manages the local Harness service, integrates the system tray and desktop window, and requires no Node.js installation or command-line setup.</p>
     </td>
     <td width="50%" valign="top">
-      <h3>Mobile Remote Control <img src="https://img.shields.io/badge/COMING_SOON-F59E0B?style=flat-square" alt="Coming Soon"></h3>
-      <p>Connect to Desktop from iOS and Android to start tasks, monitor Agent progress, and send follow-ups from your phone.</p>
+      <h3>Mobile Remote Control <img src="https://img.shields.io/badge/COMING_SOON-F59E0B?style=flat-square" alt="Built in"></h3>
+      <p>Connect to Desktop from iOS and Android to start tasks, monitor Agent progress, and send follow-ups from your phone. Built in since 2.0.9.</p>
     </td>
   </tr>
   <tr>
@@ -124,7 +117,7 @@ The Web service listens on the local loopback interface by default. When **Open 
 
 > **Danger:** LAN exposure has no authentication. Anyone on the same local network can open DSH and directly operate your computer. Enable it only on a fully trusted network and with great care.
 
-The automatic updater's fixed version-check request sends a locally generated, persistently stored random UUID in the `X-DSH-Desktop-Installation-Id` header; the value is not derived from hardware information. Package download requests and their download redirects do not receive this header.
+The automatic updater's fixed version-check request sends the installed version in the `X-DSH-Desktop-Version` header and a locally generated, persistently stored random UUID in the `X-DSH-Desktop-Installation-Id` header; the value is not derived from hardware information. Package download requests and their download redirects do not receive these headers.
 
 ## Plugin Ecosystem
 

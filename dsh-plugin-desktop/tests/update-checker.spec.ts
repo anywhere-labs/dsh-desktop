@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  DESKTOP_CURRENT_VERSION_HEADER,
   DESKTOP_VERSION_ENDPOINT,
   MAX_VERSION_RESPONSE_BYTES,
   checkForStableUpdate,
@@ -89,6 +90,7 @@ describe('public Desktop version check', () => {
     })
     const headers = new Headers(calls[0]?.init.headers)
     expect(headers.get('accept')).toBe('application/json')
+    expect(headers.get(DESKTOP_CURRENT_VERSION_HEADER)).toBe('2.9.9')
     expect(headers.get(DESKTOP_INSTALLATION_ID_HEADER)).toBe(INSTALLATION_ID)
     expect(headers.has('if-none-match')).toBe(false)
     expect(headers.has('x-github-api-version')).toBe(false)
@@ -99,7 +101,13 @@ describe('public Desktop version check', () => {
       Accept: 'application/json',
       [DESKTOP_INSTALLATION_ID_HEADER]: INSTALLATION_ID,
     })
+    expect(desktopVersionRequestHeaders(INSTALLATION_ID, '2.9.9')).toEqual({
+      Accept: 'application/json',
+      [DESKTOP_CURRENT_VERSION_HEADER]: '2.9.9',
+      [DESKTOP_INSTALLATION_ID_HEADER]: INSTALLATION_ID,
+    })
     expect(desktopVersionRequestHeaders()).toEqual({ Accept: 'application/json' })
+    expect(() => desktopVersionRequestHeaders(undefined, '2.9.0-rc.1')).toThrow('canonical stable SemVer')
     expect(() => desktopVersionRequestHeaders('not-a-uuid')).toThrow('canonical lowercase UUID v4')
   })
 

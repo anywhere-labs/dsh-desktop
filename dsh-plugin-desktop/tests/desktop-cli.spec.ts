@@ -5,7 +5,9 @@ import { pathToFileURL } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import {
   clearElectronRunAsNode,
+  desktopCliProfileManifestUrl,
   runDesktopDshCli,
+  selectedDesktopCliProfile,
   withDefaultDesktopProfile,
 } from '../src/desktop-cli.ts'
 import { packagedDependencyPath, unpackedAsarPath } from '../src/packaged-runtime-path.ts'
@@ -23,13 +25,14 @@ describe('packaged dsh bootstrap', () => {
     expect(environment).toEqual({ Path: 'C:\\Windows' })
   })
 
-  it('clears Node mode before loading the fixed packaged CLI entry', async () => {
+  it('clears Node mode and dispatches the imported CLI exactly once', async () => {
     const environment = {
       ELECTRON_RUN_AS_NODE: '1',
       DSH_DESKTOP_DEFAULT_PROFILE: 'desktop',
       KEEP: 'value',
     }
     const argv = ['/Applications/DSH Desktop', '/app.asar/lib/desktop-cli.js', '--dump-config']
+    const runCli = vi.fn(async () => {})
     const load = vi.fn(async (url: string) => {
       expect(environment).toEqual({ KEEP: 'value' })
       expect(argv).toEqual([
@@ -40,15 +43,24 @@ describe('packaged dsh bootstrap', () => {
         '--dump-config',
       ])
       expect(url).toMatch(/\/node_modules\/@deepseek-ai\/dsh\/lib\/bin\.js$/u)
+      return { runCli }
     })
 
     await runDesktopDshCli(environment, load, argv)
 
     expect(load).toHaveBeenCalledOnce()
+    expect(runCli).toHaveBeenCalledOnce()
+    expect(runCli).toHaveBeenCalledWith({ allowDesktopProfile: true })
+  })
+
+  it('propagates a rejected upstream CLI invocation', async () => {
+    const failure = new Error('CLI startup failed')
+    const load = async () => ({ runCli: async () => { throw failure } })
+    await expect(runDesktopDshCli({}, load, ['node', 'desktop-cli', '--version'])).rejects.toBe(failure)
   })
 
   it('leaves the release-age policy to the final pnpm shim exactly once', async () => {
-    const load = vi.fn(async () => {})
+    const load = vi.fn(async () => ({ runCli: async () => {} }))
     const defaulted = [
       '/Applications/DSH Desktop',
       '/app.asar/lib/desktop-cli.js',
@@ -106,6 +118,26 @@ describe('packaged dsh bootstrap', () => {
     expect(() => withDefaultDesktopProfile([], '../desktop')).toThrow('invalid desktop profile name')
   })
 
+  it('finds the Profile selected by every supported CLI spelling', () => {
+    expect(selectedDesktopCliProfile(['--profile', 'desktop', '--dump-config'])).toBe('desktop')
+    expect(selectedDesktopCliProfile(['plugin', '--profile=work', 'update'])).toBe('work')
+    expect(selectedDesktopCliProfile(['web', '--help'])).toBe('web')
+    expect(selectedDesktopCliProfile(['--version'])).toBeUndefined()
+  })
+
+  it('resolves CLI Profiles through DSH_HOME without allowing path traversal', () => {
+    const home = join(tmpdir(), 'dsh cli profile home')
+    expect(desktopCliProfileManifestUrl('工作 profile', { DSH_HOME: home })).toBe(
+      pathToFileURL(join(home, 'profiles', '工作 profile', 'package.json')).href,
+    )
+    expect(() => desktopCliProfileManifestUrl('../outside', { DSH_HOME: home }))
+      .toThrow('invalid profile name')
+    expect(() => desktopCliProfileManifestUrl('nested/profile', { DSH_HOME: home }))
+      .toThrow('invalid profile name')
+    expect(() => desktopCliProfileManifestUrl('node_modules', { DSH_HOME: home }))
+      .toThrow('invalid profile name')
+  })
+
   it('uses the physical unpacked dependency tree only inside an Electron package', () => {
     expect(unpackedAsarPath('/Applications/DSH Desktop.app/Contents/Resources/app.asar/node_modules/pkg'))
       .toBe('/Applications/DSH Desktop.app/Contents/Resources/app.asar.unpacked/node_modules/pkg')
@@ -118,7 +150,7 @@ describe('packaged dsh bootstrap', () => {
       .toThrow('relative POSIX path')
   })
 
-  it('maps a resolved ASAR dependency to its physical unpacked path', () => {
+  it('keeps a resolved JavaScript dependency in the logical ASAR tree', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-asar-profile-'))
     const desktopLib = join(root, 'app.asar', 'lib')
     const dshPackage = join(root, 'app.asar', 'node_modules', '@deepseek-ai', 'dsh')
@@ -134,7 +166,7 @@ describe('packaged dsh bootstrap', () => {
       const moduleUrl = pathToFileURL(join(desktopLib, 'desktop-cli.js')).href
       expect(packagedDependencyPath(moduleUrl, '@deepseek-ai/dsh/lib/bin.js')).toBe(join(
         realpathSync(root),
-        'app.asar.unpacked',
+        'app.asar',
         'node_modules',
         '@deepseek-ai',
         'dsh',

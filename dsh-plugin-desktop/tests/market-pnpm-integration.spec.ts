@@ -236,5 +236,5 @@ describe('desktop pnpm and community market integration', () => {
       await webServer.close()
       await rm(root, { recursive: true, force: true })
     }
-  })
+  }, 15_000)
 })

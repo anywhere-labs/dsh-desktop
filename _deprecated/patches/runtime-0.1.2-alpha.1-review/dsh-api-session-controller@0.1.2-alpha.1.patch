@@ -1,0 +1,7 @@
+diff --git a/lib/client.js b/lib/client.js
+index 5a2f6c0..ebf01b1 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -2631 +2631 @@
+-					if (persisted !== void 0) this.selection.set({});
++					if (phase === "ready" && persisted !== void 0) this.selection.set({});

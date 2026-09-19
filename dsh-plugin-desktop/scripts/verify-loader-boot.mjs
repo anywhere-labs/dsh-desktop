@@ -20,12 +20,36 @@ const THIRD_PARTY_DEPENDENCY_NAME = 'dsh-desktop-loader-smoke-dependency'
 const PRODUCT_VERSION = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 ).version
+const AUTHENTICATION_TOKEN = Buffer.alloc(32, 3).toString('base64url')
+let ordinaryBrowserEnabled = false
 const BROWSER_ACCESS = Object.freeze({
-  ordinaryBrowserEnabled: false,
+  get ordinaryBrowserEnabled() { return ordinaryBrowserEnabled },
   rendererHeader: Object.freeze({
     name: 'x-dsh-desktop-renderer',
-    value: Buffer.alloc(32, 1).toString('base64url'),
+    value: AUTHENTICATION_TOKEN,
   }),
+  authenticatedUrl(baseUrl) {
+    const url = new URL(baseUrl)
+    url.pathname = '/'
+    url.search = ''
+    url.searchParams.set('token', AUTHENTICATION_TOKEN)
+    return url.href
+  },
+  setOrdinaryBrowserEnabled(enabled) { ordinaryBrowserEnabled = enabled },
+})
+const LAN_HTTPS_SNAPSHOT = Object.freeze({
+  state: 'inactive',
+  actualPort: null,
+  addresses: Object.freeze([]),
+  caFingerprint: null,
+  errorCode: null,
+})
+const LAN_HTTPS = Object.freeze({
+  caCertificate: null,
+  attach() {},
+  snapshot() { return LAN_HTTPS_SNAPSHOT },
+  async setEnabled() { return LAN_HTTPS_SNAPSHOT },
+  async stop() { return LAN_HTTPS_SNAPSHOT },
 })
 const RUNNER_ENVIRONMENT_NAMES = new Set([
   'ELECTRON_RUN_AS_NODE',
@@ -138,11 +162,22 @@ try {
       host.loader.internal = undefined
       host.provide(DSH_LAUNCH_ENVIRONMENT_KEY, launchEnvironment)
       host.provide('desktopBrowserAccess', BROWSER_ACCESS)
+      host.provide('desktopLanHttps', LAN_HTTPS)
       host.provide('desktopRuntime', runtime)
       host.provide('webServer', {
         host: '127.0.0.1',
         port: 43120,
         register() { return () => {} },
+      })
+      host.provide('connection', {
+        authenticatedUrl(baseUrl) {
+          const url = new URL(baseUrl)
+          url.pathname = '/'
+          url.search = ''
+          url.searchParams.set('token', AUTHENTICATION_TOKEN)
+          return url.href
+        },
+        requestRejection() { return undefined },
       })
       host.provide('webRuntime', {})
       host.provide('appExit', () => {})
@@ -179,6 +214,12 @@ try {
   const expectedUrl = `http://127.0.0.1:43120/?dsh-desktop-mode=compatibility&dsh-desktop-platform=darwin&dsh-desktop-version=${PRODUCT_VERSION}&dsh-desktop-material=transparent&dsh-desktop-titlebar-inset=36`
   if (mountedSpec?.url !== expectedUrl) {
     throw new Error(`desktop plugin produced an unexpected renderer URL: ${String(mountedSpec?.url)}`)
+  }
+  const expectedAuthenticationUrl = `http://127.0.0.1:43120/?token=${AUTHENTICATION_TOKEN}`
+  if (mountedSpec?.authenticationUrl !== expectedAuthenticationUrl) {
+    throw new Error(
+      `desktop plugin produced an unexpected authentication URL: ${String(mountedSpec?.authenticationUrl)}`,
+    )
   }
   if (mountedSpec?.rendererAccessHeader !== BROWSER_ACCESS.rendererHeader) {
     throw new Error('desktop plugin did not preserve the launcher browser capability')

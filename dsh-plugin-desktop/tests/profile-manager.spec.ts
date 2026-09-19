@@ -211,6 +211,23 @@ describe('desktop profile deletion', () => {
     expect(existsSync(join(home, 'profiles', 'web'))).toBe(false)
   })
 
+  it('protects the persisted selection before it becomes the current generation', async () => {
+    const home = temporaryRoot()
+    const statePath = join(home, 'state', 'profiles.json')
+    writeSelection(home, statePath, {
+      version: 2,
+      active: 'work',
+    })
+    writeProfile(home, 'desktop', ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+    writeProfile(home, 'work', ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+    const options = { home, selectionStatePath: statePath, currentProfileName: 'desktop' }
+
+    expect(canDeleteDesktopProfile(options, 'work')).toBe(false)
+    await expect(deleteDesktopProfile(options, 'work'))
+      .rejects.toThrow('selected profile "work" cannot be deleted')
+    expect(existsSync(join(home, 'profiles', 'work'))).toBe(true)
+  })
+
   it('renames, cleans, and removes an inactive profile', async () => {
     const home = temporaryRoot()
     const statePath = join(home, 'state', 'profiles.json')

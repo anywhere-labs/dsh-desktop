@@ -1,0 +1,5 @@
+# Bilingual-pair consistency record: the git blob hash of each side as of the last
+# confirmed-consistent state. Both languages carry equal authority. Update both files
+# and re-record their hashes with git hash-object after editing either side.
+2026-09-04-obsolete-profile-creator-route.md: 1ed9b5a4af62b15f23ee587130489a0483aef13d
+2026-09-04-obsolete-profile-creator-route.zh.md: 5d5efe14950043219f5a0a5b9a63f2a52ed0b71d

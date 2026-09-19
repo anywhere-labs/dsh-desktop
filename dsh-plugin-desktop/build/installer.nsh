@@ -22,7 +22,10 @@ Var pid
       Goto dsh_installer_app_stopped
     ${endIf}
     IntOp $R1 $R1 + 1
-    ${if} $R1 < 12
+    ; Slow disks, antivirus hooks, and a large physical runtime can keep the
+    ; process alive after Cordis disposal begins. Give the orderly handoff a
+    ; full 30 seconds before escalating to the scoped forced-close path.
+    ${if} $R1 < 60
       Sleep 500
       Goto dsh_installer_wait_for_exit
     ${endIf}

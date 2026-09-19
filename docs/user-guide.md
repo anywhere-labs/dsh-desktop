@@ -20,7 +20,7 @@ Profile 是一组 DSH bundle、依赖和 patch 的组合。托盘中的 **Profil
 - **扩展窗口**：安装 Desktop 自有 layout 与 sidebar surface，并在其中承载官方 sidebar、conversation 和 details occupant。36 像素顶部 frame 与左侧 sidebar surface 组成一个带圆角内拐角的倒 L 材质区域。
 - **增强模式**：保留独立 root registration 与紧凑内部 caption；macOS 使用 20 像素内容 inset 和 32 像素拖动区域，Windows 使用 32 像素 caption row，不复用扩展窗口的独立 frame。
 
-macOS 自定义窗口模式可以打开或关闭透明材质。Windows 可关闭材质或使用原生亚克力；仅 Windows 11 build 22621 及以上在支持时显示 Mica，因此 Windows 10 使用亚克力。切换模式或材质都会重启应用，不会在正在运行的 renderer 中热替换 root slot 或窗口材质。Linux 只提供兼容模式。
+macOS 自定义窗口模式可以打开或关闭透明材质。Windows 可关闭材质；仅 Windows 11 build 22621 及以上在支持时显示 Mica。旧版 Windows 亚克力偏好会安全地按关闭处理，并在设置文件可写时自动迁移。切换模式或材质都会重启应用，不会在正在运行的 renderer 中热替换 root slot 或窗口材质。Linux 只提供兼容模式。
 
 ## 本地 Web 端口
 
@@ -65,7 +65,7 @@ dsh plugin update
 
 打包后的 macOS/Windows 应用会在后台检查 `https://www.dshdesktop.cn/api/desktop/version`。后台检查不阻塞启动；网络错误、非 200、非法版本或服务端版本不新时保持静默。发现新版本时，应用会更新托盘并且每个版本只发送一次非阻塞系统通知，不会自动弹出下载确认；点击通知会显示 Desktop。
 
-托盘中的 **Check for Updates…** 是手动检查：即使已经是当前版本，也会显示结果；检查失败会提示稍后重试。只有服务端版本严格高于本地版本时，应用才会询问是否下载。用户取消不会访问计数下载入口。
+托盘中的 **Check for Updates…** 是当前发行通道的手动检查：稳定版只接收稳定更新，Beta 只接收 Beta 更新。即使已经是当前版本，也会显示结果；检查失败会提示稍后重试。Beta 还提供 **安装稳定版…**，它会在保留 Beta 的同时安装稳定版。用户取消不会访问计数下载入口。
 
 确认下载后，应用会先打开原生的“保存更新安装包”对话框，默认建议保存到 Downloads；你可以改用其他目录和文件名，取消对话框则不会开始下载。保存后应用才会请求当前平台的固定下载地址，并记录安装包位置。macOS 会打开 DMG，由用户把应用替换到 Applications；Windows 会准备 NSIS 安装器，再询问是否退出并启动安装。升级完成并重新启动后，应用会询问是否删除安装包以释放磁盘空间，也可以选择保留。下载和安装失败不会破坏当前版本，托盘仍可重试。
 
@@ -80,7 +80,7 @@ Desktop 的确认、警告与操作结果会打开独立、基于 shadcn 的桌�
   & "$env:LOCALAPPDATA\Programs\DSH Desktop\DSH Desktop.exe" --export-diagnostics
   ```
 
-  通过 npm 安装过桌面启动器时，也可以运行 `dsh-desktop --export-diagnostics`。这个命令不会启动 Host、profile、插件或窗口；完成后会在终端输出诊断 ZIP 的绝对路径。
+  通过 npm 安装时，稳定版可运行 `dsh-desktop --export-diagnostics`，Beta 可运行 `dsh-desktop-beta --export-diagnostics`。这个命令不会启动 Host、profile、插件或窗口；完成后会在终端输出诊断 ZIP 的绝对路径。
 - **诊断包内容**：包含最近的应用日志、本地 Crashpad `.dmp`、当前运行标记和 `system-info.txt`。系统信息会记录 Desktop、Electron、Node、平台和架构版本。日志会对可识别的认证凭据脱敏，但本地路径、工作区 ID、会话 ID 和崩溃时的内存片段仍可能存在。公开上传前必须检查；不适合公开的 dump 应通过可信渠道提供。
 - **窗口消失了**：先检查系统托盘，关闭窗口不是退出。
 - **插件没有出现**：确认命令作用于目标 profile，并重启应用。

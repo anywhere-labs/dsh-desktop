@@ -24,12 +24,15 @@ import {
   resolveProfileDir,
   writeProfileManifest,
 } from '@deepseek-ai/dsh-app-boot'
+import {
+  DESKTOP_PACKAGE_NAME,
+  DESKTOP_PACKAGE_NAMES,
+} from './product-identity.ts'
 
-const BIN_NAME = 'dsh-plugin-desktop'
+const BIN_NAME = DESKTOP_PACKAGE_NAME
 const DEFAULT_PROFILE_NAME = 'desktop'
 const BASE_BUNDLE_NAME = '@deepseek-ai/dsh-base'
 const WEB_BUNDLE_NAME = '@deepseek-ai/dsh-web-app'
-const DESKTOP_BUNDLE_NAME = 'dsh-plugin-desktop'
 const PROFILE_MANIFEST_FILENAME = 'package.json'
 const STATE_VERSION = 2
 const MAX_STATE_BYTES = 4 * 1024
@@ -126,9 +129,9 @@ function existingProfile(name: string, home: string): DesktopProfileSummary {
   const dir = resolveProfileDir(name, home)
   try {
     const bundles = manifestBundles(readProfileManifest(BIN_NAME, dir))
-    const desktopBundleIndex = bundles.indexOf(DESKTOP_BUNDLE_NAME)
-    const problem = name !== DEFAULT_PROFILE_NAME && desktopBundleIndex !== -1
-      ? `${DESKTOP_BUNDLE_NAME} is launcher-owned and must not appear in dsh.profile.bundles`
+    const desktopBundle = bundles.find(bundle => DESKTOP_PACKAGE_NAMES.has(bundle))
+    const problem = name !== DEFAULT_PROFILE_NAME && desktopBundle !== undefined
+      ? `${desktopBundle} is launcher-owned and must not appear in dsh.profile.bundles`
       : undefined
     const baseBundleIndex = bundles.indexOf(BASE_BUNDLE_NAME)
     const webBundleIndex = bundles.indexOf(WEB_BUNDLE_NAME)
@@ -178,7 +181,7 @@ export function createDesktopWebProfile(home: string, name: string): DesktopProf
 
   const staging = join(profilesDir, `.${basename(target)}.creating-${process.pid}-${randomUUID()}`)
   try {
-    initProfile(staging, [...template])
+    initProfile(staging, template.bundles, template.patchReload)
     const manifest = readProfileManifest(BIN_NAME, staging)
     writeProfileManifest(staging, { ...manifest, name: `dsh-profile-${name}` })
     // The target is checked again immediately before publication. `renameSync`
@@ -291,6 +294,9 @@ function deletionTarget(options: DesktopProfileDeletionOptions, name: string): s
   assertDesktopProfileName(name)
   if (name === options.currentProfileName) {
     throw new Error(`${BIN_NAME}: current profile ${JSON.stringify(name)} cannot be deleted`)
+  }
+  if (name === readDesktopProfileState(options.selectionStatePath).active) {
+    throw new Error(`${BIN_NAME}: selected profile ${JSON.stringify(name)} cannot be deleted`)
   }
   const target = resolveProfileDir(name, options.home)
   let item

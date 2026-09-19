@@ -48,6 +48,7 @@ GET https://www.dshdesktop.cn/api/desktop/version
 
 - `Accept: application/json`；
 - `X-DSH-Desktop-Installation-Id: <随机 UUID v4>`。
+- `X-DSH-Desktop-Version: <规范的当前稳定版本>`。
 
 该 GET 请求没有由应用添加的 query 参数或请求 body。与所有互联网请求一样，官方服务及其基础设施还会接收 IP 地址、请求时间、TLS/连接信息以及网络栈自动产生的标准请求元数据；这些元数据可能包括 User-Agent、Cookie、压缩支持、操作系统或运行时版本信息。当前代码没有显式要求 Electron 网络 session 忽略已有凭据，因此我们不会承诺版本请求一定不带 session 数据，也不会把“客户端只显式设置两个 header”描述成“网络上只会传出两个字段”。
 
@@ -130,7 +131,6 @@ DSH Desktop 是可组合的插件平台。下列传输由您选择的服务、�
 Community Market 默认不需要选中远程来源。选择并使用来源后，Host 会向该来源发起请求。当前内置的可选来源包括：
 
 - DSH 1024Store：`deepseek1024.com`；
-- DSH Marketplace：`dsh-marketplace.qilewl.net`；
 - dshfind：`api.dshfind.com`；
 - 您自行配置并确认的标准目录来源。
 

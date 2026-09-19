@@ -1,6 +1,7 @@
 /** Headless smoke for the complete published DSH Web profile and renderer manifest. */
 
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,12 +20,28 @@ import { DesktopProfileService } from '../lib/profile-service.js'
 const BIN_NAME = 'dsh-plugin-desktop-profile-smoke'
 const HOST_SERVICE_PLUGIN_NAME = 'dsh-desktop-host-services-smoke-plugin'
 const HOST_SERVICE_PROBE_KEY = 'desktopHostServiceProbe'
+let ordinaryBrowserEnabled = false
 const BROWSER_ACCESS = Object.freeze({
-  ordinaryBrowserEnabled: false,
+  get ordinaryBrowserEnabled() { return ordinaryBrowserEnabled },
   rendererHeader: Object.freeze({
     name: 'x-dsh-desktop-renderer',
-    value: Buffer.alloc(32, 2).toString('base64url'),
+    value: Buffer.alloc(32, 4).toString('base64url'),
   }),
+  setOrdinaryBrowserEnabled(enabled) { ordinaryBrowserEnabled = enabled },
+})
+const LAN_HTTPS_SNAPSHOT = Object.freeze({
+  state: 'inactive',
+  actualPort: null,
+  addresses: Object.freeze([]),
+  caFingerprint: null,
+  errorCode: null,
+})
+const LAN_HTTPS = Object.freeze({
+  caCertificate: null,
+  attach() {},
+  snapshot() { return LAN_HTTPS_SNAPSHOT },
+  async setEnabled() { return LAN_HTTPS_SNAPSHOT },
+  async stop() { return LAN_HTTPS_SNAPSHOT },
 })
 const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-profile-'))
 let ctx
@@ -42,7 +59,27 @@ try {
     '  default: minimal',
     '',
   ].join('\n'))
-  const prepared = prepareDesktopProfile('1', home, 'win32')
+  const aaRequested = process.env.DSH_VERIFY_AA === '1'
+  const brokenAa = process.env.DSH_VERIFY_AA_BROKEN === '1'
+  // A shared AA directory may already contain settings written by a newer channel.
+  const aaSettings = {
+    uvPath: '', uvPypiIndexUrl: '', uvPythonInstallMirror: '', syncIntervalSeconds: 37,
+  }
+  if (aaRequested && !brokenAa) {
+    mkdirSync(join(home, 'aa-smoke-state'))
+    writeFileSync(join(home, 'aa-smoke-state', 'connector-settings.json'), JSON.stringify(aaSettings))
+  }
+  if (brokenAa) {
+    const initial = prepareDesktopProfile('1', home, 'win32')
+    const brokenPackage = join(initial.profile.dir, 'node_modules', '@agents-anywhere', 'dsh-bridge-next')
+    mkdirSync(brokenPackage, { recursive: true })
+    writeFileSync(join(brokenPackage, 'package.json'), JSON.stringify({
+      name: '@agents-anywhere/dsh-bridge-next', version: '99.0.0',
+      dsh: { bundle: { patch: './missing.patch.yml' } },
+    }))
+  }
+  const prepared = prepareDesktopProfile('1', home, 'win32', undefined, undefined, undefined, { aaEnabled: aaRequested })
+  if (brokenAa && (!prepared.aaFailure || prepared.aaEnabled)) throw new Error('Broken AA bundle did not fail closed')
   const hostServicePluginDir = join(
     prepared.profile.dir,
     'node_modules',
@@ -64,6 +101,10 @@ try {
       }],
     },
     ...prepared.patches,
+    // Keep this headless probe independent of the operator's AA account.
+    ...(prepared.aaEnabled ? [{ id: 'agents-anywhere-bridge-next', config: {
+      dshHome: home, stateRoot: join(home, 'aa-smoke-state'), uvPath: 'uv',
+    } }] : []),
   ]
   const packageRoot = new URL('../', import.meta.url)
   const pnpmBinPath = fileURLToPath(new URL('node_modules/pnpm/bin/pnpm.mjs', packageRoot))
@@ -125,8 +166,11 @@ try {
     prepared.rootConfig,
     patches,
     async (host) => {
+      // Match the public resolver path used by packaged Electron.
+      host.loader.internal = undefined
       host.provide(DSH_LAUNCH_ENVIRONMENT_KEY, createLaunchEnvironmentSnapshot([]))
       host.provide('desktopBrowserAccess', BROWSER_ACCESS)
+      host.provide('desktopLanHttps', LAN_HTTPS)
       host.provide('desktopRuntime', runtime)
       host.provide('desktopPnpmBootstrap', {
         activeProfileName: 'desktop',
@@ -206,7 +250,7 @@ try {
     throw new Error(`assembled Windows browse picker listed ${listing.path} instead of ${home}`)
   }
 
-  const expectedUrl = `http://127.0.0.1:${String(ctx.webServer.port)}/?dsh-desktop-mode=advanced&dsh-desktop-platform=win32&dsh-desktop-version=2.0.0&dsh-desktop-material=acrylic&dsh-desktop-mica=1`
+  const expectedUrl = `http://127.0.0.1:${String(ctx.webServer.port)}/?dsh-desktop-mode=advanced&dsh-desktop-platform=win32&dsh-desktop-version=2.0.0&dsh-desktop-material=off&dsh-desktop-mica=1`
   if (mountedSpec?.url !== expectedUrl) {
     throw new Error(`desktop plugin produced an unexpected renderer URL: ${String(mountedSpec?.url)}`)
   }
@@ -234,9 +278,52 @@ try {
   if (profileMenu?.submenu?.()[0]?.label() !== 'desktop') {
     throw new Error('assembled desktop profile is missing the active profile tray submenu')
   }
+  const unauthenticated = await fetch(expectedUrl, {
+    headers: {
+      [BROWSER_ACCESS.rendererHeader.name]: BROWSER_ACCESS.rendererHeader.value,
+    },
+  })
+  await unauthenticated.body?.cancel()
+  if (unauthenticated.status !== 401) {
+    throw new Error(
+      `assembled Web root accepted a renderer without browser authentication: HTTP ${String(unauthenticated.status)}`,
+    )
+  }
+  if (typeof mountedSpec?.authenticationUrl !== 'string') {
+    throw new Error('desktop plugin did not provide an authentication URL')
+  }
+  const authenticationUrl = new URL(mountedSpec.authenticationUrl)
+  const rendererUrl = new URL(expectedUrl)
+  const authenticationTokens = authenticationUrl.searchParams.getAll('token')
+  if (authenticationUrl.origin !== rendererUrl.origin
+    || authenticationUrl.pathname !== '/'
+    || authenticationUrl.hash !== ''
+    || [...authenticationUrl.searchParams.keys()].some(key => key !== 'token')
+    || authenticationTokens.length !== 1
+    || !/^[A-Za-z0-9_-]{43}$/u.test(authenticationTokens[0])) {
+    throw new Error(`desktop plugin produced an invalid authentication URL: ${authenticationUrl.href}`)
+  }
+  const exchange = await fetch(authenticationUrl, {
+    headers: {
+      [BROWSER_ACCESS.rendererHeader.name]: BROWSER_ACCESS.rendererHeader.value,
+    },
+    redirect: 'manual',
+  })
+  await exchange.body?.cancel()
+  if (exchange.status !== 303 || exchange.headers.get('location') !== '/') {
+    throw new Error(
+      `browser authentication exchange returned HTTP ${String(exchange.status)} instead of a root redirect`,
+    )
+  }
+  const setCookie = exchange.headers.get('set-cookie')
+  const cookie = setCookie?.split(';', 1)[0]
+  if (cookie === undefined || cookie.length === 0) {
+    throw new Error('browser authentication exchange did not mint a cookie')
+  }
   const response = await fetch(expectedUrl, {
     headers: {
       [BROWSER_ACCESS.rendererHeader.name]: BROWSER_ACCESS.rendererHeader.value,
+      Cookie: cookie,
     },
   })
   const html = await response.text()
@@ -249,13 +336,39 @@ try {
   }
   const graph = JSON.parse(bootMatch[1])
   const ids = new Set(graph.entries.map(entry => entry.id))
+  const aaEnabled = aaRequested && !brokenAa
+  if (ids.has('@agents-anywhere/dsh-bridge-next') !== aaEnabled) throw new Error('AA client graph does not match explicit selection')
+  if (aaEnabled && (!ctx.get('agentsAnywhereRuntime') || !ctx.get('agentsAnywhereOnboarding'))) {
+    throw new Error('AA Host services did not activate in the actual Desktop profile')
+  }
+  if (aaEnabled) {
+    const endpoint = join(home, 'agents-anywhere', 'bridge', 'endpoint.json')
+    if (!existsSync(endpoint)) throw new Error('AA did not publish its native DSH home endpoint')
+    const snapshot = await ctx.get('agentsAnywhereOnboarding').inspect()
+    if (snapshot.account) throw new Error('A fresh Profile inherited an AA account')
+    for (const [key, value] of Object.entries(aaSettings)) {
+      if (snapshot.connector.settings[key] !== value) {
+        throw new Error(`AA did not preserve the shared connector setting ${key}`)
+      }
+    }
+    const uvSuffix = join('node_modules', '@dataiku', `uv-${process.platform}-${process.arch}`, 'bin', process.platform === 'win32' ? 'uv.exe' : 'uv')
+    if (!snapshot.connector.resolvedUvPath?.endsWith(uvSuffix)) {
+      throw new Error('AA must resolve bundled uv instead of falling back to the operator PATH')
+    }
+    const uvVersion = execFileSync(snapshot.connector.resolvedUvPath, ['--version'], { encoding: 'utf8', timeout: 10_000 })
+    if (!/^uv \d+\./u.test(uvVersion)) throw new Error('Bundled AA uv did not return a version')
+  }
   for (const id of [
     'dsh-plugin-desktop',
     '@deepseek-ai/dsh-client-ui-conversation',
     '@deepseek-ai/dsh-client-ui-sidebar',
     '@deepseek-ai/dsh-client-ui-directory-picker-browse',
   ]) {
-    if (!ids.has(id)) throw new Error(`assembled advanced Web graph is missing ${id}`)
+    if (!ids.has(id)) {
+      throw new Error(
+        `assembled advanced Web graph is missing ${id}; received ${[...ids].sort().join(', ')}`,
+      )
+    }
   }
   for (const id of [
     '@deepseek-ai/dsh-client-ui-layout',

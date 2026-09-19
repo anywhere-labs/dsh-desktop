@@ -12,7 +12,10 @@ const packageRoot = new URL('../', import.meta.url)
 const desktopCli = fileURLToPath(new URL('lib/desktop-cli.js', packageRoot))
 const dshAppBootPackage = fileURLToPath(new URL('node_modules/@deepseek-ai/dsh-app-boot/', packageRoot))
 const dshAtomicWritePackage = fileURLToPath(new URL('node_modules/@deepseek-ai/dsh-atomic-write/', packageRoot))
+const cordisPluginLoaderPackage = fileURLToPath(new URL('node_modules/@deepseek-ai/cordis-plugin-loader/', packageRoot))
+const dshHomePathsPackage = fileURLToPath(new URL('node_modules/@deepseek-ai/dsh-home-paths/', packageRoot))
 const dshPackage = fileURLToPath(new URL('node_modules/@deepseek-ai/dsh/', packageRoot))
+const semverPackage = fileURLToPath(new URL('node_modules/semver/', packageRoot))
 const pnpmCli = fileURLToPath(new URL('node_modules/pnpm/bin/pnpm.mjs', packageRoot))
 const dshVersion = JSON.parse(readFileSync(new URL('node_modules/@deepseek-ai/dsh/package.json', packageRoot), 'utf8')).version
 const pnpmVersion = JSON.parse(readFileSync(new URL('node_modules/pnpm/package.json', packageRoot), 'utf8')).version
@@ -162,14 +165,20 @@ function runFlatProfileDshEntry() {
   const desktopPackage = join(root, 'node_modules', 'dsh-plugin-desktop')
   const linkedAppBootPackage = join(root, 'node_modules', '@deepseek-ai', 'dsh-app-boot')
   const linkedAtomicWritePackage = join(root, 'node_modules', '@deepseek-ai', 'dsh-atomic-write')
+  const linkedCordisPluginLoaderPackage = join(root, 'node_modules', '@deepseek-ai', 'cordis-plugin-loader')
+  const linkedDshHomePathsPackage = join(root, 'node_modules', '@deepseek-ai', 'dsh-home-paths')
   const linkedDshPackage = join(root, 'node_modules', '@deepseek-ai', 'dsh')
+  const linkedSemverPackage = join(root, 'node_modules', 'semver')
   try {
     mkdirSync(join(root, 'node_modules', '@deepseek-ai'), { recursive: true })
     cpSync(fileURLToPath(new URL('lib/', packageRoot)), join(desktopPackage, 'lib'), { recursive: true })
     cpSync(fileURLToPath(new URL('package.json', packageRoot)), join(desktopPackage, 'package.json'))
     symlinkSync(dshAppBootPackage, linkedAppBootPackage, process.platform === 'win32' ? 'junction' : 'dir')
     symlinkSync(dshAtomicWritePackage, linkedAtomicWritePackage, process.platform === 'win32' ? 'junction' : 'dir')
+    symlinkSync(cordisPluginLoaderPackage, linkedCordisPluginLoaderPackage, process.platform === 'win32' ? 'junction' : 'dir')
+    symlinkSync(dshHomePathsPackage, linkedDshHomePathsPackage, process.platform === 'win32' ? 'junction' : 'dir')
     symlinkSync(dshPackage, linkedDshPackage, process.platform === 'win32' ? 'junction' : 'dir')
+    symlinkSync(semverPackage, linkedSemverPackage, process.platform === 'win32' ? 'junction' : 'dir')
     runElectronEntry(
       'flat profile dsh plugin help',
       ['--expose-internals'],

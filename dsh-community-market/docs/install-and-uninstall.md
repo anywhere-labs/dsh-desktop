@@ -33,7 +33,7 @@ Market installation creates no receipt, checkpoint, retry, cleanup, or rollback 
 A catalog entry can reach automatic install preview only when:
 
 - exactly one valid npm package name is normalized from the entry;
-- the package is not `dsh-plugin-desktop` or `dsh-community-market`;
+- the package is not `dsh-plugin-desktop`, `dsh-plugin-desktop-beta`, or `dsh-community-market`;
 - npm `latest` is an exact stable version for that same package; and
 - the npm manifest declares a safe relative DSH bundle patch path.
 
