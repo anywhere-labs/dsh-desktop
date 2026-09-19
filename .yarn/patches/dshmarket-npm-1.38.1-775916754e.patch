@@ -1,5 +1,5 @@
 diff --git a/client/client.js b/client/client.js
-index a346a76b52938d2c475e13a029998aee8905c2ed..c812233df3c97a328922cb6c8415873f2f91e585 100644
+index a346a76b52938d2c475e13a029998aee8905c2ed..3a32d6f78d9283dc5f2e76b4064b2a972b14ad2e 100644
 --- a/client/client.js
 +++ b/client/client.js
 @@ -6810,7 +6810,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
@@ -185,10 +185,57 @@ index d450f1b2cc0c699d9ba5b649702f2592976d8afe..6dd1483bfb1401863d206f48d352321f
 +/** npm packages supplied by the host rather than the profile manifest. */
 +hostProvidedNpmVersions?: ReadonlyMap<string, string>): Promise<Record<string, UpdateStatus>>;
 diff --git a/lib/updates.js b/lib/updates.js
-index 67f8a48fc2b1a02f524480c85615fd9255539a44..1769c1369a9d98422c5eca283c30eebf79a00ee9 100644
+index 67f8a48fc2b1a02f524480c85615fd9255539a44..3e936164e8d5b34cf883afd7a3a1501f19cb872c 100644
 --- a/lib/updates.js
 +++ b/lib/updates.js
-@@ -213,21 +213,30 @@ channelFor = new Map(),
+@@ -104,6 +104,19 @@ export function setUpdateRegistry(base) {
+ function npmUrl(path) {
+     return `${registryBase}/${path}`;
+ }
++/**
++ * npm registry path for a package name. encodeURIComponent(name) turns
++ * `@scope/pkg` into `%40scope%2Fpkg`, which some registry lookups miss.
++ * Keep the `@`, encode only the slash between scope and name.
++ */
++export function npmRegistryPackagePath(name) {
++    if (name.startsWith('@')) {
++        const slash = name.indexOf('/');
++        if (slash > 0)
++            return `${name.slice(0, slash)}/${encodeURIComponent(name.slice(slash + 1))}`;
++    }
++    return encodeURIComponent(name);
++}
+ async function fetchJson(url) {
+     // Through the proxy when one is configured: Node's global fetch ignores
+     // HTTP_PROXY, so on a machine whose route out is a local proxy every
+@@ -127,7 +140,7 @@ async function fetchJson(url) {
+  */
+ export async function latestPublishedRecently(name, windowMs = 26 * 60 * 60 * 1000) {
+     try {
+-        const doc = (await fetchJson(npmUrl(`${encodeURIComponent(name)}`)));
++        const doc = (await fetchJson(npmUrl(`${npmRegistryPackagePath(name)}`)));
+         const latest = doc['dist-tags']?.latest;
+         const published = latest !== undefined ? doc.time?.[latest] : undefined;
+         if (published === undefined)
+@@ -180,7 +193,7 @@ const EXTRA_TAGS = {
+ /** One dist-tag's version, or null when it isn't published or can't be read. */
+ async function tagVersion(name, tag) {
+     try {
+-        const meta = (await fetchJson(npmUrl(`${encodeURIComponent(name)}/${tag}`)));
++        const meta = (await fetchJson(npmUrl(`${npmRegistryPackagePath(name)}/${tag}`)));
+         return typeof meta.version === 'string' ? meta.version : null;
+     }
+     catch {
+@@ -192,7 +205,7 @@ async function tagVersion(name, tag) {
+ }
+ export async function fetchNpmLatest(name) {
+     try {
+-        const meta = (await fetchJson(npmUrl(`${encodeURIComponent(name)}/latest`)));
++        const meta = (await fetchJson(npmUrl(`${npmRegistryPackagePath(name)}/latest`)));
+         return typeof meta.version === 'string' ? meta.version : null;
+     }
+     catch {
+@@ -213,21 +226,30 @@ channelFor = new Map(),
   * catalog. `link:` workspaces remain development sources and are never
   * opted into online updates.
   */
@@ -222,6 +269,15 @@ index 67f8a48fc2b1a02f524480c85615fd9255539a44..1769c1369a9d98422c5eca283c30eebf
          const normalizedSpec = spec.toLowerCase();
          if (normalizedSpec.startsWith('file:')) {
              const onlineSource = onlineSourceFor.get(name);
+@@ -274,7 +296,7 @@ onlineSourceFor = new Map()) {
+                 };
+             }
+             else {
+-                const meta = (await fetchJson(npmUrl(`${encodeURIComponent(name)}/latest`)));
++                const meta = (await fetchJson(npmUrl(`${npmRegistryPackagePath(name)}/latest`)));
+                 const stable = typeof meta.version === 'string' ? meta.version : null;
+                 const channel = channelFor.get(name);
+                 const latest = channel === undefined ? stable : await versionOnChannel(name, channel, stable);
 diff --git a/src/client/MarketSection.tsx b/src/client/MarketSection.tsx
 index 3952e222c8238f9b031357656a600f43f4c3ce9f..1a4b664e19fcbb8c87f0d9444ba9f6eab167f5a7 100644
 --- a/src/client/MarketSection.tsx
@@ -405,10 +461,57 @@ index 51976b27ae60539f74dac1af3ad90c80b468e0ed..eef0f6cd7470fc8d2feeeebdce3b669a
                  rollbackOk = rollback.ok
                  rollbackDetail = rollback.detail
 diff --git a/src/updates.ts b/src/updates.ts
-index 92441168c5acab7075916c908967f93ce2e9e604..9fcaf66f1d87b50449e04ad1527d283285f5b020 100644
+index 92441168c5acab7075916c908967f93ce2e9e604..12e720daf67124c1a6b64dc0ffe3e06b9121199f 100644
 --- a/src/updates.ts
 +++ b/src/updates.ts
-@@ -256,21 +256,29 @@ export async function checkUpdates(
+@@ -136,6 +136,19 @@ function npmUrl(path: string): string {
+   return `${registryBase}/${path}`
+ }
+ 
++/**
++ * npm registry path for a package name. encodeURIComponent(name) turns
++ * `@scope/pkg` into `%40scope%2Fpkg`, which some registry lookups miss.
++ * Keep the `@`, encode only the slash between scope and name.
++ */
++export function npmRegistryPackagePath(name: string): string {
++  if (name.startsWith('@')) {
++    const slash = name.indexOf('/')
++    if (slash > 0) return `${name.slice(0, slash)}/${encodeURIComponent(name.slice(slash + 1))}`
++  }
++  return encodeURIComponent(name)
++}
++
+ async function fetchJson(url: string): Promise<unknown> {
+   // Through the proxy when one is configured: Node's global fetch ignores
+   // HTTP_PROXY, so on a machine whose route out is a local proxy every
+@@ -159,7 +172,7 @@ async function fetchJson(url: string): Promise<unknown> {
+  */
+ export async function latestPublishedRecently(name: string, windowMs = 26 * 60 * 60 * 1000): Promise<boolean | null> {
+   try {
+-    const doc = (await fetchJson(npmUrl(`${encodeURIComponent(name)}`))) as {
++    const doc = (await fetchJson(npmUrl(`${npmRegistryPackagePath(name)}`))) as {
+       'dist-tags'?: Record<string, string>
+       time?: Record<string, string>
+     }
+@@ -219,7 +232,7 @@ const EXTRA_TAGS: Record<Channel, string[]> = {
+ /** One dist-tag's version, or null when it isn't published or can't be read. */
+ async function tagVersion(name: string, tag: string): Promise<string | null> {
+   try {
+-    const meta = (await fetchJson(npmUrl(`${encodeURIComponent(name)}/${tag}`))) as { version?: string }
++    const meta = (await fetchJson(npmUrl(`${npmRegistryPackagePath(name)}/${tag}`))) as { version?: string }
+     return typeof meta.version === 'string' ? meta.version : null
+   } catch {
+     // An unpublished tag is the ordinary case for a channel nobody has cut
+@@ -231,7 +244,7 @@ async function tagVersion(name: string, tag: string): Promise<string | null> {
+ 
+ export async function fetchNpmLatest(name: string): Promise<string | null> {
+   try {
+-    const meta = (await fetchJson(npmUrl(`${encodeURIComponent(name)}/latest`))) as { version?: string }
++    const meta = (await fetchJson(npmUrl(`${npmRegistryPackagePath(name)}/latest`))) as { version?: string }
+     return typeof meta.version === 'string' ? meta.version : null
+   } catch {
+     return null
+@@ -256,21 +269,29 @@ export async function checkUpdates(
     * opted into online updates.
     */
    onlineSourceFor: ReadonlyMap<string, string> = new Map(),
@@ -440,3 +543,12 @@ index 92441168c5acab7075916c908967f93ce2e9e604..9fcaf66f1d87b50449e04ad1527d2832
      const normalizedSpec = spec.toLowerCase()
      if (normalizedSpec.startsWith('file:')) {
        const onlineSource = onlineSourceFor.get(name)
+@@ -316,7 +337,7 @@ export async function checkUpdates(
+           updateAvailable: current !== null && latest !== null && current !== latest,
+         }
+       } else {
+-        const meta = (await fetchJson(npmUrl(`${encodeURIComponent(name)}/latest`))) as { version?: string }
++        const meta = (await fetchJson(npmUrl(`${npmRegistryPackagePath(name)}/latest`))) as { version?: string }
+         const stable = typeof meta.version === 'string' ? meta.version : null
+         const channel = channelFor.get(name)
+         const latest = channel === undefined ? stable : await versionOnChannel(name, channel, stable)
