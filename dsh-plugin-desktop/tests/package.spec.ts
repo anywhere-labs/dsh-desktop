@@ -433,7 +433,7 @@ describe('published package surface', () => {
     const snapshot = main.indexOf('const environment = loadLayeredEnv')
     const install = main.indexOf('const pnpmRuntime = installDesktopPnpmRuntime')
     const prepare = main.indexOf('let prepared = prepareDesktopProfile')
-    const installDsh = main.indexOf('const dshRuntime = process.platform === \'win32\'')
+    const installDsh = main.indexOf('const dshRuntime = installDesktopDshRuntime')
     const ownPnpm = main.indexOf('const releasePnpmRuntime = generation.own(')
     const ownDsh = main.indexOf('const releaseDshRuntime = generation.own(')
     const materialize = main.indexOf('await materializeProfile({', prepare)
@@ -577,7 +577,7 @@ describe('published package surface', () => {
     const selectMarket = main.indexOf('await selectDesktopMarketProvider(', updateSettings)
     const reprepare = main.indexOf('prepared = prepareDesktopProfile(', selectMarket)
     const completeMarker = main.indexOf("'completed',", reprepare)
-    const installDsh = main.indexOf("const dshRuntime = process.platform === 'win32'", completeMarker)
+    const installDsh = main.indexOf('const dshRuntime = installDesktopDshRuntime', completeMarker)
     const boot = main.indexOf('const ctx = await boot', installDsh)
     const mount = main.indexOf('runtime.mountScheduled(),', boot)
 
