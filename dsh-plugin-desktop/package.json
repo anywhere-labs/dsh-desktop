@@ -123,11 +123,13 @@
     "check": "yarn run build && yarn run typecheck && yarn run test && yarn run verify:closure && yarn run verify:cli && yarn run verify:loader && yarn run verify:profile && yarn run verify:aa && yarn run verify:licenses && yarn run verify:operations",
     "check:win-package": "yarn workspace dsh-community-market build && yarn run build && yarn run typecheck && vitest run tests/package.spec.ts tests/package-win.spec.ts tests/desktop-installer-quit.spec.ts tests/installer-nsh.spec.ts tests/update-checker.spec.ts tests/update-download.spec.ts tests/verify-win-installer.spec.ts tests/verify-win-portable.spec.ts tests/verify-packaged-runtime.spec.ts tests/windows-pwsh-sandbox.spec.ts tests/windows-volume-diagnostics.spec.ts tests/window-options.spec.ts tests/safe-mode.spec.ts && yarn run verify:closure",
     "check:mac-package": "yarn workspace dsh-community-market build && yarn run build && yarn run typecheck && vitest run tests/package.spec.ts tests/package-mac.spec.ts tests/verify-mac-smoke.spec.ts tests/verify-packaged-runtime.spec.ts tests/mac-universal.spec.ts && yarn run verify:closure",
+    "check:linux-package": "yarn workspace dsh-community-market build && yarn run build && yarn run typecheck && vitest run tests/linux-native-runtime.spec.ts tests/package.spec.ts tests/package-linux.spec.ts tests/update-checker.spec.ts tests/verify-linux-appimage.spec.ts tests/verify-packaged-runtime.spec.ts tests/window-options.spec.ts && yarn run verify:closure",
     "start": "node lib/bin.js",
     "dev": "yarn run build && yarn run prepare:electron-native && node lib/bin.js",
     "package:dir": "yarn run build && yarn run prepare:electron-native && node scripts/package-dir.mjs",
     "dist:mac": "node scripts/release-mac.ts",
     "dist:mac-smoke": "node scripts/package-mac.ts",
+    "dist:linux": "node scripts/package-linux.ts",
     "dist:win": "node scripts/package-win.ts",
     "dist:win-portable": "node scripts/package-win-portable.ts",
     "prepack": "yarn run check",
@@ -411,11 +413,29 @@
       "artifactName": "DSH-Desktop-${version}-${arch}-Setup.${ext}"
     },
     "linux": {
-      "target": [
-        "dir"
+      "files": [
+        "!node_modules/node-pty/**"
       ],
+      "extraResources": [
+        {
+          "from": "node_modules/node-pty",
+          "to": "app.asar.unpacked/node_modules/node-pty"
+        }
+      ],
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "DSH-Desktop-${version}-x86_64.${ext}",
+      "category": "Development",
+      "executableArgs": [],
+      "executableName": "dsh-plugin-desktop",
       "icon": "build/app-icon.png",
-      "asar": false
+      "syncDesktopName": true
     },
     "npmRebuild": false
   }
