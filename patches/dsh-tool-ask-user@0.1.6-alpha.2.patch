@@ -1,0 +1,44 @@
+diff --git a/lib/index.js b/lib/index.js
+index c842f22..c49ddc0 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -31,11 +31,15 @@ function apply(ctx) {
+ 					question: {
+ 						type: "string",
+ 						required: true,
+-						description: "The specific question to ask the user."
++						description: "The specific question to ask the user, as short plain text. Put longer or formatted supporting content in detail; Markdown is not rendered here."
++					},
++					detail: {
++						type: "string",
++						description: "Optional supporting explanation shown under the question. Markdown is allowed here, so use it for formatted explanatory content."
+ 					},
+ 					header: {
+ 						type: "string",
+-						description: "Optional short heading for the question, such as \"Confirm\" or \"Choose Mode\"."
++						description: "Optional short plain-text heading for the question, such as \"Confirm\" or \"Choose Mode\"."
+ 					},
+ 					options: {
+ 						type: "array",
+@@ -47,11 +51,11 @@ function apply(ctx) {
+ 								label: {
+ 									type: "string",
+ 									required: true,
+-									description: "Short user-facing option label."
++									description: "Short plain-text user-facing option label."
+ 								},
+ 								description: {
+ 									type: "string",
+-									description: "One sentence explaining the tradeoff or impact."
++									description: "One sentence of plain text explaining the tradeoff or impact."
+ 								}
+ 							}
+ 						}
+@@ -98,6 +102,7 @@ function apply(ctx) {
+ 				questions: args.questions.map((question) => ({
+ 					id: question.id,
+ 					question: question.question,
++					...question.detail !== void 0 ? { detail: question.detail } : {},
+ 					...question.header !== void 0 ? { header: question.header } : {},
+ 					...question.options !== void 0 ? { options: question.options } : {},
+ 					...question.multi_select !== void 0 ? { multiSelect: question.multi_select } : {}
