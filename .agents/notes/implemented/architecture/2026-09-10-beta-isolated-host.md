@@ -2,6 +2,7 @@
 
 Status: default in Beta; experimental; stable is unchanged.
 
+2026-09-10: Promoted to stable at user request. Both editions now default to the same isolated Host and chrome architecture; release identities remain separate. The validation limitations below still apply.
 English | [中文](2026-09-10-beta-isolated-host.zh.md)
 
 ## Boundary

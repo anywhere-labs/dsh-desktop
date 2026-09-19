@@ -108,9 +108,31 @@ export class DesktopWindowsPwshSandbox extends SandboxPwshExecutor {
     })
   }
 
-  protected override async runArgv(spec: ShellExecSpec, argv: readonly string[]): Promise<ShellRunResult> {
-    const adapted = this.adapt(spec, argv)
-    return super.runArgv(adapted.spec, adapted.argv)
+  /**
+   * Adapt the exact argv the upstream sandbox produced, keeping confinement
+   * preparation inside the caller's deadline. Preparation only yields argv after
+   * this executor has handed a spec to the local executor, so the runner-only
+   * Electron environment lands on this class's own spec copy at the moment the
+   * argv becomes known - strictly before the local executor reads the spec to
+   * build its spawn request.
+   * @param spec - resolved PowerShell execution spec.
+   * @param argvOrPrepare - exact argv, or preparation sharing the execution deadline.
+   * @returns the foreground result and whether argv reached the subprocess provider.
+   */
+  protected override runArgv(
+    spec: ShellExecSpec,
+    argvOrPrepare: readonly string[] | ((signal: AbortSignal) => Promise<readonly string[]>),
+  ): Promise<{ result: ShellRunResult, spawnRequested: boolean }> {
+    if (typeof argvOrPrepare !== 'function') {
+      const adapted = this.adapt(spec, argvOrPrepare)
+      return super.runArgv(adapted.spec, adapted.argv)
+    }
+    const pending: ShellExecSpec = { ...spec }
+    return super.runArgv(pending, async signal => {
+      const adapted = this.adapt(spec, await argvOrPrepare(signal))
+      pending.env = adapted.spec.env
+      return adapted.argv
+    })
   }
 
   protected override startArgv(spec: ShellExecSpec, argv: readonly string[]): ShellProcess {

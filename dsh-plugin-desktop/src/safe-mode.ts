@@ -11,7 +11,6 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
-import { createDesktopWebProfile, selectDesktopProfile } from './profile-manager.ts'
 import type { DesktopMarketProvider } from './desktop-market.ts'
 import type { DesktopSetupWizardSettings } from './setup-wizard-settings.ts'
 
@@ -54,7 +53,7 @@ export const DESKTOP_SAFE_MODE_DEFAULTS: Readonly<{
 export interface DesktopSafeModePaths {
   /** Root removed during Safe Mode shutdown and retried on the next normal launch. */
   readonly rootDir: string
-  /** Isolated Harness home; Safe Mode never reads the normal `~/.dsh`. */
+  /** Isolated Harness home; Safe Mode never reads the normal DSH data directory. */
   readonly homeDir: string
   /** Isolated Desktop state for selection, setup, checkpoints, and preferences. */
   readonly userDataDir: string
@@ -181,20 +180,4 @@ export function ensureDesktopSafeModeEnvironment(userDataDir: string): DesktopSa
     return paths
   }
   return resetDesktopSafeModeEnvironment(userDataDir)
-}
-
-export function prepareDesktopSafeModeEnvironment(userDataDir: string): DesktopSafeModePaths {
-  const paths = resetDesktopSafeModeEnvironment(userDataDir)
-  try {
-    createDesktopWebProfile(paths.homeDir, DESKTOP_SAFE_MODE_PROFILE_NAME)
-    selectDesktopProfile(
-      join(paths.userDataDir, 'profile-selection', 'state.json'),
-      paths.homeDir,
-      DESKTOP_SAFE_MODE_PROFILE_NAME,
-    )
-    return paths
-  } catch (cause) {
-    cleanupDesktopSafeModeEnvironment(userDataDir)
-    throw cause
-  }
 }

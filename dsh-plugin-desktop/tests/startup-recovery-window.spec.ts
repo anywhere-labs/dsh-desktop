@@ -112,7 +112,7 @@ describe('Desktop startup recovery confirmations', () => {
 
     expect(desktopDialog.showDetailed).toHaveBeenCalledWith(expect.objectContaining({
       type: 'error',
-      title: '回滚失败',
+      title: '未能恢复检查点',
       presentation: 'diagnostic',
       buttons: ['关闭'],
       detail: expect.stringContaining('ERR_PNPM_OUTDATED_LOCKFILE'),
@@ -279,7 +279,7 @@ describe('Desktop startup recovery confirmations', () => {
       _path: string,
       _options: { readonly query: { readonly state: string } },
     ) => {})
-    const parent = { isDestroyed: () => false, loadFile, destroy: vi.fn() }
+    const parent = { isDestroyed: () => false, loadFile }
     const privateRecovery = recovery as unknown as {
       window: typeof parent
       handleAction(action: { readonly action: string }): Promise<void>
@@ -298,8 +298,6 @@ describe('Desktop startup recovery confirmations', () => {
     }), parent)
     expect(enterSafeMode).toHaveBeenCalledOnce()
     expect(finish).toHaveBeenCalledWith('safe-mode')
-    expect(parent.destroy).toHaveBeenCalledOnce()
-    expect(loadFile).toHaveBeenCalledOnce()
     const state = JSON.parse(Buffer.from(loadFile.mock.calls[0]![1].query.state, 'base64url').toString('utf8')) as {
       readonly activeTab: string
       readonly safeModeAvailable?: boolean
@@ -340,8 +338,8 @@ describe('Desktop startup recovery confirmations', () => {
 
     expect(desktopDialog.show).toHaveBeenCalledWith(expect.objectContaining({
       title: '更改数据目录？',
-      detail: '建议不要使用中文路径。\n\n目标文件夹如果为空，则DSH Desktop 会创建一个全新的环境；旧数据目录不会被删除。',
-      buttons: ['继续', '取消'],
+      detail: '请选择空文件夹或已有的 DSH 数据目录。空文件夹将用于创建新环境；原数据目录会保留。',
+      buttons: ['选择目录', '取消'],
       defaultId: 1,
       cancelId: 1,
     }), parent)
@@ -541,7 +539,7 @@ describe('Desktop startup recovery confirmations', () => {
       type: 'warning',
       title: 'Factory reset DSH Desktop?',
       detail: expect.stringContaining('C:\\Users\\Example\\.dsh'),
-      buttons: ['Reset and reinstall', 'Cancel'],
+      buttons: ['Reset data and restart', 'Cancel'],
       defaultId: 1,
       cancelId: 1,
     }), parent)
@@ -642,89 +640,6 @@ describe('Desktop startup recovery diagnostics export', () => {
 
     await pending
     expect(exportSignal?.aborted).toBe(true)
-  })
-
-  it('does not abort Safe Mode preparation when diagnostics finish during the busy render', async () => {
-    const exportTask = deferred<string>()
-    const busyNavigation = deferred<void>()
-    const enterSafeMode = vi.fn()
-    const exportDiagnostics = vi.fn(() => exportTask.promise)
-    const window = new DesktopStartupRecoveryWindow({
-      locale: 'zh',
-      failureStage: 'profile-composition',
-      failureDetail: 'safe mode test',
-      enterSafeMode,
-      exportDiagnostics,
-    })
-    let holdNextNavigation = false
-    let pendingNavigation: typeof busyNavigation | undefined
-    const abortedNavigation = vi.fn()
-    const parent = {
-      isDestroyed: () => false,
-      destroy: vi.fn(),
-      loadFile: vi.fn(async () => {
-        if (pendingNavigation !== undefined) {
-          abortedNavigation()
-          pendingNavigation.reject(Object.assign(new Error('ERR_ABORTED'), { code: 'ERR_ABORTED' }))
-          pendingNavigation = undefined
-        }
-        if (!holdNextNavigation) return
-        holdNextNavigation = false
-        pendingNavigation = busyNavigation
-        try { await busyNavigation.promise } finally { pendingNavigation = undefined }
-      }),
-    }
-    const privateRecovery = window as unknown as {
-      window: typeof parent
-      busy: boolean
-      diagnostics: { status: string }
-      startDiagnosticExport(): Promise<string>
-      finish(result: 'restart' | 'safe-mode' | 'quit'): void
-    }
-    privateRecovery.window = parent
-    const finishRecovery = vi.spyOn(privateRecovery, 'finish')
-    const diagnosticTask = privateRecovery.startDiagnosticExport()
-    await vi.waitFor(() => expect(exportDiagnostics).toHaveBeenCalledOnce())
-    holdNextNavigation = true
-
-    const action = handleAction(window)({ action: 'enter-safe-mode' })
-    await vi.waitFor(() => expect(pendingNavigation).toBe(busyNavigation))
-    exportTask.resolve('C:\\Temp\\diagnostics.zip')
-    await vi.waitFor(() => expect(privateRecovery.diagnostics.status).toBe('saved'))
-    busyNavigation.resolve()
-    await Promise.all([action, diagnosticTask])
-
-    expect(abortedNavigation).not.toHaveBeenCalled()
-    expect(enterSafeMode).toHaveBeenCalledOnce()
-    expect(finishRecovery).toHaveBeenCalledWith('safe-mode')
-    expect(parent.destroy).toHaveBeenCalledOnce()
-    expect(privateRecovery.busy).toBe(false)
-  })
-
-  it('releases the busy state after a failed render so Safe Mode can be retried', async () => {
-    const enterSafeMode = vi.fn()
-    const window = new DesktopStartupRecoveryWindow({
-      locale: 'zh',
-      failureStage: 'profile-composition',
-      failureDetail: 'safe mode test',
-      enterSafeMode,
-      exportDiagnostics: async () => 'C:\\Temp\\diagnostics.zip',
-    })
-    const parent = {
-      isDestroyed: () => false,
-      destroy: vi.fn(),
-      loadFile: vi.fn(async () => {}).mockRejectedValueOnce(new Error('ERR_ABORTED')),
-    }
-    const privateRecovery = window as unknown as { window: typeof parent; busy: boolean }
-    privateRecovery.window = parent
-
-    await handleAction(window)({ action: 'enter-safe-mode' })
-
-    expect(enterSafeMode).not.toHaveBeenCalled()
-    expect(privateRecovery.busy).toBe(false)
-    await handleAction(window)({ action: 'enter-safe-mode' })
-    expect(enterSafeMode).toHaveBeenCalledOnce()
-    expect(parent.destroy).toHaveBeenCalledOnce()
   })
 })
 

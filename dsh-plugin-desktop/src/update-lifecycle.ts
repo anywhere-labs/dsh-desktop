@@ -83,6 +83,7 @@ class DesktopUpdateLifecycleOwner implements DesktopUpdateLifecycle {
   constructor(private readonly options: DesktopUpdateLifecycleOptions) {
     this.stateReady = this.loadState()
     this.registration = options.registerTrayItem({
+      id: 'check-for-updates',
       group: 'status',
       order: 10,
       label: () => this.trayLabel(),

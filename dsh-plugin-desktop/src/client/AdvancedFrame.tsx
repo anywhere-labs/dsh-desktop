@@ -117,7 +117,16 @@ export function DesktopOwnedFrame({
     >
       {mode === 'advanced' && platform === 'darwin' && <div className="dshDesktopMacCaptionRow" aria-hidden="true" />}
       <aside className="dshDesktopSidebarSurface">
-        <div className="dshDesktopUpstreamSidebar">
+        {/*
+          Desktop owns the layout, so the upstream Web frame — and the CSS module
+          class `<hash>_sidebarCol` plugins anchor on — never reaches the DOM.
+          Carry both anchors here so a plugin written against the Web sidebar
+          column keeps resolving one; `dshDesktop_sidebarCol` holds no styles.
+        */}
+        <div
+          className="dshDesktopUpstreamSidebar dshDesktop_sidebarCol"
+          data-pane="sidebar"
+        >
           {renderSlot('sidebar', { collapsed, width: sidebarOwnerWidth })}
         </div>
       </aside>

@@ -19,7 +19,7 @@ import {
   Trash2,
   Users,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert.tsx'
 import { Button } from '../components/ui/button.tsx'
 import {
@@ -192,23 +192,26 @@ function ProfilesPanel({ copy, state }: { readonly copy: DesktopRecoveryCopy; re
   return <PanelScroll><DesktopProfileSelector profiles={state.profiles} labels={{ title: copy.profiles, description: copy.profilesBody, current: copy.currentProfile, select: copy.switchProfile, empty: copy.profilesEmpty, create: copy.addProfile }} selectHref={name => state.profileActionToken === undefined ? undefined : href('switch-profile', state.profileActionToken, name)} {...(state.profileCreatorAvailable ? { createHref: href('open-profile-creator') } : {})} /></PanelScroll>
 }
 
-function RecoveryGuideCard({ body, icon, title }: {
+function RecoveryGuideCard({ body, icon, title, actionLabel, onNavigate, disabled }: {
+  readonly actionLabel: string
+  readonly onNavigate: () => void
+  readonly disabled: boolean
   readonly body: string
   readonly icon: ReactNode
   readonly title: string
 }): JSX.Element {
-  return <Card><CardHeader><CardTitle className="flex items-center gap-2">{icon}{title}</CardTitle><CardDescription>{body}</CardDescription></CardHeader></Card>
+  return <Card><CardHeader><CardTitle className="flex items-center gap-2">{icon}{title}</CardTitle><CardDescription>{body}</CardDescription></CardHeader><CardFooter className="justify-end"><Button type="button" variant="outline" disabled={disabled} onClick={onNavigate}>{actionLabel}</Button></CardFooter></Card>
 }
 
-function QuickRecoveryPanel({ copy, state }: { readonly copy: DesktopRecoveryCopy; readonly state: RecoveryState }): JSX.Element {
+function QuickRecoveryPanel({ copy, state, onNavigate }: { readonly copy: DesktopRecoveryCopy; readonly state: RecoveryState; readonly onNavigate: (tab: DesktopRecoveryTab) => void }): JSX.Element {
   return <PanelScroll>
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><CircleHelp className="size-5" />{copy.quickRecovery}</CardTitle><CardDescription>{copy.quickRecoveryBody}</CardDescription></CardHeader></Card>
     <SafeModePanel copy={copy} state={state} />
-    <RecoveryGuideCard body={copy.pluginGuideBody} icon={<Plug className="size-5" />} title={copy.plugins} />
-    <RecoveryGuideCard body={copy.rollbackGuideBody} icon={<History className="size-5" />} title={copy.tabs.rollback} />
-    <RecoveryGuideCard body={copy.profileSwitchGuideBody} icon={<Users className="size-5" />} title={copy.tabs.profiles} />
-    <RecoveryGuideCard body={copy.dataGuideBody} icon={<HardDrive className="size-5" />} title={copy.tabs.data} />
-    <RecoveryGuideCard body={copy.diagnosticsGuideBody} icon={<Stethoscope className="size-5" />} title={copy.tabs.diagnostics} />
+    <RecoveryGuideCard disabled={state.busy} actionLabel={copy.guideActions.plugins} onNavigate={() => onNavigate('plugins')} body={copy.pluginGuideBody} icon={<Plug className="size-5" />} title={copy.plugins} />
+    <RecoveryGuideCard disabled={state.busy} actionLabel={copy.guideActions.rollback} onNavigate={() => onNavigate('rollback')} body={copy.rollbackGuideBody} icon={<History className="size-5" />} title={copy.tabs.rollback} />
+    <RecoveryGuideCard disabled={state.busy} actionLabel={copy.guideActions.profiles} onNavigate={() => onNavigate('profiles')} body={copy.profileSwitchGuideBody} icon={<Users className="size-5" />} title={copy.tabs.profiles} />
+    <RecoveryGuideCard disabled={state.busy} actionLabel={copy.guideActions.data} onNavigate={() => onNavigate('data')} body={copy.dataGuideBody} icon={<HardDrive className="size-5" />} title={copy.tabs.data} />
+    <RecoveryGuideCard disabled={state.busy} actionLabel={copy.guideActions.diagnostics} onNavigate={() => onNavigate('diagnostics')} body={copy.diagnosticsGuideBody} icon={<Stethoscope className="size-5" />} title={copy.tabs.diagnostics} />
   </PanelScroll>
 }
 
@@ -254,10 +257,21 @@ export function RecoveryTerminalAction({ busy = false, copy, search }: { readonl
 
 export function RecoveryApp(): JSX.Element {
   const state = decodeState()
+  const [activeTab, setActiveTab] = useState<DesktopRecoveryTab>(state?.activeTab ?? 'quick')
+  const focusDestination = useRef(false)
+  useEffect(() => {
+    if (!focusDestination.current) return
+    focusDestination.current = false
+    document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus()
+  }, [activeTab])
+  const navigate = (tab: DesktopRecoveryTab): void => {
+    focusDestination.current = true
+    setActiveTab(tab)
+  }
   if (state === undefined) {
     const copy = desktopRecoveryCopy(fallbackLocale())
     return <><DesktopFrame /><main className="dshNativeContent flex h-screen items-center justify-center p-6"><Alert variant="destructive"><AlertTriangle /><AlertTitle>{copy.title}</AlertTitle><AlertDescription>{copy.fallbackBody}</AlertDescription></Alert></main></>
   }
   const copy = desktopRecoveryCopy(state.locale)
-  return <><DesktopFrame />{state.terminalAvailable ? <RecoveryTerminalAction busy={state.busy} copy={copy} search={window.location.search} /> : null}<main className={cn('dshNativeContent h-screen overflow-hidden p-5 sm:p-6', state.busy && 'pointer-events-none opacity-70')}><div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-4"><Reason copy={copy} state={state} /><Tabs defaultValue={state.activeTab}><TabsList className="w-full justify-start overflow-x-auto"><TabsTrigger value="quick"><LifeBuoy />{copy.tabs.quick}</TabsTrigger><TabsTrigger value="plugins"><Plug />{copy.tabs.plugins}</TabsTrigger><TabsTrigger value="rollback"><History />{copy.tabs.rollback}</TabsTrigger><TabsTrigger value="profiles"><Users />{copy.tabs.profiles}</TabsTrigger><TabsTrigger value="data"><HardDrive />{copy.tabs.data}</TabsTrigger><TabsTrigger value="diagnostics"><Stethoscope />{copy.tabs.diagnostics}</TabsTrigger></TabsList><TabsContent value="quick"><QuickRecoveryPanel copy={copy} state={state} /></TabsContent><TabsContent value="plugins"><PluginsPanel copy={copy} state={state} /></TabsContent><TabsContent value="rollback"><RollbackPanel copy={copy} state={state} /></TabsContent><TabsContent value="profiles"><ProfilesPanel copy={copy} state={state} /></TabsContent><TabsContent value="data"><DataManagementPanel copy={copy} state={state} /></TabsContent><TabsContent value="diagnostics"><DiagnosticsPanel copy={copy} state={state} /></TabsContent></Tabs><RecoveryActionFooter leading={state.busy ? <span className="inline-flex items-center gap-2 text-sm text-muted-foreground"><RefreshCw className="size-4 animate-spin" />{copy.working}</span> : undefined}><Action action="restart" icon={<RotateCcw />} variant={state.restartReady ? 'default' : 'outline'}>{copy.restart}</Action><Action action="quit" icon={<Power />}>{copy.quit}</Action></RecoveryActionFooter></div></main><RecoveryNoticeSurface notice={state.notice} /></>
+  return <><DesktopFrame />{state.terminalAvailable ? <RecoveryTerminalAction busy={state.busy} copy={copy} search={window.location.search} /> : null}<main className={cn('dshNativeContent h-screen overflow-hidden p-5 sm:p-6', state.busy && 'pointer-events-none opacity-70')}><div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-4"><Reason copy={copy} state={state} /><Tabs value={activeTab} onValueChange={value => setActiveTab(value as DesktopRecoveryTab)}><TabsList className="w-full justify-start overflow-x-auto"><TabsTrigger value="quick"><LifeBuoy />{copy.tabs.quick}</TabsTrigger><TabsTrigger value="plugins"><Plug />{copy.tabs.plugins}</TabsTrigger><TabsTrigger value="rollback"><History />{copy.tabs.rollback}</TabsTrigger><TabsTrigger value="profiles"><Users />{copy.tabs.profiles}</TabsTrigger><TabsTrigger value="data"><HardDrive />{copy.tabs.data}</TabsTrigger><TabsTrigger value="diagnostics"><Stethoscope />{copy.tabs.diagnostics}</TabsTrigger></TabsList><TabsContent value="quick"><QuickRecoveryPanel copy={copy} state={state} onNavigate={navigate} /></TabsContent><TabsContent value="plugins"><PluginsPanel copy={copy} state={state} /></TabsContent><TabsContent value="rollback"><RollbackPanel copy={copy} state={state} /></TabsContent><TabsContent value="profiles"><ProfilesPanel copy={copy} state={state} /></TabsContent><TabsContent value="data"><DataManagementPanel copy={copy} state={state} /></TabsContent><TabsContent value="diagnostics"><DiagnosticsPanel copy={copy} state={state} /></TabsContent></Tabs><RecoveryActionFooter leading={state.busy ? <span className="inline-flex items-center gap-2 text-sm text-muted-foreground"><RefreshCw className="size-4 animate-spin" />{copy.working}</span> : undefined}><Action action="restart" icon={<RotateCcw />} variant={state.restartReady ? 'default' : 'outline'}>{copy.restart}</Action><Action action="quit" icon={<Power />}>{copy.quit}</Action></RecoveryActionFooter></div></main><RecoveryNoticeSurface notice={state.notice} /></>
 }

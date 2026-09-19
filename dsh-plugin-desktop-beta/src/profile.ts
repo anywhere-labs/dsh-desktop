@@ -3,25 +3,16 @@
 import { createRequire } from 'node:module'
 import {
   existsSync,
-  lstatSync,
   readFileSync,
-  readdirSync,
-  readlinkSync,
-  rmSync,
-  rmdirSync,
-  statSync,
-  type Dirent,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { isIP } from 'node:net'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { evaluate, isJsExpr, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import {
   composeEntries,
-  DEFAULT_PROFILE_PATCH_RELOAD,
   healProfilesModuleFallback,
   initProfile,
   loadOptionalPatches,
@@ -33,7 +24,6 @@ import {
   writeProfileManifest,
   type Profile,
   type ProfileManifest,
-  type ProfileTemplate,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import FileSettingsProvider, {
@@ -42,7 +32,6 @@ import FileSettingsProvider, {
 } from '@deepseek-ai/dsh-settings-file'
 import { parseAllDocuments, parseDocument } from 'yaml'
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
-import { withAsarModuleResolver } from './asar-module-resolver-state.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
 import {
   desktopBrowserAccessEnabled,
@@ -114,7 +103,6 @@ const DESKTOP_WEB_SERVER_ROW_ID = 'desktop-webserver'
 const DESKTOP_WEB_SERVER_PACKAGE = `${DESKTOP_PACKAGE_NAME}/webserver`
 const SETTINGS_FILE_PACKAGE = '@deepseek-ai/dsh-settings-file'
 const DESKTOP_SETTINGS_NAMESPACE = 'dsh-desktop'
-const MAX_FALLBACK_MANIFEST_BYTES = 1024 * 1024
 const UI_LAYOUT_PACKAGE = '@deepseek-ai/dsh-client-ui-layout'
 const UI_SIDEBAR_PACKAGE = '@deepseek-ai/dsh-client-ui-sidebar'
 const UI_CONVERSATION_PACKAGE = '@deepseek-ai/dsh-client-ui-conversation'
@@ -252,17 +240,19 @@ function requiredWebBundles(): string[] {
   return [...template.bundles]
 }
 
-/** User patch lifecycle inherited from the matching upstream Web profile. */
-function requiredWebPatchReload(): ProfileTemplate['patchReload'] {
-  const template = PROFILE_TEMPLATES.web
-  if (template === undefined) {
-    throw new Error(`${BIN_NAME}: installed dsh-app-boot has no web profile template`)
-  }
-  return template.patchReload
-}
-
 /** Prepared profile inputs consumed by app-boot. */
 export interface PreparedDesktopProfile {
+  /** Extra launcher-owned patches, also replayed after Profile HMR. */
+  overlays?: PatchOptions[]
+  /** Serializable inputs for the Desktop-owned alpha.2 Profile reload path. */
+  reloadOptions: {
+    telemetryDisabled: string | undefined
+    platform: NodeJS.Platform
+    profileName: string
+    pluginStatePath: string | undefined
+    marketSelection: DesktopMarketSnapshot
+    aaEnabled: boolean
+  }
   /** Harness home shared by the launcher and generated command environment. */
   homeDir: string
   /** Resolved profile and its persistent user layer. */
@@ -345,7 +335,7 @@ function sameList(left: readonly string[], right: readonly string[]): boolean {
 export function ensureDesktopProfile(home: string = resolveDshHome()): string {
   const dir = resolveProfileDir(DESKTOP_PROFILE_NAME, home)
   if (!existsSync(join(dir, 'package.json'))) {
-    initProfile(dir, REQUIRED_BUNDLES, requiredWebPatchReload())
+    initProfile(dir, REQUIRED_BUNDLES)
   }
   const manifest = readProfileManifest(BIN_NAME, dir)
   const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
@@ -355,8 +345,7 @@ export function ensureDesktopProfile(home: string = resolveDshHome()): string {
   }
   const current = rawBundles === undefined ? [] : rawBundles as string[]
   const bundles = desktopBundleList(current)
-  const patchReload = requiredWebPatchReload()
-  if (!sameList(current, bundles) || manifest.dsh?.profile?.patchReload !== patchReload) {
+  if (!sameList(current, bundles)) {
     writeProfileManifest(dir, {
       ...manifest,
       dsh: {
@@ -364,7 +353,6 @@ export function ensureDesktopProfile(home: string = resolveDshHome()): string {
         profile: {
           ...manifest.dsh?.profile,
           bundles,
-          patchReload,
         },
       },
     })
@@ -500,7 +488,7 @@ function loadRecoveryFilteredProfile(
     if (template === undefined) {
       throw new Error(`${BIN_NAME}: profile ${JSON.stringify(profileName)} does not exist`)
     }
-    initProfile(profileDir, template.bundles, template.patchReload)
+    initProfile(profileDir, template.bundles)
   }
   const manifest = readProfileManifest(BIN_NAME, profileDir)
   const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
@@ -509,11 +497,6 @@ function loadRecoveryFilteredProfile(
     throw new Error(`${BIN_NAME}: dsh.profile.bundles must be an array of package names`)
   }
   const bundles = (rawBundles ?? []) as string[]
-  const rawPatchReload: unknown = manifest.dsh?.profile?.patchReload
-  if (rawPatchReload !== undefined && rawPatchReload !== 'live' && rawPatchReload !== 'startup') {
-    throw new Error(`${BIN_NAME}: dsh.profile.patchReload must be "live" or "startup"`)
-  }
-  const patchReload = rawPatchReload ?? PROFILE_TEMPLATES[profileName]?.patchReload ?? DEFAULT_PROFILE_PATCH_RELOAD
   const selectedBundles = bundles.filter(packageName =>
     (aaEnabled || packageName !== AA_PACKAGE_NAME) &&
     packageName !== DESKTOP_MARKET_IDENTITIES.community.packageName
@@ -572,7 +555,6 @@ function loadRecoveryFilteredProfile(
       layers,
       patchPath,
       patches: existsSync(patchPath) ? loadOverlayPatches(BIN_NAME, patchPath) : [],
-      patchReload,
     },
     ...(dshMarketFailure === undefined ? {} : { dshMarketFailure }),
     ...(aaFailure === undefined ? {} : { aaFailure }),
@@ -878,7 +860,10 @@ export function prepareDesktopProfile(
   const profile = loadedProfile.profile
   const rootConfig = join(profileDir, DESKTOP_PROFILE_ROOT)
   const bareModuleBaseUrl = pathToFileURL(join(profile.dir, 'package.json')).href
-  writeFileSync(rootConfig, '[]\n')
+  // Profile HMR reuses preparation; do not retrigger the root watcher on reads.
+  if (!existsSync(rootConfig) || readFileSync(rootConfig, 'utf8') !== '[]\n') {
+    writeFileSync(rootConfig, '[]\n')
+  }
 
   const desktopPatches = loadOverlayPatches(BIN_NAME, DESKTOP_PATCH_PATH)
   const bundlePatches: PatchOptions[] = []
@@ -1162,6 +1147,14 @@ export function prepareDesktopProfile(
   })
   return {
     homeDir: home,
+    reloadOptions: {
+      telemetryDisabled,
+      platform,
+      profileName,
+      pluginStatePath,
+      marketSelection: structuredClone(marketSelection),
+      aaEnabled: hooks.aaEnabled === true,
+    },
     profile,
     rootConfig,
     bareModuleBaseUrl,
@@ -1184,111 +1177,12 @@ export function prepareDesktopProfile(
 }
 
 /** Maintain the upstream module fallback for one fully resolved Desktop profile. */
-export function healDesktopProfileModuleFallback(home: string, profile?: Profile): Promise<void> {
-  const heal = () => healProfilesModuleFallback({
+export async function healDesktopProfileModuleFallback(home: string, profile?: Profile): Promise<void> {
+  await healProfilesModuleFallback({
     installAnchor: INSTALL_ANCHOR,
     home,
     ...(profile === undefined ? {} : { profile }),
   })
-  if (!/([\\/])app\.asar\1/u.test(INSTALL_ANCHOR)) return heal()
-  removeObsoleteDesktopSharedModuleFallback(home)
-  return withAsarModuleResolver(heal)
-}
-
-function isDshManagedModuleProxy(directory: string): boolean {
-  const manifestPath = join(directory, 'package.json')
-  try {
-    if (statSync(manifestPath).size > MAX_FALLBACK_MANIFEST_BYTES) return false
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-      dsh?: { moduleFallback?: { targets?: unknown } }
-    }
-    const targets = manifest.dsh?.moduleFallback?.targets
-    return targets !== null && typeof targets === 'object' && !Array.isArray(targets)
-      && Object.keys(targets).length > 0
-      && Object.values(targets).every((target) => {
-        if (typeof target !== 'string') return false
-        try {
-          const url = new URL(target)
-          return url.protocol === 'file:'
-            && /(^|[\\/])app\.asar(?:\.unpacked)?([\\/]|$)/iu.test(fileURLToPath(url))
-        } catch {
-          return false
-        }
-      })
-  } catch {
-    return false
-  }
-}
-
-function removeManagedFallbackEntry(entryPath: string): boolean {
-  let stat: ReturnType<typeof lstatSync>
-  try {
-    stat = lstatSync(entryPath)
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return false
-    return false
-  }
-  try {
-    if (stat.isSymbolicLink()) {
-      const target = readlinkSync(entryPath)
-      const absoluteTarget = isAbsolute(target) ? target : resolve(dirname(entryPath), target)
-      // Desktop releases that mirrored the whole dependency graph produced
-      // links into app.asar(.unpacked). No ordinary user Profile installation
-      // needs such a shared parent link.
-      if (!/(^|[\\/])app\.asar(?:\.unpacked)?([\\/]|$)/iu.test(absoluteTarget)) return false
-      unlinkSync(entryPath)
-      return true
-    }
-    if (!stat.isDirectory() || !isDshManagedModuleProxy(entryPath)) return false
-    rmSync(entryPath, { recursive: true, force: true })
-    return true
-  } catch {
-    // A locked legacy link must not make Desktop startup fail. The resolver
-    // also refuses shared/legacy ASAR results, so leaving it is safe.
-    return false
-  }
-}
-
-/**
- * Remove only provably DSH-generated installation fallbacks from releases
- * predating the ASAR resolver. Unknown files and directories are preserved.
- */
-export function removeObsoleteDesktopSharedModuleFallback(home: string): number {
-  const modulesDirectory = join(home, 'profiles', 'node_modules')
-  let entries: Dirent<string>[]
-  try {
-    entries = readdirSync(modulesDirectory, { withFileTypes: true, encoding: 'utf8' })
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return 0
-    return 0
-  }
-  let removed = 0
-  for (const entry of entries) {
-    const entryPath = join(modulesDirectory, entry.name)
-    if (entry.name.startsWith('@') && entry.isDirectory()) {
-      let scopedEntries: typeof entries
-      try {
-        scopedEntries = readdirSync(entryPath, { withFileTypes: true, encoding: 'utf8' })
-      } catch {
-        continue
-      }
-      let removedFromScope = 0
-      for (const scopedEntry of scopedEntries) {
-        if (removeManagedFallbackEntry(join(entryPath, scopedEntry.name))) removedFromScope += 1
-      }
-      removed += removedFromScope
-      if (removedFromScope > 0) {
-        try {
-          rmdirSync(entryPath)
-        } catch {
-          // The scope still contains unknown/user-owned data or another writer.
-        }
-      }
-      continue
-    }
-    if (removeManagedFallbackEntry(entryPath)) removed += 1
-  }
-  return removed
 }
 
 /** Expose the package anchor for focused resolution tests. */

@@ -292,7 +292,6 @@ export class DesktopStartupRecoveryWindow {
   private profiles: readonly DesktopStartupRecoveryProfile[] | undefined
   private resolveResult: ((result: RecoveryWindowResult) => void) | undefined
   private settled = false
-  private renderTail: Promise<void> = Promise.resolve()
 
   constructor(private readonly options: DesktopStartupRecoveryWindowOptions) {}
 
@@ -640,6 +639,7 @@ export class DesktopStartupRecoveryWindow {
     }, window)
     return result.response === 0
   }
+
   private async confirmDataDirectoryChange(): Promise<boolean> {
     const window = this.window
     if (window === undefined || window.isDestroyed()) return false
@@ -720,12 +720,8 @@ export class DesktopStartupRecoveryWindow {
 
   private async runBusy(operation: () => Promise<void>): Promise<void> {
     this.busy = true
-    try {
-      await this.render()
-      await operation()
-    } finally {
-      this.busy = false
-    }
+    await this.render()
+    try { await operation() } finally { this.busy = false }
   }
 
   private async refreshSnapshot(): Promise<void> {
@@ -789,13 +785,7 @@ export class DesktopStartupRecoveryWindow {
     }
   }
 
-  private render(): Promise<void> {
-    const task = this.renderTail.then(async () => { await this.renderDocument() })
-    this.renderTail = task.catch(() => {})
-    return task
-  }
-
-  private async renderDocument(): Promise<void> {
+  private async render(): Promise<void> {
     const window = this.window
     if (window === undefined || window.isDestroyed()) return
     const notice = this.notice

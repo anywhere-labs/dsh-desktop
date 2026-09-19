@@ -126,6 +126,8 @@ const electron = vi.hoisted(() => {
     focus: vi.fn(),
     isDestroyed: vi.fn(() => false),
     close: vi.fn(),
+    ipc: { handle: vi.fn(), removeHandler: vi.fn() },
+    mainFrame: { url: 'http://127.0.0.1:41234/' },
     loadURL,
   }
   const chromeWebContents = {
@@ -1126,19 +1128,62 @@ describe('Electron desktop runtime', () => {
       electron.webContents.executeJavaScript.mockResolvedValue(null)
     })
 
-    it('replaces a persistently unresponsive renderer without waiting for it to exit itself', async () => {
-      const { release, window, gone } = await mountHealthyRenderer()
+    it('replaces a persistently unresponsive renderer and reloads once its exit lands', async () => {
+      const { release, window, gone, logger } = await mountHealthyRenderer()
       window.isVisible.mockReturnValue(true)
       electron.webContents.executeJavaScript.mockImplementation(() => new Promise(() => {}))
-      electron.webContents.forcefullyCrashRenderer.mockImplementationOnce(() => {
-        gone({}, { reason: 'crashed', exitCode: 9 })
-      })
       await vi.advanceTimersByTimeAsync(30_001)
+      // forcefullyCrashRenderer() returns before the process is gone. A reload
+      // issued in the same turn goes to a RenderFrameHost that is already being
+      // torn down, and Chromium cancels it along with the process.
       expect(electron.webContents.forcefullyCrashRenderer).toHaveBeenCalledOnce()
+      expect(electron.webContents.reloadIgnoringCache).not.toHaveBeenCalled()
+      expect(logger.error).toHaveBeenCalledWith(
+        'dsh-plugin-desktop: terminating unresponsive renderer; the crash dump it produces is deliberate',
+      )
+      gone({}, { reason: 'killed', exitCode: -536870904 })
       expect(electron.webContents.reloadIgnoringCache).toHaveBeenCalledOnce()
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('unresponsive renderer replaced'))
       expect(electron.dialog.showMessageBox).not.toHaveBeenCalled()
       await release()
       electron.webContents.executeJavaScript.mockResolvedValue(null)
+    })
+
+    it('reloads anyway when a forced termination never reports its exit', async () => {
+      const { release, window, logger } = await mountHealthyRenderer()
+      window.isVisible.mockReturnValue(true)
+      electron.webContents.executeJavaScript.mockImplementation(() => new Promise(() => {}))
+      await vi.advanceTimersByTimeAsync(30_001)
+      expect(electron.webContents.forcefullyCrashRenderer).toHaveBeenCalledOnce()
+      expect(electron.webContents.reloadIgnoringCache).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(electron.webContents.reloadIgnoringCache).toHaveBeenCalledOnce()
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('reported no exit within the deadline'),
+      )
+      await release()
+      electron.webContents.executeJavaScript.mockResolvedValue(null)
+    })
+
+    it('keeps a native reload reachable and clears an exhausted recovery through it', async () => {
+      const { runtime, release, exhaust, healthy, window } = await mountHealthyRenderer()
+      electron.dialog.showMessageBox.mockResolvedValueOnce({ response: 1, checkboxChecked: false })
+      await exhaust()
+      expect(electron.dialog.showMessageBox).toHaveBeenCalledOnce()
+      const reloads = electron.webContents.reloadIgnoringCache.mock.calls.length
+      const item = (electron.menuTemplates.at(-1) as Array<{ label?: string, click?: () => void }>)
+        .find(entry => entry.label === 'Reload Interface')
+      expect(item?.click).toBeTypeOf('function')
+      item!.click!()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(electron.webContents.reloadIgnoringCache).toHaveBeenCalledTimes(reloads + 1)
+      healthy()
+      // A recovered generation must not re-arm the degraded prompt on reveal.
+      window.isVisible.mockReturnValue(false)
+      runtime.show()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(electron.dialog.showMessageBox).toHaveBeenCalledOnce()
+      await release()
     })
 
     it('retries a failed main-frame load but ignores subframe errors and aborted navigation', async () => {
@@ -1829,7 +1874,7 @@ describe('Electron desktop runtime', () => {
 
     const labels = (electron.menuTemplates.at(-1) as Array<{ label?: string }>).map(item => item.label)
     expect(labels).toEqual([
-      'Open DSH Desktop', undefined,
+      'Open DSH Desktop', 'Reload Interface', undefined,
       'Earlier Tool', 'Later Tool', undefined,
       'Check for Updates…', undefined,
       'Mode: Compatibility Mode', undefined,

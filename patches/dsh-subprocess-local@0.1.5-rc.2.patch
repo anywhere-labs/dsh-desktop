@@ -1,0 +1,18 @@
+diff --git a/lib/runner-launch-COYGu0Dl.js b/lib/runner-launch-COYGu0Dl.js
+--- a/lib/runner-launch-COYGu0Dl.js
++++ b/lib/runner-launch-COYGu0Dl.js
+@@ -1449,6 +1449,14 @@
+ 		const normalized = name.toUpperCase();
+ 		if (RUNNER_CONTROL_ENV_PREFIXES.some((prefix) => normalized.startsWith(prefix))) Reflect.deleteProperty(env, name);
+ 	}
++	// Electron hosts must launch the private Windows runner in Node mode.
++	// Target env arrives separately over IPC; never add this flag to it.
++	if (selection === WINDOWS_RUNNER_SELECTION && process.platform === "win32" && process.versions.electron !== void 0) {
++		for (const name of Object.keys(env)) {
++			if (name.toUpperCase() === "ELECTRON_RUN_AS_NODE") Reflect.deleteProperty(env, name);
++		}
++		env.ELECTRON_RUN_AS_NODE = "1";
++	}
+ 	return {
+ 		...env,
+ 		[SUBPROCESS_RUNNER_ENV]: selection,

@@ -9,6 +9,7 @@ import {
   shell,
 } from 'electron'
 import { spawn } from 'node:child_process'
+import { RemoteControlOffer, remoteControlOfferCopy } from './remote-control-offer.ts'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -228,6 +229,16 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     }
     if (this.mountTask === undefined) {
       this.setLocalePreference(spec.readLocalePreference())
+      const remoteOffer = spec.readRemoteControl && spec.enableRemoteControl ? new RemoteControlOffer({
+        path: join(app.getPath('userData'), 'remote-control-offer-seen'),
+        readEnabled: spec.readRemoteControl,
+        enable: spec.enableRemoteControl,
+        confirm: async copy => (await this.showDesktopMessageBox({
+          type: 'question', title: copy.title, message: copy.message, detail: copy.detail,
+          buttons: [copy.confirm, copy.cancel], defaultId: 1, cancelId: 1, noLink: true,
+        })).response === 0,
+        reportError: cause => this.logError(`Remote control notice: ${String(cause)}`),
+      }) : undefined
       const generation = new ElectronShellGeneration({
         platform: this.platformStrategy,
         spec,
@@ -242,6 +253,32 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         rendererRecoveryCopy: () => rendererRecoveryCopy[this.currentLocale],
         logError: message => { this.logError(message) },
         mainWindowState: this.mainWindowState,
+        chromeActions: {
+          ...(remoteOffer ? { remoteControl: {
+            read: () => remoteOffer.read(),
+            open: async () => {
+              try { await remoteOffer.open(this.locale) }
+              catch (cause) {
+                this.logError(`Remote control activation failed: ${String(cause)}`)
+                const copy = remoteControlOfferCopy[this.locale]
+                await this.showDesktopMessageBox({ type: 'error', title: copy.failed, message: copy.failed, detail: copy.retry })
+              }
+            },
+          } } : {}),
+          locale: () => this.locale,
+          version: PRODUCT_VERSION,
+          openTerminal: () => { this.openTerminal() },
+          restart: () => this.requestRestart(),
+          restartToRecovery: () => this.requestRecoveryRestart(),
+          reload: () => { this.reloadRenderer() },
+          developerTools: () => { this.toggleDeveloperTools() },
+          exportDiagnostics: () => this.exportDiagnostics(),
+          checkForUpdates: async () => {
+            const command = [...this.trayItems.values()].find(item => item.id === 'check-for-updates')
+            if (command === undefined || command.enabled?.() === false) throw new Error('Desktop update check is unavailable')
+            await command.invoke()
+          },
+        },
       })
       this.generation = generation
       this.mountTask = generation.mount(beforeInteractive).then(() => {
@@ -845,8 +882,19 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     const tools = this.contributedTrayItems('tools')
     const profiles = this.contributedTrayItems('profiles')
     const status = this.contributedTrayItems('status')
+    // The in-app "Reload interface" control lives inside the renderer, so it is
+    // gone exactly when it is needed. This native twin keeps one restore path
+    // reachable after the window has stopped drawing anything.
+    const reloadRenderer = (): void => {
+      try {
+        this.generation?.requestRendererReload()
+      } catch (cause) {
+        this.logError(`dsh-plugin-desktop: failed to reload the renderer from the tray: ${cause instanceof Error ? cause.message : String(cause)}`)
+      }
+    }
     const template: Electron.MenuItemConstructorOptions[] = [
       { label: desktopTrayLabel(this.locale, 'openDesktop', spec.productName), click: show },
+      { label: desktopTrayLabel(this.locale, 'reloadRenderer'), click: reloadRenderer },
     ]
     if (tools.length > 0) template.push({ type: 'separator' }, ...tools)
     if (profiles.length > 0) template.push({ type: 'separator' }, ...profiles)

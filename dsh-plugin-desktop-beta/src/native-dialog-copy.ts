@@ -65,6 +65,13 @@ export interface DesktopNativeCopy {
   readonly profileCompatibilityWarning: string
   readonly switchProfile: string
   readonly useProfileAnyway: string
+  readonly sharedDataDirectoryTitle: string
+  readonly sharedDataDirectoryMessage: (currentProductName: string, otherProductName: string) => string
+  readonly sharedDataDirectoryDetail: (currentDirectory: string, channelDirectory: string) => string
+  readonly sharedDataDirectoryWarning: (otherProductName: string, sessionsDirectory: string) => string
+  readonly useChannelDataDirectory: string
+  readonly shareDataDirectoryAnyway: string
+  readonly sharedDataDirectoryFailed: string
   readonly quit: string
   readonly unknownVersion: string
 }
@@ -77,7 +84,7 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     unknownPlugin: 'Unknown client plugin',
     missingPluginError: 'The plugin loader did not provide an error message.',
     failedPlugins: 'Plugins that failed to load:',
-    pluginRecoveryInstructions: 'Open DSH Terminal to update or remove the failing third-party plugin, then restart DSH Desktop.',
+    pluginRecoveryInstructions: 'Update or uninstall the failed third-party plugins in DSH Terminal, then restart the app.',
     openTerminal: 'Open DSH Terminal',
     restart: 'Restart DSH Desktop',
     dismiss: 'Dismiss',
@@ -88,12 +95,12 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     download: 'Download',
     later: 'Later',
     updateCheckFailedTitle: 'Unable to Check for Updates',
-    updateCheckFailedMessage: 'DSH Desktop could not check for updates.',
+    updateCheckFailedMessage: 'Could not retrieve update information.',
     tryAgainLater: 'Please try again later.',
     upToDateTitle: 'DSH Desktop Is Up to Date',
-    upToDateMessage: 'No newer version of DSH Desktop is available.',
+    upToDateMessage: 'You are using the latest version.',
     installedVersion: version => `Installed version: ${version}`,
-    installerUnavailable: 'Installer downloads are unavailable in this build.',
+    installerUnavailable: 'This version cannot download installers from within the app.',
     updateDownloadedTitle: 'DSH Desktop Update Downloaded',
     updateReady: version => `DSH Desktop ${version} is ready to install.`,
     macInstallInstructions: 'The disk image has opened. Replace DSH Desktop in Applications, then reopen it.',
@@ -109,9 +116,9 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     deleteInstaller: 'Delete Installer',
     keepInstaller: 'Keep Installer',
     terminalErrorTitle: 'Unable to Open DSH Terminal',
-    terminalErrorMessage: 'DSH Desktop could not open a terminal.',
+    terminalErrorMessage: 'Could not start the terminal. Please try again.',
     diagnosticsErrorTitle: 'Unable to Export Diagnostics',
-    diagnosticsErrorMessage: 'DSH Desktop could not export the diagnostic archive.',
+    diagnosticsErrorMessage: 'Could not create the diagnostic archive. Please try again.',
     skippedPluginTitle: 'UI Plugin Not Loaded',
     skippedPluginBody: (name, additionalCount) => additionalCount > 0
       ? `${name} and ${additionalCount} other UI ${additionalCount === 1 ? 'plugin are' : 'plugins are'} not installed in this Profile.`
@@ -128,6 +135,18 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     profileCompatibilityWarning: 'DSH version differences may cause:\n1. Historical session information to fail to load;\n2. Some plugins in the current Profile to be incompatible and possibly cause errors or crashes.\nWe recommend switching to a compatible Profile or creating a new Profile.',
     switchProfile: 'Switch Profile',
     useProfileAnyway: 'Use Anyway',
+    sharedDataDirectoryTitle: 'Shared Data Directory',
+    sharedDataDirectoryMessage: (currentProductName, otherProductName) =>
+      `${currentProductName} is sharing one data directory with ${otherProductName}.`,
+    sharedDataDirectoryDetail: (currentDirectory, channelDirectory) =>
+      `Current data directory:\n${currentDirectory}\n\nRecommended directory:\n${channelDirectory}`,
+    sharedDataDirectoryWarning: (otherProductName, sessionsDirectory) =>
+      'The two releases run different DSH cores. Sharing one data directory can make installed plugins fail to load intermittently.\n'
+      + `Switching leaves the current directory untouched, and ${otherProductName} keeps using it.\n`
+      + `Existing sessions stay in ${sessionsDirectory}. Copy that folder into the new data directory whenever you want them back.`,
+    useChannelDataDirectory: 'Use Its Own Directory',
+    shareDataDirectoryAnyway: 'Keep Sharing',
+    sharedDataDirectoryFailed: 'Could not switch to the dedicated data directory. The current directory is unchanged; you can try again on the next launch.',
     quit: 'Quit',
     unknownVersion: 'Unknown',
   },
@@ -138,7 +157,7 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     unknownPlugin: '未知客户端插件',
     missingPluginError: '插件加载器没有提供错误信息。',
     failedPlugins: '加载失败的插件：',
-    pluginRecoveryInstructions: '请打开 DSH 终端更新或移除失败的第三方插件，然后重启 DSH Desktop。',
+    pluginRecoveryInstructions: '请在 DSH 终端中更新或卸载加载失败的第三方插件，然后重启应用。',
     openTerminal: '打开 DSH 终端',
     restart: '重启 DSH Desktop',
     dismiss: '关闭',
@@ -149,12 +168,12 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     download: '下载',
     later: '稍后',
     updateCheckFailedTitle: '无法检查更新',
-    updateCheckFailedMessage: 'DSH Desktop 无法检查更新。',
+    updateCheckFailedMessage: '未能获取更新信息。',
     tryAgainLater: '请稍后重试。',
     upToDateTitle: 'DSH Desktop 已是最新版本',
-    upToDateMessage: '当前没有更新版本的 DSH Desktop。',
+    upToDateMessage: '当前已是最新版本。',
     installedVersion: version => `当前版本：${version}`,
-    installerUnavailable: '此构建不支持下载安装包。',
+    installerUnavailable: '当前版本不支持在应用内下载安装包。',
     updateDownloadedTitle: 'DSH Desktop 更新已下载',
     updateReady: version => `DSH Desktop ${version} 已可安装。`,
     macInstallInstructions: '磁盘映像已打开。请替换“应用程序”中的 DSH Desktop，然后重新打开。',
@@ -170,9 +189,9 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     deleteInstaller: '删除安装包',
     keepInstaller: '保留安装包',
     terminalErrorTitle: '无法打开 DSH 终端',
-    terminalErrorMessage: 'DSH Desktop 无法打开终端。',
+    terminalErrorMessage: '未能启动终端。请重试。',
     diagnosticsErrorTitle: '无法导出诊断信息',
-    diagnosticsErrorMessage: 'DSH Desktop 无法导出诊断包。',
+    diagnosticsErrorMessage: '未能生成诊断包。请重试。',
     skippedPluginTitle: '界面插件未加载',
     skippedPluginBody: (name, additionalCount) => additionalCount > 0
       ? `${name} 及另外 ${additionalCount} 个界面插件未安装在当前 Profile 中。`
@@ -189,6 +208,18 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     profileCompatibilityWarning: 'DSH 版本差异可能会导致：\n1. 历史会话信息加载出错；\n2. 当前 Profile 下的部分插件不兼容，甚至引发报错或崩溃。\n建议您切换到兼容的 Profile，或创建新的 Profile。',
     switchProfile: '切换 Profile',
     useProfileAnyway: '仍然使用',
+    sharedDataDirectoryTitle: '数据目录正在共用',
+    sharedDataDirectoryMessage: (currentProductName, otherProductName) =>
+      `${currentProductName} 正在与 ${otherProductName} 共用同一个数据目录。`,
+    sharedDataDirectoryDetail: (currentDirectory, channelDirectory) =>
+      `当前数据目录：\n${currentDirectory}\n\n建议改用：\n${channelDirectory}`,
+    sharedDataDirectoryWarning: (otherProductName, sessionsDirectory) =>
+      '两个版本使用不同的 DSH 内核，共用同一个数据目录可能导致已安装的插件间歇性加载失败。\n'
+      + `改用专属目录后，当前目录保持不变，${otherProductName} 继续使用它。\n`
+      + `此前的会话记录仍保存在 ${sessionsDirectory}，需要时把该目录复制到新的数据目录下即可。`,
+    useChannelDataDirectory: '改用专属目录',
+    shareDataDirectoryAnyway: '仍然共用',
+    sharedDataDirectoryFailed: '未能改用专属目录。当前数据目录未做任何修改，可在下次启动时重试。',
     quit: '退出',
     unknownVersion: '未知',
   },

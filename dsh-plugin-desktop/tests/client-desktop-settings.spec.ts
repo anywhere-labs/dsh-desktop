@@ -24,12 +24,14 @@ import {
 import { DesktopTerminalSettingsAction } from '../src/client/DesktopTerminalSettingsAction.tsx'
 import {
   createDesktopSettingsApi,
+  desktopRendererActionsBridge,
   desktopSettingsPaths,
   parseDesktopActionAcceptance,
   parseDesktopRestartAcceptance,
   parseDesktopSettingsView,
   type DesktopSettingsView,
 } from '../src/client/desktop-settings-api.ts'
+import { DESKTOP_RENDERER_ACTIONS_BRIDGE } from '../src/renderer-actions-contract.ts'
 import {
   applyDesktopSettings,
   DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE,
@@ -196,27 +198,18 @@ describe('Desktop settings API', () => {
     expect(en.browserCompatibilityNotice).toMatch(/only.+compatibility mode/iu)
     expect(en.browserCompatibilityNotice).toMatch(/select compatibility mode first/iu)
     expect(en.browserCompatibilityNotice).not.toMatch(/switch(?:es|ing)?.+profile/iu)
-    expect(zh.lanTrustNotice).toContain('Chromium')
-    expect(zh.lanTrustNotice).toContain('临时绕过证书警告')
-    expect(zh.lanTrustNotice).toContain('通常')
-    expect(zh.lanTrustNotice).toContain('WebCrypto')
-    expect(zh.lanTrustNotice).toContain('不稳定')
     expect(zh.lanTrustNotice).toContain('安装并信任')
-    expect(zh.lanTrustNotice).toContain('其他浏览器')
-    expect(en.lanTrustNotice).toContain('Chromium')
-    expect(en.lanTrustNotice).toContain('usually')
-    expect(en.lanTrustNotice).toContain('WebCrypto')
-    expect(en.lanTrustNotice).toContain('not stable')
-    expect(en.lanTrustNotice).toContain('install and trust')
-    expect(en.lanTrustNotice).toContain('not guaranteed')
+    expect(zh.lanTrustNotice).toContain('不能保证')
+    expect(en.lanTrustNotice).toContain('Install and trust')
+    expect(en.lanTrustNotice).toContain('does not guarantee')
     expect(zh.beta).toBe('Beta')
     expect(en.beta).toBe('Beta')
-    expect(zh.lanWarningBody).toContain('带 token')
+    expect(zh.lanWarningBody).toContain('持有访问链接')
     expect(zh.lanWarningBody).toContain('HTTPS')
-    expect(zh.lanWarningBody).toContain('本地 CA')
-    expect(en.lanWarningBody).toContain('authenticated local-network URL')
+    expect(zh.lanWarningBody).toContain('证书')
+    expect(en.lanWarningBody).toContain('access link')
     expect(en.lanWarningBody).toContain('HTTPS')
-    expect(en.lanWarningBody).toContain('local CA')
+    expect(en.lanWarningBody).toContain('certificate')
     expect(Object.keys(zh)).not.toContain('lanHttpsUnavailable')
     expect(Object.keys(zh)).not.toContain('lanUrlsAfterRestart')
   })
@@ -448,6 +441,55 @@ describe('Desktop settings API', () => {
     })
   })
 
+  it('keeps Desktop-owned actions on the Electron bridge, off the Host routes', async () => {
+    const fetcher = vi.fn(async () => json(VIEW))
+    const invoke = vi.fn(async () => {})
+    const api = createDesktopSettingsApi(fetcher, { invoke })
+
+    await expect(api.openTerminal()).resolves.toBeUndefined()
+    await expect(api.restart()).resolves.toBeUndefined()
+    await expect(api.restartToRecovery()).resolves.toBeUndefined()
+    await expect(api.reloadRenderer()).resolves.toBeUndefined()
+    await expect(api.toggleDeveloperTools()).resolves.toBeUndefined()
+    await expect(api.checkForUpdates()).resolves.toBeUndefined()
+    await expect(api.exportDiagnostics()).resolves.toBeUndefined()
+
+    expect(invoke.mock.calls.flat()).toEqual([
+      'terminal',
+      'restart',
+      'restart-recovery',
+      'reload',
+      'developer',
+      'check-for-updates',
+      'diagnostics',
+    ])
+    expect(fetcher).not.toHaveBeenCalled()
+
+    // Host-persisted state still belongs to the loopback settings routes.
+    await expect(api.read()).resolves.toEqual(VIEW)
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith(desktopSettingsPaths.settings, expect.anything())
+  })
+
+  it('surfaces a bridge failure instead of falling back to the Host routes', async () => {
+    const fetcher = vi.fn(async () => json({ accepted: true }))
+    const api = createDesktopSettingsApi(fetcher, {
+      invoke: async () => { throw new Error('untrusted Desktop action sender') },
+    })
+
+    await expect(api.restart()).rejects.toThrow('untrusted Desktop action sender')
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('detects only a usable preload bridge', () => {
+    const bridge = { invoke: async () => {} }
+    expect(desktopRendererActionsBridge({ [DESKTOP_RENDERER_ACTIONS_BRIDGE]: bridge })).toBe(bridge)
+    expect(desktopRendererActionsBridge({})).toBeUndefined()
+    expect(desktopRendererActionsBridge({ [DESKTOP_RENDERER_ACTIONS_BRIDGE]: null })).toBeUndefined()
+    expect(desktopRendererActionsBridge({ [DESKTOP_RENDERER_ACTIONS_BRIDGE]: {} })).toBeUndefined()
+    expect(desktopRendererActionsBridge({ [DESKTOP_RENDERER_ACTIONS_BRIDGE]: { invoke: 'restart' } }))
+      .toBeUndefined()
+  })
+
   it('does not reflect an untrusted error body into its public error', async () => {
     const api = createDesktopSettingsApi(async () => json({ error: '/Users/private/profile failed' }, 400))
     await expect(api.read()).rejects.toThrow('Desktop settings request failed (400)')
@@ -500,8 +542,8 @@ describe('Desktop native action presentation', () => {
       t,
     }))
 
-    expect(markup).toContain('Extended window')
-    expect(markup).toContain('aria-label="Desktop appearance and behavior: Extended window"')
+    expect(markup).toContain('Extended mode')
+    expect(markup).toContain('aria-label="Window mode: Extended mode"')
     expect(markup).toContain('data-slot="hover-card-trigger"')
   })
 

@@ -4,9 +4,11 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { AA_REPOSITORY, assertPreparedAaRelease, runtimePeerRanges as readRuntimePeerRanges } from './agents-anywhere-release-policy.mjs'
+import { prepareInstalledAaRuntime } from './prepare-agents-anywhere-runtime.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const sourceRepository = process.env.DSH_AA_SOURCE_REPOSITORY ?? 'https://github.com/anywhere-labs/Agents-Anywhere.git'
+const sourceRepository = process.env.DSH_AA_SOURCE_REPOSITORY ?? AA_REPOSITORY
 const sourceRef = process.env.DSH_AA_SOURCE_REF ?? 'main'
 const vendorRoot = resolve(root, 'vendor/agents-anywhere')
 const provenancePath = join(vendorRoot, 'provenance.json')
@@ -63,16 +65,7 @@ function readJson(path) {
 }
 
 function runtimePeerRanges() {
-  const values = new Map(peerPackages.map(name => [name, new Set()]))
-  for (const packagePath of ['dsh-plugin-desktop/package.json', 'dsh-plugin-desktop-beta/package.json']) {
-    const manifest = readJson(resolve(root, packagePath))
-    for (const name of peerPackages) {
-      const range = manifest.dependencies?.[name]
-      if (typeof range !== 'string' || range.length === 0) throw new Error(`Missing ${name} in ${packagePath}`)
-      values.get(name).add(range)
-    }
-  }
-  return Object.fromEntries([...values].map(([name, ranges]) => [name, [...ranges].join(' || ')]))
+  return readRuntimePeerRanges(root)
 }
 
 function patchManifest(packagePath, peerRanges) {
@@ -112,15 +105,17 @@ function cloneSource(stagingRoot, commit) {
 
 function prepare() {
   if (sourceRef === 'pinned') {
-    const artifact = join(vendorRoot, currentProvenance.artifact)
-    if (sha256(artifact) !== currentProvenance.sha256) throw new Error('Pinned AA artifact checksum mismatch')
-    console.log(`Using pinned AA ${currentProvenance.commit}`)
-    return
+    throw new Error('DSH_AA_SOURCE_REF=pinned is no longer supported; releases must check the latest AA main commit')
+  }
+  const verifyRelease = process.argv.includes('--verify-release')
+  if (verifyRelease && (sourceRepository !== AA_REPOSITORY || sourceRef !== 'main')) {
+    throw new Error('Release verification requires the official AA repository and main branch')
   }
   const commit = resolveCommit()
   console.log(`Selected AA ${sourceRef} at ${commit}`)
-  if (process.argv.includes('--check')) {
-    console.log(commit === currentProvenance.commit ? 'AA is up to date.' : `Bundled AA is ${currentProvenance.commit}; an update is available.`)
+  if (verifyRelease || process.argv.includes('--check')) {
+    assertPreparedAaRelease(root, commit)
+    console.log(`AA release verified: both channels use ${commit}`)
     return
   }
   const packagePaths = ['dsh-plugin-desktop/package.json', 'dsh-plugin-desktop-beta/package.json']
@@ -129,6 +124,16 @@ function prepare() {
     && packagePaths.every(path => readJson(join(root, path)).dependencies?.['@agents-anywhere/dsh-bridge-next'] === `file:../vendor/agents-anywhere/${currentProvenance.artifact}`)
     && existsSync(join(vendorRoot, currentProvenance.artifact))
     && sha256(join(vendorRoot, currentProvenance.artifact)) === currentProvenance.sha256) {
+    assertPreparedAaRelease(root, commit, { installed: false })
+    prepareInstalledAaRuntime(root)
+    try {
+      assertPreparedAaRelease(root, commit)
+    } catch {
+      console.log('Refreshing installed AA dependencies from the verified artifact')
+      run('corepack', ['yarn', 'install', '--mode=skip-build'], root)
+      prepareInstalledAaRuntime(root)
+      assertPreparedAaRelease(root, commit)
+    }
     console.log(`Reusing verified AA artifact ${currentProvenance.artifact}`)
     return
   }
@@ -192,6 +197,8 @@ function prepare() {
       writeFileSync(join(root, path), `${JSON.stringify(manifest, null, 2)}\n`)
     }
     run('corepack', ['yarn', 'install', '--mode=skip-build'], root)
+    prepareInstalledAaRuntime(root)
+    assertPreparedAaRelease(root, commit)
     published = true
     console.log(`Agents Anywhere release package prepared from ${commit} (${destination})`)
   } catch (error) {
