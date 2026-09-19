@@ -41,3 +41,19 @@ it('reports unexpected Host exit without automatically relaunching or replaying 
   await f.host().fiber.dispose()
   expect(f.child.kill).not.toHaveBeenCalled()
 })
+it('carries the exit code and how long the Host lived, so a code 0 is not read as a clean exit', async () => {
+  const f = fixture()
+  await startIsolatedDesktopHost(f.options)
+  f.child.emit('exit', 0)
+  const [error, exit] = f.onFailure.mock.calls[0] as [Error, { exitCode: number; uptimeMs: number }]
+  expect(error.message).toContain('DSH Host exited (0)')
+  expect(exit.exitCode).toBe(0)
+  expect(exit.uptimeMs).toBeGreaterThanOrEqual(0)
+  expect(Number.isFinite(exit.uptimeMs)).toBe(true)
+})
+it('leaves a Desktop-requested teardown off the unexpected-exit record', async () => {
+  const f = fixture()
+  await startIsolatedDesktopHost(f.options)
+  await f.host().fiber.dispose()
+  expect(f.onFailure).not.toHaveBeenCalled()
+})

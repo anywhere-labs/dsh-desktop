@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  describeDesktopChildProcess,
   ElectronStderrLogger,
   installDesktopChildProcessLogging,
   installDesktopUncaughtExceptionLogging,
@@ -42,6 +43,51 @@ describe('ElectronStderrLogger', () => {
     )
     remove()
     expect(app.listenerCount('child-process-gone')).toBe(0)
+  })
+
+  it('hands the same child process failure to a correlation observer', () => {
+    const app = new EventEmitter()
+    const logger = { error: vi.fn(), errorCause: vi.fn() }
+    const observer = vi.fn()
+    const remove = installDesktopChildProcessLogging(app, logger, observer)
+    const details = {
+      type: 'Utility',
+      reason: 'killed',
+      exitCode: 1073807364,
+      name: 'Network Service',
+    }
+
+    app.emit('child-process-gone', {}, details)
+
+    expect(observer).toHaveBeenCalledWith(details)
+    expect(describeDesktopChildProcess(details)).toBe(
+      'Utility/Network Service reason: killed, exitCode: 1073807364 / 0x40010004',
+    )
+    remove()
+  })
+
+  it('keeps the log line when the correlation observer throws', () => {
+    const app = new EventEmitter()
+    const logger = { error: vi.fn(), errorCause: vi.fn() }
+    const remove = installDesktopChildProcessLogging(app, logger, () => { throw new Error('observer down') })
+
+    expect(() => {
+      app.emit('child-process-gone', {}, { type: 'GPU', reason: 'crashed', exitCode: 0 })
+    }).not.toThrow()
+    expect(logger.error).toHaveBeenCalledOnce()
+    remove()
+  })
+
+  it('names an unnamed child process rather than dropping it', () => {
+    expect(describeDesktopChildProcess({ type: 'Utility', reason: 'oom', exitCode: 0 })).toBe(
+      'Utility/unnamed reason: oom, exitCode: 0 / 0x00000000',
+    )
+    expect(describeDesktopChildProcess({
+      type: 'Utility',
+      reason: 'oom',
+      exitCode: 0,
+      serviceName: 'node.mojom.NodeService',
+    })).toContain('Utility/node.mojom.NodeService')
   })
 
   it('writes to the sink and to stderr', () => {

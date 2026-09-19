@@ -34,10 +34,27 @@ export function formatDesktopExitCode(exitCode: number): string {
   return `${String(exitCode)} / 0x${(exitCode >>> 0).toString(16).padStart(8, '0')}`
 }
 
-/** Persist unexpected utility, GPU, and other Electron child process exits. */
+/**
+ * Condense one native child process failure into a single evidence line.
+ *
+ * The Host dies as a plain `exit` event with no reason attached, so the
+ * Chromium-level record of who died alongside it is the only correlation
+ * available to a later reader.
+ */
+export function describeDesktopChildProcess(details: DesktopChildProcessDetails): string {
+  const name = details.name ?? details.serviceName ?? 'unnamed'
+  return `${details.type}/${name} reason: ${details.reason}, exitCode: ${formatDesktopExitCode(details.exitCode)}`
+}
+
+/**
+ * Persist unexpected utility, GPU, and other Electron child process exits.
+ * @param observer - optional sink notified with the same details, used to
+ *   correlate a Chromium child failure with a Host exit that carries none.
+ */
 export function installDesktopChildProcessLogging(
   app: DesktopChildProcessSource,
   logger: DesktopLogger,
+  observer?: (details: DesktopChildProcessDetails) => void,
 ): () => void {
   const handler = (_event: unknown, details: DesktopChildProcessDetails): void => {
     const identity = [
@@ -48,6 +65,8 @@ export function installDesktopChildProcessLogging(
     logger.error(
       `dsh-plugin-desktop: child process gone (${identity.join(', ')}, reason: ${details.reason}, exitCode: ${formatDesktopExitCode(details.exitCode)})`,
     )
+    // A failing observer must never cost the log line that precedes it.
+    try { observer?.(details) } catch { /* correlation is best effort */ }
   }
   app.on('child-process-gone', handler)
   return () => { app.off('child-process-gone', handler) }

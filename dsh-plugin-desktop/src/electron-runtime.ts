@@ -38,7 +38,7 @@ import {
   type RendererHealthFailureReason,
   type RendererHealthVerdict,
 } from './renderer-health.ts'
-import type { DesktopLogger } from './desktop-logger.ts'
+import { formatDesktopExitCode, type DesktopLogger } from './desktop-logger.ts'
 import { exportDesktopDiagnostics } from './diagnostic-export.ts'
 import {
   desktopDiagnosticsPrivacyCopy,
@@ -115,6 +115,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   private rendererBootHealthy = false
   private profileCreateWindow: ProfileCreateWindow | undefined
   private restartRequest: Promise<void> | undefined
+  private hostStoppedRecovery: Promise<void> | undefined
 
   constructor(
     private readonly restart: (target?: 'recovery' | 'safe-mode') => Promise<void>,
@@ -542,6 +543,40 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
 
   private failRendererBoot(reason: RendererHealthFailureReason, error: string): void {
     this.rendererHealthGate?.fail(reason, error)
+  }
+
+  /**
+   * Offer an in-app way out after the supervised Host exits on its own. Kept off
+   * the shared `DesktopRuntime` contract on purpose: only the Electron main
+   * process supervises the Host, and the Host must never be able to ask for this.
+   * @param exit - the reported exit code, shown so a report can name it.
+   */
+  async showHostStoppedRecovery(exit: { readonly exitCode: number }): Promise<void> {
+    if (this.quitting) return
+    // A Host death arrives once, but the renderer keeps failing against the
+    // gone endpoint afterwards. One dialog per death, never a stack of them.
+    if (this.hostStoppedRecovery !== undefined) return await this.hostStoppedRecovery
+    const request = this.confirmHostStopped(exit).finally(() => {
+      if (this.hostStoppedRecovery === request) this.hostStoppedRecovery = undefined
+    })
+    this.hostStoppedRecovery = request
+    await request
+  }
+
+  private async confirmHostStopped(exit: { readonly exitCode: number }): Promise<void> {
+    const copy = desktopNativeCopy(this.currentLocale)
+    const result = await this.showDesktopMessageBox({
+      type: 'error',
+      title: copy.hostStoppedTitle,
+      message: copy.hostStoppedMessage,
+      detail: `${copy.hostStoppedDetail(formatDesktopExitCode(exit.exitCode))}\n\n${copy.hostStoppedInstructions}`,
+      buttons: [copy.restart, copy.openTerminal, copy.dismiss],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    })
+    if (result.response === 0) await this.requestRestart()
+    else if (result.response === 1) this.openTerminal()
   }
 
   private async showRendererBootRecovery(report: Extract<RendererBootReport, { status: 'failed' }>): Promise<void> {
