@@ -1202,7 +1202,8 @@ describe('published package surface', () => {
     expect(target).toEqual({ PATH: 'target-path', electron_run_as_node: '0', NODE_OPTIONS: '--trace-warnings' })
     expect(evaluate('win32')).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
     expect(evaluate('darwin', '43.3.0')).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
-    expect(evaluate('linux', '43.3.0', '/request')).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
+    expect(evaluate('linux', '43.3.0', '/request').ELECTRON_RUN_AS_NODE).toBe('1');
+      expect(evaluate('linux')).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
   })
 
   // A patch whose filename does not match the pinned version degrades silently to the
