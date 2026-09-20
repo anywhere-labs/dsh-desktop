@@ -100,6 +100,7 @@ import {
   clearDesktopProfilePreferences,
   desktopProfilePreferencesFromSettings,
   readDesktopProfilePreferences,
+  sameDesktopProfilePreferenceLeaves,
   writeDesktopProfilePreferences,
   type DesktopProfilePreferences,
   type DesktopProfilePreferencesStateV1,
@@ -376,12 +377,34 @@ function setupSettingsWithProfilePreferences(
 /** Mirror only the Profile-owned settings leaves into the exact prepared document. */
 async function mirrorDesktopProfilePreferences(
   settingsDocument: string,
-  preferences: DesktopProfilePreferences,
-): Promise<void> {
+  preferences: DesktopProfilePreferencesStateV1,
+  marketUserDataDir: string,
+  profileDir: string,
+): Promise<DesktopProfilePreferencesStateV1> {
   const current = readDesktopSetupWizardSettings(settingsDocument)
-  await updateDesktopSetupWizardSettings(
-    settingsDocument,
-    setupSettingsWithProfilePreferences(current, preferences),
+  const mirrored = setupSettingsWithProfilePreferences(current, preferences)
+  if (sameDesktopProfilePreferenceLeaves(mirrored, current)) {
+    await updateDesktopSetupWizardSettings(
+      settingsDocument,
+      mirrored,
+    )
+    return preferences
+  }
+  // The settings document carries leaves the record never captured (#947):
+  // the settings/updated capture only flows while a Host is alive, so a
+  // change made shortly before quit (or while the Host was down) reaches the
+  // next launch only through the document. The document is the newest write
+  // here, so absorb it into the record instead of overwriting the user's
+  // explicit change with stale state.
+  return await writeDesktopProfilePreferences(
+    marketUserDataDir,
+    profileDir,
+    desktopProfilePreferencesFromSettings(
+      current,
+      current.notifications,
+      preferences.market,
+      preferences.aaEnabled === true,
+    ),
   )
 }
 
@@ -1278,7 +1301,19 @@ async function start(): Promise<void> {
     } else {
       // Existing Profile state is the source of truth. Mirror it only after the
       // first prepare has resolved this Profile's exact settings document.
-      await mirrorDesktopProfilePreferences(prepared.settingsDocument, profilePreferences)
+      // mirrorDesktopProfilePreferences reconciles both directions (#947): when
+      // the document holds leaves the record never captured, the returned
+      // preferences carry the document's values and must replace the snapshot
+      // used for the rest of startup.
+      if (profilePreferences === undefined) {
+        throw new Error(`${BIN_NAME}: active Profile preferences were not initialized`)
+      }
+      profilePreferences = await mirrorDesktopProfilePreferences(
+        prepared.settingsDocument,
+        profilePreferences,
+        marketUserDataDir,
+        prepared.profile.dir,
+      )
       try {
         await migrateDesktopWindowMaterialSettings(prepared.settingsDocument)
       } catch (cause) {

@@ -20,6 +20,7 @@ import {
   desktopProfilePreferencesProfileHash,
   desktopProfilePreferencesStatePath,
   readDesktopProfilePreferences,
+  sameDesktopProfilePreferenceLeaves,
   writeDesktopProfilePreferences,
   type DesktopProfilePreferences,
 } from '../src/profile-preferences.ts'
@@ -272,5 +273,44 @@ describe('Desktop Profile preferences', () => {
       .rejects.toThrow('regular file')
     await expect(clearDesktopProfilePreferences(userData, profile)).rejects.toThrow('regular file')
     expect(readFileSync(outside, 'utf8')).toBe('outside\n')
+  })
+
+  describe('sameDesktopProfilePreferenceLeaves (#947)', () => {
+    it('treats identical settings leaves as matching', () => {
+      expect(sameDesktopProfilePreferenceLeaves(PREFERENCES, PREFERENCES)).toBe(true)
+      expect(sameDesktopProfilePreferenceLeaves(
+        PREFERENCES,
+        { ...PREFERENCES, notifications: { ...PREFERENCES.notifications } },
+      )).toBe(true)
+    })
+
+    it('detects a stale record when the document holds a newer openBrowser/mode/exposure', () => {
+      expect(sameDesktopProfilePreferenceLeaves(
+        PREFERENCES,
+        { ...PREFERENCES, openBrowser: !PREFERENCES.openBrowser },
+      )).toBe(false)
+      expect(sameDesktopProfilePreferenceLeaves(
+        PREFERENCES,
+        { ...PREFERENCES, mode: 'extended' },
+      )).toBe(false)
+      expect(sameDesktopProfilePreferenceLeaves(
+        PREFERENCES,
+        { ...PREFERENCES, networkExposure: 'loopback' },
+      )).toBe(false)
+    })
+
+    it('detects a stale record when any notification leaf differs', () => {
+      expect(sameDesktopProfilePreferenceLeaves(
+        PREFERENCES,
+        { ...PREFERENCES, notifications: { ...PREFERENCES.notifications, enabled: false } },
+      )).toBe(false)
+    })
+
+    it('ignores Profile-owned market and aaEnabled when comparing', () => {
+      const { market: _market, aaEnabled: _aa, ...leaves } = PREFERENCES
+      void _market
+      void _aa
+      expect(sameDesktopProfilePreferenceLeaves(leaves, { ...leaves })).toBe(true)
+    })
   })
 })

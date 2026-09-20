@@ -93,6 +93,25 @@ export function desktopProfilePreferencesFromSettings(
   })
 }
 
+/**
+ * Compare only the settings-owned leaves of two preference snapshots (#947).
+ * Market and aaEnabled are Profile-owned and intentionally excluded: startup
+ * reconciliation must not treat them as evidence that the record is stale.
+ */
+export function sameDesktopProfilePreferenceLeaves(
+  left: Pick<DesktopProfilePreferences, 'mode' | 'openBrowser' | 'networkExposure' | 'notifications'>,
+  right: Pick<DesktopProfilePreferences, 'mode' | 'openBrowser' | 'networkExposure' | 'notifications'>,
+): boolean {
+  return left.mode === right.mode
+    && left.openBrowser === right.openBrowser
+    && left.networkExposure === right.networkExposure
+    && left.notifications.enabled === right.notifications.enabled
+    && left.notifications.notifyOnTurnCompletion === right.notifications.notifyOnTurnCompletion
+    && left.notifications.notifyOnTurnFailure === right.notifications.notifyOnTurnFailure
+    && left.notifications.notifyOnJobCompletion === right.notifications.notifyOnJobCompletion
+    && left.notifications.notifyOnJobFailure === right.notifications.notifyOnJobFailure
+}
+
 type ErrorFactory = (message: string) => Error
 
 function invalid(message: string): Error {
