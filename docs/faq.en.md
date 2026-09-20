@@ -47,3 +47,11 @@ Packaged applications check for stable releases in the background but never inst
 ## Where can I download the app or report a problem?
 
 Download from the [project download page](https://www.dshdesktop.cn/) or the [latest GitHub Release](https://github.com/anywhere-labs/deepseek-harness-desktop/releases/latest). Check the [troubleshooting section](user-guide.en.md#troubleshooting) first. If the problem remains, open a [GitHub Issue](https://github.com/anywhere-labs/deepseek-harness-desktop/issues/new/choose) with the operating system, app version, reproduction steps, and error details.
+
+## Can I switch to Enter-for-newline and Ctrl+Enter-to-send?
+
+Not currently. Message input uses `Enter` to send and `Shift+Enter` for a newline (identical in all window modes). The optional mode is tracked in [#705](https://github.com/anywhere-labs/dsh-desktop/issues/705); operating-system and preference details are welcome on that issue.
+
+## Does the model picker support search?
+
+Not currently. With many models you need to scroll; a search field filtering by name/model ID is tracked in [#976](https://github.com/anywhere-labs/dsh-desktop/issues/976). Provider names and typical list sizes are welcome on that issue.

@@ -47,3 +47,11 @@ Desktop Host、profile 和 DSH home 位于本机。是否向外部服务发送�
 ## 在哪里下载和报告问题？
 
 从[项目下载页](https://www.dshdesktop.cn/)或[最新 GitHub Release](https://github.com/anywhere-labs/deepseek-harness-desktop/releases/latest)下载安装包。遇到问题时先查看[用户指南的排查部分](user-guide.md#排查)，仍无法解决再提交 [GitHub Issue](https://github.com/anywhere-labs/deepseek-harness-desktop/issues/new/choose)，并附上操作系统、应用版本、复现步骤和错误信息。
+
+## 可以把发送键改成 Enter 换行、Ctrl+Enter 发送吗？
+
+暂不支持切换。当前输入框行为是 `Enter` 发送、`Shift+Enter` 换行（三种窗口模式一致）；该可选模式的需求正在 [#705](https://github.com/anywhere-labs/dsh-desktop/issues/705) 跟踪，欢迎在该 issue 下补充操作系统与使用偏好。
+
+## 模型选择器支持搜索吗？
+
+暂不支持。模型较多时需要滚动查找；按名称/模型 ID 过滤的搜索框需求正在 [#976](https://github.com/anywhere-labs/dsh-desktop/issues/976) 跟踪，欢迎在该 issue 下补充常用 provider 与列表规模。

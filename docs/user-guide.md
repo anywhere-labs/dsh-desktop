@@ -22,6 +22,12 @@ Profile 是一组 DSH bundle、依赖和 patch 的组合。托盘中的 **Profil
 
 macOS 自定义窗口模式可以打开或关闭透明材质。Windows 可关闭材质；仅 Windows 11 build 22621 及以上在支持时显示 Mica。旧版 Windows 亚克力偏好会安全地按关闭处理，并在设置文件可写时自动迁移。切换模式或材质都会重启应用，不会在正在运行的 renderer 中热替换 root slot 或窗口材质。Linux 只提供兼容模式。
 
+## 消息发送键与模型选择
+
+消息输入沿用上游 Web 客户端的默认行为（三种窗口模式一致，Desktop 未覆盖）：**Enter 发送，Shift+Enter 换行**。`Enter 换行 + Ctrl+Enter 发送`的可选模式是跟踪中的需求（[#705](https://github.com/anywhere-labs/dsh-desktop/issues/705)），当前版本暂不支持切换。
+
+模型选择器当前没有搜索框：provider 下模型较多时需要滚动查找。按名称/模型 ID 过滤、清空恢复全量、保持当前选择不变的搜索框是跟踪中的需求（[#976](https://github.com/anywhere-labs/dsh-desktop/issues/976)），当前版本暂不支持；模型较多时建议先在 provider 侧精简可见模型列表。
+
 ## 本地 Web 端口
 
 Desktop 默认让系统随机分配本地 Web 端口（`dsh-desktop.port: 0`），可避免与其他服务发生端口冲突。依赖浏览器 `localStorage` 的界面插件按 origin 隔离数据；如果这类插件需要在 Desktop 重启后继续读取设置，请在设置中指定一个固定端口：

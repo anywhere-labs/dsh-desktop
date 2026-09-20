@@ -22,6 +22,12 @@ Switching profiles does not silently copy plugins from the old profile into the 
 
 macOS custom-window modes can turn the transparent material on or off. Windows can turn material off; Mica appears only when supported on Windows 11 build 22621 or newer. A legacy Windows Acrylic preference is safely treated as off and migrated when its settings file is writable. Changing mode or material restarts the application; it does not hot-swap root slots or native materials in a live renderer. Linux provides compatibility mode only.
 
+## Message send key and model picker
+
+Message input follows the upstream Web client's default behavior (identical in all window modes; Desktop does not override it): **Enter sends, Shift+Enter inserts a newline**. An optional `Enter for newline + Ctrl+Enter to send` mode is a tracked request ([#705](https://github.com/anywhere-labs/dsh-desktop/issues/705)) and cannot be switched on in the current release.
+
+The model picker currently has no search field: when a provider exposes many models, scroll to find the one you want. A search field that filters by name/model ID, restores the full list when cleared, and preserves the current selection is a tracked request ([#976](https://github.com/anywhere-labs/dsh-desktop/issues/976)) and is not available in the current release; with long model lists, consider trimming the visible models on the provider side first.
+
 ## Local Web port
 
 Desktop lets the operating system choose a random local Web port by default (`dsh-desktop.port: 0`), which avoids collisions with other services. Browser `localStorage` is isolated by origin, so UI plugins that store settings there need a fixed port to read the same settings after Desktop restarts:
