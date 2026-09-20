@@ -16,6 +16,12 @@ export const DESKTOP_SETTINGS_LOCALE_NAMESPACE = 'desktop.settings'
 /** Host settings namespaces bound through the standard client settings service. */
 export const DESKTOP_SHELL_SETTINGS_NAMESPACE = 'dsh-desktop'
 export const DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE = 'dsh-desktop-notifications'
+export const DESKTOP_RESPONSE_VERBOSITY_SETTINGS_NAMESPACE = 'dsh-desktop-response-verbosity'
+
+/** Browser view of the Host `dsh-desktop-response-verbosity` settings namespace. */
+export interface DesktopResponseVerbositySettings {
+  readonly verbosity: 'concise' | 'standard' | 'detailed'
+}
 
 /** Shared client controls consumed by settings and Desktop-owned window chrome. */
 export interface DesktopSettingsClientControl {
@@ -64,6 +70,9 @@ export function applyDesktopSettings(
   const notificationSettings = ctx.settingsScope.bind<DesktopNotificationSettings>({
     namespace: DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE,
   })
+  const verbositySettings = ctx.settingsScope.bind<DesktopResponseVerbositySettings>({
+    namespace: DESKTOP_RESPONSE_VERBOSITY_SETTINGS_NAMESPACE,
+  })
   const api = createDesktopSettingsApi()
   const t = ctx.locale.bind(DESKTOP_SETTINGS_LOCALE_NAMESPACE)
   const setMode = async (mode: DesktopShellSettings['mode']): Promise<void> => {
@@ -92,6 +101,7 @@ export function applyDesktopSettings(
       setMode,
       desktopSettings,
       notificationSettings,
+      verbositySettings,
     }),
   }, DesktopSettingsSection))
   ctx.slots.inject('settings.action', () => ctx.slots.register({

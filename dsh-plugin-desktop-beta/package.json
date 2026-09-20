@@ -67,6 +67,10 @@
       "types": "./lib/types/notifications.d.ts",
       "default": "./lib/notifications.js"
     },
+    "./response-verbosity": {
+      "types": "./lib/types/desktop-response-verbosity.d.ts",
+      "default": "./lib/desktop-response-verbosity.js"
+    },
     "./updates": {
       "types": "./lib/types/updates.d.ts",
       "default": "./lib/updates.js"

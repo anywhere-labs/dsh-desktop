@@ -182,6 +182,10 @@ describe('published package surface', () => {
       types: './lib/types/notifications.d.ts',
       default: './lib/notifications.js',
     })
+    expect(manifest.exports).toHaveProperty('./response-verbosity', {
+      types: './lib/types/desktop-response-verbosity.d.ts',
+      default: './lib/desktop-response-verbosity.js',
+    })
     expect(manifest.exports).not.toHaveProperty('./windows-acl-runner')
     expect(manifest.exports).not.toHaveProperty('./desktop-cli')
     expect(manifest.exports).not.toHaveProperty('./desktop-runtime-environment')
@@ -208,6 +212,7 @@ describe('published package surface', () => {
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop-beta/profiles')
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop-beta/diagnostics')
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop-beta/notifications')
+    expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop-beta/response-verbosity')
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop-beta/updates')
   })
 
@@ -463,6 +468,7 @@ describe('published package surface', () => {
     expect(config).toContain("profiles: 'src/profiles.ts'")
     expect(config).toContain("diagnostics: 'src/diagnostics.ts'")
     expect(config).toContain("notifications: 'src/notifications.ts'")
+    expect(config).toContain("'response-verbosity': 'src/desktop-response-verbosity.ts'")
     expect(config).toContain("'diagnostic-export-worker': 'src/diagnostic-export-worker.ts'")
     expect(config).toContain("preload: 'src/preload.ts', 'compatibility-preload': 'src/compatibility-preload.ts'")
     expect(config).toContain("entryFileNames: '[name].cjs'")
