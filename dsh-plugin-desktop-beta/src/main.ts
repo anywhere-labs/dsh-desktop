@@ -262,10 +262,10 @@ function lifecycleRendererFailureReason(
 
 function lifecycleStartupFailureReason(
   cause: unknown,
-  runtime: ElectronDesktopRuntime,
+  runtime: ElectronDesktopRuntime | undefined,
 ): DesktopLifecycleFailureReason {
   if (cause instanceof RendererStartupFailure) return cause.reason
-  return runtime.rendererBootFailureReason ?? 'startup-failed'
+  return runtime?.rendererBootFailureReason ?? 'startup-failed'
 }
 
 /** Report optional user UI plugins skipped to keep startup recoverable. */
@@ -1778,8 +1778,12 @@ async function start(): Promise<void> {
       notifySessionProjectionCacheRecovery(runtime, electronLogger, sessionProjectionCacheRecovery)
     }
   } catch (cause) {
-    runtime.stopRendererBootMonitoring()
-    lifecycleRecorder.failRendererBootIfPending(lifecycleRendererFailureReason(runtime.rendererBootFailureReason))
+    // Statements before the runtime assignment (e.g. getOrCreateDesktopInstallationId
+    // throwing on an unwritable userData volume) reach this catch with runtime still
+    // undefined; dereferencing it masked the real cause with a TypeError and skipped
+    // the failure recording below.
+    runtime?.stopRendererBootMonitoring()
+    lifecycleRecorder.failRendererBootIfPending(lifecycleRendererFailureReason(runtime?.rendererBootFailureReason))
     lifecycleRecorder.failStartup(startupStage, lifecycleStartupFailureReason(cause, runtime))
     electronLogger.errorCause(cause)
     let exitCode = 1
