@@ -16,6 +16,7 @@ import {
   handleDesktopRecoveryRestartRequest,
   handleDesktopRestartRequest,
   handleDesktopRendererReloadRequest,
+  handleDesktopSessionJumpRequest,
   handleDesktopSettingsRequest,
   handleDesktopTerminalOpenRequest,
   handleDesktopUpdateCheckRequest,
@@ -799,5 +800,46 @@ describe('desktop settings HTTP boundary', () => {
     expect(res.statusCode).toBe(405)
     expect(res.setHeader).toHaveBeenCalledWith('allow', 'GET')
     expect(readMarket).not.toHaveBeenCalled()
+  })
+
+  it('serves the pending session jump once over GET and guards the origin', async () => {
+    const accepted = response()
+    await handleDesktopSessionJumpRequest(
+      request('GET'), accepted, ORIGIN, () => ({ sessionId: 'session-9' }),
+    )
+    expect(accepted.statusCode).toBe(200)
+    expect(JSON.parse(accepted.body)).toEqual({ sessionId: 'session-9' })
+
+    const empty = response()
+    await handleDesktopSessionJumpRequest(
+      request('GET'), empty, ORIGIN, () => ({ sessionId: undefined }),
+    )
+    expect(empty.statusCode).toBe(200)
+    expect(JSON.parse(empty.body)).toEqual({})
+
+    const readJump = vi.fn(() => ({ sessionId: 'session-9' }))
+    const forbidden = response()
+    await handleDesktopSessionJumpRequest(
+      request('GET', { headers: { origin: 'https://example.com' } }), forbidden, ORIGIN, readJump,
+    )
+    expect(forbidden.statusCode).toBe(403)
+    expect(readJump).not.toHaveBeenCalled()
+
+    const wrongMethod = response()
+    await handleDesktopSessionJumpRequest(
+      request('POST'), wrongMethod, ORIGIN, readJump,
+    )
+    expect(wrongMethod.statusCode).toBe(405)
+    expect(wrongMethod.setHeader).toHaveBeenCalledWith('allow', 'GET')
+
+    const failing = response()
+    const reportError = vi.fn()
+    await handleDesktopSessionJumpRequest(
+      request('GET'), failing, ORIGIN, () => { throw new Error('native jump at /private/path') }, reportError,
+    )
+    expect(failing.statusCode).toBe(500)
+    expect(JSON.parse(failing.body)).toEqual({ error: 'session jump could not be read' })
+    expect(failing.body).not.toContain('/private')
+    expect(reportError).toHaveBeenCalledWith('read session jump', expect.any(Error))
   })
 })

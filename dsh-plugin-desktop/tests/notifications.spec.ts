@@ -16,6 +16,7 @@ type OptionalService = 'jobs' | 'sessions' | 'settings'
 
 interface NotificationHarness {
   readonly notifyAttention: ReturnType<typeof vi.fn>
+  readonly publishSessionProgress: ReturnType<typeof vi.fn>
   readonly registerSettings: ReturnType<typeof vi.fn>
   readonly stopJobs: ReturnType<typeof vi.fn>
   readonly stopSessions: ReturnType<typeof vi.fn>
@@ -30,6 +31,7 @@ interface NotificationHarness {
 
 function createHarness(available: readonly OptionalService[] = ['jobs', 'sessions', 'settings']): NotificationHarness {
   const notifyAttention = vi.fn()
+  const publishSessionProgress = vi.fn()
   const stopJobs = vi.fn()
   const stopSessions = vi.fn()
   const enabled = new Set(available)
@@ -48,6 +50,7 @@ function createHarness(available: readonly OptionalService[] = ['jobs', 'session
     platform: 'darwin',
     locale: 'en',
     notifyAttention,
+    publishSessionProgress,
   } as unknown as DesktopRuntime
 
   const registerSettings = vi.fn(() => ({
@@ -109,6 +112,7 @@ function createHarness(available: readonly OptionalService[] = ['jobs', 'session
 
   return {
     notifyAttention,
+    publishSessionProgress,
     registerSettings,
     stopJobs,
     stopSessions,
@@ -207,6 +211,7 @@ describe('desktop notifications Host plugin', () => {
       [{ title: 'Background Job Completed', body: 'A background job has finished.' }],
       [{ title: 'Background Job Failed', body: 'A background job could not finish. Open DSH Desktop for details.' }],
     ])
+    expect(harness.publishSessionProgress).not.toHaveBeenCalled()
     expect(JSON.stringify(harness.notifyAttention.mock.calls)).not.toMatch(/Users|private|secret|session-123/u)
   })
 
@@ -245,8 +250,14 @@ describe('desktop notifications Host plugin', () => {
 
     expect(harness.notifyAttention.mock.calls).toEqual([
       [{ title: 'Background Job Failed', body: 'A background job could not finish. Open DSH Desktop for details.' }],
-      [{ title: 'User Turn Failed', body: 'A user-initiated turn could not finish. Open DSH Desktop for details.' }],
+      [{ title: 'User Turn Failed', body: 'A user-initiated turn could not finish. Open DSH Desktop for details.', sessionId: 'session-1' }],
     ])
+    // Turn outcomes publish the session-progress snapshot; jobs never do.
+    expect(harness.publishSessionProgress).toHaveBeenCalledTimes(1)
+    expect(harness.publishSessionProgress).toHaveBeenLastCalledWith({
+      unread: [expect.objectContaining({ sessionId: 'session-1' })],
+      recent: [],
+    })
   })
 
   it('keeps fine-grained choices while the live global switch is disabled', async () => {
@@ -301,7 +312,9 @@ describe('desktop notifications Host plugin', () => {
     expect(harness.notifyAttention).toHaveBeenCalledWith({
       title: 'User Turn Completed',
       body: 'A user-initiated turn has finished.',
+      sessionId: 'direct',
     })
+    expect(harness.publishSessionProgress).toHaveBeenCalledOnce()
   })
 
   it('treats max-tokens as a failure and keeps non-failure endings silent', async () => {
@@ -325,7 +338,9 @@ describe('desktop notifications Host plugin', () => {
     expect(harness.notifyAttention).toHaveBeenCalledWith({
       title: 'User Turn Failed',
       body: 'A user-initiated turn could not finish. Open DSH Desktop for details.',
+      sessionId: 'direct',
     })
+    expect(harness.publishSessionProgress).toHaveBeenCalledOnce()
   })
 
   it('drops open turn state when sessions detach and disposes optional observers', async () => {
@@ -354,5 +369,61 @@ describe('desktop notifications Host plugin', () => {
     await harness.sessionEvent(active, event('turn/end', { turn: 1, reason: { kind: 'completed' } }, 3))
 
     expect(harness.notifyAttention).not.toHaveBeenCalled()
+  })
+
+  it('aggregates unread sessions with privacy-safe titles and clears them on dispose', async () => {
+    const harness = createHarness(['sessions'])
+    const first = session('session-a')
+    const second = session('session-b')
+
+    await harness.sessionEvent(first, event('turn/start', { turn: 1 }, 1))
+    await harness.sessionEvent(first, userMessage('user', 2))
+    await harness.sessionEvent(first, event('turn/end', { turn: 1, reason: { kind: 'completed' } }, 3))
+
+    await harness.sessionEvent(second, event('turn/start', { turn: 1 }, 4))
+    await harness.sessionEvent(second, userMessage('user', 5))
+    await harness.sessionEvent(
+      second,
+      event('turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'UNKNOWN', message: 'x' } } }, 6),
+    )
+
+    expect(harness.publishSessionProgress).toHaveBeenCalledTimes(2)
+    const snapshot = harness.publishSessionProgress.mock.calls[1]?.[0] as {
+      unread: Array<{ sessionId: string, title: string, failed: boolean, completedAt: number }>
+      recent: unknown[]
+    }
+    expect(snapshot.unread.map(entry => entry.sessionId).sort()).toEqual(['session-a', 'session-b'])
+    expect(
+      snapshot.unread[0]?.completedAt as number <= (snapshot.unread[1]?.completedAt as number),
+    ).toBe(true)
+    expect(snapshot.unread.find(entry => entry.sessionId === 'session-b')?.failed).toBe(true)
+    // Snapshot titles mirror the local session titles ChatGPT/Codex show in
+    // their Dock menu; the privacy boundary is the existing notifyAttention
+    // copy (asserted above), which never carries user text.
+    expect(snapshot.unread.every(entry => entry.title.length > 0)).toBe(true)
+    expect(snapshot.recent).toEqual([])
+
+    await harness.sessionDisposed(first)
+    const cleared = harness.publishSessionProgress.mock.calls[2]?.[0] as {
+      unread: Array<{ sessionId: string }>
+    }
+    expect(cleared.unread.map(entry => entry.sessionId)).toEqual(['session-b'])
+  })
+
+  it('prefers session/title events over first-user-text fallbacks', async () => {
+    const harness = createHarness(['sessions'])
+    const active = session('titled')
+    await harness.sessionEvent(
+      active,
+      event('session/title', { title: 'Fix the dock menu', messageSeqs: [], source: { kind: 'fallback' } }, 1),
+    )
+    await harness.sessionEvent(active, event('turn/start', { turn: 1 }, 2))
+    await harness.sessionEvent(active, userMessage('user', 3))
+    await harness.sessionEvent(active, event('turn/end', { turn: 1, reason: { kind: 'completed' } }, 4))
+
+    const snapshot = harness.publishSessionProgress.mock.calls[0]?.[0] as {
+      unread: Array<{ sessionId: string, title: string }>
+    }
+    expect(snapshot.unread).toEqual([expect.objectContaining({ sessionId: 'titled', title: 'Fix the dock menu' })])
   })
 })

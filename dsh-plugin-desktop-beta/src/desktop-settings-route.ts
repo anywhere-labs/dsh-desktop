@@ -497,6 +497,31 @@ export async function handleDesktopDiagnosticsExportRequest(
   }
 }
 
+/**
+ * Read the pending Dock/Jump List session jump from an exact empty request.
+ *
+ * GET (not POST): the renderer polls this route on a timer and after
+ * visibility changes; the pending jump is consumed exactly once.
+ */
+export async function handleDesktopSessionJumpRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  readJump: () => { sessionId: string | undefined },
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'GET') return finishJson(res, 405, error('method not allowed'), 'GET')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  try {
+    finishJson(res, 200, readJump())
+  } catch (cause) {
+    reportError('read session jump', cause)
+    finishJson(res, 500, error('session jump could not be read'))
+  }
+}
+
 export const desktopSettingsRouteConstants = Object.freeze({
   maxBodyBytes: MAX_SETTINGS_BODY_BYTES,
 })

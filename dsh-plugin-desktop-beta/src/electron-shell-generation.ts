@@ -19,6 +19,15 @@ import type { ElectronPlatformStrategy } from './electron-platform.ts'
 import { DESKTOP_RENDERER_ACTION_CHANNEL } from './renderer-actions-contract.ts'
 import { createDesktopRendererActionDispatcher } from './renderer-actions-dispatch.ts'
 import type { DesktopNotification, DesktopShellSpec } from './runtime.ts'
+import {
+  buildDesktopSessionProgressJumpTasks,
+  buildDesktopSessionProgressMenu,
+  parseDesktopSessionJumpArgv,
+} from './session-progress-menu.ts'
+import {
+  EMPTY_DESKTOP_SESSION_PROGRESS_SNAPSHOT,
+  type DesktopSessionProgressSnapshot,
+} from './session-progress.ts'
 import { prepareTrayIcon } from './tray-icons.ts'
 import { desktopWindowOptions } from './window-options.ts'
 import type { DesktopRestartConfirmationCopy } from './tray-locale.ts'
@@ -197,6 +206,10 @@ export interface ElectronShellGenerationOptions {
   readonly logError: (message: string) => void
   readonly mainWindowState: MainWindowStateStore
   readonly chromeActions: CompatibilityShellActions
+  /** Route one Dock/Jump List session click to the renderer session list. */
+  readonly openSession: (sessionId: string) => void
+  /** Read the current locale for Dock menu labels. */
+  readonly readSessionProgressLocale: () => import('./runtime.ts').DesktopLocale
 }
 
 /** Own one BrowserWindow and Tray generation, including every native listener. */
@@ -208,6 +221,8 @@ export class ElectronShellGeneration {
   private mounted = false
   private released = false
   private attentionCount = 0
+  private sessionProgress: DesktopSessionProgressSnapshot = EMPTY_DESKTOP_SESSION_PROGRESS_SNAPSHOT
+  private pendingSessionJump: string | undefined
   private prepareFullscreenReveal: (() => void) | undefined
   private refreshNativeMaterial: (() => void) | undefined
   private flushWindowState: (() => void) | undefined
@@ -604,6 +619,7 @@ export class ElectronShellGeneration {
       this.tray = tray
       tray.setToolTip(spec.productName)
       this.refreshTrayMenu()
+      this.refreshSessionProgressSurfaces()
       tray.on('click', show)
       beforeInteractive?.()
       this.mounted = true
@@ -755,9 +771,72 @@ export class ElectronShellGeneration {
     else app.setBadgeCount(this.attentionCount)
 
     if (!Notification.isSupported()) return
-    const nativeNotification = new Notification(notification)
-    nativeNotification.once('click', () => { this.show() })
+    const { sessionId, ...copy } = notification
+    const nativeNotification = new Notification(copy)
+    nativeNotification.once('click', () => {
+      if (sessionId !== undefined) this.options.openSession(sessionId)
+      else this.show()
+    })
     nativeNotification.show()
+  }
+
+  /**
+   * Publish the Host-owned session-progress snapshot to native surfaces.
+   *
+   * macOS rebuilds the Dock menu; Windows rebuilds the Jump List tasks. The
+   * badge count is untouched: `notifyAttention`/`clearAttention` own it so a
+   * snapshot replay can never inflate the number.
+   * @param snapshot - unread/recent sessions, newest first.
+   */
+  publishSessionProgress(snapshot: DesktopSessionProgressSnapshot): void {
+    this.sessionProgress = snapshot
+    this.refreshSessionProgressSurfaces()
+  }
+
+  /**
+   * Consume one `--open-session=<id>` argv list from Jump List or second-instance.
+   * @param argv - process arguments.
+   * @returns the routed session id, or undefined when no well-formed id is present.
+   */
+  consumeSessionJumpArgv(argv: readonly string[]): string | undefined {
+    const sessionId = parseDesktopSessionJumpArgv(argv)
+    if (sessionId === undefined) return undefined
+    this.options.openSession(sessionId)
+    return sessionId
+  }
+
+  private refreshSessionProgressSurfaces(): void {
+    if (this.released || this.window === undefined || this.window.isDestroyed()) return
+    if (this.options.platform.platform === 'darwin') {
+      try {
+        app.dock?.setMenu(Menu.buildFromTemplate(buildDesktopSessionProgressMenu(
+          this.options.readSessionProgressLocale(),
+          this.sessionProgress,
+          this.options.spec.productName,
+          sessionId => { this.options.openSession(sessionId) },
+          () => { this.show() },
+        )))
+      } catch (cause) {
+        this.options.logError(`dsh-plugin-desktop: failed to refresh the Dock session menu: ${cause instanceof Error ? cause.message : String(cause)}`)
+      }
+      return
+    }
+    if (this.options.platform.platform === 'win32') {
+      try {
+        const tasks = buildDesktopSessionProgressJumpTasks(this.sessionProgress).map(task => ({
+          type: 'task' as const,
+          title: task.title,
+          description: task.description,
+          program: process.execPath,
+          args: task.args,
+          iconPath: process.execPath,
+          iconIndex: 0,
+        }))
+        app.setJumpList([{ type: 'custom', name: 'Sessions', items: tasks }])
+      } catch (cause) {
+        this.options.logError(`dsh-plugin-desktop: failed to refresh the Jump List sessions: ${cause instanceof Error ? cause.message : String(cause)}`)
+      }
+    }
   }
 
   async showOpenDialog(options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> {
@@ -785,6 +864,30 @@ export class ElectronShellGeneration {
     this.compatibilityShell?.refresh()
     if (this.tray === undefined) return
     this.tray.setContextMenu(Menu.buildFromTemplate(this.options.buildTrayTemplate()))
+  }
+
+  /**
+   * Open one session in the renderer and reveal the window.
+   *
+   * The pending jump is consumed by the session-jump HTTP route the next
+   * time the renderer polls; the window is revealed immediately so the
+   * navigation lands on a visible surface.
+   * @param sessionId - session identity to open.
+   */
+  openSession(sessionId: string): void {
+    if (this.released || this.window === undefined || this.window.isDestroyed()) return
+    this.pendingSessionJump = sessionId
+    this.show()
+  }
+
+  /**
+   * Read and clear the pending renderer session jump.
+   * @returns the session id queued by the last Dock/Jump List click, if any.
+   */
+  takeSessionJump(): string | undefined {
+    const sessionId = this.pendingSessionJump
+    this.pendingSessionJump = undefined
+    return sessionId
   }
 
   refreshThemeMaterial(): void {

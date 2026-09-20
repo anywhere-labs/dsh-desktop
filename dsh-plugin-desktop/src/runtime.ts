@@ -96,6 +96,12 @@ export interface DesktopNotification {
   title: string
   /** Concise user-facing status. */
   body: string
+  /**
+   * Session identity the attention belongs to. Carried alongside the
+   * privacy-safe copy so the native shell can route Dock/Jump List jumps;
+   * never rendered into the notification itself.
+   */
+  sessionId?: string
 }
 
 /** Electron capabilities used by the headless update plugin. */
@@ -207,8 +213,36 @@ export interface DesktopRuntime {
   /** Reveal and focus the current window, if mounted. */
   show(): void
 
-  /** Request native attention for background activity while the window is unfocused. */
+  /**
+   * Request native attention for background activity while the window is unfocused.
+   * @param notification - privacy-safe copy plus an optional routing session id.
+   */
   notifyAttention(notification: DesktopNotification): void
+
+  /**
+   * Publish the Host-owned session-progress snapshot to the native shell.
+   *
+   * The snapshot drives the macOS Dock menu and the Windows Jump List; the
+   * badge count stays owned by `notifyAttention`/`clearAttention` so a
+   * snapshot replay can never inflate it.
+   * @param snapshot - unread/recent sessions, newest first.
+   */
+  publishSessionProgress(snapshot: import('./session-progress.ts').DesktopSessionProgressSnapshot): void
+
+  /**
+   * Open one session in the renderer and reveal the window.
+   *
+   * The renderer consumes the pending jump through the session-jump HTTP
+   * route; ids unknown to the session list are ignored loudly in the log.
+   * @param sessionId - session identity to open.
+   */
+  openSession(sessionId: string): void
+
+  /**
+   * Read and clear the pending renderer session jump.
+   * @returns the session id queued by the last Dock/Jump List click, if any.
+   */
+  takeSessionJump(): string | undefined
 
   /**
    * Contribute one command to the native tray for the current Cordis lifetime.

@@ -32,6 +32,7 @@ import type {
   DesktopTrayItemRegistration,
   DesktopUpdateAdapter,
 } from './runtime.ts'
+import type { DesktopSessionProgressSnapshot } from './session-progress.ts'
 import type { RendererBootReport } from './renderer-boot-contract.ts'
 import {
   DesktopRendererHealthGate,
@@ -334,6 +335,8 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         rendererRecoveryCopy: () => rendererRecoveryCopy[this.currentLocale],
         logError: message => { this.logError(message) },
         mainWindowState: this.mainWindowState,
+        openSession: sessionId => { this.openSessionById(sessionId) },
+        readSessionProgressLocale: () => this.currentLocale,
         chromeActions: {
           ...(remoteOffer ? { remoteControl: {
             read: () => remoteOffer.read(),
@@ -383,6 +386,36 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   /** @inheritdoc */
   notifyAttention(notification: DesktopNotification): void {
     this.generation?.notifyAttention(notification)
+  }
+
+  /** @inheritdoc */
+  publishSessionProgress(snapshot: DesktopSessionProgressSnapshot): void {
+    this.generation?.publishSessionProgress(snapshot)
+  }
+
+  /** @inheritdoc */
+  openSession(sessionId: string): void {
+    this.generation?.openSession(sessionId)
+  }
+
+  /** Read and clear the pending renderer session jump for the jump route. */
+  takeSessionJump(): string | undefined {
+    return this.generation?.takeSessionJump()
+  }
+
+  /**
+   * Route one Dock/Jump List/notification session click.
+   *
+   * Queues the pending jump on the generation (consumed by the session-jump
+   * route) and logs unknown ids loudly instead of silently swallowing them.
+   * @param sessionId - session identity to open.
+   */
+  private openSessionById(sessionId: string): void {
+    if (typeof sessionId !== 'string' || sessionId.length === 0) {
+      this.logError('dsh-plugin-desktop: ignored an empty session jump target')
+      return
+    }
+    this.generation?.openSession(sessionId)
   }
 
   /** @inheritdoc */

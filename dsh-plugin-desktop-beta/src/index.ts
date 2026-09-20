@@ -38,6 +38,7 @@ import {
   DESKTOP_RESTART_PATH,
   DESKTOP_RECOVERY_RESTART_PATH,
   DESKTOP_RENDERER_RELOAD_PATH,
+  DESKTOP_SESSION_JUMP_PATH,
   DESKTOP_SETTINGS_PATH,
   DESKTOP_TERMINAL_OPEN_PATH,
 } from './desktop-settings-contract.ts'
@@ -52,6 +53,7 @@ import {
   handleDesktopRestartRequest,
   handleDesktopRecoveryRestartRequest,
   handleDesktopRendererReloadRequest,
+  handleDesktopSessionJumpRequest,
   handleDesktopSettingsRequest,
   handleDesktopTerminalOpenRequest,
 } from './desktop-settings-route.ts'
@@ -334,6 +336,25 @@ export function apply(ctx: Context, config: Config): void {
         `dsh-plugin-desktop: private settings route ${path}`,
       )
     }
+    // Session jump is a GET poll route (not a POST action): the renderer
+    // consumes the pending Dock/Jump List jump exactly once.
+    ctx.effect(
+      () => ctx.webServer.register({
+        kind: 'exact',
+        path: DESKTOP_SESSION_JUMP_PATH,
+        handler: (req, res) => {
+          if (rejectDesktopRequest(ctx, req, res)) return
+          return handleDesktopSessionJumpRequest(
+            req,
+            res,
+            rendererOrigin,
+            () => ({ sessionId: runtime.takeSessionJump() }),
+            reportSettingsError,
+          )
+        },
+      }),
+      `dsh-plugin-desktop: private settings route ${DESKTOP_SESSION_JUMP_PATH}`,
+    )
   }
   ctx.effect(
     () => ctx.webServer.register({

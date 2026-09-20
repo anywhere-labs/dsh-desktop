@@ -1,5 +1,6 @@
 /** Native capability adapters; frontend HTTP and WebSocket connections are unchanged. */
 import type { DesktopLocale, DesktopRuntime, DesktopShellSpec, DesktopTrayItem, DesktopTrayItemRegistration, DesktopUpdateAdapter } from './runtime.ts'
+import { parseDesktopSessionProgressSnapshot } from './session-progress.ts'
 import { HostRpc } from './host-rpc.ts'
 
 export type RuntimeSnapshot = Pick<DesktopRuntime, 'platform' | 'windowsBuild' | 'locale'> & {
@@ -105,6 +106,12 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
     },
     show() { void send('native:show') },
     notifyAttention(value) { void send('native:notifyAttention', [value]) },
+    publishSessionProgress(snapshot) { void send('native:sessionProgress', [snapshot]) },
+    openSession(sessionId) { void send('native:openSession', [sessionId]) },
+    // The Host never reads the jump back: it only produces jumps through
+    // notifyAttention/sessionProgress. takeSessionJump is an Electron-side
+    // accessor for the session-jump HTTP route.
+    takeSessionJump() { return undefined },
     openTerminal() { void send('native:openTerminal') },
     reloadRenderer() { void send('native:reloadRenderer') },
     toggleDeveloperTools() { void send('native:toggleDeveloperTools') },
@@ -139,11 +146,18 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () => 
   const handle = (name: string, fn: (args: any[], signal: AbortSignal) => unknown) => { releases.push(rpc.handle(name, fn)) }
   const callback = (method: string, args: unknown[] = []) => rpc.call(method, args)
   const report = (promise: Promise<unknown>) => { void promise.catch(error => process.stderr.write(`${String(error)}\n`)) }
-  for (const method of ['show', 'notifyAttention', 'openTerminal', 'reloadRenderer', 'toggleDeveloperTools',
+  for (const method of ['show', 'notifyAttention', 'publishSessionProgress', 'openSession', 'openTerminal', 'reloadRenderer', 'toggleDeveloperTools',
     'exportDiagnostics', 'pickDirectory', 'validateDirectory', 'reportRendererBoot',
     'setThemeSource', 'prepareToQuit'] as const) {
     handle(`native:${method}`, args => (runtime[method] as (...args: any[]) => unknown).apply(runtime, args))
   }
+  // Session-progress snapshots cross the Host/Electron boundary as plain
+  // JSON: validate before they reach the native menu builder.
+  handle('native:sessionProgress', ([snapshot]) => {
+    const parsed = parseDesktopSessionProgressSnapshot(snapshot)
+    if (parsed === undefined) throw new Error('dsh-plugin-desktop: invalid session-progress snapshot')
+    runtime.publishSessionProgress(parsed)
+  })
   handle('native:setLocalePreference', ([preference]) => {
     runtime.setLocalePreference(preference)
     return runtime.locale

@@ -40,6 +40,18 @@ export const DESKTOP_UPDATE_CHECK_PATH = '/api/desktop/updates/check'
 /** Export one local diagnostic archive through the launcher-owned flow. */
 export const DESKTOP_DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 
+/** Read the pending Dock/Jump List session jump queued by the native shell. */
+export const DESKTOP_SESSION_JUMP_PATH = '/api/desktop/sessions/jump'
+
+/** Exact empty body accepted by the session-jump endpoint. */
+export type DesktopSessionJumpRequest = Readonly<Record<string, never>>
+
+/** Pending session jump, or no session when nothing was queued. */
+export interface DesktopSessionJumpResponse {
+  /** Session identity queued by the last Dock/Jump List click, if any. */
+  readonly sessionId: string | undefined
+}
+
 /** Renderer-safe projection of one discovered profile. */
 export interface DesktopSettingsProfileView {
   /** Profile name accepted by the launcher. */
