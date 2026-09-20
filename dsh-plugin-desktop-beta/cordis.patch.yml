@@ -12,6 +12,8 @@
       name: dsh-plugin-desktop-beta/diagnostics
     - id: desktop-notifications
       name: dsh-plugin-desktop-beta/notifications
+    - id: desktop-response-verbosity
+      name: dsh-plugin-desktop-beta/response-verbosity
     - id: desktop-pnpm
       name: dsh-plugin-desktop-beta/pnpm
     - id: desktop-profiles

@@ -117,6 +117,14 @@ export const zh = {
   turnFailure: '本轮任务失败',
   jobCompletion: '后台任务完成',
   jobFailure: '后台任务失败',
+  verbosityTitle: '回答简洁度',
+  verbosityIntro: '选择模型回答的详细程度。更改即时生效，无需重启。',
+  verbosityConcise: '简洁',
+  verbosityConciseBody: '默认简短回答，过程说明保持最少。',
+  verbosityStandard: '标准',
+  verbosityStandardBody: '保持当前默认的回答详细程度。',
+  verbosityDetailed: '详细',
+  verbosityDetailedBody: '默认展开说明推理过程与相关细节。',
 } as const
 
 export type DesktopSettingsLocaleKey = keyof typeof zh
@@ -238,4 +246,12 @@ export const en: Record<DesktopSettingsLocaleKey, string> = {
   turnFailure: 'Current turn failed',
   jobCompletion: 'Background job completed',
   jobFailure: 'Background job failed',
+  verbosityTitle: 'Response verbosity',
+  verbosityIntro: 'Choose how detailed model responses are. Changes apply immediately without a restart.',
+  verbosityConcise: 'Concise',
+  verbosityConciseBody: 'Prefer short answers and keep process exposition minimal.',
+  verbosityStandard: 'Standard',
+  verbosityStandardBody: 'Keep the current default response detail.',
+  verbosityDetailed: 'Detailed',
+  verbosityDetailedBody: 'Prefer expanded reasoning and related detail.',
 }

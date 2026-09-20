@@ -3,7 +3,7 @@
 import {
   useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode,
 } from 'react'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   DesktopMarketProvider, DesktopProfileView, DesktopSettingsApi, DesktopSettingsView,
@@ -35,6 +35,19 @@ export interface DesktopNotificationSettings {
   readonly notifyOnJobFailure: boolean
 }
 
+/** Browser view of the Host `dsh-desktop-response-verbosity` settings namespace. */
+export interface DesktopResponseVerbositySettings {
+  readonly verbosity: 'concise' | 'standard' | 'detailed'
+}
+
+/** Persist one verbosity choice; the Host prompt section reads it live. */
+export async function persistDesktopResponseVerbosity(
+  settings: Pick<SettingsScope<DesktopResponseVerbositySettings>, 'set'>,
+  verbosity: DesktopResponseVerbositySettings['verbosity'],
+): Promise<void> {
+  await settings.set('verbosity', verbosity)
+}
+
 /** Registration-side business face for the Desktop settings section. */
 export interface DesktopSettingsSectionInjected {
   readonly api: DesktopSettingsApi
@@ -44,6 +57,7 @@ export interface DesktopSettingsSectionInjected {
   readonly setMode: (mode: DesktopShellSettings['mode']) => Promise<void>
   readonly desktopSettings: Pick<SettingsScope<DesktopShellSettings>, 'getSnapshot' | 'subscribe' | 'set'>
   readonly notificationSettings: Pick<SettingsScope<DesktopNotificationSettings>, 'getSnapshot' | 'subscribe' | 'set'>
+  readonly verbositySettings?: Pick<SettingsScope<DesktopResponseVerbositySettings>, 'getSnapshot' | 'subscribe' | 'set'>
   /** Hosts can omit unsupported features while sharing the existing page. */
   readonly capabilities?: {
     readonly windowModes?: boolean
@@ -62,7 +76,7 @@ export type DesktopSettingsSectionProps =
   & InjectFace<DesktopSettingsSectionInjected>
 
 type Translate = DesktopSettingsSectionProps['t']
-type BusyOperation = 'load' | 'create-profile' | 'select-profile' | 'delete-profile' | 'select-aa' | 'select-market' | 'mode' | 'material' | 'web' | 'notification'
+type BusyOperation = 'load' | 'create-profile' | 'select-profile' | 'delete-profile' | 'select-aa' | 'select-market' | 'mode' | 'material' | 'web' | 'notification' | 'verbosity'
 type RestartState = 'none' | 'restarting' | 'required'
 type LanPollWait = (signal: AbortSignal) => Promise<void>
 
@@ -283,9 +297,34 @@ const MARKET_OPTIONS: readonly {
   { id: 'dsh-market', title: 'dshMarket', body: 'dshMarketBody' },
 ]
 
+const VERBOSITY_OPTIONS: readonly {
+  id: DesktopResponseVerbositySettings['verbosity']
+  title: DesktopSettingsLocaleKey
+  body: DesktopSettingsLocaleKey
+}[] = [
+  { id: 'concise', title: 'verbosityConcise', body: 'verbosityConciseBody' },
+  { id: 'standard', title: 'verbosityStandard', body: 'verbosityStandardBody' },
+  { id: 'detailed', title: 'verbosityDetailed', body: 'verbosityDetailedBody' },
+]
+
 const COMMUNITY_MARKET_URL = 'https://github.com/anywhere-labs/deepseek-harness-desktop/tree/master/dsh-community-market'
 const DSH_MARKET_URL = 'https://github.com/dsh-market/dsh-market'
 const AWESOME_DSH_PLUGIN_URL = 'https://github.com/awesome-dsh-plugin/awesome-dsh-plugin'
+
+/** Read-only fallback so older Hosts without the verbosity namespace still render. */
+const FALLBACK_VERBOSITY_SNAPSHOT: SettingsScopeSnapshot<DesktopResponseVerbositySettings> = {
+  status: 'unavailable',
+  value: undefined,
+  base: undefined,
+  user: undefined,
+  revision: undefined,
+  writable: false,
+  mode: 'memory',
+}
+const FALLBACK_VERBOSITY_SCOPE: Pick<SettingsScope<DesktopResponseVerbositySettings>, 'getSnapshot' | 'subscribe'> = {
+  getSnapshot: () => FALLBACK_VERBOSITY_SNAPSHOT,
+  subscribe: () => () => {},
+}
 
 function marketTitle(option: (typeof MARKET_OPTIONS)[number], t: Translate): ReactNode {
   if (option.id === 'community-market') {
@@ -317,11 +356,13 @@ export function DesktopSettingsSection({
   setMode: persistMode,
   desktopSettings,
   notificationSettings,
+  verbositySettings,
   capabilities,
   extraSections,
 }: DesktopSettingsSectionInjected & Pick<PropsLocale<'desktop.settings'>, 't'>) {
   const desktop = useScope(desktopSettings)
   const notifications = useScope(notificationSettings)
+  const verbosity = useScope(verbositySettings ?? FALLBACK_VERBOSITY_SCOPE)
   const [view, setView] = useState<DesktopSettingsView>()
   const [profileName, setProfileName] = useState('')
   const [busy, setBusy] = useState<BusyOperation | undefined>('load')
@@ -381,6 +422,8 @@ export function DesktopSettingsSection({
   const requestRestart = (): void => { setRestart('restarting') }
   const settingsWritable = desktop.status === 'ready' && desktop.writable
   const notificationsWritable = notifications.status === 'ready' && notifications.writable
+  const verbosityWritable = verbosity.status === 'ready' && verbosity.writable
+  const verbosityValue = verbosity.value?.verbosity ?? 'standard'
   const storedMode = desktop.value?.mode ?? initialMode
   const configuredNetworkExposure = desktop.value?.networkExposure ?? 'loopback'
   const browserAccess = desktopBrowserAccessEnabled(
@@ -486,6 +529,13 @@ export function DesktopSettingsSection({
 
   const setNotification = (field: keyof DesktopNotificationSettings, checked: boolean): void => {
     void run('notification', async () => { await notificationSettings.set(field, checked) })
+  }
+
+  const selectVerbosity = (next: DesktopResponseVerbositySettings['verbosity']): void => {
+    if (verbositySettings === undefined) return
+    void run('verbosity', async () => {
+      await persistDesktopResponseVerbosity(verbositySettings, next)
+    })
   }
 
   const setBrowserAccess = (checked: boolean): void => {
@@ -833,6 +883,27 @@ export function DesktopSettingsSection({
             disabled={!notificationValue.enabled || !notificationsWritable || busy !== undefined}
             onChange={checked => { setNotification('notifyOnJobFailure', checked) }}
           />
+        </div>
+      </section>
+
+      <section className="dshDesktopSettingsGroup" aria-labelledby="dsh-desktop-verbosity-title">
+        <div>
+          <h3 id="dsh-desktop-verbosity-title">{t('verbosityTitle')}</h3>
+          <p className="dshDesktopSettingsGroupIntro">{t('verbosityIntro')}</p>
+        </div>
+        {verbosity.status === 'unavailable' && <p className="dshDesktopSettingsNotice">{t('readOnly')}</p>}
+        <div className="dshDesktopSettingsList" role="radiogroup" aria-labelledby="dsh-desktop-verbosity-title">
+          {VERBOSITY_OPTIONS.map(option => (
+            <Choice
+              key={option.id}
+              title={t(option.title)}
+              body={t(option.body)}
+              selected={verbosityValue === option.id}
+              disabled={capabilities?.featuresReadOnly === true || !verbosityWritable || busy !== undefined}
+              action={() => { selectVerbosity(option.id) }}
+              status={verbosityValue === option.id ? t('selected') : undefined}
+            />
+          ))}
         </div>
       </section>
       {extraSections}
