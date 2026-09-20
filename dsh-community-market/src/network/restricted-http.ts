@@ -13,6 +13,8 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024
 const CONNECT_TIMEOUT_MS = 8_000
 const FIRST_BYTE_TIMEOUT_MS = 12_000
 const TOTAL_TIMEOUT_MS = 30_000
+const DEFAULT_RETRY_ATTEMPTS = 3
+const DEFAULT_RETRY_BASE_DELAY_MS = 600
 
 export class CatalogNetworkError extends Error {
   constructor(readonly code: 'invalid-url' | 'blocked-address' | 'redirect' | 'timeout' | 'http' | 'response') {
@@ -20,6 +22,15 @@ export class CatalogNetworkError extends Error {
     this.name = 'CatalogNetworkError'
   }
 }
+
+/**
+ * Jitter-class transport failures worth another attempt: a timeout, a
+ * non-2xx status, or an unusable body. Deterministic refusals
+ * ('invalid-url', 'blocked-address', 'redirect') are excluded on purpose —
+ * repeating them cannot succeed, and an origin-changing redirect must keep
+ * failing on the first attempt.
+ */
+const RETRYABLE_NETWORK_CODES: ReadonlySet<CatalogNetworkError['code']> = new Set(['timeout', 'http', 'response'])
 
 const blockedAddresses = createBlockedAddresses()
 
@@ -32,6 +43,24 @@ interface RestrictedHttpResponse {
   readonly statusCode: number
   readonly headers: IncomingHttpHeaders
   readonly body: Buffer
+}
+
+export interface RestrictedHttpRetryOptions {
+  /**
+   * Total attempts per request including the first one; 1 disables retrying.
+   * Retries never outlive the request's total deadline, since every attempt
+   * and every backoff sleep observes the same abort signal.
+   */
+  readonly attempts?: number
+  /**
+   * Base delay of the backoff schedule: after attempt N the next attempt
+   * waits a full-jitter delay in [0, baseDelayMs * 2 ** (N - 1)) ms.
+   */
+  readonly baseDelayMs?: number
+  /** Injectable for tests; the default sleeps while staying abort-aware. */
+  readonly sleep?: (delayMs: number, signal: AbortSignal) => Promise<void>
+  /** Injectable full-jitter source for tests. */
+  readonly random?: () => number
 }
 
 export interface RestrictedHttpClientOptions {
@@ -49,6 +78,7 @@ export interface RestrictedHttpClientOptions {
   ) => Promise<RestrictedHttpResponse>
   readonly totalTimeoutMs?: number
   readonly maxBodyBytes?: number
+  readonly retry?: RestrictedHttpRetryOptions
 }
 
 const syntheticProxyAddresses = createSyntheticProxyAddresses()
@@ -225,6 +255,59 @@ async function fetchJson(
   return { value, finalUrl: url.href }
 }
 
+/** Abort-aware sleep: rejects with the abort reason instead of waiting it out. */
+function abortableSleep(delayMs: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  if (delayMs === 0) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
+      reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError'))
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, delayMs)
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) onAbort()
+  })
+}
+
+function retryDelayMs(attempt: number, baseDelayMs: number, random: () => number): number {
+  return Math.floor(random() * baseDelayMs * 2 ** (attempt - 1))
+}
+
+async function fetchJsonWithRetry(
+  start: string,
+  signal: AbortSignal,
+  resolveAddress: (hostname: string) => Promise<PinnedAddress>,
+  request: (url: URL, signal: AbortSignal, pinned: PinnedAddress) => Promise<RestrictedHttpResponse>,
+  allowedOrigin: string | undefined,
+  attempts: number,
+  baseDelayMs: number,
+  sleep: (delayMs: number, signal: AbortSignal) => Promise<void>,
+  random: () => number,
+): Promise<CatalogHttpResponse> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetchJson(start, signal, resolveAddress, request, allowedOrigin)
+    } catch (cause) {
+      // Deterministic refusals surface immediately, and nothing is retried
+      // past an abort (including the request's own total deadline): both
+      // are terminal by design, only jitter-class transport failures are
+      // worth another attempt.
+      if (!(cause instanceof CatalogNetworkError)
+        || !RETRYABLE_NETWORK_CODES.has(cause.code)
+        || signal.aborted) throw cause
+      lastError = cause
+      if (attempt < attempts) await sleep(retryDelayMs(attempt, baseDelayMs, random), signal)
+    }
+  }
+  throw lastError
+}
+
 export function createRestrictedHttpClient(
   options: RestrictedHttpClientOptions = {},
 ): CatalogHttpClient {
@@ -238,6 +321,16 @@ export function createRestrictedHttpClient(
   const request = options.request
     ?? (async (url, signal, pinned) => await requestOnce(url, signal, pinned, maxBodyBytes))
   const totalTimeoutMs = options.totalTimeoutMs ?? TOTAL_TIMEOUT_MS
+  const retryAttempts = options.retry?.attempts ?? DEFAULT_RETRY_ATTEMPTS
+  const retryBaseDelayMs = options.retry?.baseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS
+  const sleep = options.retry?.sleep ?? abortableSleep
+  const random = options.retry?.random ?? Math.random
+  if (!Number.isSafeInteger(retryAttempts) || retryAttempts < 1) {
+    throw new TypeError('invalid restricted-http retry attempt count')
+  }
+  if (!Number.isSafeInteger(retryBaseDelayMs) || retryBaseDelayMs < 0) {
+    throw new TypeError('invalid restricted-http retry base delay')
+  }
 
   return {
     async getJson(start, signal, policy: CatalogHttpRequestPolicy = {}) {
@@ -259,7 +352,17 @@ export function createRestrictedHttpClient(
           reject(cause)
         }, totalTimeoutMs)
       })
-      const operation = fetchJson(start, totalController.signal, resolveAddress, request, policy.allowedOrigin)
+      const operation = fetchJsonWithRetry(
+        start,
+        totalController.signal,
+        resolveAddress,
+        request,
+        policy.allowedOrigin,
+        retryAttempts,
+        retryBaseDelayMs,
+        sleep,
+        random,
+      )
       try {
         return await Promise.race([operation, aborted, timedOut])
       } finally {

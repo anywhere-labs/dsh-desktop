@@ -1886,6 +1886,9 @@ describe('restricted HTTP boundary', () => {
     try {
       const client = createRestrictedHttpClient({
         resolveAddress: async () => ({ address: '93.184.216.34', family: 4 }),
+        // Pins the first attempt's deadline; retry scheduling is covered
+        // separately in the transient-failure retry suite below.
+        retry: { attempts: 1 },
       })
       const result = expect(client.getJson(
         'https://catalog.example/v1/plugins',
@@ -2291,6 +2294,108 @@ describe('restricted HTTP boundary', () => {
   ])('rejects IPv4-mapped IPv6 URL %s before connecting', async (url) => {
     await expect(restrictedHttpClient.getJson(url, AbortSignal.timeout(250))).rejects.toMatchObject({
       code: 'blocked-address',
+    })
+  })
+
+  describe('transient-failure retry', () => {
+    const resolvedAddress = { address: '104.21.87.154', family: 4 as const }
+    const jsonResponse = { body: Buffer.from('{"plugins":[]}'), headers: { 'content-type': 'application/json' }, statusCode: 200 }
+
+    it('retries a jitter-class failure until it succeeds and re-resolves the address per attempt', async () => {
+      const sleeps: number[] = []
+      const resolveAddress = vi.fn(async () => resolvedAddress)
+      let attempts = 0
+      const request = vi.fn(async () => {
+        attempts += 1
+        if (attempts < 3) throw new CatalogNetworkError('http')
+        return jsonResponse
+      })
+      const client = createRestrictedHttpClient({
+        request,
+        resolveAddress,
+        retry: {
+          attempts: 3,
+          baseDelayMs: 600,
+          // random() = 0.5 → full-jitter delays of 300ms then 600ms.
+          random: () => 0.5,
+          sleep: async delayMs => { sleeps.push(delayMs) },
+        },
+      })
+
+      await expect(client.getJson(
+        'https://catalog.example/v1/plugins',
+        new AbortController().signal,
+      )).resolves.toMatchObject({ value: { plugins: [] } })
+      expect(request).toHaveBeenCalledTimes(3)
+      expect(resolveAddress).toHaveBeenCalledTimes(3)
+      expect(sleeps).toEqual([300, 600])
+    })
+
+    it('exhausts the attempt budget and surfaces the last transport error', async () => {
+      const sleeps: number[] = []
+      const request = vi.fn(async () => {
+        throw new CatalogNetworkError('timeout')
+      })
+      const client = createRestrictedHttpClient({
+        request,
+        resolveAddress: async () => resolvedAddress,
+        retry: { attempts: 3, baseDelayMs: 600, random: () => 0, sleep: async delayMs => { sleeps.push(delayMs) } },
+      })
+
+      await expect(client.getJson(
+        'https://catalog.example/v1/plugins',
+        new AbortController().signal,
+      )).rejects.toMatchObject({ code: 'timeout' })
+      expect(request).toHaveBeenCalledTimes(3)
+      expect(sleeps).toEqual([0, 0])
+    })
+
+    it.each(['invalid-url', 'blocked-address', 'redirect'] as const)(
+      'fails a deterministic %s refusal on the first attempt without retrying',
+      async (code) => {
+        const sleeps: number[] = []
+        const request = vi.fn(async () => {
+          throw new CatalogNetworkError(code)
+        })
+        const client = createRestrictedHttpClient({
+          request,
+          resolveAddress: async () => resolvedAddress,
+          retry: { attempts: 3, baseDelayMs: 600, sleep: async delayMs => { sleeps.push(delayMs) } },
+        })
+
+        await expect(client.getJson(
+          'https://catalog.example/v1/plugins',
+          new AbortController().signal,
+        )).rejects.toMatchObject({ code })
+        expect(request).toHaveBeenCalledOnce()
+        expect(sleeps).toEqual([])
+      },
+    )
+
+    it('abandons the retry loop when the caller aborts during backoff', async () => {
+      const controller = new AbortController()
+      const request = vi.fn(async () => {
+        throw new CatalogNetworkError('http')
+      })
+      const client = createRestrictedHttpClient({
+        request,
+        resolveAddress: async () => resolvedAddress,
+        retry: {
+          attempts: 3,
+          baseDelayMs: 600,
+          random: () => 0,
+          sleep: async (_delayMs, signal) => {
+            controller.abort(new Error('stop waiting'))
+            signal.throwIfAborted()
+          },
+        },
+      })
+
+      await expect(client.getJson(
+        'https://catalog.example/v1/plugins',
+        controller.signal,
+      )).rejects.toMatchObject({ message: 'stop waiting' })
+      expect(request).toHaveBeenCalledOnce()
     })
   })
 })
