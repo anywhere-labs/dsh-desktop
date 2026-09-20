@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -6,13 +7,15 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { dirname, join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   DesktopProfileCheckpoint,
   inspectLatestDesktopProfileCheckpointUsage,
@@ -48,7 +51,7 @@ function fixture(options: Partial<ProfileCheckpointOptions> = {}): {
     profileName: 'work',
     provider: 'dsh-market',
     appVersion: '2.0.3',
-    desktopPackageName: 'dsh-plugin-desktop',
+    desktopPackageName: 'dsh-plugin-desktop-beta',
     releaseChannel: 'stable',
     dshVersion: '0.1.1-rc.2',
     ...options,
@@ -77,7 +80,7 @@ describe('Desktop profile health checkpoints', () => {
         profileName: 'work',
         provider: 'dsh-market',
         appVersion: '2.0.3',
-        desktopPackageName: 'dsh-plugin-desktop',
+        desktopPackageName: 'dsh-plugin-desktop-beta',
         releaseChannel: 'stable',
         dshVersion: '0.1.1-rc.2',
         reason: 'healthy-startup',
@@ -128,6 +131,196 @@ describe('Desktop profile health checkpoints', () => {
       '2026-08-25T00:00:01.000Z',
       '2026-08-25T00:00:02.000Z',
     ])
+  })
+
+  it('rejects a capture whose profile file changes between hashing and copying', () => {
+    const target = fixture()
+    // Simulate a concurrent package operation rewriting package.json after
+    // readCurrentImages hashed it but before captureHealthy copies the bytes.
+    const proto = DesktopProfileCheckpoint.prototype as unknown as {
+      readCurrentImages: (requirePackage: boolean) => unknown
+    }
+    const original = proto.readCurrentImages
+    const spy = vi.spyOn(proto, 'readCurrentImages').mockImplementation(
+      function (this: DesktopProfileCheckpoint, requirePackage: boolean) {
+        const images = original.call(this, requirePackage)
+        writeFileSync(join(target.profile, 'package.json'), '{"name":"raced"}\n')
+        return images
+      },
+    )
+    try {
+      expect(() => target.checkpoint.captureHealthy()).toThrow('raced with a profile change')
+    } finally {
+      spy.mockRestore()
+    }
+    expect(target.checkpoint.listSlots().every(slot => !slot.snapshotExists)).toBe(true)
+    expect(target.checkpoint.captureHealthy()).toMatchObject({ status: 'captured', slotId: 'slot-1' })
+  })
+
+  it('treats a corrupted slot as empty and heals it on the next healthy capture', () => {
+    const logError = vi.fn()
+    const target = fixture({ logError })
+    target.checkpoint.captureHealthy()
+    const slot = target.checkpoint.listSlots()[0]!
+    writeFileSync(join(slot.snapshotDirectory, 'package.json'), '{"name":"corrupted"}\n')
+
+    expect(target.checkpoint.listSlots()[0]).toMatchObject({ slotId: 'slot-1', snapshotExists: false })
+    expect(logError).toHaveBeenCalledTimes(1)
+    expect(logError.mock.calls[0]?.[0]).toContain('slot-1 failed validation')
+    expect(target.checkpoint.captureHealthy()).toMatchObject({ status: 'captured', slotId: 'slot-1' })
+    expect(target.checkpoint.listSlots()[0]).toMatchObject({ snapshotExists: true })
+  })
+
+  it('propagates transient I/O failures instead of treating the slot as empty', () => {
+    const target = fixture()
+    target.checkpoint.captureHealthy()
+    const slot = target.checkpoint.listSlots()[0]!
+    const proto = DesktopProfileCheckpoint.prototype as unknown as {
+      readSnapshot: (directory: string, requireComplete: boolean) => unknown
+    }
+    const spy = vi.spyOn(proto, 'readSnapshot').mockImplementation(function (this: DesktopProfileCheckpoint) {
+      const cause = new Error('file locked by another process') as NodeJS.ErrnoException
+      cause.code = 'EBUSY'
+      throw cause
+    })
+    try {
+      // A locked manifest must surface, not read as an empty slot that the
+      // next healthy capture would overwrite and destroy.
+      expect(() => target.checkpoint.listSlots()).toThrow('file locked by another process')
+    } finally {
+      spy.mockRestore()
+    }
+    expect(slot.snapshotExists).toBe(true)
+    expect(target.checkpoint.listSlots()[0]).toMatchObject({ snapshotExists: true })
+  })
+
+  it('propagates network-filesystem blips (ESTALE) instead of self-healing over a good slot', () => {
+    const target = fixture()
+    target.checkpoint.captureHealthy()
+    const proto = DesktopProfileCheckpoint.prototype as unknown as {
+      readSnapshot: (directory: string, requireComplete: boolean) => unknown
+    }
+    const spy = vi.spyOn(proto, 'readSnapshot').mockImplementation(function (this: DesktopProfileCheckpoint) {
+      // ESTALE: the bytes are intact but the NFS-style read failed; a blip
+      // must not mark the slot empty for the next capture to overwrite.
+      const cause = new Error('stale file handle') as NodeJS.ErrnoException
+      cause.code = 'ESTALE'
+      throw cause
+    })
+    try {
+      expect(() => target.checkpoint.listSlots()).toThrow('stale file handle')
+    } finally {
+      spy.mockRestore()
+    }
+    expect(target.checkpoint.listSlots()[0]).toMatchObject({ snapshotExists: true })
+  })
+
+  it('propagates unrecognized errno conditions (ENOSPC) instead of self-healing over a good slot', () => {
+    const target = fixture()
+    target.checkpoint.captureHealthy()
+    const proto = DesktopProfileCheckpoint.prototype as unknown as {
+      readSnapshot: (directory: string, requireComplete: boolean) => unknown
+    }
+    const spy = vi.spyOn(proto, 'readSnapshot').mockImplementation(function (this: DesktopProfileCheckpoint) {
+      // Disk full is not on any historical allowlist, yet the slot's bytes
+      // are intact; it must never be marked empty over an errno.
+      const cause = new Error('no space left on device') as NodeJS.ErrnoException
+      cause.code = 'ENOSPC'
+      throw cause
+    })
+    try {
+      expect(() => target.checkpoint.listSlots()).toThrow('no space left on device')
+    } finally {
+      spy.mockRestore()
+    }
+    expect(target.checkpoint.listSlots()[0]).toMatchObject({ snapshotExists: true })
+  })
+
+  it.skipIf(process.platform === 'win32')('repairs slot mode drift instead of losing the slot to an overwrite', () => {
+    const target = fixture()
+    target.checkpoint.captureHealthy()
+    const slot = target.checkpoint.listSlots()[0]!
+    // Systematic drift (chmod -R, a sync client, a restore under a tighter
+    // umask) hits all three slots at once; repairing the modes beats
+    // classifying the slots as corruption, which would let the next healthy
+    // captures overwrite every one of them.
+    chmodSync(slot.snapshotDirectory, 0o755)
+    chmodSync(join(slot.snapshotDirectory, 'package.json'), 0o644)
+    chmodSync(join(slot.snapshotDirectory, 'manifest.json'), 0o644)
+
+    expect(target.checkpoint.listSlots()[0]).toMatchObject({ slotId: 'slot-1', snapshotExists: true })
+    expect(statSync(slot.snapshotDirectory).mode & 0o777).toBe(0o700)
+    expect(statSync(join(slot.snapshotDirectory, 'package.json')).mode & 0o777).toBe(0o600)
+    expect(target.checkpoint.restoreSlot('slot-1')).toMatchObject({ status: 'restored', slotId: 'slot-1' })
+  })
+
+  it.skipIf(process.platform === 'win32')('restores the mode captured at snapshot time over the current file mode', () => {
+    const target = fixture()
+    chmodSync(join(target.profile, 'package.json'), 0o640)
+    target.checkpoint.captureHealthy()
+    // Simulate the breakage that prompted the restore: mangled permissions.
+    chmodSync(join(target.profile, 'package.json'), 0o600)
+    expect(statSync(join(target.profile, 'package.json')).mode & 0o777).toBe(0o600)
+
+    expect(target.checkpoint.restoreSlot('slot-1')).toMatchObject({ status: 'restored', slotId: 'slot-1' })
+
+    expect(readFileSync(join(target.profile, 'package.json'), 'utf8')).toBe('{"name":"healthy-0"}\n')
+    expect(statSync(join(target.profile, 'package.json')).mode & 0o777).toBe(0o640)
+  })
+
+  it('sweeps only staging directories whose owning process is gone', () => {
+    const target = fixture()
+    target.checkpoint.captureHealthy()
+    const profileRoot = dirname(target.checkpoint.listSlots()[0]!.snapshotDirectory)
+    // The live owner's staging directory stays in place; slot ids contain
+    // hyphens, so the pid segment must be parsed off the full prefix.
+    const live = join(profileRoot, `.staging-slot-1-${process.pid}-live`)
+    mkdirSync(live)
+    writeFileSync(join(live, 'marker'), 'in flight\n')
+    // A live sibling process's staging directory is equally in flight.
+    const sibling = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], { stdio: 'ignore' })
+    const siblingStaging = join(profileRoot, `.staging-slot-1-${sibling.pid}-sibling`)
+    // Malformed owner segments never authorize a sweep, even when they
+    // numerically resolve to a dead pid.
+    const malformed = join(profileRoot, '.staging-slot-1-1e3-malformed')
+    // Find a pid that verifiably does not exist (ESRCH): EPERM counts as
+    // alive, matching the production probe.
+    let deadPid = process.pid + 1
+    for (; deadPid < process.pid + 10_000; deadPid += 1) {
+      try { process.kill(deadPid, 0) } catch (cause) {
+        if ((cause as NodeJS.ErrnoException | null)?.code === 'ESRCH') break
+      }
+    }
+    const dead = join(profileRoot, `.staging-slot-1-${deadPid}-dead`)
+    try {
+      mkdirSync(siblingStaging)
+      mkdirSync(malformed)
+      mkdirSync(dead)
+
+      target.checkpoint.listSlots()
+
+      expect(existsSync(live)).toBe(true)
+      expect(existsSync(join(live, 'marker'))).toBe(true)
+      expect(existsSync(siblingStaging)).toBe(true)
+      expect(existsSync(malformed)).toBe(true)
+      expect(existsSync(dead)).toBe(false)
+    } finally {
+      sibling.kill()
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')('repairs a write-only drifted backup through the owner chmod fallback', () => {
+    const target = fixture()
+    target.checkpoint.captureHealthy()
+    const slot = target.checkpoint.listSlots()[0]!
+    // A file drifted to write-only denies the O_NOFOLLOW read-open but is
+    // still owner-chmoddable; the fallback must repair instead of surfacing
+    // EACCES and blocking slot listing.
+    chmodSync(join(slot.snapshotDirectory, 'package.json'), 0o200)
+
+    expect(target.checkpoint.listSlots()[0]).toMatchObject({ slotId: 'slot-1', snapshotExists: true })
+    expect(statSync(join(slot.snapshotDirectory, 'package.json')).mode & 0o777).toBe(0o600)
+    expect(target.checkpoint.restoreSlot('slot-1')).toMatchObject({ status: 'restored', slotId: 'slot-1' })
   })
 
   it('restores an explicitly selected slot and skips exactly the next healthy write', () => {
@@ -226,14 +419,14 @@ describe('Desktop profile health checkpoints', () => {
       userDataDir: target.userData,
       profileDir: target.profile,
       profileName: 'work',
-      legacyDesktopPackageName: 'dsh-plugin-desktop',
+      legacyDesktopPackageName: 'dsh-plugin-desktop-beta',
       legacyReleaseChannel: 'stable',
     })).toEqual({
       status: 'valid',
       evidence: {
         source: 'checkpoint',
         recordedAt: '2026-08-25T00:00:01.000Z',
-        desktopPackageName: 'dsh-plugin-desktop',
+        desktopPackageName: 'dsh-plugin-desktop-beta',
         releaseChannel: 'stable',
         desktopVersion: '2.0.3',
         dshVersion: '0.1.1-rc.2',
@@ -354,7 +547,7 @@ describe('Desktop profile health checkpoints', () => {
       profileName: 'work',
       provider: 'other-market',
       appVersion: '2.0.3',
-      desktopPackageName: 'dsh-plugin-desktop',
+      desktopPackageName: 'dsh-plugin-desktop-beta',
       releaseChannel: 'stable',
       dshVersion: '0.1.1-rc.2',
     })
