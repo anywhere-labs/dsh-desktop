@@ -3346,6 +3346,24 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-client-ui-workspace@patch:@deepseek-ai/dsh-client-ui-workspace@file%3Avendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-client-ui-workspace-0.1.5-rc.2.tgz#./patches/dsh-client-ui-workspace@0.1.5-rc.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.5-rc.2
+  resolution: "@deepseek-ai/dsh-client-ui-workspace@patch:@deepseek-ai/dsh-client-ui-workspace@file%3Avendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-client-ui-workspace-0.1.5-rc.2.tgz%23vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-client-ui-workspace-0.1.5-rc.2.tgz%3A%3Ahash=d6afc0&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-client-ui-workspace@0.1.5-rc.2.patch::version=0.1.5-rc.2&hash=f4dae6&locator=deepseek-harness-desktop%40workspace%3A."
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.2
+  checksum: 10c0/dd8a63078b53f4dbbba0fc733b4681e0ea04649c0b98bb37c74e389d7ba3c595f2548a0883e8bc6b839836944a16c0a441fe2a2f2e7fa109578794deadb3fc08
+  languageName: node
+  linkType: hard
+
+"@deepseek-ai/dsh-client-ui-workspace@patch:@deepseek-ai/dsh-client-ui-workspace@file%3Avendor/dsh-runtime/0.1.6-alpha.2/deepseek-ai-dsh-client-ui-workspace-0.1.6-alpha.2.tgz#./patches/dsh-client-ui-workspace@0.1.6-alpha.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.6-alpha.2
+  resolution: "@deepseek-ai/dsh-client-ui-workspace@patch:@deepseek-ai/dsh-client-ui-workspace@file%3Avendor/dsh-runtime/0.1.6-alpha.2/deepseek-ai-dsh-client-ui-workspace-0.1.6-alpha.2.tgz%23vendor/dsh-runtime/0.1.6-alpha.2/deepseek-ai-dsh-client-ui-workspace-0.1.6-alpha.2.tgz%3A%3Ahash=808d1e&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-client-ui-workspace@0.1.6-alpha.2.patch::version=0.1.6-alpha.2&hash=d22888&locator=deepseek-harness-desktop%40workspace%3A."
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.2
+  checksum: 10c0/821a6bce985de3456f4303cada2824b2b62c3e0e712a2f06c515ec66f2c6ce309982387fdc71a542490c884ca99d420bd5dc348a8b5417cdef58705d28e2fc6d
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-cmdline@file:vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-cmdline-0.1.5-rc.2.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.5-rc.2
   resolution: "@deepseek-ai/dsh-cmdline@file:vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-cmdline-0.1.5-rc.2.tgz#vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-cmdline-0.1.5-rc.2.tgz::hash=c791f0&locator=deepseek-harness-desktop%40workspace%3A."

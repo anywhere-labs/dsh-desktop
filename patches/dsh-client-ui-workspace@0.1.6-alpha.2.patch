@@ -1,0 +1,506 @@
+diff --git a/lib/client.js b/lib/client.js
+index 237aa47..66cc88e 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -843,6 +843,10 @@ window.__ModuleLoader__.load({
+ 			const active = containsCurrentDescendant || group.expanded && group.containsCurrent;
+ 			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
+ 			const workspaceMenuItems = [{
++				id: "project-prompt",
++				label: t("projectPrompt"),
++				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPersonalizationOutline16, {})
++			}, {
+ 				id: "rename",
+ 				label: t("rename"),
+ 				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEditOutline16, {})
+@@ -890,9 +894,10 @@ window.__ModuleLoader__.load({
+ 							items: workspaceMenuItems,
+ 							onSelect: (id) => {
+ 								setMenuOpen(false);
+-								/* v8 ignore next -- Menu can emit only the rename and delete rows supplied above. */
+-								if (id !== "rename" && id !== "delete") return;
+-								if (id === "rename") actions.rename();
++								/* v8 ignore next -- Menu can emit only the rows supplied above. */
++								if (id !== "rename" && id !== "delete" && id !== "project-prompt") return;
++								if (id === "project-prompt") actions.prompt();
++								else if (id === "rename") actions.rename();
+ 								else actions.delete();
+ 							},
+ 							portal: true,
+@@ -1585,7 +1590,7 @@ window.__ModuleLoader__.load({
+ 			return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+ 		}
+ 		/** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
+-		function SessionTree({ list, useSessionStatus, startSession, open, forkSession, workspaces, ungroupedSessionIds, archivedSessionIds, workspaceReady, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, nestWorkspaces, groupExpansion, setGroupExpanded, setSessionOrder, home, t, revealSessionId, onSessionRevealed }) {
++		function SessionTree({ list, useSessionStatus, startSession, open, forkSession, workspaces, ungroupedSessionIds, archivedSessionIds, workspaceReady, usePanelInfo, onRenameRequest, onDeleteRequest, onPromptRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, nestWorkspaces, groupExpansion, setGroupExpanded, setSessionOrder, home, t, revealSessionId, onSessionRevealed }) {
+ 			const panelActive = usePanelInfo((info) => info.activePanelId !== null);
+ 			const statuses = useSessionStatus((s) => s);
+ 			const current = panelActive ? void 0 : Object.values(list.byId).find((session) => (session.retainedBy.mainView ?? 0) > 0)?.id;
+@@ -1812,6 +1817,10 @@ window.__ModuleLoader__.load({
+ 							},
+ 							drag: workspaceDragProps,
+ 							actions: group.workspaceId === void 0 ? void 0 : {
++								prompt: () => {
++									/* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
++									if (group.workspaceId !== void 0) onPromptRequest(group.workspaceId, group.label, group.cwd);
++								},
+ 								rename: () => {
+ 									/* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+ 									if (group.workspaceId !== void 0) onRenameRequest(group.workspaceId, group.label);
+@@ -2070,7 +2079,7 @@ window.__ModuleLoader__.load({
+ 		* @param props - composed slot props (shell owner share + store + injected actions).
+ 		* @returns the region element tree.
+ 		*/
+-		function WorkspaceBrowser({ wide, usePanelInfo, expandSidebar, useSessions, useSessionStatus, useWorkspaces, useStore, actions, startSession, open, renameSession, forkSession, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, archiveSession, createWorkspace, searchSessions, searchResultLimit, useDirectoryFlow, useHostInfo, renderSlot, t }) {
++		function WorkspaceBrowser({ wide, usePanelInfo, expandSidebar, useSessions, useSessionStatus, useWorkspaces, useStore, actions, startSession, open, renameSession, forkSession, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, archiveSession, createWorkspace, searchSessions, searchResultLimit, useDirectoryFlow, useHostInfo, renderSlot, readProjectPrompt, writeProjectPrompt, t }) {
+ 			const home = useHostInfo((info) => info.home);
+ 			const list = useSessions((state) => state);
+ 			const workspaces = useWorkspaces((state) => state.items);
+@@ -2311,6 +2320,63 @@ window.__ModuleLoader__.load({
+ 					setRenameError(reason instanceof Error ? reason.message : String(reason));
+ 				});
+ 			};
++			/** LOCAL PATCH: the project-prompt editor — its directory, buffer, and load/save state. */
++			const [promptTarget, setPromptTarget] = (0, react.useState)(null);
++			const openPrompt = (workspaceId, label, cwd) => {
++				if (typeof cwd !== "string" || cwd === "") {
++					setPromptTarget({
++						cwd: "",
++						label,
++						value: "",
++						loading: false,
++						saving: false,
++						error: t("projectPromptNoFolder")
++					});
++					return;
++				}
++				setPromptTarget({
++					cwd,
++					label,
++					value: "",
++					loading: true,
++					saving: false,
++					error: null
++				});
++				readProjectPrompt(cwd).then((text) => {
++					setPromptTarget((current) => current === null || current.cwd !== cwd ? current : {
++						...current,
++						value: text,
++						loading: false
++					});
++				}).catch((reason) => {
++					setPromptTarget((current) => current === null || current.cwd !== cwd ? current : {
++						...current,
++						loading: false,
++						error: reason instanceof Error ? reason.message : String(reason)
++					});
++				});
++			};
++			const closePrompt = () => {
++				setPromptTarget((current) => current === null || current.saving ? current : null);
++			};
++			const confirmPrompt = () => {
++				const pending = promptTarget;
++				if (pending === null || pending.saving || pending.loading || pending.cwd === "" || pending.error !== null) return;
++				setPromptTarget({
++					...pending,
++					saving: true,
++					error: null
++				});
++				writeProjectPrompt(pending.cwd, pending.value).then(() => {
++					setPromptTarget((current) => current === null || current.cwd !== pending.cwd ? current : null);
++				}).catch((reason) => {
++					setPromptTarget((current) => current === null || current.cwd !== pending.cwd ? current : {
++						...current,
++						saving: false,
++						error: reason instanceof Error ? reason.message : String(reason)
++					});
++				});
++			};
+ 			const [sessionRenameTarget, setSessionRenameTarget] = (0, react.useState)(null);
+ 			const [sessionRenameDraft, setSessionRenameDraft] = (0, react.useState)("");
+ 			const [sessionRenaming, setSessionRenaming] = (0, react.useState)(false);
+@@ -2571,6 +2637,9 @@ window.__ModuleLoader__.load({
+ 									title
+ 								});
+ 								setDeleteError(null);
++							},
++							onPromptRequest: (workspaceId, label, cwd) => {
++								openPrompt(workspaceId, label, cwd);
+ 							}
+ 						}))
+ 					}),
+@@ -2629,6 +2698,67 @@ window.__ModuleLoader__.load({
+ 							})
+ 						]
+ 					}),
++					(0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
++						open: promptTarget !== null,
++						onClose: closePrompt,
++						closeLabel: t("close"),
++						title: t("projectPrompt"),
++						...promptTarget === null ? {} : { description: promptTarget.cwd === "" ? promptTarget.label : promptTarget.cwd },
++						footer: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++							variant: "outline",
++							disabled: promptTarget?.saving === true,
++							onClick: closePrompt,
++							children: t("cancel")
++						}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++							variant: "primary",
++							disabled: promptTarget === null || promptTarget.loading === true || promptTarget.saving === true || promptTarget.cwd === "" || promptTarget.error !== null,
++							onClick: confirmPrompt,
++							children: t("projectPromptSave")
++						})] }),
++						children: [(0, react_jsx_runtime.jsx)("textarea", {
++							style: {
++								width: "100%",
++								minHeight: "180px",
++								resize: "vertical",
++								padding: "8px",
++								borderRadius: "6px",
++								border: "1px solid var(--dsw-alias-border-secondary, rgba(128,128,128,0.35))",
++								background: "transparent",
++								color: "inherit",
++								fontFamily: "inherit",
++								fontSize: "13px",
++								lineHeight: "1.5"
++							},
++							value: promptTarget?.value ?? "",
++							placeholder: t("projectPromptPlaceholder"),
++							disabled: promptTarget?.loading === true || promptTarget?.saving === true,
++							onFocus: (e) => {
++								e.target.select();
++							},
++							onChange: (e) => {
++								const next = e.target.value;
++								setPromptTarget((current) => current === null ? current : {
++									...current,
++									value: next
++								});
++							}
++						}), (0, react_jsx_runtime.jsx)("div", {
++							style: {
++								marginTop: "8px",
++								fontSize: "12px",
++								opacity: 0.7
++							},
++							children: t("projectPromptHint")
++						}), promptTarget?.error != null && (0, react_jsx_runtime.jsx)("div", {
++							role: "alert",
++							style: {
++								marginTop: "8px",
++								fontSize: "12px",
++								color: "var(--dsw-alias-label-error, #e5484d)"
++							},
++							children: promptTarget.error
++						})]
++					}),
+ 					(0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
+ 						open: sessionRenameTarget !== null,
+ 						onClose: closeSessionRename,
+@@ -2747,6 +2877,11 @@ window.__ModuleLoader__.load({
+ 			"folderError.title": "无法打开文件夹",
+ 			"folderError.retry": "重新选择",
+ 			"rename": "重命名",
++			"projectPrompt": "项目提示词",
++			"projectPromptSave": "保存",
++			"projectPromptPlaceholder": "输入该项目提示词…（保存后，模型每次请求都会先收到它）",
++			"projectPromptHint": "适用于该目录及其子目录下的会话；不会在会话记录里产生额外消息。清空后保存即删除。",
++			"projectPromptNoFolder": "该工作区没有可用的文件夹路径。",
+ 			"rename.workspace.title": "重命名工作区",
+ 			"rename.session.title": "重命名会话",
+ 			"field.workspaceName": "工作区名称",
+@@ -2814,6 +2949,11 @@ window.__ModuleLoader__.load({
+ 			"folderError.title": "Couldn’t open folder",
+ 			"folderError.retry": "Choose again",
+ 			"rename": "Rename",
++			"projectPrompt": "Project prompt",
++			"projectPromptSave": "Save",
++			"projectPromptPlaceholder": "Write the project prompt… (the model receives it first on every request after saving)",
++			"projectPromptHint": "Applies to sessions in this directory and below; no extra message appears in the transcript. Save an empty text to remove it.",
++			"projectPromptNoFolder": "This workspace has no folder path.",
+ 			"rename.workspace.title": "Rename workspace",
+ 			"rename.session.title": "Rename session",
+ 			"field.workspaceName": "Workspace name",
+@@ -2867,8 +3007,24 @@ window.__ModuleLoader__.load({
+ 			"locale",
+ 			"remote",
+ 			"remote.directoryPicker",
++			"remote.settings",
+ 			"layout"
+ 		];
++		/** LOCAL PATCH: settings namespace + key rule for per-directory project prompts. */
++		const PROJECT_PROMPT_NS = "project-prompt";
++		/** A Windows path spelling (`D:/…`, or a `//server/share` UNC path). */
++		const PROJECT_PROMPT_WINDOWS_PATH = /^(?:[A-Za-z]:|\/\/)/;
++		/**
++		* The host half carries this exact rule, and the two must agree or a saved
++		* prompt never loads. Keep case on POSIX — `/srv/App` and `/srv/app` are
++		* different projects there — and fold it only for a Windows spelling. The
++		* platform is read from the path's own shape because this web bundle has no
++		* `process`.
++		*/
++		function projectPromptKeyOf(path) {
++			const normalized = String(path).replace(/\\/g, "/").replace(/\/+$/, "");
++			return PROJECT_PROMPT_WINDOWS_PATH.test(normalized) ? normalized.toLowerCase() : normalized;
++		}
+ 		/**
+ 		* Register the browser and picker once their slot declarations are on the
+ 		* ledger. Inject factories return plain callbacks; data reads use the
+@@ -2929,6 +3085,27 @@ window.__ModuleLoader__.load({
+ 					await uiWorkspace.archiveSession(sessionId);
+ 				},
+ 				createWorkspace: (input) => workspaces.create(input),
++				readProjectPrompt: async (path) => {
++					const response = await ctx.remote.settings.describe();
++					if (!response.ok) throw new Error(response.error.message);
++					const namespaces = response.value?.namespaces ?? [];
++					const view = namespaces.find((entry) => entry.ns === PROJECT_PROMPT_NS);
++					const prompts = view?.value?.prompts;
++					if (prompts === null || typeof prompts !== "object") return "";
++					const text = prompts[projectPromptKeyOf(path)];
++					return typeof text === "string" ? text : "";
++				},
++				writeProjectPrompt: async (path, text) => {
++					const response = await ctx.remote.settings.describe();
++					if (!response.ok) throw new Error(response.error.message);
++					const namespaces = response.value?.namespaces ?? [];
++					const view = namespaces.find((entry) => entry.ns === PROJECT_PROMPT_NS);
++					const current = view?.value?.prompts;
++					const prompts = current !== null && typeof current === "object" ? { ...current } : {};
++					prompts[projectPromptKeyOf(path)] = text;
++					const updated = await ctx.remote.settings.update(PROJECT_PROMPT_NS, { prompts }, view?.revision);
++					if (!updated.ok) throw new Error(updated.error.message);
++				},
+ 				hooks: {
+ 					directoryFlow: browserFlowSource,
+ 					hostInfo
+diff --git a/lib/index.js b/lib/index.js
+index 8d02de6..3b7ccdb 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -4,8 +4,150 @@
+ * so the plugin appears in the host cordis.yml / Loader (load and lifecycle
+ * follow the host; the browser half ships via exports["./client"], discovered
+ * through the package.json dsh.client declaration).
++*
++* LOCAL PATCH (project prompt): this half also owns one user-authored prompt
++* per absolute workspace directory. The prompts live in the `project-prompt`
++* settings namespace — the DSH configuration document, never inside the project
++* tree — and every model request whose session cwd is that directory or a
++* descendant of it receives the matching prompts as runtime context, general
++* ancestor first, within a fixed byte budget.
+ */
+-/** Host plugin body — no host-side behavior for the workspace picker plugin. */
+-function apply() {}
++import z from "@deepseek-ai/schemastery";
++import { dirname, resolve } from "node:path";
++/** Settings namespace holding the per-directory project prompts. */
++const PROJECT_PROMPT_NS = "project-prompt";
++/** Prompt variable name; the context below renders it. */
++const PROJECT_PROMPT_VARIABLE = "project_prompt_text";
++/** Default cap on the rendered block; mirrors the dsh-agent-instructions budget. */
++const PROJECT_PROMPT_MAX_BYTES = 32768;
++/** A Windows path spelling (`D:/…`, or a `//server/share` UNC path). */
++const WINDOWS_PATH = /^(?:[A-Za-z]:|\/\/)/;
++/** Model-facing preamble; the per-directory prompts follow it. */
++const PROJECT_PROMPT_HEADER = "以下「项目提示词」由用户在左侧工作区列表中按目录设置，适用于该目录及其子目录下的会话；请把它们当作本项目的长期要求持续遵守，但它们不覆盖系统指令、开发者指令与用户当前请求。";
++/**
++* Store key of one absolute directory. The browser half writes the same key, so
++* both halves carry this exact rule: forward slashes, no trailing separator, and
++* lower case for a Windows spelling. Only Windows folds case — on macOS and
++* Linux `/srv/App` and `/srv/app` are different projects, and folding them would
++* merge two directories into one key. The platform is read from the path's own
++* shape rather than from `process.platform`, which the browser half cannot reach.
++*/
++function projectPromptKey(directory) {
++	const normalized = String(directory).replace(/\\/g, "/").replace(/\/+$/, "");
++	return WINDOWS_PATH.test(normalized) ? normalized.toLowerCase() : normalized;
++}
++/** One directory's prompt, tolerant of a malformed or absent section. */
++function projectPromptAt(prompts, directory) {
++	if (prompts === null || typeof prompts !== "object") return void 0;
++	const text = prompts[projectPromptKey(directory)];
++	return typeof text === "string" && text.trim() !== "" ? text : void 0;
++}
++/** Rootward chain of stored prompts covering one cwd, general ancestor first. */
++function projectPromptChain(prompts, directory) {
++	const chain = [];
++	let current = resolve(directory);
++	for (;;) {
++		const text = projectPromptAt(prompts, current);
++		if (text !== void 0) chain.push({
++			path: current,
++			text
++		});
++		const parent = dirname(current);
++		if (parent === current) break;
++		current = parent;
++	}
++	return chain.reverse();
++}
++/** UTF-8 byte length, so the budget counts what the model actually receives. */
++function byteLength(text) {
++	return Buffer.byteLength(text, "utf8");
++}
++/** Clip one block to at most `maxBytes` UTF-8 bytes without splitting a character. */
++function clipToBytes(text, maxBytes) {
++	if (maxBytes <= 0) return "";
++	let end = Math.min(text.length, maxBytes);
++	while (end > 0 && byteLength(text.slice(0, end)) > maxBytes) end -= 1;
++	return text.slice(0, end);
++}
++/** One rendered directory block. */
++function projectPromptBlock(entry) {
++	return `### ${entry.path}\n${entry.text.trim()}`;
++}
++/**
++* Render the runtime-context block for one prompt chain within `maxBytes`. The
++* chain's own precedence decides what a tight budget costs: the most specific
++* directory is retained first, broader ancestors are dropped before it is
++* clipped, and every dropped or clipped source is named in a visible notice. An
++* empty string means nothing fit, and assembly then drops the context entirely.
++*/
++function renderProjectPrompts(chain, maxBytes) {
++	const blocks = chain.map((entry) => ({
++		path: entry.path,
++		text: projectPromptBlock(entry)
++	}));
++	const compose = (kept, notice) => [PROJECT_PROMPT_HEADER, ...kept.map((block) => block.text), notice].filter((part) => part !== "").join("\n\n");
++	const noticeOf = (dropped, clipped) => {
++		const lines = [];
++		if (dropped.length > 0) lines.push(`已省略（超出 ${maxBytes} 字节上限）：${dropped.map((block) => block.path).join("、")}`);
++		if (clipped !== void 0) lines.push(`已截断：${clipped.path}`);
++		return lines.length === 0 ? "" : `> 项目提示词未完整注入。${lines.join("；")}`;
++	};
++	const kept = [];
++	let index = blocks.length - 1;
++	for (; index >= 0; index -= 1) {
++		if (byteLength(compose([blocks[index], ...kept], noticeOf(blocks.slice(0, index), void 0))) > maxBytes) break;
++		kept.unshift(blocks[index]);
++	}
++	if (kept.length > 0) return compose(kept, noticeOf(blocks.slice(0, index + 1), void 0));
++	const deepest = blocks[blocks.length - 1];
++	const notice = noticeOf(blocks.slice(0, blocks.length - 1), deepest);
++	let room = maxBytes - byteLength(compose([], notice)) - 2;
++	let text = clipToBytes(deepest.text, room);
++	while (text !== "" && byteLength(compose([{
++		path: deepest.path,
++		text
++	}], notice)) > maxBytes) {
++		room -= 64;
++		text = clipToBytes(deepest.text, room);
++	}
++	return text === "" ? "" : compose([{
++		path: deepest.path,
++		text
++	}], notice);
++}
++/**
++* Host plugin body.
++* @param ctx - host plugin context (settings, systemPrompt).
++*/
++function apply(ctx) {
++	ctx.inject(["settings", "systemPrompt"], (scope) => {
++		const section = scope.settings.register(PROJECT_PROMPT_NS, z.object({
++			maxBytes: z.number().default(PROJECT_PROMPT_MAX_BYTES),
++			prompts: z.dict(z.string()).default({})
++		}));
++		/**
++		* The prompt text rides a VARIABLE rather than the context's own text:
++		* context text is `{{variable}}`-interpolated, so a user-authored prompt
++		* containing braces could otherwise be read as a variable reference and
++		* fail the whole assembly. A provider returning the empty string renders
++		* an empty context, which assembly drops.
++		*/
++		scope.systemPrompt.variable(PROJECT_PROMPT_VARIABLE, (context) => {
++			const cwd = context?.agent?.session?.header?.cwd;
++			if (typeof cwd !== "string" || cwd === "") return "";
++			const value = section.get();
++			const prompts = value === null || typeof value !== "object" ? void 0 : value.prompts;
++			const chain = projectPromptChain(prompts, cwd);
++			if (chain.length === 0) return "";
++			const maxBytes = Number.isSafeInteger(value?.maxBytes) && value.maxBytes > 0 ? value.maxBytes : PROJECT_PROMPT_MAX_BYTES;
++			return renderProjectPrompts(chain, maxBytes);
++		});
++		scope.systemPrompt.context({
++			name: "project-prompt",
++			order: 100,
++			text: `{{${PROJECT_PROMPT_VARIABLE}}}`
++		});
++	});
++}
+ //#endregion
+ export { apply };
+diff --git a/lib/types/client/locales.d.ts b/lib/types/client/locales.d.ts
+index ea510d2..542f772 100644
+--- a/lib/types/client/locales.d.ts
++++ b/lib/types/client/locales.d.ts
+@@ -36,6 +36,11 @@ export declare const zh: {
+     'folderError.title': string;
+     'folderError.retry': string;
+     rename: string;
++    projectPrompt: string;
++    projectPromptSave: string;
++    projectPromptPlaceholder: string;
++    projectPromptHint: string;
++    projectPromptNoFolder: string;
+     'rename.workspace.title': string;
+     'rename.session.title': string;
+     'field.workspaceName': string;
+@@ -105,6 +110,11 @@ export declare const en: {
+     'folderError.title': string;
+     'folderError.retry': string;
+     rename: string;
++    projectPrompt: string;
++    projectPromptSave: string;
++    projectPromptPlaceholder: string;
++    projectPromptHint: string;
++    projectPromptNoFolder: string;
+     'rename.workspace.title': string;
+     'rename.session.title': string;
+     'field.workspaceName': string;
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 369a065..9417ea8 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -3,7 +3,15 @@
+  * so the plugin appears in the host cordis.yml / Loader (load and lifecycle
+  * follow the host; the browser half ships via exports["./client"], discovered
+  * through the package.json dsh.client declaration).
++ *
++ * LOCAL PATCH (project prompt): this half also owns one user-authored prompt
++ * per absolute workspace directory. The prompts live in the `project-prompt`
++ * settings namespace — the DSH configuration document, never inside the project
++ * tree — and every model request whose session cwd is that directory or a
++ * descendant of it receives the matching prompts as runtime context, general
++ * ancestor first, within a fixed byte budget.
+  */
+-/** Host plugin body — no host-side behavior for the workspace picker plugin. */
+-export declare function apply(): void;
++import type { Context } from '@deepseek-ai/cordis';
++/** Host plugin body: registers the project-prompt settings namespace and its runtime context. */
++export declare function apply(ctx: Context): void;
+ //# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
+diff --git a/package.json b/package.json
+index 64dfc45..8b5846d 100644
+--- a/package.json
++++ b/package.json
+@@ -37,12 +37,16 @@
+         "@deepseek-ai/dsh-client-ui-layout",
+         "@deepseek-ai/dsh-client-ui-renderer",
+         "@deepseek-ai/dsh-client-ui-session",
++        "@deepseek-ai/dsh-client-ui-settings",
+         "@deepseek-ai/dsh-client-ui-sidebar"
+       ],
+       "platform": "web"
+     }
+   },
+   "license": "MIT",
++  "dependencies": {
++    "@deepseek-ai/schemastery": "^3.18.2"
++  },
+   "peerDependencies": {
+     "@deepseek-ai/cordis": "^4.0.2"
+   },
