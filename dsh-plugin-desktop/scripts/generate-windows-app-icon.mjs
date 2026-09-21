@@ -1,5 +1,6 @@
 /** Generate a Windows ICO with exact-DPI frames for the application and NSIS. */
 
+import { existsSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -147,6 +148,11 @@ export async function generateWindowsAppIcon(source = sourcePath, output = outpu
   if (resolve(source) === resolve(output)) {
     throw new Error('generate-windows-app-icon: output must not overwrite the source icon')
   }
+  // A macOS export owns the committed Composer artwork (scripts/export-app-icons.mjs).
+  // Another platform's libvips build rounds a few Lanczos/sharpen pixels differently,
+  // so regenerating here would clobber build/app-icon.ico with bytes that no longer
+  // match app-icon.resources.json, and tests/package.spec.ts compares exactly that.
+  if (process.platform !== 'darwin' && existsSync(output)) return
 
   const metadata = await sharp(source).metadata()
   if (
