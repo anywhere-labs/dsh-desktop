@@ -1,0 +1,16 @@
+diff --git a/lib/client.js b/lib/client.js
+index 6eb68d4..9f7c668 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -971,6 +971,11 @@
+ 					onClick: () => {
+ 						onOpen(node.id);
+ 					},
++					onDoubleClick: () => {
++						/* v8 ignore next -- blank rows carry no title to rename. */
++						if (row.blank) return;
++						onRename(node.id, row.title);
++					},
+ 					draggable: drag !== void 0,
+ 					onDragStart: drag === void 0 ? void 0 : (e) => {
+ 						e.dataTransfer.effectAllowed = "move";

@@ -1,0 +1,16 @@
+diff --git a/lib/client.js b/lib/client.js
+index 237aa47..9120282 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -1136,6 +1136,11 @@
+ 					onClick: () => {
+ 						onOpen(node.id);
+ 					},
++					onDoubleClick: () => {
++						/* v8 ignore next -- blank rows carry no title to rename. */
++						if (row.blank) return;
++						onRename(node.id, row.title);
++					},
+ 					onPointerEnter: () => {
+ 						revealClippedTitle(titleRef.current, true);
+ 					},
