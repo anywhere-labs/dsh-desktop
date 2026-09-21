@@ -1219,7 +1219,7 @@ async function start(): Promise<void> {
         uninstallPlugin: async packageName => {
           try {
             await removeRecoveryPlugin({
-              appExecutable: process.execPath,
+              appExecutable: pnpmRuntime.nodeExecutable,
               dshBootstrapPath,
               profileName: activeProfileName,
               profileDir: activeProfileDir,
@@ -1249,7 +1249,7 @@ async function start(): Promise<void> {
           if (!result.dependencyMaterializationRequired) return
           try {
             await materializeProfile({
-              appExecutable: process.execPath,
+              appExecutable: pnpmRuntime.nodeExecutable,
               clearEnvironmentPath: pnpmRuntime.clearEnvironmentPath,
               pnpmBinPath,
               nodeBinDir: pnpmRuntime.nodeBinDir,
@@ -1530,7 +1530,7 @@ async function start(): Promise<void> {
       electronLogger.error(`${BIN_NAME}: migrating legacy Profile dependency layout with packaged pnpm`)
       try {
         await materializeProfile({
-          appExecutable: process.execPath,
+          appExecutable: pnpmRuntime.nodeExecutable,
           clearEnvironmentPath: pnpmRuntime.clearEnvironmentPath,
           pnpmBinPath,
           nodeBinDir: pnpmRuntime.nodeBinDir,
@@ -1595,7 +1595,7 @@ async function start(): Promise<void> {
       activeProfileName,
       activeProfileDir: prepared.profile.dir,
       homeDir,
-      appExecutable: process.execPath,
+      appExecutable: pnpmRuntime.nodeExecutable,
       pnpmBinPath,
       electronVersion,
       nodeBinDir: pnpmRuntime.nodeBinDir,
