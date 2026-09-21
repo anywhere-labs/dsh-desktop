@@ -88,6 +88,7 @@ const electron = vi.hoisted(() => {
   const sessionFetch = vi.fn()
   const applicationMenuTemplates: unknown[][] = []
   const menuTemplates: unknown[][] = []
+  const dockMenuTemplates: unknown[][] = []
   const notifications: Notification[] = []
   let zoomLevel = 0
   let devToolsOpened = false
@@ -228,7 +229,7 @@ const electron = vi.hoisted(() => {
 
   return {
     app: {
-      dock: { setIcon: vi.fn() },
+      dock: { setIcon: vi.fn(), setMenu: vi.fn(), getMenu: vi.fn(() => null) },
       getLocale: vi.fn(() => 'en-US'),
       getPreferredSystemLanguages: vi.fn(() => ['en-US']),
       getPath: vi.fn((name: string) => {
@@ -261,6 +262,12 @@ const electron = vi.hoisted(() => {
     dialog,
     Menu: {
       buildFromTemplate: vi.fn((template: unknown[]) => {
+        const labels = template.map(item => (item as { label?: unknown }).label)
+        if (labels.includes('Unread') || labels.includes('未读会话')
+          || (labels.length === 1 && (labels[0] === 'Open DSH Desktop' || labels[0] === '打开 DSH Desktop'))) {
+          dockMenuTemplates.push(template)
+          return { template }
+        }
         const first = template[0] as { label?: unknown, submenu?: unknown } | undefined
         if (first?.label === 'DSH Desktop' && Array.isArray(first.submenu)) {
           applicationMenuTemplates.push(template)
@@ -272,6 +279,7 @@ const electron = vi.hoisted(() => {
       setApplicationMenu: vi.fn(),
     },
     menuTemplates,
+    dockMenuTemplates,
     nativeImage: { createFromPath },
     nativeTheme,
     net: { fetch: vi.fn(), request: vi.fn() },
@@ -364,6 +372,7 @@ describe('Electron desktop runtime', () => {
     electron.trays.length = 0
     electron.applicationMenuTemplates.length = 0
     electron.menuTemplates.length = 0
+    electron.dockMenuTemplates.length = 0
     electron.notifications.length = 0
     childProcess.reset()
     vi.clearAllMocks()
@@ -1690,7 +1699,7 @@ describe('Electron desktop runtime', () => {
     await runtime.mountScheduled()
 
     const window = electron.browserWindows[0]
-    runtime.notifyAttention({ title: 'Turn Completed', body: 'A direct user turn has finished.' })
+    runtime.notifyAttention({ title: 'Turn Completed', body: 'A direct user turn has finished.', sessionId: 'session-7' })
     runtime.notifyAttention({ title: 'Background Job Completed', body: 'A background job has finished.' })
 
     expect(electron.app.setBadgeCount.mock.calls).toEqual([[1], [2]])
@@ -1702,6 +1711,7 @@ describe('Electron desktop runtime', () => {
     const click = electron.notifications[0]?.once.mock.calls.find(([event]) => event === 'click')?.[1]
     expect(click).toEqual(expect.any(Function))
     click()
+    expect(runtime.takeSessionJump()).toBe('session-7')
     expect(electron.app.setBadgeCount).toHaveBeenLastCalledWith(0)
     expect(window?.show).toHaveBeenCalledTimes(2)
     expect(window?.focus).toHaveBeenCalledTimes(2)
@@ -1709,6 +1719,17 @@ describe('Electron desktop runtime', () => {
     window?.isFocused.mockReturnValue(true)
     runtime.notifyAttention({ title: 'Ignored', body: 'Focused window' })
     expect(electron.notifications).toHaveLength(2)
+
+    runtime.publishSessionProgress({
+      unread: [{ sessionId: 'session-7', title: 'Fix the dock menu', failed: false, completedAt: 3 }],
+      recent: [{ sessionId: 'session-8', title: 'Older session', failed: false, completedAt: 2 }],
+    })
+    expect(electron.app.dock.setMenu).toHaveBeenCalled()
+    expect(electron.dockMenuTemplates.length).toBeGreaterThanOrEqual(1)
+    const dockMenu = (electron.dockMenuTemplates.at(-1) as Array<{ label?: string, click?: () => void, submenu?: Array<{ label?: string, click?: () => void }> }>)
+    expect(dockMenu[0]?.label).toBe('Unread')
+    dockMenu[1]?.click?.()
+    expect(runtime.takeSessionJump()).toBe('session-7')
 
     await release()
   })

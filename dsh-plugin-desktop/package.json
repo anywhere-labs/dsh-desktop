@@ -68,6 +68,10 @@
       "types": "./lib/types/notifications.d.ts",
       "default": "./lib/notifications.js"
     },
+    "./session-progress": {
+      "types": "./lib/types/session-progress.d.ts",
+      "default": "./lib/session-progress.js"
+    },
     "./updates": {
       "types": "./lib/types/updates.d.ts",
       "default": "./lib/updates.js"

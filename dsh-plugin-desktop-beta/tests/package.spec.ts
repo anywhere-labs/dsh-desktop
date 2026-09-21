@@ -190,6 +190,10 @@ describe('published package surface', () => {
       types: './lib/types/notifications.d.ts',
       default: './lib/notifications.js',
     })
+    expect(manifest.exports).toHaveProperty('./session-progress', {
+      types: './lib/types/session-progress.d.ts',
+      default: './lib/session-progress.js',
+    })
     expect(manifest.exports).not.toHaveProperty('./windows-acl-runner')
     expect(manifest.exports).not.toHaveProperty('./desktop-cli')
     expect(manifest.exports).not.toHaveProperty('./desktop-runtime-environment')
@@ -471,6 +475,7 @@ describe('published package surface', () => {
     expect(config).toContain("profiles: 'src/profiles.ts'")
     expect(config).toContain("diagnostics: 'src/diagnostics.ts'")
     expect(config).toContain("notifications: 'src/notifications.ts'")
+    expect(config).toContain("'session-progress': 'src/session-progress.ts'")
     expect(config).toContain("'diagnostic-export-worker': 'src/diagnostic-export-worker.ts'")
     expect(config).toContain("preload: 'src/preload.ts', 'compatibility-preload': 'src/compatibility-preload.ts'")
     expect(config).toContain("entryFileNames: '[name].cjs'")

@@ -15,6 +15,7 @@ import { installDesktopDirectoryPickerBridge } from './directory-picker.ts'
 import { parseDesktopClientEnvironment } from './environment.ts'
 import { applyExtendedShell } from './extended-shell.ts'
 import { installSidebarFooterStyles } from './sidebar-footer-styles.ts'
+import { startDesktopSessionJumpPoll, type DesktopSessionJumpReader } from './session-jump.ts'
 import { desktopWindowService, provideDesktopWindow } from './window-service.ts'
 
 export { applyAdvancedShell } from './advanced-shell.ts'
@@ -98,6 +99,10 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(
     () => startRendererBootReporter(ctx.loader),
     'dsh-plugin-desktop: renderer boot health report',
+  )
+  ctx.effect(
+    () => startDesktopSessionJumpPoll(ctx as unknown as { sessions: DesktopSessionJumpReader }),
+    'dsh-plugin-desktop: Dock session jump poll',
   )
   if (environment.platform === 'win32') {
     ctx.effect(
