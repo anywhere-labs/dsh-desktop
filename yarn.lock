@@ -7385,6 +7385,30 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-tool-ask-user@patch:@deepseek-ai/dsh-tool-ask-user@file%3Avendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-tool-ask-user-0.1.5-rc.2.tgz#./patches/dsh-tool-ask-user@0.1.5-rc.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.5-rc.2
+  resolution: "@deepseek-ai/dsh-tool-ask-user@patch:@deepseek-ai/dsh-tool-ask-user@file%3Avendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-tool-ask-user-0.1.5-rc.2.tgz%23vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-tool-ask-user-0.1.5-rc.2.tgz%3A%3Ahash=711ec6&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-tool-ask-user@0.1.5-rc.2.patch::version=0.1.5-rc.2&hash=ca16dc&locator=deepseek-harness-desktop%40workspace%3A."
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.2
+    "@deepseek-ai/dsh-agent": ^0.1.5-rc.2
+    "@deepseek-ai/dsh-tools": ^0.1.5-rc.2
+    "@deepseek-ai/dsh-user-questions": ^0.1.5-rc.2
+  checksum: 10c0/72229ca5944ffa105ddde09351064991d99d194e01e3f4051b9cd6117fe24de40bfc22dcf0b228318907d3f269232af0fff672876a0aab99e79a113e1a5204da
+  languageName: node
+  linkType: hard
+
+"@deepseek-ai/dsh-tool-ask-user@patch:@deepseek-ai/dsh-tool-ask-user@file%3Avendor/dsh-runtime/0.1.6-alpha.2/deepseek-ai-dsh-tool-ask-user-0.1.6-alpha.2.tgz#./patches/dsh-tool-ask-user@0.1.6-alpha.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.6-alpha.2
+  resolution: "@deepseek-ai/dsh-tool-ask-user@patch:@deepseek-ai/dsh-tool-ask-user@file%3Avendor/dsh-runtime/0.1.6-alpha.2/deepseek-ai-dsh-tool-ask-user-0.1.6-alpha.2.tgz%23vendor/dsh-runtime/0.1.6-alpha.2/deepseek-ai-dsh-tool-ask-user-0.1.6-alpha.2.tgz%3A%3Ahash=9b142c&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-tool-ask-user@0.1.6-alpha.2.patch::version=0.1.6-alpha.2&hash=ca16dc&locator=deepseek-harness-desktop%40workspace%3A."
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.2
+    "@deepseek-ai/dsh-agent": ^0.1.6-alpha.2
+    "@deepseek-ai/dsh-tools": ^0.1.6-alpha.2
+    "@deepseek-ai/dsh-user-questions": ^0.1.6-alpha.2
+  checksum: 10c0/8c96143dab58e56764df9a00781ef282a08a164bb99c462754c6f0e069e223eece7ca9698275f4a645dd95160ff201dcb7173d544847e2c1917c4bd3a39bde37
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-tool-bash-persistent@file:vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-tool-bash-persistent-0.1.5-rc.2.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.5-rc.2
   resolution: "@deepseek-ai/dsh-tool-bash-persistent@file:vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-tool-bash-persistent-0.1.5-rc.2.tgz#vendor/dsh-runtime/0.1.5-rc.2/deepseek-ai-dsh-tool-bash-persistent-0.1.5-rc.2.tgz::hash=d730a5&locator=deepseek-harness-desktop%40workspace%3A."
