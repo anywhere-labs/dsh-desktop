@@ -1510,6 +1510,9 @@ async function start(): Promise<void> {
         `${BIN_NAME}: requested Market provider ${prepared.market.requested} was disabled for this generation: ${prepared.marketFailure}`,
       )
     }
+    for (const failure of prepared.bundleFailures ?? []) {
+      electronLogger.error(`${BIN_NAME}: corrupted bundle was skipped for this generation: ${maskSecrets(failure)}`)
+    }
     const prepareHostCertificate = async () => {
       if (prepared.lanAddresses.length === 0) return { failureCode: 'no-address' }
       const { createLanHttpsCertificate, DesktopLanHttpsCertificateError } = await import('./lan-https-certificate.ts')

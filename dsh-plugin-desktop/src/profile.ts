@@ -33,7 +33,7 @@ import FileSettingsProvider, {
   type Config as SettingsFileConfig,
 } from '@deepseek-ai/dsh-settings-file'
 import { parseAllDocuments, parseDocument } from 'yaml'
-import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
+import { findOverlayPackage, PackageOverlayNotFoundError, resolveOverlayPackage } from './package-overlay.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
 import {
   desktopBrowserAccessEnabled,
@@ -295,6 +295,8 @@ export interface PreparedDesktopProfile {
   aaFailure?: string
   /** Internal boot diagnostic when the requested provider was disabled. */
   marketFailure?: string
+  /** Diagnostics for corrupted third-party bundles skipped to keep startup recoverable. */
+  bundleFailures?: readonly string[]
   /** Whether packaged pnpm must rebuild a legacy Profile dependency layout. */
   requiresDependencyMigration: boolean
 }
@@ -474,6 +476,8 @@ interface RecoveryFilteredProfile {
   readonly profile: Profile
   readonly dshMarketFailure?: string
   readonly aaFailure?: string
+  /** Diagnostics for resolvable-but-corrupted third-party bundles skipped this generation. */
+  readonly bundleFailures?: string[]
 }
 
 /** Render one provider failure without leaking an arbitrary thrown object into public state. */
@@ -526,6 +530,7 @@ function loadRecoveryFilteredProfile(
   const layers: Profile['layers'] = []
   let aaFailure: string | undefined
   let dshMarketFailure: string | undefined
+  const bundleFailures: string[] = []
   const installPackageUrl = pathToFileURL(INSTALL_ANCHOR).href
   const profilePackageUrl = pathToFileURL(join(profileDir, 'package.json')).href
   for (const packageName of selectedBundles) {
@@ -559,6 +564,12 @@ function loadRecoveryFilteredProfile(
     } catch (cause) {
       if (isAa) aaFailure = marketFailureMessage(cause)
       else if (isDshMarket) dshMarketFailure = marketFailureMessage(cause)
+      // A resolvable-elsewhere-but-corrupted third-party package must not take
+      // down the whole profile: skip it and record the diagnostic so startup
+      // recovers the way the persisted disable state already does.
+      else if (desktopPluginBundleMutable(packageName) && cause instanceof PackageOverlayNotFoundError) {
+        bundleFailures.push(marketFailureMessage(cause))
+      }
       else throw cause
     }
   }
@@ -574,6 +585,7 @@ function loadRecoveryFilteredProfile(
     },
     ...(dshMarketFailure === undefined ? {} : { dshMarketFailure }),
     ...(aaFailure === undefined ? {} : { aaFailure }),
+    ...(bundleFailures.length === 0 ? {} : { bundleFailures }),
   }
 }
 
@@ -1181,6 +1193,7 @@ export function prepareDesktopProfile(
     market: desktopMarketSnapshotWithEffective(marketSelection, effectiveMarket),
     requiresDependencyMigration,
     ...(marketFailure === undefined ? {} : { marketFailure }),
+    ...(loadedProfile.bundleFailures === undefined ? {} : { bundleFailures: loadedProfile.bundleFailures }),
   }
 }
 

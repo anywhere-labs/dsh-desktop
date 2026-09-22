@@ -1480,14 +1480,27 @@ describe('desktop profile composition and the recovery deselection ledger', () =
     expect(existsSync(join(home, 'profiles', 'desktop', 'node_modules', packageName, 'package.json'))).toBe(true)
   })
 
-  it('lets a deselected bundle whose package directory has no manifest stop breaking startup', async () => {
+  it('starts without a bundle whose package directory has no manifest', async () => {
+    // Issue #1115: a half-written package directory resolves to a manifest path
+    // whose stat fails. Startup skips that bundle and records the diagnostic
+    // instead of failing profile composition with no way back into the window.
     const home = temporaryHome()
     const packageName = 'half-written-plugin'
     mkdirSync(join(home, 'profiles', 'desktop', 'node_modules', packageName), { recursive: true })
     declareBundle(home, packageName)
-    expect(() => prepareDesktopProfile(undefined, home, 'darwin')).toThrow()
 
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+    expect(prepared.bundleFailures).toEqual([expect.stringContaining(packageName)])
+    expect(prepared.profile.layers.some(layer => layer.packageName === packageName)).toBe(false)
+    // Nothing was deleted: the declared dependency and the directory both survive.
+    const manifest = JSON.parse(readFileSync(join(ensureDesktopProfile(home), 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>
+    }
+    expect(manifest.dependencies[packageName]).toBe('1.0.0')
+    expect(existsSync(join(home, 'profiles', 'desktop', 'node_modules', packageName))).toBe(true)
+
+    // Deselection still applies before resolution, so no diagnostic is recorded.
     await setDesktopProfileBundleSelected(selectionBootstrap(home), packageName, false)
-    expect(() => prepareDesktopProfile(undefined, home, 'darwin')).not.toThrow()
+    expect(prepareDesktopProfile(undefined, home, 'darwin').bundleFailures).toBeUndefined()
   })
 })
