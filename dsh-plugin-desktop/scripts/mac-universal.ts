@@ -5,6 +5,38 @@ import { join, resolve } from 'node:path'
 
 export type MacUniversalArch = 'arm64' | 'x86_64'
 
+/** Architectures the unsigned macOS smoke can package. */
+export type MacSmokeArchitecture = 'universal' | 'arm64' | 'x64'
+
+/**
+ * Read the smoke architecture from `DSH_MAC_SMOKE_ARCH`, defaulting to the
+ * universal application the signed release ships. CI pull requests select one
+ * CPU because the universal merge alone dominates the macOS job.
+ * @param environment - Environment of the packaging or verification process.
+ * @returns The electron-builder architecture to package.
+ */
+export function macSmokeArchitecture(environment: NodeJS.ProcessEnv): MacSmokeArchitecture {
+  const value = environment.DSH_MAC_SMOKE_ARCH
+  if (value === undefined || value === '') return 'universal'
+  if (value === 'universal' || value === 'arm64' || value === 'x64') return value
+  throw new Error(
+    `DSH_MAC_SMOKE_ARCH must be universal, arm64, or x64; received ${JSON.stringify(value)}`,
+  )
+}
+
+/**
+ * List the Mach-O slices the packaged main executable must contain.
+ * @param architecture - Architecture the smoke packaged.
+ * @returns `lipo` architecture names, Intel first.
+ */
+export function macSmokeExecutableSlices(
+  architecture: MacSmokeArchitecture,
+): readonly MacUniversalArch[] {
+  if (architecture === 'arm64') return ['arm64']
+  if (architecture === 'x64') return ['x86_64']
+  return ['x86_64', 'arm64']
+}
+
 /** Thin native files that must be present for each CPU inside the packaged app directory. */
 export const MACOS_UNIVERSAL_NATIVE_ENTRIES = [
   {
@@ -98,6 +130,8 @@ export const FORBIDDEN_MACOS_UNIVERSAL_ENTRIES = [
 
 /** Injectable filesystem seam for source-runtime preparation. */
 export interface MacUniversalPreparationOptions {
+  /** Override only when a shell does not depend on part of the legacy native inventory. */
+  readonly nativeEntries?: readonly { readonly arch: MacUniversalArch; readonly path: string }[]
   readonly desktopRoot: string
   readonly exists: (path: string) => boolean
   readonly chmod: (path: string, mode: number) => void
@@ -113,7 +147,8 @@ export function prepareMacUniversalRuntime(
   options: MacUniversalPreparationOptions,
 ): void {
   const root = resolve(options.desktopRoot)
-  const missing = MACOS_UNIVERSAL_NATIVE_ENTRIES
+  const entries = options.nativeEntries ?? MACOS_UNIVERSAL_NATIVE_ENTRIES
+  const missing = entries
     .map(entry => join(root, entry.path))
     .filter(path => !options.exists(path))
   if (missing.length > 0) {
@@ -122,7 +157,7 @@ export function prepareMacUniversalRuntime(
     )
   }
 
-  for (const entry of MACOS_UNIVERSAL_NATIVE_ENTRIES) {
+  for (const entry of entries) {
     if (entry.path.endsWith('/spawn-helper') || entry.path.endsWith('/bin/uv')) {
       options.chmod(join(root, entry.path), 0o755)
     }

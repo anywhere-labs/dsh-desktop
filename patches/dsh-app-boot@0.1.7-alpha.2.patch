@@ -1,0 +1,32 @@
+diff --git a/lib/index.js b/lib/index.js
+index 00f926d..04dc766 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -812,6 +812,10 @@ function resolveTelemetryPatch(disabledEnv, hasRow) {
+ * @returns Detached ordered patches; this function does not update the Loader.
+ */
+ function readProfilePatches(binName, context, initialProfile) {
++	// Embedded launchers own their filtered bundle graph and final platform overlays.
++	// A pending patch document still has to reach them: the config editor composes
++	// its edit before persisting it, and judges the write against that composition.
++	if (context.readPatches !== void 0) return structuredClone(context.readPatches(initialProfile?.patches));
+ 	const profile = initialProfile ?? loadProfileDirectory(binName, context.dir, context.installAnchor, { userLayer: false });
+ 	const patches = structuredClone([
+ 		...profile.layers.flatMap((layer) => layer.patches),
+diff --git a/lib/types/profile-context.d.ts b/lib/types/profile-context.d.ts
+index 2f3b774..58af1eb 100644
+--- a/lib/types/profile-context.d.ts
++++ b/lib/types/profile-context.d.ts
+@@ -8,6 +8,12 @@ export interface ProfilePnpmInvocation {
+ }
+ /** Current profile facts; scheduling and mutation belong to their callers. */
+ export interface ProfileContext {
++    /**
++     * Embedded launcher composition, shared by management operations and HMR.
++     * @param profilePatches Pending profile patch document to compose instead of
++     * the one on disk; omitted by callers that have not staged an edit.
++     */
++    readonly readPatches?: (profilePatches?: readonly PatchOptions[]) => readonly PatchOptions[];
+     readonly name: string;
+     /** Packaged applications supply their bundled runtime instead of a PATH executable. */
+     readonly packageManager?: ProfilePnpmInvocation;

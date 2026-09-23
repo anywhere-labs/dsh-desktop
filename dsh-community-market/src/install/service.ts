@@ -22,7 +22,6 @@ import {
 import { manualInstallHints } from './manual.js'
 
 const NPM_REGISTRY_ORIGIN = 'https://registry.npmjs.org'
-const NPM_REGISTRY = `${NPM_REGISTRY_ORIGIN}/`
 
 /** Official npm origin used for package verification and the default install registry. */
 export const OFFICIAL_NPM_REGISTRY_ORIGIN = NPM_REGISTRY_ORIGIN
@@ -62,6 +61,7 @@ const MAX_FAILURE_CAUSE_LENGTH = 4 * 1024
 const BLOCKED_PRODUCT_PACKAGES = new Set([
   'dsh-plugin-desktop',
   'dsh-plugin-desktop-beta',
+  'dsh-desktop-next',
   'dsh-community-market',
 ])
 

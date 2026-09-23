@@ -4,6 +4,7 @@ import {
   DESKTOP_VERSION_ENDPOINT,
   MAX_VERSION_RESPONSE_BYTES,
   checkForStableUpdate,
+  checkForDesktopUpdate,
   compareSemVerVersions,
   desktopVersionRequestHeaders,
   parseSemVer,
@@ -136,6 +137,36 @@ describe('public Desktop version check', () => {
     })
   })
 
+  it('surfaces per-platform installer digests with case normalization', async () => {
+    const upper = 'A'.repeat(64)
+    await expect(checkForStableUpdate({
+      currentVersion: '2.0.0',
+      request: async () => Response.json({
+        version: '2.1.0',
+        sha256: { windows: upper, mac: `  ${'b'.repeat(64)}  ` },
+      }),
+    })).resolves.toEqual({
+      status: 'update-available',
+      currentVersion: '2.0.0',
+      latestVersion: '2.1.0',
+      installerSha256: { win32: 'a'.repeat(64), darwin: 'b'.repeat(64) },
+    })
+  })
+
+  it('ignores malformed installer digest fields without failing the check', async () => {
+    await expect(checkForStableUpdate({
+      currentVersion: '2.0.0',
+      request: async () => Response.json({
+        version: '2.1.0',
+        sha256: { windows: 'not-hex', mac: 42, extra: true },
+      }),
+    })).resolves.toEqual({
+      status: 'update-available',
+      currentVersion: '2.0.0',
+      latestVersion: '2.1.0',
+    })
+  })
+
   it('compares service versions without overflowing JavaScript numbers', async () => {
     await expect(checkForStableUpdate({
       currentVersion: '9007199254740992.0.0',
@@ -207,3 +238,15 @@ describe('public Desktop version check', () => {
     expect(request).not.toHaveBeenCalled()
   })
 })
+
+
+describe('Next release isolation', () => {
+  it.each(['2.0.14-next', '2.0.14-next.1'])('accepts installed %s and preserves its version header', async currentVersion => {
+    const request = vi.fn<UpdateRequest>(async () => Response.json({ version: '2.0.15-next.1', channel: 'next' }));
+    expect(await checkForDesktopUpdate({ currentVersion, channel: 'next', request })).toMatchObject({ status: 'update-available' });
+    expect(new Headers(request.mock.calls[0]?.[1]?.headers).get(DESKTOP_CURRENT_VERSION_HEADER)).toBe(currentVersion);
+  });
+  it.each([{version:'2.0.15',channel:'stable'}, {version:'2.0.15-beta.1',channel:'next'}, {version:'2.0.15-next.1'}, {version:'2.0.15-next.01',channel:'next'}])('rejects a wrong or ambiguous Next release %j', async body => {
+    expect(await checkForDesktopUpdate({ currentVersion:'2.0.14-next', channel:'next', request:async()=>Response.json(body) })).toBeNull();
+  });
+});

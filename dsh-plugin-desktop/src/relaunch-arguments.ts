@@ -1,12 +1,21 @@
+import { desktopArgumentsWithoutLaunchWorkspace } from './launch-workspace-path.ts'
+
 /** One-process launch marker used to enter recovery before Profile Host boot. */
 export const DESKTOP_RECOVERY_MODE_ARGUMENT = '--dsh-desktop-recovery'
 /** Process marker selecting the disposable Safe Mode DSH environment. */
 export const DESKTOP_SAFE_MODE_ARGUMENT = '--dsh-desktop-safe-mode'
 
-/** Rebuild the current Electron command line without retaining one-shot modes. */
+/**
+ * Rebuild the current Electron command line without retaining one-shot modes.
+ *
+ * A launch folder is one of those one-shot inputs: it states what this launch
+ * was asked to open, not what the application should reopen every time it
+ * restarts itself.
+ */
 export function desktopDefaultRelaunchArguments(argv: readonly string[] = process.argv): string[] {
-  return argv.slice(1).filter(argument => argument !== DESKTOP_RECOVERY_MODE_ARGUMENT
-    && argument !== DESKTOP_SAFE_MODE_ARGUMENT)
+  return desktopArgumentsWithoutLaunchWorkspace(argv.slice(1))
+    .filter(argument => argument !== DESKTOP_RECOVERY_MODE_ARGUMENT
+      && argument !== DESKTOP_SAFE_MODE_ARGUMENT)
 }
 
 /** Build a one-shot recovery-mode command line. */

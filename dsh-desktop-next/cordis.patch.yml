@@ -1,0 +1,8 @@
+- insert:
+    - id: desktop-next-capabilities
+      name: dsh-desktop-next
+    - id: computer-use
+      name: '@deepseek-ai/dsh-computer-use'
+    - id: computer-use-cua-driver-native
+      name: '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'
+      disabled: true

@@ -1,4 +1,4 @@
-/** Minimal context-isolated bridges for drag payloads and Desktop-owned actions. */
+/** Minimal context-isolated bridges for drag payloads, Desktop-owned actions, and the upstream Desktop marker. */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { DESKTOP_FILE_PATH_BRIDGE } from './file-path-bridge-contract.ts'
@@ -21,3 +21,9 @@ const actions: DesktopRendererActionsBridge = {
   invoke: (action: DesktopRendererAction) => ipcRenderer.invoke(DESKTOP_RENDERER_ACTION_CHANNEL, action),
 }
 contextBridge.exposeInMainWorld(DESKTOP_RENDERER_ACTIONS_BRIDGE, actions)
+
+// Upstream client plugins recognize the Desktop renderer by this carrier. Version 1
+// without `updates` or `browser` keeps upstream update badges and the embedded
+// browser tab on their Web fallbacks, and turns on the DeepSeek account entry whose
+// Platform sign-in the Host hands to the native shell (src/platform-login.ts).
+contextBridge.exposeInMainWorld('dshDesktop', Object.freeze({ protocolVersion: 1 }))

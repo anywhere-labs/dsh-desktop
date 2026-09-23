@@ -105,7 +105,7 @@ function createHarness(available: readonly OptionalService[] = ['jobs', 'session
     disposers.delete(service)
   }
 
-  apply(ctx)
+  apply(ctx, {})
 
   return {
     notifyAttention,

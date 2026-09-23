@@ -101,3 +101,22 @@ describe('Recovery native terminal action', () => {
     expect(markup).toContain('dsh-profile-selector://restart')
   })
 })
+
+describe('Recovery plugin row actions', () => {
+  it('keeps the destructive action last and both toggles behind the toggle field', () => {
+    const source = readFileSync(new URL('../src/native-ui/recovery/App.tsx', import.meta.url), 'utf8')
+    const disable = source.indexOf('action="preview-disable"')
+    const enable = source.indexOf('action="preview-enable"')
+    const uninstall = source.indexOf('action="preview-uninstall"')
+    expect(disable).toBeGreaterThanOrEqual(0)
+    expect(enable).toBeGreaterThan(disable)
+    expect(uninstall).toBeGreaterThan(enable)
+    expect(source).toContain("bundle.toggle === 'disable' ?")
+    expect(source).toContain("bundle.toggle === 'enable' ?")
+    expect(source).toContain("readonly toggle: 'disable' | 'enable' | null")
+    // Only the uninstall stays destructive; a disable must not look like one.
+    expect(source).toContain('action="preview-disable" icon={<PowerOff />} id={bundle.bundleId} variant="secondary"')
+    expect(source).toContain('action="preview-enable" icon={<Power />} id={bundle.bundleId} variant="default"')
+    expect(source).toContain('copy.disabledHint')
+  })
+})

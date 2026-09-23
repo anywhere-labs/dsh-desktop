@@ -4,6 +4,7 @@ import type { RendererBootReport } from './renderer-boot-contract.ts'
 import type { DesktopReleaseChannel, UpdateCheckResult, UpdateRequest } from './update-checker.ts'
 import type { DesktopInstallationId } from './desktop-installation-id.ts'
 import type { ProfileCreateWindowOptions } from './profile-create-window.ts'
+import type { DesktopPlatformLoginRequest } from './platform-login.ts'
 import type {
   DesktopWindowMaterial,
   MacosWindowMaterial,
@@ -118,8 +119,17 @@ export interface DesktopUpdateAdapter {
   confirmDownload(version: string, channel?: DesktopReleaseChannel): Promise<boolean>
   /** Present the outcome of a user-triggered version check. */
   showManualCheckResult(result: UpdateCheckResult | null): Promise<void>
-  /** Download and hand one confirmed update to the platform installer. */
-  downloadAndOpen(version: string, signal: AbortSignal, channel?: DesktopReleaseChannel): Promise<void>
+  /**
+   * Download and hand one confirmed update to the platform installer. The
+   * optional per-platform digests come from the recheck that confirmed the
+   * version; the adapter applies the one matching its download platform.
+   */
+  downloadAndOpen(
+    version: string,
+    signal: AbortSignal,
+    channel?: DesktopReleaseChannel,
+    installerSha256?: Readonly<Partial<Record<'win32' | 'darwin', string>>>,
+  ): Promise<void>
   /** Present a native status notification without blocking the Host tree. */
   notify(notification: DesktopNotification): void
 }
@@ -225,6 +235,12 @@ export interface DesktopRuntime {
 
   /** Open the isolated native Profile creator, focusing an existing instance. */
   openProfileCreateWindow(options: Omit<ProfileCreateWindowOptions, 'locale'>): void
+
+  /**
+   * Open a DeepSeek Platform sign-in page, or settle the page after its attempt ended.
+   * @param request - validated request from the Host's account watcher.
+   */
+  platformLogin(request: DesktopPlatformLoginRequest): void
 
   /** Confirm that one renderer-selected workspace is safe to persist. */
   validateDirectory(path: string): Promise<boolean>

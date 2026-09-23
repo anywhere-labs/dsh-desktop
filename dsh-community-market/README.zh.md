@@ -6,6 +6,8 @@ DSH Community Market 是 [DSH Desktop](../README.md) 内置的开放插件市场
 
 > 目录收录或显示为可安装，不代表安全审核、兼容性保证或推荐。插件安装后会以用户权限作为本地代码运行。
 
+本包声明标准 `dsh.bundle.patch`。Desktop Next 在官方插件页中提供它，并支持分别启停 dshmarket 与 Agents Anywhere；Stable/Beta 保留现有市场选择方式。
+
 ## 产品行为
 
 Market 包含四个视图：

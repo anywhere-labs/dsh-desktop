@@ -1,0 +1,10 @@
+# A private, ephemeral loopback port allows Next to coexist with other editions.
+- id: webserver
+  disabled: true
+- insert:
+    - id: desktop-next-webserver
+      name: dsh-desktop-next/webserver
+      inject: [webStartup]
+      config:
+        host: 127.0.0.1
+        port: 0

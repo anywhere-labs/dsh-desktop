@@ -5,12 +5,15 @@ import type { DesktopPlatform, DesktopShellMode } from './runtime.ts'
 
 export type MacosWindowMaterial = 'off' | 'transparent'
 export type WindowsWindowMaterial = 'off' | 'mica'
+/** Electron-native window transparency used by Linux generations. */
+export type LinuxWindowMaterial = 'off' | 'transparent'
 /** Persisted compatibility value accepted only so pre-removal settings still boot. */
 export type PersistedWindowsWindowMaterial = WindowsWindowMaterial | 'acrylic'
-export type DesktopWindowMaterial = MacosWindowMaterial | WindowsWindowMaterial
+export type DesktopWindowMaterial = MacosWindowMaterial | WindowsWindowMaterial | LinuxWindowMaterial
 
 export const DEFAULT_MACOS_WINDOW_MATERIAL: MacosWindowMaterial = 'transparent'
 export const DEFAULT_WINDOWS_WINDOW_MATERIAL: WindowsWindowMaterial = 'off'
+export const DEFAULT_LINUX_WINDOW_MATERIAL: LinuxWindowMaterial = 'off'
 export const WINDOWS_MICA_MIN_BUILD = 22_621
 
 /** Extract the NT build number from a Windows `os.release()` value. */
@@ -45,6 +48,15 @@ export function parseWindowsWindowMaterial(value: unknown): WindowsWindowMateria
   throw new Error('dsh-desktop.windowsMaterial must be "off" or "mica"')
 }
 
+export function parseLinuxWindowMaterial(value: unknown): LinuxWindowMaterial {
+  if (value === undefined) return DEFAULT_LINUX_WINDOW_MATERIAL
+  // The upstream compatibility client paints an opaque background, so a
+  // transparent window frame stays invisible; fail closed to the solid
+  // frame until the client learns to render behind transparency.
+  if (value === 'off' || value === 'transparent') return 'off'
+  throw new Error('dsh-desktop.linuxMaterial must be "off" or "transparent"')
+}
+
 /** Resolve the actual generation material without making settings non-portable. */
 export function effectiveDesktopWindowMaterial(
   mode: DesktopShellMode,
@@ -52,11 +64,12 @@ export function effectiveDesktopWindowMaterial(
   macosMaterial: MacosWindowMaterial,
   windowsMaterial: PersistedWindowsWindowMaterial,
   windowsBuild: number | undefined,
+  linuxMaterial: LinuxWindowMaterial = DEFAULT_LINUX_WINDOW_MATERIAL,
 ): DesktopWindowMaterial {
-  // Material now applies to every non-Linux presentation. Keep mode in the
-  // resolver signature so callers cannot accidentally bypass shell context.
+  // Material now applies to every presentation. Keep mode in the resolver
+  // signature so callers cannot accidentally bypass shell context.
   void mode
-  if (platform === 'linux') return 'off'
+  if (platform === 'linux') return linuxMaterial
   if (platform === 'darwin') return macosMaterial
   if (windowsMaterial === 'acrylic') return 'off'
   if (windowsMaterial === 'mica' && !windowsSupportsSystemBackdrop(windowsBuild)) return 'off'

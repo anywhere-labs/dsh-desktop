@@ -6,6 +6,8 @@ DSH Community Market is the open plugin market built into [DSH Desktop](../READM
 
 > A catalog listing or an installable result is not a security review, compatibility guarantee, or endorsement. Installed plugins run locally with the user's permissions.
 
+The package declares a standard `dsh.bundle.patch`. Desktop Next exposes it in the official Plugins page alongside independently selectable dshmarket and Agents Anywhere. Stable/Beta retain their existing market selectors.
+
 ## Product behavior
 
 The Market has four views:

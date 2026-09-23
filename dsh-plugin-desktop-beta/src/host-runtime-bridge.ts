@@ -1,6 +1,7 @@
 /** Native capability adapters; frontend HTTP and WebSocket connections are unchanged. */
 import type { DesktopLocale, DesktopRuntime, DesktopShellSpec, DesktopTrayItem, DesktopTrayItemRegistration, DesktopUpdateAdapter } from './runtime.ts'
 import { HostRpc } from './host-rpc.ts'
+import { parseDesktopPlatformLoginRequest } from './platform-login.ts'
 
 export type RuntimeSnapshot = Pick<DesktopRuntime, 'platform' | 'windowsBuild' | 'locale'> & {
   updates: Omit<DesktopUpdateAdapter, 'request' | 'confirmDownload' | 'showManualCheckResult' | 'downloadAndOpen' | 'notify'>
@@ -111,6 +112,7 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
     exportDiagnostics: () => send('native:exportDiagnostics'),
     pickDirectory: () => send('native:pickDirectory'),
     validateDirectory: path => send('native:validateDirectory', [path]),
+    platformLogin(request) { void send('native:platformLogin', [request]) },
     reportRendererBoot: report => { void send('native:reportRendererBoot', [report]) },
     setLocalePreference(preference) {
       void syncLocale(preference).catch(error => process.stderr.write(`${String(error)}\n`))
@@ -144,6 +146,7 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () => 
     'setThemeSource', 'prepareToQuit'] as const) {
     handle(`native:${method}`, args => (runtime[method] as (...args: any[]) => unknown).apply(runtime, args))
   }
+  handle('native:platformLogin', ([request]) => { runtime.platformLogin(parseDesktopPlatformLoginRequest(request)) })
   handle('native:setLocalePreference', ([preference]) => {
     runtime.setLocalePreference(preference)
     return runtime.locale

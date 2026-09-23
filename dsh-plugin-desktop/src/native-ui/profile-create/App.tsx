@@ -19,10 +19,11 @@ function submit(name: string): void {
   window.location.assign(url.href)
 }
 
-export function ProfileCreateApp(): JSX.Element {
+export function ProfileCreateApp({ onCreate, onCancel }: { readonly onCreate?: (name: string) => Promise<void>; readonly onCancel?: () => void } = {}): JSX.Element {
   const copy = desktopProfileCreateCopy(locale())
   const [name, setName] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
   useEffect(() => {
     const reportError = (event: Event): void => {
       if (!(event instanceof CustomEvent) || typeof event.detail !== 'string') return
@@ -38,18 +39,21 @@ export function ProfileCreateApp(): JSX.Element {
       setError(copy.empty)
       return
     }
-    submit(trimmed)
+    if (!onCreate) { submit(trimmed); return }
+    if (busy) return
+    setBusy(true)
+    void onCreate(trimmed).catch(() => { setError(copy.failed) }).finally(() => { setBusy(false) })
   }
   return <><DesktopFrame /><main className="dshNativeContent h-screen overflow-hidden p-6"><section className="mx-auto flex h-full w-full max-w-md flex-col">
     <header className="mb-5"><h1 className="text-lg leading-none font-semibold tracking-tight">{copy.heading}</h1><p className="mt-2 text-sm text-muted-foreground">{copy.description}</p></header>
     <div className="space-y-2">
       <Label htmlFor="profile-name">{copy.label}</Label>
-      <Input autoFocus id="profile-name" maxLength={255} onChange={event => { setName(event.target.value); setError('') }} onKeyDown={event => { if (event.key === 'Enter') onSubmit() }} placeholder={copy.placeholder} value={name} />
+      <Input disabled={busy} autoFocus id="profile-name" maxLength={255} onChange={event => { setName(event.target.value); setError('') }} onKeyDown={event => { if (event.key === 'Enter') onSubmit() }} placeholder={copy.placeholder} value={name} />
       {error.length > 0 ? <Alert aria-live="polite" variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
     </div>
     <footer className="mt-auto flex justify-end gap-2 pt-5">
-      <Button onClick={() => { window.location.assign(`${SCHEME}//cancel`) }} type="button" variant="outline"><X />{copy.cancel}</Button>
-      <Button onClick={onSubmit} type="button"><Plus />{copy.submit}</Button>
+      <Button disabled={busy} onClick={() => { if (onCancel) onCancel(); else window.location.assign(`${SCHEME}//cancel`) }} type="button" variant="outline"><X />{copy.cancel}</Button>
+      <Button disabled={busy} onClick={onSubmit} type="button"><Plus />{copy.submit}</Button>
     </footer>
   </section></main></>
 }

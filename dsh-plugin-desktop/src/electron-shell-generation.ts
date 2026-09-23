@@ -7,6 +7,7 @@ import {
   nativeTheme,
   Notification,
   screen,
+  session,
   shell,
   Tray,
   type WebContents,
@@ -16,6 +17,10 @@ import { formatDesktopExitCode } from './desktop-logger.ts'
 import { showDesktopMessageBox } from './desktop-dialog-window.ts'
 import { applicationNeedsReveal, revealApplication } from './electron-reveal.ts'
 import type { ElectronPlatformStrategy } from './electron-platform.ts'
+import {
+  desktopOpenWorkspaceScript,
+  type DesktopOpenWorkspaceDelivery,
+} from './launch-workspace-contract.ts'
 import { DESKTOP_RENDERER_ACTION_CHANNEL } from './renderer-actions-contract.ts'
 import { createDesktopRendererActionDispatcher } from './renderer-actions-dispatch.ts'
 import type { DesktopNotification, DesktopShellSpec } from './runtime.ts'
@@ -24,6 +29,7 @@ import { desktopWindowOptions } from './window-options.ts'
 import type { DesktopRestartConfirmationCopy } from './tray-locale.ts'
 import type { RendererBootReport } from './renderer-boot-contract.ts'
 import { DesktopRendererRecovery } from './renderer-recovery.ts'
+import { PlatformLoginWindow } from './platform-login-window.ts'
 import { RENDERER_SURFACE_PROBE, RendererSurfaceWatchdog } from './renderer-surface-watchdog.ts'
 import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
 import {
@@ -197,6 +203,8 @@ export interface ElectronShellGenerationOptions {
   readonly logError: (message: string) => void
   readonly mainWindowState: MainWindowStateStore
   readonly chromeActions: CompatibilityShellActions
+  /** Localized caption of the built-in DeepSeek Platform sign-in window. */
+  readonly platformLoginTitle: () => string
 }
 
 /** Own one BrowserWindow and Tray generation, including every native listener. */
@@ -219,8 +227,29 @@ export class ElectronShellGeneration {
   private replacementExit: ReturnType<typeof setTimeout> | undefined
   private recoveryContentLoaded = false
   private recoveryChromeLoaded = false
+  private readonly platformLogin: PlatformLoginWindow
 
   constructor(private readonly options: ElectronShellGenerationOptions) {
+    this.platformLogin = new PlatformLoginWindow({
+      BrowserWindow,
+      session: partition => session.fromPartition(partition),
+      hostOrigin: () => this.renderer === undefined ? undefined : new URL(this.options.spec.url).origin,
+      host: async () => {
+        const renderer = this.renderer
+        if (renderer === undefined || renderer.isDestroyed()) return undefined
+        const origin = new URL(this.options.spec.url).origin
+        const cookies = await renderer.session.cookies.get({ url: origin })
+        return {
+          origin,
+          cookie: cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; '),
+          header: this.options.spec.rendererAccessHeader,
+        }
+      },
+      parent: () => this.window,
+      title: () => this.options.platformLoginTitle(),
+      dark: () => nativeTheme.shouldUseDarkColors,
+      warn: message => { this.options.logError(message) },
+    })
     this.rendererRecovery = new DesktopRendererRecovery({
       available: () => !this.released && !this.options.isQuitting()
         && this.window !== undefined && !this.window.isDestroyed(),
@@ -367,6 +396,13 @@ export class ElectronShellGeneration {
       if (applicationNeedsReveal(window, platform.platform)) this.show()
     }
     const clearAttention = (): void => { this.clearAttention() }
+    // Closing the window must never strand the Host. Where the tray is
+    // guaranteed reachable the window hides; elsewhere it minimizes, which
+    // keeps every session running and leaves one reachable surface behind.
+    const dismissWindow = (): void => {
+      if (platform.hidesWindowOnClose) window.hide()
+      else window.minimize()
+    }
     let fullscreenExitPending = false
     let hideAfterFullscreenExit = false
     let restoreAfterFullscreenExit = false
@@ -380,7 +416,7 @@ export class ElectronShellGeneration {
       restoreAfterFullscreenExit = false
       if (window.isDestroyed()) return
       if (shouldHide) {
-        window.hide()
+        dismissWindow()
         return
       }
       if (shouldRestore) {
@@ -427,7 +463,7 @@ export class ElectronShellGeneration {
         window.setFullScreen(false)
         return
       }
-      window.hide()
+      dismissWindow()
     }
     const preserveBlankTitle = (event: Electron.Event): void => { event.preventDefault() }
     const handleZoomShortcut = (event: Electron.Event, input: Electron.Input): void => {
@@ -624,6 +660,20 @@ export class ElectronShellGeneration {
     if (this.rendererRecovery.exhausted) void this.offerRendererRecovery()
   }
 
+  /**
+   * Show a DeepSeek Platform authorization page in the built-in sign-in window.
+   * @param url - authorization URL validated at the Host/native boundary.
+   */
+  openPlatformLogin(url: string): void {
+    if (this.released || this.renderer === undefined) return
+    this.platformLogin.open(url)
+  }
+
+  /** Close the built-in sign-in window after its attempt ended. */
+  closePlatformLogin(): void {
+    this.platformLogin.close()
+  }
+
   reportRendererRecovery(report: RendererBootReport): void {
     this.rendererRecovery.report(report)
   }
@@ -746,6 +796,23 @@ export class ElectronShellGeneration {
     else renderer.openDevTools({ mode: 'detach', activate: true })
   }
 
+  /**
+   * Hand one launch folder to the mounted Host page.
+   *
+   * The delivery script resolves immediately in both directions, so a page that
+   * has not yet installed the client seam parks the folder instead of keeping
+   * the main process waiting on a renderer promise.
+   * @param path - absolute folder already admitted by native policy.
+   * @returns how the page took the folder, or `'unavailable'` when no renderer
+   *   could take it.
+   */
+  async openWorkspacePath(path: string): Promise<DesktopOpenWorkspaceDelivery | 'unavailable'> {
+    const renderer = this.renderer
+    if (this.released || renderer === undefined || renderer.isDestroyed()) return 'unavailable'
+    const delivery: unknown = await renderer.executeJavaScript(desktopOpenWorkspaceScript(path))
+    return delivery === 'delivered' || delivery === 'pending' ? delivery : 'unavailable'
+  }
+
   notifyAttention(notification: DesktopNotification): void {
     const window = this.window
     if (window === undefined || window.isDestroyed() || window.isFocused()) return
@@ -798,6 +865,7 @@ export class ElectronShellGeneration {
     this.surfaceWatchdog.stop()
     this.rendererRecovery.stop()
     this.options.stopRendererBootMonitoring()
+    this.platformLogin.close()
 
     const window = this.window
     const tray = this.tray

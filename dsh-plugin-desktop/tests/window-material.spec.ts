@@ -6,7 +6,8 @@ import {
   windowsBuildNumber,
   windowsSupportsMica,
   windowsSupportsSystemBackdrop,
-} from '../src/window-material.ts'
+
+  parseLinuxWindowMaterial,} from '../src/window-material.ts'
 
 describe('desktop window material capabilities', () => {
   it('parses Windows build numbers and gates the supported system backdrop', () => {
@@ -49,10 +50,25 @@ describe('desktop window material capabilities', () => {
     )).toBe('off')
   })
 
+  it('resolves Linux generations from their own transparent-or-solid preference', () => {
+    expect(effectiveDesktopWindowMaterial(
+      'compatibility', 'linux', 'transparent', 'mica', undefined, 'off',
+    )).toBe('off')
+    expect(effectiveDesktopWindowMaterial(
+      'compatibility', 'linux', 'transparent', 'mica', undefined, 'transparent',
+    )).toBe('transparent')
+    expect(effectiveDesktopWindowMaterial(
+      'compatibility', 'linux', 'transparent', 'mica', undefined,
+    )).toBe('off')
+  })
+
   it('validates persisted material values independently for each platform', () => {
     expect(parseMacosWindowMaterial(undefined)).toBe('transparent')
     expect(parseWindowsWindowMaterial(undefined)).toBe('off')
     expect(parseWindowsWindowMaterial('acrylic')).toBe('off')
+    expect(parseLinuxWindowMaterial(undefined)).toBe('off')
+    expect(parseLinuxWindowMaterial('transparent')).toBe('off')
+    expect(() => parseLinuxWindowMaterial('mica')).toThrow('linuxMaterial')
     expect(() => parseMacosWindowMaterial('mica')).toThrow('macosMaterial')
     expect(() => parseWindowsWindowMaterial('transparent')).toThrow('windowsMaterial')
   })

@@ -6,6 +6,17 @@ Download the macOS or Windows installer from the product download page. DSH Desk
 
 On first launch, the application prepares the default profile and starts the official DSH Web surface locally. Closing the window normally hides it; use **Quit** from the tray when you want to stop the application and Host process.
 
+## Launching with a folder
+
+Besides choosing a directory inside the interface, you can name a folder when the application starts. The folder is registered as a workspace and opened. A folder that is already a workspace is simply opened again; nothing is duplicated.
+
+- **Windows drag and drop**: drop the folder onto the **DSH Desktop** desktop shortcut or its Start menu entry. A stopped application starts first; a running one comes to the front and opens the workspace.
+- **Command line**: stable uses `dsh-desktop <folder>` and Beta uses `dsh-desktop-beta <folder>`. Relative paths resolve against the current directory. The installed EXE accepts one folder argument as well.
+
+When the path does not exist, names a file, or lives on unsupported storage such as exFAT, FAT32, or a network drive, the application shows a native message and registers nothing. Launching with a folder is one-shot: a later restart triggered from settings does not reopen it.
+
+Known limits: a DSH Desktop icon pinned to the Windows taskbar does not accept drops yet (that needs a folder association, planned separately); Linux supports the command line only; macOS supports neither route yet.
+
 ## Profiles
 
 A profile is a composition of DSH bundles, dependencies, and patches. The tray **Profile** menu lists existing profiles and the lazy `desktop` and `web` defaults.

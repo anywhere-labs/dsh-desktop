@@ -66,6 +66,9 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
       selectionStatePath: join(home, 'selection.json'), marketUserDataDir: join(home, 'userdata'),
       releaseUserDataLocations: desktopReleaseUserDataLocations(home, join(home, 'userdata')),
       launchEnvironmentLayers: [],
+      // Empty is what the supervisor sends when the machine has no system proxy, so the Host still
+      // installs its outbound policy here and resolves every probe to a direct connection.
+      desktopProxyOverlay: {},
       desktopPnpmBootstrap: { activeProfileName: prepared.profile.name, activeProfileDir: prepared.profile.dir, homeDir: home,
         appExecutable: process.execPath, pnpmBinPath, electronVersion, nodeBinDir: pnpm.nodeBinDir,
         nodeShimPath: pnpm.nodeShimPath, clearEnvironmentPath: pnpm.clearEnvironmentPath,

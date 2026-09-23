@@ -12,12 +12,26 @@ import {
   createLaunchEnvironmentSnapshot,
   DSH_LAUNCH_ENVIRONMENT_KEY,
 } from '@deepseek-ai/dsh-launch-environment'
-import { DESKTOP_SETTINGS_NAMESPACE } from '../lib/index.js'
 import { installDesktopPnpmRuntime } from '../lib/desktop-runtime-environment.js'
 import { installProfilePackageResolver } from '../lib/module-resolution.js'
 import { prepareDesktopProfile } from '../lib/profile.js'
 import { DesktopProfileService } from '../lib/profile-service.js'
 import { createDesktopProfileBoot } from '../lib/profile-context.js'
+
+/** Loader entry id of the Desktop shell row, which 0.1.7 uses as its settings namespace. */
+const DESKTOP_SETTINGS_ENTRY_ID = 'desktop-shell'
+/**
+ * The Desktop row as the profile's own patch layer carries it.
+ *
+ * 0.1.7 keeps persisted settings in that layer, so every write to the document
+ * has to restate this entry: a real settings edit rewrites the document around
+ * the rows it does not touch, it does not replace them.
+ */
+const DESKTOP_SHELL_PATCH_ENTRY = Object.freeze({
+  id: DESKTOP_SETTINGS_ENTRY_ID,
+  name: 'dsh-plugin-desktop-beta',
+  config: Object.freeze({ mode: 'advanced' }),
+})
 
 const BIN_NAME = 'dsh-plugin-desktop-profile-smoke'
 const HOST_SERVICE_PLUGIN_NAME = 'dsh-desktop-host-services-smoke-plugin'
@@ -54,6 +68,10 @@ let nativeThemeSource = 'system'
 const trayItems = []
 
 try {
+  // A 0.1.6 harness home: sections keyed by the old settings namespaces, preset
+  // choice under the old field name. `prepareDesktopProfile` migrates it in place
+  // before the Loader starts; the settings plugin imports it once the Loader has
+  // settled, which is strictly after every plugin has mounted.
   writeFileSync(join(home, 'settings.yaml'), [
     'dsh-desktop:',
     '  mode: advanced',
@@ -61,6 +79,16 @@ try {
     '  default: minimal',
     '',
   ].join('\n'))
+  // 0.1.7 resolves Desktop's startup mode from the composed `desktop-shell` row --
+  // the bundle default under the profile's own patch layer -- not from the harness
+  // home document, which by then may already be `settings.yaml.imported`. Seed the
+  // patch layer the way that one-shot import leaves it, which is what every boot
+  // after the upgrade reads. Without it this smoke would assert the single
+  // pre-import boot, where the window necessarily still opens in compatibility.
+  writeFileSync(
+    prepareDesktopProfile('1', home, 'win32').profile.patchPath,
+    JSON.stringify([DESKTOP_SHELL_PATCH_ENTRY]),
+  )
   const aaRequested = process.env.DSH_VERIFY_AA === '1'
   const brokenAa = process.env.DSH_VERIFY_AA_BROKEN === '1'
   // A shared AA directory may already contain settings written by a newer channel.
@@ -222,6 +250,11 @@ try {
   if (!presetIds.includes('minimal') || !presetIds.includes('standard')) {
     throw new Error(`assembled Windows profile exposes unexpected presets: ${presetIds.join(', ')}`)
   }
+  // The legacy import runs off `loader.await()`, so the preset choice lands after
+  // this profile has finished mounting. Waiting for it here is what proves the
+  // section and field renames reached a namespace the settings service accepts.
+  const importDeadline = Date.now() + 15_000
+  while (agentPresets.defaultId !== 'minimal' && Date.now() < importDeadline) await delay(50)
   if (agentPresets.defaultId !== 'minimal') {
     throw new Error(`assembled Windows profile selected unexpected default ${agentPresets.defaultId}`)
   }
@@ -233,7 +266,10 @@ try {
     throw new Error('Desktop Profile did not activate the official plugin manager')
   }
   // Resolve AND mount Creator: discovery alone cannot catch missing Host services.
-  await agentPresets.standingKeyFor('cordis')
+  // 0.1.7 replaced `standingKeyFor` with `acquireScope`, a disposable revision
+  // lease: the composition is mounted at registration and the lease still throws
+  // `agent-preset/invalid` when that mount is unusable, which is what we assert.
+  await (await agentPresets.acquireScope('cordis'))[Symbol.asyncDispose]()
   if ((await ctx.get('pluginManager').listPlugins()).length === 0) {
     throw new Error('Official plugin manager cannot inspect the Desktop composition')
   }
@@ -242,7 +278,7 @@ try {
   const reloadProbePath = join(home, 'reload-probe.mjs')
   writeFileSync(reloadProbePath, "export function apply(ctx, config) { ctx.provide('desktopReloadProbe', config.value) }\n")
   for (const value of [1, 2]) {
-    writeFileSync(prepared.profile.patchPath, JSON.stringify([{ insert: [{
+    writeFileSync(prepared.profile.patchPath, JSON.stringify([DESKTOP_SHELL_PATCH_ENTRY, { insert: [{
       id: 'desktop-reload-probe', name: pathToFileURL(reloadProbePath).href, config: { value },
     }] }]))
     const deadline = Date.now() + 15_000
@@ -254,7 +290,7 @@ try {
   if (ctx.get('desktopRuntime') !== runtime || ctx.get('pluginManager') === undefined) {
     throw new Error('Profile reload lost Desktop or plugin-manager services')
   }
-  await ctx.agentPresets.standingKeyFor('cordis')
+  await (await ctx.agentPresets.acquireScope('cordis'))[Symbol.asyncDispose]()
   const hostServiceProbe = ctx.get(HOST_SERVICE_PROBE_KEY)
   if (hostServiceProbe?.current?.name !== 'desktop'
     || hostServiceProbe.current.dir !== prepared.profile.dir
@@ -288,9 +324,12 @@ try {
   if (nativeThemeSource !== 'system') {
     throw new Error(`desktop plugin produced an unexpected native theme source: ${nativeThemeSource}`)
   }
-  const desktopSettings = ctx.settings.get(DESKTOP_SETTINGS_NAMESPACE)
+  // 0.1.7 keys live configuration by Loader entry id and serves it from the
+  // describe face; `settings.get(namespace)` was the 0.1.5 surface.
+  const desktopSettings = ctx.settings.describe()
+    .find(entry => String(entry.ns) === DESKTOP_SETTINGS_ENTRY_ID)?.value
   if (desktopSettings?.mode !== 'advanced') {
-    throw new Error('assembled Host settings are missing the advanced dsh-desktop mode')
+    throw new Error('assembled Host settings are missing the advanced desktop-shell mode')
   }
   if (!trayItems.some(item => item.label() === 'Check for Updates…')) {
     throw new Error('assembled desktop profile is missing the update tray command')
@@ -335,9 +374,11 @@ try {
     redirect: 'manual',
   })
   await exchange.body?.cancel()
-  if (exchange.status !== 303 || exchange.headers.get('location') !== '/') {
+  // 0.1.7 redirects document-relative (`./`, `dsh-client-connection/lib/index.js:405`)
+  // rather than to the site root, so the exchange survives a mounted base path.
+  if (exchange.status !== 303 || exchange.headers.get('location') !== './') {
     throw new Error(
-      `browser authentication exchange returned HTTP ${String(exchange.status)} instead of a root redirect`,
+      `browser authentication exchange returned HTTP ${String(exchange.status)} instead of a document-relative redirect`,
     )
   }
   const setCookie = exchange.headers.get('set-cookie')
