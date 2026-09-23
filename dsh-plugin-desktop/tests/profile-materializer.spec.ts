@@ -67,6 +67,7 @@ describe('profile materializer', () => {
       '--import',
       pathToFileURL('/private/clear-env.mjs').href,
       '/private/pnpm/bin/pnpm.mjs',
+      '--pm-on-fail=ignore',
       '--config.minimumReleaseAge=0',
       'install',
       '--frozen-lockfile',
@@ -109,6 +110,7 @@ describe('profile materializer', () => {
       '--import',
       pathToFileURL('/private/clear-env.mjs').href,
       '/private/pnpm/bin/pnpm.mjs',
+      '--pm-on-fail=ignore',
       '--config.minimumReleaseAge=0',
       'install',
       '--no-frozen-lockfile',
@@ -246,7 +248,7 @@ describe('profile materializer', () => {
     const cause = await resultPromise.catch((error: unknown) => error)
 
     const detail = formatProfileMaterializationFailure(cause)
-    expect(detail).toContain('Command: pnpm --config.minimumReleaseAge=0 install --frozen-lockfile')
+    expect(detail).toContain('Command: pnpm --pm-on-fail=ignore --config.minimumReleaseAge=0 install --frozen-lockfile')
     expect(detail).toContain('Exit status: 1')
     expect(detail).toContain('stderr:\nERR_PNPM_OUTDATED_LOCKFILE')
     expect(detail).toContain('stdout:\nresolution completed')

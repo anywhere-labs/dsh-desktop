@@ -4,7 +4,7 @@ import { spawn as childSpawn } from 'node:child_process'
 import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import { delimiter, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
+import { DESKTOP_PNPM_ENV_OVERRIDES, withDesktopPnpmPolicy } from './pnpm-policy.ts'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 const ELECTRON_HEADERS_URL = 'https://electronjs.org/headers'
@@ -107,6 +107,8 @@ const MATERIALIZER_ENV_KEYS = [
   'npm_config_runtime',
   'npm_config_target',
   'npm_config_disturl',
+  'pnpm_config_pm_on_fail',
+  'pnpm_config_manage_package_manager_versions',
 ] as const
 
 /**
@@ -236,10 +238,11 @@ export async function materializeProfile(
     '--import',
     pathToFileURL(options.clearEnvironmentPath).href,
     options.pnpmBinPath,
-    PNPM_IGNORE_MINIMUM_RELEASE_AGE,
-    'install',
-    options.updateLockfile === true ? '--no-frozen-lockfile' : '--frozen-lockfile',
-  ] as const
+    ...withDesktopPnpmPolicy([
+      'install',
+      options.updateLockfile === true ? '--no-frozen-lockfile' : '--frozen-lockfile',
+    ]),
+  ]
   const path = inheritedPath()
   const environment: NodeJS.ProcessEnv = {
     ...materializerParentEnv(options.scrubParent ?? scrubbedParentEnv),
@@ -251,6 +254,7 @@ export async function materializeProfile(
     npm_config_runtime: 'electron',
     npm_config_target: options.electronVersion,
     npm_config_disturl: ELECTRON_HEADERS_URL,
+    ...DESKTOP_PNPM_ENV_OVERRIDES,
   }
   const spawn = options.spawn ?? childSpawn
   const child = spawn(options.appExecutable, argv.slice(1), {

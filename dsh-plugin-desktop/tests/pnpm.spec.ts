@@ -10,7 +10,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { SubprocessHandle, SubprocessOutcome, SubprocessRuntime, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { describe, expect, it, vi } from 'vitest'
 import { apply, inject, name, type DesktopPnpm, type DesktopPnpmBootstrap } from '../src/pnpm.ts'
-import { PNPM_IGNORE_MINIMUM_RELEASE_AGE, withDesktopPnpmPolicy } from '../src/pnpm-policy.ts'
+import { PNPM_IGNORE_MINIMUM_RELEASE_AGE, PNPM_IGNORE_PM_ON_FAIL, withDesktopPnpmPolicy } from '../src/pnpm-policy.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -136,21 +136,51 @@ describe('desktop pnpm execution service', () => {
     }
   }, 20_000)
 
-  it('applies the release-age policy exactly once to direct pnpm argv', () => {
+  it('applies desktop package-manager policies exactly once to direct pnpm argv', () => {
     expect(withDesktopPnpmPolicy(['remove', 'example'])).toEqual([
+      PNPM_IGNORE_PM_ON_FAIL,
       PNPM_IGNORE_MINIMUM_RELEASE_AGE,
       'remove',
       'example',
     ])
     expect(withDesktopPnpmPolicy([
+      PNPM_IGNORE_PM_ON_FAIL,
       PNPM_IGNORE_MINIMUM_RELEASE_AGE,
       'remove',
       'example',
     ])).toEqual([
+      PNPM_IGNORE_PM_ON_FAIL,
       PNPM_IGNORE_MINIMUM_RELEASE_AGE,
       'remove',
       'example',
     ])
+  })
+
+  it('bypasses packageManager version auto-switching when project specifies an alternate pnpm version', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-pnpm-switch-test-'))
+    try {
+      await writeFile(join(root, 'package.json'), JSON.stringify({
+        name: 'test-alternate-pnpm',
+        packageManager: 'pnpm@11.17.0',
+      }))
+      const args = withDesktopPnpmPolicy(['-v'])
+      const result = await execFileAsync(
+        process.execPath,
+        [fileURLToPath(new URL('../node_modules/pnpm/bin/pnpm.mjs', import.meta.url)), ...args],
+        {
+          cwd: root,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            pnpm_config_pm_on_fail: 'ignore',
+            pnpm_config_manage_package_manager_versions: 'false',
+          },
+        },
+      )
+      expect(result.stdout.trim()).toBe('11.8.0')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('starts packaged pnpm in the active Profile without recovery side effects', async () => {
@@ -166,6 +196,7 @@ describe('desktop pnpm execution service', () => {
         '--import',
         pathToFileURL(bootstrap().clearEnvironmentPath).href,
         bootstrap().pnpmBinPath,
+        '--pm-on-fail=ignore',
         '--config.minimumReleaseAge=0',
         'add',
         '--save-exact',
@@ -184,6 +215,8 @@ describe('desktop pnpm execution service', () => {
         npm_config_runtime: 'electron',
         npm_config_target: '43.4.0',
         npm_config_disturl: 'https://electronjs.org/headers',
+        pnpm_config_pm_on_fail: 'ignore',
+        pnpm_config_manage_package_manager_versions: 'false',
       },
     })
     operation.cancel()
