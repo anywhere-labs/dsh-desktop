@@ -12,6 +12,7 @@ import { APP_URL, IPC, SHELL_URL } from './ipc.ts'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 import { preferredDesktopLocale, resolveDesktopLocale } from './menu-locale.ts'
 import { NextDesktopRuntime } from './desktop-runtime.ts'
+import { probeSystemProxy, type DesktopSystemProxyProbe } from './system-proxy.ts'
 import { DEFAULT_PROFILE, NATIVE_ACCESS_HEADER, type DesktopCommand, type DesktopState, type DesktopSettingsPage } from './desktop-contract.ts'
 import { portsChanged, parsePreferences } from './desktop-preferences.ts'
 import { NativeDesktop, applyWindowMaterial } from './native-desktop.ts'
@@ -60,6 +61,7 @@ let onboarding = false
 let onboardingComputerUse = false
 let relaunch: string[] | undefined
 let installingUpdate = false
+let systemProxy: DesktopSystemProxyProbe = {}
 let ownsInstance = false
 let windowsLanguage = 'en'
 const require = createRequire(NEXT_PACKAGE)
@@ -67,7 +69,7 @@ const webRoot = dirname(require.resolve('@deepseek-ai/dsh-web-frontend/dist/inde
 const version = (JSON.parse(readFileSync(NEXT_PACKAGE, 'utf8')) as { version: string }).version
 const t = (zh: string, en: string): string => windowsLanguage.toLowerCase().startsWith('zh') ? zh : en
 const runtime = new NextDesktopRuntime({
-  home, root, executable: process.execPath, addresses: () => [...desktopLanAddresses()],
+  home, root, executable: process.execPath, addresses: () => [...desktopLanAddresses()], systemProxy: () => systemProxy,
   certificate: addresses => createLanHttpsCertificate(electronData, addresses, {
     available: () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
     seal: bytes => safeStorage.encryptString(Buffer.from(bytes).toString('utf8')),
@@ -604,6 +606,10 @@ async function main(): Promise<void> {
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(join(root, 'build', 'app-icon-mac.png'))
   // Recovery can open without a Host; Chromium's app locale may differ from the OS language.
   windowsLanguage = preferredDesktopLocale([...app.getPreferredSystemLanguages(), app.getLocale()])
+  // Read once, before anything can start a Host: a proxy client's "system proxy" switch sets no
+  // environment variable, and only Chromium can evaluate it (PAC/WPAD included). Changing the
+  // proxy takes effect on the next application start.
+  systemProxy = await probeSystemProxy(session.defaultSession)
   protocol.handle('dsh-app', async request => {
     const url = new URL(request.url)
     if (url.hostname === 'shell') {

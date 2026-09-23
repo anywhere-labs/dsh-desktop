@@ -14,6 +14,8 @@ import { parsePreferences } from '../desktop-preferences.ts'
 import { atomicJson } from '../private-files.ts'
 import type NextWebServer from '../webserver.ts'
 import { disableAsarArchiveView } from '../asar-archive-policy.ts'
+import { maskSecrets } from '../mask-secrets.ts'
+import { parseSystemProxyProbe, SYSTEM_PROXY_ENV, withSystemProxy } from '../system-proxy.ts'
 
 export async function main(): Promise<void> {
   // The Host lists and reads user workspaces; see asar-archive-policy.ts.
@@ -25,18 +27,24 @@ export async function main(): Promise<void> {
   const preferences = parsePreferences(JSON.parse(process.env.DSH_NEXT_PREFERENCES ?? '{}'))
   const trustedHosts = JSON.parse(process.env.DSH_NEXT_TRUSTED_HOSTS ?? '[]') as unknown
   if (!Array.isArray(trustedHosts) || trustedHosts.some(host => typeof host !== 'string')) throw new Error('Invalid Next trusted hosts')
+  const systemProxy = parseSystemProxyProbe(process.env[SYSTEM_PROXY_ENV])
   configureNextBrowserAccess(process.env.DSH_NEXT_NATIVE_TOKEN, preferences.browserAccess)
   delete process.env.DSH_NEXT_NATIVE_TOKEN
   delete process.env.DSH_NEXT_PREFERENCES
   delete process.env.DSH_NEXT_TRUSTED_HOSTS
+  delete process.env[SYSTEM_PROXY_ENV]
   const profile = loadNextProfile(projectDir, home)
   const runtimePatch = join(projectDir, 'desktop-next.runtime.patch.json')
   atomicJson(runtimePatch, [
     { id: 'desktop-next-webserver', config: { host: '127.0.0.1', port: preferences.port } },
     { id: 'connection', config: { trustedHosts } },
   ])
+  // runProfile installs the outbound proxy policy from this environment before any plugin mounts.
+  const { environment, resolution: proxy } = withSystemProxy(loadLayeredEnv('dsh-desktop-next'), systemProxy, trustedHosts as string[])
+  // One line on every start, direct included: a connectivity report cannot be answered without it.
+  for (const line of [proxy.summary, ...proxy.diagnostics]) process.stderr.write(`dsh-desktop-next: ${maskSecrets(line)}\n`)
   const application = runProfile({
-    environment: loadLayeredEnv('dsh-desktop-next'), profile: basename(projectDir),
+    environment, profile: basename(projectDir),
     resolvedProfile: { profile, installAnchor: NEXT_PACKAGE },
     patchFiles: [join(runtimeDir, 'host.cordis.patch.yml'), join(projectDir, 'desktop-next.cordis.patch.json'), runtimePatch], args: ['--no-open', '--port', String(preferences.port)],
     packageManager: {
