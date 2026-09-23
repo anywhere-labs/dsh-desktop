@@ -5,7 +5,8 @@
 <h1 align="center">DSH Desktop</h1>
 
 <p align="center">
-  <strong>An open-source desktop client for Windows and macOS, built on DeepSeek Harness.</strong>
+  <strong>An open-source desktop client for Windows and macOS, built on DeepSeek Harness.</strong><br>
+  <sub>Windows x64 / macOS Universal only (no Linux installer yet); this is a standalone desktop client, not a plugin you install with <code>dsh plugin add</code>. See the <a href="docs/faq.en.md">FAQ</a>.</sub>
 </p>
 
 <h3 align="center"><a href="https://dshdesktop.cn">One-click download, ready to use out of the box.</a></h3>
@@ -35,7 +36,7 @@ DSH Desktop integrates the local Web UI, Host service, and plugin system from [D
 
 ## Download and install
 
-Current release installers support Windows x64 and macOS Universal. No extra environment is needed — download, install, and start using it with one click.
+Current release installers support Windows x64 and macOS Universal. No extra environment is needed — download, install, and start using it with one click. There is no Linux installer yet; DSH Desktop is a standalone desktop client — install it from the packages below, not with `dsh plugin add`, and do not `npm install dsh-desktop` (the same-named package on npm is a different, unrelated project).
 
 | Platform | Download | Installation |
 | --- | --- | --- |

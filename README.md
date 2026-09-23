@@ -5,7 +5,8 @@
 <h1 align="center">DSH Desktop</h1>
 
 <p align="center">
-  <strong>基于 DeepSeek Harness 构建的 Windows 和 macOS 开源桌面客户端。</strong>
+  <strong>基于 DeepSeek Harness 构建的 Windows 和 macOS 开源桌面客户端。</strong><br>
+  <sub>仅支持 Windows x64 / macOS Universal（暂无 Linux 安装包）；这是一个独立桌面客户端，不是可 `dsh plugin add` 安装的插件。详见<a href="docs/faq.md">常见问题</a>。</sub>
 </p>
 
 <h3 align="center"><a href="https://dshdesktop.cn">一键下载，开箱即用。</a></h3>
@@ -35,7 +36,7 @@ DSH Desktop 将 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harne
 
 ## 下载与安装
 
-当前正式安装包支持 Windows x64 和 macOS Universal。无需额外环境，下载安装，一键使用。
+当前正式安装包支持 Windows x64 和 macOS Universal。无需额外环境，下载安装，一键使用。暂无 Linux 安装包；DSH Desktop 是独立桌面客户端，请下载安装包安装，不要用 `dsh plugin add` 安装，也不要 `npm install dsh-desktop`（npm 上同名包是另一个不相关的项目）。
 
 | 平台 | 下载 | 安装方式 |
 | --- | --- | --- |
