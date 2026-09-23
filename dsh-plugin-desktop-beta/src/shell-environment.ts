@@ -10,7 +10,7 @@ import {
   scrubbedParentEnv,
 } from '@deepseek-ai/dsh-subprocess'
 
-const DEFAULT_CAPTURE_TIMEOUT_MS = 2_000
+export const DEFAULT_CAPTURE_TIMEOUT_MS = 10_000
 const MAX_CAPTURE_BYTES = 1024 * 1024
 
 const SUPPORTED_SHELL_ARGUMENTS = new Map<string, readonly string[]>([
@@ -281,6 +281,16 @@ function resolveUserShell(options: ResolveDesktopShellEnvironmentOptions): strin
   return options.environment.SHELL
 }
 
+function resolveCaptureTimeoutMs(options: ResolveDesktopShellEnvironmentOptions): number {
+  if (options.timeoutMs !== undefined) return options.timeoutMs
+  const raw = options.environment.DSH_DESKTOP_SHELL_CAPTURE_TIMEOUT_MS
+  if (raw !== undefined && raw !== '') {
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed) && parsed > 0) return parsed
+  }
+  return DEFAULT_CAPTURE_TIMEOUT_MS
+}
+
 /**
  * Resolve selected login-shell exports for a desktop Host launch.
  * @param options - Platform, launch environment and optional capture seams.
@@ -309,7 +319,8 @@ export async function resolveDesktopShellEnvironment(
       SHELL: shell,
     }
     const capture = options.capture ?? captureLoginShellEnvironment
-    const captured = await capture(shell, options.home, captureEnvironment, options.timeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS)
+    const timeoutMs = resolveCaptureTimeoutMs(options)
+    const captured = await capture(shell, options.home, captureEnvironment, timeoutMs)
     const updates = selectDesktopShellEnvironment(captured, options.environment)
     if (updates.PATH === undefined) return inheritedEnvironment('missing-path')
     return { updates, source: 'login-shell' }

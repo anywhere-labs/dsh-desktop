@@ -13,6 +13,7 @@ import { delimiter, join } from 'node:path'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  DEFAULT_CAPTURE_TIMEOUT_MS,
   captureLoginShellEnvironment,
   parseShellEnvironment,
   resolveDesktopShellEnvironment,
@@ -302,7 +303,7 @@ describe('desktop shell environment resolution', () => {
       SAFE_PARENT: 'available-to-rc',
       HOME: '/Users/tester',
       SHELL: '/bin/zsh',
-    }, 2_000)
+    }, DEFAULT_CAPTURE_TIMEOUT_MS)
   })
 
   it('uses the requested timeout on packaged Linux', async () => {
@@ -325,6 +326,30 @@ describe('desktop shell environment resolution', () => {
       HOME: '/home/tester',
       SHELL: '/bin/bash',
     }, 75)
+  })
+
+  it('uses the configured timeout from DSH_DESKTOP_SHELL_CAPTURE_TIMEOUT_MS', async () => {
+    const capture = vi.fn(async () => ({ PATH: '/home/tester/.local/bin:/usr/bin:/bin' }))
+
+    await expect(resolveDesktopShellEnvironment({
+      environment: {
+        PATH: '/usr/bin:/bin',
+        DSH_DESKTOP_SHELL_CAPTURE_TIMEOUT_MS: '15000',
+      },
+      home: '/home/tester',
+      isPackaged: true,
+      platform: 'linux',
+      shell: '/bin/bash',
+      capture,
+      scrubParent: () => ({}),
+    })).resolves.toEqual({
+      updates: { PATH: '/home/tester/.local/bin:/usr/bin:/bin' },
+      source: 'login-shell',
+    })
+    expect(capture).toHaveBeenCalledWith('/bin/bash', '/home/tester', {
+      HOME: '/home/tester',
+      SHELL: '/bin/bash',
+    }, 15_000)
   })
 
   it.each([

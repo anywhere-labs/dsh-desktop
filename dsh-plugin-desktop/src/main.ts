@@ -772,6 +772,24 @@ async function start(): Promise<void> {
       platform: process.platform,
     })
     for (const [name, value] of Object.entries(shellEnvironmentResolution.updates)) process.env[name] = value
+    if (app.isPackaged && process.platform !== 'win32') {
+      if (shellEnvironmentResolution.source === 'login-shell') {
+        electronLogger.info(
+          `${BIN_NAME}: recovered ${String(Object.keys(shellEnvironmentResolution.updates).length)} login-shell environment variables (${Object.keys(shellEnvironmentResolution.updates).join(', ')})`,
+        )
+      } else if (
+        shellEnvironmentResolution.fallbackReason === 'capture-failed'
+        || shellEnvironmentResolution.fallbackReason === 'missing-path'
+      ) {
+        electronLogger.error(
+          `${BIN_NAME}: failed to recover login-shell environment (${shellEnvironmentResolution.fallbackReason})`,
+        )
+      } else {
+        electronLogger.info(
+          `${BIN_NAME}: login-shell environment recovery retained inherited environment (${shellEnvironmentResolution.fallbackReason ?? 'unknown'})`,
+        )
+      }
+    }
     const profileUserDataDir = safeModePaths?.userDataDir ?? desktopUserDataDir
     prepareSafeMode = safeModePaths === undefined
       ? () => {
