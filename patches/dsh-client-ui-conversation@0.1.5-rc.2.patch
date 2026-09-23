@@ -1,0 +1,12 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -2700,7 +2700,7 @@
+ 		//#endregion
+ 		//#region lib/types/client/stores.js
+ 		/** Per-session Conversation store shared by the shell body and header. */
+-		const CONVERSATION_STORE_KEY = "dsh.conversation";
++		const CONVERSATION_STORE_KEY = globalThis.__DSH_SESSION_WINDOW_TARGET__ ? "dsh.session-window.conversation" : "dsh.conversation";
+ 		/**
+ 		* Declare per-session draft persistence and View selection.
+ 		* @returns the store handle.

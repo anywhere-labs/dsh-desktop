@@ -1,0 +1,74 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -113,6 +113,7 @@
+ 				return result.value;
+ 			}
+ 			watchNavigation() {
++				if (globalThis.__DSH_SESSION_WINDOW_TARGET__) return () => { this.lifetime.abort(); };
+ 				let initial = "waiting";
+ 				const reconcile = () => {
+ 					if (this.lifetime.signal.aborted) return;
+@@ -946,6 +947,7 @@
+ 				onReveal();
+ 			}, [onReveal]);
+ 			const sessionMenuItems = [
++				...(globalThis.__DSH_SESSION_WINDOW_UI__ ? [{ id: "desktop-new-window", icon: (0, react_jsx_runtime.jsx)("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true, children: (0, react_jsx_runtime.jsx)("path", { d: "M3 3h10v10H3zM3 6h10", stroke: "currentColor", strokeLinejoin: "round" }) }), label: globalThis.__DSH_SESSION_WINDOW_UI__.label, disabled: !globalThis.__DSH_SESSION_WINDOW_UI__.canOpen(node.id) }] : []),
+ 				{
+ 					id: "rename",
+ 					label: t("rename"),
+@@ -965,19 +967,22 @@
+ 			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {
+ 				anchor: (0, react_jsx_runtime.jsxs)("div", {
+ 					ref: rowRef,
++					"data-row-key": `session:${node.id}`,
+ 					className: clsx(Rows_module_css_default.sessionRow, selected && Rows_module_css_default.selected, menuOpen && Rows_module_css_default.menuOpen, flat && !showStatus && Rows_module_css_default.flatSessionRowWithoutStatus, drag?.marker === "before" && Rows_module_css_default.dropBefore, drag?.marker === "after" && Rows_module_css_default.dropAfter),
+ 					role: "treeitem",
+ 					"aria-selected": selected,
++					onContextMenu: globalThis.__DSH_SESSION_WINDOW_UI__ ? (e) => { if (!row.blank) { e.preventDefault(); e.stopPropagation(); setMenuOpen(true); } } : void 0,
+ 					onClick: () => {
+ 						onOpen(node.id);
+ 					},
+ 					draggable: drag !== void 0,
+ 					onDragStart: drag === void 0 ? void 0 : (e) => {
+-						e.dataTransfer.effectAllowed = "move";
++						if (globalThis.__DSH_SESSION_WINDOW_UI__ && !globalThis.__DSH_SESSION_WINDOW_UI__.start(node.id)) { e.preventDefault(); return; }
++					e.dataTransfer.effectAllowed = "move";
+ 						e.dataTransfer.setData("text/plain", node.id);
+ 						drag.start();
+ 					},
+-					onDragEnd: drag?.end,
++					onDragEnd: drag === void 0 ? void 0 : (e) => { drag.end(globalThis.__DSH_SESSION_WINDOW_UI__?.end(node.id, e) === true); },
+ 					onDragOver: drag === void 0 ? void 0 : (e) => {
+ 						if (!drag.active) return;
+ 						e.preventDefault();
+@@ -1013,6 +1018,7 @@
+ 								items: sessionMenuItems,
+ 								onSelect: (id) => {
+ 									setMenuOpen(false);
++									if (id === "desktop-new-window") globalThis.__DSH_SESSION_WINDOW_UI__?.open(node.id);
+ 									if (id === "rename") onRename(node.id, row.title);
+ 									if (id === "fork") onFork(node.id);
+ 									if (id === "archive") onArchive(node.id);
+@@ -1743,8 +1749,8 @@
+ 													half
+ 												});
+ 											},
+-											end: () => {
+-												if (drag?.over !== null && drag?.over !== void 0) commitSessionDrag(drag, drag.over);
++											end: (cancel = false) => {
++												if (!cancel && drag?.over !== null && drag?.over !== void 0) commitSessionDrag(drag, drag.over);
+ 												else setDrag(null);
+ 												sessionDropCommitted.current = false;
+ 											}
+@@ -1896,8 +1902,8 @@
+ 										half
+ 									});
+ 								},
+-								end: () => {
+-									if (drag?.over !== null && drag?.over !== void 0) commitDrag(drag, drag.over);
++								end: (cancel = false) => {
++									if (!cancel && drag?.over !== null && drag?.over !== void 0) commitDrag(drag, drag.over);
+ 									else setDrag(null);
+ 									dropCommitted.current = false;
+ 								}

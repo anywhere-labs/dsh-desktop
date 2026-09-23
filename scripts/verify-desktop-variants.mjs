@@ -11,6 +11,8 @@ const betaRoot = join(root, 'dsh-plugin-desktop-beta', 'src')
 const betaOnlyPaths = new Set(['profile-context.ts', 'startup-audit.ts'])
 const allowedDifferences = new Set([
   'product-identity.ts',
+  // Beta exposes the Session menu slot; Stable's array menu is extended in the runtime patch.
+  'client/session-window-menu.tsx',
   // Beta rides dsh 0.1.7, which collapsed the executor's two argv seams into one:
   // `runArgv`/`startArgv` are gone and `executeArgv(spec, argvOrPrepare, onStarted?)` returns
   // a single ShellExecution handle for foreground and background callers alike, so beta
