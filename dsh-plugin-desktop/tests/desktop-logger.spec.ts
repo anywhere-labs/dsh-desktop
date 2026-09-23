@@ -50,7 +50,7 @@ describe('ElectronStderrLogger', () => {
 
   it('hands the same child process failure to a correlation observer', () => {
     const app = new EventEmitter()
-    const logger = { error: vi.fn(), errorCause: vi.fn() }
+    const logger = { error: vi.fn(), errorCause: vi.fn(), info: vi.fn() }
     const observer = vi.fn()
     const remove = installDesktopChildProcessLogging(app, logger, observer)
     const details = {
@@ -71,7 +71,7 @@ describe('ElectronStderrLogger', () => {
 
   it('keeps the log line when the correlation observer throws', () => {
     const app = new EventEmitter()
-    const logger = { error: vi.fn(), errorCause: vi.fn() }
+    const logger = { error: vi.fn(), errorCause: vi.fn(), info: vi.fn() }
     const remove = installDesktopChildProcessLogging(app, logger, () => { throw new Error('observer down') })
 
     expect(() => {
