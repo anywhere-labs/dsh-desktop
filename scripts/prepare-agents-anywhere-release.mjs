@@ -80,6 +80,21 @@ function patchManifest(packagePath, peerRanges) {
   return { sourceVersion }
 }
 
+/**
+ * TypeScript's default `types` loads every ancestor node_modules/@types, and
+ * dsh-bridge-next's check:build relies on that default. A stray install above
+ * the temp directory (for example ~/node_modules/@types/bun) therefore leaks
+ * conflicting globals into the staged AA type check.
+ */
+function ancestorTypeRoots(directory) {
+  const roots = []
+  for (let current = resolve(directory); ; current = dirname(current)) {
+    const candidate = join(current, 'node_modules', '@types')
+    if (existsSync(candidate)) roots.push(candidate)
+    if (dirname(current) === current) return roots
+  }
+}
+
 function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
@@ -143,6 +158,10 @@ function prepare() {
   let published = false
   mkdirSync(vendorRoot, { recursive: true })
   const stagingRoot = mkdtempSync(join(tmpdir(), 'dsh-agents-anywhere-release-'))
+  const leakingTypeRoots = ancestorTypeRoots(dirname(stagingRoot))
+  const typeRootAdvice = `TypeScript also loads these ancestor type roots of the AA staging directory: ${leakingTypeRoots.join(', ')}. `
+    + 'If the AA type check fails on foreign globals, point TEMP/TMP (TMPDIR on POSIX) at a directory without node_modules ancestors.'
+  if (leakingTypeRoots.length > 0) console.warn(typeRootAdvice)
   try {
     const checkout = cloneSource(stagingRoot, commit)
     const buildRoot = join(stagingRoot, 'build')
@@ -205,6 +224,7 @@ function prepare() {
     for (const [path, contents] of snapshots) writeFileSync(join(root, path), contents)
     if (targetArtifact && !published) rmSync(targetArtifact, { force: true })
     console.error('AA preparation failed; manifests and lockfile restored. Run yarn install --immutable before retrying if installation started.')
+    if (leakingTypeRoots.length > 0) console.error(typeRootAdvice)
     throw error
   } finally {
     rmSync(stagingRoot, { recursive: true, force: true })

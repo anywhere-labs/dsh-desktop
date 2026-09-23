@@ -12,8 +12,8 @@ import {
 import { DSHFIND_ADAPTER_ID, DSHFIND_KEY, DSHFIND_PROVIDER_ID } from '../src/adapters/dshfind.js'
 import { standardHttpAdapter } from '../src/adapters/standard-http.js'
 import { DefaultCatalogService, type CatalogFullIndex } from '../src/catalog/service.js'
-import { MemoryCatalogSourceStore, SettingsCatalogSourceStore } from '../src/catalog/source-store.js'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
+import { MemoryCatalogSourceStore, PersistentCatalogSourceStore } from '../src/catalog/source-store.js'
+import { MemoryMarketStateStore, type MarketStateStore } from '../src/catalog/state-store.js'
 import type {
   CatalogHttpClient,
   CatalogHttpResponse,
@@ -22,7 +22,6 @@ import type {
   LocalSourceRecord,
 } from '../src/contracts/index.js'
 import type { CatalogHttpRequestPolicy } from '../src/contracts/types.js'
-import type { MarketSettingsDocument } from '../src/catalog/source-store.js'
 import {
   createMarketSourceMutator,
   marketMutationAllowed,
@@ -145,11 +144,13 @@ async function requestMarketCatalog(
       }),
     },
   }
-  const scope = {
-    get: () => ({ sources: records }),
-    update: vi.fn(),
-  } as unknown as SettingsScope<MarketSettingsDocument>
-  const dispose = registerMarketRoutes(ctx as never, scope, installProvider)
+  const state: MarketStateStore = {
+    getSources: () => records,
+    setSources: vi.fn(async () => {}),
+    getCatalogCache: () => undefined,
+    setCatalogCache: vi.fn(async () => {}),
+  }
+  const dispose = registerMarketRoutes(ctx as never, state, installProvider)
   const request = Object.assign(new EventEmitter(), {
     method: 'GET',
     url,
@@ -178,6 +179,22 @@ async function requestMarketCatalog(
   return {
     statusCode: response.statusCode,
     body: JSON.parse(bodyText) as Record<string, any>,
+  }
+}
+
+/**
+ * A state store whose registry writes are observable, so a test can hold one
+ * write open and assert how the mutator serializes around it.
+ */
+function observedStateStore(
+  backing: MemoryMarketStateStore,
+  setSources: MarketStateStore['setSources'],
+): MarketStateStore {
+  return {
+    getSources: () => backing.getSources(),
+    setSources,
+    getCatalogCache: () => backing.getCatalogCache(),
+    setCatalogCache: cache => backing.setCatalogCache(cache),
   }
 }
 
@@ -1522,18 +1539,15 @@ describe('catalog active-source reads', () => {
 })
 
 describe('source mutation boundary', () => {
-  it('normalizes legacy multi-enabled settings to the first source by order', async () => {
+  it('normalizes a legacy multi-enabled registry to the first source by order', async () => {
     const first = source()
     const second = source({
       sourceRecordId: '028f1f77-a5c4-7b73-a9ae-0242ac120003',
       order: 1,
     })
-    const scope = {
-      get: () => ({ sources: [second, first] }),
-      update: vi.fn(),
-    } as unknown as SettingsScope<MarketSettingsDocument>
-
-    const records = await new SettingsCatalogSourceStore(scope).load()
+    const records = await new PersistentCatalogSourceStore(
+      new MemoryMarketStateStore({ sources: [second, first] }),
+    ).load()
 
     expect(records.map(record => [record.sourceRecordId, record.enabled])).toEqual([
       [first.sourceRecordId, true],
@@ -1541,19 +1555,16 @@ describe('source mutation boundary', () => {
     ])
   })
 
-  it('preserves an explicit no-selection state in legacy settings', async () => {
+  it('preserves an explicit no-selection state in a legacy registry', async () => {
     const first = { ...source(), enabled: false }
     const second = source({
       sourceRecordId: '028f1f77-a5c4-7b73-a9ae-0242ac120003',
       enabled: false,
       order: 1,
     })
-    const scope = {
-      get: () => ({ sources: [second, first] }),
-      update: vi.fn(),
-    } as unknown as SettingsScope<MarketSettingsDocument>
-
-    const records = await new SettingsCatalogSourceStore(scope).load()
+    const records = await new PersistentCatalogSourceStore(
+      new MemoryMarketStateStore({ sources: [second, first] }),
+    ).load()
 
     expect(records.map(record => [record.sourceRecordId, record.enabled])).toEqual([
       [first.sourceRecordId, false],
@@ -1563,25 +1574,21 @@ describe('source mutation boundary', () => {
 
   it('retains source disclosure without implicitly selecting the first configured source', async () => {
     const manifest = contractFixture('catalog-source.example') as CatalogSourceManifest
-    let document: MarketSettingsDocument = { sources: [] }
-    const scope = {
-      get: () => document,
-      update: async (patch: { sources: readonly LocalSourceRecord[] }) => { document = { sources: patch.sources } },
-    } as unknown as SettingsScope<MarketSettingsDocument>
+    const state = new MemoryMarketStateStore()
     const readManifest = vi.fn(async () => manifest)
-    const mutate = createMarketSourceMutator(scope, undefined, readManifest)
+    const mutate = createMarketSourceMutator(state, undefined, readManifest)
 
     await mutate(
       { action: 'add-standard', manifestUrl: 'https://plugins.example.org/catalog-source.json' },
       new AbortController().signal,
     )
 
-    expect(document.sources[0]).toMatchObject({
+    expect(state.getSources()[0]).toMatchObject({
       providerId: manifest.providerId,
       manifest,
       enabled: false,
     })
-    const service = new DefaultCatalogService({ load: async () => document.sources }, restrictedHttpClient)
+    const service = new DefaultCatalogService({ load: async () => state.getSources() }, restrictedHttpClient)
     await expect(service.listSources()).resolves.toEqual([
       expect.objectContaining({
         name: manifest.name,
@@ -1593,17 +1600,13 @@ describe('source mutation boundary', () => {
   })
 
   it('resolves each built-in mutation through the reviewed provider registry', async () => {
-    let document: MarketSettingsDocument = { sources: [] }
-    const scope = {
-      get: () => document,
-      update: async (patch: { sources: readonly LocalSourceRecord[] }) => { document = { sources: patch.sources } },
-    } as unknown as SettingsScope<MarketSettingsDocument>
-    const mutate = createMarketSourceMutator(scope)
+    const state = new MemoryMarketStateStore()
+    const mutate = createMarketSourceMutator(state)
 
     await mutate({ action: 'add-builtin', key: DSH_1024STORE_KEY }, new AbortController().signal)
     await mutate({ action: 'add-builtin', key: DSHFIND_KEY }, new AbortController().signal)
 
-    expect(document.sources).toEqual([
+    expect(state.getSources()).toEqual([
       expect.objectContaining({
         adapterId: DSH_1024STORE_ADAPTER_ID,
         providerId: DSH_1024STORE_PROVIDER_ID,
@@ -1624,7 +1627,7 @@ describe('source mutation boundary', () => {
       { action: 'add-builtin', key: 'unknown-provider' },
       new AbortController().signal,
     )).rejects.toThrow(/built-in source unavailable/u)
-    expect(document.sources).toHaveLength(2)
+    expect(state.getSources()).toHaveLength(2)
   })
 
   it('serializes source writes so concurrent changes cannot overwrite each other', async () => {
@@ -1643,27 +1646,23 @@ describe('source mutation boundary', () => {
       enabled: false,
       order: 1,
     }
-    let document: MarketSettingsDocument = { sources: [first, second] }
+    const backing = new MemoryMarketStateStore({ sources: [first, second] })
     let releaseFirst: (() => void) | undefined
     const firstWrite = new Promise<void>(resolve => { releaseFirst = resolve })
-    const update = vi.fn(async (patch: { sources: readonly LocalSourceRecord[] }) => {
-      if (update.mock.calls.length === 1) await firstWrite
-      document = { sources: patch.sources.map(record => ({ ...record })) }
+    const setSources = vi.fn(async (records: readonly LocalSourceRecord[]) => {
+      if (setSources.mock.calls.length === 1) await firstWrite
+      await backing.setSources(records.map(record => ({ ...record })))
     })
-    const scope = {
-      get: () => document,
-      update,
-    } as unknown as SettingsScope<MarketSettingsDocument>
-    const mutate = createMarketSourceMutator(scope)
+    const mutate = createMarketSourceMutator(observedStateStore(backing, setSources))
 
     const one = mutate({ action: 'select', sourceRecordId: first.sourceRecordId }, new AbortController().signal)
     const two = mutate({ action: 'select', sourceRecordId: second.sourceRecordId }, new AbortController().signal)
-    await vi.waitFor(() => { expect(update).toHaveBeenCalledTimes(1) })
+    await vi.waitFor(() => { expect(setSources).toHaveBeenCalledTimes(1) })
     releaseFirst?.()
     await Promise.all([one, two])
 
-    expect(update).toHaveBeenCalledTimes(2)
-    expect(document.sources.map(record => record.enabled)).toEqual([false, true])
+    expect(setSources).toHaveBeenCalledTimes(2)
+    expect(backing.getSources().map(record => record.enabled)).toEqual([false, true])
   })
 
   it('preserves a user-defined source order when another source is removed', async () => {
@@ -1702,14 +1701,8 @@ describe('source mutation boundary', () => {
       'https://third.example',
       2,
     )
-    let document: MarketSettingsDocument = { sources: [first, second, third] }
-    const scope = {
-      get: () => document,
-      update: async (patch: { sources: readonly LocalSourceRecord[] }) => {
-        document = { sources: patch.sources }
-      },
-    } as unknown as SettingsScope<MarketSettingsDocument>
-    const mutate = createMarketSourceMutator(scope)
+    const state = new MemoryMarketStateStore({ sources: [first, second, third] })
+    const mutate = createMarketSourceMutator(state)
 
     await mutate(
       { action: 'move', sourceRecordId: third.sourceRecordId, direction: 'up' },
@@ -1720,7 +1713,7 @@ describe('source mutation boundary', () => {
       new AbortController().signal,
     )
 
-    expect(document.sources.map(record => [record.providerId, record.order, record.enabled])).toEqual([
+    expect(state.getSources().map(record => [record.providerId, record.order, record.enabled])).toEqual([
       ['fixture.third', 0, false],
       ['fixture.second', 1, false],
     ])
@@ -1728,17 +1721,16 @@ describe('source mutation boundary', () => {
 
   it('rejects an aborted mutation before it reaches the serialized write', async () => {
     const record = { ...source(), enabled: false }
-    let document: MarketSettingsDocument = { sources: [record] }
+    const backing = new MemoryMarketStateStore({ sources: [record] })
     let releaseFirst: (() => void) | undefined
     const firstWrite = new Promise<void>(resolve => { releaseFirst = resolve })
-    const update = vi.fn(async (patch: { sources: readonly LocalSourceRecord[] }) => {
+    const setSources = vi.fn(async (records: readonly LocalSourceRecord[]) => {
       await firstWrite
-      document = { sources: patch.sources }
+      await backing.setSources(records)
     })
-    const scope = { get: () => document, update } as unknown as SettingsScope<MarketSettingsDocument>
-    const mutate = createMarketSourceMutator(scope)
+    const mutate = createMarketSourceMutator(observedStateStore(backing, setSources))
     const first = mutate({ action: 'select', sourceRecordId: record.sourceRecordId }, new AbortController().signal)
-    await vi.waitFor(() => { expect(update).toHaveBeenCalledOnce() })
+    await vi.waitFor(() => { expect(setSources).toHaveBeenCalledOnce() })
     const queued = new AbortController()
     const second = mutate({ action: 'select', sourceRecordId: record.sourceRecordId }, queued.signal)
     queued.abort()
@@ -1746,8 +1738,8 @@ describe('source mutation boundary', () => {
 
     await first
     await expect(second).rejects.toMatchObject({ name: 'AbortError' })
-    expect(update).toHaveBeenCalledOnce()
-    expect(document.sources[0]?.enabled).toBe(true)
+    expect(setSources).toHaveBeenCalledOnce()
+    expect(backing.getSources()[0]?.enabled).toBe(true)
   })
 
   it('selects one source atomically and revokes the previous active source after persistence', async () => {
@@ -1757,21 +1749,18 @@ describe('source mutation boundary', () => {
       enabled: false,
       order: 1,
     })
-    let document: MarketSettingsDocument = { sources: [current, replacement] }
+    const backing = new MemoryMarketStateStore({ sources: [current, replacement] })
     const events: string[] = []
-    const scope = {
-      get: () => document,
-      update: async (patch: { sources: readonly LocalSourceRecord[] }) => {
-        document = { sources: patch.sources }
-        events.push('saved')
-      },
-    } as unknown as SettingsScope<MarketSettingsDocument>
+    const state = observedStateStore(backing, async records => {
+      await backing.setSources(records)
+      events.push('saved')
+    })
     const onUnavailable = vi.fn((sourceRecordId: string) => { events.push(`revoked:${sourceRecordId}`) })
-    const mutate = createMarketSourceMutator(scope, onUnavailable)
+    const mutate = createMarketSourceMutator(state, onUnavailable)
 
     await mutate({ action: 'select', sourceRecordId: replacement.sourceRecordId }, new AbortController().signal)
 
-    expect(document.sources.map(record => record.enabled)).toEqual([false, true])
+    expect(backing.getSources().map(record => record.enabled)).toEqual([false, true])
     expect(onUnavailable).toHaveBeenCalledWith(current.sourceRecordId)
     expect(events).toEqual(['saved', `revoked:${current.sourceRecordId}`])
   })
@@ -1783,17 +1772,13 @@ describe('source mutation boundary', () => {
       enabled: false,
       order: 1,
     })
-    let document: MarketSettingsDocument = { sources: [current, replacement] }
+    const state = new MemoryMarketStateStore({ sources: [current, replacement] })
     const onUnavailable = vi.fn()
-    const scope = {
-      get: () => document,
-      update: async (patch: { sources: readonly LocalSourceRecord[] }) => { document = { sources: patch.sources } },
-    } as unknown as SettingsScope<MarketSettingsDocument>
-    const mutate = createMarketSourceMutator(scope, onUnavailable)
+    const mutate = createMarketSourceMutator(state, onUnavailable)
 
     await mutate({ action: 'remove', sourceRecordId: current.sourceRecordId }, new AbortController().signal)
 
-    expect(document.sources).toEqual([{ ...replacement, enabled: false, order: 0 }])
+    expect(state.getSources()).toEqual([{ ...replacement, enabled: false, order: 0 }])
     expect(onUnavailable).toHaveBeenCalledWith(current.sourceRecordId)
   })
 
@@ -1812,12 +1797,14 @@ describe('source mutation boundary', () => {
         }),
       },
     }
-    const update = vi.fn()
-    const scope = {
-      get: () => ({ sources: [] }),
-      update,
-    } as unknown as SettingsScope<MarketSettingsDocument>
-    const dispose = registerMarketRoutes(ctx as never, scope)
+    const setSources = vi.fn(async () => {})
+    const state: MarketStateStore = {
+      getSources: () => [],
+      setSources,
+      getCatalogCache: () => undefined,
+      setCatalogCache: vi.fn(async () => {}),
+    }
+    const dispose = registerMarketRoutes(ctx as never, state)
     const request = Object.assign(new EventEmitter(), {
       method: 'POST',
       url: marketRoutes.sources,
@@ -1837,7 +1824,7 @@ describe('source mutation boundary', () => {
     dispose()
     await pending
 
-    expect(update).not.toHaveBeenCalled()
+    expect(setSources).not.toHaveBeenCalled()
     expect(response.end).not.toHaveBeenCalled()
     for (const event of ['data', 'end', 'error', 'aborted']) expect(request.listenerCount(event)).toBe(0)
     expect(routeDisposers).toHaveLength(4)

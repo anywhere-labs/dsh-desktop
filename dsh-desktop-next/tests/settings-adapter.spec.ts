@@ -4,7 +4,7 @@ import { DEFAULT_PREFERENCES, type DesktopBridge, type DesktopBrowserLinks, type
 
 function fixture() {
   const state: DesktopState = {
-    selected: 'default', profiles: ['default', 'work', 'broken'], unavailableProfiles: ['broken'],
+    selected: 'desktop', profiles: ['desktop', 'work', 'broken'], unavailableProfiles: ['broken'],
     features: { market: true, remoteControl: false }, preferences: { ...DEFAULT_PREFERENCES },
     phase: 'ready', busy: false, failure: '', safeMode: false, home: '/fixture', platform: 'darwin', version: '0.1.0',
     trayAvailable: true, notificationsAvailable: true, windowsMicaSupported: false, browserUrl: null, lan: null, checkpoint: null, logs: '',
@@ -59,14 +59,16 @@ it('maps only supported features and available Profiles to the shared settings A
   const { adapter, state, commands } = fixture()
   const view = await adapter.api.read()
   expect(view.profiles.find(item => item.name === 'broken')?.selectable).toBe(false)
-  expect(view.profiles.find(item => item.name === 'default')?.deletable).toBe(false)
+  expect(view.profiles.find(item => item.name === 'desktop')?.deletable).toBe(false)
   await expect(adapter.api.selectMarket('dsh-market')).rejects.toThrow('Plugins page')
   expect(commands).toEqual([])
   state.safeMode = true
   expect(adapter.api.selectAa).toBeUndefined()
   expect(projectSettings(state).market.effective).toBe('disabled')
   await adapter.api.selectProfile('work')
-  expect((await adapter.api.read()).current).toBe('work')
+  const switched = await adapter.api.read()
+  expect(switched.current).toBe('work')
+  expect(switched.profiles.find(item => item.name === 'desktop')?.deletable).toBe(false)
 })
 
 it('renders full login links and opens or copies the exact selected address', async () => {

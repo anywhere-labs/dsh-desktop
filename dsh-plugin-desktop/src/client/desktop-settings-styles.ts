@@ -300,6 +300,16 @@ const CSS = `
   padding-left: 14px;
   border-left: 2px solid var(--dsw-alias-border-l1);
 }
+.dshDesktopSettingsUpdateRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 14px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+}
 .dshDesktopSettingsLanStatus {
   display: grid;
   gap: 3px;
@@ -397,6 +407,7 @@ const CSS = `
 .dshDesktopSettingsDialogActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 @media (max-width: 720px) {
   .dshDesktopSettingsChoice,
+  .dshDesktopSettingsUpdateRow,
   .dshDesktopSettingsToggleRow { align-items: flex-start; }
   .dshDesktopSettingsForm { align-items: stretch; flex-direction: column; }
 }

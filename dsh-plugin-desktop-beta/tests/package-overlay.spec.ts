@@ -43,6 +43,12 @@ function installPackage(root: string, name: string, version: string, actualName 
   return directory
 }
 
+function halfWrittenPackage(root: string, name: string): string {
+  const directory = join(root, 'node_modules', ...name.split('/'))
+  mkdirSync(directory, { recursive: true })
+  return directory
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
@@ -63,6 +69,28 @@ describe('Desktop package overlay', () => {
     expect(findOverlayPackage('missing-package', absent.options)).toBeUndefined()
     expect(() => resolveOverlayPackage('missing-package', absent.options)).toThrow('cannot resolve package')
     expect(() => resolveOverlayPackage('plugin/subpath', absent.options)).toThrow('exact npm package name')
+  })
+
+  it('treats a package directory without a manifest as a missing candidate', () => {
+    const profileBroken = fixture()
+    installPackage(profileBroken.install, '@scope/plugin', '1.0.0')
+    halfWrittenPackage(profileBroken.profile, '@scope/plugin')
+    expect(resolveOverlayPackage('@scope/plugin', profileBroken.options).selected).toMatchObject({
+      source: 'install',
+      version: '1.0.0',
+    })
+
+    const installBroken = fixture()
+    halfWrittenPackage(installBroken.install, '@scope/plugin')
+    installPackage(installBroken.profile, '@scope/plugin', '1.0.0')
+    expect(resolveOverlayPackage('@scope/plugin', installBroken.options).selected.source).toBe('profile')
+
+    const bothBroken = fixture()
+    halfWrittenPackage(bothBroken.install, '@scope/plugin')
+    halfWrittenPackage(bothBroken.profile, '@scope/plugin')
+    expect(findOverlayPackage('@scope/plugin', bothBroken.options)).toBeUndefined()
+    expect(() => resolveOverlayPackage('@scope/plugin', bothBroken.options))
+      .toThrow('cannot resolve package "@scope/plugin"')
   })
 
   it('selects the newer semantic version in either direction', () => {

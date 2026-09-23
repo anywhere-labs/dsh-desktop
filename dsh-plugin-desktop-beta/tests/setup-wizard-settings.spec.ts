@@ -459,6 +459,24 @@ describe('Desktop Setup Wizard settings document', () => {
     })
   })
 
+  it('migrates the code preset default under its 0.1.7 registry key too', async () => {
+    // Beta's launcher renames `agent-presets.default` to
+    // `agent-preset-registry.selectedDefault` before this migration runs.
+    const path = join(temporaryDirectory(), 'registry-preset.yaml')
+    writeFileSync(path, [
+      'agent-preset-registry:',
+      '  selectedDefault: code',
+      '  default: standard',
+      '',
+    ].join('\n'))
+
+    await expect(migrateLegacyAgentPresetSettings(path)).resolves.toBe(true)
+    await expect(migrateLegacyAgentPresetSettings(path)).resolves.toBe(false)
+    expect(parseDocument(readFileSync(path, 'utf8')).toJS()).toEqual({
+      'agent-preset-registry': { selectedDefault: 'ptc', default: 'standard' },
+    })
+  })
+
   it('leaves current and user-authored preset defaults untouched', async () => {
     for (const preset of ['ptc', 'my-local-preset']) {
       const path = join(temporaryDirectory(), `${preset}.yaml`)

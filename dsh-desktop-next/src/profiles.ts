@@ -6,6 +6,8 @@ import { initProfile, loadProfileDirectory, PROFILE_TEMPLATES, type Profile } fr
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { atomicJson, atomicText, readPrivateFile } from './private-files.ts'
 import { NextRecovery } from './recovery.ts'
+import { DEFAULT_PROFILE } from './desktop-contract.ts'
+import { computerUsePatch } from './profile-computer-use.ts'
 
 export const NEXT_PACKAGE = fileURLToPath(new URL('../package.json', import.meta.url))
 export const WEB_BUNDLES = [...PROFILE_TEMPLATES.web!.bundles, 'dsh-desktop-next']
@@ -14,7 +16,27 @@ export const COMMUNITY_MARKET_PACKAGE = 'dsh-community-market'
 export const DSH_MARKET_PACKAGE = 'dshmarket'
 /** Legacy shell shape, now projected from the standard Profile bundle selection. */
 export interface Features { remoteControl: boolean; market: boolean; dshMarket?: boolean }
+export interface OnboardingChoices { features: Features; computerUse: boolean }
 export const DEFAULT_FEATURES: Readonly<Features> = { remoteControl: false, market: true }
+
+interface ProfileManifest {
+  dsh: {
+    desktopNextPlugins?: number
+    desktopNextOnboarding?: { version: number; outcome: 'completed' | 'skipped' }
+    /** Names recovery removed from `profile.bundles`; a UI ledger, never a policy. */
+    desktopNextDeselectedBundles?: string[]
+    profile: { bundles: string[] }
+  }
+  [key: string]: unknown
+}
+
+function applyFeatures(manifest: ProfileManifest, features: Features): void {
+  const optional = [AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE]
+  manifest.dsh.profile.bundles = [...manifest.dsh.profile.bundles.filter(name => !optional.includes(name)),
+    ...(features.market ? [COMMUNITY_MARKET_PACKAGE] : []), ...(features.dshMarket ? [DSH_MARKET_PACKAGE] : []),
+    ...(features.remoteControl ? [AA_PACKAGE] : [])]
+  manifest.dsh.desktopNextPlugins = 1
+}
 
 export function profileName(value: unknown): string {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/u.test(value)
@@ -50,7 +72,7 @@ export class NextProfiles {
   get active(): string {
     const file = join(this.home, 'desktop-next.json')
     const text = readPrivateFile(file)
-    if (text === undefined) return 'default'
+    if (text === undefined) return DEFAULT_PROFILE
     return profileName((JSON.parse(text) as { active?: unknown }).active)
   }
   select(name: string): void {
@@ -102,12 +124,47 @@ export class NextProfiles {
   setFeatures(name: string, value: unknown): void {
     const features = parseFeatures(value)
     const manifest = this.manifest(name)
-    const optional = [AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE]
-    manifest.dsh.profile.bundles = [...manifest.dsh.profile.bundles.filter(name => !optional.includes(name)),
-      ...(features.market ? [COMMUNITY_MARKET_PACKAGE] : []), ...(features.dshMarket ? [DSH_MARKET_PACKAGE] : []),
-      ...(features.remoteControl ? [AA_PACKAGE] : [])]
-    manifest.dsh.desktopNextPlugins = 1
+    applyFeatures(manifest, features)
     atomicJson(join(this.directory(name), 'package.json'), manifest)
+  }
+  onboardingRequired(name: string): boolean {
+    const saved = this.manifest(name).dsh.desktopNextOnboarding
+    return saved?.version !== 1 || !['completed', 'skipped'].includes(saved.outcome)
+  }
+  /** Read the saved native-provider choice without importing any user plugin. */
+  computerUseEnabled(name: string): boolean {
+    return computerUsePatch(readPrivateFile(join(this.directory(name), 'cordis.patch.yml')) ?? '[]\n').enabled
+  }
+  /** Save choices before completion. Skip preserves both bundles and the user's patch verbatim. */
+  finishOnboarding(name: string, value?: unknown): void {
+    const manifest = this.manifest(name)
+    const patchPath = join(this.directory(name), 'cordis.patch.yml')
+    let originalPatch: string | undefined
+    let nextPatch: string | undefined
+    if (value !== undefined) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)
+        || Object.keys(value).some(key => !['features', 'computerUse'].includes(key))) throw new Error('Invalid onboarding choices')
+      const choices = value as Record<string, unknown>
+      const features = parseFeatures(choices.features)
+      if (features.market && features.dshMarket) throw new Error('Select only one plugin market')
+      if (typeof choices.computerUse !== 'boolean') throw new Error('Invalid Computer Use choice')
+      originalPatch = readPrivateFile(patchPath)
+      nextPatch = computerUsePatch(originalPatch ?? '[]\n', choices.computerUse).text
+      applyFeatures(manifest, features)
+    }
+    manifest.dsh.desktopNextOnboarding = { version: 1, outcome: value === undefined ? 'skipped' : 'completed' }
+    const patchChanged = nextPatch !== undefined && nextPatch !== originalPatch
+    if (patchChanged && nextPatch !== undefined) atomicText(patchPath, nextPatch)
+    try {
+      // Completion is the final write: a failed/interrupted save must never start the Host.
+      atomicJson(join(this.directory(name), 'package.json'), manifest)
+    } catch (error) {
+      if (patchChanged) {
+        if (originalPatch === undefined) unlinkSync(patchPath)
+        else atomicText(patchPath, originalPatch)
+      }
+      throw error
+    }
   }
   /** Once per Profile, preserve the old choices without overriding future plugin-manager edits. */
   migrateFeatures(name: string): void {
@@ -115,7 +172,7 @@ export class NextProfiles {
     if (manifest.dsh.desktopNextPlugins === 1) return
     this.setFeatures(name, { ...this.features(name), dshMarket: manifest.dsh.profile.bundles.includes(DSH_MARKET_PACKAGE) })
   }
-  private manifest(name: string): { dsh: { desktopNextPlugins?: number; profile: { bundles: string[] } }; [key: string]: unknown } {
+  private manifest(name: string): ProfileManifest {
     const value = JSON.parse(readPrivateFile(join(this.directory(name), 'package.json')) ?? 'null')
     if (!value || !Array.isArray(value.dsh?.profile?.bundles) || value.dsh.profile.bundles.some((item: unknown) => typeof item !== 'string')) throw new Error('Invalid Next Profile manifest')
     return value
@@ -132,7 +189,9 @@ export class NextProfiles {
         if (value && typeof value === 'object' && !Array.isArray(value)) manifest = value as Record<string, unknown>
       } catch { /* The original bytes have already been backed up. */ }
       // Keep installed dependencies, but remove malformed activation metadata.
-      manifest.dsh = { profile: { bundles: WEB_BUNDLES } }
+      const onboarding = (manifest.dsh as Partial<ProfileManifest['dsh']> | undefined)?.desktopNextOnboarding
+      manifest.dsh = { profile: { bundles: WEB_BUNDLES },
+        ...(onboarding?.version === 1 && ['completed', 'skipped'].includes(onboarding.outcome) ? { desktopNextOnboarding: onboarding } : {}) }
       atomicJson(join(dir, 'package.json'), manifest)
       atomicText(join(dir, 'cordis.patch.yml'), '[]\n')
       this.setFeatures(name, { remoteControl: false, market: false })

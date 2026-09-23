@@ -10,7 +10,7 @@ import { NextRecovery } from '../src/recovery.ts'
 
 const homes: string[] = []
 const logs: DesktopDiagnostics[] = []
-function environment() { const home = mkdtempSync(join(tmpdir(), 'next-state-')); homes.push(home); const profiles = new NextProfiles(home); profiles.ensure('default'); return { home, profiles, recovery: new NextRecovery(profiles) } }
+function environment() { const home = mkdtempSync(join(tmpdir(), 'next-state-')); homes.push(home); const profiles = new NextProfiles(home); profiles.ensure('desktop'); return { home, profiles, recovery: new NextRecovery(profiles) } }
 afterEach(() => { for (const log of logs.splice(0)) log.flush(); for (const home of homes.splice(0)) rmSync(home, { force: true, recursive: true }) })
 
 it('keeps desktop preferences separate from the Host and validates all IPC-controlled fields', () => {
@@ -28,56 +28,56 @@ it('keeps desktop preferences separate from the Host and validates all IPC-contr
 
 it('backs up a malformed manifest, repairs without deleting data, and restores the last working config', async () => {
   const { profiles, recovery, home } = environment()
-  const dir = profiles.directory('default')
+  const dir = profiles.directory('desktop')
   writeFileSync(join(dir, 'cordis.patch.yml'), '# working\n[]\n')
-  profiles.setFeatures('default', { market: true, remoteControl: true })
+  profiles.setFeatures('desktop', { market: true, remoteControl: true })
   const original = readFileSync(join(dir, 'package.json'), 'utf8')
-  recovery.checkpoint('default')
-  const checkpoint = recovery.latest('default')!
-  recovery.checkpoint('default')
-  expect(recovery.latest('default')).toEqual(checkpoint)
+  recovery.checkpoint('desktop')
+  const checkpoint = recovery.latest('desktop')!
+  recovery.checkpoint('desktop')
+  expect(recovery.latest('desktop')).toEqual(checkpoint)
   writeFileSync(join(dir, 'package.json'), '{ broken JSON')
   writeFileSync(join(dir, 'cordis.patch.yml'), '[broken: yaml')
   writeFileSync(join(home, 'credentials.json'), 'do not change')
   writeFileSync(join(home, 'cordis.patch.yml'), 'global broken')
-  const backup = await profiles.recover('default')
+  const backup = await profiles.recover('desktop')
   expect(readFileSync(backup!, 'utf8')).toBe('[broken: yaml')
   expect(readFileSync(join(checkpoint.directory, 'package.json'), 'utf8')).toBe(original)
   expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).dsh.profile.bundles).toEqual(WEB_BUNDLES)
-  expect(profiles.features('default')).toEqual({ market: false, remoteControl: false })
+  expect(profiles.features('desktop')).toEqual({ market: false, remoteControl: false })
   expect(readFileSync(join(home, 'credentials.json'), 'utf8')).toBe('do not change')
   expect(readFileSync(join(home, 'cordis.patch.yml'), 'utf8')).toBe('global broken')
-  await recovery.restore('default')
+  await recovery.restore('desktop')
   expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(original)
   expect(readFileSync(join(dir, 'cordis.patch.yml'), 'utf8')).toBe('# working\n[]\n')
-  expect(profiles.features('default')).toEqual({ market: true, remoteControl: true })
+  expect(profiles.features('desktop')).toEqual({ market: true, remoteControl: true })
   recovery.repairGlobalPatch()
   expect(readFileSync(join(home, 'cordis.patch.yml'), 'utf8')).toBe('[]\n')
 })
 
 it('refuses corrupt backups and linked configuration before modifying original files', async () => {
   const { profiles, recovery } = environment()
-  recovery.checkpoint('default')
-  const checkpoint = recovery.latest('default')!
-  const dir = profiles.directory('default')
+  recovery.checkpoint('desktop')
+  const checkpoint = recovery.latest('desktop')!
+  const dir = profiles.directory('desktop')
   const original = readFileSync(join(dir, 'package.json'), 'utf8')
   writeFileSync(join(checkpoint.directory, 'package.json'), 'tampered')
-  await expect(recovery.restore('default')).rejects.toThrow('checksum')
+  await expect(recovery.restore('desktop')).rejects.toThrow('checksum')
   expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(original)
   const outside = environment()
   rmSync(join(dir, 'cordis.patch.yml'))
-  symlinkSync(join(outside.profiles.directory('default'), 'cordis.patch.yml'), join(dir, 'cordis.patch.yml'))
-  await expect(profiles.recover('default')).rejects.toThrow('regular file')
+  symlinkSync(join(outside.profiles.directory('desktop'), 'cordis.patch.yml'), join(dir, 'cordis.patch.yml'))
+  await expect(profiles.recover('desktop')).rejects.toThrow('regular file')
   expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(original)
 })
 
 it('archives inactive Profiles and refuses active/default removal', () => {
   const { profiles, recovery } = environment()
   profiles.create('work')
-  expect(() => recovery.removeProfile('default', 'work')).toThrow()
+  expect(() => recovery.removeProfile('desktop', 'work')).toThrow()
   expect(() => recovery.removeProfile('work', 'work')).toThrow()
-  recovery.removeProfile('work', 'default')
-  expect(profiles.list()).toEqual(['default'])
+  recovery.removeProfile('work', 'desktop')
+  expect(profiles.list()).toEqual(['desktop'])
   expect(lstatSync(join(recovery.directory, 'removed-profiles')).isDirectory()).toBe(true)
 })
 
@@ -87,7 +87,7 @@ it('exports only bounded redacted diagnostics, including secrets split across ch
   log.hostChunk('Authorization: Bear')
   log.hostChunk('er private-token\nCookie: secret-cookie\n')
   log.append('debug information', 'debug')
-  const data = log.export({ version: 'next-dev', platform: 'test', selected: 'default', profiles: [], unavailableProfiles: [], phase: 'error',
+  const data = log.export({ version: 'next-dev', platform: 'test', selected: 'desktop', profiles: [], unavailableProfiles: [], phase: 'error',
     safeMode: false, failure: 'token=private-token', features: { market: false, remoteControl: false }, preferences: { ...DEFAULT_PREFERENCES },
     trayAvailable: true, browserUrl: null, lan: null, busy: false, home, notificationsAvailable: true, windowsMicaSupported: false, checkpoint: null, logs: '' } satisfies DesktopState)
   expect(data).not.toContain('private-token')

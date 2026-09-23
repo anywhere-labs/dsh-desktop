@@ -1,8 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
+// Derived, not hand-written: the beta channel's pinned core is the single source of truth
+// for the patch filename, so a core bump does not strand this spec on a deleted patch.
+const runtimeVersion = String(JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).dependencies['@deepseek-ai/dsh'])
 const patch = readFileSync(new URL(
-  '../../patches/dsh-client-ui-directory-picker-browse@0.1.6-alpha.2.patch',
+  `../../patches/dsh-client-ui-directory-picker-browse@${runtimeVersion}.patch`,
   import.meta.url,
 ), 'utf8')
 

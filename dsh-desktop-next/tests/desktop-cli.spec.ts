@@ -18,6 +18,16 @@ it('keeps CLI commands on the selected Next Profile without overriding an explic
   expect(runCli).toHaveBeenCalledWith({ allowDesktopProfile: true })
 })
 
+it('reads user files physically before the unpacked CLI starts', async () => {
+  const asarProcess: { noAsar?: boolean } = {}
+  const load = vi.fn(async () => {
+    expect(asarProcess.noAsar).toBe(true)
+    return { runCli: async () => {} }
+  })
+  await runDesktopDshCli({}, load, ['node', '/next/desktop-cli.js', '--version'], asarProcess)
+  expect(load).toHaveBeenCalledOnce()
+})
+
 it('preserves removed-Acrylic fallback and gates Mica on supported Windows builds', () => {
   expect(parsePreferences({ windowsMaterial: 'acrylic' }).windowsMaterial).toBe('off')
   expect(supportsMica('10.0.22000')).toBe(false)

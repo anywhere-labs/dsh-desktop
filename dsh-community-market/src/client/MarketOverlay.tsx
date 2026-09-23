@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import {
   Button,
-  IconCloseOutline16,
+  IconCloseOutlineRegular,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
@@ -44,7 +44,7 @@ export function MarketOverlay({ useStore, actions, readLocale, t, initialView }:
               variant="ghost"
               size="sm"
               aria-label={t('closeMarket')}
-              icon={<IconCloseOutline16 />}
+              icon={<IconCloseOutlineRegular />}
               onClick={() => actions.close()}
             />
           </Tooltip>

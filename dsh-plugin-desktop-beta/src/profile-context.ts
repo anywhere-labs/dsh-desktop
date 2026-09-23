@@ -44,10 +44,20 @@ export function createDesktopProfileBoot(prepared: PreparedDesktopProfile, pnpm:
     // The pinned app-boot patch delegates both manager operations and HMR here.
     // CLI reconstruction would drop Desktop shell/platform overrides and bypass
     // the disabled-bundle, Market-provider and AA admission rules.
-    readPatches: () => [...prepareDesktopProfile(
+    //
+    // `profilePatches` is the caller's pending profile patch document, supplied
+    // by the config editor while a settings write is still being validated. It
+    // replaces only the profile layer; everything else above stays ours. When
+    // absent (HMR, package operations) preparation reads the document from disk
+    // as before.
+    readPatches: profilePatches => [...prepareDesktopProfile(
       options.telemetryDisabled ?? '', prepared.homeDir, options.platform, options.profileName,
       options.pluginStatePath, options.marketSelection,
-      { aaEnabled: options.aaEnabled, lanAddresses: prepared.lanAddresses },
+      {
+        aaEnabled: options.aaEnabled,
+        lanAddresses: prepared.lanAddresses,
+        ...(profilePatches === undefined ? {} : { profilePatches }),
+      },
     ).patches, ...context.overlays],
   }
   let ready = false

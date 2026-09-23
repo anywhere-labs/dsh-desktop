@@ -194,6 +194,47 @@ describe('final Electron fuse verification', () => {
       ])
   })
 
+  it('resolves a directory-only build, whose dir target electron-builder never registers, to the host architecture', () => {
+    // electron-builder's Windows, Linux and macOS packagers skip DIR_TARGET in
+    // createTargets(), so `--dir` reaches afterAllArtifactBuild with an empty
+    // target map even though a configured target (nsis:x64) exists.
+    const platform = { buildConfigurationKey: 'win' }
+    const built = {
+      outDir: '/build',
+      configuration: { productName: 'DSH Desktop', win: { target: [{ target: 'nsis', arch: ['x64'] }] } },
+      platformToTargets: new Map([[platform, new Map()]]),
+    } satisfies ElectronArtifactBuildResult
+
+    expect(resolveFinalPackagedRuntimeContexts(built, () => true, ['node', 'cli.js', '--dir']))
+      .toEqual([expect.objectContaining({ arch: Arch[process.arch as keyof typeof Arch] })])
+  })
+
+  it('resolves a directory-only build to the arch flags on the electron-builder command line', () => {
+    // `--dir --arm64` on an x64 host writes win-arm64-unpacked. The flags never
+    // reach BuildResult, so without reading them back the hook would verify a
+    // stale win-unpacked left by an earlier x64 build.
+    const platform = { buildConfigurationKey: 'win' }
+    const built = {
+      outDir: '/build',
+      configuration: { productName: 'DSH Desktop', win: { target: [{ target: 'nsis', arch: ['x64'] }] } },
+      platformToTargets: new Map([[platform, new Map()]]),
+    } satisfies ElectronArtifactBuildResult
+    const archs = (...flags: string[]) => resolveFinalPackagedRuntimeContexts(
+      built,
+      () => true,
+      ['node', 'cli.js', '--dir', ...flags],
+    ).map(context => Arch[context.arch!])
+
+    expect(archs('--arm64')).toEqual(['arm64'])
+    expect(archs('--arm64', '--x64')).toEqual(['arm64', 'x64'])
+    expect(archs('--arm64=true')).toEqual(['arm64'])
+    expect(archs('--arm64', 'true')).toEqual(['arm64'])
+    expect(archs('--ia32', '--no-ia32', '--arm64')).toEqual(['arm64'])
+    expect(archs('--arm64=false')).toEqual([process.arch])
+    expect(archs('--arm64', 'false')).toEqual([process.arch])
+    expect(archs('--', '--arm64')).toEqual([process.arch])
+  })
+
   it('resolves mac universal from the target packager request and ignores component outputs', () => {
     const platform = { buildConfigurationKey: 'mac' }
     const requestedTargets = new Map([[platform, new Map([

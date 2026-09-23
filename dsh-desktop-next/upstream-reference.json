@@ -1,12 +1,22 @@
 {
   "repository": "https://github.com/deepseek-ai/deepseek-harness",
-  "commit": "ddefc45fbc7f8e46dd73185e68295696d1297887",
-  "version": "0.1.6-alpha.2",
+  "commit": "00102833dfaee1da9f48a3a8eae9d34005a75218",
+  "version": "0.1.7-alpha.2",
   "files": [
     {
       "upstream": "apps/desktop/src/host-process.ts",
       "local": "src/host-process.ts",
-      "upstreamSha256": "f46169be5638b815929fd267cf985af5da3d284dfc8874a797cdcd396d22389f"
+      "upstreamSha256": "fcf374983576db367fc917c00041819716db77a9d611bfcf7790346c11469d77"
+    },
+    {
+      "upstream": "apps/desktop/src/browser-guests.ts",
+      "local": "src/browser-guests.ts",
+      "upstreamSha256": "5f3aa314d40c77a303436e834cc76df6cb8732b6a54b40a90495eadd69af59c2"
+    },
+    {
+      "upstream": "apps/desktop/src/preload-browser.ts",
+      "local": "src/preload-browser.ts",
+      "upstreamSha256": "17c386171796e77f6a2bfa3c86382a20cce36013275beca978f31b424ef25e9e"
     },
     {
       "upstream": "apps/desktop/src/node-environment.ts",
@@ -16,12 +26,12 @@
     {
       "upstream": "apps/desktop/src/web-document.ts",
       "local": "src/web-document.ts",
-      "upstreamSha256": "550c91ba601f245ce4220a6f6c1abe16ce7a23005431368eaef3e3c6f9e56a24"
+      "upstreamSha256": "05ab6fd59199f1b7a7dd558e60f50e38f4df1085a70af671014c085d270e91cc"
     },
     {
       "upstream": "apps/desktop/src/backend-controller.ts",
       "local": "src/backend-controller.ts",
-      "upstreamSha256": "3475cb9ca34a92318affa9553f91d11b55d78fe7b7781dc70e6855f28d65c456"
+      "upstreamSha256": "eec9641e9abf40586464d7b3d4ffa8d968e040696f3fc7923507faae3d82ed27"
     },
     {
       "upstream": "apps/desktop/src/startup-error.ts",
@@ -36,7 +46,7 @@
     {
       "upstream": "apps/desktop/tests/host-process.spec.ts",
       "local": "tests/host-process.spec.ts",
-      "upstreamSha256": "86ca6881707d8943c175ec95635003bcf6641e6fef17f8afb594b5765112a16a"
+      "upstreamSha256": "aa6e1af85ab75a06b50eba55666787cc0e2230ead775f997021db2c5e79da6f8"
     },
     {
       "upstream": "apps/desktop/tests/node-environment.spec.ts",
@@ -46,12 +56,12 @@
     {
       "upstream": "apps/desktop/tests/web-document.spec.ts",
       "local": "tests/web-document.spec.ts",
-      "upstreamSha256": "63efaa30d991a4c95373a5d0b8c957afcf118d41a456387a14c7c32826050a79"
+      "upstreamSha256": "7b8dcccededac3bb9f978e4446a00a1cf97fb7573f73fdd47e0de842bf92539b"
     },
     {
       "upstream": "apps/desktop/tests/backend-controller.spec.ts",
       "local": "tests/backend-controller.spec.ts",
-      "upstreamSha256": "9ac4e18bc93977741cbbc4760af71de9dfe60d68d39ed57d29c2fad61c96a0fa"
+      "upstreamSha256": "924fbe2145d44c9cec10f024e78a98f37f49c62a6287e85fc98ff3c6b8d96028"
     },
     {
       "upstream": "apps/desktop/tests/single-instance.spec.ts",
@@ -61,12 +71,12 @@
     {
       "upstream": "apps/desktop/src/preload-platform.ts",
       "local": "src/preload-platform.ts",
-      "upstreamSha256": "4d97d27ee98d472c27be0efd5b90b52eebd61930e05d31d9f81634a36539204c"
+      "upstreamSha256": "ebcb8c921a16cc4b2aba61bf98329e5df7bcf13ffc55931736e88b422865335d"
     },
     {
       "upstream": "apps/desktop/src/preload-theme.ts",
       "local": "src/preload-theme.ts",
-      "upstreamSha256": "41ab2e0293265e08a06761fe28ce271577ca818148f9ec55e6113a66ef6b41b8"
+      "upstreamSha256": "5e9dc7e9d4014a2532141b3e2bfe763444badc27f63b07c589892723a49c7299"
     },
     {
       "upstream": "apps/desktop/src/preload-windows.ts",

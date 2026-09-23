@@ -18,6 +18,7 @@ import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-te
 import { showDesktopMessageBox } from './desktop-dialog-window.ts'
 import { packagedDependencyPath } from './packaged-runtime-path.ts'
 import { ElectronShellGeneration } from './electron-shell-generation.ts'
+import type { DesktopOpenWorkspaceDelivery } from './launch-workspace-contract.ts'
 import { electronPlatformStrategy, type ElectronPlatformStrategy } from './electron-platform.ts'
 import type {
   DesktopNotification,
@@ -39,7 +40,7 @@ import {
   type RendererHealthFailureReason,
   type RendererHealthVerdict,
 } from './renderer-health.ts'
-import type { DesktopLogger } from './desktop-logger.ts'
+import { formatDesktopExitCode, type DesktopLogger } from './desktop-logger.ts'
 import { exportDesktopDiagnostics } from './diagnostic-export.ts'
 import {
   desktopDiagnosticsPrivacyCopy,
@@ -196,6 +197,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   private rendererBootHealthy = false
   private profileCreateWindow: ProfileCreateWindow | undefined
   private restartRequest: Promise<void> | undefined
+  private hostStoppedRecovery: Promise<void> | undefined
 
   constructor(
     private readonly restart: (target?: 'recovery' | 'safe-mode') => Promise<void>,
@@ -393,6 +395,31 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   /** @inheritdoc */
   async validateDirectory(path: string): Promise<boolean> {
     return await this.workspaceAdmission.validateDirectory(path)
+  }
+
+  /**
+   * Apply native policy to a folder named by a launch.
+   *
+   * Launch hand-offs stay off the Host runtime contract: the path is native
+   * input that the main process already owns, and nothing in the Host needs to
+   * be able to ask for it.
+   * @param path - absolute folder the launch asked Desktop to open.
+   * @returns whether the folder may be registered as a workspace.
+   */
+  async admitWorkspacePath(path: string): Promise<boolean> {
+    return await this.workspaceAdmission.admitWorkspacePath(path)
+  }
+
+  /**
+   * Hand one admitted launch folder to the mounted Host page.
+   * @param path - absolute folder already admitted by native policy.
+   * @returns how the page took the folder, or `'unavailable'` before a shell
+   *   generation is mounted.
+   */
+  async openWorkspacePath(path: string): Promise<DesktopOpenWorkspaceDelivery | 'unavailable'> {
+    const generation = this.generation
+    if (generation === undefined) return 'unavailable'
+    return await generation.openWorkspacePath(path)
   }
 
   /** @inheritdoc */
@@ -623,6 +650,40 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
 
   private failRendererBoot(reason: RendererHealthFailureReason, error: string): void {
     this.rendererHealthGate?.fail(reason, error)
+  }
+
+  /**
+   * Offer an in-app way out after the supervised Host exits on its own. Kept off
+   * the shared `DesktopRuntime` contract on purpose: only the Electron main
+   * process supervises the Host, and the Host must never be able to ask for this.
+   * @param exit - the reported exit code, shown so a report can name it.
+   */
+  async showHostStoppedRecovery(exit: { readonly exitCode: number }): Promise<void> {
+    if (this.quitting) return
+    // A Host death arrives once, but the renderer keeps failing against the
+    // gone endpoint afterwards. One dialog per death, never a stack of them.
+    if (this.hostStoppedRecovery !== undefined) return await this.hostStoppedRecovery
+    const request = this.confirmHostStopped(exit).finally(() => {
+      if (this.hostStoppedRecovery === request) this.hostStoppedRecovery = undefined
+    })
+    this.hostStoppedRecovery = request
+    await request
+  }
+
+  private async confirmHostStopped(exit: { readonly exitCode: number }): Promise<void> {
+    const copy = desktopNativeCopy(this.currentLocale)
+    const result = await this.showDesktopMessageBox({
+      type: 'error',
+      title: copy.hostStoppedTitle,
+      message: copy.hostStoppedMessage,
+      detail: `${copy.hostStoppedDetail(formatDesktopExitCode(exit.exitCode))}\n\n${copy.hostStoppedInstructions}`,
+      buttons: [copy.restart, copy.openTerminal, copy.dismiss],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    })
+    if (result.response === 0) await this.requestRestart()
+    else if (result.response === 1) this.openTerminal()
   }
 
   private async showRendererBootRecovery(report: Extract<RendererBootReport, { status: 'failed' }>): Promise<void> {

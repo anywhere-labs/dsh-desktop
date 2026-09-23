@@ -1,12 +1,13 @@
 import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import AdmZip from 'adm-zip'
 import {
   defaultDesktopUserDataDirectory,
   DESKTOP_CLI_HELP,
   parseDesktopCli,
+  parseDesktopCliRequest,
   runDesktopCli,
 } from '../src/bin.ts'
 
@@ -31,9 +32,22 @@ describe('desktop npm launcher', () => {
     expect(() => parseDesktopCli(['--port', '3000'])).toThrow('unknown arguments')
   })
 
+  it('takes one folder to register and open', () => {
+    expect(parseDesktopCli(['C:\\Work'])).toBe('launch')
+    expect(parseDesktopCliRequest([])).toEqual({ action: 'launch' })
+    const cwd = mkdtempSync(join(tmpdir(), 'dsh-cli-workspace-'))
+    expect(parseDesktopCliRequest(['work'], cwd))
+      .toEqual({ action: 'launch', workspacePath: resolve(cwd, 'work') })
+    expect(parseDesktopCliRequest([resolve(cwd, 'work')], cwd))
+      .toEqual({ action: 'launch', workspacePath: resolve(cwd, 'work') })
+    expect(parseDesktopCliRequest(['--help'])).toEqual({ action: 'help' })
+  })
+
   it('names the installed product and selected profile behavior', () => {
     expect(DESKTOP_CLI_HELP).toContain('DSH Desktop Beta')
     expect(DESKTOP_CLI_HELP).toContain('Usage: dsh-plugin-desktop-beta')
+    expect(DESKTOP_CLI_HELP).toContain('[folder]')
+    expect(DESKTOP_CLI_HELP).toContain('register the folder as a workspace')
     expect(DESKTOP_CLI_HELP).toContain('selected Web-capable profile')
     expect(DESKTOP_CLI_HELP).toContain('--export-diagnostics')
   })

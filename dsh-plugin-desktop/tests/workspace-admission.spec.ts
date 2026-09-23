@@ -92,6 +92,97 @@ describe('Electron workspace admission', () => {
     )
   })
 
+  it('admits an existing folder named by a launch without prompting', async () => {
+    const { admission: subject, options } = admission({
+      inspectPath: () => ({ directory: true }),
+    })
+
+    await expect(subject.admitWorkspacePath('C:\\repo')).resolves.toBe(true)
+    expect(options.showMessageBox).not.toHaveBeenCalled()
+    expect(options.logError).not.toHaveBeenCalled()
+  })
+
+  it('reports a launch folder that is not there, without consulting storage policy', async () => {
+    const volumeQuery = vi.fn(() => ({ root: 'C:\\', fileSystem: 'NTFS', driveType: 3 }))
+    const { admission: subject, options } = admission({
+      inspectPath: () => undefined,
+      volumeQuery,
+    })
+
+    await expect(subject.admitWorkspacePath('C:\\gone')).resolves.toBe(false)
+    expect(volumeQuery).not.toHaveBeenCalled()
+    expect(options.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'error',
+      title: 'Cannot Open Workspace',
+      message: 'This folder could not be found.',
+      detail: expect.stringContaining('C:\\gone'),
+      noLink: true,
+    }))
+    expect(options.logError).toHaveBeenCalledWith(
+      'dsh-plugin-desktop: launch workspace path is missing: C:\\gone',
+    )
+  })
+
+  it('refuses a launch path that names a file rather than a folder', async () => {
+    const { admission: subject, options } = admission({
+      inspectPath: () => ({ directory: false }),
+    })
+
+    await expect(subject.admitWorkspacePath('C:\\repo\\readme.md')).resolves.toBe(false)
+    expect(options.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'Only a folder can be registered as a workspace.',
+    }))
+  })
+
+  it('renders the launch failure in the active locale', async () => {
+    const { admission: subject, options } = admission({
+      locale: () => 'zh',
+      inspectPath: () => undefined,
+    })
+
+    await expect(subject.admitWorkspacePath('C:\\gone')).resolves.toBe(false)
+    expect(options.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
+      title: '无法打开工作区',
+      message: '找不到这个文件夹。',
+    }))
+  })
+
+  it('refuses a relative launch path silently', async () => {
+    const inspectPath = vi.fn()
+    const { admission: subject, options } = admission({ inspectPath })
+
+    await expect(subject.admitWorkspacePath('work\\repo')).resolves.toBe(false)
+    expect(inspectPath).not.toHaveBeenCalled()
+    expect(options.showMessageBox).not.toHaveBeenCalled()
+    expect(options.logError).toHaveBeenCalledWith(
+      'dsh-plugin-desktop: launch workspace path is not absolute: work\\repo',
+    )
+  })
+
+  it('still applies storage policy to an existing launch folder', async () => {
+    const { admission: subject, options } = admission({
+      inspectPath: () => ({ directory: true }),
+      volumeQuery: () => ({ root: 'E:\\', fileSystem: 'EXFAT', driveType: 2 }),
+    })
+
+    await expect(subject.admitWorkspacePath('E:\\repo')).resolves.toBe(false)
+    expect(options.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'error',
+      message: expect.stringContaining('EXFAT'),
+    }))
+  })
+
+  it('judges absoluteness with the semantics of the running platform', async () => {
+    const { admission: subject, options } = admission({
+      platform: 'linux',
+      canPickDirectory: false,
+      inspectPath: () => ({ directory: true }),
+    })
+
+    await expect(subject.admitWorkspacePath('/home/anna/work')).resolves.toBe(true)
+    expect(options.showMessageBox).not.toHaveBeenCalled()
+  })
+
   it('fails closed when the selected volume disappears during inspection', async () => {
     const { admission: subject, options } = admission({
       volumeQuery: () => { throw new Error('drive disconnected') },

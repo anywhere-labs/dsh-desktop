@@ -92,6 +92,7 @@ describe('compatibility BrowserWindow options', () => {
     expect(options).not.toHaveProperty('trafficLightPosition')
   })
 
+
   it('reveals transparent material behind the macOS compatibility frame', () => {
     const options = compatibilityWindowOptions(
       { ...spec, material: 'transparent' },

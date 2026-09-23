@@ -62,6 +62,31 @@ it('forwards upload bytes and cancellation with Host credentials while keeping t
   expect(await response.text()).toBe('stream')
 })
 
+it('drops connection-level headers the Host wrote for its own transport', async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response('body', { headers: {
+    'transfer-encoding': 'chunked', connection: 'keep-alive', 'keep-alive': 'timeout=5', trailer: 'x', te: 'trailers',
+    'content-type': 'text/plain', 'cache-control': 'no-cache', etag: '"1"',
+  } }))
+  vi.stubGlobal('fetch', fetch)
+  const response = await forwardWebRequest(ownedRequest('dsh-app://app/api/read'), 'http://127.0.0.1:1234/', 'session=owned', NATIVE_TOKEN)
+  for (const name of ['transfer-encoding', 'connection', 'keep-alive', 'trailer', 'te']) expect(response.headers.get(name)).toBeNull()
+  expect(response.headers.get('content-type')).toBe('text/plain')
+  expect(response.headers.get('cache-control')).toBe('no-cache')
+  expect(response.headers.get('etag')).toBe('"1"')
+})
+
+it('replaces the immutable cache header of plugin bundles with no-store and leaves other routes alone', async () => {
+  const immutable = 'public, max-age=31536000, immutable'
+  const fetch = vi.fn().mockImplementation(async () => new Response('js', { headers: { 'cache-control': immutable } }))
+  vi.stubGlobal('fetch', fetch)
+  const bundle = await forwardWebRequest(ownedRequest('dsh-app://app/plugins/??a/client.js&rev=1'), 'http://127.0.0.1:1234/', 'c', NATIVE_TOKEN)
+  expect(bundle.headers.get('cache-control')).toBe('no-store')
+  const chunk = await forwardWebRequest(ownedRequest('dsh-app://app/plugins/a/client.x.js?rev=1'), 'http://127.0.0.1:1234/', 'c', NATIVE_TOKEN)
+  expect(chunk.headers.get('cache-control')).toBe('no-store')
+  const asset = await forwardWebRequest(ownedRequest('dsh-app://app/api/plugins/list'), 'http://127.0.0.1:1234/', 'c', NATIVE_TOKEN)
+  expect(asset.headers.get('cache-control')).toBe(immutable)
+})
+
 it('refuses another page origin without forwarding its request', async () => {
   const fetch = vi.fn()
   vi.stubGlobal('fetch', fetch)

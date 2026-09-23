@@ -8,6 +8,10 @@ import { bootDesktopHost, type DesktopHostOptions } from './host-bootstrap.ts'
 import { createDesktopBrowserAccess } from './desktop-browser-access.ts'
 import { DesktopLanHttpsRuntime } from './lan-https-runtime.ts'
 import type { DesktopStartupGenerationHost } from './startup-generation.ts'
+import { disableAsarArchiveView } from './asar-archive-policy.ts'
+
+// The Host lists and reads user workspaces; see asar-archive-policy.ts.
+disableAsarArchiveView(import.meta.url)
 
 const parentPort = process.parentPort
 if (!parentPort) throw new Error('DSH Host must be started by the Desktop supervisor')

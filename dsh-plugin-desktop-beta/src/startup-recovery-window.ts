@@ -23,6 +23,7 @@ import {
   DesktopStartupRecoveryController,
   DesktopStartupRecoveryControllerError,
   type DesktopStartupRecoveryCheckpointPreview,
+  type DesktopStartupRecoverySelectionPreview,
   type DesktopStartupRecoveryUninstallPreview,
   type DesktopStartupRecoverySnapshot,
 } from './startup-recovery-controller.ts'
@@ -223,6 +224,8 @@ export function parseDesktopStartupRecoveryAction(
   const action = url.hostname
   const allowed = new Set([
     'preview-uninstall',
+    'preview-disable',
+    'preview-enable',
     'preview-checkpoint',
     'open-checkpoint',
     'export-diagnostics',
@@ -370,6 +373,28 @@ export class DesktopStartupRecoveryWindow {
               tone: 'success',
               title: result.packageName,
               body: copy.uninstalledSuccess,
+            }
+            this.restartReady = true
+            await this.refreshSnapshot()
+          })
+        }
+      } else if ((action.action === 'preview-disable' || action.action === 'preview-enable')
+        && action.id !== undefined) {
+        this.activeTab = 'plugins'
+        const kind = action.action === 'preview-disable' ? 'disable' : 'enable'
+        const controller = this.requireController()
+        const preview = kind === 'disable'
+          ? await controller.previewDisable(action.id)
+          : await controller.previewEnable(action.id)
+        if (await this.confirmRecoveryAction(kind, preview)) {
+          await this.runBusy(async () => {
+            const result = kind === 'disable'
+              ? await this.requireController().executeDisable(preview.previewId)
+              : await this.requireController().executeEnable(preview.previewId)
+            this.notice = {
+              tone: 'success',
+              title: result.packageName,
+              body: kind === 'disable' ? copy.disabledSuccess : copy.enabledSuccess,
             }
             this.restartReady = true
             await this.refreshSnapshot()
@@ -547,7 +572,8 @@ export class DesktopStartupRecoveryWindow {
         title: copy.title,
         body: copy.actionFailed,
       }
-      if (action.action === 'preview-checkpoint' || action.action === 'preview-uninstall') {
+      if (action.action === 'preview-checkpoint' || action.action === 'preview-uninstall'
+        || action.action === 'preview-disable' || action.action === 'preview-enable') {
         await this.showOperationFailure(cause, action.action).catch(() => {})
       } else if (action.action === 'apply-data-directory'
         || action.action === 'restore-default-data-directory'
@@ -560,13 +586,17 @@ export class DesktopStartupRecoveryWindow {
 
   private async showOperationFailure(
     cause: unknown,
-    action: 'preview-checkpoint' | 'preview-uninstall',
+    action: 'preview-checkpoint' | 'preview-uninstall' | 'preview-disable' | 'preview-enable',
   ): Promise<void> {
     const window = this.window
     if (window === undefined || window.isDestroyed()) return
     const copy = desktopRecoveryCopy(this.options.locale)
     const error = cause instanceof DesktopStartupRecoveryControllerError ? cause : undefined
-    const stage = error?.operationStage ?? 'checkpoint-restore'
+    // A non-controller failure carries no stage, so name the stage the action
+    // itself was in rather than always claiming a checkpoint restore.
+    const stage = error?.operationStage ?? (action === 'preview-checkpoint'
+      ? 'checkpoint-restore'
+      : action === 'preview-uninstall' ? 'plugin-change' : 'bundle-selection')
     const message = error?.message ?? (cause instanceof Error ? cause.message : String(cause))
     const detail = [
       `${copy.operationStage}: ${copy.operationStageLabels[stage]}`,
@@ -579,8 +609,12 @@ export class DesktopStartupRecoveryWindow {
     ].join('\n')
     await showDesktopDialog({
       type: 'error',
-      title: action === 'preview-checkpoint' ? copy.rollbackFailedTitle : copy.uninstallFailedTitle,
-      message: action === 'preview-checkpoint' ? copy.rollbackFailedMessage : copy.uninstallFailedMessage,
+      title: action === 'preview-checkpoint' ? copy.rollbackFailedTitle
+        : action === 'preview-uninstall' ? copy.uninstallFailedTitle
+          : copy.bundleSelectionFailedTitle,
+      message: action === 'preview-checkpoint' ? copy.rollbackFailedMessage
+        : action === 'preview-uninstall' ? copy.uninstallFailedMessage
+          : copy.bundleSelectionFailedMessage,
       detail,
       buttons: [copy.close],
       defaultId: 0,
@@ -590,8 +624,10 @@ export class DesktopStartupRecoveryWindow {
   }
 
   private async confirmRecoveryAction(
-    kind: 'uninstall' | 'checkpoint',
-    preview: DesktopStartupRecoveryUninstallPreview | DesktopStartupRecoveryCheckpointPreview,
+    kind: 'uninstall' | 'checkpoint' | 'disable' | 'enable',
+    preview: DesktopStartupRecoveryUninstallPreview
+      | DesktopStartupRecoverySelectionPreview
+      | DesktopStartupRecoveryCheckpointPreview,
   ): Promise<boolean> {
     const window = this.window
     if (window === undefined || window.isDestroyed()) return false
@@ -603,17 +639,24 @@ export class DesktopStartupRecoveryWindow {
     const checkpointTime = 'capturedAt' in preview && !Number.isNaN(Date.parse(preview.capturedAt))
       ? new Date(preview.capturedAt).toLocaleString(this.options.locale === 'zh' ? 'zh-CN' : 'en-US')
       : copy.unknown
+    // `warning` stays reserved for the one destructive action, so the dialog
+    // tone itself tells a disable apart from an uninstall.
     const result = await showDesktopMessageBox({
       type: kind === 'uninstall' ? 'warning' : 'question',
-      title: kind === 'uninstall'
-        ? copy.confirmUninstall
-        : copy.confirmRollback,
+      title: kind === 'uninstall' ? copy.confirmUninstall
+        : kind === 'disable' ? copy.confirmDisable
+          : kind === 'enable' ? copy.confirmEnable
+            : copy.confirmRollback,
       message,
-      detail: kind === 'uninstall'
-        ? copy.confirmUninstallBody
-        : copy.confirmRollbackBody(checkpointTime),
+      detail: kind === 'uninstall' ? copy.confirmUninstallBody
+        : kind === 'disable' ? copy.confirmDisableBody
+          : kind === 'enable' ? copy.confirmEnableBody
+            : copy.confirmRollbackBody(checkpointTime),
       buttons: [
-        kind === 'uninstall' ? copy.uninstall : copy.confirmRollbackAction,
+        kind === 'uninstall' ? copy.uninstall
+          : kind === 'disable' ? copy.confirmDisableAction
+            : kind === 'enable' ? copy.confirmEnableAction
+              : copy.confirmRollbackAction,
         copy.cancel,
       ],
       defaultId: 1,

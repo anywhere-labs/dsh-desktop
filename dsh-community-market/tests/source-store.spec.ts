@@ -1,10 +1,7 @@
 import { readFileSync } from 'node:fs'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { describe, expect, it, vi } from 'vitest'
-import {
-  SettingsCatalogSourceStore,
-  type MarketSettingsDocument,
-} from '../src/catalog/source-store.js'
+import { PersistentCatalogSourceStore } from '../src/catalog/source-store.js'
+import { MemoryMarketStateStore, type MarketStateStore } from '../src/catalog/state-store.js'
 import type { CatalogSourceManifest, LocalSourceRecord } from '../src/contracts/index.js'
 
 const manifest = JSON.parse(
@@ -22,44 +19,52 @@ const source: LocalSourceRecord = {
   order: 0,
 }
 
-describe('settings-backed catalog source store', () => {
-  it('persists validated source records through the settings scope', async () => {
-    let document: MarketSettingsDocument = { sources: [] }
-    const update = vi.fn(async (next: MarketSettingsDocument) => { document = next })
-    const scope = {
-      get: () => document,
-      update,
-    } as unknown as SettingsScope<MarketSettingsDocument>
-    const store = new SettingsCatalogSourceStore(scope)
+function observedStore() {
+  const inner = new MemoryMarketStateStore()
+  const setSources = vi.fn((records: readonly LocalSourceRecord[]) => inner.setSources(records))
+  const state: MarketStateStore = {
+    getSources: () => inner.getSources(),
+    setSources,
+    getCatalogCache: () => inner.getCatalogCache(),
+    setCatalogCache: cache => inner.setCatalogCache(cache),
+  }
+  return { state, setSources }
+}
+
+describe('storage-backed catalog source store', () => {
+  it('persists validated source records through the state store', async () => {
+    const { state, setSources } = observedStore()
+    const store = new PersistentCatalogSourceStore(state)
 
     await store.save([source])
 
-    expect(update).toHaveBeenCalledWith({ sources: [source] })
+    expect(setSources).toHaveBeenCalledWith([source])
     await expect(store.load()).resolves.toEqual([source])
   })
 
-  it('normalizes legacy multi-enabled settings to one selected source', async () => {
+  it('normalizes a legacy multi-enabled registry to one selected source', async () => {
     const secondSource: LocalSourceRecord = {
       ...source,
       sourceRecordId: '028f1f77-a5c4-7b73-a9ae-0242ac120003',
       order: 1,
     }
-    let document: MarketSettingsDocument = { sources: [] }
-    const update = vi.fn(async (next: MarketSettingsDocument) => { document = next })
-    const scope = {
-      get: () => document,
-      update,
-    } as unknown as SettingsScope<MarketSettingsDocument>
-    const store = new SettingsCatalogSourceStore(scope)
+    const { state, setSources } = observedStore()
+    const store = new PersistentCatalogSourceStore(state)
 
     await store.save([source, secondSource])
 
-    expect(update).toHaveBeenCalledWith({
-      sources: [source, { ...secondSource, enabled: false }],
-    })
+    expect(setSources).toHaveBeenCalledWith([source, { ...secondSource, enabled: false }])
     await expect(store.load()).resolves.toEqual([
       source,
       { ...secondSource, enabled: false },
     ])
+  })
+
+  it('rejects a persisted registry that no longer satisfies the local-source contract', async () => {
+    const state = new MemoryMarketStateStore({
+      sources: [{ ...source, sourceRecordId: 'not-a-uuid' }],
+    })
+
+    await expect(new PersistentCatalogSourceStore(state).load()).rejects.toThrow(/sourceRecordId/u)
   })
 })

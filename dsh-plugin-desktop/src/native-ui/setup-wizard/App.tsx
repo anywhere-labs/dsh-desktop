@@ -303,7 +303,7 @@ function MaterialOptions({
     { value: 'off', title: copy.materialOff, body: copy.materialOffBody },
     ...(input.micaSupported ? [{ value: 'mica' as const, title: copy.materialMica, body: copy.materialMicaBody }] : []),
   ] : [
-    { value: 'off', title: copy.materialOff, body: copy.unavailableOnLinux },
+    { value: 'off', title: copy.materialOff, body: copy.materialOffBody },
   ]
   const selected = input.platform === 'darwin' ? selection.macosMaterial
     : input.platform === 'win32' ? selection.windowsMaterial : 'off'
@@ -324,7 +324,6 @@ function MaterialOptions({
     value={selected}
   >{options.map(option => <Choice
     body={option.body}
-    disabled={input.platform === 'linux'}
     id={`setup-window-material-${option.value}`}
     key={option.value}
     selected={selected === option.value}

@@ -530,3 +530,18 @@ describe('desktop update artifact cleanup', () => {
     else await expect(access(artifact.path)).resolves.toBeUndefined()
   })
 })
+
+
+it('downloads Next with a pinned release, a distinct filename and byte progress', async () => {
+  const root = await temporaryDirectory();
+  const progress = vi.fn();
+  const request = vi.fn<UpdateArtifactRequest>(async () => chunkedResponse([dmgArtifact()], {'content-length':'1024'}));
+  const filename = desktopUpdateFilename('darwin', '2.0.14-next', 'next');
+  expect(filename).toContain('DSH-NEXT-2.0.14-next');
+  const path = await downloadDesktopUpdate({platform:'darwin',version:'2.0.14-next',channel:'next',destinationPath:join(root,filename),request,onProgress:progress});
+  expect((await readFile(path)).byteLength).toBe(1024);
+  expect(progress).toHaveBeenLastCalledWith(1024,1024);
+  const headers = new Headers(request.mock.calls[0]?.[1]?.headers);
+  expect(headers.get(DESKTOP_RELEASE_CHANNEL_HEADER)).toBe('next');
+  expect(headers.get(DESKTOP_TARGET_VERSION_HEADER)).toBe('2.0.14-next');
+});

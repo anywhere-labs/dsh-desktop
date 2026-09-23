@@ -36,8 +36,8 @@ async function verify() {
     await app.whenReady()
     stage = 'Host startup'
     runtime.initialize()
-    runtime.profiles.ensure('default')
-    runtime.profiles.setFeatures('default', { market: true, remoteControl: false })
+    runtime.profiles.ensure('desktop')
+    runtime.profiles.setFeatures('desktop', { market: true, remoteControl: false })
     await runtime.start()
     const { url, cookie, token } = runtime.auth
     const browser = await fetch(new URL(url).origin, { headers: { cookie } })

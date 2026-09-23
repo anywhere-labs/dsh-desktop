@@ -4,13 +4,11 @@ import {
   chmodSync,
   lstatSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
-  rmdirSync,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
+import { cleanupDisposableTree } from './disposable-tree.ts'
 import type { DesktopMarketProvider } from './desktop-market.ts'
 import type { DesktopSetupWizardSettings } from './setup-wizard-settings.ts'
 
@@ -21,7 +19,6 @@ const SAFE_MODE_VERSION = 1
 const DIRECTORY_MODE = 0o700
 const FILE_MODE = 0o600
 const MAX_MARKER_BYTES = 4 * 1024
-const CLEANUP_RETRY_CODES = new Set(['EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM'])
 
 /** Visible Profile identity used throughout the temporary DSH environment. */
 export const DESKTOP_SAFE_MODE_PROFILE_NAME = 'desktop-safe-mode'
@@ -111,38 +108,10 @@ function validMarker(paths: DesktopSafeModePaths): boolean {
   }
 }
 
-function removeSafeModeEntry(path: string): void {
-  try {
-    const stat = lstatSync(path)
-    if (stat.isSymbolicLink() || !stat.isDirectory()) {
-      unlinkSync(path)
-      return
-    }
-    for (const name of readdirSync(path)) removeSafeModeEntry(join(path, name))
-    rmdirSync(path)
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
-  }
-}
-
 /** Remove only the disposable tree, unlinking junctions without visiting their targets. */
 export function cleanupDesktopSafeModeEnvironment(userDataDir: string): boolean {
   const paths = desktopSafeModePaths(userDataDir)
-  try {
-    lstatSync(paths.rootDir)
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return false
-    throw cause
-  }
-  for (let attempt = 0; ; attempt++) {
-    try {
-      removeSafeModeEntry(paths.rootDir)
-      return true
-    } catch (cause) {
-      if (attempt >= 3 || !CLEANUP_RETRY_CODES.has((cause as NodeJS.ErrnoException).code ?? '')) throw cause
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100 * (attempt + 1))
-    }
-  }
+  return cleanupDisposableTree(paths.rootDir)
 }
 
 /** Create a fresh environment and mark it ready only after directory preparation succeeds. */

@@ -16,6 +16,10 @@ import { formatDesktopExitCode } from './desktop-logger.ts'
 import { showDesktopMessageBox } from './desktop-dialog-window.ts'
 import { applicationNeedsReveal, revealApplication } from './electron-reveal.ts'
 import type { ElectronPlatformStrategy } from './electron-platform.ts'
+import {
+  desktopOpenWorkspaceScript,
+  type DesktopOpenWorkspaceDelivery,
+} from './launch-workspace-contract.ts'
 import { DESKTOP_RENDERER_ACTION_CHANNEL } from './renderer-actions-contract.ts'
 import { createDesktopRendererActionDispatcher } from './renderer-actions-dispatch.ts'
 import type { DesktopNotification, DesktopShellSpec } from './runtime.ts'
@@ -367,6 +371,13 @@ export class ElectronShellGeneration {
       if (applicationNeedsReveal(window, platform.platform)) this.show()
     }
     const clearAttention = (): void => { this.clearAttention() }
+    // Closing the window must never strand the Host. Where the tray is
+    // guaranteed reachable the window hides; elsewhere it minimizes, which
+    // keeps every session running and leaves one reachable surface behind.
+    const dismissWindow = (): void => {
+      if (platform.hidesWindowOnClose) window.hide()
+      else window.minimize()
+    }
     let fullscreenExitPending = false
     let hideAfterFullscreenExit = false
     let restoreAfterFullscreenExit = false
@@ -380,7 +391,7 @@ export class ElectronShellGeneration {
       restoreAfterFullscreenExit = false
       if (window.isDestroyed()) return
       if (shouldHide) {
-        window.hide()
+        dismissWindow()
         return
       }
       if (shouldRestore) {
@@ -427,7 +438,7 @@ export class ElectronShellGeneration {
         window.setFullScreen(false)
         return
       }
-      window.hide()
+      dismissWindow()
     }
     const preserveBlankTitle = (event: Electron.Event): void => { event.preventDefault() }
     const handleZoomShortcut = (event: Electron.Event, input: Electron.Input): void => {
@@ -744,6 +755,23 @@ export class ElectronShellGeneration {
     if (renderer === undefined || renderer.isDestroyed()) return
     if (renderer.isDevToolsOpened()) renderer.closeDevTools()
     else renderer.openDevTools({ mode: 'detach', activate: true })
+  }
+
+  /**
+   * Hand one launch folder to the mounted Host page.
+   *
+   * The delivery script resolves immediately in both directions, so a page that
+   * has not yet installed the client seam parks the folder instead of keeping
+   * the main process waiting on a renderer promise.
+   * @param path - absolute folder already admitted by native policy.
+   * @returns how the page took the folder, or `'unavailable'` when no renderer
+   *   could take it.
+   */
+  async openWorkspacePath(path: string): Promise<DesktopOpenWorkspaceDelivery | 'unavailable'> {
+    const renderer = this.renderer
+    if (this.released || renderer === undefined || renderer.isDestroyed()) return 'unavailable'
+    const delivery: unknown = await renderer.executeJavaScript(desktopOpenWorkspaceScript(path))
+    return delivery === 'delivered' || delivery === 'pending' ? delivery : 'unavailable'
   }
 
   notifyAttention(notification: DesktopNotification): void {

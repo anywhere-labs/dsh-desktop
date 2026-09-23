@@ -3,7 +3,7 @@
 import {
   useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode,
 } from 'react'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { DesktopSettingsForm } from './settings-bridge.ts'
 import { Check, Copy } from 'lucide-react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
@@ -20,6 +20,7 @@ import {
 export interface DesktopShellSettings {
   readonly mode: 'compatibility' | 'extended' | 'advanced'
   readonly macosMaterial: 'off' | 'transparent'
+  readonly linuxMaterial: 'off' | 'transparent'
   readonly windowsMaterial: 'off' | 'acrylic' | 'mica'
   readonly port: number
   readonly openBrowser: boolean
@@ -40,11 +41,13 @@ export interface DesktopNotificationSettings {
 export interface DesktopSettingsSectionInjected {
   readonly api: DesktopSettingsApi
   readonly platform: DesktopClientPlatform
+  /** Installed Desktop product version rendered by the update section. */
+  readonly version: string
   readonly initialMode: DesktopShellSettings['mode']
   readonly micaSupported: boolean
   readonly setMode: (mode: DesktopShellSettings['mode']) => Promise<void>
-  readonly desktopSettings: Pick<SettingsScope<DesktopShellSettings>, 'getSnapshot' | 'subscribe' | 'set'>
-  readonly notificationSettings: Pick<SettingsScope<DesktopNotificationSettings>, 'getSnapshot' | 'subscribe' | 'set'>
+  readonly desktopSettings: Pick<DesktopSettingsForm<DesktopShellSettings>, 'getSnapshot' | 'subscribe' | 'set'>
+  readonly notificationSettings: Pick<DesktopSettingsForm<DesktopNotificationSettings>, 'getSnapshot' | 'subscribe' | 'set'>
   /** Hosts can omit unsupported features while sharing the existing page. */
   readonly capabilities?: {
     readonly pluginSelectors?: boolean
@@ -54,7 +57,9 @@ export interface DesktopSettingsSectionInjected {
     readonly materialRequiresRestart?: boolean
     readonly nativeLanConfirmation?: boolean
     readonly jobNotifications?: boolean
+    readonly updates?: boolean
   }
+  readonly introNotice?: ReactNode
   readonly browserActions?: ReactNode
   readonly extraSections?: ReactNode
 }
@@ -123,7 +128,7 @@ export async function readDesktopSettingsUntilLanSettled(
 
 /** Persist ordinary-browser permission and refresh the already-running edge. */
 export async function persistDesktopBrowserAccessHot(
-  settings: Pick<SettingsScope<DesktopShellSettings>, 'set'>,
+  settings: Pick<DesktopSettingsForm<DesktopShellSettings>, 'set'>,
   checked: boolean,
   currentExposure: DesktopShellSettings['networkExposure'],
   refresh: () => Promise<DesktopSettingsView>,
@@ -137,7 +142,7 @@ export async function persistDesktopBrowserAccessHot(
 
 /** Persist LAN intent and refresh its hot HTTPS ingress state. */
 export async function persistDesktopNetworkExposureHot(
-  settings: Pick<SettingsScope<DesktopShellSettings>, 'set'>,
+  settings: Pick<DesktopSettingsForm<DesktopShellSettings>, 'set'>,
   exposure: DesktopShellSettings['networkExposure'],
   refresh: () => Promise<DesktopSettingsView>,
 ): Promise<DesktopSettingsView> {
@@ -163,13 +168,13 @@ export function resolveDesktopLanConfirmation(
   if (confirmed) enableLan()
 }
 
-function useScope<T>(scope: Pick<SettingsScope<T>, 'getSnapshot' | 'subscribe'>) {
+function useScope<T>(scope: Pick<DesktopSettingsForm<T>, 'getSnapshot' | 'subscribe'>) {
   const subscribe = useCallback((listener: () => void) => scope.subscribe(listener), [scope])
   const snapshot = useCallback(() => scope.getSnapshot(), [scope])
   return useSyncExternalStore(subscribe, snapshot)
 }
 
-function Choice({
+export function Choice({
   title,
   body,
   aside,
@@ -277,7 +282,7 @@ function profileState(profile: DesktopProfileView, t: Translate): string {
   return t('profileReady')
 }
 
-const MARKET_OPTIONS: readonly {
+export const MARKET_OPTIONS: readonly {
   id: DesktopMarketProvider
   title: DesktopSettingsLocaleKey
   body: DesktopSettingsLocaleKey
@@ -291,7 +296,7 @@ const COMMUNITY_MARKET_URL = 'https://github.com/anywhere-labs/deepseek-harness-
 const DSH_MARKET_URL = 'https://github.com/dsh-market/dsh-market'
 const AWESOME_DSH_PLUGIN_URL = 'https://github.com/awesome-dsh-plugin/awesome-dsh-plugin'
 
-function marketTitle(option: (typeof MARKET_OPTIONS)[number], t: Translate): ReactNode {
+export function marketTitle(option: (typeof MARKET_OPTIONS)[number], t: Translate): ReactNode {
   if (option.id === 'community-market') {
     return <RepositoryLink href={COMMUNITY_MARKET_URL}>{t(option.title)}</RepositoryLink>
   }
@@ -301,7 +306,7 @@ function marketTitle(option: (typeof MARKET_OPTIONS)[number], t: Translate): Rea
   return t(option.title)
 }
 
-function marketBody(option: (typeof MARKET_OPTIONS)[number], t: Translate): ReactNode {
+export function marketBody(option: (typeof MARKET_OPTIONS)[number], t: Translate): ReactNode {
   if (option.id !== 'dsh-market') return t(option.body)
   return (
     <>
@@ -349,12 +354,14 @@ export function DesktopSettingsSection({
   t,
   api,
   platform,
+  version,
   initialMode,
   micaSupported,
   setMode: persistMode,
   desktopSettings,
   notificationSettings,
   capabilities,
+  introNotice,
   browserActions,
   extraSections,
 }: DesktopSettingsSectionInjected & Pick<PropsLocale<'desktop.settings'>, 't'>) {
@@ -369,6 +376,7 @@ export function DesktopSettingsSection({
   const [restart, setRestart] = useState<RestartState>('none')
   const [pendingProfileDelete, setPendingProfileDelete] = useState<string>()
   const [confirmLan, setConfirmLan] = useState(false)
+  const [updateCheck, setUpdateCheck] = useState<'idle' | 'checking' | 'failed'>('idle')
   const lanPoll = useRef<AbortController>()
 
   const refreshView = useCallback(async () => {
@@ -512,6 +520,11 @@ export function DesktopSettingsSection({
           throw new Error(`dsh-plugin-desktop: invalid macOS material ${JSON.stringify(next)}`)
         }
         await desktopSettings.set('macosMaterial', next)
+      } else if (platform === 'linux') {
+        if (next !== 'off' && next !== 'transparent') {
+          throw new Error(`dsh-plugin-desktop: invalid Linux material ${JSON.stringify(next)}`)
+        }
+        await desktopSettings.set('linuxMaterial', next)
       } else if (platform === 'win32') {
         if (next !== 'off' && (next !== 'mica' || !micaSupported)) {
           throw new Error(`dsh-plugin-desktop: unavailable Windows material ${JSON.stringify(next)}`)
@@ -524,6 +537,15 @@ export function DesktopSettingsSection({
 
   const setNotification = (field: keyof DesktopNotificationSettings, checked: boolean): void => {
     void run('notification', async () => { await notificationSettings.set(field, checked) })
+  }
+
+  // The interactive update flow owns its own native dialogs and downloads, so it
+  // stays outside the settings-scope busy state and reports only its own failures.
+  const runUpdateCheck = (): void => {
+    setUpdateCheck('checking')
+    void api.checkForUpdates()
+      .then(() => { setUpdateCheck('idle') })
+      .catch(() => { setUpdateCheck('failed') })
   }
 
   const setBrowserAccess = (checked: boolean): void => {
@@ -551,6 +573,7 @@ export function DesktopSettingsSection({
         <p>{t('intro')}</p>
       </header>
 
+      {introNotice}
       {operationFailed && aaStatus !== 'failed' && <p className="dshDesktopSettingsError" role="alert">{t('operationFailed')}</p>}
       {restart !== 'none' && (
         <p className="dshDesktopSettingsSuccess" role="status">
@@ -877,6 +900,33 @@ export function DesktopSettingsSection({
           /></>}
         </div>
       </section>
+
+      {capabilities?.updates !== false && (
+        <section className="dshDesktopSettingsGroup" aria-labelledby="dsh-desktop-updates-title">
+          <div>
+            <h3 id="dsh-desktop-updates-title">{t('updatesTitle')}</h3>
+            <p className="dshDesktopSettingsGroupIntro">{t('updatesIntro')}</p>
+          </div>
+          <div className="dshDesktopSettingsUpdateRow">
+            <span className="dshDesktopSettingsChoiceCopy">
+              <span className="dshDesktopSettingsChoiceTitle">{t('currentVersion')}</span>
+              <span className="dshDesktopSettingsChoiceBody">{`v${version}`}</span>
+            </span>
+            <button
+              type="button"
+              className="dshDesktopSettingsButton"
+              disabled={updateCheck === 'checking'}
+              onClick={runUpdateCheck}
+            >
+              {t(updateCheck === 'checking' ? 'checkingForUpdates' : 'checkForUpdates')}
+            </button>
+          </div>
+          {updateCheck === 'failed' && (
+            <p className="dshDesktopSettingsError" role="alert">{t('checkForUpdatesError')}</p>
+          )}
+        </section>
+      )}
+
       {extraSections}
       {confirmLan && (
         <div className="dshDesktopSettingsDialogBackdrop" role="presentation">

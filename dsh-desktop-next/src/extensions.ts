@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { composeEntries, loadOverlayPatches, readProfilePlugins, resolveBundleDir, type ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot'
+import { bundlePatchPaths, composeEntries, loadOverlayPatches, readProfilePlugins, resolveBundleDir, type ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot'
 import { installNotifications } from './notifications.ts'
 import { HostPermissions } from './host-permissions.ts'
 import { NEXT_PACKAGE, profileName } from './profiles.ts'
@@ -35,8 +35,9 @@ export function apply(ctx: Context): void {
         const mutable = item.name !== shipped.name && !Object.hasOwn(shipped.dependencies, item.name)
           && !item.name.startsWith('@deepseek-ai/')
         const dir = resolveBundleDir('dsh-desktop-next', item.name, profile.installAnchor, profile.dir)
-        const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { dsh: { bundle: { patch: string } } }
-        const rows = composeEntries([loadOverlayPatches('dsh-desktop-next', join(dir, manifest.dsh.bundle.patch))])
+        // dsh 0.1.7 lets a bundle declare an ordered list of patch files, not only one.
+        const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { dsh: { bundle: { patch: string | string[] } } }
+        const rows = composeEntries(bundlePatchPaths(dir, manifest.dsh.bundle).map(file => loadOverlayPatches('dsh-desktop-next', file)))
         const active = rows.length === 0 || [...ctx.loader.entries()].some(entry =>
           rows.some(row => row.id === entry.options.id) && !entry.disabled && entry.fiber?.state === 2 /* FiberState.ACTIVE */)
         return { bundleId: item.name, packageName: item.name, mutable, uninstallable: mutable,

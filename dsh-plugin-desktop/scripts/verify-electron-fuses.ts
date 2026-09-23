@@ -54,6 +54,12 @@ type ElectronPlatformName = 'darwin' | 'linux' | 'win32'
 
 const DIR_TARGET = 'dir'
 
+/**
+ * electron-builder's boolean arch flags, in the order its CLI `normalizeOptions`
+ * `commonArch()` pushes them.
+ */
+const CLI_ARCH_FLAGS = Object.freeze(['x64', 'armv7l', 'arm64', 'ia32', 'universal'] as const)
+
 const DESKTOP_MANIFEST = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 ) as { readonly name: string; readonly productName?: string }
@@ -199,10 +205,44 @@ function configuredTargetArchitectures(
   return [...result]
 }
 
+/**
+ * Arch flags on the electron-builder command line this hook runs inside.
+ *
+ * yargs parses them as booleans, so `--arm64`, `--arm64=true` and `--arm64 true`
+ * enable a flag and `--no-arm64` / `--arm64=false` / `--arm64 false` clear it;
+ * the last occurrence wins. Parsing stops at `--`.
+ */
+function cliArchitectures(argv: readonly string[], description: string): Arch[] {
+  const enabled = new Map<string, boolean>()
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index]!
+    if (token === '--') break
+    if (!token.startsWith('--')) continue
+    const negated = token.startsWith('--no-')
+    const body = token.slice(negated ? 5 : 2)
+    const equals = body.indexOf('=')
+    const name = equals === -1 ? body : body.slice(0, equals)
+    if (!(CLI_ARCH_FLAGS as readonly string[]).includes(name)) continue
+    if (negated) {
+      enabled.set(name, false)
+    } else if (equals !== -1) {
+      enabled.set(name, body.slice(equals + 1) !== 'false')
+    } else if (argv[index + 1] === 'true' || argv[index + 1] === 'false') {
+      enabled.set(name, argv[++index] === 'true')
+    } else {
+      enabled.set(name, true)
+    }
+  }
+  return CLI_ARCH_FLAGS
+    .filter(name => enabled.get(name) === true)
+    .map(name => architectureNumber(name, description))
+}
+
 function requestedArchitectures(
   result: ElectronArtifactBuildResult,
   platform: { readonly buildConfigurationKey: string },
   targets: unknown,
+  argv: readonly string[],
 ): Arch[] {
   const key = platform.buildConfigurationKey as ElectronBuildConfigurationKey
   const description = `${key} output`
@@ -227,10 +267,19 @@ function requestedArchitectures(
   )
   if (fromConfiguration.length > 0) return fromConfiguration
 
-  // electron-builder's NoOpTarget (used by --dir) deliberately retains neither
-  // the arch nor its packager. With no explicit target.arch, electron-builder
-  // itself defaults that target to the Node process architecture.
-  if (targetNames.has(DIR_TARGET)) return [architectureNumber(process.arch, description)]
+  // `--dir` requests electron-builder's NoOpTarget, which retains neither the
+  // arch nor its packager — and the Windows, Linux and macOS packagers skip it
+  // in createTargets() instead of registering it, so a directory-only build
+  // reaches this hook with an empty target map. The CLI's dir request wins over
+  // the configured target archs. The arch flags (`--x64`, `--arm64`, ...) that
+  // choose what it packs are consumed by the CLI before BuildResult exists, so
+  // read them back from the command line this hook runs inside, exactly as the
+  // CLI's commonArch() does; with none, electron-builder packs for the Node
+  // process architecture.
+  if (targetNames.size === 0 || targetNames.has(DIR_TARGET)) {
+    const fromCli = cliArchitectures(argv, description)
+    return fromCli.length > 0 ? fromCli : [architectureNumber(process.arch, description)]
+  }
 
   throw new Error(
     `dsh-plugin-desktop: cannot determine requested Electron architecture(s) for ${key}`,
@@ -273,6 +322,7 @@ function outputProductFilename(
 export function resolveFinalPackagedRuntimeContexts(
   result: ElectronArtifactBuildResult,
   exists: (filename: string) => boolean = existsSync,
+  argv: readonly string[] = process.argv,
 ): PackagedRuntimeContext[] {
   const missing: string[] = []
   const contexts = [...result.platformToTargets.entries()].flatMap(([platform, targets]) => {
@@ -282,7 +332,7 @@ export function resolveFinalPackagedRuntimeContexts(
         `dsh-plugin-desktop: unsupported Electron build platform ${JSON.stringify(platform.buildConfigurationKey)}`,
       )
     }
-    return requestedArchitectures(result, platform, targets).map((arch) => {
+    return requestedArchitectures(result, platform, targets, argv).map((arch) => {
       const appOutDir = join(result.outDir, outputDirectoryName(result, key, arch))
       const productFilename = outputProductFilename(result, key)
       const context: PackagedRuntimeContext = {

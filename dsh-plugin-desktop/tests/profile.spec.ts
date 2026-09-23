@@ -27,6 +27,7 @@ import {
   shippedPresetRoot,
   validateDshMarketBundlePatches,
 } from '../src/profile.ts'
+import { setDesktopProfileBundleSelected } from '../src/desktop-plugins.ts'
 import { DESKTOP_MARKET_IDENTITIES } from '../src/desktop-market.ts'
 
 const homes: string[] = []
@@ -810,6 +811,7 @@ virtualStoreDirMaxLength: 60
       port: 43_189,
       macosMaterial: 'transparent',
       windowsMaterial: 'off',
+      linuxMaterial: 'off',
       openBrowser: false,
       networkExposure: 'loopback',
     })
@@ -818,6 +820,7 @@ virtualStoreDirMaxLength: 60
       port: 43_120,
       macosMaterial: 'transparent',
       windowsMaterial: 'off',
+      linuxMaterial: 'off',
       openBrowser: false,
       networkExposure: 'loopback',
     })
@@ -1217,5 +1220,85 @@ describe('bundled Agents Anywhere', () => {
     writeFileSync(join(home, 'cordis.patch.yml'), '- insert:\n    - id: custom-aa\n      name: "@agents-anywhere/dsh-bridge-next"\n')
     const prepared = prepareDesktopProfile('1', home)
     expect(composeEntries([prepared.patches]).filter(row => row.name === '@agents-anywhere/dsh-bridge-next').every(row => row.disabled)).toBe(true)
+  })
+})
+
+describe('desktop profile composition and the recovery deselection ledger', () => {
+  function selectionBootstrap(home: string) {
+    return {
+      profileName: 'desktop',
+      homeDir: home,
+      statePath: join(home, 'user-data', 'plugin-management', 'state.json'),
+    }
+  }
+
+  function declareBundle(home: string, packageName: string): string {
+    const manifestPath = join(ensureDesktopProfile(home), 'package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      dependencies?: Record<string, string>
+      dsh: { profile: { bundles: string[] }; desktopDeselectedBundles?: string[] }
+    }
+    manifest.dsh.profile.bundles.push(packageName)
+    manifest.dependencies = { ...manifest.dependencies, [packageName]: '1.0.0' }
+    writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\n')
+    return manifestPath
+  }
+
+  it('never lets the deselection ledger decide what loads, under either market provider', () => {
+    const home = temporaryHome()
+    const packageName = 'third-party-plugin'
+    installBundle(home, packageName, '- insert:\n    - id: third-party-marker\n      name: cordis:example\n')
+    const manifestPath = declareBundle(home, packageName)
+    // A stale ledger entry for a name that is still selected is a UI artefact,
+    // never a policy: composition reads `dsh.profile.bundles` alone.
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] }; desktopDeselectedBundles?: string[] }
+    }
+    manifest.dsh.desktopDeselectedBundles = [packageName]
+    writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\n')
+
+    for (const provider of ['dsh-market', 'community-market'] as const) {
+      const prepared = prepareDesktopProfile(undefined, home, 'darwin', 'desktop', undefined, {
+        requested: provider,
+        effective: provider,
+        legacyDefaulted: false,
+      })
+      expect(composeEntries([prepared.patches])).toContainEqual(expect.objectContaining({
+        id: 'third-party-marker',
+      }))
+    }
+  })
+
+  it('lets a deselected bundle with an unparseable patch stop breaking startup', async () => {
+    const home = temporaryHome()
+    const packageName = 'broken-plugin'
+    installBundle(home, packageName, 'not: [valid yaml')
+    declareBundle(home, packageName)
+    expect(() => prepareDesktopProfile(undefined, home, 'darwin')).toThrow()
+
+    await setDesktopProfileBundleSelected(selectionBootstrap(home), packageName, false)
+
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+    expect(composeEntries([prepared.patches])).not.toContainEqual(expect.objectContaining({
+      name: `${packageName}/host`,
+    }))
+    expect(prepared.profile.layers.some(layer => layer.packageName === packageName)).toBe(false)
+    // Nothing was deleted: the declared dependency and the files both survive.
+    const manifest = JSON.parse(readFileSync(join(ensureDesktopProfile(home), 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>
+    }
+    expect(manifest.dependencies[packageName]).toBe('1.0.0')
+    expect(existsSync(join(home, 'profiles', 'desktop', 'node_modules', packageName, 'package.json'))).toBe(true)
+  })
+
+  it('lets a deselected bundle whose package directory has no manifest stop breaking startup', async () => {
+    const home = temporaryHome()
+    const packageName = 'half-written-plugin'
+    mkdirSync(join(home, 'profiles', 'desktop', 'node_modules', packageName), { recursive: true })
+    declareBundle(home, packageName)
+    expect(() => prepareDesktopProfile(undefined, home, 'darwin')).toThrow()
+
+    await setDesktopProfileBundleSelected(selectionBootstrap(home), packageName, false)
+    expect(() => prepareDesktopProfile(undefined, home, 'darwin')).not.toThrow()
   })
 })

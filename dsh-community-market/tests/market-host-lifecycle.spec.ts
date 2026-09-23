@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
-import { apply } from '../src/index.js'
+import { apply, inject as marketInject } from '../src/index.js'
 import { marketRoutes } from '../src/host/routes.js'
 
 type Handler = (req: any, res: any) => void | Promise<void>
@@ -18,7 +18,6 @@ function createHarness() {
   const injections: Injection[] = []
   const globalCleanups: (() => void)[] = []
   let activeInjection: Injection | undefined
-  let settings: Record<string, unknown> = { sources: [], installReceipts: [] }
 
   const registerEffect = (factory: () => void | (() => void), owner = activeInjection): void => {
     const cleanup = factory()
@@ -39,13 +38,7 @@ function createHarness() {
   }
 
   const context = {
-    logger: { error: vi.fn() },
-    settings: {
-      register: vi.fn(() => ({
-        get: () => settings,
-        update: async (patch: Record<string, unknown>) => { settings = { ...settings, ...patch } },
-      })),
-    },
+    logger: { error: vi.fn(), warn: vi.fn() },
     webServer: {
       port: 43_120,
       register: vi.fn((route: { path: string; handler: Handler }) => {
@@ -98,6 +91,8 @@ function createHarness() {
   return {
     context,
     request,
+    /** Every soft-injection `apply` asked for, in registration order. */
+    injectedNames: () => injections.map(injection => [...injection.names]),
     provide(name: string, value: unknown) {
       values.set(name, value)
       for (const injection of injections) activate(injection)
@@ -121,6 +116,22 @@ function createHarness() {
 }
 
 describe('community market Host capability lifecycle', () => {
+  it('starts and serves state on a Host that has no storage domain', async () => {
+    const harness = createHarness()
+    apply(harness.context as never)
+
+    // Durable storage is optional: `webServer` is the only hard requirement, and
+    // the storage domain arrives (or does not) through a soft injection.
+    expect(marketInject).toEqual(['webServer'])
+    expect(harness.injectedNames()).toContainEqual(['storageDomain'])
+    await expect(harness.request(marketRoutes.state)).resolves.toMatchObject({
+      status: 200,
+      body: { sources: [] },
+    })
+    expect(harness.context.logger.error).not.toHaveBeenCalled()
+
+    harness.dispose()
+  })
   it('exposes restart independently when a shell has no terminal integration', async () => {
     const harness = createHarness()
     apply(harness.context as never)

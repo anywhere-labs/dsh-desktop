@@ -8,6 +8,7 @@ import {
   compareSemVerVersions,
   DESKTOP_RELEASE_CHANNEL_HEADER,
   parseSemVer,
+  parseCanonicalChannelVersion,
   type DesktopReleaseChannel,
 } from './update-checker.ts'
 
@@ -90,6 +91,8 @@ export interface DownloadDesktopUpdateOptions {
    * because the version endpoint does not publish digests yet.
    */
   readonly expectedSha256?: string
+  /** Progress after each bounded chunk; omitted by existing Desktop callers. */
+  readonly onProgress?: (received: number, total: number | undefined) => void
 }
 
 /** Typed failure from installer request, validation, or cancellation. */
@@ -198,7 +201,10 @@ export async function downloadDesktopUpdate(options: DownloadDesktopUpdateOption
 
   let failure: unknown
   try {
-    await writeResponseBody(paths.temporary, response.body, options.signal)
+    const declared = Number(response.headers.get('content-length'))
+    await writeResponseBody(paths.temporary, response.body, options.signal, received => {
+      options.onProgress?.(received, Number.isFinite(declared) && declared > 0 ? declared : undefined)
+    })
     throwIfAborted(options.signal)
     await validateArtifact(paths.temporary, platform)
     if (expectedSha256 !== undefined) {
@@ -231,7 +237,7 @@ export function desktopUpdateFilename(
   validatedVersion(version, channel)
   const extension = platform === 'darwin' ? 'dmg' : 'exe'
   const platformName = platform === 'darwin' ? 'mac' : 'windows'
-  const product = channel === 'beta' ? 'DSH-Desktop-Beta' : 'DSH-Desktop'
+  const product = channel === 'next' ? 'DSH-NEXT' : channel === 'beta' ? 'DSH-Desktop-Beta' : 'DSH-Desktop'
   return `${product}-${version}-${platformName}.${extension}`
 }
 
@@ -309,13 +315,7 @@ function validatedPlatform(platform: DesktopDownloadPlatform): DesktopDownloadPl
 }
 
 function validatedVersion(version: string, channel: DesktopReleaseChannel = 'stable'): string {
-  const parsed = parseSemVer(version)
-  const expectedPrerelease = channel === 'stable'
-    ? parsed?.prerelease.length === 0
-    : parsed?.prerelease.length === 2
-      && parsed.prerelease[0] === 'beta'
-      && /^[0-9]+$/u.test(parsed.prerelease[1]!)
-  if (parsed === null || !expectedPrerelease || parsed.version !== version) {
+  if (parseCanonicalChannelVersion(version, channel) === null) {
     throw new UpdateDownloadError('invalid-options', `The update version must match the ${channel} channel.`)
   }
   return version
@@ -327,7 +327,8 @@ function validatedReleaseVersion(version: string): string {
   const isBeta = parsed?.prerelease.length === 2
     && parsed.prerelease[0] === 'beta'
     && /^[0-9]+$/u.test(parsed.prerelease[1]!)
-  if (parsed === null || parsed.version !== version || (!isStable && !isBeta)) {
+  const isNext = parseCanonicalChannelVersion(version, 'next') !== null
+  if (parsed === null || parsed.version !== version || (!isStable && !isBeta && !isNext)) {
     throw new UpdateDownloadError('invalid-options', 'The update version must belong to a supported release channel.')
   }
   return version
@@ -463,14 +464,14 @@ function assertDeclaredSize(response: Response): void {
   }
 }
 
-function assertAllowedDownloadOrigin(finalUrl: string): void {
+export function assertAllowedDownloadOrigin(finalUrl: string): void {
   let parsed: URL
   try {
     parsed = new URL(finalUrl)
   } catch {
     throw new UpdateDownloadError('redirect-origin', 'The update download transport reported no usable final URL.')
   }
-  if (parsed.protocol !== 'https:') {
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port && parsed.port !== '443') {
     throw new UpdateDownloadError('redirect-origin', 'The update download must settle on HTTPS.')
   }
   const host = parsed.hostname.toLowerCase()
@@ -530,6 +531,7 @@ async function writeResponseBody(
   filename: string,
   body: ReadableStream<Uint8Array>,
   signal: AbortSignal | undefined,
+  onProgress?: (received: number) => void,
 ): Promise<void> {
   const handle = await open(filename, 'wx', PRIVATE_FILE_MODE)
   const reader = body.getReader()
@@ -548,6 +550,7 @@ async function writeResponseBody(
       }
       await writeAll(handle, chunk.value)
       bytesWritten += chunk.value.byteLength
+      onProgress?.(bytesWritten)
     }
     if (bytesWritten === 0) {
       throw new UpdateDownloadError('empty-body', 'The update download service returned an empty body.')

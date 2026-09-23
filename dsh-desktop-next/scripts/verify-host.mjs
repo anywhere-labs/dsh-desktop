@@ -1,4 +1,4 @@
-/** Exercise the actual alpha.2 Host, credentials, Market routes and AA manifest without Electron UI. */
+/** Exercise the actual 0.1.7-alpha.2 Host, credentials, Market routes and AA manifest without Electron UI. */
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DesktopHostProcess } from '../lib/host-process.js'
+import { NextRecovery } from '../lib/recovery.js'
 import { NEXT_PACKAGE, NextProfiles } from '../lib/profiles.js'
 import { bundledPnpmEntry, createPackageRunner } from '../lib/extensions.js'
 import { forwardWebRequest } from '../lib/web-document.js'
@@ -25,7 +26,7 @@ const pnpmInvocation = { command: executable, args: ['--expose-internals', bundl
 } }
 async function boot(name) {
   host = new DesktopHostProcess(executable, root, manager.directory(name), undefined,
-    { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' }, undefined, undefined, 'runtime', undefined,
+    { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' }, undefined, undefined, undefined,
     join(root, 'lib', 'host.js'), () => { restartRequests++ })
   let timer
   const ready = await Promise.race([
@@ -44,9 +45,9 @@ async function boot(name) {
 }
 async function stop() { await host.stop(true); host = undefined }
 try {
-  const dir = manager.ensure('default')
+  const dir = manager.ensure('desktop')
   writeFileSync(join(dir, 'pnpm-workspace.yaml'), `storeDir: ${JSON.stringify(join(home, 'store'))}\n`)
-  manager.setFeatures('default', { remoteControl: true, market: true, dshMarket: true })
+  manager.setFeatures('desktop', { remoteControl: true, market: true, dshMarket: true })
   // Install only a local empty fixture. No catalog, registry or user profile is changed.
   const fixture = join(home, 'fixture-plugin')
   mkdirSync(fixture)
@@ -55,7 +56,7 @@ try {
   runner = createPackageRunner(pnpmInvocation, dir)
   const { createDesktopPluginRuntime } = await import(new URL('./lib/dsh-cli.js', pathToFileURL(createRequire(import.meta.url).resolve('dshmarket/package.json'))))
   const marketRuntime = createDesktopPluginRuntime(runner, dir, home)
-  const installed = await marketRuntime.runPlugin('default', ['add', '--offline', '--ignore-scripts', `file:${fixture}`])
+  const installed = await marketRuntime.runPlugin('desktop', ['add', '--offline', '--ignore-scripts', `file:${fixture.replaceAll('\\', '/')}`])
   assert.equal(installed.exitCode, 0, JSON.stringify(installed))
   const install = runner.run(['list'])
   let output = ''
@@ -64,7 +65,7 @@ try {
   await runner.dispose()
   const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
   assert.ok(manifest.dsh.profile.bundles.includes('fixture-next-plugin'), 'Official plugin operations must activate the bundle')
-  let { origin, cookie } = await boot('default')
+  let { origin, cookie } = await boot('desktop')
   const rpc = async (method, args = {}) => {
     const rpcId = crypto.randomUUID()
     const response = await fetch(`${origin}/api/pluginManager/${method}`, {
@@ -75,10 +76,25 @@ try {
     assert.equal(reply.result.ok, true, JSON.stringify(reply))
     return reply.result.value
   }
+  // The official overview discovers installation-owned bundles from direct
+  // dependencies, even when their packages are already present transitively.
+  const availableBundles = await rpc('listBundles')
+  // dsh 0.1.7 deleted `-web-profile` and merged its `ui-agent-team` row into `-profile`.
+  for (const [name, rowIds] of [
+    ['@deepseek-ai/dsh-experimental-agent-team-profile', ['agent-team', 'ui-agent-team']],
+  ]) {
+    const bundle = availableBundles.find(row => row.name === name)
+    assert.ok(bundle, `Official Plugins overview must offer ${name}`)
+    assert.equal(bundle.optional, true)
+    assert.equal(bundle.enabled, false, 'Team bundles must remain opt-in')
+    assert.equal(bundle.removable, false)
+    assert.equal(bundle.error, undefined)
+    for (const rowId of rowIds) assert.ok(bundle.rows.some(row => row.rowId === rowId), JSON.stringify(bundle))
+  }
   const packages = ['dsh-community-market', 'dshmarket', '@agents-anywhere/dsh-bridge-next']
   for (const name of packages) {
     const bundle = (await rpc('listBundles')).find(row => row.name === name)
-    assert.equal(bundle?.enabled, true, JSON.stringify(bundle))
+    assert.ok(bundle, JSON.stringify(bundle))
     assert.equal(bundle.optional, true)
     assert.equal(bundle.removable, false)
     const result = await rpc('setBundleEnabled', { name, enabled: false })
@@ -88,11 +104,11 @@ try {
   }
   await rpc('setBundleEnabled', { name: packages[2], enabled: false })
   await stop()
-  ;({ origin, cookie } = await boot('default'))
-  assert.deepEqual(manager.features('default'), { market: true, remoteControl: false, dshMarket: true })
+  ;({ origin, cookie } = await boot('desktop'))
+  assert.deepEqual(manager.features('desktop'), { market: false, remoteControl: false, dshMarket: true })
   assert.equal((await rpc('listPlugins')).some(row => row.moduleName === packages[2] && row.enabled), false)
   await rpc('setBundleEnabled', { name: packages[2], enabled: true })
-  for (const name of packages) {
+  for (const name of packages.slice(1)) {
     const row = (await rpc('listPlugins')).find(row => row.moduleName === name)
     assert.equal(row?.fiberPhase, 'active', JSON.stringify(row))
     assert.equal(row?.enabled, true, JSON.stringify(row))
@@ -103,6 +119,10 @@ try {
   assert.equal((await rpc('listPlugins')).find(row => row.moduleName === packages[2])?.enabled, false)
   const enabledRow = await rpc('setPluginEnabled', { id: aaRow.entryId, enabled: true })
   assert.equal(enabledRow.application, 'applied', JSON.stringify(enabledRow))
+  const selectedMarket = await rpc('setBundleEnabled', { name: packages[0], enabled: true })
+  assert.equal(selectedMarket.application, 'applied', JSON.stringify(selectedMarket))
+  assert.deepEqual(manager.features('desktop'), { market: true, remoteControl: true })
+  assert.equal((await rpc('listPlugins')).some(row => row.moduleName === packages[1] && row.enabled), false)
   const denied = await fetch(`${origin}/api/community-market/state`)
   assert.equal(denied.status, 401)
   const state = await fetch(`${origin}/api/community-market/state`, { headers: { cookie } })
@@ -124,6 +144,8 @@ try {
     return result
   }
   // Probe the real dshmarket update gate without updating or fetching a package.
+  await rpc('setBundleEnabled', { name: packages[1], enabled: true })
+  assert.deepEqual(manager.features('desktop'), { market: false, remoteControl: true, dshMarket: true })
   for (const originHeader of [undefined, 'dsh-app://app']) {
     const request = new Request('dsh-app://app/dsh-market/update', {
       method: 'POST', body: JSON.stringify({ name: 'fixture-not-installed' }),
@@ -140,6 +162,7 @@ try {
   })
   assert.equal(untrustedUpdate.status, 403)
   await untrustedUpdate.body?.cancel()
+  await rpc('setBundleEnabled', { name: packages[0], enabled: true })
   const builtIn = stateBody.builtIns[0]
   assert.ok(builtIn)
   const added = await call('sources', { action: 'add-builtin', key: builtIn.key })
@@ -175,7 +198,7 @@ try {
   assert.ok(html.includes('dsh-community-market'), 'Market client must appear in the boot manifest')
   assert.ok(html.includes('"id":"dsh-desktop-next"'), 'Next window controls must be a client boot entry')
   assert.ok(html.includes('@agents-anywhere/dsh-bridge-next'), 'AA client must appear in the boot manifest')
-  assert.ok(html.includes('dshmarket'), 'dshmarket client must coexist with Community Market and AA')
+  assert.equal(html.includes('"id":"dshmarket"'), false, 'The other market client must be unloaded')
   const installedAgain = await rpc('installBundle', { spec: fixture })
   assert.equal(installedAgain.application, 'applied', JSON.stringify(installedAgain))
   assert.ok((await rpc('listBundles')).some(row => row.name === 'fixture-next-plugin' && row.installed && row.enabled && row.removable))
@@ -190,13 +213,16 @@ try {
   writeFileSync(policyFile, policy)
   runner = createPackageRunner(pnpmInvocation, dir)
   const recent = await createDesktopPluginRuntime(runner, dir, home)
-    .runPlugin('default', ['add', '--ignore-scripts', '--save-exact', `${registry.name}@${registry.version}`])
+    .runPlugin('desktop', ['add', '--ignore-scripts', '--save-exact', `${registry.name}@${registry.version}`])
   assert.equal(recent.exitCode, 0, JSON.stringify(recent))
   const uninstalled = await rpc('removeBundle', { name: 'fixture-next-plugin' })
   assert.equal(uninstalled.application, 'applied', JSON.stringify(uninstalled))
   assert.equal((await rpc('listBundles')).some(row => row.name === 'fixture-next-plugin'), false)
   const withRecentDependency = await rpc('installBundle', { spec: fixture })
   assert.equal(withRecentDependency.application, 'applied', JSON.stringify(withRecentDependency))
+  const recovery = new NextRecovery(manager)
+  recovery.checkpoint('desktop')
+  const checkpoint = recovery.checkpoints('desktop')[0]
   const removedAgain = await rpc('removeBundle', { name: 'fixture-next-plugin' })
   assert.equal(removedAgain.application, 'applied', JSON.stringify(removedAgain))
   assert.equal(readFileSync(policyFile, 'utf8'), policy, 'Desktop policy must not rewrite Profile configuration')
@@ -205,10 +231,24 @@ try {
   assert.equal(finalManifest.dsh.profile.bundles.includes('fixture-next-plugin'), false)
   await runner.dispose()
   await stop()
+  // Reinstall dependencies after restoring a manifest that refers to a removed plugin. The restored
+  // manifest is ahead of the lockfile by design, so this repeats the flag the recovery assistant
+  // passes: a frozen install, which is pnpm's default under CI, refuses that reconciliation.
+  await recovery.restore('desktop', checkpoint.id)
+  runner = createPackageRunner(pnpmInvocation, dir)
+  const reconcile = runner.runPlugin(['install', '--offline', '--ignore-scripts', '--no-frozen-lockfile'], dir)
+  let reconciliationOutput = ''
+  reconcile.stdout.on('data', chunk => { reconciliationOutput += chunk })
+  reconcile.stderr.on('data', chunk => { reconciliationOutput += chunk })
+  assert.equal((await reconcile.done).exitCode, 0, reconciliationOutput)
+  await runner.dispose()
+  ;({ origin, cookie } = await boot('desktop'))
+  assert.ok((await rpc('listBundles')).some(row => row.name === 'fixture-next-plugin' && row.installed), 'Rollback must restore the removed plugin before reboot')
+  await stop()
   writeFileSync(join(dir, 'cordis.patch.yml'), ': broken: [yaml')
-  await manager.recover('default')
-  assert.deepEqual(manager.features('default'), { remoteControl: false, market: false })
-  const recovered = await boot('default')
+  await manager.recover('desktop')
+  assert.deepEqual(manager.features('desktop'), { remoteControl: false, market: false })
+  const recovered = await boot('desktop')
   const recoveredPage = await fetch(`${recovered.origin}/`, { headers: { cookie: recovered.cookie } })
   assert.equal(recoveredPage.status, 200)
   const recoveredHtml = await recoveredPage.text()
@@ -224,9 +264,9 @@ try {
   await switchedState.body?.cancel()
   await stop()
   if (process.argv.includes('--computer-use')) {
-    const cua = manager.create('computer-use')
-    manager.setFeatures('computer-use', { remoteControl: false, market: false })
-    writeFileSync(join(cua, 'cordis.patch.yml'), '- id: computer-use-cua-driver-native\n  disabled: false\n')
+    manager.create('computer-use')
+    manager.finishOnboarding('computer-use', { features: { remoteControl: false, market: false }, computerUse: true })
+    assert.equal(manager.onboardingRequired('computer-use'), false)
     const enabled = await boot('computer-use')
     const rpcId = crypto.randomUUID()
     const response = await fetch(`${enabled.origin}/api/pluginManager/listPlugins`, {
@@ -240,10 +280,16 @@ try {
     const provider = reply.result.value.find(row => row.moduleName === '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native')
     assert.equal(provider?.enabled, true)
     assert.equal(provider?.fiberPhase, 'active', JSON.stringify(provider))
+    // Onboarding writes a normal Profile row; official settings must remain authoritative.
+    ;({ origin, cookie } = enabled)
+    const disabled = await rpc('setPluginEnabled', { id: provider.entryId, enabled: false })
+    assert.equal(disabled.application, 'applied', JSON.stringify(disabled))
+    assert.equal((await rpc('listPlugins')).find(row => row.entryId === provider.entryId)?.enabled, false)
+    assert.equal(manager.computerUseEnabled('computer-use'), false)
     await stop()
-    console.log('Opt-in Cua native provider activation and teardown passed without capturing screens, sending input or prompting for OS permissions.')
+    console.log('Onboarding Cua native provider activation and teardown passed without capturing screens, sending input or prompting for OS permissions.')
   }
-  console.log(`Next Host smoke passed (${process.argv.includes('--electron') ? 'Electron Node mode' : 'Node'}): authenticated alpha.2 Web, both markets and AA independently managed and persisted, official row toggles, dshmarket offline install and cross-market removal, official install/remove with a freshly published locked dependency, native dshmarket update origin gate, graceful shutdown, recovery boot and profile switch.`)
+  console.log(`Next Host smoke passed (${process.argv.includes('--electron') ? 'Electron Node mode' : 'Node'}): authenticated 0.1.7-alpha.2 Web, exclusive market selection and independent AA persisted, official row toggles, dshmarket offline install and cross-market removal, official install/remove with a freshly published locked dependency, native dshmarket update origin gate, graceful shutdown, recovery boot and profile switch.`)
 } finally {
   await runner?.dispose()
   await host?.stop()

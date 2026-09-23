@@ -27,7 +27,7 @@ export function notificationCopy(notification: DesktopNotification, language: st
     body: notification.assistantMessage || (zh ? '你发起的回合已完成。' : 'A turn you started has finished.'),
   } : {
     title: zh ? '回合未能完成' : 'Turn could not finish',
-    body: zh ? '打开 DSH Desktop Next 查看详情。' : 'Open DSH Desktop Next for details.',
+    body: zh ? '打开 DSH NEXT 查看详情。' : 'Open DSH NEXT for details.',
   }
 }
 

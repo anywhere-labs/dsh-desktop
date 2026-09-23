@@ -6,6 +6,7 @@ import { homedir } from 'node:os'
 import { posix, resolve, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { exportDesktopDiagnostics } from './diagnostic-export.ts'
+import { DESKTOP_WORKSPACE_ARGUMENT } from './launch-workspace-path.ts'
 import {
   DESKTOP_PACKAGE_NAME,
   DESKTOP_PRODUCT_NAME,
@@ -14,10 +15,21 @@ import {
 /** Parsed launcher action. */
 export type DesktopCliAction = 'export-diagnostics' | 'help' | 'version' | 'launch'
 
+/** Parsed launcher invocation, including anything the action carries. */
+export interface DesktopCliRequest {
+  /** What the launcher was asked to do. */
+  readonly action: DesktopCliAction
+  /** Absolute folder to register and open, when the launch named one. */
+  readonly workspacePath?: string
+}
+
 /** Human-readable launcher help. */
-export const DESKTOP_CLI_HELP = `Usage: dsh-plugin-desktop-beta [options]
+export const DESKTOP_CLI_HELP = `Usage: dsh-plugin-desktop-beta [options] [folder]
 
 Launch DSH Desktop Beta with the selected Web-capable profile.
+
+Arguments:
+  folder                register the folder as a workspace and open it
 
 Options:
   --export-diagnostics  export logs and crash evidence without launching the app
@@ -28,14 +40,30 @@ Options:
 /**
  * Parse the intentionally small npm-launcher argument set.
  * @param argv - arguments after the executable and script path.
+ * @param cwd - directory a relative folder argument is resolved against.
+ * @returns the requested invocation.
+ */
+export function parseDesktopCliRequest(
+  argv: readonly string[],
+  cwd: string = process.cwd(),
+): DesktopCliRequest {
+  if (argv.length === 0) return { action: 'launch' }
+  if (argv.length === 1 && argv[0] === '--export-diagnostics') return { action: 'export-diagnostics' }
+  if (argv.length === 1 && (argv[0] === '--help' || argv[0] === '-h')) return { action: 'help' }
+  if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-V')) return { action: 'version' }
+  if (argv.length === 1 && !argv[0]!.startsWith('-')) {
+    return { action: 'launch', workspacePath: resolve(cwd, argv[0]!) }
+  }
+  throw new Error(`unknown arguments: ${argv.join(' ')}`)
+}
+
+/**
+ * Parse the launcher argument set down to its action alone.
+ * @param argv - arguments after the executable and script path.
  * @returns the requested action.
  */
 export function parseDesktopCli(argv: readonly string[]): DesktopCliAction {
-  if (argv.length === 0) return 'launch'
-  if (argv.length === 1 && argv[0] === '--export-diagnostics') return 'export-diagnostics'
-  if (argv.length === 1 && (argv[0] === '--help' || argv[0] === '-h')) return 'help'
-  if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-V')) return 'version'
-  throw new Error(`unknown arguments: ${argv.join(' ')}`)
+  return parseDesktopCliRequest(argv).action
 }
 
 /** Read the package version without importing Electron. */
@@ -69,8 +97,11 @@ export interface DesktopCliOptions {
   readonly userDataDir?: string
 }
 
-/** Launch Electron and mirror its terminal exit status. */
-async function launchElectron(): Promise<number> {
+/**
+ * Launch Electron and mirror its terminal exit status.
+ * @param workspacePath - absolute folder to hand the application, when named.
+ */
+async function launchElectron(workspacePath?: string): Promise<number> {
   let electronPath: string
   try {
     const imported = await import('electron') as { default?: unknown }
@@ -91,8 +122,15 @@ async function launchElectron(): Promise<number> {
     return 1
   }
   const mainPath = fileURLToPath(new URL('./main.js', import.meta.url))
+  // The folder travels attached to the launcher's own flag. A bare path next to
+  // the entry script is indistinguishable from a background Node re-entry once
+  // a running instance receives this command line, and a space separated value
+  // is torn away from its flag when Chromium rebuilds that command line.
+  const args = workspacePath === undefined
+    ? [mainPath]
+    : [mainPath, `${DESKTOP_WORKSPACE_ARGUMENT}=${workspacePath}`]
   return new Promise<number>((resolveExit, reject) => {
-    const child = spawn(electronPath, [mainPath], {
+    const child = spawn(electronPath, args, {
       stdio: 'inherit',
       env: process.env,
       // This child is the graphical app. SW_HIDE suppresses its first window,
@@ -115,14 +153,15 @@ export async function runDesktopCli(
   argv: readonly string[],
   options: DesktopCliOptions = {},
 ): Promise<number> {
-  let action: DesktopCliAction
+  let request: DesktopCliRequest
   try {
-    action = parseDesktopCli(argv)
+    request = parseDesktopCliRequest(argv)
   } catch (cause) {
     process.stderr.write(`${DESKTOP_PACKAGE_NAME}: ${cause instanceof Error ? cause.message : String(cause)}\n`)
     process.stderr.write(DESKTOP_CLI_HELP)
     return 1
   }
+  const action = request.action
   if (action === 'help') {
     process.stdout.write(DESKTOP_CLI_HELP)
     return 0
@@ -139,7 +178,7 @@ export async function runDesktopCli(
     process.stdout.write(`${path}\n`)
     return 0
   }
-  return launchElectron()
+  return launchElectron(request.workspacePath)
 }
 
 const invokedPath = process.argv[1] === undefined ? undefined : resolve(process.argv[1])

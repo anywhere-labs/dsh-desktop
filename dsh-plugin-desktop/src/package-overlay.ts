@@ -44,6 +44,17 @@ function missingPackage(cause: unknown): boolean {
   return (cause as NodeJS.ErrnoException | null)?.code === 'ERR_MODULE_NOT_FOUND'
 }
 
+/**
+ * A resolved manifest path is not proof that the manifest exists. `findPackageJSON`
+ * answers from the package layout, so a package directory left half written by an
+ * interrupted install resolves to a `package.json` path that is absent. Treat that
+ * candidate as missing so the overlay can fall back to the other side and otherwise
+ * name the package it cannot resolve, instead of surfacing a bare `ENOENT`.
+ */
+function missingManifest(cause: unknown): boolean {
+  return (cause as NodeJS.ErrnoException | null)?.code === 'ENOENT'
+}
+
 function readCandidate(
   packageName: string,
   packageUrl: string,
@@ -57,7 +68,13 @@ function readCandidate(
     throw cause
   }
   if (manifestPath === undefined) return undefined
-  const size = statSync(manifestPath).size
+  let size: number
+  try {
+    size = statSync(manifestPath).size
+  } catch (cause) {
+    if (missingManifest(cause)) return undefined
+    throw cause
+  }
   if (size > MAX_MANIFEST_BYTES) {
     throw new Error(`${BIN_NAME}: ${source} package manifest is too large for ${packageName}`)
   }
@@ -65,6 +82,7 @@ function readCandidate(
   try {
     manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as unknown
   } catch (cause) {
+    if (missingManifest(cause)) return undefined
     throw new Error(
       `${BIN_NAME}: cannot read ${source} package manifest for ${packageName}: ${cause instanceof Error ? cause.message : String(cause)}`,
     )

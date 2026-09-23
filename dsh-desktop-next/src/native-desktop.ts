@@ -6,6 +6,7 @@ import { notificationCopy, notificationEnabled } from './notifications.ts'
 import type { DesktopCommand, DesktopPreferences, DesktopState, DesktopNotification } from './desktop-contract.ts'
 import { windowMaterial } from './window-material.ts'
 import { IPC } from './ipc.ts'
+import { updateLabel } from './update-state.ts'
 
 export function applyWindowMaterial(window: BrowserWindow, preferences: DesktopPreferences): void {
   const material = windowMaterial(preferences)
@@ -37,11 +38,17 @@ export class NativeDesktop {
   items() { return desktopMenu(this.options.state(), this.options.language(), this.options.show, this.options.run) }
   refresh(): void {
     if (process.platform !== 'win32') Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'DSH Desktop Next', submenu: this.items() }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+      { label: 'DSH NEXT', submenu: this.items() }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
     ]))
     if (!this.available) return
     const state = this.options.state()
-    this.tray!.setToolTip(`DSH Desktop Next · ${state.selected} · ${state.phase}`)
+    this.tray!.setToolTip(`DSH NEXT · ${state.selected} · ${state.phase}${state.updates && state.updates.phase !== 'idle' ? ` · ${updateLabel(state.updates, this.options.language())}` : ''}`)
+    if (process.platform === 'darwin') {
+      const progress = state.updates
+      this.tray!.setTitle(progress?.phase === 'downloading'
+        ? progress.total ? `${Math.min(100, Math.floor((progress.received ?? 0) / progress.total * 100))}%` : `${Math.floor((progress.received ?? 0) / 1048576)} MB`
+        : progress?.phase === 'ready' ? '✓' : '')
+    }
     this.tray!.setContextMenu(Menu.buildFromTemplate(this.items()))
   }
   notify(message: DesktopNotification): void {

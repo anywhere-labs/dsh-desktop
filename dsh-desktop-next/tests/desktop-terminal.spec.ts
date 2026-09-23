@@ -1,6 +1,6 @@
 import { spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { lstatSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -253,7 +253,7 @@ describe('desktop terminal environment', () => {
 
     expect(launch.windowsLauncherPath).toBe(join(stateDir, 'launch.cmd'))
     const launcher = readFileSync(launch.windowsLauncherPath!, 'utf8')
-    expect(launcher).toContain('start "DSH Desktop Next" /D "!DSH_DESKTOP_PROFILE_DIRECTORY!"')
+    expect(launcher).toContain('start "DSH NEXT" /D "!DSH_DESKTOP_PROFILE_DIRECTORY!"')
     expect(launcher).toContain('"!DSH_DESKTOP_SHELL_EXECUTABLE!" -NoLogo -NoExit')
     expect(launcher).toContain('-File "!DSH_DESKTOP_POWERSHELL_WELCOME!"')
 
@@ -279,6 +279,7 @@ describe('desktop terminal environment', () => {
           DSH_DESKTOP_PNPM_ENTRY: options.pnpmBinPath,
           DSH_DESKTOP_PROFILE_DIRECTORY: options.profileDir,
           DSH_DESKTOP_PRODUCT_VERSION: options.productVersion,
+          DSH_DESKTOP_TERMINAL_MODE: '正常环境 / Normal environment',
           DSH_DESKTOP_SHIM_DIRECTORY: launch.shimDir,
           DSH_DESKTOP_POWERSHELL_WELCOME: launch.welcomePath,
           DSH_DESKTOP_CMD_WELCOME: join(stateDir, 'welcome.cmd'),
@@ -496,4 +497,30 @@ describe('desktop terminal environment', () => {
     expect(() => lstatSync(newline.stateDir)).toThrow()
     expect(harness.calls).toHaveLength(1)
   })
+})
+
+
+it.each(['safe', 'recovery'] as const)('launches a macOS %s terminal with matching pwd, DSH_HOME and environment label', mode => {
+  const root = temporaryDirectory()
+  const homeDir = join(root, mode === 'safe' ? 'safe-runtime' : 'original')
+  const profileDir = join(homeDir, 'profiles', 'desktop')
+  mkdirSync(profileDir, { recursive: true })
+  const harness = spawnHarness()
+  const launch = openDesktopTerminal({ ...macOptions(join(homeDir, 'cli'), harness.spawn), homeDir, profileDir, mode })
+  // Execute the generated setup through the welcome text, without opening an interactive terminal.
+  const prefix = readFileSync(launch.welcomePath, 'utf8').split('case "${SHELL:-/bin/zsh}" in')[0]!
+  const result = spawnSync('/bin/sh', ['-c', prefix + '\npwd\nprintf "%s\\n" "$DSH_HOME"'], { encoding: 'utf8' })
+  expect(result.status).toBe(0)
+  expect(result.stdout.trim().split('\n').slice(-2)).toEqual([profileDir, homeDir])
+  expect(result.stdout).toContain(mode === 'safe' ? 'Safe mode: temporary environment' : 'Recovery terminal: original Profile')
+})
+
+it.each(['safe', 'recovery'] as const)('labels the Windows %s terminal for both PowerShell and cmd', mode => {
+  const harness = spawnHarness()
+  const options = { ...windowsOptions(join(temporaryDirectory(), 'cli'), harness.spawn), mode }
+  const launch = openDesktopTerminal(options)
+  expect(harness.calls[0]!.options.env?.DSH_DESKTOP_TERMINAL_MODE).toContain(mode === 'safe' ? 'Safe mode: temporary environment' : 'Recovery terminal: original Profile')
+  expect(harness.calls[0]!.options.env?.DSH_HOME).toBe(options.homeDir)
+  expect(readFileSync(launch.welcomePath, 'utf8')).toContain('Write-Host $env:DSH_DESKTOP_TERMINAL_MODE')
+  expect(readFileSync(join(options.stateDir, 'welcome.cmd'), 'utf8')).toContain('echo(!DSH_DESKTOP_TERMINAL_MODE!')
 })

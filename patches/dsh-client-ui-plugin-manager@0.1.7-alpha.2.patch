@@ -1,0 +1,125 @@
+diff --git a/lib/client.js b/lib/client.js
+index a88a0ad..8f3f00a 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -28,6 +28,7 @@ window.__ModuleLoader__.load({
+ 			return `${bundle}#${rowId}`;
+ 		}
+ 		const SLOTS = [
++			"plugins.bundle.hidden",
+ 			"plugins.item",
+ 			"plugins.bundle.config",
+ 			"plugins.row.config"
+@@ -42,6 +43,7 @@ window.__ModuleLoader__.load({
+ 			let revision = -1;
+ 			let ledger = {
+ 				items: [],
++				hiddenBundles: new Set(),
+ 				bundles: /* @__PURE__ */ new Set(),
+ 				rows: /* @__PURE__ */ new Set()
+ 			};
+@@ -59,6 +61,7 @@ window.__ModuleLoader__.load({
+ 								id: entry.options.id ?? "",
+ 								label: (0, _deepseek_ai_dsh_client_ui_slots.resolveSlotLabel)(entry.options.label) ?? ""
+ 							})),
++							hiddenBundles: keysOf("plugins.bundle.hidden"),
+ 							bundles: keysOf("plugins.bundle.config"),
+ 							rows: keysOf("plugins.row.config")
+ 						};
+@@ -1492,9 +1495,15 @@ window.__ModuleLoader__.load({
+ 				]
+ 			});
+ 		}
++		/** Sidebar control in native window chrome, independent of the scrolling page header. */
++		function PluginSidebarControl({ renderSlot }) {
++			if (!(0, _deepseek_ai_dsh_client_ui_primitives.isDarwinDesktop)()) return null;
++			return (0, react_jsx_runtime.jsx)("div", { "data-plugin-sidebar-control": "", children: renderSlot("plugins.header.leading", {}) });
++		}
+ 		/** The top every page shares: the crumb that leads back, then the icon with the page's actions at its right. */
+ 		function DetailTop({ crumbLabel, crumbText, onBack, icon, actions }) {
+ 			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsxs)("button", {
++				"data-plugin-page-header": "detail",
+ 				type: "button",
+ 				className: PluginManagerPage_module_css_default.crumb,
+ 				"aria-label": crumbLabel,
+@@ -2537,7 +2546,7 @@ window.__ModuleLoader__.load({
+ 				};
+ 			}, [highlight, clearHighlight]);
+ 			const noticeLine = state.notice === null ? null : noticeText(state.notice, t);
+-			const listed = state.packages.filter((pkg) => !BUILTIN_PROFILE_BUNDLES.has(pkg.name) && (pkg.installed || pkg.optional || pkg.error !== void 0));
++			const listed = state.packages.filter((pkg) => !BUILTIN_PROFILE_BUNDLES.has(pkg.name) && !ledger.hiddenBundles?.has(pkg.name) && (pkg.installed || pkg.optional || pkg.error !== void 0));
+ 			const mine = listed.filter((pkg) => pkg.installed || !pkg.optional);
+ 			const official = listed.filter((pkg) => pkg.optional && !pkg.installed);
+ 			const loaded = state.status === "ready" || state.status === "error";
+@@ -2613,8 +2622,10 @@ window.__ModuleLoader__.load({
+ 				"data-plugin-panel": true,
+ 				"aria-busy": state.status === "loading",
+ 				children: [
++					(0, react_jsx_runtime.jsx)(PluginSidebarControl, { renderSlot }),
+ 					showsCards ? (0, react_jsx_runtime.jsxs)("header", {
+ 						className: PluginManagerPage_module_css_default.pageHead,
++						"data-plugin-page-header": "list",
+ 						children: [(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("h1", {
+ 							className: PluginManagerPage_module_css_default.pageTitle,
+ 							children: t("title")
+@@ -2646,6 +2657,7 @@ window.__ModuleLoader__.load({
+ 							})]
+ 						})]
+ 					}) : null,
++					showsCards && loaded ? renderSlot("plugins.overview", {}) : null,
+ 					showsCards && state.status === "loading" ? (0, react_jsx_runtime.jsxs)("p", {
+ 						className: `${PluginManagerPage_module_css_default.status} ${PluginManagerPage_module_css_default.statusWithDot}`,
+ 						role: "status",
+@@ -3214,6 +3226,9 @@ window.__ModuleLoader__.load({
+ 				locale: NS,
+ 				inject: () => controller.inject(configLedger, (text) => ctx.locale.resolveText(text)),
+ 				children: {
++					"plugins.header.leading": { kind: "single", scope: "root" },
++					"plugins.overview": { kind: "list", scope: "root" },
++					"plugins.bundle.hidden": { kind: "keyed", scope: "root" },
+ 					"plugins.item": {
+ 						kind: "list",
+ 						scope: "root"
+diff --git a/lib/types/client/PluginManagerPage.d.ts b/lib/types/client/PluginManagerPage.d.ts
+index d9e8e74..aea819b 100644
+--- a/lib/types/client/PluginManagerPage.d.ts
++++ b/lib/types/client/PluginManagerPage.d.ts
+@@ -12,7 +12,7 @@ import { type ReactNode } from 'react';
+ import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
+ import { type PluginManagerFace } from './manager-store.ts';
+ /** Full component props assembled by the main slot renderer. */
+-export type PluginManagerPageProps = PropsRuntime<'main'> & PropsLocale<'pluginManager'> & PropsRenderSlots<'plugins.item' | 'plugins.bundle.config' | 'plugins.row.config' | 'plugins.bundle.activation' | 'plugins.detail.actions' | 'plugins.detail.badge' | 'plugins.detail.section'> & InjectFace<PluginManagerFace>;
++export type PluginManagerPageProps = PropsRuntime<'main'> & PropsLocale<'pluginManager'> & PropsRenderSlots<'plugins.header.leading' | 'plugins.overview' | 'plugins.item' | 'plugins.bundle.config' | 'plugins.row.config' | 'plugins.bundle.activation' | 'plugins.detail.actions' | 'plugins.detail.badge' | 'plugins.detail.section'> & InjectFace<PluginManagerFace>;
+ /** Render the plugin manager: the official plugins and installed bundles, their pages, the install dialog, and the confirmation. */
+ export declare function PluginManagerPage(props: PluginManagerPageProps): ReactNode;
+ //# sourceMappingURL=PluginManagerPage.d.ts.map
+\ No newline at end of file
+diff --git a/lib/types/client/config-ledger.d.ts b/lib/types/client/config-ledger.d.ts
+index 3abc24e..399855d 100644
+--- a/lib/types/client/config-ledger.d.ts
++++ b/lib/types/client/config-ledger.d.ts
+@@ -19,6 +19,7 @@ export interface OfficialItem {
+  */
+ export interface ConfigLedger {
+     readonly items: readonly OfficialItem[];
++    readonly hiddenBundles?: ReadonlySet<string>;
+     readonly bundles: ReadonlySet<string>;
+     readonly rows: ReadonlySet<string>;
+ }
+diff --git a/lib/types/client/slot-contract.d.ts b/lib/types/client/slot-contract.d.ts
+index f7ba8cc..07f3d66 100644
+--- a/lib/types/client/slot-contract.d.ts
++++ b/lib/types/client/slot-contract.d.ts
+@@ -72,6 +72,12 @@ export interface PluginActivationOwnerProps {
+ }
+ declare module '@deepseek-ai/dsh-client-ui-slots' {
+     interface SlotMap {
++        /** Native sidebar control, separate from the scrolling page header. */
++        'plugins.header.leading': { kind: 'single'; scope: 'root'; };
++        /** Controls above the ordinary plugin cards. */
++        'plugins.overview': { kind: 'list'; scope: 'root'; };
++        /** Bundle names managed by overview controls instead of ordinary cards. */
++        'plugins.bundle.hidden': { kind: 'keyed'; scope: 'root'; };
+         /** Optional guidance after the user enables a bundle from the list, keyed by npm package name. */
+         'plugins.bundle.activation': {
+             kind: 'keyed';

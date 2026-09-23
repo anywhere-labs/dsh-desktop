@@ -30,6 +30,8 @@ const SKIPPABLE_FILE_ERRORS = new Set(['EACCES', 'EBUSY', 'ELOOP', 'ENOENT', 'EN
 
 interface DiagnosticExportWorkerData {
   readonly logsDir: string
+  /** Isolated Host log directory; its files are nested under `host/` in the archive. */
+  readonly hostLogsDir?: string
   readonly userDataDir: string
   readonly appVersion: string
   readonly maxEvidenceBytes: number
@@ -65,6 +67,33 @@ function regularLogEntry(logsDir: string, name: string): LogEntry | undefined {
     if (skippableFileError(cause)) return undefined
     throw cause
   }
+}
+
+/**
+ * Collect the isolated Host's own log files, which live one level below the
+ * Desktop log directory and would otherwise never reach a diagnostics archive.
+ * Their names repeat the Desktop ones day for day, so each is nested under
+ * `host/` to keep both copies in the same zip.
+ * @param hostLogsDir - the Host log directory, absent when Host runs inline.
+ * @returns archive entries for the Host log files, or none when unavailable.
+ */
+function hostLogEntries(hostLogsDir: string | undefined): LogEntry[] {
+  if (hostLogsDir === undefined) return []
+  let rootStats: Stats
+  try {
+    rootStats = lstatSync(hostLogsDir)
+  } catch (cause) {
+    // Absent whenever Host runs inside the Electron main process.
+    if (skippableFileError(cause)) return []
+    throw cause
+  }
+  if (rootStats.isSymbolicLink() || !rootStats.isDirectory()) {
+    throw new Error('dsh-plugin-desktop: refusing linked Host log directory')
+  }
+  return readdirSync(hostLogsDir).flatMap((name) => {
+    const entry = regularLogEntry(hostLogsDir, name)
+    return entry === undefined ? [] : [{ ...entry, name: `host/${entry.name}` }]
+  })
 }
 
 function regularEvidenceEntry(path: string, name: string, ownerDir: string): LogEntry | undefined {
@@ -176,9 +205,10 @@ async function createDiagnosticsArchive(data: DiagnosticExportWorkerData): Promi
     throw new Error('dsh-plugin-desktop: refusing linked diagnostics directory')
   }
 
-  const candidates = readdirSync(data.logsDir)
-    .flatMap(name => regularLogEntry(data.logsDir, name) ?? [])
-    .sort((a, b) => b.stats.mtimeMs - a.stats.mtimeMs || b.name.localeCompare(a.name, 'en'))
+  const candidates = [
+    ...readdirSync(data.logsDir).flatMap(name => regularLogEntry(data.logsDir, name) ?? []),
+    ...hostLogEntries(data.hostLogsDir),
+  ].sort((a, b) => b.stats.mtimeMs - a.stats.mtimeMs || b.name.localeCompare(a.name, 'en'))
   const crashCandidates = crashDumpEntries(data.crashDumpsDir)
     .sort((a, b) => b.stats.mtimeMs - a.stats.mtimeMs || b.name.localeCompare(a.name, 'en'))
   const runStateCandidate = data.runStatePath === undefined

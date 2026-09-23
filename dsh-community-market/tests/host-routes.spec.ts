@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Context } from '@deepseek-ai/cordis'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   DSH_1024STORE_ADAPTER_ID,
@@ -16,7 +15,7 @@ import {
   DSHFIND_KEY,
   DSHFIND_PROVIDER_ID,
 } from '../src/adapters/dshfind.js'
-import type { MarketSettingsDocument } from '../src/catalog/source-store.js'
+import { MemoryMarketStateStore, type MarketStateStore } from '../src/catalog/state-store.js'
 import type { CatalogSourceManifest, LocalSourceRecord } from '../src/contracts/index.js'
 import { marketRoutes, registerMarketRoutes } from '../src/host/routes.js'
 import { restrictedHttpClient } from '../src/network/restricted-http.js'
@@ -31,10 +30,6 @@ interface MarketServer {
   readonly baseUrl: string
   readonly close: () => Promise<void>
   readonly logger: { readonly error: ReturnType<typeof vi.fn> }
-}
-
-interface SharedMarketSettings {
-  document: MarketSettingsDocument
 }
 
 function localHeaders(server: MarketServer, origin = server.baseUrl): Record<string, string> {
@@ -100,18 +95,20 @@ const standardSource = (overrides: Partial<LocalSourceRecord> = {}): LocalSource
 
 async function startMarketServer(
   initialSources: readonly LocalSourceRecord[],
-  sharedSettings?: SharedMarketSettings,
-  updateOverride?: (patch: object) => Promise<void>,
+  sharedState?: MarketStateStore,
+  setCatalogCacheOverride?: MarketStateStore['setCatalogCache'],
 ): Promise<MarketServer> {
   const routes = new Map<string, RouteHandler>()
-  const settings = sharedSettings ?? { document: { sources: initialSources } }
+  const backing = sharedState ?? new MemoryMarketStateStore({ sources: initialSources })
   const logger = { error: vi.fn() }
-  const scope = {
-    get: () => settings.document,
-    update: updateOverride ?? (async (patch: object) => {
-      settings.document = { ...settings.document, ...patch as Partial<MarketSettingsDocument> }
-    }),
-  } as unknown as SettingsScope<MarketSettingsDocument>
+  const state: MarketStateStore = setCatalogCacheOverride === undefined
+    ? backing
+    : {
+        getSources: () => backing.getSources(),
+        setSources: records => backing.setSources(records),
+        getCatalogCache: () => backing.getCatalogCache(),
+        setCatalogCache: setCatalogCacheOverride,
+      }
   const server = createServer((req, res) => {
     const pathname = new URL(req.url ?? '/', 'http://localhost').pathname
     const handler = routes.get(pathname)
@@ -140,7 +137,7 @@ async function startMarketServer(
     },
     logger,
   } as unknown as Context
-  const disposeRoutes = registerMarketRoutes(ctx, scope)
+  const disposeRoutes = registerMarketRoutes(ctx, state)
   return {
     baseUrl: `http://127.0.0.1:${String(port)}`,
     close: async () => {
@@ -160,7 +157,7 @@ async function closeServer(server: Server): Promise<void> {
 describe('community market Host routes', () => {
   afterEach(() => { vi.restoreAllMocks() })
 
-  it('returns settings-backed source state with built-in provider metadata', async () => {
+  it('returns storage-backed source state with built-in provider metadata', async () => {
     const server = await startMarketServer([builtInSource()])
     try {
       const response = await readRoute(server, marketRoutes.state)
@@ -282,20 +279,20 @@ describe('community market Host routes', () => {
         signal.addEventListener('abort', () => reject(signal.reason), { once: true })
       })
     })
-    const settings: SharedMarketSettings = { document: { sources: [activeSource] } }
-    const first = await startMarketServer([], settings)
+    const shared = new MemoryMarketStateStore({ sources: [activeSource] })
+    const first = await startMarketServer([], shared)
     try {
       const firstResponse = await readRoute(
         first,
         `${marketRoutes.catalog}?sourceRecordId=${activeSource.sourceRecordId}&limit=50&locale=en`,
       )
       expect(firstResponse.status).toBe(200)
-      await vi.waitFor(() => expect(settings.document.catalogCache).toBeDefined())
+      await vi.waitFor(() => expect(shared.getCatalogCache()).toBeDefined())
     } finally {
       await first.close()
     }
 
-    const second = await startMarketServer([], settings)
+    const second = await startMarketServer([], shared)
     try {
       const startedAt = Date.now()
       const secondResponse = await readRoute(
@@ -344,8 +341,8 @@ describe('community market Host routes', () => {
     process.on('unhandledRejection', unhandled)
     const server = await startMarketServer(
       [],
-      { document: { sources: [activeSource] } },
-      async () => { throw new Error('simulated settings write failure') },
+      new MemoryMarketStateStore({ sources: [activeSource] }),
+      async () => { throw new Error('simulated storage write failure') },
     )
     try {
       const response = await readRoute(
@@ -415,7 +412,7 @@ describe('community market Host routes', () => {
     }
   })
 
-  it('rejects an unknown built-in provider key without changing settings', async () => {
+  it('rejects an unknown built-in provider key without changing the registry', async () => {
     const server = await startMarketServer([])
     try {
       const response = await mutateSource(server, {
@@ -521,7 +518,7 @@ describe('community market Host routes', () => {
     }
   })
 
-  it('rejects a cross-origin source mutation without changing settings', async () => {
+  it('rejects a cross-origin source mutation without changing the registry', async () => {
     const server = await startMarketServer([])
     try {
       const response = await mutateSource(server, {

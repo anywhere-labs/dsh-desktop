@@ -1,4 +1,6 @@
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { DESKTOP_WORKSPACE_ARGUMENT } from '../src/launch-workspace-path.ts'
 import {
   DESKTOP_RECOVERY_MODE_ARGUMENT,
   DESKTOP_SAFE_MODE_ARGUMENT,
@@ -26,6 +28,20 @@ describe('Desktop relaunch arguments', () => {
     expect(desktopRecoveryRelaunchArguments(argv)).toEqual([
       'desktop-main.cjs', '--profile=work', DESKTOP_RECOVERY_MODE_ARGUMENT,
     ])
+  })
+
+  it('never carries a one-shot launch folder into any relaunch shape', () => {
+    const folder = resolve('work')
+    const launched = [argv[0]!, 'desktop-main.cjs', DESKTOP_WORKSPACE_ARGUMENT, folder, '--profile=work']
+    expect(desktopDefaultRelaunchArguments(launched)).toEqual(['desktop-main.cjs', '--profile=work'])
+    expect(desktopRecoveryRelaunchArguments(launched)).toEqual([
+      'desktop-main.cjs', '--profile=work', DESKTOP_RECOVERY_MODE_ARGUMENT,
+    ])
+    expect(desktopSafeModeRelaunchArguments(launched)).toEqual([
+      'desktop-main.cjs', '--profile=work', DESKTOP_SAFE_MODE_ARGUMENT,
+    ])
+    expect(desktopDefaultRelaunchArguments([argv[0]!, 'desktop-main.cjs', folder]))
+      .toEqual(['desktop-main.cjs'])
   })
 
   it('recognizes only an exact process argument', () => {

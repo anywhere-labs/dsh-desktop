@@ -223,3 +223,121 @@ describe('pre-Host Desktop startup recovery controller', () => {
     )
   })
 })
+
+describe('pre-Host Desktop startup recovery bundle selection', () => {
+  it('offers a non-destructive toggle exactly where it offers removal', async () => {
+    const root = temporaryRoot()
+    const target = createHarness(root)
+    const snapshot = await target.controller.snapshot()
+    expect(snapshot.bundles.find(item => item.packageName === 'direct-plugin'))
+      .toMatchObject({ action: 'uninstall', toggle: 'disable' })
+    for (const packageName of ['dsh-plugin-desktop', 'dsh-plugin-desktop-beta', 'detached-bundle']) {
+      expect(snapshot.bundles.find(item => item.packageName === packageName))
+        .toMatchObject({ action: null, toggle: null })
+    }
+  })
+
+  it('disables and re-enables a direct dependency without deleting anything', async () => {
+    const root = temporaryRoot()
+    const target = createHarness(root)
+    const bundle = (await target.controller.snapshot()).bundles
+      .find(item => item.packageName === 'direct-plugin')!
+
+    const disable = await target.controller.previewDisable(bundle.bundleId)
+    expect(disable.previewId).toMatch(/^disable_[A-Za-z0-9_-]{43}$/u)
+    await expect(target.controller.executeDisable(disable.previewId))
+      .resolves.toEqual({ action: 'disable', packageName: 'direct-plugin' })
+    await expect(target.controller.executeDisable(disable.previewId)).rejects.toSatisfy(
+      cause => errorCode(cause) === 'preview-expired',
+    )
+    expect(target.uninstallPlugin).not.toHaveBeenCalled()
+
+    const manifest = JSON.parse(readFileSync(target.manifestPath, 'utf8')) as {
+      dependencies: Record<string, string>
+      dsh: { profile: { bundles: string[] }; desktopDeselectedBundles?: string[] }
+    }
+    expect(manifest.dsh.profile.bundles).not.toContain('direct-plugin')
+    expect(manifest.dependencies).toEqual({ 'direct-plugin': '1.0.0' })
+    expect(manifest.dsh.desktopDeselectedBundles).toEqual(['direct-plugin'])
+
+    const disabled = (await target.controller.snapshot()).bundles
+      .find(item => item.packageName === 'direct-plugin')
+    expect(disabled).toMatchObject({
+      bundleId: bundle.bundleId,
+      status: 'disabled',
+      owner: 'profile',
+      action: 'uninstall',
+      toggle: 'enable',
+    })
+
+    const enable = await target.controller.previewEnable(bundle.bundleId)
+    expect(enable.previewId).toMatch(/^enable_[A-Za-z0-9_-]{43}$/u)
+    await expect(target.controller.executeEnable(enable.previewId))
+      .resolves.toEqual({ action: 'enable', packageName: 'direct-plugin' })
+    expect((await target.controller.snapshot()).bundles
+      .find(item => item.packageName === 'direct-plugin')).toMatchObject({
+      bundleId: bundle.bundleId,
+      status: 'active',
+      toggle: 'disable',
+    })
+  })
+
+  it('keeps a disabled bundle out of the exported snapshot paths and hashes', async () => {
+    const root = temporaryRoot()
+    const target = createHarness(root)
+    const bundle = (await target.controller.snapshot()).bundles
+      .find(item => item.packageName === 'direct-plugin')!
+    await target.controller.executeDisable((await target.controller.previewDisable(bundle.bundleId)).previewId)
+    const exported = JSON.stringify(await target.controller.snapshot())
+    expect(exported).toContain('direct-plugin')
+    expect(exported).not.toContain(root)
+    expect(exported).not.toContain('private-profile-identity')
+    expect(exported).not.toContain('a'.repeat(64))
+  })
+
+  it('refuses a product bundle, a detached bundle, and a redundant selection change', async () => {
+    const root = temporaryRoot()
+    const target = createHarness(root)
+    const snapshot = await target.controller.snapshot()
+    for (const packageName of ['dsh-plugin-desktop', 'dsh-plugin-desktop-beta', 'detached-bundle']) {
+      const item = snapshot.bundles.find(candidate => candidate.packageName === packageName)!
+      await expect(target.controller.previewDisable(item.bundleId)).rejects.toSatisfy(
+        cause => errorCode(cause) === 'immutable-target',
+      )
+    }
+    const bundle = snapshot.bundles.find(item => item.packageName === 'direct-plugin')!
+    await expect(target.controller.previewEnable(bundle.bundleId)).rejects.toSatisfy(
+      cause => errorCode(cause) === 'invalid-target',
+    )
+    await expect(target.controller.previewDisable(`bundle_${'a'.repeat(32)}`)).rejects.toSatisfy(
+      cause => errorCode(cause) === 'invalid-target',
+    )
+    expect(readFileSync(target.manifestPath, 'utf8')).toContain('"direct-plugin"')
+  })
+
+  it('reports a bundle-selection stage and invalidates a preview across a generation change', async () => {
+    const root = temporaryRoot()
+    const target = createHarness(root)
+    const bundle = (await target.controller.snapshot()).bundles
+      .find(item => item.packageName === 'direct-plugin')!
+
+    const stale = await target.controller.previewDisable(bundle.bundleId)
+    target.generation.profileName = 'other'
+    await expect(target.controller.executeDisable(stale.previewId)).rejects.toSatisfy(
+      cause => errorCode(cause) === 'generation-changed',
+    )
+    target.generation.profileName = 'desktop'
+
+    // A selection that stops being valid under the lock surfaces as a refusal,
+    // never as an opaque failure, and the manifest is left alone.
+    const preview = await target.controller.previewDisable(bundle.bundleId)
+    const manifest = JSON.parse(readFileSync(target.manifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(name => name !== 'direct-plugin')
+    writeFileSync(target.manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
+    await expect(target.controller.executeDisable(preview.previewId)).rejects.toSatisfy(
+      cause => errorCode(cause) === 'invalid-target',
+    )
+  })
+})

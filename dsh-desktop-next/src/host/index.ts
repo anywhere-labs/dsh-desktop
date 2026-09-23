@@ -1,6 +1,7 @@
 /** Alpha.2 shared Web profile runner, hosted by an Electron Node-mode child. */
 import { basename, delimiter, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { inspect } from 'node:util'
 import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
@@ -12,8 +13,11 @@ import { configureNextBrowserAccess } from '../desktop-browser-access.ts'
 import { parsePreferences } from '../desktop-preferences.ts'
 import { atomicJson } from '../private-files.ts'
 import type NextWebServer from '../webserver.ts'
+import { disableAsarArchiveView } from '../asar-archive-policy.ts'
 
 export async function main(): Promise<void> {
+  // The Host lists and reads user workspaces; see asar-archive-policy.ts.
+  disableAsarArchiveView(import.meta.url)
   const runtimeDir = process.argv[2]
   const projectDir = process.argv[3]
   const home = process.env.DSH_HOME
@@ -33,7 +37,7 @@ export async function main(): Promise<void> {
   ])
   const application = runProfile({
     environment: loadLayeredEnv('dsh-desktop-next'), profile: basename(projectDir),
-    resolutionMode: 'runtime', resolvedProfile: { profile, installAnchor: NEXT_PACKAGE },
+    resolvedProfile: { profile, installAnchor: NEXT_PACKAGE },
     patchFiles: [join(runtimeDir, 'host.cordis.patch.yml'), join(projectDir, 'desktop-next.cordis.patch.json'), runtimePatch], args: ['--no-open', '--port', String(preferences.port)],
     packageManager: {
       command: process.execPath, args: ['--expose-internals', bundledPnpmEntry(NEXT_PACKAGE), ...withDesktopPnpmPolicy([])],
@@ -57,6 +61,18 @@ export async function main(): Promise<void> {
   })()
   process.on('message', (value: unknown) => {
     if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'shutdown') void stop().catch(fatal)
+    if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'injections') {
+      // dsh 0.1.7 serves the boot graph as revision-addressed combo bundles, and registering a
+      // plugin rebuilds that table. A document reloading against the table captured at startup
+      // would request bundles the Web server no longer publishes, so the answer is collected now.
+      const query = value as { requestId?: unknown }
+      if (!Number.isSafeInteger(query.requestId)) return
+      void application.then(async ({ ctx }) => {
+        if (stopping) throw new Error('Next Host is stopping')
+        await send({ type: 'injections', requestId: query.requestId, injections: ctx.webServer.collectIndexInjections() })
+      }).catch(async () => { await send({ type: 'injections', requestId: query.requestId, error: 'Could not collect Web boot injections' }) }).catch(fatal)
+      return
+    }
     if (typeof value !== 'object' || value === null || !('type' in value) || value.type !== 'browser-access') return
     const request = value as { requestId?: unknown; enabled?: unknown }
     if (!Number.isSafeInteger(request.requestId) || typeof request.enabled !== 'boolean') return
@@ -73,9 +89,16 @@ export async function main(): Promise<void> {
     injections: ctx.webServer.collectIndexInjections() })
 }
 
+/** Upper bound of the startup diagnostic carried over IPC; the head holds the message and stack. */
+const MAX_FATAL_DIAGNOSTIC_CHARS = 64 * 1024
+
 function fatal(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error)
-  if (process.connected) process.send?.({ type: 'fatal', message }, () => { if (process.connected) process.disconnect() })
+  // The shell receives the complete inspected error here, not through stderr:
+  // stderr bytes and this IPC message race, and the shell reports the first
+  // failure it sees.
+  const diagnostic = inspect(error, { depth: 4, maxArrayLength: 50 }).slice(0, MAX_FATAL_DIAGNOSTIC_CHARS)
+  if (process.connected) process.send?.({ type: 'fatal', message, diagnostic }, () => { if (process.connected) process.disconnect() })
   console.error(error)
   process.exitCode = 1
 }

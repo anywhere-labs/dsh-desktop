@@ -11,6 +11,7 @@ import {
   PackageX,
   Plug,
   Power,
+  PowerOff,
   RefreshCw,
   RotateCcw,
   ShieldCheck,
@@ -60,6 +61,7 @@ interface RecoveryBundle {
   readonly status: 'active' | 'disabled'
   readonly owner: 'core' | 'profile' | 'external'
   readonly action: 'uninstall' | null
+  readonly toggle: 'disable' | 'enable' | null
 }
 interface RecoveryCheckpoint {
   readonly slotId: 'slot-1' | 'slot-2' | 'slot-3'
@@ -188,7 +190,7 @@ function SafeModePanel({ copy, state }: { readonly copy: DesktopRecoveryCopy; re
 
 function PluginsPanel({ copy, state }: { readonly copy: DesktopRecoveryCopy; readonly state: RecoveryState }): JSX.Element {
   if (state.snapshot === undefined) return <PanelScroll><Alert variant="destructive"><AlertTriangle /><AlertTitle>{copy.plugins}</AlertTitle><AlertDescription>{copy.pluginsUnavailable}</AlertDescription></Alert></PanelScroll>
-  return <PanelScroll><Card><CardHeader><CardTitle>{copy.plugins}</CardTitle><CardDescription>{copy.pluginsBody}</CardDescription></CardHeader><CardContent className="divide-y p-0">{state.snapshot.bundles.length === 0 ? <p className="px-6 py-5 text-sm text-muted-foreground">{copy.pluginsEmpty}</p> : state.snapshot.bundles.map(bundle => <div className="flex items-center justify-between gap-4 px-6 py-3" key={bundle.bundleId}><div className="min-w-0"><p className="truncate text-sm font-medium">{bundle.packageName}</p><p className="text-xs text-muted-foreground">{bundle.owner === 'core' ? copy.core : bundle.owner === 'profile' ? copy.profileDependency : copy.external}</p></div><div className="flex shrink-0 items-center gap-2">{bundle.status === 'disabled' ? <span className="rounded-full bg-muted px-2 py-1 text-xs">{copy.disabled}</span> : null}{bundle.action === 'uninstall' ? <Action action="preview-uninstall" icon={<PackageX />} id={bundle.bundleId} variant="destructive">{copy.uninstall}</Action> : null}</div></div>)}</CardContent></Card></PanelScroll>
+  return <PanelScroll><Card><CardHeader><CardTitle>{copy.plugins}</CardTitle><CardDescription>{copy.pluginsBody}</CardDescription></CardHeader><CardContent className="divide-y p-0">{state.snapshot.bundles.length === 0 ? <p className="px-6 py-5 text-sm text-muted-foreground">{copy.pluginsEmpty}</p> : state.snapshot.bundles.map(bundle => <div className="flex items-center justify-between gap-4 px-6 py-3" key={bundle.bundleId}><div className="min-w-0"><p className="truncate text-sm font-medium">{bundle.packageName}</p><p className="text-xs text-muted-foreground">{bundle.status === 'disabled' ? copy.disabledHint : bundle.owner === 'core' ? copy.core : bundle.owner === 'profile' ? copy.profileDependency : copy.external}</p></div><div className="flex shrink-0 items-center gap-2">{bundle.status === 'disabled' ? <span className="rounded-full bg-muted px-2 py-1 text-xs">{copy.disabled}</span> : null}{bundle.toggle === 'disable' ? <Action action="preview-disable" icon={<PowerOff />} id={bundle.bundleId} variant="secondary">{copy.disable}</Action> : null}{bundle.toggle === 'enable' ? <Action action="preview-enable" icon={<Power />} id={bundle.bundleId} variant="default">{copy.enable}</Action> : null}{bundle.action === 'uninstall' ? <Action action="preview-uninstall" icon={<PackageX />} id={bundle.bundleId} variant="destructive">{copy.uninstall}</Action> : null}</div></div>)}</CardContent></Card></PanelScroll>
 }
 
 function ProfilesPanel({ copy, state }: { readonly copy: DesktopRecoveryCopy; readonly state: RecoveryState }): JSX.Element {

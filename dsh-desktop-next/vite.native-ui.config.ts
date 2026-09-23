@@ -9,5 +9,6 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   // Shared components live in another workspace; hooks must use this renderer's React.
   resolve: { dedupe: ['react', 'react-dom'] },
-  build: { outDir: fileURLToPath(new URL('./lib/native-ui', import.meta.url)), emptyOutDir: true },
+  // Native documents allow only same-origin assets, including fonts from official UI atoms.
+  build: { outDir: fileURLToPath(new URL('./lib/native-ui', import.meta.url)), emptyOutDir: true, assetsInlineLimit: 0 },
 })

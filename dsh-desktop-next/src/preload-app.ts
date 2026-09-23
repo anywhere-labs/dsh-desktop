@@ -7,6 +7,8 @@ import { syncWindowsAppearance } from './preload-windows.ts'
 import { syncWindowMaterial } from './preload-material.ts'
 import { syncNativeLocale } from './preload-locale.ts'
 import { permissionBridge } from './preload-permissions.ts'
+import { onOpenSettings } from './preload-settings.ts'
+import { createDesktopBrowserBridge } from './preload-browser.ts'
 
 if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
   markDocumentPlatform()
@@ -16,11 +18,14 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
   syncWindowMaterial()
   contextBridge.exposeInMainWorld('desktopNext', {
     permissions: permissionBridge(),
+    onOpenSettings,
     state: () => ipcRenderer.invoke(IPC.state),
     browserLinks: () => ipcRenderer.invoke(IPC.browserLinks),
     command: (command: unknown) => ipcRenderer.invoke(IPC.command, command),
   })
-  contextBridge.exposeInMainWorld('dshDesktop', { protocolVersion: 1 })
+  // dsh 0.1.7 implements the native Sidebar browser itself and reads its transport from this
+  // carrier; without `browser` the official plugin silently falls back to the sandboxed iframe.
+  contextBridge.exposeInMainWorld('dshDesktop', { protocolVersion: 1, browser: createDesktopBrowserBridge() })
   contextBridge.exposeInMainWorld('dshDesktopBoot', {
     ready: () => ipcRenderer.invoke(IPC.boot),
     failed: (message: string) => ipcRenderer.invoke(IPC.failed, message),

@@ -51,12 +51,19 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
     }, 30_000)
     child.on('exit', () => rpc?.close(stderr || 'worker exited'))
     let shell: DesktopShellSpec | undefined
+    // The legacy settings document above is imported once the Loader settles, which
+    // is after this profile has mounted in compatibility. The imported `advanced`
+    // mode is restart-applied, so 0.1.7 asks the runtime to restart exactly once on
+    // the first boot after an upgrade; a runtime without the method faults the Host.
+    const restarts: string[] = []
     const runtime = {
       platform: 'win32', windowsBuild: 22631, locale: 'en',
       updates: { isPackaged: false, canDownload: false, currentVersion: '2.0.7-beta.1', statePath: join(home, 'updates') },
       schedule(spec: DesktopShellSpec) { shell = spec; return async () => {} },
       registerTrayItem() { return { refresh() {}, dispose() {} } },
       setLocalePreference() {}, setThemeSource() {},
+      async requestRestart() { restarts.push('restart') },
+      async requestRecoveryRestart() { restarts.push('recovery') },
     } as unknown as DesktopRuntime
     releaseNative = bindNativeRuntime(rpc, runtime)
     rpc.handle('certificate', () => ({ failureCode: 'test-disabled' }))
@@ -103,6 +110,9 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
     expect(html).toContain('dsh-plugin-desktop-beta')
     await expect.poll(async () => (await rpc!.call<{ services: { aaRuntime: boolean; aaOnboarding: boolean } }>('status')).services, { timeout: 3000 })
       .toEqual({ aaRuntime: aaEnabled, aaOnboarding: aaEnabled })
+    // A settings import is an ordinary restart; recovery is reserved for a Host that
+    // failed to compose, and this one did not.
+    expect(restarts).not.toContain('recovery')
     await rpc.call('stop')
     await expect(fetch(spec.url, { headers })).rejects.toThrow()
   } catch (error) {

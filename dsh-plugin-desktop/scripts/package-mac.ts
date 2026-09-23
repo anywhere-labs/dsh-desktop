@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { withoutMacReleaseSecrets } from './release-preflight.ts'
-import { prepareInstalledMacUniversalRuntime } from './mac-universal.ts'
+import { macSmokeArchitecture, prepareInstalledMacUniversalRuntime } from './mac-universal.ts'
 import { prepareFsExtForElectron } from './prepare-fs-ext.ts'
 import { electronBuilderEnvironment } from './electron-builder-environment.ts'
 
@@ -93,7 +93,8 @@ function defaultOptions(): MacSmokePackageOptions {
  * The signed and notarized release stays a manual step on a credentialed
  * machine; this smoke exists so macOS packaging regressions fail in CI before
  * a manual release. The universal target exercises both Intel and Apple
- * Silicon packaging in one artifact.
+ * Silicon packaging in one artifact; `DSH_MAC_SMOKE_ARCH=arm64` or `x64`
+ * packages a single CPU instead and skips the slow universal merge.
  * @param options - Injectable process and command boundaries.
  */
 export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions()): void {
@@ -112,8 +113,12 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
     )
   }
 
+  const architecture = macSmokeArchitecture(options.env)
   const cleanEnvironment = withoutMacReleaseSecrets(options.env)
   options.log('Building an unsigned macOS DMG smoke; signing and notarization are release-only steps.')
+  if (architecture !== 'universal') {
+    options.log(`Packaging only the ${architecture} application; the universal merge is skipped.`)
+  }
   if (options.env.DSH_PACKAGE_CHECK_ALREADY_RAN !== '1') {
     options.run(
       'corepack',
@@ -132,7 +137,7 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
       options.builderCli,
       '--mac',
       'dmg',
-      '--universal',
+      `--${architecture}`,
       '--publish',
       'never',
       '--config.mac.notarize=false',
