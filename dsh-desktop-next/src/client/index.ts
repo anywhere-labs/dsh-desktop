@@ -64,14 +64,14 @@ export function apply(ctx: Context): void {
 
 /** Temporary, metadata-only trace for the AA dialog and its sibling Plugins UI. */
 function installUiDiagnostics(): () => void {
-  const aaButton = '[data-slot="sidebar.footer.action"] button[aria-label="手机连接"]'
+  const aaButton = '[data-slot="sidebar.footer.action"] button[aria-label="远程控制"], [data-slot="sidebar.footer.action"] button[aria-label="Remote Control"], [data-slot="sidebar.footer.action"] button[aria-label="Mobile connection"], [data-slot="sidebar.footer.action"] button[aria-label="手机连接"]'
   const read = () => {
     const button = document.querySelector(aaButton)
     return {
       button: button !== null,
       expanded: button?.getAttribute('aria-expanded') === 'true',
       dialog: [...document.querySelectorAll('[role="dialog"]')].some(element =>
-        ['手机连接', 'Agents Anywhere'].includes(element.getAttribute('aria-label') ?? '')),
+        ['远程控制', 'Remote Control', '手机连接', 'Mobile connection', 'Agents Anywhere'].includes(element.getAttribute('aria-label') ?? '')),
       plugins: document.querySelector('[data-next-plugin-controls]') !== null,
     }
   }

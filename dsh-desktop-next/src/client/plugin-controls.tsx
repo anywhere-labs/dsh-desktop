@@ -102,7 +102,7 @@ function PluginControls({ context, t: translate, onOpenBundle, onOpenItem }: Pro
       {bothMarkets && <p role="status" className="dshDesktopSettingsHint">{t('当前两个市场均已开启，请选择保留其中一个。', 'Both markets are currently enabled. Choose which one to keep.')}</p>}
     </section>
     <div className="dshNextPluginSections">
-      <PluginCard title={t('远程控制', 'Remote control')} description={remoteDescription(t)}
+      <PluginCard title={t('远程控制', 'Remote Control')} description={remoteDescription(t)}
         icon={<PluginArtworkDefault size={36} />} onOpen={() => { onOpenBundle(REMOTE) }}>
         <RemoteControlSettings context={context} t={t} />
       </PluginCard>
@@ -117,8 +117,8 @@ function PluginControls({ context, t: translate, onOpenBundle, onOpenItem }: Pro
 }
 
 const remoteDescription = (t: Translate): string => t(
-  '通过 Agents Anywhere 从手机或其他设备连接。启用后，在侧边栏的“手机连接”中完成配对。',
-  'Connect from your phone or another device with Agents Anywhere. After enabling, pair it from Phone connection in the sidebar.',
+  '通过 Agents Anywhere 从手机或其他设备连接。启用后，在侧边栏的“远程控制”中完成配对。',
+  'Connect from your phone or another device with Agents Anywhere. After enabling, pair it from Remote Control in the sidebar.',
 )
 
 const computerDescription = (t: Translate): string => t(
@@ -189,7 +189,7 @@ function RemoteControlSettings({ context, t }: { context: Context; t: Translate 
     finally { setBusy(false); refresh(value => value + 1) }
   }
   const openPanel = (): void => {
-    const trigger = document.querySelector<HTMLButtonElement>('[data-slot="sidebar.footer.action"] button[aria-haspopup="dialog"][aria-label="手机连接"], [data-slot="sidebar.footer.action"] button[aria-haspopup="dialog"][aria-label="Agents Anywhere"]')
+    const trigger = document.querySelector<HTMLButtonElement>('[data-slot="sidebar.footer.action"] button[aria-haspopup="dialog"][aria-label="远程控制"], [data-slot="sidebar.footer.action"] button[aria-haspopup="dialog"][aria-label="Remote Control"], [data-slot="sidebar.footer.action"] button[aria-haspopup="dialog"][aria-label="Mobile connection"], [data-slot="sidebar.footer.action"] button[aria-haspopup="dialog"][aria-label="手机连接"], [data-slot="sidebar.footer.action"] button[aria-haspopup="dialog"][aria-label="Agents Anywhere"]')
     if (trigger) { setError(''); trigger.click() }
     else setError(t('远程控制界面尚未就绪，请稍后重试。', 'Remote control is not ready yet. Try again shortly.'))
   }
