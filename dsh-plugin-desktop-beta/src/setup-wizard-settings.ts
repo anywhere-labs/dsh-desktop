@@ -8,13 +8,14 @@ import {
 import {
   closeSync,
   constants,
+  existsSync,
   fstatSync,
   lstatSync,
   mkdirSync,
   openSync,
   readSync,
 } from 'node:fs'
-import { dirname, extname, isAbsolute, resolve } from 'node:path'
+import { dirname, extname, isAbsolute, join, resolve } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { parseDocument } from 'yaml'
 import {
@@ -468,6 +469,8 @@ export async function migrateDesktopWindowMaterialSettings(
   return true
 }
 
+export const USER_AGENT_PRESET_DIRNAME = '.agent-presets'
+
 /**
  * Replace the released `code` preset default with its current `ptc` id.
  * Session persistence migrates the same historical id, but the global
@@ -476,11 +479,17 @@ export async function migrateDesktopWindowMaterialSettings(
  * 0.1.7 `agent-preset-registry.selectedDefault` key it is renamed to are
  * checked, because beta renames the section before this runs. Unknown values
  * remain untouched so user-authored presets keep failing visibly instead of
- * being silently replaced.
+ * being silently replaced. When the user has authored their own preset under
+ * the legacy id in the user preset root, it is preserved instead of being
+ * overwritten.
  */
 export async function migrateLegacyAgentPresetSettings(
   documentPath: string,
+  userPresetsRoot?: string,
 ): Promise<boolean> {
+  if (userPresetsRoot !== undefined && existsSync(join(userPresetsRoot, LEGACY_AGENT_PRESET))) {
+    return false
+  }
   const path = settingsPath(documentPath)
   const legacyLocations = (loaded: LoadedSettingsDocument) => AGENT_PRESET_DEFAULT_LOCATIONS
     .filter(([namespace, field]) => section(loaded.root, namespace)[field] === LEGACY_AGENT_PRESET)

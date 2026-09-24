@@ -1,5 +1,6 @@
 import {
   lstatSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -19,6 +20,7 @@ import {
   migrateLegacyAgentPresetSettings,
   readDesktopSetupWizardSettings,
   updateDesktopSetupWizardSettings,
+  USER_AGENT_PRESET_DIRNAME,
   type DesktopSetupWizardSettings,
 } from '../src/setup-wizard-settings.ts'
 
@@ -485,6 +487,31 @@ describe('Desktop Setup Wizard settings document', () => {
       await expect(migrateLegacyAgentPresetSettings(path)).resolves.toBe(false)
       expect(readFileSync(path, 'utf8')).toBe(contents)
     }
+  })
+
+  it('leaves legacy code preset default untouched when user authored a local code preset', async () => {
+    const root = temporaryDirectory()
+    const userPresetsRoot = join(root, USER_AGENT_PRESET_DIRNAME)
+    mkdirSync(join(userPresetsRoot, 'code'), { recursive: true })
+
+    const path = join(root, 'settings.yaml')
+    const contents = 'agent-presets:\n  default: code\n'
+    writeFileSync(path, contents)
+
+    await expect(migrateLegacyAgentPresetSettings(path, userPresetsRoot)).resolves.toBe(false)
+    expect(readFileSync(path, 'utf8')).toBe(contents)
+  })
+
+  it('migrates legacy code preset default when user presets directory exists without code preset', async () => {
+    const root = temporaryDirectory()
+    const userPresetsRoot = join(root, USER_AGENT_PRESET_DIRNAME)
+    mkdirSync(join(userPresetsRoot, 'custom'), { recursive: true })
+
+    const path = join(root, 'settings.yaml')
+    writeFileSync(path, 'agent-presets:\n  default: code\n')
+
+    await expect(migrateLegacyAgentPresetSettings(path, userPresetsRoot)).resolves.toBe(true)
+    expect(readFileSync(path, 'utf8')).toBe('agent-presets:\n  default: ptc\n')
   })
 
   it('serializes concurrent complete updates without producing a torn document', async () => {

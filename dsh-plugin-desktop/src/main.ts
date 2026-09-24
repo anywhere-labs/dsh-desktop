@@ -155,6 +155,7 @@ import {
   migrateLegacyAgentPresetSettings,
   readDesktopSetupWizardSettings,
   updateDesktopSetupWizardSettings,
+  USER_AGENT_PRESET_DIRNAME,
   type DesktopSetupWizardSettings,
 } from './setup-wizard-settings.ts'
 import type { DesktopSetupWizardResult } from './setup-wizard-contract.ts'
@@ -1335,7 +1336,10 @@ async function start(): Promise<void> {
     let legacyPresetMigrated = false
     if (safeModePaths === undefined) {
       try {
-        legacyPresetMigrated = await migrateLegacyAgentPresetSettings(prepared.settingsDocument)
+        legacyPresetMigrated = await migrateLegacyAgentPresetSettings(
+          prepared.settingsDocument,
+          join(homeDir, USER_AGENT_PRESET_DIRNAME),
+        )
       } catch (cause) {
         // A Profile whose settings document cannot be rewritten keeps the
         // broken default it already had. Throwing here would trade that one
