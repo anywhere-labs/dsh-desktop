@@ -15,7 +15,7 @@ function OpenWindowItem({ sessionId, useMenuOpenState }: PropsRuntime<'sidebar.w
   }}>{bridge.label}</MenuItemButton>
 }
 
-/** Beta exposes a public menu slot; Stable uses its existing array-menu patch. */
+/** Both editions use the upstream public session-menu slot. */
 export function installSessionWindowMenu(ctx: Context): void {
   ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
     name: 'sidebar.workspaces.session.menu.item', id: 'desktop-session-window', order: 50,

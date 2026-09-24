@@ -72,12 +72,12 @@ async function smokeSessionMigration(): Promise<void> {
     await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
     const handle = await ctx.sessionPersistence.open(id, 'write')
     try {
-      assert(handle.header.version === 3 && handle.header.agentPreset === 'ptc', 'did not migrate the legacy preset through the upstream worker')
+      assert(handle.header.version === 4 && handle.header.agentPreset === 'ptc', 'did not migrate the legacy preset through the upstream worker')
     } finally {
       await handle.close()
     }
     await ctx.sessionPersistence.flush()
-    assert(existsSync(join(directory, 'session.v3.jsonl')), 'did not publish the V3 session log')
+    assert(existsSync(join(directory, 'session.v4.jsonl')), 'did not publish the V4 session log')
     assert(readFileSync(join(directory, 'session.v2.jsonl'), 'utf8') === source, 'changed the original V2 session log')
   } finally {
     await ctx.fiber.dispose()

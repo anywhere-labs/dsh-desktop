@@ -11,15 +11,17 @@ import { NEXT_PACKAGE, parseFeatures, profileName } from './profiles.ts'
 import { APP_URL, IPC, SHELL_URL } from './ipc.ts'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 import { preferredDesktopLocale, resolveDesktopLocale } from './menu-locale.ts'
+import { NativeLocaleStore } from './native-locale.ts'
 import { NextDesktopRuntime } from './desktop-runtime.ts'
 import { probeSystemProxy, type DesktopSystemProxyProbe } from './system-proxy.ts'
 import { DEFAULT_PROFILE, NATIVE_ACCESS_HEADER, type DesktopCommand, type DesktopState, type DesktopSettingsPage } from './desktop-contract.ts'
 import { portsChanged, parsePreferences } from './desktop-preferences.ts'
 import { NativeDesktop, applyWindowMaterial } from './native-desktop.ts'
 import { desktopLanAddresses } from './lan-addresses.ts'
-import { createLanHttpsCertificate } from './lan-https-certificate.ts'
+import { createLanHttpsCertificate, lanHttpsCertificateDiagnostic } from './lan-https-certificate.ts'
 import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-terminal.ts'
 import { bundledPnpmEntry, createPackageRunner } from './extensions.ts'
+import { applyDesktopPackageAgePolicy } from './pnpm-policy.ts'
 import { auxiliaryWindowChromeOptions, auxiliaryWindowHasCustomFrame } from '../../dsh-plugin-desktop-beta/src/auxiliary-window-options.ts'
 import { atomicJson, privateDirectory } from './private-files.ts'
 import { supportsMica, windowMaterial } from './window-material.ts'
@@ -33,12 +35,16 @@ import { NextUpdates } from './updates.ts'
 import { NextUpdateInstaller } from './update-installer.ts'
 import { updateLabel } from './update-state.ts'
 
+// Inherit the package policy across the Host and every runtime child process.
+applyDesktopPackageAgePolicy(process.env)
+
 const root = dirname(NEXT_PACKAGE)
 const defaultHome = resolve(process.env.DSH_DESKTOP_NEXT_HOME ?? (app.isPackaged
   ? join(app.getPath('appData'), 'DSH NEXT', 'home') : join(root, '.desktop-next', 'home')))
 const locationFile = join(defaultHome, 'desktop-next-location.json')
 const dataLocation = readDataDirectory(defaultHome)
 const home = dataLocation.home
+const nativeLocale = new NativeLocaleStore(home)
 const electronData = join(home, 'electron-user-data')
 privateDirectory(electronData)
 app.setName('DSH NEXT')
@@ -71,11 +77,18 @@ const version = (JSON.parse(readFileSync(NEXT_PACKAGE, 'utf8')) as { version: st
 const t = (zh: string, en: string): string => windowsLanguage.toLowerCase().startsWith('zh') ? zh : en
 const runtime = new NextDesktopRuntime({
   home, root, executable: process.execPath, addresses: () => [...desktopLanAddresses()], systemProxy: () => systemProxy,
-  certificate: addresses => createLanHttpsCertificate(electronData, addresses, {
-    available: () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
-    seal: bytes => safeStorage.encryptString(Buffer.from(bytes).toString('utf8')),
-    open: bytes => Buffer.from(safeStorage.decryptString(Buffer.from(bytes)), 'utf8'),
-  }),
+  certificate: async addresses => {
+    try {
+      return await createLanHttpsCertificate(electronData, addresses, {
+        available: () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
+        seal: bytes => safeStorage.encryptString(Buffer.from(bytes).toString('utf8')),
+        open: bytes => Buffer.from(safeStorage.decryptString(Buffer.from(bytes)), 'utf8'),
+      })
+    } catch (error) {
+      runtime.diagnostics.append(lanHttpsCertificateDiagnostic(error), 'warn')
+      throw error
+    }
+  },
   onFailure: () => { if (app.isReady()) openControls('recovery') },
   onChange: () => { if (app.isReady()) native.refresh() },
   onRestart: () => run({ type: 'restart' }),
@@ -237,7 +250,9 @@ function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' 
     void recoveryStopping.catch(error => runtime.diagnostics.append(String(error), 'error'))
     native.refresh()
   }
-  const url = `${SHELL_URL}?locale=${windowsLanguage.toLowerCase().startsWith('zh') ? 'zh' : 'en'}&platform=${process.platform}&frame=${auxiliaryWindowHasCustomFrame()}#${page}`
+  const locale = nativeLocale.resolve(runtime.selected, windowsLanguage)
+  windowsLanguage = locale
+  const url = `${SHELL_URL}?locale=${locale}&platform=${process.platform}&frame=${auxiliaryWindowHasCustomFrame()}#${page}`
   const resize = (window: BrowserWindow): void => {
     const creating = page === 'create-profile'
     window.setResizable(!creating)
@@ -268,6 +283,17 @@ function openMain(): void {
   mainWindow.on('closed', () => { mainWindow = undefined })
   mainWindow.webContents.on('render-process-gone', (_event, details) => { if (!quitting) runtime.report(new Error(`Renderer: ${details.reason}`)) })
   mainWindow.webContents.on('preload-error', (_event, _path, error) => runtime.report(error))
+  // The Host log otherwise misses client slot failures: the renderer can retire
+  // an entry (and its portalled dialog) without crashing the Electron process.
+  mainWindow.webContents.on('console-message', (event, _level, legacyMessage) => {
+    // Electron versions differ: older runtimes pass the message as the third
+    // argument, newer ones put it on the event. Never assume either exists.
+    const message = typeof legacyMessage === 'string' ? legacyMessage : event?.message
+    if (typeof message !== 'string') return
+    if (!message.includes('[next-ui-diagnostic]') && !message.includes('slot entry crashed')
+      && !message.includes('client-modules:') && !message.includes('slot factory occurrence crashed')) return
+    runtime.diagnostics.append(maskSecrets(message.slice(0, 2048)), 'warn')
+  })
   mainWindow.webContents.on('did-fail-load', (_event, code, message, _url, isMain) => {
     if (isMain && code !== -3 && !quitting && mainWindow === owner && !owner.isDestroyed()) runtime.report(new Error(message))
   })
@@ -731,9 +757,17 @@ async function main(): Promise<void> {
   })
   ipcMain.on(IPC.locale, (event, language: unknown) => {
     try { assertSender(event, mainWindow, APP_URL) } catch { return }
-    if (typeof language !== 'string' || !/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/u.test(language) || language === windowsLanguage) return
+    if (typeof language !== 'string' || !/^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/u.test(language)) return
+    if (!runtime.safeMode) {
+      try { nativeLocale.remember(runtime.selected, language) } catch (error) { runtime.diagnostics.append(String(error), 'warn') }
+    }
+    if (language === windowsLanguage) return
     windowsLanguage = language
     native.refresh()
+  })
+  ipcMain.handle(IPC.localeRead, event => {
+    assertSender(event, mainWindow, APP_URL)
+    return { languages: [...app.getPreferredSystemLanguages(), app.getLocale()], preference: null }
   })
   nativeTheme.on('updated', () => { if (mainWindow && !mainWindow.isDestroyed()) applyWindowMaterial(mainWindow, runtime.preferences) })
   runtime.safeMode = process.argv.includes(SAFE_ARGUMENT)
@@ -781,7 +815,8 @@ async function main(): Promise<void> {
     })
     ipcMain.on(IPC.windowsAppearance, (event, language: unknown, color: unknown, symbolColor: unknown) => {
       try { assertSender(event, mainWindow, APP_URL) } catch { return }
-      if (typeof language === 'string' && /^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/u.test(language)) windowsLanguage = language
+      // Caption paint can run before the official locale service initializes;
+      // IPC.locale is the only renderer authority for the application language.
       const validColor = (value: unknown): value is string => typeof value === 'string' && /^(?:#[\da-f]{3,8}|rgba?\([\d.,%\s]+\))$/iu.test(value)
       if (validColor(color) && validColor(symbolColor)) mainWindow!.setTitleBarOverlay({ color, symbolColor })
     })

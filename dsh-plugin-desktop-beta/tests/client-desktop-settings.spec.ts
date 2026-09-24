@@ -45,6 +45,7 @@ import {
 } from '../src/client/desktop-settings.ts'
 import { en, zh, type DesktopSettingsLocaleKey } from '../src/client/desktop-settings-locales.ts'
 import { installDesktopSettingsStyles } from '../src/client/desktop-settings-styles.ts'
+import { DESKTOP_PACKAGE_NAME } from '../src/product-identity.ts'
 
 const BROWSER_AUTH_TOKEN = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 const CA_FINGERPRINT = 'a'.repeat(64)
@@ -603,6 +604,7 @@ describe('Desktop native action presentation', () => {
     const remove = vi.fn()
     const style = {
       id: '',
+      dataset: {} as Record<string, string>,
       get textContent() { return css },
       set textContent(value: string) { css = value },
       remove,
@@ -616,11 +618,39 @@ describe('Desktop native action presentation', () => {
 
     try {
       const dispose = installDesktopSettingsStyles()
+      expect(style.dataset).toEqual({ plugin: DESKTOP_PACKAGE_NAME, pluginCss: `${DESKTOP_PACKAGE_NAME}/desktop-settings` })
       expect(css).toMatch(/data-placement="settings"\] \.dshDesktopActionMenu \{[^}]*position: absolute;[^}]*display: grid;[^}]*grid-auto-flow: row;[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*min-width: 220px;/)
       expect(css).toMatch(/data-placement="settings"\] \.dshDesktopActionMenuItem \{[^}]*display: flex;[^}]*width: 100%;[^}]*white-space: nowrap;/)
       expect(appendChild).toHaveBeenCalledWith(style)
       dispose()
       expect(remove).toHaveBeenCalledOnce()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it.each([DESKTOP_PACKAGE_NAME, 'dsh-desktop-next'])('keeps %s settings styles out of another plugin lifecycle', owner => {
+    let connected = false
+    const style = { id: '', dataset: {} as Record<string, string>, textContent: '', remove: () => { connected = false } }
+    vi.stubGlobal('document', {
+      getElementById: () => connected ? style : null,
+      createElement: () => style,
+      head: { appendChild: () => {
+        // Ownership must already exist when the tag becomes visible to the loader.
+        expect(style.dataset.plugin).toBe(owner)
+        connected = true
+      } },
+    })
+    try {
+      const dispose = installDesktopSettingsStyles(owner)
+      // Model upstream claimStyles/removeOwnedStyles when a market is loaded
+      // and then disabled. An untagged sheet would disappear here.
+      if (!style.dataset.plugin) style.dataset.plugin = 'dshmarket'
+      if (style.dataset.plugin === 'dshmarket') style.remove()
+      expect(connected).toBe(true)
+      expect(style.textContent).toContain('.dshDesktopSettingsChoice')
+      dispose()
+      expect(connected).toBe(false)
     } finally {
       vi.unstubAllGlobals()
     }

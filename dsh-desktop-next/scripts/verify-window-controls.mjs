@@ -20,7 +20,7 @@ mkdirSync(workspace)
 const screenshots = join(root, '.desktop-next', 'verification')
 const manager = new NextProfiles(home)
 manager.ensure('desktop')
-manager.setFeatures('desktop', { market: false, remoteControl: false })
+manager.setFeatures('desktop', { market: true, remoteControl: false })
 // The renderer below simulates darwin, so the Host must mount the matching
 // `native` directory flow for the preload-backed picker to be the surface under
 // test. Upstream's chooser resolves `browse` on a Linux host with no
@@ -64,7 +64,7 @@ try {
   const loginToken = 'L'.repeat(43)
   let rejectPreference = false
   const controlState = {
-    selected: 'desktop', profiles: ['desktop', 'work', 'broken'], unavailableProfiles: ['broken'], features: { market: false, remoteControl: false },
+    selected: 'desktop', profiles: ['desktop', 'work', 'broken'], unavailableProfiles: ['broken'], features: { market: true, remoteControl: false },
     preferences: { closeToTray: true, macosMaterial: 'transparent', windowsMaterial: 'off', browserAccess: false,
       networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', notifications: true,
       turnCompleted: true, turnFailed: true, jobCompleted: false, jobFailed: false },
@@ -256,39 +256,72 @@ try {
   assert.equal(await markets.getByRole('radio').count(), 2)
   const communityChoice = markets.getByRole('radio', { name: /dsh-community-market/ })
   const dshChoice = markets.getByRole('radio', { name: /dsh-market/ })
+  const assertMarketStyles = async stage => {
+    assert.equal(await page.locator('#dsh-desktop-settings-styles').getAttribute('data-plugin'), 'dsh-desktop-next',
+      `Shared settings CSS belongs to Next ${stage}, never to whichever optional plugin loads next`)
+    const styles = await markets.getByRole('radio').evaluateAll(choices => choices.map(choice => ({
+      display: getComputedStyle(choice).display,
+      padding: getComputedStyle(choice).padding,
+      borderRadius: getComputedStyle(choice).borderRadius,
+    })))
+    assert.deepEqual(styles, Array(2).fill({ display: 'flex', padding: '13px 14px', borderRadius: '10px' }),
+      `Market choices retain their stylesheet ${stage}`)
+  }
+  await assertMarketStyles('on initial load')
   await communityChoice.getByText('DSH Desktop 内置的开放插件市场，支持添加和选择自定义插件数据源。').waitFor()
   assert.equal(await dshChoice.getByRole('link', { name: 'awesome-dsh-plugin', exact: true }).count(), 1)
   const waitSelected = async choice => {
-    await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-checked') === 'true', choice)
+    await page.waitForFunction(selector => {
+      const choice = document.querySelector(selector)
+      return choice?.getAttribute('aria-checked') === 'true' && choice.getAttribute('aria-disabled') !== 'true'
+    }, choice)
   }
   await communityChoice.click({ position: { x: 10, y: 10 } })
   await waitSelected('[data-next-markets] [role="radio"]:first-child')
+  await assertMarketStyles('after enabling Community Market')
   const marketFooter = footer.getByRole('button', { name: /插件市场|Plugin market/ })
   await marketFooter.waitFor()
+  // Exercise pointer selection and optional-plugin teardown before AA can load
+  // and accidentally claim an untagged settings sheet for its own lifetime.
+  await dshChoice.click({ position: { x: 10, y: 10 } })
+  await waitSelected('[data-next-markets] [role="radio"]:last-child')
+  await assertMarketStyles('after the first pointer switch')
+  await communityChoice.click({ position: { x: 10, y: 10 } })
+  await waitSelected('[data-next-markets] [role="radio"]:first-child')
+  await assertMarketStyles('after unloading the first dsh-market instance')
+  await marketFooter.waitFor()
   const remote = controls.getByRole('switch', { name: /启用远程控制|Enable remote control/ })
-  const remoteGear = controls.getByRole('button', { name: /^(远程控制设置|Remote control settings)$/ })
+  const remoteGear = controls.locator('[data-next-remote-control]').getByRole('button', { name: /^(打开面板|Open panel)$/ })
   assert.equal(await remote.isChecked(), false)
   assert.equal(await remoteGear.isDisabled(), true)
   await remote.click()
   await waitSelected('[data-next-remote-control] [role="switch"]')
-  await footer.getByRole('button', { name: '手机连接', exact: true }).waitFor()
+  await footer.getByRole('button', { name: /^(远程控制|Remote Control|手机连接|Mobile connection)$/ }).waitFor()
   await remoteGear.click()
-  const remoteDialog = page.getByRole('dialog', { name: /^(手机连接|Agents Anywhere)$/ })
+  const remoteDialog = page.getByRole('dialog', { name: /^(远程控制|Remote Control|手机连接|Mobile connection|Agents Anywhere)$/ })
   await remoteDialog.waitFor()
   assert.equal(await remoteDialog.getByRole('tablist', { name: '连接管理' }).count(), 1)
   assert.equal(await context.pages().length, 1)
-  await remoteDialog.getByRole('button', { name: '关闭手机连接', exact: true }).click()
+  await remoteDialog.getByRole('button', { name: /^(关闭远程控制|Close Remote Control|关闭手机连接)$/ }).click()
   await dshChoice.focus()
   await dshChoice.press('Space')
   await waitSelected('[data-next-markets] [role="radio"]:last-child')
+  await assertMarketStyles('after switching to dsh-market')
   assert.equal(await communityChoice.getAttribute('aria-checked'), 'false')
   assert.equal(await remote.isChecked(), true)
   await marketFooter.waitFor({ state: 'hidden' })
   await openSettingsPanel()
-  await page.getByRole('dialog').getByRole('button', { name: /^(插件市场|Plugin Market)$/ }).waitFor()
+  await page.getByRole('dialog').getByRole('button', { name: /^(插件市场|Plugin Market)$/ }).click()
+  // Exercise the real third-party page, not just its registration or toggle. Older
+  // dshmarket bundles reference removed icon exports and crash only when rendered.
+  await page.locator('[data-dsh-market-root]').waitFor({ state: 'visible' })
+  assert.ok(await page.locator('[data-dsh-market-root] svg').count() > 0)
+  assert.deepEqual(errors, [])
   await page.getByRole('button', { name: /^(关闭|Close)$/ }).click()
+  await assertMarketStyles('after opening and closing dsh-market')
   await communityChoice.click({ position: { x: 10, y: 10 } })
   await waitSelected('[data-next-markets] [role="radio"]:first-child')
+  await assertMarketStyles('after switching back to Community Market')
   assert.equal(await dshChoice.getAttribute('aria-checked'), 'false')
   assert.equal(await remote.isChecked(), true)
   await marketFooter.waitFor()
@@ -306,7 +339,18 @@ try {
   await controls.getByRole('button', { name: /^(重试|Retry)$/ }).click()
   await controls.getByRole('alert').waitFor({ state: 'hidden' })
   const cuaSettings = controls.locator('[data-next-computer-use]')
-  await cuaSettings.getByText(/^(已停用|Disabled)$/).waitFor()
+  // The overview now uses compact plugin rows; runtime status lives on the detail page.
+  const checkCuaStatus = async status => {
+    await controls.getByRole('button', { name: /^Computer Use — / }).click()
+    await page.locator('[data-next-computer-use]').getByRole('status').getByText(status).waitFor()
+    await page.getByRole('button', { name: /^(返回插件列表|Back to plugins)$/ }).click()
+    await controls.waitFor({ state: 'visible' })
+    await page.waitForFunction(() => {
+      const toggle = document.querySelector('[data-next-plugin-controls] [data-next-computer-use] [role="switch"]')
+      return toggle instanceof HTMLButtonElement && !toggle.disabled && toggle.getAttribute('aria-disabled') !== 'true'
+    })
+  }
+  await checkCuaStatus(/^(已停用|Disabled)$/)
   const cuaSwitch = cuaSettings.getByRole('switch', { name: /启用 Computer Use|Enable Computer Use/ })
   assert.equal(await cuaSwitch.isChecked(), false)
   assert.equal(await cuaSwitch.isDisabled(), false)
@@ -320,14 +364,13 @@ try {
   const cuaBox = await cuaSettings.boundingBox()
   assert.ok(cuaBox.y >= remoteBox.y + remoteBox.height, 'Remote control and Computer Use must be stacked vertically')
   assert.equal(cuaBox.x, remoteBox.x)
-  const permissionGear = cuaSettings.getByRole('button', { name: /^(授权设置|Permissions)$/ })
-  assert.equal((await permissionGear.textContent()).trim(), '', 'Permissions uses an accessible icon button without visible text')
-  assert.equal(await permissionGear.locator('svg').count(), 1)
+  const permissionGear = cuaSettings.getByRole('button', { name: /^(权限设置|Permission settings)$/ })
+  assert.match((await permissionGear.textContent()).trim(), /^(权限设置|Permission settings)$/, 'Permissions uses a visible, accessible action label')
   const switchBox = await cuaSwitch.boundingBox()
   const gearBox = await permissionGear.boundingBox()
   assert.ok(Math.abs(gearBox.y + gearBox.height / 2 - switchBox.y - switchBox.height / 2) < 1)
   assert.ok(switchBox.x >= gearBox.x + gearBox.width && switchBox.x - gearBox.x - gearBox.width <= 12,
-    'The permission gear must sit immediately to the left of the Computer Use switch')
+    'The permission action must sit immediately to the left of the Computer Use switch')
   await page.locator('[data-plugin-panel]').evaluate(element => { for (let node = element; node; node = node.parentElement) node.scrollTop = 0 })
   await page.screenshot({ path: join(screenshots, 'plugin-controls.png'), animations: 'disabled' })
   await permissionGear.click()
@@ -350,15 +393,15 @@ try {
   if (process.argv.includes('--computer-use')) {
     // Explicit native SDK activation in a temporary Profile; no driver tool is called.
     await cuaSwitch.click()
-    await cuaSettings.getByText(/^(运行中|Running)$/).waitFor()
+    await checkCuaStatus(/^(运行中|Running)$/)
     assert.equal(await cuaSwitch.isChecked(), true)
     await page.getByRole('button', { name: /^(新建会话|New session)$/i }).last().click()
     await page.getByRole('button', { name: /^(插件|Plugins)$/ }).click()
-    await cuaSettings.getByText(/^(运行中|Running)$/).waitFor()
+    await checkCuaStatus(/^(运行中|Running)$/)
     assert.equal(await remote.isChecked(), true)
     assert.equal(await communityChoice.getAttribute('aria-checked'), 'true')
     await cuaSwitch.click()
-    await cuaSettings.getByText(/^(已停用|Disabled)$/).waitFor()
+    await checkCuaStatus(/^(已停用|Disabled)$/)
     assert.equal(await cuaSwitch.isChecked(), false)
     console.log('Cua native provider independently enabled and disabled from the Plugins overview; no input, screenshots or OS permission requests sent.')
   }
@@ -447,7 +490,7 @@ try {
   assert.equal(await remoteGear.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
   await remoteGear.click()
   await remoteDialog.waitFor()
-  await remoteDialog.getByRole('button', { name: '关闭手机连接', exact: true }).click()
+  await remoteDialog.getByRole('button', { name: /^(关闭远程控制|Close Remote Control|关闭手机连接)$/ }).click()
   await page.screenshot({ path: join(screenshots, 'plugins-scrolled.png'), animations: 'disabled' })
   await pluginPanel.evaluate(element => { element.scrollTop = 0 })
   await page.setViewportSize({ width: 1280, height: 840 })
@@ -725,14 +768,14 @@ try {
   await webPage.getByRole('button', { name: /^(关闭|Close)$/ }).click()
   await webPage.getByRole('button', { name: /^(插件|Plugins)$/ }).click()
   await webPage.locator('[data-next-plugin-controls]').waitFor()
-  await webPage.locator('[data-next-computer-use]').getByRole('button', { name: /^(授权设置|Permissions)$/ }).click()
+  await webPage.locator('[data-next-computer-use]').getByRole('button', { name: /^(权限设置|Permission settings)$/ }).click()
   await webPage.getByRole('dialog', { name: /^(系统权限|System permissions)$/ }).getByText(/请在运行 DSH 的桌面应用中管理系统权限/).waitFor()
   await webPage.getByRole('dialog', { name: /^(系统权限|System permissions)$/ }).press('Escape')
   await verifyWebBrowserFallback(webPage)
   await webContext.close()
   assert.deepEqual(errors, [])
   assert.deepEqual(await page.evaluate(() => globalThis.__NEXT_TEST_BOOT__.failures), [])
-  console.log('Next window controls passed through the official 0.1.7-alpha.2 Desktop boot branch: stacked sidebar extension entries, homepage/plugin collapse and reopen, navigation, caption geometry, clickable actions, existing-header and platform isolation, official Settings header shortcuts and keyboard navigation, grouped Desktop Settings and immediate saves, per-address login URL rows with exact open/copy targets, Profile cards and tray creation, the Host-independent recovery artifact, and native Browser toolbar, navigation, pane geometry, overlay isolation, tab lifetime and Web iframe fallback. Chromium simulates the preload contract; native Electron window movement and page loading are not tested here.')
+  console.log('Next window controls passed through the official 0.1.7-rc.1 Desktop boot branch: stacked sidebar extension entries, homepage/plugin collapse and reopen, navigation, caption geometry, clickable actions, existing-header and platform isolation, official Settings header shortcuts and keyboard navigation, grouped Desktop Settings and immediate saves, per-address login URL rows with exact open/copy targets, Profile cards and tray creation, the Host-independent recovery artifact, and native Browser toolbar, navigation, pane geometry, overlay isolation, tab lifetime and Web iframe fallback. Chromium simulates the preload contract; native Electron window movement and page loading are not tested here.')
   console.log(`Screenshots: ${screenshots}`)
 } catch (error) {
   console.error(error)

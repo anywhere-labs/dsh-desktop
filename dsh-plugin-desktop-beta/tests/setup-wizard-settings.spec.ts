@@ -17,6 +17,7 @@ import {
   migrateDesktopBrowserAccessSettings,
   migrateDesktopWindowMaterialSettings,
   migrateLegacyAgentPresetSettings,
+  mirrorDesktopSetupWizardProfileSettings,
   readDesktopSetupWizardSettings,
   updateDesktopSetupWizardSettings,
   type DesktopSetupWizardSettings,
@@ -505,5 +506,105 @@ describe('Desktop Setup Wizard settings document', () => {
       unrelated: { keep: true },
     })
     expect(readdirSync(root)).toEqual(['settings.yaml'])
+  })
+})
+
+describe('Desktop Setup Wizard settings under the 0.1.7 section keys', () => {
+  // 0.1.7's launcher renames `dsh-desktop` / `dsh-desktop-notifications` to the
+  // Loader entry ids before any Setup helper reads the document, and the settings
+  // service imports and renames the document away on the first Host boot.
+  const renamed = [
+    '# user comment',
+    'desktop-shell:',
+    '  mode: extended',
+    '  windowsMaterial: "off"',
+    '  macosMaterial: "off"',
+    '  logLevel: debug',
+    'desktop-notifications:',
+    '  notifyOnJobCompletion: false',
+    '',
+  ].join('\n')
+
+  it('reads the renamed sections instead of falling back to defaults', () => {
+    const path = join(temporaryDirectory(), 'settings.yaml')
+    writeFileSync(path, renamed)
+
+    expect(readDesktopSetupWizardSettings(path)).toMatchObject({
+      mode: 'extended',
+      windowsMaterial: 'off',
+      macosMaterial: 'off',
+      notifications: { notifyOnJobCompletion: false, enabled: true },
+    })
+  })
+
+  it('updates the renamed sections in place and never recreates the legacy keys', async () => {
+    const path = join(temporaryDirectory(), 'settings.yaml')
+    writeFileSync(path, renamed)
+
+    await updateDesktopSetupWizardSettings(path, values({ mode: 'advanced', openBrowser: false, networkExposure: 'loopback' }))
+
+    const text = readFileSync(path, 'utf8')
+    expect(text).toContain('# user comment')
+    const document = parseDocument(text).toJS() as Record<string, Record<string, unknown>>
+    expect(Object.keys(document)).toEqual(['desktop-shell', 'desktop-notifications'])
+    expect(document['desktop-shell']).toMatchObject({ mode: 'advanced', windowsMaterial: 'mica', logLevel: 'debug' })
+    expect(document['desktop-notifications']).toMatchObject({ notifyOnTurnCompletion: false })
+  })
+
+  it('writes a new document under the entry ids the settings import keys by', async () => {
+    const path = join(temporaryDirectory(), 'settings.yaml')
+
+    await updateDesktopSetupWizardSettings(path, values())
+
+    expect(Object.keys(parseDocument(readFileSync(path, 'utf8')).toJS() as object))
+      .toEqual(['desktop-shell', 'desktop-notifications'])
+  })
+
+  it('migrates removed Acrylic and legacy LAN intent inside the renamed section', async () => {
+    const path = join(temporaryDirectory(), 'settings.yaml')
+    writeFileSync(path, 'desktop-shell:\n  windowsMaterial: acrylic\n  openBrowser: false\n  networkExposure: lan\n')
+
+    await expect(migrateDesktopWindowMaterialSettings(path)).resolves.toBe(true)
+    await expect(migrateDesktopBrowserAccessSettings(path)).resolves.toBe(true)
+
+    expect(parseDocument(readFileSync(path, 'utf8')).toJS()).toEqual({
+      'desktop-shell': { windowsMaterial: 'off', openBrowser: true, networkExposure: 'lan' },
+    })
+  })
+
+  it('mirrors Profile leaves into a pending document without touching its materials', async () => {
+    const path = join(temporaryDirectory(), 'settings.yaml')
+    writeFileSync(path, renamed)
+    const profile = {
+      mode: 'compatibility',
+      openBrowser: true,
+      networkExposure: 'lan',
+      notifications: values().notifications,
+    } as const
+
+    await expect(mirrorDesktopSetupWizardProfileSettings(path, profile)).resolves.toBe(true)
+    await expect(mirrorDesktopSetupWizardProfileSettings(path, profile)).resolves.toBe(false)
+
+    expect(readDesktopSetupWizardSettings(path)).toEqual({
+      ...profile,
+      windowsMaterial: 'off',
+      macosMaterial: 'off',
+    })
+  })
+
+  it('does not recreate a document the settings import already consumed', async () => {
+    const root = temporaryDirectory()
+    const path = join(root, 'settings.yaml')
+    writeFileSync(`${path}.imported`, renamed)
+
+    await expect(mirrorDesktopSetupWizardProfileSettings(path, {
+      mode: 'advanced',
+      openBrowser: false,
+      networkExposure: 'loopback',
+      notifications: values().notifications,
+    })).resolves.toBe(false)
+
+    expect(readdirSync(root)).toEqual(['settings.yaml.imported'])
+    expect(readFileSync(`${path}.imported`, 'utf8')).toBe(renamed)
   })
 })

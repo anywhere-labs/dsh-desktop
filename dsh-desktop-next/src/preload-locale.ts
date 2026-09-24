@@ -1,16 +1,12 @@
 /** Keep native menus and independent controls in the language selected in Settings. */
-import { ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from './ipc.ts'
 
 export function syncNativeLocale(): void {
-  const install = (): void => {
-    const root = document.documentElement
-    const send = (): void => { if (root.lang) ipcRenderer.send(IPC.locale, root.lang) }
-    const observer = new MutationObserver(send)
-    observer.observe(root, { attributes: true, attributeFilter: ['lang'] })
-    window.addEventListener('pagehide', () => observer.disconnect(), { once: true })
-    send()
-  }
-  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', install, { once: true })
-  else install()
+  // The HTML template starts in English, even before Host boot completes.
+  // Only the official locale service can publish an initialized UI language.
+  contextBridge.exposeInMainWorld('__DSH_LOCALE__', {
+    read: () => ipcRenderer.invoke(IPC.localeRead),
+    onChange: (language: string) => ipcRenderer.send(IPC.locale, language),
+  })
 }

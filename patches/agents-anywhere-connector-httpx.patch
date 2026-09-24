@@ -1,0 +1,50 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1018,6 +1018,14 @@
+ };
+ //#endregion
+ //#region src/host/connector/process.ts
++/** httpx requires bare IPv6 in NO_PROXY; keep undici's bracketed bypass in the parent. */
++function connectorEnvironment(environment) {
++	const result = { ...environment };
++	for (const key of ["no_proxy", "NO_PROXY"]) {
++		if (typeof result[key] === "string") result[key] = result[key].split(",").map((entry) => entry.trim() === "[::1]" ? "::1" : entry).join(",");
++	}
++	return result;
++}
+ const runFile = promisify(execFile);
+ const MAX_FRAME = 1048576;
+ /**
+@@ -1174,7 +1182,7 @@
+ 			windowsHide: true,
+ 			detached: process.platform !== "win32",
+ 			env: {
+-				...process.env,
++				...connectorEnvironment(process.env),
+ 				AA_CONNECTOR_OWNER_KIND: "dsh-plugin",
+ 				...this.config.dshHome ? { DSH_HOME: this.config.dshHome } : {},
+ 				AGENT_CONNECTOR_DATA_DIR: dataDir,
+@@ -1318,6 +1326,12 @@
+ 			this.buffer = this.buffer.slice(newline + 1);
+ 			try {
+ 				const frame = JSON.parse(line);
++				if (frame.method === "connector/log" && frame.id === void 0) {
++					const log = frame.params;
++					if (typeof log?.message === "string") this.logs.append(`[connector] ${typeof log.level === "string" ? log.level : "INFO"}: ${log.message}`);
++					if (typeof log?.exception === "string") this.logs.append(log.exception);
++					continue;
++				}
+ 				if (frame.method === "connector/state" && frame.id === void 0) {
+ 					this.updateState(frame.params);
+ 					continue;
+@@ -3053,7 +3067,8 @@
+ 		type: item.type,
+ 		status: item.status,
+ 		role: item.role,
+-		content: item.content
++		// Hash the JSON sent over the bridge: undefined object fields are omitted.
++		content: json(item.content)
+ 	}))}`;
+ }
+ //#endregion

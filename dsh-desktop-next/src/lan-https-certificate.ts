@@ -50,6 +50,12 @@ export class DesktopLanHttpsCertificateError extends Error {
   }
 }
 
+/** Log only the certificate boundary's controlled description, never a raw OS error or key material. */
+export function lanHttpsCertificateDiagnostic(error: unknown): string {
+  if (!(error instanceof DesktopLanHttpsCertificateError)) return 'LAN HTTPS certificate setup failed (unexpected error)'
+  return `LAN HTTPS certificate setup failed (${error.code}): ${error.message}`
+}
+
 /** OS-backed protection supplied by the Electron boundary. */
 export interface DesktopLanHttpsPrivateKeyProtector {
   readonly available: boolean | (() => boolean | Promise<boolean>)
@@ -183,7 +189,7 @@ async function requireAvailableProtector(
     }
   } catch (cause) {
     if (cause instanceof DesktopLanHttpsCertificateError) throw cause
-    throw certificateError('certificate-unavailable', 'LAN HTTPS private-key protection is unavailable.', cause)
+    throw certificateError('certificate-unavailable', 'LAN HTTPS private-key protection check failed.', cause)
   }
   return protector
 }

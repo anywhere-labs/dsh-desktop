@@ -97,6 +97,8 @@ import {
   selectDesktopProfile,
 } from './profile-manager.ts'
 import { DesktopProfileService } from './profile-service.ts'
+import { createDesktopProfileBoot } from './profile-context.ts'
+import { logInactiveStartupEntries } from './startup-audit.ts'
 import { DesktopActionsService } from './desktop-actions.ts'
 import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
 import {
@@ -153,9 +155,9 @@ import {
   migrateDesktopBrowserAccessSettings,
   migrateDesktopWindowMaterialSettings,
   migrateLegacyAgentPresetSettings,
+  mirrorDesktopSetupWizardProfileSettings,
   readDesktopSetupWizardSettings,
   updateDesktopSetupWizardSettings,
-  type DesktopSetupWizardSettings,
 } from './setup-wizard-settings.ts'
 import type { DesktopSetupWizardResult } from './setup-wizard-contract.ts'
 import { DesktopSetupWizardWindow } from './setup-wizard-window.ts'
@@ -440,34 +442,23 @@ function desktopProfileMarketSnapshot(market: DesktopMarketProvider): DesktopMar
   })
 }
 
-/** Preserve device-shared Wizard fields while mirroring one Profile's leaves. */
-function setupSettingsWithProfilePreferences(
-  current: DesktopSetupWizardSettings,
-  preferences: DesktopProfilePreferences,
-): DesktopSetupWizardSettings {
-  return Object.freeze({
-    ...current,
-    mode: preferences.mode,
-    openBrowser: preferences.openBrowser,
-    networkExposure: preferences.networkExposure,
-    notifications: Object.freeze({ ...preferences.notifications }),
-  })
-}
-
-/** Mirror only the Profile-owned settings leaves into the exact prepared document. */
+/**
+ * Mirror only the Profile-owned settings leaves into the exact prepared document,
+ * and only while that document still awaits 0.1.7's one-shot import.
+ */
 async function mirrorDesktopProfilePreferences(
   settingsDocument: string,
   preferences: DesktopProfilePreferences,
 ): Promise<void> {
-  const current = readDesktopSetupWizardSettings(settingsDocument)
-  await updateDesktopSetupWizardSettings(
-    settingsDocument,
-    setupSettingsWithProfilePreferences(current, preferences),
-  )
+  await mirrorDesktopSetupWizardProfileSettings(settingsDocument, preferences)
 }
 
 /** Start one Electron process and leave lifetime to the mounted desktop plugin. */
 async function start(): Promise<void> {
+  // Plugin SSE subscriptions from multiple session windows share Chromium's
+  // six-connection HTTP/1 pool. Keep local Host RPCs from queueing behind them.
+  // Restrict the exception to our loopback carrier; preserve shared auth/storage.
+  app.commandLine.appendSwitch('ignore-connections-limit', '127.0.0.1,localhost,[::1]')
   if (!app.requestSingleInstanceLock()) {
     app.quit()
     return
@@ -1692,11 +1683,13 @@ async function start(): Promise<void> {
       startupStage = 'host-boot'
       lifecycleRecorder.transitionStartupStage(startupStage)
       const releasePackageResolver = installProfilePackageResolver(prepared.bareModuleBaseUrl)
+      const profileBoot = createDesktopProfileBoot(prepared, desktopPnpmBootstrap)
       const ctx = await boot(
         BIN_NAME,
         prepared.rootConfig,
         prepared.patches,
         async (hostCtx) => {
+          profileBoot.prepare(hostCtx)
           // Keep Host imports and browser bundle discovery on the same public
           // profile-overlay resolver used by packaged Electron.
           hostCtx.loader.internal = undefined
@@ -1864,7 +1857,9 @@ async function start(): Promise<void> {
         throw cause
       })
       generation.bindHost(ctx)
+      profileBoot.markReady()
       observeDesktopPreferenceSettings(ctx, fileExporter, enqueueProfilePreferencesWrite)
+      void logInactiveStartupEntries(ctx, BIN_NAME)
     }
     startupStage = 'renderer-startup'
     lifecycleRecorder.transitionStartupStage(startupStage)

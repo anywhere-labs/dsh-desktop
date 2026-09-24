@@ -3,36 +3,33 @@
 import { createRequire } from 'node:module'
 import {
   existsSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from 'node:fs'
 import { isIP } from 'node:net'
-import { dirname, join } from 'node:path'
+import { dirname, extname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { evaluate, isJsExpr, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import {
+  bundlePatchPaths,
   composeEntries,
-  DEFAULT_PROFILE_PATCH_RELOAD,
-  healProfilesModuleFallback,
   initProfile,
   loadOptionalPatches,
   loadOverlayPatches,
   PROFILE_PATCH_FILENAME,
   PROFILE_TEMPLATES,
+  PROFILES_DIR,
   readProfileManifest,
+  removeLinkProjections,
   resolveProfileDir,
   writeProfileManifest,
   type Profile,
   type ProfileManifest,
-  type ProfileTemplate,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import FileSettingsProvider, {
-  resolveSpec as resolveSettingsFileSpec,
-  type Config as SettingsFileConfig,
-} from '@deepseek-ai/dsh-settings-file'
-import { parseAllDocuments, parseDocument } from 'yaml'
+import { isMap, isPair, isScalar, parseAllDocuments, parseDocument, type Pair, type YAMLMap } from 'yaml'
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
 import {
@@ -55,9 +52,9 @@ import {
   parseWindowsWindowMaterial,
   type MacosWindowMaterial,
   type WindowsWindowMaterial,
+
   DEFAULT_LINUX_WINDOW_MATERIAL,
-  parseLinuxWindowMaterial,
-} from './window-material.ts'
+  parseLinuxWindowMaterial,} from './window-material.ts'
 import type { LinuxWindowMaterial } from './window-material.ts'
 import {
   activeDesktopProfileLayers,
@@ -99,14 +96,21 @@ const PWSH_SANDBOX_ROW_ID = 'pwsh-sandbox'
 const UPSTREAM_PWSH_SANDBOX_PACKAGE = '@deepseek-ai/dsh-pwsh-sandbox'
 const DESKTOP_WINDOWS_PWSH_SANDBOX_ROW_ID = 'desktop-windows-pwsh-sandbox'
 const DESKTOP_WINDOWS_PWSH_SANDBOX_PACKAGE = `${DESKTOP_PACKAGE_NAME}/windows-pwsh-sandbox`
-const AGENT_PRESETS_ROW_ID = 'agent-presets'
-/** Harness-home directory holding locally authored presets (`agent-presets/discovery`). */
-const USER_PRESET_DIRNAME = '.agent-presets'
 const DEFAULT_DESKTOP_SHELL_MODE: DesktopShellMode = 'compatibility'
 const DEFAULT_DESKTOP_PORT = DESKTOP_DEFAULT_WEB_PORT
 const DESKTOP_WEB_SERVER_ROW_ID = 'desktop-webserver'
 const DESKTOP_WEB_SERVER_PACKAGE = `${DESKTOP_PACKAGE_NAME}/webserver`
-const SETTINGS_FILE_PACKAGE = '@deepseek-ai/dsh-settings-file'
+// dsh 0.1.7-alpha.1 deleted `@deepseek-ai/dsh-settings-file` (upstream 601d6761e4) and
+// moved persisted form values into the active profile's own patch layer. The row that
+// carries the settings service is now the profile-owned `@deepseek-ai/dsh-settings`.
+const SETTINGS_PACKAGE = '@deepseek-ai/dsh-settings'
+/** Legacy harness-home document the upstream one-shot import still reads. */
+const SETTINGS_DOCUMENT_FILENAME = 'settings.yaml'
+const SETTINGS_DOCUMENT_FORMATS: Readonly<Record<string, 'yaml' | 'json'>> = Object.freeze({
+  '.yaml': 'yaml',
+  '.yml': 'yaml',
+  '.json': 'json',
+})
 const DESKTOP_SETTINGS_NAMESPACE = 'dsh-desktop'
 const UI_LAYOUT_PACKAGE = '@deepseek-ai/dsh-client-ui-layout'
 const UI_SIDEBAR_PACKAGE = '@deepseek-ai/dsh-client-ui-sidebar'
@@ -206,12 +210,175 @@ export function desktopShellModeFromSettings(document: unknown): DesktopShellMod
 }
 
 /**
+ * Where Desktop's legacy harness-home settings document lives.
+ *
+ * dsh 0.1.5 resolved this through `@deepseek-ai/dsh-settings-file`'s `resolveSpec`.
+ * 0.1.7 deleted that package, but Desktop still owns the document: the Host reads
+ * startup preferences before any plugin boots, the setup wizard and the recovery
+ * window read and write it, and upstream's one-shot import consumes it. The
+ * defaulting below reproduces the deleted `resolveSpec` exactly (an explicit
+ * `path` wins, otherwise `<dshHome>/settings.yaml`; the extension picks the format).
+ */
+export interface DesktopSettingsDocumentConfig {
+  /** Explicit document path; wins over the harness-home default. */
+  path?: string
+  /** Harness home override passed through to {@link resolveDshHome}. */
+  dshHome?: string
+}
+
+/** Resolved location and encoding of the Desktop settings document. */
+export interface DesktopSettingsDocumentSpec {
+  filename: string
+  format: 'yaml' | 'json'
+}
+
+/**
+ * Resolve the settings document the Host reads before the Loader starts.
+ * @param config - explicit path and/or harness-home override.
+ * @returns the absolute filename and its parsed format.
+ * @throws {Error} when the path carries an unsupported extension.
+ */
+export function resolveDesktopSettingsDocument(
+  config: DesktopSettingsDocumentConfig = {},
+): DesktopSettingsDocumentSpec {
+  const filename = resolve(config.path ?? join(resolveDshHome(config.dshHome), SETTINGS_DOCUMENT_FILENAME))
+  const format = SETTINGS_DOCUMENT_FORMATS[extname(filename).toLowerCase()]
+  if (format === undefined) {
+    throw new Error(`${BIN_NAME}: settings document extension ${JSON.stringify(extname(filename))} is not supported (use .yaml, .yml, or .json)`)
+  }
+  return { filename, format }
+}
+
+/**
+ * Desktop's own legacy-to-entry section renames for the harness-home document.
+ *
+ * 0.1.7's one-shot import (`SettingsForms#importLegacyDocument`) keys every
+ * section of `settings.yaml` by Loader entry id and carries a rename table
+ * (`LEGACY_SECTION_ENTRIES`) that only covers the kernel's own renames. Desktop
+ * renamed its two sections in this port -- the settings namespace is now the
+ * Loader entry id, and those rows are `desktop-shell` and `desktop-notifications`
+ * -- so without this table the import raises `No configurable plugin entry
+ * "dsh-desktop"`, logs a warning nobody reads, and then renames the document to
+ * `settings.yaml.imported` anyway. Every user upgrading from 0.1.6 would lose
+ * window mode, all three materials, port, browser intent, network exposure, log
+ * level and every notification preference, silently and irreversibly.
+ *
+ * Desktop's own two sections kept every field name, so for them the section key
+ * is the whole migration.
+ *
+ * `agent-presets` is upstream's row, not Desktop's, but it has the same gap:
+ * 0.1.7 renamed the row to `agent-preset-registry`
+ * (`packages/bundle/web-app/cordis.patch.yml:541`) without adding the pair to
+ * `LEGACY_SECTION_ENTRIES`, so the import logs `No configurable plugin entry
+ * "agent-presets"` and drops the section. The user's chosen default preset is
+ * discarded and the bundle's own `default: standard` takes over. Desktop is the
+ * only edition that owns this document before the Loader starts, so the rename
+ * has to happen here or not at all.
+ *
+ * That row also renamed the field. 0.1.6's `default` was the user's choice;
+ * 0.1.7 keeps `default` as the bundle-authored fallback and moves the choice to
+ * `selectedDefault`, which is the only one of the two declared `.volatile()`
+ * (`@deepseek-ai/dsh-agent-preset-registry/lib/index.js:454`). The distinction is
+ * not cosmetic: `SettingsForms#write` throws `Config field "default" is not
+ * volatile` before it persists anything, so importing the legacy key under its
+ * old name loses the value just as completely as dropping the section. The
+ * service reads `enabled ? selectedDefault ?? default : default`, so the
+ * imported choice takes effect as soon as it lands under the new name.
+ */
+const LEGACY_DESKTOP_SETTINGS_SECTIONS: readonly LegacySettingsSection[] = Object.freeze([
+  Object.freeze({ legacy: 'dsh-desktop', entryId: 'desktop-shell' }),
+  Object.freeze({ legacy: 'dsh-desktop-notifications', entryId: 'desktop-notifications' }),
+  Object.freeze({
+    legacy: 'agent-presets',
+    entryId: 'agent-preset-registry',
+    fields: Object.freeze([Object.freeze(['default', 'selectedDefault'] as const)]),
+  }),
+])
+
+/** One legacy `settings.yaml` section and the 0.1.7 entry that now owns it. */
+interface LegacySettingsSection {
+  /** Section key written by 0.1.6 and earlier. */
+  readonly legacy: string
+  /** Loader entry id 0.1.7's import keys the section by. */
+  readonly entryId: string
+  /** Field renames inside the section, `[legacy, current]`; absent when none. */
+  readonly fields?: readonly (readonly [legacy: string, field: string])[]
+}
+
+/**
+ * Rename Desktop's legacy sections in place so upstream's import can find them.
+ *
+ * Runs in the launcher, before the Loader starts and therefore before the
+ * settings plugin consumes and renames the document. Renaming the key node
+ * rather than re-setting the map keeps each section's position, comments and
+ * scalar styles intact, so a document this edition does not fully understand
+ * survives untouched.
+ *
+ * Idempotent in both directions, for section keys and for the field renames
+ * inside them: a name 0.1.7 already uses has nothing to rename, and a document
+ * that somehow carries both names keeps the current one, because that is the one
+ * 0.1.7 would have written.
+ *
+ * @param spec - resolved location and encoding of the settings document.
+ * @returns the entry ids whose section was rewritten; empty when nothing changed.
+ */
+export function migrateDesktopSettingsDocumentSections(
+  spec: DesktopSettingsDocumentSpec,
+): readonly string[] {
+  // Only the harness-home YAML document is ever migrated. Desktop always resolves
+  // this document from `dshHome`, so the `.json` form `resolveSpec` also accepted
+  // is unreachable here; leaving it alone is safer than rewriting a file that
+  // reached this path some other way.
+  if (spec.format !== 'yaml') return []
+  let text: string
+  try {
+    text = readFileSync(spec.filename, 'utf8')
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw cause
+  }
+  const document = parseDocument(text, { prettyErrors: true })
+  // A malformed document is not this function's to diagnose: `readDesktopStartupSettings`
+  // reports it with the parser's own message, and rewriting it would destroy evidence.
+  if (document.errors.length > 0) return []
+  const contents = document.contents
+  if (!isMap(contents)) return []
+  const keyed = (map: YAMLMap, name: string): Pair | undefined => map.items
+    .find((item): item is Pair => isPair(item) && isScalar(item.key) && item.key.value === name)
+  const migrated: string[] = []
+  for (const { legacy, entryId, fields } of LEGACY_DESKTOP_SETTINGS_SECTIONS) {
+    const current = keyed(contents, entryId)
+    const section = current ?? keyed(contents, legacy)
+    if (section === undefined || !isScalar(section.key)) continue
+    let changed = false
+    if (current === undefined) {
+      section.key.value = entryId
+      changed = true
+    }
+    const values = section.value
+    if (fields !== undefined && isMap(values)) {
+      for (const [legacyField, field] of fields) {
+        if (keyed(values, field) !== undefined) continue
+        const pair = keyed(values, legacyField)
+        if (pair === undefined || !isScalar(pair.key)) continue
+        pair.key.value = field
+        changed = true
+      }
+    }
+    if (changed) migrated.push(entryId)
+  }
+  if (migrated.length === 0) return []
+  writeFileSync(spec.filename, String(document))
+  return migrated
+}
+
+/**
  * Read startup settings from the same file resolved by the settings provider.
- * @param config - validated settings-file row config.
+ * @param config - validated settings-document locator.
  * @returns the values projected into the startup Loader graph.
  */
-export function readDesktopStartupSettings(config: SettingsFileConfig): DesktopStartupSettings {
-  const spec = resolveSettingsFileSpec(config)
+export function readDesktopStartupSettings(config: DesktopSettingsDocumentConfig): DesktopStartupSettings {
+  const spec = resolveDesktopSettingsDocument(config)
   let text: string
   try {
     text = readFileSync(spec.filename, 'utf8')
@@ -235,7 +402,7 @@ export function readDesktopStartupSettings(config: SettingsFileConfig): DesktopS
 }
 
 /** Read only the shell mode from the settings provider's resolved file. */
-export function readDesktopShellMode(config: SettingsFileConfig): DesktopShellMode {
+export function readDesktopShellMode(config: DesktopSettingsDocumentConfig): DesktopShellMode {
   return readDesktopStartupSettings(config).mode
 }
 
@@ -248,17 +415,19 @@ function requiredWebBundles(): string[] {
   return [...template.bundles]
 }
 
-/** User patch lifecycle inherited from the matching upstream Web profile. */
-function requiredWebPatchReload(): ProfileTemplate['patchReload'] {
-  const template = PROFILE_TEMPLATES.web
-  if (template === undefined) {
-    throw new Error(`${BIN_NAME}: installed dsh-app-boot has no web profile template`)
-  }
-  return template.patchReload
-}
-
 /** Prepared profile inputs consumed by app-boot. */
 export interface PreparedDesktopProfile {
+  /** Extra launcher-owned patches, also replayed after Profile HMR. */
+  overlays?: PatchOptions[]
+  /** Serializable inputs for the Desktop-owned alpha.2 Profile reload path. */
+  reloadOptions: {
+    telemetryDisabled: string | undefined
+    platform: NodeJS.Platform
+    profileName: string
+    pluginStatePath: string | undefined
+    marketSelection: DesktopMarketSnapshot
+    aaEnabled: boolean
+  }
   /** Harness home shared by the launcher and generated command environment. */
   homeDir: string
   /** Resolved profile and its persistent user layer. */
@@ -308,6 +477,22 @@ export interface DesktopProfilePreparationHooks {
   onSettingsDocumentResolved?: (path: string) => void
   /** LAN IPv4 literals sampled once before this profile generation is composed. */
   lanAddresses?: readonly string[]
+
+  /**
+   * Compose this profile patch document instead of the one currently on disk.
+   *
+   * The config editor validates and reconciles an edit *before* it writes the
+   * file: it composes the pending document and rejects the write when the
+   * effective row does not match what it is about to persist. Desktop owns the
+   * composition (`ProfileContext.readPatches`), so the pending document has to
+   * reach it here -- otherwise every settings write is judged against the stale
+   * on-disk document, which by construction still holds the old value, and the
+   * editor fails closed with `Configuration for "<id>" is overridden by a home
+   * patch or command-line overlay`. The same composition is what the editor
+   * then hands `reconcileProfilePatches`, so a stale one would also reconcile
+   * the Loader back to the pre-edit config.
+   */
+  profilePatches?: readonly PatchOptions[]
 }
 
 /** User patch entry skipped to keep a profile bootable. */
@@ -343,7 +528,7 @@ function sameList(left: readonly string[], right: readonly string[]): boolean {
 export function ensureDesktopProfile(home: string = resolveDshHome()): string {
   const dir = resolveProfileDir(DESKTOP_PROFILE_NAME, home)
   if (!existsSync(join(dir, 'package.json'))) {
-    initProfile(dir, REQUIRED_BUNDLES, requiredWebPatchReload())
+    initProfile(dir, REQUIRED_BUNDLES)
   }
   const manifest = readProfileManifest(BIN_NAME, dir)
   const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
@@ -353,8 +538,7 @@ export function ensureDesktopProfile(home: string = resolveDshHome()): string {
   }
   const current = rawBundles === undefined ? [] : rawBundles as string[]
   const bundles = desktopBundleList(current)
-  const patchReload = requiredWebPatchReload()
-  if (!sameList(current, bundles) || manifest.dsh?.profile?.patchReload !== patchReload) {
+  if (!sameList(current, bundles)) {
     writeProfileManifest(dir, {
       ...manifest,
       dsh: {
@@ -362,7 +546,6 @@ export function ensureDesktopProfile(home: string = resolveDshHome()): string {
         profile: {
           ...manifest.dsh?.profile,
           bundles,
-          patchReload,
         },
       },
     })
@@ -498,7 +681,7 @@ function loadRecoveryFilteredProfile(
     if (template === undefined) {
       throw new Error(`${BIN_NAME}: profile ${JSON.stringify(profileName)} does not exist`)
     }
-    initProfile(profileDir, template.bundles, template.patchReload)
+    initProfile(profileDir, template.bundles)
   }
   const manifest = readProfileManifest(BIN_NAME, profileDir)
   const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
@@ -507,11 +690,6 @@ function loadRecoveryFilteredProfile(
     throw new Error(`${BIN_NAME}: dsh.profile.bundles must be an array of package names`)
   }
   const bundles = (rawBundles ?? []) as string[]
-  const rawPatchReload: unknown = manifest.dsh?.profile?.patchReload
-  if (rawPatchReload !== undefined && rawPatchReload !== 'live' && rawPatchReload !== 'startup') {
-    throw new Error(`${BIN_NAME}: dsh.profile.patchReload must be "live" or "startup"`)
-  }
-  const patchReload = rawPatchReload ?? PROFILE_TEMPLATES[profileName]?.patchReload ?? DEFAULT_PROFILE_PATCH_RELOAD
   const selectedBundles = bundles.filter(packageName =>
     (aaEnabled || packageName !== AA_PACKAGE_NAME) &&
     packageName !== DESKTOP_MARKET_IDENTITIES.community.packageName
@@ -546,15 +724,17 @@ function loadRecoveryFilteredProfile(
       const declared = bundleManifest !== null && typeof bundleManifest === 'object'
         ? (bundleManifest as { dsh?: { bundle?: { patch?: unknown } } }).dsh?.bundle?.patch
         : undefined
-      if (typeof declared !== 'string' || declared.length === 0) {
+      const declaredList = typeof declared === 'string' ? [declared] : declared
+      if (!Array.isArray(declaredList) || declaredList.length === 0
+        || declaredList.some(entry => typeof entry !== 'string' || entry.length === 0)) {
         throw new Error(`${BIN_NAME}: profile bundle ${JSON.stringify(packageName)} declares no dsh.bundle in its package.json`)
       }
-      const patchPath = join(packageDir, declared)
+      const patchPaths = bundlePatchPaths(packageDir, { patch: declaredList as string[] })
       layers.push({
         packageName,
         packageDir,
-        patchPath,
-        patches: loadOverlayPatches(BIN_NAME, patchPath),
+        patchPaths,
+        patches: patchPaths.flatMap(path => loadOverlayPatches(BIN_NAME, path)),
       })
     } catch (cause) {
       if (isAa) aaFailure = marketFailureMessage(cause)
@@ -570,17 +750,24 @@ function loadRecoveryFilteredProfile(
       layers,
       patchPath,
       patches: existsSync(patchPath) ? loadOverlayPatches(BIN_NAME, patchPath) : [],
-      patchReload,
     },
     ...(dshMarketFailure === undefined ? {} : { dshMarketFailure }),
     ...(aaFailure === undefined ? {} : { aaFailure }),
   }
 }
 
-/** Resolve the agent presets shipped by the matching presets dependency. */
-export function shippedPresetRoot(moduleUrl: string = import.meta.url): string {
+/**
+ * Resolve the Cordis skills shipped by the matching agent-preset dependency.
+ *
+ * dsh 0.1.7-alpha.1 split `@deepseek-ai/dsh-agent-presets` into
+ * `@deepseek-ai/dsh-agent-preset` (the preset model, which ships `skills/`) and
+ * `@deepseek-ai/dsh-agent-preset-registry` (the Loader-facing service). The preset
+ * *declarations* moved again, into `@deepseek-ai/dsh-web-app/presets/*.patch.yml`,
+ * so only the skill tree is still resolved from a package root here.
+ */
+export function shippedSkillRoot(moduleUrl: string = import.meta.url): string {
   const require = createRequire(moduleUrl)
-  return join(dirname(require.resolve('@deepseek-ai/dsh-agent-presets/package.json')), 'presets')
+  return join(dirname(require.resolve('@deepseek-ai/dsh-agent-preset/package.json')), 'skills')
 }
 
 /** Read a row's object config without trusting arbitrary YAML values. */
@@ -873,10 +1060,19 @@ export function prepareDesktopProfile(
     marketSelection.requested,
     hooks.aaEnabled === true,
   )
-  const profile = loadedProfile.profile
+  // Only the patch document is substitutable: bundle layers, disabled-bundle
+  // filtering and Market/AA admission stay launcher-owned even while an edit is
+  // in flight, because the editor's own `loadProfileDirectory` view of them is
+  // the unfiltered CLI one and must never replace ours.
+  const profile = hooks.profilePatches === undefined
+    ? loadedProfile.profile
+    : { ...loadedProfile.profile, patches: structuredClone([...hooks.profilePatches]) }
   const rootConfig = join(profileDir, DESKTOP_PROFILE_ROOT)
   const bareModuleBaseUrl = pathToFileURL(join(profile.dir, 'package.json')).href
-  writeFileSync(rootConfig, '[]\n')
+  // Profile HMR reuses preparation; do not retrigger the root watcher on reads.
+  if (!existsSync(rootConfig) || readFileSync(rootConfig, 'utf8') !== '[]\n') {
+    writeFileSync(rootConfig, '[]\n')
+  }
 
   const desktopPatches = loadOverlayPatches(BIN_NAME, DESKTOP_PATCH_PATH)
   const bundlePatches: PatchOptions[] = []
@@ -986,15 +1182,27 @@ export function prepareDesktopProfile(
     if (typeof row.id === 'string') rows.set(row.id, row)
   }
   const settings = rows.get('settings')
-  if (settings?.name !== SETTINGS_FILE_PACKAGE) {
-    throw new Error(`${BIN_NAME}: desktop profile must use ${SETTINGS_FILE_PACKAGE} in the settings row`)
+  if (settings?.name !== SETTINGS_PACKAGE) {
+    throw new Error(`${BIN_NAME}: desktop profile must use ${SETTINGS_PACKAGE} in the settings row`)
   }
-  const settingsConfig = FileSettingsProvider.Config({
-    dshHome: home,
-    ...rowConfig(settings),
-  } as SettingsFileConfig)
-  const settingsDocument = resolveSettingsFileSpec(settingsConfig).filename
+  // 0.1.7's settings row is the profile-owned service and takes no document config,
+  // so Desktop resolves the harness-home document itself. The Host, the setup wizard,
+  // and the recovery window all still address the document by path.
+  const settingsSpec = resolveDesktopSettingsDocument({ dshHome: home })
+  const settingsDocument = settingsSpec.filename
+  // Before the Loader starts, so the settings plugin's one-shot import -- which
+  // consumes the document and then renames it away -- sees Desktop's sections
+  // under the entry ids it keys by.
+  migrateDesktopSettingsDocumentSections(settingsSpec)
   hooks.onSettingsDocumentResolved?.(settingsDocument)
+  const desktopShell = rows.get('desktop-shell')
+  if (desktopShell === undefined) {
+    throw new Error(`${BIN_NAME}: desktop profile has no desktop-shell row`)
+  }
+  const desktopShellConfig = rowConfig(desktopShell)
+  // Startup preferences used to live in the global settings document. 0.1.7 made
+  // persisted form values profile-specific, so the composed desktop-shell row — the
+  // bundle default overridden by the profile's own patch layer — is now the source.
   const {
     mode,
     port,
@@ -1003,11 +1211,7 @@ export function prepareDesktopProfile(
     linuxMaterial,
     openBrowser,
     networkExposure,
-  } = readDesktopStartupSettings(settingsConfig)
-  patches.push({
-    id: 'settings',
-    config: settingsConfig,
-  })
+  } = desktopStartupSettingsFromSettings({ [DESKTOP_SETTINGS_NAMESPACE]: desktopShellConfig })
   const webRuntime = rows.get('web-runtime')
   if (webRuntime === undefined) {
     throw new Error(`${BIN_NAME}: desktop profile has no web-runtime row`)
@@ -1039,18 +1243,12 @@ export function prepareDesktopProfile(
       { id: 'ui-conversation', disabled: false },
     )
   }
-  const presets = rows.get(AGENT_PRESETS_ROW_ID)
-  if (presets !== undefined) {
-    const shippedRoot = shippedPresetRoot()
-    const roots: Array<{ path: string, trust: 'system' | 'user' }> = [
-      { path: shippedRoot, trust: 'system' },
-      { path: join(home, USER_PRESET_DIRNAME), trust: 'user' },
-    ]
-    patches.push({
-      id: AGENT_PRESETS_ROW_ID,
-      config: { ...rowConfig(presets), roots, includeUserRoot: false },
-    })
-  }
+  // dsh 0.1.7-alpha.1 replaced filesystem preset discovery with preset declarations
+  // carried by patch files (`@deepseek-ai/dsh-web-app/presets/*.patch.yml`). The
+  // `agent-presets` row is now `agent-preset-registry`, whose Config is only
+  // `default`/`selectedDefault`/`modeSelectionEnabled` — the `roots` and
+  // `includeUserRoot` override Desktop used to push no longer exists anywhere
+  // upstream, so there is nothing left for Desktop to pin here.
   const webserver = rows.get('webserver')
   if (webserver === undefined) {
     throw new Error(`${BIN_NAME}: desktop profile has no webserver row`)
@@ -1143,25 +1341,37 @@ export function prepareDesktopProfile(
   if ((telemetryDisabled ?? '') !== '' && rows.has('session-telemetry-otel')) {
     patches.push({ id: 'session-telemetry-otel', disabled: true })
   }
-  const desktopShell = rows.get('desktop-shell')
-  if (desktopShell === undefined) {
-    throw new Error(`${BIN_NAME}: desktop profile has no desktop-shell row`)
-  }
-  patches.push({
-    id: 'desktop-shell',
-    disabled: false,
-    config: {
-      ...rowConfig(desktopShell),
-      mode,
-      port,
-      networkExposure,
-      macosMaterial,
-      windowsMaterial,
-      linuxMaterial,
-    },
-  })
+  // Keep the shell row enabled, but pin none of its configuration.
+  //
+  // These launcher-injected patches compose *after* the profile's own
+  // `cordis.patch.yml`, which is exactly the file 0.1.7's config editor writes
+  // settings into. Re-asserting the startup fields here therefore shadowed
+  // every edit the user made to them, and 0.1.7's editor fails closed on that:
+  // it recomposes the patch layers after writing and throws
+  // `Configuration for "desktop-shell" is overridden by a home patch or
+  // command-line overlay` when the effective value is not what it just wrote.
+  // That blocked the mode picker and, with it, every Desktop settings write.
+  //
+  // Nothing is lost by dropping the config. The startup values above are read
+  // back out of this same composed row, and `DesktopShellConfig` declares the
+  // identical defaults (`parseDesktopShellMode` <-> `.default('compatibility')`,
+  // `DEFAULT_DESKTOP_PORT` <-> `.default(DESKTOP_DEFAULT_WEB_PORT)`, and one
+  // `DEFAULT_*_WINDOW_MATERIAL` per platform), so the plugin resolves the same
+  // values from the raw row. The one field that was *derived* rather than
+  // parsed -- `networkExposure`, withdrawn to loopback when browser access is
+  // off -- is now derived by `resolveDesktopConfig` in `settings-bridge.ts`,
+  // which is where the plugin already owns that rule on the write path.
+  patches.push({ id: 'desktop-shell', disabled: false })
   return {
     homeDir: home,
+    reloadOptions: {
+      telemetryDisabled,
+      platform,
+      profileName,
+      pluginStatePath,
+      marketSelection: structuredClone(marketSelection),
+      aaEnabled: hooks.aaEnabled === true,
+    },
     profile,
     rootConfig,
     bareModuleBaseUrl,
@@ -1184,13 +1394,45 @@ export function prepareDesktopProfile(
   }
 }
 
-/** Maintain the upstream module fallback for one fully resolved Desktop profile. */
+/**
+ * Retire the upstream module fallback for one fully resolved Desktop profile.
+ *
+ * dsh 0.1.7-alpha.1 deleted `healProfilesModuleFallback`: profile-local packages are
+ * served by the runtime resolution table instead of a materialized link tree, so there
+ * is no fallback left to heal. All this can still usefully do is sweep the tree older
+ * Desktop releases wrote, which `removeLinkProjections` does idempotently. Upstream runs
+ * that sweep itself inside `loadProfile`, but Desktop composes profiles through
+ * {@link loadRecoveryFilteredProfile} and never calls `loadProfile`, so this is the only
+ * place a Desktop install cleans up after an upgrade.
+ *
+ * NOTE FOR FUTURE WORK: if Desktop ever needs to re-materialize a link tree of its own,
+ * it must NOT reuse the directory name `.dsh-module-fallback`. 0.1.7's `loadProfile`
+ * calls `removeLinkProjections` on every load and would delete it out from under us.
+ *
+ * The name and signature are byte-compared against the stable edition's caller in
+ * `main.ts`, so only the body may change.
+ * @param home - Harness home whose profile directories are swept.
+ * @param profile - the resolved profile, when one is already loaded.
+ */
 export async function healDesktopProfileModuleFallback(home: string, profile?: Profile): Promise<void> {
-  await healProfilesModuleFallback({
-    installAnchor: INSTALL_ANCHOR,
-    home,
-    ...(profile === undefined ? {} : { profile }),
-  })
+  await Promise.resolve()
+  if (profile !== undefined) {
+    removeLinkProjections(profile.dir)
+    return
+  }
+  // Pre-boot callers have no profile yet. `removeLinkProjections` expects one profile
+  // directory, so sweep every directory under the profiles root.
+  const profilesDir = join(home, PROFILES_DIR)
+  let entries: string[]
+  try {
+    entries = readdirSync(profilesDir, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => join(profilesDir, entry.name))
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw cause
+  }
+  for (const dir of entries) removeLinkProjections(dir)
 }
 
 /** Expose the package anchor for focused resolution tests. */

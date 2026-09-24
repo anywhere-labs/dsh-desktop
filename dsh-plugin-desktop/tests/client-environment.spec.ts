@@ -45,7 +45,7 @@ describe('desktop client environment', () => {
       inject: vi.fn(),
       slots: { inject },
       locale: { bind: () => (key: string) => key },
-      settingsScope: { bind: () => ({}) },
+      configForms: { get: () => ({}) },
     } as unknown as ClientContext
     try {
       apply(ctx)
@@ -707,7 +707,7 @@ describe('sidebar footer stacking', () => {
         subscribe: vi.fn(() => () => {}),
       },
       locale: { bind: () => (key: string) => key },
-      settingsScope: { bind: () => ({}) },
+      configForms: { get: () => ({}) },
     } as unknown as ClientContext
 
     try {

@@ -1,3 +1,7 @@
+- id: ui-sidebar-browser
+  # Desktop capability does not depend on the user's Profile name. The later
+  # user patch can still disable the Browser explicitly.
+  disabled: false
 - insert:
     - id: desktop-next-capabilities
       name: dsh-desktop-next

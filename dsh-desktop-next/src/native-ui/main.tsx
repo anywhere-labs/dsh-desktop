@@ -12,6 +12,7 @@ import { useDesktopState } from '../client/desktop-state.ts'
 import { NextSettingsAdapter } from '../client/settings-adapter.ts'
 import type { DesktopCommand } from '../desktop-contract.ts'
 import { Onboarding } from './onboarding.tsx'
+import { recoverySupport } from '../recovery-support.ts'
 import './theme.css'
 
 function App() {
@@ -102,7 +103,7 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     terminalAvailable: state.platform === 'darwin' || state.platform === 'win32', safeModeAvailable: !state.safeMode, safeModeActive: state.safeMode,
     notice: notice ?? (busy ? undefined : state.recovery?.notice),
   }
-  return <RecoveryApp state={recovery} copy={copy} />
+  return <RecoveryApp state={recovery} copy={copy} support={recoverySupport(locale)} />
 }
 
 createRoot(document.getElementById('root')!).render(<CSPProvider disableStyleElements><App /></CSPProvider>)
