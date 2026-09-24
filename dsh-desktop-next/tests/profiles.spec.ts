@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
-import { composeEntries, loadOverlayPatches, readProfilePatches } from '@deepseek-ai/dsh-app-boot'
+import { composeEntries, loadOverlayPatches, OPTIONAL_BUNDLES, readProfilePatches } from '@deepseek-ai/dsh-app-boot'
 import { AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE, loadNextProfile, NEXT_PACKAGE, NextProfiles, profileName, WEB_BUNDLES } from '../src/profiles.ts'
 import * as privateFiles from '../src/private-files.ts'
 
@@ -190,6 +190,22 @@ it('recovers without parsing broken patches or deleting plugin packages and home
   expect(readFileSync(join(dir, 'node_modules', 'missing-third-party-plugin', 'keep'), 'utf8')).toBe('plugin')
   expect(readFileSync(join(manager.home, 'cordis.patch.yml'), 'utf8')).toContain('keep home patch')
 })
+it.each(['desktop', 'work', 'default'])('offers the Browser in %s without enabling optional bundles or overriding user choices', name => {
+  const manager = profiles()
+  const dir = manager.ensure(name)
+  const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  for (const bundle of OPTIONAL_BUNDLES) expect(manifest.dsh.profile.bundles).not.toContain(bundle)
+  const profile = loadNextProfile(dir, manager.home)
+  const layers = profile.layers.map(layer => layer.patches)
+  const browser = (patches = loadOverlayPatches('next', profile.patchPath)) =>
+    composeEntries([...layers, patches]).find(row => row.id === 'ui-sidebar-browser')
+  expect(browser()).toMatchObject({ name: '@deepseek-ai/dsh-client-ui-sidebar-browser', disabled: false })
+  for (const disabled of [true, false]) {
+    writeFileSync(profile.patchPath, `- id: ui-sidebar-browser\n  disabled: ${disabled}\n`)
+    expect(browser()?.disabled).toBe(disabled)
+  }
+})
+
 it('composes optional AA and Market while retaining the official Web layout', () => {
   const manager = profiles()
   const dir = manager.ensure('desktop')

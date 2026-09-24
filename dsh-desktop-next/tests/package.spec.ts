@@ -1,6 +1,19 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { OPTIONAL_BUNDLES } from '@deepseek-ai/dsh-app-boot'
 import { expect, it } from 'vitest'
 const read = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
+it('declares every official optional bundle as a discoverable, version-aligned installation dependency', () => {
+  const next = read('../package.json')
+  const require = createRequire(new URL('../package.json', import.meta.url))
+  for (const name of OPTIONAL_BUNDLES) {
+    expect(next.dependencies[name], name).toBe(next.dependencies['@deepseek-ai/dsh-app-boot'])
+    const installed = JSON.parse(readFileSync(require.resolve(`${name}/package.json`), 'utf8'))
+    expect(installed.version, name).toBe(next.dependencies[name])
+    expect(installed.dsh?.bundle?.patch, name).toBeTruthy()
+  }
+})
+
 it('keeps Next installer topology, native modules, fuses and Composer source aligned with Beta', () => {
   const next = read('../package.json'); const beta = read('../../dsh-plugin-desktop-beta/package.json')
   expect(next.version).toBe('2.0.14-next')

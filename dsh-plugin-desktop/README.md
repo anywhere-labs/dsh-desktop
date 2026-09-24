@@ -91,6 +91,8 @@ On macOS the enhanced window uses its original hidden-inset geometry: traffic li
 
 ## Development
 
+Root build, development/start, and packaging commands run `corepack yarn market:prepare` to query npm `latest` and synchronize the bundled `dshmarket` across Stable, Beta, and Next. The resolved exact versions and lockfile remain reproducible and should be committed together. Desktop self-update/rollback compatibility patches are retained; a failed lookup, install, or patch application stops preparation instead of silently using an old version. `corepack yarn market:check` checks freshness without changes. Installed apps do not download or hot-replace plugins on startup; the existing package overlay chooses the newer installed copy between the application and the active Profile without deleting either.
+
 This package is managed by the Yarn workspace at the repository root. The sibling `deepseek-harness/` checkout remains an independent upstream pnpm project and is not part of the Yarn workspace. Install and verify DSH Desktop from the repository root:
 
 ```sh
@@ -269,6 +271,6 @@ None. The same DSH Host and client feature plugins assemble model requests.
 - `dshmarket@1.2.3` remains an optional user-installed third-party package, not a bundled marketplace. Preinstallation is deferred until an audited release consumes the optional Desktop services while preserving ordinary DSH fallback and includes the complete license notice required for redistribution.
 - The update handoff validates the download container, not publisher identity. macOS still requires the user to replace the application from the opened DMG; Windows runs the downloaded NSIS installer but the local `dist:win` artifact is unsigned. Signed artifacts, Authenticode/publisher verification, SmartScreen reputation, and native upgrade testing remain release gates.
 - The shared carrier is HTTP and WebSocket, not Electron IPC. It defaults to loopback and supports an explicitly confirmed all-interface LAN bind. Replacing the carrier requires transport extension points in upstream DSH and is outside this standalone package.
-- This project pins both the published DSH `0.1.5-rc.2` family and the corresponding official `deepseek-harness/` release source. Product builds consume the checked-in official-profile runtime tarballs recorded in `upstream.json`, rather than linking the source checkout.
-- DSH `0.1.5-rc.2` migrates supported historical sessions to V3 while preserving the original logs. Sessions written after upgrading cannot be read by the previous `0.1.2-rc.1` runtime.
+- Stable, Beta, and Next pin the published DSH `0.1.7-rc.1` family and the corresponding official `deepseek-harness/` release source. Product builds consume the checked-in official-profile runtime tarballs recorded in `upstream.json`, rather than linking the source checkout.
+- DSH `0.1.7-rc.1` migrates supported historical sessions to V4 while preserving the original logs. Sessions written after upgrading cannot be read by the previous Stable `0.1.5-rc.2` runtime.
 - `package:dir` is an unpacked smoke artifact. `dist:win` adds an unsigned NSIS test installer but does not establish Authenticode identity or SmartScreen reputation. Installation and upgrade behavior, native notifications and terminals, the Windows ACL sandbox, and native-material appearance remain target-platform verification boundaries.

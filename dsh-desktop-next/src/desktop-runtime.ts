@@ -280,7 +280,8 @@ export class NextDesktopRuntime {
         if (effective.browserAccess && effective.networkExposure === 'lan') {
           const edge = await lan.setEnabled(true)
           if (stopped) { await lan.stop(); return }
-          if (edge.state === 'failed') this.report(`LAN HTTPS: ${edge.errorCode}`)
+          // The optional LAN edge must not turn a ready loopback Host into recovery mode.
+          if (edge.state === 'failed') this.diagnostics.append(`LAN HTTPS: ${edge.errorCode}`, 'warn')
         }
         if (!this.safeMode) {
           try { this.recovery.checkpoint(this.selected) } catch (error) { this.diagnostics.append(`Recovery checkpoint: ${String(error)}`, 'warn') }

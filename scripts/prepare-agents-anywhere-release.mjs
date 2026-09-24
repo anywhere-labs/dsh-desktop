@@ -4,7 +4,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { AA_REPOSITORY, assertPreparedAaRelease, runtimePeerRanges as readRuntimePeerRanges } from './agents-anywhere-release-policy.mjs'
+import { AA_PACKAGE, AA_REPOSITORY, AA_WORKSPACES, aaConnectorResolution, assertPreparedAaRelease, runtimePeerRanges as readRuntimePeerRanges } from './agents-anywhere-release-policy.mjs'
 import { prepareInstalledAaRuntime } from './prepare-agents-anywhere-runtime.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -16,6 +16,15 @@ const currentProvenance = existsSync(provenancePath) ? JSON.parse(readFileSync(p
 let desktopVersion
 let artifactName
 const peerPackages = ['@deepseek-ai/dsh-typert-protocol', '@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-session']
+// The official AA source does not publish its local yarn.lock. Its devDependencies
+// target one DSH release, but caret dependencies inside that release can float to
+// a later rc and make ambient declarations from two releases conflict at build.
+const transitiveBuildPackages = [
+  'dsh-chunked-list', 'dsh-credentials', 'dsh-deque',
+  'dsh-session-format', 'dsh-session-format-catalog',
+  'dsh-session-format-v0-to-v1', 'dsh-session-format-v1-to-v2', 'dsh-session-format-v2-to-v3',
+  'dsh-util-crypto',
+]
 
 function invocation(name, args) {
   if (name === 'corepack') {
@@ -68,14 +77,32 @@ function runtimePeerRanges() {
   return readRuntimePeerRanges(root)
 }
 
-function patchManifest(packagePath, peerRanges) {
+function patchManifest(packagePath, peerRanges, releaseVersion = desktopVersion) {
   const manifest = readJson(join(packagePath, 'package.json'))
   const sourceVersion = manifest.version
-  manifest.version = desktopVersion
+  manifest.version = releaseVersion
   // Build/typecheck explicitly above packaging; prepack's integration suite
   // requires Server/Web/Python fixtures that are not part of a release build.
   if (manifest.scripts) { delete manifest.scripts.prepack; delete manifest.scripts.postpack }
   manifest.peerDependencies = { ...manifest.peerDependencies, ...peerRanges }
+  const dev = manifest.devDependencies ?? {}
+  const buildVersion = dev['@deepseek-ai/dsh-session']
+  if (!/^\d+\.\d+\.\d+-[\w.-]+$/u.test(buildVersion ?? '')) throw new Error('AA source must declare an exact DSH build version')
+  const schemaVersion = dev['@deepseek-ai/schemastery']
+  const cosmokitForSchema = { '3.18.2': '1.8.3', '3.18.4': '1.8.5' }
+  const cosmokitVersion = cosmokitForSchema[schemaVersion]
+  if (!cosmokitVersion) throw new Error(`Unsupported AA build schemastery version: ${String(schemaVersion)}`)
+  const buildPackages = new Set([
+    ...Object.keys(dev).filter(name => name.startsWith('@deepseek-ai/dsh-')),
+    ...transitiveBuildPackages.map(name => `@deepseek-ai/${name}`),
+  ])
+  manifest.resolutions = {
+    ...manifest.resolutions,
+    ...Object.fromEntries([...buildPackages].map(name => [name, buildVersion])),
+    '@deepseek-ai/schemastery': schemaVersion,
+    // Keep cosmokit aligned with the source DSH line's schemastery/cordis.
+    '@deepseek-ai/cosmokit': cosmokitVersion,
+  }
   writeFileSync(join(packagePath, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
   return { sourceVersion }
 }
@@ -130,10 +157,10 @@ function prepare() {
   console.log(`Selected AA ${sourceRef} at ${commit}`)
   if (verifyRelease || process.argv.includes('--check')) {
     assertPreparedAaRelease(root, commit)
-    console.log(`AA release verified: both channels use ${commit}`)
+    console.log(`AA release verified: all Desktop channels use ${commit}`)
     return
   }
-  const packagePaths = ['dsh-plugin-desktop/package.json', 'dsh-plugin-desktop-beta/package.json']
+  const packagePaths = AA_WORKSPACES.map(workspace => `${workspace}/package.json`)
   const peerRanges = runtimePeerRanges()
   if (currentProvenance.commit === commit && JSON.stringify(currentProvenance.runtimePeers) === JSON.stringify(peerRanges)
     && packagePaths.every(path => readJson(join(root, path)).dependencies?.['@agents-anywhere/dsh-bridge-next'] === `file:../vendor/agents-anywhere/${currentProvenance.artifact}`)
@@ -152,7 +179,7 @@ function prepare() {
     console.log(`Reusing verified AA artifact ${currentProvenance.artifact}`)
     return
   }
-  const snapshotPaths = [...packagePaths, 'yarn.lock', 'vendor/agents-anywhere/provenance.json']
+  const snapshotPaths = ['package.json', ...packagePaths, 'yarn.lock', 'vendor/agents-anywhere/provenance.json']
   const snapshots = new Map(snapshotPaths.map(path => [path, readFileSync(join(root, path))]))
   let targetArtifact
   let published = false
@@ -205,6 +232,7 @@ function prepare() {
       manifestChanges: [
         `version set to ${desktopVersion}`,
         'release staging removes prepack/postpack hooks; build, typecheck and check:build run explicitly',
+        'release staging pins the AA build-time DSH type graph to the source devDependencies',
         ...peerPackages.map(name => `${name} peer accepts ${peerRanges[name]}`),
       ],
       sourceChanges: [],
@@ -215,6 +243,9 @@ function prepare() {
       manifest.dependencies['@agents-anywhere/dsh-bridge-next'] = `file:../vendor/agents-anywhere/${artifactName}`
       writeFileSync(join(root, path), `${JSON.stringify(manifest, null, 2)}\n`)
     }
+    const rootManifest = readJson(join(root, 'package.json'))
+    rootManifest.resolutions[AA_PACKAGE] = aaConnectorResolution(artifactName)
+    writeFileSync(join(root, 'package.json'), `${JSON.stringify(rootManifest, null, 2)}\n`)
     run('corepack', ['yarn', 'install', '--mode=skip-build'], root)
     prepareInstalledAaRuntime(root)
     assertPreparedAaRelease(root, commit)

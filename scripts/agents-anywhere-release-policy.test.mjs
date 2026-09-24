@@ -4,7 +4,8 @@ import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, readFileSync,
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
-import { AA_PACKAGE, AA_PEERS, AA_REPOSITORY, AA_WORKSPACES, assertPreparedAaRelease } from './agents-anywhere-release-policy.mjs'
+import { AA_PACKAGE, AA_PEERS, AA_REPOSITORY, AA_WORKSPACES, aaConnectorResolution, assertPreparedAaRelease } from './agents-anywhere-release-policy.mjs'
+import { patchManifest } from './prepare-agents-anywhere-release.mjs'
 import { prepareInstalledAaRuntime } from './prepare-agents-anywhere-runtime.mjs'
 
 const commit = 'a'.repeat(40)
@@ -24,6 +25,7 @@ function fixture(t) {
     write(path, data)
   }
   const runtimePeers = Object.fromEntries(AA_PEERS.map(name => [name, '0.1.5-rc.2 || 0.1.6-alpha.2']))
+  write('package.json', { resolutions: { [AA_PACKAGE]: aaConnectorResolution(artifact) } })
   for (const [index, workspace] of AA_WORKSPACES.entries()) {
     write(`${workspace}/package.json`, {
       dependencies: {
@@ -41,15 +43,55 @@ function fixture(t) {
   return { root, patch }
 }
 
-test('accepts the latest AA with both Desktop runtime peer ranges installed', t => {
+test('accepts the latest AA across Stable, Beta and Next runtime peers', t => {
   const { root } = fixture(t)
   assert.equal(assertPreparedAaRelease(root, commit).commit, commit)
+})
+
+test('rejects a compatibility patch pinned to a previous AA artifact', t => {
+  const { root, patch } = fixture(t)
+  patch('package.json', data => { data.resolutions[AA_PACKAGE] = aaConnectorResolution('old.tgz') })
+  assert.throws(() => assertPreparedAaRelease(root, commit), /compatibility patch references a different AA artifact/)
+})
+
+test('pins the AA staging type graph while keeping both Desktop runtime peer ranges', t => {
+  const { root } = fixture(t)
+  const packagePath = join(root, 'staged')
+  mkdirSync(packagePath)
+  writeFileSync(join(packagePath, 'package.json'), JSON.stringify({
+    version: '0.1.0-dev.0', scripts: { prepack: 'build', build: 'tsdown' },
+    peerDependencies: { react: '^18' },
+    devDependencies: {
+      '@deepseek-ai/dsh-session': '0.1.5-rc.2',
+      '@deepseek-ai/dsh-typert-protocol': '0.1.5-rc.2',
+      '@deepseek-ai/schemastery': '3.18.2',
+    },
+    resolutions: { react: '18.3.1' },
+  }))
+  const peers = { '@deepseek-ai/dsh-session': '0.1.5-rc.2 || 0.1.7-alpha.2' }
+  assert.deepEqual(patchManifest(packagePath, peers, version), { sourceVersion: '0.1.0-dev.0' })
+  const staged = JSON.parse(readFileSync(join(packagePath, 'package.json'), 'utf8'))
+  assert.equal(staged.version, version)
+  assert.equal(staged.scripts.prepack, undefined)
+  assert.equal(staged.peerDependencies['@deepseek-ai/dsh-session'], peers['@deepseek-ai/dsh-session'])
+  assert.equal(staged.resolutions['@deepseek-ai/dsh-session'], '0.1.5-rc.2')
+  assert.equal(staged.resolutions['@deepseek-ai/dsh-session-format'], '0.1.5-rc.2')
+  assert.equal(staged.resolutions['@deepseek-ai/dsh-typert-protocol'], '0.1.5-rc.2')
+  assert.equal(staged.resolutions['@deepseek-ai/schemastery'], '3.18.2')
+  assert.equal(staged.resolutions['@deepseek-ai/cosmokit'], '1.8.3')
+  assert.equal(staged.resolutions.react, '18.3.1')
 })
 
 test('rejects the former stable-old/beta-new split even if the tarball is valid', t => {
   const { root, patch } = fixture(t)
   patch('dsh-plugin-desktop/package.json', data => { data.dependencies[AA_PACKAGE] = 'file:../vendor/agents-anywhere/old.tgz' })
   assert.throws(() => assertPreparedAaRelease(root, commit), /dsh-plugin-desktop references a different AA artifact/)
+})
+
+test('rejects a Next install left on the old AA artifact', t => {
+  const { root, patch } = fixture(t)
+  patch('dsh-desktop-next/package.json', data => { data.dependencies[AA_PACKAGE] = 'file:../vendor/agents-anywhere/old.tgz' })
+  assert.throws(() => assertPreparedAaRelease(root, commit), /dsh-desktop-next references a different AA artifact/)
 })
 
 test('rejects a prepared artifact after AA main advances', t => {
@@ -75,7 +117,7 @@ test('rejects corrupted or replaced vendor bytes', t => {
   assert.throws(() => assertPreparedAaRelease(root, commit), /checksum mismatch/)
 })
 
-test('repairs the 0644 uv payload for both Mac architectures in both channels', { skip: process.platform === 'win32' }, t => {
+test('repairs the 0644 uv payload for both Mac architectures in all channels', { skip: process.platform === 'win32' }, t => {
   const { root } = fixture(t)
   const files = AA_WORKSPACES.flatMap(workspace => ['arm64', 'x64'].map(arch =>
     join(root, workspace, 'node_modules', '@dataiku', `uv-darwin-${arch}`, 'bin', 'uv')))

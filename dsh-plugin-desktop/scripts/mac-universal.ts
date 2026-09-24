@@ -73,7 +73,7 @@ export const MACOS_UNIVERSAL_NATIVE_ENTRIES = [
   },
   {
     arch: 'arm64',
-    path: 'node_modules/fs-ext/prebuilds/darwin-arm64/electron.abi148.node',
+    path: 'node_modules/fs-ext/prebuilds/darwin-arm64/electron.abi149.node',
   },
   {
     arch: 'arm64',
@@ -105,7 +105,7 @@ export const MACOS_UNIVERSAL_NATIVE_ENTRIES = [
   },
   {
     arch: 'x86_64',
-    path: 'node_modules/fs-ext/prebuilds/darwin-x64/electron.abi148.node',
+    path: 'node_modules/fs-ext/prebuilds/darwin-x64/electron.abi149.node',
   },
   {
     arch: 'x86_64',

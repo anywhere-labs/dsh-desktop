@@ -104,6 +104,7 @@ export function releaseMac(options: MacReleaseOptions = defaultReleaseOptions())
     resolve(options.desktopRoot, '..'),
     buildEnvironment,
   )
+  options.run(process.execPath, ['scripts/prepare-dsh-market.mjs', '--check'], resolve(options.desktopRoot, '..'), buildEnvironment)
   options.run('yarn', ['run', 'check'], resolve(options.desktopRoot, '..'), buildEnvironment)
   options.resetOutput()
   options.prepareRuntime()

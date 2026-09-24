@@ -2,7 +2,7 @@
  * Edition-local adapter between the shared Desktop sources and the core job
  * registry's completion stream.
  *
- * Beta rides dsh 0.1.7, which removed `JobRegistry#onJobDone` and the
+ * Both Desktop editions ride dsh 0.1.7, which removed `JobRegistry#onJobDone` and the
  * `JobSnapshot` projection in favour of one filtered event stream:
  * `jobs.events.subscribe(filter, listener)` delivers `registered`, `progress`,
  * `stopping`, `settled`, `removed`, and `output` events carrying a `JobView`.

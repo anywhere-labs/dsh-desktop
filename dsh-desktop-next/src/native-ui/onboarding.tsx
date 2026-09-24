@@ -105,7 +105,7 @@ export function Onboarding({ state, locale, bridge }: { state: DesktopState; loc
           <p className="next-onboarding-description next-onboarding-reveal">{descriptions[page]}</p>
           {page === 2 && <div className="next-onboarding-option next-onboarding-reveal">
             <div className="next-onboarding-toggle"><label htmlFor="onboarding-remote">{t('启用远程控制', 'Enable remote control')}</label><Switch id="onboarding-remote" checked={remote} disabled={disabled} onCheckedChange={setRemote} /></div>
-            <p>{t('完成后，在侧边栏的“手机连接”中登录并配对。', 'After setup, sign in and pair your device in “Phone connect” in the sidebar.')}</p>
+            <p>{t('完成后，在侧边栏的“远程控制”中登录并配对。', 'After setup, sign in and pair your device in “Remote Control” in the sidebar.')}</p>
           </div>}
           {page === 3 && <div className="next-onboarding-option next-onboarding-reveal">
             <div className="next-onboarding-toggle">

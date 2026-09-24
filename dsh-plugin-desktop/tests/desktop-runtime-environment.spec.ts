@@ -712,8 +712,11 @@ describe("RunAsNode scope", () => {
     }
   })
 
-  it("scopes the flag to the runner child in every vendored patch", () => {
-    for (const channel of ["0.1.5-rc.2", "0.1.7-alpha.2"]) {
+  it("scopes the flag to the runner child in every active runtime patch", () => {
+    const upstream = JSON.parse(readFileSync(new URL('../../upstream.json', import.meta.url), 'utf8')) as {
+      channels: Record<string, { runtimePackageVersion: string }>
+    }
+    for (const channel of new Set(Object.values(upstream.channels).map(value => value.runtimePackageVersion))) {
       const patch = readFileSync(new URL(`../../patches/dsh-subprocess-local@${channel}.patch`, import.meta.url), "utf8")
       // Electron hosts launch the private runner through process.execPath, so the
       // flag is required on every platform, not only on the Windows selector.

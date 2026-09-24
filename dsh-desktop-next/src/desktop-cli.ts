@@ -7,7 +7,7 @@ import { resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
 import { createRequire } from 'node:module'
 import { NEXT_PACKAGE } from './profiles.ts'
 import { profileName as assertDesktopProfileName } from './profiles.ts'
-import { withoutForwardedDesktopPnpmPolicy } from './pnpm-policy.ts'
+import { applyDesktopPackageAgePolicy, withoutForwardedDesktopPnpmPolicy } from './pnpm-policy.ts'
 import { disableAsarArchiveView, type AsarArchiveProcess } from './asar-archive-policy.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
@@ -91,6 +91,7 @@ export async function runDesktopDshCli(
   argv: string[] = process.argv,
   asarProcess: AsarArchiveProcess = process,
 ): Promise<void> {
+  applyDesktopPackageAgePolicy(environment)
   const profileName = takeDefaultProfile(environment)
   clearElectronRunAsNode(environment)
   // The CLI's agent lists and reads user workspaces; see asar-archive-policy.ts.
