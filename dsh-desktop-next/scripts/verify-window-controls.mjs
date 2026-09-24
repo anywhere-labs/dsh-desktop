@@ -303,6 +303,12 @@ try {
   assert.equal(await remoteDialog.getByRole('tablist', { name: '连接管理' }).count(), 1)
   assert.equal(await context.pages().length, 1)
   await remoteDialog.getByRole('button', { name: /^(关闭远程控制|Close Remote Control|关闭手机连接)$/ }).click()
+  await remoteDialog.waitFor({ state: 'hidden' })
+  // Enabling remote control reloads the bundle list, and the choices stay aria-disabled
+  // until it settles. click() waits for that on its own; focus() + press() does not, so a
+  // Space that lands mid-reload is dropped and the selection never arrives.
+  await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-disabled') !== 'true',
+    '[data-next-markets] [role="radio"]:last-child')
   await dshChoice.focus()
   await dshChoice.press('Space')
   await waitSelected('[data-next-markets] [role="radio"]:last-child')
