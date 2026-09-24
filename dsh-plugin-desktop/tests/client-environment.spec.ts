@@ -28,6 +28,10 @@ import {
   WINDOWS_CAPTION_CONTROLS_WIDTH,
 } from '../src/window-chrome.ts'
 
+// Native-window UI is exercised separately; this suite verifies environment/layout contracts.
+vi.mock('../src/client/session-window-menu.tsx', () => ({ installSessionWindowMenu: vi.fn() }))
+vi.mock('../src/client/session-window-presentation.tsx', () => ({ installSessionWindowPresentation: vi.fn() }))
+
 describe('desktop client environment', () => {
   it.each(['darwin', 'win32', 'linux'])('keeps compatibility chrome out of the %s client slot tree', platform => {
     const marker = platform === 'win32' ? '&dsh-desktop-mica=0' : ''

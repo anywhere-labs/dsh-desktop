@@ -1,6 +1,7 @@
 /** Minimal context-isolated bridges for drag payloads, Desktop-owned actions, and the upstream Desktop marker. */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { SESSION_WINDOW_BRIDGE, SESSION_WINDOW_CHANNEL, SESSION_WINDOW_TARGET, validSessionWindowId, type SessionWindowBridge } from './session-window-contract.ts'
 import { DESKTOP_FILE_PATH_BRIDGE } from './file-path-bridge-contract.ts'
 import {
   DESKTOP_RENDERER_ACTION_CHANNEL,
@@ -27,3 +28,11 @@ contextBridge.exposeInMainWorld(DESKTOP_RENDERER_ACTIONS_BRIDGE, actions)
 // browser tab on their Web fallbacks, and turns on the DeepSeek account entry whose
 // Platform sign-in the Host hands to the native shell (src/platform-login.ts).
 contextBridge.exposeInMainWorld('dshDesktop', Object.freeze({ protocolVersion: 1 }))
+
+const sessionTarget = new URLSearchParams(window.location.search).get('dsh-desktop-session')
+contextBridge.exposeInMainWorld(SESSION_WINDOW_TARGET, validSessionWindowId(sessionTarget) ? sessionTarget : null)
+const sessionWindows: SessionWindowBridge = {
+  open: request => ipcRenderer.invoke(SESSION_WINDOW_CHANNEL, request),
+  ready: title => { ipcRenderer.send(`${SESSION_WINDOW_CHANNEL}:ready`, title) },
+}
+contextBridge.exposeInMainWorld(SESSION_WINDOW_BRIDGE, sessionWindows)
