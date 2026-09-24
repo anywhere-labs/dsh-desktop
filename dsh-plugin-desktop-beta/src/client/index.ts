@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { applyAdvancedShell } from './advanced-shell.ts'
 import { startRendererBootReporter } from './boot-health.ts'
+import { applyDesktopFind } from './find-bar.ts'
 import { applyDesktopSettings } from './desktop-settings.ts'
 import { installDesktopDirectoryPickerBridge } from './directory-picker.ts'
 import { parseDesktopClientEnvironment } from './environment.ts'
@@ -23,6 +24,20 @@ import { installSidebarFooterStyles } from './sidebar-footer-styles.ts'
 import { desktopWindowService, provideDesktopWindow } from './window-service.ts'
 
 export { applyAdvancedShell } from './advanced-shell.ts'
+export { applyDesktopFind, DESKTOP_FIND_LOCALE_NAMESPACE, DESKTOP_FIND_SLOT_ID } from './find-bar.ts'
+export { DesktopFindBar } from './DesktopFindBar.tsx'
+export type { DesktopFindBarInjected, DesktopFindBarProps } from './DesktopFindBar.tsx'
+export { DesktopFindController } from './find-controller.ts'
+export type {
+  DesktopFindControllerOptions,
+  DesktopFindState,
+  FindMutationObserver,
+  FindViewport,
+} from './find-controller.ts'
+export { collectFindRanges, DEFAULT_FIND_MATCH_LIMIT, FIND_EXCLUDED_ATTRIBUTE } from './find-document.ts'
+export type { FindDocumentOptions, FindDocumentResult } from './find-document.ts'
+export { findTextMatches } from './find-matches.ts'
+export type { TextMatch } from './find-matches.ts'
 export { applyDesktopSettings } from './desktop-settings.ts'
 export { applyExtendedShell, applyFramedShell } from './extended-shell.ts'
 export {
@@ -146,6 +161,10 @@ export function apply(ctx: ClientContext): void {
   }
   if (environment.mode === 'advanced') applyAdvancedShell(ctx, environment)
   if (environment.mode === 'extended') applyExtendedShell(ctx, environment, desktopSettings)
+  // Electron ships no find UI, so Ctrl/Cmd+F is dead in every mode until the
+  // Desktop owns it. Compatibility mode included: the bar rides upstream's
+  // frame-wide overlay seat and replaces nothing.
+  applyDesktopFind(ctx, environment)
   // Scoped rather than module-level on purpose: the shells above provide
   // `layout`, and upstream's `uiWorkspace` injects it. Naming `uiWorkspace` in
   // the module-level inject list would deadlock the two against each other.
