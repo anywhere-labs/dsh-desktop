@@ -1,5 +1,4 @@
 diff --git a/lib/index.js b/lib/index.js
---- a/lib/index.js
 +++ b/lib/index.js
 @@ -1018,6 +1018,14 @@
  };
@@ -48,3 +47,22 @@ diff --git a/lib/index.js b/lib/index.js
  	}))}`;
  }
  //#endregion
+@@ -5532,12 +5547,16 @@
+ 	async state(id, snapshot) {
+ 		if (!this.published.has(id) || !await this.native.visible(id)) return;
+ 		const log = this.native.ctx.sessions.get(id);
++		// One snapshot read feeds both scans: a host may legitimately return
++		// undefined before any events exist, which must behave as "no events"
++		// rather than crash on findLast (#1074).
++		const events = log?.snapshotEvents() ?? [];
+ 		const pending = /* @__PURE__ */ new Set();
+-		for (const e of log?.snapshotEvents() ?? []) {
++		for (const e of events) {
+ 			if (String(e.type) === "approval/asked") pending.add(String(record(e.data).id));
+ 			if (String(e.type) === "approval/decided") pending.delete(String(record(e.data).id));
+ 		}
+-		const last = log?.snapshotEvents().findLast((e) => e.type === "turn/end");
++		const last = events.findLast((e) => e.type === "turn/end");
+ 		const status = pending.size || this.native.questions.waiting(id) || this.native.approvals.waiting(id) ? "waiting_approval" : this.native.status(id) ?? (last?.type === "turn/end" && last.data.reason.kind === "error" ? "error" : "idle");
+ 		let configuration;
+ 		try {
