@@ -1,6 +1,8 @@
 /** Headless bootstrap for the Beta isolated Host experiment. */
 import { boot, resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
+import { createDesktopProfileBoot } from './profile-context.ts'
+import { logInactiveStartupEntries } from './startup-audit.ts'
 import { DSH_LAUNCH_ENVIRONMENT_KEY, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { DESKTOP_PACKAGE_NAME as BIN_NAME } from './product-identity.ts'
 import { observeDesktopPreferenceSettings } from './settings-bridge.ts'
@@ -98,11 +100,13 @@ export async function bootDesktopHost(options: DesktopHostOptions, runtime: Desk
       await profilePreferencesWriteTail
     }
     const releasePackageResolver = installProfilePackageResolver(prepared.bareModuleBaseUrl)
+    const profileBoot = createDesktopProfileBoot(prepared, desktopPnpmBootstrap)
     const ctx = await boot(
       BIN_NAME,
       prepared.rootConfig,
       prepared.patches,
       async (hostCtx) => {
+        profileBoot.prepare(hostCtx)
         // Keep Host imports and browser bundle discovery on the same public
         // profile-overlay resolver used by packaged Electron.
         hostCtx.loader.internal = undefined
@@ -261,6 +265,8 @@ export async function bootDesktopHost(options: DesktopHostOptions, runtime: Desk
       throw cause
     })
     bindHost(ctx)
+    profileBoot.markReady()
     observeDesktopPreferenceSettings(ctx, fileExporter, enqueueProfilePreferencesWrite)
+    void logInactiveStartupEntries(ctx, BIN_NAME)
   return () => ({ aaRuntime: ctx.get('agentsAnywhereRuntime') !== undefined, aaOnboarding: ctx.get('agentsAnywhereOnboarding') !== undefined })
 }

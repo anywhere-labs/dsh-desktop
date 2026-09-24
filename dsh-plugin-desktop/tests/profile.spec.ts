@@ -7,6 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -23,11 +24,14 @@ import {
   desktopBundleList,
   ensureDesktopProfile,
   prepareDesktopProfile,
+  migrateDesktopSettingsDocumentSections,
   readDesktopShellMode,
-  shippedPresetRoot,
+  resolveDesktopSettingsDocument,
+  shippedSkillRoot,
   validateDshMarketBundlePatches,
 } from '../src/profile.ts'
 import { setDesktopProfileBundleSelected } from '../src/desktop-plugins.ts'
+import { migrateLegacyAgentPresetSettings } from '../src/setup-wizard-settings.ts'
 import { DESKTOP_MARKET_IDENTITIES } from '../src/desktop-market.ts'
 
 const homes: string[] = []
@@ -46,7 +50,7 @@ function installWebClient(
   const webDir = join(home, 'profiles', 'web')
   const template = PROFILE_TEMPLATES.web
   if (template === undefined) throw new Error('test requires the shipped Web template')
-  initProfile(webDir, template.bundles, template.patchReload)
+  initProfile(webDir, template.bundles)
   const packageDir = join(webDir, 'node_modules', ...packageName.split('/'))
   mkdirSync(packageDir, { recursive: true })
   writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
@@ -72,6 +76,24 @@ function installBundle(home: string, packageName: string, patch: string, version
   return bundleDir
 }
 
+/**
+ * Persist Desktop startup preferences where dsh 0.1.7-alpha.1 keeps them.
+ *
+ * Through 0.1.6 these lived in the global `$DSH_HOME/settings.yaml` document. 0.1.7
+ * made persisted form values profile-specific, so the Host now reads them off the
+ * composed `desktop-shell` row: the bundle default overridden by the profile's own
+ * patch layer, which is what the config editor writes.
+ */
+function writeDesktopShellPreferences(home: string, preferences: readonly string[]): void {
+  const dir = ensureDesktopProfile(home)
+  writeFileSync(join(dir, 'cordis.patch.yml'), [
+    '- id: desktop-shell',
+    '  config:',
+    ...preferences.map(line => `    ${line}`),
+    '',
+  ].join('\n'))
+}
+
 afterEach(() => {
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true })
 })
@@ -80,8 +102,11 @@ describe('desktop profile composition', {
   timeout: process.platform === 'win32' ? 10_000 : 5_000,
 }, () => {
   it('ships a PowerShell-backed minimal preset for Windows', () => {
+    // dsh 0.1.7-alpha.1 moved shipped preset declarations out of a filesystem preset
+    // root and into one patch file per preset, carried by the Web bundle.
+    const require = createRequire(import.meta.url)
     const minimalPreset = readFileSync(
-      join(shippedPresetRoot(), 'minimal', 'agent.cordis.yml'),
+      join(dirname(require.resolve('@deepseek-ai/dsh-web-app/package.json')), 'presets', 'minimal.patch.yml'),
       'utf8',
     )
 
@@ -92,38 +117,34 @@ describe('desktop profile composition', {
   it('reads packaged Cordis skills from the logical ASAR preset root', () => {
     const home = temporaryHome()
     const resources = join(home, 'resources')
-    const archivedPresets = join(
+    const archivedPreset = join(
       resources,
       'app.asar',
       'node_modules',
       '@deepseek-ai',
-      'dsh-agent-presets',
+      'dsh-agent-preset',
     )
-    const archivedPresetRoot = join(archivedPresets, 'presets')
+    const archivedSkillRoot = join(archivedPreset, 'skills')
     const skillPath = join(
-      archivedPresetRoot,
-      'cordis',
-      'skills',
+      archivedSkillRoot,
       'cordis-plugin-development',
       'SKILL.md',
     )
     mkdirSync(join(resources, 'app.asar', 'lib'), { recursive: true })
-    mkdirSync(archivedPresets, { recursive: true })
+    mkdirSync(archivedPreset, { recursive: true })
     mkdirSync(dirname(skillPath), { recursive: true })
-    writeFileSync(join(archivedPresets, 'package.json'), JSON.stringify({
-      name: '@deepseek-ai/dsh-agent-presets',
+    writeFileSync(join(archivedPreset, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-agent-preset',
       exports: { './package.json': './package.json' },
     }) + '\n')
     writeFileSync(skillPath, '# Cordis plugin development\n')
 
     const moduleUrl = pathToFileURL(join(resources, 'app.asar', 'lib', 'profile.js')).href
-    const resolvedRoot = shippedPresetRoot(moduleUrl)
+    const resolvedRoot = shippedSkillRoot(moduleUrl)
 
-    expect(resolvedRoot).toBe(realpathSync(archivedPresetRoot))
+    expect(resolvedRoot).toBe(realpathSync(archivedSkillRoot))
     expect(readFileSync(join(
       resolvedRoot,
-      'cordis',
-      'skills',
       'cordis-plugin-development',
       'SKILL.md',
     ), 'utf8')).toBe('# Cordis plugin development\n')
@@ -323,16 +344,11 @@ virtualStoreDirMaxLength: 60
       name: 'dsh-plugin-desktop/webserver',
       config: { host: '127.0.0.1', port: 43_120 },
     }))
-    expect(patches).toContainEqual(expect.objectContaining({
-      id: 'agent-presets',
-      config: expect.objectContaining({
-        roots: [
-          { path: shippedPresetRoot(), trust: 'system' },
-          { path: join(home, '.agent-presets'), trust: 'user' },
-        ],
-        includeUserRoot: false,
-      }),
-    }))
+    // dsh 0.1.7-alpha.1 replaced filesystem preset discovery with preset declarations
+    // carried by patch files, so Desktop no longer pins preset roots on the registry
+    // row: `roots` and `includeUserRoot` are not fields of any 0.1.7 Config.
+    expect(patches.map(patch => patch.id)).not.toContain('agent-presets')
+    expect(patches.map(patch => patch.id)).not.toContain('agent-preset-registry')
     expect(existsSync(join(
       prepared.profile.dir,
       'agent-preset-compat',
@@ -374,9 +390,10 @@ virtualStoreDirMaxLength: 60
       id: 'sandbox',
       name: '@deepseek-ai/dsh-sandbox-local',
     })
-    expect(rows.find(row => row.id === 'agent-presets')).toEqual(expect.objectContaining({
-      name: '@deepseek-ai/dsh-agent-presets',
+    expect(rows.find(row => row.id === 'agent-preset-registry')).toEqual(expect.objectContaining({
+      name: '@deepseek-ai/dsh-agent-preset-registry',
     }))
+    expect(rows.map(row => row.id)).not.toContain('agent-presets')
     expect(rows.map(row => row.id)).not.toContain('desktop-windows-agent-presets')
     expect(rows.find(row => row.id === 'pwsh-sandbox')).toEqual(expect.objectContaining({
       name: '@deepseek-ai/dsh-pwsh-sandbox',
@@ -549,7 +566,7 @@ virtualStoreDirMaxLength: 60
     expect(selected?.packageDir).not.toBe(oldProfileMarketDir)
     expect(JSON.parse(readFileSync(join(selected!.packageDir, 'package.json'), 'utf8'))).toMatchObject({
       name: 'dshmarket',
-      version: '1.38.1',
+      version: JSON.parse(readFileSync(createRequire(import.meta.url).resolve('dshmarket/package.json'), 'utf8')).version,
     })
   })
 
@@ -673,7 +690,7 @@ virtualStoreDirMaxLength: 60
     const webDir = join(home, 'profiles', 'web')
     const template = PROFILE_TEMPLATES.web
     if (template === undefined) throw new Error('test requires the shipped Web template')
-    initProfile(webDir, template.bundles, template.patchReload)
+    initProfile(webDir, template.bundles)
     writeFileSync(join(webDir, 'cordis.patch.yml'), [
       '- id: ui-layout',
       "  name: '@deepseek-ai/dsh-client-ui-layout'",
@@ -704,14 +721,12 @@ virtualStoreDirMaxLength: 60
 
   it('keeps a custom layout and withdraws incompatible browser and LAN access', () => {
     const home = temporaryHome()
-    writeFileSync(join(home, 'settings.yaml'), [
-      'dsh-desktop:',
-      '  mode: advanced',
-      '  port: 43189',
-      '  openBrowser: true',
-      '  networkExposure: lan',
-      '',
-    ].join('\n'))
+    writeDesktopShellPreferences(home, [
+      'mode: advanced',
+      'port: 43189',
+      'openBrowser: true',
+      'networkExposure: lan',
+    ])
 
     const prepared = prepareDesktopProfile(undefined, home, 'darwin')
     const rows = composeEntries([prepared.patches])
@@ -735,24 +750,204 @@ virtualStoreDirMaxLength: 60
     expect(rows.find(row => row.id === 'web-runtime')).toEqual(expect.objectContaining({
       config: expect.objectContaining({ openBrowser: false }),
     }))
+    // 0.1.7's settings row is the profile-owned service and takes no document config,
+    // so what is asserted is the Host's own resolution of the harness-home document.
     expect(rows.find(row => row.id === 'settings')).toEqual(expect.objectContaining({
-      config: expect.objectContaining({ dshHome: home }),
+      name: '@deepseek-ai/dsh-settings',
     }))
+    expect(prepared.settingsDocument).toBe(join(home, 'settings.yaml'))
     expect(rows.find(row => row.id === 'ui-layout')?.disabled).toBe(true)
     expect(rows.find(row => row.id === 'ui-sidebar')?.disabled).toBe(false)
     expect(rows.find(row => row.id === 'ui-conversation')?.disabled).toBe(false)
   })
 
-  it('keeps legacy browser intent but clamps LAN exposure when compatibility mode is selected', () => {
+  it('leaves every editable startup field to the profile patch the config editor writes', () => {
     const home = temporaryHome()
+    // Every `.volatile()` field of `DesktopShellConfig`, each away from its default.
+    const edited = {
+      mode: 'advanced',
+      macosMaterial: 'transparent',
+      windowsMaterial: 'mica',
+      linuxMaterial: 'transparent',
+      port: 43_189,
+      openBrowser: true,
+      networkExposure: 'lan',
+      logLevel: 'debug',
+    } as const
+    writeDesktopShellPreferences(home, Object.entries(edited).map(([key, value]) => `${key}: ${value}`))
+
+    const prepared = prepareDesktopProfile(undefined, home, 'darwin')
+
+    // The launcher composes its own patches *after* the profile's `cordis.patch.yml`,
+    // so anything it pins shadows the user's edit to the same field. 0.1.7's config
+    // editor fails closed on that -- it recomposes after writing and throws
+    // `Configuration for "desktop-shell" is overridden by a home patch or
+    // command-line overlay` -- which blocked the mode picker and with it every other
+    // Desktop settings write. Startup values are read back out of the composed row
+    // instead, and `DesktopShellConfig` carries the same defaults, so no editable
+    // field may survive to the composed row with anything but the user's value.
+    expect(composeEntries([prepared.patches]).find(row => row.id === 'desktop-shell'))
+      .toEqual(expect.objectContaining({ disabled: false, config: expect.objectContaining(edited) }))
+    // `networkExposure` is still withdrawn to loopback -- but on the read path, not
+    // by overwriting the stored intent the user just edited.
+    expect(prepared).toMatchObject({ mode: 'advanced', port: 43_189, networkExposure: 'loopback' })
+  })
+
+  it('composes a pending patch document in place of the one on disk', () => {
+    const home = temporaryHome()
+    writeDesktopShellPreferences(home, ['mode: compatibility'])
+
+    // What the config editor hands `ProfileContext.readPatches` before it persists:
+    // the document it is about to write. Composing the on-disk one instead would
+    // both reject the write and reconcile the Loader back to the stale config.
+    const pending = prepareDesktopProfile(undefined, home, 'darwin', undefined, undefined, undefined, {
+      profilePatches: [{ id: 'desktop-shell', config: { mode: 'advanced', port: 43_189 } }],
+    })
+
+    expect(pending.mode).toBe('advanced')
+    expect(pending.port).toBe(43_189)
+    expect(composeEntries([pending.patches]).find(row => row.id === 'desktop-shell'))
+      .toEqual(expect.objectContaining({
+        disabled: false,
+        config: expect.objectContaining({ mode: 'advanced', port: 43_189 }),
+      }))
+
+    // Substituting the document must not disturb the layers, and must not persist.
+    expect(pending.profile.layers.map(layer => layer.packageName))
+      .toEqual(prepareDesktopProfile(undefined, home, 'darwin').profile.layers.map(layer => layer.packageName))
+    expect(prepareDesktopProfile(undefined, home, 'darwin').mode).toBe('compatibility')
+  })
+
+  it('renames its own legacy settings sections to the entry ids 0.1.7 imports by', () => {
+    const home = temporaryHome()
+    // A 0.1.6 harness-home document, comments and all. Upstream's one-shot import
+    // keys sections by Loader entry id and only renames the kernel's own sections,
+    // so both of Desktop's would be dropped with a warning and then deleted.
     writeFileSync(join(home, 'settings.yaml'), [
+      '# kept verbatim',
       'dsh-desktop:',
-      '  mode: compatibility',
-      '  port: 43189',
-      '  openBrowser: true',
-      '  networkExposure: lan',
+      '  mode: advanced   # kept too',
+      '  windowsMaterial: off',
+      'ui-theme:',
+      '  preference: dark',
+      'dsh-desktop-notifications:',
+      '  notifyOnTurnFailure: false',
       '',
     ].join('\n'))
+    const spec = resolveDesktopSettingsDocument({ dshHome: home })
+
+    expect(migrateDesktopSettingsDocumentSections(spec)).toEqual(['desktop-shell', 'desktop-notifications'])
+
+    // Only the two keys move. Position, comments, scalar styles and every section
+    // this edition does not own survive, because the key node is renamed in place.
+    // Re-stringifying does normalize the run of spaces before an inline comment;
+    // that is the whole of the incidental damage, and the document is about to be
+    // consumed and deleted by upstream's import anyway.
+    expect(readFileSync(spec.filename, 'utf8')).toBe([
+      '# kept verbatim',
+      'desktop-shell:',
+      '  mode: advanced # kept too',
+      '  windowsMaterial: off',
+      'ui-theme:',
+      '  preference: dark',
+      'desktop-notifications:',
+      '  notifyOnTurnFailure: false',
+      '',
+    ].join('\n'))
+
+    // Idempotent: a document already keyed by entry id has nothing left to rename.
+    expect(migrateDesktopSettingsDocumentSections(spec)).toEqual([])
+  })
+
+  it('moves the legacy preset choice to the field 0.1.7 can persist', () => {
+    const home = temporaryHome()
+    // 0.1.6 stored the user's chosen preset in `agent-presets.default`. 0.1.7
+    // renamed the row and kept `default` as the bundle-authored fallback, which is
+    // not `.volatile()`: importing the old key under its old name throws
+    // `Config field "default" is not volatile` and the choice is lost either way.
+    writeFileSync(join(home, 'settings.yaml'), [
+      'agent-presets:',
+      '  default: minimal',
+      '',
+    ].join('\n'))
+    const spec = resolveDesktopSettingsDocument({ dshHome: home })
+
+    expect(migrateDesktopSettingsDocumentSections(spec)).toEqual(['agent-preset-registry'])
+    expect(readFileSync(spec.filename, 'utf8'))
+      .toBe(['agent-preset-registry:', '  selectedDefault: minimal', ''].join('\n'))
+    expect(migrateDesktopSettingsDocumentSections(spec)).toEqual([])
+
+    // The field alone still moves under a section 0.1.7 already keys correctly.
+    writeFileSync(spec.filename, ['agent-preset-registry:', '  default: minimal', ''].join('\n'))
+    expect(migrateDesktopSettingsDocumentSections(spec)).toEqual(['agent-preset-registry'])
+    expect(readFileSync(spec.filename, 'utf8'))
+      .toBe(['agent-preset-registry:', '  selectedDefault: minimal', ''].join('\n'))
+
+    // Both fields present: keep the one 0.1.7 writes and leave the fallback alone.
+    const both = ['agent-preset-registry:', '  selectedDefault: minimal', '  default: standard', ''].join('\n')
+    writeFileSync(spec.filename, both)
+    expect(migrateDesktopSettingsDocumentSections(spec)).toEqual([])
+    expect(readFileSync(spec.filename, 'utf8')).toBe(both)
+  })
+
+  it('still maps the released code preset to ptc after the 0.1.7 section rename', async () => {
+    // Launch order in main.ts: prepareDesktopProfile (section + field rename)
+    // runs before migrateLegacyAgentPresetSettings, so the latter must find the
+    // legacy id under its new key or the user lands on a preset that no longer exists.
+    const home = temporaryHome()
+    writeFileSync(join(home, 'settings.yaml'), ['agent-presets:', '  default: code', ''].join('\n'))
+    const spec = resolveDesktopSettingsDocument({ dshHome: home })
+
+    expect(migrateDesktopSettingsDocumentSections(spec)).toEqual(['agent-preset-registry'])
+    await expect(migrateLegacyAgentPresetSettings(spec.filename)).resolves.toBe(true)
+    expect(readFileSync(spec.filename, 'utf8'))
+      .toBe(['agent-preset-registry:', '  selectedDefault: ptc', ''].join('\n'))
+  })
+
+  it('leaves the settings document alone when there is nothing safe to migrate', () => {
+    const home = temporaryHome()
+    const spec = resolveDesktopSettingsDocument({ dshHome: home })
+
+    // No document at all: the fresh-install path, and the path taken on every
+    // launch after upstream's import renamed the file away.
+    expect(migrateDesktopSettingsDocumentSections(spec)).toEqual([])
+    expect(existsSync(spec.filename)).toBe(false)
+
+    // Both keys present: keep the entry-id section, because that is the one 0.1.7
+    // itself would have written. Merging them is not this function's decision.
+    const both = ['desktop-shell:', '  mode: extended', 'dsh-desktop:', '  mode: advanced', ''].join('\n')
+    writeFileSync(spec.filename, both)
+    expect(migrateDesktopSettingsDocumentSections(spec)).toEqual([])
+    expect(readFileSync(spec.filename, 'utf8')).toBe(both)
+
+    // Malformed: `readDesktopStartupSettings` reports it with the parser's own
+    // message, so rewriting it here would only destroy the evidence.
+    const broken = 'dsh-desktop:\n  mode: advanced\n\tport: 43189\n'
+    writeFileSync(spec.filename, broken)
+    expect(migrateDesktopSettingsDocumentSections(spec)).toEqual([])
+    expect(readFileSync(spec.filename, 'utf8')).toBe(broken)
+  })
+
+  it('migrates the settings document while preparing the profile', () => {
+    const home = temporaryHome()
+    ensureDesktopProfile(home)
+    writeFileSync(join(home, 'settings.yaml'), ['dsh-desktop:', '  mode: advanced', ''].join('\n'))
+
+    prepareDesktopProfile(undefined, home, 'darwin')
+
+    // The Loader has not started yet, so upstream's import still finds the section.
+    expect(readFileSync(join(home, 'settings.yaml'), 'utf8'))
+      .toBe(['desktop-shell:', '  mode: advanced', ''].join('\n'))
+  })
+
+  it('keeps legacy browser intent but clamps LAN exposure when compatibility mode is selected', () => {
+    const home = temporaryHome()
+    writeDesktopShellPreferences(home, [
+      'mode: compatibility',
+      'port: 43189',
+      'openBrowser: true',
+      'networkExposure: lan',
+    ])
 
     const prepared = prepareDesktopProfile(undefined, home, 'darwin')
     const rows = composeEntries([prepared.patches])
@@ -772,13 +967,11 @@ virtualStoreDirMaxLength: 60
 
   it('replaces the official root layout for extended window mode while retaining its occupants', () => {
     const home = temporaryHome()
-    writeFileSync(join(home, 'settings.yaml'), [
-      'dsh-desktop:',
-      '  mode: extended',
-      '  macosMaterial: off',
-      '  windowsMaterial: mica',
-      '',
-    ].join('\n'))
+    writeDesktopShellPreferences(home, [
+      'mode: extended',
+      "macosMaterial: 'off'",
+      'windowsMaterial: mica',
+    ])
 
     const prepared = prepareDesktopProfile(undefined, home, 'win32')
     const rows = composeEntries([prepared.patches])
@@ -970,17 +1163,13 @@ virtualStoreDirMaxLength: 60
       id: 'sandbox',
       name: '@deepseek-ai/dsh-sandbox-local',
     })
-    expect(rows.find(row => row.id === 'agent-presets')).toEqual(expect.objectContaining({
-      name: '@deepseek-ai/dsh-agent-presets',
-      config: expect.objectContaining({
-        roots: [
-          { path: shippedPresetRoot(), trust: 'system' },
-          { path: join(home, '.agent-presets'), trust: 'user' },
-        ],
-        includeUserRoot: false,
-      }),
+    // The registry row carries no Desktop override: 0.1.7 dropped `roots` and
+    // `includeUserRoot` together with filesystem preset discovery.
+    expect(rows.find(row => row.id === 'agent-preset-registry')).toEqual(expect.objectContaining({
+      name: '@deepseek-ai/dsh-agent-preset-registry',
     }))
-    expect(rows.find(row => row.id === 'agent-presets')?.disabled).toBeFalsy()
+    expect(rows.find(row => row.id === 'agent-preset-registry')?.disabled).toBeFalsy()
+    expect(rows.map(row => row.id)).not.toContain('agent-presets')
     expect(rows.map(row => row.id)).not.toContain('desktop-windows-agent-presets')
     expect(rows.find(row => row.id === 'pwsh-sandbox')).toEqual(expect.objectContaining({
       name: '@deepseek-ai/dsh-pwsh-sandbox',

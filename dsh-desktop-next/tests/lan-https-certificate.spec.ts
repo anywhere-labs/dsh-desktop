@@ -7,6 +7,7 @@ import {
   DesktopLanHttpsCertificateError,
   createLanHttpsCertificate,
   desktopLanHttpsCertificateStatePath,
+  lanHttpsCertificateDiagnostic,
   type DesktopLanHttpsPrivateKeyProtector,
 } from '../src/lan-https-certificate.ts'
 
@@ -119,6 +120,26 @@ describe('Desktop LAN HTTPS certificates', () => {
     await expect(createLanHttpsCertificate('relative/user-data', ['127.0.0.1'], unavailable))
       .rejects.toMatchObject({ code: 'certificate-state' })
     await expect(lstat(join(userData, 'lan-https'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('logs the controlled certificate stage without exposing an underlying OS error', async () => {
+    const userData = await temporaryUserData()
+    const privateCause = new Error('keychain token=private-value and sensitive path')
+    const protector: DesktopLanHttpsPrivateKeyProtector = {
+      available: () => { throw privateCause }, seal: value => value, open: value => value,
+    }
+    try {
+      await createLanHttpsCertificate(userData, ['127.0.0.1'], protector)
+      throw new Error('expected certificate setup to fail')
+    } catch (error) {
+      expect(lanHttpsCertificateDiagnostic(error)).toBe(
+        'LAN HTTPS certificate setup failed (certificate-unavailable): dsh-desktop-next: LAN HTTPS private-key protection check failed.',
+      )
+      expect(lanHttpsCertificateDiagnostic(error)).not.toContain(privateCause.message)
+    }
+    expect(lanHttpsCertificateDiagnostic(new Error('token=private-value'))).toBe(
+      'LAN HTTPS certificate setup failed (unexpected error)',
+    )
   })
 
   it('rejects malformed, publicly readable, and linked CA state', async () => {

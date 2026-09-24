@@ -1,0 +1,12 @@
+diff --git a/lib/client.js b/lib/client.js
+index 4730d8d..4ab58ea 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -38,6 +38,7 @@ window.__ModuleLoader__.load({
+ 		function HeaderLeadingControls({ toggleSidebar, startSession, t }) {
+ 			return (0, react_jsx_runtime.jsxs)("div", {
+ 				className: HeaderLeadingControls_module_css_default.controls,
++				"data-sidebar-header-controls": "",
+ 				children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 					label: t("toggle.open"),
+ 					delayMs: 500,

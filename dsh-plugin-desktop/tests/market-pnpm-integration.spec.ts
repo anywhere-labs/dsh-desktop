@@ -5,10 +5,9 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
-import { FileSettingsProvider } from '@deepseek-ai/dsh-settings-file'
 import type { SubprocessHandle, SubprocessRuntime, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { describe, expect, it, vi } from 'vitest'
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
+import { stringify as stringifyYaml } from 'yaml'
 import {
   apply as applyDesktopPnpm,
   inject as desktopPnpmInject,
@@ -148,19 +147,16 @@ describe('desktop pnpm and community market integration', () => {
     const market = await import(marketModuleUrl) as CommunityMarketModule
     const root = await mkdtemp(join(tmpdir(), 'dsh-market-desktop-pnpm-'))
     const profileDir = join(root, 'profiles', 'web')
-    const settingsPath = join(root, 'settings.yaml')
     const ctx = new Context()
     const webServer = await createWebServer()
     try {
       await writeInstalledProfile(profileDir)
-      await writeFile(settingsPath, stringifyYaml({
-        'dsh-community-market': { sources: [] },
-      }))
 
       const selectedBootstrap = bootstrap(root, profileDir)
       const spawn = vi.fn<(spec: SubprocessSpawnSpec) => SubprocessHandle>((_spec) => ({
         pid: 43_120,
         stdin: undefined,
+        control: undefined,
         stdout: Readable.from([]),
         stderr: Readable.from([]),
         collected: {},
@@ -184,7 +180,13 @@ describe('desktop pnpm and community market integration', () => {
       })
       ctx.provide('desktopPnpmBootstrap', selectedBootstrap)
       ctx.provide('subprocess', { spawn } as unknown as SubprocessRuntime)
-      await ctx.plugin(FileSettingsProvider, { path: settingsPath, watch: false })
+      // dsh 0.1.7-alpha.1 retired the settings document as market's registry
+      // store: `SettingsProvider`/`@deepseek-ai/dsh-settings-file` are gone and
+      // market keeps its sources in an optional `dsh-storage-domain` table,
+      // importing any pre-0.1.7 `settings.yaml` exactly once. The uninstall
+      // route under test never touches the registry, so this integration mounts
+      // market with no store at all — which is also the shape a market
+      // installed without the optional peer boots in.
       await ctx.plugin({ name: desktopPnpmName, inject: desktopPnpmInject, apply: applyDesktopPnpm })
       await ctx.plugin({ name: market.name, inject: market.inject, apply: market.apply })
 
@@ -223,10 +225,6 @@ describe('desktop pnpm and community market integration', () => {
         env: { ELECTRON_RUN_AS_NODE: '1', DSH_HOME: selectedBootstrap.homeDir },
       })
 
-      const persisted = parseYaml(await readFile(settingsPath, 'utf8')) as {
-        'dsh-community-market': { sources: unknown[]; installReceipts?: unknown[] }
-      }
-      expect(persisted['dsh-community-market']).toEqual({ sources: [] })
       const manifest = JSON.parse(await readFile(join(profileDir, 'package.json'), 'utf8')) as {
         dependencies: Record<string, string>
       }

@@ -32,8 +32,20 @@ import type {
 } from './setup-wizard-contract.ts'
 
 const BIN_NAME = 'dsh-plugin-desktop'
-const DESKTOP_NAMESPACE = 'dsh-desktop'
-const NOTIFICATIONS_NAMESPACE = 'dsh-desktop-notifications'
+/**
+ * Section keys of the two Wizard-owned groups, `[current, legacy]`.
+ *
+ * 0.1.7's settings service imports `settings.yaml` exactly once, keyed by Loader
+ * entry id, and the launcher renames 0.1.6's `dsh-desktop` sections to those ids
+ * (`migrateDesktopSettingsDocumentSections`) before any helper here runs. A
+ * helper that only knew the legacy key would read that document as empty and
+ * write Setup defaults back under a key the import can no longer place, so each
+ * group is read from whichever key the document carries — the current one when
+ * both are present, matching the launcher — and a new group is written under the
+ * current key.
+ */
+const DESKTOP_NAMESPACES = Object.freeze(['desktop-shell', 'dsh-desktop'] as const)
+const NOTIFICATIONS_NAMESPACES = Object.freeze(['desktop-notifications', 'dsh-desktop-notifications'] as const)
 const AGENT_PRESETS_NAMESPACE = 'agent-presets'
 /**
  * Where a persisted global preset default can live. 0.1.6 and earlier wrote the
@@ -173,6 +185,22 @@ function section(root: Record<string, unknown>, namespace: string): Record<strin
   return value
 }
 
+/** Key a Wizard-owned group is read from and written to in this document. */
+function namespaceOf(
+  root: Record<string, unknown>,
+  [current, legacy]: readonly [current: string, legacy: string],
+): string {
+  return root[current] === undefined && root[legacy] !== undefined ? legacy : current
+}
+
+function desktopNamespace(root: Record<string, unknown>): string {
+  return namespaceOf(root, DESKTOP_NAMESPACES)
+}
+
+function notificationsNamespace(root: Record<string, unknown>): string {
+  return namespaceOf(root, NOTIFICATIONS_NAMESPACES)
+}
+
 function optionalBoolean(values: Record<string, unknown>, key: string, fallback: boolean): boolean {
   const value = values[key]
   if (value === undefined) return fallback
@@ -205,8 +233,8 @@ function notificationSettings(values: Record<string, unknown>): DesktopSetupWiza
 function projectSettings(
   root: Record<string, unknown>,
 ): DesktopSetupWizardSettings {
-  const desktop = section(root, DESKTOP_NAMESPACE)
-  const notifications = section(root, NOTIFICATIONS_NAMESPACE)
+  const desktop = section(root, desktopNamespace(root))
+  const notifications = section(root, notificationsNamespace(root))
   const mode = parseMode(desktop.mode)
   const networkExposure = parseExposure(desktop.networkExposure)
   const openBrowser = desktopBrowserAccessEnabled(
@@ -291,16 +319,19 @@ export function sameDesktopSetupWizardSettings(
 }
 
 function applyYamlUpdate(
-  document: NonNullable<LoadedSettingsDocument['yaml']>,
+  loaded: LoadedSettingsDocument,
   next: DesktopSetupWizardSettings,
 ): string {
-  document.setIn([DESKTOP_NAMESPACE, 'mode'], next.mode)
-  document.setIn([DESKTOP_NAMESPACE, 'macosMaterial'], next.macosMaterial)
-  document.setIn([DESKTOP_NAMESPACE, 'windowsMaterial'], next.windowsMaterial)
-  document.setIn([DESKTOP_NAMESPACE, 'openBrowser'], next.openBrowser)
-  document.setIn([DESKTOP_NAMESPACE, 'networkExposure'], next.networkExposure)
+  const document = loaded.yaml!
+  const desktop = desktopNamespace(loaded.root)
+  const notifications = notificationsNamespace(loaded.root)
+  document.setIn([desktop, 'mode'], next.mode)
+  document.setIn([desktop, 'macosMaterial'], next.macosMaterial)
+  document.setIn([desktop, 'windowsMaterial'], next.windowsMaterial)
+  document.setIn([desktop, 'openBrowser'], next.openBrowser)
+  document.setIn([desktop, 'networkExposure'], next.networkExposure)
   for (const [key, value] of Object.entries(next.notifications)) {
-    document.setIn([NOTIFICATIONS_NAMESPACE, key], value)
+    document.setIn([notifications, key], value)
   }
   return document.toString()
 }
@@ -310,15 +341,17 @@ function applyJsonUpdate(
   next: DesktopSetupWizardSettings,
 ): string {
   const output = structuredClone(root)
-  const desktop = { ...section(output, DESKTOP_NAMESPACE) }
+  const desktopKey = desktopNamespace(output)
+  const notificationsKey = notificationsNamespace(output)
+  const desktop = { ...section(output, desktopKey) }
   desktop.mode = next.mode
   desktop.macosMaterial = next.macosMaterial
   desktop.windowsMaterial = next.windowsMaterial
   desktop.openBrowser = next.openBrowser
   desktop.networkExposure = next.networkExposure
-  output[DESKTOP_NAMESPACE] = desktop
-  output[NOTIFICATIONS_NAMESPACE] = {
-    ...section(output, NOTIFICATIONS_NAMESPACE),
+  output[desktopKey] = desktop
+  output[notificationsKey] = {
+    ...section(output, notificationsKey),
     ...next.notifications,
   }
   return `${JSON.stringify(output, undefined, 2)}\n`
@@ -362,13 +395,54 @@ export async function updateDesktopSetupWizardSettings(
   // material, before touching the user's document.
   projectSettings(loaded.root)
   const output = loaded.format === 'yaml'
-    ? applyYamlUpdate(loaded.yaml!, next)
+    ? applyYamlUpdate(loaded, next)
     : applyJsonUpdate(loaded.root, next)
   await writeFileAtomic(path, output, {
     mode: DOCUMENT_FILE_MODE,
     dirMode: DOCUMENT_DIRECTORY_MODE,
   })
   return next
+}
+
+/** Wizard leaves a Desktop Profile owns; the window materials stay device-shared. */
+export type DesktopSetupWizardProfileSettings = Pick<
+  DesktopSetupWizardSettings,
+  'mode' | 'openBrowser' | 'networkExposure' | 'notifications'
+>
+
+/**
+ * Merge one Profile's leaves into the settings document while it still awaits
+ * 0.1.7's one-shot import, preserving the device-shared window materials.
+ *
+ * Once the settings service has imported the document into the Profile's patch
+ * layer it renames it to `settings.yaml.imported`; from then on the patch layer
+ * is the live store and the Host keeps the Profile preferences in step with it.
+ * Recreating the document at that point would not be a mirror but a second
+ * import on the next Host boot, carrying Setup's default materials over the
+ * user's choice and replacing the `.imported` copy of the original document,
+ * so a document that no longer exists is left absent.
+ *
+ * @param documentPath - the exact prepared settings document.
+ * @param profile - the active Profile's own preference leaves.
+ * @returns whether the document changed.
+ */
+export async function mirrorDesktopSetupWizardProfileSettings(
+  documentPath: string,
+  profile: DesktopSetupWizardProfileSettings,
+): Promise<boolean> {
+  const path = settingsPath(documentPath)
+  if (readDocumentText(path) === undefined) return false
+  const current = projectSettings(loadSettingsDocument(path).root)
+  const next = normalizedUpdate({
+    ...current,
+    mode: profile.mode,
+    openBrowser: profile.openBrowser,
+    networkExposure: profile.networkExposure,
+    notifications: Object.freeze({ ...profile.notifications }),
+  })
+  if (sameDesktopSetupWizardSettings(current, next)) return false
+  await updateDesktopSetupWizardSettings(path, next)
+  return true
 }
 
 /**
@@ -386,7 +460,7 @@ export async function migrateDesktopBrowserAccessSettings(
   const migrationValues = (loaded: LoadedSettingsDocument) => {
     // Validate every known Wizard-owned value before migrating any leaf.
     projectSettings(loaded.root)
-    const desktop = section(loaded.root, DESKTOP_NAMESPACE)
+    const desktop = section(loaded.root, desktopNamespace(loaded.root))
     const storedMode = parseMode(desktop.mode)
     const storedOpenBrowser = optionalBoolean(desktop, 'openBrowser', false)
     const storedExposure = parseExposure(desktop.networkExposure)
@@ -409,17 +483,18 @@ export async function migrateDesktopBrowserAccessSettings(
   const migration = migrationValues(loaded)
   if (!migration.needed) return false
 
+  const desktopKey = desktopNamespace(loaded.root)
   let output: string
   if (loaded.format === 'yaml') {
-    loaded.yaml!.setIn([DESKTOP_NAMESPACE, 'openBrowser'], migration.browserAccess)
-    loaded.yaml!.setIn([DESKTOP_NAMESPACE, 'networkExposure'], migration.networkExposure)
+    loaded.yaml!.setIn([desktopKey, 'openBrowser'], migration.browserAccess)
+    loaded.yaml!.setIn([desktopKey, 'networkExposure'], migration.networkExposure)
     output = loaded.yaml!.toString()
   } else {
     const root = structuredClone(loaded.root)
-    const nextDesktop = { ...section(root, DESKTOP_NAMESPACE) }
+    const nextDesktop = { ...section(root, desktopKey) }
     nextDesktop.openBrowser = migration.browserAccess
     nextDesktop.networkExposure = migration.networkExposure
-    root[DESKTOP_NAMESPACE] = nextDesktop
+    root[desktopKey] = nextDesktop
     output = `${JSON.stringify(root, undefined, 2)}\n`
   }
   await writeFileAtomic(path, output, {
@@ -442,7 +517,7 @@ export async function migrateDesktopWindowMaterialSettings(
   const needsMigration = (loaded: LoadedSettingsDocument): boolean => {
     // Validate every known Wizard-owned value before changing the legacy leaf.
     projectSettings(loaded.root)
-    return section(loaded.root, DESKTOP_NAMESPACE).windowsMaterial === 'acrylic'
+    return section(loaded.root, desktopNamespace(loaded.root)).windowsMaterial === 'acrylic'
   }
 
   if (!needsMigration(loadSettingsDocument(path))) return false
@@ -451,14 +526,15 @@ export async function migrateDesktopWindowMaterialSettings(
   const loaded = loadSettingsDocument(path)
   if (!needsMigration(loaded)) return false
 
+  const desktopKey = desktopNamespace(loaded.root)
   let output: string
   if (loaded.format === 'yaml') {
-    loaded.yaml!.setIn([DESKTOP_NAMESPACE, 'windowsMaterial'], 'off')
+    loaded.yaml!.setIn([desktopKey, 'windowsMaterial'], 'off')
     output = loaded.yaml!.toString()
   } else {
     const root = structuredClone(loaded.root)
-    const desktop = { ...section(root, DESKTOP_NAMESPACE), windowsMaterial: 'off' }
-    root[DESKTOP_NAMESPACE] = desktop
+    const desktop = { ...section(root, desktopKey), windowsMaterial: 'off' }
+    root[desktopKey] = desktop
     output = `${JSON.stringify(root, undefined, 2)}\n`
   }
   await writeFileAtomic(path, output, {
@@ -532,8 +608,8 @@ export function defaultDesktopSetupWizardSettings(
 }
 
 export const desktopSetupWizardSettingsConstants = Object.freeze({
-  desktopNamespace: DESKTOP_NAMESPACE,
-  notificationsNamespace: NOTIFICATIONS_NAMESPACE,
+  desktopNamespace: DESKTOP_NAMESPACES[0],
+  notificationsNamespace: NOTIFICATIONS_NAMESPACES[0],
   maxDocumentBytes: MAX_DOCUMENT_BYTES,
   fileMode: DOCUMENT_FILE_MODE,
 })

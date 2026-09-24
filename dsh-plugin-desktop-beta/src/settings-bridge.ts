@@ -2,7 +2,7 @@
  * Edition-local adapter between the shared Desktop sources and the core
  * settings surface.
  *
- * Beta rides dsh 0.1.7, which replaced the `SettingsProvider` service
+ * Both Desktop editions ride dsh 0.1.7, which replaced the `SettingsProvider` service
  * with `SettingsForms`: a plugin no longer *registers* a namespace and schema,
  * it *declares* the editable subset of its own `Config` with `.volatile()` and
  * the Loader entry id becomes the settings namespace. Reads come from the live

@@ -11,19 +11,19 @@ export function DesktopPermissionsSection({ service, language }: { service: Desk
   </section>
 }
 
-export function DesktopPermissionsButton({ service, language, iconOnly = false, disabled = false }: { service?: DesktopPermissions; language: string; iconOnly?: boolean; disabled?: boolean }) {
+export function DesktopPermissionsButton({ service, language, iconOnly = false, disabled = false, label: customLabel, permission }: { service?: DesktopPermissions; language: string; iconOnly?: boolean; disabled?: boolean; label?: string; permission?: DesktopPermission }) {
   const [open, setOpen] = useState(false)
   const zh = language.startsWith('zh')
-  const label = zh ? '授权设置' : 'Permissions'
+  const label = customLabel ?? (zh ? '授权设置' : 'Permissions')
   return <>
-    <Button variant={iconOnly ? 'ghost' : 'outline'} size="sm" aria-label={label} title={label} disabled={disabled}
+    <Button variant={iconOnly ? 'ghost' : 'outline'} size="sm" aria-label={label} disabled={disabled}
       className={iconOnly ? 'dshNextSettingsGear' : undefined} icon={iconOnly ? <IconSettingsOutlineRegular /> : undefined}
       onClick={() => { setOpen(true) }}>{iconOnly ? null : label}</Button>
-    <DesktopPermissionsDialog open={open} onClose={() => { setOpen(false) }} service={service} language={language} />
+    <DesktopPermissionsDialog open={open} onClose={() => { setOpen(false) }} service={service} language={language} permission={permission} />
   </>
 }
 
-export function DesktopPermissionsDialog({ open, onClose, service, language }: { open: boolean; onClose(): void; service?: DesktopPermissions; language: string }) {
+export function DesktopPermissionsDialog({ open, onClose, service, language, permission }: { open: boolean; onClose(): void; service?: DesktopPermissions; language: string; permission?: DesktopPermission }) {
   const zh = language.startsWith('zh')
   const body = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -43,16 +43,16 @@ export function DesktopPermissionsDialog({ open, onClose, service, language }: {
     document.addEventListener('keydown', trapTab)
     return () => { document.removeEventListener('keydown', trapTab); previous?.focus({ preventScroll: true }) }
   }, [open])
-  return <Modal open={open} onClose={onClose} title={zh ? '系统权限' : 'System permissions'}
+  return <Modal open={open} onClose={onClose} title={permission === 'microphone' ? (zh ? '麦克风权限' : 'Microphone permission') : (zh ? '系统权限' : 'System permissions')}
       closeLabel={zh ? '关闭' : 'Close'} className="dshNextPermissionsDialog"
       description={zh ? '按需授权。更改系统权限后，可能需要重启应用。' : 'Grant access when needed. You may need to restart the app after changing system permissions.'}>
-      <div ref={body}>{open && (service ? <PermissionDetails service={service} language={language} />
+      <div ref={body}>{open && (service ? <PermissionDetails service={service} language={language} permission={permission} />
         : <p role="status">{zh ? '请在运行 DSH 的桌面应用中管理系统权限。' : 'Manage system permissions in the desktop app running DSH.'}</p>)}
       </div>
     </Modal>
 }
 
-function PermissionDetails({ service, language }: { service: DesktopPermissions; language: string }) {
+export function PermissionDetails({ service, language, permission: onlyPermission }: { service: DesktopPermissions; language: string; permission?: DesktopPermission }) {
   const t = (zh: string, en: string): string => language.startsWith('zh') ? zh : en
   const [snapshots, setSnapshots] = useState<DesktopPermissionSnapshot[]>([])
   const [busy, setBusy] = useState(false)
@@ -64,14 +64,15 @@ function PermissionDetails({ service, language }: { service: DesktopPermissions;
     const refresh = (): void => {
       if (pending.current) return
       const current = ++revision.current
-      void Promise.all([service.query('microphone'), service.query('screen'), service.query('accessibility')]).then(values => {
+      const permissions: DesktopPermission[] = onlyPermission ? [onlyPermission] : ['microphone', 'screen', 'accessibility']
+      void Promise.all(permissions.map(permission => service.query(permission))).then(values => {
         if (!disposed && current === revision.current) { setSnapshots(values); setFailure('') }
       }).catch(error => { if (!disposed && current === revision.current) setFailure(String(error)) })
     }
     refresh()
     window.addEventListener('focus', refresh)
     return () => { disposed = true; window.removeEventListener('focus', refresh) }
-  }, [service])
+  }, [service, onlyPermission])
   const perform = async (permission: DesktopPermission, action: 'request' | 'openSettings'): Promise<void> => {
     if (pending.current) return
     pending.current = true
@@ -94,7 +95,7 @@ function PermissionDetails({ service, language }: { service: DesktopPermissions;
   }
   return <div className="dshNextPermissionList">
     {failure && <p role="alert" className="dshDesktopSettingsError">{failure}</p>}
-    {(['screen', 'accessibility', 'microphone'] as const).map(permission => {
+    {(onlyPermission ? [onlyPermission] : ['screen', 'accessibility', 'microphone'] as const).map(permission => {
       const snapshot = snapshots.find(value => value.permission === permission)
       const label = { microphone: t('麦克风', 'Microphone'), screen: t('屏幕录制', 'Screen recording'), accessibility: t('辅助功能', 'Accessibility') }[permission]
       return <div key={permission} className="dshNextPermissionRow" role="group" aria-label={label}>

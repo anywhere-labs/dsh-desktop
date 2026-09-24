@@ -10,7 +10,7 @@ import { NextRecovery } from '../src/recovery.ts'
 
 const fixture = vi.hoisted(() => ({
   windows: [] as any[], trays: [] as any[], handlers: new Map<string, (...args: any[]) => any>(),
-  load: vi.fn(), report: vi.fn(), plugin: vi.fn(), pluginDone: vi.fn(),
+  load: vi.fn(), report: vi.fn(), plugin: vi.fn(), pluginDone: vi.fn(), diagnosticAppend: vi.fn(),
   terminalTarget: vi.fn(), openTerminal: vi.fn(),
   stop: vi.fn(async () => {}),
   close: vi.fn(async () => {}), start: vi.fn(async () => {}), preferences: { closeToTray: true },
@@ -27,7 +27,7 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
   backend = { stop: fixture.stop, host: undefined, get state() { return { phase: fixture.phase } } }
   profiles: NextProfiles
   recovery: import('../src/recovery.ts').NextRecovery
-  diagnostics = { append: vi.fn(), flush: vi.fn(), hostChunk: vi.fn() }
+  diagnostics = { append: fixture.diagnosticAppend, flush: vi.fn(), hostChunk: vi.fn() }
   constructor(options: ConstructorParameters<typeof NextDesktopRuntime>[0]) {
     fixture.preferences = this.preferences; fixture.onPermission = options.onPermission
     this.profiles = new NextProfiles(options.home)
@@ -115,7 +115,7 @@ beforeEach(async () => {
   fixture.phase = 'ready'
   fixture.needsOnboarding = false; fixture.corruptProfile = false; fixture.restart.mockReset()
   fixture.plugin.mockReset(); fixture.pluginDone.mockReset().mockResolvedValue({ exitCode: 0 });
-  fixture.load.mockReset(); fixture.report.mockReset();
+  fixture.load.mockReset(); fixture.report.mockReset(); fixture.diagnosticAppend.mockReset();
   fixture.terminalTarget.mockReset(); fixture.openTerminal.mockClear();
   fixture.stop.mockClear(); fixture.start.mockClear(); fixture.close.mockReset().mockResolvedValue(undefined)
   const { app, autoUpdater } = await import('electron')
@@ -123,6 +123,24 @@ beforeEach(async () => {
   app.removeAllListeners()
   vi.mocked(app.relaunch).mockClear()
   vi.mocked(app.quit).mockClear()
+})
+
+it('captures scoped client errors with either Electron console-message signature without crashing on missing text', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-console-message-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const consoleMessage = fixture.windows[0].webContents
+    consoleMessage.emit('console-message', {}, 2, '[next-ui-diagnostic] aa=false')
+    consoleMessage.emit('console-message', { message: "slot entry crashed in 'sidebar.footer.action': error" })
+    consoleMessage.emit('console-message', {}, 2)
+    consoleMessage.emit('console-message', {}, 2, 'unrelated output')
+    expect(fixture.diagnosticAppend).toHaveBeenCalledTimes(2)
+    expect(fixture.diagnosticAppend).toHaveBeenCalledWith('[next-ui-diagnostic] aa=false', 'warn')
+  } finally {
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
 })
 
 it('stages an explicit update before hiding windows, and hands off only after the Host closes', async () => {

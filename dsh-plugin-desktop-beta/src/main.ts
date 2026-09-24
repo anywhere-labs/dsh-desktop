@@ -155,9 +155,9 @@ import {
   migrateDesktopBrowserAccessSettings,
   migrateDesktopWindowMaterialSettings,
   migrateLegacyAgentPresetSettings,
+  mirrorDesktopSetupWizardProfileSettings,
   readDesktopSetupWizardSettings,
   updateDesktopSetupWizardSettings,
-  type DesktopSetupWizardSettings,
 } from './setup-wizard-settings.ts'
 import type { DesktopSetupWizardResult } from './setup-wizard-contract.ts'
 import { DesktopSetupWizardWindow } from './setup-wizard-window.ts'
@@ -442,30 +442,15 @@ function desktopProfileMarketSnapshot(market: DesktopMarketProvider): DesktopMar
   })
 }
 
-/** Preserve device-shared Wizard fields while mirroring one Profile's leaves. */
-function setupSettingsWithProfilePreferences(
-  current: DesktopSetupWizardSettings,
-  preferences: DesktopProfilePreferences,
-): DesktopSetupWizardSettings {
-  return Object.freeze({
-    ...current,
-    mode: preferences.mode,
-    openBrowser: preferences.openBrowser,
-    networkExposure: preferences.networkExposure,
-    notifications: Object.freeze({ ...preferences.notifications }),
-  })
-}
-
-/** Mirror only the Profile-owned settings leaves into the exact prepared document. */
+/**
+ * Mirror only the Profile-owned settings leaves into the exact prepared document,
+ * and only while that document still awaits 0.1.7's one-shot import.
+ */
 async function mirrorDesktopProfilePreferences(
   settingsDocument: string,
   preferences: DesktopProfilePreferences,
 ): Promise<void> {
-  const current = readDesktopSetupWizardSettings(settingsDocument)
-  await updateDesktopSetupWizardSettings(
-    settingsDocument,
-    setupSettingsWithProfilePreferences(current, preferences),
-  )
+  await mirrorDesktopSetupWizardProfileSettings(settingsDocument, preferences)
 }
 
 /** Start one Electron process and leave lifetime to the mounted desktop plugin. */

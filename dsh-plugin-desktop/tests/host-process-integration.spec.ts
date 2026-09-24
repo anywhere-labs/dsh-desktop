@@ -23,7 +23,8 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
   try {
     writeFileSync(join(home, 'settings.yaml'), 'dsh-desktop:\n  mode: advanced\nagent-presets:\n  default: minimal\n')
     const prepared = prepareDesktopProfile('1', home, 'win32', undefined, undefined, undefined, { aaEnabled })
-    if (aaEnabled) prepared.patches.push({ id: 'agents-anywhere-bridge-next', config: { dshHome: home, stateRoot: join(home, 'aa-state') } })
+    prepared.overlays = []
+    if (aaEnabled) prepared.overlays.push({ id: 'agents-anywhere-bridge-next', config: { dshHome: home, stateRoot: join(home, 'aa-state') } })
     prepared.port = 0
     const plugin = join(prepared.profile.dir, 'node_modules', 'isolated-client-fixture')
     mkdirSync(plugin, { recursive: true })
@@ -31,12 +32,13 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
       exports: { '.': './index.js', './client': './client.js', './package.json': './package.json' }, dsh: { client: { platform: 'web' } } }))
     writeFileSync(join(plugin, 'index.js'), 'export function apply() {}\n')
     writeFileSync(join(plugin, 'client.js'), 'export function apply(ctx) { ctx.provide("isolatedClientFixture", true) }\n')
-    prepared.patches.push({ insert: [{ id: 'isolated-client-fixture', name: 'isolated-client-fixture' }] })
+    prepared.overlays.push({ insert: [{ id: 'isolated-client-fixture', name: 'isolated-client-fixture' }] })
     const packageRoot = new URL('../', import.meta.url)
     const pnpmBinPath = fileURLToPath(new URL('node_modules/pnpm/bin/pnpm.mjs', packageRoot))
     const electronVersion = JSON.parse(readFileSync(new URL('node_modules/electron/package.json', packageRoot), 'utf8')).version
     pnpm = installDesktopPnpmRuntime({ platform: process.platform, appExecutable: process.execPath, pnpmBinPath,
       electronVersion, stateDir: join(home, 'runtime'), environment: process.env })
+    prepared.patches.push(...prepared.overlays)
     child = fork(fileURLToPath(new URL('./fixtures/isolated-host/child.mjs', import.meta.url)), [], {
       execArgv: [], stdio: ['ignore', 'pipe', 'pipe', 'ipc'], serialization: 'advanced',
     })
@@ -49,12 +51,19 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
     }, 30_000)
     child.on('exit', () => rpc?.close(stderr || 'worker exited'))
     let shell: DesktopShellSpec | undefined
+    // The legacy settings document above is imported once the Loader settles, which
+    // is after this profile has mounted in compatibility. The imported `advanced`
+    // mode is restart-applied, so 0.1.7 asks the runtime to restart exactly once on
+    // the first boot after an upgrade; a runtime without the method faults the Host.
+    const restarts: string[] = []
     const runtime = {
       platform: 'win32', windowsBuild: 22631, locale: 'en',
       updates: { isPackaged: false, canDownload: false, currentVersion: '2.0.7-beta.1', statePath: join(home, 'updates') },
       schedule(spec: DesktopShellSpec) { shell = spec; return async () => {} },
       registerTrayItem() { return { refresh() {}, dispose() {} } },
       setLocalePreference() {}, setThemeSource() {},
+      async requestRestart() { restarts.push('restart') },
+      async requestRecoveryRestart() { restarts.push('recovery') },
     } as unknown as DesktopRuntime
     releaseNative = bindNativeRuntime(rpc, runtime)
     rpc.handle('certificate', () => ({ failureCode: 'test-disabled' }))
@@ -101,6 +110,9 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
     expect(html).toContain('dsh-plugin-desktop')
     await expect.poll(async () => (await rpc!.call<{ services: { aaRuntime: boolean; aaOnboarding: boolean } }>('status')).services, { timeout: 3000 })
       .toEqual({ aaRuntime: aaEnabled, aaOnboarding: aaEnabled })
+    // A settings import is an ordinary restart; recovery is reserved for a Host that
+    // failed to compose, and this one did not.
+    expect(restarts).not.toContain('recovery')
     await rpc.call('stop')
     await expect(fetch(spec.url, { headers })).rejects.toThrow()
   } catch (error) {
