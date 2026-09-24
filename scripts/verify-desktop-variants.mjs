@@ -4,6 +4,8 @@ import { join, relative, resolve, sep } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
 const stableRoot = join(root, 'dsh-plugin-desktop', 'src')
 const betaRoot = join(root, 'dsh-plugin-desktop-beta', 'src')
+const stableTestsRoot = join(root, 'dsh-plugin-desktop', 'tests')
+const betaTestsRoot = join(root, 'dsh-plugin-desktop-beta', 'tests')
 // Both editions share behavior. Only release identity, launcher wording, and the
 // channels' pinned core versions differ.
 // `startup-audit.ts` re-runs 0.1.7's `auditStartupEntries` against the Host
@@ -111,3 +113,28 @@ if (differences.length > 0) {
 }
 
 process.stdout.write(`verify-desktop-variants: ${String(sharedPaths.size - allowedDifferences.size - betaOnlyPaths.size)} shared source files are aligned; both editions use isolated Host and chrome\n`)
+
+// Both editions share the regression suite. Test-only identifiers (package
+// names, build scripts, pinned runtime versions) differ by channel, so tests/
+// parity is existence-only: every spec file must exist on both sides (#1045).
+// Stable-only tooling specs (e.g. stable-only scripts/ NSIS toolchain) and the
+// beta-only profile-context spec are declared below instead of silently drifting.
+const testsBetaOnlyPaths = new Set(['profile-context.spec.ts'])
+const testsStableOnlyPaths = new Set(['windows-nsis-ab.spec.ts'])
+const sharedTestPaths = new Set([...files(stableTestsRoot), ...files(betaTestsRoot)])
+const testDifferences = []
+for (const path of [...sharedTestPaths].sort()) {
+  if (!path.endsWith('.spec.ts')) continue
+  if (testsBetaOnlyPaths.has(path) || testsStableOnlyPaths.has(path)) continue
+  let stableExists = true
+  let betaExists = true
+  try { readFileSync(join(stableTestsRoot, path)) } catch { stableExists = false }
+  try { readFileSync(join(betaTestsRoot, path)) } catch { betaExists = false }
+  if (!stableExists || !betaExists) testDifferences.push(path)
+}
+
+if (testDifferences.length > 0) {
+  throw new Error(`Desktop variant test drift is not declared:\n${testDifferences.map(path => `- tests/${path}`).join('\n')}`)
+}
+
+process.stdout.write(`verify-desktop-variants: ${String([...sharedTestPaths].filter(path => path.endsWith('.spec.ts')).length)} shared spec files are present on both editions\n`)

@@ -60,3 +60,7 @@ A few rules worth knowing:
 ## Where can I download the app or report a problem?
 
 Download from the [project download page](https://www.dshdesktop.cn/) or the [latest GitHub Release](https://github.com/anywhere-labs/deepseek-harness-desktop/releases/latest). Check the [troubleshooting section](user-guide.en.md#troubleshooting) first. If the problem remains, open a [GitHub Issue](https://github.com/anywhere-labs/deepseek-harness-desktop/issues/new/choose) with the operating system, app version, reproduction steps, and error details.
+
+## Does it matter if my separately installed dsh CLI differs from Desktop's bundled runtime?
+
+Desktop ships a pinned DSH runtime but shares the same DSH home (settings, profiles, sessions) with the system CLI by default. `dsh --version` in an ordinary terminal reports the global CLI version, which may differ from Desktop's bundled version (see [#948](https://github.com/anywhere-labs/dsh-desktop/issues/948)). Both can still run side by side, but the shared state may behave inconsistently while upstream APIs change quickly. To align them, upgrade the global CLI to the bundled version yourself (e.g. `npm install -g @deepseek-ai/dsh@<bundled Desktop version>`, replacing the placeholder with the actual version from the diagnostics); Desktop never silently modifies your global installation.

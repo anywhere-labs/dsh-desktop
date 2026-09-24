@@ -60,3 +60,7 @@ Desktop Host、profile 和 DSH home 位于本机。是否向外部服务发送�
 ## 在哪里下载和报告问题？
 
 从[项目下载页](https://www.dshdesktop.cn/)或[最新 GitHub Release](https://github.com/anywhere-labs/deepseek-harness-desktop/releases/latest)下载安装包。遇到问题时先查看[用户指南的排查部分](user-guide.md#排查)，仍无法解决再提交 [GitHub Issue](https://github.com/anywhere-labs/deepseek-harness-desktop/issues/new/choose)，并附上操作系统、应用版本、复现步骤和错误信息。
+
+## 电脑上另装的 dsh CLI 和 Desktop 内置运行时版本不一致有关系吗？
+
+Desktop 自带固定的 DSH 运行时，但默认与系统 CLI 共用同一 DSH home（设置、profile、会话等）。普通终端里 `dsh --version` 显示的是系统全局 CLI 版本，可能与 Desktop 内置版本不同（见 [#948](https://github.com/anywhere-labs/dsh-desktop/issues/948)）。两者版本不同时仍可各自运行，但共享状态在上游接口快速变化期可能行为不一致；如需对齐，可按 Desktop 内置版本自行升级全局 CLI（例如 `npm install -g @deepseek-ai/dsh@<Desktop 内置版本>`，将占位符替换为诊断信息中的实际版本），Desktop 不会静默改动你的全局安装。
