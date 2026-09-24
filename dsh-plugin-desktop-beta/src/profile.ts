@@ -1,10 +1,14 @@
 /** Compatibility profile composition over the official Web bundle and user plugins. */
 
+import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import {
   existsSync,
+  lstatSync,
   readdirSync,
   readFileSync,
+  renameSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs'
 import { isIP } from 'node:net'
@@ -29,10 +33,11 @@ import {
   type ProfileManifest,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import { isMap, isPair, isScalar, parseAllDocuments, parseDocument, type Pair, type YAMLMap } from 'yaml'
+import { isMap, isPair, isScalar, isSeq, parseAllDocuments, parseDocument, type Pair, type YAMLMap } from 'yaml'
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
 import {
+  desktopBrowserAccessAvailable,
   desktopBrowserAccessEnabled,
   desktopNetworkExposureForBrowserAccess,
   desktopWebServerHost,
@@ -67,6 +72,7 @@ import {
   type DesktopMarketProvider,
   type DesktopMarketSnapshot,
 } from './desktop-market.ts'
+import { DesktopShellConfig } from './settings-bridge.ts'
 
 /** Persistent profile managed by the desktop launcher and the ordinary dsh plugin command. */
 export const DESKTOP_PROFILE_NAME = 'desktop'
@@ -112,6 +118,8 @@ const SETTINGS_DOCUMENT_FORMATS: Readonly<Record<string, 'yaml' | 'json'>> = Obj
   '.json': 'json',
 })
 const DESKTOP_SETTINGS_NAMESPACE = 'dsh-desktop'
+/** Loader entry id the settings import keys Desktop's shell section by. */
+const DESKTOP_SHELL_ENTRY_ID = 'desktop-shell'
 const UI_LAYOUT_PACKAGE = '@deepseek-ai/dsh-client-ui-layout'
 const UI_SIDEBAR_PACKAGE = '@deepseek-ai/dsh-client-ui-sidebar'
 const UI_CONVERSATION_PACKAGE = '@deepseek-ai/dsh-client-ui-conversation'
@@ -404,6 +412,178 @@ export function readDesktopStartupSettings(config: DesktopSettingsDocumentConfig
 /** Read only the shell mode from the settings provider's resolved file. */
 export function readDesktopShellMode(config: DesktopSettingsDocumentConfig): DesktopShellMode {
   return readDesktopStartupSettings(config).mode
+}
+
+/**
+ * The desktop-shell section of a settings document the settings service has not imported yet.
+ *
+ * The setup wizard, the recovery window and every 0.1.6 install write startup choices to
+ * the harness-home document, but 0.1.7's settings service only merges that document into
+ * the profile patch layer after the Loader is up (`SettingsForms#importLegacyDocument`),
+ * and renames it to `settings.yaml.imported` as it does. The launcher's layout patches and
+ * the shell plugin's own row both resolve before that, so while the document still exists
+ * under its own name its section is the value the row is about to have. Reading only the
+ * composed row booted the first generation after the wizard in compatibility mode, and the
+ * import then switched the row to the chosen mode underneath it: the recomposed profile
+ * dropped `ui-layout` while the open renderer never installed Desktop's own layout, so
+ * eighteen client plugins waited on a layout service forever and startup went to recovery.
+ * @param spec - the resolved harness-home document, after section migration.
+ * @returns the pending section, or undefined when there is nothing left to import.
+ */
+function pendingDesktopShellSection(spec: DesktopSettingsDocumentSpec): Record<string, unknown> | undefined {
+  // The import only ever reads `<home>/settings.yaml`.
+  if (spec.format !== 'yaml') return undefined
+  let text: string
+  try {
+    text = readFileSync(spec.filename, 'utf8')
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw cause
+  }
+  const parsed = parseDocument(text, { prettyErrors: true })
+  // A document the import cannot parse is renamed away without merging anything.
+  if (parsed.errors.length > 0) return undefined
+  const root: unknown = parsed.toJS()
+  if (typeof root !== 'object' || root === null || Array.isArray(root)) return undefined
+  const document = root as Record<string, unknown>
+  // `migrateDesktopSettingsDocumentSections` has already renamed 0.1.6's key; the
+  // import merges only the section keyed by the entry id.
+  const section = document[DESKTOP_SHELL_ENTRY_ID]
+  return typeof section === 'object' && section !== null && !Array.isArray(section)
+    ? section as Record<string, unknown>
+    : undefined
+}
+
+/** Fields the import may write; it refuses a section carrying any other key. */
+const PENDING_DESKTOP_SHELL_FIELDS: ReadonlySet<string> = new Set([
+  'mode',
+  'macosMaterial',
+  'windowsMaterial',
+  'linuxMaterial',
+  'port',
+  'openBrowser',
+  'networkExposure',
+  'logLevel',
+])
+
+/**
+ * The desktop-shell config as it will stand once the pending document is imported.
+ * @param composed - the composed desktop-shell row config.
+ * @param pending - the section {@link pendingDesktopShellSection} found, if any.
+ * @param platform - native platform the import validates the section for.
+ * @returns the merged config, or undefined when the import would not apply it.
+ */
+function pendingDesktopShellConfig(
+  composed: Record<string, unknown>,
+  pending: Record<string, unknown> | undefined,
+  platform: NodeJS.Platform,
+): Record<string, unknown> | undefined {
+  if (pending === undefined) return undefined
+  // The import skips the whole section when it is rejected, so the row keeps its
+  // composed values; so does this generation. It accepts only volatile fields,
+  // validates the merged row against the schema, and applies the shell's own
+  // combination checks.
+  if (Object.keys(pending).some(key => !PENDING_DESKTOP_SHELL_FIELDS.has(key))) return undefined
+  // `SettingsForms#update` merges the section over the current row field by field.
+  const merged = { ...composed, ...pending }
+  let mode: DesktopShellMode
+  let openBrowser: boolean
+  try {
+    const candidate = DesktopShellConfig(merged as never)
+    mode = candidate.mode.get()
+    openBrowser = candidate.openBrowser.get()
+    desktopStartupSettingsFromSettings({ [DESKTOP_SETTINGS_NAMESPACE]: merged })
+  } catch {
+    return undefined
+  }
+  if (!desktopBrowserAccessAvailable(mode) && openBrowser) return undefined
+  if (mode !== 'compatibility' && platform === 'linux') return undefined
+  return merged
+}
+
+/**
+ * Merge the pending desktop-shell section into the profile patch layer and drop it
+ * from the settings document, the way the import would, but before the Loader starts.
+ *
+ * The row is written exactly as the config editor writes it (the last plain
+ * `desktop-shell` row, else a new one), so later edits find and update it. The
+ * profile is written first: if the process dies before the document is rewritten,
+ * the next launch merges the same values again, which changes nothing. Each file
+ * is replaced in one step, so a crash never leaves a half-written profile, and a
+ * symlinked document is left to the import rather than replaced by a copy.
+ * @param patchPath - the profile's own patch document.
+ * @param rowName - the composed desktop-shell row's package identity.
+ * @param spec - the resolved harness-home document.
+ * @param section - the validated pending section.
+ * @returns whether both documents were rewritten; on false the upstream import
+ *   still merges the section later, as it did before.
+ */
+function importPendingDesktopShellSection(
+  patchPath: string,
+  rowName: unknown,
+  spec: DesktopSettingsDocumentSpec,
+  section: Record<string, unknown>,
+): boolean {
+  try {
+    if ([patchPath, spec.filename].some(path => lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink())) {
+      return false
+    }
+    let before: string
+    try {
+      before = readFileSync(patchPath, 'utf8')
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+      before = '[]\n'
+    }
+    // `!!js` expressions stay the scalars they were; only the target row is touched.
+    const patchDocument = parseDocument(before, {
+      customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }],
+    })
+    if (patchDocument.errors.length > 0 || !isSeq(patchDocument.contents)) return false
+    const rows = patchDocument.contents
+    rows.flow = false
+    const index = rows.items.findLastIndex((item, index) => isMap(item)
+      && patchDocument.getIn([index, 'id']) === DESKTOP_SHELL_ENTRY_ID
+      && !item.has('insert')
+      && (!item.has('name') || patchDocument.getIn([index, 'name']) === rowName))
+    if (index < 0) {
+      patchDocument.addIn([], {
+        id: DESKTOP_SHELL_ENTRY_ID,
+        ...(typeof rowName === 'string' ? { name: rowName } : {}),
+        config: section,
+      })
+    } else {
+      const config = patchDocument.getIn([index, 'config'], true)
+      if (config === undefined) {
+        patchDocument.setIn([index, 'config'], patchDocument.createNode(section))
+      } else if (isMap(config)) {
+        for (const [key, value] of Object.entries(section)) config.set(key, value)
+      } else {
+        return false
+      }
+    }
+
+    const settingsDocument = parseDocument(readFileSync(spec.filename, 'utf8'), { prettyErrors: true })
+    if (settingsDocument.errors.length > 0 || !isMap(settingsDocument.contents)) return false
+    replaceDocument(patchPath, String(patchDocument))
+    settingsDocument.delete(DESKTOP_SHELL_ENTRY_ID)
+    replaceDocument(spec.filename, String(settingsDocument))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Replace a document in one rename, so a crash leaves either its old or its new bytes. */
+function replaceDocument(path: string, text: string): void {
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(temporary, text, { flag: 'wx' })
+    renameSync(temporary, path)
+  } catch (cause) {
+    rmSync(temporary, { force: true })
+    throw cause
+  }
 }
 
 /** Resolve the public Web template once and reject an incompatible DSH release. */
@@ -1200,6 +1380,28 @@ export function prepareDesktopProfile(
     throw new Error(`${BIN_NAME}: desktop profile has no desktop-shell row`)
   }
   const desktopShellConfig = rowConfig(desktopShell)
+  const pendingSection = pendingDesktopShellSection(settingsSpec)
+  // Land the section the import would merge before anything boots on this row,
+  // then prepare again from the persisted profile. Merely supplying the pending
+  // values to this generation is not enough: the import renames the document
+  // before it writes, and any recomposition in between (profile HMR notices the
+  // rename) would see neither and flip the row back underneath the running shell.
+  // The config editor's validation pass (`profilePatches`) holds the patch file's
+  // lock and writes it next, so it never imports.
+  if (pendingSection !== undefined
+    && hooks.profilePatches === undefined
+    && pendingDesktopShellConfig(desktopShellConfig, pendingSection, platform) !== undefined
+    && importPendingDesktopShellSection(profile.patchPath, desktopShell.name, settingsSpec, pendingSection)) {
+    return prepareDesktopProfile(
+      telemetryDisabled,
+      home,
+      platform,
+      profileName,
+      pluginStatePath,
+      marketSelection,
+      hooks,
+    )
+  }
   // Startup preferences used to live in the global settings document. 0.1.7 made
   // persisted form values profile-specific, so the composed desktop-shell row — the
   // bundle default overridden by the profile's own patch layer — is now the source.
