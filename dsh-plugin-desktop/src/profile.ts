@@ -1237,11 +1237,10 @@ export function prepareDesktopProfile(
         throw new Error(`${BIN_NAME}: ${mode} desktop mode must use ${packageName} in the ${id} row`)
       }
     }
-    patches.push(
-      { id: 'ui-layout', disabled: true },
-      { id: 'ui-sidebar', disabled: false },
-      { id: 'ui-conversation', disabled: false },
-    )
+    // Desktop owns only the replacement root layout. Preserve the final
+    // profile state of its documented occupants so a client bundle can disable
+    // the stock Sidebar or Conversation and register a compatible replacement.
+    patches.push({ id: 'ui-layout', disabled: true })
   }
   // dsh 0.1.7-alpha.1 replaced filesystem preset discovery with preset declarations
   // carried by patch files (`@deepseek-ai/dsh-web-app/presets/*.patch.yml`). The
