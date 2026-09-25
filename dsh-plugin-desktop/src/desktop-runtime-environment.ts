@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join, win32 as windowsPath } from 'node:path'
-import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
+import { PNPM_IGNORE_MINIMUM_RELEASE_AGE, PNPM_IGNORE_PM_ON_FAIL } from './pnpm-policy.ts'
 import { assertDesktopProfileName } from './profile-manager.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
@@ -383,7 +383,9 @@ function posixPnpmShim(options: DesktopPnpmRuntimeOptions): string {
       'npm_config_runtime=electron',
       `npm_config_target=${quoteSh(options.electronVersion)}`,
       `npm_config_disturl=${quoteSh(ELECTRON_HEADERS_URL)}`,
-      `exec ${quoteSh(options.appExecutable)} --require "$runtime_clear_environment" ${quoteSh(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
+      'pnpm_config_pm_on_fail=ignore',
+      'pnpm_config_manage_package_manager_versions=false',
+      `exec ${quoteSh(options.appExecutable)} --require "$runtime_clear_environment" ${quoteSh(options.pnpmBinPath)} ${PNPM_IGNORE_PM_ON_FAIL} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
     ].join(' '),
     '',
   ].join('\n')
@@ -443,7 +445,9 @@ function windowsPnpmShim(options: DesktopPnpmRuntimeOptions): string {
     'set "npm_config_runtime=electron"',
     `set "npm_config_target=${escapeBatchSetValue(options.electronVersion)}"`,
     `set "npm_config_disturl=${ELECTRON_HEADERS_URL}"`,
-    `${quoteBatchWord(options.appExecutable)} --require "%DSH_RUNTIME_PRIVATE%\\clear-env.cjs" ${quoteBatchWord(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} %*`,
+    'set "pnpm_config_pm_on_fail=ignore"',
+    'set "pnpm_config_manage_package_manager_versions=false"',
+    `${quoteBatchWord(options.appExecutable)} --require "%DSH_RUNTIME_PRIVATE%\\clear-env.cjs" ${quoteBatchWord(options.pnpmBinPath)} ${PNPM_IGNORE_PM_ON_FAIL} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} %*`,
     ...windowsCodePageEpilogue(),
     '',
   ].join('\r\n')

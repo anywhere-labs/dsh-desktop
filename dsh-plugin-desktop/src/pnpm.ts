@@ -10,7 +10,7 @@ import type {
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { assertDesktopProfileName } from './profile-manager.ts'
-import { withDesktopPnpmPolicy } from './pnpm-policy.ts'
+import { DESKTOP_PNPM_ENV_OVERRIDES, withDesktopPnpmPolicy } from './pnpm-policy.ts'
 
 const BIN_NAME = 'dsh-plugin-desktop'
 const ELECTRON_HEADERS_URL = 'https://electronjs.org/headers'
@@ -220,6 +220,7 @@ class DesktopPnpmService extends Service implements DesktopPnpm {
         npm_config_runtime: 'electron',
         npm_config_target: this.bootstrap.electronVersion,
         npm_config_disturl: ELECTRON_HEADERS_URL,
+        ...DESKTOP_PNPM_ENV_OVERRIDES,
       },
     }
     const child = this.ctx.subprocess.spawn(spec)

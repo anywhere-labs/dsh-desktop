@@ -5,7 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ProfileContext } from '@deepseek-ai/dsh-app-boot'
 import type { AppReady } from '@deepseek-ai/dsh-cmdline'
 import type { DesktopPnpmBootstrap } from './pnpm.ts'
-import { withDesktopPnpmPolicy } from './pnpm-policy.ts'
+import { DESKTOP_PNPM_ENV_OVERRIDES, withDesktopPnpmPolicy } from './pnpm-policy.ts'
 import { desktopInstallAnchor, prepareDesktopProfile, type PreparedDesktopProfile } from './profile.ts'
 
 /** Keep package operations and subsequent HMR on the launcher's actual Profile. */
@@ -39,6 +39,7 @@ export function createDesktopProfileBoot(prepared: PreparedDesktopProfile, pnpm:
         npm_config_runtime: 'electron',
         npm_config_target: pnpm.electronVersion,
         npm_config_disturl: 'https://electronjs.org/headers',
+        ...DESKTOP_PNPM_ENV_OVERRIDES,
       },
     },
     // The pinned app-boot patch delegates both manager operations and HMR here.
