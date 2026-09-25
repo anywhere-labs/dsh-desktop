@@ -303,6 +303,79 @@ describe('desktop Host pnpm runtime', () => {
     },
   )
 
+  it.runIf(process.platform === 'win32')(
+    'strips Electron/DSH/npm_config pollution and rebuilds PATH on Windows',
+    () => {
+      const root = temporaryDirectory()
+      const captureEntry = join(root, 'capture.mjs')
+      const captureOutput = join(root, 'result.json')
+      const electronExecutable = createRequire(import.meta.url)('electron') as string
+      writeFileSync(captureEntry, [
+        "import { writeFileSync } from 'node:fs'",
+        'const capture = {',
+        '  runAsNode: Object.keys(process.env).filter(name => name.toUpperCase() === "ELECTRON_RUN_AS_NODE"),',
+        '  hasNpmConfigRuntime: Object.prototype.hasOwnProperty.call(process.env, "npm_config_runtime"),',
+        '  hasNpmConfigTarget: Object.prototype.hasOwnProperty.call(process.env, "npm_config_target"),',
+        '  hasNpmConfigDisturl: Object.prototype.hasOwnProperty.call(process.env, "npm_config_disturl"),',
+        '  hasDshRuntimePrivate: Object.prototype.hasOwnProperty.call(process.env, "DSH_RUNTIME_PRIVATE"),',
+        '  hasDshRuntimeNodeBin: Object.prototype.hasOwnProperty.call(process.env, "DSH_RUNTIME_NODE_BIN"),',
+        '  hasElectronEnableLogging: Object.prototype.hasOwnProperty.call(process.env, "ELECTRON_ENABLE_LOGGING"),',
+        '  hasChromeFoo: Object.prototype.hasOwnProperty.call(process.env, "CHROME_FOO"),',
+        '  hasPuppeteerFoo: Object.prototype.hasOwnProperty.call(process.env, "PUPPETEER_FOO"),',
+        '  pathHead: (process.env.PATH ?? "").split(";").slice(0, 4),',
+        '  pathHasContaminant: /DSH Desktop|Git\\\\cmd|Visual Studio|node_modules\\\\\\\\.bin/i.test(process.env.PATH ?? ""),',
+        '}',
+        'writeFileSync(process.argv[2], JSON.stringify(capture))',
+        '',
+      ].join('\n'))
+      const installation = installDesktopPnpmRuntime({
+        ...options(join(root, 'runtime'), 'win32', { Path: 'C:\\Windows\\System32;C:\\Windows' }),
+        appExecutable: electronExecutable,
+        pnpmBinPath: captureEntry,
+      })
+
+      const result = spawnSync(electronExecutable, [
+        '--require',
+        installation.clearEnvironmentPath,
+        captureEntry,
+        captureOutput,
+      ], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          ELECTRON_RUN_AS_NODE: '1',
+          npm_config_runtime: 'electron',
+          npm_config_target: '43.3.0',
+          npm_config_disturl: 'https://electronjs.org/headers',
+          DSH_RUNTIME_PRIVATE: 'C:\\Users\\tester\\AppData\\Roaming\\DSH Desktop\\runtime-commands\\x\\private',
+          DSH_RUNTIME_NODE_BIN: 'C:\\Users\\tester\\AppData\\Roaming\\DSH Desktop\\runtime-commands\\x\\private\\node-bin',
+          ELECTRON_ENABLE_LOGGING: '1',
+          CHROME_FOO: 'bar',
+          PUPPETEER_FOO: 'bar',
+          PATH: 'C:\\Program Files\\DSH Desktop\\resources\\app\\node_modules\\.bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE;' + (process.env.PATH ?? 'C:\\Windows\\System32'),
+        },
+        timeout: 30_000,
+        windowsHide: true,
+      })
+
+      expect(result.error).toBeUndefined()
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+      const capture = JSON.parse(readFileSync(captureOutput, 'utf8')) as Record<string, unknown>
+      expect(capture.runAsNode).toEqual(['ELECTRON_RUN_AS_NODE'])
+      expect(capture.hasNpmConfigRuntime).toBe(false)
+      expect(capture.hasNpmConfigTarget).toBe(false)
+      expect(capture.hasNpmConfigDisturl).toBe(false)
+      expect(capture.hasDshRuntimePrivate).toBe(false)
+      expect(capture.hasDshRuntimeNodeBin).toBe(false)
+      expect(capture.hasElectronEnableLogging).toBe(false)
+      expect(capture.hasChromeFoo).toBe(false)
+      expect(capture.hasPuppeteerFoo).toBe(false)
+      expect(capture.pathHasContaminant).toBe(false)
+      expect(String(capture.pathHead).toUpperCase()).toMatch(/^C:\\\\WINDOWS\\\\SYSTEM32/)
+      installation.dispose()
+    },
+  )
+
   it('creates Windows batch shims without publishing the private Node directory', () => {
     const stateDir = join(temporaryDirectory(), 'runtime-state')
     const environment: NodeJS.ProcessEnv = {
