@@ -340,8 +340,57 @@ function installRuntimeGeneration(stateDir: string, plan: RuntimeGenerationPlan)
 /** Keep descendants in Node mode on Windows, where the private shim is a non-executable batch file. */
 function clearEnvironmentModule(platform: NodeJS.Platform): string {
   if (platform === 'win32') {
+    // process.execPath is the Electron executable; its Node descendants must
+    // retain RunAsNode so they continue running as Node rather than relaunching
+    // as a full Electron instance. Everything else that the DSH pnpm bootstrap
+    // sets on the Electron process leaks into the standard Windows DLL search
+    // order and into child native toolchains (git.exe, native compilers, etc.),
+    // which on a polluted PATH can fail with STATUS_DLL_INIT_FAILED
+    // (0xC0000142) at startup.
     return [
-      '// process.execPath is the Electron executable; its Node descendants must retain RunAsNode.',
+      "'use strict';",
+      'const fs = require("node:fs");',
+      'const RUN_AS_NODE_KEY = "ELECTRON_RUN_AS_NODE";',
+      'const KEEP = new Set([RUN_AS_NODE_KEY]);',
+      'const STRIP_EXACT = new Set([',
+      '  "DSH_RUNTIME_CODEPAGE",',
+      '  "DSH_RUNTIME_ROOT",',
+      '  "DSH_RUNTIME_PRIVATE",',
+      '  "DSH_RUNTIME_NODE_BIN",',
+      '  "DSH_RUNTIME_EXIT",',
+      '  "DSH_DESKTOP_DEFAULT_PROFILE",',
+      '  "npm_config_runtime",',
+      '  "npm_config_target",',
+      '  "npm_config_disturl",',
+      ']);',
+      'const STRIP_PREFIXES = ["ELECTRON_", "CHROME_", "PUPPETEER_"];',
+      'for (const key of Object.keys(process.env)) {',
+      '  if (KEEP.has(key)) continue;',
+      '  if (STRIP_EXACT.has(key)) { delete process.env[key]; continue; }',
+      '  if (STRIP_PREFIXES.some((p) => key === p || key.startsWith(p))) {',
+      '    delete process.env[key];',
+      '  }',
+      '}',
+      'const sysRoot = process.env.SystemRoot || process.env.systemroot || "C:\\\\Windows";',
+      'const safePath = [',
+      '  sysRoot + "\\\\System32",',
+      '  sysRoot,',
+      '  sysRoot + "\\\\System32\\\\Wbem",',
+      '  sysRoot + "\\\\System32\\\\WindowsPowerShell\\\\v1.0",',
+      '].filter((p, index, list) => p && list.indexOf(p) === index);',
+      'const joined = safePath.join(";");',
+      'process.env.PATH = joined;',
+      'process.env.Path = joined;',
+      'try {',
+      '  for (const segment of safePath) {',
+      '    if (!fs.existsSync(segment)) {',
+      '      process.env.PATH = process.env.PATH',
+      '        .split(";")',
+      '        .filter((p) => p !== segment)',
+      '        .join(";");',
+      '    }',
+      '  }',
+      '} catch (_) { /* ignore inaccessible paths */ }',
       '',
     ].join('\n')
   }
@@ -349,7 +398,7 @@ function clearEnvironmentModule(platform: NodeJS.Platform): string {
     `process.execPath = require('node:path').join(__dirname, 'node-bin', 'node')`,
     `for (const name of Object.keys(process.env)) {`,
     `  if (name.toUpperCase() === '${RUN_AS_NODE}') delete process.env[name]`,
-    '}',
+    "}",
     '',
   ].join('\n')
 }
