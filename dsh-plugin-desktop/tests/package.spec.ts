@@ -941,6 +941,14 @@ describe('published package surface', () => {
       extendInfo: {
         CFBundleAllowMixedLocalizations: true,
         CFBundleDevelopmentRegion: 'en',
+        CFBundleDocumentTypes: [
+          {
+            CFBundleTypeName: 'Folder',
+            CFBundleTypeRole: 'Viewer',
+            LSHandlerRank: 'Alternate',
+            LSItemContentTypes: ['public.folder'],
+          },
+        ],
         CFBundleLocalizations: ['en', 'zh_CN'],
       },
       hardenedRuntime: true,
