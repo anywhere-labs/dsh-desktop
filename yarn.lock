@@ -3486,6 +3486,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-native-command@patch:@deepseek-ai/dsh-native-command@file%3Avendor/dsh-runtime/0.1.7-rc.2/deepseek-ai-dsh-native-command-0.1.7-rc.2.tgz#./patches/dsh-native-command@0.1.7-rc.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.1.7-rc.2
+  resolution: "@deepseek-ai/dsh-native-command@patch:@deepseek-ai/dsh-native-command@file%3Avendor/dsh-runtime/0.1.7-rc.2/deepseek-ai-dsh-native-command-0.1.7-rc.2.tgz%23vendor/dsh-runtime/0.1.7-rc.2/deepseek-ai-dsh-native-command-0.1.7-rc.2.tgz%3A%3Ahash=d1caba&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-native-command@0.1.7-rc.2.patch::version=0.1.7-rc.2&hash=fc0962&locator=deepseek-harness-desktop%40workspace%3A."
+  peerDependencies:
+    "@deepseek-ai/cordis": ~4.0.4
+  checksum: 10c0/0fd4018c68c21af76cae1f87256d8589a3f7aa072efadd23fc0235b60b56cdef78ed1bb276fb6c06227491aef9dc690e7f98fdeb5006c15098bd007291dadca8
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-office-to-pdf@file:vendor/dsh-runtime/0.1.7-rc.2/deepseek-ai-dsh-office-to-pdf-0.1.7-rc.2.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.7-rc.2
   resolution: "@deepseek-ai/dsh-office-to-pdf@file:vendor/dsh-runtime/0.1.7-rc.2/deepseek-ai-dsh-office-to-pdf-0.1.7-rc.2.tgz#vendor/dsh-runtime/0.1.7-rc.2/deepseek-ai-dsh-office-to-pdf-0.1.7-rc.2.tgz::hash=42d7e7&locator=deepseek-harness-desktop%40workspace%3A."
