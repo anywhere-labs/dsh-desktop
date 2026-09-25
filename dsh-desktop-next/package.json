@@ -1,6 +1,6 @@
 {
   "name": "dsh-desktop-next",
-  "version": "2.0.14-next",
+  "version": "2.0.15-next",
   "private": true,
   "description": "Experimental upstream-inspired DSH Desktop with Profiles, recovery, remote control and Community Market",
   "license": "MIT",
