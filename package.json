@@ -15,7 +15,7 @@
     "dsh-community-market"
   ],
   "resolutions": {
-    "@agents-anywhere/dsh-bridge-next": "patch:@agents-anywhere/dsh-bridge-next@file%3Avendor/agents-anywhere/agents-anywhere-dsh-bridge-next-0.1.0-dev.0.desktop.ceba59602e4c1.r1188e1a1.tgz#./patches/agents-anywhere-connector-httpx.patch",
+    "@agents-anywhere/dsh-bridge-next": "patch:@agents-anywhere/dsh-bridge-next@file%3Avendor/agents-anywhere/agents-anywhere-dsh-bridge-next-0.1.0-dev.0.desktop.c125aab0a5f30.r1188e1a1.tgz#./patches/agents-anywhere-connector-httpx.patch",
     "app-builder-lib@npm:26.15.7": "patch:app-builder-lib@npm%3A26.15.7#./patches/app-builder-lib@26.15.7.patch",
     "open@npm:11.0.1": "patch:open@npm%3A11.0.1#./patches/open@11.0.1.patch",
     "open@npm:^11.0.0": "patch:open@npm%3A11.0.1#./patches/open@11.0.1.patch",
@@ -652,7 +652,7 @@
     "@deepseek-ai/dsh-web-search-exa@npm:^0.1.7-rc.2": "file:vendor/dsh-runtime/0.1.7-rc.2/deepseek-ai-dsh-web-search-exa-0.1.7-rc.2.tgz",
     "@deepseek-ai/dsh-web-search-perplexity@npm:0.1.7-rc.2": "file:vendor/dsh-runtime/0.1.7-rc.2/deepseek-ai-dsh-web-search-perplexity-0.1.7-rc.2.tgz",
     "@deepseek-ai/dsh-web-search-perplexity@npm:^0.1.7-rc.2": "file:vendor/dsh-runtime/0.1.7-rc.2/deepseek-ai-dsh-web-search-perplexity-0.1.7-rc.2.tgz",
-    "dshmarket@npm:1.65.3": "patch:dshmarket@npm%3A1.65.3#./.yarn/patches/dshmarket-desktop.patch"
+    "dshmarket@npm:1.66.0": "patch:dshmarket@npm%3A1.66.0#./.yarn/patches/dshmarket-desktop.patch"
   },
   "dependenciesMeta": {
     "@deepseek-ai/dsh-subprocess-local": {
