@@ -1,8 +1,8 @@
 /** Physical-path helpers for dependencies Electron Builder removes from app.asar. */
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 function resolvePackageRoot(moduleUrl: string, packageName: string): string {
   const resolve = createRequire(moduleUrl).resolve
@@ -64,4 +64,41 @@ export function packagedDependencyPath(moduleUrl: string, dependencyEntry: strin
     ...segments.slice(packageSegments),
   )
   return unpackedAsarPath(logicalPath)
+}
+
+/**
+ * Resolve the Node-mode executable for the active desktop environment.
+ * On macOS, invoking the main application bundle executable directly in Node mode causes
+ * macOS LaunchServices and Dock to register the process as a GUI app and flash a Dock icon.
+ * Resolving the Helper app bundle binary (which carries LSUIElement: true) executes headlessly
+ * without Dock flashing or LaunchServices window registration.
+ */
+export function resolveDesktopNodeExecutable(
+  execPath: string = process.execPath,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform !== 'darwin') {
+    return execPath
+  }
+
+  const appDir = dirname(execPath)
+  const appName = basename(execPath)
+  const frameworksDir = join(appDir, '..', 'Frameworks')
+
+  const candidateNames = [
+    `${appName} Helper.app`,
+    'Electron Helper.app',
+    'DSH Desktop Helper.app',
+    'OmniMux Helper.app',
+  ]
+
+  for (const candidateName of candidateNames) {
+    const helperBinaryName = candidateName.slice(0, -4)
+    const helperPath = join(frameworksDir, candidateName, 'Contents', 'MacOS', helperBinaryName)
+    if (existsSync(helperPath)) {
+      return helperPath
+    }
+  }
+
+  return execPath
 }

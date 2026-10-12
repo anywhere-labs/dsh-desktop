@@ -18,6 +18,7 @@ import {
   installDesktopPnpmRuntime,
   type DesktopPnpmRuntimeOptions,
 } from '../src/desktop-runtime-environment.ts'
+import { resolveDesktopNodeExecutable } from '../src/packaged-runtime-path.ts'
 
 const temporaryDirectories: string[] = []
 
@@ -433,5 +434,43 @@ describe('desktop Host dsh runtime', () => {
     installation.dispose()
     installation.dispose()
     expect(environment).toEqual(original)
+  })
+})
+
+describe('resolveDesktopNodeExecutable', () => {
+  it('returns original execPath on non-darwin platforms', () => {
+    const winPath = 'C:\\Program Files\\DSH Desktop\\DSH Desktop.exe'
+    expect(resolveDesktopNodeExecutable(winPath, 'win32')).toBe(winPath)
+
+    const linuxPath = '/usr/bin/dsh-desktop'
+    expect(resolveDesktopNodeExecutable(linuxPath, 'linux')).toBe(linuxPath)
+  })
+
+  it('resolves Helper app executable when present on darwin', () => {
+    const root = temporaryDirectory()
+    const appDir = join(root, "DSH O'Brien.app", 'Contents', 'MacOS')
+    const frameworksDir = join(root, "DSH O'Brien.app", 'Contents', 'Frameworks')
+    const helperMacOSDir = join(frameworksDir, "DSH O'Brien Helper.app", 'Contents', 'MacOS')
+    mkdirSync(appDir, { recursive: true })
+    mkdirSync(helperMacOSDir, { recursive: true })
+
+    const mainExecutable = join(appDir, "DSH O'Brien")
+    const helperExecutable = join(helperMacOSDir, "DSH O'Brien Helper")
+    writeFileSync(mainExecutable, '')
+    writeFileSync(helperExecutable, '')
+
+    const resolved = resolveDesktopNodeExecutable(mainExecutable, 'darwin')
+    expect(resolved).toBe(helperExecutable)
+  })
+
+  it('falls back to main execPath on darwin when no helper bundle exists', () => {
+    const root = temporaryDirectory()
+    const appDir = join(root, 'NonExistent.app', 'Contents', 'MacOS')
+    mkdirSync(appDir, { recursive: true })
+    const mainExecutable = join(appDir, 'NonExistent')
+    writeFileSync(mainExecutable, '')
+
+    const resolved = resolveDesktopNodeExecutable(mainExecutable, 'darwin')
+    expect(resolved).toBe(mainExecutable)
   })
 })

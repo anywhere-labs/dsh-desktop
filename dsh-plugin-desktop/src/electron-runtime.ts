@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-terminal.ts'
 import { desktopInstallRecoveryStatePath } from './install-recovery.ts'
-import { packagedDependencyPath } from './packaged-runtime-path.ts'
+import { packagedDependencyPath, resolveDesktopNodeExecutable } from './packaged-runtime-path.ts'
 import { ElectronShellGeneration } from './electron-shell-generation.ts'
 import { electronPlatformStrategy, type ElectronPlatformStrategy } from './electron-platform.ts'
 import type {
@@ -325,7 +325,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       }
       openDesktopTerminal({
         platform: this.platform,
-        appExecutable: process.execPath,
+        appExecutable: resolveDesktopNodeExecutable(process.execPath, this.platform),
         dshBootstrapPath: fileURLToPath(new URL('./desktop-cli.js', import.meta.url)),
         pnpmBinPath: packagedDependencyPath(import.meta.url, 'pnpm/bin/pnpm.mjs'),
         electronVersion,

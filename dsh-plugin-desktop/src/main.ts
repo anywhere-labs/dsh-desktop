@@ -43,7 +43,7 @@ import { LogFileSink } from './log-files.ts'
 import { maskSecrets } from './mask-secrets.ts'
 import { resolveDesktopShellEnvironment } from './shell-environment.ts'
 import { installProfilePackageResolver } from './module-resolution.ts'
-import { packagedDependencyPath } from './packaged-runtime-path.ts'
+import { packagedDependencyPath, resolveDesktopNodeExecutable } from './packaged-runtime-path.ts'
 import {
   DesktopInstallRecoveryStore,
   desktopInstallRecoveryStatePath,
@@ -463,10 +463,11 @@ async function start(): Promise<void> {
     if (electronVersion === undefined) {
       throw new Error(`${BIN_NAME}: plugin runtime requires the Electron runtime version`)
     }
+    const nodeExecutable = resolveDesktopNodeExecutable(process.execPath, process.platform)
     const pnpmBinPath = packagedDependencyPath(import.meta.url, 'pnpm/bin/pnpm.mjs')
     const pnpmRuntime = installDesktopPnpmRuntime({
       platform: process.platform,
-      appExecutable: process.execPath,
+      appExecutable: nodeExecutable,
       pnpmBinPath,
       electronVersion,
       stateDir: join(app.getPath('userData'), 'runtime-commands'),
@@ -642,7 +643,7 @@ async function start(): Promise<void> {
     const dshRuntime = process.platform === 'win32'
       ? installDesktopDshRuntime({
           platform: process.platform,
-          appExecutable: process.execPath,
+          appExecutable: nodeExecutable,
           dshBootstrapPath,
           profileName: activeProfileName,
           homeDir,
@@ -656,7 +657,7 @@ async function start(): Promise<void> {
       activeProfileName,
       activeProfileDir: prepared.profile.dir,
       homeDir,
-      appExecutable: process.execPath,
+      appExecutable: nodeExecutable,
       pnpmBinPath,
       electronVersion,
       nodeBinDir: pnpmRuntime.nodeBinDir,
@@ -696,7 +697,7 @@ async function start(): Promise<void> {
       if (dependencyFilesChanged || forceMaterialization) {
         try {
           await materializeProfile({
-            appExecutable: process.execPath,
+            appExecutable: nodeExecutable,
             clearEnvironmentPath: pnpmRuntime.clearEnvironmentPath,
             pnpmBinPath,
             nodeBinDir: pnpmRuntime.nodeBinDir,
