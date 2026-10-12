@@ -1,0 +1,63 @@
+diff --git a/lib/bin.js b/lib/bin.js
+index 912c66e..41f9e01 100755
+--- a/lib/bin.js
++++ b/lib/bin.js
+@@ -97,7 +97,7 @@ function resolveBoot(program, profile, options, args) {
+ * @param version - version string printed by `--version`.
+ * @returns the resolved invocation.
+ */
+-function parseDshArgs(argv, version) {
++function parseDshArgs(argv, version, allowDesktopProfile = false) {
+ 	const first = argv[0];
+ 	let resolved;
+ 	const program = new Command();
+@@ -108,14 +108,14 @@ function parseDshArgs(argv, version) {
+ 		}
+ 		const profile = options.profile;
+ 		if (profile === "") program.error("error: --profile needs a name");
+-		rejectElectronProfile(program, profile);
++		if (!allowDesktopProfile) rejectElectronProfile(program, profile);
+ 		resolved = resolveBoot(program, profile, options, args);
+ 	});
+ 	if (first === "plugin") {
+ 		const plugin = program.command("plugin").description("manage a profile's plugins by forwarding the remaining arguments to pnpm in the profile directory");
+ 		plugin.requiredOption("--profile <name>", "the profile whose plugins to manage (initialized on first use)", selectProfile).allowUnknownOption().argument("[args...]", "pnpm arguments, forwarded verbatim (add <pkg>, remove <pkg>, why <pkg>, ...)").action((args, options) => {
+ 			if (options.profile === "") program.error("error: --profile needs a name");
+-			rejectElectronProfile(plugin, options.profile);
++			if (!allowDesktopProfile) rejectElectronProfile(plugin, options.profile);
+ 			if (args.length === 0) program.error("error: plugin needs pnpm arguments to forward (e.g. add <package>)");
+ 			resolved = {
+ 				mode: "plugin",
+@@ -202,9 +202,9 @@ async function reportStartupFailure(error, context, write = writeStderr) {
+ * Run the public dsh command-line interface.
+ * @returns a promise that settles when the selected command mode finishes.
+ */
+-async function runCli() {
++async function runCli({ allowDesktopProfile = false } = {}) {
+ 	const version = getDshRuntimeVersion();
+-	const invocation = parseDshArgs(process.argv.slice(2), version);
++	const invocation = parseDshArgs(process.argv.slice(2), version, allowDesktopProfile);
+ 	switch (invocation.mode) {
+ 		case "profile": {
+ 			const { runProfile } = await import("./profile-boot.js");
+diff --git a/lib/profile-boot-CO0MPY31.js b/lib/profile-boot-CO0MPY31.js
+--- a/lib/profile-boot-CO0MPY31.js
++++ b/lib/profile-boot-CO0MPY31.js
+@@ -258,6 +258,7 @@ async function runProfile(options) {
+ 		const profileContext = {
+ 			name: options.profile,
+ 			...options.packageManager === void 0 ? {} : { packageManager: options.packageManager },
++			...options.resolvedProfile?.readPatches === void 0 ? {} : { readPatches: options.resolvedProfile.readPatches },
+ 			dir: composed.profile.dir,
+ 			patchPath: composed.profile.patchPath,
+ 			installAnchor: options.resolvedProfile?.installAnchor ?? INSTALL_ANCHOR,
+diff --git a/lib/types/profile-boot.d.ts b/lib/types/profile-boot.d.ts
+--- a/lib/types/profile-boot.d.ts
++++ b/lib/types/profile-boot.d.ts
+@@ -59,4 +59,6 @@ export interface ResolvedProfileRuntime {
+     profile: Profile;
+     /** Absolute package.json path of the application's dsh installation. */
+     installAnchor: string;
++    /** Application-owned composition for subsequent configuration edits and HMR. */
++    readPatches?: ProfileContext['readPatches'];
+ }

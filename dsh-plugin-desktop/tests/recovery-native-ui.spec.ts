@@ -7,6 +7,18 @@ import { RecoveryActionFooter, RecoveryActionLink } from '../src/native-ui/share
 import { desktopRecoveryCopy } from '../src/recovery-copy.ts'
 
 describe('Recovery native terminal action', () => {
+  it('places the optional contact action before Terminal without attaching logs', () => {
+    const markup = renderToStaticMarkup(createElement(RecoveryTerminalAction, {
+      copy: desktopRecoveryCopy('zh'), search: '?frame=true&platform=darwin',
+      support: { href: 'https://github.com/anywhere-labs/dsh-desktop/issues', label: '联系我们', hint: '提供完整报错' },
+    }))
+    expect(markup).toContain('href="https://github.com/anywhere-labs/dsh-desktop/issues"')
+    expect(markup.indexOf('联系我们')).toBeLessThan(markup.indexOf('打开 DSH 终端'))
+    const source = readFileSync(new URL('../src/native-ui/recovery/App.tsx', import.meta.url), 'utf8')
+    expect(source.indexOf('data-recovery-support')).toBeLessThan(source.indexOf('<Reason copy={copy}'))
+    expect(source).toMatch(/className="[^"]*bg-amber-500\/10[^"]*text-amber-800 dark:text-amber-200" data-recovery-support/u)
+  })
+
   it('orders Quick recovery guidance and adds data management before diagnostics', () => {
     const source = readFileSync(new URL('../src/native-ui/recovery/App.tsx', import.meta.url), 'utf8')
     expect(source.match(/<TabsTrigger value=/gu)).toHaveLength(6)
@@ -99,5 +111,24 @@ describe('Recovery native terminal action', () => {
     expect(markup).toContain('mr-auto')
     expect(markup).toContain('dsh-profile-selector://cancel')
     expect(markup).toContain('dsh-profile-selector://restart')
+  })
+})
+
+describe('Recovery plugin row actions', () => {
+  it('keeps the destructive action last and both toggles behind the toggle field', () => {
+    const source = readFileSync(new URL('../src/native-ui/recovery/App.tsx', import.meta.url), 'utf8')
+    const disable = source.indexOf('action="preview-disable"')
+    const enable = source.indexOf('action="preview-enable"')
+    const uninstall = source.indexOf('action="preview-uninstall"')
+    expect(disable).toBeGreaterThanOrEqual(0)
+    expect(enable).toBeGreaterThan(disable)
+    expect(uninstall).toBeGreaterThan(enable)
+    expect(source).toContain("bundle.toggle === 'disable' ?")
+    expect(source).toContain("bundle.toggle === 'enable' ?")
+    expect(source).toContain("readonly toggle: 'disable' | 'enable' | null")
+    // Only the uninstall stays destructive; a disable must not look like one.
+    expect(source).toContain('action="preview-disable" icon={<PowerOff />} id={bundle.bundleId} variant="secondary"')
+    expect(source).toContain('action="preview-enable" icon={<Power />} id={bundle.bundleId} variant="default"')
+    expect(source).toContain('copy.disabledHint')
   })
 })

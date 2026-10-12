@@ -152,6 +152,38 @@ describe('Windows x64 installer packaging', () => {
     ])
   })
 
+  it('overrides electron-builder compression only when requested', () => {
+    const calls: CommandCall[] = []
+    const logs: string[] = []
+    const value = {
+      ...options(calls, logs),
+      env: {
+        ...options(calls).env,
+        DSH_PACKAGE_CHECK_ALREADY_RAN: '1',
+        DSH_WINDOWS_PACKAGE_COMPRESSION: 'store',
+      },
+    }
+
+    packageWindowsArtifact(value, 'zip', 'portable archive')
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0]?.args.at(-1)).toBe('--config.win.compression=store')
+    expect(logs).toContain('Packaging the portable archive with store compression.')
+  })
+
+  it('rejects an unknown compression override before running commands', () => {
+    const calls: CommandCall[] = []
+    const value = {
+      ...options(calls),
+      env: { ...options(calls).env, DSH_WINDOWS_PACKAGE_COMPRESSION: 'fast' },
+    }
+
+    expect(() => packageWindowsInstaller(value)).toThrow(
+      'DSH_WINDOWS_PACKAGE_COMPRESSION must be store, normal, or maximum',
+    )
+    expect(calls).toEqual([])
+  })
+
   it.each([
     ['darwin', 'x64', '22.23.2', 'native Windows host'],
     ['win32', 'arm64', '22.23.2', 'requires x64 Node'],

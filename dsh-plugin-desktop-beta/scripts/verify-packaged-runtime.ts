@@ -107,10 +107,16 @@ export const REQUIRED_DSH_CLI_RUNTIME_ENTRIES = Object.freeze(
     .sort(),
 )
 
-/** PTC preset inputs selected by upstream's historical Session migration. */
+/**
+ * PTC preset inputs selected by upstream's historical Session migration.
+ *
+ * dsh 0.1.7-alpha.1 replaced filesystem preset discovery (a directory per preset under
+ * `@deepseek-ai/dsh-agent-presets/presets`, each with `agent.cordis.yml` + `preset.yml`)
+ * with one patch file per preset shipped by the Web bundle, so the two entries collapse
+ * into a single declaration file.
+ */
 export const REQUIRED_AGENT_PRESET_RUNTIME_ENTRIES = [
-  'node_modules/@deepseek-ai/dsh-agent-presets/presets/ptc/agent.cordis.yml',
-  'node_modules/@deepseek-ai/dsh-agent-presets/presets/ptc/preset.yml',
+  'node_modules/@deepseek-ai/dsh-web-app/presets/ptc.patch.yml',
 ] as const
 
 /** AfterPack fields consumed without importing Electron Builder's incomplete declaration graph. */

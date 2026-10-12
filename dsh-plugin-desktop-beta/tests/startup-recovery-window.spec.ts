@@ -773,3 +773,152 @@ describe('Desktop startup recovery action parser', () => {
     expect(parseDesktopStartupRecoveryAction(href)).toBeUndefined()
   })
 })
+
+describe('Desktop startup recovery bundle selection', () => {
+  function windowFor(controller: Partial<DesktopStartupRecoveryController>) {
+    const recovery = new DesktopStartupRecoveryWindow({
+      controller: controller as DesktopStartupRecoveryController,
+      locale: 'en',
+      failureStage: 'profile-composition',
+      failureDetail: 'bundle selection test',
+      exportDiagnostics: async () => '/tmp/diagnostics.zip',
+    })
+    const parent = { isDestroyed: () => false, loadFile: vi.fn(async () => {}) }
+    ;(recovery as unknown as { window: typeof parent }).window = parent
+    return {
+      parent,
+      handle: (action: { readonly action: string; readonly id: string }) =>
+        (recovery as unknown as {
+          handleAction: (value: { readonly action: string; readonly id: string }) => Promise<void>
+        }).handleAction(action),
+    }
+  }
+
+  it('asks a question rather than a warning before disabling, then disables', async () => {
+    desktopDialog.show.mockClear()
+    const previewDisable = vi.fn(async () => ({
+      previewId: 'disable-preview-0001',
+      packageName: 'example-plugin',
+      expiresAt: '2026-08-25T00:05:00.000Z',
+    }))
+    const executeDisable = vi.fn(async () => ({ action: 'disable' as const, packageName: 'example-plugin' }))
+    const target = windowFor({
+      previewDisable,
+      executeDisable,
+      snapshot: vi.fn(async () => ({ profileName: 'desktop', bundles: [], checkpoints: [] })),
+    } as unknown as Partial<DesktopStartupRecoveryController>)
+
+    await target.handle({ action: 'preview-disable', id: 'bundle-selection-0001' })
+
+    expect(desktopDialog.show).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'question',
+      title: 'Disable this plugin?',
+      detail: expect.stringContaining('Nothing is deleted'),
+      buttons: ['Disable plugin', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+    }), target.parent)
+    expect(previewDisable).toHaveBeenCalledWith('bundle-selection-0001')
+    expect(executeDisable).toHaveBeenCalledWith('disable-preview-0001')
+  })
+
+  it('enables through the same confirmation shape', async () => {
+    desktopDialog.show.mockClear()
+    const executeEnable = vi.fn(async () => ({ action: 'enable' as const, packageName: 'example-plugin' }))
+    const target = windowFor({
+      previewEnable: vi.fn(async () => ({
+        previewId: 'enable-preview-0001',
+        packageName: 'example-plugin',
+        expiresAt: '2026-08-25T00:05:00.000Z',
+      })),
+      executeEnable,
+      snapshot: vi.fn(async () => ({ profileName: 'desktop', bundles: [], checkpoints: [] })),
+    } as unknown as Partial<DesktopStartupRecoveryController>)
+
+    await target.handle({ action: 'preview-enable', id: 'bundle-selection-0001' })
+
+    expect(desktopDialog.show).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'question',
+      title: 'Enable this plugin?',
+      buttons: ['Enable plugin', 'Cancel'],
+    }), target.parent)
+    expect(executeEnable).toHaveBeenCalledWith('enable-preview-0001')
+  })
+
+  it('changes nothing when the confirmation is cancelled', async () => {
+    desktopDialog.show.mockClear()
+    desktopDialog.show.mockResolvedValueOnce({ response: 1, checkboxChecked: false })
+    const executeDisable = vi.fn(async () => ({ action: 'disable' as const, packageName: 'example-plugin' }))
+    const target = windowFor({
+      previewDisable: vi.fn(async () => ({
+        previewId: 'disable-preview-0002',
+        packageName: 'example-plugin',
+        expiresAt: '2026-08-25T00:05:00.000Z',
+      })),
+      executeDisable,
+      snapshot: vi.fn(async () => ({ profileName: 'desktop', bundles: [], checkpoints: [] })),
+    } as unknown as Partial<DesktopStartupRecoveryController>)
+
+    await target.handle({ action: 'preview-disable', id: 'bundle-selection-0002' })
+    expect(executeDisable).not.toHaveBeenCalled()
+  })
+
+  it('names the bundle-selection stage when a disable fails', async () => {
+    desktopDialog.show.mockClear()
+    desktopDialog.showDetailed.mockClear()
+    const target = windowFor({
+      previewDisable: vi.fn(async () => ({
+        previewId: 'disable-preview-0003',
+        packageName: 'example-plugin',
+        expiresAt: '2026-08-25T00:05:00.000Z',
+      })),
+      executeDisable: vi.fn(async () => {
+        throw new DesktopStartupRecoveryControllerError(
+          'operation-failed',
+          'The Profile manifest could not be written.',
+          { operationStage: 'bundle-selection', diagnosticDetail: 'EPERM writing package.json' },
+        )
+      }),
+      snapshot: vi.fn(async () => ({ profileName: 'desktop', bundles: [], checkpoints: [] })),
+    } as unknown as Partial<DesktopStartupRecoveryController>)
+
+    await target.handle({ action: 'preview-disable', id: 'bundle-selection-0003' })
+
+    expect(desktopDialog.showDetailed).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'error',
+      title: 'Could not change the plugin',
+      presentation: 'diagnostic',
+      detail: expect.stringContaining('Profile plugin selection'),
+    }), target.parent)
+  })
+
+  it('names the action stage when a non-controller failure carries no stage', async () => {
+    desktopDialog.show.mockClear()
+    desktopDialog.showDetailed.mockClear()
+    const target = windowFor({
+      previewEnable: vi.fn(async () => {
+        throw new Error('the recovery controller went away')
+      }),
+      snapshot: vi.fn(async () => ({ profileName: 'desktop', bundles: [], checkpoints: [] })),
+    } as unknown as Partial<DesktopStartupRecoveryController>)
+
+    await target.handle({ action: 'preview-enable', id: 'bundle-selection-0004' })
+
+    expect(desktopDialog.showDetailed).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Could not change the plugin',
+      detail: expect.stringContaining('Profile plugin selection'),
+    }), target.parent)
+  })
+
+  it('accepts exactly the two new recovery actions with one opaque bundle id', () => {
+    for (const action of ['preview-disable', 'preview-enable']) {
+      expect(parseDesktopStartupRecoveryAction(`dsh-recovery://${action}?id=bundle_${'a'.repeat(32)}`))
+        .toEqual({ action, id: `bundle_${'a'.repeat(32)}` })
+      expect(parseDesktopStartupRecoveryAction(`dsh-recovery://${action}`)).toBeUndefined()
+      expect(parseDesktopStartupRecoveryAction(`dsh-recovery://${action}?id=short`)).toBeUndefined()
+      expect(parseDesktopStartupRecoveryAction(`dsh-recovery://${action}?id=a&id=b`)).toBeUndefined()
+      expect(parseDesktopStartupRecoveryAction(`dsh-recovery://${action}?id=ok_0001&extra=value`)).toBeUndefined()
+      expect(parseDesktopStartupRecoveryAction(`dsh-recovery://${action}?id=${'x'.repeat(161)}`)).toBeUndefined()
+    }
+  })
+})

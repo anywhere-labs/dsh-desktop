@@ -1,7 +1,7 @@
 /** Shared launcher-backed actions rendered in settings and extended title bars. */
 
 import { Bug, ChevronDown, LifeBuoy, RefreshCw, RotateCw, SquareTerminal, Wrench } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { DesktopSettingsApi } from './desktop-settings-api.ts'
 import type { DesktopSettingsLocaleKey } from './desktop-settings-locales.ts'
 
@@ -13,6 +13,7 @@ export interface DesktopNativeActionsProps {
     & Partial<Pick<DesktopSettingsApi, 'exportDiagnostics'>>
   readonly t: (key: DesktopSettingsLocaleKey) => string
   readonly placement: 'settings' | 'titlebar'
+  readonly terminalAvailable?: boolean
 }
 
 interface DesktopRestartMenuItemsProps {
@@ -64,7 +65,7 @@ export function DesktopDeveloperMenuItems({
   )
 }
 
-export function DesktopNativeActions({ api, t, placement }: DesktopNativeActionsProps) {
+export function DesktopNativeActions({ api, t, placement, terminalAvailable = true }: DesktopNativeActionsProps) {
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false)
   const [opening, setOpening] = useState(false)
   const [restarting, setRestarting] = useState(false)
@@ -94,6 +95,24 @@ export function DesktopNativeActions({ api, t, placement }: DesktopNativeActions
       document.removeEventListener('keydown', escape)
     }
   }, [developerMenuOpen, restartMenuOpen])
+
+  useEffect(() => {
+    if (restartMenuOpen) restartMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+  }, [restartMenuOpen])
+  const restartKeys = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const trigger = restartMenuRef.current?.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')
+    if (event.key === 'Escape' && restartMenuOpen) {
+      event.preventDefault(); event.stopPropagation(); setRestartMenuOpen(false); trigger?.focus(); return
+    }
+    if (event.key === 'Tab') { setRestartMenuOpen(false); return }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault(); event.stopPropagation()
+    if (!restartMenuOpen) { setRestartMenuOpen(true); return }
+    const items = [...(restartMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])]
+    const index = items.indexOf(document.activeElement as HTMLButtonElement)
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length
+    items[next]?.focus()
+  }
 
   const busy = exportingDiagnostics || opening || restarting || rendererAction !== undefined
 
@@ -166,15 +185,15 @@ export function DesktopNativeActions({ api, t, placement }: DesktopNativeActions
             {t(exportingDiagnostics ? 'exportingDiagnostics' : 'exportDiagnostics')}
           </button>
         )}
-        <button
+        {terminalAvailable && <button
           type="button"
           className="dshDesktopSettingsHeaderButton"
           disabled={busy}
           onClick={open}
         >
           {t(opening ? 'openingTerminal' : 'openTerminal')}
-        </button>
-        <div className="dshDesktopNativeActionMenuAnchor" ref={restartMenuRef}>
+        </button>}
+        <div className="dshDesktopNativeActionMenuAnchor" ref={restartMenuRef} onKeyDown={restartKeys}>
           <button
             type="button"
             className="dshDesktopSettingsHeaderButton"
@@ -217,7 +236,7 @@ export function DesktopNativeActions({ api, t, placement }: DesktopNativeActions
       >
         <SquareTerminal aria-hidden="true" />
       </button>
-      <div className="dshDesktopNativeActionMenuAnchor" ref={restartMenuRef}>
+      <div className="dshDesktopNativeActionMenuAnchor" ref={restartMenuRef} onKeyDown={restartKeys}>
         <button
           type="button"
           className="dshDesktopTitlebarIconButton"

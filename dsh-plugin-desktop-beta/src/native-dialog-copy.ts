@@ -10,6 +10,10 @@ export interface DesktopNativeCopy {
   readonly missingPluginError: string
   readonly failedPlugins: string
   readonly pluginRecoveryInstructions: string
+  readonly hostStoppedTitle: string
+  readonly hostStoppedMessage: string
+  readonly hostStoppedDetail: (exitCode: string) => string
+  readonly hostStoppedInstructions: string
   readonly openTerminal: string
   readonly restart: string
   readonly dismiss: string
@@ -85,6 +89,10 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     missingPluginError: 'The plugin loader did not provide an error message.',
     failedPlugins: 'Plugins that failed to load:',
     pluginRecoveryInstructions: 'Update or uninstall the failed third-party plugins in DSH Terminal, then restart the app.',
+    hostStoppedTitle: 'DSH Host Stopped',
+    hostStoppedMessage: 'The background service that runs your conversations has stopped.',
+    hostStoppedDetail: exitCode => `Exit code: ${exitCode}`,
+    hostStoppedInstructions: 'Open windows can no longer reach it, and no work is lost on disk. Restart DSH Desktop to reconnect, or open DSH Terminal to inspect the logs first.',
     openTerminal: 'Open DSH Terminal',
     restart: 'Restart DSH Desktop',
     dismiss: 'Dismiss',
@@ -158,6 +166,10 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     missingPluginError: '插件加载器没有提供错误信息。',
     failedPlugins: '加载失败的插件：',
     pluginRecoveryInstructions: '请在 DSH 终端中更新或卸载加载失败的第三方插件，然后重启应用。',
+    hostStoppedTitle: 'DSH Host 已停止',
+    hostStoppedMessage: '运行会话的后台服务已停止。',
+    hostStoppedDetail: exitCode => `退出码：${exitCode}`,
+    hostStoppedInstructions: '已打开的窗口无法再与它通信，磁盘上的内容不会丢失。重启 DSH Desktop 即可重新连接；也可以先打开 DSH 终端查看日志。',
     openTerminal: '打开 DSH 终端',
     restart: '重启 DSH Desktop',
     dismiss: '关闭',

@@ -3,6 +3,7 @@ import { electronPlatformStrategy } from '../src/electron-platform.ts'
 
 const electron = vi.hoisted(() => ({
   app: {
+    isPackaged: false,
     dock: {
       setIcon: vi.fn(),
     },
@@ -31,6 +32,7 @@ function createWindow(): {
 
 describe('electronPlatformStrategy', () => {
   beforeEach(() => {
+    electron.app.isPackaged = false
     electron.app.dock.setIcon.mockClear()
     electron.Menu.buildFromTemplate.mockClear()
     electron.Menu.setApplicationMenu.mockClear()
@@ -45,17 +47,16 @@ describe('electronPlatformStrategy', () => {
     expect(strategy.updateDownloadPlatform).toBe('win32')
     expect(strategy.canPickDirectory).toBe(true)
     expect(strategy.canToggleShellMode).toBe(true)
+    expect(strategy.hidesWindowOnClose).toBe(true)
 
     strategy.configureApplication(icon, 'DSH Desktop')
     strategy.configureWindow(window as never)
-    strategy.refreshThemeMaterial(window as never, 'mica')
 
     expect(electron.app.dock.setIcon).not.toHaveBeenCalled()
     expect(electron.Menu.setApplicationMenu).not.toHaveBeenCalled()
     expect(window.removeMenu).toHaveBeenCalledTimes(1)
-    expect(window.setBackgroundMaterial.mock.calls).toEqual([
-      ['mica'],
-    ])
+    // Windows windows stay opaque; no system backdrop is ever applied.
+    expect(window.setBackgroundMaterial).not.toHaveBeenCalled()
   })
 
   it('selects the macOS adapter and configures its native application chrome', () => {
@@ -65,18 +66,26 @@ describe('electronPlatformStrategy', () => {
 
     expect(strategy.platform).toBe('darwin')
     expect(strategy.updateDownloadPlatform).toBe('darwin')
-    expect(strategy.canPickDirectory).toBe(false)
+    expect(strategy.canPickDirectory).toBe(true)
     expect(strategy.canToggleShellMode).toBe(true)
+    expect(strategy.hidesWindowOnClose).toBe(true)
 
     strategy.configureApplication(icon, 'DSH Desktop')
     strategy.configureWindow(window as never)
-    strategy.refreshThemeMaterial(window as never, 'transparent')
 
     expect(electron.app.dock.setIcon).toHaveBeenCalledWith(icon)
     expect(electron.Menu.buildFromTemplate).toHaveBeenCalledTimes(1)
     expect(electron.Menu.setApplicationMenu).toHaveBeenCalledTimes(1)
     expect(window.removeMenu).not.toHaveBeenCalled()
     expect(window.setBackgroundMaterial).not.toHaveBeenCalled()
+  })
+
+  it('preserves the bundled native Composer icon in packaged macOS apps', () => {
+    electron.app.isPackaged = true
+    const strategy = electronPlatformStrategy('darwin')
+    strategy.configureApplication({} as never, 'DSH Desktop')
+    expect(electron.app.dock.setIcon).not.toHaveBeenCalled()
+    expect(electron.Menu.setApplicationMenu).toHaveBeenCalledOnce()
   })
 
   it('selects the Linux adapter without desktop chrome tweaks', () => {
@@ -87,10 +96,12 @@ describe('electronPlatformStrategy', () => {
     expect(strategy.updateDownloadPlatform).toBeUndefined()
     expect(strategy.canPickDirectory).toBe(false)
     expect(strategy.canToggleShellMode).toBe(false)
+    // No Linux desktop guarantees a status area, so a hidden window would have
+    // no way back. Linux generations minimize on close instead.
+    expect(strategy.hidesWindowOnClose).toBe(false)
 
     strategy.configureApplication({} as never, 'DSH Desktop')
     strategy.configureWindow(window as never)
-    strategy.refreshThemeMaterial(window as never, 'off')
 
     expect(electron.app.dock.setIcon).not.toHaveBeenCalled()
     expect(electron.Menu.setApplicationMenu).not.toHaveBeenCalled()

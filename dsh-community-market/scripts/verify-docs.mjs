@@ -69,6 +69,7 @@ for (const path of [...publicFiles, 'scripts/verify-docs.mjs']) {
 }
 
 const expectedFiles = [
+  'cordis.patch.yml',
   'docs/**',
   'lib/**',
   'LICENSE',

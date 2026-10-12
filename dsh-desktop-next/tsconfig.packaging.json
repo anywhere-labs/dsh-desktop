@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "allowJs": true, "checkJs": false },
+  "include": ["scripts/package.ts", "scripts/mac-runtime.ts", "scripts/verify-packaged.ts", "scripts/verify-fuses.ts", "scripts/verify-mac-release.ts", "scripts/verify-mac-smoke.ts", "scripts/verify-win-installer.ts"]
+}

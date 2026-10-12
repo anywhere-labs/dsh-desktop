@@ -35,7 +35,7 @@ function writeLifecycleEvidence(userDataDir: string): string {
     appVersion: APP_VERSION,
     platform: process.platform,
     arch: process.arch,
-    logger: { error() {}, errorCause() {} },
+    logger: { error() {}, errorCause() {}, info() {} },
     now: () => new Date('2026-08-19T00:00:00.000Z'),
     monotonicNow: () => {
       tick += 10
@@ -329,6 +329,70 @@ describe('exportDiagnosticsZip', () => {
 
     await expect(exportDiagnosticsZip(logs, root, { appVersion: APP_VERSION }))
       .rejects.toThrow(/linked log directory/u)
+  })
+
+  it('archives the isolated Host log files alongside the same-named Desktop ones', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-dx-host-logs-'))
+    const logs = join(root, 'logs')
+    const hostLogs = join(logs, 'host')
+    mkdirSync(hostLogs, { recursive: true })
+    // The Host writes the agent failure chain; the two files share a name.
+    writeFileSync(join(logs, 'dsh-2026-08-16.log'), 'from main\n')
+    writeFileSync(join(hostLogs, 'dsh-2026-08-16.log'), 'from host\n')
+    writeFileSync(join(hostLogs, 'notes.txt'), 'foreign\n')
+
+    const out = await exportDiagnosticsZip(logs, root, { appVersion: APP_VERSION, hostLogsDir: hostLogs })
+
+    const zip = new AdmZip(out)
+    const names = zip.getEntries().map(entry => entry.entryName).sort()
+    expect(names).toEqual(['dsh-2026-08-16.log', 'host/dsh-2026-08-16.log', 'system-info.txt'])
+    expect(zip.readAsText('dsh-2026-08-16.log')).toBe('from main\n')
+    expect(zip.readAsText('host/dsh-2026-08-16.log')).toBe('from host\n')
+    expect(zip.readAsText('system-info.txt')).toContain('included-log-files: 2')
+  })
+
+  it('exports normally when the Host log directory does not exist', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-dx-host-inline-'))
+    const logs = join(root, 'logs')
+    mkdirSync(logs)
+    writeFileSync(join(logs, 'dsh-2026-08-16.log'), 'inline host\n')
+
+    // Host runs inside the Electron main process; there is no logs/host.
+    const out = await exportDiagnosticsZip(logs, root, {
+      appVersion: APP_VERSION,
+      hostLogsDir: join(logs, 'host'),
+    })
+
+    const names = new AdmZip(out).getEntries().map(entry => entry.entryName).sort()
+    expect(names).toEqual(['dsh-2026-08-16.log', 'system-info.txt'])
+  })
+
+  it('rejects a linked Host log directory', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-dx-host-link-'))
+    const logs = join(root, 'logs')
+    const target = join(root, 'target')
+    mkdirSync(logs)
+    mkdirSync(target)
+    writeFileSync(join(logs, 'dsh-2026-08-16.log'), 'owned\n')
+    writeFileSync(join(target, 'dsh-2026-08-16.log'), 'foreign\n')
+    symlinkSync(target, join(logs, 'host'), process.platform === 'win32' ? 'junction' : 'dir')
+
+    await expect(exportDiagnosticsZip(logs, root, {
+      appVersion: APP_VERSION,
+      hostLogsDir: join(logs, 'host'),
+    }))
+      .rejects.toThrow(/linked Host log directory/u)
+  })
+
+  it('reaches the Host log directory through the default Desktop export path', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-dx-host-default-'))
+    const hostLogs = join(root, 'logs', 'host')
+    mkdirSync(hostLogs, { recursive: true })
+    writeFileSync(join(hostLogs, 'dsh-2026-08-16.log'), 'agent turn failed\n')
+
+    const out = await exportDesktopDiagnostics(root, { appVersion: APP_VERSION })
+
+    expect(new AdmZip(out).readAsText('host/dsh-2026-08-16.log')).toBe('agent turn failed\n')
   })
 
   it('retains only the three newest diagnostics archives', async () => {

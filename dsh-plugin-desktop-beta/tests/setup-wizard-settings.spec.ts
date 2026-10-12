@@ -17,6 +17,7 @@ import {
   migrateDesktopBrowserAccessSettings,
   migrateDesktopWindowMaterialSettings,
   migrateLegacyAgentPresetSettings,
+  mirrorDesktopSetupWizardProfileSettings,
   readDesktopSetupWizardSettings,
   updateDesktopSetupWizardSettings,
   type DesktopSetupWizardSettings,
@@ -40,7 +41,7 @@ function values(overrides: Partial<DesktopSetupWizardSettings> = {}): DesktopSet
   return {
     mode: 'compatibility',
     macosMaterial: 'transparent',
-    windowsMaterial: 'mica',
+    windowsMaterial: 'off',
     openBrowser: true,
     networkExposure: 'lan',
     notifications: {
@@ -49,6 +50,8 @@ function values(overrides: Partial<DesktopSetupWizardSettings> = {}): DesktopSet
       notifyOnTurnFailure: true,
       notifyOnJobCompletion: false,
       notifyOnJobFailure: true,
+      notifyOnScheduleCompletion: true,
+      notifyOnScheduleFailure: true,
     },
     ...overrides,
   }
@@ -103,7 +106,7 @@ describe('Desktop Setup Wizard settings document', () => {
     expect(document['dsh-desktop']).toMatchObject({
       mode: 'compatibility',
       macosMaterial: 'transparent',
-      windowsMaterial: 'mica',
+      windowsMaterial: 'off',
       port: 61201,
       logLevel: 'warn',
       futureField: 'preserved',
@@ -116,6 +119,8 @@ describe('Desktop Setup Wizard settings document', () => {
       notifyOnTurnFailure: true,
       notifyOnJobCompletion: false,
       notifyOnJobFailure: true,
+      notifyOnScheduleCompletion: true,
+      notifyOnScheduleFailure: true,
       futureNotification: 'keep',
     })
     expect(readDesktopSetupWizardSettings(path)).toEqual(next)
@@ -213,7 +218,7 @@ describe('Desktop Setup Wizard settings document', () => {
       notifications: { enabled: true } as DesktopSetupWizardSettings['notifications'],
     })
     await expect(updateDesktopSetupWizardSettings(path, incomplete))
-      .rejects.toThrow('all five notification booleans')
+      .rejects.toThrow('all seven notification booleans')
 
     const next = values({ openBrowser: false, networkExposure: 'lan' })
     await expect(updateDesktopSetupWizardSettings(path, next)).resolves.toMatchObject({
@@ -425,6 +430,22 @@ describe('Desktop Setup Wizard settings document', () => {
     })
   })
 
+  it('reads a removed Mica preference as off without rewriting it', async () => {
+    const root = temporaryDirectory()
+    const path = join(root, 'settings.yaml')
+    const contents = [
+      'dsh-desktop:',
+      '  mode: advanced',
+      '  windowsMaterial: mica',
+      '',
+    ].join('\n')
+    writeFileSync(path, contents, { mode: 0o600 })
+
+    expect(readDesktopSetupWizardSettings(path)).toMatchObject({ mode: 'advanced', windowsMaterial: 'off' })
+    await expect(migrateDesktopWindowMaterialSettings(path)).resolves.toBe(false)
+    expect(readFileSync(path, 'utf8')).toBe(contents)
+  })
+
   it('atomically migrates the released code preset default to ptc', async () => {
     const root = temporaryDirectory()
     const yamlPath = join(root, 'legacy-preset.yaml')
@@ -459,6 +480,24 @@ describe('Desktop Setup Wizard settings document', () => {
     })
   })
 
+  it('migrates the code preset default under its 0.1.7 registry key too', async () => {
+    // Beta's launcher renames `agent-presets.default` to
+    // `agent-preset-registry.selectedDefault` before this migration runs.
+    const path = join(temporaryDirectory(), 'registry-preset.yaml')
+    writeFileSync(path, [
+      'agent-preset-registry:',
+      '  selectedDefault: code',
+      '  default: standard',
+      '',
+    ].join('\n'))
+
+    await expect(migrateLegacyAgentPresetSettings(path)).resolves.toBe(true)
+    await expect(migrateLegacyAgentPresetSettings(path)).resolves.toBe(false)
+    expect(parseDocument(readFileSync(path, 'utf8')).toJS()).toEqual({
+      'agent-preset-registry': { selectedDefault: 'ptc', default: 'standard' },
+    })
+  })
+
   it('leaves current and user-authored preset defaults untouched', async () => {
     for (const preset of ['ptc', 'my-local-preset']) {
       const path = join(temporaryDirectory(), `${preset}.yaml`)
@@ -474,7 +513,7 @@ describe('Desktop Setup Wizard settings document', () => {
     const path = join(root, 'settings.yaml')
     writeFileSync(path, 'unrelated:\n  keep: true\n', { mode: 0o600 })
     const first = values({ mode: 'extended', windowsMaterial: 'off', openBrowser: false, networkExposure: 'loopback' })
-    const second = values({ mode: 'compatibility', windowsMaterial: 'mica', networkExposure: 'loopback' })
+    const second = values({ mode: 'compatibility', networkExposure: 'loopback' })
 
     await Promise.all([
       updateDesktopSetupWizardSettings(path, first),
@@ -487,5 +526,105 @@ describe('Desktop Setup Wizard settings document', () => {
       unrelated: { keep: true },
     })
     expect(readdirSync(root)).toEqual(['settings.yaml'])
+  })
+})
+
+describe('Desktop Setup Wizard settings under the 0.1.7 section keys', () => {
+  // 0.1.7's launcher renames `dsh-desktop` / `dsh-desktop-notifications` to the
+  // Loader entry ids before any Setup helper reads the document, and the settings
+  // service imports and renames the document away on the first Host boot.
+  const renamed = [
+    '# user comment',
+    'desktop-shell:',
+    '  mode: extended',
+    '  windowsMaterial: "off"',
+    '  macosMaterial: "off"',
+    '  logLevel: debug',
+    'desktop-notifications:',
+    '  notifyOnJobCompletion: false',
+    '',
+  ].join('\n')
+
+  it('reads the renamed sections instead of falling back to defaults', () => {
+    const path = join(temporaryDirectory(), 'settings.yaml')
+    writeFileSync(path, renamed)
+
+    expect(readDesktopSetupWizardSettings(path)).toMatchObject({
+      mode: 'extended',
+      windowsMaterial: 'off',
+      macosMaterial: 'off',
+      notifications: { notifyOnJobCompletion: false, enabled: true },
+    })
+  })
+
+  it('updates the renamed sections in place and never recreates the legacy keys', async () => {
+    const path = join(temporaryDirectory(), 'settings.yaml')
+    writeFileSync(path, renamed)
+
+    await updateDesktopSetupWizardSettings(path, values({ mode: 'advanced', openBrowser: false, networkExposure: 'loopback' }))
+
+    const text = readFileSync(path, 'utf8')
+    expect(text).toContain('# user comment')
+    const document = parseDocument(text).toJS() as Record<string, Record<string, unknown>>
+    expect(Object.keys(document)).toEqual(['desktop-shell', 'desktop-notifications'])
+    expect(document['desktop-shell']).toMatchObject({ mode: 'advanced', windowsMaterial: 'off', logLevel: 'debug' })
+    expect(document['desktop-notifications']).toMatchObject({ notifyOnTurnCompletion: false })
+  })
+
+  it('writes a new document under the entry ids the settings import keys by', async () => {
+    const path = join(temporaryDirectory(), 'settings.yaml')
+
+    await updateDesktopSetupWizardSettings(path, values())
+
+    expect(Object.keys(parseDocument(readFileSync(path, 'utf8')).toJS() as object))
+      .toEqual(['desktop-shell', 'desktop-notifications'])
+  })
+
+  it('migrates removed Acrylic and legacy LAN intent inside the renamed section', async () => {
+    const path = join(temporaryDirectory(), 'settings.yaml')
+    writeFileSync(path, 'desktop-shell:\n  windowsMaterial: acrylic\n  openBrowser: false\n  networkExposure: lan\n')
+
+    await expect(migrateDesktopWindowMaterialSettings(path)).resolves.toBe(true)
+    await expect(migrateDesktopBrowserAccessSettings(path)).resolves.toBe(true)
+
+    expect(parseDocument(readFileSync(path, 'utf8')).toJS()).toEqual({
+      'desktop-shell': { windowsMaterial: 'off', openBrowser: true, networkExposure: 'lan' },
+    })
+  })
+
+  it('mirrors Profile leaves into a pending document without touching its materials', async () => {
+    const path = join(temporaryDirectory(), 'settings.yaml')
+    writeFileSync(path, renamed)
+    const profile = {
+      mode: 'compatibility',
+      openBrowser: true,
+      networkExposure: 'lan',
+      notifications: values().notifications,
+    } as const
+
+    await expect(mirrorDesktopSetupWizardProfileSettings(path, profile)).resolves.toBe(true)
+    await expect(mirrorDesktopSetupWizardProfileSettings(path, profile)).resolves.toBe(false)
+
+    expect(readDesktopSetupWizardSettings(path)).toEqual({
+      ...profile,
+      windowsMaterial: 'off',
+      macosMaterial: 'off',
+    })
+  })
+
+  it('does not recreate a document the settings import already consumed', async () => {
+    const root = temporaryDirectory()
+    const path = join(root, 'settings.yaml')
+    writeFileSync(`${path}.imported`, renamed)
+
+    await expect(mirrorDesktopSetupWizardProfileSettings(path, {
+      mode: 'advanced',
+      openBrowser: false,
+      networkExposure: 'loopback',
+      notifications: values().notifications,
+    })).resolves.toBe(false)
+
+    expect(readdirSync(root)).toEqual(['settings.yaml.imported'])
+    expect(readFileSync(`${path}.imported`, 'utf8')).toBe(renamed)
   })
 })

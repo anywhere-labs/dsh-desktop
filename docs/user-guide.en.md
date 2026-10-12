@@ -6,6 +6,17 @@ Download the macOS or Windows installer from the product download page. DSH Desk
 
 On first launch, the application prepares the default profile and starts the official DSH Web surface locally. Closing the window normally hides it; use **Quit** from the tray when you want to stop the application and Host process.
 
+## Launching with a folder
+
+Besides choosing a directory inside the interface, you can name a folder when the application starts. The folder is registered as a workspace and opened. A folder that is already a workspace is simply opened again; nothing is duplicated.
+
+- **Windows drag and drop**: drop the folder onto the **DSH Desktop** desktop shortcut or its Start menu entry. A stopped application starts first; a running one comes to the front and opens the workspace.
+- **Command line**: stable uses `dsh-desktop <folder>` and Beta uses `dsh-desktop-beta <folder>`. Relative paths resolve against the current directory. The installed EXE accepts one folder argument as well.
+
+When the path does not exist, names a file, or lives on unsupported storage such as exFAT, FAT32, or a network drive, the application shows a native message and registers nothing. Launching with a folder is one-shot: a later restart triggered from settings does not reopen it.
+
+Known limits: a DSH Desktop icon pinned to the Windows taskbar does not accept drops yet (that needs a folder association, planned separately); Linux supports the command line only; macOS supports neither route yet.
+
 ## Profiles
 
 A profile is a composition of DSH bundles, dependencies, and patches. The tray **Profile** menu lists existing profiles and the lazy `desktop` and `web` defaults.
@@ -20,7 +31,7 @@ Switching profiles does not silently copy plugins from the old profile into the 
 - **Extended window** installs the Desktop-owned layout and sidebar surface, then hosts the official sidebar, conversation, and details occupants inside it. The 36-pixel top frame and left sidebar surface form one inverted-L material region with a rounded inner corner.
 - **Enhanced mode** retains its dedicated root registration and compact internal captions: macOS uses a 20-pixel content inset with a 32-pixel drag region, while Windows uses a 32-pixel caption row. It does not reuse the independent extended frame.
 
-macOS custom-window modes can turn the transparent material on or off. Windows can turn material off; Mica appears only when supported on Windows 11 build 22621 or newer. A legacy Windows Acrylic preference is safely treated as off and migrated when its settings file is writable. Changing mode or material restarts the application; it does not hot-swap root slots or native materials in a live renderer. Linux provides compatibility mode only.
+macOS custom-window modes can turn the transparent material on or off. Windows has no material choice and always uses an opaque window. Legacy Windows Acrylic and Mica preferences are safely treated as off; Acrylic is also migrated when its settings file is writable. Changing mode or material restarts the application; it does not hot-swap root slots or native materials in a live renderer. Linux provides compatibility mode only.
 
 ## Local Web port
 

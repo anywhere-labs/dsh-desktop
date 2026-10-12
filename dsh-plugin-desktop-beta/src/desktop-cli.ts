@@ -8,6 +8,7 @@ import { packagedDependencyPath } from './packaged-runtime-path.ts'
 import { assertDesktopProfileName } from './profile-manager.ts'
 import { withoutForwardedDesktopPnpmPolicy } from './pnpm-policy.ts'
 import { installProfilePackageResolver } from './module-resolution.ts'
+import { disableAsarArchiveView, type AsarArchiveProcess } from './asar-archive-policy.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 const DEFAULT_PROFILE = 'DSH_DESKTOP_DEFAULT_PROFILE'
@@ -86,11 +87,14 @@ export function desktopCliProfileManifestUrl(
  */
 export async function runDesktopDshCli(
   environment: NodeJS.ProcessEnv = process.env,
-  load: (url: string) => Promise<{ runCli(options: { allowDesktopProfile: boolean }): Promise<void> }> = url => import(url),
+  load: (url: string) => Promise<{ runCli(options: { manageDesktopProfile: boolean }): Promise<void> }> = url => import(url),
   argv: string[] = process.argv,
+  asarProcess: AsarArchiveProcess = process,
 ): Promise<void> {
   const profileName = takeDefaultProfile(environment)
   clearElectronRunAsNode(environment)
+  // The CLI's agent lists and reads user workspaces; see asar-archive-policy.ts.
+  disableAsarArchiveView(DSH_ENTRY_URL, asarProcess)
   const selected = profileName === undefined
     ? argv.slice(2)
     : withDefaultDesktopProfile(argv.slice(2), profileName)
@@ -105,13 +109,13 @@ export async function runDesktopDshCli(
   // Keep it until process exit rather than treating CLI settlement as app
   // shutdown. A packaged CLI process owns exactly one Profile invocation.
   if (releaseResolver === undefined) {
-    await (await load(DSH_ENTRY_URL)).runCli({ allowDesktopProfile: true })
+    await (await load(DSH_ENTRY_URL)).runCli({ manageDesktopProfile: true })
     return
   }
   const releaseAtExit = (): void => { releaseResolver() }
   process.once('exit', releaseAtExit)
   try {
-    await (await load(DSH_ENTRY_URL)).runCli({ allowDesktopProfile: true })
+    await (await load(DSH_ENTRY_URL)).runCli({ manageDesktopProfile: true })
   } catch (cause) {
     process.off('exit', releaseAtExit)
     releaseResolver()

@@ -15,7 +15,7 @@ import type { DesktopLocale } from '../../runtime.ts'
 
 const SCHEME = 'dsh-profile-selector:'
 
-interface ProfileSelectorState {
+export interface ProfileSelectorState {
   readonly locale: DesktopLocale
   readonly profiles: readonly DesktopProfileSelectorItem[]
   readonly busy: boolean
@@ -43,8 +43,8 @@ function href(action: 'cancel' | 'create' | 'restart' | 'switch', name?: string)
   return url.href
 }
 
-export function ProfileSelectorApp(): JSX.Element {
-  const state = decodeState()
+export function ProfileSelectorApp({ state: providedState }: { readonly state?: ProfileSelectorState } = {}): JSX.Element {
+  const state = providedState ?? decodeState()
   const locale = state?.locale ?? (new URLSearchParams(window.location.search).get('locale') === 'zh' ? 'zh' : 'en')
   const copy = desktopRecoveryCopy(locale)
   if (state === undefined) return <><DesktopFrame /><main className="dshNativeContent flex h-screen items-center justify-center p-6"><Alert variant="destructive"><AlertTriangle /><AlertDescription>{copy.profilesUnavailable}</AlertDescription></Alert></main></>

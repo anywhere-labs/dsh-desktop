@@ -6,9 +6,12 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MACOS_UNIVERSAL_NATIVE_ENTRIES } from './mac-universal.ts'
+import { verifyMacEntitlements } from './verify-mac-entitlements.ts'
 
 /** Injectable filesystem and command boundaries for release verification. */
 export interface MacReleaseVerificationOptions {
+  /** Native inventory for shells which do not load legacy-only modules. */
+  readonly nativeEntries?: readonly { readonly arch: string; readonly path: string }[]
   /** Directory containing exactly one release DMG. */
   readonly distDir: string
   /** Installed application name inside the mounted image. */
@@ -19,6 +22,8 @@ export interface MacReleaseVerificationOptions {
   readonly makeMountPoint: () => string
   /** Execute one macOS verification command. */
   readonly run: (command: string, args: readonly string[]) => void
+  /** Inspect signed main/Helper entitlements; custom verifiers may own this check. */
+  readonly verifyEntitlements?: (appPath: string, productName: string) => void
   /** Remove the detached empty mount point. */
   readonly removeMountPoint: (mountPoint: string) => void
 }
@@ -48,6 +53,7 @@ function defaultOptions(): MacReleaseVerificationOptions {
     listDmgs,
     makeMountPoint: () => mkdtempSync(join(tmpdir(), 'dsh-desktop-dmg-')),
     run,
+    verifyEntitlements: verifyMacEntitlements,
     removeMountPoint: mountPoint => rmdirSync(mountPoint),
   }
 }
@@ -80,7 +86,7 @@ export function verifyMacRelease(
     options.run('lipo', [executablePath, '-verify_arch', 'x86_64'])
     options.run('lipo', [executablePath, '-verify_arch', 'arm64'])
     const unpackedRoot = join(appPath, 'Contents', 'Resources', 'app')
-    for (const entry of MACOS_UNIVERSAL_NATIVE_ENTRIES) {
+    for (const entry of options.nativeEntries ?? MACOS_UNIVERSAL_NATIVE_ENTRIES) {
       options.run('lipo', [join(unpackedRoot, entry.path), '-verify_arch', entry.arch])
       if (entry.path.endsWith('/bin/uv')) {
         options.run('/bin/test', ['-x', join(unpackedRoot, entry.path)])
@@ -90,6 +96,7 @@ export function verifyMacRelease(
       }
     }
     options.run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath])
+    options.verifyEntitlements?.(appPath, options.productName)
     options.run('spctl', ['--assess', '--type', 'execute', '--verbose=4', appPath])
     options.run('xcrun', ['stapler', 'validate', appPath])
   } catch (cause) {

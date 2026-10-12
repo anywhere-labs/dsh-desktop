@@ -43,6 +43,12 @@ function installPackage(root: string, name: string, version: string, actualName 
   return directory
 }
 
+function halfWrittenPackage(root: string, name: string): string {
+  const directory = join(root, 'node_modules', ...name.split('/'))
+  mkdirSync(directory, { recursive: true })
+  return directory
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
@@ -63,6 +69,43 @@ describe('Desktop package overlay', () => {
     expect(findOverlayPackage('missing-package', absent.options)).toBeUndefined()
     expect(() => resolveOverlayPackage('missing-package', absent.options)).toThrow('cannot resolve package')
     expect(() => resolveOverlayPackage('plugin/subpath', absent.options)).toThrow('exact npm package name')
+  })
+
+  it('treats a package directory without a manifest as a missing candidate', () => {
+    const profileBroken = fixture()
+    installPackage(profileBroken.install, '@scope/plugin', '1.0.0')
+    halfWrittenPackage(profileBroken.profile, '@scope/plugin')
+    expect(resolveOverlayPackage('@scope/plugin', profileBroken.options).selected).toMatchObject({
+      source: 'install',
+      version: '1.0.0',
+    })
+
+    const installBroken = fixture()
+    halfWrittenPackage(installBroken.install, '@scope/plugin')
+    installPackage(installBroken.profile, '@scope/plugin', '1.0.0')
+    expect(resolveOverlayPackage('@scope/plugin', installBroken.options).selected.source).toBe('profile')
+
+    const bothBroken = fixture()
+    halfWrittenPackage(bothBroken.install, '@scope/plugin')
+    halfWrittenPackage(bothBroken.profile, '@scope/plugin')
+    expect(findOverlayPackage('@scope/plugin', bothBroken.options)).toBeUndefined()
+    expect(() => resolveOverlayPackage('@scope/plugin', bothBroken.options))
+      .toThrow('cannot resolve package "@scope/plugin"')
+  })
+
+  it('ignores stale ancestor projections for bundle preparation as well as imports', () => {
+    const state = fixture()
+    installPackage(state.install, '@scope/plugin', '1.0.0')
+    installPackage(state.root, '@scope/plugin', '99.0.0')
+    expect(resolveOverlayPackage('@scope/plugin', state.options).selected.source).toBe('install')
+    expect(resolveOverlayPackage('@scope/plugin', state.options).profile).toBeUndefined()
+    const nested = join(state.profile, 'profiles', 'active')
+    mkdirSync(nested, { recursive: true })
+    writeFileSync(join(nested, 'package.json'), '{}')
+    installPackage(state.profile, 'ancestor-only', '1.0.0')
+    expect(findOverlayPackage('ancestor-only', {
+      ...state.options, profilePackageUrl: pathToFileURL(join(nested, 'package.json')).href,
+    })).toBeUndefined()
   })
 
   it('selects the newer semantic version in either direction', () => {

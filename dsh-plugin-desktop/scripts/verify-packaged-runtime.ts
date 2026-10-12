@@ -109,8 +109,7 @@ export const REQUIRED_DSH_CLI_RUNTIME_ENTRIES = Object.freeze(
 
 /** PTC preset inputs selected by upstream's historical Session migration. */
 export const REQUIRED_AGENT_PRESET_RUNTIME_ENTRIES = [
-  'node_modules/@deepseek-ai/dsh-agent-presets/presets/ptc/agent.cordis.yml',
-  'node_modules/@deepseek-ai/dsh-agent-presets/presets/ptc/preset.yml',
+  'node_modules/@deepseek-ai/dsh-web-app/presets/ptc.patch.yml',
 ] as const
 
 /** AfterPack fields consumed without importing Electron Builder's incomplete declaration graph. */
@@ -199,12 +198,12 @@ export const REQUIRED_WINDOWS_X64_NODE_PTY_ENTRIES = [
 /** ABI-pinned fs-ext bindings selected by non-universal macOS and Linux packages. */
 export const REQUIRED_POSIX_FS_EXT_ENTRIES = {
   darwin: {
-    x64: 'node_modules/fs-ext/prebuilds/darwin-x64/electron.abi148.node',
-    arm64: 'node_modules/fs-ext/prebuilds/darwin-arm64/electron.abi148.node',
+    x64: 'node_modules/fs-ext/prebuilds/darwin-x64/electron.abi149.node',
+    arm64: 'node_modules/fs-ext/prebuilds/darwin-arm64/electron.abi149.node',
   },
   linux: {
-    x64: 'node_modules/fs-ext/prebuilds/linux-x64/electron.abi148.node',
-    arm64: 'node_modules/fs-ext/prebuilds/linux-arm64/electron.abi148.node',
+    x64: 'node_modules/fs-ext/prebuilds/linux-x64/electron.abi149.node',
+    arm64: 'node_modules/fs-ext/prebuilds/linux-arm64/electron.abi149.node',
   },
 } as const
 

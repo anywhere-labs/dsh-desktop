@@ -1,3 +1,5 @@
+import { statSync } from 'node:fs'
+import { posix, win32 } from 'node:path'
 import type {
   OpenDialogOptions,
   OpenDialogReturnValue,
@@ -19,6 +21,25 @@ export interface ElectronWorkspaceAdmissionOptions {
   readonly showMessageBox: (options: MessageBoxOptions) => Promise<MessageBoxReturnValue>
   readonly logError: (message: string) => void
   readonly volumeQuery?: WindowsVolumeQuery
+  readonly inspectPath?: PathInspection
+}
+
+/** What one filesystem entry is, as far as workspace admission cares. */
+export interface PathInspectionResult {
+  /** Whether the entry is a directory. */
+  readonly directory: boolean
+}
+
+/**
+ * Inspect one absolute path.
+ * @returns what the entry is, or `undefined` when nothing exists there.
+ */
+export type PathInspection = (path: string) => PathInspectionResult | undefined
+
+/** Read one entry without turning a missing path into a thrown error. */
+function inspectPathOnDisk(path: string): PathInspectionResult | undefined {
+  const stats = statSync(path, { throwIfNoEntry: false })
+  return stats === undefined ? undefined : { directory: stats.isDirectory() }
 }
 
 /** Own native workspace selection and every Desktop policy decision before persistence. */
@@ -40,6 +61,49 @@ export class ElectronWorkspaceAdmission {
     } finally {
       if (this.pickTask === task) this.pickTask = undefined
     }
+  }
+
+  /**
+   * Apply every Desktop policy to a folder named by a launch rather than chosen
+   * in the native picker.
+   *
+   * A launch path is arbitrary text, so existence and kind are established here
+   * before the storage policy runs; the picker cannot produce either failure.
+   * @param path - absolute folder the launch asked Desktop to open.
+   * @returns whether the folder may be registered as a workspace.
+   */
+  async admitWorkspacePath(path: string): Promise<boolean> {
+    const absolute = this.options.platform === 'win32' ? win32.isAbsolute(path) : posix.isAbsolute(path)
+    if (!absolute) {
+      this.options.logError(`dsh-plugin-desktop: launch workspace path is not absolute: ${path}`)
+      return false
+    }
+    const entry = (this.options.inspectPath ?? inspectPathOnDisk)(path)
+    if (entry === undefined || !entry.directory) {
+      const missing = entry === undefined
+      this.options.logError(`dsh-plugin-desktop: launch workspace path is ${missing ? 'missing' : 'not a directory'}: ${path}`)
+      const zh = this.options.locale() === 'zh'
+      await this.options.showMessageBox({
+        type: 'error',
+        title: zh ? '无法打开工作区' : 'Cannot Open Workspace',
+        message: missing
+          ? (zh ? '找不到这个文件夹。' : 'This folder could not be found.')
+          : (zh ? '只能把文件夹注册为工作区。' : 'Only a folder can be registered as a workspace.'),
+        detail: missing
+          ? (zh
+              ? `这个文件夹可能已经被移动、重命名或删除。\n\n${path}`
+              : `The folder may have been moved, renamed, or deleted.\n\n${path}`)
+          : (zh
+              ? `请改为指定一个文件夹。\n\n${path}`
+              : `Name a folder instead.\n\n${path}`),
+        buttons: [zh ? '好' : 'OK'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      })
+      return false
+    }
+    return await this.validateDirectory(path)
   }
 
   /** Apply Desktop-owned storage policy before a selected workspace is persisted. */

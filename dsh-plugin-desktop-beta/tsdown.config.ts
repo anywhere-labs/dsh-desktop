@@ -8,6 +8,7 @@ export default defineConfig([
     entry: {
       index: 'src/index.ts',
       'module-resolution': 'src/module-resolution.ts',
+      'plugin-packages': 'src/plugin-packages.ts',
       webserver: 'src/webserver.ts',
       profile: 'src/profile.ts',
       'profile-manager': 'src/profile-manager.ts',
@@ -56,39 +57,6 @@ export default defineConfig([
     sourcemap: true,
     outputOptions: {
       banner: '#!/usr/bin/env node',
-    },
-  },
-  {
-    name: `${PACKAGE_NAME}/client`,
-    entry: { client: 'src/client/index.ts' },
-    tsconfig: 'tsconfig.client.json',
-    outDir: 'lib',
-    format: 'cjs',
-    platform: 'browser',
-    target: 'es2022',
-    define: {
-      'process.env.NODE_ENV': JSON.stringify('production'),
-    },
-    fixedExtension: false,
-    dts: false,
-    clean: false,
-    sourcemap: true,
-    external: [
-      'react',
-      'react/jsx-runtime',
-      'react-dom',
-      'react-dom/client',
-      '@deepseek-ai/cordis',
-      '@deepseek-ai/dsh-client-ui-slots',
-      '@deepseek-ai/dsh-client-ui-renderer',
-      '@deepseek-ai/dsh-client-ui-primitives',
-    ],
-    noExternal: (id: string) => id.startsWith('@deepseek-ai/') ? undefined : true,
-    outputOptions: {
-      entryFileNames: 'client.js',
-      banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(PACKAGE_NAME)}, factory: (require) => {`,
-      footer: 'return module.exports; } });',
-      intro: 'var module = { exports: {} }; var exports = module.exports;',
     },
   },
   {

@@ -62,7 +62,7 @@ describe('macOS release command boundary', () => {
     expect(resetOutput).toHaveBeenCalledOnce()
     expect(prepareRuntime).toHaveBeenCalledOnce()
     expect(identityEnvironments).toEqual([{ PATH: '/usr/bin', SAFE_BUILD_VALUE: 'kept' }])
-    expect(calls).toHaveLength(4)
+    expect(calls).toHaveLength(5)
     expect(calls[0]).toEqual({
       command: process.execPath,
       args: ['scripts/prepare-agents-anywhere-release.mjs', '--verify-release'],
@@ -70,12 +70,18 @@ describe('macOS release command boundary', () => {
       env: { PATH: '/usr/bin', SAFE_BUILD_VALUE: 'kept' },
     })
     expect(calls[1]).toEqual({
+      command: process.execPath,
+      args: ['scripts/prepare-dsh-market.mjs', '--check'],
+      cwd: resolve('/repo/dsh-plugin-desktop', '..'),
+      env: { PATH: '/usr/bin', SAFE_BUILD_VALUE: 'kept' },
+    })
+    expect(calls[2]).toEqual({
       command: 'yarn',
       args: ['run', 'check'],
       cwd: resolve('/repo/dsh-plugin-desktop', '..'),
       env: { PATH: '/usr/bin', SAFE_BUILD_VALUE: 'kept' },
     })
-    expect(calls[2]).toEqual({
+    expect(calls[3]).toEqual({
       command: 'yarn',
       args: [
         'exec', 'electron-builder', '--mac', 'dmg', '--universal',
@@ -93,7 +99,7 @@ describe('macOS release command boundary', () => {
         DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY: '1',
       },
     })
-    expect(calls[3]).toEqual({
+    expect(calls[4]).toEqual({
       command: process.execPath,
       args: [
         'scripts/verify-mac-release.ts',
@@ -128,15 +134,15 @@ describe('macOS release command boundary', () => {
 
     releaseMac(options)
 
-    expect(calls).toHaveLength(4)
-    expect(calls[1]?.env).toEqual({ PATH: '/usr/bin' })
-    expect(calls[2]?.env.CSC_LINK).toBe(`data:application/x-pkcs12;base64,${p12}`)
-    expect(calls[2]?.env.CSC_NAME).toBe('Mengxin Yang (TEAM123456)')
-    expect(calls[2]?.env.CSC_KEY_PASSWORD).toBe(p12Password)
-    expect(calls[2]?.env.MAC_CERT_P12_BASE64).toBeUndefined()
-    expect(calls[2]?.env.MACOS_SIGN_IDENTITY).toBeUndefined()
-    expect(calls[2]?.env.DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY).toBe('1')
-    expect(calls[3]?.env).toEqual({ PATH: '/usr/bin' })
+    expect(calls).toHaveLength(5)
+    expect(calls[2]?.env).toEqual({ PATH: '/usr/bin' })
+    expect(calls[3]?.env.CSC_LINK).toBe(`data:application/x-pkcs12;base64,${p12}`)
+    expect(calls[3]?.env.CSC_NAME).toBe('Mengxin Yang (TEAM123456)')
+    expect(calls[3]?.env.CSC_KEY_PASSWORD).toBe(p12Password)
+    expect(calls[3]?.env.MAC_CERT_P12_BASE64).toBeUndefined()
+    expect(calls[3]?.env.MACOS_SIGN_IDENTITY).toBeUndefined()
+    expect(calls[3]?.env.DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY).toBe('1')
+    expect(calls[4]?.env).toEqual({ PATH: '/usr/bin' })
   })
 
   it('rejects development signing before running any command', () => {

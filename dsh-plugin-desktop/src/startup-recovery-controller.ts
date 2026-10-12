@@ -3,9 +3,12 @@
 import { randomBytes } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import {
-  readDesktopProfileBundleInventory,
+  DesktopProfileSelectionError,
+  readDesktopRecoveryBundleInventory,
+  setDesktopProfileBundleSelected,
   type DesktopPluginStateBootstrap,
   type DesktopProfileManifestBundle,
+  type DesktopRecoveryBundle,
 } from './desktop-plugins.ts'
 import type {
   DesktopProfileCheckpointSlotId,
@@ -21,6 +24,8 @@ const MAX_PREVIEWS = 256
 const BUNDLE_ID_PATTERN = /^bundle_[A-Za-z0-9_-]{32}$/u
 const UNINSTALL_PREVIEW_ID_PATTERN = /^uninstall_[A-Za-z0-9_-]{43}$/u
 const RESTORE_PREVIEW_ID_PATTERN = /^restore_[A-Za-z0-9_-]{43}$/u
+const DISABLE_PREVIEW_ID_PATTERN = /^disable_[A-Za-z0-9_-]{43}$/u
+const ENABLE_PREVIEW_ID_PATTERN = /^enable_[A-Za-z0-9_-]{43}$/u
 const OPAQUE_ID_PATTERN = /^[A-Za-z0-9._:-]{8,160}$/u
 const MAX_DIAGNOSTIC_DETAIL_CHARS = 24_000
 
@@ -41,6 +46,8 @@ export interface DesktopStartupRecoveryBundle {
   readonly status: 'active' | 'disabled'
   readonly owner: 'core' | 'profile' | 'external'
   readonly action: 'uninstall' | null
+  /** Non-destructive selection change this exact bundle currently offers. */
+  readonly toggle: 'disable' | 'enable' | null
 }
 
 /** Renderer-safe metadata for one fixed checkpoint slot. Paths stay private. */
@@ -72,6 +79,17 @@ export interface DesktopStartupRecoveryUninstallResult {
   readonly packageName: string
 }
 
+export interface DesktopStartupRecoverySelectionPreview {
+  readonly previewId: string
+  readonly packageName: string
+  readonly expiresAt: string
+}
+
+export interface DesktopStartupRecoverySelectionResult {
+  readonly action: 'disable' | 'enable'
+  readonly packageName: string
+}
+
 export interface DesktopStartupRecoveryCheckpointPreview {
   readonly previewId: string
   readonly slotId: DesktopProfileCheckpointSlotId
@@ -95,6 +113,7 @@ export type DesktopStartupRecoveryControllerErrorCode =
   | 'state-unavailable'
 
 export type DesktopStartupRecoveryOperationStage =
+  | 'bundle-selection'
   | 'checkpoint-restore'
   | 'dependency-materialization'
   | 'plugin-change'
@@ -143,6 +162,16 @@ interface UninstallPreviewRecord {
   readonly expiresAt: number
 }
 
+interface SelectionPreviewRecord {
+  readonly previewId: string
+  readonly bundleId: string
+  readonly packageName: string
+  readonly selected: boolean
+  readonly profileName: string
+  readonly generationId: string
+  readonly expiresAt: number
+}
+
 interface RestorePreviewRecord {
   readonly previewId: string
   readonly slotId: DesktopProfileCheckpointSlotId
@@ -174,6 +203,7 @@ export class DesktopStartupRecoveryController {
   private readonly packageBundleIds = new Map<string, string>()
   private readonly bundlePackages = new Map<string, string>()
   private readonly uninstallPreviews = new Map<string, UninstallPreviewRecord>()
+  private readonly selectionPreviews = new Map<string, SelectionPreviewRecord>()
   private readonly restorePreviews = new Map<string, RestorePreviewRecord>()
   private operationActive = false
   private disposed = false
@@ -199,7 +229,7 @@ export class DesktopStartupRecoveryController {
   async snapshot(): Promise<DesktopStartupRecoverySnapshot> {
     this.assertCurrentGeneration()
     try {
-      const inventory = readDesktopProfileBundleInventory(this.options.pluginState)
+      const inventory = readDesktopRecoveryBundleInventory(this.options.pluginState)
       const checkpoints = this.options.checkpoints.listSlots().map(safeCheckpoint)
       this.assertCurrentGeneration()
       return {
@@ -219,7 +249,7 @@ export class DesktopStartupRecoveryController {
     try {
       const packageName = this.bundlePackages.get(bundleId)
       if (packageName === undefined) throw this.invalidTarget()
-      const inventory = readDesktopProfileBundleInventory(this.options.pluginState)
+      const inventory = readDesktopRecoveryBundleInventory(this.options.pluginState)
       this.assertCurrentGeneration()
       this.assertUninstallable(inventory, packageName)
       this.prunePreviews()
@@ -255,7 +285,7 @@ export class DesktopStartupRecoveryController {
       this.authorizeUninstall(preview.packageName)
       await this.options.uninstallPlugin(preview.packageName)
       this.assertCurrentGeneration()
-      if (readDesktopProfileBundleInventory(this.options.pluginState)
+      if (readDesktopRecoveryBundleInventory(this.options.pluginState)
         .some(bundle => bundle.packageName === preview.packageName)) {
         throw new DesktopStartupRecoveryControllerError(
           'operation-failed',
@@ -268,6 +298,26 @@ export class DesktopStartupRecoveryController {
     } finally {
       this.operationActive = false
     }
+  }
+
+  /** Validate one selected mutable direct dependency and mint a confirmation. */
+  async previewDisable(bundleId: string): Promise<DesktopStartupRecoverySelectionPreview> {
+    return this.previewSelection(bundleId, false)
+  }
+
+  /** Consume one confirmation and deselect its bundle without deleting anything. */
+  async executeDisable(previewId: string): Promise<DesktopStartupRecoverySelectionResult> {
+    return this.executeSelection(previewId, false)
+  }
+
+  /** Validate one deselected mutable direct dependency and mint a confirmation. */
+  async previewEnable(bundleId: string): Promise<DesktopStartupRecoverySelectionPreview> {
+    return this.previewSelection(bundleId, true)
+  }
+
+  /** Consume one confirmation and select its bundle again. */
+  async executeEnable(previewId: string): Promise<DesktopStartupRecoverySelectionResult> {
+    return this.executeSelection(previewId, true)
   }
 
   async previewCheckpointRestore(
@@ -348,7 +398,98 @@ export class DesktopStartupRecoveryController {
     this.packageBundleIds.clear()
     this.bundlePackages.clear()
     this.uninstallPreviews.clear()
+    this.selectionPreviews.clear()
     this.restorePreviews.clear()
+  }
+
+  private async previewSelection(
+    bundleId: string,
+    selected: boolean,
+  ): Promise<DesktopStartupRecoverySelectionPreview> {
+    this.assertCurrentGeneration()
+    if (!BUNDLE_ID_PATTERN.test(bundleId)) throw this.invalidTarget()
+    try {
+      const packageName = this.bundlePackages.get(bundleId)
+      if (packageName === undefined) throw this.invalidTarget()
+      const inventory = readDesktopRecoveryBundleInventory(this.options.pluginState)
+      this.assertCurrentGeneration()
+      this.assertSelectable(inventory, packageName, selected)
+      this.prunePreviews()
+      this.trimPreviews(this.selectionPreviews)
+      const previewId = `${selected ? 'enable' : 'disable'}_${randomBytes(32).toString('base64url')}`
+      const expiresAt = this.now() + PREVIEW_TTL_MS
+      this.selectionPreviews.set(previewId, {
+        previewId,
+        bundleId,
+        packageName,
+        selected,
+        profileName: this.profileName,
+        generationId: this.generationId,
+        expiresAt,
+      })
+      return { previewId, packageName, expiresAt: new Date(expiresAt).toISOString() }
+    } catch (cause) {
+      throw this.safeReadError(cause)
+    }
+  }
+
+  private async executeSelection(
+    previewId: string,
+    selected: boolean,
+  ): Promise<DesktopStartupRecoverySelectionResult> {
+    this.assertCurrentGeneration()
+    const pattern = selected ? ENABLE_PREVIEW_ID_PATTERN : DISABLE_PREVIEW_ID_PATTERN
+    if (!pattern.test(previewId)) throw this.expiredPreview()
+    this.assertOperationAvailable()
+    const preview = this.selectionPreviews.get(previewId)
+    this.selectionPreviews.delete(previewId)
+    if (preview === undefined || preview.expiresAt <= this.now() || preview.selected !== selected
+      || preview.profileName !== this.profileName || preview.generationId !== this.generationId) {
+      throw this.expiredPreview()
+    }
+    this.operationActive = true
+    try {
+      await setDesktopProfileBundleSelected(
+        this.options.pluginState,
+        preview.packageName,
+        selected,
+        // Re-authorize against the inventory the write is about to act on,
+        // while the manifest lock is already held.
+        () => {
+          this.assertCurrentGeneration()
+          this.assertSelectable(
+            readDesktopRecoveryBundleInventory(this.options.pluginState),
+            preview.packageName,
+            selected,
+          )
+          this.assertCurrentGeneration()
+        },
+      )
+      this.assertCurrentGeneration()
+      const applied = readDesktopRecoveryBundleInventory(this.options.pluginState)
+        .find(bundle => bundle.packageName === preview.packageName)
+      if (applied?.status !== (selected ? 'active' : 'disabled')) {
+        throw new DesktopStartupRecoveryControllerError(
+          'operation-failed',
+          'The Profile manifest was written, but the plugin did not change state.',
+        )
+      }
+      return { action: selected ? 'enable' : 'disable', packageName: preview.packageName }
+    } catch (cause) {
+      throw this.safeMutationError(this.selectionCause(cause), 'bundle-selection')
+    } finally {
+      this.operationActive = false
+    }
+  }
+
+  /** Map the writer's own refusals onto controller codes before masking. */
+  private selectionCause(cause: unknown): unknown {
+    if (!(cause instanceof DesktopProfileSelectionError)) return cause
+    if (cause.code === 'immutable-target') {
+      return new DesktopStartupRecoveryControllerError('immutable-target', 'This Desktop bundle cannot be changed.')
+    }
+    if (cause.code === 'invalid-target') return this.invalidTarget()
+    return cause
   }
 
   private requireSlot(slotId: DesktopProfileCheckpointSlotId): ProfileCheckpointSlot {
@@ -360,7 +501,7 @@ export class DesktopStartupRecoveryController {
   }
 
   private projectBundles(
-    inventory: readonly DesktopProfileManifestBundle[],
+    inventory: readonly DesktopRecoveryBundle[],
   ): readonly DesktopStartupRecoveryBundle[] {
     const activeNames = new Set(inventory.map(item => item.packageName))
     for (const [packageName, bundleId] of this.packageBundleIds) {
@@ -377,6 +518,9 @@ export class DesktopStartupRecoveryController {
         status: item.status,
         owner,
         action: item.uninstallable ? 'uninstall' : null,
+        toggle: !item.uninstallable ? null
+          : item.deselected ? 'enable'
+            : item.status === 'active' ? 'disable' : null,
       }
     })
   }
@@ -393,7 +537,7 @@ export class DesktopStartupRecoveryController {
 
   private authorizeUninstall(packageName: string): void {
     this.assertCurrentGeneration()
-    const inventory = readDesktopProfileBundleInventory(this.options.pluginState)
+    const inventory = readDesktopRecoveryBundleInventory(this.options.pluginState)
     this.assertCurrentGeneration()
     this.assertUninstallable(inventory, packageName)
   }
@@ -404,6 +548,20 @@ export class DesktopStartupRecoveryController {
     if (!target.uninstallable) {
       throw new DesktopStartupRecoveryControllerError('immutable-target', 'This Desktop bundle cannot be uninstalled.')
     }
+  }
+
+  /** Eligibility for a selection change is exactly the uninstall eligibility. */
+  private assertSelectable(
+    inventory: readonly DesktopRecoveryBundle[],
+    packageName: string,
+    selected: boolean,
+  ): void {
+    const target = inventory.find(item => item.packageName === packageName)
+    if (target === undefined) throw this.invalidTarget()
+    if (!target.uninstallable) {
+      throw new DesktopStartupRecoveryControllerError('immutable-target', 'This Desktop bundle cannot be changed.')
+    }
+    if (target.deselected !== selected || (!selected && target.status !== 'active')) throw this.invalidTarget()
   }
 
   private assertCurrentGeneration(): void {
@@ -431,6 +589,7 @@ export class DesktopStartupRecoveryController {
   private prunePreviews(): void {
     const now = this.now()
     for (const [id, preview] of this.uninstallPreviews) if (preview.expiresAt <= now) this.uninstallPreviews.delete(id)
+    for (const [id, preview] of this.selectionPreviews) if (preview.expiresAt <= now) this.selectionPreviews.delete(id)
     for (const [id, preview] of this.restorePreviews) if (preview.expiresAt <= now) this.restorePreviews.delete(id)
   }
 
