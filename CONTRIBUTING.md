@@ -40,6 +40,10 @@ corepack yarn dev     # 有图形环境时启动应用
 
 ### 提交与 PR
 
+与桌面版必要功能无关的 PR，以及其他插件收录相关的 PR，我们可能不会接受。
+
+目前我们接受与桌面版必要功能相关的 PR（如问题修复、新功能等），非常欢迎各位开发者提出此类 PR。
+
 - 提交信息使用 conventional commits 风格（例如 `fix(desktop): ...`、`docs: ...`）。
 - 提交前运行 `yarn check` 并保证全绿。
 - 变更生产依赖后，运行 `yarn workspace dsh-plugin-desktop verify:notices` 刷新第三方许可清单，并提交更新后的 `dsh-plugin-desktop/THIRD_PARTY_NOTICES.md`。

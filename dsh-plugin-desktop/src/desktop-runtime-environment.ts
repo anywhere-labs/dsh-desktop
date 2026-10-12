@@ -1,29 +1,33 @@
 /** App-local command environments available to desktop Host plugins. */
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   chmodSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   renameSync,
-  unlinkSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { DESKTOP_INSTALL_RECOVERY_STATE_ENV } from './install-recovery.ts'
+import { join, win32 as windowsPath } from 'node:path'
+import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
 import { assertDesktopProfileName } from './profile-manager.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 const DEFAULT_PROFILE = 'DSH_DESKTOP_DEFAULT_PROFILE'
 const DSH_HOME = 'DSH_HOME'
+const RUNTIME_CODEPAGE = 'DSH_RUNTIME_CODEPAGE'
+const RUNTIME_EXIT = 'DSH_RUNTIME_EXIT'
 const PATH = 'PATH'
 const ELECTRON_HEADERS_URL = 'https://electronjs.org/headers'
 const DIRECTORY_MODE = 0o700
 const EXECUTABLE_FILE_MODE = 0o700
 const PRIVATE_FILE_MODE = 0o600
-const TEMPORARY_ID = /^\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+const GENERATION_SCHEMA_VERSION = 1
+const GENERATION_NAME = /^(?<hash>[0-9a-f]{64})-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+const MANIFEST_NAME = '.generation.json'
 
 /** Inputs used to install one app-local pnpm command environment. */
 export interface DesktopPnpmRuntimeOptions {
@@ -31,7 +35,7 @@ export interface DesktopPnpmRuntimeOptions {
   platform: NodeJS.Platform
   /** Electron executable reused in RunAsNode mode. */
   appExecutable: string
-  /** Physical packaged pnpm JavaScript entry. */
+  /** Packaged pnpm JavaScript entry executable by Electron RunAsNode, including an ASAR logical path. */
   pnpmBinPath: string
   /** Electron version used when pnpm installs native dependencies. */
   electronVersion: string
@@ -51,7 +55,7 @@ export interface DesktopPnpmRuntimeInstallation {
   nodeBinDir: string
   /** Private Node command shim used by pnpm lifecycle scripts. */
   nodeShimPath: string
-  /** Preloaded module that removes Electron RunAsNode from child environments. */
+  /** Preloaded module that preserves the platform's safe Node descendant identity. */
   clearEnvironmentPath: string
   /** Remove this installation's PATH entry without deleting persistent generated files. */
   dispose(): void
@@ -64,7 +68,6 @@ export interface DesktopDshRuntimeOptions {
   dshBootstrapPath: string
   profileName: string
   homeDir: string
-  installRecoveryStatePath: string
   stateDir: string
   environment?: NodeJS.ProcessEnv
 }
@@ -107,16 +110,6 @@ function escapeBatchSetValue(value: string): string {
   return value.replaceAll('%', '%%')
 }
 
-/** Return one lstat result, preserving every failure except absence. */
-function lstatOptional(filename: string): ReturnType<typeof lstatSync> | undefined {
-  try {
-    return lstatSync(filename)
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-    throw cause
-  }
-}
-
 /** Create one owner-only real directory and reject a pre-existing alternate file type. */
 function preparePrivateDirectory(directory: string): void {
   mkdirSync(directory, { recursive: true, mode: DIRECTORY_MODE })
@@ -127,82 +120,233 @@ function preparePrivateDirectory(directory: string): void {
   chmodSync(directory, DIRECTORY_MODE)
 }
 
-/** Reject command-directory entries not owned by this runtime generation. */
-function assertOwnedDirectoryEntries(directory: string, allowed: readonly string[]): void {
-  const unexpected = readdirSync(directory).filter(entry => !allowed.includes(entry))
-  if (unexpected.length > 0) {
-    throw new Error(
-      `dsh-plugin-desktop: command runtime directory contains unexpected entries: ${unexpected.join(', ')}`,
-    )
+type RuntimeGenerationKind = 'dsh' | 'pnpm'
+
+interface RuntimeArtifact {
+  relativePath: string
+  contents: string
+  mode: number
+}
+
+interface RuntimeGenerationManifest {
+  schemaVersion: typeof GENERATION_SCHEMA_VERSION
+  kind: RuntimeGenerationKind
+  platform: NodeJS.Platform
+  contentHash: string
+  files: Array<{
+    path: string
+    sha256: string
+    mode: number
+  }>
+}
+
+interface RuntimeGenerationPlan {
+  kind: RuntimeGenerationKind
+  platform: NodeJS.Platform
+  contentHash: string
+  directories: string[]
+  artifacts: RuntimeArtifact[]
+}
+
+interface RuntimeGeneration {
+  root: string
+  obsoletePathDirectories: string[]
+}
+
+/** Hash deterministic generated content without depending on its eventual directory name. */
+function sha256(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex')
+}
+
+/** Create a content-addressed plan and its self-describing ownership marker. */
+function runtimeGenerationPlan(
+  kind: RuntimeGenerationKind,
+  platform: NodeJS.Platform,
+  directories: readonly string[],
+  artifacts: readonly RuntimeArtifact[],
+): RuntimeGenerationPlan {
+  const orderedDirectories = [...directories].sort()
+  const orderedArtifacts = [...artifacts].sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+  const contentHash = sha256(JSON.stringify({
+    schemaVersion: GENERATION_SCHEMA_VERSION,
+    kind,
+    platform,
+    directories: orderedDirectories,
+    files: orderedArtifacts.map(artifact => ({
+      path: artifact.relativePath,
+      contents: artifact.contents,
+      mode: artifact.mode,
+    })),
+  }))
+  const manifest: RuntimeGenerationManifest = {
+    schemaVersion: GENERATION_SCHEMA_VERSION,
+    kind,
+    platform,
+    contentHash,
+    files: orderedArtifacts.map(artifact => ({
+      path: artifact.relativePath,
+      sha256: sha256(artifact.contents),
+      mode: artifact.mode,
+    })),
+  }
+  return {
+    kind,
+    platform,
+    contentHash,
+    directories: orderedDirectories,
+    artifacts: [
+      { relativePath: MANIFEST_NAME, contents: `${JSON.stringify(manifest, undefined, 2)}\n`, mode: PRIVATE_FILE_MODE },
+      ...orderedArtifacts,
+    ],
   }
 }
 
-/** Remove one stray command entry without recursively deleting unknown data. */
-function removeUnexpectedEntry(directory: string, entry: string): void {
-  const filename = join(directory, entry)
-  if (lstatSync(filename).isDirectory()) {
-    throw new Error(
-      `dsh-plugin-desktop: command runtime contains an unexpected directory: ${entry}`,
-    )
-  }
-  process.stderr.write(
-    `dsh-plugin-desktop: removing unexpected command runtime entry ${JSON.stringify(entry)}\n`,
-  )
-  unlinkSync(filename)
+function pathSegments(relativePath: string): string[] {
+  return relativePath.split('/')
 }
 
-/** Recover an app-owned command directory to this generation's exact contents. */
-function reconcileOwnedDirectoryEntries(directory: string, allowed: readonly string[]): void {
-  for (const entry of readdirSync(directory)) {
-    if (!allowed.includes(entry)) removeUnexpectedEntry(directory, entry)
-  }
+function generationPath(root: string, relativePath: string): string {
+  return join(root, ...pathSegments(relativePath))
 }
 
-/** Remove only stale atomic-write files generated for one exact target name. */
-function removeStaleTemporaryFiles(directory: string, targetName: string): void {
-  const prefix = `.${targetName}.`
-  const suffix = '.tmp'
-  for (const entry of readdirSync(directory)) {
-    if (!entry.startsWith(prefix) || !entry.endsWith(suffix)) continue
-    const identity = entry.slice(prefix.length, -suffix.length)
-    if (!TEMPORARY_ID.test(identity)) continue
-    const filename = join(directory, entry)
-    const stat = lstatSync(filename)
-    if (!stat.isFile() && !stat.isSymbolicLink()) {
-      throw new Error(`dsh-plugin-desktop: command runtime stale temporary path is not a file: ${filename}`)
+/** Inspect a generation tree without following symlinks. */
+function generationTree(root: string): { directories: string[]; files: string[] } | undefined {
+  try {
+    const rootStat = lstatSync(root)
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return undefined
+    const directories: string[] = []
+    const files: string[] = []
+    const visit = (directory: string, prefix: string): boolean => {
+      for (const entry of readdirSync(directory)) {
+        const relativePath = prefix.length === 0 ? entry : `${prefix}/${entry}`
+        const stat = lstatSync(join(directory, entry))
+        if (stat.isSymbolicLink()) return false
+        if (stat.isDirectory()) {
+          directories.push(relativePath)
+          if (!visit(join(directory, entry), relativePath)) return false
+          continue
+        }
+        if (!stat.isFile()) return false
+        files.push(relativePath)
+      }
+      return true
     }
-    unlinkSync(filename)
+    if (!visit(root, '')) return undefined
+    return { directories: directories.sort(), files: files.sort() }
+  } catch {
+    return undefined
   }
 }
 
-/** Remove a temporary file while preserving every failure except absence. */
-function unlinkTemporaryFile(filename: string): void {
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+/** Verify exact content before making an existing immutable generation executable via PATH. */
+function reusableGeneration(root: string, plan: RuntimeGenerationPlan): boolean {
+  const tree = generationTree(root)
+  if (tree === undefined) return false
+  const expectedFiles = plan.artifacts.map(artifact => artifact.relativePath).sort()
+  if (!sameStrings(tree.directories, plan.directories) || !sameStrings(tree.files, expectedFiles)) return false
   try {
-    unlinkSync(filename)
+    for (const artifact of plan.artifacts) {
+      const filename = generationPath(root, artifact.relativePath)
+      const stat = lstatSync(filename)
+      if (!stat.isFile() || stat.isSymbolicLink()) return false
+      if (process.platform !== 'win32' && (stat.mode & 0o777) !== artifact.mode) return false
+      if (readFileSync(filename, 'utf8') !== artifact.contents) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+function reportCleanupFailure(filename: string, cause: unknown): void {
+  const code = (cause as NodeJS.ErrnoException).code
+  try {
+    process.stderr.write(
+      `dsh-plugin-desktop: deferred command runtime cleanup for ${JSON.stringify(filename)}`
+        + `${code === undefined ? '' : ` (${code})`}\n`,
+    )
+  } catch {
+    // Diagnostics must not turn best-effort generation cleanup into a startup failure.
+  }
+}
+
+/** Materialize a new generation privately, then publish it under a never-reused name. */
+function createRuntimeGeneration(generationsDir: string, plan: RuntimeGenerationPlan): string {
+  const temporaryRoot = join(generationsDir, `.staging.${process.pid}.${randomUUID()}`)
+  mkdirSync(temporaryRoot, { mode: DIRECTORY_MODE })
+  chmodSync(temporaryRoot, DIRECTORY_MODE)
+  try {
+    for (const relativePath of [...plan.directories].sort((left, right) => {
+      return pathSegments(left).length - pathSegments(right).length || left.localeCompare(right)
+    })) {
+      const directory = generationPath(temporaryRoot, relativePath)
+      mkdirSync(directory, { mode: DIRECTORY_MODE })
+      chmodSync(directory, DIRECTORY_MODE)
+    }
+    for (const artifact of plan.artifacts) {
+      const filename = generationPath(temporaryRoot, artifact.relativePath)
+      writeFileSync(filename, artifact.contents, { encoding: 'utf8', flag: 'wx', mode: artifact.mode })
+      chmodSync(filename, artifact.mode)
+    }
+    const root = join(generationsDir, `${plan.contentHash}-${randomUUID()}`)
+    renameSync(temporaryRoot, root)
+    return root
   } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+    try {
+      rmSync(temporaryRoot, { recursive: true, force: true, maxRetries: 0 })
+    } catch (cleanupCause) {
+      reportCleanupFailure(temporaryRoot, cleanupCause)
+    }
+    throw cause
   }
 }
 
-/** Atomically replace one regular app-owned file without accepting a symlink target. */
-function replacePrivateFile(filename: string, contents: string, mode: number): void {
-  const existing = lstatOptional(filename)
-  if (existing !== undefined && (!existing.isFile() || existing.isSymbolicLink())) {
-    throw new Error(`dsh-plugin-desktop: command runtime file is not a regular file: ${filename}`)
+/** Reuse an exact immutable generation or publish a clean sibling when any candidate is tainted. */
+function installRuntimeGeneration(stateDir: string, plan: RuntimeGenerationPlan): RuntimeGeneration {
+  preparePrivateDirectory(stateDir)
+  const generationsDir = join(stateDir, 'generations')
+  preparePrivateDirectory(generationsDir)
+  const entries = readdirSync(generationsDir)
+  let root: string | undefined
+  for (const entry of entries.sort()) {
+    const match = GENERATION_NAME.exec(entry)
+    if (match?.groups?.hash !== plan.contentHash) continue
+    const candidate = join(generationsDir, entry)
+    if (reusableGeneration(candidate, plan)) {
+      root = candidate
+      break
+    }
   }
-  const temporary = join(dirname(filename), `.${basename(filename)}.${process.pid}.${randomUUID()}.tmp`)
-  try {
-    writeFileSync(temporary, contents, { encoding: 'utf8', flag: 'wx', mode })
-    chmodSync(temporary, mode)
-    renameSync(temporary, filename)
-  } finally {
-    unlinkTemporaryFile(temporary)
-  }
+  root ??= createRuntimeGeneration(generationsDir, plan)
+  const obsoletePathDirectories = [
+    join(stateDir, 'bin'),
+    join(stateDir, 'private', 'node-bin'),
+    ...entries.flatMap(entry => [
+      join(generationsDir, entry, 'bin'),
+      join(generationsDir, entry, 'private', 'node-bin'),
+    ]),
+  ].filter(directory => {
+    return directory !== join(root, 'bin') && directory !== join(root, 'private', 'node-bin')
+  })
+  // Published generations may still back child processes after the desktop lifecycle advances.
+  // Keep them immutable and isolate them from PATH; safe garbage collection requires explicit leases.
+  return { root, obsoletePathDirectories }
 }
 
-/** Module preloaded into RunAsNode children before their requested entry. */
-function clearEnvironmentModule(): string {
+/** Keep descendants in Node mode on Windows, where the private shim is a non-executable batch file. */
+function clearEnvironmentModule(platform: NodeJS.Platform): string {
+  if (platform === 'win32') {
+    return [
+      '// process.execPath is the Electron executable; its Node descendants must retain RunAsNode.',
+      '',
+    ].join('\n')
+  }
   return [
+    `process.execPath = require('node:path').join(__dirname, 'node-bin', 'node')`,
     `for (const name of Object.keys(process.env)) {`,
     `  if (name.toUpperCase() === '${RUN_AS_NODE}') delete process.env[name]`,
     '}',
@@ -211,66 +355,96 @@ function clearEnvironmentModule(): string {
 }
 
 /** Build the private POSIX Node command used only by pnpm lifecycle scripts. */
-function posixNodeShim(appExecutable: string, clearEnvironmentUrl: string): string {
+function posixNodeShim(appExecutable: string): string {
   return [
     '#!/bin/sh',
-    `${RUN_AS_NODE}=1 exec ${quoteSh(appExecutable)} --import ${quoteSh(clearEnvironmentUrl)} "$@"`,
+    'runtime_node_bin_dir=${0%/*}',
+    'runtime_private_dir=${runtime_node_bin_dir%/*}',
+    'runtime_clear_environment="$runtime_private_dir/clear-env.cjs"',
+    `${RUN_AS_NODE}=1 exec ${quoteSh(appExecutable)} --require "$runtime_clear_environment" "$@"`,
     '',
   ].join('\n')
 }
 
 /** Build the public POSIX pnpm command. */
-function posixPnpmShim(
-  options: DesktopPnpmRuntimeOptions,
-  nodeBinDir: string,
-  nodeShimPath: string,
-  clearEnvironmentUrl: string,
-): string {
+function posixPnpmShim(options: DesktopPnpmRuntimeOptions): string {
   return [
     '#!/bin/sh',
+    'runtime_public_dir=${0%/*}',
+    'runtime_root_dir=${runtime_public_dir%/*}',
+    'runtime_private_dir="$runtime_root_dir/private"',
+    'runtime_node_bin_dir="$runtime_private_dir/node-bin"',
+    'runtime_node_shim="$runtime_node_bin_dir/node"',
+    'runtime_clear_environment="$runtime_private_dir/clear-env.cjs"',
     [
-      `PATH=${quoteSh(nodeBinDir)}:"\${PATH:-}"`,
-      `NODE=${quoteSh(nodeShimPath)}`,
+      'PATH="$runtime_node_bin_dir:${PATH:-}"',
+      'NODE="$runtime_node_shim"',
       `${RUN_AS_NODE}=1`,
       'npm_config_runtime=electron',
       `npm_config_target=${quoteSh(options.electronVersion)}`,
       `npm_config_disturl=${quoteSh(ELECTRON_HEADERS_URL)}`,
-      `exec ${quoteSh(options.appExecutable)} --import ${quoteSh(clearEnvironmentUrl)} ${quoteSh(options.pnpmBinPath)} "$@"`,
+      `exec ${quoteSh(options.appExecutable)} --require "$runtime_clear_environment" ${quoteSh(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
     ].join(' '),
     '',
   ].join('\n')
 }
 
+/**
+ * Pin the console to UTF-8 so cmd.exe decodes this file the same way it was written.
+ *
+ * Batch files are decoded with the console code page, not with their own encoding. These shims are
+ * written as UTF-8 and embed absolute paths, so on an OEM code page every non-ASCII path byte
+ * decodes to a different character and the command fails with ERROR_PATH_NOT_FOUND. The prologue
+ * is pure ASCII, which decodes identically under every code page, and it precedes every embedded
+ * path. Losing `chcp` only restores the previous behavior, so the recovery stays silent.
+ */
+function windowsCodePagePrologue(): string[] {
+  return [
+    `for /f "tokens=2 delims=:" %%c in ('chcp 2^>nul') do set "${RUNTIME_CODEPAGE}=%%c"`,
+    'chcp 65001>nul 2>nul',
+  ]
+}
+
+/** Restore the caller's console code page, which outlives this process, and keep the exit code. */
+function windowsCodePageEpilogue(): string[] {
+  return [
+    `set "${RUNTIME_EXIT}=%errorlevel%"`,
+    `chcp %${RUNTIME_CODEPAGE}% >nul 2>nul`,
+    `exit /b %${RUNTIME_EXIT}%`,
+  ]
+}
+
 /** Build the private Windows Node command used only by pnpm lifecycle scripts. */
-function windowsNodeShim(appExecutable: string, clearEnvironmentUrl: string): string {
+function windowsNodeShim(appExecutable: string): string {
   return [
     '@echo off',
     'setlocal DisableDelayedExpansion',
+    ...windowsCodePagePrologue(),
+    'set "DSH_RUNTIME_PRIVATE=%~dp0.."',
     `set "${RUN_AS_NODE}=1"`,
-    `${quoteBatchWord(appExecutable)} --import ${quoteBatchWord(clearEnvironmentUrl)} %*`,
-    'exit /b %errorlevel%',
+    `${quoteBatchWord(appExecutable)} --require "%DSH_RUNTIME_PRIVATE%\\clear-env.cjs" %*`,
+    ...windowsCodePageEpilogue(),
     '',
   ].join('\r\n')
 }
 
 /** Build the public Windows pnpm command. */
-function windowsPnpmShim(
-  options: DesktopPnpmRuntimeOptions,
-  nodeBinDir: string,
-  nodeShimPath: string,
-  clearEnvironmentUrl: string,
-): string {
+function windowsPnpmShim(options: DesktopPnpmRuntimeOptions): string {
   return [
     '@echo off',
     'setlocal DisableDelayedExpansion',
-    `set "PATH=${escapeBatchSetValue(nodeBinDir)};%PATH%"`,
-    `set "NODE=${escapeBatchSetValue(nodeShimPath)}"`,
+    ...windowsCodePagePrologue(),
+    'set "DSH_RUNTIME_ROOT=%~dp0.."',
+    'set "DSH_RUNTIME_PRIVATE=%DSH_RUNTIME_ROOT%\\private"',
+    'set "DSH_RUNTIME_NODE_BIN=%DSH_RUNTIME_PRIVATE%\\node-bin"',
+    'set "PATH=%DSH_RUNTIME_NODE_BIN%;%PATH%"',
+    'set "NODE=%DSH_RUNTIME_NODE_BIN%\\node.cmd"',
     `set "${RUN_AS_NODE}=1"`,
     'set "npm_config_runtime=electron"',
     `set "npm_config_target=${escapeBatchSetValue(options.electronVersion)}"`,
     `set "npm_config_disturl=${ELECTRON_HEADERS_URL}"`,
-    `${quoteBatchWord(options.appExecutable)} --import ${quoteBatchWord(clearEnvironmentUrl)} ${quoteBatchWord(options.pnpmBinPath)} %*`,
-    'exit /b %errorlevel%',
+    `${quoteBatchWord(options.appExecutable)} --require "%DSH_RUNTIME_PRIVATE%\\clear-env.cjs" ${quoteBatchWord(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} %*`,
+    ...windowsCodePageEpilogue(),
     '',
   ].join('\r\n')
 }
@@ -280,12 +454,12 @@ function windowsDshShim(options: DesktopDshRuntimeOptions): string {
   return [
     '@echo off',
     'setlocal DisableDelayedExpansion',
+    ...windowsCodePagePrologue(),
     `set "${RUN_AS_NODE}=1"`,
     `set "${DEFAULT_PROFILE}=${escapeBatchSetValue(options.profileName)}"`,
     `set "${DSH_HOME}=${escapeBatchSetValue(options.homeDir)}"`,
-    `set "${DESKTOP_INSTALL_RECOVERY_STATE_ENV}=${escapeBatchSetValue(options.installRecoveryStatePath)}"`,
     `${quoteBatchWord(options.appExecutable)} --expose-internals ${quoteBatchWord(options.dshBootstrapPath)} %*`,
-    'exit /b %errorlevel%',
+    ...windowsCodePageEpilogue(),
     '',
   ].join('\r\n')
 }
@@ -307,7 +481,13 @@ function normalizedPathComponent(component: string, platform: NodeJS.Platform): 
   const unquoted = platform === 'win32' && component.startsWith('"') && component.endsWith('"')
     ? component.slice(1, -1)
     : component
-  return platform === 'win32' ? unquoted.toLowerCase() : unquoted
+  if (platform !== 'win32' || unquoted.length === 0) return unquoted
+  const normalized = windowsPath.normalize(unquoted)
+  const root = windowsPath.parse(normalized).root
+  const withoutTrailingSeparators = normalized.length > root.length
+    ? normalized.replace(/[\\/]+$/u, '')
+    : normalized
+  return withoutTrailingSeparators.toLowerCase()
 }
 
 /** Remove every occurrence of one directory from a PATH value. */
@@ -325,15 +505,21 @@ function installPathDirectory(
   environment: NodeJS.ProcessEnv,
   directory: string,
   platform: NodeJS.Platform,
+  obsoleteDirectories: readonly string[] = [],
 ): () => void {
   const original = pathEntries(environment, platform)
   const current = original.find(entry => entry.value !== undefined)
   const currentValue = current?.value ?? ''
-  if (withoutPathDirectory(currentValue, directory, platform) !== currentValue) return () => {}
-
   const key = current?.key ?? PATH
   const delimiter = platform === 'win32' ? ';' : ':'
-  const installedValue = currentValue.length === 0 ? directory : `${directory}${delimiter}${currentValue}`
+  const inheritedValue = [directory, ...obsoleteDirectories].reduce(
+    (value, candidate) => withoutPathDirectory(value, candidate, platform),
+    currentValue,
+  )
+  const installedValue = inheritedValue.length === 0 ? directory : `${directory}${delimiter}${inheritedValue}`
+  if (installedValue === currentValue) {
+    return () => {}
+  }
   for (const entry of original) delete environment[entry.key]
   environment[key] = installedValue
 
@@ -364,22 +550,27 @@ export function installDesktopDshRuntime(options: DesktopDshRuntimeOptions): Des
     ['application executable', options.appExecutable],
     ['DSH bootstrap', options.dshBootstrapPath],
     ['Harness home', options.homeDir],
-    ['install recovery state', options.installRecoveryStatePath],
     ['state directory', options.stateDir],
   ] as const) assertScriptValue(label, value)
 
-  const pathDir = join(options.stateDir, 'bin')
-  preparePrivateDirectory(options.stateDir)
-  preparePrivateDirectory(pathDir)
-  removeStaleTemporaryFiles(pathDir, 'dsh.cmd')
-  assertOwnedDirectoryEntries(pathDir, ['dsh.cmd'])
+  const plan = runtimeGenerationPlan('dsh', options.platform, ['bin'], [{
+    relativePath: 'bin/dsh.cmd',
+    contents: windowsDshShim(options),
+    mode: PRIVATE_FILE_MODE,
+  }])
+  const generation = installRuntimeGeneration(options.stateDir, plan)
+  const pathDir = join(generation.root, 'bin')
   const dshShimPath = join(pathDir, 'dsh.cmd')
-  replacePrivateFile(dshShimPath, windowsDshShim(options), PRIVATE_FILE_MODE)
 
   return {
     pathDir,
     dshShimPath,
-    dispose: installPathDirectory(options.environment ?? process.env, pathDir, options.platform),
+    dispose: installPathDirectory(
+      options.environment ?? process.env,
+      pathDir,
+      options.platform,
+      generation.obsoletePathDirectories,
+    ),
   }
 }
 
@@ -399,41 +590,38 @@ export function installDesktopPnpmRuntime(options: DesktopPnpmRuntimeOptions): D
     ['state directory', options.stateDir],
   ] as const) assertScriptValue(label, value)
 
-  const pathDir = join(options.stateDir, 'bin')
-  const privateDir = join(options.stateDir, 'private')
-  const nodeBinDir = join(privateDir, 'node-bin')
-  preparePrivateDirectory(options.stateDir)
-  preparePrivateDirectory(pathDir)
-  preparePrivateDirectory(privateDir)
-  preparePrivateDirectory(nodeBinDir)
-
   const windows = options.platform === 'win32'
   const pnpmShimName = windows ? 'pnpm.cmd' : 'pnpm'
   const nodeShimName = windows ? 'node.cmd' : 'node'
-  removeStaleTemporaryFiles(pathDir, pnpmShimName)
-  removeStaleTemporaryFiles(nodeBinDir, nodeShimName)
-  removeStaleTemporaryFiles(privateDir, 'clear-env.mjs')
-  reconcileOwnedDirectoryEntries(pathDir, [pnpmShimName])
-  reconcileOwnedDirectoryEntries(nodeBinDir, [nodeShimName])
+  const plan = runtimeGenerationPlan(
+    'pnpm',
+    options.platform,
+    ['bin', 'private', 'private/node-bin'],
+    [
+      {
+        relativePath: 'private/clear-env.cjs',
+        contents: clearEnvironmentModule(options.platform),
+        mode: PRIVATE_FILE_MODE,
+      },
+      {
+        relativePath: `private/node-bin/${nodeShimName}`,
+        contents: windows ? windowsNodeShim(options.appExecutable) : posixNodeShim(options.appExecutable),
+        mode: windows ? PRIVATE_FILE_MODE : EXECUTABLE_FILE_MODE,
+      },
+      {
+        relativePath: `bin/${pnpmShimName}`,
+        contents: windows ? windowsPnpmShim(options) : posixPnpmShim(options),
+        mode: windows ? PRIVATE_FILE_MODE : EXECUTABLE_FILE_MODE,
+      },
+    ],
+  )
+  const generation = installRuntimeGeneration(options.stateDir, plan)
+  const pathDir = join(generation.root, 'bin')
+  const privateDir = join(generation.root, 'private')
+  const nodeBinDir = join(privateDir, 'node-bin')
   const pnpmShimPath = join(pathDir, pnpmShimName)
   const nodeShimPath = join(nodeBinDir, nodeShimName)
-  const clearEnvironmentPath = join(privateDir, 'clear-env.mjs')
-  replacePrivateFile(clearEnvironmentPath, clearEnvironmentModule(), PRIVATE_FILE_MODE)
-  const clearEnvironmentUrl = pathToFileURL(clearEnvironmentPath).href
-  replacePrivateFile(
-    nodeShimPath,
-    windows
-      ? windowsNodeShim(options.appExecutable, clearEnvironmentUrl)
-      : posixNodeShim(options.appExecutable, clearEnvironmentUrl),
-    windows ? PRIVATE_FILE_MODE : EXECUTABLE_FILE_MODE,
-  )
-  replacePrivateFile(
-    pnpmShimPath,
-    windows
-      ? windowsPnpmShim(options, nodeBinDir, nodeShimPath, clearEnvironmentUrl)
-      : posixPnpmShim(options, nodeBinDir, nodeShimPath, clearEnvironmentUrl),
-    windows ? PRIVATE_FILE_MODE : EXECUTABLE_FILE_MODE,
-  )
+  const clearEnvironmentPath = join(privateDir, 'clear-env.cjs')
 
   return {
     pathDir,
@@ -441,6 +629,11 @@ export function installDesktopPnpmRuntime(options: DesktopPnpmRuntimeOptions): D
     nodeBinDir,
     nodeShimPath,
     clearEnvironmentPath,
-    dispose: installPathDirectory(options.environment ?? process.env, pathDir, options.platform),
+    dispose: installPathDirectory(
+      options.environment ?? process.env,
+      pathDir,
+      options.platform,
+      generation.obsoletePathDirectories,
+    ),
   }
 }

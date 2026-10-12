@@ -120,6 +120,21 @@ describe('desktop profile service', () => {
     expect(events).toEqual(['persist:work', 'restart'])
   })
 
+  it('can prepare a selection before the caller requests restart', async () => {
+    const events: string[] = []
+    const { service } = await mount(createBootstrap({
+      persistSelection: async name => { events.push(`persist:${name}`) },
+      requestRestart: async () => { events.push('restart') },
+    }))
+
+    const selection = await service.prepareSelection('work')
+    expect(selection.restartRequired).toBe(true)
+    expect(events).toEqual(['persist:work'])
+
+    await selection.restart()
+    expect(events).toEqual(['persist:work', 'restart'])
+  })
+
   it('treats an accepted restart as successful when teardown disposes the old service', async () => {
     let dispose!: () => Promise<unknown>
     const requestRestart = vi.fn(async () => { await dispose() })
@@ -166,7 +181,32 @@ describe('desktop profile service', () => {
     firstRestart.resolve(undefined)
 
     await expect(first).resolves.toBeUndefined()
-    await expect(second).rejects.toThrow('profile "work" is already pending')
+    await expect(second).rejects.toThrow('profile "work" is already selected for restart')
+    expect(persistSelection).toHaveBeenCalledOnce()
+    expect(requestRestart).toHaveBeenCalledOnce()
+  })
+
+  it('coalesces duplicate preparation and restart for the same target', async () => {
+    const persistence = deferred<void>()
+    const restarting = deferred<void>()
+    const persistSelection = vi.fn(() => persistence.promise)
+    const requestRestart = vi.fn(() => restarting.promise)
+    const { service } = await mount(createBootstrap({ persistSelection, requestRestart }))
+
+    const firstPreparation = service.prepareSelection('work')
+    const duplicatePreparation = service.prepareSelection('work')
+    expect(duplicatePreparation).toBe(firstPreparation)
+    persistence.resolve(undefined)
+
+    const firstSelection = await firstPreparation
+    const duplicateSelection = await duplicatePreparation
+    expect(duplicateSelection).toBe(firstSelection)
+    const firstRestart = firstSelection.restart()
+    const duplicateRestart = duplicateSelection.restart()
+    expect(duplicateRestart).toBe(firstRestart)
+    restarting.resolve(undefined)
+
+    await expect(firstRestart).resolves.toBeUndefined()
     expect(persistSelection).toHaveBeenCalledOnce()
     expect(requestRestart).toHaveBeenCalledOnce()
   })
@@ -196,7 +236,7 @@ describe('desktop profile service', () => {
     const { service } = await mount(createBootstrap({ persistSelection, requestRestart }))
 
     await expect(service.select('work')).rejects.toThrow('restart unavailable')
-    await expect(service.select('other')).rejects.toThrow('profile "work" is already pending')
+    await expect(service.select('other')).rejects.toThrow('profile "work" is already selected for restart')
     const retry = service.select('work')
     const duplicateRetry = service.select('work')
     expect(duplicateRetry).toBe(retry)
@@ -206,6 +246,26 @@ describe('desktop profile service', () => {
     await expect(duplicateRetry).resolves.toBeUndefined()
     expect(persistSelection).toHaveBeenCalledOnce()
     expect(requestRestart).toHaveBeenCalledTimes(2)
+  })
+
+  it('protects a target from deletion while selection is being persisted', async () => {
+    const pending = deferred<void>()
+    const remove = vi.fn(async () => {})
+    const { service } = await mount(createBootstrap({
+      persistSelection: () => pending.promise,
+      canDelete: () => true,
+      delete: remove,
+    }))
+
+    const preparation = service.prepareSelection('work')
+    expect(service.canDelete('work')).toBe(false)
+    await expect(service.delete('work')).rejects.toThrow('cannot be deleted')
+
+    pending.resolve(undefined)
+    await preparation
+    expect(service.canDelete('work')).toBe(false)
+    await expect(service.delete('work')).rejects.toThrow('cannot be deleted')
+    expect(remove).not.toHaveBeenCalled()
   })
 
   it('unregisters with its fiber and rejects retained calls after disposal', async () => {

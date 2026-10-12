@@ -1,0 +1,54 @@
+diff --git a/dist/pnpm.mjs b/dist/pnpm.mjs
+--- a/dist/pnpm.mjs
++++ b/dist/pnpm.mjs
+@@ -64055,8 +64055,9 @@ function createPackageVersionPolicyOrThrow(patterns, key) {
+   }
+ }
+ function getPublishedByPolicy(opts3) {
++  const minimumReleaseAge = Number(opts3.minimumReleaseAge);
+   return {
+-    publishedBy: opts3.minimumReleaseAge ? new Date(Date.now() - opts3.minimumReleaseAge * 60 * 1e3) : void 0,
++    publishedBy: Number.isFinite(minimumReleaseAge) && minimumReleaseAge > 0 ? new Date(Date.now() - minimumReleaseAge * 60 * 1e3) : void 0,
+     publishedByExclude: opts3.minimumReleaseAgeExclude ? createPackageVersionPolicyOrThrow(opts3.minimumReleaseAgeExclude, "minimumReleaseAgeExclude") : void 0
+   };
+ }
+@@ -64264,8 +64265,10 @@ var init_fetchFullMetadataCached = __esm({
+ // ../resolving/npm-resolver/lib/createNpmResolutionVerifier.js
+ function createNpmResolutionVerifier(opts3) {
+-  const ageCheckActive = Boolean(opts3.minimumReleaseAge);
++  const configuredMinimumReleaseAge = Number(opts3.minimumReleaseAge);
++  const minimumReleaseAge = Number.isFinite(configuredMinimumReleaseAge) && configuredMinimumReleaseAge > 0 ? configuredMinimumReleaseAge : 0;
++  const ageCheckActive = minimumReleaseAge > 0;
+   const trustCheckActive = opts3.trustPolicy === "no-downgrade";
+-  const cutoff = ageCheckActive ? (opts3.now ?? Date.now()) - opts3.minimumReleaseAge * 60 * 1e3 : 0;
++  const cutoff = ageCheckActive ? (opts3.now ?? Date.now()) - minimumReleaseAge * 60 * 1e3 : 0;
+   const excludePolicy = opts3.minimumReleaseAgeExclude?.length ? createExcludePolicy(opts3.minimumReleaseAgeExclude, "minimumReleaseAgeExclude") : void 0;
+   const trustExcludePolicy = opts3.trustPolicyExclude?.length ? createExcludePolicy(opts3.trustPolicyExclude, "trustPolicyExclude") : void 0;
+   const namedRegistryPrefixes = Object.values({
+@@ -64289,8 +64292,7 @@ function createNpmResolutionVerifier(opts3) {
+     localMetaCache: /* @__PURE__ */ new Map(),
+     fullMetaCache: /* @__PURE__ */ new Map(),
+     fullMetaForTrustCache: /* @__PURE__ */ new Map()
+   };
+-  const minimumReleaseAge = opts3.minimumReleaseAge ?? 0;
+   const trustPolicy = opts3.trustPolicy;
+   const trustPolicyIgnoreAfter = opts3.trustPolicyIgnoreAfter;
+   const verify = async (resolution, { name, version: version2, nonSemverVersion }) => {
+@@ -65274,14 +65276,15 @@ function detectMinReleaseAgeViolation(args) {
+   if (Array.isArray(excludeResult) && excludeResult.includes(args.version))
+     return void 0;
+   const ts = new Date(args.publishedAt).getTime();
+-  if (Number.isNaN(ts) || ts <= args.publishedBy.getTime())
++  const cutoff = args.publishedBy.getTime();
++  if (!Number.isFinite(ts) || !Number.isFinite(cutoff) || ts <= cutoff)
+     return void 0;
+   return {
+     name: args.name,
+     version: args.version,
+     resolution: args.resolution,
+     code: MINIMUM_RELEASE_AGE_VIOLATION_CODE,
+-    reason: `was published at ${new Date(ts).toISOString()}, within the minimumReleaseAge cutoff (${args.publishedBy.toISOString()})`
++    reason: `was published at ${new Date(ts).toISOString()}, within the minimumReleaseAge cutoff (${new Date(cutoff).toISOString()})`
+   };
+ }
+ function getIntegrity(dist) {

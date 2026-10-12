@@ -1,0 +1,13 @@
+diff --git a/lib/client.js b/lib/client.js
+index ba3cb21f72..782a387b46 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -9266,7 +9266,7 @@ Set the `cycles` parameter to `"ref"` to resolve cyclical schemas with defs.
+ 				}
+ 				const persisted = this.selection.getSnapshot().sessionId;
+ 				if (current === void 0) {
+-					if (persisted !== void 0) this.selection.set({});
++					if (phase === "ready" && persisted !== void 0) this.selection.set({});
+ 				} else if (byId[current] !== void 0 && (persisted !== current || this.selection.getSnapshot().subagentAddress?.childSessionId !== currentAddress?.childSessionId || this.selection.getSnapshot().subagentAddress?.parentSessionId !== currentAddress?.parentSessionId || this.selection.getSnapshot().subagentAddress?.mode !== currentAddress?.mode)) this.selection.set({
+ 					sessionId: current,
+ 					...currentAddress === void 0 ? {} : { subagentAddress: currentAddress }

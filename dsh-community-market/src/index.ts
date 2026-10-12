@@ -1,28 +1,28 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import type {} from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-storage-domain'
 import {
   registerMarketRoutes,
-  registerMarketSettings,
   type MarketDesktopPlugins,
 } from './host/routes.js'
+import { DeferredMarketStateStore } from './catalog/state-store.js'
 import { createRestrictedHttpClient } from './network/restricted-http.js'
 import {
-  createNpmRegistryVerifier,
+  createMarketPackageVerifier,
   MarketInstallService,
   type MarketDesktopPnpm,
   type MarketDesktopProfile,
 } from './install/service.js'
 
 export const name = 'community-market'
-export const inject = ['webServer', 'settings']
+export const inject = ['webServer']
 
 interface DesktopProfilesCapability {
   readonly current: MarketDesktopProfile
 }
 
 interface DesktopActionsCapability {
-  openTerminal(): void
+  openTerminal?(): void
   requestRestart(): Promise<void>
 }
 
@@ -32,7 +32,11 @@ const npmRegistryHttp = createRestrictedHttpClient({
 })
 
 export function apply(ctx: Context): void {
-  const scope = registerMarketSettings(ctx)
+  // Market's routes hold this for their whole lifetime. It starts session-only
+  // and swaps itself onto durable storage if and when a storage domain appears,
+  // so market browses, adds and selects sources with or without one — without
+  // durable storage those choices simply do not survive a restart.
+  const state = new DeferredMarketStateStore(message => ctx.logger.warn(message))
   let installService: MarketInstallService | undefined
   let desktopActions: DesktopActionsCapability | undefined
   let desktopPlugins: MarketDesktopPlugins | undefined
@@ -40,9 +44,29 @@ export function apply(ctx: Context): void {
   const desktopActionsProvider = { get: () => desktopActions }
   const desktopPluginsProvider = { get: () => desktopPlugins }
   ctx.effect(
-    () => registerMarketRoutes(ctx, scope, installProvider, desktopActionsProvider, desktopPluginsProvider),
+    () => registerMarketRoutes(ctx, state, installProvider, desktopActionsProvider, desktopPluginsProvider),
     'community-market: routes',
   )
+  // Durable state is optional, so the storage domain is soft-injected like every
+  // other optional peer. The domain handle belongs to this effect: the facility
+  // only sweeps handles nobody closed.
+  ctx.inject(['storageDomain'], (storageCtx) => {
+    storageCtx.effect(async () => {
+      let close: (() => Promise<void>) | undefined
+      try {
+        // `@deepseek-ai/dsh-storage-domain` is an optional peer dependency, so
+        // the only module that imports it is loaded on demand: a market
+        // installed without it must still start.
+        const { activateMarketDurableState } = await import('./catalog/domain.js')
+        close = await activateMarketDurableState(storageCtx, state)
+      } catch (cause) {
+        ctx.logger.warn(`dsh-community-market: durable storage is unavailable; market state is session-only: ${
+          cause instanceof Error ? cause.message : String(cause)
+        }`)
+      }
+      return () => close?.()
+    }, 'community-market: durable state')
+  })
   ctx.inject(['desktopActions'], (desktopCtx) => {
     const actions = desktopCtx.get('desktopActions') as DesktopActionsCapability
     desktopCtx.effect(() => {
@@ -68,18 +92,11 @@ export function apply(ctx: Context): void {
     const pnpm = desktopCtx.get('desktopPnpm') as MarketDesktopPnpm
     desktopCtx.effect(() => {
       const service = new MarketInstallService(
-        scope,
         () => profiles.current,
         pnpm,
-        createNpmRegistryVerifier(npmRegistryHttp),
+        createMarketPackageVerifier(npmRegistryHttp),
         {
-          disabledPackageNames: () => {
-            const plugins = desktopPlugins
-            if (plugins === undefined) {
-              throw new Error('desktop plugin policy unavailable')
-            }
-            return plugins.disabledPackageNames()
-          },
+          logFailure: message => ctx.logger.error(message),
         },
       )
       installService = service

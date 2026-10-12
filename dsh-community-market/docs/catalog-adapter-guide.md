@@ -15,9 +15,9 @@ Use this path when the provider can publish two anonymous HTTPS JSON resources o
 1. a static [`catalog-source` manifest](schemas/catalog-source.schema.json); and
 2. one GET `/v1/plugins` endpoint returning [`catalog-provider-page`](schemas/catalog-provider-page.schema.json).
 
-The user registers only the manifest URL. Start with the [minimal manifest](examples/catalog-source.example.json), [minimal query](examples/catalog-query.example.json), and [minimal page](examples/catalog-provider-page.minimal.example.json). The recommended minimum supports `q`, `category`, `cursor`, and `limit`, with example `defaultLimit` and `maxLimit` values of 50. That value is not a global cap: a standard source may declare values through the Schema safety maximum of 100. Repeated `category` values mean OR. Optional metadata and media can be added later without changing the transport.
+The user registers only the manifest URL. Start with the [minimal manifest](examples/catalog-source.example.json), [minimal query](examples/catalog-query.example.json), and [minimal page](examples/catalog-provider-page.minimal.example.json). The recommended minimum supports `q`, `category`, `cursor`, and `limit`, with example `defaultLimit` and `maxLimit` values of 50. That value is not a global cap: a standard source may declare values through the Schema safety maximum of 200. Repeated `category` values mean OR. Optional metadata and media can be added later without changing the transport.
 
-The current Desktop Host builds a complete local index before serving the UI. It follows the selected source's cursors using the source's effective network page limit, then performs visible search, multi-category OR filtering, category enumeration, and 50-item UI pagination locally. The endpoint query contract remains useful to other consumers and adapter tests, but the current Desktop scan does not send the user's `q` or `category` filters to the provider. A standard source may return up to its declared effective page limit; 50 is the visible UI page size, not a universal provider-response cap.
+The Desktop Host normally builds a bounded local index, follows source cursors using the effective network page limit, and performs visible filtering and 50-item pagination locally. A reviewed adapter may instead forward a user query when the provider's unfiltered response is intentionally capped below its catalog total. The 1024Store adapter uses this exception for `q` and for exactly one `category`; results still pass through the same normalization, provenance, origin, and cursor boundaries. A standard source may return up to its declared effective page limit; 50 is the visible UI page size, not a universal provider-response cap.
 
 ### B. Existing API: reviewed Host adapter
 
@@ -32,7 +32,7 @@ The adapter is local TypeScript reviewed, tested, and released with Market. It u
 
 ## Copyable adapter skeleton
 
-Place the adapted version in `src/adapters/example-provider.ts`. This skeleton assumes the reviewed API accepts `search`, repeated `tag` values with OR semantics, `after`, and `pageSize`. It uses a default page size of 50 and a reviewed maximum of 100. Change those explicit mappings and constants to match the documented API; do not create a remotely configurable mapper. The 1024Store adapter is intentionally different: one registry request is normalized into Schema-bounded chunks of at most 100 items, after which the Host serves local UI pages of 50.
+Place the adapted version in `src/adapters/example-provider.ts`. This skeleton assumes the reviewed API accepts `search`, repeated `tag` values with OR semantics, `after`, and `pageSize`. It uses a default page size of 50 and a reviewed maximum of 200. Change those explicit mappings and constants to match the documented API; do not create a remotely configurable mapper. The 1024Store adapter is intentionally explicit: discovery keeps its 50-item Client page while Installable requests 200 remote registry entries per batch and filters direct npm targets locally.
 
 ```ts
 import type { CatalogQuery, CatalogSnapshot } from '../contracts/index.js'

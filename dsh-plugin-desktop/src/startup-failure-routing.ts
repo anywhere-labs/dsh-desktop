@@ -2,20 +2,11 @@
 
 import type { DesktopStartupFailureStage } from './startup-recovery-window.ts'
 
-export type DesktopStartupFailureRoute =
-  | 'stderr-only'
-  | 'protected-install-recovery'
-  | 'last-known-good'
-  | 'startup-recovery'
+export type DesktopStartupFailureRoute = 'stderr-only' | 'startup-recovery'
 
 export interface DesktopStartupFailureContext {
   readonly appReady: boolean
   readonly stage: DesktopStartupFailureStage
-  readonly verifyingProtectedInstall: boolean
-  readonly profile?: {
-    readonly active: string
-    readonly lastKnownGood: string
-  }
 }
 
 /**
@@ -26,9 +17,5 @@ export function routeDesktopStartupFailure(
   context: DesktopStartupFailureContext,
 ): DesktopStartupFailureRoute {
   if (!context.appReady) return 'stderr-only'
-  if (context.verifyingProtectedInstall) return 'protected-install-recovery'
-  if (context.profile !== undefined && context.profile.active !== context.profile.lastKnownGood) {
-    return 'last-known-good'
-  }
   return 'startup-recovery'
 }

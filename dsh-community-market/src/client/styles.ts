@@ -651,6 +651,48 @@ const css = `
   color: var(--dsw-alias-label-primary);
 }
 
+.dshMarketFailureSummary {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 19px;
+}
+
+.dshMarketFailureOutput {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dshMarketFailureOutput > span {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.dshMarketFailureOutput pre {
+  box-sizing: border-box;
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--dsw-font-family-code, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: 11px;
+  line-height: 18px;
+  overflow-wrap: normal;
+  white-space: pre-wrap;
+}
+
 .dshMarketModalField {
   display: flex;
   flex-direction: column;

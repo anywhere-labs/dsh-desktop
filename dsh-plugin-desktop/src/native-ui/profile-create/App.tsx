@@ -4,42 +4,10 @@ import { Alert, AlertDescription } from '../components/ui/alert.tsx'
 import { Button } from '../components/ui/button.tsx'
 import { Input } from '../components/ui/input.tsx'
 import { Label } from '../components/ui/label.tsx'
+import { DesktopFrame } from '../shared/DesktopFrame.tsx'
+import { desktopProfileCreateCopy } from '../../profile-create-copy.ts'
 
 const SCHEME = 'dsh-profile-create:'
-
-interface Copy {
-  readonly title: string
-  readonly heading: string
-  readonly description: string
-  readonly label: string
-  readonly placeholder: string
-  readonly start: string
-  readonly cancel: string
-  readonly empty: string
-}
-
-const COPY: Record<'en' | 'zh', Copy> = {
-  en: {
-    title: 'Add Profile',
-    heading: 'Create and start a Profile',
-    description: 'Create a web-capable Profile and select it for the next Desktop start.',
-    label: 'Profile name',
-    placeholder: 'For example: work',
-    start: 'Create and Start',
-    cancel: 'Cancel',
-    empty: 'Enter a Profile name.',
-  },
-  zh: {
-    title: '添加配置',
-    heading: '创建并启动配置',
-    description: '创建一个可用于桌面界面的配置，并在下一次启动时使用。',
-    label: '配置名称',
-    placeholder: '例如：work',
-    start: '创建并启动',
-    cancel: '取消',
-    empty: '请输入配置名称。',
-  },
-}
 
 function locale(): 'en' | 'zh' {
   return new URLSearchParams(window.location.search).get('locale') === 'zh' ? 'zh' : 'en'
@@ -51,10 +19,11 @@ function submit(name: string): void {
   window.location.assign(url.href)
 }
 
-export function ProfileCreateApp(): JSX.Element {
-  const copy = COPY[locale()]
+export function ProfileCreateApp({ onCreate, onCancel }: { readonly onCreate?: (name: string) => Promise<void>; readonly onCancel?: () => void } = {}): JSX.Element {
+  const copy = desktopProfileCreateCopy(locale())
   const [name, setName] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
   useEffect(() => {
     const reportError = (event: Event): void => {
       if (!(event instanceof CustomEvent) || typeof event.detail !== 'string') return
@@ -70,18 +39,21 @@ export function ProfileCreateApp(): JSX.Element {
       setError(copy.empty)
       return
     }
-    submit(trimmed)
+    if (!onCreate) { submit(trimmed); return }
+    if (busy) return
+    setBusy(true)
+    void onCreate(trimmed).catch(() => { setError(copy.failed) }).finally(() => { setBusy(false) })
   }
-  return <main className="min-h-screen overflow-hidden p-6"><section className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-md flex-col">
+  return <><DesktopFrame /><main className="dshNativeContent h-screen overflow-hidden p-6"><section className="mx-auto flex h-full w-full max-w-md flex-col">
     <header className="mb-5"><h1 className="text-lg leading-none font-semibold tracking-tight">{copy.heading}</h1><p className="mt-2 text-sm text-muted-foreground">{copy.description}</p></header>
     <div className="space-y-2">
       <Label htmlFor="profile-name">{copy.label}</Label>
-      <Input autoFocus id="profile-name" maxLength={255} onChange={event => { setName(event.target.value); setError('') }} onKeyDown={event => { if (event.key === 'Enter') onSubmit() }} placeholder={copy.placeholder} value={name} />
+      <Input disabled={busy} autoFocus id="profile-name" maxLength={255} onChange={event => { setName(event.target.value); setError('') }} onKeyDown={event => { if (event.key === 'Enter') onSubmit() }} placeholder={copy.placeholder} value={name} />
       {error.length > 0 ? <Alert aria-live="polite" variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
     </div>
     <footer className="mt-auto flex justify-end gap-2 pt-5">
-      <Button onClick={() => { window.location.assign(`${SCHEME}//cancel`) }} type="button" variant="outline"><X />{copy.cancel}</Button>
-      <Button onClick={onSubmit} type="button"><Plus />{copy.start}</Button>
+      <Button disabled={busy} onClick={() => { if (onCancel) onCancel(); else window.location.assign(`${SCHEME}//cancel`) }} type="button" variant="outline"><X />{copy.cancel}</Button>
+      <Button disabled={busy} onClick={onSubmit} type="button"><Plus />{copy.submit}</Button>
     </footer>
-  </section></main>
+  </section></main></>
 }

@@ -8,45 +8,52 @@ import type { DesktopProfileSummary } from './profile-manager.ts'
 import type { DesktopProfiles } from './profile-service.ts'
 import type {
   DesktopMarketSelectResponse,
+  DesktopDeveloperToolsToggleResponse,
   DesktopDiagnosticsExportResponse,
   DesktopProfileCreateResponse,
-  DesktopProfileCreateWindowResponse,
   DesktopProfileDeleteResponse,
-  DesktopProfileRollbackResponse,
   DesktopProfileSelectResponse,
+  DesktopRestartResponse,
+  DesktopRecoveryRestartResponse,
+  DesktopRendererReloadResponse,
   DesktopSettingsMarketView,
   DesktopSettingsProfileView,
   DesktopSettingsResponse,
+  DesktopSettingsWebView,
   DesktopTerminalOpenResponse,
 } from './desktop-settings-contract.ts'
 
 /** Launcher capabilities used without exposing their filesystem roots. */
 export interface DesktopSettingsControllerBootstrap {
   /** Generation-scoped profile service. */
-  readonly profiles: Pick<DesktopProfiles, 'current' | 'list' | 'create'>
+  readonly profiles: Pick<DesktopProfiles, 'current' | 'list' | 'create' | 'prepareSelection'>
     & Partial<Pick<DesktopProfiles, 'canDelete' | 'delete'>>
-  /** Persist one already-validated profile as pending without restarting. */
-  persistProfileSelection(name: string): void | Promise<void>
   /** Read the latest persisted request and the startup-effective provider. */
+  readAa?(): { readonly requested: boolean; readonly effective: boolean }
+  selectAa?(enabled: boolean): Promise<void>
   readMarket(): DesktopMarketSnapshot
   /** Persist an explicit provider request. */
   selectMarket(provider: DesktopMarketProvider): Promise<DesktopMarketSnapshot>
+  /** Read marker-free URLs from the generation's actual WebServer and LAN snapshot. */
+  readWeb(): DesktopSettingsWebView
   /** Queue an orderly restart after a response confirms persisted selection. */
   scheduleRestart(): void
+  /** Queue an orderly restart into the pre-Host recovery assistant. */
+  scheduleRecoveryRestart(): void
   /** Open the launcher-owned DSH terminal. */
   openTerminal(): void
+  /** Reload the mounted renderer after its HTTP acknowledgement is delivered. */
+  reloadRenderer(): void
+  /** Toggle Developer Tools for the mounted renderer. */
+  toggleDeveloperTools(): void
   /** Export diagnostics through the launcher-owned privacy flow. */
   exportDiagnostics(): void | Promise<void>
-  /** Open the isolated native Profile creator. */
-  openProfileCreator(): void
-  /** Prepare a last-known-good rollback without quiescing the Host yet. */
-  prepareProfileRollback(): DesktopSettingsPostResponse<DesktopProfileRollbackResponse>
 }
 
 /** A persisted response plus work that must run only after `res.end()`. */
 export interface DesktopSettingsPostResponse<T extends object> {
   readonly response: T
-  readonly afterResponse?: () => void
+  readonly afterResponse?: () => void | Promise<void>
 }
 
 /** Remove paths, bundle identities, and parser diagnostics from a profile. */
@@ -58,7 +65,7 @@ export function projectDesktopSettingsProfile(
     name: profile.name,
     exists: profile.exists,
     webCapable: profile.webCapable,
-    selectable: profile.webCapable && profile.problem === undefined,
+    selectable: profile.exists && profile.webCapable && profile.problem === undefined,
     deletable,
   })
 }
@@ -90,6 +97,7 @@ export class DesktopSettingsController {
 
   /** Read a fresh, renderer-safe settings projection. */
   read(): DesktopSettingsResponse {
+    const web = this.bootstrap.readWeb()
     return Object.freeze({
       current: this.bootstrap.profiles.current.name,
       profiles: Object.freeze(
@@ -98,7 +106,16 @@ export class DesktopSettingsController {
           this.bootstrap.profiles.canDelete?.(profile.name) ?? false,
         )),
       ),
+      aa: Object.freeze(this.bootstrap.readAa?.() ?? { requested: false, effective: false }),
       market: projectMarket(this.bootstrap.readMarket(), this.effectiveMarket),
+      web: Object.freeze({
+        localUrl: web.localUrl,
+        lanUrls: Object.freeze([...web.lanUrls]),
+        lanState: web.lanState,
+        lanError: web.lanError,
+        lanCaFingerprint: web.lanCaFingerprint,
+        lanCaUrls: Object.freeze([...web.lanCaUrls]),
+      }),
     })
   }
 
@@ -121,17 +138,10 @@ export class DesktopSettingsController {
   async selectProfile(
     name: string,
   ): Promise<DesktopSettingsPostResponse<DesktopProfileSelectResponse>> {
-    const restartRequired = name !== this.bootstrap.profiles.current.name
-    if (restartRequired) {
-      const profile = this.bootstrap.profiles.list().find(candidate => candidate.name === name)
-      if (profile === undefined || !profile.webCapable || profile.problem !== undefined) {
-        throw new Error(`dsh-plugin-desktop: profile ${JSON.stringify(name)} is not selectable`)
-      }
-      await this.bootstrap.persistProfileSelection(name)
-    }
+    const selection = await this.bootstrap.profiles.prepareSelection(name)
     return Object.freeze({
-      response: Object.freeze({ accepted: true, restartRequired }),
-      ...(restartRequired ? { afterResponse: () => { this.bootstrap.scheduleRestart() } } : {}),
+      response: Object.freeze({ accepted: true, restartRequired: selection.restartRequired }),
+      ...(selection.restartRequired ? { afterResponse: () => selection.restart() } : {}),
     })
   }
 
@@ -147,9 +157,49 @@ export class DesktopSettingsController {
     })
   }
 
+  async selectAa(enabled: boolean): Promise<DesktopSettingsPostResponse<DesktopMarketSelectResponse>> {
+    if (!this.bootstrap.selectAa || !this.bootstrap.readAa) throw new Error('AA selection is unavailable')
+    await this.bootstrap.selectAa(enabled)
+    const restartRequired = enabled !== this.bootstrap.readAa().effective
+    return Object.freeze({
+      response: Object.freeze({ accepted: true, restartRequired }),
+      ...(restartRequired ? { afterResponse: () => { this.bootstrap.scheduleRestart() } } : {}),
+    })
+  }
+
   /** Open the native terminal through the launcher-owned action. */
   openTerminal(): DesktopTerminalOpenResponse {
     this.bootstrap.openTerminal()
+    return Object.freeze({ accepted: true })
+  }
+
+  /** Acknowledge the renderer before queueing an orderly Desktop relaunch. */
+  restart(): DesktopSettingsPostResponse<DesktopRestartResponse> {
+    return Object.freeze({
+      response: Object.freeze({ accepted: true }),
+      afterResponse: () => { this.bootstrap.scheduleRestart() },
+    })
+  }
+
+  /** Acknowledge the renderer before queueing a recovery-mode relaunch. */
+  restartToRecovery(): DesktopSettingsPostResponse<DesktopRecoveryRestartResponse> {
+    return Object.freeze({
+      response: Object.freeze({ accepted: true }),
+      afterResponse: () => { this.bootstrap.scheduleRecoveryRestart() },
+    })
+  }
+
+  /** Acknowledge the renderer before replacing its current document. */
+  reloadRenderer(): DesktopSettingsPostResponse<DesktopRendererReloadResponse> {
+    return Object.freeze({
+      response: Object.freeze({ accepted: true }),
+      afterResponse: () => { this.bootstrap.reloadRenderer() },
+    })
+  }
+
+  /** Toggle Developer Tools without exposing an Electron bridge to the page. */
+  toggleDeveloperTools(): DesktopDeveloperToolsToggleResponse {
+    this.bootstrap.toggleDeveloperTools()
     return Object.freeze({ accepted: true })
   }
 
@@ -157,17 +207,6 @@ export class DesktopSettingsController {
   async exportDiagnostics(): Promise<DesktopDiagnosticsExportResponse> {
     await this.bootstrap.exportDiagnostics()
     return Object.freeze({ accepted: true })
-  }
-
-  /** Open the native creator that creates, selects, and restarts safely. */
-  openProfileCreator(): DesktopProfileCreateWindowResponse {
-    this.bootstrap.openProfileCreator()
-    return Object.freeze({ accepted: true })
-  }
-
-  /** Hand off a validated rollback that starts only after the HTTP response. */
-  rollbackProfile(): DesktopSettingsPostResponse<DesktopProfileRollbackResponse> {
-    return this.bootstrap.prepareProfileRollback()
   }
 }
 

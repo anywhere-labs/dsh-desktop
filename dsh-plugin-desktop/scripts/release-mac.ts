@@ -10,6 +10,8 @@ import {
   withoutMacReleaseSecrets,
 } from './release-preflight.ts'
 import { prepareInstalledMacUniversalRuntime } from './mac-universal.ts'
+import { prepareFsExtForElectron } from './prepare-fs-ext.ts'
+import { electronBuilderEnvironment } from './electron-builder-environment.ts'
 
 /** Injectable release boundary used by focused tests. */
 export interface MacReleaseOptions {
@@ -70,7 +72,11 @@ function defaultReleaseOptions(): MacReleaseOptions {
     listCodeSigningIdentities,
     run,
     log: message => console.log(message),
-    prepareRuntime: () => prepareInstalledMacUniversalRuntime(desktopRoot),
+    prepareRuntime: () => {
+      prepareFsExtForElectron({ platform: 'darwin', arch: 'arm64', desktopRoot })
+      prepareFsExtForElectron({ platform: 'darwin', arch: 'x64', desktopRoot })
+      prepareInstalledMacUniversalRuntime(desktopRoot)
+    },
   }
 }
 
@@ -92,6 +98,13 @@ export function releaseMac(options: MacReleaseOptions = defaultReleaseOptions())
 
   // The workspace check includes the package build and repository-layout gate. Signing
   // material is withheld from every build, test, Loader smoke, and layout subprocess.
+  options.run(
+    process.execPath,
+    ['scripts/prepare-agents-anywhere-release.mjs', '--verify-release'],
+    resolve(options.desktopRoot, '..'),
+    buildEnvironment,
+  )
+  options.run(process.execPath, ['scripts/prepare-dsh-market.mjs', '--check'], resolve(options.desktopRoot, '..'), buildEnvironment)
   options.run('yarn', ['run', 'check'], resolve(options.desktopRoot, '..'), buildEnvironment)
   options.resetOutput()
   options.prepareRuntime()
@@ -100,7 +113,7 @@ export function releaseMac(options: MacReleaseOptions = defaultReleaseOptions())
     '--config.forceCodeSigning=true', '--config.mac.notarize=true',
     '--config.npmRebuild=false',
     `--config.directories.output=${options.outputDir}`,
-  ], options.desktopRoot, releaseEnvironment)
+  ], options.desktopRoot, electronBuilderEnvironment(releaseEnvironment))
   options.run(
     process.execPath,
     ['scripts/verify-mac-release.ts', options.outputDir],

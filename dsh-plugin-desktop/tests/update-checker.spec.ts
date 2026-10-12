@@ -1,12 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  DESKTOP_CURRENT_VERSION_HEADER,
   DESKTOP_VERSION_ENDPOINT,
   MAX_VERSION_RESPONSE_BYTES,
   checkForStableUpdate,
+  checkForDesktopUpdate,
   compareSemVerVersions,
+  desktopVersionRequestHeaders,
   parseSemVer,
   type UpdateRequest,
 } from '../src/update-checker.ts'
+import {
+  assertDesktopInstallationId,
+  DESKTOP_INSTALLATION_ID_HEADER,
+} from '../src/desktop-installation-id.ts'
+
+const INSTALLATION_ID = assertDesktopInstallationId('01234567-89ab-4cde-8f01-23456789abcd')
 
 function versionResponse(version: unknown, init: ResponseInit = {}): Response {
   return Response.json({ version }, init)
@@ -62,6 +71,7 @@ describe('public Desktop version check', () => {
 
     await expect(checkForStableUpdate({
       currentVersion: '2.9.9',
+      installationId: INSTALLATION_ID,
       signal: controller.signal,
       request,
     })).resolves.toEqual({
@@ -81,8 +91,35 @@ describe('public Desktop version check', () => {
     })
     const headers = new Headers(calls[0]?.init.headers)
     expect(headers.get('accept')).toBe('application/json')
+    expect(headers.get(DESKTOP_CURRENT_VERSION_HEADER)).toBe('2.9.9')
+    expect(headers.get(DESKTOP_INSTALLATION_ID_HEADER)).toBe(INSTALLATION_ID)
     expect(headers.has('if-none-match')).toBe(false)
     expect(headers.has('x-github-api-version')).toBe(false)
+  })
+
+  it('builds a bounded version-check header set and rejects malformed identities', () => {
+    expect(desktopVersionRequestHeaders(INSTALLATION_ID)).toEqual({
+      Accept: 'application/json',
+      [DESKTOP_INSTALLATION_ID_HEADER]: INSTALLATION_ID,
+    })
+    expect(desktopVersionRequestHeaders(INSTALLATION_ID, '2.9.9')).toEqual({
+      Accept: 'application/json',
+      [DESKTOP_CURRENT_VERSION_HEADER]: '2.9.9',
+      [DESKTOP_INSTALLATION_ID_HEADER]: INSTALLATION_ID,
+    })
+    expect(desktopVersionRequestHeaders()).toEqual({ Accept: 'application/json' })
+    expect(() => desktopVersionRequestHeaders(undefined, '2.9.0-rc.1')).toThrow('canonical stable SemVer')
+    expect(() => desktopVersionRequestHeaders('not-a-uuid')).toThrow('canonical lowercase UUID v4')
+  })
+
+  it('skips the fixed endpoint when an invalid installation identity reaches the checker', async () => {
+    const request = vi.fn(async () => versionResponse('2.1.0'))
+    await expect(checkForStableUpdate({
+      currentVersion: '2.0.0',
+      installationId: 'not-a-uuid' as never,
+      request,
+    })).resolves.toBeNull()
+    expect(request).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -97,6 +134,36 @@ describe('public Desktop version check', () => {
       status: 'up-to-date',
       currentVersion,
       latestVersion,
+    })
+  })
+
+  it('surfaces per-platform installer digests with case normalization', async () => {
+    const upper = 'A'.repeat(64)
+    await expect(checkForStableUpdate({
+      currentVersion: '2.0.0',
+      request: async () => Response.json({
+        version: '2.1.0',
+        sha256: { windows: upper, mac: `  ${'b'.repeat(64)}  ` },
+      }),
+    })).resolves.toEqual({
+      status: 'update-available',
+      currentVersion: '2.0.0',
+      latestVersion: '2.1.0',
+      installerSha256: { win32: 'a'.repeat(64), darwin: 'b'.repeat(64) },
+    })
+  })
+
+  it('ignores malformed installer digest fields without failing the check', async () => {
+    await expect(checkForStableUpdate({
+      currentVersion: '2.0.0',
+      request: async () => Response.json({
+        version: '2.1.0',
+        sha256: { windows: 'not-hex', mac: 42, extra: true },
+      }),
+    })).resolves.toEqual({
+      status: 'update-available',
+      currentVersion: '2.0.0',
+      latestVersion: '2.1.0',
     })
   })
 
@@ -171,3 +238,15 @@ describe('public Desktop version check', () => {
     expect(request).not.toHaveBeenCalled()
   })
 })
+
+
+describe('Next release isolation', () => {
+  it.each(['2.0.14-next', '2.0.14-next.1'])('accepts installed %s and preserves its version header', async currentVersion => {
+    const request = vi.fn<UpdateRequest>(async () => Response.json({ version: '2.0.17-next.1', channel: 'next' }));
+    expect(await checkForDesktopUpdate({ currentVersion, channel: 'next', request })).toMatchObject({ status: 'update-available' });
+    expect(new Headers(request.mock.calls[0]?.[1]?.headers).get(DESKTOP_CURRENT_VERSION_HEADER)).toBe(currentVersion);
+  });
+  it.each([{version:'2.0.17',channel:'stable'}, {version:'2.0.17-beta.1',channel:'next'}, {version:'2.0.17-next.1'}, {version:'2.0.17-next.01',channel:'next'}])('rejects a wrong or ambiguous Next release %j', async body => {
+    expect(await checkForDesktopUpdate({ currentVersion:'2.0.14-next', channel:'next', request:async()=>Response.json(body) })).toBeNull();
+  });
+});

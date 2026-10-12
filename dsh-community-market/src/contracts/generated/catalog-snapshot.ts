@@ -24,6 +24,7 @@ export type Item = Item1 & {
    */
   keywords?: string[]
   repository?: Repository
+  installSource?: InstallSource
   package?: Package
   publisher?: Publisher
   media?: Media
@@ -61,7 +62,7 @@ export interface CatalogSnapshot {
   schemaVersion: '1.0.0'
   source: Source
   /**
-   * @maxItems 100
+   * @maxItems 200
    */
   items: Item[]
   page: Page
@@ -79,6 +80,10 @@ export interface Source {
 export interface Repository {
   url: HttpsUri
   subdirectory?: string
+}
+export interface InstallSource {
+  kind: 'github'
+  commit: string
 }
 export interface Package {
   registry: 'npm'

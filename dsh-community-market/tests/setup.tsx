@@ -5,7 +5,7 @@ function Icon(): ReactNode {
   return <span aria-hidden="true" />
 }
 
-vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
+vi.mock('@deepseek-ai/dsh-client-store', () => ({
   defineStore: <T, A extends Record<string, (draft: T, ...params: never[]) => void>>(decl: {
     init: () => T
     actions: A
@@ -56,21 +56,18 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
     </div>
   ) : null,
   Tooltip: ({ children }: { children: ReactNode }) => children,
-  IconCheckOutline16: Icon,
-  IconChevronDownOutline14: Icon,
-  IconChevronUpOutline14: Icon,
-  IconCloseOutline16: Icon,
-  IconCordisPluginOutline14: Icon,
-  IconDataOutline16: Icon,
-  IconDownloadOutline16: Icon,
-  IconGlobeOutline14: Icon,
-  IconPlusOutline16: Icon,
-  IconPauseOutline16: Icon,
-  IconPlayOutline16: Icon,
-  IconRefreshOutline16: Icon,
-  IconRightUpOutline16: Icon,
-  IconSearchOutline16: Icon,
-  IconSettingsOutline16: Icon,
-  IconTrashOutline16: Icon,
-  IconWarningOutline16: Icon,
+  IconCheckOutlineRegular: Icon,
+  IconChevronDownOutlineRegular: Icon,
+  IconChevronUpOutlineRegular: Icon,
+  IconCloseOutlineRegular: Icon,
+  IconCordisPluginOutlineRegular: Icon,
+  IconDataOutlineRegular: Icon,
+  IconDownloadOutlineRegular: Icon,
+  IconGlobeOutlineRegular: Icon,
+  IconPlusOutlineRegular: Icon,
+  IconRefreshOutlineRegular: Icon,
+  IconRightUpOutlineRegular: Icon,
+  IconSearchOutlineRegular: Icon,
+  IconSettingsOutlineRegular: Icon,
+  IconTrashOutlineRegular: Icon,
 }))

@@ -19,8 +19,12 @@ import {
 } from '@deepseek-ai/dsh-app-boot'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { assertDesktopProfileName } from './profile-manager.ts'
+import {
+  DESKTOP_PACKAGE_NAME,
+  DESKTOP_PACKAGE_NAMES,
+} from './product-identity.ts'
 
-const BIN_NAME = 'dsh-plugin-desktop'
+const BIN_NAME = DESKTOP_PACKAGE_NAME
 const STATE_VERSION = 1
 const STATE_FILE_MODE = 0o600
 const STATE_DIRECTORY_MODE = 0o700
@@ -35,10 +39,16 @@ const BUNDLE_ID_PATTERN = /^bundle_[A-Za-z0-9_-]{32}$/u
 const DISABLE_PREVIEW_ID_PATTERN = /^disable_[A-Za-z0-9_-]{43}$/u
 const ENABLE_PREVIEW_ID_PATTERN = /^enable_[A-Za-z0-9_-]{43}$/u
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
+/**
+ * Manifest key recording which direct dependencies Desktop removed from
+ * `dsh.profile.bundles`. It is a UI ledger, never a policy: profile composition
+ * derives what loads from `dsh.profile.bundles` alone and must never read this.
+ */
+const DESELECTED_BUNDLES_KEY = 'desktopDeselectedBundles'
 const IMMUTABLE_BUNDLES = new Set([
-  ...(PROFILE_TEMPLATES.web ?? []),
+  ...(PROFILE_TEMPLATES.web?.bundles ?? []),
   '@deepseek-ai/dsh-desktop-app',
-  'dsh-plugin-desktop',
+  ...DESKTOP_PACKAGE_NAMES,
   'dsh-community-market',
 ])
 
@@ -52,6 +62,8 @@ export interface DesktopPluginBundle {
   readonly status: 'active' | 'disabled'
   /** Whether Desktop permits this exact bundle to be disabled. */
   readonly mutable: boolean
+  /** Whether this bundle is a direct Profile dependency removable by the package manager. */
+  readonly uninstallable: boolean
 }
 
 /** Short-lived confirmation minted for one exact direct bundle. */
@@ -159,8 +171,6 @@ export interface DesktopPluginsBootstrap {
   readonly homeDir: string
   /** Desktop-private state file outside the user's profile manifests. */
   readonly statePath: string
-  /** Optional independent startup-recovery disable state. */
-  readonly recoveryStatePath?: string
   /** Package manifest inside this exact Desktop installation. */
   readonly installAnchor: string
   /** Injectable clock used only by focused tests. */
@@ -178,6 +188,18 @@ export interface DesktopProfileManifestBundle {
   readonly packageName: string
   readonly status: 'active' | 'disabled'
   readonly mutable: boolean
+  /** Whether the package is a direct Profile dependency removable by `dsh plugin remove`. */
+  readonly uninstallable: boolean
+}
+
+/** One direct bundle as the pre-Host recovery assistant sees it. */
+export interface DesktopRecoveryBundle extends DesktopProfileManifestBundle {
+  /**
+   * Whether Desktop removed this name from `dsh.profile.bundles`, which is the
+   * only disabled state recovery can undo. A bundle marked disabled by the
+   * community market's provider-gated state file is not deselected.
+   */
+  readonly deselected: boolean
 }
 
 function emptyState(): DesktopPluginStateV1 {
@@ -233,9 +255,27 @@ function readProfileManifestBytes(path: string): Buffer {
   }
 }
 
-function readDesktopProfileBundleNames(
+interface DesktopProfileManifestInventory {
+  readonly bundleNames: readonly string[]
+  readonly dependencyNames: ReadonlySet<string>
+  /** Raw {@link DESELECTED_BUNDLES_KEY} entries, before reconciliation. */
+  readonly deselectedNames: readonly string[]
+}
+
+function readDeselectedBundles(dsh: Record<string, unknown>): readonly string[] {
+  const deselected = dsh[DESELECTED_BUNDLES_KEY]
+  if (deselected === undefined) return []
+  if (!Array.isArray(deselected)
+    || deselected.length > MAX_DISABLED_BUNDLES
+    || deselected.some(name => !safePackageName(name))) {
+    throw new Error(`${BIN_NAME}: active profile manifest dsh.${DESELECTED_BUNDLES_KEY} is invalid`)
+  }
+  return deselected as string[]
+}
+
+function readDesktopProfileManifestInventory(
   bootstrap: DesktopPluginStateBootstrap,
-): readonly string[] {
+): DesktopProfileManifestInventory {
   assertStateBootstrap(bootstrap)
   const profileDir = resolveProfileDir(bootstrap.profileName, bootstrap.homeDir)
   const bytes = readProfileManifestBytes(join(profileDir, 'package.json'))
@@ -251,24 +291,67 @@ function readDesktopProfileBundleNames(
     throw new Error(`${BIN_NAME}: active profile manifest must hold a JSON object`)
   }
   const root = parsed as Record<string, unknown>
+  const rawDependencies = root.dependencies
+  if (rawDependencies !== undefined && (
+    rawDependencies === null
+    || typeof rawDependencies !== 'object'
+    || Array.isArray(rawDependencies)
+  )) {
+    throw new Error(`${BIN_NAME}: active profile manifest dependencies must be an object`)
+  }
+  const dependencies = rawDependencies as Record<string, unknown> | undefined
+  const dependencyNames = Object.keys(dependencies ?? {})
+  if (dependencyNames.length > MAX_DIRECT_BUNDLES || dependencyNames.some(name => !safePackageName(name))) {
+    throw new Error(`${BIN_NAME}: active profile manifest dependencies are invalid`)
+  }
+  const empty = { bundleNames: [], dependencyNames: new Set(dependencyNames), deselectedNames: [] } as const
   const dsh = root.dsh
-  if (dsh === undefined) return []
+  if (dsh === undefined) return empty
   if (dsh === null || typeof dsh !== 'object' || Array.isArray(dsh)) {
     throw new Error(`${BIN_NAME}: active profile manifest dsh field must be an object`)
   }
+  const deselectedNames = readDeselectedBundles(dsh as Record<string, unknown>)
   const profile = (dsh as Record<string, unknown>).profile
-  if (profile === undefined) return []
+  if (profile === undefined) return { ...empty, deselectedNames }
   if (profile === null || typeof profile !== 'object' || Array.isArray(profile)) {
     throw new Error(`${BIN_NAME}: active profile manifest dsh.profile field must be an object`)
   }
   const bundles = (profile as Record<string, unknown>).bundles
-  if (bundles === undefined) return []
+  if (bundles === undefined) return { ...empty, deselectedNames }
   if (!Array.isArray(bundles)
     || bundles.length > MAX_DIRECT_BUNDLES
     || bundles.some(bundle => !safePackageName(bundle))) {
     throw new Error(`${BIN_NAME}: active profile manifest dsh.profile.bundles is invalid`)
   }
-  return bundles as string[]
+  return {
+    bundleNames: bundles as string[],
+    dependencyNames: new Set(dependencyNames),
+    deselectedNames,
+  }
+}
+
+/**
+ * Names Desktop itself deselected that are still worth showing as disabled.
+ *
+ * The ledger is advisory and self-healing: a name selected again by any writer
+ * is active, a name no longer declared as a direct dependency is forgotten, and
+ * a name that became a product bundle is forgotten. Nothing outside the recovery
+ * UI may consult it — profile composition reads `dsh.profile.bundles` alone.
+ */
+function reconcileDeselectedBundles(
+  inventory: DesktopProfileManifestInventory,
+  bundleNames: readonly string[] = inventory.bundleNames,
+): readonly string[] {
+  const selected = new Set(bundleNames)
+  return [...new Set(inventory.deselectedNames)]
+    .filter(name => !selected.has(name)
+      && inventory.dependencyNames.has(name)
+      && desktopPluginBundleMutable(name))
+    .sort(stableCompare)
+}
+
+function readDesktopProfileBundleNames(bootstrap: DesktopPluginStateBootstrap): readonly string[] {
+  return readDesktopProfileManifestInventory(bootstrap).bundleNames
 }
 
 function stableCompare(left: string, right: string): number {
@@ -391,17 +474,12 @@ export async function clearDesktopProfilePluginState(
  */
 export function readDesktopProfileBundleInventory(
   bootstrap: DesktopPluginStateBootstrap,
-  additionalStatePath?: string,
 ): readonly DesktopProfileManifestBundle[] {
+  const manifest = readDesktopProfileManifestInventory(bootstrap)
   const disabled = new Set(readDesktopDisabledBundles(bootstrap.statePath, bootstrap.profileName))
-  if (additionalStatePath !== undefined) {
-    for (const packageName of readDesktopDisabledBundles(additionalStatePath, bootstrap.profileName)) {
-      disabled.add(packageName)
-    }
-  }
   const seen = new Set<string>()
   const bundles: DesktopProfileManifestBundle[] = []
-  for (const packageName of readDesktopProfileBundleNames(bootstrap)) {
+  for (const packageName of manifest.bundleNames) {
     if (seen.has(packageName)) continue
     seen.add(packageName)
     const mutable = desktopPluginBundleMutable(packageName)
@@ -409,9 +487,165 @@ export function readDesktopProfileBundleInventory(
       packageName,
       status: mutable && disabled.has(packageName) ? 'disabled' : 'active',
       mutable,
+      uninstallable: mutable && manifest.dependencyNames.has(packageName),
     })
   }
   return bundles
+}
+
+/**
+ * Recovery-only inventory: every selected direct bundle plus the direct
+ * dependencies Desktop itself deselected. Like
+ * {@link readDesktopProfileBundleInventory} it resolves, reads and parses no
+ * bundle package, so it remains answerable when a bundle is exactly what
+ * prevents startup. The deselected rows come from the manifest ledger rather
+ * than from `dependencies ∖ bundles`, so an ordinary direct dependency that
+ * was never a bundle can never be mistaken for a disabled plugin.
+ */
+export function readDesktopRecoveryBundleInventory(
+  bootstrap: DesktopPluginStateBootstrap,
+): readonly DesktopRecoveryBundle[] {
+  const manifest = readDesktopProfileManifestInventory(bootstrap)
+  const disabled = new Set(readDesktopDisabledBundles(bootstrap.statePath, bootstrap.profileName))
+  const seen = new Set<string>()
+  const bundles: DesktopRecoveryBundle[] = []
+  for (const packageName of manifest.bundleNames) {
+    if (seen.has(packageName)) continue
+    seen.add(packageName)
+    const mutable = desktopPluginBundleMutable(packageName)
+    bundles.push({
+      packageName,
+      status: mutable && disabled.has(packageName) ? 'disabled' : 'active',
+      mutable,
+      uninstallable: mutable && manifest.dependencyNames.has(packageName),
+      deselected: false,
+    })
+  }
+  for (const packageName of reconcileDeselectedBundles(manifest)) {
+    if (seen.has(packageName)) continue
+    seen.add(packageName)
+    bundles.push({
+      packageName,
+      status: 'disabled',
+      mutable: true,
+      uninstallable: true,
+      deselected: true,
+    })
+  }
+  return bundles
+}
+
+/** Reason one Profile bundle selection change was refused. */
+export type DesktopProfileSelectionErrorCode =
+  | 'invalid-target'
+  | 'immutable-target'
+  | 'manifest-unavailable'
+
+/** Error whose code the recovery controller maps onto its own codes. */
+export class DesktopProfileSelectionError extends Error {
+  constructor(readonly code: DesktopProfileSelectionErrorCode, message: string) {
+    super(message)
+    this.name = 'DesktopProfileSelectionError'
+  }
+}
+
+/** Result of one persisted selection change. */
+export interface DesktopProfileSelectionResult {
+  readonly packageName: string
+  readonly status: 'active' | 'disabled'
+}
+
+function selectionInventory(
+  bootstrap: DesktopPluginStateBootstrap,
+): DesktopProfileManifestInventory {
+  try {
+    return readDesktopProfileManifestInventory(bootstrap)
+  } catch (cause) {
+    throw new DesktopProfileSelectionError(
+      'manifest-unavailable',
+      `${BIN_NAME}: cannot read the active profile manifest: ${cause instanceof Error ? cause.message : String(cause)}`,
+    )
+  }
+}
+
+/**
+ * Select or deselect one mutable direct dependency in `dsh.profile.bundles`.
+ *
+ * Deselection is the upstream disable semantic: the name leaves the selected
+ * array while its `dependencies` entry, its installed files and its
+ * configuration all stay untouched, so nothing is deleted and the change is
+ * reversible. Every unrelated manifest field is preserved by structural share
+ * rather than rebuilt from a schema.
+ *
+ * `authorize` runs while the manifest lock is held, immediately before the
+ * manifest is re-read and re-validated; its error is rethrown verbatim and
+ * nothing is written.
+ */
+export async function setDesktopProfileBundleSelected(
+  bootstrap: DesktopPluginStateBootstrap,
+  packageName: string,
+  selected: boolean,
+  authorize: () => void | Promise<void> = () => {},
+): Promise<DesktopProfileSelectionResult> {
+  assertStateBootstrap(bootstrap)
+  if (!safePackageName(packageName)) {
+    throw new DesktopProfileSelectionError('invalid-target', `${BIN_NAME}: bundle package name is invalid`)
+  }
+  if (!desktopPluginBundleMutable(packageName)) {
+    throw new DesktopProfileSelectionError(
+      'immutable-target',
+      `${BIN_NAME}: bundle ${JSON.stringify(packageName)} belongs to DSH Desktop and cannot be changed`,
+    )
+  }
+  const manifestPath = join(resolveProfileDir(bootstrap.profileName, bootstrap.homeDir), 'package.json')
+  await withFileLock(manifestPath, async () => {
+    await authorize()
+    const inventory = selectionInventory(bootstrap)
+    if (!inventory.dependencyNames.has(packageName)) {
+      throw new DesktopProfileSelectionError(
+        'invalid-target',
+        `${BIN_NAME}: bundle ${JSON.stringify(packageName)} is not a direct profile dependency`,
+      )
+    }
+    if (inventory.bundleNames.includes(packageName) === selected) {
+      throw new DesktopProfileSelectionError(
+        'invalid-target',
+        `${BIN_NAME}: bundle ${JSON.stringify(packageName)} is already ${selected ? 'active' : 'disabled'}`,
+      )
+    }
+    const bundleNames = selected
+      ? [...inventory.bundleNames, packageName]
+      : inventory.bundleNames.filter(name => name !== packageName)
+    const reconciled = reconcileDeselectedBundles(inventory, bundleNames)
+    const ledger = selected
+      ? reconciled.filter(name => name !== packageName)
+      : [...new Set([...reconciled, packageName])].sort(stableCompare)
+    // Structural share, never a schema rebuild: `name`, `version`, `pnpm`,
+    // `packageManager` and any sibling `dsh.*` key keep their value and position.
+    let root: Record<string, unknown>
+    try {
+      root = JSON.parse(new TextDecoder('utf-8', { fatal: true })
+        .decode(readProfileManifestBytes(manifestPath))) as Record<string, unknown>
+    } catch (cause) {
+      throw new DesktopProfileSelectionError(
+        'manifest-unavailable',
+        `${BIN_NAME}: cannot read the active profile manifest: ${cause instanceof Error ? cause.message : String(cause)}`,
+      )
+    }
+    const dsh = { ...(root.dsh as Record<string, unknown> | undefined) }
+    dsh.profile = { ...(dsh.profile as Record<string, unknown> | undefined), bundles: bundleNames }
+    if (ledger.length === 0) delete dsh[DESELECTED_BUNDLES_KEY]
+    else dsh[DESELECTED_BUNDLES_KEY] = ledger
+    const rendered = `${JSON.stringify({ ...root, dsh }, undefined, 2)}\n`
+    if (Buffer.byteLength(rendered, 'utf8') > MAX_PROFILE_MANIFEST_BYTES) {
+      throw new DesktopProfileSelectionError(
+        'manifest-unavailable',
+        `${BIN_NAME}: active profile manifest is too large`,
+      )
+    }
+    await writeFileAtomic(manifestPath, rendered, { mode: STATE_FILE_MODE })
+  })
+  return { packageName, status: selected ? 'active' : 'disabled' }
 }
 
 /** Only explicit product bundles are immutable; every other resolved direct layer is user-disableable. */
@@ -603,10 +837,6 @@ function assertBootstrap(bootstrap: DesktopPluginsBootstrap): void {
       throw new Error(`${BIN_NAME}: desktop plugins ${label} must be an absolute path without NUL`)
     }
   }
-  if (bootstrap.recoveryStatePath !== undefined
-    && (!isAbsolute(bootstrap.recoveryStatePath) || bootstrap.recoveryStatePath.includes('\0'))) {
-    throw new Error(`${BIN_NAME}: desktop plugins recovery state path must be an absolute path without NUL`)
-  }
 }
 
 /** Generation-scoped direct bundle inventory with two-phase persistent state changes. */
@@ -633,7 +863,7 @@ export class DesktopPluginsService extends Service implements DesktopPlugins {
 
   list(): readonly DesktopPluginBundle[] {
     this.assertActive()
-    return readDesktopProfileBundleInventory(this.bootstrap, this.bootstrap.recoveryStatePath).map(item => ({
+    return readDesktopProfileBundleInventory(this.bootstrap).map(item => ({
       ...item,
       bundleId: this.bundleId(item.packageName),
     }))
@@ -649,13 +879,7 @@ export class DesktopPluginsService extends Service implements DesktopPlugins {
 
   disabledPackageNames(): readonly string[] {
     this.assertActive()
-    const disabled = new Set(readDesktopDisabledBundles(this.bootstrap.statePath, this.bootstrap.profileName))
-    if (this.bootstrap.recoveryStatePath !== undefined) {
-      for (const packageName of readDesktopDisabledBundles(this.bootstrap.recoveryStatePath, this.bootstrap.profileName)) {
-        disabled.add(packageName)
-      }
-    }
-    return [...disabled].sort(stableCompare)
+    return [...readDesktopDisabledBundles(this.bootstrap.statePath, this.bootstrap.profileName)].sort(stableCompare)
   }
 
   previewDisable(bundleId: string): DesktopPluginDisablePreview {
@@ -833,10 +1057,6 @@ export class DesktopPluginsService extends Service implements DesktopPlugins {
   private disabledStatePath(packageName: string): string | undefined {
     if (readDesktopDisabledBundles(this.bootstrap.statePath, this.bootstrap.profileName).has(packageName)) {
       return this.bootstrap.statePath
-    }
-    if (this.bootstrap.recoveryStatePath !== undefined
-      && readDesktopDisabledBundles(this.bootstrap.recoveryStatePath, this.bootstrap.profileName).has(packageName)) {
-      return this.bootstrap.recoveryStatePath
     }
     return undefined
   }
