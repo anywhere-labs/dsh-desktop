@@ -17,6 +17,8 @@ export interface DiagnosticExportOptions {
   readonly appVersion: string
   /** Override used by focused tests; production logs and dumps share the 50 MB cap. */
   readonly maxEvidenceBytes?: number
+  /** Isolated Host log directory, archived under `host/`; absent when Host runs inline. */
+  readonly hostLogsDir?: string
   /** Electron Crashpad directory whose local minidumps should be included. */
   readonly crashDumpsDir?: string
   /** Active-run marker used to identify a launch that did not shut down cleanly. */
@@ -110,6 +112,7 @@ export function exportDiagnosticsZip(
       userDataDir,
       appVersion: options.appVersion,
       maxEvidenceBytes,
+      ...(options.hostLogsDir === undefined ? {} : { hostLogsDir: options.hostLogsDir }),
       ...(options.crashDumpsDir === undefined ? {} : { crashDumpsDir: options.crashDumpsDir }),
       ...(options.runStatePath === undefined ? {} : { runStatePath: options.runStatePath }),
       ...(options.lifecycleEvidencePath === undefined ? {} : { lifecycleEvidencePath: options.lifecycleEvidencePath }),
@@ -128,6 +131,8 @@ export function exportDesktopDiagnostics(
   mkdirSync(logsDir, { recursive: true })
   return exportDiagnosticsZip(logsDir, userDataDir, {
     appVersion: options.appVersion,
+    // Matches the isolated Host log directory chosen in main.ts.
+    hostLogsDir: join(logsDir, 'host'),
     crashDumpsDir: options.crashDumpsDir ?? join(userDataDir, 'Crashpad'),
     runStatePath: join(userDataDir, 'crash-evidence', 'active-run.json'),
     lifecycleEvidencePath: desktopLifecycleEvidencePath(userDataDir),

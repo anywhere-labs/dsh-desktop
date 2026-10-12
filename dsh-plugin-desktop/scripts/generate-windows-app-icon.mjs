@@ -1,6 +1,6 @@
 /** Generate a Windows ICO with exact-DPI frames for the application and NSIS. */
 
-import { readFile, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
@@ -26,49 +26,20 @@ export const WINDOWS_APP_ICON_SIZES = Object.freeze([
 ])
 
 const SOURCE_CANVAS_SIZE = 1024
-const SMALL_FRAME_MAX_SIZE = 40
-const BRAND_BLUE = '#4D6BFE'
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const sourcePath = join(packageRoot, 'build', 'app-icon.png')
-const markPath = join(packageRoot, 'build', 'tray-icon.svg')
 const outputPath = join(packageRoot, 'build', 'app-icon.ico')
 
 /**
- * Reuse the repository's vector whale for frames where the full shaded artwork
- * loses recognizable detail. The flat dark-on-light treatment preserves the
- * stable icon's silhouette at native Windows chrome sizes.
- * @returns {Promise<Buffer>} Self-contained SVG for small Windows frames.
- */
-async function loadSmallFrameArtwork() {
-  const source = await readFile(markPath, 'utf8')
-  if (!source.includes(`fill="${BRAND_BLUE}"`) || /<style\b/iu.test(source)) {
-    throw new Error(`generate-windows-app-icon: tray-icon.svg must use the fixed brand color ${BRAND_BLUE}`)
-  }
-  const mark = source
-    .replace(/^<svg[^>]*>\s*/u, '')
-    .replace(/<\/svg>\s*$/u, '')
-    .replaceAll(BRAND_BLUE, '#000000')
-  return Buffer.from(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50">'
-    + '<rect width="50" height="50" rx="11" fill="#FFFFFF"/>'
-    + `<g transform="translate(5 5) scale(0.8)">${mark}</g>`
-    + '</svg>',
-  )
-}
-
-/**
- * Render one icon frame from the full-resolution stable artwork.
- * Small frames use the simplified vector treatment and receive a restrained
- * unsharp pass after Lanczos downsampling.
+ * Render each channel from its complete Composer export, retaining badge identity.
+ * Small frames receive a restrained unsharp pass after Lanczos downsampling.
  * @param {string} source - absolute path to the canonical 1024px PNG.
- * @param {Buffer} smallArtwork - simplified vector artwork for native small sizes.
  * @param {number} size - square output size in native pixels.
  * @returns {Promise<{ png: Buffer, rgba: Buffer }>} Encoded and raw 8-bit RGBA data.
  */
-async function renderFrame(source, smallArtwork, size) {
-  const input = size <= SMALL_FRAME_MAX_SIZE ? smallArtwork : source
-  let pipeline = sharp(input, { failOn: 'warning' })
+async function renderFrame(source, size) {
+  let pipeline = sharp(source, { failOn: 'warning' })
     .resize({ width: size, height: size, fit: 'fill', kernel: sharp.kernel.lanczos3 })
     .toColourspace('srgb')
     .ensureAlpha()
@@ -167,7 +138,7 @@ function encodeIco(frames) {
 }
 
 /**
- * Generate the stable Windows icon without changing the cross-platform source.
+ * Generate the Windows icon without changing the cross-platform source.
  * @param {string} source - absolute path to the canonical source PNG.
  * @param {string} output - absolute path for the generated ICO.
  * @returns {Promise<void>} Resolves after the complete ICO has been written.
@@ -194,9 +165,8 @@ export async function generateWindowsAppIcon(source = sourcePath, output = outpu
     )
   }
 
-  const smallArtwork = await loadSmallFrameArtwork()
   const rendered = await Promise.all(WINDOWS_APP_ICON_SIZES.map(async size => {
-    const frame = await renderFrame(source, smallArtwork, size)
+    const frame = await renderFrame(source, size)
     return {
       size,
       data: size === 256 ? frame.png : encodeDibFrame(frame.rgba, size),

@@ -15,6 +15,7 @@ import { installExtendedStyles } from '../src/client/extended-styles.ts'
 import {
   collapsedSidebarWidth, computeDesktopColumns, DesktopLayoutState, MACOS_SIDEBAR_COLLAPSED, SIDEBAR_COLLAPSED,
 } from '../src/client/layout-state.ts'
+import { installSidebarFooterStyles } from '../src/client/sidebar-footer-styles.ts'
 import { installDesktopOwnedStyles } from '../src/client/styles.ts'
 import { desktopWindowService, provideDesktopWindow } from '../src/client/window-service.ts'
 import {
@@ -27,23 +28,27 @@ import {
   WINDOWS_CAPTION_CONTROLS_WIDTH,
 } from '../src/window-chrome.ts'
 
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({ Switch: () => null }))
+
 describe('desktop client environment', () => {
   it.each(['darwin', 'win32', 'linux'])('keeps compatibility chrome out of the %s client slot tree', platform => {
-    const marker = platform === 'win32' ? '&dsh-desktop-mica=0' : ''
     vi.stubGlobal('window', { location: {
-      search: `?dsh-desktop-platform=${platform}&dsh-desktop-mode=compatibility&dsh-desktop-version=2.0.3&dsh-desktop-material=off${marker}`,
+      search: `?dsh-desktop-platform=${platform}&dsh-desktop-mode=compatibility&dsh-desktop-version=2.0.3&dsh-desktop-material=off`,
     } })
     const effect = vi.fn()
     const inject = vi.fn()
     const ctx = {
       effect,
+      inject: vi.fn(),
       slots: { inject },
       locale: { bind: () => (key: string) => key },
-      settingsScope: { bind: () => ({}) },
+      configForms: { get: () => ({}) },
     } as unknown as ClientContext
     try {
       apply(ctx)
-      expect(inject.mock.calls.map(([name]) => name)).toEqual(['settings.section', 'settings.action'])
+      expect(inject.mock.calls.map(([name]) => name)).toEqual([
+        'settings.section', 'settings.action', 'plugins.bundle.hidden',
+      ])
       expect(effect.mock.calls.map(([, label]) => label)).not.toContain('desktop: independent compatibility frame styles')
     } finally {
       vi.unstubAllGlobals()
@@ -66,13 +71,23 @@ describe('desktop client environment', () => {
 
   it('accepts the Electron-owned kebab query markers', () => {
     expect(parseDesktopClientEnvironment('?dsh-desktop-mode=advanced&dsh-desktop-platform=darwin&dsh-desktop-version=2.0.3&dsh-desktop-material=transparent'))
-      .toEqual({ version: '2.0.3', mode: 'advanced', platform: 'darwin', material: 'transparent', micaSupported: false })
-    expect(parseDesktopClientEnvironment('?dsh-desktop-platform=win32&dsh-desktop-mode=compatibility&dsh-desktop-version=2.0.3&dsh-desktop-material=off&dsh-desktop-mica=0'))
-      .toEqual({ version: '2.0.3', mode: 'compatibility', platform: 'win32', material: 'off', micaSupported: false })
-    expect(parseDesktopClientEnvironment('?dsh-desktop-mode=extended&dsh-desktop-platform=win32&dsh-desktop-version=2.0.3&dsh-desktop-material=mica&dsh-desktop-mica=1'))
-      .toEqual({ version: '2.0.3', mode: 'extended', platform: 'win32', material: 'mica', micaSupported: true })
-    expect(parseDesktopClientEnvironment('?dsh-desktop-mode=extended&dsh-desktop-platform=win32&dsh-desktop-version=2.0.3&dsh-desktop-material=acrylic&dsh-desktop-mica=0'))
-      .toEqual({ version: '2.0.3', mode: 'extended', platform: 'win32', material: 'off', micaSupported: false })
+      .toEqual({ version: '2.0.3', mode: 'advanced', platform: 'darwin', material: 'transparent' })
+    expect(parseDesktopClientEnvironment('?dsh-desktop-platform=win32&dsh-desktop-mode=compatibility&dsh-desktop-version=2.0.3&dsh-desktop-material=off'))
+      .toEqual({ version: '2.0.3', mode: 'compatibility', platform: 'win32', material: 'off' })
+  })
+
+  it('renders removed Windows materials from an older Host as opaque', () => {
+    // Older Hosts emitted Mica with a dsh-desktop-mica capability marker, and
+    // Acrylic before that. Both resolve to off; the capability marker is ignored.
+    for (const search of [
+      '?dsh-desktop-mode=extended&dsh-desktop-platform=win32&dsh-desktop-version=2.0.3&dsh-desktop-material=mica&dsh-desktop-mica=1',
+      '?dsh-desktop-mode=advanced&dsh-desktop-platform=win32&dsh-desktop-version=2.0.3&dsh-desktop-material=mica&dsh-desktop-mica=0',
+      '?dsh-desktop-mode=extended&dsh-desktop-platform=win32&dsh-desktop-version=2.0.3&dsh-desktop-material=acrylic&dsh-desktop-mica=0',
+      '?dsh-desktop-mode=compatibility&dsh-desktop-platform=win32&dsh-desktop-version=2.0.3&dsh-desktop-material=off&dsh-desktop-mica=1',
+    ]) {
+      expect(parseDesktopClientEnvironment(search)).toMatchObject({ platform: 'win32', material: 'off' })
+      expect(parseDesktopClientEnvironment(search)).not.toHaveProperty('micaSupported')
+    }
   })
 
   it.each([
@@ -82,7 +97,8 @@ describe('desktop client environment', () => {
     ['?dsh-desktop-mode=advanced&dsh-desktop-platform=android', 'dsh-desktop-platform'],
     ['?dsh-desktop-mode=advanced&dsh-desktop-platform=darwin', 'dsh-desktop-material'],
     ['?dsh-desktop-mode=advanced&dsh-desktop-platform=darwin&dsh-desktop-material=off', 'dsh-desktop-version'],
-    ['?dsh-desktop-mode=advanced&dsh-desktop-platform=win32&dsh-desktop-version=2.0.3&dsh-desktop-material=mica&dsh-desktop-mica=0', 'incompatible'],
+    ['?dsh-desktop-mode=advanced&dsh-desktop-platform=win32&dsh-desktop-version=2.0.3&dsh-desktop-material=transparent', 'incompatible'],
+    ['?dsh-desktop-mode=advanced&dsh-desktop-platform=darwin&dsh-desktop-version=2.0.3&dsh-desktop-material=mica', 'incompatible'],
   ])('fails loud for malformed marker %s', (search, field) => {
     expect(() => parseDesktopClientEnvironment(search)).toThrow(field)
   })
@@ -186,10 +202,9 @@ describe('advanced desktop layout', () => {
 
     try {
       const dispose = installDesktopOwnedStyles()
+      expect(css).toContain('body:is([data-dsh-desktop-mode="extended"], [data-dsh-desktop-mode="advanced"])[data-dsh-desktop-platform="darwin"][data-dsh-desktop-material="transparent"] {\n  --dsw-menu-surface-fill: var(--dsw-alias-bg-layer-2);\n}')
       expect(css).toMatch(/\.dshDesktopFrame \{[^}]*transition: grid-template-columns var\(--ds-transition-duration-slow\) var\(--ds-ease-in-out\);/)
       expect(css).toMatch(/\.dshDesktopFrame\[data-dragging\] \{ transition: none; \}/)
-      expect(css).toMatch(/\[data-slot="sidebar\.footer\.action"\] \{[^}]*display: flex !important;[^}]*flex-direction: column;[^}]*max-height: min\(40vh, 240px\);[^}]*overflow-y: auto;/)
-      expect(css).toMatch(/\[data-slot="sidebar\.footer\.action"\] > \* \{[^}]*flex: none;[^}]*min-width: 0;/)
       expect(css).toContain('min-height: 0; overflow: visible;')
       expect(css).toMatch(/\.dshDesktopResizeHandle \{[^}]*transition: left var\(--ds-transition-duration-slow\) var\(--ds-ease-in-out\);/)
       expect(css).toMatch(/\.dshDesktopFrame\[data-dragging\] \.dshDesktopResizeHandle \{ transition: none; \}/)
@@ -234,6 +249,7 @@ describe('advanced desktop layout', () => {
     let disposed = false
     let uninstall: unknown
     const ctx = {
+      inject: vi.fn(),
       slots: { provideRoot: () => () => {}, subscribe: () => () => {} },
       reflect: {
         get: () => undefined,
@@ -315,6 +331,7 @@ describe('advanced desktop layout', () => {
         const dispose = mount()
         if (typeof dispose === 'function') disposers.push(dispose)
       }),
+      inject: vi.fn(),
       reflect: { get: vi.fn(), provide: vi.fn(() => () => {}) },
       theme: {
         getTheme: vi.fn(() => ({ active: { colorScheme: 'dark', tokens: {} } })),
@@ -337,7 +354,6 @@ describe('advanced desktop layout', () => {
         mode: 'advanced',
         platform: 'darwin',
         material: 'transparent',
-        micaSupported: false,
       })
       expect(registrations).toHaveLength(1)
       expect(occupants).toEqual([AdvancedFrame])
@@ -358,13 +374,12 @@ describe('advanced desktop layout', () => {
 
   it('reports generation-stable safe areas and drag geometry to client plugins', () => {
     expect(desktopWindowService({
-      version: '2.0.3', mode: 'compatibility', platform: 'darwin', material: 'off', micaSupported: false,
+      version: '2.0.3', mode: 'compatibility', platform: 'darwin', material: 'off',
     })).toEqual({
       version: '2.0.3',
       mode: 'compatibility',
       platform: 'darwin',
       material: 'off',
-      micaSupported: false,
       availableMaterials: ['off', 'transparent'],
       safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 },
       dragRegion: {
@@ -374,14 +389,13 @@ describe('advanced desktop layout', () => {
       },
     })
     const mac = desktopWindowService({
-      version: '2.0.3', mode: 'advanced', platform: 'darwin', material: 'transparent', micaSupported: false,
+      version: '2.0.3', mode: 'advanced', platform: 'darwin', material: 'transparent',
     })
     expect(mac).toEqual({
       version: '2.0.3',
       mode: 'advanced',
       platform: 'darwin',
       material: 'transparent',
-      micaSupported: false,
       availableMaterials: ['off', 'transparent'],
       safeAreaInsets: { top: ADVANCED_MACOS_DRAG_REGION_HEIGHT, right: 0, bottom: 0, left: 0 },
       dragRegion: {
@@ -394,13 +408,12 @@ describe('advanced desktop layout', () => {
     expect(Object.isFrozen(mac.safeAreaInsets)).toBe(true)
     expect(Object.isFrozen(mac.dragRegion)).toBe(true)
     expect(desktopWindowService({
-      version: '2.0.3', mode: 'advanced', platform: 'win32', material: 'off', micaSupported: false,
+      version: '2.0.3', mode: 'advanced', platform: 'win32', material: 'off',
     })).toEqual({
       version: '2.0.3',
       mode: 'advanced',
       platform: 'win32',
       material: 'off',
-      micaSupported: false,
       availableMaterials: ['off'],
       safeAreaInsets: { top: ADVANCED_WINDOWS_TITLEBAR_HEIGHT, right: 0, bottom: 0, left: 0 },
       dragRegion: {
@@ -410,14 +423,13 @@ describe('advanced desktop layout', () => {
       },
     })
     expect(desktopWindowService({
-      version: '2.0.3', mode: 'extended', platform: 'win32', material: 'mica', micaSupported: true,
+      version: '2.0.3', mode: 'extended', platform: 'win32', material: 'off',
     })).toEqual({
       version: '2.0.3',
       mode: 'extended',
       platform: 'win32',
-      material: 'mica',
-      micaSupported: true,
-      availableMaterials: ['off', 'mica'],
+      material: 'off',
+      availableMaterials: ['off'],
       safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 },
       dragRegion: {
         height: 0,
@@ -507,8 +519,6 @@ describe('independent Desktop frame', () => {
       expect(DESKTOP_FRAME_HEIGHT).toBe(36)
       expect(css).toMatch(/#root \{[^}]*position: fixed;[^}]*right: 0;[^}]*bottom: 0;[^}]*left: 0;[^}]*padding-top: 0;[^}]*transform: translateZ\(0\);/)
       expect(css).toMatch(/\[data-shell-overlay\] \{[^}]*overflow: hidden;[^}]*transform: translateZ\(0\);/)
-      expect(css).toMatch(/\[data-slot="sidebar\.footer\.action"\] \{[^}]*display: flex !important;[^}]*flex-direction: column;[^}]*max-height: min\(40vh, 240px\);[^}]*overflow-y: auto;/)
-      expect(css).toMatch(/\[data-slot="sidebar\.footer\.action"\] > \* \{[^}]*flex: none;[^}]*min-width: 0;/)
       expect(css).toMatch(/\[role="presentation"\]:has\(> \[aria-modal="true"\]\),[\s\S]*> \[aria-modal="true"\] \{[\s\S]*top: var\(--dsh-desktop-frame-height\) !important;/)
       expect(css).not.toContain('#root > :has(> [data-shell-overlay])')
       expect(css).toMatch(/body\[data-dsh-desktop-mode="extended"\] \.dshDesktopSidebarSurface \{[^}]*--dsw-specific-sidebar-fill: transparent;[^}]*border-right-color: transparent;[^}]*background: transparent !important;/)
@@ -571,6 +581,7 @@ describe('independent Desktop frame', () => {
         const dispose = mount()
         if (typeof dispose === 'function') disposers.push(dispose)
       }),
+      inject: vi.fn(),
       reflect: { get: vi.fn(), provide: vi.fn(() => () => {}) },
       theme: {
         getTheme: vi.fn(() => ({ active: { colorScheme: 'dark', tokens: {} } })),
@@ -594,7 +605,6 @@ describe('independent Desktop frame', () => {
         mode: 'extended',
         platform: 'win32',
         material: 'off',
-        micaSupported: false,
       })
       expect(registrations[0]).toMatchObject({
         name: 'root',
@@ -663,7 +673,6 @@ describe('independent Desktop frame', () => {
         mode: 'compatibility',
         platform: 'darwin',
         material: 'transparent',
-        micaSupported: false,
       })
       expect(injectedSlots).toEqual([])
       expect(registrations).toHaveLength(0)
@@ -676,6 +685,86 @@ describe('independent Desktop frame', () => {
       disposers.forEach(dispose => { dispose() })
       expect(dataset).toEqual({})
     } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
+describe('sidebar footer stacking', () => {
+  it.each(['compatibility', 'extended', 'advanced'])('owns the footer seat in %s mode', mode => {
+    vi.stubGlobal('window', { location: {
+      search: `?dsh-desktop-platform=darwin&dsh-desktop-mode=${mode}&dsh-desktop-version=2.0.3&dsh-desktop-material=off`,
+    } })
+    const effect = vi.fn()
+    const ctx = {
+      effect,
+      inject: vi.fn(),
+      on: vi.fn(() => () => {}),
+      reflect: { get: vi.fn(() => undefined), provide: vi.fn(() => () => {}) },
+      theme: { getTheme: vi.fn(() => ({ active: { colorScheme: 'dark', tokens: {} } })) },
+      slots: {
+        entries: vi.fn(() => []),
+        inject: vi.fn((_name: string, mount: () => unknown) => mount()),
+        provideRoot: vi.fn(() => () => {}),
+        register: vi.fn(() => () => {}),
+        subscribe: vi.fn(() => () => {}),
+      },
+      locale: { bind: () => (key: string) => key },
+      configForms: { get: () => ({}) },
+    } as unknown as ClientContext
+
+    try {
+      apply(ctx)
+      expect(effect.mock.calls.map(([, label]) => label))
+        .toContain('dsh-plugin-desktop: sidebar footer stacking styles')
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('stacks launchers in one bounded seat without shaving their rounded corners', () => {
+    let css = ''
+    const remove = vi.fn()
+    const style = {
+      dataset: {},
+      id: '',
+      get textContent() { return css },
+      set textContent(value: string) { css = value },
+      remove,
+    }
+    const appendChild = vi.fn()
+    vi.stubGlobal('document', {
+      getElementById: () => null,
+      createElement: () => style,
+      head: { appendChild },
+    })
+
+    try {
+      const dispose = installSidebarFooterStyles()
+      expect(css).toMatch(/body \[data-slot="sidebar\.footer\.action"\] \{[^}]*display: flex !important;[^}]*flex-direction: column;[^}]*max-height: min\(40vh, 240px\);[^}]*padding: 0 4px;[^}]*overflow-y: auto;/)
+      // Grow the anchor 4px per side and pay 4px back as padding: the content
+      // box keeps the slot's own width, so launchers that follow upstream's
+      // footer row convention (`.triggerRow`: `width: calc(100% + 4px);
+      // margin: 4px -2px`) land flush with the Settings row while the extra
+      // border-box width keeps the scroll container's clip edge off their
+      // rounded corners.
+      expect(css).toMatch(/body \[data-slot="sidebar\.footer\.action"\] \{[^}]*width: calc\(100% \+ 8px\);[^}]*margin-inline: -4px;/)
+      expect(css).toMatch(/body \[data-slot="sidebar\.footer\.action"\] > \* \{\s*flex: none;\s*min-width: 0;\s*\}/)
+      // Forcing a width on the children also hits the Tooltip bubbles React
+      // renders inside this anchor, stretching them to the viewport.
+      expect(css).not.toMatch(/> \* \{[^}]*\swidth:/)
+      // A reserved gutter shrank the seat asymmetrically; horizontal clipping
+      // sliced the corners off launchers that bleed past their content box.
+      expect(css).not.toContain('scrollbar-gutter')
+      expect(css).not.toContain('overflow-x: hidden')
+      // The seat must not depend on a mode marker: compatibility mode sets none.
+      expect(css).not.toContain('data-dsh-desktop-mode')
+      expect(appendChild).toHaveBeenCalledWith(style)
+      dispose()
+      expect(remove).toHaveBeenCalledOnce()
+    }
+    finally {
       vi.unstubAllGlobals()
     }
   })

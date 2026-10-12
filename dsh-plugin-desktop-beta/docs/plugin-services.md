@@ -69,9 +69,8 @@ export function apply(ctx: ClientContext): void {
 interface DesktopWindowService {
   readonly mode: 'compatibility' | 'extended' | 'advanced'
   readonly platform: 'darwin' | 'win32' | 'linux'
-  readonly material: 'off' | 'transparent' | 'mica'
-  readonly micaSupported: boolean
-  readonly availableMaterials: readonly ('off' | 'transparent' | 'mica')[]
+  readonly material: 'off' | 'transparent'
+  readonly availableMaterials: readonly ('off' | 'transparent')[]
   readonly safeAreaInsets: {
     readonly top: number
     readonly right: number
@@ -86,7 +85,7 @@ interface DesktopWindowService {
 }
 ```
 
-All values remain fixed for one renderer generation, and geometry uses CSS pixels. `material` is the effective, capability-gated backdrop rather than merely the persisted preference. `availableMaterials` is `off/transparent` on macOS, `off` on Windows 10, and `off/mica` on Windows 11 build 22621 or newer. The removed legacy `acrylic` preference is read as `off` and migrated when the settings document is writable.
+All values remain fixed for one renderer generation, and geometry uses CSS pixels. `material` is the effective, capability-gated backdrop rather than merely the persisted preference. `availableMaterials` is `off/transparent` on macOS and `off` on Windows and Linux; Windows windows are always opaque. The removed legacy `acrylic` and `mica` preferences are read as `off`, and `acrylic` is also migrated when the settings document is writable.
 
 Compatibility and extended modes report the same 36-pixel top reservation and drag band on macOS and Windows; they exclude 80 pixels on the left for macOS traffic lights or 138 pixels on the right for Windows caption controls. Desktop shifts the complete official frame below this reservation in compatibility mode. Extended instead owns the root layout/sidebar surface and hosts the official sidebar, conversation, and details occupants below the same reservation, so ordinary occupants must not add it again. Linux compatibility keeps its ordinary native frame and therefore reports zero insets and a zero-height drag region. Advanced mode has independent compact geometry: macOS reports a 20-pixel content inset and 32-pixel drag band with an 80-pixel left exclusion, while Windows reports a 32-pixel content inset and drag band with a 138-pixel right exclusion.
 
@@ -95,6 +94,21 @@ Compatibility and extended modes report the same 36-pixel top reservation and dr
 Compatibility and extended modes keep the command bar private to Desktop. They do not declare a titlebar action slot, and the first-party icon group is rendered directly by the Desktop frame: on the right on macOS and on the left on Windows. Web Client plugins must use their documented content slots and cannot place controls beside these native actions. Renderer reload and Developer Tools toggling remain private first-party launcher operations, not additions to the public `desktopWindow` service.
 
 Desktop marks the command bar with `data-dsh-desktop-frame="titlebar"` and the upstream root with `data-dsh-desktop-content-viewport`. The root is a separate fixed viewport below the command bar, so fixed descendants cannot escape into Desktop chrome. Full-viewport dialogs portalled directly to `document.body` receive the same content offset. Body-level plugin portals can read the `dsh-desktop-titlebar-inset` URL contract; framed modes publish the exact 36-pixel reservation. Plugins must not compensate for a boundary they already consume.
+
+### Shell DOM anchors
+
+Extended and advanced modes replace the upstream Web frame with a Desktop-owned root, so `@deepseek-ai/dsh-client-ui-layout` is **not** part of the client boot graph in those modes and none of its CSS module class names reach the DOM. A plugin that locates a shell region by querying for the upstream column classes would otherwise find nothing and mount nothing, with no error to observe. Desktop therefore carries a stable anchor on each shell region, and those anchors — not class names — are the supported contract:
+
+| Region | Anchor | Also emitted by the upstream Web frame |
+| --- | --- | --- |
+| Sidebar column | `[data-pane="sidebar"]` | No |
+| Sidebar column, compatibility alias | `.dshDesktop_sidebarCol` | `<hash>_sidebarCol` |
+| Rightbar column | `[data-rightbar-col]` | Yes |
+| Shell overlay layer | `[data-shell-overlay]` | Yes |
+
+The sidebar anchors sit on the element that directly wraps the `sidebar` slot, matching where the upstream column sits, so `element.querySelector` from the anchor reaches the same descendants in both shells. `dshDesktop_sidebarCol` carries no styles; it exists only so that a selector written against the upstream Web column — commonly `[data-pane="sidebar"], [class*="sidebarCol"]` — resolves unchanged under Desktop. Note the consequence for themes: a stylesheet that targets `[class*="sidebarCol"]` now applies on Desktop as well as on Web.
+
+Anchor names are stable; the surrounding structure is not. Query for the anchor, then search within it. Do not depend on the Desktop presentation classes (`dshDesktopSidebarSurface`, `dshDesktopUpstreamSidebar`, and their siblings), on element tag names, or on nesting depth — all of these change with mode, platform, and release. Compatibility mode runs the upstream client unmodified and keeps the upstream frame, including its own anchors.
 
 ## Public Host Cordis services
 

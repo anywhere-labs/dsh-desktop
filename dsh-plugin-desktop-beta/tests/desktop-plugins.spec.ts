@@ -16,8 +16,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   DesktopPluginsError,
   DesktopPluginsService,
+  DesktopProfileSelectionError,
   desktopPluginBundleMutable,
   readDesktopDisabledBundles,
+  readDesktopProfileBundleInventory,
+  readDesktopRecoveryBundleInventory,
+  setDesktopProfileBundleSelected,
   type DesktopPlugins,
   type DesktopPluginsBootstrap,
 } from '../src/desktop-plugins.ts'
@@ -522,5 +526,177 @@ describe('desktop direct bundle management', () => {
       { requested: 'community-market', effective: 'community-market', legacyDefaulted: false },
     )).not.toThrow()
     await harness.dispose()
+  })
+})
+
+function addDependency(home: string, packageName: string, version = '1.2.3'): void {
+  const manifest = profileManifest(home)
+  const dependencies = (manifest.value.dependencies ?? {}) as Record<string, string>
+  dependencies[packageName] = version
+  manifest.value.dependencies = dependencies
+  writeProfileManifest(manifest.path, manifest.value)
+}
+
+function ledger(home: string): unknown {
+  return (profileManifest(home).value.dsh as Record<string, unknown>).desktopDeselectedBundles
+}
+
+function selectionCode(cause: unknown): string | undefined {
+  return cause instanceof DesktopProfileSelectionError ? cause.code : undefined
+}
+
+describe('pre-Host Profile bundle selection', () => {
+  it('deselects one direct dependency, keeps every unrelated field, and records a ledger entry', async () => {
+    const root = temporaryRoot()
+    const options = bootstrap(root)
+    installBundle(options.homeDir, 'third-party-plugin')
+    addBundle(options.homeDir, 'third-party-plugin')
+    addDependency(options.homeDir, 'third-party-plugin')
+    const manifest = profileManifest(options.homeDir)
+    manifest.value.packageManager = 'pnpm@10.0.0'
+    ;(manifest.value.dsh as Record<string, unknown>).unrelatedDesktopKey = { kept: true }
+    writeProfileManifest(manifest.path, manifest.value)
+    const rootKeysBefore = Object.keys(manifest.value)
+    const dshKeysBefore = Object.keys(manifest.value.dsh as Record<string, unknown>)
+
+    await expect(setDesktopProfileBundleSelected(options, 'third-party-plugin', false)).resolves.toEqual({
+      packageName: 'third-party-plugin',
+      status: 'disabled',
+    })
+
+    const after = profileManifest(options.homeDir)
+    expect(after.value.dsh.profile.bundles).not.toContain('third-party-plugin')
+    expect(after.value.dependencies).toEqual({ 'third-party-plugin': '1.2.3' })
+    expect(after.value.packageManager).toBe('pnpm@10.0.0')
+    expect((after.value.dsh as Record<string, unknown>).unrelatedDesktopKey).toEqual({ kept: true })
+    expect(Object.keys(after.value)).toEqual(rootKeysBefore)
+    expect(Object.keys(after.value.dsh as Record<string, unknown>))
+      .toEqual([...dshKeysBefore, 'desktopDeselectedBundles'])
+    expect(ledger(options.homeDir)).toEqual(['third-party-plugin'])
+    expect(readFileSync(after.path, 'utf8').endsWith('}\n')).toBe(true)
+    if (process.platform !== 'win32') {
+      expect(lstatSync(after.path).mode & 0o777).toBe(0o600)
+    }
+  })
+
+  it('shows a deselected dependency as a disabled recovery row and restores it on reselection', async () => {
+    const root = temporaryRoot()
+    const options = bootstrap(root)
+    installBundle(options.homeDir, 'third-party-plugin')
+    addBundle(options.homeDir, 'third-party-plugin')
+    addDependency(options.homeDir, 'third-party-plugin')
+
+    await setDesktopProfileBundleSelected(options, 'third-party-plugin', false)
+    expect(readDesktopRecoveryBundleInventory(options)
+      .find(item => item.packageName === 'third-party-plugin')).toEqual({
+      packageName: 'third-party-plugin',
+      status: 'disabled',
+      mutable: true,
+      uninstallable: true,
+      deselected: true,
+    })
+    // The market-facing inventory never grows a row for a deselected name.
+    expect(readDesktopProfileBundleInventory(options)
+      .some(item => item.packageName === 'third-party-plugin')).toBe(false)
+
+    await expect(setDesktopProfileBundleSelected(options, 'third-party-plugin', true)).resolves.toEqual({
+      packageName: 'third-party-plugin',
+      status: 'active',
+    })
+    expect(readDesktopRecoveryBundleInventory(options)
+      .find(item => item.packageName === 'third-party-plugin')).toEqual({
+      packageName: 'third-party-plugin',
+      status: 'active',
+      mutable: true,
+      uninstallable: true,
+      deselected: false,
+    })
+    expect(ledger(options.homeDir)).toBeUndefined()
+  })
+
+  it('forgets a ledger entry that was reselected or uninstalled by any other writer', async () => {
+    const root = temporaryRoot()
+    const options = bootstrap(root)
+    installBundle(options.homeDir, 'third-party-plugin')
+    addBundle(options.homeDir, 'third-party-plugin')
+    addDependency(options.homeDir, 'third-party-plugin')
+    await setDesktopProfileBundleSelected(options, 'third-party-plugin', false)
+
+    // `dsh plugin add` selects the name again without knowing about the ledger.
+    const reselected = profileManifest(options.homeDir)
+    reselected.value.dsh.profile.bundles.push('third-party-plugin')
+    writeProfileManifest(reselected.path, reselected.value)
+    expect(readDesktopRecoveryBundleInventory(options)
+      .filter(item => item.packageName === 'third-party-plugin'))
+      .toEqual([expect.objectContaining({ status: 'active', deselected: false })])
+
+    // `dsh plugin remove` drops both the selection and the dependency entry.
+    const removed = profileManifest(options.homeDir)
+    removed.value.dsh.profile.bundles = removed.value.dsh.profile.bundles
+      .filter(name => name !== 'third-party-plugin')
+    delete (removed.value.dependencies as Record<string, string>)['third-party-plugin']
+    writeProfileManifest(removed.path, removed.value)
+    expect(readDesktopRecoveryBundleInventory(options)
+      .some(item => item.packageName === 'third-party-plugin')).toBe(false)
+  })
+
+  it('refuses an invalid, immutable, detached, or already-applied selection change', async () => {
+    const root = temporaryRoot()
+    const options = bootstrap(root)
+    installBundle(options.homeDir, 'third-party-plugin')
+    addBundle(options.homeDir, 'third-party-plugin')
+    addDependency(options.homeDir, 'third-party-plugin')
+    addBundle(options.homeDir, 'detached-bundle')
+    const before = readFileSync(profileManifest(options.homeDir).path, 'utf8')
+
+    await expect(setDesktopProfileBundleSelected(options, '../escape', false)).rejects.toSatisfy(
+      (cause: unknown) => selectionCode(cause) === 'invalid-target',
+    )
+    await expect(setDesktopProfileBundleSelected(options, '@deepseek-ai/dsh-base', false)).rejects.toSatisfy(
+      (cause: unknown) => selectionCode(cause) === 'immutable-target',
+    )
+    await expect(setDesktopProfileBundleSelected(options, 'detached-bundle', false)).rejects.toSatisfy(
+      (cause: unknown) => selectionCode(cause) === 'invalid-target',
+    )
+    await expect(setDesktopProfileBundleSelected(options, 'third-party-plugin', true)).rejects.toSatisfy(
+      (cause: unknown) => selectionCode(cause) === 'invalid-target',
+    )
+    expect(readFileSync(profileManifest(options.homeDir).path, 'utf8')).toBe(before)
+  })
+
+  it('rethrows an authorization failure verbatim and writes nothing', async () => {
+    const root = temporaryRoot()
+    const options = bootstrap(root)
+    installBundle(options.homeDir, 'third-party-plugin')
+    addBundle(options.homeDir, 'third-party-plugin')
+    addDependency(options.homeDir, 'third-party-plugin')
+    const before = readFileSync(profileManifest(options.homeDir).path, 'utf8')
+    const refusal = new Error('the active generation changed')
+
+    await expect(setDesktopProfileBundleSelected(options, 'third-party-plugin', false, () => {
+      throw refusal
+    })).rejects.toBe(refusal)
+    expect(readFileSync(profileManifest(options.homeDir).path, 'utf8')).toBe(before)
+  })
+
+  it('creates no manifest when the manifest cannot be read', async () => {
+    const root = temporaryRoot()
+    const options = bootstrap(root)
+    const manifestPath = profileManifest(options.homeDir).path
+    rmSync(manifestPath)
+
+    await expect(setDesktopProfileBundleSelected(options, 'third-party-plugin', false)).rejects.toSatisfy(
+      (cause: unknown) => selectionCode(cause) === 'manifest-unavailable',
+    )
+    expect(existsSync(manifestPath)).toBe(false)
+  })
+
+  it('rejects a ledger that is not an array of safe package names', () => {
+    const root = temporaryRoot()
+    const options = bootstrap(root)
+    const manifest = profileManifest(options.homeDir)
+    ;(manifest.value.dsh as Record<string, unknown>).desktopDeselectedBundles = ['../escape']
+    writeProfileManifest(manifest.path, manifest.value)
+    expect(() => readDesktopRecoveryBundleInventory(options)).toThrow('desktopDeselectedBundles is invalid')
   })
 })

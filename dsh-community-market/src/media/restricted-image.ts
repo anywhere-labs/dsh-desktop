@@ -1,16 +1,18 @@
 import dns from 'node:dns'
 import type { IncomingHttpHeaders, IncomingMessage } from 'node:http'
 import https from 'node:https'
-import { BlockList, isIP } from 'node:net'
+import { isIP } from 'node:net'
 import type { MarketMediaCandidate } from './types.js'
+import {
+  createBlockedAddresses,
+  createSyntheticProxyAddresses,
+} from '../network/blocked-subnets.js'
 
 const MAX_REDIRECTS = 2
 const MAX_BODY_BYTES = 2 * 1024 * 1024
 const CONNECT_TIMEOUT_MS = 8_000
 const FIRST_BYTE_TIMEOUT_MS = 12_000
 const TOTAL_TIMEOUT_MS = 30_000
-const SYNTHETIC_PROXY_NETWORK = '198.18.0.0'
-const SYNTHETIC_PROXY_PREFIX = 15
 
 export type MarketMediaErrorCode =
   | 'invalid-candidate'
@@ -58,33 +60,9 @@ export interface RestrictedImageFetcherOptions {
   readonly totalTimeoutMs?: number
 }
 
-const blockedAddresses = new BlockList()
-for (const [network, prefix] of [
-  ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
-  ['100.64.0.0', 10],
-  ['127.0.0.0', 8],
-  ['169.254.0.0', 16],
-  ['172.16.0.0', 12],
-  ['192.0.0.0', 24],
-  ['192.168.0.0', 16],
-  ['198.18.0.0', 15],
-  ['224.0.0.0', 3],
-] as const) {
-  blockedAddresses.addSubnet(network, prefix, 'ipv4')
-}
+const blockedAddresses = createBlockedAddresses()
 
-const syntheticProxyAddresses = new BlockList()
-syntheticProxyAddresses.addSubnet(SYNTHETIC_PROXY_NETWORK, SYNTHETIC_PROXY_PREFIX, 'ipv4')
-for (const [network, prefix] of [
-  ['::', 128],
-  ['::1', 128],
-  ['fc00::', 7],
-  ['fe80::', 10],
-  ['ff00::', 8],
-] as const) {
-  blockedAddresses.addSubnet(network, prefix, 'ipv6')
-}
+const syntheticProxyAddresses = createSyntheticProxyAddresses()
 
 function normalizeHostname(value: string): string {
   if (value.length === 0 || value.includes('*') || value.includes('/') || value.includes('@')) {

@@ -34,6 +34,7 @@ const MAX_FAILURE_CAUSE_LENGTH = 4 * 1024
 const BLOCKED_PRODUCT_PACKAGES = new Set([
   'dsh-plugin-desktop',
   'dsh-plugin-desktop-beta',
+  'dsh-desktop-next',
   'dsh-community-market',
 ])
 

@@ -37,6 +37,7 @@ function createLogger(): CapturedLogger {
   return {
     error: vi.fn<(message: string) => void>(),
     errorCause: vi.fn<(cause: unknown) => void>(),
+    info: vi.fn<(message: string) => void>(),
   }
 }
 
@@ -438,5 +439,108 @@ describe('desktop lifecycle events', () => {
       totalDurationMs: 100,
       stages: [{ stageId: 'electron-ready', status: 'completed', durationMs: 42 }],
     })
+  })
+
+  it.each([
+    ['exit code', { exitCode: 1.5 }],
+    ['disposition', { disposition: 'killed' }],
+    ['uptime', { uptimeMs: -1 }],
+    ['detail key', { pluginCount: 1 }],
+  ])('rejects a Host exit with an invalid %s', (_label, overrides) => {
+    expect(() => {
+      parseDesktopLifecycleEvent(baseEvent({
+        eventName: 'host.exited',
+        stageId: undefined,
+        details: { exitCode: 0, disposition: 'unexpected', uptimeMs: 10, ...overrides },
+      }))
+    }).toThrow()
+  })
+
+  it('records a Host exit after startup already settled', () => {
+    const userDataDir = tempUserData('dsh-lifecycle-host-exit-')
+    const logger = createLogger()
+    const recorder = createDesktopLifecycleRecorder({
+      userDataDir,
+      appVersion: '2.0.11-test',
+      platform: 'win32',
+      arch: 'x64',
+      logger,
+      now: () => FIXED_NOW,
+    })
+
+    recorder.startStartup('electron-ready')
+    recorder.completeStartup('health-commit', { status: 'healthy' })
+    recorder.recordHostExit({
+      exitCode: 0,
+      expected: false,
+      uptimeMs: 27_000_000,
+      childProcessGone: 'Utility/Network Service reason: killed, exitCode: 1073807364 / 0x40010004',
+    })
+
+    const events = readEvents(userDataDir)
+    const exit = events.at(-1)
+    expect(logger.error).not.toHaveBeenCalled()
+    expect(exit?.eventName).toBe('host.exited')
+    expect(exit?.details).toEqual({
+      exitCode: 0,
+      disposition: 'unexpected',
+      uptimeMs: 27_000_000,
+      childProcessGone: 'Utility/Network Service reason: killed, exitCode: 1073807364 / 0x40010004',
+    })
+  })
+
+  it('keeps an over-long correlation line and an absurd uptime out of the evidence', () => {
+    const userDataDir = tempUserData('dsh-lifecycle-host-exit-clamp-')
+    const recorder = createDesktopLifecycleRecorder({
+      userDataDir,
+      appVersion: '2.0.11-test',
+      platform: 'win32',
+      arch: 'x64',
+      logger: createLogger(),
+      now: () => FIXED_NOW,
+    })
+
+    recorder.recordHostExit({
+      exitCode: -1073741819,
+      expected: true,
+      uptimeMs: Number.POSITIVE_INFINITY,
+      childProcessGone: `Utility/${'name'.repeat(80)}\nreason: killed`,
+    })
+
+    const exit = readEvents(userDataDir).at(-1)
+    expect(exit?.details.uptimeMs).toBe(0)
+    expect(exit?.details.disposition).toBe('expected')
+    expect(exit?.details.exitCode).toBe(-1073741819)
+    expect(String(exit?.details.childProcessGone)).toHaveLength(128)
+    expect(String(exit?.details.childProcessGone)).not.toContain('\n')
+  })
+
+  it('counts only unwanted Host exits in the summary', () => {
+    const summaryBuffer = summarizeDesktopLifecycleEvidence(Buffer.from([
+      eventLine(),
+      eventLine({
+        eventName: 'host.exited',
+        stageId: undefined,
+        details: { exitCode: 0, disposition: 'expected', uptimeMs: 5 },
+      }),
+      eventLine({
+        eventName: 'host.exited',
+        stageId: undefined,
+        details: { exitCode: 3, disposition: 'unexpected', uptimeMs: 6 },
+      }),
+      '',
+    ].join('\n'), 'utf8'))
+
+    const summary = JSON.parse(summaryBuffer?.toString('utf8') ?? '') as DesktopLifecycleSummary
+    expect(summary.unexpectedHostExitCount).toBe(1)
+    expect(summary.lastHostExitCode).toBe(3)
+  })
+
+  it('leaves the Host fields out of a summary whose Host outlived the run', () => {
+    const summary = JSON.parse(
+      summarizeDesktopLifecycleEvidence(Buffer.from(`${eventLine()}\n`, 'utf8'))?.toString('utf8') ?? '',
+    ) as DesktopLifecycleSummary
+    expect(summary).not.toHaveProperty('unexpectedHostExitCount')
+    expect(summary).not.toHaveProperty('lastHostExitCode')
   })
 })

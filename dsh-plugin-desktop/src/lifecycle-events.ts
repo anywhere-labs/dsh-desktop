@@ -31,6 +31,11 @@ const PRIVATE_DIRECTORY_MODE = 0o700
 const PRIVATE_FILE_MODE = 0o600
 const MAX_DETAIL_STRING_LENGTH = 128
 const MAX_PLUGIN_IDS = 16
+// A supervised Host outlives startup, so its uptime needs a far wider bound than
+// the one-day ceiling every startup duration is held to.
+const MAX_HOST_UPTIME_MS = 400 * 24 * 60 * 60 * 1000
+const MIN_EXIT_CODE = -2_147_483_648
+const MAX_EXIT_CODE = 4_294_967_295
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u
 const PLUGIN_ID_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]{0,63}\/)?[a-z0-9][a-z0-9._-]{0,127}$/u
 
@@ -56,7 +61,10 @@ const EVENT_NAMES = new Set<DesktopLifecycleEventName>([
   'renderer.boot.completed',
   'renderer.boot.failed',
   'renderer.boot.timeout',
+  'host.exited',
 ])
+
+const HOST_EXIT_DISPOSITIONS = new Set<DesktopLifecycleHostExitDisposition>(['expected', 'unexpected'])
 
 const RENDERER_STATUSES = new Set(['healthy', 'failed', 'timeout'])
 const FAILURE_REASONS = new Set(['startup-failed', 'renderer-failed', 'renderer-timeout'])
@@ -64,6 +72,7 @@ const FAILURE_REASONS = new Set(['startup-failed', 'renderer-failed', 'renderer-
 export type DesktopLifecycleFailureReason = 'startup-failed' | 'renderer-failed' | 'renderer-timeout'
 export type DesktopLifecycleRendererFailureReason = 'renderer-failed' | 'renderer-timeout'
 export type DesktopLifecycleRendererStatus = 'healthy' | 'failed' | 'timeout'
+export type DesktopLifecycleHostExitDisposition = 'expected' | 'unexpected'
 export type DesktopLifecycleEventName =
   | 'startup.run.started'
   | 'startup.run.completed'
@@ -75,6 +84,7 @@ export type DesktopLifecycleEventName =
   | 'renderer.boot.completed'
   | 'renderer.boot.failed'
   | 'renderer.boot.timeout'
+  | 'host.exited'
 
 type DesktopLifecycleDetailValue = string | number | readonly string[]
 type DesktopLifecycleDetails = Readonly<Record<string, DesktopLifecycleDetailValue>>
@@ -107,6 +117,9 @@ export interface DesktopLifecycleSummary {
   readonly finalStage?: DesktopStartupFailureStage
   readonly rendererStatus?: DesktopLifecycleRendererStatus
   readonly totalDurationMs?: number
+  /** Host exits this run did not ask for; absent when the Host outlived the run. */
+  readonly unexpectedHostExitCount?: number
+  readonly lastHostExitCode?: number
   readonly stages: readonly DesktopLifecycleSummaryStage[]
 }
 
@@ -182,6 +195,8 @@ export function summarizeDesktopLifecycleEvidence(content: Buffer): Buffer | und
   let finalStage: DesktopStartupFailureStage | undefined
   let rendererStatus: DesktopLifecycleRendererStatus | undefined
   let totalDurationMs: number | undefined
+  let unexpectedHostExitCount = 0
+  let lastHostExitCode: number | undefined
   const stages: DesktopLifecycleSummaryStage[] = []
 
   for (const line of content.toString('utf8').split(/\n/u)) {
@@ -224,6 +239,10 @@ export function summarizeDesktopLifecycleEvidence(content: Buffer): Buffer | und
     if (event.eventName === 'renderer.boot.completed') rendererStatus = 'healthy'
     else if (event.eventName === 'renderer.boot.failed') rendererStatus = 'failed'
     else if (event.eventName === 'renderer.boot.timeout') rendererStatus = 'timeout'
+    if (event.eventName === 'host.exited') {
+      lastHostExitCode = event.details.exitCode as number
+      if (event.details.disposition === 'unexpected') unexpectedHostExitCount += 1
+    }
     if (event.eventName === 'startup.run.completed' || event.eventName === 'startup.run.failed') {
       finalOutcome = event.eventName === 'startup.run.completed' ? 'completed' : 'failed'
       finalStage = event.details.finalStage as DesktopStartupFailureStage | undefined
@@ -242,6 +261,8 @@ export function summarizeDesktopLifecycleEvidence(content: Buffer): Buffer | und
     ...(finalStage === undefined ? {} : { finalStage }),
     ...(rendererStatus === undefined ? {} : { rendererStatus }),
     ...(totalDurationMs === undefined ? {} : { totalDurationMs }),
+    ...(unexpectedHostExitCount === 0 ? {} : { unexpectedHostExitCount }),
+    ...(lastHostExitCode === undefined ? {} : { lastHostExitCode }),
     stages,
   } satisfies DesktopLifecycleSummary, undefined, 2)}\n`, 'utf8')
 }
@@ -342,6 +363,33 @@ export class DesktopLifecycleRecorder {
       finalStage,
       failureReason,
     }, this.durationFrom(this.startTime))
+  }
+
+  /**
+   * Record that the supervised Host is gone. Startup evidence stops at the
+   * `health-commit` stage, so a Host that dies minutes or hours later leaves no
+   * trace at all — the exit side is exactly where reports of a silently
+   * vanishing Host have nothing to hand a maintainer. Deliberately outside the
+   * `startupSettled` latch: a settled startup is the normal case here.
+   * @param info - exit code, whether this run asked for the exit, how long the
+   *   Host lived, and the correlated Chromium child-process failure when one
+   *   was observed.
+   */
+  recordHostExit(info: {
+    readonly exitCode: number
+    readonly expected: boolean
+    readonly uptimeMs: number
+    readonly childProcessGone?: string
+  }): void {
+    const childProcessGone = info.childProcessGone === undefined
+      ? undefined
+      : clampLine(info.childProcessGone) || undefined
+    this.record('host.exited', {
+      exitCode: info.exitCode,
+      disposition: info.expected ? 'expected' : 'unexpected',
+      uptimeMs: clampUptime(info.uptimeMs),
+      ...(childProcessGone === undefined ? {} : { childProcessGone }),
+    })
   }
 
   private completeCurrentStage(): void {
@@ -561,6 +609,7 @@ function parseDetails(eventName: DesktopLifecycleEventName, value: unknown): Des
   if (eventName === 'startup.run.failed') return parseStartupFailedDetails(details)
   if (eventName === 'renderer.boot.completed') return { rendererStatus: parseRendererStatus(details.rendererStatus) }
   if (eventName === 'renderer.boot.failed' || eventName === 'renderer.boot.timeout') return parseRendererFailedDetails(details)
+  if (eventName === 'host.exited') return parseHostExitedDetails(details)
   return {}
 }
 
@@ -572,6 +621,7 @@ function allowedDetailKeys(eventName: DesktopLifecycleEventName): ReadonlySet<st
   if (eventName === 'renderer.boot.failed' || eventName === 'renderer.boot.timeout') {
     return new Set(['failureReason', 'pluginCount', 'pluginIds', 'rendererStatus'])
   }
+  if (eventName === 'host.exited') return new Set(['childProcessGone', 'disposition', 'exitCode', 'uptimeMs'])
   return new Set()
 }
 
@@ -605,6 +655,48 @@ function parseRendererFailedDetails(details: Record<string, unknown>): DesktopLi
   if (details.pluginCount !== undefined) parsed.pluginCount = parseCount(details.pluginCount)
   if (details.pluginIds !== undefined) parsed.pluginIds = parsePluginIds(details.pluginIds)
   return parsed
+}
+
+function parseHostExitedDetails(details: Record<string, unknown>): DesktopLifecycleDetails {
+  const parsed: Record<string, DesktopLifecycleDetailValue> = {
+    exitCode: parseExitCode(details.exitCode),
+    disposition: parseHostExitDisposition(details.disposition),
+    uptimeMs: parseUptime(details.uptimeMs),
+  }
+  if (details.childProcessGone !== undefined) parsed.childProcessGone = safeLine(details.childProcessGone)
+  return parsed
+}
+
+function parseHostExitDisposition(value: unknown): DesktopLifecycleHostExitDisposition {
+  if (typeof value !== 'string' || !HOST_EXIT_DISPOSITIONS.has(value as DesktopLifecycleHostExitDisposition)) {
+    throw new Error('host exit disposition is invalid')
+  }
+  return value as DesktopLifecycleHostExitDisposition
+}
+
+/** Electron reports both signed and unsigned native exit codes; accept either. */
+function parseExitCode(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < MIN_EXIT_CODE || value > MAX_EXIT_CODE) {
+    throw new Error('host exit code is invalid')
+  }
+  return value
+}
+
+function parseUptime(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > MAX_HOST_UPTIME_MS) {
+    throw new Error('host uptime is invalid')
+  }
+  return value
+}
+
+/** Keep a hostile clock or a wedged supervisor from poisoning the whole file. */
+function clampUptime(value: number): number {
+  if (!Number.isFinite(value) || value < 0) return 0
+  return Number(Math.min(value, MAX_HOST_UPTIME_MS).toFixed(3))
+}
+
+function clampLine(value: string): string {
+  return value.replaceAll(/[\0\r\n]/gu, ' ').slice(0, MAX_DETAIL_STRING_LENGTH)
 }
 
 function safeLine(value: unknown): string {

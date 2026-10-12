@@ -9,6 +9,7 @@ import { MACOS_UNIVERSAL_NATIVE_ENTRIES } from '../scripts/mac-universal.ts'
 function options(overrides: Partial<MacReleaseVerificationOptions> = {}) {
   const calls: Array<{ command: string; args: readonly string[] }> = []
   const removeMountPoint = vi.fn()
+  const verifyEntitlements = vi.fn()
   const value: MacReleaseVerificationOptions = {
     distDir: '/release/dist',
     productName: 'DSH Desktop Beta',
@@ -16,9 +17,10 @@ function options(overrides: Partial<MacReleaseVerificationOptions> = {}) {
     makeMountPoint: () => '/private/tmp/dsh-desktop-dmg-test',
     run: (command, args) => { calls.push({ command, args: [...args] }) },
     removeMountPoint,
+    verifyEntitlements,
     ...overrides,
   }
-  return { calls, removeMountPoint, value }
+  return { calls, removeMountPoint, verifyEntitlements, value }
 }
 
 describe('macOS release artifact verification', () => {
@@ -47,13 +49,18 @@ describe('macOS release artifact verification', () => {
         command: 'lipo',
         args: [join(appPath, 'Contents', 'MacOS', 'DSH Desktop Beta'), '-verify_arch', 'arm64'],
       },
-      ...MACOS_UNIVERSAL_NATIVE_ENTRIES.map(entry => ({
+      ...MACOS_UNIVERSAL_NATIVE_ENTRIES.flatMap(entry => [{
         command: 'lipo',
         args: [
-          join(appPath, 'Contents', 'Resources', 'app.asar.unpacked', entry.path),
+          join(appPath, 'Contents', 'Resources', 'app', entry.path),
           '-verify_arch', entry.arch,
         ],
-      })),
+      }, ...(entry.path.endsWith('/bin/uv') ? [
+        { command: '/bin/test', args: ['-x', join(appPath, 'Contents', 'Resources', 'app', entry.path)] },
+        ...(entry.arch === (process.arch === 'x64' ? 'x86_64' : process.arch)
+          ? [{ command: join(appPath, 'Contents', 'Resources', 'app', entry.path), args: ['--version'] }]
+          : []),
+      ] : [])]),
       {
         command: 'codesign',
         args: ['--verify', '--deep', '--strict', '--verbose=2', appPath],
@@ -72,6 +79,19 @@ describe('macOS release artifact verification', () => {
       },
     ])
     expect(harness.removeMountPoint).toHaveBeenCalledWith('/private/tmp/dsh-desktop-dmg-test')
+    expect(harness.verifyEntitlements).toHaveBeenCalledWith(appPath, 'DSH Desktop Beta')
+  })
+
+  it('rejects a release missing microphone signature access and detaches the image', () => {
+    const failure = new Error('Missing macOS entitlement com.apple.security.device.audio-input')
+    const harness = options({ verifyEntitlements: () => { throw failure } })
+    let caught: unknown
+    try { verifyMacRelease(harness.value) } catch (cause) { caught = cause }
+    expect(caught).toBeInstanceOf(AggregateError)
+    expect((caught as AggregateError).errors).toEqual([failure])
+    expect(harness.calls.some(call => call.command === 'spctl')).toBe(false)
+    expect(harness.calls.at(-1)).toEqual({ command: 'hdiutil', args: ['detach', '/private/tmp/dsh-desktop-dmg-test'] })
+    expect(harness.removeMountPoint).toHaveBeenCalledOnce()
   })
 
   it('rejects absent or ambiguous release images before mounting', () => {

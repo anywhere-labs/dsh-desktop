@@ -69,9 +69,8 @@ export function apply(ctx: ClientContext): void {
 interface DesktopWindowService {
   readonly mode: 'compatibility' | 'extended' | 'advanced'
   readonly platform: 'darwin' | 'win32' | 'linux'
-  readonly material: 'off' | 'transparent' | 'mica'
-  readonly micaSupported: boolean
-  readonly availableMaterials: readonly ('off' | 'transparent' | 'mica')[]
+  readonly material: 'off' | 'transparent'
+  readonly availableMaterials: readonly ('off' | 'transparent')[]
   readonly safeAreaInsets: {
     readonly top: number
     readonly right: number
@@ -86,7 +85,7 @@ interface DesktopWindowService {
 }
 ```
 
-所有值都会在一个 renderer generation 内保持不变，几何值使用 CSS 像素。`material` 是经过系统能力门槛解析后的实际材质，而不只是持久化的偏好。macOS 的 `availableMaterials` 为 `off/transparent`；Windows 10 为 `off`；Windows 11 build 22621 及以上为 `off/mica`。已移除的旧 `acrylic` 偏好会按 `off` 读取，并在设置文件可写时自动迁移。
+所有值都会在一个 renderer generation 内保持不变，几何值使用 CSS 像素。`material` 是经过系统能力门槛解析后的实际材质，而不只是持久化的偏好。macOS 的 `availableMaterials` 为 `off/transparent`；Windows 和 Linux 为 `off`，Windows 窗口始终不透明。已移除的旧 `acrylic` 和 `mica` 偏好都会按 `off` 读取，其中 `acrylic` 还会在设置文件可写时自动迁移。
 
 兼容模式与扩展窗口在 macOS 与 Windows 上都报告顶部 36 像素的预留区与拖动带，并在 macOS 左侧为红绿灯排除 80 像素，或在 Windows 右侧为原生标题栏按钮排除 138 像素。兼容模式会把完整官方 frame 下移到该区域下方。扩展窗口则由 Desktop 持有 root layout/sidebar surface，并在同一预留区下方承载官方 sidebar、conversation 与 details occupant，因此普通 occupant 不能再次叠加这一 inset。Linux 兼容模式保留普通原生 frame，因此报告零 inset 和零高度拖动区域。增强模式使用独立的紧凑几何：macOS 报告 20 像素内容 inset、32 像素拖动带与 80 像素左侧排除；Windows 报告 32 像素内容 inset、32 像素拖动带与 138 像素右侧排除。
 
@@ -95,6 +94,21 @@ interface DesktopWindowService {
 兼容模式与扩展窗口都会让操作栏保持 Desktop 私有。它们不会声明标题栏 action slot；第一方图标组由 Desktop frame 直接渲染，在 macOS 位于右侧、在 Windows 位于左侧。Web Client 插件必须使用各自已有文档的内容 slot，不能把控件放到这些原生操作旁边。Renderer 重载与开发者工具切换仍是第一方私有 launcher 操作，不会加入公开的 `desktopWindow` service。
 
 Desktop 会用 `data-dsh-desktop-frame="titlebar"` 标记操作栏，并用 `data-dsh-desktop-content-viewport` 标记上游 root。Root 会成为操作栏下方独立的 fixed viewport，因此 fixed descendant 不能逃逸到 Desktop chrome；直接 portal 到 `document.body` 的全视口对话框会获得相同的内容偏移。Body 级插件 portal 可以读取 `dsh-desktop-titlebar-inset` URL contract，带 frame 的模式会发布精确的 36px 预留。插件不能重复补偿已经消费的边界。
+
+### 外壳 DOM 锚点
+
+extended 与 advanced 模式用 Desktop 自有 root 替换上游 Web frame，因此这两种模式下 `@deepseek-ai/dsh-client-ui-layout` **不在**客户端 boot 图中，它的 CSS module 类名一个都不会出现在 DOM 里。若插件靠查询上游列的类名来定位外壳区域，就会既查不到、也挂不上，而且没有任何可观测的报错。为此 Desktop 在每个外壳区域上都带一个稳定锚点；受支持的契约是这些锚点，而不是类名：
+
+| 区域 | 锚点 | 上游 Web frame 是否也发出 |
+| --- | --- | --- |
+| 侧边栏列 | `[data-pane="sidebar"]` | 否 |
+| 侧边栏列，兼容别名 | `.dshDesktop_sidebarCol` | `<hash>_sidebarCol` |
+| 右栏列 | `[data-rightbar-col]` | 是 |
+| 外壳 overlay 层 | `[data-shell-overlay]` | 是 |
+
+侧边栏锚点位于直接包裹 `sidebar` slot 的那个元素上，与上游列所处的位置一致，因此从锚点出发的 `element.querySelector` 在两套外壳里会到达同一批后代。`dshDesktop_sidebarCol` 不挂任何样式，它存在的唯一目的是让按上游 Web 列编写的选择器——通常是 `[data-pane="sidebar"], [class*="sidebarCol"]`——在 Desktop 下原样生效。对主题而言这有一个连带后果：针对 `[class*="sidebarCol"]` 的样式表现在会同时作用于 Desktop 和 Web。
+
+锚点名称是稳定的，其周围的结构不是。请先查询锚点，再在其内部检索。不要依赖 Desktop 的表现类（`dshDesktopSidebarSurface`、`dshDesktopUpstreamSidebar` 及其同级）、元素标签名或嵌套深度——它们都会随模式、平台和版本变化。compatibility 模式原样运行上游客户端并保留上游 frame，包括上游自己的锚点。
 
 ## 公开 Host Cordis service
 

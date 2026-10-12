@@ -10,6 +10,7 @@ const MAX_MANIFEST_BYTES = 1024 * 1024
 const BLOCKED_PACKAGES = new Set([
   'dsh-plugin-desktop',
   'dsh-plugin-desktop-beta',
+  'dsh-desktop-next',
   'dsh-community-market',
 ])
 

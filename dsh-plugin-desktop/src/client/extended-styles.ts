@@ -49,24 +49,6 @@ body:is([data-dsh-desktop-mode="compatibility"], [data-dsh-desktop-mode="extende
   top: var(--dsh-desktop-frame-height) !important;
   transform: translateZ(0);
 }
-body:is([data-dsh-desktop-mode="compatibility"], [data-dsh-desktop-mode="extended"])
-  [data-slot="sidebar.footer.action"] {
-  display: flex !important;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  width: 100%;
-  max-height: min(40vh, 240px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-body:is([data-dsh-desktop-mode="compatibility"], [data-dsh-desktop-mode="extended"])
-  [data-slot="sidebar.footer.action"] > * {
-  flex: none;
-  min-width: 0;
-}
 body[data-dsh-desktop-mode="extended"] .dshDesktopSidebarSurface {
   --dsw-specific-sidebar-fill: transparent;
   border-right-color: transparent;

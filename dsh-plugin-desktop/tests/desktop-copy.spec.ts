@@ -78,3 +78,30 @@ describe('Desktop product copy', () => {
     expect(copy.switchProfile).toBe('切换 Profile')
   })
 })
+
+describe('Desktop recovery disable copy', () => {
+  it('promises in Chinese that disabling deletes nothing and stays reversible', () => {
+    const copy = desktopRecoveryCopy('zh')
+    expect(copy.disable).toBe('禁用')
+    expect(copy.enable).toBe('启用')
+    expect(copy.disabled).toBe('已禁用')
+    expect(copy.disabledHint).toContain('仍已安装')
+    expect(copy.confirmDisableBody.startsWith('不会删除任何内容')).toBe(true)
+    expect(copy.confirmDisableBody).toContain('重新启用')
+    expect(copy.disabledSuccess).toContain('安装内容仍然保留')
+    expect(copy.enabledSuccess).toContain('重新启用')
+    expect(copy.bundleSelectionFailedTitle).toBe('未能更改插件状态')
+    expect(copy.operationStageLabels['bundle-selection']).toBe('Profile 插件启用状态')
+    expect(copy.pluginsBody).toContain('禁用')
+    expect(copy.confirmRollbackBody('2026/8/25 10:00:00')).toContain('插件的启用状态')
+  })
+
+  it.each(['en', 'zh'] as const)('keeps the destructive wording out of the %s disable dialog', locale => {
+    const copy = desktopRecoveryCopy(locale)
+    for (const key of ['confirmDisable', 'confirmDisableAction', 'confirmEnable', 'confirmEnableAction'] as const) {
+      expect(copy[key].length).toBeGreaterThan(0)
+      expect(copy[key]).not.toContain(copy.uninstall)
+    }
+    expect(copy.confirmDisableBody).not.toContain(copy.uninstall)
+  })
+})

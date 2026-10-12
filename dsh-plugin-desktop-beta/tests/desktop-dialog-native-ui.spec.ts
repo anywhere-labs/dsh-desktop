@@ -35,4 +35,10 @@ describe('Desktop dialog native UI', () => {
     expect(source).not.toContain('max-h-28 overflow-auto')
   })
 
+  it('tones the advisory for both color schemes', () => {
+    const source = readFileSync(new URL('../src/native-ui/desktop-dialog/App.tsx', import.meta.url), 'utf8')
+    // A bare `text-amber-100` is near white and disappears on the light-mode amber panel.
+    expect(source).toContain('text-amber-900 dark:text-amber-100')
+  })
+
 })

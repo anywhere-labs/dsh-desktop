@@ -8,12 +8,13 @@ import type { DesktopShellSpec } from '../src/runtime.ts'
 
 const electron = vi.hoisted(() => ({
   content: {
-    close: vi.fn(), focus: vi.fn(), isDestroyed: vi.fn(() => false),
+    close: vi.fn(), focus: vi.fn(), isDestroyed: vi.fn(() => false), invalidate: vi.fn(),
   },
   chrome: null as unknown as {
     on: ReturnType<typeof vi.fn>; off: ReturnType<typeof vi.fn>; ipc: { handle: ReturnType<typeof vi.fn>; removeHandler: ReturnType<typeof vi.fn> };
     mainFrame: { url: string }; isDestroyed: ReturnType<typeof vi.fn>; setWindowOpenHandler: ReturnType<typeof vi.fn>;
     send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; loadFile: ReturnType<typeof vi.fn>;
+    invalidate: ReturnType<typeof vi.fn>;
   },
 }))
 vi.mock('electron', () => ({
@@ -36,6 +37,7 @@ function fixture(platform: 'darwin' | 'win32' = 'darwin', mode: 'compatibility' 
     setWindowOpenHandler: vi.fn(),
     send: vi.fn(),
     close: vi.fn(),
+    invalidate: vi.fn(),
     loadFile: vi.fn(async (path: string) => { webContents.mainFrame.url = pathToFileURL(path).href }),
   })
   electron.chrome = webContents as unknown as typeof electron.chrome
@@ -52,6 +54,7 @@ function fixture(platform: 'darwin' | 'win32' = 'darwin', mode: 'compatibility' 
     openTerminal: vi.fn(), restart: vi.fn(async () => {}), restartToRecovery: vi.fn(async () => {}),
     reload: vi.fn(), developerTools: vi.fn(),
     checkForUpdates: vi.fn(async () => {}),
+    exportDiagnostics: vi.fn(async () => {}),
   }
   const spec = { mode, material, requestModeChange: vi.fn(async () => {}) } as unknown as DesktopShellSpec
   const shell = new CompatibilityShell(window as unknown as BrowserWindow, spec, platform, '/desktop/preload.cjs', actions)
@@ -67,7 +70,7 @@ describe('isolated compatibility shell', () => {
 
   it.each([
     ['darwin', 'extended', 'transparent', true],
-    ['win32', 'extended', 'mica', true],
+    ['win32', 'extended', 'off', false],
     ['darwin', 'extended', 'off', false],
     ['darwin', 'compatibility', 'transparent', false],
   ] as const)('preserves the content material boundary for %s %s %s', (platform, mode, material, transparent) => {
@@ -112,28 +115,51 @@ describe('isolated compatibility shell', () => {
   })
 
   it('preserves the Windows content surface through minimize, blur, and restore without reloading', () => {
-    const { shell, window, actions } = fixture('win32')
-    expect(shell.content).toMatchObject({ options: { webPreferences: { backgroundThrottling: false } } })
+    const { shell, window, actions, webContents } = fixture('win32')
+    // Disabling background throttling applies to the whole window, so nothing
+    // is ever backgrounded and Chromium never reclaims renderer memory.
+    const contentOptions = (shell.content as unknown as { options: { webPreferences: object } }).options
+    expect(contentOptions.webPreferences).not.toHaveProperty('backgroundThrottling')
     vi.mocked(shell.content.setBounds).mockClear()
     window.isMinimized.mockReturnValue(true)
     window.getContentSize.mockReturnValue([0, 0])
     window.emit('resize')
     window.emit('blur')
     window.emit('hide')
+    expect(electron.content.invalidate).not.toHaveBeenCalled()
     window.isMinimized.mockReturnValue(false)
     window.emit('restore') // Windows may not have published the restored size yet.
     expect(shell.content.setBounds).not.toHaveBeenCalled()
+    // An unchanged bounds rect makes resize() a no-op, so a restored frame is
+    // repainted explicitly rather than through a layout pass that never runs.
+    expect(electron.content.invalidate).toHaveBeenCalledOnce()
+    expect(webContents.invalidate).toHaveBeenCalledOnce()
     window.getContentSize.mockReturnValue([1280, 840])
     window.emit('resize')
     window.emit('show')
     expect(shell.content.setBounds).not.toHaveBeenCalled()
+    expect(electron.content.invalidate).toHaveBeenCalledTimes(2)
     expect(actions.reload).not.toHaveBeenCalled()
     window.getContentSize.mockReturnValue([1000, 700])
     window.emit('restore')
     expect(shell.content.setBounds).toHaveBeenCalledExactlyOnceWith({ x: 0, y: 36, width: 1000, height: 664 })
+    expect(electron.content.invalidate).toHaveBeenCalledTimes(3)
     shell.dispose()
     expect(window.listenerCount('restore')).toBe(0)
     expect(window.listenerCount('show')).toBe(0)
+  })
+
+  it('does not repaint or lay out a minimized window', () => {
+    const { shell, window, webContents } = fixture('win32')
+    vi.mocked(shell.content.setBounds).mockClear()
+    window.isMinimized.mockReturnValue(true)
+    window.getContentSize.mockReturnValue([1000, 700])
+    window.emit('restore')
+    window.emit('show')
+    expect(shell.content.setBounds).not.toHaveBeenCalled()
+    expect(electron.content.invalidate).not.toHaveBeenCalled()
+    expect(webContents.invalidate).not.toHaveBeenCalled()
+    shell.dispose()
   })
 
   it('does not resize the page when chrome popups expand, collapse, or lose focus', async () => {

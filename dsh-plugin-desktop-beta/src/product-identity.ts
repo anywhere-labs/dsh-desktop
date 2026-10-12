@@ -5,12 +5,14 @@ export const DESKTOP_RELEASE_IDENTITIES = Object.freeze({
     packageName: 'dsh-plugin-desktop',
     productName: 'DSH Desktop',
     appId: 'ai.deepseek.dsh.desktop',
+    homeDirectoryName: '.dsh',
   }),
   beta: Object.freeze({
     releaseChannel: 'beta' as const,
     packageName: 'dsh-plugin-desktop-beta',
     productName: 'DSH Desktop Beta',
     appId: 'ai.deepseek.dsh.desktop.beta',
+    homeDirectoryName: '.dsh-beta',
   }),
 })
 
@@ -24,6 +26,7 @@ export const STABLE_DESKTOP_PACKAGE_NAME = OTHER_DESKTOP_PRODUCT_IDENTITY.packag
 export const DESKTOP_PRODUCT_NAME = DESKTOP_PRODUCT_IDENTITY.productName
 export const DESKTOP_APP_ID = DESKTOP_PRODUCT_IDENTITY.appId
 export const DESKTOP_RELEASE_CHANNEL = DESKTOP_PRODUCT_IDENTITY.releaseChannel
+export const DESKTOP_HOME_DIRECTORY_NAME = DESKTOP_PRODUCT_IDENTITY.homeDirectoryName
 
 /** Both Desktop package identities are launcher-owned, never Profile plugins. */
 export const DESKTOP_PACKAGE_NAMES: ReadonlySet<string> = new Set([

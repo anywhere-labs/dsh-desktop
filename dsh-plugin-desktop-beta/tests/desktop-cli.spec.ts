@@ -50,13 +50,23 @@ describe('packaged dsh bootstrap', () => {
 
     expect(load).toHaveBeenCalledOnce()
     expect(runCli).toHaveBeenCalledOnce()
-    expect(runCli).toHaveBeenCalledWith({ allowDesktopProfile: true })
+    expect(runCli).toHaveBeenCalledWith({ manageDesktopProfile: true })
   })
 
   it('propagates a rejected upstream CLI invocation', async () => {
     const failure = new Error('CLI startup failed')
     const load = async () => ({ runCli: async () => { throw failure } })
     await expect(runDesktopDshCli({}, load, ['node', 'desktop-cli', '--version'])).rejects.toBe(failure)
+  })
+
+  it('reads user files physically before the unpacked CLI starts', async () => {
+    const asarProcess: { noAsar?: boolean } = {}
+    const load = vi.fn(async () => {
+      expect(asarProcess.noAsar).toBe(true)
+      return { runCli: async () => {} }
+    })
+    await runDesktopDshCli({}, load, ['node', 'desktop-cli', '--version'], asarProcess)
+    expect(load).toHaveBeenCalledOnce()
   })
 
   it('leaves the release-age policy to the final pnpm shim exactly once', async () => {

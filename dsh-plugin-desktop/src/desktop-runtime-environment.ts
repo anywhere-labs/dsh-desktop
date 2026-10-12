@@ -18,6 +18,8 @@ import { assertDesktopProfileName } from './profile-manager.ts'
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 const DEFAULT_PROFILE = 'DSH_DESKTOP_DEFAULT_PROFILE'
 const DSH_HOME = 'DSH_HOME'
+const RUNTIME_CODEPAGE = 'DSH_RUNTIME_CODEPAGE'
+const RUNTIME_EXIT = 'DSH_RUNTIME_EXIT'
 const PATH = 'PATH'
 const ELECTRON_HEADERS_URL = 'https://electronjs.org/headers'
 const DIRECTORY_MODE = 0o700
@@ -111,6 +113,8 @@ export function desktopRunAsNodeExecutable(
   if (basename(macosDirectory) !== 'MacOS' || basename(contentsDirectory) !== 'Contents') {
     return appExecutable
   }
+  // Callers may pass an executable already selected by another runtime layer.
+  if (basename(dirname(dirname(contentsDirectory))) === 'Frameworks') return appExecutable
   const executableName = basename(appExecutable)
   return join(
     contentsDirectory,
@@ -417,15 +421,41 @@ function posixPnpmShim(options: DesktopPnpmRuntimeOptions, nodeExecutable: strin
   ].join('\n')
 }
 
+/**
+ * Pin the console to UTF-8 so cmd.exe decodes this file the same way it was written.
+ *
+ * Batch files are decoded with the console code page, not with their own encoding. These shims are
+ * written as UTF-8 and embed absolute paths, so on an OEM code page every non-ASCII path byte
+ * decodes to a different character and the command fails with ERROR_PATH_NOT_FOUND. The prologue
+ * is pure ASCII, which decodes identically under every code page, and it precedes every embedded
+ * path. Losing `chcp` only restores the previous behavior, so the recovery stays silent.
+ */
+function windowsCodePagePrologue(): string[] {
+  return [
+    `for /f "tokens=2 delims=:" %%c in ('chcp 2^>nul') do set "${RUNTIME_CODEPAGE}=%%c"`,
+    'chcp 65001>nul 2>nul',
+  ]
+}
+
+/** Restore the caller's console code page, which outlives this process, and keep the exit code. */
+function windowsCodePageEpilogue(): string[] {
+  return [
+    `set "${RUNTIME_EXIT}=%errorlevel%"`,
+    `chcp %${RUNTIME_CODEPAGE}% >nul 2>nul`,
+    `exit /b %${RUNTIME_EXIT}%`,
+  ]
+}
+
 /** Build the private Windows Node command used only by pnpm lifecycle scripts. */
 function windowsNodeShim(appExecutable: string): string {
   return [
     '@echo off',
     'setlocal DisableDelayedExpansion',
+    ...windowsCodePagePrologue(),
     'set "DSH_RUNTIME_PRIVATE=%~dp0.."',
     `set "${RUN_AS_NODE}=1"`,
     `${quoteBatchWord(appExecutable)} --require "%DSH_RUNTIME_PRIVATE%\\clear-env.cjs" %*`,
-    'exit /b %errorlevel%',
+    ...windowsCodePageEpilogue(),
     '',
   ].join('\r\n')
 }
@@ -435,6 +465,7 @@ function windowsPnpmShim(options: DesktopPnpmRuntimeOptions): string {
   return [
     '@echo off',
     'setlocal DisableDelayedExpansion',
+    ...windowsCodePagePrologue(),
     'set "DSH_RUNTIME_ROOT=%~dp0.."',
     'set "DSH_RUNTIME_PRIVATE=%DSH_RUNTIME_ROOT%\\private"',
     'set "DSH_RUNTIME_NODE_BIN=%DSH_RUNTIME_PRIVATE%\\node-bin"',
@@ -445,7 +476,7 @@ function windowsPnpmShim(options: DesktopPnpmRuntimeOptions): string {
     `set "npm_config_target=${escapeBatchSetValue(options.electronVersion)}"`,
     `set "npm_config_disturl=${ELECTRON_HEADERS_URL}"`,
     `${quoteBatchWord(options.appExecutable)} --require "%DSH_RUNTIME_PRIVATE%\\clear-env.cjs" ${quoteBatchWord(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} %*`,
-    'exit /b %errorlevel%',
+    ...windowsCodePageEpilogue(),
     '',
   ].join('\r\n')
 }
@@ -455,11 +486,12 @@ function windowsDshShim(options: DesktopDshRuntimeOptions): string {
   return [
     '@echo off',
     'setlocal DisableDelayedExpansion',
+    ...windowsCodePagePrologue(),
     `set "${RUN_AS_NODE}=1"`,
     `set "${DEFAULT_PROFILE}=${escapeBatchSetValue(options.profileName)}"`,
     `set "${DSH_HOME}=${escapeBatchSetValue(options.homeDir)}"`,
     `${quoteBatchWord(options.appExecutable)} --expose-internals ${quoteBatchWord(options.dshBootstrapPath)} %*`,
-    'exit /b %errorlevel%',
+    ...windowsCodePageEpilogue(),
     '',
   ].join('\r\n')
 }
