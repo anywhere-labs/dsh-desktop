@@ -16394,6 +16394,7 @@ __metadata:
     vite: "npm:8.2.1"
     vitest: "npm:4.1.8"
     yaml: "npm:^2.9.0"
+    zod: "npm:^4.4.3"
   peerDependencies:
     electron: 44.0.0
   bin:
@@ -16611,6 +16612,7 @@ __metadata:
     vite: "npm:8.2.1"
     vitest: "npm:4.1.8"
     yaml: "npm:^2.9.0"
+    zod: "npm:^4.4.3"
   peerDependencies:
     electron: 44.0.0
   bin:
