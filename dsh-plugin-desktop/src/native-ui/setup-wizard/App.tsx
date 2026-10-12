@@ -128,7 +128,7 @@ function normalizedSelection(input: DesktopSetupWizardInput): DesktopSetupWizard
     windowsMaterial: input.windowsMaterial,
     openBrowser: browserAccess,
     networkExposure: browserAccess ? input.networkExposure : 'loopback',
-    market: input.market,
+    market: 'disabled',
     aaEnabled: input.aaEnabled === true,
     notifications: { ...input.notifications },
   }
@@ -149,6 +149,8 @@ function finish(selection: DesktopSetupWizardSelection): void {
   url.searchParams.set('notifyOnTurnFailure', String(selection.notifications.notifyOnTurnFailure))
   url.searchParams.set('notifyOnJobCompletion', String(selection.notifications.notifyOnJobCompletion))
   url.searchParams.set('notifyOnJobFailure', String(selection.notifications.notifyOnJobFailure))
+  url.searchParams.set('notifyOnScheduleCompletion', String(selection.notifications.notifyOnScheduleCompletion))
+  url.searchParams.set('notifyOnScheduleFailure', String(selection.notifications.notifyOnScheduleFailure))
   window.location.assign(url.href)
 }
 
@@ -380,6 +382,8 @@ function NotificationOptions({
       <ToggleRow checked={notifications.notifyOnTurnFailure} disabled={!notifications.enabled} id="setup-turn-failure" label={copy.turnFailure} onChange={checked => { set('notifyOnTurnFailure', checked) }} />
       <ToggleRow checked={notifications.notifyOnJobCompletion} disabled={!notifications.enabled} id="setup-job-completion" label={copy.jobCompletion} onChange={checked => { set('notifyOnJobCompletion', checked) }} />
       <ToggleRow checked={notifications.notifyOnJobFailure} disabled={!notifications.enabled} id="setup-job-failure" label={copy.jobFailure} onChange={checked => { set('notifyOnJobFailure', checked) }} />
+      <ToggleRow checked={notifications.notifyOnScheduleCompletion} disabled={!notifications.enabled} id="setup-schedule-completion" label={copy.scheduleCompletion} onChange={checked => { set('notifyOnScheduleCompletion', checked) }} />
+      <ToggleRow checked={notifications.notifyOnScheduleFailure} disabled={!notifications.enabled} id="setup-schedule-failure" label={copy.scheduleFailure} onChange={checked => { set('notifyOnScheduleFailure', checked) }} />
     </div>
   </div>
 }

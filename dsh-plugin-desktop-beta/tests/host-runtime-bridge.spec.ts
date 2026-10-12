@@ -56,7 +56,8 @@ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on c
     expect(mode).toHaveBeenCalledWith('extended')
     const setup = { mode: 'extended', macosMaterial: 'transparent', windowsMaterial: 'off', openBrowser: false,
       networkExposure: 'loopback', notifications: { enabled: true, notifyOnTurnCompletion: true,
-        notifyOnTurnFailure: true, notifyOnJobCompletion: true, notifyOnJobFailure: true } } as const
+        notifyOnTurnFailure: true, notifyOnJobCompletion: true, notifyOnJobFailure: true,
+        notifyOnScheduleCompletion: true, notifyOnScheduleFailure: true } } as const
     await shell.applySetupSettings?.(setup)
     expect(spec.applySetupSettings).toHaveBeenCalledWith(setup)
     expect(runtime.locale).toBe('zh')

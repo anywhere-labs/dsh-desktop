@@ -1,18 +1,25 @@
 diff --git a/lib/client.js b/lib/client.js
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -3342,3 +3342,4 @@
+@@ -3341,6 +3341,7 @@ window.__ModuleLoader__.load({
+ 			}, [exiting]);
  			return (0, react_dom.createPortal)((0, react_jsx_runtime.jsxs)("div", {
  				className: OnboardingSurface_module_css_default.onboardingOverlay,
 +				"data-desktop-onboarding-surface": "",
  				"data-exiting": exiting || void 0,
-@@ -3966,22 +3967,5 @@
+ 				role: "presentation",
+ 				children: [(0, react_jsx_runtime.jsx)("div", {
+@@ -4038,29 +4039,16 @@ window.__ModuleLoader__.load({
+ 								children: t("onboardingRetry")
+ 							})]
+ 						}),
 -						step !== "welcome" && (0, react_jsx_runtime.jsxs)("footer", {
 -							className: DesktopOnboarding_module_css_default.navigation,
 -							children: [(0, react_jsx_runtime.jsxs)("button", {
 -								type: "button",
 -								disabled: busy,
 -								onClick: () => {
+-									click("back");
 -									go(step === "credit" ? "welcome" : step === "purpose" ? "credit" : "purpose");
 -								},
 -								children: [(0, react_jsx_runtime.jsx)("span", {
@@ -24,17 +31,25 @@ diff --git a/lib/client.js b/lib/client.js
 -								type: "button",
 -								disabled: busy,
 -								onClick: () => {
+-									click("skip");
 -									setDialog(step === "credit" ? "credit-skip" : "skip");
 -								},
 -								children: t("onboardingSkip")
 -							})]
--						})
 +						step !== "welcome" && (0, react_jsx_runtime.jsx)(DesktopOnboardingNavigation, {
 +							busy, t,
-+							onBack: () => go(step === "credit" ? "welcome" : step === "purpose" ? "credit" : "purpose"),
-+							onSkip: () => setDialog(step === "credit" ? "credit-skip" : "skip")
-+						})
-@@ -4015,7 +3998,46 @@
++							onBack: () => {
++								click("back");
++								go(step === "credit" ? "welcome" : step === "purpose" ? "credit" : "purpose");
++							},
++							onSkip: () => {
++								click("skip");
++								setDialog(step === "credit" ? "credit-skip" : "skip");
++							}
+ 						})
+ 					]
+ 				}, step)
+@@ -4102,7 +4090,46 @@ window.__ModuleLoader__.load({
  		* @param props - shell overlay bindings and account-owned actions.
  		* @returns the unfinished flow, retained briefly after successful completion unless motion is reduced.
  		*/
@@ -82,7 +97,7 @@ diff --git a/lib/client.js b/lib/client.js
  			const locale = props.t("onboardingArtworkLocale");
  			const state = useOnboarding((value) => value);
  			const account = useAccount((value) => value);
-@@ -4072,10 +4108,38 @@
+@@ -4159,10 +4186,38 @@ window.__ModuleLoader__.load({
  		* Read the same safe credential fact used by native login.
  		* @returns configured API-key presence; rejects when the desktop bridge is unavailable.
  		*/
@@ -124,7 +139,7 @@ diff --git a/lib/client.js b/lib/client.js
  		}
  		//#endregion
  		//#region lib/types/client/account-refresh.js
-@@ -4329,7 +4393,7 @@
+@@ -4416,7 +4471,7 @@ window.__ModuleLoader__.load({
  				}
  			};
  			if ("dshDesktop" in globalThis) {
@@ -133,7 +148,7 @@ diff --git a/lib/client.js b/lib/client.js
  				ctx.effect(() => () => {
  					controller.dispose();
  				}, "account: desktop onboarding lifetime");
-@@ -4349,6 +4416,8 @@
+@@ -4436,8 +4491,10 @@ window.__ModuleLoader__.load({
  				ctx.slots.inject("shell.overlay", () => ctx.slots.register({
  					name: "shell.overlay",
  					id: "desktop-onboarding",
@@ -142,10 +157,12 @@ diff --git a/lib/client.js b/lib/client.js
  					inject: () => ({
 +						openDesktopLogin: () => operations.showLogin(true),
  						hooks: {
+ 							account: operations.hooks.account,
+ 							onboarding: controller.state
 diff --git a/lib/types/client/index.d.ts b/lib/types/client/index.d.ts
 --- a/lib/types/client/index.d.ts
 +++ b/lib/types/client/index.d.ts
-@@ -13,4 +13,17 @@
+@@ -13,4 +13,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  export declare const inject: string[];
  /** Register account UI only in the Desktop renderer. @param ctx - client plugin context. */
  export declare function apply(ctx: Context): void;

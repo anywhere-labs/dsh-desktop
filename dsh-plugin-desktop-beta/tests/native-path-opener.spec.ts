@@ -25,17 +25,15 @@ it('reveals Windows files without hiding Explorer', async () => {
     expect.objectContaining({ windowsHide: false }), expect.any(Function))
 })
 
-it.each(['explorer.exe', 'C:\\Windows\\EXPLORER.EXE', 'C:/Windows/explorer.exe'])(
-  'keeps the GUI visible for %s', async command => {
-    await runNativeCommand(command, [], new AbortController().signal)
-    expect(fixture.execFile).toHaveBeenCalledWith(command, [],
-      expect.objectContaining({ windowsHide: false }), expect.any(Function))
-  },
-)
+it('keeps GUI launchers visible', async () => {
+  await runNativeCommand('explorer.exe', [], new AbortController().signal, 'visible')
+  expect(fixture.execFile).toHaveBeenCalledWith('explorer.exe', [],
+    expect.objectContaining({ windowsHide: false }), expect.any(Function))
+})
 
-it.each(['powershell.exe', 'reg.exe', 'wslpath', 'other-explorer.exe'])(
+it.each(['powershell.exe', 'reg.exe', 'wslpath'])(
   'still hides background commands: %s', async command => {
-    await runNativeCommand(command, [], new AbortController().signal)
+    await runNativeCommand(command, [], new AbortController().signal, 'hidden')
     expect(fixture.execFile).toHaveBeenCalledWith(command, [],
       expect.objectContaining({ windowsHide: true }), expect.any(Function))
   },

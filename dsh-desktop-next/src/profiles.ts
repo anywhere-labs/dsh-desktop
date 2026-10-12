@@ -8,6 +8,8 @@ import { atomicJson, atomicText, readPrivateFile } from './private-files.ts'
 import { NextRecovery } from './recovery.ts'
 import { DEFAULT_PROFILE } from './desktop-contract.ts'
 import { computerUsePatch } from './profile-computer-use.ts'
+import { RETIRED_SCHEDULE_BUNDLE, retiredSchedulePatch } from './profile-schedule.ts'
+import { removeLinkProjectionsSafely } from '../../dsh-plugin-desktop-beta/src/link-projections.ts'
 
 export const NEXT_PACKAGE = fileURLToPath(new URL('../package.json', import.meta.url))
 export const WEB_BUNDLES = [...PROFILE_TEMPLATES.web!.bundles]
@@ -23,6 +25,11 @@ export const DEFAULT_FEATURES: Readonly<Features> = { remoteControl: false, mark
 interface ProfileManifest {
   dsh: {
     desktopNextPlugins?: number
+    /**
+     * Scheduled Tasks migration step: 1 carried 0.1.7 Web-row choices onto the
+     * rc.2 optional bundle, 2 retired that bundle once upstream removed it.
+     */
+    desktopNextScheduleBundle?: number
     desktopNextOnboarding?: { version: number; outcome: 'completed' | 'skipped'; accountPending?: boolean }
     /** Names recovery removed from `profile.bundles`; a UI ledger, never a policy. */
     desktopNextDeselectedBundles?: string[]
@@ -114,6 +121,7 @@ export class NextProfiles {
         atomicJson(join(dir, 'package.json'), migrated)
       }
     } else this.setFeatures(name, DEFAULT_FEATURES)
+    this.migrateSchedule(name)
     return dir
   }
   create(name: string): string {
@@ -122,6 +130,7 @@ export class NextProfiles {
     mkdirSync(dir, { mode: 0o700 })
     initProfile(dir, WEB_BUNDLES)
     this.setFeatures(name, DEFAULT_FEATURES)
+    this.migrateSchedule(name)
     return dir
   }
   features(name: string): Features {
@@ -196,6 +205,29 @@ export class NextProfiles {
     if (manifest.dsh.desktopNextPlugins === 1) return
     this.setFeatures(name, { ...this.features(name), dshMarket: manifest.dsh.profile.bundles.includes(DSH_MARKET_PACKAGE) })
   }
+  /**
+   * Once per Profile: upstream retired the Scheduled Tasks bundle and the Web
+   * composition now mounts Schedule. Drop the bundle (app-boot would on load,
+   * but Next reads the list first) and the `time-context` overrides that no
+   * longer match a row; overrides on `schedule` and `ui-schedule` keep applying.
+   */
+  private migrateSchedule(name: string): void {
+    const manifest = this.manifest(name)
+    if (manifest.dsh.desktopNextScheduleBundle === 2) return
+    const patchPath = join(this.directory(name), 'cordis.patch.yml')
+    let patch: string | undefined
+    // A malformed patch is left for recovery to handle; retry on the next start.
+    try { patch = retiredSchedulePatch(readPrivateFile(patchPath) ?? '[]\n') } catch { return }
+    const bundles = manifest.dsh.profile.bundles.filter(bundle => bundle !== RETIRED_SCHEDULE_BUNDLE)
+    if (patch !== undefined || bundles.length !== manifest.dsh.profile.bundles.length) {
+      new NextRecovery(this).backup(name, 'before-schedule-bundle-retirement')
+    }
+    // Patch first: both steps are idempotent, so an interrupted run simply repeats.
+    if (patch !== undefined) atomicText(patchPath, patch)
+    manifest.dsh.profile.bundles = bundles
+    manifest.dsh.desktopNextScheduleBundle = 2
+    atomicJson(join(this.directory(name), 'package.json'), manifest)
+  }
   private manifest(name: string): ProfileManifest {
     const value = JSON.parse(readPrivateFile(join(this.directory(name), 'package.json')) ?? 'null')
     if (!value || !Array.isArray(value.dsh?.profile?.bundles) || value.dsh.profile.bundles.some((item: unknown) => typeof item !== 'string')) throw new Error('Invalid Next Profile manifest')
@@ -224,11 +256,28 @@ export class NextProfiles {
   }
 }
 
+/**
+ * Remove the package links a dsh 0.1.5 launcher (Stable before 2.0.14, the 0.1.5 CLI)
+ * projected into this shared Profile. They point at that launcher's installation, so the
+ * Host would load a second copy of every Harness package through them: a second
+ * `dsh-scope` loses preset scope tags and new sessions fail with `agent-preset/invalid`.
+ * Upstream sweeps them in `loadProfile`, which Next bypasses. A locked link must not keep
+ * the Host from starting; the next launch retries.
+ */
+function retireLinkProjections(projectDir: string): void {
+  try {
+    removeLinkProjectionsSafely(projectDir)
+  } catch (cause) {
+    process.stderr.write(`dsh-desktop-next: could not remove dsh 0.1.5 link projections from ${projectDir}: ${String(cause)}\n`)
+  }
+}
+
 /** Add product capabilities without replacing the upstream Web presentation. */
 export function loadNextProfile(projectDir: string, home: string, installAnchor = NEXT_PACKAGE): Profile {
   const manager = new NextProfiles(home)
   if (manager.directory(basename(projectDir)) !== resolve(projectDir)) throw new Error('Profile must belong to Next home')
   manager.ensure(basename(projectDir))
+  retireLinkProjections(projectDir)
   // Upstream bundle discovery walks physical node_modules before installing its
   // runtime resolver. Project only this application's bundle, not its dependency
   // tree; the alpha.2 runtime resolver owns all other package fallbacks.

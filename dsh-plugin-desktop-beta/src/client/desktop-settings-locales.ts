@@ -1,6 +1,10 @@
 /** Desktop-owned settings copy. */
 
 export const zh = {
+  loggingTitle: '日志',
+  developerLogging: '开发者日志',
+  developerLoggingBody: '立即记录模型、工具、重试、HTTP、进程通信和界面诊断的元数据，不主动采集提示词、工具参数或响应正文；日志会随诊断 ZIP 导出。会话事件可按序号与官方 Session Log 对照。',
+  logLevel: '日志级别',
   remoteControl: '远程控制',
   remoteControlNew: '新功能',
   aaSaving: '正在保存手机连接设置…',
@@ -120,11 +124,17 @@ export const zh = {
   turnFailure: '本轮任务失败',
   jobCompletion: '后台任务完成',
   jobFailure: '后台任务失败',
+  scheduleCompletion: '自动化任务完成',
+  scheduleFailure: '自动化任务失败',
 } as const
 
 export type DesktopSettingsLocaleKey = keyof typeof zh
 
 export const en: Record<DesktopSettingsLocaleKey, string> = {
+  loggingTitle: 'Logging',
+  developerLogging: 'Developer logging',
+  developerLoggingBody: 'Trace model, tool, retry, HTTP, IPC and UI metadata immediately. Prompts, tool arguments and response bodies are not collected by these observers. Logs are included in diagnostic ZIP exports. Match session events to the official Session Log by sequence number.',
+  logLevel: 'Log level',
   remoteControl: 'Remote control',
   remoteControlNew: 'New feature',
   aaSaving: 'Saving phone connection settings…',
@@ -244,4 +254,6 @@ export const en: Record<DesktopSettingsLocaleKey, string> = {
   turnFailure: 'Current turn failed',
   jobCompletion: 'Background job completed',
   jobFailure: 'Background job failed',
+  scheduleCompletion: 'Automation task completed',
+  scheduleFailure: 'Automation task failed',
 }

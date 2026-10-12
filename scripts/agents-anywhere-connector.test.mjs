@@ -3,7 +3,9 @@ import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { access, cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, relative, sep } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { test } from 'node:test'
 import { promisify, stripVTControlCharacters } from 'node:util'
@@ -17,9 +19,10 @@ function loadConnector(workspace, environment) {
   const end = source.indexOf('//#region src/host/desktop/detect.ts', start)
   assert.ok(start >= 0 && end > start)
   return runInNewContext(`${source.slice(start, end)}; SourceConnector`, {
-    execFile, promisify, stripVTControlCharacters, join, setTimeout, clearTimeout,
+    execFile, promisify, stripVTControlCharacters, join, relative, createHash, setTimeout, clearTimeout,
+    access, cp, mkdtemp, readFile, readdir, rename, rm,
     process: { platform: process.platform, env: environment },
-    readJson$1: async () => [], writeJson: async () => {}, mkdir: async () => {},
+    readJson$1: async () => [], writeJson: async () => {}, mkdir,
     resolveUv: async () => 'uv',
     DEFAULT_CONNECTOR_SETTINGS: { syncIntervalSeconds: 30 },
   })
@@ -52,7 +55,14 @@ for (const workspace of AA_WORKSPACES) {
       data: { message: { content: [{}] }, meta: {} } }), /Invalid DSH tool result message/)
   })
 
-  test(`${workspace}: Python gets a compatible bypass list without changing the parent`, async () => {
+  test(`${workspace}: Python gets a compatible bypass list and a writable project copy`, async t => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-aa-connector-'))
+    t.after(() => rm(root, { recursive: true, force: true }))
+    const source = join(root, 'package', 'connector-source')
+    const stateRoot = join(root, 'state')
+    await mkdir(join(source, 'connector'), { recursive: true })
+    await writeFile(join(source, 'pyproject.toml'), '[project]\nname = "fixture"\n')
+    await writeFile(join(source, 'connector', 'cli.py'), '# fixture\n')
     const env = {
       NO_PROXY: 'localhost,127.0.0.1,::1,[::1],.example.com',
       no_proxy: 'internal.test, [::1] ',
@@ -73,21 +83,28 @@ for (const workspace of AA_WORKSPACES) {
         result: { running: request.method === 'connector.start', authFailed: false },
       }) + '\n'))
     }
-    let launched
-    const connector = new Connector({ stateRoot: '/state', connectorSourceDir: '/source', uvPath: 'uv' },
-      (_command, _args, options) => { launched = options; return child })
+    let launched, launchedArgs
+    const connector = new Connector({ stateRoot, connectorSourceDir: source, uvPath: 'uv' },
+      (_command, args, options) => { launched = options; launchedArgs = args; return child })
     await connector.start({ connectorId: 'device', connectorToken: 'private-test-token' }, 'https://example.com', new AbortController().signal)
     assert.equal(connector.running, true)
     assert.equal(launched.env.NO_PROXY, 'localhost,127.0.0.1,::1,::1,.example.com')
     assert.equal(launched.env.no_proxy, 'internal.test,::1')
     assert.equal(launched.env.HTTPS_PROXY, env.HTTPS_PROXY)
     assert.deepEqual(env, original)
+    assert.ok(launched.cwd.startsWith(join(stateRoot, 'connector-source') + sep))
+    assert.equal(launchedArgs[launchedArgs.indexOf('--directory') + 1], launched.cwd)
+    assert.equal(await readFile(join(launched.cwd, 'connector', 'cli.py'), 'utf8'), '# fixture\n')
+    await writeFile(join(launched.cwd, 'uv.lock'), 'fixture lock\n')
+    await assert.rejects(access(join(source, 'uv.lock')), { code: 'ENOENT' })
     await connector.logs.flush()
   })
 
-  test(`${workspace}: RPC errors reach logs and credentials stay redacted`, async () => {
+  test(`${workspace}: RPC errors reach logs and credentials stay redacted`, async t => {
+    const stateRoot = await mkdtemp(join(tmpdir(), 'dsh-aa-logs-'))
+    t.after(() => rm(stateRoot, { recursive: true, force: true }))
     const Connector = loadConnector(workspace, {})
-    const connector = new Connector({ stateRoot: '/state' }, () => {})
+    const connector = new Connector({ stateRoot }, () => {})
     await connector.logs.startSession(['private-test-token'])
     const frame = JSON.stringify({ jsonrpc: '2.0', method: 'connector/log', params: {
       level: 'ERROR', message: "Invalid port: ':1]' private-test-token",

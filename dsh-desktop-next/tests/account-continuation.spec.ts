@@ -2,9 +2,8 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { registerDesktopOnboarding } from '../../dsh-plugin-desktop-beta/src/client/onboarding.tsx'
 
 const hooks = vi.hoisted(() => ({ values: [] as unknown[], setters: [] as ReturnType<typeof vi.fn>[], effects: [] as (() => unknown)[] }))
-// The shared coordinator resolves React and primitives from Beta's workspace.
-// Mock those module identities rather than Next's separate installed copies.
-vi.mock('../../dsh-plugin-desktop-beta/node_modules/react/index.js', async importOriginal => ({
+// Vitest aliases these shared peers to Next's installed copies.
+vi.mock('react', async importOriginal => ({
   ...await importOriginal<typeof import('react')>(),
   useState: () => {
     const setter = vi.fn()
@@ -13,7 +12,7 @@ vi.mock('../../dsh-plugin-desktop-beta/node_modules/react/index.js', async impor
   },
   useEffect: (effect: () => unknown) => { hooks.effects.push(effect) },
 }))
-vi.mock('../../dsh-plugin-desktop-beta/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/index.js', () => ({ Button: 'button', Toast: 'official-toast' }))
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({ Button: 'button', Toast: 'official-toast' }))
 afterEach(() => { vi.unstubAllGlobals() })
 
 function fixture(signedIn: boolean, required = false, failDismiss = false, overrides = {}) {

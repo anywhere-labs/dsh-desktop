@@ -1,7 +1,7 @@
 diff --git a/lib/client.js b/lib/client.js
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -28,6 +28,8 @@
+@@ -28,6 +28,8 @@ window.__ModuleLoader__.load({
  			return `${bundle}#${rowId}`;
  		}
  		const SLOTS = [
@@ -10,7 +10,7 @@ diff --git a/lib/client.js b/lib/client.js
  			"plugins.item",
  			"plugins.bundle.config",
  			"plugins.row.config"
-@@ -42,6 +44,8 @@
+@@ -42,6 +44,8 @@ window.__ModuleLoader__.load({
  			let revision = -1;
  			let ledger = {
  				items: [],
@@ -19,7 +19,7 @@ diff --git a/lib/client.js b/lib/client.js
  				bundles: /* @__PURE__ */ new Set(),
  				rows: /* @__PURE__ */ new Set()
  			};
-@@ -59,6 +63,8 @@
+@@ -59,6 +63,8 @@ window.__ModuleLoader__.load({
  								id: entry.options.id ?? "",
  								label: (0, _deepseek_ai_dsh_client_ui_slots.resolveSlotLabel)(entry.options.label) ?? ""
  							})),
@@ -28,23 +28,7 @@ diff --git a/lib/client.js b/lib/client.js
  							bundles: keysOf("plugins.bundle.config"),
  							rows: keysOf("plugins.row.config")
  						};
-@@ -211,6 +217,14 @@
-+		const DESKTOP_ROW_DESCRIPTIONS = new Map([
-+			["@deepseek-ai/dsh-time-context", { en: "Durable per-step context with the current time and elapsed time", zh: "为每一步提供可持久化的时间上下文，包含当前时间和已用时间。" }],
-+			["@deepseek-ai/dsh-schedule", { en: "Host-wide durable reminders with shared management and original-Session delivery", zh: "统一管理后台服务中的持久化提醒，到期后在原对话中继续执行。" }],
-+			["@deepseek-ai/dsh-client-ui-schedule", { en: "Host task management page and Session reminder catalog", zh: "提供自动化任务管理页面和对话内的提醒列表。" }]
-+		]);
- 		function rowText(row, resolveText) {
-+			const original = row.meta?.description;
-+			const translation = DESKTOP_ROW_DESCRIPTIONS.get(row.moduleName);
-+			const description = translation?.en === original ? translation : original;
- 			return {
- 				title: row.meta?.title === void 0 ? row.moduleName : resolveText(row.meta.title),
--				description: row.meta?.description === void 0 ? void 0 : resolveText(row.meta.description) || void 0
-+				description: description === void 0 ? void 0 : resolveText(description) || void 0
- 			};
- 		}
-@@ -1641,9 +1655,15 @@
+@@ -1800,9 +1806,15 @@ window.__ModuleLoader__.load({
  			});
  		}
  		/** The top every page shares: the crumb that leads back, then the icon with the page's actions at its right. */
@@ -60,7 +44,7 @@ diff --git a/lib/client.js b/lib/client.js
  				"data-window-drag": true,
  				children: [(0, react_jsx_runtime.jsxs)("button", {
  					type: "button",
-@@ -1665,7 +1677,7 @@
+@@ -1824,7 +1836,7 @@ window.__ModuleLoader__.load({
  			});
  		}
  		/** One package as a card that opens its page: its name, its one-liner, its tags, and its bundle switch. */
@@ -69,7 +53,7 @@ diff --git a/lib/client.js b/lib/client.js
  			const { title, description, beta } = packageText(pkg, resolveText);
  			const status = packageStatus(pkg);
  			return (0, react_jsx_runtime.jsxs)("li", {
-@@ -1688,13 +1700,15 @@
+@@ -1847,13 +1859,15 @@ window.__ModuleLoader__.load({
  						children: t("statusProblem")
  					}) : null] }),
  					description,
@@ -87,7 +71,7 @@ diff --git a/lib/client.js b/lib/client.js
  				}), (0, react_jsx_runtime.jsx)(MetadataError, {
  					error: pkg.meta?.error,
  					t
-@@ -1741,7 +1755,7 @@
+@@ -1900,7 +1914,7 @@ window.__ModuleLoader__.load({
  		* contributed actions, its title with the contributed badges over its
  		* one-liner, the form the entry renders, and the contributed sections.
  		*/
@@ -96,7 +80,7 @@ diff --git a/lib/client.js b/lib/client.js
  			const subject = {
  				kind: "item",
  				id: item.id
-@@ -1780,7 +1794,7 @@
+@@ -1939,7 +1953,7 @@ window.__ModuleLoader__.load({
  							"data-plugin-config": true,
  							children: renderSlot("plugins.item", {
  								view: "page",
@@ -105,22 +89,23 @@ diff --git a/lib/client.js b/lib/client.js
  							}, { only: item.id })
  						}), renderSlot("plugins.detail.section", { subject })]
  					})
-@@ -2717,11 +2731,12 @@
+@@ -2952,12 +2966,13 @@ window.__ModuleLoader__.load({
  				};
  			}, [highlight, clearHighlight]);
- 			const noticeLine = state.notice === null ? null : noticeText(state.notice, t);
+ 			const noticeLine = state.notice === null || state.notice.kind === "refresh-failed" ? null : noticeText(state.notice, t);
 -			const listed = state.packages.filter((pkg) => !BUILTIN_PROFILE_BUNDLES.has(pkg.name) && (pkg.installed || pkg.optional || pkg.error !== void 0));
 +			const available = state.packages.filter((pkg) => !BUILTIN_PROFILE_BUNDLES.has(pkg.name) && (pkg.installed || pkg.optional || pkg.error !== void 0));
 +			const listed = available.filter((pkg) => !ledger.hiddenBundles?.has(pkg.name));
  			const mine = listed.filter((pkg) => pkg.installed || !pkg.optional);
  			const official = listed.filter((pkg) => pkg.optional && !pkg.installed);
  			const loaded = state.status === "ready" || state.status === "error";
+ 			const refreshing = state.refreshStatus === "refreshing";
 -			const openPkg = view.kind === "package" || view.kind === "row" ? listed.find((pkg) => pkg.name === view.name) : void 0;
 +			const openPkg = view.kind === "package" || view.kind === "row" ? available.find((pkg) => pkg.name === view.name) : void 0;
  			const openItem = view.kind === "item" ? ledger.items.find((item) => item.id === view.id) : void 0;
  			const openRow = view.kind === "row" && openPkg !== void 0 ? openPkg.rows.find((row) => row.rowId === view.rowId) : void 0;
  			const showsCards = openPkg === void 0 && openItem === void 0;
-@@ -2740,8 +2755,24 @@
+@@ -2976,8 +2991,24 @@ window.__ModuleLoader__.load({
  					});
  				}
  			});
@@ -145,7 +130,7 @@ diff --git a/lib/client.js b/lib/client.js
  				t,
  				resolveText,
  				busy: state.busy.includes(pkg.name),
-@@ -2758,7 +2789,7 @@
+@@ -2994,7 +3025,7 @@ window.__ModuleLoader__.load({
  					props.setEnabled(pkg.name, enabled);
  				}
  			}, pkg.name);
@@ -154,9 +139,9 @@ diff --git a/lib/client.js b/lib/client.js
  				item,
  				t,
  				renderSlot,
-@@ -2793,8 +2824,10 @@
+@@ -3029,8 +3060,10 @@ window.__ModuleLoader__.load({
  				"data-plugin-panel": true,
- 				"aria-busy": state.status === "loading",
+ 				"aria-busy": state.status === "loading" || refreshing,
  				children: [
 +					(0, react_jsx_runtime.jsx)(PluginSidebarControl, { renderSlot }),
  					showsCards ? (0, react_jsx_runtime.jsxs)("header", {
@@ -165,11 +150,10 @@ diff --git a/lib/client.js b/lib/client.js
  						"data-window-drag": true,
  						children: [(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("h1", {
  							className: PluginManagerPage_module_css_default.pageTitle,
-@@ -2826,6 +2859,18 @@
- 								children: t(state.install.requestId === void 0 ? "addPlugin" : "installViewTask")
+@@ -3074,6 +3107,18 @@ window.__ModuleLoader__.load({
  							})]
  						})]
-+					}) : null,
+ 					}) : null,
 +					showsCards && loaded ? renderSlot("plugins.overview", {
 +						onOpenBundle: (name) => {
 +							if (!available.some((pkg) => pkg.name === name)) return;
@@ -181,10 +165,11 @@ diff --git a/lib/client.js b/lib/client.js
 +							setActivation(null);
 +							setView({ kind: "item", id });
 +						}
- 					}) : null,
- 					showsCards && state.status === "loading" ? (0, react_jsx_runtime.jsxs)("p", {
++					}) : null,
+ 					showsCards && state.status === "loading" ? (0, react_jsx_runtime.jsx)(ListSkeleton, { label: t("loading") }) : null,
+ 					showsCards && state.status === "unavailable" ? (0, react_jsx_runtime.jsxs)("p", {
  						className: `${PluginManagerPage_module_css_default.status} ${PluginManagerPage_module_css_default.statusWithDot}`,
-@@ -2892,6 +2937,7 @@
+@@ -3135,6 +3180,7 @@ window.__ModuleLoader__.load({
  					}) : null,
  					loaded && openItem !== void 0 ? (0, react_jsx_runtime.jsx)(ItemDetail, {
  						form: formFor(openItem.id),
@@ -192,9 +177,9 @@ diff --git a/lib/client.js b/lib/client.js
  						item: openItem,
  						t,
  						renderSlot,
-@@ -3438,6 +3484,11 @@
+@@ -3699,6 +3745,11 @@ window.__ModuleLoader__.load({
  					store,
- 					inject: () => controller.inject(configLedger, (text) => ctx.locale.resolveText(text)),
+ 					inject: () => face,
  					children: {
 +						"plugins.header.leading": { kind: "single", scope: "root" },
 +						"plugins.overview": { kind: "list", scope: "root" },
@@ -204,7 +189,7 @@ diff --git a/lib/client.js b/lib/client.js
  						"plugins.item": {
  							kind: "list",
  							scope: "root"
-@@ -3499,4 +3550,4 @@
+@@ -3760,4 +3811,4 @@ window.__ModuleLoader__.load({
  	}
  });
  
@@ -214,7 +199,7 @@ diff --git a/lib/client.js b/lib/client.js
 diff --git a/lib/types/client/PluginManagerPage.d.ts b/lib/types/client/PluginManagerPage.d.ts
 --- a/lib/types/client/PluginManagerPage.d.ts
 +++ b/lib/types/client/PluginManagerPage.d.ts
-@@ -13,7 +13,7 @@
+@@ -13,7 +13,7 @@ import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStor
  import type { createNavigationStore } from './navigation-store.ts';
  import { type PluginManagerFace } from './manager-store.ts';
  /** Full component props assembled by the main slot renderer. */
@@ -227,7 +212,7 @@ diff --git a/lib/types/client/PluginManagerPage.d.ts b/lib/types/client/PluginMa
 diff --git a/lib/types/client/config-ledger.d.ts b/lib/types/client/config-ledger.d.ts
 --- a/lib/types/client/config-ledger.d.ts
 +++ b/lib/types/client/config-ledger.d.ts
-@@ -19,6 +19,8 @@
+@@ -19,6 +19,8 @@ export interface OfficialItem {
   */
  export interface ConfigLedger {
      readonly items: readonly OfficialItem[];
@@ -236,7 +221,7 @@ diff --git a/lib/types/client/config-ledger.d.ts b/lib/types/client/config-ledge
      readonly bundles: ReadonlySet<string>;
      readonly rows: ReadonlySet<string>;
  }
-@@ -35,4 +37,4 @@
+@@ -35,4 +37,4 @@ export declare function rowConfigKey(bundle: string, rowId: string): string;
   * @returns the ledger source; its snapshot changes only when a ledger or the locale does.
   */
  export declare function configLedgerSource(ctx: ClientContext): HostObservable<ConfigLedger>;
@@ -254,7 +239,7 @@ diff --git a/lib/types/client/slot-contract.d.ts b/lib/types/client/slot-contrac
  import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client';
  /** The view the page asks a configuration entry for. */
  export interface PluginConfigViewProps {
-@@ -22,6 +23,8 @@
+@@ -22,6 +23,8 @@ export interface PluginConfigViewProps {
      readonly view: 'summary' | 'page';
      /** Host-owned configuration values and write actions for this page's entry. */
      readonly form?: ConfigPageForm | undefined;
@@ -263,7 +248,7 @@ diff --git a/lib/types/client/slot-contract.d.ts b/lib/types/client/slot-contrac
  }
  /** One row of a bundle as a detail contribution sees it. */
  export interface PluginRowRef {
-@@ -72,6 +75,21 @@
+@@ -72,6 +75,21 @@ export interface PluginActivationOwnerProps {
  }
  declare module '@deepseek-ai/dsh-client-ui-slots' {
      interface SlotMap {
@@ -285,7 +270,7 @@ diff --git a/lib/types/client/slot-contract.d.ts b/lib/types/client/slot-contrac
          /** Optional guidance after the user enables a bundle from the list, keyed by npm package name. */
          'plugins.bundle.activation': {
              kind: 'keyed';
-@@ -153,4 +171,4 @@
+@@ -153,4 +171,4 @@ export interface ConfigPageForm {
      /** Submit all field edits together with the revision the editor read. */
      readonly mutate: ConfigForm<Record<string, unknown>>['mutate'];
  }

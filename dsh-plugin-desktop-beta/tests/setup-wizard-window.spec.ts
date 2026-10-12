@@ -48,6 +48,8 @@ const notifications = Object.freeze({
   notifyOnTurnFailure: false,
   notifyOnJobCompletion: true,
   notifyOnJobFailure: false,
+  notifyOnScheduleCompletion: false,
+  notifyOnScheduleFailure: false,
 })
 
 function input(overrides: Partial<DesktopSetupWizardInput> = {}): DesktopSetupWizardInput {
@@ -81,6 +83,8 @@ function completeUrl(selection: DesktopSetupWizardSelection = input()): string {
   url.searchParams.set('notifyOnTurnFailure', String(selection.notifications.notifyOnTurnFailure))
   url.searchParams.set('notifyOnJobCompletion', String(selection.notifications.notifyOnJobCompletion))
   url.searchParams.set('notifyOnJobFailure', String(selection.notifications.notifyOnJobFailure))
+  url.searchParams.set('notifyOnScheduleCompletion', String(selection.notifications.notifyOnScheduleCompletion))
+  url.searchParams.set('notifyOnScheduleFailure', String(selection.notifications.notifyOnScheduleFailure))
   return url.href
 }
 

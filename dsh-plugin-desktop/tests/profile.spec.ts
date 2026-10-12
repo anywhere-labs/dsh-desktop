@@ -28,6 +28,7 @@ import {
   readDesktopShellMode,
   resolveDesktopSettingsDocument,
   shippedSkillRoot,
+  UPSTREAM_PRODUCT_ANALYTICS_ROW_IDS,
   validateDshMarketBundlePatches,
 } from '../src/profile.ts'
 import { setDesktopProfileBundleSelected } from '../src/desktop-plugins.ts'
@@ -448,6 +449,12 @@ virtualStoreDirMaxLength: 60
         trustedHosts: ['lab.internal', '192.168.1.5', '10.0.0.7'],
       }),
     }))
+    // This core still routes Web trust through the webRuntime service, so
+    // Connection keeps the upstream row unchanged.
+    expect(rows.find(row => row.id === 'connection')).toEqual(expect.objectContaining({
+      inject: ['webRuntime'],
+      config: { trustedHosts: { __jsExpr: 'ctx.webRuntime.trustedHosts' } },
+    }))
     expect(rows.find(row => row.id === 'desktop-webserver')).toEqual(expect.objectContaining({
       config: { host: '127.0.0.1', port: 43_120 },
     }))
@@ -683,6 +690,21 @@ virtualStoreDirMaxLength: 60
     expect(() => validateDshMarketBundlePatches([{
       insert: [{ id: 'dsh-market', name: 'unexpected-market' }],
     }])).toThrow('must insert exactly the canonical dsh-market row')
+  })
+
+  it('keeps upstream Desktop product analytics off even when a user patch enables it', () => {
+    const home = temporaryHome()
+    writeFileSync(join(ensureDesktopProfile(home), 'cordis.patch.yml'), [
+      '- id: product-analytics',
+      '  disabled: false',
+      '',
+    ].join('\n'))
+
+    const rows = composeEntries([prepareDesktopProfile(undefined, home, 'darwin').patches])
+
+    for (const id of UPSTREAM_PRODUCT_ANALYTICS_ROW_IDS) {
+      expect(rows.find(row => row.id === id)).toEqual(expect.objectContaining({ disabled: true }))
+    }
   })
 
   it('boots a selected Web profile without overriding its compatibility UI rows', () => {

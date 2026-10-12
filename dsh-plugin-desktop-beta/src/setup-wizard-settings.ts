@@ -227,6 +227,8 @@ function notificationSettings(values: Record<string, unknown>): DesktopSetupWiza
     notifyOnTurnFailure: optionalBoolean(values, 'notifyOnTurnFailure', true),
     notifyOnJobCompletion: optionalBoolean(values, 'notifyOnJobCompletion', true),
     notifyOnJobFailure: optionalBoolean(values, 'notifyOnJobFailure', true),
+    notifyOnScheduleCompletion: optionalBoolean(values, 'notifyOnScheduleCompletion', true),
+    notifyOnScheduleFailure: optionalBoolean(values, 'notifyOnScheduleFailure', true),
   })
 }
 
@@ -287,10 +289,12 @@ function normalizedUpdate(
     'notifyOnTurnFailure',
     'notifyOnJobCompletion',
     'notifyOnJobFailure',
+    'notifyOnScheduleCompletion',
+    'notifyOnScheduleFailure',
   ]
   if (Object.keys(value.notifications).length !== notificationKeys.length
     || notificationKeys.some(key => typeof value.notifications[key] !== 'boolean')) {
-    throw new TypeError(`${BIN_NAME}: Setup Wizard update must contain all five notification booleans`)
+    throw new TypeError(`${BIN_NAME}: Setup Wizard update must contain all seven notification booleans`)
   }
   return Object.freeze({
     mode: requestedMode,
@@ -304,6 +308,8 @@ function normalizedUpdate(
       notifyOnTurnFailure: value.notifications.notifyOnTurnFailure,
       notifyOnJobCompletion: value.notifications.notifyOnJobCompletion,
       notifyOnJobFailure: value.notifications.notifyOnJobFailure,
+      notifyOnScheduleCompletion: value.notifications.notifyOnScheduleCompletion,
+      notifyOnScheduleFailure: value.notifications.notifyOnScheduleFailure,
     }),
   })
 }
@@ -323,6 +329,8 @@ export function sameDesktopSetupWizardSettings(
     && current.notifications.notifyOnTurnFailure === next.notifications.notifyOnTurnFailure
     && current.notifications.notifyOnJobCompletion === next.notifications.notifyOnJobCompletion
     && current.notifications.notifyOnJobFailure === next.notifications.notifyOnJobFailure
+    && current.notifications.notifyOnScheduleCompletion === next.notifications.notifyOnScheduleCompletion
+    && current.notifications.notifyOnScheduleFailure === next.notifications.notifyOnScheduleFailure
 }
 
 function applyYamlUpdate(
@@ -610,6 +618,8 @@ export function defaultDesktopSetupWizardSettings(
       notifyOnTurnFailure: true,
       notifyOnJobCompletion: true,
       notifyOnJobFailure: true,
+      notifyOnScheduleCompletion: true,
+      notifyOnScheduleFailure: true,
     }),
   })
 }

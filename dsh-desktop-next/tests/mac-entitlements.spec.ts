@@ -5,11 +5,11 @@ import { NEXT_MAC_REQUIRED_ENTITLEMENTS, verifyNextMacEntitlements } from '../sc
 
 const granted = Object.fromEntries(NEXT_MAC_REQUIRED_ENTITLEMENTS.map(key => [key, true]))
 
-it('configures audio input for the hardened main app and inherited Helper signatures', () => {
+it('inherits the pinned upstream entitlement file for the main app and all Helpers', () => {
   const { build } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   expect(build.mac.hardenedRuntime).toBe(true)
   expect(build.mac.extendInfo.NSMicrophoneUsageDescription).toBeTruthy()
-  expect(build.mac.entitlements).toBe('build/entitlements.mac.plist')
+  expect(build.mac.entitlements).toBe('../deepseek-harness/apps/desktop/scripts/macos-entitlements.plist')
   expect(build.mac.entitlementsInherit).toBe(build.mac.entitlements)
   const plist = readFileSync(new URL(`../${build.mac.entitlements}`, import.meta.url), 'utf8')
   for (const key of NEXT_MAC_REQUIRED_ENTITLEMENTS) {

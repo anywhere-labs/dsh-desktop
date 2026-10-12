@@ -28,6 +28,7 @@ import {
   readDesktopShellMode,
   resolveDesktopSettingsDocument,
   shippedSkillRoot,
+  UPSTREAM_PRODUCT_ANALYTICS_ROW_IDS,
   validateDshMarketBundlePatches,
 } from '../src/profile.ts'
 import { setDesktopProfileBundleSelected } from '../src/desktop-plugins.ts'
@@ -448,6 +449,19 @@ virtualStoreDirMaxLength: 60
         trustedHosts: ['lab.internal', '192.168.1.5', '10.0.0.7'],
       }),
     }))
+    // dsh 0.2.1-alpha.2 dropped the webRuntime service; Connection keeps the
+    // invocation authorities and appends Desktop's trust after them.
+    const connection = rows.find(row => row.id === 'connection')
+    expect(connection?.inject).toEqual(['webStartup'])
+    expect(connection?.config).toEqual(expect.objectContaining({
+      trustedHosts: {
+        __jsExpr: '[...new Set([...(ctx.webStartup.trustedHosts), ...["lab.internal","192.168.1.5","10.0.0.7"]])]',
+      },
+    }))
+    const evaluateTrust = new Function('ctx', `return ${(connection?.config as { trustedHosts: { __jsExpr: string } }).trustedHosts.__jsExpr}`) as
+      (ctx: { webStartup: { trustedHosts: string[] } }) => string[]
+    expect(evaluateTrust({ webStartup: { trustedHosts: ['cli.internal', '10.0.0.7'] } }))
+      .toEqual(['cli.internal', '10.0.0.7', 'lab.internal', '192.168.1.5'])
     expect(rows.find(row => row.id === 'desktop-webserver')).toEqual(expect.objectContaining({
       config: { host: '127.0.0.1', port: 43_120 },
     }))
@@ -683,6 +697,21 @@ virtualStoreDirMaxLength: 60
     expect(() => validateDshMarketBundlePatches([{
       insert: [{ id: 'dsh-market', name: 'unexpected-market' }],
     }])).toThrow('must insert exactly the canonical dsh-market row')
+  })
+
+  it('keeps upstream Desktop product analytics off even when a user patch enables it', () => {
+    const home = temporaryHome()
+    writeFileSync(join(ensureDesktopProfile(home), 'cordis.patch.yml'), [
+      '- id: product-analytics',
+      '  disabled: false',
+      '',
+    ].join('\n'))
+
+    const rows = composeEntries([prepareDesktopProfile(undefined, home, 'darwin').patches])
+
+    for (const id of UPSTREAM_PRODUCT_ANALYTICS_ROW_IDS) {
+      expect(rows.find(row => row.id === id)).toEqual(expect.objectContaining({ disabled: true }))
+    }
   })
 
   it('boots a selected Web profile without overriding its compatibility UI rows', () => {

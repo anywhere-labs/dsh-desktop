@@ -50,6 +50,8 @@ function values(overrides: Partial<DesktopSetupWizardSettings> = {}): DesktopSet
       notifyOnTurnFailure: true,
       notifyOnJobCompletion: false,
       notifyOnJobFailure: true,
+      notifyOnScheduleCompletion: true,
+      notifyOnScheduleFailure: true,
     },
     ...overrides,
   }
@@ -117,6 +119,8 @@ describe('Desktop Setup Wizard settings document', () => {
       notifyOnTurnFailure: true,
       notifyOnJobCompletion: false,
       notifyOnJobFailure: true,
+      notifyOnScheduleCompletion: true,
+      notifyOnScheduleFailure: true,
       futureNotification: 'keep',
     })
     expect(readDesktopSetupWizardSettings(path)).toEqual(next)
@@ -214,7 +218,7 @@ describe('Desktop Setup Wizard settings document', () => {
       notifications: { enabled: true } as DesktopSetupWizardSettings['notifications'],
     })
     await expect(updateDesktopSetupWizardSettings(path, incomplete))
-      .rejects.toThrow('all five notification booleans')
+      .rejects.toThrow('all seven notification booleans')
 
     const next = values({ openBrowser: false, networkExposure: 'lan' })
     await expect(updateDesktopSetupWizardSettings(path, next)).resolves.toMatchObject({

@@ -8,6 +8,7 @@ export const DEFAULT_PROFILE = 'desktop'
 export type DesktopNotification =
   | { outcome: 'turn-completed'; userMessage: string; assistantMessage: string }
   | { outcome: 'turn-failed' }
+  | { outcome: 'schedule-completed' | 'schedule-failed' }
 export type NotificationOutcome = DesktopNotification['outcome']
 export type DesktopSettingsPage = 'general' | 'permissions'
 
@@ -23,18 +24,30 @@ export interface DesktopPreferences {
   port: number
   lanPort: number
   logLevel: 'debug' | 'info' | 'warn' | 'error'
+  developerLogging: boolean
   notifications: boolean
   turnCompleted: boolean
   turnFailed: boolean
   /** Retained for old preference files and the shared settings adapter; always disabled in Next. */
   jobCompleted: boolean
   jobFailed: boolean
+  scheduleCompleted: boolean
+  scheduleFailed: boolean
 }
 
 export const DEFAULT_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
   closeToTray: true, macosMaterial: 'transparent', windowsMaterial: 'off', linuxMaterial: 'off',
-  browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info',
+  browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
   notifications: true, turnCompleted: true, turnFailed: true, jobCompleted: false, jobFailed: false,
+  scheduleCompleted: true, scheduleFailed: true,
+})
+
+/** Fixed startup defaults matching Beta's disposable Safe Mode settings. */
+export const SAFE_MODE_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
+  ...DEFAULT_PREFERENCES, macosMaterial: 'off', windowsMaterial: 'off', linuxMaterial: 'off',
+  browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
+  notifications: false, turnCompleted: false, turnFailed: false, jobCompleted: false, jobFailed: false,
+  scheduleCompleted: false, scheduleFailed: false,
 })
 
 export interface DesktopState {

@@ -67,6 +67,8 @@ export interface DesktopSetupWizardCopy {
   readonly turnFailure: string
   readonly jobCompletion: string
   readonly jobFailure: string
+  readonly scheduleCompletion: string
+  readonly scheduleFailure: string
   readonly back: string
   readonly next: string
   readonly skip: string
@@ -147,6 +149,8 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     turnFailure: 'Current turn failed',
     jobCompletion: 'Background job completed',
     jobFailure: 'Background job failed',
+    scheduleCompletion: 'Automation task completed',
+    scheduleFailure: 'Automation task failed',
     back: 'Previous',
     next: 'Next',
     skip: 'Skip setup',
@@ -225,6 +229,8 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     turnFailure: '本轮任务失败',
     jobCompletion: '后台任务完成',
     jobFailure: '后台任务失败',
+    scheduleCompletion: '自动化任务完成',
+    scheduleFailure: '自动化任务失败',
     back: '上一步',
     next: '下一步',
     skip: '跳过设置',

@@ -16,7 +16,7 @@ it('keeps CLI commands on the selected Next Profile without overriding an explic
   expect(argv.slice(2)).toEqual(['plugin', '--profile', 'work', 'list'])
   expect(environment).toEqual({ DSH_HOME: '/next/home',
     pnpm_config_minimum_release_age: '0', YARN_NPM_MINIMAL_AGE_GATE: '0' })
-  expect(runCli).toHaveBeenCalledWith({ allowDesktopProfile: true })
+  expect(runCli).toHaveBeenCalledWith({ manageDesktopProfile: true })
 })
 
 it('reads user files physically before the unpacked CLI starts', async () => {

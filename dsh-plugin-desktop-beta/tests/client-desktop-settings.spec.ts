@@ -658,7 +658,7 @@ describe('Desktop native action presentation', () => {
 })
 
 describe('Desktop settings Slot registration', () => {
-  it('registers the official Desktop section, native actions, and both settings scopes', async () => {
+  it.each(['darwin', 'win32'] as const)('registers Desktop controls and hides the launcher-owned Market on %s', async platform => {
     const scope = {
       getSnapshot: () => ({
         status: 'loading' as const,
@@ -691,7 +691,7 @@ describe('Desktop settings Slot registration', () => {
     const control = applyDesktopSettings(ctx, {
       version: '2.0.3',
       mode: 'compatibility',
-      platform: 'darwin',
+      platform,
       material: 'off',
     })
 
@@ -711,7 +711,7 @@ describe('Desktop settings Slot registration', () => {
     })
     expect(options.label()).toBe(`${DESKTOP_SETTINGS_LOCALE_NAMESPACE}:nav`)
     expect(options.inject()).toMatchObject({
-      platform: 'darwin',
+      platform,
       initialMode: 'compatibility',
       setMode: expect.any(Function),
     })
@@ -729,6 +729,11 @@ describe('Desktop settings Slot registration', () => {
     })
     expect(actionOptions.inject()).toHaveProperty('api')
     expect(actionComponent).toBe(DesktopTerminalSettingsAction)
+    expect(inject).toHaveBeenCalledWith('plugins.bundle.hidden', expect.any(Function))
+    expect(register).toHaveBeenNthCalledWith(3, {
+      name: 'plugins.bundle.hidden',
+      key: 'dshmarket',
+    }, expect.any(Function))
     await control.setMode('extended')
     expect(scope.set).toHaveBeenCalledWith('mode', 'extended')
   })
