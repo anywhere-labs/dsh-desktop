@@ -115,10 +115,52 @@ export function useImitationTts(deps: ImitationTtsDeps) {
     cloneParamsDlg.value.show = false
   }
 
+  // ── 采纳文案编排（2026-10-11 服务端 ed8ae5c7 adopt-copy 上线：单请求完成
+  //    主稿落库→按镜铺旁白→LLM 画面跟随，服务端内编排、步骤状态可重试——
+  //    客户端确认文案只调此一个接口；四步原语保留给高级/手动用法）──
+  /** POST {id}/adopt-copy body {text, rewrite_visuals:true} → {ok, steps{save,distribute,rewrite}}；
+   *  步骤失败不整单失败（旁白已铺时 rewrite 可单独重试），红字明示失败步骤 */
+  async function adoptCopy(text: string): Promise<boolean> {
+    if (!deps.getScriptId()) {
+      distributeError.value = '尚无脚本（先完成第 1 步拆解）——文案采纳挂脚本提交'
+      clientError(tag, distributeError.value)
+      return false
+    }
+    distributeBusy.value = true
+    distributeError.value = ''
+    distributeNote.value = ''
+    try {
+      const resp = await window.tintin.server.post(
+        `/api/storyboard/scripts/${deps.getScriptId()}/adopt-copy`,
+        { text, rewrite_visuals: true },
+        undefined,
+        300000, // LLM 画面跟随较慢，超时对齐 rewrite-visuals
+      )
+      await deps.reloadScript()
+      const steps = ((resp && typeof resp === 'object' ? (resp as Record<string, unknown>).steps : null) ?? {}) as Record<string, string>
+      const failed = Object.entries(steps).filter(([, v]) => v !== 'done')
+      if (failed.length) {
+        distributeError.value = `文案采纳部分完成：${failed.map(([k, v]) => `${k}=${v}`).join('、')}——旁白已铺可手动修正，失败步骤可重新采纳重试`
+        clientError(tag, distributeError.value, { resp })
+      } else {
+        distributeNote.value = '文案已采纳：主稿落库 + 按镜铺旁白 + 画面跟随 全部完成'
+      }
+      return !failed.length
+    } catch (e) {
+      distributeError.value = `文案采纳失败：${errText(e)}——主稿与旁白均未变更，请检查服务端连接后重试`
+      clientError(tag, distributeError.value, e)
+      return false
+    } finally {
+      distributeBusy.value = false
+    }
+  }
+
   // ── 仿写文案分配到逐镜旁白（2026-10-04 服务端实装：POST distribute-voiceover，
   //    text 缺省=脚本主稿；服务端按镜切分写 shot.audio → 回读后旁白=预填可编辑）──
   const distributeNote = ref('')
   const distributeBusy = ref(false)
+  /** 分配/重写失败红字（2026-10-10 用户裁决：服务端宕断时链路断点要醒目，不再灰字混过） */
+  const distributeError = ref('')
   /** 主稿先保存 → POST distribute-voiceover（服务端整句配额分配写 shot.audio）→ 回读 */
   async function distributeFromMaster(): Promise<void> {
     distributeBusy.value = true
@@ -128,10 +170,11 @@ export function useImitationTts(deps: ImitationTtsDeps) {
         {},
       )
       await deps.reloadScript()
+      distributeError.value = ''
       distributeNote.value = '已按新文案分配逐镜旁白（下方各镜可再编辑）'
     } catch (e) {
-      distributeNote.value = `旁白分配失败：${errText(e)}`
-      clientError(tag, distributeNote.value, e)
+      distributeError.value = `旁白分配失败：${errText(e)}——新文案未写入各镜旁白，请检查服务端连接后重试`
+      clientError(tag, distributeError.value, e)
     } finally {
       distributeBusy.value = false
     }
@@ -150,10 +193,11 @@ export function useImitationTts(deps: ImitationTtsDeps) {
         300000,
       )
       await deps.reloadScript()
+      distributeError.value = ''
       distributeNote.value = '已按新文案重写画面/旁白/场景（下方各镜可再编辑）'
     } catch (e) {
-      distributeNote.value = `画面重写失败：${errText(e)}——旁白分配不受影响，画面可手动编辑`
-      clientError(tag, distributeNote.value, e)
+      distributeError.value = `画面重写失败：${errText(e)}——旁白分配不受影响，画面可手动编辑`
+      clientError(tag, distributeError.value, e)
     } finally {
       distributeBusy.value = false
       rewriteBusy.value = false
@@ -166,6 +210,6 @@ export function useImitationTts(deps: ImitationTtsDeps) {
     loadVoiceSamples,
     ttsFactor, ttsEmoText, ttsEmoAlpha, qwen3Speaker, qwen3Instruct, qwen3Voices, qwen3VoicesLoading,
     cloneParamsDlg, openCloneParams, closeCloneParams, saveCloneParams, loadQwen3Voices,
-    distributeNote, distributeBusy, distributeFromMaster, rewriteFromMaster,
+    distributeNote, distributeBusy, distributeError, adoptCopy, distributeFromMaster, rewriteFromMaster, rewriteBusy,
   }
 }

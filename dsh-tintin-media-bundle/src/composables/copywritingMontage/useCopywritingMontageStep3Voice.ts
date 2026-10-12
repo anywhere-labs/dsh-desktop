@@ -11,6 +11,9 @@
 import { ref, computed, watch } from 'vue'
 import type { Ref } from 'vue'
 import { clientError } from '../../utils/clientLog'
+// whisper 响应多形态解析（2026-10-12 与 VoiceClone 同障修复：ct=text/plain 响应到
+// 渲染层是 Uint8Array，旧内联解析取不到 text 静默留空文稿）
+import { parseTranscriptionResponse, segmentsToPlainText } from '../srtUtils'
 import {
   serverStylesToPresets, SUBTITLE_STYLE_PRESETS_FALLBACK, subtitlePresetTileStyle,
   TEXT_KEYWORD_DENSITY_MAX, pickRandomItems, extractFancyWordsFromText,
@@ -468,7 +471,10 @@ function clearVoiceProgressListener(): void {
           format: 'txt',
         } as any)
         if (!res || (res as any).error) throw new Error((res as any)?.error || '识别失败')
-        nsText.value = (typeof res === 'string' ? res : (res as any).text || '').trim()
+        const segments = parseTranscriptionResponse(res)
+        const text = segmentsToPlainText(segments)
+        if (!text) throw new Error('未从音频中识别到文字（音频可能为空或无语音）')
+        nsText.value = text
       } catch (err) {
         nsError.value = `文字识别失败：${errText(err)}`
       } finally {

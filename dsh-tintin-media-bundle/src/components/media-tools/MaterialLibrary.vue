@@ -71,6 +71,10 @@ const category = ref('')
 const brandOpts = ref<string[]>([])
 const modelOpts = ref<string[]>([])
 const categoryOpts = ref<string[]>([])
+/** 图片 tab 出图口径（2026-10-10 用户裁决）：product=服务端产品图模式（purpose=product：
+ *  底型白名单 white/solid/transparent+强制 media_type=image+形态闸 0.4~2.6+白底优先），
+ *  默认；all=全库图片（不带 purpose，行为不变）。仅图片 tab 生效 */
+const imgPurpose = ref<'product' | 'all'>('product')
 async function loadDistinctOpts(): Promise<void> {
   const [b, m, c] = await Promise.all([
     fetchMaterialDistinct('brand'),
@@ -112,6 +116,7 @@ async function run(p = page.value): Promise<void> {
       mediaType: mType.value,
       page: page.value,
       size: PAGE_SIZE,
+      purpose: mType.value === 'image' && imgPurpose.value === 'product' ? 'product' : '',
     })
     items.value = r.items
     total.value = r.total
@@ -132,6 +137,11 @@ function runFromFirst(): void {
 /** 视频/图片 tab 切换 → 按新 media_type 重查第一页（选择集跨 tab 保留） */
 watch(tab, (t) => {
   if (t !== 'audio') void run(1)
+})
+
+/** 出图口径切换（全部/产品图）→ 回第一页重查 */
+watch(imgPurpose, () => {
+  if (tab.value === 'image') void runFromFirst()
 })
 
 /* ── 多选（卡片右上角勾选 + 底部全选/取消全选；跨页/跨 tab 保留） ── */
@@ -313,6 +323,17 @@ onMounted(() => {
     <div v-show="tab !== 'audio'" class="mlib-av">
       <div class="mlib-filter">
         <input v-model="kw" class="mlib-input" placeholder="搜索文件名/关键字…" @keydown.enter="runFromFirst()" />
+        <!-- 出图口径（仅图片 tab；2026-10-10 用户裁决：默认产品图=服务端 purpose=product 模式） -->
+        <select
+          v-if="tab === 'image'"
+          v-model="imgPurpose"
+          class="mlib-input mlib-input--sm"
+          title="产品图=服务端产品图模式（白底/纯色/透明底+形态闸过滤+白底优先）；全部=全库图片"
+          @change="runFromFirst()"
+        >
+          <option value="product">产品图</option>
+          <option value="all">全部</option>
+        </select>
         <input v-model="brand" class="mlib-input mlib-input--sm" list="mlib-brand-opts" placeholder="品牌过滤…" @keydown.enter="runFromFirst()" />
         <input v-model="model" class="mlib-input mlib-input--sm" list="mlib-model-opts" placeholder="型号过滤…" @keydown.enter="runFromFirst()" />
         <input v-model="category" class="mlib-input mlib-input--sm" list="mlib-category-opts" placeholder="分类过滤…" @keydown.enter="runFromFirst()" />

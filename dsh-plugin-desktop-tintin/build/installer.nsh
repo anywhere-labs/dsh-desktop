@@ -62,3 +62,29 @@ Var pid
 
   dsh_installer_app_stopped:
 !macroend
+
+; ── 卸载可选段：同时删除用户数据（2026-10-12 用户裁决：默认不勾选）──────────
+; 组件勾选页由模板在感知到本宏时自动启用（installer.nsi → MUI_UNPAGE_COMPONENTS，
+; 宏经文件前置对 !ifmacrodef 可见）。范围=本产品自有用户数据：
+;   $PROFILE\.dsh-tintin（TinTin 通道 home：config.json/会话/素材引用）
+;   $PROFILE\.dsh（共享 home：settings.yaml/profiles/storages）
+;   $APPDATA\tintin（Roaming 运行数据/日志）
+; 不碰 %APPDATA%\tintin-client-electron（旧客户端遗留=首启迁移源）。
+; DSH_HOME 环境变量重定向的 home 也一并删除（未设则跳过）。
+; 段名用字面量（不用 LangString）：builder 语言表随版本变化（实测先越南语后泰语），
+; LangString 缺语言表项=警告 6040，而 makensis 警告即错误——字面量永零警告。
+!macro customUnInstallSection
+  Section /o "同时删除用户数据（服务器配置/会话/素材库引用）" un.sec.DeleteUserData
+    DetailPrint "Deleting user data: $PROFILE\.dsh-tintin"
+    RMDir /r "$PROFILE\.dsh-tintin"
+    DetailPrint "Deleting user data: $PROFILE\.dsh"
+    RMDir /r "$PROFILE\.dsh"
+    DetailPrint "Deleting user data: $APPDATA\tintin"
+    RMDir /r "$APPDATA\tintin"
+    ReadEnvStr $R0 "DSH_HOME"
+    ${If} $R0 != ""
+      DetailPrint "Deleting user data: $R0"
+      RMDir /r "$R0"
+    ${EndIf}
+  SectionEnd
+!macroend

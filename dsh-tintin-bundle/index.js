@@ -256,7 +256,7 @@ export async function apply(ctx, config) {
   // 0.1.7 settings-yaml recovery: the upstream settings restructure renamed the
   // old store to <DSH_HOME>/settings.yaml.imported and carried only upstream
   // namespaces across — our section (server.url/provisioned, local.cacheDir)
-  // was stranded, dropping the bridge onto the built-in 127.0.0.1:8766 default.
+  // was stranded, dropping the bridge onto the built-in default (was 127.0.0.1:8766; 2026-10-12 起=192.168.111.31:8000).
   // Fill still-empty leaves from the renamed store; idempotent, and it never
   // overwrites anything the user re-set after the upgrade.
   ctx.effect(() => {
@@ -521,6 +521,27 @@ export async function apply(ctx, config) {
         return { ok: false, machineId: '', error: err instanceof Error ? err.message : String(err) }
       }
     },
+    // env:downloadsDir — 系统下载文件夹路径。args[0] 给文件名时返回去重后的完整
+    // 目标路径（已存在则追加 (n)，浏览器下载同名口径）；缺省返回目录本身。
+    // 纯 node USERPROFILE 拼接（宿主子进程无 electron，dialog/showSaveDialog 类
+    // 通道在此上下文拿不到——2026-10-12 实障）。供「下载直落下载文件夹」类按钮。
+    'env:downloadsDir': (args) => {
+      try {
+        const dir = join(process.env.USERPROFILE || process.env.HOME || '', 'Downloads')
+        const name = String(args?.[0] ?? '').replace(/[\\/]/g, '')
+        if (!name) {
+          mkdirSync(dir, { recursive: true })
+          return { dir }
+        }
+        const ext = extname(name)
+        const stem = name.slice(0, name.length - ext.length)
+        let candidate = join(dir, name)
+        for (let n = 1; existsSync(candidate); n++) candidate = join(dir, `${stem}(${n})${ext}`)
+        return { path: candidate }
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) }
+      }
+    },
     // env:cacheDir — 缓存目录解析（2026-09-24 用户裁决：恢复原客户端「更改」能力）。
     // 优先级：设置 local.cacheDir（通用设置·本地配置卡「更改」写入）> 默认本机
     // 工作区目录 Documents/tintin-workspace；由宿主保证目录存在。
@@ -607,6 +628,12 @@ export async function apply(ctx, config) {
         return { error: err instanceof Error ? err.message : String(err) }
       }
     },
+    // 注意：本 bundle 运行于 Harness 子进程（纯 node），require('electron') 拿到
+    // 的是二进制路径字符串而非 API——dialog/showSaveDialog 类原生能力在此上下文
+    // 不可用（2026-10-12 两次实障：裸 require ReferenceError / 解构 undefined）。
+    // 原生保存对话框由桌面壳 preload 桥 dshDesktopSaveFilePicker 承担（见
+    // dsh-plugin-desktop-tintin/src/preload.ts）；「下载直落下载文件夹」场景走
+    // env:downloadsDir + tts:saveAudio（fromPath 复制）。
     // env:clearCache — 清空固定缓存目录内容（保留目录本身）。被占用的条目
     // force 删除失败即跳过。
     'env:clearCache': () => {

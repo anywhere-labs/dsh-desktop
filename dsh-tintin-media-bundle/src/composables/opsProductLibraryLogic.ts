@@ -222,8 +222,22 @@ export function parseImportRows(rows: Array<Record<string, unknown>>): ImportPar
   return { valid, errors }
 }
 
-/** 单行 markdown 剥离（去列表符/加粗/残余标记；firstMarkdownLine 与 markdownListLines 共用） */
-function stripMarkdownLine(line: string): string {
+/** 导入响应摘要（2026-10-10 服务端 POST /import multipart 自解析，响应无 schema：
+ *  message 字符串优先；否则常见计数键中文化平铺，标量键全忽略未知键不崩） */
+export function summarizeImportResult(r: unknown): string {
+  if (!r || typeof r !== 'object') return '导入完成。'
+  const rec = r as Record<string, unknown>
+  if (typeof rec.message === 'string' && rec.message.trim()) return rec.message.trim()
+  const zh: Record<string, string> = {
+    created: '新增', updated: '更新', skipped: '跳过', failed: '失败', total: '总计',
+  }
+  const parts = Object.entries(rec)
+    .filter(([, v]) => ['string', 'number', 'boolean'].includes(typeof v))
+    .map(([k, v]) => `${zh[k] ?? k}=${String(v)}`)
+  return parts.length ? `导入完成：${parts.join('，')}` : '导入完成。'
+}
+
+/** 单行 markdown 剥离（去列表符/加粗/残余标记；firstMarkdownLine 与 markdownListLines 共用） */function stripMarkdownLine(line: string): string {
   return line
     .replace(/^[-*•]+\s*/, '')          // 去列表符（- / * / •）
     .replace(/\*\*([^*]*)\*\*/g, '$1') // 去加粗 **xx** → xx
@@ -290,4 +304,76 @@ export function parseProductKeywords(item: Record<string, unknown> | null | unde
 /** 核心卖点摘要（firstMarkdownLine 的卖点语义别名；原直接截断显示已废弃） */
 export function firstSellingPoint(raw: unknown, maxLen = 48): string {
   return firstMarkdownLine(raw, maxLen)
+}
+
+/* ── 产品六视图（2026-10-09 服务端 8f073bbf：详情 item.six_views 内嵌 + 列表
+   six_view_counts + POST items/{id}/views/assemble 生成 + DELETE views/{view}）── */
+
+/** 六视角规范序（missing 清单与占位渲染用） */
+export const PRODUCT_SIX_VIEW_ORDER = ['front', 'back', 'left', 'right', 'top', 'bottom'] as const
+
+export interface ProductSixViewEntry {
+  view: string
+  materialId: string
+  url: string
+  thumbnail: string
+  source: string
+  confidence: number
+}
+
+/** 视角中文标签（未知视角名原样返回） */
+export function productViewLabel(view: string): string {
+  const labels: Record<string, string> = {
+    front: '正面', back: '背面', left: '左侧', right: '右侧', top: '顶部', bottom: '底部',
+  }
+  return labels[view] ?? view
+}
+
+/** 服务端 six_views 键控对象 → 规范序条目（实弹形态 2026-10-09：
+ *  {front:{material_id,url,thumbnail,source,confidence,origin_url,match_mode},…}；
+ *  未知视角名按插入序追加在规范视角之后；无 material_id 的脏条目剔除；
+ *  url/thumbnail 缺省按 material_id 回退拼装） */
+export function normalizeProductSixViews(raw: unknown): ProductSixViewEntry[] {
+  if (!raw || typeof raw !== 'object') return []
+  const rec = raw as Record<string, unknown>
+  const ordered: Array<[string, unknown]> = []
+  for (const v of PRODUCT_SIX_VIEW_ORDER) {
+    if (v in rec) ordered.push([v, rec[v]])
+  }
+  for (const [k, v] of Object.entries(rec)) {
+    if (!(PRODUCT_SIX_VIEW_ORDER as readonly string[]).includes(k)) ordered.push([k, v])
+  }
+  const out: ProductSixViewEntry[] = []
+  for (const [view, e] of ordered) {
+    if (!e || typeof e !== 'object') continue
+    const r = e as Record<string, unknown>
+    const materialId = String(r.material_id ?? '')
+    if (!materialId) continue
+    out.push({
+      view,
+      materialId,
+      url: String(r.url || `/material/serve?material_id=${materialId}`),
+      thumbnail: String(r.thumbnail || `/material/thumbnail?material_id=${materialId}`),
+      source: String(r.source ?? ''),
+      confidence: Number(r.confidence ?? 0) || 0,
+    })
+  }
+  return out
+}
+
+/** 六视图渲染槽位（规范六视角在前 + 未知视角追加；entry 缺省=占位）
+ *  —— 运营「产品资料」六视图卡与选产品弹窗六视图侧栏共用 */
+export interface ProductSixViewSlot {
+  view: string
+  label: string
+  entry: ProductSixViewEntry | null
+}
+
+export function productSixViewSlots(views: ProductSixViewEntry[]): ProductSixViewSlot[] {
+  const map = new Map(views.map((e) => [e.view, e]))
+  const slots: ProductSixViewSlot[] = PRODUCT_SIX_VIEW_ORDER.map((v) => ({ view: v, label: productViewLabel(v), entry: map.get(v) ?? null }))
+  for (const e of views) {
+    if (!(PRODUCT_SIX_VIEW_ORDER as readonly string[]).includes(e.view)) slots.push({ view: e.view, label: productViewLabel(e.view), entry: e })
+  }
+  return slots
 }

@@ -121,10 +121,13 @@ export function useServerTask(opts: UseServerTaskOptions) {
       if (!data) return
       const st = (data.status ?? '') as TaskStatus
       status.value = st
-      progress.value = data.progress ?? 0
+      // 队列态不采信进度（2026-10-12 实测事故 c_55435304-7：部分 worker 在排队/
+      // 收尾前会回 progress=100，直接采信=提交 2 秒即误判「已完成」并停轮询）——
+      // 进度仅在处理态采信；完成必须有终态状态背书
+      if (st === 'processing') progress.value = data.progress ?? 0
       if (
         data.status === 'completed' ||
-        (data.progress === 100 && st !== 'failed')
+        (st === 'processing' && data.progress === 100)
       ) {
         resultUrl.value = data.result_url || opts.extractResultUrl?.(data) || ''
         status.value = 'done'
@@ -135,6 +138,8 @@ export function useServerTask(opts: UseServerTaskOptions) {
         // 2026-09-07：服务端 /tasks/{id} 错误字段为 error（error_message 不存在，
         // 旧代码只读后者致真实原因被「处理失败」吞掉，如「模型资源不可用: vsr」）
         failWith(data.error_message || data.error || '处理失败')
+      } else if (st === 'cancelled') {
+        failWith('已被用户终止。')
       }
     } catch (err) {
       failWith(err)

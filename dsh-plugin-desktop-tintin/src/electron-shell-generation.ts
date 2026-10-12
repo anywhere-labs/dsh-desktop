@@ -12,6 +12,7 @@ import {
   Tray,
   type WebContents,
 } from 'electron'
+import { join } from 'node:path'
 import { isDesktopSetupWizardSelection } from './setup-wizard-contract.ts'
 import { SETUP_ONBOARDING_CHANNEL } from './setup-onboarding-bridge.ts'
 import { CompatibilityShell, type CompatibilityShellActions } from './compatibility-shell.ts'
@@ -25,6 +26,7 @@ import {
 } from './launch-workspace-contract.ts'
 import { DESKTOP_RENDERER_ACTION_CHANNEL } from './renderer-actions-contract.ts'
 import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL } from './directory-picker-contract.ts'
+import { DESKTOP_SAVE_FILE_PICKER_CHANNEL, type DesktopSaveFilePickerRequest } from './save-file-picker-contract.ts'
 import { createDesktopRendererActionDispatcher } from './renderer-actions-dispatch.ts'
 import type { DesktopNotification, DesktopShellSpec } from './runtime.ts'
 import { prepareTrayIcon } from './tray-icons.ts'
@@ -368,6 +370,33 @@ export class ElectronShellGeneration {
         return await this.options.pickDirectory()
       })
     }
+
+    // Native save-file dialog for client-plugin renderers outside the Electron
+    // main process (the TinTin host bundle is a plain-node Harness child and
+    // cannot open dialogs itself; consumed via window.dshDesktopSaveFilePicker).
+    renderer.ipc.handle(DESKTOP_SAVE_FILE_PICKER_CHANNEL, async (event, params: unknown) => {
+      if (this.released || event.sender !== renderer
+        || event.senderFrame === null || event.senderFrame !== renderer.mainFrame
+        || !sameOriginFrame(event.senderFrame.url, origin)) {
+        throw new Error('dsh-plugin-desktop: untrusted save-file picker sender')
+      }
+      const p = (params && typeof params === 'object' && !Array.isArray(params)
+        ? params : {}) as DesktopSaveFilePickerRequest
+      const options: Electron.SaveDialogOptions = {
+        title: typeof p.title === 'string' && p.title ? p.title : 'Save',
+      }
+      if (typeof p.defaultPath === 'string' && p.defaultPath) {
+        // 裸文件名（调用方只给文件名）→ 默认落系统下载目录（2026-10-12 用户裁决：
+        // 点下载=弹保存对话框、默认 Windows 下载路径）
+        options.defaultPath = /[\\/]/.test(p.defaultPath)
+          ? p.defaultPath
+          : join(app.getPath('downloads'), p.defaultPath)
+      }
+      if (Array.isArray(p.filters)) options.filters = [...p.filters]
+      const win = BrowserWindow.fromWebContents(event.sender) ?? undefined
+      const ret = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
+      return ret.canceled || !ret.filePath ? null : ret.filePath
+    })
 
     renderer.ipc.handle(SETUP_ONBOARDING_CHANNEL, async (event, request: unknown) => {
       if (this.released || event.sender !== renderer || event.senderFrame !== renderer.mainFrame

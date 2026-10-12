@@ -8,6 +8,7 @@ import {
   buildFramesConfirmBody,
   buildFramesReplaceFiles,
   buildImitateBody,
+  buildScriptPutPayload,
   buildStoryboardGenerateBody,
   canConfirmFrames,
   classifySixViewPollStatus,
@@ -16,10 +17,18 @@ import {
   enumLabel,
   framesBadgeText,
   genBadgeText,
+  disableShotReplaceItem,
+  enableShotReplaceItem,
+  isReplaceShot,
   isStageDReady,
+  shotInReplace,
+  shotModeBadgeClass,
+  shotModeBadgeText,
   nextGenName,
   normalizeImitateVideo,
   parseSixViewEntries,
+  preserveProductSelectionOnReload,
+  productChipLabel,
   sixViewFileUrl,
   normalizeServerEnums,
   ratioSize,
@@ -396,5 +405,165 @@ describe('classifySixViewPollStatus（2026-10-09 服务端联动取消：取消�
     for (const st of ['done', 'completed', 'succeeded', 'generated']) {
       expect(classifySixViewPollStatus(st)).toBe('complete')
     }
+  })
+})
+
+describe('换物品镜（2026-10-10 用户裁决：切换为实拍→切换为换物品）', () => {
+  const genShot: ImitationShot = {
+    duration: 4,
+    source: 'generate',
+    gen: { backend: 'comfygen', name: 'gen_1', scene: {}, camera: 'push_in', fidelity: 'balanced', first_frame: null, last_frame: null, frames_status: 'confirmed', status: 'done', job_id: 'j1', check: null, error: null },
+  }
+
+  it('enableShotReplaceItem：source→material+挂块，refs 带六视图缺省（滤非法截 9 张），绑定清零，gen 块保留', () => {
+    const out = enableShotReplaceItem(genShot, ['11', '22', 33, -1, Number.NaN])
+    expect(out.source).toBe('material')
+    expect(out.material_id).toBe(0)
+    expect(out.material_path).toBe('')
+    expect(out.replace_item).toEqual({ operation: 'replace', ref_ids: [11, 22, 33], object_desc: '' })
+    expect(out.gen?.name).toBe('gen_1') // gen 块原样保留（切回可恢复）
+    expect(out.gen?.frames_status).toBe('confirmed')
+  })
+
+  it('disableShotReplaceItem：剥块+恢复 AI（既有 gen 原样恢复不重建，绑定清零）', () => {
+    const enabled = enableShotReplaceItem(genShot, [11])
+    const back = disableShotReplaceItem(enabled, [enabled])
+    expect(back.replace_item).toBeUndefined()
+    expect(back.source).toBe('generate')
+    expect(back.gen?.name).toBe('gen_1')
+    expect(back.gen?.status).toBe('done')
+    expect(back.material_id).toBe(0)
+  })
+
+  it('isReplaceShot：material+块=真；纯手动实拍绑定（无块）=假', () => {
+    expect(isReplaceShot(enableShotReplaceItem(genShot, [11]))).toBe(true)
+    expect(isReplaceShot({ duration: 3, source: 'material', material_id: 42 })).toBe(false)
+    expect(isReplaceShot(genShot)).toBe(false)
+  })
+
+  it('genBadgeText：换物品镜显示「物品替换」，优先于实拍/AI 态', () => {
+    expect(genBadgeText(enableShotReplaceItem(genShot, [11]))).toBe('物品替换')
+    expect(genBadgeText({ duration: 3, source: 'material', material_id: 42 })).toBe('实拍')
+    expect(genBadgeText(genShot)).toBe('已完成')
+  })
+})
+
+describe('video_replace 档模式感知（§11-62：第一步缺省档，服务端 worker 按模式路由）', () => {
+  const genShot: ImitationShot = {
+    duration: 4,
+    source: 'generate',
+    gen: { backend: 'comfygen', name: 'gen_1', scene: {}, camera: 'push_in', fidelity: 'balanced', first_frame: null, last_frame: null, frames_status: 'pending', status: 'pending', job_id: null, check: null, error: null },
+  }
+  const doneShot: ImitationShot = { ...genShot, gen: { ...genShot.gen!, status: 'done' } }
+
+  it('shotInReplace：video_replace 档 generate 镜=换物镜（无论有无块）；其余档仅显式块', () => {
+    expect(shotInReplace(genShot, 'video_replace')).toBe(true)
+    expect(shotInReplace(genShot, 'scene_refs')).toBe(false)
+    expect(shotInReplace(enableShotReplaceItem(genShot, [11]), 'scene_refs')).toBe(true)
+    expect(shotInReplace({ duration: 3, source: 'material', material_id: 1 }, 'video_replace')).toBe(false)
+  })
+
+  it('shotModeBadgeText：档位驱动镜显示「物品替换」，显式块/其余档走 genBadgeText', () => {
+    expect(shotModeBadgeText(genShot, 'video_replace')).toBe('物品替换')
+    expect(shotModeBadgeText(genShot, 'scene_refs')).toBe('待生成')
+    expect(shotModeBadgeText(doneShot, 'video_replace')).toBe('已完成') // done 落回终态显示不被档位覆盖
+    expect(shotModeBadgeText(enableShotReplaceItem(genShot, [11]), 'video_replace')).toBe('物品替换')
+  })
+
+  it('shotModeBadgeClass：档位驱动镜 mat 灰不冒充 AI 绿；其余档保留 gen 态配色', () => {
+    expect(shotModeBadgeClass(genShot, 'video_replace')).toBe('iv-badge--mat')
+    expect(shotModeBadgeClass(doneShot, 'video_replace')).toBe('iv-badge--ai') // done 保留完成绿
+    expect(shotModeBadgeClass(doneShot, 'scene_refs')).toBe('iv-badge--ai')
+    expect(shotModeBadgeClass({ ...doneShot, gen: { ...doneShot.gen!, status: 'failed' } }, 'scene_refs')).toBe('iv-badge--fail')
+    expect(shotModeBadgeClass(genShot, 'scene_refs')).toBe('iv-badge--mat')
+  })
+})
+
+// ── 产品选择回读保留（2026-10-12 用户裁决：接口失败只影响对应结果展示——
+//    选择/清除未落库期间，脚本回读不得用服务端旧态覆盖内存产品绑定）──
+describe('preserveProductSelectionOnReload', () => {
+  const picked = {
+    products: [{ brand: '罗技(Logitech)', model: 'G304 黑【910-005286】' }],
+    meta: { imitate: { product_selected: true, product_id: '129abc6b981f9315', product_images: ['u1', 'u2'], product_image_ids: [1, 2], product_image_names: ['正面', '顶部'], orig_seeded: true } },
+  }
+
+  it('非脏（已落库）→ 原样返回，不做任何合并', () => {
+    const data = { meta: { imitate: { product_selected: false } }, products: [] }
+    expect(preserveProductSelectionOnReload(picked, data, false)).toBe(data)
+    expect(data.meta.imitate.product_selected).toBe(false)
+  })
+
+  it('内存为空（首载）→ 不合并', () => {
+    const data = { meta: { imitate: {} }, products: [] }
+    expect(preserveProductSelectionOnReload(null, data, true)).toBe(data)
+  })
+
+  it('脏+已选品+服务端丢绑定（adopt-copy 丢 meta.imitate）→ 整族字段与 products 取内存，他字段仍服务端权威', () => {
+    const data = { topic: 't', meta: { imitate: { orig_seeded: true, copy_adopted: true } }, products: [{ brand: '自动提取' }] }
+    preserveProductSelectionOnReload(picked, data, true)
+    const im = (data.meta as Record<string, any>).imitate
+    expect(im.product_selected).toBe(true)
+    expect(im.product_id).toBe('129abc6b981f9315')
+    expect(im.product_images).toEqual(['u1', 'u2'])
+    expect(im.product_image_ids).toEqual([1, 2])
+    expect(im.product_image_names).toEqual(['正面', '顶部'])
+    expect(im.copy_adopted).toBe(true) // 服务端自有字段不丢
+    expect(data.products).toEqual(picked.products)
+    expect(data.topic).toBe('t')
+  })
+
+  it('脏+已清品+服务端残留旧绑定 → 剥成未选，回读不带出旧产品', () => {
+    const prev = { products: [], meta: { imitate: { product_selected: false, product_id: '', product_images: [], product_image_ids: [], product_image_names: [] } } }
+    const data = { meta: { imitate: { product_selected: true, product_id: 'old', product_images: ['x'] } }, products: [{ brand: '旧产品' }] }
+    preserveProductSelectionOnReload(prev, data, true)
+    const im = (data.meta as Record<string, any>).imitate
+    expect(im.product_selected).toBe(false)
+    expect(im.product_id).toBe('')
+    expect(im.product_images).toEqual([])
+    expect(data.products).toEqual([])
+  })
+
+  it('脏+已选品但内存缺数组字段 → 归位空数组不抛（防御形态）', () => {
+    const prev = { products: 'bad', meta: { imitate: { product_selected: true } } }
+    const data = { meta: { imitate: {} }, products: [] }
+    preserveProductSelectionOnReload(prev, data, true)
+    const im = (data.meta as Record<string, any>).imitate
+    expect(im.product_selected).toBe(true)
+    expect(im.product_images).toEqual([])
+    expect(data.products).toEqual([])
+  })
+})
+
+describe('productChipLabel', () => {
+  const products = [{ brand: '罗技(Logitech)', model: 'G304 黑【910-005286】', name: 'G304' }]
+  it('未选品=空串（自动提取的 products 不得冒充 chip）', () => {
+    expect(productChipLabel(products, false)).toBe('')
+  })
+  it('品牌/型号去重拼接；缺型号回退 name', () => {
+    expect(productChipLabel(products, true)).toBe('罗技(Logitech) / G304 黑【910-005286】')
+    expect(productChipLabel([{ brand: '', model: '', name: 'G304' }], true)).toBe('G304')
+    expect(productChipLabel([], true)).toBe('')
+  })
+})
+
+describe('buildScriptPutPayload', () => {
+  it('ScriptIn 字段组透传：缺省回填 + shots 逐镜时长钳制 + total_duration 兜底求和', () => {
+    const shots = [
+      { name: 'shot_01', duration: 99, gen: { name: 'shot_01', status: 'done' } },
+      { name: 'shot_02', duration: 0, gen: { name: 'shot_02', status: 'pending' } },
+    ] as unknown as ImitationShot[]
+    const payload = buildScriptPutPayload({ topic: 't', meta: { imitate: { product_selected: true } } }, shots)
+    expect(payload.topic).toBe('t')
+    expect((payload.meta as Record<string, unknown>).imitate).toEqual({ product_selected: true })
+    expect(payload.products).toEqual([])
+    expect(payload.shot_count).toBe(2)
+    expect(payload.total_duration).toBe(shotsTotalDuration(shots))
+    const put = payload.shots as Array<Record<string, unknown>>
+    expect(put[0].duration).toBe(clampDuration(99))
+    expect(put[1].duration).toBe(clampDuration(0))
+    expect(put[0].gen).toEqual({ name: 'shot_01', status: 'done' }) // gen 原样透传
+  })
+  it('total_duration 已有值不覆盖', () => {
+    expect(buildScriptPutPayload({ total_duration: 12.5 }, []).total_duration).toBe(12.5)
   })
 })

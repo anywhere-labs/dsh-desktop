@@ -29,6 +29,9 @@ const props = defineProps<{
   initialKw?: string
   /** 激活时恢复上次选中/预览的条目（预览区与选中态同步恢复） */
   initialItem?: PickerItem | null
+  /** 三栏模式（1:1:0.5，2026-10-10 仿视频选产品六视图）：预览列右侧再加半宽
+   *  第三列，内容由 #aside 作用域槽提供（:item=当前预览条目） */
+  asideable?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -92,7 +95,7 @@ function onRowClick(item: PickerItem) {
       <button class="picker-btn" :disabled="loading" @click="run()">搜索</button>
     </div>
 
-    <div class="picker-main">
+    <div class="picker-main" :class="{ 'picker-main--third': asideable }">
       <div class="picker-list">
         <div v-if="loading" class="picker-state">加载中…</div>
         <div v-else-if="error" class="picker-state picker-state--error">{{ error }}</div>
@@ -121,6 +124,11 @@ function onRowClick(item: PickerItem) {
         <div v-if="sel && $slots['preview-footer']" class="picker-preview-footer">
           <slot name="preview-footer" :item="sel" :confirm="onPick" />
         </div>
+      </div>
+
+      <!-- 三栏模式第三列（asideable）：内容 #aside 槽自取（随预览条目联动） -->
+      <div v-if="asideable" class="picker-aside custom-scroll">
+        <slot name="aside" :item="sel" />
       </div>
     </div>
 
@@ -203,6 +211,22 @@ function onRowClick(item: PickerItem) {
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* 三栏模式（1:1:0.5，2026-10-10 仿视频选产品）：左列表/中预览等宽，
+   第三列半宽；覆盖单侧模式的固定 46% 占比 */
+.picker-main--third .picker-list { flex: 1 1 0; }
+.picker-main--third .picker-side { flex: 1 1 0; }
+
+.picker-aside {
+  flex: 0.5 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-container);
+  padding: var(--space-3);
 }
 
 /* 预览模式：预览框弹性填满侧列（扣除 footer 一行按钮高度），独立滚动 */

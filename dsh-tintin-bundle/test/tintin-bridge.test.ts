@@ -64,7 +64,7 @@ describe('tintin server-proxy', () => {
     expect(withAi()).toBe('http://10.0.0.2:9000')
 
     const fallback = createServerUrlResolver({ readConfig: () => null, readAiConfig: () => null })
-    expect(fallback()).toBe('http://127.0.0.1:8766')
+    expect(fallback()).toBe('http://192.168.111.31:8000') // 定制版默认=部署服务器（2026-10-12 裁决）
   })
 
   it('rewrites /output/ urls onto the current server only when host differs', () => {

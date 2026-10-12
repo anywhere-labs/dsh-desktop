@@ -329,6 +329,18 @@ export function parseSixViewEntries(src: unknown): SixViewEntry[] {
   return entries
 }
 
+/** 换物品配置块（2026-10-10 用户裁决：第 3 步「切换为实拍」升级为「切换为换物品」；
+ *  refs=替换物产品图 material ids，默认带出第 2 步产品六视图，可经选择产品图弹窗改选；
+ *  提交链=服务端换物引擎 media_jobs video_edit（refs 槽位序 1~9 张），本批只做状态与
+ *  选择 UI，第四步提交编排另行批次）。随 shots JSONB 透传往返，服务端零改动。 */
+export interface ShotReplaceItem {
+  operation: 'replace'
+  /** 替换物产品图 material id（H3 ref2va refs 槽位序=此数组序，≤9 张） */
+  ref_ids: number[]
+  /** 替换目标物品描述（可空=纯参考图；video_edit object_desc 载荷，出口须 ASCII） */
+  object_desc: string
+}
+
 /** 仿视频 shot（文案线既有字段 shot_type/visual/audio/sfx 等经 extra 透传） */
 export interface ImitationShot {
   index?: number
@@ -342,6 +354,7 @@ export interface ImitationShot {
   material_path?: string | null
   source?: ShotSource
   gen?: ShotGenBlock
+  replace_item?: ShotReplaceItem
   [extra: string]: unknown
 }
 
@@ -393,9 +406,41 @@ export function isStageDReady(shots: ImitationShot[]): boolean {
   return shots.every((s) => s.source !== 'generate' || s.gen?.frames_status === 'confirmed')
 }
 
-/** 逐镜生成徽标文案（§5.3-5：待生成/生成中/完成/失败+原因） */
+/** 换物品镜判定（source=material 且带 replace_item 块——纯手动实拍绑定不带块） */
+export function isReplaceShot(shot: ImitationShot): boolean {
+  return shot.source === 'material' && !!shot.replace_item
+}
+
+/** 模式驱动换物镜判定（§11-62 video_replace 档：服务端 worker 按模式把全部
+ *  generate 镜路由 video_edit——该档下 generate 镜即换物镜，无论有无显式块） */
+export function shotInReplace(shot: ImitationShot, referenceMode: string): boolean {
+  return isReplaceShot(shot) || (referenceMode === 'video_replace' && shot.source === 'generate')
+}
+
+/** 模式感知徽标文案（video_replace 档 generate 镜在待生成/生成中=物品替换；
+ *  done/failed 落回 genBadgeText 保住终态显示；显式块/其余档走 genBadgeText） */
+export function shotModeBadgeText(shot: ImitationShot, referenceMode: string): string {
+  const st = shot.gen?.status ?? 'pending'
+  if (referenceMode === 'video_replace' && shot.source === 'generate' && !shot.replace_item
+    && (st === 'pending' || st === 'submitted')) return '物品替换'
+  return genBadgeText(shot)
+}
+
+/** 模式感知徽标配色类（与 shotModeBadgeText 同口径：仅待生成/生成中档位驱动镜
+ *  走 mat 灰不冒充 AI 绿；done/failed 落回 gen 态配色 ai 绿/fail 红） */
+export function shotModeBadgeClass(shot: ImitationShot, referenceMode: string): string {
+  const st = shot.gen?.status ?? 'pending'
+  if (referenceMode === 'video_replace' && shot.source === 'generate' && !shot.replace_item
+    && (st === 'pending' || st === 'submitted')) return 'iv-badge--mat'
+  if (shot.source !== 'generate') return 'iv-badge--mat'
+  if (shot.gen?.status === 'done') return 'iv-badge--ai'
+  if (shot.gen?.status === 'failed') return 'iv-badge--fail'
+  return 'iv-badge--mat'
+}
+
+/** 逐镜生成徽标文案（§5.3-5：待生成/生成中/完成/失败+原因；换物品镜优先显示） */
 export function genBadgeText(shot: ImitationShot): string {
-  if (shot.source !== 'generate') return '实拍'
+  if (shot.source !== 'generate') return isReplaceShot(shot) ? '物品替换' : '实拍'
   const st = shot.gen?.status ?? 'pending'
   if (st === 'pending') return '待生成'
   if (st === 'submitted') return '生成中'
@@ -452,6 +497,33 @@ export function switchShotSource(shot: ImitationShot, to: ShotSource, allShots: 
       error: null,
     },
   }
+}
+
+/**
+ * 切换为换物品（2026-10-10 用户裁决，替代原「切换为实拍」按钮语义）：
+ * · source→material + 挂 replace_item 块（refs 缺省=第 2 步产品六视图 material ids，
+ *   空则由选择产品图弹窗补选）；binding 字段清零（material_id=0/material_path=''，
+ *   同切 AI 口径——换物镜的绑定视频来自换物管线产物，不消费手动绑定旧值）。
+ * · gen 块保留（同切实拍语义：小体积配置+已确认帧引用，切回 AI 原样恢复不重建）。
+ */
+export function enableShotReplaceItem(shot: ImitationShot, defaultRefIds: number[] = []): ImitationShot {
+  return {
+    ...shot,
+    source: 'material',
+    material_id: 0,
+    material_path: '',
+    replace_item: {
+      operation: 'replace',
+      ref_ids: defaultRefIds.slice(0, 9).map(Number).filter((n) => Number.isFinite(n) && n > 0),
+      object_desc: '',
+    },
+  }
+}
+
+/** 切回 AI 生成：剥 replace_item 块 + 走既有切 AI 路径（gen 块原样恢复不重建） */
+export function disableShotReplaceItem(shot: ImitationShot, allShots: ImitationShot[] = []): ImitationShot {
+  const { replace_item: _drop, ...rest } = shot
+  return switchShotSource(rest, 'generate', allShots)
 }
 
 // ── gen_spec 客户端镜像（§6：Part 1 出口自检 / PUT 前把关）────────
@@ -698,4 +770,68 @@ export function buildFramesReplaceFiles(firstLocalPath?: string, lastLocalPath?:
   if (firstLocalPath) files.first = { path: firstLocalPath }
   if (lastLocalPath) files.last = { path: lastLocalPath }
   return files
+}
+
+/** 产品选择回读保留（2026-10-12 用户裁决：接口失败只影响对应结果的展示，
+ *    不得波及无关组件——选择/清除产品尚未落库时，任何脚本回读（采纳文案/轮询/
+ *    重进页面）不得用服务端旧态覆盖内存新态；任何一次保存成功后服务端恢复权威） */
+export function preserveProductSelectionOnReload(
+  prev: Record<string, unknown> | null | undefined,
+  data: Record<string, unknown>,
+  dirty: boolean,
+): Record<string, unknown> {
+  if (!prev || !dirty) return data
+  const pm = (((prev.meta as Record<string, unknown> | undefined)?.imitate as Record<string, unknown> | undefined) ?? {})
+  const meta = { ...((data.meta as Record<string, unknown> | undefined) ?? {}) }
+  const imitate = { ...((meta.imitate as Record<string, unknown> | undefined) ?? {}) }
+  if (pm.product_selected === true) {
+    imitate.product_selected = true
+    imitate.product_id = typeof pm.product_id === 'string' ? pm.product_id : ''
+    imitate.product_images = Array.isArray(pm.product_images) ? pm.product_images : []
+    imitate.product_image_ids = Array.isArray(pm.product_image_ids) ? pm.product_image_ids : []
+    imitate.product_image_names = Array.isArray(pm.product_image_names) ? pm.product_image_names : []
+    data.products = Array.isArray(prev.products) ? prev.products : []
+  } else {
+    imitate.product_selected = false
+    imitate.product_id = ''
+    imitate.product_images = []
+    imitate.product_image_ids = []
+    imitate.product_image_names = []
+    data.products = []
+  }
+  meta.imitate = imitate
+  data.meta = meta
+  return data
+}
+
+/** 产品 chip 标签（选品时 products[0] 的 品牌/型号 去重拼接；未选品或无产品=空串，
+ *  自动提取的 products 不得冒充——picked 由调用方传入 product_selected 状态） */
+export function productChipLabel(products: unknown, picked: boolean): string {
+  if (!picked) return ''
+  const p = (Array.isArray(products) ? (products as Array<Record<string, unknown>>)[0] : undefined) ?? {}
+  const parts = [p.brand, p.model || p.name].filter(Boolean).map(String).filter((v, i, a) => a.indexOf(v) === i)
+  return parts.join(' / ') || String(p.name || p.brand || '')
+}
+
+/** PUT /scripts/{id} 整体替换组包（§8 ScriptIn 字段组；gen 随 shots JSONB 原样透传）。
+ *  2026-10-12 自渲染层下沉还行数账——组件只供 record 快照与 shots。 */
+export function buildScriptPutPayload(r: Record<string, unknown>, shots: ImitationShot[]): Record<string, unknown> {
+  return {
+    topic: r.topic ?? '',
+    meta: r.meta ?? {},
+    style: r.style ?? '',
+    atmosphere: r.atmosphere ?? '',
+    rhythm: r.rhythm ?? '',
+    bgm_type: r.bgm_type ?? '',
+    guidance: r.guidance ?? '',
+    products: r.products ?? [],
+    ratio: r.ratio ?? '',
+    total_duration: r.total_duration ?? shotsTotalDuration(shots),
+    shot_count: shots.length,
+    shots: shots.map((s) => ({ ...s, duration: clampDuration(s.duration) })),
+    saved_at: r.saved_at ?? '',
+    voice_audio_id: r.voice_audio_id ?? 0,
+    voice_dur_sec: r.voice_dur_sec ?? 0,
+    aroll: r.aroll ?? {},
+  }
 }

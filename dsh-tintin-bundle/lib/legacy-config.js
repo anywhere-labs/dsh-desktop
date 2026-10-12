@@ -66,8 +66,9 @@ export function planLegacyMigration(configDir, current) {
 // upstream namespaces (presets, llm-pi-ai, default-model) into the profile
 // config and stranded TinTin's own tintin-bundle section (server.url /
 // provisioned, local.cacheDir). Without it the server bridge silently falls
-// back to the built-in http://127.0.0.1:8766 default and every business route
-// 502s. Recovery = fill still-empty leaves from the renamed store, once.
+// back to the built-in deployment-server default (定制版=192.168.111.31:8000，
+// 2026-10-12 裁决前为 127.0.0.1:8766 占位) and every business route 502s.
+// Recovery = fill still-empty leaves from the renamed store, once.
 
 /**
  * Read the stranded tintin-bundle section from the renamed settings store.

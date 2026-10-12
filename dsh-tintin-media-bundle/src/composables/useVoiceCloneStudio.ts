@@ -462,7 +462,14 @@ export function useVoiceCloneStudio() {
       const res = await window.tintin.server.ttsGenerate(payload as any)
       if (!res) throw new Error('服务端离线或未返回结果')
       if ((res as any).error) throw new Error((res as any).error)
-      const url = extractAudioUrl(res)
+      const rawUrl = extractAudioUrl(res)
+      // audio_url 契约=服务端相对路径（/output/tts/...）：必须先补全服务端基址——
+      // 否则播放器 src 经 toFileUrl 变成宿主媒体代理地址（白名单外 404，播放死）、
+      // 自动落盘/下载的 http 分支也不命中报「无可用的音频数据源」（2026-10-12 实障）
+      const base = rawUrl && !rawUrl.startsWith('blob:') ? await ensureServerUrl() : ''
+      const url = rawUrl && !/^https?:\/\/|^blob:/i.test(rawUrl)
+        ? base.replace(/\/$/, '') + (rawUrl.startsWith('/') ? rawUrl : '/' + rawUrl)
+        : rawUrl
       if (url) {
         // 按命名规范生成文件名（含引擎段）+ 保存到 voice_clone 子目录
         const saveDir = await getVoiceCloneSaveDir()
@@ -507,57 +514,43 @@ export function useVoiceCloneStudio() {
     }
   }
 
-  /** 整体克隆结果另存为（成功区「下载」：dialog 选位置 → 优先复制已落盘文件，兜底 blob 转 base64） */
+  /** 整体克隆结果下载（2026-10-12 用户裁决终版：点下载=弹原生保存对话框、默认
+   *  Windows 下载目录，由用户选位置保存）。对话框由桌面壳桥
+   *  dshDesktopSaveFilePicker（preload+showSaveDialog，随 16:19 包生效）承担；
+   *  选中后优先 fromPath 复制已落盘文件，未落盘兜底 downloadResult 直下。
+   *  反馈一律走 stageText 界面状态行（系统通知会被 Windows 拦截，不可依赖）。 */
   async function saveWholeAudioAs(): Promise<void> {
-    const url = wholeResultUrl.value
     const localPath = wholeResultPath.value
-    if (!url && !localPath) {
+    const url = wholeResultUrl.value
+    if (!localPath && !url) {
+      stageText.value = '提示： 还没有可下载的克隆音频'
       notify('提示', '还没有可下载的克隆音频')
       return
     }
     const sampleName = samples.value.find((s) => s.id === selectedSampleId.value)?.name || ''
-    const defaultName = buildVoiceCloneFileName(wholeText.value.trim(), sampleName, 'whole', undefined, wholeEngine.value)
-    let target = ''
+    const fileName = buildVoiceCloneFileName(wholeText.value.trim(), sampleName, 'whole', undefined, wholeEngine.value)
+    stageText.value = '正在打开保存对话框…'
     try {
-      target = (await window.tintin.dialog.saveFile({
+      const target = await window.tintin.dialog.saveFile({
         title: '保存克隆音频',
-        defaultPath: defaultName,
+        defaultPath: fileName,
         filters: [{ name: 'WAV 音频', extensions: ['wav'] }],
-      })) || ''
-    } catch (e) {
-      clientError('voice-clone', '保存失败-打开保存对话框', e)
-      notify('保存失败', '无法打开保存对话框：' + (e instanceof Error ? e.message : String(e)))
-      return
-    }
-    if (!target) return // 用户取消
-    try {
+      })
+      if (!target) { stageText.value = ''; return } // 用户取消
       if (localPath) {
-        // 已落盘（ttsSaveAudio 返回绝对路径）：直接复制，最可靠
         const saved = await window.tintin.server.ttsSaveAudio({ fromPath: localPath, savePath: target })
         if (saved && typeof saved === 'object' && (saved as any).error) throw new Error((saved as any).error)
-      } else if (url.startsWith('blob:')) {
-        // 无本地文件时兜底：blob URL → base64 → 写盘
-        const blob = await fetch(url).then((r) => r.blob())
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const fr = new FileReader()
-          fr.onload = () => resolve(String(fr.result || ''))
-          fr.onerror = () => reject(new Error('读取音频数据失败'))
-          fr.readAsDataURL(blob)
-        })
-        const base64 = dataUrl.split(',')[1] || ''
-        if (!base64) throw new Error('音频数据为空')
-        const saved = await window.tintin.server.ttsSaveAudio({ base64, savePath: target })
-        if (saved && typeof saved === 'object' && (saved as any).error) throw new Error((saved as any).error)
-      } else if (url.startsWith('http')) {
+      } else {
         const saved = await window.tintin.server.downloadResult(url, target)
         if (!saved) throw new Error('下载失败')
-      } else {
-        throw new Error('无可用的音频数据源')
       }
+      stageText.value = `完成： 已保存到 ${target}`
       notify('下载完成', target)
     } catch (err) {
       clientError('voice-clone', '下载失败', err)
-      notify('下载失败', err instanceof Error ? err.message : String(err))
+      const reason = err instanceof Error ? err.message : String(err)
+      stageText.value = `失败： 下载失败——${reason}（重试仍失败请看宿主日志）`
+      notify('下载失败', reason)
     }
   }
 

@@ -18,7 +18,8 @@ import { URL } from 'node:url'
  *      service refuses writes for overlay-inserted host plugins, so TinTin's
  *      own config persists here — wizard/card/migrations all write this file)
  *   3. ai_config.json `server_url` / `server.url` (legacy desktop fallback)
- *   4. built-in default http://127.0.0.1:8766
+ *   4. built-in default http://192.168.111.31:8000 (定制版：内置部署服务器，与
+ *      dsh-plugin-desktop-tintin/src/tintin/first-boot.ts 的播种默认同值，改动须两边同步)
  * `readConfig` is injected by the host (WP-1 config seam); `readTintinStore`
  * and `readAiConfig` are file readers, absent by default.
  */
@@ -46,7 +47,9 @@ export function createServerUrlResolver({ readConfig, readTintinStore, readAiCon
         if (cfg && cfg.server && cfg.server.url) return String(cfg.server.url).replace(/\/$/, '')
       } catch { /* fall through */ }
     }
-    return 'http://127.0.0.1:8766'
+    // 定制版默认=部署服务器（2026-10-12 用户裁决：新装零配置即连；与 first-boot
+    // 播种默认同值。用户/设置卡配置的值在解析链 1-3 恒优先）
+    return 'http://192.168.111.31:8000'
   }
 }
 

@@ -62,6 +62,10 @@ export async function fetchMaterialGrid(p: {
   mediaType?: string
   page?: number
   size?: number
+  /** 2026-10-09 服务端产品图模式（opt-in，/material/list 与 /material/search 同语义）：
+   *  底型白名单 white/solid/transparent+强制 media_type=image+宽高比闸 0.4~2.6+
+   *  白底→透明底→其余排序；缺省=不带，行为与旧版逐字节一致 */
+  purpose?: string
 }): Promise<{ items: PickerItem[]; total: number }> {
   const t = getTintin()
   if (!t?.server) throw new Error(searchErrorText(null))
@@ -74,6 +78,7 @@ export async function fetchMaterialGrid(p: {
   if (String(p.model || '').trim()) q.model = String(p.model).trim()
   if (String(p.category || '').trim()) q.category = String(p.category).trim()
   if (String(p.mediaType || '').trim()) q.media_type = String(p.mediaType).trim()
+  if (String(p.purpose || '').trim()) q.purpose = String(p.purpose).trim()
   const data = await fetchJsonPayload(() => t.server.get('/material/list', q))
   return { items: pickListItems(data), total: pickListTotal(data) }
 }

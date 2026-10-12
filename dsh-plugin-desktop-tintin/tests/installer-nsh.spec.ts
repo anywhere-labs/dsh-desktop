@@ -33,4 +33,22 @@ describe('Windows NSIS running-app handoff', () => {
     expect(script).not.toContain('nsProcess::KillProcess')
     expect(script).not.toContain('getProcessInfo.nsh')
   })
+
+  it('offers an opt-in uninstall section that removes TinTin user data homes (2026-10-12 用户裁决：默认不勾选)', () => {
+    const script = readFileSync(join(process.cwd(), 'build', 'installer.nsh'), 'utf8')
+
+    // 组件页由模板在 customUnInstallSection 宏存在时自动启用（/o=默认不勾选）；
+    // 段名必须字面量（LangString 缺语言表项触发 6040 警告，而 makensis 警告即错误）
+    expect(script).toContain('!macro customUnInstallSection')
+    expect(script).toContain('Section /o "同时删除用户数据（服务器配置/会话/素材库引用）" un.sec.DeleteUserData')
+    expect(script).not.toContain('LangString unDeleteUserDataName')
+    // 三处本产品自有用户数据 + DSH_HOME 重定向兜底
+    expect(script).toContain('RMDir /r "$PROFILE\\.dsh-tintin"')
+    expect(script).toContain('RMDir /r "$PROFILE\\.dsh"')
+    expect(script).toContain('RMDir /r "$APPDATA\\tintin"')
+    expect(script).toContain('ReadEnvStr $R0 "DSH_HOME"')
+    // 迁移源不碰：旧客户端遗留数据不得出现在任何删除指令里
+    const deletions = script.match(/RMDir \/r "[^"]+"/g) ?? []
+    expect(deletions.every((line) => !line.includes('tintin-client-electron'))).toBe(true)
+  })
 })

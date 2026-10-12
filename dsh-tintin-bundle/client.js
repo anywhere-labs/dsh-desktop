@@ -1013,9 +1013,12 @@ const tintinClient = (() => {
         },
         // 浏览器无保存对话框：恒 null（=取消）。a[download] 拿不到用户选择的
         // 目标路径，消费端按路径继续本地 ffmpeg 流程，假路径只会后移失败点。
-        // 2026-09-25（音频生成卡行内下载）：桌面壳原生保存对话框可用时转发
-        // （dialog.showSaveDialog 经 dshDesktopSaveFilePicker 桥，模式同
-        // dshDesktopDirectoryPicker）；桥缺失（纯浏览器/旧壳）保持 null=取消。
+        // 2026-10-12 定案：宿主 bundle 跑在 Harness 子进程（纯 node），无 electron
+        // 对话框能力（两次实障：裸 require ReferenceError / require('electron') 得
+        // 字符串）。原生保存对话框由桌面壳 preload 桥 dshDesktopSaveFilePicker
+        // 承担（dsh-plugin-desktop-tintin/src/preload.ts，壳随包重打包生效）；
+        // 桥未就绪（旧壳）保持 null=取消。「下载直落下载文件夹」场景不走本方法，
+        // 走 env.downloadsDir + tts:saveAudio（fromPath 复制）。
         saveFile: async (params) => {
           try {
             const picked = await window.dshDesktopSaveFilePicker?.pick?.(params)
@@ -1098,6 +1101,9 @@ const tintinClient = (() => {
         // 机器码（SRC env:getMachineId 契约 {ok,machineId}）——产品资料域以它拼
         // /api/product-library/clients/<machine_id> 路径（与 X-Machine-ID 头同值）。
         getMachineId: () => call('env:getMachineId', { args: [] }),
+        // 系统下载文件夹。args[0]=文件名时返回 {path: 去重后完整目标}，缺省 {dir}。
+        // 「下载直落下载文件夹」按钮的数据源（宿主纯 node 拼接 USERPROFILE）。
+        downloadsDir: (fileName) => call('env:downloadsDir', { args: [fileName] }),
       })
 
       // ── media：预览解锁（2026-09-25 图像抠图卡引入）─────────────────────

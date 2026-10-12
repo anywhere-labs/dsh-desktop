@@ -10,6 +10,7 @@
 // 2026-09-09 用户裁决（口播弹窗）：不需要「选择该产品」按钮，点左侧行直接
 // 选中并填充右侧字段——clickToPick 开启（工作台弹窗壳仍保留按钮口径）。
 import WbPickerPanel from './WbPickerPanel.vue'
+import ProductSixViewAside from './ProductSixViewAside.vue'
 import { fetchProducts, type PickerItem } from '@/composables/useWorkbenchPickers'
 import { markdownListLines, parseProductKeywords } from '@/composables/opsProductLibraryLogic'
 
@@ -20,6 +21,8 @@ defineProps<{
   initialKw?: string
   /** 激活时恢复上次选中条目（透传 WbPickerPanel 预览区） */
   initialItem?: PickerItem | null
+  /** 三栏模式：预览列右侧加六视图半宽列（2026-10-10 仿视频选产品；1:1:0.5） */
+  showSixViews?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'pick', item: PickerItem): void
@@ -69,6 +72,7 @@ function keywordList(it: PickerItem): string[] {
     :click-to-pick="clickToPick"
     :initial-kw="initialKw"
     :initial-item="initialItem"
+    :asideable="showSixViews"
     @kw="(v: string) => emit('kw', v)"
     @pick="(it) => emit('pick', it)"
   >
@@ -136,6 +140,11 @@ function keywordList(it: PickerItem): string[] {
       <button class="pv-confirm" title="选中该产品，自动填充右侧产品信息" @click="confirm(item)">
         选择该产品
       </button>
+    </template>
+
+    <!-- 三栏模式第三列：选中产品的六视图（2026-10-10 仿视频选产品） -->
+    <template v-if="showSixViews" #aside="{ item }">
+      <ProductSixViewAside :item="item" />
     </template>
   </WbPickerPanel>
 </template>

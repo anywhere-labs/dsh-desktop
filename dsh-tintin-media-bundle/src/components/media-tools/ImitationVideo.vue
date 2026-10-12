@@ -18,9 +18,10 @@ import VdStepBar from '@/components/media-tools/VdStepBar.vue'
 import ImitationSourceStep from '@/components/media-tools/ImitationSourceStep.vue'
 import WbPickProductDialog from '@/components/workbench/WbPickProductDialog.vue'
 import VoiceoverPickerDialog from '@/components/media-tools/VoiceoverPickerDialog.vue'
-import MaterialImagePickerDialog from '@/components/media-tools/MaterialImagePickerDialog.vue'
 import VoiceCloneParamsDialog from '@/components/media-tools/VoiceCloneParamsDialog.vue'
 import ImitationGenSteps from '@/components/media-tools/ImitationGenSteps.vue'
+import MaterialImagePickerDialog from '@/components/media-tools/MaterialImagePickerDialog.vue'
+import WbPickMaterialDialog from '@/components/workbench/WbPickMaterialDialog.vue'
 import ImitationMontageStep from './ImitationMontageStep.vue'
 import ImitationFxStep from './ImitationFxStep.vue'
 import { useImitationTts } from '@/composables/useImitationTts'
@@ -33,7 +34,8 @@ import { createMontageSharedRuntime } from '@/composables/copywritingMontage/con
 import { useImitationVideo } from '@/composables/useImitationVideo'
 import { useImitationMontage } from '@/composables/useImitationMontage'
 import type { PickerItem } from '@/composables/useWorkbenchPickers'
-import { buildMediaServeUrl } from '@/composables/workbenchChatContext'
+import { buildMediaServeUrl, buildMediaThumbUrl } from '@/composables/workbenchChatContext'
+import { productSixViewSlots, productViewLabel } from '@/composables/opsProductLibraryLogic'
 import { clientError } from '@/utils/clientLog'
 import { API_PATHS } from '@/types/server-api'
 import { voiceoverCandidatesFromResponse } from '@/composables/copywritingMontageStep2ConcatLogic'
@@ -41,18 +43,22 @@ import type { VoiceoverCandidate } from '@/composables/copywritingMontageStep2Co
 import {
   SCENE_ELEMENT_KEYS,
   canConfirmFrames,
-  clampDuration,
+  buildScriptPutPayload,
   enumLabel,
   framesBadgeText,
-  genBadgeText,
   arollPreviewUrlFrom,
+  disableShotReplaceItem,
+  enableShotReplaceItem,
+  isReplaceShot,
   isStageDReady,
-  parseSixViewEntries,
-  sixViewFileUrl,
+  preserveProductSelectionOnReload,
+  productChipLabel,
+  shotInReplace,
+  shotModeBadgeClass,
+  shotModeBadgeText,
   sceneElementOptions,
   shotsTotalDuration,
   storyboardGridUrlFrom,
-  switchShotSource,
   type GenerateStage,
   type ImitationShot,
   type QualityReport,
@@ -76,49 +82,64 @@ const { ensureServerUrl, toAbsolute } = createMontageSharedRuntime()
 
 const step = ref(1)
 const record = ref<Record<string, unknown> | null>(null)
-const shots = computed<ImitationShot[]>(() => (record.value?.shots as ImitationShot[]) || [])
+/** shots 仅接受数组（2026-10-11：服务端曾把 shots 写成键控对象致整页白屏，入口强制数组化） */
+const shots = computed<ImitationShot[]>(() => (Array.isArray(record.value?.shots) ? (record.value.shots as ImitationShot[]) : []))
 const scriptId = computed(() => iv.scriptId.value || String(record.value?.id || ''))
 
 async function reloadScript(): Promise<void> {
   if (!scriptId.value) return
   const data = await iv.loadScript(scriptId.value)
   if (data) {
+    if (data && typeof data === 'object' && !Array.isArray((data as Record<string, unknown>).shots)) {
+      ;(data as Record<string, unknown>).shots = [] // 服务端异常写入（键控对象）防御：强制数组化
+    }
+    // 产品选择内存优先（2026-10-12 裁决：未落库期间回读不冲 chip 与六视图绑定）
+    preserveProductSelectionOnReload(record.value, data as Record<string, unknown>, productSelectionDirty.value)
     record.value = data
     void iv.loadStoryboardPack(scriptId.value)
     seedOrigAudio()
     seedOrigVoiceover()
+    // 六视图槽位回填（2026-10-11：productSixViews 仅点选产品时拉取，重开页面=全空
+    // 且闸门恒拦——product_id 随 meta 持久化，加载后按它自动回填）
+    const pid = String(imitateMeta.value.product_id ?? '')
+    if (productPicked() && pid) void populateFromProductSixViews(pid)
   }
 }
 
-/**
- * 每镜固化原片旁白参考（orig_audio，extra=allow 随脚本透传保存）：
- * 第 1 步拆出的=原片脚本（模板）；第 2 步「生成脚本」替换文字——shot.audio 为
- * 新文案（可编辑），原片口播切片留在 orig_audio 供对照（2026-10-02 用户裁决语义）。
- */
+/** 每镜固化原片旁白参考（orig_audio 随脚本透传）：原片切片留档对照，shot.audio=新文案 */
 function seedOrigAudio(): void {
   for (const s of shots.value) {
     if (s.orig_audio === undefined || s.orig_audio === '') s.orig_audio = String(s.audio ?? '')
   }
 }
 
-/** 拆解文案固化（orig_voiceover，meta 透传保存）：首次载入把原片口播转写从
- *  voiceover 拷贝固化——此后 voiceover 即"脚本文案"（重新生成后绑定脚本），
- *  拆解原文永不被动覆盖（2026-10-02 用户裁决：两套文案分离） */
+/** 拆解文案固化（orig_voiceover）：首载拷入原片口播转写（两套文案分离裁决） */
 const origVoiceoverText = computed(() => {
   const imitate = (record.value?.meta as Record<string, unknown> | undefined)?.imitate as Record<string, unknown> | undefined
   return String(imitate?.orig_voiceover ?? '')
 })
+/** 会话级采纳标记（record 内标记会被 adoptCopy 回读覆盖——2026-10-11 误归档事故根因） */
+const copyAdoptedSession = ref(false)
+/** 转写一致性校验（剥标点空白）：仅 voiceover=各镜 orig 拼接才可归档——内容层杜绝误归档 */
+function matchesShotTranscription(voiceover: string, list: ImitationShot[]): boolean {
+  const norm = (s: string): string => String(s || '').replace(/[^\p{L}\p{N}]/gu, '')
+  const v = norm(voiceover)
+  if (!v) return false
+  const concat = list.map((x) => norm(String(x.orig_audio ?? ''))).join('')
+  if (!concat) return false
+  return v.includes(concat) || concat.includes(v)
+}
 function seedOrigVoiceover(): void {
   if (!record.value) return
+  if (copyAdoptedSession.value) return // 本会话已采纳：固化彻底停用
   const imitate = { ...(((record.value.meta as Record<string, unknown> | undefined)?.imitate as Record<string, unknown>) ?? {}) }
-  // 拆解文案固化：首次载入把转写拷入 orig_voiceover（只读参考，永不被动覆盖）
-  if ((imitate.orig_voiceover === undefined || imitate.orig_voiceover === '') && imitate.voiceover) {
-    imitate.orig_voiceover = String(imitate.voiceover)
-  }
-  // 脚本文案默认空白（2026-10-03 用户裁决）：仅仿写完成挑选后才填充——
-  // 初次进入时 voiceover=拆解转写，清空之；已仿写过的原样保留
-  const orig = String(imitate.orig_voiceover ?? '')
-  writeImitateMeta({ orig_voiceover: orig, voiceover: String(imitate.voiceover ?? '') === orig ? '' : String(imitate.voiceover ?? '') })
+  if (imitate.orig_seeded === true || imitate.copy_adopted === true) return
+  const vo = String(imitate.voiceover ?? '')
+  const origExisting = String(imitate.orig_voiceover ?? '')
+  // 归档仅限可证明的拆解转写（无转写视频=不归档不清空，脚本文案原样保留）
+  const archive = !origExisting && !!vo && matchesShotTranscription(vo, shots.value)
+  imitate.orig_seeded = true
+  writeImitateMeta({ orig_voiceover: archive ? vo : origExisting, voiceover: archive ? '' : vo, orig_seeded: true })
 }
 
 onMounted(() => {
@@ -130,20 +151,12 @@ onMounted(() => {
 
 // ── 产品选择（WbPickProductDialog 单选；写 products 随 PUT 保存，§5.1-2）──
 const productPickVisible = ref(false)
-/** 当前产品 chip 只认用户主动选择（2026-10-04 用户裁决：服务端拆解会从视频画面
- *  自动提取产品写入 products——那是"探测参考"不是用户选择，不得冒充当前产品）；
- *  选择事实持久化 meta.imitate.product_selected，随脚本保存/恢复。 */
+/** 产品 chip 只认用户主动选择（自动提取的 products=探测参考不得冒充），持久化 product_selected */
 function productPicked(): boolean {
   const imitate = (record.value?.meta as Record<string, unknown> | undefined)?.imitate as Record<string, unknown> | undefined
   return imitate?.product_selected === true
 }
-function productLabel(): string {
-  if (!productPicked()) return ''
-  const p = (record.value?.products as Array<Record<string, unknown>> | undefined)?.[0]
-  if (!p) return ''
-  const parts = [p.brand, p.model || p.name].filter(Boolean).map(String).filter((v, i, a) => a.indexOf(v) === i)
-  return parts.join(' / ') || String(p.name || p.brand || '')
-}
+function productLabel(): string { return productChipLabel(record.value?.products, productPicked()) }
 function onProductPick(item: PickerItem): void {
   if (!record.value) return
   record.value.products = [{
@@ -152,22 +165,29 @@ function onProductPick(item: PickerItem): void {
     category: String(item.category || ''),
     name: String(item.name || item.model || ''),
   }]
-  writeImitateMeta({ product_selected: true })
-  // 选品即自动配图（2026-10-08 用户裁决：按产品从素材库自动配 ≤6 张显示）
-  void autoMatchProductImages()
+  writeImitateMeta({ product_selected: true, product_id: String(item.id ?? '') })
+  productSelectionDirty.value = true
+  // 选品即保存（2026-10-11 报障）；失败只亮红字+补发按钮（2026-10-12 裁决：接口失败不冲六视图）
+  void populateFromProductSixViews(String(item.id ?? '')).then(() => saveScript()).then((ok) => { if (!ok) productImgNote.value = PRODUCT_SAVE_FAIL_NOTE })
 }
 function clearScriptProduct(): void {
   if (!record.value) return
   record.value.products = []
   writeImitateMeta({ product_selected: false })
+  productSelectionDirty.value = true // 未落库期间回读不得把服务端残留绑定带回（清品即保存随下一次保存落库）
+  void iv.refreshProductSixViews('') // 清产品=清空六视图槽位与直传 meta
+  clearProductImages()
 }
 
-// ── 产品图（2026-10-03 用户裁决：第 2 步「选择产品图」→ 素材库图片弹窗（仅图片）；
-//    选定 ≥1 张才能点「下一步：分镜头确认」——storyboard_generate 的
-//    params.product_images 服务端必需（产品锚定，≤6 张），随任务直传）──
+// ── 产品图（选完产品即带出六视图；product_images=生成任务直传，服务端产品锚定 ≤6 张）──
 const { serverUrl: ivServerUrl } = createMontageSharedRuntime()
-const productImgDlgOpen = ref(false)
-/** 已选产品图（/material/serve 绝对 url 数组，存 meta.imitate 随脚本持久） */
+/** 六视图带出状态（无视图/读取失败提示；选择产品时刷新） */
+const productImgNote = ref('')
+const PRODUCT_SAVE_FAIL_NOTE = '产品选择暂存失败——等待重试或点「重试补发」，无需重新选品'
+/** 选品/清品尚未落库标记：回读保留依据；saveScript 成功即解除（2026-10-12 裁决） */
+const productSelectionDirty = ref(false)
+/** 保存失败态=红字即按钮（派生，成功清红字自动熄） */
+const productSavePending = computed(() => productImgNote.value === PRODUCT_SAVE_FAIL_NOTE)
 /** meta.imitate 局部写入（product_images/product_selected 等选择态统一收口） */
 function writeImitateMeta(patch: Record<string, unknown>): void {
   if (!record.value) return
@@ -181,91 +201,74 @@ const imitateMeta = computed<Record<string, unknown>>(() => {
   return ((meta?.imitate as Record<string, unknown>) ?? {})
 })
 const productImages = computed<string[]>(() => { const a = imitateMeta.value.product_images; return Array.isArray(a) ? a.map(String).filter(Boolean) : [] })
+/** 换物左栏参考=原片（meta.imitate.source_material_id；片段化由子组件按 gen 源窗 #t= 截取） */
+const sourceClipVideoUrl = computed(() => { const mid = imitateMeta.value.source_material_id; return mid ? buildMediaServeUrl(ivServerUrl.value, mid) : '' })
 const productImageIds = computed<string[]>(() => { const a = imitateMeta.value.product_image_ids; return Array.isArray(a) ? a.map(String).filter(Boolean) : [] })
-/** 与 productImageIds 按序对齐的名称（弹窗选中池回显；不过滤保持对齐） */
-const productImageNames = computed<string[]>(() => { const a = imitateMeta.value.product_image_names; return Array.isArray(a) ? a.map(String) : [] })
-function onProductImagesConfirm(payload: { urls: string[]; names: string[]; keys: string[] }): void {
-  writeImitateMeta({ product_images: payload.urls, product_image_names: payload.names, product_image_ids: payload.keys })
-  productImgDlgOpen.value = false
-  // 六视图（§11-51）：选品图确认即触发（显式带图提交——脚本选品留痕未保存也能跑）
-  if (iv.scriptId.value) void iv.submitSixView(payload.urls)
+/** 产品六视图→产品图（槽位化=产品资料同款；顶部视图必填；直传 meta 随脚本保存） */
+async function populateFromProductSixViews(itemId: string): Promise<void> {
+  if (!itemId) return
+  try {
+    const views = await iv.refreshProductSixViews(itemId)
+    if (!views.length) {
+      clearProductImages()
+      productImgNote.value = '该产品暂无六视图——在下方槽位「上传」补图（至少顶部视图）后即可继续'
+      return
+    }
+    writeImitateMeta({
+      product_images: views.map((e) => buildMediaServeUrl(ivServerUrl.value, e.materialId)),
+      product_image_ids: views.map((e) => e.materialId),
+      product_image_names: views.map((e) => productViewLabel(e.view)),
+    })
+    productImgNote.value = ''
+  } catch (e) {
+    productImgNote.value = `产品六视图读取失败：${(e as Error)?.message || e}`
+  }
 }
 function clearProductImages(): void {
   writeImitateMeta({ product_images: [], product_image_names: [], product_image_ids: [] })
+  productImgNote.value = ''
 }
-/** 移除单张产品图（2026-10-08 用户裁决：缩略图右上角 × 删除） */
-function removeProductImage(i: number): void {
-  const urls = productImages.value.slice()
-  const names = (Array.isArray(imitateMeta.value.product_image_names) ? imitateMeta.value.product_image_names.map(String) : []).slice()
-  const ids = productImageIds.value.slice()
-  urls.splice(i, 1); names.splice(i, 1); ids.splice(i, 1)
-  writeImitateMeta({ product_images: urls, product_image_names: names, product_image_ids: ids })
+/** 六视图槽位上传/删除（上传弹「选择产品图」双 tab；绑定走 views 端点纯替换+回读刷新） */
+const productSixSlots = computed(() => productSixViewSlots(iv.productSixViews.value))
+const productSixFilledCount = computed(() => productSixSlots.value.filter((s) => s.entry).length)
+const sixPendingView = ref('')
+const sixBinding = ref(false)
+/** 槽位写忙=绑定端点上传中 或 库选图取字节中 */
+const sixBusy = computed(() => iv.productSixBusy.value || sixBinding.value)
+const sixPickOpen = ref(false)
+function onSixUpload(view: string): void {
+  sixPendingView.value = view
+  sixPickOpen.value = true
 }
-/** 白底图检测（2026-10-08 用户裁决：白底优先）：缩到 24px 采样四角像素，
- *  ≥3 角近白（RGB≥240）判白底；跨域污染/加载失败一律按非白底（只降不加） */
-function isWhiteBgImage(url: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const img = new Image()
-    let settled = false
-    const done = (v: boolean) => { if (!settled) { settled = true; window.clearTimeout(timer); resolve(v) } }
-    const timer = window.setTimeout(() => done(false), 8000)
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      try {
-        const c = document.createElement('canvas')
-        const s = 24
-        c.width = s; c.height = s
-        const ctx = c.getContext('2d')
-        if (!ctx) return done(false)
-        ctx.drawImage(img, 0, 0, s, s)
-        const corners: Array<[number, number]> = [[1, 1], [s - 2, 1], [1, s - 2], [s - 2, s - 2]]
-        let white = 0
-        for (const [x, y] of corners) {
-          const d = ctx.getImageData(x, y, 1, 1).data
-          if (d[0] >= 240 && d[1] >= 240 && d[2] >= 240) white++
-        }
-        done(white >= 3)
-      } catch { done(false) }
-    }
-    img.onerror = () => done(false)
-    img.src = url
-  })
-}
-/** 选品自动配图（2026-10-08 二改：POST /material/search 向量检索产品图；查询=标签+「产品图
- *  白底」偏置+purpose=product（1009 服务端产品图模式=底型白名单 white/solid/transparent+强制
- *  image+形态闸 0.4~2.6+白底→透明底排序，堵缺类型行混视频），top 12 → 白底像素重排（CORS
- *  缺失静默跳过）→ 取 6；零结果/失败不自动配，仍可「选择产品图」手动选） */
-const autoMatchBusy = ref(false)
-async function autoMatchProductImages(): Promise<void> {
-  if (!record.value || autoMatchBusy.value) return
-  const label = productLabel()
-  if (!label) return
-  autoMatchBusy.value = true
+/** 库选图→绑定：渲染层取 /material/serve 字节组 File 走绑定端点（纯替换） */
+async function onPickerPick(payload: { materialId?: string; file?: File; name: string }): Promise<void> {
+  sixPickOpen.value = false
+  const view = sixPendingView.value
+  const itemId = iv.currentProductId.value
+  if (!view || !itemId) return
+  sixBinding.value = true
+  productImgNote.value = ''
   try {
-    const res = (await window.tintin.server.post('/material/search', {
-      query: `${label} 产品图 白底`, purpose: 'product',
-      top_k: 12,
-    })) as { results?: Array<Record<string, unknown>> } | null
-    const keyOf = (it: Record<string, unknown>) => String(it.id ?? it.material_id ?? '')
-    const items = (res?.results || []).filter((it) => keyOf(it) && String(it.media_type || 'image') === 'image')
-    if (!items.length) return
-    // 白底像素重排（白底优先；跨域污染/采样失败=不加分，向量序原样保持）
-    const withWhite = await Promise.all(items.map(async (it) => ({
-      it,
-      white: await isWhiteBgImage(buildMediaServeUrl(ivServerUrl.value, keyOf(it))),
-    })))
-    const picked = withWhite
-      .sort((a, b) => (b.white ? 1 : 0) - (a.white ? 1 : 0))
-      .slice(0, 6)
-    writeImitateMeta({
-      product_images: picked.map((x) => buildMediaServeUrl(ivServerUrl.value, keyOf(x.it))),
-      product_image_names: picked.map((x) => String(x.it.filename || x.it.name || '')),
-      product_image_ids: picked.map((x) => keyOf(x.it)),
-    })
+    let file = payload.file
+    if (!file && payload.materialId) {
+      const r = await fetch(buildMediaServeUrl(ivServerUrl.value, payload.materialId))
+      if (!r.ok) throw new Error(`读取产品图失败（HTTP ${r.status}）`)
+      file = new File([await r.blob()], payload.name || `${view}.png`, { type: r.headers.get('content-type') || 'image/png' })
+    }
+    if (!file) throw new Error('未取得图片数据')
+    if (!(await iv.uploadProductSixView(itemId, view, file))) throw new Error('上传失败')
+    await populateFromProductSixViews(itemId)
   } catch (e) {
-    clientError('imitation-video', '产品图自动匹配失败', e)
+    productImgNote.value = `选用产品图失败：${(e as Error)?.message || e}——可改用弹窗「本地上传」重试`
   } finally {
-    autoMatchBusy.value = false
+    sixBinding.value = false
+  }
+}
+function onDeleteProductView(view: string, label: string): void {
+  const itemId = iv.currentProductId.value
+  if (!itemId) return
+  if (window.confirm(`确定删除「${label}」视图吗？顶部视图是下一步的必备视图。`)) {
+    void iv.deleteProductSixView(itemId, view).then((ok) => { if (ok) void populateFromProductSixViews(itemId) })
   }
 }
 // ── A-roll 阶段③（数字人=人物图+口播音频/实拍=素材 id；aroll 块先 PUT 配置再提任务）──
@@ -324,8 +327,11 @@ const voiceoverText = computed({
 const regenBusy = ref(false)
 const regenError = ref('')
 const regenWarn = ref('')
-/** 口播语速基准（字/秒。2026-10-07 服务端统一口径=6 并已上线（探针 85 字/14.2s
- *  实证），客户端 VOICEOVER_CPS 同为 6——弹窗（服务端 duration_s）与标签同口径） */
+/** 逐镜脚本卡显示门（2026-10-12 用户裁决：第 2 步进入时未生成新文案前不显示——
+ *  恢复的脚本自带拆解 shots，直接铺开会盖住选品/文案主流程；「重新生成仿写文案」
+ *  采纳成功后才显示，此后会话内保持显示） */
+const shotsRevealed = ref(false)
+/** 口播语速基准（字/秒，服务端统一口径=6） */
 const VOICEOVER_CPS = 6
 
 /** 脚本文案字数/口播时长（2026-10-06 用户裁决：标签行右侧显示；随编辑实时，语速基准同上） */
@@ -344,10 +350,12 @@ function confirmVoiceoverCandidate(): void {
   if (c) adoptVoiceoverText(c.text)
 }
 
-/** 采用文案：写主稿+调 rewrite-visuals 重写画面（旁白预填可编辑）；偏差>30% 提示 */
 async function adoptVoiceoverText(text: string): Promise<void> {
+  copyAdoptedSession.value = true
   voiceoverDlgOpen.value = false
   voiceoverText.value = text
+  regenError.value = ''
+  writeImitateMeta({ copy_adopted: true }) // 采纳标记：固化不得再把主稿归档进拆解文案
   // 旧口播配音随旧文案作废（2026-10-08 用户裁决：重新仿写后原配音不可用）——
   // 清结果行+解绑 voice_audio_id（A-roll 依赖口播音频，须按新文案重出后再绑定）
   const hadAudio = !!ttsAudioUrl.value || !!record.value?.voice_audio_id
@@ -366,13 +374,46 @@ async function adoptVoiceoverText(text: string): Promise<void> {
     regenWarn.value = `生成了 ${chars} 字，按 ${Math.round(dur)} 秒口播应约 ${targetChars} 字——偏差偏大，建议重试或直接编辑`
     clientError('imitation-video', regenWarn.value, { chars, targetChars, dur })
   }
-  // 主稿先保存 → ①铺旁白（distribute-voiceover 按镜切分）→ ②重写画面/场景（rewrite-visuals）→ 回读
-  if (!(await saveScript())) return
-  await distributeFromMaster()
-  await rewriteFromMaster()
+  // 采纳=adopt-copy 单接口（主稿落库在服务端内完成），不再前置 saveScript（PUT 写路径
+  // 曾间歇挂起致链路首步即断）；旧配音解绑改采纳后 best-effort 落库
+  const adopted = await adoptCopy(text)
   if (hadAudio) {
     const prev = distributeNote.value ? distributeNote.value + '；' : ''
     distributeNote.value = prev + '旧口播配音已随旧文案失效解绑——请重新「生成口播配音」（旧音频仍留在音频库）'
+  }
+  if (!adopted) return
+  shotsRevealed.value = true // 新文案已采纳——第 2 步逐镜脚本卡自此显示（进入门）
+  // 服务端 adopt-copy 曾丢 meta.imitate（产品/主稿）：采纳后补一次全量保存自愈
+  if (!(await saveScript())) {
+    distributeError.value = '文案已采纳，但补存脚本失败——产品选择/脚本文案可能未持久化，建议稍后重新采纳或手动保存'
+  }
+  if (hadAudio) {
+    const prev = distributeNote.value ? distributeNote.value + '；' : ''
+    distributeNote.value = prev + '旧口播配音已随旧文案失效解绑——请重新「生成口播配音」（旧音频仍留在音频库）'
+  }
+}
+
+/** 保存修改文案（2026-10-12 用户裁决）：手编脚本文案后重新采纳分发——复用
+ *  adoptVoiceoverText 的完整采纳链（adopt-copy 单接口：服务端按新主稿重铺逐镜
+ *  旁白/重写画面描述+解绑旧配音+落库），与「重新生成仿写文案」的采纳同一条
+ *  服务端处理，无新增服务端改动；完成后逐镜脚本卡回填新分配结果。 */
+const savingCopyBusy = ref(false)
+async function saveEditedVoiceover(): Promise<void> {
+  if (savingCopyBusy.value || distributeBusy.value) return
+  const text = voiceoverText.value.trim()
+  if (!text) {
+    regenError.value = '脚本文案为空——请先填写内容再保存'
+    return
+  }
+  savingCopyBusy.value = true
+  regenError.value = ''
+  try {
+    await adoptVoiceoverText(text)
+  } catch (e) {
+    regenError.value = `保存失败：${(e as Error).message}`
+    clientError('imitation-video', regenError.value, e)
+  } finally {
+    savingCopyBusy.value = false
   }
 }
 
@@ -390,6 +431,7 @@ async function regenerateVoiceover(): Promise<void> {
     const dur = shotsTotalDuration(shots.value)
     const targetChars = Math.round(dur * VOICEOVER_CPS)
     const resp = (await window.tintin.server.post(API_PATHS.copywriting.voiceover, {
+      ...(scriptId.value ? { script_id: scriptId.value } : {}), // 服务端 1012：带上即按脚本 reference_mode=video_replace 自动挂 video-copy-imitation skill
       product_desc: productDesc,
       duration_s: dur,
       platform: ivPlatform.value,
@@ -429,7 +471,7 @@ const {
   loadVoiceSamples,
   ttsFactor, ttsEmoText, ttsEmoAlpha, qwen3Speaker, qwen3Instruct, qwen3Voices, qwen3VoicesLoading,
   cloneParamsDlg, openCloneParams, closeCloneParams, saveCloneParams,
-  distributeNote, distributeBusy, distributeFromMaster, rewriteFromMaster,
+  distributeNote, distributeBusy, distributeError, adoptCopy, rewriteBusy,
 } = ivTts
 
 const ttsBusy = ref(false)
@@ -543,35 +585,52 @@ function resetFlow(): void {
 }
 
 // ── 第 2 步：审核脚本（HumanGate①：逐镜编辑 + AI 生成区块 + 来源切换）──
-function toggleSource(i: number): void {
+/* ── 换物品（§11-62 video_replace 档：缺省六视图；档内路由归服务端，按钮隐藏） ── */
+const replaceMode = computed(() => iv.referenceMode.value === 'video_replace')
+function inReplace(shot: ImitationShot): boolean {
+  return shotInReplace(shot, iv.referenceMode.value)
+}
+/** 镜头替换物 ref ids：显式块 > video_replace 档缺省=第 2 步产品六视图（≤9） */
+function replaceRefIds(shot: ImitationShot): number[] {
+  if (shot.replace_item?.ref_ids.length) return shot.replace_item.ref_ids
+  return replaceMode.value ? productImageIds.value.map(Number).slice(0, 9) : []
+}
+function onToggleReplace(i: number): void {
   const cur = shots.value[i]
   if (!cur) return
-  shots.value[i] = switchShotSource(cur, cur.source === 'generate' ? 'material' : 'generate', shots.value)
+  shots.value[i] = isReplaceShot(cur)
+    ? disableShotReplaceItem(cur, shots.value)
+    : enableShotReplaceItem(cur, productImageIds.value.map(Number))
+}
+
+/* ── 替换物选择（WbPickMaterialDialog 复用；模式驱动镜首次改选即落地显式块） ── */
+const replacePickVisible = ref(false)
+const replacePickIndex = ref(-1)
+function openReplacePicker(i: number): void {
+  replacePickIndex.value = i
+  replacePickVisible.value = true
+}
+function onReplacePick(item: PickerItem): void {
+  const cur = shots.value[replacePickIndex.value]
+  if (!cur) return
+  if (!cur.replace_item) {
+    if (!inReplace(cur)) return
+    shots.value[replacePickIndex.value] = enableShotReplaceItem(cur, productImageIds.value.map(Number))
+  }
+  const block = shots.value[replacePickIndex.value]?.replace_item
+  const mid = Number((item as Record<string, unknown>).material_id ?? (item as Record<string, unknown>).id)
+  if (!block || !Number.isFinite(mid) || mid <= 0) return
+  if (!block.ref_ids.includes(mid) && block.ref_ids.length < 9) block.ref_ids.push(mid) // refs 槽位上限 9（video_edit 契约）
+}
+function replaceThumbUrl(mid: number): string {
+  return buildMediaThumbUrl(ivServerUrl.value, mid)
 }
 
 const timelineWarn = computed(() => iv.timelineWarning(shots.value, record.value?.voice_dur_sec))
 
-/** PUT 整体替换（§8）：按 ScriptIn 字段组包，shots 原样回传（gen 随 JSONB 透传） */
+/** PUT 整体替换（§8）：字段组包在纯逻辑层（buildScriptPutPayload），shots 原样回传 */
 function buildScriptPayload(): Record<string, unknown> {
-  const r = record.value || {}
-  return {
-    topic: r.topic ?? '',
-    meta: r.meta ?? {},
-    style: r.style ?? '',
-    atmosphere: r.atmosphere ?? '',
-    rhythm: r.rhythm ?? '',
-    bgm_type: r.bgm_type ?? '',
-    guidance: r.guidance ?? '',
-    products: r.products ?? [],
-    ratio: r.ratio ?? '',
-    total_duration: r.total_duration ?? shots.value.reduce((s, x) => s + (Number(x.duration) || 0), 0),
-    shot_count: shots.value.length,
-    shots: shots.value.map((s) => ({ ...s, duration: clampDuration(s.duration) })),
-    saved_at: r.saved_at ?? '',
-    voice_audio_id: r.voice_audio_id ?? 0,
-    voice_dur_sec: r.voice_dur_sec ?? 0,
-    aroll: r.aroll ?? {},
-  }
+  return buildScriptPutPayload(record.value || {}, shots.value)
 }
 
 const saving = ref(false)
@@ -579,26 +638,39 @@ async function saveScript(): Promise<boolean> {
   saving.value = true
   const ok = await iv.saveScript(scriptId.value, buildScriptPayload())
   saving.value = false
+  if (ok) { productSelectionDirty.value = false; if (productImgNote.value === PRODUCT_SAVE_FAIL_NOTE) productImgNote.value = '' } // 落库成功=服务端重新权威（2026-10-12 裁决）
   return ok
 }
 
 const enteringPrep = ref(false)
-/** 方案 A（2026-10-06 用户裁决）：口播配音/文案采纳链未完成时禁入第 3 步——
- *  完成回调会自动保存脚本，PUT 落进九宫粗稿任务的提交-执行窗口=服务端判「整体编辑」作废 */
-const enterPrepBlocked = computed(() => !productImages.value.length || !!ttsBusy.value || !!distributeBusy.value)
+/** 禁入第 3 步除非配音/采纳链完成（方案 A）且顶部视图在（2026-10-10 裁决） */
+const enterPrepBlocked = computed(() => !iv.productViewsReady.value || !!ttsBusy.value || !!distributeBusy.value)
+const enterPrepError = ref('')
+watch(enterPrepBlocked, (blocked) => { if (!blocked) enterPrepError.value = '' })
 const enterPrepTitle = computed(() => {
   if (ttsBusy.value) return '口播配音生成中——等配音完成（完成后自动入库绑定）再进入下一步'
   if (distributeBusy.value) return '正在按新文案铺旁白/重写画面——等完成后再进入下一步'
-  if (!productImages.value.length) return '请先「选择产品图」——生成需要至少 1 张产品图（产品锚定必需）'
+  if (!productPicked()) return '请先「选择产品」——六视图槽位随产品带出，直传生成任务'
+  if (!iv.productViewsReady.value) return '六视图至少要有「顶部」视图——缺的槽位点「上传」补齐'
   return ''
 })
 async function enterPrep(): Promise<void> {
-  // 已有进行中的生成任务 → 直接回第 3 步重新显示进度/状态（不重复提交；轮询在组合函数层持续）
-  if (iv.genPhase.value === 'running' && iv.genTaskId.value) { step.value = 3; return }
+  // 已有进行中的生成任务 → 直接回对应步显示进度/状态（不重复提交；轮询在组合函数层持续）
+  if (iv.genPhase.value === 'running' && iv.genTaskId.value) { step.value = iv.genStage.value === 'videos' ? 4 : 3; return }
   // 九宫粗稿已生成/已确认 → 不重复提交，直接进第 3 步显示/确认
   const genShots = shots.value.filter((s) => s.source === 'generate')
   if (genShots.length > 0 && genShots.every((s) => s.gen?.draft_status === 'generated' || s.gen?.draft_status === 'confirmed')) { step.value = 3; return }
-  if (!(await saveScript())) return
+  if (!(await saveScript())) {
+    enterPrepError.value = '脚本保存失败——无法进入下一步；请检查服务端连接后重试（主稿与各镜未变）'
+    return
+  }
+  // 视频换物直通（2026-10-12 裁决：输入=原片段+六视图，免九宫格，直进视频生成并自动提交）
+  if (iv.referenceMode.value === 'video_replace') {
+    await startVideoGeneration()
+    if (iv.genPhase.value !== 'running') enterPrepError.value = iv.genError.value || '视频生成任务提交失败'
+    return
+  }
+  enterPrepError.value = ''
   enteringPrep.value = true
   // v4.3 闸门①：提交九宫分镜粗稿（storyboard 低清档），整体确认后才放行高清精稿
   const ok = await iv.submitGenerate({ scriptId: scriptId.value, stage: 'storyboard', productImages: productImages.value }, shots.value)
@@ -684,35 +756,8 @@ async function toggleBadcase(i: number): Promise<void> {
   await saveScript()
 }
 
-// ── 六视图（§11-51）：展示源=轮询结果优先，缺省回落脚本 meta.six_view；
-//    重出入口供阶段①卡「重新生成六视图」（按当前选品图重出）──
-const sixViewDisplay = computed(() => {
-  const raw = iv.sixViews.value.length ? iv.sixViews.value : parseSixViewEntries((record.value?.meta as Record<string, unknown> | undefined)?.six_view)
-  return raw.map((e) => ({ view: e.view, url: toAbsolute(e.url || sixViewFileUrl(scriptId.value, e.view)) }))
-})
-/** 删除六视图（两段式确认：首点武装、再点执行、3 秒自动解除；不可逆，整组可重出） */
-const armedDeleteView = ref('')
-let armedDeleteTimer: ReturnType<typeof setTimeout> | null = null
-function onDeleteSixView(view: string): void {
-  if (iv.sixViewPhase.value === 'running') return
-  if (armedDeleteView.value !== view) {
-    armedDeleteView.value = view
-    if (armedDeleteTimer) clearTimeout(armedDeleteTimer)
-    armedDeleteTimer = setTimeout(() => { if (armedDeleteView.value === view) armedDeleteView.value = '' }, 3000)
-    return
-  }
-  armedDeleteView.value = ''
-  void iv.deleteSixView(view).then((ok) => {
-    if (!ok) return
-    notify('六视图已删除', `${view} 已物理删除——videos 参考自动少一张；整组重出请点「生成六视图」（约 3 分钟）`)
-    if (!iv.sixViews.value.length) void reloadScript()
-  })
-}
-async function regenSixView(): Promise<void> {
-  await iv.submitSixView(productImages.value)
-}
-/** 六视图就绪=done 且有图——第 3→4 步闸门（§11-51：videos 阶段服务端消费六视图） */
-const sixViewReady = computed(() => iv.sixViewPhase.value === 'done' && iv.sixViews.value.length > 0)
+/** 六视图就绪=顶部视图在——第 3→4 步闸门（直传 product_images 亦源自六视图） */
+const sixViewReady = computed(() => iv.productViewsReady.value)
 
 /** 第 4 步阶段①「重新生成九宫格图」：重提 storyboard 任务（全部镜头重生成，带产品图） */
 async function regenStoryboard(): Promise<void> {
@@ -791,7 +836,9 @@ async function pollComfygenShots(): Promise<void> {
   } catch { cgShots.value = null }
 }
 watch(() => [iv.genPhase.value, iv.genStage.value] as const, ([ph, st]) => {
-  if (ph === 'running' && st === 'videos') {
+  // storyboard 也挂轮询（2026-10-12 用户裁决「生成一个显示一个」：粗稿逐镜独立生成，
+  // 每 10s 回读=完成一镜亮一格；完成瞬间回读撞 500 也在下一轮自愈）
+  if (ph === 'running' && (st === 'videos' || st === 'storyboard')) {
     liveReloadTimer ??= setInterval(() => { void reloadScript(); void pollComfygenShots() }, 10000)
     void pollComfygenShots()
     cgTimer ??= setInterval(() => { void pollComfygenShots() }, 4000)
@@ -895,6 +942,17 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
         </div>
         <textarea v-model="voiceoverText" rows="4" class="input carry-textarea" placeholder="选择产品 →「重新生成文案」按新产品重写（生成后才与脚本绑定），也可直接编辑"></textarea>
       </div>
+      <!-- 保存修改文案（2026-10-12 用户裁决）：手编后重新采纳分发——服务端按新主稿重铺逐镜旁白/重写画面描述 -->
+      <div class="row">
+        <span class="spacer"></span>
+        <TButton
+          label="保存修改文案"
+          :loading="savingCopyBusy || !!distributeBusy"
+          :disabled="!voiceoverText.trim() || !!distributeBusy"
+          title="按修改后的文案重新采纳分发：服务端重铺逐镜旁白并重写画面描述（会覆盖逐镜里手动改过的旁白）"
+          @click="saveEditedVoiceover"
+        />
+      </div>
       <div class="row">
         <TButton label="选择产品" @click="productPickVisible = true" />
         <span v-if="productLabel()" class="product-chip" title="当前产品（文案按此重写，产品图随脚本供生成）">当前产品：{{ productLabel() }}</span>
@@ -907,7 +965,6 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
           <option v-if="!ivPlatformOptions.length" value="抖音">抖音</option>
         </select>
         <span class="spacer"></span>
-        <!-- 未选产品禁用（同文案混剪：product_desc 必填；产品随脚本持久化） -->
         <TButton
           label="重新生成仿写文案"
           :loading="regenBusy"
@@ -916,52 +973,25 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
           @click="regenerateVoiceover"
         />
       </div>
-      <!-- 选择产品图（2026-10-03 裁决：≥1 张才能进分镜头确认；2026-10-08 用户裁决：
-           从底部导航行上移到「选择产品」行下方、独占整行） -->
-      <!-- 产品图缩略条（2026-10-08 用户裁决：选品自动配图 ≤6 张缩略显示于产品行下方；
-           每图右上角 × 删除，文字 chip 退役；「选择产品图」仍可手动增补） -->
-      <div v-if="productImages.length" class="product-img-row">
-        <div v-for="(u, i) in productImages" :key="u" class="product-img-thumb">
-          <img :src="u" alt="产品图" loading="lazy" />
-          <button class="product-img-del" title="移除该图" @click="removeProductImage(i)">×</button>
-        </div>
-        <span class="muted">已选 {{ productImages.length }}/6 张（随脚本保存，生成任务直传）</span>
-        <button class="product-img-clear" title="清空已选产品图" @click="clearProductImages">清空</button>
-        <!-- 六视图（§11-51：选品图确认自动生成，九宫格回填前先出——2026-10-08 用户裁决移本行右侧） -->
-        <span class="spacer"></span>
-        <div class="iv-sixview-inline">
-          <div v-if="sixViewDisplay.length" class="iv-sixview2-row">
-            <div v-for="(v, i) in sixViewDisplay" :key="i" class="iv-sixview2-item">
-              <img :src="v.url" class="iv-sixview2-img" :title="`六视图 · ${v.view}`" />
-              <button class="iv-sixview2-del" :class="{ 'is-arm': armedDeleteView === v.view }"
-                :disabled="iv.sixViewPhase.value === 'running'"
-                :title="armedDeleteView === v.view ? '再次点击确认删除（不可逆）' : `删除视角 ${v.view}（不可逆，整组可重出）`"
-                @click="onDeleteSixView(v.view)">{{ armedDeleteView === v.view ? '确认?' : '×' }}</button>
-            </div>
+      <div v-if="regenError" class="iv-err">{{ regenError }}</div>
+      <div class="opl-six">
+        <template v-for="s in productSixSlots" :key="s.view">
+          <div v-if="s.entry" class="six-cell">
+            <img :src="buildMediaServeUrl(ivServerUrl, s.entry.materialId)" :alt="s.label" class="six-img" loading="lazy" />
+            <span class="six-label">{{ s.label }}<i v-if="s.entry.source" class="six-src">{{ s.entry.source }}</i></span>
+            <button class="six-up" :disabled="sixBusy" title="上传替换该视图（仅替换此张，其余五张不动）" @click="onSixUpload(s.view)">替换</button>
+            <button class="six-del" :disabled="sixBusy" title="删除该视图（顶部视图为下一步必备）" @click="onDeleteProductView(s.view, s.label)">×</button>
           </div>
-          <span v-else-if="iv.sixViewPhase.value === 'running' || iv.sixViewPhase.value === 'cancelled'" class="muted">{{ iv.sixViewStatusText.value }}<button v-if="iv.sixViewPhase.value === 'running'" class="product-img-clear" title="取消六视图生成任务（服务端联动取消远端任务，取消留痕可查）" @click="iv.cancelSixView()">取消</button></span>
-          <span v-else-if="iv.sixViewError.value" class="iv-err">{{ iv.sixViewError.value }}</span>
-        </div>
+          <div v-else class="six-cell six-cell--empty">
+            <span class="six-miss">缺</span>
+            <button class="six-up six-up--empty" :disabled="sixBusy" title="上传该视图（仅补此张，其余五张不动）" @click="onSixUpload(s.view)">{{ sixBusy && sixPendingView === s.view ? '上传中…' : '上传' }}</button>
+            <span class="six-label">{{ s.label }}</span>
+          </div>
+        </template>
       </div>
-      <!-- 双按钮各占一半（2026-10-08 用户裁决）：左=选择产品图，右=生成六视图 -->
-      <div class="row">
-        <TButton
-          label="选择产品图"
-          variant="secondary"
-          style="flex: 1 1 0"
-          title="打开素材库图片弹窗（仅图片）；选中的产品图随脚本保存并随生成任务直传"
-          @click="productImgDlgOpen = true"
-        />
-        <TButton
-          label="生成六视图"
-          variant="primary"
-          style="flex: 1 1 0"
-          :disabled="iv.sixViewPhase.value === 'running'"
-          :loading="iv.sixViewPhase.value === 'running'"
-          title="按当前选品的产品图生成六面视图（九宫格回填前先出）"
-          @click="regenSixView"
-        />
-      </div>
+      <span class="muted">{{ productSixFilledCount }}/6 · 六视图随「产品资料」保存并直传生成任务；顶部视图必填</span>
+      <span v-if="productImgNote" class="iv-err">{{ productImgNote }}</span>
+      <TButton v-if="productSavePending" label="重试补发产品选择" variant="secondary" size="small" :loading="saving" title="产品选择尚未落库（保存接口失败）——服务端恢复后就地补存，已选产品与六视图不受影响" @click="saveScript" />
       <!-- 参考声音（同文案混剪 Step3：TSelect+常驻播放条，源 GET /voice/samples） -->
       <div class="row ref-row">
         <span class="lbl">参考声音:</span>
@@ -983,30 +1013,45 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
           <audio :src="ttsAudioUrl" controls preload="auto" class="iv-audio" :title="`口播配音（${ttsSampleLabel}，${ttsDurText}）`" @loadedmetadata="onTtsMeta" />
           <span class="iv-dur" :class="{ none: ttsDurSec <= 0 }">{{ ttsDurText }}</span>
         </template>
-        <span v-if="regenError" class="iv-err">{{ regenError }}</span>
         <span v-if="regenWarn" class="iv-warn">{{ regenWarn }}</span>
         <span v-if="ttsError" class="iv-err">{{ ttsError }}</span>
         <span v-if="ttsBindNote" class="muted">{{ ttsBindNote }}</span>
+        <span v-if="distributeError" class="iv-err">{{ distributeError }}</span>
         <span v-if="distributeNote" class="muted">{{ distributeNote }}</span>
         <span v-if="distributeBusy" class="muted">正在按新文案分配逐镜旁白…</span>
-        <span class="muted">整段直发不拆句；新文案按镜自动拆分待服务端口播切分修复（§11-26）</span>
       </div>
 
       <div class="muted">时长保存后由服务端按帧对齐量化（≤0.7s 偏移，设计行为，非 bug）</div>
-      <div v-for="(shot, i) in shots" :key="i" class="seg-card">
+      <div v-if="!shotsRevealed && shots.length" class="muted">逐镜脚本将在「重新生成仿写文案」采纳新文案后显示（当前为拆解稿原文，旁白未按新产品重写）</div>
+      <div v-for="(shot, i) in (shotsRevealed ? shots : [])" :key="i" class="seg-card">
         <div class="seg-head">
           <span class="seg-no">#{{ i + 1 }}</span>
           <label class="seg-field head-field"><span class="lbl">镜别</span><input v-model="shot.shot_type" class="input w70" placeholder="特写/中景" /></label>
           <label class="seg-field head-field"><span class="lbl">时长(秒)</span><input v-model.number="shot.duration" type="number" min="3" max="15" class="input w60" title="保存后服务端按帧对齐量化，时长可能微调 ≤0.7s（设计行为）" /></label>
-          <span class="iv-badge" :class="shot.source === 'generate' ? 'iv-badge--ai' : 'iv-badge--mat'">{{ genBadgeText(shot) }}</span>
+          <span class="iv-badge" :class="shotModeBadgeClass(shot, iv.referenceMode.value)">{{ shotModeBadgeText(shot, iv.referenceMode.value) }}</span>
           <span class="spacer"></span>
-          <TButton :label="shot.source === 'generate' ? '切换为实拍' : '切换为 AI'" variant="secondary" size="small"
-            :title="shot.source === 'generate' ? 'gen 参数与帧引用将保留（切回可恢复）' : '将清空旧实拍绑定并初始化生成参数'"
-            @click="toggleSource(i)" />
+          <TButton v-if="!replaceMode" :label="isReplaceShot(shot) ? '切换为 AI' : '切换为换物品'" variant="secondary" size="small"
+            :title="isReplaceShot(shot) ? '剥除换物品块并恢复 AI 生成参数（gen 参数原样保留）' : '换物品模式：默认带出第 2 步产品六视图作替换物，底部可改选；生成时走服务端换物引擎'"
+            @click="onToggleReplace(i)" />
         </div>
         <label class="seg-field"><span class="lbl">画面描述</span><textarea v-model="shot.visual" rows="2" class="input carry-textarea" /></label>
         <div v-if="shot.orig_audio" class="sb-line iv-orig">原旁白（拆解稿）：{{ shot.orig_audio }}</div>
         <label class="seg-field"><span class="lbl">旁白（新文案，替换原片文字——可编辑）</span><textarea v-model="shot.audio" rows="1" class="input carry-textarea carry-textarea--sm" placeholder="新视频该镜的口播文案（从上方新文案粘贴或手写替换）"></textarea></label>
+
+        <div v-if="inReplace(shot)" class="iv-replace">
+          <div class="row iv-rep-row">
+            <span class="iv-rep-orig">原物品：第 #{{ i + 1 }} 镜原片物品（换物保持原场景/动作/旁白，仅替换该物品外观）</span>
+          </div>
+          <div class="row iv-rep-row">
+            <span class="lbl">替换为</span>
+            <span class="iv-rep-refs">
+              <img v-for="rid in replaceRefIds(shot)" :key="rid" :src="replaceThumbUrl(rid)" class="iv-rep-thumb" loading="lazy" />
+              <span v-if="!replaceRefIds(shot).length" class="muted">未选替换物品（请点右侧选择）</span>
+            </span>
+            <TButton label="选择替换物品" variant="secondary" size="small" @click="openReplacePicker(i)" />
+            <span class="muted">默认=第 2 步产品六视图；最多 9 张，排列顺序即参考图顺序</span>
+          </div>
+        </div>
 
         <!-- AI 生成区块（§5.3 差异项：来源标记 / 生成参数 / 逐镜状态） -->
         <div v-if="shot.source === 'generate' && shot.gen" class="iv-gen">
@@ -1042,17 +1087,15 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
           @click="enterPrep"
         />
       </div>
+      <div v-if="enterPrepBlocked && enterPrepTitle" class="iv-err">无法进入下一步：{{ enterPrepTitle }}</div>
+      <div v-if="enterPrepError" class="iv-err">{{ enterPrepError }}</div>
       <div v-if="iv.genError.value" class="iv-err">{{ iv.genError.value }}</div>
-      <WbPickProductDialog :visible="productPickVisible" @close="productPickVisible = false" @pick="onProductPick" />
-
-      <!-- 产品图选择弹窗（素材库·仅图片；确定后写 meta.imitate.product_images） -->
-      <MaterialImagePickerDialog
-        :open="productImgDlgOpen"
-        :selected-keys="productImageIds"
-        :selected-names="productImageNames"
-        @confirm="onProductImagesConfirm"
-        @close="productImgDlgOpen = false"
-      />
+      <WbPickProductDialog :visible="productPickVisible" six-views @close="productPickVisible = false" @pick="onProductPick" />
+      <!-- 六视图槽位·选择产品图（2026-10-10 恢复原形态：产品库选择+本地上传，单图绑定） -->
+      <MaterialImagePickerDialog :open="sixPickOpen" :view-label="productSixSlots.find((s) => s.view === sixPendingView)?.label"
+        @close="sixPickOpen = false" @pick="onPickerPick" />
+      <WbPickMaterialDialog :visible="replacePickVisible" image-only purpose="product"
+        @close="replacePickVisible = false" @pick="onReplacePick" />
 
       <!-- 设置声音克隆弹窗（对齐文案混剪 Step3 同名功能：参数随每次 TTS 请求发送） -->
       <VoiceCloneParamsDialog
@@ -1125,6 +1168,7 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
       mode="videos"
       :iv="iv"
       :shots="shots"
+      :source-video-url="sourceClipVideoUrl"
       :grid-url="storyboardGridUrl"
       :quality-report="qualityReport"
       :six-view-ready="sixViewReady"
@@ -1245,29 +1289,20 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
   background: transparent; color: var(--muted-foreground); border: none; border-radius: 50%; cursor: pointer;
 }
 .product-clear:hover { color: var(--danger, #e74c3c); }
-/* 产品图缩略条（2026-10-08 用户裁决：图片化显示替代文字 chip，右上角可删） */
-.product-img-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-/* 六视图（§11-51）：产品图行右侧——按钮+六张 3:4 缩略一排 */
-.iv-sixview-inline { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.iv-sixview2-row { display: flex; gap: 6px; }
-.iv-sixview2-item { position: relative; }
-.iv-sixview2-del { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; padding: 0;
-  line-height: 15px; font-size: 12px; background: rgba(0, 0, 0, 0.55); color: #fff;
-  border: none; border-radius: 50%; cursor: pointer; }
-.iv-sixview2-del:hover { background: var(--danger, #e74c3c); }
-.iv-sixview2-del.is-arm { width: auto; padding: 0 6px; border-radius: 9px; background: var(--danger, #e74c3c); }
-.iv-sixview2-img { height: 72px; aspect-ratio: 3 / 4; object-fit: cover;
-  border: 1px solid var(--border); border-radius: var(--radius-md); background: #101010; }
-.product-img-thumb { position: relative; width: 168px; aspect-ratio: 1 / 1; overflow: hidden;
-  border: 1px solid var(--border); border-radius: var(--radius-sm); background: #101010; }
-.product-img-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.product-img-del { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; padding: 0;
-  line-height: 15px; font-size: 12px; background: rgba(0, 0, 0, 0.55); color: #fff;
-  border: none; border-radius: 50%; cursor: pointer; }
-.product-img-del:hover { background: var(--danger, #e74c3c); }
-.product-img-clear { background: transparent; color: var(--muted-foreground); border: none;
-  font-size: 12px; cursor: pointer; text-decoration: underline; }
-.product-img-clear:hover { color: var(--danger, #e74c3c); }
+/* 产品六视图槽位（2026-10-10 槽位化裁决：产品资料同款六格） */
+.opl-six { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.six-cell { position: relative; aspect-ratio: 1 / 1; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; background: var(--surface-container); }
+.six-img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.six-cell--empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-style: dashed; }
+.six-miss { font-size: 15px; color: var(--muted-foreground); opacity: 0.6; }
+.six-label { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 6px; font-size: 11px; color: #fff; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; gap: 4px; }
+.six-src { font-style: normal; font-size: 10px; opacity: 0.8; }
+.six-up { position: absolute; top: 2px; left: 2px; height: 18px; padding: 0 6px; border: none; border-radius: 9px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 10px; cursor: pointer; }
+.six-up:hover { background: var(--primary); }
+.six-up:disabled { opacity: 0.6; cursor: wait; }
+.six-cell--empty .six-up { position: static; height: 20px; padding: 0 10px; font-size: 11px; border-radius: 10px; }
+.six-del { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; line-height: 16px; border: none; border-radius: 50%; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 12px; cursor: pointer; padding: 0; }
+.six-del:hover { background: var(--error, #EF4444); }
 
 /* ── 工程统一拖入控件（2026-09-07 用户裁决：全程序拖拽上传区高度统一 min-height 120px；
      样式与 ImageMatting 等工具卡同构）── */
@@ -1323,6 +1358,11 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
 .iv-badge--ai { color: #2ecc71; background: rgba(46, 204, 113, 0.12); }
 .iv-badge--mat { color: var(--muted-foreground); background: var(--surface-container); }
 .iv-badge--fail { color: #e74c3c; background: rgba(231, 76, 60, 0.12); }
+.iv-replace { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; background: color-mix(in srgb, var(--primary) 4%, var(--card)); border: 1px dashed var(--border); border-radius: var(--radius-md); }
+.iv-rep-row { align-items: center; gap: 8px; flex-wrap: wrap; }
+.iv-rep-orig { font-size: 12px; color: var(--muted-foreground); }
+.iv-rep-refs { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.iv-rep-thumb { width: 34px; height: 34px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-container); }
 .iv-gen { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px;
   background: color-mix(in srgb, var(--primary) 4%, var(--card)); border: 1px dashed var(--border); border-radius: var(--radius-md); }
 

@@ -2,6 +2,8 @@
 // jianying-audio-sync.js — 剪映音频素材自动同步（内置定时任务）
 // 2026-09-22 用户裁决：客户端内置定时任务，自动把本机剪映音频素材（音效+音乐）
 //  同步到服务端音频库——不再依赖「从剪映同步」手动按钮。
+//  2026-10-11 用户裁决：默认改为关闭（音频库 4751 条后内容判重 409 风暴，见日志
+//  12:59/14:54 两轮）——需 jyaudio:setEnabled 显式开启，startup 首跑同样受开关约束。
 //
 // 自动范围（成熟度边界）：
 //  ✅ 可自动：User Data/Cache/music 已下载缓存（剪映对流式素材按需下载——
@@ -20,6 +22,7 @@
 // ═══════════════════════════════════════════════════════════════
 import path from 'node:path'
 import fs from 'node:fs'
+import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 
@@ -110,11 +113,18 @@ function initJianyingAudioSync(deps) {
 
   let timer = null
   let running = false
-  const state = { enabled: true, intervalMin: DEFAULT_INTERVAL_MIN, lastRunAt: null, lastResult: '' }
-  try { Object.assign(state, JSON.parse(fs.readFileSync(stateFile(), 'utf-8')) || {}) } catch (_) {}
+  // 2026-10-11 用户裁决（409 风暴）：自动同步默认关闭。旧默认(true)写进过状态文件
+  // 的视为未选择（无 UI 开关，不存在用户主动开启路径），一次性按新默认重置；
+  // 此后 jyaudio:setEnabled 的显式开关随 defaultOff 标记正常记忆。
+  const state = { enabled: false, intervalMin: DEFAULT_INTERVAL_MIN, lastRunAt: null, lastResult: '', defaultOff: true, syncedHashes: [] }
+  try {
+    const persisted = JSON.parse(fs.readFileSync(stateFile(), 'utf-8')) || {}
+    if (persisted.defaultOff === true) Object.assign(state, persisted)
+    else Object.assign(state, persisted, { enabled: false, defaultOff: true })
+  } catch (_) {}
 
   function saveState() {
-    try { fs.writeFileSync(stateFile(), JSON.stringify({ enabled: state.enabled, intervalMin: state.intervalMin, lastRunAt: state.lastRunAt, lastResult: state.lastResult }, null, 2)) } catch (_) {}
+    try { fs.writeFileSync(stateFile(), JSON.stringify({ enabled: state.enabled, intervalMin: state.intervalMin, lastRunAt: state.lastRunAt, lastResult: state.lastResult, defaultOff: state.defaultOff === true }, null, 2)) } catch (_) {}
   }
 
   /** 单次同步：扫描 → 增量比对 → 逐条 multipart 上传（串行，单失败不阻断） */
@@ -124,27 +134,22 @@ function initJianyingAudioSync(deps) {
     const results = { added: 0, skipped: 0, failed: 0, total: 0, errors: [] }
     try {
       await httpRequest('GET', '/health', { timeout: 5000 }).catch(() => { throw new Error('服务端不可达（OFFLINE）') })
-      // 增量比对基线（2026-09-24 修复：参数名是 size 不是 page_size——page_size 被
-      // 服务端忽略、按默认页大小只回 50 条，库一大于 50 条去重名单就缺项，本地
-      // 剪映缓存被误判为"新"反复上传、全被 409 弹回，每轮同步刷满日志）。
-      // 按返回的 total 翻页取全量，再建排除名单。
-      const excludeNames = new Set()
-      for (let page = 1; ; page++) {
-        const libRes = await httpRequest('GET', `/audio/library?page=${page}&size=100`, { timeout: 15000 })
-          .catch(() => null)
-        const items = (libRes && libRes.data && Array.isArray(libRes.data.items)) ? libRes.data.items : []
-        for (const x of items) excludeNames.add(String(x.filename || '').toLowerCase())
-        const total = Number(libRes && libRes.data && libRes.data.total) || 0
-        if (items.length === 0 || excludeNames.size >= total) break
-      }
+      // 增量比对基线（2026-10-11 用户裁决，治本）：按内容哈希本地判重——旧方案按
+      // 文件名翻页爬全库（4751 条×100/页）建排除名单，服务端 flap 时名单残缺→整缓存
+      // 误判为新→409 风暴（2026-09-24 前科+2026-10-10/11 两轮复发）。现哈希在本地
+      // 状态文件持久化，409（服务端已有同内容）亦记账，零 /audio/library 列表依赖。
+      const synced = new Set(state.syncedHashes || [])
       const files = listAudioCacheFiles(jianyingRoot())
       const nameByPath = buildDraftAudioNameMap(jianyingRoot())
-      const items = collectNewAudioItems({ files, nameByPath, excludeNames })
+      const items = collectNewAudioItems({ files, nameByPath })
       results.total = items.length
+      let conflictStreak = 0
       for (const it of items) {
         try {
           const boundary = '----TinTinJyAudioSync' + Date.now() + Math.floor(Math.random() * 1e4)
           const abuf = fs.readFileSync(it.file)
+          const hash = createHash('sha256').update(abuf).digest('hex')
+          if (synced.has(hash)) { results.skipped++; continue }
           const body = Buffer.concat([
             Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${it.filename}"\r\nContent-Type: audio/mpeg\r\n\r\n`),
             abuf,
@@ -158,19 +163,32 @@ function initJianyingAudioSync(deps) {
             timeout: 120000,
           }).catch((e) => ({ error: e.message, status: e.status }))
           if (up && up.error) {
-            // 409=服务端已有同名音频（增量竞态：列表拉取后到上传前被其他端同步）：
-            // 按跳过计，不算失败、不进错误列表刷日志
-            if (up.status === 409) { results.skipped++; continue }
+            // 409=服务端已有同内容（哈希判重）：内容已在库=已同步，记账后不再重传；
+            // 连续 20 条判重即中止本轮（疑似判重异常，避免刷满日志）
+            if (up.status === 409) {
+              results.skipped++
+              synced.add(hash)
+              conflictStreak++
+              if (conflictStreak >= 20) {
+                results.errors.push('连续 20 条被服务端判重——中止本轮')
+                break
+              }
+              continue
+            }
+            conflictStreak = 0
             throw new Error(up.error)
           }
+          conflictStreak = 0
+          synced.add(hash)
           results.added++
         } catch (e) {
           results.failed++
           results.errors.push(`${it.name}: ${e.message}`)
         }
       }
+      state.syncedHashes = Array.from(synced)
       state.lastRunAt = new Date().toISOString()
-      state.lastResult = `新增 ${results.added}${results.failed ? '，失败 ' + results.failed : ''}（扫描 ${results.total} 条待同步）`
+      state.lastResult = `新增 ${results.added}，跳过已存在 ${results.skipped}${results.failed ? '，失败 ' + results.failed : ''}（扫描 ${results.total} 条）`
       saveState()
     } catch (e) {
       state.lastRunAt = new Date().toISOString()
@@ -202,15 +220,16 @@ function initJianyingAudioSync(deps) {
   })
 
   return {
+    get enabled() { return state.enabled },
     startTimer() { if (state.enabled && !timer) { timer = setInterval(() => { void syncNow('timer') }, Math.max(5, state.intervalMin) * 60 * 1000) } },
     stopTimer,
     syncNow,
   }
 }
 
-/** 启动定时器（启用时：启动后 90 秒首跑，此后按 interval 周期） */
+/** 启动定时器（启用时：启动后 90 秒首跑，此后按 interval 周期；关闭时 startup 首跑也不执行） */
 function startJianyingAudioSyncTimer(ctrl) {
-  setTimeout(() => { void ctrl.syncNow('startup') }, 90 * 1000)
+  setTimeout(() => { if (ctrl.enabled) void ctrl.syncNow('startup') }, 90 * 1000)
   ctrl.startTimer()
 }
 

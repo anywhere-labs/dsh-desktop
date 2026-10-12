@@ -20,17 +20,14 @@ import {
   buildFramesConfirmBody,
   buildImitateBody,
   buildStoryboardGenerateBody,
-  classifySixViewPollStatus,
   isStageDReady,
   normalizeServerEnums,
-  parseSixViewEntries,
-  sixViewFileUrl,
-  type SixViewEntry,
   validateGenShots,
   type GenerateStage,
   type ImitationShot,
   type ServerEnums,
 } from './imitationVideoLogic'
+import { normalizeProductSixViews, type ProductSixViewEntry } from './opsProductLibraryLogic'
 
 const POLL_INTERVAL_MS = 2000
 const TAG = 'imitation-video'
@@ -189,6 +186,9 @@ export function useImitationVideo() {
       return false
     }
     try {
+      // 参考模式随拆解落脚本（服务端 1012：imitate_import 收 reference_mode 存
+      // meta.imitate——文案生成挂 skill 与生成档路由都以它为权威）
+      built.body.reference_mode = referenceMode.value
       const resp = (await serverBridge().post(API_PATHS.storyboard.imitate, built.body)) as Record<string, unknown> | null
       const taskId = resp && (resp.task_id ?? resp.id)
       if (!taskId || typeof taskId !== 'string' && typeof taskId !== 'number') {
@@ -276,17 +276,22 @@ export function useImitationVideo() {
   }
 
   async function saveScript(id: string, payload: Record<string, unknown>): Promise<boolean> {
-    try {
-      const resp = await serverBridge().put(API_PATHS.storyboard.scriptsItem(id), payload)
-      if (resp === null || (resp as Record<string, unknown>)?.error) {
-        clientError(TAG, `脚本保存失败 id=${id}`, { resp })
-        return false
+    // 2026-10-11：服务端 flap 容忍——失败重试共 3 次（间隔 2s；PUT 幂等）。
+    // 采纳链曾因单次保存失败静默中断且 distribute/rewrite 无补发入口，重试降低断链概率。
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const resp = await serverBridge().put(API_PATHS.storyboard.scriptsItem(id), payload)
+        if (resp === null || (resp as Record<string, unknown>)?.error) {
+          clientError(TAG, `脚本保存失败（第 ${attempt}/3 次） id=${id}`, { resp })
+        } else {
+          return true
+        }
+      } catch (e) {
+        clientError(TAG, `脚本保存异常（第 ${attempt}/3 次） id=${id}`, e)
       }
-      return true
-    } catch (e) {
-      clientError(TAG, `脚本保存异常 id=${id}`, e)
-      return false
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 2000))
     }
+    return false
   }
 
   // ── HumanGate②：帧确认 / 手动换帧（multipart，实测口径）──────
@@ -363,7 +368,9 @@ export function useImitationVideo() {
   /** 提交前本地把关（gen_spec 镜像 + 阶段 D 闸门 + A-roll 对轨提示）；返回错误列表（空=通过） */
   function preflightGenerate(shots: ImitationShot[], stage: GenerateStage): string[] {
     const issues = validateGenShots(shots, enums.value).map((i) => `第${i.index + 1}镜 ${i.field}：${i.message}`)
-    if (stage === 'videos' && !isStageDReady(shots)) {
+    // 视频换物档免阶段 D（2026-10-12 用户裁决：输入=原片段+六视图，不生成九宫格/精稿，
+    // 无确认帧可言；服务端 videos worker 按拆解源窗裁原片段逐镜 video_edit）
+    if (stage === 'videos' && referenceMode.value !== 'video_replace' && !isStageDReady(shots)) {
       issues.push('阶段 D 闸门未开：存在 frames_status 未 confirmed 的 AI 镜头（HumanGate②）')
     }
     return issues
@@ -448,158 +455,68 @@ export function useImitationVideo() {
     return arollTimelineWarning(shots, voiceDurSec)
   }
 
-  // ── 参考模式（方向档位字典 /comfygen/enums.reference_mode 下发）：
-  //    scene_refs=画面级还原（原片帧参考）/ style_anchor=风格级相似（文字+产品图）。
-  //    默认 scene_refs（字典首项）；submitGenerate 对每次 storyboard_generate 注入
-  //    params.reference_mode，父组件调用点零改动 ──
-  const referenceMode = ref('scene_refs')
-  // ── 六视图（§11-51：选品/上传产品图触发；九宫格回填前左栏展示，2026-10-08 用户裁决上下共存）──
-  const sixViewTaskId = ref('')
-  const sixViewPhase = ref<'' | 'running' | 'done' | 'failed' | 'cancelled'>('')
-  const sixViews = ref<SixViewEntry[]>([])
-  const sixViewError = ref('')
-  let sixViewTimer: ReturnType<typeof setInterval> | null = null
-  function stopSixViewPolling(): void {
-    if (sixViewTimer) { clearInterval(sixViewTimer); sixViewTimer = null }
-  }
-  onBeforeUnmount(stopSixViewPolling)
+  // ── 参考模式（方向档位字典 /comfygen/enums.reference_mode 下发，三档下拉在
+  //    第 1 步 ImitationSourceStep 提交拆解旁）：
+  //    scene_refs=画面级还原（原片帧参考）/ style_anchor=风格级相似（文字+产品图）/
+  //    video_replace=视频换物（原片段换物，§11-62 集成档——videos 阶段服务端按拆解
+  //    源窗裁原片段逐镜 type=video_edit，替换物六视图，脚本侧逐镜换物品=批 A UI）。
+  //    默认 video_replace（2026-10-10 用户裁决：第一步默认视频换物模式）；
+  //    submitGenerate 对每次 storyboard_generate 注入 params.reference_mode，
+  //    父组件调用点零改动 ──
+  const referenceMode = ref('video_replace')
+  // ── 产品六视图槽位（2026-10-10 用户裁决：第 2 步六视图槽位化=产品资料同款；
+  //    六视图是产品资料域资产——上传替换/单删走全局作用域 views 端点（纯替换语义，
+  //    客户端不传 auto_assemble），正面+背面齐才放行下一步）──
+  const productSixViews = ref<ProductSixViewEntry[]>([])
+  const productSixBusy = ref(false)
+  const currentProductId = ref('')
+  /** 下一步闸门（2026-10-10 用户裁决：顶部视图必须有——正面+背面规则作废） */
+  const productViewsReady = computed(() => productSixViews.value.some((e) => e.view === 'top'))
 
-  /** 提交六视图编排并轮询（productImages=第 2 步选品图，缺省服务端读脚本选品留痕；
-   *  服务端 400 文案自带指引——「请求未传 product_images 且脚本无选品留痕」） */
-  async function submitSixView(productImages: string[] = []): Promise<boolean> {
-    if (!scriptId.value) {
-      sixViewPhase.value = 'failed'
-      sixViewError.value = '尚无脚本（先完成第 1 步拆解）——六视图挂脚本提交'
-      clientError(TAG, sixViewError.value)
-      return false
-    }
-    stopSixViewPolling()
-    sixViewPhase.value = 'running'
-    sixViewError.value = ''
+  /** 拉取并驻留产品六视图（GET /api/product-library/items/{id} 内嵌 item.six_views）。
+   *  2026-10-12 用户裁决：接口失败只提示、不冲界面——拉取失败时保留已显示槽位，
+   *  仅显式清空（无 id）或成功取到新视图时才替换。 */
+  async function refreshProductSixViews(itemId: string): Promise<ProductSixViewEntry[]> {
+    currentProductId.value = itemId
+    if (!itemId) { productSixViews.value = []; return [] }
+    const data = (await serverBridge().get(`/api/product-library/items/${encodeURIComponent(itemId)}`, {})) as Record<string, unknown> | null
+    if (!data) throw new Error('无法连接服务端')
+    const item = (((data as Record<string, unknown>).item as Record<string, unknown> | undefined) ?? (data as Record<string, unknown>))
+    const views = normalizeProductSixViews(item?.six_views)
+    productSixViews.value = views
+    return views
+  }
+
+  /** 上传替换单视图（POST views/{view}/upload multipart；纯替换=其余五张不动） */
+  async function uploadProductSixView(itemId: string, view: string, file: File): Promise<boolean> {
+    if (productSixBusy.value) return false
+    productSixBusy.value = true
     try {
-      const resp = (await serverBridge().post(API_PATHS.storyboard.sixView(scriptId.value), {
-        product_images: productImages,
-      })) as Record<string, unknown> | null
-      const syncUrls = parseSixViewEntries((resp as Record<string, unknown>)?.result ?? resp)
-        .map((e) => ({ ...e, url: e.url || sixViewFileUrl(scriptId.value, e.view) }))
-      if (syncUrls.length) {
-        sixViews.value = syncUrls
-        sixViewPhase.value = 'done'
-        clientInfo(TAG, `六视图同步返回 ${syncUrls.length} 张`)
-        return true
-      }
-      const taskId = resp && (resp.task_id ?? resp.id)
-      if (!taskId || (typeof taskId !== 'string' && typeof taskId !== 'number')) {
-        sixViewPhase.value = 'failed'
-        sixViewError.value = `六视图提交响应缺 task_id（实得字段：${resp ? Object.keys(resp).join(',') : 'null'}）`
-        clientError(TAG, sixViewError.value, { resp })
-        return false
-      }
-      sixViewTaskId.value = String(taskId)
-      clientInfo(TAG, `六视图已提交 task=${sixViewTaskId.value}`)
-      startSixViewPolling()
+      const form = new FormData()
+      form.append('file', file, file.name || `${view}.png`)
+      await serverBridge().upload(`/api/product-library/items/${encodeURIComponent(itemId)}/views/${encodeURIComponent(view)}/upload`, form)
       return true
     } catch (e) {
-      sixViewPhase.value = 'failed'
-      sixViewError.value = `六视图提交失败：${(e as Error).message}`
-      clientError(TAG, sixViewError.value, e)
+      clientError(TAG, `上传六视图失败（${view}）：${(e as Error).message}`, e)
       return false
+    } finally {
+      productSixBusy.value = false
     }
   }
 
-  /** 删除单张六视图（§11-51 闭环：meta 删键+物理删文件，不可逆；
-   *  videos 阶段 products 自动少一张；404=未知视角/未生成/已删） */
-  async function deleteSixView(view: string): Promise<boolean> {
-    if (!scriptId.value) return false
-    if (sixViewPhase.value === 'running') {
-      sixViewError.value = '六视图生成中——等本轮完成后再删除'
-      clientError(TAG, sixViewError.value)
-      return false
-    }
-    stopSixViewPolling()
+  /** 删除单视图（DELETE views/{view}；错图清理后可重新上传） */
+  async function deleteProductSixView(itemId: string, view: string): Promise<boolean> {
+    if (productSixBusy.value) return false
+    productSixBusy.value = true
     try {
-      const resp = (await serverBridge().delete(API_PATHS.storyboard.sixViewDelete(scriptId.value, view))) as Record<string, unknown> | null
-      if (!resp || resp.ok !== true) {
-        sixViewError.value = `删除六视图 ${view} 失败：${String(resp?.error ?? resp?.detail ?? `响应异常（实得字段：${resp ? Object.keys(resp).join(',') : 'null'}）`)}`
-        clientError(TAG, sixViewError.value, { resp })
-        return false
-      }
-      sixViews.value = sixViews.value.filter((e) => e.view !== view)
-      sixViewError.value = ''
-      sixViewPhase.value = 'done'
-      clientInfo(TAG, `六视图 ${view} 已删除（剩余：${JSON.stringify(resp.views ?? null)}）`)
+      await serverBridge().delete(`/api/product-library/items/${encodeURIComponent(itemId)}/views/${encodeURIComponent(view)}`, {})
       return true
     } catch (e) {
-      sixViewError.value = `删除六视图 ${view} 失败：${(e as Error).message}`
-      clientError(TAG, sixViewError.value, e)
+      clientError(TAG, `删除六视图失败（${view}）：${(e as Error).message}`, e)
       return false
+    } finally {
+      productSixBusy.value = false
     }
-  }
-
-  /** 中途取消六视图生成任务（2026-10-09 服务端联动取消上线：batch_cancel→worker 轮询
-   *  ≤15s 感知→请求取消 comfygen 远端 job 并留痕 remote_cancelled；本地终态 CANCELLED
-   *  非失败。发起后保持轮询——终态由轮询分支落 cancelled；服务端仅 pending/running
-   *  可取消，已完成时 cancelled:0，轮询自然落 done。路径内联同 useImitationMontage
-   *  先例（server-api.ts 千行红线不加行）。 */
-  async function cancelSixView(): Promise<boolean> {
-    if (!sixViewTaskId.value || sixViewPhase.value !== 'running') return false
-    try {
-      const resp = (await serverBridge().post('/tasks/batch_cancel', {
-        task_ids: [sixViewTaskId.value],
-      })) as Record<string, unknown> | null
-      clientInfo(TAG, `六视图取消请求已发送 task=${sixViewTaskId.value}（${JSON.stringify(resp ?? null)}）`)
-      return true
-    } catch (e) {
-      sixViewError.value = `六视图取消请求失败：${(e as Error).message}`
-      clientError(TAG, sixViewError.value, e)
-      return false
-    }
-  }
-
-  /** 轮询态文案（running/cancelled 两个非终态展示；failed 走 sixViewError 红字） */
-  const sixViewStatusText = computed(() => {
-    if (sixViewPhase.value === 'running') return '生成中…'
-    if (sixViewPhase.value === 'cancelled') return '已取消（可重出）'
-    return ''
-  })
-
-  function startSixViewPolling(): void {
-    stopSixViewPolling()
-    const tick = async (): Promise<void> => {
-      try {
-        const resp = (await serverBridge().get(API_PATHS.storyboard.sixViewResult(sixViewTaskId.value))) as Record<string, unknown> | null
-        const outcome = classifySixViewPollStatus(resp?.status)
-        if (outcome === 'pending') return
-        stopSixViewPolling()
-        if (outcome === 'failed') {
-          sixViewPhase.value = 'failed'
-          sixViewError.value = String(resp?.error || '六视图任务失败')
-          clientError(TAG, `六视图任务失败 task=${sixViewTaskId.value}`, { resp })
-          return
-        }
-        if (outcome === 'cancelled') {
-          sixViewPhase.value = 'cancelled'
-          sixViewError.value = ''
-          clientInfo(TAG, `六视图任务已取消（status=${String(resp?.status)}）task=${sixViewTaskId.value}——远端联动取消留痕见脚本 meta.six_view`)
-          return
-        }
-        const urls = parseSixViewEntries((resp?.result ?? resp) as Record<string, unknown>)
-          .map((e) => ({ ...e, url: e.url || sixViewFileUrl(scriptId.value, e.view) }))
-        if (!urls.length) {
-          sixViewPhase.value = 'failed'
-          sixViewError.value = `六视图完成但响应无视图列表（实得字段：${resp ? Object.keys(resp).join(',') : 'null'}）`
-          clientError(TAG, sixViewError.value, { resp })
-          return
-        }
-        sixViews.value = urls
-        sixViewPhase.value = 'done'
-        clientInfo(TAG, `六视图完成 ${urls.length} 张`)
-      } catch (e) {
-        clientError(TAG, '六视图轮询异常（下个周期重试）', e)
-      }
-    }
-    void tick()
-    sixViewTimer = setInterval(() => { void tick() }, 2000)
   }
 
   return {
@@ -619,8 +536,9 @@ export function useImitationVideo() {
     confirmShotFrames, replaceShotFrames, confirmDraft,
     // Part 2
     genTaskId, genPhase, genError, genResult, genProgress, genElapsedSec, genMessage, genStage, genJobIds, videosTaskId,
-    // 六视图（§11-51）
-    sixViewTaskId, sixViewPhase, sixViews, sixViewError, submitSixView, deleteSixView, cancelSixView, sixViewStatusText, referenceMode,
+    // 产品六视图槽位（2026-10-10 槽位化裁决）
+    productSixViews, productSixBusy, currentProductId, productViewsReady,
+    refreshProductSixViews, uploadProductSixView, deleteProductSixView, referenceMode,
     submitGenerate, preflightGenerate, timelineWarning,
   }
 }

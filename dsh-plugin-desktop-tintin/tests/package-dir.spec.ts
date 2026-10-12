@@ -30,7 +30,7 @@ describe('unsigned directory packaging', () => {
       cwd: '/workspace/desktop',
       electronBuilderCli: '/workspace/electron-builder.js',
       electronDistPath: '/workspace/electron/dist',
-      env: { CSC_NAME: 'Developer ID Application: Release', KEEP: 'yes' },
+      env: { CSC_NAME: 'Developer ID Application: Release', KEEP: 'yes', DSH_VERSION_STAMP: '20260101.0000' },
       nodeExecutable: '/runtime/node',
       run: run as unknown as typeof import('node:child_process').spawnSync,
     })
@@ -50,6 +50,7 @@ describe('unsigned directory packaging', () => {
       [
         '/workspace/electron-builder.js',
         ...UNSIGNED_DIRECTORY_BUILD_ARGS,
+        '--config.extraMetadata.version=0.2.0-dev.0-20260101.0000',
         '--config.electronDist=/workspace/electron/dist',
       ],
       {
@@ -57,11 +58,29 @@ describe('unsigned directory packaging', () => {
         env: {
           CSC_IDENTITY_AUTO_DISCOVERY: 'false',
           DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY: '1',
+          DSH_VERSION_STAMP: '20260101.0000',
           KEEP: 'yes',
         },
         stdio: 'inherit',
       },
     )
+  })
+
+  it('omits the version stamp when DSH_VERSION_STAMP=off', () => {
+    const run = vi.fn(() => ({ status: 0 }))
+
+    packageDirectory({
+      cwd: '/workspace/desktop',
+      electronBuilderCli: '/workspace/electron-builder.js',
+      electronDistPath: '/workspace/electron/dist',
+      env: { DSH_VERSION_STAMP: 'off' },
+      nodeExecutable: '/runtime/node',
+      run: run as unknown as typeof import('node:child_process').spawnSync,
+    })
+
+    expect(run).toHaveBeenCalledOnce()
+    const args = run.mock.calls[0]![1] as string[]
+    expect(args.filter((arg) => arg.startsWith('--config.extraMetadata'))).toEqual([])
   })
 
   it('propagates spawn failures and non-zero exits', () => {

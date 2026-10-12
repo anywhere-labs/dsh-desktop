@@ -14,9 +14,12 @@ import {
   SCENE_ELEMENT_KEYS,
   canConfirmFrames,
   framesBadgeText,
-  genBadgeText,
+  isReplaceShot,
   isStageDReady,
   sceneElementOptions,
+  shotInReplace,
+  shotModeBadgeClass,
+  shotModeBadgeText,
   type ImitationShot,
   type QualityReport,
   type SceneElementKey,
@@ -35,8 +38,11 @@ const props = defineProps<{
     genElapsedSec: { value: number }
     genMessage: { value: string }
     enums: { value: ServerEnums | null }
+    referenceMode: { value: string }
   }
   shots: ImitationShot[]
+  /** 换物档左栏参考=原片（meta.imitate.source_material_id；空=脚本无源片引用） */
+  sourceVideoUrl: string
   gridUrl: string
   /** v4.9 storyboard-pack（九宫格图配套逐镜中文提示词，Seedance 交付） */
   pack: Record<string, unknown> | null
@@ -223,6 +229,15 @@ async function downloadGrid(): Promise<void> {
 /** 逐镜视频预览地址（生成/实拍统一回填 shot 根级 material_id） */
 function shotVideoSrc(shot: ImitationShot): string {
   return props.videoUrlOf(shot.material_id)
+}
+
+/** 换物档左栏=原分割镜头（2026-10-12 用户裁决：左参考右产物）；其它档左栏=关键帧首帧 */
+const replaceMode = computed(() => props.iv.referenceMode.value === 'video_replace')
+/** 原片段地址（gen 源窗 #t= 片段化；无源窗=整段原片） */
+function sourceClipSrc(shot: ImitationShot): string {
+  if (!props.sourceVideoUrl) return ''
+  const s = Number(shot.gen?.source_start), e = Number(shot.gen?.source_end)
+  return Number.isFinite(s) && Number.isFinite(e) && e > s ? `${props.sourceVideoUrl}#t=${s},${e}` : props.sourceVideoUrl
 }
 
 /** 逐镜完成计数从实时脚本取（2026-10-06 用户裁决复刻：任务 result 运行期恒 0、
@@ -433,13 +448,13 @@ async function copyPrompts(): Promise<void> {
       <div class="row">
         <TButton label="← 上一步" variant="primary" @click="onBack" />
         <span v-if="ivRef<string>('genError').value" class="iv-err">{{ ivRef<string>('genError').value }}</span>
-        <span v-if="stageDReady && !sixViewReady" class="muted">六视图未生成——回第 2 步产品图行右侧「生成六视图」</span>
+        <span v-if="stageDReady && !sixViewReady" class="muted">产品六视图缺「正面/背面」——回第 2 步槽位「上传」补齐</span>
         <span class="spacer"></span>
         <TButton
           label="下一步：视频生成"
           :loading="!!startVideos"
           :disabled="!stageDReady || !sixViewReady || !!startVideos"
-          :title="!stageDReady ? '全部分镜帧确认后解锁' : !sixViewReady ? '六视图未生成——回第 2 步产品图行右侧「生成六视图」' : ''"
+          :title="!stageDReady ? '全部分镜帧确认后解锁' : !sixViewReady ? '产品六视图缺「正面/背面」——回第 2 步槽位「上传」补齐' : ''"
           @click="emit('start-videos')"
         />
       </div>
@@ -468,8 +483,8 @@ async function copyPrompts(): Promise<void> {
         <div v-for="(shot, i) in shots" :key="shot.gen?.name || i" class="iv-shot-card">
           <div class="seg-head">
             <span class="seg-no">#{{ i + 1 }}</span>
-            <span class="iv-badge" :class="shot.source !== 'generate' ? 'iv-badge--mat' : shot.gen?.status === 'done' ? 'iv-badge--ai' : shot.gen?.status === 'failed' ? 'iv-badge--fail' : 'iv-badge--mat'">{{ genBadgeText(shot) }}</span>
-            <span class="muted iv-name">{{ shot.gen?.name || (shot.source === 'material' ? '实拍' : '') }}</span>
+            <span class="iv-badge" :class="shotModeBadgeClass(shot, props.iv.referenceMode.value)">{{ shotModeBadgeText(shot, props.iv.referenceMode.value) }}</span>
+            <span class="muted iv-name">{{ shot.gen?.name || (shot.source === 'material' ? (isReplaceShot(shot) ? '物品替换' : '实拍') : (shotInReplace(shot, props.iv.referenceMode.value) ? '物品替换' : '')) }}</span>
           </div>
           <div class="iv-shot-cols">
             <!-- 整脚本信息=第 3 步同款只读表单（2026-10-06 用户裁决：第四步脚本和第三步一样） -->
@@ -503,8 +518,21 @@ async function copyPrompts(): Promise<void> {
               </div>
             </div>
             <div class="shot-frames">
-              <video v-if="shotVideoSrc(shot)" :src="shotVideoSrc(shot)" controls preload="metadata" class="iv-shot-video" />
-              <span v-else class="iv-fig-empty iv-shot-empty">{{ shot.source === 'generate' ? '视频待生成（生成完成后自动播放）' : '实拍素材未绑定视频' }}</span>
+              <div class="iv-ref-row">
+                <figure v-if="replaceMode" class="iv-fig iv-fig--ref">
+                  <video v-if="sourceClipSrc(shot)" :src="sourceClipSrc(shot)" controls preload="metadata" class="iv-shot-video" />
+                  <span v-else class="iv-fig-empty">原片缺失（脚本无源片引用）</span>
+                  <figcaption>原片段{{ shot.gen?.source_start !== undefined ? `（${shot.gen?.source_start}s–${shot.gen?.source_end}s）` : '' }}</figcaption>
+                </figure>
+                <figure v-else-if="shot.gen?.first_frame" class="iv-fig iv-fig--ref">
+                  <img :src="frameUrl(shot.gen?.name, 'first')" alt="关键帧首帧" loading="lazy" />
+                  <figcaption>关键帧</figcaption>
+                </figure>
+                <div class="iv-out-col">
+                  <video v-if="shotVideoSrc(shot)" :src="shotVideoSrc(shot)" controls preload="metadata" class="iv-shot-video" />
+                  <span v-else class="iv-fig-empty iv-shot-empty">{{ shot.source === 'generate' ? (shotInReplace(shot, props.iv.referenceMode.value) ? '换物视频待生成（服务端按拆解源窗裁原片段走换物引擎，产物回填本镜）' : '视频待生成（生成完成后自动播放）') : (isReplaceShot(shot) ? '换物视频待生成…' : '实拍素材未绑定视频') }}</span>
+                </div>
+              </div>
               <!-- 降档+重新生成（2026-10-06 用户裁决：位于视频下方；done+failed 都可点=只重出该镜视频不动首尾帧） -->
               <div v-if="shot.source === 'generate' && (shot.gen?.status === 'done' || shot.gen?.status === 'failed')" class="row iv-frame-actions">
                 <label class="seg-field head-field"><span class="lbl">降档</span>
@@ -624,6 +652,12 @@ async function copyPrompts(): Promise<void> {
 .iv-shot-cols { display: flex; gap: 10px; align-items: stretch; }
 .shot-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .shot-frames { flex: 0 0 276px; display: flex; flex-direction: column; gap: 6px; }
+/* 左参考右产物双栏（2026-10-12 裁决：换物=原片段|换物产物，其它=关键帧|生成镜头） */
+.iv-ref-row { display: flex; gap: 6px; align-items: flex-start; }
+.iv-fig--ref { width: 135px; flex: 0 0 135px; }
+.iv-fig--ref .iv-shot-video { width: 135px; height: 240px; object-fit: cover; }
+.iv-out-col { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
+.iv-ref-row .iv-shot-video { max-width: 135px; }
 .iv-name { font-family: monospace; }
 /* 首尾帧/分镜视频高度统一 240px（2026-10-06 用户裁决；9:16 → 135×240） */
 .iv-frames { display: grid; grid-template-columns: repeat(2, 135px); gap: 6px; }
@@ -644,8 +678,9 @@ async function copyPrompts(): Promise<void> {
    minmax(0,1fr) 防 min-content 撑爆轨道（长提示词 word-break 已断行） */
 .iv-grid-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
 .iv-grid-left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.iv-draft-grid { display: flex; flex-wrap: wrap; gap: 10px; }
-.iv-draft-cell { width: 190px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* 2026-10-12 用户裁决：每行固定 4 张、小间距（6px），格宽随左栏自适应 */
+.iv-draft-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.iv-draft-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .iv-draft-cell .iv-fig-btn { display: block; }
 .iv-draft-img { width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius-md);
   background: #101010; display: block; }

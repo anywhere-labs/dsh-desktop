@@ -9,7 +9,7 @@ import TDialog from '@/components/common/TDialog.vue'
 import WbPickProductPanel from './WbPickProductPanel.vue'
 import type { PickerItem } from '@/composables/useWorkbenchPickers'
 
-defineProps<{ visible: boolean }>()
+defineProps<{ visible: boolean; /** 三栏模式：右列显示选中产品六视图（2026-10-10 仿视频） */ sixViews?: boolean }>()
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'pick', item: PickerItem): void
@@ -26,7 +26,7 @@ function onPick(item: PickerItem) {
   <!-- 2026-08-31 用户裁决：弹窗放大到主界面 80%，vw/vh 随窗口缩放 -->
   <TDialog :visible="visible" title="选择产品" width="80vw" :show-footer="false" @close="emit('close')">
     <div class="picker-host">
-      <WbPickProductPanel :active="visible" @pick="onPick" />
+      <WbPickProductPanel :active="visible" :show-six-views="sixViews" @pick="onPick" />
     </div>
   </TDialog>
 </template>

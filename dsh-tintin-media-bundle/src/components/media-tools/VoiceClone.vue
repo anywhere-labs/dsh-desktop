@@ -13,6 +13,10 @@ import { useFilePicker } from '@/composables/useFilePicker'
 import { useVoiceCloneStudio } from '@/composables/useVoiceCloneStudio'
 import { acceptFileDragOver } from '@/utils/fileUrl'
 import { clientError, clientInfo } from '@/utils/clientLog'
+// whisper 响应多形态解析（2026-10-12 实障修复：服务端回 ct=text/plain 时响应经
+// IPC 结构化克隆到渲染层是 Uint8Array，旧兜底 JSON.stringify(res) 把音频字节数组
+// 序列化成 {"0":229,...} 塞进文稿框并随样本上传入库——识别统一走此解析器）
+import { parseTranscriptionResponse, segmentsToPlainText } from '@/composables/srtUtils'
 
 const s = useVoiceCloneStudio()
 
@@ -153,15 +157,22 @@ async function transcribeForNewSample(): Promise<void> {
       format: 'txt',
     } as any)
     if (!res || (res as any).error) throw new Error((res as any)?.error || '识别失败')
-    // 契约 /whisper/transcribe：fmt=json 返回 {segments,text,language}，fmt=txt 返回纯文本；content 属猜测字段，删除
-    const text = typeof res === 'string' ? res : (res as any).text || JSON.stringify(res)
-    newSampleText.value = String(text).trim()
+    // 契约 /whisper/transcribe：fmt=json 返回 {segments,text,language}，fmt=txt 回纯文本
+    // （ct=text/plain → 渲染层收到 Uint8Array）；解析器统一兼容三形态，禁止再 JSON.stringify 字节
+    const segments = parseTranscriptionResponse(res)
+    const text = segmentsToPlainText(segments)
+    if (!text) throw new Error('未从音频中识别到文字（音频可能为空或无语音）')
+    newSampleText.value = text
   } catch (err) {
     newSampleError.value = `文字识别失败：${err instanceof Error ? err.message : String(err)}`
   } finally {
     transcribing.value = false
   }
 }
+
+/** 克隆成功徽标的引擎名（2026-10-12 修复：此前写死 IndexTTS，切 VoxCPM2/Qwen3 后显示错档） */
+const wholeEngineLabel = computed(() =>
+  wholeEngine.value === 'qwen3' ? 'Qwen3-TTS' : wholeEngine.value === 'voxcpm' ? 'VoxCPM2' : 'IndexTTS')
 
 /** 克隆成功后显示的文件名 */
 const wholeFileName = computed(() => {
@@ -370,7 +381,7 @@ onMounted(loadCatalog)
       <div v-if="wholeStatus === 'done'" class="success-info">
         <span class="success-icon">✓</span>
         <span class="success-text">克隆成功</span>
-        <span class="success-engine">IndexTTS</span>
+        <span class="success-engine">{{ wholeEngineLabel }}</span>
         <span v-if="wholeFileName" class="success-file">{{ wholeFileName }}</span>
         <div class="success-actions">
           <button class="action-btn" :disabled="uploadingToLib" @click="uploadWholeToLibrary" title="上传到素材库（音频库·配音分类）">

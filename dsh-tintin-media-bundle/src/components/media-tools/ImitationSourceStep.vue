@@ -61,6 +61,12 @@ function isVideoName(name: string): boolean {
 /** 原片时长上限（2026-10-02 用户裁决：上传视频 ≤60 秒，超限明确提示拦截） */
 const MAX_SOURCE_SEC = MAX_SOURCE_VIDEO_SEC
 
+/** 拆解耗时文案（2026-10-10 用户裁决：完成后稍明显展示全过程用时） */
+const p1DurText = computed(() => {
+  const sec = Math.max(0, Math.round(props.iv.part1ElapsedSec.value))
+  return sec >= 60 ? `${Math.floor(sec / 60)} 分 ${sec % 60} 秒` : `${sec} 秒`
+})
+
 /** 时长校验：超限清空选择并给明确提示；返回是否通过 */
 async function enforceDurationLimit(file: File): Promise<boolean> {
   const sec = await probeDurationSec(file)
@@ -256,6 +262,7 @@ const rpShots = computed<Array<Record<string, unknown>>>(() => {
     <div v-if="iv.enumsError.value" class="iv-err">枚举加载失败：{{ iv.enumsError.value }}（刷新重试：{{ ' ' }}<a class="iv-link" @click="iv.loadEnums">重试</a>）</div>
 
     <template v-if="iv.part1Phase.value === 'done' && shots.length">
+      <div class="p1-dur">拆解完成，耗时 {{ p1DurText }}</div>
       <div class="iv-divider"></div>
       <div class="row between">
         <span class="lbl">拆解脚本（原片脚本·只读）——编辑与文案替换在第 2 步「生成脚本」</span>
@@ -382,4 +389,6 @@ const rpShots = computed<Array<Record<string, unknown>>>(() => {
   0% { left: -40%; }
   100% { left: 100%; }
 }
+
+.p1-dur { font-size: 13px; font-weight: 600; color: var(--primary); }
 </style>

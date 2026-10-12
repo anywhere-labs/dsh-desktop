@@ -898,6 +898,9 @@ declare interface TintinBridgeEnv {
   /** SRC env:getMachineId 契约 {ok,machineId}；产品资料域以 machineId 拼
    *  /api/product-library/clients/<machine_id> 请求路径（与 X-Machine-ID 同值） */
   getMachineId(): Promise<{ ok: boolean; machineId: string; error?: string }>
+  /** 系统下载文件夹（宿主纯 node 拼 USERPROFILE）。传文件名 → {path: 去重后
+   *  完整目标（同名追加 (n)）}；缺省 → {dir}。「下载直落下载文件夹」数据源 */
+  downloadsDir(fileName?: string): Promise<{ dir?: string; path?: string; error?: string }>
 }
 
 /** 预览解锁（media:unlock）：用户自选目录单文件登记后 /tintin/media 放行；

@@ -13,23 +13,30 @@
 //   参数经 env:getMachineId 获取（与头同值，同一 config-store 口径）。
 // 分层（IRON-06）：本层只做 HTTP 编排与轮询；树/校验/摘要等纯逻辑在
 // opsProductLibraryLogic.ts（有单测）；组件零 URL 拼装。
-// Excel 导入导出：原版有（openpyxl），新端待引入 SheetJS 后单独批次实装。
+// Excel 导入导出：导入=POST /import multipart 服务端自解析（2026-10-10 实装）；
+// 导出：服务端无 /export 端点，未实装。
 // ═══════════════════════════════════════════════════════════════
 
 import { ref, onUnmounted } from 'vue'
 import { getTintin } from './useSettingsConfig'
+import { API_PATHS } from '../types/server-api'
+import { extractTaskObj, mapTaskStatus } from './copywritingMontageCommonLogic'
 import {
   buildProductTree,
   fieldLockMap,
   isWarehouseItem,
   normalizeItem,
+  normalizeProductSixViews,
   parseImportRows,
+  productViewLabel,
+  summarizeImportResult,
   parseMineStatus,
   parseSyncStatus,
   searchResultLabel,
   treeToNodes,
   validateItem,
   type ProductItem,
+  type ProductSixViewEntry,
   type ProductTreeNode,
 } from './opsProductLibraryLogic'
 
@@ -60,6 +67,22 @@ export function useOpsProductLibrary() {
   const mining = ref(false)          // 单条挖掘中
   const bulkMining = ref(false)      // 全量挖掘中（再点=停止）
   const mineStatus = ref('')
+
+  /* ── 六视图（2026-10-09 服务端 8f073bbf：详情内嵌 item.six_views + assemble 生成
+       + DELETE 单视图；组装走全局作用域端点，machine 绑定靠 X-Machine-ID 头。
+       2026-10-10 服务端 e44a8b66：+ views/{view}/upload 逐视图上传替换，
+       auto_assemble 缺省=false=纯替换——用户裁决：六视图是完整集合，手动替换
+       任何一张其余五张不动，补缺/重生成走 assemble 显式触发） ── */
+  const sixViews = ref<ProductSixViewEntry[]>([])
+  const sixMissing = ref<string[]>([])
+  const sixLoading = ref(false)
+  const sixAssembling = ref(false)
+  const sixUploading = ref('')       // 正在上传替换的视角名（''=空闲）
+  const sixStatus = ref('')
+  // 组装兜底开关（ViewsAssembleIn，客户端缺省=服务端缺省口径 2026-10-10 对齐）：
+  // 素材库匹配永远第一优先且不可关；allow_web 网络搜图缺省关、allow_ai AI 生成缺省开
+  const allowWeb = ref(false)
+  const allowAi = ref(true)
 
   /* ── machine_id 路径参数（懒加载缓存） ── */
   let machineId = ''
@@ -144,6 +167,15 @@ export function useOpsProductLibrary() {
 
   /* ── 详情 / 表单（对齐 _on_tree_clicked / clear_form） ───────── */
 
+  /** 详情响应 → 六视图状态（详情内嵌 item.six_views + 顶层 six_views_missing，零二跳） */
+  function applySixViews(data: unknown): void {
+    if (!data || typeof data !== 'object') return
+    const d = data as Record<string, unknown>
+    const item = (d.item ?? null) as Record<string, unknown> | null
+    sixViews.value = normalizeProductSixViews(item?.six_views)
+    sixMissing.value = Array.isArray(d.six_views_missing) ? d.six_views_missing.map(String) : []
+  }
+
   async function selectNode(id: string): Promise<void> {
     const t = getTintin()
     if (!t?.server || !id) return
@@ -160,6 +192,7 @@ export function useOpsProductLibrary() {
       lockedFields.value = fieldLockMap(warehouse)
       formStatus.value = `正在编辑：${item.brand ?? ''} ${item.model ?? ''}`
         + (warehouse ? '（仓库产品：仅可改 商品名称/品类/备注）' : '')
+      applySixViews(data)
     } catch (e) {
       formStatus.value = `读取产品失败：${(e as Error)?.message || e}`
     }
@@ -169,6 +202,9 @@ export function useOpsProductLibrary() {
     editingId.value = null
     form.value = {}
     lockedFields.value = fieldLockMap(false)
+    sixViews.value = []
+    sixMissing.value = []
+    sixStatus.value = ''
     formStatus.value = '新增模式'
   }
 
@@ -399,6 +435,172 @@ export function useOpsProductLibrary() {
     }, POLL_MS)
   }
 
+  /* ── 六视图动作（2026-10-09 服务端 8f073bbf） ────────────────── */
+
+  /** 重新读取详情刷新六视图（machine 作用域详情同一序列化器，item.six_views 同样内嵌） */
+  async function loadSixViews(itemId: string): Promise<void> {
+    const t = getTintin()
+    if (!t?.server || !itemId) return
+    const mid = await ensureMachineId()
+    if (!mid) return
+    sixLoading.value = true
+    try {
+      const data = await callJson(() => t.server.get(`${base(mid)}/items/${encodeURIComponent(itemId)}`, {}))
+      applySixViews(data)
+    } catch (e) {
+      sixStatus.value = `六视图读取失败：${(e as Error)?.message || e}`
+    } finally {
+      sixLoading.value = false
+    }
+  }
+
+  /** 生成六视图：POST /api/product-library/items/{id}/views/assemble（全局作用域，
+   *  views 子集缺省=六视角全集）→ 轮询 /tasks/unified/{task_id}（extractTaskObj+
+   *  mapTaskStatus 同仿视频口径）→ 完成回读详情。超时 10 分钟（同挖掘上限）。 */
+  async function assembleSixViews(): Promise<void> {
+    if (sixAssembling.value) return
+    const itemId = editingId.value || ''
+    if (!itemId) { sixStatus.value = '请先选择产品（新增模式请先保存）。'; return }
+    const t = getTintin()
+    if (!t?.server) { sixStatus.value = '预览环境：无 IPC'; return }
+    sixAssembling.value = true
+    const fallbacks = [allowWeb.value ? '网络搜图兜底' : '', allowAi.value ? 'AI 生成兜底' : '']
+      .filter(Boolean).join('，')
+    sixStatus.value = `正在触发六视图组装（素材库优先${fallbacks ? '，' + fallbacks : ''}）...`
+    const deadline = Date.now() + MINE_TIMEOUT_MS
+    try {
+      const r = await callJson<{ task_id?: string }>(() => t.server.post(
+        `/api/product-library/items/${encodeURIComponent(itemId)}/views/assemble`,
+        { allow_web: allowWeb.value, allow_ai: allowAi.value },
+      ))
+      const taskId = String(r?.task_id ?? '')
+      if (!taskId) throw new Error(`组装响应缺 task_id（实得字段：${r ? Object.keys(r).join(',') : 'null'}）`)
+      for (;;) {
+        if (Date.now() > deadline) {
+          sixAssembling.value = false
+          sixStatus.value = '六视图组装超时（10 分钟），请稍后重新选择产品查看。'
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+        const resp = await t.server.get(API_PATHS.tasks.unifiedItem(taskId), {})
+        const task = extractTaskObj(resp)
+        const info = mapTaskStatus(task.status ?? task.state, task)
+        if (info.phase === 'running') {
+          sixStatus.value = `六视图组装中：${String(task.last_message || '服务端处理中').slice(0, 50)}`
+          continue
+        }
+        if (info.phase === 'failed') {
+          sixAssembling.value = false
+          sixStatus.value = `六视图组装失败：${info.error}`
+          return
+        }
+        break
+      }
+      sixAssembling.value = false
+      sixStatus.value = '六视图组装完成。'
+      await loadSixViews(itemId)
+    } catch (e) {
+      sixAssembling.value = false
+      sixStatus.value = `六视图组装失败：${(e as Error)?.message || e}`
+    }
+  }
+
+  /** 删除单个视图（服务端物理删绑定；错图清理后可重新组装补齐） */
+  async function deleteSixView(view: string): Promise<void> {
+    const itemId = editingId.value || ''
+    if (!itemId) return
+    const t = getTintin()
+    if (!t?.server) return
+    try {
+      await callJson(() => t.server.delete(
+        `/api/product-library/items/${encodeURIComponent(itemId)}/views/${encodeURIComponent(view)}`, {},
+      ))
+      sixStatus.value = `已删除「${view}」视图。`
+      await loadSixViews(itemId)
+    } catch (e) {
+      sixStatus.value = `删除视图失败：${(e as Error)?.message || e}`
+    }
+  }
+
+  /** 上传替换单个视图：POST views/{view}/upload（multipart file）。
+   *  纯替换语义（用户裁决 2026-10-10）：客户端不传 auto_assemble（服务端缺省
+   *  false）——只换这张，其余五张一张不动；补缺/重生成由用户点「生成/重新生成」
+   *  显式走 assemble。上传图照旧入素材库（source=client），成功后回读详情刷新。
+   *  注意 views 三件套（assemble/upload/DELETE）均为全局作用域端点（无
+   *  /clients/{machine_id}/ 前缀，2026-10-10 实测：clients 作用域 404），machine
+   *  绑定靠代理自动注入的 X-Machine-ID 头。 */
+  async function uploadSixView(view: string, file: File): Promise<void> {
+    const itemId = editingId.value || ''
+    if (!itemId) { sixStatus.value = '请先选择产品（新增模式请先保存）。'; return }
+    const t = getTintin()
+    if (!t?.server) { sixStatus.value = '预览环境：无 IPC'; return }
+    if (sixUploading.value) return
+    sixUploading.value = view
+    sixStatus.value = `正在上传「${productViewLabel(view)}」视图...`
+    try {
+      const form = new FormData()
+      form.append('file', file, file.name || `${view}.png`)
+      await callJson(() => t.server.upload(
+        `/api/product-library/items/${encodeURIComponent(itemId)}/views/${encodeURIComponent(view)}/upload`,
+        form,
+      ))
+      sixStatus.value = `已替换「${productViewLabel(view)}」视图（其余五张未变动）。`
+      await loadSixViews(itemId)
+    } catch (e) {
+      sixStatus.value = `上传替换失败：${(e as Error)?.message || e}`
+    } finally {
+      sixUploading.value = ''
+    }
+  }
+
+  /* ── Excel 导入（2026-10-10：服务端 POST /import multipart 自解析，
+       客户端只传文件不解析（原「待引入 SheetJS」待办作废）；模板 GET /import/template
+       直下 .xlsx，走 dialog.saveFile→server.downloadResult→revealInFolder 既有链） ── */
+  const importing = ref(false)
+  const importStatus = ref('')
+
+  /** 上传 Excel 产品表：POST /api/product-library/import（全局作用域端点，
+   *  machine 绑定靠代理自动注入的 X-Machine-ID 头，同 assemble）；成功后重载树。 */
+  async function importExcel(file: File): Promise<void> {
+    if (importing.value) return
+    const t = getTintin()
+    if (!t?.server) { importStatus.value = '预览环境：无 IPC'; return }
+    importing.value = true
+    importStatus.value = `正在导入「${file.name}」...`
+    try {
+      const form = new FormData()
+      form.append('file', file, file.name || 'import.xlsx')
+      const r = await callJson(() => t.server.upload('/api/product-library/import', form))
+      importStatus.value = summarizeImportResult(r)
+      await loadTree()
+    } catch (e) {
+      importStatus.value = `导入失败：${(e as Error)?.message || e}`
+    } finally {
+      importing.value = false
+    }
+  }
+
+  /** 下载服务端标准导入模板（product_import_template.xlsx 实测为 .xlsx 附件） */
+  async function downloadImportTemplate(serverUrl: string): Promise<void> {
+    const t = getTintin()
+    if (!t?.server) { importStatus.value = '预览环境：无 IPC'; return }
+    if (!serverUrl) { importStatus.value = '服务端地址未知，请先连接服务端。'; return }
+    try {
+      const savePath = await t.dialog?.saveFile?.({
+        title: '保存导入模板',
+        defaultPath: 'product_import_template.xlsx',
+        filters: [{ name: 'Excel 工作簿', extensions: ['xlsx'] }],
+      })
+      if (!savePath) return // 用户取消
+      const saved = await t.server.downloadResult(`${serverUrl}/api/product-library/import/template`, savePath)
+      if (!saved) throw new Error('下载失败（服务端离线或网络异常）')
+      importStatus.value = `模板已保存：${saved}`
+      try { t.shell?.revealInFolder?.(String(saved)) } catch { /* 无壳环境静默 */ }
+    } catch (e) {
+      importStatus.value = `模板下载失败：${(e as Error)?.message || e}`
+    }
+  }
+
   /* ── 组件卸载清理（轮询定时器） ──────────────────────────────── */
 
   onUnmounted(() => {
@@ -407,8 +609,9 @@ export function useOpsProductLibrary() {
     if (mineTimer) clearTimeout(mineTimer)
   })
 
-  /* ── Excel 导入解析（解析纯函数已测；文件读取待 SheetJS 批次） ── */
-  void parseImportRows // 保留引用：导入批次直接消费
+  /* ── Excel 导入解析：parseImportRows 为原版客户端解析纯函数（有单测）；
+       现行导入走服务端自解析，此函数保留作格式校验备胎 ── */
+  void parseImportRows
 
   return {
     // 树/搜索
@@ -419,6 +622,11 @@ export function useOpsProductLibrary() {
     syncing, syncStatus, startSync,
     // 挖掘
     mining, bulkMining, mineStatus, mineSingle, mineAll,
+    // 六视图
+    sixViews, sixMissing, sixLoading, sixAssembling, sixUploading, sixStatus,
+    allowWeb, allowAi, assembleSixViews, deleteSixView, uploadSixView,
+    // Excel 导入
+    importing, importStatus, importExcel, downloadImportTemplate,
   }
 }
 

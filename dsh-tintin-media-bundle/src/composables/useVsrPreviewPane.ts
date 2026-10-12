@@ -183,30 +183,45 @@ function redraw(): void {
 watch([boxes, activeIndex, isSelectMode, framePath], redraw, { deep: true })
 
 // ── 拖拽状态（绘制层临时态；提交数据仍以 boxes 为准）──
-type DragMode = null | 'move' | 'rotate' | `vertex-${number}`
+type DragMode = null | 'move' | 'rotate' | 'scrub' | `vertex-${number}`
 const dragMode = ref<DragMode>(null)
 let dragStartQuad: Quad | null = null
 let dragStartWidget: { x: number; y: number } | null = null
 let rotateStartAngle = 0
 const draggingQuad = ref<Quad | null>(null)
 const hoverHandle = ref('')
+// 空白处拖动=拖动视频播放的锚点（2026-10-12 用户裁决：标注层只是透明标注层，
+// 与拖动播放无关——空白按下以当前时间+水平位置为锚，水平位移线性映射时间轴）
+let scrubAnchorX = 0
+let scrubAnchorT = 0
 
-function relPos(e: MouseEvent): { x: number; y: number } {
+function relPos(e: PointerEvent): { x: number; y: number } {
   const rect = canvasRef.value!.getBoundingClientRect()
   return { x: e.clientX - rect.left, y: e.clientY - rect.top }
 }
 
-function onDown(e: MouseEvent): void {
+function onDown(e: PointerEvent): void {
+  if (e.button !== 0) return
   if (!framePath.value || isProcessing.value || isSmart.value) return
   const display = displayMapping()
   const frame = frameSizeNow()
   if (!display || !frame) return
+  // 指针捕获：拖拽中指针移出画布（甚至窗口边缘）事件仍派发给画布，
+  // 选区编辑/拖动播放都不会中断（2026-10-12 用户裁决：拖出画面不断）
+  ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
   const { x: mx, y: my } = relPos(e)
   const hit = hitTestQuad({
     mx, my, boxes: boxes.value, activeIndex: activeIndex.value,
     display, frame, allowRotation: allowRotation.value,
   })
-  if (!hit) return // 原版空白按下无动作（不新增框，见 _add_box 按钮语义）
+  if (!hit) {
+    // 空白处按下=进入拖动播放（原版为无动作；2026-10-12 用户裁决改：标注层
+    // 只做标注，拖预览区即拖时间轴，选区/把手命中才走标注编辑）
+    dragMode.value = 'scrub'
+    scrubAnchorX = mx
+    scrubAnchorT = currentT.value
+    return
+  }
   if (hit.index !== activeIndex.value) setActiveIndex(hit.index)
   dragStartQuad = boxes.value[hit.index].map((p) => [p[0], p[1]] as [number, number])
   dragStartWidget = { x: mx, y: my }
@@ -225,7 +240,7 @@ function onDown(e: MouseEvent): void {
   }
 }
 
-function onMove(e: MouseEvent): void {
+function onMove(e: PointerEvent): void {
   if (!framePath.value || isProcessing.value || isSmart.value) return
   const display = displayMapping()
   const frame = frameSizeNow()
@@ -234,6 +249,11 @@ function onMove(e: MouseEvent): void {
 
   // 拖拽中：几何计算全部走 vsrQuadLogic 纯函数（对照 mouseMoveEvent L426-498）
   const mode = dragMode.value
+  if (mode === 'scrub') {
+    // 空白拖动=播放进度：水平位移 ÷ 预览宽 × 总时长（seekToTime 内部做帧量化+钳制）
+    seekToTime(scrubAnchorT + ((mx - scrubAnchorX) / Math.max(1, display.w)) * durationS.value)
+    return
+  }
   if (mode !== null && dragStartQuad && dragStartWidget) {
     const curF = widgetToFrame(mx, my, display, frame)
     const startF = widgetToFrame(dragStartWidget.x, dragStartWidget.y, display, frame)
@@ -262,18 +282,29 @@ function onMove(e: MouseEvent): void {
   hoverHandle.value = hit ? hit.handle : ''
 }
 
-function onUp(): void {
+/** 指针离开画布：仅悬停态清光标提示；拖拽中因指针捕获不会收到 leave，不会打断 */
+function onLeave(): void {
+  if (!dragMode.value) hoverHandle.value = ''
+}
+
+function onUp(e?: PointerEvent): void {
+  if (e?.currentTarget instanceof Element && e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+    e.currentTarget.releasePointerCapture(e.pointerId)
+  }
   if (draggingQuad.value) updateActiveQuad(draggingQuad.value)
   dragMode.value = null
   dragStartQuad = null
   dragStartWidget = null
   draggingQuad.value = null
+  scrubAnchorX = 0
+  scrubAnchorT = 0
   redraw()
 }
 
 const cursorStyle = computed(() => {
   if (isSmart.value || isProcessing.value) return 'default'
   if (dragMode.value === 'rotate') return 'grabbing'
+  if (dragMode.value === 'scrub') return 'ew-resize'
   if (hoverHandle.value === 'move') return 'move'
   if (hoverHandle.value.startsWith('vertex-')) {
     const quad = boxes.value[activeIndex.value]
@@ -284,7 +315,7 @@ const cursorStyle = computed(() => {
     const cy = quad.reduce((s, p) => s + p[1], 0) / 4
     return (quad[vi][0] - cx) * (quad[vi][1] - cy) >= 0 ? 'nwse-resize' : 'nesw-resize'
   }
-  return 'crosshair'
+  return 'ew-resize' // 空白处=可拖动播放（2026-10-12 裁决）
 })
 
 // ── 选区列表辅助 ──
@@ -300,7 +331,9 @@ const statusText = computed(() => {
     case 'queued':
       return uploadPercent.value < 100 ? `上传中 ${uploadPercent.value}%` : '排队中'
     case 'processing':
-      return `处理中 ${progress.value}%`
+      // ≥98% 即进入服务端收尾（输出编码/写盘不在逐帧进度统计里，会长时间停格）
+      // ——文案改「收尾中」，避免静止的 98% 误导（2026-10-12 用户裁决）
+      return progress.value >= 98 ? '收尾中——服务端正在编码输出…' : `处理中 ${progress.value}%`
     case 'done':
       return '已完成'
     case 'failed':

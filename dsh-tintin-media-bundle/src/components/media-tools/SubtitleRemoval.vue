@@ -120,10 +120,11 @@ const {
               ref="canvasRef"
               class="frame-canvas"
               :style="{ cursor: cursorStyle }"
-              @mousedown="onDown"
-              @mousemove="onMove"
-              @mouseup="onUp"
-              @mouseleave="onUp"
+              @pointerdown="onDown"
+              @pointermove="onMove"
+              @pointerup="onUp"
+              @pointercancel="onUp"
+              @pointerleave="onLeave"
             />
           </div>
           <div v-else class="frame-loading">{{ srcPath ? '等待视频就绪；拖动下方把手到目标帧后，可在此帧上框选' : '先在右侧选择视频，此处将显示预览帧' }}</div>
@@ -476,6 +477,8 @@ const {
   inset: 0;
   width: 100%;
   height: 100%;
+  /* 指针拖拽（选区编辑/空白拖动播放）不触发触摸滚动；配合 pointer capture 拖出画面不断 */
+  touch-action: none;
 }
 
 /* 选区管理卡片（2026-09-07 用户裁决：与整体卡片风格统一） */

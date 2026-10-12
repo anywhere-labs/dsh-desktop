@@ -166,6 +166,7 @@ describe('final-ipc native channels', () => {
     const api = createMontageFinalApi(deps)
     const status = mustChannel(api, 'jyaudio:status')
     const r = await status([], {})
-    expect(r).toMatchObject({ enabled: true, running: false })
+    // 2026-10-11 用户裁决（409 风暴）：自动同步默认关闭
+    expect(r).toMatchObject({ enabled: false, running: false })
   })
 })

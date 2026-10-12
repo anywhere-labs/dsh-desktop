@@ -31,7 +31,13 @@ import {
 // mediaTypeLabel 随 /agent/* 退役清理迁至 contextTaskLogic（WP-5b 复活时归位）
 import { mediaTypeLabel } from '@/composables/contextTaskLogic'
 
-const props = defineProps<{ visible: boolean }>()
+const props = defineProps<{
+  visible: boolean
+  /** 2026-10-10 换物品选择（仿视频第 3 步复用本弹窗）：锁定图片 tab 隐藏视频/音频 */
+  imageOnly?: boolean
+  /** 透传 /material/list purpose（'product'=产品图口径：白底优先+强 image） */
+  purpose?: string
+}>()
 const emit = defineEmits<{
   (e: 'close'): void
   /** 图视条目选中（容器 addCtxMaterial，入会话素材池） */
@@ -128,6 +134,7 @@ async function run(p = page.value) {
       mediaType: mType.value,
       page: page.value,
       size: PAGE_SIZE,
+      purpose: props.purpose || '',
     })
     items.value = r.items
     total.value = r.total
@@ -299,8 +306,8 @@ watch(
       <!-- 2026-09-04 用户裁决：三 tab 改用全局 luo-tab 分段切换样式（同工作台顶栏） -->
       <div class="mtd-tabs">
         <button class="luo-tab" :class="{ active: tab === 'image' }" type="button" @click="tab = 'image'">图片</button>
-        <button class="luo-tab" :class="{ active: tab === 'video' }" type="button" @click="tab = 'video'">视频</button>
-        <button class="luo-tab" :class="{ active: tab === 'audio' }" type="button" @click="tab = 'audio'">音频</button>
+        <button v-if="!props.imageOnly" class="luo-tab" :class="{ active: tab === 'video' }" type="button" @click="tab = 'video'">视频</button>
+        <button v-if="!props.imageOnly" class="luo-tab" :class="{ active: tab === 'audio' }" type="button" @click="tab = 'audio'">音频</button>
       </div>
 
       <!-- ─── Tab1/Tab2 图片/视频（同域不同 media_type） ─── -->

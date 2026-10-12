@@ -4,6 +4,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { SETUP_ONBOARDING_CHANNEL } from './setup-onboarding-bridge.ts'
 import { DESKTOP_FILE_PATH_BRIDGE } from './file-path-bridge-contract.ts'
 import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL } from './directory-picker-contract.ts'
+import { DESKTOP_SAVE_FILE_PICKER_CHANNEL, type DesktopSaveFilePickerRequest } from './save-file-picker-contract.ts'
 import {
   DESKTOP_RENDERER_ACTION_CHANNEL,
   DESKTOP_RENDERER_ACTIONS_BRIDGE,
@@ -32,6 +33,15 @@ if (process.platform === 'darwin') {
     pick: (): Promise<string | null> => ipcRenderer.invoke(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL),
   }))
 }
+
+// Native save-file dialog for client-plugin renderers that run outside the
+// Electron main process (the TinTin host bundle is a plain-node Harness child
+// and cannot open dialogs itself). Consumed as
+// `window.dshDesktopSaveFilePicker.pick(params)` → absolute path or null.
+contextBridge.exposeInMainWorld('dshDesktopSaveFilePicker', Object.freeze({
+  pick: (params?: DesktopSaveFilePickerRequest): Promise<string | null> =>
+    ipcRenderer.invoke(DESKTOP_SAVE_FILE_PICKER_CHANNEL, params ?? {}),
+}))
 
 // Upstream client plugins recognize the Desktop renderer by this carrier. Version 1
 // without `updates` or `browser` keeps upstream update badges and the embedded

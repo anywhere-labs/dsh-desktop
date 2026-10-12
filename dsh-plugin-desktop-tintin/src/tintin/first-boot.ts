@@ -18,7 +18,9 @@ import { join } from 'node:path'
 import { resolveDesktopChannelHome } from '../desktop-channel-home.ts'
 import { DESKTOP_PRODUCT_IDENTITY } from '../product-identity.ts'
 
-const DEFAULT_SERVER_URL = 'http://127.0.0.1:8766'
+// 定制版默认=部署服务器（2026-10-12 用户裁决：新装零配置即连；与
+// dsh-tintin-bundle/lib/server-proxy.js 的解析链兜底同值，改动须两边同步）
+const DEFAULT_SERVER_URL = 'http://192.168.111.31:8000'
 
 // The old client's userData used the package name; earlier packaged builds
 // used the productName. Read both (newest mtime wins when both exist).

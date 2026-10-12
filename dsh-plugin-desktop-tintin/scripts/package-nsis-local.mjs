@@ -13,6 +13,9 @@ import { fileURLToPath } from 'node:url'
 import { electronBuilderEnvironment } from './electron-builder-environment.ts'
 import { withoutWindowsSigningSecrets } from './package-win.ts'
 import { withoutMacReleaseSecrets } from './release-preflight.ts'
+// 版本日期戳（2026-10-12 用户裁决）：与 package-dir.mjs 同源——DSH_VERSION_STAMP
+// 由 Release-Builder 统一下发（目录名/setup 名/应用内版本三处一致），缺省=构建时刻
+import { versionStampArgs } from './package-dir.mjs'
 
 const require = createRequire(import.meta.url)
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -32,6 +35,7 @@ const args = [
   '--config.win.signExecutable=false',
   '--config.mac.identity=null',
   '--config.mac.notarize=false',
+  ...versionStampArgs(process.env),
   `--config.electronDist=${electronDist}`,
 ]
 
