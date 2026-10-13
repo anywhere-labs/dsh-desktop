@@ -1,7 +1,7 @@
 diff --git a/client/client.js b/client/client.js
 --- a/client/client.js
 +++ b/client/client.js
-@@ -10156,7 +10156,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
+@@ -10569,7 +10569,7 @@
  					return next;
  				});
  			}, []);
@@ -10,19 +10,19 @@ diff --git a/client/client.js b/client/client.js
  			const updatableNames = Object.keys(installed).filter((name) => name !== selfName && !effectiveDisabledSet.has(name) && isPluginUpdatable(name, String(installed[name]), updates[name], updatedNames));
  			const batchUpdatableNames = updatableNames.filter((name) => updates[name]?.restoreRequired !== true);
  			const ignoredUpdateSet = (0, react.useMemo)(() => new Set(ignoredUpdateNames), [ignoredUpdateNames]);
-@@ -11330,7 +11330,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
- 										children: ["v", version]
- 									}),
- 									(() => {
--										const self = installed["dshmarket"] !== void 0 ? "dshmarket" : "dsh-market";
-+										const self = installed["dshmarket"] !== void 0 || updates["dshmarket"] !== void 0 ? "dshmarket" : "dsh-market";
- 										const status = updates[self];
- 										return status && status.updateAvailable && !updatedNames.includes(self) && !quietUpdateSet.has(self) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
- 											variant: "primary",
+@@ -11817,7 +11817,7 @@
+ 										className: Market_module_css_default.titleActions,
+ 										children: [
+ 											(() => {
+-												const self = installed["dshmarket"] !== void 0 ? "dshmarket" : "dsh-market";
++												const self = installed["dshmarket"] !== void 0 || updates["dshmarket"] !== void 0 ? "dshmarket" : "dsh-market";
+ 												const status = updates[self];
+ 												return status && status.updateAvailable && !updatedNames.includes(self) && !quietUpdateSet.has(self) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+ 													variant: "primary",
 diff --git a/lib/routes.js b/lib/routes.js
 --- a/lib/routes.js
 +++ b/lib/routes.js
-@@ -1397,7 +1397,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -1747,7 +1747,7 @@
          // unreleased work.
          const channel = activeChannel();
          const installed = readInstalled(config.profile, activeProfileDir);
@@ -31,7 +31,7 @@ diff --git a/lib/routes.js b/lib/routes.js
              .filter(name => SELF_NAMES.has(name))
              .map(name => [name, channel]));
          const onlineSourceFor = new Map();
-@@ -1544,7 +1544,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -1921,7 +1921,7 @@
                  }
                  try {
                      const { channelFor, onlineSourceFor, catalogNpmByRepo } = await updateCheckInputs();
@@ -40,7 +40,7 @@ diff --git a/lib/routes.js b/lib/routes.js
                      // `packages` carries the same objects the single-package endpoint
                      // returns, so one parser serves both. Only updatable ones: a badge
                      // wants the count, a panel wants the rows, and neither wants to
-@@ -1591,7 +1591,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -1968,7 +1968,7 @@
                          // or a catalog-matched local package answers here with the
                          // release it can be compared against rather than with nothing.
                          const { channelFor, onlineSourceFor, catalogNpmByRepo } = await updateCheckInputs();
@@ -49,7 +49,7 @@ diff --git a/lib/routes.js b/lib/routes.js
                          if (update === undefined) {
                              sendJson(response, 404, { schema: UPDATE_API_V1_SCHEMA, error: 'plugin is not installed' });
                              return;
-@@ -3258,7 +3258,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -3577,7 +3577,7 @@
                      catch (error) {
                          logEvent('warn', 'updates', `package source lookup failed — ${error instanceof Error ? error.message : String(error)}`);
                      }
@@ -58,7 +58,7 @@ diff --git a/lib/routes.js b/lib/routes.js
                      for (const [name, migration] of sourceMigrationFor) {
                          const status = updates[name];
                          if (status !== undefined)
-@@ -3545,7 +3545,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -3866,7 +3866,8 @@
                              });
                              return;
                          }
@@ -68,7 +68,7 @@ diff --git a/lib/routes.js b/lib/routes.js
                          if (spec === undefined || INBOX_BUNDLES.has(name)) {
                              sendJson(response, 400, { error: 'plugin is not installed' });
                              return;
-@@ -3702,7 +3703,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -4039,7 +4040,8 @@
                          // Desktop boundary; it is what turns a silent skip into a
                          // failure with a name.
                          if (usesNpmUpdateTarget) {
@@ -78,7 +78,7 @@ diff --git a/lib/routes.js b/lib/routes.js
                              // The requested release replaces the resolved one, and with it
                              // every check below that exists to judge `latest`: re-running
                              // them would refuse the version the dialog just found, in a loop
-@@ -3851,7 +3853,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -4188,7 +4190,8 @@
                          // one needs a refresh, not a restart.
                          const wasLive = verifyActivation(config.profile, name, liveNames(), activeProfileDir, disabled.has(name)).state === 'live'
                              && hasHostHalf(config.profile, name, activeProfileDir);
@@ -88,7 +88,7 @@ diff --git a/lib/routes.js b/lib/routes.js
                          const beforePackageName = readInstalledPackageName(config.profile, name, activeProfileDir);
                          // A durable manifest pin is independently authoritative. When its
                          // captured lock is missing or stale, the exact OLD re-add repairs
-@@ -3902,6 +3905,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -4248,6 +4251,7 @@
                          // well as after.
                          const bundlesBefore = brokenClientBundles(config.profile, activeProfileDir);
                          const manifestBefore = manifestCapture.snapshot;
@@ -96,13 +96,13 @@ diff --git a/lib/routes.js b/lib/routes.js
                          const lockfileCapture = captureProfileLockfile();
                          const previousVersionZh = beforeVersion === null ? '更新前版本未知' : `更新前版本为 v${beforeVersion}`;
                          const previousVersionEn = beforeVersion === null ? 'the previous version is unknown' : `the previous version was v${beforeVersion}`;
-@@ -4276,14 +4280,16 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -4699,14 +4703,16 @@
                          if (ok) {
                              const stack = readBundleStack(activeProfileDir);
                              const trial = trialValidate(activeProfileDir, stack.community, hostAnchorOption);
 -                            if (!trial.ok) {
-+                            const baselineErrors = new Set(trialBefore.errors.map(error => `${error.layer} ${error.message}`));
-+                            const introducedErrors = trial.errors.filter(error => !baselineErrors.has(`${error.layer} ${error.message}`));
++                            const baselineErrors = new Set(trialBefore.errors.map(error => `${error.layer} ${error.message}`));
++                            const introducedErrors = trial.errors.filter(error => !baselineErrors.has(`${error.layer} ${error.message}`));
 +                            if (introducedErrors.length > 0) {
                                  ok = false;
                                  // Name the LAYER, not only the message: the first error is
@@ -118,7 +118,7 @@ diff --git a/lib/routes.js b/lib/routes.js
 diff --git a/lib/updates.js b/lib/updates.js
 --- a/lib/updates.js
 +++ b/lib/updates.js
-@@ -278,21 +278,27 @@ onlineSourceFor = new Map(),
+@@ -419,21 +419,27 @@
   * entry that owns both the repo and the name, the npm fallback would
   * compare the install with whatever package merely shares its name.
   */
@@ -130,7 +130,7 @@ diff --git a/lib/updates.js b/lib/updates.js
      // the stable verdict for the rest of the TTL — reading as "the setting did
      // nothing".
 -    const cacheKey = `${activeProfileDir}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}\u0000${[...onlineSourceFor].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${[...catalogNpmByRepo].map(([n, s]) => `${n}:${s}`).sort().join(',')}`;
-+    const cacheKey = `${activeProfileDir}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}\u0000${[...onlineSourceFor].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${[...catalogNpmByRepo].map(([n, s]) => `${n}:${s}`).sort().join(',')} ${JSON.stringify([...hostProvidedNpmVersions])}`;
++    const cacheKey = `${activeProfileDir}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}\u0000${[...onlineSourceFor].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${[...catalogNpmByRepo].map(([n, s]) => `${n}:${s}`).sort().join(',')} ${JSON.stringify([...hostProvidedNpmVersions])}`;
      if (!force && updatesCache?.key === cacheKey && Date.now() - updatesCache.at < UPDATES_TTL_MS) {
          return updatesCache.data;
      }

@@ -869,7 +869,7 @@ async function retryShot(i: number): Promise<void> {
   if (!name) return
   retrying.value = String(name)
   if (await iv.submitGenerate(
-    { scriptId: scriptId.value, stage: 'videos', onlyShots: [String(name)], fidelityOverride: retryFidelity.value },
+    { scriptId: scriptId.value, stage: 'videos', onlyShots: [String(name)], fidelityOverride: retryFidelity.value, productImages: productImages.value },
     shots.value,
   )) step.value = 4
   retrying.value = ''
