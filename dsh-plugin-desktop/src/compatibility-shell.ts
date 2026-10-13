@@ -147,7 +147,17 @@ export class CompatibilityShell {
     if (this.disposed || this.window.isDestroyed() || this.window.isMinimized()) return
     this.resize()
     if (!this.chrome.isDestroyed()) this.chrome.invalidate()
-    if (!this.content.webContents.isDestroyed()) this.content.webContents.invalidate()
+    this.liveContent()?.invalidate()
+  }
+
+  /**
+   * Electron clears WebContentsView.webContents once the renderer it hosted is
+   * torn down, which can precede dispose() when a terminated renderer is being
+   * recovered. The declared type does not admit that state.
+   */
+  private liveContent(): WebContents | undefined {
+    const content = this.content.webContents as WebContents | undefined
+    return content === undefined || content.isDestroyed() ? undefined : content
   }
 
   private readonly preventNavigation = (event: Electron.Event): void => { event.preventDefault() }
@@ -205,7 +215,7 @@ export class CompatibilityShell {
       this.window.contentView.removeChildView(this.chromeView)
     }
     if (!this.chrome.isDestroyed()) this.chrome.close({ waitForBeforeUnload: false })
-    if (!this.webContents.isDestroyed()) this.webContents.close({ waitForBeforeUnload: false })
+    this.liveContent()?.close({ waitForBeforeUnload: false })
   }
 }
 

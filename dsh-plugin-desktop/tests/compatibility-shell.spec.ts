@@ -162,6 +162,19 @@ describe('isolated compatibility shell', () => {
     shell.dispose()
   })
 
+  it('reveals and disposes after Electron dropped the content webContents', () => {
+    const { shell, window, webContents } = fixture('win32')
+    // A terminated renderer leaves WebContentsView.webContents undefined while
+    // the shell is still mounted; exhausted recovery then shows the window.
+    ;(shell.content as unknown as { webContents: undefined }).webContents = undefined
+    expect(() => window.emit('show')).not.toThrow()
+    expect(webContents.invalidate).toHaveBeenCalledOnce()
+    expect(electron.content.invalidate).not.toHaveBeenCalled()
+    expect(() => shell.dispose()).not.toThrow()
+    expect(webContents.close).toHaveBeenCalledExactlyOnceWith({ waitForBeforeUnload: false })
+    expect(electron.content.close).not.toHaveBeenCalled()
+  })
+
   it('does not resize the page when chrome popups expand, collapse, or lose focus', async () => {
     const { shell, window, handler, event } = fixture('win32')
     await shell.load()
