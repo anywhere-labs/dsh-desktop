@@ -268,17 +268,24 @@ onMounted(() => {
 /* 卡片光晕：静态径向渐变（2026-10-14 用户报障「折叠侧栏全页白屏」——原 blur(40px)
    + aurora-spin 无限旋转在卡片数增多/重排时 GPU 光栅化暴涨致渲染层假死；
    静止观感一致，零滤镜零动画） */
+/* 光晕：偏心径向渐变 + 旋转动画（2026-10-14 恢复动画、去掉 blur 滤镜——
+   大尺寸模糊层重排时 GPU 光栅化暴涨曾致渲染层假死；无滤镜旋转=合成器零重光栅化） */
 .card::before {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -35%;
   z-index: 0;
-  background: radial-gradient(circle at 85% -20%, var(--card-accent, #6366f1) 0%, transparent 55%);
-  opacity: 0.1;
+  background: radial-gradient(circle at 32% 32%, var(--card-accent, #6366f1) 0%, transparent 52%);
+  opacity: 0.09;
   pointer-events: none;
   transition: opacity 0.4s;
+  animation: card-aurora 9s linear infinite;
+  will-change: transform;
 }
-.card:hover::before { opacity: 0.2; }
+@keyframes card-aurora {
+  to { transform: rotate(360deg); }
+}
+.card:hover::before { opacity: 0.18; }
 .card > * { position: relative; z-index: 1; }
 .card:hover {
   transform: translateY(-2px);
@@ -303,25 +310,25 @@ onMounted(() => {
   padding: 2px 10px;
   pointer-events: none;
 }
-.card-top { display: flex; margin-bottom: var(--space-4); }
+.card-top { display: flex; margin-bottom: calc(var(--space-4) * 2 / 3); } /* 卡片 2/3 */
 .icon {
-  width: 52px;
-  height: 52px;
+  width: 35px;
+  height: 35px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 14px;
-  font-size: 26px;
+  border-radius: 10px;
+  font-size: 18px;
   line-height: 1;
   color: #fff;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
 }
-.card-title { margin-bottom: var(--space-2); font-size: var(--font-size-h3); font-weight: 700; line-height: var(--line-height-tight); color: var(--foreground); }
-.card-desc { flex: 1 1 auto; margin: 0; font-size: var(--font-size-body); line-height: var(--line-height-body); color: var(--muted-foreground); }
+.card-title { margin-bottom: calc(var(--space-2) * 2 / 3); font-size: calc(var(--font-size-h3) * 2 / 3); font-weight: 700; line-height: var(--line-height-tight); color: var(--foreground); }
+.card-desc { flex: 1 1 auto; margin: 0; font-size: calc(var(--font-size-body) * 2 / 3); line-height: var(--line-height-body); color: var(--muted-foreground); }
 .card-foot { display: flex; justify-content: flex-end; margin-top: -2px; }
 .arrow {
-  width: 36px;
-  height: 36px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -330,6 +337,7 @@ onMounted(() => {
   background: var(--surface-container);
   transition: transform var(--duration-fast), background var(--duration-fast);
 }
+.arrow svg { width: 14px; height: 14px; } /* 卡片 2/3 */
 .card:hover:not(.is-disabled) .arrow { transform: translateX(2px); background: var(--primary); color: var(--primary-foreground); }
 
 /* 工具详情顶栏（对照源 tool-bar 压缩版） */
