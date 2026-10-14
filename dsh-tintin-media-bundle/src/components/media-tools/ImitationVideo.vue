@@ -945,8 +945,6 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
         <span class="sb-info">原片脚本（模板）：共 {{ shots.length }} 镜 ｜ 总时长 {{ shotsTotalDuration(shots) }} 秒 ｜ 脚本 {{ scriptId }}</span>
         <span class="muted">本步生成新视频脚本：替换文案文字 + 新文案口播配音；AI/实拍逐镜定稿</span>
       </div>
-      <div v-if="timelineWarn" class="iv-warn">{{ timelineWarn }}</div>
-
       <!-- 两套文案（2026-10-02 用户裁决；2026-10-13 布局裁决：脚本文案块移至六视图之后、
            参考声音之前）——本行=拆解文案（原片口播转写，只读、不绑定脚本） -->
       <div class="seg-field">
@@ -981,6 +979,7 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
       </div>
       <!-- 保存修改文案（2026-10-12 用户裁决）：手编后重新采纳分发——服务端按新主稿重铺逐镜旁白/重写画面描述 -->
       <div class="row">
+        <span v-if="timelineWarn" class="iv-warn">{{ timelineWarn }}</span>
         <span class="spacer"></span>
         <TButton
           label="保存修改文案"
