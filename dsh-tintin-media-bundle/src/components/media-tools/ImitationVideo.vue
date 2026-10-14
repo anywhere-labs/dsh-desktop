@@ -947,12 +947,30 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
       </div>
       <div v-if="timelineWarn" class="iv-warn">{{ timelineWarn }}</div>
 
-      <!-- 两套文案（2026-10-02 用户裁决）：上=拆解文案（原片口播转写，只读、不绑定脚本）；
-           下=脚本文案（重新生成后绑定脚本，配音/逐镜以此为准） -->
+      <!-- 两套文案（2026-10-02 用户裁决；2026-10-13 布局裁决：脚本文案块移至六视图之后、
+           参考声音之前）——本行=拆解文案（原片口播转写，只读、不绑定脚本） -->
       <div class="seg-field">
         <span class="lbl">拆解文案（原片口播转写——只读参考，不绑定脚本）</span>
         <textarea :value="origVoiceoverText" readonly rows="3" class="input carry-textarea iv-orig" placeholder="（原片无口播或拆解未含转写）"></textarea>
       </div>
+      <div class="opl-six">
+        <template v-for="s in productSixSlots" :key="s.view">
+          <div v-if="s.entry" class="six-cell">
+            <img :src="buildMediaServeUrl(ivServerUrl, s.entry.materialId)" :alt="s.label" class="six-img" loading="lazy" />
+            <span class="six-label">{{ s.label }}<i v-if="s.entry.source" class="six-src">{{ s.entry.source }}</i></span>
+            <button class="six-up" :disabled="sixBusy" title="上传替换该视图（仅替换此张，其余五张不动）" @click="onSixUpload(s.view)">替换</button>
+            <button class="six-del" :disabled="sixBusy" title="删除该视图（顶部视图为下一步必备）" @click="onDeleteProductView(s.view, s.label)">×</button>
+          </div>
+          <div v-else class="six-cell six-cell--empty">
+            <span class="six-miss">缺</span>
+            <button class="six-up six-up--empty" :disabled="sixBusy" title="上传该视图（仅补此张，其余五张不动）" @click="onSixUpload(s.view)">{{ sixBusy && sixPendingView === s.view ? '上传中…' : '上传' }}</button>
+            <span class="six-label">{{ s.label }}</span>
+          </div>
+        </template>
+      </div>
+      <span class="muted">{{ productSixFilledCount }}/6 · 六视图随「产品资料」保存并直传生成任务；顶部视图必填</span>
+      <span v-if="productImgNote" class="iv-err">{{ productImgNote }}</span>
+      <TButton v-if="productSavePending" label="重试补发产品选择" variant="secondary" size="small" :loading="saving" title="产品选择尚未落库（保存接口失败）——服务端恢复后就地补存，已选产品与六视图不受影响" @click="saveScript" />
       <div class="seg-field">
         <div class="row">
           <span class="lbl">脚本文案（重新生成后绑定脚本，可编辑——配音与逐镜替换以此为准）</span>
@@ -993,24 +1011,6 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
         />
       </div>
       <div v-if="regenError" class="iv-err">{{ regenError }}</div>
-      <div class="opl-six">
-        <template v-for="s in productSixSlots" :key="s.view">
-          <div v-if="s.entry" class="six-cell">
-            <img :src="buildMediaServeUrl(ivServerUrl, s.entry.materialId)" :alt="s.label" class="six-img" loading="lazy" />
-            <span class="six-label">{{ s.label }}<i v-if="s.entry.source" class="six-src">{{ s.entry.source }}</i></span>
-            <button class="six-up" :disabled="sixBusy" title="上传替换该视图（仅替换此张，其余五张不动）" @click="onSixUpload(s.view)">替换</button>
-            <button class="six-del" :disabled="sixBusy" title="删除该视图（顶部视图为下一步必备）" @click="onDeleteProductView(s.view, s.label)">×</button>
-          </div>
-          <div v-else class="six-cell six-cell--empty">
-            <span class="six-miss">缺</span>
-            <button class="six-up six-up--empty" :disabled="sixBusy" title="上传该视图（仅补此张，其余五张不动）" @click="onSixUpload(s.view)">{{ sixBusy && sixPendingView === s.view ? '上传中…' : '上传' }}</button>
-            <span class="six-label">{{ s.label }}</span>
-          </div>
-        </template>
-      </div>
-      <span class="muted">{{ productSixFilledCount }}/6 · 六视图随「产品资料」保存并直传生成任务；顶部视图必填</span>
-      <span v-if="productImgNote" class="iv-err">{{ productImgNote }}</span>
-      <TButton v-if="productSavePending" label="重试补发产品选择" variant="secondary" size="small" :loading="saving" title="产品选择尚未落库（保存接口失败）——服务端恢复后就地补存，已选产品与六视图不受影响" @click="saveScript" />
       <!-- 参考声音（同文案混剪 Step3：TSelect+常驻播放条，源 GET /voice/samples） -->
       <div class="row ref-row">
         <span class="lbl">参考声音:</span>
