@@ -315,7 +315,7 @@
     "dsh-community-market": "0.1.0-dev.0",
     "dsh-tintin-bundle": "0.1.0-dev.0",
     "dsh-tintin-media-bundle": "0.1.0-dev.0",
-    "dshmarket": "1.66.20",
+    "dshmarket": "1.66.21",
     "fs-ext": "2.1.1",
     "koffi": "3.1.5",
     "node-addon-require-builtin": "^0.1.6",
