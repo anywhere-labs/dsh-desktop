@@ -608,6 +608,14 @@ export function shotsTotalDuration(shots: ImitationShot[]): number {
  * 仅提示不改数据；voice 时长缺失 → 空串不提示）。voice_dur_sec 字段存在性待服务端
  * 实证（流程规范 §11-12）。
  */
+/** 逐镜生成进度条百分比（2026-10-13 用户报障「3/6 但 0%」：服务端编排 progress
+ *  处理期恒 0——条与计数同源，优先逐镜完成比；无计数回落服务端 %，-1=不定态。
+ *  纯函数下沉：组件 computed 曾用裸 props 标识符致渲染中断（静态门禁盲区实锤） */
+export function shotProgressPercent(done: number, total: number, serverProgress: number): number {
+  if (total > 0 && done > 0) return Math.min(100, Math.round((done / total) * 100))
+  return serverProgress
+}
+
 export function arollTimelineWarning(shots: ImitationShot[], voiceDurSec: unknown): string {
   const v = Number(voiceDurSec)
   if (!Number.isFinite(v) || v <= 0) return ''

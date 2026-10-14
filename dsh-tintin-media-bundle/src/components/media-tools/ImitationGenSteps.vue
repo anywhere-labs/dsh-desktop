@@ -17,6 +17,7 @@ import {
   isReplaceShot,
   isStageDReady,
   sceneElementOptions,
+  shotProgressPercent,
   shotInReplace,
   shotModeBadgeClass,
   shotModeBadgeText,
@@ -245,12 +246,13 @@ function sourceClipSrc(shot: ImitationShot): string {
 const videosDoneCount = computed(() => props.shots.filter((s) => s.source === 'generate' && s.gen?.status === 'done').length)
 const videosFailedCount = computed(() => props.shots.filter((s) => s.source === 'generate' && s.gen?.status === 'failed').length)
 /** 进度条口径：逐镜完成比优先（镜粒度、且不依赖服务端编排 progress 的上报粒度）；
- *  无逐镜计数回落服务端 %（2026-10-13 起服务端处理期已对齐上报），-1=不定态 */
+ *  无逐镜计数回落服务端 %（2026-10-13 起服务端处理期已对齐上报），-1=不定态。
+ *  计算下沉 shotProgressPercent 纯函数；props 一律走 props.*（脚本作用域无裸标识符） */
 const videosBarPct = computed(() => {
-  const total = liveShots.value ? liveShots.value.total : generateShotsCount.value
-  const done = Math.max(liveShots.value ? liveShots.value.done : 0, videosDoneCount.value)
-  if (total > 0 && done > 0) return Math.min(100, Math.round((done / total) * 100))
-  return ivRef<number>('genProgress').value
+  const live = props.liveShots
+  const done = Math.max(live ? live.done : 0, videosDoneCount.value)
+  const total = live ? live.total : props.generateShotsCount
+  return shotProgressPercent(done, total, ivRef<number>('genProgress').value)
 })
 
 /** 复制提示词（2026-10-06 用户指令：全部 prompt_zh 按「镜N: 内容」拼接送剪贴板，纯前端） */

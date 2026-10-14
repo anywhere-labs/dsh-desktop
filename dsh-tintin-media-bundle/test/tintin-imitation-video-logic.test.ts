@@ -28,6 +28,7 @@ import {
   normalizeImitateVideo,
   parseSixViewEntries,
   preserveProductSelectionOnReload,
+  shotProgressPercent,
   productChipLabel,
   sixViewFileUrl,
   normalizeServerEnums,
@@ -565,5 +566,18 @@ describe('buildScriptPutPayload', () => {
   })
   it('total_duration 已有值不覆盖', () => {
     expect(buildScriptPutPayload({ total_duration: 12.5 }, []).total_duration).toBe(12.5)
+  })
+})
+
+describe('shotProgressPercent', () => {
+  it('有逐镜计数：完成比优先（3/6→50%，封顶 100）', () => {
+    expect(shotProgressPercent(3, 6, 0)).toBe(50)
+    expect(shotProgressPercent(6, 6, 0)).toBe(100)
+    expect(shotProgressPercent(7, 6, 0)).toBe(100)
+  })
+  it('无计数（done=0）：回落服务端 %（-1=不定态透传）', () => {
+    expect(shotProgressPercent(0, 6, -1)).toBe(-1)
+    expect(shotProgressPercent(0, 6, 0)).toBe(0)
+    expect(shotProgressPercent(0, 0, 40)).toBe(40)
   })
 })
