@@ -114,11 +114,18 @@ export function useServerTask(opts: UseServerTaskOptions) {
     pollTimer = setInterval(() => pollOnce(id), opts.intervalMs ?? 2000)
   }
 
+  /** 轮询失败连续计数（2026-10-13 客户端约定：轮询遇 5xx/网络错误=瞬态，重试
+   *  而非停在旧态——服务端任务本体仍在运行，停刷会把可恢复抖动放大成「没生成/没完成」。
+   *  仅连续失败超阈值或服务端终态才升级失败） */
+  const POLL_FAIL_STREAK_MAX = 150 // 2s 间隔 ≈ 容忍 5 分钟服务端抖动
+  let pollFailStreak = 0
+
   /** 拉取一次任务进度并推进状态机 */
   async function pollOnce(id: string): Promise<void> {
     try {
       const data = (await window.tintin.server.tasksProgress(id)) as TaskProgressData | null
       if (!data) return
+      pollFailStreak = 0
       const st = (data.status ?? '') as TaskStatus
       status.value = st
       // 进度仅在处理态采信（服务端 2026-10-13 已对齐：排队报 0/处理态报真实
@@ -142,7 +149,16 @@ export function useServerTask(opts: UseServerTaskOptions) {
         failWith('已被用户终止。')
       }
     } catch (err) {
-      failWith(err)
+      pollFailStreak += 1
+      const transient = !/HTTP\s+4\d\d/.test(String((err as Error)?.message ?? err)) // 4xx=任务确实没了，瞬态豁免不适用
+      if (transient && pollFailStreak < POLL_FAIL_STREAK_MAX) {
+        // 约定：保持轮询不置失败（进度停在最后已知值），服务端恢复后自动续上
+        clientError('server-task', `轮询失败（连续第 ${pollFailStreak}/${POLL_FAIL_STREAK_MAX} 次，任务仍在服务端运行）——继续重试`, err)
+        return
+      }
+      failWith(transient
+        ? `任务进度轮询连续失败 ${POLL_FAIL_STREAK_MAX} 次（约 5 分钟）——服务端可能重启或不可达；任务本体仍在服务端，可稍后重进查看结果`
+        : (err instanceof Error ? err.message : String(err)))
     }
   }
 

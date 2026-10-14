@@ -61,3 +61,44 @@ describe('useServerTask pollOnce 完成判定', () => {
     expect(t.errorMsg.value).toContain('终止')
   })
 })
+
+// ── 轮询瞬态重试约定（2026-10-13 用户裁定：轮询遇 5xx=重试而非停在旧态；
+//    服务端任务本体仍在运行，停刷会把可恢复抖动放大成「没生成/没完成」）──
+describe('useServerTask pollOnce 瞬态重试约定', () => {
+  function stubFlaky(failTimes: number, msg = 'HTTP 500：内部错误'): void {
+    let n = 0
+    ;(globalThis as unknown as { window: unknown }).window = {
+      tintin: {
+        server: {
+          tasksProgress: async () => { n++; if (n <= failTimes) throw new Error(msg); return { status: 'completed', progress: 100, result_url: 'http://x/r' } },
+        },
+        shell: { showNotification: () => {} },
+      },
+    }
+  }
+
+  it('5xx 连续失败 < 阈值：不置失败、保持处理态继续轮询，恢复后完成', async () => {
+    stubFlaky(5)
+    const t = makeTask()
+    for (let i = 0; i < 6; i++) await t.pollOnce('x')
+    expect(t.status.value).toBe('done')
+    expect(t.isProcessing.value).toBe(false)
+  })
+
+  it('4xx：任务确实没了，立即失败（瞬态豁免不适用）', async () => {
+    ;(globalThis as unknown as { window: unknown }).window = {
+      tintin: { server: { tasksProgress: async () => { throw new Error('HTTP 404：Not Found') } }, shell: { showNotification: () => {} } },
+    }
+    const t = makeTask()
+    await t.pollOnce('x')
+    expect(t.status.value).toBe('failed')
+  })
+
+  it('连续失败达阈值（150）：升级失败并提示可稍后重进查看', async () => {
+    stubFlaky(10_000)
+    const t = makeTask()
+    for (let i = 0; i < 150; i++) await t.pollOnce('x')
+    expect(t.status.value).toBe('failed')
+    expect(t.errorMsg.value).toContain('连续失败 150 次')
+  })
+})
