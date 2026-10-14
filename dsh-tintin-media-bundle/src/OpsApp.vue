@@ -194,22 +194,20 @@ onMounted(() => {
 @keyframes card-in {
   from { opacity: 0; transform: translateY(12px); }
 }
+/* 卡片光晕：静态径向渐变（2026-10-14 用户报障「折叠侧栏全页白屏」——原 blur(40px)
+   + aurora-spin 无限旋转在卡片数增多/重排时 GPU 光栅化暴涨致渲染层假死；
+   静止观感一致，零滤镜零动画） */
 .card::before {
   content: '';
   position: absolute;
-  inset: -60%;
+  inset: 0;
   z-index: 0;
-  background: var(--card-accent, #6366f1);
-  opacity: 0.07;
-  filter: blur(40px);
+  background: radial-gradient(circle at 85% -20%, var(--card-accent, #6366f1) 0%, transparent 55%);
+  opacity: 0.1;
   pointer-events: none;
   transition: opacity 0.4s;
-  animation: aurora-spin 8s linear infinite;
 }
-@keyframes aurora-spin {
-  to { transform: rotate(360deg); }
-}
-.card:hover::before { opacity: 0.16; }
+.card:hover::before { opacity: 0.2; }
 .card > * { position: relative; z-index: 1; }
 .card:hover {
   transform: translateY(-2px);
