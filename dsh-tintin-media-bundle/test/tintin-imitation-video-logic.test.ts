@@ -28,6 +28,7 @@ import {
   normalizeImitateVideo,
   parseSixViewEntries,
   preserveProductSelectionOnReload,
+  shotHealNeeded,
   shotProgressPercent,
   productChipLabel,
   sixViewFileUrl,
@@ -579,5 +580,21 @@ describe('shotProgressPercent', () => {
     expect(shotProgressPercent(0, 6, -1)).toBe(-1)
     expect(shotProgressPercent(0, 6, 0)).toBe(0)
     expect(shotProgressPercent(0, 0, 40)).toBe(40)
+  })
+})
+
+describe('shotHealNeeded', () => {
+  const gen = (name: string, patch: Record<string, unknown>) => ({ source: 'generate', name, gen: { name, ...patch } } as unknown as ImitationShot)
+  it('done 阶段：粗稿/回填缺失镜存在才自愈（storyboard/videos 分支）', () => {
+    const shots = [gen('shot_01', { status: 'done' }), gen('shot_02', {})]
+    expect(shotHealNeeded('done', 'storyboard', shots)).toBe(true)
+    expect(shotHealNeeded('done', 'videos', shots)).toBe(true)
+  })
+  it('齐全/失败镜/非 done：不自愈（真失败镜有 failed 不触发）', () => {
+    const ok = [gen('shot_01', { status: 'done', draft_status: 'generated', draft_first: 'x' })]
+    expect(shotHealNeeded('done', 'storyboard', ok)).toBe(false)
+    expect(shotHealNeeded('running', 'storyboard', shots)).toBe(false)
+    const failed = [gen('shot_01', { status: 'failed' })]
+    expect(shotHealNeeded('done', 'videos', failed)).toBe(false)
   })
 })

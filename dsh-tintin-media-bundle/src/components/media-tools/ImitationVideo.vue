@@ -53,6 +53,7 @@ import {
   isStageDReady,
   preserveProductSelectionOnReload,
   productChipLabel,
+  shotHealNeeded,
   shotInReplace,
   shotModeBadgeClass,
   shotModeBadgeText,
@@ -889,15 +890,11 @@ async function retryShot(i: number): Promise<void> {
 // 直提 storyboard_montage 任务为后续接线项（走既有任务提交入口，不另发明端点）。
 const doneCount = computed(() => shots.value.filter((s) => s.source !== 'generate' || s.gen?.status === 'done').length)
 
-// videos 完成后回填自愈（2026-10-13 用户报障：六镜服务端全 done，但完成瞬间的单次
-// 回读撞 .31 DB 抖动 500 后无重试——逐镜卡停在「待生成」、下一步门永久锁死）。
-// genPhase=done 且 videos 阶段仍有 generate 镜没有 gen.status（=回填缺失的判定性
-// 特征；真失败的镜有 status=failed 不触发）→ 每 5s 重读脚本直至状态齐全。
-watch([() => iv.genPhase.value, () => iv.genStage.value, doneCount, shots] as const, ([ph, st]) => {
-  const needHeal = ph === 'done' && st === 'videos'
-    && shots.value.some((s) => s.source === 'generate' && !s.gen?.status)
-  if (needHeal && !doneHealTimer) doneHealTimer = setInterval(() => { void reloadScript() }, 5000)
-  if (!needHeal && doneHealTimer) { clearInterval(doneHealTimer); doneHealTimer = undefined }
+// 完成回填自愈（2026-10-13 报障 shot_06「3/6 卡停」：完成瞬间回读早于服务端回填/
+// 撞 DB 抖动——粗稿/回填缺失镜每 5s 重读脚本直至齐全；判定在 shotHealNeeded 纯函数）
+watch([() => iv.genPhase.value, () => iv.genStage.value, shots] as const, ([ph, st]) => {
+  if (shotHealNeeded(ph, st, shots.value) && !doneHealTimer) doneHealTimer = setInterval(() => { void reloadScript() }, 5000)
+  if (!shotHealNeeded(ph, st, shots.value) && doneHealTimer) { clearInterval(doneHealTimer); doneHealTimer = undefined }
 }, { immediate: true })
 
 // ── 闸门① 九宫分镜粗稿（v4.3：draft_status confirmed 后解锁逐镜视频）──

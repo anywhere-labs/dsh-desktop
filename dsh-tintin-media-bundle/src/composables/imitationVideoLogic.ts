@@ -608,6 +608,17 @@ export function shotsTotalDuration(shots: ImitationShot[]): number {
  * 仅提示不改数据；voice 时长缺失 → 空串不提示）。voice_dur_sec 字段存在性待服务端
  * 实证（流程规范 §11-12）。
  */
+/** 完成回填自愈判定（2026-10-13 用户报障 shot_06「3/6 卡停」：完成瞬间回读早于
+ *  服务端回填落库——粗稿/回填缺失镜需每 5s 重读直至齐全；真失败镜不触发） */
+export function shotHealNeeded(ph: string, st: string, shots: ImitationShot[]): boolean {
+  if (ph !== 'done') return false
+  const gen = shots.filter((s) => s.source === 'generate')
+  if (!gen.length) return false
+  if (st === 'videos') return gen.some((s) => !s.gen?.status)
+  if (st === 'storyboard') return gen.some((s) => !s.gen?.draft_status)
+  return false
+}
+
 /** 逐镜生成进度条百分比（2026-10-13 用户报障「3/6 但 0%」：服务端编排 progress
  *  处理期恒 0——条与计数同源，优先逐镜完成比；无计数回落服务端 %，-1=不定态。
  *  纯函数下沉：组件 computed 曾用裸 props 标识符致渲染中断（静态门禁盲区实锤） */
