@@ -244,6 +244,14 @@ function sourceClipSrc(shot: ImitationShot): string {
  *  结束才一次性回填——运行期计数以此为准，comfygen 流式计数仅作更快的前置叠加） */
 const videosDoneCount = computed(() => props.shots.filter((s) => s.source === 'generate' && s.gen?.status === 'done').length)
 const videosFailedCount = computed(() => props.shots.filter((s) => s.source === 'generate' && s.gen?.status === 'failed').length)
+/** 进度条口径与计数同源（2026-10-13 用户报障：服务端编排任务 progress 处理期恒 0 而
+ *  逐镜计数已 3/6——条优先取逐镜完成比；无计数回落服务端 %，-1=不定态） */
+const videosBarPct = computed(() => {
+  const total = liveShots.value ? liveShots.value.total : generateShotsCount.value
+  const done = Math.max(liveShots.value ? liveShots.value.done : 0, videosDoneCount.value)
+  if (total > 0 && done > 0) return Math.min(100, Math.round((done / total) * 100))
+  return ivRef<number>('genProgress').value
+})
 
 /** 复制提示词（2026-10-06 用户指令：全部 prompt_zh 按「镜N: 内容」拼接送剪贴板，纯前端） */
 const copyPromptNote = ref('')
@@ -472,10 +480,10 @@ async function copyPrompts(): Promise<void> {
       <div v-if="ivRef<string>('genPhase').value === 'running' && ivRef<string>('genStage').value === 'videos'" class="seg-field">
         <div class="row between">
           <span class="muted">已用时 {{ ivRef<number>('genElapsedSec').value }} 秒… 已完成 {{ Math.max(liveShots ? liveShots.done : 0, videosDoneCount) }} / {{ liveShots ? liveShots.total : generateShotsCount }} 镜、失败 {{ videosFailedCount }} 镜</span>
-          <span v-if="ivRef<number>('genProgress').value >= 0" class="muted">{{ ivRef<number>('genProgress').value }}%</span>
+          <span v-if="videosBarPct >= 0" class="muted">{{ videosBarPct }}%</span>
         </div>
-        <div class="iv-bar" :class="{ 'is-indeterminate': ivRef<number>('genProgress').value < 0 }">
-          <div v-if="ivRef<number>('genProgress').value >= 0" class="iv-bar-fill" :style="{ width: ivRef<number>('genProgress').value + '%' }"></div>
+        <div class="iv-bar" :class="{ 'is-indeterminate': videosBarPct < 0 }">
+          <div v-if="videosBarPct >= 0" class="iv-bar-fill" :style="{ width: videosBarPct + '%' }"></div>
         </div>
         <div v-if="ivRef<string>('genMessage').value" class="muted">{{ ivRef<string>('genMessage').value }}</div>
       </div>
