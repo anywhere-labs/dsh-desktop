@@ -13,7 +13,9 @@ import TSelect from '@/components/common/TSelect.vue'
 import VsrFrameScrubber from '@/components/media-tools/VsrFrameScrubber.vue'
 import { useVsrRemoval } from '@/composables/useVsrRemoval'
 import { useVsrPreviewPane } from '@/composables/useVsrPreviewPane'
+import { useVsrRedub } from '@/composables/useVsrRedub'
 import { acceptFileDragOver } from '@/utils/fileUrl'
+import { computed, ref, watch } from 'vue'
 
 const vm = useVsrRemoval()
 const pane = useVsrPreviewPane(vm)
@@ -87,10 +89,56 @@ const {
   removeBoxAt,
   statusText,
 } = pane
+
+// ── 两步向导（2026-10-13 用户裁决）：① 去水印字幕（原界面）② 字幕配音 ──
+const step = ref<1 | 2>(1)
+/** 第 2 步解锁 = 第 1 步产物已落盘（自动保存的去除字幕视频） */
+const step2Ready = computed(() => !!resultPath.value)
+function gotoStep(target: 1 | 2): void {
+  if (target === 2 && !step2Ready.value) return
+  step.value = target
+  if (target === 2) void redub.loadAssetsOnce()
+}
+watch(step2Ready, (ready) => { if (!ready) step.value = 1 })
+
+/** 第 2 步：字幕配音（保留原音频配新字幕 / 生成新配音 → 导出剪映草稿） */
+const redub = useVsrRedub({
+  getResultPath: () => resultPath.value,
+  getFileName: () => fileName.value,
+  getDurationSec: () => durationS.value,
+})
+const {
+  plan, planOptions,
+  transcribing, transcribeError, transcribed, segmentLines, transcribe,
+  stylePresets, styleKey, fonts, fontId, bgOpacity, animKey, fontSize,
+  VSR_SUB_ANIM_OPTIONS, VSR_FONT_SIZE_OPTIONS,
+  dubbing, dubError, dubAudioPath, redubText, dubSamples, dubSampleId, generateDub,
+  exporting, exportMessage, exportOk, exportDraft,
+} = redub
+
+// 画布拖拽离开=结束当前框选拖拽（并行批次引入 pointerleave 时的缺名绑定，此处接通）
+const onLeave = onUp
 </script>
 
 <template>
   <div class="tool-form">
+    <!-- 两步向导（2026-10-13 用户裁决）：① 去水印字幕（原界面）② 字幕配音 -->
+    <div class="vsr-steps">
+      <button type="button" class="vsr-step" :class="{ on: step === 1 }" @click="gotoStep(1)">
+        <span class="vsr-step__no">1</span>去水印字幕
+      </button>
+      <span class="vsr-steps__arrow">→</span>
+      <button
+        type="button" class="vsr-step" :class="{ on: step === 2, lock: !step2Ready }"
+        :title="step2Ready ? '' : '先完成第 1 步移除并等待自动保存'"
+        @click="gotoStep(2)"
+      >
+        <span class="vsr-step__no">2</span>字幕配音
+      </button>
+      <span v-if="!step2Ready" class="muted vsr-steps__hint">完成移除后解锁第 2 步</span>
+    </div>
+
+    <template v-if="step === 1">
     <!-- 2026-09-07 用户裁决：整体 1:1 左右分栏——左栏全部为预览区（画面居中），
          右栏集中原来的上传/设置/选区/操作/进度/结果 -->
     <div class="vsr-split">
@@ -288,9 +336,92 @@ const {
             <span class="result__url-text" :title="resultFullUrl">{{ resultFullUrl }}</span>
             <TButton :label="urlCopied ? '已复制' : '复制'" variant="ghost" size="small" @click="copyResultUrl" />
           </div>
+          <!-- 流转第 2 步（2026-10-13 两步向导）：产物落盘即解锁 -->
+          <div v-if="resultPath" class="result__next">
+            <TButton label="下一步：字幕配音 →" variant="primary" @click="gotoStep(2)" />
+          </div>
         </div>
       </div>
     </div>
+    </template>
+
+    <!-- ═══ 第 2 步：字幕配音 ═══ -->
+    <template v-else>
+      <div class="vsr2-section">
+        <div class="vsr2-title">音频方案</div>
+        <div class="row">
+          <TSelect :model-value="plan" :options="planOptions" @update:model-value="plan = String($event) as 'keep' | 'redub'" />
+          <span class="muted">
+            {{ plan === 'keep' ? '保留视频原声，为其配上新字幕' : '按转写文案生成新配音替换原声（声音来自声音克隆样本库）' }}
+          </span>
+        </div>
+      </div>
+
+      <div class="vsr2-section">
+        <div class="row between">
+          <div class="vsr2-title">字幕转写（原片语音 → 分段字幕）</div>
+          <TButton
+            :label="transcribing ? '识别中…' : transcribed ? '重新识别' : '识别原片语音'"
+            :loading="transcribing" @click="transcribe"
+          />
+        </div>
+        <div v-if="transcribeError" class="iv-err">{{ transcribeError }}</div>
+        <div v-if="!transcribed && !transcribing && !transcribeError" class="muted">
+          whisper 识别去字幕视频的音轨，生成带时间轴的分段字幕（用于剪映草稿字幕轨）
+        </div>
+        <div v-if="segmentLines.length" class="vsr2-segments">
+          <div v-for="line in segmentLines" :key="line" class="vsr2-seg">{{ line }}</div>
+        </div>
+      </div>
+
+      <div class="vsr2-section">
+        <div class="vsr2-title">字幕样式（与文案混剪·特效包装同源）</div>
+        <div class="sub-style-grid">
+          <button v-for="p in stylePresets" :key="p.key" type="button" class="sub-style-tile"
+            :class="{ active: styleKey === p.key }" :title="p.label" @click="styleKey = p.key">
+            <span class="sub-style-sample" :style="{ color: p.color, WebkitTextStroke: p.stroke ? `1px ${p.stroke}` : 'none' }">字幕</span>
+            <span class="sub-style-name">{{ p.label }}</span>
+          </button>
+        </div>
+        <div class="row" style="margin-top: 8px">
+          <label class="lbl">字体:</label>
+          <TSelect :model-value="fontId" :options="[{ label: '默认字体', value: '' }, ...fonts.map((f) => ({ label: f.name, value: f.id }))]" @update:model-value="fontId = String($event)" />
+          <label class="lbl">入场动画:</label>
+          <TSelect :model-value="animKey" :options="VSR_SUB_ANIM_OPTIONS" @update:model-value="animKey = String($event)" />
+          <label class="lbl">字号:</label>
+          <TSelect :model-value="fontSize" :options="VSR_FONT_SIZE_OPTIONS" @update:model-value="fontSize = Number($event)" />
+          <label class="lbl">背景不透明度:</label>
+          <input v-model.number="bgOpacity" type="number" min="0" max="100" class="text-input vsr2-num" />
+          <span class="muted">%</span>
+        </div>
+      </div>
+
+      <div v-if="plan === 'redub'" class="vsr2-section">
+        <div class="vsr2-title">生成新配音（TTS 替换原声）</div>
+        <label class="lbl">配音文案（默认=转写全文，可编辑）:</label>
+        <textarea v-model="redubText" rows="3" class="text-input vsr2-area"></textarea>
+        <div class="row" style="margin-top: 8px">
+          <label class="lbl">声音样本:</label>
+          <TSelect :model-value="dubSampleId" :options="dubSamples" @update:model-value="dubSampleId = String($event)" />
+          <TButton :label="dubbing ? '生成中…' : '生成配音'" :loading="dubbing" @click="generateDub" />
+          <span v-if="dubAudioPath" class="muted" :title="dubAudioPath">配音已就绪</span>
+        </div>
+        <div v-if="dubError" class="iv-err">{{ dubError }}</div>
+      </div>
+
+      <div class="vsr2-section">
+        <div class="row between">
+          <div class="vsr2-title">导出剪映草稿（与特效包装同管线）</div>
+          <TButton
+            label="导出到剪映草稿" :loading="exporting"
+            :title="plan === 'keep' ? '去字幕视频 + 新字幕轨（所选样式）导出为剪映草稿' : '去字幕视频（静音）+ 新配音 + 新字幕轨导出为剪映草稿'"
+            @click="exportDraft"
+          />
+        </div>
+        <div v-if="exportMessage" class="muted" :class="{ 'iv-err': exportOk === false }">{{ exportMessage }}</div>
+        <div v-else class="muted">生成剪映草稿（含去字幕视频、按所选样式的新字幕轨{{ plan === 'redub' ? '、新配音音轨' : '' }}），在剪映「草稿」中打开后可继续精修或直接导出成片。</div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -799,4 +930,106 @@ const {
   border-radius: var(--radius-md);
   background: #000;
 }
+
+/* ── 两步向导步骤条（2026-10-13 用户裁决）────────────────────────── */
+.vsr-steps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.vsr-step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 34px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-container);
+  color: var(--muted-foreground);
+  font-size: var(--font-size-body);
+  cursor: pointer;
+}
+.vsr-step.on {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface-container));
+  color: var(--primary);
+  font-weight: var(--font-weight-semibold);
+}
+.vsr-step.lock {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.vsr-step__no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.vsr-steps__arrow { color: var(--muted-foreground); }
+.vsr-steps__hint { font-size: var(--font-size-caption); }
+
+/* ── 第 2 步：字幕配音 ─────────────────────────────────────────── */
+.vsr2-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--surface-container);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+.vsr2-title {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--foreground);
+}
+.row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.row.between { justify-content: space-between; }
+.lbl { font-size: var(--font-size-caption); color: var(--muted-foreground); flex: none; }
+.muted { color: var(--muted-foreground); font-size: var(--font-size-caption); }
+.iv-err { color: var(--error); font-size: var(--font-size-caption); }
+.vsr2-num { width: 72px; }
+.vsr2-area { height: auto; min-height: 64px; resize: vertical; }
+.vsr2-segments {
+  max-height: 240px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-2);
+  background: color-mix(in srgb, var(--foreground) 4%, var(--surface-container));
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-caption);
+}
+.vsr2-seg { font-variant-numeric: tabular-nums; }
+.sub-style-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-2);
+}
+.sub-style-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-2);
+  background: var(--surface-container-high);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.sub-style-tile.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+.sub-style-sample { font-size: 16px; font-weight: var(--font-weight-semibold); }
+.sub-style-name { font-size: 11px; color: var(--muted-foreground); }
+.result__next { margin-top: var(--space-2); display: flex; justify-content: flex-end; }
 </style>
