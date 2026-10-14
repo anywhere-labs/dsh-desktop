@@ -23,7 +23,9 @@ import type { StoryboardShot } from '@/composables/opsStoryboardLogic'
 // assetsInlineLimit=64KB 内联为 data URI，运行时无需独立资产文件）
 import jyImportSettingImg from '@/assets/jianying-import-setting.png'
 
-const props = defineProps<{ s: CopywritingMontageUi; section?: 'fx' | 'export' }>()
+const props = defineProps<{ s: CopywritingMontageUi; section?: 'fx' | 'export';
+  /** 口播放条音频（仿视频=脚本绑定的 voice_audio_id 素材流；缺省/空=不显示该行，2026-10-13 用户需求） */
+  voiceAudioUrl?: string }>()
 const {
   splitResolution,
   previewUrl,
@@ -635,6 +637,12 @@ const fancyCustomPreviewStyle = computed<Record<string, string>>(() => {
           </div>
         </div>
 
+        <!-- 口播放条（2026-10-13 用户需求：字幕预览与 BGM 之间=口播试听；与 BGM 相互独立） -->
+        <div v-if="voiceAudioUrl" class="row">
+          <label class="label"> 口播:</label>
+          <audio :src="voiceAudioUrl" controls preload="metadata" class="voice-audio grow"></audio>
+        </div>
+
         <!-- 1. BGM input（全局）：2026-09-18 用户裁决——AI 生成 BGM 已集成进「选择BGM」弹窗右栏，
              删除独立「AI 生成 BGM」按钮与内联面板；「选择BGM」弹窗 target='' 指派全局 BGM -->
         <div class="row">
@@ -806,6 +814,7 @@ const fancyCustomPreviewStyle = computed<Record<string, string>>(() => {
 .file-list li:last-child { border-bottom: none; }
 .file-list li.picked { background: color-mix(in srgb, var(--primary) 12%, transparent); }
 .row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.voice-audio { flex: 1 1 auto; min-width: 0; height: 34px; }
 .row.between { justify-content: space-between; }
 .row.right { justify-content: flex-end; }
 .row.left { justify-content: flex-start; }

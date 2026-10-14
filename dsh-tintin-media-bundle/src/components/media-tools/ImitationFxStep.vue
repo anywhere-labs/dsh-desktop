@@ -9,6 +9,7 @@
 // ═════════════════════════════════════════════════════════════
 import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useCopywritingMontage } from '@/composables/useCopywritingMontage'
+import { createMontageSharedRuntime } from '@/composables/copywritingMontage/context'
 import { copywritingMontageShellKey } from './copywriting-montage/copywritingMontageUiContext'
 import ImitationFxPackPanel from './ImitationFxPackPanel.vue'
 import TButton from '@/components/common/TButton.vue'
@@ -17,7 +18,10 @@ const props = defineProps<{ scriptId: string; section: 'fx' | 'export'; /** 仿�
 const emit = defineEmits<{ (e: 'back'): void; (e: 'next'): void }>()
 
 const s = useCopywritingMontage()
+const { toAbsolute } = createMontageSharedRuntime()
 const loadState = ref<'' | 'loading' | 'ok' | 'error'>('')
+/** 口播放条数据：脚本绑定的口播音频（voice_audio_id → 素材库 serve 流；无绑定=不显示，2026-10-13 用户需求） */
+const voiceAudioUrl = ref('')
 const loadErr = ref('')
 
 async function loadImitationScript(): Promise<void> {
@@ -48,6 +52,13 @@ async function loadImitationScript(): Promise<void> {
       s.storyboards.value = [keep]
       s.activeStoryboardId.value = keep.id
     }
+    // 口播放条：读脚本绑定的口播音频（voice_audio_id=0/缺字段=无口播，行不显示）
+    try {
+      const resp = (await window.tintin.server.get(`/api/storyboard/scripts/${props.scriptId}`)) as Record<string, unknown> | null
+      const data = (resp && ((resp as Record<string, unknown>).data ?? resp)) as Record<string, unknown> | null
+      const vid = Number(data?.voice_audio_id ?? 0)
+      if (vid > 0) voiceAudioUrl.value = toAbsolute(`/material/serve?material_id=${vid}`)
+    } catch { /* 静默：取不到就不显示口播条 */ }
     // 第④步进入加载：文字模板库/花字 lanes/字幕样式/voiceRows 重扫（漏跑=模板库空、词条全空）
     await s.enterStep4()
     // 字幕样式/字体库预载（2026-10-06 用户报障"字幕样本太少"：对齐文案混剪 enterStepVoice——
@@ -128,7 +139,7 @@ watch(() => props.scriptId, () => { void loadImitationScript() })
         <span class="muted">特效包装（文案混剪同款面板——脚本/视频在上，字体模板/关键词标注/字幕样式/BGM 在下；导出为客户端剪映草稿）</span>
         <span class="spacer"></span>
       </div>
-      <ImitationFxPackPanel :s="s" :section="section" />
+      <ImitationFxPackPanel :s="s" :section="section" :voice-audio-url="voiceAudioUrl" />
       <!-- 生成任务转草稿（E-1.2 桥，2026-10-08）：仿视频 videos 任务 → 服务端拼草稿
            （from-task/export 为服务端职责）→ 既有导入服务端草稿包通道落剪映（包装页零改动） -->
       <TButton
