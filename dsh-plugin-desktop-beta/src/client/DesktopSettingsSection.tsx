@@ -39,6 +39,9 @@ export interface DesktopNotificationSettings {
   readonly notifyOnJobFailure: boolean
   readonly notifyOnScheduleCompletion: boolean
   readonly notifyOnScheduleFailure: boolean
+  readonly notifyOnApprovalRequest: boolean
+  readonly notifyOnUserQuestion: boolean
+  readonly showResponsePreview: boolean
 }
 
 /** Registration-side business face for the Desktop settings section. */
@@ -447,6 +450,9 @@ export function DesktopSettingsSection({
     notifyOnJobFailure: true,
     notifyOnScheduleCompletion: true,
     notifyOnScheduleFailure: true,
+    notifyOnApprovalRequest: true,
+    notifyOnUserQuestion: true,
+    showResponsePreview: true,
   }
 
   const createProfile = (event: FormEvent): void => {
@@ -888,6 +894,18 @@ export function DesktopSettingsSection({
             disabled={!notificationValue.enabled || !notificationsWritable || busy !== undefined}
             onChange={checked => { setNotification('notifyOnScheduleFailure', checked) }}
           />
+          <DesktopSettingsToggleRow
+            label={t('approvalRequest')}
+            checked={notificationValue.notifyOnApprovalRequest}
+            disabled={!notificationValue.enabled || !notificationsWritable || busy !== undefined}
+            onChange={checked => { setNotification('notifyOnApprovalRequest', checked) }}
+          />
+          <DesktopSettingsToggleRow
+            label={t('userQuestion')}
+            checked={notificationValue.notifyOnUserQuestion}
+            disabled={!notificationValue.enabled || !notificationsWritable || busy !== undefined}
+            onChange={checked => { setNotification('notifyOnUserQuestion', checked) }}
+          />
           {capabilities?.jobNotifications !== false && <><DesktopSettingsToggleRow
             label={t('jobCompletion')}
             checked={notificationValue.notifyOnJobCompletion}
@@ -900,6 +918,14 @@ export function DesktopSettingsSection({
             disabled={!notificationValue.enabled || !notificationsWritable || busy !== undefined}
             onChange={checked => { setNotification('notifyOnJobFailure', checked) }}
           /></>}
+          <DesktopSettingsToggleRow
+            label={t('responsePreview')}
+            checked={notificationValue.showResponsePreview}
+            disabled={!notificationValue.enabled || !notificationsWritable || busy !== undefined
+              || !(notificationValue.notifyOnTurnCompletion || notificationValue.notifyOnUserQuestion
+                || notificationValue.notifyOnApprovalRequest)}
+            onChange={checked => { setNotification('showResponsePreview', checked) }}
+          />
         </div>
       </section>
 

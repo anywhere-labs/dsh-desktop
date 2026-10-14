@@ -41,13 +41,28 @@ const SELECTION_KEYS = Object.freeze([
 
 const NOTIFICATION_KEYS = Object.freeze([
   'enabled',
+  'notifyOnApprovalRequest',
   'notifyOnJobCompletion',
   'notifyOnJobFailure',
   'notifyOnScheduleCompletion',
   'notifyOnScheduleFailure',
   'notifyOnTurnCompletion',
   'notifyOnTurnFailure',
+  'notifyOnUserQuestion',
+  'showResponsePreview',
 ] as const)
+
+/**
+ * Accepted notifications-record shapes: the current key set plus the legacy
+ * shapes written before scheduled-turn alerts and interaction alerts existed.
+ * Keys missing from an accepted legacy shape take the migration defaults.
+ */
+const NOTIFICATION_KEY_SHAPES: ReadonlyArray<readonly string[]> = Object.freeze([
+  NOTIFICATION_KEYS,
+  NOTIFICATION_KEYS.filter(key => key !== 'notifyOnApprovalRequest' && key !== 'notifyOnUserQuestion' && key !== 'showResponsePreview'),
+  NOTIFICATION_KEYS.filter(key => key !== 'notifyOnScheduleCompletion' && key !== 'notifyOnScheduleFailure'
+    && key !== 'notifyOnApprovalRequest' && key !== 'notifyOnUserQuestion' && key !== 'showResponsePreview'),
+])
 
 const STATE_KEYS = Object.freeze([
   'aaEnabled',
@@ -149,8 +164,7 @@ function normalizedNotifications(
   value: unknown,
   error: ErrorFactory,
 ): Readonly<DesktopNotificationSettings> {
-  if (!isRecord(value) || !(hasExactKeys(value, NOTIFICATION_KEYS)
-    || hasExactKeys(value, NOTIFICATION_KEYS.filter(key => key !== 'notifyOnScheduleCompletion' && key !== 'notifyOnScheduleFailure')))) {
+  if (!isRecord(value) || !NOTIFICATION_KEY_SHAPES.some(shape => hasExactKeys(value, shape))) {
     throw error('notifications must contain exactly the supported boolean fields')
   }
   if (NOTIFICATION_KEYS.some(key => value[key] !== undefined && typeof value[key] !== 'boolean')) {
@@ -164,6 +178,10 @@ function normalizedNotifications(
     notifyOnJobFailure: value.notifyOnJobFailure as boolean,
     notifyOnScheduleCompletion: (value.notifyOnScheduleCompletion ?? true) as boolean,
     notifyOnScheduleFailure: (value.notifyOnScheduleFailure ?? true) as boolean,
+    notifyOnApprovalRequest: (value.notifyOnApprovalRequest ?? true) as boolean,
+    notifyOnUserQuestion: (value.notifyOnUserQuestion ?? true) as boolean,
+    // Content previews are a privacy delta: upgrades keep them off until chosen.
+    showResponsePreview: (value.showResponsePreview ?? false) as boolean,
   })
 }
 

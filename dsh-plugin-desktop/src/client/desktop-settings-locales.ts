@@ -118,7 +118,7 @@ export const zh = {
   lanCancel: '取消',
   lanConfirm: '开启局域网访问',
   notificationsTitle: '桌面通知',
-  notificationsIntro: '在任务完成或失败时接收系统通知。通知不会显示会话内容。',
+  notificationsIntro: '在任务完成或失败、模型等待你的批准或回答时接收系统通知。开启内容预览后，通知会附带会话标题与结果详情；关闭则保持不含会话内容的泛化文案。',
   notificationsEnabled: '启用桌面通知',
   turnCompletion: '本轮任务完成',
   turnFailure: '本轮任务失败',
@@ -126,6 +126,9 @@ export const zh = {
   jobFailure: '后台任务失败',
   scheduleCompletion: '自动化任务完成',
   scheduleFailure: '自动化任务失败',
+  approvalRequest: '等待权限审批',
+  userQuestion: '模型提问',
+  responsePreview: '通知内容预览',
 } as const
 
 export type DesktopSettingsLocaleKey = keyof typeof zh
@@ -248,7 +251,7 @@ export const en: Record<DesktopSettingsLocaleKey, string> = {
   lanCancel: 'Cancel',
   lanConfirm: 'Enable local-network access',
   notificationsTitle: 'Desktop notifications',
-  notificationsIntro: 'Receive system notifications when tasks finish or fail. Notifications do not show conversation content.',
+  notificationsIntro: 'Receive system notifications when tasks finish or fail, or when the model awaits your approval or answer. Content previews add the session title and outcome details; turning them off keeps notices generic without conversation content.',
   notificationsEnabled: 'Enable Desktop notifications',
   turnCompletion: 'Current turn completed',
   turnFailure: 'Current turn failed',
@@ -256,4 +259,7 @@ export const en: Record<DesktopSettingsLocaleKey, string> = {
   jobFailure: 'Background job failed',
   scheduleCompletion: 'Automation task completed',
   scheduleFailure: 'Automation task failed',
+  approvalRequest: 'Approval requested',
+  userQuestion: 'Model question',
+  responsePreview: 'Content previews',
 }

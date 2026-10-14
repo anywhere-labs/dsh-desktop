@@ -327,6 +327,12 @@ export interface DesktopNotificationSettings {
   notifyOnScheduleCompletion: boolean
   /** Raise attention when a scheduled turn fails. */
   notifyOnScheduleFailure: boolean
+  /** Raise attention when a permission approval is pending. */
+  notifyOnApprovalRequest: boolean
+  /** Raise attention when a model question awaits an answer. */
+  notifyOnUserQuestion: boolean
+  /** Include the session title and content previews in notifications. */
+  showResponsePreview: boolean
 }
 
 /** Schema of the editable notification preference subset. */
@@ -338,6 +344,9 @@ export const DesktopNotificationSettingsSchema: z<DesktopNotificationSettings> =
   notifyOnJobFailure: z.boolean().default(true),
   notifyOnScheduleCompletion: z.boolean().default(true),
   notifyOnScheduleFailure: z.boolean().default(true),
+  notifyOnApprovalRequest: z.boolean().default(true),
+  notifyOnUserQuestion: z.boolean().default(true),
+  showResponsePreview: z.boolean().default(true),
 })
 
 /** Live notification preferences. */
@@ -356,6 +365,12 @@ export interface DesktopNotificationConfig {
   notifyOnScheduleCompletion: Volatile<boolean>
   /** Raise attention when a scheduled turn fails. */
   notifyOnScheduleFailure: Volatile<boolean>
+  /** Raise attention when a permission approval is pending. */
+  notifyOnApprovalRequest: Volatile<boolean>
+  /** Raise attention when a model question awaits an answer. */
+  notifyOnUserQuestion: Volatile<boolean>
+  /** Include the session title and content previews in notifications. */
+  showResponsePreview: Volatile<boolean>
 }
 
 /** Validated live notification preferences. */
@@ -367,6 +382,9 @@ export const DesktopNotificationConfig = z.object({
   notifyOnJobFailure: z.boolean().default(true).volatile(),
   notifyOnScheduleCompletion: z.boolean().default(true).volatile(),
   notifyOnScheduleFailure: z.boolean().default(true).volatile(),
+  notifyOnApprovalRequest: z.boolean().default(true).volatile(),
+  notifyOnUserQuestion: z.boolean().default(true).volatile(),
+  showResponsePreview: z.boolean().default(true).volatile(),
 })
 
 /** Notification preferences standing before the first observed value. */
@@ -393,6 +411,9 @@ export function bindDesktopNotificationSettings(
     notifyOnJobFailure: config.notifyOnJobFailure.get(),
     notifyOnScheduleCompletion: config.notifyOnScheduleCompletion.get(),
     notifyOnScheduleFailure: config.notifyOnScheduleFailure.get(),
+    notifyOnApprovalRequest: config.notifyOnApprovalRequest.get(),
+    notifyOnUserQuestion: config.notifyOnUserQuestion.get(),
+    showResponsePreview: config.showResponsePreview.get(),
   })
   // Desktop owns a hand-written notifications page inside its settings section.
   ctx.inject(['settings'], (child) => {

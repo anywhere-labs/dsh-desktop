@@ -44,6 +44,9 @@ const input: DesktopSetupWizardInput = {
     notifyOnJobFailure: true,
     notifyOnScheduleCompletion: true,
     notifyOnScheduleFailure: true,
+    notifyOnApprovalRequest: true,
+    notifyOnUserQuestion: true,
+    showResponsePreview: true,
   },
 }
 
@@ -281,8 +284,8 @@ describe('Setup Wizard setting pages', () => {
   it('uses the shadcn Switch component for every wizard toggle', () => {
     const notifications = renderStep('notifications')
     const browser = renderStep('browser')
-    expect(occurrences(notifications, 'data-slot="switch"')).toBe(7)
-    expect(occurrences(notifications, 'role="switch"')).toBe(7)
+    expect(occurrences(notifications, 'data-slot="switch"')).toBe(10)
+    expect(occurrences(notifications, 'role="switch"')).toBe(10)
     expect(occurrences(browser, 'data-slot="switch"')).toBe(1)
     expect(occurrences(browser, 'role="switch"')).toBe(1)
   })

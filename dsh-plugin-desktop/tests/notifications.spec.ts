@@ -62,7 +62,7 @@ function createHarness(available: readonly OptionalService[] = ['jobs', 'session
   let sessionListener: ((session: Session, event: SessionEvent) => void | PromiseLike<void>) | undefined
   let sessionDisposedListener: ((session: Session) => void | PromiseLike<void>) | undefined
   const volatileListeners = new Set<() => void | Promise<void>>()
-  let currentSettings = DesktopNotificationSettingsSchema({} as DesktopNotificationSettings)
+  let currentSettings = { ...DesktopNotificationSettingsSchema({} as DesktopNotificationSettings), showResponsePreview: false }
 
   const runtime = {
     platform: 'darwin',
@@ -83,6 +83,9 @@ function createHarness(available: readonly OptionalService[] = ['jobs', 'session
     notifyOnJobFailure: field('notifyOnJobFailure'),
     notifyOnScheduleCompletion: field('notifyOnScheduleCompletion'),
     notifyOnScheduleFailure: field('notifyOnScheduleFailure'),
+    notifyOnApprovalRequest: field('notifyOnApprovalRequest'),
+    notifyOnUserQuestion: field('notifyOnUserQuestion'),
+    showResponsePreview: field('showResponsePreview'),
   }
 
   const fiber = { id: 'desktop-notifications' }
@@ -208,6 +211,21 @@ function event<T extends SessionEvent['type']>(
   return { type, data, seq, time: seq } as Extract<SessionEvent, { type: T }>
 }
 
+function assistantMessage(
+  content: Array<Record<string, unknown>>,
+  seq: number,
+  turn = 1,
+  interrupted = false,
+): SessionEvent<'assistant/message'> {
+  return event('assistant/message', {
+    turn,
+    step: 1,
+    interrupted,
+    message: { id: `message-${String(seq)}`, role: 'assistant', content },
+    stream: [],
+  } as never, seq)
+}
+
 function userMessage(source: 'user' | 'plugin' | 'schedule', seq: number): SessionEvent<'user/message'> {
   return event('user/message', {
     id: `message-${String(seq)}` as never,
@@ -234,6 +252,9 @@ describe('desktop notifications Host plugin', () => {
       notifyOnJobFailure: true,
       notifyOnScheduleCompletion: true,
       notifyOnScheduleFailure: true,
+      notifyOnApprovalRequest: true,
+      notifyOnUserQuestion: true,
+      showResponsePreview: true,
     })
     // The preferences are published by the plugin's own volatile Config fields;
     // the only call Desktop makes on the service withdraws the automatic form,
@@ -283,6 +304,9 @@ describe('desktop notifications Host plugin', () => {
       notifyOnJobFailure: true,
       notifyOnScheduleCompletion: true,
       notifyOnScheduleFailure: true,
+      notifyOnApprovalRequest: true,
+      notifyOnUserQuestion: true,
+      showResponsePreview: false,
     })
     await harness.jobSettled(job('bash-3', 'completed'))
     await harness.jobSettled(job('bash-3', 'failed'))
@@ -315,6 +339,9 @@ describe('desktop notifications Host plugin', () => {
       notifyOnJobFailure: true,
       notifyOnScheduleCompletion: true,
       notifyOnScheduleFailure: true,
+      notifyOnApprovalRequest: true,
+      notifyOnUserQuestion: true,
+      showResponsePreview: false,
     })
     await harness.jobSettled(job('bash-disabled', 'completed'))
 
@@ -373,7 +400,7 @@ describe('desktop notifications Host plugin', () => {
       { title: 'Automation Task Failed', body: 'An automation task could not finish. Open DSH Desktop for details.' },
     ]])
     harness.notifyAttention.mockClear()
-    await harness.updateSettings({ ...DesktopNotificationSettingsSchema({} as DesktopNotificationSettings), notifyOnScheduleFailure: false })
+    await harness.updateSettings({ ...DesktopNotificationSettingsSchema({} as DesktopNotificationSettings), notifyOnScheduleFailure: false, showResponsePreview: false })
     await harness.sessionEvent(active, event('turn/start', { turn: 4 }, 10))
     await harness.sessionEvent(active, userMessage('schedule', 11))
     await harness.sessionEvent(active, event('turn/end', { turn: 4, reason: { kind: 'max-tokens' } }, 12))
@@ -400,7 +427,43 @@ describe('desktop notifications Host plugin', () => {
     expect(harness.notifyAttention).toHaveBeenCalledOnce()
     expect(harness.notifyAttention).toHaveBeenCalledWith({
       title: 'User Turn Failed',
-      body: 'A user-initiated turn could not finish. Open DSH Desktop for details.',
+      body: 'The turn hit the context limit (max-tokens). Open DSH Desktop to continue.',
+    })
+  })
+
+  it('previews the final answer under the session title when content previews are on', async () => {
+    const harness = createHarness()
+    await harness.updateSettings({ ...DesktopNotificationSettingsSchema({} as DesktopNotificationSettings), showResponsePreview: true })
+    const active = session('direct')
+    await harness.sessionEvent(active, event('turn/start', { turn: 1 }, 1))
+    await harness.sessionEvent(active, userMessage('user', 2))
+    await harness.sessionEvent(active, assistantMessage([{ type: 'text', text: 'All **done** here' }], 3))
+    await harness.sessionEvent(active, event('turn/end', { turn: 1, reason: { kind: 'completed' } }, 4))
+    expect(harness.notifyAttention).toHaveBeenCalledExactlyOnceWith({ title: 'direct', body: 'All done here' })
+  })
+
+  it('falls back to the tool-call count when a turn produces no prose', async () => {
+    const harness = createHarness()
+    await harness.updateSettings({ ...DesktopNotificationSettingsSchema({} as DesktopNotificationSettings), showResponsePreview: true })
+    const active = session('direct')
+    await harness.sessionEvent(active, event('turn/start', { turn: 1 }, 1))
+    await harness.sessionEvent(active, userMessage('user', 2))
+    await harness.sessionEvent(active, assistantMessage([{ type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' }], 3))
+    await harness.sessionEvent(active, assistantMessage([{ type: 'tool-call', id: 'c2', name: 'edit', arguments: '{}' }, { type: 'tool-call', id: 'c3', name: 'write', arguments: '{}' }], 4))
+    await harness.sessionEvent(active, event('turn/end', { turn: 1, reason: { kind: 'completed' } }, 5))
+    expect(harness.notifyAttention).toHaveBeenCalledExactlyOnceWith({ title: 'direct', body: 'Completed 3 tool calls.' })
+  })
+
+  it('keeps schedule notices generic even with content previews on', async () => {
+    const harness = createHarness()
+    await harness.updateSettings({ ...DesktopNotificationSettingsSchema({} as DesktopNotificationSettings), showResponsePreview: true })
+    const active = session('scheduled')
+    await harness.sessionEvent(active, event('turn/start', { turn: 1 }, 1))
+    await harness.sessionEvent(active, userMessage('schedule', 2))
+    await harness.sessionEvent(active, assistantMessage([{ type: 'text', text: 'Scheduled output' }], 3))
+    await harness.sessionEvent(active, event('turn/end', { turn: 1, reason: { kind: 'completed' } }, 4))
+    expect(harness.notifyAttention).toHaveBeenCalledExactlyOnceWith({
+      title: 'Automation Task Completed', body: 'An automation task has finished.',
     })
   })
 

@@ -40,6 +40,9 @@ const COMPLETE_KEYS = Object.freeze([
   'notifyOnJobFailure',
   'notifyOnScheduleCompletion',
   'notifyOnScheduleFailure',
+  'notifyOnApprovalRequest',
+  'notifyOnUserQuestion',
+  'showResponsePreview',
 ] as const)
 
 export interface DesktopSetupWizardWindowOptions {
@@ -107,12 +110,16 @@ export function parseDesktopSetupWizardAction(
   const notifyOnJobFailure = exactBoolean(url.searchParams.get('notifyOnJobFailure'))
   const notifyOnScheduleCompletion = exactBoolean(url.searchParams.get('notifyOnScheduleCompletion'))
   const notifyOnScheduleFailure = exactBoolean(url.searchParams.get('notifyOnScheduleFailure'))
+  const notifyOnApprovalRequest = exactBoolean(url.searchParams.get('notifyOnApprovalRequest'))
+  const notifyOnUserQuestion = exactBoolean(url.searchParams.get('notifyOnUserQuestion'))
+  const showResponsePreview = exactBoolean(url.searchParams.get('showResponsePreview'))
   if (mode === undefined || macosMaterial === undefined || windowsMaterial === undefined
     || aaEnabled === undefined || openBrowser === undefined || networkExposure === undefined || market === undefined
     || enabled === undefined || notifyOnTurnCompletion === undefined
     || notifyOnTurnFailure === undefined || notifyOnJobCompletion === undefined
     || notifyOnJobFailure === undefined || notifyOnScheduleCompletion === undefined
-    || notifyOnScheduleFailure === undefined) return undefined
+    || notifyOnScheduleFailure === undefined || notifyOnApprovalRequest === undefined
+    || notifyOnUserQuestion === undefined || showResponsePreview === undefined) return undefined
 
   const selection = freezeDesktopSetupWizardSelection({
     mode,
@@ -130,6 +137,9 @@ export function parseDesktopSetupWizardAction(
       notifyOnJobFailure,
       notifyOnScheduleCompletion,
       notifyOnScheduleFailure,
+      notifyOnApprovalRequest,
+      notifyOnUserQuestion,
+      showResponsePreview,
     },
   })
   return Object.freeze({ action: 'complete' as const, selection })

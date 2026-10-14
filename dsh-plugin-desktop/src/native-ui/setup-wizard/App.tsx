@@ -151,6 +151,9 @@ function finish(selection: DesktopSetupWizardSelection): void {
   url.searchParams.set('notifyOnJobFailure', String(selection.notifications.notifyOnJobFailure))
   url.searchParams.set('notifyOnScheduleCompletion', String(selection.notifications.notifyOnScheduleCompletion))
   url.searchParams.set('notifyOnScheduleFailure', String(selection.notifications.notifyOnScheduleFailure))
+  url.searchParams.set('notifyOnApprovalRequest', String(selection.notifications.notifyOnApprovalRequest))
+  url.searchParams.set('notifyOnUserQuestion', String(selection.notifications.notifyOnUserQuestion))
+  url.searchParams.set('showResponsePreview', String(selection.notifications.showResponsePreview))
   window.location.assign(url.href)
 }
 
@@ -384,6 +387,9 @@ function NotificationOptions({
       <ToggleRow checked={notifications.notifyOnJobFailure} disabled={!notifications.enabled} id="setup-job-failure" label={copy.jobFailure} onChange={checked => { set('notifyOnJobFailure', checked) }} />
       <ToggleRow checked={notifications.notifyOnScheduleCompletion} disabled={!notifications.enabled} id="setup-schedule-completion" label={copy.scheduleCompletion} onChange={checked => { set('notifyOnScheduleCompletion', checked) }} />
       <ToggleRow checked={notifications.notifyOnScheduleFailure} disabled={!notifications.enabled} id="setup-schedule-failure" label={copy.scheduleFailure} onChange={checked => { set('notifyOnScheduleFailure', checked) }} />
+      <ToggleRow checked={notifications.notifyOnApprovalRequest} disabled={!notifications.enabled} id="setup-approval-request" label={copy.approvalRequest} onChange={checked => { set('notifyOnApprovalRequest', checked) }} />
+      <ToggleRow checked={notifications.notifyOnUserQuestion} disabled={!notifications.enabled} id="setup-user-question" label={copy.userQuestion} onChange={checked => { set('notifyOnUserQuestion', checked) }} />
+      <ToggleRow checked={notifications.showResponsePreview} disabled={!notifications.enabled} id="setup-response-preview" label={copy.responsePreview} onChange={checked => { set('showResponsePreview', checked) }} />
     </div>
   </div>
 }

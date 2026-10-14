@@ -828,7 +828,7 @@ async function main(): Promise<void> {
         input: { appVersion: version, profileName: runtime.selected, platform: process.platform,
           mode: 'compatibility', macosMaterial: 'off', windowsMaterial: 'off', openBrowser: false, networkExposure: 'loopback',
           market: features.market ? 'community-market' : features.dshMarket ? 'dsh-market' : 'disabled', aaEnabled: features.remoteControl,
-          notifications: { enabled: true, notifyOnTurnCompletion: true, notifyOnTurnFailure: true, notifyOnJobCompletion: false, notifyOnJobFailure: false, notifyOnScheduleCompletion: true, notifyOnScheduleFailure: true } } }
+          notifications: { enabled: true, notifyOnTurnCompletion: true, notifyOnTurnFailure: true, notifyOnJobCompletion: false, notifyOnJobFailure: false, notifyOnScheduleCompletion: true, notifyOnScheduleFailure: true, notifyOnApprovalRequest: false, notifyOnUserQuestion: false, showResponsePreview: false } } }
     }
     if (value.action === 'dismiss-account') {
       if (onboarding || value.profile !== runtime.selected || runtime.safeMode || runtime.recoveryMode) throw new Error('Account setup is unavailable')

@@ -69,6 +69,9 @@ export interface DesktopSetupWizardCopy {
   readonly jobFailure: string
   readonly scheduleCompletion: string
   readonly scheduleFailure: string
+  readonly approvalRequest: string
+  readonly userQuestion: string
+  readonly responsePreview: string
   readonly back: string
   readonly next: string
   readonly skip: string
@@ -143,7 +146,7 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     dshMarket: 'dsh-market',
     dshMarketBody: 'The popular community market powered by awesome-dsh-plugin data.',
     notificationsTitle: 'Set up Desktop notifications',
-    notificationsBody: 'Receive system notifications when tasks finish or fail. Notifications do not show conversation content.',
+    notificationsBody: 'Receive system notifications when tasks finish or fail, or when the model awaits your approval or answer. Content previews add the session title and outcome details to each notice.',
     notificationsEnabled: 'Enable Desktop notifications',
     turnCompletion: 'Current turn completed',
     turnFailure: 'Current turn failed',
@@ -151,6 +154,9 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     jobFailure: 'Background job failed',
     scheduleCompletion: 'Automation task completed',
     scheduleFailure: 'Automation task failed',
+    approvalRequest: 'Approval requested',
+    userQuestion: 'Model question',
+    responsePreview: 'Content previews in notifications',
     back: 'Previous',
     next: 'Next',
     skip: 'Skip setup',
@@ -223,7 +229,7 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     dshMarket: 'dsh-market',
     dshMarketBody: '使用 awesome-dsh-plugin 数据的热门社区市场。',
     notificationsTitle: '设置桌面通知',
-    notificationsBody: '在任务完成或失败时接收系统通知。通知不会显示会话内容。',
+    notificationsBody: '在任务完成或失败、模型等待你的批准或回答时接收系统通知。内容预览会在通知里附带会话标题与结果详情。',
     notificationsEnabled: '启用桌面通知',
     turnCompletion: '本轮任务完成',
     turnFailure: '本轮任务失败',
@@ -231,6 +237,9 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     jobFailure: '后台任务失败',
     scheduleCompletion: '自动化任务完成',
     scheduleFailure: '自动化任务失败',
+    approvalRequest: '等待权限审批',
+    userQuestion: '模型提问',
+    responsePreview: '通知内容预览',
     back: '上一步',
     next: '下一步',
     skip: '跳过设置',

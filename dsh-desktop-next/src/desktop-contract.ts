@@ -33,13 +33,18 @@ export interface DesktopPreferences {
   jobFailed: boolean
   scheduleCompleted: boolean
   scheduleFailed: boolean
+  /** Retained for the shared settings adapter; interaction alerts are not implemented in Next. */
+  approvalRequested: boolean
+  userQuestion: boolean
+  responsePreview: boolean
 }
 
 export const DEFAULT_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
   closeToTray: true, macosMaterial: 'transparent', windowsMaterial: 'off', linuxMaterial: 'off',
   browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
   notifications: true, turnCompleted: true, turnFailed: true, jobCompleted: false, jobFailed: false,
-  scheduleCompleted: true, scheduleFailed: true,
+  scheduleCompleted: true, scheduleFailed: true, approvalRequested: false, userQuestion: false,
+  responsePreview: false,
 })
 
 /** Fixed startup defaults matching Beta's disposable Safe Mode settings. */
@@ -47,6 +52,7 @@ export const SAFE_MODE_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze
   ...DEFAULT_PREFERENCES, macosMaterial: 'off', windowsMaterial: 'off', linuxMaterial: 'off',
   browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
   notifications: false, turnCompleted: false, turnFailed: false, jobCompleted: false, jobFailed: false,
+  approvalRequested: false, userQuestion: false, responsePreview: false,
   scheduleCompleted: false, scheduleFailed: false,
 })
 

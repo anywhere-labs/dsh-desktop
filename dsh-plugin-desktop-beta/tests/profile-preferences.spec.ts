@@ -39,6 +39,9 @@ const PREFERENCES: DesktopProfilePreferences = Object.freeze({
     notifyOnJobFailure: true,
     notifyOnScheduleCompletion: true,
     notifyOnScheduleFailure: true,
+    notifyOnApprovalRequest: true,
+    notifyOnUserQuestion: true,
+    showResponsePreview: true,
   }),
   market: 'community-market',
 })
@@ -112,11 +115,16 @@ describe('Desktop Profile preferences', () => {
   it('reads saved five-switch notification preferences with schedule switches enabled', () => {
     const userData = temporaryDirectory('dsh-schedule-preferences-')
     const profile = temporaryDirectory('dsh-schedule-profile-')
-    const { notifyOnScheduleCompletion: _completion, notifyOnScheduleFailure: _failure, ...notifications } = PREFERENCES.notifications
+    const {
+      notifyOnScheduleCompletion: _completion, notifyOnScheduleFailure: _failure,
+      notifyOnApprovalRequest: _approval, notifyOnUserQuestion: _question, showResponsePreview: _preview,
+      ...notifications
+    } = PREFERENCES.notifications
     writeRawState(userData, profile, { ...PREFERENCES, notifications, version: 1,
       profileHash: desktopProfilePreferencesProfileHash(profile), recordedAt: RECORDED_AT })
     expect(readDesktopProfilePreferences(userData, profile)?.notifications).toEqual({
       ...notifications, notifyOnScheduleCompletion: true, notifyOnScheduleFailure: true,
+      notifyOnApprovalRequest: true, notifyOnUserQuestion: true, showResponsePreview: false,
     })
   })
 

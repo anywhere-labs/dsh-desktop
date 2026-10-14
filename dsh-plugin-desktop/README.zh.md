@@ -171,7 +171,7 @@ npx dsh-plugin-desktop
 
 ## 桌面操作
 
-当 Desktop 窗口没有焦点时，直接用户发起的回合到达 `completed` 会显示原生完成通知；以 `error` 或 `max-tokens` 结束时则显示需要处理的通知。后台任务完成或失败也使用同一条原生注意力路径。取消、阻塞、中断、被终止的任务、插件发起、仅 continuation、turn 不匹配及 subagent 活动都保持静默。点击通知会显示并聚焦窗口。macOS 与 Linux 会递增应用角标，Windows 会闪烁任务栏按钮；显示、聚焦或释放窗口时会清除这些提示。实时生效的 `dsh-desktop-notifications` settings namespace 提供相互独立的 `notifyOnTurnCompletion`、`notifyOnTurnFailure`、`notifyOnJobCompletion` 与 `notifyOnJobFailure` 开关，默认全部开启。通知文案刻意保持通用，不会包含提示词、回复、错误、任务标签、命令、路径、会话 ID、模型或 provider 名称、工具数据及输出。
+当 Desktop 窗口没有焦点时，直接用户发起的回合到达 `completed` 会显示原生完成通知；以 `error` 结束时显示需要处理的通知，以 `max-tokens` 结束时显示专门的上下文上限文案。等待中的权限审批会弹出点名工具名的原生审批通知，等待中的模型提问会弹出原生提问通知；每次等待至多提醒一次，已取消或立即应答的请求保持静默。后台任务完成或失败也使用同一条原生注意力路径。取消、阻塞、中断、被终止的任务、插件发起、仅 continuation、turn 不匹配及 subagent 活动都保持静默。点击通知会显示并聚焦窗口。macOS 与 Linux 会递增应用角标，Windows 会闪烁任务栏按钮；显示、聚焦或释放窗口时会清除这些提示。实时生效的 `dsh-desktop-notifications` settings namespace 提供相互独立的 `notifyOnTurnCompletion`、`notifyOnTurnFailure`、`notifyOnJobCompletion`、`notifyOnJobFailure`、`notifyOnApprovalRequest` 与 `notifyOnUserQuestion` 开关，默认全部开启。开启 `showResponsePreview` 时（新装机默认开启，升级装机保持关闭直到主动选择），通知会使用会话标题并预览最终回答、问题文本或审批原因，纯工具调用的回合会报告工具调用次数；关闭时，所有通知保持泛化标题与正文，不含会话名、提示词、回复、错误、任务标签、命令、路径、会话 ID、模型或 provider 名称、工具数据及输出。
 
 打包后的 macOS 与 Windows 应用会在启动 60 秒后查询 `https://www.dshdesktop.cn/api/desktop/version`，并在每次检查完成六小时后再次查询。每次 no-cache 请求的期限为 15 秒，会携带 `X-DSH-Desktop-Channel: stable` 和当前安装版本，并与托盘中的 **Check for Updates…** 命令共用一个 in-flight operation。稳定版只接受规范的正式 SemVer，绝不会发现 Beta 响应。后台失败和非更新版本保持静默；手工检查一定会显示原生结果对话框。开发运行、未打包启动与 Linux 不会下载安装包。
 
