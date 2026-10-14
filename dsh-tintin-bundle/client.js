@@ -111,17 +111,16 @@ const tintinClient = (() => {
         const root = document.querySelector('[data-pane="sidebar"], [class*="sidebarCol"]')
         if (root && !root.__tintinWired) {
           root.__tintinWired = true
-          root.addEventListener(
-            'click',
-            (ev) => {
-              const t = ev.target
-              if (t instanceof Element && t.closest('[data-tintin-entry]')) return
-              const row = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '插件')
-              if (row && t instanceof Element && (t === row || row.contains(t))) return
-              if (activeId !== 'workbench') setActive('workbench')
-            },
-            true,
-          )
+          root.addEventListener('click', (ev) => {
+            const t = ev.target
+            if (!(t instanceof Element) || t.closest('[data-tintin-entry]')) return
+            // 侧栏头部（logo+折叠按钮，位于「新会话」上方）不触发回工作台——2026-10-14 报障：点折叠被误判已强拆工具页
+            const btns = [...document.querySelectorAll('button')]; const row = btns.find((b) => b.textContent.trim() === '插件')
+            if (t === row || (row && row.contains(t))) return
+            const newBtn = btns.find((b) => b.textContent.trim() === '新会话')
+            if (newBtn && t.getBoundingClientRect().top < newBtn.getBoundingClientRect().top) return
+            if (activeId !== 'workbench') setActive('workbench')
+          }, true)
         }
       })
       const armSidebarObserver = () => {
@@ -145,18 +144,7 @@ const tintinClient = (() => {
         '@keyframes tintin-stagger-in{from{opacity:0;transform:translateY(12px)}}',
         // backwards 填充：延迟期显示 from 态，播完交还 transform 给 hover 抬升
         '.tintin-stagger-item{animation:tintin-stagger-in .35s cubic-bezier(0,0,.2,1) backwards}',
-        '.tintin-stagger-item:nth-child(1){animation-delay:0ms}',
-        '.tintin-stagger-item:nth-child(2){animation-delay:35ms}',
-        '.tintin-stagger-item:nth-child(3){animation-delay:70ms}',
-        '.tintin-stagger-item:nth-child(4){animation-delay:105ms}',
-        '.tintin-stagger-item:nth-child(5){animation-delay:140ms}',
-        '.tintin-stagger-item:nth-child(6){animation-delay:175ms}',
-        '.tintin-stagger-item:nth-child(7){animation-delay:210ms}',
-        '.tintin-stagger-item:nth-child(8){animation-delay:245ms}',
-        '.tintin-stagger-item:nth-child(9){animation-delay:280ms}',
-        '.tintin-stagger-item:nth-child(10){animation-delay:315ms}',
-        '.tintin-stagger-item:nth-child(11){animation-delay:350ms}',
-        '.tintin-stagger-item:nth-child(12){animation-delay:385ms}',
+        ...[0,1,2,3,4,5,6,7,8,9,10,11].map((i) => `.tintin-stagger-item:nth-child(${i + 1}){animation-delay:${i * 35}ms}`),
         '.tintin-grid-card{transition:transform .18s cubic-bezier(0,0,.2,1),box-shadow .18s cubic-bezier(0,0,.2,1),background .12s}',
         '.tintin-grid-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.12);background:var(--dsw-alias-bg-layer-3,#2a2a2c)}',
       ].join('\n')
