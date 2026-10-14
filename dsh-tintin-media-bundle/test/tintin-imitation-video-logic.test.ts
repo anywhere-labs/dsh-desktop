@@ -593,7 +593,7 @@ describe('shotHealNeeded', () => {
   it('齐全/失败镜/非 done：不自愈（真失败镜有 failed 不触发）', () => {
     const ok = [gen('shot_01', { status: 'done', draft_status: 'generated', draft_first: 'x' })]
     expect(shotHealNeeded('done', 'storyboard', ok)).toBe(false)
-    expect(shotHealNeeded('running', 'storyboard', shots)).toBe(false)
+    expect(shotHealNeeded('running', 'storyboard', ok)).toBe(false)
     const failed = [gen('shot_01', { status: 'failed' })]
     expect(shotHealNeeded('done', 'videos', failed)).toBe(false)
   })
