@@ -163,7 +163,7 @@ onMounted(() => {
   color: var(--muted-foreground); margin-bottom: var(--space-3);
 }
 
-.grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); } /* 卡片 2/3（2026-10-14 用户裁决：列宽 300→200） */
 
 /* 入场 stagger + 光晕旋转（2026-09-25 用户报障「缺原客户端动画」补齐，
    SRC OtToolCard/OpsTools 口径：stagger-in .35s + 35ms 步进、aurora-spin 8s；
@@ -173,7 +173,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: var(--space-5);
+  padding: calc(var(--space-5) * 2 / 3); /* 卡片 2/3（2026-10-14 用户裁决） */
   text-align: left;
   font: inherit;
   background: var(--card);

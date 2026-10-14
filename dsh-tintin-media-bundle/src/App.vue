@@ -229,7 +229,7 @@ onMounted(() => {
 }
 
 /* 全宽自适应列（宽屏两卡铺开，窄屏自动单列） */
-.grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); } /* 卡片 2/3（2026-10-14 用户裁决：列宽 300→200） */
 
 /* 卡片视觉对照源 MediaTools.vue（accent 光晕 + hover 毛玻璃），压缩到面板尺寸 */
 /* 入场 stagger + 光晕旋转（2026-09-25 用户报障「缺原客户端动画」补齐，
@@ -240,7 +240,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: var(--space-5);
+  padding: calc(var(--space-5) * 2 / 3); /* 卡片 2/3（2026-10-14 用户裁决） */
   text-align: left;
   font: inherit;
   background: var(--card);
