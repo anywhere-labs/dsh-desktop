@@ -847,9 +847,17 @@ watch(() => [iv.genPhase.value, iv.genStage.value] as const, ([ph, st]) => {
     if (cgTimer) { clearInterval(cgTimer); cgTimer = undefined }
   }
 }, { immediate: true })
+
+// videos 完成后回填自愈（2026-10-13 用户报障：六镜服务端全 done，但完成瞬间的单次
+// 回读撞 .31 DB 抖动 500 后无重试——逐镜卡停在「待生成」、下一步门永久锁死）。
+// genPhase=done 且 videos 阶段仍有 generate 镜没有 gen.status（=回填缺失的判定性
+// 特征；真失败的镜有 status=failed 不触发）→ 每 5s 重读脚本直至状态齐全。
+let doneHealTimer: ReturnType<typeof setInterval> | undefined
+// watch 主体在 doneCount 声明之后（watch sources 立即求值，前置会 TDZ）
 onBeforeUnmount(() => {
   if (liveReloadTimer) clearInterval(liveReloadTimer)
   if (cgTimer) clearInterval(cgTimer)
+  if (doneHealTimer) clearInterval(doneHealTimer)
 })
 async function startVideoGeneration(): Promise<void> {
   if (iv.genPhase.value === 'running' && iv.genTaskId.value) { step.value = 4; return }
@@ -880,6 +888,17 @@ async function retryShot(i: number): Promise<void> {
 // 在「文案混剪」工具选择该脚本继续 特效包装→草稿/成片（复用既有产片 UI）。
 // 直提 storyboard_montage 任务为后续接线项（走既有任务提交入口，不另发明端点）。
 const doneCount = computed(() => shots.value.filter((s) => s.source !== 'generate' || s.gen?.status === 'done').length)
+
+// videos 完成后回填自愈（2026-10-13 用户报障：六镜服务端全 done，但完成瞬间的单次
+// 回读撞 .31 DB 抖动 500 后无重试——逐镜卡停在「待生成」、下一步门永久锁死）。
+// genPhase=done 且 videos 阶段仍有 generate 镜没有 gen.status（=回填缺失的判定性
+// 特征；真失败的镜有 status=failed 不触发）→ 每 5s 重读脚本直至状态齐全。
+watch([() => iv.genPhase.value, () => iv.genStage.value, doneCount, shots] as const, ([ph, st]) => {
+  const needHeal = ph === 'done' && st === 'videos'
+    && shots.value.some((s) => s.source === 'generate' && !s.gen?.status)
+  if (needHeal && !doneHealTimer) doneHealTimer = setInterval(() => { void reloadScript() }, 5000)
+  if (!needHeal && doneHealTimer) { clearInterval(doneHealTimer); doneHealTimer = undefined }
+}, { immediate: true })
 
 // ── 闸门① 九宫分镜粗稿（v4.3：draft_status confirmed 后解锁逐镜视频）──
 const draftConfirmed = computed(() => { const g = shots.value.filter((s) => s.source === 'generate'); return g.length > 0 && g.every((s) => s.gen?.draft_status === 'confirmed') })

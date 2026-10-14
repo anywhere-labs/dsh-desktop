@@ -1,5 +1,7 @@
-// test/tintin-server-task.test.ts — useServerTask 完成判定回归（2026-10-12 实测事故
-// c_55435304-7：排队态回 progress=100，提交 2 秒即被误判「已完成」并停止轮询）。
+// test/tintin-server-task.test.ts — useServerTask 完成判定回归。
+// 背景：2026-10-12 实测事故 c_55435304-7（排队态回 progress=100，提交 2 秒即被
+// 误判「已完成」并停止轮询）；服务端 2026-10-13 已对齐上报（排队 0/处理态真实
+// 进度/编码段 90-100）——以下用例保留为 worker 回归防御契约。
 import { afterEach, describe, expect, it } from 'vitest'
 import { useServerTask } from '../src/composables/useServerTask'
 

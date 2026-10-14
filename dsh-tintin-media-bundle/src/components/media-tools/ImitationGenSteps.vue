@@ -244,8 +244,8 @@ function sourceClipSrc(shot: ImitationShot): string {
  *  结束才一次性回填——运行期计数以此为准，comfygen 流式计数仅作更快的前置叠加） */
 const videosDoneCount = computed(() => props.shots.filter((s) => s.source === 'generate' && s.gen?.status === 'done').length)
 const videosFailedCount = computed(() => props.shots.filter((s) => s.source === 'generate' && s.gen?.status === 'failed').length)
-/** 进度条口径与计数同源（2026-10-13 用户报障：服务端编排任务 progress 处理期恒 0 而
- *  逐镜计数已 3/6——条优先取逐镜完成比；无计数回落服务端 %，-1=不定态） */
+/** 进度条口径：逐镜完成比优先（镜粒度、且不依赖服务端编排 progress 的上报粒度）；
+ *  无逐镜计数回落服务端 %（2026-10-13 起服务端处理期已对齐上报），-1=不定态 */
 const videosBarPct = computed(() => {
   const total = liveShots.value ? liveShots.value.total : generateShotsCount.value
   const done = Math.max(liveShots.value ? liveShots.value.done : 0, videosDoneCount.value)

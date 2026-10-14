@@ -331,8 +331,8 @@ const statusText = computed(() => {
     case 'queued':
       return uploadPercent.value < 100 ? `上传中 ${uploadPercent.value}%` : '排队中'
     case 'processing':
-      // ≥98% 即进入服务端收尾（输出编码/写盘不在逐帧进度统计里，会长时间停格）
-      // ——文案改「收尾中」，避免静止的 98% 误导（2026-10-12 用户裁决）
+      // 服务端已把编码/写盘段映射进 90-100（2026-10-13 对齐）——≥98% 出现在
+      // 真实收尾阶段，文案「收尾中」与实际语义一致
       return progress.value >= 98 ? '收尾中——服务端正在编码输出…' : `处理中 ${progress.value}%`
     case 'done':
       return '已完成'

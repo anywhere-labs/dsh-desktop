@@ -121,9 +121,9 @@ export function useServerTask(opts: UseServerTaskOptions) {
       if (!data) return
       const st = (data.status ?? '') as TaskStatus
       status.value = st
-      // 队列态不采信进度（2026-10-12 实测事故 c_55435304-7：部分 worker 在排队/
-      // 收尾前会回 progress=100，直接采信=提交 2 秒即误判「已完成」并停轮询）——
-      // 进度仅在处理态采信；完成必须有终态状态背书
+      // 进度仅在处理态采信（服务端 2026-10-13 已对齐：排队报 0/处理态报真实
+      // 进度/编码段 90-100）。本守卫保留为防御层——worker 若回归「排队回 100」
+      // 的旧行为（实测事故 c_55435304-7），客户端仍不会被误判成已完成
       if (st === 'processing') progress.value = data.progress ?? 0
       if (
         data.status === 'completed' ||
