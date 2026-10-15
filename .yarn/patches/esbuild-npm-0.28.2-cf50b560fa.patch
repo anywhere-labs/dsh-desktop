@@ -1,0 +1,21 @@
+diff --git a/lib/main.js b/lib/main.js
+index 61267444a8a1d6d3030b17d6ae55da5801ff4960..e5eb889b1d2d066bce3c5c063b1bf5fe4761fe47 100644
+--- a/lib/main.js
++++ b/lib/main.js
+@@ -982,6 +982,16 @@ function createChannel(streamIn) {
+   };
+   let transform2 = ({ callName, refs, input, options, isTTY: isTTY2, fs: fs3, callback }) => {
+     const details = createObjectStash();
++    let removeRetries = 0;
++    const origCallback = callback;
++    callback = (err, res) => {
++      if (err && removeRetries < 2 && typeof err.message === "string" && /^remove .+: Access is denied/.test(err.message)) {
++        removeRetries++;
++        setTimeout(() => start(null), 100);
++        return;
++      }
++      origCallback(err, res);
++    };
+     let start = (inputPath) => {
+       try {
+         if (typeof input !== "string" && !(input instanceof Uint8Array))
