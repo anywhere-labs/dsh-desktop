@@ -1,7 +1,7 @@
 diff --git a/client/client.js b/client/client.js
 --- a/client/client.js
 +++ b/client/client.js
-@@ -10569,7 +10569,7 @@
+@@ -10808,7 +10808,7 @@
  					return next;
  				});
  			}, []);
@@ -10,7 +10,7 @@ diff --git a/client/client.js b/client/client.js
  			const updatableNames = Object.keys(installed).filter((name) => name !== selfName && !effectiveDisabledSet.has(name) && isPluginUpdatable(name, String(installed[name]), updates[name], updatedNames));
  			const batchUpdatableNames = updatableNames.filter((name) => updates[name]?.restoreRequired !== true);
  			const ignoredUpdateSet = (0, react.useMemo)(() => new Set(ignoredUpdateNames), [ignoredUpdateNames]);
-@@ -11817,7 +11817,7 @@
+@@ -12078,7 +12078,7 @@
  										className: Market_module_css_default.titleActions,
  										children: [
  											(() => {
@@ -22,7 +22,7 @@ diff --git a/client/client.js b/client/client.js
 diff --git a/lib/routes.js b/lib/routes.js
 --- a/lib/routes.js
 +++ b/lib/routes.js
-@@ -1747,7 +1747,7 @@
+@@ -1770,7 +1770,7 @@
          // unreleased work.
          const channel = activeChannel();
          const installed = readInstalled(config.profile, activeProfileDir);
@@ -31,7 +31,7 @@ diff --git a/lib/routes.js b/lib/routes.js
              .filter(name => SELF_NAMES.has(name))
              .map(name => [name, channel]));
          const onlineSourceFor = new Map();
-@@ -1921,7 +1921,7 @@
+@@ -1944,7 +1944,7 @@
                  }
                  try {
                      const { channelFor, onlineSourceFor, catalogNpmByRepo } = await updateCheckInputs();
@@ -40,7 +40,7 @@ diff --git a/lib/routes.js b/lib/routes.js
                      // `packages` carries the same objects the single-package endpoint
                      // returns, so one parser serves both. Only updatable ones: a badge
                      // wants the count, a panel wants the rows, and neither wants to
-@@ -1968,7 +1968,7 @@
+@@ -1991,7 +1991,7 @@
                          // or a catalog-matched local package answers here with the
                          // release it can be compared against rather than with nothing.
                          const { channelFor, onlineSourceFor, catalogNpmByRepo } = await updateCheckInputs();
@@ -49,7 +49,7 @@ diff --git a/lib/routes.js b/lib/routes.js
                          if (update === undefined) {
                              sendJson(response, 404, { schema: UPDATE_API_V1_SCHEMA, error: 'plugin is not installed' });
                              return;
-@@ -3577,7 +3577,7 @@
+@@ -3658,7 +3658,7 @@
                      catch (error) {
                          logEvent('warn', 'updates', `package source lookup failed — ${error instanceof Error ? error.message : String(error)}`);
                      }
@@ -58,67 +58,10 @@ diff --git a/lib/routes.js b/lib/routes.js
                      for (const [name, migration] of sourceMigrationFor) {
                          const status = updates[name];
                          if (status !== undefined)
-@@ -3866,7 +3866,8 @@
-                             });
-                             return;
-                         }
--                        let spec = manifestCapture.snapshot.dependencies[name];
-+                        let spec = manifestCapture.snapshot.dependencies[name]
-+                            ?? (name === 'dshmarket' ? marketVersion() : undefined);
-                         if (spec === undefined || INBOX_BUNDLES.has(name)) {
-                             sendJson(response, 400, { error: 'plugin is not installed' });
-                             return;
-@@ -4039,7 +4040,8 @@
-                         // Desktop boundary; it is what turns a silent skip into a
-                         // failure with a name.
-                         if (usesNpmUpdateTarget) {
--                            const installedVersion = readInstalledVersion(config.profile, name, activeProfileDir);
-+                            const installedVersion = readInstalledVersion(config.profile, name, activeProfileDir)
-+                                ?? (name === 'dshmarket' ? marketVersion() : null);
-                             // The requested release replaces the resolved one, and with it
-                             // every check below that exists to judge `latest`: re-running
-                             // them would refuse the version the dialog just found, in a loop
-@@ -4188,7 +4190,8 @@
-                         // one needs a refresh, not a restart.
-                         const wasLive = verifyActivation(config.profile, name, liveNames(), activeProfileDir, disabled.has(name)).state === 'live'
-                             && hasHostHalf(config.profile, name, activeProfileDir);
--                        const beforeVersion = readInstalledVersion(config.profile, name, activeProfileDir);
-+                        const beforeVersion = readInstalledVersion(config.profile, name, activeProfileDir)
-+                            ?? (name === 'dshmarket' ? marketVersion() : null);
-                         const beforePackageName = readInstalledPackageName(config.profile, name, activeProfileDir);
-                         // A durable manifest pin is independently authoritative. When its
-                         // captured lock is missing or stale, the exact OLD re-add repairs
-@@ -4248,6 +4251,7 @@
-                         // well as after.
-                         const bundlesBefore = brokenClientBundles(config.profile, activeProfileDir);
-                         const manifestBefore = manifestCapture.snapshot;
-+                        const trialBefore = trialValidate(activeProfileDir, readBundleStack(activeProfileDir).community);
-                         const lockfileCapture = captureProfileLockfile();
-                         const previousVersionZh = beforeVersion === null ? '更新前版本未知' : `更新前版本为 v${beforeVersion}`;
-                         const previousVersionEn = beforeVersion === null ? 'the previous version is unknown' : `the previous version was v${beforeVersion}`;
-@@ -4699,14 +4703,16 @@
-                         if (ok) {
-                             const stack = readBundleStack(activeProfileDir);
-                             const trial = trialValidate(activeProfileDir, stack.community, hostAnchorOption);
--                            if (!trial.ok) {
-+                            const baselineErrors = new Set(trialBefore.errors.map(error => `${error.layer} ${error.message}`));
-+                            const introducedErrors = trial.errors.filter(error => !baselineErrors.has(`${error.layer} ${error.message}`));
-+                            if (introducedErrors.length > 0) {
-                                 ok = false;
-                                 // Name the LAYER, not only the message: the first error is
-                                 // often about a different bundle than the one being updated
-                                 // (#688 — the official dsh-web-app's patch list, blamed on
-                                 // whatever plugin the user happened to update), and a message
-                                 // without the layer reads as an accusation of the wrong package.
--                                const firstIssue = trial.errors[0];
-+                                const firstIssue = introducedErrors[0];
-                                 const first = firstIssue === undefined
-                                     ? 'the composition would not boot'
-                                     : `${firstIssue.layer}: ${firstIssue.message}`;
 diff --git a/lib/updates.js b/lib/updates.js
 --- a/lib/updates.js
 +++ b/lib/updates.js
-@@ -419,21 +419,27 @@
+@@ -455,21 +455,27 @@
   * entry that owns both the repo and the name, the npm fallback would
   * compare the install with whatever package merely shares its name.
   */
@@ -130,7 +73,7 @@ diff --git a/lib/updates.js b/lib/updates.js
      // the stable verdict for the rest of the TTL — reading as "the setting did
      // nothing".
 -    const cacheKey = `${activeProfileDir}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}\u0000${[...onlineSourceFor].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${[...catalogNpmByRepo].map(([n, s]) => `${n}:${s}`).sort().join(',')}`;
-+    const cacheKey = `${activeProfileDir}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}\u0000${[...onlineSourceFor].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${[...catalogNpmByRepo].map(([n, s]) => `${n}:${s}`).sort().join(',')} ${JSON.stringify([...hostProvidedNpmVersions])}`;
++    const cacheKey = `${activeProfileDir}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}\u0000${[...onlineSourceFor].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${[...catalogNpmByRepo].map(([n, s]) => `${n}:${s}`).sort().join(',')} ${JSON.stringify([...hostProvidedNpmVersions])} `;
      if (!force && updatesCache?.key === cacheKey && Date.now() - updatesCache.at < UPDATES_TTL_MS) {
          return updatesCache.data;
      }
