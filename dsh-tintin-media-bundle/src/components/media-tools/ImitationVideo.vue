@@ -21,7 +21,6 @@ import VoiceoverPickerDialog from '@/components/media-tools/VoiceoverPickerDialo
 import VoiceCloneParamsDialog from '@/components/media-tools/VoiceCloneParamsDialog.vue'
 import ImitationGenSteps from '@/components/media-tools/ImitationGenSteps.vue'
 import MaterialImagePickerDialog from '@/components/media-tools/MaterialImagePickerDialog.vue'
-import WbPickMaterialDialog from '@/components/workbench/WbPickMaterialDialog.vue'
 import ImitationMontageStep from './ImitationMontageStep.vue'
 import ImitationFxStep from './ImitationFxStep.vue'
 import { useImitationTts } from '@/composables/useImitationTts'
@@ -200,6 +199,21 @@ function writeImitateMeta(patch: Record<string, unknown>): void {
 const imitateMeta = computed<Record<string, unknown>>(() => {
   const meta = record.value?.meta as Record<string, unknown> | undefined
   return ((meta?.imitate as Record<string, unknown>) ?? {})
+})
+
+// 参考模式 ↔ 脚本 meta 双向同步（2026-10-13 核对服务端接口文档：重新生成文案
+// POST /copywriting/voiceover 的 script_id 分岔=按脚本 meta.imitate.reference_mode
+// 挂 video-copy-imitation skill（video_replace=剥离老卖点平移新卖点）——下拉改动
+// 必须落库，否则文案分岔与生成档位不一致）
+watch(() => iv.referenceMode.value, (mode) => {
+  if (!scriptId.value || !record.value) return
+  if (String(imitateMeta.value.reference_mode ?? '') === mode) return
+  writeImitateMeta({ reference_mode: mode })
+  void saveScript()
+})
+// 回读对齐：脚本 meta 为权威（刷新/他端改动后下拉跟随）
+watch(() => String(imitateMeta.value.reference_mode ?? ''), (mode) => {
+  if (mode && iv.referenceMode.value !== mode) iv.referenceMode.value = mode
 })
 const productImages = computed<string[]>(() => { const a = imitateMeta.value.product_images; return Array.isArray(a) ? a.map(String).filter(Boolean) : [] })
 /** 换物左栏参考=原片（meta.imitate.source_material_id；片段化由子组件按 gen 源窗 #t= 截取） */
@@ -604,25 +618,8 @@ function onToggleReplace(i: number): void {
     : enableShotReplaceItem(cur, productImageIds.value.map(Number))
 }
 
-/* ── 替换物选择（WbPickMaterialDialog 复用；模式驱动镜首次改选即落地显式块） ── */
-const replacePickVisible = ref(false)
-const replacePickIndex = ref(-1)
-function openReplacePicker(i: number): void {
-  replacePickIndex.value = i
-  replacePickVisible.value = true
-}
-function onReplacePick(item: PickerItem): void {
-  const cur = shots.value[replacePickIndex.value]
-  if (!cur) return
-  if (!cur.replace_item) {
-    if (!inReplace(cur)) return
-    shots.value[replacePickIndex.value] = enableShotReplaceItem(cur, productImageIds.value.map(Number))
-  }
-  const block = shots.value[replacePickIndex.value]?.replace_item
-  const mid = Number((item as Record<string, unknown>).material_id ?? (item as Record<string, unknown>).id)
-  if (!block || !Number.isFinite(mid) || mid <= 0) return
-  if (!block.ref_ids.includes(mid) && block.ref_ids.length < 9) block.ref_ids.push(mid) // refs 槽位上限 9（video_edit 契约）
-}
+/* ── 替换物参考图（2026-10-13 用户裁决：自由选库入口删除——无视角标注无法正确
+ *  换物；替换图固定=第 2 步产品六视图，按视角规范序随脚本落库） ── */
 function replaceThumbUrl(mid: number): string {
   return buildMediaThumbUrl(ivServerUrl.value, mid)
 }
@@ -644,6 +641,8 @@ async function saveScript(): Promise<boolean> {
 }
 
 const enteringPrep = ref(false)
+/** 下一步按钮文案随参考模式实时切换（2026-10-15 用户裁决：视频换物=直通视频生成（enterPrep 已有直通分支），其余=分镜头确认；第 1 步重选下拉即经共享 ref 同步刷新） */
+const nextStepLabel = computed(() => (iv.referenceMode.value === 'video_replace' ? '下一步：视频生成' : '下一步：分镜头确认'))
 /** 禁入第 3 步除非配音/采纳链完成（方案 A）且顶部视图在（2026-10-10 裁决） */
 const enterPrepBlocked = computed(() => !iv.productViewsReady.value || !!ttsBusy.value || !!distributeBusy.value)
 const enterPrepError = ref('')
@@ -948,6 +947,28 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
         <span class="lbl">拆解文案（原片口播转写——只读参考，不绑定脚本）</span>
         <textarea :value="origVoiceoverText" readonly rows="3" class="input carry-textarea iv-orig" placeholder="（原片无口播或拆解未含转写）"></textarea>
       </div>
+      <!-- 选品/平台/仿写行（2026-10-15 用户裁决：移至六视图之上——选品带出六视图，操作与产物相邻） -->
+      <div class="row">
+        <TButton label="选择产品" @click="productPickVisible = true" />
+        <span v-if="productLabel()" class="product-chip" title="当前产品（文案按此重写，产品图随脚本供生成）">当前产品：{{ productLabel() }}</span>
+        <button v-if="productLabel()" class="product-clear" title="清除已选产品" @click="clearScriptProduct">×</button>
+        <!-- 平台下拉（2026-10-03 用户裁决：仿写文案对齐文案混剪——字典 GET /copywriting/platforms，
+             platform 直传服务端，平台口播风格指引由服务端织入；十稿挑选弹窗确认后写入下方脚本文案框） -->
+        <label class="lbl">平台</label>
+        <select v-model="ivPlatform" class="input w110" title="投放平台（平台口播风格指引由服务端织入生成）">
+          <option v-for="p in ivPlatformOptions" :key="p.name" :value="p.name">{{ p.name }}</option>
+          <option v-if="!ivPlatformOptions.length" value="抖音">抖音</option>
+        </select>
+        <span class="spacer"></span>
+        <TButton
+          label="重新生成仿写文案"
+          :loading="regenBusy"
+          :disabled="!productLabel()"
+          :title="productLabel() ? '' : '请先「选择产品」——服务端按产品信息生成 10 种文案写法'"
+          @click="regenerateVoiceover"
+        />
+      </div>
+      <div v-if="regenError" class="iv-err">{{ regenError }}</div>
       <div class="opl-six">
         <template v-for="s in productSixSlots" :key="s.view">
           <div v-if="s.entry" class="six-cell">
@@ -986,27 +1007,6 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
           @click="saveEditedVoiceover"
         />
       </div>
-      <div class="row">
-        <TButton label="选择产品" @click="productPickVisible = true" />
-        <span v-if="productLabel()" class="product-chip" title="当前产品（文案按此重写，产品图随脚本供生成）">当前产品：{{ productLabel() }}</span>
-        <button v-if="productLabel()" class="product-clear" title="清除已选产品" @click="clearScriptProduct">×</button>
-        <!-- 平台下拉（2026-10-03 用户裁决：仿写文案对齐文案混剪——字典 GET /copywriting/platforms，
-             platform 直传服务端，平台口播风格指引由服务端织入；十稿挑选弹窗确认后写入上方脚本文案框） -->
-        <label class="lbl">平台</label>
-        <select v-model="ivPlatform" class="input w110" title="投放平台（平台口播风格指引由服务端织入生成）">
-          <option v-for="p in ivPlatformOptions" :key="p.name" :value="p.name">{{ p.name }}</option>
-          <option v-if="!ivPlatformOptions.length" value="抖音">抖音</option>
-        </select>
-        <span class="spacer"></span>
-        <TButton
-          label="重新生成仿写文案"
-          :loading="regenBusy"
-          :disabled="!productLabel()"
-          :title="productLabel() ? '' : '请先「选择产品」——服务端按产品信息生成 10 种文案写法'"
-          @click="regenerateVoiceover"
-        />
-      </div>
-      <div v-if="regenError" class="iv-err">{{ regenError }}</div>
       <!-- 参考声音（同文案混剪 Step3：TSelect+常驻播放条，源 GET /voice/samples） -->
       <div class="row ref-row">
         <span class="lbl">参考声音:</span>
@@ -1061,10 +1061,10 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
             <span class="lbl">替换为</span>
             <span class="iv-rep-refs">
               <img v-for="rid in replaceRefIds(shot)" :key="rid" :src="replaceThumbUrl(rid)" class="iv-rep-thumb" loading="lazy" />
-              <span v-if="!replaceRefIds(shot).length" class="muted">未选替换物品（请点右侧选择）</span>
+              <span v-if="!replaceRefIds(shot).length" class="muted">未绑定产品六视图——回第 2 步「选择产品」</span>
             </span>
-            <TButton label="选择替换物品" variant="secondary" size="small" @click="openReplacePicker(i)" />
-            <span class="muted">默认=第 2 步产品六视图；最多 9 张，排列顺序即参考图顺序</span>
+            <!-- 2026-10-13 用户裁决：自由选库入口删除——无视角标注的图无法正确换物，替换图固定=第 2 步产品六视图 -->
+            <span class="muted">替换图=第 2 步产品六视图（按视角规范序，最多 9 张）</span>
           </div>
         </div>
 
@@ -1095,7 +1095,7 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
         <TButton label="← 上一步" variant="primary" @click="goBack" />
         <span class="spacer"></span>
         <TButton
-          label="下一步：分镜头确认"
+          :label="nextStepLabel"
           :loading="enteringPrep"
           :disabled="enterPrepBlocked"
           :title="enterPrepTitle"
@@ -1109,8 +1109,6 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
       <!-- 六视图槽位·选择产品图（2026-10-10 恢复原形态：产品库选择+本地上传，单图绑定） -->
       <MaterialImagePickerDialog :open="sixPickOpen" :view-label="productSixSlots.find((s) => s.view === sixPendingView)?.label"
         @close="sixPickOpen = false" @pick="onPickerPick" />
-      <WbPickMaterialDialog :visible="replacePickVisible" image-only purpose="product"
-        @close="replacePickVisible = false" @pick="onReplacePick" />
 
       <!-- 设置声音克隆弹窗（对齐文案混剪 Step3 同名功能：参数随每次 TTS 请求发送） -->
       <VoiceCloneParamsDialog

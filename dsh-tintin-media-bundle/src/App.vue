@@ -148,8 +148,8 @@ onMounted(() => {
           <span v-if="t.disabled" class="badge">即将上线</span>
           <div class="card-top">
             <div class="icon" :style="{ background: t.accent }"><span>{{ t.emoji }}</span></div>
+            <div class="card-title">{{ t.title }}</div>
           </div>
-          <div class="card-title">{{ t.title }}</div>
           <div class="card-desc">{{ t.desc }}</div>
           <div class="card-foot">
             <span class="arrow" aria-hidden="true">
@@ -243,7 +243,8 @@ onMounted(() => {
   padding: calc(var(--space-5) * 2 / 3); /* 卡片 2/3（2026-10-14 用户裁决） */
   text-align: left;
   font: inherit;
-  background: var(--card);
+  background-color: var(--card);
+  background-image: var(--card-accent, none); /* 渐变铺满整卡、常驻（2026-10-15 用户裁决：不是焦点才有颜色） */
   border: none;
   border-radius: var(--radius-xl);
   cursor: pointer;
@@ -265,18 +266,15 @@ onMounted(() => {
 @keyframes card-in {
   from { opacity: 0; transform: translateY(12px); }
 }
-/* 卡片光晕：静态径向渐变（2026-10-14 用户报障「折叠侧栏全页白屏」——原 blur(40px)
-   + aurora-spin 无限旋转在卡片数增多/重排时 GPU 光栅化暴涨致渲染层假死；
-   静止观感一致，零滤镜零动画） */
-/* 光晕：偏心径向渐变 + 旋转动画（2026-10-14 恢复动画、去掉 blur 滤镜——
-   大尺寸模糊层重排时 GPU 光栅化暴涨曾致渲染层假死；无滤镜旋转=合成器零重光栅化） */
+/* 淡染光晕只在 hover/焦点时显现（2026-10-15 用户裁决：焦点时有光晕效果）；无 blur 滤镜旋转
+   （2026-10-14 报障：blur(40px)+旋转曾致渲染层假死，故只留无滤镜旋转） */
 .card::before {
   content: '';
   position: absolute;
   inset: -35%;
   z-index: 0;
   background: radial-gradient(circle at 32% 32%, var(--card-accent, #6366f1) 0%, transparent 52%);
-  opacity: 0.09;
+  opacity: 0;
   pointer-events: none;
   transition: opacity 0.4s;
   animation: card-aurora 9s linear infinite;
@@ -285,14 +283,12 @@ onMounted(() => {
 @keyframes card-aurora {
   to { transform: rotate(360deg); }
 }
-.card:hover::before { opacity: 0.18; }
+.card:hover::before, .card:focus-visible::before { opacity: 0.35; }
 .card > * { position: relative; z-index: 1; }
 .card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-3);
-  background: color-mix(in srgb, var(--card) 62%, transparent);
-  backdrop-filter: blur(14px) saturate(160%);
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  background: linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.08)), var(--card-accent, var(--card)); /* hover=渐变上叠一层轻微压暗 */
 }
 .card.is-disabled { cursor: not-allowed; }
 .card.is-disabled .icon { filter: grayscale(0.6); opacity: 0.75; }
@@ -303,28 +299,24 @@ onMounted(() => {
   right: var(--space-3);
   font-size: 11px;
   font-weight: 600;
-  color: var(--muted-foreground);
-  background: var(--surface-container);
-  border: 1px dashed var(--border);
+  color: #fff; /* 渐变卡底上翻白（2026-10-15 用户裁决） */
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px dashed rgba(255, 255, 255, 0.55);
   border-radius: 999px;
   padding: 2px 10px;
   pointer-events: none;
 }
-.card-top { display: flex; margin-bottom: calc(var(--space-4) * 2 / 3); } /* 卡片 2/3 */
+.card-top { display: flex; align-items: center; gap: calc(var(--space-2) * 2 / 3); margin-bottom: calc(var(--space-4) * 2 / 3); } /* 卡片 2/3；标题并排缩略图（2026-10-15 用户裁决） */
 .icon {
-  width: 35px;
-  height: 35px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
-  font-size: 18px;
+  font-size: 36px; /* 图标放大一倍（2026-10-15 用户裁决：18→36px） */
   line-height: 1;
   color: #fff;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
 }
-.card-title { margin-bottom: calc(var(--space-2) * 2 / 3); font-size: calc(var(--font-size-h3) * 2 / 3); font-weight: 700; line-height: var(--line-height-tight); color: var(--foreground); }
-.card-desc { flex: 1 1 auto; margin: 0; font-size: calc(var(--font-size-body) * 2 / 3); line-height: var(--line-height-body); color: var(--muted-foreground); }
+.card-title { font-size: var(--font-size-h4); font-weight: 700; line-height: var(--line-height-tight); color: #fff; } /* 标题并排缩略图、渐变卡底上翻白；小一号=h4（2026-10-15 用户裁决：21→18px） */
+.card-desc { flex: 1 1 auto; margin: 0; font-size: var(--font-size-body); line-height: var(--line-height-body); color: rgba(255, 255, 255, 0.85); } /* 渐变卡底上翻白（2026-10-15 用户裁决） */
 .card-foot { display: flex; justify-content: flex-end; margin-top: -2px; }
 .arrow {
   width: 24px;
@@ -333,8 +325,8 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  color: var(--primary);
-  background: var(--surface-container);
+  color: #fff; /* 渐变卡底上翻白（2026-10-15 用户裁决） */
+  background: rgba(255, 255, 255, 0.22);
   transition: transform var(--duration-fast), background var(--duration-fast);
 }
 .arrow svg { width: 14px; height: 14px; } /* 卡片 2/3 */

@@ -114,11 +114,11 @@ const tintinClient = (() => {
           root.addEventListener('click', (ev) => {
             const t = ev.target
             if (!(t instanceof Element) || t.closest('[data-tintin-entry]')) return
-            // 侧栏头部（logo+折叠按钮，位于「新会话」上方）不触发回工作台——2026-10-14 报障：点折叠被误判已强拆工具页
-            const btns = [...document.querySelectorAll('button')]; const row = btns.find((b) => b.textContent.trim() === '插件')
-            if (t === row || (row && row.contains(t))) return
+            // 展开态才强制回工作台：收起态新会话卡被上游整体卸载、文本查找全空→豁免链塌成任何点击都强拆（2026-10-15 报障）
+            const btns = [...root.querySelectorAll('button')]; const row = btns.find((b) => b.textContent.trim() === '插件')
+            if (row && (t === row || row.contains(t))) return
             const newBtn = btns.find((b) => b.textContent.trim() === '新会话')
-            if (newBtn && t.getBoundingClientRect().top < newBtn.getBoundingClientRect().top) return
+            if (!newBtn || t.getBoundingClientRect().top < newBtn.getBoundingClientRect().top) return
             if (activeId !== 'workbench') setActive('workbench')
           }, true)
         }
