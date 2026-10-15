@@ -296,10 +296,23 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     try { if (['https:', 'http:', 'mailto:'].includes(new URL(url).protocol)) void shell.openExternal(url).catch(error => runtime.report(error)) } catch { /* Ignore malformed external links. */ }
   }
   window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' } })
-  window.webContents.on('will-navigate', (event, url) => {
+  window.webContents.on('will-navigate', (event, url, isMainFrame) => {
+    // will-navigate is documented as top-level only; assert it so a future
+    // Electron behavior change can never drag sub-frames into openExternal.
+    if (!isMainFrame) return
     if (!url.startsWith(primary ? APP_URL : SHELL_URL)) { event.preventDefault(); openExternal(url) }
   })
-  window.webContents.on('will-redirect', (event, url) => { if (!url.startsWith(primary ? APP_URL : SHELL_URL)) event.preventDefault() })
+  window.webContents.on('will-redirect', (event, url, _isInPlace, isMainFrame) => {
+    // A blanket preventDefault here also cancels SUB-FRAME server-side
+    // redirects: an embedded cross-origin page whose first hop is a 302 (e.g.
+    // the dsh-agentone Feishu drive tab redirecting to its login page when the
+    // desktop session holds no session cookies) then stalls forever on
+    // about:blank - a silent blank iframe with no console error and no
+    // follow-up network request. Keep the app-origin policy for the top-level
+    // frame; sub-frames remain contained by Chromium site isolation.
+    if (!isMainFrame) return
+    if (!url.startsWith(primary ? APP_URL : SHELL_URL)) event.preventDefault()
+  })
   // The official Desktop pops the same editing menu: native roles without shortcut
   // labels, availability from Chromium, and Windows labels in the application language.
   installEditingContextMenu(window.webContents, window, {
