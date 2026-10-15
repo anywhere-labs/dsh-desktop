@@ -3,6 +3,13 @@
 Var pid
 
 !macro customCheckAppRunning
+  ${if} ${isUpdated}
+  ${andIfNot} ${Silent}
+    ; Ensure the installer progress window is visible and focused even when an
+    ; older updater (<= 2.0.18-next) spawned the installer with windowsHide: true.
+    ShowWindow $HWNDPARENT ${SW_SHOW}
+    BringToFront
+  ${endIf}
   !insertmacro IS_POWERSHELL_AVAILABLE
   !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0
   ${if} $R0 != 0
@@ -61,6 +68,18 @@ Var pid
     Goto dsh_installer_wait_for_fallback
 
   dsh_installer_app_stopped:
+!macroend
+
+; Override /S when an older updater (<= 2.0.18-next) launches an in-app update
+; with ['/S', '--updated', '--force-run'], so the new installer still displays
+; the visible extraction progress window.
+!macro customInit
+  !ifndef BUILD_UNINSTALLER
+    ${if} ${isUpdated}
+    ${andIf} ${isForceRun}
+      SetSilent normal
+    ${endIf}
+  !endif
 !macroend
 
 ; Skip the install-mode wizard page during in-app updates while preserving
