@@ -1510,6 +1510,14 @@ describe('published package surface', () => {
     expect(installedNsisExtractor).toContain('SetOutPath "$INSTDIR"')
     expect(installedNsisExtractor).not.toContain('$PLUGINSDIR\\7z-out')
     expect(installedNsisExtractor).not.toContain('CopyFiles /SILENT')
+    // build/installer.nsh grants the sandbox read ACE here, before extraction,
+    // so extracted files inherit it as they are created (#1366).
+    const extractOutPath = installedNsisExtractor.indexOf('SetOutPath "$INSTDIR"')
+    const prepareHook = installedNsisExtractor.indexOf('!insertmacro dshPrepareInstallDir')
+    expect(patch).toContain('+    !insertmacro dshPrepareInstallDir')
+    expect(installedNsisExtractor).toContain('!ifmacrodef dshPrepareInstallDir')
+    expect(prepareHook).toBeGreaterThan(extractOutPath)
+    expect(prepareHook).toBeLessThan(installedNsisExtractor.indexOf('Nsis7z::Extract', extractOutPath))
     expect(installedNsisInstallUtil).toContain(
       'Old uninstaller returned code 2; continuing with non-atomic in-place replacement.',
     )

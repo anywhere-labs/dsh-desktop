@@ -14558,7 +14558,7 @@ __metadata:
 
 "app-builder-lib@patch:app-builder-lib@npm%3A26.15.7#./patches/app-builder-lib@26.15.7.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 26.15.7
-  resolution: "app-builder-lib@patch:app-builder-lib@npm%3A26.15.7#./patches/app-builder-lib@26.15.7.patch::version=26.15.7&hash=5ac45c&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "app-builder-lib@patch:app-builder-lib@npm%3A26.15.7#./patches/app-builder-lib@26.15.7.patch::version=26.15.7&hash=cc415a&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@electron/asar": "npm:3.4.1"
     "@electron/fuses": "npm:^1.8.0"
@@ -14604,7 +14604,7 @@ __metadata:
   peerDependencies:
     dmg-builder: 26.15.7
     electron-builder-squirrel-windows: 26.15.7
-  checksum: 10c0/4788979599b280fc8b2adea3facf3d8fc76b6b662ab8e228fdbd2fc089a9c3f7bafa4a2e96c7a1bebd19c9ae7f1443dd0b97b9f1b3092a9b59d0caa87a64c806
+  checksum: 10c0/7a74b2da22c1452b8643f15d0a29fea1ee1200ad240834b91f2b38d50be2ff384b2b86be813e96aa233677f1fcb479e54696d1f71c40ba41b318421d8435dded
   languageName: node
   linkType: hard
 
