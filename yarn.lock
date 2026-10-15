@@ -12808,7 +12808,7 @@ __metadata:
 
 "esbuild@patch:esbuild@npm%3A0.28.2#~/.yarn/patches/esbuild-npm-0.28.2-cf50b560fa.patch":
   version: 0.28.2
-  resolution: "esbuild@patch:esbuild@npm%3A0.28.2#~/.yarn/patches/esbuild-npm-0.28.2-cf50b560fa.patch::version=0.28.2&hash=937bf6"
+  resolution: "esbuild@patch:esbuild@npm%3A0.28.2#~/.yarn/patches/esbuild-npm-0.28.2-cf50b560fa.patch::version=0.28.2&hash=364c34"
   dependencies:
     "@esbuild/aix-ppc64": "npm:0.28.2"
     "@esbuild/android-arm": "npm:0.28.2"
@@ -12891,7 +12891,7 @@ __metadata:
       optional: true
   bin:
     esbuild: bin/esbuild
-  checksum: 10c0/2582e1540db40e99aeb92954b62d5b91ea4f90fc5124fca407fecd9e2382fb0c681ad9a6e0b82928ff07eb988549bcf8f3421da391ac901750e3ef4e52dfbdde
+  checksum: 10c0/f338d393f35cb46d9198104fa8487b0f191c0be4029e4fe291e9fd5f10052f011857e6b639c140707177ac499641882d1b3bf741fa104254aa571245860be257
   languageName: node
   linkType: hard
 
