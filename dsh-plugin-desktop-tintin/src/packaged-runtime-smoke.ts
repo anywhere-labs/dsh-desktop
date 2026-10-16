@@ -25,9 +25,9 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`dsh-plugin-desktop: packaged runtime smoke ${message}`)
 }
 
-// 安全软件的实时监控（本机实测：火绒 sysdiag 过滤驱动）会瞬时拒绝刚写出的未签名
-// 程序新建目录 / 申请临时目录（EPERM/EACCES/EBUSY）。实测同一提交时成时不成，
-// 属竞态而非权限缺失，稍候重试即通过；其它错误码照旧立即抛出。
+// 宿主可能瞬时拒绝刚写出的未签名程序建目录 / 申请临时目录（EPERM/EACCES/EBUSY，
+// 例如实时防护正在处理该文件）；这类拒绝是环境性的、短暂的，稍候重试即通过。
+// 其它错误码照旧立即抛出，避免掩盖真实缺陷。
 const TRANSIENT_FS_DENIAL_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
 
 async function retryTransientDenial<T>(task: () => T, attempts = 20, delayMs = 250): Promise<T> {

@@ -321,11 +321,35 @@ function packagedRuntimeRunnable(context: PackagedRuntimeContext): boolean {
 }
 
 /**
- * A security product's real-time filter can transiently refuse a freshly built,
- * unsigned executable — observed locally as Huorong sysdiag rejecting EPERM/EACCES/
- * EBUSY on temp-directory work and even refusing to start the process. The same
- * revision passes and fails on different runs, so a refused check is retried a
- * bounded number of times; wrong output with a zero exit stays an immediate failure.
+ * Chromium (Electron) lowers its own integrity level to LOW when the packaged
+ * app is started from an elevated context — measured on this host: the same
+ * electron.exe runs at S-1-16-4096 when its launcher is an elevated console or
+ * a scheduled task, while node/cmd/powershell children stay at High. Windows
+ * no-write-up then rejects every create/write with EPERM, which is what killed
+ * the packaged smoke and, through it, the whole packaging run.
+ *
+ * A DACL grant does NOT help: the object itself must carry a Low mandatory
+ * label. Lowering the scratch root integrity level is the documented way to
+ * share a directory downward, and subdirectories created later inherit the
+ * label, so the child can build its fixture tree inside. Best-effort by design:
+ * a missing icacls (or a non-Windows host) must not change smoke behavior.
+ * @param directory - the scratch root handed to the packaged child.
+ */
+function lowerScratchIntegrityLevel(directory: string): void {
+  if (process.platform !== 'win32') return
+  try {
+    spawnSync('icacls', [directory, '/setintegritylevel', '(OI)(CI)Low'], { windowsHide: true })
+  } catch {
+    // no icacls: the child keeps the integrity it was started with
+  }
+}
+
+/**
+ * File-system work on a freshly packaged, unsigned executable can be refused
+ * outright by the host. Such a refusal is environmental and short-lived, so a
+ * refused check is retried a bounded number of times with a pause between
+ * attempts; wrong output with a zero exit stays an immediate failure, so real
+ * defects are never masked and the final error still carries attempts=N.
  */
 function retryablePackagedSmokeFailure(result: PackagedElectronResult): boolean {
   if (result.error !== undefined) return true
@@ -334,8 +358,8 @@ function retryablePackagedSmokeFailure(result: PackagedElectronResult): boolean 
 }
 
 const PACKAGED_SMOKE_ATTEMPTS = 6
-/** 重试间隔：拒绝往往来自安全软件对「刚写出的 231MB 未签名程序」的扫描，
- *  这种阻塞是秒级的——紧挨着重试没有意义，必须给它时间把扫描做完。 */
+/* 重试间隔：这类拒绝通常是秒级的（例如文件刚写出、宿主的实时防护正在处理它），
+   紧挨着重试没有意义，必须留出时间窗口。 */
 const PACKAGED_SMOKE_RETRY_DELAY_MS = 2000
 const TRANSIENT_DENIAL_PATTERN = /EPERM|EACCES|EBUSY/u
 
@@ -358,6 +382,7 @@ export function smokePackagedElectronRuntime(
   const executable = resolvePackagedExecutablePath(context)
   const runtimeRoot = resolvePackagedRuntimeRoot(context)
   const smokeHome = mkdtempSync(join(tmpdir(), 'dsh-packaged-cli-'))
+  lowerScratchIntegrityLevel(smokeHome)
   const environment = {
     ...process.env,
     ELECTRON_RUN_AS_NODE: '1',
