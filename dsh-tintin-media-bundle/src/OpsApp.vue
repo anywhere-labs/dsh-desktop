@@ -93,7 +93,7 @@ onMounted(() => {
             >
             <span v-if="t.disabled" class="badge">建设中</span>
             <div class="card-top">
-              <div class="icon" :style="{ background: t.accent }"><span>{{ t.emoji }}</span></div>
+              <div class="icon"><span>{{ t.emoji }}</span></div>
               <div class="card-title">{{ t.title }}</div>
             </div>
             <div class="card-desc">{{ t.desc }}</div>
@@ -180,8 +180,11 @@ onMounted(() => {
   padding: calc(var(--space-5) * 2 / 3); /* 卡片 2/3（2026-10-14 用户裁决） */
   text-align: left;
   font: inherit;
+  /* 底色 = 罩层 + accent 渐变两层叠加：罩层把饱和度压下来（2026-10-16 用户裁决：
+     底色再浅、饱和度不要这么高）。整卡只有「底色 + 图片」两层，图片不再自带色块。 */
+  --tool-card-wash: rgba(255, 255, 255, 0.62);
   background-color: var(--card);
-  background-image: var(--card-accent, none); /* 渐变铺满整卡、常驻（2026-10-15 用户裁决：不是焦点才有颜色） */
+  background-image: linear-gradient(var(--tool-card-wash), var(--tool-card-wash)), var(--card-accent, none);
   border: none;
   border-radius: var(--radius-xl);
   cursor: pointer;
@@ -191,6 +194,7 @@ onMounted(() => {
     box-shadow var(--duration-normal) var(--easing-default),
     background var(--duration-fast);
 }
+.dark .tool-card { --tool-card-wash: rgba(13, 16, 24, 0.58); } /* 暗色主题用暗罩，保持低饱和又不刺眼 */
 .grid .tool-card:nth-child(1) { animation-delay: 0ms; }
 .grid .tool-card:nth-child(2) { animation-delay: 35ms; }
 .grid .tool-card:nth-child(3) { animation-delay: 70ms; }
@@ -219,12 +223,13 @@ onMounted(() => {
 @keyframes card-aurora {
   to { transform: rotate(360deg); }
 }
-.tool-card:hover::before, .tool-card:focus-visible::before { opacity: 0.35; }
+.tool-card:hover::before, .tool-card:focus-visible::before { opacity: 0.16; } /* 浅底上光晕同步收敛（2026-10-16） */
 .tool-card > * { position: relative; z-index: 1; }
 .tool-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-3);
-  background: linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.08)), var(--card-accent, var(--card)); /* hover=渐变上叠一层轻微压暗 */
+  /* hover 保持同一套「罩层 + 渐变」，只再叠一层极淡压暗——不再回到高饱和渐变 */
+  background-image: linear-gradient(rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.05)), linear-gradient(var(--tool-card-wash), var(--tool-card-wash)), var(--card-accent, var(--card));
 }
 .tool-card.is-disabled { cursor: not-allowed; }
 .tool-card.is-disabled .icon { filter: grayscale(0.6); opacity: 0.75; }
@@ -235,24 +240,24 @@ onMounted(() => {
   right: var(--space-3);
   font-size: 11px;
   font-weight: 600;
-  color: #fff; /* 渐变卡底上翻白（2026-10-15 用户裁决） */
-  background: rgba(255, 255, 255, 0.22);
-  border: 1px dashed rgba(255, 255, 255, 0.55);
+  color: var(--muted-foreground); /* 浅底中性色（2026-10-16 用户裁决：底色转浅后白字不可读） */
+  background: rgba(127, 127, 127, 0.16);
+  border: 1px dashed rgba(127, 127, 127, 0.5);
   border-radius: 999px;
   padding: 2px 10px;
   pointer-events: none;
 }
-.card-top { display: flex; align-items: center; gap: calc(var(--space-2) * 2 / 3); margin-bottom: calc(var(--space-4) * 2 / 3); } /* 卡片 2/3；标题并排缩略图（2026-10-15 用户裁决） */
+.card-top { display: flex; align-items: flex-end; gap: calc(var(--space-2) * 2 / 3); margin-bottom: calc(var(--space-4) * 2 / 3); } /* 标题与图片底部对齐（2026-10-16 用户裁决） */
 .icon {
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 36px; /* 图标放大一倍（2026-10-15 用户裁决：18→36px） */
   line-height: 1;
-  color: #fff;
+  /* 图片自身透明：卡片只有「底色 + 图片」两层，图标不再带自己的色块（2026-10-16 用户裁决） */
 }
-.card-title { font-size: var(--font-size-h4); font-weight: 700; line-height: var(--line-height-tight); color: #fff; } /* 标题并排缩略图、渐变卡底上翻白；小一号=h4（2026-10-15 用户裁决：21→18px） */
-.card-desc { flex: 1 1 auto; margin: 0; font-size: var(--font-size-body); line-height: var(--line-height-body); color: rgba(255, 255, 255, 0.85); } /* 渐变卡底上翻白（2026-10-15 用户裁决） */
+.card-title { font-size: var(--font-size-h4); font-weight: 700; line-height: var(--line-height-tight); color: var(--foreground); } /* 浅底改跟随主题墨色（2026-10-16 用户裁决：底色转浅后白字不可读） */
+.card-desc { flex: 1 1 auto; margin: 0; font-size: var(--font-size-body); line-height: var(--line-height-body); color: var(--muted-foreground); } /* 同上（2026-10-16） */
 .card-foot { display: flex; justify-content: flex-end; margin-top: -2px; }
 .arrow {
   width: 24px;
@@ -261,8 +266,8 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  color: #fff; /* 渐变卡底上翻白（2026-10-15 用户裁决） */
-  background: rgba(255, 255, 255, 0.22);
+  color: var(--muted-foreground); /* 浅底中性色（2026-10-16 用户裁决） */
+  background: rgba(127, 127, 127, 0.16);
   transition: transform var(--duration-fast), background var(--duration-fast);
 }
 .arrow svg { width: 14px; height: 14px; } /* 卡片 2/3 */
