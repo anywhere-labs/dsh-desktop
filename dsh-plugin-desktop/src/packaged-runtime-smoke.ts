@@ -30,7 +30,7 @@ function assert(condition: unknown, message: string): asserts condition {
 // 属竞态而非权限缺失，稍候重试即通过；其它错误码照旧立即抛出。
 const TRANSIENT_FS_DENIAL_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
 
-async function retryTransientDenial<T>(task: () => T, attempts = 10, delayMs = 150): Promise<T> {
+async function retryTransientDenial<T>(task: () => T, attempts = 20, delayMs = 250): Promise<T> {
   for (let attempt = 1; ; attempt += 1) {
     try {
       return task()

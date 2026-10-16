@@ -333,8 +333,15 @@ function retryablePackagedSmokeFailure(result: PackagedElectronResult): boolean 
   return TRANSIENT_DENIAL_PATTERN.test(result.stderr)
 }
 
-const PACKAGED_SMOKE_ATTEMPTS = 4
+const PACKAGED_SMOKE_ATTEMPTS = 6
+/** 重试间隔：拒绝往往来自安全软件对「刚写出的 231MB 未签名程序」的扫描，
+ *  这种阻塞是秒级的——紧挨着重试没有意义，必须给它时间把扫描做完。 */
+const PACKAGED_SMOKE_RETRY_DELAY_MS = 2000
 const TRANSIENT_DENIAL_PATTERN = /EPERM|EACCES|EBUSY/u
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
 
 /**
  * Execute the real packaged runtime through Electron's supported RunAsNode
@@ -398,6 +405,7 @@ export function smokePackagedElectronRuntime(
       let attempt = 1
       while (attempt < PACKAGED_SMOKE_ATTEMPTS && retryablePackagedSmokeFailure(result)) {
         attempt += 1
+        sleepSync(PACKAGED_SMOKE_RETRY_DELAY_MS)
         result = run(executable, ['--expose-internals', check.entry, ...check.args], environment)
       }
       if (result.error !== undefined) {
