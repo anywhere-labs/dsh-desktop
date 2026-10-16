@@ -85,7 +85,7 @@ onMounted(() => {
               v-for="t in g.tools"
               :key="t.id"
               type="button"
-              class="card"
+              class="tool-card"
               :class="{ 'is-disabled': t.disabled }"
               :style="{ '--card-accent': t.accent }"
               :disabled="t.disabled"
@@ -168,7 +168,11 @@ onMounted(() => {
 /* 入场 stagger + 光晕旋转（2026-09-25 用户报障「缺原客户端动画」补齐，
    SRC OtToolCard/OpsTools 口径：stagger-in .35s + 35ms 步进、aurora-spin 8s；
    backwards 填充：延迟期显示 from 态，播完交还 transform 给 hover 抬升） */
-.card {
+/* 工具卡不能用 `.card` 类名：移植兼容层 `.tintin-media-scope .card`（tintin-global.css
+   的旧类映射）与本规则特异性相同且更靠后，基础态会被拉回「白底 + 边框 + 阴影」，
+   只有 hover/焦点（多一个伪类、特异性更高）才盖得回渐变——这正是 2026-10-16 用户
+   报障「只有焦点才有底色、字看不见」的根因。改用独立类名彻底避开旧类映射。 */
+.tool-card {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -187,11 +191,11 @@ onMounted(() => {
     box-shadow var(--duration-normal) var(--easing-default),
     background var(--duration-fast);
 }
-.grid .card:nth-child(1) { animation-delay: 0ms; }
-.grid .card:nth-child(2) { animation-delay: 35ms; }
-.grid .card:nth-child(3) { animation-delay: 70ms; }
-.grid .card:nth-child(4) { animation-delay: 105ms; }
-.grid .card:nth-child(n + 5) { animation-delay: 140ms; }
+.grid .tool-card:nth-child(1) { animation-delay: 0ms; }
+.grid .tool-card:nth-child(2) { animation-delay: 35ms; }
+.grid .tool-card:nth-child(3) { animation-delay: 70ms; }
+.grid .tool-card:nth-child(4) { animation-delay: 105ms; }
+.grid .tool-card:nth-child(n + 5) { animation-delay: 140ms; }
 @keyframes card-in {
   from { opacity: 0; transform: translateY(12px); }
 }
@@ -200,7 +204,7 @@ onMounted(() => {
    静止观感一致，零滤镜零动画） */
 /* 光晕：偏心径向渐变 + 旋转动画（2026-10-14 恢复动画、去掉 blur 滤镜——
    大尺寸模糊层重排时 GPU 光栅化暴涨曾致渲染层假死；无滤镜旋转=合成器零重光栅化） */
-.card::before {
+.tool-card::before {
   content: '';
   position: absolute;
   inset: -35%;
@@ -215,16 +219,16 @@ onMounted(() => {
 @keyframes card-aurora {
   to { transform: rotate(360deg); }
 }
-.card:hover::before, .card:focus-visible::before { opacity: 0.35; }
-.card > * { position: relative; z-index: 1; }
-.card:hover {
+.tool-card:hover::before, .tool-card:focus-visible::before { opacity: 0.35; }
+.tool-card > * { position: relative; z-index: 1; }
+.tool-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-3);
   background: linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.08)), var(--card-accent, var(--card)); /* hover=渐变上叠一层轻微压暗 */
 }
-.card.is-disabled { cursor: not-allowed; }
-.card.is-disabled .icon { filter: grayscale(0.6); opacity: 0.75; }
-.card.is-disabled:hover { transform: none; box-shadow: none; }
+.tool-card.is-disabled { cursor: not-allowed; }
+.tool-card.is-disabled .icon { filter: grayscale(0.6); opacity: 0.75; }
+.tool-card.is-disabled:hover { transform: none; box-shadow: none; }
 .badge {
   position: absolute;
   top: var(--space-3);
@@ -262,7 +266,7 @@ onMounted(() => {
   transition: transform var(--duration-fast), background var(--duration-fast);
 }
 .arrow svg { width: 14px; height: 14px; } /* 卡片 2/3 */
-.card:hover:not(.is-disabled) .arrow { transform: translateX(2px); background: var(--primary); color: var(--primary-foreground); }
+.tool-card:hover:not(.is-disabled) .arrow { transform: translateX(2px); background: var(--primary); color: var(--primary-foreground); }
 
 .bar {
   display: flex;
