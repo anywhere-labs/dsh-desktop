@@ -802,6 +802,92 @@ describe('packaged desktop runtime verification', () => {
     }
   })
 
+  it('retries a packaged smoke check a transient file-system denial refused', () => {
+    const runtimeContext = context(
+      '/build',
+      process.platform,
+      process.platform === 'darwin' ? 4 : undefined,
+      process.platform === 'linux' ? 'dsh-plugin-desktop-beta' : undefined,
+    )
+    const dshVersion = JSON.parse(readFileSync(
+      new URL('../node_modules/@deepseek-ai/dsh/package.json', import.meta.url),
+      'utf8',
+    )).version as string
+    const pnpmVersion = JSON.parse(readFileSync(
+      new URL('../node_modules/pnpm/package.json', import.meta.url),
+      'utf8',
+    )).version as string
+    let packagedSmokeAttempts = 0
+    const run = vi.fn<PackagedElectronRunner>((_executable, args) => {
+      const normalizedArgs = args.map(arg => arg.replaceAll('\\', '/'))
+      if (normalizedArgs.some(arg => arg.endsWith('/lib/packaged-runtime-smoke.js'))) {
+        packagedSmokeAttempts += 1
+        // 本机实测：火绒实时监控会对刚写出的未签名程序瞬时拒绝 Temp 下建目录
+        if (packagedSmokeAttempts === 1) {
+          return {
+            status: 1,
+            stdout: '',
+            stderr: "Error: EPERM: operation not permitted, mkdir 'C:\\Temp\\dsh-packaged-cli-1\\profile-resolver'",
+          }
+        }
+        return { status: 0, stdout: 'DSH_PACKAGED_RUNTIME_OK', stderr: '' }
+      }
+      return {
+        status: 0,
+        stdout: normalizedArgs.some(arg => arg.endsWith('/@deepseek-ai/dsh/lib/bin.js'))
+          ? dshVersion
+          : normalizedArgs.some(arg => arg.endsWith('/pnpm/bin/pnpm.mjs'))
+            ? pnpmVersion
+            : args.includes('--dump-config')
+              ? '# == cordis.yml\n- name: @deepseek-ai/dsh-base\n'
+              : 'Usage: dsh --profile headless [options]',
+        stderr: '',
+      }
+    })
+
+    expect(() => smokePackagedElectronRuntime(runtimeContext, run)).not.toThrow()
+    expect(packagedSmokeAttempts).toBe(2)
+  })
+
+  it('does not retry a packaged smoke check that produced the wrong output', () => {
+    const runtimeContext = context(
+      '/build',
+      process.platform,
+      process.platform === 'darwin' ? 4 : undefined,
+      process.platform === 'linux' ? 'dsh-plugin-desktop-beta' : undefined,
+    )
+    const dshVersion = JSON.parse(readFileSync(
+      new URL('../node_modules/@deepseek-ai/dsh/package.json', import.meta.url),
+      'utf8',
+    )).version as string
+    const pnpmVersion = JSON.parse(readFileSync(
+      new URL('../node_modules/pnpm/package.json', import.meta.url),
+      'utf8',
+    )).version as string
+    let packagedSmokeAttempts = 0
+    const run = vi.fn<PackagedElectronRunner>((_executable, args) => {
+      const normalizedArgs = args.map(arg => arg.replaceAll('\\', '/'))
+      if (normalizedArgs.some(arg => arg.endsWith('/lib/packaged-runtime-smoke.js'))) {
+        packagedSmokeAttempts += 1
+        return { status: 0, stdout: 'NOT_THE_MARKER', stderr: '' }
+      }
+      return {
+        status: 0,
+        stdout: normalizedArgs.some(arg => arg.endsWith('/@deepseek-ai/dsh/lib/bin.js'))
+          ? dshVersion
+          : normalizedArgs.some(arg => arg.endsWith('/pnpm/bin/pnpm.mjs'))
+            ? pnpmVersion
+            : args.includes('--dump-config')
+              ? '# == cordis.yml\n- name: @deepseek-ai/dsh-base\n'
+              : 'Usage: dsh --profile headless [options]',
+        stderr: '',
+      }
+    })
+
+    expect(() => smokePackagedElectronRuntime(runtimeContext, run)).toThrow('attempts=1')
+    expect(packagedSmokeAttempts).toBe(1)
+  })
+
   it('does not try to execute a cross-platform package on the build host', () => {
     const target = process.platform === 'win32' ? 'darwin' : 'win32'
     const run = vi.fn<PackagedElectronRunner>()

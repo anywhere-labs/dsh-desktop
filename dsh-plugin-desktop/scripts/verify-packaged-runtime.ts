@@ -321,6 +321,22 @@ function packagedRuntimeRunnable(context: PackagedRuntimeContext): boolean {
 }
 
 /**
+ * A security product's real-time filter can transiently refuse a freshly built,
+ * unsigned executable — observed locally as Huorong sysdiag rejecting EPERM/EACCES/
+ * EBUSY on temp-directory work and even refusing to start the process. The same
+ * revision passes and fails on different runs, so a refused check is retried a
+ * bounded number of times; wrong output with a zero exit stays an immediate failure.
+ */
+function retryablePackagedSmokeFailure(result: PackagedElectronResult): boolean {
+  if (result.error !== undefined) return true
+  if (result.status === 0) return false
+  return TRANSIENT_DENIAL_PATTERN.test(result.stderr)
+}
+
+const PACKAGED_SMOKE_ATTEMPTS = 4
+const TRANSIENT_DENIAL_PATTERN = /EPERM|EACCES|EBUSY/u
+
+/**
  * Execute the real packaged runtime through Electron's supported RunAsNode
  * path. This proves DSH and pnpm can load from the packaged application root,
  * the upstream Profile proxy selects Electron, and native dependencies resolve.
@@ -378,7 +394,12 @@ export function smokePackagedElectronRuntime(
   ] as const
   try {
     for (const check of checks) {
-      const result = run(executable, ['--expose-internals', check.entry, ...check.args], environment)
+      let result = run(executable, ['--expose-internals', check.entry, ...check.args], environment)
+      let attempt = 1
+      while (attempt < PACKAGED_SMOKE_ATTEMPTS && retryablePackagedSmokeFailure(result)) {
+        attempt += 1
+        result = run(executable, ['--expose-internals', check.entry, ...check.args], environment)
+      }
       if (result.error !== undefined) {
         throw new Error(`dsh-plugin-desktop: packaged ${check.label} smoke could not start`, {
           cause: result.error,
@@ -387,7 +408,7 @@ export function smokePackagedElectronRuntime(
       if (result.status !== 0 || !check.accepts(result.stdout)) {
         throw new Error(
           `dsh-plugin-desktop: packaged ${check.label} smoke failed with status ${String(result.status)}; `
-          + `signal=${String(result.signal ?? null)}; `
+          + `signal=${String(result.signal ?? null)}; attempts=${String(attempt)}; `
           + `stdout=${JSON.stringify(result.stdout.trim())}; stderr=${JSON.stringify(result.stderr.trim())}`,
         )
       }
@@ -400,7 +421,14 @@ export function smokePackagedElectronRuntime(
       )
     }
   } finally {
-    rmSync(smokeHome, { recursive: true, force: true })
+    // Cleanup is best-effort: a real-time security filter can still hold the files
+    // the child just wrote (EBUSY/EPERM). Failing to delete a throwaway temp root is
+    // not a packaging defect, so it must not fail the build; the OS temp cleanup owns it.
+    try {
+      rmSync(smokeHome, { recursive: true, force: true })
+    } catch {
+      // leave the temp root to the system
+    }
   }
 }
 

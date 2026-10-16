@@ -25,11 +25,30 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`dsh-plugin-desktop: packaged runtime smoke ${message}`)
 }
 
-function createSmokeTempDir(name: string): string {
+// 安全软件的实时监控（本机实测：火绒 sysdiag 过滤驱动）会瞬时拒绝刚写出的未签名
+// 程序新建目录 / 申请临时目录（EPERM/EACCES/EBUSY）。实测同一提交时成时不成，
+// 属竞态而非权限缺失，稍候重试即通过；其它错误码照旧立即抛出。
+const TRANSIENT_FS_DENIAL_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+
+async function retryTransientDenial<T>(task: () => T, attempts = 10, delayMs = 150): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return task()
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (attempt >= attempts || code === undefined || !TRANSIENT_FS_DENIAL_CODES.has(code)) throw error
+      await new Promise((resolve) => { setTimeout(resolve, delayMs) })
+    }
+  }
+}
+
+async function createSmokeTempDir(name: string): Promise<string> {
   const verifierRoot = process.env.DSH_PACKAGED_SMOKE_ROOT
-  if (!verifierRoot) return mkdtempSync(join(tmpdir(), `dsh-packaged-${name}-`))
+  if (!verifierRoot) {
+    return await retryTransientDenial(() => mkdtempSync(join(tmpdir(), `dsh-packaged-${name}-`)))
+  }
   const root = join(verifierRoot, name)
-  mkdirSync(root, { recursive: true })
+  await retryTransientDenial(() => mkdirSync(root, { recursive: true }))
   return root
 }
 
@@ -66,7 +85,7 @@ async function smokeSessionMigration(): Promise<void> {
   const { Context } = await import('@deepseek-ai/cordis')
   const { SessionId } = await import('@deepseek-ai/dsh-session')
   const { default: JsonlSessionPersistence } = await import('@deepseek-ai/dsh-session-persistence-jsonl')
-  const root = createSmokeTempDir('session-migration')
+  const root = await createSmokeTempDir('session-migration')
   const id = SessionId('packaged-migration')
   const directory = join(root, '_no-cwd', id)
   const source = JSON.stringify({
@@ -95,7 +114,7 @@ async function smokeSessionMigration(): Promise<void> {
 
 /** Exercise the production Worker entry through Electron's logical ASAR path. */
 async function smokeDiagnosticExportWorker(): Promise<void> {
-  const root = createSmokeTempDir('diagnostics')
+  const root = await createSmokeTempDir('diagnostics')
   const logsDir = join(root, 'logs')
   const userDataDir = join(root, 'user-data')
   const crashDumpsDir = join(root, 'Crashpad')
@@ -121,7 +140,7 @@ async function smokeDiagnosticExportWorker(): Promise<void> {
   }
 }
 
-const root = createSmokeTempDir('profile-resolver')
+const root = await createSmokeTempDir('profile-resolver')
 try {
   const profileDir = join(root, 'profiles', 'smoke')
   const profileManifestPath = join(profileDir, 'package.json')
