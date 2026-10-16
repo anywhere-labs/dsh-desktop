@@ -6,6 +6,7 @@ import {
   BUILTIN_CREATION_SKILLS,
   CREATION_CATALOG,
   CREATION_CATALOG_CATEGORIES,
+  CREATION_RATIOS,
   CREATION_TYPES,
   type CreationSkill,
   buildLlmMessages,
@@ -17,8 +18,12 @@ import {
   filterSkills,
   findSkillByName,
   llmTextFromResponse,
+  loadCreationPrefs,
   newSkillId,
+  subjectProductFromItem,
+  sanitizeCreationPrefs,
   sanitizeSkills,
+  saveCreationPrefs,
   subjectsBlock,
 } from '../src/composables/creationStudioLogic'
 
@@ -192,5 +197,95 @@ describe('发送后端路由（P1/P2 对接，2026-10-16）', () => {
     // 空输入+无主体 → product_desc 空串（调用方校验报错，不造默认值）
     expect(buildVoiceoverRequest({ skill, input: '' }).product_desc).toBe('')
     expect(JSON.stringify(buildVoiceoverRequest({ skill, input: 'x' })).includes('skill_id')).toBe(false)
+  })
+})
+
+// ── 生成偏好（2026-10-16 用户裁决：「自动」可点选——即梦生成偏好面板同款）──
+describe('生成偏好 sanitize 容错', () => {
+  it('缺字段/非法枚举回默认档（auto 开、图片、智能）', () => {
+    expect(sanitizeCreationPrefs(undefined)).toEqual({ auto: true, modality: 'image', ratio: '智能' })
+    expect(sanitizeCreationPrefs({ auto: 'yes', modality: 'audio', ratio: '5:4' })).toEqual({ auto: true, modality: 'image', ratio: '智能' })
+  })
+  it('合法值原样保留（video + 9:16 + auto 关）', () => {
+    expect(sanitizeCreationPrefs({ auto: false, modality: 'video', ratio: '9:16' })).toEqual({ auto: false, modality: 'video', ratio: '9:16' })
+  })
+  it('九档比例字典齐全且智能在首', () => {
+    expect(CREATION_RATIOS).toEqual(['智能', '1:1', '3:4', '16:9', '4:3', '9:16', '2:3', '3:2', '21:9'])
+  })
+})
+
+describe('生成偏好 save/load（注入 storage）', () => {
+  it('round-trip：保存后读回一致；无存储=默认档', () => {
+    const mem = new Map<string, string>()
+    const store = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) }
+    saveCreationPrefs({ auto: false, modality: 'video', ratio: '16:9' }, store)
+    expect(loadCreationPrefs(store)).toEqual({ auto: false, modality: 'video', ratio: '16:9' })
+    expect(loadCreationPrefs({ getItem: () => null })).toEqual({ auto: true, modality: 'image', ratio: '智能' })
+  })
+  it('坏 JSON 回默认档不抛', () => {
+    const store = { getItem: () => '{oops', setItem: () => {} }
+    expect(loadCreationPrefs(store)).toEqual({ auto: true, modality: 'image', ratio: '智能' })
+  })
+})
+
+// ── @主体产品档案（2026-10-16 用户裁决：选中即拉详情，LLM 资料块+口播契约）──
+describe('subjectProductFromItem 产品条目映射', () => {
+  it('model/selling_points/features/six_views → 客户端形状；六视图 URL 缺省按 material_id 回退', () => {
+    const p = subjectProductFromItem({
+      id: 'P1', brand: '罗技', model: 'G304黑',
+      selling_points: '低延迟竞技\nHero 传感器',
+      features: '≥400 IPS\n5 号电池',
+      six_views: { front: { material_id: 'M1' }, back: { material_id: 'M2', url: '/material/serve?material_id=M2' } },
+    })
+    expect(p).toEqual({
+      id: 'P1', brand: '罗技', model: 'G304黑',
+      sellingPoints: ['低延迟竞技', 'Hero 传感器'],
+      features: ['≥400 IPS', '5 号电池'],
+      sixViews: [
+        { view: 'front', url: '/material/serve?material_id=M1' },
+        { view: 'back', url: '/material/serve?material_id=M2' },
+      ],
+    })
+  })
+  it('空条目只有 id（可选字段不落 undefined 键）', () => {
+    expect(subjectProductFromItem({ id: 'P2' })).toEqual({ id: 'P2' })
+  })
+})
+
+describe('subjectsBlock 产品档案资料块', () => {
+  it('带档案主体=型号行+卖点+参数+六视图清单；无档案主体维持裸名字行', () => {
+    const block = subjectsBlock([
+      { id: 'a', name: 'G304黑', product: { id: 'P1', model: '910-002586', sellingPoints: ['低延迟', '长续航'], features: ['400 IPS'], sixViews: [{ view: 'front', url: 'http://x/1.png' }] } },
+      { id: 'b', name: '普通主体' },
+    ])
+    expect(block).toContain('主体：G304黑（型号 910-002586）')
+    expect(block).toContain('卖点：低延迟；长续航')
+    expect(block).toContain('参数：400 IPS')
+    expect(block).toContain('六视图参考：front http://x/1.png')
+    expect(block).toContain('主体：普通主体')
+  })
+  it('纯名字主体=旧行为逐字节一致', () => {
+    expect(subjectsBlock([{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }])).toBe('\n主体：A、B')
+  })
+})
+
+describe('buildVoiceoverRequest 产品档案契约', () => {
+  it('product_desc 带型号+卖点；无档案主体维持裸名字', () => {
+    const r = buildVoiceoverRequest({
+      skill: BUILTIN_CREATION_SKILLS[0]!,
+      input: '来一段开场',
+      subjects: [
+        { id: 'a', name: 'G304黑', product: { id: 'P1', model: '910-002586', sellingPoints: ['低延迟', '长续航'] } },
+        { id: 'b', name: '普通主体' },
+      ],
+    })
+    expect(r.product_desc).toBe('G304黑（型号 910-002586）：低延迟；长续航，普通主体，来一段开场')
+    expect(r.hint).toContain('G304黑（型号 910-002586）')
+    expect(r.hint).toContain('普通主体')
+  })
+  it('无产品档案时与旧行为逐字节一致', () => {
+    const r = buildVoiceoverRequest({ skill: BUILTIN_CREATION_SKILLS[0]!, input: 'x', subjects: [{ id: 'a', name: 'A' }] })
+    expect(r.product_desc).toBe('A，x')
+    expect(r.hint).toBe('需围绕主体：A')
   })
 })

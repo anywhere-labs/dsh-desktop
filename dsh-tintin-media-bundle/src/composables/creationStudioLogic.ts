@@ -43,6 +43,21 @@ export interface CreationSkill {
 export interface CreationSubject {
   id: string
   name: string
+  /** 产品档案（2026-10-16 用户裁决：@ 选中即拉详情——型号/卖点/参数/六视图，LLM 资料块+口播+P4 媒体生成共用） */
+  product?: CreationSubjectProduct
+}
+
+/** @主体的产品档案（产品库条目 → 客户端形状；来源=GET /api/product-library/items/{id}） */
+export interface CreationSubjectProduct {
+  id: string
+  brand?: string
+  model?: string
+  /** 核心卖点（服务端 selling_points 多行 markdown → 行数组） */
+  sellingPoints?: string[]
+  /** 性能参数（服务端 features 多行 markdown → 行数组） */
+  features?: string[]
+  /** 六视图（view+可直连 URL——P4 媒体生成时即参考图入参） */
+  sixViews?: Array<{ view: string; url: string }>
 }
 
 export const CREATION_SKILLS_KEY = 'tintin.creationStudio.skills.v1'
@@ -252,8 +267,22 @@ export function findSkillByName(skills: readonly CreationSkill[], name: string):
 
 /** @主体名列表（顿号连接成「主体：a、b」片段；空=空串） */
 export function subjectsBlock(subjects: readonly CreationSubject[]): string {
-  const names = subjects.map((s) => String(s.name ?? '').trim()).filter(Boolean)
-  return names.length > 0 ? `\n主体：${names.join('、')}` : ''
+  const lines: string[] = []
+  const plain: string[] = []
+  for (const s of subjects) {
+    const name = String(s.name ?? '').trim()
+    if (!name) continue
+    const p = s.product
+    const hasDetail = !!(p && (p.model || p.sellingPoints?.length || p.features?.length || p.sixViews?.length))
+    if (!hasDetail) { plain.push(name); continue }
+    // 产品档案主体（2026-10-16 用户裁决）：型号+卖点+参数+六视图清单（LLM 文本接口——六视图以 URL 列表作内容参考）
+    lines.push(`主体：${p?.model ? `${name}（型号 ${p.model}）` : name}`)
+    if (p?.sellingPoints?.length) lines.push(`卖点：${p.sellingPoints.join('；')}`)
+    if (p?.features?.length) lines.push(`参数：${p.features.join('；')}`)
+    if (p?.sixViews?.length) lines.push(`六视图参考：${p.sixViews.map((v) => `${v.view} ${v.url}`).join('、')}`)
+  }
+  if (plain.length) lines.unshift(`主体：${plain.join('、')}`)
+  return lines.length ? `\n${lines.join('\n')}` : ''
 }
 
 /** 组合最终提示词（{{输入}}/{{主体}} 替换；skill 缺省=裸输入+主体块） */
@@ -300,11 +329,100 @@ export function buildVoiceoverRequest(p: {
   platform?: string
 }): { product_desc: string; hint?: string; platform?: string } {
   const input = String(p.input ?? '').trim()
-  const subjectNames = (p.subjects ?? []).map((s) => String(s.name ?? '').trim()).filter(Boolean)
-  const productDesc = [...subjectNames, input].filter(Boolean).join('，')
+  // 产品档案主体（2026-10-16 用户裁决）：product_desc 带型号+卖点；无档案主体维持裸名字
+  const descs: string[] = []
+  const plainNames: string[] = []
+  for (const s of p.subjects ?? []) {
+    const name = String(s.name ?? '').trim()
+    if (!name) continue
+    const pt = s.product
+    if (pt && (pt.model || pt.sellingPoints?.length)) {
+      descs.push(`${name}${pt.model ? `（型号 ${pt.model}）` : ''}${pt.sellingPoints?.length ? `：${pt.sellingPoints.join('；')}` : ''}`)
+    } else {
+      plainNames.push(name)
+    }
+  }
+  const productDesc = [...descs, ...plainNames, input].filter(Boolean).join('，')
   const out: { product_desc: string; hint?: string; platform?: string } = { product_desc: productDesc || input }
-  if (subjectNames.length > 0) out.hint = `需围绕主体：${subjectNames.join('、')}`
+  const allNames = [...descs, ...plainNames]
+  if (allNames.length > 0) out.hint = `需围绕主体：${allNames.join('、')}`
   const platform = String(p.platform ?? '').trim()
   if (platform) out.platform = platform
+  return out
+}
+
+// ── 生成偏好（2026-10-16 用户裁决：「自动」可点选——即梦生成偏好面板同款：
+//    自动开关 + 图片/视频页签 + 选择比例；P4 媒体生成对接后作为生成参数消费）──
+export const CREATION_PREFS_KEY = 'tintin.creationStudio.prefs.v1'
+
+export interface CreationPrefs {
+  /** 跟随默认自动偏好（即梦面板右上开关） */
+  auto: boolean
+  modality: 'image' | 'video'
+  ratio: string
+}
+
+export const CREATION_RATIOS = ['智能', '1:1', '3:4', '16:9', '4:3', '9:16', '2:3', '3:2', '21:9'] as const
+
+export const CREATION_PREFS_DEFAULT: CreationPrefs = { auto: true, modality: 'image', ratio: '智能' }
+
+/** 原始值 → 合法偏好（容错：缺字段/非法枚举回默认档） */
+export function sanitizeCreationPrefs(raw: unknown): CreationPrefs {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  return {
+    auto: typeof o.auto === 'boolean' ? o.auto : CREATION_PREFS_DEFAULT.auto,
+    modality: o.modality === 'video' ? 'video' : 'image',
+    ratio: (CREATION_RATIOS as readonly string[]).includes(String(o.ratio)) ? String(o.ratio) : CREATION_PREFS_DEFAULT.ratio,
+  }
+}
+
+/** 读生成偏好（注入 storage 便于测试；缺省=默认档） */
+export function loadCreationPrefs(storage?: Pick<Storage, 'getItem'>): CreationPrefs {
+  const store = storage ?? (typeof localStorage !== 'undefined' ? localStorage : undefined)
+  if (!store) return { ...CREATION_PREFS_DEFAULT }
+  try {
+    const raw = store.getItem(CREATION_PREFS_KEY)
+    if (!raw) return { ...CREATION_PREFS_DEFAULT }
+    return sanitizeCreationPrefs(JSON.parse(raw))
+  } catch (_) {
+    return { ...CREATION_PREFS_DEFAULT }
+  }
+}
+
+/** 写生成偏好（写入失败静默——偏好丢失不阻塞创作） */
+export function saveCreationPrefs(prefs: CreationPrefs, storage?: Pick<Storage, 'setItem'>): void {
+  const store = storage ?? (typeof localStorage !== 'undefined' ? localStorage : undefined)
+  if (!store) return
+  try {
+    store.setItem(CREATION_PREFS_KEY, JSON.stringify(sanitizeCreationPrefs(prefs)))
+  } catch (_) { /* 配额/隐私模式：本次会话内仍可用 */ }
+}
+
+// ── @主体产品档案（2026-10-16 用户裁决：选中即拉详情）────────────────────
+/** markdown 多行文本 → 行数组（去空行；服务端存的是展示文本，列表标记原样保留） */
+export function markdownLines(raw: unknown): string[] {
+  return String(raw ?? '').split(/\r?\n/u).map((l) => l.trim()).filter(Boolean)
+}
+
+/** 产品库条目（GET items/{id} 详情）→ 主体产品档案（六视图 URL 缺省按 material_id 回退拼装） */
+export function subjectProductFromItem(item: Record<string, unknown>): CreationSubjectProduct {
+  const sixRaw = (item.six_views && typeof item.six_views === 'object' ? item.six_views : {}) as Record<string, unknown>
+  const sixViews = Object.entries(sixRaw)
+    .map(([view, e]) => ({ view, e: (e && typeof e === 'object' ? e : {}) as Record<string, unknown> }))
+    .filter((x) => String(x.e.material_id ?? ''))
+    .map((x) => ({
+      view: x.view,
+      url: String(x.e.url || `/material/serve?material_id=${x.e.material_id}`),
+    }))
+  const out: CreationSubjectProduct = {
+    id: String(item.id ?? ''),
+    brand: String(item.brand ?? '') || undefined,
+    model: String(item.model ?? '') || undefined,
+  }
+  const sp = markdownLines(item.selling_points)
+  if (sp.length) out.sellingPoints = sp
+  const ft = markdownLines(item.features)
+  if (ft.length) out.features = ft
+  if (sixViews.length) out.sixViews = sixViews
   return out
 }

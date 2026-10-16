@@ -44,6 +44,16 @@ async function fetchJsonList(call: () => Promise<unknown>): Promise<PickerItem[]
 
 /* ── 三个弹窗的搜索 fetcher（组件只消费，不感知 URL） ───────── */
 
+/** 产品详情：GET /api/product-library/items/{id}（全局作用域；详情内嵌 six_views/selling_points/features，
+ *  仿视频选品与运营资料同源。search 列表 six_views 恒被投影裁剪——必须查详情） */
+export async function fetchProductDetail(id: string): Promise<PickerItem> {
+  const t = getTintin()
+  if (!t?.server) throw new Error(searchErrorText(null))
+  const data = await fetchJsonPayload(() => t.server.get(`/api/product-library/items/${encodeURIComponent(id)}`))
+  const o = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
+  return (o.item ?? o) as PickerItem
+}
+
 /** 产品搜索：GET /api/product-library/search?q=&limit=200 */
 export async function fetchProducts(kw: string): Promise<PickerItem[]> {
   const t = getTintin()

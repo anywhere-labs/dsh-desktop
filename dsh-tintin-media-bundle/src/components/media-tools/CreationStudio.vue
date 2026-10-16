@@ -9,7 +9,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { setPendingMediaTool } from '../../composables/pendingMediaTool'
-import { fetchProducts } from '../../composables/useWorkbenchPickers'
+import { fetchProductDetail, fetchProducts } from '../../composables/useWorkbenchPickers'
 import { getTintin } from '../../composables/useSettingsConfig'
 import { searchErrorText } from '../../composables/workbenchChatContext'
 import { voiceoverCandidatesFromResponse, type VoiceoverCandidate } from '../../composables/copywritingMontageStep2ConcatLogic'
@@ -31,10 +31,16 @@ import {
   findSkillByName,
   llmTextFromResponse,
   loadSkills,
+  loadCreationPrefs,
   newSkillId,
   resetSkills,
   saveSkills,
+  saveCreationPrefs,
+  subjectProductFromItem,
+  CREATION_RATIOS,
+  type CreationPrefs,
 } from '../../composables/creationStudioLogic'
+import { SERVER_SKILL_ID_PREFIX } from '../../composables/skillManagerLogic'
 
 /* 主题跟随宿主（同 App/OpsApp 口径：宿主 dark 类 + 系统偏好，挂载时求值）。
    缺了这层 .tintin-media-scope 令牌作用域，--card/--border 等全部未定义，
@@ -76,14 +82,34 @@ const selectedSkill = computed<CreationSkill | null>(
 const skillMenuOpen = ref(false)
 const skillQuery = ref('')
 const filteredSkills = computed(() => filterSkills(skills.value, skillQuery.value))
+// 技能下拉两类（2026-10-16 用户裁决）：服务端=skill-srv 派生条目；客户端=内置+自定义
+const filteredServerSkills = computed(() => filteredSkills.value.filter((s) => s.id.startsWith(SERVER_SKILL_ID_PREFIX)))
+const filteredClientSkills = computed(() => filteredSkills.value.filter((s) => !s.id.startsWith(SERVER_SKILL_ID_PREFIX)))
+
+// ── 生成偏好（2026-10-16 用户裁决：「自动」可点选——即梦生成偏好面板同款；
+//    状态持久化，P4 媒体生成对接后作为生成参数消费）──
+const autoMenuOpen = ref(false)
+const prefs = ref<CreationPrefs>(loadCreationPrefs())
+function openAutoMenu(): void {
+  typeMenuOpen.value = false
+  skillMenuOpen.value = false
+  subjectMenuOpen.value = false
+  autoMenuOpen.value = true
+}
+function setPrefs(patch: Partial<CreationPrefs>): void {
+  prefs.value = { ...prefs.value, ...patch }
+  saveCreationPrefs(prefs.value)
+}
 function openSkillMenu(): void {
   skillQuery.value = ''
+  autoMenuOpen.value = false
   skillMenuOpen.value = true
 }
 function onInputChange(): void {
   const idx = input.value.lastIndexOf('/')
   if (idx < 0) return
   skillQuery.value = input.value.slice(idx + 1).split(/[\s@]/u)[0] ?? ''
+  autoMenuOpen.value = false
   skillMenuOpen.value = true
 }
 function chooseSkill(skill: CreationSkill): void {
@@ -98,7 +124,10 @@ function toggleSkillByName(name: string): void {
 
 /* ── 创作类型下拉（即梦「Agent 模式」select 同款字典） ── */
 const typeMenuOpen = ref(false)
-function openTypeMenu(): void { typeMenuOpen.value = !typeMenuOpen.value }
+function openTypeMenu(): void {
+  autoMenuOpen.value = false
+  typeMenuOpen.value = !typeMenuOpen.value
+}
 function chooseType(id: string): void {
   creationTypeId.value = id
   typeMenuOpen.value = false
@@ -109,7 +138,7 @@ const subjectMenuOpen = ref(false)
 const subjectQuery = ref('')
 const subjectLoading = ref(false)
 const subjectError = ref('')
-const subjectHits = ref<Array<{ id: string; name: string }>>([])
+const subjectHits = ref<Array<{ id: string; name: string; item: PickerItem }>>([])
 async function searchSubjects(): Promise<void> {
   const kw = subjectQuery.value.trim()
   subjectLoading.value = true
@@ -119,6 +148,7 @@ async function searchSubjects(): Promise<void> {
     subjectHits.value = items.slice(0, 30).map((it, i) => ({
       id: String(it.id ?? it.product_id ?? `p-${i}`),
       name: String(it.name ?? it.model ?? it.brand ?? `主体${i + 1}`),
+      item: it,
     }))
     if (subjectHits.value.length === 0) subjectError.value = kw ? '没有匹配的产品，可直接回车手动添加' : '产品库为空，可直接回车手动添加'
   } catch (error) {
@@ -129,6 +159,7 @@ async function searchSubjects(): Promise<void> {
   }
 }
 function openSubjectMenu(): void {
+  autoMenuOpen.value = false
   subjectQuery.value = ''
   subjectHits.value = []
   subjectError.value = ''
@@ -140,6 +171,41 @@ function addSubject(name: string): void {
   if (!trimmed) return
   if (subjects.value.some((s) => s.name === trimmed)) return
   subjects.value.push({ id: `sub-${Date.now().toString(36)}-${subjects.value.length}`, name: trimmed })
+}
+/** 选主体（带产品档案，2026-10-16 用户裁决）：芯片立即可见（型号级），详情
+ *  （卖点/参数/六视图）异步补齐——接口失败只影响该芯片的悬停卡（2026-10-12 裁决口径） */
+function addSubjectFromHit(hit: { id: string; name: string; item: PickerItem }): void {
+  const name = String(hit.name ?? '').trim()
+  if (!name || subjects.value.some((s) => s.name === name)) return
+  const productId = String(hit.item.id ?? hit.item.product_id ?? hit.id)
+  const subject: CreationSubject = { id: `sub-${Date.now().toString(36)}-${subjects.value.length}`, name, product: { id: productId } }
+  const model = String(hit.item.model ?? '').trim()
+  if (model) subject.product!.model = model
+  subjects.value.push(subject)
+  void fillSubjectProduct(subject)
+}
+/** 服务端直连基址（六视图相对 URL → 可直连绝对地址；样本试听 2026-09-07 同款裁决） */
+const serverBase = ref('')
+async function ensureServerBase(): Promise<string> {
+  if (serverBase.value) return serverBase.value
+  try {
+    serverBase.value = String((await window.tintin.env.serverPing())?.url || '').replace(/\/$/, '')
+  } catch { /* 预览环境无 env 桥 → 空串 */ }
+  return serverBase.value
+}
+async function fillSubjectProduct(subject: CreationSubject): Promise<void> {
+  if (!subject.product?.id) return
+  try {
+    const [item, base] = await Promise.all([fetchProductDetail(subject.product.id), ensureServerBase()])
+    const detail = subjectProductFromItem(item)
+    const target = subjects.value.find((s) => s.id === subject.id)
+    if (!target) return
+    target.product = {
+      ...target.product,
+      ...detail,
+      sixViews: detail.sixViews?.map((v) => ({ ...v, url: base && !/^https?:\/\//i.test(v.url) ? base + v.url : v.url })),
+    }
+  } catch { /* 详情拉取失败：保持型号级档案，不冲界面 */ }
 }
 function addSubjectFromQuery(): void {
   addSubject(subjectQuery.value)
@@ -227,10 +293,26 @@ async function generateViaVoiceover(): Promise<string> {
 const previewOpen = ref(false)
 const previewText = ref('')
 
+const references = ref<Array<{ name: string; path: string }>>([])
+/** 上传参考（2026-10-16 用户报障：+ 按钮不起作用）——多选图片/视频入参考列表；
+ *  发送时作为上下文附注进提示词，媒体生成对接（P4）后直接作为生成输入 */
+async function pickReferences(): Promise<void> {
+  const paths = await window.tintin.dialog.openFiles({
+    multi: true,
+    filters: [{ name: '参考文件', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'mov', 'pdf'] }],
+  })
+  if (!paths) return
+  for (const p of paths) {
+    if (references.value.some((r) => r.path === p)) continue
+    references.value = [...references.value, { path: p, name: p.split(/[\\/]/).pop() || p }]
+  }
+}
+
 async function send(): Promise<void> {
   if (generating.value) return
   const backend = effectiveBackend(selectedSkill.value)
   const prompt = composeCreationPrompt({ skill: selectedSkill.value, input: input.value, subjects: subjects.value })
+    + (references.value.length ? `\n（附参考文件：${references.value.map((r) => r.name).join('、')}）` : '')
   if (!prompt.trim() && backend !== 'voiceover') {
     failNotice('先写点想法，或选一个技能再发送')
     return
@@ -374,7 +456,7 @@ function removeSkill(skill: CreationSkill): void {
     <!-- 输入会话卡片 -->
     <div class="composer">
       <div class="composer-main">
-        <button type="button" class="upload-tile" disabled title="上传参考（即将支持）">＋</button>
+        <button type="button" class="upload-tile" title="上传参考（图片/视频，可多选）" @click="pickReferences">＋</button>
         <div class="editor-wrap">
           <div v-if="selectedSkill" class="picked-row">
             <span class="picked-chip">
@@ -386,6 +468,21 @@ function removeSkill(skill: CreationSkill): void {
             <span v-for="s in subjects" :key="s.id" class="subject-chip">
               @{{ s.name }}
               <button type="button" class="chip-x" @click="subjects = subjects.filter((x) => x.id !== s.id)">×</button>
+              <span v-if="s.product" class="subject-card">
+                <span class="sc-line sc-head">🧾 {{ s.product.model || s.name }}<template v-if="s.product.brand"> · {{ s.product.brand }}</template></span>
+                <span v-if="s.product.sixViews?.length" class="sc-views">
+                  <img v-for="v in s.product.sixViews.slice(0, 6)" :key="v.view" :src="v.url" :title="v.view" class="sc-thumb" loading="lazy">
+                </span>
+                <span v-if="s.product.sellingPoints?.length" class="sc-line">卖点：{{ s.product.sellingPoints.join('；') }}</span>
+                <span v-if="s.product.features?.length" class="sc-line">参数：{{ s.product.features.join('；') }}</span>
+                <span class="sc-foot">产品档案已注入创作上下文（六视图：{{ s.product.sixViews?.length ?? 0 }} 张）</span>
+              </span>
+            </span>
+          </div>
+          <div v-if="references.length" class="picked-row">
+            <span v-for="r in references" :key="r.path" class="subject-chip">
+              📎 {{ r.name }}
+              <button type="button" class="chip-x" @click="references = references.filter((x) => x.path !== r.path)">×</button>
             </span>
           </div>
           <div class="editor-box">
@@ -401,12 +498,20 @@ function removeSkill(skill: CreationSkill): void {
         <span class="toolbar-item is-select" role="button" tabindex="0" @click="openTypeMenu" @keydown.enter.prevent="openTypeMenu">
           <i class="ti">⚡</i>{{ creationTypeLabel }}<i class="caret">▾</i>
         </span>
-        <span class="toolbar-item is-static" title="跟随服务端默认"><i class="ti">⚙</i>自动</span>
+        <button type="button" class="toolbar-item" :class="{ 'is-open': autoMenuOpen }" title="生成偏好" @click="openAutoMenu"><i class="ti">⚙</i>自动</button>
         <button type="button" class="toolbar-item" @click="openSkillMenu"><i class="ti">✂</i>技能</button>
         <button type="button" class="toolbar-item" @click="openSubjectMenu"><i class="ti at">@</i>⁺</button>
         <span class="spacer" />
+        <!-- 语音输入暂时隐藏（2026-10-16 用户裁决；解禁时删掉 v-if 即可恢复）
         <span class="toolbar-item is-static" title="语音输入（即将支持）"><i class="ti">🎤</i></span>
-        <button type="button" class="send" :disabled="generating || (!input.trim() && effectiveBackend(selectedSkill) !== 'voiceover')" :title="generating ? '生成中…' : '发送'" @click="send">{{ generating ? '…' : '↑' }}</button>
+        -->
+        <button type="button" class="send" :disabled="generating || (!input.trim() && effectiveBackend(selectedSkill) !== 'voiceover')" :title="generating ? '生成中…' : '发送'" @click="send">
+          <svg v-if="!generating" class="send-ico" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 13.2V3.4" />
+            <path d="M3.6 7.6 8 3.2l4.4 4.4" />
+          </svg>
+          <span v-else class="send-wait"><i></i><i></i><i></i></span>
+        </button>
       </div>
 
       <!-- 创作类型下拉 -->
@@ -420,6 +525,29 @@ function removeSkill(skill: CreationSkill): void {
         </div>
       </div>
 
+      <!-- 生成偏好（即梦「自动」面板同款：自动开关+图片/视频+选择比例；2026-10-16 用户裁决） -->
+      <div v-if="autoMenuOpen" class="menu menu-auto">
+        <div class="menu-head">
+          <span class="menu-head-title">生成偏好</span>
+          <label class="auto-switch" title="跟随默认自动偏好">
+            <input type="checkbox" :checked="prefs.auto" @change="setPrefs({ auto: ($event.target as HTMLInputElement).checked })"><i></i><span>自动</span>
+          </label>
+          <button type="button" class="menu-close" @click="autoMenuOpen = false">×</button>
+        </div>
+        <div class="seg-tabs">
+          <button type="button" :class="{ on: prefs.modality === 'image' }" @click="setPrefs({ modality: 'image' })">图片</button>
+          <button type="button" :class="{ on: prefs.modality === 'video' }" @click="setPrefs({ modality: 'video' })">视频</button>
+        </div>
+        <div class="ratio-title">选择比例</div>
+        <div class="ratio-grid">
+          <button v-for="r in CREATION_RATIOS" :key="r" type="button" class="ratio-tile" :class="{ on: prefs.ratio === r }" @click="setPrefs({ ratio: r })">
+            <i v-if="r === '智能'" class="ratio-glyph ratio-auto">✦</i>
+            <i v-else class="ratio-frame" :style="{ aspectRatio: r.replace(':', '/') }"></i>
+            <span>{{ r }}</span>
+          </button>
+        </div>
+      </div>
+
       <!-- / 技能下拉 -->
       <div v-if="skillMenuOpen" class="menu">
         <div class="menu-head">
@@ -427,13 +555,20 @@ function removeSkill(skill: CreationSkill): void {
           <button type="button" class="menu-close" @click="skillMenuOpen = false">×</button>
         </div>
         <div class="menu-list">
-          <button v-for="s in filteredSkills" :key="s.id" type="button" class="menu-item" @click="chooseSkill(s)">
+          <div class="menu-group-title">服务端技能（已安装）</div>
+          <button v-for="s in filteredServerSkills" :key="s.id" type="button" class="menu-item" @click="chooseSkill(s)">
+            <span class="menu-emoji">{{ s.emoji }}</span>
+            <span class="menu-name">/{{ s.name }}</span>
+            <span class="menu-tool">服务端</span>
+          </button>
+          <div class="menu-group-title">客户端技能</div>
+          <button v-for="s in filteredClientSkills" :key="s.id" type="button" class="menu-item" @click="chooseSkill(s)">
             <span class="menu-emoji">{{ s.emoji }}</span>
             <span class="menu-name">/{{ s.name }}</span>
             <span v-if="s.badge" class="menu-badge" :class="`badge-${s.badge.toLowerCase()}`">{{ s.badge }}</span>
             <span class="menu-tool">{{ s.tool ? '直达工具' : 'AI 生成' }}</span>
           </button>
-          <div v-if="filteredSkills.length === 0" class="menu-empty">没有匹配的技能——到「更多技能」添加</div>
+          <div v-if="filteredSkills.length === 0" class="menu-empty">没有匹配的技能——到「更多技能」添加，或在「技能管理」安装服务端技能</div>
         </div>
         <button type="button" class="menu-more" @click="openMarket">技能市场 / 管理 ›</button>
       </div>
@@ -447,9 +582,10 @@ function removeSkill(skill: CreationSkill): void {
         <div class="menu-list">
           <div v-if="subjectLoading" class="menu-empty">搜索中…</div>
           <template v-else>
-            <button v-for="p in subjectHits" :key="p.id" type="button" class="menu-item" @click="addSubject(p.name); subjectMenuOpen = false">
+            <button v-for="p in subjectHits" :key="p.id" type="button" class="menu-item" @click="addSubjectFromHit(p); subjectMenuOpen = false">
               <span class="menu-emoji">📦</span>
               <span class="menu-name">@{{ p.name }}</span>
+              <span v-if="String(p.item.model ?? '')" class="menu-tool">{{ p.item.model }}</span>
             </button>
             <button v-if="subjectQuery.trim()" type="button" class="menu-item" @click="addSubjectFromQuery(); subjectMenuOpen = false">
               <span class="menu-emoji">➕</span>
@@ -568,7 +704,7 @@ function removeSkill(skill: CreationSkill): void {
 <style scoped>
 /* 形态对照即梦真身（2026-10-16 CDP 提取 + 截图基准）：暗色大卡片输入会话、
    占位符内 / 和 @ 高亮、底部工具行、芯片行带 New/Hot 徽标；颜色走主题 tokens。 */
-.studio { max-width: 880px; margin: 0 auto; padding: var(--space-6) 0 var(--space-8); }
+.studio { max-width: min(96%, 1360px); margin: 0 auto; padding: var(--space-6) 0 var(--space-8); }
 .greet { text-align: center; margin-bottom: var(--space-5); }
 .greet-title { font-size: 26px; font-weight: 700; color: var(--foreground); }
 .greet-tabs { margin-top: var(--space-4); display: inline-flex; gap: 4px; background: var(--surface); border-radius: 999px; padding: 4px; }
@@ -579,11 +715,20 @@ function removeSkill(skill: CreationSkill): void {
 .composer { position: relative; background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 14px 16px 10px; box-shadow: var(--shadow-card); transition: border-color var(--duration-fast); }
 .composer:focus-within { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
 .composer-main { display: flex; gap: 12px; align-items: flex-start; }
-.upload-tile { flex: 0 0 auto; width: 46px; height: 46px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--muted-foreground); font-size: 18px; cursor: not-allowed; opacity: 0.8; }
+.upload-tile { flex: 0 0 auto; width: 46px; height: 46px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--muted-foreground); font-size: 18px; cursor: pointer; }
+.upload-tile:hover { border-color: var(--primary); color: var(--primary); }
 .editor-wrap { flex: 1 1 auto; min-width: 0; }
 .picked-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .picked-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: #fff; background: linear-gradient(135deg,#F97316 0%,#EC4899 100%); border-radius: 999px; padding: 3px 10px; }
-.subject-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent); border-radius: 999px; padding: 3px 10px; }
+.subject-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent); border-radius: 999px; padding: 3px 10px; position: relative; }
+/* 产品档案悬停卡（2026-10-16 用户裁决：@ 芯片悬停看六视图+卖点摘要） */
+.subject-card { display: none; position: absolute; top: calc(100% + 8px); left: 0; z-index: 45; width: 264px; flex-direction: column; gap: 6px; text-align: left; background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-3); padding: 10px 12px; cursor: default; white-space: normal; }
+.subject-chip:hover .subject-card { display: flex; }
+.sc-line { font-size: 12px; line-height: 1.55; color: var(--foreground); word-break: break-word; }
+.sc-head { font-weight: 700; }
+.sc-views { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.sc-thumb { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 6px; background: #101010; border: 1px solid var(--border); }
+.sc-foot { font-size: 11px; color: var(--muted-foreground); border-top: 1px solid var(--border); padding-top: 6px; }
 .chip-x { border: none; background: transparent; color: inherit; font-size: 13px; cursor: pointer; padding: 0 0 0 2px; line-height: 1; }
 .editor-box { position: relative; }
 .input { width: 100%; border: none; background: transparent; color: var(--foreground); font: inherit; font-size: 15px; line-height: 1.65; resize: vertical; min-height: 66px; outline: none; }
@@ -595,14 +740,42 @@ function removeSkill(skill: CreationSkill): void {
 .toolbar-item.is-select { color: var(--primary); font-weight: 600; cursor: pointer; }
 .toolbar-item.is-static { cursor: default; }
 .toolbar-item.is-static:hover { color: var(--muted-foreground); background: transparent; }
+.toolbar-item.is-open { color: var(--primary); background: var(--surface); }
 .toolbar-item .ti { font-style: normal; font-size: 13px; }
 .toolbar-item .caret { font-style: normal; font-size: 10px; opacity: 0.8; }
 .toolbar-item .at { font-weight: 700; }
 .spacer { flex: 1 1 auto; }
-.send { width: 34px; height: 34px; flex: 0 0 auto; border: none; border-radius: 999px; background: var(--primary); color: var(--primary-foreground); font-size: 16px; font-weight: 700; cursor: pointer; }
+.send { width: 34px; height: 34px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: 999px; background: var(--primary); color: var(--primary-foreground); cursor: pointer; transition: transform var(--duration-fast) var(--easing-default), background var(--duration-fast); }
+.send:not(:disabled):hover { transform: translateY(-1px); background: color-mix(in srgb, var(--primary) 88%, #fff); }
+.send-ico { display: block; }
+.send-wait { display: inline-flex; gap: 3px; align-items: center; }
+.send-wait i { width: 4px; height: 4px; border-radius: 999px; background: currentColor; animation: send-wait-b 1s ease-in-out infinite; }
+.send-wait i:nth-child(2) { animation-delay: 0.15s; }
+.send-wait i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes send-wait-b { 0%, 100% { opacity: 0.35; } 40% { opacity: 1; } }
 .send:disabled { background: var(--surface); color: var(--muted-foreground); cursor: not-allowed; }
 
-.menu { position: absolute; left: 16px; right: 16px; bottom: calc(100% + 8px); z-index: 30; background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-3); overflow: hidden; }
+.menu { position: absolute; left: 16px; right: 16px; top: calc(100% + 8px); z-index: 30; background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-3); overflow: hidden; }
+.menu-group-title { padding: 8px 14px 2px; font-size: 11px; font-weight: 700; color: var(--muted-foreground); }
+/* 生成偏好面板（即梦「自动」面板同款：自动开关+图片/视频+选择比例） */
+.menu-auto { left: 16px; right: auto; width: 430px; padding: 10px 12px 12px; }
+.menu-head-title { font-size: 13px; font-weight: 700; color: var(--foreground); flex: 1 1 auto; }
+.auto-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground); cursor: pointer; user-select: none; }
+.auto-switch input { display: none; }
+.auto-switch i { width: 30px; height: 17px; border-radius: 999px; background: rgba(127, 127, 127, 0.35); position: relative; transition: background var(--duration-fast); }
+.auto-switch i::after { content: ''; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 999px; background: #fff; transition: left var(--duration-fast); }
+.auto-switch input:checked + i { background: var(--primary); }
+.auto-switch input:checked + i::after { left: 15px; }
+.seg-tabs { display: grid; grid-template-columns: 1fr 1fr; background: color-mix(in srgb, var(--muted-foreground) 14%, transparent); border-radius: 10px; padding: 3px; margin: 10px 0 12px; }
+.seg-tabs button { border: none; background: transparent; color: var(--muted-foreground); font: inherit; font-size: 13px; padding: 7px 0; border-radius: 8px; cursor: pointer; }
+.seg-tabs button.on { background: var(--card); color: var(--foreground); font-weight: 600; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); }
+.ratio-title { font-size: 12px; color: var(--muted-foreground); margin-bottom: 6px; }
+.ratio-grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 5px; }
+.ratio-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; border: 1px solid var(--border); background: transparent; color: var(--muted-foreground); font: inherit; font-size: 10.5px; padding: 7px 0 5px; border-radius: 9px; cursor: pointer; }
+.ratio-tile:hover { border-color: var(--primary); color: var(--foreground); }
+.ratio-tile.on { border-color: var(--primary); color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); font-weight: 600; }
+.ratio-frame { display: block; width: 15px; max-height: 17px; border: 1.4px solid currentColor; border-radius: 3px; }
+.ratio-auto { font-style: normal; font-size: 14px; line-height: 17px; }
 .menu-title { padding: 10px 14px 4px; font-size: 12px; color: var(--muted-foreground); }
 .menu-head { display: flex; align-items: center; gap: var(--space-2); padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .menu-search { flex: 1 1 auto; border: none; background: transparent; color: var(--foreground); font: inherit; font-size: 14px; outline: none; }
