@@ -1218,6 +1218,18 @@ function exportMultiToDraft({ videoPaths, videoDurations = null, muteVideoAudio 
     const videoTrack = newTrack('video')
     const voiceTrack = newTrack('audio')
     const voiceSegsByVideo = normalizeVoiceClips(voiceClips, clips.length)
+    // 配音末端两遍法（2026-10-13 实障：旁白 33.12s > 视频轨 30s——配音尾被时间轴
+    // 截断，末段字幕窗口同步被截）。先按各片段源时长算出配音时间轴末端，供
+    // ① 末片段字幕窗口延长 ② 末段视频慢速延长铺满配音（旁白永不截断）。
+    const cumStarts = []
+    let cumUsPre = 0
+    for (const clip of clips) { cumStarts.push(cumUsPre); cumUsPre += clip.durationUs }
+    let voiceTimelineEndUs = 0
+    for (let i = 0; i < clips.length; i++) {
+      for (const vc of voiceSegsByVideo[i] || []) {
+        voiceTimelineEndUs = Math.max(voiceTimelineEndUs, cumStarts[i] + Number(vc.startUs || 0) + Number(vc.durUs || 0))
+      }
+    }
     // 2026-09-18 用户裁决：BGM 逐视频窗落段（间隔期静音）——收集各视频时间窗；
     // 逐视频 BGM（bgmPaths[i] 优先，空则回退全局 bgmPath，落段时再判存在性）
     const bgmWindows = []
@@ -1272,6 +1284,25 @@ function exportMultiToDraft({ videoPaths, videoDurations = null, muteVideoAudio 
       // 无法生效（转场需要相邻片段），且黑场 flash 破坏连续观感。旧半秒间隔设计
       // 废弃；BGM 窗口随之自然连续。
     })
+    // 配音末端 > 视频轨末端：末段视频慢速延长铺满（speed<1，画面末帧缓放，
+    // 源消耗=target*speed 恰好=源全长）；BGM 末窗同步延长；内容总时长对齐
+    if (voiceTimelineEndUs > cursorUs && videoTrack.segments.length) {
+      const lastSeg = videoTrack.segments[videoTrack.segments.length - 1]
+      const tt = lastSeg.target_timerange
+      const srcDur = Number(tt.duration) || 0
+      const newDur = voiceTimelineEndUs - Number(tt.start)
+      if (newDur > srcDur) {
+        const speed = srcDur / newDur
+        tt.duration = newDur
+        lastSeg.speed = speed
+        for (const refId of lastSeg.extra_material_refs || []) {
+          const sm = (materials.speeds || []).find((x) => x && x.id === refId)
+          if (sm) sm.speed = speed
+        }
+        if (bgmWindows.length) bgmWindows[bgmWindows.length - 1].durUs += newDur - srcDur
+        content.duration = Math.max(Number(content.duration) || 0, voiceTimelineEndUs)
+      }
+    }
     const tracks = [videoTrack]
 
     // 6. 字幕轨（order 1）+ 关键词轨（fancy/tpl）+ 原生文字模板轨；textAnim=文字入场动画名，
@@ -1354,7 +1385,11 @@ function exportMultiToDraft({ videoPaths, videoDurations = null, muteVideoAudio 
           // 窗口上限：srtLimitUs[i]（µs）优先——文案混剪整段旁白 SRT 挂方案首段，
           // 窗口=整个方案时长（2026-09-24 修复：曾限首段时长致 4s 后字幕全丢）；
           // 缺省回退本片段时长（智能混剪逐视频 SRT 口径不变）
-          const winUs = (Array.isArray(srtLimitUs) && srtLimitUs[i]) || clip.durationUs
+          let winUs = (Array.isArray(srtLimitUs) && srtLimitUs[i]) || clip.durationUs
+          // 末片段窗口延长到配音末端（旁白/字幕不被时间轴截断）
+          if (i === clips.length - 1 && voiceTimelineEndUs > cursorUs + winUs) {
+            winUs = voiceTimelineEndUs - cursorUs
+          }
           appendSubtitleTrack(subtitleTrack, materials, srtPaths[i], cursorUs, cursorUs + winUs, { anim: subAnimName || textAnim, subtitleStyle: subStyleMapped, fontSize: subtitleFontSize })
           for (const kind of effKinds) {
             appendKeywordTrack(tracks, materials, srtPaths[i], kwWords, kind, cursorUs, cursorUs + winUs, fxTrackCache, {
@@ -1462,9 +1497,9 @@ function exportMultiToDraft({ videoPaths, videoDurations = null, muteVideoAudio 
     tracks.forEach((track, order) => {
       for (const seg of track.segments) seg.render_index = order
     })
-    // 2026-09-24 用户裁决：音频与视频同长——口播/BGM 等音频轨超出视频轨末尾的
-    // 部分一律截断（旁白尾段超出视频时同样截断，保证时间线上音频不拖出视频）
-    const videoTotalUs = clips.reduce((acc, c) => acc + c.durationUs, 0)
+    // 2026-09-24 用户裁决：音频与视频同长——音频轨超出画面轨末尾的部分一律截断（不拖出视频）。
+    // 基准=延长后的画面轨末端（2026-10-16：两遍法慢放铺满口播后，若仍按原始镜长和截断会把刚延长的口播/BGM 尾巴裁回去）
+    const videoTotalUs = videoTrack.segments.reduce((acc, s) => Math.max(acc, (Number(s.target_timerange?.start) || 0) + (Number(s.target_timerange?.duration) || 0)), 0)
     for (const t of tracks) {
       if (t.type !== 'audio') continue
       t.segments = t.segments.flatMap((s) => {

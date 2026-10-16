@@ -1223,7 +1223,6 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
       v-else-if="step === 6"
       section="export"
       :script-id="scriptId"
-      :gen-task-id="iv.videosTaskId.value"
       @back="goBack"
     />
     <ImitationMontageStep

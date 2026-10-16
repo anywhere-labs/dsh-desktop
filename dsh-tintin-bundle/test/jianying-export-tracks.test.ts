@@ -39,6 +39,8 @@ function exportAndRead(options: {
   sfxClips?: Array<Array<{ path: string; startUs: number; durUs: number }>>
   tplClips?: Array<Array<{ phrase: string; startUs: number; durUs: number; resourceId: string }>>
   transitions?: string[]
+  voiceClips?: Array<Array<{ path: string; startUs: number; durUs: number }>>
+  bgmPath?: string
 }): Record<string, any> {
   const videos = options.durationsSec.map((_, i) => makeFakeVideo(`v${i}.mp4`))
   const srts = options.durationsSec.map((_, i) => makeFakeSrt(`v${i}.srt`))
@@ -53,11 +55,22 @@ function exportAndRead(options: {
     transitions: options.transitions ?? ['fade'],
     textTemplateClips: options.tplClips ?? options.durationsSec.map(() => []),
     sfxClips: options.sfxClips,
+    voiceClips: options.voiceClips ?? null,
+    bgmPath: options.bgmPath ?? '',
     draftName: 'TRACK_ALIGN_PROBE',
     deps: { probeMedia: () => ({ durationSec: 0.6 }) }
   })
   expect(res.success).toBe(true)
   return JSON.parse(readFileSync(join(String(res.message), 'draft_content.json'), 'utf8'))
+}
+
+/** 按素材路径找所在音频轨的段（口播/BGM/音效都是 audio 轨，靠素材区分） */
+function audioSegmentsFor(content: Record<string, any>, pathPart: string): Array<any> {
+  const ids = new Set(content.materials.audios
+    .filter((m: any) => String(m.path).includes(pathPart))
+    .map((m: any) => m.id))
+  const track = content.tracks.find((t: any) => t.type === 'audio' && (t.segments as any[]).some((s) => ids.has(s.material_id)))
+  return track ? track.segments : []
 }
 
 describe('exportMultiToDraft track alignment (2026-09-29 regression)', () => {
@@ -202,5 +215,43 @@ describe('exportMultiToDraft track alignment (2026-09-29 regression)', () => {
     // 末段不挂转场
     const lastRefs = videoTrack.segments[2].extra_material_refs
     expect(lastRefs.filter((id: string) => transitionIds.includes(id))).toHaveLength(0)
+  })
+
+  // 2026-10-16 用户裁决：口播长于画面总长时，全部轨道都以整条草稿时长为准——
+  // 末段画面慢放铺到口播末端（配音末端两遍法），口播/BGM 尾巴不得被「音频与视频
+  // 同长」截断按原始镜长和裁回去（截断基准=延长后的画面轨末端）。
+  it('voice longer than the video sum: tail extends all tracks to the voice end (no re-truncation)', () => {
+    savedLocalAppData = process.env.LOCALAPPDATA || ''
+    home = mkdtempSync(join(tmpdir(), 'jy-voice-end-'))
+    process.env.LOCALAPPDATA = home
+
+    const voice = makeFakeWav('voice.wav')
+    const bgm = makeFakeWav('bgm.mp3')
+    const content = exportAndRead({
+      durationsSec: [1.0, 1.0], // 画面原始总长 2.0s
+      voiceClips: [[{ path: voice, startUs: 0, durUs: US(3.0) }], []], // 口播 3.0s > 2.0s
+      bgmPath: bgm,
+    })
+
+    // 末段画面慢放铺满：段窗 [1.0s, 3.0s)，时长=2.0s（速度 0.5）
+    const videoTrack = content.tracks.find((t: any) => t.type === 'video')
+    const lastVideo = videoTrack.segments[videoTrack.segments.length - 1].target_timerange
+    expect(lastVideo.start).toBe(US(1.0))
+    expect(lastVideo.duration).toBe(US(2.0))
+
+    // 口播轨不被裁回 2.0s——全长 3.0s
+    const voiceSegs = audioSegmentsFor(content, 'voice.wav')
+    expect(voiceSegs).toHaveLength(1)
+    expect(voiceSegs[0].target_timerange.start).toBe(0)
+    expect(voiceSegs[0].target_timerange.duration).toBe(US(3.0))
+
+    // BGM 末窗同步延长：末段终点=口播末端 3.0s
+    const bgmSegs = audioSegmentsFor(content, 'bgm.mp3')
+    expect(bgmSegs.length).toBeGreaterThan(0)
+    const bgmEnd = Math.max(...bgmSegs.map((s: any) => s.target_timerange.start + s.target_timerange.duration))
+    expect(bgmEnd).toBe(US(3.0))
+
+    // 内容总时长对齐口播末端
+    expect(content.duration).toBe(US(3.0))
   })
 })

@@ -14,7 +14,7 @@ import { copywritingMontageShellKey } from './copywriting-montage/copywritingMon
 import ImitationFxPackPanel from './ImitationFxPackPanel.vue'
 import TButton from '@/components/common/TButton.vue'
 
-const props = defineProps<{ scriptId: string; section: 'fx' | 'export'; /** 仿视频 videos 任务 id（交付步「生成任务转草稿」用，第 5 步不传） */ genTaskId?: string }>()
+const props = defineProps<{ scriptId: string; section: 'fx' | 'export' }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'next'): void }>()
 
 const s = useCopywritingMontage()
@@ -57,7 +57,10 @@ async function loadImitationScript(): Promise<void> {
       const resp = (await window.tintin.server.get(`/api/storyboard/scripts/${props.scriptId}`)) as Record<string, unknown> | null
       const data = (resp && ((resp as Record<string, unknown>).data ?? resp)) as Record<string, unknown> | null
       const vid = Number(data?.voice_audio_id ?? 0)
-      if (vid > 0) voiceAudioUrl.value = toAbsolute(`/material/serve?material_id=${vid}`)
+      // voice_audio_id 是音频库 id（/audio/library/upload 返回）——取流必须走音频库
+      // 端点；此前误用 /material/serve（素材库命名空间）→ 5026 解析成图片，口播条
+      // 恒 0:00/0:00 无声（2026-10-13 实测：audio/library/5026/file=200 audio/x-wav 3.18MB）
+      if (vid > 0) voiceAudioUrl.value = toAbsolute(`/audio/library/${vid}/file`)
     } catch { /* 静默：取不到就不显示口播条 */ }
     // 第④步进入加载：文字模板库/花字 lanes/字幕样式/voiceRows 重扫（漏跑=模板库空、词条全空）
     await s.enterStep4()
@@ -118,13 +121,6 @@ async function autoBuildMontagePlan(): Promise<void> {
   await s.runConcatFromAllStoryboards(montageTabs())
 }
 
-/** 生成任务转草稿（E-1.2 桥）：videos 任务 id → 既有「导入服务端草稿包」通道
- *  （主进程 editorExportJianyingPackage：下载 zip→解压→注册剪映草稿库） */
-function importGenTaskDraft(): void {
-  if (!props.genTaskId || s.exportBusy.value) return
-  void s.exportJianyingPackageDraft([props.genTaskId])
-}
-
 onMounted(() => { void loadImitationScript() })
 watch(() => props.scriptId, () => { void loadImitationScript() })
 
@@ -140,18 +136,6 @@ watch(() => props.scriptId, () => { void loadImitationScript() })
         <span class="spacer"></span>
       </div>
       <ImitationFxPackPanel :s="s" :section="section" :voice-audio-url="voiceAudioUrl" />
-      <!-- 生成任务转草稿（E-1.2 桥，2026-10-08）：仿视频 videos 任务 → 服务端拼草稿
-           （from-task/export 为服务端职责）→ 既有导入服务端草稿包通道落剪映（包装页零改动） -->
-      <TButton
-        v-if="section === 'export'"
-        label="生成任务转草稿"
-        variant="secondary"
-        style="width: 100%"
-        :disabled="!genTaskId || s.exportBusy.value"
-        :loading="s.exportBusy.value"
-        :title="genTaskId ? '把仿视频生成任务（videos）一键转为服务端草稿包并导入剪映草稿库' : '没有可转换的生成任务——先在第 4 步完成视频生成'"
-        @click="importGenTaskDraft"
-      />
       <!-- 确认合成视频脚本（整行；文案混剪同口径=生成剪辑方案，供交付步导出/合成消费） -->
       <TButton
         v-if="section === 'fx'"
