@@ -58,7 +58,6 @@ import {
   shotModeBadgeText,
   sceneElementOptions,
   shotsTotalDuration,
-  storyboardGridUrlFrom,
   type GenerateStage,
   type ImitationShot,
   type QualityReport,
@@ -96,7 +95,6 @@ async function reloadScript(): Promise<void> {
     // 产品选择内存优先（2026-10-12 裁决：未落库期间回读不冲 chip 与六视图绑定）
     preserveProductSelectionOnReload(record.value, data as Record<string, unknown>, productSelectionDirty.value)
     record.value = data
-    void iv.loadStoryboardPack(scriptId.value)
     seedOrigAudio()
     seedOrigVoiceover()
     // 六视图槽位回填（2026-10-11：productSixViews 仅点选产品时拉取，重开页面=全空
@@ -289,8 +287,8 @@ function onDeleteProductView(view: string, label: string): void {
 // ── A-roll 阶段③（数字人=人物图+口播音频/实拍=素材 id；aroll 块先 PUT 配置再提任务）──
 const arollBusy = ref('')
 const arollConfig = computed(() => { const a = (record.value?.aroll as Record<string, unknown> | undefined) || {}; return { source: String(a.source || ''), imageMaterialId: String(a.image_material_id || ''), materialId: String(a.material_id || '') } })
-/** A-roll 产物预览（material_id 回填后 /material/serve 流式）；九宫图总览（v4.7 meta 引用） */
-const arollPreviewUrl = computed(() => toAbsolute(arollPreviewUrlFrom(arollConfig.value.materialId))); const storyboardGridUrl = computed(() => { const u = storyboardGridUrlFrom(record.value?.meta, scriptId.value); return u ? toAbsolute(`${u}?v=${Number(record.value?.version) || 0}`) : '' })
+/** A-roll 产物预览（material_id 回填后 /material/serve 流式） */
+const arollPreviewUrl = computed(() => toAbsolute(arollPreviewUrlFrom(arollConfig.value.materialId)))
 async function generateAroll(config: { source: string; imageMaterialId: string; materialId: string }): Promise<void> {
   if (arollBusy.value || !record.value) return
   const bad = !record.value.voice_audio_id ? '请先在第 2 步「生成口播配音」并绑定口播音频（A-roll 依赖口播音频先行）。'
@@ -657,9 +655,13 @@ const enterPrepTitle = computed(() => {
 async function enterPrep(): Promise<void> {
   // 已有进行中的生成任务 → 直接回对应步显示进度/状态（不重复提交；轮询在组合函数层持续）
   if (iv.genPhase.value === 'running' && iv.genTaskId.value) { step.value = iv.genStage.value === 'videos' ? 4 : 3; return }
-  // 九宫粗稿已生成/已确认 → 不重复提交，直接进第 3 步显示/确认
+  // 粗稿已生成/已确认 → 不重复提交，直接进第 3 步（未确认的自动补确认——免人工闸门）
   const genShots = shots.value.filter((s) => s.source === 'generate')
-  if (genShots.length > 0 && genShots.every((s) => s.gen?.draft_status === 'generated' || s.gen?.draft_status === 'confirmed')) { step.value = 3; return }
+  if (genShots.length > 0 && genShots.every((s) => s.gen?.draft_status === 'generated' || s.gen?.draft_status === 'confirmed')) {
+    step.value = 3
+    void autoConfirmDraft()
+    return
+  }
   if (!(await saveScript())) {
     enterPrepError.value = '脚本保存失败——无法进入下一步；请检查服务端连接后重试（主稿与各镜未变）'
     return
@@ -672,7 +674,8 @@ async function enterPrep(): Promise<void> {
   }
   enterPrepError.value = ''
   enteringPrep.value = true
-  // v4.3 闸门①：提交九宫分镜粗稿（storyboard 低清档），整体确认后才放行高清精稿
+  // 提交分镜粗稿（storyboard 档=流水线首环：提示词+低清粗稿；完成后自动确认并
+  // 续跑高清首尾帧——2026-10-16 用户裁决：九宫格人工确认退役）
   const ok = await iv.submitGenerate({ scriptId: scriptId.value, stage: 'storyboard', productImages: productImages.value }, shots.value)
   enteringPrep.value = false
   if (ok) step.value = 3
@@ -683,6 +686,9 @@ async function enterPrep(): Promise<void> {
 watch(() => iv.genPhase.value, async (ph, old) => {
   if (old === 'running' && (ph === 'done' || ph === 'failed')) {
     await reloadScript()
+    // 粗稿任务完成即自动确认（2026-10-16 裁决：免人工九宫格闸门）；确认成功后
+    // startFramesSubmission 直接续跑高清首尾帧
+    if (iv.genStage.value === 'storyboard') await autoConfirmDraft()
   }
 })
 
@@ -700,7 +706,7 @@ const genResultSummary = computed(() => {
   return { done, failed }
 })
 
-// ── 第 4 步：分镜图确认（HumanGate②·九宫格视图）──
+// ── 第 4 步：逐镜视频生成（关键帧/换物输入随参考模式）──
 // 帧地址带脚本 version 击穿 webview 缓存（2026-10-07 服务端重生成换种子=同 URL 不同图常态）
 function frameUrl(name: unknown, which: 'first' | 'last' | 'draft_first' | 'draft_last'): string {
   return toAbsolute(`/api/storyboard/scripts/${scriptId.value}/shots/${encodeURIComponent(String(name))}/frames/${which}?v=${Number(record.value?.version) || 0}`)
@@ -759,12 +765,6 @@ async function toggleBadcase(i: number): Promise<void> {
 /** 六视图就绪=顶部视图在——第 3→4 步闸门（直传 product_images 亦源自六视图） */
 const sixViewReady = computed(() => iv.productViewsReady.value)
 
-/** 第 4 步阶段①「重新生成九宫格图」：重提 storyboard 任务（全部镜头重生成，带产品图） */
-async function regenStoryboard(): Promise<void> {
-  if (iv.genPhase.value === 'running' && iv.genTaskId.value) return
-  if (!(await saveScript())) return
-  await iv.submitGenerate({ scriptId: scriptId.value, stage: 'storyboard', productImages: productImages.value }, shots.value)
-}
 function shotVideoUrl(materialId: unknown): string { const mid = Number(materialId); return Number.isInteger(mid) && mid > 0 ? toAbsolute(`/material/serve?material_id=${mid}`) : '' }
 const montageStepProps = computed(() => ({ step: step.value, scriptId: scriptId.value, phase: montage.montagePhase.value, progress: montage.montageProgress.value, elapsedSec: montage.montageElapsedSec.value, message: montage.montageMessage.value, error: montage.montageError.value, exporting: montage.exporting.value, exportStage: montage.exportStage.value, exportNote: montage.exportNote.value, transition: cfgTransition.value, bgmName: cfgBgmName.value, result: montage.montageResult.value }))
 const startVideos = ref('')
@@ -896,10 +896,10 @@ watch([() => iv.genPhase.value, () => iv.genStage.value, shots] as const, ([ph, 
   if (!shotHealNeeded(ph, st, shots.value) && doneHealTimer) { clearInterval(doneHealTimer); doneHealTimer = undefined }
 }, { immediate: true })
 
-// ── 闸门① 九宫分镜粗稿（v4.3：draft_status confirmed 后解锁逐镜视频）──
+// ── 粗稿自动确认（2026-10-16 用户裁决：九宫格人工确认退役——粗稿就绪即自动
+//    确认并续跑高清首尾帧；PUT draft/confirm 服务端契约保留，只是不再是人工闸门）──
 const draftConfirmed = computed(() => { const g = shots.value.filter((s) => s.source === 'generate'); return g.length > 0 && g.every((s) => s.gen?.draft_status === 'confirmed') })
 const draftsReady = computed(() => { const g = shots.value.filter((s) => s.source === 'generate'); return g.length > 0 && g.every((s) => s.gen?.draft_status === 'generated' || s.gen?.draft_status === 'confirmed') })
-const canConfirmDraft = computed(() => draftsReady.value && !draftConfirmed.value)
 /** 素材生成阶段任务统一提交（storyboard→步3/frames→步3/videos→步4；进行中不重复提交） */
 async function submitStage(stage: 'storyboard' | 'frames' | 'videos'): Promise<void> {
   if (iv.genPhase.value === 'running' && iv.genTaskId.value) { step.value = stage === 'videos' ? 4 : 3; return }
@@ -911,15 +911,17 @@ async function submitStage(stage: 'storyboard' | 'frames' | 'videos'): Promise<v
     startVideos.value = ''
   }
 }
-async function confirmDraftAndSubmitVideos(): Promise<void> {
-  if (!(await iv.confirmDraft(scriptId.value))) { notify('确认失败', '九宫粗稿确认请求未成功，请重试'); return }
+/** 粗稿就绪即确认并续跑高清首尾帧（粗稿任务完成/进入第 3 步时自动调用） */
+async function autoConfirmDraft(): Promise<void> {
+  if (draftConfirmed.value || !draftsReady.value) return
+  if (!(await iv.confirmDraft(scriptId.value))) { notify('粗稿自动确认失败', '确认请求未成功——重新进入本步会自动重试'); return }
   await reloadScript()
   await startFramesSubmission()
 }
 async function startFramesSubmission(): Promise<void> { await submitStage('frames') }
 async function startVideosSubmission(): Promise<void> { await submitStage('videos') }
 
-// 九宫已确认且精稿未生成 → 自动续跑高清精稿（重入/刷新恢复；已完成不重触发）
+// 粗稿已确认且精稿未生成 → 自动续跑高清精稿（重入/刷新恢复；已完成不重触发）
 watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv.genTaskId.value] as const,
   ([confirmed, ready, phase, taskId]) => {
     if (confirmed && ready === 0 && phase !== 'running' && !taskId) void startFramesSubmission()
@@ -1132,17 +1134,16 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
         @close="closeVoiceoverDlg" />
     </div>
 
-    <!-- ═══ 第 3 步：分镜头确认（阶段① 九宫格确认 + 阶段② 首尾帧+确认全部分镜——2026-10-06 用户裁决）═══ -->
+    <!-- ═══ 第 3 步：分镜头确认（阶段① 高清首尾帧+确认全部分镜；九宫格人工确认已退役——2026-10-16 用户裁决）═══ -->
     <ImitationGenSteps
       v-else-if="step === 3"
       mode="frames"
       :iv="iv"
       :shots="shots"
-      :grid-url="storyboardGridUrl"
+      :source-video-url="sourceClipVideoUrl"
       :quality-report="qualityReport"
       :six-view-ready="sixViewReady"
       @toggle-badcase="toggleBadcase"
-      :pack="iv.storyboardPack.value"
       :gen-result-summary="genResultSummary"
       :frames-ready-count="framesReadyCount"
       :generate-shots-count="generateShotsCount"
@@ -1151,13 +1152,7 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
       :aroll-config="arollConfig"
       :aroll-preview-url="arollPreviewUrl"
       :aroll-busy="arollBusy"
-      :draft-confirmed="draftConfirmed"
-      :drafts-ready="draftsReady"
-      :can-confirm-draft="canConfirmDraft"
-      @confirm-draft="confirmDraftAndSubmitVideos"
-      @refresh-grid="reloadScript"
       @frames-confirmed="reloadScript"
-      @regen-storyboard="regenStoryboard"
       :frame-confirming="frameConfirming"
       :regen-frame="regenFrame"
       :retrying="retrying"
@@ -1182,11 +1177,9 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
       :iv="iv"
       :shots="shots"
       :source-video-url="sourceClipVideoUrl"
-      :grid-url="storyboardGridUrl"
       :quality-report="qualityReport"
       :six-view-ready="sixViewReady"
       @toggle-badcase="toggleBadcase"
-      :pack="iv.storyboardPack.value"
       :gen-result-summary="genResultSummary"
       :frames-ready-count="framesReadyCount"
       :generate-shots-count="generateShotsCount"
@@ -1195,14 +1188,8 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
       :aroll-config="arollConfig"
       :aroll-preview-url="arollPreviewUrl"
       :aroll-busy="arollBusy"
-      :draft-confirmed="draftConfirmed"
-      :drafts-ready="draftsReady"
-      :can-confirm-draft="canConfirmDraft"
-      @confirm-draft="confirmDraftAndSubmitVideos"
-      @refresh-grid="reloadScript"
       @frames-confirmed="reloadScript"
       @generate-aroll="generateAroll"
-      @regen-storyboard="regenStoryboard"
       :frame-confirming="frameConfirming"
       :regen-frame="regenFrame"
       :retrying="retrying"
@@ -1261,7 +1248,6 @@ watch(() => [draftConfirmed.value, framesReadyCount.value, iv.genPhase.value, iv
       @restart="resetFlow"
       @config-change="onMontageConfig"
       @download="downloadMontageVideo"
-      @regen-storyboard="regenStoryboard"
     />
   </div>
 </template>

@@ -22,7 +22,7 @@ const emit = defineEmits<{
   <div class="iv-panel">
     <div class="row between">
       <span class="sb-info">分镜脚本（拆解稿）——共 {{ shots.length }} 镜 ｜ 总时长 {{ totalDuration }} 秒</span>
-      <span class="muted">确认无误后进入视频生成（九宫格确认 → 首尾帧 → 分镜视频 → 可选 A-roll）</span>
+      <span class="muted">确认无误后进入视频生成（首尾帧 → 分镜视频 → 可选 A-roll）</span>
     </div>
     <div v-for="(shot, i) in shots" :key="i" class="seg-card">
       <div class="seg-head">

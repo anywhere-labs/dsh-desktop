@@ -295,7 +295,9 @@ export function useImitationVideo() {
   }
 
   // ── HumanGate②：帧确认 / 手动换帧（multipart，实测口径）──────
-  /** 闸门① 九宫分镜整体确认（v4.3：PUT draft/confirm → draft_status=confirmed，解锁 frames 精稿） */
+  /** 粗稿整体确认（PUT draft/confirm → draft_status=confirmed，解锁 frames 精稿）。
+   *  2026-10-16 用户裁决：九宫格人工确认退役——本函数由父组件在粗稿任务完成后
+   *  自动调用，不再挂人工按钮。 */
   async function confirmDraft(id: string): Promise<boolean> {
     try {
       const resp = (await serverBridge().put(API_PATHS.storyboard.draftConfirm(id), {})) as Record<string, unknown> | null

@@ -1,14 +1,15 @@
 <script setup lang="ts">
 // ═══════════════════════════════════════════════════════════════
-// ImitationGenSteps.vue — 仿视频第 3 步（分镜头确认：阶段① 九宫格确认 + 阶段②
-// 首尾帧生成与确认全部分镜）与第 4 步（逐镜视频生成 + 可选 A-roll）面板。
+// ImitationGenSteps.vue — 仿视频第 3 步（分镜头确认：阶段① 高清首尾帧生成与
+// 确认全部分镜）与第 4 步（逐镜视频生成 + 可选 A-roll）面板。
+// 2026-10-16 用户裁决：九宫格人工确认整体退役——粗稿任务由父级自动确认并
+// 自动续跑高清首尾帧，本面板不再有九宫格卡/提示词列表/下载/重新生成入口；
+// 原阶段②（首尾帧）升为阶段①。
 // 2026-10-06 用户裁决：单镜确认完成即解锁「下一步：视频生成」（手动进入第 4 步）；
 // 首尾帧点击=页内灯箱看全图；词表只含当前仿视频脚本（装载后剔除其他脚本 tab）。
-// 2026-10-06 复原：拆分事故后按残存逻辑+父组件接线整文件重建——确认全部/灯箱/
-// 九宫格下载/提示词列表/模式分支（frames=第3步，videos=第4步）全部回位。
 // ═══════════════════════════════════════════════════════════════
 import { computed, ref, watch } from 'vue'
-import { clientError, clientInfo } from '@/utils/clientLog'
+import { clientInfo } from '@/utils/clientLog'
 import TButton from '@/components/common/TButton.vue'
 import {
   SCENE_ELEMENT_KEYS,
@@ -44,18 +45,12 @@ const props = defineProps<{
   shots: ImitationShot[]
   /** 换物档左栏参考=原片（meta.imitate.source_material_id；空=脚本无源片引用） */
   sourceVideoUrl: string
-  gridUrl: string
-  /** v4.9 storyboard-pack（九宫格图配套逐镜中文提示词，Seedance 交付） */
-  pack: Record<string, unknown> | null
   /** meta.quality_report（批1 M0/D7 frames 后置质量报告；null=无数据不显示） */
   qualityReport: QualityReport | null
   genResultSummary: { done: number; failed: number }
   framesReadyCount: number
   generateShotsCount: number
   doneAll: boolean
-  draftConfirmed: boolean
-  draftsReady: boolean
-  canConfirmDraft: boolean
   arollStatus: string
   arollConfig: { source: string; imageMaterialId: string; materialId: string }
   arollPreviewUrl: string
@@ -78,9 +73,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'confirm-draft'): void
   (e: 'generate-aroll', config: { source: string; imageMaterialId: string; materialId: string }): void
-  (e: 'regen-storyboard'): void
   (e: 'start-videos'): void
   (e: 'next-pack'): void
   (e: 'update:retryFidelity', v: 'fast' | 'balanced' | 'high'): void
@@ -135,14 +128,8 @@ function submitAroll(): void {
   emit('generate-aroll', { ...arollForm.value })
 }
 
-const draftShots = computed(() => props.shots.filter((s) => s.source === 'generate'))
-const draftGateVisible = computed(() => draftShots.value.some((s) => s.gen?.draft_status || s.gen?.draft_first) || ivRef<string>('genPhase').value === 'running')
-const draftGateText = computed(() => {
-  if (ivRef<string>('genPhase').value === 'running') return '九宫粗稿生成中…'
-  if (props.draftConfirmed) return '粗稿已整体确认'
-  if (props.draftsReady) return '粗稿已生成，待整体确认'
-  return '粗稿待生成'
-})
+/** 高清首尾帧尚未产生任何帧产物——提示文案依据（非闸门：流程自动流转，2026-10-16 裁决） */
+const framesNotStarted = computed(() => !props.shots.some((s) => s.source === 'generate' && (s.gen?.first_frame || s.gen?.frames_status || s.gen?.draft_first)))
 
 const SCENE_ELEMENT_LABELS: Record<string, string> = {
   surface: '台面', environment: '环境', lighting: '光照', style: '风格', composition: '构图',
@@ -180,51 +167,11 @@ async function confirmAllFrames(): Promise<void> {
   }
 }
 
-// ── 页内灯箱（2026-10-06 用户裁决：首尾帧/九宫格图点击=看全图，点任意处关闭）──
+// ── 页内灯箱（2026-10-06 用户裁决：首尾帧点击=看全图，点任意处关闭）──
 const lightbox = ref<{ src: string; caption: string } | null>(null)
 function openLightbox(name: unknown, which: 'first' | 'last', index: number): void {
   lightbox.value = { src: props.frameUrl(name, which), caption: `#${index + 1} ${String(name || '')} ${which === 'first' ? '首帧' : '尾帧'}` }
   clientInfo('imitation-video', `灯箱打开：${lightbox.value.caption}`)
-}
-function openDraftLightbox(name: unknown, index: number): void {
-  lightbox.value = { src: props.frameUrl(name, 'draft_first'), caption: `#${index + 1} ${String(name || '')} 粗稿首帧` }
-}
-/** 九宫格图缓存击穿在父级 URL 上（storyboardGridUrl 带脚本 version——2026-10-07 服务端
- *  重生成换种子后"同 URL 不同图"成为常态）；旧 gridStamp ?t 机制从未接线已删 */
-
-// ── 九宫格图下载（saveFile 对话框 → 服务端 downloadResult 落盘）──
-const gridDlBusy = ref(false)
-const gridDlNote = ref('')
-interface PackShot { no?: number; name?: string; camera_zh?: string; duration?: number; seed_base?: number; prompt_zh?: string }
-const packShots = computed<PackShot[]>(() => (props.pack?.shots as PackShot[] | undefined) || [])
-function packShotMeta(p: PackShot): string {
-  return [p.camera_zh, p.duration != null ? `${p.duration}s` : '', p.seed_base != null ? `seed ${p.seed_base}` : ''].filter(Boolean).join(' ｜ ')
-}
-async function downloadGrid(): Promise<void> {
-  if (!props.gridUrl || gridDlBusy.value) return
-  try {
-    const savePath = await window.tintin?.dialog?.saveFile?.({
-      title: '下载九宫格分镜总览',
-      defaultPath: 'storyboard-grid.png',
-      filters: [{ name: '图片文件', extensions: ['png'] }],
-    })
-    if (!savePath) return // 用户取消
-    gridDlBusy.value = true
-    gridDlNote.value = ''
-    const res = await window.tintin.server.downloadResult(props.gridUrl, savePath)
-    if (res === null) { gridDlNote.value = '下载失败：服务端不可达'; return }
-    if (res && typeof res === 'object' && 'error' in (res as Record<string, unknown>)) {
-      gridDlNote.value = `下载失败：${String((res as Record<string, unknown>).error || '未知错误')}`
-      clientError('imitation-video', '九宫格下载失败', { res })
-      return
-    }
-    gridDlNote.value = `已下载：${savePath}`
-  } catch (e) {
-    gridDlNote.value = `下载失败：${(e as Error).message}`
-    clientError('imitation-video', '九宫格下载失败', e)
-  } finally {
-    gridDlBusy.value = false
-  }
 }
 
 /** 逐镜视频预览地址（生成/实拍统一回填 shot 根级 material_id） */
@@ -255,18 +202,13 @@ const videosBarPct = computed(() => {
   return shotProgressPercent(done, total, ivRef<number>('genProgress').value)
 })
 
-/** 复制提示词（2026-10-06 用户指令：全部 prompt_zh 按「镜N: 内容」拼接送剪贴板，纯前端） */
-const copyPromptNote = ref('')
-async function copyPrompts(): Promise<void> {
-  if (!packShots.value.length) return
-  const text = packShots.value.map((p, i) => `镜${p.no ?? i + 1}: ${p.prompt_zh || ''}`).join('\n')
-  try {
-    await navigator.clipboard.writeText(text)
-    copyPromptNote.value = '提示词已复制到剪贴板'
-  } catch (e) {
-    copyPromptNote.value = `复制失败：${(e as Error).message}`
-    clientError('imitation-video', '复制提示词失败', e)
-  }
+/** 总耗时人话格式（2026-10-15 用户裁决：成功时给出共用时长；genElapsedSec 结束时定格在最后轮询 tick） */
+function fmtElapsed(sec: number): string {
+  if (!Number.isFinite(sec) || sec <= 0) return ''
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = sec % 60
+  return h ? `${h}时${m}分${s}秒` : m ? `${m}分${s}秒` : `${s}秒`
 }
 </script>
 
@@ -274,11 +216,11 @@ async function copyPrompts(): Promise<void> {
   <div class="iv-panel">
     <!-- ═══ 第 3 步（mode=frames）═══ -->
     <template v-if="mode === 'frames'">
-      <!-- 任务进度按阶段归位（2026-10-05 用户裁决：每个进度对应不同的任务）：
-           此处只显示九宫粗稿任务（stage=storyboard）；高清精稿进度在阶段②头部 -->
+      <!-- 粗稿准备进度（stage=storyboard；2026-10-16 裁决：粗稿完成后父级自动确认并
+           续跑高清首尾帧——不再有九宫格卡与人工确认，此进度条仅为等待期可见性） -->
       <div v-if="ivRef<string>('genStage').value === 'storyboard' && ivRef<string>('genPhase').value === 'running'" class="seg-field">
         <div class="row between">
-          <span class="lbl">九宫粗稿生成（九宫格图+逐镜低清首尾帧——storyboard 任务）</span>
+          <span class="lbl">分镜粗稿准备中（提示词+低清粗稿——完成后自动开始高清首尾帧，无需操作）</span>
           <span v-if="ivRef<number>('genProgress').value >= 0" class="muted">{{ ivRef<number>('genProgress').value }}%</span>
         </div>
         <div class="iv-bar" :class="{ 'is-indeterminate': ivRef<number>('genProgress').value < 0 }">
@@ -287,77 +229,15 @@ async function copyPrompts(): Promise<void> {
         <div v-if="ivRef<string>('genMessage').value" class="muted">{{ ivRef<string>('genMessage').value }}</div>
       </div>
 
-      <!-- 阶段① 九宫分镜粗稿（v4.3 两段化：低清整体确认，不合格整体再生成） -->
-      <div class="seg-card aroll-card">
-        <div class="seg-head">
-          <span class="seg-no">阶段①</span>
-          <span class="sb-info">九宫格确认（总览图一张+逐镜中文提示词——Seedance 交付）</span>
-          <span class="spacer"></span>
-          <TButton label="重新生成九宫格图" variant="secondary" :disabled="ivRef<string>('genPhase').value === 'running'" title="重新提交九宫粗稿生成任务（全部镜头重生成，含产品图）" @click="emit('regen-storyboard')" />
-        </div>
-        <div v-if="!draftGateVisible" class="muted">提交九宫粗稿任务后，九宫格图与提示词将显示在此。</div>
-        <!-- 九宫格图=服务端拼版的一张图（2026-10-05 用户定案）；九宫格图+提示词=Seedance 交付物 -->
-        <template v-else>
-          <!-- 左右 1:1（2026-10-08 用户裁决）：左=九宫格图，右=逐镜提示词 -->
-          <div class="iv-grid-cols">
-            <div class="iv-grid-left">
-              <div class="row between">
-                <span class="lbl">分镜总览（按镜头号，每镜=粗稿首帧，点击放大）</span>
-                <TButton label="下载九宫格图（整图）" variant="secondary" size="small" :disabled="!gridUrl" :loading="gridDlBusy" title="服务端拼版整图仍可下载（Seedance 交付物），页面不再展示" @click="downloadGrid" />
-              </div>
-              <div v-if="gridDlNote" class="muted">{{ gridDlNote }}</div>
-              <!-- 按镜头号散排（2026-10-08 用户裁决：不拼整图；每格=粗稿首帧，尺寸约为拼版格两倍） -->
-              <div class="iv-draft-grid">
-                <figure v-for="(shot, i) in shots.filter((s) => s.source === 'generate')" :key="shot.gen?.name || i" class="iv-draft-cell">
-                  <button
-                    v-if="shot.gen?.draft_first"
-                    type="button" class="iv-fig-btn"
-                    :title="`#${i + 1} ${shot.gen?.name || ''} 粗稿首帧（点击查看大图）`"
-                    @click="openDraftLightbox(shot.gen?.name, i)"
-                  >
-                    <img :src="frameUrl(shot.gen?.name, 'draft_first')" alt="粗稿首帧" class="iv-draft-img" loading="lazy" />
-                  </button>
-                  <div v-else class="iv-fig-empty">粗稿待生成</div>
-                  <figcaption class="muted">镜{{ i + 1 }} · {{ shot.gen?.name }}</figcaption>
-                </figure>
-              </div>
-            </div>
-            <div v-if="packShots.length" class="iv-pack-prompts">
-              <div class="row between">
-                <span class="lbl">九宫格提示词（prompt_zh，随九宫格图配套交付）</span>
-                <TButton label="复制提示词" variant="secondary" size="small" @click="copyPrompts" />
-              </div>
-              <div v-if="copyPromptNote" class="muted">{{ copyPromptNote }}</div>
-              <div v-for="(p, i) in packShots" :key="String(p.name || i)" class="iv-pack-prompt">
-                <span class="seg-no">镜{{ p.no ?? i + 1 }}</span>
-                <span class="muted">{{ packShotMeta(p) }}</span>
-                <div class="iv-pack-prompt-text">{{ p.prompt_zh || '（提示词待生成）' }}</div>
-              </div>
-            </div>
-            <div v-else class="muted">提示词待生成——随九宫格图配套回填后显示在此。</div>
-          </div>
-        </template>
-        <!-- 状态+确认（2026-10-06 用户裁决：从卡头移到卡底行右侧） -->
-        <div class="row between">
-          <span class="muted">确认后进入阶段② 高清首尾帧（视频生成用此档）</span>
-          <span class="row">
-            <span class="muted">{{ draftGateText }}</span>
-            <TButton v-if="!draftConfirmed" label="确认九宫粗稿" :disabled="!canConfirmDraft" title="粗稿生成完成后可确认" @click="emit('confirm-draft')" />
-            <span v-else class="iv-badge iv-badge--ai">✓ 九宫粗稿已整体确认</span>
-          </span>
-        </div>
+      <!-- 阶段① 高清首尾帧（进入本步自动流转：粗稿自动确认后自动提交生成，逐镜确认/换帧/重生成） -->
+      <div v-if="framesNotStarted" class="row">
+        <span class="muted">高清首尾帧将自动开始生成（单镜约 3~7 分钟，完成后逐镜确认）</span>
       </div>
-
-      <!-- 阶段② 高清首尾帧（九宫确认后自动提交生成，逐镜确认/换帧/重生成） -->
-      <template v-if="draftConfirmed">
-        <div v-if="framesReadyCount === 0 && ivRef<string>('genPhase').value !== 'running'" class="row">
-          <span class="muted">九宫已确认——高清精稿已自动提交生成（单镜约 3~7 分钟，完成后逐镜确认）</span>
-        </div>
-        <div class="row between">
-          <span class="sb-info">阶段② 已确认 {{ framesReadyCount }} / {{ generateShotsCount }} 镜——全帧确认后解锁视频生成</span>
-          <span class="muted">每帧可手动替换 / 单帧重生成</span>
-        </div>
-        <!-- 高清精稿生成进度就地带在阶段②头部（2026-10-05 用户报障：进度条在页顶隔着两屏看不见） -->
+      <div class="row between">
+        <span class="sb-info">阶段① 已确认 {{ framesReadyCount }} / {{ generateShotsCount }} 镜——全帧确认后解锁视频生成</span>
+        <span class="muted">每帧可手动替换 / 单帧重生成</span>
+      </div>
+        <!-- 高清精稿生成进度就地带在阶段①头部（2026-10-05 用户报障：进度条在页顶隔着两屏看不见） -->
         <div v-if="ivRef<string>('genPhase').value === 'running' && ivRef<string>('genStage').value === 'frames'" class="seg-field">
           <div class="row between">
             <span class="muted">高清首尾帧生成中（已用时 {{ ivRef<number>('genElapsedSec').value }} 秒，单镜约 3~7 分钟）… 已完成 {{ genResultSummary.done }} 镜、失败 {{ genResultSummary.failed }} 镜</span>
@@ -434,26 +314,25 @@ async function copyPrompts(): Promise<void> {
             </div>
           </div>
         </div>
-      </template>
 
-        <!-- 确认全部分镜（2026-10-05 用户裁决）：独立整行，进度条/note 行随其下 -->
-        <div class="iv-confirm-all-row">
-          <TButton
-            label="确认全部分镜"
-            :variant="pendingFramesCount ? 'primary' : 'secondary'"
-            style="width: 100%"
-            :loading="confirmingAll"
-            :disabled="pendingFramesCount === 0"
-            :title="pendingFramesCount ? `循环确认 ${pendingFramesCount} 镜已生成帧，一次回读` : '没有待确认的镜帧'"
-            @click="confirmAllFrames"
-          />
+      <!-- 确认全部分镜（2026-10-05 用户裁决）：独立整行，进度条/note 行随其下 -->
+      <div class="iv-confirm-all-row">
+        <TButton
+          label="确认全部分镜"
+          :variant="pendingFramesCount ? 'primary' : 'secondary'"
+          style="width: 100%"
+          :loading="confirmingAll"
+          :disabled="pendingFramesCount === 0"
+          :title="pendingFramesCount ? `循环确认 ${pendingFramesCount} 镜已生成帧，一次回读` : '没有待确认的镜帧'"
+          @click="confirmAllFrames"
+        />
+      </div>
+      <div v-if="confirmingAll || confirmAllNote" class="seg-field">
+        <div class="iv-bar">
+          <div class="iv-bar-fill" :style="{ width: confirmAllTotal ? (confirmAllDone / confirmAllTotal) * 100 + '%' : '0%' }"></div>
         </div>
-        <div v-if="confirmingAll || confirmAllNote" class="seg-field">
-          <div class="iv-bar">
-            <div class="iv-bar-fill" :style="{ width: confirmAllTotal ? (confirmAllDone / confirmAllTotal) * 100 + '%' : '0%' }"></div>
-          </div>
-          <div class="muted">{{ confirmAllNote }}（{{ confirmAllDone }}/{{ confirmAllTotal }} 镜）</div>
-        </div>
+        <div class="muted">{{ confirmAllNote }}（{{ confirmAllDone }}/{{ confirmAllTotal }} 镜）</div>
+      </div>
 
       <div class="row">
         <TButton label="← 上一步" variant="primary" @click="onBack" />
@@ -472,23 +351,6 @@ async function copyPrompts(): Promise<void> {
 
     <!-- ═══ 第 4 步（mode=videos）：逐镜视频生成 + 可选 A-roll ═══ -->
     <template v-else>
-      <div class="row between">
-        <span class="sb-info">逐镜视频生成（以确认首尾帧为硬约束）</span>
-        <span v-if="ivRef<string>('genPhase').value === 'running' && ivRef<string>('genStage').value === 'videos'" class="muted">生成中（小时级，取决于镜数与保真档位）…</span>
-        <span v-else-if="ivRef<string>('genPhase').value === 'failed'" class="iv-err">失败：{{ ivRef<string>('genError').value }}</span>
-        <span v-else-if="ivRef<string>('genPhase').value === 'done'" class="muted">完成（成功 {{ genResultSummary.done }} 镜<template v-if="genResultSummary.failed">、失败 {{ genResultSummary.failed }} 镜</template>）</span>
-      </div>
-      <!-- 视频任务进度（stage=videos 就地；comfygen 逐镜流式计数实时） -->
-      <div v-if="ivRef<string>('genPhase').value === 'running' && ivRef<string>('genStage').value === 'videos'" class="seg-field">
-        <div class="row between">
-          <span class="muted">已用时 {{ ivRef<number>('genElapsedSec').value }} 秒… 已完成 {{ Math.max(liveShots ? liveShots.done : 0, videosDoneCount) }} / {{ liveShots ? liveShots.total : generateShotsCount }} 镜、失败 {{ videosFailedCount }} 镜</span>
-          <span v-if="videosBarPct >= 0" class="muted">{{ videosBarPct }}%</span>
-        </div>
-        <div class="iv-bar" :class="{ 'is-indeterminate': videosBarPct < 0 }">
-          <div v-if="videosBarPct >= 0" class="iv-bar-fill" :style="{ width: videosBarPct + '%' }"></div>
-        </div>
-        <div v-if="ivRef<string>('genMessage').value" class="muted">{{ ivRef<string>('genMessage').value }}</div>
-      </div>
       <div class="iv-grid">
         <div v-for="(shot, i) in shots" :key="shot.gen?.name || i" class="iv-shot-card">
           <div class="seg-head">
@@ -597,6 +459,26 @@ async function copyPrompts(): Promise<void> {
         <video v-if="arollPreviewUrl" :src="arollPreviewUrl" controls preload="metadata" class="iv-shot-video" />
       </div>
 
+      <!-- 视频生成进度+状态条（2026-10-15 用户裁决：从页顶移到导航行上方——生成小时级，
+           页顶隔着整屏看不见；成功时给出总耗时） -->
+      <div class="row between">
+        <span class="sb-info">逐镜视频生成（以确认首尾帧为硬约束）</span>
+        <span v-if="ivRef<string>('genPhase').value === 'running' && ivRef<string>('genStage').value === 'videos'" class="muted">生成中（小时级，取决于镜数与保真档位）…</span>
+        <span v-else-if="ivRef<string>('genPhase').value === 'failed'" class="iv-err">失败：{{ ivRef<string>('genError').value }}</span>
+        <span v-else-if="ivRef<string>('genPhase').value === 'done'" class="muted">完成（成功 {{ genResultSummary.done }} 镜<template v-if="genResultSummary.failed">、失败 {{ genResultSummary.failed }} 镜</template>）<template v-if="ivRef<number>('genElapsedSec').value > 0"> · 共用时 {{ fmtElapsed(ivRef<number>('genElapsedSec').value) }}</template></span>
+      </div>
+      <!-- 视频任务进度（stage=videos 就地；comfygen 逐镜流式计数实时） -->
+      <div v-if="ivRef<string>('genPhase').value === 'running' && ivRef<string>('genStage').value === 'videos'" class="seg-field">
+        <div class="row between">
+          <span class="muted">已用时 {{ ivRef<number>('genElapsedSec').value }} 秒… 已完成 {{ Math.max(liveShots ? liveShots.done : 0, videosDoneCount) }} / {{ liveShots ? liveShots.total : generateShotsCount }} 镜、失败 {{ videosFailedCount }} 镜</span>
+          <span v-if="videosBarPct >= 0" class="muted">{{ videosBarPct }}%</span>
+        </div>
+        <div class="iv-bar" :class="{ 'is-indeterminate': videosBarPct < 0 }">
+          <div v-if="videosBarPct >= 0" class="iv-bar-fill" :style="{ width: videosBarPct + '%' }"></div>
+        </div>
+        <div v-if="ivRef<string>('genMessage').value" class="muted">{{ ivRef<string>('genMessage').value }}</div>
+      </div>
+
       <div class="row">
         <TButton label="← 上一步" variant="primary" @click="onBack" />
         <span class="spacer"></span>
@@ -683,21 +565,6 @@ async function copyPrompts(): Promise<void> {
 .iv-fig-btn { display: block; padding: 0; border: none; background: none; cursor: zoom-in; }
 .iv-fig-btn img { pointer-events: none; }
 .iv-zoomable { cursor: zoom-in; }
-
-/* 九宫格卡左右 1:1（2026-10-08 用户裁决）：左=九宫格图，右=逐镜提示词；
-   minmax(0,1fr) 防 min-content 撑爆轨道（长提示词 word-break 已断行） */
-.iv-grid-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
-.iv-grid-left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-/* 2026-10-12 用户裁决：每行固定 4 张、小间距（6px），格宽随左栏自适应 */
-.iv-draft-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.iv-draft-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.iv-draft-cell .iv-fig-btn { display: block; }
-.iv-draft-img { width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius-md);
-  background: #101010; display: block; }
-.iv-pack-prompts { display: flex; flex-direction: column; gap: 6px; }
-.iv-pack-prompt { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
-  background: var(--card); border: 1px dashed var(--border); border-radius: var(--radius-md); }
-.iv-pack-prompt-text { font-size: 12px; line-height: 1.6; color: var(--foreground); word-break: break-word; }
 
 .iv-shot-video { height: 240px; width: auto; max-width: 100%; background: #101010;
   border-radius: var(--radius-sm); display: block; }
