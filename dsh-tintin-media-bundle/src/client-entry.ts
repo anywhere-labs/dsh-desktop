@@ -18,6 +18,9 @@ import App from './App.vue'
 // P3 tintin-ops-bundle；chrome 占位网格在本 provider 注册后被接管，P3 落地
 // 时把注册权迁往 ops-bundle 即可——注册表同名 'ops' 覆盖语义不变）
 import OpsApp from './OpsApp.vue'
+// 创作模式（2026-10-16 用户裁决：独立视图，侧栏置于「运营工具」之上，不再
+// 占用媒体工具网格卡位；视图与媒体包同 bundle，服务端对接待需求对齐后实施）
+import CreationStudio from './components/media-tools/CreationStudio.vue'
 // 会话上下文条（WP-5b，2026-09-25）：conversation.input.left slot 内的
 // Vue 应用——产品/素材/脚本选择写入工作区 task.json（不改 dsh 底层的注入面）
 import ContextBar from './components/workbench/ContextBar.vue'
@@ -65,6 +68,8 @@ window.__ModuleLoader__!.load({
   factory: (require?: (id: string) => unknown) => {
     let app: VueApp | null = null
     let opsApp: VueApp | null = null
+    // 创作模式独立视图（同 KeepAlive 语义：mount 一次，切走隐藏不销毁）
+    let creationApp: VueApp | null = null
 
     // 视图生命周期挂接（2026-09-24 Tab 状态机裁决）：chrome 为每个视图持有
     // 常驻子元素，mount 每视图仅调一次、切走只隐藏不销毁（KeepAlive 语义）——
@@ -90,6 +95,18 @@ window.__ModuleLoader__!.load({
       unmount() {
         opsApp?.unmount()
         opsApp = null
+      },
+    })
+
+    window.__tintinViews?.register('creation', {
+      mount(el: HTMLElement) {
+        if (creationApp) return
+        creationApp = createApp(CreationStudio)
+        creationApp.mount(el)
+      },
+      unmount() {
+        creationApp?.unmount()
+        creationApp = null
       },
     })
 

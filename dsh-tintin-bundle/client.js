@@ -4,23 +4,24 @@
 // here is deterministic; apply()-time installation raced that registration
 // and lost non-deterministically (observed dev17 ok / dev18 missing).
 const tintinClient = (() => {
-    // ── TinTin 顶部 Tab 栏 + 视图切换（2026-09-23 用户实测修正）─────────────
+    // ── TinTin 侧栏视图（2026-09-23 用户实测修正；2026-10-16 用户裁决：创作模式
+    // 独立视图置于运营工具之上，不再占用媒体工具网格卡位）─────────────
     // 原 conversation.session.header.actions 挂法有三个缺陷：仅会话内存在、
     // 靠右不居中、点击只弹小面板不切换视图。改为常驻居中 Tab 栏 + 主区视图
-    // 覆盖层：工作台=harness 会话原生视图；运营/媒体=覆盖层内由视图提供方
+    // 覆盖层：工作台=harness 会话原生视图；创作/运营/媒体=覆盖层内由视图提供方
     // （window.__tintinViews 注册，media-bundle 挂 Vue 子应用）渲染。
     function installTintinChrome() {
       if (document.querySelector('[data-tintin-entry]')) return
       // 入口视图（工作台=无覆盖层默认态；浏览器=独立窗口入口，不进覆盖层）
       const VIEWS = [
+        { id: 'creation', label: '创作模式' },
         { id: 'ops', label: '运营工具' },
         { id: 'media', label: '媒体工具' },
       ]
       const providers = new Map()
       let activeId = 'workbench'
-      // 2026-09-24 用户裁决：Tab 切换状态机——每个视图一个常驻子元素，切走
-      // 仅 display:none（KeepAlive 语义），切回原样保留（已打开的工具卡、
-      // 向导步骤、表单输入全部不丢）。provider.mount 每视图只调一次；不销毁。
+      // 2026-09-24 用户裁决：每视图常驻子元素，切走仅 display:none（KeepAlive），
+      // 切回原样保留（工具卡/向导步骤/表单输入不丢）；mount 每视图只调一次。
       const viewEls = new Map()
 
       window.__tintinViews = {
@@ -31,8 +32,8 @@ const tintinClient = (() => {
         unregister(id) { providers.delete(id) },
       }
 
-      // ── 左侧「插件」区入口（2026-09-28 用户裁决：撤顶部 Tab 栏，减少对原版
-      // 布局的破坏；入口行克隆 harness 面板行位置注入，切换沿用覆盖层 KeepAlive）──
+      // ── 左侧「插件」区入口（2026-09-28 用户裁决：撤顶部 Tab 栏；入口行克隆
+      // harness 面板行位置注入，切换沿用覆盖层 KeepAlive）──
       let entryButtons = []
       function paintEntries() {
         // 激活态沿用原生 panelActive 类：面板未激活时行上没有该类，改由同模块
@@ -50,6 +51,10 @@ const tintinClient = (() => {
         }
       }
       function setActive(id) { activeId = id; render() }
+      // 跨视图跳转口（创作模式「打开媒体工具卡」用）：仅放行本表视图与工作台
+      window.__tintinActivateView = (id) => {
+        if (id === 'workbench' || VIEWS.some((v) => v.id === id)) setActive(id)
+      }
       function injectEntries() {
         const row = [...document.querySelectorAll('button')].find(
           (b) => b.textContent.trim() === '插件' && b.closest('[data-pane="sidebar"], [class*="sidebarCol"]'),
@@ -57,9 +62,8 @@ const tintinClient = (() => {
         if (!row) return false
         const host = row.parentElement
         if (!host || host.querySelector('[data-tintin-entry]')) return true
-        // 入口行 = 克隆「插件」面板行节点并与原行同层直插（2026-09-28 用户裁决：
-        // 布局/图标/字体/行距与插件区逐像素一致，激活背景为整行；收起态跟随原生
-        // 组件行为）。克隆体只改标题文本与点击行为，激活态复用原生 panelActive 类。
+        // 入口行 = 克隆「插件」面板行同层直插（2026-09-28 用户裁决：布局/图标/
+        // 行距与插件区逐像素一致）；只改标题与点击，激活态复用原生 panelActive 类。
         const items = [...VIEWS, { id: '__browser', label: '浏览器' }]
         let anchor = row
         for (const v of items) {
@@ -75,6 +79,7 @@ const tintinClient = (() => {
           // 图标：语义参考原版 Electron（媒体/运营/浏览器），风格对齐 DSH 侧栏
           // 16×16 线稿（stroke currentColor / 线宽 1，与 panelGlyph 原生规格一致）
           const GLYPHS = {
+            creation: '<path d="M8 2.2 9.5 6.5 13.8 8 9.5 9.5 8 13.8 6.5 9.5 2.2 8 6.5 6.5z"/><path d="M12.3 11.6v3.2M10.7 13.2h3.2"/>',
             media: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.8 5.9v4.2l3.6-2.1z"/>',
             ops: '<rect x="2" y="5.5" width="12" height="8" rx="1.5"/><path d="M6 5.5V4a1.5 1.5 0 0 1 1.5-1.5h1A1.5 1.5 0 0 1 10 4v1.5"/><path d="M2 8.5h12"/>',
             __browser: '<circle cx="8" cy="8" r="6"/><path d="M2 8h12"/><path d="M8 2c-1.8 1.6-2.8 3.7-2.8 6s1 4.4 2.8 6c1.8-1.6 2.8-3.7 2.8-6S9.8 3.6 8 2z"/>',
@@ -104,8 +109,8 @@ const tintinClient = (() => {
         }
         return true
       }
-      // 侧栏由 React 管理（类名带 hash、会重渲染）：MutationObserver 守住注入；
-      // 点侧栏其他区域（会话/新会话）= 回工作台，与原版主区语义一致。
+      // 侧栏由 React 管理（类名带 hash 会重渲染）：MutationObserver 守住注入；
+      // 点侧栏其他区域（会话/新会话）=回工作台（展开态，见下方收起态豁免）。
       const sidebarMo = new MutationObserver(() => {
         if (!injectEntries()) return
         const root = document.querySelector('[data-pane="sidebar"], [class*="sidebarCol"]')
@@ -131,12 +136,9 @@ const tintinClient = (() => {
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', armSidebarObserver)
       else armSidebarObserver()
 
-      // 动画层（2026-09-25 用户报障「整个客户端缺少原客户端动画效果」）：
-      // ①tab 切换视图入场（slide-up，SRC MediaTools/OpsTools 页面过渡口径 0.2s/12px）
-      // ②卡片交错入场 stagger（SRC global.css .stagger-item：0.35s + 35ms 步进延迟）
-      // ③占位网格卡片 hover 抬升（SRC OtToolCard hover 口径）。
-      // chrome 在 .tintin-media-scope 令牌作用域之外，缓动用字面量兜底。
-      // KeepAlive 语义不变：display none↔'' 切换时 CSS animation 自动重放，状态不丢。
+      // 动画层（2026-09-25 报障补齐）：①视图入场 slide-up ②卡片 stagger（SRC
+      // MediaTools/global.css 口径 0.2s·12px / 0.35s·35ms）③网格卡 hover 抬升；
+      // chrome 在令牌作用域外，缓动用字面量兜底；KeepAlive 下 display 切换即重放。
       const animStyle = document.createElement('style')
       animStyle.textContent = [
         '@keyframes tintin-view-in{from{opacity:0;transform:translateY(12px)}}',
@@ -149,7 +151,6 @@ const tintinClient = (() => {
         '.tintin-grid-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.12);background:var(--dsw-alias-bg-layer-3,#2a2a2c)}',
       ].join('\n')
       document.head.appendChild(animStyle)
-
 
       const overlay = document.createElement('div')
       overlay.id = 'tintin-view-overlay'
@@ -196,9 +197,8 @@ const tintinClient = (() => {
             }
           } else if (activeId === 'ops') {
             // 运营工具分组占位（2026-09-24 用户裁决：与原客户端 OpsTools.vue 同分组）。
-            // 2026-09-25 起媒体包已注册 'ops' 视图提供方（产品资料卡先行，随图像
-            // 抠图一并移植），本占位网格仅在提供方缺失时兜底显示；P3 tintin-ops-bundle
-            // 落地时接管同名 'ops' 注册。
+            // 2026-09-25 起媒体包已注册 'ops' 提供方；本占位网格仅提供方缺失时兜底，
+            // P3 tintin-ops-bundle 落地时接管同名 'ops' 注册。
             renderOpsGrid(el)
           } else if (activeId === 'browser') {
             // 浏览器 tab（2026-09-25 用户裁决提前移植浏览器域首片）：平台登录态
