@@ -15,7 +15,6 @@ import { useVsrRemoval } from '@/composables/useVsrRemoval'
 import { useVsrPreviewPane } from '@/composables/useVsrPreviewPane'
 import { useVsrRedub } from '@/composables/useVsrRedub'
 import { acceptFileDragOver } from '@/utils/fileUrl'
-import { computed, ref, watch } from 'vue'
 
 const vm = useVsrRemoval()
 const pane = useVsrPreviewPane(vm)
@@ -90,17 +89,8 @@ const {
   statusText,
 } = pane
 
-// ── 两步向导（2026-10-13 用户裁决）：① 去水印字幕（原界面）② 字幕配音 ──
-const step = ref<1 | 2>(1)
-/** 第 2 步解锁 = 第 1 步产物已落盘（自动保存的去除字幕视频） */
-const step2Ready = computed(() => !!resultPath.value)
-function gotoStep(target: 1 | 2): void {
-  if (target === 2 && !step2Ready.value) return
-  step.value = target
-  if (target === 2) void redub.loadAssetsOnce()
-}
-watch(step2Ready, (ready) => { if (!ready) step.value = 1 })
-
+// ── 两步向导（2026-10-13 用户裁决）：① 去水印字幕（原界面）② 字幕配音；
+//     step/step2Ready/gotoStep 在 useVsrRedub 内（2026-10-15 迁入付行数账）──
 /** 第 2 步：字幕配音（保留原音频配新字幕 / 生成新配音 → 导出剪映草稿） */
 const redub = useVsrRedub({
   getResultPath: () => resultPath.value,
@@ -109,8 +99,10 @@ const redub = useVsrRedub({
 })
 const {
   plan, planOptions,
+  step, step2Ready, gotoStep,
   transcribing, transcribeError, transcribed, segmentLines, transcribe,
-  stylePresets, styleKey, fonts, fontId, bgOpacity, animKey, fontSize,
+  stylePresets, styleKey, fontOptions, fontOptionStyle, subtitlePreviewStyle,
+  fontsLoading, refreshFonts, fontId, bgOpacity, animKey, fontSize,
   VSR_SUB_ANIM_OPTIONS, VSR_FONT_SIZE_OPTIONS,
   dubbing, dubError, dubAudioPath, redubText, dubSamples, dubSampleId, generateDub,
   exporting, exportMessage, exportOk, exportDraft,
@@ -306,6 +298,7 @@ const onLeave = onUp
         </div>
 
         <!-- 进度条（处理阶段） -->
+        <div v-if="isProcessing" class="muted">视频根据时长需要较长时间，请耐心等待。</div>
         <div v-if="isProcessing" class="progress-bar">
           <div class="progress-bar__fill" :style="{ width: progress + '%' }" />
         </div>
@@ -336,10 +329,10 @@ const onLeave = onUp
             <span class="result__url-text" :title="resultFullUrl">{{ resultFullUrl }}</span>
             <TButton :label="urlCopied ? '已复制' : '复制'" variant="ghost" size="small" @click="copyResultUrl" />
           </div>
-          <!-- 流转第 2 步（2026-10-13 两步向导）：产物落盘即解锁 -->
-          <div v-if="resultPath" class="result__next">
-            <TButton label="下一步：字幕配音 →" variant="primary" @click="gotoStep(2)" />
-          </div>
+        </div>
+        <!-- 流转第 2 步（2026-10-13 两步向导）：产物落盘即解锁；2026-10-15 用户裁决：按钮移出结果框外 -->
+        <div v-if="status === 'done' && resultPath" class="result__next">
+          <TButton label="下一步：字幕配音 →" variant="primary" @click="gotoStep(2)" />
         </div>
       </div>
     </div>
@@ -385,15 +378,17 @@ const onLeave = onUp
         </div>
         <div class="row" style="margin-top: 8px">
           <label class="lbl">字体:</label>
-          <TSelect :model-value="fontId" :options="[{ label: '默认字体', value: '' }, ...fonts.map((f) => ({ label: f.name, value: f.id }))]" @update:model-value="fontId = String($event)" />
+          <TSelect :model-value="fontId" :options="fontOptions" :option-style="fontOptionStyle" title="字体列表来自服务端 /config/fonts，各选项按自身字体渲染" @update:model-value="fontId = String($event)" />
+          <TButton label="刷新字体" variant="secondary" size="small" :loading="fontsLoading" title="重新从服务端拉取字体列表" @click="refreshFonts" />
           <label class="lbl">入场动画:</label>
           <TSelect :model-value="animKey" :options="VSR_SUB_ANIM_OPTIONS" @update:model-value="animKey = String($event)" />
           <label class="lbl">字号:</label>
           <TSelect :model-value="fontSize" :options="VSR_FONT_SIZE_OPTIONS" @update:model-value="fontSize = Number($event)" />
           <label class="lbl">背景不透明度:</label>
-          <input v-model.number="bgOpacity" type="number" min="0" max="100" class="text-input vsr2-num" />
-          <span class="muted">%</span>
+          <input v-model.number="bgOpacity" type="number" min="0" max="100" class="text-input vsr2-num" /><span class="muted">%</span>
         </div>
+        <!-- 字幕预览单独一行（2026-10-15 用户裁决：与特效包装行3同款；CSS 循环近似 drawtext 烧制） -->
+        <div class="row"><span class="lbl">效果预览:</span><div class="style-preview-canvas"><span class="style-preview-text" :class="animKey !== 'none' ? 'sub-anim-' + animKey : ''" :style="subtitlePreviewStyle">这是字幕预览效果 ABC123</span></div></div>
       </div>
 
       <div v-if="plan === 'redub'" class="vsr2-section">
@@ -497,17 +492,10 @@ const onLeave = onUp
 }
 
 .text-input {
-  width: 100%;
-  height: var(--size-input-height);
-  padding: 0 var(--space-3);
-  background: var(--surface-container);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--foreground);
-  font-size: var(--font-size-body);
+  width: 100%; height: var(--size-input-height); padding: 0 var(--space-3); background: var(--surface-container);
+  border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--foreground); font-size: var(--font-size-body);
   outline: none;
-  transition: border-color var(--duration-fast) var(--easing-default),
-    box-shadow var(--duration-fast) var(--easing-default);
+  transition: border-color var(--duration-fast) var(--easing-default), box-shadow var(--duration-fast) var(--easing-default);
 }
 
 .text-input::placeholder {
@@ -548,6 +536,8 @@ const onLeave = onUp
 
 .vsr-panel {
   min-width: 0;
+  /* 左右调换（2026-10-13 用户裁决：控制区在左、预览区在右） */
+  order: -1;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -973,7 +963,6 @@ const onLeave = onUp
   font-variant-numeric: tabular-nums;
 }
 .vsr-steps__arrow { color: var(--muted-foreground); }
-.vsr-steps__hint { font-size: var(--font-size-caption); }
 
 /* ── 第 2 步：字幕配音 ─────────────────────────────────────────── */
 .vsr2-section {
@@ -985,11 +974,7 @@ const onLeave = onUp
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
 }
-.vsr2-title {
-  font-size: var(--font-size-body);
-  font-weight: var(--font-weight-semibold);
-  color: var(--foreground);
-}
+.vsr2-title { font-size: var(--font-size-body); font-weight: var(--font-weight-semibold); color: var(--foreground); }
 .row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .row.between { justify-content: space-between; }
 .lbl { font-size: var(--font-size-caption); color: var(--muted-foreground); flex: none; }
@@ -1031,5 +1016,17 @@ const onLeave = onUp
 }
 .sub-style-sample { font-size: 16px; font-weight: var(--font-weight-semibold); }
 .sub-style-name { font-size: 11px; color: var(--muted-foreground); }
+/* 字幕效果预览（2026-10-15 对齐特效包装行3：画布 + 入场动画 CSS 循环近似 drawtext 烧制，与成品非逐帧一致） */
+.style-preview-canvas { flex: 1; min-width: 0; height: 52px; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #3a3f4a 0%, #23262e 100%); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.style-preview-text { max-width: 94%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 2px 10px; }
+@keyframes sub-anim-fade-kf { 0% { opacity: 0; } 25% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes sub-anim-rise-kf { 0% { opacity: 0; transform: translateY(8px); } 25% { opacity: 1; transform: translateY(0); } 80% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(0); } }
+@keyframes sub-anim-slide-kf { 0% { opacity: 0; transform: translateX(24px); } 25% { opacity: 1; transform: translateX(0); } 80% { opacity: 1; transform: translateX(0); } 100% { opacity: 0; transform: translateX(0); } }
+@keyframes sub-anim-pop-kf { 0% { opacity: 0; transform: scale(0.6); } 20% { opacity: 1; transform: scale(1.15); } 30% { transform: scale(0.95); } 38% { transform: scale(1); } 80% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+.sub-anim-fade { animation: sub-anim-fade-kf 2.4s ease-in-out infinite; }
+.sub-anim-rise { animation: sub-anim-rise-kf 2.4s ease-out infinite; }
+.sub-anim-slide { animation: sub-anim-slide-kf 2.4s ease-out infinite; }
+.sub-anim-pop { animation: sub-anim-pop-kf 2.4s ease-out infinite; }
 .result__next { margin-top: var(--space-2); display: flex; justify-content: flex-end; }
 </style>

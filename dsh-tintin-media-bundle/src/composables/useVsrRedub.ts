@@ -7,7 +7,7 @@
 // 导出：jianyingExport 单视频（keep）/ multi 单段+静音+voiceClips（redub）——
 //   与文案混剪特效包装同一导出管线（lib/jianying/jianying-exporter.js）。
 // ═══════════════════════════════════════════════════════════════
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   parseTranscriptionResponse,
   segmentsToPlainText,
@@ -19,6 +19,14 @@ import {
   SUBTITLE_STYLE_PRESETS_FALLBACK,
   type SubtitleStylePreset,
 } from './copywritingMontageStep4FxBgmLogic'
+import { subtitlePresetTileStyle } from './copywritingMontageLogic'
+import {
+  ensureServerFontFace,
+  fontOptionCssFamily,
+  fontOptionStyle,
+  registerServerFontFamily,
+  serverFontFacesVersion,
+} from './serverFontFace'
 
 export interface VsrRedubOptions {
   /** 第 1 步产物（去字幕后视频）的本地绝对路径（自动落盘结果） */
@@ -69,6 +77,17 @@ export function useVsrRedub(options: VsrRedubOptions) {
     { label: '保留原音频（原声配新字幕）', value: 'keep' },
     { label: '生成新配音（TTS 替换原声）', value: 'redub' },
   ]
+
+  // ── 两步向导状态（2026-10-13 用户裁决；2026-10-15 从组件层迁入付字幕样式对齐的行数账）──
+  const step = ref<1 | 2>(1)
+  /** 第 2 步解锁 = 第 1 步产物已落盘（自动保存的去除字幕视频） */
+  const step2Ready = computed(() => !!options.getResultPath())
+  function gotoStep(target: 1 | 2): void {
+    if (target === 2 && !step2Ready.value) return
+    step.value = target
+    if (target === 2) void loadAssetsOnce()
+  }
+  watch(step2Ready, (ready) => { if (!ready) step.value = 1 })
 
   // ── 语音转写（字幕文本+时间轴来源）──
   const transcribing = ref(false)
@@ -125,7 +144,9 @@ export function useVsrRedub(options: VsrRedubOptions) {
   const styleKey = ref(SUBTITLE_STYLE_PRESETS_FALLBACK[0]?.key || '')
   const selectedPreset = computed(() =>
     stylePresets.value.find((p) => p.key === styleKey.value) || stylePresets.value[0] || null)
-  const fonts = ref<Array<{ id: string; name: string }>>([])
+  const fontsLoading = ref(false)
+  /** 字体下拉选项（2026-10-15 对齐特效包装：标签=服务端族名而非裸 id，同族多字重追加文件名区分） */
+  const fontOptions = ref<Array<{ label: string; value: string }>>([{ label: '默认（不指定字体）', value: '' }])
   const fontId = ref('')
   const bgOpacity = ref(30)
   const animKey = ref('fade')
@@ -142,14 +163,33 @@ export function useVsrRedub(options: VsrRedubOptions) {
         }
       }
     } catch { /* 降级本地预设 */ }
+  }
+
+  /** 刷新字体（对照文案混剪 _refresh_server_fonts：标签用族名；后台按序预载字体文件供自渲染） */
+  async function refreshFonts(): Promise<void> {
+    if (fontsLoading.value) return
+    fontsLoading.value = true
     try {
       const res = await window.tintin?.server?.get('/config/fonts')
       const list = extractArray(res)
-      fonts.value = list
-        .map((f) => f as { id?: unknown; name?: unknown })
-        .filter((f) => f.id !== undefined)
-        .map((f) => ({ id: String(f.id), name: String(f.name ?? f.id) }))
-    } catch { /* 字体列表失败不阻断（导出不依赖） */ }
+      const items: Array<{ label: string; value: string }> = [{ label: '默认（不指定字体）', value: '' }]
+      const seen = new Set<string>()
+      for (const f of list) {
+        const o = f as { id?: unknown; name?: unknown; family?: unknown; filename?: unknown }
+        const fid = String(o.id ?? '').trim()
+        if (!fid) continue
+        const family = String(o.family || o.filename || o.name || fid).trim()
+        registerServerFontFamily(fid, family)
+        const label = seen.has(family) && o.filename ? `${family}（${String(o.filename)}）` : family
+        seen.add(family)
+        items.push({ label, value: fid })
+      }
+      fontOptions.value = items
+      void items.slice(1).reduce(
+        (p, it) => p.then(() => ensureServerFontFace(it.value)),
+        Promise.resolve(),
+      )
+    } catch { /* 字体列表失败不阻断（导出不依赖） */ } finally { fontsLoading.value = false }
   }
 
   /** 导出用字幕样式：选中预设的 serverStyle 直传（文案混剪同口径）+ 字体选择合入 */
@@ -157,6 +197,23 @@ export function useVsrRedub(options: VsrRedubOptions) {
     const st = selectedPreset.value?.serverStyle
     if (!st) return fontId.value ? { font: fontId.value } : null
     return fontId.value ? { ...st, font: fontId.value } : st
+  })
+
+  /** 字幕效果预览样式（2026-10-15 用户裁决：对齐特效包装行3——选中预设 CSS 近似 +
+   *  选中字体自渲染 + 背景框；bgOpacity 为百分数 → alpha 除 100；字号×1.8px 同比例） */
+  const subtitlePreviewStyle = computed<Record<string, string>>(() => {
+    void serverFontFacesVersion()
+    const st = subtitlePresetTileStyle(selectedPreset.value ?? SUBTITLE_STYLE_PRESETS_FALLBACK[0]!)
+    st.fontSize = `${Math.round(fontSize.value * 1.8)}px`
+    st.fontWeight = '700'
+    st.lineHeight = '1.5'
+    st.textAlign = 'center'
+    if (fontId.value) {
+      void ensureServerFontFace(fontId.value)
+      st.fontFamily = fontOptionCssFamily(fontId.value)
+    }
+    if (bgOpacity.value > 0) st.background = `rgba(0,0,0,${bgOpacity.value / 100})`
+    return st
   })
 
   // ── 重新配音（TTS 整段替换原声；样本/引擎与声音克隆页同源）──
@@ -270,13 +327,15 @@ export function useVsrRedub(options: VsrRedubOptions) {
   async function loadAssetsOnce(): Promise<void> {
     if (assetsLoaded) return
     assetsLoaded = true
-    await Promise.all([loadStyleAssets(), loadDubSamples()])
+    await Promise.all([loadStyleAssets(), refreshFonts(), loadDubSamples()])
   }
 
   return {
     plan, planOptions,
+    step, step2Ready, gotoStep,
     transcribing, transcribeError, transcribed, segments, segmentLines, srtPath, transcribe,
-    stylePresets, styleKey, selectedPreset, fonts, fontId, bgOpacity, animKey, fontSize,
+    stylePresets, styleKey, selectedPreset, fontOptions, fontOptionStyle, fontsLoading, refreshFonts,
+    fontId, bgOpacity, animKey, fontSize, subtitlePreviewStyle,
     VSR_SUB_ANIM_OPTIONS, VSR_FONT_SIZE_OPTIONS,
     dubbing, dubError, dubAudioPath, redubText, dubSamples, dubSampleId, dubEngine, generateDub,
     exporting, exportMessage, exportOk, exportDraft,
