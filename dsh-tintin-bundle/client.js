@@ -16,7 +16,7 @@ const tintinClient = (() => {
       const VIEWS = [
         { id: 'creation', label: '创作模式' },
         { id: 'ops', label: '运营工具' },
-        { id: 'media', label: '媒体工具' },
+        { id: 'media', label: '媒体工具' }, { id: 'skills', label: '技能管理', glyph: '<path d="M8 2.2 13.6 4.8 8 7.4 2.4 4.8z"/><path d="M2.4 8 8 10.6 13.6 8"/><path d="M2.4 11.2 8 13.8l5.6-2.6"/>' }, // 技能管理（2026-10-16 裁决）：服务端技能库安装/删除，装后创作模式 /技能名 调用
       ]
       const providers = new Map()
       let activeId = 'workbench'
@@ -85,14 +85,14 @@ const tintinClient = (() => {
             __browser: '<circle cx="8" cy="8" r="6"/><path d="M2 8h12"/><path d="M8 2c-1.8 1.6-2.8 3.7-2.8 6s1 4.4 2.8 6c1.8-1.6 2.8-3.7 2.8-6S9.8 3.6 8 2z"/>',
           }
           const glyphSvg = b.querySelector('[class*=panelGlyph] svg')
-          if (glyphSvg && GLYPHS[v.id]) {
+          if (glyphSvg && (GLYPHS[v.id] || v.glyph)) {
             glyphSvg.setAttribute('viewBox', '0 0 16 16')
             glyphSvg.setAttribute('width', '16')
             glyphSvg.setAttribute('height', '16')
             glyphSvg.setAttribute('fill', 'none')
             glyphSvg.setAttribute('stroke', 'currentColor')
             glyphSvg.setAttribute('stroke-width', '1')
-            glyphSvg.innerHTML = GLYPHS[v.id]
+            glyphSvg.innerHTML = GLYPHS[v.id] || v.glyph
           }
           b.onclick = (ev) => {
             ev.stopPropagation()

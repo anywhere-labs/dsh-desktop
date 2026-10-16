@@ -18,6 +18,9 @@ import App from './App.vue'
 // P3 tintin-ops-bundle；chrome 占位网格在本 provider 注册后被接管，P3 落地
 // 时把注册权迁往 ops-bundle 即可——注册表同名 'ops' 覆盖语义不变）
 import OpsApp from './OpsApp.vue'
+// 技能管理视图（2026-10-16 用户裁决：侧栏新增页——列服务端技能库，逐技能
+// 安装/删除；安装=写入创作模式技能表，创作模式 /技能名 即可调用）
+import SkillManager from './components/SkillManager.vue'
 // 创作模式（2026-10-16 用户裁决：独立视图，侧栏置于「运营工具」之上，不再
 // 占用媒体工具网格卡位；视图与媒体包同 bundle，服务端对接待需求对齐后实施）
 import CreationStudio from './components/media-tools/CreationStudio.vue'
@@ -70,6 +73,8 @@ window.__ModuleLoader__!.load({
     let opsApp: VueApp | null = null
     // 创作模式独立视图（同 KeepAlive 语义：mount 一次，切走隐藏不销毁）
     let creationApp: VueApp | null = null
+    // 技能管理独立视图（同 KeepAlive 语义）
+    let skillsApp: VueApp | null = null
 
     // 视图生命周期挂接（2026-09-24 Tab 状态机裁决）：chrome 为每个视图持有
     // 常驻子元素，mount 每视图仅调一次、切走只隐藏不销毁（KeepAlive 语义）——
@@ -107,6 +112,18 @@ window.__ModuleLoader__!.load({
       unmount() {
         creationApp?.unmount()
         creationApp = null
+      },
+    })
+
+    window.__tintinViews?.register('skills', {
+      mount(el: HTMLElement) {
+        if (skillsApp) return
+        skillsApp = createApp(SkillManager)
+        skillsApp.mount(el)
+      },
+      unmount() {
+        skillsApp?.unmount()
+        skillsApp = null
       },
     })
 
