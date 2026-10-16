@@ -25,6 +25,14 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`dsh-plugin-desktop: packaged runtime smoke ${message}`)
 }
 
+function createSmokeTempDir(name: string): string {
+  const verifierRoot = process.env.DSH_PACKAGED_SMOKE_ROOT
+  if (!verifierRoot) return mkdtempSync(join(tmpdir(), `dsh-packaged-${name}-`))
+  const root = join(verifierRoot, name)
+  mkdirSync(root, { recursive: true })
+  return root
+}
+
 const installAnchor = new URL('../package.json', import.meta.url)
 const packagedAsarRoot = /(?:^|[\\/])app\.asar(?:\.unpacked)?[\\/]/u
 const packagedDirectoryRoot = /(?:^|[\\/])app[\\/]/u
@@ -58,7 +66,7 @@ async function smokeSessionMigration(): Promise<void> {
   const { Context } = await import('@deepseek-ai/cordis')
   const { SessionId } = await import('@deepseek-ai/dsh-session')
   const { default: JsonlSessionPersistence } = await import('@deepseek-ai/dsh-session-persistence-jsonl')
-  const root = mkdtempSync(join(tmpdir(), 'dsh-packaged-session-migration-'))
+  const root = createSmokeTempDir('session-migration')
   const id = SessionId('packaged-migration')
   const directory = join(root, '_no-cwd', id)
   const source = JSON.stringify({
@@ -87,7 +95,7 @@ async function smokeSessionMigration(): Promise<void> {
 
 /** Exercise the production Worker entry through Electron's logical ASAR path. */
 async function smokeDiagnosticExportWorker(): Promise<void> {
-  const root = mkdtempSync(join(tmpdir(), 'dsh-packaged-diagnostics-'))
+  const root = createSmokeTempDir('diagnostics')
   const logsDir = join(root, 'logs')
   const userDataDir = join(root, 'user-data')
   const crashDumpsDir = join(root, 'Crashpad')
@@ -113,7 +121,7 @@ async function smokeDiagnosticExportWorker(): Promise<void> {
   }
 }
 
-const root = mkdtempSync(join(tmpdir(), 'dsh-packaged-profile-resolver-'))
+const root = createSmokeTempDir('profile-resolver')
 try {
   const profileDir = join(root, 'profiles', 'smoke')
   const profileManifestPath = join(profileDir, 'package.json')

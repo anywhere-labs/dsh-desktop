@@ -346,6 +346,7 @@ export function smokePackagedElectronRuntime(
     ...process.env,
     ELECTRON_RUN_AS_NODE: '1',
     DSH_HOME: smokeHome,
+    DSH_PACKAGED_SMOKE_ROOT: smokeHome,
     DSH_TELEMETRY_DISABLED: '1',
   }
   const checks = [

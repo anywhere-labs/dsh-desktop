@@ -798,6 +798,7 @@ describe('packaged desktop runtime verification', () => {
       expect(args.some(arg => arg.includes('app.asar'))).toBe(true)
       expect(environment.ELECTRON_RUN_AS_NODE).toBe('1')
       expect(environment.DSH_HOME).toEqual(expect.any(String))
+      expect(environment.DSH_PACKAGED_SMOKE_ROOT).toBe(environment.DSH_HOME)
     }
   })
 

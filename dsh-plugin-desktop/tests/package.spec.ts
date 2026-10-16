@@ -1271,6 +1271,10 @@ describe('published package surface', () => {
       join(dirname(appBuilderManifest), 'templates/nsis/include/installUtil.nsh'),
       'utf8',
     )
+    const installedNsisTarget = readFileSync(
+      join(dirname(appBuilderManifest), 'out/targets/nsis/NsisTarget.js'),
+      'utf8',
+    )
 
     expect(workspaceManifest.resolutions).toMatchObject({
       'app-builder-lib@npm:26.15.7': patchResolution,
@@ -1283,6 +1287,9 @@ describe('published package surface', () => {
     expect(patch).toContain("[System.IO.Path]::GetFileName($$_.Path) -ieq '${_FILE}'")
     expect(patch).toContain('diff --git a/templates/nsis/include/extractAppPackage.nsh')
     expect(patch).toContain('diff --git a/templates/nsis/include/installUtil.nsh')
+    // The intermediate uninstaller build must not run from the output directory:
+    // on this host Windows refuses WriteUninstaller for a binary started there.
+    expect(patch).toContain('prefix: "nsis-uninstaller", suffix: ".exe"')
     expect(manifest.build?.toolsets?.nsis).toBe('1.2.1')
     expect(installedCodeSign).toContain('importCerts(keychainFile, certPaths, cscPasswords, keychainPassword)')
     expect(installedCodeSign).toContain('"-k", keychainPassword, keychainFile')
@@ -1305,6 +1312,8 @@ describe('published package surface', () => {
     expect(legacyCode2Fallback).toBeGreaterThan(installedNsisInstallUtil.indexOf('CheckResult:'))
     expect(legacyCode2Fallback).toBeLessThan(installedNsisInstallUtil.indexOf('Sleep 1000', legacyCode2Fallback))
     expect(installedNsisInstallUtil).toContain('MessageBox MB_OK|MB_ICONEXCLAMATION "$(uninstallFailed): $R0"')
+    expect(installedNsisTarget).toContain('prefix: "nsis-uninstaller", suffix: ".exe"')
+    expect(installedNsisTarget).toContain('wineVm.exec(executablePath, [], { env: { __COMPAT_LAYER: "RunAsInvoker" } })')
   })
 
   it('starts restricted Windows shells with a hidden console show state', () => {

@@ -150,3 +150,22 @@ diff --git a/out/util/appFileCopier.js b/out/util/appFileCopier.js
      // Validate against the as-declared (pre-extraMetadata) production dependencies so a configured
      // `extraMetadata.dependencies` entry that isn't installed cannot reject a correct collection.
      const deps = await resolveFirstMatchingCollection({
+diff --git a/out/targets/nsis/NsisTarget.js b/out/targets/nsis/NsisTarget.js
+--- a/out/targets/nsis/NsisTarget.js
++++ b/out/targets/nsis/NsisTarget.js
+@@ -376,7 +376,14 @@ class NsisTarget extends core_1.Target {
+         }
+         else {
+             const wineVm = new WineVm_1.WineVmManager((_a = packager.config.toolsets) === null || _a === void 0 ? void 0 : _a.wine);
+-            await wineVm.exec(installerPath, [], { env: { __COMPAT_LAYER: "RunAsInvoker" } });
++            let executablePath = installerPath;
++            if (isWin) {
++                // Windows can refuse WriteUninstaller while the intermediate
++                // installer itself runs from the output directory.
++                executablePath = await packager.info.tempDirManager.getTempFile({ prefix: "nsis-uninstaller", suffix: ".exe" });
++                await (0, fs_extra_1.copyFile)(installerPath, executablePath);
++            }
++            await wineVm.exec(executablePath, [], { env: { __COMPAT_LAYER: "RunAsInvoker" } });
+         }
+         await packager.signIf(uninstallerPath);
+         delete defines.BUILD_UNINSTALLER;
