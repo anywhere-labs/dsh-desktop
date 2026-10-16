@@ -20,8 +20,7 @@ const tintinClient = (() => {
       ]
       const providers = new Map()
       let activeId = 'workbench'
-      // 2026-09-24 用户裁决：每视图常驻子元素，切走仅 display:none（KeepAlive），
-      // 切回原样保留（工具卡/向导步骤/表单输入不丢）；mount 每视图只调一次。
+      // 2026-09-24 用户裁决：每视图常驻子元素 KeepAlive（切走仅 display:none，表单/步骤不丢）；mount 每视图只调一次。
       const viewEls = new Map()
 
       window.__tintinViews = {
@@ -32,12 +31,10 @@ const tintinClient = (() => {
         unregister(id) { providers.delete(id) },
       }
 
-      // ── 左侧「插件」区入口（2026-09-28 用户裁决：撤顶部 Tab 栏；入口行克隆
-      // harness 面板行位置注入，切换沿用覆盖层 KeepAlive）──
+      // ── 左侧「插件」区入口（2026-09-28 用户裁决：撤顶部 Tab 栏；入口行克隆插件面板行同层注入）──
       let entryButtons = []
       function paintEntries() {
-        // 激活态沿用原生 panelActive 类：面板未激活时行上没有该类，改由同模块
-        // 前缀推导（panelRow → panelActive，CSS modules 同文件同前缀）
+        // 激活态沿用原生 panelActive 类：行上没有时按同模块前缀推导（panelRow → panelActive）
         const row = [...document.querySelectorAll('button')].find(
           (b) => b.textContent.trim() === '插件' && b.closest('[data-pane="sidebar"], [class*="sidebarCol"]'),
         )
@@ -46,6 +43,9 @@ const tintinClient = (() => {
           const rowCls = [...row.classList].find((c) => c.endsWith('panelRow'))
           if (rowCls) activeCls = rowCls.replace(/panelRow$/, 'panelActive')
         }
+        // 插件与 tab 单焦点联动（2026-10-16 用户裁决）：tab 激活时熄灭插件行——React
+        // 重渲染会重点亮，由 sidebarMo 的 paintEntries 重摘（toggle 幂等无回环）
+        if (row && activeCls && activeId !== 'workbench') row.classList.toggle(activeCls, false)
         for (const [id, b] of entryButtons) {
           if (activeCls) b.classList.toggle(activeCls, activeId === id)
         }
@@ -62,8 +62,7 @@ const tintinClient = (() => {
         if (!row) return false
         const host = row.parentElement
         if (!host || host.querySelector('[data-tintin-entry]')) return true
-        // 入口行 = 克隆「插件」面板行同层直插（2026-09-28 用户裁决：布局/图标/
-        // 行距与插件区逐像素一致）；只改标题与点击，激活态复用原生 panelActive 类。
+        // 入口行 = 克隆「插件」面板行同层直插（2026-09-28 裁决：布局/行距逐像素一致）；只改标题与点击。
         const items = [...VIEWS, { id: '__browser', label: '浏览器' }]
         let anchor = row
         for (const v of items) {
@@ -76,8 +75,7 @@ const tintinClient = (() => {
           const title = [...b.querySelectorAll('span,div')].find((e) => e.childElementCount === 0 && e.textContent.trim() === '插件')
           if (title) title.textContent = v.label
           else b.textContent = v.label
-          // 图标：语义参考原版 Electron（媒体/运营/浏览器），风格对齐 DSH 侧栏
-          // 16×16 线稿（stroke currentColor / 线宽 1，与 panelGlyph 原生规格一致）
+          // 图标：语义参考原版 Electron，风格对齐 DSH 侧栏 16×16 线稿（stroke currentColor / 线宽 1）
           const GLYPHS = {
             creation: '<path d="M8 2.2 9.5 6.5 13.8 8 9.5 9.5 8 13.8 6.5 9.5 2.2 8 6.5 6.5z"/><path d="M12.3 11.6v3.2M10.7 13.2h3.2"/>',
             media: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.8 5.9v4.2l3.6-2.1z"/>',
@@ -109,10 +107,11 @@ const tintinClient = (() => {
         }
         return true
       }
-      // 侧栏由 React 管理（类名带 hash 会重渲染）：MutationObserver 守住注入；
+      // 侧栏由 React 管理（类名带 hash 会重渲染）：MutationObserver 守住注入+联动重摘；
       // 点侧栏其他区域（会话/新会话）=回工作台（展开态，见下方收起态豁免）。
       const sidebarMo = new MutationObserver(() => {
         if (!injectEntries()) return
+        paintEntries() // 联动自愈：React 重渲染恢复插件行高亮时重摘
         const root = document.querySelector('[data-pane="sidebar"], [class*="sidebarCol"]')
         if (root && !root.__tintinWired) {
           root.__tintinWired = true
@@ -121,7 +120,8 @@ const tintinClient = (() => {
             if (!(t instanceof Element) || t.closest('[data-tintin-entry]')) return
             // 展开态才强制回工作台：收起态新会话卡被上游整体卸载、文本查找全空→豁免链塌成任何点击都强拆（2026-10-15 报障）
             const btns = [...root.querySelectorAll('button')]; const row = btns.find((b) => b.textContent.trim() === '插件')
-            if (row && (t === row || row.contains(t))) return
+            // 插件行=工作台入口（2026-10-16 用户裁决：插件与 tab 单焦点联动——点插件行主区回工作台）
+            if (t === row || (row && row.contains(t))) { if (activeId !== 'workbench') setActive('workbench'); return }
             const newBtn = btns.find((b) => b.textContent.trim() === '新会话')
             if (!newBtn || t.getBoundingClientRect().top < newBtn.getBoundingClientRect().top) return
             if (activeId !== 'workbench') setActive('workbench')
