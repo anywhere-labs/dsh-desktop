@@ -12,6 +12,7 @@ import {
   isServerSkillInstalled,
   parseSkillsResponse,
   removeServerSkill,
+  SERVER_SKILL_ID_PREFIX,
 } from '../composables/skillManagerLogic'
 import { loadSkills, saveSkills, type CreationSkill } from '../composables/creationStudioLogic'
 
@@ -57,13 +58,21 @@ function installed(id: string): boolean {
   return isServerSkillInstalled(id, creationSkills.value)
 }
 
-function install(skill: ServerSkill): void {
+async function install(skill: ServerSkill): Promise<void> {
   if (busyId.value) return
   busyId.value = skill.id
   try {
+    // 安装升级（2026-10-16 用户裁决）=芯片注册+真技能包落盘一体：宿主拉
+    // GET /skills/{id}/download 解压到 <DSH_HOME>/skills/<id>/（重装覆盖）
+    const r = await (globalThis as unknown as {
+      tintin?: { server?: { skillsInstall?: (id: string) => Promise<{ error?: string; dir?: string; skillMd?: boolean }> } }
+    }).tintin?.server?.skillsInstall?.(skill.id)
+    const pkgNote = r && !r.error
+      ? `；技能包已落盘 ${r.dir}${r.skillMd ? '' : '（警告：包内缺 SKILL.md，harness 可能不识别）'}`
+      : `；技能包落盘失败：${r?.error || '桥不可用'}（芯片已注册可用）`
     saveSkills(installServerSkill(skill, loadSkills()))
     syncInstalled()
-    note.value = `已安装「${skill.name}」——在「创作模式」输入 /${skill.name} 调用`
+    note.value = `已安装「${skill.name}」——创作模式输入 /${skill.name} 调用${pkgNote}`
   } catch (e) {
     note.value = `安装失败：${(e as Error).message}`
   } finally {
@@ -87,6 +96,9 @@ function remove(skill: ServerSkill): void {
 
 const installedCount = computed(() => skills.value.filter((s) => installed(s.id)).length)
 
+/** 客户端技能（2026-10-16 用户裁决：两类分组）=创作技能表里非服务端派生的条目（内置+自定义） */
+const clientSkills = computed(() => creationSkills.value.filter((s) => !s.id.startsWith(SERVER_SKILL_ID_PREFIX)))
+
 onMounted(() => {
   const hostDark = document.documentElement.classList.contains('dark')
   isDark.value = hostDark || window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -100,7 +112,7 @@ onMounted(() => {
     <div class="page">
       <div class="head">
         <div class="title">技能管理</div>
-        <div class="sub">服务端技能库（{{ skills.length }}）· 已安装 {{ installedCount }} —— 安装后在「创作模式」输入 /技能名 调用</div>
+        <div class="sub">服务端技能库（{{ skills.length }}）· 已安装 {{ installedCount }} · 客户端技能 {{ clientSkills.length }} —— 安装后在「创作模式」输入 /技能名 调用</div>
       </div>
       <div class="toolbar">
         <button type="button" class="refresh" :disabled="loading" @click="refresh">{{ loading ? '加载中…' : '刷新' }}</button>
@@ -109,6 +121,7 @@ onMounted(() => {
       <div v-if="error" class="banner error">加载失败：{{ error }}</div>
       <div v-if="!loading && !error && skills.length === 0" class="banner">服务端技能库为空（或不可达）——点「刷新」重试。</div>
 
+      <div class="section-title">服务端技能（GET /skills）</div>
       <div class="list">
         <div v-for="s in skills" :key="s.id" class="row">
           <div class="emoji">🧩</div>
@@ -130,6 +143,22 @@ onMounted(() => {
             </button>
           </div>
         </div>
+      </div>
+
+      <div class="section-title">客户端技能（创作模式芯片行里的内置与自定义条目）</div>
+      <div class="list">
+        <div v-for="c in clientSkills" :key="c.id" class="row">
+          <div class="emoji">{{ c.emoji || '🧩' }}</div>
+          <div class="body">
+            <div class="line1">
+              <span class="name">/{{ c.name }}</span>
+              <span class="chip">{{ c.builtin ? '内置' : '自定义' }}</span>
+              <span class="chip">{{ c.backend === 'voiceover' ? '口播' : c.backend === 'copy' ? '复制' : 'LLM' }}</span>
+            </div>
+            <div class="desc" :title="c.template">{{ c.template }}</div>
+          </div>
+        </div>
+        <div v-if="clientSkills.length === 0" class="banner">客户端暂无技能（内置芯片被清空且无自定义）——到「创作模式 · 更多技能」添加。</div>
       </div>
     </div>
   </div>
@@ -158,6 +187,7 @@ onMounted(() => {
 .banner.error { color: var(--danger, #e74c3c); border-color: var(--danger, #e74c3c); }
 
 .list { display: flex; flex-direction: column; gap: var(--space-3); }
+.section-title { margin: var(--space-4) 0 var(--space-2); font-size: var(--font-size-body); font-weight: 700; color: var(--foreground); }
 .row {
   display: flex; align-items: center; gap: var(--space-4);
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-xl);

@@ -134,6 +134,10 @@ declare interface TintinBridgeServer {
   tasksProgress(id: string): Promise<IpcError<TasksAPI.ProgressResponse>>
   tasksDownloadResult(id: string, savePath: string): Promise<IpcError<string>>
 
+  // ---------- 技能（2026-10-16 安装升级：真技能包落盘）----------
+  /** 客户端技能包安装：GET /skills/{id}/download → 解压 <DSH_HOME>/skills/<id>/（重装覆盖） */
+  skillsInstall(id: string): Promise<{ error?: string; dir?: string; zipPath?: string; skillMd?: boolean }>
+
   // ---------- scheduled（服务端定时任务执行记录，对齐原 scheduled_tasks_page.py）----------
   scheduledTasksList(params?: {
     status?: string

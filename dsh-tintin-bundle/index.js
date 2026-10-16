@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
 import { resolveMachineIdSync } from './lib/machine-id.js'
+import { installSkillPackage } from './lib/skills-install.js'
 import { findLegacyConfigDir, planImportedSettingsRecovery, planLegacyMigration, readImportedTintinSection } from './lib/legacy-config.js'
 import { mergeConfigDocs, mergeTintinConfigStore, readTintinConfigStore, stripEmptyObjectLeaves } from './lib/tintin-config-store.js'
 import {
@@ -497,9 +498,7 @@ export async function apply(ctx, config) {
         return isExpectedOfflineError(err) ? null : { error: err?.message ?? String(err) }
       }
     },
-    // env:serverPing — 服务端连通探测 + 当前地址回显（SRC env-ipc.js pingServer
-    // 契约：{online,url,status?,latencyMs?}，永不 reject）。渲染层经它拿媒体
-    // 直连基址（context.ts ensureServerUrl / useAudioGen 等）。
+    // env:serverPing — 服务端连通探测+地址回显（SRC env-ipc.js pingServer 契约 {online,url,status?,latencyMs?}，永不 reject）；渲染层经它拿媒体直连基址。
     'env:serverPing': async () => {
       const url = getServerUrl()
       const started = Date.now()
@@ -552,11 +551,9 @@ export async function apply(ctx, config) {
       }
       return { dir }
     },
-    // config:store — TinTin 自有配置存储读写（2026-09-28）。0.1.7 的设置服务
-    // 拒写 overlay 插入的宿主插件条目（"overridden by a home patch"），设置卡/
-    // 首启向导的持久化一律走这里（<DSH_HOME>/tintin/config.json）；桥接解析链
-    // 第二档即时读到，无需等 fiber 重启。get 返回合并视图（自有存储 ∪ profile
-    // config，后者优先）——与 server-proxy 解析链同序，任一层重设都算已配置。
+    // config:store — TinTin 自有配置存储读写（2026-09-28）。0.1.7 的设置服务拒写 overlay 插入的宿主条目
+    // （"overridden by a home patch"），设置卡/首启向导持久化一律走这里（<DSH_HOME>/tintin/config.json）；桥接解析链
+    // 第二档即时读到。get 返回合并视图（自有存储 ∪ profile config，后者优先）——与 server-proxy 解析链同序。
     'config:get': () => ({
       value: mergeConfigDocs(readTintinConfigStore(process.env.DSH_HOME) ?? {}, stripEmptyObjectLeaves(config) ?? {}),
     }),
@@ -569,11 +566,9 @@ export async function apply(ctx, config) {
         return { error: err instanceof Error ? err.message : String(err) }
       }
     },
-    // shell:openItem — 用系统默认方式打开文件/目录（SRC main.js: shell.openPath；
-    // harness 子进程无 electron shell，按平台落 start/open/xdg-open）。
-    // Windows 用 `cmd /c start "" <path>`：start 的第一个带引号参数是窗口标题，
-    // 必须给空占位；这是打开目录窗口最可靠的方式（explorer <path> 在部分场景
-    // 静默无效）。每次调用落 harness.log（2026-09-24 用户报障点击无反应）。
+    // shell:openItem — 系统默认方式打开文件/目录（SRC main.js shell.openPath；harness 子进程无 electron shell，
+    // 按平台落 start/open/xdg-open）。Windows 用 `cmd /c start "" <path>`（首个带引号参数是窗口标题须空占位——
+    // explorer <path> 部分场景静默无效）。每次调用落 harness.log（2026-09-24 用户报障点击无反应）。
     'shell:openItem': (args) => {
       const p = String(args?.[0] ?? '')
       if (!p) return { error: 'shell:openItem requires path' }
@@ -721,9 +716,13 @@ export async function apply(ctx, config) {
       return found.slice(0, limit)
     },
     // montage:split — 智能镜头分割上传（SRC server-proxy.js:845 逐字段移植）。
-    // 2026-09-24 用户报障「素材解析失败 HTTP 422 Expected UploadFile received str」：
-    // 渲染层把 {path} 包装对象 JSON.stringify 塞进 multipart 的 file 字段，服务端
-    // 要的是真实文件流。宿主读盘组装（file 必填，material_id/clip_url 二选一兼容）。
+    // skills:install — 客户端技能包安装（2026-10-16 用户裁决：安装升级=芯片注册+真技能包落盘一体）
+    'skills:install': async (args) => {
+      const id = String(args?.[0] ?? '').trim()
+      if (!id) return { error: 'skills:install: requires skill id' }
+      return installSkillPackage(id, getServerUrl(), process.env.DSH_HOME || '')
+    },
+    // montage:split — 2026-09-24 报障「422 Expected UploadFile received str」：渲染层把 {path} 包装对象塞进 multipart 的 file 字段而服务端要真实文件流——宿主读盘组装（file 必填，material_id/clip_url 二选一兼容）。
     'montage:split': async (args) => {
       const p = args?.[0] ?? {}
       try {

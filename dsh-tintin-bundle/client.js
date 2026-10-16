@@ -867,7 +867,7 @@ const tintinClient = (() => {
           return { models: list }
         },
         rembgSubmit: (p, _onProgress) => call('rembg:submit', { args: [p] }),
-        // 服务端任务进度轮询（SRC tasks:progress → GET /tasks/{id}）
+        skillsInstall: (id) => call('skills:install', { args: [id] }), // 客户端技能包落盘（2026-10-16 安装升级裁决）
         tasksProgress: (id) => call('server:get', { path: `/tasks/${encodeURIComponent(String(id ?? ''))}` }),
         tasksUnifiedItem: (id) => call('server:get', { path: `/tasks/unified/${encodeURIComponent(String(id ?? ''))}` }),
         materialList: (params) => call('server:get', { path: '/material/list', params: params ?? {} }),
