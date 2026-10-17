@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -18,10 +19,15 @@ import { basename, delimiter as pathDelimiter, dirname, join, resolve } from 'no
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  desktopRunAsNodeExecutable,
   installDesktopDshRuntime,
   installDesktopPnpmRuntime,
   type DesktopPnpmRuntimeOptions,
 } from '../src/desktop-runtime-environment.ts'
+
+function quoteSh(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`
+}
 
 const temporaryDirectories: string[] = []
 
@@ -80,6 +86,21 @@ afterEach(() => {
 })
 
 describe('desktop Host pnpm runtime', () => {
+  it('routes Darwin Node-mode work through the LSUIElement Helper and leaves other layouts unchanged', () => {
+    const appExecutable = "/Applications/DSH O'Brien.app/Contents/MacOS/DSH Desktop"
+    expect(desktopRunAsNodeExecutable('darwin', appExecutable)).toBe(
+      "/Applications/DSH O'Brien.app/Contents/Frameworks/DSH Desktop Helper.app/Contents/MacOS/DSH Desktop Helper",
+    )
+    const betaExecutable = '/Applications/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta'
+    const betaHelper = '/Applications/DSH Desktop Beta.app/Contents/Frameworks/DSH Desktop Beta Helper.app/Contents/MacOS/DSH Desktop Beta Helper'
+    expect(desktopRunAsNodeExecutable('darwin', betaExecutable)).toBe(betaHelper)
+    expect(desktopRunAsNodeExecutable('darwin', betaHelper)).toBe(betaHelper)
+    expect(desktopRunAsNodeExecutable('linux', appExecutable)).toBe(appExecutable)
+    expect(desktopRunAsNodeExecutable('win32', 'C:\\Program Files\\DSH Desktop\\DSH Desktop.exe'))
+      .toBe('C:\\Program Files\\DSH Desktop\\DSH Desktop.exe')
+    expect(desktopRunAsNodeExecutable('darwin', '/usr/local/bin/electron')).toBe('/usr/local/bin/electron')
+  })
+
   it.each(['darwin', 'linux'] as const)('creates a pnpm-only public PATH on %s', (platform) => {
     const stateDir = join(temporaryDirectory(), 'runtime state')
     const environment: NodeJS.ProcessEnv = {
@@ -109,6 +130,9 @@ describe('desktop Host pnpm runtime', () => {
       expect(lstatSync(installation.clearEnvironmentPath).mode & 0o777).toBe(0o600)
     }
 
+    const appExecutable = options(stateDir, platform, environment).appExecutable
+    const runAsNodeExecutable = desktopRunAsNodeExecutable(platform, appExecutable)
+    expect(installation.nodeExecutable).toBe(runAsNodeExecutable)
     const pnpm = readFileSync(installation.pnpmShimPath, 'utf8')
     expect(pnpm).toContain('runtime_root_dir=${runtime_public_dir%/*}')
     expect(pnpm).toContain('PATH="$runtime_node_bin_dir:${PATH:-}"')
@@ -120,10 +144,18 @@ describe('desktop Host pnpm runtime', () => {
     expect(pnpm).toContain('--config.minimumReleaseAge=0 "$@"')
     expect(pnpm).toContain('--require "$runtime_clear_environment"')
     expect(pnpm.indexOf('--require "$runtime_clear_environment"')).toBeLessThan(pnpm.indexOf('pnpm/bin/pnpm.mjs'))
+    expect(pnpm).toContain(`exec ${quoteSh(runAsNodeExecutable)}`)
     const node = readFileSync(installation.nodeShimPath, 'utf8')
-    expect(node).toContain(`ELECTRON_RUN_AS_NODE=1 exec`)
+    expect(node).toContain(`ELECTRON_RUN_AS_NODE=1 exec ${quoteSh(runAsNodeExecutable)}`)
     expect(node).toContain('--require "$runtime_clear_environment" "$@"')
     expect(node).not.toContain('npm_config_')
+    if (platform === 'darwin') {
+      expect(runAsNodeExecutable).toContain('DSH Desktop Helper.app')
+      expect(pnpm).not.toContain(`exec ${quoteSh(appExecutable)}`)
+      expect(node).not.toContain(`exec ${quoteSh(appExecutable)}`)
+    } else {
+      expect(runAsNodeExecutable).toBe(appExecutable)
+    }
     const clearEnvironment = readFileSync(installation.clearEnvironmentPath, 'utf8')
     expect(clearEnvironment).toContain("process.execPath = require('node:path').join(__dirname, 'node-bin', 'node')")
     expect(clearEnvironment).toContain("name.toUpperCase() === 'ELECTRON_RUN_AS_NODE'")
@@ -158,6 +190,59 @@ describe('desktop Host pnpm runtime', () => {
     installation.dispose()
     expect(environment).toEqual(original)
   })
+
+  it.runIf(process.platform !== 'win32')(
+    'runs Darwin Node shims through the helper executable instead of the main app',
+    () => {
+      const root = temporaryDirectory()
+      const contentsDir = join(root, "DSH O'Brien.app", 'Contents')
+      const appExecutable = join(contentsDir, 'MacOS', 'DSH Desktop')
+      const helperExecutable = join(
+        contentsDir,
+        'Frameworks',
+        'DSH Desktop Helper.app',
+        'Contents',
+        'MacOS',
+        'DSH Desktop Helper',
+      )
+      const launches = join(root, 'run-as-node-launches.txt')
+      mkdirSync(join(contentsDir, 'MacOS'), { recursive: true })
+      mkdirSync(dirname(helperExecutable), { recursive: true })
+      writeFileSync(appExecutable, [
+        '#!/bin/sh',
+        `printf 'main\\n' >> ${quoteSh(launches)}`,
+        'exit 86',
+        '',
+      ].join('\n'))
+      chmodSync(appExecutable, 0o700)
+      writeFileSync(helperExecutable, [
+        '#!/bin/sh',
+        `printf 'helper\\n' >> ${quoteSh(launches)}`,
+        `exec ${quoteSh(process.execPath)} "$@"`,
+        '',
+      ].join('\n'))
+      chmodSync(helperExecutable, 0o700)
+
+      const installation = installDesktopPnpmRuntime({
+        platform: 'darwin',
+        appExecutable,
+        pnpmBinPath: join(root, 'unused.mjs'),
+        electronVersion: '43.4.0',
+        stateDir: join(root, 'runtime'),
+        environment: { PATH: process.env.PATH },
+      })
+      const result = spawnSync(installation.nodeShimPath, ['-e', 'process.exit(0)'], {
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH },
+      })
+
+      expect(result.error).toBeUndefined()
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+      expect(readFileSync(launches, 'utf8').trim()).toBe('helper')
+      expect(installation.nodeExecutable).toBe(helperExecutable)
+      installation.dispose()
+    },
+  )
 
   it('publishes the POSIX shim as process.execPath and clears every RunAsNode casing', () => {
     const stateDir = join(temporaryDirectory(), 'runtime')
@@ -313,6 +398,7 @@ describe('desktop Host pnpm runtime', () => {
 
     const installation = installDesktopPnpmRuntime(options(stateDir, 'win32', environment))
 
+    expect(installation.nodeExecutable).toBe(options(stateDir, 'win32', environment).appExecutable)
     expect(readdirSync(installation.pathDir)).toEqual(['pnpm.cmd'])
     expect(readdirSync(installation.nodeBinDir)).toEqual(['node.cmd'])
     const pnpm = readFileSync(installation.pnpmShimPath, 'utf8')

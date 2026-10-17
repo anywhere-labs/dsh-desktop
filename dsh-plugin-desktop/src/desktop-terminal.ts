@@ -14,6 +14,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { basename, dirname, join, win32 } from 'node:path'
 import { assertDesktopProfileName } from './profile-manager.ts'
 import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
+import { desktopRunAsNodeExecutable } from './desktop-runtime-environment.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 const DEFAULT_PROFILE = 'DSH_DESKTOP_DEFAULT_PROFILE'
@@ -235,13 +236,13 @@ function windowsShim(): string {
 }
 
 /** Build the DSH shim with Loader internals and one process-local default profile. */
-function macDshShim(options: DesktopTerminalOptions): string {
+function macDshShim(options: DesktopTerminalOptions, nodeExecutable: string): string {
   return [
     '#!/bin/sh',
     [
       `${DEFAULT_PROFILE}=${quoteSh(options.profileName)}`,
       `${RUN_AS_NODE}=1`,
-      `exec ${quoteSh(options.appExecutable)} --expose-internals ${quoteSh(options.dshBootstrapPath)} "$@"`,
+      `exec ${quoteSh(nodeExecutable)} --expose-internals ${quoteSh(options.dshBootstrapPath)} "$@"`,
     ].join(' '),
     '',
   ].join('\n')
@@ -260,7 +261,7 @@ function windowsDshShim(): string {
 }
 
 /** Build a pnpm shim with Electron native-module settings scoped to its process tree. */
-function macPnpmShim(options: DesktopTerminalOptions): string {
+function macPnpmShim(options: DesktopTerminalOptions, nodeExecutable: string): string {
   return [
     '#!/bin/sh',
     [
@@ -268,7 +269,7 @@ function macPnpmShim(options: DesktopTerminalOptions): string {
       'npm_config_runtime=electron',
       `npm_config_target=${quoteSh(options.electronVersion)}`,
       `npm_config_disturl=${quoteSh(ELECTRON_HEADERS_URL)}`,
-      `exec ${quoteSh(options.appExecutable)} ${quoteSh(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
+      `exec ${quoteSh(nodeExecutable)} ${quoteSh(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
     ].join(' '),
     '',
   ].join('\n')
@@ -454,9 +455,10 @@ function prepareDesktopTerminalFiles(options: DesktopTerminalOptions): DesktopTe
       welcomePath: join(options.stateDir, 'welcome.command'),
     }
     const bashRcPath = join(options.stateDir, 'bashrc')
-    replacePrivateFile(files.dshShimPath, macDshShim(options), EXECUTABLE_FILE_MODE)
-    replacePrivateFile(files.pnpmShimPath, macPnpmShim(options), EXECUTABLE_FILE_MODE)
-    replacePrivateFile(files.nodeShimPath, macShim(options.appExecutable), EXECUTABLE_FILE_MODE)
+    const nodeExecutable = desktopRunAsNodeExecutable(options.platform, options.appExecutable)
+    replacePrivateFile(files.dshShimPath, macDshShim(options, nodeExecutable), EXECUTABLE_FILE_MODE)
+    replacePrivateFile(files.pnpmShimPath, macPnpmShim(options, nodeExecutable), EXECUTABLE_FILE_MODE)
+    replacePrivateFile(files.nodeShimPath, macShim(nodeExecutable), EXECUTABLE_FILE_MODE)
     replacePrivateFile(join(options.stateDir, '.zshrc'), macZshRc(options, shimDir), PRIVATE_FILE_MODE)
     replacePrivateFile(bashRcPath, macBashRc(options, shimDir), PRIVATE_FILE_MODE)
     replacePrivateFile(files.welcomePath, macWelcome(options, shimDir, bashRcPath), EXECUTABLE_FILE_MODE)
