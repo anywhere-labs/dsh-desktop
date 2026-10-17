@@ -1,4 +1,8 @@
-import { fileURLToPath } from 'node:url'
+import { execFileSync, spawn } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Config as PwshConfig } from '@deepseek-ai/dsh-pwsh-local'
 import type { ShellExecSpec } from '@deepseek-ai/dsh-shell'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -480,4 +484,104 @@ describe('Windows ACL runner console host', () => {
     expect(api.allocConsole).toHaveBeenCalledOnce()
     expect(api.showWindow).not.toHaveBeenCalled()
   })
+})
+
+const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
+const consoleHost = pathToFileURL(join(packageRoot, 'src', 'windows-console-host.ts')).href
+const realWindowsRoots: string[] = []
+
+afterEach(() => {
+  for (const root of realWindowsRoots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+const consoleProbe = `
+import { AclSandbox, workspaceWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
+import { ensureWindowsConsoleHost, loadWindowsConsoleHostApi } from ${JSON.stringify(consoleHost)}
+const [workspace, strategy] = process.argv.slice(-2)
+const api = loadWindowsConsoleHostApi()
+const report = { consoleBefore: api.hasConsole(), windowless: api.allocWindowlessConsole !== undefined }
+const loadApi = strategy === 'donor' ? () => ({ ...api, allocWindowlessConsole: undefined }) : () => api
+await ensureWindowsConsoleHost('win32', loadApi)
+report.consoleAfter = api.hasConsole()
+report.consoleWindow = api.getConsoleWindow() !== null
+const sandbox = new AclSandbox({ writableDirs: [workspace], mode: 'workspace-write', tempDir: null, writeSid: workspaceWriteSid(workspace) })
+const cmd = (process.env.SystemRoot ?? 'C:\\\\Windows') + '\\\\System32\\\\cmd.exe'
+try {
+  await sandbox.init()
+  const child = sandbox.spawn({ command: cmd, args: ['/d', '/c', 'echo inside>inside.txt'], cwd: workspace, stdio: 'inherit' })
+  report.exitCode = (await child.wait()).exitCode
+} finally {
+  sandbox.dispose()
+}
+process.stdout.write(JSON.stringify(report))
+`
+
+function runDetachedConsoleProbe(workspace: string, strategy: string): Promise<{ status: number | null, stdout: string, stderr: string }> {
+  const child = spawn(process.execPath, ['--no-warnings', '--input-type=module', '-e', consoleProbe, workspace, strategy], {
+    cwd: packageRoot,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  let stdout = ''
+  let stderr = ''
+  child.stdout.setEncoding('utf8').on('data', (chunk: string) => { stdout += chunk })
+  child.stderr.setEncoding('utf8').on('data', (chunk: string) => { stderr += chunk })
+  return new Promise((resolve, reject) => {
+    child.once('error', reject)
+    child.once('close', status => resolve({ status, stdout, stderr }))
+  })
+}
+
+function workspaceWithoutWriteOwner(): { root: string, workspace: string, outside: string } {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-acl-write-owner-'))
+  realWindowsRoots.push(root)
+  const workspace = join(root, 'workspace')
+  const outside = join(root, 'outside')
+  mkdirSync(join(workspace, 'nested'), { recursive: true })
+  mkdirSync(outside)
+  execFileSync('icacls', [root, '/inheritance:r', '/grant:r', '*S-1-5-11:(OI)(CI)M', '*S-1-5-18:(OI)(CI)F'], { stdio: 'ignore', windowsHide: true })
+  return { root, workspace, outside }
+}
+
+describe.runIf(process.platform === 'win32')('Windows ACL runner console host on real Windows', () => {
+  it.each(['default', 'donor'])('gives a consoleless runner a windowless console restricted children inherit (%s)', async (strategy) => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-console-host-'))
+    realWindowsRoots.push(root)
+    const workspace = join(root, 'workspace')
+    mkdirSync(workspace)
+
+    const result = await runDetachedConsoleProbe(workspace, strategy)
+
+    expect(result.stderr).toBe('')
+    expect(result.status).toBe(0)
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      consoleBefore: false,
+      consoleAfter: true,
+      consoleWindow: false,
+      exitCode: 0,
+    })
+    expect(existsSync(join(workspace, 'inside.txt'))).toBe(true)
+    expect(readFileSync(join(workspace, 'inside.txt'), 'utf8').trim()).toBe('inside')
+  }, 60_000)
+
+  it('grants a workspace without WRITE_OWNER and still confines writes to it', async () => {
+    const { AclSandbox, workspaceWriteSid } = await import('@deepseek-ai/dsh-sandbox-windows-acl')
+    const { workspace, outside } = workspaceWithoutWriteOwner()
+    const sandbox = new AclSandbox({ writableDirs: [workspace], mode: 'workspace-write', tempDir: null, writeSid: workspaceWriteSid(workspace) })
+    const cmd = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe')
+    try {
+      await sandbox.init()
+      const inside = await sandbox.spawn({ command: cmd, args: ['/d', '/c', 'echo inside>nested\\inside.txt'], cwd: workspace }).wait()
+      const escaped = await sandbox.spawn({ command: cmd, args: ['/d', '/c', 'echo outside>..\\outside\\escaped.txt'], cwd: workspace }).wait()
+
+      expect(inside.exitCode).toBe(0)
+      expect(existsSync(join(workspace, 'nested', 'inside.txt'))).toBe(true)
+      expect(escaped.exitCode).not.toBe(0)
+      expect(existsSync(join(outside, 'escaped.txt'))).toBe(false)
+    }
+    finally {
+      sandbox.dispose()
+    }
+  }, 60_000)
 })

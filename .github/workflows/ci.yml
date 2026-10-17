@@ -114,6 +114,7 @@ jobs:
       - if: needs.changes.outputs.product == 'true'
         run: yarn check
       - name: Cache Playwright browsers
+        id: playwright-cache
         if: needs.changes.outputs.product == 'true'
         uses: actions/cache@v6
         with:
@@ -121,19 +122,20 @@ jobs:
           key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock') }}
       - name: Install Chromium for Next window regression
         if: needs.changes.outputs.product == 'true'
-        run: yarn workspace dsh-desktop-next exec playwright install --with-deps chromium
-      - name: Verify Next window controls in the official frontend
+        run: |
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+            yarn workspace dsh-desktop-next exec playwright install-deps chromium
+          else
+            yarn workspace dsh-desktop-next exec playwright install --with-deps chromium
+          fi
+      - name: Verify Next window controls, onboarding, protocol, and sidebar Browser in parallel
         if: needs.changes.outputs.product == 'true'
-        run: yarn workspace dsh-desktop-next verify:window-controls
-      - name: Verify Next Profile onboarding without a Host
-        if: needs.changes.outputs.product == 'true'
-        run: yarn workspace dsh-desktop-next verify:onboarding
-      - name: Verify Next native protocol mutations in Electron
-        if: needs.changes.outputs.product == 'true'
-        run: xvfb-run --auto-servernum yarn workspace dsh-desktop-next verify:protocol --no-sandbox
-      - name: Verify Next native sidebar Browser in Electron
-        if: needs.changes.outputs.product == 'true'
-        run: xvfb-run --auto-servernum yarn workspace dsh-desktop-next verify:sidebar-browser --no-sandbox
+        run: |
+          node scripts/run-parallel.mjs \
+            "yarn workspace dsh-desktop-next verify:window-controls" \
+            "yarn workspace dsh-desktop-next verify:onboarding" \
+            "xvfb-run --auto-servernum yarn workspace dsh-desktop-next verify:protocol --no-sandbox" \
+            "xvfb-run --auto-servernum yarn workspace dsh-desktop-next verify:sidebar-browser --no-sandbox"
 
   # Windows-only logic and unsigned NSIS/portable builds on a real Windows runner:
   # updates, window options, pwsh sandbox, volume diagnostics, and packaging.
@@ -163,6 +165,14 @@ jobs:
         with:
           path: ${{ steps.yarn-cache.outputs.dir }}
           key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+      - name: Cache primary runtime and Electron Builder downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ matrix.workspace }}/.desktop-build/downloads
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ hashFiles('yarn.lock', 'deepseek-harness/scripts/primary-runtime/lock.json') }}
       - run: yarn install --immutable
       # Typecheck is platform-neutral and already gated by `check`.
       - run: yarn workspace ${{ matrix.workspace }} check:win-package:platform
@@ -210,6 +220,13 @@ jobs:
         with:
           path: ${{ steps.yarn-cache.outputs.dir }}
           key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+      - name: Cache Electron Builder downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock') }}
       - run: yarn install --immutable
       - run: yarn workspace ${{ matrix.workspace }} check:linux-package:platform
       - name: Build Linux AppImage and Debian package
@@ -243,6 +260,14 @@ jobs:
         with:
           path: ${{ steps.yarn-cache.outputs.dir }}
           key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+      - name: Cache primary runtime and Electron Builder downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ matrix.workspace }}/.desktop-build/downloads
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ hashFiles('yarn.lock', 'deepseek-harness/scripts/primary-runtime/lock.json') }}
       - run: yarn install --immutable
       - run: yarn workspace ${{ matrix.workspace }} check:mac-package:platform
       - name: Build macOS smoke artifact
@@ -270,5 +295,4 @@ jobs:
         with:
           node-version: 22.23.2
       - run: corepack enable
-      - run: yarn check:layout
       - run: yarn upstream:version
