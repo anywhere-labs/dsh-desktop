@@ -1,0 +1,27 @@
+diff --git a/lib/index.js b/lib/index.js
+index 730b8a4..05199b0 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -8,7 +8,7 @@ import { Remote, RemoteError, TypertRemoteService, principalOf, remoteErrorOf }
+ import { canonicalClientTimeZone } from "@deepseek-ai/dsh-util-time";
+ import { assertNever } from "@deepseek-ai/dsh-util-values";
+ import { randomUUID } from "node:crypto";
+-import { mkdir } from "node:fs/promises";
++import { mkdir, stat } from "node:fs/promises";
+ import { installModelSelection } from "@deepseek-ai/dsh-agent";
+ import { brandString } from "@deepseek-ai/dsh-brand";
+ import { credentialRef } from "@deepseek-ai/dsh-credentials";
+@@ -512,7 +512,12 @@ var ApiSessionAgentController = class {
+ 		try {
+ 			await mkdir(cwd, { recursive: true });
+ 		} catch (error) {
+-			throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error });
++			// Windows answers mkdir on an existing volume root such as `T:\` with EPERM rather
++			// than EEXIST, so a recursive mkdir rejects a project directory that already exists.
++			// Only the postcondition matters here: fail unless the path is now a directory.
++			if (!await stat(cwd).then((info) => info.isDirectory(), () => false)) {
++				throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error });
++			}
+ 		}
+ 		return (await this.ctx.agents.create({
+ 			sessionId,

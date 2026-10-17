@@ -1,0 +1,27 @@
+diff --git a/lib/index.js b/lib/index.js
+index 3b8507e..91c8bd4 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -5,7 +5,7 @@ import { AssistantStreamAccumulator, ReasoningEffortId, assistantStreamChunks, c
+ import { canOpenNativePath, nativeFileApplications, nativeFileManager, openNativeAssociatedPath, openNativeFileApplication, revealNativePath } from "@deepseek-ai/dsh-native-command";
+ import { SessionQueryError } from "@deepseek-ai/dsh-session-query";
+ import { Remote, RemoteError, TypertRemoteService, remoteErrorOf } from "@deepseek-ai/dsh-typert-protocol";
+-import { mkdir } from "node:fs/promises";
++import { mkdir, stat } from "node:fs/promises";
+ import { installModelSelection } from "@deepseek-ai/dsh-agent";
+ import { credentialRef } from "@deepseek-ai/dsh-credentials";
+ import { randomUUID } from "node:crypto";
+@@ -444,7 +444,12 @@ var ApiSessionAgentController = class {
+ 		try {
+ 			await mkdir(cwd, { recursive: true });
+ 		} catch (error) {
+-			throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error });
++			// Windows answers mkdir on an existing volume root such as `T:\` with EPERM rather
++			// than EEXIST, so a recursive mkdir rejects a project directory that already exists.
++			// Only the postcondition matters here: fail unless the path is now a directory.
++			if (!await stat(cwd).then((info) => info.isDirectory(), () => false)) {
++				throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error });
++			}
+ 		}
+ 		const composition = await this.composeAgent(presetId);
+ 		return (await this.ctx.agents.create({
