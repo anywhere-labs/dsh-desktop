@@ -15,7 +15,7 @@
     "dsh-community-market"
   ],
   "resolutions": {
-    "@agents-anywhere/dsh-bridge-next": "patch:@agents-anywhere/dsh-bridge-next@file%3Avendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.1.0-desktop.c58d98da25a23.r2e406d2a.tgz#./patches/agents-anywhere-connector-httpx.patch",
+    "@agents-anywhere/dsh-bridge-next": "patch:@agents-anywhere/dsh-bridge-next@file%3Avendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.1.0-desktop.c39b82d4fffb1.r2e406d2a.tgz#./patches/agents-anywhere-connector-httpx.patch",
     "app-builder-lib@npm:26.15.7": "patch:app-builder-lib@npm%3A26.15.7#./patches/app-builder-lib@26.15.7.patch",
     "open@npm:11.0.1": "patch:open@npm%3A11.0.1#./patches/open@11.0.1.patch",
     "open@npm:^11.0.0": "patch:open@npm%3A11.0.1#./patches/open@11.0.1.patch",
@@ -714,7 +714,7 @@
     "@deepseek-ai/dsh-webhook@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-webhook-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-webhook-github@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-webhook-github-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-webhook-github@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-webhook-github-0.2.1-rc.2.tgz",
-    "dshmarket@npm:1.66.35": "patch:dshmarket@npm%3A1.66.35#./.yarn/patches/dshmarket-desktop.patch"
+    "dshmarket@npm:1.66.37": "patch:dshmarket@npm%3A1.66.37#./.yarn/patches/dshmarket-desktop.patch"
   },
   "dependenciesMeta": {
     "@deepseek-ai/dsh-subprocess-local": {
