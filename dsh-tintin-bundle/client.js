@@ -134,9 +134,14 @@ const tintinClient = (() => {
             if (t === row || (row && row.contains(t))) { if (activeId !== 'workbench') setActive('workbench'); return }
             // 上游 panellist 的其它行（如 0.2.1 起 web-app 默认挂载的「自动化任务」）自己拥有主区页面：
             // 只把自己的覆盖层让开，不要按位置猜（收起态找不到「新会话」时旧逻辑会整段 return，
-            // 覆盖层留在上面就成了点了没界面）。
+            // 覆盖层留在上面就成了点了没界面）。会话行没有 panelRow 类，仍走下面的回工作台。
+            const panelRowClass = row ? [...row.classList].find((c) => c.endsWith('panelRow')) : undefined
             const clickedButton = t.closest('button')
-            if (clickedButton && row && clickedButton !== row && clickedButton.parentElement === row.parentElement) {
+            const isPanellistRow = Boolean(
+              clickedButton && row && clickedButton !== row && panelRowClass
+              && clickedButton.classList.contains(panelRowClass),
+            )
+            if (isPanellistRow) {
               // 让上游页面自己接管主区；这里只收起自己的覆盖层。
               const label = clickedButton.textContent.trim()
               console.info('[tintin] panellist row:', label, 'active:', activeId)
