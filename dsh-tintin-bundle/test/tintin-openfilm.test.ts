@@ -99,7 +99,16 @@ describe('studio-runtime', () => {
     expect(runtime?.root).toBe(root)
     expect(runtime?.browsers).toBeNull()
     expect(resolveOpenfilmRuntime({ env: {} })).toBeNull()
-    expect(studioEnv(runtime, {}).OPENFILM_NO_BROWSER).toBe('1')
+    // Its own Studio home and port: the official OpenFilm app keeps ~/.openfilm
+    // and port 4747, and its native page paints black in a plain window.
+    const env = studioEnv(runtime, { DSH_HOME: join(root, 'dsh') })
+    expect(env.OPENFILM_NO_BROWSER).toBe('1')
+    expect(env.OPENFILM_HOME).toBe(join(root, 'dsh', 'openfilm-studio'))
+    expect(env.OPENFILM_STUDIO_PORT).toBe('4788')
+    expect(studioEnv(runtime, { OPENFILM_HOME: join(root, 'custom'), OPENFILM_STUDIO_PORT: '5000' })).toMatchObject({
+      OPENFILM_HOME: join(root, 'custom'),
+      OPENFILM_STUDIO_PORT: '5000',
+    })
   })
 })
 
