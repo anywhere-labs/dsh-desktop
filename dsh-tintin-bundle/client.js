@@ -138,8 +138,12 @@ const tintinClient = (() => {
             const clickedButton = t.closest('button')
             if (clickedButton && row && clickedButton !== row && clickedButton.parentElement === row.parentElement) {
               // 让上游页面自己接管主区；这里只收起自己的覆盖层。
-              console.info('[tintin] panellist row:', clickedButton.textContent.trim(), 'active:', activeId)
+              const label = clickedButton.textContent.trim()
+              console.info('[tintin] panellist row:', label, 'active:', activeId)
               if (activeId !== 'workbench') setActive('workbench')
+              // 上游行的点击若没接管（React 侧未挂/被拦），按标签补一次主区选择。
+              const panelId = { '自动化任务': 'schedules', 'Automation tasks': 'schedules' }[label]
+              if (panelId) setTimeout(() => window.__tintinSelectPanel?.(panelId), 0)
               return
             }
             const newBtn = btns.find((b) => b.textContent.trim() === '新会话')
@@ -1408,6 +1412,13 @@ window.__ModuleLoader__.load({
       name: 'dsh-tintin-bundle',
       inject: ['slots'],
       apply(ctx) {
+        // The sidebar guard hides the TinTin overlay for upstream panellist rows
+        // (0.2.1 mounts ui-schedule, whose 自动化任务 row owns a main-slot page).
+        // Expose the layout selector so that guard can also activate the page
+        // itself when the upstream row's own handler does not run.
+        window.__tintinSelectPanel = (id) => {
+          try { ctx.get('layout')?.selectPanel(id) } catch { /* layout not ready */ }
+        }
         ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
           name: 'settings.plugin.item', key: 'dsh-tintin-bundle', order: -90,
         }, TintinSettingsCard))
