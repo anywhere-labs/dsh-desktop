@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { syncProvidersFile } from './providers-seed.js'
 import { resolveOpenfilmRuntime, startStudio } from './studio-runtime.js'
 import { syncBundledSkill } from './skill-sync.js'
+import { syncOpenfilmLibs } from './libs-sync.js'
 
 /** This package's root (lib/openfilm/ → ../../). */
 const bundleRoot = fileURLToPath(new URL('../../', import.meta.url))
@@ -27,6 +28,11 @@ export function createOpenfilmSync({ getServerUrl, logger = console }) {
       const skill = syncBundledSkill({ dshHome, sourcePath: skillSource })
       if (skill.status === 'installed' || skill.status === 'updated') logger.info('tintin-bundle: openfilm skill %s at %s', skill.status, skill.path)
       else if (skill.status === 'error') logger.warn('tintin-bundle: openfilm skill sync failed: %s', skill.error)
+      const runtime = resolveOpenfilmRuntime({ env: process.env, bundleDir: bundleRoot })
+      if (runtime) {
+        const libs = syncOpenfilmLibs({ dshHome, runtimeRoot: runtime.root })
+        if (libs.status === 'installed') logger.info('tintin-bundle: openfilm libs synced to %s', libs.path)
+      }
     }
     let serverUrl = ''
     try { serverUrl = getServerUrl() } catch { serverUrl = '' }

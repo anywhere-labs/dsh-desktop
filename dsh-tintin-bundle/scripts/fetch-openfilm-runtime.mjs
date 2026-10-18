@@ -8,6 +8,12 @@
 //   tintin-resources/bin/openfilm.cmd         shim: node.exe + the packaged CLI
 //   tintin-resources/openfilm/                npm install tree + bin/node.exe
 //   tintin-resources/playwright-browsers/     headless Chromium builds (PLAYWRIGHT_BROWSERS_PATH)
+//   tintin-resources/openfilm-libs/three/     three.js 0.184 module + Font/TTF loaders (+opentype)
+//
+// three.js is pinned to the version the official examples import (one-prompt
+// uses 0.184.0). Films must render offline: the skill tells the agent to copy
+// these into the project's lib/ and point the page import map at them instead
+// of jsDelivr.
 //
 // node.exe deliberately does NOT sit in bin/ beside ffmpeg: CreateProcess
 // resolves spawned bare names from the parent exe's directory BEFORE PATH, so
@@ -19,7 +25,8 @@
 // Pinned versions keep installers reproducible; bump deliberately. Overrides:
 // TINTIN_NODE_VERSION, TINTIN_OPENFILM_VERSION. Mirrors fall back to npmmirror
 // when the primary host is unreachable (1012/1015 阻断先例).
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -29,9 +36,20 @@ const resourcesDir = join(repoRoot, 'dsh-plugin-desktop-tintin', 'tintin-resourc
 const binDir = join(resourcesDir, 'bin')
 const openfilmDir = join(resourcesDir, 'openfilm')
 const browsersDir = join(resourcesDir, 'playwright-browsers')
+const threeDir = join(resourcesDir, 'openfilm-libs', 'three')
 
 const NODE_VERSION = process.env.TINTIN_NODE_VERSION ?? '22.23.2'
 const OPENFILM_VERSION = process.env.TINTIN_OPENFILM_VERSION ?? '0.2.0'
+const THREE_VERSION = process.env.TINTIN_THREE_VERSION ?? '0.184.0'
+/** three package paths → vendored paths (the loaders' own relative imports stay valid). */
+const THREE_FILES = [
+  ['build/three.module.js', 'three.module.js'],
+  ['build/three.core.js', 'three.core.js'],
+  ['examples/jsm/loaders/FontLoader.js', 'addons/loaders/FontLoader.js'],
+  ['examples/jsm/loaders/TTFLoader.js', 'addons/loaders/TTFLoader.js'],
+  ['examples/jsm/libs/opentype.module.js', 'addons/libs/opentype.module.js'],
+  ['LICENSE', 'LICENSE'],
+]
 const NODE_MIRRORS = [
   `https://nodejs.org/dist/v${NODE_VERSION}/win-x64/node.exe`,
   `https://npmmirror.com/mirrors/node/v${NODE_VERSION}/win-x64/node.exe`,
@@ -110,6 +128,39 @@ if (existsSync(playwrightCli)) {
 } else if (existsSync(join(openfilmDir, 'node_modules', 'openfilm'))) {
   console.error(`playwright-core CLI missing at ${playwrightCli}`)
   process.exitCode = 1
+}
+
+// 3b. three.js — the version the official examples import, module + the
+// Font/TTF loader closure (TTFLoader pulls opentype). Text files, ~1.1 MB.
+const threePresent = () => existsSync(join(threeDir, 'VERSION'))
+  && THREE_FILES.every(([, to]) => existsSync(join(threeDir, to)))
+if (threePresent()) {
+  console.log(`three.js ${THREE_VERSION} already present`)
+} else {
+  const work = mkdtempSync(join(tmpdir(), 'tintin-three-'))
+  try {
+    writeFileSync(join(work, 'package.json'), '{"name":"tintin-three-pack","private":true}\n')
+    const npmCli = join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+    // npm install (not pack+tar): tar on Windows reads `C:\…` as a remote host.
+    const install = spawnSync(process.execPath, [npmCli, 'install', `three@${THREE_VERSION}`,
+      '--omit=dev', '--no-audit', '--no-fund', '--registry=https://registry.npmmirror.com', '--loglevel=error'],
+    { cwd: work, stdio: 'inherit' })
+    const pkgRoot = join(work, 'node_modules', 'three')
+    if (install.status === 0 && existsSync(pkgRoot)) {
+      for (const [from, to] of THREE_FILES) {
+        const dest = join(threeDir, to)
+        mkdirSync(dirname(dest), { recursive: true })
+        copyFileSync(join(pkgRoot, from), dest)
+      }
+      writeFileSync(join(threeDir, 'VERSION'), `${THREE_VERSION}\n`)
+      console.log(`three.js ${THREE_VERSION} vendored in ${threeDir}`)
+    } else {
+      console.error(`three.js ${THREE_VERSION} fetch failed — films that use three would need the CDN`)
+      process.exitCode = 1
+    }
+  } finally {
+    rmSync(work, { recursive: true, force: true })
+  }
 }
 
 // 4. The shim — bare `openfilm` on the agent shell's PATH once the app appends

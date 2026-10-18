@@ -18,11 +18,11 @@ export const TINTIN_SERVICE_NOTE = [
   'TinTin AI service platform (no key).',
   'tts: POST /indextts/tts {text, resp:"json", sample_id} -> {audio_url} (relative; call again with --path <audio_url> --out <name>);',
   'voices: GET /voice/samples, GET /indextts/qwen3/voices;',
-  'asr: POST /whisper/transcribe multipart file=<wav|mp4> -> SRT text;',
+  'asr: POST /whisper/transcribe multipart file=<wav|mp4> + fmt=json + mode=raw -> {segments:[{text,start,end,words:[{word,start,end}]}]} (word timings);',
   'music: POST /audio/gen/bgm {prompt, style, duration} -> {url, duration} (absolute);',
   'sfx: POST /audio/gen/sfx;',
   'stock images: POST /material/stock_search {query, kind:"image"} -> {items:[{url}]}.',
-  'No text-to-image or text-to-video endpoint is available.',
+  'No text-to-image or text-to-video endpoint is available yet (comfygen-based generation is pending server-side).',
 ].join(' ')
 
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {})

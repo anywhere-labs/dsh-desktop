@@ -33,6 +33,22 @@ never ask the person for an API key or send them to connect ElevenLabs/OpenAI/Go
   cmd.exe or right after a folder was created. If `render` fails with "Permission denied", wait a few minutes and
   rerun the exact same command; if it persists, tell the person to whitelist ffmpeg or the film folder.
 
+## Offline libraries (films must render with no network)
+
+The official examples import three.js from jsDelivr; TinTin ships it instead, pinned to 0.184.0, at
+`$env:DSH_HOME\openfilm-libs\three\` (`three.module.js`, `addons/loaders/FontLoader.js`, `TTFLoader.js`,
+`addons/libs/opentype.module.js`, `LICENSE`). When a page needs three.js:
+
+    Copy-Item "$env:DSH_HOME\openfilm-libs\three\three.module.js" lib\three.module.js
+    Copy-Item -Recurse "$env:DSH_HOME\openfilm-libs\three\addons" lib\addons
+
+and point that page's import map at the local files (every page carries its own map):
+
+    <script type="importmap">{ "imports": { "three": "./lib/three.module.js", "three/addons/": "./lib/addons/" } }</script>
+
+Never leave a CDN URL (jsDelivr, unpkg) in a film: open/look/render must work offline. When you reuse one of the
+official examples, rewrite every page's import map first and copy the library into the project.
+
 ## Server capabilities (use these instead of paid providers)
 
 Media comes through OpenFilm's custom service **`tintin`**, registered by the TinTin app. Call it in the film
@@ -66,13 +82,18 @@ folder with:
    Now `assets/tintin/line1.wav` exists. Speech is a clip in `film.html`, never inside a page:
    `<audio src="assets/tintin/line1.wav" at="<film second>"></audio>`.
 
-### Subtitles (ASR) — SRT from the same audio
+### Subtitles (ASR) — word timings from the same audio
 
-    openfilm get call --service tintin --path /whisper/transcribe --method POST --file file=assets/tintin/line1.wav
+    openfilm get call --service tintin --path /whisper/transcribe --method POST --file file=assets/tintin/line1.wav --form fmt=json --form mode=raw
 
-The answer is SRT text (`1` / `00:00:00,000 --> 00:00:03,100` / line). OpenFilm reads a WebVTT beside the media
-with the same base name (`assets/tintin/line1.wav` → `assets/tintin/line1.vtt`): write `WEBVTT` as the first line,
-replace the `,` in timestamps with `.`, drop the cue numbers. Never draw subtitles in a page.
+`mode=raw` returns `{"segments":[{"start","end","text","words":[{"word","start","end"}]}]}` — word-level timings,
+the same the official examples get from ElevenLabs. Write the WebVTT beside the media with the same base name
+(`assets/tintin/line1.wav` → `assets/tintin/line1.vtt`): `WEBVTT` first, one cue per segment, and each word's
+start as an inline timestamp tag — `为<00:00:00.240>了<00:00:00.320>…` (mm:ss.mmm). Line-level subtitles
+(cue text only) are fine when word sync is not needed. Never draw subtitles in a page.
+
+Use the same word timings to time a page's moves on the narration: a line's words back to back,
+`start`/`end` in seconds relative to that audio file.
 
 ### Music (BGM) — one call, absolute URL
 
@@ -92,13 +113,14 @@ Sound effects: `/audio/gen/sfx` (same shape) or the server library `/sfx/library
 The answer lists `items[].url` (Pexels/Pixabay). Download the ones you use into the project yourself, e.g.
 `Invoke-WebRequest -Uri <url> -OutFile assets/stock/1.jpg`, then place them in `film.html`.
 
-### What the server does NOT provide
+### What the server does NOT provide (yet)
 
 - **No text-to-image.** No prompt → picture endpoint is available. Use stock search, the material library
-  (`/material/list`), the person's own files, or CSS/SVG/canvas drawn in a page.
-- **No text-to-video.** Video comes from the person's footage or the material library. (A digital-human workflow
-  exists on the server — image + audio → talking video — but it is not a prompt-to-video API; only use it if the
-  person asks for a digital human and supplies a picture.)
+  (`/material/list`), the person's own files, or CSS/SVG/canvas drawn in a page. (Comfygen-based generation is
+  being added server-side; use it once it appears in `openfilm get`/the server docs, not before.)
+- **No text-to-video.** Video comes from the person's footage or the material library. The server does have
+  image/video → video workflows (digital human: image + audio → talking video; image-to-video, face swap,
+  background replace, lip sync) — use them only when the person supplies the required picture/footage.
 - Subtitle translation: do it yourself (you are the server's LLM) when writing the `.vtt`; no provider call needed.
 
 If the person asks for something in these gaps, say so plainly and offer the available alternative.

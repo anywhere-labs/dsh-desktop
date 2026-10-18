@@ -9,6 +9,7 @@ import {
   parseStudioAddress, readStudioRun, resolveOpenfilmRuntime, studioEnv, studioPageUrl,
 } from '../lib/openfilm/studio-runtime.js'
 import { MANAGED_MARKER, syncBundledSkill } from '../lib/openfilm/skill-sync.js'
+import { syncOpenfilmLibs, THREE_FILES, threeLibDir } from '../lib/openfilm/libs-sync.js'
 
 const tmpDirs: string[] = []
 const tempDir = () => {
@@ -138,5 +139,38 @@ describe('skill-sync', () => {
     writeFileSync(join(target, 'SKILL.md'), '---\nname: openfilm\n---\nperson wrote this')
     expect(syncBundledSkill({ dshHome: home, sourcePath: src }).status).toBe('skipped')
     expect(readFileSync(join(target, 'SKILL.md'), 'utf8')).toContain('person wrote this')
+  })
+})
+
+describe('libs-sync（离线 three.js）', () => {
+  const seedRuntime = (version = '0.184.0') => {
+    const root = tempDir()
+    const src = join(root, 'openfilm-libs', 'three')
+    mkdirSync(src, { recursive: true })
+    writeFileSync(join(src, 'VERSION'), `${version}\n`)
+    for (const rel of THREE_FILES) {
+      mkdirSync(join(src, rel, '..'), { recursive: true })
+      writeFileSync(join(src, rel), `// ${rel} ${version}`)
+    }
+    return root
+  }
+
+  it('首次安装、再次 current、版本变化重装', () => {
+    const home = tempDir()
+    const runtimeRoot = seedRuntime()
+    const first = syncOpenfilmLibs({ dshHome: home, runtimeRoot })
+    expect(first.status).toBe('installed')
+    expect(readFileSync(join(threeLibDir(home), 'three.module.js'), 'utf8')).toContain('three.module.js')
+    expect(syncOpenfilmLibs({ dshHome: home, runtimeRoot }).status).toBe('current')
+    const bumped = seedRuntime('0.185.0')
+    expect(syncOpenfilmLibs({ dshHome: home, runtimeRoot: bumped }).status).toBe('installed')
+    expect(readFileSync(join(threeLibDir(home), 'VERSION'), 'utf8').trim()).toBe('0.185.0')
+  })
+
+  it('运行时未拉取时返回 missing-source，不落任何文件', () => {
+    const home = tempDir()
+    const result = syncOpenfilmLibs({ dshHome: home, runtimeRoot: tempDir() })
+    expect(result.status).toBe('missing-source')
+    expect(() => readFileSync(join(threeLibDir(home), 'three.module.js'))).toThrow()
   })
 })
