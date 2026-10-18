@@ -3,58 +3,14 @@
 // stay byte-identical to Beta, so every TinTin-specific main-process behavior
 // installs itself from here, before the mirrored bootstrap runs.
 
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { registerBrowserService } from 'dsh-tintin-browser'
-import { OPEN_STUDIO_WINDOW_CHANNEL, isStudioWindowUrl } from '../open-studio-window-contract.ts'
 import { seedTinTinDefaults } from './first-boot.ts'
 
 let installed = false
 let browserAttached = false
-let studioWindow: BrowserWindow | null = null
-
-/**
- * Open (or refocus) the OpenFilm Studio window on a validated local address.
- *
- * Studio is a plain local web app (the OpenFilm CLI serves it with a per-run
- * key in the URL), so the window needs nothing from Electron: sandboxed, no
- * node, its own session partition. A second click on the sidebar entry reloads
- * the address the host just returned (Studio may have restarted on a new port).
- */
-function openStudioWindow(url: string): void {
-  if (studioWindow !== null && !studioWindow.isDestroyed()) {
-    void studioWindow.loadURL(url)
-    if (studioWindow.isMinimized()) studioWindow.restore()
-    studioWindow.focus()
-    return
-  }
-  const window = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 900,
-    minHeight: 600,
-    title: 'OpenFilm Studio',
-    autoHideMenuBar: true,
-    backgroundColor: '#0f1115',
-    show: false,
-    webPreferences: {
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false,
-      partition: 'persist:tintin-openfilm',
-    },
-  })
-  window.once('ready-to-show', () => window.show())
-  // Never leave an invisible window behind when the page cannot paint.
-  setTimeout(() => { if (!window.isDestroyed() && !window.isVisible()) window.show() }, 4000).unref?.()
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  window.on('closed', () => {
-    if (studioWindow === window) studioWindow = null
-  })
-  studioWindow = window
-  void window.loadURL(url)
-}
 
 /**
  * Install TinTin main-process capabilities. Safe to call more than once.
@@ -106,14 +62,6 @@ export function installTinTinMainHook(): void {
       )
       browserAttached = false
     }
-  })
-
-  // OpenFilm Studio window (sidebar entry → host channel → this bridge). The
-  // renderer only ever supplies the local Studio address the host returned;
-  // the contract refuses anything else.
-  ipcMain.handle(OPEN_STUDIO_WINDOW_CHANNEL, (_event, url: unknown) => {
-    if (!isStudioWindowUrl(url)) throw new Error('refused: not a local OpenFilm Studio address')
-    openStudioWindow(url)
   })
 }
 

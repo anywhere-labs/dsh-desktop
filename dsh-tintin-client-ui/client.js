@@ -1,6 +1,7 @@
 // TinTin client bundle: the "按功能测试连接" panel injected under the model
-// provider card on the settings page. Kept in its own package so the main
-// client bundle stays inside its locked line baseline (iron rule 4). The
+// provider card on the settings page, and the embedded OpenFilm Studio view
+// (registered with the chrome's view registry). Kept in its own package so the
+// main client bundle stays inside its locked line baseline (iron rule 4). The
 // package is mounted as a client plugin (profile row), so the factory returns
 // the plugin object — a bare module would fail renderer boot.
 window.__ModuleLoader__.load({
@@ -136,10 +137,45 @@ window.__ModuleLoader__.load({
       }
       observer.observe(document.body, { childList: true, subtree: true })
     }
-    return {
-      name: 'dsh-tintin-client-ui',
-      apply() { installCapabilityTests() },
-      installCapabilityTests,
-    }
+      // ── OpenFilm 内嵌视图（2026-10-18 用户裁决：独立窗口→内嵌）──────────
+      // Studio 是本机网页（无 X-Frame-Options/CSP，且服务端下发 framed 分区
+      // cookie），iframe 挂在 chrome 覆盖层主区；首次激活经宿主通道启动/附着
+      // Studio 并取地址，失败可点击重试。本包先于 tintin-host 装载，注册表可能
+      // 尚未建立 → 短轮询等待（5s 后放弃，无 chrome 环境不空转）。
+      function mountOpenFilm(el) {
+        el.style.cssText = 'position:absolute;inset:0;box-sizing:border-box;'
+        const frame = document.createElement('iframe')
+        frame.setAttribute('allow', 'clipboard-read; clipboard-write; fullscreen')
+        frame.style.cssText = 'width:100%;height:100%;border:0;display:block;background:#0f1115;'
+        const note = document.createElement('div')
+        note.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary,#8a8a8a);font:14px/1.6 system-ui;cursor:pointer;white-space:pre-wrap;'
+        el.append(note, frame)
+        function load() {
+          note.style.display = 'flex'
+          note.textContent = '正在启动 OpenFilm Studio…'
+          note.onclick = null
+          window.tintin?.openfilm?.studioUrl?.()
+            .then((url) => { frame.src = url; note.style.display = 'none' })
+            .catch((error) => {
+              note.textContent = `OpenFilm 启动失败：${error?.message || error}\n点击此处重试`
+              note.onclick = load
+            })
+        }
+        frame.addEventListener('load', () => { note.style.display = 'none' })
+        load()
+      }
+      function installOpenFilmView(tries = 0) {
+        if (window.__tintinViews) {
+          window.__tintinViews.register('openfilm', { mount: mountOpenFilm, unmount() {} })
+          return
+        }
+        if (tries < 50) setTimeout(() => installOpenFilmView(tries + 1), 100)
+      }
+      return {
+        name: 'dsh-tintin-client-ui',
+        apply() { installCapabilityTests(); installOpenFilmView() },
+        installCapabilityTests,
+        installOpenFilmView,
+      }
   },
 })

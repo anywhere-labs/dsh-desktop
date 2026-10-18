@@ -5,7 +5,6 @@ import { SETUP_ONBOARDING_CHANNEL } from './setup-onboarding-bridge.ts'
 import { DESKTOP_FILE_PATH_BRIDGE } from './file-path-bridge-contract.ts'
 import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL } from './directory-picker-contract.ts'
 import { DESKTOP_SAVE_FILE_PICKER_CHANNEL, type DesktopSaveFilePickerRequest } from './save-file-picker-contract.ts'
-import { OPEN_STUDIO_WINDOW_BRIDGE, OPEN_STUDIO_WINDOW_CHANNEL } from './open-studio-window-contract.ts'
 import {
   DESKTOP_RENDERER_ACTION_CHANNEL,
   DESKTOP_RENDERER_ACTIONS_BRIDGE,
@@ -42,12 +41,6 @@ if (process.platform === 'darwin') {
 contextBridge.exposeInMainWorld('dshDesktopSaveFilePicker', Object.freeze({
   pick: (params?: DesktopSaveFilePickerRequest): Promise<string | null> =>
     ipcRenderer.invoke(DESKTOP_SAVE_FILE_PICKER_CHANNEL, params ?? {}),
-}))
-
-// OpenFilm Studio window (TinTin channel): the renderer names the address the
-// OpenFilm host channel returned; the main process validates it before opening.
-contextBridge.exposeInMainWorld(OPEN_STUDIO_WINDOW_BRIDGE, Object.freeze({
-  open: (url: string): Promise<void> => ipcRenderer.invoke(OPEN_STUDIO_WINDOW_CHANNEL, url),
 }))
 
 // Upstream client plugins recognize the Desktop renderer by this carrier. Version 1

@@ -15,6 +15,7 @@ const tintinClient = (() => {
         { id: 'creation', label: '创作模式' },
         { id: 'ops', label: '运营工具' },
         { id: 'media', label: '媒体工具' }, { id: 'skills', label: '技能管理', glyph: '<path d="M8 2.2 13.6 4.8 8 7.4 2.4 4.8z"/><path d="M2.4 8 8 10.6 13.6 8"/><path d="M2.4 11.2 8 13.8l5.6-2.6"/>' }, // 技能管理（2026-10-16 裁决）：服务端技能库安装/删除，装后创作模式 /技能名 调用
+        { id: 'openfilm', label: 'OpenFilm', glyph: '<rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M2 6.2h12"/><path d="M4.6 4.85h.01M7 4.85h.01M9.4 4.85h.01M11.8 4.85h.01"/><path d="M6.9 8.3v3.1l2.9-1.55z"/>' },
       ]
       const providers = new Map()
       let activeId = 'workbench'
@@ -61,7 +62,7 @@ const tintinClient = (() => {
         const host = row.parentElement
         if (!host || host.querySelector('[data-tintin-entry]')) return true
         // 入口行 = 克隆「插件」面板行同层直插（2026-09-28 裁决：布局/行距逐像素一致）；只改标题与点击。
-        const items = [...VIEWS, { id: '__browser', label: '浏览器' }, { id: '__openfilm', label: 'OpenFilm' }]
+        const items = [...VIEWS, { id: '__browser', label: '浏览器' }]
         let anchor = row
         for (const v of items) {
           const b = row.cloneNode(true)
@@ -97,7 +98,6 @@ const tintinClient = (() => {
               if (br) void br.open('web').catch(() => {})
               return
             }
-            if (v.id === '__openfilm') { void window.tintin?.openfilm?.openStudio?.().catch((e) => window.alert(`OpenFilm 启动失败：${e?.message || e}`)); return }
             setActive(activeId === v.id ? 'workbench' : v.id)
           }
           if (!v.id.startsWith('__')) entryButtons.push([v.id, b])
@@ -990,7 +990,7 @@ const tintinClient = (() => {
         config,
         // OpenFilm 启动（2026-10-18 裁决：侧栏入口=独立窗口）：宿主通道同步
         // 技能/服务并启动 Studio（不弹系统浏览器），壳桥按地址开窗；无壳退化为新标签页。
-        openfilm: { openStudio: () => call('openfilm:studio', { args: [{}] }).then((r) => { const url = r?.url; if (!url) throw new Error(r?.error || 'Studio 未启动'); const bridge = window.dshDesktopOpenStudio; return bridge ? bridge.open(url) : window.open(url, '_blank', 'noopener') }) },
+        openfilm: { studioUrl: () => call('openfilm:studio', { args: [{}] }).then((r) => { const url = r?.url; if (!url) throw new Error(r?.error || 'Studio 未启动'); return url }) },
       }
       console.info('[tintin] window.tintin polyfill installed')
     }

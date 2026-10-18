@@ -1,6 +1,6 @@
 ---
 name: openfilm
-description: Make real videos with OpenFilm, driven by TinTin's server models and media capabilities — you write the film as web pages, the person watches and edits it in Studio (a separate window opened from the left sidebar), and `render` exports the MP4. Use when the person asks to make a video, film, launch/demo/promo video, motion graphics, lyric video, slideshow with motion, screen demo, voice-over, or mentions OpenFilm; 中文触发词：做视频/拍个片子/宣传片/短视频/动画视频/产品演示视频/MV/视频海报/让 AI 做视频/配音/字幕。
+description: Make real videos with OpenFilm, driven by TinTin's server models and media capabilities — you write the film as web pages, the person watches and edits it in Studio (embedded in the main window, opened from the left sidebar), and `render` exports the MP4. Use when the person asks to make a video, film, launch/demo/promo video, motion graphics, lyric video, slideshow with motion, screen demo, voice-over, or mentions OpenFilm; 中文触发词：做视频/拍个片子/宣传片/短视频/动画视频/产品演示视频/MV/视频海报/让 AI 做视频/配音/字幕。
 ---
 
 <!-- tintin-managed: openfilm skill -->
@@ -21,7 +21,7 @@ never ask the person for an API key or send them to connect ElevenLabs/OpenAI/Go
   and ffmpeg). In a dev checkout without it, use `npx -y openfilm@latest <command>` instead (the first run downloads
   the CLI and a headless browser — say so if the person is waiting).
 - Never run `openfilm update`: the TinTin installer owns this copy.
-- Studio: the person opens it from the left sidebar row **OpenFilm** (a separate window). When you need Studio
+- Studio: the person opens it from the left sidebar row **OpenFilm**; Studio is embedded in the main window (an iframe over the workbench area). When you need Studio
   running for `get` and it is not, run `openfilm open` first, with `$env:OPENFILM_NO_BROWSER='1'` set so it does not
   also open the system browser.
 - Films live in a folder of their own under the session workspace, named after the film in kebab-case
