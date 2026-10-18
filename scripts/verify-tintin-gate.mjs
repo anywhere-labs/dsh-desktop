@@ -26,7 +26,11 @@ const TINTIN_WORKSPACE_GLOBS = [
   'dsh-plugin-desktop-tintin',
 ]
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs', '.vue'])
-const SOURCE_EXCLUDED_PARTS = new Set(['node_modules', 'dist', 'coverage', 'test', 'tests'])
+// `tintin-resources/` holds fetched third-party runtime trees (OpenFilm, the
+// browser extensions, Playwright browsers). Integration targets those as-is
+// (2026-10-18 user ruling), so they are never counted against the handwritten
+// source baseline; TinTin-authored code still must comply.
+const SOURCE_EXCLUDED_PARTS = new Set(['node_modules', 'dist', 'coverage', 'test', 'tests', 'tintin-resources'])
 // The channel package builds its handwritten src/ into lib/ (tsdown + vite
 // bundles, tens of thousands of lines); the capability bundles instead keep
 // their handwritten host logic under lib/. Only the channel's lib/ is output.
