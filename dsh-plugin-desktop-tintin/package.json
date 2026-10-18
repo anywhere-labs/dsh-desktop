@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-desktop-tintin",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.1-rc.1",
   "description": "TinTin: an Electron shell composed as a DeepSeek Harness Cordis plugin",
   "desktopName": "dsh-desktop-tintin.desktop",
   "license": "MIT",

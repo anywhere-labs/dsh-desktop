@@ -50,7 +50,7 @@ describe('unsigned directory packaging', () => {
       [
         '/workspace/electron-builder.js',
         ...UNSIGNED_DIRECTORY_BUILD_ARGS,
-        '--config.extraMetadata.version=0.2.0-dev.0-20260101.0000',
+        '--config.extraMetadata.version=0.2.1-rc.1-20260101.0000',
         '--config.electronDist=/workspace/electron/dist',
       ],
       {

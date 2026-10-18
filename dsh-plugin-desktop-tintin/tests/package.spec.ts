@@ -88,7 +88,7 @@ const dshResolution = (name: string): unknown =>
 describe('published package surface', () => {
   it('keeps the private workspace version-neutral and versions the TinTin channel package', () => {
     expect(workspaceManifest.version).toBeUndefined()
-    expect(manifest.version).toBe('0.2.0-dev.0')
+    expect(manifest.version).toBe('0.2.1-rc.1')
   })
 
   it('runs all desktop editions and community market typechecks from the root command', () => {
@@ -841,7 +841,7 @@ describe('published package surface', () => {
 
   it('fixes the installed application identity', () => {
     expect(workspaceManifest.version).toBeUndefined()
-    expect(manifest.version).toBe('0.2.0-dev.0')
+    expect(manifest.version).toBe('0.2.1-rc.1')
     expect(manifest.name).toBe('dsh-plugin-desktop-tintin')
     expect(manifest.bin).toEqual({
       'dsh-desktop-tintin': 'lib/bin.js',
