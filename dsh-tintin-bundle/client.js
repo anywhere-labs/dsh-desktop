@@ -132,6 +132,16 @@ const tintinClient = (() => {
             const btns = [...root.querySelectorAll('button')]; const row = btns.find((b) => b.textContent.trim() === '插件')
             // 插件行=工作台入口（2026-10-16 用户裁决：插件与 tab 单焦点联动——点插件行主区回工作台）
             if (t === row || (row && row.contains(t))) { if (activeId !== 'workbench') setActive('workbench'); return }
+            // 上游 panellist 的其它行（如 0.2.1 起 web-app 默认挂载的「自动化任务」）自己拥有主区页面：
+            // 只把自己的覆盖层让开，不要按位置猜（收起态找不到「新会话」时旧逻辑会整段 return，
+            // 覆盖层留在上面就成了点了没界面）。
+            const clickedButton = t.closest('button')
+            if (clickedButton && row && clickedButton !== row && clickedButton.parentElement === row.parentElement) {
+              // 让上游页面自己接管主区；这里只收起自己的覆盖层。
+              console.info('[tintin] panellist row:', clickedButton.textContent.trim(), 'active:', activeId)
+              if (activeId !== 'workbench') setActive('workbench')
+              return
+            }
             const newBtn = btns.find((b) => b.textContent.trim() === '新会话')
             if (!newBtn || t.getBoundingClientRect().top < newBtn.getBoundingClientRect().top) return
             if (activeId !== 'workbench') setActive('workbench')
