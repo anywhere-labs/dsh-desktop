@@ -137,17 +137,18 @@
     "start": "node lib/bin.js",
     "start:isolated": "DSH_DESKTOP_ISOLATED_HOST=1 node lib/bin.js",
     "dev": "yarn run build && yarn run prepare:electron-native && node lib/bin.js",
-    "package:dir": "yarn run build && yarn run prepare:electron-native && node scripts/package-dir.mjs",
-    "package:dir:hot": "yarn run prepare:electron-native && node scripts/package-dir.mjs",
-    "dist:mac": "node scripts/release-mac.ts",
-    "dist:mac-smoke": "node scripts/package-mac.ts",
-    "dist:win": "node scripts/package-win.ts",
-    "dist:win:hot": "node scripts/package-win.ts --hot",
-    "dist:win-portable": "node scripts/package-win-portable.ts",
-    "dist:linux": "node scripts/package-linux.ts",
+    "package:dir": "yarn run verify:resources && yarn run build && yarn run prepare:electron-native && node scripts/package-dir.mjs",
+    "package:dir:hot": "yarn run verify:resources && yarn run prepare:electron-native && node scripts/package-dir.mjs",
+    "dist:mac": "yarn run verify:resources && node scripts/release-mac.ts",
+    "dist:mac-smoke": "yarn run verify:resources && node scripts/package-mac.ts",
+    "dist:win": "yarn run verify:resources && node scripts/package-win.ts",
+    "dist:win:hot": "yarn run verify:resources && node scripts/package-win.ts --hot",
+    "dist:win-portable": "yarn run verify:resources && node scripts/package-win-portable.ts",
+    "dist:linux": "yarn run verify:resources && node scripts/package-linux.ts",
     "prepack": "yarn run check",
     "verify:aa": "node ../scripts/prepare-agents-anywhere-runtime.mjs && DSH_VERIFY_AA=1 node scripts/verify-profile-boot.mjs",
-    "icons:export": "node ../scripts/export-app-icons.mjs --channel beta"
+    "icons:export": "node ../scripts/export-app-icons.mjs --channel beta",
+    "verify:resources": "node scripts/verify-tintin-resources.mjs"
   },
   "dependencies": {
     "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.0.2-desktop.cad572c00c3e5.r156e8f86.tgz",
@@ -510,6 +511,10 @@
       {
         "from": "tintin-resources/openfilm",
         "to": "openfilm"
+      },
+      {
+        "from": "tintin-resources/openfilm/node_modules",
+        "to": "openfilm/node_modules"
       },
       {
         "from": "tintin-resources/playwright-browsers",

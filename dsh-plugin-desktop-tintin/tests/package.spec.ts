@@ -936,7 +936,7 @@ describe('published package surface', () => {
     expect(manifest.scripts?.['prepare:electron-native']).toBe('node scripts/prepare-fs-ext.ts')
     expect(manifest.scripts?.dev).toContain('yarn run prepare:electron-native')
     expect(manifest.scripts?.['package:dir'])
-      .toBe('yarn run build && yarn run prepare:electron-native && node scripts/package-dir.mjs')
+      .toBe('yarn run verify:resources && yarn run build && yarn run prepare:electron-native && node scripts/package-dir.mjs')
     expect(packageDir).toContain("CSC_IDENTITY_AUTO_DISCOVERY: 'false'")
     expect(packageDir).toContain("'--config.forceCodeSigning=false'")
     expect(packageDir).toContain("'--config.mac.identity=null'")
@@ -945,10 +945,20 @@ describe('published package surface', () => {
     expect(packageDir).toContain("require.resolve('electron/package.json')")
     expect(packageDir).toContain('--config.electronDist=')
     expect(packageDir).toContain('electronBuilderEnvironment')
-    expect(manifest.scripts?.['dist:mac']).toBe('node scripts/release-mac.ts')
-    expect(manifest.scripts?.['dist:mac-smoke']).toBe('node scripts/package-mac.ts')
-    expect(manifest.scripts?.['dist:win']).toBe('node scripts/package-win.ts')
-    expect(manifest.scripts?.['dist:win-portable']).toBe('node scripts/package-win-portable.ts')
+    expect(manifest.scripts?.['dist:mac']).toBe('yarn run verify:resources && node scripts/release-mac.ts')
+    expect(manifest.scripts?.['dist:mac-smoke']).toBe('yarn run verify:resources && node scripts/package-mac.ts')
+    expect(manifest.scripts?.['dist:win']).toBe('yarn run verify:resources && node scripts/package-win.ts')
+    expect(manifest.scripts?.['dist:win-portable']).toBe('yarn run verify:resources && node scripts/package-win-portable.ts')
+    // The vendored OpenFilm runtime ships through extraResources; a packaging
+    // run without it produced an installer whose OpenFilm entry failed at click.
+    for (const script of ['package:dir', 'package:dir:hot', 'dist:mac', 'dist:mac-smoke', 'dist:win', 'dist:win-portable', 'dist:linux']) {
+      expect(manifest.scripts?.[script], script).toContain('yarn run verify:resources')
+    }
+    const openfilmResources = manifest.build?.extraResources?.filter(entry => entry.from === 'tintin-resources/openfilm' || entry.from === 'tintin-resources/openfilm/node_modules') ?? []
+    expect(openfilmResources).toEqual([
+      { from: 'tintin-resources/openfilm', to: 'openfilm' },
+      { from: 'tintin-resources/openfilm/node_modules', to: 'openfilm/node_modules' },
+    ])
     expect(manifest.scripts?.['check:win-package:platform']).toContain('yarn workspace dsh-community-market build')
     expect(manifest.scripts?.['check:win-package:platform']).toContain('yarn run build')
     expect(manifest.scripts?.['check:win-package']).toBe('yarn run check:win-package:platform && yarn run typecheck')

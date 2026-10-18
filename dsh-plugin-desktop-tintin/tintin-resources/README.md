@@ -11,3 +11,9 @@ bin/ on purpose: a node-in-bin parent would pin spawned `ffmpeg` to the
 vendored binary (CreateProcess resolves the parent exe's directory before
 PATH) instead of preferring the system's. Run all three before
 packaging; nothing here is committed.
+
+`yarn workspace dsh-tintin-bundle fetch:openfilm` runs the OpenFilm fetch, and
+`package:tintin:dir:full` calls it before packaging. Every TinTin packaging
+script starts with `verify:resources`, which fails the build when openfilm/ or
+playwright-browsers/ is missing — an installer built without them shows
+"OpenFilm 运行时未安装" as soon as the OpenFilm entry is opened.

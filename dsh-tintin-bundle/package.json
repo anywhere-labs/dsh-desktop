@@ -29,6 +29,7 @@
   },
   "scripts": {
     "test": "vitest run",
-    "check": "yarn run test"
+    "check": "yarn run test",
+    "fetch:openfilm": "node scripts/fetch-openfilm-runtime.mjs"
   }
 }
