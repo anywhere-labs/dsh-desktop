@@ -139,7 +139,8 @@ describe('desktop terminal environment', () => {
     const dshShim = readFileSync(launch.dshShimPath, 'utf8')
     expect(dshShim).toContain("DSH_DESKTOP_DEFAULT_PROFILE='desktop' ELECTRON_RUN_AS_NODE=1 exec")
     expect(dshShim).toContain('--expose-internals')
-    expect(dshShim).toContain("'/Applications/DSH O'\"'\"'Brien.app/Contents/MacOS/DSH Desktop'")
+    expect(dshShim).toContain("'/Applications/DSH O'\"'\"'Brien.app/Contents/Frameworks/DSH Desktop Helper.app/Contents/MacOS/DSH Desktop Helper'")
+    expect(dshShim).not.toContain("'/Applications/DSH O'\"'\"'Brien.app/Contents/MacOS/DSH Desktop'")
     expect(dshShim).toContain("'/Applications/DSH O'\"'\"'Brien.app/Contents/Resources/app.asar/lib/dsh-terminal-bootstrap.js'")
     expect(dshShim).toContain('"$@"')
     expect(dshShim).not.toContain('npm_config_')
@@ -152,7 +153,7 @@ describe('desktop terminal environment', () => {
     const nodeShim = readFileSync(launch.nodeShimPath, 'utf8')
     expect(nodeShim).toBe([
       '#!/bin/sh',
-      `ELECTRON_RUN_AS_NODE=1 exec '/Applications/DSH O'"'"'Brien.app/Contents/MacOS/DSH Desktop' "$@"`,
+      `ELECTRON_RUN_AS_NODE=1 exec '/Applications/DSH O'"'"'Brien.app/Contents/Frameworks/DSH Desktop Helper.app/Contents/MacOS/DSH Desktop Helper' "$@"`,
       '',
     ].join('\n'))
     expect(nodeShim).not.toContain('npm_config_')
