@@ -22,6 +22,8 @@
     # (docs/tintin-migration-plan.md). Each mounted package that declares
     # dsh.client joins the web boot graph; the creation bundle registers the
     # 'creation' and 'skills' views, the ops bundle registers 'ops'.
+    - id: tintin-client-ui
+      name: dsh-tintin-client-ui
     - id: tintin-host
       name: dsh-tintin-bundle
     - id: tintin-media

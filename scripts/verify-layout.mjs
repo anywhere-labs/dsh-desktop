@@ -46,6 +46,7 @@ if (JSON.stringify(workspace.workspaces) !== JSON.stringify([
   'dsh-community-fabric',
   'dsh-community-market',
   'dsh-tintin-bundle',
+  'dsh-tintin-client-ui',
   'dsh-tintin-media-bundle',
   'dsh-tintin-creation-bundle',
   'dsh-tintin-ops-bundle',

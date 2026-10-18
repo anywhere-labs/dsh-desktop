@@ -323,6 +323,7 @@
     "adm-zip": "^0.6.0",
     "dsh-community-market": "0.1.0-dev.0",
     "dsh-tintin-bundle": "0.1.0-dev.0",
+    "dsh-tintin-client-ui": "0.1.0-dev.0",
     "dsh-tintin-creation-bundle": "0.1.0-dev.0",
     "dsh-tintin-media-bundle": "0.1.0-dev.0",
     "dsh-tintin-ops-bundle": "0.1.0-dev.0",

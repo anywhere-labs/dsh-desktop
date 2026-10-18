@@ -12750,6 +12750,7 @@ __metadata:
     dsh-community-market: "npm:0.1.0-dev.0"
     dsh-tintin-browser: "npm:0.1.0-dev.0"
     dsh-tintin-bundle: "npm:0.1.0-dev.0"
+    dsh-tintin-client-ui: "npm:0.1.0-dev.0"
     dsh-tintin-creation-bundle: "npm:0.1.0-dev.0"
     dsh-tintin-media-bundle: "npm:0.1.0-dev.0"
     dsh-tintin-ops-bundle: "npm:0.1.0-dev.0"
@@ -13029,6 +13030,12 @@ __metadata:
     "@deepseek-ai/schemastery": "npm:^3.18.4"
     js-yaml: "npm:^4.1.0"
     vitest: "npm:4.1.8"
+  languageName: unknown
+  linkType: soft
+
+"dsh-tintin-client-ui@npm:0.1.0-dev.0, dsh-tintin-client-ui@workspace:dsh-tintin-client-ui":
+  version: 0.0.0-use.local
+  resolution: "dsh-tintin-client-ui@workspace:dsh-tintin-client-ui"
   languageName: unknown
   linkType: soft
 
