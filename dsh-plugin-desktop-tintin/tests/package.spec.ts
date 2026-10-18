@@ -891,7 +891,8 @@ describe('published package surface', () => {
     expect(manifest.build?.mac?.signIgnore).toEqual(['\\.(?:pak|dat|wasm)$'])
     // 2026-10-02 用户裁决：NSIS 压缩降档 normal→store（打包提速；发布需小包时经
     // DSH_WINDOWS_PACKAGE_COMPRESSION 覆写回 maximum/normal）
-    expect(manifest.build?.win?.compression).toBe('store')
+    // The vendored OpenFilm runtime pushes the packaged payload past NSIS's 2 GB store limit; compression is required.
+    expect(manifest.build?.win?.compression).toBe('normal')
     expect(manifest.build?.win?.icon).toBe('build/app-icon.ico')
     expect(manifest.build?.win?.target).toEqual([{
       target: 'nsis',

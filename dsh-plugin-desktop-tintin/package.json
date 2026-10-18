@@ -434,7 +434,7 @@
       "asar": false
     },
     "win": {
-      "compression": "store",
+      "compression": "normal",
       "target": [
         {
           "target": "nsis",
