@@ -132,24 +132,11 @@ const tintinClient = (() => {
             const btns = [...root.querySelectorAll('button')]; const row = btns.find((b) => b.textContent.trim() === '插件')
             // 插件行=工作台入口（2026-10-16 用户裁决：插件与 tab 单焦点联动——点插件行主区回工作台）
             if (t === row || (row && row.contains(t))) { if (activeId !== 'workbench') setActive('workbench'); return }
-            // 上游 panellist 的其它行（如 0.2.1 起 web-app 默认挂载的「自动化任务」）自己拥有主区页面：
-            // 只把自己的覆盖层让开，不要按位置猜（收起态找不到「新会话」时旧逻辑会整段 return，
-            // 覆盖层留在上面就成了点了没界面）。会话行没有 panelRow 类，仍走下面的回工作台。
-            const panelRowClass = row ? [...row.classList].find((c) => c.endsWith('panelRow')) : undefined
-            const clickedButton = t.closest('button')
-            const isPanellistRow = Boolean(
-              clickedButton && row && clickedButton !== row && panelRowClass
-              && clickedButton.classList.contains(panelRowClass),
-            )
-            if (isPanellistRow) {
-              // 让上游页面自己接管主区；这里只收起自己的覆盖层。
-              const label = clickedButton.textContent.trim()
-              console.info('[tintin] panellist row:', label, 'active:', activeId)
+            // 上游 panellist 行自带主区页面：收起覆盖层让行接管；会话行没有 panelRow 类，仍回工作台。
+            const rowClass = row ? [...row.classList].find((c) => c.endsWith('panelRow')) : undefined; const clicked = t.closest('button')
+            if (rowClass && clicked && clicked !== row && clicked.classList.contains(rowClass)) {
               if (activeId !== 'workbench') setActive('workbench')
-              // 上游行的点击若没接管（React 侧未挂/被拦），按标签补一次主区选择。
-              const panelId = { '自动化任务': 'schedules', 'Automation tasks': 'schedules' }[label]
-              if (panelId) setTimeout(() => window.__tintinSelectPanel?.(panelId), 0)
-              return
+              const id = { '自动化任务': 'schedules', 'Automation tasks': 'schedules' }[clicked.textContent.trim()]; if (id) setTimeout(() => window.__tintinSelectPanel?.(id), 0); return
             }
             const newBtn = btns.find((b) => b.textContent.trim() === '新会话')
             if (!newBtn || t.getBoundingClientRect().top < newBtn.getBoundingClientRect().top) return
@@ -1417,20 +1404,11 @@ window.__ModuleLoader__.load({
       name: 'dsh-tintin-bundle',
       inject: ['slots'],
       apply(ctx) {
-        // The sidebar guard hides the TinTin overlay for upstream panellist rows
-        // (0.2.1 mounts ui-schedule, whose 自动化任务 row owns a main-slot page).
-        // Expose the layout selector so that guard can also activate the page
-        // itself when the upstream row's own handler does not run.
-        window.__tintinSelectPanel = (id) => {
-          try { ctx.get('layout')?.selectPanel(id) } catch { /* layout not ready */ }
-        }
-        ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
-          name: 'settings.plugin.item', key: 'dsh-tintin-bundle', order: -90,
-        }, TintinSettingsCard))
+        // 侧栏守卫把上游 panellist 行（0.2.1 的「自动化任务」）让给上游页面时，用它补一次主区选择。
+        window.__tintinSelectPanel = (id) => { try { ctx.get('layout')?.selectPanel(id) } catch { /* layout not ready */ } }
+        ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({ name: 'settings.plugin.item', key: 'dsh-tintin-bundle', order: -90 }, TintinSettingsCard))
         // 本地配置（缓存目录/清理）挂「通用设置」页（2026-09-24 用户裁决）
-        ctx.slots.inject('settings.general.item', () => ctx.slots.register({
-          name: 'settings.general.item', id: 'tintin-local-config', order: -90,
-        }, LocalConfigCard))
+        ctx.slots.inject('settings.general.item', () => ctx.slots.register({ name: 'settings.general.item', id: 'tintin-local-config', order: -90 }, LocalConfigCard))
 
         // First-boot setup wizard (2026-09-24 user ruling): prompt for the
         // SERVER ADDRESS (host:port), not an API key — probe it host-side
