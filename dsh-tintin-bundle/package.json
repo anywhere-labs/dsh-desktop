@@ -17,10 +17,7 @@
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-primitives"
       ],
-      "platform": "web",
-      "external": [
-        "dsh-tintin-client-ui/client"
-      ]
+      "platform": "web"
     }
   },
   "dependencies": {

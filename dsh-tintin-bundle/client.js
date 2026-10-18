@@ -533,7 +533,7 @@ const tintinClient = (() => {
       render()
     }
 
-    // 按功能测试连接 → dsh-tintin-client-ui/client（由 apply() 调用）。
+    // 按功能测试连接 → dsh-tintin-client-ui（独立 client 包自己安装）。
 
     // ── WP-2 window.tintin polyfill ─────────────────────────────────────────
     // Rebuild the old client's preload bridge with identical signatures so the
@@ -1097,7 +1097,7 @@ const tintinClient = (() => {
 
     // Install now (see header comment): the media bundle's factory registers
     // its view provider against __tintinViews, which must already exist.
-    // 按功能测试连接 lives in dsh-tintin-client-ui and is installed from apply().
+    // 按功能测试连接 lives in the dsh-tintin-client-ui client plugin.
     installTintinChrome()
     installTintinBridge()
     installTintinProvisioning()
@@ -1271,8 +1271,6 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         // 侧栏守卫把上游 panellist 行（0.2.1 的「自动化任务」）让给上游页面时，用它补一次主区选择。
         window.__tintinSelectPanel = (id) => { try { ctx.get('layout')?.selectPanel(id) } catch { /* layout not ready */ } }
-        // 按功能测试连接（dsh-tintin-client-ui；缺包时不影响其余 UI）
-        try { require('dsh-tintin-client-ui/client').installCapabilityTests() } catch { /* optional bundle */ }
         ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({ name: 'settings.plugin.item', key: 'dsh-tintin-bundle', order: -90 }, TintinSettingsCard))
         // 本地配置（缓存目录/清理）挂「通用设置」页（2026-09-24 用户裁决）
         ctx.slots.inject('settings.general.item', () => ctx.slots.register({ name: 'settings.general.item', id: 'tintin-local-config', order: -90 }, LocalConfigCard))

@@ -1,7 +1,8 @@
 // TinTin client bundle: the "按功能测试连接" panel injected under the model
 // provider card on the settings page. Kept in its own package so the main
-// client bundle stays inside its locked line baseline (iron rule 4); the main
-// bundle requires it through dsh.client.external.
+// client bundle stays inside its locked line baseline (iron rule 4). The
+// package is mounted as a client plugin (profile row), so the factory returns
+// the plugin object — a bare module would fail renderer boot.
 window.__ModuleLoader__.load({
   id: 'dsh-tintin-client-ui',
   factory: () => {
@@ -135,6 +136,10 @@ window.__ModuleLoader__.load({
       }
       observer.observe(document.body, { childList: true, subtree: true })
     }
-    return { installCapabilityTests }
+    return {
+      name: 'dsh-tintin-client-ui',
+      apply() { installCapabilityTests() },
+      installCapabilityTests,
+    }
   },
 })
