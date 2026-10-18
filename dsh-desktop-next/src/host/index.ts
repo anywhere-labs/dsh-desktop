@@ -18,6 +18,16 @@ import { maskSecrets } from '../mask-secrets.ts'
 import { parseSystemProxyProbe, SYSTEM_PROXY_ENV, withSystemProxy } from '../system-proxy.ts'
 import { watchPlatformLogin, type PlatformLoginAccount } from './platform-login.ts'
 
+/**
+ * Services the pinned Host profile provides. The bundled `dsh` package nests
+ * its own Cordis tree, so the profile context does not inherit this
+ * workspace's service augmentations; declare the used members here.
+ */
+interface HostServices {
+  webServer: NextWebServer & { readonly port: number | undefined; collectIndexInjections(): unknown }
+  connection: { authenticatedUrl(url: string): string }
+}
+
 export async function main(): Promise<void> {
   // The Host lists and reads user workspaces; see asar-archive-policy.ts.
   disableAsarArchiveView(import.meta.url)
@@ -82,7 +92,7 @@ export async function main(): Promise<void> {
       if (!Number.isSafeInteger(query.requestId)) return
       void application.then(async ({ ctx }) => {
         if (stopping) throw new Error('Next Host is stopping')
-        await send({ type: 'injections', requestId: query.requestId, injections: ctx.webServer.collectIndexInjections() })
+        await send({ type: 'injections', requestId: query.requestId, injections: host.webServer.collectIndexInjections() })
       }).catch(async () => { await send({ type: 'injections', requestId: query.requestId, error: 'Could not collect Web boot injections' }) }).catch(fatal)
       return
     }
@@ -92,14 +102,15 @@ export async function main(): Promise<void> {
     const enabled = request.enabled
     void application.then(async ({ ctx }) => {
       if (stopping) throw new Error('Next Host is stopping')
-      ;(ctx.webServer as NextWebServer).setBrowserAccess(enabled)
+      ;host.webServer.setBrowserAccess(enabled)
       await send({ type: 'browser-access', requestId: request.requestId })
     }).catch(async () => { await send({ type: 'browser-access', requestId: request.requestId, error: 'Could not update browser access' }) }).catch(fatal)
   })
   process.once('disconnect', () => { void stop().catch(fatal) })
   const { ctx } = await application
-  await send({ type: 'ready', url: ctx.connection.authenticatedUrl(`http://127.0.0.1:${ctx.webServer.port}`),
-    injections: ctx.webServer.collectIndexInjections() })
+  const host = ctx as typeof ctx & HostServices
+  await send({ type: 'ready', url: host.connection.authenticatedUrl(`http://127.0.0.1:${host.webServer.port}`),
+    injections: host.webServer.collectIndexInjections() })
   const account = ctx.get('deepseekAccount') as PlatformLoginAccount | undefined
   if (account !== undefined && !stopping) {
     // A broken watcher only loses the automatic browser hand-off; the dialog still offers the link.

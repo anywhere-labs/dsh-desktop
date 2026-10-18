@@ -1,0 +1,1249 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -2411,6 +2411,63 @@ window.__ModuleLoader__.load({
+ 					}
+ 				};
+ 			}
++			/**
++			* Resolve one session-authorized uploaded file to its Host filesystem path.
++			* Used to open the stock document-preview pane; never treat the display name as a workspace path.
++			* @param attachmentIdOrName - opaque id from a staged receipt / session file block, or `{ name }` for a unique display-name lookup.
++			* @returns the absolute host path and display name.
++			*/
++			async readFileHostPath(attachmentIdOrName) {
++				const query = new URLSearchParams({ sessionId: this.sessionId });
++				if (typeof attachmentIdOrName === "object" && attachmentIdOrName !== null && typeof attachmentIdOrName.name === "string") query.set("name", attachmentIdOrName.name);
++				else query.set("attachmentId", String(attachmentIdOrName));
++				const response = await fetch(`/api/session/fileHostPath?${query.toString()}`, { credentials: "include" });
++				if (response.status !== 200) return {
++					ok: false,
++					error: {
++						code: "gateway/internal",
++						message: `file host path failed with HTTP ${String(response.status)}`,
++						details: {}
++					}
++				};
++				const body = await response.json();
++				if (typeof body !== "object" || body === null || typeof body.ok !== "boolean") return {
++					ok: false,
++					error: {
++						code: "gateway/internal",
++						message: "file host path returned an invalid result",
++						details: {}
++					}
++				};
++				if (!body.ok) {
++					const error = body.error;
++					return {
++						ok: false,
++						error: {
++							code: typeof error?.code === "string" ? error.code : "gateway/internal",
++							message: typeof error?.message === "string" ? error.message : "file host path failed",
++							details: typeof error?.details === "object" && error.details !== null ? error.details : {}
++						}
++					};
++				}
++				const value = body.value;
++				if (typeof value?.path !== "string" || typeof value?.name !== "string" || typeof value?.bytes !== "number") return {
++					ok: false,
++					error: {
++						code: "gateway/internal",
++						message: "file host path returned an invalid value",
++						details: {}
++					}
++				};
++				return {
++					ok: true,
++					value: {
++						path: value.path,
++						name: value.name,
++						bytes: value.bytes
++					}
++				};
++			}
+ 			/** Apply one operation to a still-pending queue occurrence. */
+ 			async updateQueue(itemId, action) {
+ 				return this.remote.session.updateQueue({
+@@ -3357,6 +3414,15 @@ window.__ModuleLoader__.load({
+ 				}
+ 				return result;
+ 			}
++			/** Contract session.delete; remove the row immediately after Host commit. */
++			async delete(sessionId) {
++				const result = await this.remote.session.delete({ sessionId });
++				if (result.ok) this.recordMutation({
++					kind: "remove",
++					sessionId
++				});
++				return result;
++			}
+ 			/**
+ 			* Contract session.fork; on success merge the child into summaries
+ 			* immediately (same synchronous-addressability guarantee as create).
+@@ -3693,6 +3759,17 @@ window.__ModuleLoader__.load({
+ 				this.sourceSessionId = sourceSessionId;
+ 			}
+ 		};
++		/** Structured permanent Session-deletion failure. */
++		var SessionDeleteError = class extends Error {
++			rpcError;
++			sessionId;
++			name = "SessionDeleteError";
++			constructor(rpcError, sessionId) {
++				super(`session delete failed: ${rpcError.code}: ${rpcError.message}`);
++				this.rpcError = rpcError;
++				this.sessionId = sessionId;
++			}
++		};
+ 		/**
+ 		* Display title projection: durable title, project directory basename, then
+ 		* the raw id.
+@@ -3976,6 +4053,15 @@ window.__ModuleLoader__.load({
+ 				return result.value.sessionId;
+ 			}
+ 			/**
++			* Permanently delete one ordinary Session. Selection belongs to
++			* uiWorkspace, which releases its main view before calling this method.
++			*/
++			async delete(sessionId) {
++				const result = await this.manager.delete(sessionId);
++				if (!result.ok) throw new SessionDeleteError(result.error, sessionId);
++				this.projectList();
++			}
++			/**
+ 			* Fork a session from an exact inclusive prefix of the source (same
+ 			* synchronous-addressability guarantee as {@link ClientSessions.create}:
+ 			* on resolution the child is catalogued and may be explicitly retained).
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -8,7 +8,7 @@ import { Remote, RemoteError, TypertRemoteService, principalOf, remoteErrorOf }
+ import { canonicalClientTimeZone } from "@deepseek-ai/dsh-util-time";
+ import { assertNever } from "@deepseek-ai/dsh-util-values";
+ import { randomUUID } from "node:crypto";
+-import { mkdir } from "node:fs/promises";
++import { link, mkdir } from "node:fs/promises";
+ import { installModelSelection } from "@deepseek-ai/dsh-agent";
+ import { brandString } from "@deepseek-ai/dsh-brand";
+ import { credentialRef } from "@deepseek-ai/dsh-credentials";
+@@ -181,11 +181,15 @@ var ApiSessionAgentController = class {
+ 	ctx;
+ 	resumes = /* @__PURE__ */ new Map();
+ 	claims = /* @__PURE__ */ new Map();
++	handles = /* @__PURE__ */ new Map();
+ 	selections = /* @__PURE__ */ new WeakMap();
+ 	imageAdmissionChains = /* @__PURE__ */ new WeakMap();
+ 	/** @param ctx - Host context carrying Agent, model, persistence, and Typert services. */
+ 	constructor(ctx) {
+ 		this.ctx = ctx;
++		ctx.on("session/disposed", (session) => {
++			this.handles.delete(session.id);
++		});
+ 		ctx.typert.lookups.configure("agent", async (sessionId) => {
+ 			const found = await this.resolveAgent(sessionId);
+ 			if ("error" in found) throw found.error;
+@@ -218,6 +222,21 @@ var ApiSessionAgentController = class {
+ 	async resolveObservedAgent(observation) {
+ 		return this.resolve(observation.header.id, observation);
+ 	}
++	/** Retain the teardown capability for an Agent created outside the normal create path. */
++	retainHandle(handle) {
++		this.handles.set(handle.agent.id, handle);
++		return handle.agent;
++	}
++	/** Dispose an ordinary Agent owned by this controller, waiting for in-flight activation first. */
++	async disposeOwned(sessionId) {
++		const pending = [this.resumes.get(sessionId), this.claims.get(sessionId)].filter((operation) => operation !== void 0);
++		await Promise.allSettled(pending);
++		const handle = this.handles.get(sessionId);
++		if (handle === void 0) return false;
++		await handle.dispose();
++		this.handles.delete(sessionId);
++		return true;
++	}
+ 	async resolve(sessionId, observation) {
+ 		const live = this.liveAgent(sessionId);
+ 		if (live !== void 0) return live;
+@@ -353,9 +372,22 @@ var ApiSessionAgentController = class {
+ 		if (presets === void 0) return { setup: (_agentCtx, agent) => {
+ 			this.installSelection(agent);
+ 		} };
+-		const resolvedId = (await presets.resolve(presetId)).id;
++		let resolved;
++		let fallbackFrom;
++		try {
++			resolved = await presets.resolve(presetId);
++		} catch (error) {
++			// A deleted preset must not strand durable history. Resume with the
++			// standard composition and append a selection event after activation,
++			// so later launches no longer depend on the removed identifier.
++			if (presetId === void 0 || !(error instanceof RemoteError) || error.code !== "agent-preset/not-found") throw error;
++			resolved = await presets.resolve("standard");
++			fallbackFrom = presetId;
++		}
++		const resolvedId = resolved.id;
+ 		return {
+ 			agentPreset: resolvedId,
++			...fallbackFrom === void 0 ? {} : { fallbackFrom },
+ 			setup: async (agentCtx, agent) => {
+ 				this.installSelection(agent);
+ 				await presets.mount(agentCtx, resolvedId);
+@@ -396,11 +428,20 @@ var ApiSessionAgentController = class {
+ 		const published = this.ctx.sessions.get(sessionId);
+ 		const live = this.ctx.agents.get(sessionId);
+ 		if (published !== void 0 && hasApiSessionSubagentOwner(this.ctx, published, live)) throw new ApiSessionSubagentOwnership(sessionId);
+-		return (await this.ctx.agents.resume({
++		return this.resumeWithComposition(sessionId, composition);
++	}
++	/** Resume one stored Session and durably record a one-time legacy-preset migration. */
++	async resumeWithComposition(sessionId, composition) {
++		const agent = this.retainHandle(await this.ctx.agents.resume({
+ 			resumeSessionId: sessionId,
+ 			agentOptions: this.agentOptions(),
+ 			setup: composition.setup
+-		})).agent;
++		}));
++		if (composition.fallbackFrom !== void 0) {
++			agent.session.append("agent-preset/selected", { agentPreset: composition.agentPreset });
++			console.warn(`api-session: migrated session "${sessionId}" from unavailable preset "${composition.fallbackFrom}" to "${composition.agentPreset}"`);
++		}
++		return agent;
+ 	}
+ 	async inOrder(sessionId, operation) {
+ 		const result = (this.claims.get(sessionId) ?? Promise.resolve()).then(operation);
+@@ -452,11 +493,11 @@ var ApiSessionAgentController = class {
+ 		if (!reusable) return this.createMinted(request.cwd, composition);
+ 		this.assertPresetApplicable(sessionId, request.agentPreset);
+ 		try {
+-			return (await this.ctx.agents.resume({
++			return this.retainHandle(await this.ctx.agents.resume({
+ 				resumeSessionId: sessionId,
+ 				agentOptions: this.agentOptions(),
+ 				setup: this.reuseSetup(composition)
+-			})).agent;
++			}));
+ 		} catch (error) {
+ 			if (error instanceof ApiSessionStartedSinceObserved) return this.createMinted(request.cwd, composition);
+ 			if (!(error instanceof Error) || error.name !== "SessionAlreadyOwnedError") throw error;
+@@ -514,7 +555,7 @@ var ApiSessionAgentController = class {
+ 		} catch (error) {
+ 			throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error });
+ 		}
+-		return (await this.ctx.agents.create({
++		return this.retainHandle(await this.ctx.agents.create({
+ 			sessionId,
+ 			agentOptions: this.agentOptions(),
+ 			meta: {
+@@ -522,7 +563,7 @@ var ApiSessionAgentController = class {
+ 				...composition.agentPreset === void 0 ? {} : { agentPreset: composition.agentPreset }
+ 			},
+ 			setup: composition.setup
+-		})).agent;
++		}));
+ 	}
+ 	agentOptions() {
+ 		const { provider, model } = this.ctx.agentDefaultModel.currentSelection();
+@@ -839,6 +880,34 @@ var SessionCommandController = class {
+ 			throw new RemoteError("gateway/internal", `failed to rename session "${request.sessionId}": ${String(error)}`, {});
+ 		}
+ 	}
++	/** Permanently delete one ordinary Session while retaining its Workspace files. */
++	async delete(request) {
++		let state;
++		try {
++			state = await this.readSessionState(request.sessionId);
++		} catch (error) {
++			if (error instanceof ApiSessionNotFound) throw new RemoteError("session/not-found", error.message, { sessionId: request.sessionId });
++			throw new RemoteError("gateway/internal", `failed to inspect session "${request.sessionId}" before deletion: ${String(error)}`, {});
++		}
++		const live = this.ctx.agents.get(request.sessionId);
++		if (hasApiSessionSubagentOwner(this.ctx, { header: state.header }, live)) throw apiSessionSubagentOwnershipError(request.sessionId);
++		const persistence = this.ctx.get("sessionPersistence");
++		if (persistence === void 0) throw new RemoteError("gateway/internal", "session deletion is unavailable: this deployment mounts no session-persistence service", {});
++		const hadLiveSession = this.ctx.sessions.get(request.sessionId) !== void 0;
++		try {
++			await this.agents.disposeOwned(request.sessionId);
++			if (this.ctx.agents.get(request.sessionId) !== void 0 || this.ctx.sessions.get(request.sessionId) !== void 0) throw new RemoteError("session/agent-busy", `session "${request.sessionId}" is still active`, { reason: "the live Agent is owned by another capability" });
++			// Remove idempotent Workspace metadata before the irreversible persistence commit.
++			// Otherwise a cleanup failure leaves a retry unable to reach the ghost metadata.
++			await this.ctx.workspaceRegistry.forgetSession(request.sessionId);
++			if (!await persistence.delete(request.sessionId)) throw new RemoteError("session/not-found", `session "${request.sessionId}" not found`, { sessionId: request.sessionId });
++			if (!hadLiveSession) this.ctx.emit("api-session/removed", request.sessionId);
++			return { deleted: true };
++		} catch (error) {
++			if (remoteErrorOf(error) !== void 0) throw error;
++			throw new RemoteError("gateway/internal", `failed to delete session "${request.sessionId}": ${String(error)}`, {});
++		}
++	}
+ 	/**
+ 	* Create a new ordinary Session from an exact event prefix. An explicit
+ 	* `atSeq` is the inclusive cut; an omitted value selects the latest
+@@ -880,7 +949,7 @@ var SessionCommandController = class {
+ 			const composition = await this.agents.composeAgent(this.agents.presetForObservation(source));
+ 			try {
+ 				const { provider, model } = this.ctx.agentDefaultModel.currentSelection();
+-				await this.ctx.agents.create({
++				const handle = await this.ctx.agents.create({
+ 					sessionId: childId,
+ 					seed,
+ 					inheritedEventCount: SessionLogOffset(boundary + 1),
+@@ -896,6 +965,7 @@ var SessionCommandController = class {
+ 					},
+ 					setup: composition.setup
+ 				});
++				this.agents.retainHandle(handle);
+ 			} catch (error) {
+ 				throw new RemoteError("gateway/internal", `failed to fork session "${request.sessionId}": ${String(error)}`, {});
+ 			}
+@@ -1189,6 +1259,126 @@ function referencedImage(events, attachmentId) {
+ 		if (found !== void 0) return found;
+ 	}
+ }
++function fileBlockIn(content, match) {
++	if (!Array.isArray(content)) return void 0;
++	for (const value of content) {
++		if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
++		const block = value;
++		if (block.type === "file" && typeof block.attachment === "object" && block.attachment !== null) {
++			const ref = block.attachment;
++			if (match(ref)) return ref;
++		}
++		if (block.type === "tool-result") {
++			const nested = fileBlockIn(block.content, match);
++			if (nested !== void 0) return nested;
++		}
++	}
++}
++function fileInEvent(event, match) {
++	const data = event.data;
++	const direct = fileBlockIn(data.content, match);
++	if (direct !== void 0) return direct;
++	const message = fileBlockIn(data.message?.content, match);
++	if (message !== void 0) return message;
++	for (const inserted of data.inserted ?? []) {
++		const found = fileBlockIn(inserted.content, match);
++		if (found !== void 0) return found;
++	}
++	if (event.type === "assistant/message" || event.type === "assistant/attempt") for (const chunk of assistantStreamChunks(event.data.stream, "block-end")) {
++		const found = fileBlockIn([chunk.block], match);
++		if (found !== void 0) return found;
++	}
++}
++function referencedFile(events, attachmentId) {
++	for (const event of events) {
++		const found = fileInEvent(event, (ref) => String(ref.attachmentId) === attachmentId);
++		if (found !== void 0) return found;
++	}
++}
++/** Leaf name of a path-like display string (POSIX or Windows separators). */
++function basenameLeaf(value) {
++	const parts = String(value).split(/[/\\]/);
++	return parts[parts.length - 1] || String(value);
++}
++function fileNameEquals(left, right) {
++	if (left === right) return true;
++	// NTFS / Explorer treat names as case-insensitive; assistant mentions often
++	// disagree with the stored attachment casing on Windows.
++	if (process.platform === "win32") return left.toLowerCase() === right.toLowerCase();
++	return false;
++}
++function fileNameMatches(refName, needle) {
++	const name = String(refName ?? "");
++	const needleBase = basenameLeaf(needle);
++	const nameBase = basenameLeaf(name);
++	return fileNameEquals(name, needle) || fileNameEquals(nameBase, needle) || fileNameEquals(nameBase, needleBase);
++}
++/**
++* Collect every distinct file attachment whose display name or basename matches.
++* Used when assistant prose mentions a file by name rather than attachment id.
++*/
++function collectReferencedFilesByName(events, name) {
++	const matches = [];
++	const seen = /* @__PURE__ */ new Set();
++	const visit = (ref) => {
++		if (!fileNameMatches(ref.name, name)) return;
++		const id = String(ref.attachmentId);
++		if (seen.has(id)) return;
++		seen.add(id);
++		matches.push(ref);
++	};
++	for (const event of events) fileInEventCollect(event, visit);
++	return matches;
++}
++/**
++* Collect every distinct image attachment whose display name or basename matches.
++* Assistant prose often cites uploaded screenshots by filename.
++*/
++function collectReferencedImagesByName(events, name) {
++	const matches = [];
++	const seen = /* @__PURE__ */ new Set();
++	const visit = (ref) => {
++		if (!fileNameMatches(ref.name, name)) return;
++		const id = String(ref.attachmentId);
++		if (seen.has(id)) return;
++		seen.add(id);
++		matches.push(ref);
++	};
++	for (const event of events) imageInEventCollect(event, visit);
++	return matches;
++}
++function fileBlockInCollect(content, visit) {
++	if (!Array.isArray(content)) return;
++	for (const value of content) {
++		if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
++		const block = value;
++		if (block.type === "file" && typeof block.attachment === "object" && block.attachment !== null) visit(block.attachment);
++		if (block.type === "tool-result") fileBlockInCollect(block.content, visit);
++	}
++}
++function imageBlockInCollect(content, visit) {
++	if (!Array.isArray(content)) return;
++	for (const value of content) {
++		if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
++		const block = value;
++		if (block.type === "image" && typeof block.attachment === "object" && block.attachment !== null) visit(block.attachment);
++		if (block.type === "tool-result") imageBlockInCollect(block.content, visit);
++	}
++}
++function fileInEventCollect(event, visit) {
++	const data = event.data;
++	fileBlockInCollect(data.content, visit);
++	fileBlockInCollect(data.message?.content, visit);
++	for (const inserted of data.inserted ?? []) fileBlockInCollect(inserted.content, visit);
++	if (event.type === "assistant/message" || event.type === "assistant/attempt") for (const chunk of assistantStreamChunks(event.data.stream, "block-end")) fileBlockInCollect([chunk.block], visit);
++}
++function imageInEventCollect(event, visit) {
++	const data = event.data;
++	imageBlockInCollect(data.content, visit);
++	imageBlockInCollect(data.message?.content, visit);
++	for (const inserted of data.inserted ?? []) imageBlockInCollect(inserted.content, visit);
++	if (event.type === "assistant/message" || event.type === "assistant/attempt") for (const chunk of assistantStreamChunks(event.data.stream, "block-end")) imageBlockInCollect([chunk.block], visit);
++}
+ //#endregion
+ //#region lib/types/control.js
+ /** Live Session projection state with reconnect baselines. */
+@@ -2487,6 +2677,171 @@ const SessionMediaReferences = {
+ 		}), "session-controller: /api/file");
+ 	}
+ };
++const FILE_HOST_PATH = "/api/session/fileHostPath";
++function fileHostPathResult(ok, payload) {
++	return new Response(JSON.stringify(ok ? { ok: true, value: payload } : { ok: false, error: payload }), {
++		status: 200,
++		headers: {
++			"content-type": "application/json; charset=utf-8",
++			"cache-control": "no-store"
++		}
++	});
++}
++async function resolveAuthorizedFileRef(ctx, sessionId, attachmentId) {
++	const live = ctx.agents.get(sessionId);
++	if (live !== void 0) {
++		const staged = ctx.fileUploads.findStagedFile(live, attachmentId);
++		if (staged !== void 0) return staged;
++	}
++	let events;
++	const attached = ctx.sessions.get(sessionId);
++	if (attached !== void 0) events = attached.snapshotEvents();
++	else {
++		try {
++			events = (await inspectApiSession(ctx, sessionId)).events;
++		} catch (error) {
++			if (error instanceof ApiSessionNotFound) throw new RemoteError("session/not-found", error.message, { sessionId });
++			if (error instanceof SessionQueryError && error.code === "SESSION_QUERY_SESSION_NOT_FOUND") throw new RemoteError("session/not-found", `session "${sessionId}" not found`, { sessionId });
++			throw new RemoteError("gateway/internal", `attachment authorization unavailable for session "${sessionId}": ${String(error)}`, {});
++		}
++	}
++	const ref = referencedFile(events, attachmentId);
++	if (ref === void 0) throw new RemoteError("session/attachment-invalid", "File is not referenced by this session.", { reason: "ATTACHMENT_NOT_REFERENCED" });
++	return ref;
++}
++async function resolveAuthorizedFileRefByName(ctx, sessionId, name) {
++	const matches = [];
++	const seen = /* @__PURE__ */ new Set();
++	const add = (kind, ref) => {
++		const id = String(ref.attachmentId);
++		if (seen.has(id)) return;
++		seen.add(id);
++		matches.push({ kind, ref });
++	};
++	let events;
++	const attached = ctx.sessions.get(sessionId);
++	if (attached !== void 0) events = attached.snapshotEvents();
++	else {
++		try {
++			events = (await inspectApiSession(ctx, sessionId)).events;
++		} catch (error) {
++			if (error instanceof ApiSessionNotFound) throw new RemoteError("session/not-found", error.message, { sessionId });
++			if (error instanceof SessionQueryError && error.code === "SESSION_QUERY_SESSION_NOT_FOUND") throw new RemoteError("session/not-found", `session "${sessionId}" not found`, { sessionId });
++			throw new RemoteError("gateway/internal", `attachment authorization unavailable for session "${sessionId}": ${String(error)}`, {});
++		}
++	}
++	for (const ref of collectReferencedFilesByName(events, name)) add("file", ref);
++	for (const ref of collectReferencedImagesByName(events, name)) add("image", ref);
++	if (matches.length === 0) throw new RemoteError("session/attachment-invalid", "File is not referenced by this session.", { reason: "ATTACHMENT_NOT_REFERENCED" });
++	if (matches.length > 1) throw new RemoteError("session/attachment-invalid", "Multiple uploaded files share this name.", { reason: "ATTACHMENT_NAME_AMBIGUOUS" });
++	return matches[0];
++}
++function attachmentHostPath(ctx, match, fallbackName) {
++	if (match.kind === "image") {
++		const host = ctx.attachments.imageHostPath(match.ref);
++		if (host === void 0) return;
++		return ensureImagePreviewPath(host, match.ref, fallbackName);
++	}
++	return ctx.attachments.fileHostPath(match.ref);
++}
++/**
++* Document preview picks an image body from the path suffix. Attachment objects
++* are extensionless digests, so mint a same-inode alias that ends in `.png` etc.
++*/
++async function ensureImagePreviewPath(hostPath, ref, fallbackName) {
++	const ext = imagePreviewExtension(ref, fallbackName);
++	if (ext === "" || hostPath.toLowerCase().endsWith(ext)) return hostPath;
++	const aliased = `${hostPath}${ext}`;
++	try {
++		await link(hostPath, aliased);
++	} catch (error) {
++		if (error && typeof error === "object" && "code" in error && error.code === "EEXIST") return aliased;
++		console.warn("session-controller: image preview alias failed:", error);
++		return hostPath;
++	}
++	return aliased;
++}
++function imagePreviewExtension(ref, fallbackName) {
++	for (const candidate of [ref.name, fallbackName]) {
++		const leaf = basenameLeaf(String(candidate ?? ""));
++		const dot = leaf.lastIndexOf(".");
++		if (dot > 0 && dot < leaf.length - 1) {
++			const ext = leaf.slice(dot).toLowerCase();
++			if (/^\.[a-z0-9]{1,8}$/.test(ext)) return ext;
++		}
++	}
++	switch (String(ref.mediaType ?? "")) {
++		case "image/jpeg": return ".jpg";
++		case "image/png": return ".png";
++		case "image/gif": return ".gif";
++		case "image/webp": return ".webp";
++		case "image/bmp": return ".bmp";
++		case "image/svg+xml": return ".svg";
++		case "image/x-icon": return ".ico";
++		default: return ".png";
++	}
++}
++async function handleFileHostPath(ctx, request) {
++	if (request.method !== "GET") return new Response(null, {
++		status: 405,
++		headers: { allow: "GET" }
++	});
++	const url = new URL(request.url);
++	const sessionId = url.searchParams.get("sessionId");
++	const attachmentId = url.searchParams.get("attachmentId");
++	const name = url.searchParams.get("name");
++	if (sessionId === null || sessionId === "") return new Response("sessionId is required", { status: 400 });
++	const hasAttachmentId = attachmentId !== null && attachmentId !== "";
++	const hasName = name !== null && name !== "";
++	if (!hasAttachmentId && !hasName) return new Response("attachmentId or name is required", { status: 400 });
++	try {
++		let path;
++		let ref;
++		if (hasAttachmentId) {
++			ref = await resolveAuthorizedFileRef(ctx, brandString(sessionId), attachmentId);
++			path = ctx.attachments.fileHostPath(ref);
++		} else {
++			const match = await resolveAuthorizedFileRefByName(ctx, brandString(sessionId), name);
++			ref = match.ref;
++			path = await attachmentHostPath(ctx, match, name);
++		}
++		if (path === void 0) throw new RemoteError("session/attachment-invalid", "File host path is unavailable.", { reason: "FILE_HOST_PATH_UNAVAILABLE" });
++		return fileHostPathResult(true, {
++			path,
++			name: typeof ref.name === "string" && ref.name !== "" ? ref.name : name ?? String(ref.attachmentId),
++			bytes: typeof ref.bytes === "number" ? ref.bytes : 0
++		});
++	} catch (error) {
++		const failure = remoteErrorOf(error);
++		return fileHostPathResult(false, failure !== void 0 ? {
++			code: failure.code,
++			message: failure.message,
++			details: failure.details
++		} : {
++			code: "gateway/internal",
++			message: error instanceof Error ? error.message : String(error),
++			details: {}
++		});
++	}
++}
++const SessionFileHostPath = {
++	inject: [
++		"connection",
++		"attachments",
++		"fileUploads",
++		"agents",
++		"sessions",
++		"sessionQuery"
++	],
++	apply(ctx) {
++		ctx.effect(() => ctx.connection.fetch.register({
++			path: FILE_HOST_PATH,
++			methods: ["GET"],
++			requestBody: "buffered",
++			fetch: (request) => handleFileHostPath(ctx, request)
++		}), "session-controller: /api/session/fileHostPath");
++	}
++};
+ //#endregion
+ //#region lib/types/archived-session-gate.js
+ /**
+@@ -2661,6 +3016,7 @@ let SessionController = (() => {
+ 	let _openWorkspacePath_decorators;
+ 	let _workspacePathApplications_decorators;
+ 	let _rename_decorators;
++	let _delete_decorators;
+ 	let _fork_decorators;
+ 	let _prompt_decorators;
+ 	let _attachment_decorators;
+@@ -2683,6 +3039,7 @@ let SessionController = (() => {
+ 			_openWorkspacePath_decorators = [Remote("openWorkspacePath")];
+ 			_workspacePathApplications_decorators = [Remote("workspacePathApplications")];
+ 			_rename_decorators = [Remote("rename")];
++			_delete_decorators = [Remote("delete")];
+ 			_fork_decorators = [Remote("fork")];
+ 			_prompt_decorators = [Remote("prompt")];
+ 			_attachment_decorators = [Remote("attachment")];
+@@ -2808,6 +3165,17 @@ let SessionController = (() => {
+ 				},
+ 				metadata: _metadata
+ 			}, null, _instanceExtraInitializers);
++			__esDecorate(this, null, _delete_decorators, {
++				kind: "method",
++				name: "delete",
++				static: false,
++				private: false,
++				access: {
++					has: (obj) => "delete" in obj,
++					get: (obj) => obj.delete
++				},
++				metadata: _metadata
++			}, null, _instanceExtraInitializers);
+ 			__esDecorate(this, null, _fork_decorators, {
+ 				kind: "method",
+ 				name: "fork",
+@@ -2975,10 +3343,12 @@ let SessionController = (() => {
+ 			this.canOpenPath = internals.canOpenPath ?? (() => config.nativeOpen ?? (internals.openPath !== void 0 || canOpenNativePath()));
+ 			ctx.plugin(SessionFileReferences);
+ 			ctx.plugin(SessionMediaReferences);
++			ctx.plugin(SessionFileHostPath);
+ 			ctx.plugin(SessionSkillCatalog);
+ 			ctx.plugin(ArchivedSessionGate);
+ 			ctx.on("session/created", (session) => {
+-				ctx.emit("api-session/added", this.listState.summaryFor(session));
++				const { projections: _projections, ...remoteSummary } = this.listState.summaryFor(session);
++				ctx.emit("api-session/added", remoteSummary);
+ 			});
+ 			ctx.on("session/disposed", (session) => {
+ 				ctx.emit("api-session/removed", session.id);
+@@ -3196,6 +3566,10 @@ let SessionController = (() => {
+ 		rename(request) {
+ 			return this.commands.rename(request);
+ 		}
++		/** Permanently delete one ordinary Session while retaining Workspace files. */
++		delete(request) {
++			return this.commands.delete(request);
++		}
+ 		/**
+ 		* Fork one cold-readable exact event prefix into a new Session. An omitted
+ 		* boundary selects the latest completed-turn prefix; an open cut receives
+diff --git a/lib/typert.host.js b/lib/typert.host.js
+--- a/lib/typert.host.js
++++ b/lib/typert.host.js
+@@ -236,6 +236,14 @@ const _deepseek_ai_dsh_api_session_controller_session_create_result$schema = ()
+   'sessionId': z.string().readonly().describe('The created or reused Session, which may differ from the requested `sessionId`.'),
+   'agentPreset': z.string().readonly().optional().describe('Preset the Session runs, when the deployment composes a preset roster.'),
+ }))
++let _deepseek_ai_dsh_api_session_controller_session_delete_parameter_0$schema$value
++const _deepseek_ai_dsh_api_session_controller_session_delete_parameter_0$schema = () => (_deepseek_ai_dsh_api_session_controller_session_delete_parameter_0$schema$value ??= z.object({
++  'sessionId': z.string().readonly(),
++}))
++let _deepseek_ai_dsh_api_session_controller_session_delete_result$schema$value
++const _deepseek_ai_dsh_api_session_controller_session_delete_result$schema = () => (_deepseek_ai_dsh_api_session_controller_session_delete_result$schema$value ??= z.object({
++  'deleted': z.literal(true).readonly(),
++}))
+ let _deepseek_ai_dsh_api_session_controller_session_follow_parameter_0$schema$value
+ const _deepseek_ai_dsh_api_session_controller_session_follow_parameter_0$schema = () => (_deepseek_ai_dsh_api_session_controller_session_follow_parameter_0$schema$value ??= z.object({
+   'address': z.union([z.object({
+@@ -1247,6 +1255,10 @@ const _deepseek_ai_dsh_api_session_controller_session_create_parameter_0_strict$
+   'sessionId': z.string().readonly().optional().describe('Blank Session to reuse while it is reusable, or the identity of a new Session when none is stored under it.'),
+   'agentPreset': z.string().readonly().optional().describe('Preset the Session runs, replacing a reused Session\'s recorded preset; the configured default when omitted.'),
+ }))
++let _deepseek_ai_dsh_api_session_controller_session_delete_parameter_0_strict$schema$value
++const _deepseek_ai_dsh_api_session_controller_session_delete_parameter_0_strict$schema = () => (_deepseek_ai_dsh_api_session_controller_session_delete_parameter_0_strict$schema$value ??= z.strictObject({
++  'sessionId': z.string().readonly(),
++}))
+ let _deepseek_ai_dsh_api_session_controller_session_follow_parameter_0_strict$schema$value
+ const _deepseek_ai_dsh_api_session_controller_session_follow_parameter_0_strict$schema = () => (_deepseek_ai_dsh_api_session_controller_session_follow_parameter_0_strict$schema$value ??= z.strictObject({
+   'address': z.union([z.strictObject({
+@@ -1519,6 +1531,38 @@ const $remote = createTypertRemoteInfo({
+       },
+       sourceLocation: {"file":"packages/api/session-controller/src/index.ts","line":599,"column":10},
+     },
++    'session/delete': {
++      service: 'sessionController',
++      description: 'Permanently delete one ordinary Session while retaining its Workspace files.',
++      invocation: { kind: 'direct' },
++      parameters: [
++        {
++          name: 'request',
++          description: 'Session to permanently delete.',
++          source: 'json',
++          codec: {
++            mode: 'strict',
++            typeSymbol: '@deepseek-ai/dsh-api-session-controller/types#SessionDeleteRequest',
++            create: _deepseek_ai_dsh_api_session_controller_session_delete_parameter_0$schema,
++            jsonSchema: {"type":"object","properties":{"sessionId":{"type":"string"}},"required":["sessionId"],"additionalProperties":true},
++          },
++          strictCodec: {
++            mode: 'strict',
++            typeSymbol: '@deepseek-ai/dsh-api-session-controller/types#SessionDeleteRequest',
++            create: _deepseek_ai_dsh_api_session_controller_session_delete_parameter_0_strict$schema,
++            jsonSchema: {"type":"object","properties":{"sessionId":{"type":"string"}},"required":["sessionId"],"additionalProperties":false},
++          },
++        },
++      ],
++      result: {
++        mode: 'strict',
++        typeSymbol: '@deepseek-ai/dsh-api-session-controller/types#SessionDeleteValue',
++        create: _deepseek_ai_dsh_api_session_controller_session_delete_result$schema,
++        description: 'acknowledgement that the Session was permanently deleted.',
++        jsonSchema: {"type":"object","properties":{"deleted":{"type":"boolean","const":true}},"required":["deleted"],"additionalProperties":true},
++      },
++      sourceLocation: {"file":"packages/api/session-controller/src/index.ts","line":312,"column":3},
++    },
+     'session/create': {
+       service: 'sessionController',
+       description: 'Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.',
+@@ -2117,6 +2161,13 @@ export const TYPERT = {
+             "summary": "Rename one Session after explicitly resuming it.",
+             "jsDoc": "/**\n * Rename one Session after explicitly resuming it.\n * @param request - Session identity and proposed title.\n * @returns the accepted title and durable event sequence.\n */"
+           },
++          {
++            "kind": "method",
++            "name": "delete",
++            "signature": "@Remote('delete') delete(request: SessionDeleteRequest): Promise<SessionDeleteValue>",
++            "summary": "Permanently delete one ordinary Session while retaining Workspace files.",
++            "jsDoc": "/** Permanently delete one ordinary Session while retaining Workspace files. */"
++          },
+           {
+             "kind": "method",
+             "name": "fork",
+@@ -2794,6 +2845,14 @@ export const TYPERT = {
+             "name": "SessionCreateValue",
+             "declaration": "export interface SessionCreateValue {\n    readonly sessionId: SessionId;\n    readonly agentPreset?: string;\n}"
+           },
++          {
++            "name": "SessionDeleteRequest",
++            "declaration": "export interface SessionDeleteRequest {\n    readonly sessionId: SessionId;\n}"
++          },
++          {
++            "name": "SessionDeleteValue",
++            "declaration": "export interface SessionDeleteValue {\n    readonly deleted: true;\n}"
++          },
+           {
+             "name": "SessionEvent",
+             "declaration": "export type SessionEvent<T extends SessionEventType = SessionEventType> = { [K in SessionEventType]: { type: K; seq: SessionSeq; time: number; data: SessionEventMap[K]; ignorable?: true; } & (K extends SurfaceEventType ? SurfaceIntent<K> : { surfaceOp?: never; sourceEventSeqs?: never; }) }[T];"
+diff --git a/lib/typert.remote-client.d.ts b/lib/typert.remote-client.d.ts
+--- a/lib/typert.remote-client.d.ts
++++ b/lib/typert.remote-client.d.ts
+@@ -5,7 +5,7 @@ import type {
+   TypertRemoteInfo,
+   TypertRemoteMethod,
+ } from '@deepseek-ai/dsh-typert-protocol'
+-import type { ModelCatalog, SessionAttachmentRequest, SessionAttachmentValue, SessionCancelRequest, SessionCancelValue, SessionControlFrame, SessionCreateRequest, SessionCreateValue, SessionFollowFrame, SessionFollowRequest, SessionForkRequest, SessionForkValue, SessionListRequest, SessionListValue, SessionOpenWorkspacePathRequest, SessionOpenWorkspacePathValue, SessionPage, SessionPageRequest, SessionProjectionsRequest, SessionProjectionsValue, SessionPromptRequest, SessionPromptValue, SessionRenameRequest, SessionRenameValue, SessionSearchRequest, SessionSearchValue, SessionSelectModelRequest, SessionSelectModelValue, SessionUpdateQueueRequest, SessionUpdateQueueValue, SessionWorkspacePathApplication, SkillListRequest, SkillListValue } from '@deepseek-ai/dsh-api-session-controller/types'
++import type { ModelCatalog, SessionAttachmentRequest, SessionAttachmentValue, SessionCancelRequest, SessionCancelValue, SessionControlFrame, SessionCreateRequest, SessionCreateValue, SessionFollowFrame, SessionDeleteRequest, SessionDeleteValue, SessionFollowRequest, SessionForkRequest, SessionForkValue, SessionListRequest, SessionListValue, SessionOpenWorkspacePathRequest, SessionOpenWorkspacePathValue, SessionPage, SessionPageRequest, SessionProjectionsRequest, SessionProjectionsValue, SessionPromptRequest, SessionPromptValue, SessionRenameRequest, SessionRenameValue, SessionSearchRequest, SessionSearchValue, SessionSelectModelRequest, SessionSelectModelValue, SessionUpdateQueueRequest, SessionUpdateQueueValue, SessionWorkspacePathApplication, SkillListRequest, SkillListValue } from '@deepseek-ai/dsh-api-session-controller/types'
+ import type { FileReferenceCandidate } from '@deepseek-ai/dsh-file-reference/types'
+ import type { SessionId } from '@deepseek-ai/dsh-session/types'
+ 
+@@ -19,6 +19,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
+     canOpenWorkspacePath: () => Promise<RemoteResult<boolean>>
+     control: (signal?: AbortSignal) => RemoteStreamHandle<SessionControlFrame, never>
+     create: (request: SessionCreateRequest) => Promise<RemoteResult<SessionCreateValue>>
++    delete: (request: SessionDeleteRequest) => Promise<RemoteResult<SessionDeleteValue>>
+     follow: (request: SessionFollowRequest, signal?: AbortSignal) => RemoteStreamHandle<SessionFollowFrame, never>
+     fork: (request: SessionForkRequest) => Promise<RemoteResult<SessionForkValue>>
+     initializeDefaultModel: () => Promise<RemoteResult<void>>
+@@ -44,6 +45,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
+     'session/canOpenWorkspacePath': () => Promise<RemoteResult<boolean>>
+     'session/control': (signal?: AbortSignal) => RemoteStreamHandle<SessionControlFrame, never>
+     'session/create': (request: SessionCreateRequest) => Promise<RemoteResult<SessionCreateValue>>
++    'session/delete': (request: SessionDeleteRequest) => Promise<RemoteResult<SessionDeleteValue>>
+     'session/follow': (request: SessionFollowRequest, signal?: AbortSignal) => RemoteStreamHandle<SessionFollowFrame, never>
+     'session/fork': (request: SessionForkRequest) => Promise<RemoteResult<SessionForkValue>>
+     'session/initializeDefaultModel': () => Promise<RemoteResult<void>>
+diff --git a/lib/typert.remote-client.js b/lib/typert.remote-client.js
+--- a/lib/typert.remote-client.js
++++ b/lib/typert.remote-client.js
+@@ -236,6 +236,14 @@ const _deepseek_ai_dsh_api_session_controller_session_create_result$schema = ()
+   'sessionId': z.string().readonly().describe('The created or reused Session, which may differ from the requested `sessionId`.'),
+   'agentPreset': z.string().readonly().optional().describe('Preset the Session runs, when the deployment composes a preset roster.'),
+ }))
++let _deepseek_ai_dsh_api_session_controller_session_delete_parameter_0$schema$value
++const _deepseek_ai_dsh_api_session_controller_session_delete_parameter_0$schema = () => (_deepseek_ai_dsh_api_session_controller_session_delete_parameter_0$schema$value ??= z.object({
++  'sessionId': z.string().readonly(),
++}))
++let _deepseek_ai_dsh_api_session_controller_session_delete_result$schema$value
++const _deepseek_ai_dsh_api_session_controller_session_delete_result$schema = () => (_deepseek_ai_dsh_api_session_controller_session_delete_result$schema$value ??= z.object({
++  'deleted': z.literal(true).readonly(),
++}))
+ let _deepseek_ai_dsh_api_session_controller_session_follow_parameter_0$schema$value
+ const _deepseek_ai_dsh_api_session_controller_session_follow_parameter_0$schema = () => (_deepseek_ai_dsh_api_session_controller_session_follow_parameter_0$schema$value ??= z.object({
+   'address': z.union([z.object({
+@@ -1247,6 +1255,10 @@ const _deepseek_ai_dsh_api_session_controller_session_create_parameter_0_strict$
+   'sessionId': z.string().readonly().optional().describe('Blank Session to reuse while it is reusable, or the identity of a new Session when none is stored under it.'),
+   'agentPreset': z.string().readonly().optional().describe('Preset the Session runs, replacing a reused Session\'s recorded preset; the configured default when omitted.'),
+ }))
++let _deepseek_ai_dsh_api_session_controller_session_delete_parameter_0_strict$schema$value
++const _deepseek_ai_dsh_api_session_controller_session_delete_parameter_0_strict$schema = () => (_deepseek_ai_dsh_api_session_controller_session_delete_parameter_0_strict$schema$value ??= z.strictObject({
++  'sessionId': z.string().readonly(),
++}))
+ let _deepseek_ai_dsh_api_session_controller_session_follow_parameter_0_strict$schema$value
+ const _deepseek_ai_dsh_api_session_controller_session_follow_parameter_0_strict$schema = () => (_deepseek_ai_dsh_api_session_controller_session_follow_parameter_0_strict$schema$value ??= z.strictObject({
+   'address': z.union([z.strictObject({
+@@ -1519,6 +1531,38 @@ export const TYPERT_REMOTE = createTypertRemoteInfo({
+       },
+       sourceLocation: {"file":"packages/api/session-controller/src/index.ts","line":599,"column":10},
+     },
++    'session/delete': {
++      service: 'sessionController',
++      description: 'Permanently delete one ordinary Session while retaining its Workspace files.',
++      invocation: { kind: 'direct' },
++      parameters: [
++        {
++          name: 'request',
++          description: 'Session to permanently delete.',
++          source: 'json',
++          codec: {
++            mode: 'strict',
++            typeSymbol: '@deepseek-ai/dsh-api-session-controller/types#SessionDeleteRequest',
++            create: _deepseek_ai_dsh_api_session_controller_session_delete_parameter_0$schema,
++            jsonSchema: {"type":"object","properties":{"sessionId":{"type":"string"}},"required":["sessionId"],"additionalProperties":true},
++          },
++          strictCodec: {
++            mode: 'strict',
++            typeSymbol: '@deepseek-ai/dsh-api-session-controller/types#SessionDeleteRequest',
++            create: _deepseek_ai_dsh_api_session_controller_session_delete_parameter_0_strict$schema,
++            jsonSchema: {"type":"object","properties":{"sessionId":{"type":"string"}},"required":["sessionId"],"additionalProperties":false},
++          },
++        },
++      ],
++      result: {
++        mode: 'strict',
++        typeSymbol: '@deepseek-ai/dsh-api-session-controller/types#SessionDeleteValue',
++        create: _deepseek_ai_dsh_api_session_controller_session_delete_result$schema,
++        description: 'acknowledgement that the Session was permanently deleted.',
++        jsonSchema: {"type":"object","properties":{"deleted":{"type":"boolean","const":true}},"required":["deleted"],"additionalProperties":true},
++      },
++      sourceLocation: {"file":"packages/api/session-controller/src/index.ts","line":312,"column":3},
++    },
+     'session/create': {
+       service: 'sessionController',
+       description: 'Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.',
+diff --git a/lib/types/agent.d.ts b/lib/types/agent.d.ts
+--- a/lib/types/agent.d.ts
++++ b/lib/types/agent.d.ts
+@@ -1,6 +1,6 @@
+ /** Agent activation, composition, and model-selection policy owned by API Session. */
+ import type { Context } from '@deepseek-ai/cordis';
+-import type { Agent, AgentSetup, ModelSelection as AgentModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent';
++import type { Agent, AgentHandle, AgentSetup, ModelSelection as AgentModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent';
+ import type { Session, SessionId } from '@deepseek-ai/dsh-session';
+ import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence';
+ import { type SessionObservation } from '@deepseek-ai/dsh-session-query';
+@@ -93,6 +93,7 @@ export declare class ApiSessionAgentController {
+     private readonly ctx;
+     private readonly resumes;
+     private readonly claims;
++    private readonly handles;
+     private readonly selections;
+     private readonly imageAdmissionChains;
+     /** @param ctx - Host context carrying Agent, model, persistence, and Typert services. */
+@@ -109,6 +110,10 @@ export declare class ApiSessionAgentController {
+      * @returns the live Agent or a stable Session-domain failure.
+      */
+     resolveObservedAgent(observation: SessionObservation): Promise<ApiSessionAgentResult>;
++    /** Retain the teardown capability for an Agent created outside the normal create path. */
++    retainHandle(handle: AgentHandle): Agent;
++    /** Dispose an ordinary Agent owned by this controller, waiting for in-flight activation first. */
++    disposeOwned(sessionId: SessionId): Promise<boolean>;
+     private resolve;
+     /**
+      * Create a Session for a new conversation, reusing the named blank Session
+diff --git a/lib/types/agent.js b/lib/types/agent.js
+--- a/lib/types/agent.js
++++ b/lib/types/agent.js
+@@ -166,11 +166,13 @@ export class ApiSessionAgentController {
+     ctx;
+     resumes = new Map();
+     claims = new Map();
++    handles = new Map();
+     selections = new WeakMap();
+     imageAdmissionChains = new WeakMap();
+     /** @param ctx - Host context carrying Agent, model, persistence, and Typert services. */
+     constructor(ctx) {
+         this.ctx = ctx;
++        ctx.on('session/disposed', (session) => { this.handles.delete(session.id); });
+         ctx.typert.lookups.configure('agent', async (sessionId) => {
+             const found = await this.resolveAgent(sessionId);
+             if ('error' in found)
+@@ -206,6 +208,23 @@ export class ApiSessionAgentController {
+     async resolveObservedAgent(observation) {
+         return this.resolve(observation.header.id, observation);
+     }
++    /** Retain the teardown capability for an Agent created outside the normal create path. */
++    retainHandle(handle) {
++        this.handles.set(handle.agent.id, handle);
++        return handle.agent;
++    }
++    /** Dispose an ordinary Agent owned by this controller, waiting for in-flight activation first. */
++    async disposeOwned(sessionId) {
++        const pending = [this.resumes.get(sessionId), this.claims.get(sessionId)]
++            .filter((operation) => operation !== undefined);
++        await Promise.allSettled(pending);
++        const handle = this.handles.get(sessionId);
++        if (handle === undefined)
++            return false;
++        await handle.dispose();
++        this.handles.delete(sessionId);
++        return true;
++    }
+     async resolve(sessionId, observation) {
+         const live = this.liveAgent(sessionId);
+         if (live !== undefined)
+@@ -428,11 +447,11 @@ export class ApiSessionAgentController {
+         if (published !== undefined && hasApiSessionSubagentOwner(this.ctx, published, live)) {
+             throw new ApiSessionSubagentOwnership(sessionId);
+         }
+-        return (await this.ctx.agents.resume({
++        return this.retainHandle(await this.ctx.agents.resume({
+             resumeSessionId: sessionId,
+             agentOptions: this.agentOptions(),
+             setup: composition.setup,
+-        })).agent;
++        }));
+     }
+     async inOrder(sessionId, operation) {
+         const result = (this.claims.get(sessionId) ?? Promise.resolve()).then(operation);
+@@ -495,11 +514,11 @@ export class ApiSessionAgentController {
+             return this.createMinted(request.cwd, composition);
+         this.assertPresetApplicable(sessionId, request.agentPreset);
+         try {
+-            return (await this.ctx.agents.resume({
++            return this.retainHandle(await this.ctx.agents.resume({
+                 resumeSessionId: sessionId,
+                 agentOptions: this.agentOptions(),
+                 setup: this.reuseSetup(composition),
+-            })).agent;
++            }));
+         }
+         catch (error) {
+             if (error instanceof ApiSessionStartedSinceObserved)
+@@ -569,7 +588,7 @@ export class ApiSessionAgentController {
+         catch (error) {
+             throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error });
+         }
+-        return (await this.ctx.agents.create({
++        return this.retainHandle(await this.ctx.agents.create({
+             sessionId,
+             agentOptions: this.agentOptions(),
+             meta: {
+@@ -577,7 +596,7 @@ export class ApiSessionAgentController {
+                 ...(composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset }),
+             },
+             setup: composition.setup,
+-        })).agent;
++        }));
+     }
+     agentOptions() {
+         const { provider, model } = this.ctx.agentDefaultModel.currentSelection();
+diff --git a/lib/types/client/contract/sessions.d.ts b/lib/types/client/contract/sessions.d.ts
+--- a/lib/types/client/contract/sessions.d.ts
++++ b/lib/types/client/contract/sessions.d.ts
+@@ -85,6 +85,8 @@ export interface ISessions {
+         sessionId?: SessionId;
+         agentPreset?: string;
+     }): Promise<SessionId>;
++    /** Permanently delete one ordinary Session while retaining Workspace files. */
++    delete(sessionId: SessionId): Promise<void>;
+     /**
+      * Resolve an already discovered direct-parent address without opening it.
+      * @param id - possible addressed child id.
+diff --git a/lib/types/client/sessions/manager.d.ts b/lib/types/client/sessions/manager.d.ts
+--- a/lib/types/client/sessions/manager.d.ts
++++ b/lib/types/client/sessions/manager.d.ts
+@@ -166,6 +166,10 @@ export declare class SessionManager {
+     }): Promise<RemoteResult<{
+         sessionId: SessionId;
+     }>>;
++    /** Contract session.delete; remove the row immediately after Host commit. */
++    delete(sessionId: SessionId): Promise<RemoteResult<{
++        deleted: true;
++    }>>;
+     /**
+      * Contract session.fork; on success merge the child into summaries
+      * immediately (same synchronous-addressability guarantee as create).
+diff --git a/lib/types/client/sessions/manager.js b/lib/types/client/sessions/manager.js
+--- a/lib/types/client/sessions/manager.js
++++ b/lib/types/client/sessions/manager.js
+@@ -471,6 +471,13 @@ export class SessionManager {
+         }
+         return result;
+     }
++    /** Contract session.delete; remove the row immediately after Host commit. */
++    async delete(sessionId) {
++        const result = await this.remote.session.delete({ sessionId });
++        if (result.ok)
++            this.recordMutation({ kind: 'remove', sessionId });
++        return result;
++    }
+     /**
+      * Contract session.fork; on success merge the child into summaries
+      * immediately (same synchronous-addressability guarantee as create).
+diff --git a/lib/types/client/sessions/service.d.ts b/lib/types/client/sessions/service.d.ts
+--- a/lib/types/client/sessions/service.d.ts
++++ b/lib/types/client/sessions/service.d.ts
+@@ -75,6 +75,13 @@ export declare class SessionForkError extends Error {
+      */
+     constructor(rpcError: RemoteFailure, sourceSessionId: SessionId);
+ }
++/** Structured permanent Session-deletion failure. */
++export declare class SessionDeleteError extends Error {
++    readonly rpcError: RemoteFailure;
++    readonly sessionId: SessionId;
++    readonly name = "SessionDeleteError";
++    constructor(rpcError: RemoteFailure, sessionId: SessionId);
++}
+ /** Identity-stable logical binding for one materialized Client Session. */
+ export interface SessionBinding {
+     readonly sessionId: SessionId;
+@@ -185,6 +192,8 @@ export declare class ClientSessions implements ISessions {
+         sessionId?: SessionId;
+         agentPreset?: string;
+     }): Promise<SessionId>;
++    /** Permanently delete one ordinary Session; uiWorkspace owns clearing the selection. */
++    delete(sessionId: SessionId): Promise<void>;
+     /**
+      * Fork a session from an exact inclusive prefix of the source (same
+      * synchronous-addressability guarantee as {@link ClientSessions.create}:
+diff --git a/lib/types/client/sessions/service.js b/lib/types/client/sessions/service.js
+--- a/lib/types/client/sessions/service.js
++++ b/lib/types/client/sessions/service.js
+@@ -34,6 +34,17 @@ export class SessionForkError extends Error {
+         this.sourceSessionId = sourceSessionId;
+     }
+ }
++/** Structured permanent Session-deletion failure. */
++export class SessionDeleteError extends Error {
++    rpcError;
++    sessionId;
++    name = 'SessionDeleteError';
++    constructor(rpcError, sessionId) {
++        super(`session delete failed: ${rpcError.code}: ${rpcError.message}`);
++        this.rpcError = rpcError;
++        this.sessionId = sessionId;
++    }
++}
+ // Scope primitives live in ../scope.ts (the client mirror of host
+ // dsh-scope, keyed by Agent identity); re-exported here so existing
+ // consumers keep their import site.
+@@ -323,6 +334,16 @@ export class ClientSessions {
+         this.projectList();
+         return result.value.sessionId;
+     }
++    /**
++     * Permanently delete one ordinary Session. Selection belongs to
++     * uiWorkspace, which releases its main view after this resolves.
++     */
++    async delete(sessionId) {
++        const result = await this.manager.delete(sessionId);
++        if (!result.ok)
++            throw new SessionDeleteError(result.error, sessionId);
++        this.projectList();
++    }
+     /**
+      * Fork a session from an exact inclusive prefix of the source (same
+      * synchronous-addressability guarantee as {@link ClientSessions.create}:
+diff --git a/lib/types/commands.d.ts b/lib/types/commands.d.ts
+--- a/lib/types/commands.d.ts
++++ b/lib/types/commands.d.ts
+@@ -2,7 +2,7 @@
+ import type { Context } from '@deepseek-ai/cordis';
+ import type { MessageSource } from '@deepseek-ai/dsh-llm';
+ import { ApiSessionAgentController } from './agent.ts';
+-import type { SessionAttachmentRequest, SessionAttachmentValue, SessionCancelRequest, SessionCancelValue, SessionCreateRequest, SessionCreateValue, SessionForkRequest, SessionForkValue, SessionPromptRequest, SessionPromptValue, SessionRenameRequest, SessionRenameValue, SessionSelectModelRequest, SessionSelectModelValue, SessionUpdateQueueRequest, SessionUpdateQueueValue } from './types.ts';
++import type { SessionAttachmentRequest, SessionAttachmentValue, SessionCancelRequest, SessionCancelValue, SessionCreateRequest, SessionCreateValue, SessionDeleteRequest, SessionDeleteValue, SessionForkRequest, SessionForkValue, SessionPromptRequest, SessionPromptValue, SessionRenameRequest, SessionRenameValue, SessionSelectModelRequest, SessionSelectModelValue, SessionUpdateQueueRequest, SessionUpdateQueueValue } from './types.ts';
+ type PromptContentCandidate = SessionPromptRequest['content'][number] | Extract<SessionUpdateQueueRequest['action'], {
+     readonly kind: 'edit';
+ }>['content'][number];
+@@ -42,6 +42,8 @@ export declare class SessionCommandController {
+      * @returns the accepted title and durable event sequence.
+      */
+     rename(request: SessionRenameRequest): Promise<SessionRenameValue>;
++    /** Permanently delete one ordinary Session while retaining its Workspace files. */
++    delete(request: SessionDeleteRequest): Promise<SessionDeleteValue>;
+     /**
+      * Create a new ordinary Session from an exact event prefix. An explicit
+      * `atSeq` is the inclusive cut; an omitted value selects the latest
+diff --git a/lib/types/commands.js b/lib/types/commands.js
+--- a/lib/types/commands.js
++++ b/lib/types/commands.js
+@@ -206,6 +206,47 @@ export class SessionCommandController {
+             throw new RemoteError('gateway/internal', `failed to rename session "${request.sessionId}": ${String(error)}`, {});
+         }
+     }
++    /** Permanently delete one ordinary Session while retaining its Workspace files. */
++    async delete(request) {
++        let state;
++        try {
++            state = await this.readSessionState(request.sessionId);
++        }
++        catch (error) {
++            if (error instanceof ApiSessionNotFound) {
++                throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId });
++            }
++            throw new RemoteError('gateway/internal', `failed to inspect session "${request.sessionId}" before deletion: ${String(error)}`, {});
++        }
++        const live = this.ctx.agents.get(request.sessionId);
++        if (hasApiSessionSubagentOwner(this.ctx, { header: state.header }, live)) {
++            throw apiSessionSubagentOwnershipError(request.sessionId);
++        }
++        const persistence = this.ctx.get('sessionPersistence');
++        if (persistence === undefined) {
++            throw new RemoteError('gateway/internal', 'session deletion is unavailable: this deployment mounts no session-persistence service', {});
++        }
++        const hadLiveSession = this.ctx.sessions.get(request.sessionId) !== undefined;
++        try {
++            await this.agents.disposeOwned(request.sessionId);
++            if (this.ctx.agents.get(request.sessionId) !== undefined
++                || this.ctx.sessions.get(request.sessionId) !== undefined) {
++                throw new RemoteError('session/agent-busy', `session "${request.sessionId}" is still active`, { reason: 'the live Agent is owned by another capability' });
++            }
++            if (!(await persistence.delete(request.sessionId))) {
++                throw new RemoteError('session/not-found', `session "${request.sessionId}" not found`, { sessionId: request.sessionId });
++            }
++            await this.ctx.workspaceRegistry.forgetSession(request.sessionId);
++            if (!hadLiveSession)
++                this.ctx.emit('api-session/removed', request.sessionId);
++            return { deleted: true };
++        }
++        catch (error) {
++            if (remoteErrorOf(error) !== undefined)
++                throw error;
++            throw new RemoteError('gateway/internal', `failed to delete session "${request.sessionId}": ${String(error)}`, {});
++        }
++    }
+     /**
+      * Create a new ordinary Session from an exact event prefix. An explicit
+      * `atSeq` is the inclusive cut; an omitted value selects the latest
+@@ -255,7 +296,7 @@ export class SessionCommandController {
+             const composition = await this.agents.composeAgent(this.agents.presetForObservation(source));
+             try {
+                 const { provider, model } = this.ctx.agentDefaultModel.currentSelection();
+-                await this.ctx.agents.create({
++                const handle = await this.ctx.agents.create({
+                     sessionId: childId,
+                     seed,
+                     inheritedEventCount: SessionLogOffset(boundary + 1),
+@@ -270,6 +311,7 @@ export class SessionCommandController {
+                     agentOptions: { provider, model },
+                     setup: composition.setup,
+                 });
++                this.agents.retainHandle(handle);
+             }
+             catch (error) {
+                 throw new RemoteError('gateway/internal', `failed to fork session "${request.sessionId}": ${String(error)}`, {});
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -7,7 +7,7 @@ import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence';
+ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
+ import { type ApiSessionAgentResult } from './agent.ts';
+ import { buildModelCatalog } from './catalog.ts';
+-import type { ModelCatalog, SessionWorkspacePathApplication, SessionAttachmentRequest, SessionAttachmentValue, SessionCancelRequest, SessionCancelValue, SessionControlFrame, SessionCreateRequest, SessionCreateValue, SessionFollowFrame, SessionFollowRequest, SessionForkRequest, SessionForkValue, SessionListRequest, SessionListValue, SessionOpenWorkspacePathRequest, SessionOpenWorkspacePathValue, SessionPage, SessionPageRequest, SessionPromptRequest, SessionPromptValue, SessionRenameRequest, SessionRenameValue, SessionSearchRequest, SessionSearchValue, SessionSelectModelRequest, SessionSelectModelValue, SessionProjectionsRequest, SessionProjectionsValue, SessionUpdateQueueRequest, SessionUpdateQueueValue } from './types.ts';
++import type { ModelCatalog, SessionWorkspacePathApplication, SessionAttachmentRequest, SessionAttachmentValue, SessionCancelRequest, SessionCancelValue, SessionControlFrame, SessionCreateRequest, SessionCreateValue, SessionFollowFrame, SessionDeleteRequest, SessionDeleteValue, SessionFollowRequest, SessionForkRequest, SessionForkValue, SessionListRequest, SessionListValue, SessionOpenWorkspacePathRequest, SessionOpenWorkspacePathValue, SessionPage, SessionPageRequest, SessionPromptRequest, SessionPromptValue, SessionRenameRequest, SessionRenameValue, SessionSearchRequest, SessionSearchValue, SessionSelectModelRequest, SessionSelectModelValue, SessionProjectionsRequest, SessionProjectionsValue, SessionUpdateQueueRequest, SessionUpdateQueueValue } from './types.ts';
+ export type * from './types.ts';
+ export { ApiSessionNotFound } from './agent.ts';
+ export { SessionFileReferences } from './file-references.ts';
+@@ -154,6 +154,8 @@ export declare class SessionController extends TypertRemoteService {
+      * @returns the accepted title and durable event sequence.
+      */
+     rename(request: SessionRenameRequest): Promise<SessionRenameValue>;
++    /** Permanently delete one ordinary Session while retaining Workspace files. */
++    delete(request: SessionDeleteRequest): Promise<SessionDeleteValue>;
+     /**
+      * Fork one cold-readable exact event prefix into a new Session. An omitted
+      * boundary selects the latest completed-turn prefix; an open cut receives
+diff --git a/lib/types/index.js b/lib/types/index.js
+--- a/lib/types/index.js
++++ b/lib/types/index.js
+@@ -131,6 +131,7 @@ let SessionController = (() => {
+     let _openWorkspacePath_decorators;
+     let _workspacePathApplications_decorators;
+     let _rename_decorators;
++    let _delete_decorators;
+     let _fork_decorators;
+     let _prompt_decorators;
+     let _attachment_decorators;
+@@ -153,6 +154,7 @@ let SessionController = (() => {
+             _openWorkspacePath_decorators = [Remote('openWorkspacePath')];
+             _workspacePathApplications_decorators = [Remote('workspacePathApplications')];
+             _rename_decorators = [Remote('rename')];
++            _delete_decorators = [Remote('delete')];
+             _fork_decorators = [Remote('fork')];
+             _prompt_decorators = [Remote('prompt')];
+             _attachment_decorators = [Remote('attachment')];
+@@ -172,6 +174,7 @@ let SessionController = (() => {
+             __esDecorate(this, null, _openWorkspacePath_decorators, { kind: "method", name: "openWorkspacePath", static: false, private: false, access: { has: obj => "openWorkspacePath" in obj, get: obj => obj.openWorkspacePath }, metadata: _metadata }, null, _instanceExtraInitializers);
+             __esDecorate(this, null, _workspacePathApplications_decorators, { kind: "method", name: "workspacePathApplications", static: false, private: false, access: { has: obj => "workspacePathApplications" in obj, get: obj => obj.workspacePathApplications }, metadata: _metadata }, null, _instanceExtraInitializers);
+             __esDecorate(this, null, _rename_decorators, { kind: "method", name: "rename", static: false, private: false, access: { has: obj => "rename" in obj, get: obj => obj.rename }, metadata: _metadata }, null, _instanceExtraInitializers);
++            __esDecorate(this, null, _delete_decorators, { kind: "method", name: "delete", static: false, private: false, access: { has: obj => "delete" in obj, get: obj => obj.delete }, metadata: _metadata }, null, _instanceExtraInitializers);
+             __esDecorate(this, null, _fork_decorators, { kind: "method", name: "fork", static: false, private: false, access: { has: obj => "fork" in obj, get: obj => obj.fork }, metadata: _metadata }, null, _instanceExtraInitializers);
+             __esDecorate(this, null, _prompt_decorators, { kind: "method", name: "prompt", static: false, private: false, access: { has: obj => "prompt" in obj, get: obj => obj.prompt }, metadata: _metadata }, null, _instanceExtraInitializers);
+             __esDecorate(this, null, _attachment_decorators, { kind: "method", name: "attachment", static: false, private: false, access: { has: obj => "attachment" in obj, get: obj => obj.attachment }, metadata: _metadata }, null, _instanceExtraInitializers);
+@@ -252,7 +255,8 @@ let SessionController = (() => {
+             // answer the Workspace registry's archive-admission events.
+             ctx.plugin(ArchivedSessionGate);
+             ctx.on('session/created', (session) => {
+-                ctx.emit('api-session/added', this.listState.summaryFor(session));
++                const { projections: _projections, ...remoteSummary } = this.listState.summaryFor(session);
++                ctx.emit('api-session/added', remoteSummary);
+             });
+             ctx.on('session/disposed', (session) => {
+                 ctx.emit('api-session/removed', session.id);
+@@ -476,6 +480,10 @@ let SessionController = (() => {
+         rename(request) {
+             return this.commands.rename(request);
+         }
++        /** Permanently delete one ordinary Session while retaining Workspace files. */
++        delete(request) {
++            return this.commands.delete(request);
++        }
+         /**
+          * Fork one cold-readable exact event prefix into a new Session. An omitted
+          * boundary selects the latest completed-turn prefix; an open cut receives
+diff --git a/lib/types/types.d.ts b/lib/types/types.d.ts
+--- a/lib/types/types.d.ts
++++ b/lib/types/types.d.ts
+@@ -316,6 +316,14 @@ export interface SessionRenameValue {
+     readonly title: string;
+     readonly seq: number;
+ }
++/** Session permanent-deletion request. */
++export interface SessionDeleteRequest {
++    readonly sessionId: SessionId;
++}
++/** Session permanent-deletion response. */
++export interface SessionDeleteValue {
++    readonly deleted: true;
++}
+ /** Session fork request. */
+ export interface SessionForkRequest {
+     readonly sessionId: SessionId;

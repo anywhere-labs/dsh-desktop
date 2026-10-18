@@ -20,6 +20,8 @@ import { fileURLToPath } from 'node:url'
 const TINTIN_WORKSPACE_GLOBS = [
   'dsh-tintin-bundle',
   'dsh-tintin-media-bundle',
+  'dsh-tintin-creation-bundle',
+  'dsh-tintin-ops-bundle',
   'dsh-tintin-browser',
   'dsh-plugin-desktop-tintin',
 ]

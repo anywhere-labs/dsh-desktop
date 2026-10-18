@@ -1,0 +1,23 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -229,6 +229,19 @@ let FileUploads = (() => {
+ 			return this.stagedFiles.get(agent.session)?.get(receiptId)?.file;
+ 		}
+ 		/**
++		* Find one staged durable file by attachment id inside the Agent scope.
++		* @param agent - receiving Agent.
++		* @param attachmentId - content-addressed file identity.
++		* @returns durable file reference, or `undefined` when nothing staged matches.
++		*/
++		findStagedFile(agent, attachmentId) {
++			this.assertAgentScope(agent);
++			const staged = this.stagedFiles.get(agent.session);
++			if (staged === void 0) return;
++			const id = String(attachmentId);
++			for (const upload of staged.values()) if (String(upload.file.attachmentId) === id) return upload.file;
++		}
++		/**
+ 		* Bind receipts while one prompt enters an Agent inbox.
+ 		* Disposal restores every prior binding unless the caller commits successful delivery.
+ 		* @param agent - receiving Agent.

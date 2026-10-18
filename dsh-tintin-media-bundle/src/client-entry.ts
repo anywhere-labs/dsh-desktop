@@ -14,16 +14,10 @@
 // Built artifact; source of truth is src/. Rebuild: npm run tintin:media.
 import { createApp, type App as VueApp } from 'vue'
 import App from './App.vue'
-// 运营工具视图（2026-09-25 用户裁决：产品资料卡随图像抠图一并移植，提前于
-// P3 tintin-ops-bundle；chrome 占位网格在本 provider 注册后被接管，P3 落地
-// 时把注册权迁往 ops-bundle 即可——注册表同名 'ops' 覆盖语义不变）
-import OpsApp from './OpsApp.vue'
-// 技能管理视图（2026-10-16 用户裁决：侧栏新增页——列服务端技能库，逐技能
-// 安装/删除；安装=写入创作模式技能表，创作模式 /技能名 即可调用）
-import SkillManager from './components/SkillManager.vue'
-// 创作模式（2026-10-16 用户裁决：独立视图，侧栏置于「运营工具」之上，不再
-// 占用媒体工具网格卡位；视图与媒体包同 bundle，服务端对接待需求对齐后实施）
-import CreationStudio from './components/media-tools/CreationStudio.vue'
+// 运营工具已拆出为独立插件 dsh-tintin-ops-bundle（2026-10-17 用户裁决）——
+// 'ops' 视图注册随迁，本包不再持有。
+// 技能管理与创作模式已拆出为独立插件 dsh-tintin-creation-bundle（2026-10-17
+// 用户裁决）——'skills'/'creation' 视图注册随迁，本包不再持有。
 // 会话上下文条（WP-5b，2026-09-25）：conversation.input.left slot 内的
 // Vue 应用——产品/素材/脚本选择写入工作区 task.json（不改 dsh 底层的注入面）
 import ContextBar from './components/workbench/ContextBar.vue'
@@ -70,11 +64,6 @@ window.__ModuleLoader__!.load({
   // 副本（双 React 实例会炸 hooks；宿主 installer 把 react 列为 HOST_SINGLETON）。
   factory: (require?: (id: string) => unknown) => {
     let app: VueApp | null = null
-    let opsApp: VueApp | null = null
-    // 创作模式独立视图（同 KeepAlive 语义：mount 一次，切走隐藏不销毁）
-    let creationApp: VueApp | null = null
-    // 技能管理独立视图（同 KeepAlive 语义）
-    let skillsApp: VueApp | null = null
 
     // 视图生命周期挂接（2026-09-24 Tab 状态机裁决）：chrome 为每个视图持有
     // 常驻子元素，mount 每视图仅调一次、切走只隐藏不销毁（KeepAlive 语义）——
@@ -91,41 +80,6 @@ window.__ModuleLoader__!.load({
       },
     })
 
-    window.__tintinViews?.register('ops', {
-      mount(el: HTMLElement) {
-        if (opsApp) return
-        opsApp = createApp(OpsApp)
-        opsApp.mount(el)
-      },
-      unmount() {
-        opsApp?.unmount()
-        opsApp = null
-      },
-    })
-
-    window.__tintinViews?.register('creation', {
-      mount(el: HTMLElement) {
-        if (creationApp) return
-        creationApp = createApp(CreationStudio)
-        creationApp.mount(el)
-      },
-      unmount() {
-        creationApp?.unmount()
-        creationApp = null
-      },
-    })
-
-    window.__tintinViews?.register('skills', {
-      mount(el: HTMLElement) {
-        if (skillsApp) return
-        skillsApp = createApp(SkillManager)
-        skillsApp.mount(el)
-      },
-      unmount() {
-        skillsApp?.unmount()
-        skillsApp = null
-      },
-    })
 
     const module = { exports: {} as Record<string, unknown> }
     const exports = module.exports

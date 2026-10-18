@@ -179,7 +179,7 @@ function runFlatProfileDshEntry() {
     symlinkSync(dshHomePathsPackage, linkedDshHomePathsPackage, process.platform === 'win32' ? 'junction' : 'dir')
     symlinkSync(dshPackage, linkedDshPackage, process.platform === 'win32' ? 'junction' : 'dir')
     symlinkSync(semverPackage, linkedSemverPackage, process.platform === 'win32' ? 'junction' : 'dir')
-    // dsh 0.2.0-rc.2 only manages the reserved Desktop Profile after Desktop
+    // dsh 0.2.1-rc.2 only manages the reserved Desktop Profile after Desktop
     // has initialized it, so give the smoke a private, initialized home.
     const home = join(root, 'home')
     const profile = join(home, 'profiles', 'desktop')

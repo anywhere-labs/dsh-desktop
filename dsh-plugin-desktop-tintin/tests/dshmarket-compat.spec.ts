@@ -86,12 +86,12 @@ function writeProfileManifest(profileDir: string, manifest: object): void {
   writeFileSync(join(profileDir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
-function installMarketFixture(profileDir: string, options: { validPatch: boolean }): void {
+function installMarketFixture(profileDir: string, options: { validPatch: boolean; version?: string }): void {
   const packageDir = join(profileDir, 'node_modules', 'dshmarket')
   mkdirSync(join(packageDir, 'lib'), { recursive: true })
   writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
     name: 'dshmarket',
-    version: '9999.0.0',
+    version: options.version ?? '9999.0.0',
     main: './lib/index.js',
     dsh: { bundle: { patch: './cordis.patch.yml' } },
   }))
@@ -295,7 +295,7 @@ describe('dsh-market Desktop install compatibility', () => {
     await runtime.dispose()
   })
 
-  it.each([undefined, '9999.0.0'])('does not reject a host-provided market update for a pre-existing missing bundle (compatVersion=%s)', async (compatVersion) => {
+  it.each([undefined, '9999.0.0'])('rejects a host-provided market update when the Profile has no dshmarket dependency (compatVersion=%s)', async (compatVersion) => {
     registryFetch.mockImplementation(async () => new Response(
       JSON.stringify({ version: '9999.0.0' }),
       { status: 200, headers: { 'content-type': 'application/json' } },
@@ -331,25 +331,20 @@ describe('dsh-market Desktop install compatibility', () => {
     const result = await invokeUpdate(route, compatVersion)
     dispose()
 
-    expect(result.status).toBe(200)
-    expect(result.body).toMatchObject({ ok: true })
-    expect(runPlugin).toHaveBeenCalledOnce()
-    expect(runPlugin.mock.calls[0]?.[1]).toContain('dshmarket@9999.0.0')
-    expect(JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))).toMatchObject({
-      dependencies: { dshmarket: '^9999.0.0' },
-      dsh: { profile: { bundles: ['orphan', 'dshmarket'] } },
-    })
+    expect(result).toMatchObject({ status: 400, body: { error: 'plugin is not installed' } })
+    expect(runPlugin).not.toHaveBeenCalled()
   })
 
   it('uses the bundled market version to skip an already installed compatible release', async () => {
     const profileDir = mkdtempSync(join(tmpdir(), 'dshmarket-compat-current-'))
     temporaryProfiles.push(profileDir)
-    writeProfileManifest(profileDir, { name: 'dsh-profile-desktop', private: true, dependencies: {} })
     const require = createRequire(import.meta.url)
     const version = (require('dshmarket/package.json') as { version: string }).version
+    writeProfileManifest(profileDir, { name: 'dsh-profile-desktop', private: true, dependencies: { dshmarket: version } })
     const runPlugin = vi.fn(async (): Promise<RouteRuntimeResult> => ({
       exitCode: 0, timedOut: false, cancelled: false, stdout: '', stderr: '',
     }))
+    installMarketFixture(profileDir, { validPatch: true, version })
     const { route, dispose } = await mountUpdateRoute(profileDir, {
       runPlugin,
       probePnpm: async () => true,
@@ -367,10 +362,12 @@ describe('dsh-market Desktop install compatibility', () => {
   it('uses the bundled market version to reject a compatible release that would downgrade it', async () => {
     const profileDir = mkdtempSync(join(tmpdir(), 'dshmarket-compat-downgrade-'))
     temporaryProfiles.push(profileDir)
-    writeProfileManifest(profileDir, { name: 'dsh-profile-desktop', private: true, dependencies: {} })
+    const installed = (createRequire(import.meta.url)('dshmarket/package.json') as { version: string }).version
+    writeProfileManifest(profileDir, { name: 'dsh-profile-desktop', private: true, dependencies: { dshmarket: installed } })
     const runPlugin = vi.fn(async (): Promise<RouteRuntimeResult> => ({
       exitCode: 0, timedOut: false, cancelled: false, stdout: '', stderr: '',
     }))
+    installMarketFixture(profileDir, { validPatch: true, version: installed })
     const { route, dispose } = await mountUpdateRoute(profileDir, {
       runPlugin,
       probePnpm: async () => true,
@@ -384,7 +381,7 @@ describe('dsh-market Desktop install compatibility', () => {
     expect(result.status).toBe(400)
     expect(result.body.error).toContain('would be a downgrade')
     expect(runPlugin).not.toHaveBeenCalled()
-    expect(JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8')).dependencies).toEqual({})
+    expect(JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8')).dependencies).toEqual({ dshmarket: installed })
   })
 
   it('does not treat an unrelated missing plugin as a bundled market update', async () => {
@@ -419,7 +416,7 @@ describe('dsh-market Desktop install compatibility', () => {
     const initialManifest = {
       name: 'dsh-profile-desktop',
       private: true,
-      dependencies: { existing: '1.0.0' },
+      dependencies: { existing: '1.0.0', dshmarket: '9998.0.0' },
       dsh: { profile: { bundles: [] as string[] } },
     }
     writeProfileManifest(profileDir, initialManifest)
@@ -430,10 +427,15 @@ describe('dsh-market Desktop install compatibility', () => {
           dependencies: { ...initialManifest.dependencies, dshmarket: '^9999.0.0' },
           dsh: { profile: { bundles: ['dshmarket'] } },
         })
-        installMarketFixture(profileDir, { validPatch: false })
+        installMarketFixture(profileDir, { validPatch: true })
+        writeFileSync(join(profileDir, 'node_modules', 'dshmarket', 'cordis.patch.yml'), '{{{ not a patch list')
+      }
+      if (args[0] === 'add' && args.includes('--force')) {
+        installMarketFixture(profileDir, { validPatch: true, version: '9998.0.0' })
       }
       return { exitCode: 0, timedOut: false, cancelled: false, stdout: '', stderr: '' }
     })
+    installMarketFixture(profileDir, { validPatch: true, version: '9998.0.0' })
     const { route, dispose } = await mountUpdateRoute(profileDir, {
       runPlugin,
       probePnpm: async () => true,
@@ -446,9 +448,9 @@ describe('dsh-market Desktop install compatibility', () => {
 
     expect(result.status).toBe(502)
     expect(result.body).toMatchObject({ ok: false })
-    expect(String(result.body.error)).toContain('declared patch ./cordis.patch.yml is missing')
+    expect(String(result.body.error)).toContain('patch file is not a valid entry list')
     expect(runPlugin).toHaveBeenCalledTimes(2)
-    expect(runPlugin.mock.calls[1]?.[1]).toEqual(['add', '--force', '--config.minimum-release-age=0', `dshmarket@${JSON.parse(readFileSync(createRequire(import.meta.url).resolve('dshmarket/package.json'), 'utf8')).version}`])
+    expect(runPlugin.mock.calls[1]?.[1]).toEqual(['add', '--force', '--config.minimum-release-age=0', 'dshmarket@9998.0.0'])
     expect(JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))).toEqual(initialManifest)
   })
 })

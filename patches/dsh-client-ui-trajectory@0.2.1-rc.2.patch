@@ -1,0 +1,30 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -190,6 +190,8 @@ window.__ModuleLoader__.load({
+ 			"details.error": "错误",
+ 			"details.lastAttemptError": "上次尝试错误",
+ 			"details.failure.auth": "API 密钥无效",
++			"details.failure.quota": "账户额度或余额不足，请充值或检查服务商的用量限制。",
++			"details.failure.forbidden": "模型服务商拒绝了本次请求，请检查账号权限、地区限制或模型开通情况。",
+ 			"details.retry": "重试",
+ 			"details.retryDelay": "重试延迟",
+ 			"details.result": "结果",
+@@ -385,6 +387,8 @@ window.__ModuleLoader__.load({
+ 			"details.error": "Error",
+ 			"details.lastAttemptError": "Last attempt error",
+ 			"details.failure.auth": "API key is invalid",
++			"details.failure.quota": "Your account has insufficient quota or balance. Add credits or check your provider's usage limits.",
++			"details.failure.forbidden": "The model provider denied this request. Check your account permissions, region, or model access.",
+ 			"details.retry": "Retry",
+ 			"details.retryDelay": "Retry delay",
+ 			"details.result": "Result",
+@@ -3865,6 +3869,8 @@ window.__ModuleLoader__.load({
+ 		}
+ 		function requestErrorMessage(request, t) {
+ 			if (request.errorCode === "AUTH") return t("details.failure.auth");
++			if (request.errorCode === "QUOTA") return t("details.failure.quota");
++			if (request.errorCode === "FORBIDDEN") return t("details.failure.forbidden");
+ 			if (request.error === "trajectory.compaction-interrupted") return t("layout.compactionInterrupted");
+ 			return request.error;
+ 		}

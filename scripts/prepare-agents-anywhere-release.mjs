@@ -89,9 +89,9 @@ function patchManifest(packagePath, peerRanges, releaseVersion = desktopVersion)
   const buildVersion = dev['@deepseek-ai/dsh-session']
   if (!/^\d+\.\d+\.\d+-[\w.-]+$/u.test(buildVersion ?? '')) throw new Error('AA source must declare an exact DSH build version')
   const schemaVersion = dev['@deepseek-ai/schemastery']
-  const cosmokitForSchema = { '3.18.2': '1.8.3', '3.18.4': '1.8.5' }
+  const cosmokitForSchema = { '3.18.2': '1.8.3', '3.18.4': '1.8.5', '3.18.5': '1.8.6' }
   const cosmokitVersion = cosmokitForSchema[schemaVersion]
-  if (!cosmokitVersion) throw new Error(`Unsupported AA build schemastery version: ${String(schemaVersion)}`)
+  if (!cosmokitVersion) throw new Error(`Unsupported AA build schemastery version: ${String(schemaVersion)}; read the cosmokit range that schemastery ${String(schemaVersion)} declares on npm and add it to cosmokitForSchema`)
   const buildPackages = new Set([
     ...Object.keys(dev).filter(name => name.startsWith('@deepseek-ai/dsh-')),
     ...transitiveBuildPackages.map(name => `@deepseek-ai/${name}`),

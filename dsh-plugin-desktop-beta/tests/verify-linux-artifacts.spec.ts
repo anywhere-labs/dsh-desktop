@@ -85,7 +85,7 @@ describe('Linux artifact verification', () => {
       .toThrow('does not have an ELF header')
   })
 
-  it('rejects an AppImage that lost its executable bit', () => {
+  it.skipIf(process.platform === 'win32')('rejects an AppImage that lost its executable bit', () => {
     const value = fixture()
     chmodSync(value.appImage, 0o644)
 

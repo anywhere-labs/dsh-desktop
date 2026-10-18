@@ -39,6 +39,9 @@ describe('community market launcher', () => {
       useSessionRetainInfo: (() => undefined) as MarketLauncherProps['useSessionRetainInfo'],
       useWorkspaces: (() => undefined) as MarketLauncherProps['useWorkspaces'],
       usePanelInfo: (select => select({ activePanelId: null })) as MarketLauncherProps['usePanelInfo'],
+      useSessionAccess: (() => true) as unknown as MarketLauncherProps['useSessionAccess'],
+      useWorkspaceAccess: (() => true) as unknown as MarketLauncherProps['useWorkspaceAccess'],
+      useRemoteAccess: (() => true) as unknown as MarketLauncherProps['useRemoteAccess'],
     } satisfies MarketLauncherProps
 
     const { rerender } = render(<MarketLauncher {...props} />)

@@ -18,6 +18,7 @@ import { rgPath } from '@vscode/ripgrep'
 import AdmZip from 'adm-zip'
 import { exportDiagnosticsZip } from './diagnostic-export.ts'
 import { installProfilePackageResolver } from './module-resolution.ts'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 
 const OK_MARKER = 'DSH_PACKAGED_RUNTIME_OK'
 
@@ -72,7 +73,7 @@ assert(/^ripgrep\s/u.test(rgVersion), `received an invalid ripgrep version: ${JS
 if (process.platform === 'win32') {
   const sessionBackend = await import('@deepseek-ai/dsh-session-persistence-jsonl')
   assert(
-    typeof sessionBackend.default === 'function',
+    typeof sessionBackend.apply === 'function',
     'could not import the Windows JSONL session backend without fs-ext',
   )
 } else {
@@ -84,7 +85,7 @@ if (process.platform === 'win32') {
 async function smokeSessionMigration(): Promise<void> {
   const { Context } = await import('@deepseek-ai/cordis')
   const { SessionId } = await import('@deepseek-ai/dsh-session')
-  const { default: JsonlSessionPersistence } = await import('@deepseek-ai/dsh-session-persistence-jsonl')
+  const { apply: jsonlPersistence } = await import('@deepseek-ai/dsh-session-persistence-jsonl')
   const root = await createSmokeTempDir('session-migration')
   const id = SessionId('packaged-migration')
   const directory = join(root, '_no-cwd', id)
@@ -96,7 +97,7 @@ async function smokeSessionMigration(): Promise<void> {
   try {
     mkdirSync(directory, { recursive: true })
     writeFileSync(join(directory, 'session.v2.jsonl'), source)
-    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
+    await ctx.plugin(jsonlPersistence, { root, compression: 'none' })
     const handle = await ctx.sessionPersistence.open(id, 'write')
     try {
       assert(handle.header.version === 4 && handle.header.agentPreset === 'ptc', 'did not migrate the legacy preset through the upstream worker')

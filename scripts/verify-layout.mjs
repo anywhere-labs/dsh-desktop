@@ -21,6 +21,8 @@ const fabric = readJson('dsh-community-fabric/package.json')
 const market = readJson('dsh-community-market/package.json')
 const tintinBundle = readJson('dsh-tintin-bundle/package.json')
 const tintinMediaBundle = readJson('dsh-tintin-media-bundle/package.json')
+const tintinCreationBundle = readJson('dsh-tintin-creation-bundle/package.json')
+const tintinOpsBundle = readJson('dsh-tintin-ops-bundle/package.json')
 const tintinBrowser = readJson('dsh-tintin-browser/package.json')
 const tintinDesktop = readJson('dsh-plugin-desktop-tintin/package.json')
 const upstreamPackage = readJson('deepseek-harness/package.json')
@@ -28,6 +30,8 @@ const upstreamPackage = readJson('deepseek-harness/package.json')
 if (stablePlugin.name !== 'dsh-plugin-desktop') fail('the stable Desktop workspace must retain dsh-plugin-desktop')
 if (betaPlugin.name !== 'dsh-plugin-desktop-beta') fail('the Beta Desktop workspace must publish as dsh-plugin-desktop-beta')
 if (tintinDesktop.name !== 'dsh-plugin-desktop-tintin') fail('the TinTin Desktop workspace must publish as dsh-plugin-desktop-tintin')
+if (tintinCreationBundle.name !== 'dsh-tintin-creation-bundle') fail('the TinTin creation workspace must publish as dsh-tintin-creation-bundle')
+if (tintinOpsBundle.name !== 'dsh-tintin-ops-bundle') fail('the TinTin ops workspace must publish as dsh-tintin-ops-bundle')
 if (!['stable', 'beta'].includes(upstream.activeChannel)) fail('the pinned upstream checkout must follow a declared release channel')
 const activeUpstream = upstream.channels?.[upstream.activeChannel]
 if (activeUpstream === undefined) fail('the active upstream channel is missing')
@@ -43,6 +47,8 @@ if (JSON.stringify(workspace.workspaces) !== JSON.stringify([
   'dsh-community-market',
   'dsh-tintin-bundle',
   'dsh-tintin-media-bundle',
+  'dsh-tintin-creation-bundle',
+  'dsh-tintin-ops-bundle',
   'dsh-tintin-browser',
   'dsh-plugin-desktop-tintin',
 ])) {
@@ -57,6 +63,8 @@ for (const [name, manifest] of [
   ['dsh-community-market', market],
   ['dsh-tintin-bundle', tintinBundle],
   ['dsh-tintin-media-bundle', tintinMediaBundle],
+  ['dsh-tintin-creation-bundle', tintinCreationBundle],
+  ['dsh-tintin-ops-bundle', tintinOpsBundle],
   ['dsh-tintin-browser', tintinBrowser],
 ]) {
   if (manifest.packageManager !== undefined) fail(`${name} must inherit the root Yarn release`)
@@ -108,6 +116,8 @@ for (const [owner, manifest] of [
   ['market', market],
   ['tintin bundle', tintinBundle],
   ['tintin media bundle', tintinMediaBundle],
+  ['tintin creation bundle', tintinCreationBundle],
+  ['tintin ops bundle', tintinOpsBundle],
   ['tintin browser', tintinBrowser],
   ['tintin desktop', tintinDesktop],
 ]) {

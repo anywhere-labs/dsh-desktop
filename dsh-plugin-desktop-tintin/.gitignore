@@ -1,3 +1,4 @@
 dist/
 /lib/
 node_modules/
+dist-hot/

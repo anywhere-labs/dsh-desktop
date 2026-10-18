@@ -28,13 +28,14 @@ import { createFfmpegGateApi } from './lib/montage/ffmpeg-gate.js'
 import { createMontageVoiceApi } from './lib/montage/voice-ipc.js'
 import { preprocessTtsKeepingPause } from './lib/montage/voice-tts-logic.js'
 import { createMontageFinalApi } from './lib/montage/final-ipc.js'
-import { createRembgApi, createAudioArchiveApi, createVsrApi } from './lib/media-proxy.js'
+import { createRembgApi, createAudioArchiveApi, createVsrApi, createTtsUploadSampleApi } from './lib/media-proxy.js'
 import { loopbackCall, readLoopbackConfig, summarizeExtract } from './lib/loopback-helpers.js'
 import { createTintinAgentTools } from './lib/agent-tools.js'
 import { createContextTaskApi, defaultWorkspaceDir } from './lib/context-task.js'
 import { registerWorkspaceEnsureRoute } from './lib/workspace-ensure-route.js'
 import { createYtdlpApi } from './lib/ytdlp.js'
 import { loadPresetDefinitions } from './lib/preset-definitions.js'
+import { createOpenfilmChannels, createOpenfilmSync } from './lib/openfilm/plugin.js'
 
 const PING_PATH = '/tintin/ping'
 const PROBE_FILE_PATH = '/tintin/probe/file'
@@ -324,6 +325,12 @@ export async function apply(ctx, config) {
     readTintinStore: () => readTintinConfigStore(process.env.DSH_HOME),
     readAiConfig,
   })
+
+  // ── OpenFilm 服务端驱动接缝（2026-10-18 用户裁决：A 方案 + 侧栏独立窗口）──
+  // 同步随包技能与 `tintin` 自定义服务（实现见 lib/openfilm/plugin.js）；失败只
+  // 告警：OpenFilm 是附加能力，不得阻断会话与桥。
+  const syncOpenfilmAssets = createOpenfilmSync({ getServerUrl, logger: ctx.logger })
+  try { syncOpenfilmAssets() } catch (error) { ctx.logger.warn('tintin-bundle: openfilm sync skipped: %s', error?.message ?? error) }
   const getMachineId = () => resolveMachineIdSync()
   const httpRequest = createHttpRequest({
     getServerUrl,
@@ -450,24 +457,8 @@ export async function apply(ctx, config) {
       log: (...a) => ctx.logger.info('tintin-bundle:', ...a),
       warn: (...a) => ctx.logger.warn('tintin-bundle:', ...a),
     }),
-    // tts:uploadSample — multipart POST /voice/samples（file 音频 + name 必填 +
-    // text 可选）。载荷是渲染层的 {path} 包装（preload ttsUploadSample 契约），
-    // 本地读盘在这里完成；离线 → null、其余失败 → {error}（IpcError 形态）。
-    'tts:uploadSample': async (args) => {
-      const p = args?.[0] ?? {}
-      try {
-        const filePath = p.file?.path ?? (typeof p.file === 'string' ? p.file : '')
-        if (!filePath) throw new Error('tts:uploadSample requires `file`')
-        if (!p.name || !String(p.name).trim()) throw new Error('tts:uploadSample requires `name`')
-        return await multipartPost(API_ENDPOINTS.tts.voicesSamples, [
-          { name: 'file', path: filePath, contentType: audioMimeOf(filePath) },
-          { name: 'name', value: String(p.name).trim() },
-          ...(p.text ? [{ name: 'text', value: String(p.text) }] : []),
-        ])
-      } catch (err) {
-        return isExpectedOfflineError(err) ? null : { error: err?.message ?? String(err) }
-      }
-    },
+    ...createOpenfilmChannels({ sync: syncOpenfilmAssets }),
+    ...createTtsUploadSampleApi({ multipartPost, isExpectedOfflineError, audioMimeOf, samplesPath: API_ENDPOINTS.tts.voicesSamples }),
     // asr:transcribe — POST /whisper/transcribe（multipart: file 必填 +
     // language/fmt；契约无 {url} JSON 分支——url 时先 GET 取回字节再上传，
     // SRC 2026-09-06 422 修复口径）。p.format 兼容映射 fmt。

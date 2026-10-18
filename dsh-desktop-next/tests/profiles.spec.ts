@@ -393,9 +393,9 @@ function rc2Profile(patch: string) {
     patch: readFileSync(join(dir, 'cordis.patch.yml'), 'utf8') })
   return { manager, dir, file, read }
 }
-const SCHEDULE_BUNDLE = '@deepseek-ai/dsh-experimental-schedule-bundle'
+const RETIRED_SCHEDULE_BUNDLE = '@deepseek-ai/dsh-experimental-schedule-bundle'
 
-it('selects the Scheduled Tasks bundle once for rc.2 users who had it on and drops the stale row toggles', () => {
+it('retires the Scheduled Tasks bundle once for rc.2 users who had it on and drops the stale row toggles', () => {
   const { manager, dir, file, read } = rc2Profile([
     '# keep me',
     '- id: ui-sidebar-browser',
@@ -410,19 +410,17 @@ it('selects the Scheduled Tasks bundle once for rc.2 users who had it on and dro
   ].join('\n'))
   const profile = loadNextProfile(dir, manager.home)
   const after = read()
-  expect(after.bundles).toContain(SCHEDULE_BUNDLE)
+  expect(after.bundles).not.toContain(RETIRED_SCHEDULE_BUNDLE)
   expect(after.patch).toBe('# keep me\n- id: ui-sidebar-browser\n  disabled: true\n')
   expect(readdirSync(join(manager.home, 'recovery'))).toHaveLength(1)
+  // 0.2.1 mounts the three Schedule rows in every Web profile, so the retired
+  // bundle leaves no rows behind in the Next layer list.
   const rows = composeEntries([...profile.layers.map(layer => layer.patches), profile.patches])
-  for (const name of ['@deepseek-ai/dsh-time-context', '@deepseek-ai/dsh-schedule', '@deepseek-ai/dsh-client-ui-schedule']) {
-    const row = rows.find(item => item.name === name)
-    expect(row).toBeDefined()
-    expect(row?.disabled).toBeFalsy()
-  }
+  expect(rows.some(row => row.name === RETIRED_SCHEDULE_BUNDLE)).toBe(false)
 
-  // The bundle's own row switches write the same ids; a later deselection must stick.
+  // A later row toggle must survive: the retirement runs once and never re-adds the bundle.
   const manifest = JSON.parse(readFileSync(file, 'utf8'))
-  manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter((name: string) => name !== SCHEDULE_BUNDLE)
+  manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter((name: string) => name !== RETIRED_SCHEDULE_BUNDLE)
   writeFileSync(file, JSON.stringify(manifest))
   writeFileSync(join(dir, 'cordis.patch.yml'), '- id: schedule\n  disabled: false\n')
   const before = readFileSync(file, 'utf8')
@@ -431,15 +429,15 @@ it('selects the Scheduled Tasks bundle once for rc.2 users who had it on and dro
   expect(read().patch).toBe('- id: schedule\n  disabled: false\n')
 })
 
-it('keeps rows the rc.2 user left off disabled under the bundle', () => {
+it('keeps rows the rc.2 user left off disabled after the bundle retirement', () => {
   const { manager, read } = rc2Profile('- id: schedule\n  disabled: false\n- id: time-context\n  disabled: true\n')
   manager.ensure('desktop')
   const after = read()
-  expect(after.bundles).toContain(SCHEDULE_BUNDLE)
+  expect(after.bundles).not.toContain(RETIRED_SCHEDULE_BUNDLE)
   expect(after.patch).toBe('- id: time-context\n  disabled: true\n- id: ui-schedule\n  disabled: true\n')
 })
 
-it('clears stale toggles without selecting the bundle when rc.2 ended with Scheduled Tasks off', () => {
+it('clears stale toggles while retiring the bundle when rc.2 ended with Scheduled Tasks off', () => {
   const { manager, read } = rc2Profile([
     '- id: schedule',
     '  disabled: false',
@@ -455,9 +453,9 @@ it('clears stale toggles without selecting the bundle when rc.2 ended with Sched
   ].join('\n'))
   manager.ensure('desktop')
   const after = read()
-  expect(after.bundles).not.toContain(SCHEDULE_BUNDLE)
+  expect(after.bundles).not.toContain(RETIRED_SCHEDULE_BUNDLE)
   // Rows for another package and user configuration are not toggles; keep them.
-  expect(after.patch).toBe('- id: schedule\n  name: some-other-schedule\n  disabled: false\n- id: ui-schedule\n  config:\n    pageSize: 5\n')
+  expect(after.patch).toBe('- id: schedule\n  name: some-other-schedule\n  disabled: false\n- id: ui-schedule\n  config:\n    pageSize: 5\n- id: time-context\n  disabled: true\n- id: schedule\n  disabled: true\n- id: ui-schedule\n  disabled: true\n')
 })
 
 it('leaves a malformed patch for recovery and retries the Scheduled Tasks migration later', () => {
@@ -467,5 +465,6 @@ it('leaves a malformed patch for recovery and retries the Scheduled Tasks migrat
   expect(read().patch).toBe('- id: schedule\n  disabled: [\n')
   writeFileSync(join(dir, 'cordis.patch.yml'), '- id: schedule\n  disabled: false\n')
   manager.ensure('desktop')
-  expect(read().bundles).toContain(SCHEDULE_BUNDLE)
+  expect(read().bundles).not.toContain(RETIRED_SCHEDULE_BUNDLE)
+  expect(read().patch).toBe('- id: time-context\n  disabled: true\n- id: ui-schedule\n  disabled: true\n')
 })

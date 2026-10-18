@@ -1,0 +1,276 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -17328,7 +17328,7 @@ window.__ModuleLoader__.load({
+ 			const tag = document.createElement("style");
+ 			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-conversation";
+ 			tag.dataset.pluginCss = tagId$4;
+-			tag.textContent = css$4;
++			tag.textContent = css$4 + ".ZivEcq_heroWorkspaceRow [data-slot=conversation\\\\.hero\\\\.agentPreset]>span{width:max-content!important;min-width:0!important;max-width:240px;flex:none}.ZivEcq_heroModeCluster{width:max-content;max-width:100%;flex:none;align-items:center;gap:2px;display:flex}.ZivEcq_heroModeCluster button{box-sizing:border-box;height:28px;padding:0 8px!important;border:0!important;border-radius:8px!important;background:transparent!important;color:var(--dsw-alias-label-primary)!important;font:inherit;font-size:13px;font-weight:500;line-height:20px;gap:6px;cursor:pointer;transition:background-color .12s ease,color .12s ease,transform .12s ease}.ZivEcq_heroModeCluster button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)!important;color:var(--dsw-alias-label-primary)!important}.ZivEcq_heroModeCluster button[data-selected=true]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)!important;color:var(--dsw-alias-state-business-primary)!important}.ZivEcq_heroModeCluster button:active:not(:disabled){transform:scale(.98)}.ZivEcq_heroModeCluster button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.ZivEcq_heroWorkspaceRow{padding-right:20px;box-sizing:border-box}";
+ 			document.head.appendChild(tag);
+ 		}
+ 		var ConversationRoot_module_css_default = {
+@@ -17350,6 +17350,7 @@ window.__ModuleLoader__.load({
+ 			"headerLeading": "ZivEcq_headerLeading",
+ 			"headerSessionless": "ZivEcq_headerSessionless",
+ 			"headerUtilities": "ZivEcq_headerUtilities",
++			"heroModeCluster": "ZivEcq_heroModeCluster",
+ 			"heroOptions": "ZivEcq_heroOptions",
+ 			"heroWorkspaceRow": "ZivEcq_heroWorkspaceRow",
+ 			"root": "ZivEcq_root",
+@@ -17810,6 +17811,10 @@ window.__ModuleLoader__.load({
+ 						}
+ 					}),
+ 					renderSlot("conversation.hero.agentPreset", {}),
++					(0, react_jsx_runtime.jsx)("div", {
++						className: ConversationRoot_module_css_default.heroModeCluster,
++						children: renderSlot("conversation.hero.modeActions", zone ?? {})
++					}),
+ 					sessionId === void 0 ? null : (0, react_jsx_runtime.jsx)("div", {
+ 						className: ConversationRoot_module_css_default.heroOptions,
+ 						children: renderSlot("conversation.hero.options", {})
+@@ -17819,6 +17824,7 @@ window.__ModuleLoader__.load({
+ 			const inert = sessionId === void 0 || hero && chipTitle === void 0;
+ 			const inputBar = renderSlot("conversation.composer.bar", {
+ 				variant: hero ? "hero" : "composer",
++				extensionZone: zone,
+ 				...inert ? {
+ 					disabled: true,
+ 					placeholder: t("placeholder.workspace"),
+@@ -17840,7 +17846,8 @@ window.__ModuleLoader__.load({
+ 					}),
+ 					hero && heroWorkspaceRow,
+ 					zone !== void 0 && renderSlot("conversation.input.dock", zone),
+-					inputBar
++					inputBar,
++					sessionId === void 0 ? renderSlot("conversation.hero.dock", zone ?? {}) : null
+ 				]
+ 			});
+ 			const composer = renderSlotChain("conversation.composer", {
+@@ -17900,12 +17907,14 @@ window.__ModuleLoader__.load({
+ 			const blank = session === void 0 || conversation === void 0 || session.blank && conversationPhase(session, conversation) === "blank";
+ 			return (0, react_jsx_runtime.jsxs)("header", {
+ 				className: clsx(ConversationRoot_module_css_default.header, blank && ConversationRoot_module_css_default.headerBlank, sessionId === void 0 && ConversationRoot_module_css_default.headerSessionless),
++				"data-dsh-conversation-header": "",
++				"data-conversation-header": "",
+ 				"data-window-drag": true,
+ 				children: [(0, react_jsx_runtime.jsx)("div", {
+ 					className: ConversationRoot_module_css_default.headerLeading,
+ 					"data-conversation-header-leading": "",
+ 					children: renderSlot("conversation.header.leading", {})
+-				}), sessionId === void 0 ? (0, react_jsx_runtime.jsx)("div", { className: ConversationRoot_module_css_default.titleRow }) : renderSlot("conversation.session.header", { hideChrome: blank })]
++				}), sessionId === void 0 ? (0, react_jsx_runtime.jsx)("div", { className: ConversationRoot_module_css_default.titleRow, "data-conversation-title-row": "" }) : renderSlot("conversation.session.header", { hideChrome: blank })]
+ 			});
+ 		}
+ 		/**
+@@ -17991,6 +18000,7 @@ window.__ModuleLoader__.load({
+ 			const showTabs = !hideChrome && tabs.length > 1;
+ 			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsxs)("div", {
+ 				className: ConversationRoot_module_css_default.titleRow,
++				"data-conversation-title-row": "",
+ 				children: [!hideChrome && (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsxs)("div", {
+ 					className: ConversationRoot_module_css_default.titleCluster,
+ 					children: [(0, react_jsx_runtime.jsxs)("nav", {
+@@ -18706,7 +18716,7 @@ window.__ModuleLoader__.load({
+ 			const tag = document.createElement("style");
+ 			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-conversation";
+ 			tag.dataset.pluginCss = tagId$1;
+-			tag.textContent = css$1;
++			tag.textContent = css$1 + "._5Bdm6W_promptRow{width:100%;min-width:0;align-items:flex-start;display:flex}._5Bdm6W_promptRow>._5Bdm6W_accessory{flex:none;padding:4px 0 0 12px}._5Bdm6W_promptRow>._5Bdm6W_accessory:empty{display:none}._5Bdm6W_promptRow>._5Bdm6W_scroll{flex:1;min-width:0}";
+ 			document.head.appendChild(tag);
+ 		}
+ 		var InputBar_module_css_default = {
+@@ -18728,6 +18738,7 @@ window.__ModuleLoader__.load({
+ 			"pending": "_5Bdm6W_pending",
+ 			"placeholder": "_5Bdm6W_placeholder",
+ 			"primary": "_5Bdm6W_primary",
++			"promptRow": "_5Bdm6W_promptRow",
+ 			"retry": "_5Bdm6W_retry",
+ 			"root": "_5Bdm6W_root",
+ 			"row": "_5Bdm6W_row",
+@@ -18754,7 +18765,7 @@ window.__ModuleLoader__.load({
+ 		* The no-session state renders the SAME div inert as the Workspace-picker
+ 		* trigger instead of a parallel tree.
+ 		*/
+-		const InputBar = (0, react.memo)(function InputBar({ useSession, useInput, inputActions, keyboard, addFiles, removeAttachment, resolveDraftAttachments, retryFileUpload, toggleCommandMenu, stop, t, renderSlot, useBusyEnter, useFileUploads, useNotices, useLexicon, useMenuLauncher, useStopShortcut, useProjection, sessionId, variant, disabled: inert = false, blocked, workspacePickerOpen = false, onRequestWorkspace, placeholder, accessory }) {
++		const InputBar = (0, react.memo)(function InputBar({ useSession, useInput, inputActions, keyboard, addFiles, removeAttachment, resolveDraftAttachments, retryFileUpload, toggleCommandMenu, stop, t, renderSlot, useBusyEnter, useFileUploads, useNotices, useLexicon, useMenuLauncher, useStopShortcut, useProjection, sessionId, variant, disabled: inert = false, blocked, workspacePickerOpen = false, onRequestWorkspace, placeholder, accessory, extensionZone, openUploadedFile }) {
+ 			const input = useInput((s) => s);
+ 			const notice = useNotices((s) => s);
+ 			const busyEnter = useBusyEnter((s) => s);
+@@ -18999,10 +19010,6 @@ window.__ModuleLoader__.load({
+ 								"data-composer-overlay": true,
+ 								children: renderSlot("conversation.input.overlay", {})
+ 							}),
+-							accessory !== void 0 && (0, react_jsx_runtime.jsx)("div", {
+-								className: InputBar_module_css_default.accessory,
+-								children: accessory
+-							}),
+ 							renderSlot("conversation.input.attachments", {
+ 								attachments,
+ 								canAcceptDrop,
+@@ -19014,25 +19021,35 @@ window.__ModuleLoader__.load({
+ 								onRetryFile: (id) => {
+ 									retryFileUpload?.(id);
+ 								},
++								onOpenUploadedFile: openUploadedFile,
+ 								dropLimits: imageLimits === void 0 ? void 0 : {
+ 									count: imageLimits.maxImagesPerMessage,
+ 									size: imageSizeText(imageLimits.maxImageBytes)
+ 								}
+ 							}),
+-							(0, react_jsx_runtime.jsx)(DraftEditor, {
+-								classNames: InputBar_module_css_default,
+-								editor,
+-								scrollRef,
+-								editable,
+-								editorDisabled,
+-								phase: input?.phase ?? "inert",
+-								placeholderText,
+-								ariaLabel: workspaceTrigger ? t("hero.chooseWorkspace") : placeholderText,
+-								workspaceTrigger,
+-								workspacePickerOpen,
+-								onWorkspaceKeyDown,
+-								hint,
+-								showPlaceholder: draft === "" && attachments.length === 0 && !claimActive
++							(0, react_jsx_runtime.jsxs)("div", {
++								className: InputBar_module_css_default.promptRow,
++								children: [
++									(0, react_jsx_runtime.jsx)("div", {
++										className: InputBar_module_css_default.accessory,
++										children: accessory ?? (sessionId === void 0 ? null : renderSlot("conversation.input.accessory", extensionZone))
++									}),
++									(0, react_jsx_runtime.jsx)(DraftEditor, {
++										classNames: InputBar_module_css_default,
++										editor,
++										scrollRef,
++										editable,
++										editorDisabled,
++										phase: input?.phase ?? "inert",
++										placeholderText,
++										ariaLabel: workspaceTrigger ? t("hero.chooseWorkspace") : placeholderText,
++										workspaceTrigger,
++										workspacePickerOpen,
++										onWorkspaceKeyDown,
++										hint,
++										showPlaceholder: draft === "" && attachments.length === 0 && !claimActive
++									})
++								]
+ 							}),
+ 							(0, react_jsx_runtime.jsxs)("div", {
+ 								ref: rowRef,
+@@ -19161,7 +19178,7 @@ window.__ModuleLoader__.load({
+ 					(0, react_jsx_runtime.jsxs)("div", {
+ 						className: InputBar_module_css_default.dock,
+ 						"data-composer-dock": true,
+-						children: [variant === "composer" && input !== void 0 && sessionId !== void 0 ? renderSlot("conversation.composer.dock", {}) : null, activity ? null : (0, react_jsx_runtime.jsx)(ContextMeter, {
++						children: [input !== void 0 && sessionId !== void 0 ? renderSlot("conversation.composer.dock", extensionZone ?? {}) : null, activity ? null : (0, react_jsx_runtime.jsx)(ContextMeter, {
+ 							useProjection,
+ 							t
+ 						})]
+@@ -19766,6 +19783,14 @@ window.__ModuleLoader__.load({
+ 					"conversation.hero.options": {
+ 						kind: "list",
+ 						scope: "session"
++					},
++					"conversation.hero.modeActions": {
++						kind: "list",
++						scope: "session-maybe"
++					},
++					"conversation.hero.dock": {
++						kind: "list",
++						scope: "session-maybe"
+ 					}
+ 				},
+ 				slots: {
+@@ -19889,6 +19914,10 @@ window.__ModuleLoader__.load({
+ 						kind: "list",
+ 						scope: "session"
+ 					},
++					"conversation.input.accessory": {
++						kind: "list",
++						scope: "session"
++					},
+ 					"conversation.input.permission": {
+ 						kind: "single",
+ 						scope: "session"
+@@ -19925,6 +19954,7 @@ window.__ModuleLoader__.load({
+ 						removeAttachment: void 0,
+ 						resolveDraftAttachments: void 0,
+ 						retryFileUpload: void 0,
++						openUploadedFile: void 0,
+ 						toggleCommandMenu: void 0,
+ 						stop: void 0,
+ 						hooks: {
+@@ -19991,6 +20021,11 @@ window.__ModuleLoader__.load({
+ 						retryFileUpload: (id) => {
+ 							if (sessions.binding(sessionId) !== void 0) conversation.retryFileUpload(sessionId, id);
+ 						},
++						openUploadedFile: async (attachmentId) => {
++							const opener = ctx.get("openUploadedAttachment");
++							if (opener === void 0) throw new Error("ui-conversation: openUploadedAttachment is unavailable");
++							await opener.open(sessionId, attachmentId);
++						},
+ 						toggleCommandMenu: inputTriggers === void 0 ? void 0 : (selection) => {
+ 							shell.dismissPopup();
+ 							const snapshot = shell.snapshot;
+diff --git a/lib/types/client/contract/slots.d.ts b/lib/types/client/contract/slots.d.ts
+--- a/lib/types/client/contract/slots.d.ts
++++ b/lib/types/client/contract/slots.d.ts
+@@ -291,6 +291,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+             kind: 'list';
+             scope: 'session';
+         };
++        /** Product-mode controls beside the blank-session agent preset. */
++        'conversation.hero.modeActions': {
++            kind: 'list';
++            scope: 'session-maybe';
++            owner: InputZone;
++        };
++        /** Entries below the new-conversation input before a session exists. */
++        'conversation.hero.dock': {
++            kind: 'list';
++            scope: 'session-maybe';
++            owner: InputZone;
++        };
+         /** Full-width entries above the composer card. */
+         'conversation.input.dock': {
+             kind: 'list';
+@@ -302,10 +314,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+             kind: 'list';
+             scope: 'session';
+         };
++        /** Compact template and reference material rendered before the editable prompt. */
++        'conversation.input.accessory': {
++            kind: 'list';
++            scope: 'session';
++            owner: InputZone;
++        };
+         /** Ambient entries below the composer card. */
+         'conversation.composer.dock': {
+             kind: 'list';
+             scope: 'session';
++            owner: InputZone;
+         };
+         /** Compact controls at the left of the composer tool row. */
+         'conversation.input.left': {
+@@ -525,8 +544,10 @@ export interface ComposerBarOwnerProps {
+     /** Open the Workspace picker from the inert composer surface. */
+     onRequestWorkspace?: () => void;
+     placeholder?: string;
+-    /** Optional content rendered above the composer surface. */
++    /** Optional compact content rendered before the editable prompt. */
+     accessory?: ReactNode;
++    /** Point-in-time Session and input state supplied to Composer extension slots. */
++    extensionZone?: InputZone;
+ }
+ /** Package-private operations injected into the resident composer bar. */
+ export interface ComposerBarInjected {
+@@ -571,7 +592,7 @@ export interface InputActivityOwnerProps extends InputControlOwnerProps {
+     onActiveChange: (active: boolean) => void;
+ }
+ /** Full props of the resident composer bar. */
+-export type ComposerBarProps = PropsRuntime<'conversation.composer.bar'> & PropsRenderSlots<'conversation.input.attachments' | 'conversation.input.overlay' | 'conversation.input.permission' | 'conversation.input.left' | 'conversation.input.plan' | 'conversation.input.right' | 'conversation.input.model' | 'conversation.input.activity' | 'conversation.composer.dock'> & InjectFace<ComposerBarInjected> & PropsLocale<'conversation'>;
++export type ComposerBarProps = PropsRuntime<'conversation.composer.bar'> & PropsRenderSlots<'conversation.input.attachments' | 'conversation.input.overlay' | 'conversation.input.accessory' | 'conversation.input.permission' | 'conversation.input.left' | 'conversation.input.plan' | 'conversation.input.right' | 'conversation.input.model' | 'conversation.input.activity' | 'conversation.composer.dock'> & InjectFace<ComposerBarInjected> & PropsLocale<'conversation'>;
+ /** Owner values used to elect a composer takeover. */
+ export interface ComposerChainProps {
+     /** Current Session identity used by temporary business-owned entries. */

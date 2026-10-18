@@ -1,6 +1,7 @@
 /** Cordis Host plugin for scheduled and interactive DSH Desktop updates. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { boundWebServerPort } from './web-server-port.ts'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -50,7 +51,7 @@ export function apply(ctx: Context, config: Config): void {
       locale: () => ctx.desktopRuntime.locale,
       registerTrayItem: item => ctx.desktopRuntime.registerTrayItem(item),
     })
-    const rendererOrigin = `http://127.0.0.1:${String(ctx.webServer.port)}`
+    const rendererOrigin = `http://127.0.0.1:${String(boundWebServerPort(ctx.webServer))}`
     const unregister = ctx.webServer.register({
       kind: 'exact',
       path: DESKTOP_UPDATE_CHECK_PATH,

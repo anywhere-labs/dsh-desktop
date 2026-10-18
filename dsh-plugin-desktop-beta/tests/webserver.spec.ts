@@ -7,6 +7,7 @@ import {
   type DesktopBrowserAccess,
 } from '../src/desktop-browser-access.ts'
 import { DESKTOP_WEB_PORT_RETRY_LIMIT } from '../src/desktop-port.ts'
+import { boundWebServerPort } from '../src/web-server-port.ts'
 import DesktopWebServer from '../src/webserver.ts'
 
 const occupied: Server[] = []
@@ -74,7 +75,7 @@ describe('Desktop WebServer port policy', () => {
     const context = new Context()
     contexts.push(context)
 
-    await expect(context.plugin(DesktopWebServer, { host: '0.0.0.0', port: 0 }))
+    await expect(context.plugin(DesktopWebServer, { host: '192.168.1.10', port: 0 }))
       .rejects.toThrow('requires loopback until LAN HTTPS is available')
   })
 
@@ -168,8 +169,8 @@ describe('Desktop WebServer browser gate', () => {
       },
     })
 
-    await expect(requestUpgrade(server.port, '/socket')).resolves.toContain('403 Forbidden')
-    await expect(requestUpgrade(server.port, '/socket', {
+    await expect(requestUpgrade(boundWebServerPort(server), '/socket')).resolves.toContain('403 Forbidden')
+    await expect(requestUpgrade(boundWebServerPort(server), '/socket', {
       [access.rendererHeader.name]: access.rendererHeader.value,
     })).resolves.toContain('101 Switching Protocols')
   })

@@ -54,10 +54,60 @@ export async function fetchProductDetail(id: string): Promise<PickerItem> {
   return (o.item ?? o) as PickerItem
 }
 
-/** 产品搜索：GET /api/product-library/search?q=&limit=200 */
+/** 产品库全量平铺（产品资料同源 grouped 树 → 平铺，附 category/brand 字段；会话级缓存 5 分钟）。
+ *  2026-10-17 实证兜底：服务端两个 search 端点对 brand/model 均不匹配（库内「千问」品牌 25 条
+ *  型号搜「千问」返回 0——根因归服务端会话修），客户端以 grouped 本地过滤兜底立即可用。 */
+let flatProductsCache: { at: number; flat: PickerItem[] } | null = null
+async function fetchFlatProducts(t: NonNullable<ReturnType<typeof getTintin>>): Promise<PickerItem[]> {
+  if (flatProductsCache && Date.now() - flatProductsCache.at < 5 * 60_000) return flatProductsCache.flat
+  const mid = await t.env?.getMachineId?.()
+  const machineId = mid?.ok ? String(mid.machineId || '') : ''
+  if (!machineId) return []
+  const g = (await t.server.get(`/api/product-library/clients/${encodeURIComponent(machineId)}/grouped`, {})) as
+    | { tree?: Record<string, Record<string, unknown[]>> }
+    | null
+  const tree = (g && typeof g === 'object' && g.tree) || {}
+  const flat: PickerItem[] = []
+  for (const [category, brands] of Object.entries(tree)) {
+    for (const [brand, items] of Object.entries(brands || {})) {
+      for (const it of Array.isArray(items) ? items : []) {
+        if (it && typeof it === 'object') flat.push({ ...(it as PickerItem), category, brand })
+      }
+    }
+  }
+  flatProductsCache = { at: Date.now(), flat }
+  return flat
+}
+
+/** 产品搜索（2026-10-17 用户报障修死：@ 下拉数据比产品资料少且搜千问无结果）：
+ *  ① 客户端作用域 search（产品资料同源）② 零命中 → grouped 本地过滤（brand/model/name/goods_no
+ *  包含匹配；树只拉一次缓存）③ 机器码缺失/作用域异常 → 全局 search 保底。 */
 export async function fetchProducts(kw: string): Promise<PickerItem[]> {
   const t = getTintin()
   if (!t?.server) throw new Error(searchErrorText(null))
+  const q = kw.trim()
+  let scoped: PickerItem[] = []
+  try {
+    const mid = await t.env?.getMachineId?.()
+    const machineId = mid?.ok ? String(mid.machineId || '') : ''
+    if (machineId) {
+      scoped = await fetchJsonList(() => t.server.get(
+        `/api/product-library/clients/${encodeURIComponent(machineId)}/search`, { q }))
+    }
+  } catch { /* 机器码缺失/客户端作用域失败 → 全局 search 保底 */ }
+  if (scoped.length > 0) return scoped
+  if (q) {
+    const lower = q.toLowerCase()
+    const local = (await fetchFlatProducts(t))
+      .filter((it) => ['name', 'model', 'brand', 'goods_no', 'category']
+        .some((k) => String((it as Record<string, unknown>)[k] ?? '').toLowerCase().includes(lower)))
+      .slice(0, 30)
+    if (local.length > 0) return local
+  }
+  if (scoped.length === 0 && !q) {
+    const head = (await fetchFlatProducts(t)).slice(0, 50)
+    if (head.length > 0) return head
+  }
   return fetchJsonList(() => t.server.get('/api/product-library/search', { q: kw, limit: 200 }))
 }
 

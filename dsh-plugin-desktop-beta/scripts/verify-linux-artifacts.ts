@@ -47,7 +47,8 @@ export function assertElfExecutable(path: string, label: string): void {
   if (!stat.isFile() || stat.size < ELF_HEADER_BYTES + APPIMAGE_MAGIC_OFFSET) {
     throw new Error(`${label} is not a non-empty regular file: ${path}`)
   }
-  if ((stat.mode & 0o111) === 0) {
+  // Windows cannot carry the POSIX executable bit, and Linux artifacts are built on POSIX.
+  if (process.platform !== 'win32' && (stat.mode & 0o111) === 0) {
     throw new Error(`${label} is not executable: ${path}`)
   }
   const descriptor = openSync(path, 'r')

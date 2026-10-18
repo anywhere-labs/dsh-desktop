@@ -1,0 +1,6 @@
+# Populated by the fetch scripts before packaging; never committed (same rule
+# as the rest of this tree — placeholders only).
+/bin/*
+!/bin/.gitkeep
+/openfilm/
+/playwright-browsers/

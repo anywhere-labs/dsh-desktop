@@ -103,6 +103,17 @@ watch(pendingMediaTool, (id) => {
   active.value = id
   pendingMediaTool.value = null
 })
+// 跨包直达（2026-10-17 创作模式拆独立插件 dsh-tintin-creation-bundle）：
+// 创作包经窗口总线 __tintinBus 请求打开媒体工具卡（同 bundle 写入方仍走
+// 上方 pendingMediaTool ref，两条路径同一落点）
+function onBusMediaTool(payload: unknown): void {
+  const id = String(payload ?? '')
+  if (!id) return
+  active.value = id
+}
+onMounted(() => {
+  window.__tintinBus?.on('tintin:media-tool', onBusMediaTool)
+})
 const activeTool = computed(() => ALL_TOOLS.find((t) => t.id === active.value) ?? null)
 
 function openTool(t: ToolCard): void {

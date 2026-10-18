@@ -1,0 +1,55 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -264,6 +264,16 @@ var SessionPersistence = class extends Service {
+ 	constructor(ctx) {
+ 		super(ctx, "sessionPersistence");
+ 	}
++	/**
++	* Permanently remove one stored Session identity when the backend supports
++	* deletion. Backends that cannot delete keep this refusal.
++	* @param _id - the stored session to remove.
++	* @param _options - optional cancellation.
++	* @returns whether a durable artifact was removed.
++	*/
++	delete(_id, _options) {
++		return Promise.reject(/* @__PURE__ */ new Error("this session persistence backend does not support deletion"));
++	}
+ };
+ //#endregion
+ export { SessionAlreadyExistsError, SessionAlreadyOwnedError, SessionFormatUnsupportedError, SessionHandleClosedError, SessionOwnershipLostError, SessionPersistence, SessionPersistence as default, SessionPersistenceCorruptionError, SessionPersistenceNotFoundError, SessionPersistenceRevision, SessionReadOnlyError, assertContiguous, assertStoredId, assertVersion, materializeAppendBatch, materializeCreateHeader, sessionFormatVersionRefusal, validateStoredEvents };
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -68,6 +68,11 @@ export interface SessionPersistenceStatOptions {
+     /** Optional cancellation for backend metadata reads. */
+     readonly signal?: AbortSignal;
+ }
++/** Options for {@link SessionPersistence.delete}. */
++export interface SessionPersistenceDeleteOptions {
++    /** Optional cancellation observed before backend work starts. */
++    readonly signal?: AbortSignal;
++}
+ /** Options for {@link SessionPersistence.list}. */
+ export interface SessionPersistenceListOptions {
+     /** Optional cancellation for backend listing work. */
+@@ -157,6 +162,18 @@ export declare abstract class SessionPersistence extends Service {
+      * @returns one snapshot per stored session.
+      */
+     abstract list(options?: SessionPersistenceListOptions): Promise<readonly SessionPersistenceSnapshot[]>;
++    /**
++     * Permanently remove one stored Session identity.
++     *
++     * Deletion is optional: the base implementation refuses, and a backend that
++     * can delete overrides it. Refuses while this process holds write ownership
++     * of the session, so a live writer never loses its artifact underneath it.
++     * @param _id - the stored session to remove.
++     * @param _options - optional cancellation.
++     * @returns whether a durable artifact was removed; `false` when the session
++     *   was already absent.
++     */
++    delete(_id: SessionId, _options?: SessionPersistenceDeleteOptions): Promise<boolean>;
+ }
+ export default SessionPersistence;
+ //# sourceMappingURL=index.d.ts.map
+\ No newline at end of file

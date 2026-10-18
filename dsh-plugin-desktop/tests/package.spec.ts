@@ -88,7 +88,7 @@ describe('published package surface', () => {
 
   it('runs all desktop editions and community market tests from the root command', () => {
     expect(workspaceManifest.scripts?.test)
-      .toBe('yarn workspace dsh-tintin-bundle test && yarn workspace dsh-tintin-browser test && yarn workspace dsh-tintin-media-bundle test && yarn workspace dsh-plugin-desktop test && yarn workspace dsh-plugin-desktop-beta test && yarn workspace dsh-community-market test && yarn workspace dsh-desktop-next test')
+      .toBe('yarn workspace dsh-tintin-bundle test && yarn workspace dsh-tintin-browser test && yarn workspace dsh-tintin-media-bundle test && yarn workspace dsh-tintin-creation-bundle test && yarn workspace dsh-tintin-ops-bundle test && yarn workspace dsh-plugin-desktop test && yarn workspace dsh-plugin-desktop-beta test && yarn workspace dsh-community-market test && yarn workspace dsh-desktop-next test')
   })
 
   it('registers both npm launcher names', () => {
@@ -327,21 +327,12 @@ describe('published package surface', () => {
 
   it('keeps the canonical web profile configurable while Desktop disables browser opening', () => {
     const patchPath = `./patches/dsh-web-app@${runtimeVersion}.patch`
-    const openPatchPath = './patches/open@11.0.1.patch'
-    const openPatchResolution = `patch:open@npm%3A11.0.1#${openPatchPath}`
     expect(dshResolution('@deepseek-ai/dsh-web-app')).toContain(patchPath)
-    expect(workspaceManifest.resolutions).toMatchObject({
-      'open@npm:11.0.1': openPatchResolution,
-      'open@npm:^11.0.0': openPatchResolution,
-    })
     const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
-    const openPatch = readFileSync(new URL(openPatchPath, workspaceRoot), 'utf8')
-    const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
     const installedWebApp = readFileSync(new URL(
       'node_modules/@deepseek-ai/dsh-web-app/lib/index.js',
       packageRoot,
     ), 'utf8')
-    const installedOpen = readFileSync(new URL('node_modules/open/index.js', packageRoot), 'utf8')
     const installedWebPatch = readFileSync(new URL(
       'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml',
       packageRoot,
@@ -357,11 +348,6 @@ describe('published package surface', () => {
     expect(patch).toContain('+\t\twindowsHide: true,')
     expect(installedWebApp).toMatch(
       /function spawnBrowserLauncher\(url\) \{\s+return spawn\(process\.execPath, \[[\s\S]*?\], \{\s+windowsHide: true,\s+env:/u,
-    )
-    expect(lockfile).toContain('open@patch:open@npm%3A11.0.1#./patches/open@11.0.1.patch')
-    expect(openPatch).toContain('+\t\t\tchildProcessOptions.windowsHide = true;')
-    expect(installedOpen).toMatch(
-      /if \(!isWsl\) \{\s+childProcessOptions\.windowsVerbatimArguments = true;\s+childProcessOptions\.windowsHide = true;\s+\}/u,
     )
     expect(patch).not.toContain('cordis.patch.yml')
     expect(patch).not.toContain('openBrowser: false')

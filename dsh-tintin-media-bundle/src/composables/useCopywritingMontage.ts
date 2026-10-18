@@ -384,7 +384,7 @@ export function useCopywritingMontage() {
   })
   const {
     bgmPath, bgmName, bgmVolume, rowBgm, finalMode, exportBusy, exportProgress, exportStage,
-    lastExportDraftPath, exportDoneMsg, exportWarnMsg, finalSelIdx, finalPreviewUrl, finalPreviewTitle,
+    lastExportDraftPath, exportDoneMsg, exportWarnMsg, trackChecks, finalSelIdx, finalPreviewUrl, finalPreviewTitle,
     bgmSource, bgmGenPrompt, bgmGenStyle, bgmGenDuration, bgmGenBusy, bgmGenError, bgmGenUrl,
     bgmGenMeta, bgmPreviewUrl, bgmPlaying, bgmPosMs, bgmDurMs, lastComposeTasks,
     generateBgm, downloadLibraryBgm, applyLibraryBgm, pickBgm, rowBgmName, setRowBgm,
@@ -495,6 +495,7 @@ export function useCopywritingMontage() {
     exportBusy, exportProgress, exportStage, // 2026-09-16：导出剪映时间轴进度
     lastExportDraftPath, // 2026-09-16：导出成功后草稿目录路径（供「打开草稿目录」按钮）
     exportDoneMsg, // 2026-09-18：导出完成提示行（内嵌「打开草稿目录」按钮）
+    trackChecks, // 2026-10-13：逐轨检查清单（导出区左侧面板）
     exportWarnMsg,
     exportJianyingPackageDraft, // 轨 2（2026-09-17）：导入服务端草稿包
     finalVideoList, finalVideoPath, finalSelIdx, finalPreviewUrl, finalPreviewTitle,

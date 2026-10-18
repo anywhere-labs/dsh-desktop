@@ -3,6 +3,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
+import { boundWebServerPort } from './web-server-port.ts'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-client-connection'
@@ -81,7 +82,7 @@ export const name = 'desktop-shell'
 
 /** Services required before the shell can register its renderer generation. */
 /** Services required by the desktop shell; `desktopRuntime` is probed, not required. */
-export const inject = ['webServer', 'webRuntime', 'appExit', 'settings', 'connection']
+export const inject = ['webServer', 'web', 'appExit', 'settings', 'connection']
 
 /**
  * Standard settings namespace shared by tray and configuration surfaces, the
@@ -172,7 +173,7 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
   if (ctx.webServer.host !== desktopWebServerHost(resolved.networkExposure)) {
     throw new Error('dsh-plugin-desktop: desktop shell WebServer host does not match networkExposure')
   }
-  lanHttps.attach(ctx.webServer.port)
+  lanHttps.attach(boundWebServerPort(ctx.webServer))
   const iconFilename = runtime.platform === 'darwin'
     ? 'app-icon-mac.png'
     : 'app-icon.png'
@@ -186,7 +187,7 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
   // continuation offers the restart that applies them, after its account step.
   let setupSettings: DesktopSetupWizardSettings | undefined
   let setupSaved = false
-  const rendererOrigin = `http://127.0.0.1:${String(ctx.webServer.port)}`
+  const rendererOrigin = `http://127.0.0.1:${String(boundWebServerPort(ctx.webServer))}`
   ctx.effect(
     () => ctx.webServer.register({
       kind: 'exact',
@@ -423,7 +424,7 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
         resolved.linuxMaterial,
       )
       const url = desktopRendererUrl(
-        ctx.webServer.port,
+        boundWebServerPort(ctx.webServer),
         resolved.mode,
         runtime.platform,
         runtime.updates.currentVersion,

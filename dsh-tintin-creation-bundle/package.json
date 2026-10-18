@@ -1,0 +1,32 @@
+{
+  "name": "dsh-tintin-creation-bundle",
+  "version": "0.1.0-dev.0",
+  "private": true,
+  "type": "module",
+  "description": "TinTin creation mode: standalone Vue bundle (Jimeng-style input session, skill presets, reference pool) registered as the 'creation' view through the dsh client module seam",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run",
+    "check": "yarn run typecheck && yarn run build && yarn run test",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.9",
+    "typescript": "~5.6.3",
+    "vite": "^7.0.0",
+    "vitest": "4.1.8",
+    "vue": "^3.5.43",
+    "vue-tsc": "^2.1.10"
+  }
+}

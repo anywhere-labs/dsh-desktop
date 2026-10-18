@@ -1,0 +1,63 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -2560,6 +2560,40 @@ var JsonlSessionPersistence = class extends SessionPersistence {
+ 	flush() {
+ 		return this.tracker.flushAll();
+ 	}
++	/** Remove one durable session while holding its write claim and directory lease. */
++	async delete(id, options) {
++		options?.signal?.throwIfAborted();
++		await this.ensureRootEncoding();
++		options?.signal?.throwIfAborted();
++		if (this.tracker.hasPending(id)) throw new Error(`cannot delete session "${id}" while its unmaterialized create is live`);
++		this.tracker.claimWrite(id);
++		let lease;
++		try {
++			const resolved = await this.findLog(id, options?.signal);
++			if (resolved === void 0) return false;
++			const path = resolved.currentPath;
++			lease = await this.acquireLease(id, void 0, dirname(path));
++			try {
++				await rm(path);
++			} catch (error) {
++				if (isENOENT(error)) return false;
++				throw error;
++			}
++			if (process.platform !== "win32") await this.syncDirPosix(dirname(path));
++			return true;
++		} finally {
++			this.coldLogMemo.delete(id);
++			this.migrationPreparations.delete(id);
++			let releaseFailure;
++			try {
++				await lease?.release();
++			} catch (raw) {
++				releaseFailure = raw instanceof Error ? raw : new Error(String(raw));
++			}
++			this.tracker.releaseClaim(id);
++			if (releaseFailure !== void 0) throw releaseFailure;
++		}
++	}
+ 	/**
+ 	* Observe one stored session without reading its event log.
+ 	* @param id - the stored session to observe.
+@@ -3112,11 +3146,16 @@ var JsonlSessionPersistence = class extends SessionPersistence {
+ 					metadata: await this.readGenerationHeader(selected, void 0, signal)
+ 				};
+ 			} catch (error) {
+-				if (error instanceof SessionFormatUnsupportedError || error instanceof SessionPersistenceCorruptionError) return {
++				if (error instanceof SessionFormatUnsupportedError) return {
++					selected,
++					metadata: void 0
++				};
++				signal?.throwIfAborted();
++				this.ctx.logger.warn(`${this.name}: skipped unreadable session log ${selected.sourcePath}: ${error instanceof Error ? error.message : String(error)}`);
++				return {
+ 					selected,
+ 					metadata: void 0
+ 				};
+-				throw error;
+ 			}
+ 		});
+ 		const artifacts = [];

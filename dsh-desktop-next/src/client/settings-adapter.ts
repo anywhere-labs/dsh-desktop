@@ -42,7 +42,7 @@ export class NextSettingsAdapter {
   readonly notificationSettings: DesktopConfigForm<DesktopNotificationSettings> = { getSnapshot: () => this.notificationSnapshot, subscribe: this.subscribe, set: (field: string, value: unknown) => this.setField(notificationFields, field, value) }
 
   private snapshot<T>(value?: T, writable = false): ConfigFormSnapshot<T> {
-    return { status: value ? 'ready' : 'loading', value, base: undefined, user: undefined, revision: undefined, writable, mode: 'host' }
+    return { status: value ? 'ready' : 'loading', value, base: undefined, user: undefined, revision: undefined, writable }
   }
   refresh = (): Promise<DesktopState> => this.reading ??= this.bridge.state().then(state => {
     if (JSON.stringify(state) !== JSON.stringify(this.current)) {

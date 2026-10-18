@@ -1,0 +1,640 @@
+/* ═══════════════════════════════════════════════════════════════
+   TinTin V3 Electron — global.css（tintin-media-bundle 作用域化副本）
+   全局重置 + 滚动条 + 工具类 + Luosiding 组件 (luo-* 命名空间)
+   依赖 tintin-tokens.css 中的 CSS 自定义属性。
+
+   搬运适配（WP-3）：源文件 desktop/renderer/src/styles/global.css 的
+   html/body/:root/* 级选择器若原样注入会改写 DSH 宿主页面样式，因此
+   全部规则机械改写为 `.tintin-media-scope`（媒体面板根类）后代选择器；
+   `html,body,#app` 的 100% 尺寸规则与 body 的 overflow:hidden 被移除
+   （面板尺寸/滚动由 App.vue 根节点负责，见下）；html.glass-mode 规则
+   丢弃（宿主不设该类）。除此之外与源文件逐条一致。
+   ═══════════════════════════════════════════════════════════════ */
+
+/* === 全局重置 === */
+.tintin-media-scope *, .tintin-media-scope *::before, .tintin-media-scope *::after {
+  box-sizing: border-box;
+}
+/* 作用域根自身也要 border-box：根节点是 width:100% + padding，缺这条会让
+   内容盒比可视区宽出一个内边距，整页出现横向滚动（2026-09-27 用户报障） */
+.tintin-media-scope {
+  box-sizing: border-box;
+}
+.tintin-media-scope * {
+  margin: 0;
+  padding: 0;
+}
+.tintin-media-scope {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-family);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 表单元素继承字体 */
+.tintin-media-scope button, .tintin-media-scope input, .tintin-media-scope select, .tintin-media-scope textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+.tintin-media-scope button {
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+.tintin-media-scope a {
+  color: var(--primary);
+  text-decoration: none;
+}
+.tintin-media-scope a:hover {
+  color: var(--primary-hover);
+}
+.tintin-media-scope ul, .tintin-media-scope ol {
+  list-style: none;
+}
+.tintin-media-scope img, .tintin-media-scope video {
+  max-width: 100%;
+  display: block;
+}
+
+/* === 滚动条（细窄、暗色主题） === */
+.tintin-media-scope ::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+.tintin-media-scope ::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+.tintin-media-scope ::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--radius-full);
+}
+.tintin-media-scope ::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+.tintin-media-scope * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* === 焦点环 === */
+.tintin-media-scope :focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ring);
+  border-radius: var(--radius-sm);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   布局工具类
+   ═══════════════════════════════════════════════════════════════ */
+.tintin-media-scope .flex { display: flex; }
+.tintin-media-scope .inline-flex { display: inline-flex; }
+.tintin-media-scope .flex-col { flex-direction: column; }
+.tintin-media-scope .flex-row { flex-direction: row; }
+.tintin-media-scope .flex-1 { flex: 1 1 0%; }
+.tintin-media-scope .flex-shrink-0 { flex-shrink: 0; }
+.tintin-media-scope .flex-wrap { flex-wrap: wrap; }
+.tintin-media-scope .items-center { align-items: center; }
+.tintin-media-scope .items-start { align-items: flex-start; }
+.tintin-media-scope .items-end { align-items: flex-end; }
+.tintin-media-scope .justify-center { justify-content: center; }
+.tintin-media-scope .justify-between { justify-content: space-between; }
+.tintin-media-scope .justify-start { justify-content: flex-start; }
+.tintin-media-scope .justify-end { justify-content: flex-end; }
+.tintin-media-scope .gap-1 { gap: var(--space-1); }
+.tintin-media-scope .gap-2 { gap: var(--space-2); }
+.tintin-media-scope .gap-3 { gap: var(--space-3); }
+.tintin-media-scope .gap-4 { gap: var(--space-4); }
+.tintin-media-scope .gap-6 { gap: var(--space-6); }
+.tintin-media-scope .gap-8 { gap: var(--space-8); }
+.tintin-media-scope .w-full { width: 100%; }
+.tintin-media-scope .h-full { height: 100%; }
+
+/* === 文字工具类 === */
+.tintin-media-scope .text-xs { font-size: var(--font-size-eyebrow); }
+.tintin-media-scope .text-sm { font-size: var(--font-size-caption); }
+.tintin-media-scope .text-base { font-size: var(--font-size-body); }
+.tintin-media-scope .text-lg { font-size: var(--font-size-lead); }
+.tintin-media-scope .text-xl { font-size: var(--font-size-h3); }
+.tintin-media-scope .text-muted { color: var(--muted-foreground); }
+.tintin-media-scope .text-primary { color: var(--primary); }
+.tintin-media-scope .text-success { color: var(--success); }
+.tintin-media-scope .text-warning { color: var(--warning); }
+.tintin-media-scope .text-error { color: var(--error); }
+.tintin-media-scope .font-medium { font-weight: var(--font-weight-medium); }
+.tintin-media-scope .font-semibold { font-weight: var(--font-weight-semibold); }
+.tintin-media-scope .font-bold { font-weight: var(--font-weight-bold); }
+.tintin-media-scope .text-center { text-align: center; }
+.tintin-media-scope .text-right { text-align: right; }
+.tintin-media-scope .truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tintin-media-scope .mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-mono);
+}
+
+/* === 间距工具类 === */
+.tintin-media-scope .p-2 { padding: var(--space-2); }
+.tintin-media-scope .p-3 { padding: var(--space-3); }
+.tintin-media-scope .p-4 { padding: var(--space-4); }
+.tintin-media-scope .px-3 { padding-left: var(--space-3); padding-right: var(--space-3); }
+.tintin-media-scope .px-4 { padding-left: var(--space-4); padding-right: var(--space-4); }
+.tintin-media-scope .py-2 { padding-top: var(--space-2);  padding-bottom: var(--space-2); }
+.tintin-media-scope .mb-2 { margin-bottom: var(--space-2); }
+.tintin-media-scope .mb-4 { margin-bottom: var(--space-4); }
+
+/* === 其他常用工具类 === */
+.tintin-media-scope .rounded { border-radius: var(--radius-md); }
+.tintin-media-scope .rounded-full { border-radius: var(--radius-full); }
+.tintin-media-scope .border-t { border-top: 1px solid var(--border-subtle); }
+.tintin-media-scope .border-b { border-bottom: 1px solid var(--border-subtle); }
+.tintin-media-scope .overflow-hidden { overflow: hidden; }
+.tintin-media-scope .overflow-auto { overflow: auto; }
+.tintin-media-scope .relative { position: relative; }
+.tintin-media-scope .absolute { position: absolute; }
+.tintin-media-scope .cursor-pointer { cursor: pointer; }
+.tintin-media-scope .cursor-not-allowed { cursor: not-allowed; }
+.tintin-media-scope .opacity-50 { opacity: 0.5; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Luosiding 组件类（.luo-* 命名空间）
+   基于 components.css，统一前缀避免与第三方类冲突
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Badge 徽标 ─────────────────────────────────────────── */
+/* @use <span class="luo-badge sm status-success">运行中</span> */
+.tintin-media-scope .luo-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  border: none;
+  white-space: nowrap;
+}
+.tintin-media-scope .luo-badge.sm {
+  height: 20px;
+  min-width: 20px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: var(--font-weight-h4);
+}
+.tintin-media-scope .luo-badge.md {
+  height: 24px;
+  min-width: 24px;
+  padding: 0 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-h4);
+}
+.tintin-media-scope .luo-badge.status-success { background: var(--color-success); color: var(--color-on-primary); }
+.tintin-media-scope .luo-badge.status-warning { background: var(--color-warning); color: var(--color-on-primary); }
+.tintin-media-scope .luo-badge.status-error { background: var(--color-error);   color: var(--color-on-primary); }
+.tintin-media-scope .luo-badge.status-info { background: var(--color-info);    color: var(--color-on-primary); }
+.tintin-media-scope .luo-badge.platform { background: var(--color-surface-container); color: var(--color-on-surface); border-radius: var(--radius-md); }
+.tintin-media-scope .luo-badge.tag { background: var(--color-secondary-container); color: var(--color-on-secondary-container); border-radius: var(--radius-md); }
+
+/* ── Button 按钮 ────────────────────────────────────────── */
+/* @use <button class="luo-btn primary size-md">创建任务</button> */
+.tintin-media-scope .luo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-family: var(--font-family-base);
+  font-weight: var(--font-weight-caption);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--duration-fast), border-color var(--duration-fast),
+              filter var(--duration-fast), opacity var(--duration-fast);
+}
+.tintin-media-scope .luo-btn.size-sm { height: var(--size-button-height-sm); min-width: var(--size-button-height-sm); padding: 0 var(--space-2); font-size: var(--font-size-caption); }
+.tintin-media-scope .luo-btn.size-md { height: var(--size-button-height);    min-width: var(--size-button-height);    padding: 0 var(--space-3); font-size: var(--font-size-body); }
+.tintin-media-scope .luo-btn.size-lg { height: var(--size-button-height-lg); min-width: var(--size-button-height-lg); padding: 0 var(--space-4); font-size: var(--font-size-lead); }
+.tintin-media-scope .luo-btn.primary { background: var(--color-primary); color: var(--color-on-primary); }
+.tintin-media-scope .luo-btn.primary:hover { background: var(--color-primary-hover); }
+.tintin-media-scope .luo-btn.secondary { background: var(--color-secondary); color: var(--color-on-secondary-container); border-color: var(--color-border); }
+.tintin-media-scope .luo-btn.secondary:hover { background: var(--color-surface-container-high); }
+.tintin-media-scope .luo-btn.ghost { background: var(--color-surface); color: var(--color-on-surface); border-color: var(--color-border); }
+.tintin-media-scope .luo-btn.ghost:hover { background: var(--interactive-hover); }
+.tintin-media-scope .luo-btn.danger { background: var(--color-error); color: var(--color-on-error); }
+.tintin-media-scope .luo-btn.danger:hover { filter: brightness(1.08); }
+.tintin-media-scope .luo-btn.icon {
+  background: var(--color-surface);
+  color: var(--color-muted-foreground);
+  border-color: var(--color-border);
+  padding: 0;
+  width: var(--size-button-height);
+}
+.tintin-media-scope .luo-btn.icon.size-sm { width: var(--size-button-height-sm); }
+.tintin-media-scope .luo-btn.icon.size-md { width: var(--size-button-height); }
+.tintin-media-scope .luo-btn.icon.size-lg { width: var(--size-button-height-lg); }
+.tintin-media-scope .luo-btn.icon:hover { background: var(--interactive-hover); color: var(--color-on-surface); }
+.tintin-media-scope .luo-btn:disabled, .tintin-media-scope .luo-btn.loading {
+  opacity: .5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.tintin-media-scope .luo-btn .spin { animation: luo-spin 1s linear infinite; }
+@keyframes luo-spin { to { transform: rotate(360deg); } }
+
+/* ── Card 卡片 ──────────────────────────────────────────── */
+/* @use
+   <div class="luo-card">
+     <div class="luo-accent"></div>  <!-- 可选：顶部 4px accent bar -->
+     <div class="luo-card-title">标题</div>
+     <div class="luo-card-desc">描述文案</div>
+     <a class="luo-card-action">查看详情</a>
+   </div>
+*/
+.tintin-media-scope .luo-card {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-1);
+  padding: var(--space-4);
+  overflow: hidden;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+  cursor: pointer;
+}
+.tintin-media-scope .luo-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-2); }
+.tintin-media-scope .luo-card:active { box-shadow: var(--shadow-1); }
+.tintin-media-scope .luo-card.disabled { opacity: .5; cursor: not-allowed; pointer-events: none; }
+
+/* 顶部 4px accent bar（功能卡片用，可渐变色） */
+.tintin-media-scope .luo-accent {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--color-primary), var(--accent));
+}
+.tintin-media-scope .luo-card-icon {
+  width: var(--size-icon-lg);
+  height: var(--size-icon-lg);
+  margin-bottom: var(--space-2);
+}
+.tintin-media-scope .luo-card-title {
+  font-size: var(--font-size-h4);
+  font-weight: var(--font-weight-h4);
+  color: var(--color-on-surface);
+}
+.tintin-media-scope .luo-card-desc {
+  font-size: var(--font-size-body);
+  color: var(--color-muted-foreground);
+  margin-top: var(--space-1);
+  line-height: var(--line-height-body);
+}
+.tintin-media-scope .luo-card-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  font-size: var(--font-size-caption);
+  color: var(--color-primary);
+  font-weight: var(--font-weight-caption);
+}
+
+/* ── Input / Textarea 输入框 ────────────────────────────── */
+/* @use
+   <div class="luo-input-wrap">
+     <img class="luo-input-icon" src="search.svg">
+     <input class="luo-input search" placeholder="请输入任务名称">
+   </div>
+*/
+.tintin-media-scope .luo-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  max-width: 240px;
+}
+.tintin-media-scope .luo-input {
+  width: 100%;
+  height: var(--size-input-height);
+  padding: 0 var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-on-surface);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-body);
+  outline: none;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+  box-sizing: border-box;
+}
+.tintin-media-scope .luo-input::placeholder { color: var(--color-muted-foreground); }
+.tintin-media-scope .luo-input.search { padding-left: var(--space-7); }
+.tintin-media-scope .luo-input-icon {
+  position: absolute;
+  left: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  width: var(--size-icon-md);
+  height: var(--size-icon-md);
+  pointer-events: none;
+}
+.tintin-media-scope .luo-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--ring);
+}
+.tintin-media-scope .luo-input.error {
+  border-color: var(--color-error);
+  background: var(--color-error-container);
+  color: var(--color-on-error-container);
+}
+.tintin-media-scope .luo-input:disabled { opacity: .5; cursor: not-allowed; }
+.tintin-media-scope .luo-textarea {
+  min-height: 72px;
+  padding: var(--space-2) var(--space-3);
+  resize: vertical;
+  line-height: var(--line-height-body);
+}
+.tintin-media-scope .luo-hint {
+  font-size: var(--font-size-caption);
+  color: var(--color-error);
+  margin-top: var(--space-1);
+}
+
+/* ── Navigation 导航（侧边栏 / 顶栏 Tab / 面包屑）────── */
+/* 侧边栏菜单项
+   @use <div class="luo-sb-item active"><img src="home.svg">首页</div>
+*/
+.tintin-media-scope .luo-sb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: var(--size-button-height);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-on-surface);
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-default);
+  white-space: nowrap;
+}
+.tintin-media-scope .luo-sb-item img, .tintin-media-scope .luo-sb-item svg {
+  width: var(--size-icon-md);
+  height: var(--size-icon-md);
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.tintin-media-scope .luo-sb-item:hover { background: var(--interactive-hover); }
+.tintin-media-scope .luo-sb-item.active {
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+  box-shadow: inset 3px 0 0 0 var(--color-primary);
+}
+.tintin-media-scope .luo-sb-item.active img, .tintin-media-scope .luo-sb-item.active svg { opacity: 1; }
+
+/* 顶栏 Tab
+   @use <span class="luo-tab active">工作台</span>
+*/
+.tintin-media-scope .luo-tab {
+  display: inline-flex;
+  align-items: center;
+  height: var(--size-button-height);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-default),
+              color var(--duration-fast) var(--easing-default);
+  white-space: nowrap;
+}
+.tintin-media-scope .luo-tab:hover { background: var(--interactive-hover); color: var(--color-on-surface); }
+.tintin-media-scope .luo-tab.active {
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+  font-weight: var(--font-weight-h4);
+}
+
+/* 面包屑 Breadcrumb */
+.tintin-media-scope .luo-bc {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-muted-foreground);
+  font-size: var(--font-size-body);
+  white-space: nowrap;
+}
+.tintin-media-scope .luo-bc a {
+  color: var(--color-muted-foreground);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--easing-default);
+}
+.tintin-media-scope .luo-bc a:hover { color: var(--color-on-surface); }
+.tintin-media-scope .luo-bc .current { color: var(--color-on-surface); }
+.tintin-media-scope .luo-bc img, .tintin-media-scope .luo-bc svg {
+  width: var(--size-icon-sm);
+  height: var(--size-icon-sm);
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+/* ── Table 表格 ─────────────────────────────────────────── */
+/* @use
+   <div class="luo-table-wrap">
+     <table>
+       <thead><tr><th>标题</th></tr></thead>
+       <tbody><tr><td>内容</td></tr></tbody>
+     </table>
+   </div>
+*/
+.tintin-media-scope .luo-table-wrap {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+.tintin-media-scope .luo-table-wrap table { width: 100%; border-collapse: collapse; }
+.tintin-media-scope .luo-table-wrap th, .tintin-media-scope .luo-table-wrap td {
+  height: 44px;
+  padding: 0 var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+.tintin-media-scope .luo-table-wrap th {
+  font-weight: var(--font-weight-h4);
+  color: var(--color-muted-foreground);
+  background: var(--color-surface-container-low);
+}
+.tintin-media-scope .luo-table-wrap tbody tr { transition: background var(--duration-fast) var(--easing-default); }
+.tintin-media-scope .luo-table-wrap tbody tr:hover { background: var(--interactive-hover); }
+.tintin-media-scope .luo-table-wrap tbody tr.selected {
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+}
+.tintin-media-scope .luo-table-wrap tbody tr.selected a { color: var(--color-on-primary-container); }
+.tintin-media-scope .luo-table-wrap tbody tr:last-child td { border-bottom: none; }
+.tintin-media-scope .luo-table-wrap .col-sel { width: 40px; }
+.tintin-media-scope .luo-ck {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  appearance: none;
+  margin: 0;
+}
+.tintin-media-scope .luo-ck:checked { background: var(--color-primary); border-color: var(--color-primary); }
+.tintin-media-scope .luo-act {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-size: var(--font-size-caption);
+  transition: color var(--duration-fast) var(--easing-default);
+}
+.tintin-media-scope .luo-act:hover { color: var(--color-primary-hover); }
+.tintin-media-scope .luo-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  color: var(--color-muted-foreground);
+  font-size: var(--font-size-body);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   兼容旧类（向后兼容，后续逐步迁移到 luo-*）
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 旧卡片类 → 映射到 luo-card */
+.tintin-media-scope .card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4);
+  transition: box-shadow var(--duration-fast) var(--easing-default),
+    border-color var(--duration-fast) var(--easing-default);
+}
+.tintin-media-scope .card-hover { cursor: pointer; }
+.tintin-media-scope .card-hover:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-1px);
+}
+
+/* 旧 Tab 切换类 → 映射到 luo-tab */
+.tintin-media-scope .tab-active {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--size-button-height-sm);
+  padding: 0 var(--space-3);
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
+  transition: background var(--duration-fast) var(--easing-default),
+    color var(--duration-fast) var(--easing-default);
+}
+.tintin-media-scope .tab-inactive {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--size-button-height-sm);
+  padding: 0 var(--space-3);
+  background: transparent;
+  color: var(--muted-foreground);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-regular);
+  transition: background var(--duration-fast) var(--easing-default),
+    color var(--duration-fast) var(--easing-default);
+}
+.tintin-media-scope .tab-inactive:hover {
+  background: var(--interactive-hover);
+  color: var(--foreground);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   路由/页面切换动画（fade）
+   ═══════════════════════════════════════════════════════════ */
+.tintin-media-scope .fade-enter-active, .tintin-media-scope .fade-leave-active {
+  transition: opacity 0.22s var(--easing-out), transform 0.22s var(--easing-out);
+}
+.tintin-media-scope .fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.tintin-media-scope .fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   卡片交错入场动画（stagger）
+   用法：父容器 .stagger-grid，子元素 .stagger-item
+   ═══════════════════════════════════════════════════════════ */
+.tintin-media-scope .stagger-item {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: stagger-in 0.35s var(--easing-out) forwards;
+}
+@keyframes stagger-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* 为前 12 个子元素设置递增延迟 */
+.tintin-media-scope .stagger-item:nth-child(1) { animation-delay: 0ms; }
+.tintin-media-scope .stagger-item:nth-child(2) { animation-delay: 35ms; }
+.tintin-media-scope .stagger-item:nth-child(3) { animation-delay: 70ms; }
+.tintin-media-scope .stagger-item:nth-child(4) { animation-delay: 105ms; }
+.tintin-media-scope .stagger-item:nth-child(5) { animation-delay: 140ms; }
+.tintin-media-scope .stagger-item:nth-child(6) { animation-delay: 175ms; }
+.tintin-media-scope .stagger-item:nth-child(7) { animation-delay: 210ms; }
+.tintin-media-scope .stagger-item:nth-child(8) { animation-delay: 245ms; }
+.tintin-media-scope .stagger-item:nth-child(9) { animation-delay: 280ms; }
+.tintin-media-scope .stagger-item:nth-child(10) { animation-delay: 315ms; }
+.tintin-media-scope .stagger-item:nth-child(11) { animation-delay: 350ms; }
+.tintin-media-scope .stagger-item:nth-child(12) { animation-delay: 385ms; }
+
+/* ═══════════════════════════════════════════════════════════
+   通用加载旋转器（.spinner）
+   ═══════════════════════════════════════════════════════════ */
+.tintin-media-scope .spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.tintin-media-scope .spinner.lg { width: 32px; height: 32px; border-width: 3px; }
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   玻璃拟态卡片（.glass-card）
+   仅当 <html class="glass-mode"> 时生效（设置页「界面风格」切换）
+   ═══════════════════════════════════════════════════════════ *//* dropped in media panel scope (glass-mode never set by host): html.glass-mode .glass-card */
+/* dropped in media panel scope (glass-mode never set by host): html.glass-mode:root.dark .glass-card */
+
+
+/* ═══ 弹层容器（2026-09-28）═════════════════════════════════════════
+   向导弹层（高级脚本设置/选择分镜脚本/删除确认等）teleport 到 body 的
+   独立容器：容器自带 .tintin-media-scope 类保住 CSS token（e8cda7f 教训），
+   display:contents 移除自身盒子——不占文档流，同时整体脱离
+   #tintin-view-overlay（fixed z:9998 + overflow:auto）的层叠与裁剪环境。
+   mask 层级压过宿主全部面板（0.1.7 实测宿主 z-index:1100 面板可盖
+   mask 原 1002——2026-09-28 用户报障「高级脚本设置又无法弹出」即此）。 */
+.tintin-modal-layer { display: contents; }
+body > .tintin-modal-layer .modal-mask { z-index: 12000 !important; }

@@ -136,7 +136,7 @@ declare interface TintinBridgeServer {
 
   // ---------- 技能（2026-10-16 安装升级：真技能包落盘）----------
   /** 客户端技能包安装：GET /skills/{id}/download → 解压 <DSH_HOME>/skills/<id>/（重装覆盖） */
-  skillsInstall(id: string): Promise<{ error?: string; dir?: string; zipPath?: string; skillMd?: boolean }>
+  skillsInstall(id: string): Promise<{ error?: string; dir?: string; zipPath?: string; skillMd?: boolean; skillMdContent?: string }>
 
   // ---------- scheduled（服务端定时任务执行记录，对齐原 scheduled_tasks_page.py）----------
   scheduledTasksList(params?: {
@@ -1226,6 +1226,13 @@ declare global {
   interface Window {
     tintin: Readonly<TintinBridge>
     tintinBrowser: Readonly<TintinBrowserBridge>
+    /** 跨 bundle 小事件总线（tintin-bundle chrome 定义；创作插件包同名兜底）。
+     *  可选：旧安装缺总线时调用方优雅降级（2026-10-17 创作模式拆包） */
+    __tintinBus?: {
+      on: (name: string, fn: (payload: unknown) => void) => void
+      off: (name: string, fn: (payload: unknown) => void) => void
+      emit: (name: string, payload?: unknown) => void
+    }
   }
 }
 

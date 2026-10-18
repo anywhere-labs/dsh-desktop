@@ -181,3 +181,26 @@ export function createAudioArchiveApi({ httpRequest, getServerUrl, multipartPost
     },
   }
 }
+
+// tts:uploadSample — multipart POST /voice/samples（file 音频 + name 必填 +
+// text 可选）。载荷是渲染层的 {path} 包装，本地读盘在这里完成；离线 → null、
+// 其余失败 → {error}（IpcError 形态）。从 index.js 提取（铁律 4 付账）。
+export function createTtsUploadSampleApi({ multipartPost, isExpectedOfflineError, audioMimeOf, samplesPath }) {
+  return {
+    'tts:uploadSample': async (args) => {
+      const p = args?.[0] ?? {}
+      try {
+        const filePath = p.file?.path ?? (typeof p.file === 'string' ? p.file : '')
+        if (!filePath) throw new Error('tts:uploadSample requires `file`')
+        if (!p.name || !String(p.name).trim()) throw new Error('tts:uploadSample requires `name`')
+        return await multipartPost(samplesPath, [
+          { name: 'file', path: filePath, contentType: audioMimeOf(filePath) },
+          { name: 'name', value: String(p.name).trim() },
+          ...(p.text ? [{ name: 'text', value: String(p.text) }] : []),
+        ])
+      } catch (err) {
+        return isExpectedOfflineError(err) ? null : { error: err?.message ?? String(err) }
+      }
+    },
+  }
+}

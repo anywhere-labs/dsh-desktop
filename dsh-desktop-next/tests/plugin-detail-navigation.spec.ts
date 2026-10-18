@@ -16,6 +16,8 @@ const nodes = (value: unknown): Node[] => Array.isArray(value) ? value.flatMap(n
   : value && typeof value === 'object' && 'type' in value && 'props' in value
     ? [value as Node, ...nodes((value as Node).props.children)] : []
 const component = (tree: Node, name: string): Node | undefined => nodes(tree).find(node => typeof node.type === 'function' && node.type.name === name)
+/** Count the official package cards one page renders. */
+const cardCount = (tree: Node): number => nodes(tree).filter(node => typeof node.type === 'function' && node.type.name === 'PackageCard').length
 const render = (node: Node): Node => (node.type as (props: Node['props']) => Node)(node.props)
 
 /** Execute the installed official page, replacing only its external services and React hook scheduler. */
@@ -63,7 +65,7 @@ function fixture() {
       return () => {}
     } },
   })
-  const remote = { name: '@agents-anywhere/dsh-bridge-next', enabled: true, installed: false, optional: true,
+  const remote = { name: '@agents-anywhere/dsh-bridge-next', enabled: true, installed: false, official: true,
     version: '0.1.0', description: 'Remote connection', rows: [{ entryId: undefined as string | undefined, rowId: 'bridge', moduleName: 'bridge', enabled: true, phase: 'active' }] }
   const official = { ...remote, name: 'official-team', rows: [] }
   const state = { status: 'ready', packages: [official, remote], busy: [] as string[], notice: null, highlight: null, confirm: null,
@@ -77,7 +79,7 @@ function fixture() {
   const props = {
     useStore: (select: (state: unknown) => unknown) => select(navigation.getSnapshot()), actions: navigation.actions,
     t: (key: string) => key, ensure: vi.fn(), resolveText: (text: string) => text,
-    useConfigurations: () => [], usePluginManager: () => state, useConfigLedger: () => ledger, setEnabled, setRowEnabled,
+    useConfigurations: () => [], usePluginManager: () => state, useConfigLedger: () => ledger, usePluginTabs: () => [], setEnabled, setRowEnabled,
     renderSlot: (name: string, owner: Record<string, unknown>, options?: unknown) => {
       if (name === 'plugins.overview') overview = owner as typeof overview
       return jsx('slot', { name, owner, options })
@@ -91,8 +93,8 @@ function fixture() {
 it('opens an overview-owned bundle through the official detail with native header actions, switch, settings and component rows', () => {
   const app = fixture()
   const list = app.page()
-  expect(nodes(list).filter(node => node.props['data-plugin-group']).map(node => node.props['data-plugin-group'])).toEqual(['official'])
-  expect(nodes(list).find(node => node.props['data-plugin-count'])?.props['data-plugin-count']).toBe(1)
+  expect(nodes(list).filter(node => node.props['data-plugin-group']).map(node => node.props['data-plugin-group'])).toEqual(['extensions'])
+  expect(cardCount(list)).toBe(1)
   app.overview().onOpenBundle(app.remote.name)
   const page = app.page()
   expect(nodes(page).some(node => node.props['data-plugin-group'])).toBe(false)
@@ -123,7 +125,7 @@ it('uses the official item detail without adding Computer Use to the official gr
   expect(action.props.owner.subject).toEqual({ kind: 'item', id: app.item.id })
   expect(nodes(body).some(node => node.props.name === 'plugins.item' && node.props.owner.view === 'page')).toBe(true)
   top.props.onBack()
-  expect(nodes(app.page()).find(node => node.props['data-plugin-count'])?.props['data-plugin-count']).toBe(1)
+  expect(cardCount(app.page())).toBe(1)
   app.overview().onOpenItem('missing')
   expect(component(app.page(), 'ItemDetail')).toBeUndefined()
   app.overview().onOpenBundle('missing')
@@ -135,7 +137,9 @@ it('preserves ordinary official cards and their navigation when no overview entr
   app.ledger.hiddenBundles.clear()
   app.ledger.hiddenItems.clear()
   const list = app.page()
-  expect(nodes(list).find(node => node.props['data-plugin-count'])?.props['data-plugin-count']).toBe(3)
+  // Two official bundles render as package cards; the untouched ledger item is
+  // an ItemCard of the official component list, not a bundle card.
+  expect(cardCount(list)).toBe(2)
   const card = nodes(list).find(node => typeof node.type === 'function' && node.type.name === 'PackageCard' && node.props.pkg.name === 'official-team')!
   card.props.onOpen()
   expect(component(app.page(), 'PackageDetail')?.props.pkg.name).toBe('official-team')
@@ -171,30 +175,30 @@ it('keeps Automation tasks in the official group with its artwork, badge, native
     },
   }
   registerPluginControls(ctx as unknown as Context)
-  const name = '@deepseek-ai/dsh-experimental-schedule-bundle'
+  const name = '@deepseek-ai/dsh-experimental-auto-review'
   const { meta } = JSON.parse(readFileSync(createRequire(import.meta.url).resolve(`${name}/locale/zh.json`), 'utf8'))
-  const schedule = { ...app.remote, name, enabled: false, meta: { ...meta, icon: '/schedule/icon.svg' },
-    rows: [{ rowId: 'schedule', moduleName: '@deepseek-ai/dsh-schedule', entryId: 'include:schedule', enabled: false, phase: 'disabled' }] }
-  app.state.packages.push(schedule)
+  const optionalBundle = { ...app.remote, name, enabled: false, meta: { ...meta, icon: '/auto-review/icon.svg' },
+    rows: [{ rowId: 'auto-review', moduleName: '@deepseek-ai/dsh-experimental-auto-review', entryId: 'include:auto-review', enabled: false, phase: 'disabled' }] }
+  app.state.packages.push(optionalBundle)
   const findCard = () => nodes(app.page()).find(node => typeof node.type === 'function' && node.type.name === 'PackageCard' && node.props.pkg.name === name)!
   const card = findCard()
   expect(card).toBeDefined()
-  expect(nodes(app.page()).find(node => node.props['data-plugin-count'])?.props['data-plugin-count']).toBe(2)
+  expect(cardCount(app.page())).toBe(2)
   const head = component(render(card), 'CardHead')!
-  expect(head.props.title).toBe('自动化任务')
+  expect(head.props.title).toBe('自动授权审查')
   expect(head.props.description).toBe(meta.description)
-  expect(head.props.icon.props.src).toBe('/schedule/icon.svg')
+  expect(head.props.icon.props.src).toBe('/auto-review/icon.svg')
   expect(nodes(head.props.tags).some(node => node.props.children === 'statusBeta')).toBe(true)
   const toggle = render(component(head.props.end, 'EnableSwitch')!)
   expect(toggle.props.checked).toBe(false)
   toggle.props.onChange(true)
   expect(app.setEnabled).toHaveBeenCalledExactlyOnceWith(name, true)
-  schedule.enabled = true
+  optionalBundle.enabled = true
   const activeHead = component(render(findCard()), 'CardHead')!
   expect(render(component(activeHead.props.end, 'EnableSwitch')!).props.checked).toBe(true)
   card.props.onOpen()
   const detail = render(component(app.page(), 'PackageDetail')!)
-  expect(component(detail, 'RowsSection')?.props.rows).toEqual(schedule.rows)
+  expect(component(detail, 'RowsSection')?.props.rows).toEqual(optionalBundle.rows)
   const top = component(detail, 'DetailTop')!
   render(component(top.props.actions, 'EnableSwitch')!).props.onChange(false)
   expect(app.setEnabled).toHaveBeenLastCalledWith(name, false)

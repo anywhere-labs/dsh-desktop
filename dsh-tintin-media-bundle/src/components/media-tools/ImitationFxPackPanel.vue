@@ -27,6 +27,7 @@ const props = defineProps<{ s: CopywritingMontageUi; section?: 'fx' | 'export';
   /** 口播放条音频（仿视频=脚本绑定的 voice_audio_id 素材流；缺省/空=不显示该行，2026-10-13 用户需求） */
   voiceAudioUrl?: string }>()
 const {
+  trackChecks,
   splitResolution,
   previewUrl,
   concatLayout,
@@ -739,11 +740,26 @@ const fancyCustomPreviewStyle = computed<Record<string, string>>(() => {
           <!-- 2026-09-29 用户裁决：导出草稿前需在剪映开启「导入 PR或FCP 工程」——
                引导图 + 文字提示常驻导出按钮下方（图=剪映 全局设置→通用 截图，
                src/assets 内联 data URI；点击新窗口放大） -->
-          <div class="jy-import-hint">
-            <button type="button" class="jy-import-img-btn" title="点击放大查看" @click="openJyImportImg">
-              <img :src="jyImportSettingImg" class="jy-import-img" alt="剪映全局设置：通用 → 打开「导入 PR或FCP 工程」" />
-            </button>
-            <span class="jy-import-text">导入的草稿需在剪映里开启「导入工程」才会加载：<b>剪映 → 全局设置 → 通用 → 打开「导入 PR或FCP…」开关</b>（可在启动时导入其他剪辑软件工程），然后重启剪映即可在首页看到导出的草稿。左图为该开关位置。</span>
+          <!-- 2026-10-13 用户裁决：左=逐轨检查条目与检验结果，右=剪映导入说明 -->
+          <div class="vd4-export-cols">
+            <div class="vd4-track-checks">
+              <div class="vd4-tc-title">轨道检查</div>
+              <template v-if="trackChecks && trackChecks.length">
+                <div v-for="tc in trackChecks" :key="tc.track" class="vd4-tc-track">
+                  <div class="vd4-tc-head">{{ tc.track }}</div>
+                  <div v-for="it in tc.items" :key="it.label" class="vd4-tc-item" :class="{ bad: !it.ok }">
+                    <span class="vd4-tc-mark">{{ it.ok ? '✓' : '✕' }}</span>{{ it.label }}
+                  </div>
+                </div>
+              </template>
+              <div v-else class="muted">尚未导出——点击「导出到剪映时间轴」后，此处显示每轨检查条目与检验结果</div>
+            </div>
+            <div class="jy-import-hint">
+              <button type="button" class="jy-import-img-btn" title="点击放大查看" @click="openJyImportImg">
+                <img :src="jyImportSettingImg" class="jy-import-img" alt="剪映全局设置：通用 → 打开「导入 PR或FCP 工程」" />
+              </button>
+              <span class="jy-import-text">导入的草稿需在剪映里开启「导入工程」才会加载：<b>剪映 → 全局设置 → 通用 → 打开「导入 PR或FCP…」开关</b>（可在启动时导入其他剪辑软件工程），然后重启剪映即可在首页看到导出的草稿。左图为该开关位置。</span>
+            </div>
           </div>
           <!-- 2026-09-18 用户裁决：导出剪映时间轴进度条+完成提示独立于服务端合成，
                紧跟方案一按钮（不放到服务端合成下面）；2026-09-20 用户反馈：进度条与按钮拉开间距 -->
@@ -1101,6 +1117,45 @@ const fancyCustomPreviewStyle = computed<Record<string, string>>(() => {
 /* 开始混音合成（原版 action_button 高 40 全宽，L116） */
 .vd4-run { width: 100%; height: 40px; margin-top: var(--space-2); }
 .vd4-grow { flex: 1; width: auto; }
+/* 2026-10-13 用户裁决：导出区双栏——左=逐轨检查清单，右=剪映导入说明 */
+.vd4-export-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-3);
+  margin-top: 8px;
+  align-items: stretch;
+}
+.vd4-track-checks {
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--foreground) 4%, var(--surface-container));
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: auto;
+}
+.vd4-tc-title {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-caption);
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+.vd4-tc-track { margin-bottom: 8px; }
+.vd4-tc-head {
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--primary);
+  margin-bottom: 2px;
+}
+.vd4-tc-item {
+  font-size: 12px;
+  color: var(--foreground);
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.vd4-tc-item .vd4-tc-mark { color: var(--success, #16a34a); flex: none; }
+.vd4-tc-item.bad { color: var(--error, #e74c3c); }
+.vd4-tc-item.bad .vd4-tc-mark { color: var(--error, #e74c3c); }
+
 /* 2026-09-18 用户裁决：导出方案引导区（标题 + 方案一/二文案 + 各自按钮竖排） */
 .vd4-schemes { display: flex; flex-direction: column; }
 .vd4-scheme-title { margin-top: var(--space-2); font-size: 13px; font-weight: 600; color: var(--foreground); }

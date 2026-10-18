@@ -18,11 +18,18 @@
       name: dsh-plugin-desktop-tintin/profiles
     - id: desktop-updates
       name: dsh-plugin-desktop-tintin/updates
-    # TinTin port: host bridge and media sub-application (docs/tintin-migration-plan.md).
+    # TinTin port: host bridge and the three view sub-applications
+    # (docs/tintin-migration-plan.md). Each mounted package that declares
+    # dsh.client joins the web boot graph; the creation bundle registers the
+    # 'creation' and 'skills' views, the ops bundle registers 'ops'.
     - id: tintin-host
       name: dsh-tintin-bundle
     - id: tintin-media
       name: dsh-tintin-media-bundle
+    - id: tintin-creation
+      name: dsh-tintin-creation-bundle
+    - id: tintin-ops
+      name: dsh-tintin-ops-bundle
 
 # A desktop launch has no terminal operator waiting for the Web readiness line.
 - id: web-runtime

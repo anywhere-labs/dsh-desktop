@@ -1,0 +1,64 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -363,7 +363,7 @@ window.__ModuleLoader__.load({
+ 			const tag = document.createElement("style");
+ 			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-attachment";
+ 			tag.dataset.pluginCss = tagId$2;
+-			tag.textContent = css$2;
++			tag.textContent = css$2 + ".UDrHSq_preview{color:inherit;font:inherit;text-align:left;cursor:pointer;background:0 0;border:0;padding:0}";
+ 			document.head.appendChild(tag);
+ 		}
+ 		var FileCard_module_css_default = {
+@@ -376,6 +376,7 @@ window.__ModuleLoader__.load({
+ 			"meta": "UDrHSq_meta",
+ 			"metaFailed": "UDrHSq_metaFailed",
+ 			"name": "UDrHSq_name",
++			"preview": "UDrHSq_preview",
+ 			"progressBar": "UDrHSq_progressBar",
+ 			"progressTrack": "UDrHSq_progressTrack",
+ 			"remove": "UDrHSq_remove",
+@@ -386,7 +387,7 @@ window.__ModuleLoader__.load({
+ 		//#endregion
+ 		//#region lib/types/FileCard.js
+ 		/** One pending file card: type glyph, name, size or upload status, remove, retry. */
+-		function FileCard({ name, bytes, state, progress, labels, onRemove, onRetry }) {
++		function FileCard({ name, bytes, state, progress, labels, onRemove, onRetry, onOpen }) {
+ 			const extension = (0, _deepseek_ai_dsh_client_ui_primitives.fileExtension)(name).toUpperCase().slice(0, 8);
+ 			const meta = state === "uploading" ? labels.uploading : state === "error" ? labels.failed : [extension, (0, _deepseek_ai_dsh_client_ui_primitives.fileSizeText)(bytes)].filter((part) => part !== "").join(" ");
+ 			const retryable = state === "error";
+@@ -411,9 +412,11 @@ window.__ModuleLoader__.load({
+ 							className: `${FileCard_module_css_default.meta} ${FileCard_module_css_default.metaFailed}`,
+ 							children: meta
+ 						})]
+-					}) : (0, react_jsx_runtime.jsxs)("span", {
+-						className: FileCard_module_css_default.body,
++					}) : (0, react_jsx_runtime.jsxs)(onOpen === void 0 ? "span" : "button", {
++						type: onOpen === void 0 ? void 0 : "button",
++						className: onOpen === void 0 ? FileCard_module_css_default.body : `${FileCard_module_css_default.body} ${FileCard_module_css_default.preview}`,
+ 						"aria-label": labels.label,
++						onClick: onOpen,
+ 						children: [(0, react_jsx_runtime.jsx)("span", {
+ 							className: FileCard_module_css_default.name,
+ 							children: name
+@@ -608,7 +611,7 @@ window.__ModuleLoader__.load({
+ 		//#endregion
+ 		//#region lib/types/client/ComposerAttachments.js
+ 		/** Draft image previews, pending-file cards, drop target, and original-image preview. */
+-		function ComposerAttachments({ attachments, canAcceptDrop, onAddFiles, onRemoveAttachment, uploads, onRetryFile, dropLimits, t }) {
++		function ComposerAttachments({ attachments, canAcceptDrop, onAddFiles, onRemoveAttachment, uploads, onRetryFile, onOpenUploadedFile, dropLimits, t }) {
+ 			const [preview, setPreview] = (0, react.useState)(null);
+ 			const [dragActive, setDragActive] = (0, react.useState)(false);
+ 			const dragDepth = (0, react.useRef)(0);
+@@ -650,7 +653,10 @@ window.__ModuleLoader__.load({
+ 									},
+ 									onRetry: () => {
+ 										onRetryFile(attachment.id);
+-									}
++									},
++									onOpen: upload?.status === "ready" && upload.file !== void 0 && onOpenUploadedFile !== void 0 ? () => {
++										onOpenUploadedFile(upload.file.attachmentId);
++									} : void 0
+ 								});
+ 							}
+ 							return (0, react_jsx_runtime.jsxs)("div", {

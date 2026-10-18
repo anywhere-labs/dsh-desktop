@@ -1,0 +1,156 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1446,8 +1446,9 @@ function mapUsage(usage) {
+ 	};
+ }
+ function classifyPiAiError(message) {
+-	if (/\b(?:401|403)\b/.test(message)) return "AUTH";
+ 	if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE;
++	if (/\b401\b/.test(message)) return "AUTH";
++	if (/\b403\b/.test(message)) return "FORBIDDEN";
+ 	if (/\b429\b|rate.?limit/i.test(message)) return "RATE_LIMIT";
+ 	if (/\b413\b|failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large/i.test(message)) return "INVALID_REQUEST";
+ 	if (/\b400\b|invalid.?request/i.test(message)) return "INVALID_REQUEST";
+@@ -1522,6 +1523,14 @@ function mapStopReason(message, contextWindow) {
+ 		}
+ 	}
+ }
++/** Restore the terminal content array from completed stream blocks when a provider omits it. */
++function completeTerminalMessage(message, completed) {
++	if (Array.isArray(message.content)) return message;
++	return {
++		...message,
++		content: [...completed.entries()].sort(([left], [right]) => left - right).map(([, block]) => block)
++	};
++}
+ /**
+ * Translate the pi-ai event stream into StreamChunks. pi-ai never throws
+ * mid-stream — failures arrive as `error` events, which become error/aborted
+@@ -1536,6 +1545,7 @@ function mapStopReason(message, contextWindow) {
+ */
+ async function* toStreamChunks(events, contextWindow, callerSignal, requestedModel) {
+ 	const toolIds = /* @__PURE__ */ new Map();
++	const completed = /* @__PURE__ */ new Map();
+ 	for await (const event of events) switch (event.type) {
+ 		case "start": break;
+ 		case "text_start":
+@@ -1552,16 +1562,19 @@ async function* toStreamChunks(events, contextWindow, callerSignal, requestedMod
+ 				text: event.delta
+ 			};
+ 			break;
+-		case "text_end":
++		case "text_end": {
++			const block = {
++				type: "text",
++				text: event.content
++			};
++			completed.set(event.contentIndex, event.partial?.content?.[event.contentIndex] ?? { type: "text", text: event.content });
+ 			yield {
+ 				type: "block-end",
+ 				index: event.contentIndex,
+-				block: {
+-					type: "text",
+-					text: event.content
+-				}
++				block
+ 			};
+ 			break;
++		}
+ 		case "thinking_start":
+ 			yield {
+ 				type: "block-start",
+@@ -1576,16 +1589,19 @@ async function* toStreamChunks(events, contextWindow, callerSignal, requestedMod
+ 				text: event.delta
+ 			};
+ 			break;
+-		case "thinking_end":
++		case "thinking_end": {
++			const block = {
++				type: "reasoning",
++				text: event.content
++			};
++			completed.set(event.contentIndex, event.partial?.content?.[event.contentIndex] ?? { type: "thinking", thinking: event.content });
+ 			yield {
+ 				type: "block-end",
+ 				index: event.contentIndex,
+-				block: {
+-					type: "reasoning",
+-					text: event.content
+-				}
++				block
+ 			};
+ 			break;
++		}
+ 		case "toolcall_start": {
+ 			const partial = event.partial.content[event.contentIndex];
+ 			const id = partial?.type === "toolCall" ? partial.id : "";
+@@ -1612,29 +1628,34 @@ async function* toStreamChunks(events, contextWindow, callerSignal, requestedMod
+ 			};
+ 			break;
+ 		}
+-		case "toolcall_end":
++		case "toolcall_end": {
++			const block = {
++				type: "tool-call",
++				id: brandString(event.toolCall.id),
++				name: event.toolCall.name,
++				arguments: JSON.stringify(event.toolCall.arguments)
++			};
++			completed.set(event.contentIndex, event.toolCall);
+ 			yield {
+ 				type: "block-end",
+ 				index: event.contentIndex,
+-				block: {
+-					type: "tool-call",
+-					id: brandString(event.toolCall.id),
+-					name: event.toolCall.name,
+-					arguments: JSON.stringify(event.toolCall.arguments)
+-				}
++				block
+ 			};
+ 			break;
+-		case "done":
++		}
++		case "done": {
++			const message = completeTerminalMessage(event.message, completed);
+ 			yield {
+ 				type: "usage",
+-				usage: mapUsage(event.message.usage)
++				usage: mapUsage(message.usage)
+ 			};
+ 			yield {
+ 				type: "finish",
+-				reason: mapStopReason(event.message, contextWindow),
+-				replayState: toPiReplayState(event.message, requestedModel)
++				reason: mapStopReason(message, contextWindow),
++				replayState: toPiReplayState(message, requestedModel)
+ 			};
+ 			return;
++		}
+ 		case "error":
+ 			yield {
+ 				type: "usage",
+@@ -1814,8 +1835,11 @@ function reasoningInfo(model, defaultLevel) {
+ 	} };
+ }
+ /** Merge deployment headers while removing case-insensitive attribution collisions. */
+-function requestHeaders(headers) {
+-	const attribution = attributionHeaders();
++function requestHeaders(headers, sessionId) {
++	const attribution = {
++		...attributionHeaders(),
++		...sessionId === void 0 ? {} : { "x-deepseek-harness-session-id": String(sessionId) }
++	};
+ 	const reserved = new Set(Object.keys(attribution).map((name) => name.toLowerCase()));
+ 	return {
+ 		...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
+@@ -1986,7 +2010,7 @@ var PiAiAdapter = class extends LlmAdapter {
+ 					...options.maxTokens === void 0 ? {} : { maxTokens: options.maxTokens },
+ 					...options.sessionId === void 0 ? {} : { sessionId: String(options.sessionId) },
+ 					signal: watchdog.signal,
+-					headers: requestHeaders(profile.headers)
++					headers: requestHeaders(profile.headers, options.sessionId)
+ 				}), model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]();
+ 				let exhausted = false;
+ 				try {

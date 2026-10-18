@@ -1,29 +1,107 @@
 ---
 name: openfilm
-description: Make real videos with OpenFilm — you (the agent) write the film as web pages, the person watches and edits it in Studio, and `render` exports the MP4. Use when the person asks to make a video, film, launch/demo/promo video, motion graphics, lyric video, slideshow with motion, screen demo, or mentions OpenFilm; 中文触发词：做视频/拍个片子/宣传片/短视频/动画视频/产品演示视频/MV/视频海报/让 AI 做视频。
+description: Make real videos with OpenFilm, driven by TinTin's server models and media capabilities — you write the film as web pages, the person watches and edits it in Studio (a separate window opened from the left sidebar), and `render` exports the MP4. Use when the person asks to make a video, film, launch/demo/promo video, motion graphics, lyric video, slideshow with motion, screen demo, voice-over, or mentions OpenFilm; 中文触发词：做视频/拍个片子/宣传片/短视频/动画视频/产品演示视频/MV/视频海报/让 AI 做视频/配音/字幕。
 ---
 
-# OpenFilm (DSH edition)
+<!-- tintin-managed: openfilm skill -->
+
+# OpenFilm (TinTin · server-driven)
 
 You make films with OpenFilm. A film is a web page, `film.html`, that cuts pages, footage, pictures and sound
 together. A page is a web page that sets `window.film` and draws any moment t it is asked for. Studio, a local
 editor, shows the person the film taking shape while you work, and they can change anything in it by hand.
 
+**The models and media all come from the TinTin server.** You are the TinTin agent, running on the server's model;
+voice-over, music, sound effects, transcripts, stock pictures and the LLM itself are the server's capabilities —
+never ask the person for an API key or send them to connect ElevenLabs/OpenAI/Google.
+
 ## Environment (DSH desktop · Windows)
 
-- Run every command as `npx -y openfilm@latest <command>` in the film's folder. The very first run downloads the
-  CLI and a headless Chromium (~100 MB) — expect a slow first command, say so if the person is waiting.
-- Films live in a folder of their own under the current session workspace, named after the film in kebab-case
-  (`launch-video`), created if missing. Pass that folder to `open`; afterwards run the other tools with the
-  working directory set to the film folder ("look, render and get work on the project around the current folder").
-- `open` starts Studio and opens it in the person's default browser by itself (DSH has no built-in browser). It
-  prints Studio's local address: repeat that address to the person as a clickable link, and keep working — the
-  person watches every change land in Studio and may edit alongside you.
-- `render` needs ffmpeg on PATH. If it is missing, tell the person to install ffmpeg (e.g. `winget install ffmpeg`)
-  rather than improvising another export path.
+- In a packaged TinTin, the `openfilm` command is on PATH (vendored runtime with its own Node, headless Chromium
+  and ffmpeg). In a dev checkout without it, use `npx -y openfilm@latest <command>` instead (the first run downloads
+  the CLI and a headless browser — say so if the person is waiting).
+- Never run `openfilm update`: the TinTin installer owns this copy.
+- Studio: the person opens it from the left sidebar row **OpenFilm** (a separate window). When you need Studio
+  running for `get` and it is not, run `openfilm open` first, with `$env:OPENFILM_NO_BROWSER='1'` set so it does not
+  also open the system browser.
+- Films live in a folder of their own under the session workspace, named after the film in kebab-case
+  (`launch-video`). Run every command with that folder as the working directory; `openfilm get` acts on the project
+  around the current folder.
 - Never create, edit or delete anything inside `.film/` or `.git/` in the film folder: those belong to the tools.
 - Reply to the person in their language; the film's own text follows what they asked for.
-- If `npx` itself is missing (no Node on PATH), stop and tell the person — do not try to reimplement OpenFilm.
+- Antivirus (Huorun and kin) can intermittently block ffmpeg from writing files when the command chain runs through
+  cmd.exe or right after a folder was created. If `render` fails with "Permission denied", wait a few minutes and
+  rerun the exact same command; if it persists, tell the person to whitelist ffmpeg or the film folder.
+
+## Server capabilities (use these instead of paid providers)
+
+Media comes through OpenFilm's custom service **`tintin`**, registered by the TinTin app. Call it in the film
+folder with:
+
+    openfilm get call --service tintin --path <path> [--method POST --json '<json>'] [--file file=<project file>] [--out <name>]
+
+- Files it returns land under `assets/tintin/<out>.<ext>`; `--out` is a bare name (no folder, no extension).
+- JSON answers are printed as text: read them and make the follow-up call they name.
+- PowerShell: write JSON in single quotes (`--json '{"text":"..."}'`). If a shell mangles a `/path` argument
+  (Git Bash converts it), prefix the command with `MSYS_NO_PATHCONV=1`.
+
+### Voice-over (TTS) — two calls
+
+1. Pick a voice. Server samples carry the reference audio:
+
+       openfilm get call --service tintin --path /voice/samples
+       openfilm get call --service tintin --path /indextts/qwen3/voices     # qwen3 preset speakers
+
+   Use a sample's `id` as `sample_id`. Clone voices sound like the sample; Qwen3 preset voices use
+   `engine:"qwen3"` + `speaker:"<name>"`.
+
+2. Speak the line (expect ~0.25 s per character; a short sentence can take a minute):
+
+       openfilm get call --service tintin --path /indextts/tts --method POST --json '{"text":"<line>","resp":"json","sample_id":1285}'
+
+   The answer is `{"audio_url":"/output/tts/….wav", …}`. Land it under assets:
+
+       openfilm get call --service tintin --path <audio_url> --out line1
+
+   Now `assets/tintin/line1.wav` exists. Speech is a clip in `film.html`, never inside a page:
+   `<audio src="assets/tintin/line1.wav" at="<film second>"></audio>`.
+
+### Subtitles (ASR) — SRT from the same audio
+
+    openfilm get call --service tintin --path /whisper/transcribe --method POST --file file=assets/tintin/line1.wav
+
+The answer is SRT text (`1` / `00:00:00,000 --> 00:00:03,100` / line). OpenFilm reads a WebVTT beside the media
+with the same base name (`assets/tintin/line1.wav` → `assets/tintin/line1.vtt`): write `WEBVTT` as the first line,
+replace the `,` in timestamps with `.`, drop the cue numbers. Never draw subtitles in a page.
+
+### Music (BGM) — one call, absolute URL
+
+    openfilm get call --service tintin --path /audio/gen/bgm --method POST --json '{"prompt":"<what it sounds like>","style":"electronic","duration":8}'
+
+The answer carries `url` (absolute) and `duration`. Land it with the URL's path part:
+
+    openfilm get call --service tintin --path <path of url> --out bed
+
+`assets/tintin/bed.wav` is the film's music track (`<audio src="assets/tintin/bed.wav" volume="0.6"></audio>`).
+Sound effects: `/audio/gen/sfx` (same shape) or the server library `/sfx/library`.
+
+### Stock pictures (image search) — JSON, then download
+
+    openfilm get call --service tintin --path /material/stock_search --method POST --json '{"query":"city night","kind":"image","per":6}'
+
+The answer lists `items[].url` (Pexels/Pixabay). Download the ones you use into the project yourself, e.g.
+`Invoke-WebRequest -Uri <url> -OutFile assets/stock/1.jpg`, then place them in `film.html`.
+
+### What the server does NOT provide
+
+- **No text-to-image.** No prompt → picture endpoint is available. Use stock search, the material library
+  (`/material/list`), the person's own files, or CSS/SVG/canvas drawn in a page.
+- **No text-to-video.** Video comes from the person's footage or the material library. (A digital-human workflow
+  exists on the server — image + audio → talking video — but it is not a prompt-to-video API; only use it if the
+  person asks for a digital human and supplies a picture.)
+- Subtitle translation: do it yourself (you are the server's LLM) when writing the `.vtt`; no provider call needed.
+
+If the person asks for something in these gaps, say so plainly and offer the available alternative.
 
 ## The project
 
@@ -42,9 +120,6 @@ A folder:
     <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=1920, height=1080">
-    <style>
-      .card { object-fit: cover; border-radius: 24px; }
-    </style>
     </head>
     <body>
     <section>
@@ -55,7 +130,7 @@ A folder:
       <video src="assets/a.mp4#t=2,8" at="2" class="card" style="left: 160px; top: 90px; width: 1600px; height: 700px"></video>
     </section>
     <section>
-      <audio src="assets/bed.mp3" volume="0.6"></audio>
+      <audio src="assets/tintin/line1.wav" at="2"></audio>
     </section>
     </body>
     </html>
@@ -71,19 +146,13 @@ A folder:
     it, all of them. A picture, or a page without a `duration`, needs `#t=0,length`: how long it stays.
   - `at`: where it starts in the film, in seconds; without it, 0.
   - `left`, `top`, `width`, `height` in its `style` (px) and `rotate` (degrees, clockwise): where it sits. Without
-    them, a video or picture is the stage, and a page is its own size, centered. With only `width` or `height`,
-    the other keeps its proportions.
-  - Its look is CSS, in `class` or `style`: a video or picture fits whole in its box unless you say otherwise
+    them, a video or picture is the stage, and a page is its own size, centered.
+  - Its look is CSS, in `class` or `style`; a video or picture fits whole in its box unless you say otherwise
     (`object-fit: cover` crops it to the box). The film's CSS holds still; what moves is a page.
-  - `speed` (video and sound): 0.25 to 4. The clip lasts `(out − in) / speed` seconds. To make it faster or
-    slower, change `speed` only: never make the file again at another speed, nor move its `.vtt`'s times. Its
-    subtitles follow `speed` on their own.
+  - `speed` (video and sound): 0.25 to 4; the clip lasts `(out − in) / speed`. Change `speed` only — never
+    re-encode a file at another speed, nor move its `.vtt`'s times.
   - `volume` (video and sound): 1 is the file's own level; `muted` silences it.
-  - `id`: a name, unique in the film; without it, the file's name.
-  - `overrides`: the person's changes made in Studio. Keep them as they are.
-  - `size` (page): the px a page without its own `width` and `height` is laid out at; without it, the stage's.
-    Studio sets it when the frame changes shape. Keep it as it is; remove it only when you lay the page out again
-    for the new frame.
+  - `id`: a name, unique in the film. `overrides`: the person's Studio edits — keep them as they are.
 - Cut a long recording by trimming it: every clip of it is the same file with its own `#t=`. Never cut, crop or
   re-encode media into new files; CSS crops.
 
@@ -92,9 +161,8 @@ A folder:
     <script type="module">
     window.film = {
       frame(t) { /* draw the whole picture at t seconds */ },
-      duration: 6,                  // optional: the page's own length, in seconds
-      ready: loadEverything(),      // optional: a Promise; drawing starts once it settles
-      width: 480, height: 320,      // optional: a page that is only a part of the picture
+      duration: 6,
+      ready: loadEverything(),
     };
     </script>
 
@@ -102,49 +170,28 @@ A folder:
 before and in whatever order.
 
 - One shot per page: a film of five shots is five pages cut together in film.html, so the person can trim, reorder
-  and replace each one. What the pages share (fonts, colors, a logo) goes in a file they load.
+  and replace each one.
 - Studio edits elements, not pixels: make what the person may change a DOM element.
-- Without `width` and `height`, a page is the size of the stage: lay it out for it. With them (a chart in a
-  corner), it is that size, and its clip's style puts it in place.
-- A page's t is its own time, starting at 0. Where it sits in the film, and for how long, is film.html's.
-- The host calls `frame(t)`; a page never animates by itself (no animation loop, no autoplay).
-- The picture is captured once `frame` returns, or once the Promise it returns resolves. Create a WebGL context
-  with `preserveDrawingBuffer: true`.
+- Without `width`/`height`, a page is the size of the stage; with them, its clip's style puts it in place.
+- The host calls `frame(t)`; a page never animates by itself (no animation loop, no autoplay). Create a WebGL
+  context with `preserveDrawingBuffer: true`.
 - A page has no sound: every sound is a clip in film.html. A shot's sound effect goes at the film second it plays:
-  the page clip's `at`, plus the page's t, less the clip's in point (a hit at t = 2 in a clip at 5 goes at 7).
-  When you move the page clip, move its sounds with it.
+  the page clip's `at`, plus the page's t, less the clip's in point.
 
 ## Tools
 
-Run them in the film's folder, as `npx -y openfilm@latest <command>`. Each one's `--help` lists its options:
-- `open <folder>`: first. A new film gets a folder of its own, named after it; an existing one opens, and a GitHub
-  address of one is copied into the projects library and opened. It prints Studio's address and opens Studio in the
-  person's default browser before you write anything — keep it open, so the person watches every change land and
-  edits too. `open` alone shows the film you are in, else the last one: run it when the person only asks to open
-  OpenFilm.
+Run them in the film folder as `openfilm <command>` (`npx -y openfilm@latest <command>` on a dev checkout). Each
+one's `--help` lists its options:
+- `open [folder]`: start or open a project. Existing Studio instances switch to it. The TinTin app normally opens
+  Studio from the sidebar; use `open` when you created a new film and want the person to watch it land.
 - `look`: a contact sheet of the whole film with its sound, and a check that the same t draws the same picture.
-  `look 4.5` is one frame at full size, `look 3-6` a stretch, `look assets/a.mp4` a media file.
-- `render`: the MP4, beside film.html (30 fps unless `--fps`). Only when the person asks for the file: you check
-  with `look`, and the person can also export from Studio.
-- `get`: voice-over, music, sound effects, transcripts, images, image search, video and web search. Each kind
-  works only once the person has connected a service that makes it, with their own key, in Studio (Settings →
-  Providers); Studio's subtitle translation too. Run it alone to see what works now and which services make the
-  rest. When a kind is not connected, tell the person which services make it and where they connect one. A video
-  clip costs a lot: the person confirms it in Studio first.
-- `skills`: the skills this film can be made with, each a way of making a kind of film. When the person names one,
-  or one fits what they ask, `npx -y openfilm@latest skill <name>` prints it: read it whole and follow it. Its
-  folder is only read: copy what the film uses into the project.
-
-The words of a sound or a video are a WebVTT beside it with the same name (`vo/1.wav` → `vo/1.vtt`): a cue per
-subtitle line, a timestamp tag at each word. Studio makes the film's subtitles from them; never draw subtitles in
-a page.
-
-Media can come from `get`, any service the person uses (with its API docs and their key), or your own code. Save
-it under `assets/`.
-
----
+  `look 4.5` is one frame at full size, `look 3-6` a stretch, `look assets/a.mp4` a media file. Run it after
+  meaningful changes.
+- `render`: the MP4, beside film.html (30 fps unless `--fps`). Only when the person asks for the file.
+- `get`: the server capabilities above; with no verb it lists what is usable now (yours: `call` → `tintin`).
+- `skills`: the film-making skills this project can use; `openfilm skill <name>` prints one whole. Follow it when
+  the person names one or it fits what they ask; copy what the film uses into the project.
 
 OpenFilm is by [openfilm.dev](https://openfilm.dev), MIT License — source
-[openfilm/openfilm](https://github.com/openfilm/openfilm) (TinTin fork: justTintin/dsh-openfilm). This skill
-embeds its MANUAL.md; `npx -y openfilm@latest` with no arguments prints the live manual, which wins if they
-disagree.
+[openfilm/openfilm](https://github.com/openfilm/openfilm). This skill embeds its MANUAL.md; `openfilm` with no
+arguments prints the live manual, which wins if they disagree.

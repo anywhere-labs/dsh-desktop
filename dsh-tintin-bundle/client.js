@@ -1,8 +1,6 @@
-// Executes at script-eval time — every module factory (including
-// tintin-media-bundle's window.__tintinViews registration) runs only after
-// ALL bootstrap scripts' top levels, so installing the chrome and polyfill
-// here is deterministic; apply()-time installation raced that registration
-// and lost non-deterministically (observed dev17 ok / dev18 missing).
+// Executes at script-eval time — ALL bootstrap scripts' top levels run first,
+// so installing the chrome/polyfill here is deterministic; apply()-time
+// installation raced the __tintinViews registration and lost (dev17/dev18).
 const tintinClient = (() => {
     // ── TinTin 侧栏视图（2026-09-23 用户实测修正；2026-10-16 用户裁决：创作模式
     // 独立视图置于运营工具之上，不再占用媒体工具网格卡位）─────────────
@@ -63,7 +61,7 @@ const tintinClient = (() => {
         const host = row.parentElement
         if (!host || host.querySelector('[data-tintin-entry]')) return true
         // 入口行 = 克隆「插件」面板行同层直插（2026-09-28 裁决：布局/行距逐像素一致）；只改标题与点击。
-        const items = [...VIEWS, { id: '__browser', label: '浏览器' }]
+        const items = [...VIEWS, { id: '__browser', label: '浏览器' }, { id: '__openfilm', label: 'OpenFilm' }]
         let anchor = row
         for (const v of items) {
           const b = row.cloneNode(true)
@@ -99,19 +97,31 @@ const tintinClient = (() => {
               if (br) void br.open('web').catch(() => {})
               return
             }
+            if (v.id === '__openfilm') { void window.tintin?.openfilm?.openStudio?.().catch((e) => window.alert(`OpenFilm 启动失败：${e?.message || e}`)); return }
             setActive(activeId === v.id ? 'workbench' : v.id)
           }
-          if (v.id !== '__browser') entryButtons.push([v.id, b])
+          if (!v.id.startsWith('__')) entryButtons.push([v.id, b])
           anchor.insertAdjacentElement('afterend', b)
           anchor = b
         }
         return true
       }
-      // 侧栏由 React 管理（类名带 hash 会重渲染）：MutationObserver 守住注入+联动重摘；
-      // 点侧栏其他区域（会话/新会话）=回工作台（展开态，见下方收起态豁免）。
+      // 侧栏由 React 管理：MutationObserver 守住注入+联动重摘+原生浮层提权检测
+      // （2026-10-17 报障二修：设置面板 portal 直挂 body，首版扫侧栏子树恒 false
+      // → 改扫 body 直接子元素；原生 z1000 全屏浮层（设置/附件查看器同族）在位
+      // → 覆盖层降其下 500，关闭（ESC/点遮罩）由 body childList 观察自动恢复）。
+      // 点侧栏其他区域（会话/新会话）=回工作台。
+      function detectNativeOverlay() {
+        const open = [...document.body.children].some((el) => {
+          const s = getComputedStyle(el); return s.position === 'fixed' && s.zIndex === '1000'
+        })
+        overlay.style.zIndex = open ? '500' : '9998'
+      }
+      const bodyMo = new MutationObserver(() => detectNativeOverlay())
       const sidebarMo = new MutationObserver(() => {
         if (!injectEntries()) return
         paintEntries() // 联动自愈：React 重渲染恢复插件行高亮时重摘
+        detectNativeOverlay()
         const root = document.querySelector('[data-pane="sidebar"], [class*="sidebarCol"]')
         if (root && !root.__tintinWired) {
           root.__tintinWired = true
@@ -131,25 +141,19 @@ const tintinClient = (() => {
       const armSidebarObserver = () => {
         const col = document.querySelector('[class*=sidebarCol]') || document.body
         sidebarMo.observe(col, { childList: true, subtree: true })
+        bodyMo.observe(document.body, { childList: true })
         injectEntries()
+        // 不可在此直调 detectNativeOverlay()：overlay 的 const 声明在本闭包更后，
+        // arm 在脚本求值期同步执行会踩 TDZ（1017 启动失败事故）；首个 mutation
+        // 到达时 overlay 早已就绪，检测自会补跑。
       }
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', armSidebarObserver)
       else armSidebarObserver()
 
-      // 动画层（2026-09-25 报障补齐）：①视图入场 slide-up ②卡片 stagger（SRC
-      // MediaTools/global.css 口径 0.2s·12px / 0.35s·35ms）③网格卡 hover 抬升；
-      // chrome 在令牌作用域外，缓动用字面量兜底；KeepAlive 下 display 切换即重放。
+      // 动画层（2026-09-25 报障补齐）：入场 slide-up/卡片 stagger/hover 抬升
+      // （SRC 口径 0.2s·12px、0.35s·35ms）；令牌作用域外缓动用字面量兜底。
       const animStyle = document.createElement('style')
-      animStyle.textContent = [
-        '@keyframes tintin-view-in{from{opacity:0;transform:translateY(12px)}}',
-        '.tintin-view-el{animation:tintin-view-in .22s cubic-bezier(0,0,.2,1)}',
-        '@keyframes tintin-stagger-in{from{opacity:0;transform:translateY(12px)}}',
-        // backwards 填充：延迟期显示 from 态，播完交还 transform 给 hover 抬升
-        '.tintin-stagger-item{animation:tintin-stagger-in .35s cubic-bezier(0,0,.2,1) backwards}',
-        ...[0,1,2,3,4,5,6,7,8,9,10,11].map((i) => `.tintin-stagger-item:nth-child(${i + 1}){animation-delay:${i * 35}ms}`),
-        '.tintin-grid-card{transition:transform .18s cubic-bezier(0,0,.2,1),box-shadow .18s cubic-bezier(0,0,.2,1),background .12s}',
-        '.tintin-grid-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.12);background:var(--dsw-alias-bg-layer-3,#2a2a2c)}',
-      ].join('\n')
+      animStyle.textContent = ['@keyframes tintin-view-in{from{opacity:0;transform:translateY(12px)}}', '.tintin-view-el{animation:tintin-view-in .22s cubic-bezier(0,0,.2,1)}', '@keyframes tintin-stagger-in{from{opacity:0;transform:translateY(12px)}}', '.tintin-stagger-item{animation:tintin-stagger-in .35s cubic-bezier(0,0,.2,1) backwards}', ...[0,1,2,3,4,5,6,7,8,9,10,11].map((i) => `.tintin-stagger-item:nth-child(${i + 1}){animation-delay:${i * 35}ms}`), '.tintin-grid-card{transition:transform .18s cubic-bezier(0,0,.2,1),box-shadow .18s cubic-bezier(0,0,.2,1),background .12s}', '.tintin-grid-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.12);background:var(--dsw-alias-bg-layer-3,#2a2a2c)}'].join('\n')
       document.head.appendChild(animStyle)
 
       const overlay = document.createElement('div')
@@ -201,10 +205,8 @@ const tintinClient = (() => {
             // P3 tintin-ops-bundle 落地时接管同名 'ops' 注册。
             renderOpsGrid(el)
           } else if (activeId === 'browser') {
-            // 浏览器 tab（2026-09-25 用户裁决提前移植浏览器域首片）：平台登录态
-            // 管理 + 打开独立浏览器窗口。壳层引擎在 src/main/tintin/browser/
-            // （dshDesktopBrowser 桥）；参考视频下载的 yt-dlp cookies 从这里
-            // 导出到约定目录。
+            // 浏览器 tab（2026-09-25 裁决：浏览器域首片——登录态管理+独立窗口；
+            // 壳引擎在频道宿主 src/main/tintin/browser/，yt-dlp cookies 从此导出）
             renderBrowserPanel(el)
           } else {
             renderPendingInto(el, '媒体工具界面搬运中（视图提供方未注册）')
@@ -834,10 +836,7 @@ const tintinClient = (() => {
         llmChat: (payload) => call('server:post', { path: '/llm/chat/completions', body: payload }),
         llmModels: () => call('server:get', { path: '/llm/models' }),
         copywritingVoiceover: (payload) => call('server:post', { path: '/copywriting/voiceover', body: payload }),
-        // 声音样本域（2026-09-24 补链：此前 ttsVoicesSamples 未映射 → Step2
-        // 永远「无样本可选」）。列表/音色是纯 GET 走通用通道；上传与转写的
-        // 载荷含 {path} 本地文件包装，浏览器读不了盘，转发宿主原生通道
-        // （tts:uploadSample / asr:transcribe 由宿主读盘组 multipart）。
+        // 声音样本域（2026-09-24 补链：ttsVoicesSamples 未映射→样本试听复盘）。
         ttsVoicesSamples: (params) => call('server:get', { path: '/voice/samples', params: params ?? {} }),
         ttsQwen3Voices: () => call('server:get', { path: '/indextts/qwen3/voices' }),
         ttsUploadSample: (p, _onProgress) => call('tts:uploadSample', { args: [p] }),
@@ -976,11 +975,8 @@ const tintinClient = (() => {
         return f.path || ''
       }
       const dialog = namespaced('dialog', {
-        // openFile 选中即登记（2026-10-08）：pickedPath 拿到绝对路径后先等
-        // media:unlock 落地再交出路径——消费方（仿视频第 1 步等经 /tintin/media
-        // 取回 File）的读取必然晚于登记，根除「登记与读取赛跑→403」；原先
-        // setFile 里的 fire-and-forget unlock 保留作冗余双保险。登记失败静默
-        // （读取侧 403 已带宿主响应体可定位）。
+        // openFile 选中即登记（2026-10-08）：pickedPath 先等 media:unlock 落地
+        // 再交出路径——消费方读取必然晚于登记，根除「登记与读取赛跑→403」。
         openFile: async (params) => {
           const p = pickedPath((await pickInputFiles({ filters: params?.filters }))[0]) || null
           if (p) { try { await call('media:unlock', { args: [p] }) } catch { /* 读取侧 403 暴露 */ } }
@@ -999,14 +995,10 @@ const tintinClient = (() => {
           if (rel && abs.endsWith('/' + rel)) abs = abs.slice(0, abs.length - rel.length - 1)
           return abs || null
         },
-        // 浏览器无保存对话框：恒 null（=取消）。a[download] 拿不到用户选择的
-        // 目标路径，消费端按路径继续本地 ffmpeg 流程，假路径只会后移失败点。
-        // 2026-10-12 定案：宿主 bundle 跑在 Harness 子进程（纯 node），无 electron
-        // 对话框能力（两次实障：裸 require ReferenceError / require('electron') 得
-        // 字符串）。原生保存对话框由桌面壳 preload 桥 dshDesktopSaveFilePicker
-        // 承担（dsh-plugin-desktop-tintin/src/preload.ts，壳随包重打包生效）；
-        // 桥未就绪（旧壳）保持 null=取消。「下载直落下载文件夹」场景不走本方法，
-        // 走 env.downloadsDir + tts:saveAudio（fromPath 复制）。
+        // 浏览器无保存对话框：恒 null（=取消）。2026-10-12 定案：宿主 bundle 跑在
+        // Harness 子进程（纯 node）无 electron 对话框能力（两次实障）；原生保存
+        // 对话框由桌面壳 preload 桥 dshDesktopSaveFilePicker 承担（壳随包重打包
+        // 生效）；桥未就绪保持 null=取消。下载直落下载文件夹走 env.downloadsDir。
         saveFile: async (params) => {
           try {
             const picked = await window.dshDesktopSaveFilePicker?.pick?.(params)
@@ -1125,6 +1117,9 @@ const tintinClient = (() => {
         media,
         context,
         config,
+        // OpenFilm 启动（2026-10-18 裁决：侧栏入口=独立窗口）：宿主通道同步
+        // 技能/服务并启动 Studio（不弹系统浏览器），壳桥按地址开窗；无壳退化为新标签页。
+        openfilm: { openStudio: () => call('openfilm:studio', { args: [{}] }).then((r) => { const url = r?.url; if (!url) throw new Error(r?.error || 'Studio 未启动'); const bridge = window.dshDesktopOpenStudio; return bridge ? bridge.open(url) : window.open(url, '_blank', 'noopener') }) },
       }
       console.info('[tintin] window.tintin polyfill installed')
     }

@@ -138,6 +138,8 @@ export function useCopywritingMontageStep4Final(ctx: MontageStep4Context) {
   const exportStage = ref('')      // 导出阶段文案
   // 2026-09-16：导出成功后记录草稿目录路径（供「打开草稿目录」按钮使用）
   const lastExportDraftPath = ref('')
+  /** 逐轨检查清单（2026-10-13 用户裁决：导出区左侧显示每轨检查条目与检验结果） */
+  const trackChecks = ref<Array<{ track: string; items: Array<{ label: string; ok: boolean }> }>>([])
   // 2026-09-18 用户裁决：导出完成提示行（仿声音克隆完成提示形态：状态行「完成：…」），
   // 「打开草稿目录」按钮内嵌该提示（自底部结果区移入）；重导时清空
   const exportDoneMsg = ref('')
@@ -1125,6 +1127,38 @@ async function exportAllToJianyingDraft(): Promise<void> {
       if (!voicedN && !srtN) missing.push('口播')
       if (!srtN) missing.push('字幕')
       if (missing.length) trackReport.push(`⚠ 缺少：${missing.join('、')}`)
+      // 逐轨检查清单（2026-10-13 用户裁决：结构化数据供导出区左侧面板渲染；
+      // 含旁白 vs 视频轨时长核对——旁白更长时末段已由导出器慢速延长铺满）
+      const videoTotalSec = videoDurations.reduce((a, b) => a + Number(b || 0), 0) / 1e6
+      const voiceMaxSec = voiceClips.flat().reduce((m, c) => Math.max(m, Number(c.durUs || 0) / 1e6), 0)
+      trackChecks.value = [
+        { track: '视频轨', items: [
+          { label: `候选视频 ${cands.length} 段全部就绪`, ok: cands.length > 0 },
+          { label: `时间轴合计 ${videoTotalSec.toFixed(2)}s`, ok: videoTotalSec > 0 },
+        ] },
+        { track: '口播轨', items: voicedN
+          ? [
+              { label: `口播挂载 ${voicedN}/${cands.length} 分镜（整段旁白 ${voiceMaxSec.toFixed(2)}s）`, ok: true },
+              { label: voiceMaxSec > videoTotalSec + 0.05
+                  ? `旁白长于视频轨 ${(voiceMaxSec - videoTotalSec).toFixed(2)}s——末段已慢速延长铺满`
+                  : '旁白与视频轨时长匹配', ok: true },
+            ]
+          : [{ label: '无口播挂载——回第 2/3 步生成配音', ok: false }] },
+        { track: '字幕轨', items: [
+          { label: `SRT ${srtN} 条（按所选样式渲染）`, ok: srtN > 0 },
+        ] },
+        { track: '文字模板轨', items: [
+          { label: tplN ? `命中模板 ${tplN} 段` : '未启用/未命中', ok: true },
+        ] },
+        { track: '花字轨', items: [
+          { label: fancyN ? `关键词 ${fancyN} 词条` : '未启用/未命中', ok: true },
+        ] },
+        { track: 'BGM', items: [
+          bgmPath.value
+            ? { label: 'BGM 文件已挂载', ok: true }
+            : { label: '未选择 BGM（成片无背景音乐）', ok: true },
+        ] },
+      ]
       // 2026-09-18 用户裁决：完成提示仿声音克隆生成完成提示形态（状态行「完成：…」+ OS 弹窗）；
       // 「打开草稿目录」按钮内嵌该提示行（自底部结果区移入）；2026-09-20（用户反馈）：带草稿名
       exportDoneMsg.value = '完成： 剪映时间轴草稿导出完成！项目名称：' + finalName
@@ -1201,7 +1235,7 @@ async function exportAllToJianyingDraft(): Promise<void> {
 
   return {
     bgmPath, bgmName, bgmVolume, rowBgm, finalMode, exportBusy, exportProgress, exportStage,
-    lastExportDraftPath, exportDoneMsg, exportWarnMsg, finalSelIdx, finalPreviewUrl, finalPreviewTitle,
+    lastExportDraftPath, exportDoneMsg, exportWarnMsg, trackChecks, finalSelIdx, finalPreviewUrl, finalPreviewTitle,
     bgmSource, bgmGenPrompt, bgmGenStyle, bgmGenDuration, bgmGenBusy, bgmGenError, bgmGenUrl,
     bgmGenMeta, bgmPreviewUrl, bgmPlaying, bgmPosMs, bgmDurMs, lastComposeTasks,
     generateBgm, downloadLibraryBgm, applyLibraryBgm, pickBgm, rowBgmName, setRowBgm,

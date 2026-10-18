@@ -1,0 +1,491 @@
+/* ═══════════════════════════════════════════════════════════════
+   TinTin V3 Electron — tokens.css（tintin-media-bundle 作用域化副本）
+   完全对齐 Luosiding 设计系统。
+   - 调色板：--luosiding-* (indigo / violet / slate / status)
+   - 语义层：--primary / --surface-container 等
+   - 消费层：--color-* 供组件类直接引用
+   暗色通过 .dark 类覆盖，亮色为默认主题（:root），与设计稿一致。
+
+   搬运适配（WP-3）：源文件 desktop/renderer/src/styles/tokens.css 的
+   `:root`/`.dark`/`.light` 与 `.luo-*` 类全部改挂到媒体面板根类
+   `.tintin-media-scope`（`:root` → `.tintin-media-scope`、`.dark` →
+   `.tintin-media-scope.dark`、其余类为后代选择器），令变量按继承在面板
+   子树内生效且不泄漏改写 DSH 宿主页面；token 定义本身逐条未改。
+   ═══════════════════════════════════════════════════════════════ */
+.tintin-media-scope {
+  /* ── indigo 品牌蓝 ─────────────────────────────────────── */
+  --luosiding-indigo-50:  #e0e7ff;
+  --luosiding-indigo-100: #c7d2fe;
+  --luosiding-indigo-200: #a5b4fc;
+  --luosiding-indigo-300: #818cf8;
+  --luosiding-indigo-400: #6366f1;
+  --luosiding-indigo-500: #4f46e5;
+  --luosiding-indigo-600: #4338ca;
+  --luosiding-indigo-700: #3730a3;
+  --luosiding-indigo-800: #312e81;
+  --luosiding-indigo-900: #1e1b4b;
+
+  /* ── violet 强调紫 ─────────────────────────────────────── */
+  --luosiding-violet-50:  #f5f3ff;
+  --luosiding-violet-100: #ede9fe;
+  --luosiding-violet-200: #ddd6fe;
+  --luosiding-violet-300: #c4b5fd;
+  --luosiding-violet-400: #a78bfa;
+  --luosiding-violet-500: #8b5cf6;
+  --luosiding-violet-600: #7c3aed;
+  --luosiding-violet-700: #6d28d9;
+  --luosiding-violet-800: #5b21b6;
+  --luosiding-violet-900: #4c1d95;
+
+  /* ── slate 中性灰阶 ────────────────────────────────────── */
+  --luosiding-slate-0:   #ffffff;
+  --luosiding-slate-50:  #f0f1f7;
+  --luosiding-slate-100: #c3c6d2;
+  --luosiding-slate-200: #9ca1b1;
+  --luosiding-slate-300: #73788c;
+  --luosiding-slate-400: #5f6475;
+  --luosiding-slate-500: #4c5060;
+  --luosiding-slate-600: #3a3e4b;
+  --luosiding-slate-700: #2b3040;
+  --luosiding-slate-800: #1e212b;
+  --luosiding-slate-900: #151722;
+  --luosiding-slate-950: #0b0c10;
+
+  /* ── success 成功绿 ────────────────────────────────────── */
+  --luosiding-success-50:  #ecfdf5;
+  --luosiding-success-100: #d1fae5;
+  --luosiding-success-200: #a7f3d0;
+  --luosiding-success-300: #6ee7b7;
+  --luosiding-success-400: #34d399;
+  --luosiding-success-500: #10b981;
+  --luosiding-success-600: #059669;
+  --luosiding-success-700: #047857;
+  --luosiding-success-800: #065f46;
+  --luosiding-success-900: #064e3b;
+
+  /* ── warning 警告黄 ────────────────────────────────────── */
+  --luosiding-warning-50:  #fffbeb;
+  --luosiding-warning-100: #fef3c7;
+  --luosiding-warning-200: #fde68a;
+  --luosiding-warning-300: #fcd34d;
+  --luosiding-warning-400: #fbbf24;
+  --luosiding-warning-500: #f59e0b;
+  --luosiding-warning-600: #d97706;
+  --luosiding-warning-700: #b45309;
+  --luosiding-warning-800: #92400e;
+  --luosiding-warning-900: #78350f;
+
+  /* ── error 错误红 ──────────────────────────────────────── */
+  --luosiding-error-50:  #fef2f2;
+  --luosiding-error-100: #fee2e2;
+  --luosiding-error-200: #fecaca;
+  --luosiding-error-300: #fca5a5;
+  --luosiding-error-400: #f87171;
+  --luosiding-error-500: #ef4444;
+  --luosiding-error-600: #dc2626;
+  --luosiding-error-700: #b91c1c;
+  --luosiding-error-800: #991b1b;
+  --luosiding-error-900: #7f1d1d;
+
+  /* ── info 信息蓝 ───────────────────────────────────────── */
+  --luosiding-info-50:  #eff6ff;
+  --luosiding-info-100: #dbeafe;
+  --luosiding-info-200: #bfdbfe;
+  --luosiding-info-300: #93c5fd;
+  --luosiding-info-400: #60a5fa;
+  --luosiding-info-500: #3b82f6;
+  --luosiding-info-600: #2563eb;
+  --luosiding-info-700: #1d4ed8;
+  --luosiding-info-800: #1e40af;
+  --luosiding-info-900: #1e3a8a;
+
+  /* ═══════════════════════════════════════════════════════════
+     语义别名层 (Semantic Aliases) — 亮色默认（与设计稿白底对齐）
+     ═══════════════════════════════════════════════════════════ */
+  --primary:              var(--luosiding-indigo-500);
+  --primary-foreground:   var(--luosiding-slate-0);
+  --primary-hover:        var(--luosiding-indigo-500);
+  --primary-active:       var(--luosiding-indigo-600);
+  --secondary:            var(--luosiding-slate-100);
+  --secondary-foreground: var(--luosiding-slate-900);
+  --accent:               var(--luosiding-violet-500);
+  --accent-foreground:    var(--luosiding-slate-0);
+  --background:           var(--luosiding-slate-0);
+  --foreground:           var(--luosiding-slate-900);
+  --muted:                var(--luosiding-slate-100);
+  --muted-foreground:     var(--luosiding-slate-400);
+  --border:               var(--luosiding-slate-200);
+  --ring:                 var(--luosiding-indigo-400);
+
+  /* 状态色兼容别名（亮色略深） */
+  --success:              var(--luosiding-success-500);
+  --success-foreground:   var(--luosiding-slate-0);
+  --warning:              var(--luosiding-warning-500);
+  --warning-foreground:   var(--luosiding-slate-900);
+  --error:                var(--luosiding-error-500);
+  --error-foreground:     var(--luosiding-slate-0);
+  --info:                 var(--luosiding-info-500);
+  --info-foreground:      var(--luosiding-slate-0);
+  --destructive:          var(--error);
+  --destructive-foreground: var(--error-foreground);
+
+  /* Surface 层级体系（亮色） */
+  --surface:                    var(--luosiding-slate-0);
+  --surface-dim:                var(--luosiding-slate-50);
+  --surface-bright:             var(--luosiding-slate-0);
+  --surface-container-lowest:   var(--luosiding-slate-0);
+  --surface-container-low:      var(--luosiding-slate-50);
+  --surface-container:          var(--luosiding-slate-100);
+  --surface-container-high:     var(--luosiding-slate-200);
+  --surface-container-highest:  var(--luosiding-slate-300);
+  --inverse-surface:            var(--luosiding-slate-900);
+  --inverse-on-surface:         var(--luosiding-slate-50);
+  --border-subtle:              var(--luosiding-slate-100);
+  --foreground-muted:           var(--muted-foreground);
+  --foreground-subtle:          var(--luosiding-slate-300);
+  --popover:                    var(--surface);
+  --popover-foreground:         var(--foreground);
+  /* 卡片背景（多组件用 var(--card)：luo-card / .card / modal；此前未定义致透明，2026-09-06 补齐） */
+  --card:                       var(--surface);
+
+  /* 交互态叠加层（亮色更柔和） */
+  --interactive-hover: rgba(99, 102, 241, 0.08);
+  --interactive-focus: rgba(99, 102, 241, 0.12);
+  --interactive-press: rgba(99, 102, 241, 0.16);
+
+  /* Error container（亮色） */
+  --error-container:       var(--luosiding-error-50);
+  --on-error:              var(--luosiding-slate-0);
+  --on-error-container:    var(--luosiding-error-900);
+
+  /* 图表色板 */
+  --chart-1: var(--luosiding-indigo-500);
+  --chart-2: var(--luosiding-violet-500);
+  --chart-3: var(--luosiding-success-500);
+  --chart-4: var(--luosiding-warning-500);
+  --chart-5: var(--luosiding-error-500);
+
+  /* ═══════════════════════════════════════════════════════════
+     字体与排版
+     ═══════════════════════════════════════════════════════════ */
+  --font-display: 'Inter', 'MiSans', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-heading: 'Inter', 'MiSans', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-body:    'Inter', 'MiSans', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  --font-family:  var(--font-body);
+  --font-family-base: var(--font-body);
+
+  --font-size-display: 48px;
+  --font-size-h1:      32px;
+  --font-size-h2:      26px;
+  --font-size-h3:      21px;
+  --font-size-h4:      18px;
+  --font-size-body:    14px;
+  --font-size-lead:    16px;
+  --font-size-caption: 12px;
+  --font-size-eyebrow: 11px;
+  --font-size-mono:    13px;
+
+  --font-weight-display: 700;
+  --font-weight-h1:      700;
+  --font-weight-h2:      600;
+  --font-weight-h3:      600;
+  --font-weight-h4:      600;
+  --font-weight-body:    500;
+  --font-weight-lead:    500;
+  --font-weight-caption: 500;
+  --font-weight-eyebrow: 600;
+  --font-weight-mono:    500;
+  --font-weight-regular: 500;
+  --font-weight-medium:  600;
+  --font-weight-semibold: 700;
+  --font-weight-bold:    700;
+
+  --line-height-display: 1.1;
+  --line-height-h1:      1.2;
+  --line-height-h2:      1.25;
+  --line-height-h3:      1.3;
+  --line-height-h4:      1.4;
+  --line-height-body:    1.6;
+  --line-height-lead:    1.6;
+  --line-height-caption: 1.5;
+  --line-height-eyebrow: 1.4;
+  --line-height-mono:    1.6;
+  --line-height-tight:   1.3;
+  --line-height-normal:  1.4;
+  --line-height-relaxed: 1.6;
+
+  /* ═══════════════════════════════════════════════════════════
+     间距 / 尺寸
+     ═══════════════════════════════════════════════════════════ */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-7:  28px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  --size-button-height:    36px;
+  --size-button-height-sm: 28px;
+  --size-button-height-lg: 44px;
+  --size-input-height:     34px;
+  --size-icon-sm:          16px;
+  --size-icon-md:          20px;
+  --size-icon-lg:          24px;
+  --size-sidebar-width:    264px;
+  --size-header-height:    56px;
+  --size-footer-height:    44px;
+  --size-page-header-height: 64px;
+  --size-page-footer-height: 44px;
+  --nav-height:            56px;
+  /* P1.5 厚壳化：自绘标题栏高度（Windows/macOS 统一，§1.3.1 A1） */
+  --size-title-bar-height: 36px;
+
+  /* ═══════════════════════════════════════════════════════════
+     圆角 / 阴影 / 动效 / 滚动条
+     ═══════════════════════════════════════════════════════════ */
+  --radius-sm:   6px;
+  --radius-md:   8px;
+  --radius-lg:   10px;
+  --radius-xl:   12px;
+  --radius-2xl:  14px;
+  --radius-full: 9999px;
+
+  /* 阴影（亮色更柔和） */
+  --shadow-1: 0 1px 2px rgba(11, 12, 16, 0.08);
+  --shadow-2: 0 4px 12px rgba(11, 12, 16, 0.12);
+  --shadow-3: 0 8px 24px rgba(11, 12, 16, 0.16);
+  --shadow-4: 0 16px 40px rgba(11, 12, 16, 0.20);
+  --shadow-5: 0 24px 60px rgba(11, 12, 16, 0.28);
+  --shadow-card:  var(--shadow-1);
+  --shadow-hover: var(--shadow-2);
+  --shadow-float: var(--shadow-3);
+  --shadow-modal: var(--shadow-4);
+
+  --duration-fast:   150ms;
+  --duration-normal: 200ms;
+  --duration-slow:   300ms;
+  --easing-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --easing-in:      cubic-bezier(0.4, 0, 1, 1);
+  --easing-out:     cubic-bezier(0, 0, 0.2, 1);
+  --transition-colors:   color var(--duration-fast) var(--easing-default), background-color var(--duration-fast) var(--easing-default), border-color var(--duration-fast) var(--easing-default);
+  --transition-transform: transform var(--duration-fast) var(--easing-out);
+  --transition-shadow:   box-shadow var(--duration-fast) var(--easing-default);
+
+  --scrollbar-size:        8px;
+  --scrollbar-thumb:       #c3c6d2;
+  --scrollbar-thumb-hover: #9ca1b1;
+  --scrollbar-track:       transparent;
+
+  /* 布局 */
+  --max-content-width: 1440px;
+  --gutter-content:    var(--space-6);
+
+  /* z-index */
+  --z-base:         0;
+  --z-dropdown:     1000;
+  --z-sticky:       1100;
+  --z-overlay:      1200;
+  --z-modal:        1300;
+  --z-notification: 1400;
+
+  /* ═══════════════════════════════════════════════════════════
+     消费层别名 (Consumer Aliases — —color-*)
+     组件类（luo-btn / luo-card 等）直接引用这一层
+     ═══════════════════════════════════════════════════════════ */
+  /* Surface & Background */
+  --color-background:                var(--background);
+  --color-foreground:                var(--foreground);
+  --color-surface:                   var(--surface);
+  --color-surface-dim:               var(--surface-dim);
+  --color-surface-variant:           var(--surface-container-high);
+  --color-surface-container:         var(--surface-container);
+  --color-surface-container-low:     var(--surface-container-low);
+  --color-surface-container-high:    var(--surface-container-high);
+  --color-surface-container-highest: var(--surface-container-highest);
+  --color-card:                      var(--surface);
+  --color-sidebar:                   var(--surface-container-low);
+
+  /* Text */
+  --color-on-surface:          var(--foreground);
+  --color-on-surface-variant:  var(--muted-foreground);
+  --color-muted-foreground:    var(--muted-foreground);
+
+  /* Brand / Primary */
+  --color-primary:              var(--primary);
+  --color-primary-hover:        var(--primary-hover);
+  --color-on-primary:           var(--primary-foreground);
+  --color-primary-container:    var(--luosiding-indigo-50);
+  --color-on-primary-container: var(--luosiding-indigo-900);
+
+  /* Secondary */
+  --color-secondary:              var(--secondary);
+  --color-secondary-container:    var(--muted);
+  --color-on-secondary-container: var(--secondary-foreground);
+
+  /* Error */
+  --color-error:              var(--error);
+  --color-error-container:    var(--error-container);
+  --color-on-error:           var(--on-error);
+  --color-on-error-container: var(--on-error-container);
+
+  /* Borders */
+  --color-outline:         var(--border);
+  --color-outline-variant: var(--luosiding-slate-100);
+  --color-border:          var(--border);
+
+  /* Functional Status */
+  --color-success: var(--luosiding-success-500);
+  --color-warning: var(--luosiding-warning-500);
+  --color-info:    var(--luosiding-info-500);
+
+  /* Typography 消费层 */
+  --type-display-sm: var(--font-size-display);
+  --type-heading-sm: var(--font-size-h1);
+  --type-body-md:    var(--font-size-body);
+  --type-body-sm:    var(--font-size-caption);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   暗色主题覆盖（.dark）：给 <html class="dark"> 时切换
+   ═══════════════════════════════════════════════════════════════ */
+.tintin-media-scope.dark {
+  /* 语义层（暗色） */
+  --primary:              var(--luosiding-indigo-400);
+  --primary-foreground:   var(--luosiding-slate-0);
+  --primary-hover:        var(--luosiding-indigo-400);
+  --primary-active:       var(--luosiding-indigo-500);
+  --secondary:            var(--luosiding-slate-700);
+  --secondary-foreground: var(--luosiding-slate-100);
+  --accent:               var(--luosiding-violet-400);
+  --accent-foreground:    var(--luosiding-slate-0);
+  --background:           var(--luosiding-slate-950);
+  --foreground:           var(--luosiding-slate-50);
+  --muted:                var(--luosiding-slate-800);
+  --muted-foreground:     var(--luosiding-slate-300);
+  --border:               var(--luosiding-slate-700);
+  --ring:                 var(--luosiding-indigo-400);
+
+  /* 状态色（暗色略亮） */
+  --success: var(--luosiding-success-400);
+  --warning: var(--luosiding-warning-400);
+  --error:   var(--luosiding-error-400);
+  --info:    var(--luosiding-info-400);
+  --destructive:          var(--error);
+  --destructive-foreground: var(--error-foreground);
+
+  /* Surface 层级（暗色） */
+  --surface:                    var(--luosiding-slate-900);
+  --surface-dim:                var(--luosiding-slate-950);
+  --surface-bright:             var(--luosiding-slate-800);
+  --surface-container-lowest:   var(--luosiding-slate-950);
+  --surface-container-low:      var(--luosiding-slate-900);
+  --surface-container:          var(--luosiding-slate-800);
+  --surface-container-high:     var(--luosiding-slate-700);
+  --surface-container-highest:  var(--luosiding-slate-600);
+  --inverse-surface:            var(--luosiding-slate-0);
+  --inverse-on-surface:         var(--luosiding-slate-900);
+  --border-subtle:              var(--luosiding-slate-800);
+  --foreground-muted:           var(--muted-foreground);
+  --foreground-subtle:          var(--luosiding-slate-400);
+  --popover:                    var(--surface);
+  --popover-foreground:         var(--foreground);
+  /* 卡片背景（暗色） */
+  --card:                       var(--surface);
+
+  /* 交互态（暗色更厚重） */
+  --interactive-hover: rgba(99, 102, 241, 0.12);
+  --interactive-focus: rgba(99, 102, 241, 0.18);
+  --interactive-press: rgba(99, 102, 241, 0.24);
+
+  /* Error container（暗色） */
+  --error-container:    var(--luosiding-error-900);
+  --on-error:           var(--luosiding-slate-0);
+  --on-error-container: var(--luosiding-error-50);
+
+  /* 阴影（暗色更深） */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-3: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-4: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --shadow-5: 0 24px 60px rgba(0, 0, 0, 0.65);
+  --shadow-card:  var(--shadow-1);
+  --shadow-hover: var(--shadow-2);
+  --shadow-float: var(--shadow-3);
+  --shadow-modal: var(--shadow-4);
+
+  /* 滚动条 */
+  --scrollbar-thumb:       var(--luosiding-slate-700);
+  --scrollbar-thumb-hover: var(--luosiding-slate-600);
+
+  /* ── 消费层（暗色） ──────────────────────────────────── */
+  --color-surface:                   var(--surface);
+  --color-surface-dim:               var(--surface-dim);
+  --color-surface-variant:           var(--surface-container-high);
+  --color-surface-container:         var(--surface-container);
+  --color-surface-container-low:     var(--surface-container-low);
+  --color-surface-container-high:    var(--surface-container-high);
+  --color-surface-container-highest: var(--surface-container-highest);
+  --color-card:                      var(--surface);
+  --color-sidebar:                   var(--surface-container-low);
+  --color-on-surface:                var(--foreground);
+  --color-on-surface-variant:        var(--muted-foreground);
+  --color-muted-foreground:          var(--muted-foreground);
+  --color-primary:                   var(--primary);
+  --color-primary-hover:             var(--primary-hover);
+  --color-on-primary:                var(--primary-foreground);
+  --color-primary-container:         var(--luosiding-indigo-900);
+  --color-on-primary-container:      var(--luosiding-indigo-50);
+  --color-secondary:                 var(--secondary);
+  --color-secondary-container:       var(--luosiding-slate-700);
+  --color-on-secondary-container:    var(--luosiding-slate-100);
+  --color-error:                     var(--error);
+  --color-error-container:           var(--error-container);
+  --color-on-error:                  var(--on-error);
+  --color-on-error-container:        var(--on-error-container);
+  --color-outline:                   var(--border);
+  --color-outline-variant:           var(--luosiding-slate-700);
+  --color-border:                    var(--border);
+  --color-success:                   var(--luosiding-success-400);
+  --color-warning:                   var(--luosiding-warning-400);
+  --color-info:                      var(--luosiding-info-400);
+}
+
+/* 向后兼容：显式 .light 等同默认（亮色），之前代码若有 documentElement.classList.add('light') 不失效 */
+.tintin-media-scope.light { /* 默认 :root 已是亮色，此处保留空壳占位 */ }
+
+/* ═══════════════════════════════════════════════════════════════
+   排版类 (.luo-*)
+   ═══════════════════════════════════════════════════════════════ */
+.tintin-media-scope .luo-display { font-family: var(--font-display); font-size: 3rem;    font-weight: var(--font-weight-display); line-height: var(--line-height-display); letter-spacing: -0.02em; }
+.tintin-media-scope .luo-h1 { font-family: var(--font-heading); font-size: 2rem;    font-weight: var(--font-weight-h1);      line-height: var(--line-height-h1); }
+.tintin-media-scope .luo-h2 { font-family: var(--font-heading); font-size: 1.625rem; font-weight: var(--font-weight-h2);      line-height: var(--line-height-h2); }
+.tintin-media-scope .luo-h3 { font-family: var(--font-heading); font-size: 1.3125rem; font-weight: var(--font-weight-h3);    line-height: var(--line-height-h3); }
+.tintin-media-scope .luo-h4 { font-family: var(--font-heading); font-size: 1.125rem; font-weight: var(--font-weight-h4);     line-height: var(--line-height-h4); }
+.tintin-media-scope .luo-body { font-family: var(--font-body);    font-size: 0.875rem; font-weight: var(--font-weight-body);    line-height: var(--line-height-body); }
+.tintin-media-scope .luo-lead { font-family: var(--font-body);    font-size: 1rem;     font-weight: var(--font-weight-lead);    line-height: var(--line-height-lead); }
+.tintin-media-scope .luo-caption { font-family: var(--font-body);    font-size: 0.75rem;  font-weight: var(--font-weight-caption); line-height: var(--line-height-caption); }
+.tintin-media-scope .luo-eyebrow { font-family: var(--font-body);    font-size: 0.6875rem; font-weight: var(--font-weight-eyebrow); line-height: var(--line-height-eyebrow); letter-spacing: 0.08em; text-transform: uppercase; }
+.tintin-media-scope .luo-mono { font-family: var(--font-mono);    font-size: 0.8125rem; font-weight: var(--font-weight-mono);   line-height: var(--line-height-mono); }
+
+/* ═══════════════════════════════════════════════════════════════
+   通用工具类
+   ═══════════════════════════════════════════════════════════════ */
+.tintin-media-scope .luo-focus-ring {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ring);
+}
+.tintin-media-scope .luo-sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

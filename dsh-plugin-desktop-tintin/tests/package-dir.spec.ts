@@ -24,7 +24,7 @@ describe('unsigned directory packaging', () => {
   })
 
   it('passes explicit unsigned and no-notarization overrides to Electron Builder', () => {
-    const run = vi.fn(() => ({ status: 0 }))
+    const run = vi.fn((_command: string, _args: string[], _options: unknown) => ({ status: 0 }))
 
     packageDirectory({
       cwd: '/workspace/desktop',
@@ -67,7 +67,7 @@ describe('unsigned directory packaging', () => {
   })
 
   it('omits the version stamp when DSH_VERSION_STAMP=off', () => {
-    const run = vi.fn(() => ({ status: 0 }))
+    const run = vi.fn((_command: string, _args: string[], _options: unknown) => ({ status: 0 }))
 
     packageDirectory({
       cwd: '/workspace/desktop',

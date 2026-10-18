@@ -8,7 +8,7 @@ import { atomicJson, atomicText, readPrivateFile } from './private-files.ts'
 import { NextRecovery } from './recovery.ts'
 import { DEFAULT_PROFILE } from './desktop-contract.ts'
 import { computerUsePatch } from './profile-computer-use.ts'
-import { legacySchedulePatch, SCHEDULE_BUNDLE } from './profile-schedule.ts'
+import { legacySchedulePatch, RETIRED_SCHEDULE_BUNDLE } from './profile-schedule.ts'
 
 export const NEXT_PACKAGE = fileURLToPath(new URL('../package.json', import.meta.url))
 export const WEB_BUNDLES = [...PROFILE_TEMPLATES.web!.bundles]
@@ -202,28 +202,25 @@ export class NextProfiles {
     this.setFeatures(name, { ...this.features(name), dshMarket: manifest.dsh.profile.bundles.includes(DSH_MARKET_PACKAGE) })
   }
   /**
-   * Once per Profile: rc.2 enabled Scheduled Tasks by patching three Web rows
-   * that upstream has since moved into an optional bundle. Those patches now
-   * match nothing, so select the bundle for users who had it on and drop the
-   * stale toggles. The marker stops a later deselection from being undone by
-   * the same row ids the bundle's own switches write.
+   * Once per Profile: rc.2 offered Scheduled Tasks as an optional bundle over
+   * three Web rows. 0.2.1 mounts those rows in every Web profile and retires
+   * the bundle, so drop the retired entry and keep the user's row choices as
+   * explicit toggles. The marker stops a later deselection from being undone
+   * by the same row ids the profile page writes.
    */
   private migrateSchedule(name: string): void {
     const manifest = this.manifest(name)
     if (manifest.dsh.desktopNextScheduleBundle === 1) return
     const patchPath = join(this.directory(name), 'cordis.patch.yml')
+    const retired = manifest.dsh.profile.bundles.includes(RETIRED_SCHEDULE_BUNDLE)
+    // A malformed patch is left for recovery to handle; retry on the next start.
     let legacy: ReturnType<typeof legacySchedulePatch>
-    if (!manifest.dsh.profile.bundles.includes(SCHEDULE_BUNDLE)) {
-      // A malformed patch is left for recovery to handle; retry on the next start.
-      try { legacy = legacySchedulePatch(readPrivateFile(patchPath) ?? '[]\n') } catch { return }
-    }
-    if (legacy) {
-      new NextRecovery(this).backup(name, 'before-schedule-bundle-migration')
-      if (legacy.select) manifest.dsh.profile.bundles = [...manifest.dsh.profile.bundles, SCHEDULE_BUNDLE]
-    }
+    try { legacy = legacySchedulePatch(readPrivateFile(patchPath) ?? '[]\n') } catch { return }
+    if (retired || legacy) new NextRecovery(this).backup(name, 'before-schedule-bundle-retirement')
+    if (retired) manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(bundle => bundle !== RETIRED_SCHEDULE_BUNDLE)
     manifest.dsh.desktopNextScheduleBundle = 1
-    // Selection first: if the patch write is interrupted, the leftover toggles still
-    // address the selected bundle's rows with the same meaning.
+    // Bundle removal first: if the patch write is interrupted, the leftover
+    // toggles address rows the Web composition already mounts.
     atomicJson(join(this.directory(name), 'package.json'), manifest)
     if (legacy) atomicText(patchPath, legacy.text)
   }

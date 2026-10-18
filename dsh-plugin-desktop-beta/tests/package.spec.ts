@@ -98,7 +98,7 @@ describe('published package surface', () => {
 
   it('runs all desktop editions and community market tests from the root command', () => {
     expect(workspaceManifest.scripts?.test)
-      .toBe('yarn workspace dsh-tintin-bundle test && yarn workspace dsh-tintin-browser test && yarn workspace dsh-tintin-media-bundle test && yarn workspace dsh-plugin-desktop test && yarn workspace dsh-plugin-desktop-beta test && yarn workspace dsh-community-market test && yarn workspace dsh-desktop-next test')
+    .toBe('yarn workspace dsh-tintin-bundle test && yarn workspace dsh-tintin-browser test && yarn workspace dsh-tintin-media-bundle test && yarn workspace dsh-tintin-creation-bundle test && yarn workspace dsh-tintin-ops-bundle test && yarn workspace dsh-plugin-desktop test && yarn workspace dsh-plugin-desktop-beta test && yarn workspace dsh-community-market test && yarn workspace dsh-desktop-next test')
   })
 
   it('registers both npm launcher names', () => {
@@ -377,21 +377,12 @@ describe('published package surface', () => {
 
   it('keeps the canonical web profile configurable while Desktop disables browser opening', () => {
     const patchPath = `./patches/dsh-web-app@${runtimeVersion}.patch`
-    const openPatchPath = './patches/open@11.0.1.patch'
-    const openPatchResolution = `patch:open@npm%3A11.0.1#${openPatchPath}`
     expect(dshResolution('@deepseek-ai/dsh-web-app')).toContain(patchPath)
-    expect(workspaceManifest.resolutions).toMatchObject({
-      'open@npm:11.0.1': openPatchResolution,
-      'open@npm:^11.0.0': openPatchResolution,
-    })
     const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
-    const openPatch = readFileSync(new URL(openPatchPath, workspaceRoot), 'utf8')
-    const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
     const installedWebApp = readFileSync(new URL(
       'node_modules/@deepseek-ai/dsh-web-app/lib/index.js',
       packageRoot,
     ), 'utf8')
-    const installedOpen = readFileSync(new URL('node_modules/open/index.js', packageRoot), 'utf8')
     const installedWebPatch = readFileSync(new URL(
       'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml',
       packageRoot,
@@ -407,11 +398,6 @@ describe('published package surface', () => {
     expect(patch).toContain('+\t\twindowsHide: true,')
     expect(installedWebApp).toMatch(
       /function spawnBrowserLauncher\(url\) \{\s+return spawn\(process\.execPath, \[[\s\S]*?\], \{\s+windowsHide: true,\s+env:/u,
-    )
-    expect(lockfile).toContain('open@patch:open@npm%3A11.0.1#./patches/open@11.0.1.patch')
-    expect(openPatch).toContain('+\t\t\tchildProcessOptions.windowsHide = true;')
-    expect(installedOpen).toMatch(
-      /if \(!isWsl\) \{\s+childProcessOptions\.windowsVerbatimArguments = true;\s+childProcessOptions\.windowsHide = true;\s+\}/u,
     )
     expect(patch).not.toContain('cordis.patch.yml')
     expect(patch).not.toContain('openBrowser: false')
@@ -1336,9 +1322,12 @@ describe('published package surface', () => {
     const workspaceRequire = createRequire(new URL('package.json', packageRoot))
     const root = dirname(workspaceRequire.resolve('@deepseek-ai/dsh-ptc-runtime-node/package.json'))
     const index = readFileSync(join(root, 'lib/index.js'), 'utf8')
-    expect(index).toContain('nodeExecutable: config.nodeExecutable ?? process.execPath')
+    expect(index).toContain('executable: process.execPath')
     expect(index).toContain('confined = policy.mode === "danger-full-access" ? void 0 : await this.ctx.sandbox.confine(')
-    const block = /\t+const env = Object\.fromEntries\(Object\.keys\(process\.env\)[\s\S]*?\n\t+if \(packaged\) \{[\s\S]*?\n\t+\}\n(?=\t+handle = this\.ctx\.subprocess\.spawn\()/u.exec(index)?.[0]
+    const patchMarker = 'if (process.versions.electron !== void 0) env.ELECTRON_RUN_AS_NODE = "1";'
+    const envStart = index.lastIndexOf('const env = Object.fromEntries', index.indexOf(patchMarker))
+    const envEnd = index.indexOf('handle = this.ctx.subprocess.spawn(', index.indexOf(patchMarker))
+    const block = envStart === -1 || envEnd === -1 ? undefined : index.slice(envStart, envEnd)
     if (block === undefined) throw new Error('Cannot find the PTC worker environment')
     const evaluate = (electron: string | undefined, parent: Record<string, string>, packaged = true) => runInNewContext(
       `${block}\nenv`,
@@ -1363,7 +1352,7 @@ describe('published package surface', () => {
     const names = /const STARTUP_ENVIRONMENT_NAMES = new Set\(\[([\s\S]*?)\]\)/u.exec(bootstrap)?.[1]
     if (names === undefined) throw new Error('Cannot find the PTC bootstrap environment allowlist')
     expect(names).not.toMatch(/ELECTRON_RUN_AS_NODE/iu)
-    expect(bootstrap).toContain('if (!STARTUP_ENVIRONMENT_NAMES.has(key.toUpperCase())) Reflect.deleteProperty(processState.env, key);')
+    expect(bootstrap).toContain('if (!STARTUP_ENVIRONMENT_NAMES.has(key.toUpperCase())) Reflect.deleteProperty(state.env, key);')
   })
 
   // A patch whose filename does not match the pinned version degrades silently to the

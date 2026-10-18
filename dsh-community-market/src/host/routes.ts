@@ -624,7 +624,9 @@ export function registerMarketRoutes(
   desktopActionsProvider?: MarketDesktopActionsProvider,
   desktopPluginsProvider?: MarketDesktopPluginsProvider,
 ): () => void {
-  const expectedPort = ctx.webServer.port
+  const boundPort = ctx.webServer.port
+  if (boundPort === undefined) throw new Error('dsh-community-market: the WebServer has not bound a port yet')
+  const expectedPort = boundPort
   const generationController = new AbortController()
   const store = new PersistentCatalogSourceStore(state)
   const media = createMarketMediaService({
