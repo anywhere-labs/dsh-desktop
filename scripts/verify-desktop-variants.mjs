@@ -14,6 +14,7 @@ const allowedTintinAdditions = new Set([
   'tintin/main-hook.ts',
   'tintin/first-boot.ts',
   'tintin-main.ts',
+  'tintin/studio-preload.ts',
 ])
 const normalizeIdentity = source => source.toString().replaceAll('dsh-plugin-desktop-beta', 'dsh-plugin-desktop').replaceAll('DSH Desktop Beta', 'DSH Desktop')
 const normalizeTintin = source => source.toString().replaceAll('dsh-plugin-desktop-beta', 'dsh-plugin-desktop-tintin').replaceAll('DSH Desktop Beta', 'TinTin')

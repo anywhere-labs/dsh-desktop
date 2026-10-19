@@ -31,6 +31,7 @@ import { createMontageFinalApi } from './lib/montage/final-ipc.js'
 import { createRembgApi, createAudioArchiveApi, createVsrApi, createTtsUploadSampleApi } from './lib/media-proxy.js'
 import { loopbackCall, readLoopbackConfig, summarizeExtract } from './lib/loopback-helpers.js'
 import { createTintinAgentTools } from './lib/agent-tools.js'
+import { createOpenfilmMediaTools } from './lib/openfilm-tools.js'
 import { createContextTaskApi, defaultWorkspaceDir } from './lib/context-task.js'
 import { registerWorkspaceEnsureRoute } from './lib/workspace-ensure-route.js'
 import { createYtdlpApi } from './lib/ytdlp.js'
@@ -580,6 +581,18 @@ export async function apply(ctx, config) {
       httpRequest,
       callNative: (channel, args) => nativeChannels[channel]?.(args),
       readFile: async (p) => readFileSync(p),
+      log: (...a) => ctx.logger.info('tintin-bundle:', ...a),
+      warn: (...a) => ctx.logger.warn('tintin-bundle:', ...a),
+    })) {
+      registerTool(def)
+    }
+    // OpenFilm 媒体工具组（2026-10-18 用户裁决：registry 驱动的工具层）：
+    // 配音/转写/卡点/BGM/音效/搜图/反推/ComfyUI/任务状态/能力注册表；
+    // 生成物落影片项目，异步能力自动轮询。实现见 lib/openfilm-tools.js。
+    for (const def of createOpenfilmMediaTools({
+      httpRequest,
+      getServerUrl,
+      multipartPost,
       log: (...a) => ctx.logger.info('tintin-bundle:', ...a),
       warn: (...a) => ctx.logger.warn('tintin-bundle:', ...a),
     })) {

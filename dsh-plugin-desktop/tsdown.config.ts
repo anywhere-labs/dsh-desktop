@@ -70,6 +70,10 @@ export default defineConfig([
     clean: false,
     sourcemap: true,
     external: ['electron'],
+    // Electron sandboxed preloads can only require('electron')/builtins — a
+    // shared-chunk import ("module not found: ./…") kills the whole preload,
+    // so every entry must inline its imports into one self-contained file.
+    splitting: false,
     outputOptions: {
       entryFileNames: '[name].cjs',
     },

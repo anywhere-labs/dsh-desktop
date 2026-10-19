@@ -990,7 +990,7 @@ const tintinClient = (() => {
         config,
         // OpenFilm 启动（2026-10-18 裁决：侧栏入口=独立窗口）：宿主通道同步
         // 技能/服务并启动 Studio（不弹系统浏览器），壳桥按地址开窗；无壳退化为新标签页。
-        openfilm: { studioUrl: () => call('openfilm:studio', { args: [{}] }).then((r) => { const url = r?.url; if (!url) throw new Error(r?.error || 'Studio 未启动'); return url }) },
+        openfilm: { studio: () => call('openfilm:studio', { args: [{}] }).then((r) => { if (!r?.url) throw new Error(r?.error || 'Studio 未启动'); return r }) },
       }
       console.info('[tintin] window.tintin polyfill installed')
     }

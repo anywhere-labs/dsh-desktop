@@ -76,7 +76,7 @@ export function createChannelTable(deps) {
       log: (...a) => ctx.logger.info('tintin-bundle:', ...a),
       warn: (...a) => ctx.logger.warn('tintin-bundle:', ...a),
     }),
-    ...createOpenfilmChannels({ sync: syncOpenfilmAssets }),
+    ...createOpenfilmChannels({ sync: syncOpenfilmAssets, httpRequest }),
     ...createTtsUploadSampleApi({ multipartPost, isExpectedOfflineError, audioMimeOf, samplesPath: API_ENDPOINTS.tts.voicesSamples }),
     // asr:transcribe — POST /whisper/transcribe（multipart: file 必填 +
     // language/fmt；契约无 {url} JSON 分支——url 时先 GET 取回字节再上传，

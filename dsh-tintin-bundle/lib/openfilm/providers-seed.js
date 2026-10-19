@@ -58,24 +58,29 @@ export function mergeTinTinService(raw, serverUrl) {
 /** The providers file path for a home directory: ~/.openfilm/providers.json. */
 export const providersFilePath = (homeDir) => join(String(homeDir || ''), '.openfilm', 'providers.json')
 
-/** Read the providers file; {} when absent or unreadable (a broken file must not block seeding). */
-export function readProvidersDocument(homeDir) {
+/** Read a providers file by path; {} when absent or unreadable (a broken file must not block seeding). */
+export function readProvidersAt(filePath) {
   try {
-    return plain(JSON.parse(readFileSync(providersFilePath(homeDir), 'utf8')))
+    return plain(JSON.parse(readFileSync(filePath, 'utf8')))
   } catch {
     return {}
   }
 }
 
+/** Read the providers file; {} when absent or unreadable (a broken file must not block seeding). */
+export function readProvidersDocument(homeDir) {
+  return readProvidersAt(providersFilePath(homeDir))
+}
+
 /**
- * Upsert the TinTin service into ~/.openfilm/providers.json. Returns
- * `{ path, changed }`; a no-op when the service is already current. The file is
- * written whole and atomically (0600), as OpenFilm itself writes it.
- * @param {{ homeDir: string, serverUrl: string }} options
+ * Upsert the TinTin service into one providers file. Returns `{ path, changed }`;
+ * a no-op when the service is already current. The file is written whole and
+ * atomically (0600), as OpenFilm itself writes it.
+ * @param {{ filePath: string, serverUrl: string }} options
  */
-export function syncProvidersFile({ homeDir, serverUrl }) {
-  const path = providersFilePath(homeDir)
-  const before = readProvidersDocument(homeDir)
+export function syncProvidersAt({ filePath, serverUrl }) {
+  const path = filePath
+  const before = readProvidersAt(path)
   const after = mergeTinTinService(before, serverUrl)
   const changed = JSON.stringify(before) !== JSON.stringify(after)
   if (!changed && existsSync(path)) return { path, changed: false }
@@ -85,4 +90,13 @@ export function syncProvidersFile({ homeDir, serverUrl }) {
   renameSync(temp, path)
   try { chmodSync(path, 0o600) } catch { /* Windows 无 POSIX 位：忽略 */ }
   return { path, changed: true }
+}
+
+/**
+ * Upsert the TinTin service into ~/.openfilm/providers.json (the shared home the
+ * OpenFilm app and the `openfilm` CLI on PATH read).
+ * @param {{ homeDir: string, serverUrl: string }} options
+ */
+export function syncProvidersFile({ homeDir, serverUrl }) {
+  return syncProvidersAt({ filePath: providersFilePath(homeDir), serverUrl })
 }

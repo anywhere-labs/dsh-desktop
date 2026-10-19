@@ -5,12 +5,19 @@ import { SETUP_ONBOARDING_CHANNEL } from './setup-onboarding-bridge.ts'
 import { DESKTOP_FILE_PATH_BRIDGE } from './file-path-bridge-contract.ts'
 import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL } from './directory-picker-contract.ts'
 import { DESKTOP_SAVE_FILE_PICKER_CHANNEL, type DesktopSaveFilePickerRequest } from './save-file-picker-contract.ts'
+import type { DesktopOpenFilmBridge, OpenFilmBounds, OpenFilmSelection, OpenFilmStudioRef } from './openfilm-view-contract.ts'
 import {
   DESKTOP_RENDERER_ACTION_CHANNEL,
   DESKTOP_RENDERER_ACTIONS_BRIDGE,
   type DesktopRendererAction,
   type DesktopRendererActionsBridge,
 } from './renderer-actions-contract.ts'
+// A sandboxed preload can only require('electron')/builtins — a relative-chunk
+// import ("module not found") kills the whole preload. Keep these literals in
+// sync with ./openfilm-view-contract.ts, which the main process imports.
+const OPENFILM_VIEW_CHANNEL = 'dsh-desktop:openfilm-view'
+const OPENFILM_SELECTION_EVENT = 'dsh-desktop:openfilm-selection'
+const OPENFILM_REFER_EVENT = 'dsh-desktop:openfilm-refer'
 
 contextBridge.exposeInMainWorld(DESKTOP_FILE_PATH_BRIDGE, {
   /** Resolve only genuine disk-backed Web File objects selected by the operator. */
@@ -42,6 +49,26 @@ contextBridge.exposeInMainWorld('dshDesktopSaveFilePicker', Object.freeze({
   pick: (params?: DesktopSaveFilePickerRequest): Promise<string | null> =>
     ipcRenderer.invoke(DESKTOP_SAVE_FILE_PICKER_CHANNEL, params ?? {}),
 }))
+// Native OpenFilm Studio view (TinTin channel, B 方案): a WebContentsView over the
+// stage area; the renderer drives its lifecycle and receives Studio's selection/refs.
+const openFilmView: DesktopOpenFilmBridge = {
+  open: (url: string) => ipcRenderer.invoke(OPENFILM_VIEW_CHANNEL, { action: 'open', url }),
+  show: (bounds: OpenFilmBounds) => ipcRenderer.invoke(OPENFILM_VIEW_CHANNEL, { action: 'show', bounds }),
+  hide: () => ipcRenderer.invoke(OPENFILM_VIEW_CHANNEL, { action: 'hide' }),
+  close: () => ipcRenderer.invoke(OPENFILM_VIEW_CHANNEL, { action: 'close' }),
+  onSelection: (listener: (selection: OpenFilmSelection) => void) => {
+    const handler = (_event: unknown, selection: OpenFilmSelection): void => { listener(selection) }
+    ipcRenderer.on(OPENFILM_SELECTION_EVENT, handler)
+    return () => { ipcRenderer.removeListener(OPENFILM_SELECTION_EVENT, handler) }
+  },
+  onRefer: (listener: (ref: OpenFilmStudioRef) => void) => {
+    const handler = (_event: unknown, ref: OpenFilmStudioRef): void => { listener(ref) }
+    ipcRenderer.on(OPENFILM_REFER_EVENT, handler)
+    return () => { ipcRenderer.removeListener(OPENFILM_REFER_EVENT, handler) }
+  },
+}
+contextBridge.exposeInMainWorld('dshDesktopOpenFilm', Object.freeze(openFilmView))
+
 
 // Upstream client plugins recognize the Desktop renderer by this carrier. Version 1
 // without `updates` or `browser` keeps upstream update badges and the embedded

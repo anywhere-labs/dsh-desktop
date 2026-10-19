@@ -4,7 +4,7 @@
 // browser (OPENFILM_NO_BROWSER=1 — the desktop shell owns the window), and
 // returns the address the shell should load.
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -19,6 +19,12 @@ export function parseStudioAddress(text) {
   } catch {
     return null
   }
+}
+
+/** The project path the CLI prints (`project  D:\films\launch-video`), for the chat to work in. */
+export function parseStudioProject(text) {
+  const match = String(text || '').match(/^\s*project\s+(.+?)\s*$/mu)
+  return match ? match[1] : null
 }
 
 /** ~/.openfilm/run.json — what the running Studio wrote once it listened. */
@@ -57,6 +63,47 @@ export function readStudioRunAt(studioHome) {
     return { origin: raw.origin.replace(/\/+$/, ''), key: String(raw.key), pid: Number(raw.pid) || 0 }
   } catch {
     return null
+  }
+}
+
+/** The project a Studio home last opened (`studio.json` recent[0]), when its folder still exists. */
+export function lastStudioProject(studioHome) {
+  try {
+    const raw = JSON.parse(readFileSync(join(String(studioHome || ''), 'studio.json'), 'utf8'))
+    const path = raw?.recent?.[0]?.path
+    return typeof path === 'string' && path && existsSync(path) ? path : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Seed the isolated Studio's recent list from the shared OpenFilm home the first
+ * time (the user's existing projects show up in the embedded Studio). Never
+ * overwrites a non-empty recent list.
+ * @param {{ studioHome: string, sourceHome: string, log?: (message: string) => void }} options
+ */
+export function seedStudioRecents({ studioHome, sourceHome, log = () => {} }) {
+  try {
+    const target = join(String(studioHome || ''), 'studio.json')
+    const current = JSON.parse(readFileSync(target, 'utf8'))
+    if (Array.isArray(current?.recent) && current.recent.length > 0) return { status: 'kept' }
+  } catch { /* absent or broken: seed below */ }
+  try {
+    const source = JSON.parse(readFileSync(join(String(sourceHome || ''), 'studio.json'), 'utf8'))
+    const recent = Array.isArray(source?.recent)
+      ? source.recent.filter((item) => item && typeof item.path === 'string' && existsSync(item.path))
+      : []
+    if (!recent.length) return { status: 'empty' }
+    const target = join(String(studioHome || ''), 'studio.json')
+    let current = {}
+    try { current = JSON.parse(readFileSync(target, 'utf8')) } catch { /* new file */ }
+    mkdirSync(String(studioHome || ''), { recursive: true })
+    writeFileSync(target, `${JSON.stringify({ ...(current && typeof current === 'object' ? current : {}), recent }, null, 2)}\n`)
+    log(`seeded ${recent.length} recent project(s)`)
+    return { status: 'seeded', count: recent.length }
+  } catch {
+    return { status: 'empty' }
   }
 }
 
@@ -130,7 +177,13 @@ export function startStudio({ folder, runtime, homeDir, timeoutMs = 45_000, env 
       const run = readStudioRunAt(childEnvironment.OPENFILM_HOME) ?? readStudioRun(homeDir)
       const url = printed || studioPageUrl(run)
       if (!url) return finish(new Error(`Studio 未返回地址：${output.trim().split('\n').slice(-3).join(' / ') || '无输出'}`))
-      finish(null, { url, origin: new URL(url).origin, key: run?.key ?? '', pid: run?.pid ?? 0 })
+      finish(null, {
+        url,
+        origin: new URL(url).origin,
+        key: run?.key ?? '',
+        pid: run?.pid ?? 0,
+        project: parseStudioProject(output) || lastStudioProject(childEnvironment.OPENFILM_HOME),
+      })
     }
     child.stdout?.on('data', (chunk) => {
       output = (output + String(chunk)).slice(-64 * 1024)

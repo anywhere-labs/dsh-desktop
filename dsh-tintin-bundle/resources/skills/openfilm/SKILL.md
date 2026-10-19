@@ -21,7 +21,7 @@ never ask the person for an API key or send them to connect ElevenLabs/OpenAI/Go
   and ffmpeg). In a dev checkout without it, use `npx -y openfilm@latest <command>` instead (the first run downloads
   the CLI and a headless browser — say so if the person is waiting).
 - Never run `openfilm update`: the TinTin installer owns this copy.
-- Studio: the person opens it from the left sidebar row **OpenFilm**; Studio is embedded in the main window (an iframe over the workbench area). When you need Studio
+- Studio: the person opens it from the left sidebar row **OpenFilm**; Studio is embedded in the main window (a native web view over the workbench area, with the directing chat on its right). When you need Studio
   running for `get` and it is not, run `openfilm open` first, with `$env:OPENFILM_NO_BROWSER='1'` set so it does not
   also open the system browser.
 - Films live in a folder of their own under the session workspace, named after the film in kebab-case
@@ -49,69 +49,48 @@ and point that page's import map at the local files (every page carries its own 
 Never leave a CDN URL (jsDelivr, unpkg) in a film: open/look/render must work offline. When you reuse one of the
 official examples, rewrite every page's import map first and copy the library into the project.
 
-## Server capabilities (use these instead of paid providers)
+## Server media tools (preferred)
 
-Media comes through OpenFilm's custom service **`tintin`**, registered by the TinTin app. Call it in the film
-folder with:
+The server's media capabilities are exposed as DSH tools. They normalize parameters, land generated files in the
+film project (default `assets/tintin/`), poll asynchronous jobs, and return `{ ok, error? }`. Prefer them over any
+HTTP or `openfilm get` call.
 
-    openfilm get call --service tintin --path <path> [--method POST --json '<json>'] [--file file=<project file>] [--out <name>]
+- `tintin_capabilities` — the server's capability registry (39 entries: LLM, TTS, ASR, music, SFX, material,
+  montage, digital human, ComfyUI, Dreamina…); filter by keyword to discover advanced ones.
+- `tintin_voices` — list clone samples (`id` → `sample_id`) and Qwen3 preset speakers.
+- `tintin_tts` — voice-over: `text` plus `sample_id`, or `engine:"qwen3"` + `speaker`. Lands
+  `assets/tintin/vo-<ts>.wav` unless `out` says otherwise. Speak the whole line in one call (never split sentences).
+- `tintin_asr` — transcript with word timings. Pass `vtt` to write a word-tagged WebVTT beside the media
+  (`assets/tintin/line1.wav` → `assets/tintin/line1.vtt`).
+- `tintin_beatmap` — bpm, beats, downbeats, bars, structure and smart cuts for beat-synced cuts.
+- `tintin_bgm` — instrumental background music (3–60 s), lands in `assets/tintin/`.
+- `tintin_sfx` — sound effects, lands in `assets/tintin/`.
+- `tintin_stock_images` — search stock pictures/videos; `download` copies the first N into the project.
+- `tintin_image_reverse` — a prompt from a local picture (vision).
+- `tintin_comfyui` — submit a ComfyUI workflow (JSON file or inline); polls async results.
+- `tintin_task_status` — read a long task later (`/tasks/unified/{id}`).
 
-- Files it returns land under `assets/tintin/<out>.<ext>`; `--out` is a bare name (no folder, no extension).
-- JSON answers are printed as text: read them and make the follow-up call they name.
-- PowerShell: write JSON in single quotes (`--json '{"text":"..."}'`). If a shell mangles a `/path` argument
-  (Git Bash converts it), prefix the command with `MSYS_NO_PATHCONV=1`.
+### Voice-over (TTS) in practice
 
-### Voice-over (TTS) — two calls
+1. `tintin_voices` → choose a sample id (clone) or a Qwen3 speaker.
+2. `tintin_tts { text, sample_id }` (or `engine:"qwen3", speaker`) → `path`.
+3. `tintin_asr { file: path, vtt: "assets/tintin/line1.vtt" }` → word count + a word-tagged VTT for karaoke
+   subtitles and word-synced page animation.
 
-1. Pick a voice. Server samples carry the reference audio:
+Place the audio as a film clip: `<audio src="assets/tintin/vo-….wav" at="<film second>"></audio>`. Never draw
+subtitles in a page; the `.vtt` beside the media is how OpenFilm shows them.
 
-       openfilm get call --service tintin --path /voice/samples
-       openfilm get call --service tintin --path /indextts/qwen3/voices     # qwen3 preset speakers
+### Music, effects, pictures
 
-   Use a sample's `id` as `sample_id`. Clone voices sound like the sample; Qwen3 preset voices use
-   `engine:"qwen3"` + `speaker:"<name>"`.
+- `tintin_bgm { prompt, style, duration }` → a path; put it on a sound track (`<audio src="…" volume="0.6">`).
+- `tintin_sfx { prompt, duration }` → a path; place each hit at its film second.
+- `tintin_stock_images { query, kind:"image", per:6, download:3 }` → items and local paths; never invent a
+  generated picture: the server has no text-to-image endpoint yet.
 
-2. Speak the line (expect ~0.25 s per character; a short sentence can take a minute):
+### Fallback (tools unavailable)
 
-       openfilm get call --service tintin --path /indextts/tts --method POST --json '{"text":"<line>","resp":"json","sample_id":1285}'
-
-   The answer is `{"audio_url":"/output/tts/….wav", …}`. Land it under assets:
-
-       openfilm get call --service tintin --path <audio_url> --out line1
-
-   Now `assets/tintin/line1.wav` exists. Speech is a clip in `film.html`, never inside a page:
-   `<audio src="assets/tintin/line1.wav" at="<film second>"></audio>`.
-
-### Subtitles (ASR) — word timings from the same audio
-
-    openfilm get call --service tintin --path /whisper/transcribe --method POST --file file=assets/tintin/line1.wav --form fmt=json --form mode=raw
-
-`mode=raw` returns `{"segments":[{"start","end","text","words":[{"word","start","end"}]}]}` — word-level timings,
-the same the official examples get from ElevenLabs. Write the WebVTT beside the media with the same base name
-(`assets/tintin/line1.wav` → `assets/tintin/line1.vtt`): `WEBVTT` first, one cue per segment, and each word's
-start as an inline timestamp tag — `为<00:00:00.240>了<00:00:00.320>…` (mm:ss.mmm). Line-level subtitles
-(cue text only) are fine when word sync is not needed. Never draw subtitles in a page.
-
-Use the same word timings to time a page's moves on the narration: a line's words back to back,
-`start`/`end` in seconds relative to that audio file.
-
-### Music (BGM) — one call, absolute URL
-
-    openfilm get call --service tintin --path /audio/gen/bgm --method POST --json '{"prompt":"<what it sounds like>","style":"electronic","duration":8}'
-
-The answer carries `url` (absolute) and `duration`. Land it with the URL's path part:
-
-    openfilm get call --service tintin --path <path of url> --out bed
-
-`assets/tintin/bed.wav` is the film's music track (`<audio src="assets/tintin/bed.wav" volume="0.6"></audio>`).
-Sound effects: `/audio/gen/sfx` (same shape) or the server library `/sfx/library`.
-
-### Stock pictures (image search) — JSON, then download
-
-    openfilm get call --service tintin --path /material/stock_search --method POST --json '{"query":"city night","kind":"image","per":6}'
-
-The answer lists `items[].url` (Pexels/Pixabay). Download the ones you use into the project yourself, e.g.
-`Invoke-WebRequest -Uri <url> -OutFile assets/stock/1.jpg`, then place them in `film.html`.
+The same capabilities are reachable through OpenFilm's custom service while Studio runs:
+`openfilm get call --service tintin --path <path> …`. Use it only when a tool above is missing.
 
 ### What the server does NOT provide (yet)
 
@@ -199,6 +178,16 @@ before and in whatever order.
   context with `preserveDrawingBuffer: true`.
 - A page has no sound: every sound is a clip in film.html. A shot's sound effect goes at the film second it plays:
   the page clip's `at`, plus the page's t, less the clip's in point.
+
+## Check your work visually
+
+`look` draws frames; you can see them through the server's vision model:
+
+1. `openfilm look` (contact sheet) or `openfilm look 12.5` (one frame) — the output names the PNG path.
+2. Call `vision_analyze { image_path: "<absolute path to that PNG>", question: "…" }` with a concrete question:
+   composition, text legibility or clipping, color, whether the frame matches the brief.
+3. Fix what it names, then `look` again. Do this at least once before rendering, and whenever a page's design
+   matters. Keep the sheet small enough to read (a few frames); `look a-b` for a dense stretch.
 
 ## Tools
 

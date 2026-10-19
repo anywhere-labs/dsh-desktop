@@ -3,10 +3,16 @@
 // stay byte-identical to Beta, so every TinTin-specific main-process behavior
 // installs itself from here, before the mirrored bootstrap runs.
 
-import { app } from 'electron'
+import { app, BrowserWindow, WebContentsView, ipcMain } from 'electron'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { registerBrowserService } from 'dsh-tintin-browser'
+import {
+  OPENFILM_HOST_REFER, OPENFILM_HOST_SELECTION, OPENFILM_REFER_EVENT, OPENFILM_SELECTION_EVENT,
+  OPENFILM_VIEW_CHANNEL, isOpenFilmBounds, isOpenFilmStudioUrl,
+  type OpenFilmBounds, type OpenFilmSelection, type OpenFilmStudioRef, type OpenFilmViewRequest,
+} from '../openfilm-view-contract.ts'
 import { seedTinTinDefaults } from './first-boot.ts'
 
 let installed = false
@@ -26,6 +32,73 @@ let browserAttached = false
  *   modals, dialogs, recovery chrome) are ignored, matching the source
  *   wiring where registerBrowserService received the main window only.
  */
+const STUDIO_PARTITION = 'persist:tintin-openfilm-studio'
+const studioPreloadPath = join(dirname(fileURLToPath(import.meta.url)), 'studio-preload.cjs')
+
+let studioView: WebContentsView | null = null
+let studioWindow: BrowserWindow | null = null
+let studioShown = false
+
+/** Create (or reuse) the native Studio view in the window that hosts the chat. */
+function ensureStudioView(window: BrowserWindow, url: string): WebContentsView {
+  if (studioView !== null && !studioView.webContents.isDestroyed()) return studioView
+  studioWindow = window
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: studioPreloadPath,
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      partition: STUDIO_PARTITION,
+    },
+  })
+  view.setBackgroundColor('#0b0c0f')
+  view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  view.webContents.on('did-fail-load', (_event, code, description, failedUrl) => {
+    console.error(`dsh-plugin-desktop-tintin: Studio failed to load ${failedUrl} (${String(code)} ${description})`)
+  })
+  view.webContents.on('destroyed', () => {
+    if (studioView === view) {
+      studioView = null
+      studioWindow = null
+      studioShown = false
+    }
+  })
+  studioView = view
+  void view.webContents.loadURL(url)
+  return view
+}
+
+function showStudio(bounds: OpenFilmBounds): void {
+  if (studioView === null || studioWindow === null || studioWindow.isDestroyed()) return
+  if (!studioShown) {
+    studioWindow.contentView.addChildView(studioView)
+    studioShown = true
+  }
+  studioView.setBounds({
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    width: Math.max(0, Math.round(bounds.width)),
+    height: Math.max(0, Math.round(bounds.height)),
+  })
+}
+
+function hideStudio(): void {
+  if (studioView === null || studioWindow === null || studioWindow.isDestroyed() || !studioShown) return
+  studioWindow.contentView.removeChildView(studioView)
+  studioShown = false
+}
+
+function closeStudio(): void {
+  const view = studioView
+  if (view === null) return
+  hideStudio()
+  studioView = null
+  studioWindow = null
+  studioShown = false
+  if (!view.webContents.isDestroyed()) view.webContents.close()
+}
+
 export function installTinTinMainHook(): void {
   if (installed) return
   installed = true
@@ -61,6 +134,39 @@ export function installTinTinMainHook(): void {
         `dsh-plugin-desktop-tintin: browser domain registration failed: ${error instanceof Error ? error.message : String(error)}`,
       )
       browserAttached = false
+    }
+  })
+
+  // Native OpenFilm Studio view (B 方案, 2026-10-18 用户裁决): the Studio page runs
+  // in a WebContentsView with a preload that supplies Studio's host contract
+  // (`window.openfilmHost`); its selection/playhead and "Reference in chat" refs
+  // are forwarded to the chat renderer that drives this view.
+  ipcMain.handle(OPENFILM_VIEW_CHANNEL, (event, request: OpenFilmViewRequest) => {
+    if (request === null || typeof request !== 'object') return { ok: false, error: 'invalid request' }
+    if (request.action === 'open') {
+      if (!isOpenFilmStudioUrl(request.url)) return { ok: false, error: 'refused: not a local Studio address' }
+      const window = BrowserWindow.fromWebContents(event.sender)
+      if (window === null) return { ok: false, error: 'window not found' }
+      ensureStudioView(window, request.url)
+      return { ok: true }
+    }
+    if (request.action === 'show') {
+      if (!isOpenFilmBounds(request.bounds)) return { ok: false, error: 'invalid bounds' }
+      showStudio(request.bounds)
+      return { ok: true }
+    }
+    if (request.action === 'hide') { hideStudio(); return { ok: true } }
+    if (request.action === 'close') { closeStudio(); return { ok: true } }
+    return { ok: false, error: 'unknown action' }
+  })
+  ipcMain.on(OPENFILM_HOST_SELECTION, (event, selection: OpenFilmSelection) => {
+    if (studioView !== null && event.sender === studioView.webContents) {
+      studioWindow?.webContents.send(OPENFILM_SELECTION_EVENT, selection)
+    }
+  })
+  ipcMain.on(OPENFILM_HOST_REFER, (event, ref: OpenFilmStudioRef) => {
+    if (studioView !== null && event.sender === studioView.webContents) {
+      studioWindow?.webContents.send(OPENFILM_REFER_EVENT, ref)
     }
   })
 }

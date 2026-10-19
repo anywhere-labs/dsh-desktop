@@ -64,7 +64,7 @@ export default defineConfig([
   },
   {
     name: `${PACKAGE_NAME}/preload`,
-    entry: { preload: 'src/preload.ts', 'compatibility-preload': 'src/compatibility-preload.ts' },
+    entry: { preload: 'src/preload.ts', 'compatibility-preload': 'src/compatibility-preload.ts', 'studio-preload': 'src/tintin/studio-preload.ts' },
     outDir: 'lib',
     format: 'cjs',
     platform: 'node',
@@ -74,6 +74,10 @@ export default defineConfig([
     clean: false,
     sourcemap: true,
     external: ['electron'],
+    // Electron sandboxed preloads can only require('electron')/builtins — a
+    // shared-chunk import ("module not found: ./…") kills the whole preload,
+    // so every entry must inline its imports into one self-contained file.
+    splitting: false,
     outputOptions: {
       entryFileNames: '[name].cjs',
     },
