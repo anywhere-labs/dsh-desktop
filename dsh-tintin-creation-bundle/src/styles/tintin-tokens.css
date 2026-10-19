@@ -355,20 +355,23 @@
    暗色主题覆盖（.dark）：给 <html class="dark"> 时切换
    ═══════════════════════════════════════════════════════════════ */
 .tintin-media-scope.dark {
-  /* 语义层（暗色） */
+  /* 语义层（暗色）。2026-10-18 报障「深色与原生不统一」：中性底/字/边改挂
+     原生 dsw-alias（ui-theme design-platform 暗色档，宿主页面必注入，随
+     body[data-ds-dark-theme] 生效）——与原生逐值一致；回退=被入 slate 档
+     （自查浏览器 harness 无原生变量时用）。品牌/强调/状态色保留被入口径。 */
   --primary:              var(--luosiding-indigo-400);
   --primary-foreground:   var(--luosiding-slate-0);
   --primary-hover:        var(--luosiding-indigo-400);
   --primary-active:       var(--luosiding-indigo-500);
-  --secondary:            var(--luosiding-slate-700);
-  --secondary-foreground: var(--luosiding-slate-100);
+  --secondary:            var(--dsw-alias-bg-layer-3, var(--luosiding-slate-700));
+  --secondary-foreground: var(--dsw-alias-label-primary, var(--luosiding-slate-100));
   --accent:               var(--luosiding-violet-400);
   --accent-foreground:    var(--luosiding-slate-0);
-  --background:           var(--luosiding-slate-950);
-  --foreground:           var(--luosiding-slate-50);
-  --muted:                var(--luosiding-slate-800);
-  --muted-foreground:     var(--luosiding-slate-300);
-  --border:               var(--luosiding-slate-700);
+  --background:           var(--dsw-alias-bg-base, var(--luosiding-slate-950));
+  --foreground:           var(--dsw-alias-label-primary, var(--luosiding-slate-50));
+  --muted:                var(--dsw-alias-bg-layer-3, var(--luosiding-slate-800));
+  --muted-foreground:     var(--dsw-alias-label-secondary, var(--luosiding-slate-300));
+  --border:               var(--dsw-alias-border-l2, var(--luosiding-slate-700));
   --ring:                 var(--luosiding-indigo-400);
 
   /* 状态色（暗色略亮） */
@@ -379,20 +382,21 @@
   --destructive:          var(--error);
   --destructive-foreground: var(--error-foreground);
 
-  /* Surface 层级（暗色） */
-  --surface:                    var(--luosiding-slate-900);
-  --surface-dim:                var(--luosiding-slate-950);
-  --surface-bright:             var(--luosiding-slate-800);
-  --surface-container-lowest:   var(--luosiding-slate-950);
-  --surface-container-low:      var(--luosiding-slate-900);
-  --surface-container:          var(--luosiding-slate-800);
-  --surface-container-high:     var(--luosiding-slate-700);
-  --surface-container-highest:  var(--luosiding-slate-600);
+  /* Surface 层级（暗色）：对齐原生三层底（画布 950/面板 875/浮起 850/高层
+     800/覆盖 700，2026-10-18 与原生统一裁决） */
+  --surface:                    var(--dsw-alias-bg-layer-2, var(--luosiding-slate-900));
+  --surface-dim:                var(--dsw-alias-bg-base, var(--luosiding-slate-950));
+  --surface-bright:             var(--dsw-alias-bg-layer-3, var(--luosiding-slate-800));
+  --surface-container-lowest:   var(--dsw-alias-bg-base, var(--luosiding-slate-950));
+  --surface-container-low:      var(--dsw-alias-bg-layer-1, var(--luosiding-slate-900));
+  --surface-container:          var(--dsw-alias-bg-layer-2, var(--luosiding-slate-800));
+  --surface-container-high:     var(--dsw-alias-bg-layer-3, var(--luosiding-slate-700));
+  --surface-container-highest:  var(--dsw-alias-bg-overlay, var(--luosiding-slate-600));
   --inverse-surface:            var(--luosiding-slate-0);
   --inverse-on-surface:         var(--luosiding-slate-900);
-  --border-subtle:              var(--luosiding-slate-800);
+  --border-subtle:              var(--dsw-alias-border-l1, var(--luosiding-slate-800));
   --foreground-muted:           var(--muted-foreground);
-  --foreground-subtle:          var(--luosiding-slate-400);
+  --foreground-subtle:          var(--dsw-alias-label-tertiary, var(--luosiding-slate-400));
   --popover:                    var(--surface);
   --popover-foreground:         var(--foreground);
   /* 卡片背景（暗色） */

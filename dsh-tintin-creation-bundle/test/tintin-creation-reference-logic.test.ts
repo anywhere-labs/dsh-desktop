@@ -13,6 +13,7 @@ import {
   mergeReferencePaths,
   referenceUrl,
   referencesBlock,
+  videoPreviewUrl,
   type CreationReference,
 } from '../src/composables/creationReferenceLogic'
 
@@ -24,6 +25,9 @@ const pool: CreationReference[] = [
 describe('预览 URL 与类型判定', () => {
   it('referenceUrl：路径编码进宿主 /tintin/media 代理', () => {
     expect(referenceUrl('D:/refs/咖啡杯.png')).toBe('/tintin/media?path=' + encodeURIComponent('D:/refs/咖啡杯.png'))
+  })
+  it('videoPreviewUrl：追 #t=0.1 媒体片段强制绘首帧（裸 video 恒空白，2026-10-18 报障）', () => {
+    expect(videoPreviewUrl('D:/refs/demo.mp4')).toBe('/tintin/media?path=' + encodeURIComponent('D:/refs/demo.mp4') + '#t=0.1')
   })
   it('extOf/isImageRef/isVideoRef：按扩展名判定（大小写不敏感）', () => {
     expect(extOf('A.PNG')).toBe('png')

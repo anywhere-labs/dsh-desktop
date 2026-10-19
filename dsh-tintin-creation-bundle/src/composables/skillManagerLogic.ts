@@ -109,3 +109,11 @@ export function removeServerSkill(serverId: string, skills: readonly CreationSki
 export function installedServerSkills(skills: readonly CreationSkill[]): CreationSkill[] {
   return sanitizeSkills(skills).filter((s) => s.id.startsWith(SERVER_SKILL_ID_PREFIX))
 }
+
+/** 卡片搜索（2026-10-18 界面改版）：任一字段含关键词即命中（大小写不敏感；
+ *  空白查询=全部命中） */
+export function skillMatchesQuery(query: string, fields: readonly string[]): boolean {
+  const q = String(query ?? '').trim().toLowerCase()
+  if (!q) return true
+  return fields.some((f) => String(f ?? '').toLowerCase().includes(q))
+}

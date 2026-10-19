@@ -137,7 +137,7 @@ export function useOpsStoryboard() {
     if (adjusting.value) return
     if (!copyText.value.trim()) { status.value = '文案为空，请先填写视频文案。'; return }
     const t = getTintin()
-    if (!t?.llmChat) { status.value = '服务端 LLM 不可用，请检查服务端连接。'; return }
+    if (!t?.server?.llmChat) { status.value = '服务端 LLM 不可用，请检查服务端连接。'; return }
     adjusting.value = true
     status.value = 'AI 正在调整文案…'
     try {
@@ -145,7 +145,7 @@ export function useOpsStoryboard() {
         copyText: copyText.value.trim(),
         extraPrompt: extraPrompt.value,
       })
-      const res = await t.llmChat({
+      const res = await t.server.llmChat({
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -195,12 +195,12 @@ export function useOpsStoryboard() {
     if (generating.value) return
     if (!copyText.value.trim()) { status.value = '请先填写或生成视频文案。'; return }
     const t = getTintin()
-    if (!t?.llmChat) { status.value = '服务端 LLM 不可用，请检查服务端连接。'; return }
+    if (!t?.server?.llmChat) { status.value = '服务端 LLM 不可用，请检查服务端连接。'; return }
     generating.value = true
     status.value = 'AI 正在拆解分镜…'
     try {
       const { systemPrompt, userPrompt } = buildStoryboardPrompt(copyText.value.trim(), ratio.value)
-      const res = await t.llmChat({
+      const res = await t.server.llmChat({
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },

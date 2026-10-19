@@ -149,6 +149,39 @@ export const CREATION_TYPES: ReadonlyArray<{ id: string; label: string }> = Obje
   { id: 'motion', label: '动作模仿' },
 ])
 
+/** 创作类型提示词前缀（各类型产出物口径；creationSystemPrompt 消费） */
+const TYPE_PROMPT_PREFIX: Record<string, string> = {
+  image: '请为「图片生成」输出可直接使用的绘画提示词方案（主体/构图/风格/光线/负向词）',
+  video: '请为「视频生成」输出可直接使用的视频生成提示词与分镜方案',
+  music: '请为「音乐生成」输出可直接使用的音乐生成提示词方案（风格/情绪/结构/BPM）',
+  audio: '请为「音频生成」输出可直接使用的音频/音效生成提示词方案',
+  'digital-human': '请为「数字人」输出可直接使用的数字人生成方案（形象/口播文案/动作）',
+  motion: '请为「动作模仿」输出可直接使用的动作模仿提示词方案（参考主体/动作描述/节奏）',
+}
+
+/** llm 后端的 system 段：Agent 模式不注入（=undefined），具体类型按字典包一层 */
+export function creationSystemPrompt(typeId: string, typeLabel: string): string | undefined {
+  if (typeId === 'agent') return undefined
+  return `用户在创作会话中选择了创作类型「${typeLabel}」。${TYPE_PROMPT_PREFIX[typeId] ?? ''}。`
+}
+
+/** 技能可绑定的工具卡选项（编辑器下拉；value=媒体包工具卡 id） */
+export const TOOL_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: '', label: '不绑定（仅创作）' },
+  { value: 'storyboard', label: '分镜脚本创作' },
+  { value: 'copywriting-montage', label: '文案混剪' },
+  { value: 'imitation-video', label: '仿爆款视频' },
+  { value: 'cover-design', label: '封面制作' },
+  { value: 'voice-clone', label: '声音克隆' },
+  { value: 'material-library', label: '素材库' },
+  { value: 'video-transcribe', label: '视频转文字' },
+  { value: 'live-slice', label: '直播切片' },
+]
+
+export function toolLabel(id: string): string {
+  return TOOL_OPTIONS.find((o) => o.value === id)?.label ?? id
+}
+
 /** 由市场条目生成用户技能（「添加」语义：加入芯片行，模板=技能描述原文组包） */
 export function catalogToSkill(entry: CreationCatalogEntry): CreationSkill {
   return {

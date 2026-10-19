@@ -8,13 +8,14 @@
      创作提示词方案（媒体生成服务端对接见需求文档 P4）。 -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useHostDark } from './composables/hostTheme'
 // 服务端桥与产品库访问：创作包独立域（creationServer），URL 拼装只在本层
 import {
-  fetchProductDetail,
   fetchProducts,
+  fetchSubjectProductDetail,
+  fetchVoiceoverCandidates,
   getTintin,
   searchErrorText,
-  voiceoverCandidatesFromResponse,
   type PickerItem,
   type VoiceoverCandidate,
 } from './composables/creationServer'
@@ -34,6 +35,7 @@ import {
   completeSlashMention,
   activeTokenAt,
   composeCreationPrompt,
+  creationSystemPrompt,
   effectiveBackend,
   filterSkills,
   findSkillByName,
@@ -44,7 +46,8 @@ import {
   resetSkills,
   saveSkills,
   saveCreationPrefs,
-  subjectProductFromItem,
+  TOOL_OPTIONS,
+  toolLabel,
   CREATION_RATIOS,
   type CreationPrefs,
 } from './composables/creationStudioLogic'
@@ -56,16 +59,31 @@ import {
   mergeReferencePaths,
   referencesBlock,
 } from './composables/creationReferenceLogic'
+// 会话历史：读写收在 creationHistoryLogic（本地存储；服务端端点就绪后只换那一层）
+import CreationHistory from './components/CreationHistory.vue'
+import {
+  type CreationHistoryEntry,
+  appendCreationHistory,
+  buildHistoryEntry,
+  clearCreationHistory,
+  loadCreationHistory,
+  saveCreationHistory,
+} from './composables/creationHistoryLogic'
 import { SERVER_SKILL_ID_PREFIX } from './composables/skillManagerLogic'
 
-/* 主题跟随宿主（同 App/OpsApp 口径：宿主 dark 类 + 系统偏好，挂载时求值）。
-   缺了这层 .tintin-media-scope 令牌作用域，--card/--border 等全部未定义，
+/* 主题跟随宿主（2026-10-18 报障修正）：原生有效暗色=body[data-ds-dark-theme]
+   （应用内偏好可≠系统偏好），旧 html.dark 链原生从不打——useHostDark 判定
+   +监听。缺了 .tintin-media-scope 令牌作用域，--card/--border 等全部未定义，
    输入会话卡片会整体透明——2026-10-16 用户报障「没有输入框」的根因之一。 */
-const isDark = ref(false)
+const isDark = useHostDark()
 onMounted(() => {
   skills.value = loadSkills()
-  const hostDark = document.documentElement.classList.contains('dark')
-  isDark.value = hostDark || window.matchMedia('(prefers-color-scheme: dark)').matches
+  // 会话历史恢复（2026-10-18 用户裁决）：重载后最近一轮结果自动回浮层
+  history.value = loadCreationHistory()
+  const last = history.value[0]
+  if (last?.resultText) { previewText.value = last.resultText; previewOpen.value = true }
+  // 技能管理「＋ 添加 skill」跨视图跳转（2026-10-18 改版）：打开技能市场
+  window.__tintinBus?.on('tintin:open-market', () => openMarket())
 })
 
 /* ── 技能预设（芯片行=用户已添加；字典=内置市场目录） ── */
@@ -199,6 +217,14 @@ function onRefCreate(name: string): void {
   input.value = completeAtMention(input.value, name)
   atMenuOpen.value = false
 }
+/** 产品主体入池缩略卡（2026-10-18 用户裁决：文件池统一出预览——产品=六视图
+ *  封面，详情未回前 📦 占位；名称主体无图不出卡，芯片行仍是身份锚）。 */
+const attachedProducts = computed(() => subjects.value
+  .filter((s) => s.product?.id)
+  .map((s) => ({ id: s.id, name: s.name, cover: s.product?.sixViews?.[0]?.url })))
+function onRefProductRemove(id: string): void {
+  subjects.value = subjects.value.filter((s) => s.id !== id)
+}
 
 /* ── @ 主体（产品库搜索 + 手动兜底） ── */
 const subjectMenuOpen = ref(false)
@@ -263,27 +289,15 @@ function pickAtProduct(p: { id: string; name: string }): void {
   input.value = completeAtMention(input.value, p.name)
   atMenuOpen.value = false
 }
-/** 服务端直连基址（六视图相对 URL → 可直连绝对地址；样本试听 2026-09-07 同款裁决） */
-const serverBase = ref('')
-async function ensureServerBase(): Promise<string> {
-  if (serverBase.value) return serverBase.value
-  try {
-    serverBase.value = String((await window.tintin.env.serverPing())?.url || '').replace(/\/$/, '')
-  } catch { /* 预览环境无 env 桥 → 空串 */ }
-  return serverBase.value
-}
+/** @ 主体产品档案：详情+六视图 URL 绝对化在 creationServer.fetchSubjectProductDetail
+ *  （URL 拼装只在该层，IRON-06）；失败保持型号级档案不冲界面（2026-10-12 裁决） */
 async function fillSubjectProduct(subject: CreationSubject): Promise<void> {
   if (!subject.product?.id) return
   try {
-    const [item, base] = await Promise.all([fetchProductDetail(subject.product.id), ensureServerBase()])
-    const detail = subjectProductFromItem(item)
+    const detail = await fetchSubjectProductDetail(subject.product.id)
     const target = subjects.value.find((s) => s.id === subject.id)
     if (!target) return
-    target.product = {
-      ...target.product,
-      ...detail,
-      sixViews: detail.sixViews?.map((v) => ({ ...v, url: base && !/^https?:\/\//i.test(v.url) ? base + v.url : v.url })),
-    }
+    target.product = { ...target.product, ...detail }
   } catch { /* 详情拉取失败：保持型号级档案，不冲界面 */ }
 }
 function addSubjectFromQuery(): void {
@@ -322,23 +336,14 @@ function failNotice(message: string): void {
   notice.value = message
 }
 
-const TYPE_PROMPT_PREFIX: Record<string, string> = {
-  image: '请为「图片生成」输出可直接使用的绘画提示词方案（主体/构图/风格/光线/负向词）',
-  video: '请为「视频生成」输出可直接使用的视频生成提示词与分镜方案',
-  music: '请为「音乐生成」输出可直接使用的音乐生成提示词方案（风格/情绪/结构/BPM）',
-  audio: '请为「音频生成」输出可直接使用的音频/音效生成提示词方案',
-  'digital-human': '请为「数字人」输出可直接使用的数字人生成方案（形象/口播文案/动作）',
-  motion: '请为「动作模仿」输出可直接使用的动作模仿提示词方案（参考主体/动作描述/节奏）',
-}
-
 async function generateViaLlm(prompt: string): Promise<string> {
+  // 桥契约：llmChat 挂在 server 命名空间（window.tintin.server.llmChat，client.js
+  // server 块），顶层无此成员——2026-10-18 报障：顶层检查恒空把连接正常误报成
+  // 「服务端 LLM 不可用」，与识别/克隆/混剪等已验证调用方同口径改 server 路径。
   const t = getTintin()
-  if (!t?.llmChat) throw new Error('服务端 LLM 不可用，请检查「设置 → 服务端」的连接。')
-  const typeLabel = creationTypeLabel.value
-  const system = creationTypeId.value === 'agent'
-    ? undefined
-    : `用户在创作会话中选择了创作类型「${typeLabel}」。${TYPE_PROMPT_PREFIX[creationTypeId.value] ?? ''}。`
-  const res = await t.llmChat({ messages: buildLlmMessages(prompt, system) })
+  if (!t?.server?.llmChat) throw new Error('服务端 LLM 不可用，请检查「设置 → 服务端」的连接。')
+  const system = creationSystemPrompt(creationTypeId.value, creationTypeLabel.value)
+  const res = await t.server.llmChat({ messages: buildLlmMessages(prompt, system) })
   if (res && typeof res === 'object' && 'error' in (res as Record<string, unknown>)) {
     throw new Error(String((res as Record<string, unknown>).error || '生成失败'))
   }
@@ -351,15 +356,8 @@ const voiceoverCandidates = ref<VoiceoverCandidate[]>([])
 const voiceoverPickedIdx = ref(0)
 
 async function generateViaVoiceover(): Promise<string> {
-  const t = getTintin()
-  if (!t?.server?.post) throw new Error('服务端不可用，请检查「设置 → 服务端」的连接。')
-  const req = buildVoiceoverRequest({
-    skill: selectedSkill.value!,
-    input: input.value,
-    subjects: subjects.value,
-  })
-  const res = await t.server.post('/copywriting/voiceover', req)
-  const { candidates, failedFormulas } = voiceoverCandidatesFromResponse(res)
+  const req = buildVoiceoverRequest({ skill: selectedSkill.value!, input: input.value, subjects: subjects.value })
+  const { candidates, failedFormulas } = await fetchVoiceoverCandidates(req)
   if (candidates.length === 0) {
     const failed = failedFormulas.length > 0 ? `（失败写法：${failedFormulas.join('、')}）` : ''
     throw new Error(`口播生成无可用结果${failed}`)
@@ -371,6 +369,40 @@ async function generateViaVoiceover(): Promise<string> {
 
 const previewOpen = ref(false)
 const previewText = ref('')
+
+/* ── 会话历史（2026-10-18 用户裁决：结果本地保存）——记录/持久化在发送链，
+ *    列表回看/重开/清空在 CreationHistory 子组件；存储实现=creationHistoryLogic
+ *    （服务端 /api/creation/sessions 就绪后只换那一层，调用方不动） ── */
+const history = ref<CreationHistoryEntry[]>([])
+/** 入史附带的发送上下文（可选字段空值不出键——exactOptional 口径） */
+function historyContext(): { skillName?: string; typeLabel?: string; subjects?: string[]; references?: string[] } {
+  const skillName = selectedSkill.value?.name
+  const typeLabel = creationTypeId.value === 'agent' ? undefined : creationTypeLabel.value
+  return {
+    ...(skillName ? { skillName } : {}),
+    ...(typeLabel ? { typeLabel } : {}),
+    subjects: subjects.value.map((s) => s.name),
+    references: references.value.map((r) => r.name),
+  }
+}
+function recordHistory(source: CreationHistoryEntry['source'], resultText: string, extra?: { formula?: string }): void {
+  history.value = appendCreationHistory(history.value, buildHistoryEntry({
+    source,
+    input: input.value.trim(),
+    resultText,
+    ...historyContext(),
+    ...(extra?.formula ? { formula: extra.formula } : {}),
+  }))
+  saveCreationHistory(history.value)
+}
+function reopenHistory(entry: CreationHistoryEntry): void {
+  previewText.value = entry.resultText
+  previewOpen.value = true
+}
+function clearHistory(): void {
+  history.value = []
+  clearCreationHistory()
+}
 
 const references = ref<CreationReference[]>([])
 /** 引用池缩略图/上下文附注由 CreationReferences 子组件 + 本层四接线承担；
@@ -392,6 +424,7 @@ async function send(): Promise<void> {
     notice.value = copied ? '提示词已复制到剪贴板。' : '提示词已生成（复制失败，可在下方手动复制）。'
     previewText.value = prompt
     previewOpen.value = true
+    recordHistory('copy', prompt)
     return
   }
   generating.value = true
@@ -410,6 +443,7 @@ async function send(): Promise<void> {
     } else {
       text = await generateViaLlm(prompt)
     }
+    recordHistory(backend, text)
     noticeOk.value = true
     notice.value = (await copyText(text)) ? '已生成并复制到剪贴板。' : '已生成（复制失败，可在下方手动复制）。'
     previewText.value = text
@@ -424,6 +458,7 @@ async function send(): Promise<void> {
 function pickVoiceoverCandidate(): void {
   const c = voiceoverCandidates.value[voiceoverPickedIdx.value]
   if (!c) return
+  recordHistory('voiceover', c.text, c.formula ? { formula: c.formula } : undefined)
   noticeOk.value = true
   notice.value = (c.formula ? `已选「${c.formula}」，` : '') + '可复制或重新挑选。'
   previewText.value = c.text
@@ -447,10 +482,6 @@ function openBoundTool(): void {
   window.__tintinBus?.emit('tintin:media-tool', tool)
 }
 
-function toolLabel(id: string): string {
-  return TOOL_OPTIONS.find((o) => o.value === id)?.label ?? id
-}
-
 /* ── 技能市场（更多技能：分类字典页，对照即梦技能市场） ── */
 const marketOpen = ref(false)
 const marketCategory = ref<CreationCatalogEntry['category'] | '全部'>('全部')
@@ -464,22 +495,12 @@ function openMarket(): void {
   typeMenuOpen.value = false
 }
 
-/* ── 技能管理（编辑/删除内置与自定义） ── */
+/* ── 技能管理（编辑/删除内置与自定义）── 工具卡字典 TOOL_OPTIONS/toolLabel
+ *  在 creationStudioLogic（技能域字典与编辑器下拉共用） */
 const editorOpen = ref(false)
 const editing = ref<CreationSkill | null>(null)
 const editingTool = ref<string>('')
 const editingBackend = ref<'llm' | 'voiceover' | 'copy'>('llm')
-const TOOL_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: '', label: '不绑定（仅创作）' },
-  { value: 'storyboard', label: '分镜脚本创作' },
-  { value: 'copywriting-montage', label: '文案混剪' },
-  { value: 'imitation-video', label: '仿爆款视频' },
-  { value: 'cover-design', label: '封面制作' },
-  { value: 'voice-clone', label: '声音克隆' },
-  { value: 'material-library', label: '素材库' },
-  { value: 'video-transcribe', label: '视频转文字' },
-  { value: 'live-slice', label: '直播切片' },
-]
 function startEdit(skill: CreationSkill): void {
   editing.value = { ...skill }
   editingTool.value = skill.tool ?? ''
@@ -557,11 +578,13 @@ function removeSkill(skill: CreationSkill): void {
             :products="subjectHits"
             :products-loading="subjectLoading"
             :products-error="subjectError"
+            :attached="attachedProducts"
             @add="onRefAdd"
             @remove="onRefRemove"
             @pick-ref="insertAtReference"
             @pick-product="pickAtProduct"
             @create-subject="onRefCreate"
+            @remove-product="onRefProductRemove"
           />
           <div class="editor-box">
             <textarea v-model="input" class="input" rows="3" @input="onInputChange" @keydown.enter.exact.prevent="send" />
@@ -703,6 +726,9 @@ function removeSkill(skill: CreationSkill): void {
       </div>
       <textarea v-model="previewText" class="preview-body" rows="6" />
     </div>
+
+    <!-- 会话历史（2026-10-18 用户裁决：结果本地保存——回看/重开/清空；重载恢复最近一轮） -->
+    <CreationHistory :entries="history" @reopen="reopenHistory" @clear="clearHistory" />
 
     <!-- 技能芯片行（即梦同款：/名称 + New/Hot 徽标 + 更多技能） -->
     <div class="chips">

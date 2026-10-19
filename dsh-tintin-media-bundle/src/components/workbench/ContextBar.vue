@@ -11,7 +11,8 @@
 // 弹窗：产品/素材/脚本复用工作台 WbPick* 组件（TDialog 原地渲染，无 teleport，
 // 不会逃出本宿主容器）。
 // ═══════════════════════════════════════════════════════════════
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
+import { useHostDark } from '@/composables/hostTheme'
 import WbPickProductDialog from '@/components/workbench/WbPickProductDialog.vue'
 import WbPickMaterialDialog from '@/components/workbench/WbPickMaterialDialog.vue'
 import WbPickScriptDialog from '@/components/workbench/WbPickScriptDialog.vue'
@@ -32,11 +33,9 @@ import type { PickerItem } from '@/composables/useWorkbenchPickers'
 
 const { product, materials, scripts, audios, syncState, syncError, savedAt } = useTaskContextState()
 
-const isDark = ref(false)
-onMounted(() => {
-  isDark.value = document.documentElement.classList.contains('dark')
-    || window.matchMedia('(prefers-color-scheme: dark)').matches
-})
+// 主题跟随宿主（2026-10-18 修正）：原生信号 body[data-ds-dark-theme]——
+// 此前只读 html.dark 在原生下恒浅色，与媒体主视图互相打架。
+const isDark = useHostDark()
 
 const showProduct = ref(false)
 const showMaterial = ref(false)

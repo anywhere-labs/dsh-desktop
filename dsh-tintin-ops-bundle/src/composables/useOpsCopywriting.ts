@@ -3,8 +3,9 @@
 // SRC composables/useOpsCopywriting.ts 移植（搬运基线 SRC 9ca9050）：
 //   · 产品检索：产品库 GET /search?q=（防抖）→ 下拉选择 → GET /items/{id}
 //     回填性能参数/核心卖点（可临时编辑，不回写产品库）
-//   · 生成：window.tintin.llmChat（/llm/chat/completions，
-//     model 空走服务端默认，与工作台/封面制作同口径）
+//   · 生成：window.tintin.server.llmChat（/llm/chat/completions，
+//     model 空走服务端默认，与工作台/封面制作同口径；
+//     2026-10-18 报障修正：llmChat 在 server 命名空间下，顶层无此成员）
 //   · 极限词检测：opsCopywritingLogic.checkExtremeWords（词表全移植）
 //   · 前往分镜：文案+产品上下文写入 pendingStoryboard（SRC appStore 切片，
 //     composables/pendingStoryboard.ts）；分镜脚本创作卡 P2 挂载时消费
@@ -191,7 +192,7 @@ export function useOpsCopywriting() {
       return
     }
     const t = getTintin()
-    if (!t?.llmChat) { status.value = '服务端 LLM 不可用，请检查服务端连接。'; return }
+    if (!t?.server?.llmChat) { status.value = '服务端 LLM 不可用，请检查服务端连接。'; return }
     generating.value = true
     status.value = 'AI 正在创作文案…'
     try {
@@ -205,7 +206,7 @@ export function useOpsCopywriting() {
         avoidBanned: avoidBanned.value,
         extraPrompt: extraPrompt.value,
       })
-      const res = await t.llmChat({
+      const res = await t.server.llmChat({
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },

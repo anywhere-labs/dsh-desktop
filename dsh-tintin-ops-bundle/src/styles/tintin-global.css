@@ -24,8 +24,13 @@
   margin: 0;
   padding: 0;
 }
+/* 底色与宿主覆盖层同源（2026-10-19 报障「背景两截深色」）：chrome 的
+   #tintin-view-overlay 画 --dsw-alias-bg-layer-1，视图根此前画 --background
+   （暗色=bg-base，差一档灰）——创作模式 96% 居中列、运营内容不足一屏时露出
+   拼缝。改挂同一变量后视图与覆盖层逐值一致（亮暗皆无缝）；回退保留
+   --background（自查浏览器 harness 无宿主变量）。 */
 .tintin-media-scope {
-  background: var(--background);
+  background: var(--dsw-alias-bg-layer-1, #141416);
   color: var(--foreground);
   font-family: var(--font-family);
   font-size: var(--font-size-body);

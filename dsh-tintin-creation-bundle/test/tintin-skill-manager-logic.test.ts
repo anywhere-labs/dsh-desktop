@@ -18,6 +18,7 @@ import {
   removeServerSkill,
   serverSkillId,
   serverSkillToCreationSkill,
+  skillMatchesQuery,
 } from '../src/composables/skillManagerLogic'
 import { BUILTIN_CREATION_SKILLS, loadSkills, saveSkills, sanitizeSkills } from '../src/composables/creationStudioLogic'
 
@@ -132,5 +133,15 @@ describe('installServerSkill 完整说明书模板', () => {
     const v2 = installServerSkill(ENTRY, v1, '真·完整指令内容')
     expect(v2).toHaveLength(1)
     expect(v2[0]!.template).toContain('真·完整指令内容')
+  })
+})
+
+describe('skillMatchesQuery 卡片搜索（2026-10-18 界面改版）', () => {
+  it('空白查询=全部命中；任一字段含关键词命中（大小写不敏感）', () => {
+    expect(skillMatchesQuery('', ['视频复刻', '描述'])).toBe(true)
+    expect(skillMatchesQuery('  ', ['视频复刻', '描述'])).toBe(true)
+    expect(skillMatchesQuery('复刻', ['视频复刻', '描述'])).toBe(true)
+    expect(skillMatchesQuery('DESC', ['视频复刻', '描述'])).toBe(false)
+    expect(skillMatchesQuery('mp4', ['a', '转成 mp4 竖版'])).toBe(true)
   })
 })

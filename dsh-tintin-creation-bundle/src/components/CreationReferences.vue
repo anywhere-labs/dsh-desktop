@@ -17,6 +17,7 @@ import {
   isVideoRef,
   mergeReferencePaths,
   referenceUrl,
+  videoPreviewUrl,
 } from '../composables/creationReferenceLogic'
 
 const props = defineProps<{
@@ -29,6 +30,9 @@ const props = defineProps<{
   products?: Array<{ id: string; name: string }>
   productsLoading?: boolean
   productsError?: string
+  /** 已选产品主体入池缩略卡（2026-10-18 用户裁决：文件池统一出预览——产品
+   *  用六视图封面；父层从 subjects 派生，× 走 remove-product 移除主体） */
+  attached?: Array<{ id: string; name: string; cover?: string }>
 }>()
 
 const emit = defineEmits<{
@@ -37,6 +41,7 @@ const emit = defineEmits<{
   'pick-ref': [name: string]
   'pick-product': [product: { id: string; name: string }]
   'create-subject': [name: string]
+  'remove-product': [id: string]
 }>()
 
 const atCreating = ref(false)
@@ -64,13 +69,20 @@ function confirmCreateSubject(): void {
 
 <template>
   <!-- 引用池缩略图行（即梦同款 48×64 块：预览 + ×移除 + 小 ＋ 续传）；
-       池空时仅显示 ＋ 入口块（即梦真身同位） -->
+       池空时仅显示 ＋ 入口块（即梦真身同位）。2026-10-18 用户裁决：视频块
+       经 #t=0.1 绘首帧（裸 video 恒空白）；已选产品主体入池，封面=六视图首图 -->
   <div class="refs-row">
     <div v-for="r in references" :key="r.path" class="ref-thumb" :title="r.name">
       <img v-if="isImageRef(r.path)" :src="referenceUrl(r.path)" alt="" loading="lazy">
-      <video v-else-if="isVideoRef(r.path)" :src="referenceUrl(r.path)" muted preload="metadata" />
+      <video v-else-if="isVideoRef(r.path)" :src="videoPreviewUrl(r.path)" muted preload="metadata" />
       <span v-else class="ref-ext">{{ extOf(r.name) || '文件' }}</span>
       <button type="button" class="ref-x" :title="`移除 ${r.name}`" @click="emit('remove', r.path)">×</button>
+    </div>
+    <div v-for="p in attached" :key="p.id" class="ref-thumb is-subject" :title="`主体产品：${p.name}`">
+      <img v-if="p.cover" :src="p.cover" alt="" loading="lazy">
+      <span v-else class="ref-ext">📦</span>
+      <span class="ref-tag">主体</span>
+      <button type="button" class="ref-x" :title="`移除 ${p.name}`" @click="emit('remove-product', p.id)">×</button>
     </div>
     <button type="button" class="ref-add" title="继续上传参考" @click="pickReferences">＋</button>
   </div>
@@ -120,6 +132,9 @@ function confirmCreateSubject(): void {
 .ref-thumb img, .ref-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ref-thumb .ref-ext { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--muted-foreground); text-transform: uppercase; }
 .ref-thumb .ref-x { position: absolute; top: 1px; right: 1px; width: 14px; height: 14px; border: none; border-radius: 999px; background: rgba(0,0,0,0.55); color: #fff; font-size: 10px; line-height: 1; cursor: pointer; padding: 0; }
+/* 产品主体卡：六视图封面 + 左下「主体」小标（与上传文件区分） */
+.ref-thumb.is-subject { border-color: var(--primary); }
+.ref-thumb .ref-tag { position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 0; background: rgba(0,0,0,0.45); color: #fff; font-size: 9px; line-height: 1.3; text-align: center; letter-spacing: 1px; }
 .ref-add { width: 48px; height: 64px; border-radius: 8px; border: 1px dashed var(--border); background: transparent; color: var(--muted-foreground); font-size: 16px; cursor: pointer; }
 .ref-add:hover { border-color: var(--primary); color: var(--primary); }
 .menu-title { padding: 10px 14px 4px; font-size: 12px; color: var(--muted-foreground); }

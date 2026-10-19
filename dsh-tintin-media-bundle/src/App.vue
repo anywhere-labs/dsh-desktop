@@ -39,6 +39,8 @@ import CoverMaker from './components/media-tools/CoverMaker.vue'
 // 「前往分镜」跨视图跳转（2026-09-27）：产品资料文案面板写入 pendingStoryboard
 // 信号后，本视图侦听并自动打开分镜脚本创作卡
 import { pendingStoryboard } from './composables/pendingStoryboard'
+// 主题跟随宿主（2026-10-18 报障修正：原生信号 body[data-ds-dark-theme]）
+import { useHostDark } from './composables/hostTheme'
 // 工具内跨卡跳转（2026-10-09）：仿视频第 1 步「视频去字幕」等按钮写入
 // 目标卡 id（pendingMediaTool），本视图侦听后切换 active（一次性消费）
 import { pendingMediaTool } from './composables/pendingMediaTool'
@@ -121,13 +123,10 @@ function openTool(t: ToolCard): void {
   active.value = t.id
 }
 
-// 主题跟随宿主：源项目靠 <html class="dark">；面板注入宿主 DOM，取宿主
-// dark 类 + 系统偏好一次性判定（挂载时求值，不做监听——面板生命周期短）。
-const isDark = ref(false)
-onMounted(() => {
-  const hostDark = document.documentElement.classList.contains('dark')
-  isDark.value = hostDark || window.matchMedia('(prefers-color-scheme: dark)').matches
-})
+// 主题跟随宿主（2026-10-18 报障修正）：原生有效暗色=body[data-ds-dark-theme]
+// （应用内偏好可≠系统偏好），旧 html.dark 链原生从不打——判定/监听收进
+// composables/hostTheme，与运营/创作同口径。
+const isDark = useHostDark()
 </script>
 
 <template>
@@ -240,7 +239,7 @@ onMounted(() => {
 }
 
 /* 全宽自适应列（宽屏两卡铺开，窄屏自动单列） */
-.grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); } /* 卡片 2/3（2026-10-14 用户裁决：列宽 300→200） */
+.grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); } /* 卡片 2/3（2026-10-14 列宽 300→200）；2026-10-18 用户裁决：卡片高宽 +1/5，列宽 200→240 */
 
 /* 卡片视觉对照源 MediaTools.vue（accent 光晕 + hover 毛玻璃），压缩到面板尺寸 */
 /* 入场 stagger + 光晕旋转（2026-09-25 用户报障「缺原客户端动画」补齐，
@@ -255,7 +254,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: calc(var(--space-5) * 2 / 3); /* 卡片 2/3（2026-10-14 用户裁决） */
+  padding: calc(var(--space-5) * 4 / 5); /* 卡片 2/3（2026-10-14）；2026-10-18 用户裁决：卡片高宽 +1/5，×4/5 */
   text-align: left;
   font: inherit;
   /* 底色 = 罩层 + accent 渐变两层叠加：罩层把饱和度压下来（2026-10-16 用户裁决：
@@ -326,12 +325,12 @@ onMounted(() => {
   padding: 2px 10px;
   pointer-events: none;
 }
-.card-top { display: flex; align-items: flex-end; gap: calc(var(--space-2) * 2 / 3); margin-bottom: calc(var(--space-4) * 2 / 3); } /* 标题与图片底部对齐（2026-10-16 用户裁决） */
+.card-top { display: flex; align-items: flex-end; gap: calc(var(--space-2) * 4 / 5); margin-bottom: calc(var(--space-4) * 4 / 5); } /* 标题与图片底部对齐（2026-10-16）；2026-10-18 卡片高宽 +1/5 ×4/5 */
 .icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 36px; /* 图标放大一倍（2026-10-15 用户裁决：18→36px） */
+  font-size: 43px; /* 图标放大一倍（2026-10-15：18→36px）；2026-10-18 卡片高宽 +1/5，36→43px */
   line-height: 1;
   /* 图片自身透明：卡片只有「底色 + 图片」两层，图标不再带自己的色块（2026-10-16 用户裁决） */
 }

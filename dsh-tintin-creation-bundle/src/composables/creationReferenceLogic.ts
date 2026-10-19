@@ -27,6 +27,14 @@ export function referenceUrl(path: string): string {
   return `/tintin/media?path=${encodeURIComponent(path)}`
 }
 
+/** 视频预览 URL：追 #t=0.1 媒体片段——Chromium 对裸 video+preload=metadata
+ *  不绘制任何帧（池缩略图恒空白，2026-10-18 用户报障）；带片段会 seek 到
+ *  0.1s 绘出首帧（宿主 /tintin/media 支持 Range 206 分片，拖动 seek 可达）。
+ *  # 仅客户端消费不上送，宿主按 query.path 原路径解析。 */
+export function videoPreviewUrl(path: string): string {
+  return `${referenceUrl(path)}#t=0.1`
+}
+
 export function extOf(nameOrPath: string): string {
   const m = /\.([a-z0-9]+)$/iu.exec(nameOrPath)
   return (m?.[1] ?? '').toLowerCase()

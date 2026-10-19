@@ -4,6 +4,8 @@
 // 桥直调、URL 只在本层拼装（IRON-06）、错误转用户可读文案。
 // ═══════════════════════════════════════════════════════════════
 
+import { subjectProductFromItem, type CreationSubjectProduct } from './creationStudioLogic'
+
 export function getTintin(): any {
   return (window as any).tintin
 }
@@ -59,9 +61,35 @@ export async function fetchProductDetail(id: string): Promise<PickerItem> {
   return (o.item ?? o) as PickerItem
 }
 
+/** 服务端直连基址（六视图相对 URL → 可直连绝对地址；样本试听 2026-09-07
+ *  同款裁决）：经 env.serverPing，预览环境无 env 桥 → 空串（不改写）。 */
+async function resolveServerBase(): Promise<string> {
+  try {
+    return String((await (window as unknown as { tintin?: { env?: { serverPing?: () => Promise<{ url?: unknown }> } } }).tintin?.env?.serverPing?.())?.url || '').replace(/\/$/, '')
+  } catch { return '' }
+}
+
+/** @ 主体产品档案整取：详情 + 直连基址并行，六视图 URL 就地绝对化。
+ *  失败上抛——调用方保持型号级档案不冲界面（2026-10-12 裁决口径）。 */
+export async function fetchSubjectProductDetail(id: string): Promise<CreationSubjectProduct> {
+  const [item, base] = await Promise.all([fetchProductDetail(id), resolveServerBase()])
+  const detail = subjectProductFromItem(item)
+  return {
+    ...detail,
+    sixViews: detail.sixViews?.map((v) => ({ ...v, url: base && !/^https?:\/\//i.test(v.url) ? base + v.url : v.url })),
+  }
+}
+
 // ── 口播响应解析（与媒体包 copywritingMontageStep2ConcatLogic 同口径拷贝：
 //    十稿 variants 与单稿 text 双形态；此处独立副本=创作包不反向依赖媒体包）──
 
+/** 口播生成：POST /copywriting/voiceover，响应就地解析为候选集。
+ *  无结果不在此报错——候选空/失败写法清单交调用方出文案（App 发送链）。 */
+export async function fetchVoiceoverCandidates(req: Record<string, unknown>): Promise<VoiceoverCandidatesResult> {
+  const t = getTintin()
+  if (!t?.server?.post) throw new Error('服务端不可用，请检查「设置 → 服务端」的连接。')
+  return voiceoverCandidatesFromResponse(await t.server.post('/copywriting/voiceover', req))
+}
 export interface VoiceoverCandidate {
   formula: string
   text: string
