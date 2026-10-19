@@ -345,8 +345,8 @@ the package names, versions, and licenses for transparency.
 | @deepseek-ai/node-addon-system-darwin-arm64 | 0.1.2 | BSD-3-Clause |
 | @deepseek-ai/node-addon-system-darwin-x64 | 0.1.2 | BSD-3-Clause |
 | @deepseek-ai/schemastery | 3.18.5 | MIT |
-| @earendil-works/pi-ai | 1.2.0 | MIT |
-| @earendil-works/pi-telemetry | 1.2.0 | MIT |
+| @earendil-works/pi-ai | 1.1.0 | MIT |
+| @earendil-works/pi-telemetry | 1.1.0 | MIT |
 | @eslint-community/regexpp | 4.12.2 | MIT |
 | @google/genai | 2.21.0 | Apache-2.0 |
 | @img/colour | 1.1.0 | MIT |

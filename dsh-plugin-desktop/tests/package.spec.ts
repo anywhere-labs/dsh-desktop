@@ -1221,6 +1221,51 @@ describe('published package surface', () => {
     expect(installedRuntime).not.toContain('const ageCheckActive = Boolean(opts3.minimumReleaseAge);')
   })
 
+  it('patches the pi-ai release the runtime resolves to parse streamed tool arguments once', () => {
+    // dsh-llm-pi-ai requires ^1.1.0 and upstream pins exactly 1.1.0 with this patch. An
+    // unpatched pi-ai re-parses the whole accumulated tool-call JSON on every stream delta,
+    // so a long tool call (writing a large file) costs quadratic CPU on the event loop.
+    const patchPath = './patches/pi-ai@1.1.0.patch'
+    const patchResolution = `patch:@earendil-works/pi-ai@npm%3A1.1.0#${patchPath}`
+    const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
+    const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8').replaceAll('\r\n', '\n')
+    const piAiRoot = new URL('node_modules/@earendil-works/pi-ai/', packageRoot)
+    const installedPiAi = JSON.parse(readFileSync(new URL('package.json', piAiRoot), 'utf8')) as { version?: unknown }
+
+    expect(workspaceManifest.resolutions).toMatchObject({
+      '@earendil-works/pi-ai@npm:^1.1.0': patchResolution,
+      '@earendil-works/pi-telemetry@npm:^1.1.0': '1.1.0',
+    })
+    // The only npm resolution is the source the patch applies to, so no range escapes it.
+    expect([...lockfile.matchAll(/resolution: "@earendil-works\/pi-ai@npm:([^"]+)"/gu)].map(match => match[1]))
+      .toEqual(['1.1.0'])
+    expect(lockfile).toContain(`"@earendil-works/pi-ai@${patchResolution}::`)
+    expect(lockfile).toContain('resolution: "@earendil-works/pi-telemetry@npm:1.1.0"')
+    expect(installedPiAi.version).toBe('1.1.0')
+
+    const files = [...patch.matchAll(/^diff --git a\/(\S+) b\//gmu)].map(match => match[1])
+    expect(files).toEqual([
+      'dist/api/anthropic-messages.js',
+      'dist/api/bedrock-converse-stream.js',
+      'dist/api/mistral-conversations.js',
+      'dist/api/openai-completions.js',
+      'dist/api/openai-responses-shared.js',
+      'dist/api/pi-messages.js',
+    ])
+    for (const section of patch.split(/^diff --git /mu).slice(1)) {
+      const file = section.slice(2, section.indexOf(' '))
+      const installed = readFileSync(new URL(file, piAiRoot), 'utf8').replaceAll('\r\n', '\n')
+      for (const hunk of section.split(/^@@ [^\n]*\n/mu).slice(1)) {
+        const lines = hunk.split('\n').filter(line => /^[ +-]/u.test(line))
+        const before = lines.filter(line => !line.startsWith('+')).map(line => line.slice(1)).join('\n')
+        const after = lines.filter(line => !line.startsWith('-')).map(line => line.slice(1)).join('\n')
+        expect(before).toMatch(/parseStreamingJson\(/u)
+        expect(installed, file).toContain(after)
+        expect(installed, file).not.toContain(before)
+      }
+    }
+  })
+
   it('packages the native-compiled Koffi Windows runtime', () => {
     const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
 
