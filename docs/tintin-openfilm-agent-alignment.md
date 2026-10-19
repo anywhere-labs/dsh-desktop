@@ -88,8 +88,9 @@
 |----|------|--------|------|
 | 剪辑操作 | `openfilm` CLI（open/look/render/get/skills） | 同一 CLI（随包运行时，PATH 注入），Studio 同源 | **一致（1:1）** |
 | 影片能力（TTS/BGM/SFX/搜图） | 用户自己的供应商 key | **TinTin 服务端**（`tintin_voices/tts/asr/beatmap/bgm/sfx/stock_images/...` 11 个工具，产物直落影片目录）。服务端端点：`/indextts`（voices/tts）、`/whisper`（asr）、`/montage`（beatmap）、`/sfx`、`/audio`（bgm）、`/material`（stock_search/素材库）——已全部挂载实证 | 语义对齐（供给方改服务端，用户裁决） |
-| 文生图/视频 | 用户模型 | 服务端**已有通用工作流面**：`GET /workflows` + `POST /workflows/run`（按 workflow_id 路由本地 ComfyUI 或 RunningHub；已注册 5 个：数字人×2、视频换人、图生视频 MiniMaxH3、背景替换、对口型）。**缺口=语义化生成端点**：无 type=文生图工作流注册，亦无面向智能体的 prompt→图/prompt→视频 语义接口 | 缺口（等服务端语义化端点；对接面只有服务端 API，comfygen 不出现在客户端对接面上） |
+| 文生图/视频 | 用户模型 | **语义生成端点已上线（2026-10-20 实测）**：`POST /generate/image`、`POST /generate/video`（prompt 必填 1..2000；202 排队 → `GET /tasks/unified/{task_id}` 轮询；完成态 result{output_path, output_url, width, height, seed_used, engine, job_id}；video 另有 duration/resolution 720p/1080p）。通用工作流面并存：`GET/POST /workflows`（6 个：数字人×2、视频换人、图生视频 MiniMaxH3、背景替换、对口型）。**端到端当前不通**：.31 worker → comfygen(.26:8190)/api/media_jobs 422——.26 部署的 comfygen v4.28 契约仍是商品图枚举规格（v4.1 台面/环境/灯光/风格/构图），与语义 {prompt, aspect, resolution} 载荷错位，等 .26 侧按新规格更新 | 缺口收窄：客户端对接面已就绪，等 .26 comfygen 契约对齐 |
 | 离线渲染 | three.js 走 CDN | three.js 0.184 随包离线（`$DSH_HOME/openfilm-libs/three`） | 增强 |
+| 生成工具（客户端） | — | 待实施：`tintin_generate_image/tintin_generate_video`（纯 .31 面：202 提交→/tasks/unified 轮询→落盘 `assets/tintin/`），服务端 comfygen 契约对齐后即点亮 | 缺口（待裁决实施） |
 
 ### 2.5 服务端 vs 客户端职责（移植版）
 
@@ -106,13 +107,15 @@
 - **会话层：语义等价，实现不同**（DSH 服务端会话 替代 `.film/chat`+CLI 会话；能力对齐：多会话/续话/切换/停止）。
 - **智能体层：有意为之的根本替换**（外部 CLI+ACP → 服务端 Harness+TinTin LLM）。上层协议形态（会话/事件/权限/提问/工具循环）与官方客户端的 ACP 语义一一对应，因此"编排"层面无差异——两边都是**单主智能体回路**，不存在多智能体编排。
 - **能力供给层：按裁决改服务端**；客户端与编导智能体的对接面只有 TinTin 服务端 API（comfygen/ComfyUI 属服务端内部编排与渲染层，客户端不直连）；当前缺口=**语义化文生图/文生视频端点**（通用工作流面已在：图生视频/背景替换等 5 工作流可用）。
-- **遗留缺口清单**：图片作为聊天附件的多模态输入（受文本模型限制，走 vision_analyze 兜底）；服务端语义化文生图/文生视频端点（comfygen 侧 t2i/t2v 契约由 .26 会话按移交规格实施，服务端对接以其就绪为前置）；ask_user_question 会话重挂后是否重放待实测。
+- **遗留缺口清单**：图片作为聊天附件的多模态输入（受文本模型限制，走 vision_analyze 兜底）；语义生成的端到端打通（.31 端点已上线，卡 .26 comfygen 契约对齐，服务端会话跟进中）；客户端生成工具（tintin_generate_*，待裁决实施）；ask_user_question 会话重挂后是否重放待实测。
 
 ---
 
 ## 3.1 服务端核查结论（2026-10-19，服务端会话复核）
 
 服务端会话对本文档关键声明做了在线接口实测 + 服务端代码逐条核对：**7 项中 6 项直接属实，1 项（文生图/视频缺口）按上表精确化**。补充实证：`/llm/chat/completions`（llm.py:246）与 `/v1` OpenAI 兼容面存在；`server/utils/comfygen_client.py` 是服务端对 comfygen(.26:8190) 的唯一 HTTP 面，客户端可见 API 无 comfygen 概念（对接面纪律自洽）。过渡选项（待用户裁决，未实施）：t2v 就绪前可走「t2i 出图 → 既有图生视频工作流（MiniMaxH3）」组合，需为 /workflows 的 workflow_id 形态包一层语义化皮，t2v 就绪后废弃。
+
+**2026-10-20 复测（客户端视角实测）**：语义生成面已上线——`/generate/image|video` 空提交返回参数校验（"prompt 必填（1..2000 字符）"），合法提交返回 202+task_id（`c_06070add-2`/`c_ec1c95f5-a`），`/tasks/unified/{id}` 轮询正常；两任务均 failed 于 comfygen 边界（.26:8190/api/media_jobs 422，.26 健康检查 ok：v4.28、ComfyUI reachable）。/comfygen/enums 实证 .26 当前契约=商品图 gen_spec v4.1（台面/环境/灯光/风格/构图枚举）。另注意：.31 openapi 同时暴露 `/comfygen/*` 代理面（enums/gen-tasks/jobs/health）——属服务端运维/调试面，客户端与编导仍只应用 `/generate/*` 语义端点。
 
 ---
 
