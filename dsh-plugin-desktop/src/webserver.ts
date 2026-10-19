@@ -12,8 +12,14 @@ import WebServer, {
 import { decideDesktopBrowserAccess } from './desktop-browser-access.ts'
 import { DESKTOP_WEB_PORT_RETRY_LIMIT } from './desktop-port.ts'
 
-function isAddressInUse(cause: unknown): boolean {
-  return (cause as NodeJS.ErrnoException | null)?.code === 'EADDRINUSE'
+/**
+ * Bind failures that mean "this port is unavailable", not "binding is broken".
+ * Windows reports ports inside Hyper-V/WinNAT excluded ranges as `EACCES` even
+ * though no process owns them (`netsh interface ipv4 show excludedportrange`).
+ */
+function isPortUnavailable(cause: unknown): boolean {
+  const code = (cause as NodeJS.ErrnoException | null)?.code
+  return code === 'EADDRINUSE' || code === 'EACCES'
 }
 
 /** Close an unbound server left behind by a failed listen attempt. */
@@ -116,13 +122,17 @@ export class DesktopWebServer extends WebServer {
         await super[Service.init]()
         return
       } catch (cause) {
-        const nextPort = requestedPort + attempt + 1
-        if (!isAddressInUse(cause)
-          || attempt >= DESKTOP_WEB_PORT_RETRY_LIMIT
-          || nextPort > 65_535) {
-          throw cause
-        }
+        if (!isPortUnavailable(cause)) throw cause
         closeFailedServer(this)
+        const nextPort = requestedPort + attempt + 1
+        if (attempt >= DESKTOP_WEB_PORT_RETRY_LIMIT || nextPort > 65_535) {
+          // A Windows excluded range is usually wider than the sequential
+          // window, so finish with one OS-assigned port instead of failing
+          // startup; Electron reads the bound port from the Host either way.
+          this.desktopConfig.port = 0
+          await super[Service.init]()
+          return
+        }
         this.desktopConfig.port = nextPort
       }
     }
