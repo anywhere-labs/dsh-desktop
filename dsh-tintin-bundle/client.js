@@ -9,25 +9,26 @@ const tintinClient = (() => {
     // 覆盖层：工作台=harness 会话原生视图；创作/运营/媒体=覆盖层内由视图提供方
     // （window.__tintinViews 注册，media-bundle 挂 Vue 子应用）渲染。
     function installTintinChrome() {
-      if (document.querySelector('[data-tintin-entry]')) return
-      // 入口视图（工作台=无覆盖层默认态；浏览器=独立窗口入口，不进覆盖层）
+      // 析构-重装协议（2026-10-19 用户裁决）：插件启停/HMR 重求值时旧闭包的行/观察器
+      // 仍指着已拆载的 overlay（旧界面退不出/新界面显不出/两行同亮的根源）——先整体
+      // 析构旧实例再装新实例；KeepAlive 挂载态随之清零（启停发生在插件管理页=工作台，不可感知）。
+      window.__tintinChrome?.dispose?.()
+      // 入口视图（工作台=无覆盖层默认态；浏览器=内嵌视图）
       const VIEWS = [
         { id: 'creation', label: '创作模式' },
         { id: 'ops', label: '运营工具' },
         { id: 'media', label: '媒体工具' }, { id: 'skills', label: '技能管理', glyph: '<path d="M8 2.2 13.6 4.8 8 7.4 2.4 4.8z"/><path d="M2.4 8 8 10.6 13.6 8"/><path d="M2.4 11.2 8 13.8l5.6-2.6"/>' }, // 技能管理（2026-10-16 裁决）：服务端技能库安装/删除，装后创作模式 /技能名 调用
-        { id: 'openfilm', label: 'OpenFilm', glyph: '<rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M2 6.2h12"/><path d="M4.6 4.85h.01M7 4.85h.01M9.4 4.85h.01M11.8 4.85h.01"/><path d="M6.9 8.3v3.1l2.9-1.55z"/>' },
+        { id: 'openfilm', label: '视频剪辑', glyph: '<rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M2 6.2h12"/><path d="M4.6 4.85h.01M7 4.85h.01M9.4 4.85h.01M11.8 4.85h.01"/><path d="M6.9 8.3v3.1l2.9-1.55z"/>' }, // 视频剪辑（2026-10-19 用户裁决：原「OpenFilm」改名）
       ]
-      const providers = new Map()
       let activeId = 'workbench'
       // 2026-09-24 用户裁决：每视图常驻子元素 KeepAlive（切走仅 display:none，表单/步骤不丢）；mount 每视图只调一次。
       const viewEls = new Map()
-
-      window.__tintinViews = {
-        register(id, provider) {
-          providers.set(id, provider)
-          if (activeId === id) mountActive()
-        },
-        unregister(id) { providers.delete(id) },
+      // 注册表=window 级单例（2026-10-19 析构-重装协议）：与 chrome 生命周期解耦，
+      // 任何一代模块注册的 provider 进同一张表（重注册按 id 覆盖），重装不丢 provider。
+      const registry = window.__tintinViews ??= {
+        providers: new Map(),
+        register(id, provider) { this.providers.set(id, provider); try { window.__tintinChrome?.onProvider?.(id) } catch { /* 未就绪 */ } },
+        unregister(id) { this.providers.delete(id) },
       }
 
       // ── 左侧「插件」区入口（2026-09-28 用户裁决：撤顶部 Tab 栏；入口行克隆插件面板行同层注入）──
@@ -43,33 +44,45 @@ const tintinClient = (() => {
           if (rowCls) activeCls = rowCls.replace(/panelRow$/, 'panelActive')
         }
         // 插件与 tab 单焦点联动（2026-10-16 用户裁决）：tab 激活时熄灭插件行——React
-        // 重渲染会重点亮，由 sidebarMo 的 paintEntries 重摘（toggle 幂等无回环）
+        // 重渲染会重点亮，由 sidebarMo 的 paintEntries 重摘（toggle 幂等无回环）。
+        // 自动化任务行同管（2026-10-19 报障：原生日程行不受摘除，切 tab 后双行同亮）。
+        const sched = [...document.querySelectorAll('button')].find(
+          (b) => b.textContent.trim() === '自动化任务' && b.closest('[data-pane="sidebar"], [class*="sidebarCol"]'),
+        )
         if (row && activeCls && activeId !== 'workbench') row.classList.toggle(activeCls, false)
+        if (sched && activeCls && activeId !== 'workbench') sched.classList.toggle(activeCls, false)
         for (const [id, b] of entryButtons) {
           if (activeCls) b.classList.toggle(activeCls, activeId === id)
+          // 收起态跟随原生：原生收起由 React 重渲染拿掉文字，克隆行不重渲染→按侧栏宽隐藏标题，否则文字裁成半字（2026-10-19 报障）
+          const t = [...b.querySelectorAll('span,div')].find((e) => e.childElementCount === 0 && e.textContent.trim())
+          if (t) t.style.display = (document.querySelector('[data-pane="sidebar"], [class*="sidebarCol"]')?.getBoundingClientRect().width ?? 280) > 120 ? '' : 'none'
         }
       }
       function setActive(id) { activeId = id; render() }
-      // 跨视图跳转口（创作模式「打开媒体工具卡」用）：仅放行本表视图与工作台
+      // 跨视图跳转口（创作模式「打开媒体工具卡」用）：仅放行本表视图、浏览器与工作台
       window.__tintinActivateView = (id) => {
-        if (id === 'workbench' || VIEWS.some((v) => v.id === id)) setActive(id)
+        if (id === 'workbench' || id === 'browser' || VIEWS.some((v) => v.id === id)) setActive(id)
       }
       function injectEntries() {
         const row = [...document.querySelectorAll('button')].find(
           (b) => b.textContent.trim() === '插件' && b.closest('[data-pane="sidebar"], [class*="sidebarCol"]'),
         )
         if (!row) return false
+        // 自动化任务行移到插件行下（2026-10-19 用户裁决；原生日程行，幂等守卫防 sidebarMo 循环）
+        const sched = [...document.querySelectorAll('button')].find(
+          (b) => b.textContent.trim() === '自动化任务' && b.closest('[data-pane="sidebar"], [class*="sidebarCol"]'),
+        )
+        if (sched && sched !== row && sched.previousElementSibling !== row) row.insertAdjacentElement('afterend', sched)
         const host = row.parentElement
         if (!host || host.querySelector('[data-tintin-entry]')) return true
         // 入口行 = 克隆「插件」面板行同层直插（2026-09-28 裁决：布局/行距逐像素一致）；只改标题与点击。
-        const items = [...VIEWS, { id: '__browser', label: '浏览器' }]
-        let anchor = row
+        // 浏览器行=普通覆盖层视图（client-ui 内嵌驱动；桥缺失时 renderBrowserPanel 兜底）
+        const items = [...VIEWS, { id: 'browser', label: '浏览器' }]
+        let anchor = sched && sched.previousElementSibling === row ? sched : row
         for (const v of items) {
           const b = row.cloneNode(true)
           b.type = 'button'
-          b.removeAttribute('id')
-          b.removeAttribute('aria-keyshortcuts')
-          b.removeAttribute('aria-label')
+          b.removeAttribute('id'); b.removeAttribute('aria-keyshortcuts'); b.removeAttribute('aria-label')
           b.setAttribute('data-tintin-entry', v.id)
           const title = [...b.querySelectorAll('span,div')].find((e) => e.childElementCount === 0 && e.textContent.trim() === '插件')
           if (title) title.textContent = v.label
@@ -79,7 +92,7 @@ const tintinClient = (() => {
             creation: '<path d="M8 2.2 9.5 6.5 13.8 8 9.5 9.5 8 13.8 6.5 9.5 2.2 8 6.5 6.5z"/><path d="M12.3 11.6v3.2M10.7 13.2h3.2"/>',
             media: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.8 5.9v4.2l3.6-2.1z"/>',
             ops: '<rect x="2" y="5.5" width="12" height="8" rx="1.5"/><path d="M6 5.5V4a1.5 1.5 0 0 1 1.5-1.5h1A1.5 1.5 0 0 1 10 4v1.5"/><path d="M2 8.5h12"/>',
-            __browser: '<circle cx="8" cy="8" r="6"/><path d="M2 8h12"/><path d="M8 2c-1.8 1.6-2.8 3.7-2.8 6s1 4.4 2.8 6c1.8-1.6 2.8-3.7 2.8-6S9.8 3.6 8 2z"/>',
+            browser: '<circle cx="8" cy="8" r="6"/><path d="M2 8h12"/><path d="M8 2c-1.8 1.6-2.8 3.7-2.8 6s1 4.4 2.8 6c1.8-1.6 2.8-3.7 2.8-6S9.8 3.6 8 2z"/>',
           }
           const glyphSvg = b.querySelector('[class*=panelGlyph] svg')
           if (glyphSvg && (GLYPHS[v.id] || v.glyph)) {
@@ -93,32 +106,30 @@ const tintinClient = (() => {
           }
           b.onclick = (ev) => {
             ev.stopPropagation()
-            if (v.id === '__browser') {
-              const br = window.dshDesktopBrowser
-              if (br) void br.open('web').catch(() => {})
-              return
-            }
             setActive(activeId === v.id ? 'workbench' : v.id)
+            b.blur() // 失焦（2026-10-19 报障）：行按钮留焦点时，视图内按空格=HTML 语义再点一次按钮→被切回工作台
           }
-          if (!v.id.startsWith('__')) entryButtons.push([v.id, b])
+          entryButtons.push([v.id, b]) // 浏览器行也入册：收起态隐藏标题要覆盖全部克隆行（2026-10-19 报障）
           anchor.insertAdjacentElement('afterend', b)
           anchor = b
         }
         return true
       }
       // 侧栏由 React 管理：MutationObserver 守住注入+联动重摘+原生浮层提权检测
-      // （2026-10-17 报障二修：设置面板 portal 直挂 body，首版扫侧栏子树恒 false
-      // → 改扫 body 直接子元素；原生 z1000 全屏浮层（设置/附件查看器同族）在位
-      // → 覆盖层降其下 500，关闭（ESC/点遮罩）由 body childList 观察自动恢复）。
-      // 点侧栏其他区域（会话/新会话）=回工作台。
+      // （2026-10-17 二修：设置面板 portal 直挂 body→扫 body 直接子元素；z1000 全屏浮层
+      // 在位→覆盖层降其下 500）。点侧栏其他区域（会话/新会话）=回工作台。
       function detectNativeOverlay() {
-        const open = [...document.body.children].some((el) => {
-          const s = getComputedStyle(el); return s.position === 'fixed' && s.zIndex === '1000'
-        })
+        const open = [...document.body.children].some((el) => { const s = getComputedStyle(el); return s.position === 'fixed' && s.zIndex === '1000' })
         overlay.style.zIndex = open ? '500' : '9998'
       }
       const bodyMo = new MutationObserver(() => detectNativeOverlay())
+      // 析构-重装协议（2026-10-19）：摘行/overlay/观察器；注册表 window 级保留不随实例销毁
+      function disposeChrome() {
+        sidebarMo.disconnect(); bodyMo.disconnect()
+        for (const el of [...document.querySelectorAll('[data-tintin-entry]'), ...document.querySelectorAll('#tintin-view-overlay')]) el.remove()
+      }
       const sidebarMo = new MutationObserver(() => {
+        syncOverlayBounds() // 兜底：React 重建侧栏节点会孤儿化 ResizeObserver，随变动重测
         if (!injectEntries()) return
         paintEntries() // 联动自愈：React 重渲染恢复插件行高亮时重摘
         detectNativeOverlay()
@@ -145,9 +156,7 @@ const tintinClient = (() => {
         }
       })
       const armSidebarObserver = () => {
-        const col = document.querySelector('[class*=sidebarCol]') || document.body
-        sidebarMo.observe(col, { childList: true, subtree: true })
-        bodyMo.observe(document.body, { childList: true })
+        sidebarMo.observe(document.querySelector('[class*=sidebarCol]') || document.body, { childList: true, subtree: true }); bodyMo.observe(document.body, { childList: true })
         injectEntries()
         // 不可在此直调 detectNativeOverlay()：overlay 的 const 声明在本闭包更后，
         // arm 在脚本求值期同步执行会踩 TDZ（1017 启动失败事故）；首个 mutation
@@ -155,6 +164,8 @@ const tintinClient = (() => {
       }
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', armSidebarObserver)
       else armSidebarObserver()
+      // 首启竞态自愈（2026-10-19 全新 profile 实证）：React 侧栏渲染晚于注入时机且静默 profile 无后续变更→入口行永缺；短轮询注入成功即收
+      const injectPoll = setInterval(() => { if (injectEntries()) clearInterval(injectPoll) }, 400)
 
       // 动画层（2026-09-25 报障补齐）：入场 slide-up/卡片 stagger/hover 抬升
       // （SRC 口径 0.2s·12px、0.35s·35ms）；令牌作用域外缓动用字面量兜底。
@@ -179,41 +190,30 @@ const tintinClient = (() => {
         overlay.style.left = Math.round(w) + 'px'
       }
       try {
-        const col = document.querySelector('[class*=sidebarCol]') || document.body
+        // 观察与测量同源（2026-10-19 实机：收侧栏变宽的是 [data-pane=sidebar] 根，sidebarCol 宽度不变→观察者永不触发、left 恒 280 钉死原生视图）
+        const col = document.querySelector('[data-pane="sidebar"], [class*="sidebarCol"]') || document.body
         new ResizeObserver(() => syncOverlayBounds()).observe(col)
       } catch { /* 无 ResizeObserver 时保持整窗 */ }
+      // 插件重启/HMR 重求值时旧 overlay 仍挂 body（拆载不清 DOM）→ 残壳顶行叠在新聊天列上方（2026-10-19 报障）；安装即清残核
+      for (const stale of [...document.querySelectorAll('#tintin-view-overlay')]) stale.remove()
       document.body.appendChild(overlay)
+      for (const stale of [...document.querySelectorAll('#tintin-strip-cover')]) stale.remove()
 
       function mountActive() {
-        if (activeId === 'workbench') {
-          overlay.style.display = 'none'
-          return
-        }
-        overlay.style.display = 'block'
-        let el = viewEls.get(activeId)
+        syncOverlayBounds() // 切视图即重算顶条盖片（依赖 activeId）——安静页面无侧栏变更时停在旧状态=时露原生页头（2026-10-19 报障「时有时无」根因）
+        if (activeId === 'workbench') { overlay.style.display = 'none'; return }
+        overlay.style.display = 'block'; let el = viewEls.get(activeId)
         if (!el) {
-          el = document.createElement('div')
-          el.className = 'tintin-view-el'
+          el = document.createElement('div'); el.className = 'tintin-view-el'
           el.style.cssText = 'width:100%;min-height:100%;box-sizing:border-box;'
-          container.appendChild(el)
-          viewEls.set(activeId, el)
-          const provider = providers.get(activeId)
-          if (provider) {
+          container.appendChild(el); viewEls.set(activeId, el)
+          const provider = registry.providers.get(activeId); if (provider) {
             try {
               provider.mount(el)
             } catch (e) {
               console.error('[tintin] view mount failed', e)
               renderPendingInto(el, '视图加载失败，请重试切换')
             }
-          } else if (activeId === 'ops') {
-            // 运营工具分组占位（2026-09-24 用户裁决：与原客户端 OpsTools.vue 同分组）。
-            // 2026-09-25 起媒体包已注册 'ops' 提供方；本占位网格仅提供方缺失时兜底，
-            // P3 tintin-ops-bundle 落地时接管同名 'ops' 注册。
-            renderOpsGrid(el)
-          } else if (activeId === 'browser') {
-            // 浏览器 tab（2026-09-25 裁决：浏览器域首片——登录态管理+独立窗口；
-            // 壳引擎在频道宿主 src/main/tintin/browser/，yt-dlp cookies 从此导出）
-            renderBrowserPanel(el)
           } else {
             renderPendingInto(el, '媒体工具界面搬运中（视图提供方未注册）')
           }
@@ -222,305 +222,11 @@ const tintinClient = (() => {
       }
 
       function renderPendingInto(el, text) {
+        el.dataset.pending = '1' // provider 迟到时 onProvider 据此重挂真身（KeepAlive 真挂载不受影响）
         const p = document.createElement('div')
         p.style.cssText = 'padding:48px 32px;color:var(--dsw-alias-label-tertiary,#8b8b88);font-size:14px;'
         p.textContent = text
         el.appendChild(p)
-      }
-
-      function renderOpsGrid(el) {
-        const GROUPS = [
-          { group: '产品知识', tools: [
-            { title: '产品资料', desc: '品类/品牌/型号树状管理，服务端同步', emoji: '📦', accent: 'linear-gradient(135deg,#8B5CF6 0%,#EC4899 100%)' },
-            { title: '我的知识库', desc: '风格化画像 + 参考素材蒸馏', emoji: '📚', accent: 'linear-gradient(135deg,#0EA5E9 0%,#06B6D4 100%)' },
-          ] },
-          { group: '提示词', tools: [
-            { title: '图片反推提示词', desc: '上传图片，AI 生成绘画提示词', emoji: '🖼️', accent: 'linear-gradient(135deg,#10B981 0%,#14B8A6 100%)' },
-            { title: '视频反推提示词', desc: '上传视频，框选片段生成提示词', emoji: '🎬', accent: 'linear-gradient(135deg,#3B82F6 0%,#8B5CF6 100%)' },
-          ] },
-          { group: '视频运营', tools: [
-            { title: '视频评价预测', desc: '关键帧 → 视觉模型预测视频表现', emoji: '📈', accent: 'linear-gradient(135deg,#F59E0B 0%,#EF4444 100%)' },
-            { title: '视频营销检测', desc: '研判是否营销视频 + 品类 + 改进建议', emoji: '🎯', accent: 'linear-gradient(135deg,#10B981 0%,#14B8A6 100%)' },
-          ] },
-        ]
-        const root = document.createElement('div')
-        root.style.cssText = 'width:100%;min-height:100%;padding:28px 32px;box-sizing:border-box;background:var(--dsw-alias-bg-layer-1,#141416);'
-        const head = document.createElement('div')
-        head.style.cssText = 'margin-bottom:20px;'
-        head.innerHTML = '<div style="font-size:24px;font-weight:700;color:var(--dsw-alias-label-primary,#e8e8e6)">运营工具</div>' +
-          '<div style="font-size:14px;color:var(--dsw-alias-label-tertiary,#8b8b88)">产品知识与运营辅助能力</div>'
-        root.appendChild(head)
-        for (const g of GROUPS) {
-          const block = document.createElement('div')
-          block.style.cssText = 'margin-bottom:24px;'
-          const label = document.createElement('div')
-          label.textContent = g.group
-          label.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-tertiary,#8b8b88);margin-bottom:10px;'
-          block.appendChild(label)
-          const grid = document.createElement('div')
-          grid.style.cssText = 'display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));'
-          for (const t of g.tools) {
-            const card = document.createElement('div')
-            // 入场 stagger + hover 抬升（SRC OtToolCard 口径，2026-09-25 动画层补齐）
-            card.className = 'tintin-grid-card tintin-stagger-item'
-            card.style.cssText = 'position:relative;border-radius:14px;padding:18px;background:var(--dsw-alias-bg-layer-2,#1e1e20);border:0.5px solid var(--dsw-alias-border-l4,#555);cursor:default;'
-            card.innerHTML = '<span style="position:absolute;top:10px;right:12px;font-size:11px;color:var(--dsw-alias-label-tertiary,#8b8b88);border:1px dashed var(--dsw-alias-border-l4,#555);border-radius:999px;padding:2px 10px">建设中</span>' +
-              '<div style="width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;background:' + t.accent + '">' + t.emoji + '</div>' +
-              '<div style="margin-top:10px;font-size:16px;font-weight:700;color:var(--dsw-alias-label-primary,#e8e8e6)">' + t.title + '</div>' +
-              '<div style="margin-top:4px;font-size:13px;color:var(--dsw-alias-label-tertiary,#8b8b88)">' + t.desc + '</div>'
-            grid.appendChild(card)
-          }
-          block.appendChild(grid)
-          root.appendChild(block)
-        }
-        el.appendChild(root)
-      }
-
-      // ── 浏览器 tab 面板（2026-09-28 用户裁决：浏览器整体按原客户端形态在独立窗口
-      // 实现；登录态自动同步——cookie 变化即落盘、下载前自动核验，无手动导出）──
-      // 平台卡片=入口（打开独立浏览器窗口/抽取当前页）；引擎在 src/main/tintin/browser/。
-      function renderBrowserPanel(el) {
-        const bridge = window.dshDesktopBrowser
-        let platforms = []
-
-        const root = document.createElement('div')
-        root.style.cssText = 'width:100%;min-height:100%;padding:24px 32px;box-sizing:border-box;background:var(--dsw-alias-bg-layer-1,#141416);'
-        const head = document.createElement('div')
-        head.style.cssText = 'margin-bottom:16px;'
-        head.innerHTML = '<div style="font-size:24px;font-weight:700;color:var(--dsw-alias-label-primary,#e8e8e6)">浏览器</div>' +
-          '<div style="font-size:13px;color:var(--dsw-alias-label-tertiary,#8b8b88);margin-top:4px">平台登录态（独立浏览器窗口 · 各平台独立分区）——点平台卡「打开浏览器」，在窗口内登录即自动同步，参考视频下载直接可用</div>'
-        root.appendChild(head)
-
-        // 面板状态行（桥缺失/失败提示；登录态本身自动同步，不再有手动导出入口）
-        const panelStatus = document.createElement('div')
-        panelStatus.style.cssText = 'font-size:12px;color:var(--dsw-alias-label-tertiary,#8b8b88);margin-bottom:16px;white-space:pre-wrap;word-break:break-all;'
-        root.appendChild(panelStatus)
-
-        // 抖店工作台入口（fxg 分区不进平台组——SRC 同；自动上架载体，2026-09-25）
-        const fxgRow = document.createElement('div')
-        fxgRow.style.cssText = 'display:flex;gap:10px;align-items:center;margin-bottom:16px;'
-        const fxgBtn = document.createElement('button')
-        fxgBtn.type = 'button'
-        fxgBtn.textContent = '打开抖店工作台'
-        fxgBtn.style.cssText = 'height:32px;padding:0 16px;border-radius:8px;border:0.5px solid var(--dsw-alias-border-l4,#555);background:var(--dsw-alias-bg-layer-2,#1e1e20);color:var(--dsw-alias-label-primary,#e8e8e6);font:inherit;font-size:13px;font-weight:600;cursor:pointer;'
-        fxgBtn.onclick = async () => {
-          if (!bridge) return
-          fxgBtn.disabled = true
-          try { const r = await bridge.open('fxg'); fxgBtn.textContent = r && r.ok ? '已打开 ✓' : '打开失败' } catch (e) { fxgBtn.textContent = '打开失败' }
-          setTimeout(() => { fxgBtn.disabled = false; fxgBtn.textContent = '打开抖店工作台' }, 2000)
-        }
-        fxgRow.appendChild(fxgBtn)
-        root.appendChild(fxgRow)
-        // 抽取结果区（2026-09-25 平台 DOM 抽取移植：SRC browser:extractDOM 结果展示）
-        const extractBox = document.createElement('div')
-        extractBox.style.cssText = 'display:none;margin-bottom:16px;padding:12px 14px;border-radius:10px;background:var(--dsw-alias-bg-layer-2,#1e1e20);border:0.5px solid var(--dsw-alias-border-l4,#555);max-height:320px;overflow:auto;'
-        const extractTitle = document.createElement('div')
-        extractTitle.style.cssText = 'font-size:13px;font-weight:700;color:var(--dsw-alias-label-primary,#e8e8e6);margin-bottom:6px;'
-        const extractBody = document.createElement('pre')
-        extractBody.style.cssText = 'margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary,#c6c6c4);white-space:pre-wrap;word-break:break-all;font-family:inherit;'
-        extractBox.appendChild(extractTitle)
-        extractBox.appendChild(extractBody)
-        root.appendChild(extractBox)
-
-        const grid = document.createElement('div')
-        grid.style.cssText = 'display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));'
-        root.appendChild(grid)
-
-        // ── 扩展管理区（2026-09-25 ext-manager 移植：内置预装 + crx/zip 安装/卸载）──
-        const extBox = document.createElement('div')
-        extBox.style.cssText = 'margin-top:8px;padding:14px 16px;border-radius:10px;background:var(--dsw-alias-bg-layer-2,#1e1e20);border:0.5px solid var(--dsw-alias-border-l4,#555);'
-        const extHead = document.createElement('div')
-        extHead.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:8px;'
-        extHead.innerHTML = '<span style="font-size:14px;font-weight:700;color:var(--dsw-alias-label-primary,#e8e8e6)">浏览器扩展</span>'
-        const extListEl = document.createElement('div')
-        extListEl.style.cssText = 'display:flex;flex-direction:column;gap:6px;'
-        const extInstallBtn = document.createElement('button')
-        extInstallBtn.type = 'button'
-        extInstallBtn.textContent = '安装扩展（crx/zip）'
-        extInstallBtn.style.cssText = 'height:30px;margin-left:auto;padding:0 12px;border-radius:8px;border:0.5px solid var(--dsw-alias-border-l4,#555);background:var(--dsw-alias-bg-layer-3,#2a2a2c);color:var(--dsw-alias-label-primary,#e8e8e6);font:inherit;font-size:12px;font-weight:600;cursor:pointer;'
-        const extStatus = document.createElement('span')
-        extStatus.style.cssText = 'font-size:12px;color:var(--dsw-alias-label-tertiary,#8b8b88);'
-        extHead.appendChild(extStatus)
-        extHead.appendChild(extInstallBtn)
-        extBox.appendChild(extHead)
-        extBox.appendChild(extListEl)
-        root.appendChild(extBox)
-
-        function renderExtensions(list) {
-          extListEl.textContent = ''
-          for (const e of list) {
-            const row = document.createElement('div')
-            row.style.cssText = 'display:flex;align-items:center;gap:10px;font-size:13px;color:var(--dsw-alias-label-primary,#e8e8e6);'
-            const name = document.createElement('span')
-            name.textContent = `${e.name} v${e.version}${e.builtin ? '（预装）' : ''}`
-            name.title = e.description || ''
-            const spacer = document.createElement('span')
-            spacer.style.cssText = 'flex:1'
-            const op = document.createElement('button')
-            op.type = 'button'
-            op.style.cssText = 'height:26px;padding:0 10px;border-radius:6px;border:0.5px solid var(--dsw-alias-border-l4,#555);background:transparent;color:var(--dsw-alias-label-tertiary,#8b8b88);font:inherit;font-size:12px;cursor:pointer;'
-            if (e.builtin) {
-              op.textContent = '预装'
-              op.disabled = true
-            } else {
-              op.textContent = '卸载'
-              op.onclick = async () => {
-                op.disabled = true
-                try {
-                  const r = await bridge.extensionUninstall(e.id)
-                  extStatus.textContent = r && r.success ? r.message : (r && r.message) || '卸载失败'
-                } catch (err) { extStatus.textContent = '卸载失败：' + String((err && err.message) || err) }
-                op.disabled = false
-              }
-            }
-            row.appendChild(name)
-            row.appendChild(spacer)
-            row.appendChild(op)
-            extListEl.appendChild(row)
-          }
-          if (!list.length) {
-            const empty = document.createElement('div')
-            empty.textContent = '暂无扩展'
-            empty.style.cssText = 'font-size:12px;color:var(--dsw-alias-label-tertiary,#8b8b88);'
-            extListEl.appendChild(empty)
-          }
-        }
-
-        // ── 下载与采集记录（2026-09-25 download-manager/media-storage 移植：记录展示 + 清空）──
-        const recordsBox = document.createElement('div')
-        recordsBox.style.cssText = 'margin-top:10px;padding:12px 14px;border-radius:10px;background:var(--dsw-alias-bg-layer-2,#1e1e20);border:0.5px solid var(--dsw-alias-border-l4,#555);'
-        const recordsHead = document.createElement('div')
-        recordsHead.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:6px;'
-        recordsHead.innerHTML = '<span style="font-size:14px;font-weight:700;color:var(--dsw-alias-label-primary,#e8e8e6)">下载与采集记录</span>'
-        const recordsClear = document.createElement('button')
-        recordsClear.type = 'button'
-        recordsClear.textContent = '清空记录'
-        recordsClear.style.cssText = 'height:26px;margin-left:auto;padding:0 10px;border-radius:6px;border:0.5px solid var(--dsw-alias-border-l4,#555);background:transparent;color:var(--dsw-alias-label-tertiary,#8b8b88);font:inherit;font-size:12px;cursor:pointer;'
-        const recordsList = document.createElement('div')
-        recordsList.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:180px;overflow:auto;'
-        recordsHead.appendChild(recordsClear)
-        recordsBox.appendChild(recordsHead)
-        recordsBox.appendChild(recordsList)
-        root.appendChild(recordsBox)
-
-        function renderRecords(downloads, sniffed) {
-          recordsList.textContent = ''
-          const rows = [
-            ...downloads.slice(0, 30).map((d) => ({ text: '⬇ ' + (d.name || d.id) + '（' + (d.size ? (d.size / 1048576).toFixed(1) + 'MB' : '?') + '）' })),
-            ...sniffed.slice(0, 20).map((m) => ({ text: '◎ ' + (m.name || m.url) })),
-          ]
-          for (const row of rows) {
-            const el = document.createElement('div')
-            el.textContent = row.text
-            el.style.cssText = 'font-size:12px;color:var(--dsw-alias-label-secondary,#c6c6c4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
-            recordsList.appendChild(el)
-          }
-          if (!rows.length) {
-            const empty = document.createElement('div')
-            empty.textContent = '暂无记录（抽取/下载后在此显示）'
-            empty.style.cssText = 'font-size:12px;color:var(--dsw-alias-label-tertiary,#8b8b88);'
-            recordsList.appendChild(empty)
-          }
-        }
-
-        async function refreshRecords() {
-          if (!bridge) return
-          try {
-            const dl = await bridge.mediaStorageGetDownloads()
-            const sn = await bridge.mediaStorageGetSniffed()
-            renderRecords((dl && dl.data) || [], (sn && sn.data) || [])
-          } catch { /* 桥不可用静默 */ }
-        }
-        recordsClear.onclick = async () => {
-          if (!bridge) return
-          try { await bridge.mediaStorageClearHistory({ type: "all" }); await refreshRecords() } catch { /* ignore */ }
-        }
-        extInstallBtn.onclick = async () => {
-          if (!bridge) { extStatus.textContent = '桌面桥不可用（需完整壳）'; return }
-          try {
-            const picked = await window.tintin.dialog.openFile({
-              title: '选择扩展包（crx/zip）',
-              filters: [{ name: '扩展包', extensions: ['crx', 'zip'] }],
-            })
-            if (!picked) return
-            extStatus.textContent = '安装中…'
-            const r = await bridge.extensionInstall(picked)
-            extStatus.textContent = (r && r.message) || (r && r.success ? '已安装' : '安装失败')
-          } catch (e) { extStatus.textContent = '安装失败：' + String((e && e.message) || e) }
-        }
-
-        const statusEls = new Map()
-        function paintStatus(counts) {
-          for (const [id, el] of statusEls) {
-            const n = counts[id]
-            el.textContent = n > 0 ? `已登录（${n} 条 cookie）` : '未登录'
-            el.style.color = n > 0 ? '#4ade80' : 'var(--dsw-alias-label-tertiary,#8b8b88)'
-          }
-        }
-
-        el.appendChild(root)
-        if (!bridge) {
-          panelStatus.textContent = '桌面桥不可用（需完整壳，纯浏览器预览无此能力）'
-          return
-        }
-        void bridge.platforms().then(async (list) => {
-          platforms = Array.isArray(list) ? list : []
-          for (const p of platforms) {
-            const card = document.createElement('div')
-            // 入场 stagger + hover 抬升（SRC OtToolCard 口径，2026-09-25 动画层补齐）
-            card.className = 'tintin-grid-card tintin-stagger-item'
-            card.style.cssText = 'border-radius:14px;padding:16px;background:var(--dsw-alias-bg-layer-2,#1e1e20);border:0.5px solid var(--dsw-alias-border-l4,#555);display:flex;flex-direction:column;gap:8px;'
-            const title = document.createElement('div')
-            title.textContent = p.name
-            title.style.cssText = 'font-size:16px;font-weight:700;color:var(--dsw-alias-label-primary,#e8e8e6);'
-            const status = document.createElement('div')
-            status.textContent = '检测中…'
-            status.style.cssText = 'font-size:12px;color:var(--dsw-alias-label-tertiary,#8b8b88);'
-            statusEls.set(p.id, status)
-            const openBtn = document.createElement('button')
-            openBtn.type = 'button'
-            openBtn.textContent = '打开浏览器'
-            openBtn.style.cssText = 'height:32px;margin-top:2px;padding:0 14px;border-radius:8px;border:none;background:#4f7cff;color:#fff;font:inherit;font-size:13px;font-weight:600;cursor:pointer;align-self:flex-start;'
-            openBtn.onclick = async () => {
-              openBtn.disabled = true
-              openBtn.textContent = '打开中…'
-              try {
-                const r = await bridge.open(p.id)
-                openBtn.textContent = r && r.ok ? '已打开 ✓' : '打开失败'
-                if (!(r && r.ok)) panelStatus.textContent = `打开失败：${(r && r.error) || '?'}`
-              } catch (e) { openBtn.textContent = '打开失败'; panelStatus.textContent = `打开失败：${(e && e.message) || e}` }
-              setTimeout(() => { openBtn.disabled = false; openBtn.textContent = '打开浏览器' }, 2000)
-            }
-            card.appendChild(title)
-            card.appendChild(status)
-            // 按钮行：打开浏览器 + 抽取当前页（2026-09-25 平台 DOM 抽取移植）
-            const btnRow = document.createElement('div')
-            btnRow.style.cssText = 'display:flex;gap:8px;'
-            openBtn.style.marginTop = '2px'
-            const extractBtn = document.createElement('button')
-            extractBtn.type = 'button'
-            extractBtn.textContent = '抽取当前页'
-            extractBtn.style.cssText = 'height:32px;margin-top:2px;padding:0 14px;border-radius:8px;border:0.5px solid var(--dsw-alias-border-l4,#555);background:var(--dsw-alias-bg-layer-3,#2a2a2c);color:var(--dsw-alias-label-primary,#e8e8e6);font:inherit;font-size:13px;font-weight:600;cursor:pointer;'
-            extractBtn.onclick = () => {
-              extractBtn.disabled = true
-              extractBtn.textContent = '抽取中…'
-              void extractPlatform(p).finally(() => { extractBtn.disabled = false; extractBtn.textContent = '抽取当前页' })
-            }
-            btnRow.appendChild(openBtn)
-            btnRow.appendChild(extractBtn)
-            card.appendChild(btnRow)
-            grid.appendChild(card)
-          }
-          paintStatus((await bridge.loginStatus().catch(() => ({ counts: {} }))).counts)
-          // 扩展清单（ext-manager）+ 变更广播订阅（SRC browser:extensions-changed）
-          try {
-            const el = await bridge.extensionList()
-            renderExtensions((el && el.data && el.data.extensions) || [])
-          } catch { renderExtensions([]) }
-          bridge.onExtensionsChanged((payload) => { renderExtensions(payload.extensions) })
-          void refreshRecords()
-          void refreshRecords()
-        }).catch(() => { panelStatus.textContent = '平台表加载失败（需完整壳）' })
       }
 
       function render() {
@@ -529,6 +235,12 @@ const tintinClient = (() => {
         mountActive()
       }
 
+      window.__tintinChrome = { dispose: disposeChrome, onProvider: (id) => {
+        // provider 迟到补挂：仅当激活视图还挂着占位（pending）时才重挂，真挂载 KeepAlive 不受影响
+        if (activeId !== id) return
+        const e = viewEls.get(id)
+        if (e?.dataset?.pending) { e.remove(); viewEls.delete(id); mountActive() }
+      } }
       injectEntries()
       render()
     }

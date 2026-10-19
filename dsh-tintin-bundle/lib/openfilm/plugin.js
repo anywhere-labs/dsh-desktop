@@ -106,6 +106,19 @@ function listProjectFiles(project, limit = 300) {
   return files
 }
 
+/** The film's section pages: root-level .html (官方 @ 菜单的页面类，去后缀展示). */
+function listProjectPages(project) {
+  const root = requireFilmProject(project)
+  const pages = []
+  let entries = []
+  try { entries = readdirSync(root, { withFileTypes: true }) } catch { entries = [] }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.html')) continue
+    pages.push({ path: entry.name, size: statSync(join(root, entry.name)).size })
+  }
+  return pages
+}
+
 /** Copy/import one file into <project>/assets/upload, returning its project-relative path. */
 function importProjectFile(project, { sourcePath, base64, name } = {}) {
   const root = requireFilmProject(project)
@@ -215,8 +228,9 @@ export function createOpenfilmChannels({ sync, httpRequest }) {
     'openfilm:projectFiles': async (args) => {
       try {
         const payload = args?.[0] ?? {}
-        const files = listProjectFiles(payload.project)
-        return { files }
+        let pages = []
+        try { pages = listProjectPages(payload.project) } catch { pages = [] }
+        return { files: listProjectFiles(payload.project), pages }
       } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
     },
     'openfilm:importFile': async (args) => {

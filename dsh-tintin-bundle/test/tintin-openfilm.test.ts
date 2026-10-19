@@ -279,6 +279,8 @@ describe('openfilm project files / import channels', () => {
     const project = makeProject()
     const result = await channels['openfilm:projectFiles']([{ project }])
     const paths = result.files.map((file) => file.path)
+    expect(result.pages.map((page) => page.path)).toEqual(['film.html'])
+    expect(result.pages[0].size).toBeGreaterThan(0)
     expect(paths).toContain('assets/a.png')
     expect(paths).toContain('pages/title.html')
     expect(result.files.find((file) => file.path === 'assets/a.png').size).toBe(3)

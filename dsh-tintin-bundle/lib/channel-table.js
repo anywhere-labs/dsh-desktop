@@ -256,7 +256,9 @@ export function createChannelTable(deps) {
     // media:unlock — 见上方 mediaUnlocked 注记。契约：绝对路径、必须存在的
     // 单个文件；成功 {ok:true}、失败 {error}（永不 reject，fire-and-forget 调用点）。
     'media:unlock': (args) => {
-      const p = String(args?.[0] ?? '')
+      // 入口即 normalize：渲染层常传混合分隔符（C:\a/b.jpg），GET 侧比对的是
+      // normalize 后的路径——原样登记则 has() 永不相等，解锁形同虚设（2026-10-19 报障）。
+      const p = normalize(String(args?.[0] ?? ''))
       if (!p || !isAbsolute(p)) return { error: 'media:unlock requires absolute path' }
       try {
         if (!existsSync(p) || !statSync(p).isFile()) return { error: `路径不存在或不是文件: ${p}` }
