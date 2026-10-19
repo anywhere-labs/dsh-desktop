@@ -498,8 +498,8 @@
     "@deepseek-ai/dsh-client-ui-chat@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-client-ui-chat-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-client-ui-commands@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-client-ui-commands-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-client-ui-commands@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-client-ui-commands-0.2.1-rc.2.tgz",
-    "@deepseek-ai/dsh-client-ui-conversation@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-client-ui-conversation-0.2.1-rc.2.tgz",
-    "@deepseek-ai/dsh-client-ui-conversation@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-client-ui-conversation-0.2.1-rc.2.tgz",
+    "@deepseek-ai/dsh-client-ui-conversation@npm:0.2.1-rc.2": "patch:@deepseek-ai/dsh-client-ui-conversation@file%3Avendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-client-ui-conversation-0.2.1-rc.2.tgz#./patches/dsh-client-ui-conversation@0.2.1-rc.2.patch",
+    "@deepseek-ai/dsh-client-ui-conversation@npm:^0.2.1-rc.2": "patch:@deepseek-ai/dsh-client-ui-conversation@file%3Avendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-client-ui-conversation-0.2.1-rc.2.tgz#./patches/dsh-client-ui-conversation@0.2.1-rc.2.patch",
     "@deepseek-ai/dsh-client-ui-deepseek-model-label-1017@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-client-ui-deepseek-model-label-1017-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-client-ui-deepseek-model-label-1017@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-client-ui-deepseek-model-label-1017-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-client-ui-deliverables@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-client-ui-deliverables-0.2.1-rc.2.tgz",
@@ -755,7 +755,7 @@
     "check:architecture": "yarn test:architecture-gates && node scripts/verify-market-dependency-direction.mjs",
     "check:vendored-runtime": "node scripts/sync-vendored-runtime.mjs --check --channel stable && node scripts/sync-vendored-runtime.mjs --check --channel beta",
     "check:desktop-variants": "node scripts/verify-desktop-variants.mjs",
-    "check:layout": "node scripts/run-parallel.mjs \"node --test scripts/prepare-dsh-market.test.mjs scripts/agents-anywhere-release-policy.test.mjs scripts/bilingual-docs.test.mjs scripts/market-dependency-direction.test.mjs scripts/inspector-compat.test.mjs scripts/export-app-icons.test.mjs\" \"node scripts/verify-bilingual-docs.mjs\" \"node scripts/verify-market-dependency-direction.mjs\" \"node scripts/sync-vendored-runtime.mjs --check --channel stable\" \"node scripts/sync-vendored-runtime.mjs --check --channel beta\" \"node scripts/verify-desktop-variants.mjs\" \"node scripts/export-app-icons.mjs --check\" \"node scripts/verify-layout.mjs\"",
+    "check:layout": "node scripts/run-parallel.mjs \"node --test scripts/prepare-dsh-market.test.mjs scripts/agents-anywhere-release-policy.test.mjs scripts/bilingual-docs.test.mjs scripts/market-dependency-direction.test.mjs scripts/inspector-compat.test.mjs scripts/conversation-draft-compat.test.mjs scripts/export-app-icons.test.mjs\" \"node scripts/verify-bilingual-docs.mjs\" \"node scripts/verify-market-dependency-direction.mjs\" \"node scripts/sync-vendored-runtime.mjs --check --channel stable\" \"node scripts/sync-vendored-runtime.mjs --check --channel beta\" \"node scripts/verify-desktop-variants.mjs\" \"node scripts/export-app-icons.mjs --check\" \"node scripts/verify-layout.mjs\"",
     "check": "yarn workspace dsh-community-market check && node scripts/run-parallel.mjs \"yarn check:layout\" \"yarn test:aa-connector\" \"yarn workspace dsh-community-fabric check\" \"yarn workspace dsh-plugin-desktop check\" \"yarn workspace dsh-plugin-desktop-beta check\" \"yarn workspace dsh-desktop-next check\"",
     "dev": "yarn market:prepare && yarn aa:prepare-release && yarn workspace dsh-community-market build && yarn workspace dsh-plugin-desktop dev",
     "start": "yarn market:prepare && yarn workspace dsh-plugin-desktop start",
@@ -794,6 +794,7 @@
     "market:prepare": "node scripts/prepare-dsh-market.mjs",
     "market:check": "node scripts/prepare-dsh-market.mjs --check",
     "test:market-release": "node --test scripts/prepare-dsh-market.test.mjs",
-    "test:inspector-compat": "node --test scripts/inspector-compat.test.mjs"
+    "test:inspector-compat": "node --test scripts/inspector-compat.test.mjs",
+    "test:conversation-draft-compat": "node --test scripts/conversation-draft-compat.test.mjs"
   }
 }
