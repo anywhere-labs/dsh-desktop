@@ -6,6 +6,7 @@ import { DESKTOP_FILE_PATH_BRIDGE } from './file-path-bridge-contract.ts'
 import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL } from './directory-picker-contract.ts'
 import { DESKTOP_SAVE_FILE_PICKER_CHANNEL, type DesktopSaveFilePickerRequest } from './save-file-picker-contract.ts'
 import type { DesktopOpenFilmBridge, OpenFilmBounds, OpenFilmSelection, OpenFilmStudioRef } from './openfilm-view-contract.ts'
+import type { BrowserViewBounds, DesktopBrowserViewBridge } from './browser-view-contract.ts'
 import {
   DESKTOP_RENDERER_ACTION_CHANNEL,
   DESKTOP_RENDERER_ACTIONS_BRIDGE,
@@ -68,6 +69,18 @@ const openFilmView: DesktopOpenFilmBridge = {
   },
 }
 contextBridge.exposeInMainWorld('dshDesktopOpenFilm', Object.freeze(openFilmView))
+
+// Embedded browser view (TinTin channel, 2026-10-19 方案 4 same native-view pattern):
+// the renderer hosts a placeholder and drives the browser UI view lifecycle.
+// Literals kept in sync with ./browser-view-contract.ts (main process imports it).
+const BROWSER_VIEW_CHANNEL = 'dsh-desktop:browser-view'
+const browserView: DesktopBrowserViewBridge = {
+  open: () => ipcRenderer.invoke(BROWSER_VIEW_CHANNEL, { action: 'open' }),
+  show: (bounds: BrowserViewBounds) => ipcRenderer.invoke(BROWSER_VIEW_CHANNEL, { action: 'show', bounds }),
+  hide: () => ipcRenderer.invoke(BROWSER_VIEW_CHANNEL, { action: 'hide' }),
+  close: () => ipcRenderer.invoke(BROWSER_VIEW_CHANNEL, { action: 'close' }),
+}
+contextBridge.exposeInMainWorld('dshDesktopBrowserView', Object.freeze(browserView))
 
 
 // Upstream client plugins recognize the Desktop renderer by this carrier. Version 1

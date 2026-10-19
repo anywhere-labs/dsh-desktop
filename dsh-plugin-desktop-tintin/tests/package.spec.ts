@@ -889,9 +889,11 @@ describe('published package surface', () => {
     expect(manifest.build?.mac?.artifactName).toBe('TinTin-${version}-${arch}.${ext}')
     expect(manifest.build?.mac?.mergeASARs).toBe(false)
     expect(manifest.build?.mac?.signIgnore).toEqual(['\\.(?:pak|dat|wasm)$'])
-    // 2026-10-02 用户裁决：NSIS 压缩降档 normal→store（打包提速；发布需小包时经
-    // DSH_WINDOWS_PACKAGE_COMPRESSION 覆写回 maximum/normal）
-    // The vendored OpenFilm runtime pushes the packaged payload past NSIS's 2 GB store limit; compression is required.
+    // 压缩档沿革：2026-10-02 用户裁决 normal→store（提速）；2026-10-18 OpenFilm 运行时
+    // 入包后载荷破 NSIS store 2GB 上限→被迫回压缩档（ac95829e77 选 normal）。
+    // 同日试过 normal→fast：electron-builder schema 枚举只有 maximum|normal|store，
+    // 无 fast 档（配置校验直接拒，打包 exit 1）——normal 已是合法压缩档最快档，
+    // 提速只能走缩载荷或跳 NSIS 目标。
     expect(manifest.build?.win?.compression).toBe('normal')
     expect(manifest.build?.win?.icon).toBe('build/app-icon.ico')
     expect(manifest.build?.win?.target).toEqual([{

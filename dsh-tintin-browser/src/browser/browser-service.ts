@@ -1,8 +1,9 @@
 // ═══════════════════════════════════════════════════════════════
 // browser-service.ts — 浏览器域壳层引擎（2026-09-25 用户裁决提前移植首片）
-// 形态裁决（2026-09-25 用户确认）：**独立窗口**（SRC browser-window.js 先例，
-// close=hide 保登录态驻留）——webview（需主窗口 webviewTag，安全面扩大）与
-// 主窗口 overlay（原生 view 盖页内弹窗、跨 tab 生命周期复杂）两实验形态已删除。
+// 形态沿革：2026-09-25 用户确认**独立窗口**（SRC browser-window.js 先例，
+// close=hide 保登录态驻留）；2026-10-19 用户方案 4 裁决增补**主窗内嵌模式**
+// （OpenFilm B 方案同款：UI 页+平台分区视图挂主窗 contentView，chrome 容器
+// 矩形驱动）——内嵌为侧栏入口默认形态，独立窗口保留（面板按钮/loopback 兜底）。
 //
 // 登录态消费链（参考视频下载 yt-dlp 的前提，SRC 用户拍板方案「浏览器取 cookies」）：
 //   各平台分区 session.cookies → Netscape 文件落 `<userData>/harness/tintin/browser/
@@ -195,6 +196,52 @@ let pageHostRect: { x: number; y: number; width: number; height: number } | null
 let mediaSniffer: MediaSniffer | null = null
 const pageDownloads = new Map<string, { taskId: string; file: string; percent: number; state: string; speed?: number }>()
 
+// ── 内嵌模式（2026-10-19 用户方案 4：浏览器=主窗内嵌界面，OpenFilm B 方案同款）──
+// UI 页（tintin-browser.html）作为 WebContentsView 挂主窗 contentView，外层矩形由
+// chrome 容器上报（dsh-desktop:browser-view，main-hook 转发）；平台分区视图在内层
+// （页面上报的 #view-host 矩形）按两层合成定位。独立窗口与内嵌互斥：内嵌 show 时
+// 藏独立窗（close=hide 语义），browser:open 打开独立窗时先卸内嵌。
+let mainWindowRef: BrowserWindow | null = null
+let embedPageView: WebContentsView | null = null
+let embedActive = false
+let embedOuterRect = { x: 0, y: 0, width: 0, height: 0 }
+let pagePreloadPath: string | null = null
+
+export interface EmbedRect { x: number; y: number; width: number; height: number }
+
+/** 两层 bounds 合成（纯函数，2026-10-19 内嵌模式）：外层=chrome 容器矩形（主窗
+ *  内容坐标），内层=页面 #view-host 矩形（页面视图内坐标，zoom 1 下 CSS px==DIP）。
+ *  结果=平台分区视图在主窗 contentView 的 setBounds 入参；宽高按外层余量截断防溢出。 */
+export function composeEmbedBounds(outer: EmbedRect, inner: EmbedRect): EmbedRect {
+  const clamp = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0)
+  const x = clamp(outer.x) + clamp(inner.x)
+  const y = clamp(outer.y) + clamp(inner.y)
+  const width = clamp(Math.min(clamp(inner.width), clamp(outer.width) - clamp(inner.x)))
+  const height = clamp(Math.min(clamp(inner.height), clamp(outer.height) - clamp(inner.y)))
+  return { x, y, width, height }
+}
+
+/** 当前页面载体：内嵌=UI 页视图；独立窗形态=窗口本体（webContents 可发消息的最小面） */
+function pageHost(): { webContents: import('electron').WebContents } | null {
+  if (embedActive) return embedPageView && !embedPageView.webContents.isDestroyed() ? embedPageView : null
+  return browserWindow && !browserWindow.isDestroyed() ? browserWindow : null
+}
+
+/** 平台视图当前的宿主窗口：内嵌=主窗；独立窗形态=独立窗口 */
+function hostWin(): BrowserWindow | null {
+  if (embedActive) return mainWindowRef && !mainWindowRef.isDestroyed() ? mainWindowRef : null
+  return browserWindow && !browserWindow.isDestroyed() ? browserWindow : null
+}
+
+/** 从两个可能宿主上都摘下平台视图（形态切换/无矩形时的幂等卸载） */
+function detachPlatformView(view: WebContentsView): void {
+  for (const win of [browserWindow, mainWindowRef]) {
+    if (win && !win.isDestroyed()) {
+      try { win.contentView.removeChildView(view) } catch { /* 未挂载 */ }
+    }
+  }
+}
+
 function platformOf(p: string | null): PlatformDef | null {
   return p ? PLATFORM_DEFS[p] ?? null : null
 }
@@ -212,8 +259,8 @@ function browserPagePath(): string {
 
 /** 导航态推给页面工具条（activeView 的 URL/导航能力/加载中 + 平台 id） */
 function pushPageState(): void {
-  const win = browserWindow
-  if (!win || win.isDestroyed()) return
+  const host = pageHost()
+  if (!host) return
   const wc = activeView()?.webContents
   let url = ''
   let canBack = false
@@ -228,21 +275,30 @@ function pushPageState(): void {
     }
   } catch { /* 销毁竞态，按空态推 */ }
   try {
-    win.webContents.send('tintin-browser-page:state', { url, canBack, canForward, loading, platform: currentPlatform })
+    host.webContents.send('tintin-browser-page:state', { url, canBack, canForward, loading, platform: currentPlatform })
   } catch { /* 页面未就绪 */ }
 }
 
-/** 窗口布局：活跃平台 view 覆盖页面宿主矩形（页面侧 ResizeObserver 上报） */
+/** 窗口布局：活跃平台 view 覆盖页面宿主矩形（页面侧 ResizeObserver 上报）。
+ *  内嵌模式（2026-10-19）：宿主=主窗 contentView，平台视图 bounds=外层容器
+ *  矩形 + 页面内层矩形两层合成（composeEmbedBounds）；独立窗形态原样。 */
 function layoutBrowserWindow(): void {
-  const win = browserWindow
-  if (!win || win.isDestroyed()) return
   const view = activeView()
   if (!view) return
   const rect = pageHostRect
   if (!rect || rect.width <= 0 || rect.height <= 0) {
-    try { win.contentView.removeChildView(view) } catch { /* 未挂载 */ }
+    detachPlatformView(view)
     return
   }
+  if (embedActive) {
+    const win = hostWin()
+    if (!win) return
+    view.setBounds(composeEmbedBounds(embedOuterRect, rect))
+    try { win.contentView.addChildView(view) } catch { /* 已挂载 */ }
+    return
+  }
+  const win = browserWindow
+  if (!win || win.isDestroyed()) return
   view.setBounds({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
   try { win.contentView.addChildView(view) } catch { /* 已挂载 */ }
 }
@@ -298,8 +354,8 @@ function ensureBrowserView(platform: string): WebContentsView {
 }
 
 function attachToWindow(): void {
-  const win = browserWindow
-  if (!win || win.isDestroyed()) return
+  const win = hostWin()
+  if (!win) return
   const view = activeView()
   if (!view) return
   // 原生下载接管（幂等：session 每分区只挂一次）；挂 view 实际使用的分区 session
@@ -374,7 +430,9 @@ function ensureBrowserWindow(mainWindow: BrowserWindow): BrowserWindow {
       sandbox: true,
       webviewTag: false,
       spellcheck: false,
-      preload: join(import.meta.dirname, '../preload/index.cjs'),
+      // 2026-10-19：main-hook 下发 browser-page-preload 路径后页面桥（dshDesktopBrowser/
+      // tintinBrowserPage）才真正接通（此前无暴露点，页面防御性降级）；缺省回退旧路径
+      preload: pagePreloadPath ?? join(import.meta.dirname, '../preload/index.cjs'),
     },
   })
   // 整体页面（工具条/左栏/右栏/下载栏）承载 UI；原生 view 由 bounds 同步覆盖宿主矩形
@@ -405,8 +463,7 @@ function mirrorPageDownload(
   channel: 'downloads:progress' | 'downloads:done' | 'downloads:error',
   payload: Record<string, unknown>,
 ): void {
-  const win = browserWindow
-  if (!win || win.isDestroyed()) return
+  if (!pageHost()) return
   const taskId = String(payload.taskId || '')
   if (!taskId) return
   const file = String(payload.file || '下载文件')
@@ -435,9 +492,9 @@ function mirrorPageDownload(
 
 /** 下载列表推页面下载栏 */
 function pushPageDownloads(): void {
-  const win = browserWindow
-  if (!win || win.isDestroyed()) return
-  try { win.webContents.send('tintin-browser-page:downloads', [...pageDownloads.values()]) } catch { /* 页面未就绪 */ }
+  const host = pageHost()
+  if (!host) return
+  try { host.webContents.send('tintin-browser-page:downloads', [...pageDownloads.values()]) } catch { /* 页面未就绪 */ }
 }
 
 /** 注册壳侧 IPC（createWindow 之后调用；mainWindow 用于独立窗口生命周期联动） */
@@ -458,7 +515,79 @@ function scheduleCookieSync(platform: string | null = null): void {
 /** 一次性挂各平台分区 cookie 变化监听（login/logout/刷新都会触发 changed） */
 let cookieWatchInstalled = false
 
-export function registerBrowserService(mainWindow: BrowserWindow): void {
+// ── 内嵌生命周期（main-hook 经 dsh-desktop:browser-view 通道驱动；2026-10-19 方案 4）──
+
+/** 创建/复用内嵌 UI 页视图（tintin-browser.html + browser-page-preload），记下宿主主窗 */
+export function embedAttach(win: BrowserWindow): { ok: boolean; error?: string } {
+  if (!pagePreloadPath) return { ok: false, error: 'browser page preload unavailable' }
+  mainWindowRef = win
+  if (embedPageView && !embedPageView.webContents.isDestroyed()) return { ok: true }
+  embedPageView = new WebContentsView({
+    webPreferences: {
+      preload: pagePreloadPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webviewTag: false,
+      spellcheck: false,
+    },
+  })
+  embedPageView.setBackgroundColor('#141416')
+  try { embedPageView.webContents.loadFile(browserPagePath()).catch(() => { /* 页面自显示错误 */ }) } catch { /* 视图销毁竞态 */ }
+  return { ok: true }
+}
+
+/** 按外层容器矩形显示内嵌（幂等挂载 + 每次定位）；独立窗口互斥（藏起，登录态驻留） */
+export function embedShow(bounds: EmbedRect): { ok: boolean; error?: string } {
+  const win = mainWindowRef
+  if (!win || win.isDestroyed()) return { ok: false, error: 'main window unavailable' }
+  if (!embedPageView || embedPageView.webContents.isDestroyed()) return { ok: false, error: 'embed page not ready' }
+  try { if (browserWindow && !browserWindow.isDestroyed() && browserWindow.isVisible()) browserWindow.hide() } catch { /* 已隐藏 */ }
+  const wasActive = embedActive
+  embedActive = true
+  embedOuterRect = {
+    x: Math.round(Number(bounds.x) || 0),
+    y: Math.round(Number(bounds.y) || 0),
+    width: Math.max(0, Math.round(Number(bounds.width) || 0)),
+    height: Math.max(0, Math.round(Number(bounds.height) || 0)),
+  }
+  if (!wasActive) { try { win.contentView.addChildView(embedPageView) } catch { /* 已挂载 */ } }
+  embedPageView.setBounds(embedOuterRect)
+  layoutBrowserWindow()
+  pushPageState()
+  return { ok: true }
+}
+
+/** 卸下内嵌（UI 页+平台视图都从主窗摘下；页面态/平台视图本体保留=KeepAlive），并导 cookies */
+export function embedHide(): void {
+  if (!embedActive) return
+  embedActive = false
+  embedOuterRect = { x: 0, y: 0, width: 0, height: 0 }
+  const win = mainWindowRef
+  if (win && !win.isDestroyed()) {
+    if (embedPageView && !embedPageView.webContents.isDestroyed()) {
+      try { win.contentView.removeChildView(embedPageView) } catch { /* 未挂载 */ }
+    }
+    const view = activeView()
+    if (view) detachPlatformView(view)
+  }
+  void exportCurrentCookies().catch(() => { /* 同步失败下次变化重试 */ })
+}
+
+/** 销毁内嵌 UI 页视图（当前无调用方——保留给未来「关闭浏览器」入口） */
+export function embedClose(): void {
+  embedHide()
+  const view = embedPageView
+  embedPageView = null
+  if (view && !view.webContents.isDestroyed()) view.webContents.close()
+}
+
+export function registerBrowserService(
+  mainWindow: BrowserWindow,
+  options: { pagePreloadPath?: string } = {},
+): void {
+  mainWindowRef = mainWindow
+  pagePreloadPath = options.pagePreloadPath ?? null
   // 登录即同步：所有平台分区的 cookie 变化 → 防抖自动导出（网页/独立窗口两形态通用）
   if (!cookieWatchInstalled) {
     cookieWatchInstalled = true
@@ -481,6 +610,7 @@ export function registerBrowserService(mainWindow: BrowserWindow): void {
   ipcMain.handle('tintin-browser-page:open', (_e, payload: unknown) => {
     const id = String((payload as { platform?: unknown })?.platform || '')
     if (!platformOf(id)) return { ok: false, error: `未知平台: ${id}` }
+    if (embedActive) return navigateTo(id) // 内嵌（2026-10-19）：主窗即宿主，不 ensure 独立窗/抢焦点
     const win = ensureBrowserWindow(mainWindow)
     if (win.isMinimized()) win.restore()
     win.show()
@@ -594,6 +724,12 @@ export function registerBrowserService(mainWindow: BrowserWindow): void {
     app,
     getBrowserWindow: () => browserWindow,
     getOrCreateView: (platformId: string) => {
+      if (embedActive) {
+        // 内嵌（2026-10-19）：视图挂主窗（attachToWindow 按 hostWin 分发），不拉独立窗
+        if (currentPlatform !== platformId) void navigateTo(platformId)
+        else { ensureBrowserView(platformId); attachToWindow() }
+        return activeView() ?? ensureBrowserView(platformId)
+      }
       ensureBrowserWindow(mainWindow)
       if (currentPlatform !== platformId) void navigateTo(platformId)
       else { ensureBrowserView(platformId); attachToWindow() }
@@ -688,10 +824,12 @@ export function registerBrowserService(mainWindow: BrowserWindow): void {
     }
   })
 
-  // 打开平台（独立窗口 + 导航 seed URL）；窗口已存活则聚焦复用
+  // 打开平台（独立窗口 + 导航 seed URL）；窗口已存活则聚焦复用。
+  // 内嵌模式（2026-10-19）：主窗即宿主，直接导航（回环门面/嗅探下载同链路复用）
   // 抽为 openPlatform 供回环门面复用。挂载/切换由 navigateTo 统一处理
   const openPlatform = (id: string) => {
     if (!platformOf(id)) return { ok: false, error: `未知平台: ${id}` }
+    if (embedActive) return navigateTo(id)
     const win = ensureBrowserWindow(mainWindow)
     if (win.isMinimized()) win.restore()
     win.show()

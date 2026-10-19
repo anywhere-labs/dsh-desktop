@@ -64,7 +64,7 @@ export default defineConfig([
   },
   {
     name: `${PACKAGE_NAME}/preload`,
-    entry: { preload: 'src/preload.ts', 'compatibility-preload': 'src/compatibility-preload.ts', 'studio-preload': 'src/tintin/studio-preload.ts' },
+    entry: { preload: 'src/preload.ts', 'compatibility-preload': 'src/compatibility-preload.ts', 'studio-preload': 'src/tintin/studio-preload.ts', 'browser-page-preload': 'src/tintin/browser-page-preload.ts' },
     outDir: 'lib',
     format: 'cjs',
     platform: 'node',

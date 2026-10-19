@@ -7,12 +7,13 @@ import { app, BrowserWindow, WebContentsView, ipcMain } from 'electron'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { registerBrowserService } from 'dsh-tintin-browser'
+import { embedAttach, embedClose, embedHide, embedShow, registerBrowserService } from 'dsh-tintin-browser'
 import {
   OPENFILM_HOST_REFER, OPENFILM_HOST_SELECTION, OPENFILM_REFER_EVENT, OPENFILM_SELECTION_EVENT,
   OPENFILM_VIEW_CHANNEL, isOpenFilmBounds, isOpenFilmStudioUrl,
   type OpenFilmBounds, type OpenFilmSelection, type OpenFilmStudioRef, type OpenFilmViewRequest,
 } from '../openfilm-view-contract.ts'
+import { BROWSER_VIEW_CHANNEL, isBrowserBounds, type BrowserViewRequest } from '../browser-view-contract.ts'
 import { seedTinTinDefaults } from './first-boot.ts'
 
 let installed = false
@@ -66,6 +67,11 @@ function ensureStudioView(window: BrowserWindow, url: string): WebContentsView {
   })
   studioView = view
   void view.webContents.loadURL(url)
+  // 键盘焦点交给 Studio（2026-10-19 报障：焦点留主窗侧栏行按钮时，视图内按空格被
+  // 主窗按 HTML 语义当成「再点一次行」→ 切回工作台）。仅打开时让一次，show 轮询不抢焦
+  view.webContents.once('did-finish-load', () => {
+    try { if (!view.webContents.isDestroyed()) view.webContents.focus() } catch { /* 销毁竞态 */ }
+  })
   return view
 }
 
@@ -128,7 +134,11 @@ export function installTinTinMainHook(): void {
     if (window.getParentWindow() !== null) return
     browserAttached = true
     try {
-      registerBrowserService(window)
+      // browser-page-preload（2026-10-19）：浏览器 UI 页（内嵌视图与独立窗口共用）的
+      // 页面桥（dshDesktopBrowser/tintinBrowserPage）由此接通——构建产物与本文件同目录
+      registerBrowserService(window, {
+        pagePreloadPath: join(dirname(fileURLToPath(import.meta.url)), 'browser-page-preload.cjs'),
+      })
     } catch (error) {
       console.error(
         `dsh-plugin-desktop-tintin: browser domain registration failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -168,6 +178,25 @@ export function installTinTinMainHook(): void {
     if (studioView !== null && event.sender === studioView.webContents) {
       studioWindow?.webContents.send(OPENFILM_REFER_EVENT, ref)
     }
+  })
+
+  // Embedded browser view (2026-10-19 方案 4, OpenFilm native-view pattern): the chrome
+  // hosts a placeholder and drives the browser UI view lifecycle; platform partition
+  // views compose on top inside the page-reported host rect (browser-service embed mode).
+  ipcMain.handle(BROWSER_VIEW_CHANNEL, (event, request: BrowserViewRequest) => {
+    if (request === null || typeof request !== 'object') return { ok: false, error: 'invalid request' }
+    if (request.action === 'open') {
+      const window = BrowserWindow.fromWebContents(event.sender)
+      if (window === null) return { ok: false, error: 'window not found' }
+      return embedAttach(window)
+    }
+    if (request.action === 'show') {
+      if (!isBrowserBounds(request.bounds)) return { ok: false, error: 'invalid bounds' }
+      return embedShow(request.bounds)
+    }
+    if (request.action === 'hide') { embedHide(); return { ok: true } }
+    if (request.action === 'close') { embedClose(); return { ok: true } }
+    return { ok: false, error: 'unknown action' }
   })
 }
 
