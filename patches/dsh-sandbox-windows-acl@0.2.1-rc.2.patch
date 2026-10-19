@@ -55,3 +55,126 @@ index 4d906d1..1f65214 100644
  	withPathLock(api, path, () => {
  		const { oldAcl, labelAcl, descriptor } = readCurrentSecurity(api, path);
  		if (oldAcl !== null && labelAcl !== null && hasExactGrant(oldAcl, sidPtr) && hasExactDeny(oldAcl, worldSidPtr) && hasExactLabel(labelAcl, lowLabelSidPtr)) {
+diff --git a/lib/runner.js b/lib/runner.js
+index 729329d..1a4f0b0 100644
+--- a/lib/runner.js
++++ b/lib/runner.js
+@@ -13,11 +13,17 @@ import { SUBPROCESS_CONTROL_ENV, SUBPROCESS_CONTROL_FD } from "@deepseek-ai/dsh-
+ *
+ * Stable argv contract (the seam builds it; a native-exe replacement would
+ * keep the same contract):
+-*   [node, runner.js, '--workspace', <dir>, '--temp', <dir>,
+-*    '--mode', <read-only|workspace-write>,
++*   [node, runner.js, '--workspace', <dir>, ['--workspace', <dir> ...],
++*    '--temp', <dir>, '--mode', <read-only|workspace-write>,
+ *    ['--write-sid', <S-1-4-…>,
+ *     '--temp-write-sid', <S-1-4-…>], '--', <argv...>]
+ *
++* DSH Desktop: `--workspace` is REPEATABLE — one Workspace may own several
++* directories, so every root of the workspace is named and the one
++* per-workspace write SID is granted on each. The FIRST `--workspace` stays
++* the primary root: `--write-sid` is validated against it, so adding or
++* removing a secondary root never changes a workspace's capability identity.
++*
+ * Modes:
+ *  - workspace-write: the workspace and temp directories carry distinct
+ *    capability-SID Write grants; other ACL-addressable writes are denied
+@@ -57,7 +63,7 @@ function fail(detail) {
+ 	throw new RunnerFailure(detail);
+ }
+ function parseArgs(raw) {
+-	let workspace;
++	const workspaces = [];
+ 	let temp;
+ 	let mode;
+ 	let writeSid;
+@@ -74,7 +80,7 @@ function parseArgs(raw) {
+ 		if (value === void 0) fail(`missing value after ${token}`);
+ 		switch (token) {
+ 			case "--workspace":
+-				workspace = value;
++				workspaces.push(value);
+ 				break;
+ 			case "--temp":
+ 				temp = value;
+@@ -91,6 +97,7 @@ function parseArgs(raw) {
+ 			default: fail(`unknown argument: ${token}`);
+ 		}
+ 	}
++	const workspace = workspaces[0];
+ 	if (workspace === void 0) fail("missing --workspace");
+ 	if (temp === void 0) fail("missing --temp");
+ 	if (mode !== "read-only" && mode !== "workspace-write") fail(`unknown mode: ${String(mode)}`);
+@@ -99,6 +106,7 @@ function parseArgs(raw) {
+ 	if (command === void 0) fail("missing command after --");
+ 	return {
+ 		workspace,
++		workspaces,
+ 		temp,
+ 		mode,
+ 		writeSid,
+@@ -112,12 +120,12 @@ function requireDirectory(label, path) {
+ }
+ async function main() {
+ 	const parsed = parseArgs(process.argv.slice(2));
+-	requireDirectory("--workspace", parsed.workspace);
++	for (const workspace of parsed.workspaces) requireDirectory("--workspace", workspace);
+ 	requireDirectory("--temp", parsed.temp);
+ 	const seamManaged = parsed.writeSid !== void 0 || parsed.tempWriteSid !== void 0;
+ 	if (parsed.mode === "read-only" && seamManaged) fail("read-only does not accept --write-sid or --temp-write-sid");
+ 	if (parsed.mode === "workspace-write" && parsed.writeSid === void 0 !== (parsed.tempWriteSid === void 0)) fail("workspace-write requires --write-sid and --temp-write-sid together");
+-	if (parsed.mode === "workspace-write") assertTempRootOutsideWorkspace(parsed.workspace, parsed.temp);
++	if (parsed.mode === "workspace-write") for (const workspace of parsed.workspaces) assertTempRootOutsideWorkspace(workspace, parsed.temp);
+ 	const api = await win32();
+ 	if (api.setConsoleCtrlHandler(null, 1) === 0) fail(`SetConsoleCtrlHandler failed (Win32 ${api.getLastError()})`);
+ 	let ownedTempDir;
+@@ -141,7 +149,7 @@ async function main() {
+ 			}
+ 		}
+ 		sandbox = new AclSandbox({
+-			writableDirs: parsed.mode === "workspace-write" ? [parsed.workspace] : [],
++			writableDirs: parsed.mode === "workspace-write" ? parsed.workspaces : [],
+ 			tempDir: privateTempDir,
+ 			mode: parsed.mode,
+ 			...writeSid === void 0 ? {} : { writeSid },
+diff --git a/lib/types/grant.d.ts b/lib/types/grant.d.ts
+index 13093e7..dff10e8 100644
+--- a/lib/types/grant.d.ts
++++ b/lib/types/grant.d.ts
+@@ -5,6 +5,12 @@
+  * derivation and their standing ACE; temp identities derive from random
+  * private paths and are deliberately new after a restart.
+  *
++ * DSH Desktop: one Workspace may own several directories. Its single
++ * per-workspace write SID stands on EVERY one of them, so the grant is added
++ * once per root rather than once per workspace — cross-workspace isolation
++ * is unchanged, because another workspace's token carries a different SID
++ * that holds no ACE on these roots.
++ *
+  * Fail-closed: `add` throws on any grant failure and the caller disposes the
+  * instance (revoking every path granted so far); `dispose` revokes every
+  * revocable grant, leaves the standing workspace edits in place, and reports
+diff --git a/lib/types/runner.d.ts b/lib/types/runner.d.ts
+index 388b441..c32a75d 100644
+--- a/lib/types/runner.d.ts
++++ b/lib/types/runner.d.ts
+@@ -8,11 +8,17 @@
+  *
+  * Stable argv contract (the seam builds it; a native-exe replacement would
+  * keep the same contract):
+- *   [node, runner.js, '--workspace', <dir>, '--temp', <dir>,
+- *    '--mode', <read-only|workspace-write>,
++ *   [node, runner.js, '--workspace', <dir>, ['--workspace', <dir> ...],
++ *    '--temp', <dir>, '--mode', <read-only|workspace-write>,
+  *    ['--write-sid', <S-1-4-…>,
+  *     '--temp-write-sid', <S-1-4-…>], '--', <argv...>]
+  *
++ * DSH Desktop: `--workspace` is REPEATABLE — one Workspace may own several
++ * directories, so every root of the workspace is named and the one
++ * per-workspace write SID is granted on each. The FIRST `--workspace` stays
++ * the primary root: `--write-sid` is validated against it, so adding or
++ * removing a secondary root never changes a workspace's capability identity.
++ *
+  * Modes:
+  *  - workspace-write: the workspace and temp directories carry distinct
+  *    capability-SID Write grants; other ACL-addressable writes are denied

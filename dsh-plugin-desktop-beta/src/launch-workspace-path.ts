@@ -1,26 +1,28 @@
 import { posix, win32 } from 'node:path'
 
 /**
- * Explicit launcher hand-off naming the folder to register as a workspace.
+ * Explicit launcher hand-off naming the folders to register as one workspace.
  *
  * The npm launcher spawns Electron with its own `main.js` entry, so a bare
  * folder argument would be indistinguishable from a background Node re-entry
  * once it reaches the running instance. The flag keeps the two apart.
  *
- * Pass the folder in the `--dsh-desktop-workspace=<path>` form. Chromium
- * rebuilds a second instance command line as switches first and positional
- * arguments last, which tears a space separated value away from its flag.
+ * Repeat the flag once per folder. Pass every folder in the
+ * `--dsh-desktop-workspace=<path>` form. Chromium rebuilds a second instance
+ * command line as switches first and positional arguments last, which tears a
+ * space separated value away from its flag and leaves several values merged
+ * into one reordered tail that the flags no longer delimit.
  */
 export const DESKTOP_WORKSPACE_ARGUMENT = '--dsh-desktop-workspace'
 
 /** Attached form that survives a Chromium command line rebuild intact. */
 const WORKSPACE_ARGUMENT_PREFIX = `${DESKTOP_WORKSPACE_ARGUMENT}=`
 
-/** One folder hand-off recovered from a process command line. */
+/** Folders hand-off recovered from a process command line. */
 export interface DesktopLaunchWorkspaceRequest {
-  /** Absolute folder the launch asked Desktop to open. */
-  readonly path: string
-  /** Whether the launcher named the folder through its own flag. */
+  /** Absolute folders the launch asked Desktop to open, in launch order. */
+  readonly paths: readonly string[]
+  /** Whether the launcher named the folders through its own flag. */
   readonly explicit: boolean
 }
 
@@ -38,39 +40,67 @@ function isBareLaunchPath(argument: string, platform: NodeJS.Platform): boolean 
     && isAbsoluteLaunchPath(argument, platform)
 }
 
+/** Keep launch order while dropping a folder the launcher named twice. */
+function pushUnique(paths: string[], value: string): void {
+  if (!paths.includes(value)) paths.push(value)
+}
+
+/** Collect every absolute folder carried by the attached flag form. */
+function attachedLaunchPaths(args: readonly string[], platform: NodeJS.Platform): string[] {
+  const paths: string[] = []
+  for (const argument of args) {
+    if (!argument.startsWith(WORKSPACE_ARGUMENT_PREFIX)) continue
+    const value = argument.slice(WORKSPACE_ARGUMENT_PREFIX.length)
+    if (isAbsoluteLaunchPath(value, platform)) pushUnique(paths, value)
+  }
+  return paths
+}
+
+/** Collect every absolute folder that a flag still holds in the adjacent slot. */
+function spacedLaunchPaths(args: readonly string[], platform: NodeJS.Platform): string[] {
+  const paths: string[] = []
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] !== DESKTOP_WORKSPACE_ARGUMENT) continue
+    const value = args[index + 1]
+    if (value === undefined || value.startsWith('-') || !isAbsoluteLaunchPath(value, platform)) continue
+    pushUnique(paths, value)
+    index += 1
+  }
+  return paths
+}
+
 /**
  * Recover a folder hand-off from one argument tail.
  * @param args - arguments after the executable.
  * @param platform - platform whose path semantics apply.
- * @returns the requested folder, or `undefined` when the launch named none.
+ * @returns the requested folders, or `undefined` when the launch named none.
  */
 export function desktopLaunchWorkspaceFromArguments(
   args: readonly string[],
   platform: NodeJS.Platform = process.platform,
 ): DesktopLaunchWorkspaceRequest | undefined {
-  const attached = args.find(argument => argument.startsWith(WORKSPACE_ARGUMENT_PREFIX))
-  if (attached !== undefined) {
-    const value = attached.slice(WORKSPACE_ARGUMENT_PREFIX.length)
-    return isAbsoluteLaunchPath(value, platform) ? { path: value, explicit: true } : undefined
+  // The attached form wins because it is the only one a command line rebuild
+  // cannot detach; repeating it is how one launch names several folders. An
+  // attached flag carrying nothing usable refuses the hand-off outright rather
+  // than falling back to an unrelated absolute path in the rebuilt tail.
+  if (args.some(argument => argument.startsWith(WORKSPACE_ARGUMENT_PREFIX))) {
+    const paths = attachedLaunchPaths(args, platform)
+    return paths.length === 0 ? undefined : { paths, explicit: true }
   }
+  const spaced = spacedLaunchPaths(args, platform)
+  if (spaced.length > 0) return { paths: spaced, explicit: true }
   const bare = args.find(argument => isBareLaunchPath(argument, platform))
-  if (!args.includes(DESKTOP_WORKSPACE_ARGUMENT)) {
-    return bare === undefined ? undefined : { path: bare, explicit: false }
-  }
-  const adjacent = args[args.indexOf(DESKTOP_WORKSPACE_ARGUMENT) + 1]
-  if (adjacent !== undefined && isAbsoluteLaunchPath(adjacent, platform)) {
-    return { path: adjacent, explicit: true }
-  }
-  // Chromium reordered the command line and the value no longer follows the
-  // flag. The flag still proves the launcher named this folder on purpose.
-  return bare === undefined ? undefined : { path: bare, explicit: true }
+  if (bare === undefined) return undefined
+  // A bare folder stays a single hand-off. The flag still proves intent when
+  // Chromium moved the value away from it.
+  return { paths: [bare], explicit: args.includes(DESKTOP_WORKSPACE_ARGUMENT) }
 }
 
 /**
  * Recover a folder hand-off from a complete command line.
  * @param argv - command line including the executable at index zero.
  * @param platform - platform whose path semantics apply.
- * @returns the requested folder, or `undefined` when the launch named none.
+ * @returns the requested folders, or `undefined` when the launch named none.
  */
 export function desktopLaunchWorkspaceRequest(
   argv: readonly string[] = process.argv,
@@ -82,8 +112,9 @@ export function desktopLaunchWorkspaceRequest(
 /**
  * Drop a folder hand-off so one launch never survives into a relaunch.
  *
- * Every shape a hand-off can take goes, so the result always reads back as no
- * request at all rather than as a differently shaped one.
+ * Every shape a hand-off can take goes, repeated flags included, so the result
+ * always reads back as no request at all rather than as a differently shaped
+ * one.
  * @param args - arguments after the executable.
  * @param platform - platform whose path semantics apply.
  * @returns the same arguments without the hand-off.

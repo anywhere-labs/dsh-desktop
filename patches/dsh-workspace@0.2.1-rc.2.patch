@@ -1,0 +1,671 @@
+diff --git a/lib/index.js b/lib/index.js
+index 323d5ac..816fe17 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -88,7 +88,16 @@ var WorkspaceEntity = class {
+ 		this.record = record;
+ 	}
+ 	get path() {
+-		return this.record.path;
++		return recordRoots(this.record)[0];
++	}
++	/**
++	* The workspace's canonical roots, primary first. `path` is `roots[0]`: the
++	* primary root is the working directory a newly created session starts from,
++	* so reordering roots switches it.
++	* @returns the canonical roots, primary first, always non-empty.
++	*/
++	get roots() {
++		return [...recordRoots(this.record)];
+ 	}
+ 	get title() {
+ 		return this.record.title;
+@@ -100,7 +109,7 @@ var WorkspaceEntity = class {
+ 		return this.record.updatedAt;
+ 	}
+ 	get sessionIds() {
+-		return this.record.sessionIds.filter((id) => this.host.candidateMatches(id, this.record.path));
++		return this.record.sessionIds.filter((id) => this.host.candidateMatches(id, recordRoots(this.record)));
+ 	}
+ 	async setTitle(title) {
+ 		await this.mutate((record) => ({
+@@ -108,6 +117,35 @@ var WorkspaceEntity = class {
+ 			title
+ 		}));
+ 	}
++	/**
++	* Replace this workspace's durable root set through the one write path, so
++	* `sessionIds` pruning and `updatedAt` stamping happen exactly once. The
++	* caller has already canonicalized and validated the roots; this method only
++	* records them with `path` kept as the `roots[0]` read projection.
++	*
++	* The non-empty invariant is asserted here too, not only in the registry:
++	* this method is reachable through the public {@link Workspace} interface, so
++	* a caller that skips the registry must not be able to write `path: undefined`.
++	*
++	* `guard` runs inside the domain write chain on the record current at that
++	* slot, so a rejection is decided against the same snapshot the write would
++	* commit — an `attachSession` queued ahead of this call cannot slip between
++	* the check and the write.
++	* @param roots - Canonical roots, primary first, at least one entry.
++	* @param guard - Optional admission check run on the chain-current record.
++	* @returns resolution after durability.
++	*/
++	async setRoots(roots, guard) {
++		if (roots.length === 0) throw new WorkspaceRootsInvalidError(this.id, "a workspace needs at least one root");
++		await this.mutate((record) => {
++			if (guard !== void 0) guard(record);
++			return {
++				...record,
++				path: roots[0],
++				roots: [...roots]
++			};
++		});
++	}
+ 	async attachSession(sessionId) {
+ 		if (!this.record.sessionIds.includes(sessionId)) {
+ 			const header = await this.host.readSessionHeader(sessionId);
+@@ -119,7 +157,7 @@ var WorkspaceEntity = class {
+ 				throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd '${header.cwd}' does not resolve, so it cannot be validated`, { cause: error });
+ 			}
+ 			if (!(await stat(cwd)).isDirectory()) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd '${header.cwd}' is not a directory`);
+-			if (cwd !== this.record.path) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd resolves to '${cwd}'`);
++			if (!rootsInclude(this.record, cwd)) throw new Error(`cannot attach session '${sessionId}' to workspace '${this.record.path}': its cwd resolves to '${cwd}', which is none of the workspace roots [${recordRoots(this.record).join(", ")}]`);
+ 			this.host.rememberSessionPath(sessionId, cwd);
+ 		}
+ 		await this.mutate((record) => record.sessionIds.includes(sessionId) ? record : {
+@@ -152,11 +190,10 @@ var WorkspaceEntity = class {
+ 		} : record);
+ 	}
+ 	async status() {
+-		try {
+-			return (await stat(this.record.path)).isDirectory() ? "ok" : "missing-dir";
+-		} catch {
+-			return "missing-dir";
+-		}
++		for (const root of recordRoots(this.record)) try {
++			if ((await stat(root)).isDirectory()) return "ok";
++		} catch {}
++		return "missing-dir";
+ 	}
+ 	/**
+ 	* The single write path: run `fn` on the domain write chain via
+@@ -175,7 +212,8 @@ var WorkspaceEntity = class {
+ 		try {
+ 			next = await this.host.table().update(this.id, (current) => {
+ 				const changed = fn(current);
+-				const sessionIds = changed.sessionIds.filter((id) => this.host.candidateMatches(id, changed.path));
++				const roots = recordRoots(changed);
++				const sessionIds = changed.sessionIds.filter((id) => this.host.candidateMatches(id, roots));
+ 				if (changed === current && sessionIds.length === current.sessionIds.length) throw unchangedSentinel;
+ 				return {
+ 					...changed,
+@@ -202,18 +240,44 @@ var WorkspaceEntity = class {
+ const workspaceId = z.string().transform((value) => value);
+ const sessionId = z.string().transform((value) => brandString(value));
+ /**
+-* Durable shape of one workspace record. `path` is the `fs.realpath` canon
+-* stamped at create; `sessionIds` is the ordered ownership account (array
+-* order is display order); timestamps are ISO-8601 strings.
++* Durable shape of one workspace record. `path` is the `fs.realpath` canon of
++* the primary root stamped at create and kept as the read projection of
++* `roots[0]`; `roots` is the canonical directories this workspace owns, primary
++* root first, and stays optional so records written before multi-root parse
++* unchanged (`path` alone is then the single root); `sessionIds` is the ordered
++* ownership account (array order is display order); timestamps are ISO-8601
++* strings.
+ */
+ const workspaceRecord = z.object({
+ 	path: z.string(),
++	roots: z.array(z.string()).min(1).optional(),
+ 	title: z.string(),
+ 	sessionIds: z.array(sessionId),
+ 	createdAt: z.string(),
+ 	updatedAt: z.string()
+ });
+ /**
++* The canonical roots of one record: the primary root is `roots[0]` and `path`
++* is its read projection, so a pre-multi-root record with no `roots` field is
++* the single root its `path` already names. This is the ONE projection helper:
++* every root-based decision in this package goes through it, so legacy records
++* behave identically on every read path.
++* @param record - Validated record snapshot of any vintage.
++* @returns the canonical roots, primary first, always non-empty.
++*/
++function recordRoots(record) {
++	return record.roots ?? [record.path];
++}
++/**
++* Whether one canonical session cwd belongs to any of a record's roots.
++* @param record - Validated record snapshot.
++* @param cwd - Canonical session cwd, or undefined when the header carried none.
++* @returns whether the cwd is one of the workspace's roots.
++*/
++function rootsInclude(record, cwd) {
++	return cwd !== void 0 && recordRoots(record).includes(cwd);
++}
++/**
+ * Recoverable two-write mutation marker. The marker is persisted before the
+ * record/order pair can diverge, so startup can distinguish an interrupted
+ * registry operation from unexplained medium corruption.
+@@ -342,6 +406,53 @@ var WorkspaceOrderInvalidError = class extends Error {
+ 		this.name = "WorkspaceOrderInvalidError";
+ 	}
+ };
++/** A setRoots request named a root set that cannot back a workspace. */
++var WorkspaceRootsInvalidError = class extends Error {
++	workspaceId;
++	/**
++	* @param workspaceId - Workspace whose root set was refused, when it is known.
++	* @param message - Which root failed and why.
++	*/
++	constructor(workspaceId, message, options) {
++		super(`cannot set workspace roots${workspaceId === void 0 ? "" : ` for '${workspaceId}'`}: ${message}`, options);
++		this.workspaceId = workspaceId;
++		this.name = "WorkspaceRootsInvalidError";
++	}
++};
++/**
++* A setRoots request would drop roots that accounted sessions still work in.
++* Nothing was written: a session's cwd is immutable, so dropping its root would
++* leave that session outside every root the workspace declares.
++*/
++var WorkspaceRootsInUseError = class extends Error {
++	workspaceId;
++	roots;
++	sessionIds;
++	/**
++	* @param workspaceId - Workspace whose root set was refused.
++	* @param roots - The roots that would have been dropped.
++	* @param sessionIds - Accounted sessions whose canonical cwd is one of them.
++	*/
++	constructor(workspaceId, roots, sessionIds) {
++		super(`cannot remove roots [${roots.join(", ")}] from workspace '${workspaceId}': sessions [${sessionIds.join(", ")}] still work in them`);
++		this.workspaceId = workspaceId;
++		this.roots = roots;
++		this.sessionIds = sessionIds;
++		this.name = "WorkspaceRootsInUseError";
++	}
++};
++/** A setRoots request named a workspace the registry does not hold. */
++var WorkspaceNotFoundError = class extends Error {
++	workspaceId;
++	/**
++	* @param workspaceId - Unknown workspace id.
++	*/
++	constructor(workspaceId) {
++		super(`cannot mutate unknown workspace '${workspaceId}'`);
++		this.workspaceId = workspaceId;
++		this.name = "WorkspaceNotFoundError";
++	}
++};
+ const sameIds = (left, right) => left.length === right.length && left.every((id, index) => id === right[index]);
+ const compareHeaders = (left, right) => right.createdAt - left.createdAt || String(left.id).localeCompare(String(right.id));
+ /**
+@@ -364,7 +475,11 @@ var WorkspaceRegistry = class extends Service {
+ 	operationTail = Promise.resolve();
+ 	host = {
+ 		table: () => this.requireTable(),
+-		candidateMatches: (id, path) => this.sessionPaths.get(id) === path || this.missingSessionPaths.has(id),
++		candidateMatches: (id, roots) => {
++			if (this.missingSessionPaths.has(id)) return true;
++			const path = this.sessionPaths.get(id);
++			return path !== void 0 && roots.includes(path);
++		},
+ 		readSessionHeader: (id) => this.readSessionHeader(id),
+ 		rememberSessionPath: (id, path) => {
+ 			this.sessionPaths.set(id, path);
+@@ -395,20 +510,98 @@ var WorkspaceRegistry = class extends Service {
+ 		this.reportFilteredCandidates();
+ 	}
+ 	/**
+-	* Create or reuse a workspace for an existing directory. The fully qualified
+-	* path is canonicalized through `fs.realpath`; a relative, nonexistent, or
+-	* non-directory path rejects. Repeated calls for the same canonical path
+-	* return the existing entity without changing its title.
++	* Create or reuse a workspace over one existing directory or a set of them.
++	* Every fully qualified path is canonicalized through `fs.realpath`; a
++	* relative, nonexistent, or non-directory path rejects. Repeated calls for
++	* the same primary canonical path return the existing entity without
++	* changing its title or its roots.
+ 	* A newly created workspace is prepended to the durable registry order.
+ 	* Different canonical paths may share a display title.
+-	* @param path - Existing directory to own, in a fully qualified path spelling.
++	* @param path - Existing directory to own, in a fully qualified path spelling;
++	* the primary root, and the working directory of sessions created for it.
+ 	* @param title - Display title used only when a new record is created.
++	* @param roots - Additional existing directories to own beside `path`, in
++	* fully qualified spelling. Omitted owns `path` alone; the primary root stays
++	* `path` whatever this list holds.
+ 	* @returns the existing or newly durable workspace.
+ 	*/
+-	async create(path, title) {
++	async create(path, title, roots) {
+ 		const canonical = await realpathNormalize(path);
+ 		if (!(await stat(canonical)).isDirectory()) throw new Error(`cannot create a workspace at '${canonical}': path is not a directory`);
+-		return await this.enqueueOperation(() => this.createCanonical(canonical, title));
++		const owned = [...this.entities.values()].find((entity) => entity.roots.includes(canonical));
++		if (owned !== void 0) return owned;
++		const merged = await this.canonicalRoots([canonical, ...roots ?? []]);
++		return await this.enqueueOperation(() => this.createCanonical(canonical, title, false, merged));
++	}
++	/**
++	* Replace one workspace's root set durably. Roots keep the caller's order and
++	* `roots[0]` becomes the primary root — the working directory of sessions
++	* created for the workspace afterwards — so a reorder is a primary-root
++	* switch. Every path is canonicalized, must exist as a directory, and must be
++	* owned by no other workspace.
++	*
++	* A root still named by an accounted session's canonical cwd is refused with
++	* {@link WorkspaceRootsInUseError} rather than dropped: a session's cwd is
++	* immutable, so removing its root would leave that session working outside
++	* every root this workspace declares. The check runs inside the domain write
++	* chain, so it serializes against `attachSession` rather than racing it.
++	* @param id - Workspace whose roots change.
++	* @param paths - Replacement roots, primary first; at least one entry.
++	* @returns the updated workspace.
++	*/
++	setRoots(id, paths) {
++		return this.enqueueOperation(async () => {
++			const entity = this.entities.get(id);
++			if (entity === void 0) throw new WorkspaceNotFoundError(id);
++			if (paths.length === 0) throw new WorkspaceRootsInvalidError(id, "a workspace needs at least one root");
++			const canonical = await this.canonicalRoots(paths, id);
++			const held = this.requireTable().get(id);
++			const heldRoots = held === void 0 ? [] : recordRoots(held);
++			const dropped = heldRoots.filter((root) => !canonical.includes(root));
++			await entity.setRoots(canonical, (record) => {
++				if (dropped.length === 0) return;
++				const blocking = record.sessionIds.filter((sessionId) => {
++					const cwd = this.sessionPaths.get(sessionId);
++					return cwd !== void 0 && dropped.includes(cwd) && recordRoots(record).includes(cwd);
++				});
++				if (blocking.length > 0) throw new WorkspaceRootsInUseError(id, dropped, blocking);
++			});
++			return entity;
++		});
++	}
++	/**
++	* Canonicalize and validate a proposed root set: fully qualified, an existing
++	* directory, deduplicated in caller order, and owned by no other workspace.
++	* The first accepted entry is the primary root by caller order, so passing the
++	* create path first keeps it primary after deduplication.
++	* @param paths - Proposed roots in caller order, primary first.
++	* @param ownId - Workspace whose current ownership is exempt from the check.
++	* @returns the canonical roots, primary first, deduplicated.
++	*/
++	async canonicalRoots(paths, ownId) {
++		const canonical = [];
++		const claimed = /* @__PURE__ */ new Map();
++		for (const entity of this.entities.values()) if (String(entity.id) !== String(ownId)) for (const root of entity.roots) claimed.set(root, entity.id);
++		for (const path of paths) {
++			let root;
++			try {
++				root = await realpathNormalize(path);
++			} catch (error) {
++				throw new WorkspaceRootsInvalidError(ownId, `root '${path}' does not resolve to an existing directory`, { cause: error });
++			}
++			let isDirectory;
++			try {
++				isDirectory = (await stat(root)).isDirectory();
++			} catch (error) {
++				throw new WorkspaceRootsInvalidError(ownId, `root '${path}' cannot be inspected`, { cause: error });
++			}
++			if (!isDirectory) throw new WorkspaceRootsInvalidError(ownId, `root '${path}' is not a directory`);
++			const holder = claimed.get(root);
++			if (holder !== void 0) throw new WorkspaceRootsInvalidError(ownId, `root '${root}' is already owned by workspace '${holder}'`);
++			if (!canonical.includes(root)) canonical.push(root);
++		}
++		if (canonical.length === 0) throw new WorkspaceRootsInvalidError(ownId, "a workspace needs at least one root");
++		return canonical;
+ 	}
+ 	/**
+ 	* Initialize the default Workspace only while both the registry and Session
+@@ -434,7 +627,7 @@ var WorkspaceRegistry = class extends Service {
+ 			await mkdir(path, { recursive: true });
+ 			const canonical = await realpathNormalize(path);
+ 			if ((await this.listStoredHeaders()).length > 0 || sessions.list().length > 0) return void 0;
+-			return this.createCanonical(canonical, defaultWorkspaceTitle(path), true);
++			return this.createCanonical(canonical, defaultWorkspaceTitle(path), true, [canonical]);
+ 		});
+ 	}
+ 	/**
+@@ -636,10 +829,10 @@ var WorkspaceRegistry = class extends Service {
+ 	*/
+ 	async resolveByPath(path) {
+ 		const canonical = await realpathNormalize(path);
+-		for (const entity of this.entities.values()) if (entity.path === canonical) return entity;
++		for (const entity of this.entities.values()) if (entity.roots.includes(canonical)) return entity;
+ 	}
+-	async createCanonical(canonical, title, firstUse = false) {
+-		for (const entity of this.entities.values()) if (entity.path === canonical) return entity;
++	async createCanonical(canonical, title, firstUse = false, roots = [canonical]) {
++		for (const entity of this.entities.values()) if (entity.roots.includes(canonical)) return entity;
+ 		const workspaceName = title ?? defaultWorkspaceTitle(canonical);
+ 		const table = this.requireTable();
+ 		const state = this.requireState();
+@@ -647,6 +840,7 @@ var WorkspaceRegistry = class extends Service {
+ 		const now = (/* @__PURE__ */ new Date()).toISOString();
+ 		const record = {
+ 			path: canonical,
++			roots,
+ 			title: workspaceName,
+ 			sessionIds: [],
+ 			createdAt: now,
+@@ -777,7 +971,7 @@ var WorkspaceRegistry = class extends Service {
+ 		const byPath = /* @__PURE__ */ new Map();
+ 		const accounted = /* @__PURE__ */ new Map();
+ 		for (const [id, record] of table.entries()) {
+-			byPath.set(record.path, id);
++			for (const root of recordRoots(record)) if (!byPath.has(root)) byPath.set(root, id);
+ 			for (const sessionId of record.sessionIds) accounted.set(sessionId, id);
+ 		}
+ 		for (const group of groups) {
+@@ -789,6 +983,7 @@ var WorkspaceRegistry = class extends Service {
+ 				const createdAt = new Date(group.newestAt).toISOString();
+ 				const record = {
+ 					path: group.path,
++					roots: [group.path],
+ 					title: defaultWorkspaceTitle(group.path),
+ 					sessionIds,
+ 					createdAt,
+@@ -845,9 +1040,13 @@ var WorkspaceRegistry = class extends Service {
+ 		const paths = /* @__PURE__ */ new Map();
+ 		const accounted = /* @__PURE__ */ new Map();
+ 		for (const [id, record] of table.entries()) {
+-			const pathHolder = paths.get(record.path);
+-			if (pathHolder !== void 0) throw new Error(`workspace domain is inconsistent: path '${record.path}' is claimed by both workspace '${pathHolder}' and workspace '${id}'`);
+-			paths.set(record.path, id);
++			const roots = recordRoots(record);
++			if (roots[0] !== record.path) throw new Error(`workspace domain is inconsistent: workspace '${id}' stores path '${record.path}' but its primary root is '${roots[0]}'`);
++			for (const root of roots) {
++				const holder = paths.get(root);
++				if (holder !== void 0) throw new Error(`workspace domain is inconsistent: root '${root}' is claimed by both workspace '${holder}' and workspace '${id}'`);
++				paths.set(root, id);
++			}
+ 			for (const sessionId of record.sessionIds) {
+ 				const holder = accounted.get(sessionId);
+ 				if (holder !== void 0) throw new Error(`workspace domain is inconsistent: session '${sessionId}' is accounted by both workspace '${holder}' and workspace '${id}'`);
+@@ -905,10 +1104,11 @@ var WorkspaceRegistry = class extends Service {
+ 	reportFilteredCandidates() {
+ 		for (const entity of this.entities.values()) {
+ 			const record = this.requireTable().get(entity.id);
+-			for (const sessionId of record.sessionIds) {
+-				if (this.host.candidateMatches(sessionId, record.path)) continue;
++			const roots = record === void 0 ? [entity.path] : recordRoots(record);
++			for (const sessionId of record?.sessionIds ?? []) {
++				if (this.host.candidateMatches(sessionId, roots)) continue;
+ 				const path = this.sessionPaths.get(sessionId);
+-				const reason = this.invalidSessionPaths.get(sessionId) ?? (this.headers.has(sessionId) ? `canonical cwd '${path}' differs from workspace path '${record.path}'` : "session header is missing");
++				const reason = this.invalidSessionPaths.get(sessionId) ?? (this.headers.has(sessionId) ? `canonical cwd '${path}' is none of the workspace roots [${roots.join(", ")}]` : "session header is missing");
+ 				this.ctx.logger.warn(`workspace '${entity.id}' filtered session '${sessionId}' from membership: ${reason}`);
+ 			}
+ 		}
+@@ -950,4 +1150,4 @@ var WorkspaceRegistry = class extends Service {
+ };
+ const sameSessionIds = (left, right) => left.length === right.length && left.every((id, index) => id === right[index]);
+ //#endregion
+-export { WorkspaceActiveSessionError, WorkspaceArchivedSessionPinError, WorkspaceId, WorkspaceMoveInvalidError, WorkspaceOrderInvalidError, WorkspaceRegistry, WorkspaceRegistry as default, WorkspaceUnknownSessionError, realpathNormalize, workspaceDomainSpec, workspaceDomainState, workspaceRecord };
++export { WorkspaceActiveSessionError, WorkspaceArchivedSessionPinError, WorkspaceId, WorkspaceMoveInvalidError, WorkspaceNotFoundError, WorkspaceOrderInvalidError, WorkspaceRegistry, WorkspaceRegistry as default, WorkspaceRootsInUseError, WorkspaceRootsInvalidError, WorkspaceUnknownSessionError, realpathNormalize, workspaceDomainSpec, workspaceDomainState, workspaceRecord };
+diff --git a/lib/types/entity.d.ts b/lib/types/entity.d.ts
+index 7ae3ce1..9e36e02 100644
+--- a/lib/types/entity.d.ts
++++ b/lib/types/entity.d.ts
+@@ -33,10 +33,10 @@ export interface WorkspaceEntityHost {
+      * Validate an already-accounted session, preserving ownership when its fully
+      * qualified cwd cannot resolve because a path component is missing.
+      * @param id - Session already present in this workspace's candidate account.
+-     * @param path - Workspace's stored canonical directory.
++     * @param roots - Workspace's canonical roots, primary first.
+      * @returns whether the candidate remains a member.
+      */
+-    candidateMatches(id: SessionId, path: string): boolean;
++    candidateMatches(id: SessionId, roots: readonly string[]): boolean;
+     /**
+      * Read one stored session header for attach validation.
+      * @param id - The session whose header to read.
+@@ -63,11 +63,30 @@ export declare class WorkspaceEntity implements Workspace {
+      */
+     constructor(host: WorkspaceEntityHost, id: WorkspaceId, record: WorkspaceRecord);
+     get path(): string;
++    get roots(): readonly string[];
+     get title(): string;
+     get createdAt(): string;
+     get updatedAt(): string;
+     get sessionIds(): readonly SessionId[];
+     setTitle(title: string): Promise<void>;
++    /**
++     * Replace this workspace's durable root set through the one write path, so
++     * `sessionIds` pruning and `updatedAt` stamping happen exactly once. The
++     * caller has already canonicalized and validated the roots.
++     *
++     * The non-empty invariant is asserted here too, not only in the registry:
++     * this method is reachable through the public `Workspace` interface, so a
++     * caller that skips the registry cannot write `path: undefined`.
++     *
++     * `guard` runs inside the domain write chain on the record current at that
++     * slot, so a rejection is decided against the same snapshot the write would
++     * commit.
++     * @param roots - Canonical roots, primary first, at least one entry.
++     * @param guard - Optional admission check run on the chain-current record.
++     * @returns resolution after durability.
++     * @throws {WorkspaceRootsInvalidError} when `roots` is empty.
++     */
++    setRoots(roots: readonly string[], guard?: (record: WorkspaceRecord) => void): Promise<void>;
+     attachSession(sessionId: SessionId): Promise<void>;
+     insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void>;
+     detachSession(sessionId: SessionId): Promise<void>;
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 7da153b..db5447d 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -63,6 +63,39 @@ export declare class WorkspaceOrderInvalidError extends Error {
+      */
+     constructor(workspaceId: WorkspaceId);
+ }
++/** A setRoots request named a root set that cannot back a workspace. */
++export declare class WorkspaceRootsInvalidError extends Error {
++    readonly workspaceId: WorkspaceId | undefined;
++    /**
++     * @param workspaceId - Workspace whose root set was refused, when it is known.
++     * @param message - Which root failed and why.
++     */
++    constructor(workspaceId: WorkspaceId | undefined, message: string, options?: ErrorOptions);
++}
++/**
++ * A setRoots request would drop roots that accounted sessions still work in.
++ * Nothing was written: a session's cwd is immutable, so dropping its root would
++ * leave that session outside every root the workspace declares.
++ */
++export declare class WorkspaceRootsInUseError extends Error {
++    readonly workspaceId: WorkspaceId;
++    readonly roots: readonly string[];
++    readonly sessionIds: readonly SessionId[];
++    /**
++     * @param workspaceId - Workspace whose root set was refused.
++     * @param roots - The roots that would have been dropped.
++     * @param sessionIds - Accounted sessions whose canonical cwd is one of them.
++     */
++    constructor(workspaceId: WorkspaceId, roots: readonly string[], sessionIds: readonly SessionId[]);
++}
++/** A setRoots request named a workspace the registry does not hold. */
++export declare class WorkspaceNotFoundError extends Error {
++    readonly workspaceId: WorkspaceId;
++    /**
++     * @param workspaceId - Unknown workspace id.
++     */
++    constructor(workspaceId: WorkspaceId);
++}
+ /** The session an archive request is about to write into the archive set. */
+ export interface SessionActivityRequest {
+     readonly sessionId: SessionId;
+@@ -133,17 +166,43 @@ export declare class WorkspaceRegistry extends Service {
+     /** Open the domain, finish bootstrap when required, and rebuild the ordered cache. */
+     protected [Service.init](): Promise<void>;
+     /**
+-     * Create or reuse a workspace for an existing directory. The fully qualified
+-     * path is canonicalized through `fs.realpath`; a relative, nonexistent, or
+-     * non-directory path rejects. Repeated calls for the same canonical path
+-     * return the existing entity without changing its title.
++     * Create or reuse a workspace over one existing directory or a set of them.
++     * Every fully qualified path is canonicalized through `fs.realpath`; a
++     * relative, nonexistent, or non-directory path rejects. Repeated calls for
++     * the same primary canonical path return the existing entity without
++     * changing its title or its roots.
+      * A newly created workspace is prepended to the durable registry order.
+      * Different canonical paths may share a display title.
+-     * @param path - Existing directory to own, in a fully qualified path spelling.
++     * @param path - Existing directory to own, in a fully qualified path spelling;
++     * the primary root, and the working directory of sessions created for it.
+      * @param title - Display title used only when a new record is created.
++     * @param roots - Additional existing directories to own beside `path`, in
++     * fully qualified spelling. Omitted owns `path` alone; the primary root stays
++     * `path` whatever this list holds.
+      * @returns the existing or newly durable workspace.
+      */
+-    create(path: string, title?: string): Promise<Workspace>;
++    create(path: string, title?: string, roots?: readonly string[]): Promise<Workspace>;
++    /**
++     * Replace one workspace's root set durably. Roots keep the caller's order and
++     * `roots[0]` becomes the primary root — the working directory of sessions
++     * created for the workspace afterwards — so a reorder is a primary-root
++     * switch. Every path is canonicalized, must exist as a directory, and must be
++     * owned by no other workspace. A root still named by an accounted session's
++     * canonical cwd is refused with {@link WorkspaceRootsInUseError}.
++     *
++     * Known boundary (deliberate, not an invariant): a session whose cwd cannot
++     * currently resolve is tracked as a missing-session path, not as a holder of
++     * its root, so that root can still be dropped. The account is pruned at the
++     * next mutation like any other missing-directory candidate; no "session cwd
++     * outside every root" state persists.
++     * @param id - Workspace whose roots change.
++     * @param paths - Replacement roots, primary first; at least one entry.
++     * @returns the updated workspace.
++     * @throws {WorkspaceNotFoundError} when the registry holds no such workspace.
++     * @throws {WorkspaceRootsInvalidError} when `paths` is empty or a root cannot back a workspace.
++     * @throws {WorkspaceRootsInUseError} when a dropped root still holds accounted sessions.
++     */
++    setRoots(id: WorkspaceId, paths: readonly string[]): Promise<Workspace>;
+     /**
+      * Initialize the default Workspace only while both the registry and Session
+      * history are empty. Repeated requests reuse its durable identity; deleting
+@@ -258,9 +317,11 @@ export declare class WorkspaceRegistry extends Service {
+     /**
+      * Resolve by canonical directory path without creating or mutating a
+      * workspace. A missing path rejects during `realpath`; an existing unowned
+-     * directory returns `undefined`.
++     * directory returns `undefined`. Any root of a workspace matches, not only
++     * its primary root.
+      * @param path - Existing directory path in a fully qualified spelling.
+-     * @returns the workspace owning the canonical path, when one exists.
++     * @returns the workspace owning the canonical path as one of its roots, when
++     * one exists.
+      */
+     resolveByPath(path: string): Promise<Workspace | undefined>;
+     private createCanonical;
+diff --git a/lib/types/spec.d.ts b/lib/types/spec.d.ts
+index e7fb38e..08908a4 100644
+--- a/lib/types/spec.d.ts
++++ b/lib/types/spec.d.ts
+@@ -8,12 +8,16 @@ import { z } from 'zod';
+ import type { SessionId } from '@deepseek-ai/dsh-session';
+ import type { WorkspaceId } from './types.ts';
+ /**
+- * Durable shape of one workspace record. `path` is the `fs.realpath` canon
+- * stamped at create; `sessionIds` is the ordered ownership account (array
+- * order is display order); timestamps are ISO-8601 strings.
++ * Durable shape of one workspace record. `path` is the `fs.realpath` canon of
++ * the primary root stamped at create and kept as the read projection of
++ * `roots[0]`; `roots` is the canonical directories this workspace owns, primary
++ * root first, and stays optional so records written before multi-root parse
++ * unchanged; `sessionIds` is the ordered ownership account (array order is
++ * display order); timestamps are ISO-8601 strings.
+  */
+ export declare const workspaceRecord: z.ZodObject<{
+     path: z.ZodString;
++    roots: z.ZodOptional<z.ZodArray<z.ZodString>>;
+     title: z.ZodString;
+     sessionIds: z.ZodArray<z.ZodPipe<z.ZodString, z.ZodTransform<SessionId, string>>>;
+     createdAt: z.ZodString;
+@@ -83,6 +87,7 @@ export declare const workspaceDomainSpec: {
+     tables: {
+         workspaces: import("@deepseek-ai/dsh-storage-domain").DomainTableSpec<WorkspaceId, {
+             path: string;
++            roots?: string[];
+             title: string;
+             sessionIds: SessionId[];
+             createdAt: string;
+diff --git a/lib/types/types.d.ts b/lib/types/types.d.ts
+index 854791a..6c62433 100644
+--- a/lib/types/types.d.ts
++++ b/lib/types/types.d.ts
+@@ -64,11 +64,19 @@ export interface Workspace {
+     /** Stable record id (generated uuid). */
+     readonly id: WorkspaceId;
+     /**
+-     * Canonical directory path: the `fs.realpath` of the path given at create
+-     * time (trailing slashes, `..`, and symlinks all resolved). Never rewritten
+-     * afterwards, even when the directory disappears (see {@link status}).
++     * Canonical primary directory path — the read projection of `roots[0]`.
++     * The `fs.realpath` of the path given at create time (trailing slashes,
++     * `..`, and symlinks all resolved). Rewritten only by a root-set change
++     * that promotes another root; never rewritten because a directory
++     * disappears (see {@link status}).
+      */
+     readonly path: string;
++    /**
++     * Canonical directories this workspace owns, primary root first, never
++     * empty. `roots[0]` is the working directory of sessions created for the
++     * workspace afterwards, so reordering roots switches the primary root.
++     */
++    readonly roots: readonly string[];
+     /** Display title. Defaults to the final path segment, or a filesystem root's own spelling; duplicates are allowed. */
+     readonly title: string;
+     /** ISO-8601 creation instant, stamped at create and never rewritten. */
+@@ -98,9 +106,9 @@ export interface Workspace {
+      * accounted id resolves without writing, aside from the durable
+      * filtered-candidate prune every accepted mutation performs. A new id's
+      * live or persisted
+-     * header cwd must resolve to an existing directory equal to {@link path};
+-     * unknown ids, missing or invalid cwd values, and mismatches reject without
+-     * writing.
++     * header cwd must resolve to an existing directory equal to one of
++     * {@link roots}; unknown ids, missing or invalid cwd values, and mismatches
++     * reject without writing.
+      * @param sessionId - The session to record.
+      * @returns resolution after durability.
+      */
+@@ -128,10 +136,29 @@ export interface Workspace {
+      */
+     detachSession(sessionId: SessionId): Promise<void>;
+     /**
+-     * Live directory check, uncached: whether {@link path} currently exists and
+-     * is a directory. A missing directory never mutates the record — the
+-     * directory may only be temporarily moved.
+-     * @returns `'ok'` when the directory exists, `'missing-dir'` otherwise.
++     * Replace this workspace's canonical root set durably. Roots keep the
++     * caller's order and `roots[0]` becomes the primary root — the working
++     * directory of sessions created afterwards — so a reorder is a primary-root
++     * switch. Callers go through the registry's validated `setRoots`; the entity
++     * only records an already canonicalized set. `roots` must not be empty.
++     *
++     * Known boundary (deliberate, not an invariant): the registry refuses to
++     * drop a root that an accounted session's canonical cwd still names, but a
++     * session whose cwd currently cannot resolve — a temporarily missing
++     * directory, which the registry tracks as a missing-session path — is not
++     * counted as holding a root. Dropping that root is therefore allowed, and
++     * the account is pruned at the next mutation, exactly as any other
++     * missing-directory candidate is. No "session cwd outside every root"
++     * state can persist from this.
++     * @param roots - Canonical roots, primary first, at least one entry.
++     * @returns resolution after durability.
++     */
++    setRoots(roots: readonly string[]): Promise<void>;
++    /**
++     * Live directory check, uncached: whether any of {@link roots} currently
++     * exists and is a directory. A missing directory never mutates the record —
++     * the directory may only be temporarily moved.
++     * @returns `'ok'` when at least one root directory exists, `'missing-dir'` otherwise.
+      */
+     status(): Promise<'ok' | 'missing-dir'>;
+ }

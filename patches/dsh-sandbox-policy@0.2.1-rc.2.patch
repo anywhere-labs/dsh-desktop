@@ -1,0 +1,153 @@
+diff --git a/lib/index.js b/lib/index.js
+index 38b7b6c..98878c6 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,3 +1,4 @@
++import { realpathSync } from "node:fs";
+ import { isAbsolute } from "node:path";
+ import { Service } from "@deepseek-ai/cordis";
+ import { z } from "zod";
+@@ -72,7 +73,13 @@ function resolveWorkspaceRoot(path) {
+ function renderPolicyContext(policy) {
+ 	switch (policy.mode) {
+ 		case "read-only": return "Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.";
+-		case "workspace-write": return `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(policy.workspaceRoot)}. Some platform temporary areas may also be writable.`;
++		case "workspace-write": {
++			// DSH Desktop: a Workspace may own several directories, so the context
++			// names every writable root instead of the primary one alone.
++			const roots = policy.workspaceRoots?.length ? policy.workspaceRoots : [policy.workspaceRoot];
++			const subject = roots.length === 1 ? "the session workspace" : "the session workspace's directories";
++			return `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under ${subject}: ${roots.map((root) => JSON.stringify(root)).join(", ")}. Some platform temporary areas may also be writable.`;
++		}
+ 		case "danger-full-access": return "Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.";
+ 		/* v8 ignore next 4 -- SandboxMode is a typed same-process closed union; this branch is only the static exhaustiveness guard. */
+ 		default: {
+@@ -103,6 +110,11 @@ var SandboxPolicyService = class extends Service {
+ 		workspaceRoot: z$1.string()
+ 	});
+ 	static inject = ["sessionProjections"];
++	// DSH Desktop: the Workspace registry stays a SOFT dependency read through
++	// `ctx.get("workspaceRegistry")` (see `workspaceRegistryOf`), not a declared
++	// inject entry, so a composition that does not mount it — or a runtime whose
++	// `dsh-workspace` build predates multi-root records — still resolves the
++	// single-root policy this service has always produced.
+ 	/** The deployment default mode — the fallback beneath a session override. */
+ 	defaultMode;
+ 	/** The absolute `workspace-write` fallback root for calls without a session cwd. */
+@@ -132,21 +144,68 @@ var SandboxPolicyService = class extends Service {
+ 	/**
+ 	* Resolve the complete policy for one capability call. An approved explicit
+ 	* mode outranks the session's last `sandbox/mode` event, which outranks the
+-	* deployment default. A session cwd is its workspace-write boundary; the
+-	* configured root is the fallback for agentless calls and sessions without a
+-	* cwd.
++	* deployment default. The workspace-write boundary is the calling session's
++	* Workspace root SET; the configured root is the fallback for agentless calls
++	* and sessions without a cwd.
++	*
++	* DSH Desktop: a Workspace may own several directories. The root set is
++	* resolved from the session's cwd by looking the canonical directory up in
++	* the Workspace registry — never by treating the session cwd as the only
++	* root, because a session may have `cd`-ed into a secondary root (the
++	* working-directory service moves the current directory without moving the
++	* grant), which would then silently drop the primary root. `workspaceRoot`
++	* stays `workspaceRoots[0]` so every backend that still reads the single
++	* field keeps its exact previous behavior.
+ 	* @param request - optional session and approved mode override.
+-	* @returns the fully resolved per-call mode and absolute workspace root.
++	* @returns the fully resolved per-call mode, workspace root, and root set.
+ 	*/
+ 	resolve(request = {}) {
+ 		const { session } = request;
++		const workspaceRoots = this.workspaceRootsOf(session);
+ 		return {
+ 			mode: request.mode ?? (session === void 0 ? void 0 : this.overrideOf(session)) ?? this.defaultMode,
+-			workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
++			workspaceRoot: workspaceRoots[0],
++			workspaceRoots,
+ 			...session === void 0 ? {} : { sessionId: session.id }
+ 		};
+ 	}
+ 	/**
++	* The workspace-write root set for one session, in the Workspace's own order.
++	* Defensive on purpose: an unowned cwd, an unmounted registry, a registry
++	* whose records carry no `roots` yet, or any thrown lookup all degrade to the
++	* single root this service would have resolved before multi-root — never to
++	* an empty set, which would make `workspace-write` unwritable, and never to a
++	* throw, which would crash a composition that did not opt in.
++	* @param session - the calling session, when the call has one.
++	* @returns at least one absolute root; the first entry is the primary root.
++	*/
++	workspaceRootsOf(session) {
++		const fallback = resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot);
++		if (session?.header.cwd === void 0) return [fallback];
++		let workspace;
++		try {
++			const canonical = realpathSync.native(fallback);
++			workspace = this.workspaceRegistryOf()?.list().find((entity) => entity.path === canonical || entity.roots?.includes(canonical));
++		} catch {
++			return [fallback];
++		}
++		const roots = workspace?.roots;
++		if (!Array.isArray(roots)) return [fallback];
++		const absolute = [];
++		for (const root of roots) {
++			if (typeof root !== "string" || !isAbsolute(root)) continue;
++			if (!absolute.includes(root)) absolute.push(root);
++		}
++		if (absolute.length === 0) return [fallback];
++		if (!absolute.includes(fallback)) absolute.unshift(fallback);
++		return absolute;
++	}
++	/** The Workspace registry when this composition mounts one (a soft dependency). */
++	workspaceRegistryOf() {
++		const registry = this.ctx.get("workspaceRegistry");
++		return registry === void 0 || typeof registry.list !== "function" ? void 0 : registry;
++	}
++	/**
+ 	* Read the session override without applying the deployment default.
+ 	* @param session - session whose log supplies the override.
+ 	* @returns the last logged mode, or `undefined` without one.
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index d948701..9047f41 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -42,7 +42,7 @@ export interface Config {
+     mode?: SandboxMode;
+     /**
+      * Absolute fallback root for agentless calls and sessions without a cwd (default:
+-     * `process.cwd()`). Normal agent calls use their session cwd instead.
++     * `process.cwd()`). Normal agent calls use their session's Workspace roots instead.
+      */
+     workspaceRoot?: string;
+ }
+@@ -79,13 +79,25 @@ export declare class SandboxPolicyService extends Service {
+     /**
+      * Resolve the complete policy for one capability call. An approved explicit
+      * mode outranks the session's last `sandbox/mode` event, which outranks the
+-     * deployment default. A session cwd is its workspace-write boundary; the
+-     * configured root is the fallback for agentless calls and sessions without a
+-     * cwd.
++     * deployment default. The workspace-write boundary is the calling session's
++     * Workspace root set (`workspaceRoots`, whose first entry is the primary
++     * `workspaceRoot`); the configured root is the fallback for agentless calls
++     * and sessions without a cwd.
+      * @param request - optional session and approved mode override.
+-     * @returns the fully resolved per-call mode and absolute workspace root.
++     * @returns the fully resolved per-call mode, absolute workspace root, and root set.
+      */
+     resolve(request?: SandboxPolicyRequest): SandboxExecutionPolicy;
++    /**
++     * The workspace-write root set for one session, in the Workspace's order.
++     * Falls back to the single root this service would resolve without
++     * multi-root support whenever the cwd belongs to no Workspace, the registry
++     * is not mounted, or its records carry no `roots` yet.
++     * @param session - the calling session, when the call has one.
++     * @returns at least one absolute root; the first entry is the primary root.
++     */
++    private workspaceRootsOf;
++    /** The Workspace registry when this composition mounts one (a soft dependency). */
++    private workspaceRegistryOf;
+     /**
+      * Read the session override without applying the deployment default.
+      * @param session - session whose log supplies the override.

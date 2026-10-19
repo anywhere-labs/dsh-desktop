@@ -1,0 +1,73 @@
+diff --git a/lib/index.js b/lib/index.js
+index ffca630..b34841d 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -157,16 +157,25 @@ function canonicalPath(path) {
+ /**
+ * The roots one confined execution may WRITE under — the mode's meaning as a
+ * canonical, deduplicated allow-list. `read-only` allows nothing;
+-* `workspace-write` allows the policy's workspace root, the host `/tmp`, and
++* `workspace-write` allows the policy's workspace roots, the host `/tmp`, and
+ * the per-user platform temp dir (`os.tmpdir()` — the real temp area for
+ * mkstemp-family tools; omitting it would deny what the mode promises).
++*
++* DSH Desktop: one Workspace may own several directories, so the policy may
++* carry `workspaceRoots` beside the primary `workspaceRoot`. A present,
++* non-empty `workspaceRoots` is the workspace part of the allow-list; a
++* policy without it derives exactly what it always did, because the primary
++* root is `workspaceRoots[0]` by contract. Order and deduplication are
++* unchanged: workspace roots first, then `/tmp`, then `tmpdir()`, canonical
++* and deduplicated.
+ * @param policy - the file-effect policy to derive the allow-list from.
+ * @returns the canonical writable roots; empty exactly under `read-only`.
+ */
+ function writableRoots(policy) {
+ 	if (policy.mode !== "workspace-write") return [];
++	const workspaceRoots = policy.workspaceRoots?.length ? policy.workspaceRoots : [policy.workspaceRoot];
+ 	return [...new Set([
+-		policy.workspaceRoot,
++		...workspaceRoots,
+ 		"/tmp",
+ 		tmpdir()
+ 	].map(canonicalPath))];
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 02a6c21..80e0730 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -27,8 +27,16 @@ export type ConfinedSandboxMode = Exclude<SandboxMode, 'danger-full-access'>;
+ export interface SandboxExecutionPolicy {
+     /** The file-effect mode this execution runs under. */
+     mode: SandboxMode;
+-    /** Absolute root directory `workspace-write` may write under. */
++    /** Absolute root directory `workspace-write` may write under; always `workspaceRoots[0]`. */
+     workspaceRoot: string;
++    /**
++     * Every absolute root directory `workspace-write` may write under, in the
++     * Workspace's own order. A Workspace may own several directories, so this
++     * carries the complete set while {@link workspaceRoot} stays the primary
++     * root for consumers that still model one (the compatibility read
++     * projection). Omitted or empty means "only `workspaceRoot`".
++     */
++    workspaceRoots?: readonly string[];
+     /**
+      * Opaque identity of the calling session (the branded `dsh-session`
+      * SessionId). Backends key per-session state off it (e.g. windows-acl gives
+diff --git a/lib/types/roots.d.ts b/lib/types/roots.d.ts
+index 278628f..5b9f32e 100644
+--- a/lib/types/roots.d.ts
++++ b/lib/types/roots.d.ts
+@@ -27,9 +27,11 @@ export declare function canonicalPath(path: string): string;
+ /**
+  * The roots one confined execution may WRITE under — the mode's meaning as a
+  * canonical, deduplicated allow-list. `read-only` allows nothing;
+- * `workspace-write` allows the policy's workspace root, the host `/tmp`, and
+- * the per-user platform temp dir (`os.tmpdir()` — the real temp area for
+- * mkstemp-family tools; omitting it would deny what the mode promises).
++ * `workspace-write` allows every root the policy names (`workspaceRoots`, or
++ * the single `workspaceRoot` when that set is absent or empty), the host
++ * `/tmp`, and the per-user platform temp dir (`os.tmpdir()` — the real temp
++ * area for mkstemp-family tools; omitting it would deny what the mode
++ * promises).
+  * @param policy - the file-effect policy to derive the allow-list from.
+  * @returns the canonical writable roots; empty exactly under `read-only`.
+  */

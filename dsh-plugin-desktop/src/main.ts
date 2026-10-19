@@ -484,11 +484,11 @@ async function start(): Promise<void> {
   // with it, so keep it for the Host exit record.
   let lastChildProcessGone: string | undefined
   let fileExporter: FileExporter | undefined
-  // A folder named by this launch waits here until the Host page is mounted.
+  // Folders named by this launch wait here until the Host page is mounted.
   // No background-Node guard applies to the first instance: a development run
   // legitimately looks like one, and a first instance is by definition a real
   // launch rather than a descendant command re-entering the executable.
-  let pendingLaunchWorkspacePath = desktopLaunchWorkspaceRequest(process.argv)?.path
+  let pendingLaunchWorkspacePaths = desktopLaunchWorkspaceRequest(process.argv)?.paths
   let launchWorkspaceReady = false
   let runtime!: ElectronDesktopRuntime
   let logSink: LogFileSink | undefined
@@ -711,13 +711,30 @@ async function start(): Promise<void> {
     }
     return false
   }
-  /** Apply native policy to one launch folder and hand it to the Host page. */
-  const openLaunchWorkspace = async (path: string): Promise<void> => {
+  /** Apply native policy to every launch folder, then hand them to the Host page as one workspace. */
+  const openLaunchWorkspace = async (paths: readonly string[]): Promise<void> => {
     try {
-      if (!await runtime.admitWorkspacePath(path)) return
-      const delivery = await runtime.openWorkspacePath(path)
+      const admitted: string[] = []
+      for (const path of paths) {
+        if (await runtime.admitWorkspacePath(path)) admitted.push(path)
+      }
+      const primary = admitted[0]
+      if (primary === undefined) {
+        if (paths.length > 0) {
+          electronLogger.error(`${BIN_NAME}: no launch workspace folder passed native policy: ${paths.join(', ')}`)
+        }
+        return
+      }
+      // An extra root refused by native policy must not cost the user the whole
+      // launch, so the hand-off continues with the primary root and reports the
+      // dropped folders instead of opening nothing.
+      if (admitted.length < paths.length) {
+        const refused = paths.filter(path => !admitted.includes(path))
+        electronLogger.error(`${BIN_NAME}: launch workspace folders refused by native policy: ${refused.join(', ')}`)
+      }
+      const delivery = await runtime.openWorkspacePath(admitted)
       if (delivery === 'unavailable') {
-        electronLogger.error(`${BIN_NAME}: no renderer could accept the launch workspace: ${path}`)
+        electronLogger.error(`${BIN_NAME}: no renderer could accept the launch workspace: ${admitted.join(', ')}`)
       }
     } catch (cause) {
       electronLogger.error(
@@ -726,14 +743,14 @@ async function start(): Promise<void> {
     }
   }
 
-  /** Take one launch folder, deferring it until the Host page can accept it. */
+  /** Take one launch hand-off, deferring it until the Host page can accept it. */
   const acceptLaunchWorkspace = (request: DesktopLaunchWorkspaceRequest | undefined): void => {
-    if (request === undefined) return
+    if (request === undefined || request.paths.length === 0) return
     if (!launchWorkspaceReady) {
-      pendingLaunchWorkspacePath = request.path
+      pendingLaunchWorkspacePaths = [...request.paths]
       return
     }
-    void openLaunchWorkspace(request.path)
+    void openLaunchWorkspace(request.paths)
   }
 
   app.on('activate', () => { showPreHostSurface() })
@@ -1929,9 +1946,9 @@ async function start(): Promise<void> {
     // hand-off is released here rather than beside the mount: a startup that
     // ended in the recovery route must not also try to open a folder.
     launchWorkspaceReady = true
-    const requestedWorkspacePath = pendingLaunchWorkspacePath
-    pendingLaunchWorkspacePath = undefined
-    if (requestedWorkspacePath !== undefined) void openLaunchWorkspace(requestedWorkspacePath)
+    const requestedWorkspacePaths = pendingLaunchWorkspacePaths
+    pendingLaunchWorkspacePaths = undefined
+    if (requestedWorkspacePaths !== undefined) void openLaunchWorkspace(requestedWorkspacePaths)
     notifySkippedOptionalEntries(runtime, electronLogger, prepared.skippedOptionalEntries)
     notifyWindowsVolumeConcerns(runtime, electronLogger, windowsVolumeConcerns)
     if (safeModePaths !== undefined && DESKTOP_SAFE_MODE_DEFAULTS.settings.notifications.enabled) {

@@ -1,0 +1,311 @@
+diff --git a/lib/client.js b/lib/client.js
+index 82b457d..adf8bf6 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -20710,12 +20710,13 @@ window.__ModuleLoader__.load({
+ 		let _deepseek_ai_dsh_api_workspace_controller_workspace_archiveSession_result$schema$value;
+ 		const _deepseek_ai_dsh_api_workspace_controller_workspace_archiveSession_result$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_archiveSession_result$schema$value ??= zod.z.object({ "archivedSessionIds": zod.z.array(zod.z.string()).readonly() });
+ 		let _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema$value;
+-		const _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema$value ??= zod.z.object({ "path": zod.z.string().readonly() });
++		const _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema$value ??= zod.z.object({ "path": zod.z.string().readonly().optional().describe("Primary root; omitted derives it from roots[0]."), "roots": zod.z.array(zod.z.string()).readonly().optional().describe("Complete root set; the first entry is the primary root.") });
+ 		let _deepseek_ai_dsh_api_workspace_controller_workspace_create_result$schema$value;
+ 		const _deepseek_ai_dsh_api_workspace_controller_workspace_create_result$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_create_result$schema$value ??= zod.z.object({
+ 			"workspace": zod.z.object({
+ 				"workspaceId": zod.z.string().readonly(),
+-				"path": zod.z.string().readonly().describe("Canonical host directory path."),
++				"path": zod.z.string().readonly().describe("Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."),
++				"roots": zod.z.array(zod.z.string()).readonly().describe("Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."),
+ 				"title": zod.z.string().readonly().describe("User-visible title."),
+ 				"sessionIds": zod.z.array(zod.z.string()).readonly().describe("Sessions accounted to this Workspace in manual order."),
+ 				"createdAt": zod.z.string().readonly().describe("ISO-8601 creation instant."),
+@@ -20734,7 +20735,8 @@ window.__ModuleLoader__.load({
+ 				"value": zod.z.object({
+ 					"items": zod.z.array(zod.z.object({
+ 						"workspaceId": zod.z.string().readonly(),
+-						"path": zod.z.string().readonly().describe("Canonical host directory path."),
++						"path": zod.z.string().readonly().describe("Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."),
++						"roots": zod.z.array(zod.z.string()).readonly().describe("Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."),
+ 						"title": zod.z.string().readonly().describe("User-visible title."),
+ 						"sessionIds": zod.z.array(zod.z.string()).readonly().describe("Sessions accounted to this Workspace in manual order."),
+ 						"createdAt": zod.z.string().readonly().describe("ISO-8601 creation instant."),
+@@ -20749,7 +20751,8 @@ window.__ModuleLoader__.load({
+ 				"value": zod.z.object({
+ 					"items": zod.z.array(zod.z.object({
+ 						"workspaceId": zod.z.string().readonly(),
+-						"path": zod.z.string().readonly().describe("Canonical host directory path."),
++						"path": zod.z.string().readonly().describe("Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."),
++						"roots": zod.z.array(zod.z.string()).readonly().describe("Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."),
+ 						"title": zod.z.string().readonly().describe("User-visible title."),
+ 						"sessionIds": zod.z.array(zod.z.string()).readonly().describe("Sessions accounted to this Workspace in manual order."),
+ 						"createdAt": zod.z.string().readonly().describe("ISO-8601 creation instant."),
+@@ -20763,7 +20766,8 @@ window.__ModuleLoader__.load({
+ 				"type": zod.z.literal("upsert").readonly(),
+ 				"workspace": zod.z.object({
+ 					"workspaceId": zod.z.string().readonly(),
+-					"path": zod.z.string().readonly().describe("Canonical host directory path."),
++					"path": zod.z.string().readonly().describe("Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."),
++					"roots": zod.z.array(zod.z.string()).readonly().describe("Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."),
+ 					"title": zod.z.string().readonly().describe("User-visible title."),
+ 					"sessionIds": zod.z.array(zod.z.string()).readonly().describe("Sessions accounted to this Workspace in manual order."),
+ 					"createdAt": zod.z.string().readonly().describe("ISO-8601 creation instant."),
+@@ -20790,7 +20794,8 @@ window.__ModuleLoader__.load({
+ 		let _deepseek_ai_dsh_api_workspace_controller_workspace_initializeDefault_result$schema$value;
+ 		const _deepseek_ai_dsh_api_workspace_controller_workspace_initializeDefault_result$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_initializeDefault_result$schema$value ??= zod.z.union([zod.z.undefined(), zod.z.object({ "workspace": zod.z.object({
+ 			"workspaceId": zod.z.string().readonly(),
+-			"path": zod.z.string().readonly().describe("Canonical host directory path."),
++			"path": zod.z.string().readonly().describe("Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."),
++			"roots": zod.z.array(zod.z.string()).readonly().describe("Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."),
+ 			"title": zod.z.string().readonly().describe("User-visible title."),
+ 			"sessionIds": zod.z.array(zod.z.string()).readonly().describe("Sessions accounted to this Workspace in manual order."),
+ 			"createdAt": zod.z.string().readonly().describe("ISO-8601 creation instant."),
+@@ -20812,7 +20817,8 @@ window.__ModuleLoader__.load({
+ 		let _deepseek_ai_dsh_api_workspace_controller_workspace_insertSessionBefore_result$schema$value;
+ 		const _deepseek_ai_dsh_api_workspace_controller_workspace_insertSessionBefore_result$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_insertSessionBefore_result$schema$value ??= zod.z.object({ "workspace": zod.z.object({
+ 			"workspaceId": zod.z.string().readonly(),
+-			"path": zod.z.string().readonly().describe("Canonical host directory path."),
++			"path": zod.z.string().readonly().describe("Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."),
++			"roots": zod.z.array(zod.z.string()).readonly().describe("Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."),
+ 			"title": zod.z.string().readonly().describe("User-visible title."),
+ 			"sessionIds": zod.z.array(zod.z.string()).readonly().describe("Sessions accounted to this Workspace in manual order."),
+ 			"createdAt": zod.z.string().readonly().describe("ISO-8601 creation instant."),
+@@ -20830,7 +20836,23 @@ window.__ModuleLoader__.load({
+ 		let _deepseek_ai_dsh_api_workspace_controller_workspace_rename_result$schema$value;
+ 		const _deepseek_ai_dsh_api_workspace_controller_workspace_rename_result$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_rename_result$schema$value ??= zod.z.object({ "workspace": zod.z.object({
+ 			"workspaceId": zod.z.string().readonly(),
+-			"path": zod.z.string().readonly().describe("Canonical host directory path."),
++			"path": zod.z.string().readonly().describe("Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."),
++			"roots": zod.z.array(zod.z.string()).readonly().describe("Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."),
++			"title": zod.z.string().readonly().describe("User-visible title."),
++			"sessionIds": zod.z.array(zod.z.string()).readonly().describe("Sessions accounted to this Workspace in manual order."),
++			"createdAt": zod.z.string().readonly().describe("ISO-8601 creation instant."),
++			"updatedAt": zod.z.string().readonly().describe("ISO-8601 last-mutation instant.")
++		}).readonly() });
++		let _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0$schema$value;
++		const _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0$schema$value ??= zod.z.object({
++			"workspaceId": zod.z.string().readonly(),
++			"roots": zod.z.array(zod.z.string()).readonly().describe("Replacement canonical roots, primary root first: roots[0] becomes the primary root and the working directory of Sessions created afterwards.")
++		});
++		let _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_result$schema$value;
++		const _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_result$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_result$schema$value ??= zod.z.object({ "workspace": zod.z.object({
++			"workspaceId": zod.z.string().readonly(),
++			"path": zod.z.string().readonly().describe("Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."),
++			"roots": zod.z.array(zod.z.string()).readonly().describe("Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."),
+ 			"title": zod.z.string().readonly().describe("User-visible title."),
+ 			"sessionIds": zod.z.array(zod.z.string()).readonly().describe("Sessions accounted to this Workspace in manual order."),
+ 			"createdAt": zod.z.string().readonly().describe("ISO-8601 creation instant."),
+@@ -20856,7 +20878,7 @@ window.__ModuleLoader__.load({
+ 			"stopActivity": zod.z.boolean().readonly().optional().describe("Stop the Session's running work — its turn, subagent descendants, owned background jobs, and active schedules — instead of refusing the archive as `workspace/session-active`. The stops are requested before the archive write and are not awaited; the response arrives once the archive set is durable.")
+ 		});
+ 		let _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema$value;
+-		const _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema$value ??= zod.z.strictObject({ "path": zod.z.string().readonly() });
++		const _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema$value ??= zod.z.strictObject({ "path": zod.z.string().readonly().optional().describe("Primary root; omitted derives it from roots[0]."), "roots": zod.z.array(zod.z.string()).readonly().optional().describe("Complete root set; the first entry is the primary root.") });
+ 		let _deepseek_ai_dsh_api_workspace_controller_workspace_delete_parameter_0_strict$schema$value;
+ 		const _deepseek_ai_dsh_api_workspace_controller_workspace_delete_parameter_0_strict$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_delete_parameter_0_strict$schema$value ??= zod.z.strictObject({ "workspaceId": zod.z.string().readonly() });
+ 		let _deepseek_ai_dsh_api_workspace_controller_workspace_insertBefore_parameter_0_strict$schema$value;
+@@ -20877,6 +20899,11 @@ window.__ModuleLoader__.load({
+ 			"workspaceId": zod.z.string().readonly(),
+ 			"title": zod.z.string().readonly()
+ 		});
++		let _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0_strict$schema$value;
++		const _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0_strict$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0_strict$schema$value ??= zod.z.strictObject({
++			"workspaceId": zod.z.string().readonly(),
++			"roots": zod.z.array(zod.z.string()).readonly().describe("Replacement canonical roots, primary root first: roots[0] becomes the primary root and the working directory of Sessions created afterwards.")
++		});
+ 		let _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_parameter_0_strict$schema$value;
+ 		const _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_parameter_0_strict$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_parameter_0_strict$schema$value ??= zod.z.strictObject({ "sessionId": zod.z.string().readonly() });
+ 		let _deepseek_ai_dsh_api_workspace_controller_workspace_unpinSession_parameter_0_strict$schema$value;
+@@ -21148,8 +21175,7 @@ window.__ModuleLoader__.load({
+ 							create: _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema,
+ 							jsonSchema: {
+ 								"type": "object",
+-								"properties": { "path": { "type": "string" } },
+-								"required": ["path"],
++								"properties": { "path": { "type": "string", "description": "Primary root; omitted derives it from roots[0]." }, "roots": { "type": "array", "items": { "type": "string" }, "description": "Complete root set; the first entry is the primary root." } },
+ 								"additionalProperties": true
+ 							}
+ 						},
+@@ -21159,8 +21185,7 @@ window.__ModuleLoader__.load({
+ 							create: _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema,
+ 							jsonSchema: {
+ 								"type": "object",
+-								"properties": { "path": { "type": "string" } },
+-								"required": ["path"],
++								"properties": { "path": { "type": "string", "description": "Primary root; omitted derives it from roots[0]." }, "roots": { "type": "array", "items": { "type": "string" }, "description": "Complete root set; the first entry is the primary root." } },
+ 								"additionalProperties": false
+ 							}
+ 						}
+@@ -21179,7 +21204,12 @@ window.__ModuleLoader__.load({
+ 										"workspaceId": { "type": "string" },
+ 										"path": {
+ 											"type": "string",
+-											"description": "Canonical host directory path."
++											"description": "Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."
++										},
++										"roots": {
++											"type": "array",
++											"items": { "type": "string" },
++											"description": "Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."
+ 										},
+ 										"title": {
+ 											"type": "string",
+@@ -21202,6 +21232,7 @@ window.__ModuleLoader__.load({
+ 									"required": [
+ 										"workspaceId",
+ 										"path",
++										"roots",
+ 										"title",
+ 										"sessionIds",
+ 										"createdAt",
+@@ -21304,7 +21335,12 @@ window.__ModuleLoader__.load({
+ 														"workspaceId": { "type": "string" },
+ 														"path": {
+ 															"type": "string",
+-															"description": "Canonical host directory path."
++															"description": "Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."
++														},
++														"roots": {
++															"type": "array",
++															"items": { "type": "string" },
++															"description": "Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."
+ 														},
+ 														"title": {
+ 															"type": "string",
+@@ -21327,6 +21363,7 @@ window.__ModuleLoader__.load({
+ 													"required": [
+ 														"workspaceId",
+ 														"path",
++														"roots",
+ 														"title",
+ 														"sessionIds",
+ 														"createdAt",
+@@ -21374,7 +21411,12 @@ window.__ModuleLoader__.load({
+ 														"workspaceId": { "type": "string" },
+ 														"path": {
+ 															"type": "string",
+-															"description": "Canonical host directory path."
++															"description": "Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."
++														},
++														"roots": {
++															"type": "array",
++															"items": { "type": "string" },
++															"description": "Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."
+ 														},
+ 														"title": {
+ 															"type": "string",
+@@ -21397,6 +21439,7 @@ window.__ModuleLoader__.load({
+ 													"required": [
+ 														"workspaceId",
+ 														"path",
++														"roots",
+ 														"title",
+ 														"sessionIds",
+ 														"createdAt",
+@@ -21439,7 +21482,12 @@ window.__ModuleLoader__.load({
+ 											"workspaceId": { "type": "string" },
+ 											"path": {
+ 												"type": "string",
+-												"description": "Canonical host directory path."
++												"description": "Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."
++											},
++											"roots": {
++												"type": "array",
++												"items": { "type": "string" },
++												"description": "Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."
+ 											},
+ 											"title": {
+ 												"type": "string",
+@@ -21462,6 +21510,7 @@ window.__ModuleLoader__.load({
+ 										"required": [
+ 											"workspaceId",
+ 											"path",
++											"roots",
+ 											"title",
+ 											"sessionIds",
+ 											"createdAt",
+@@ -21667,7 +21716,12 @@ window.__ModuleLoader__.load({
+ 									"workspaceId": { "type": "string" },
+ 									"path": {
+ 										"type": "string",
+-										"description": "Canonical host directory path."
++										"description": "Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."
++									},
++									"roots": {
++										"type": "array",
++										"items": { "type": "string" },
++										"description": "Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."
+ 									},
+ 									"title": {
+ 										"type": "string",
+@@ -21690,6 +21744,7 @@ window.__ModuleLoader__.load({
+ 								"required": [
+ 									"workspaceId",
+ 									"path",
++									"roots",
+ 									"title",
+ 									"sessionIds",
+ 									"createdAt",
+@@ -21809,7 +21864,12 @@ window.__ModuleLoader__.load({
+ 									"workspaceId": { "type": "string" },
+ 									"path": {
+ 										"type": "string",
+-										"description": "Canonical host directory path."
++										"description": "Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."
++									},
++									"roots": {
++										"type": "array",
++										"items": { "type": "string" },
++										"description": "Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."
+ 									},
+ 									"title": {
+ 										"type": "string",
+@@ -21832,6 +21892,7 @@ window.__ModuleLoader__.load({
+ 								"required": [
+ 									"workspaceId",
+ 									"path",
++									"roots",
+ 									"title",
+ 									"sessionIds",
+ 									"createdAt",
+@@ -21849,7 +21910,41 @@ window.__ModuleLoader__.load({
+ 						"column": 3
+ 					}
+ 				},
+-				"workspace/unarchiveSession": {
++				"workspace/setRoots": {
++				service: "workspaceController",
++				description: "Replace one Workspace's root set. Roots keep the caller's order and roots[0] becomes the primary root, hence the working directory of sessions created for the Workspace afterwards.",
++				invocation: { kind: "direct" },
++				parameters: [{
++					name: "request",
++					description: "Workspace identity and the replacement roots.",
++					source: "json",
++					codec: {
++						mode: "strict",
++						typeSymbol: "@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceSetRootsRequest",
++						create: _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0$schema,
++						jsonSchema: {"type":"object","properties":{"workspaceId":{"type":"string"},"roots":{"type":"array","items":{"type":"string"},"description":"Replacement canonical roots, primary root first: roots[0] becomes the primary root and the working directory of Sessions created afterwards."}},"required":["workspaceId","roots"],"additionalProperties":true}
++					},
++					strictCodec: {
++						mode: "strict",
++						typeSymbol: "@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceSetRootsRequest",
++						create: _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0_strict$schema,
++						jsonSchema: {"type":"object","properties":{"workspaceId":{"type":"string"},"roots":{"type":"array","items":{"type":"string"},"description":"Replacement canonical roots, primary root first: roots[0] becomes the primary root and the working directory of Sessions created afterwards."}},"required":["workspaceId","roots"],"additionalProperties":false}
++					}
++				}],
++				result: {
++					mode: "strict",
++					typeSymbol: "@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceValue",
++					create: _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_result$schema,
++					description: "the updated Workspace projection.",
++					jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["workspace"],"additionalProperties":true}
++				},
++				sourceLocation: {
++					"file": "packages/api/workspace-controller/src/index.ts",
++					"line": 131,
++					"column": 3
++				}
++			},
++			"workspace/unarchiveSession": {
+ 					service: "workspaceController",
+ 					description: "Restore one archived Session to Workspace grouping surfaces.",
+ 					invocation: { kind: "direct" },
