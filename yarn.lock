@@ -3061,6 +3061,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-fs-local@patch:@deepseek-ai/dsh-fs-local@file%3Avendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-fs-local-0.2.1-rc.2.tgz#./patches/dsh-fs-local@0.2.1-rc.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.2.1-rc.2
+  resolution: "@deepseek-ai/dsh-fs-local@patch:@deepseek-ai/dsh-fs-local@file%3Avendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-fs-local-0.2.1-rc.2.tgz%23vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-fs-local-0.2.1-rc.2.tgz%3A%3Ahash=2608db&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-fs-local@0.2.1-rc.2.patch::version=0.2.1-rc.2&hash=ec5a05&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    "@deepseek-ai/schemastery": "npm:~3.18.5"
+    chokidar: "npm:5.0.0"
+    koffi: "npm:3.1.1"
+  peerDependencies:
+    "@deepseek-ai/cordis": ~4.0.5
+    "@deepseek-ai/dsh-fs": 0.2.1-rc.2
+  checksum: 10c0/165833803cf35bc81c7cfcddfcd14a68015830dfd510c9fb79fff0c4fccd8ad9ef7c7ec0d88cef188a58c1f1aa24ae94ce8e5592b44bca552cc0ffd5f8e9114a
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-fs-observation-policy@file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-fs-observation-policy-0.2.1-rc.2.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.1-rc.2
   resolution: "@deepseek-ai/dsh-fs-observation-policy@file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-fs-observation-policy-0.2.1-rc.2.tgz#vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-fs-observation-policy-0.2.1-rc.2.tgz::hash=285f47&locator=deepseek-harness-desktop%40workspace%3A."
