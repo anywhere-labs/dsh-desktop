@@ -126,7 +126,7 @@ describe('pre-Host recovery plugin uninstall command', () => {
       "writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\\n`)",
       "writeFileSync(join(process.cwd(), 'pnpm-lock.yaml'), `lockfileVersion: '9.0'\\nimporters:\\n  .: {}\\n`)",
       "rmSync(join(process.cwd(), 'node_modules', process.argv.at(-1)), { recursive: true, force: true })",
-      "writeFileSync(process.env.PNPM_SELECTION_MARKER, 'packaged-11.8.0')",
+      "writeFileSync(process.env.PNPM_SELECTION_MARKER, 'packaged-11.28.5')",
       '',
     ].join('\n'))
     writeFileSync(systemScript, [
@@ -156,7 +156,7 @@ describe('pre-Host recovery plugin uninstall command', () => {
       },
     })).resolves.toMatchObject({ exitCode: 0 })
 
-    expect(readFileSync(selectedMarker, 'utf8')).toBe('packaged-11.8.0')
+    expect(readFileSync(selectedMarker, 'utf8')).toBe('packaged-11.28.5')
     const manifest = JSON.parse(readFileSync(join(base.profileDir, 'package.json'), 'utf8')) as {
       dependencies?: Record<string, unknown>
       dsh?: { profile?: { bundles?: unknown[] } }

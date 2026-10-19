@@ -557,7 +557,7 @@ the package names, versions, and licenses for transparency.
 | pkce-challenge | 5.0.1 | MIT |
 | pkijs | 3.4.0 | BSD-3-Clause |
 | pngjs | 5.0.0 | MIT |
-| pnpm | 11.8.0 | MIT |
+| pnpm | 11.28.5 | MIT |
 | powershell-utils | 0.2.1 | MIT |
 | pretty-ms | 9.3.1 | MIT |
 | protobufjs | 7.6.5 | BSD-3-Clause |

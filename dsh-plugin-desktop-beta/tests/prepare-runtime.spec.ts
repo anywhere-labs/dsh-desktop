@@ -19,7 +19,7 @@ interface PayloadOptions {
 function writePayload(runtimeRoot: string, arch: DesktopRuntimeArch, options: PayloadOptions = {}): string {
   const directory = primaryRuntimeDirectory(runtimeRoot, arch)
   const files: Record<string, Buffer | string> = {
-    'runtime.json': JSON.stringify({ desktopVersion: '2.0.0', platform: 'darwin', arch, payloadDigest: 'a'.repeat(64), python: '3.12.14', node: '24.21.0', pnpm: '11.8.0',
+    'runtime.json': JSON.stringify({ desktopVersion: '2.0.0', platform: 'darwin', arch, payloadDigest: 'a'.repeat(64), python: '3.12.14', node: '24.21.0', pnpm: '11.28.5',
       pythonPackages: { numpy: '2.3.5' }, ...options.manifest }),
     'dependencies/python/bin/python3': machO[options.cpu ?? arch],
     'dependencies/python/lib/python3.12/site-packages/numpy/__init__.py': '',
@@ -72,14 +72,14 @@ it('accepts a complete two-CPU tree and reports each manifest', () => {
   const arm64 = writePayload(root, 'arm64')
   const x64 = writePayload(root, 'x64')
   expect(verifyDesktopRuntimeTree(root, 'darwin', '2.0.0')).toEqual([
-    { arch: 'arm64', directory: arm64, manifest: expect.objectContaining({ platform: 'darwin', arch: 'arm64', node: '24.21.0', pnpm: '11.8.0' }) },
+    { arch: 'arm64', directory: arm64, manifest: expect.objectContaining({ platform: 'darwin', arch: 'arm64', node: '24.21.0', pnpm: '11.28.5' }) },
     { arch: 'x64', directory: x64, manifest: expect.objectContaining({ platform: 'darwin', arch: 'x64' }) },
   ])
   expect(verifyDesktopRuntimeTree(root, 'freebsd', '2.0.0')).toEqual([])
   const linuxRoot = fixture()
   const linuxX64 = writePayload(linuxRoot, 'x64', { manifest: { platform: 'linux' } })
   expect(verifyDesktopRuntimeTree(linuxRoot, 'linux', '2.0.0')).toEqual([
-    { arch: 'x64', directory: linuxX64, manifest: expect.objectContaining({ platform: 'linux', arch: 'x64', node: '24.21.0', pnpm: '11.8.0' }) },
+    { arch: 'x64', directory: linuxX64, manifest: expect.objectContaining({ platform: 'linux', arch: 'x64', node: '24.21.0', pnpm: '11.28.5' }) },
   ])
 })
 

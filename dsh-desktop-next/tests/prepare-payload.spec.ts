@@ -127,7 +127,7 @@ it('materializes, cleans and seals the payload the archive is later checked agai
   expect(readDesktopRuntime(join(output, DESKTOP_RUNTIME_FILE))).toEqual(descriptor)
   expect(verifyPayload(physicalPayload(output), descriptor, '2.0.1-next', target)).toEqual(descriptor)
   expect(() => verifyNextPayload(physicalPayload(output))).not.toThrow()
-  expect(log).toEqual([expect.stringMatching(/^Materialized \d+ packages for /u), expect.stringMatching(/^Sealed the prepared payload: \d+ files; DSH NEXT 2\.0\.1-next, dsh 1\.0\.0, Electron 44\.0\.0, pnpm 11\.8\.0$/u)])
+  expect(log).toEqual([expect.stringMatching(/^Materialized \d+ packages for /u), expect.stringMatching(/^Sealed the prepared payload: \d+ files; DSH NEXT 2\.0\.1-next, dsh 1\.0\.0, Electron 44\.0\.0, pnpm 11\.28\.5$/u)])
   // Preparing again starts from an empty directory and, without a drill version, keeps the manifest version.
   writeFileSync(join(output, 'stale'), '')
   await preparePayload({ desktopRoot: desktop, output, target, electronVersion: '44.0.0' })
