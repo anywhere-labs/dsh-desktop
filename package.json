@@ -22,7 +22,7 @@
     "dsh-plugin-desktop-tintin"
   ],
   "resolutions": {
-    "@agents-anywhere/dsh-bridge-next": "patch:@agents-anywhere/dsh-bridge-next@file%3Avendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.1.0-desktop.c39b82d4fffb1.r2e406d2a.tgz#./patches/agents-anywhere-connector-httpx.patch",
+    "@agents-anywhere/dsh-bridge-next": "patch:@agents-anywhere/dsh-bridge-next@file%3Avendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c3edd3dfaf283.r2e406d2a.tgz#./patches/agents-anywhere-connector-httpx.patch",
     "app-builder-lib@npm:26.15.7": "patch:app-builder-lib@npm%3A26.15.7#./patches/app-builder-lib@26.15.7.patch",
     "fs-ext@npm:2.1.1": "patch:fs-ext@npm%3A2.1.1#./patches/fs-ext@2.1.1.patch",
     "pnpm@npm:11.8.0": "patch:pnpm@npm%3A11.8.0#./patches/pnpm@11.8.0.patch",
@@ -30,7 +30,6 @@
     "@vscode/ripgrep@npm:1.18.0": "patch:@vscode/ripgrep@npm%3A1.18.0#./patches/vscode-ripgrep@1.18.0.patch",
     "@vscode/ripgrep@npm:^1.18.0": "patch:@vscode/ripgrep@npm%3A1.18.0#./patches/vscode-ripgrep@1.18.0.patch",
     "esbuild@npm:^0.27.0 || ^0.28.0": "patch:esbuild@npm%3A0.28.2#~/.yarn/patches/esbuild-npm-0.28.2-cf50b560fa.patch",
-    "dshmarket@npm:1.66.37": "patch:dshmarket@npm%3A1.66.37#./.yarn/patches/dshmarket-desktop.patch",
     "@deepseek-ai/dsh-brand@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-brand-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-brand@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-brand-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-timeout@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-timeout-0.2.1-rc.2.tgz",
@@ -719,7 +718,8 @@
     "@deepseek-ai/dsh-webhook-github@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-webhook-github-0.2.1-rc.2.tgz",
     "@deepseek-ai/schemastery": "3.18.5",
     "@deepseek-ai/cosmokit": "1.8.6",
-    "@deepseek-ai/cordis": "4.0.5"
+    "@deepseek-ai/cordis": "4.0.5",
+    "dshmarket@npm:1.66.42": "patch:dshmarket@npm%3A1.66.42#./.yarn/patches/dshmarket-desktop.patch"
   },
   "dependenciesMeta": {
     "@deepseek-ai/dsh-subprocess-local": {
