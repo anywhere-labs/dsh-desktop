@@ -28,7 +28,15 @@ import {
   WINDOWS_CAPTION_CONTROLS_WIDTH,
 } from '../src/window-chrome.ts'
 
-vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({ Switch: () => null }))
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
+  Button: () => null,
+  IconWarningOutlineRegular: () => null,
+  Modal: () => null,
+  PluginArtworkDefault: () => null,
+  StateDot: () => null,
+  Switch: () => null,
+  Tag: () => null,
+}))
 
 describe('desktop client environment', () => {
   it.each(['darwin', 'win32', 'linux'])('keeps compatibility chrome out of the %s client slot tree', platform => {
@@ -74,8 +82,6 @@ describe('desktop client environment', () => {
       .toEqual({ version: '2.0.3', mode: 'advanced', platform: 'darwin', material: 'transparent' })
     expect(parseDesktopClientEnvironment('?dsh-desktop-platform=win32&dsh-desktop-mode=compatibility&dsh-desktop-version=2.0.3&dsh-desktop-material=off'))
       .toEqual({ version: '2.0.3', mode: 'compatibility', platform: 'win32', material: 'off' })
-    expect(parseDesktopClientEnvironment('?dsh-desktop-mode=compatibility&dsh-desktop-platform=linux&dsh-desktop-version=2.0.3&dsh-desktop-material=off'))
-      .toEqual({ version: '2.0.3', mode: 'compatibility', platform: 'linux', material: 'off' })
   })
 
   it('renders removed Windows materials from an older Host as opaque', () => {
@@ -101,8 +107,6 @@ describe('desktop client environment', () => {
     ['?dsh-desktop-mode=advanced&dsh-desktop-platform=darwin&dsh-desktop-material=off', 'dsh-desktop-version'],
     ['?dsh-desktop-mode=advanced&dsh-desktop-platform=win32&dsh-desktop-version=2.0.3&dsh-desktop-material=transparent', 'incompatible'],
     ['?dsh-desktop-mode=advanced&dsh-desktop-platform=darwin&dsh-desktop-version=2.0.3&dsh-desktop-material=mica', 'incompatible'],
-    ['?dsh-desktop-mode=compatibility&dsh-desktop-platform=linux&dsh-desktop-version=2.0.3&dsh-desktop-material=mica', 'incompatible'],
-    ['?dsh-desktop-mode=compatibility&dsh-desktop-platform=linux&dsh-desktop-version=2.0.3&dsh-desktop-material=transparent', 'incompatible'],
   ])('fails loud for malformed marker %s', (search, field) => {
     expect(() => parseDesktopClientEnvironment(search)).toThrow(field)
   })

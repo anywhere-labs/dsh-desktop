@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
-import { serveWebDocument } from '../lib/web-document.js'
+import { APP_BOOT_SCRIPT, serveWebDocument } from '../lib/web-document.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(import.meta.url)
@@ -14,8 +14,17 @@ const official = readFileSync(join(webRoot, 'index.html'), 'utf8')
 const local = await serveWebDocument(new Request('dsh-app://app/'), webRoot)
 const html = await local.text()
 assert.equal(local.status, 200)
-assert.equal(html.replace('<script>globalThis.__DSH_BOOT_READY__ = Promise.withResolvers()</script>', ''), official)
+assert.ok(html.includes('<style id="dsh-next-loading-style">'), 'Next must style the document before the official boot page loads')
+assert.equal(html.replace(/<style id="dsh-next-loading-style">[\s\S]*?<\/style>/u, '')
+  .replace(APP_BOOT_SCRIPT, ''), official)
 assert.ok(html.includes('/assets/'), 'Official production frontend must carry built assets')
+
+// Electron hides custom-protocol Worker requests from webRequest, so the upload
+// plugin's default Worker transport can never authenticate. The boot script
+// installs its page-owned carrier; fail if the official client stops reading it.
+const uploadClient = readFileSync(require.resolve('@deepseek-ai/dsh-client-file-upload/client'), 'utf8')
+assert.ok(uploadClient.includes('globalThis.__DSH_FILE_UPLOAD__') && uploadClient.includes('hook.fetch'),
+  'The file-upload client no longer reads the page-owned __DSH_FILE_UPLOAD__ fetch carrier')
 
 // Market client bundles resolve primitives from the official Web at runtime. A
 // removed export can blank the entire settings section without breaking build.
@@ -36,6 +45,8 @@ for (const platform of ['darwin', 'win32', 'linux']) {
   const dataset = {}
   const invocations = []
   const userActivation = { isActive: false }
+  // Stands in for Electron's webUtils: only Files the shell handed to the page have a host path.
+  const hostPaths = new Map()
   for (const [entry, hostname] of [['preload-app.cjs', 'app'], ['preload-shell.cjs', 'shell']]) {
     const listeners = new Map()
     // The shared map answers the per-platform assertions below; this one records a single entry,
@@ -53,7 +64,7 @@ for (const platform of ['darwin', 'win32', 'linux']) {
             return Promise.resolve(undefined)
           }, send() {},
           on: (channel, listener) => listeners.set(channel, listener), removeListener: channel => listeners.delete(channel), off: channel => listeners.delete(channel),
-        } }
+        }, webUtils: { getPathForFile: file => hostPaths.get(file) ?? '' } }
       },
       process: { platform }, location: { protocol: 'dsh-app:', hostname },
       document: { readyState: 'loading', documentElement: { dataset, style: { setProperty() {} } } },
@@ -101,15 +112,23 @@ for (const platform of ['darwin', 'win32', 'linux']) {
       assert.deepEqual(received, ['general', 'permissions'])
       stop()
       assert.equal(listeners.has('dsh-next:settings-open'), false)
+      // The official composer refuses dropped folders without this bridge and uploads every
+      // non-image file instead of citing it; the carrier name and `pathFor` are upstream's.
+      const picked = { name: 'notes.md' }
+      hostPaths.set(picked, '/Users/me/notes.md')
+      assert.equal(exposed.get('__DSH_HOST_PATHS__')?.pathFor(picked), '/Users/me/notes.md', 'A dropped or picked file reports its host path')
+      assert.equal(exposed.get('__DSH_HOST_PATHS__')?.pathFor({ name: 'pasted.png' }), '', 'A File without a host path answers empty so the composer uploads it')
     } else {
       assert.equal(own.get('desktopNext').onOpenSettings, undefined)
       assert.equal(own.has('dshDesktop'), false, 'Only the application document may reach guest browsers')
+      assert.equal(own.has('__DSH_HOST_PATHS__'), false, 'Only the application document may read host paths of its files')
     }
   }
   assert.equal(dataset.platform, platform)
   assert.equal(exposed.get('dshDesktop')?.protocolVersion, 1)
   assert.equal(typeof exposed.get('dshDesktopBoot')?.ready, 'function')
   assert.equal(typeof exposed.get('__DSH_DIRECTORY_PICKER__')?.pick, 'function')
+  assert.equal(typeof exposed.get('__DSH_HOST_PATHS__')?.pathFor, 'function')
   assert.equal(typeof exposed.get('desktopNext')?.command, 'function')
   assert.equal(typeof exposed.get('desktopNext')?.browserLinks, 'function')
   const permissions = exposed.get('desktopNext').permissions

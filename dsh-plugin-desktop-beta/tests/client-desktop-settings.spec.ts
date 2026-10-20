@@ -629,6 +629,22 @@ describe('Desktop native action presentation', () => {
     }
   })
 
+  it('fills native select popups in the dark palette', () => {
+    let css = ''
+    const style = { id: '', dataset: {} as Record<string, string>, get textContent() { return css }, set textContent(value: string) { css = value }, remove: vi.fn() }
+    vi.stubGlobal('document', { getElementById: () => null, createElement: () => style, head: { appendChild: vi.fn() } })
+    try {
+      installDesktopSettingsStyles()
+      // Chromium paints the Windows and Linux popup from the control's own
+      // background; upstream's transparent selects need an opaque option fill
+      // under the dark palette, and only there.
+      expect(css).toContain('body[data-ds-dark-theme] select :is(option, optgroup) { background-color: var(--dsw-alias-bg-layer-2); }')
+      expect(css.split('select :is(option, optgroup)')).toHaveLength(2)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it.each([DESKTOP_PACKAGE_NAME, 'dsh-desktop-next'])('keeps %s settings styles out of another plugin lifecycle', owner => {
     let connected = false
     const style = { id: '', dataset: {} as Record<string, string>, textContent: '', remove: () => { connected = false } }
@@ -714,6 +730,8 @@ describe('Desktop settings Slot registration', () => {
       platform,
       initialMode: 'compatibility',
       setMode: expect.any(Function),
+      capabilities: { pluginSelectors: false },
+      openPlugins: expect.any(Function),
     })
     expect(component).toBe(DesktopSettingsSection)
 
@@ -732,7 +750,15 @@ describe('Desktop settings Slot registration', () => {
     expect(inject).toHaveBeenCalledWith('plugins.bundle.hidden', expect.any(Function))
     expect(register).toHaveBeenNthCalledWith(3, {
       name: 'plugins.bundle.hidden',
+      key: 'dsh-community-market',
+    }, expect.any(Function))
+    expect(register).toHaveBeenNthCalledWith(4, {
+      name: 'plugins.bundle.hidden',
       key: 'dshmarket',
+    }, expect.any(Function))
+    expect(register).toHaveBeenNthCalledWith(5, {
+      name: 'plugins.bundle.hidden',
+      key: '@agents-anywhere/dsh-bridge-next',
     }, expect.any(Function))
     await control.setMode('extended')
     expect(scope.set).toHaveBeenCalledWith('mode', 'extended')

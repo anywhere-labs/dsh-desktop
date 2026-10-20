@@ -1,5 +1,5 @@
-/** Alpha.2 boot and directory-picker contracts; no generic IPC bridge. */
-import { contextBridge, ipcRenderer } from 'electron'
+/** Alpha.2 boot, directory-picker, and host-path contracts; no generic IPC bridge. */
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC } from './ipc.ts'
 import { markDocumentPlatform } from './preload-platform.ts'
 import { syncNativeTheme } from './preload-theme.ts'
@@ -40,4 +40,8 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
     failed: (message: string) => ipcRenderer.invoke(IPC.failed, message),
   })
   contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', { pick: () => ipcRenderer.invoke(IPC.directory) })
+  // The official composer cites dropped, picked, and pasted files and folders that have a
+  // real path as `@path` references instead of uploading them, and refuses folders outright
+  // when this bridge is absent; a File without a path (pasted bytes) answers '' and uploads.
+  contextBridge.exposeInMainWorld('__DSH_HOST_PATHS__', { pathFor: (file: File) => webUtils.getPathForFile(file) })
 }

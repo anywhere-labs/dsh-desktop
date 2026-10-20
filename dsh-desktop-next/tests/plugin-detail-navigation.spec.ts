@@ -1,14 +1,30 @@
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
-import { expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import { registerPluginControls } from '../src/client/plugin-controls.tsx'
 
+const hooks = vi.hoisted(() => ({ effects: [] as (() => unknown)[], states: [] as unknown[], cursor: 0 }))
+vi.mock('react', async importOriginal => ({
+  ...await importOriginal<typeof import('react')>(),
+  useEffect: (effect: () => unknown) => { hooks.effects.push(effect) },
+  useRef: (current: unknown) => ({ current }),
+  useState: (initial: unknown) => {
+    const index = hooks.cursor++
+    if (!(index in hooks.states)) hooks.states[index] = typeof initial === 'function' ? (initial as () => unknown)() : initial
+    return [hooks.states[index], (next: unknown) => {
+      hooks.states[index] = typeof next === 'function' ? (next as (prev: unknown) => unknown)(hooks.states[index]) : next
+    }]
+  },
+}))
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: 'button', PluginArtworkDefault: 'svg', Switch: 'input', StateDot: 'span',
   Toast: 'aside', Modal: 'dialog', IconSettingsOutlineRegular: 'svg',
+  IconWarningOutlineRegular: 'svg', Tag: 'span',
 }))
+import { registerPluginControls } from '../src/client/plugin-controls.tsx'
+
+afterEach(() => { hooks.effects = []; hooks.states = []; hooks.cursor = 0; vi.unstubAllGlobals() })
 
 type Node = { type: string | ((props: any) => Node); props: Record<string, any> }
 const jsx = (type: Node['type'], props: Node['props']): Node => ({ type, props })
@@ -16,9 +32,11 @@ const nodes = (value: unknown): Node[] => Array.isArray(value) ? value.flatMap(n
   : value && typeof value === 'object' && 'type' in value && 'props' in value
     ? [value as Node, ...nodes((value as Node).props.children)] : []
 const component = (tree: Node, name: string): Node | undefined => nodes(tree).find(node => typeof node.type === 'function' && node.type.name === name)
-/** Count the official package cards one page renders. */
-const cardCount = (tree: Node): number => nodes(tree).filter(node => typeof node.type === 'function' && node.type.name === 'PackageCard').length
 const render = (node: Node): Node => (node.type as (props: Node['props']) => Node)(node.props)
+/** Group ids on the list page; dsh 0.2.1-alpha.2 splits official cards into basic and extensions. */
+const groups = (tree: Node): string[] => nodes(tree).filter(node => node.props['data-plugin-group']).map(node => node.props['data-plugin-group'])
+/** Cards on the list page; the official count badge is gone since 0.2.1-alpha.2. */
+const cardCount = (tree: Node): number => nodes(tree).filter(node => typeof node.type === 'function' && ['PackageCard', 'ItemCard'].includes(node.type.name)).length
 
 /** Execute the installed official page, replacing only its external services and React hook scheduler. */
 function fixture() {
@@ -65,7 +83,7 @@ function fixture() {
       return () => {}
     } },
   })
-  const remote = { name: '@agents-anywhere/dsh-bridge-next', enabled: true, installed: false, official: true,
+  const remote = { name: '@agents-anywhere/dsh-bridge-next', enabled: true, installed: false, optional: true, official: true,
     version: '0.1.0', description: 'Remote connection', rows: [{ entryId: undefined as string | undefined, rowId: 'bridge', moduleName: 'bridge', enabled: true, phase: 'active' }] }
   const official = { ...remote, name: 'official-team', rows: [] }
   const state = { status: 'ready', packages: [official, remote], busy: [] as string[], notice: null, highlight: null, confirm: null,
@@ -93,7 +111,7 @@ function fixture() {
 it('opens an overview-owned bundle through the official detail with native header actions, switch, settings and component rows', () => {
   const app = fixture()
   const list = app.page()
-  expect(nodes(list).filter(node => node.props['data-plugin-group']).map(node => node.props['data-plugin-group'])).toEqual(['extensions'])
+  expect(groups(list)).toEqual(['extensions'])
   expect(cardCount(list)).toBe(1)
   app.overview().onOpenBundle(app.remote.name)
   const page = app.page()
@@ -114,7 +132,7 @@ it('opens an overview-owned bundle through the official detail with native heade
   expect(nodes(app.page()).some(node => node.props.name === 'plugins.overview')).toBe(true)
 })
 
-it('uses the official item detail without adding Computer Use to the official group or changing its count', () => {
+it('uses the official item detail without adding Computer Use to the basic group or changing the card count', () => {
   const app = fixture()
   app.page()
   app.overview().onOpenItem(app.item.id)
@@ -125,6 +143,7 @@ it('uses the official item detail without adding Computer Use to the official gr
   expect(action.props.owner.subject).toEqual({ kind: 'item', id: app.item.id })
   expect(nodes(body).some(node => node.props.name === 'plugins.item' && node.props.owner.view === 'page')).toBe(true)
   top.props.onBack()
+  expect(groups(app.page())).toEqual(['extensions'])
   expect(cardCount(app.page())).toBe(1)
   app.overview().onOpenItem('missing')
   expect(component(app.page(), 'ItemDetail')).toBeUndefined()
@@ -137,9 +156,8 @@ it('preserves ordinary official cards and their navigation when no overview entr
   app.ledger.hiddenBundles.clear()
   app.ledger.hiddenItems.clear()
   const list = app.page()
-  // Two official bundles render as package cards; the untouched ledger item is
-  // an ItemCard of the official component list, not a bundle card.
-  expect(cardCount(list)).toBe(2)
+  expect(groups(list)).toEqual(['basic', 'extensions'])
+  expect(cardCount(list)).toBe(3)
   const card = nodes(list).find(node => typeof node.type === 'function' && node.type.name === 'PackageCard' && node.props.pkg.name === 'official-team')!
   card.props.onOpen()
   expect(component(app.page(), 'PackageDetail')?.props.pkg.name).toBe('official-team')
@@ -162,7 +180,7 @@ it('places keyed bundle actions before the native switch without sharing the car
   expect(nodes(openButton).some(node => node.props.name === 'plugins.bundle.actions')).toBe(false)
 })
 
-it('keeps Automation tasks in the official group with its artwork, badge, native switches and component details under Next composition', () => {
+it('keeps an official optional bundle in the extensions group with its artwork, badge, native switches and component details under Next composition', () => {
   const app = fixture()
   const ctx = {
     inject: (_services: unknown, callback: (context: unknown) => void) => { callback(ctx) },
@@ -175,30 +193,31 @@ it('keeps Automation tasks in the official group with its artwork, badge, native
     },
   }
   registerPluginControls(ctx as unknown as Context)
-  const name = '@deepseek-ai/dsh-experimental-auto-review'
+  const name = '@deepseek-ai/dsh-experimental-inspector-profile'
   const { meta } = JSON.parse(readFileSync(createRequire(import.meta.url).resolve(`${name}/locale/zh.json`), 'utf8'))
-  const optionalBundle = { ...app.remote, name, enabled: false, meta: { ...meta, icon: '/auto-review/icon.svg' },
-    rows: [{ rowId: 'auto-review', moduleName: '@deepseek-ai/dsh-experimental-auto-review', entryId: 'include:auto-review', enabled: false, phase: 'disabled' }] }
-  app.state.packages.push(optionalBundle)
+  const inspector = { ...app.remote, name, enabled: false, meta: { ...meta, icon: '/inspector/icon.svg' },
+    rows: [{ rowId: 'session-inspector', moduleName: '@deepseek-ai/dsh-experimental-session-inspector', entryId: 'include:session-inspector', enabled: false, phase: 'disabled' }] }
+  app.state.packages.push(inspector)
   const findCard = () => nodes(app.page()).find(node => typeof node.type === 'function' && node.type.name === 'PackageCard' && node.props.pkg.name === name)!
   const card = findCard()
   expect(card).toBeDefined()
+  expect(groups(app.page())).toEqual(['extensions'])
   expect(cardCount(app.page())).toBe(2)
   const head = component(render(card), 'CardHead')!
-  expect(head.props.title).toBe('自动授权审查')
+  expect(head.props.title).toBe('开发者工具')
   expect(head.props.description).toBe(meta.description)
-  expect(head.props.icon.props.src).toBe('/auto-review/icon.svg')
+  expect(head.props.icon.props.src).toBe('/inspector/icon.svg')
   expect(nodes(head.props.tags).some(node => node.props.children === 'statusBeta')).toBe(true)
   const toggle = render(component(head.props.end, 'EnableSwitch')!)
   expect(toggle.props.checked).toBe(false)
   toggle.props.onChange(true)
   expect(app.setEnabled).toHaveBeenCalledExactlyOnceWith(name, true)
-  optionalBundle.enabled = true
+  inspector.enabled = true
   const activeHead = component(render(findCard()), 'CardHead')!
   expect(render(component(activeHead.props.end, 'EnableSwitch')!).props.checked).toBe(true)
   card.props.onOpen()
   const detail = render(component(app.page(), 'PackageDetail')!)
-  expect(component(detail, 'RowsSection')?.props.rows).toEqual(optionalBundle.rows)
+  expect(component(detail, 'RowsSection')?.props.rows).toEqual(inspector.rows)
   const top = component(detail, 'DetailTop')!
   render(component(top.props.actions, 'EnableSwitch')!).props.onChange(false)
   expect(app.setEnabled).toHaveBeenLastCalledWith(name, false)
@@ -226,3 +245,83 @@ it('lets composite item details reuse the official component list, live state an
   const updatedSlot = nodes(updatedBody).find(node => node.props.name === 'plugins.item' && node.props.owner.view === 'page')!
   expect(updatedSlot.props.owner.renderComponents(['@deepseek-ai/dsh-schedule']).props.rows[0].enabled).toBe(false)
 })
+
+it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from the official snapshot and warmed cache without disabling switches on remount', async () => {
+  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
+  const packages = [
+    { name: 'dsh-community-market', enabled: true },
+    { name: 'dshmarket', enabled: false },
+    { name: '@agents-anywhere/dsh-bridge-next', enabled: true },
+  ]
+  const cuaRow = {
+    entryId: 'include:cua',
+    moduleName: '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native',
+    enabled: true,
+    fiberPhase: 'active',
+  }
+  const listBundles = vi.fn(async () => ({ ok: true as const, value: packages }))
+  const listPlugins = vi.fn(async () => ({ ok: true as const, value: [cuaRow] }))
+  let OverviewView: ((props: any) => Node) | undefined
+  const ctx: any = {
+    get: (key: string) => key === 'slots' ? ctx.slots : undefined,
+    on: () => () => {},
+    inject: (_services: unknown, callback: (context: unknown) => void) => { callback(ctx) },
+    remote: {
+      $on: () => () => {},
+      pluginManager: { listBundles, listPlugins, setBundleEnabled: vi.fn(), setPluginEnabled: vi.fn() },
+      pluginMarket: { listIndexes: vi.fn(async () => ({ ok: true as const, value: [] })) },
+    },
+    slots: {
+      _core: {
+        entries: (name: string) => name === 'main' ? [{
+          options: { key: 'plugins' },
+          inject: () => ({
+            hooks: {
+              pluginManager: {
+                getSnapshot: () => ({ status: 'ready', packages }),
+              },
+            },
+          }),
+        }] : [],
+      },
+      inject: (_name: string, callback: () => unknown) => { callback() },
+      register: (options: { name: string }, view: (props: any) => Node) => {
+        if (options.name === 'plugins.overview') OverviewView = view
+        return () => {}
+      },
+    },
+  }
+  registerPluginControls(ctx as Context)
+  await vi.waitFor(() => {
+    expect(listBundles).toHaveBeenCalledTimes(1)
+    expect(listPlugins).toHaveBeenCalledTimes(1)
+  })
+
+  // Simulate remounting the Installed Plugins page while background refresh RPCs are still in flight
+  listBundles.mockReturnValue(new Promise(() => {}))
+  listPlugins.mockReturnValue(new Promise(() => {}))
+  hooks.states = []
+  hooks.cursor = 0
+  hooks.effects = []
+
+  const tree = OverviewView!({
+    context: ctx,
+    t: (key: string) => key === 'language' ? 'zh' : key,
+    onOpenBundle: vi.fn(),
+    onOpenItem: vi.fn(),
+  })
+  const marketSwitch = nodes(tree).find(node => node.type === 'input' && node.props.label === '启用插件市场')!
+  expect(marketSwitch.props.checked).toBe(true)
+  expect(marketSwitch.props.disabled).toBe(false)
+
+  const remoteNode = render(component(tree, 'RemoteControlSettings')!)
+  const remoteSwitch = nodes(remoteNode).find(node => node.type === 'input' && node.props.label === '启用远程控制')!
+  expect(remoteSwitch.props.checked).toBe(true)
+  expect(remoteSwitch.props.disabled).toBe(false)
+
+  const cuaNode = render(component(tree, 'ComputerUseSettings')!)
+  const cuaSwitch = nodes(cuaNode).find(node => node.type === 'input' && node.props.label === '启用 Computer Use')!
+  expect(cuaSwitch.props.checked).toBe(true)
+  expect(cuaSwitch.props.disabled).toBe(false)
+})
+

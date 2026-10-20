@@ -88,6 +88,25 @@ afterEach(async () => {
 })
 
 describe('desktop update installer download', () => {
+  it.each(['darwin', 'win32'] as const)('downloads the Stable-promoted Next installer on %s', async platform => {
+    const directory = await temporaryDirectory()
+    const version = '2.0.20-next'
+    const filename = desktopUpdateFilename(platform, version, 'stable')
+    expect(filename).toBe(`DSH-NEXT-${version}-${platform === 'darwin' ? 'mac.dmg' : 'windows.exe'}`)
+    const destination = join(directory, filename)
+    const artifact = platform === 'darwin' ? dmgArtifact() : windowsArtifact()
+    await expect(downloadDesktopUpdate({ platform, version, channel: 'stable', destinationPath: destination,
+      request: async (_url, init) => {
+        const headers = new Headers(init.headers)
+        expect(headers.get(DESKTOP_RELEASE_CHANNEL_HEADER)).toBe('stable')
+        expect(headers.get(DESKTOP_TARGET_VERSION_HEADER)).toBe(version)
+        return chunkedResponse([artifact])
+      },
+    })).resolves.toBe(destination)
+    expect(await readFile(destination)).toEqual(Buffer.from(artifact))
+  })
+
+
   it('streams a macOS DMG from only the fixed endpoint and atomically completes it', async () => {
     const directory = await temporaryDirectory()
     const artifact = dmgArtifact()

@@ -22,7 +22,12 @@
     "dsh-plugin-desktop-tintin"
   ],
   "resolutions": {
-    "@agents-anywhere/dsh-bridge-next": "patch:@agents-anywhere/dsh-bridge-next@file%3Avendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.1.0-desktop.cc0e9e7f814ed.r2e406d2a.tgz#./patches/agents-anywhere-connector-httpx.patch",
+    "@agents-anywhere/dsh-bridge-next": "patch:@agents-anywhere/dsh-bridge-next@file%3Avendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.1.0-desktop.c989d4ceb0d9f.r2e406d2a.tgz#./patches/agents-anywhere-connector-httpx.patch",
+    "open@npm:11.0.1": "patch:open@npm%3A11.0.1#./patches/open@11.0.1.patch",
+    "open@npm:^11.0.0": "patch:open@npm%3A11.0.1#./patches/open@11.0.1.patch",
+    "open@npm:^11.0.2": "patch:open@npm%3A11.0.4#./patches/open@11.0.4.patch",
+    "@deepseek-ai/dsh-experimental-inspector@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-experimental-inspector-0.2.1-rc.2.tgz",
+    "@deepseek-ai/dsh-experimental-inspector@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-experimental-inspector-0.2.1-rc.2.tgz",
     "app-builder-lib@npm:26.15.7": "patch:app-builder-lib@npm%3A26.15.7#./patches/app-builder-lib@26.15.7.patch",
     "fs-ext@npm:2.1.1": "patch:fs-ext@npm%3A2.1.1#./patches/fs-ext@2.1.1.patch",
     "pnpm@npm:11.8.0": "patch:pnpm@npm%3A11.8.0#./patches/pnpm@11.8.0.patch",
@@ -360,8 +365,6 @@
     "@deepseek-ai/dsh-experimental-client-ui-cot-translation@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-experimental-client-ui-cot-translation-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-experimental-cot-translation-bundle@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-experimental-cot-translation-bundle-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-experimental-cot-translation-bundle@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-experimental-cot-translation-bundle-0.2.1-rc.2.tgz",
-    "@deepseek-ai/dsh-experimental-inspector@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-experimental-inspector-0.2.1-rc.2.tgz",
-    "@deepseek-ai/dsh-experimental-inspector@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-experimental-inspector-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-experimental-session-inspector@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-experimental-session-inspector-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-experimental-session-inspector@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-experimental-session-inspector-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-experimental-inspector-profile@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-experimental-inspector-profile-0.2.1-rc.2.tgz",

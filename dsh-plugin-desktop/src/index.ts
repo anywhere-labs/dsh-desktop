@@ -173,7 +173,8 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
   if (ctx.webServer.host !== desktopWebServerHost(resolved.networkExposure)) {
     throw new Error('dsh-plugin-desktop: desktop shell WebServer host does not match networkExposure')
   }
-  lanHttps.attach(boundWebServerPort(ctx.webServer))
+  const webServerPort = boundWebServerPort(ctx.webServer)
+  lanHttps.attach(webServerPort)
   const iconFilename = runtime.platform === 'darwin'
     ? 'app-icon-mac.png'
     : 'app-icon.png'
@@ -187,7 +188,7 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
   // continuation offers the restart that applies them, after its account step.
   let setupSettings: DesktopSetupWizardSettings | undefined
   let setupSaved = false
-  const rendererOrigin = `http://127.0.0.1:${String(boundWebServerPort(ctx.webServer))}`
+  const rendererOrigin = `http://127.0.0.1:${String(webServerPort)}`
   ctx.effect(
     () => ctx.webServer.register({
       kind: 'exact',
@@ -424,7 +425,7 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
         resolved.linuxMaterial,
       )
       const url = desktopRendererUrl(
-        boundWebServerPort(ctx.webServer),
+        webServerPort,
         resolved.mode,
         runtime.platform,
         runtime.updates.currentVersion,

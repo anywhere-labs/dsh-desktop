@@ -232,7 +232,7 @@ function Page({
   return <div className="dshSetupPage mx-auto flex w-full max-w-2xl flex-col py-5" data-orientation="vertical" data-setup-step={step}>
     <header className="dshSetupCopy mb-6">
       <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{subtitle}</p>
+      <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">{subtitle}</p>
     </header>
     <Card className="dshSetupOptions"><CardContent className="space-y-3 p-4 sm:p-5">{children}</CardContent></Card>
     {actions && <div className="dshSetupActions">{actions}</div>}
@@ -341,19 +341,29 @@ function MarketOptions({
     { value: 'disabled', title: copy.marketDisabled, body: copy.marketDisabledBody },
     { value: 'community-market', title: copy.communityMarket, body: copy.communityMarketBody },
     { value: 'dsh-market', title: copy.dshMarket, body: copy.dshMarketBody },
+    { value: 'official-market', title: copy.officialMarket, body: copy.officialMarketBody },
   ]
   return <RadioGroup
     aria-label={copy.marketTitle}
     aria-orientation="vertical"
     name="setup-plugin-market"
     onValueChange={value => {
-      if (value === 'disabled' || value === 'community-market' || value === 'dsh-market') {
+      if (
+        value === 'disabled'
+        || value === 'community-market'
+        || value === 'dsh-market'
+        || value === 'official-market'
+      ) {
         update({ ...selection, market: value })
       }
     }}
     value={selection.market}
   >{markets.map(option => <Choice
-    {...(option.value === 'community-market' ? { badge: copy.beta } : {})}
+    {...(option.value === 'community-market'
+      ? { badge: copy.beta }
+      : option.value === 'official-market'
+        ? { badge: copy.experimental }
+        : {})}
     body={option.body}
     id={`setup-plugin-market-${option.value}`}
     key={option.value}

@@ -1,11 +1,13 @@
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
 import { composeEntries, loadOverlayPatches, loadProfileDirectory, OPTIONAL_BUNDLES } from '@deepseek-ai/dsh-app-boot'
-import { AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE, loadNextProfile, NEXT_PACKAGE, NextProfiles, profileName, readNextProfilePatches, WEB_BUNDLES } from '../src/profiles.ts'
+import { AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE, loadNextProfile, NEXT_PACKAGE, NextProfiles, OFFICIAL_MARKET_PACKAGE, profileName, readNextProfilePatches, WEB_BUNDLES } from '../src/profiles.ts'
+import { DEFAULT_OFFICIAL_MARKET_INDEX_URL } from '../src/profile-plugin-market.ts'
 import * as privateFiles from '../src/private-files.ts'
+import * as linkProjections from '../../dsh-plugin-desktop-beta/src/link-projections.ts'
 
 const roots: string[] = []
 function profiles() { const home = mkdtempSync(join(tmpdir(), 'dsh-next-profiles-')); roots.push(home); return new NextProfiles(home) }
@@ -57,7 +59,7 @@ it('opens an existing Web Profile without recording a Next bundle for other laun
   expect(readdirSync(manager.home)).not.toContain('recovery')
   // The only Next write is its one-time Scheduled Tasks migration marker.
   const { desktopNextScheduleBundle, ...shared } = adopted.dsh
-  expect(desktopNextScheduleBundle).toBe(1)
+  expect(desktopNextScheduleBundle).toBe(2)
   expect(shared).toEqual(original.dsh)
   const marked = readFileSync(path, 'utf8')
   manager.ensure('work')
@@ -110,6 +112,26 @@ it('records onboarding per Profile together with its plugin choices and retains 
   expect(manager.onboardingRequired('desktop')).toBe(false)
 })
 
+it('enables the official custom plugin market bundle and preconfigures the built-in dsh-market index source on onboarding', () => {
+  const manager = profiles()
+  const dir = manager.ensure('desktop')
+  const patchPath = join(dir, 'cordis.patch.yml')
+  writeFileSync(patchPath, `# keep comment\n- id: plugin-market\n  name: '@deepseek-ai/dsh-plugin-market'\n  config:\n    indexes:\n      - https://example.com/custom-index.json\n`)
+  manager.finishOnboarding('desktop', { features: { market: false, officialMarket: true, remoteControl: false }, computerUse: false })
+  expect(manager.features('desktop')).toEqual({ market: false, officialMarket: true, remoteControl: false })
+  const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  expect(manifest.dsh.profile.bundles).toContain(OFFICIAL_MARKET_PACKAGE)
+  expect(manifest.dsh.profile.bundles).not.toContain(COMMUNITY_MARKET_PACKAGE)
+  expect(manifest.dsh.profile.bundles).not.toContain(DSH_MARKET_PACKAGE)
+  const saved = readFileSync(patchPath, 'utf8')
+  expect(saved).toContain('# keep comment')
+  const profile = loadNextProfile(dir, manager.home)
+  const rows = composeEntries([...profile.layers.map(layer => layer.patches), profile.patches])
+  expect(rows.find(row => row.id === 'plugin-market')?.config).toEqual({
+    indexes: [DEFAULT_OFFICIAL_MARKET_INDEX_URL, 'https://example.com/custom-index.json'],
+  })
+})
+
 it('skips onboarding without changing current choices, while a recreated Profile starts fresh', () => {
   const manager = profiles()
   const dir = manager.create('work')
@@ -130,6 +152,8 @@ it('skips onboarding without changing current choices, while a recreated Profile
 
 it.each([
   { market: true, dshMarket: true, remoteControl: false },
+  { market: true, officialMarket: true, remoteControl: false },
+  { market: false, dshMarket: true, officialMarket: true, remoteControl: false },
   { market: true, remoteControl: 'yes' },
   { market: false, remoteControl: false, extra: true },
 ])('leaves onboarding incomplete and configuration untouched on invalid choices %j', value => {
@@ -380,91 +404,171 @@ it('keeps the recovery deselection ledger across a feature change and never rese
   expect(after.dsh.profile.bundles).not.toContain(COMMUNITY_MARKET_PACKAGE)
 })
 
-/** A Profile as 0.1.7-rc.2 left it: no migration marker, Schedule toggled through Web rows. */
-function rc2Profile(patch: string) {
+/** A Profile an earlier Next left behind: marker 1 after rc.2 selected the bundle, none before. */
+function earlierProfile(patch: string, { marker, bundle = false }: { marker?: number, bundle?: boolean } = {}) {
   const manager = profiles()
   const dir = manager.ensure('desktop')
   const file = join(dir, 'package.json')
   const manifest = JSON.parse(readFileSync(file, 'utf8'))
-  delete manifest.dsh.desktopNextScheduleBundle
+  if (marker === undefined) delete manifest.dsh.desktopNextScheduleBundle
+  else manifest.dsh.desktopNextScheduleBundle = marker
+  if (bundle) manifest.dsh.profile.bundles.push(SCHEDULE_BUNDLE)
   writeFileSync(file, JSON.stringify(manifest))
   writeFileSync(join(dir, 'cordis.patch.yml'), patch)
-  const read = () => ({ bundles: JSON.parse(readFileSync(file, 'utf8')).dsh.profile.bundles as string[],
-    patch: readFileSync(join(dir, 'cordis.patch.yml'), 'utf8') })
+  const read = () => ({
+    manifest: JSON.parse(readFileSync(file, 'utf8')) as { dsh: { desktopNextScheduleBundle?: number, profile: { bundles: string[] } } },
+    patch: readFileSync(join(dir, 'cordis.patch.yml'), 'utf8'),
+  })
   return { manager, dir, file, read }
 }
-const RETIRED_SCHEDULE_BUNDLE = '@deepseek-ai/dsh-experimental-schedule-bundle'
+const SCHEDULE_BUNDLE = '@deepseek-ai/dsh-experimental-schedule-bundle'
+const SCHEDULE_MODULES = ['@deepseek-ai/dsh-schedule', '@deepseek-ai/dsh-client-ui-schedule']
 
-it('retires the Scheduled Tasks bundle once for rc.2 users who had it on and drops the stale row toggles', () => {
-  const { manager, dir, file, read } = rc2Profile([
+it('retires the Scheduled Tasks bundle and stale clock overrides while Schedule overrides keep applying', () => {
+  const { manager, dir, file, read } = earlierProfile([
     '# keep me',
     '- id: ui-sidebar-browser',
     '  disabled: true',
     '- id: time-context',
-    '  disabled: false',
+    '  disabled: true',
     '- id: schedule',
     '  disabled: false',
     '- id: ui-schedule',
     '  disabled: false',
     '',
-  ].join('\n'))
+  ].join('\n'), { marker: 1, bundle: true })
   const profile = loadNextProfile(dir, manager.home)
   const after = read()
-  expect(after.bundles).not.toContain(RETIRED_SCHEDULE_BUNDLE)
-  expect(after.patch).toBe('# keep me\n- id: ui-sidebar-browser\n  disabled: true\n')
+  expect(after.manifest.dsh.profile.bundles).not.toContain(SCHEDULE_BUNDLE)
+  expect(after.manifest.dsh.desktopNextScheduleBundle).toBe(2)
+  expect(after.patch).toBe('# keep me\n- id: ui-sidebar-browser\n  disabled: true\n- id: schedule\n  disabled: false\n- id: ui-schedule\n  disabled: false\n')
   expect(readdirSync(join(manager.home, 'recovery'))).toHaveLength(1)
-  // 0.2.1 mounts the three Schedule rows in every Web profile, so the retired
-  // bundle leaves no rows behind in the Next layer list.
+  // The Web composition mounts Schedule itself now.
   const rows = composeEntries([...profile.layers.map(layer => layer.patches), profile.patches])
-  expect(rows.some(row => row.name === RETIRED_SCHEDULE_BUNDLE)).toBe(false)
+  for (const name of SCHEDULE_MODULES) {
+    const row = rows.find(item => item.name === name)
+    expect(row, name).toBeDefined()
+    expect(row?.disabled, name).toBeFalsy()
+  }
 
-  // A later row toggle must survive: the retirement runs once and never re-adds the bundle.
-  const manifest = JSON.parse(readFileSync(file, 'utf8'))
-  manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter((name: string) => name !== RETIRED_SCHEDULE_BUNDLE)
-  writeFileSync(file, JSON.stringify(manifest))
-  writeFileSync(join(dir, 'cordis.patch.yml'), '- id: schedule\n  disabled: false\n')
+  // Once retired, later switches are the user's own and stay untouched.
+  writeFileSync(join(dir, 'cordis.patch.yml'), '- id: schedule\n  disabled: true\n- id: time-context\n  disabled: true\n')
   const before = readFileSync(file, 'utf8')
   manager.ensure('desktop')
   expect(readFileSync(file, 'utf8')).toBe(before)
-  expect(read().patch).toBe('- id: schedule\n  disabled: false\n')
+  expect(read().patch).toBe('- id: schedule\n  disabled: true\n- id: time-context\n  disabled: true\n')
 })
 
-it('keeps rows the rc.2 user left off disabled after the bundle retirement', () => {
-  const { manager, read } = rc2Profile('- id: schedule\n  disabled: false\n- id: time-context\n  disabled: true\n')
-  manager.ensure('desktop')
-  const after = read()
-  expect(after.bundles).not.toContain(RETIRED_SCHEDULE_BUNDLE)
-  expect(after.patch).toBe('- id: time-context\n  disabled: true\n- id: ui-schedule\n  disabled: true\n')
-})
-
-it('clears stale toggles while retiring the bundle when rc.2 ended with Scheduled Tasks off', () => {
-  const { manager, read } = rc2Profile([
-    '- id: schedule',
-    '  disabled: false',
+it('keeps a Schedule switch an earlier release left off and rows that address other modules', () => {
+  const { manager, dir, read } = earlierProfile([
     '- id: schedule',
     '  disabled: true',
-    '- id: schedule',
-    '  name: some-other-schedule',
+    '- id: time-context',
+    '  name: "@deepseek-ai/dsh-time-context"',
+    '  disabled: false',
+    '- id: time-context',
+    '  name: some-other-clock',
     '  disabled: false',
     '- id: ui-schedule',
     '  config:',
     '    pageSize: 5',
     '',
   ].join('\n'))
-  manager.ensure('desktop')
-  const after = read()
-  expect(after.bundles).not.toContain(RETIRED_SCHEDULE_BUNDLE)
-  // Rows for another package and user configuration are not toggles; keep them.
-  expect(after.patch).toBe('- id: schedule\n  name: some-other-schedule\n  disabled: false\n- id: ui-schedule\n  config:\n    pageSize: 5\n- id: time-context\n  disabled: true\n- id: schedule\n  disabled: true\n- id: ui-schedule\n  disabled: true\n')
+  const profile = loadNextProfile(dir, manager.home)
+  expect(read().patch).toBe('- id: schedule\n  disabled: true\n- id: time-context\n  name: some-other-clock\n  disabled: false\n- id: ui-schedule\n  config:\n    pageSize: 5\n')
+  const rows = composeEntries([...profile.layers.map(layer => layer.patches), profile.patches])
+  expect(rows.find(item => item.name === '@deepseek-ai/dsh-schedule')?.disabled).toBe(true)
+  expect(rows.find(item => item.name === '@deepseek-ai/dsh-client-ui-schedule')?.disabled).toBeFalsy()
 })
 
-it('leaves a malformed patch for recovery and retries the Scheduled Tasks migration later', () => {
-  const { manager, dir, file, read } = rc2Profile('- id: schedule\n  disabled: [\n')
+it('leaves a malformed patch for recovery and retires the Scheduled Tasks bundle later', () => {
+  const { manager, dir, read } = earlierProfile('- id: time-context\n  disabled: [\n', { marker: 1, bundle: true })
   manager.ensure('desktop')
-  expect(JSON.parse(readFileSync(file, 'utf8')).dsh.desktopNextScheduleBundle).toBeUndefined()
-  expect(read().patch).toBe('- id: schedule\n  disabled: [\n')
-  writeFileSync(join(dir, 'cordis.patch.yml'), '- id: schedule\n  disabled: false\n')
+  expect(read().manifest.dsh.desktopNextScheduleBundle).toBe(1)
+  expect(read().manifest.dsh.profile.bundles).toContain(SCHEDULE_BUNDLE)
+  expect(read().patch).toBe('- id: time-context\n  disabled: [\n')
+  writeFileSync(join(dir, 'cordis.patch.yml'), '- id: time-context\n  disabled: true\n')
   manager.ensure('desktop')
-  expect(read().bundles).not.toContain(RETIRED_SCHEDULE_BUNDLE)
-  expect(read().patch).toBe('- id: time-context\n  disabled: true\n- id: ui-schedule\n  disabled: true\n')
+  expect(read().manifest.dsh.desktopNextScheduleBundle).toBe(2)
+  expect(read().manifest.dsh.profile.bundles).not.toContain(SCHEDULE_BUNDLE)
+  expect(read().patch).toBe('[]\n')
+})
+
+/** Lay out what a dsh 0.1.5 launcher left in the shared Profile: profile link -> owned link -> its installation. */
+function projectLegacyPackages(home: string, dir: string) {
+  const directoryLink = process.platform === 'win32' ? 'junction' : 'dir'
+  const files: string[] = []
+  const links: string[] = []
+  for (const packageName of ['@deepseek-ai/dsh-scope', '@deepseek-ai/dsh-persona']) {
+    const target = join(home, 'old-desktop', 'node_modules', packageName)
+    mkdirSync(target, { recursive: true })
+    writeFileSync(join(target, 'index.js'), 'old installation')
+    files.push(join(target, 'index.js'))
+    const owned = join(dir, '.dsh-module-fallback', 'node_modules', packageName)
+    mkdirSync(dirname(owned), { recursive: true })
+    symlinkSync(target, owned, directoryLink)
+    const link = join(dir, 'node_modules', packageName)
+    mkdirSync(dirname(link), { recursive: true })
+    symlinkSync(owned, link, directoryLink)
+    links.push(link)
+  }
+  return { files, links }
+}
+
+it('retires dsh 0.1.5 link projections before composing the Profile', () => {
+  const manager = profiles()
+  const dir = manager.ensure('desktop')
+  const { files, links } = projectLegacyPackages(manager.home, dir)
+  loadNextProfile(dir, manager.home)
+  for (const link of links) expect(lstatSync(link, { throwIfNoEntry: false })).toBeUndefined()
+  expect(existsSync(join(dir, '.dsh-module-fallback'))).toBe(false)
+  for (const file of files) expect(readFileSync(file, 'utf8')).toBe('old installation')
+})
+
+it('still loads the Profile when the projection sweep fails', () => {
+  const manager = profiles()
+  const dir = manager.ensure('desktop')
+  const sweep = vi.spyOn(linkProjections, 'removeLinkProjectionsSafely').mockImplementation(() => {
+    throw Object.assign(new Error('EBUSY: junction is locked'), { code: 'EBUSY' })
+  })
+  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+  try {
+    expect(loadNextProfile(dir, manager.home).layers.map(layer => layer.packageName)).toContain('dsh-desktop-next')
+    expect(sweep).toHaveBeenCalledWith(dir)
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('could not remove dsh 0.1.5 link projections'))
+  } finally { sweep.mockRestore(); stderr.mockRestore() }
+})
+
+it('leaves no Profile link into an archived installation and points the AA bridge at its unpacked files', () => {
+  const manager = profiles()
+  const dir = manager.ensure('desktop')
+  const resources = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-next-resources-')))
+  roots.push(resources)
+  const archive = join(resources, 'app.asar')
+  const bridge = join(archive, 'node_modules', '@agents-anywhere', 'dsh-bridge-next')
+  const uv = join(archive, 'node_modules', '@dataiku', `uv-${process.platform}-${process.arch}`)
+  for (const path of [bridge, uv]) mkdirSync(path, { recursive: true })
+  writeFileSync(join(archive, 'package.json'), readFileSync(NEXT_PACKAGE))
+  writeFileSync(join(bridge, 'package.json'), JSON.stringify({ name: AA_PACKAGE, version: '0.0.0', exports: { '.': './index.js', './package.json': './package.json' } }))
+  writeFileSync(join(bridge, 'index.js'), 'export {}\n')
+  writeFileSync(join(uv, 'package.json'), JSON.stringify({ name: `@dataiku/uv-${process.platform}-${process.arch}`, version: '0.0.0' }))
+  // A development launch left its link behind; the archived application removes it.
+  const modules = join(manager.home, 'profiles', 'node_modules')
+  mkdirSync(modules, { recursive: true })
+  const link = join(modules, 'dsh-desktop-next')
+  symlinkSync(dirname(NEXT_PACKAGE), link, 'junction')
+  const profile = loadNextProfile(dir, manager.home, join(archive, 'package.json'))
+  expect(lstatSync(link, { throwIfNoEntry: false })).toBeUndefined()
+  expect(profile.layers.map(layer => layer.packageName)).toContain('dsh-desktop-next')
+  const overlay = JSON.parse(readFileSync(join(dir, 'desktop-next.cordis.patch.json'), 'utf8')) as { id: string; config: Record<string, string> }[]
+  const unpacked = join(resources, 'app.asar.unpacked', 'node_modules')
+  expect(overlay).toEqual([{ id: 'agents-anywhere-bridge-next', config: {
+    dshHome: manager.home,
+    connectorSourceDir: join(unpacked, '@agents-anywhere', 'dsh-bridge-next', 'lib', 'bundled-connector'),
+    uvPath: join(unpacked, '@dataiku', `uv-${process.platform}-${process.arch}`, 'bin', process.platform === 'win32' ? 'uv.exe' : 'uv'),
+  } }])
+  // A physical installation keeps the managed link and the bridge's own defaults.
+  loadNextProfile(dir, manager.home)
+  expect(lstatSync(link).isSymbolicLink()).toBe(true)
+  expect(JSON.parse(readFileSync(join(dir, 'desktop-next.cordis.patch.json'), 'utf8'))).toEqual([{ id: 'agents-anywhere-bridge-next', config: { dshHome: manager.home } }])
 })

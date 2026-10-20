@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { prepareFsExtForElectron } from './prepare-fs-ext.ts'
 import { electronBuilderEnvironment } from './electron-builder-environment.ts'
+import { prepareDesktopInterpreters, verifyPreparedDesktopRuntime } from './prepare-runtime.ts'
 
 const WINDOWS_SIGNING_KEYS = [
   'CSC_IDENTITY_AUTO_DISCOVERY',
@@ -122,6 +123,7 @@ export function createWindowsPackageOptions(verifier = './verify-win-installer.t
     builderCli: require.resolve('electron-builder/cli.js'),
     prepareRuntime: () => {
       prepareFsExtForElectron({ platform: 'win32', arch: 'x64', desktopRoot })
+      verifyPreparedDesktopRuntime(desktopRoot, 'win32')
     },
     verifier: fileURLToPath(new URL(verifier, import.meta.url)),
     nodeExecutable: process.execPath,
@@ -216,6 +218,8 @@ export function packageWindowsInstaller(
 const invokedPath = process.argv[1]
 if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
   try {
+    // The interpreter payload is downloaded and assembled before the long package gate; the flow re-checks it right before electron-builder.
+    await prepareDesktopInterpreters({ desktopRoot: resolve(dirname(fileURLToPath(import.meta.url)), '..') })
     packageWindowsInstaller()
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))

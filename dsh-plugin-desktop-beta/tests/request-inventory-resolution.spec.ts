@@ -19,14 +19,17 @@ it('prepares request inventory for Desktop-owned entries and private-manifest pl
     try {
       writeFileSync(join(root, 'package.json'), '{"type":"module"}');
       const baseUrl = pathToFileURL(join(root, 'package.json')).href;
+      let warnings = [];
       const collect = async names => {
         let provider;
+        warnings = [];
         const tree = { ctx: { baseUrl }, entries: () => names.map(name => ({
           options: { name }, fiber: { state: 2 }, parent: { tree }
         })) };
         // 0.1.6 asks the Host for the active package index. A standalone
         // Profile has none, which keeps the upstream filesystem lookup.
         apply({ baseUrl, get: () => undefined, loader: tree,
+          logger: { warn: (format, name, error) => { warnings.push(String(error?.message ?? error)); } },
           deepseekLlmApiExtensions: {
           register: (key, value) => { assert.equal(key, 'dsh_plugin_packages'); provider = value; }
         } }, {});

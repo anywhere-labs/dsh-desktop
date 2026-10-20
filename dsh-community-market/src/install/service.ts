@@ -1,11 +1,12 @@
-import { randomBytes, randomUUID } from 'node:crypto'
-import { lstat, readFile, rename, unlink, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, resolve } from 'node:path'
-import type { Readable } from 'node:stream'
+import { randomBytes } from 'node:crypto'
+import { isAbsolute, resolve } from 'node:path'
+import type { BundleInfo, ChangeResult, InstallBundleOptions, ManagementError, PluginInfo } from '@deepseek-ai/dsh-plugin-manager'
 import { prerelease, valid } from 'semver'
 import type {
   MarketCatalogMetadata,
   MarketInstallableResponse,
+  MarketInstallationView,
+  MarketOperationApplication,
   MarketSourceView,
 } from '../api-types.js'
 import type { CatalogHttpClient } from '../contracts/types.js'
@@ -22,41 +23,45 @@ import {
 import { manualInstallHints } from './manual.js'
 
 const NPM_REGISTRY_ORIGIN = 'https://registry.npmjs.org'
-const NPM_REGISTRY = `${NPM_REGISTRY_ORIGIN}/`
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u
-const MAX_MANIFEST_BYTES = 1024 * 1024
 const INSTALL_INTENT_TTL_MS = 5 * 60 * 1000
 const CANDIDATE_TTL_MS = 30 * 60 * 1000
 const MAX_INTENTS = 256
 const MAX_CANDIDATES = 10_000
-const MAX_PNPM_STREAM_OUTPUT_BYTES = 32 * 1024
-const MAX_FAILURE_CAUSE_LENGTH = 4 * 1024
+/** How long a saved selection may keep activating before its pending rows count as a failure. */
+const ACTIVATION_GRACE_MS = 5000
+const ACTIVATION_POLL_MS = 250
 const BLOCKED_PRODUCT_PACKAGES = new Set([
   'dsh-plugin-desktop',
   'dsh-plugin-desktop-beta',
   'dsh-desktop-next',
   'dsh-community-market',
 ])
+/** Bundles Desktop ships and manages on the official Plugins page; the Market lists none of them. */
+const DESKTOP_BUILT_IN_BUNDLES = new Set([
+  ...BLOCKED_PRODUCT_PACKAGES,
+  'dshmarket',
+  '@agents-anywhere/dsh-bridge-next',
+])
+/** DeepSeek's own packages are official plugins whatever the manager's catalog flags say. */
+const OFFICIAL_SCOPE = '@deepseek-ai/'
 
 export interface MarketDesktopProfile {
   readonly name: string
   readonly dir: string
 }
 
-export interface MarketDesktopPnpmOutcome {
-  readonly exitCode: number | null
-  readonly signal: NodeJS.Signals | null
-}
-
-export interface MarketDesktopPnpmHandle {
-  readonly stdout: Readable
-  readonly stderr: Readable
-  readonly done: Promise<MarketDesktopPnpmOutcome>
-  cancel(): void
-}
-
-export interface MarketDesktopPnpm {
-  run(argv: readonly string[], signal?: AbortSignal): MarketDesktopPnpmHandle
+/**
+ * The official profile plugin manager operations the Market delegates every
+ * package mutation to. The upstream `pluginManager` service satisfies this
+ * interface structurally; tests supply an in-memory implementation.
+ */
+export interface MarketPluginManager {
+  listBundles(): Promise<readonly BundleInfo[]>
+  listPlugins(): Promise<readonly PluginInfo[]>
+  installBundle(spec: string, options?: InstallBundleOptions): Promise<ChangeResult>
+  setBundleEnabled(name: string, enabled: boolean): Promise<ChangeResult>
+  removeBundle(name: string): Promise<ChangeResult>
 }
 
 export interface MarketInstallPreview {
@@ -82,15 +87,23 @@ export interface MarketUninstallPreview {
 export interface MarketInstallResult {
   readonly packageName: string
   readonly version: string
+  readonly application: MarketOperationApplication
 }
 
 export interface MarketUninstallResult {
   readonly packageName: string
+  readonly application: MarketOperationApplication
+}
+
+export interface MarketToggleResult {
+  readonly packageName: string
+  readonly enabled: boolean
+  readonly application: MarketOperationApplication
 }
 
 export type MarketOperationResult =
-  | ({ readonly action: 'install'; readonly restartToken: string } & MarketInstallResult)
-  | ({ readonly action: 'uninstall'; readonly restartToken: string } & MarketUninstallResult)
+  | ({ readonly action: 'install' } & MarketInstallResult)
+  | ({ readonly action: 'uninstall' } & MarketUninstallResult)
 
 export type MarketInstallErrorCode =
   | 'invalid-request'
@@ -111,68 +124,6 @@ export class MarketInstallError extends Error {
     super(message)
     this.name = 'MarketInstallError'
   }
-}
-
-interface BoundedOutputCapture {
-  read(): string
-  stop(): void
-}
-
-function captureBoundedOutput(stream: Readable): BoundedOutputCapture {
-  let output: Buffer<ArrayBufferLike> = Buffer.alloc(0)
-  let truncated = false
-  const onData = (chunk: string | Buffer) => {
-    const next = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-    if (next.byteLength >= MAX_PNPM_STREAM_OUTPUT_BYTES) {
-      output = next.subarray(next.byteLength - MAX_PNPM_STREAM_OUTPUT_BYTES)
-      truncated = true
-      return
-    }
-    if (output.byteLength + next.byteLength > MAX_PNPM_STREAM_OUTPUT_BYTES) {
-      output = Buffer.concat([output, next]).subarray(-MAX_PNPM_STREAM_OUTPUT_BYTES)
-      truncated = true
-      return
-    }
-    output = Buffer.concat([output, next])
-  }
-  stream.on('data', onData)
-  stream.resume()
-  return {
-    read() {
-      const value = output.toString('utf8').trimEnd()
-      if (!truncated) return value
-      return `[earlier output truncated]\n${value}`
-    },
-    stop() { stream.off('data', onData) },
-  }
-}
-
-function failureCause(cause: unknown): string | undefined {
-  const value = cause instanceof Error ? cause.stack ?? cause.message : String(cause)
-  if (value.trim().length === 0) return undefined
-  return value.length <= MAX_FAILURE_CAUSE_LENGTH
-    ? value
-    : `${value.slice(0, MAX_FAILURE_CAUSE_LENGTH)}\n[cause truncated]`
-}
-
-function packageManagerDetails(
-  args: readonly string[],
-  stdout: string,
-  stderr: string,
-  outcome?: MarketDesktopPnpmOutcome,
-  cause?: unknown,
-): string {
-  const causeText = failureCause(cause)
-  const sections = [
-    `pnpm ${args.join(' ')}`,
-    ...(outcome === undefined ? [] : [
-      `exitCode: ${outcome.exitCode === null ? 'null' : outcome.exitCode}\nsignal: ${outcome.signal ?? 'none'}`,
-    ]),
-    ...(causeText === undefined ? [] : [`cause:\n${causeText}`]),
-    ...(stdout === '' ? [] : [`stdout:\n${stdout}`]),
-    ...(stderr === '' ? [] : [`stderr:\n${stderr}`]),
-  ]
-  return sections.join('\n\n')
 }
 
 interface InstallCandidate {
@@ -203,11 +154,6 @@ interface UninstallIntent {
 }
 
 type MarketIntent = InstallIntent | UninstallIntent
-
-interface RestartIntent {
-  readonly profile: MarketDesktopProfile
-  readonly expiresAt: number
-}
 
 export interface MarketNpmPackageVerifier {
   verify(
@@ -240,6 +186,10 @@ export interface MarketInstallServiceOptions {
   readonly candidateTtlMs?: number
   readonly maxIntents?: number
   readonly maxCandidates?: number
+  /** How long a saved selection may keep activating before its pending rows count as a failure. */
+  readonly activationGraceMs?: number
+  /** How often the activation of a saved selection is re-read during the grace period. */
+  readonly activationPollMs?: number
   /** Receives bounded package-manager failures for the Desktop persistent log. */
   readonly logFailure?: (message: string) => void
 }
@@ -351,126 +301,82 @@ export function createMarketPackageVerifier(
   }
 }
 
-interface JsonManifest {
-  readonly name?: unknown
-  readonly version?: unknown
-  readonly dependencies?: unknown
-  readonly dsh?: unknown
+/** Whether the official manager already holds the package: declared, selected, or shipped by the installation. */
+function bundleKnown(bundle: BundleInfo): boolean {
+  return bundle.installed || bundle.enabled || bundle.availability === 'installation'
 }
 
-type UnknownRecord = Record<string, unknown>
-
-function record(value: unknown): UnknownRecord | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as UnknownRecord
-    : undefined
+/**
+ * Whether the Installed view lists a bundle: a community plugin the profile
+ * declares or selects. Official bundles, bundles the installation ships,
+ * DeepSeek's own scope, and Desktop's built-in bundles are managed on the
+ * official Plugins page and stay out of the Market; absent on-demand catalog
+ * entries and unselected shipped bundles are not part of the profile at all.
+ */
+function marketListedBundle(bundle: BundleInfo): boolean {
+  return !bundle.official
+    && bundle.availability !== 'installation'
+    && !bundle.name.startsWith(OFFICIAL_SCOPE)
+    && !DESKTOP_BUILT_IN_BUNDLES.has(bundle.name)
+    && (bundle.installed || bundle.enabled)
 }
 
-async function readManifest(path: string): Promise<JsonManifest> {
-  const body = await readFile(path)
-  if (body.byteLength > MAX_MANIFEST_BYTES) throw new Error('manifest too large')
-  const value = JSON.parse(body.toString('utf8')) as unknown
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid manifest')
-  return value as JsonManifest
-}
-
-/** Atomically update only the Profile bundle list after pnpm changes dependencies. */
-async function setProfileBundle(
-  profile: MarketDesktopProfile,
-  packageName: string,
-  present: boolean,
-): Promise<void> {
-  const manifestPath = join(profile.dir, 'package.json')
-  const item = await lstat(manifestPath)
-  if (!item.isFile() || item.isSymbolicLink()) throw new Error('unsafe profile manifest')
-  const manifest = await readManifest(manifestPath) as UnknownRecord
-  const dsh = record(manifest.dsh) ?? {}
-  const profileDocument = record(dsh.profile) ?? {}
-  const current = profileBundles(manifest)
-  const bundles = present
-    ? current.includes(packageName) ? [...current] : [...current, packageName]
-    : current.filter(bundle => bundle !== packageName)
-  const next = {
-    ...manifest,
-    dsh: {
-      ...dsh,
-      profile: {
-        ...profileDocument,
-        bundles,
-      },
-    },
-  }
-  const temporary = join(profile.dir, `.package.json.${process.pid}.${randomUUID()}.tmp`)
-  try {
-    await writeFile(temporary, `${JSON.stringify(next, undefined, 2)}\n`, {
-      encoding: 'utf8',
-      flag: 'wx',
-      mode: item.mode & 0o777,
-    })
-    await rename(temporary, manifestPath)
-  } finally {
-    await unlink(temporary).catch(cause => {
-      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
-    })
+/**
+ * Project one official bundle onto the Installed view, or nothing for a bundle
+ * the Market does not list. Actions follow the manager's flags: a bundle it
+ * protects is read-only, and a bundle it cannot read can be switched off but not on.
+ */
+export function marketInstallationView(bundle: BundleInfo): MarketInstallationView | undefined {
+  if (!marketListedBundle(bundle)) return undefined
+  const editable = bundle.readOnlyReason === undefined
+  return {
+    kind: 'profile',
+    packageName: bundle.name,
+    ...(bundle.version === undefined ? {} : { version: bundle.version }),
+    enabled: bundle.enabled,
+    installed: bundle.installed,
+    // A bundle the Host cannot read can still be switched off, never on.
+    toggleable: editable && (bundle.enabled || bundle.error === undefined),
+    removable: editable && bundle.removable,
+    ...(bundle.error === undefined ? {} : { error: bundle.error.code }),
   }
 }
 
-function profileDependency(manifest: JsonManifest, packageName: string): string | undefined {
-  if (manifest.dependencies === null || typeof manifest.dependencies !== 'object' || Array.isArray(manifest.dependencies)) {
-    return undefined
-  }
-  const value = (manifest.dependencies as Record<string, unknown>)[packageName]
-  return typeof value === 'string' ? value : undefined
-}
-
-function profileBundles(manifest: JsonManifest): readonly string[] {
-  if (manifest.dsh === null || typeof manifest.dsh !== 'object' || Array.isArray(manifest.dsh)) return []
-  const profile = (manifest.dsh as Record<string, unknown>).profile
-  if (profile === null || typeof profile !== 'object' || Array.isArray(profile)) return []
-  const bundles = (profile as Record<string, unknown>).bundles
-  return Array.isArray(bundles) && bundles.every(value => typeof value === 'string') ? bundles : []
-}
-
-function profileReferencesPlugin(manifest: JsonManifest, packageName: string): boolean {
-  return profileDependency(manifest, packageName) !== undefined || profileBundles(manifest).includes(packageName)
-}
-
-async function assertNotInstalled(profile: MarketDesktopProfile, packageName: string): Promise<void> {
-  const profileManifest = await readManifest(join(profile.dir, 'package.json'))
-  if (profileReferencesPlugin(profileManifest, packageName)) {
-    throw new MarketInstallError('conflict', 'This plugin is already managed by the active profile.')
+/** A safe sentence for the management refusal codes the official manager reports. */
+function managementMessage(error: ManagementError | undefined): string | undefined {
+  switch (error?.code) {
+    case undefined: return undefined
+    case 'incompatible-version': {
+      const named = (error.incompatible ?? []).map(plugin => `${plugin.name}@${plugin.version}`).join(', ')
+      return `The plugin is not compatible with the running DSH version${named === '' ? '' : ` (${named})`}.`
+    }
+    case 'already-installed': return 'This plugin is already managed by the active profile.'
+    case 'not-bundle': return 'The package does not declare a DSH plugin bundle.'
+    case 'ambiguous-install': return 'The package manager changed more than one dependency, so the installed plugin could not be identified.'
+    case 'not-removable': return 'This plugin cannot be removed by the plugin manager.'
+    case 'stop-profile': return 'This plugin started the current process. Stop DSH before removing it.'
+    case 'bundle-in-use': return 'This plugin is still running and could not be unloaded.'
+    case 'management-required': return 'This plugin is part of the plugin management components and cannot be changed here.'
+    case 'unaddressable':
+    case 'unknown-plugin': return 'The plugin manager could not address this plugin.'
+    case 'invalid-spec': return 'The plugin manager rejected the install target.'
+    case 'stale-approval': return 'The build-script approval is no longer current.'
+    case 'operation-error': return undefined
+    default: return undefined
   }
 }
 
-async function assertRemoved(profile: MarketDesktopProfile, packageName: string): Promise<void> {
-  const profileManifest = await readManifest(join(profile.dir, 'package.json'))
-  if (profileReferencesPlugin(profileManifest, packageName)) {
-    throw new Error('plugin remains in profile')
-  }
-}
-
-async function directProfilePluginVersion(
-  profile: MarketDesktopProfile,
-  packageName: string,
-): Promise<string> {
-  const manifest = await readManifest(join(profile.dir, 'package.json'))
-  const version = profileDependency(manifest, packageName)
-  if (version === undefined || !profileBundles(manifest).includes(packageName)) {
-    throw new MarketInstallError('conflict', 'This plugin is no longer a direct dependency of the active Profile.')
-  }
-  return version
-}
-
-/** Host-owned install workflow. No provider command or Renderer package spec crosses this boundary. */
+/** Host-owned package workflow over the official plugin manager. No provider command or Renderer package spec crosses this boundary. */
 export class MarketInstallService {
   private readonly candidates = new Map<string, InstallCandidate>()
   private readonly intents = new Map<string, MarketIntent>()
-  private readonly restartIntents = new Map<string, RestartIntent>()
   private readonly now: () => number
   private readonly intentTtlMs: number
   private readonly candidateTtlMs: number
   private readonly maxIntents: number
   private readonly maxCandidates: number
+  private readonly activationGraceMs: number
+  private readonly activationPollMs: number
   private readonly logFailure: ((message: string) => void) | undefined
   private readonly generation = new AbortController()
   private operationActive = false
@@ -478,7 +384,7 @@ export class MarketInstallService {
 
   constructor(
     private readonly currentProfile: () => MarketDesktopProfile,
-    private readonly pnpm: MarketDesktopPnpm,
+    private readonly manager: MarketPluginManager,
     private readonly verifier: MarketPackageVerifier,
     options: MarketInstallServiceOptions = {},
   ) {
@@ -487,12 +393,16 @@ export class MarketInstallService {
     this.candidateTtlMs = options.candidateTtlMs ?? CANDIDATE_TTL_MS
     this.maxIntents = options.maxIntents ?? MAX_INTENTS
     this.maxCandidates = options.maxCandidates ?? MAX_CANDIDATES
+    this.activationGraceMs = options.activationGraceMs ?? ACTIVATION_GRACE_MS
+    this.activationPollMs = options.activationPollMs ?? ACTIVATION_POLL_MS
     this.logFailure = options.logFailure
     for (const [label, value] of [
       ['intent TTL', this.intentTtlMs],
       ['candidate TTL', this.candidateTtlMs],
       ['intent limit', this.maxIntents],
       ['candidate limit', this.maxCandidates],
+      ['activation grace', this.activationGraceMs],
+      ['activation poll interval', this.activationPollMs],
     ] as const) {
       if (!Number.isSafeInteger(value) || value < 1) throw new TypeError(`invalid market install ${label}`)
     }
@@ -575,6 +485,17 @@ export class MarketInstallService {
     }
   }
 
+  /** Read the active profile's bundles as the official manager reports them. */
+  async listInstallations(signal: AbortSignal): Promise<readonly MarketInstallationView[]> {
+    const operationSignal = this.operationSignal(signal)
+    const bundles = await this.listBundles()
+    operationSignal.throwIfAborted()
+    return bundles.flatMap(bundle => {
+      const view = marketInstallationView(bundle)
+      return view === undefined ? [] : [view]
+    })
+  }
+
   async previewInstall(
     sourceRecordId: string,
     itemId: string,
@@ -589,7 +510,7 @@ export class MarketInstallService {
       throw new MarketInstallError('not-available', 'This catalog item has no verified install target. Refresh the active source and try again.')
     }
     const profile = this.profile()
-    if (candidate.packageName !== undefined) await assertNotInstalled(profile, candidate.packageName)
+    if (candidate.packageName !== undefined) await this.assertNotInstalled(candidate.packageName)
     let verification: MarketPackageVerification
     try { verification = await this.verifier.verify(candidate, operationSignal) }
     catch (cause) {
@@ -612,7 +533,7 @@ export class MarketInstallService {
     if (packageName === undefined || !safePackageName(packageName)) {
       throw new MarketInstallError('verification-failed', 'The verified package name is invalid.')
     }
-    await assertNotInstalled(profile, packageName)
+    await this.assertNotInstalled(packageName)
     return {
       intent: token,
       action: 'install',
@@ -628,7 +549,7 @@ export class MarketInstallService {
     return await this.runExclusive(async () => {
       const operationSignal = this.operationSignal(signal)
       const intent = this.consumeIntent(token, 'install')
-      const profile = this.sameProfile(intent.profile)
+      this.sameProfile(intent.profile)
       const candidate = intent.candidate
       if (this.candidates.get(candidate.key) !== candidate) {
         throw new MarketInstallError('not-available', 'The verified catalog item is no longer available.')
@@ -638,30 +559,31 @@ export class MarketInstallService {
       if (packageName === undefined || !safePackageName(packageName)) {
         throw new MarketInstallError('verification-failed', 'The verified package name is invalid.')
       }
-      await assertNotInstalled(profile, packageName)
+      await this.assertNotInstalled(packageName)
       if (this.candidates.get(candidate.key) !== candidate) {
         throw new MarketInstallError('not-available', 'The catalog source changed before installation.')
       }
+      operationSignal.throwIfAborted()
       const target = candidate.source === undefined
         ? `${packageName}@${verification.version}`
         : githubPackageTarget(candidate.source)
-      await this.runPnpm([
-        'add',
-        ...(candidate.source === undefined ? this.installOptions(packageName) : ['--save-exact']),
-        target,
-      ], operationSignal)
-      try {
-        await setProfileBundle(profile, packageName, true)
-        const installedVersion = await directProfilePluginVersion(profile, packageName)
-        if (installedVersion !== verification.version) throw new Error('installed version mismatch')
-        operationSignal.throwIfAborted()
-      } catch {
-        throw new MarketInstallError(
-          'operation-failed',
-          'The package manager changed the Profile, but the plugin bundle could not be validated. Use a Recovery checkpoint if you need to restore the previous Profile state.',
+      // The official manager validates the bundle, restores the profile files on
+      // failure, selects the bundle, and applies it live where HMR is mounted. A
+      // bundle it installed and selected but judged before its rows activated is
+      // given the same activation grace as a toggle.
+      const result = await this.runChange(
+        () => this.manager.installBundle(target, { enabled: true, saveExact: true }),
+        'The plugin could not be installed.',
+        failed => failed.bundle === undefined ? Promise.resolve(false) : this.awaitActivation(failed.bundle, true, failed, operationSignal),
+      )
+      const installed = result.bundle ?? packageName
+      if (installed !== packageName) {
+        throw this.packageManagerError(
+          'The package manager installed a different package than the verified target.',
+          `expected ${packageName}, installed ${installed}`,
         )
       }
-      return { packageName, version: verification.version }
+      return { packageName, version: result.version ?? verification.version, application: result.application }
     })
   }
 
@@ -673,31 +595,16 @@ export class MarketInstallService {
       throw new MarketInstallError('intent-expired', 'The confirmation expired or was already used. Preview the operation again.')
     }
     const result: MarketOperationResult = intent.kind === 'install'
-      ? { action: 'install', ...await this.executeInstall(token, signal), restartToken: this.issueRestartToken() }
-      : { action: 'uninstall', ...await this.executeUninstall(token, signal), restartToken: this.issueRestartToken() }
+      ? { action: 'install', ...await this.executeInstall(token, signal) }
+      : { action: 'uninstall', ...await this.executeUninstall(token, signal) }
     return result
-  }
-
-  /** Consume one short-lived restart grant issued only after a completed mutation. */
-  consumeRestartToken(token: string): void {
-    this.assertOpen()
-    this.purge()
-    const intent = this.restartIntents.get(token)
-    if (intent === undefined) {
-      throw new MarketInstallError('intent-expired', 'The restart confirmation expired or was already used.')
-    }
-    this.restartIntents.delete(token)
-    this.sameProfile(intent.profile)
   }
 
   async previewUninstallPackage(packageName: string, signal: AbortSignal): Promise<MarketUninstallPreview> {
     const operationSignal = this.operationSignal(signal)
     operationSignal.throwIfAborted()
-    if (!safePackageName(packageName) || !marketManagedPackage(packageName)) {
-      throw new MarketInstallError('invalid-request', 'The Profile plugin package name is invalid.')
-    }
     const profile = this.profile()
-    const version = await directProfilePluginVersion(profile, packageName)
+    const bundle = await this.removableBundle(packageName)
     operationSignal.throwIfAborted()
     const expiresAt = this.now() + this.intentTtlMs
     const token = this.issueIntent({
@@ -712,7 +619,7 @@ export class MarketInstallService {
       action: 'uninstall',
       profileName: profile.name,
       packageName,
-      version,
+      ...(bundle.version === undefined ? {} : { version: bundle.version }),
       displayName: packageName,
       expiresAt: new Date(expiresAt).toISOString(),
     }
@@ -722,20 +629,36 @@ export class MarketInstallService {
     return await this.runExclusive(async () => {
       const operationSignal = this.operationSignal(signal)
       const intent = this.consumeIntent(token, 'uninstall')
-      const profile = this.sameProfile(intent.profile)
-      await directProfilePluginVersion(profile, intent.packageName)
+      this.sameProfile(intent.profile)
+      await this.removableBundle(intent.packageName)
       operationSignal.throwIfAborted()
-      await this.runPnpm(['remove', intent.packageName], operationSignal)
-      try { await setProfileBundle(profile, intent.packageName, false) }
-      catch {
-        throw new MarketInstallError(
-          'operation-failed',
-          'The package was removed, but the Profile bundle list could not be updated. Use a Recovery checkpoint to restore a consistent Profile state.',
-        )
+      // The official manager deselects and unloads the bundle before pnpm removes it.
+      const result = await this.runChange(
+        () => this.manager.removeBundle(intent.packageName),
+        'The plugin could not be removed.',
+      )
+      return { packageName: intent.packageName, application: result.application }
+    })
+  }
+
+  /** Select or deselect one profile bundle's layer through the official manager, keeping its dependency installed. */
+  async setEnabled(packageName: string, enabled: boolean, signal: AbortSignal): Promise<MarketToggleResult> {
+    return await this.runExclusive(async () => {
+      const operationSignal = this.operationSignal(signal)
+      if (!safePackageName(packageName) || !marketManagedPackage(packageName)) {
+        throw new MarketInstallError('invalid-request', 'The Profile plugin package name is invalid.')
       }
-      try { await assertRemoved(profile, intent.packageName) }
-      catch { throw new MarketInstallError('operation-failed', 'The package manager finished, but the plugin remains in the active profile.') }
-      return { packageName: intent.packageName }
+      const view = (await this.listInstallations(operationSignal)).find(item => item.packageName === packageName)
+      if (view === undefined || !view.toggleable) {
+        throw new MarketInstallError('not-available', 'This plugin can no longer be enabled or disabled here. Refresh and try again.')
+      }
+      operationSignal.throwIfAborted()
+      const result = await this.runChange(
+        () => this.manager.setBundleEnabled(packageName, enabled),
+        enabled ? 'The plugin could not be enabled.' : 'The plugin could not be disabled.',
+        failed => this.awaitActivation(packageName, enabled, failed, operationSignal),
+      )
+      return { packageName, enabled, application: result.application }
     })
   }
 
@@ -745,13 +668,12 @@ export class MarketInstallService {
     this.generation.abort(new DOMException('Market install service was disposed', 'AbortError'))
     this.candidates.clear()
     this.intents.clear()
-    this.restartIntents.clear()
   }
 
   private profile(): MarketDesktopProfile {
     const profile = this.currentProfile()
     if (!profile.name || !isAbsolute(profile.dir) || profile.dir.includes('\0')) {
-      throw new MarketInstallError('operation-failed', 'The active desktop profile is unavailable.')
+      throw new MarketInstallError('operation-failed', 'The active profile is unavailable.')
     }
     return Object.freeze({ name: profile.name, dir: resolve(profile.dir) })
   }
@@ -759,9 +681,115 @@ export class MarketInstallService {
   private sameProfile(expected: MarketDesktopProfile): MarketDesktopProfile {
     const current = this.profile()
     if (current.name !== expected.name || current.dir !== expected.dir) {
-      throw new MarketInstallError('conflict', 'The active desktop profile changed after preview.')
+      throw new MarketInstallError('conflict', 'The active profile changed after preview.')
     }
     return current
+  }
+
+  private async listBundles(): Promise<readonly BundleInfo[]> {
+    try {
+      return await this.manager.listBundles()
+    } catch (cause) {
+      throw this.packageManagerError(
+        'The plugin manager could not read the active profile.',
+        cause instanceof Error ? cause.message : String(cause),
+      )
+    }
+  }
+
+  private async assertNotInstalled(packageName: string): Promise<void> {
+    const bundles = await this.listBundles()
+    if (bundles.some(bundle => bundle.name === packageName && bundleKnown(bundle))) {
+      throw new MarketInstallError('conflict', 'This plugin is already managed by the active profile.')
+    }
+  }
+
+  private async removableBundle(packageName: string): Promise<BundleInfo> {
+    if (!safePackageName(packageName) || !marketManagedPackage(packageName)) {
+      throw new MarketInstallError('invalid-request', 'The Profile plugin package name is invalid.')
+    }
+    const bundle = (await this.listBundles()).find(item => item.name === packageName)
+    if (bundle === undefined || marketInstallationView(bundle)?.removable !== true) {
+      throw new MarketInstallError('conflict', 'This plugin is no longer a removable dependency of the active Profile.')
+    }
+    return bundle
+  }
+
+  /**
+   * Run one official change and settle it: an applied, restart-pending or
+   * overridden change returns; a failed or cancelled one becomes a Market
+   * error carrying the manager's bounded pnpm output for the failure dialog
+   * and the Desktop log. `recover` may turn a failed change whose files were
+   * saved into an applied one once the Host state settles.
+   */
+  private async runChange(
+    operation: () => Promise<ChangeResult>,
+    fallback: string,
+    recover?: (failed: ChangeResult) => Promise<boolean>,
+  ): Promise<ChangeResult & { readonly application: MarketOperationApplication }> {
+    let result: ChangeResult
+    try {
+      result = await operation()
+    } catch (cause) {
+      throw this.packageManagerError(
+        'The plugin manager could not run the package operation.',
+        cause instanceof Error ? cause.stack ?? cause.message : String(cause),
+      )
+    }
+    switch (result.application) {
+      case 'applied':
+      case 'restart-required':
+      case 'overridden':
+        return { ...result, application: result.application }
+      case 'cancelled':
+        throw this.packageManagerError('The package operation was cancelled.', result.packageResult?.output ?? '')
+      case 'failed': {
+        if (result.changed && recover !== undefined && await recover(result)) return { ...result, application: 'applied' }
+        const details = [
+          result.error?.diagnostic ?? '',
+          result.packageResult?.output ?? '',
+          result.pendingBuilds === undefined || result.pendingBuilds.length === 0
+            ? ''
+            : `pending build scripts: ${result.pendingBuilds.join(', ')}`,
+        ].filter(section => section.trim().length > 0).join('\n\n')
+        throw this.packageManagerError(managementMessage(result.error) ?? fallback, details)
+      }
+    }
+  }
+
+  /**
+   * Whether a saved selection the manager reported as failed has in fact
+   * settled. The manager judges activation the moment its reload returns, so a
+   * row still waiting for a service it injects counts as a failure there even
+   * when it activates right after; the Market re-reads the rows' live phases
+   * for a bounded grace period and accepts the change once every row of an
+   * enabled bundle is active, or no row of a disabled bundle is live. A row
+   * that fails, a selection that does not match, or a bundle the manager
+   * cannot read keeps the original failure.
+   * @returns true once the requested selection is live.
+   */
+  private async awaitActivation(name: string, enabled: boolean, failed: ChangeResult, signal: AbortSignal): Promise<boolean> {
+    const deadline = this.now() + this.activationGraceMs
+    while (!signal.aborted) {
+      const bundle = (await this.manager.listBundles()).find(item => item.name === name)
+      if (bundle === undefined || bundle.enabled !== enabled || bundle.error !== undefined) return false
+      if (!enabled) {
+        if (bundle.rows.every(row => row.entryId === undefined)) return true
+      } else if (bundle.rows.length > 0 && bundle.rows.every(row => row.entryId !== undefined)) {
+        const plugins = await this.manager.listPlugins()
+        const phases = bundle.rows.map(row => plugins.find(plugin => plugin.entryId === row.entryId)?.fiberPhase)
+        if (phases.some(phase => phase === 'failed' || phase === undefined)) return false
+        if (phases.every(phase => phase === 'active')) return true
+      }
+      if (this.now() >= deadline) return false
+      await new Promise<void>(resolve => {
+        const finish = (): void => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve() }
+        const timer = setTimeout(finish, this.activationPollMs)
+        signal.addEventListener('abort', finish, { once: true })
+      })
+    }
+    this.logFailure?.(`dsh-community-market: activation wait for ${name} ended before the Host settled: ${failed.error?.diagnostic ?? ''}`)
+    return false
   }
 
   private issueIntent(intent: MarketIntent): string {
@@ -771,19 +799,6 @@ export class MarketInstallService {
     while (this.intents.has(token)) token = opaqueToken()
     this.intents.set(token, intent)
     this.trim(this.intents, this.maxIntents)
-    return token
-  }
-
-  private issueRestartToken(): string {
-    this.assertOpen()
-    this.purge()
-    let token = opaqueToken()
-    while (this.restartIntents.has(token)) token = opaqueToken()
-    this.restartIntents.set(token, {
-      profile: this.profile(),
-      expiresAt: this.now() + this.intentTtlMs,
-    })
-    this.trim(this.restartIntents, this.maxIntents)
     return token
   }
 
@@ -806,9 +821,6 @@ export class MarketInstallService {
     }
     for (const [token, intent] of this.intents) {
       if (now >= intent.expiresAt) this.intents.delete(token)
-    }
-    for (const [token, intent] of this.restartIntents) {
-      if (now >= intent.expiresAt) this.restartIntents.delete(token)
     }
   }
 
@@ -841,51 +853,8 @@ export class MarketInstallService {
     return AbortSignal.any([signal, this.generation.signal])
   }
 
-  private async runPnpm(args: readonly string[], signal: AbortSignal): Promise<void> {
-    const combinedSignal = AbortSignal.any([signal, this.generation.signal])
-    combinedSignal.throwIfAborted()
-    let handle: MarketDesktopPnpmHandle
-    try { handle = this.pnpm.run(args, combinedSignal) }
-    catch (cause) {
-      const details = packageManagerDetails(args, '', '', undefined, cause)
-      throw this.packageManagerError('The desktop package manager could not start.', details)
-    }
-    const stdout = captureBoundedOutput(handle.stdout)
-    const stderr = captureBoundedOutput(handle.stderr)
-    const cancel = () => handle.cancel()
-    combinedSignal.addEventListener('abort', cancel, { once: true })
-    let outcome: MarketDesktopPnpmOutcome
-    try {
-      try { outcome = await handle.done }
-      catch (cause) {
-        combinedSignal.throwIfAborted()
-        const details = packageManagerDetails(args, stdout.read(), stderr.read(), undefined, cause)
-        throw this.packageManagerError('The desktop package manager failed.', details)
-      }
-      combinedSignal.throwIfAborted()
-      if (outcome.exitCode !== 0 || outcome.signal !== null) {
-        const details = packageManagerDetails(args, stdout.read(), stderr.read(), outcome)
-        throw this.packageManagerError('The desktop package manager did not complete successfully.', details)
-      }
-    } finally {
-      combinedSignal.removeEventListener('abort', cancel)
-      stdout.stop()
-      stderr.stop()
-    }
-  }
-
   private packageManagerError(message: string, details: string): MarketInstallError {
-    try { this.logFailure?.(`dsh-community-market: ${message}\n${details}`) } catch {}
-    return new MarketInstallError('operation-failed', message, details)
+    try { this.logFailure?.(`dsh-community-market: ${message}${details === '' ? '' : `\n${details}`}`) } catch {}
+    return new MarketInstallError('operation-failed', message, ...(details === '' ? [] : [details]))
   }
-
-  private installOptions(packageName: string): readonly string[] {
-    const scope = packageName.startsWith('@') ? packageName.split('/', 1)[0] : undefined
-    return [
-      '--save-exact',
-      `--registry=${NPM_REGISTRY}`,
-      ...(scope === undefined ? [] : [`--${scope}:registry=${NPM_REGISTRY}`]),
-    ]
-  }
-
 }

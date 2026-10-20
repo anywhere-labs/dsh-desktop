@@ -2,6 +2,7 @@ import type {
   MarketCatalogResponse,
   MarketDesktopActionResponse,
   MarketInstallableResponse,
+  MarketInstallationToggleResponse,
   MarketInstallationsResponse,
   MarketOperationExecuteResponse,
   MarketOperationPreviewRequest,
@@ -161,14 +162,15 @@ export async function openMarketTerminal(signal?: AbortSignal): Promise<MarketDe
   }))
 }
 
-export async function requestMarketRestart(
-  restartToken: string,
+export async function setMarketInstallationEnabled(
+  packageName: string,
+  enabled: boolean,
   signal?: AbortSignal,
-): Promise<MarketDesktopActionResponse> {
-  return await readJson(await fetch('/api/community-market/desktop/request-restart', {
+): Promise<MarketInstallationToggleResponse> {
+  return await readJson(await fetch('/api/community-market/installations/enabled', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ restartToken }),
+    body: JSON.stringify({ packageName, enabled }),
     ...(signal === undefined ? {} : { signal }),
   }))
 }

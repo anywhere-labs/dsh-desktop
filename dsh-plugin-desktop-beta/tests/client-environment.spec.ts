@@ -28,7 +28,15 @@ import {
   WINDOWS_CAPTION_CONTROLS_WIDTH,
 } from '../src/window-chrome.ts'
 
-vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({ Switch: () => null }))
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
+  Button: () => null,
+  IconWarningOutlineRegular: () => null,
+  Modal: () => null,
+  PluginArtworkDefault: () => null,
+  StateDot: () => null,
+  Switch: () => null,
+  Tag: () => null,
+}))
 
 describe('desktop client environment', () => {
   it.each(['darwin', 'win32', 'linux'])('keeps compatibility chrome out of the %s client slot tree', platform => {

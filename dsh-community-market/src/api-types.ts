@@ -35,7 +35,6 @@ export interface MarketStateResponse {
   readonly builtIns: readonly MarketBuiltInProvider[]
   readonly desktopActions: {
     readonly openTerminal: boolean
-    readonly requestRestart: boolean
   }
 }
 
@@ -95,19 +94,41 @@ export type MarketSourceMutation =
   | { readonly action: 'move'; readonly sourceRecordId: string; readonly direction: 'up' | 'down' }
   | { readonly action: 'remove'; readonly sourceRecordId: string }
 
-export type MarketInstallationView =
-  | {
-      readonly kind: 'profile'
-      readonly status: 'active' | 'disabled'
-      readonly action: 'uninstall' | 'none'
-      /** Generation-scoped Host identity resolved from the active Profile inventory. */
-      readonly bundleId: string
-      readonly packageName: string
-    }
+/** How the official plugin manager applied a completed change to the running profile. */
+export type MarketOperationApplication = 'applied' | 'restart-required' | 'overridden'
+
+/** One community plugin bundle as the official plugin manager reports it, with the actions the Market offers for it. */
+export interface MarketInstallationView {
+  readonly kind: 'profile'
+  readonly packageName: string
+  readonly version?: string
+  /** Selected in the profile's bundle list; a load error means its layer was skipped. */
+  readonly enabled: boolean
+  /** Declared as a profile dependency; a selected bundle without one is not. */
+  readonly installed: boolean
+  /** Whether the Market may enable or disable the bundle's layer. */
+  readonly toggleable: boolean
+  /** Whether the Market may remove the dependency. */
+  readonly removable: boolean
+  /** The official manager's error code when it cannot read or load the bundle. */
+  readonly error?: string
+}
 
 export interface MarketInstallationsResponse {
-  /** Host-reconciled direct bundles for the active profile. */
+  /** The active profile's community plugin bundles, read from the official plugin manager; official and Desktop built-in bundles are omitted. */
   readonly installations: readonly MarketInstallationView[]
+}
+
+/** Renderer input for selecting or deselecting one profile bundle's layer. */
+export interface MarketInstallationToggleRequest {
+  readonly packageName: string
+  readonly enabled: boolean
+}
+
+export interface MarketInstallationToggleResponse {
+  readonly packageName: string
+  readonly enabled: boolean
+  readonly application: MarketOperationApplication
 }
 
 /** One Host-filtered provider page; local install state never changes catalog membership. */
@@ -130,8 +151,8 @@ export type MarketOperationPreviewRequest =
     }
   | {
       readonly action: 'uninstall'
-      /** Opaque exact target obtained from the current Profile inventory. */
-      readonly bundleId: string
+      /** A removable package name from the current Profile inventory; the Host rechecks it before each step. */
+      readonly packageName: string
     }
 
 /** Host-verified facts shown before the user confirms a package mutation. */
@@ -150,12 +171,12 @@ export type MarketOperationExecuteResponse =
       readonly action: 'install'
       readonly packageName: string
       readonly version: string
-      readonly restartToken: string
+      readonly application: MarketOperationApplication
     }
   | {
       readonly action: 'uninstall'
       readonly packageName: string
-      readonly restartToken: string
+      readonly application: MarketOperationApplication
     }
 
 export interface MarketDesktopActionResponse {

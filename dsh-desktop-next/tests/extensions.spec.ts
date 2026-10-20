@@ -21,8 +21,8 @@ function runner() {
       process.on('SIGTERM', () => {});
       setInterval(() => {}, 1000);
       process.stdout.write('ready');
-    } else if (process.argv[1] === 'later') setTimeout(() => process.exit(0), 100);
-  `, '--'] }, tmpdir())
+    } else if (process.argv[1] === 'later') setTimeout(() => process.exit(0), 25);
+  `, '--'] }, tmpdir(), 50)
   runners.push(result)
   return result
 }

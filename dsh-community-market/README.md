@@ -14,7 +14,7 @@ The Market has four views:
 
 1. **Discover** browses the selected source, with search, category filters, details, and source attribution.
 2. **Installable** shows normalized entries that expose one unambiguous npm package identity. It does not trust a source-provided version.
-3. **Installed** reads direct plugin dependencies from the active Profile. It includes plugins installed by this Market, another market, or the DSH CLI. Removable plugins offer **Uninstall** only; core bundles remain read-only.
+3. **Installed** lists the active Profile's community plugins as the official plugin manager reports them, including plugins installed by this Market, another market, or the DSH CLI, and lets the user enable, disable, or uninstall them. Official plugins, bundles the installation ships, DeepSeek's own packages, and Desktop's built-in bundles (`dsh-community-market`, `dshmarket`, `@agents-anywhere/dsh-bridge-next`) are managed on the official Plugins page and do not appear here.
 4. **Sources** saves, orders, and selects catalog sources. Exactly one source is active for browsing.
 
 The Renderer never sends a package name or package-manager command for an installation. It submits the selected source and item identity, then the Host resolves the normalized package identity it previously observed.
@@ -30,13 +30,13 @@ Automatic installation deliberately has a small qualification boundary:
 
 Source versions, verification badges, repository equality, deprecation metadata, lifecycle scripts, engine ranges, tarball integrity metadata, and build-allowance claims do not decide Market eligibility. pnpm remains responsible for resolving and installing the requested exact npm version.
 
-After confirmation, the Host calls only `desktopPnpm.run(argv)`, adds the exact npm version, and reconciles the package into `dsh.profile.bundles`. The Market creates no install receipt, snapshot, retry, cleanup, or rollback path. Recovery is handled by Desktop's unified three-slot healthy-start checkpoints.
+After confirmation, the Host calls the official plugin manager's `installBundle` with the exact `name@version` target, saved exactly and activated. The manager validates the bundle, restores the Profile manifest and lockfile when installation fails, selects the bundle, and applies it live where the Host runs HMR. The Market creates no install receipt, snapshot, retry, cleanup, or rollback path of its own. When the manager reports that a restart is still required, the Market says so in its completion notice instead of prompting for one.
 
-## Uninstall and cross-market compatibility
+## Enable, disable, uninstall, and cross-market compatibility
 
-The Installed view is derived from the active Profile's direct dependencies and bundle list, not from Market receipts or the selected catalog. This makes plugins installed by external markets and the DSH CLI visible without special integration.
+The Installed view is derived from the official plugin manager's bundle list, not from Market receipts or the selected catalog. This makes plugins installed by external markets and the DSH CLI visible without special integration. The view keeps to community plugins: a bundle the manager marks official, a bundle the installation ships, a package in the `@deepseek-ai` scope, or one of Desktop's built-in bundles is left to the official Plugins page.
 
-Uninstall preview accepts only the generation-scoped opaque `bundleId` returned by Desktop inventory. The Host resolves it to the current direct dependency, confirms it is removable, and runs `desktopPnpm.run(['remove', packageName])`. The Market does not provide enable or disable operations.
+Enable and disable call the manager's `setBundleEnabled` directly and keep the dependency installed. Uninstall preview accepts a package name from that list; the Host confirms through the manager that the bundle is still removable before the preview and again before execution, then calls `removeBundle`, which deselects and unloads the bundle before pnpm removes it. The manager's `readOnlyReason`, `error`, and `removable` flags decide which actions a listed bundle offers.
 
 ## Catalog sources
 
@@ -52,7 +52,7 @@ Source requests are HTTPS-only, credential-free, bounded, and protected against 
 
 When automatic installation is unavailable, the details dialog may show a bounded, display-only npm command reconstructed by the Host. **Open DSH Terminal** only opens Desktop's terminal; it does not paste or execute the command.
 
-If an automatic installation starts but pnpm fails, Desktop keeps a bounded tail of stdout and stderr, writes it to the Desktop log, and shows the same diagnostic output in a failure dialog. The dialog offers a Host-derived exact command and **Open DSH Terminal** for manual follow-up; it never retries the consumed confirmation automatically.
+If an automatic installation starts but the official manager reports a failure, the Market records the manager's bounded pnpm output in the Desktop log and shows the same diagnostic output in a failure dialog. The dialog offers a Host-derived exact command and **Open DSH Terminal** for manual follow-up; it never retries the consumed confirmation automatically.
 
 ## Documentation
 

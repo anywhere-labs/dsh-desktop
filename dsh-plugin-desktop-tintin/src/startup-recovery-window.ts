@@ -310,6 +310,7 @@ export class DesktopStartupRecoveryWindow {
     this.refreshProfiles()
     const window = createDesktopLocalWindow({
       partition: 'dsh-recovery',
+      locale: this.options.locale,
       title: copy.title,
       ...auxiliaryWindowChromeOptions(),
       ...desktopStartupRecoveryWindowBounds(),

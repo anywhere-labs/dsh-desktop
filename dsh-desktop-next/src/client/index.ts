@@ -17,6 +17,7 @@ import { Onboarding } from '../native-ui/onboarding.tsx'
 import '../../../dsh-plugin-desktop-beta/src/client/onboarding.css'
 import { registerPluginControls } from './plugin-controls.tsx'
 import { installPluginControlsStyles } from './plugin-controls-styles.ts'
+import { desktopDirectoryPicker, registerDesktopDirectoryPicker } from './directory-picker.ts'
 import { SettingsRequests } from './settings-requests.tsx'
 import type { DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop-beta/src/client/desktop-settings-locales.ts'
 
@@ -38,6 +39,10 @@ export function apply(ctx: Context): void {
   ctx.effect(() => installDesktopSettingsStyles('dsh-desktop-next'), 'Shared Desktop settings styles')
   ctx.effect(installPluginControlsStyles, 'Plugin controls and permission dialog styles')
   registerPluginControls(ctx)
+  // The Desktop window adds workspaces through the system folder dialog like upstream
+  // Desktop, whatever directory flow the Host mounted; ordinary browsers have no bridge.
+  const directoryPicker = desktopDirectoryPicker()
+  if (directoryPicker) registerDesktopDirectoryPicker(ctx, directoryPicker)
   registerDesktopOnboarding(ctx, (snapshot, locale, finish, renderNavigation) => createElement(Onboarding, {
     embedded: true,
     renderNavigation,
@@ -47,6 +52,7 @@ export function apply(ctx: Context): void {
       features: {
         market: snapshot.input.market === 'community-market',
         dshMarket: snapshot.input.market === 'dsh-market',
+        ...((snapshot.input.market as string) === 'official-market' ? { officialMarket: true } : {}),
         remoteControl: snapshot.input.aaEnabled ?? false,
       },
       onboardingComputerUse: snapshot.computerUse ?? false,
@@ -59,7 +65,7 @@ export function apply(ctx: Context): void {
         const { appVersion: _version, profileName: _profile, platform: _platform, ...selection } = snapshot.input
         await finish(snapshot.profile, {
           ...selection,
-          market: command.features.market ? 'community-market' : command.features.dshMarket ? 'dsh-market' : 'disabled',
+          market: (command.features.market ? 'community-market' : command.features.dshMarket ? 'dsh-market' : command.features.officialMarket ? 'official-market' : 'disabled') as typeof selection.market,
           aaEnabled: command.features.remoteControl,
           computerUse: command.computerUse,
         })
@@ -90,7 +96,7 @@ export function apply(ctx: Context): void {
       name: 'shell.overlay', id: 'desktop-next-safe-mode', order: 100, locale: 'desktop-next',
     }, SafeModeNotice))
   }
-  ctx.effect(installWindowStyles, 'Next native materials and header interactions')
+  ctx.effect(installWindowStyles, 'Next native materials and recovery notice')
 }
 
 /** Temporary, metadata-only trace for the AA dialog and its sibling Plugins UI. */
@@ -106,6 +112,10 @@ function installUiDiagnostics(): () => void {
       plugins: document.querySelector('[data-next-plugin-controls]') !== null,
     }
   }
+  const onError = (event: ErrorEvent): void => { console.error(`[next-ui-error] ${String(event.error?.stack ?? event.message).slice(0, 8192)}`) }
+  const onRejection = (event: PromiseRejectionEvent): void => { console.error(`[next-ui-error] ${String(event.reason?.stack ?? event.reason).slice(0, 8192)}`) }
+  window.addEventListener('error', onError)
+  window.addEventListener('unhandledrejection', onRejection)
   let previous = read()
   let lastInput = 'none'
   const trace = (message: string): void => { console.warn(`[next-ui-diagnostic] ${message}`) }
@@ -137,6 +147,8 @@ function installUiDiagnostics(): () => void {
   document.addEventListener('pointerdown', onPointerDown, true)
   document.addEventListener('keydown', onKeyDown, true)
   return () => {
+    window.removeEventListener('error', onError)
+    window.removeEventListener('unhandledrejection', onRejection)
     observer.disconnect()
     document.removeEventListener('pointerdown', onPointerDown, true)
     document.removeEventListener('keydown', onKeyDown, true)

@@ -16,7 +16,7 @@ it('keeps the original tray tool order, direct recovery actions and Profile crea
   const show = vi.fn()
   const menu = desktopMenu(state, 'zh-CN', show, run)
   expect(menu.filter(item => item.type !== 'separator').map(item => item.label)).toEqual([
-    '打开 DSH NEXT', '重新加载界面', '打开 DSH 终端', '导出诊断信息…', '进入安全模式…',
+    '打开 DSH NEXT', '重新加载界面', '退出并重启', '打开 DSH 终端', '导出诊断信息…', '进入安全模式…',
     'Profile：desktop', '设置…', '恢复助手…', '退出',
   ])
   const profiles = menu.find(item => item.label === 'Profile：desktop')!.submenu
@@ -28,6 +28,8 @@ it('keeps the original tray tool order, direct recovery actions and Profile crea
   expect(run).toHaveBeenLastCalledWith({ type: 'switch', name: 'work' })
   ;(profiles.find(item => item.label === '新建 Profile…')!.click as () => void)()
   expect(run).toHaveBeenLastCalledWith({ type: 'controls', page: 'create-profile' })
+  ;(menu.find(item => item.label === '退出并重启')!.click as () => void)()
+  expect(run).toHaveBeenLastCalledWith({ type: 'restart-app' })
   ;(menu.find(item => item.label === '进入安全模式…')!.click as () => void)()
   expect(run).toHaveBeenLastCalledWith({ type: 'safe-mode' })
   expect(menu.find(item => item.label === '设置…')!.accelerator).toBe('CmdOrCtrl+,')
@@ -38,6 +40,7 @@ it('keeps valid escape routes during failure or safe mode and only advertises su
   const menu = desktopMenu({ ...state, safeMode: true, busy: true, phase: 'error', platform: 'linux' }, 'en', vi.fn(), vi.fn())
   expect(menu.some(item => item.label === 'Open DSH Terminal')).toBe(false)
   expect(menu.find(item => item.label === 'Reload Interface')!.enabled).toBe(false)
+  expect(menu.find(item => item.label === 'Quit and Restart')!.enabled).toBe(false)
   expect(menu.find(item => item.label === 'Exit Safe Mode and Restart…')!.enabled).toBe(false)
   expect(menu.find(item => item.label === 'Settings…')!.enabled).toBe(true)
   expect(menu.at(-1)!.enabled).not.toBe(false)

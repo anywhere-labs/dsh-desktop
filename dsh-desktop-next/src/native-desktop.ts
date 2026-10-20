@@ -1,4 +1,5 @@
 /** Electron-only tray, materials, and user-turn notifications. */
+import { unpackedPath } from './asar-archive-policy.ts'
 import { join } from 'node:path'
 import { Menu, nativeImage, nativeTheme, Notification, Tray, type BrowserWindow } from 'electron'
 import { desktopMenu } from './desktop-menu.ts'
@@ -25,7 +26,7 @@ export class NativeDesktop {
   get available(): boolean { return !!this.tray && !this.tray.isDestroyed() }
   createTray(): void {
     try {
-      const icon = nativeImage.createFromPath(join(this.options.root, 'assets', process.platform === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon-blue.png'))
+      const icon = nativeImage.createFromPath(unpackedPath(join(this.options.root, 'assets', process.platform === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon-blue.png')))
       if (icon.isEmpty()) throw new Error('Tray icon is unavailable')
       if (process.platform === 'darwin') icon.setTemplateImage(true)
       this.tray = new Tray(icon)
@@ -57,6 +58,20 @@ export class NativeDesktop {
     const notification = new Notification(notificationCopy(message, this.options.language()))
     this.notifications.add(notification)
     notification.once('click', this.options.show)
+    notification.once('close', () => this.notifications.delete(notification))
+    notification.once('failed', (_event, error) => { this.notifications.delete(notification); this.options.warn(error) })
+    notification.show()
+    if (this.notifications.size > 10) { const oldest = this.notifications.values().next().value!; oldest.close(); this.notifications.delete(oldest) }
+  }
+  notifyUpdate(version: string, onSelect: () => void): void {
+    if (!Notification.isSupported()) { onSelect(); return }
+    const zh = this.options.language().toLowerCase().startsWith('zh')
+    const notification = new Notification({
+      title: 'DSH NEXT',
+      body: zh ? `发现新版本 v${version}，点击下载更新。` : `DSH NEXT v${version} is available. Click to download the update.`,
+    })
+    this.notifications.add(notification)
+    notification.once('click', () => { this.options.show(); onSelect() })
     notification.once('close', () => this.notifications.delete(notification))
     notification.once('failed', (_event, error) => { this.notifications.delete(notification); this.options.warn(error) })
     notification.show()

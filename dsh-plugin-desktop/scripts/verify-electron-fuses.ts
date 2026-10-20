@@ -13,6 +13,7 @@ import {
   resolvePackagedExecutablePath,
   smokePackagedElectronRuntime,
   usesAsarLayout,
+  verifyPackagedPrimaryRuntime,
   type PackagedElectronSmoke,
   type PackagedRuntimeContext,
 } from './verify-packaged-runtime.ts'
@@ -371,11 +372,17 @@ export function resolveFinalPackagedRuntimeContexts(
 }
 
 /** Electron Builder afterAllArtifactBuild hook; fuses have been flipped even for unsigned dir builds. */
+/** The final artifact check: the Electron smoke, then the interpreter payloads code signing must have left as prepared. */
+export function smokeFinalPackagedRuntime(context: PackagedRuntimeContext): void {
+  smokePackagedElectronRuntime(context)
+  verifyPackagedPrimaryRuntime(context)
+}
+
 export async function afterAllArtifactBuild(
   result: ElectronArtifactBuildResult,
   read: ElectronFuseReader = getCurrentFuseWire,
   exists: (filename: string) => boolean = existsSync,
-  smoke: PackagedElectronSmoke = smokePackagedElectronRuntime,
+  smoke: PackagedElectronSmoke = smokeFinalPackagedRuntime,
 ): Promise<string[]> {
   const contexts = resolveFinalPackagedRuntimeContexts(result, exists)
   for (const context of contexts) {

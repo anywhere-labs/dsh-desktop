@@ -110,6 +110,19 @@ describe('Desktop Setup Wizard action parser', () => {
         notifications,
       },
     })
+    expect(parseDesktopSetupWizardAction(completeUrl(input({ market: 'official-market' })))).toEqual({
+      action: 'complete',
+      selection: {
+        mode: 'compatibility',
+        macosMaterial: 'transparent',
+        windowsMaterial: 'off',
+        openBrowser: true,
+        networkExposure: 'loopback',
+        aaEnabled: false,
+        market: 'official-market',
+        notifications,
+      },
+    })
     expect(parseDesktopSetupWizardAction('dsh-setup-wizard://skip')).toEqual({ action: 'skip' })
     expect(parseDesktopSetupWizardAction('dsh-setup-wizard://skip?reason=later')).toBeUndefined()
     expect(parseDesktopSetupWizardAction('https://complete/')).toBeUndefined()

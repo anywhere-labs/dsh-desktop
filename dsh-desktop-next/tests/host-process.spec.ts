@@ -112,6 +112,27 @@ describe('desktop host process', () => {
     expect(failure).not.toHaveBeenCalled()
   })
 
+  it('applies logging settings through correlated acknowledgements and records IPC metadata only', async () => {
+    const runtime = projectWithHost(HTTP_HOST.replace("  if (message.type === 'browser-access') {", `
+      if (message.type === 'logging-config') {
+        process.send({ type: 'logging-config', requestId: message.requestId }); return;
+      }
+      if (message.type === 'browser-access') {`))
+    const diagnostic = vi.fn()
+    const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, diagnostic)
+    hosts.push(host)
+    await host.start()
+    await Promise.all([host.setLogging({ developerLogging: true, logLevel: 'debug' }), host.setLogging({ developerLogging: false, logLevel: 'info' })])
+    const complete = diagnostic.mock.calls.map(([record]) => record).filter(record => record.event === 'control.complete')
+    expect(complete).toHaveLength(2)
+    expect(complete[0].operationId).not.toBe(complete[1].operationId)
+    expect(complete[0]).toMatchObject({ source: 'host.ipc', fields: { type: 'logging-config' } })
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('token=fixture')
+    await host.stop()
+    await expect(host.setLogging({ developerLogging: true, logLevel: 'info' })).rejects.toThrow('unavailable')
+  })
+
   it('correlates browser-policy acknowledgements and refuses stale or failed changes', async () => {
     const host = hostProcess(projectWithHost())
     await expect(host.setBrowserAccess(true)).rejects.toThrow('unavailable')
@@ -149,6 +170,30 @@ describe('desktop host process', () => {
     expect(String(error)).toContain('graceful deadline exceeded false')
     expect(String(error)).not.toContain('fixture-secret')
     await expect(host.stop()).resolves.toBeUndefined()
+  })
+
+  it('escalates non-update stop within the 5-second Electron quit budget when active handles keep the child alive', async () => {
+    const diagnostic = vi.fn()
+    const runtime = projectWithHost(`
+      setInterval(() => {}, 60_000)
+      process.send({ type: 'ready', url: 'http://127.0.0.1:3080/' })
+      process.on('message', message => {
+        if (message.type !== 'shutdown') return
+        process.send({ type: 'shutdown-complete' }, () => process.disconnect())
+      })
+    `)
+    const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, diagnostic)
+    hosts.push(host)
+    await host.start()
+    const startedAt = Date.now()
+    await host.stop()
+    expect(Date.now() - startedAt).toBeLessThan(4_800)
+    expect(diagnostic).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'host.process',
+      event: 'shutdown.escalate',
+      fields: { signal: 'SIGTERM' },
+    }))
   })
 
   it('returns the Web authentication URL and waits for graceful shutdown', async () => {

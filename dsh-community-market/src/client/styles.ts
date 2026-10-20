@@ -541,10 +541,6 @@ const css = `
   width: min(600px, calc(100vw - 48px));
 }
 
-.dshMarketStatusModal {
-  width: min(480px, calc(100vw - 48px));
-}
-
 .dshMarketModalContent {
   min-height: 0;
   overflow-y: auto;
@@ -633,7 +629,6 @@ const css = `
 }
 
 .dshMarketOperationWarning,
-.dshMarketOperationSuccess,
 .dshMarketOperationProgress {
   display: flex;
   align-items: flex-start;
@@ -645,10 +640,6 @@ const css = `
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 19px;
-}
-
-.dshMarketOperationSuccess {
-  color: var(--dsw-alias-label-primary);
 }
 
 .dshMarketFailureSummary {

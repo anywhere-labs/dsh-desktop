@@ -38,6 +38,13 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
     props.onClick === undefined ? <span>{children}</span> : <button {...props}>{children}</button>
   ),
   StateDot: ({ state }: { state: string }) => <span data-state={state} />,
+  Switch: ({ checked, disabled, label, onChange }: {
+    checked: boolean
+    disabled?: boolean
+    label: string
+    onChange: (next: boolean) => void
+  }) => <input type="checkbox" role="switch" aria-label={label} checked={checked} disabled={disabled} onChange={() => onChange(!checked)} />,
+  Toast: ({ text }: { text: string; onDone: () => void }) => <div role="status" data-toast>{text}</div>,
   Modal: ({ children, className, closeLabel: _closeLabel, contentClassName, description, footer, open, title }: {
     children?: ReactNode
     className?: string

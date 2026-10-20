@@ -17,6 +17,7 @@ dsh-community-market/lib/
 dsh-desktop-next/lib/
 dsh-desktop-next/dist/
 dsh-desktop-next/.desktop-next/
+<<<<<<< HEAD
 
 # TinTin port spike scaffolding (temporary DSH_HOME + overlay)
 /.tintin-spike/
@@ -30,3 +31,13 @@ dsh-plugin-desktop-tintin/tintin-resources/bin/*
 dsh-plugin-desktop-tintin/tintin-resources/ext-assets/*
 !dsh-plugin-desktop-tintin/tintin-resources/bin/.gitkeep
 !dsh-plugin-desktop-tintin/tintin-resources/ext-assets/.gitkeep
+=======
+dsh-desktop-next/.desktop-build/
+dsh-plugin-desktop/.desktop-build/
+dsh-plugin-desktop-beta/.desktop-build/
+>>>>>>> upstream/master
+
+# Upstream desktop build outputs (merged from upstream master)
+dsh-desktop-next/.desktop-build/
+dsh-plugin-desktop/.desktop-build/
+dsh-plugin-desktop-beta/.desktop-build/

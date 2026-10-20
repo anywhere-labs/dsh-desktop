@@ -14,7 +14,7 @@ Market 包含四个视图：
 
 1. **发现**：浏览当前来源，支持搜索、分类筛选、详情和来源归属信息。
 2. **可安装**：显示能够提供唯一 npm package 身份的标准化条目，不信任来源提供的版本。
-3. **已安装**：读取当前 Profile 的直接插件依赖。无论插件由本 Market、其他市场还是 DSH CLI 安装，都会显示；可移除插件只提供**卸载**，核心 bundle 保持只读。
+3. **已安装**：按官方插件管理器的报告列出当前 Profile 中的社区插件，包括本 Market、其他市场或 DSH CLI 安装的插件，并可以启用、停用或卸载。官方插件、随安装包附带的 bundle、DeepSeek 自己的 package，以及 Desktop 内置 bundle（`dsh-community-market`、`dshmarket`、`@agents-anywhere/dsh-bridge-next`）在官方“插件”页面管理，不在这里显示。
 4. **来源**：保存、排序和选择目录来源；同一时间只选择一个来源浏览。
 
 Renderer 在安装时不会提交 package name 或 package-manager 命令，只提交被选中的来源和条目身份。Host 再解析自己此前观察到的标准化 package 身份。
@@ -30,13 +30,13 @@ Renderer 在安装时不会提交 package name 或 package-manager 命令，只�
 
 来源版本、验证徽章、仓库是否一致、deprecated metadata、lifecycle script、engine 范围、tarball integrity metadata 和 build-allowance 声明，都不决定 Market 是否允许安装。pnpm 负责解析并安装用户确认的精确 npm 版本。
 
-用户确认后，Host 只调用 `desktopPnpm.run(argv)`，添加精确 npm 版本，并把 package 写入 `dsh.profile.bundles`。Market 不创建安装 receipt、快照、重试、清理或回滚路径；恢复统一交给 Desktop 的三个健康启动 checkpoint 槽位。
+用户确认后，Host 以精确的 `name@version` 目标调用官方插件管理器的 `installBundle`，保存精确版本并激活。管理器负责校验 bundle、在安装失败时恢复 Profile manifest 和 lockfile、选中 bundle，并在 Host 运行 HMR 时实时应用。Market 自己不创建安装 receipt、快照、重试、清理或回滚路径。如果管理器报告仍需重启，Market 会在完成提示中说明，而不会弹窗要求重启。
 
-## 卸载与其他市场兼容
+## 启用、停用、卸载与其他市场兼容
 
-**已安装**视图来自当前 Profile 的直接依赖和 bundle 列表，不依赖 Market receipt 或当前目录来源。因此，其他市场和 DSH CLI 安装的插件无需额外适配也能正确显示。
+**已安装**视图来自官方插件管理器的 bundle 列表，不依赖 Market receipt 或当前目录来源。因此，其他市场和 DSH CLI 安装的插件无需额外适配也能正确显示。该视图只列出社区插件：管理器标记为官方的 bundle、随安装包附带的 bundle、`@deepseek-ai` 作用域下的 package，以及 Desktop 内置 bundle 都交给官方“插件”页面。
 
-卸载 preview 只接受 Desktop 清单返回的、当前 generation 有效的不透明 `bundleId`。Host 将它解析为当前直接依赖，确认可以移除后执行 `desktopPnpm.run(['remove', packageName])`。Market 不提供启用或禁用操作。
+启用和停用直接调用管理器的 `setBundleEnabled`，并保留已安装的依赖。卸载 preview 接受该列表中的 package name；Host 在 preview 前和执行前都通过管理器确认 bundle 仍可移除，然后调用 `removeBundle`，由它在 pnpm 移除前取消选中并卸载 bundle。管理器的 `readOnlyReason`、`error` 和 `removable` 标志决定列出的每个 bundle 提供哪些操作。
 
 ## 目录来源
 
@@ -52,7 +52,7 @@ Renderer 在安装时不会提交 package name 或 package-manager 命令，只�
 
 自动安装不可用时，详情弹窗可以显示 Host 根据标准化身份重建的、有界且只用于展示的 npm 命令。**打开 DSH 终端**只打开 Desktop 终端，不会粘贴或执行该命令。
 
-如果自动安装已经开始但 pnpm 失败，Desktop 会保留有上限的 stdout/stderr 尾部，将其写入 Desktop 日志，并在失败弹窗中显示同一份诊断输出。弹窗提供 Host 推导的精确命令和**打开 DSH 终端**，供用户手动继续；已经消费的确认不会被自动重试。
+如果自动安装已经开始但官方管理器报告失败，Market 会把管理器保留的有界 pnpm 输出写入 Desktop 日志，并在失败弹窗中显示同一份诊断输出。弹窗提供 Host 推导的精确命令和**打开 DSH 终端**，供用户手动继续；已经消费的确认不会被自动重试。
 
 ## 文档
 

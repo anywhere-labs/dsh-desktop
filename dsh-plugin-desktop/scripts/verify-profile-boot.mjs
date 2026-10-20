@@ -1,9 +1,9 @@
 /** Headless smoke for the complete published DSH Web profile and renderer manifest. */
 
-import { createRequire } from 'node:module'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import os, { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -15,6 +15,7 @@ import {
 } from '@deepseek-ai/dsh-launch-environment'
 import { installDesktopPnpmRuntime } from '../lib/desktop-runtime-environment.js'
 import { installProfilePackageResolver } from '../lib/module-resolution.js'
+import { DesktopPluginPackages } from '../lib/plugin-packages.js'
 import { prepareDesktopProfile } from '../lib/profile.js'
 import { DesktopProfileService } from '../lib/profile-service.js'
 import { createDesktopProfileBoot } from '../lib/profile-context.js'
@@ -61,6 +62,14 @@ const LAN_HTTPS = Object.freeze({
   async stop() { return LAN_HTTPS_SNAPSHOT },
 })
 const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-profile-'))
+// AA 2.0.3+ publishes its per-user bridge endpoint under `userInfo().homedir`
+// rather than `DSH_HOME`. Redirect `os.userInfo` and `os.homedir` to the
+// isolated smoke directory so `verify:aa` never touches the operator's real
+// `~/.agents-anywhere/` or collides with a running Desktop instance.
+const realUserInfo = os.userInfo.bind(os)
+os.userInfo = options => ({ ...realUserInfo(options), homedir: home })
+os.homedir = () => home
+syncBuiltinESMExports()
 let ctx
 let releasePackageResolver
 let pnpmRuntime
@@ -221,6 +230,7 @@ try {
       profileBoot.prepare(host)
       // Match the public resolver path used by packaged Electron.
       host.loader.internal = undefined
+      await host.plugin(DesktopPluginPackages)
       host.provide(DSH_LAUNCH_ENVIRONMENT_KEY, createLaunchEnvironmentSnapshot([]))
       host.provide('desktopBrowserAccess', BROWSER_ACCESS)
       host.provide('desktopLanHttps', LAN_HTTPS)
@@ -289,11 +299,16 @@ try {
   if ((await ctx.get('pluginManager').listPlugins()).length === 0) {
     throw new Error('Official plugin manager cannot inspect the Desktop composition')
   }
+  // The official metadata reader must reach installation packages through the Desktop resolver.
+  const inspectorMeta = ctx.get('pluginPackages')?.metaOf('@deepseek-ai/dsh-experimental-inspector', ctx.baseUrl)
+  if (typeof inspectorMeta?.title !== 'object' || inspectorMeta.error !== undefined) {
+    throw new Error(`Official plugin metadata is unavailable to the Desktop Host: ${JSON.stringify(inspectorMeta)}`)
+  }
   // Exercise the actual Profile watcher twice, rather than invoking our reader
   // directly. Both generations must preserve the Desktop layers and fixture.
   const reloadProbePath = join(home, 'reload-probe.mjs')
   writeFileSync(reloadProbePath, "export function apply(ctx, config) { ctx.provide('desktopReloadProbe', config.value) }\n")
-  for (const value of [1, 2]) {
+  for (const value of aaRequested ? [1] : [1, 2]) {
     writeFileSync(prepared.profile.patchPath, JSON.stringify([DESKTOP_SHELL_PATCH_ENTRY, { insert: [{
       id: 'desktop-reload-probe', name: pathToFileURL(reloadProbePath).href, config: { value },
     }] }]))
@@ -431,8 +446,17 @@ try {
     throw new Error('AA Host services did not activate in the actual Desktop profile')
   }
   if (aaEnabled) {
-    const endpoint = join(home, 'agents-anywhere', 'bridge', 'endpoint.json')
-    if (!existsSync(endpoint)) throw new Error('AA did not publish its native DSH home endpoint')
+    // AA 2.0.3 publishes one fixed per-user rendezvous that DSH_HOME does not
+    // move, so the isolated Profile home is not where the Connector looks.
+    const endpoint = join(userInfo().homedir, '.agents-anywhere', 'dsh-bridge', 'endpoint.json')
+    const runtimeStatus = ctx.get('agentsAnywhereRuntime').status()
+    if (runtimeStatus.state !== 'ready') {
+      throw new Error(`AA local runtime is ${String(runtimeStatus.state)}: ${String(runtimeStatus.message)}`)
+    }
+    if (!existsSync(endpoint)) throw new Error('AA did not publish its per-user bridge endpoint')
+    if (JSON.parse(readFileSync(endpoint, 'utf8')).pid !== process.pid) {
+      throw new Error('AA bridge endpoint belongs to another process; quit any running Desktop with AA enabled')
+    }
     const snapshot = await ctx.get('agentsAnywhereOnboarding').inspect()
     if (snapshot.account) throw new Error('A fresh Profile inherited an AA account')
     for (const [key, value] of Object.entries(aaSettings)) {

@@ -2,7 +2,7 @@
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { SETUP_ONBOARDING_CHANNEL } from './setup-onboarding-bridge.ts'
-import { DESKTOP_FILE_PATH_BRIDGE } from './file-path-bridge-contract.ts'
+import { DESKTOP_HOST_PATHS_BRIDGE } from './file-path-bridge-contract.ts'
 import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL } from './directory-picker-contract.ts'
 import { DESKTOP_SAVE_FILE_PICKER_CHANNEL, type DesktopSaveFilePickerRequest } from './save-file-picker-contract.ts'
 import type { DesktopOpenFilmBridge, OpenFilmBounds, OpenFilmSelection, OpenFilmStudioRef } from './openfilm-view-contract.ts'
@@ -20,9 +20,11 @@ const OPENFILM_VIEW_CHANNEL = 'dsh-desktop:openfilm-view'
 const OPENFILM_SELECTION_EVENT = 'dsh-desktop:openfilm-selection'
 const OPENFILM_REFER_EVENT = 'dsh-desktop:openfilm-refer'
 
-contextBridge.exposeInMainWorld(DESKTOP_FILE_PATH_BRIDGE, {
-  /** Resolve only genuine disk-backed Web File objects selected by the operator. */
-  getPathForFile(file: File): string {
+// The official composer cites dropped, picked, and pasted files and folders that have a
+// real path as `@path` references instead of uploading them, and refuses folders outright
+// when this bridge is absent; a File without a path (pasted bytes) answers '' and uploads.
+contextBridge.exposeInMainWorld(DESKTOP_HOST_PATHS_BRIDGE, {
+  pathFor(file: File): string {
     return webUtils.getPathForFile(file)
   },
 })

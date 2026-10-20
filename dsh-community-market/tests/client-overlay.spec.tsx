@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MarketStateResponse } from '../src/api-types.js'
 import type { MarketCatalogResponse, MarketSourceView } from '../src/api-types.js'
 import type {} from '../src/client/index.js'
+import { MarketLauncher, type MarketLauncherProps } from '../src/client/MarketLauncher.js'
 import { MarketOverlay, type MarketOverlayProps } from '../src/client/MarketOverlay.js'
 import { createMarketViewStore } from '../src/client/market-view-store.js'
 
@@ -49,6 +50,10 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => {
       props.onClick === undefined ? <span>{children}</span> : <button {...props}>{children}</button>
     ),
     StateDot: ({ state }: { state: string }) => <span data-state={state} />,
+    Switch: ({ checked, disabled, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (next: boolean) => void }) => (
+      <input type="checkbox" role="switch" aria-label={label} checked={checked} disabled={disabled} onChange={() => onChange(!checked)} />
+    ),
+    Toast: ({ text }: { text: string; onDone: () => void }) => <div role="status">{text}</div>,
     Tooltip: passthrough,
     IconCheckOutlineRegular: icon,
     IconChevronDownOutlineRegular: icon,
@@ -115,7 +120,7 @@ const source: MarketSourceView = {
 const stateWithSource: MarketStateResponse = {
   sources: [source],
   builtIns: [],
-  desktopActions: { openTerminal: true, requestRestart: true },
+  desktopActions: { openTerminal: true },
 }
 
 const catalogWithItem: MarketCatalogResponse = {
@@ -158,7 +163,7 @@ describe('community market overlay', () => {
     const state: MarketStateResponse = {
       sources: [],
       builtIns: [],
-      desktopActions: { openTerminal: true, requestRestart: true },
+      desktopActions: { openTerminal: true },
     }
     const request = vi.fn<typeof fetch>(async () => response(state))
     vi.stubGlobal('fetch', request)
@@ -454,5 +459,43 @@ describe('community market overlay', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('region', { name: 'title' })).toBeNull()
     expect(view.instance.getSnapshot().open).toBe(false)
+  })
+})
+
+describe('community market launcher', () => {
+  it('opens the market and reflects narrow versus wide sidebar presentation', () => {
+    const instance = createMarketViewStore().create()
+    const useStore = <T,>(selector: (state: { open: boolean }) => T): T => useSyncExternalStore(
+      instance.subscribe,
+      () => selector(instance.getSnapshot()),
+    )
+    const props = {
+      wide: false,
+      actions: instance.actions,
+      useStore,
+      t,
+      useSessions: (() => undefined) as MarketLauncherProps['useSessions'],
+      useSessionAccess: (() => true) as MarketLauncherProps['useSessionAccess'],
+      useSessionStatus: (() => undefined) as MarketLauncherProps['useSessionStatus'],
+      useSessionRetainInfo: (() => undefined) as MarketLauncherProps['useSessionRetainInfo'],
+      useWorkspaces: (() => undefined) as MarketLauncherProps['useWorkspaces'],
+      useWorkspaceAccess: (() => true) as MarketLauncherProps['useWorkspaceAccess'],
+      useRemoteAccess: (() => true) as MarketLauncherProps['useRemoteAccess'],
+      usePanelInfo: (select => select({ activePanelId: null })) as MarketLauncherProps['usePanelInfo'],
+    } satisfies MarketLauncherProps
+
+    const { rerender } = render(<MarketLauncher {...props} />)
+    const button = screen.getByRole('button', { name: 'tab' })
+    expect(button.getAttribute('data-wide')).toBe('false')
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+    expect(button.textContent).not.toContain('tab')
+    expect(button.querySelector('svg')?.getAttribute('data-icon')).toBe('market-store')
+
+    fireEvent.click(button)
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+
+    rerender(<MarketLauncher {...props} wide />)
+    expect(button.getAttribute('data-wide')).toBe('true')
+    expect(button.textContent).toContain('tab')
   })
 })

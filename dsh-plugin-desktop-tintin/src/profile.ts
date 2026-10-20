@@ -26,7 +26,6 @@ import {
   PROFILE_TEMPLATES,
   PROFILES_DIR,
   readProfileManifest,
-  removeLinkProjections,
   resolveProfileDir,
   writeProfileManifest,
   type Profile,
@@ -35,6 +34,7 @@ import {
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { isMap, isPair, isScalar, isSeq, parseAllDocuments, parseDocument, type Pair, type YAMLMap } from 'yaml'
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
+import { removeLinkProjectionsSafely } from './link-projections.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
 import {
   desktopBrowserAccessAvailable,
@@ -466,6 +466,7 @@ const PENDING_DESKTOP_SHELL_FIELDS: ReadonlySet<string> = new Set([
   'openBrowser',
   'networkExposure',
   'logLevel',
+  'developerLogging',
 ])
 
 /**
@@ -748,6 +749,183 @@ export function ensureDesktopProfile(home: string = resolveDshHome()): string {
   return dir
 }
 
+const MANAGED_MARKET_BUNDLES = new Set<string>([
+  DESKTOP_MARKET_IDENTITIES.community.packageName,
+  DESKTOP_MARKET_IDENTITIES.dshMarket.packageName,
+])
+
+/** Read the Market provider and AA toggle state encoded in the Profile manifest's bundle list. */
+export function readDesktopManagedProfileBundles(profileDir: string): {
+  market: DesktopMarketProvider
+  aaEnabled: boolean
+} {
+  if (!existsSync(join(profileDir, 'package.json'))) {
+    return { market: 'disabled', aaEnabled: false }
+  }
+  const manifest = readProfileManifest(BIN_NAME, profileDir)
+  const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
+  if (!Array.isArray(rawBundles)) {
+    return { market: 'disabled', aaEnabled: false }
+  }
+  const bundles = rawBundles.filter((value): value is string => typeof value === 'string')
+  const dshMarketIndex = bundles.lastIndexOf(DESKTOP_MARKET_IDENTITIES.dshMarket.packageName)
+  const communityIndex = bundles.lastIndexOf(DESKTOP_MARKET_IDENTITIES.community.packageName)
+  const market: DesktopMarketProvider = dshMarketIndex < 0 && communityIndex < 0
+    ? 'disabled'
+    : dshMarketIndex > communityIndex
+      ? 'dsh-market'
+      : 'community-market'
+  const aaEnabled = bundles.includes(AA_PACKAGE_NAME)
+  return { market, aaEnabled }
+}
+
+/**
+ * Synchronize the Profile manifest's `dsh.profile.bundles` list with the active
+ * Market provider and AA toggle state so `dsh-plugin-manager` reports and
+ * toggles the exact bundles that Desktop is running.
+ */
+export function syncDesktopManagedProfileBundles(
+  profileDir: string,
+  state: { market: DesktopMarketProvider; aaEnabled: boolean },
+): void {
+  if (!existsSync(join(profileDir, 'package.json'))) return
+  const manifest = readProfileManifest(BIN_NAME, profileDir)
+  const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
+  if (rawBundles !== undefined
+    && (!Array.isArray(rawBundles) || rawBundles.some(value => typeof value !== 'string'))) {
+    return
+  }
+  const current = rawBundles === undefined ? [] : rawBundles as string[]
+  const wantedMarketBundle = state.market === 'dsh-market'
+    ? DESKTOP_MARKET_IDENTITIES.dshMarket.packageName
+    : state.market === 'community-market'
+      ? DESKTOP_MARKET_IDENTITIES.community.packageName
+      : undefined
+  const next = current.filter(name => {
+    if (MANAGED_MARKET_BUNDLES.has(name)) return name === wantedMarketBundle
+    if (name === AA_PACKAGE_NAME) return state.aaEnabled
+    return true
+  })
+  if (wantedMarketBundle !== undefined && !next.includes(wantedMarketBundle)) {
+    next.push(wantedMarketBundle)
+  }
+  if (state.aaEnabled && !next.includes(AA_PACKAGE_NAME)) {
+    next.push(AA_PACKAGE_NAME)
+  }
+  if (!sameList(current, next)) {
+    writeProfileManifest(profileDir, {
+      ...manifest,
+      dsh: {
+        ...manifest.dsh,
+        profile: {
+          ...manifest.dsh?.profile,
+          bundles: next,
+        },
+      },
+    })
+  }
+}
+
+const OFFICIAL_PLUGIN_MARKET_BUNDLE = '@deepseek-ai/dsh-experimental-plugin-market-bundle'
+const OFFICIAL_PLUGIN_MARKET_ROW_ID = 'plugin-market'
+const OFFICIAL_PLUGIN_MARKET_PACKAGE = '@deepseek-ai/dsh-plugin-market'
+
+/** Built-in dsh-market index URL preconfigured when enabling the official Custom Plugin Market in Setup. */
+export const DEFAULT_OFFICIAL_MARKET_INDEX_URL = 'https://cdn.jsdelivr.net/gh/realguan/dsh-plugin-market@dist/dsh-index.json'
+
+/** Inspect whether the active Profile manifest currently enables the official Custom Plugin Market bundle. */
+export function readDesktopOfficialPluginMarketEnabled(profileDir: string): boolean {
+  if (!existsSync(join(profileDir, 'package.json'))) return false
+  try {
+    const manifest = readProfileManifest(BIN_NAME, profileDir)
+    const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
+    return Array.isArray(rawBundles) && rawBundles.includes(OFFICIAL_PLUGIN_MARKET_BUNDLE)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Enable or disable the official Custom Plugin Market bundle in the Profile manifest,
+ * and preconfigure the built-in dsh-market index URL in `cordis.patch.yml` when enabling.
+ */
+export function configureDesktopOfficialPluginMarket(
+  profileDir: string,
+  enabled: boolean,
+): void {
+  if (!existsSync(join(profileDir, 'package.json'))) return
+  const manifest = readProfileManifest(BIN_NAME, profileDir)
+  const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
+  if (rawBundles !== undefined
+    && (!Array.isArray(rawBundles) || rawBundles.some(value => typeof value !== 'string'))) {
+    return
+  }
+  const current = rawBundles === undefined ? [] : rawBundles as string[]
+  const next = enabled
+    ? (current.includes(OFFICIAL_PLUGIN_MARKET_BUNDLE) ? current : [...current, OFFICIAL_PLUGIN_MARKET_BUNDLE])
+    : current.filter(name => name !== OFFICIAL_PLUGIN_MARKET_BUNDLE)
+  if (!sameList(current, next)) {
+    writeProfileManifest(profileDir, {
+      ...manifest,
+      dsh: {
+        ...manifest.dsh,
+        profile: {
+          ...manifest.dsh?.profile,
+          bundles: next,
+        },
+      },
+    })
+  }
+  if (!enabled) return
+  configureDesktopOfficialPluginMarketDefaultSource(join(profileDir, PROFILE_PATCH_FILENAME))
+}
+
+function configureDesktopOfficialPluginMarketDefaultSource(patchPath: string): void {
+  if (lstatSync(patchPath, { throwIfNoEntry: false })?.isSymbolicLink()) return
+  let before: string
+  try {
+    before = readFileSync(patchPath, 'utf8')
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+    before = '[]\n'
+  }
+  const patchDocument = parseDocument(before, {
+    customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }],
+  })
+  if (patchDocument.errors.length > 0 || !isSeq(patchDocument.contents)) return
+  const rows = patchDocument.contents
+  rows.flow = false
+  const index = rows.items.findLastIndex((item, index) => isMap(item)
+    && patchDocument.getIn([index, 'id']) === OFFICIAL_PLUGIN_MARKET_ROW_ID
+    && !item.has('insert')
+    && (!item.has('name') || patchDocument.getIn([index, 'name']) === OFFICIAL_PLUGIN_MARKET_PACKAGE))
+  if (index < 0) {
+    patchDocument.addIn([], {
+      id: OFFICIAL_PLUGIN_MARKET_ROW_ID,
+      config: { indexes: [DEFAULT_OFFICIAL_MARKET_INDEX_URL] },
+    })
+  } else {
+    const config = patchDocument.getIn([index, 'config'], true)
+    if (config === undefined) {
+      patchDocument.setIn([index, 'config'], patchDocument.createNode({
+        indexes: [DEFAULT_OFFICIAL_MARKET_INDEX_URL],
+      }))
+    } else if (isMap(config)) {
+      const rawIndexes = config.toJS(patchDocument) as { indexes?: unknown }
+      const existing = Array.isArray(rawIndexes.indexes)
+        ? rawIndexes.indexes.filter((entry): entry is string => typeof entry === 'string')
+        : []
+      const nextIndexes = existing.includes(DEFAULT_OFFICIAL_MARKET_INDEX_URL)
+        ? existing
+        : [DEFAULT_OFFICIAL_MARKET_INDEX_URL, ...existing]
+      config.set('indexes', patchDocument.createNode(nextIndexes))
+    } else {
+      return
+    }
+  }
+  replaceDocument(patchPath, String(patchDocument))
+}
+
 interface ParsedProfileYaml {
   readonly document: ReturnType<typeof parseDocument>
   readonly value: Record<string, unknown>
@@ -996,6 +1174,43 @@ function webRuntimeTrustedHosts(
     throw new Error(`${BIN_NAME}: web-runtime trustedHosts must be an array of strings`)
   }
   return [...new Set([...configured, ...lanAddresses])]
+}
+
+/**
+ * Carry Desktop's Web trust into Connection when the core no longer routes it
+ * through the web-runtime row.
+ *
+ * Through dsh 0.2.1-alpha.1, web-runtime provided the `webRuntime` service and
+ * Connection read `ctx.webRuntime.trustedHosts`, so the web-runtime patch was
+ * enough. 0.2.1-alpha.2 removed that service: Connection now reads only
+ * `--trusted-host` authorities from `webStartup` and separately accepts its
+ * bind address. Desktop binds loopback behind the LAN HTTPS edge, which
+ * forwards the external LAN Host header, so the launcher's snapshot (plus the
+ * profile's own web-runtime entries) must be appended to Connection itself.
+ */
+function connectionTrustPatch(
+  connection: EntryOptions | undefined,
+  trustedHosts: readonly string[],
+): PatchOptions | undefined {
+  if (connection === undefined) return undefined
+  const inject = connection.inject
+  const injected = Array.isArray(inject) ? inject : Object.keys(inject ?? {})
+  if (injected.includes('webRuntime')) return undefined
+  const config = rowConfig(connection)
+  const configured: unknown = config.trustedHosts
+  let merged: unknown
+  if (isJsExpr(configured)) {
+    merged = trustedHosts.length === 0
+      ? configured
+      : { __jsExpr: `[...new Set([...(${configured.__jsExpr}), ...${JSON.stringify(trustedHosts)}])]` }
+  } else if (configured === undefined) {
+    merged = [...trustedHosts]
+  } else if (Array.isArray(configured) && configured.every(entry => typeof entry === 'string')) {
+    merged = [...new Set([...configured as string[], ...trustedHosts])]
+  } else {
+    throw new Error(`${BIN_NAME}: connection trustedHosts must be an array of strings`)
+  }
+  return { id: 'connection', config: { ...config, trustedHosts: merged } }
 }
 
 /** Resolve a Loader row's platform gate without mutating the host process. */
@@ -1435,6 +1650,7 @@ export function prepareDesktopProfile(
     throw new Error(`${BIN_NAME}: desktop profile has no web-runtime row`)
   }
   const webRuntimeConfig = rowConfig(webRuntime)
+  const desktopTrustedHosts = webRuntimeTrustedHosts(webRuntimeConfig.trustedHosts, lanAddresses)
   patches.push({
     id: 'web-runtime',
     config: {
@@ -1442,9 +1658,11 @@ export function prepareDesktopProfile(
       // Browser access is an advertised Desktop capability, never an
       // instruction to launch the operating system's default browser.
       openBrowser: false,
-      trustedHosts: webRuntimeTrustedHosts(webRuntimeConfig.trustedHosts, lanAddresses),
+      trustedHosts: desktopTrustedHosts,
     },
   })
+  const connectionPatch = connectionTrustPatch(rows.get('connection'), desktopTrustedHosts)
+  if (connectionPatch !== undefined) patches.push(connectionPatch)
   // The saved mode is what the next generation boots, so the config editor's
   // validation pass must still reject a layout it could not start.
   if (mode === 'advanced' || mode === 'extended') {
@@ -1631,10 +1849,12 @@ export function prepareDesktopProfile(
  * dsh 0.1.7-alpha.1 deleted `healProfilesModuleFallback`: profile-local packages are
  * served by the runtime resolution table instead of a materialized link tree, so there
  * is no fallback left to heal. All this can still usefully do is sweep the tree older
- * Desktop releases wrote, which `removeLinkProjections` does idempotently. Upstream runs
- * that sweep itself inside `loadProfile`, but Desktop composes profiles through
- * {@link loadRecoveryFilteredProfile} and never calls `loadProfile`, so this is the only
- * place a Desktop install cleans up after an upgrade.
+ * Desktop releases wrote. Upstream runs that sweep (`removeLinkProjections`) inside
+ * `loadProfile`, but Desktop composes profiles through {@link loadRecoveryFilteredProfile}
+ * and never calls `loadProfile`, so this is the only place a Desktop install cleans up
+ * after an upgrade. It uses {@link removeLinkProjectionsSafely}: the upstream helper's
+ * recursive `rmSync` follows the projection junctions under Electron 44 and empties the
+ * installation packages they point to.
  *
  * NOTE FOR FUTURE WORK: if Desktop ever needs to re-materialize a link tree of its own,
  * it must NOT reuse the directory name `.dsh-module-fallback`. 0.1.7's `loadProfile`
@@ -1648,10 +1868,10 @@ export function prepareDesktopProfile(
 export async function healDesktopProfileModuleFallback(home: string, profile?: Profile): Promise<void> {
   await Promise.resolve()
   if (profile !== undefined) {
-    removeLinkProjections(profile.dir)
+    removeLinkProjectionsSafely(profile.dir)
     return
   }
-  // Pre-boot callers have no profile yet. `removeLinkProjections` expects one profile
+  // Pre-boot callers have no profile yet. The sweep expects one profile
   // directory, so sweep every directory under the profiles root.
   const profilesDir = join(home, PROFILES_DIR)
   let entries: string[]
@@ -1663,7 +1883,7 @@ export async function healDesktopProfileModuleFallback(home: string, profile?: P
     if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return
     throw cause
   }
-  for (const dir of entries) removeLinkProjections(dir)
+  for (const dir of entries) removeLinkProjectionsSafely(dir)
 }
 
 /** Expose the package anchor for focused resolution tests. */

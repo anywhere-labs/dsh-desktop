@@ -16,7 +16,6 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const home = mkdtempSync(join(tmpdir(), 'dsh-next-host-'))
 const manager = new NextProfiles(home)
 const executable = process.argv.includes('--electron') ? createRequire(import.meta.url)('electron') : process.execPath
-let restartRequests = 0
 let host
 let runner
 let registry
@@ -27,7 +26,7 @@ const pnpmInvocation = { command: executable, args: ['--expose-internals', bundl
 async function boot(name) {
   host = new DesktopHostProcess(executable, root, manager.directory(name), undefined,
     { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' }, undefined, undefined, undefined,
-    join(root, 'scripts', 'fixtures', 'isolated-user-host.mjs'), () => { restartRequests++ })
+    join(root, 'scripts', 'fixtures', 'isolated-user-host.mjs'), () => {})
   let timer
   const ready = await Promise.race([
     host.start(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Next Host smoke exceeded 60 seconds')), 60_000) }),
@@ -83,47 +82,22 @@ try {
   const officialRows = await rpc('listPlugins')
   for (const name of ['@deepseek-ai/dsh-llm-deepseek-api-key', '@deepseek-ai/dsh-llm-deepseek-account',
     '@deepseek-ai/dsh-client-shortcuts', '@deepseek-ai/dsh-client-ui-shortcuts']) {
-    assert.ok(officialRows.some(row => row.moduleName === name && row.enabled), `rc.2 composition is missing ${name}`)
+    assert.ok(officialRows.some(row => row.moduleName === name && row.enabled), `Web composition is missing ${name}`)
   }
-  // Upstream moved Schedule out of the Web composition into an optional bundle
-  // that inserts its context, Host and client rows together.
-  const scheduleBundle = '@deepseek-ai/dsh-experimental-schedule-bundle'
-  const scheduleModules = ['@deepseek-ai/dsh-time-context', '@deepseek-ai/dsh-schedule', '@deepseek-ai/dsh-client-ui-schedule']
+  // Upstream retired the Scheduled Tasks bundle: the Web composition mounts
+  // Schedule itself and the clock reading belongs to the agent presets.
+  const scheduleModules = ['@deepseek-ai/dsh-schedule', '@deepseek-ai/dsh-client-ui-schedule']
   for (const name of scheduleModules) {
-    assert.equal(officialRows.some(row => row.moduleName === name && row.enabled), false, `${name} must remain opt-in`)
+    const row = officialRows.find(row => row.moduleName === name)
+    assert.equal(row?.enabled, true, `Web composition must mount ${name}: ${JSON.stringify(row)}`)
+    assert.equal(row?.fiberPhase, 'active', JSON.stringify(row))
   }
-  const offeredSchedule = (await rpc('listBundles')).find(bundle => bundle.name === scheduleBundle)
-  assert.ok(offeredSchedule, `Official Plugins overview must offer ${scheduleBundle}`)
-  assert.equal(offeredSchedule.optional, true)
-  assert.equal(offeredSchedule.enabled, false, 'Scheduled Tasks must remain opt-in')
-  assert.equal(offeredSchedule.removable, false)
-  assert.equal(offeredSchedule.error, undefined, JSON.stringify(offeredSchedule))
-  for (const enabled of [true, false]) {
-    const result = await rpc('setBundleEnabled', { name: scheduleBundle, enabled })
-    assert.equal(result.application, 'applied', JSON.stringify(result))
-    for (const name of scheduleModules) {
-      const row = (await rpc('listPlugins')).find(row => row.moduleName === name)
-      assert.equal(row?.enabled ?? false, enabled, JSON.stringify(row))
-      if (enabled) assert.equal(row?.fiberPhase, 'active', JSON.stringify(row))
-    }
-    if (enabled) {
-      const bundle = (await rpc('listBundles')).find(bundle => bundle.name === scheduleBundle)
-      for (const name of scheduleModules) {
-        assert.ok(bundle?.rows.some(row => row.moduleName === name && row.entryId),
-          `Native plugin details must expose the live Schedule component: ${name}`)
-      }
-    }
-    await stop()
-    ;({ origin, cookie } = await boot('desktop'))
-    assert.equal((await rpc('listBundles')).find(bundle => bundle.name === scheduleBundle)?.enabled, enabled,
-      'Schedule selection must survive restart')
-    for (const name of scheduleModules) {
-      const row = (await rpc('listPlugins')).find(row => row.moduleName === name)
-      assert.equal(row?.enabled ?? false, enabled, `Schedule selection must survive restart: ${name}`)
-      if (enabled) assert.equal(row?.fiberPhase, 'active', JSON.stringify(row))
-    }
-  }
-  console.log('verify-host: Scheduled Tasks bundle enable/disable and restart persistence passed')
+  const retiredSchedule = '@deepseek-ai/dsh-experimental-schedule-bundle'
+  assert.equal((await rpc('listBundles')).some(bundle => bundle.name === retiredSchedule), false,
+    `Official Plugins overview must not offer the retired ${retiredSchedule}`)
+  const scheduleRow = officialRows.find(row => row.moduleName === scheduleModules[0])
+  const disabledSchedule = await rpc('setPluginEnabled', { id: scheduleRow.entryId, enabled: false })
+  assert.equal(disabledSchedule.application, 'applied', JSON.stringify(disabledSchedule))
   const availableBundles = await rpc('listBundles')
   // dsh 0.1.7 deleted `-web-profile` and merged its `ui-agent-team` row into `-profile`.
   for (const [name, rowIds] of [
@@ -152,6 +126,14 @@ try {
   await rpc('setBundleEnabled', { name: packages[2], enabled: false })
   await stop()
   ;({ origin, cookie } = await boot('desktop'))
+  const restartedSchedule = (await rpc('listPlugins')).find(row => row.moduleName === scheduleModules[0])
+  assert.equal(restartedSchedule?.enabled, false, `Schedule switch must survive restart: ${JSON.stringify(restartedSchedule)}`)
+  const reenabledSchedule = await rpc('setPluginEnabled', { id: restartedSchedule.entryId, enabled: true })
+  assert.equal(reenabledSchedule.application, 'applied', JSON.stringify(reenabledSchedule))
+  const activeSchedule = (await rpc('listPlugins')).find(row => row.moduleName === scheduleModules[0])
+  assert.equal(activeSchedule?.enabled, true, `Schedule switch must re-enable: ${JSON.stringify(activeSchedule)}`)
+  assert.equal(activeSchedule?.fiberPhase, 'active', JSON.stringify(activeSchedule))
+  console.log('verify-host: Web-composed Schedule switch and restart persistence passed')
   assert.deepEqual(manager.features('desktop'), { market: false, remoteControl: false, dshMarket: true })
   assert.equal((await rpc('listPlugins')).some(row => row.moduleName === packages[2] && row.enabled), false)
   await rpc('setBundleEnabled', { name: packages[2], enabled: true })
@@ -176,7 +158,7 @@ try {
   assert.equal(state.status, 200, await state.clone().text())
   const stateBody = await state.json()
   assert.ok(Array.isArray(stateBody.sources))
-  assert.deepEqual(stateBody.desktopActions, { openTerminal: ['darwin', 'win32'].includes(process.platform), requestRestart: true })
+  assert.deepEqual(stateBody.desktopActions, { openTerminal: ['darwin', 'win32'].includes(process.platform) })
   const nativeToken = 'fixture-native-request'
   const call = async (path, body, expected = 200) => {
     // Match the native session marker, including an absent Origin header.
@@ -219,7 +201,11 @@ try {
   assert.equal(selected.sources.find(item => item.sourceRecordId === source.sourceRecordId)?.enabled, true)
   const deleted = await call('sources', { action: 'remove', sourceRecordId: source.sourceRecordId })
   assert.equal(deleted.sources.some(item => item.sourceRecordId === source.sourceRecordId), false)
-  assert.ok((await call('installations')).installations.some(item => item.packageName === 'fixture-next-plugin' && item.action === 'uninstall'))
+  const marketInventory = (await call('installations')).installations
+  const fixtureInstallation = marketInventory.find(item => item.packageName === 'fixture-next-plugin')
+  assert.ok(fixtureInstallation?.enabled && fixtureInstallation.toggleable && fixtureInstallation.removable, JSON.stringify(fixtureInstallation))
+  // Official plugins and Desktop's own bundles belong to the official Plugins page; the Market lists community plugins only.
+  assert.deepEqual(marketInventory.filter(item => item.packageName !== 'fixture-next-plugin'), [], JSON.stringify(marketInventory))
   // This invalid mutation must reach the existing schema gate, with no installation or external requests.
   const mutation = await fetch(`${origin}/api/community-market/operations/preview`, {
     method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: '{}',
@@ -230,15 +216,23 @@ try {
   })
   assert.equal(crossOrigin.status, 403)
   await crossOrigin.body?.cancel()
-  const preview = await call('operations/preview', { action: 'uninstall', bundleId: 'fixture-next-plugin' })
+  // Market toggles and removals run through the official manager and apply live; no restart request follows.
+  const disabledByMarket = await call('installations/enabled', { packageName: 'fixture-next-plugin', enabled: false })
+  assert.equal(disabledByMarket.application, 'applied', JSON.stringify(disabledByMarket))
+  assert.equal((await rpc('listBundles')).find(row => row.name === 'fixture-next-plugin')?.enabled, false)
+  assert.equal((await call('installations')).installations.find(item => item.packageName === 'fixture-next-plugin')?.enabled, false)
+  const enabledByMarket = await call('installations/enabled', { packageName: 'fixture-next-plugin', enabled: true })
+  assert.equal(enabledByMarket.application, 'applied', JSON.stringify(enabledByMarket))
+  await call('installations/enabled', { packageName: 'dsh-community-market', enabled: false }, 400)
+  await call('operations/preview', { action: 'uninstall', bundleId: 'fixture-next-plugin' }, 400)
+  const preview = await call('operations/preview', { action: 'uninstall', packageName: 'fixture-next-plugin' })
+  assert.equal(preview.packageName, 'fixture-next-plugin')
   const removed = await call('operations/execute', { previewId: preview.previewId })
   assert.equal(removed.packageName, 'fixture-next-plugin')
-  assert.equal((await call('installations')).installations.length, 0)
-  await call('desktop/request-restart', { restartToken: removed.restartToken })
-  await call('desktop/request-restart', { restartToken: removed.restartToken }, 410)
-  // Await the private IPC event without asking the smoke to launch an Electron window.
-  for (let attempts = 0; restartRequests === 0 && attempts < 50; attempts++) await new Promise(resolve => setTimeout(resolve, 10))
-  assert.equal(restartRequests, 1)
+  assert.equal(removed.application, 'applied', JSON.stringify(removed))
+  assert.equal(removed.restartToken, undefined)
+  assert.equal((await call('installations')).installations.some(item => item.packageName === 'fixture-next-plugin'), false)
+  assert.equal((await rpc('listBundles')).some(row => row.name === 'fixture-next-plugin' && row.installed), false)
   const page = await fetch(`${origin}/`, { headers: { cookie } })
   assert.equal(page.status, 200)
   const html = await page.text()
@@ -345,7 +339,7 @@ try {
     await stop()
     console.log('Onboarding Cua native provider activation and teardown passed without capturing screens, sending input or prompting for OS permissions.')
   }
-  console.log(`Next Host smoke passed (${process.argv.includes('--electron') ? 'Electron Node mode' : 'Node'}): authenticated 0.2.1-rc.2 Web, exclusive market selection and independent AA persisted, official row toggles, dshmarket offline install and cross-market removal, official install/remove with a freshly published locked dependency, native dshmarket update origin gate, graceful shutdown, recovery boot and profile switch.`)
+  console.log(`Next Host smoke passed (${process.argv.includes('--electron') ? 'Electron Node mode' : 'Node'}): authenticated 0.2.1-rc.2 Web, exclusive market selection and independent AA persisted, official row toggles, dshmarket offline install and cross-market toggle and removal through the official manager, official install/remove with a freshly published locked dependency, native dshmarket update origin gate, graceful shutdown, recovery boot and profile switch.`)
 } finally {
   await runner?.dispose()
   await host?.stop()

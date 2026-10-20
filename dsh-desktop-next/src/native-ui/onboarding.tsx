@@ -14,7 +14,7 @@ import whaleArtwork from '../../build/app-icon.icon/Assets/DeepSeek.svg'
 // Reuse the portable device family artwork and composition from the AA landing page.
 import phoneArtwork from './assets/agents-anywhere-phone.webp'
 import tabletArtwork from './assets/agents-anywhere-tablet.webp'
-type Market = 'none' | 'community' | 'dsh'
+type Market = 'none' | 'community' | 'dsh' | 'official'
 // Keep official dialog dependencies out of recovery and the earlier setup pages.
 const DesktopPermissionsButton = lazy(() => import('../client/permissions.tsx').then(module => ({ default: module.DesktopPermissionsButton })))
 
@@ -25,7 +25,7 @@ export function Onboarding({ state, locale, bridge, renderNavigation, embedded =
   const [transitioning, setTransitioning] = useState(false)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState('')
-  const [market, setMarket] = useState<Market>(state.features.market ? 'community' : state.features.dshMarket ? 'dsh' : 'none')
+  const [market, setMarket] = useState<Market>(state.features.market ? 'community' : state.features.dshMarket ? 'dsh' : state.features.officialMarket ? 'official' : 'none')
   const [remote, setRemote] = useState(state.features.remoteControl)
   const [computerUse, setComputerUse] = useState(state.onboardingComputerUse ?? false)
   const slide = useRef<HTMLDivElement>(null)
@@ -39,7 +39,7 @@ export function Onboarding({ state, locale, bridge, renderNavigation, embedded =
   const titles = [t('欢迎使用\nDSH NEXT', 'Welcome to\nDSH NEXT'), t('用插件，\n拓展更多可能。', 'Make room\nfor more possibilities.'), t('离开电脑，\n也能继续。', 'Keep going.\nAway from your desk.'), t('让 AI 帮你\n操作电脑。', 'Let AI work\non your desktop.'), t('遇到问题，\n从这里恢复。', 'A way back,\nwhen you need it.')]
   const descriptions = [
     t(`为 Profile「${state.selected}」选好常用功能。\n几步设置，就可以开始。`, `Set up the essentials for Profile “${state.selected}”.\nA few choices, then you’re ready to go.`),
-    t('选择一个插件市场，浏览和安装社区插件。\n也可以暂不开启，以后在插件页面调整。', 'Choose a market to browse and install community plugins.\nYou can also leave it off and decide later in Plugins.'),
+    t('选择一个插件市场，浏览和安装社区插件；\n或配置自定义插件市场。\n也可以暂不开启，以后在插件页面调整。', 'Choose a market to browse and install community plugins,\nor configure the custom plugin market.\nYou can also leave it off and decide later in Plugins.'),
     t('通过 Agents Anywhere，在手机、平板或其他电脑上，\n继续与你的 Agent 对话。', 'Use Agents Anywhere on your phone, tablet or another computer\nto keep the conversation going.'),
     t('查看屏幕内容，操作鼠标和键盘。\n理解截图需要支持图片输入的模型。', 'View the screen and control the mouse and keyboard.\nUnderstanding screenshots requires a model with image input.'),
     t('恢复助手可以在 Profile 无法启动时打开。\n先检查问题，再选择合适的恢复方式。', 'The recovery assistant works even when a Profile cannot start.\nCheck what happened, then choose how to recover.'),
@@ -77,7 +77,7 @@ export function Onboarding({ state, locale, bridge, renderNavigation, embedded =
     try {
       await bridge.command(skip ? { type: 'onboarding-skip', profile: state.selected }
         : { type: 'onboarding-complete', profile: state.selected, computerUse, features: {
-          market: market === 'community', dshMarket: market === 'dsh', remoteControl: remote,
+          market: market === 'community', dshMarket: market === 'dsh', ...(market === 'official' ? { officialMarket: true } : {}), remoteControl: remote,
         } })
     } catch (error) {
       if (!mounted.current) return
@@ -87,8 +87,9 @@ export function Onboarding({ state, locale, bridge, renderNavigation, embedded =
   }
 
   const markets = [
-    { value: 'community', title: 'dsh-community-market', detail: t('DSH Desktop 内置的开放插件市场，支持添加和选择自定义插件数据源。', 'DSH Desktop’s open plugin market, with support for custom plugin sources.') },
+    { value: 'community', title: 'dsh-community-market', badge: 'Beta', detail: t('DSH Desktop 内置的开放插件市场，支持添加和选择自定义插件数据源。', 'DSH Desktop’s open plugin market, with support for custom plugin sources.') },
     { value: 'dsh', title: 'dsh-market', detail: t('社区热门的插件市场，数据来自 awesome-dsh-plugin。', 'A popular community market, powered by awesome-dsh-plugin.') },
+    { value: 'official', title: t('自定义插件市场', 'Custom plugin markets'), badge: t('实验性', 'Experimental'), detail: t('开启官方插件市场，并预置 dsh-market 索引源。', 'Enable the official market with the dsh-market source preconfigured.') },
     { value: 'none', title: t('暂不开启', 'Not now'), detail: t('以后可以在插件页面开启。', 'Enable a market later in Plugins.') },
   ]
 
@@ -126,7 +127,7 @@ export function Onboarding({ state, locale, bridge, renderNavigation, embedded =
           </div>}
           {page === 1 && <RadioGroup aria-label={t('插件市场', 'Plugin market')} value={market} disabled={disabled} onValueChange={value => setMarket(value as Market)}>
             {markets.map(option => <label className="next-onboarding-choice" data-selected={market === option.value} key={option.value}>
-              <span className="next-onboarding-choice-copy"><strong><span id={`market-${option.value}`}>{option.title}</span>{option.value === 'community' && <small>Beta</small>}</strong><span>{option.detail}</span></span>
+              <span className="next-onboarding-choice-copy"><strong><span id={`market-${option.value}`}>{option.title}</span>{option.badge && <small>{option.badge}</small>}</strong><span>{option.detail}</span></span>
               <RadioGroupItem value={option.value} aria-labelledby={`market-${option.value}`} />
             </label>)}
           </RadioGroup>}

@@ -6,11 +6,16 @@ import { join, resolve } from 'node:path'
 import { verifyMacRelease } from '../../dsh-plugin-desktop-beta/scripts/verify-mac-release.ts'
 import { NEXT_MAC_NATIVE_ENTRIES } from './mac-runtime.ts'
 import { verifyNextMacEntitlements } from './verify-mac-entitlements.ts'
+import { verifyNextMacRuntime } from './verify-mac-runtime.ts'
 
 export function verifyNextMac(signed: boolean): void {
   verifyMacRelease({ distDir: resolve(process.argv[2] ?? `dist/${signed ? 'mac-release' : 'mac-smoke'}`), productName: 'DSH NEXT', nativeEntries: NEXT_MAC_NATIVE_ENTRIES,
+    // Next archives its application; native files live beside the archive.
+    unpackedRoot: appPath => join(appPath, 'Contents', 'Resources', 'app.asar.unpacked'),
     listDmgs: path => readdirSync(path).filter(name => name.endsWith('.dmg')).map(name => join(path, name)).filter(path => statSync(path).isFile()),
     makeMountPoint: () => mkdtempSync(join(tmpdir(), 'dsh-next-release-')), removeMountPoint: path => rmdirSync(path),
+    // The interpreter payloads beside the archive: both CPUs present, the host's CPU executed, release signatures checked.
+    verifyRuntime: appPath => verifyNextMacRuntime(appPath, signed),
     run: (command, args) => {
       if (!signed && ['codesign', 'spctl', 'xcrun'].includes(command)) return
       const result = spawnSync(command, args, { stdio: 'inherit' })

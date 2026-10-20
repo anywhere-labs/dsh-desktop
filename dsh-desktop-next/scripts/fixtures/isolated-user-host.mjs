@@ -11,6 +11,9 @@ os.userInfo = options => ({ ...originalUserInfo(options),
   homedir: options?.encoding === 'buffer' ? Buffer.from(home) : home })
 os.homedir = () => home
 syncBuiltinESMExports()
+// Keep a live handle in the event loop (matching Inspector, AA sync or HTTP keep-alive in real profiles)
+// so stop(true) verifies that the Host explicitly exits after acknowledging shutdown.
+setInterval(() => {}, 60_000)
 // Preserve the production entry-point guard and its fatal-error/IPC handling.
 process.argv[1] = fileURLToPath(new URL('../../lib/host.js', import.meta.url))
 await import('../../lib/host.js')

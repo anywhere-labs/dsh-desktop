@@ -53,6 +53,8 @@ import {
   DesktopDialogWindow,
   desktopDialogPreferredHeight,
   parseDesktopDialogResponse,
+  parseDesktopDialogResult,
+  showDesktopMessageBox,
 } from '../src/desktop-dialog-window.ts'
 
 describe('DesktopDialogWindow', () => {
@@ -67,6 +69,32 @@ describe('DesktopDialogWindow', () => {
     expect(parseDesktopDialogResponse('dsh-desktop-dialog://response?id=-1', 2)).toBeUndefined()
     expect(parseDesktopDialogResponse('dsh-desktop-dialog://response?id=1&command=bad', 2)).toBeUndefined()
     expect(parseDesktopDialogResponse('https://response/?id=1', 2)).toBeUndefined()
+  })
+
+  it('round trips a MessageBox checkbox and clears it on native close', async () => {
+    const options = { message: 'Next', checkboxLabel: 'Do not show again', buttons: ['OK'] }
+    const pending = showDesktopMessageBox(options)
+    const window = electron.windows[0]!
+    const query = (window.loadFile.mock.calls[0] as unknown as unknown[])?.[1] as { query: { state: string } } | undefined
+    expect(JSON.parse(Buffer.from(query!.query.state, 'base64url').toString())).toMatchObject({
+      checkboxLabel: 'Do not show again', checkboxChecked: false,
+    })
+    window.webListeners.get('will-navigate')?.({ preventDefault: vi.fn() }, 'dsh-desktop-dialog://response?id=0&checked=true')
+    await expect(pending).resolves.toEqual({ response: 0, checkboxChecked: true })
+    const closed = showDesktopMessageBox(options)
+    electron.windows[1]!.listeners.get('closed')?.()
+    await expect(closed).resolves.toEqual({ response: 0, checkboxChecked: false })
+  })
+
+  it('rejects malformed checkbox navigation and checkbox fields on ordinary dialogs', () => {
+    expect(parseDesktopDialogResult('dsh-desktop-dialog://response?id=0&checked=true', 1, true))
+      .toEqual({ response: 0, checkboxChecked: true })
+    for (const href of [
+      'dsh-desktop-dialog://response?id=0&checked=yes',
+      'dsh-desktop-dialog://response?id=0&checked=true&checked=false',
+      'dsh-desktop-dialog://response?id=0&id=0',
+    ]) expect(parseDesktopDialogResult(href, 1, true)).toBeUndefined()
+    expect(parseDesktopDialogResponse('dsh-desktop-dialog://response?id=0&checked=true', 1)).toBeUndefined()
   })
 
   it('does not add the legacy action-row offset on Windows', () => {

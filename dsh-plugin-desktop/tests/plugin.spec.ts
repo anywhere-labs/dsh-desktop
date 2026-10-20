@@ -352,6 +352,7 @@ describe('desktop Host plugin', () => {
       openBrowser: false,
       networkExposure: 'loopback',
       logLevel: 'info',
+      developerLogging: false,
     })
     expect(() => DesktopSettingsSchema({ port: -1 } as DesktopSettings)).toThrow()
     expect(() => DesktopSettingsSchema({ port: 1.5 } as DesktopSettings)).toThrow()

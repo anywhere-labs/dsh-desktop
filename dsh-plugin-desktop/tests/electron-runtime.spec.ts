@@ -8,6 +8,9 @@ import { DESKTOP_FRAME_HEIGHT } from '../src/window-chrome.ts'
 
 const terminal = vi.hoisted(() => ({ open: vi.fn() }))
 const diagnostics = vi.hoisted(() => ({ export: vi.fn() }))
+const transitionNotice = vi.hoisted(() => ({ open: vi.fn(async () => {}) }))
+vi.mock('../src/next-transition-notice.ts', () => ({ NextTransitionNotice: class { open = transitionNotice.open } }))
+
 const updater = vi.hoisted(() => ({
   download: vi.fn(),
   filename: vi.fn(),
@@ -88,6 +91,7 @@ const electron = vi.hoisted(() => {
   const sessionFetch = vi.fn()
   const applicationMenuTemplates: unknown[][] = []
   const menuTemplates: unknown[][] = []
+  const popup = vi.fn()
   const notifications: Notification[] = []
   let zoomLevel = 0
   let devToolsOpened = false
@@ -267,11 +271,13 @@ const electron = vi.hoisted(() => {
         } else {
           menuTemplates.push(template)
         }
-        return { template }
+        // Non-enumerable so template equality assertions ignore the popup spy.
+        return Object.defineProperty({ template }, 'popup', { value: popup, configurable: true })
       }),
       setApplicationMenu: vi.fn(),
     },
     menuTemplates,
+    popup,
     nativeImage: { createFromPath },
     nativeTheme,
     net: { fetch: vi.fn(), request: vi.fn() },
@@ -405,6 +411,59 @@ describe('Electron desktop runtime', () => {
     clearMainWindowState()
     vi.useRealTimers()
     vi.restoreAllMocks()
+  })
+
+  it('pops the official editing context menu over the application and command-bar documents', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const runtime = new ElectronDesktopRuntime(async () => {})
+    const release = runtime.schedule(spec)
+    await runtime.mountScheduled()
+
+    const window = electron.browserWindows[0]
+    type ContextMenuListener = (event: unknown, params: unknown) => void
+    const rendererListener = electron.webContents.on.mock.calls
+      .find(([event]) => event === 'context-menu')?.[1] as ContextMenuListener | undefined
+    const chromeListener = electron.chromeWebContents.on.mock.calls
+      .find(([event]) => event === 'context-menu')?.[1] as ContextMenuListener | undefined
+    expect(rendererListener).toEqual(expect.any(Function))
+    expect(chromeListener).toEqual(expect.any(Function))
+    const editFlags = {
+      canUndo: true,
+      canRedo: false,
+      canCut: true,
+      canCopy: true,
+      canPaste: true,
+      canDelete: true,
+      canSelectAll: true,
+      canEditRichly: false,
+    }
+    electron.menuTemplates.length = 0
+
+    rendererListener?.({}, { isEditable: true, selectionText: '', editFlags })
+    expect(electron.menuTemplates).toEqual([[
+      { role: 'undo', enabled: true, accelerator: '' },
+      { role: 'redo', enabled: false, accelerator: '' },
+      { type: 'separator', accelerator: '' },
+      { role: 'cut', enabled: true, accelerator: '' },
+      { role: 'copy', enabled: true, accelerator: '' },
+      { role: 'paste', enabled: true, accelerator: '' },
+      { type: 'separator', accelerator: '' },
+      { role: 'selectAll', enabled: true, accelerator: '' },
+    ]])
+    expect(electron.popup).toHaveBeenCalledWith({ window })
+
+    chromeListener?.({}, { isEditable: false, selectionText: 'Compatibility Mode', editFlags })
+    expect(electron.menuTemplates[1]).toEqual([{ role: 'copy', enabled: true, accelerator: '' }])
+    expect(electron.popup).toHaveBeenCalledTimes(2)
+
+    rendererListener?.({}, { isEditable: false, selectionText: '', editFlags })
+    expect(electron.menuTemplates).toHaveLength(2)
+    expect(electron.popup).toHaveBeenCalledTimes(2)
+
+    await release()
+    expect(electron.webContents.off).toHaveBeenCalledWith('context-menu', rendererListener)
+    expect(electron.chromeWebContents.off).toHaveBeenCalledWith('context-menu', chromeListener)
   })
 
   it('uses the independent macOS compatibility frame, Dock icon, and template tray image', async () => {
@@ -2555,6 +2614,21 @@ describe('Electron desktop runtime', () => {
     expect(electron.dialog.showMessageBox).toHaveBeenCalledTimes(2)
     expect(restart).toHaveBeenCalledTimes(2)
     expect(restart).toHaveBeenLastCalledWith('safe-mode')
+  })
+
+  it('offers the transition notice during local development and explains a Next installer correctly', async () => {
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const { DESKTOP_RELEASE_CHANNEL } = await import('../src/product-identity.ts')
+    electron.app.isPackaged = false
+    const runtime = new ElectronDesktopRuntime(async () => {})
+    const release = runtime.schedule(spec)
+    await runtime.mountScheduled()
+    expect(transitionNotice.open).toHaveBeenCalledWith('en', DESKTOP_RELEASE_CHANNEL, expect.any(Function))
+    await runtime.updates.confirmDownload('2.0.20-next', 'stable')
+    expect(electron.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      detail: expect.stringContaining('DSH NEXT'),
+    }))
+    await release()
   })
 
   it('uses Electron networking and confirmation-gated macOS update handoff', async () => {

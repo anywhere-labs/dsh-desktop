@@ -1,54 +1,48 @@
-/** Check the actual unpacked payload, including runtime-only dependencies, without a GUI. */
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import { dirname, join, relative } from 'node:path'
+/** Cross-check the assembled `app.asar` payload against the prepared tree before signing, without a GUI. */
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { archivedPayload, auditNextPayload, nextPackagingTarget, PAYLOAD_DIR, verifyArchiveAgainstPrepared, verifyNextPayload, verifyUpdaterManifestShim } from './packaged-payload.ts'
+import { expectedNextVersion, verifyNextRuntimeTree } from './prepare-runtime.ts'
+import { DESKTOP_RUNTIME_FILE } from '../src/runtime-tree.ts'
 
-interface PackContext { appOutDir: string; electronPlatformName: string }
-export function verifyNextPayload(root: string): void {
-  // `host.cordis.patch.yml` and `scripts/node-bin` are read from the packaged application by the
-  // Host: the overlay swaps the official webserver for Next's private loopback one, and the shims
-  // put a `node` on the package manager's PATH. Both are invisible to a `yarn start` run, which
-  // resolves them in the source tree, so only this check keeps them in the payload.
-  for (const path of ['lib/main.js', 'lib/host.js', 'lib/client.js', 'lib/preload-app.cjs', 'lib/preload-shell.cjs',
-    'lib/native-ui/index.html', 'cordis.patch.yml', 'host.cordis.patch.yml',
-    'scripts/node-bin/node', 'scripts/node-bin/node.cmd',
-    'assets/tray-iconTemplate.png', 'assets/tray-icon-blue.png']) {
-    if (!existsSync(join(root, path))) throw new Error(`Missing Next payload: ${path}`)
-  }
-  const queued = [join(root, 'package.json')]; const visited = new Set<string>()
-  while (queued.length) {
-    const manifest = realpathSync(queued.pop()!)
-    if (visited.has(manifest)) continue
-    visited.add(manifest)
-    const data = JSON.parse(readFileSync(manifest, 'utf8'))
-    // Required peers are runtime edges too: a plugin whose peer is absent throws on import and the
-    // Host reports it as an entry that did not activate, long after packaging reported success.
-    // They are the packages most easily missed, because the workspace resolves them from the
-    // repository root even when this application never declares them.
-    const optionalPeers = data.peerDependenciesMeta ?? {}
-    const required = [...Object.keys(data.dependencies ?? {}),
-      ...Object.keys(data.peerDependencies ?? {}).filter(name => optionalPeers[name]?.optional !== true)]
-    for (const name of required) {
-      let parent = dirname(manifest)
-      let found: string | undefined
-      while (!relative(root, parent).startsWith('..')) {
-        const candidate = join(parent, 'node_modules', name, 'package.json')
-        if (existsSync(candidate)) { found = realpathSync(candidate); break }
-        if (parent === root) break
-        parent = dirname(parent)
-      }
-      if (!found) {
-        if (Object.hasOwn(data.optionalDependencies ?? {}, name)) continue
-        throw new Error(`Missing packaged dependency ${name} required by ${data.name}`)
-      }
-      if (relative(root, found).startsWith('..')) throw new Error(`Packaged dependency escapes the application: ${name}`)
-      queued.push(found)
-    }
-  }
-  const frontend = join(root, 'node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html')
-  if (!existsSync(frontend)) throw new Error('Official Web frontend was not packaged')
+interface PackContext {
+  appOutDir: string
+  electronPlatformName: string
+  packager: { projectDir: string; appInfo: { version: string } }
 }
-export default function afterPack(context: PackContext): void {
+
+/**
+ * Electron Builder's afterPack hook. The archive and its unpacked files are one copy of the
+ * installation; the prepared tree with its sealed descriptor is another. The archive must be
+ * complete and resolvable, carry nothing the Desktop file policy omits, keep native and
+ * shell-executed files unpacked, embed the prepared descriptor byte for byte, and match its
+ * inventory exactly; the interpreter payloads copied as extra resources must declare this
+ * platform, every CPU and the product version; macOS must carry the manifest copy that the
+ * updaters of earlier releases read beside the archive, and nothing else there. Universal macOS
+ * builds run this once per CPU and once more on the merged application; all three archives come
+ * from the same prepared tree, and the merge may only have re-serialized nested `Info.plist` files.
+ * @param context - Electron Builder's afterPack context.
+ */
+export default async function afterPack(context: PackContext): Promise<void> {
   const resources = context.electronPlatformName === 'darwin' ? join(context.appOutDir, 'DSH NEXT.app/Contents/Resources') : join(context.appOutDir, 'resources')
-  if (existsSync(join(resources, 'app.asar'))) throw new Error('Next must use the same asar:false runtime layout as Stable/Beta')
-  verifyNextPayload(join(resources, 'app'))
+  if (!existsSync(join(resources, 'app.asar'))) throw new Error('Next must package its application into app.asar like upstream Desktop')
+  const platform = context.electronPlatformName as NodeJS.Platform
+  const source = archivedPayload(resources)
+  try {
+    verifyUpdaterManifestShim(resources, source, platform, context.packager.appInfo.version)
+    verifyNextPayload(source)
+    const target = nextPackagingTarget(platform)
+    const problems = auditNextPayload(source, target)
+    if (problems.length > 0) throw new Error(`Next payload audit failed:\n${problems.join('\n')}`)
+    const prepared = join(context.packager.projectDir, ...PAYLOAD_DIR.split('/'), DESKTOP_RUNTIME_FILE)
+    const { descriptor, rewrittenPlists } = verifyArchiveAgainstPrepared(source, prepared, context.packager.appInfo.version, target)
+    const unpacked = source.list().filter(entry => entry.unpacked).length
+    const { release } = descriptor
+    console.log(`Verified the archive against the prepared Next payload: ${String(descriptor.files.length)} files (${String(unpacked)} unpacked) for ${descriptor.platform} ${descriptor.archs.join('/')}; `
+      + `DSH NEXT ${release.version}, dsh ${release.dshVersion}, Electron ${release.electronVersion}, pnpm ${release.pnpmVersion}`
+      + (rewrittenPlists.length === 0 ? '' : `; the universal merge rewrote ${rewrittenPlists.join(', ')}`))
+  } finally { source.close() }
+  const runtimes = verifyNextRuntimeTree(join(resources, 'runtime'), platform, expectedNextVersion(context.packager.projectDir))
+  for (const runtime of runtimes) console.log(`Verified the ${runtime.arch} primary runtime: Python ${runtime.manifest.python}, Node ${runtime.manifest.node}, pnpm ${runtime.manifest.pnpm}`)
+  await Promise.resolve()
 }

@@ -9,7 +9,7 @@ const STYLES = `
 .dshNextPluginControls .dshDesktopSettingsGroupIntro { margin-top: 4px; }
 .dshNextMarketHeader { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .dshNextMarketHeader > div { min-width: 0; }
-.dshNextMarketHeader > [role="switch"] { flex: none; }
+.dshNextMarketHeader > [role="switch"], .dshNextMarketHeader > .dshNextPluginActions { flex: none; flex-wrap: nowrap; }
 .dshNextMarketChoices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .dshNextPluginSections { display: grid; gap: 2px; }
 .dshNextPluginCard { position: relative; display: flex; align-items: center; min-width: 0; gap: 14px; margin: 0 -8px; padding: 8px; border-radius: 12px; }
@@ -32,14 +32,31 @@ button.dshNextSettingsGear { width: 28px; padding: 0; }
 .dshNextPluginSettingsNotice > span { flex: 1 1 220px; }
 .dshNextPluginSettingsNotice > button { flex-shrink: 0; }
 .dshNextPluginControls p { margin: 0; }
-.dshNextPermissionsDialog[role="dialog"] { width: min(620px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); overflow-y: auto; }
+.dshNextPermissionsDialog[role="dialog"] { width: min(620px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); overflow: hidden; --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2); --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2); }
+.dshNextPermissionsDialog[role="dialog"] > div:first-child { min-height: 0; flex: 1; overflow: hidden; }
+.dshNextPermissionsDialog[role="dialog"] > div:first-child > div:last-child { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
 .dshNextPermissionList { display: grid; gap: 0; }
 .dshNextPermissionRow { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 18px 0; border-bottom: 1px solid var(--dsw-alias-border-l1); }
 .dshNextPermissionRow:last-child { border-bottom: 0; }
-.dshNextPermissionCopy { min-width: 0; font-size: 14px; }
+.dshNextPermissionCopy { flex: 1; min-width: 0; font-size: 14px; }
 .dshNextPermissionRow .dshNextPluginActions { flex-shrink: 0; justify-content: flex-end; max-width: 210px; }
 .dshNextPermissionStatus { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
-@media(max-width: 560px) { .dshNextMarketChoices { grid-template-columns: 1fr; } .dshNextPluginCard { align-items: flex-start; flex-wrap: wrap; } .dshNextPluginCardMain { flex-basis: calc(100% - 68px); } .dshNextPluginCardActions { margin-left: 62px; } .dshNextPermissionRow { align-items: flex-start; flex-direction: column; gap: 12px; } .dshNextPermissionRow .dshNextPluginActions { max-width: none; } }
+.dshNextMarketSourceSectionHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0 6px; font-size: 14px; }
+.dshNextMarketSourceSectionHeader + .dshNextPermissionRow { padding-top: 12px; }
+.dshNextMarketSourceHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.dshNextMarketSourceHeaderMain { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.dshNextMarketSourceTitle { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.dshNextMarketSourceEndpoints { display: grid; gap: 8px; margin-top: 10px; }
+.dshNextMarketSourceItem { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 8px; border: .5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-module-platform); }
+.dshNextMarketSourceItemMain { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.dshNextMarketSourceUrl { font-family: var(--ds-font-family-code); font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); overflow-wrap: anywhere; }
+button.dshNextMarketRemoveBtn { border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent); background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent); color: var(--dsw-alias-state-error-primary); }
+button.dshNextMarketRemoveBtn:hover:not(:disabled) { background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 16%, transparent); }
+.dshNextMarketSourceNotice { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 10px 12px; border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-state-warn-tertiary); font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); }
+.dshNextMarketSourceNoticeCopy { display: flex; align-items: flex-start; gap: 8px; flex: 1; min-width: 0; }
+.dshNextMarketSourceNoticeCopy > svg { flex: none; margin-top: 2px; color: var(--dsw-alias-state-warn-primary); }
+.dshNextMarketSourceNotice > button { flex: none; }
+@media(max-width: 560px) { .dshNextMarketChoices { grid-template-columns: 1fr; } .dshNextPluginCard { align-items: flex-start; flex-wrap: wrap; } .dshNextPluginCardMain { flex-basis: calc(100% - 68px); } .dshNextPluginCardActions { margin-left: 62px; } .dshNextPermissionRow, .dshNextMarketSourceSectionHeader, .dshNextMarketSourceHeader, .dshNextMarketSourceItem, .dshNextMarketSourceNotice { align-items: flex-start; flex-direction: column; gap: 12px; } .dshNextPermissionRow .dshNextPluginActions { max-width: none; } }
 `
 
 export function installPluginControlsStyles(): () => void {

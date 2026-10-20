@@ -1,3 +1,4 @@
+import { installUiDiagnostics } from './ui-diagnostics.ts'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
@@ -12,6 +13,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { registerDesktopOnboarding } from './onboarding.tsx'
+import { PluginControls, REMOTE_CONTROL_BUNDLE, registerPluginControls } from './plugin-controls.tsx'
+import { installPluginControlsStyles } from './plugin-controls-styles.ts'
 import { createElement } from 'react'
 import { SetupWizardApp, type EmbeddedSetupWizard } from '../native-ui/setup-wizard/App.tsx'
 import './onboarding.css'
@@ -45,6 +48,8 @@ export type {
   DesktopSettingsView,
 } from './desktop-settings-api.ts'
 export { DesktopSettingsSection } from './DesktopSettingsSection.tsx'
+export { PluginControls, REMOTE_CONTROL_BUNDLE, registerPluginControls }
+export { installPluginControlsStyles }
 export { DesktopTerminalSettingsAction } from './DesktopTerminalSettingsAction.tsx'
 export type {
   DesktopTerminalSettingsActionInjected,
@@ -127,11 +132,13 @@ export const inject = [
 export function apply(ctx: ClientContext): void {
   const environment = parseDesktopClientEnvironment(window.location.search)
   if (!environment) return
+  ctx.effect(installUiDiagnostics, 'Desktop client failure diagnostics')
   ctx.effect(
     () => provideDesktopWindow(ctx, desktopWindowService(environment)),
     'dsh-plugin-desktop: native window geometry service',
   )
   const desktopSettings = applyDesktopSettings(ctx, environment)
+  registerPluginControls(ctx)
   registerDesktopOnboarding(ctx, (snapshot, locale, finish, renderNavigation) => createElement<{ embedded?: EmbeddedSetupWizard }>(SetupWizardApp, {
     embedded: { input: snapshot.input, locale, renderNavigation, finish: selection => finish(snapshot.profile, selection) },
   }))

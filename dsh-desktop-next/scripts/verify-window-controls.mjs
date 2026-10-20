@@ -1,9 +1,9 @@
 /** Official Desktop boot in headless Chromium; simulated IPC/platform, no native window or user profile. */
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { delimiter, dirname, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { DesktopHostProcess } from '../lib/host-process.js'
@@ -22,24 +22,14 @@ const screenshots = join(root, '.desktop-next', 'verification')
 const manager = new NextProfiles(home)
 manager.ensure('desktop')
 manager.setFeatures('desktop', { market: true, remoteControl: false })
-// The renderer below simulates darwin, so the Host must mount the matching
-// `native` directory flow for the preload-backed picker to be the surface under
-// test. Upstream's chooser resolves `browse` on a Linux host with no
-// zenity/kdialog on PATH, which is every headless CI runner: hand it a display
-// and an executable chooser stub so one platform does not silently verify a
-// different flow. Nothing ever runs the stub — the client short-circuits to the
-// injected `__DSH_DIRECTORY_PICKER__` before the Host backend is consulted.
-const chooserEnv = {}
-if (process.platform === 'linux') {
-  const chooserDir = join(home, 'chooser-bin')
-  mkdirSync(chooserDir)
-  writeFileSync(join(chooserDir, 'zenity'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
-  chooserEnv.PATH = `${chooserDir}${delimiter}${process.env.PATH ?? ''}`
-  chooserEnv.DISPLAY = process.env.DISPLAY ?? ':0'
-}
+// A running Desktop hands its sampled LAN addresses to the Host as trusted authorities,
+// and upstream's adaptive directory-picker row then mounts the in-app browsing panel for
+// every browser it serves. Declare one here so the Host resolves `browse` on every
+// platform: the picker under test is Next's own Desktop occupant over the injected
+// `__DSH_DIRECTORY_PICKER__`, not the official native flow a trust-free Host would mount.
 const host = new DesktopHostProcess(process.execPath, root, manager.directory('desktop'), undefined,
-  { ...process.env, ...chooserEnv, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' }, undefined, undefined, undefined,
-  join(root, 'lib', 'host.js'))
+  { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1', DSH_NEXT_TRUSTED_HOSTS: JSON.stringify(['192.0.2.10']) },
+  undefined, undefined, undefined, join(root, 'lib', 'host.js'))
 const shortcutPreferences = desktopKeybindings(home, 'macos', () => {})
 let browser
 let page
@@ -47,6 +37,11 @@ let recoveryPage
 const diagnostics = []
 try {
   const ready = await host.start()
+  // The trusted authority above made the Host compose the browse interaction; the Desktop
+  // document below must still adopt the injected path through Next's own occupant.
+  const roster = JSON.stringify(ready.injections)
+  assert.ok(roster.includes('@deepseek-ai/dsh-client-ui-directory-picker-browse'), 'the Host mounted the browse directory flow')
+  assert.ok(!roster.includes('@deepseek-ai/dsh-client-ui-directory-picker-native'), 'the Host left the native directory flow unmounted')
   const streamBaseUrl = new URL(ready.url).origin
   const cookie = await authenticateWebHost(ready.url)
   const cookieSeparator = cookie.indexOf('=')
@@ -169,9 +164,18 @@ try {
   await page.goto(streamBaseUrl)
   const collapse = page.getByRole('button', { name: /^(收起侧边栏|Collapse sidebar)$/ })
   const reopen = page.locator('[data-sidebar-header-controls]').getByRole('button', { name: /^(打开侧边栏|Open sidebar)$/ })
-  const drag = page.locator('[data-conversation-title-row], :has(> [data-shell-overlay]) > :has([data-plugin-panel])')
-  const dragRegion = () => drag.evaluate(element => getComputedStyle(element,
-    element.hasAttribute('data-conversation-title-row') ? null : '::before').getPropertyValue('-webkit-app-region'))
+  const conversationHeader = page.locator('header[data-window-drag]:has([data-conversation-header-leading])')
+  const drag = page.locator('header[data-window-drag]:has([data-conversation-header-leading]), [data-plugin-page-header][data-window-drag]')
+  const dragRegion = () => drag.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))
+  const checkModalDrag = async () => {
+    const modal = page.getByRole('dialog').last()
+    assert.equal(await modal.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
+    assert.equal(await modal.evaluate(element => {
+      let portal = element
+      while (portal.parentElement !== document.body) portal = portal.parentElement
+      return getComputedStyle(portal).getPropertyValue('-webkit-app-region')
+    }), 'no-drag', 'The official modal portal subtracts its covering surface')
+  }
   await collapse.waitFor({ state: 'visible' })
   assert.deepEqual(await page.evaluate(() => globalThis.__DSH_TRANSPORT__), { ownsHost: true, streamBaseUrl },
     'The official entry must execute its Desktop boot branch')
@@ -180,7 +184,7 @@ try {
   // notices may still appear when a persisted profile requests them.
   const welcome = page.getByRole('button', { name: /^(继续|Continue)$/ })
   if (await welcome.isVisible()) {
-    assert.equal(await dragRegion(), 'no-drag', 'Modal surfaces must not expose window drag regions')
+    await checkModalDrag()
     await welcome.click()
   }
   // Dismiss the optional Web credential dialog when present.
@@ -223,9 +227,8 @@ try {
       const frame = document.querySelector('[data-shell-overlay]').parentElement
       const columns = getComputedStyle(frame).gridTemplateColumns.split(' ').map(Number.parseFloat)
       const box = element.getBoundingClientRect()
-      const pseudo = element.hasAttribute('data-conversation-title-row') ? null : '::before'
-      const style = getComputedStyle(element, pseudo)
-      return { left: box.left, width: box.width, height: pseudo ? Number.parseFloat(style.height) : box.height, columns,
+      const style = getComputedStyle(element)
+      return { left: box.left, width: box.width, height: box.height, columns,
         region: style.getPropertyValue('-webkit-app-region') }
     })
     assert.equal(geometry.region, 'drag')
@@ -253,7 +256,7 @@ try {
   // No Workspace picked yet: reuse the official header frame and both native controls.
   // 0.1.7 always mounts the persistent header and opens on a blank Session, so the frame is
   // identified by its own marker instead of the removed unbound-only empty-header marker.
-  assert.equal(await page.locator('[data-conversation-header]').count(), 1)
+  assert.equal(await conversationHeader.count(), 1)
   assert.equal(await page.locator('[data-conversation-header-leading]').count(), 1)
   await checkDrag()
   await collapse.click()
@@ -271,7 +274,7 @@ try {
   await page.getByRole('button', { name: /^(关闭|Close)$/ }).click()
   await expand()
 
-  // A transparent caption belongs to the frame, not the scrolling Plugins header.
+  // The official Plugins header owns its own draggable geometry.
   await page.getByRole('button', { name: /^(插件|Plugins)$/ }).click()
   await page.locator('[data-plugin-panel]').waitFor({ state: 'visible' })
   const controls = page.locator('[data-next-plugin-controls]')
@@ -333,7 +336,13 @@ try {
   await remoteDialog.getByRole('button', { name: /^(关闭远程控制|Close Remote Control|关闭手机连接)$/ }).click()
   await remoteDialog.waitFor({ state: 'hidden' })
   await dshChoice.focus()
-  await page.waitForFunction(() => document.activeElement === document.querySelector('[data-next-markets] [role="radio"]:last-child'))
+  // The Plugins page reloads its bundle list after the Remote Control dialog closes and
+  // locks every choice until the Host answers; a keypress inside that window is ignored
+  // by design, so wait for the focused choice to be actionable before pressing.
+  await page.waitForFunction(() => {
+    const choice = document.querySelector('[data-next-markets] [role="radio"]:last-child')
+    return document.activeElement === choice && choice.getAttribute('aria-disabled') !== 'true'
+  })
   await dshChoice.press('Space')
   await waitSelected('[data-next-markets] [role="radio"]:last-child')
   await assertMarketStyles('after switching to dsh-market')
@@ -373,7 +382,7 @@ try {
   const checkCuaStatus = async status => {
     await controls.getByRole('button', { name: /^Computer Use — / }).click()
     await page.locator('[data-next-computer-use]').getByRole('status').getByText(status).waitFor()
-    await page.getByRole('button', { name: /^(返回插件列表|Back to plugins)$/ }).click()
+    await page.getByRole('button', { name: /^(返回插件(?:列表)?|Back to plugins)$/ }).click()
     await controls.waitFor({ state: 'visible' })
     await page.waitForFunction(() => {
       const toggle = document.querySelector('[data-next-plugin-controls] [data-next-computer-use] [role="switch"]')
@@ -405,15 +414,15 @@ try {
   await page.screenshot({ path: join(screenshots, 'plugin-controls.png'), animations: 'disabled' })
   await permissionGear.click()
   const permissionDialog = page.getByRole('dialog', { name: /^(系统权限|System permissions)$/ })
-  await permissionDialog.getByRole('group', { name: /屏幕录制|Screen recording/ }).getByText(/已拒绝|Denied/).waitFor()
+  await permissionDialog.getByRole('group', { name: /屏幕录制|Screen recording/ }).getByText(/未授权|Not granted/).waitFor()
   assert.equal(await permissionDialog.getByRole('group').count(), 3)
   assert.ok(permissionActions.every(item => item.action === 'query'), 'Opening the dialog must never prompt for permissions')
-  assert.equal(await dragRegion(), 'no-drag')
+  await checkModalDrag()
   await page.screenshot({ path: join(screenshots, 'plugin-permissions.png'), animations: 'disabled' })
   await permissionDialog.press('Escape')
   await permissionDialog.waitFor({ state: 'hidden' })
   await page.evaluate(() => window.__nextTestOpenSettings('permissions'))
-  await permissionDialog.getByRole('group', { name: /屏幕录制|Screen recording/ }).getByText(/已拒绝|Denied/).waitFor()
+  await permissionDialog.getByRole('group', { name: /屏幕录制|Screen recording/ }).getByText(/未授权|Not granted/).waitFor()
   await page.evaluate(() => window.__nextTestOpenSettings('permissions'))
   assert.equal(await permissionDialog.count(), 1)
   assert.equal(await context.pages().length, 1)
@@ -456,37 +465,25 @@ try {
         region: getComputedStyle(button).getPropertyValue('-webkit-app-region') }
     })
     // 0.1.7 positions that seat itself (`.leadingSeat` at top 11px / left 88px), so the seat's own
-    // offset now decides the placement instead of Desktop's `[data-plugin-sidebar-control]` rule.
+    // offset decides the placement without any Next sidebar-control CSS.
     assert.deepEqual(geometry, { x: 88, y: 11, width: 28, height: 28,
       inPageHeader: false, clickable: true, region: 'no-drag' },
     'The official toggle stays beside the native traffic lights, independently of the centered content and scrolling')
   }
-  const checkPluginCaption = async () => {
-    const geometry = await drag.evaluate(column => {
-      const panel = column.querySelector('[data-plugin-panel]')
-      const header = panel.querySelector('[data-plugin-page-header]')
-      const box = column.getBoundingClientRect()
-      const pageBox = panel.getBoundingClientRect()
-      const style = getComputedStyle(column, '::before')
-      return { left: box.left, top: box.top, width: Number.parseFloat(style.width), height: Number.parseFloat(style.height),
-        pageLeft: pageBox.left, pageTop: pageBox.top, pageWidth: panel.clientWidth,
-        insetTop: style.top, insetLeft: style.left, insetRight: style.right,
-        region: style.getPropertyValue('-webkit-app-region'), pointerEvents: style.pointerEvents,
-        background: style.backgroundColor, headerPosition: getComputedStyle(header).position,
-        headerRegion: getComputedStyle(header).getPropertyValue('-webkit-app-region') }
+  const checkPluginHeader = async () => {
+    const geometry = await drag.evaluate(header => {
+      const column = document.querySelector(':has(> [data-shell-overlay]) > :has([data-plugin-panel])')
+      const style = getComputedStyle(header)
+      const pseudo = getComputedStyle(column, '::before')
+      return { headerPosition: style.position, region: style.getPropertyValue('-webkit-app-region'),
+        extraCaption: pseudo.content, extraRegion: pseudo.getPropertyValue('-webkit-app-region') }
     })
     assert.equal(geometry.region, 'drag')
-    assert.ok(Math.abs(geometry.left - geometry.pageLeft) <= 1, JSON.stringify(geometry))
-    assert.ok(Math.abs(geometry.top - geometry.pageTop) < 1, JSON.stringify(geometry))
-    assert.ok(Math.abs(geometry.width - geometry.pageWidth) < 1, JSON.stringify(geometry))
-    assert.equal(geometry.height, 52)
-    assert.deepEqual([geometry.insetTop, geometry.insetLeft, geometry.insetRight], ['0px', '0px', '0px'])
-    assert.equal(geometry.pointerEvents, 'none', 'The caption must not intercept DOM clicks')
-    assert.equal(geometry.background, 'rgba(0, 0, 0, 0)', 'The caption must not paint over page content')
     assert.equal(geometry.headerPosition, 'static', 'Keep the official header in normal document flow')
-    assert.equal(geometry.headerRegion, 'drag', 'rc.2 keeps the official plugin header as a data-window-drag row')
+    assert.equal(geometry.extraCaption, 'none', 'Next must not add its old fixed caption band')
+    assert.notEqual(geometry.extraRegion, 'drag')
   }
-  await checkPluginCaption()
+  await checkPluginHeader()
   const titleBox = await pluginHeader.getByRole('heading', { level: 1 }).boundingBox()
   const contentBox = await controls.boundingBox()
   assert.ok(Math.abs(titleBox.x - contentBox.x) < 1, 'The official plugin title stays aligned with its content')
@@ -496,7 +493,7 @@ try {
     Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dsh-frame-top-clearance')) || 0)
   assert.equal(titleBox.y, 28 + frameClearance, 'The caption must preserve the official title position')
   await page.setViewportSize({ width: 1800, height: 840 })
-  await checkPluginCaption()
+  await checkPluginHeader()
   assert.ok(Math.abs((await pluginHeader.getByRole('heading', { level: 1 }).boundingBox()).x - (await controls.boundingBox()).x) < 1,
     'A wide window keeps the title aligned with the centered content column')
   const addPlugin = page.getByRole('button', { name: /^(添加插件|Add plugin)$/ })
@@ -512,8 +509,8 @@ try {
   assert.ok(scrollTop > 0)
   assert.ok(Math.abs((await pluginHeader.boundingBox()).y - beforeScroll.y + scrollTop) < 1,
     'The official plugin header keeps its original scrolling behavior')
-  await checkPluginCaption()
-  // Scroll a real control into the fixed caption, then exercise its dialog.
+  await checkPluginHeader()
+  // Controls remain interactive when scrolled to the top of the window.
   const remoteGearY = (await remoteGear.boundingBox()).y
   await pluginPanel.evaluate((element, delta) => { element.scrollTop += delta }, remoteGearY - 16)
   assert.ok((await remoteGear.boundingBox()).y < 52)
@@ -527,9 +524,9 @@ try {
   await page.locator('[data-plugin-item]').first().getByRole('button').first().click()
   const detailHeader = page.locator('[data-plugin-page-header="detail"]')
   await detailHeader.waitFor()
-  await checkPluginCaption()
+  await checkPluginHeader()
   await collapse.click()
-  await checkPluginCaption()
+  await checkPluginHeader()
   await checkPluginReopen()
   await expand()
   await detailHeader.click()
@@ -537,7 +534,7 @@ try {
   await collapse.click()
   for (const width of [1800, 800, 1280]) {
     await page.setViewportSize({ width, height: 840 })
-    await checkPluginCaption()
+    await checkPluginHeader()
     await checkPluginReopen()
     assert.ok(await pluginPanel.evaluate(panel => Math.abs(panel.querySelector('h1').getBoundingClientRect().x
       - panel.querySelector('[data-next-plugin-controls]').getBoundingClientRect().x) < 1),
@@ -546,9 +543,8 @@ try {
   }
   await addPlugin.click()
   await page.getByRole('dialog').waitFor()
-  assert.equal(await dragRegion(), 'no-drag')
-  assert.equal(await page.evaluate(() => !!document.elementFromPoint(102, 26)?.closest('[data-plugin-sidebar-control]')), false,
-    'The fixed sidebar toggle must not sit above a modal')
+  await checkModalDrag()
+  assert.equal(await page.locator('[data-plugin-sidebar-control]').count(), 0, 'The obsolete sidebar-control patch must stay removed')
   await page.getByRole('dialog').press('Escape')
   await page.getByRole('dialog').waitFor({ state: 'hidden' })
   await page.screenshot({ path: join(screenshots, 'plugins-collapsed.png'), animations: 'disabled' })
@@ -563,17 +559,25 @@ try {
   await collapse.click()
   await expand()
   // Selecting a real temporary Workspace mounts the normal strict-Session header.
-  const emptyHeaderClass = await page.locator('[data-conversation-header]').getAttribute('class')
+  const emptyHeaderClass = await conversationHeader.getAttribute('class')
   await page.getByRole('button', { name: /^(选择工作区|Select workspace)$/ }).click()
-  await page.locator('[data-conversation-header]').waitFor()
-  assert.equal(await page.locator('[data-conversation-header]').getAttribute('class'), emptyHeaderClass,
+  await conversationHeader.waitFor()
+  assert.equal(await conversationHeader.getAttribute('class'), emptyHeaderClass,
     'The unbound and blank Session states share the exact official header frame')
-  assert.equal(await page.locator('[data-conversation-header]').count(), 1)
+  assert.equal(await conversationHeader.count(), 1)
   await checkDrag()
   await collapse.click()
   await reopen.waitFor({ state: 'visible' })
   await page.screenshot({ path: join(screenshots, 'blank-session-collapsed.png'), animations: 'disabled' })
   await expand()
+  for (const width of [800, 1800, 1280]) {
+    await page.setViewportSize({ width, height: 840 })
+    await checkDrag()
+    await collapse.click()
+    await reopen.waitFor({ state: 'visible' })
+    await checkDrag()
+    await expand()
+  }
   await verifySidebarBrowser(page, nativeBrowser, screenshots)
 
   // Other platforms retain their own native chrome; no macOS drag region leaks through.
@@ -614,12 +618,12 @@ try {
   const updateSection = settings.locator('[data-next-updates]')
   await updateSection.getByRole('button', { name: /检查更新|Check for updates/ }).click()
   assert.equal(controlCommands.at(-1).type, 'check-updates')
-  controlState.updates = { phase: 'downloading', version: '2.0.17-next.1', installable: true, received: 50, total: 100 }
+  controlState.updates = { phase: 'downloading', version: '2.0.19-next.1', installable: true, received: 50, total: 100 }
   await updateSection.getByText(/正在下载更新 50%|Downloading update 50%/).waitFor()
   assert.equal(await updateSection.locator('progress').getAttribute('value'), '50')
   await updateSection.scrollIntoViewIfNeeded()
   await page.screenshot({ path: join(screenshots, 'desktop-update-progress.png'), animations: 'disabled' })
-  controlState.updates = { phase: 'ready', version: '2.0.17-next.1', installable: true }
+  controlState.updates = { phase: 'ready', version: '2.0.19-next.1', installable: true }
   await updateSection.getByRole('button', { name: /安装并重启|Install and restart/ }).click()
   assert.equal(controlCommands.at(-1).type, 'install-update')
   controlState.updates = { phase: 'idle', installable: true }
@@ -658,7 +662,7 @@ try {
   const screen = permissionSettings.getByRole('group', { name: /屏幕录制|Screen recording/ })
   await screen.getByRole('button', { name: /打开系统设置|Open system settings/ }).click()
   assert.ok(permissionActions.some(item => item.action === 'openSettings' && item.permission === 'screen'))
-  await screen.getByText(/已拒绝|Denied/).waitFor()
+  await screen.getByText(/未授权|Not granted/).waitFor()
   await permissionSettings.getByRole('button', { name: /^(关闭|Close)$/ }).click()
   await notifications.click()
   await page.waitForFunction(() => document.querySelector('[aria-labelledby="dsh-desktop-notifications-title"] [role="switch"]')?.getAttribute('aria-checked') === 'false')
@@ -791,8 +795,11 @@ try {
   const webWelcome = webPage.getByRole('button', { name: /^(继续|Continue)$/ })
   await webWelcome.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {})
   if (await webWelcome.isVisible()) await webWelcome.click()
-  // The rc.2 Web entry can open directly when the default model is available.
-  await webPage.getByRole('button', { name: /^(稍后配置|Configure later)$/ }).click({ timeout: 2_000 }).catch(() => {})
+  // The rc.2 Web entry can open directly when the default model is available;
+  // 0.2.1-rc.2 opens the account sign-in dialog in marker-free Web contexts.
+  const webOnboardingDismiss = webPage.getByRole('dialog', { name: /^(开始使用|Get started)$/ }).getByRole('button', { name: /^(关闭|Close)$/ })
+    .or(webPage.getByRole('button', { name: /^(稍后配置|Configure later)$/ }))
+  await webOnboardingDismiss.first().click({ timeout: 2_000 }).catch(() => {})
   await webPage.locator('[aria-modal=true]').waitFor({ state: 'hidden' })
   await openSettingsPanel(webPage)
   assert.equal(await webPage.locator('.dshDesktopNativeActions').count(), 0)
@@ -824,7 +831,7 @@ try {
     mkdirSync(screenshots, { recursive: true })
     await page.screenshot({ path: join(screenshots, 'failure.png') }).catch(capture => console.error(capture.message))
     console.error(await page.evaluate(() => {
-      const controls = document.querySelector('[data-conversation-title-row], [data-plugin-page-header]')
+      const controls = document.querySelector('header[data-window-drag]:has([data-conversation-header-leading]), [data-plugin-page-header][data-window-drag]')
       const parents = []
       for (let node = controls; node && parents.length < 5; node = node.parentElement) {
         parents.push({ tag: node.tagName, class: node.className, display: getComputedStyle(node).display,

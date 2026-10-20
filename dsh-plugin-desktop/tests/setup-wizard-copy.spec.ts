@@ -121,7 +121,15 @@ describe('Desktop Setup Wizard copy and contract', () => {
   })
 
   it('strictly validates complete input and platform capability gates', () => {
+    const chinese = desktopSetupWizardCopy('zh')
+    const english = desktopSetupWizardCopy('en')
+    expect(chinese.marketBody).toBe('选择一个插件市场，浏览和安装社区插件；\n或配置自定义插件市场。\n也可以暂不开启，以后在插件页面调整。')
+    expect(chinese.officialMarket).toBe('自定义插件市场')
+    expect(chinese.officialMarketBody).toBe('开启官方插件市场，并预置 dsh-market 索引源。')
+    expect(english.officialMarket).toBe('Custom plugin markets')
+    expect(english.officialMarketBody).toBe('Enable the official market with the dsh-market source preconfigured.')
     expect(isDesktopSetupWizardInput(input)).toBe(true)
+    expect(isDesktopSetupWizardInput({ ...input, market: 'official-market' })).toBe(true)
     expect(isDesktopSetupWizardInput({ ...input, unexpected: true })).toBe(false)
     expect(isDesktopSetupWizardInput({ ...input, notifications: { enabled: true } })).toBe(false)
     expect(isDesktopSetupWizardInput({ ...input, appVersion: '' })).toBe(false)

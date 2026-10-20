@@ -1,5 +1,32 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => {
+  const component = () => null
+  return {
+    Button: component,
+    Input: component,
+    Modal: component,
+    Pill: component,
+    StateDot: component,
+    Tooltip: component,
+    IconCheckOutlineRegular: component,
+    IconChevronDownOutlineRegular: component,
+    IconChevronUpOutlineRegular: component,
+    IconCloseOutlineRegular: component,
+    IconCordisPluginOutlineRegular: component,
+    IconDataOutlineRegular: component,
+    IconDownloadOutlineRegular: component,
+    IconGlobeOutlineRegular: component,
+    IconPlusOutlineRegular: component,
+    IconRefreshOutlineRegular: component,
+    IconRightUpOutlineRegular: component,
+    IconSearchOutlineRegular: component,
+    IconSettingsOutlineRegular: component,
+    IconTrashOutlineRegular: component,
+  }
+})
+
 import type { MarketSourceMutation } from '../src/api-types.js'
 import {
   executeMarketOperation,
@@ -12,8 +39,10 @@ import {
   readMarketInstallations,
   readMarketState,
   readMoreMarketCatalog,
-  requestMarketRestart,
+  setMarketInstallationEnabled,
 } from '../src/client/api.js'
+import { apply, inject, NS } from '../src/client/index.js'
+import { createMarketViewStore } from '../src/client/market-view-store.js'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -89,9 +118,8 @@ describe('community market client API', () => {
         }
         return {
           action: 'uninstall',
-          receiptId: 'receipt-1',
           packageName: 'dsh-plugin-safe',
-          restartToken: 'restart-token-1',
+          application: 'applied',
         }
       },
       status: 200,
@@ -152,22 +180,22 @@ describe('community market client API', () => {
     expect(refreshedUrl.searchParams.get('refresh')).toBe('1')
   })
 
-  it('opens the terminal without a command and sends only the one-shot token when restarting', async () => {
+  it('opens the terminal without a command and toggles a profile bundle by package name', async () => {
     const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => (
       { ok: true, json: async () => ({ ok: true }) } as Response
     ))
     vi.stubGlobal('fetch', fetch)
 
     await openMarketTerminal()
-    await requestMarketRestart('opaque-restart-token')
+    await setMarketInstallationEnabled('dsh-plugin-safe', false)
 
     expect(fetch.mock.calls[0]).toEqual([
       '/api/community-market/desktop/open-terminal',
       expect.objectContaining({ method: 'POST', body: JSON.stringify({}) }),
     ])
     expect(fetch.mock.calls[1]).toEqual([
-      '/api/community-market/desktop/request-restart',
-      expect.objectContaining({ method: 'POST', body: JSON.stringify({ restartToken: 'opaque-restart-token' }) }),
+      '/api/community-market/installations/enabled',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ packageName: 'dsh-plugin-safe', enabled: false }) }),
     ])
   })
 
@@ -189,7 +217,7 @@ describe('community market client API', () => {
     const body = {
       sources: [],
       builtIns: [],
-      desktopActions: { openTerminal: false, requestRestart: false },
+      desktopActions: { openTerminal: false },
     }
     const request = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(body), {
       headers: { 'content-type': 'application/json' },
@@ -254,5 +282,123 @@ describe('community market client API', () => {
       body: JSON.stringify(mutation),
       signal: controller.signal,
     })
+  })
+})
+
+describe('community market view store', () => {
+  it('publishes only changed open snapshots to a selector subscriber', () => {
+    const marketView = createMarketViewStore().create()
+    const listener = vi.fn()
+    let selectedOpen = marketView.getSnapshot().open
+    const unsubscribe = marketView.subscribe(() => {
+      const nextOpen = marketView.getSnapshot().open
+      if (nextOpen === selectedOpen) return
+      selectedOpen = nextOpen
+      listener(nextOpen)
+    })
+
+    expect(marketView.getSnapshot().open).toBe(false)
+    marketView.actions.open()
+    marketView.actions.open()
+    expect(marketView.getSnapshot().open).toBe(true)
+    expect(listener).toHaveBeenLastCalledWith(true)
+    expect(listener).toHaveBeenCalledOnce()
+
+    marketView.actions.close()
+    marketView.actions.close()
+    expect(marketView.getSnapshot().open).toBe(false)
+    expect(listener).toHaveBeenLastCalledWith(false)
+    expect(listener).toHaveBeenCalledTimes(2)
+
+    unsubscribe()
+    marketView.actions.open()
+    expect(listener).toHaveBeenCalledTimes(2)
+  })
+})
+
+interface TestContext {
+  readonly effects: Array<{ effect: () => unknown; label: string }>
+  readonly injections: Array<{ name: string; factory: () => unknown }>
+  readonly registrations: Array<{ spec: Record<string, unknown>; component: unknown }>
+  readonly context: Parameters<typeof apply>[0]
+}
+
+function testContext(): TestContext {
+  const effects: TestContext['effects'] = []
+  const injections: TestContext['injections'] = []
+  const registrations: TestContext['registrations'] = []
+  const context = {
+    effect: (effect: () => unknown, label: string) => { effects.push({ effect, label }) },
+    locale: {
+      register: vi.fn(),
+      bind: vi.fn(() => vi.fn()),
+      getLocale: vi.fn(() => ({ active: 'en' })),
+    },
+    slots: {
+      inject: (name: string, factory: () => unknown) => { injections.push({ name, factory }) },
+      register: (spec: Record<string, unknown>, component: unknown) => {
+        registrations.push({ spec, component })
+        return spec
+      },
+    },
+  } as unknown as Parameters<typeof apply>[0]
+  return { effects, injections, registrations, context }
+}
+
+describe('community market client registration', () => {
+  it('publishes the expected Loader dependency contract', () => {
+    expect(inject).toEqual(['slots', 'locale'])
+    expect(NS).toBe('community-market')
+  })
+
+  it('registers locale, styles, settings tab, sidebar launcher, and shell overlay effects', () => {
+    const test = testContext()
+
+    apply(test.context)
+
+    expect(test.effects.map(value => value.label)).toEqual([
+      'community-market: dictionaries',
+      'community-market: styles',
+    ])
+    expect(test.injections.map(value => value.name)).toEqual([
+      'settings.plugins.tab',
+      'sidebar.footer.action',
+      'shell.overlay',
+    ])
+  })
+
+  it('projects all slot registrations with the market identity, locale, and shared view store', () => {
+    const test = testContext()
+
+    apply(test.context)
+    test.injections.forEach(value => { value.factory() })
+
+    expect(test.registrations).toHaveLength(3)
+    expect(test.registrations.map(value => value.spec)).toEqual([
+      expect.objectContaining({
+        name: 'settings.plugins.tab',
+        id: 'community-market',
+        order: 20,
+        locale: NS,
+      }),
+      expect.objectContaining({
+        name: 'sidebar.footer.action',
+        id: 'community-market',
+        order: 10,
+        locale: NS,
+      }),
+      expect.objectContaining({
+        name: 'shell.overlay',
+        id: 'community-market',
+        order: 10,
+        locale: NS,
+      }),
+    ])
+    const [settings, launcher, overlay] = test.registrations.map(value => value.spec)
+    expect(typeof settings?.label).toBe('function')
+    expect(typeof settings?.inject).toBe('function')
+    expect(typeof launcher?.label).toBe('function')
+    expect(launcher?.store).toBe(overlay?.store)
+    expect(typeof overlay?.inject).toBe('function')
   })
 })

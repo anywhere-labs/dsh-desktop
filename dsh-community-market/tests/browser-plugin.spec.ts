@@ -119,7 +119,6 @@ describe('community market browser plugin', () => {
     expect(styles).toMatch(/\.dshMarketWideModal\s*\{[^}]*width: min\(800px, calc\(100vw - 48px\)\)/su)
     expect(styles).toMatch(/\.dshMarketConfirmModal\s*\{[^}]*width: min\(600px, calc\(100vw - 48px\)\)/su)
     expect(styles).toMatch(/\.dshMarketSourceModal\s*\{[^}]*width: min\(600px, calc\(100vw - 48px\)\)/su)
-    expect(styles).toMatch(/\.dshMarketStatusModal\s*\{[^}]*width: min\(480px, calc\(100vw - 48px\)\)/su)
     expect(styles).toMatch(/\.dshMarketOverlayPanel\s*\{[^}]*width: min\(800px, 100%\);[^}]*height: min\(700px, 100%\)/su)
     expect(styles).toMatch(/@media \(max-width: 680px\)[\s\S]*\.dshMarketOverlayPanel\s*\{[^}]*width: 100%;[^}]*height: 100%/u)
 

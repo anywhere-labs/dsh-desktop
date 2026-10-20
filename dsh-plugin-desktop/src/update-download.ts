@@ -9,6 +9,7 @@ import {
   DESKTOP_RELEASE_CHANNEL_HEADER,
   parseSemVer,
   parseCanonicalChannelVersion,
+  parseCanonicalUpdateVersion,
   type DesktopReleaseChannel,
 } from './update-checker.ts'
 
@@ -219,7 +220,7 @@ export function desktopUpdateFilename(
   validatedVersion(version, channel)
   const extension = platform === 'darwin' ? 'dmg' : 'exe'
   const platformName = platform === 'darwin' ? 'mac' : 'windows'
-  const product = channel === 'next' ? 'DSH-NEXT' : channel === 'beta' ? 'DSH-Desktop-Beta' : 'DSH-Desktop'
+  const product = parseCanonicalChannelVersion(version, 'next') !== null ? 'DSH-NEXT' : channel === 'beta' ? 'DSH-Desktop-Beta' : 'DSH-Desktop'
   return `${product}-${version}-${platformName}.${extension}`
 }
 
@@ -297,7 +298,7 @@ function validatedPlatform(platform: DesktopDownloadPlatform): DesktopDownloadPl
 }
 
 function validatedVersion(version: string, channel: DesktopReleaseChannel = 'stable'): string {
-  if (parseCanonicalChannelVersion(version, channel) === null) {
+  if (parseCanonicalUpdateVersion(version, channel) === null) {
     throw new UpdateDownloadError('invalid-options', `The update version must match the ${channel} channel.`)
   }
   return version

@@ -7,11 +7,40 @@ import { DesktopPermissionsButton, PermissionDetails } from './permissions.tsx'
 
 const PROVIDER = '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'
 
+interface ComputerUseCacheEntry {
+  loaded: boolean
+  row: PluginInfo | undefined
+}
+
+const computerUseCache = new WeakMap<Context, ComputerUseCacheEntry>()
+
+function getComputerUseCache(context: Context): ComputerUseCacheEntry {
+  let entry = computerUseCache.get(context)
+  if (!entry) {
+    entry = { loaded: false, row: undefined }
+    computerUseCache.set(context, entry)
+  }
+  return entry
+}
+
+export function warmComputerUseCache(context: Context): void {
+  const listPlugins = context.remote?.pluginManager?.listPlugins
+  if (typeof listPlugins !== 'function') return
+  const cache = getComputerUseCache(context)
+  void listPlugins().then(result => {
+    if (!result.ok) return
+    const rows = result.value.filter(item => item.moduleName === PROVIDER)
+    cache.row = rows.length === 1 ? rows[0] : undefined
+    cache.loaded = true
+  }).catch(() => {})
+}
+
 export function ComputerUseSettings({ context, zh, mode = 'overview' }: { context: Context; zh: boolean; mode?: 'overview' | 'actions' | 'page' }) {
   const t = (chinese: string, english: string): string => zh ? chinese : english
+  const cache = getComputerUseCache(context)
   const [revision, refresh] = useState(0)
-  const [row, setRow] = useState<PluginInfo>()
-  const [loading, setLoading] = useState(true)
+  const [row, setRow] = useState<PluginInfo | undefined>(() => cache.row)
+  const [loading, setLoading] = useState(() => !cache.loaded)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -24,16 +53,23 @@ export function ComputerUseSettings({ context, zh, mode = 'overview' }: { contex
   }, [context])
   useEffect(() => {
     let disposed = false
-    setLoading(true)
+    if (!cache.loaded) setLoading(true)
     void context.remote.pluginManager.listPlugins().then(result => {
       if (disposed) return
       if (!result.ok) throw new Error(result.error.message)
       const rows = result.value.filter(item => item.moduleName === PROVIDER)
-      setRow(rows.length === 1 ? rows[0] : undefined)
-    }).catch(failure => { if (!disposed) { setRow(undefined); setError(String(failure)) } })
-      .finally(() => { if (!disposed) setLoading(false) })
+      const next = rows.length === 1 ? rows[0] : undefined
+      cache.row = next
+      cache.loaded = true
+      setRow(next)
+    }).catch(failure => {
+      if (!disposed) {
+        if (!cache.loaded) setRow(undefined)
+        setError(String(failure))
+      }
+    }).finally(() => { if (!disposed) setLoading(false) })
     return () => { disposed = true }
-  }, [context, revision])
+  }, [cache, context, revision])
   const change = async (enabled: boolean): Promise<void> => {
     if (!row || busy || loading) return
     setBusy(true); setError(''); setNotice('')
@@ -44,6 +80,9 @@ export function ComputerUseSettings({ context, zh, mode = 'overview' }: { contex
       if (change.application === 'failed') throw new Error(change.error?.diagnostic ?? t('无法更改插件状态。', 'Could not change the plugin state.'))
       if (change.application === 'restart-required') setNotice(t('已保存，请重启后台服务以应用。', 'Saved. Restart the background service to apply.'))
       if (change.application === 'overridden') setNotice(t('已保存，但当前配置覆盖了此开关。', 'Saved, but another configuration overrides this switch.'))
+      const next = { ...row, enabled }
+      cache.row = next
+      setRow(next)
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
     finally { setBusy(false); refresh(value => value + 1) }
   }

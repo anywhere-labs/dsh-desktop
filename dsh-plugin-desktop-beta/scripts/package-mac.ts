@@ -1,14 +1,20 @@
 /** Build an unsigned macOS DMG smoke artifact on a native macOS host. */
 
 import { spawnSync } from 'node:child_process'
-import { rmSync } from 'node:fs'
+import { chmodSync, existsSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { withoutMacReleaseSecrets } from './release-preflight.ts'
-import { macSmokeArchitecture, prepareInstalledMacUniversalRuntime } from './mac-universal.ts'
+import {
+  MACOS_UNIVERSAL_NATIVE_ENTRIES,
+  macSmokeArchitecture,
+  macSmokeExecutableSlices,
+  prepareMacUniversalRuntime,
+} from './mac-universal.ts'
 import { prepareFsExtForElectron } from './prepare-fs-ext.ts'
 import { electronBuilderEnvironment } from './electron-builder-environment.ts'
+import { prepareDesktopInterpreters, verifyPreparedDesktopRuntime } from './prepare-runtime.ts'
 
 /** Injectable native macOS packaging boundary used by focused tests. */
 export interface MacSmokePackageOptions {
@@ -75,9 +81,23 @@ function defaultOptions(): MacSmokePackageOptions {
     outputDir,
     resetOutput: () => rmSync(outputDir, { recursive: true, force: true }),
     prepareRuntime: () => {
-      prepareFsExtForElectron({ platform: 'darwin', arch: 'arm64', desktopRoot })
-      prepareFsExtForElectron({ platform: 'darwin', arch: 'x64', desktopRoot })
-      prepareInstalledMacUniversalRuntime(desktopRoot)
+      const slices = macSmokeExecutableSlices(macSmokeArchitecture(process.env))
+      for (const slice of slices) {
+        prepareFsExtForElectron({
+          platform: 'darwin',
+          arch: slice === 'x86_64' ? 'x64' : 'arm64',
+          desktopRoot,
+        })
+      }
+      prepareMacUniversalRuntime({
+        desktopRoot,
+        nativeEntries: MACOS_UNIVERSAL_NATIVE_ENTRIES.filter(
+          entry => slices.includes(entry.arch) || !entry.path.startsWith('node_modules/fs-ext/'),
+        ),
+        exists: existsSync,
+        chmod: chmodSync,
+      })
+      verifyPreparedDesktopRuntime(desktopRoot, 'darwin')
     },
     builderCli: require.resolve('electron-builder/cli.js'),
     verifier: fileURLToPath(new URL('./verify-mac-smoke.ts', import.meta.url)),
@@ -161,6 +181,8 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
 const invokedPath = process.argv[1]
 if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
   try {
+    // The interpreter payloads are downloaded and assembled before the long package gate; the flow re-checks them right before electron-builder.
+    await prepareDesktopInterpreters({ desktopRoot: resolve(dirname(fileURLToPath(import.meta.url)), '..') })
     packageMacSmoke()
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))

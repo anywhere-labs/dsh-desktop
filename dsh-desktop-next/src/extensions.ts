@@ -1,19 +1,21 @@
 /** Narrow Host capabilities consumed by the existing plugin markets. */
+import { installHostLogging } from './host/logging.ts'
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { bundlePatchPaths, composeEntries, loadOverlayPatches, readProfilePlugins, resolveBundleDir, type ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot'
+import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot'
 import { installNotifications } from './notifications.ts'
 import { HostPermissions } from './host-permissions.ts'
 import { NEXT_PACKAGE, profileName } from './profiles.ts'
 import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
+import { unpackedPath } from './asar-archive-policy.ts'
 
 export const name = 'desktop-next-capabilities'
 export const inject = ['profileContext']
 
 export function apply(ctx: Context): void {
+  installHostLogging(ctx)
   if (process.send) {
     const permissions = new HostPermissions(process)
     ctx.provide('desktopPermissions', permissions)
@@ -26,24 +28,11 @@ export function apply(ctx: Context): void {
   const invocation = profile.packageManager
   if (!invocation) throw new Error('Next requires its bundled pnpm invocation')
   const runner = createPackageRunner(invocation, profile.dir)
+  // dshmarket installs through the bundled pnpm; Community Market manages
+  // packages through the official pluginManager service and needs no Desktop
+  // inventory or restart capability.
   ctx.provide('desktopProfiles', { current: { name: profile.name, dir: profile.dir } })
   ctx.provide('desktopPnpm', runner)
-  const shipped = JSON.parse(readFileSync(profile.installAnchor, 'utf8')) as { name: string; dependencies: Record<string, string> }
-  ctx.provide('desktopPlugins', {
-    list: () => readProfilePlugins({ binName: 'dsh-desktop-next', profileDir: profile.dir, installAnchor: profile.installAnchor })
-      .dependencies.filter(item => item.bundle).map(item => {
-        const mutable = item.name !== shipped.name && !Object.hasOwn(shipped.dependencies, item.name)
-          && !item.name.startsWith('@deepseek-ai/')
-        const dir = resolveBundleDir('dsh-desktop-next', item.name, profile.installAnchor, profile.dir)
-        // dsh 0.1.7 lets a bundle declare an ordered list of patch files, not only one.
-        const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { dsh: { bundle: { patch: string | string[] } } }
-        const rows = composeEntries(bundlePatchPaths(dir, manifest.dsh.bundle).map(file => loadOverlayPatches('dsh-desktop-next', file)))
-        const active = rows.length === 0 || [...ctx.loader.entries()].some(entry =>
-          rows.some(row => row.id === entry.options.id) && !entry.disabled && entry.fiber?.state === 2 /* FiberState.ACTIVE */)
-        return { bundleId: item.name, packageName: item.name, mutable, uninstallable: mutable,
-          status: item.enabled && active ? 'active' : 'disabled' }
-      }),
-  })
   if (process.send) ctx.provide('desktopActions', {
     ...(process.platform === 'darwin' || process.platform === 'win32' ? { openTerminal: () => {
       if (!process.connected || !process.send) throw new Error('Next shell is unavailable')
@@ -58,7 +47,7 @@ export function apply(ctx: Context): void {
 }
 
 /** Own each process handle so a stale cancellation cannot kill its successor. */
-export function createPackageRunner(invocation: ProfilePnpmInvocation, directory: string) {
+export function createPackageRunner(invocation: ProfilePnpmInvocation, directory: string, forceKillDelayMs = 2_000) {
   let active: { cancel(): void; done: Promise<unknown> } | undefined
   let disposed = false
   function start(args: readonly string[], cwd: string, signal?: AbortSignal, env: NodeJS.ProcessEnv = {}) {
@@ -85,7 +74,7 @@ export function createPackageRunner(invocation: ProfilePnpmInvocation, directory
     const cancel = (): void => {
       if (settled || killTimer) return
       kill('SIGTERM')
-      killTimer = setTimeout(() => kill('SIGKILL'), 2_000)
+      killTimer = setTimeout(() => kill('SIGKILL'), forceKillDelayMs)
       killTimer.unref()
     }
     const done = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
@@ -124,7 +113,13 @@ export function createPackageRunner(invocation: ProfilePnpmInvocation, directory
   }
 }
 
+/**
+ * Entry of the pnpm this installation carries. Electron runs it as a separate Node-mode process
+ * with its own workers, so a packaged Next uses the copy unpacked beside app.asar.
+ * @param anchor - Manifest the installation resolves packages from.
+ * @returns Absolute physical path of `pnpm.mjs`.
+ */
 export function bundledPnpmEntry(anchor: string): string {
   const require = createRequire(anchor)
-  return join(dirname(require.resolve('pnpm')), 'bin', 'pnpm.mjs')
+  return unpackedPath(join(dirname(require.resolve('pnpm')), 'bin', 'pnpm.mjs'))
 }

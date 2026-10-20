@@ -9,6 +9,8 @@ import { createDesktopSettingsApi } from './desktop-settings-api.ts'
 import { en, zh, type DesktopSettingsLocaleKey } from './desktop-settings-locales.ts'
 import { installDesktopSettingsStyles } from './desktop-settings-styles.ts'
 import type { DesktopClientEnvironment } from './environment.ts'
+import { COMMUNITY_MARKET, DSH_MARKET, REMOTE_CONTROL_BUNDLE } from './market-toggle.ts'
+import { installPluginControlsStyles } from './plugin-controls-styles.ts'
 import {
   bindDesktopSettingsForm,
   DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE,
@@ -89,6 +91,10 @@ export function applyDesktopSettings(
     () => installDesktopSettingsStyles(),
     'dsh-plugin-desktop: settings styles',
   )
+  ctx.effect(
+    () => installPluginControlsStyles(),
+    'dsh-plugin-desktop: plugin controls styles',
+  )
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'desktop',
@@ -103,6 +109,11 @@ export function applyDesktopSettings(
       setMode,
       desktopSettings,
       notificationSettings,
+      capabilities: { pluginSelectors: false },
+      openPlugins: () => {
+        const layout = ctx.reflect?.get('layout', false) as { selectPanel?(id: string): void } | undefined
+        layout?.selectPanel?.('plugins')
+      },
     }),
   }, DesktopSettingsSection))
   ctx.slots.inject('settings.action', () => ctx.slots.register({
@@ -113,12 +124,18 @@ export function applyDesktopSettings(
     inject: () => ({ api }),
   }, DesktopTerminalSettingsAction))
 
-  // The launcher owns Market selection through Desktop settings. Its bundle
-  // remains active, but must not expose a second switch in the plugin list.
-  ctx.slots.inject('plugins.bundle.hidden', () => ctx.slots.register({
-    name: 'plugins.bundle.hidden',
-    key: 'dshmarket',
-  }, () => null))
+  // The Plugins overview owns built-in Market and Remote Control selection.
+  // Their bundles must not expose duplicate switches in the generic plugin list.
+  ctx.slots.inject('plugins.bundle.hidden', () => {
+    const disposers = [COMMUNITY_MARKET, DSH_MARKET, REMOTE_CONTROL_BUNDLE].map(key =>
+      ctx.slots.register({
+        name: 'plugins.bundle.hidden',
+        key,
+      }, () => null))
+    return () => {
+      for (const dispose of disposers) dispose()
+    }
+  })
 
   return Object.freeze({
     api,

@@ -8,6 +8,7 @@ import { DESKTOP_PACKAGE_NAME as BIN_NAME } from './product-identity.ts'
 import { observeDesktopPreferenceSettings } from './settings-bridge.ts'
 import { installProfilePackageResolver } from './module-resolution.ts'
 import { boundWebServerPort } from './web-server-port.ts'
+import { DesktopPluginPackages } from './plugin-packages.ts'
 import { createDesktopWebProfile, listDesktopProfiles, canDeleteDesktopProfile, deleteDesktopProfile, selectDesktopProfile } from './profile-manager.ts'
 import { DesktopProfileService } from './profile-service.ts'
 import { DesktopActionsService } from './desktop-actions.ts'
@@ -24,8 +25,12 @@ import type { DesktopPnpmBootstrap } from './pnpm.ts'
 import type { DesktopRuntime } from './runtime.ts'
 import type { DesktopStartupGenerationHost } from './startup-generation.ts'
 import { FileExporter } from './file-exporter.ts'
+import { initializeDeveloperLogging, diagnosticRunId } from './developer-logging.ts'
+import { installHostDeveloperLogging } from './host-developer-logging.ts'
 import { installAgentErrorLogging } from './agent-error-logging.ts'
 import { LogFileSink } from './log-files.ts'
+import * as desktopOffice from './desktop-office.ts'
+import { resolveDesktopOfficeConfig, type DesktopPrimaryRuntime } from './desktop-office.ts'
 
 function desktopProfileMarketSnapshot(market: DesktopMarketProvider): DesktopMarketSnapshot {
   return Object.freeze({
@@ -55,7 +60,10 @@ export interface DesktopHostOptions {
    */
   desktopProxyOverlay: Readonly<Record<string, string>>
   desktopPnpmBootstrap: DesktopPnpmBootstrap
+  /** Bundled interpreter payload of this CPU; a packaged Host fails without it, a development Host skips Office until `prepare:runtime` ran. */
+  primaryRuntime?: DesktopPrimaryRuntime
   logDirectory: string
+  diagnosticRunId?: string
 }
 
 export async function bootDesktopHost(options: DesktopHostOptions, runtime: DesktopRuntime,
@@ -73,6 +81,8 @@ export async function bootDesktopHost(options: DesktopHostOptions, runtime: Desk
   const logSink = new LogFileSink(options.logDirectory, {
     maxFileBytes: 10 * 1024 * 1024, maxDirectoryBytes: 200 * 1024 * 1024,
   })
+  logSink.purgeOlderThan(7)
+  initializeDeveloperLogging((level, line) => logSink.writeRecord(level, JSON.parse(line)), options.diagnosticRunId ?? diagnosticRunId())
   let fileExporter: FileExporter | undefined
     let currentProfilePreferences: DesktopProfilePreferences = profilePreferences
     let profilePreferencesWriteTail: Promise<void> = Promise.resolve()
@@ -107,8 +117,22 @@ export async function bootDesktopHost(options: DesktopHostOptions, runtime: Desk
       profilePreferencesStopping = true
       await profilePreferencesWriteTail
     }
+    let effectiveMarket = prepared.market.effective
+    let effectiveAa = prepared.aaEnabled
     const releasePackageResolver = installProfilePackageResolver(prepared.bareModuleBaseUrl)
-    const profileBoot = createDesktopProfileBoot(prepared, desktopPnpmBootstrap)
+    const profileBoot = createDesktopProfileBoot(prepared, desktopPnpmBootstrap, {
+      onManagedBundlesChanged: state => {
+        effectiveMarket = state.effectiveMarket
+        effectiveAa = state.effectiveAa
+        void enqueueProfilePreferencesWrite(current => desktopProfilePreferencesFromSettings(
+          current,
+          current.notifications,
+          state.requestedMarket,
+          state.requestedAa,
+        )).then(() => selectDesktopMarketProvider(marketUserDataDir, state.requestedMarket))
+          .catch(() => {})
+      },
+    })
     const ctx = await boot(
       BIN_NAME,
       prepared.rootConfig,
@@ -128,6 +152,8 @@ export async function bootDesktopHost(options: DesktopHostOptions, runtime: Desk
           () => releasePackageResolver,
           'dsh-plugin-desktop: profile package resolution',
         )
+        // Official plugin metadata and package lookups read the packages this resolver loads.
+        await hostCtx.plugin(DesktopPluginPackages)
         hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, desktopLaunchEnvironment)
         hostCtx.provide('desktopBrowserAccess', browserAccess)
         hostCtx.provide('desktopLanHttps', lanHttps)
@@ -137,20 +163,27 @@ export async function bootDesktopHost(options: DesktopHostOptions, runtime: Desk
           openTerminal: () => { runtime.openTerminal() },
           requestRestart: () => runtime.requestRestart(),
         })
-        if (prepared.market.effective === 'community-market') {
-          await hostCtx.plugin(DesktopPluginsService, {
-            profileName: activeProfileName,
-            homeDir,
-            statePath: pluginManagementStatePath,
-            installAnchor: desktopInstallAnchor(),
-          })
-        }
+        await hostCtx.plugin(DesktopPluginsService, {
+          profileName: activeProfileName,
+          homeDir,
+          statePath: pluginManagementStatePath,
+          installAnchor: desktopInstallAnchor(),
+        })
         if (logSink !== undefined) {
           fileExporter = new FileExporter(logSink)
           hostCtx.logger.exporter(fileExporter)
         }
         // Registered before the plugin tree mounts, so no agent can fail unrecorded.
         installAgentErrorLogging(hostCtx)
+        installHostDeveloperLogging(hostCtx)
+        // Office skills and the workspace dependency tool need the bundled payload; a packaged Host without it fails here.
+        const office = resolveDesktopOfficeConfig(options.primaryRuntime, homeDir)
+        if (office === undefined) {
+          hostCtx.logger.warn(`${BIN_NAME}: Office skills are unavailable; run yarn prepare:runtime to prepare the primary runtime`)
+        } else {
+          await hostCtx.plugin(desktopOffice, office)
+          hostCtx.logger.info(`${BIN_NAME}: Office skills mounted from ${office.source}`)
+        }
         await hostCtx.plugin(DesktopProfileService, {
           current: {
             name: activeProfileName,
@@ -202,12 +235,12 @@ export async function bootDesktopHost(options: DesktopHostOptions, runtime: Desk
         }, 'dsh-plugin-desktop: pending Desktop settings restart')
         const readMarket = () => desktopMarketSnapshotWithEffective(
           desktopProfileMarketSnapshot(readProfilePreferences().market),
-          prepared.market.effective,
+          effectiveMarket,
         )
         hostCtx.provide('desktopSettingsController', new DesktopSettingsController({
           profiles: hostCtx.desktopProfiles,
           readMarket,
-          readAa: () => ({ requested: readProfilePreferences().aaEnabled === true, effective: prepared.aaEnabled }),
+          readAa: () => ({ requested: readProfilePreferences().aaEnabled === true, effective: effectiveAa }),
           selectAa: async enabled => {
             await enqueueProfilePreferencesWrite(current => desktopProfilePreferencesFromSettings(
               current,
@@ -217,13 +250,14 @@ export async function bootDesktopHost(options: DesktopHostOptions, runtime: Desk
             ))
           },
           readWeb: () => {
+            const port = boundWebServerPort(hostCtx.webServer)
             const lan = lanHttps.snapshot()
             const lanOrigins = lan.state === 'ready' && lan.actualPort !== null
               ? desktopLanBrowserUrls(lan.actualPort, lan.addresses)
               : []
             return {
               localUrl: hostCtx.connection.authenticatedUrl(
-                desktopLoopbackBrowserUrl(boundWebServerPort(hostCtx.webServer)),
+                desktopLoopbackBrowserUrl(port),
               ),
               lanUrls: lanOrigins.map(url => hostCtx.connection.authenticatedUrl(url)),
               lanState: lan.state,
@@ -243,7 +277,7 @@ export async function bootDesktopHost(options: DesktopHostOptions, runtime: Desk
             ))
             return desktopMarketSnapshotWithEffective(
               await selectDesktopMarketProvider(marketUserDataDir, provider),
-              prepared.market.effective,
+              effectiveMarket,
             )
           },
           scheduleRestart: scheduleSettingsRestart,

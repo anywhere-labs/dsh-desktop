@@ -8,7 +8,9 @@ import {
   Notification,
   shell,
 } from 'electron'
+import { configureDeveloperLogging, type DiagnosticPreferences } from './developer-logging.ts'
 import { spawn } from 'node:child_process'
+import { NextTransitionNotice } from './next-transition-notice.ts'
 import { RemoteControlOffer, remoteControlOfferCopy } from './remote-control-offer.ts'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -18,6 +20,7 @@ import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-te
 import { showDesktopMessageBox } from './desktop-dialog-window.ts'
 import { packagedDependencyPath } from './packaged-runtime-path.ts'
 import { ElectronShellGeneration } from './electron-shell-generation.ts'
+import { editingContextMenuLabels } from './context-menu.ts'
 import { isPlatformLoginDestination, type DesktopPlatformLoginRequest } from './platform-login.ts'
 import { PLATFORM_LOGIN_TITLE, platformLoginUrl } from './platform-login-window.ts'
 import type { DesktopOpenWorkspaceDelivery } from './launch-workspace-contract.ts'
@@ -60,7 +63,7 @@ import {
   type DesktopUpdateArtifact,
   type UpdateArtifactResponse,
 } from './update-download.ts'
-import type { UpdateCheckResult } from './update-checker.ts'
+import { parseCanonicalChannelVersion, type UpdateCheckResult } from './update-checker.ts'
 import type { DesktopInstallationId } from './desktop-installation-id.ts'
 import { DESKTOP_RELEASE_CHANNEL } from './product-identity.ts'
 import type { DesktopReleaseChannel } from './update-checker.ts'
@@ -96,7 +99,7 @@ export function desktopPreloadPath(moduleUrl: string = import.meta.url): string 
 const PRODUCT_VERSION = desktopProductVersion()
 
 /** Main-process deadline for one Renderer generation to settle its client Loader. */
-export const RENDERER_BOOT_TIMEOUT_MS = 30_000
+export const RENDERER_BOOT_TIMEOUT_MS = 120_000
 
 /** HTTP statuses whose Response must be constructed without a body stream. */
 const NULL_BODY_STATUSES = new Set([204, 205, 304])
@@ -179,6 +182,8 @@ export function requestDesktopArtifact(url: string, init: RequestInit): Promise<
 
 /** Native adapter used by the DSH Desktop launcher and owned by its Cordis shell plugin. */
 export class ElectronDesktopRuntime implements DesktopRuntime {
+  configureDeveloperLogging(preferences: DiagnosticPreferences): void { configureDeveloperLogging(preferences) }
+
   setupOnboarding?: import('./setup-onboarding-bridge.ts').DesktopOnboardingBridge
   readonly platform: DesktopPlatform
   private readonly platformStrategy: ElectronPlatformStrategy
@@ -193,6 +198,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   private terminalSpec: DesktopTerminalSpec | undefined
   private diagnosticExport: Promise<void> | undefined
   private readonly workspaceAdmission: ElectronWorkspaceAdmission
+  private readonly nextTransitionNotice: NextTransitionNotice
   private updateCleanupTask: Promise<void> | undefined
   private rendererHealthGate: DesktopRendererHealthGate | undefined
   private rendererBootHealthy = false
@@ -221,6 +227,11 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       showMessageBox: async options => await this.showDesktopMessageBox(options),
       logError: message => { this.logError(message) },
       ...(workspaceVolumeQuery === undefined ? {} : { volumeQuery: workspaceVolumeQuery }),
+    })
+    this.nextTransitionNotice = new NextTransitionNotice({
+      path: join(app.getPath('userData'), 'notices', 'next-transition-v1'),
+      show: options => this.showDesktopMessageBox(options),
+      reportError: cause => { this.logError(`dsh-plugin-desktop: Next transition notice failed: ${String(cause)}`) },
     })
     this.updates = {
       get isPackaged() { return app.isPackaged },
@@ -338,6 +349,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         logError: message => { this.logError(message) },
         mainWindowState: this.mainWindowState,
         platformLoginTitle: () => PLATFORM_LOGIN_TITLE[this.currentLocale],
+        editingContextMenuLabels: () => editingContextMenuLabels(this.currentLocale),
         setupOnboarding: this.setupOnboarding,
         chromeActions: {
           ...(remoteOffer ? { remoteControl: {
@@ -369,7 +381,8 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       this.generation = generation
       this.mountTask = generation.mount(beforeInteractive).then(() => {
         this.rendererHealthGate?.acceptNativeMount()
-        void this.offerUpdateArtifactCleanup().catch((cause: unknown) => {
+        void this.nextTransitionNotice.open(this.locale, DESKTOP_RELEASE_CHANNEL,
+          () => this.generation === generation && !this.quitting).then(() => this.offerUpdateArtifactCleanup()).catch((cause: unknown) => {
           this.logError(`dsh-plugin-desktop: failed to resolve update installer cleanup: ${cause instanceof Error ? cause.message : String(cause)}`)
         })
       }).catch((cause: unknown) => {
@@ -803,9 +816,9 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       type: 'info',
       title: copy.updateAvailableTitle,
       message: copy.updateAvailableMessage(version),
-      detail: channel === DESKTOP_RELEASE_CHANNEL
-        ? copy.downloadUpdate
-        : copy.installStableAlongsideBeta,
+      detail: parseCanonicalChannelVersion(version, 'next') !== null
+        ? copy.installNext
+        : channel === DESKTOP_RELEASE_CHANNEL ? copy.downloadUpdate : copy.installStableAlongsideBeta,
       buttons: [copy.download, copy.later],
       defaultId: 1,
       cancelId: 1,
@@ -894,7 +907,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         type: 'info',
         title: copy.updateDownloadedTitle,
         message: copy.updateReady(version),
-        detail: copy.macInstallInstructions,
+        detail: parseCanonicalChannelVersion(version, 'next') !== null ? copy.macNextInstallInstructions : copy.macInstallInstructions,
         buttons: [copy.ok],
         defaultId: 0,
         noLink: true,

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { parse } from 'yaml'
 import { DESKTOP_INSTALLER_QUIT_FLAG } from '../src/desktop-installer-quit.ts'
 
 describe('Windows NSIS running-app handoff', () => {
@@ -32,5 +33,31 @@ describe('Windows NSIS running-app handoff', () => {
     expect(script).not.toContain('taskkill')
     expect(script).not.toContain('nsProcess::KillProcess')
     expect(script).not.toContain('getProcessInfo.nsh')
+  })
+
+  it('skips wizard pages during --updated and auto-relaunches when --force-run completes visibly', () => {
+    const script = readFileSync(join(process.cwd(), 'build', 'installer.nsh'), 'utf8')
+
+    expect(script).toContain('!macro customInit')
+    expect(script).toContain('SetSilent normal')
+    expect(script).toContain('ShowWindow $HWNDPARENT ${SW_SHOW}')
+    expect(script).toContain('BringToFront')
+    expect(script).toContain('!macro customInstallMode')
+    expect(script).toContain('StrCpy $isForceMachineInstall "1"')
+    expect(script).toContain('StrCpy $isForceCurrentInstall "1"')
+    expect(script).toContain('!macro customInstall')
+    expect(script).toContain('${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "--updated"')
+    expect(script).toContain('!insertmacro quitSuccess')
+  })
+})
+
+describe('Windows assisted installer messages', () => {
+  it('sets a clearer message for the slow install stage', () => {
+    const messages = parse(readFileSync(join(process.cwd(), 'build', 'assistedMessages.yml'), 'utf8')) as {
+      installing?: Record<string, string>
+    }
+
+    expect(messages.installing?.zh_CN).toBe('DSH Desktop 正在安装，可能需要几分钟；请保持此窗口打开。')
+    expect(messages.installing?.en).toContain('This may take several minutes')
   })
 })

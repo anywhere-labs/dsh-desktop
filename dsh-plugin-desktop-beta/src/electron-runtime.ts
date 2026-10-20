@@ -8,6 +8,7 @@ import {
   Notification,
   shell,
 } from 'electron'
+import { configureDeveloperLogging, type DiagnosticPreferences } from './developer-logging.ts'
 import { spawn } from 'node:child_process'
 import { RemoteControlOffer, remoteControlOfferCopy } from './remote-control-offer.ts'
 import { readFileSync } from 'node:fs'
@@ -18,6 +19,7 @@ import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-te
 import { showDesktopMessageBox } from './desktop-dialog-window.ts'
 import { packagedDependencyPath } from './packaged-runtime-path.ts'
 import { ElectronShellGeneration } from './electron-shell-generation.ts'
+import { editingContextMenuLabels } from './context-menu.ts'
 import { isPlatformLoginDestination, type DesktopPlatformLoginRequest } from './platform-login.ts'
 import { PLATFORM_LOGIN_TITLE, platformLoginUrl } from './platform-login-window.ts'
 import type { DesktopOpenWorkspaceDelivery } from './launch-workspace-contract.ts'
@@ -96,7 +98,7 @@ export function desktopPreloadPath(moduleUrl: string = import.meta.url): string 
 const PRODUCT_VERSION = desktopProductVersion()
 
 /** Main-process deadline for one Renderer generation to settle its client Loader. */
-export const RENDERER_BOOT_TIMEOUT_MS = 30_000
+export const RENDERER_BOOT_TIMEOUT_MS = 120_000
 
 /** HTTP statuses whose Response must be constructed without a body stream. */
 const NULL_BODY_STATUSES = new Set([204, 205, 304])
@@ -179,6 +181,8 @@ export function requestDesktopArtifact(url: string, init: RequestInit): Promise<
 
 /** Native adapter used by the DSH Desktop launcher and owned by its Cordis shell plugin. */
 export class ElectronDesktopRuntime implements DesktopRuntime {
+  configureDeveloperLogging(preferences: DiagnosticPreferences): void { configureDeveloperLogging(preferences) }
+
   setupOnboarding?: import('./setup-onboarding-bridge.ts').DesktopOnboardingBridge
   readonly platform: DesktopPlatform
   private readonly platformStrategy: ElectronPlatformStrategy
@@ -338,6 +342,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         logError: message => { this.logError(message) },
         mainWindowState: this.mainWindowState,
         platformLoginTitle: () => PLATFORM_LOGIN_TITLE[this.currentLocale],
+        editingContextMenuLabels: () => editingContextMenuLabels(this.currentLocale),
         setupOnboarding: this.setupOnboarding,
         chromeActions: {
           ...(remoteOffer ? { remoteControl: {

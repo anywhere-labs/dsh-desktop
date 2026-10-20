@@ -20,6 +20,8 @@ Launcher 会在 Loader entry 挂载前注册作用于当前 generation 的 `ctx.
 
 Cordis 的裸插件导入从持久化 profile 解析。一个范围受限的 Node resolve hook 只处理由 `@deepseek-ai/cordis-plugin-loader` 发起的导入，因此即使打包后的 Electron 不暴露 Node 内部 ESM Loader，profile 本地第三方包与修复后的 launcher fallback 仍使用同一条解析路径。
 
+Host 还会在同一解析器上注册官方 `pluginPackages` 服务，但不安装官方运行时拦截。因此，插件管理器、插件清单和 typert loader 等官方消费方会通过官方元数据读取器获得组件标题、说明和图标；从 profile 发起的包查找会得到 Loader 实际导入的包，而不是 profile 上层残留的旧副本。官方包操作完成后，`refresh()` 会为后续导入重新选择包，已加载的模块不会重新加载。
+
 在 profile 准备与 Cordis boot 之前，打包后的 macOS 或 Linux 启动会以交互式 login 模式运行用户账户配置的 shell，并恢复其导出的 `PATH`。这样可补全 Finder、LaunchServices 等图形启动方式通常传入的精简 `PATH`。除 `PATH` 外，只会从固定 allowlist 补充当前启动环境尚未定义的 locale、工具链、package manager 与虚拟环境变量；只有 `PATH` 始终采用 shell 值。该流程只支持绝对路径的 `zsh`、`bash` 与 `fish`。Bash 遵循标准 login 行为，只有 login profile 主动 source `.bashrc` 时，该文件才会参与。Windows 以及未打包或开发运行会跳过恢复；shell 不存在或不受支持、捕获超时或失败、没有可用 `PATH` 时，会静默保留原有进程环境。
 
 捕获过程以 `@deepseek-ai/dsh-subprocess` 的 `scrubbedParentEnv()` 作为输入；捕获到的变量名还必须通过同一套 `SENSITIVE_ENV_PATTERN` 与 `DSH_ENV_PREFIX` 检查，之后才进入固定 allowlist。因此，只在 shell rc 中出现的凭据、`DSH_*` 值、代理与 SSH agent 设置，以及进程启动 hook 都不会被导入 Electron。该恢复流程不会删除 Electron 显式启动环境中已经存在的值。普通 DSH subprocess 会再次应用官方 scrub；显式 child environment 仍可有意补回某项值。
@@ -60,7 +62,7 @@ Cordis row 会在 profile 激活期间登记原生窗口参数。Launcher 只在
 
 本次 alpha runtime 迁移不再携带 Desktop 自有的工作区文件夹拖放行为或聊天附件拖放隔离补丁。在按 alpha Client UI 重新评估这些交互前，请使用普通工作区选择流程。
 
-在所有呈现模式下，Windows PowerShell 都会保留上游 `pwsh-sandbox` 行为与 Windows ACL confinement。Launcher generation 只会把该 Host provider 替换为同一 package 中的 `dsh-plugin-desktop/windows-pwsh-sandbox` 子路径。对于与上游 ACL runner 完全匹配的 argv，adapter 会让打包后的 Electron executable 通过私有 trampoline 以 Node 模式启动。Trampoline 会先精确校验上游 runner，再在导入它之前移除 Node-mode 环境变量，并确保自身这个原本没有 console 的 Windows 进程拥有一个隐藏 console。受限 PowerShell 进程随后可以继承该 console，而不必在已经使用受限 token 时自行创建。Console 分配失败会通过现有带签名的 runner 失败路径退出；全部 ACL policy 与后续失败处理仍委托给上游 runner。Desktop deploy root 还会保留 Yarn patch，在两条原生受限进程路径上把 `STARTF_USESHOWWINDOW`、现有的 `STARTF_USESTDHANDLES` 与 `SW_HIDE` 组合起来。它不会使用与上游实现不兼容的 `CREATE_NO_WINDOW` 或 `CREATE_NEW_CONSOLE` flag。直接使用 `danger-full-access` 的 PowerShell、macOS 与 Linux 执行路径保持不变；Windows confinement 失败时不会自动回退到不受限执行。
+在所有呈现模式下，Windows PowerShell 都会保留上游 `pwsh-sandbox` 行为与 Windows ACL confinement。Launcher generation 只会把该 Host provider 替换为同一 package 中的 `dsh-plugin-desktop/windows-pwsh-sandbox` 子路径。对于与上游 ACL runner 完全匹配的 argv，adapter 会让打包后的 Electron executable 通过私有 trampoline 以 Node 模式启动。Trampoline 会先精确校验上游 runner，再在导入它之前移除 Node-mode 环境变量，并确保自身这个原本没有 console 的 Windows 进程拥有一个没有窗口的 console：Windows 11 24H2 及更高版本会直接分配，更早的版本则附加到一个短暂运行、不受限的 `cmd.exe` 的无窗口 console；只有两者都失败时，才分配普通 console 并将其隐藏。受限 PowerShell 进程随后可以继承该 console，而不必在已经使用受限 token 时自行创建，也不会有 console 窗口被交给 Windows Terminal。Console 分配失败会通过现有带签名的 runner 失败路径退出；全部 ACL policy 与后续失败处理仍委托给上游 runner。Desktop deploy root 还会保留 Yarn patch，在两条原生受限进程路径上把 `STARTF_USESHOWWINDOW`、现有的 `STARTF_USESTDHANDLES` 与 `SW_HIDE` 组合起来。它不会使用与上游实现不兼容的 `CREATE_NO_WINDOW` 或 `CREATE_NEW_CONSOLE` flag。直接使用 `danger-full-access` 的 PowerShell、macOS 与 Linux 执行路径保持不变；Windows confinement 失败时不会自动回退到不受限执行。
 
 ## 扩展窗口模式
 
@@ -69,6 +71,8 @@ Cordis row 会在 profile 激活期间登记原生窗口参数。Launcher 只在
 居中的产品标题和模式 pill 不受两侧操作组影响。第一方操作使用紧凑图标：macOS 把它们放在红绿灯相对的右侧，Windows 则把它们放在原生标题栏按钮相对的左侧。图标可以打开 DSH 终端、打开包含普通重启与恢复模式重启的菜单，或打开开发者菜单来重载 renderer 与切换分离式开发者工具。这些固定操作通过私有同源 launcher 边界执行；页面不会获得原始 Electron 或任意命令接口。
 
 即使上游 overlay 打开，操作栏仍会保持可见且可以拖动窗口。macOS 红绿灯和 Windows 原生标题栏按钮保留各自命中区域；这个私有 surface 只直接渲染 Desktop 自有的第一方图标，它们会明确退出拖动区域并保持可点击。Web Client 插件在兼容模式和扩展窗口中都不能向操作栏贡献 action。
+
+应用文档、Desktop 操作栏和 Desktop 自有本地窗口中的可编辑区域显示与官方桌面端一致的原生右键菜单：撤销、重做、剪切、复制、粘贴和全选，不带快捷键标注，可用状态由 Chromium 提供。选中的只读文本只提供“复制”。Windows 文案跟随 Desktop 语言；macOS 与 Linux 使用原生 role 文案。
 
 DOM 会把操作栏声明为 Desktop frame，并把下移后的上游 root 声明为它的 content viewport。`shell.overlay` 会成为 fixed 插件 surface 的 containing block，直接 portal 到 `body` 的对话框则获得相同的内容偏移；两条路径都会被限制在 36 像素 frame 下方，不会再压暗或拦截顶栏。
 
@@ -107,7 +111,7 @@ yarn check
 yarn dev
 ```
 
-`dev` 会在启动前自动构建，不需要另行手动构建。
+`dev` 会在启动前自动构建，不需要另行手动构建。`dev` 和 `start` 还会在壳启动前于 `.desktop-build/runtime` 下准备随包解释器载荷，与上游桌面端的开发启动器一致，因此开发运行中也有 Office 技能；首次启动会下载上游锁文件固定的压缩包和 wheel，`yarn prepare:runtime` 可单独执行这一步。
 
 以下 headless-safe 启动器入口不会导入或启动 Electron：
 
@@ -199,6 +203,8 @@ DSH Desktop 将 UTF-8 日志写入 Electron 用户数据目录：Windows 位于 
 
 Stable 与 Beta 在 Windows、macOS 和 Linux 上均关闭 ASAR。打包后的 Electron smoke 会通过本地文件系统后端验证随包 Cordis 技能。
 
+与上游桌面端一样，安装包在应用旁携带 primary runtime，位于 `Contents/Resources/runtime`（Windows 为 `resources/runtime`）：上游锁文件固定的独立 Python 3.12 及 numpy、pandas、python-docx、python-pptx、openpyxl、Pillow、lxml、XlsxWriter，独立 Node，随包 pnpm，以及每份载荷旁的 Office 技能资源。macOS 的 universal 应用每个 CPU 各带一份载荷，`runtime/arm64` 和 `runtime/x64`，安装版壳按自身运行的 CPU 选择载荷；Windows 只带 `runtime/x64`，Linux 不带。每个打包入口都会在运行各项 gate 之前执行 `scripts/prepare-runtime.ts`：把上游锁文件（`deepseek-harness/scripts/primary-runtime/lock.json`）固定的压缩包和 wheel 下载到 `.desktop-build/downloads`，在 `.desktop-build/runtime/<cpu>` 下组装每份载荷并按上游方式裁剪 NumPy 与 pandas 的测试套件，写入记录产品版本和载荷摘要的 `runtime.json`，校验整棵树，再执行本机能运行的载荷。签名的 macOS 发布版在运行 electron-builder 之前先给每个 Mach-O 载荷文件打上带 hardened runtime 和时间戳的 Developer ID 签名，与上游一致；`signIgnore` 阻止 electron-builder 重新签名，universal 合并规则则覆盖这些完全相同的载荷。`afterPack` 钩子、最终产物检查和挂载镜像的校验器会再次检查载荷。Host 挂载上游的 Office 组合：`load_workspace_dependencies` 工具首次使用时把载荷安装到 `<home>/dsh-runtimes/dsh-plugin-desktop-primary-runtime`（按版本区分的目录，因为 Stable 与官方桌面端共用 `~/.dsh`，而该工具会替换清单不同的安装），以及 `office-docx`、`office-pptx`、`office-xlsx` 技能，它们由随包 Node 运行 LibreOffice Kit CLI。打包后的 Host 缺少载荷即失败；开发运行的 Host 在 `yarn prepare:runtime` 执行之前只记录警告并在没有 Office 的情况下启动。
+
 `yarn package:dir` 为当前宿主平台创建未封装目录。如果应用目录缺少 desktop 更新与终端模块、DSH CLI bootstrap、内置 pnpm 入口或物理 deployment package，packaged-runtime gate 会拒绝该产物。Electron Builder 会把根 manifest、desktop runtime 与完整依赖树输出到 `resources/app/`（macOS 为 `Contents/Resources/app/`）；Host profile boot 与 CLI bootstrap 都会使用这棵物理树，因此 DSH profile fallback 的符号链接不会指向虚拟 ASAR 目录。
 
 可编辑的图标工程位于 `build/app-icon.icon`，使用 System Dark 背景，为 Stable 隐藏徽标组。macOS 打包直接把这个分层源工程编译为 `Assets.car`，并声明 `CFBundleIconName`；打包后的应用保留原生 Dock 图标。Apple 编译器同时生成 `build/app-icon.icns`，用于较旧的 macOS 和 DMG 卷图标。Composer 导出的 `build/app-icon.png` 用于 Linux，并作为 Windows `build/app-icon.ico` 的来源；ICO 提供常用高 DPI 档位的精确帧，保留对应版本的图案，供应用程序、NSIS 安装器和卸载器使用。带内边距的 `build/app-icon-mac.png` 仅用于未打包的 Electron 开发运行，此时还没有编译后的应用包。
@@ -273,3 +279,11 @@ corepack.cmd yarn dist:win-portable
 - Stable、Beta 和 Next 均固定到已发布的 DSH `0.1.7-rc.1` family 及其对应的官方 `deepseek-harness/` release 源码。产品构建使用 `upstream.json` 记录并提交到仓库的官方 profile 运行时包，不会直接链接源码 checkout。
 - DSH `0.1.7-rc.1` 会将受支持的历史会话迁移至 V4，并保留原始日志。升级后写入的会话无法由此前 Stable 使用的 `0.1.5-rc.2` 运行时读取。
 - `package:dir` 是用于 smoke 的未封装产物。`dist:win` 会额外生成未签名的 NSIS 测试安装包，但不会建立 Authenticode 身份或 SmartScreen 信誉。安装与升级行为、原生通知与终端、Windows ACL sandbox，以及每台目标机器上的原生材质外观仍属于目标平台验证边界。
+
+### 开发者日志
+
+桌面设置 → 日志 → 开发者日志，默认关闭，修改立即生效；日志级别同时控制内核文件日志和开发者记录。开启后追加结构化元数据：Cordis 来源、序号与插件 ID，插件状态，Agent turn/step，模型流的耗时、结果与分块数，工具执行与错误码，重试决策，Host ↔ Electron IPC，HTTP 路由/状态/耗时，Host 标准输出/错误输出，以及桌面界面控制台。每次启动包含 runId，各进程包含 pid 和记录序号，各操作包含 operationId。
+
+追踪不主动采集提示词、模型输出、工具参数/结果、HTTP/IPC 正文或请求头；错误链、进程输出与控制台文本仍可能含插件自行输出的信息，沿用脱敏、长度上限与界面速率限制。关闭开关仍保留错误和原有生命周期日志。Electron 与独立 Host 的日志分别写入现有 logs、logs/host，继续按单文件 10 MiB、每目录 200 MiB 和 7 天轮转；“导出诊断信息”继续生成 ZIP，包含这些日志和原有崩溃证据。未新增操作系统内核或网络抓包。
+
+插件清单通过官方 `readPluginInventory()` 获取实际启用状态和生命周期阶段。可选的官方 Inspector 可用时，通过 `ctx.inspector.cordis.getTree()` 获取运行时来源、版本序号、连接状态和截断标记等元数据，桌面端不自行重建其拓扑。会话元数据使用官方 `session/event` 事件，保留原始事件类型、序号和时间，便于与 Session Log 对照。原始会话和聊天数据查看、NodeJS 调试及出站 fetch 抓取由官方开发者工具提供；桌面端保留操作耗时、进程/IPC 诊断、日志留存和诊断导出。开启开发者日志不会自动开启官方抓取工具，也不会将其原始正文复制到导出包。

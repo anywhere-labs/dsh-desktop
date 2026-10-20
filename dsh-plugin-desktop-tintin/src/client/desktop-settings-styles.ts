@@ -412,6 +412,12 @@ const CSS = `
   .dshDesktopSettingsToggleRow { align-items: flex-start; }
   .dshDesktopSettingsForm { align-items: stretch; flex-direction: column; }
 }
+/* Chromium's Windows and Linux <select> popup takes its fill from the control's
+   own background-color and its text from the inherited color. Upstream's
+   transparent selects (voice input, Cordis) therefore open a white popup with
+   the dark palette's light text. An opaque option fill keeps that list readable;
+   the closed control is unchanged, and macOS's native menu ignores it. */
+body[data-ds-dark-theme] select :is(option, optgroup) { background-color: var(--dsw-alias-bg-layer-2); }
 `
 
 /** Install one scoped stylesheet; tolerate headless Client boot. */

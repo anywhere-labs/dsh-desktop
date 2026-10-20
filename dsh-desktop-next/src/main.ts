@@ -16,6 +16,8 @@ import { preferredDesktopLocale, resolveDesktopLocale } from './menu-locale.ts'
 import { NativeLocaleStore } from './native-locale.ts'
 import { NextDesktopRuntime } from './desktop-runtime.ts'
 import { probeSystemProxy, type DesktopSystemProxyProbe } from './system-proxy.ts'
+import { resolveDesktopShellEnvironment } from './shell-environment.ts'
+import { ensureUtf8Locale } from './shell-locale.ts'
 import { DEFAULT_PROFILE, NATIVE_ACCESS_HEADER, type DesktopCommand, type DesktopState, type DesktopSettingsPage } from './desktop-contract.ts'
 import { portsChanged, parsePreferences } from './desktop-preferences.ts'
 import { NativeDesktop, applyWindowMaterial } from './native-desktop.ts'
@@ -26,17 +28,22 @@ import { bundledPnpmEntry, createPackageRunner } from './extensions.ts'
 import { applyDesktopPackageAgePolicy } from './pnpm-policy.ts'
 import { auxiliaryWindowChromeOptions, auxiliaryWindowHasCustomFrame } from '../../dsh-plugin-desktop-beta/src/auxiliary-window-options.ts'
 import { cleanupDisposableTree } from '../../dsh-plugin-desktop-beta/src/disposable-tree.ts'
+import { installEditingContextMenu } from '../../dsh-plugin-desktop-beta/src/context-menu.ts'
 import { atomicJson, privateDirectory } from './private-files.ts'
 import { windowMaterial } from './window-material.ts'
 import { ONBOARDING_ARGUMENT, RECOVERY_ARGUMENT, SAFE_ARGUMENT, relaunchApp, relaunchArguments } from './relaunch.ts'
+import { DESKTOP_RUNTIME_FILE, readInstalledPackageVersion, verifyPackagedRuntimeIdentity } from './runtime-tree.ts'
+import { unpackedPath } from './asar-archive-policy.ts'
 import { createNativePermissions, installMediaPermissions } from './electron-permissions.ts'
 import { defaultDataDirectory, readDataDirectory, validateDataDirectory } from './data-directory.ts'
 import { maskSecrets } from './mask-secrets.ts'
 import { DesktopBrowserGuests } from './browser-guests.ts'
 import { PlatformLoginWindow } from './platform-login-window.ts'
 import { NextUpdates } from './updates.ts'
+import { createArtifactRequest } from './update-transport.ts'
 import { NextUpdateInstaller } from './update-installer.ts'
 import { updateLabel } from './update-state.ts'
+import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop-beta/src/shutdown.ts'
 
 // Inherit the package policy across the Host and every runtime child process.
 applyDesktopPackageAgePolicy(process.env)
@@ -99,9 +106,14 @@ let windowsLanguage = 'en'
 const require = createRequire(NEXT_PACKAGE)
 const webRoot = dirname(require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html'))
 const version = (JSON.parse(readFileSync(NEXT_PACKAGE, 'utf8')) as { version: string }).version
+/** The dsh runtime beside this shell; a development tree may hoist it elsewhere, and the packaged check then reports it. */
+let dshVersion: string | undefined
+try { dshVersion = readInstalledPackageVersion(root, '@deepseek-ai/dsh') } catch { /* Not installed beside the shell; only diagnostics lose the field. */ }
 const t = (zh: string, en: string): string => windowsLanguage.toLowerCase().startsWith('zh') ? zh : en
+/** The bundled interpreter payload of this CPU: beside the archive when packaged, prepared by `prepare:runtime` in development. */
+const primaryRuntime = join(app.isPackaged ? join(process.resourcesPath, 'runtime') : join(root, '.desktop-build', 'runtime'), process.arch, 'primary-runtime')
 const runtime = new NextDesktopRuntime({
-  home, root, executable: process.execPath, addresses: () => [...desktopLanAddresses()], systemProxy: () => systemProxy,
+  home, root, primaryRuntime, executable: process.execPath, addresses: () => [...desktopLanAddresses()], systemProxy: () => systemProxy,
   ...(safeModeRequested ? { stateHome: electronData } : {}),
   certificate: async addresses => {
     try {
@@ -155,10 +167,19 @@ const native = new NativeDesktop({ root, language: () => windowsLanguage, state,
   show: openMain, run, warn: error => runtime.diagnostics.append(String(error), 'warn') })
 const permissions = createNativePermissions()
 const updateInstaller = new NextUpdateInstaller({ platform: process.platform, executable: process.execPath,
+  language: () => windowsLanguage,
   log: error => runtime.diagnostics.append(String(error), 'warn') })
 const updates = new NextUpdates({ version, platform: process.platform, packaged: app.isPackaged, userData: electronData,
   request: (url, init) => net.fetch(url, { ...init, credentials: 'omit' }),
+  artifactRequest: createArtifactRequest(),
   changed: () => { if (app.isReady() && !quitting) native.refresh() },
+  available: nextVersion => {
+    if (app.isReady() && !quitting) {
+      native.notifyUpdate(nextVersion, () => {
+        void promptAvailableUpdate().catch(error => runtime.diagnostics.append(String(error), 'warn'))
+      })
+    }
+  },
   log: error => runtime.diagnostics.append(String(error), 'warn'),
   prepare: (path, nextVersion, directory, signal) => updateInstaller.prepare(path, nextVersion, directory, signal),
   install: async () => {
@@ -210,15 +231,23 @@ function show(window: BrowserWindow): void {
   if (window.isMinimized()) window.restore()
   window.show(); window.focus()
 }
+/**
+ * Windows caption buttons never paint a fill of their own. Upstream fills them with the sidebar
+ * color, which matches only the official caption band: full-window surfaces such as the official
+ * onboarding and Platform sign-in pages paint that strip in the base background, leaving the
+ * buttons a different shade. Transparent buttons show whatever the page paints beneath them, and
+ * Electron derives their hover and press tint from the native theme rather than from this fill.
+ */
+const WINDOWS_CAPTION_FILL = '#00000000'
 
 function createWindow(preload: string, primary = false): BrowserWindow {
   const window = new BrowserWindow({ width: 1280, height: 840, minWidth: 800, minHeight: 580,
     show: false, title: 'DSH NEXT',
-    ...(process.platform !== 'darwin' ? { icon: join(root, 'build', process.platform === 'win32' ? 'app-icon.ico' : 'app-icon.png') } : {}),
+    ...(process.platform !== 'darwin' ? { icon: unpackedPath(join(root, 'build', process.platform === 'win32' ? 'app-icon.ico' : 'app-icon.png')) } : {}),
     ...(!primary ? auxiliaryWindowChromeOptions() : {}),
     ...(process.platform === 'win32' && primary ? {
       titleBarStyle: 'hidden' as const,
-      titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb',
+      titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: WINDOWS_CAPTION_FILL,
         symbolColor: nativeTheme.shouldUseDarkColors ? '#f9fafb' : '#0f1115' },
     } : {}),
     ...(process.platform === 'darwin' && primary ? {
@@ -229,6 +258,28 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     // `webviewTag` only on the application document: every attachment is still refused unless
     // `DesktopBrowserGuests` issued the lease, and the guest itself never gets the tag.
     webPreferences: { preload: join(root, 'lib', preload), contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: primary },
+  })
+  let intervalStart = Date.now()
+  let count = 0
+  let failureCount = 0
+  // The Host log otherwise misses client slot failures: the renderer can retire
+  // an entry (and its portalled dialog) without crashing the Electron process.
+  window.webContents.on('console-message', (event, _level, legacyMessage) => {
+    // Electron versions differ: older runtimes pass the message as the third
+    // argument, newer ones put it on the event. Never assume either exists.
+    const message = typeof legacyMessage === 'string' ? legacyMessage : event?.message
+    if (typeof message !== 'string') return
+    const level = typeof event?.level === 'string' ? event.level : _level
+    const failure = level === 'error' || level === 3 || message.includes('[next-ui-error]') || message.includes('slot entry crashed') || message.includes('slot factory occurrence crashed')
+    if (!failure && !runtime.preferences.developerLogging) return
+    if (Date.now() - intervalStart >= 1000) { intervalStart = Date.now(); count = 0; failureCount = 0 }
+    const currentCount = failure ? ++failureCount : ++count
+    if (currentCount > 100) {
+      if (currentCount === 101) runtime.diagnostics.record({ source: 'renderer', event: 'console.rate-limited', level: 'warn' })
+      return
+    }
+    runtime.diagnostics.record({ source: 'renderer', event: 'console', level: failure ? 'error' : level === 'warning' || level === 2 ? 'warn' : 'info',
+      message: message.slice(0, 8192), developer: !failure, fields: { webContentsId: window.webContents.id } })
   })
   window.once('ready-to-show', () => show(window))
   if (primary) {
@@ -249,6 +300,13 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     if (!url.startsWith(primary ? APP_URL : SHELL_URL)) { event.preventDefault(); openExternal(url) }
   })
   window.webContents.on('will-redirect', (event, url) => { if (!url.startsWith(primary ? APP_URL : SHELL_URL)) event.preventDefault() })
+  // The official Desktop pops the same editing menu: native roles without shortcut
+  // labels, availability from Chromium, and Windows labels in the application language.
+  installEditingContextMenu(window.webContents, window, {
+    platform: process.platform,
+    labels: () => resolveDesktopLocale(windowsLanguage).messages,
+    menu: () => Menu,
+  })
   return window
 }
 
@@ -309,17 +367,6 @@ function openMain(): void {
   mainWindow.on('closed', () => { mainWindow = undefined; onboardingSurfaceActive = false })
   mainWindow.webContents.on('render-process-gone', (_event, details) => { if (!quitting) runtime.report(new Error(`Renderer: ${details.reason}`)) })
   mainWindow.webContents.on('preload-error', (_event, _path, error) => runtime.report(error))
-  // The Host log otherwise misses client slot failures: the renderer can retire
-  // an entry (and its portalled dialog) without crashing the Electron process.
-  mainWindow.webContents.on('console-message', (event, _level, legacyMessage) => {
-    // Electron versions differ: older runtimes pass the message as the third
-    // argument, newer ones put it on the event. Never assume either exists.
-    const message = typeof legacyMessage === 'string' ? legacyMessage : event?.message
-    if (typeof message !== 'string') return
-    if (!message.includes('[next-ui-diagnostic]') && !message.includes('slot entry crashed')
-      && !message.includes('client-modules:') && !message.includes('slot factory occurrence crashed')) return
-    runtime.diagnostics.append(maskSecrets(message.slice(0, 2048)), 'warn')
-  })
   mainWindow.webContents.on('did-fail-load', (_event, code, message, _url, isMain) => {
     if (isMain && code !== -3 && !quitting && mainWindow === owner && !owner.isDestroyed()) runtime.report(new Error(message))
   })
@@ -379,6 +426,23 @@ async function confirmed(message: string, detail = t('将停止当前 Host，正
   const result = await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
   return result.response === 0 && !quitting
 }
+async function promptAvailableUpdate(): Promise<void> {
+  if (quitting || runtime.busy) return
+  const snapshot = updates.snapshot()
+  if (snapshot.phase !== 'available' || !snapshot.installable) return
+  const owner = raiseDialogOwner()
+  const options = {
+    type: 'info' as const,
+    title: 'DSH NEXT',
+    message: updateLabel(snapshot, windowsLanguage),
+    buttons: [t('下载更新', 'Download update'), t('稍后', 'Later')],
+    defaultId: 0,
+    cancelId: 1,
+    detail: t('下载完成后可一键安装并重启。', 'When the download finishes, choose Install and restart.'),
+  }
+  const choice = await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
+  if (choice.response === 0 && !quitting && !runtime.busy) void updates.download()
+}
 async function openPath(path: string): Promise<void> { const error = await shell.openPath(path); if (error) throw new Error(error) }
 
 async function command(value: unknown, source: 'app' | 'shell' | 'native' = 'app'): Promise<void> {
@@ -390,13 +454,18 @@ async function command(value: unknown, source: 'app' | 'shell' | 'native' = 'app
   // release it after success, cancellation or failure so recovery can retry.
   if (['safe-mode', 'normal-mode', 'recover', 'restart', 'rollback', 'repair-global', 'restart-app', 'restart-recovery'].includes(type)) {
     if (recoveryRequest !== undefined) return recoveryRequest
-    const request = performCommand(input, type, source).finally(() => {
+    const request = loggedCommand(input, type, source).finally(() => {
       if (recoveryRequest === request) recoveryRequest = undefined
     })
     recoveryRequest = request
     return request
   }
-  return performCommand(input, type, source)
+  return loggedCommand(input, type, source)
+}
+
+async function loggedCommand(input: Record<string, unknown>, type: string, source: 'app' | 'shell' | 'native'): Promise<void> {
+  const end = runtime.diagnostics.operation('electron.commands', type, { caller: source }, true)
+  try { await performCommand(input, type, source); end() } catch (error) { end(error); throw error }
 }
 
 async function performCommand(input: Record<string, unknown>, type: string, source: 'app' | 'shell' | 'native'): Promise<void> {
@@ -412,12 +481,12 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
       void updates.check().then(async () => {
         if (source !== 'native' || quitting) return
         const snapshot = updates.snapshot()
-        if (snapshot.phase === 'available' && snapshot.installable) {
-          const choice = await dialog.showMessageBox({ type: 'info', title: 'DSH NEXT',
-            message: updateLabel(snapshot, windowsLanguage), buttons: [t('下载更新', 'Download update'), t('稍后', 'Later')], defaultId: 0, cancelId: 1,
-            detail: t('下载完成后可一键安装并重启。', 'When the download finishes, choose Install and restart.') })
-          if (choice.response === 0 && !quitting) void updates.download()
-        } else await dialog.showMessageBox({ type: 'info', title: 'DSH NEXT', message: updateLabel(snapshot, windowsLanguage) })
+        if (snapshot.phase === 'available' && snapshot.installable) await promptAvailableUpdate()
+        else {
+          const owner = raiseDialogOwner()
+          const options = { type: 'info' as const, title: 'DSH NEXT', message: updateLabel(snapshot, windowsLanguage) }
+          await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
+        }
       }).catch(error => runtime.diagnostics.append(String(error), 'warn'))
     } else if (type === 'download-update') void updates.download()
     else {
@@ -503,7 +572,8 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
         filters: [{ name: type === 'export-ca' ? 'CA certificate' : 'Diagnostics', extensions: [type === 'export-ca' ? 'crt' : 'json'] }] }
       const result = await (owner === undefined ? dialog.showSaveDialog(options) : dialog.showSaveDialog(owner, options))
       if (!result.canceled && result.filePath && !quitting) {
-        await writeFile(result.filePath, type === 'export-ca' ? certificate! : runtime.diagnostics.export(state()), { mode: 0o600 })
+        if (type === 'export-ca') await writeFile(result.filePath, certificate!, { mode: 0o600 })
+        else await runtime.diagnostics.exportTo(result.filePath, state())
         if (type === 'diagnostics') diagnosticsFile = result.filePath
       }
       return
@@ -729,6 +799,12 @@ async function main(): Promise<void> {
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(join(root, 'build', 'app-icon-mac.png'))
   // Recovery can open without a Host; Chromium's app locale may differ from the OS language.
   windowsLanguage = preferredDesktopLocale([...app.getPreferredSystemLanguages(), app.getLocale()])
+  // Finder and Dock launches carry no login-shell exports, so the Host, its terminals and tool subprocesses
+  // would run with the minimal system PATH and no locale. Recover the exports the Desktop variants
+  // recover, then make sure a UTF-8 locale is set, as Terminal.app does for the shells it opens.
+  const shellEnvironment = await resolveDesktopShellEnvironment({ environment: process.env, home: app.getPath('home'), isPackaged: app.isPackaged, platform: process.platform })
+  for (const [name, value] of Object.entries(shellEnvironment.updates)) process.env[name] = value
+  const fallbackLocale = ensureUtf8Locale(process.env, process.platform, app.getPreferredSystemLanguages())
   // Read once, before anything can start a Host: a proxy client's "system proxy" switch sets no
   // environment variable, and only Chromium can evaluate it (PAC/WPAD included). Changing the
   // proxy takes effect on the next application start.
@@ -776,7 +852,7 @@ async function main(): Promise<void> {
         computerUse: runtime.profiles.computerUseEnabled(runtime.selected),
         input: { appVersion: version, profileName: runtime.selected, platform: process.platform,
           mode: 'compatibility', macosMaterial: 'off', windowsMaterial: 'off', openBrowser: false, networkExposure: 'loopback',
-          market: features.market ? 'community-market' : features.dshMarket ? 'dsh-market' : 'disabled', aaEnabled: features.remoteControl,
+          market: features.market ? 'community-market' : features.dshMarket ? 'dsh-market' : features.officialMarket ? 'official-market' : 'disabled', aaEnabled: features.remoteControl,
           notifications: { enabled: true, notifyOnTurnCompletion: true, notifyOnTurnFailure: true, notifyOnJobCompletion: false, notifyOnJobFailure: false, notifyOnScheduleCompletion: true, notifyOnScheduleFailure: true } } }
     }
     if (value.action === 'dismiss-account') {
@@ -787,10 +863,10 @@ async function main(): Promise<void> {
     if (value.action !== 'finish' || !onboarding || value.profile !== runtime.selected || runtime.safeMode || runtime.recoveryMode) throw new Error('Setup is unavailable')
     if (value.selection === undefined) return command({ type: 'onboarding-skip', profile: value.profile })
     const choice = value.selection as Record<string, unknown>
-    if (!choice || typeof choice !== 'object' || !['disabled', 'community-market', 'dsh-market'].includes(String(choice.market))
+    if (!choice || typeof choice !== 'object' || !['disabled', 'community-market', 'dsh-market', 'official-market'].includes(String(choice.market))
       || typeof choice.aaEnabled !== 'boolean' || typeof choice.computerUse !== 'boolean') throw new Error('Invalid setup choices')
     return command({ type: 'onboarding-complete', profile: value.profile, computerUse: choice.computerUse,
-      features: { market: choice.market === 'community-market', dshMarket: choice.market === 'dsh-market', remoteControl: choice.aaEnabled } })
+      features: { market: choice.market === 'community-market', dshMarket: choice.market === 'dsh-market', ...(choice.market === 'official-market' ? { officialMarket: true } : {}), remoteControl: choice.aaEnabled } })
   })
   ipcMain.handle(IPC.settingsTake, event => {
     assertSender(event, mainWindow, APP_URL)
@@ -881,7 +957,14 @@ async function main(): Promise<void> {
   runtime.safeMode = safeModeRequested
   runtime.recoveryMode = process.argv.includes(RECOVERY_ARGUMENT)
   runtime.initialize()
+  runtime.diagnostics.record({ source: 'desktop', event: 'shell-environment.resolved', fields: { source: shellEnvironment.source,
+    fallbackReason: shellEnvironment.fallbackReason ?? null, recovered: Object.keys(shellEnvironment.updates).join(' ') || null, fallbackLocale: fallbackLocale ?? null } })
   if (dataLocation.error && !runtime.safeMode) { runtime.recoveryMode = true; runtime.report(dataLocation.error) }
+  if (app.isPackaged) {
+    // Packaging sealed the payload with the shell, dsh, platform and architectures it was released for.
+    try { verifyPackagedRuntimeIdentity(join(root, DESKTOP_RUNTIME_FILE), { version, dshVersion: readInstalledPackageVersion(root, '@deepseek-ai/dsh'), platform: process.platform, arch: process.arch }) }
+    catch (error) { runtime.recoveryMode = true; runtime.report(error) }
+  }
   if (!runtime.safeMode && !runtime.recoveryMode) {
     try {
       runtime.profiles.ensure(runtime.selected)
@@ -920,12 +1003,13 @@ async function main(): Promise<void> {
       const zoom = window.webContents.getZoomFactor()
       return new Promise<void>(resolvePopup => { Menu.buildFromTemplate(items).popup({ window, x: Math.round(x * zoom), y: Math.round(y * zoom), callback: resolvePopup }) })
     })
-    ipcMain.on(IPC.windowsAppearance, (event, language: unknown, color: unknown, symbolColor: unknown) => {
+    ipcMain.on(IPC.windowsAppearance, (event, language: unknown, sidebarFill: unknown, symbolColor: unknown) => {
       try { assertSender(event, mainWindow, APP_URL) } catch { return }
       // Caption paint can run before the official locale service initializes;
       // IPC.locale is the only renderer authority for the application language.
+      // The recorded upstream preload still reports its sidebar fill; see WINDOWS_CAPTION_FILL.
       const validColor = (value: unknown): value is string => typeof value === 'string' && /^(?:#[\da-f]{3,8}|rgba?\([\d.,%\s]+\))$/iu.test(value)
-      if (validColor(color) && validColor(symbolColor)) mainWindow!.setTitleBarOverlay({ color, symbolColor })
+      if (validColor(symbolColor)) mainWindow!.setTitleBarOverlay({ color: WINDOWS_CAPTION_FILL, symbolColor })
     })
   }
   if (runtime.recoveryMode) openControls('recovery')
@@ -938,13 +1022,34 @@ app.on('before-quit', event => {
   if (quitting || !ownsInstance) return
   event.preventDefault()
   quitting = true
+  runtime.diagnostics.record({ source: 'electron', event: 'shutdown.start' })
+  runtime.diagnostics.flush()
+  // Bound the whole shutdown, including cleanup before Host termination starts.
+  let finished = false
+  const timeout = setTimeout(() => {
+    if (finish()) {
+      runtime.diagnostics.record({ source: 'electron', event: 'shutdown.timeout', level: 'error', message: 'Shutdown exceeded five seconds', fields: { pending: JSON.stringify(runtime.diagnostics.pendingOperations()) } })
+      runtime.diagnostics.end(false)
+      app.exit(1)
+    }
+  }, DESKTOP_SHUTDOWN_TIMEOUT_MS)
+  timeout.unref()
+  function finish(): boolean {
+    if (finished) return false
+    finished = true
+    clearTimeout(timeout)
+    return true
+  }
   // Keep disconnection/reconnection chrome out of the quit/relaunch transition.
   for (const window of [mainWindow, shellWindow]) {
     if (window && !window.isDestroyed()) window.hide()
   }
   native.close()
   platformLogin.close()
-  void Promise.all([updates.dispose(installingUpdate), (async () => { await recoveryRunner?.dispose(); await runtime.close() })()]).then(async () => {
+  const updatesDone = runtime.diagnostics.operation('electron', 'updates.dispose')
+  const recoveryDone = runtime.diagnostics.operation('electron', 'recovery.dispose')
+  void Promise.all([updates.dispose(installingUpdate).then(() => updatesDone(), error => { updatesDone(error); throw error }), (async () => { try { await recoveryRunner?.dispose(); recoveryDone() } catch (error) { recoveryDone(error); throw error }; await runtime.close() })()]).then(async () => {
+    if (finished) return
     // A staged installer must survive until handoff; the next boot removes it.
     if (safeModeRequested && !installingUpdate) {
       // Windows may still hold Chromium files until process exit; a normal boot
@@ -953,17 +1058,34 @@ app.on('before-quit', event => {
       catch (error) { runtime.diagnostics.append(`Safe Mode desktop state cleanup failed: ${String(error)}`, 'warn'); runtime.diagnostics.flush() }
     }
     if (installingUpdate) {
-      try { await updateInstaller.launch() }
+      const installerDone = runtime.diagnostics.operation('electron', 'installer.launch')
+      try { await updateInstaller.launch(); installerDone() }
       catch (error) {
-        runtime.diagnostics.append(String(error), 'error')
+        installerDone(error)
+        if (!finish()) return
+        runtime.diagnostics.record({ source: 'electron', event: 'installer.failed', level: 'error', error })
+        runtime.diagnostics.end(true)
         dialog.showErrorBox(t('更新未能安装', 'Update could not be installed'), t('应用将重新打开，请在设置中重试更新。', 'The application will reopen. Retry the update in Settings.'))
         relaunchApp(app, relaunchArguments(process.argv.slice(1), false, false))
         app.quit()
+        return
       }
-      if (process.platform === 'darwin') return
     }
+    if (!finish()) return
+    runtime.diagnostics.end(true)
     if (relaunch) relaunchApp(app, relaunch)
     app.quit()
-  }, error => { console.error(error); app.exit(1) })
+  }).catch(error => { if (finish()) { runtime.diagnostics.record({ source: 'electron', event: 'shutdown.failed', level: 'error', error }); runtime.diagnostics.end(false); app.exit(1) } })
 })
-if (ownsInstance) void main().catch(error => runtime.report(error))
+if (ownsInstance) {
+  process.on('uncaughtExceptionMonitor', (error, origin) => {
+    runtime.diagnostics.record({ source: 'electron', event: 'uncaught-exception', level: 'error', error, fields: { origin } })
+    runtime.diagnostics.end(false)
+  })
+  app.on('child-process-gone', (_event, details) => runtime.diagnostics.record({ source: 'electron', event: 'child-process-gone', level: 'error',
+    fields: { type: details.type, reason: details.reason, exitCode: details.exitCode, service: details.serviceName ?? null } }))
+  app.once('will-quit', () => runtime.diagnostics.flush())
+  runtime.diagnostics.begin({ version, platform: process.platform, electron: process.versions.electron ?? '', node: process.version, safeMode: safeModeRequested,
+    ...(dshVersion === undefined ? {} : { dsh: dshVersion }) })
+  void main().catch(error => runtime.report(error))
+}

@@ -6,7 +6,7 @@ Status: delivered and built into DSH Desktop.
 
 ## Ownership
 
-`dsh-community-market` owns catalog-source settings, source adapters, normalized discovery, the Market Client surface, npm latest preview, and Profile package-operation orchestration. It does not own Profile storage, pnpm execution, recovery checkpoints, terminal windows, or restart implementation.
+`dsh-community-market` owns catalog-source settings, source adapters, normalized discovery, the Market Client surface, npm latest preview, and the one-shot confirmation around each Profile package operation. It does not own Profile storage, package execution, bundle selection, live application, recovery checkpoints, or terminal windows: package operations belong to the official `pluginManager` service.
 
 ## Runtime shape
 
@@ -15,10 +15,10 @@ catalog source -> Host adapter -> normalized catalog -> Market Client
                                       |
                                       +-> npm latest preview
 
-Desktop Profile inventory -> Installed view -> opaque bundleId -> pnpm remove
+official pluginManager.listBundles -> Installed view -> package name -> setBundleEnabled / removeBundle
 ```
 
-The Client receives normalized data and opaque operation identities. It never receives a package-manager capability.
+The Client receives normalized data, package names, and one-shot confirmation identities. It never receives a package-manager capability.
 
 ## Source behavior
 
@@ -36,19 +36,19 @@ An installable catalog entry contributes only one npm package identity. Install 
 - exact stable version; and
 - valid `dsh.bundle.patch`.
 
-The preview binds these facts, the observed catalog item, and the active Profile to a short-lived one-shot token. Execution calls only `desktopPnpm.run(argv)`, saves the exact version, and reconciles `dsh.profile.bundles`.
+The preview binds these facts, the observed catalog item, and the active Profile to a short-lived one-shot token. Execution calls only the official manager's `installBundle` with the exact `name@version` target, saved exactly and activated; the manager selects the bundle and applies it live where HMR runs.
 
-There are no Market receipts or install-specific protection and recovery paths. Source version, repository matching, lifecycle scripts, deprecation, engine ranges, and provider verification badges do not gate installation.
+There are no Market receipts or install-specific protection and recovery paths beyond the manager's own manifest and lockfile restoration. Source version, repository matching, lifecycle scripts, deprecation, engine ranges, and provider verification badges do not gate installation.
 
-## Installed inventory and uninstall
+## Installed inventory, toggles, and uninstall
 
-Desktop inventory reads direct Profile dependencies and bundles. It therefore includes plugins installed by this Market, other markets, and the DSH CLI. Product-owned bundles are read-only. Other direct plugin dependencies receive an opaque generation-scoped `bundleId` and offer uninstall only.
+The inventory is the official manager's bundle list reduced to community plugins: bundles the Profile declares or selects, including plugins installed by this Market, other markets, and the DSH CLI, minus bundles the manager marks official, bundles the installation ships, packages in the `@deepseek-ai` scope, and Desktop's built-in bundles, which the official Plugins page manages. The manager's `readOnlyReason`, `error`, and `removable` flags decide which listed bundles can be enabled, disabled, or removed.
 
-The Host resolves `bundleId` immediately before preview and rechecks the direct dependency before execution. Uninstall uses `desktopPnpm.run(['remove', packageName])` and removes the bundle reference. The Market does not expose enable or disable.
+The Host rechecks the inventory immediately before an uninstall preview and again before execution. Enable and disable call `setBundleEnabled`; uninstall calls `removeBundle`, which deselects and unloads the bundle before pnpm removes it.
 
 ## Failure boundary
 
-Browsing remains available when Desktop package capabilities are absent. A source failure never blocks Desktop startup. Package-operation errors do not trigger automatic cleanup or rollback. Desktop's three healthy-start Profile checkpoints are the single recovery mechanism, and restoration remains an explicit Recovery-page action.
+Browsing remains available when the official manager is absent. A source failure never blocks Desktop startup. Package-operation errors trigger no Market-side cleanup or rollback: the official manager restores the Profile manifest and lockfile it snapshotted, and Desktop's three healthy-start Profile checkpoints remain the recovery mechanism for everything else, with restoration an explicit Recovery-page action.
 
 ## Headless requirements
 

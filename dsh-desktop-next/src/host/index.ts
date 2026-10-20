@@ -1,4 +1,5 @@
 /** Alpha.2 shared Web profile runner, hosted by an Electron Node-mode child. */
+import { auditHostPlugins, configureHostLogging, hostLog, hostOperation } from './logging.ts'
 import { basename, delimiter, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { inspect } from 'node:util'
@@ -13,10 +14,16 @@ import { configureNextBrowserAccess } from '../desktop-browser-access.ts'
 import { parsePreferences } from '../desktop-preferences.ts'
 import { atomicJson } from '../private-files.ts'
 import type NextWebServer from '../webserver.ts'
-import { disableAsarArchiveView } from '../asar-archive-policy.ts'
+import { disableAsarArchiveView, unpackedPath } from '../asar-archive-policy.ts'
 import { maskSecrets } from '../mask-secrets.ts'
 import { parseSystemProxyProbe, SYSTEM_PROXY_ENV, withSystemProxy } from '../system-proxy.ts'
 import { watchPlatformLogin, type PlatformLoginAccount } from './platform-login.ts'
+import { installAgentPresetResolution } from './agent-preset.ts'
+import { installCuaDriverResolution } from './cua-driver.ts'
+import { installOfficeEngineResolution } from './office-engine.ts'
+import { installSkillBadgeResolution } from './skill-badge.ts'
+import * as desktopOffice from './office.ts'
+import { resolveOfficeConfig } from './office.ts'
 
 /**
  * Services the pinned Host profile provides. The bundled `dsh` package nests
@@ -33,9 +40,20 @@ export async function main(): Promise<void> {
   disableAsarArchiveView(import.meta.url)
   const runtimeDir = process.argv[2]
   const projectDir = process.argv[3]
+  const primaryRuntime = process.argv[4]
   const home = process.env.DSH_HOME
   if (!runtimeDir || !projectDir || !home || !process.send) throw new Error('Next Host requires runtime, profile, home and IPC')
+  // The Office engine runs as a native child process, so an archived payload resolves it to its unpacked copy.
+  installOfficeEngineResolution(runtimeDir)
+  // The Creator preset reads its skills through the Host's filesystem service, which cannot stat inside the archive.
+  installAgentPresetResolution(runtimeDir)
+  // The computer-use driver hands its library path to the system loader, which reads no archive.
+  installCuaDriverResolution(runtimeDir)
+  // The badge skill tells the model to take its PNG from the directory it announces, which shells and the Host's filesystem service cannot read inside the archive.
+  installSkillBadgeResolution(runtimeDir)
   const preferences = parsePreferences(JSON.parse(process.env.DSH_NEXT_PREFERENCES ?? '{}'))
+  configureHostLogging(preferences)
+  hostLog({ source: 'host', event: 'process.start', fields: { profile: basename(projectDir), node: process.version } })
   const trustedHosts = JSON.parse(process.env.DSH_NEXT_TRUSTED_HOSTS ?? '[]') as unknown
   if (!Array.isArray(trustedHosts) || trustedHosts.some(host => typeof host !== 'string')) throw new Error('Invalid Next trusted hosts')
   const systemProxy = parseSystemProxyProbe(process.env[SYSTEM_PROXY_ENV])
@@ -65,7 +83,8 @@ export async function main(): Promise<void> {
       env: {
         DSH_DESKTOP_NODE_EXECUTABLE: process.execPath,
         ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
-        PATH: `${join(runtimeDir, 'scripts', 'node-bin')}${delimiter}${process.env.PATH ?? ''}`,
+        // Package scripts execute the shims through the shell, which cannot enter app.asar.
+        PATH: `${unpackedPath(join(runtimeDir, 'scripts', 'node-bin'))}${delimiter}${process.env.PATH ?? ''}`,
       },
     },
   })
@@ -76,13 +95,22 @@ export async function main(): Promise<void> {
   let stopping: Promise<void> | undefined
   const accountWatch = new AbortController()
   const stop = (): Promise<void> => stopping ??= (async () => {
+    const end = hostOperation('host', 'shutdown')
     accountWatch.abort()
     const running = await application.catch(() => undefined)
-    await running?.shutdown.shutdown(0)
+    try { await running?.shutdown.shutdown(0); end() } catch (error) { end(error); throw error }
     await send({ type: 'shutdown-complete' })
     if (process.connected) process.disconnect()
+    process.exit(0)
   })()
   process.on('message', (value: unknown) => {
+    if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'logging-config') {
+      const request = value as { requestId?: unknown; developerLogging?: unknown; logLevel?: unknown }
+      if (!Number.isSafeInteger(request.requestId) || typeof request.developerLogging !== 'boolean' || !['debug', 'info', 'warn', 'error'].includes(String(request.logLevel))) return
+      configureHostLogging({ developerLogging: request.developerLogging, logLevel: request.logLevel as typeof preferences.logLevel })
+      void send({ type: 'logging-config', requestId: request.requestId }).catch(fatal)
+      return
+    }
     if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'shutdown') void stop().catch(fatal)
     if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'injections') {
       // dsh 0.1.7 serves the boot graph as revision-addressed combo bundles, and registering a
@@ -108,6 +136,15 @@ export async function main(): Promise<void> {
   })
   process.once('disconnect', () => { void stop().catch(fatal) })
   const { ctx } = await application
+  auditHostPlugins(ctx)
+  // Office skills and the workspace dependency tool need the bundled payload; a packaged Host without it fails here.
+  const office = resolveOfficeConfig(runtimeDir, primaryRuntime, home)
+  if (office === undefined) hostLog({ source: 'host', event: 'office.unavailable', level: 'warn', fields: { source: primaryRuntime } })
+  else {
+    const mounted = hostOperation('host', 'office.mount', { source: office.source })
+    try { await ctx.plugin(desktopOffice, office); mounted() } catch (error) { mounted(error); throw error }
+  }
+  hostLog({ source: 'host', event: 'process.ready' })
   const host = ctx as typeof ctx & HostServices
   await send({ type: 'ready', url: host.connection.authenticatedUrl(`http://127.0.0.1:${host.webServer.port}`),
     injections: host.webServer.collectIndexInjections() })

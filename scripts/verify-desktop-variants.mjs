@@ -5,8 +5,19 @@ const root = resolve(import.meta.dirname, '..')
 const stableRoot = join(root, 'dsh-plugin-desktop', 'src')
 const betaRoot = join(root, 'dsh-plugin-desktop-beta', 'src')
 const tintinRoot = join(root, 'dsh-plugin-desktop-tintin', 'src')
-// Both editions now pin one core API. Only their product identities differ.
-const allowedDifferences = new Set(['product-identity.ts'])
+// Both editions pin one core API. Stable alone announces and accepts its Next successor.
+const allowedDifferences = new Set([
+  'product-identity.ts',
+  // Temporary Stable-only transition: notice, checkbox dialog, update validation and copy.
+  'next-transition-notice.ts',
+  'desktop-dialog-window.ts',
+  'native-ui/desktop-dialog/App.tsx',
+  'electron-runtime.ts',
+  'native-dialog-copy.ts',
+  'update-checker.ts',
+  'update-download.ts',
+  'update-lifecycle.ts',
+])
 // TinTin channel-only source additions (browser-domain window wiring lands
 // here in later work packages). Every other file must mirror Beta exactly
 // after the identity renaming below, so shared fixes stay three-way synced.
@@ -32,7 +43,7 @@ function files(directory, base = directory) {
 
 const differences = []
 
-function compareMirrors(label, leftRoot, rightRoot, normalize, rightOnlyAllowed) {
+function compareMirrors(label, leftRoot, rightRoot, normalize, rightOnlyAllowed, leftOnlyAllowed = new Set()) {
   const leftPaths = new Set(files(leftRoot))
   const rightPaths = new Set(files(rightRoot))
   const shared = new Set([...leftPaths, ...rightPaths])
@@ -45,6 +56,7 @@ function compareMirrors(label, leftRoot, rightRoot, normalize, rightOnlyAllowed)
       continue
     }
     if (inLeft !== inRight) {
+      if (leftOnlyAllowed.has(path)) continue
       differences.push(`${label}: src/${path} exists only in the left edition`)
       continue
     }
@@ -55,7 +67,7 @@ function compareMirrors(label, leftRoot, rightRoot, normalize, rightOnlyAllowed)
   }
 }
 
-compareMirrors('stable↔beta', stableRoot, betaRoot, normalizeIdentity, new Set())
+compareMirrors('stable↔beta', stableRoot, betaRoot, normalizeIdentity, allowedDifferences, allowedDifferences)
 compareMirrors('beta↔tintin', betaRoot, tintinRoot, normalizeTintin, allowedTintinAdditions)
 
 if (differences.length > 0) {

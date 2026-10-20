@@ -68,33 +68,35 @@ test('rejects a compatibility patch pinned to a previous AA artifact', t => {
   assert.throws(() => assertPreparedAaRelease(root, commit), /compatibility patch references a different AA artifact/)
 })
 
-test('pins the AA staging type graph while keeping both Desktop runtime peer ranges', t => {
-  const { root } = fixture(t)
-  const packagePath = join(root, 'staged')
-  mkdirSync(packagePath)
-  writeFileSync(join(packagePath, 'package.json'), JSON.stringify({
-    version: '0.1.0-dev.0', scripts: { prepack: 'build', build: 'tsdown' },
-    peerDependencies: { react: '^18' },
-    devDependencies: {
-      '@deepseek-ai/dsh-session': '0.1.5-rc.2',
-      '@deepseek-ai/dsh-typert-protocol': '0.1.5-rc.2',
-      '@deepseek-ai/schemastery': '3.18.2',
-    },
-    resolutions: { react: '18.3.1' },
-  }))
-  const peers = { '@deepseek-ai/dsh-session': '0.1.5-rc.2 || 0.1.7-alpha.2' }
-  assert.deepEqual(patchManifest(packagePath, peers, version), { sourceVersion: '0.1.0-dev.0' })
-  const staged = JSON.parse(readFileSync(join(packagePath, 'package.json'), 'utf8'))
-  assert.equal(staged.version, version)
-  assert.equal(staged.scripts.prepack, undefined)
-  assert.equal(staged.peerDependencies['@deepseek-ai/dsh-session'], peers['@deepseek-ai/dsh-session'])
-  assert.equal(staged.resolutions['@deepseek-ai/dsh-session'], '0.1.5-rc.2')
-  assert.equal(staged.resolutions['@deepseek-ai/dsh-session-format'], '0.1.5-rc.2')
-  assert.equal(staged.resolutions['@deepseek-ai/dsh-typert-protocol'], '0.1.5-rc.2')
-  assert.equal(staged.resolutions['@deepseek-ai/schemastery'], '3.18.2')
-  assert.equal(staged.resolutions['@deepseek-ai/cosmokit'], '1.8.3')
-  assert.equal(staged.resolutions.react, '18.3.1')
-})
+for (const [schemaVersion, cosmokitVersion] of [['3.18.2', '1.8.3'], ['3.18.4', '1.8.5'], ['3.18.5', '1.8.6']]) {
+  test(`pins the AA staging type graph for schemastery ${schemaVersion} while keeping Desktop runtime peer ranges`, t => {
+    const { root } = fixture(t)
+    const packagePath = join(root, 'staged')
+    mkdirSync(packagePath)
+    writeFileSync(join(packagePath, 'package.json'), JSON.stringify({
+      version: '0.1.0-dev.0', scripts: { prepack: 'build', build: 'tsdown' },
+      peerDependencies: { react: '^18' },
+      devDependencies: {
+        '@deepseek-ai/dsh-session': '0.1.5-rc.2',
+        '@deepseek-ai/dsh-typert-protocol': '0.1.5-rc.2',
+        '@deepseek-ai/schemastery': schemaVersion,
+      },
+      resolutions: { react: '18.3.1' },
+    }))
+    const peers = { '@deepseek-ai/dsh-session': '0.1.5-rc.2 || 0.1.7-alpha.2' }
+    assert.deepEqual(patchManifest(packagePath, peers, version), { sourceVersion: '0.1.0-dev.0' })
+    const staged = JSON.parse(readFileSync(join(packagePath, 'package.json'), 'utf8'))
+    assert.equal(staged.version, version)
+    assert.equal(staged.scripts.prepack, undefined)
+    assert.equal(staged.peerDependencies['@deepseek-ai/dsh-session'], peers['@deepseek-ai/dsh-session'])
+    assert.equal(staged.resolutions['@deepseek-ai/dsh-session'], '0.1.5-rc.2')
+    assert.equal(staged.resolutions['@deepseek-ai/dsh-session-format'], '0.1.5-rc.2')
+    assert.equal(staged.resolutions['@deepseek-ai/dsh-typert-protocol'], '0.1.5-rc.2')
+    assert.equal(staged.resolutions['@deepseek-ai/schemastery'], schemaVersion)
+    assert.equal(staged.resolutions['@deepseek-ai/cosmokit'], cosmokitVersion)
+    assert.equal(staged.resolutions.react, '18.3.1')
+  })
+}
 
 test('rejects the former stable-old/beta-new split even if the tarball is valid', t => {
   const { root, patch } = fixture(t)
