@@ -20,6 +20,7 @@ import { installPluginControlsStyles } from './plugin-controls-styles.ts'
 import { desktopDirectoryPicker, registerDesktopDirectoryPicker } from './directory-picker.ts'
 import { SettingsRequests } from './settings-requests.tsx'
 import type { DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop-beta/src/client/desktop-settings-locales.ts'
+import { installRendererRecovery, rendererRecoveryInject } from './renderer-recovery.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -28,7 +29,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['slots', 'layout', 'locale']
+export const inject = ['slots', 'layout', 'locale', ...rendererRecoveryInject]
 
 export function apply(ctx: Context): void {
   ctx.effect(installUiDiagnostics, 'AA and Plugins client lifecycle diagnostics')
@@ -73,6 +74,10 @@ export function apply(ctx: Context): void {
     },
   }))
   if (window.desktopNext) {
+    ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+      name: 'shell.overlay', id: 'desktop-next-renderer-health', order: 0,
+      inject: () => ({ ctx }),
+    }, RendererHealth))
     const permissions = window.desktopNext.permissions
     if (permissions) ctx.effect(() => {
       const dispose = ctx.reflect.provide('desktopPermissions', permissions)
@@ -97,6 +102,15 @@ export function apply(ctx: Context): void {
     }, SafeModeNotice))
   }
   ctx.effect(installWindowStyles, 'Next native materials and recovery notice')
+}
+
+/** The effect runs only after React mounts the assembled shell. */
+function RendererHealth({ ctx }: { ctx: Context }) {
+  useEffect(() => {
+    const bridge = window.desktopNext?.renderer
+    if (bridge) return installRendererRecovery(ctx, bridge)
+  }, [ctx])
+  return null
 }
 
 /** Temporary, metadata-only trace for the AA dialog and its sibling Plugins UI. */

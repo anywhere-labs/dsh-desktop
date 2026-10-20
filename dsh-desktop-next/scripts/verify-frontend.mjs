@@ -59,6 +59,7 @@ for (const platform of ['darwin', 'win32', 'linux']) {
         return { contextBridge: { exposeInMainWorld: (name, api) => { exposed.set(name, api); own.set(name, api) } }, ipcRenderer: {
           invoke: (...args) => {
             invocations.push(args)
+            if (args[0] === 'dsh-next:boot') return Promise.resolve({ documentId: `document-${platform}`, profile: 'desktop', injections: [], streamBaseUrl: 'http://127.0.0.1:1234' })
             if (args[0] === 'dsh-next:settings-take') return Promise.resolve(requestedPage)
             if (args[0] === 'dsh-next:browser-acquire') return Promise.resolve({ lease: 'lease-1', partition: 'partition-1' })
             return Promise.resolve(undefined)
@@ -72,6 +73,14 @@ for (const platform of ['darwin', 'win32', 'linux']) {
       navigator: { userActivation },
     }, { filename: entry })
     if (hostname === 'app') {
+      const health = own.get('desktopNext').renderer
+      assert.equal(typeof health?.report, 'function')
+      await own.get('dshDesktopBoot').ready()
+      assert.equal(health.profile(), 'desktop')
+      await health.report('healthy')
+      assert.deepEqual([...invocations.at(-1)], ['dsh-next:renderer-status', `document-${platform}`, 'healthy'])
+      await own.get('dshDesktopBoot').failed('boot failed')
+      assert.deepEqual([...invocations.at(-1)], ['dsh-next:failed', 'boot failed', `document-${platform}`])
       // dsh 0.1.7 drives the native Sidebar browser itself off this carrier.
       const { keyboard, shortcuts } = exposed.get('dshDesktop')
       assert.equal(typeof keyboard.closeWindow, 'function')
@@ -120,6 +129,7 @@ for (const platform of ['darwin', 'win32', 'linux']) {
       assert.equal(exposed.get('__DSH_HOST_PATHS__')?.pathFor({ name: 'pasted.png' }), '', 'A File without a host path answers empty so the composer uploads it')
     } else {
       assert.equal(own.get('desktopNext').onOpenSettings, undefined)
+      assert.equal(own.get('desktopNext').renderer, undefined, 'Recovery pages cannot report application renderer health')
       assert.equal(own.has('dshDesktop'), false, 'Only the application document may reach guest browsers')
       assert.equal(own.has('__DSH_HOST_PATHS__'), false, 'Only the application document may read host paths of its files')
     }
