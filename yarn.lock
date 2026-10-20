@@ -994,16 +994,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@deepseek-ai/cordis-plugin-group@npm:1.0.4":
-  version: 1.0.4
-  resolution: "@deepseek-ai/cordis-plugin-group@npm:1.0.4"
-  peerDependencies:
-    "@deepseek-ai/cordis": ~4.0.4
-    "@deepseek-ai/cordis-plugin-loader": ~1.0.5
-  checksum: 10c0/5d9f0d980d3b43ccddb2c14c45a4342413b3b2bb8a849c69816e0de8d88dc5b629b1bac440b5ec31bcf23c4cf49e9d8e228dc2d94086bb25b3f3d479239d4446
-  languageName: node
-  linkType: hard
-
 "@deepseek-ai/cordis-plugin-group@npm:1.0.5":
   version: 1.0.5
   resolution: "@deepseek-ai/cordis-plugin-group@npm:1.0.5"
@@ -1027,35 +1017,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@deepseek-ai/cordis-plugin-include@npm:1.0.9":
-  version: 1.0.9
-  resolution: "@deepseek-ai/cordis-plugin-include@npm:1.0.9"
-  dependencies:
-    "@deepseek-ai/cosmokit": "npm:~1.8.5"
-    js-yaml: "npm:^4.1.0"
-  peerDependencies:
-    "@deepseek-ai/cordis": ~4.0.4
-    "@deepseek-ai/cordis-plugin-loader": ~1.0.5
-  checksum: 10c0/04a6c8aa24b7c673c71cf523da6335dc435e58ac47812f4d97671f3040c8d7e8a704b4e3f784d82822c096422a1875309b834a1990f8e32dee1817c62a28ff9f
-  languageName: node
-  linkType: hard
-
-"@deepseek-ai/cordis-plugin-loader@npm:1.0.5":
-  version: 1.0.5
-  resolution: "@deepseek-ai/cordis-plugin-loader@npm:1.0.5"
-  dependencies:
-    "@deepseek-ai/cosmokit": "npm:~1.8.5"
-    "@deepseek-ai/schemastery": "npm:~3.18.4"
-  peerDependencies:
-    "@deepseek-ai/cordis": ~4.0.4
-    node-addon-require-builtin: ^0.1.6
-  peerDependenciesMeta:
-    node-addon-require-builtin:
-      optional: true
-  checksum: 10c0/93ba08a832b42a05be0be1f1006e40b4d38043318044bf41c4ecfb787cd7b4755a69d83741bbd7154230ef7b3a34373081326d130f4ea8f25ba4293eae5d3586
-  languageName: node
-  linkType: hard
-
 "@deepseek-ai/cordis-plugin-loader@npm:1.0.6, @deepseek-ai/cordis-plugin-loader@npm:~1.0.6":
   version: 1.0.6
   resolution: "@deepseek-ai/cordis-plugin-loader@npm:1.0.6"
@@ -1069,17 +1030,6 @@ __metadata:
     node-addon-require-builtin:
       optional: true
   checksum: 10c0/c2f6677d7b6fca44b442ef6d91dc0f9366fbc7168fa85181dfa78b1d624e888ab2c3b465fb875852ea80a7da78ce5cafbcc0f94f716e242ba282e212b45bd453
-  languageName: node
-  linkType: hard
-
-"@deepseek-ai/cordis-plugin-timer@npm:1.1.6":
-  version: 1.1.6
-  resolution: "@deepseek-ai/cordis-plugin-timer@npm:1.1.6"
-  dependencies:
-    "@deepseek-ai/cosmokit": "npm:~1.8.5"
-  peerDependencies:
-    "@deepseek-ai/cordis": ~4.0.4
-  checksum: 10c0/22cf61ff81cf941974de9c90cacf5b6f691f657c9947e9c9bf40b451fc62307ba27495db215affe5bf493700775d77af43fb80ec3d99f09aa8d8f6e829cd4665
   languageName: node
   linkType: hard
 
@@ -12616,13 +12566,13 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "dsh-plugin-desktop-tintin@workspace:dsh-plugin-desktop-tintin"
   dependencies:
-    "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.0.2-desktop.cad572c00c3e5.r156e8f86.tgz"
+    "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.1.0-desktop.c989d4ceb0d9f.r2e406d2a.tgz"
     "@base-ui/react": "npm:^1.7.0"
-    "@deepseek-ai/cordis": "npm:~4.0.5"
-    "@deepseek-ai/cordis-plugin-group": "npm:1.0.4"
-    "@deepseek-ai/cordis-plugin-include": "npm:1.0.9"
-    "@deepseek-ai/cordis-plugin-loader": "npm:1.0.5"
-    "@deepseek-ai/cordis-plugin-timer": "npm:1.1.6"
+    "@deepseek-ai/cordis": "npm:4.0.5"
+    "@deepseek-ai/cordis-plugin-group": "npm:1.0.5"
+    "@deepseek-ai/cordis-plugin-include": "npm:1.0.10"
+    "@deepseek-ai/cordis-plugin-loader": "npm:1.0.6"
+    "@deepseek-ai/cordis-plugin-timer": "npm:1.1.7"
     "@deepseek-ai/dsh": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-agent": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-agent-default-model": "npm:0.2.1-rc.2"
@@ -12633,6 +12583,7 @@ __metadata:
     "@deepseek-ai/dsh-agent-tool-presentation": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-anonymous-user-id": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-api-gateway": "npm:0.2.1-rc.2"
+    "@deepseek-ai/dsh-api-remote-access": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-api-remotes": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-api-session-controller": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-api-settings-controller": "npm:0.2.1-rc.2"
@@ -12662,6 +12613,7 @@ __metadata:
     "@deepseek-ai/dsh-client-ui-plugin-manager": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-client-ui-primitives": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-client-ui-renderer": "npm:0.2.1-rc.2"
+    "@deepseek-ai/dsh-client-ui-secret-mask": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-client-ui-session": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-client-ui-settings": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-client-ui-sidebar": "npm:0.2.1-rc.2"
@@ -12686,6 +12638,7 @@ __metadata:
     "@deepseek-ai/dsh-experimental-auto-review": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-experimental-badge-skill-bundle": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-experimental-cot-translation-bundle": "npm:0.2.1-rc.2"
+    "@deepseek-ai/dsh-experimental-inspector": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-experimental-inspector-profile": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-experimental-plugin-market-bundle": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-experimental-ralph-bundle": "npm:0.2.1-rc.2"
@@ -12694,13 +12647,15 @@ __metadata:
     "@deepseek-ai/dsh-experimental-speech-to-text": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-experimental-terminal-bundle": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-experimental-tool-worktree": "npm:0.2.1-rc.2"
+    "@deepseek-ai/dsh-experimental-translator": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-experimental-voice-input-bundle": "npm:0.2.1-rc.2"
+    "@deepseek-ai/dsh-experimental-worktree": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-file-reference": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-fs": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-fs-local": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-goal": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-goal-round-driver": "npm:0.2.1-rc.2"
-    "@deepseek-ai/dsh-hmr": "npm:0.2.1-rc.2"
+    "@deepseek-ai/dsh-harness-dev-context": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-home-paths": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-hook-protocol": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-host-directory-picker": "npm:0.2.1-rc.2"
@@ -12725,6 +12680,7 @@ __metadata:
     "@deepseek-ai/dsh-permission-presets": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-persona": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-plan-mode": "npm:0.2.1-rc.2"
+    "@deepseek-ai/dsh-plugin-manager": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-ptc-runtime": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-pwsh-local": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-pwsh-sandbox": "npm:0.2.1-rc.2"
@@ -12732,6 +12688,7 @@ __metadata:
     "@deepseek-ai/dsh-sandbox-local": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-sandbox-policy": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-sandbox-windows-acl": "npm:0.2.1-rc.2"
+    "@deepseek-ai/dsh-schedule": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-scope": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-sdk-protocol": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-session": "npm:0.2.1-rc.2"
@@ -12749,6 +12706,7 @@ __metadata:
     "@deepseek-ai/dsh-shell-env": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-skill": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-skill-filesystem": "npm:0.2.1-rc.2"
+    "@deepseek-ai/dsh-skill-office": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-spill": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-storage": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-storage-domain": "npm:0.2.1-rc.2"
@@ -12770,6 +12728,7 @@ __metadata:
     "@deepseek-ai/dsh-tool-skill": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-tool-todo": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-tool-workflow": "npm:0.2.1-rc.2"
+    "@deepseek-ai/dsh-tool-workspace-dependencies": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-tools": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-typert-protocol": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-typert-registry": "npm:0.2.1-rc.2"
@@ -12785,7 +12744,7 @@ __metadata:
     "@deepseek-ai/dsh-workflow": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-working-directory": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-workspace": "npm:0.2.1-rc.2"
-    "@deepseek-ai/schemastery": "npm:^3.18.4"
+    "@deepseek-ai/schemastery": "npm:^3.18.5"
     "@electron/asar": "npm:3.4.1"
     "@electron/fuses": "npm:1.8.0"
     "@fontsource-variable/inter": "npm:^5.3.0"
@@ -12793,6 +12752,7 @@ __metadata:
     "@types/js-yaml": "npm:^4.0.9"
     "@types/mdast": "npm:^4.0.4"
     "@types/node": "npm:^22.20.0"
+    "@types/papaparse": "npm:^5.3.0"
     "@types/react": "npm:^18"
     "@types/react-dom": "npm:^18"
     "@types/semver": "npm:^7.7.1"
@@ -12802,32 +12762,30 @@ __metadata:
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
     dsh-community-market: "npm:0.1.0-dev.0"
-    dsh-tintin-browser: "npm:0.1.0-dev.0"
-    dsh-tintin-bundle: "npm:0.1.0-dev.0"
-    dsh-tintin-client-ui: "npm:0.1.0-dev.0"
-    dsh-tintin-creation-bundle: "npm:0.1.0-dev.0"
-    dsh-tintin-media-bundle: "npm:0.1.0-dev.0"
-    dsh-tintin-ops-bundle: "npm:0.1.0-dev.0"
     dshmarket: "npm:1.66.44"
     electron: "npm:44.0.0"
     electron-builder: "npm:26.15.7"
+    extract-zip: "npm:2.0.1"
+    fflate: "npm:0.8.2"
     fs-ext: "npm:2.1.1"
     jsdom: "npm:29.1.1"
     koffi: "npm:3.1.5"
     lexical: "npm:0.49.0"
     lucide-react: "npm:^1.33.0"
-    node-addon-require-builtin: "npm:^0.1.6"
+    node-addon-require-builtin: "npm:^0.1.9"
     node-gyp: "npm:13.0.1"
+    papaparse: "npm:^5.5.0"
     pnpm: "npm:11.8.0"
     react: "npm:18.3.1"
     react-dom: "npm:18.3.1"
     selfsigned: "npm:5.5.0"
     semver: "npm:^7.8.5"
     shadcn: "npm:^4.18.0"
-    sharp: "npm:0.35.3"
+    sharp: "npm:0.35.5"
     sonner: "npm:^2.0.8"
     tailwind-merge: "npm:^3.6.0"
     tailwindcss: "npm:^4"
+    tar: "npm:7.5.22"
     tsdown: "npm:0.22.2"
     tw-animate-css: "npm:^1.4.0"
     typescript: "npm:6.0.3"
@@ -13080,7 +13038,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"dsh-tintin-browser@npm:0.1.0-dev.0, dsh-tintin-browser@workspace:dsh-tintin-browser":
+"dsh-tintin-browser@workspace:dsh-tintin-browser":
   version: 0.0.0-use.local
   resolution: "dsh-tintin-browser@workspace:dsh-tintin-browser"
   dependencies:
@@ -13101,13 +13059,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"dsh-tintin-client-ui@npm:0.1.0-dev.0, dsh-tintin-client-ui@workspace:dsh-tintin-client-ui":
+"dsh-tintin-client-ui@workspace:dsh-tintin-client-ui":
   version: 0.0.0-use.local
   resolution: "dsh-tintin-client-ui@workspace:dsh-tintin-client-ui"
   languageName: unknown
   linkType: soft
 
-"dsh-tintin-creation-bundle@npm:0.1.0-dev.0, dsh-tintin-creation-bundle@workspace:dsh-tintin-creation-bundle":
+"dsh-tintin-creation-bundle@workspace:dsh-tintin-creation-bundle":
   version: 0.0.0-use.local
   resolution: "dsh-tintin-creation-bundle@workspace:dsh-tintin-creation-bundle"
   dependencies:
@@ -13120,7 +13078,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"dsh-tintin-media-bundle@npm:0.1.0-dev.0, dsh-tintin-media-bundle@workspace:dsh-tintin-media-bundle":
+"dsh-tintin-media-bundle@workspace:dsh-tintin-media-bundle":
   version: 0.0.0-use.local
   resolution: "dsh-tintin-media-bundle@workspace:dsh-tintin-media-bundle"
   dependencies:
@@ -13134,7 +13092,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"dsh-tintin-ops-bundle@npm:0.1.0-dev.0, dsh-tintin-ops-bundle@workspace:dsh-tintin-ops-bundle":
+"dsh-tintin-ops-bundle@workspace:dsh-tintin-ops-bundle":
   version: 0.0.0-use.local
   resolution: "dsh-tintin-ops-bundle@workspace:dsh-tintin-ops-bundle"
   dependencies:
@@ -17319,7 +17277,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"node-addon-require-builtin@npm:^0.1.6, node-addon-require-builtin@npm:^0.1.9":
+"node-addon-require-builtin@npm:^0.1.9":
   version: 0.1.9
   resolution: "node-addon-require-builtin@npm:0.1.9"
   dependencies:

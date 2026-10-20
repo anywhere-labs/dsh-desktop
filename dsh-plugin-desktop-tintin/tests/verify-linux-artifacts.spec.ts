@@ -34,7 +34,7 @@ function fixture(version = '2.0.0'): {
   mkdirSync(unpacked, { recursive: true })
   const appImagePath = join(dist, `DSH-Desktop-Beta-${version}-x86_64.AppImage`)
   const debPath = join(dist, `DSH-Desktop-Beta-${version}-amd64.deb`)
-  const application = join(unpacked, 'dsh-desktop-tintin')
+  const application = join(unpacked, 'dsh-desktop-beta')
   writeFileSync(appImagePath, appImage(), { mode: 0o755 })
   chmodSync(appImagePath, 0o755)
   writeFileSync(debPath, debArchive())

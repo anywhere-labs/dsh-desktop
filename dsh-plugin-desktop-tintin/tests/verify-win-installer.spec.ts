@@ -24,9 +24,7 @@ function fixture(version = '2.0.0'): {
   const dist = join(root, 'dist')
   const unpacked = join(dist, 'win-unpacked')
   mkdirSync(unpacked, { recursive: true })
-  // 通道自有值（2026-10-02 与 verify-win-installer.ts 同步修正）：
-  // TinTin 通道 NSIS artifactName = TinTin-${version}-${arch}-Setup.exe
-  const installer = join(dist, `TinTin-${version}-x64-Setup.exe`)
+  const installer = join(dist, `DSH-Desktop-Beta-${version}-x64-Setup.exe`)
   const application = join(unpacked, 'TinTin.exe')
   writeFileSync(installer, portableExecutable())
   writeFileSync(application, portableExecutable())
@@ -51,7 +49,7 @@ describe('Windows installer artifact verification', () => {
     const value = fixture('1.9.0')
 
     expect(() => verifyWindowsInstaller({ desktopRoot: value.root, version: '2.0.0' }))
-      .toThrow('TinTin-2.0.0-x64-Setup.exe')
+      .toThrow('DSH-Desktop-Beta-2.0.0-x64-Setup.exe')
   })
 
   it('rejects an artifact without a Windows PE header', () => {

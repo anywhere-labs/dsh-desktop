@@ -90,10 +90,7 @@ export function verifyWindowsInstaller(
   const distDir = join(options.desktopRoot, 'dist')
   const installerPath = join(
     distDir,
-    // 通道自有值（2026-10-02 打包实证修正）：TinTin 通道 NSIS artifactName
-    // = TinTin-${version}-${arch}-Setup.${ext}（package.json electron-builder 配置），
-    // 原镜像自 Beta 通道的 DSH-Desktop-Beta- 前缀在本通道不存在对应产物
-    `TinTin-${options.version}-x64-Setup.exe`,
+    `DSH-Desktop-Beta-${options.version}-x64-Setup.exe`,
   )
   const applicationPath = join(distDir, 'win-unpacked', 'TinTin.exe')
 

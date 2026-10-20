@@ -17,7 +17,7 @@ $taskCandidateInstaller = (Resolve-Path -LiteralPath $CandidateInstaller).Path
 $taskBaseExpectedVersion = (Get-Item -LiteralPath $taskBaseInstaller).VersionInfo.ProductVersion
 $taskCandidateExpectedVersion = (Get-Item -LiteralPath $taskCandidateInstaller).VersionInfo.ProductVersion
 $taskExistingProcesses = @(Get-CimInstance Win32_Process | Where-Object {
-  $_.Name -ieq 'DSH Desktop Beta.exe'
+  $_.Name -ieq 'TinTin.exe'
 })
 $taskUninstallRoots = @(
   'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
@@ -38,8 +38,8 @@ $taskInstallRoot = Join-Path $taskRoot 'app'
 $taskUserData = Join-Path $env:APPDATA 'DSH Desktop'
 $taskDshHome = Join-Path $taskRoot 'dsh-home'
 $taskActiveRunMarker = Join-Path $taskUserData 'crash-evidence\active-run.json'
-$taskAppPath = Join-Path $taskInstallRoot 'DSH Desktop Beta.exe'
-$taskUninstallerPath = Join-Path $taskInstallRoot 'Uninstall DSH Desktop Beta.exe'
+$taskAppPath = Join-Path $taskInstallRoot 'TinTin.exe'
+$taskUninstallerPath = Join-Path $taskInstallRoot 'Uninstall TinTin.exe'
 if (Test-Path -LiteralPath $taskActiveRunMarker) {
   throw 'Refusing to overwrite an existing DSH Desktop active run marker.'
 }

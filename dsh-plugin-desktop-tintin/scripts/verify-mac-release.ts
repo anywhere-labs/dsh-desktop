@@ -7,11 +7,14 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MACOS_UNIVERSAL_NATIVE_ENTRIES } from './mac-universal.ts'
 import { verifyMacEntitlements } from './verify-mac-entitlements.ts'
+import { verifyDesktopMacRuntime } from './verify-mac-runtime.ts'
 
 /** Injectable filesystem and command boundaries for release verification. */
 export interface MacReleaseVerificationOptions {
   /** Native inventory for shells which do not load legacy-only modules. */
   readonly nativeEntries?: readonly { readonly arch: string; readonly path: string }[]
+  /** Physical runtime root inside the application; the unpacked `Resources/app` layout by default. */
+  readonly unpackedRoot?: (appPath: string) => string
   /** Directory containing exactly one release DMG. */
   readonly distDir: string
   /** Installed application name inside the mounted image. */
@@ -24,6 +27,8 @@ export interface MacReleaseVerificationOptions {
   readonly run: (command: string, args: readonly string[]) => void
   /** Inspect signed main/Helper entitlements; custom verifiers may own this check. */
   readonly verifyEntitlements?: (appPath: string, productName: string) => void
+  /** Check resources beside the archive, such as bundled interpreter payloads, inside the mounted application. */
+  readonly verifyRuntime?: (appPath: string) => void
   /** Remove the detached empty mount point. */
   readonly removeMountPoint: (mountPoint: string) => void
 }
@@ -54,6 +59,8 @@ function defaultOptions(): MacReleaseVerificationOptions {
     makeMountPoint: () => mkdtempSync(join(tmpdir(), 'dsh-desktop-dmg-')),
     run,
     verifyEntitlements: verifyMacEntitlements,
+    // The interpreter payloads beside the application: both CPUs present, the host CPU executed, release signatures checked.
+    verifyRuntime: appPath => verifyDesktopMacRuntime(appPath, true),
     removeMountPoint: mountPoint => rmdirSync(mountPoint),
   }
 }
@@ -85,7 +92,7 @@ export function verifyMacRelease(
     const executablePath = join(appPath, 'Contents', 'MacOS', options.productName)
     options.run('lipo', [executablePath, '-verify_arch', 'x86_64'])
     options.run('lipo', [executablePath, '-verify_arch', 'arm64'])
-    const unpackedRoot = join(appPath, 'Contents', 'Resources', 'app')
+    const unpackedRoot = options.unpackedRoot === undefined ? join(appPath, 'Contents', 'Resources', 'app') : options.unpackedRoot(appPath)
     for (const entry of options.nativeEntries ?? MACOS_UNIVERSAL_NATIVE_ENTRIES) {
       options.run('lipo', [join(unpackedRoot, entry.path), '-verify_arch', entry.arch])
       if (entry.path.endsWith('/bin/uv')) {
@@ -97,6 +104,7 @@ export function verifyMacRelease(
     }
     options.run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath])
     options.verifyEntitlements?.(appPath, options.productName)
+    options.verifyRuntime?.(appPath)
     options.run('spctl', ['--assess', '--type', 'execute', '--verbose=4', appPath])
     options.run('xcrun', ['stapler', 'validate', appPath])
   } catch (cause) {

@@ -21,7 +21,7 @@ try {
     $_.Path -and $_.Path.StartsWith($taskRoot, [System.StringComparison]::CurrentCultureIgnoreCase)
   })
   $taskFixedMatches = @($taskProcesses | Where-Object {
-    $_.Path -and [System.IO.Path]::GetFileName($_.Path) -ieq 'DSH Desktop Beta.exe'
+    $_.Path -and [System.IO.Path]::GetFileName($_.Path) -ieq 'TinTin.exe'
   })
 
   [ordered]@{

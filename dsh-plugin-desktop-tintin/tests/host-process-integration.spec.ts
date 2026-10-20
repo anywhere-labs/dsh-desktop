@@ -1,6 +1,6 @@
 import { fork, type Serializable } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +11,8 @@ import { installDesktopPnpmRuntime } from '../src/desktop-runtime-environment.ts
 import { HostRpc } from '../src/host-rpc.ts'
 import { bindNativeRuntime, runtimeSnapshot } from '../src/host-runtime-bridge.ts'
 import type { DesktopRuntime, DesktopShellSpec } from '../src/runtime.ts'
+
+const SESSION_ID = 'ws-1-session-realhost-probe'
 
 it.each([false, true])('boots a separate Web Host with client plugins (AA enabled: %s)', async aaEnabled => {
   const home = mkdtempSync(join(tmpdir(), 'dsh-isolated-host-'))
@@ -33,6 +35,36 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
     writeFileSync(join(plugin, 'index.js'), 'export function apply() {}\n')
     writeFileSync(join(plugin, 'client.js'), 'export function apply(ctx) { ctx.provide("isolatedClientFixture", true) }\n')
     prepared.overlays.push({ insert: [{ id: 'isolated-client-fixture', name: 'isolated-client-fixture' }] })
+    if (!aaEnabled) {
+      // A real server-side plugin. Its `apply` runs inside the Host's plugin
+      // tree, so this emit takes the same route agent-loop's failure report does
+      // — which is the part no in-process test can stand in for.
+      const errorProbe = join(prepared.profile.dir, 'node_modules', 'agent-error-probe')
+      mkdirSync(errorProbe, { recursive: true })
+      writeFileSync(join(errorProbe, 'package.json'), JSON.stringify({
+        name: 'agent-error-probe', version: '1.0.0', type: 'module',
+        exports: { '.': './index.js', './package.json': './package.json' },
+      }))
+      writeFileSync(join(errorProbe, 'index.js'), `
+export function apply(ctx) {
+  setTimeout(() => {
+    const root = new Error('cannot resolve active package')
+    const wrapped = Object.assign(
+      new Error('DeepSeek request extension preparation failed', { cause: root }),
+      { code: 'REQUEST_EXTENSION' },
+    )
+    wrapped.name = 'LlmError'
+    ctx.emit('agent/error', {
+      agent: { id: ${JSON.stringify(SESSION_ID)} },
+      turn: 3,
+      step: 2,
+      error: wrapped,
+    })
+  }, 50)
+}
+`)
+      prepared.overlays.push({ insert: [{ id: 'agent-error-probe', name: 'agent-error-probe' }] })
+    }
     const packageRoot = new URL('../', import.meta.url)
     const pnpmBinPath = fileURLToPath(new URL('node_modules/pnpm/bin/pnpm.mjs', packageRoot))
     const electronVersion = JSON.parse(readFileSync(new URL('node_modules/electron/package.json', packageRoot), 'utf8')).version
@@ -41,9 +73,15 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
     prepared.patches.push(...prepared.overlays)
     child = fork(fileURLToPath(new URL('./fixtures/isolated-host/child.mjs', import.meta.url)), [], {
       execArgv: [], stdio: ['ignore', 'pipe', 'pipe', 'ipc'], serialization: 'advanced',
+      env: { ...process.env, DSH_TEST_USER_HOME: home },
     })
     child.stderr?.on('data', data => { stderr += String(data) })
-    const [ready] = await once(child, 'message')
+    const [ready] = await Promise.race([
+      once(child, 'message'),
+      once(child, 'exit').then(([code, signal]) => {
+        throw new Error(`worker exited before ready (${String(code ?? signal)})`)
+      }),
+    ])
     expect(ready).toEqual({ ready: true })
     const worker = child
     rpc = new HostRpc({ send: data => worker.send(data as Serializable),
@@ -68,6 +106,7 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
     releaseNative = bindNativeRuntime(rpc, runtime)
     rpc.handle('certificate', () => ({ failureCode: 'test-disabled' }))
     rpc.handle('quit', () => {})
+    const logDirectory = join(home, 'logs')
     const result = await rpc.call<{ pid: number; services: { aaRuntime: boolean; aaOnboarding: boolean } }>('boot', [{
       prepared, profilePreferences: { mode: 'advanced', openBrowser: false, networkExposure: 'loopback',
         macosMaterial: 'auto', windowsMaterial: 'auto', market: 'disabled', notifications: { enabled: false }, aaEnabled },
@@ -82,7 +121,7 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
         appExecutable: process.execPath, pnpmBinPath, electronVersion, nodeBinDir: pnpm.nodeBinDir,
         nodeShimPath: pnpm.nodeShimPath, clearEnvironmentPath: pnpm.clearEnvironmentPath,
         dshBootstrapPath: fileURLToPath(new URL('../lib/desktop-cli.js', import.meta.url)) },
-      logDirectory: join(home, 'logs'),
+      logDirectory,
     }, runtimeSnapshot(runtime), token])
     expect(result.pid).toBe(child.pid)
     expect(result.pid).not.toBe(process.pid)
@@ -113,6 +152,24 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
     // A settings import is an ordinary restart; recovery is reserved for a Host that
     // failed to compose, and this one did not.
     expect(restarts).not.toContain('recovery')
+    if (!aaEnabled) {
+      const readLogs = (suffix: string): string => readdirSync(logDirectory)
+        .filter(name => name.endsWith(suffix))
+        .map(name => readFileSync(join(logDirectory, name), 'utf8'))
+        .join('')
+      await expect.poll(() => readLogs('.log').includes('dsh-agent-error'), { timeout: 20_000 }).toBe(true)
+      const logs = readLogs('.log')
+      // The digest line: the only place the code, session, turn and step meet.
+      expect(logs).toContain(`agent turn failed (session ${SESSION_ID}, turn 3, step 2) [REQUEST_EXTENSION]`)
+      expect(logs).toContain('DeepSeek request extension preparation failed: cannot resolve active package')
+      // Cordis expanded the chain, so the root cause got its own record and stack.
+      expect(logs).toContain('Error: cannot resolve active package')
+      expect(logs).toContain('LlmError: DeepSeek request extension preparation failed')
+      // Nothing was swallowed by maskSecrets on the way through the real sink.
+      expect(logs).not.toContain('****')
+      // The failure also reaches the error-only file, which is what users send us.
+      expect(readLogs('.error.log')).toContain('[REQUEST_EXTENSION]')
+    }
     await rpc.call('stop')
     await expect(fetch(spec.url, { headers })).rejects.toThrow()
   } catch (error) {

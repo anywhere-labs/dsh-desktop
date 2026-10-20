@@ -117,3 +117,57 @@ it('checks the selected artifact while still denying incompatible active Profile
   }))
   expect(prepareProfileEntries(ctx, [{ id: 'incompatible', name: 'incompatible-plugin' }], base)[0]?.disabled).toBe(true)
 })
+
+it('hot-applies built-in market and AA bundle toggles from profile package.json during readPatches', () => {
+  const home = mkdtempSync(join(tmpdir(), 'desktop-profile-context-'))
+  homes.push(home)
+  const prepared = prepareDesktopProfile(
+    '1',
+    home,
+    'win32',
+    'desktop',
+    undefined,
+    { requested: 'community-market', effective: 'community-market', legacyDefaulted: false },
+    { aaEnabled: false },
+  )
+  const pnpm = {
+    activeProfileName: 'desktop', activeProfileDir: prepared.profile.dir, homeDir: home,
+    appExecutable: process.execPath, pnpmBinPath: join(home, 'pnpm.mjs'),
+    electronVersion: '44.0.0', nodeBinDir: join(home, 'node-bin'),
+    nodeShimPath: join(home, 'node-bin', 'node'), clearEnvironmentPath: join(home, 'clear.mjs'),
+    dshBootstrapPath: join(home, 'dsh.mjs'),
+  }
+  const onManagedBundlesChanged = vi.fn()
+  const ctx = new Context()
+  contexts.push(ctx)
+  const boot = createDesktopProfileBoot(structuredClone(prepared), pnpm, { onManagedBundlesChanged })
+  boot.prepare(ctx)
+
+  const profilePkgPath = join(prepared.profile.dir, 'package.json')
+  const initialPkg = JSON.parse(readFileSync(profilePkgPath, 'utf8')) as {
+    dsh?: { profile?: { bundles?: string[] } }
+  }
+  expect(initialPkg.dsh?.profile?.bundles).toContain('dsh-community-market')
+  expect(initialPkg.dsh?.profile?.bundles).not.toContain('dshmarket')
+  expect(initialPkg.dsh?.profile?.bundles).not.toContain('@agents-anywhere/dsh-bridge-next')
+
+  // Simulate setBundleEnabled switching to dshmarket and enabling AA
+  initialPkg.dsh!.profile!.bundles = [
+    ...initialPkg.dsh!.profile!.bundles!.filter(name => name !== 'dsh-community-market'),
+    'dshmarket',
+    '@agents-anywhere/dsh-bridge-next',
+  ]
+  writeFileSync(profilePkgPath, `${JSON.stringify(initialPkg, null, 2)}\n`)
+
+  const rows = composeEntries([readProfilePatches('test', ctx.profileContext)])
+  expect(rows.find(row => row.id === 'community-market')).toBeUndefined()
+  expect(rows.find(row => row.id === 'dsh-market')?.name).toBe('dshmarket')
+  expect(rows.find(row => row.id === 'agents-anywhere-bridge-next')?.name).toBe('@agents-anywhere/dsh-bridge-next')
+  expect(onManagedBundlesChanged).toHaveBeenCalledWith({
+    requestedMarket: 'dsh-market',
+    effectiveMarket: 'dsh-market',
+    requestedAa: true,
+    effectiveAa: true,
+  })
+})
+

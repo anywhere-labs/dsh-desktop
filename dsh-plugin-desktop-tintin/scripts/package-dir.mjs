@@ -1,9 +1,8 @@
 /** Build an unsigned unpacked application for the current host platform. */
 
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { electronBuilderEnvironment } from './electron-builder-environment.ts'
 import { withoutWindowsSigningSecrets } from './package-win.ts'
@@ -58,7 +57,6 @@ export function packageDirectory(options = {}) {
     [
       electronBuilderCli,
       ...UNSIGNED_DIRECTORY_BUILD_ARGS,
-      ...versionStampArgs(options.env ?? process.env),
       `--config.electronDist=${configuredElectronDist}`,
     ],
     {
@@ -72,25 +70,6 @@ export function packageDirectory(options = {}) {
   if (result.status !== 0) {
     throw new Error(`electron-builder --dir exited with ${String(result.status)}`)
   }
-}
-
-/**
- * 版本日期戳（2026-10-12 用户裁决：每次打出的版本都带日期——产物文件名、安装实例、
- * 卸载器三处可对齐，多个 0.2.0-dev.0 无法分辨的时代结束）。
- * 经 extraMetadata.version 注入本次构建（semver 预发布段），不落 package.json。
- * env.DSH_VERSION_STAMP：缺省=构建时刻 `YYYYMMDD.HHmm`；'off'=关闭；给定值=固定
- * 戳（Release-Builder 用自己目录时间对齐时传同值即可）。
- * @param {NodeJS.ProcessEnv} [env]
- * @param {Date} [now]
- * @returns {string[]} electron-builder 追加参数
- */
-export function versionStampArgs(env = process.env, now = new Date()) {
-  const stamp = env.DSH_VERSION_STAMP
-  if (stamp === 'off') return []
-  const resolved = stamp
-    ?? `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`
-  const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'))
-  return [`--config.extraMetadata.version=${pkg.version}-${resolved}`]
 }
 
 const invokedPath = process.argv[1]

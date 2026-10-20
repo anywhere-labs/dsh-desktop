@@ -94,6 +94,17 @@ describe('macOS release artifact verification', () => {
     expect(harness.removeMountPoint).toHaveBeenCalledOnce()
   })
 
+  it('checks bundled resources inside the mounted application after the signature checks', () => {
+    const order: string[] = []
+    const harness = options({
+      verifyEntitlements: () => { order.push('entitlements') },
+      verifyRuntime: appPath => { order.push(`runtime:${appPath}`) },
+    })
+    verifyMacRelease(harness.value)
+    expect(order).toEqual(['entitlements', `runtime:${join('/private/tmp/dsh-desktop-dmg-test', 'TinTin.app')}`])
+    expect(harness.calls.some(call => call.command === 'spctl')).toBe(true)
+  })
+
   it('rejects absent or ambiguous release images before mounting', () => {
     for (const dmgs of [[], ['/one.dmg', '/two.dmg']]) {
       const harness = options({ listDmgs: () => dmgs })
