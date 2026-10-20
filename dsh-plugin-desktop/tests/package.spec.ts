@@ -999,12 +999,11 @@ describe('published package surface', () => {
   })
 
   it('carries the primary runtime beside the application like upstream Desktop', () => {
-    // Both CPU payloads ride beside the application as extra resources; Linux ships none.
-    for (const platform of ['mac', 'win'] as const) {
+    // Every packaged platform carries its CPU payloads beside the application as extra resources.
+    for (const platform of ['mac', 'win', 'linux'] as const) {
       expect(manifest.build?.[platform]?.extraResources, platform).toEqual([{ from: '.desktop-build/runtime', to: 'runtime' }])
     }
     expect(manifest.build).not.toHaveProperty('extraResources')
-    expect(manifest.build?.linux).not.toHaveProperty('extraResources')
     // electron-builder must not re-sign the pre-signed payloads, and the universal merge keeps the identical payloads as they are.
     expect(manifest.build?.mac?.signIgnore).toContain('/Contents/Resources/runtime/(?:arm64|x64)/primary-runtime(?:/|$)')
     expect(manifest.build?.mac?.x64ArchFiles).toMatch(/^\{\*\*\/node_modules\/\{.+\},Contents\/Resources\/runtime\/\*\*,Contents\/Resources\/runtime\/\*\*\/\.\*\/\*\*\}$/u)

@@ -516,7 +516,13 @@
       "maintainer": "DeepSeek <dsh-desktop@deepseek.com>",
       "executableName": "dsh-desktop-beta",
       "syncDesktopName": true,
-      "asar": false
+      "asar": false,
+      "extraResources": [
+        {
+          "from": ".desktop-build/runtime",
+          "to": "runtime"
+        }
+      ]
     },
     "deb": {
       "packageName": "dsh-desktop-beta",

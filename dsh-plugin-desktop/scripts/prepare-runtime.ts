@@ -19,7 +19,7 @@ export interface DesktopRuntimeTarget {
 /**
  * Payloads one Desktop package carries: both Darwin CPUs by default (or the single smoke CPU when
  * `DSH_MAC_SMOKE_ARCH` selects one), because macOS releases are universal and the installed slice
- * selects its payload at runtime; Windows x64 only; nothing on other platforms.
+ * selects its payload at runtime; Windows x64 and Linux x64 on their hosts; nothing on other platforms.
  * @param platform - Electron platform being packaged.
  * @param env - Process environment inspected for single-architecture smoke selection.
  * @returns Locked targets and their CPUs.
@@ -32,6 +32,7 @@ export function desktopRuntimeTargets(platform: NodeJS.Platform, env: NodeJS.Pro
     return [{ target: 'mac-arm64', arch: 'arm64' }, { target: 'mac-x64', arch: 'x64' }]
   }
   if (platform === 'win32') return [{ target: 'win-x64', arch: 'x64' }]
+  if (platform === 'linux') return [{ target: 'linux-x64', arch: 'x64' }]
   return []
 }
 

@@ -216,13 +216,14 @@ jobs:
         with:
           path: ${{ steps.yarn-cache.outputs.dir }}
           key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
-      - name: Cache Electron Builder downloads
+      - name: Cache primary runtime and Electron Builder downloads
         uses: actions/cache@v6
         with:
           path: |
+            ${{ matrix.workspace }}/.desktop-build/downloads
             ~/.cache/electron
             ~/.cache/electron-builder
-          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock') }}
+          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ hashFiles('yarn.lock', 'deepseek-harness/scripts/primary-runtime/lock.json') }}
       - run: yarn install --immutable
       - run: yarn workspace ${{ matrix.workspace }} check:linux-package:platform
       - name: Build Linux AppImage and Debian package

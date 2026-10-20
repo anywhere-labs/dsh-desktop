@@ -892,7 +892,7 @@ export function verifyPackagedAgentsAnywhere(
 /**
  * Check the interpreter payloads Electron Builder copied beside the application as extra resources:
  * every CPU this platform ships declares the platform, CPU and product version with Node, pnpm and
- * the Office resources. Linux ships no payload and passes with none.
+ * the Office resources.
  * @param context - Electron Builder's afterPack or afterAllArtifactBuild context.
  * @returns The verified payload CPUs.
  */

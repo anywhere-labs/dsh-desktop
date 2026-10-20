@@ -92,7 +92,6 @@ export function createLinuxPackageOptions(verifier = './verify-linux-artifacts.t
     builderCli: require.resolve('electron-builder/cli.js'),
     prepareRuntime: () => {
       prepareFsExtForElectron({ platform: 'linux', arch: 'x64', desktopRoot })
-      // Linux ships no interpreter payload; the check confirms the tree declares none.
       verifyPreparedDesktopRuntime(desktopRoot, 'linux')
     },
     verifier: fileURLToPath(new URL(verifier, import.meta.url)),
