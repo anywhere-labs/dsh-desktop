@@ -1,6 +1,6 @@
 /** AA-inspired first-run flow, using the existing Desktop theme and controls. */
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { ArrowRight, Check, Keyboard, LifeBuoy, LoaderCircle, MousePointer2, Scan } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Keyboard, LifeBuoy, LoaderCircle, MousePointer2, Scan } from 'lucide-react'
 import { Button } from '../../../dsh-plugin-desktop-beta/src/native-ui/components/ui/button.tsx'
 import { Switch } from '../../../dsh-plugin-desktop-beta/src/native-ui/components/ui/switch.tsx'
 import { RadioGroup, RadioGroupItem } from '../../../dsh-plugin-desktop-beta/src/native-ui/components/ui/radio-group.tsx'
@@ -9,7 +9,6 @@ import { DesktopFrame } from '../../../dsh-plugin-desktop-beta/src/native-ui/sha
 import type { DesktopBridge, DesktopState } from '../desktop-contract.ts'
 import type { SetupNavigation } from '../../../dsh-plugin-desktop-beta/src/client/onboarding.tsx'
 import { installPluginControlsStyles } from '../client/plugin-controls-styles.ts'
-import './onboarding.css'
 import whaleArtwork from '../../build/app-icon.icon/Assets/DeepSeek.svg'
 // Reuse the portable device family artwork and composition from the AA landing page.
 import phoneArtwork from './assets/agents-anywhere-phone.webp'
@@ -18,7 +17,7 @@ type Market = 'none' | 'community' | 'dsh' | 'official'
 // Keep official dialog dependencies out of recovery and the earlier setup pages.
 const DesktopPermissionsButton = lazy(() => import('../client/permissions.tsx').then(module => ({ default: module.DesktopPermissionsButton })))
 
-export function Onboarding({ state, locale, bridge, renderNavigation, embedded = false }: { state: Pick<DesktopState, 'selected' | 'features' | 'onboardingComputerUse'>; locale: 'zh' | 'en'; bridge: Pick<DesktopBridge, 'command' | 'permissions'>; renderNavigation: SetupNavigation; embedded?: boolean }) {
+export function Onboarding({ state, locale, bridge, renderNavigation, embedded = false }: { state: Pick<DesktopState, 'selected' | 'features' | 'onboardingComputerUse'>; locale: 'zh' | 'en'; bridge: Pick<DesktopBridge, 'command' | 'permissions'>; renderNavigation?: SetupNavigation; embedded?: boolean }) {
   const t = (zh: string, en: string) => locale === 'zh' ? zh : en
   const [page, setPage] = useState(0)
   const [direction, setDirection] = useState(1)
@@ -164,7 +163,10 @@ export function Onboarding({ state, locale, bridge, renderNavigation, embedded =
       {failure && <Alert variant="destructive" className="next-onboarding-error"><AlertDescription>{failure}</AlertDescription></Alert>}
     </main>
     <nav className="next-onboarding-nav" aria-label={t('引导导航', 'Setup navigation')}>
-      {renderNavigation({ busy: disabled, onBack: page > 0 ? () => void navigate(page - 1) : undefined, onSkip: () => void finish(true) })}
+      {renderNavigation ? renderNavigation({ busy: disabled, onBack: page > 0 ? () => void navigate(page - 1) : undefined, onSkip: () => void finish(true) }) : <footer className="next-onboarding-nav-bar">
+        {page > 0 ? <Button variant="ghost" disabled={disabled} onClick={() => void navigate(page - 1)}><ArrowLeft />{t('上一步', 'Back')}</Button> : <span />}
+        <Button variant="ghost" disabled={disabled} onClick={() => void finish(true)}>{t('跳过', 'Skip')}</Button>
+      </footer>}
     </nav>
   </div></>
 }

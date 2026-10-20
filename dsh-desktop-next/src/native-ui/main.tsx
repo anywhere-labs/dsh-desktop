@@ -12,6 +12,7 @@ import { useDesktopState } from '../client/desktop-state.ts'
 import { NextSettingsAdapter } from '../client/settings-adapter.ts'
 import type { DesktopCommand } from '../desktop-contract.ts'
 import { recoverySupport } from '../recovery-support.ts'
+import { Onboarding } from './onboarding.tsx'
 import './theme.css'
 
 function App() {
@@ -68,6 +69,7 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     return () => document.removeEventListener('click', navigate)
   }, [adapter, busy, state])
   if (!state) return <><DesktopFrame /><main className="dshNativeContent p-6"><Alert><AlertDescription>{t('正在读取桌面状态…', 'Loading Desktop state…')}</AlertDescription></Alert></main></>
+  if (page === 'onboarding') return <Onboarding key={state.selected} state={state} locale={locale} bridge={adapter.bridge} />
   if (page === 'create-profile') return <ProfileCreateApp onCancel={() => { void perform({ type: 'close-controls' }) }} onCreate={async name => {
     await adapter.command({ type: 'create', name })
     await adapter.command({ type: 'switch', name })

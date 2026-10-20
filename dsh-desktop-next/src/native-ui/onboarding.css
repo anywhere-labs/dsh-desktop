@@ -13,6 +13,11 @@
   flex-shrink: 0;
   padding: 24px var(--onboarding-navigation-inset) clamp(24px, 7.61vh, 70px);
 }
+.next-onboarding-nav-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
 .next-onboarding-main {
   flex: 1;
   min-height: 0;

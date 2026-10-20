@@ -155,6 +155,7 @@ try {
   await page.reload()
   await surface.getByRole('button', { name: '暂时跳过', exact: true }).click()
   await surface.waitFor({ state: 'hidden' })
+  await page.getByRole('status').filter({ hasText: '正在加载设置' }).waitFor({ state: 'hidden' })
   assert.equal(accountPending, false)
   assert.equal(await page.locator('#root').evaluate(element => element.inert), false)
   required = true
@@ -169,8 +170,41 @@ try {
   await next(); await surface.getByRole('switch').check(); await skip()
   await surface.waitFor({ state: 'hidden' })
   assert.equal(finishes.at(-1).selection, undefined)
+  const standaloneCommands = []
+  await context.exposeFunction('__standaloneState', () => ({
+    selected: 'desktop', profiles: ['desktop'], unavailableProfiles: [], features: { market: true, remoteControl: false },
+    preferences: {}, phase: 'starting', busy: false, failure: '', safeMode: false, onboarding: true, onboardingComputerUse: false, logs: '',
+  }))
+  await context.exposeFunction('__standaloneCommand', command => { standaloneCommands.push(command) })
+  await context.exposeFunction('__standalonePermission', (_action, permission) => ({
+    permission, status: 'granted', canRequest: false, canOpenSettings: true,
+  }))
+  await page.route('http://next-onboarding.test/**', async route => {
+    const response = await serveWebDocument(new Request(route.request().url()), join(root, 'lib/native-ui'), false)
+    response.headers.set('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-src 'none'; base-uri 'none'")
+    await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) })
+  })
+  await context.addInitScript(() => {
+    window.desktopNext = {
+      state: () => globalThis.__standaloneState(),
+      command: value => globalThis.__standaloneCommand(value),
+      permissions: {
+        query: permission => globalThis.__standalonePermission('query', permission),
+        request: permission => globalThis.__standalonePermission('request', permission),
+        openSettings: permission => globalThis.__standalonePermission('openSettings', permission),
+      },
+    }
+  })
+  await page.setViewportSize({ width: 1040, height: 720 })
+  await page.goto('http://next-onboarding.test/?locale=zh&platform=darwin&frame=true#onboarding')
+  await page.locator('[data-page="0"]').waitFor()
+  await page.getByRole('button', { name: /^(下一步|Continue)$/ }).click()
+  await page.locator('[data-page="1"]').waitFor()
+  await page.getByRole('button', { name: /^(上一步|Back)$/ }).waitFor()
+  await page.getByRole('button', { name: /^(跳过|Skip)$/ }).click()
+  assert.deepEqual(standaloneCommands, [{ type: 'onboarding-skip', profile: 'desktop' }])
   assert.deepEqual(errors, [])
-  console.log(`Original Next onboarding passed inside the official surface: independent native eligibility, official progress ${officialPending ? 'unfinished' : 'completed'}, state-read and save retries, five original pages, artwork, back navigation, choices, skip, completion, inert cleanup, and no repeat.`)
+  console.log(`Next onboarding passed in standalone pre-Host shell and official continuation surface: independent native eligibility, official progress ${officialPending ? 'unfinished' : 'completed'}, state-read and save retries, five original pages, artwork, back navigation, choices, skip, completion, inert cleanup, and no repeat.`)
 } catch (error) {
   console.error(errors)
   if (page) { console.error(await page.locator('body').innerText()); await page.screenshot({ path: join(screenshots, 'onboarding-failure.png') }).catch(() => {}) }

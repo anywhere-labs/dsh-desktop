@@ -320,13 +320,14 @@ function createWindow(preload: string, primary = false): BrowserWindow {
 
 function openSettings(page: DesktopSettingsPage = 'general'): void {
   if (quitting) return
+  if (onboarding) { openControls('onboarding'); return }
   if (runtime.recoveryMode || runtime.state().phase === 'error') { openControls('recovery'); return }
   pendingSettings = page
   openMain()
   mainWindow?.webContents.send(IPC.settingsOpen)
 }
 
-function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' | 'recovery' | 'permissions' = 'general'): void {
+function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' | 'recovery' | 'permissions' | 'onboarding' = 'general'): void {
   if (quitting) return
   if (page === 'general' || page === 'tools' || page === 'permissions') { openSettings(page === 'permissions' ? 'permissions' : 'general'); return }
   if (page === 'recovery' && !runtime.safeMode && !runtime.recoveryMode) {
@@ -352,9 +353,10 @@ function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' 
     const creating = page === 'create-profile'
     window.setResizable(!creating)
     window.setMinimumSize(creating ? 420 : 680, creating ? 330 : 560)
-    window.setSize(creating ? 480 : 850, creating ? 360 : 800)
+    window.setSize(creating ? 480 : page === 'onboarding' ? 1040 : 850, creating ? 360 : page === 'onboarding' ? 720 : 800)
   }
   if (shellWindow && !shellWindow.isDestroyed()) {
+    if (page === 'onboarding' && shellWindow.webContents.getURL() === url) { show(shellWindow); return }
     resize(shellWindow)
     void shellWindow.loadURL(url).catch(error => runtime.diagnostics.append(String(error), 'error'))
     show(shellWindow); return
@@ -367,6 +369,7 @@ function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' 
 function openMain(): void {
   if (quitting) return
   if (runtime.recoveryMode || runtime.state().phase === 'error') { openControls('recovery'); return }
+  if (onboarding) { openControls('onboarding'); return }
   if (mainWindow && !mainWindow.isDestroyed()) { show(mainWindow); return }
   mainWindow = createWindow('preload-app.cjs', true)
   const owner = mainWindow
@@ -548,18 +551,19 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
   try {
     if (type === 'onboarding-complete' || type === 'onboarding-skip') {
       if (!onboarding || runtime.safeMode || runtime.recoveryMode || input.profile !== runtime.selected) throw new Error('Onboarding is unavailable for this Profile')
-      rendererRecovery?.stop()
-      await runtime.restart(() => {
-        runtime.profiles.finishOnboarding(runtime.selected, type === 'onboarding-complete'
-          ? { features: input.features, computerUse: input.computerUse } : undefined)
-        onboarding = false
-      })
-      await reloadMain()
+      // The Host has not loaded this Profile yet. Commit choices before starting it.
+      runtime.profiles.finishOnboarding(runtime.selected, type === 'onboarding-complete'
+        ? { features: input.features, computerUse: input.computerUse } : undefined)
+      onboarding = false
+      shellWindow?.hide()
+      void runtime.start().catch(() => {})
+      openMain()
+      shellWindow?.close()
       return
     }
     if (type === 'restart-onboarding') {
-      if (onboarding) { openMain(); return }
       if (runtime.safeMode || runtime.recoveryMode) throw new Error('Onboarding is unavailable in safe or recovery mode')
+      if (onboarding) { openControls('onboarding'); return }
       if (!await confirmed(t('重新打开设置向导？', 'Reopen the setup wizard?'),
         t('应用将重启，并带入当前 Profile 的设置。正在运行的任务会中断。', 'The app will restart with your current Profile settings selected. Running tasks will be interrupted.'))) return
       relaunch = relaunchArguments(process.argv.slice(1), false, false, true)
@@ -584,10 +588,10 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
       return
     }
     if (type === 'reload') {
-      if (runtime.recoveryMode) { openMain(); return }
+      if (runtime.recoveryMode || onboarding) { openMain(); return }
       await reloadMain(); return
     }
-    if (type === 'devtools') { openMain(); (runtime.recoveryMode ? shellWindow : mainWindow)!.webContents.toggleDevTools(); return }
+    if (type === 'devtools') { openMain(); (runtime.recoveryMode || onboarding ? shellWindow : mainWindow)!.webContents.toggleDevTools(); return }
     if (type === 'recovery-action') {
       await recoveryAction(input)
       return
@@ -843,7 +847,7 @@ async function main(): Promise<void> {
   let inputBlocked = false
   desktopShortcuts = installDesktopShortcuts(() => mainWindow, app.getPath('userData'),
     process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux', () => {}, () => {
-      const blocked = runtime.recoveryMode || onboardingSurfaceActive
+      const blocked = runtime.recoveryMode || onboarding || onboardingSurfaceActive
       if (blocked !== inputBlocked) { inputBlocked = blocked; inputRevision++ }
       return { revision: inputRevision, blocked }
     })
@@ -854,13 +858,15 @@ async function main(): Promise<void> {
   // Finder and Dock launches carry no login-shell exports, so the Host, its terminals and tool subprocesses
   // would run with the minimal system PATH and no locale. Recover the exports the Desktop variants
   // recover, then make sure a UTF-8 locale is set, as Terminal.app does for the shells it opens.
-  const shellEnvironment = await resolveDesktopShellEnvironment({ environment: process.env, home: app.getPath('home'), isPackaged: app.isPackaged, platform: process.platform })
+  // Probe the system proxy in parallel: a proxy client's "system proxy" switch sets no environment
+  // variable, and only Chromium can evaluate it (PAC/WPAD included).
+  const [shellEnvironment, resolvedProxy] = await Promise.all([
+    resolveDesktopShellEnvironment({ environment: process.env, home: app.getPath('home'), isPackaged: app.isPackaged, platform: process.platform }),
+    probeSystemProxy(session.defaultSession),
+  ])
   for (const [name, value] of Object.entries(shellEnvironment.updates)) process.env[name] = value
   const fallbackLocale = ensureUtf8Locale(process.env, process.platform, app.getPreferredSystemLanguages())
-  // Read once, before anything can start a Host: a proxy client's "system proxy" switch sets no
-  // environment variable, and only Chromium can evaluate it (PAC/WPAD included). Changing the
-  // proxy takes effect on the next application start.
-  systemProxy = await probeSystemProxy(session.defaultSession)
+  systemProxy = resolvedProxy
   protocol.handle('dsh-app', async request => {
     const url = new URL(request.url)
     if (url.hostname === 'shell') {
@@ -1077,6 +1083,7 @@ async function main(): Promise<void> {
     })
   }
   if (runtime.recoveryMode) openControls('recovery')
+  else if (onboarding) openControls('onboarding')
   else { void runtime.start().catch(() => {}); openMain() }
   app.on('activate', openMain)
   app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !native.available && !replacingWindow) app.quit() })

@@ -1,4 +1,5 @@
 @import '../../../dsh-plugin-desktop-beta/src/native-ui/shared/theme.css';
+@import './onboarding.css';
 @source '../../../dsh-plugin-desktop-beta/src/native-ui';
 /* Map the official Settings tokens onto the existing native-window theme. */
 :root {
