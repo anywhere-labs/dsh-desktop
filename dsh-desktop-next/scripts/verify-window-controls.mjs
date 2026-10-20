@@ -106,6 +106,10 @@ try {
   })
   await context.addInitScript(() => {
     window.desktopNext = { state: () => window.__nextTestState(), browserLinks: () => window.__nextTestBrowserLinks(), command: command => window.__nextTestCommand(command) }
+    window.desktopNext.renderer = {
+      profile: () => 'desktop',
+      report: async status => { globalThis.__NEXT_TEST_BOOT__.rendererStatus = status },
+    }
     window.desktopNext.onOpenSettings = listener => {
       window.__nextTestOpenSettings = listener
       return () => { delete window.__nextTestOpenSettings }
@@ -162,6 +166,8 @@ try {
   page.on('console', message => { if (['error', 'warning'].includes(message.type())) diagnostics.push(message.text()) })
   page.on('response', response => { if (response.status() >= 400) diagnostics.push(`${response.status()} ${new URL(response.url()).pathname}`) })
   await page.goto(streamBaseUrl)
+  // A mounted official shell is healthy without waiting for connection/session probes.
+  await page.waitForFunction(() => globalThis.__NEXT_TEST_BOOT__.rendererStatus === 'healthy')
   const collapse = page.getByRole('button', { name: /^(收起侧边栏|Collapse sidebar)$/ })
   const reopen = page.locator('[data-sidebar-header-controls]').getByRole('button', { name: /^(打开侧边栏|Open sidebar)$/ })
   const conversationHeader = page.locator('header[data-window-drag]:has([data-conversation-header-leading])')
@@ -777,6 +783,7 @@ try {
   controlState.safeMode = true
   // A reload re-runs the Desktop boot contract, which must pick up the Host's current boot table.
   await page.reload()
+  await page.waitForFunction(() => globalThis.__NEXT_TEST_BOOT__.rendererStatus === 'healthy')
   await page.locator('.dshNextSafeModeNotice').waitFor({ state: 'visible' })
   assert.equal(await page.evaluate(() => globalThis.__NEXT_TEST_BOOT__.calls), 1)
   // 0.1.7 ships a default model and remembers the dismissal, so the reloaded document usually has

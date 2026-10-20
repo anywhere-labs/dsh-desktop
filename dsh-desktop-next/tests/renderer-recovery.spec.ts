@@ -23,7 +23,7 @@ it('coalesces crash, preload and navigation errors into one reload', async () =>
   f.recovery.stop()
 })
 
-it('requires both a loaded document and a mounted, synchronized client', async () => {
+it('requires both a loaded document and a mounted client', async () => {
   const f = fixture()
   f.recovery.fail('crashed')
   await vi.advanceTimersByTimeAsync(0)
@@ -50,29 +50,24 @@ it('does not time out a slow Host before it has supplied boot data', async () =>
   f.recovery.stop()
 })
 
-it('keeps the page alive when the official transport reconnects within its deadline', async () => {
+it('keeps a mounted page healthy without connection or session updates', async () => {
   const f = fixture()
   f.recovery.loaded()
+  f.recovery.booted()
   f.recovery.report('healthy')
-  f.recovery.report('connecting')
-  await vi.advanceTimersByTimeAsync(20_000)
-  f.recovery.report('syncing')
-  f.recovery.report('healthy')
-  await vi.advanceTimersByTimeAsync(40_000)
+  await vi.advanceTimersByTimeAsync(120_000)
   expect(f.reload).not.toHaveBeenCalled()
   f.recovery.stop()
 })
 
-it('uses one deadline across repeated disconnected and connecting transitions', async () => {
+it('requires a fresh mount report after navigation', async () => {
   const f = fixture()
   f.recovery.loaded()
   f.recovery.report('healthy')
-  f.recovery.report('connecting')
-  await vi.advanceTimersByTimeAsync(20_000)
-  f.recovery.report('disconnected')
-  await vi.advanceTimersByTimeAsync(9_000)
-  f.recovery.report('connecting')
-  await vi.advanceTimersByTimeAsync(1_001)
+  f.recovery.navigating()
+  f.recovery.loaded()
+  f.recovery.booted()
+  await vi.advanceTimersByTimeAsync(30_001)
   expect(f.reload).toHaveBeenCalledOnce()
   f.recovery.stop()
 })

@@ -20,7 +20,7 @@ import { installPluginControlsStyles } from './plugin-controls-styles.ts'
 import { desktopDirectoryPicker, registerDesktopDirectoryPicker } from './directory-picker.ts'
 import { SettingsRequests } from './settings-requests.tsx'
 import type { DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop-beta/src/client/desktop-settings-locales.ts'
-import { installRendererRecovery, rendererRecoveryInject } from './renderer-recovery.ts'
+import { installRendererRecovery } from './renderer-recovery.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -29,7 +29,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['slots', 'layout', 'locale', ...rendererRecoveryInject]
+export const inject = ['slots', 'layout', 'locale']
 
 export function apply(ctx: Context): void {
   ctx.effect(installUiDiagnostics, 'AA and Plugins client lifecycle diagnostics')
