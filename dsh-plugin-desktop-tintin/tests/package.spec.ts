@@ -957,7 +957,8 @@ describe('published package surface', () => {
     for (const script of ['package:dir', 'package:dir:hot', 'dist:mac', 'dist:mac-smoke', 'dist:win', 'dist:win-portable', 'dist:linux']) {
       expect(manifest.scripts?.[script], script).toContain('yarn run verify:resources')
     }
-    const openfilmResources = manifest.build?.extraResources?.filter(entry => entry.from === 'tintin-resources/openfilm' || entry.from === 'tintin-resources/openfilm/node_modules') ?? []
+    const extraResources = manifest.build as { extraResources?: Array<{ from: string; to: string }> } | undefined
+    const openfilmResources = extraResources?.extraResources?.filter(entry => entry.from === 'tintin-resources/openfilm' || entry.from === 'tintin-resources/openfilm/node_modules') ?? []
     expect(openfilmResources).toEqual([
       { from: 'tintin-resources/openfilm', to: 'openfilm' },
       { from: 'tintin-resources/openfilm/node_modules', to: 'openfilm/node_modules' },
