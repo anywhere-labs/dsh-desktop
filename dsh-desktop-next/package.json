@@ -383,7 +383,7 @@
         "\\.(?:pak|dat|wasm)$",
         "/Contents/Resources/runtime/(?:arm64|x64)/primary-runtime(?:/|$)"
       ],
-      "x64ArchFiles": "{**/node_modules/{@deepseek-ai/node-addon-system-darwin-*/**,node-pty/prebuilds/darwin-*/**,fs-ext/prebuilds/darwin-*/**,node-addon-require-builtin-darwin-*/**,@vscode/ripgrep-darwin-*/**,@img/sharp-darwin-*/**,@img/sharp-libvips-darwin-*/**,@koromix/koffi-darwin-*/**,@dataiku/uv-darwin-*/**,@deepseek-ai/libreoffice-kit-darwin-*/**,sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**},Contents/Resources/runtime/**,Contents/Resources/runtime/**/.*/**}"
+      "x64ArchFiles": "{**/node_modules/{@deepseek-ai/node-addon-system-darwin-*/**,node-pty/prebuilds/darwin-*/**,fs-ext/prebuilds/darwin-*/**,node-addon-require-builtin-darwin-*/**,@vscode/ripgrep-darwin-*/**,@img/sharp-darwin-*/**,@img/sharp-libvips-darwin-*/**,@koromix/koffi-darwin-*/**,@dataiku/uv-darwin-*/**,@deepseek-ai/libreoffice-kit-darwin-*/**,meshcall-router-darwin-*/**,sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**},Contents/Resources/runtime/**,Contents/Resources/runtime/**/.*/**}"
     },
     "win": {
       "compression": "normal",
@@ -434,6 +434,7 @@
       "**/spawn-helper",
       "**/@vscode/ripgrep-*/bin/rg",
       "**/@dataiku/uv-*/bin/uv",
+      "**/meshcall-router-*/bin/*",
       "**/node_modules/@deepseek-ai/libreoffice-kit-*/**/*",
       "**/node_modules/@trycua/cua-driver-*/**/*",
       "**/node_modules/sherpa-onnx-*/**/*",

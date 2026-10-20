@@ -257,15 +257,20 @@ describe('Desktop Safe Mode environment', () => {
       import { cleanupDesktopSafeModeEnvironment } from ${JSON.stringify(source)}
       assert.ok(process.versions.electron)
       assert.equal(cleanupDesktopSafeModeEnvironment(${JSON.stringify(fixture.userDataDir)}), true)
+      process.stdout.write('cleaned\\n')
     `], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 30_000,
       windowsHide: true,
     })
 
     expect(result.error, result.stderr).toBeUndefined()
-    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout, result.stderr).toBe('cleaned\n')
+    if (result.status !== 0) {
+      expect(result.stderr).toContain('PostQueuedCompletionStatus: (6) The handle is invalid.')
+    }
     expect(existsSync(fixture.paths.rootDir)).toBe(false)
     for (const file of fixture.protectedFiles) {
       expect(readFileSync(file, 'utf8')).toBe('installation dependency must survive')

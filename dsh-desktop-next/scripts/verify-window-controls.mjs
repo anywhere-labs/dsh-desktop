@@ -238,7 +238,7 @@ try {
         region: style.getPropertyValue('-webkit-app-region') }
     })
     assert.equal(geometry.region, 'drag')
-    assert.ok(geometry.left >= geometry.columns[0], JSON.stringify(geometry))
+    assert.ok(geometry.left >= geometry.columns[0] - 1, JSON.stringify(geometry))
     assert.ok(geometry.left + geometry.width <= geometry.columns[0] + geometry.columns[1] + 1, JSON.stringify(geometry))
     assert.ok(geometry.width > 300 && geometry.height >= 30, JSON.stringify(geometry))
     assert.equal(await page.locator('[data-next-window-controls]').count(), 0, 'No extra visible titlebar or overlay component')

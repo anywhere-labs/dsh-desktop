@@ -25,7 +25,7 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
   expect(next.build.mac.mergeASARs).toBe(false)
   // Electron's own fs and dlopen read the archive; child processes, shells and nativeImage need these physically.
   expect(next.build.asarUnpack).toEqual(expect.arrayContaining(['**/*.{node,dylib,dll,so,exe}', '**/*.so.*', '**/spawn-helper',
-    '**/@vscode/ripgrep-*/bin/rg', '**/@dataiku/uv-*/bin/uv', '**/node_modules/@deepseek-ai/libreoffice-kit-*/**/*', '**/node_modules/pnpm/**/*',
+    '**/@vscode/ripgrep-*/bin/rg', '**/@dataiku/uv-*/bin/uv', '**/meshcall-router-*/bin/*', '**/node_modules/@deepseek-ai/libreoffice-kit-*/**/*', '**/node_modules/pnpm/**/*',
     '**/node_modules/@agents-anywhere/dsh-bridge-next/lib/bundled-connector/**/*', '**/node_modules/@deepseek-ai/dsh-agent-preset/**/*',
     '**/node_modules/@deepseek-ai/dsh-skill-badge/**/*']))
   // The prepared tree is archived verbatim, as upstream archives its prepared dsh tree: one file set for the

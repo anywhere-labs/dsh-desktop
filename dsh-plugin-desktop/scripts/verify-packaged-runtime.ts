@@ -97,6 +97,7 @@ export const ALLOWED_SMART_UNPACK_PACKAGE_PREFIXES = [
   'node_modules/@img/sharp-',
   'node_modules/@koromix/koffi-',
   'node_modules/@vscode/ripgrep-',
+  'node_modules/meshcall-router-',
   'node_modules/node-addon-require-builtin-',
 ] as const
 

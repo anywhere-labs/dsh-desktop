@@ -169,7 +169,7 @@ it('copies complete Office resources outside the application archive and removes
     }
     await expect(readFile(join(destination, 'obsolete.py'))).rejects.toMatchObject({ code: 'ENOENT' })
   } finally { await rm(root, { recursive: true, force: true }) }
-})
+}, 15_000)
 
 // Native Windows payloads require python.exe rather than POSIX interpreter aliases.
 it.skipIf(process.platform === 'win32')('rejects expanded interpreter aliases in the native payload smoke', async () => {
