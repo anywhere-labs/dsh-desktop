@@ -13,6 +13,7 @@ import { desktopTrayLabel } from './tray-locale.ts'
 import {
   checkForDesktopUpdate,
   parseSemVer,
+  parseCanonicalChannelVersion,
   type DesktopReleaseChannel,
   type UpdateCheckResult,
 } from './update-checker.ts'
@@ -386,7 +387,7 @@ function isSupportedVersion(value: unknown): value is string {
     || (parsed?.prerelease.length === 2
       && parsed.prerelease[0] === 'beta'
       && /^[0-9]+$/u.test(parsed.prerelease[1]!))
-  return parsed !== null && supportedPrerelease && parsed.version === value
+  return parsed !== null && (supportedPrerelease || parseCanonicalChannelVersion(value, 'next') !== null) && parsed.version === value
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

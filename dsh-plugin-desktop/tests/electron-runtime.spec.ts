@@ -8,6 +8,9 @@ import { DESKTOP_FRAME_HEIGHT } from '../src/window-chrome.ts'
 
 const terminal = vi.hoisted(() => ({ open: vi.fn() }))
 const diagnostics = vi.hoisted(() => ({ export: vi.fn() }))
+const transitionNotice = vi.hoisted(() => ({ open: vi.fn(async () => {}) }))
+vi.mock('../src/next-transition-notice.ts', () => ({ NextTransitionNotice: class { open = transitionNotice.open } }))
+
 const updater = vi.hoisted(() => ({
   download: vi.fn(),
   filename: vi.fn(),
@@ -2611,6 +2614,21 @@ describe('Electron desktop runtime', () => {
     expect(electron.dialog.showMessageBox).toHaveBeenCalledTimes(2)
     expect(restart).toHaveBeenCalledTimes(2)
     expect(restart).toHaveBeenLastCalledWith('safe-mode')
+  })
+
+  it('offers the transition notice during local development and explains a Next installer correctly', async () => {
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const { DESKTOP_RELEASE_CHANNEL } = await import('../src/product-identity.ts')
+    electron.app.isPackaged = false
+    const runtime = new ElectronDesktopRuntime(async () => {})
+    const release = runtime.schedule(spec)
+    await runtime.mountScheduled()
+    expect(transitionNotice.open).toHaveBeenCalledWith('en', DESKTOP_RELEASE_CHANNEL, expect.any(Function))
+    await runtime.updates.confirmDownload('2.0.20-next', 'stable')
+    expect(electron.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      detail: expect.stringContaining('DSH NEXT'),
+    }))
+    await release()
   })
 
   it('uses Electron networking and confirmation-gated macOS update handoff', async () => {

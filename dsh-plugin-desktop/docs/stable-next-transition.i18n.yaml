@@ -1,0 +1,3 @@
+# Git blob hashes for the confirmed English and Chinese pair.
+stable-next-transition.md: 2b5386c67d775d4b1992ec2c4dd251d38ac8f9e9
+stable-next-transition.zh.md: 1845c8b7fa1757b1a39c890722b17dd54802f151

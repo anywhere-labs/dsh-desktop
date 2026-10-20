@@ -10,6 +10,7 @@ import {
 } from 'electron'
 import { configureDeveloperLogging, type DiagnosticPreferences } from './developer-logging.ts'
 import { spawn } from 'node:child_process'
+import { NextTransitionNotice } from './next-transition-notice.ts'
 import { RemoteControlOffer, remoteControlOfferCopy } from './remote-control-offer.ts'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -62,7 +63,7 @@ import {
   type DesktopUpdateArtifact,
   type UpdateArtifactResponse,
 } from './update-download.ts'
-import type { UpdateCheckResult } from './update-checker.ts'
+import { parseCanonicalChannelVersion, type UpdateCheckResult } from './update-checker.ts'
 import type { DesktopInstallationId } from './desktop-installation-id.ts'
 import { DESKTOP_RELEASE_CHANNEL } from './product-identity.ts'
 import type { DesktopReleaseChannel } from './update-checker.ts'
@@ -197,6 +198,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   private terminalSpec: DesktopTerminalSpec | undefined
   private diagnosticExport: Promise<void> | undefined
   private readonly workspaceAdmission: ElectronWorkspaceAdmission
+  private readonly nextTransitionNotice: NextTransitionNotice
   private updateCleanupTask: Promise<void> | undefined
   private rendererHealthGate: DesktopRendererHealthGate | undefined
   private rendererBootHealthy = false
@@ -225,6 +227,11 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       showMessageBox: async options => await this.showDesktopMessageBox(options),
       logError: message => { this.logError(message) },
       ...(workspaceVolumeQuery === undefined ? {} : { volumeQuery: workspaceVolumeQuery }),
+    })
+    this.nextTransitionNotice = new NextTransitionNotice({
+      path: join(app.getPath('userData'), 'notices', 'next-transition-v1'),
+      show: options => this.showDesktopMessageBox(options),
+      reportError: cause => { this.logError(`dsh-plugin-desktop: Next transition notice failed: ${String(cause)}`) },
     })
     this.updates = {
       get isPackaged() { return app.isPackaged },
@@ -374,7 +381,8 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       this.generation = generation
       this.mountTask = generation.mount(beforeInteractive).then(() => {
         this.rendererHealthGate?.acceptNativeMount()
-        void this.offerUpdateArtifactCleanup().catch((cause: unknown) => {
+        void this.nextTransitionNotice.open(this.locale, DESKTOP_RELEASE_CHANNEL,
+          () => this.generation === generation && !this.quitting).then(() => this.offerUpdateArtifactCleanup()).catch((cause: unknown) => {
           this.logError(`dsh-plugin-desktop: failed to resolve update installer cleanup: ${cause instanceof Error ? cause.message : String(cause)}`)
         })
       }).catch((cause: unknown) => {
@@ -808,9 +816,9 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       type: 'info',
       title: copy.updateAvailableTitle,
       message: copy.updateAvailableMessage(version),
-      detail: channel === DESKTOP_RELEASE_CHANNEL
-        ? copy.downloadUpdate
-        : copy.installStableAlongsideBeta,
+      detail: parseCanonicalChannelVersion(version, 'next') !== null
+        ? copy.installNext
+        : channel === DESKTOP_RELEASE_CHANNEL ? copy.downloadUpdate : copy.installStableAlongsideBeta,
       buttons: [copy.download, copy.later],
       defaultId: 1,
       cancelId: 1,
@@ -899,7 +907,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         type: 'info',
         title: copy.updateDownloadedTitle,
         message: copy.updateReady(version),
-        detail: copy.macInstallInstructions,
+        detail: parseCanonicalChannelVersion(version, 'next') !== null ? copy.macNextInstallInstructions : copy.macInstallInstructions,
         buttons: [copy.ok],
         defaultId: 0,
         noLink: true,

@@ -1,5 +1,5 @@
 import { AlertCircle, AlertTriangle, HelpCircle, Info } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '../components/ui/button.tsx'
 import { ScrollArea } from '../components/ui/scroll-area.tsx'
 import { DesktopFrame } from '../shared/DesktopFrame.tsx'
@@ -12,6 +12,8 @@ interface DesktopDialogState {
   readonly message: string
   readonly detail?: string
   readonly advisory?: string
+  readonly checkboxLabel?: string
+  readonly checkboxChecked?: boolean
   readonly buttons: readonly string[]
   readonly defaultId: number
   readonly cancelId: number
@@ -32,10 +34,15 @@ function decodeState(): DesktopDialogState | undefined {
   return undefined
 }
 
-function respond(response: number): void {
+export function desktopDialogResponseUrl(response: number, checkboxChecked?: boolean): string {
   const url = new URL(`${SCHEME}//response`)
   url.searchParams.set('id', String(response))
-  window.location.assign(url.href)
+  if (checkboxChecked !== undefined) url.searchParams.set('checked', String(checkboxChecked))
+  return url.href
+}
+
+function respond(response: number, checkboxChecked?: boolean): void {
+  window.location.assign(desktopDialogResponseUrl(response, checkboxChecked))
 }
 
 export function desktopDialogShowsToneIcon(presentation: DesktopDialogState['presentation']): boolean {
@@ -66,7 +73,8 @@ export function DesktopDialogToneIcon({ type }: Pick<DesktopDialogState, 'type'>
 }
 
 export function DesktopDialogApp(): JSX.Element {
-  const state = decodeState()
+  const [state] = useState(decodeState)
+  const [checkboxChecked, setCheckboxChecked] = useState(state?.checkboxChecked ?? false)
   useEffect(() => {
     if (state === undefined) return
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -105,8 +113,12 @@ export function DesktopDialogApp(): JSX.Element {
         </div>}
       </div>
     </section>
+    {state.checkboxLabel === undefined ? null : <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+      <input type="checkbox" className="size-4 accent-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" checked={checkboxChecked} onChange={event => { setCheckboxChecked(event.target.checked) }} />
+      {state.checkboxLabel}
+    </label>}
     <footer className="mt-5 flex shrink-0 flex-wrap justify-end gap-2">
-      {state.buttons.map((label, index) => <Button autoFocus={index === state.defaultId} className={desktopDialogButtonClassName(state.presentation, index)} key={`${String(index)}:${label}`} onClick={() => { respond(index) }} type="button" variant={index === state.defaultId ? 'default' : index === state.cancelId ? 'outline' : 'secondary'}>{label}</Button>)}
+      {state.buttons.map((label, index) => <Button autoFocus={index === state.defaultId} className={desktopDialogButtonClassName(state.presentation, index)} key={`${String(index)}:${label}`} onClick={() => { respond(index, state.checkboxLabel === undefined ? undefined : checkboxChecked) }} type="button" variant={index === state.defaultId ? 'default' : index === state.cancelId ? 'outline' : 'secondary'}>{label}</Button>)}
     </footer>
   </main></>
 }

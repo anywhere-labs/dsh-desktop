@@ -4,8 +4,19 @@ import { join, relative, resolve, sep } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
 const stableRoot = join(root, 'dsh-plugin-desktop', 'src')
 const betaRoot = join(root, 'dsh-plugin-desktop-beta', 'src')
-// Both editions now pin one core API. Only their product identities differ.
-const allowedDifferences = new Set(['product-identity.ts'])
+// Both editions pin one core API. Stable alone announces and accepts its Next successor.
+const allowedDifferences = new Set([
+  'product-identity.ts',
+  // Temporary Stable-only transition: notice, checkbox dialog, update validation and copy.
+  'next-transition-notice.ts',
+  'desktop-dialog-window.ts',
+  'native-ui/desktop-dialog/App.tsx',
+  'electron-runtime.ts',
+  'native-dialog-copy.ts',
+  'update-checker.ts',
+  'update-download.ts',
+  'update-lifecycle.ts',
+])
 const normalizeIdentity = source => source.toString().replaceAll('dsh-plugin-desktop-beta', 'dsh-plugin-desktop').replaceAll('DSH Desktop Beta', 'DSH Desktop')
 
 function files(directory, base = directory) {

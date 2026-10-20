@@ -227,6 +227,14 @@ Ecosystem projects and developer tools around DeepSeek Harness.
 
 <sub>To list your project, join the WeChat group and message @王博升Benson, or contact t4wefan@qq.com, or <a href="https://github.com/anywhere-labs/deepseek-harness-desktop/issues">open an issue</a>.</sub>
 
+## About Us
+
+United by a passion for open source, we collaborate to turn the possibilities of AI into accessible tools and meaningful experiences.
+
+<p align="center">
+  <a href="https://github.com/anywhere-labs/about-us"><img src="https://img.shields.io/badge/Meet%20the%20Team-Anywhere%20Labs-4D6BFE?style=for-the-badge" alt="Meet the Team"></a>
+</p>
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
