@@ -12656,6 +12656,7 @@ __metadata:
     "@deepseek-ai/dsh-goal": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-goal-round-driver": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-harness-dev-context": "npm:0.2.1-rc.2"
+    "@deepseek-ai/dsh-hmr": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-home-paths": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-hook-protocol": "npm:0.2.1-rc.2"
     "@deepseek-ai/dsh-host-directory-picker": "npm:0.2.1-rc.2"
@@ -12762,6 +12763,12 @@ __metadata:
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
     dsh-community-market: "npm:0.1.0-dev.0"
+    dsh-tintin-browser: "npm:0.1.0-dev.0"
+    dsh-tintin-bundle: "npm:0.1.0-dev.0"
+    dsh-tintin-client-ui: "npm:0.1.0-dev.0"
+    dsh-tintin-creation-bundle: "npm:0.1.0-dev.0"
+    dsh-tintin-media-bundle: "npm:0.1.0-dev.0"
+    dsh-tintin-ops-bundle: "npm:0.1.0-dev.0"
     dshmarket: "npm:1.66.44"
     electron: "npm:44.0.0"
     electron-builder: "npm:26.15.7"
@@ -13038,7 +13045,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"dsh-tintin-browser@workspace:dsh-tintin-browser":
+"dsh-tintin-browser@npm:0.1.0-dev.0, dsh-tintin-browser@workspace:dsh-tintin-browser":
   version: 0.0.0-use.local
   resolution: "dsh-tintin-browser@workspace:dsh-tintin-browser"
   dependencies:
@@ -13059,13 +13066,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"dsh-tintin-client-ui@workspace:dsh-tintin-client-ui":
+"dsh-tintin-client-ui@npm:0.1.0-dev.0, dsh-tintin-client-ui@workspace:dsh-tintin-client-ui":
   version: 0.0.0-use.local
   resolution: "dsh-tintin-client-ui@workspace:dsh-tintin-client-ui"
   languageName: unknown
   linkType: soft
 
-"dsh-tintin-creation-bundle@workspace:dsh-tintin-creation-bundle":
+"dsh-tintin-creation-bundle@npm:0.1.0-dev.0, dsh-tintin-creation-bundle@workspace:dsh-tintin-creation-bundle":
   version: 0.0.0-use.local
   resolution: "dsh-tintin-creation-bundle@workspace:dsh-tintin-creation-bundle"
   dependencies:
@@ -13078,7 +13085,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"dsh-tintin-media-bundle@workspace:dsh-tintin-media-bundle":
+"dsh-tintin-media-bundle@npm:0.1.0-dev.0, dsh-tintin-media-bundle@workspace:dsh-tintin-media-bundle":
   version: 0.0.0-use.local
   resolution: "dsh-tintin-media-bundle@workspace:dsh-tintin-media-bundle"
   dependencies:
@@ -13092,7 +13099,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"dsh-tintin-ops-bundle@workspace:dsh-tintin-ops-bundle":
+"dsh-tintin-ops-bundle@npm:0.1.0-dev.0, dsh-tintin-ops-bundle@workspace:dsh-tintin-ops-bundle":
   version: 0.0.0-use.local
   resolution: "dsh-tintin-ops-bundle@workspace:dsh-tintin-ops-bundle"
   dependencies:
