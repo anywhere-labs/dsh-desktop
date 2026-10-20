@@ -225,6 +225,11 @@ export function createOpenfilmChannels({ sync, httpRequest }) {
         return { error: error instanceof Error ? error.message : String(error) }
       }
     },
+    // 轻量轮询通道（2026-10-19 报障：Studio 内切项目聊天壳无感知→旧会话挂着）：
+    // 只读 studio.json recent[0]（Studio 切项目即重写），不触发 Studio 启动/附着。
+    'openfilm:currentProject': async () => {
+      try { return { project: lastStudioProject(tintinStudioHome()) || '' } } catch { return { project: '' } }
+    },
     'openfilm:projectFiles': async (args) => {
       try {
         const payload = args?.[0] ?? {}

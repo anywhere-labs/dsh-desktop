@@ -69,6 +69,10 @@ HTTP or `openfilm get` call.
 - `tintin_image_reverse` — a prompt from a local picture (vision).
 - `tintin_comfyui` — submit a ComfyUI workflow (JSON file or inline); polls async results.
 - `tintin_task_status` — read a long task later (`/tasks/unified/{id}`).
+- `tintin_generate_image { prompt, aspect?, out? }` — text-to-image (semantic, single); lands in the
+  project and returns the path. Multi-image: call it several times.
+- `tintin_generate_video { prompt, resolution?, duration?, out? }` — text-to-video (semantic, single
+  clip); minutes-long, the tool waits and returns the path (timeout → `tintin_task_status`).
 
 ### Voice-over (TTS) in practice
 
@@ -84,8 +88,8 @@ subtitles in a page; the `.vtt` beside the media is how OpenFilm shows them.
 
 - `tintin_bgm { prompt, style, duration }` → a path; put it on a sound track (`<audio src="…" volume="0.6">`).
 - `tintin_sfx { prompt, duration }` → a path; place each hit at its film second.
-- `tintin_stock_images { query, kind:"image", per:6, download:3 }` → items and local paths; never invent a
-  generated picture: the server has no text-to-image endpoint yet.
+- `tintin_stock_images { query, kind:"image", per:6, download:3 }` → items and local paths; for generated
+  pictures use `tintin_generate_image` instead of inventing one.
 
 ### Fallback (tools unavailable)
 
@@ -94,12 +98,13 @@ The same capabilities are reachable through OpenFilm's custom service while Stud
 
 ### What the server does NOT provide (yet)
 
-- **No text-to-image.** No prompt → picture endpoint is available. Use stock search, the material library
-  (`/material/list`), the person's own files, or CSS/SVG/canvas drawn in a page. (Comfygen-based generation is
-  being added server-side; use it once it appears in `openfilm get`/the server docs, not before.)
-- **No text-to-video.** Video comes from the person's footage or the material library. The server does have
-  image/video → video workflows (digital human: image + audio → talking video; image-to-video, face swap,
-  background replace, lip sync) — use them only when the person supplies the required picture/footage.
+- Text-to-image and text-to-video **endpoints exist now** (`tintin_generate_image` / `tintin_generate_video`),
+  but the backend (comfygen) contract was still aligning when this skill shipped — a call may fail with a
+  server error. If that happens: say so plainly, fall back to stock search / material library / the person's
+  own footage, and retry later once the server reports the backend aligned.
+- Video transforms without generation come from image/video → video workflows (digital human: image + audio →
+  talking video; face swap, background replace, lip sync) — use them only when the person supplies the
+  required picture/footage.
 - Subtitle translation: do it yourself (you are the server's LLM) when writing the `.vtt`; no provider call needed.
 
 If the person asks for something in these gaps, say so plainly and offer the available alternative.

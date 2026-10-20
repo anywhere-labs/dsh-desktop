@@ -305,6 +305,38 @@ describe('openfilm project files / import channels', () => {
   })
 })
 
+describe('openfilm currentProject channel', () => {
+  it('reads studio.json recent[0] as the current project without starting Studio', async () => {
+    const home = tempDir()
+    const proj = tempDir()
+    writeFileSync(join(home, 'studio.json'), JSON.stringify({ recent: [{ path: proj }, { path: 'D:/gone/film' }] }))
+    const previous = process.env.OPENFILM_HOME
+    process.env.OPENFILM_HOME = home
+    try {
+      const channels = createOpenfilmChannels({ sync: () => {} })
+      const result = await channels['openfilm:currentProject']([])
+      expect(result.project).toBe(proj)
+    } finally {
+      if (previous === undefined) delete process.env.OPENFILM_HOME
+      else process.env.OPENFILM_HOME = previous
+    }
+  })
+
+  it('returns empty when no studio home exists', async () => {
+    const home = tempDir()
+    const previous = process.env.OPENFILM_HOME
+    process.env.OPENFILM_HOME = join(home, 'missing')
+    try {
+      const channels = createOpenfilmChannels({ sync: () => {} })
+      const result = await channels['openfilm:currentProject']([])
+      expect(result.project).toBe('')
+    } finally {
+      if (previous === undefined) delete process.env.OPENFILM_HOME
+      else process.env.OPENFILM_HOME = previous
+    }
+  })
+})
+
 describe('openfilm skills channel', () => {
   it('merges native skills with the server registry and installed state', async () => {
     const home = tempDir()

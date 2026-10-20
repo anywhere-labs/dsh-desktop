@@ -542,7 +542,7 @@ ${event.data.error.reason}` : result
         const VIDEO_EXT = new Set(['.mp4', '.mov', '.webm'])
         const AUDIO_EXT = new Set(['.mp3', '.wav', '.m4a', '.ogg', '.flac'])
         let assetsOpen = false; let assetsQuery = ''; let mediaItems = []; let panelMode = 'assets'; let activeSource = 'library'
-        let libTab = 'video'; let libItems = []; let libLoaded = false; let libServer = ''; let libBusy = false
+        let libTab = 'video'; let libItems = []; let libLoaded = false; let libServer = ''; let libBusy = false; let syncBusy = false
         libTabBtn.onclick = () => { activeSource = 'library'; paintSource() }
         projTabBtn.onclick = () => { activeSource = 'project'; paintSource() }
         for (const t of [['video', '视频'], ['image', '图片'], ['audio', '音频']]) {
@@ -1087,6 +1087,21 @@ ${event.data.error.reason}` : result
           } catch (error) { setStatus(`审批失败：${error?.message || error}`) }
           renderApproval()
         }
+        // 项目切换的统一落点（原版语义：会话随项目走）。Studio 内切项目时聊天壳
+        // 收不到任何事件（2026-10-19 报障：新项目旧会话挂着）→ 由 3s 轮询经
+        // openfilm:currentProject 感知后也走这里。
+        async function applyProject(next) {
+          const changed = next !== project
+          if (!changed) return
+          project = next
+          studioSelection = null; mediaItems = []; assetsQuery = ''; assetsSearch.value = ''
+          atState.project = ''; atState.files = []; atState.pages = []
+          if (assetsOpen && panelMode === 'assets') void loadMedia()
+          applyRole()
+          await openSession()
+          void sessionsSvc?.refresh?.()
+          setStatus(project ? '' : '请在 Studio 中打开一部影片')
+        }
         async function syncProject() {
           try {
             setStatus('正在同步 Studio 项目…')
@@ -1102,18 +1117,20 @@ ${event.data.error.reason}` : result
               frame.style.display = 'block'
               frame.src = info.url
             }
-            const next = info.project || ''
-            const changed = next !== project
-            project = next
-            studioSelection = null; mediaItems = []; assetsQuery = ''; assetsSearch.value = ''
-            atState.project = ''; atState.files = []
-            if (assetsOpen && panelMode === 'assets') void loadMedia()
-            applyRole()
-            await openSession()
-            void sessionsSvc?.refresh?.()
-            setStatus(changed && !project ? '请在 Studio 中打开一部影片' : '')
+            await applyProject(info.project || '')
           } catch (error) { setStatus(`同步失败：${error?.message || error}`) }
         }
+        // Studio 当前项目轮询：studio.json recent[0]（Studio 切项目即重写）→ 变更即切会话
+        const projectPoll = setInterval(() => {
+          if (document.hidden || syncBusy) return
+          void (async () => {
+            try {
+              const r = await ofIpc('openfilm:currentProject', {})
+              const next = String((r && r.project) || '')
+              if (next && next !== project) { syncBusy = true; await applyProject(next); syncBusy = false }
+            } catch { syncBusy = false }
+          })()
+        }, 3000)
 
         input.addEventListener('keydown', (event) => {
           const open = atMenu.style.display === 'block'

@@ -481,6 +481,63 @@ export function createOpenfilmMediaTools({
       }, (error) => ({ ok: false, error: errText(error) })),
     },
     {
+      name: 'tintin_generate_image',
+      description: '文生图（语义化，单张）：prompt → 服务端排队生成 → 图片落到影片项目（默认 assets/tintin/img-<ts>.png）。多张由调用方拆多次；生成中阻塞本工具直到完成/失败/超时。',
+      parameters: {
+        prompt: { type: 'string', required: true, description: '画面描述（1..2000 字符）' },
+        aspect: { type: 'string', description: '画幅（可选，如 16:9 / 9:16；缺省由服务端定）' },
+        out: { type: 'string', description: '落盘路径（可选，absolute 或相对影片项目）' },
+        timeout_ms: { type: 'number', description: '轮询超时毫秒（默认 900000）' },
+      },
+      output: output({ file: { type: 'string' }, url: { type: 'string' }, engine: { type: 'string' }, job_id: { type: 'string' }, width: { type: 'number' }, height: { type: 'number' }, seed_used: { type: 'number' } }),
+      timeoutMs: 960_000,
+      isConcurrencySafe: () => false,
+      presentCall: (args) => ({ card: 'generic', kind: 'execute', title: '文生图', rawInput: { prompt: String(args?.prompt || '').slice(0, 80), aspect: String(args?.aspect || '') } }),
+      execute: run(async (args, exec) => {
+        const prompt = String(args?.prompt || '').trim()
+        if (!prompt || prompt.length > 2000) throw new Error('prompt 必填（1..2000 字符）')
+        const body = { prompt }
+        if (args?.aspect !== undefined && String(args.aspect).trim() !== '') body.aspect = String(args.aspect).trim()
+        const submitted = await httpRequest('POST', '/generate/image', { body, timeout: 30_000 })
+        const finished = await maybeTask(submitted?.data, { timeoutMs: Number(args?.timeout_ms) || 900_000 })
+        const result = asObj(finished.body)?.result ?? {}
+        const url = String(result.output_url || result.output_path || '')
+        if (!url) throw new Error('生成完成但服务端未返回产物地址')
+        const file = await download(url, uniquePath(resolveOutPath(exec, args?.out, `assets/tintin/img-${stamp()}.png`)))
+        return { ok: true, file, url, engine: String(result.engine || ''), job_id: String(result.job_id || ''), width: Number(result.width) || undefined, height: Number(result.height) || undefined, seed_used: result.seed_used !== undefined ? Number(result.seed_used) : undefined }
+      }, (error) => ({ ok: false, error: errText(error) })),
+    },
+    {
+      name: 'tintin_generate_video',
+      description: '文生视频（语义化，单段）：prompt → 服务端排队生成 → 视频落到影片项目（默认 assets/tintin/vid-<ts>.mp4）。分钟级耗时，完成/失败/超时才返回；超时可用 tintin_task_status 续查任务。',
+      parameters: {
+        prompt: { type: 'string', required: true, description: '画面描述（1..2000 字符）' },
+        aspect: { type: 'string', description: '画幅（可选）' },
+        resolution: { type: 'string', description: '分辨率 720p/1080p（缺省 1080p；1080p 引擎禁并发，排队属正常）' },
+        duration: { type: 'number', description: '时长秒（可选，缺省=引擎默认）' },
+        out: { type: 'string', description: '落盘路径（可选，absolute 或相对影片项目）' },
+        timeout_ms: { type: 'number', description: '轮询超时毫秒（默认 1800000）' },
+      },
+      output: output({ file: { type: 'string' }, url: { type: 'string' }, engine: { type: 'string' }, job_id: { type: 'string' }, duration_sec: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' }, seed_used: { type: 'number' } }),
+      timeoutMs: 1_860_000,
+      isConcurrencySafe: () => false,
+      presentCall: (args) => ({ card: 'generic', kind: 'execute', title: '文生视频', rawInput: { prompt: String(args?.prompt || '').slice(0, 80), resolution: String(args?.resolution || ''), duration: args?.duration } }),
+      execute: run(async (args, exec) => {
+        const prompt = String(args?.prompt || '').trim()
+        if (!prompt || prompt.length > 2000) throw new Error('prompt 必填（1..2000 字符）')
+        const body = { prompt }
+        for (const key of ['aspect', 'resolution']) if (args?.[key] !== undefined && String(args[key]).trim() !== '') body[key] = String(args[key]).trim()
+        if (args?.duration !== undefined) body.duration = Number(args.duration)
+        const submitted = await httpRequest('POST', '/generate/video', { body, timeout: 30_000 })
+        const finished = await maybeTask(submitted?.data, { timeoutMs: Number(args?.timeout_ms) || 1_800_000 })
+        const result = asObj(finished.body)?.result ?? {}
+        const url = String(result.output_url || result.output_path || '')
+        if (!url) throw new Error('生成完成但服务端未返回产物地址')
+        const file = await download(url, uniquePath(resolveOutPath(exec, args?.out, `assets/tintin/vid-${stamp()}.mp4`)))
+        return { ok: true, file, url, engine: String(result.engine || ''), job_id: String(result.job_id || ''), duration_sec: Number(result.duration_sec) || undefined, width: Number(result.width) || undefined, height: Number(result.height) || undefined, seed_used: result.seed_used !== undefined ? Number(result.seed_used) : undefined }
+      }, (error) => ({ ok: false, error: errText(error) })),
+    },
+    {
       name: 'tintin_capabilities',
       description: '读取 TinTin 服务端能力注册表（GET /agent/registry，39 项：llm/tts/asr/音乐/音效/素材/视频剪辑/数字人/ComfyUI/即梦等），可按关键词过滤。用于发现本工具集没直接封装的高级能力。',
       parameters: {
