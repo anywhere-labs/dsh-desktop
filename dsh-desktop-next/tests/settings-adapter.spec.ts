@@ -1,6 +1,9 @@
-import { expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { NextSettingsAdapter, projectSettings } from '../src/client/settings-adapter.ts'
+import { installWindowStyles } from '../src/client/styles.ts'
 import { DEFAULT_PREFERENCES, type DesktopBridge, type DesktopBrowserLinks, type DesktopCommand, type DesktopState } from '../src/desktop-contract.ts'
+
+afterEach(() => { vi.unstubAllGlobals() })
 
 function fixture() {
   const state: DesktopState = {
@@ -90,4 +93,24 @@ it('renders full login links and opens or copies the exact selected address', as
   }
   expect(commands).toEqual([links.localUrl, ...links.lanUrls].flatMap(url => [{ type: 'open-browser-url', url }, { type: 'copy-browser-url', url }]))
   expect(adapter.getSnapshot()?.browserUrl).not.toContain('token=')
+})
+
+it('installs Settings left-nav scroll rules using official scrollbar tokens and removes them on dispose', () => {
+  const appended: { dataset: Record<string, string>; textContent: string; remove: () => void }[] = []
+  let removed = false
+  vi.stubGlobal('document', {
+    createElement: (tag: string) => {
+      expect(tag).toBe('style')
+      return { dataset: {}, textContent: '', remove: () => { removed = true } }
+    },
+    head: { append: (node: typeof appended[number]) => { appended.push(node) } },
+  })
+  const dispose = installWindowStyles()
+  expect(appended).toHaveLength(1)
+  expect(appended[0]!.dataset.plugin).toBe('dsh-desktop-next/window-controls')
+  expect(appended[0]!.textContent).toContain("body [data-shortcut-modal='settings'] > nav > :last-child > *")
+  expect(appended[0]!.textContent).toContain('padding-right: calc(10px - var(--dsh-scrollbar-width, 5px))')
+  expect(appended[0]!.textContent).toContain('scrollbar-gutter: stable')
+  dispose()
+  expect(removed).toBe(true)
 })

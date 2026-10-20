@@ -277,6 +277,64 @@ try {
   assert.equal(await context.pages().length, 1, 'Settings must stay inside the existing app window')
   await page.evaluate(() => window.__nextTestOpenSettings('general'))
   assert.equal(await page.getByRole('dialog', { name: /^(设置|Settings)$/ }).count(), 1)
+  // Simulate many registered Settings sections and verify the left nav scrolls without squishing items.
+  const settingsNavScroll = await page.locator('[data-shortcut-modal="settings"] > nav').evaluate(nav => {
+    const title = nav.firstElementChild
+    const list = nav.lastElementChild
+    const template = list.querySelector('button')
+    const baseRect = template.getBoundingClientRect()
+    const titleTopBefore = title.getBoundingClientRect().top
+    const clones = []
+    for (let index = 0; index < 20; index++) {
+      const clone = template.cloneNode(true)
+      clone.classList.remove(...Array.from(clone.classList).filter(name => name.endsWith('_active')))
+      clone.removeAttribute('aria-current')
+      clone.removeAttribute('data-modal-autofocus')
+      clone.dataset.nextNavFixture = String(index)
+      list.appendChild(clone)
+      clones.push(clone)
+    }
+    const buttons = Array.from(list.querySelectorAll('button')).map(button => {
+      const rect = button.getBoundingClientRect()
+      return { width: Math.round(rect.width), height: Math.round(rect.height) }
+    })
+    const style = getComputedStyle(list)
+    const clientHeight = list.clientHeight
+    const scrollHeight = list.scrollHeight
+    list.scrollTop = scrollHeight
+    const scrollTop = list.scrollTop
+    const titleTopAfter = title.getBoundingClientRect().top
+    for (const clone of clones) clone.remove()
+    list.scrollTop = 0
+    return {
+      baseWidth: Math.round(baseRect.width),
+      baseHeight: Math.round(baseRect.height),
+      buttons,
+      overflowY: style.overflowY,
+      overscrollBehaviorY: style.overscrollBehaviorY,
+      scrollbarGutter: style.scrollbarGutter,
+      paddingBottom: style.paddingBottom,
+      clientHeight,
+      scrollHeight,
+      scrollTop,
+      titleTopBefore,
+      titleTopAfter,
+    }
+  })
+  assert.equal(settingsNavScroll.overflowY, 'auto')
+  assert.equal(settingsNavScroll.overscrollBehaviorY, 'contain')
+  assert.equal(settingsNavScroll.scrollbarGutter, 'stable')
+  assert.equal(settingsNavScroll.paddingBottom, '12px')
+  assert.equal(settingsNavScroll.baseWidth, 164)
+  assert.equal(settingsNavScroll.baseHeight, 40)
+  assert.ok(settingsNavScroll.buttons.every(box => box.width === 164 && box.height === 40),
+    `Settings nav items must keep 164x40 geometry when overflowing: ${JSON.stringify(settingsNavScroll.buttons)}`)
+  assert.ok(settingsNavScroll.scrollHeight > settingsNavScroll.clientHeight,
+    `Settings nav list must overflow vertically: ${JSON.stringify(settingsNavScroll)}`)
+  assert.ok(settingsNavScroll.scrollTop > 0,
+    `Settings nav list must scroll vertically: ${JSON.stringify(settingsNavScroll)}`)
+  assert.equal(settingsNavScroll.titleTopAfter, settingsNavScroll.titleTopBefore,
+    'Scrolling the Settings nav list must keep the Settings header stationary')
   await page.getByRole('button', { name: /^(关闭|Close)$/ }).click()
   await expand()
 
@@ -578,6 +636,11 @@ try {
   await expand()
   for (const width of [800, 1800, 1280]) {
     await page.setViewportSize({ width, height: 840 })
+    if (width < 1024) {
+      await reopen.waitFor({ state: 'visible' })
+      await checkDrag()
+      await expand()
+    }
     await checkDrag()
     await collapse.click()
     await reopen.waitFor({ state: 'visible' })

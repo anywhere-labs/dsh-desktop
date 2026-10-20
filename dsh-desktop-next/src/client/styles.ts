@@ -9,6 +9,25 @@ const STYLES = `
 html[data-next-material='off'][data-platform='darwin'] :has(> [data-shell-overlay]) {
   background: var(--dsw-alias-bg-base);
 }
+
+/* Keep Settings nav items at their 40x164 geometry and scroll with the official l2 gutter. */
+body [data-shortcut-modal='settings'] > nav {
+  min-height: 0;
+}
+body [data-shortcut-modal='settings'] > nav > :first-child,
+body [data-shortcut-modal='settings'] > nav > :last-child > * {
+  flex: none;
+}
+body [data-shortcut-modal='settings'] > nav > :last-child {
+  flex: 1;
+  min-height: 0;
+  margin-right: -10px;
+  padding-right: calc(10px - var(--dsh-scrollbar-width, 5px));
+  padding-bottom: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
 `
 
 export function installWindowStyles(): () => void {
