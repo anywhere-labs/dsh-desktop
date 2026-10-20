@@ -1,7 +1,7 @@
 diff --git a/lib/index.js b/lib/index.js
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -1783,6 +1783,14 @@
+@@ -2240,6 +2240,14 @@
  }
  //#endregion
  //#region src/host/connector/process.ts
@@ -13,10 +13,10 @@ diff --git a/lib/index.js b/lib/index.js
 +	}
 +	return result;
 +}
- const runFile = promisify(execFile);
- /** The ready line (`connector.ready`) is a few hundred bytes; anything larger is a protocol error. */
- const MAX_READY_BYTES = 65536;
-@@ -1968,7 +1976,7 @@
+ function deriveLogsPath(value) {
+ 	if (typeof value.logsPath === "string" && value.logsPath) return value.logsPath;
+ 	if (typeof value.runtimePath === "string" && value.runtimePath) return join(dirname(value.runtimePath), "logs");
+@@ -2477,7 +2485,7 @@
  			windowsHide: true,
  			detached: process.platform !== "win32",
  			env: {
@@ -25,7 +25,7 @@ diff --git a/lib/index.js b/lib/index.js
  				AA_CONNECTOR_OWNER_KIND: "dsh-plugin",
  				...this.config.dshHome ? { DSH_HOME: this.config.dshHome } : {},
  				AGENT_CONNECTOR_DATA_DIR: dataDir,
-@@ -4379,7 +4387,8 @@
+@@ -4704,7 +4712,8 @@
  		type: item.type,
  		status: item.status,
  		role: item.role,
