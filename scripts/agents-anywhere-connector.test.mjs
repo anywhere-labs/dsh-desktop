@@ -10,7 +10,7 @@ import { promisify, stripVTControlCharacters } from 'node:util'
 import { runInNewContext } from 'node:vm'
 import { AA_WORKSPACES } from './agents-anywhere-release-policy.mjs'
 
-// Exercise the installed artifact: a patch file alone does not prove Yarn applied it.
+// Exercise the installed upstream artifact used by every Desktop channel.
 function loadConnector(workspace, environment) {
   const source = readFileSync(new URL(`../${workspace}/node_modules/@agents-anywhere/dsh-bridge-next/lib/index.js`, import.meta.url), 'utf8')
   const start = source.indexOf('//#region src/host/connector/logs.ts')
@@ -85,7 +85,7 @@ for (const workspace of AA_WORKSPACES) {
     await assert.rejects(connector.start({ connectorId: 'device', connectorToken: 'private-test-token' }, 'https://example.com', new AbortController().signal),
       error => error === launchCaptured)
     assert.equal(launched.env.NO_PROXY, 'localhost,127.0.0.1,::1,::1,.example.com')
-    assert.equal(launched.env.no_proxy, 'internal.test,::1')
+    assert.equal(launched.env.no_proxy, 'internal.test, ::1 ')
     assert.equal(launched.env.HTTPS_PROXY, env.HTTPS_PROXY)
     assert.deepEqual(env, original)
     assert.ok(launched.cwd.startsWith(join(stateRoot, 'connector-source') + sep))
