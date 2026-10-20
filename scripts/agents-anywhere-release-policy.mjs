@@ -9,7 +9,9 @@ export const AA_WORKSPACES = ['dsh-plugin-desktop', 'dsh-plugin-desktop-beta', '
 export const AA_PEERS = ['@deepseek-ai/dsh-typert-protocol', '@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-session']
 
 export function aaConnectorResolution(artifact) {
-  return `patch:${AA_PACKAGE}@file%3Avendor/agents-anywhere/${artifact}#./patches/agents-anywhere-connector-httpx.patch`
+  // The NO_PROXY/contentHash connector fix shipped upstream in AA main
+  // (4343441, PR #373), so the vendored artifact no longer needs a patch.
+  return `file:vendor/agents-anywhere/${artifact}`
 }
 
 const json = path => JSON.parse(readFileSync(path, 'utf8'))
@@ -31,7 +33,7 @@ export function assertPreparedAaRelease(root, expectedCommit, { installed = true
   if (provenance.repository !== AA_REPOSITORY) fail('unexpected source repository')
   const artifact = provenance.artifact
   if (typeof artifact !== 'string' || basename(artifact) !== artifact || !artifact.endsWith('.tgz')) fail('invalid artifact path')
-  if (json(join(root, 'package.json')).resolutions?.[AA_PACKAGE] !== aaConnectorResolution(artifact)) fail('Connector compatibility patch references a different AA artifact')
+  if (json(join(root, 'package.json')).resolutions?.[AA_PACKAGE] !== aaConnectorResolution(artifact)) fail('Connector resolution references a different AA artifact')
   if (JSON.stringify(provenance.runtimePeers) !== JSON.stringify(runtimePeerRanges(root))) fail('runtime peers have changed')
   // Stable source versions start their prerelease with "-desktop"; existing
   // source prereleases append ".desktop". Both carry the same commit marker.
