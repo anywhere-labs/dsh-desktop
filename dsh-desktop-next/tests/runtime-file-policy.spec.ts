@@ -8,6 +8,7 @@ import { runtimeFixture } from './runtime-fixture.ts'
 
 const windows = { platform: 'win32' as const, archs: ['x64'] }
 const universal = { platform: 'darwin' as const, archs: ['arm64', 'x64'] }
+const linuxX64 = { platform: 'linux' as const, archs: ['x64'] }
 
 it('omits development artifacts while preserving executable modules, assets and license files', () => {
   const root = mkdtempSync(join(tmpdir(), 'desktop-file-policy-'))
@@ -96,6 +97,12 @@ it('retains native prebuilds and Office engines for every architecture of a univ
   expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-darwin-arm64/program/soffice', universal)).toBeUndefined()
   expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-darwin-x64/program/soffice', universal)).toBeUndefined()
   expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-win32-x64/bin/libreoffice-kit.exe', universal)).toBe('LibreOffice other platform')
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-wasm/assets/soffice.data', universal)).toBe('LibreOffice other platform')
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-wasm/assets/soffice.data', linuxX64)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-darwin-arm64/program/soffice', linuxX64)).toBe('LibreOffice other platform')
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-win32-x64/bin/libreoffice-kit.exe', linuxX64)).toBe('LibreOffice other platform')
+  expect(nextRuntimeFileExclusion('node-pty/prebuilds/linux-x64/pty.node', linuxX64)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('node-pty/prebuilds/linux-arm64/pty.node', linuxX64)).toBe('node-pty other platform')
   expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit/lib/cli.js', universal)).toBeUndefined()
 })
 

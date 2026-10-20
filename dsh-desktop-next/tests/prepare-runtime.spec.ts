@@ -46,10 +46,13 @@ function fixture(): string {
   return root
 }
 
-it('ships both Darwin CPUs, Windows x64 and nothing elsewhere', () => {
+it('ships both Darwin CPUs, Windows x64, the Linux host CPU and nothing elsewhere', () => {
   expect(nextRuntimeTargets('darwin')).toEqual([{ target: 'mac-arm64', arch: 'arm64' }, { target: 'mac-x64', arch: 'x64' }])
   expect(nextRuntimeTargets('win32')).toEqual([{ target: 'win-x64', arch: 'x64' }])
-  expect(nextRuntimeTargets('linux')).toEqual([])
+  expect(nextRuntimeTargets('linux', 'x64')).toEqual([{ target: 'linux-x64', arch: 'x64' }])
+  expect(nextRuntimeTargets('linux', 'arm64')).toEqual([{ target: 'linux-arm64', arch: 'arm64' }])
+  expect(nextRuntimeTargets('linux', 'ia32')).toEqual([])
+  expect(nextRuntimeTargets('freebsd')).toEqual([])
 })
 
 it('lays out each CPU payload beside its Office resources under the build directory', () => {
@@ -65,7 +68,7 @@ it('reads the drill version over the source manifest', () => {
   expect(expectedNextVersion(root, { DSH_NEXT_BUILD_VERSION: '2.0.18-next.1' })).toBe('2.0.18-next.1')
 })
 
-it('accepts a complete two-CPU tree and reports each manifest', () => {
+it('accepts a complete two-CPU tree on Darwin and a single-CPU tree on Linux', () => {
   const root = fixture()
   const arm64 = writePayload(root, 'arm64')
   const x64 = writePayload(root, 'x64')
@@ -73,7 +76,12 @@ it('accepts a complete two-CPU tree and reports each manifest', () => {
     { arch: 'arm64', directory: arm64, manifest: expect.objectContaining({ platform: 'darwin', arch: 'arm64', node: '24.21.0', pnpm: '11.8.0' }) },
     { arch: 'x64', directory: x64, manifest: expect.objectContaining({ platform: 'darwin', arch: 'x64' }) },
   ])
-  expect(verifyNextRuntimeTree(root, 'linux', '2.0.0-next')).toEqual([])
+  const linuxRoot = fixture()
+  const linuxX64 = writePayload(linuxRoot, 'x64', { manifest: { platform: 'linux' } })
+  expect(verifyNextRuntimeTree(linuxRoot, 'linux', '2.0.0-next', 'x64')).toEqual([
+    { arch: 'x64', directory: linuxX64, manifest: expect.objectContaining({ platform: 'linux', arch: 'x64', node: '24.21.0', pnpm: '11.8.0' }) },
+  ])
+  expect(verifyNextRuntimeTree(root, 'freebsd', '2.0.0-next')).toEqual([])
 })
 
 it('rejects a missing CPU, another version, a payload without Node, or a foreign CPU slice', () => {

@@ -423,7 +423,13 @@
       "target": [
         "dir"
       ],
-      "icon": "build/app-icon.png"
+      "icon": "build/app-icon.png",
+      "extraResources": [
+        {
+          "from": ".desktop-build/runtime",
+          "to": "runtime"
+        }
+      ]
     },
     "dmg": {
       "icon": "build/app-icon.icns"
