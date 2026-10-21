@@ -79,6 +79,7 @@ describe('Windows x64 installer packaging', () => {
         SAFE_VALUE: 'kept',
         CSC_IDENTITY_AUTO_DISCOVERY: 'false',
         DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY: '1',
+        ELECTRON_BUILDER_COMPRESSION_LEVEL: '2',
       },
     })
     expect(calls[2]).toEqual({
