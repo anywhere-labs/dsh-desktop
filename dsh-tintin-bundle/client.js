@@ -139,19 +139,36 @@ const tintinClient = (() => {
           root.addEventListener('click', (ev) => {
             const t = ev.target
             if (!(t instanceof Element) || t.closest('[data-tintin-entry]')) return
-            // 展开态才强制回工作台：收起态新会话卡被上游整体卸载、文本查找全空→豁免链塌成任何点击都强拆（2026-10-15 报障）
-            const btns = [...root.querySelectorAll('button')]; const row = btns.find((b) => b.textContent.trim() === '插件')
+            // 文本定位放宽为 includes（2026-10-20 报障根修）：0.2.1 侧栏重构后行内
+            // 多节点/aria 化，旧「精确 trim 相等」查不到「插件/新会话」→ 守卫全程
+            // 失明 → 自定义视图下点会话行，原生把会话开在了覆盖层后面，用户看是
+            // 「完全没反应」。
+            const btns = [...root.querySelectorAll('button')]
+            const has = (s) => btns.find((b) => b.textContent.includes(s))
             // 插件行=工作台入口（2026-10-16 用户裁决：插件与 tab 单焦点联动——点插件行主区回工作台）
-            if (t === row || (row && row.contains(t))) { if (activeId !== 'workbench') setActive('workbench'); return }
-            // 上游 panellist 行自带主区页面：收起覆盖层让行接管；会话行没有 panelRow 类，仍回工作台。
+            const row = has('插件')
+            if (row && (t === row || row.contains(t))) { if (activeId !== 'workbench') setActive('workbench'); return }
+            // 上游 panellist 行自带主区页面：收起覆盖层让行接管 + 补一次主区选择；
+            // 会话行没有 panelRow 类，落兜底。
             const rowClass = row ? [...row.classList].find((c) => c.endsWith('panelRow')) : undefined; const clicked = t.closest('button')
             if (rowClass && clicked && clicked !== row && clicked.classList.contains(rowClass)) {
               if (activeId !== 'workbench') setActive('workbench')
-              const id = { '自动化任务': 'schedules', 'Automation tasks': 'schedules' }[clicked.textContent.trim()]; if (id) setTimeout(() => window.__tintinSelectPanel?.(id), 0); return
+              const label = clicked.textContent.trim()
+              const id = label.includes('自动化任务') || label.includes('Automation tasks') ? 'schedules' : undefined
+              if (id) setTimeout(() => window.__tintinSelectPanel?.(id), 0); return
             }
-            const newBtn = btns.find((b) => b.textContent.trim() === '新会话')
-            if (!newBtn || t.getBoundingClientRect().top < newBtn.getBoundingClientRect().top) return
-            if (activeId !== 'workbench') setActive('workbench')
+            // 兜底（2026-10-20 报障）：其余任何侧栏点击（会话行/分组/新会话/搜索）
+            // 都先回工作台再放行原生活动。界线（2026-10-21 用户裁决：缩进-还原保持
+            // 进入缩进时的 tab）：优先「新会话」；收起态找不到它时以「插件」行为界——
+            // 其上方（品牌/收起-展开开关）不抢焦点，缩进-还原不重置；其下方（会话
+            // 图标等）仍回工作台；两者都定位不到则不重置（宁可少回一次，不可吃掉 tab）。
+            const newBtn = has('新会话')
+            const bound = newBtn
+              ? newBtn.getBoundingClientRect().top
+              : row
+                ? row.getBoundingClientRect().top
+                : Number.POSITIVE_INFINITY
+            if (activeId !== 'workbench' && t.getBoundingClientRect().top >= bound) setActive('workbench')
           }, true)
         }
       })
@@ -546,13 +563,17 @@ const tintinClient = (() => {
         document.body.appendChild(input)
         input.click()
       })
-      // Electron 43 移除 File.path，经 preload 桥解析绝对路径：fork 名
-      // dshDesktopFilePath.forFile 之外再试通道契约名 __DSH_DESKTOP_FILE_PATH__.getPathForFile
-      // （迁移只带来了消费方，暴露层用的是上游契约名——单试 fork 名会静默失效）。
+      // Electron 43 移除 File.path，经 preload 桥解析绝对路径。桥名以桌面壳
+      // preload 的实际暴露为准（scripts/verify-bridge-surface.mjs 对账把关）：
+      // 现行上游契约 __DSH_HOST_PATHS__.pathFor（0.2.1-rc.2 基线起）；fork 名
+      // dshDesktopFilePath.forFile 与更早的 __DSH_DESKTOP_FILE_PATH__.getPathForFile
+      // 仅作降级兜底（壳随包重打包生效前可短暂共存）。
       const pickedPath = (f) => {
         if (!f) return ''
         try {
-          const viaBridge = window.dshDesktopFilePath?.forFile?.(f) || window.__DSH_DESKTOP_FILE_PATH__?.getPathForFile?.(f)
+          const viaBridge = window.__DSH_HOST_PATHS__?.pathFor?.(f)
+            || window.dshDesktopFilePath?.forFile?.(f)
+            || window.__DSH_DESKTOP_FILE_PATH__?.getPathForFile?.(f)
           if (typeof viaBridge === 'string' && viaBridge) return viaBridge
         } catch { /* 桥缺失走降级 */ }
         return f.path || ''
@@ -922,7 +943,12 @@ window.__ModuleLoader__.load({
       // 原生对话框，选定路径写 TinTin 自有存储（0.1.7 起设置服务拒写宿主插件
       // 条目），解析链即时生效。）
       const pickCacheDir = async () => {
-        const picker = window.dshDesktopDirectoryPicker
+        // 桥名以桌面壳 preload 实际暴露为准（verify-bridge-surface 把关）：
+        // 上游契约 __DSH_DIRECTORY_PICKER__.pick()；旧名 dshDesktopDirectoryPicker
+        // （带标题参数）仅作降级兜底。
+        const picker = window.__DSH_DIRECTORY_PICKER__?.pick
+          ? { pick: () => window.__DSH_DIRECTORY_PICKER__.pick() }
+          : window.dshDesktopDirectoryPicker
         if (!picker?.pick) return
         try {
           const d = await picker.pick('选择本地缓存目录')
