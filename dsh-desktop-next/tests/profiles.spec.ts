@@ -130,6 +130,8 @@ it('enables the official custom plugin market bundle and preconfigures the built
   expect(rows.find(row => row.id === 'plugin-market')?.config).toEqual({
     indexes: [DEFAULT_OFFICIAL_MARKET_INDEX_URL, 'https://example.com/custom-index.json'],
   })
+  manager.finishOnboarding('desktop', { features: { market: false, dshMarket: true, officialMarket: true, remoteControl: false }, computerUse: false })
+  expect(manager.features('desktop')).toEqual({ market: false, dshMarket: true, officialMarket: true, remoteControl: false })
 })
 
 it('skips onboarding without changing current choices, while a recreated Profile starts fresh', () => {
@@ -152,8 +154,6 @@ it('skips onboarding without changing current choices, while a recreated Profile
 
 it.each([
   { market: true, dshMarket: true, remoteControl: false },
-  { market: true, officialMarket: true, remoteControl: false },
-  { market: false, dshMarket: true, officialMarket: true, remoteControl: false },
   { market: true, remoteControl: 'yes' },
   { market: false, remoteControl: false, extra: true },
 ])('leaves onboarding incomplete and configuration untouched on invalid choices %j', value => {

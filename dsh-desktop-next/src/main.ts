@@ -97,7 +97,7 @@ let replacingWindow = false
 let diagnosticsFile: string | undefined
 let recoveryNotice: NonNullable<DesktopState['recovery']>['notice']
 let recoveryStopping: Promise<void> | undefined
-let recoveryRequest: Promise<void> | undefined
+let recoveryRequest: Promise<boolean | void> | undefined
 let pendingSettings: DesktopSettingsPage | undefined
 let quitting = false
 let onboarding = false
@@ -258,8 +258,8 @@ function createWindow(preload: string, primary = false): BrowserWindow {
       titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: WINDOWS_CAPTION_FILL,
         symbolColor: nativeTheme.shouldUseDarkColors ? '#f9fafb' : '#0f1115' },
     } : {}),
-    ...(process.platform === 'darwin' && primary ? {
-      titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 18 },
+    ...(process.platform === 'darwin' ? {
+      ...(primary ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 18 } } : {}),
       vibrancy: runtime.preferences.macosMaterial === 'transparent' ? 'sidebar' as const : undefined,
       visualEffectState: 'active' as const, backgroundColor: '#00000000',
     } : {}),
@@ -290,8 +290,8 @@ function createWindow(preload: string, primary = false): BrowserWindow {
       message: message.slice(0, 8192), developer: !failure, fields: { webContentsId: window.webContents.id } })
   })
   window.once('ready-to-show', () => show(window))
+  applyWindowMaterial(window, runtime.preferences)
   if (primary) {
-    applyWindowMaterial(window, runtime.preferences)
     window.webContents.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && input.key === ',' && (input.control || input.meta) && !input.alt) { event.preventDefault(); openControls() }
     })
@@ -354,6 +354,8 @@ function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' 
     window.setResizable(!creating)
     window.setMinimumSize(creating ? 420 : 680, creating ? 330 : 560)
     window.setSize(creating ? 480 : page === 'onboarding' ? 1040 : 850, creating ? 360 : page === 'onboarding' ? 720 : 800)
+    if (process.platform === 'darwin') window.setWindowButtonPosition?.({ x: 16, y: page === 'onboarding' ? 18 : 12 })
+    applyWindowMaterial(window, runtime.preferences)
   }
   if (shellWindow && !shellWindow.isDestroyed()) {
     if (page === 'onboarding' && shellWindow.webContents.getURL() === url) { show(shellWindow); return }
@@ -477,6 +479,12 @@ async function confirmed(message: string, detail = t('将停止当前 Host，正
   const result = await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
   return result.response === 0 && !quitting
 }
+function confirmLanAccess(): Promise<boolean> {
+  return confirmed(
+    t('允许局域网 HTTPS 访问？', 'Allow LAN access over HTTPS?'),
+    t('同一网络中的设备可以连接。请仅向可信设备分享登录链接，并在设备上核对和信任 CA 证书。', 'Devices on your local network can connect. Share login links only with trusted devices, and verify and trust the CA certificate on each device.'),
+  )
+}
 async function promptAvailableUpdate(): Promise<void> {
   if (quitting || runtime.busy) return
   const snapshot = updates.snapshot()
@@ -496,7 +504,7 @@ async function promptAvailableUpdate(): Promise<void> {
 }
 async function openPath(path: string): Promise<void> { const error = await shell.openPath(path); if (error) throw new Error(error) }
 
-async function command(value: unknown, source: 'app' | 'shell' | 'native' = 'app'): Promise<void> {
+async function command(value: unknown, source: 'app' | 'shell' | 'native' = 'app'): Promise<boolean | void> {
   if (!value || typeof value !== 'object' || !('type' in value)) throw new Error('Invalid Next command')
   const input = value as Record<string, unknown>
   const type = input.type
@@ -514,12 +522,13 @@ async function command(value: unknown, source: 'app' | 'shell' | 'native' = 'app
   return loggedCommand(input, type, source)
 }
 
-async function loggedCommand(input: Record<string, unknown>, type: string, source: 'app' | 'shell' | 'native'): Promise<void> {
+async function loggedCommand(input: Record<string, unknown>, type: string, source: 'app' | 'shell' | 'native'): Promise<boolean | void> {
   const end = runtime.diagnostics.operation('electron.commands', type, { caller: source }, true)
-  try { await performCommand(input, type, source); end() } catch (error) { end(error); throw error }
+  try { const result = await performCommand(input, type, source); end(); return result } catch (error) { end(error); throw error }
 }
 
-async function performCommand(input: Record<string, unknown>, type: string, source: 'app' | 'shell' | 'native'): Promise<void> {
+async function performCommand(input: Record<string, unknown>, type: string, source: 'app' | 'shell' | 'native'): Promise<boolean | void> {
+  if (type === 'confirm-lan') return confirmLanAccess()
   if (type === 'controls') {
     if (input.page !== undefined && (typeof input.page !== 'string' || !['general', 'profiles', 'create-profile', 'tools', 'recovery', 'permissions'].includes(input.page))) throw new Error('Invalid controls page')
     openControls(input.page as Parameters<typeof openControls>[0]); return
@@ -551,9 +560,18 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
   try {
     if (type === 'onboarding-complete' || type === 'onboarding-skip') {
       if (!onboarding || runtime.safeMode || runtime.recoveryMode || input.profile !== runtime.selected) throw new Error('Onboarding is unavailable for this Profile')
+      if (type === 'onboarding-complete' && ((input.browserAccess !== undefined && typeof input.browserAccess !== 'boolean')
+        || (input.networkExposure !== undefined && input.networkExposure !== 'loopback' && input.networkExposure !== 'lan'))) throw new Error('Invalid setup choices')
       // The Host has not loaded this Profile yet. Commit choices before starting it.
       runtime.profiles.finishOnboarding(runtime.selected, type === 'onboarding-complete'
         ? { features: input.features, computerUse: input.computerUse } : undefined)
+      if (type === 'onboarding-complete' && typeof input.browserAccess === 'boolean') {
+        runtime.writePreferences({
+          ...runtime.preferences,
+          browserAccess: input.browserAccess,
+          networkExposure: input.browserAccess ? (input.networkExposure ?? runtime.preferences.networkExposure) : 'loopback',
+        })
+      }
       onboarding = false
       shellWindow?.hide()
       void runtime.start().catch(() => {})
@@ -644,11 +662,12 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
       } else {
         if (preferences.browserAccess && preferences.networkExposure === 'lan'
           && (!runtime.preferences.browserAccess || runtime.preferences.networkExposure !== 'lan')
-          && !await confirmed(t('允许局域网 HTTPS 访问？', 'Allow LAN access over HTTPS?'),
-            t('同一网络中的设备可以连接。请仅向可信设备分享登录链接，并在设备上核对和信任 CA 证书。', 'Devices on your local network can connect. Share login links only with trusted devices, and verify and trust the CA certificate on each device.'))) return
+          && !await confirmLanAccess()) return
         await runtime.applyPreferences(preferences)
       }
-      if (mainWindow) applyWindowMaterial(mainWindow, preferences)
+      for (const window of [mainWindow, shellWindow]) {
+        if (window && !window.isDestroyed()) applyWindowMaterial(window, preferences)
+      }
       return
     }
     if (!['switch', 'features', 'restart', 'recover', 'safe-mode', 'normal-mode', 'rollback', 'repair-global'].includes(String(type))) throw new Error('Invalid Next command')
@@ -920,8 +939,11 @@ async function main(): Promise<void> {
       return { required: onboarding, edition: 'next', profile: runtime.selected,
         accountPending: !onboarding && runtime.profiles.accountSetupPending(runtime.selected),
         computerUse: runtime.profiles.computerUseEnabled(runtime.selected),
+        ...(features.officialMarket ? { officialMarket: true } : {}),
         input: { appVersion: version, profileName: runtime.selected, platform: process.platform,
-          mode: 'compatibility', macosMaterial: 'off', windowsMaterial: 'off', openBrowser: false, networkExposure: 'loopback',
+          mode: 'compatibility', macosMaterial: 'off', windowsMaterial: 'off',
+          openBrowser: runtime.preferences.browserAccess,
+          networkExposure: runtime.preferences.browserAccess ? runtime.preferences.networkExposure : 'loopback',
           market: features.market ? 'community-market' : features.dshMarket ? 'dsh-market' : features.officialMarket ? 'official-market' : 'disabled', aaEnabled: features.remoteControl,
           notifications: { enabled: true, notifyOnTurnCompletion: true, notifyOnTurnFailure: true, notifyOnJobCompletion: false, notifyOnJobFailure: false, notifyOnScheduleCompletion: true, notifyOnScheduleFailure: true } } }
     }
@@ -930,13 +952,7 @@ async function main(): Promise<void> {
       runtime.profiles.dismissAccountSetup(runtime.selected)
       return
     }
-    if (value.action !== 'finish' || !onboarding || value.profile !== runtime.selected || runtime.safeMode || runtime.recoveryMode) throw new Error('Setup is unavailable')
-    if (value.selection === undefined) return command({ type: 'onboarding-skip', profile: value.profile })
-    const choice = value.selection as Record<string, unknown>
-    if (!choice || typeof choice !== 'object' || !['disabled', 'community-market', 'dsh-market', 'official-market'].includes(String(choice.market))
-      || typeof choice.aaEnabled !== 'boolean' || typeof choice.computerUse !== 'boolean') throw new Error('Invalid setup choices')
-    return command({ type: 'onboarding-complete', profile: value.profile, computerUse: choice.computerUse,
-      features: { market: choice.market === 'community-market', dshMarket: choice.market === 'dsh-market', ...(choice.market === 'official-market' ? { officialMarket: true } : {}), remoteControl: choice.aaEnabled } })
+    throw new Error('Setup is unavailable')
   })
   ipcMain.handle(IPC.settingsTake, event => {
     assertSender(event, mainWindow, APP_URL)
@@ -1023,7 +1039,11 @@ async function main(): Promise<void> {
     assertSender(event, mainWindow, APP_URL)
     return { languages: [...app.getPreferredSystemLanguages(), app.getLocale()], preference: null }
   })
-  nativeTheme.on('updated', () => { if (mainWindow && !mainWindow.isDestroyed()) applyWindowMaterial(mainWindow, runtime.preferences) })
+  nativeTheme.on('updated', () => {
+    for (const window of [mainWindow, shellWindow]) {
+      if (window && !window.isDestroyed()) applyWindowMaterial(window, runtime.preferences)
+    }
+  })
   runtime.safeMode = safeModeRequested
   runtime.recoveryMode = process.argv.includes(RECOVERY_ARGUMENT)
   runtime.initialize()

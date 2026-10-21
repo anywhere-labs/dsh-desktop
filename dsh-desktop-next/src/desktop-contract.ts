@@ -94,8 +94,9 @@ export interface DesktopBrowserLinks {
 export type DesktopCommand =
   | { type: 'check-updates' | 'download-update' | 'install-update' }
   | { type: 'recovery-action'; action: string; id?: string }
-  | ({ type: 'onboarding-complete'; profile: string } & OnboardingChoices)
+  | ({ type: 'onboarding-complete'; profile: string; browserAccess?: boolean; networkExposure?: 'loopback' | 'lan' } & OnboardingChoices)
   | { type: 'onboarding-skip'; profile: string }
+  | { type: 'confirm-lan' }
   | { type: 'open-browser-url' | 'copy-browser-url'; url: string }
   | { type: 'create' | 'switch' | 'delete'; name: string }
   | { type: 'features'; features: Features }
@@ -113,7 +114,7 @@ export interface DesktopBridge {
   onOpenSettings?(listener: (page: DesktopSettingsPage) => void): () => void
   state(): Promise<DesktopState>
   browserLinks(): Promise<DesktopBrowserLinks>
-  command(command: DesktopCommand): Promise<void>
+  command(command: DesktopCommand): Promise<boolean | void>
 }
 
 /** Metadata-only health reports from the mounted Next client. */

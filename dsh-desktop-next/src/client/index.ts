@@ -13,7 +13,6 @@ import { NextSettingsAdapter } from './settings-adapter.ts'
 import { NextDesktopSettings, NextDesktopActions } from './settings.tsx'
 import { installWindowStyles } from './styles.ts'
 import { registerDesktopOnboarding } from '../../../dsh-plugin-desktop-beta/src/client/onboarding.tsx'
-import { Onboarding } from '../native-ui/onboarding.tsx'
 import '../../../dsh-plugin-desktop-beta/src/client/onboarding.css'
 import { registerPluginControls } from './plugin-controls.tsx'
 import { installPluginControlsStyles } from './plugin-controls-styles.ts'
@@ -44,36 +43,8 @@ export function apply(ctx: Context): void {
   // Desktop, whatever directory flow the Host mounted; ordinary browsers have no bridge.
   const directoryPicker = desktopDirectoryPicker()
   if (directoryPicker) registerDesktopDirectoryPicker(ctx, directoryPicker)
-  registerDesktopOnboarding(ctx, (snapshot, locale, finish, renderNavigation) => createElement(Onboarding, {
-    embedded: true,
-    renderNavigation,
-    locale,
-    state: {
-      selected: snapshot.profile,
-      features: {
-        market: snapshot.input.market === 'community-market',
-        dshMarket: snapshot.input.market === 'dsh-market',
-        ...((snapshot.input.market as string) === 'official-market' ? { officialMarket: true } : {}),
-        remoteControl: snapshot.input.aaEnabled ?? false,
-      },
-      onboardingComputerUse: snapshot.computerUse ?? false,
-    },
-    bridge: {
-      permissions: window.desktopNext?.permissions,
-      command: async command => {
-        if (command.type === 'onboarding-skip') return finish(snapshot.profile)
-        if (command.type !== 'onboarding-complete') throw new Error('Unexpected onboarding command')
-        const { appVersion: _version, profileName: _profile, platform: _platform, ...selection } = snapshot.input
-        await finish(snapshot.profile, {
-          ...selection,
-          market: (command.features.market ? 'community-market' : command.features.dshMarket ? 'dsh-market' : command.features.officialMarket ? 'official-market' : 'disabled') as typeof selection.market,
-          aaEnabled: command.features.remoteControl,
-          computerUse: command.computerUse,
-        })
-      },
-    },
-  }))
-  if (window.desktopNext) {
+  registerDesktopOnboarding(ctx, () => null)
+  if (window.desktopNext?.state) {
     ctx.slots.inject('shell.overlay', () => ctx.slots.register({
       name: 'shell.overlay', id: 'desktop-next-renderer-health', order: 0,
       inject: () => ({ ctx }),

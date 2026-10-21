@@ -189,7 +189,7 @@ export class NextProfiles {
         || Object.keys(value).some(key => !['features', 'computerUse'].includes(key))) throw new Error('Invalid onboarding choices')
       const choices = value as Record<string, unknown>
       const features = parseFeatures(choices.features)
-      if ([features.market, features.dshMarket, features.officialMarket].filter(Boolean).length > 1) throw new Error('Select only one plugin market')
+      if (features.market && features.dshMarket) throw new Error('Select only one plugin market')
       if (typeof choices.computerUse !== 'boolean') throw new Error('Invalid Computer Use choice')
       originalPatch = readPrivateFile(patchPath)
       nextPatch = computerUsePatch(originalPatch ?? '[]\n', choices.computerUse).text

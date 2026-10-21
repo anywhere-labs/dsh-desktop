@@ -16,7 +16,7 @@ const fixture = vi.hoisted(() => ({
   load: vi.fn(), report: vi.fn(), plugin: vi.fn(), pluginDone: vi.fn(), diagnosticAppend: vi.fn(),
   terminalTarget: vi.fn(), openTerminal: vi.fn(), popup: vi.fn(),
   stop: vi.fn(async () => {}),
-  close: vi.fn(async () => {}), start: vi.fn(async () => {}), preferences: { closeToTray: true },
+  close: vi.fn(async () => {}), start: vi.fn(async () => {}), preferences: { closeToTray: true, browserAccess: false, networkExposure: 'loopback' as 'loopback' | 'lan' },
   phase: 'ready' as 'ready' | 'error',
   needsOnboarding: false, corruptProfile: false, restart: vi.fn(), hostReady: false,
   appPaths: new Map<string, string>(), lockPaths: [] as string[], ownsInstance: true,
@@ -46,6 +46,7 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
     if (fixture.corruptProfile) writeFileSync(join(this.profiles.directory('desktop'), 'package.json'), '{broken')
   }
   initialize() { if (this.safeMode) Object.assign(this.preferences, SAFE_MODE_PREFERENCES) }
+  writePreferences(next: typeof DEFAULT_PREFERENCES) { Object.assign(this.preferences, next) }
   start = fixture.start
   close = fixture.close
   async restart(change: () => Promise<void>) { await fixture.stop(); await change(); this.recoveryMode = false; await fixture.restart() }
@@ -767,9 +768,12 @@ it.each(['complete', 'official', 'skip'] as const)('shows first-run onboarding w
           ? { market: false, officialMarket: true, remoteControl: false }
           : { market: false, dshMarket: true, remoteControl: true })
       expect(manager.computerUseEnabled('desktop')).toBe(outcome === 'complete')
+      expect(fixture.preferences.browserAccess).toBe(outcome === 'complete')
+      expect(fixture.preferences.networkExposure).toBe(outcome === 'complete' ? 'lan' : 'loopback')
     })
     await command(sender, outcome === 'skip' ? { type: 'onboarding-skip', profile: 'desktop' }
       : { type: 'onboarding-complete', profile: 'desktop', computerUse: outcome === 'complete',
+        browserAccess: outcome === 'complete', networkExposure: outcome === 'complete' ? 'lan' : 'loopback',
         features: outcome === 'official'
           ? { market: false, officialMarket: true, remoteControl: false }
           : { market: false, dshMarket: true, remoteControl: true } })
@@ -783,7 +787,11 @@ it.each(['complete', 'official', 'skip'] as const)('shows first-run onboarding w
     expect(await setup(mainSender, { action: 'read' })).toMatchObject({
       required: false,
       accountPending: outcome !== 'skip',
-      input: { market: outcome === 'skip' ? 'disabled' : outcome === 'official' ? 'official-market' : 'dsh-market' },
+      input: {
+        market: outcome === 'skip' ? 'disabled' : outcome === 'official' ? 'official-market' : 'dsh-market',
+        openBrowser: outcome === 'complete',
+        networkExposure: outcome === 'complete' ? 'lan' : 'loopback',
+      },
     })
     await expect(setup(mainSender, { action: 'finish', profile: 'desktop' })).rejects.toThrow('unavailable')
   } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
@@ -836,12 +844,14 @@ it.each(['complete', 'skip', 'close'] as const)('reopens a completed Profile wit
     manager.finishOnboarding('desktop', { features, computerUse: true })
     await import('../src/main.ts')
     await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    fixture.preferences.browserAccess = true
+    fixture.preferences.networkExposure = 'lan'
     const window = fixture.windows[0]
     const sender = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
     const command = fixture.handlers.get('dsh-next:command')!
     expect(window.webContents.mainFrame.url).toMatch(/#onboarding$/)
     expect(fixture.start).not.toHaveBeenCalled()
-    expect(fixture.handlers.get('dsh-next:state')!(sender)).toMatchObject({ onboarding: true, onboardingComputerUse: true, features })
+    expect(fixture.handlers.get('dsh-next:state')!(sender)).toMatchObject({ onboarding: true, onboardingComputerUse: true, features, preferences: { browserAccess: true, networkExposure: 'lan' } })
     // Reopening is a launch mode, not a deletion of the completion record.
     expect(manager.onboardingRequired('desktop')).toBe(false)
     if (outcome === 'close') {
@@ -849,12 +859,14 @@ it.each(['complete', 'skip', 'close'] as const)('reopens a completed Profile wit
       expect(fixture.start).not.toHaveBeenCalled()
     } else {
       await command(sender, outcome === 'skip' ? { type: 'onboarding-skip', profile: 'desktop' }
-        : { type: 'onboarding-complete', profile: 'desktop', features: { market: true, remoteControl: false }, computerUse: false })
+        : { type: 'onboarding-complete', profile: 'desktop', features: { market: true, remoteControl: false }, computerUse: false, browserAccess: false })
       expect(fixture.start).toHaveBeenCalledOnce()
       expect(fixture.windows[1].webContents.mainFrame.url).toBe('dsh-app://app/')
     }
     expect(manager.features('desktop')).toEqual(outcome === 'complete' ? { market: true, remoteControl: false } : features)
     expect(manager.computerUseEnabled('desktop')).toBe(outcome !== 'complete')
+    expect(fixture.preferences.browserAccess).toBe(outcome !== 'complete')
+    expect(fixture.preferences.networkExposure).toBe(outcome === 'complete' ? 'loopback' : 'lan')
     expect(manager.onboardingRequired('desktop')).toBe(false)
     if (outcome !== 'close') {
       const { app } = await import('electron')
