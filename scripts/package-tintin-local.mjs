@@ -55,9 +55,12 @@ if (explicitRef !== undefined && explicitRef !== provenance.commit) {
 // electron-builder 二进制下载默认走 npmmirror（仅当未设置时；缓存命中时不产生下载）
 env.ELECTRON_BUILDER_BINARIES_MIRROR ??= 'https://npmmirror.com/mirrors/electron-builder-binaries/'
 env.ELECTRON_MIRROR ??= 'https://npmmirror.com/mirrors/electron/'
+// dshmarket 同步锚定本地（2026-10-21 用户裁决）：本地全编不访问 npm，沿用已安装版本
+env.DSH_MARKET_PINNED = '1'
 
 console.log(`[local] AA 本地锚定：main @ ${provenance.commit}（${provenance.artifact}，sha256 校验通过）`)
-console.log('[local] 全程不访问 GitHub；market:prepare 仍走 npm 镜像\n')
+console.log('[local] dshmarket 本地锚定：沿用已安装版本，不访问 npm')
+console.log('[local] 全程不访问 GitHub / npm registry\n')
 
 const yarn = process.env.COREPACK_ROOT
   ? join(process.env.COREPACK_ROOT, 'dist', 'yarn.js')
