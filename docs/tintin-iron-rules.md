@@ -1,7 +1,7 @@
 # 工程移植铁律(2026-09-30 建立)
 
 > 本文是 TinTin 业务向本框架移植期间的**强制工程规范**。任何违反铁律的实现,评审必须打回。
-> 来源:源仓库《工程规范铁律.md》10 条事故条款(`D:\Project\tintin-dsh-desktop\docs\tintin\工程规范铁律.md`,只读参考)+ 本仓库 [AGENTS.md](../AGENTS.md) 治理红线 + 4 条移植特有条款,共 15 条。
+> 来源:源仓库《工程规范铁律.md》10 条事故条款(`D:\Project\tintin-dsh-desktop\docs\tintin\工程规范铁律.md`,只读参考)+ 本仓库 [AGENTS.md](../AGENTS.md) 治理红线 + 5 条移植特有条款,共 16 条(2026-10-20 增补铁律 16)。
 > 配套方案:[TinTin 移植方案](tintin-migration-plan.md)。规则不进门禁 = 假绿灯(铁律 6 的原始教训):本文每条都标注落实方式,未落实的由交付物 D0-1(`check:tintin` 门禁骨架)补齐。
 
 ## 事故原型(条款为什么存在)
@@ -10,6 +10,7 @@
 - **剪映封面指向模板目录**:克隆他人草稿当模板、硬编码空 `coverPath`,文档无依据。→ 铁律 12。
 - **混剪 3528 行文件拆分翻车**:128 个函数搬不全,168 个 typecheck 错误,整链回滚。→ 铁律 1/4。
 - **tintin 侧"测试全绿但定制丢失"**:上游合并后补丁失效无察觉,靠事后 grep 核查补救。→ 铁律 13/15。
+- **桥面静默失效(2026-10-20)**:壳基线升级改了 preload 桥名,消费端裸字符串摸旧名,测试全绿但媒体/运营工具文件入口全断。→ 铁律 16。
 
 ## A. 代码纪律(继承源仓库铁律,迁移期间继续有效)
 
@@ -76,6 +77,10 @@ jianying/montage/voice-tts 等纯逻辑 + 单测下沉 `dsh-tintin-bundle/lib/`;
 ### 铁律 15|锚点门禁先于打包
 源仓库 `verify:customizations` 的 grep 锚点核查改造成 `check:tintin`,接入根 `check` 与 `dist:tintin`;FAIL>0 禁止打包。每合入一批能力同步更新锚点表。
 *落实:D0-1 建骨架,Phase 5 全量接入。*
+
+### 铁律 16|桥面单一事实源,升级基线必对账(2026-10-20 事故)
+桌面壳 preload 暴露的每个 `window.*` 桥与 dsh-tintin-* 消费端的桥名,统一登记 `scripts/bridge-surface.json`(单一事实源)。任何新增/改名/删除桥必须先改 JSON,再改实现;`check:bridge-surface`(接入根 `check`)对账三方向:preload 暴露面 ⊆ 声明、消费端桥名 ⊆ 声明全集、废弃桥名必须与现行主桥同文件成对出现。升级壳基线(dsh 0.2.x)或合并上游 master 的提交,`check:bridge-surface` 为合并阻塞项——消费端靠裸字符串摸 window,类型检查/单测/行数基线均不设防,升级时唯一能拦住静默失效的就是这份对账。三包 preload.spec 的暴露面全量快照与打包探针(packaged-bridge-surface.spec)是同一事实源的另外两道锁。
+*事故:0.2.1-rc.2 基线升级把 `__DSH_DESKTOP_FILE_PATH__` 换成上游 `__DSH_HOST_PATHS__`,4 处消费点未同步,媒体/运营工具全部文件入口、聊天框 @文件、缓存目录选择静默失效(2026-10-20 用户报障复盘)。*
 
 ## 修订规则
 

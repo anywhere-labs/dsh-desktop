@@ -3,21 +3,32 @@
 // stay byte-identical to Beta, so every TinTin-specific main-process behavior
 // installs itself from here, before the mirrored bootstrap runs.
 
-import { app, BrowserWindow, WebContentsView, ipcMain } from 'electron'
+import { app, BrowserWindow, WebContentsView, ipcMain, type WebContents } from 'electron'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { embedAttach, embedClose, embedHide, embedShow, registerBrowserService } from 'dsh-tintin-browser'
 import {
-  OPENFILM_HOST_REFER, OPENFILM_HOST_SELECTION, OPENFILM_REFER_EVENT, OPENFILM_SELECTION_EVENT,
+  OPENFILM_COMMAND_EVENT, OPENFILM_HOST_HOVER, OPENFILM_HOST_REFER, OPENFILM_HOST_SELECTION, OPENFILM_REFER_EVENT, OPENFILM_SELECTION_EVENT,
   OPENFILM_VIEW_CHANNEL, isOpenFilmBounds, isOpenFilmStudioUrl,
   type OpenFilmBounds, type OpenFilmSelection, type OpenFilmStudioRef, type OpenFilmViewRequest,
 } from '../openfilm-view-contract.ts'
 import { BROWSER_VIEW_CHANNEL, isBrowserBounds, type BrowserViewRequest } from '../browser-view-contract.ts'
+import { DESKTOP_FRAME_HEIGHT } from '../window-chrome.ts'
 import { seedTinTinDefaults } from './first-boot.ts'
 
 let installed = false
 let browserAttached = false
+
+/**
+ * 页面坐标 → 窗口坐标的 y 偏移（2026-10-20 实机报障：内嵌 Studio 视图底部露出一条
+ * 恰好等于标题条高的空隙）。兼容/扩展壳把主页面 WebContentsView 放在窗口
+ * `y = DESKTOP_FRAME_HEIGHT` 处，页面里的 rect 是页面坐标——原生视图 bounds 必须
+ * 加回这个偏移，否则视图整体上移一条高、窗口底部露出同高的一条。advanced 模式
+ * 页面铺满窗口内容区，偏移为 0。
+ */
+const pageOffsetY = (window: BrowserWindow, sender: WebContents): number =>
+  sender === window.webContents ? 0 : DESKTOP_FRAME_HEIGHT
 
 /**
  * Install TinTin main-process capabilities. Safe to call more than once.
@@ -39,6 +50,11 @@ const studioPreloadPath = join(dirname(fileURLToPath(import.meta.url)), 'studio-
 let studioView: WebContentsView | null = null
 let studioWindow: BrowserWindow | null = null
 let studioShown = false
+let studioBounds = ''
+// bounds 去重（2026-10-21 报障：播放条抖动）——重复 setBounds 会迫使合成器不断
+// 重排原生视图，干扰 Studio 播放；值不变时直接跳过。
+const boundsKey = (bounds: OpenFilmBounds): string =>
+  `${Math.round(bounds.x)},${Math.round(bounds.y)},${Math.round(bounds.width)},${Math.round(bounds.height)}`
 
 /** Create (or reuse) the native Studio view in the window that hosts the chat. */
 function ensureStudioView(window: BrowserWindow, url: string): WebContentsView {
@@ -77,10 +93,13 @@ function ensureStudioView(window: BrowserWindow, url: string): WebContentsView {
 
 function showStudio(bounds: OpenFilmBounds): void {
   if (studioView === null || studioWindow === null || studioWindow.isDestroyed()) return
+  const key = boundsKey(bounds)
+  if (studioShown && key === studioBounds) return
   if (!studioShown) {
     studioWindow.contentView.addChildView(studioView)
     studioShown = true
   }
+  studioBounds = key
   studioView.setBounds({
     x: Math.round(bounds.x),
     y: Math.round(bounds.y),
@@ -93,6 +112,7 @@ function hideStudio(): void {
   if (studioView === null || studioWindow === null || studioWindow.isDestroyed() || !studioShown) return
   studioWindow.contentView.removeChildView(studioView)
   studioShown = false
+  studioBounds = ''
 }
 
 function closeStudio(): void {
@@ -102,6 +122,7 @@ function closeStudio(): void {
   studioView = null
   studioWindow = null
   studioShown = false
+  studioBounds = ''
   if (!view.webContents.isDestroyed()) view.webContents.close()
 }
 
@@ -162,11 +183,27 @@ export function installTinTinMainHook(): void {
     }
     if (request.action === 'show') {
       if (!isOpenFilmBounds(request.bounds)) return { ok: false, error: 'invalid bounds' }
-      showStudio(request.bounds)
+      const window = BrowserWindow.fromWebContents(event.sender)
+      if (window === null) return { ok: false, error: 'window not found' }
+      const offsetY = pageOffsetY(window, event.sender)
+      showStudio({
+        x: request.bounds.x,
+        y: request.bounds.y + offsetY,
+        width: request.bounds.width,
+        height: request.bounds.height,
+      })
       return { ok: true }
     }
     if (request.action === 'hide') { hideStudio(); return { ok: true } }
     if (request.action === 'close') { closeStudio(); return { ok: true } }
+    if (request.action === 'focus') {
+      // 空格 = 播放/暂停（2026-10-21 报障：非输入焦点下按空格走浏览器页面滚动，
+      // 页面滚动拖动 stage rect 造成原生视图来回抖动）——把键盘焦点交给 Studio。
+      if (studioView !== null && studioWindow !== null && !studioWindow.isDestroyed()) {
+        studioView.webContents.focus()
+      }
+      return { ok: true }
+    }
     return { ok: false, error: 'unknown action' }
   })
   ipcMain.on(OPENFILM_HOST_SELECTION, (event, selection: OpenFilmSelection) => {
@@ -177,6 +214,18 @@ export function installTinTinMainHook(): void {
   ipcMain.on(OPENFILM_HOST_REFER, (event, ref: OpenFilmStudioRef) => {
     if (studioView !== null && event.sender === studioView.webContents) {
       studioWindow?.webContents.send(OPENFILM_REFER_EVENT, ref)
+    }
+  })
+  // Studio → chat: what the pointer hovers (the chat lights its matching pills)
+  ipcMain.on(OPENFILM_HOST_HOVER, (event, ref: OpenFilmStudioRef | null) => {
+    if (studioView !== null && event.sender === studioView.webContents) {
+      studioWindow?.webContents.send(OPENFILM_HOST_HOVER, ref ?? null)
+    }
+  })
+  // Chat → Studio: a StudioCommand from the chat (StudioHost.onCommand contract)
+  ipcMain.on(OPENFILM_COMMAND_EVENT, (event, command: unknown) => {
+    if (studioView !== null && studioWindow !== null && event.sender === studioWindow.webContents) {
+      studioView.webContents.send(OPENFILM_COMMAND_EVENT, command)
     }
   })
 
@@ -192,7 +241,15 @@ export function installTinTinMainHook(): void {
     }
     if (request.action === 'show') {
       if (!isBrowserBounds(request.bounds)) return { ok: false, error: 'invalid bounds' }
-      return embedShow(request.bounds)
+      const window = BrowserWindow.fromWebContents(event.sender)
+      // 同一偏移问题：浏览器内嵌视图的 host rect 也是页面坐标（2026-10-20 与 Studio 同修）
+      const offsetY = window === null ? 0 : pageOffsetY(window, event.sender)
+      return embedShow({
+        x: request.bounds.x,
+        y: request.bounds.y + offsetY,
+        width: request.bounds.width,
+        height: request.bounds.height,
+      })
     }
     if (request.action === 'hide') { embedHide(); return { ok: true } }
     if (request.action === 'close') { embedClose(); return { ok: true } }

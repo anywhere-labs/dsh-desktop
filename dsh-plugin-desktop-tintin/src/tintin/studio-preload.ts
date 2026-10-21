@@ -9,6 +9,16 @@ import { contextBridge, ipcRenderer } from 'electron'
 // literals in sync with ../openfilm-view-contract.ts (main-process side).
 const OPENFILM_HOST_SELECTION = 'dsh-desktop:openfilm-host-selection'
 const OPENFILM_HOST_REFER = 'dsh-desktop:openfilm-host-refer'
+const OPENFILM_HOST_HOVER = 'dsh-desktop:openfilm-host-hover'
+const OPENFILM_COMMAND_EVENT = 'dsh-desktop:openfilm-command'
+
+// The chat drives the editor through StudioHost.onCommand (reveal/highlight/draft-refs):
+// Studio registers its listener once through the host field, this preload hands it every
+// command the main process forwards from the chat renderer.
+let commandListener: ((command: unknown) => void) | null = null
+ipcRenderer.on(OPENFILM_COMMAND_EVENT, (_event, command: unknown) => {
+  try { commandListener?.(command) } catch { /* a Studio-side listener error must not kill the channel */ }
+})
 
 contextBridge.exposeInMainWorld('openfilmHost', {
   version: 1,
@@ -18,5 +28,11 @@ contextBridge.exposeInMainWorld('openfilmHost', {
   },
   refer: (ref: unknown): void => {
     ipcRenderer.send(OPENFILM_HOST_REFER, ref)
+  },
+  onHover: (ref: unknown): void => {
+    ipcRenderer.send(OPENFILM_HOST_HOVER, ref ?? null)
+  },
+  onCommand: (listener: (command: unknown) => void): void => {
+    commandListener = typeof listener === 'function' ? listener : null
   },
 })

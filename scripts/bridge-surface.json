@@ -1,0 +1,33 @@
+{
+  "comment": "桌面壳 preload 暴露面 × TinTin 消费端桥名的单一事实源（2026-10-20 桥面事故后设立）。exposure.preload = 三包（stable/beta/tintin）preload.ts 必须逐字暴露的桥名全集（preload.spec 全量快照 + verify-bridge-surface 双向把关）；exposure.scoped = 由非主 preload 的页面级 preload 暴露的桥（dshDesktopBrowser 属 browser-page-preload），主 preload 出现即为违规；legacyFallbacks = 已废弃桥名，只允许作为显式降级兜底出现在消费端，且同一文件必须引用 pairedPrimary 现行主桥（防新消费点再写死桥）。",
+  "exposure": {
+    "preload": [
+      "__DSH_HOST_PATHS__",
+      "dshDesktopActions",
+      "__DSH_DIRECTORY_PICKER__",
+      "dshDesktopSaveFilePicker",
+      "dshDesktopOpenFilm",
+      "dshDesktopBrowserView",
+      "dshDesktop",
+      "dshDesktopSetup"
+    ],
+    "scoped": [
+      "dshDesktopBrowser"
+    ]
+  },
+  "legacyFallbacks": [
+    { "name": "dshDesktopFilePath", "pairedPrimary": "__DSH_HOST_PATHS__" },
+    { "name": "__DSH_DESKTOP_FILE_PATH__", "pairedPrimary": "__DSH_HOST_PATHS__" },
+    { "name": "dshDesktopDirectoryPicker", "pairedPrimary": "__DSH_DIRECTORY_PICKER__" }
+  ],
+  "scanRoots": [
+    "dsh-tintin-bundle",
+    "dsh-tintin-client-ui",
+    "dsh-tintin-media-bundle",
+    "dsh-tintin-creation-bundle",
+    "dsh-tintin-ops-bundle",
+    "dsh-tintin-browser"
+  ],
+  "scanExcludedParts": ["node_modules", "dist", "lib", "coverage", "test", "tests", "tintin-resources"],
+  "scanExtensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".vue"]
+}

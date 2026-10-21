@@ -2,7 +2,8 @@
 
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { dirname, resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { electronBuilderEnvironment } from './electron-builder-environment.ts'
 import { withoutWindowsSigningSecrets } from './package-win.ts'
@@ -37,6 +38,23 @@ export function unsignedDirectoryBuildEnvironment(environment) {
 }
 
 /**
+ * 版本日期戳（2026-10-12 用户裁决）：目录名/Setup 名/应用内版本三处一致。TinTin 独有
+ * （beta 镜像无此概念）——`package-nsis-local.mjs` 与本目录构建同源使用；env.DSH_VERSION_STAMP
+ * 由 Release-Builder 统一下发，缺省=构建时刻 `YYYYMMDD.HHmm`，'off'=关闭。
+ * @param {NodeJS.ProcessEnv} env
+ * @param {Date} now
+ * @returns {string[]} electron-builder 追加参数
+ */
+export function versionStampArgs(env = process.env, now = new Date()) {
+  const stamp = env.DSH_VERSION_STAMP
+  if (stamp === 'off') return []
+  const resolved = stamp
+    ?? `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`
+  const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'))
+  return [`--config.extraMetadata.version=${pkg.version}-${resolved}`]
+}
+
+/**
  * Build an unsigned, unpacked application for the current host platform.
  * @param {{
  *   env?: NodeJS.ProcessEnv,
@@ -57,6 +75,7 @@ export function packageDirectory(options = {}) {
     [
       electronBuilderCli,
       ...UNSIGNED_DIRECTORY_BUILD_ARGS,
+      ...versionStampArgs(options.env ?? process.env),
       `--config.electronDist=${configuredElectronDist}`,
     ],
     {

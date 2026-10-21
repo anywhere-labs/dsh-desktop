@@ -19,6 +19,8 @@ import {
 const OPENFILM_VIEW_CHANNEL = 'dsh-desktop:openfilm-view'
 const OPENFILM_SELECTION_EVENT = 'dsh-desktop:openfilm-selection'
 const OPENFILM_REFER_EVENT = 'dsh-desktop:openfilm-refer'
+const OPENFILM_COMMAND_EVENT = 'dsh-desktop:openfilm-command'
+const OPENFILM_HOST_HOVER = 'dsh-desktop:openfilm-host-hover'
 
 // The official composer cites dropped, picked, and pasted files and folders that have a
 // real path as `@path` references instead of uploading them, and refuses folders outright
@@ -38,11 +40,12 @@ contextBridge.exposeInMainWorld(DESKTOP_RENDERER_ACTIONS_BRIDGE, actions)
 // The official native directory-flow plugin captures this seam at apply time.
 // Install it before any client plugin runs; the Host's macOS osascript chooser
 // otherwise waits for AppleEvents and may time out without showing a window.
-if (process.platform === 'darwin') {
-  contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', Object.freeze({
-    pick: (): Promise<string | null> => ipcRenderer.invoke(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL),
-  }))
-}
+// Exposed on every platform (2026-10-20): the TinTin workbench consumes this
+// bridge for its native cache-directory picker on Windows too; Linux answers
+// through the admission capability error, mirroring the upstream app preload.
+contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', Object.freeze({
+  pick: (): Promise<string | null> => ipcRenderer.invoke(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL),
+}))
 
 // Native save-file dialog for client-plugin renderers that run outside the
 // Electron main process (the TinTin host bundle is a plain-node Harness child
@@ -69,6 +72,15 @@ const openFilmView: DesktopOpenFilmBridge = {
     ipcRenderer.on(OPENFILM_REFER_EVENT, handler)
     return () => { ipcRenderer.removeListener(OPENFILM_REFER_EVENT, handler) }
   },
+  command: (command: unknown) => {
+    ipcRenderer.send(OPENFILM_COMMAND_EVENT, command)
+  },
+  onHover: (listener: (ref: OpenFilmStudioRef | null) => void) => {
+    const handler = (_event: unknown, ref: OpenFilmStudioRef | null): void => { listener(ref ?? null) }
+    ipcRenderer.on(OPENFILM_HOST_HOVER, handler)
+    return () => { ipcRenderer.removeListener(OPENFILM_HOST_HOVER, handler) }
+  },
+  focus: () => ipcRenderer.invoke(OPENFILM_VIEW_CHANNEL, { action: 'focus' }),
 }
 contextBridge.exposeInMainWorld('dshDesktopOpenFilm', Object.freeze(openFilmView))
 

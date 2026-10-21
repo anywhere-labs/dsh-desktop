@@ -68,7 +68,10 @@ HTTP or `openfilm get` call.
 - `tintin_stock_images` — search stock pictures/videos; `download` copies the first N into the project.
 - `tintin_image_reverse` — a prompt from a local picture (vision).
 - `tintin_comfyui` — submit a ComfyUI workflow (JSON file or inline); polls async results.
-- `tintin_task_status` — read a long task later (`/tasks/unified/{id}`).
+- `tintin_task_status` — read a long task later (`/tasks/unified/{id}`). Its result may carry
+  `clips[].download_url` (shot splitting) — feed each URL to `tintin_download`.
+- `tintin_download { url, out? }` — fetch a server artifact into the project (defaults to
+  `assets/tintin/`): split clips, TTS/BGM audio URLs, any relative server path or full URL.
 - `tintin_generate_image { prompt, aspect?, out? }` — text-to-image (semantic, single); lands in the
   project and returns the path. Multi-image: call it several times.
 - `tintin_generate_video { prompt, resolution?, duration?, out? }` — text-to-video (semantic, single
@@ -207,6 +210,8 @@ one's `--help` lists its options:
 - `get`: the server capabilities above; with no verb it lists what is usable now (yours: `call` → `tintin`).
 - `skills`: the film-making skills this project can use; `openfilm skill <name>` prints one whole. Follow it when
   the person names one or it fits what they ask; copy what the film uses into the project.
+- `doctor`: what this computer has for OpenFilm (versions, ffmpeg, browsers, problems) — run it when something in
+  the toolchain looks broken, and paste its output when reporting an issue.
 
 OpenFilm is by [openfilm.dev](https://openfilm.dev), MIT License — source
 [openfilm/openfilm](https://github.com/openfilm/openfilm). This skill embeds its MANUAL.md; `openfilm` with no

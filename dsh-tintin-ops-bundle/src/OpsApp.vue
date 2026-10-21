@@ -123,9 +123,13 @@ const isDark = useHostDark()
             {{ activeTool?.title }}
           </div>
         </div>
-        <OtProductLibrary v-if="active === 'product-library'" />
-        <OtAutoListingPanel v-else-if="active === 'auto-listing'" />
-        <OtReversePromptVideo v-else-if="active === 'reverse-prompt-video'" />
+        <!-- 2026-10-20 用户裁决：工具页 KeepAlive 缓存——返回运营工具/重进卡片时
+             保留全部界面状态（含执行中任务的轮询与结果展示），与媒体工具同口径。 -->
+        <KeepAlive>
+          <OtProductLibrary v-if="active === 'product-library'" />
+          <OtAutoListingPanel v-else-if="active === 'auto-listing'" />
+          <OtReversePromptVideo v-else-if="active === 'reverse-prompt-video'" />
+        </KeepAlive>
       </div>
   </div>
 </template>

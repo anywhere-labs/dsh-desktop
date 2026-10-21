@@ -15,6 +15,12 @@ export const OPENFILM_HOST_SELECTION = 'dsh-desktop:openfilm-host-selection'
 /** Studio preload → main: a reference Studio's menus hand to the chat. */
 export const OPENFILM_HOST_REFER = 'dsh-desktop:openfilm-host-refer'
 
+/** Studio preload → main: what the pointer hovers in Studio (to light matching chat pills). */
+export const OPENFILM_HOST_HOVER = 'dsh-desktop:openfilm-host-hover'
+
+/** Main → Studio: a StudioCommand from the chat (reveal a reference, highlight, draft numbering). */
+export const OPENFILM_COMMAND_EVENT = 'dsh-desktop:openfilm-command'
+
 export interface OpenFilmBounds {
   x: number
   y: number
@@ -43,6 +49,7 @@ export type OpenFilmViewRequest =
   | { action: 'show'; bounds: OpenFilmBounds }
   | { action: 'hide' }
   | { action: 'close' }
+  | { action: 'focus' }
 
 /** Whether the address is a local OpenFilm Studio page (http loopback, `/open` or `/`). */
 export function isOpenFilmStudioUrl(value: unknown): value is string {
@@ -72,4 +79,10 @@ export interface DesktopOpenFilmBridge {
   close(): Promise<void>
   onSelection(listener: (selection: OpenFilmSelection) => void): () => void
   onRefer(listener: (ref: OpenFilmStudioRef) => void): () => void
+  /** Chat → Studio: a StudioCommand (reveal/highlight/draft-refs, StudioHost.onCommand contract). */
+  command(command: unknown): void
+  /** Studio → chat: what the pointer hovers in Studio (null: nothing). */
+  onHover(listener: (ref: OpenFilmStudioRef | null) => void): () => void
+  /** Hand keyboard focus to the Studio view (Space = play/pause instead of page scroll). */
+  focus(): Promise<void>
 }

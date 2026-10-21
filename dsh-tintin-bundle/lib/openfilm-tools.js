@@ -481,6 +481,25 @@ export function createOpenfilmMediaTools({
       }, (error) => ({ ok: false, error: errText(error) })),
     },
     {
+      name: 'tintin_download',
+      description: '把服务端产物下载落盘到影片项目（相对路径默认 assets/tintin/）。用于任务结果里带的 download_url——如镜头分割 result.clips[] 的每镜切片、TTS/BGM 返回的音频地址。url 可为相对服务端的路径（/montage/split/clip/…）或完整 URL。',
+      parameters: {
+        url: { type: 'string', required: true, description: '产物地址：相对服务端路径或完整 URL' },
+        out: { type: 'string', description: '落盘路径；缺省 assets/tintin/dl-<ts>.<扩展名取自 url>（相对影片项目）' },
+      },
+      output: output({ path: { type: 'string' }, url: { type: 'string' } }),
+      timeoutMs: 330_000,
+      isConcurrencySafe: () => true,
+      presentCall: (args) => ({ card: 'generic', kind: 'execute', title: '下载服务端产物', rawInput: { url: String(args?.url || '').slice(0, 80) } }),
+      execute: run(async (args, exec) => {
+        const url = String(args?.url || '').trim()
+        if (!url) throw new Error('url 必填')
+        const out = String(args.out || join('assets', 'tintin', `dl-${stamp()}${extensionOf(url)}`))
+        const path = await download(url, resolveOutPath(exec, out))
+        return { ok: true, path, url }
+      }, (error) => ({ ok: false, error: errText(error) })),
+    },
+    {
       name: 'tintin_generate_image',
       description: '文生图（语义化，单张）：prompt → 服务端排队生成 → 图片落到影片项目（默认 assets/tintin/img-<ts>.png）。多张由调用方拆多次；生成中阻塞本工具直到完成/失败/超时。',
       parameters: {

@@ -24,6 +24,8 @@ export interface ServerSkill {
   instruction: string
   executor: string
   version: string
+  /** 服务端注册时的标记（2026-10-21 起：生成素材类技能以此进入创作模式清单） */
+  tags: string[]
 }
 
 /** 创作技能 id 前缀——安装来源标记（卸载/判已装按它定位） */
@@ -55,6 +57,7 @@ export function parseSkillsResponse(res: unknown): ServerSkill[] {
       instruction: String(it.instruction ?? '').trim(),
       executor: String(it.executor ?? '').trim(),
       version: String(it.version ?? '').trim(),
+      tags: Array.isArray(it.tags) ? it.tags.map((tag) => String(tag ?? '').trim().toLowerCase()).filter(Boolean) : [],
     })
   }
   return out
@@ -116,4 +119,18 @@ export function skillMatchesQuery(query: string, fields: readonly string[]): boo
   const q = String(query ?? '').trim().toLowerCase()
   if (!q) return true
   return fields.some((f) => String(f ?? '').toLowerCase().includes(q))
+}
+
+// ── 生成素材类过滤（2026-10-21 用户裁决：创作模式只承载生成素材类技能，
+// 视频剪辑会话承载全量——两边共用同一份服务端注册表，各自按定位取子集/全量）──
+/** 命中任一标记即视为生成素材类；服务端注册生成素材技能时请打这些 tag 之一 */
+export const GENERATION_TAGS = ['generation', '生成', '素材', 'video-gen', 'image-gen', 'comfygen']
+
+export function isGenerationSkill(skill: Pick<ServerSkill, 'tags'>): boolean {
+  return (skill.tags ?? []).some((tag) => GENERATION_TAGS.includes(String(tag).toLowerCase()))
+}
+
+/** 创作模式可安装清单 = 注册表中的生成素材类子集（全量仍在视频剪辑会话的 / 菜单与技能面板） */
+export function filterGenerationSkills(skills: readonly ServerSkill[]): ServerSkill[] {
+  return skills.filter(isGenerationSkill)
 }

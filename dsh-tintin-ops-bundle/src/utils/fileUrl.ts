@@ -27,15 +27,15 @@ export function toFileUrl(p: string): string {
  *
  * 2026-09-24（用户报障：选择素材无法拖入）：Electron 43 移除了 File.path，
  * 拖拽与 input 选择的 File 对象不再携带路径——所有拖入/选择静默失效，需经
- * preload 桥解析。桥有两个名字：源仓 fork 的 dshDesktopFilePath.forFile，与
- * 本仓库通道 preload 实际暴露的上游契约 __DSH_DESKTOP_FILE_PATH__.getPathForFile
- * （3946b200ad 迁移只带来了消费方，暴露层用的是后者），两个都试；旧 File.path
- * 仅作降级兜底。取不到路径返回空串，调用方按取消或错误处理。
+ * preload 桥解析。桥名以桌面壳 preload 的实际暴露为准（scripts/verify-bridge-surface.mjs
+ * 对账把关）：现行上游契约为 __DSH_HOST_PATHS__.pathFor（0.2.1-rc.2 基线起）；
+ * 旧 File.path 仅作降级兜底。取不到路径返回空串，调用方按取消或错误处理。
  */
 export function filePathOf(f: File): string {
   if (!f) return ''
   try {
-    const viaBridge = (window as any).dshDesktopFilePath?.forFile?.(f)
+    const viaBridge = (window as any).__DSH_HOST_PATHS__?.pathFor?.(f)
+      || (window as any).dshDesktopFilePath?.forFile?.(f)
       || (window as any).__DSH_DESKTOP_FILE_PATH__?.getPathForFile?.(f)
     if (typeof viaBridge === 'string' && viaBridge) return viaBridge
   } catch { /* 桥缺失/异常走降级 */ }

@@ -303,6 +303,20 @@ describe('openfilm project files / import channels', () => {
     const result = await channels['openfilm:projectFiles']([{ project: tempDir() }])
     expect(result.error).toMatch(/film\.html/)
   })
+
+  it('saves a reference picture as .film/refs/<turn>-<n>.jpg and validates input', async () => {
+    const project = makeProject()
+    const base64 = Buffer.from('fake-jpeg-bytes').toString('base64')
+    const saved = await channels['openfilm:saveRefImage']([{ project, turnId: 'local-abc', n: 2, base64 }])
+    expect(saved.path).toBe('.film/refs/local-abc-2.jpg')
+    expect(readFileSync(join(project, '.film', 'refs', 'local-abc-2.jpg'), 'utf8')).toBe('fake-jpeg-bytes')
+    // 非法输入：路径穿越被消毒成安全文件名（不报错也不越界）/ 坏序号 / 空图报错
+    const sanitized = await channels['openfilm:saveRefImage']([{ project, turnId: '../evil', n: 1, base64 }])
+    expect(sanitized.path).toBe('.film/refs/evil-1.jpg')
+    expect(existsSync(join(project, '.film', 'refs', 'evil-1.jpg'))).toBe(true)
+    expect((await channels['openfilm:saveRefImage']([{ project, turnId: 't', n: 0, base64 }])).error).toBeTruthy()
+    expect((await channels['openfilm:saveRefImage']([{ project, turnId: 't', n: 1, base64: '' }])).error).toBeTruthy()
+  })
 })
 
 describe('openfilm currentProject channel', () => {

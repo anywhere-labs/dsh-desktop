@@ -39,7 +39,7 @@ const browsersDir = join(resourcesDir, 'playwright-browsers')
 const threeDir = join(resourcesDir, 'openfilm-libs', 'three')
 
 const NODE_VERSION = process.env.TINTIN_NODE_VERSION ?? '22.23.2'
-const OPENFILM_VERSION = process.env.TINTIN_OPENFILM_VERSION ?? '0.2.0'
+const OPENFILM_VERSION = process.env.TINTIN_OPENFILM_VERSION ?? '0.2.2'
 const THREE_VERSION = process.env.TINTIN_THREE_VERSION ?? '0.184.0'
 /** three package paths → vendored paths (the loaders' own relative imports stay valid). */
 const THREE_FILES = [

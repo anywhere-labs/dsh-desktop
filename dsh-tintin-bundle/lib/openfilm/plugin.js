@@ -4,7 +4,7 @@
 // 自己功能增长走提取付账).
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, extname, isAbsolute, join } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defaultWorkspaceDir } from '../context-task.js'
 import { syncProvidersAt, syncProvidersFile } from './providers-seed.js'
@@ -244,6 +244,93 @@ export function createOpenfilmChannels({ sync, httpRequest }) {
         const path = importProjectFile(payload.project, payload)
         return { path, project: payload.project }
       } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
+    },
+    // 引用配图落盘（2026-10-21 第二批对齐：桌面端 .film/refs/<turn>-<n>.jpg 契约）——
+    // 渲染层把 Studio 给的引用帧图取回为 base64 JPEG，这里负责安全落盘并回相对路径
+    'openfilm:saveRefImage': async (args) => {
+      try {
+        const payload = args?.[0] ?? {}
+        const project = String(payload.project || '')
+        const turnId = String(payload.turnId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64)
+        const n = Number(payload.n)
+        const bytes = Buffer.from(String(payload.base64 || ''), 'base64')
+        if (!project || !turnId || !Number.isInteger(n) || n < 1 || n > 99) return { error: '参数不合法' }
+        if (!bytes.length) return { error: '空图片' }
+        const dir = join(project, '.film', 'refs')
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(join(dir, `${turnId}-${n}.jpg`), bytes)
+        return { path: `.film/refs/${turnId}-${n}.jpg` }
+      } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
+    },
+    // 导出到视频剪辑项目（2026-10-21 用户裁决：文案混剪/仿视频交付替换「服务端生成」）——
+    // 媒体包经 /tintin/ipc 调用：createProject 开项目目录，stageAsset 落素材，
+    // writeFilm 写时间轴，openProject 让 Studio 打开该项目
+    'openfilm:createProject': async (args) => {
+      try {
+        const payload = args?.[0] ?? {}
+        const base = String(payload.name || '').replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 60)
+        const root = join(libraryDir(), 'Projects')
+        mkdirSync(root, { recursive: true })
+        let name = base || `montage-${Date.now().toString(36)}`
+        let project = join(root, name)
+        let i = 2
+        while (existsSync(project)) { project = join(root, `${name}-${i}`); i += 1 }
+        mkdirSync(join(project, 'assets'), { recursive: true })
+        writeFileSync(join(project, 'film.html'), [
+          '<!doctype html>',
+          '<html><head><meta charset="utf-8">',
+          '<meta name="viewport" content="width=1920, height=1080">',
+          '<title>' + name + '</title></head>',
+          '<body></body></html>',
+        ].join('\n'))
+        return { project, name: basename(project) }
+      } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
+    },
+    'openfilm:stageAsset': async (args) => {
+      try {
+        const payload = args?.[0] ?? {}
+        const project = String(payload.project || '')
+        const rel = String(payload.rel || '').replace(/\\/g, '/')
+        if (!project || !/^assets\/[a-z0-9_][a-z0-9_\-./]*$/i.test(rel) || rel.includes('..')) return { error: 'rel 必须在 assets/ 下且不含 ..' }
+        const target = join(project, ...rel.split('/'))
+        if (!target.startsWith(join(project, 'assets'))) return { error: 'rel 越界' }
+        mkdirSync(dirname(target), { recursive: true })
+        if (payload.base64) writeFileSync(target, Buffer.from(String(payload.base64), 'base64'))
+        else if (payload.sourcePath) copyFileSync(payload.sourcePath, target)
+        else return { error: '需要 sourcePath 或 base64' }
+        return { rel }
+      } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
+    },
+    'openfilm:writeFilm': async (args) => {
+      try {
+        const payload = args?.[0] ?? {}
+        const project = String(payload.project || '')
+        const html = String(payload.html || '')
+        if (!project || !html) return { error: '参数不合法' }
+        if (html.length > 2 * 1024 * 1024) return { error: 'film.html 过大' }
+        if (!existsSync(join(project, 'film.html'))) return { error: '不是影片项目（先 createProject）' }
+        writeFileSync(join(project, 'film.html'), html)
+        return { path: 'film.html' }
+      } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
+    },
+    'openfilm:openProject': async (args) => {
+      try {
+        sync()
+        const payload = args?.[0] ?? {}
+        const project = String(payload.project || '')
+        if (!project || !existsSync(join(project, 'film.html'))) return { error: '不是影片项目' }
+        const runtime = resolveOpenfilmRuntime({ env: process.env, bundleDir: bundleRoot })
+        if (!runtime) return { error: 'OpenFilm 运行时未安装：请重装 TinTin 安装包' }
+        const run = await startStudio({
+          runtime,
+          homeDir: homedir(),
+          folder: project,
+          env: { ...process.env, OPENFILM_LIBRARY: libraryDir() },
+        })
+        return { url: run.url, project: run.project || project }
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) }
+      }
     },
     'openfilm:studio': async () => {
       try {

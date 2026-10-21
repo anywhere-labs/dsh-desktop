@@ -11,8 +11,11 @@
 //   最后一个安装项后回内置是既定行为。
 import { describe, expect, it } from 'vitest'
 import {
+  GENERATION_TAGS,
   SERVER_SKILL_ID_PREFIX,
+  filterGenerationSkills,
   installServerSkill,
+  isGenerationSkill,
   isServerSkillInstalled,
   parseSkillsResponse,
   removeServerSkill,
@@ -143,5 +146,35 @@ describe('skillMatchesQuery 卡片搜索（2026-10-18 界面改版）', () => {
     expect(skillMatchesQuery('复刻', ['视频复刻', '描述'])).toBe(true)
     expect(skillMatchesQuery('DESC', ['视频复刻', '描述'])).toBe(false)
     expect(skillMatchesQuery('mp4', ['a', '转成 mp4 竖版'])).toBe(true)
+  })
+})
+
+describe('生成素材类过滤（2026-10-21 用户裁决：创作模式只承载生成素材类技能）', () => {
+  const gen = { tags: ['client', 'generation'] }
+  const genCn = { tags: ['素材'] }
+  const plain = { tags: ['client'] }
+  const copywriting = { tags: ['client', 'copywriting', 'video_replace'] }
+
+  it('tags 命中 GENERATION_TAGS（大小写不敏感）即为生成素材类', () => {
+    expect(isGenerationSkill(gen)).toBe(true)
+    expect(isGenerationSkill(genCn)).toBe(true)
+    expect(isGenerationSkill({ tags: ['Video-Gen'] })).toBe(true)
+    expect(isGenerationSkill(plain)).toBe(false)
+    expect(isGenerationSkill(copywriting)).toBe(false)
+    expect(isGenerationSkill({ tags: [] })).toBe(false)
+    expect(GENERATION_TAGS.length).toBeGreaterThan(0)
+  })
+
+  it('filterGenerationSkills 只留生成素材类；解析保留 tags 字段', () => {
+    const parsed = parseSkillsResponse({
+      skills: [
+        { id: 'tintin-video-gen', name: '视频生成', tags: ['generation', '素材'] },
+        { id: 'open_intro', name: '开场方案', tags: ['client'] },
+        { id: 'no-tags', name: '无标记' },
+      ],
+    })
+    expect(parsed).toHaveLength(3)
+    const kept = filterGenerationSkills(parsed)
+    expect(kept.map((s) => s.id)).toEqual(['tintin-video-gen'])
   })
 })

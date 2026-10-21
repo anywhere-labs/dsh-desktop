@@ -257,7 +257,7 @@ const tintinClient = (() => {
         if (activeId !== id) return
         const e = viewEls.get(id)
         if (e?.dataset?.pending) { e.remove(); viewEls.delete(id); mountActive() }
-      } }
+      }, open: (id) => setActive(id) }
       injectEntries()
       render()
     }
@@ -723,7 +723,11 @@ const tintinClient = (() => {
         config,
         // OpenFilm 启动（2026-10-18 裁决：侧栏入口=独立窗口）：宿主通道同步
         // 技能/服务并启动 Studio（不弹系统浏览器），壳桥按地址开窗；无壳退化为新标签页。
-        openfilm: { studio: () => call('openfilm:studio', { args: [{}] }).then((r) => { if (!r?.url) throw new Error(r?.error || 'Studio 未启动'); return r }) },
+        openfilm: {
+          studio: () => call('openfilm:studio', { args: [{}] }).then((r) => { if (!r?.url) throw new Error(r?.error || 'Studio 未启动'); return r }),
+          // 导出到视频剪辑项目（2026-10-21）：让 Studio 打开指定项目并置为最近项目
+          openProject: (payload) => call('openfilm:openProject', { args: [payload] }).then((r) => { if (r?.error) throw new Error(r.error); return r }),
+        },
       }
       console.info('[tintin] window.tintin polyfill installed')
     }

@@ -367,16 +367,17 @@ export class ElectronShellGeneration {
       await dispatchRendererAction(action)
     })
 
-    if (platform.platform === 'darwin') {
-      renderer.ipc.handle(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL, async event => {
-        if (this.released || event.sender !== renderer
-          || event.senderFrame === null || event.senderFrame !== renderer.mainFrame
-          || !sameOriginFrame(event.senderFrame.url, origin)) {
-          throw new Error('dsh-plugin-desktop: untrusted directory picker sender')
-        }
-        return await this.options.pickDirectory()
-      })
-    }
+    // Registered on every platform (2026-10-20): the renderer-side bridge is
+    // unconditional and Windows consumes the picker for its cache directory;
+    // Linux surfaces the admission capability error to the caller.
+    renderer.ipc.handle(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL, async event => {
+      if (this.released || event.sender !== renderer
+        || event.senderFrame === null || event.senderFrame !== renderer.mainFrame
+        || !sameOriginFrame(event.senderFrame.url, origin)) {
+        throw new Error('dsh-plugin-desktop: untrusted directory picker sender')
+      }
+      return await this.options.pickDirectory()
+    })
 
     // Native save-file dialog for client-plugin renderers outside the Electron
     // main process (the TinTin host bundle is a plain-node Harness child and
@@ -680,7 +681,7 @@ export class ElectronShellGeneration {
       renderer.off('did-finish-load', loaded)
       if (!renderer.isDestroyed()) {
         renderer.ipc.removeHandler(DESKTOP_RENDERER_ACTION_CHANNEL)
-        if (platform.platform === 'darwin') renderer.ipc.removeHandler(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL)
+        renderer.ipc.removeHandler(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL)
         renderer.ipc.removeHandler(SETUP_ONBOARDING_CHANNEL)
       }
       if (isolated) {

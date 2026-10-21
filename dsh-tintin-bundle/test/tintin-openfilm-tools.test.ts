@@ -188,6 +188,26 @@ describe('createOpenfilmMediaTools', () => {
     expect(result.result).toContain('"bpm":123')
   })
 
+  it('tintin_download 相对服务端路径落盘到项目，扩展名取自 url', async () => {
+    const cwd = tempDir()
+    const { tools, downloads } = factory()
+    const result = await tool(tools, 'tintin_download').execute({ url: '/montage/split/clip/49c0fd11ba9b/shot_001.mp4' }, fakeExec(cwd))
+    expect(result.ok).toBe(true)
+    expect(downloads[0].url).toBe('http://192.168.111.31:8000/montage/split/clip/49c0fd11ba9b/shot_001.mp4')
+    expect(result.path.endsWith('.mp4')).toBe(true)
+    expect(result.path.startsWith(join(cwd, 'assets', 'tintin', 'dl-'))).toBe(true)
+    expect(existsSync(result.path)).toBe(true)
+  })
+
+  it('tintin_download 指定 out 落盘到指定相对路径', async () => {
+    const cwd = tempDir()
+    const { tools, downloads } = factory()
+    const result = await tool(tools, 'tintin_download').execute({ url: 'https://example.com/a.mp3', out: 'assets/download/clip-02.mp3' }, fakeExec(cwd))
+    expect(result.ok).toBe(true)
+    expect(result.path).toBe(join(cwd, 'assets', 'download', 'clip-02.mp3'))
+    expect(downloads[0].url).toBe('https://example.com/a.mp3')
+  })
+
   it('tintin_capabilities 过滤注册表', async () => {
     const { tools } = factory()
     const result = await tool(tools, 'tintin_capabilities').execute({ filter: 'tts' }, fakeExec(tempDir()))

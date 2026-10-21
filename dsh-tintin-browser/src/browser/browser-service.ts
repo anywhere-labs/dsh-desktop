@@ -545,14 +545,20 @@ export function embedShow(bounds: EmbedRect): { ok: boolean; error?: string } {
   try { if (browserWindow && !browserWindow.isDestroyed() && browserWindow.isVisible()) browserWindow.hide() } catch { /* 已隐藏 */ }
   const wasActive = embedActive
   embedActive = true
-  embedOuterRect = {
+  // bounds 去重（2026-10-21 报障：重复 setBounds 迫使合成器不断重排原生视图）：
+  // 已挂载且四值不变时跳过定位。
+  const nextRect = {
     x: Math.round(Number(bounds.x) || 0),
     y: Math.round(Number(bounds.y) || 0),
     width: Math.max(0, Math.round(Number(bounds.width) || 0)),
     height: Math.max(0, Math.round(Number(bounds.height) || 0)),
   }
+  const unchanged = wasActive
+    && embedOuterRect.x === nextRect.x && embedOuterRect.y === nextRect.y
+    && embedOuterRect.width === nextRect.width && embedOuterRect.height === nextRect.height
+  embedOuterRect = nextRect
   if (!wasActive) { try { win.contentView.addChildView(embedPageView) } catch { /* 已挂载 */ } }
-  embedPageView.setBounds(embedOuterRect)
+  if (!unchanged) embedPageView.setBounds(embedOuterRect)
   layoutBrowserWindow()
   pushPageState()
   return { ok: true }

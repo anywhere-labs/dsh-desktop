@@ -12,6 +12,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useHostDark } from '../composables/hostTheme'
 import {
   type ServerSkill,
+  filterGenerationSkills,
   installServerSkill,
   isServerSkillInstalled,
   parseSkillsResponse,
@@ -63,7 +64,10 @@ async function refresh(): Promise<void> {
   try {
     syncInstalled()
     const res = await bridge().get('/skills')
-    skills.value = parseSkillsResponse(res)
+    // 创作模式只承载生成素材类技能（2026-10-21 用户裁决）；全量仍在视频剪辑会话
+    skills.value = filterGenerationSkills(parseSkillsResponse(res))
+    // 无生成素材类技能时给出可执行的指引，而不是一张空表
+    if (!skills.value.length) error.value = '暂无生成素材类技能：服务端注册时请给技能打上 generation / 生成 / 素材 等 tag'
   } catch (e) {
     error.value = (e as Error).message || '服务端不可达'
     skills.value = []

@@ -67,7 +67,7 @@ describe('Desktop renderer preload bridges', () => {
     expect(electron.exposed.has('__DSH_DESKTOP_FILE_PATH__')).toBe(false)
   })
 
-  it('exposes renderer actions, setup onboarding, and the macOS directory picker bridge', async () => {
+  it('exposes renderer actions, setup onboarding, and the directory picker bridge on darwin', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     await import('../src/preload.ts')
 
@@ -89,5 +89,28 @@ describe('Desktop renderer preload bridges', () => {
     } | undefined
     await setup?.read()
     expect(electron.ipcRenderer.invoke).toHaveBeenCalledWith(SETUP_ONBOARDING_CHANNEL, { action: 'read' })
+  })
+
+  it('exposes the directory picker bridge on win32 too (TinTin cache-directory picker)', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    await import('../src/preload.ts')
+
+    const picker = electron.exposed.get('__DSH_DIRECTORY_PICKER__') as { pick(): Promise<string | null> } | undefined
+    expect(picker?.pick).toEqual(expect.any(Function))
+    await picker?.pick()
+    expect(electron.ipcRenderer.invoke).toHaveBeenCalledWith(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL)
+  })
+
+  it('exposes exactly the declared bridge surface (scripts/bridge-surface.json snapshot)', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    await import('../src/preload.ts')
+
+    // 全量快照：任何新增/删除/改名桥都必须显式更新 scripts/bridge-surface.json，
+    // 本用例与对账 gate（verify-bridge-surface.mjs）共用同一份单一事实源。
+    const { readFileSync } = await import('node:fs')
+    const manifest = JSON.parse(
+      readFileSync(new URL('../../../scripts/bridge-surface.json', import.meta.url), 'utf8'),
+    ) as { exposure: { preload: string[] } }
+    expect([...electron.exposed.keys()].sort()).toEqual([...manifest.exposure.preload].sort())
   })
 })
