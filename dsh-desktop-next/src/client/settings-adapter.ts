@@ -1,7 +1,7 @@
 /** Adapt Next's native state to the existing Desktop settings components. */
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { DesktopSettingsApi, DesktopSettingsView } from '../../../dsh-plugin-desktop-beta/src/client/desktop-settings-api.ts'
-import type { DesktopNotificationSettings, DesktopShellSettings } from '../../../dsh-plugin-desktop-beta/src/client/DesktopSettingsSection.tsx'
+import type { DesktopNotificationSettings, DesktopShellSettings } from './DesktopSettingsSection.tsx'
 import { DEFAULT_PROFILE, type DesktopBridge, type DesktopBrowserLinks, type DesktopCommand, type DesktopPreferences, type DesktopState } from '../desktop-contract.ts'
 
 /** The part of a dsh `ConfigForm` the Desktop settings components read and write. */
@@ -27,6 +27,8 @@ export function projectSettings(state: DesktopState, links: DesktopBrowserLinks 
 
 export class NextSettingsAdapter {
   private current: DesktopState | undefined
+  private persisted: DesktopState | undefined
+  private pendingSaves = 0
   private listeners = new Set<() => void>()
   private tail: Promise<unknown> = Promise.resolve()
   private reading: Promise<DesktopState> | undefined
@@ -44,14 +46,26 @@ export class NextSettingsAdapter {
   private snapshot<T>(value?: T, writable = false): ConfigFormSnapshot<T> {
     return { status: value ? 'ready' : 'loading', value, base: undefined, user: undefined, revision: undefined, writable }
   }
-  refresh = (): Promise<DesktopState> => this.reading ??= this.bridge.state().then(state => {
-    if (JSON.stringify(state) !== JSON.stringify(this.current)) {
-      this.current = state
-      const p = state.preferences
-      this.shellSnapshot = this.snapshot({ mode: 'compatibility', macosMaterial: p.macosMaterial, windowsMaterial: p.windowsMaterial, linuxMaterial: p.linuxMaterial, port: p.port, openBrowser: p.browserAccess, networkExposure: p.networkExposure, logLevel: p.logLevel }, !state.busy && !state.safeMode)
-      this.notificationSnapshot = this.snapshot({ enabled: p.notifications, notifyOnTurnCompletion: p.turnCompleted, notifyOnTurnFailure: p.turnFailed, notifyOnJobCompletion: p.jobCompleted, notifyOnJobFailure: p.jobFailed, notifyOnScheduleCompletion: p.scheduleCompleted, notifyOnScheduleFailure: p.scheduleFailed }, !state.busy && !state.safeMode && state.notificationsAvailable)
-      for (const listener of this.listeners) listener()
+  private applyState(state: DesktopState): void {
+    if (JSON.stringify(state) === JSON.stringify(this.current)) return
+    const previous = this.current
+    this.current = state
+    const p = state.preferences
+    const shellWritable = !state.safeMode
+    const notificationWritable = !state.safeMode && state.notificationsAvailable
+    const nextShell: DesktopShellSettings = { mode: 'compatibility', macosMaterial: p.macosMaterial, windowsMaterial: p.windowsMaterial, linuxMaterial: p.linuxMaterial, port: p.port, openBrowser: p.browserAccess, networkExposure: p.networkExposure, logLevel: p.logLevel }
+    const nextNotification: DesktopNotificationSettings = { enabled: p.notifications, notifyOnTurnCompletion: p.turnCompleted, notifyOnTurnFailure: p.turnFailed, notifyOnJobCompletion: p.jobCompleted, notifyOnJobFailure: p.jobFailed, notifyOnScheduleCompletion: p.scheduleCompleted, notifyOnScheduleFailure: p.scheduleFailed }
+    if (!previous || this.shellSnapshot.writable !== shellWritable || JSON.stringify(this.shellSnapshot.value) !== JSON.stringify(nextShell)) {
+      this.shellSnapshot = this.snapshot(nextShell, shellWritable)
     }
+    if (!previous || this.notificationSnapshot.writable !== notificationWritable || JSON.stringify(this.notificationSnapshot.value) !== JSON.stringify(nextNotification)) {
+      this.notificationSnapshot = this.snapshot(nextNotification, notificationWritable)
+    }
+    for (const listener of this.listeners) listener()
+  }
+  refresh = (): Promise<DesktopState> => this.reading ??= this.bridge.state().then(state => {
+    this.persisted = state
+    if (this.pendingSaves === 0 || !this.current) this.applyState(state)
     return state
   }).finally(() => { this.reading = undefined })
 
@@ -67,12 +81,31 @@ export class NextSettingsAdapter {
   command = (command: DesktopCommand): Promise<void> => this.enqueue(async () => {
     try { await this.bridge.command(command) } finally { await this.settle() }
   })
-  savePreferences = (patch: Partial<DesktopPreferences>): Promise<void> => this.enqueue(async () => {
-    const state = await this.refresh()
-    const preferences = { ...state.preferences, ...patch }
-    if (!preferences.browserAccess) preferences.networkExposure = 'loopback'
-    try { await this.bridge.command({ type: 'preferences', preferences }) } finally { await this.settle() }
-  })
+  savePreferences = (patch: Partial<DesktopPreferences>): Promise<void> => {
+    this.pendingSaves += 1
+    if (this.current && !this.current.safeMode) {
+      const requiresLanConfirm = patch.networkExposure === 'lan'
+        && (!this.current.preferences.browserAccess || this.current.preferences.networkExposure !== 'lan')
+      const requiresPortConfirm = (patch.port !== undefined && patch.port !== this.current.preferences.port)
+        || (patch.lanPort !== undefined && patch.lanPort !== this.current.preferences.lanPort)
+      if (!requiresLanConfirm && !requiresPortConfirm) {
+        const preferences = { ...this.current.preferences, ...patch }
+        if (!preferences.browserAccess) preferences.networkExposure = 'loopback'
+        this.applyState({ ...this.current, preferences })
+      }
+    }
+    return this.enqueue(async () => {
+      try {
+        const state = this.persisted ?? await this.refresh()
+        const preferences = { ...state.preferences, ...patch }
+        if (!preferences.browserAccess) preferences.networkExposure = 'loopback'
+        await this.bridge.command({ type: 'preferences', preferences })
+      } finally {
+        this.pendingSaves -= 1
+        await this.settle()
+      }
+    })
+  }
   /**
    * dsh 0.1.7's ConfigForm.set resolves true for Host acceptance and false for a
    * refused or skipped write; this bridge has no refusal path — a rejected save

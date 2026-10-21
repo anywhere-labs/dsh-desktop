@@ -1,7 +1,7 @@
 /** Mount the existing Desktop page and controls against Next's native adapter. */
 import { useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DesktopSettingsSection, DesktopSettingsToggleRow } from '../../../dsh-plugin-desktop-beta/src/client/DesktopSettingsSection.tsx'
+import { DesktopSettingsSection, DesktopSettingsSelect, DesktopSettingsToggleRow } from './DesktopSettingsSection.tsx'
 import { DesktopNativeActions } from '../../../dsh-plugin-desktop-beta/src/client/DesktopNativeActions.tsx'
 import { en, zh, type DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop-beta/src/client/desktop-settings-locales.ts'
 import type { DesktopCommand, DesktopState } from '../desktop-contract.ts'
@@ -33,7 +33,7 @@ export function NextDesktopSettings({ adapter, language, onOpenPlugins }: { adap
     capabilities={{ logging: false, windowModes: false, pluginSelectors: false, updates: false, materialRequiresRestart: false, nativeLanConfirmation: true, jobNotifications: false }}
     introNotice={<div className="dshDesktopSettingsNotice dshNextPluginSettingsNotice" data-next-plugin-settings-notice>
       <span>{language.startsWith('zh') ? '插件市场和远程控制设置已移至插件页面。' : 'Plugin market and remote control settings have moved to the Plugins page.'}</span>
-      <Button variant="outline" size="sm" onClick={onOpenPlugins}>{language.startsWith('zh') ? '前往插件页面' : 'Go to Plugins'}</Button>
+      <Button variant="outline" size="sm" className="dshDesktopSettingsButton" onClick={onOpenPlugins}>{language.startsWith('zh') ? '前往插件页面' : 'Go to Plugins'}</Button>
     </div>}
     browserActions={state && <NextBrowserActions adapter={adapter} state={state} language={language} />}
     extraSections={<>
@@ -73,23 +73,51 @@ function NextDesktopOptions({ adapter, state, language }: { adapter: NextSetting
     setBusy(true); setFailure('')
     try { await operation() } catch (error) { setFailure(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) }
   }
+  const savePreference = async (patch: Parameters<NextSettingsAdapter['savePreferences']>[0]): Promise<void> => {
+    setFailure('')
+    try { await adapter.savePreferences(patch) } catch (error) { setFailure(error instanceof Error ? error.message : String(error)) }
+  }
   const action = (type: DesktopCommand['type'], cn: string, en: string, unavailable = false) => <button key={type} type="button" className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary" disabled={busy || state.busy || unavailable} onClick={() => { void run(() => adapter.command({ type } as DesktopCommand)) }}>{t(cn, en)}</button>
   return <>
     {failure && <p role="alert" className="dshDesktopSettingsError">{failure}</p>}
     <NextUpdateSettings state={state} language={language} run={command => { void run(() => adapter.command(command)) }} />
     <section className="dshDesktopSettingsGroup"><h3>{t('后台运行', 'Background operation')}</h3>
-      <DesktopSettingsToggleRow label={t('关闭窗口后保持后台运行', 'Keep running after closing the window')} checked={state.preferences.closeToTray} disabled={busy || state.busy || state.safeMode} onChange={closeToTray => { void run(() => adapter.savePreferences({ closeToTray })) }} />
-      <p className="dshDesktopSettingsHint">{state.trayAvailable ? t('可从托盘重新打开窗口。', 'Reopen the window from the tray.') : t('系统托盘不可用，关闭主窗口将退出应用。', 'The tray is unavailable; closing the main window quits the application.')}</p>
+      <DesktopSettingsToggleRow
+        label={t('关闭窗口后保持后台运行', 'Keep running after closing the window')}
+        description={state.trayAvailable ? t('可从托盘重新打开窗口。', 'Reopen the window from the tray.') : t('系统托盘不可用，关闭主窗口将退出应用。', 'The tray is unavailable; closing the main window quits the application.')}
+        checked={state.preferences.closeToTray}
+        disabled={state.safeMode}
+        onChange={closeToTray => { void savePreference({ closeToTray }) }}
+      />
     </section>
     <section className="dshDesktopSettingsGroup"><h3>{t('桌面工具', 'Desktop tools')}</h3>
-      <div className="dshDesktopSettingsDialogActions" style={{ flexWrap: 'wrap' }}>
+      <div className="dshDesktopSettingsToolActions">
         {action('restart-onboarding', '设置向导', 'Setup wizard', state.safeMode)}
         {action('open-home', '打开数据目录', 'Open data directory')}{action('open-profile', '打开 Profile 目录', 'Open Profile directory')}{action('open-logs', '打开日志目录', 'Open log directory')}{action('devtools', '开发者工具', 'Developer Tools')}
       </div>
-      <label className="dshDesktopSettingsMaterialField">{t('日志级别', 'Log level')}<select className="dshDesktopSettingsSelect" value={state.preferences.logLevel} disabled={busy || state.busy || state.safeMode} onChange={event => { const logLevel = event.currentTarget.value as DesktopState['preferences']['logLevel']; void run(() => adapter.savePreferences({ logLevel })) }}>{['debug', 'info', 'warn', 'error'].map(value => <option key={value}>{value}</option>)}</select></label>
-      <DesktopSettingsToggleRow label={t('开发者日志', 'Developer logging')} checked={state.preferences.developerLogging} disabled={busy || state.busy || state.safeMode} onChange={developerLogging => { void run(() => adapter.savePreferences({ developerLogging })) }} />
-      <p className="dshDesktopSettingsHint">{t('记录模型请求、工具执行和通信的耗时与结果，不记录聊天正文或工具输入输出。日志保留七天，最多占用 200 MiB。会话事件可按序号与官方 Session Log 对照。', 'Record model requests, tool execution and communication timing and outcomes, without chat bodies or tool inputs and outputs. History is retained for seven days, up to 200 MiB. Match session events to the official Session Log by sequence number.')}</p>
-      <button type="button" className="dshDesktopSettingsButton" onClick={() => { void run(() => adapter.command({ type: 'controls', page: 'recovery' })) }}>{t('打开恢复助手', 'Open recovery assistant')}</button>
+      <div className="dshDesktopSettingsMaterialField">
+        <span className="dshDesktopSettingsToggleLabel">{t('日志级别', 'Log level')}</span>
+        <DesktopSettingsSelect
+          ariaLabel={t('日志级别', 'Log level')}
+          value={state.preferences.logLevel}
+          disabled={state.safeMode}
+          options={(['debug', 'info', 'warn', 'error'] as const).map(value => ({ value, label: value }))}
+          onChange={logLevel => { void savePreference({ logLevel }) }}
+        />
+      </div>
+      <DesktopSettingsToggleRow
+        label={t('开发者日志', 'Developer logging')}
+        description={t('记录模型请求、工具执行和通信的耗时与结果，不记录聊天正文或工具输入输出。日志保留七天，最多占用 200 MiB。会话事件可按序号与官方 Session Log 对照。', 'Record model requests, tool execution and communication timing and outcomes, without chat bodies or tool inputs and outputs. History is retained for seven days, up to 200 MiB. Match session events to the official Session Log by sequence number.')}
+        checked={state.preferences.developerLogging}
+        disabled={state.safeMode}
+        onChange={developerLogging => { void savePreference({ developerLogging }) }}
+      />
+      <div className="dshDesktopSettingsUpdateRow">
+        <span className="dshDesktopSettingsChoiceCopy">
+          <span className="dshDesktopSettingsChoiceTitle">{t('恢复助手', 'Recovery assistant')}</span>
+        </span>
+        <button type="button" className="dshDesktopSettingsButton" onClick={() => { void run(() => adapter.command({ type: 'controls', page: 'recovery' })) }}>{t('打开恢复助手', 'Open recovery assistant')}</button>
+      </div>
     </section>
   </>
 }

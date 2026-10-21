@@ -718,6 +718,11 @@ try {
   assert.equal(await settings.getByRole('heading', { name: /^(端口设置|Port settings)$/ }).count(), 0)
   assert.equal(await settings.getByRole('spinbutton').count(), 0)
   const notifications = settings.getByRole('switch', { name: /启用桌面通知|Enable Desktop notifications/ })
+  const notificationsExpander = settings.locator('[aria-labelledby="dsh-desktop-notifications-title"] .dshDesktopSettingsExpander')
+  assert.equal(await notificationsExpander.getAttribute('aria-expanded'), 'false')
+  assert.equal(await settings.getByRole('switch', { name: /本轮任务完成|Current turn completed/ }).count(), 0)
+  await notificationsExpander.click()
+  assert.equal(await notificationsExpander.getAttribute('aria-expanded'), 'true')
   assert.equal(await settings.getByRole('switch', { name: /后台任务|Background job/ }).count(), 0)
   const permissions = settings.getByRole('region', { name: /系统权限|System permissions/ })
   await permissions.getByRole('button', { name: /^(授权设置|Permissions)$/ }).click()
@@ -742,9 +747,9 @@ try {
   await settings.getByText('Fixture: preference save rejected').waitFor()
   assert.equal(await closeToTray.isChecked(), false)
   controlState.platform = 'win32'
-  await settings.locator('.dshDesktopSettingsMaterialField select').first().locator('option[value="transparent"]').waitFor({ state: 'detached' })
+  await settings.locator('[data-desktop-material-row]').waitFor({ state: 'detached' })
   // Windows offers no window material, so the material selector disappears entirely.
-  assert.equal(await settings.locator('option[value="transparent"]').count(), 0)
+  assert.equal(await settings.locator('[data-desktop-material-row]').count(), 0)
   controlState.platform = 'linux'
   await actions.getByRole('button', { name: /打开 DSH 终端|Open DSH Terminal/ }).waitFor({ state: 'hidden' })
   controlState.platform = 'darwin'
