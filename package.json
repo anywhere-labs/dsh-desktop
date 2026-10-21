@@ -714,7 +714,7 @@
     "@deepseek-ai/dsh-webhook@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-webhook-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-webhook-github@npm:0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-webhook-github-0.2.1-rc.2.tgz",
     "@deepseek-ai/dsh-webhook-github@npm:^0.2.1-rc.2": "file:vendor/dsh-runtime/0.2.1-rc.2/deepseek-ai-dsh-webhook-github-0.2.1-rc.2.tgz",
-    "dshmarket@npm:1.66.44": "patch:dshmarket@npm%3A1.66.44#./.yarn/patches/dshmarket-desktop.patch"
+    "dshmarket@npm:1.66.45": "patch:dshmarket@npm%3A1.66.45#./.yarn/patches/dshmarket-desktop.patch"
   },
   "dependenciesMeta": {
     "@deepseek-ai/dsh-subprocess-local": {
