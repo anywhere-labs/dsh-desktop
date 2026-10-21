@@ -158,11 +158,15 @@ export function packageWindowsArtifact(
 ): void {
   assertWindowsPackageHost(options, artifact)
   const compression = windowsCompressionOverride(options.env)
+  const reuseUnpacked = options.env.DSH_WINDOWS_REUSE_UNPACKED === '1'
 
   const cleanEnvironment = withoutWindowsSigningSecrets(options.env)
   options.log(`Building an unsigned Windows x64 ${artifact}; Authenticode is a separate release step.`)
   if (compression !== undefined) {
     options.log(`Packaging the ${artifact} with ${compression} compression.`)
+  }
+  if (reuseUnpacked) {
+    options.log('Reusing the unpacked Windows application directory.')
   }
   if (options.env.DSH_PACKAGE_CHECK_ALREADY_RAN !== '1') {
     options.run(
@@ -193,6 +197,7 @@ export function packageWindowsArtifact(
       '--config.npmRebuild=false',
       '--config.electronFuses.onlyLoadAppFromAsar=false',
       ...(compression === undefined ? [] : [`--config.win.compression=${compression}`]),
+      ...(reuseUnpacked ? [`--prepackaged=${join(options.desktopRoot, 'dist', 'win-unpacked')}`] : []),
     ],
     options.desktopRoot,
     electronBuilderEnvironment({

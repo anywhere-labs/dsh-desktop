@@ -1032,6 +1032,8 @@ describe('published package surface', () => {
     expect(windowsJob).toContain('DSH_PACKAGE_CHECK_ALREADY_RAN: \'1\'')
     // Smoke artifacts are never published, so CI skips their compression.
     expect(windowsJob.match(/DSH_WINDOWS_PACKAGE_COMPRESSION: store/g)).toHaveLength(2)
+    expect(windowsJob).toContain('DSH_WINDOWS_REUSE_UNPACKED: \'1\'')
+    expect(windowsJob).toContain('DSH_LINUX_PACKAGE_COMPRESSION: store')
     expect(macosJob).not.toContain('- run: yarn check')
     expect(macosJob).toContain(matrixSelector)
     expect(macosJob).toContain('- run: yarn workspace ${{ matrix.workspace }} check:mac-package:platform')
@@ -1040,6 +1042,7 @@ describe('published package surface', () => {
     expect(macosJob).not.toContain('- run: yarn dist:mac-smoke')
     // Pull requests skip the universal merge; master pushes still package it.
     expect(macosJob).toContain("DSH_MAC_SMOKE_ARCH: ${{ github.event_name == 'pull_request' && 'arm64' || 'universal' }}")
+    expect(macosJob).toContain('DSH_MAC_PACKAGE_COMPRESSION: store')
   })
 
   it('skips product packaging only for documentation-only changes', () => {

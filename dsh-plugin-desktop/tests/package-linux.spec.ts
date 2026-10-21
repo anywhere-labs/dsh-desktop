@@ -53,6 +53,35 @@ describe('Linux packaging orchestration', () => {
     expect(run.mock.calls[0]![1]!.join(' ')).not.toContain('check:linux-package')
   })
 
+  it('overrides electron-builder and Debian compression only when requested', () => {
+    const run = vi.fn()
+    const logs: string[] = []
+
+    packageLinuxArtifacts(options({
+      run,
+      log: message => { logs.push(message) },
+      env: {
+        DSH_PACKAGE_CHECK_ALREADY_RAN: '1',
+        DSH_LINUX_PACKAGE_COMPRESSION: 'store',
+      },
+    }))
+
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(run.mock.calls[0]![1]).toContain('--config.compression=store')
+    expect(run.mock.calls[0]![1]).toContain('--config.deb.compression=gz')
+    expect(logs).toContain('Packaging the Linux artifacts with store compression.')
+  })
+
+  it('rejects an unknown compression override before running commands', () => {
+    const run = vi.fn()
+
+    expect(() => packageLinuxArtifacts(options({
+      run,
+      env: { DSH_LINUX_PACKAGE_COMPRESSION: 'fast' },
+    }))).toThrow('DSH_LINUX_PACKAGE_COMPRESSION must be store, normal, or maximum')
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it('stops at the first failing command', () => {
     const run = vi.fn()
     run.mockImplementationOnce(() => { throw new Error('gate failed') })

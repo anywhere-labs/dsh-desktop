@@ -31,7 +31,7 @@ jobs:
           # submodule gitlink when the PR advances it to a descendant. Check
           # out the actual PR head so pinned submodules match upstream.json.
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
@@ -52,6 +52,7 @@ jobs:
           if [[ "$EVENT_NAME" == "workflow_dispatch" || -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
             product=true
           else
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
             git diff --check "$BASE_SHA" "$HEAD_SHA"
             product="$(git diff --name-only -z "$BASE_SHA" "$HEAD_SHA" | node scripts/classify-ci-changes.mjs)"
           fi
@@ -166,9 +167,10 @@ jobs:
         with:
           path: |
             ${{ matrix.workspace }}/.desktop-build/downloads
+            ${{ matrix.workspace }}/.desktop-build/runtime
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
-          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ hashFiles('yarn.lock', 'deepseek-harness/scripts/primary-runtime/lock.json') }}
+          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ hashFiles('yarn.lock', 'deepseek-harness/scripts/primary-runtime/lock.json', format('{0}/package.json', matrix.workspace)) }}
       - run: yarn install --immutable
       # Typecheck is platform-neutral and already gated by `check`.
       - run: yarn workspace ${{ matrix.workspace }} check:win-package:platform
@@ -182,6 +184,7 @@ jobs:
         env:
           DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
           DSH_WINDOWS_PACKAGE_COMPRESSION: store
+          DSH_WINDOWS_REUSE_UNPACKED: '1'
         run: yarn workspace ${{ matrix.workspace }} dist:win-portable
 
   # macOS-only universal packaging smoke on a real macOS runner: the signed
@@ -221,14 +224,17 @@ jobs:
         with:
           path: |
             ${{ matrix.workspace }}/.desktop-build/downloads
+            ${{ matrix.workspace }}/.desktop-build/runtime
             ~/.cache/electron
             ~/.cache/electron-builder
-          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ hashFiles('yarn.lock', 'deepseek-harness/scripts/primary-runtime/lock.json') }}
+            ~/.cache/node-gyp
+          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ hashFiles('yarn.lock', 'deepseek-harness/scripts/primary-runtime/lock.json', format('{0}/package.json', matrix.workspace)) }}
       - run: yarn install --immutable
       - run: yarn workspace ${{ matrix.workspace }} check:linux-package:platform
       - name: Build Linux AppImage and Debian package
         env:
           DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
+          DSH_LINUX_PACKAGE_COMPRESSION: store
         run: yarn workspace ${{ matrix.workspace }} dist:linux
 
   desktop-macos:
@@ -262,9 +268,11 @@ jobs:
         with:
           path: |
             ${{ matrix.workspace }}/.desktop-build/downloads
+            ${{ matrix.workspace }}/.desktop-build/runtime
             ~/Library/Caches/electron
             ~/Library/Caches/electron-builder
-          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ hashFiles('yarn.lock', 'deepseek-harness/scripts/primary-runtime/lock.json') }}
+            ~/Library/Caches/node-gyp
+          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ github.event_name == 'pull_request' && 'arm64' || 'universal' }}-${{ hashFiles('yarn.lock', 'deepseek-harness/scripts/primary-runtime/lock.json', format('{0}/package.json', matrix.workspace)) }}
       - run: yarn install --immutable
       - run: yarn workspace ${{ matrix.workspace }} check:mac-package:platform
       - name: Build macOS smoke artifact
@@ -274,6 +282,7 @@ jobs:
           # package only the runner's native arm64 app. Pushes to master and
           # manual runs keep the full universal DMG.
           DSH_MAC_SMOKE_ARCH: ${{ github.event_name == 'pull_request' && 'arm64' || 'universal' }}
+          DSH_MAC_PACKAGE_COMPRESSION: store
         run: yarn workspace ${{ matrix.workspace }} dist:mac-smoke
 
   # Upstream toolchain smoke: the portable-shell scripts must resolve the

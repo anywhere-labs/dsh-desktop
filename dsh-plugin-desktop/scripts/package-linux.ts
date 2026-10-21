@@ -15,6 +15,29 @@ const LINUX_SIGNING_KEYS = [
   'CSC_NAME',
 ] as const
 
+const LINUX_COMPRESSION_LEVELS = new Set(['store', 'normal', 'maximum'])
+
+/**
+ * Read an optional electron-builder compression override for unsigned CI
+ * artifacts. Single-threaded xz compression dominates the Linux job while the
+ * CI artifacts are never published, so CI may select `store`; release builds
+ * leave the variable unset and keep the default compression.
+ * @param environment - Environment of the packaging process.
+ * @returns The override, or `undefined` to keep the package configuration.
+ */
+export function linuxCompressionOverride(
+  environment: NodeJS.ProcessEnv,
+): string | undefined {
+  const value = environment.DSH_LINUX_PACKAGE_COMPRESSION
+  if (value === undefined || value === '') return undefined
+  if (!LINUX_COMPRESSION_LEVELS.has(value)) {
+    throw new Error(
+      `DSH_LINUX_PACKAGE_COMPRESSION must be store, normal, or maximum; received ${JSON.stringify(value)}`,
+    )
+  }
+  return value
+}
+
 /** Injectable native Linux packaging boundary used by focused tests. */
 export interface LinuxPackageOptions {
   /** Environment inherited by the packaging command. */
@@ -124,9 +147,13 @@ export function packageLinuxArtifacts(
   options: LinuxPackageOptions = createLinuxPackageOptions(),
 ): void {
   assertLinuxPackageHost(options)
+  const compression = linuxCompressionOverride(options.env)
 
   const cleanEnvironment = withoutLinuxSigningSecrets(options.env)
   options.log('Building unsigned Linux x64 AppImage and Debian package; signing is a separate release step.')
+  if (compression !== undefined) {
+    options.log(`Packaging the Linux artifacts with ${compression} compression.`)
+  }
   if (options.env.DSH_PACKAGE_CHECK_ALREADY_RAN !== '1') {
     options.run(
       'corepack',
@@ -150,6 +177,8 @@ export function packageLinuxArtifacts(
       'never',
       '--config.npmRebuild=false',
       '--config.electronFuses.onlyLoadAppFromAsar=false',
+      ...(compression === undefined ? [] : [`--config.compression=${compression}`]),
+      ...(compression === 'store' ? ['--config.deb.compression=gz'] : []),
     ],
     options.desktopRoot,
     electronBuilderEnvironment({
