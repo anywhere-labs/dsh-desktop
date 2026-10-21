@@ -25,6 +25,7 @@ import { buildBoundaryTransitions } from '../copywritingMontageStep2ConcatLogic.
 import { useCopywritingMontageStep3Voice } from './useCopywritingMontageStep3Voice'
 import { useCopywritingMontageBgmGen } from './useCopywritingMontageBgmGen'
 import { useCopywritingMontageBgmPlayer } from './useCopywritingMontageBgmPlayer'
+import { useCopywritingMontageStep4Openfilm } from './useCopywritingMontageStep4Openfilm'
 import { createMaterialUsageReporter } from './usageReportLogic'
 
 type CopywritingStep3Api = ReturnType<typeof useCopywritingMontageStep3Voice>
@@ -160,14 +161,8 @@ export function useCopywritingMontageStep4Final(ctx: MontageStep4Context) {
   /** 选择背景音乐（_select_bgm L1522：标题「选择背景配乐」，mp3/wav/m4a/aac） */
   function pickBgm(): void {
     void (async () => {
-      const res = await window.tintin.dialog.openFile({
-        title: '选择背景配乐',
-        filters: [{ name: 'Audio Files', extensions: ['mp3', 'wav', 'm4a', 'aac'] }],
-      })
-      if (res) {
-        bgmPath.value = String(res)
-        bgmName.value = pathBasename(bgmPath.value)
-      }
+      const res = await window.tintin.dialog.openFile({ title: '选择背景配乐', filters: [{ name: 'Audio Files', extensions: ['mp3', 'wav', 'm4a', 'aac'] }] })
+      if (res) { bgmPath.value = String(res); bgmName.value = pathBasename(bgmPath.value) }
     })()
   }
 
@@ -189,10 +184,7 @@ export function useCopywritingMontageStep4Final(ctx: MontageStep4Context) {
   /** 逐行本地文件选择（同 pickBgm，落 rowBgm 而非全局） */
   function pickRowBgm(videoPath: string): void {
     void (async () => {
-      const res = await window.tintin.dialog.openFile({
-        title: '选择背景配乐',
-        filters: [{ name: 'Audio Files', extensions: ['mp3', 'wav', 'm4a', 'aac'] }],
-      })
+      const res = await window.tintin.dialog.openFile({ title: '选择背景配乐', filters: [{ name: 'Audio Files', extensions: ['mp3', 'wav', 'm4a', 'aac'] }] })
       if (res) setRowBgm(videoPath, String(res), pathBasename(String(res)))
     })()
   }
@@ -1233,7 +1225,10 @@ async function exportAllToJianyingDraft(): Promise<void> {
     finalPreviewUrl.value = 'file:///' + encodeURI(it.path.replace(/\\/g, '/')).replace(/#/g, '%23')
   }
 
+  const { ofBusy, ofStage, ofProject, exportToEditingProject, openEditingProject } =
+    useCopywritingMontageStep4Openfilm({ assemblePlans, getTabById, toAbsolute, readCacheDir, bgmPath, bgmVolume, exportDoneMsg })
   return {
+    ofBusy, ofStage, ofProject, exportToEditingProject, openEditingProject,
     bgmPath, bgmName, bgmVolume, rowBgm, finalMode, exportBusy, exportProgress, exportStage,
     lastExportDraftPath, exportDoneMsg, exportWarnMsg, trackChecks, finalSelIdx, finalPreviewUrl, finalPreviewTitle,
     bgmSource, bgmGenPrompt, bgmGenStyle, bgmGenDuration, bgmGenBusy, bgmGenError, bgmGenUrl,

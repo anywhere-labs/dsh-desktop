@@ -13,7 +13,7 @@ import { useVsrRemoval, type VsrMode } from './useVsrRemoval'
 import { drawQuads } from '../components/media-tools/vsrQuadCanvas'
 import {
   type Quad, type VsrPurpose,
-  applyRotation, dragVertex, hitTestQuad, moveQuad, rotateHandleIndex, widgetToFrame,
+  applyRotation, dragEdge, dragVertex, hitTestQuad, moveQuad, rotateHandleIndex, widgetToFrame,
 } from './vsrQuadLogic'
 
 export function useVsrPreviewPane(vm: ReturnType<typeof useVsrRemoval>) {
@@ -183,7 +183,7 @@ function redraw(): void {
 watch([boxes, activeIndex, isSelectMode, framePath], redraw, { deep: true })
 
 // ── 拖拽状态（绘制层临时态；提交数据仍以 boxes 为准）──
-type DragMode = null | 'move' | 'rotate' | 'scrub' | `vertex-${number}`
+type DragMode = null | 'move' | 'rotate' | 'scrub' | `vertex-${number}` | `edge-${number}`
 const dragMode = ref<DragMode>(null)
 let dragStartQuad: Quad | null = null
 let dragStartWidget: { x: number; y: number } | null = null
@@ -225,7 +225,7 @@ function onDown(e: PointerEvent): void {
   if (hit.index !== activeIndex.value) setActiveIndex(hit.index)
   dragStartQuad = boxes.value[hit.index].map((p) => [p[0], p[1]] as [number, number])
   dragStartWidget = { x: mx, y: my }
-  const handle = hit.handle as 'move' | `vertex-${number}`
+  const handle = hit.handle as 'move' | `vertex-${number}` | `edge-${number}`
   dragMode.value = handle
   // 右下角顶点 = 旋转把手：进入整体旋转模式（对照 mousePressEvent L413-424）
   if (handle.startsWith('vertex-')) {
@@ -265,6 +265,9 @@ function onMove(e: PointerEvent): void {
       draggingQuad.value = applyRotation(dragStartQuad, delta, frame)
     } else if (mode === 'move') {
       draggingQuad.value = moveQuad(dragStartQuad, curF.x - startF.x, curF.y - startF.y, frame)
+    } else if (mode.startsWith('edge-')) {
+      // 拖边=轴对齐单边拉伸（2026-10-20 用户报障补齐，对边固定）
+      draggingQuad.value = dragEdge(dragStartQuad, Number(mode.split('-')[1]), curF.x, curF.y, frame)
     } else {
       draggingQuad.value = dragVertex(
         dragStartQuad, Number(mode.split('-')[1]), curF.x, curF.y, frame, allowRotation.value,
@@ -306,6 +309,15 @@ const cursorStyle = computed(() => {
   if (dragMode.value === 'rotate') return 'grabbing'
   if (dragMode.value === 'scrub') return 'ew-resize'
   if (hoverHandle.value === 'move') return 'move'
+  if (hoverHandle.value.startsWith('edge-')) {
+    const quad = boxes.value[activeIndex.value]
+    if (!quad) return 'crosshair'
+    const ei = Number(hoverHandle.value.split('-')[1])
+    const a = quad[ei]
+    const b = quad?.[(ei + 1) % quad.length]
+    if (!a || !b) return 'crosshair'
+    return Math.abs(a[0] - b[0]) <= Math.abs(a[1] - b[1]) ? 'ew-resize' : 'ns-resize'
+  }
   if (hoverHandle.value.startsWith('vertex-')) {
     const quad = boxes.value[activeIndex.value]
     if (!quad) return 'crosshair'

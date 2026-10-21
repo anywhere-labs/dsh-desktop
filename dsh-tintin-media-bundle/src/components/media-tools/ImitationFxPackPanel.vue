@@ -8,7 +8,7 @@
 // 右栏 step4PreviewItems。
 // ═══════════════════════════════════════════════════════════════
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, inject } from 'vue'
-import TButton from '@/components/common/TButton.vue'
+import TButton from '@/components/common/TButton.vue'; import OpenFilmExportBar from '@/components/media-tools/OpenFilmExportBar.vue'
 import TSelect from '@/components/common/TSelect.vue'
 import CopywritingBgmPickDialog from './copywriting-montage/CopywritingBgmPickDialog.vue'
 import CopywritingStoryboard from './copywriting-montage/CopywritingStoryboard.vue'
@@ -22,7 +22,6 @@ import type { StoryboardShot } from '@/composables/opsStoryboardLogic'
 // 剪映设置引导图（2026-09-29：导出草稿需开启「导入 PR或FCP 工程」；vite
 // assetsInlineLimit=64KB 内联为 data URI，运行时无需独立资产文件）
 import jyImportSettingImg from '@/assets/jianying-import-setting.png'
-
 const props = defineProps<{ s: CopywritingMontageUi; section?: 'fx' | 'export';
   /** 口播放条音频（仿视频=脚本绑定的 voice_audio_id 素材流；缺省/空=不显示该行，2026-10-13 用户需求） */
   voiceAudioUrl?: string }>()
@@ -91,7 +90,6 @@ const {
   bgmPlaying,
   bgmPosMs,
   bgmDurMs,
-
   pickBgm,
   applyLibraryBgm,
   toggleBgmPlay,
@@ -107,8 +105,7 @@ const {
   previewFinalVideo,
   step4Candidates,
   toAbsolute: vdToAbsolute,
-  fmtBgmTime,
-  storyboards,
+  fmtBgmTime, storyboards, ofBusy, ofStage, ofProject, exportToEditingProject, openEditingProject,
 } = props.s
 
 /** BGM 增益滚轮微调（2026-09-30 用户反馈：滑条太短无法精细调节——滚轮 ±1%，
@@ -737,6 +734,8 @@ const fancyCustomPreviewStyle = computed<Record<string, string>>(() => {
               title="该功能暂时停用"
               @click="exportJianyingPackageDraft()" />
           </div>
+          <!-- 方案二改「导出到视频剪辑项目」（2026-10-21 用户裁决）；共用 UI 见 OpenFilmExportBar.vue -->
+          <OpenFilmExportBar :busy="ofBusy" :stage="ofStage" :project="ofProject" :disabled="finalBusy || exportBusy" @export="exportToEditingProject()" @open="openEditingProject()" />
           <!-- 2026-09-29 用户裁决：导出草稿前需在剪映开启「导入 PR或FCP 工程」——
                引导图 + 文字提示常驻导出按钮下方（图=剪映 全局设置→通用 截图，
                src/assets 内联 data URI；点击新窗口放大） -->

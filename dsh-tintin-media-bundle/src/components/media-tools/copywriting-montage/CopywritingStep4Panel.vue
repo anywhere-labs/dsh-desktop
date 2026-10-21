@@ -8,6 +8,7 @@
 // ═══════════════════════════════════════════════════════════════
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, inject } from 'vue'
 import TButton from '@/components/common/TButton.vue'
+import OpenFilmExportBar from '@/components/media-tools/OpenFilmExportBar.vue'
 import TSelect from '@/components/common/TSelect.vue'
 import VdStepBar from '../VdStepBar.vue'
 import CopywritingBgmPickDialog from './CopywritingBgmPickDialog.vue'
@@ -108,6 +109,7 @@ const {
   exportAllToJianyingDraft,
   syncStoryboardsToServer,
   previewFinalVideo,
+  ofBusy, ofStage, ofProject, exportToEditingProject, openEditingProject,
   step4Candidates,
   toAbsolute: vdToAbsolute,
   fmtBgmTime,
@@ -789,13 +791,8 @@ const fancyCustomPreviewStyle = computed<Record<string, string>>(() => {
               <TButton v-if="lastExportDraftPath" label="打开草稿目录" variant="secondary" size="small" @click="openExportDraftDir" />
             </div>
           </div>
-          <div class="vd4-scheme-line">方案二，服务端合成视频，时间较长</div>
-          <!-- 2026-09-22 用户裁决：文案混剪流程「服务端合成」暂不可用（服务端无本流程的
-               脚本匹配链路），恒禁用——对齐智能混剪 MontageStep4Panel 2026-09-20 同款处理；
-               恢复时把 :disabled="true" 改回 "finalBusy"、title 改回原文案即可。
-               2026-09-22 二次裁决：禁用态显灰（secondary），不再用主色紫 -->
-          <TButton label="服务端合成" variant="secondary" class="vd4-run" :loading="finalBusy && finalMode === 'server'"
-            :disabled="true" title="该功能暂时停用" @click="startFinalMix()" />
+          <!-- 方案二改「导出到视频剪辑项目」（2026-10-21 用户裁决）；共用 UI 见 OpenFilmExportBar.vue -->
+          <OpenFilmExportBar :busy="ofBusy" :stage="ofStage" :project="ofProject" :disabled="finalBusy || exportBusy" @export="exportToEditingProject()" @open="openEditingProject()" />
         </div>
         <!-- 服务端合成进度条（独立于导出进度；导出进度/完成提示已移至方案一按钮下方） -->
         <div v-if="finalBusy" class="pbar"><div class="pbar-inner" :style="{ width: finalProgress + '%' }"></div></div>

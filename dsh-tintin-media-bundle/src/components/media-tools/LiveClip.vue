@@ -40,6 +40,7 @@ import {
 import type { ClipPlanItem, LlmPlanItem } from '@/composables/liveClipLogic'
 import { parseTranscriptionResponse } from '@/composables/srtUtils'
 import type { SrtSegment } from '@/composables/srtUtils'
+import { filePathOf } from '@/utils/fileUrl'
 
 const STEPS = ['1. 视频分析与热点发现', '2. 切片与封面生成']
 const step = ref(0)
@@ -78,7 +79,9 @@ function pickVideo() {
 }
 function onDrop(e: DragEvent) {
   e.preventDefault(); isDragging.value = false
-  const p = (e.dataTransfer?.files?.[0] as File & { path?: string })?.path
+  // Electron 43 移除 File.path：统一经共享 filePathOf 桥解析（2026-10-20 对账修复）
+  const f = e.dataTransfer?.files?.[0]
+  const p = f ? filePathOf(f) : ''
   if (p) setVideo(p)
 }
 function setVideo(p: string) {

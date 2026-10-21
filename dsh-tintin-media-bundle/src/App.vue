@@ -189,18 +189,24 @@ const isDark = useHostDark()
           {{ activeTool?.title }}
         </div>
       </div>
-      <CopywritingMontage v-if="active === 'copywriting-montage'" />
-      <ImitationVideo v-else-if="active === 'imitation-video'" />
-      <JianYingTemplates v-else-if="active === 'jianying-templates'" />
-      <VoiceClone v-else-if="active === 'voice-clone'" />
-      <OtStoryboard v-else-if="active === 'storyboard'" />
-      <VideoTranscribe v-else-if="active === 'video-transcribe'" />
-      <SubtitleRemoval v-else-if="active === 'subtitle-removal'" />
-      <LiveClip v-else-if="active === 'live-slice'" />
-      <CoverMaker v-else-if="active === 'cover-design'" />
-      <ImageMatting v-else-if="active === 'image-matting'" />
-      <MaterialLibrary v-else-if="active === 'material-library'" />
-      <VideoDownload v-else-if="active === 'video-download'" />
+      <!-- 2026-10-20 用户裁决：工具页 KeepAlive 缓存——返回媒体工具/重进卡片时
+           保留全部界面状态（所选文件、框选、轮询中的任务、结果），执行中的任务
+           轮询在后台继续，重进即见最新进度。v-if 链单子节点，KeepAlive 按组件
+           类型各自缓存。 -->
+      <KeepAlive>
+        <CopywritingMontage v-if="active === 'copywriting-montage'" />
+        <ImitationVideo v-else-if="active === 'imitation-video'" />
+        <JianYingTemplates v-else-if="active === 'jianying-templates'" />
+        <VoiceClone v-else-if="active === 'voice-clone'" />
+        <OtStoryboard v-else-if="active === 'storyboard'" />
+        <VideoTranscribe v-else-if="active === 'video-transcribe'" />
+        <SubtitleRemoval v-else-if="active === 'subtitle-removal'" />
+        <LiveClip v-else-if="active === 'live-slice'" />
+        <CoverMaker v-else-if="active === 'cover-design'" />
+        <ImageMatting v-else-if="active === 'image-matting'" />
+        <MaterialLibrary v-else-if="active === 'material-library'" />
+        <VideoDownload v-else-if="active === 'video-download'" />
+      </KeepAlive>
     </div>
   </div>
 </template>

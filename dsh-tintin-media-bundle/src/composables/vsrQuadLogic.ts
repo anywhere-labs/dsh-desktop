@@ -101,12 +101,27 @@ export function widgetToFrame(
   }
 }
 
-/** 命中测试结果：handle ∈ 'vertex-N'（N=0..3，仅激活框）/ 'move'（任意框内） */
+/** 命中测试结果：handle ∈ 'vertex-N'（N=0..3，仅激活框）/ 'edge-N'（激活框第 N 条边，去字幕模式）/ 'move'（任意框内） */
 export interface QuadHit { handle: string; index: number }
+
+/** 点到线段的最短距离（widget 像素；边手柄命中用） */
+function distanceToSegment(
+  px: number, py: number, ax: number, ay: number, bx: number, by: number,
+): number {
+  const dx = bx - ax
+  const dy = by - ay
+  const lengthSq = dx * dx + dy * dy
+  if (lengthSq <= 1e-12) return Math.hypot(px - ax, py - ay)
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq))
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+}
 
 /**
  * 命中测试（对照 get_handle_under_mouse L370-400）：
  * 激活框优先；激活框先检测顶点手柄，再检测所有框内部（射线法）。
+ * 2026-10-20 用户报障补齐：去字幕轴对齐模式（!allowRotation）下，激活框的
+ * 四条边也是命中目标（'edge-N'，连接顶点 N→N+1）——原实现边/边框附近按下
+ * 落入空白分支误触「拖动播放」，选区边框拉不动、时间轴反而动。
  */
 export function hitTestQuad(args: {
   mx: number
@@ -142,6 +157,18 @@ export function hitTestQuad(args: {
         const ry = display.offsetY + quad[vi][1] * ratioY
         if (Math.abs(mx - rx) < threshold && Math.abs(my - ry) < threshold) {
           return { handle: `vertex-${vi}`, index: idx }
+        }
+      }
+      if (!allowRotation) {
+        for (let ei = 0; ei < quad.length; ei++) {
+          const p1 = quad[ei]
+          const p2 = quad[(ei + 1) % quad.length]
+          const hit = distanceToSegment(
+            mx, my,
+            display.offsetX + p1[0] * ratioX, display.offsetY + p1[1] * ratioY,
+            display.offsetX + p2[0] * ratioX, display.offsetY + p2[1] * ratioY,
+          ) < threshold
+          if (hit) return { handle: `edge-${ei}`, index: idx }
         }
       }
     }
@@ -183,6 +210,36 @@ export function dragVertex(
   const y0 = Math.min(cur[1], opp[1])
   const x1 = Math.max(cur[0], opp[0])
   const y1 = Math.max(cur[1], opp[1])
+  return rectToQuad(x0, y0, x1 - x0, y1 - y0)
+}
+
+/** 拖边：去字幕轴对齐矩形，拖第 ei 条边（连接顶点 ei→ei+1）沿法向拉伸，对边固定
+ *  （2026-10-20 用户报障补齐；轴对齐判定按两端坐标差，越界钳制到帧内，
+ *   与对边交叉时经 rectToQuad 归一化，最小边 2px 防退化，对照 dragVertex 口径） */
+export function dragEdge(
+  startQuad: Quad, ei: number, fx: number, fy: number, frame: VsrFrameSize,
+): Quad {
+  const nx0 = Math.max(0, Math.min(frame.w, fx))
+  const ny0 = Math.max(0, Math.min(frame.h, fy))
+  const a = startQuad[ei]
+  const b = startQuad[(ei + 1) % startQuad.length]
+  if (!a || !b) return startQuad
+  const xs = startQuad.map((p) => p[0])
+  const ys = startQuad.map((p) => p[1])
+  const vertical = Math.abs(a[0] - b[0]) <= Math.abs(a[1] - b[1]) // 两端 x 相近 = 竖边（左右拉伸）
+  if (vertical) {
+    const x0 = Math.min(nx0, ...xs)
+    const x1 = Math.max(nx0, ...xs)
+    if (x1 - x0 < 2) return startQuad
+    const y0 = Math.min(...ys)
+    const y1 = Math.max(...ys)
+    return rectToQuad(x0, y0, x1 - x0, y1 - y0)
+  }
+  const y0 = Math.min(ny0, ...ys)
+  const y1 = Math.max(ny0, ...ys)
+  if (y1 - y0 < 2) return startQuad
+  const x0 = Math.min(...xs)
+  const x1 = Math.max(...xs)
   return rectToQuad(x0, y0, x1 - x0, y1 - y0)
 }
 
