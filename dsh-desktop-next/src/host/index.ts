@@ -126,7 +126,6 @@ export async function main(): Promise<void> {
   })
   process.once('disconnect', () => { void stop().catch(fatal) })
   const { ctx } = await application
-  auditHostPlugins(ctx)
   // Office skills and the workspace dependency tool need the bundled payload; a packaged Host without it fails here.
   const office = resolveOfficeConfig(runtimeDir, primaryRuntime, home)
   if (office === undefined) hostLog({ source: 'host', event: 'office.unavailable', level: 'warn', fields: { source: primaryRuntime } })
@@ -137,6 +136,7 @@ export async function main(): Promise<void> {
   hostLog({ source: 'host', event: 'process.ready' })
   await send({ type: 'ready', url: ctx.connection.authenticatedUrl(`http://127.0.0.1:${ctx.webServer.port}`),
     injections: ctx.webServer.collectIndexInjections() })
+  auditHostPlugins(ctx)
   const account = ctx.get('deepseekAccount') as PlatformLoginAccount | undefined
   if (account !== undefined && !stopping) {
     // A broken watcher only loses the automatic browser hand-off; the dialog still offers the link.

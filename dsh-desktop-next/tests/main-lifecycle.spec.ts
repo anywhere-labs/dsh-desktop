@@ -322,7 +322,7 @@ it('captures scoped client errors with either Electron console-message signature
     await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
     const consoleMessage = fixture.windows[0].webContents
     // Startup records how the login-shell environment and locale were resolved before any Host starts.
-    expect(fixture.diagnosticAppend).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ source: 'desktop', event: 'shell-environment.resolved' }))
+    await vi.waitFor(() => expect(fixture.diagnosticAppend).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ source: 'desktop', event: 'shell-environment.resolved' })))
     fixture.diagnosticAppend.mockClear()
     Object.assign(fixture.preferences, { developerLogging: true })
     consoleMessage.emit('console-message', {}, 2, '[next-ui-diagnostic] aa=false')
@@ -1218,4 +1218,31 @@ it('disables and re-enables a Profile bundle from recovery without running the p
     expect(JSON.parse(readFileSync(path, 'utf8')).dsh.profile.bundles).toContain('my-plugin')
     expect(fixture.plugin).not.toHaveBeenCalled()
   } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it('opens the window immediately without blocking on slow shell environment or system proxy probes', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-parallel-env-probe-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const proxyDeferred = Promise.withResolvers<{ HTTP_PROXY?: string }>()
+  vi.doMock('../src/system-proxy.ts', async importOriginal => ({
+    ...await importOriginal<typeof import('../src/system-proxy.ts')>(),
+    probeSystemProxy: () => proxyDeferred.promise,
+  }))
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    expect(fixture.runtimeOptions?.systemProxy?.()).toEqual({})
+    let prepared = false
+    const preparing = fixture.runtimeOptions!.prepareEnvironment!().then(() => { prepared = true })
+    await Promise.resolve()
+    expect(prepared).toBe(false)
+    proxyDeferred.resolve({ HTTP_PROXY: 'http://127.0.0.1:7890' })
+    await preparing
+    expect(prepared).toBe(true)
+    expect(fixture.runtimeOptions?.systemProxy?.()).toEqual({ HTTP_PROXY: 'http://127.0.0.1:7890' })
+  } finally {
+    vi.doUnmock('../src/system-proxy.ts')
+    vi.unstubAllEnvs()
+    rmSync(home, { recursive: true, force: true })
+  }
 })

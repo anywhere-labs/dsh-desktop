@@ -27,6 +27,8 @@ interface RuntimeOptions {
   primaryRuntime?: string
   executable: string
   addresses(): string[]
+  /** Finish login-shell and system-proxy discovery before a Host child captures `process.env`. */
+  prepareEnvironment?(): Promise<void>
   /** The system proxy main probed at startup; the Host decides whether it applies. */
   systemProxy?(): DesktopSystemProxyProbe
   certificate(addresses: readonly string[]): Promise<DesktopLanHttpsCertificate>
@@ -103,6 +105,7 @@ export class NextDesktopRuntime {
     this.recoveryMode = false
     this.failure = ''
     this.startup = this.backend.start(async () => {
+      await this.options.prepareEnvironment?.()
       if (this.safeMode && !this.safeHome) {
         privateDirectory(this.recovery.directory)
         this.safeHome = mkdtempSync(join(this.recovery.directory, 'safe-runtime-'))

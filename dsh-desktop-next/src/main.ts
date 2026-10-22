@@ -106,6 +106,7 @@ let onboardingComputerUse = false
 let relaunch: string[] | undefined
 let installingUpdate = false
 let systemProxy: DesktopSystemProxyProbe = {}
+let hostEnvironmentReady: Promise<void> | undefined
 let windowsLanguage = 'en'
 const require = createRequire(NEXT_PACKAGE)
 const webRoot = dirname(require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html'))
@@ -118,6 +119,7 @@ const t = (zh: string, en: string): string => windowsLanguage.toLowerCase().star
 const primaryRuntime = join(app.isPackaged ? join(process.resourcesPath, 'runtime') : join(root, '.desktop-build', 'runtime'), process.arch, 'primary-runtime')
 const runtime = new NextDesktopRuntime({
   home, root, primaryRuntime, executable: process.execPath, addresses: () => [...desktopLanAddresses()], systemProxy: () => systemProxy,
+  prepareEnvironment: () => prepareHostEnvironment(),
   ...(safeModeRequested ? { stateHome: electronData } : {}),
   certificate: async addresses => {
     try {
@@ -615,6 +617,7 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
       return
     }
     if (type === 'terminal') {
+      await prepareHostEnvironment()
       const target = runtime.terminalTarget(source === 'shell')
       openDesktopTerminal({ platform: process.platform, appExecutable: process.execPath, dshBootstrapPath: join(root, 'lib', 'desktop-cli.js'),
         pnpmBinPath: bundledPnpmEntry(NEXT_PACKAGE), electronVersion: process.versions.electron, ...target,
@@ -746,6 +749,7 @@ async function restoreCheckpoint(id?: string): Promise<void> {
 
 /** Reconcile dependencies through the same official CLI for recovery install and removal. */
 async function runRecoveryPlugin(args: readonly string[]): Promise<void> {
+  await prepareHostEnvironment()
   const directory = runtime.profiles.directory(runtime.selected)
   const runner = recoveryRunner = createPackageRunner({ command: process.execPath, args: [], env: { ELECTRON_RUN_AS_NODE: '1' } }, directory)
   let output = ''
@@ -859,6 +863,27 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
   throw new Error('Unknown recovery action')
 }
 
+/**
+ * Finder and Dock launches carry no login-shell exports, so the Host, its terminals and tool subprocesses
+ * would run with the minimal system PATH and no locale. Recover the exports the Desktop variants
+ * recover, then make sure a UTF-8 locale is set, as Terminal.app does for the shells it opens.
+ * Probe the system proxy in parallel: a proxy client's "system proxy" switch sets no environment
+ * variable, and only Chromium can evaluate it (PAC/WPAD included).
+ */
+function prepareHostEnvironment(): Promise<void> {
+  return hostEnvironmentReady ??= (async () => {
+    const [shellEnvironment, resolvedProxy] = await Promise.all([
+      resolveDesktopShellEnvironment({ environment: process.env, home: app.getPath('home'), isPackaged: app.isPackaged, platform: process.platform }),
+      probeSystemProxy(session.defaultSession),
+    ])
+    for (const [name, value] of Object.entries(shellEnvironment.updates)) process.env[name] = value
+    const fallbackLocale = ensureUtf8Locale(process.env, process.platform, app.getPreferredSystemLanguages())
+    systemProxy = resolvedProxy
+    runtime.diagnostics.record({ source: 'desktop', event: 'shell-environment.resolved', fields: { source: shellEnvironment.source,
+      fallbackReason: shellEnvironment.fallbackReason ?? null, recovered: Object.keys(shellEnvironment.updates).join(' ') || null, fallbackLocale: fallbackLocale ?? null } })
+  })()
+}
+
 async function main(): Promise<void> {
   await app.whenReady()
   if (quitting) return
@@ -874,18 +899,6 @@ async function main(): Promise<void> {
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(join(root, 'build', 'app-icon-mac.png'))
   // Recovery can open without a Host; Chromium's app locale may differ from the OS language.
   windowsLanguage = preferredDesktopLocale([...app.getPreferredSystemLanguages(), app.getLocale()])
-  // Finder and Dock launches carry no login-shell exports, so the Host, its terminals and tool subprocesses
-  // would run with the minimal system PATH and no locale. Recover the exports the Desktop variants
-  // recover, then make sure a UTF-8 locale is set, as Terminal.app does for the shells it opens.
-  // Probe the system proxy in parallel: a proxy client's "system proxy" switch sets no environment
-  // variable, and only Chromium can evaluate it (PAC/WPAD included).
-  const [shellEnvironment, resolvedProxy] = await Promise.all([
-    resolveDesktopShellEnvironment({ environment: process.env, home: app.getPath('home'), isPackaged: app.isPackaged, platform: process.platform }),
-    probeSystemProxy(session.defaultSession),
-  ])
-  for (const [name, value] of Object.entries(shellEnvironment.updates)) process.env[name] = value
-  const fallbackLocale = ensureUtf8Locale(process.env, process.platform, app.getPreferredSystemLanguages())
-  systemProxy = resolvedProxy
   protocol.handle('dsh-app', async request => {
     const url = new URL(request.url)
     if (url.hostname === 'shell') {
@@ -1047,8 +1060,7 @@ async function main(): Promise<void> {
   runtime.safeMode = safeModeRequested
   runtime.recoveryMode = process.argv.includes(RECOVERY_ARGUMENT)
   runtime.initialize()
-  runtime.diagnostics.record({ source: 'desktop', event: 'shell-environment.resolved', fields: { source: shellEnvironment.source,
-    fallbackReason: shellEnvironment.fallbackReason ?? null, recovered: Object.keys(shellEnvironment.updates).join(' ') || null, fallbackLocale: fallbackLocale ?? null } })
+  void prepareHostEnvironment()
   if (dataLocation.error && !runtime.safeMode) { runtime.recoveryMode = true; runtime.report(dataLocation.error) }
   if (app.isPackaged) {
     // Packaging sealed the payload with the shell, dsh, platform and architectures it was released for.
