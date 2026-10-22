@@ -80,6 +80,9 @@ export const androidLogcatZh = {
   paused: '已暂停显示',
   running: '正在接收日志',
   reconnecting: '连接中断，正在重连…',
+  followHint: '滚动离开底部会暂停跟随，回到底部自动恢复。',
+  filterPid: '仅此进程（再次点击恢复全部）',
+  windowHint: '实时跟随中，仅渲染最近 {shown} / {total} 条；向上滚动即查看全部历史。',
 } as const
 
 export const androidLogcatEn = {
@@ -160,6 +163,9 @@ export const androidLogcatEn = {
   paused: 'Display paused',
   running: 'Receiving logs',
   reconnecting: 'Connection lost; reconnecting…',
+  followHint: 'Scrolling away from the bottom pauses follow; returning to the bottom resumes it.',
+  filterPid: 'Only this process (click again to show all)',
+  windowHint: 'Following live output: rendering the latest {shown} of {total} entries; scroll up for full history.',
 } as const
 
 export type AndroidLogcatLocaleKey = keyof typeof androidLogcatEn

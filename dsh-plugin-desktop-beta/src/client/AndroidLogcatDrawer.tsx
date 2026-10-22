@@ -1,5 +1,5 @@
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
@@ -18,6 +18,7 @@ import {
   type AndroidLogcatSeverity,
 } from './android-logcat-api.ts'
 import { ANDROID_LOGCAT_LOCALE_NAMESPACE } from './android-logcat-locales.ts'
+import { flushAndroidLogcatLogWrites } from './android-logcat-log-persistence.ts'
 import {
   ANDROID_LOGCAT_LOG_FONT_SIZES,
   ANDROID_LOGCAT_UI_FONT_SIZES,
@@ -33,6 +34,14 @@ export type AndroidLogcatDrawerProps = PropsRuntime<'shell.overlay'>
   & PropsLocale<typeof ANDROID_LOGCAT_LOCALE_NAMESPACE>
 
 const LEVELS: readonly AndroidLogcatSeverity[] = ['verbose', 'debug', 'info', 'warn', 'error']
+/** While following live output, only this trailing window is rendered; history expands on scroll-up. */
+const LOG_RENDER_WINDOW = 500
+/** Distance from the bottom (px) still treated as "at the bottom" for follow state. */
+const FOLLOW_BOTTOM_THRESHOLD_PX = 40
+/** Poll cadence for the device process list so newly started apps appear without reselecting. */
+const PROCESS_POLL_INTERVAL_MS = 5_000
+/** The drawer is client-only; fall back to a passive effect for server-side test renders. */
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 /** Bottom-anchored Logcat drawer; its overlay intentionally does not resize the host layout. */
 export function AndroidLogcatDrawer({ useStore, actions, t }: AndroidLogcatDrawerProps) {
@@ -43,6 +52,11 @@ export function AndroidLogcatDrawer({ useStore, actions, t }: AndroidLogcatDrawe
   const logListRef = useRef<HTMLDivElement>(null)
   const selectedSerialRef = useRef(state.selectedSerial)
   selectedSerialRef.current = state.selectedSerial
+  const sinceMarkerRef = useRef(state.sinceMarker)
+  sinceMarkerRef.current = state.sinceMarker
+  /** Latest viewport distance from the list bottom, kept so window expansion can restore it. */
+  const keepFromBottomRef = useRef(0)
+  const wasWindowedRef = useRef(false)
   const [deviceLoading, setDeviceLoading] = useState(false)
   const [processLoading, setProcessLoading] = useState(false)
   const [screenshotLoading, setScreenshotLoading] = useState(false)
@@ -74,6 +88,11 @@ export function AndroidLogcatDrawer({ useStore, actions, t }: AndroidLogcatDrawe
     [visibleSource, state.selectedPids, state.selectedTags, state.selectedSeverities, filterPatterns.tag, filterPatterns.excludeTag, filterPatterns.process, filterPatterns.message, state.processes],
   )
   const availableTags = useMemo(() => [...new Set(visibleSource.flatMap(entry => entry.tag ? [entry.tag] : []))].sort(), [visibleSource])
+  // While pinned to the live tail, render only a trailing window; scrolling up (or pausing)
+  // expands the full history so the live-stream DOM cost stays bounded.
+  const following = state.autoFollow && !state.paused
+  const windowed = following && visibleEntries.length > LOG_RENDER_WINDOW
+  const renderedEntries = windowed ? visibleEntries.slice(-LOG_RENDER_WINDOW) : visibleEntries
 
   useEffect(() => {
     screenshotControllerRef.current?.abort()
@@ -114,20 +133,47 @@ export function AndroidLogcatDrawer({ useStore, actions, t }: AndroidLogcatDrawe
     return () => controller.abort()
   }, [state.open, refreshDevices])
 
+  // Poll the device process list so apps started after device selection still appear.
   useEffect(() => {
     if (!state.open || !state.selectedSerial) return
-    const controller = new AbortController()
-    setProcessLoading(true)
-    void readAndroidLogcatProcesses(state.selectedSerial, controller.signal).then(result => {
-      if (!controller.signal.aborted) actionsRef.current.setProcesses(result.processes)
-    }).catch(error => {
-      if (!(error instanceof Error && error.name === 'AbortError')) {
-        actionsRef.current.setProcessesError(androidLogcatErrorMessage(error))
+    const serial = state.selectedSerial
+    let cancelled = false
+    let inFlight = false
+    let first = true
+    const tick = async () => {
+      if (cancelled || inFlight) return
+      inFlight = true
+      if (first) setProcessLoading(true)
+      try {
+        const result = await readAndroidLogcatProcesses(serial)
+        if (!cancelled) actionsRef.current.setProcesses(result.processes)
+      } catch (error) {
+        if (!cancelled) actionsRef.current.setProcessesError(androidLogcatErrorMessage(error))
+      } finally {
+        inFlight = false
+        if (first) {
+          first = false
+          if (!cancelled) setProcessLoading(false)
+        }
       }
-    }).finally(() => {
-      if (!controller.signal.aborted) setProcessLoading(false)
-    })
-    return () => controller.abort()
+    }
+    void tick()
+    const timer = setInterval(() => { void tick() }, PROCESS_POLL_INTERVAL_MS)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [state.open, state.selectedSerial])
+
+  // Load the per-device remembered filters whenever the selection changes, including
+  // the automatic first-connected-device pick done by the store.
+  const filtersLoadedSerialRef = useRef('')
+  useEffect(() => {
+    const serial = state.selectedSerial
+    if (!state.open || serial === '' || filtersLoadedSerialRef.current === serial) return
+    filtersLoadedSerialRef.current = serial
+    const saved = readAndroidLogcatFilterPreferences(serial)
+    actionsRef.current.setTagPattern(saved.tag)
+    actionsRef.current.setExcludeTagPattern(saved.excludeTag)
+    actionsRef.current.setProcessPattern(saved.process)
+    actionsRef.current.setMessagePattern(saved.message)
   }, [state.open, state.selectedSerial])
 
   useEffect(() => {
@@ -145,7 +191,8 @@ export function AndroidLogcatDrawer({ useStore, actions, t }: AndroidLogcatDrawe
     void streamAndroidLogcatWithReconnect(serial, controller.signal, line => {
       pending.push(line)
       if (frame === undefined) frame = requestAnimationFrame(flush)
-    }, () => actionsRef.current.setStreamConnected(), () => actionsRef.current.setStreamReconnecting()).then(() => {
+    }, () => actionsRef.current.setStreamConnected(), () => actionsRef.current.setStreamReconnecting(),
+    () => sinceMarkerRef.current === '' ? undefined : sinceMarkerRef.current).then(() => {
       if (!controller.signal.aborted) actionsRef.current.stop()
     }).catch(error => {
       if (!controller.signal.aborted) actionsRef.current.setStreamError(androidLogcatErrorMessage(error) || t('streamStopped'))
@@ -173,8 +220,41 @@ export function AndroidLogcatDrawer({ useStore, actions, t }: AndroidLogcatDrawe
   useEffect(() => {
     if (!state.open || state.collapsed || !state.autoFollow || state.paused) return
     const element = logListRef.current
-    if (element !== null) element.scrollTop = element.scrollHeight
+    if (element !== null) {
+      element.scrollTop = element.scrollHeight
+      keepFromBottomRef.current = element.clientHeight
+    }
   }, [state.open, state.collapsed, state.autoFollow, state.paused, visibleEntries])
+
+  // Smart follow: scrolling away from the bottom pauses follow, scrolling back resumes it.
+  const onLogListScroll = () => {
+    const element = logListRef.current
+    if (element === null) return
+    keepFromBottomRef.current = element.scrollHeight - element.scrollTop
+    const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight <= FOLLOW_BOTTOM_THRESHOLD_PX
+    if (atBottom !== state.autoFollow) actionsRef.current.setAutoFollow(atBottom)
+  }
+
+  // Expanding from the trailing window to full history inserts rows above the viewport;
+  // keep the same rows in view by restoring the distance from the bottom.
+  useIsomorphicLayoutEffect(() => {
+    const element = logListRef.current
+    if (element !== null && wasWindowedRef.current && !windowed) {
+      element.scrollTop = element.scrollHeight - keepFromBottomRef.current
+    }
+    wasWindowedRef.current = windowed
+  }, [windowed, renderedEntries])
+
+  // Flush debounced log persistence before the page is hidden or unloaded.
+  useEffect(() => {
+    const flushOnHide = () => { if (document.visibilityState === 'hidden') flushAndroidLogcatLogWrites() }
+    document.addEventListener('visibilitychange', flushOnHide)
+    window.addEventListener('pagehide', flushAndroidLogcatLogWrites)
+    return () => {
+      document.removeEventListener('visibilitychange', flushOnHide)
+      window.removeEventListener('pagehide', flushAndroidLogcatLogWrites)
+    }
+  }, [])
 
   const onResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -196,13 +276,10 @@ export function AndroidLogcatDrawer({ useStore, actions, t }: AndroidLogcatDrawe
   const selectedDevice = state.devices.find(device => device.serial === state.selectedSerial)
   const selectedDeviceConnected = selectedDevice?.state === 'device'
   const unavailable = state.available === false
+  // Filter preferences load through the selectedSerial effect, so auto-selected and
+  // manually picked devices behave identically here.
   const selectDevice = (serial: string) => {
     actionsRef.current.setSelectedSerial(serial)
-    const saved = readAndroidLogcatFilterPreferences(serial)
-    actionsRef.current.setTagPattern(saved.tag)
-    actionsRef.current.setExcludeTagPattern(saved.excludeTag)
-    actionsRef.current.setProcessPattern(saved.process)
-    actionsRef.current.setMessagePattern(saved.message)
   }
   const updateFilterPattern = (field: keyof AndroidLogcatFilterPatterns, value: string) => {
     const patterns: AndroidLogcatFilterPatterns = {
@@ -307,7 +384,12 @@ export function AndroidLogcatDrawer({ useStore, actions, t }: AndroidLogcatDrawe
     setScreenshotLoading(false)
   }
 
-  const togglePid = (pid: number) => actionsRef.current.setSelectedPids(toggleSelection(state.selectedPids, pid))
+  // Row PID click is the "show only this process" shortcut: first click isolates the
+  // process, clicking the same row again restores the unfiltered view.
+  const togglePidExclusive = (pid: number) => {
+    const alreadyExclusive = state.selectedPids.length === 1 && state.selectedPids[0] === pid
+    actionsRef.current.setSelectedPids(alreadyExclusive ? [] : [pid])
+  }
   const toggleTag = (tag: string) => actionsRef.current.setSelectedTags(toggleSelection(state.selectedTags, tag))
 
   if (!state.open) return null
@@ -475,7 +557,7 @@ export function AndroidLogcatDrawer({ useStore, actions, t }: AndroidLogcatDrawe
             <button type="button" className="dshAndroidLogcatButton" onClick={() => state.paused ? actions.resume() : actions.pause()}>
               {state.paused ? t('resume') : t('pause')}
             </button>
-            <label className="dshAndroidLogcatFollowToggle">
+            <label className="dshAndroidLogcatFollowToggle" title={t('followHint')}>
               <input type="checkbox" checked={state.autoFollow} onChange={() => actions.toggleAutoFollow()} />
               <span>{t('autoFollow')}</span>
             </label>
@@ -527,20 +609,27 @@ export function AndroidLogcatDrawer({ useStore, actions, t }: AndroidLogcatDrawe
           {selectedDevice && selectedDevice.state !== 'device' && (
             <p className="dshAndroidLogcatEmptyHint" role="status">{t('deviceUnavailable')}: {deviceLabel(selectedDevice, t)}</p>
           )}
-          <div className="dshAndroidLogcatLogList" ref={logListRef} role="log" aria-label={t('title')} aria-live="off" aria-relevant="additions text">
+          <div className="dshAndroidLogcatLogList" ref={logListRef} role="log" aria-label={t('title')} aria-live="off" aria-relevant="additions text" onScroll={onLogListScroll}>
             {visibleEntries.length === 0
               ? <p className="dshAndroidLogcatEmptyHint">{state.streamActive ? t('empty') : t('idleHint')}</p>
-              : visibleEntries.map(entry => (
-                <div className="dshAndroidLogcatLogRow" data-level={entry.severity ?? 'unknown'} key={entry.id}>
-                  {entry.timestamp === undefined ? <code>{entry.raw}</code> : <>
-                    <span className="dshAndroidLogcatTimestamp">{entry.timestamp}</span>
-                    <button type="button" className="dshAndroidLogcatLogMeta" onClick={() => entry.pid !== undefined && togglePid(entry.pid)}>{entry.pid ?? '—'}/{entry.tid ?? '—'}</button>
-                    <span className="dshAndroidLogcatLevel" data-level={entry.severity}>{entry.severity?.toUpperCase() ?? '?'}</span>
-                    {entry.tag !== undefined && <button type="button" className="dshAndroidLogcatLogTag" title={t('filterTag')} onClick={() => toggleTag(entry.tag ?? '')}>{entry.tag}</button>}
-                    <code className="dshAndroidLogcatMessage">{entry.message ?? entry.raw}</code>
-                  </>}
-                </div>
-              ))}
+              : (<>
+                {windowed && (
+                  <div className="dshAndroidLogcatLogRow" data-level="unknown">
+                    <code>{t('windowHint').replace('{shown}', String(renderedEntries.length)).replace('{total}', String(visibleEntries.length))}</code>
+                  </div>
+                )}
+                {renderedEntries.map(entry => (
+                  <div className="dshAndroidLogcatLogRow" data-level={entry.severity ?? 'unknown'} key={entry.id}>
+                    {entry.timestamp === undefined ? <code>{entry.raw}</code> : <>
+                      <span className="dshAndroidLogcatTimestamp">{entry.timestamp}</span>
+                      <button type="button" className="dshAndroidLogcatLogMeta" title={t('filterPid')} onClick={() => entry.pid !== undefined && togglePidExclusive(entry.pid)}>{entry.pid ?? '—'}/{entry.tid ?? '—'}</button>
+                      <span className="dshAndroidLogcatLevel" data-level={entry.severity}>{entry.severity?.toUpperCase() ?? '?'}</span>
+                      {entry.tag !== undefined && <button type="button" className="dshAndroidLogcatLogTag" title={t('filterTag')} onClick={() => toggleTag(entry.tag ?? '')}>{entry.tag}</button>}
+                      <code className="dshAndroidLogcatMessage">{entry.message ?? entry.raw}</code>
+                    </>}
+                  </div>
+                ))}
+              </>)}
           </div>
           <footer className="dshAndroidLogcatFooter">
             <span>{visibleEntries.length} {t('entries')}</span>

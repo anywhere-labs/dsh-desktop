@@ -430,6 +430,74 @@ describe('Android Logcat Host plugin', () => {
     expect(logcat.waitForExit).toHaveBeenCalled()
   })
 
+  it('resumes the logcat stream with -T when a valid since marker is provided', async () => {
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    let finish: (outcome: Awaited<SubprocessHandle['done']>) => void = () => {}
+    const done = new Promise<Awaited<SubprocessHandle['done']>>(resolve => { finish = resolve })
+    const logcat = { ...child(''), stdout, stderr, done }
+    const h = await harness([child('List of devices attached\nemulator-5554 device\n'), logcat])
+    let announceStarted: () => void = () => {}
+    const started = new Promise<void>(resolve => { announceStarted = resolve })
+    const originalSpawn = h.spawn.getMockImplementation()
+    if (originalSpawn === undefined) throw new Error('missing subprocess fixture')
+    h.spawn.mockImplementation(spec => {
+      const handle = originalSpawn(spec)
+      if (spec.argv.includes('logcat')) announceStarted()
+      return handle
+    })
+
+    const res = response()
+    const streaming = h.routes.get(ANDROID_LOGCAT_STREAM_PATH)!.handler(
+      request(`${ANDROID_LOGCAT_STREAM_PATH}?serial=emulator-5554&since=${encodeURIComponent('2026-06-27 10:00:00.000')}`),
+      res,
+    )
+    await started
+    stdout.end('06-27 10:00:01.000  101  101 I Example: resumed\n')
+    stderr.end()
+    finish({ exitCode: 0, signal: null })
+    await streaming
+
+    expect(h.spawn.mock.calls.map(([spec]) => spec.argv)).toEqual([
+      ['/fixture/platform-tools/adb', 'devices', '-l'],
+      ['/fixture/platform-tools/adb', '-s', 'emulator-5554', 'logcat', '-v', 'threadtime', '-T', '06-27 10:00:00.000'],
+    ])
+  })
+
+  it('ignores an invalid since parameter so reconnect loops stay alive', async () => {
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    let finish: (outcome: Awaited<SubprocessHandle['done']>) => void = () => {}
+    const done = new Promise<Awaited<SubprocessHandle['done']>>(resolve => { finish = resolve })
+    const logcat = { ...child(''), stdout, stderr, done }
+    const h = await harness([child('List of devices attached\nemulator-5554 device\n'), logcat])
+    let announceStarted: () => void = () => {}
+    const started = new Promise<void>(resolve => { announceStarted = resolve })
+    const originalSpawn = h.spawn.getMockImplementation()
+    if (originalSpawn === undefined) throw new Error('missing subprocess fixture')
+    h.spawn.mockImplementation(spec => {
+      const handle = originalSpawn(spec)
+      if (spec.argv.includes('logcat')) announceStarted()
+      return handle
+    })
+
+    const res = response()
+    const streaming = h.routes.get(ANDROID_LOGCAT_STREAM_PATH)!.handler(
+      request(`${ANDROID_LOGCAT_STREAM_PATH}?serial=emulator-5554&since=not-a-time`),
+      res,
+    )
+    await started
+    stdout.end('06-27 10:00:01.000  101  101 I Example: full buffer\n')
+    stderr.end()
+    finish({ exitCode: 0, signal: null })
+    await streaming
+
+    expect(h.spawn.mock.calls.map(([spec]) => spec.argv)).toEqual([
+      ['/fixture/platform-tools/adb', 'devices', '-l'],
+      ['/fixture/platform-tools/adb', '-s', 'emulator-5554', 'logcat', '-v', 'threadtime'],
+    ])
+  })
+
   it('keeps an idle SSE connection alive with periodic comments', async () => {
     vi.useFakeTimers()
     try {

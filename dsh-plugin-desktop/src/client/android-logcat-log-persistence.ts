@@ -53,6 +53,66 @@ export function writeAndroidLogcatEntries(
   }
 }
 
+const LOG_WRITE_DEBOUNCE_MS = 1_200
+
+interface PendingLogWrite {
+  readonly lines: string[]
+  readonly storage: AndroidLogcatPreferenceStorage | undefined
+  timer: ReturnType<typeof setTimeout> | undefined
+}
+
+const pendingLogWrites = new Map<string, PendingLogWrite>()
+
+function writeLogLines(serial: string, lines: readonly string[], storage: AndroidLogcatPreferenceStorage | undefined): void {
+  if (!serial || storage === undefined) return
+  try {
+    storage.setItem(storageKey(serial), JSON.stringify({
+      version: LOG_STORAGE_VERSION,
+      lines: lines.slice(-ANDROID_LOGCAT_MAX_ENTRIES),
+    }))
+  } catch {
+    // Private browsing, quota limits, or disabled storage must not break Logcat.
+  }
+}
+
+/**
+ * Debounce persisting the bounded log body; high-frequency streams must not
+ * synchronously serialize and rewrite localStorage on every appended batch.
+ */
+export function scheduleAndroidLogcatLogWrite(
+  serial: string,
+  entries: readonly AndroidLogcatEntry[],
+  storage: AndroidLogcatPreferenceStorage | undefined = getStorage(),
+): void {
+  if (!serial || storage === undefined) return
+  const lines = entries.slice(-ANDROID_LOGCAT_MAX_ENTRIES).map(entry => entry.raw)
+  const pending = pendingLogWrites.get(serial)
+  if (pending?.timer !== undefined) clearTimeout(pending.timer)
+  const record: PendingLogWrite = { lines, storage, timer: undefined }
+  record.timer = setTimeout(() => {
+    pendingLogWrites.delete(serial)
+    writeLogLines(serial, record.lines, record.storage)
+  }, LOG_WRITE_DEBOUNCE_MS)
+  pendingLogWrites.set(serial, record)
+}
+
+/** Immediately write every debounced log body, e.g. before stop, switch, or page hide. */
+export function flushAndroidLogcatLogWrites(): void {
+  for (const [serial, pending] of pendingLogWrites) {
+    if (pending.timer !== undefined) clearTimeout(pending.timer)
+    pendingLogWrites.delete(serial)
+    writeLogLines(serial, pending.lines, pending.storage)
+  }
+}
+
+/** Drop one serial's debounced write without persisting it, e.g. before an explicit clear. */
+export function cancelAndroidLogcatLogWrite(serial: string): void {
+  const pending = pendingLogWrites.get(serial)
+  if (pending === undefined) return
+  if (pending.timer !== undefined) clearTimeout(pending.timer)
+  pendingLogWrites.delete(serial)
+}
+
 /** Delete persisted logs only when the user explicitly clears the Logcat body. */
 export function clearAndroidLogcatEntries(
   serial: string,

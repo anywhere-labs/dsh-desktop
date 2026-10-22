@@ -106,16 +106,29 @@ export function parseAndroidLogcatSseFrame(frame: string): AndroidLogcatSseFrame
 }
 
 /**
+ * Normalize one parsed threadtime timestamp into the `adb logcat -T` form
+ * (`MM-DD HH:MM:SS.mmm`, year stripped); undefined when the value is unusable.
+ */
+export function normalizeAndroidLogcatSince(timestamp: string): string | undefined {
+  const stripped = timestamp.trim().replace(/^\d{4}-/u, '')
+  return /^\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{1,6}$/u.test(stripped) ? stripped : undefined
+}
+
+/**
  * Consume one same-origin event stream until it ends or its signal aborts.
  * Host `error` events reject the promise so the drawer can show the failure.
+ * When `since` is a normalized logcat timestamp, the Host starts the adb
+ * stream with `-T` so an already-seen buffer backlog is not replayed.
  */
 export async function streamAndroidLogcat(
   serial: string,
   signal: AbortSignal,
   onLine: (line: string) => void,
   onConnected?: () => void,
+  since?: string,
 ): Promise<void> {
   const query = new URLSearchParams({ serial })
+  if (since !== undefined && since !== '') query.set('since', since)
   const response = await fetch(`${ANDROID_LOGCAT_STREAM_PATH}?${query}`, {
     cache: 'no-store',
     headers: { accept: 'text/event-stream' },
@@ -189,13 +202,18 @@ function waitForReconnect(signal: AbortSignal, delayMs: number): Promise<void> {
   })
 }
 
-/** Keep the selected device stream alive across EOF, adb exits, and transient HTTP/device failures. */
+/**
+ * Keep the selected device stream alive across EOF, adb exits, and transient HTTP/device failures.
+ * `getSince` is read on every (re)connect so a restarted stream resumes after the newest seen log
+ * instead of replaying the whole device buffer again.
+ */
 export async function streamAndroidLogcatWithReconnect(
   serial: string,
   signal: AbortSignal,
   onLine: (line: string) => void,
   onConnected?: () => void,
   onReconnecting?: () => void,
+  getSince?: () => string | undefined,
 ): Promise<void> {
   let retryAttempt = 0
   while (!signal.aborted) {
@@ -205,7 +223,7 @@ export async function streamAndroidLogcatWithReconnect(
         onLine(line)
       }, () => {
         onConnected?.()
-      })
+      }, getSince?.())
     } catch (error) {
       if (signal.aborted) return
       if (error instanceof AndroidLogcatApiError && error.status !== undefined

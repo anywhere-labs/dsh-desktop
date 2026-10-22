@@ -12,6 +12,7 @@ import {
   compileAndroidLogcatQuery,
   filterAndroidLogcatEntries,
   makeAndroidLogcatEntry,
+  normalizeAndroidLogcatSince,
   parseAndroidLogcatLine,
   parseAndroidLogcatSseFrame,
   readAndroidLogcatDevices,
@@ -21,8 +22,11 @@ import {
 } from '../src/client/android-logcat-api.ts'
 import { createAndroidLogcatStore } from '../src/client/android-logcat-store.ts'
 import {
+  cancelAndroidLogcatLogWrite,
   clearAndroidLogcatEntries,
+  flushAndroidLogcatLogWrites,
   readAndroidLogcatEntries,
+  scheduleAndroidLogcatLogWrite,
   writeAndroidLogcatEntries,
 } from '../src/client/android-logcat-log-persistence.ts'
 import { writeAndroidLogcatDisplayPreferences } from '../src/client/android-logcat-preferences.ts'
@@ -207,6 +211,37 @@ describe('Android Logcat Client API', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
   })
 
+  it('passes the since marker to the stream endpoint and normalizes timestamps', async () => {
+    const source = new ReadableStream<Uint8Array>({ start(controller) { controller.close() } })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(source))
+    vi.stubGlobal('fetch', fetchMock)
+    await streamAndroidLogcat('emulator-5554', new AbortController().signal, () => {}, undefined, '06-14 17:02:33.123')
+    expect(String(fetchMock.mock.calls[0]?.[0]))
+      .toBe('/api/desktop/android-logcat/stream?serial=emulator-5554&since=06-14+17%3A02%3A33.123')
+    expect(normalizeAndroidLogcatSince('2026-06-14 17:02:33.123')).toBe('06-14 17:02:33.123')
+    expect(normalizeAndroidLogcatSince('06-14 17:02:33.123')).toBe('06-14 17:02:33.123')
+    expect(normalizeAndroidLogcatSince('not a timestamp')).toBeUndefined()
+  })
+
+  it('reads the since marker anew on every reconnect attempt', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue(new Response('unavailable', { status: 502 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    let marker: string | undefined
+    let announceReconnect: () => void = () => {}
+    const reconnecting = new Promise<void>(resolve => { announceReconnect = resolve })
+    const stream = streamAndroidLogcatWithReconnect('device-1', controller.signal, () => {}, undefined, announceReconnect, () => marker)
+    await reconnecting
+    marker = '06-14 17:02:33.123'
+    await vi.advanceTimersByTimeAsync(500)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain('since=')
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('since=06-14')
+    controller.abort()
+    await expect(stream).resolves.toBeUndefined()
+  })
+
   it('parses threadtime columns and applies process, tag, level, and text filters', () => {
     const error = '06-14 17:02:33.123 123 456 E AndroidRuntime: FATAL EXCEPTION'
     const warning = '06-14 17:02:34.123 456 789 W ActivityTask: slow launch'
@@ -355,6 +390,70 @@ describe('Android Logcat slot store', () => {
     expect(readAndroidLogcatEntries('device-one', storage).map(entry => entry.raw)).toEqual(['persisted line'])
     clearAndroidLogcatEntries('device-one', storage)
     expect(readAndroidLogcatEntries('device-one', storage)).toEqual([])
+  })
+
+  it('auto-selects the first connected device but keeps an explicit selection', () => {
+    const store = createAndroidLogcatStore().create()
+    store.actions.setDevices(true, [
+      { serial: 'off', state: 'offline' },
+      { serial: 'one', state: 'device' },
+      { serial: 'two', state: 'device' },
+    ])
+    expect(store.getSnapshot().selectedSerial).toBe('one')
+    store.actions.setSelectedSerial('two')
+    store.actions.setDevices(true, [{ serial: 'one', state: 'device' }, { serial: 'two', state: 'device' }])
+    expect(store.getSnapshot().selectedSerial).toBe('two')
+  })
+
+  it('tracks the newest timestamp as since marker and drops replayed overlap', () => {
+    const store = createAndroidLogcatStore().create()
+    store.actions.setDevices(true, [{ serial: 'one', state: 'device' }])
+    store.actions.setSelectedSerial('one')
+    store.actions.appendLines(['06-14 17:02:33.123 123 456 E AndroidRuntime: first'])
+    expect(store.getSnapshot().sinceMarker).toBe('06-14 17:02:33.123')
+    store.actions.appendLines([
+      '06-14 17:02:33.123 123 456 E AndroidRuntime: first',
+      '06-14 17:02:33.456 123 456 E AndroidRuntime: second',
+    ])
+    expect(store.getSnapshot().entries.map(entry => entry.raw)).toEqual([
+      '06-14 17:02:33.123 123 456 E AndroidRuntime: first',
+      '06-14 17:02:33.456 123 456 E AndroidRuntime: second',
+    ])
+    expect(store.getSnapshot().sinceMarker).toBe('06-14 17:02:33.456')
+    store.actions.clear()
+    expect(store.getSnapshot().entries).toEqual([])
+    expect(store.getSnapshot().sinceMarker).toBe('06-14 17:02:33.456')
+  })
+
+  it('supports explicitly setting the smart-follow state from scroll tracking', () => {
+    const store = createAndroidLogcatStore().create()
+    expect(store.getSnapshot().autoFollow).toBe(true)
+    store.actions.setAutoFollow(false)
+    expect(store.getSnapshot().autoFollow).toBe(false)
+    store.actions.setAutoFollow(true)
+    expect(store.getSnapshot().autoFollow).toBe(true)
+  })
+
+  it('debounces log persistence writes and flushes them explicitly', () => {
+    vi.useFakeTimers()
+    const values = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value) },
+      removeItem: (key: string) => { values.delete(key) },
+    }
+    scheduleAndroidLogcatLogWrite('device-one', [makeAndroidLogcatEntry('first', 1)], storage)
+    scheduleAndroidLogcatLogWrite('device-one', [makeAndroidLogcatEntry('first', 1), makeAndroidLogcatEntry('second', 2)], storage)
+    expect(values.size).toBe(0)
+    vi.advanceTimersByTime(1_200)
+    expect(readAndroidLogcatEntries('device-one', storage).map(entry => entry.raw)).toEqual(['first', 'second'])
+    scheduleAndroidLogcatLogWrite('device-one', [makeAndroidLogcatEntry('third', 3)], storage)
+    flushAndroidLogcatLogWrites()
+    expect(readAndroidLogcatEntries('device-one', storage).map(entry => entry.raw)).toEqual(['third'])
+    scheduleAndroidLogcatLogWrite('device-one', [makeAndroidLogcatEntry('discarded', 4)], storage)
+    cancelAndroidLogcatLogWrite('device-one')
+    vi.advanceTimersByTime(2_400)
+    expect(readAndroidLogcatEntries('device-one', storage).map(entry => entry.raw)).toEqual(['third'])
   })
 
   it('retains the selected serial and logs while the active stream reconnects after device loss', () => {

@@ -29,6 +29,15 @@ const MAX_ERROR_OUTPUT_BYTES = 16 * 1024
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const MAX_STREAM_LINE_CHARS = 32 * 1024
 const DEVICE_SERIAL_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/u
+/** Accepted `since` query value for `adb logcat -T` (`MM-DD HH:MM:SS.mmm`, optional year). */
+const STREAM_SINCE_PATTERN = /^(?:\d{4}-)?\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{1,6}$/u
+
+/** Read the optional `since` stream parameter; invalid values are ignored so reconnect loops stay alive. */
+function parseStreamSince(req: IncomingMessage): string | undefined {
+  const since = parseUrl(req).searchParams.get('since')
+  if (since === null || !STREAM_SINCE_PATTERN.test(since)) return undefined
+  return since.replace(/^\d{4}-/u, '')
+}
 
 class AndroidLogcatError extends Error {
   constructor(
@@ -367,8 +376,12 @@ function startStream(
         throw new AndroidLogcatError('The selected Android device is disconnected, unauthorized, or offline.', 409, 'device-not-ready')
       }
       const executable = await ctx.subprocess.resolveExecutable('adb', undefined, signal)
+      // `-T` resumes after the newest seen log instead of replaying the whole device buffer.
+      const since = parseStreamSince(req)
       handle = ctx.subprocess.spawn({
-        argv: [executable, '-s', serial, 'logcat', '-v', 'threadtime'],
+        argv: since === undefined
+          ? [executable, '-s', serial, 'logcat', '-v', 'threadtime']
+          : [executable, '-s', serial, 'logcat', '-v', 'threadtime', '-T', since],
         cwd: process.cwd(),
         stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
         graceMs: TERMINATION_GRACE_MS,

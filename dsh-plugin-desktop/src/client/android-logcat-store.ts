@@ -1,8 +1,10 @@
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
 import {
+  cancelAndroidLogcatLogWrite,
   clearAndroidLogcatEntries,
+  flushAndroidLogcatLogWrites,
   readAndroidLogcatEntries,
-  writeAndroidLogcatEntries,
+  scheduleAndroidLogcatLogWrite,
 } from './android-logcat-log-persistence.ts'
 import {
   DEFAULT_ANDROID_LOGCAT_FILTER_PREFERENCES,
@@ -11,6 +13,7 @@ import {
 import {
   ANDROID_LOGCAT_MAX_ENTRIES,
   makeAndroidLogcatEntry,
+  normalizeAndroidLogcatSince,
   type AndroidLogcatDevice,
   type AndroidLogcatEntry,
   type AndroidLogcatProcess,
@@ -40,6 +43,8 @@ export interface AndroidLogcatState {
   entries: AndroidLogcatEntry[]
   pausedEntries: AndroidLogcatEntry[] | null
   nextEntryId: number
+  /** Newest seen threadtime timestamp (`MM-DD HH:MM:SS.mmm`); reconnects resume after it via `adb logcat -T`. */
+  sinceMarker: string
   streamActive: boolean
   streamReconnecting: boolean
   streamError: string
@@ -79,6 +84,39 @@ type AndroidLogcatActions = {
   pause: (draft: AndroidLogcatState) => void
   resume: (draft: AndroidLogcatState) => void
   toggleAutoFollow: (draft: AndroidLogcatState) => void
+  setAutoFollow: (draft: AndroidLogcatState, follow: boolean) => void
+}
+
+/** Latest parseable timestamp of one entry list, normalized for `adb logcat -T`. */
+function sinceMarkerFromEntries(entries: readonly AndroidLogcatEntry[]): string {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const timestamp = entries[index]?.timestamp
+    if (timestamp === undefined) continue
+    const since = normalizeAndroidLogcatSince(timestamp)
+    if (since !== undefined) return since
+  }
+  return ''
+}
+
+/** Shared selection reset used by explicit device picks and automatic device selection. */
+function applySerialSelection(draft: AndroidLogcatState, serial: string): void {
+  draft.selectedSerial = serial
+  draft.processes = []
+  draft.selectedPids = []
+  draft.selectedTags = []
+  draft.tagPattern = DEFAULT_ANDROID_LOGCAT_FILTER_PREFERENCES.tag
+  draft.excludeTagPattern = DEFAULT_ANDROID_LOGCAT_FILTER_PREFERENCES.excludeTag
+  draft.processPattern = DEFAULT_ANDROID_LOGCAT_FILTER_PREFERENCES.process
+  draft.messagePattern = DEFAULT_ANDROID_LOGCAT_FILTER_PREFERENCES.message
+  draft.processesError = ''
+  draft.streamError = ''
+  draft.streamReconnecting = false
+  draft.entries = readAndroidLogcatEntries(serial)
+  draft.pausedEntries = null
+  draft.nextEntryId = draft.entries.length + 1
+  draft.sinceMarker = sinceMarkerFromEntries(draft.entries)
+  draft.paused = false
+  draft.streamActive = false
 }
 
 /** Shared Client slot state for the Logcat launcher and drawer. */
@@ -109,6 +147,7 @@ export function createAndroidLogcatStore(): EngineStoreHandle<AndroidLogcatState
         entries: [],
         pausedEntries: null,
         nextEntryId: 1,
+        sinceMarker: '',
         streamActive: false,
         streamReconnecting: false,
         streamError: '',
@@ -120,6 +159,7 @@ export function createAndroidLogcatStore(): EngineStoreHandle<AndroidLogcatState
     actions: {
       open: draft => { draft.open = true; draft.collapsed = false; draft.focusReturnRequested = false },
       close: draft => {
+        flushAndroidLogcatLogWrites()
         draft.focusReturnRequested = draft.open
         draft.open = false
         draft.streamActive = false
@@ -134,9 +174,15 @@ export function createAndroidLogcatStore(): EngineStoreHandle<AndroidLogcatState
         draft.available = available
         draft.devices = [...devices]
         draft.devicesError = ''
+        if (draft.selectedSerial === '') {
+          // Default to the first connected device so the drawer never opens on an empty pick.
+          const firstConnected = devices.find(device => device.state === 'device')
+          if (firstConnected !== undefined) applySerialSelection(draft, firstConnected.serial)
+          return
+        }
         const selected = devices.find(device => device.serial === draft.selectedSerial)
         if (selected === undefined) {
-          if (draft.selectedSerial !== '' && !draft.streamActive) {
+          if (!draft.streamActive) {
             draft.processes = []
             draft.selectedPids = []
             draft.selectedTags = []
@@ -149,26 +195,15 @@ export function createAndroidLogcatStore(): EngineStoreHandle<AndroidLogcatState
       setDevicesError: (draft, error: string) => { draft.devicesError = error },
       setSelectedSerial: (draft, serial: string) => {
         if (draft.selectedSerial === serial) return
-        draft.selectedSerial = serial
-        draft.processes = []
-        draft.selectedPids = []
-        draft.selectedTags = []
-        draft.tagPattern = DEFAULT_ANDROID_LOGCAT_FILTER_PREFERENCES.tag
-        draft.excludeTagPattern = DEFAULT_ANDROID_LOGCAT_FILTER_PREFERENCES.excludeTag
-        draft.processPattern = DEFAULT_ANDROID_LOGCAT_FILTER_PREFERENCES.process
-        draft.messagePattern = DEFAULT_ANDROID_LOGCAT_FILTER_PREFERENCES.message
-        draft.processesError = ''
-        draft.streamError = ''
-        draft.streamReconnecting = false
-        draft.entries = readAndroidLogcatEntries(serial)
-        draft.pausedEntries = null
-        draft.nextEntryId = draft.entries.length + 1
-        draft.paused = false
-        draft.streamActive = false
+        flushAndroidLogcatLogWrites()
+        applySerialSelection(draft, serial)
       },
       setProcesses: (draft, processes: readonly AndroidLogcatProcess[]) => {
-        draft.processes = [...processes]
+        // Polled refreshes usually return the same list; avoid churning subscribers then.
+        const unchanged = draft.processes.length === processes.length
+          && draft.processes.every((current, index) => current.pid === processes[index]?.pid && current.name === processes[index]?.name)
         draft.processesError = ''
+        if (!unchanged) draft.processes = [...processes]
       },
       setProcessesError: (draft, error: string) => { draft.processesError = error },
       setSelectedPids: (draft, pids: readonly number[]) => { draft.selectedPids = [...new Set(pids)] },
@@ -182,22 +217,33 @@ export function createAndroidLogcatStore(): EngineStoreHandle<AndroidLogcatState
       setLogFontSize: (draft, size: number) => { draft.logFontSize = size },
       setShowOperationTips: (draft, show: boolean) => { draft.showOperationTips = show },
       start: draft => { draft.streamActive = true; draft.streamReconnecting = false; draft.streamError = '' },
-      stop: draft => { draft.streamActive = false; draft.streamReconnecting = false },
+      stop: draft => {
+        flushAndroidLogcatLogWrites()
+        draft.streamActive = false
+        draft.streamReconnecting = false
+      },
       setStreamError: (draft, error: string) => { draft.streamError = error; draft.streamActive = false; draft.streamReconnecting = false },
       setStreamConnected: draft => { if (draft.streamActive) draft.streamReconnecting = false },
       setStreamReconnecting: draft => { if (draft.streamActive) draft.streamReconnecting = true },
       appendLines: (draft, lines: readonly string[]) => {
         for (const line of lines) {
-          draft.entries.push(makeAndroidLogcatEntry(line, draft.nextEntryId++))
+          const entry = makeAndroidLogcatEntry(line, draft.nextEntryId++)
+          const since = entry.timestamp === undefined ? undefined : normalizeAndroidLogcatSince(entry.timestamp)
+          // A restarted `adb logcat -T` stream replays lines at or before the marker; drop that overlap.
+          if (since !== undefined && draft.sinceMarker !== '' && since <= draft.sinceMarker) continue
+          if (since !== undefined) draft.sinceMarker = since
+          draft.entries.push(entry)
         }
         const overflow = draft.entries.length - ANDROID_LOGCAT_MAX_ENTRIES
         if (overflow > 0) draft.entries.splice(0, overflow)
-        writeAndroidLogcatEntries(draft.selectedSerial, draft.entries)
+        scheduleAndroidLogcatLogWrite(draft.selectedSerial, draft.entries)
       },
       clear: draft => {
+        // Keep `sinceMarker`: a later start must not replay the buffer the user just cleared away.
+        cancelAndroidLogcatLogWrite(draft.selectedSerial)
+        clearAndroidLogcatEntries(draft.selectedSerial)
         draft.entries = []
         draft.pausedEntries = draft.paused ? [] : null
-        clearAndroidLogcatEntries(draft.selectedSerial)
       },
       pause: draft => {
         if (draft.paused) return
@@ -206,6 +252,7 @@ export function createAndroidLogcatStore(): EngineStoreHandle<AndroidLogcatState
       },
       resume: draft => { draft.paused = false; draft.pausedEntries = null },
       toggleAutoFollow: draft => { draft.autoFollow = !draft.autoFollow },
+      setAutoFollow: (draft, follow: boolean) => { draft.autoFollow = follow },
     },
   })
 }
