@@ -28,6 +28,8 @@ export interface DesktopShellSettings {
   readonly openBrowser: boolean
   readonly networkExposure: 'loopback' | 'lan'
   readonly developerLogging?: boolean
+  readonly sidebarFooterCompat?: boolean
+  readonly sidebarFooterBalanced?: boolean
   readonly logLevel: 'debug' | 'info' | 'warn' | 'error'
 }
 
@@ -462,6 +464,8 @@ export function DesktopSettingsSection({
   const [restart, setRestart] = useState<RestartState>('none')
   const [pendingProfileDelete, setPendingProfileDelete] = useState<string>()
   const [confirmLan, setConfirmLan] = useState(false)
+  const [sidebarFooterOpen, setSidebarFooterOpen] = useState(false)
+  const sidebarFooterRegionId = useId()
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const notificationsRegionId = useId()
   const [updateCheck, setUpdateCheck] = useState<'idle' | 'checking' | 'failed'>('idle')
@@ -846,8 +850,7 @@ export function DesktopSettingsSection({
 
       </>}
 
-      {/* Window modes, or macOS's material choice; with neither the group would be empty. */}
-      {(capabilities?.windowModes !== false || platform === 'darwin') && <section className="dshDesktopSettingsGroup" aria-labelledby="dsh-desktop-presentation-title">
+      <section className="dshDesktopSettingsGroup" aria-labelledby="dsh-desktop-presentation-title">
         {capabilities?.windowModes !== false && (
           <div>
             <h3 id="dsh-desktop-presentation-title">{t('presentationTitle')}</h3>
@@ -904,7 +907,34 @@ export function DesktopSettingsSection({
             />
           </div>
         )}
-      </section>}
+        <div className="dshDesktopSettingsExpandableGroup">
+          <DesktopSettingsToggleRow
+            titleId={capabilities?.windowModes === false && platform !== 'darwin' ? 'dsh-desktop-presentation-title' : undefined}
+            label={t('sidebarFooterCompat')}
+            description={t('sidebarFooterCompatBody')}
+            checked={desktop.value?.sidebarFooterCompat !== false}
+            disabled={!settingsWritable || restart !== 'none'}
+            onChange={checked => { void runPreference(async () => { await desktopSettings.set('sidebarFooterCompat', checked) }) }}
+            expander={{
+              open: sidebarFooterOpen,
+              controls: sidebarFooterRegionId,
+              label: t('sidebarFooterCompat'),
+              onToggle: () => { setSidebarFooterOpen(open => !open) },
+            }}
+          />
+          {sidebarFooterOpen && (
+            <div id={sidebarFooterRegionId} className="dshDesktopSettingsExpandedRows">
+              <DesktopSettingsToggleRow
+                label={t('sidebarFooterBalanced')}
+                description={t('sidebarFooterBalancedBody')}
+                checked={desktop.value?.sidebarFooterBalanced !== false}
+                disabled={desktop.value?.sidebarFooterCompat === false || !settingsWritable || restart !== 'none'}
+                onChange={checked => { void runPreference(async () => { await desktopSettings.set('sidebarFooterBalanced', checked) }) }}
+              />
+            </div>
+          )}
+        </div>
+      </section>
 
       <section className="dshDesktopSettingsGroup" aria-labelledby="dsh-desktop-web-title">
         <div>

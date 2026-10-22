@@ -25,6 +25,8 @@ export interface DesktopPreferences {
   lanPort: number
   logLevel: 'debug' | 'info' | 'warn' | 'error'
   developerLogging: boolean
+  sidebarFooterCompat: boolean
+  sidebarFooterBalanced: boolean
   notifications: boolean
   turnCompleted: boolean
   turnFailed: boolean
@@ -38,7 +40,7 @@ export interface DesktopPreferences {
 export const DEFAULT_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
   closeToTray: true, macosMaterial: 'transparent', windowsMaterial: 'off', linuxMaterial: 'off',
   browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
-  notifications: true, turnCompleted: true, turnFailed: true, jobCompleted: false, jobFailed: false,
+  sidebarFooterCompat: true, sidebarFooterBalanced: true, notifications: true, turnCompleted: true, turnFailed: true, jobCompleted: false, jobFailed: false,
   scheduleCompleted: true, scheduleFailed: true,
 })
 
@@ -46,7 +48,7 @@ export const DEFAULT_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
 export const SAFE_MODE_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
   ...DEFAULT_PREFERENCES, macosMaterial: 'off', windowsMaterial: 'off', linuxMaterial: 'off',
   browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
-  notifications: false, turnCompleted: false, turnFailed: false, jobCompleted: false, jobFailed: false,
+  sidebarFooterCompat: true, sidebarFooterBalanced: true, notifications: false, turnCompleted: false, turnFailed: false, jobCompleted: false, jobFailed: false,
   scheduleCompleted: false, scheduleFailed: false,
 })
 

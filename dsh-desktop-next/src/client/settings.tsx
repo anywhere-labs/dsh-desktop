@@ -15,6 +15,10 @@ export function desktopTranslate(language: string): (key: string) => string {
   return key => {
     if (key === 'presentationTitle') return language.startsWith('zh') ? '窗口外观' : 'Window appearance'
     if (key === 'windowMaterialBody') return language.startsWith('zh') ? '设置窗口背景效果，更改后立即生效。' : 'Set the window background effect. Changes apply immediately.'
+    if (key === 'sidebarFooterCompat') return language.startsWith('zh') ? '侧边栏底部图标横向排列' : 'Arrange sidebar footer icons in a row'
+    if (key === 'sidebarFooterCompatBody') return language.startsWith('zh') ? '展开侧边栏时将底部的紧凑图标按钮并排显示在同一行；关闭后恢复逐行纵向排列，更改后立即生效。' : 'Place compact icon actions on a single row while the sidebar is expanded. Turn off to stack every item vertically. Changes apply immediately.'
+    if (key === 'sidebarFooterBalanced') return language.startsWith('zh') ? '多行图标均衡排列' : 'Balance multi-row icon layout'
+    if (key === 'sidebarFooterBalancedBody') return language.startsWith('zh') ? '图标超出单行时自动均分每行数量并按列居中对齐；关闭后按顺序排满换行。' : 'Distribute icons evenly across rows and align columns when wrapping. Turn off to wrap greedily in order.'
     if (key === 'deleteProfileWarning') return language.startsWith('zh') ? '此 Profile 将移入恢复备份目录。共享的会话和设置会保留。' : 'Move this Profile to recovery backups. Shared sessions and settings are retained.'
     if (key === 'presentationIntro') return language.startsWith('zh') ? '设置当前平台支持的窗口外观。' : 'Choose the window appearance supported on this platform.'
     if (key === 'browserCompatibilityNotice') return language.startsWith('zh') ? '开关即时生效；关闭访问会断开已有的浏览器连接。' : 'Changes take effect immediately. Disabling access disconnects existing browser connections.'

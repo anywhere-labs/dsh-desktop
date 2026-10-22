@@ -7,7 +7,7 @@ import { DEFAULT_PROFILE, type DesktopBridge, type DesktopBrowserLinks, type Des
 /** The part of a dsh `ConfigForm` the Desktop settings components read and write. */
 type DesktopConfigForm<T> = Pick<ConfigForm<T>, 'getSnapshot' | 'subscribe' | 'set'>
 
-const shellFields = { macosMaterial: 'macosMaterial', windowsMaterial: 'windowsMaterial', linuxMaterial: 'linuxMaterial', port: 'port', openBrowser: 'browserAccess', networkExposure: 'networkExposure', logLevel: 'logLevel' } as const
+const shellFields = { macosMaterial: 'macosMaterial', windowsMaterial: 'windowsMaterial', linuxMaterial: 'linuxMaterial', port: 'port', openBrowser: 'browserAccess', networkExposure: 'networkExposure', logLevel: 'logLevel', sidebarFooterCompat: 'sidebarFooterCompat', sidebarFooterBalanced: 'sidebarFooterBalanced' } as const
 const notificationFields = { enabled: 'notifications', notifyOnTurnCompletion: 'turnCompleted', notifyOnTurnFailure: 'turnFailed', notifyOnJobCompletion: 'jobCompleted', notifyOnJobFailure: 'jobFailed', notifyOnScheduleCompletion: 'scheduleCompleted', notifyOnScheduleFailure: 'scheduleFailed' } as const
 
 export function projectSettings(state: DesktopState, links: DesktopBrowserLinks = { localUrl: null, lanUrls: [] }): DesktopSettingsView {
@@ -28,6 +28,7 @@ export function projectSettings(state: DesktopState, links: DesktopBrowserLinks 
 export class NextSettingsAdapter {
   private current: DesktopState | undefined
   private persisted: DesktopState | undefined
+  private fallbackBalanced: boolean | undefined
   private pendingSaves = 0
   private listeners = new Set<() => void>()
   private tail: Promise<unknown> = Promise.resolve()
@@ -53,7 +54,7 @@ export class NextSettingsAdapter {
     const p = state.preferences
     const shellWritable = !state.safeMode
     const notificationWritable = !state.safeMode && state.notificationsAvailable
-    const nextShell: DesktopShellSettings = { mode: 'compatibility', macosMaterial: p.macosMaterial, windowsMaterial: p.windowsMaterial, linuxMaterial: p.linuxMaterial, port: p.port, openBrowser: p.browserAccess, networkExposure: p.networkExposure, logLevel: p.logLevel }
+    const nextShell: DesktopShellSettings = { mode: 'compatibility', macosMaterial: p.macosMaterial, windowsMaterial: p.windowsMaterial, linuxMaterial: p.linuxMaterial, port: p.port, openBrowser: p.browserAccess, networkExposure: p.networkExposure, logLevel: p.logLevel, sidebarFooterCompat: p.sidebarFooterCompat ?? true, sidebarFooterBalanced: p.sidebarFooterBalanced ?? this.fallbackBalanced ?? true }
     const nextNotification: DesktopNotificationSettings = { enabled: p.notifications, notifyOnTurnCompletion: p.turnCompleted, notifyOnTurnFailure: p.turnFailed, notifyOnJobCompletion: p.jobCompleted, notifyOnJobFailure: p.jobFailed, notifyOnScheduleCompletion: p.scheduleCompleted, notifyOnScheduleFailure: p.scheduleFailed }
     if (!previous || this.shellSnapshot.writable !== shellWritable || JSON.stringify(this.shellSnapshot.value) !== JSON.stringify(nextShell)) {
       this.shellSnapshot = this.snapshot(nextShell, shellWritable)
@@ -99,7 +100,22 @@ export class NextSettingsAdapter {
         const state = this.persisted ?? await this.refresh()
         const preferences = { ...state.preferences, ...patch }
         if (!preferences.browserAccess) preferences.networkExposure = 'loopback'
-        await this.bridge.command({ type: 'preferences', preferences })
+        try {
+          await this.bridge.command({ type: 'preferences', preferences })
+          if (patch.sidebarFooterBalanced !== undefined) this.fallbackBalanced = undefined
+        } catch (cause) {
+          if (
+            patch.sidebarFooterBalanced !== undefined
+            && cause instanceof Error
+            && cause.message.includes('Unknown Desktop preference')
+          ) {
+            this.fallbackBalanced = patch.sidebarFooterBalanced
+            const { sidebarFooterBalanced: _, ...legacyPreferences } = preferences
+            await this.bridge.command({ type: 'preferences', preferences: legacyPreferences as DesktopPreferences })
+          } else {
+            throw cause
+          }
+        }
       } finally {
         this.pendingSaves -= 1
         await this.settle()
