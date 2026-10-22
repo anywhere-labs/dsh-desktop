@@ -384,19 +384,17 @@ it('migrates legacy switches once and preserves later official plugin selections
   expect(manager.features('work')).toEqual({ market: false, remoteControl: false })
 })
 
-it('keeps the recovery deselection ledger across a feature change and never reselects from it', () => {
+it('never reselects a disabled dependency across a feature change', () => {
   const manager = profiles()
   const dir = manager.ensure('desktop')
   const file = join(dir, 'package.json')
   const manifest = JSON.parse(readFileSync(file, 'utf8'))
   manifest.dependencies = { 'my-plugin': '1.0.0' }
-  manifest.dsh.desktopNextDeselectedBundles = ['my-plugin']
   writeFileSync(file, JSON.stringify(manifest))
 
   manager.finishOnboarding('desktop', { features: { market: false, dshMarket: true, remoteControl: true }, computerUse: false })
 
   const after = JSON.parse(readFileSync(file, 'utf8'))
-  expect(after.dsh.desktopNextDeselectedBundles).toEqual(['my-plugin'])
   expect(after.dsh.profile.bundles).not.toContain('my-plugin')
   expect(after.dependencies['my-plugin']).toBe('1.0.0')
   expect(after.dsh.profile.bundles).toContain(DSH_MARKET_PACKAGE)

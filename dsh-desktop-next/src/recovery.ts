@@ -97,9 +97,11 @@ export class NextRecovery {
   bundles(name: string) {
     const manifest = JSON.parse(readPrivateFile(join(this.profiles.directory(name), 'package.json')) ?? '{}')
     const bundles: unknown = manifest.dsh?.profile?.bundles
-    const ledger: unknown = manifest.dsh?.desktopNextDeselectedBundles ?? []
+    const dependencies: unknown = manifest.dependencies ?? {}
     if (!Array.isArray(bundles) || bundles.some(item => typeof item !== 'string')
-      || !Array.isArray(ledger) || ledger.some(item => typeof item !== 'string')) throw new Error('Invalid Next Profile manifest')
+      || typeof dependencies !== 'object' || dependencies === null || Array.isArray(dependencies)) {
+      throw new Error('Invalid Next Profile manifest')
+    }
     // Default web layers are only part of the product: optional shipped bundles
     // and official extensions must never become recovery uninstall targets.
     const shipped = JSON.parse(readPrivateFile(NEXT_PACKAGE)!) as {
@@ -110,15 +112,14 @@ export class NextRecovery {
     const eligible = (packageName: string): boolean =>
       !protectedNames.has(packageName) && !packageName.startsWith('@deepseek-ai/')
     const selected = [...new Set(bundles as string[])].filter(eligible)
-    // A deselected name is only shown while it is still a declared dependency:
-    // reselected or uninstalled elsewhere, the ledger entry is simply forgotten.
-    const dependencies = new Set(Object.keys(manifest.dependencies ?? {}))
-    const deselected = [...new Set(ledger as string[])].filter(packageName =>
-      eligible(packageName) && dependencies.has(packageName) && !selected.includes(packageName))
+    // Installed dependencies outside `dsh.profile.bundles` are disabled bundles,
+    // matching the official plugin manager's single source of truth.
+    const disabled = Object.keys(dependencies).filter(packageName =>
+      eligible(packageName) && !selected.includes(packageName))
     return [
       ...selected.map(packageName => ({ bundleId: packageName, packageName,
         status: 'active' as const, owner: 'profile' as const, action: 'uninstall' as const, toggle: 'disable' as const })),
-      ...deselected.map(packageName => ({ bundleId: packageName, packageName,
+      ...disabled.map(packageName => ({ bundleId: packageName, packageName,
         status: 'disabled' as const, owner: 'profile' as const, action: 'uninstall' as const, toggle: 'enable' as const })),
     ]
   }
@@ -140,12 +141,6 @@ export class NextRecovery {
       manifest.dsh.profile.bundles = selected
         ? [...(bundles as string[]).filter(item => item !== packageName), packageName]
         : (bundles as string[]).filter(item => item !== packageName)
-      const previous: unknown = manifest.dsh.desktopNextDeselectedBundles ?? []
-      const ledger = new Set(Array.isArray(previous) ? previous as string[] : [])
-      if (selected) ledger.delete(packageName)
-      else ledger.add(packageName)
-      if (ledger.size === 0) delete manifest.dsh.desktopNextDeselectedBundles
-      else manifest.dsh.desktopNextDeselectedBundles = [...ledger].sort()
       atomicJson(join(dir, 'package.json'), manifest)
     })
   }

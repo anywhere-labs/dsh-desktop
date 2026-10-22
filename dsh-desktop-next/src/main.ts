@@ -807,12 +807,6 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
     const bundle = runtime.recovery.bundles(runtime.selected).find(item => item.bundleId === input.id)
     if (!bundle || bundle.toggle !== (enable ? 'enable' : 'disable')
       || !/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u.test(bundle.packageName)) throw new Error('This plugin cannot be changed')
-    if (!await confirmed(
-      enable ? t(`启用插件「${bundle.packageName}」？`, `Enable “${bundle.packageName}”?`)
-        : t(`禁用插件「${bundle.packageName}」？`, `Disable “${bundle.packageName}”?`),
-      enable ? t('下次启动时会重新加载此插件。', 'The plugin will load again on the next start.')
-        : t('不会删除任何内容：插件、版本声明和配置都会保留，只是下次启动时不再加载。随时可以重新启用。',
-          'Nothing is deleted: the plugin, its version declaration and its configuration all stay. It simply will not load on the next start, and you can enable it again at any time.'))) return
     await recoveryStopping
     if (!runtime.safeMode) await runtime.backend.stop()
     await runtime.recovery.setBundleSelected(runtime.selected, bundle.packageName, enable)

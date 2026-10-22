@@ -1195,6 +1195,7 @@ it('disables and re-enables a Profile bundle from recovery without running the p
     const command = fixture.handlers.get('dsh-next:command')!
     const state = () => fixture.handlers.get('dsh-next:state')!(sender)
     const { dialog } = await import('electron')
+    vi.mocked(dialog.showMessageBox).mockClear()
 
     await command(sender, { type: 'recovery-action', action: 'preview-disable', id: 'my-plugin' })
     // Nothing is installed or removed, so a half-written package directory and a
@@ -1207,15 +1208,12 @@ it('disables and re-enables a Profile bundle from recovery without running the p
       .toMatchObject({ status: 'disabled', toggle: 'enable' })
     expect(state().recovery.notice).toMatchObject({ tone: 'success' })
 
-    vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 1, checkboxChecked: false })
-    await command(sender, { type: 'recovery-action', action: 'preview-enable', id: 'my-plugin' })
-    expect(JSON.parse(readFileSync(path, 'utf8')).dsh.profile.bundles).not.toContain('my-plugin')
-
     await expect(command(sender, { type: 'recovery-action', action: 'preview-disable', id: 'my-plugin' }))
       .rejects.toThrow('cannot be changed')
 
     await command(sender, { type: 'recovery-action', action: 'preview-enable', id: 'my-plugin' })
     expect(JSON.parse(readFileSync(path, 'utf8')).dsh.profile.bundles).toContain('my-plugin')
+    expect(dialog.showMessageBox).not.toHaveBeenCalled()
     expect(fixture.plugin).not.toHaveBeenCalled()
   } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })

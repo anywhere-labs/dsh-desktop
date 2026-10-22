@@ -35,8 +35,6 @@ interface ProfileManifest {
      */
     desktopNextScheduleBundle?: number
     desktopNextOnboarding?: { version: number; outcome: 'completed' | 'skipped'; accountPending?: boolean }
-    /** Names recovery removed from `profile.bundles`; a UI ledger, never a policy. */
-    desktopNextDeselectedBundles?: string[]
     profile: { bundles: string[] }
   }
   [key: string]: unknown

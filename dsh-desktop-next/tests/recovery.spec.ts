@@ -90,7 +90,6 @@ it('disables and re-enables a bundle without deleting its dependency, taking a b
   const disabled = JSON.parse(readFileSync(path, 'utf8'))
   expect(disabled.dsh.profile.bundles).not.toContain('my-plugin')
   expect(disabled.dependencies['my-plugin']).toBe('1.0.0')
-  expect(disabled.dsh.desktopNextDeselectedBundles).toEqual(['my-plugin'])
   expect(recovery.bundles('desktop').find(item => item.packageName === 'my-plugin'))
     .toMatchObject({ status: 'disabled', action: 'uninstall', toggle: 'enable' })
   expect(readdirSync(recovery.directory)).toHaveLength(1)
@@ -98,7 +97,6 @@ it('disables and re-enables a bundle without deleting its dependency, taking a b
   await recovery.setBundleSelected('desktop', 'my-plugin', true)
   const enabled = JSON.parse(readFileSync(path, 'utf8'))
   expect(enabled.dsh.profile.bundles).toContain('my-plugin')
-  expect(enabled.dsh.desktopNextDeselectedBundles).toBeUndefined()
   expect(recovery.bundles('desktop').find(item => item.packageName === 'my-plugin')?.toggle).toBe('disable')
   expect(readdirSync(recovery.directory)).toHaveLength(2)
 })
@@ -124,14 +122,14 @@ it('refuses a protected, unknown, or already-applied selection change', async ()
   expect(readFileSync(path, 'utf8')).toBe(before)
 })
 
-it('forgets a ledger entry once the bundle is reselected or its dependency is gone', async () => {
+it('derives disabled bundles directly from dependencies outside profile.bundles', () => {
   const { directory, recovery } = fixture()
   const path = join(directory, 'package.json')
   const manifest = JSON.parse(readFileSync(path, 'utf8'))
-  manifest.dsh.profile.bundles.push('my-plugin')
   manifest.dependencies = { ...manifest.dependencies, 'my-plugin': '1.0.0' }
   writeFileSync(path, JSON.stringify(manifest))
-  await recovery.setBundleSelected('desktop', 'my-plugin', false)
+  expect(recovery.bundles('desktop').filter(item => item.packageName === 'my-plugin'))
+    .toEqual([expect.objectContaining({ status: 'disabled', action: 'uninstall', toggle: 'enable' })])
 
   const reselected = JSON.parse(readFileSync(path, 'utf8'))
   reselected.dsh.profile.bundles.push('my-plugin')
