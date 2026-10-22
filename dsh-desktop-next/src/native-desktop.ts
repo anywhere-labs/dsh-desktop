@@ -3,6 +3,7 @@ import { unpackedPath } from './asar-archive-policy.ts'
 import { join } from 'node:path'
 import { Menu, nativeImage, nativeTheme, Notification, Tray, type BrowserWindow } from 'electron'
 import { desktopMenu } from './desktop-menu.ts'
+import { roleApplicationMenuTemplate } from './menu-locale.ts'
 import { notificationCopy, notificationEnabled } from './notifications.ts'
 import type { DesktopCommand, DesktopPreferences, DesktopState, DesktopNotification } from './desktop-contract.ts'
 import { windowMaterial } from './window-material.ts'
@@ -37,9 +38,9 @@ export class NativeDesktop {
   }
   items() { return desktopMenu(this.options.state(), this.options.language(), this.options.show, this.options.run) }
   refresh(): void {
-    if (process.platform !== 'win32') Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'DSH NEXT', submenu: this.items() }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
-    ]))
+    if (process.platform !== 'win32') Menu.setApplicationMenu(Menu.buildFromTemplate(
+      roleApplicationMenuTemplate(this.items(), this.options.language()),
+    ))
     if (!this.available) return
     const state = this.options.state()
     this.tray!.setToolTip(`DSH NEXT · ${state.selected} · ${state.phase}${state.updates && state.updates.phase !== 'idle' ? ` · ${updateLabel(state.updates, this.options.language())}` : ''}`)
