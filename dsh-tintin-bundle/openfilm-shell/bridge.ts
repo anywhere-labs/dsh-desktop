@@ -167,6 +167,7 @@ function projectChanged(next: Project, request?: number) {
   const current = project.get();
   if (current?.id === next.id && current.name === next.name && current.path === next.path) return;
   project.set({ id: next.id, name: next.name, path: next.path });
+  place(); /* 项目解析落地即重排: 聊天列此刻才具备显示条件(嵌入无 /projects 路由) */
 }
 async function follow() {
   /* TinTin: 按「影片目录」匹配 Studio 的项目(影片目录由 studio-preload 轮询
@@ -192,8 +193,9 @@ for (const method of ['pushState', 'replaceState'] as const) {
 }
 addEventListener('popstate', () => { projectReady = follow(); place(); });
 projectReady = follow();
-/* TinTin: 影片目录由 studio-preload 轮询提供 —— 周期性按目录重解析项目(嵌入页无 /projects 路由可依赖) */
-setInterval(() => { void follow() }, 2500);
+/* TinTin: 影片目录由 studio-preload 轮询提供 —— 周期性按目录重解析项目并重排
+   (嵌入页无 /projects 路由可依赖; place 在项目落地后必须重跑, 否则聊天列停留隐藏态) */
+setInterval(() => { void follow().then(() => place()) }, 2500);
 /* TinTin: 影片目录由 studio-preload 轮询提供 —— 周期性按目录重解析项目(无路由可依赖) */
 setInterval(() => { void follow() }, 2500);
 
