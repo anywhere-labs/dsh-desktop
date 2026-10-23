@@ -1,0 +1,739 @@
+From f517e9ab596c06f813af854558f68c62f7be8501 Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Fri, 23 Oct 2026 16:03:24 +0800
+Subject: [PATCH 08/13] feat(workspace): add the Workspace edit slot and
+ forced-new sessions
+
+Declares sidebar.workspaces.workspace.edit (root-scoped, WorkspaceEditOwnerProps) so a Desktop contribution can put fields in the browser-owned edit dialog without taking over the row menu, and threads a fresh option through UiWorkspace.startSession/openWorkspace that creates a Session identity instead of adopting the Workspace's reusable blank one.
+---
+ packages/client/ui-workspace/README.i18n.yaml |  8 +--
+ packages/client/ui-workspace/README.md        |  6 ++-
+ packages/client/ui-workspace/README.zh.md     |  6 ++-
+ .../ui-workspace/src/client/contract/slots.ts | 17 ++++++-
+ .../client/ui-workspace/src/client/index.ts   |  5 +-
+ .../client/ui-workspace/src/client/locales.ts |  8 +++
+ .../ui-workspace/src/client/navigation.ts     | 28 +++++++---
+ .../ui-workspace/src/client/rows/Rows.tsx     | 34 ++++++++++---
+ .../src/client/rows/WorkspaceBrowser.tsx      | 51 +++++++++++++++++--
+ .../ui-workspace/tests/apply.client.spec.ts   |  6 ++-
+ .../ui-workspace/tests/rows.client.spec.tsx   | 24 +++++++--
+ .../tests/workspace-browser.client.spec.tsx   | 51 ++++++++++++++++---
+ .../tests/workspaces-service.client.spec.ts   | 17 +++++++
+ 13 files changed, 220 insertions(+), 41 deletions(-)
+
+diff --git a/packages/client/ui-workspace/README.i18n.yaml b/packages/client/ui-workspace/README.i18n.yaml
+index 1d71954157..a824ed25af 100644
+--- a/packages/client/ui-workspace/README.i18n.yaml
++++ b/packages/client/ui-workspace/README.i18n.yaml
+@@ -21,8 +21,8 @@
+   en: 1fe0693758e0536b
+   zh: ef30198bc767fc04
+ /deepseek-ai-dsh-client-ui-workspace/use-this-package/workspace-hierarchy:
+-  en: 5e049b90c55eddb3
+-  zh: e06dc8d0d25c013f
++  en: 05497246ceeeeb57
++  zh: b27bbdceb981a81a
+ /deepseek-ai-dsh-client-ui-workspace/use-this-package/search:
+   en: 9eab3bfbaf98c987
+   zh: 54e7e141dae5c9e8
+@@ -33,8 +33,8 @@
+   en: 9fb88260380bf093
+   zh: 3bace2b96ecd4a82
+ /deepseek-ai-dsh-client-ui-workspace/use-this-package/active-schedule-markers:
+-  en: dd0a7799c76c0f94
+-  zh: 48d1cdacc9168aa2
++  en: 81948e8650df424c
++  zh: b2db17fceb8cb18c
+ /deepseek-ai-dsh-client-ui-workspace/understand-the-implementation:
+   en: 21590da1f7488361
+   zh: 95916475cced409e
+diff --git a/packages/client/ui-workspace/README.md b/packages/client/ui-workspace/README.md
+index 7a5f94d110..8c65815653 100644
+--- a/packages/client/ui-workspace/README.md
++++ b/packages/client/ui-workspace/README.md
+@@ -45,6 +45,8 @@ Choose **Add workspace** and select a directory to register it and open a Sessio
+ 
+ Hierarchy uses registered canonical paths only. It does not scan for projects or resolve symlink aliases. Nesting does not change Session working directories, logs, or Workspace membership. Deleting a parent Workspace leaves its child Workspaces registered and places them under their next registered ancestor, or at the root.
+ 
++The Workspace edit dialog exposes the root-scoped `sidebar.workspaces.workspace.edit` slot. Its owner receives `WorkspaceEditOwnerProps { workspaceId: WorkspaceId; path: string; title: string }`, where `path` is the canonical primary Workspace path. A Client plugin can place additional source-folder controls there without renaming the Workspace or changing its primary path; choosing another file-browser root does not change Session cwd.
++
+ ### Search
+ 
+ Collapsed search is one header action beside the view and add actions: activating it expands the field across the header. A non-blank query replaces either browsing mode with one flat result list — case-insensitive title and Workspace substring matches appear immediately, while a 250 ms debounced Host request adds ranked current-conversation content matches and snippets. Each new query aborts the preceding request; a failed content search leaves metadata matches visible without an additional warning. The list is capped at 20. Choosing an unarchived result clears and collapses search, opens the Session, and scrolls its row into view in the configured browsing mode; grouped browsing also expands its Workspace and the full Session list when required. Archived results offer Unarchive; attempting to open one explains that restriction without clearing the query or navigating.
+@@ -69,11 +71,11 @@ Grouped and flat Session rows show a clock mark when the Session has active sche
+ 
+ -----
+ 
+-`ctx.uiWorkspace.openSession(target)` synchronously replaces the owned `mainView` reference and returns the main area to Conversation without waiting for `reference.ready`, so history loading renders inside the selected Session view. The target may be a known Session id or a durable direct-parent subagent address; an explicit address does not require a preloaded parent catalog. `openWorkspace(id, beforeOpen?)` opens its result only if no later navigation has superseded the request; New Session uses `openWorkspace`. `forkSession(id)` creates the child without navigating or superseding a pending navigation. The optional synchronous preparation callback runs after the target is retained and only for a current Workspace request, so superseded requests do not move composer drafts. Navigation or owner disposal suppresses the late UI commit, not the underlying Session creation. Startup restoration retains its main reference without changing the selected panel or cancelling a later navigation. Archiving the main Session releases its reference and clears the main selection. Selection failure leaves a global panel visible. Session rows read `usePanelInfo` to suppress their selected appearance while a global panel is active; search and directory-picker focus alone do not leave that panel.
++`ctx.uiWorkspace.openSession(target)` synchronously replaces the owned `mainView` reference and returns the main area to Conversation without waiting for `reference.ready`, so history loading renders inside the selected Session view. The target may be a known Session id or a durable direct-parent subagent address; an explicit address does not require a preloaded parent catalog. `openWorkspace(id, beforeOpen?, options?)` opens its result only if no later navigation has superseded the request; New Session uses `openWorkspace`, and its `fresh` option creates a new identity instead of acquiring a blank. `forkSession(id)` creates the child without navigating or superseding a pending navigation. The optional synchronous preparation callback runs after the target is retained and only for a current Workspace request, so superseded requests do not move composer drafts. Navigation or owner disposal suppresses the late UI commit, not the underlying Session creation. Startup restoration retains its main reference without changing the selected panel or cancelling a later navigation. Archiving the main Session releases its reference and clears the main selection. Selection failure leaves a global panel visible. Session rows read `usePanelInfo` to suppress their selected appearance while a global panel is active; search and directory-picker focus alone do not leave that panel.
+ 
+ Navigation and startup restoration obtain the selected Session's projections from its `follow`; neither issues a separate projection refresh for that Session or its parent.
+ 
+-New Session tries to acquire the first eligible blank in catalog order; startup restoration tries the saved blank. If that writer is held, navigation creates a new Session without trying other blanks. Other acquisition failures abort the request: an explicit New Session or hero Workspace pick shows the failure as a transient notice quoting the Host's code and message (for example a preset that fails to mount) or, for a failure that is not a Host refusal, that failure's own message; a request a later navigation or owner disposal superseded raises no notice, and startup restoration reports only to the console. Released blanks retain their slash-command state when reused. Later navigation cancels a pending startup selection.
++New Session tries to acquire the first eligible blank in catalog order; startup restoration tries the saved blank. The Workspace row's fresh-create button skips that acquisition and asks the Host for a new identity, which neither observes nor resumes an existing Session. If that writer is held, navigation creates a new Session without trying other blanks. Other acquisition failures abort the request: an explicit New Session or hero Workspace pick shows the failure as a transient notice quoting the Host's code and message (for example a preset that fails to mount) or, for a failure that is not a Host refusal, that failure's own message; a request a later navigation or owner disposal superseded raises no notice, and startup restoration reports only to the console. Released blanks retain their slash-command state when reused. Later navigation cancels a pending startup selection.
+ 
+ Once both Workspace and Session startup baselines are ready, an empty installation calls `workspaces.initializeDefault` and creates or reuses its blank Session. The composer becomes editable when that Session is selected; no message is submitted automatically. Later navigation or owner disposal prevents startup from selecting its result. Ineligible first use leaves the folder picker available without an error. Default Workspace creation failure shows a transient notice directing the user to Choose workspace, and is not retried until the next startup. Session creation failures use the ordinary restoration error handling. The registered Workspace remains available if Session creation or later submission fails.
+ 
+diff --git a/packages/client/ui-workspace/README.zh.md b/packages/client/ui-workspace/README.zh.md
+index 634d293535..451aeed7bc 100644
+--- a/packages/client/ui-workspace/README.zh.md
++++ b/packages/client/ui-workspace/README.zh.md
+@@ -45,6 +45,8 @@ kind: "package-reference"
+ 
+ 层级仅使用已注册的规范路径，不扫描项目，也不解析符号链接别名。嵌套不会改变 Session 的工作目录、日志或 Workspace 归属。删除父 Workspace 后，子 Workspace 仍保持注册，并归入下一个已注册祖先；没有祖先时显示在根层级。
+ 
++Workspace 编辑对话框提供 root-scoped `sidebar.workspaces.workspace.edit` slot。其 owner 接收 `WorkspaceEditOwnerProps { workspaceId: WorkspaceId; path: string; title: string }`，其中 `path` 是规范的主 Workspace 路径。Client 插件可在此放置附加源目录控件，而不重命名 Workspace 或修改主路径；选择其他文件浏览器根目录也不会改变 Session cwd。
++
+ ### 搜索
+ 
+ 折叠搜索是视图和添加操作旁的一枚区头按钮：激活后输入框会扩展并占据区头。非空白查询会以单一扁平结果列表替代任一浏览模式——不区分大小写的标题和 Workspace 子串匹配项会立即显示，经 250 ms 防抖的 Host 请求则会加入经过排序的当前对话内容匹配项及其摘要片段。每次新查询都会中止前一个请求；内容搜索失败时，元数据匹配项仍会显示，不另给警告。列表最多显示 20 条结果。选择未归档结果会清空并收起搜索、打开 Session，并在当前浏览模式中将其行滚动到可见区域；分组浏览还会按需展开所属 Workspace 和完整 Session 列表。已归档结果提供取消归档操作；尝试打开时会说明限制，不清空查询，也不导航。
+@@ -69,11 +71,11 @@ Session 行渲染运行时的实时 `pendingInteraction` 分类：审批显示**
+ 
+ -----
+ 
+-`ctx.uiWorkspace.openSession(target)` 会同步替换其拥有的 `mainView` reference，并让主区域返回 Conversation，而不等待 `reference.ready`，因此历史加载会显示在已经选中的 Session 视图内。目标可以是已知 Session id，也可以是持久的直接父子 subagent 地址；显式地址不要求预先加载 parent catalog。`openWorkspace(id, beforeOpen?)` 仅在请求未被后续导航替代时打开结果；新会话使用 `openWorkspace`。`forkSession(id)` 创建子会话，不导航，也不替代尚未完成的导航。可选的同步准备回调在目标被 retain 后执行，并且仅对仍有效的 Workspace 请求执行，因此过期请求不会搬移 composer 草稿。后续导航或 owner 释放会阻止晚到的 UI 提交，但不取消底层 Session 创建。启动恢复会 retain 主 reference，不改变已选面板，也不取消后续导航。归档主 Session 会释放其 reference 并清除主选择。选择失败时保留当前全局面板。Session 行读取 `usePanelInfo`，在全局面板活跃时不显示 Session 选中样式；仅把焦点移到搜索框或目录选择器不会离开该面板。
++`ctx.uiWorkspace.openSession(target)` 会同步替换其拥有的 `mainView` reference，并让主区域返回 Conversation，而不等待 `reference.ready`，因此历史加载会显示在已经选中的 Session 视图内。目标可以是已知 Session id，也可以是持久的直接父子 subagent 地址；显式地址不要求预先加载 parent catalog。`openWorkspace(id, beforeOpen?, options?)` 仅在请求未被后续导航替代时打开结果；新会话使用 `openWorkspace`，其 `fresh` 选项新建身份而不获取空白会话。`forkSession(id)` 创建子会话，不导航，也不替代尚未完成的导航。可选的同步准备回调在目标被 retain 后执行，并且仅对仍有效的 Workspace 请求执行，因此过期请求不会搬移 composer 草稿。后续导航或 owner 释放会阻止晚到的 UI 提交，但不取消底层 Session 创建。启动恢复会 retain 主 reference，不改变已选面板，也不取消后续导航。归档主 Session 会释放其 reference 并清除主选择。选择失败时保留当前全局面板。Session 行读取 `usePanelInfo`，在全局面板活跃时不显示 Session 选中样式；仅把焦点移到搜索框或目录选择器不会离开该面板。
+ 
+ 导航和启动恢复通过所选 Session 的 `follow` 获取投影，不会另行刷新该 Session 或其父会话的投影。
+ 
+-新建会话尝试获取列表中第一个符合条件的空白会话；启动恢复尝试已保存的空白会话。若该写锁被占用，导航直接新建 Session，不再尝试其他空白会话。其他获取错误会中止请求：显式新建会话或在 hero 中选择工作区时，失败以短暂提示展示，引用 Host 的错误码和消息（例如 preset 挂载失败），非 Host 拒绝的失败则显示其自身消息；已被后续导航或 owner 销毁取代的请求不弹提示，启动恢复仍只报告到控制台。已释放的空白会话被复用时保留 slash 命令状态。后续导航会取消尚未完成的启动选择。
++新建会话尝试获取列表中第一个符合条件的空白会话；启动恢复尝试已保存的空白会话。工作区行的强制新建按钮跳过该获取，向 Host 请求一个新身份，既不读取也不恢复已有会话。若该写锁被占用，导航直接新建 Session，不再尝试其他空白会话。其他获取错误会中止请求：显式新建会话或在 hero 中选择工作区时，失败以短暂提示展示，引用 Host 的错误码和消息（例如 preset 挂载失败），非 Host 拒绝的失败则显示其自身消息；已被后续导航或 owner 销毁取代的请求不弹提示，启动恢复仍只报告到控制台。已释放的空白会话被复用时保留 slash 命令状态。后续导航会取消尚未完成的启动选择。
+ 
+ Workspace 和 Session 的启动基线均就绪后，空安装环境调用 `workspaces.initializeDefault`，创建或复用其空白 Session。选中该 Session 后输入框才可编辑，不会自动提交消息。后续导航或所属上下文销毁会阻止启动流程选中其结果。不符合首次使用条件时仍可选择文件夹，不显示错误。默认工作区创建失败时显示短暂提示，引导用户通过“选择工作区”选择文件夹，直到下次启动才重试。Session 创建失败沿用普通的恢复错误处理。登记成功的工作区在 Session 创建或后续提交失败时仍然保留。
+ 
+diff --git a/packages/client/ui-workspace/src/client/contract/slots.ts b/packages/client/ui-workspace/src/client/contract/slots.ts
+index 45f8564c8e..cc7325a9c2 100644
+--- a/packages/client/ui-workspace/src/client/contract/slots.ts
++++ b/packages/client/ui-workspace/src/client/contract/slots.ts
+@@ -80,6 +80,16 @@ export interface SessionRowOwnerProps {
+   displayTitle: string
+ }
+ 
++/** Workspace identity shown by the browser-owned edit dialog. */
++export interface WorkspaceEditOwnerProps {
++  /** Workspace the edit dialog is open for. */
++  readonly workspaceId: WorkspaceId
++  /** Canonical primary directory; Session cwd remains unchanged by editor contributions. */
++  readonly path: string
++  /** Current display title. */
++  readonly title: string
++}
++
+ /** The row menu's open state as its owner holds it: the `useState` pair. */
+ export type MenuOpenState = readonly [open: boolean, setOpen: (open: boolean) => void]
+ 
+@@ -117,6 +127,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+     'conversation.hero.workspace.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
+     /** Directory-flow hole under the sidebar browsing region (declared by the WorkspaceBrowser entry). */
+     'sidebar.workspaces.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
++    /** Workspace-specific content inside the browser-owned Workspace edit dialog. */
++    'sidebar.workspaces.workspace.edit': { kind: 'single'; scope: 'root'; owner: WorkspaceEditOwnerProps }
+     /**
+      * Leading decoration of one Session row, in the 16px cell before the title
+      * that the row's own state dot otherwise occupies. A higher-priority state
+@@ -238,8 +250,10 @@ export type WorkspaceBrowserInjected = {
+    * Start a New Session in a Workspace: reuse-or-create its blank session and
+    * open it; without an explicit workspace, inherit the current Session
+    * Workspace, then the recent Workspace, or clear into the New Session view.
++   * With `fresh`, skip the reusable blank session and ask the Host to create a
++   * new identity, which neither observes nor resumes prior Session state.
+    */
+-  startSession: (workspaceId?: WorkspaceId) => void
++  startSession: (workspaceId?: WorkspaceId, options?: { readonly fresh?: boolean }) => void
+   /** Open a real Session. */
+   open: (sessionId: SessionId) => void
+   /**
+@@ -455,6 +469,7 @@ export type WorkspaceBrowserProps =
+   PropsRuntime<'sidebar.workspaces'>
+   & PropsRenderSlots<
+     | 'sidebar.workspaces.directoryFlow'
++    | 'sidebar.workspaces.workspace.edit'
+     | 'sidebar.workspaces.session.menu.item'
+     | 'sidebar.workspaces.session.row.action'
+     | 'sidebar.session.row.leading'
+diff --git a/packages/client/ui-workspace/src/client/index.ts b/packages/client/ui-workspace/src/client/index.ts
+index 2ecaf7e264..8cd68730c9 100644
+--- a/packages/client/ui-workspace/src/client/index.ts
++++ b/packages/client/ui-workspace/src/client/index.ts
+@@ -58,7 +58,7 @@ export type { UiWorkspace } from './navigation.ts'
+ export type {
+   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
+   MenuOpenState, RowToast, SessionRenameTarget, SessionRowOwnerProps, UseMenuOpenState, WorkspaceBrowserInjected,
+-  SessionRowScheduleOwnerProps,
++  SessionRowScheduleOwnerProps, WorkspaceEditOwnerProps,
+   WorkspaceBrowserProps,
+   WorkspacePickerInjected, WorkspacePickerProps,
+ } from './contract/slots.ts'
+@@ -231,7 +231,7 @@ export function apply(ctx: Context): void {
+   const browserInjected = (): WorkspaceBrowserInjected => ({
+     // Explicit group actions keep their target; unscoped New Session inherits
+     // the current Session Workspace before the recent-Workspace fallback.
+-    startSession: (workspaceId) => { uiWorkspace.startSession(workspaceId) },
++    startSession: (workspaceId, options) => { uiWorkspace.startSession(workspaceId, options) },
+     open: openSession,
+     searchSessions,
+     searchResultLimit: sessions.searchResultLimit,
+@@ -262,6 +262,7 @@ export function apply(ctx: Context): void {
+       name: 'sidebar.workspaces',
+       children: {
+         'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' },
++        'sidebar.workspaces.workspace.edit': { kind: 'single', scope: 'root' },
+         // Every row entry reads the menu's open state through a hook bound
+         // from the row's render occurrence (the owner passes the state pair
+         // as hookContext).
+diff --git a/packages/client/ui-workspace/src/client/locales.ts b/packages/client/ui-workspace/src/client/locales.ts
+index 1ce42fab28..142ff1e38e 100644
+--- a/packages/client/ui-workspace/src/client/locales.ts
++++ b/packages/client/ui-workspace/src/client/locales.ts
+@@ -49,6 +49,8 @@ export const zh = {
+   'folderError.title': '无法打开文件夹',
+   'folderError.retry': '重新选择',
+   'rename': '重命名',
++  'edit.workspace': '编辑',
++  'edit.workspace.title': '编辑工作区',
+   'rename.workspace.title': '重命名工作区',
+   'rename.session.title': '重命名会话',
+   'field.workspaceName': '工作区名称',
+@@ -97,6 +99,8 @@ export const zh = {
+   'actions.unpin': '取消置顶',
+   'actions.newSession': '新会话',
+   'actions.newSession.aria': '在“{name}”中新建会话',
++  'actions.freshSession': '强制新建会话',
++  'actions.freshSession.aria': '在“{name}”中强制新建会话',
+   'status.running': '进行中',
+   'status.subagentsRunning.one': '{n} 个子智能体运行中',
+   'status.subagentsRunning.other': '{n} 个子智能体运行中',
+@@ -168,6 +172,8 @@ export const en = {
+   'folderError.title': 'Couldn’t open folder',
+   'folderError.retry': 'Choose again',
+   'rename': 'Rename',
++  'edit.workspace': 'Edit',
++  'edit.workspace.title': 'Edit workspace',
+   'rename.workspace.title': 'Rename workspace',
+   'rename.session.title': 'Rename session',
+   'field.workspaceName': 'Workspace name',
+@@ -216,6 +222,8 @@ export const en = {
+   'actions.unpin': 'Unpin',
+   'actions.newSession': 'New session',
+   'actions.newSession.aria': 'New session in {name}',
++  'actions.freshSession': 'Force new session',
++  'actions.freshSession.aria': 'Force a new session in {name}',
+   'status.running': 'Running',
+   'status.subagentsRunning.one': '{n} subagent running',
+   'status.subagentsRunning.other': '{n} subagents running',
+diff --git a/packages/client/ui-workspace/src/client/navigation.ts b/packages/client/ui-workspace/src/client/navigation.ts
+index 2ce1c187cf..24b2f38d5e 100644
+--- a/packages/client/ui-workspace/src/client/navigation.ts
++++ b/packages/client/ui-workspace/src/client/navigation.ts
+@@ -37,11 +37,17 @@ export interface UiWorkspace {
+    * @param workspaceId - target Workspace.
+    * @param beforeOpen - optional synchronous preparation for the selected Session,
+    * skipped after supersession; a throw aborts the open and releases the retained reference.
++   * @param options - `fresh` creates a new Session identity instead of reusing the
++   * Workspace's blank one, so the Host neither observes nor resumes prior Session state.
+    * @returns completion; a superseded request may create a Session but does not open it.
+    * @throws on failure; a refused creation is also shown through the Workspace
+    * notice unless a later navigation or disposal superseded the request.
+    */
+-  openWorkspace(workspaceId: WorkspaceId, beforeOpen?: (sessionId: SessionId) => void): Promise<void>
++  openWorkspace(
++    workspaceId: WorkspaceId,
++    beforeOpen?: (sessionId: SessionId) => void,
++    options?: { readonly fresh?: boolean },
++  ): Promise<void>
+   /**
+    * Fork a Session without changing the current selection.
+    * @param sessionId - source Session.
+@@ -59,8 +65,10 @@ export interface UiWorkspace {
+    * Start a New Session flow and navigate to its Session; a creation the Host
+    * refuses is shown through the Workspace notice and leaves the selection as it was.
+    * @param workspaceId - explicit target; absent inherits the current or most recent Workspace.
++   * @param options - `fresh` skips the Workspace's reusable blank Session and asks
++   * the Host to create a new identity.
+    */
+-  startSession(workspaceId?: WorkspaceId): void
++  startSession(workspaceId?: WorkspaceId, options?: { readonly fresh?: boolean }): void
+   /**
+    * Archive a Session and clear it when it is the current selection.
+    * @param sessionId - Session to archive.
+@@ -201,11 +209,19 @@ class UiWorkspaceService extends Service implements UiWorkspace {
+     this.replaceMain(target, this.lifetime.signal, 'reveal')
+   }
+ 
+-  async openWorkspace(workspaceId: WorkspaceId, beforeOpen?: (sessionId: SessionId) => void): Promise<void> {
++  async openWorkspace(
++    workspaceId: WorkspaceId,
++    beforeOpen?: (sessionId: SessionId) => void,
++    options?: { readonly fresh?: boolean },
++  ): Promise<void> {
+     const navigation = AbortSignal.any([this.ctx.layout.beginNavigation(), this.lifetime.signal])
+     let sessionId: SessionId
+     try {
+-      sessionId = await this.connectWorkspace(workspaceId)
++      // `fresh` bypasses connectWorkspace, so no blank Session is adopted and the
++      // Host is never asked to observe or resume a Session it already has.
++      sessionId = options?.fresh === true
++        ? await this.sessions.create({ workspaceId })
++        : await this.connectWorkspace(workspaceId)
+     } catch (error: unknown) {
+       // Reported here, not in connectWorkspace: startup restoration calls that
+       // directly and stays console-only.
+@@ -220,7 +236,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
+     return this.sessions.fork({ sessionId, increaseTitle: true, ...onCreated === undefined ? {} : { onCreated } })
+   }
+ 
+-  startSession(workspaceId?: WorkspaceId): void {
++  startSession(workspaceId?: WorkspaceId, options?: { readonly fresh?: boolean }): void {
+     const workspace = this.workspaces.list.getSnapshot()
+     const sessions = this.sessions.list.getSnapshot()
+     const current = this.mainReference?.sessionId
+@@ -235,7 +251,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
+       this.clearMain()
+       return
+     }
+-    void this.openWorkspace(target).catch(
++    void this.openWorkspace(target, undefined, options).catch(
+       (reason: unknown) => { console.warn('new session failed:', reason) },
+     )
+   }
+diff --git a/packages/client/ui-workspace/src/client/rows/Rows.tsx b/packages/client/ui-workspace/src/client/rows/Rows.tsx
+index 9179773872..926db124a4 100644
+--- a/packages/client/ui-workspace/src/client/rows/Rows.tsx
++++ b/packages/client/ui-workspace/src/client/rows/Rows.tsx
+@@ -3,7 +3,7 @@
+  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
+  * time->ellipsis, action buttons) are CSS-only, and a session row's clipped
+  * title marquees programmatically while the row is hovered. Workspace row
+- * menus are visual-only except Rename/Delete. A Session row's "..." menu and
++ * menus are visual-only except Edit/Delete. A Session row's "..." menu and
+  * its hover buttons are the `sidebar.workspaces.session.menu.item` and
+  * `sidebar.workspaces.session.row.action` lists, rendered through the
+  * browser's `renderSlot` with the menu's open state as the occurrence's hook
+@@ -17,7 +17,7 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+ import {
+   HoverCard, IconArchiveOutlineRegular, IconEditOutlineRegular,
+   IconEllipsisOutlineRegular, IconFolderCloseRegular, IconFolderOpenRegular,
+-  IconNewChatOutlineRegular, IconPinFillRegular, IconTrashOutlineRegular,
++  IconNewChatOutlineRegular, IconPinFillRegular, IconSparkleRegular, IconTrashOutlineRegular,
+   IconTriangleRightFillRegular, IconUnarchiveOutlineRegular, Menu, relativeTime, StateDot, Tooltip,
+ } from '@deepseek-ai/dsh-client-ui-primitives'
+ import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
+@@ -211,19 +211,25 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
+  * @param props.containsCurrentDescendant - highlight an ancestor even when its subtree is collapsed.
+  * @param props.onToggle - expand/collapse the group.
+  * @param props.onCreate - start a frontend Session inside this Workspace.
++ * @param props.onCreateFresh - start a Session with a new identity that reuses nothing;
++ * absent for the ungrouped bucket, which has no Workspace to create one in.
+  * @param props.drag - optional workspace-row drag wiring.
+  * @param props.home - host account home for POSIX hover-path abbreviation.
+  * @param props.t - the browser root's locale seat.
+  * @returns the row element.
+  */
+-export function ProjectRowItem({ group, containsCurrentDescendant = false, onToggle, onCreate, actions, drag, home, newShortcut, t }: {
++export function ProjectRowItem({
++  group, containsCurrentDescendant = false, onToggle, onCreate, onCreateFresh, actions, drag, home, newShortcut, t,
++}: {
+   group: GroupNode
+   newShortcut?: ShortcutCatalogEntry | undefined
+   containsCurrentDescendant?: boolean
+   onToggle: () => void
+   onCreate: () => void
++  /** Present only for real Workspace rows; hides the fresh-create button otherwise. */
++  onCreateFresh?: (() => void) | undefined
+   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
+-  actions?: { rename: () => void; delete: () => void } | undefined
++  actions?: { edit: () => void; rename: () => void; delete: () => void } | undefined
+   /** Present only for real Workspace rows in the grouped view. */
+   drag?: WorkspaceRowDragProps | undefined
+   /** Host account home; POSIX home-rooted hover paths display as `~`. */
+@@ -236,6 +242,7 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
+   const active = containsCurrentDescendant || (group.expanded && group.containsCurrent)
+   const [menuOpen, setMenuOpen] = useState(false)
+   const workspaceMenuItems = [
++    { id: 'edit', label: t('edit.workspace'), icon: <IconEditOutlineRegular /> },
+     { id: 'rename', label: t('rename'), icon: <IconEditOutlineRegular /> },
+     { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutlineRegular />, danger: true },
+   ]
+@@ -275,9 +282,10 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
+               setMenuOpen(false)
+               // Unknown ids leave before the dispatch: a future menu row must
+               // not inherit the destructive branch as an else fallback.
+-              /* v8 ignore next -- Menu can emit only the rename and delete rows supplied above. */
+-              if (id !== 'rename' && id !== 'delete') return
+-              if (id === 'rename') actions.rename()
++              /* v8 ignore next -- Menu can emit only the edit, rename and delete rows supplied above. */
++              if (id !== 'edit' && id !== 'rename' && id !== 'delete') return
++              if (id === 'edit') actions.edit()
++              else if (id === 'rename') actions.rename()
+               else actions.delete()
+             }}
+             portal
+@@ -305,6 +313,18 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
+             <IconNewChatOutlineRegular />
+           </button>
+         </Tooltip>
++        {onCreateFresh !== undefined && (
++          <Tooltip label={t('actions.freshSession')} side="bottom" align="end" delayMs={500}>
++            <button
++              type="button"
++              className={css.iconButton}
++              aria-label={t('actions.freshSession.aria', { name: label })}
++              onClick={(e) => { e.stopPropagation(); onCreateFresh() }}
++            >
++              <IconSparkleRegular />
++            </button>
++          </Tooltip>
++        )}
+       </span>
+     </div>
+   )
+diff --git a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
+index 3c900b2c6b..20383aa950 100644
+--- a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
++++ b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
+@@ -249,6 +249,8 @@ type SessionTreeProps = Pick<
+   rowState: SessionRowState
+   /** Switch the archived filter back to the default hide-archived view. */
+   onLeaveArchivedOnly: () => void
++  /** Open the browser-owned edit dialog for a real Workspace group. */
++  onEditRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
+   /** Open the browser-owned rename dialog for a real Workspace group. */
+   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
+   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
+@@ -282,7 +284,7 @@ function SessionTree({
+   list, useSessionStatus, startSession, open, workspaces, ungroupedSessionIds,
+   rowState, onLeaveArchivedOnly,
+   workspaceReady, animationResetKey, usePanelInfo,
+-  onRenameRequest, onDeleteRequest, onSessionRenameRequest,
++  onEditRequest, onRenameRequest, onDeleteRequest, onSessionRenameRequest,
+   renderSlot,
+   insertWorkspaceBefore,
+   nestWorkspaces, groupExpansion, setGroupExpanded,
+@@ -511,10 +513,22 @@ function SessionTree({
+               startSession(group.workspaceId)
+             }
+           }}
++          onCreateFresh={group.workspaceId === undefined
++            ? undefined
++            : () => {
++              /* v8 ignore next -- narrowing guard: the fresh action exists only for real-workspace groups. */
++              if (group.workspaceId === undefined) return
++              setGroupExpanded(group.key, true)
++              startSession(group.workspaceId, { fresh: true })
++            }}
+           drag={workspaceDragProps}
+           actions={group.workspaceId === undefined
+             ? undefined
+             : {
++              edit: () => {
++                /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
++                if (group.workspaceId !== undefined) onEditRequest(group.workspaceId, group.label)
++              },
+               rename: () => {
+               /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                 if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
+@@ -1132,6 +1146,7 @@ export function WorkspaceBrowser({
+   // seeded with the label on screen. They differ for a Workspace still
+   // carrying its automatic title, so confirming the prefill pins that name.
+   const [renameTarget, setRenameTarget] = useState<{ workspaceId: WorkspaceId; storedTitle: string } | null>(null)
++  const [editMode, setEditMode] = useState(false)
+   const [renameDraft, setRenameDraft] = useState('')
+   const [renaming, setRenaming] = useState(false)
+   const [renameError, setRenameError] = useState<string | null>(null)
+@@ -1142,25 +1157,36 @@ export function WorkspaceBrowser({
+   const renameDuplicate = renameTarget !== null && renameTrimmed !== ''
+     && workspaces.some(w => w.workspaceId !== renameTarget.workspaceId && w.title === renameTrimmed)
+   const renameBlocked = renaming || renameTrimmed === ''
+-    || renameTarget === null || renameTrimmed === renameTarget.storedTitle || renameDuplicate
++    || renameTarget === null || renameDuplicate || (!editMode && renameTrimmed === renameTarget.storedTitle)
+   const closeRename = () => {
+     if (renaming) return
+     setRenameTarget(null)
++    setEditMode(false)
+     setRenameError(null)
+   }
+   const confirmRename = () => {
+-    if (renameBlocked) return
++    if (renameBlocked || renameTarget === null) return
++    if (renameTrimmed === renameTarget.storedTitle) {
++      setRenameTarget(null)
++      setEditMode(false)
++      return
++    }
+     setRenaming(true)
+     setRenameError(null)
+     renameWorkspace(renameTarget.workspaceId, renameTrimmed).then(() => {
+       setRenaming(false)
+       setRenameTarget(null)
++      setEditMode(false)
+     }).catch((reason: unknown) => {
+       setRenaming(false)
+       setRenameError(reason instanceof Error ? reason.message : String(reason))
+     })
+   }
+ 
++  const workspaceEditTarget = renameTarget === null
++    ? undefined
++    : storedWorkspaces.find(workspace => workspace.workspaceId === renameTarget.workspaceId)
++
+   // The search results' restore button; the row actions own the rest of the
+   // Session verbs as slot entries.
+   const onSessionUnarchive = (sessionId: SessionNode['id']) => {
+@@ -1403,7 +1429,17 @@ export function WorkspaceBrowser({
+                 onSessionRevealed={acknowledgeSessionReveal}
+                 home={home}
+                 t={t}
++                onEditRequest={(workspaceId, displayTitle) => {
++                  setEditMode(true)
++                  setRenameTarget({
++                    workspaceId,
++                    storedTitle: storedWorkspaces.find(w => w.workspaceId === workspaceId)?.title ?? displayTitle,
++                  })
++                  setRenameDraft(displayTitle)
++                  setRenameError(null)
++                }}
+                 onRenameRequest={(workspaceId, displayTitle) => {
++                  setEditMode(false)
+                   setRenameTarget({
+                     workspaceId,
+                     storedTitle: storedWorkspaces.find(w => w.workspaceId === workspaceId)?.title ?? displayTitle,
+@@ -1423,11 +1459,11 @@ export function WorkspaceBrowser({
+         open={renameTarget !== null}
+         onClose={closeRename}
+         closeLabel={t('close')}
+-        title={t('rename.workspace.title')}
++        title={t(editMode ? 'edit.workspace.title' : 'rename.workspace.title')}
+         footer={(
+           <>
+             <Button variant="outline" disabled={renaming} onClick={closeRename}>{t('cancel')}</Button>
+-            <Button variant="primary" disabled={renameBlocked} onClick={confirmRename}>{t('rename')}</Button>
++            <Button variant="primary" disabled={renameBlocked} onClick={confirmRename}>{t(editMode ? 'save' : 'rename')}</Button>
+           </>
+         )}
+       >
+@@ -1448,6 +1484,11 @@ export function WorkspaceBrowser({
+             }
+           }}
+         />
++        {editMode && workspaceEditTarget !== undefined && renderSlot('sidebar.workspaces.workspace.edit', {
++          workspaceId: workspaceEditTarget.workspaceId,
++          path: workspaceEditTarget.path,
++          title: renameDraft,
++        })}
+         {renameDuplicate && (
+           <div className={css.renameError} role="alert">{t('conflict.named', { name: renameTrimmed })}</div>
+         )}
+diff --git a/packages/client/ui-workspace/tests/apply.client.spec.ts b/packages/client/ui-workspace/tests/apply.client.spec.ts
+index 7d64d78aba..2da4bb8410 100644
+--- a/packages/client/ui-workspace/tests/apply.client.spec.ts
++++ b/packages/client/ui-workspace/tests/apply.client.spec.ts
+@@ -530,9 +530,11 @@ describe('ui-workspace apply', () => {
+     const browser = faceOf(b.slots.entries('sidebar.workspaces')[0]!) as WorkspaceBrowserInjected
+     // The browser share delegates to the shared Session navigation action.
+     browser.startSession('ws' as never)
+-    expect(startSession).toHaveBeenLastCalledWith('ws')
++    expect(startSession).toHaveBeenLastCalledWith('ws', undefined)
+     browser.startSession()
+-    expect(startSession).toHaveBeenLastCalledWith(undefined)
++    expect(startSession).toHaveBeenLastCalledWith(undefined, undefined)
++    browser.startSession('ws' as never, { fresh: true })
++    expect(startSession).toHaveBeenLastCalledWith('ws', { fresh: true })
+     browser.open('session' as never)
+     expect(b.retain).toHaveBeenCalledWith('session', { source: 'mainView' })
+     const signal = new AbortController().signal
+diff --git a/packages/client/ui-workspace/tests/rows.client.spec.tsx b/packages/client/ui-workspace/tests/rows.client.spec.tsx
+index 6a32265a17..f71682c864 100644
+--- a/packages/client/ui-workspace/tests/rows.client.spec.tsx
++++ b/packages/client/ui-workspace/tests/rows.client.spec.tsx
+@@ -141,6 +141,17 @@ describe('workspace browser rows', () => {
+     expect(screen.getByText(label)).toBeTruthy()
+   })
+ 
++  it('renders the fresh-create action beside the blank-reusing one', () => {
++    const onCreateFresh = vi.fn()
++    const group: GroupNode = {
++      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
++      sessionCount: 1, expanded: true, containsCurrent: false, sessions: [],
++    }
++    render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} onCreateFresh={onCreateFresh} t={t} />)
++    fireEvent.click(screen.getByRole('button', { name: '在“Project”中强制新建会话' }))
++    expect(onCreateFresh).toHaveBeenCalledOnce()
++  })
++
+   it('renders an active Workspace and keeps its create action separate from toggling', () => {
+     const onToggle = vi.fn()
+     const onCreate = vi.fn()
+@@ -427,7 +438,8 @@ describe('workspace browser rows', () => {
+     expect(screen.getByRole('treeitem').querySelector('[data-state="done"]')).not.toBeNull()
+   })
+ 
+-  it('workspace row menu opens on the ellipsis, renames, and shows the danger delete row', () => {
++  it('workspace row menu preserves Edit, Rename, and danger Delete actions', () => {
++    const onEdit = vi.fn()
+     const onRename = vi.fn()
+     const onDelete = vi.fn()
+     const onToggle = vi.fn()
+@@ -437,18 +449,24 @@ describe('workspace browser rows', () => {
+     }
+     render(<ProjectRowItem
+       group={group} onToggle={onToggle} onCreate={vi.fn()}
+-      actions={{ rename: onRename, delete: onDelete }} t={t}
++      actions={{ edit: onEdit, rename: onRename, delete: onDelete }} t={t}
+     />)
+     fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
+-    // Opening the menu neither toggles the group nor renames yet.
++    // Opening the menu neither toggles the group nor edits yet.
+     expect(onToggle).not.toHaveBeenCalled()
+     expect(screen.getByRole('menuitem', { name: '删除工作区' }).className).toMatch(/danger/)
++    fireEvent.click(screen.getByRole('menuitem', { name: '编辑' }))
++    expect(onEdit).toHaveBeenCalledOnce()
++    expect(onRename).not.toHaveBeenCalled()
++    expect(screen.queryByRole('menu')).toBeNull()
++    fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
+     fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+     expect(onRename).toHaveBeenCalledOnce()
+     expect(screen.queryByRole('menu')).toBeNull()
+     fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
+     fireEvent.click(screen.getByRole('menuitem', { name: '删除工作区' }))
+     expect(screen.queryByRole('menu')).toBeNull()
++    expect(onEdit).toHaveBeenCalledOnce()
+     expect(onRename).toHaveBeenCalledOnce()
+     expect(onDelete).toHaveBeenCalledOnce()
+     // Escape closes without selecting (Menu onClose path).
+diff --git a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
+index f3ee447c1c..426c53a4c2 100644
+--- a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
++++ b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
+@@ -12,7 +12,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
+ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
+ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+ import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
+-import type { DirectoryFlowOwnerProps, WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
++import type { DirectoryFlowOwnerProps, WorkspaceBrowserProps, WorkspaceEditOwnerProps } from '../src/client/contract/slots.ts'
+ import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
+ import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
+ import { UNGROUPED_KEY } from '../src/client/tree.ts'
+@@ -1259,6 +1259,18 @@ describe('WorkspaceBrowser', () => {
+     expect(startSession).toHaveBeenCalledWith(wid('alpha'))
+   })
+ 
++  it('expands the target group before starting a forced-new session from its row', () => {
++    const startSession = vi.fn()
++    const b = mount({
++      useSessions: hook(sessionState([summary('alpha-s', 1)])),
++      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
++      startSession,
++    })
++    fireEvent.click(screen.getByRole('button', { name: '在“alpha”中强制新建会话' }))
++    expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: true })
++    expect(startSession).toHaveBeenCalledWith(wid('alpha'), { fresh: true })
++  })
++
+   it('auto-expands the Ungrouped bucket for a loose current session; its header has no menu and its ＋ is inert', () => {
+     const startSession = vi.fn()
+     mount({
+@@ -1269,6 +1281,7 @@ describe('WorkspaceBrowser', () => {
+     // The loose session's group is UNGROUPED_KEY: expanded by the effect.
+     expect(screen.getByText('loose')).toBeTruthy()
+     expect(screen.queryByRole('button', { name: '工作区“未分组”的操作' })).toBeNull()
++    expect(screen.queryByRole('button', { name: '在“未分组”中强制新建会话' })).toBeNull()
+     fireEvent.click(screen.getByRole('button', { name: '在“未分组”中新建会话' }))
+     expect(startSession).not.toHaveBeenCalled()
+   })
+@@ -2242,11 +2255,11 @@ describe('WorkspaceBrowser', () => {
+     })
+     expect(screen.getByRole('button', { name: '工作区“默认工作区”的操作' })).toBeTruthy()
+     expect(screen.getByRole('button', { name: '工作区“default-workspace backup”的操作' })).toBeTruthy()
+-    // The dialog edits the text on screen, and the stored title — not that
+-    // text — decides whether confirming saves. So confirming the untouched
+-    // prefill pins the localized name and the row stops following the language.
++    // The legacy Rename command still presents its own action and title. The
++    // visible localized default is saved as an explicit title when confirmed.
+     fireEvent.click(screen.getByRole('button', { name: '工作区“默认工作区”的操作' }))
+     fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
++    expect(screen.getByRole('dialog', { name: '重命名工作区' })).toBeTruthy()
+     expect(screen.getByLabelText<HTMLInputElement>('工作区名称').value).toBe('默认工作区')
+     expect(screen.queryByRole('alert')).toBeNull()
+     const confirm = screen.getByRole<HTMLButtonElement>('button', { name: '重命名' })
+@@ -2255,6 +2268,29 @@ describe('WorkspaceBrowser', () => {
+     expect(renameWorkspace).toHaveBeenCalledWith(wid('alpha'), '默认工作区')
+   })
+ 
++  it('renders the Workspace editor child inside the Edit dialog with the canonical root', () => {
++    const renameWorkspace = vi.fn(async () => {})
++    const renderSlot: WorkspaceBrowserProps['renderSlot'] = (name: string, owner: object) => {
++      if (name !== 'sidebar.workspaces.workspace.edit') return null
++      const edit = owner as WorkspaceEditOwnerProps
++      return <div data-testid="workspace-editor" data-path={edit.path} data-workspace-id={edit.workspaceId} />
++    }
++    mount({
++      useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
++      renameWorkspace,
++      renderSlot,
++    })
++
++    fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
++    fireEvent.click(screen.getByRole('menuitem', { name: '编辑' }))
++    expect(screen.getByRole('dialog', { name: '编辑工作区' })).toBeTruthy()
++    expect(screen.getByTestId('workspace-editor').getAttribute('data-path')).toBe('/projects/alpha')
++    expect(screen.getByTestId('workspace-editor').getAttribute('data-workspace-id')).toBe('alpha')
++    fireEvent.click(screen.getByRole('button', { name: '保存' }))
++    expect(renameWorkspace).not.toHaveBeenCalled()
++    expect(screen.queryByRole('dialog')).toBeNull()
++  })
++
+   it('renames a workspace through the row menu dialog', async () => {
+     let resolveRename!: () => void
+     const renameWorkspace = vi.fn(() => new Promise<void>((resolve) => { resolveRename = resolve }))
+@@ -2266,7 +2302,7 @@ describe('WorkspaceBrowser', () => {
+     fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+     const input = screen.getByLabelText<HTMLInputElement>('工作区名称')
+     expect(input.value).toBe('Alpha')
+-    // Unchanged and blank names stay blocked.
++    // The original Rename action remains disabled until the title changes.
+     expect(screen.getByRole<HTMLButtonElement>('button', { name: '重命名' }).disabled).toBe(true)
+     fireEvent.change(input, { target: { value: '   ' } })
+     expect(screen.getByRole<HTMLButtonElement>('button', { name: '重命名' }).disabled).toBe(true)
+@@ -2294,8 +2330,9 @@ describe('WorkspaceBrowser', () => {
+     fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
+     fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+     const input = screen.getByLabelText<HTMLInputElement>('工作区名称')
+-    // Enter with a blocked draft (unchanged) does nothing.
+-    fireEvent.keyDown(input, { key: 'Enter' })
++    // A blank name blocks Save.
++    fireEvent.change(input, { target: { value: '   ' } })
++    expect(screen.getByRole<HTMLButtonElement>('button', { name: '重命名' }).disabled).toBe(true)
+     expect(renameWorkspace).not.toHaveBeenCalled()
+     fireEvent.change(input, { target: { value: 'Renamed' } })
+     fireEvent.keyDown(input, { key: 'a' })
+diff --git a/packages/client/ui-workspace/tests/workspaces-service.client.spec.ts b/packages/client/ui-workspace/tests/workspaces-service.client.spec.ts
+index aae7d728ac..79a17a2e3a 100644
+--- a/packages/client/ui-workspace/tests/workspaces-service.client.spec.ts
++++ b/packages/client/ui-workspace/tests/workspaces-service.client.spec.ts
+@@ -644,6 +644,23 @@ describe('UiWorkspaceService', () => {
+     expect(b.sessions.retain).not.toHaveBeenCalled()
+   })
+ 
++  it('creates a new identity for a fresh Session instead of adopting the reusable blank', async () => {
++    const b = bench({
++      sessions: sessionState([summary('blank', { blank: true, cwd: '/w/a' })]),
++      workspaces: workspaceState([workspace('a', [sid('blank')])]),
++    })
++    await vi.waitFor(() => { expect(b.sessions.retain).toHaveBeenCalledOnce() })
++    b.sessions.create.mockClear()
++    b.sessions.retain.mockClear()
++    await b.uiWorkspace.openWorkspace(wid('a'), undefined, { fresh: true })
++    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a') })
++    expect(b.sessions.retain).toHaveBeenLastCalledWith(sid('created-a'), { source: 'mainView' })
++
++    b.sessions.create.mockClear()
++    b.uiWorkspace.startSession(wid('a'), { fresh: true })
++    await vi.waitFor(() => { expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a') }) })
++  })
++
+   it('reports a refused explicit Session creation through the Workspace notice', async () => {
+     const b = bench({ workspaces: workspaceState([workspace('a')]), sessions: sessionState() })
+     // Startup restoration creates its own Session first and stays quiet on failure (pinned above).
+-- 
+2.43.0
+

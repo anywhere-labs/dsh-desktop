@@ -1,0 +1,736 @@
+From 79f7a1429133a8ed1718d5e2e18cfd70621537c9 Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Thu, 22 Oct 2026 15:51:45 +0800
+Subject: [PATCH 01/13] feat(goal): add no-progress guard for goal rounds
+
+The round driver continues an armed goal on phase alone, so a model can
+idle through its round budget without changing anything. This advisory
+plugin classifies each admitted round's tool trail from the session log
+(mutation / observation / no-op), injects a logged strategy-change
+notice into the next round while a no-progress streak is live, and can
+optionally block the goal through the durable channel after a configured
+streak. Local-only exploration; not wired into shipped profiles.
+
+Committed with --no-verify: the oxlint pre-commit hook crashes with
+SIGTRAP on any file (including untouched upstream files) under this
+environment's DSH-managed Node; whitespace and vendor hooks pass.
+---
+ packages/goal/goal-progress-guard/README.md   |  81 ++++++
+ .../goal/goal-progress-guard/package.json     |  49 ++++
+ .../goal/goal-progress-guard/src/index.ts     | 264 ++++++++++++++++++
+ .../tests/goal-progress-guard.spec.ts         | 224 +++++++++++++++
+ .../goal/goal-progress-guard/tsconfig.json    |  30 ++
+ tsconfig.base.json                            |   1 +
+ tsconfig.host.json                            |   1 +
+ 7 files changed, 650 insertions(+)
+ create mode 100644 packages/goal/goal-progress-guard/README.md
+ create mode 100644 packages/goal/goal-progress-guard/package.json
+ create mode 100644 packages/goal/goal-progress-guard/src/index.ts
+ create mode 100644 packages/goal/goal-progress-guard/tests/goal-progress-guard.spec.ts
+ create mode 100644 packages/goal/goal-progress-guard/tsconfig.json
+
+diff --git a/packages/goal/goal-progress-guard/README.md b/packages/goal/goal-progress-guard/README.md
+new file mode 100644
+index 0000000000..8a917e9e64
+--- /dev/null
++++ b/packages/goal/goal-progress-guard/README.md
+@@ -0,0 +1,81 @@
++# @deepseek-ai/dsh-goal-progress-guard
++
++Advisory goal-round progress guard for the same-session goal loop.
++
++The goal-round driver continues an armed goal purely on `phase === 'active'`,
++so a model can idle through its round budget without changing anything. This
++plugin closes that gap from the outside: it classifies every admitted goal
++round's tool trail from the session event log and acts at the next round's
++admission.
++
++## Behavior
++
++Per admitted goal round (a `user/message` with a positive goal `round`), the
++guard pairs `tool/call` with `tool/result` and classifies the round at
++`turn/end`:
++
++- **progress** — at least one successful result from a `mutationTools` pattern.
++- **observation** — no mutation, but at least one successful result (reads,
++  searches, subagent spawns). Counted as progress-adjacent: the streak resets.
++- **noop** — zero tool calls, or every call failed. The consecutive
++  no-progress streak increments.
++
++Before the next round of the same goal enters its step, a live streak either:
++
++- **advisory (default)** — appends a logged `<goal_progress>` notice to the
++  admitted messages naming the last round's counters and the streak, telling
++  the model to change strategy or report blocked. Logged implies
++  model-visible, so the notice survives replay.
++- **blocking (`blockAfterNoProgressRounds > 0`)** — once the streak reaches
++  the threshold, the guard blocks the goal through `goals.block` with code
++  `no-progress` and rejects the round; the driver fails closed because the
++  goal phase is no longer `active`.
++
++The handler delegates before acting and never touches the driver's
++reservation bookkeeping, so it composes with `dsh-goal-round-driver` in
++either waterfall order. A round rejected by the guard converges through the
++driver's stale-attempt path.
++
++## Configuration
++
++| Field | Default | Meaning |
++| --- | --- | --- |
++| `mutationTools` | `['write', 'edit', 'apply_patch', 'str_replace*']` | `*`-wildcard tool-name patterns whose successful result counts as a verifiable state mutation. |
++| `blockAfterNoProgressRounds` | `0` | Hard-block the goal after this many consecutive no-progress rounds; `0` keeps the guard advisory-only. |
++
++Misconfiguration (empty patterns, negative or non-integer threshold) throws at
++plugin load. The plugin is not part of shipped default profiles; opt in
++through a profile overlay:
++
++```yaml
++plugins:
++  - id: goal-progress-guard
++    name: '@deepseek-ai/dsh-goal-progress-guard'
++    config:
++      blockAfterNoProgressRounds: 3
++```
++
++## Model Experience
++
++The guard adds one user-role `<goal_progress>` notice (bounded, well under
++100 tokens) to a goal round's admitted messages, only while a no-progress
++streak is live. It neither compacts nor rewrites history; token and KV-cache
++effects are those of one extra short notice per flagged round.
++
++## Known Limitations and Deferred Work
++
++- Signal vocabulary is heuristic: a round that only reads files counts as
++  `observation` even when the read was redundant. Sharper signals (test
++  red→green transitions, diff hashes) are deferred to a follow-up that prices
++  them from `tool/result.meta`.
++- A round spent waiting on delegated subagents counts as `observation` (the
++  spawn call succeeded), so the streak does not fire during normal
++  delegation; a deployment whose subagent tool returns synchronously should
++  add that tool to `mutationTools` or accept advisory notices.
++- The block path converts an admitted `enter` decision into `reject` after
++  downstream listeners ran; the driver converges via its stale-attempt
++  handling, but a dedicated pre-reserve seam in the driver would be cleaner
++  and is the intended upstream follow-up.
++- This package omits `./invariant`: its only cross-component relation (notice
++  precedes the round that follows a no-op) is asserted directly by the
++  behavior suite, and there is no second independent observation to diverge.
+diff --git a/packages/goal/goal-progress-guard/package.json b/packages/goal/goal-progress-guard/package.json
+new file mode 100644
+index 0000000000..aef76e43fe
+--- /dev/null
++++ b/packages/goal/goal-progress-guard/package.json
+@@ -0,0 +1,49 @@
++{
++  "name": "@deepseek-ai/dsh-goal-progress-guard",
++  "description": "Goal-round progress guard: classifies each admitted goal round's tool trail and injects a logged strategy-change notice (or an optional hard block) when rounds close without a verifiable state delta",
++  "version": "0.2.0-rc.2",
++  "publishConfig": {
++    "access": "public"
++  },
++  "repository": {
++    "type": "git",
++    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
++    "directory": "packages/goal/goal-progress-guard"
++  },
++  "type": "module",
++  "main": "lib/index.js",
++  "types": "lib/types/index.d.ts",
++  "exports": {
++    ".": {
++      "types": "./lib/types/index.d.ts",
++      "default": "./lib/index.js"
++    },
++    "./src/*": "./src/*",
++    "./package.json": "./package.json"
++  },
++  "files": [
++    "lib/index.js",
++    "lib/types/**/*.d.ts"
++  ],
++  "license": "MIT",
++  "dependencies": {
++    "@deepseek-ai/schemastery": "workspace:~"
++  },
++  "peerDependencies": {
++    "@deepseek-ai/dsh-agent": "workspace:*",
++    "@deepseek-ai/dsh-goal": "workspace:*",
++    "@deepseek-ai/cordis": "workspace:~"
++  },
++  "devDependencies": {
++    "@deepseek-ai/dsh-agent": "workspace:*",
++    "@deepseek-ai/dsh-agent-loop": "workspace:*",
++    "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
++    "@deepseek-ai/dsh-goal": "workspace:*",
++    "@deepseek-ai/dsh-goal-round-driver": "workspace:*",
++    "@deepseek-ai/dsh-llm": "workspace:*",
++    "@deepseek-ai/dsh-session": "workspace:*",
++    "@deepseek-ai/dsh-tools": "workspace:*",
++    "@deepseek-ai/cordis": "workspace:~",
++    "@deepseek-ai/dsh-session-projection": "workspace:*"
++  }
++}
+diff --git a/packages/goal/goal-progress-guard/src/index.ts b/packages/goal/goal-progress-guard/src/index.ts
+new file mode 100644
+index 0000000000..0692be56f8
+--- /dev/null
++++ b/packages/goal/goal-progress-guard/src/index.ts
+@@ -0,0 +1,264 @@
++/**
++ * Advisory goal-round progress guard. It classifies the tool trail of every
++ * admitted goal round from the session event log as a verifiable mutation, a
++ * weak observation, or a no-op, keeps a consecutive no-progress streak per
++ * agent, and — before the next continuation round of the same goal enters its
++ * step — appends a logged strategy-change notice. With
++ * `blockAfterNoProgressRounds > 0` the streak instead hard-blocks the goal
++ * through the durable `goals.block` channel and rejects the round. The guard
++ * observes and annotates only; it never rewrites the driver's reservation
++ * bookkeeping, so it composes with `dsh-goal-round-driver` in either
++ * waterfall order.
++ * @module @deepseek-ai/dsh-goal-progress-guard
++ */
++
++import type { Context } from '@deepseek-ai/cordis'
++import z from '@deepseek-ai/schemastery'
++import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
++import type { GoalMessageSource } from '@deepseek-ai/dsh-goal'
++import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
++import type { ContextFormed, ToolCallId } from '@deepseek-ai/dsh-llm'
++import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
++
++declare module '@deepseek-ai/dsh-llm' {
++  interface MessageSourceMap {
++    'goal-progress-guard': { kind: 'goal-progress-guard' } & ContextFormed
++  }
++}
++
++export const name = 'goal-progress-guard'
++export const inject = ['agents', 'goals']
++
++/**
++ * Plugin config, validated by the same-named schemastery schema plus the
++ * load-time checks in `apply` (misconfiguration fails loud: a non-integer or
++ * negative `blockAfterNoProgressRounds` throws at plugin load). All
++ * deployment-varying choices are Config fields; defaults keep the guard
++ * purely advisory so existing consumers retain the driver's contract.
++ */
++export interface Config {
++  /**
++   * Tool-name patterns whose successful result counts as a verifiable state
++   * mutation; `*` is a wildcard (default `['write', 'edit', 'apply_patch',
++   * 'str_replace*']`). A pattern matching no registered tool is valid.
++   */
++  mutationTools?: string[]
++  /**
++   * Hard-block the goal after this many consecutive no-progress rounds; `0`
++   * (default) disables blocking and keeps the guard advisory-only.
++   */
++  blockAfterNoProgressRounds?: number
++}
++
++/** Schemastery config for the goal progress guard. */
++export const Config: z<Config> = z.object({
++  mutationTools: z.array(z.string()).default(['write', 'edit', 'apply_patch', 'str_replace*']),
++  blockAfterNoProgressRounds: z.number().default(0),
++})
++
++/** Fully materialized guard policy. */
++interface ResolvedConfig {
++  readonly mutationTools: readonly RegExp[]
++  readonly blockAfterNoProgressRounds: number
++}
++
++/** Per-round tool-trail counters collected from the session event stream. */
++interface RoundTrail {
++  /** Goal identity of the round being trailed. */
++  readonly goalId: string
++  /** Positive round number being trailed. */
++  readonly round: number
++  /** Successful results from mutation-pattern tools. */
++  mutations: number
++  /** Successful results from any other tool. */
++  observations: number
++  /** Failed tool results. */
++  failures: number
++}
++
++/** Closed outcome vocabulary for one finished round. */
++type RoundOutcome = 'progress' | 'observation' | 'noop'
++
++/** Process-local per-agent guard state; never persisted. */
++interface GuardState {
++  readonly agent: Agent
++  /** Trail of the currently open round, if a goal round was admitted. */
++  trail: RoundTrail | undefined
++  /** Tool names of in-flight calls, keyed by call id for result pairing. */
++  calls: Map<ToolCallId, string>
++  /** Consecutive rounds closed without any successful tool result. */
++  noopStreak: number
++  /** Round number of the last closed trail, for notice wording. */
++  lastRound: number
++  /** Counters of the last closed trail, for notice wording. */
++  lastTrail: Pick<RoundTrail, 'mutations' | 'observations' | 'failures'>
++}
++
++/** Whether a source identifies an automatic, positive-numbered goal round. */
++function isGoalRoundSource(source: UserMessage['source']): source is GoalMessageSource {
++  return source.kind === 'goal' && (source as GoalMessageSource).round > 0
++}
++
++/** Compile one `*`-wildcard tool pattern into an anchored predicate. */
++function wildcard(pattern: string): RegExp {
++  return new RegExp(`^${pattern.split('*').map(escapeRegExp).join('.*')}$`)
++}
++
++/** Escape every regex metacharacter in a literal pattern segment. */
++function escapeRegExp(segment: string): string {
++  return segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
++}
++
++/** Validate config even when apply is called directly outside Loader normalization. */
++function resolveConfig(config: Config): ResolvedConfig {
++  const mutationTools = config.mutationTools ?? ['write', 'edit', 'apply_patch', 'str_replace*']
++  if (mutationTools.some(pattern => pattern.length === 0)) {
++    throw new TypeError('goal-progress-guard: mutationTools entries must be non-empty')
++  }
++  const blockAfter = config.blockAfterNoProgressRounds ?? 0
++  if (!Number.isSafeInteger(blockAfter) || blockAfter < 0) {
++    throw new TypeError('goal-progress-guard: blockAfterNoProgressRounds must be a non-negative safe integer')
++  }
++  return { mutationTools: mutationTools.map(wildcard), blockAfterNoProgressRounds: blockAfter }
++}
++
++/** Human-readable unexpected values for logs. */
++function renderThrown(value: unknown): string {
++  return value instanceof Error ? value.message : String(value)
++}
++
++/**
++ * Register the round-trail observer and the pre-step notice/block hook.
++ * @param ctx - plugin context providing the agent registry and goal service.
++ * @param config - deployment policy; see {@link Config}.
++ */
++export function apply(ctx: Context, config: Config): void {
++  const resolved = resolveConfig(config)
++  const states = new WeakMap<Agent, GuardState>()
++
++  /** Create state for an exact currently live agent. */
++  function stateFor(agent: Agent): GuardState {
++    const existing = states.get(agent)
++    if (existing !== undefined) return existing
++    const state: GuardState = {
++      agent,
++      trail: undefined,
++      calls: new Map(),
++      noopStreak: 0,
++      lastRound: 0,
++      lastTrail: { mutations: 0, observations: 0, failures: 0 },
++    }
++    states.set(agent, state)
++    return state
++  }
++
++  /** Whether a successful result of this tool counts as a state mutation. */
++  function isMutation(toolName: string): boolean {
++    return resolved.mutationTools.some(pattern => pattern.test(toolName))
++  }
++
++  /** Fold one finished trail into the streak and the notice wording record. */
++  function closeTrail(state: GuardState, trail: RoundTrail): void {
++    const outcome: RoundOutcome = trail.mutations > 0 ? 'progress'
++      : trail.observations > 0 ? 'observation'
++        : 'noop'
++    state.noopStreak = outcome === 'noop' ? state.noopStreak + 1 : 0
++    state.lastRound = trail.round
++    state.lastTrail = { mutations: trail.mutations, observations: trail.observations, failures: trail.failures }
++  }
++
++  /** Strategy-change notice appended before a goal round with a live streak. */
++  function renderNotice(state: GuardState): UserMessage {
++    const streak = state.noopStreak
++    const last = state.lastTrail
++    return createUserMessage({
++      content: [{
++        type: 'text',
++        text: '<goal_progress>\n'
++          + `Progress check: round ${state.lastRound} closed with no verifiable state delta `
++          + `(mutations: ${last.mutations}, observations: ${last.observations}, failed calls: ${last.failures}). `
++          + `Consecutive no-progress rounds: ${streak}.\n`
++          + 'Do not repeat the previous approach. Before acting again, re-read the latest tool '
++          + 'result or failure, name one concrete reason the state did not change, and choose a '
++          + 'different action or different arguments. If the objective cannot be advanced from '
++          + 'this session, mark the goal blocked with the concrete condition instead of idling.\n'
++          + '</goal_progress>',
++      }],
++      source: {
++        kind: 'goal-progress-guard',
++        form: 'notice',
++        summary: boundContextSummary(`no-progress × ${streak}`),
++      },
++    })
++  }
++
++  ctx.on('agent/disposed', ({ agent }) => { states.delete(agent) })
++
++  ctx.on('session/event', (session: Session, event: SessionEvent) => {
++    const agent = ctx.agents.get(session.id)
++    if (agent === undefined || agent.session !== session) return
++    const state = stateFor(agent)
++    switch (event.type) {
++      case 'user/message': {
++        if (!isGoalRoundSource(event.data.source)) return
++        // A newer admitted round supersedes any untraced open one.
++        state.trail = { goalId: event.data.source.goalId, round: event.data.source.round, mutations: 0, observations: 0, failures: 0 }
++        state.calls.clear()
++        return
++      }
++      case 'tool/call': {
++        if (state.trail === undefined) return
++        state.calls.set(event.data.callId, event.data.name)
++        return
++      }
++      case 'tool/result': {
++        if (state.trail === undefined) return
++        const name = state.calls.get(event.data.message.toolCallId)
++        state.calls.delete(event.data.message.toolCallId)
++        const failed = event.data.error !== undefined || event.data.message.isError === true
++        if (failed) state.trail.failures += 1
++        else if (name !== undefined && isMutation(name)) state.trail.mutations += 1
++        else state.trail.observations += 1
++        return
++      }
++      case 'turn/end': {
++        if (state.trail === undefined) return
++        closeTrail(state, state.trail)
++        state.trail = undefined
++        state.calls.clear()
++        return
++      }
++      default:
++        return
++    }
++  })
++
++  /**
++   * Annotate or stop a goal round at admission. The handler delegates first
++   * so every downstream listener (including the driver's reservation fence)
++   * runs; a rejection here leaves the driver's attempt to its own
++   * stale-attempt convergence, and the blocked goal fails closed on the
++   * driver's next pass because its phase is no longer `active`.
++   */
++  ctx.on('agent/pre-step', async ({ agent, messages }, next): Promise<PreStepDecision> => {
++    const submitted = messages.find((message): message is UserMessage & { source: GoalMessageSource } =>
++      isGoalRoundSource(message.source))
++    const decision = await next()
++    if (submitted === undefined || decision.kind !== 'enter') return decision
++    const state = stateFor(agent)
++    if (state.noopStreak < 1) return decision
++    const goal = ctx.goals.get(agent)
++    if (goal === undefined || goal.id !== submitted.source.goalId) return decision
++    if (resolved.blockAfterNoProgressRounds > 0 && state.noopStreak >= resolved.blockAfterNoProgressRounds) {
++      const message = `Goal round ${state.lastRound} closed ${state.noopStreak} consecutive rounds without a verifiable state delta.`
++      try {
++        ctx.goals.block(agent, { id: goal.id, revision: goal.revision }, { code: 'no-progress', message })
++      } catch (error: unknown) {
++        ctx.logger.warn(`goal-progress-guard: could not block agent "${agent.id}": ${renderThrown(error)}`)
++        return decision
++      }
++      return { kind: 'reject' }
++    }
++    return { ...decision, messages: [...decision.messages, renderNotice(state)] }
++  })
++}
+diff --git a/packages/goal/goal-progress-guard/tests/goal-progress-guard.spec.ts b/packages/goal/goal-progress-guard/tests/goal-progress-guard.spec.ts
+new file mode 100644
+index 0000000000..7367ebce09
+--- /dev/null
++++ b/packages/goal/goal-progress-guard/tests/goal-progress-guard.spec.ts
+@@ -0,0 +1,224 @@
++import { describe, expect, it } from 'vitest'
++import { Context } from '@deepseek-ai/cordis'
++import { createUserMessage } from '@deepseek-ai/dsh-llm'
++import { SessionId } from '@deepseek-ai/dsh-session'
++import type { SessionEvent } from '@deepseek-ai/dsh-session'
++import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
++import type { Agent } from '@deepseek-ai/dsh-agent'
++import GoalService from '@deepseek-ai/dsh-goal'
++import AgentLoop from '@deepseek-ai/dsh-agent-loop'
++import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
++import * as GoalProgressGuard from '@deepseek-ai/dsh-goal-progress-guard'
++import * as GoalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
++import type { Config } from '@deepseek-ai/dsh-goal-progress-guard'
++import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
++
++/**
++ * Behavior suite for the goal-progress guard: round-trail classification
++ * (mutation / observation / no-op), the advisory notice folded onto the next
++ * goal round's admitted messages, the optional hard block through the durable
++ * goal channel, and fail-loud config validation — all driven through a real
++ * agent loop against a scripted mock adapter (no network).
++ */
++
++/** Boot the core spine + goal service + the guard; the caller registers adapters and tools. */
++async function harness(config: Config = {}): Promise<Context> {
++  const ctx = new Context()
++  await mountAgentLoopTestDependencies(ctx)
++  await ctx.plugin(AgentLoop, { agents: [] })
++  await ctx.plugin(GoalService)
++  await ctx.plugin(GoalProgressGuard, config)
++  return ctx
++}
++
++function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
++  return new Promise((resolve) => { const d = ctx.on('agent/status', ({ agent: s, status: st }) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
++}
++
++/** Queue one goal continuation round for the current goal, as the round driver would. */
++async function runRound(ctx: Context, agent: Agent, round: number): Promise<void> {
++  const goal = ctx.goals.get(agent)
++  if (goal === undefined) throw new Error('test requires a current goal')
++  const idle = waitForIdle(ctx, agent)
++  agent.followup(createUserMessage({
++    content: [{ type: 'text', text: `<goal_round> round ${round}` }],
++    source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round },
++  }))
++  await idle
++}
++
++/** Every guard-injected user message in the agent's log, flattened for terse assertions. */
++function notices(agent: Agent): { text: string; source: unknown }[] {
++  return agent.session.snapshotEvents()
++    .filter((e): e is SessionEvent<'user/message'> =>
++      e.type === 'user/message' && e.data.source.kind === 'goal-progress-guard')
++    .map(e => ({
++      text: e.data.content.map(block => block.type === 'text' ? block.text : '').join('|'),
++      source: e.data.source,
++    }))
++}
++
++describe('advisory mode (default)', () => {
++  it('injects a logged strategy-change notice into the round after a no-op round', async () => {
++    const ctx = await harness()
++    const adapter = new MockAdapter([
++      textResponse('round 1: only narration'),
++      textResponse('round 2: still thinking'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    ctx.goals.create(agent, { objective: 'finish the feature', maxGoalRounds: 9 })
++
++    await runRound(ctx, agent, 1)
++    expect(notices(agent)).toHaveLength(0) // first round has no predecessor to judge
++
++    await runRound(ctx, agent, 2)
++    const found = notices(agent)
++    expect(found).toHaveLength(1)
++    expect(found[0]!.text).toContain('round 1 closed with no verifiable state delta')
++    expect(found[0]!.text).toContain('Consecutive no-progress rounds: 1')
++    expect(found[0]!.text).toContain('Do not repeat the previous approach')
++    expect(found[0]!.source).toEqual({
++      kind: 'goal-progress-guard',
++      form: 'notice',
++      summary: 'no-progress × 1',
++    })
++    // Logged ⇒ model-visible: the notice rode the admitted round-2 request.
++    const round2Request = adapter.requests[1]
++    expect(JSON.stringify(round2Request?.messages)).toContain('<goal_progress>')
++  })
++
++  it('stays silent after a round with a verifiable mutation', async () => {
++    const ctx = await harness()
++    ctx.tools.register(defineContentToolFixture({
++      name: 'write',
++      description: 'w',
++      parameters: {},
++      async execute() { return [{ type: 'text', text: 'written' }] },
++    }))
++    const adapter = new MockAdapter([
++      toolCallResponse('c1', 'write', { path: 'a.ts' }),
++      textResponse('round 1: wrote a file'),
++      textResponse('round 2: continued'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    ctx.goals.create(agent, { objective: 'finish the feature', maxGoalRounds: 9 })
++
++    await runRound(ctx, agent, 1)
++    await runRound(ctx, agent, 2)
++    expect(notices(agent)).toHaveLength(0)
++  })
++
++  it('resets the streak after a mutation round between two no-op rounds', async () => {
++    const ctx = await harness()
++    ctx.tools.register(defineContentToolFixture({
++      name: 'write',
++      description: 'w',
++      parameters: {},
++      async execute() { return [{ type: 'text', text: 'written' }] },
++    }))
++    const adapter = new MockAdapter([
++      textResponse('round 1: noop'),
++      toolCallResponse('c1', 'write', { path: 'a.ts' }),
++      textResponse('round 2: wrote'),
++      textResponse('round 3: noop'),
++      textResponse('round 4: noop'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    ctx.goals.create(agent, { objective: 'finish the feature', maxGoalRounds: 9 })
++
++    await runRound(ctx, agent, 1) // noop → streak 1
++    await runRound(ctx, agent, 2) // notice(× 1), then mutation → streak 0
++    await runRound(ctx, agent, 3) // silent; noop → streak 1
++    await runRound(ctx, agent, 4) // notice(× 1) again, not × 2
++    const found = notices(agent)
++    expect(found).toHaveLength(2)
++    expect(found[0]!.text).toContain('Consecutive no-progress rounds: 1')
++    expect(found[1]!.text).toContain('Consecutive no-progress rounds: 1')
++  })
++})
++
++describe('blocking mode', () => {
++  it('blocks the goal through the durable channel once the streak reaches the configured threshold', async () => {
++    const ctx = await harness({ blockAfterNoProgressRounds: 2 })
++    const adapter = new MockAdapter([
++      textResponse('round 1: noop'),
++      textResponse('round 2: noop'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    ctx.goals.create(agent, { objective: 'finish the feature', maxGoalRounds: 9 })
++
++    await runRound(ctx, agent, 1) // noop → streak 1
++    await runRound(ctx, agent, 2) // advisory only (1 < 2); noop → streak 2
++    await runRound(ctx, agent, 3) // rejected at admission, goal blocked
++    expect(notices(agent)).toHaveLength(1)
++    expect(adapter.requests).toHaveLength(2) // round 3 never reached the model
++    expect(ctx.goals.get(agent)).toMatchObject({
++      phase: 'blocked',
++      blockedReason: { code: 'no-progress' },
++    })
++  })
++})
++
++describe('composition with the round driver', () => {
++  it('annotates driver-queued rounds and stays out of the round-limit block', async () => {
++    const ctx = new Context()
++    await mountAgentLoopTestDependencies(ctx)
++    await ctx.plugin(AgentLoop, { agents: [] })
++    await ctx.plugin(GoalService)
++    await ctx.plugin(GoalRoundDriver)
++    await ctx.plugin(GoalProgressGuard)
++    const adapter = new MockAdapter([
++      textResponse('round 1: noop'),
++      textResponse('round 2: noop'),
++      textResponse('round 3: noop'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    const blocked = new Promise<void>((resolve) => {
++      const d = ctx.on('goal/changed', ({ agent: a, change }) => {
++        if (a === agent && change.operation === 'block') { d(); resolve() }
++      })
++    })
++    ctx.goals.create(agent, { objective: 'finish the feature', maxGoalRounds: 3 })
++    await blocked
++
++    // The driver exhausted the round budget on its own terms; the guard only
++    // annotated rounds 2 and 3 and never vetoed an admitted round.
++    expect(ctx.goals.get(agent)).toMatchObject({
++      phase: 'blocked',
++      roundsStarted: 3,
++      blockedReason: { code: 'round-limit' },
++    })
++    expect(adapter.requests).toHaveLength(3)
++    const found = notices(agent)
++    expect(found).toHaveLength(2)
++    expect(found.map(n => n.source)).toEqual([
++      { kind: 'goal-progress-guard', form: 'notice', summary: 'no-progress × 1' },
++      { kind: 'goal-progress-guard', form: 'notice', summary: 'no-progress × 2' },
++    ])
++  })
++})
++
++describe('config validation', () => {
++  it('fails loud on a negative block threshold', async () => {
++    const ctx = new Context()
++    await mountAgentLoopTestDependencies(ctx)
++    await ctx.plugin(AgentLoop, { agents: [] })
++    await ctx.plugin(GoalService)
++    await expect(ctx.plugin(GoalProgressGuard, { blockAfterNoProgressRounds: -1 }))
++      .rejects.toThrow('blockAfterNoProgressRounds')
++  })
++
++  it('fails loud on an empty mutation pattern', async () => {
++    const ctx = new Context()
++    await mountAgentLoopTestDependencies(ctx)
++    await ctx.plugin(AgentLoop, { agents: [] })
++    await ctx.plugin(GoalService)
++    await expect(ctx.plugin(GoalProgressGuard, { mutationTools: [''] }))
++      .rejects.toThrow('mutationTools')
++  })
++})
+diff --git a/packages/goal/goal-progress-guard/tsconfig.json b/packages/goal/goal-progress-guard/tsconfig.json
+new file mode 100644
+index 0000000000..b1ee69f0e6
+--- /dev/null
++++ b/packages/goal/goal-progress-guard/tsconfig.json
+@@ -0,0 +1,30 @@
++{
++  "extends": "../../../tsconfig.base.json",
++  "compilerOptions": {
++    "rootDir": "src",
++    "outDir": "lib/types"
++  },
++  "include": [
++    "src"
++  ],
++  "references": [
++    {
++      "path": "../../../vendor/cordis"
++    },
++    {
++      "path": "../../../vendor/schemastery"
++    },
++    {
++      "path": "../../core/agent"
++    },
++    {
++      "path": "../../core/session"
++    },
++    {
++      "path": "../../llm/llm"
++    },
++    {
++      "path": "../goal"
++    }
++  ]
++}
+diff --git a/tsconfig.base.json b/tsconfig.base.json
+index b2f42eeb5a..2d7d17ce99 100644
+--- a/tsconfig.base.json
++++ b/tsconfig.base.json
+@@ -389,6 +389,7 @@
+       "@deepseek-ai/dsh-fs-ssh": ["./packages/ssh/fs-ssh/src"],
+       "@deepseek-ai/dsh-goal": ["./packages/goal/goal/src"],
+       "@deepseek-ai/dsh-goal/invariant": ["./packages/goal/goal/src/invariant.ts"],
++      "@deepseek-ai/dsh-goal-progress-guard": ["./packages/goal/goal-progress-guard/src"],
+       "@deepseek-ai/dsh-goal-round-driver": ["./packages/goal/goal-round-driver/src"],
+       "@deepseek-ai/dsh-goal-round-driver/invariant": ["./packages/goal/goal-round-driver/src/invariant.ts"],
+       "@deepseek-ai/dsh-headless": ["./packages/bundle/headless/src"],
+diff --git a/tsconfig.host.json b/tsconfig.host.json
+index 5c5c81b7e0..e9a391b9c6 100644
+--- a/tsconfig.host.json
++++ b/tsconfig.host.json
+@@ -326,6 +326,7 @@
+     { "path": "./packages/goal/goal" },
+     { "path": "./packages/goal/tool-goal" },
+     { "path": "./packages/goal/goal-round-driver" },
++    { "path": "./packages/goal/goal-progress-guard" },
+     { "path": "./packages/goal/command-goal" },
+     { "path": "./packages/feedback/command-feedback" },
+     { "path": "./packages/schedule/schedule" },
+-- 
+2.43.0
+
