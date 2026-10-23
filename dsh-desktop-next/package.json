@@ -455,6 +455,7 @@
       "**/*.{node,dylib,dll,so,exe}",
       "**/*.so.*",
       "**/spawn-helper",
+      "**/@deepseek-ai/node-addon-system-*/bin/landlock-run",
       "**/@vscode/ripgrep-*/bin/rg",
       "**/@dataiku/uv-*/bin/uv",
       "**/meshcall-router-*/bin/*",

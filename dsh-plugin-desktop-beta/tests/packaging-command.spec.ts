@@ -26,4 +26,8 @@ it('routes the shared Windows package gate to Next without adding unrelated comm
   runNextPackagingCommand('cmd.exe', ['/d', '/s', '/c', 'corepack yarn workspace dsh-plugin-desktop check:win-package'], '/workspace', {}, '/workspace')
   expect(spawn).toHaveBeenCalledOnce()
   expect(spawn.mock.calls[0]?.[1]).toContain('corepack yarn workspace dsh-plugin-desktop-beta check:win-package')
+  spawn.mockReset().mockReturnValue(succeeded)
+  const betaScript = `/workspace/dsh-plugin-desktop${'-beta'}/scripts/verify-mac-smoke.ts`
+  runNextPackagingCommand('node', ['/workspace/dsh-plugin-desktop-beta/scripts/verify-mac-smoke.ts', betaScript], '/workspace', {}, '/workspace')
+  expect(spawn.mock.calls[0]?.[1]).toEqual(['/workspace/dsh-plugin-desktop-beta/scripts/verify-mac-smoke.ts', betaScript])
 })
