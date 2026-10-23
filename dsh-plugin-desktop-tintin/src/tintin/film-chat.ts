@@ -1,7 +1,7 @@
 // TinTin 影片聊天的持久化(desktop:chat:* 的后端):官方 src/chat-store.mjs 的存储语义
 // (每影片一份 .film/chat.json:sessions/last/turns)+ 官方 file-changes.mjs 的 turn 快照
 // 与变更 hunks。存档格式只需被本模块与聊天端经 IPC 往返, 不与官方磁盘格式互通。
-import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { structuredPatch } from 'diff'
 
@@ -44,13 +44,36 @@ export const filmChat = {
     const turns = id ? [...chat.turns.filter((t) => (t.turn as { id?: unknown }).id !== id), { turn, items }] : [...chat.turns, { turn, items }]
     writeChat(project, { ...chat, turns })
   },
-  /** 一轮的模型日志: 本实现暂不落盘(Developer 的日志面随 3c), 恒 null(聊天隐藏该链接). */
-  log(_project: string, _turnId: string): null {
-    return null
+  /** 一轮的事件日志(.film/logs/<turnId>.jsonl, 由影片智能体桥按 ACP 事件写入; 模型请求明细暂无, calls 恒空). */
+  log(project: string, turnId: string): { file: string; cut: boolean; size: number; events: Array<Record<string, unknown>>; calls: unknown[] } | null {
+    const file = join(project, '.film', 'logs', `${turnId}.jsonl`)
+    if (!existsSync(file)) return null
+    const raw = readFileSync(file, 'utf8')
+    const lines = raw.split('\n').filter((line) => line.trim() !== '')
+    const events: Array<Record<string, unknown>> = []
+    for (const line of lines.slice(-200)) {
+      try { events.push(JSON.parse(line) as Record<string, unknown>) } catch { events.push({ kind: 'raw', line }) }
+    }
+    return { file, cut: lines.length > 200, size: raw.length, events, calls: [] }
   },
-  /** 有日志未存档的轮次: 本实现不落盘, 恒空. */
-  unsaved(): Array<{ turnId: string; events: unknown[] }> {
-    return []
+  /** 有日志而聊天记录里尚无对应存档轮的 turnId(官方 unsavedTurns 语义; except 的跳过). */
+  unsavedTurns(project: string, except: string[]): Array<{ turnId: string; events: Array<Record<string, unknown>> }> {
+    const logsDir = join(project, '.film', 'logs')
+    if (!existsSync(logsDir)) return []
+    const saved = new Set(readChat(project).turns.map((t) => String((t.turn as { id?: unknown }).id ?? '')))
+    const out: Array<{ turnId: string; events: Array<Record<string, unknown>> }> = []
+    for (const entry of readdirSync(logsDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue
+      const turnId = entry.name.slice(0, -'.jsonl'.length)
+      if (except.includes(turnId) || saved.has(turnId)) continue
+      const events: Array<Record<string, unknown>> = []
+      for (const line of readFileSync(join(logsDir, entry.name), 'utf8').split('\n')) {
+        if (!line.trim()) continue
+        try { events.push(JSON.parse(line) as Record<string, unknown>) } catch { events.push({ kind: 'raw', line }) }
+      }
+      out.push({ turnId, events: events.slice(-400) })
+    }
+    return out
   },
   saveRefImage(project: string, turnId: string, n: number, bytes: ArrayBuffer): { path: string } {
     const dir = join(project, '.film', 'refs')

@@ -4,9 +4,9 @@
 // installs itself from here, before the mirrored bootstrap runs.
 
 import { app, BrowserWindow, WebContentsView, dialog, ipcMain, shell, type WebContents } from 'electron'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FilmAgentManager, dshBinExists } from './film-acp.ts'
 import { filmChat, keepSnapshot, settleSnapshot } from './film-chat.ts'
@@ -347,6 +347,58 @@ export function installTinTinMainHook(): void {
     return { ok: true }
   })
 
+  // ── openfilmNative.skills(官方聊天的技能面): openfilm 包自带技能清单与正文 ──
+  const openfilmSkillsDir = (): string | null => {
+    if (process.env.TINTIN_BIN_DIR) {
+      const packaged = join(dirname(process.env.TINTIN_BIN_DIR), 'openfilm', 'node_modules', 'openfilm', 'skills')
+      if (existsSync(packaged)) return packaged
+    }
+    const dev = resolve(dirname(fileURLToPath(import.meta.url)), '../../tintin-resources/openfilm/node_modules/openfilm/skills')
+    return existsSync(dev) ? dev : null
+  }
+  ipcMain.handle('openfilm:native:skills-list', async (_event, payload: unknown) => {
+    const q = (payload ?? {}) as { project?: unknown; agent?: unknown }
+    void q
+    const dir = openfilmSkillsDir()
+    const openfilm: Array<Record<string, unknown>> = []
+    if (dir !== null) {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue
+        const folder = join(dir, entry.name)
+        const skillMd = join(folder, 'SKILL.md')
+        if (!existsSync(skillMd)) continue
+        let description = ''
+        try {
+          const block = /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(skillMd, 'utf8'))?.[1] ?? ''
+          description = /^description:\s*(.+)$/m.exec(block)?.[1]?.trim() ?? ''
+        } catch { /* 无 frontmatter: 空描述 */ }
+        let scripts: string[] = []
+        try {
+          const manifest = JSON.parse(readFileSync(join(folder, 'openfilm.json'), 'utf8')) as { scripts?: unknown }
+          if (Array.isArray(manifest.scripts)) scripts = manifest.scripts.map(String)
+        } catch { /* 无清单: 空脚本 */ }
+        openfilm.push({ name: entry.name, description, source: 'official', folder, scripts })
+      }
+    }
+    return { openfilm, own: { agent: String((payload as { agent?: unknown } | null)?.agent ?? ''), filtered: false, skills: [] }, mine: process.env.DSH_HOME ? join(process.env.DSH_HOME, 'skills') : '' }
+  })
+  ipcMain.handle('openfilm:native:skills-texts', async (_event, payload: unknown) => {
+    const q = (payload ?? {}) as { project?: unknown; agent?: unknown; names?: unknown }
+    const dir = openfilmSkillsDir()
+    const texts: Array<{ name: string; text: string }> = []
+    if (dir !== null) {
+      for (const name of (Array.isArray(q.names) ? q.names : []).map(String)) {
+        try { texts.push({ name, text: readFileSync(join(dir, name, 'SKILL.md'), 'utf8') }) } catch { /* 缺文件: 跳过 */ }
+      }
+    }
+    return texts
+  })
+  ipcMain.handle('openfilm:native:skills-reveal', () => {
+    const dir = openfilmSkillsDir()
+    if (dir !== null) shell.showItemInFolder(dir)
+    return { ok: dir !== null }
+  })
+
   // ── 影片聊天的持久化(desktop:chat:*, 官方 chat-ipc.mjs 的存储语义, 见 film-chat.ts)──
   const chatProject = (payload: unknown): string => {
     const path = String((payload as { project?: unknown } | null)?.project ?? '')
@@ -374,8 +426,14 @@ export function installTinTinMainHook(): void {
     return filmChat.saveAttachment(chatProject(p), String(q.name ?? 'file'), bytesOf(q.bytes))
   })
   ipcMain.handle('desktop:chat:paths', (_e, p: unknown) => filmChat.describePaths((p as { paths?: string[] } | null)?.paths ?? []))
-  ipcMain.handle('desktop:chat:unsaved', () => [])
-  ipcMain.handle('desktop:chat:log', () => filmChat.log('', ''))
+  ipcMain.handle('desktop:chat:unsaved', (_e, p: unknown) => {
+    const q = (p ?? {}) as { project?: unknown; except?: unknown }
+    return filmChat.unsavedTurns(chatProject(p), Array.isArray(q.except) ? q.except.map(String) : [])
+  })
+  ipcMain.handle('desktop:chat:log', (_e, p: unknown) => {
+    const q = (p ?? {}) as { project?: unknown; turnId?: unknown }
+    return filmChat.log(chatProject(p), String(q.turnId ?? ''))
+  })
   ipcMain.handle('desktop:chat:snapshot', (_e, p: unknown) => {
     const q = p as { project?: unknown; turnId?: string }
     keepSnapshot(String(q.turnId ?? ''), chatProject(p))

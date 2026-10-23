@@ -173,7 +173,19 @@ contextBridge.exposeInMainWorld('openfilmNative', {
     snapshot: (project: string, turnId: string): Promise<unknown> => ipcRenderer.invoke('desktop:chat:snapshot', { project, turnId }),
     changes: (project: string, turnId: string): Promise<unknown> => ipcRenderer.invoke('desktop:chat:changes', { project, turnId }),
   },
-  skills: pendingProxy,
+  /* 技能面: openfilm 包自带技能(主进程读 vendored skills 目录), 名字即 @ 技能组。 */
+  skills: {
+    list: (project: string, agent: string): Promise<unknown> => nativeInvoke('openfilm:native:skills-list', { project, agent }),
+    texts: (project: string, agent: string, names: string[]): Promise<unknown> =>
+      nativeInvoke('openfilm:native:skills-texts', { project, agent, names }),
+    allow: async (): Promise<{ ok: boolean }> => ({ ok: true }),
+    changed: async (): Promise<{ ok: boolean }> => ({ ok: true }),
+    preview: async (): Promise<{ ok: false; error: string }> => ({ ok: false, error: '暂不支持从地址安装技能' }),
+    previewFolder: async (): Promise<{ ok: false; cancelled: boolean }> => ({ ok: false, cancelled: true }),
+    commit: async (): Promise<{ ok: boolean }> => ({ ok: true }),
+    discard: async (): Promise<{ ok: boolean }> => ({ ok: true }),
+    reveal: (): Promise<unknown> => nativeInvoke('openfilm:native:skills-reveal'),
+  },
   prefs: {
     get: async () => ({ developer: false, changes: true }),
     set: async () => ({}),

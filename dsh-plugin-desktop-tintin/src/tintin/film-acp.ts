@@ -6,7 +6,7 @@
 // (官方 `approve: true` 的口径由聊天 UI 承接; 无人应答时不自动放行).
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
@@ -210,23 +210,33 @@ export class FilmAgentManager {
     }
   }
 
-  /** 提交一条消息; 语义更新经 onEvent 流出并缓存(重载恢复), Promise 在整轮结束时落定. */
+  /** 提交一条消息; 语义更新经 onEvent 流出并缓存(重载恢复), 事件同步落盘
+      .film/logs/<turnId>.jsonl(Developer 的每轮日志面数据源), Promise 在整轮结束时落定. */
   async prompt(project: string, text: string, meta?: { turnId?: string }, images?: Array<{ data: string; mimeType: string }>): Promise<{ stopReason: string }> {
-    void meta
+    const turnId = meta?.turnId ?? randomUUID()
+    const logsDir = join(project, '.film', 'logs')
+    mkdirSync(logsDir, { recursive: true })
+    const logFile = join(logsDir, `${turnId}.jsonl`)
+    this.activeLogs.set(project, logFile)
     this.trackTurn(project, null)
     const entry = this.turns.get(project)!
     const handle = await this.ensure(project)
     const agent = await handle.agent
+    appendFileSync(logFile, `${JSON.stringify({ t: Date.now(), kind: 'prompt', text })}\n`, 'utf8')
     try {
       const result = await agent.prompt(text, images)
       entry.done = { ok: true, stopReason: result.stopReason }
+      appendFileSync(logFile, `${JSON.stringify({ t: Date.now(), kind: 'done', ok: true, stopReason: result.stopReason })}\n`, 'utf8')
       this.emit(project, { key: project, kind: 'done', ok: true, stopReason: result.stopReason })
       return result
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       entry.done = { ok: false, error: message }
+      appendFileSync(logFile, `${JSON.stringify({ t: Date.now(), kind: 'done', ok: false, error: message })}\n`, 'utf8')
       this.emit(project, { key: project, kind: 'done', ok: false, error: message })
       throw error
+    } finally {
+      this.activeLogs.delete(project)
     }
   }
 
@@ -348,9 +358,15 @@ export class FilmAgentManager {
 
   // ── 内部 ────────────────────────────────────────────────────────────────
 
+  private activeLogs = new Map<string, string>()
+
   private emit(project: string, event: FilmAgentEvent): void {
     const entry = this.turns.get(project)
     if (entry) entry.events.push({ ...event } as Record<string, unknown> & { kind: string })
+    const logFile = this.activeLogs.get(project)
+    if (logFile) {
+      try { appendFileSync(logFile, `${JSON.stringify({ t: Date.now(), ...event })}\n`, 'utf8') } catch { /* 日志失败不阻断会话 */ }
+    }
     this.options.onEvent?.({ project, event })
   }
 

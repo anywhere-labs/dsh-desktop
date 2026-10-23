@@ -1821,6 +1821,17 @@ ${event.data.error.reason}` : result
           await openSession()
           void sessionsSvc?.refresh?.()
           setStatus(project ? '' : '请在 Studio 中打开一部影片')
+          ensureWorkspace(project)
+        }
+        /* 影片会话归组(2026-10-23 用户裁决:未分组 → 按影片分组):影片目录注册为
+           工作区(workspace/create 幂等,已注册返回原样),会话按目录归入同名组;
+           失败静默(归组是体验增强)。 */
+        const registeredWorkspaces = new Set()
+        const ensureWorkspace = (dir) => {
+          if (!dir || registeredWorkspaces.has(dir)) return
+          registeredWorkspaces.add(dir)
+          const body = JSON.stringify({ type: 'client-request', rpcId: `tintin-film-ws-${Date.now()}`, method: 'workspace/create', payload: { args: [{ request: { path: dir } }] } })
+          fetch('/api/workspace/create', { method: 'POST', headers: { 'content-type': 'application/json' }, body }).catch(() => { registeredWorkspaces.delete(dir) })
         }
         async function syncProject() {
           try {
