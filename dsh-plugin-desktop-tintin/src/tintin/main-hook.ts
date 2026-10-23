@@ -359,7 +359,13 @@ export function installTinTinMainHook(): void {
     return { ok: true }
   })
 
-  // ── openfilmNative.skills(官方聊天的技能面): openfilm 包自带技能清单与正文 ──
+  // ── openfilmNative.skills(官方聊天的技能面): openfilm 包自带技能 + 服务端技能 ──
+  const tinServerUrl = (): string => {
+    try {
+      const raw = JSON.parse(readFileSync(join(channelHome(), 'tintin', 'config.json'), 'utf8')) as { server?: { url?: unknown } }
+      return typeof raw.server?.url === 'string' && raw.server.url ? raw.server.url.replace(/\/+$/, '') : ''
+    } catch { return '' }
+  }
   const openfilmSkillsDir = (): string | null => {
     if (process.env.TINTIN_BIN_DIR) {
       const packaged = join(dirname(process.env.TINTIN_BIN_DIR), 'openfilm', 'node_modules', 'openfilm', 'skills')
@@ -392,6 +398,20 @@ export function installTinTinMainHook(): void {
         openfilm.push({ name: entry.name, description, source: 'official', folder, scripts })
       }
     }
+    /* 服务端技能(2026-10-23 用户要求: 技能之外还有服务端的技能)——并入 openfilm 清单,
+       聊天的 @ 技能组即可引用服务端技能; 不可达时静默(只少服务端一组)。 */
+    try {
+      const serverUrl = tinServerUrl()
+      if (serverUrl) {
+        const res = await fetch(serverUrl + '/skills')
+        const body = await res.json() as { data?: { skills?: Array<{ name?: unknown; description?: unknown }> } }
+        for (const s of body.data?.skills ?? []) {
+          const name = String(s.name ?? '')
+          if (!name || openfilm.some((row) => String(row.name ?? '') === name)) continue
+          openfilm.push({ name, description: String(s.description ?? ''), source: 'official', folder: '', scripts: [] })
+        }
+      }
+    } catch { /* 服务端不可达: 只返回本地清单 */ }
     return { openfilm, own: { agent: String((payload as { agent?: unknown } | null)?.agent ?? ''), filtered: false, skills: [] }, mine: process.env.DSH_HOME ? join(process.env.DSH_HOME, 'skills') : '' }
   })
   ipcMain.handle('openfilm:native:skills-texts', async (_event, payload: unknown) => {

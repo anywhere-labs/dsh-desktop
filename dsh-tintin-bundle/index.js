@@ -105,10 +105,10 @@ const TintinConfig = z.object({
     // address through the setup overlay (probe → models → provider config).
     provisioned: z.boolean().default(false).volatile(),
     // Studio 内建媒体功能（生成字幕等）走服务端 OpenAI 兼容 /v1 端点：
-    // 开启后隔离 home 种 use.asr=openai、Studio 进程注入 OPENFILM_OPENAI_URL
-    // （2026-10-22 实测 asr form 字段+verbose_json words 全对齐；tts 等服务端
-    // response_format=wav 修复后再并入）。人的真 openai key 存在时自动让位。
-    openfilmCompat: z.boolean().default(false).volatile(),
+    // 默认启用（2026-10-23 用户裁决：服务端的服务商 = 视频剪辑的默认服务商；
+    // 2026-10-22 实测 asr form 字段+verbose_json words 全对齐；tts 的
+    // response_format=wav 亦已实测对齐）。旧服务端无兼容面时可在设置关闭。
+    openfilmCompat: z.boolean().default(true).volatile(),
   }).default({}),
   // 本地配置（2026-09-24 用户裁决：恢复原客户端「更改」能力——缓存目录可选）；
   // 空 = 使用默认（本机工作区目录 Documents/tintin-workspace）。
