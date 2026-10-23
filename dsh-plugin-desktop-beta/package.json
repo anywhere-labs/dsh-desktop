@@ -3,7 +3,13 @@
   "version": "2.0.20-beta.1",
   "private": true,
   "description": "Desktop Beta integration for the DeepSeek Harness",
+  "desktopName": "dsh-desktop-beta.desktop",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anywhere-labs/deepseek-harness-desktop.git",
+    "directory": "dsh-plugin-desktop-beta"
+  },
   "type": "module",
   "main": "lib/main.js",
   "engines": {

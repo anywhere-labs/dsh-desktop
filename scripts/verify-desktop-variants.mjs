@@ -49,6 +49,7 @@ const FILE_SPECIFIC_PAIRS = {
       'Agentic coding desktop for the DeepSeek Harness (Next)',
       'Agentic coding desktop for the DeepSeek Harness (Beta)',
     ],
+    ['"desktopName": "dsh-desktop-next.desktop"', '"desktopName": "dsh-desktop-beta.desktop"'],
     ['"executableName": "dsh-desktop-next"', '"executableName": "dsh-desktop-beta"'],
     ['"packageName": "dsh-desktop-next"', '"packageName": "dsh-desktop-beta"'],
   ],

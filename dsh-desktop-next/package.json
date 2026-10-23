@@ -3,7 +3,13 @@
   "version": "2.0.20-next",
   "private": true,
   "description": "Experimental upstream-inspired DSH Desktop with Profiles, recovery, remote control and Community Market",
+  "desktopName": "dsh-desktop-next.desktop",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anywhere-labs/deepseek-harness-desktop.git",
+    "directory": "dsh-desktop-next"
+  },
   "type": "module",
   "main": "lib/main.js",
   "engines": {
