@@ -130,7 +130,7 @@ window.__ModuleLoader__.load({
           '.tintin-of-bottom{display:flex;align-items:center;gap:8px;margin-top:8px}.tintin-of-chip{background:#1a1b1f;border:1px solid #2a2b31;border-radius:8px;color:#c9c9cf;font:11px system-ui;padding:3px 6px;max-width:150px;outline:none}.tintin-of-chip option{background:#16171a;color:#e8e8e6}.tintin-of-icon{width:26px;height:26px;border-radius:7px;border:1px solid #2a2b31;background:#1a1b1f;color:#c9c9cf;cursor:pointer;font:13px system-ui;line-height:1;flex:none}.tintin-of-spacer{flex:1}.tintin-of-status{padding:0 12px 8px;font-size:11px;color:#8a8a90;min-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
           '.tintin-of-atmenu{position:absolute;left:12px;right:12px;bottom:104px;max-height:220px;overflow:auto;background:#1a1b1f;border:1px solid #2f3036;border-radius:10px;padding:4px;z-index:5;display:none}.tintin-of-atitem{display:block;width:100%;text-align:left;padding:6px 8px;border:0;border-radius:6px;background:none;font:11px/1.4 ui-monospace,monospace;color:#c9c9cf;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tintin-of-atitem:hover{background:#24262b}.tintin-of-atgroup{padding:6px 8px 2px;font-size:10px;color:#6f7076}',
           '.tintin-of-atrow{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:6px 8px;border:0;border-radius:6px;background:none;color:#c9c9cf;font:11px/1.4 system-ui;cursor:pointer}.tintin-of-atrow:hover{background:#24262b}.tintin-of-atrow.is-disabled{opacity:.45;cursor:default}.tintin-of-atrow.is-active{background:#24262b}.tintin-of-libmenu{position:fixed;z-index:70;background:#1a1b1f;border:1px solid #2f3036;border-radius:8px;padding:4px;min-width:170px;box-shadow:0 10px 28px rgba(0,0,0,.45)}.tintin-of-libmenu .tintin-of-atrow{font-size:12px}.tintin-of-libmenu .tintin-of-atrow-icon{color:#c9c9cf}.tintin-of-atrow-icon{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:5px;background:#26282e;flex:none}.tintin-of-atrow-icon svg{width:12px;height:12px}.tintin-of-atlabel{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tintin-of-atdetail{color:#77787e;font-size:10px;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}.tintin-of-provider{border:0;background:transparent;color:#e8e8e6;font-weight:600;padding-left:0}',
-          '.tintin-of-assets{flex:1;min-height:0;display:none;flex-direction:column;background:#0f1013}.tintin-of-assets-head{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #1c1d21}.tintin-of-assets-search{flex:1;min-width:0;background:#16171a;border:1px solid #26272b;border-radius:8px;color:#e8e8e6;font:11px system-ui;padding:4px 8px;outline:none}.tintin-of-assets-body{flex:1;min-height:0;overflow:auto;padding:10px}.tintin-of-assets-all{font-size:11px;color:#8a8a90;padding:0 2px 8px}.tintin-of-assets-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}',
+          '.tintin-of-assets{flex:1;min-height:0;display:none;flex-direction:column;background:#0f1013}.tintin-of-assets-head{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #1c1d21}.tintin-of-assets-search{flex:1;min-width:0;background:#16171a;border:1px solid #26272b;border-radius:8px;color:#e8e8e6;font:11px system-ui;padding:4px 8px;outline:none}.tintin-of-assets-body{flex:1;min-height:0;overflow:auto;padding:10px}.tintin-of-assets-all{font-size:11px;color:#8a8a90;padding:0 2px 8px}.tintin-of-assets-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.tintin-of-assets-grid.is-audio-list{display:flex;flex-direction:column;gap:6px}.tintin-of-asset.is-audio-row{display:flex;align-items:center;gap:10px;padding:8px 10px}.tintin-of-asset.is-audio-row:hover{background:#1a1b1f}.tintin-of-asset.is-audio-row .tintin-of-asset-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tintin-of-asset.is-audio-size{margin-left:auto;color:#77787e;font-size:10px;font-variant-numeric:tabular-nums;flex:none}.tintin-of-audio-note{color:#8f9096;font-size:16px;flex:none}',
           '.tintin-of-asset{border:1px solid #26272b;background:#16171a;border-radius:9px;overflow:hidden;padding:0;color:#e2e2e6;font:11px system-ui;text-align:left;cursor:pointer}.tintin-of-asset:hover{border-color:#3b6fd4}.tintin-of-asset-thumb{position:relative;aspect-ratio:16/9;background:#0b0c0f;display:flex;align-items:center;justify-content:center;overflow:hidden}.tintin-of-asset-thumb img,.tintin-of-asset-thumb video{width:100%;height:100%;object-fit:cover;display:block}.tintin-of-asset-thumb img{-webkit-user-drag:none}.tintin-of-asset-badge{position:absolute;right:5px;bottom:5px;background:rgba(0,0,0,.65);border-radius:4px;padding:1px 4px;font-size:10px;color:#e8e8e6}.tintin-of-asset-name{padding:6px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tintin-of-asset-empty{margin:auto;text-align:center;color:#8a8a90;font-size:12px;line-height:1.7}',
           '.tintin-of-skill-group{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:10px 2px 0;border-top:1px solid #1c1d21;margin-top:2px;font-size:11px;color:#8a8a90}.tintin-of-skill-group.first{border-top:0;margin-top:0;padding-top:0}',
           '.tintin-of-skill-card{border:1px solid #26272b;background:#16171a;border-radius:9px;overflow:hidden;padding:0;color:#e2e2e6;font:11px system-ui;text-align:left;cursor:pointer}.tintin-of-skill-card:hover{border-color:#3b6fd4}.tintin-of-skill-cover{position:relative;aspect-ratio:16/9;background:#0b0c0f;display:flex;align-items:center;justify-content:center;overflow:hidden}.tintin-of-skill-cover img{width:100%;height:100%;object-fit:cover;display:block}.tintin-of-skill-name{padding:6px 8px 2px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tintin-of-skill-desc{padding:0 8px 7px;color:#8a8a90;font-size:10px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
@@ -1103,16 +1103,33 @@ ${event.data.error.reason}` : result
           }
           assetsGrid.replaceChildren(...items.map((item) => {
             const id = libIdOf(item)
-            const card = document.createElement('button'); card.type = 'button'; card.className = 'tintin-of-asset'; card.title = libNameOf(item)
-            const thumb = document.createElement('div'); thumb.className = 'tintin-of-asset-thumb'
-            if (id && libServer) {
-              const img = document.createElement('img'); img.src = `${libServer}/material/thumbnail?material_id=${encodeURIComponent(id)}`
-              img.onerror = () => { img.remove() }
-              img.draggable = false // 封面不参与拖拽：默认图片拖拽会把缩略图当成素材（thumbnail.jpg 事故，2026-10-20）
-              thumb.append(img)
-            } else { const icon = document.createElement('span'); icon.textContent = '▤'; icon.style.fontSize = '22px'; icon.style.color = '#4a4b52'; thumb.append(icon) }
-            const name = document.createElement('div'); name.className = 'tintin-of-asset-name'; name.textContent = libNameOf(item)
-            card.append(thumb, name); card.onclick = () => { showLibPreview(item) }
+            const isAudio = libTab === 'audio'
+            /* 音频无缩略图: 列表行布局(2026-10-23 用户反馈), 名称+大小一行一条 */
+            const card = document.createElement('button'); card.type = 'button'; card.className = 'tintin-of-asset' + (isAudio ? ' is-audio-row' : ''); card.title = libNameOf(item)
+            if (isAudio) {
+              const note = document.createElement('span'); note.className = 'tintin-of-audio-note'; note.textContent = '♪'
+              const name = document.createElement('span'); name.className = 'tintin-of-asset-name'; name.textContent = libNameOf(item)
+              card.append(note, name)
+              const size = Number(item.size)
+              if (Number.isFinite(size) && size > 0) {
+                const units = ['B', 'KB', 'MB', 'GB']; let v = size; let u = 0
+                while (v >= 1024 && u < units.length - 1) { v /= 1024; u += 1 }
+                const sizeEl = document.createElement('span'); sizeEl.className = 'tintin-of-asset-size'
+                sizeEl.textContent = `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[u]}`
+                card.append(sizeEl)
+              }
+            } else {
+              const thumb = document.createElement('div'); thumb.className = 'tintin-of-asset-thumb'
+              if (id && libServer) {
+                const img = document.createElement('img'); img.src = `${libServer}/material/thumbnail?material_id=${encodeURIComponent(id)}`
+                img.onerror = () => { img.remove() }
+                img.draggable = false // 封面不参与拖拽：默认图片拖拽会把缩略图当成素材（thumbnail.jpg 事故，2026-10-20）
+                thumb.append(img)
+              } else { const icon = document.createElement('span'); icon.textContent = '▤'; icon.style.fontSize = '22px'; icon.style.color = '#4a4b52'; thumb.append(icon) }
+              const name = document.createElement('div'); name.className = 'tintin-of-asset-name'; name.textContent = libNameOf(item)
+              card.append(thumb, name)
+            }
+            card.onclick = () => { showLibPreview(item) }
             if (id && libServer) {
               card.draggable = true
               card.dataset.materialId = id
