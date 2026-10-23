@@ -194,4 +194,95 @@ describe('Electron workspace admission', () => {
       expect.stringContaining('drive disconnected'),
     )
   })
+
+  it('asks the picker for several folders and admits each one', async () => {
+    const showOpenDialog = vi.fn(async () => ({
+      canceled: false,
+      filePaths: ['C:\\repo', 'C:\\docs', 'C:\\fixtures'],
+    }))
+    const { admission: subject } = admission({ showOpenDialog })
+
+    await expect(subject.pickDirectories()).resolves.toEqual(['C:\\repo', 'C:\\docs', 'C:\\fixtures'])
+    expect(showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({
+      properties: ['openDirectory', 'multiSelections', 'dontAddToRecent'],
+    }))
+  })
+
+  it('keeps the single-folder picker free of multiSelections', async () => {
+    const showOpenDialog = vi.fn(async () => ({ canceled: false, filePaths: ['C:\\repo', 'C:\\docs'] }))
+    const { admission: subject } = admission({ showOpenDialog })
+
+    await expect(subject.pickDirectory()).resolves.toBe('C:\\repo')
+    expect(showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({
+      properties: ['openDirectory', 'dontAddToRecent'],
+    }))
+  })
+
+  it('drops a refused folder instead of failing the whole multi-selection', async () => {
+    const showOpenDialog = vi.fn(async () => ({
+      canceled: false,
+      filePaths: ['C:\\repo', 'E:\\exfat-repo', 'C:\\docs'],
+    }))
+    const { admission: subject, options } = admission({
+      showOpenDialog,
+      volumeQuery: path => path.startsWith('E:\\')
+        ? { root: 'E:\\', fileSystem: 'EXFAT', driveType: 2 }
+        : { root: 'C:\\', fileSystem: 'NTFS', driveType: 3 },
+    })
+
+    await expect(subject.pickDirectories()).resolves.toEqual(['C:\\repo', 'C:\\docs'])
+    expect(options.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'error',
+      message: expect.stringContaining('EXFAT'),
+    }))
+  })
+
+  it('reports a cancelled multi-selection as no folders', async () => {
+    const { admission: subject } = admission()
+
+    await expect(subject.pickDirectories()).resolves.toEqual([])
+  })
+
+  it('coalesces concurrent multi-selections without reusing the single-folder task', async () => {
+    const finishes: ((value: { canceled: false; filePaths: string[] }) => void)[] = []
+    const showOpenDialog = vi.fn<ElectronWorkspaceAdmissionOptions['showOpenDialog']>(() => new Promise((resolve) => {
+      finishes.push(resolve)
+    }))
+    const { admission: subject } = admission({ showOpenDialog })
+
+    const single = subject.pickDirectory()
+    const first = subject.pickDirectories()
+    const second = subject.pickDirectories()
+    // Three dialogs: one for the single-folder request and one for the
+    // multi-folder pair. The two shapes never share an in-flight task.
+    expect(showOpenDialog).toHaveBeenCalledTimes(2)
+
+    finishes[0]?.({ canceled: false, filePaths: ['C:\\Single'] })
+    finishes[1]?.({ canceled: false, filePaths: ['C:\\Many', 'D:\\More'] })
+
+    await expect(Promise.all([single, first, second]))
+      .resolves.toEqual(['C:\\Single', ['C:\\Many', 'D:\\More'], ['C:\\Many', 'D:\\More']])
+    expect(showOpenDialog).toHaveBeenCalledTimes(2)
+  })
+
+  it('releases the multi-selection task after completion', async () => {
+    const showOpenDialog = vi.fn(async () => ({ canceled: false, filePaths: ['C:\\repo'] }))
+    const { admission: subject } = admission({ showOpenDialog })
+
+    await subject.pickDirectories()
+    await subject.pickDirectories()
+    expect(showOpenDialog).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects the multi-selection picker on a platform without the capability', async () => {
+    const showOpenDialog = vi.fn()
+    const { admission: subject } = admission({
+      platform: 'linux',
+      canPickDirectory: false,
+      showOpenDialog,
+    })
+
+    await expect(subject.pickDirectories()).rejects.toThrow('native workspace picker is unavailable on linux')
+    expect(showOpenDialog).not.toHaveBeenCalled()
+  })
 })

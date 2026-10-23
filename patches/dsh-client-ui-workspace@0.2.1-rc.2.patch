@@ -1,0 +1,562 @@
+diff --git a/lib/client.js b/lib/client.js
+index 5d53713..4aa493a 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -878,6 +878,17 @@ window.__ModuleLoader__.load({
+ 			return base !== "" ? base : cwd;
+ 		}
+ 		/**
++		* Read one Workspace's authoritative root directories.
++		* The Host projects `roots`; a Host without multi-root support only carries the
++		* primary `path`, so that one stays the fallback for older payloads.
++		* @param workspace - Workspace projection from the caller's store snapshot.
++		* @returns root directories, primary root first.
++		*/
++		function workspaceRoots(workspace) {
++			const roots = workspace.roots;
++			return Array.isArray(roots) && roots.length > 0 ? roots : [workspace.path];
++		}
++		/**
+ 		* Project known account members by current Session recency.
+ 		* @param sessionIds - authoritative account membership.
+ 		* @param summaries - current Session summaries; members without a summary are omitted until it arrives.
+@@ -1038,7 +1049,10 @@ window.__ModuleLoader__.load({
+ 					members.push(summary);
+ 				}
+ 				if (archivedFilter === "only" && members.length === 0) continue;
+-				groups.push(buildGroup(workspace.workspaceId, workspace.workspaceId, workspace.path, Date.parse(workspace.createdAt), workspace.title, members));
++				groups.push({
++					...buildGroup(workspace.workspaceId, workspace.workspaceId, workspace.path, Date.parse(workspace.createdAt), workspace.title, members),
++					roots: workspaceRoots(workspace)
++				});
+ 			}
+ 			const stray = list.ids.map((id) => list.byId[id]).filter((s) => s !== void 0 && !accounted.has(s.id) && sessionVisible(s, current, archived, archivedFilter));
+ 			if (stray.length > 0) groups.push(buildGroup("", void 0, void 0, void 0, "", orderedUngrouped(stray, ungroupedOrder, list.byId)));
+@@ -1101,6 +1115,7 @@ window.__ModuleLoader__.load({
+ 					key: g.key,
+ 					workspaceId: g.workspaceId,
+ 					cwd: g.cwd,
++					roots: g.roots,
+ 					createdAt: g.createdAt,
+ 					label: g.label,
+ 					sessionCount: g.sessions.length,
+@@ -1747,6 +1762,14 @@ window.__ModuleLoader__.load({
+ 			tag.textContent = css$3;
+ 			document.head.appendChild(tag);
+ 		}
++		const rowscssTagId = "@deepseek-ai/dsh-client-ui-workspace/Rows.folders.css";
++		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(rowscssTagId) + "]") === null) {
++			const tag = document.createElement("style");
++			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-workspace";
++			tag.dataset.pluginCss = rowscssTagId;
++			tag.textContent = ".qZBEgG_projectHead{align-items:center;gap:4px;min-width:0;display:flex}.qZBEgG_rootCount{border-radius:var(--dsw-radius-xs);color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-interactive-bg-hover);white-space:nowrap;flex:none;padding:0 4px;font-size:11px;line-height:16px}.qZBEgG_folderRow{border-radius:var(--dsw-radius-md);cursor:default;user-select:none;color:var(--dsw-alias-label-secondary);align-items:center;gap:6px;height:28px;padding:0 8px;padding-inline-start:calc(30px + var(--dsh-workspace-indent,0px));display:flex}.qZBEgG_folderRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.qZBEgG_folderName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:13px;line-height:18px;overflow:hidden}.qZBEgG_folderPrimary{color:var(--dsw-alias-label-tertiary);flex:none;font-size:11px;line-height:16px}";
++			document.head.appendChild(tag);
++		}
+ 		var Rows_module_css_default = {
+ 			"archived": "qZBEgG_archived",
+ 			"arrow": "qZBEgG_arrow",
+@@ -1757,6 +1780,9 @@ window.__ModuleLoader__.load({
+ 			"dropBefore": "qZBEgG_dropBefore",
+ 			"folder": "qZBEgG_folder",
+ 			"folderActive": "qZBEgG_folderActive",
++			"folderName": "qZBEgG_folderName",
++			"folderPrimary": "qZBEgG_folderPrimary",
++			"folderRow": "qZBEgG_folderRow",
+ 			"hoverArchived": "qZBEgG_hoverArchived",
+ 			"hoverContent": "qZBEgG_hoverContent",
+ 			"hoverPath": "qZBEgG_hoverPath",
+@@ -1767,7 +1793,9 @@ window.__ModuleLoader__.load({
+ 			"menuOpen": "qZBEgG_menuOpen",
+ 			"meta": "qZBEgG_meta",
+ 			"pinIndicator": "qZBEgG_pinIndicator",
++			"projectHead": "qZBEgG_projectHead",
+ 			"projectRow": "qZBEgG_projectRow",
++			"rootCount": "qZBEgG_rootCount",
+ 			"projectText": "qZBEgG_projectText",
+ 			"renameInput": "qZBEgG_renameInput",
+ 			"rowActions": "qZBEgG_rowActions",
+@@ -1934,6 +1962,38 @@ window.__ModuleLoader__.load({
+ 			return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+ 		}
+ 		/**
++		* One folder of a multi-root Workspace: the child row a project header expands
++		* into, before its Sessions. Read-only — roots are edited through the project
++		* menu's folder dialog, which validates the whole list on the Host.
++		* @param props.path - absolute root directory.
++		* @param props.scopeKey - owning project group key (the row identity axis).
++		* @param props.primary - whether this is the primary root (`roots[0]`).
++		* @param props.t - the browser root's locale seat.
++		* @returns the row element.
++		*/
++		function FolderRowItem({ path, scopeKey, primary, t }) {
++			const name = workspaceLabel(path);
++			return (0, react_jsx_runtime.jsxs)("div", {
++				className: Rows_module_css_default.folderRow,
++				title: path,
++				"data-row-key": `folder:${scopeKey}:${path}`,
++				children: [
++					(0, react_jsx_runtime.jsx)("span", {
++						className: clsx(Rows_module_css_default.slot, Rows_module_css_default.folder),
++						children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderCloseRegular, {})
++					}),
++					(0, react_jsx_runtime.jsx)("span", {
++						className: Rows_module_css_default.folderName,
++						children: name === "" ? path : name
++					}),
++					primary && (0, react_jsx_runtime.jsx)("span", {
++						className: Rows_module_css_default.folderPrimary,
++						children: t("folder.primary")
++					})
++				]
++			});
++		}
++		/**
+ 		* Project (workspace) header row: folder + title;
+ 		* hover reveals the chevron and create button, and dwelling on a real
+ 		* Workspace shows its hover card (the ungrouped bucket has none).
+@@ -1947,9 +2007,11 @@ window.__ModuleLoader__.load({
+ 		* @param props.t - the browser root's locale seat.
+ 		* @returns the row element.
+ 		*/
+-		function ProjectRowItem({ group, containsCurrentDescendant = false, onToggle, onCreate, actions, drag, home, newShortcut, t }) {
++		function ProjectRowItem({ group, containsCurrentDescendant = false, onToggle, onCreate, actions, drag, home, newShortcut, foldersAvailable = false, t }) {
+ 			const row = group;
+ 			const label = row.workspaceId === void 0 ? t("group.ungrouped") : row.label;
++			const roots = row.roots ?? [];
++			const extraRoots = Math.max(0, roots.length - 1);
+ 			const active = containsCurrentDescendant || group.expanded && group.containsCurrent;
+ 			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
+ 			const workspaceMenuItems = [{
+@@ -1961,6 +2023,15 @@ window.__ModuleLoader__.load({
+ 				label: t("delete.workspace"),
+ 				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTrashOutlineRegular, {}),
+ 				danger: true
++			}, {
++				id: "addFolder",
++				label: t("folder.add"),
++				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderOpenOutlineRegular, {}),
++				disabled: !foldersAvailable
++			}, {
++				id: "manageFolders",
++				label: t("folder.manage"),
++				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSettingsOutlineRegular, {})
+ 			}];
+ 			const ownRow = (0, react_jsx_runtime.jsxs)("div", {
+ 				className: clsx(Rows_module_css_default.projectRow, menuOpen && Rows_module_css_default.menuOpen),
+@@ -1986,9 +2057,17 @@ window.__ModuleLoader__.load({
+ 					}),
+ 					(0, react_jsx_runtime.jsx)("span", {
+ 						className: Rows_module_css_default.projectText,
+-						children: (0, react_jsx_runtime.jsx)("span", {
+-							className: Rows_module_css_default.title,
+-							children: label
++						children: (0, react_jsx_runtime.jsxs)("span", {
++							className: Rows_module_css_default.projectHead,
++							children: [(0, react_jsx_runtime.jsx)("span", {
++								className: Rows_module_css_default.title,
++								children: label
++							}), extraRoots > 0 && (0, react_jsx_runtime.jsx)("span", {
++								className: Rows_module_css_default.rootCount,
++								title: t("folder.count", { n: extraRoots }),
++								"aria-label": t("folder.count", { n: extraRoots }),
++								children: `+${String(extraRoots)}`
++							})]
+ 						})
+ 					}),
+ 					(0, react_jsx_runtime.jsxs)("span", {
+@@ -2001,10 +2080,17 @@ window.__ModuleLoader__.load({
+ 							items: workspaceMenuItems,
+ 							onSelect: (id) => {
+ 								setMenuOpen(false);
+-								/* v8 ignore next -- Menu can emit only the rename and delete rows supplied above. */
+-								if (id !== "rename" && id !== "delete") return;
+-								if (id === "rename") actions.rename();
+-								else actions.delete();
++								if (id === "rename") {
++									actions.rename();
++									return;
++								}
++								if (id === "delete") {
++									actions.delete();
++									return;
++								}
++								/* v8 ignore next 2 -- Menu can emit only the rows supplied above. */
++								if (id === "addFolder") actions.addFolder();
++								else actions.manageFolders();
+ 							},
+ 							portal: true,
+ 							closeOnPointerLeave: true,
+@@ -2726,6 +2812,14 @@ window.__ModuleLoader__.load({
+ 			tag.textContent = css;
+ 			document.head.appendChild(tag);
+ 		}
++		const browsercssTagId = "@deepseek-ai/dsh-client-ui-workspace/WorkspaceBrowser.folders.css";
++		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(browsercssTagId) + "]") === null) {
++			const tag = document.createElement("style");
++			tag.dataset.plugin = "@deepseek-ai/dsh-client-ui-workspace";
++			tag.dataset.pluginCss = browsercssTagId;
++			tag.textContent = ".cIzfCa_folderHint{color:var(--dsw-alias-label-tertiary);margin-bottom:10px;font-size:12px;line-height:16px}.cIzfCa_folderList{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}.cIzfCa_folderListItem{align-items:center;gap:8px;display:flex}.cIzfCa_folderListText{flex-direction:column;flex:1;min-width:0;display:flex}.cIzfCa_folderListName{color:var(--dsw-alias-label-primary);font-size:13px;line-height:18px;overflow-wrap:anywhere}.cIzfCa_folderListPath{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px;overflow-wrap:anywhere}.cIzfCa_folderPrimaryTag{color:var(--dsw-alias-label-tertiary);flex:none;font-size:12px;line-height:16px}";
++			document.head.appendChild(tag);
++		}
+ 		var WorkspaceBrowser_module_css_default = {
+ 			"archiveActivity": "cIzfCa_archiveActivity",
+ 			"clearButton": "cIzfCa_clearButton",
+@@ -2736,6 +2830,13 @@ window.__ModuleLoader__.load({
+ 			"emptyState": "cIzfCa_emptyState",
+ 			"fade": "cIzfCa_fade",
+ 			"flatList": "cIzfCa_flatList",
++			"folderHint": "cIzfCa_folderHint",
++			"folderList": "cIzfCa_folderList",
++			"folderListItem": "cIzfCa_folderListItem",
++			"folderListName": "cIzfCa_folderListName",
++			"folderListPath": "cIzfCa_folderListPath",
++			"folderListText": "cIzfCa_folderListText",
++			"folderPrimaryTag": "cIzfCa_folderPrimaryTag",
+ 			"groupSection": "cIzfCa_groupSection",
+ 			"headerActions": "cIzfCa_headerActions",
+ 			"headerActionsHidden": "cIzfCa_headerActionsHidden",
+@@ -3021,7 +3122,7 @@ window.__ModuleLoader__.load({
+ 			});
+ 		}
+ 		/** The scrolling session tree; unmounting drops the sessions subscription and the session watermarks. */
+-		function SessionTree({ list, useSessionStatus, startSession, open, workspaces, ungroupedSessionIds, rowState, onLeaveArchivedOnly, workspaceReady, animationResetKey, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRenameRequest, renderSlot, insertWorkspaceBefore, nestWorkspaces, groupExpansion, setGroupExpanded, setSessionOrder, home, t, revealSessionId, onSessionRevealed, shortcuts }) {
++		function SessionTree({ list, useSessionStatus, startSession, open, workspaces, ungroupedSessionIds, rowState, onLeaveArchivedOnly, workspaceReady, animationResetKey, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRenameRequest, renderSlot, insertWorkspaceBefore, nestWorkspaces, groupExpansion, setGroupExpanded, setSessionOrder, home, t, revealSessionId, onSessionRevealed, shortcuts, directoriesAvailable, onAddFolderRequest, onManageFoldersRequest }) {
+ 			const panelActive = usePanelInfo((info) => info.activePanelId !== null);
+ 			const statuses = useSessionStatus((s) => s);
+ 			const current = panelActive ? void 0 : Object.values(list.byId).find((session) => (session.retainedBy.mainView ?? 0) > 0)?.id;
+@@ -3158,6 +3259,7 @@ window.__ModuleLoader__.load({
+ 				const visible = watermarkRows(group.sessions, watermark);
+ 				const sessionsExpanded = visible.hiddenCount === 0;
+ 				rowKeys.push(`workspace:${group.key}`);
++				if (group.expanded && group.roots !== void 0) for (const root of group.roots) rowKeys.push(`folder:${group.key}:${root}`);
+ 				const childRows = group.expanded ? children.map((child) => renderGroup(child, depth + 1)) : [];
+ 				const sessions = visible.rows;
+ 				for (const node of sessions) rowKeys.push(`session:${node.id}`);
+@@ -3226,6 +3328,7 @@ window.__ModuleLoader__.load({
+ 							containsCurrentDescendant: currentAncestors.has(group.key),
+ 							home,
+ 							t,
++							foldersAvailable: directoriesAvailable,
+ 							onToggle: () => {
+ 								if (group.expanded) dropWatermarks((key) => withinGroup(key, group.key));
+ 								setGroupExpanded(group.key, !group.expanded);
+@@ -3245,9 +3348,26 @@ window.__ModuleLoader__.load({
+ 								delete: () => {
+ 									/* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+ 									if (group.workspaceId !== void 0) onDeleteRequest(group.workspaceId, group.label);
++								},
++								addFolder: () => {
++									/* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
++									if (group.workspaceId !== void 0) onAddFolderRequest(group.workspaceId);
++								},
++								manageFolders: () => {
++									/* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
++									if (group.workspaceId !== void 0) onManageFoldersRequest(group.workspaceId);
+ 								}
+ 							}
+ 						}),
++						group.roots !== void 0 && group.expanded && (0, react_jsx_runtime.jsx)("div", {
++							role: "group",
++							children: group.roots.map((root) => (0, react_jsx_runtime.jsx)(FolderRowItem, {
++								path: root,
++								scopeKey: group.key,
++								primary: root === group.roots[0],
++								t
++							}, root))
++						}),
+ 						childRows.length > 0 && (0, react_jsx_runtime.jsx)("div", {
+ 							role: "group",
+ 							children: childRows
+@@ -3506,7 +3626,7 @@ window.__ModuleLoader__.load({
+ 		* @param props - composed slot props (shell owner share + store + injected actions).
+ 		* @returns the region element tree.
+ 		*/
+-		function WorkspaceBrowser({ wide, usePanelInfo, expandSidebar, useSessions, useSessionStatus, useWorkspaces, useStore, actions, startSession, open, requestSessionRename, notifyArchivedNotOpenable, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, unarchiveSession, createWorkspace, searchSessions, searchResultLimit, useDirectoryFlow, useHostInfo, useShortcuts, useWorkspaceShortcuts, requestSearch, requestAddWorkspace, closeAddWorkspace, setDirectoryBusy, renderSlot, t }) {
++		function WorkspaceBrowser({ wide, usePanelInfo, expandSidebar, useSessions, useSessionStatus, useWorkspaces, useStore, actions, startSession, open, requestSessionRename, notifyArchivedNotOpenable, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, unarchiveSession, createWorkspace, searchSessions, searchResultLimit, useDirectoryFlow, useHostInfo, useShortcuts, useWorkspaceShortcuts, requestSearch, requestAddWorkspace, closeAddWorkspace, setDirectoryBusy, setWorkspaceRoots, renderSlot, t }) {
+ 			const home = useHostInfo((info) => info.home);
+ 			const shortcuts = useShortcuts((rows) => rows);
+ 			const searchShortcut = shortcuts.find((row) => row.id === "session.search");
+@@ -3816,12 +3936,103 @@ window.__ModuleLoader__.load({
+ 				setDeleteCommittedId(null);
+ 				setDeleteError(null);
+ 				deleteWorkspace(deleteTarget.workspaceId).then(() => {
+-					setDeleteCommittedId(deleteTarget.workspaceId);
+-				}).catch((reason) => {
+-					setDeleting(false);
+-					setDeleteError(reason instanceof Error ? reason.message : String(reason));
++						setDeleteCommittedId(deleteTarget.workspaceId);
++					}).catch((reason) => {
++						setDeleting(false);
++						setDeleteError(reason instanceof Error ? reason.message : String(reason));
++					});
++				};
++			/** Project whose folder dialog is open, or null while it is closed. */
++			const [folderTarget, setFolderTarget] = (0, react.useState)(null);
++			/** Project whose add-folder directory flow is open, or null. */
++			const [folderFlowTarget, setFolderFlowTarget] = (0, react.useState)(null);
++			const [folderPicking, setFolderPicking] = (0, react.useState)(false);
++			const [folderBusy, setFolderBusy] = (0, react.useState)(false);
++			const [folderError, setFolderError] = (0, react.useState)(null);
++			const folderWorkspace = folderTarget === null ? void 0 : storedWorkspaces.find((workspace) => workspace.workspaceId === folderTarget);
++			const folderRoots = folderWorkspace === void 0 ? [] : workspaceRoots(folderWorkspace);
++			const closeFolders = () => {
++				if (folderBusy) return;
++				setFolderTarget(null);
++				setFolderError(null);
++			};
++			/**
++			* Submit one project's complete root list. The result is not merged locally:
++			* `useWorkspaces` refreshes from the Host's follow increment.
++			* @param workspaceId - target Workspace.
++			* @param roots - the new complete root list, primary first.
++			*/
++			const writeFolders = (workspaceId, roots) => {
++				setFolderError(null);
++				setFolderBusy(true);
++				return setWorkspaceRoots(workspaceId, roots).then(() => {
++					setFolderBusy(false);
++					setFolderFlowTarget(null);
++				}, (reason) => {
++					setFolderBusy(false);
++					setFolderFlowTarget(null);
++					setFolderTarget(workspaceId);
++					setFolderError(folderFailureText(reason));
+ 				});
+ 			};
++			const removeFolderRoot = (index) => {
++				/* v8 ignore next -- Remove is disabled while busy and while one root is left. */
++				if (folderBusy || folderTarget === null || folderRoots.length <= 1) return;
++				writeFolders(folderTarget, folderRoots.filter((_root, at) => at !== index));
++			};
++			const openFolderFlow = () => {
++				/* v8 ignore next -- the footer action renders only while a dialog target exists. */
++				if (folderTarget === null) return;
++				setFolderFlowTarget(folderTarget);
++				setFolderTarget(null);
++				setFolderError(null);
++			};
++			/**
++			* Render a root-set refusal for the open folder dialog. A root still held by an
++			* accounted Session names those Sessions and repeats no action: the refusal is
++			* final, so the caller must not retry it.
++			* @param reason - rejection from the Workspace root-set command.
++			* @returns the operator-facing message.
++			*/
++			const folderFailureText = (reason) => {
++				const refusal = folderRefusal(reason);
++				/* v8 ignore next -- carrier failures keep the raw message. */
++				if (refusal === void 0) return reason instanceof Error ? reason.message : String(reason);
++				switch (refusal.kind) {
++					case "inUse": return t("folder.inUse", {
++						n: refusal.sessionIds.length,
++						names: refusal.sessionIds.map((sessionId) => list.byId[sessionId]?.title?.trim() || sessionId).join(t("folder.listSeparator"))
++					});
++					case "invalid": return t("folder.invalid", { reason: refusal.message });
++					/* v8 ignore next -- the remaining kind is not-found. */
++					default: return t("folder.notFound");
++				}
++			};
++			/** Owner side of the sidebar directory flow while a folder is being added. */
++			const folderFlowOwner = {
++				open: folderFlowTarget !== null,
++				busy: folderPicking,
++				onPicked: (path) => {
++					const target = storedWorkspaces.find((workspace) => workspace.workspaceId === folderFlowTarget);
++					/* v8 ignore next -- the flow opens only from a target project. */
++					if (target === void 0) {
++						setFolderFlowTarget(null);
++						return;
++					}
++					setFolderPicking(true);
++					writeFolders(target.workspaceId, [...workspaceRoots(target), path]).finally(() => {
++						setFolderPicking(false);
++					});
++				},
++				onCancel: () => {
++					setFolderFlowTarget(null);
++				},
++				onError: (message) => {
++					setFolderTarget(folderFlowTarget);
++					setFolderFlowTarget(null);
++					setFolderError(message);
++				}
++			};
+ 			return (0, react_jsx_runtime.jsxs)("div", {
+ 				className: clsx(WorkspaceBrowser_module_css_default.root, !wide && WorkspaceBrowser_module_css_default.rail),
+ 				children: [
+@@ -3929,7 +4140,7 @@ window.__ModuleLoader__.load({
+ 								useWorkspaces,
+ 								createWorkspace,
+ 								useDirectoryFlow,
+-								renderDirectoryFlow: (owner) => renderSlot("sidebar.workspaces.directoryFlow", owner),
++								renderDirectoryFlow: (owner) => renderSlot("sidebar.workspaces.directoryFlow", folderFlowTarget === null ? owner : folderFlowOwner),
+ 								addOnly: true,
+ 								onBusyChange: setDirectoryBusy,
+ 								side: "right",
+@@ -4029,6 +4240,15 @@ window.__ModuleLoader__.load({
+ 									title
+ 								});
+ 								setDeleteError(null);
++							},
++							directoriesAvailable: directoryFlowAvailable,
++							onAddFolderRequest: (workspaceId) => {
++								setFolderFlowTarget(workspaceId);
++								setFolderError(null);
++							},
++							onManageFoldersRequest: (workspaceId) => {
++								setFolderTarget(workspaceId);
++								setFolderError(null);
+ 							}
+ 						}))
+ 					}),
+@@ -4114,6 +4334,60 @@ window.__ModuleLoader__.load({
+ 							role: "alert",
+ 							children: deleteError
+ 						})]
++					}),
++					(0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
++						open: folderTarget !== null,
++						onClose: closeFolders,
++						closeLabel: t("close"),
++						title: t("folder.manage.title"),
++						description: t("folder.manage.desc"),
++						footer: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++							variant: "outline",
++							disabled: folderBusy || !directoryFlowAvailable,
++							onClick: openFolderFlow,
++							children: t("folder.add")
++						}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++							variant: "primary",
++							disabled: folderBusy,
++							onClick: closeFolders,
++							children: t("close")
++						})] }),
++						children: [(0, react_jsx_runtime.jsx)("ul", {
++							className: WorkspaceBrowser_module_css_default.folderList,
++							children: folderRoots.map((root, index) => (0, react_jsx_runtime.jsxs)("li", {
++								className: WorkspaceBrowser_module_css_default.folderListItem,
++								children: [(0, react_jsx_runtime.jsxs)("span", {
++									className: WorkspaceBrowser_module_css_default.folderListText,
++									children: [(0, react_jsx_runtime.jsx)("span", {
++										className: WorkspaceBrowser_module_css_default.folderListName,
++										children: workspaceLabel(root)
++									}), (0, react_jsx_runtime.jsx)("span", {
++										className: WorkspaceBrowser_module_css_default.folderListPath,
++										children: root
++									})]
++								}), index === 0 && (0, react_jsx_runtime.jsx)("span", {
++									className: WorkspaceBrowser_module_css_default.folderPrimaryTag,
++									children: t("folder.primary")
++								}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
++									variant: "outline",
++									size: "sm",
++									disabled: folderBusy || folderRoots.length <= 1,
++									"aria-label": t("folder.remove.aria", { name: workspaceLabel(root) }),
++									onClick: () => {
++										removeFolderRoot(index);
++									},
++									children: t("folder.remove")
++								})]
++							}, `${String(index)}:${root}`))
++						}), folderBusy && (0, react_jsx_runtime.jsx)("div", {
++							className: WorkspaceBrowser_module_css_default.deleteStatus,
++							role: "status",
++							children: t("folder.pending")
++						}), folderError !== null && (0, react_jsx_runtime.jsx)("div", {
++							className: WorkspaceBrowser_module_css_default.renameError,
++							role: "alert",
++							children: folderError
++						})]
+ 					})
+ 				]
+ 			});
+@@ -4791,6 +5065,20 @@ window.__ModuleLoader__.load({
+ 			"conflict.named": "已存在名为“{name}”的工作区。",
+ 			"folderError.title": "无法打开文件夹",
+ 			"folderError.retry": "重新选择",
++			"folder.add": "添加文件夹…",
++			"folder.manage": "管理文件夹…",
++			"folder.manage.title": "管理文件夹",
++			"folder.manage.desc": "一个项目可以包含多个文件夹。第一个是主文件夹，也是新会话的工作目录。移除文件夹不会删除其中的文件。",
++			"folder.primaryHint": "第一个文件夹是主文件夹：该项目的新会话在这里启动。移除它会由下一个文件夹接任主文件夹。",
++			"folder.listSeparator": "、",
++			"folder.inUse": "无法移除：仍有 {n} 个会话在这个文件夹中（{names}）。请先移动或归档这些会话。",
++			"folder.invalid": "无法更新文件夹：{reason}",
++			"folder.notFound": "这个项目已不存在，列表会在下一次刷新时更新。",
++			"folder.count": "另有 {n} 个文件夹",
++			"folder.remove": "移除",
++			"folder.remove.aria": "从项目中移除文件夹“{name}”",
++			"folder.primary": "主文件夹",
++			"folder.pending": "正在更新文件夹…",
+ 			"rename": "重命名",
+ 			"rename.workspace.title": "重命名工作区",
+ 			"rename.session.title": "重命名会话",
+@@ -4913,6 +5201,20 @@ window.__ModuleLoader__.load({
+ 			"conflict.named": "A workspace named “{name}” already exists.",
+ 			"folderError.title": "Couldn’t open folder",
+ 			"folderError.retry": "Choose again",
++			"folder.add": "Add folder…",
++			"folder.manage": "Manage folders…",
++			"folder.manage.title": "Manage folders",
++			"folder.manage.desc": "A project can hold several folders. The first one is the primary folder and the working directory for new sessions. Removing a folder keeps its files.",
++			"folder.primaryHint": "The first folder is the primary folder: new sessions for this project start there. Removing it promotes the next folder.",
++			"folder.listSeparator": ", ",
++			"folder.inUse": "Can’t remove: {n} session(s) still work in this folder ({names}). Move or archive them first.",
++			"folder.invalid": "Can’t update folders: {reason}",
++			"folder.notFound": "This project no longer exists; the list refreshes on the next update.",
++			"folder.count": "{n} more folder(s)",
++			"folder.remove": "Remove",
++			"folder.remove.aria": "Remove folder “{name}” from the project",
++			"folder.primary": "Primary",
++			"folder.pending": "Updating folders…",
+ 			"rename": "Rename",
+ 			"rename.workspace.title": "Rename workspace",
+ 			"rename.session.title": "Rename session",
+@@ -5202,6 +5504,16 @@ window.__ModuleLoader__.load({
+ 					await uiWorkspace.unarchiveSession(sessionId);
+ 				},
+ 				createWorkspace: (input) => workspaces.create(input),
++				/**
++				* Replace one Workspace's root directories. The Host's follow increment is
++				* what refreshes the rows, so nothing is merged here.
++				* @param workspaceId - target Workspace.
++				* @param roots - complete root list, primary first.
++				*/
++				setWorkspaceRoots: async (workspaceId, roots) => {
++					if (typeof workspaces.setRoots !== "function") throw new Error("This Host cannot manage project folders yet.");
++					await workspaces.setRoots(workspaceId, roots);
++				},
+ 				requestSearch: shortcutControls.search,
+ 				requestAddWorkspace: shortcutControls.add,
+ 				closeAddWorkspace: shortcutControls.closeAdd,
+@@ -5340,6 +5652,30 @@ window.__ModuleLoader__.load({
+ 		* for any other failure. The class identity check goes by name: client plugin
+ 		* bundles do not share error-class identity.
+ 		*/
++		/**
++		* Classify a Host refusal of one root-set mutation by its RPC code.
++		* The class identity check goes by name: client plugin bundles do not share
++		* error-class identity, so `instanceof` cannot be used across them.
++		* @param reason - rejection from the Workspace root-set command.
++		* @returns the refusal kind and its details, or nothing for any other failure.
++		*/
++		function folderRefusal(reason) {
++			if (!(reason instanceof Error) || reason.name !== "WorkspaceSetRootsError") return void 0;
++			const { rpcError } = reason;
++			switch (rpcError.code) {
++				case "workspace/roots-in-use": return {
++					kind: "inUse",
++					sessionIds: rpcError.details?.sessionIds ?? []
++				};
++				case "workspace/invalid-roots": return {
++					kind: "invalid",
++					message: rpcError.message
++				};
++				case "workspace/not-found": return { kind: "notFound" };
++				/* v8 ignore next 2 -- closed-union backstop; other codes are carrier failures. */
++				default: return void 0;
++			}
++		}
+ 		function activeSessionRefusal(reason) {
+ 			if (!(reason instanceof Error) || reason.name !== "WorkspaceArchiveError") return void 0;
+ 			const { rpcError } = reason;

@@ -1,0 +1,967 @@
+diff --git a/lib/client.js b/lib/client.js
+index 7d47cfb..5d78387 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -45,7 +45,7 @@ window.__ModuleLoader__.load({
+ 			}
+ 			/**
+ 			* Create or resolve a Workspace and merge the unary result immediately.
+-			* @param input - existing absolute path to adopt.
++			* @param input - existing absolute primary path and optional extra roots.
+ 			* @returns generated Remote result.
+ 			*/
+ 			async create(input) {
+@@ -78,6 +78,22 @@ window.__ModuleLoader__.load({
+ 				return result;
+ 			}
+ 			/**
++			* Replace a Workspace's root set and merge the returned row. Roots keep the
++			* caller's order: `roots[0]` becomes the primary root, hence the working
++			* directory of Sessions created for the Workspace afterwards.
++			* @param workspaceId - target Workspace.
++			* @param roots - replacement canonical roots, primary first, never empty.
++			* @returns generated Remote result.
++			*/
++			async setRoots(workspaceId, roots) {
++				const result = await this.remote.setRoots({
++					workspaceId,
++					roots
++				});
++				if (result.ok) this.upsert(result.value.workspace);
++				return result;
++			}
++			/**
+ 			* Delete a Workspace and remove it from the local projection immediately.
+ 			* @param workspaceId - target Workspace.
+ 			* @returns generated Remote result.
+@@ -377,6 +393,21 @@ window.__ModuleLoader__.load({
+ 				this.rpcError = rpcError;
+ 			}
+ 		};
++		/**
++		* Root-set mutation failed on the Host. `rpcError.code` distinguishes
++		* `workspace/roots-in-use` — whose details name the roots and the Sessions
++		* still working in them — from `workspace/invalid-roots`, a missing
++		* Workspace, or a carrier fault.
++		*/
++		var WorkspaceSetRootsError = class extends Error {
++			rpcError;
++			name = "WorkspaceSetRootsError";
++			/** @param rpcError - Host business or folded carrier failure. */
++			constructor(rpcError) {
++				super(`workspace set roots failed: ${rpcError.code}: ${rpcError.message}`);
++				this.rpcError = rpcError;
++			}
++		};
+ 		/** Owns the bare Workspace snapshot and Workspace-only commands. */
+ 		var WorkspaceController = class extends _deepseek_ai_cordis.Service {
+ 			model;
+@@ -405,6 +436,11 @@ window.__ModuleLoader__.load({
+ 				if (!result.ok) throw commandError("rename", result.error);
+ 				return result.value.workspace;
+ 			}
++			async setRoots(workspaceId, roots) {
++				const result = await this.model.setRoots(workspaceId, roots);
++				if (!result.ok) throw new WorkspaceSetRootsError(result.error);
++				return result.value.workspace;
++			}
+ 			async delete(workspaceId) {
+ 				const result = await this.model.delete(workspaceId);
+ 				if (!result.ok) throw commandError("delete", result.error);
+@@ -521,6 +557,7 @@ window.__ModuleLoader__.load({
+ 		exports.WorkspaceArchiveError = WorkspaceArchiveError;
+ 		exports.WorkspaceController = WorkspaceController;
+ 		exports.WorkspaceCreateError = WorkspaceCreateError;
++		exports.WorkspaceSetRootsError = WorkspaceSetRootsError;
+ 		exports.apply = apply;
+ 		exports.createWorkspaceStateStream = createWorkspaceStateStream;
+ 		exports.inject = inject;
+diff --git a/lib/index.js b/lib/index.js
+index 743644a..07deb7b 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,6 +1,6 @@
+ import z from "@deepseek-ai/schemastery";
+ import { Remote, RemoteError, TypertRemoteService, remoteErrorOf } from "@deepseek-ai/dsh-typert-protocol";
+-import { WorkspaceActiveSessionError, WorkspaceArchivedSessionPinError, WorkspaceId, WorkspaceMoveInvalidError, WorkspaceOrderInvalidError, WorkspaceUnknownSessionError, workspaceDomainState, workspaceRecord } from "@deepseek-ai/dsh-workspace";
++import { WorkspaceActiveSessionError, WorkspaceArchivedSessionPinError, WorkspaceId, WorkspaceMoveInvalidError, WorkspaceNotFoundError, WorkspaceOrderInvalidError, WorkspaceRootsInUseError, WorkspaceRootsInvalidError, WorkspaceUnknownSessionError, workspaceDomainState, workspaceRecord } from "@deepseek-ai/dsh-workspace";
+ import { Deque } from "@deepseek-ai/dsh-deque";
+ import { z as z$1 } from "zod";
+ import { DirectoryPickerError } from "@deepseek-ai/dsh-host-directory-picker";
+@@ -18,6 +18,7 @@ function workspaceView(workspace) {
+ 	return {
+ 		workspaceId: workspace.id,
+ 		path: workspace.path,
++		roots: [...workspace.roots],
+ 		title: workspace.title,
+ 		sessionIds: [...workspace.sessionIds],
+ 		createdAt: workspace.createdAt,
+@@ -26,9 +27,11 @@ function workspaceView(workspace) {
+ }
+ function changedWorkspaceView(workspaceId, value) {
+ 	const record = workspaceRecord.parse(value);
++	const roots = record.roots ?? [record.path];
+ 	return {
+ 		workspaceId: WorkspaceId(workspaceId),
+-		path: record.path,
++		path: roots[0],
++		roots: [...roots],
+ 		title: record.title,
+ 		sessionIds: [...record.sessionIds],
+ 		createdAt: record.createdAt,
+@@ -204,29 +207,62 @@ var WorkspaceCommands = class {
+ 		this.ctx = ctx;
+ 	}
+ 	/**
+-	* Create or resolve one Workspace over an existing directory.
+-	* @param request - directory path to register.
++	* Create or resolve one Workspace over an existing directory, optionally
++	* adopting further directories as additional roots.
++	* @param request - primary directory path plus optional extra roots.
+ 	* @returns the Workspace and whether this call created it.
+ 	*/
+ 	create(request) {
+ 		return this.enqueue(async () => {
++			const extra = request.roots;
++			const primary = request.path ?? request.roots?.[0];
++			if (primary === void 0) throw new RemoteError("gateway/bad-request", "Workspace create requires a path or at least one root", {});
++			const others = extra === void 0 ? void 0 : extra.filter((root) => root !== primary);
+ 			try {
+-				const existing = await this.ctx.workspaceRegistry.resolveByPath(request.path);
++				const existing = await this.ctx.workspaceRegistry.resolveByPath(primary);
+ 				if (existing !== void 0) return {
+ 					workspace: workspaceView(existing),
+ 					created: false
+ 				};
+ 				return {
+-					workspace: workspaceView(await this.ctx.workspaceRegistry.create(request.path)),
++					workspace: workspaceView(await this.ctx.workspaceRegistry.create(primary, void 0, others)),
+ 					created: true
+ 				};
+ 			} catch (error) {
+ 				if (remoteErrorOf(error) !== void 0) throw error;
+-				throw new RemoteError("workspace/invalid-path", `cannot create a Workspace at "${request.path}": ${errorMessage$1(error)}`, { path: request.path }, { cause: error });
++				if (error instanceof WorkspaceRootsInvalidError) throw new RemoteError("workspace/invalid-roots", errorMessage$1(error), { roots: extra ?? [primary] }, { cause: error });
++				throw new RemoteError("workspace/invalid-path", `cannot create a Workspace at "${primary}": ${errorMessage$1(error)}`, { path: primary }, { cause: error });
+ 			}
+ 		});
+ 	}
+ 	/**
++	* Replace one Workspace's root set after serializing root ownership checks.
++	* Roots keep the caller's order: `roots[0]` is the primary root and becomes
++	* the working directory of sessions created for the Workspace afterwards, so
++	* reordering is a primary-root switch. Dropping a root an accounted Session
++	* still works in is refused as `workspace/roots-in-use`.
++	* @param request - Workspace identity and the replacement roots.
++	* @returns the updated Workspace projection.
++	*/
++	setRoots(request) {
++		return this.enqueue(async () => {
++			const workspace = this.requireWorkspace(request.workspaceId);
++			try {
++				await this.ctx.workspaceRegistry.setRoots(workspace.id, request.roots);
++			} catch (error) {
++				if (error instanceof WorkspaceRootsInUseError) throw new RemoteError("workspace/roots-in-use", error.message, {
++					workspaceId: error.workspaceId,
++					roots: [...error.roots],
++					sessionIds: [...error.sessionIds]
++				}, { cause: error });
++				if (error instanceof WorkspaceRootsInvalidError) throw new RemoteError("workspace/invalid-roots", error.message, { roots: [...request.roots] }, { cause: error });
++				if (error instanceof WorkspaceNotFoundError) throw workspaceNotFound(request.workspaceId);
++				throw error;
++			}
++			return { workspace: workspaceView(workspace) };
++		});
++	}
++	/**
+ 	* Rename one Workspace after serializing title ownership checks.
+ 	* @param request - Workspace identity and proposed title.
+ 	* @returns the updated Workspace projection.
+@@ -687,6 +723,7 @@ let WorkspaceController = (() => {
+ 	let _create_decorators;
+ 	let _initializeDefault_decorators;
+ 	let _rename_decorators;
++	let _setRoots_decorators;
+ 	let _delete_decorators;
+ 	let _insertBefore_decorators;
+ 	let _insertSessionBefore_decorators;
+@@ -701,6 +738,7 @@ let WorkspaceController = (() => {
+ 			_create_decorators = [Remote("create")];
+ 			_initializeDefault_decorators = [Remote("initializeDefault")];
+ 			_rename_decorators = [Remote("rename")];
++			_setRoots_decorators = [Remote("setRoots")];
+ 			_delete_decorators = [Remote("delete")];
+ 			_insertBefore_decorators = [Remote("insertBefore")];
+ 			_insertSessionBefore_decorators = [Remote("insertSessionBefore")];
+@@ -742,6 +780,17 @@ let WorkspaceController = (() => {
+ 				},
+ 				metadata: _metadata
+ 			}, null, _instanceExtraInitializers);
++			__esDecorate(this, null, _setRoots_decorators, {
++				kind: "method",
++				name: "setRoots",
++				static: false,
++				private: false,
++				access: {
++					has: (obj) => "setRoots" in obj,
++					get: (obj) => obj.setRoots
++				},
++				metadata: _metadata
++			}, null, _instanceExtraInitializers);
+ 			__esDecorate(this, null, _delete_decorators, {
+ 				kind: "method",
+ 				name: "delete",
+@@ -894,6 +943,16 @@ let WorkspaceController = (() => {
+ 			return this.commands.rename(request);
+ 		}
+ 		/**
++		* Replace one Workspace's root set. Roots keep the caller's order and
++		* `roots[0]` becomes the primary root, hence the working directory of
++		* sessions created for the Workspace afterwards.
++		* @param request - Workspace identity and the replacement roots.
++		* @returns the updated Workspace projection.
++		*/
++		setRoots(request) {
++			return this.commands.setRoots(request);
++		}
++		/**
+ 		* Remove one Workspace registration while retaining files and Sessions.
+ 		* @param request - Workspace identity to remove.
+ 		* @returns deletion confirmation.
+diff --git a/lib/typert.host.js b/lib/typert.host.js
+index ec33791..33d97de 100644
+--- a/lib/typert.host.js
++++ b/lib/typert.host.js
+@@ -40,13 +40,15 @@ const _deepseek_ai_dsh_api_workspace_controller_workspace_archiveSession_result$
+ }))
+ let _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema$value
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema$value ??= z.object({
+-  'path': z.string().readonly(),
++  'path': z.string().readonly().optional().describe('Primary root; omitted derives it from roots[0].'),
++  'roots': z.array(z.string()).readonly().optional().describe('Complete root set; the first entry is the primary root.'),
+ }))
+ let _deepseek_ai_dsh_api_workspace_controller_workspace_create_result$schema$value
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_create_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_create_result$schema$value ??= z.object({
+   'workspace': z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -68,7 +70,8 @@ const _deepseek_ai_dsh_api_workspace_controller_workspace_follow_result$schema =
+   'value': z.object({
+   'items': z.array(z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -82,7 +85,8 @@ const _deepseek_ai_dsh_api_workspace_controller_workspace_follow_result$schema =
+   'value': z.object({
+   'items': z.array(z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -95,7 +99,8 @@ const _deepseek_ai_dsh_api_workspace_controller_workspace_follow_result$schema =
+   'type': z.literal("upsert").readonly(),
+   'workspace': z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -118,7 +123,8 @@ let _deepseek_ai_dsh_api_workspace_controller_workspace_initializeDefault_result
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_initializeDefault_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_initializeDefault_result$schema$value ??= z.union([z.undefined(), z.object({
+   'workspace': z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -144,7 +150,8 @@ let _deepseek_ai_dsh_api_workspace_controller_workspace_insertSessionBefore_resu
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_insertSessionBefore_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_insertSessionBefore_result$schema$value ??= z.object({
+   'workspace': z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -168,7 +175,8 @@ let _deepseek_ai_dsh_api_workspace_controller_workspace_rename_result$schema$val
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_rename_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_rename_result$schema$value ??= z.object({
+   'workspace': z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -191,6 +199,23 @@ let _deepseek_ai_dsh_api_workspace_controller_workspace_unpinSession_result$sche
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_unpinSession_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_unpinSession_result$schema$value ??= z.object({
+   'pinnedSessionIds': z.array(z.string()).readonly(),
+ }))
++let _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0$schema$value
++const _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0$schema$value ??= z.object({
++  'workspaceId': z.string().readonly(),
++  'roots': z.array(z.string()).readonly().describe('Replacement canonical roots, primary root first: roots[0] becomes the primary root and the working directory of Sessions created afterwards.'),
++}))
++let _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_result$schema$value
++const _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_result$schema$value ??= z.object({
++  'workspace': z.object({
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
++  }).readonly(),
++}))
++let _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0_strict$schema$value
++const _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0_strict$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0_strict$schema$value ??= z.strictObject({
++  'workspaceId': z.string().readonly(),
++  'roots': z.array(z.string()).readonly().describe('Replacement canonical roots, primary root first: roots[0] becomes the primary root and the working directory of Sessions created afterwards.'),
++}))
+ let _deepseek_ai_dsh_api_workspace_controller_directoryPicker_createDirectory_parameter_0_strict$schema$value
+ const _deepseek_ai_dsh_api_workspace_controller_directoryPicker_createDirectory_parameter_0_strict$schema = () => (_deepseek_ai_dsh_api_workspace_controller_directoryPicker_createDirectory_parameter_0_strict$schema$value ??= z.string())
+ let _deepseek_ai_dsh_api_workspace_controller_directoryPicker_createDirectory_parameter_1_strict$schema$value
+@@ -204,7 +229,8 @@ const _deepseek_ai_dsh_api_workspace_controller_workspace_archiveSession_paramet
+ }))
+ let _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema$value
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema$value ??= z.strictObject({
+-  'path': z.string().readonly(),
++  'path': z.string().readonly().optional().describe('Primary root; omitted derives it from roots[0].'),
++  'roots': z.array(z.string()).readonly().optional().describe('Complete root set; the first entry is the primary root.'),
+ }))
+ let _deepseek_ai_dsh_api_workspace_controller_workspace_delete_parameter_0_strict$schema$value
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_delete_parameter_0_strict$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_delete_parameter_0_strict$schema$value ??= z.strictObject({
+@@ -386,13 +412,13 @@ const $remote = createTypertRemoteInfo({
+             mode: 'strict',
+             typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceCreateRequest',
+             create: _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema,
+-            jsonSchema: {"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":true},
++            jsonSchema: {"type":"object","properties":{"path":{"type":"string","description":"Primary root; omitted derives it from roots[0]."},"roots":{"type":"array","items":{"type":"string"},"description":"Complete root set; the first entry is the primary root."}},"additionalProperties":true},
+           },
+           strictCodec: {
+             mode: 'strict',
+             typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceCreateRequest',
+             create: _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema,
+-            jsonSchema: {"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false},
++            jsonSchema: {"type":"object","properties":{"path":{"type":"string","description":"Primary root; omitted derives it from roots[0]."},"roots":{"type":"array","items":{"type":"string"},"description":"Complete root set; the first entry is the primary root."}},"additionalProperties":false},
+           },
+         },
+       ],
+@@ -401,7 +427,7 @@ const $remote = createTypertRemoteInfo({
+         typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceCreateValue',
+         create: _deepseek_ai_dsh_api_workspace_controller_workspace_create_result$schema,
+         description: 'the Workspace and whether this call created it.',
+-        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical host directory path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true},"created":{"type":"boolean"}},"required":["workspace","created"],"additionalProperties":true},
++        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true},"created":{"type":"boolean"}},"required":["workspace","created"],"additionalProperties":true},
+       },
+       sourceLocation: {"file":"packages/api/workspace-controller/src/index.ts","line":91,"column":3},
+     },
+@@ -450,7 +476,7 @@ const $remote = createTypertRemoteInfo({
+         typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceFollowFrame',
+         create: _deepseek_ai_dsh_api_workspace_controller_workspace_follow_result$schema,
+         description: 'baseline followed by ordered Workspace increments.',
+-        jsonSchema: {"oneOf":[{"type":"object","properties":{"type":{"type":"string","const":"baseline"},"value":{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical host directory path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"archivedSessionIds":{"type":"array","items":{"type":"string"}},"pinnedSessionIds":{"type":"array","items":{"type":"string"},"description":"Registry-global pin set, most recently pinned first."}},"required":["items","archivedSessionIds","pinnedSessionIds"],"additionalProperties":true}},"required":["type","value"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"replace"},"value":{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical host directory path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"archivedSessionIds":{"type":"array","items":{"type":"string"}},"pinnedSessionIds":{"type":"array","items":{"type":"string"},"description":"Registry-global pin set, most recently pinned first."}},"required":["items","archivedSessionIds","pinnedSessionIds"],"additionalProperties":true}},"required":["type","value"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"upsert"},"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical host directory path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["type","workspace"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"remove"},"workspaceId":{"type":"string"}},"required":["type","workspaceId"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"order"},"workspaceIds":{"type":"array","items":{"type":"string"}}},"required":["type","workspaceIds"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"archived"},"archivedSessionIds":{"type":"array","items":{"type":"string"}}},"required":["type","archivedSessionIds"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"pinned"},"pinnedSessionIds":{"type":"array","items":{"type":"string"}}},"required":["type","pinnedSessionIds"],"additionalProperties":true}]},
++        jsonSchema: {"oneOf":[{"type":"object","properties":{"type":{"type":"string","const":"baseline"},"value":{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"archivedSessionIds":{"type":"array","items":{"type":"string"}},"pinnedSessionIds":{"type":"array","items":{"type":"string"},"description":"Registry-global pin set, most recently pinned first."}},"required":["items","archivedSessionIds","pinnedSessionIds"],"additionalProperties":true}},"required":["type","value"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"replace"},"value":{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"archivedSessionIds":{"type":"array","items":{"type":"string"}},"pinnedSessionIds":{"type":"array","items":{"type":"string"},"description":"Registry-global pin set, most recently pinned first."}},"required":["items","archivedSessionIds","pinnedSessionIds"],"additionalProperties":true}},"required":["type","value"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"upsert"},"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["type","workspace"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"remove"},"workspaceId":{"type":"string"}},"required":["type","workspaceId"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"order"},"workspaceIds":{"type":"array","items":{"type":"string"}}},"required":["type","workspaceIds"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"archived"},"archivedSessionIds":{"type":"array","items":{"type":"string"}}},"required":["type","archivedSessionIds"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"pinned"},"pinnedSessionIds":{"type":"array","items":{"type":"string"}}},"required":["type","pinnedSessionIds"],"additionalProperties":true}]},
+       },
+       sourceLocation: {"file":"packages/api/workspace-controller/src/index.ts","line":206,"column":10},
+     },
+@@ -530,7 +556,7 @@ const $remote = createTypertRemoteInfo({
+         typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceValue',
+         create: _deepseek_ai_dsh_api_workspace_controller_workspace_insertSessionBefore_result$schema,
+         description: 'the updated Workspace projection.',
+-        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical host directory path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["workspace"],"additionalProperties":true},
++        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["workspace"],"additionalProperties":true},
+       },
+       sourceLocation: {"file":"packages/api/workspace-controller/src/index.ts","line":150,"column":3},
+     },
+@@ -594,10 +620,42 @@ const $remote = createTypertRemoteInfo({
+         typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceValue',
+         create: _deepseek_ai_dsh_api_workspace_controller_workspace_rename_result$schema,
+         description: 'the updated Workspace projection.',
+-        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical host directory path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["workspace"],"additionalProperties":true},
++        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["workspace"],"additionalProperties":true},
+       },
+       sourceLocation: {"file":"packages/api/workspace-controller/src/index.ts","line":120,"column":3},
+     },
++    'workspace/setRoots': {
++      service: 'workspaceController',
++      description: 'Replace one Workspace\'s root set. Roots keep the caller\'s order and roots[0] becomes the primary root, hence the working directory of sessions created for the Workspace afterwards.',
++      invocation: { kind: 'direct' },
++      parameters: [
++        {
++          name: 'request',
++          description: 'Workspace identity and the replacement roots.',
++          source: 'json',
++          codec: {
++            mode: 'strict',
++            typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceSetRootsRequest',
++            create: _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0$schema,
++            jsonSchema: {"type":"object","properties":{"workspaceId":{"type":"string"},"roots":{"type":"array","items":{"type":"string"},"description":"Replacement canonical roots, primary root first: roots[0] becomes the primary root and the working directory of Sessions created afterwards."}},"required":["workspaceId","roots"],"additionalProperties":true},
++          },
++          strictCodec: {
++            mode: 'strict',
++            typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceSetRootsRequest',
++            create: _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0_strict$schema,
++            jsonSchema: {"type":"object","properties":{"workspaceId":{"type":"string"},"roots":{"type":"array","items":{"type":"string"},"description":"Replacement canonical roots, primary root first: roots[0] becomes the primary root and the working directory of Sessions created afterwards."}},"required":["workspaceId","roots"],"additionalProperties":false},
++          },
++        },
++      ],
++      result: {
++        mode: 'strict',
++        typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceValue',
++        create: _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_result$schema,
++        description: 'the updated Workspace projection.',
++        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["workspace"],"additionalProperties":true},
++      },
++      sourceLocation: {"file":"packages/api/workspace-controller/src/index.ts","line":131,"column":3},
++    },
+     'workspace/unarchiveSession': {
+       service: 'workspaceController',
+       description: 'Restore one archived Session to Workspace grouping surfaces.',
+@@ -743,6 +801,13 @@ export const TYPERT = {
+             "summary": "Rename one Workspace to a unique non-blank title.",
+             "jsDoc": "/**\n * Rename one Workspace to a unique non-blank title.\n * @param request - Workspace identity and proposed title.\n * @returns the updated Workspace projection.\n */"
+           },
++          {
++            "kind": "method",
++            "name": "setRoots",
++            "signature": "@Remote('setRoots') setRoots(request: WorkspaceSetRootsRequest): Promise<WorkspaceValue>",
++            "summary": "Replace one Workspace's root set.",
++            "jsDoc": "/**\n * Replace one Workspace's root set. Roots keep the caller's order and\n * roots[0] becomes the primary root, hence the working directory of\n * sessions created for the Workspace afterwards.\n * @param request - Workspace identity and the replacement roots.\n * @returns the updated Workspace projection.\n */"
++          },
+           {
+             "kind": "method",
+             "name": "delete",
+@@ -823,7 +888,7 @@ export const TYPERT = {
+           },
+           {
+             "name": "WorkspaceCreateRequest",
+-            "declaration": "export interface WorkspaceCreateRequest {\n    readonly path: string;\n}"
++            "declaration": "export interface WorkspaceCreateRequest {\n    readonly path?: string;\n    readonly roots?: readonly string[];\n}"
+           },
+           {
+             "name": "WorkspaceCreateValue",
+@@ -869,6 +934,10 @@ export const TYPERT = {
+             "name": "WorkspacePinValue",
+             "declaration": "export interface WorkspacePinValue {\n    readonly pinnedSessionIds: readonly SessionId[];\n}"
+           },
++          {
++            "name": "WorkspaceSetRootsRequest",
++            "declaration": "export interface WorkspaceSetRootsRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly roots: readonly string[];\n}"
++          },
+           {
+             "name": "WorkspaceRenameRequest",
+             "declaration": "export interface WorkspaceRenameRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly title: string;\n}"
+@@ -887,7 +956,7 @@ export const TYPERT = {
+           },
+           {
+             "name": "WorkspaceView",
+-            "declaration": "export interface WorkspaceView {\n    readonly workspaceId: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly sessionIds: readonly SessionId[];\n    readonly createdAt: string;\n    readonly updatedAt: string;\n}"
++            "declaration": "export interface WorkspaceView {\n    readonly workspaceId: WorkspaceId;\n    readonly path: string;\n    readonly roots: readonly string[];\n    readonly title: string;\n    readonly sessionIds: readonly SessionId[];\n    readonly createdAt: string;\n    readonly updatedAt: string;\n}"
+           }
+         ]
+       }
+diff --git a/lib/typert.remote-client.d.ts b/lib/typert.remote-client.d.ts
+index 8362201..f7d81b9 100644
+--- a/lib/typert.remote-client.d.ts
++++ b/lib/typert.remote-client.d.ts
+@@ -5,7 +5,7 @@ import type {
+   TypertRemoteInfo,
+   TypertRemoteMethod,
+ } from '@deepseek-ai/dsh-typert-protocol'
+-import type { WorkspaceArchiveSessionRequest, WorkspaceArchiveValue, WorkspaceCreateRequest, WorkspaceCreateValue, WorkspaceDeleteRequest, WorkspaceDeleteValue, WorkspaceFollowFrame, WorkspaceInsertBeforeRequest, WorkspaceInsertSessionBeforeRequest, WorkspaceOrderValue, WorkspacePinSessionRequest, WorkspacePinValue, WorkspaceRenameRequest, WorkspaceUnarchiveSessionRequest, WorkspaceUnpinSessionRequest, WorkspaceValue } from '@deepseek-ai/dsh-api-workspace-controller/types'
++import type { WorkspaceArchiveSessionRequest, WorkspaceArchiveValue, WorkspaceCreateRequest, WorkspaceCreateValue, WorkspaceDeleteRequest, WorkspaceDeleteValue, WorkspaceFollowFrame, WorkspaceInsertBeforeRequest, WorkspaceInsertSessionBeforeRequest, WorkspaceOrderValue, WorkspacePinSessionRequest, WorkspacePinValue, WorkspaceRenameRequest, WorkspaceSetRootsRequest, WorkspaceUnarchiveSessionRequest, WorkspaceUnpinSessionRequest, WorkspaceValue } from '@deepseek-ai/dsh-api-workspace-controller/types'
+ import type { DirectoryListing } from '@deepseek-ai/dsh-host-directory-picker/types'
+ 
+ declare module '@deepseek-ai/dsh-typert-protocol' {
+@@ -24,6 +24,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
+     insertSessionBefore: (request: WorkspaceInsertSessionBeforeRequest) => Promise<RemoteResult<WorkspaceValue>>
+     pinSession: (request: WorkspacePinSessionRequest) => Promise<RemoteResult<WorkspacePinValue>>
+     rename: (request: WorkspaceRenameRequest) => Promise<RemoteResult<WorkspaceValue>>
++    setRoots: (request: WorkspaceSetRootsRequest) => Promise<RemoteResult<WorkspaceValue>>
+     unarchiveSession: (request: WorkspaceUnarchiveSessionRequest) => Promise<RemoteResult<WorkspaceArchiveValue>>
+     unpinSession: (request: WorkspaceUnpinSessionRequest) => Promise<RemoteResult<WorkspacePinValue>>
+   }
+@@ -40,6 +41,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
+     'workspace/insertSessionBefore': (request: WorkspaceInsertSessionBeforeRequest) => Promise<RemoteResult<WorkspaceValue>>
+     'workspace/pinSession': (request: WorkspacePinSessionRequest) => Promise<RemoteResult<WorkspacePinValue>>
+     'workspace/rename': (request: WorkspaceRenameRequest) => Promise<RemoteResult<WorkspaceValue>>
++    'workspace/setRoots': (request: WorkspaceSetRootsRequest) => Promise<RemoteResult<WorkspaceValue>>
+     'workspace/unarchiveSession': (request: WorkspaceUnarchiveSessionRequest) => Promise<RemoteResult<WorkspaceArchiveValue>>
+     'workspace/unpinSession': (request: WorkspaceUnpinSessionRequest) => Promise<RemoteResult<WorkspacePinValue>>
+   }
+@@ -62,6 +64,7 @@ export declare const TYPERT_REMOTE: TypertRemoteInfo<{
+   readonly 'workspace/insertSessionBefore': TypertRemoteMethod<{ readonly 'request': WorkspaceInsertSessionBeforeRequest }, WorkspaceValue>
+   readonly 'workspace/pinSession': TypertRemoteMethod<{ readonly 'request': WorkspacePinSessionRequest }, WorkspacePinValue>
+   readonly 'workspace/rename': TypertRemoteMethod<{ readonly 'request': WorkspaceRenameRequest }, WorkspaceValue>
++  readonly 'workspace/setRoots': TypertRemoteMethod<{ readonly 'request': WorkspaceSetRootsRequest }, WorkspaceValue>
+   readonly 'workspace/unarchiveSession': TypertRemoteMethod<{ readonly 'request': WorkspaceUnarchiveSessionRequest }, WorkspaceArchiveValue>
+   readonly 'workspace/unpinSession': TypertRemoteMethod<{ readonly 'request': WorkspaceUnpinSessionRequest }, WorkspacePinValue>
+ }>
+diff --git a/lib/typert.remote-client.js b/lib/typert.remote-client.js
+index 7b1d281..ccb97c7 100644
+--- a/lib/typert.remote-client.js
++++ b/lib/typert.remote-client.js
+@@ -40,13 +40,15 @@ const _deepseek_ai_dsh_api_workspace_controller_workspace_archiveSession_result$
+ }))
+ let _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema$value
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema$value ??= z.object({
+-  'path': z.string().readonly(),
++  'path': z.string().readonly().optional().describe('Primary root; omitted derives it from roots[0].'),
++  'roots': z.array(z.string()).readonly().optional().describe('Complete root set; the first entry is the primary root.'),
+ }))
+ let _deepseek_ai_dsh_api_workspace_controller_workspace_create_result$schema$value
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_create_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_create_result$schema$value ??= z.object({
+   'workspace': z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -68,7 +70,8 @@ const _deepseek_ai_dsh_api_workspace_controller_workspace_follow_result$schema =
+   'value': z.object({
+   'items': z.array(z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -82,7 +85,8 @@ const _deepseek_ai_dsh_api_workspace_controller_workspace_follow_result$schema =
+   'value': z.object({
+   'items': z.array(z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -95,7 +99,8 @@ const _deepseek_ai_dsh_api_workspace_controller_workspace_follow_result$schema =
+   'type': z.literal("upsert").readonly(),
+   'workspace': z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -118,7 +123,8 @@ let _deepseek_ai_dsh_api_workspace_controller_workspace_initializeDefault_result
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_initializeDefault_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_initializeDefault_result$schema$value ??= z.union([z.undefined(), z.object({
+   'workspace': z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -144,7 +150,8 @@ let _deepseek_ai_dsh_api_workspace_controller_workspace_insertSessionBefore_resu
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_insertSessionBefore_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_insertSessionBefore_result$schema$value ??= z.object({
+   'workspace': z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -168,7 +175,8 @@ let _deepseek_ai_dsh_api_workspace_controller_workspace_rename_result$schema$val
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_rename_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_rename_result$schema$value ??= z.object({
+   'workspace': z.object({
+   'workspaceId': z.string().readonly(),
+-  'path': z.string().readonly().describe('Canonical host directory path.'),
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
+   'title': z.string().readonly().describe('User-visible title.'),
+   'sessionIds': z.array(z.string()).readonly().describe('Sessions accounted to this Workspace in manual order.'),
+   'createdAt': z.string().readonly().describe('ISO-8601 creation instant.'),
+@@ -191,6 +199,23 @@ let _deepseek_ai_dsh_api_workspace_controller_workspace_unpinSession_result$sche
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_unpinSession_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_unpinSession_result$schema$value ??= z.object({
+   'pinnedSessionIds': z.array(z.string()).readonly(),
+ }))
++let _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0$schema$value
++const _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0$schema$value ??= z.object({
++  'workspaceId': z.string().readonly(),
++  'roots': z.array(z.string()).readonly().describe('Replacement canonical roots, primary root first: roots[0] becomes the primary root and the working directory of Sessions created afterwards.'),
++}))
++let _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_result$schema$value
++const _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_result$schema$value ??= z.object({
++  'workspace': z.object({
++  'path': z.string().readonly().describe('Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace.'),
++  'roots': z.array(z.string()).readonly().describe('Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path.'),
++  }).readonly(),
++}))
++let _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0_strict$schema$value
++const _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0_strict$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0_strict$schema$value ??= z.strictObject({
++  'workspaceId': z.string().readonly(),
++  'roots': z.array(z.string()).readonly().describe('Replacement canonical roots, primary root first: roots[0] becomes the primary root and the working directory of Sessions created afterwards.'),
++}))
+ let _deepseek_ai_dsh_api_workspace_controller_directoryPicker_createDirectory_parameter_0_strict$schema$value
+ const _deepseek_ai_dsh_api_workspace_controller_directoryPicker_createDirectory_parameter_0_strict$schema = () => (_deepseek_ai_dsh_api_workspace_controller_directoryPicker_createDirectory_parameter_0_strict$schema$value ??= z.string())
+ let _deepseek_ai_dsh_api_workspace_controller_directoryPicker_createDirectory_parameter_1_strict$schema$value
+@@ -204,7 +229,8 @@ const _deepseek_ai_dsh_api_workspace_controller_workspace_archiveSession_paramet
+ }))
+ let _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema$value
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema$value ??= z.strictObject({
+-  'path': z.string().readonly(),
++  'path': z.string().readonly().optional().describe('Primary root; omitted derives it from roots[0].'),
++  'roots': z.array(z.string()).readonly().optional().describe('Complete root set; the first entry is the primary root.'),
+ }))
+ let _deepseek_ai_dsh_api_workspace_controller_workspace_delete_parameter_0_strict$schema$value
+ const _deepseek_ai_dsh_api_workspace_controller_workspace_delete_parameter_0_strict$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_delete_parameter_0_strict$schema$value ??= z.strictObject({
+@@ -386,13 +412,13 @@ export const TYPERT_REMOTE = createTypertRemoteInfo({
+             mode: 'strict',
+             typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceCreateRequest',
+             create: _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0$schema,
+-            jsonSchema: {"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":true},
++            jsonSchema: {"type":"object","properties":{"path":{"type":"string","description":"Primary root; omitted derives it from roots[0]."},"roots":{"type":"array","items":{"type":"string"},"description":"Complete root set; the first entry is the primary root."}},"additionalProperties":true},
+           },
+           strictCodec: {
+             mode: 'strict',
+             typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceCreateRequest',
+             create: _deepseek_ai_dsh_api_workspace_controller_workspace_create_parameter_0_strict$schema,
+-            jsonSchema: {"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false},
++            jsonSchema: {"type":"object","properties":{"path":{"type":"string","description":"Primary root; omitted derives it from roots[0]."},"roots":{"type":"array","items":{"type":"string"},"description":"Complete root set; the first entry is the primary root."}},"additionalProperties":false},
+           },
+         },
+       ],
+@@ -401,7 +427,7 @@ export const TYPERT_REMOTE = createTypertRemoteInfo({
+         typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceCreateValue',
+         create: _deepseek_ai_dsh_api_workspace_controller_workspace_create_result$schema,
+         description: 'the Workspace and whether this call created it.',
+-        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical host directory path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true},"created":{"type":"boolean"}},"required":["workspace","created"],"additionalProperties":true},
++        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true},"created":{"type":"boolean"}},"required":["workspace","created"],"additionalProperties":true},
+       },
+       sourceLocation: {"file":"packages/api/workspace-controller/src/index.ts","line":91,"column":3},
+     },
+@@ -450,7 +476,7 @@ export const TYPERT_REMOTE = createTypertRemoteInfo({
+         typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceFollowFrame',
+         create: _deepseek_ai_dsh_api_workspace_controller_workspace_follow_result$schema,
+         description: 'baseline followed by ordered Workspace increments.',
+-        jsonSchema: {"oneOf":[{"type":"object","properties":{"type":{"type":"string","const":"baseline"},"value":{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical host directory path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"archivedSessionIds":{"type":"array","items":{"type":"string"}},"pinnedSessionIds":{"type":"array","items":{"type":"string"},"description":"Registry-global pin set, most recently pinned first."}},"required":["items","archivedSessionIds","pinnedSessionIds"],"additionalProperties":true}},"required":["type","value"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"replace"},"value":{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical host directory path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"archivedSessionIds":{"type":"array","items":{"type":"string"}},"pinnedSessionIds":{"type":"array","items":{"type":"string"},"description":"Registry-global pin set, most recently pinned first."}},"required":["items","archivedSessionIds","pinnedSessionIds"],"additionalProperties":true}},"required":["type","value"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"upsert"},"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical host directory path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["type","workspace"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"remove"},"workspaceId":{"type":"string"}},"required":["type","workspaceId"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"order"},"workspaceIds":{"type":"array","items":{"type":"string"}}},"required":["type","workspaceIds"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"archived"},"archivedSessionIds":{"type":"array","items":{"type":"string"}}},"required":["type","archivedSessionIds"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"pinned"},"pinnedSessionIds":{"type":"array","items":{"type":"string"}}},"required":["type","pinnedSessionIds"],"additionalProperties":true}]},
++        jsonSchema: {"oneOf":[{"type":"object","properties":{"type":{"type":"string","const":"baseline"},"value":{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"archivedSessionIds":{"type":"array","items":{"type":"string"}},"pinnedSessionIds":{"type":"array","items":{"type":"string"},"description":"Registry-global pin set, most recently pinned first."}},"required":["items","archivedSessionIds","pinnedSessionIds"],"additionalProperties":true}},"required":["type","value"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"replace"},"value":{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"archivedSessionIds":{"type":"array","items":{"type":"string"}},"pinnedSessionIds":{"type":"array","items":{"type":"string"},"description":"Registry-global pin set, most recently pinned first."}},"required":["items","archivedSessionIds","pinnedSessionIds"],"additionalProperties":true}},"required":["type","value"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"upsert"},"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["type","workspace"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"remove"},"workspaceId":{"type":"string"}},"required":["type","workspaceId"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"order"},"workspaceIds":{"type":"array","items":{"type":"string"}}},"required":["type","workspaceIds"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"archived"},"archivedSessionIds":{"type":"array","items":{"type":"string"}}},"required":["type","archivedSessionIds"],"additionalProperties":true},{"type":"object","properties":{"type":{"type":"string","const":"pinned"},"pinnedSessionIds":{"type":"array","items":{"type":"string"}}},"required":["type","pinnedSessionIds"],"additionalProperties":true}]},
+       },
+       sourceLocation: {"file":"packages/api/workspace-controller/src/index.ts","line":206,"column":10},
+     },
+@@ -530,7 +556,7 @@ export const TYPERT_REMOTE = createTypertRemoteInfo({
+         typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceValue',
+         create: _deepseek_ai_dsh_api_workspace_controller_workspace_insertSessionBefore_result$schema,
+         description: 'the updated Workspace projection.',
+-        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical host directory path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["workspace"],"additionalProperties":true},
++        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["workspace"],"additionalProperties":true},
+       },
+       sourceLocation: {"file":"packages/api/workspace-controller/src/index.ts","line":150,"column":3},
+     },
+@@ -594,10 +620,42 @@ export const TYPERT_REMOTE = createTypertRemoteInfo({
+         typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceValue',
+         create: _deepseek_ai_dsh_api_workspace_controller_workspace_rename_result$schema,
+         description: 'the updated Workspace projection.',
+-        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical host directory path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["workspace"],"additionalProperties":true},
++        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["workspace"],"additionalProperties":true},
+       },
+       sourceLocation: {"file":"packages/api/workspace-controller/src/index.ts","line":120,"column":3},
+     },
++    'workspace/setRoots': {
++      service: 'workspaceController',
++      description: 'Replace one Workspace\'s root set. Roots keep the caller\'s order and roots[0] becomes the primary root, hence the working directory of sessions created for the Workspace afterwards.',
++      invocation: { kind: 'direct' },
++      parameters: [
++        {
++          name: 'request',
++          description: 'Workspace identity and the replacement roots.',
++          source: 'json',
++          codec: {
++            mode: 'strict',
++            typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceSetRootsRequest',
++            create: _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0$schema,
++            jsonSchema: {"type":"object","properties":{"workspaceId":{"type":"string"},"roots":{"type":"array","items":{"type":"string"},"description":"Replacement canonical roots, primary root first: roots[0] becomes the primary root and the working directory of Sessions created afterwards."}},"required":["workspaceId","roots"],"additionalProperties":true},
++          },
++          strictCodec: {
++            mode: 'strict',
++            typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceSetRootsRequest',
++            create: _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_parameter_0_strict$schema,
++            jsonSchema: {"type":"object","properties":{"workspaceId":{"type":"string"},"roots":{"type":"array","items":{"type":"string"},"description":"Replacement canonical roots, primary root first: roots[0] becomes the primary root and the working directory of Sessions created afterwards."}},"required":["workspaceId","roots"],"additionalProperties":false},
++          },
++        },
++      ],
++      result: {
++        mode: 'strict',
++        typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceValue',
++        create: _deepseek_ai_dsh_api_workspace_controller_workspace_setRoots_result$schema,
++        description: 'the updated Workspace projection.',
++        jsonSchema: {"type":"object","properties":{"workspace":{"type":"object","properties":{"workspaceId":{"type":"string"},"path":{"type":"string","description":"Canonical primary host directory path — the read projection of roots[0], and the working directory of Sessions created for the Workspace."},"roots":{"type":"array","items":{"type":"string"},"description":"Canonical host directories this Workspace owns, primary root first, never empty. roots[0] is always equal to path."},"title":{"type":"string","description":"User-visible title."},"sessionIds":{"type":"array","items":{"type":"string"},"description":"Sessions accounted to this Workspace in manual order."},"createdAt":{"type":"string","description":"ISO-8601 creation instant."},"updatedAt":{"type":"string","description":"ISO-8601 last-mutation instant."}},"required":["workspaceId","path","roots","title","sessionIds","createdAt","updatedAt"],"additionalProperties":true}},"required":["workspace"],"additionalProperties":true},
++      },
++      sourceLocation: {"file":"packages/api/workspace-controller/src/index.ts","line":131,"column":3},
++    },
+     'workspace/unarchiveSession': {
+       service: 'workspaceController',
+       description: 'Restore one archived Session to Workspace grouping surfaces.',
+diff --git a/lib/types/client/index.d.ts b/lib/types/client/index.d.ts
+index ce674d5..6a1c0af 100644
+--- a/lib/types/client/index.d.ts
++++ b/lib/types/client/index.d.ts
+@@ -5,7 +5,7 @@ import type { WorkspaceFollowFrame, WorkspaceFollowIncrement } from '../types.ts
+ import type { WorkspaceFollowSink } from './model.ts';
+ export { ClientWorkspaceModel } from './model.ts';
+ export type { WorkspaceFollowSink, WorkspaceListPhase, WorkspaceRemote, WorkspaceSnapshot, } from './model.ts';
+-export { WorkspaceArchiveError, WorkspaceController, WorkspaceCreateError } from './service.ts';
++export { WorkspaceArchiveError, WorkspaceController, WorkspaceCreateError, WorkspaceSetRootsError } from './service.ts';
+ export type { IWorkspaces, WorkspaceSource } from './service.ts';
+ export type { SessionActivity, SessionActivityItem, SessionActivityKind, SessionActivityKindMap, WorkspaceId, WorkspaceView, } from '../types.ts';
+ type WorkspaceBaselineFrame = Extract<WorkspaceFollowFrame, {
+diff --git a/lib/types/client/model.d.ts b/lib/types/client/model.d.ts
+index 2171d9b..d3a886d 100644
+--- a/lib/types/client/model.d.ts
++++ b/lib/types/client/model.d.ts
+@@ -81,6 +81,15 @@ export declare class ClientWorkspaceModel implements WorkspaceFollowSink {
+      * @returns generated Remote result.
+      */
+     rename(workspaceId: WorkspaceId, title: string): Promise<RemoteResult<WorkspaceValue>>;
++    /**
++     * Replace a Workspace's root set and merge the returned row. Roots keep the
++     * caller's order: `roots[0]` becomes the primary root, hence the working
++     * directory of Sessions created for the Workspace afterwards.
++     * @param workspaceId - target Workspace.
++     * @param roots - replacement canonical roots, primary first, never empty.
++     * @returns generated Remote result.
++     */
++    setRoots(workspaceId: WorkspaceId, roots: readonly string[]): Promise<RemoteResult<WorkspaceValue>>;
+     /**
+      * Delete a Workspace and remove it from the local projection immediately.
+      * @param workspaceId - target Workspace.
+diff --git a/lib/types/client/service.d.ts b/lib/types/client/service.d.ts
+index 103c0cc..d6b606e 100644
+--- a/lib/types/client/service.d.ts
++++ b/lib/types/client/service.d.ts
+@@ -23,6 +23,18 @@ export declare class WorkspaceArchiveError extends Error {
+     /** @param rpcError - Host business or folded carrier failure. */
+     constructor(rpcError: RemoteFailure);
+ }
++/**
++ * Root-set mutation failed on the Host. `rpcError.code` distinguishes
++ * `workspace/roots-in-use` — whose details name the roots and the Sessions
++ * still working in them — from `workspace/invalid-roots`, a missing Workspace,
++ * or a carrier fault.
++ */
++export declare class WorkspaceSetRootsError extends Error {
++    readonly rpcError: RemoteFailure;
++    readonly name = "WorkspaceSetRootsError";
++    /** @param rpcError - Host business or folded carrier failure. */
++    constructor(rpcError: RemoteFailure);
++}
+ /** Bare observable source for the Workspace Controller snapshot. */
+ export interface WorkspaceSource {
+     /** Read the identity-stable current snapshot. */
+@@ -44,7 +56,8 @@ export interface IWorkspaces {
+      * @returns the created or idempotently resolved Workspace.
+      */
+     create(input: {
+-        path: string;
++        path?: string;
++        roots?: readonly string[];
+     }): Promise<WorkspaceView>;
+     /**
+      * Initialize or reuse the default Workspace.
+@@ -59,6 +72,18 @@ export interface IWorkspaces {
+      * @returns the renamed Workspace.
+      */
+     rename(workspaceId: WorkspaceId, title: string): Promise<WorkspaceView>;
++    /**
++     * Replace a Workspace's root set. Roots keep the caller's order and
++     * `roots[0]` becomes the primary root, hence the working directory of
++     * Sessions created for the Workspace afterwards.
++     * @param workspaceId - target Workspace.
++     * @param roots - replacement canonical roots, primary first, never empty.
++     * @returns the changed Workspace.
++     * @throws {WorkspaceSetRootsError} when the Host refuses the root set;
++     *   `rpcError.code` distinguishes `workspace/invalid-roots` from
++     *   `workspace/roots-in-use`, whose details name the Sessions holding a root.
++     */
++    setRoots(workspaceId: WorkspaceId, roots: readonly string[]): Promise<WorkspaceView>;
+     /**
+      * Delete a Workspace registration without deleting Sessions or files.
+      * @param workspaceId - target Workspace.
+@@ -114,10 +139,12 @@ export declare class WorkspaceController extends Service implements IWorkspaces
+      */
+     constructor(ctx: Context, model: ClientWorkspaceModel);
+     create(input: {
+-        path: string;
++        path?: string;
++        roots?: readonly string[];
+     }): Promise<WorkspaceView>;
+     initializeDefault(signal?: AbortSignal): Promise<WorkspaceView | undefined>;
+     rename(workspaceId: WorkspaceId, title: string): Promise<WorkspaceView>;
++    setRoots(workspaceId: WorkspaceId, roots: readonly string[]): Promise<WorkspaceView>;
+     delete(workspaceId: WorkspaceId): Promise<void>;
+     insertBefore(workspaceId: WorkspaceId, beforeWorkspaceId?: WorkspaceId): Promise<void>;
+     archiveSession(sessionId: SessionId, options?: {
+diff --git a/lib/types/commands.d.ts b/lib/types/commands.d.ts
+index 050d56a..5e1afc6 100644
+--- a/lib/types/commands.d.ts
++++ b/lib/types/commands.d.ts
+@@ -1,6 +1,6 @@
+ /** Workspace command implementation and stable Remote failure mapping. */
+ import type { Context } from '@deepseek-ai/cordis';
+-import type { WorkspaceArchiveSessionRequest, WorkspaceArchiveValue, WorkspaceCreateRequest, WorkspaceCreateValue, WorkspaceDeleteRequest, WorkspaceDeleteValue, WorkspaceInsertBeforeRequest, WorkspaceInsertSessionBeforeRequest, WorkspaceOrderValue, WorkspacePinSessionRequest, WorkspacePinValue, WorkspaceRenameRequest, WorkspaceUnarchiveSessionRequest, WorkspaceUnpinSessionRequest, WorkspaceValue } from './types.ts';
++import type { WorkspaceArchiveSessionRequest, WorkspaceArchiveValue, WorkspaceCreateRequest, WorkspaceCreateValue, WorkspaceDeleteRequest, WorkspaceDeleteValue, WorkspaceInsertBeforeRequest, WorkspaceInsertSessionBeforeRequest, WorkspaceOrderValue, WorkspacePinSessionRequest, WorkspacePinValue, WorkspaceRenameRequest, WorkspaceSetRootsRequest, WorkspaceUnarchiveSessionRequest, WorkspaceUnpinSessionRequest, WorkspaceValue } from './types.ts';
+ /** Implements Workspace mutations against the authoritative registry. */
+ export declare class WorkspaceCommands {
+     private readonly ctx;
+@@ -8,8 +8,9 @@ export declare class WorkspaceCommands {
+     /** @param ctx - Host context containing the Workspace registry. */
+     constructor(ctx: Context);
+     /**
+-     * Create or resolve one Workspace over an existing directory.
+-     * @param request - directory path to register.
++     * Create or resolve one Workspace over an existing directory, optionally
++     * adopting further directories as additional roots.
++     * @param request - primary directory path plus optional extra roots.
+      * @returns the Workspace and whether this call created it.
+      */
+     create(request: WorkspaceCreateRequest): Promise<WorkspaceCreateValue>;
+@@ -19,6 +20,16 @@ export declare class WorkspaceCommands {
+      * @returns the updated Workspace projection.
+      */
+     rename(request: WorkspaceRenameRequest): Promise<WorkspaceValue>;
++    /**
++     * Replace one Workspace's root set after serializing root ownership checks.
++     * Roots keep the caller's order: `roots[0]` is the primary root and becomes
++     * the working directory of sessions created for the Workspace afterwards, so
++     * reordering is a primary-root switch. Dropping a root an accounted Session
++     * still works in is refused as `workspace/roots-in-use`.
++     * @param request - Workspace identity and the replacement roots.
++     * @returns the updated Workspace projection.
++     */
++    setRoots(request: WorkspaceSetRootsRequest): Promise<WorkspaceValue>;
+     /**
+      * Delete one Workspace registration without deleting its directory or Sessions.
+      * @param request - Workspace identity to remove.
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 95479d8..9a1ff6c 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -2,7 +2,7 @@
+ import { Context } from '@deepseek-ai/cordis';
+ import z from '@deepseek-ai/schemastery';
+ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
+-import type { WorkspaceArchiveSessionRequest, WorkspaceArchiveValue, WorkspaceCreateRequest, WorkspaceCreateValue, WorkspaceDeleteRequest, WorkspaceDeleteValue, WorkspaceFollowFrame, WorkspaceInsertBeforeRequest, WorkspaceInsertSessionBeforeRequest, WorkspaceOrderValue, WorkspacePinSessionRequest, WorkspacePinValue, WorkspaceRenameRequest, WorkspaceUnarchiveSessionRequest, WorkspaceUnpinSessionRequest, WorkspaceValue } from './types.ts';
++import type { WorkspaceArchiveSessionRequest, WorkspaceArchiveValue, WorkspaceCreateRequest, WorkspaceCreateValue, WorkspaceDeleteRequest, WorkspaceDeleteValue, WorkspaceFollowFrame, WorkspaceInsertBeforeRequest, WorkspaceInsertSessionBeforeRequest, WorkspaceOrderValue, WorkspacePinSessionRequest, WorkspacePinValue, WorkspaceRenameRequest, WorkspaceSetRootsRequest, WorkspaceUnarchiveSessionRequest, WorkspaceUnpinSessionRequest, WorkspaceValue } from './types.ts';
+ export type * from './types.ts';
+ export { DirectoryPickerController } from './directory-picker.ts';
+ /** First-use directory policy for the Host account. */
+@@ -55,6 +55,14 @@ export declare class WorkspaceController extends TypertRemoteService {
+      * @returns the updated Workspace projection.
+      */
+     rename(request: WorkspaceRenameRequest): Promise<WorkspaceValue>;
++    /**
++     * Replace one Workspace's root set. Roots keep the caller's order and
++     * `roots[0]` becomes the primary root, hence the working directory of
++     * sessions created for the Workspace afterwards.
++     * @param request - Workspace identity and the replacement roots.
++     * @returns the updated Workspace projection.
++     */
++    setRoots(request: WorkspaceSetRootsRequest): Promise<WorkspaceValue>;
+     /**
+      * Remove one Workspace registration while retaining files and Sessions.
+      * @param request - Workspace identity to remove.
+diff --git a/lib/types/types.d.ts b/lib/types/types.d.ts
+index 9d5d568..56c6b06 100644
+--- a/lib/types/types.d.ts
++++ b/lib/types/types.d.ts
+@@ -12,8 +12,17 @@ export type { DirectoryEntry, DirectoryListing } from '@deepseek-ai/dsh-host-dir
+ /** One durable Workspace projected for browser consumers. */
+ export interface WorkspaceView {
+     readonly workspaceId: WorkspaceId;
+-    /** Canonical host directory path. */
++    /**
++     * Canonical primary host directory path — the read projection of
++     * `roots[0]`, and the working directory of Sessions created for the
++     * Workspace.
++     */
+     readonly path: string;
++    /**
++     * Canonical host directories this Workspace owns, primary root first, never
++     * empty. `roots[0]` is always equal to {@link path}.
++     */
++    readonly roots: readonly string[];
+     /** User-visible title. */
+     readonly title: string;
+     /** Sessions accounted to this Workspace in manual order. */
+@@ -29,6 +38,24 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
+         'workspace/invalid-path': {
+             readonly path: string;
+         };
++        /**
++         * The requested root set cannot back a Workspace: empty, a path that is
++         * not an existing fully qualified directory, or a directory another
++         * Workspace already owns.
++         */
++        'workspace/invalid-roots': {
++            readonly roots: readonly string[];
++        };
++        /**
++         * The root set would drop roots that accounted Sessions still work in.
++         * Nothing was written: a Session's cwd is immutable, so dropping its root
++         * would leave that Session outside every root the Workspace declares.
++         */
++        'workspace/roots-in-use': {
++            readonly workspaceId: WorkspaceId;
++            readonly roots: readonly string[];
++            readonly sessionIds: readonly SessionId[];
++        };
+         /** Another Workspace already uses the requested name. */
+         'workspace/name-conflict': {
+             readonly name: string;
+@@ -66,9 +93,16 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
+         };
+     }
+ }
+-/** Existing directory requested for Workspace adoption. */
++/**
++ * Existing directories requested for Workspace adoption. `path` names the
++ * primary root and is what a legacy caller sends; `roots` carries the complete
++ * root set, whose first entry is the primary root. A request may carry `path`
++ * alone, `roots` alone (the Host derives `path` from `roots[0]`), or both, in
++ * which case `path` must be `roots[0]`.
++ */
+ export interface WorkspaceCreateRequest {
+-    readonly path: string;
++    readonly path?: string;
++    readonly roots?: readonly string[];
+ }
+ /** Created or previously registered Workspace. */
+ export interface WorkspaceCreateValue {
+@@ -80,6 +114,15 @@ export interface WorkspaceRenameRequest {
+     readonly workspaceId: WorkspaceId;
+     readonly title: string;
+ }
++/**
++ * Workspace root-set mutation. Roots keep this order: `roots[0]` becomes the
++ * primary root, hence the working directory of Sessions created afterwards, so
++ * reordering roots is a primary-root switch.
++ */
++export interface WorkspaceSetRootsRequest {
++    readonly workspaceId: WorkspaceId;
++    readonly roots: readonly string[];
++}
+ /** Workspace mutation returning the complete changed row. */
+ export interface WorkspaceValue {
+     readonly workspace: WorkspaceView;

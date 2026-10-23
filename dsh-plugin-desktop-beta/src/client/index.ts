@@ -10,8 +10,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only service convergence for the launch-folder bridge's scoped inject.
-import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { registerDesktopOnboarding } from './onboarding.tsx'
 import { PluginControls, REMOTE_CONTROL_BUNDLE, registerPluginControls } from './plugin-controls.tsx'
 import { installPluginControlsStyles } from './plugin-controls-styles.ts'
@@ -116,6 +117,41 @@ async function whenWorkspaceListsReady(ctx: ClientContext): Promise<void> {
   })
 }
 
+/** Wire body of the Host's `workspace/setRoots` verb. */
+interface DesktopSetRootsRequest {
+  readonly workspaceId: WorkspaceId
+  readonly roots: readonly string[]
+}
+
+/**
+ * Replace one Workspace's root folders through the Host's `workspace/setRoots`
+ * verb.
+ *
+ * The generated Client namespace does not declare that verb yet, so this
+ * reaches the same mounted `scope.remote.workspace` namespace through the
+ * namespace service and unwraps the Remote result itself. A refusal keeps its
+ * Host code and details instead of collapsing into a generic message.
+ * @param scope - scope holding the mounted Workspace Remote namespace.
+ * @param workspaceId - Workspace whose roots are replaced.
+ * @param paths - absolute folders in launch order; the first is the primary root.
+ */
+async function setDesktopWorkspaceRoots(
+  scope: ClientContext,
+  workspaceId: WorkspaceId,
+  paths: readonly string[],
+): Promise<void> {
+  // `roots` is the wire field the Host verb declares; `paths` is this seam's
+  // name for the same list, so the rename happens exactly here.
+  const request: DesktopSetRootsRequest = { workspaceId, roots: paths }
+  const invoke = (scope.remote.workspace as unknown as {
+    setRoots?: (request: DesktopSetRootsRequest) => Promise<RemoteResult<unknown>>
+  }).setRoots
+  if (typeof invoke !== 'function') throw new Error('the Host does not expose the workspace/setRoots verb')
+  const result = await invoke(request)
+  if (result.ok) return
+  throw new Error(`${result.error.code}: ${result.error.message}`)
+}
+
 /** Services required by Desktop settings and Desktop-owned presentations. */
 export const inject = [
   'slots',
@@ -169,6 +205,7 @@ export function apply(ctx: ClientContext): void {
       () => installDesktopLaunchWorkspaceBridge({
         ready: async () => { await whenWorkspaceListsReady(scope) },
         create: async path => (await scope.workspaces.create({ path })).workspaceId,
+        setRoots: async (workspaceId, paths) => { await setDesktopWorkspaceRoots(scope, workspaceId, paths) },
         open: async workspaceId => { await scope.uiWorkspace.openWorkspace(workspaceId) },
         reportError: message => { console.error(`dsh-plugin-desktop: ${message}`) },
       }),

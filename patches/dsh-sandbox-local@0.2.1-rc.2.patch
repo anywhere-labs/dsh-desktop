@@ -1,0 +1,222 @@
+diff --git a/lib/index.js b/lib/index.js
+index 47c48dd..2b77c22 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -15,6 +15,20 @@ import { assertNever } from "@deepseek-ai/dsh-util-values";
+ * @module @deepseek-ai/dsh-sandbox-local/profiles
+ */
+ /**
++* The workspace roots one `workspace-write` profile must make writable, in
++* order: every root the policy names (`workspaceRoots`, or the single
++* `workspaceRoot` when that set is absent or empty). DSH Desktop: one
++* Workspace may own several directories, so each gets its own grant instead of
++* only the primary root. `/tmp` is deliberately NOT in this list — the bwrap
++* profile mounts it as an ephemeral tmpfs and the Landlock grants carry it
++* separately, so including it would emit a duplicate bind.
++* @param policy - file-effect policy whose workspace roots are wanted.
++* @returns the policy's workspace roots, primary first.
++*/
++function policyWorkspaceRoots(policy) {
++	return policy.workspaceRoots?.length ? policy.workspaceRoots : [policy.workspaceRoot];
++}
++/**
+ * Build the bwrap profile arguments for one file-effect policy.
+ * @param policy - file-effect policy to express as bwrap mounts.
+ * @returns profile arguments before the trailing separator and command argv.
+@@ -33,7 +47,8 @@ function bwrapProfileArgs(policy) {
+ 	];
+ 	if (policy.mode === "workspace-write") {
+ 		args.push("--tmpfs", "/tmp");
+-		args.push("--bind", policy.workspaceRoot, policy.workspaceRoot);
++		// DSH Desktop: bind EVERY workspace root, primary first.
++		for (const root of policyWorkspaceRoots(policy)) args.push("--bind", root, root);
+ 	}
+ 	return args;
+ }
+@@ -44,7 +59,8 @@ function bwrapProfileArgs(policy) {
+ */
+ function landlockProfileArgs(policy) {
+ 	const readWrite = ["/dev/null"];
+-	if (policy.mode === "workspace-write") readWrite.push("/tmp", policy.workspaceRoot);
++	// DSH Desktop: every workspace root is a read-write grant, not only the primary.
++	if (policy.mode === "workspace-write") readWrite.push("/tmp", ...policyWorkspaceRoots(policy));
+ 	return grantArgs({
+ 		readOnly: ["/"],
+ 		readWrite
+@@ -306,7 +322,10 @@ var LocalSandboxProvider = class extends SandboxProvider {
+ 		signal?.throwIfAborted();
+ 		policy = {
+ 			...policy,
+-			workspaceRoot: canonicalPath(policy.workspaceRoot)
++			workspaceRoot: canonicalPath(policy.workspaceRoot),
++			// DSH Desktop: canonicalize every root the same way so each profile
++			// builder and the fs fence's containment check compare resolved paths.
++			...policy.workspaceRoots?.length ? { workspaceRoots: policy.workspaceRoots.map(canonicalPath) } : {}
+ 		};
+ 		if (this.runnerCommand !== void 0) return Promise.resolve({
+ 			argv: [
+@@ -356,26 +375,36 @@ var LocalSandboxProvider = class extends SandboxProvider {
+ 	*/
+ 	windowsAclRunnerArgv(policy) {
+ 		const sessionId = policy.sessionId;
++		// DSH Desktop: one Workspace may own several directories. The write SID
++		// stays the per-WORKSPACE identity, derived from the canonical PRIMARY
++		// root, so adding or removing a secondary root never changes which
++		// capability a workspace's tokens carry; that one SID's standing ACE is
++		// placed on every root of the workspace. Cross-workspace isolation is
++		// unchanged: another workspace's token carries a different SID with no
++		// ACE on these roots. Roots are never widened to a parent or a drive.
++		const workspaceRoots = policyWorkspaceRoots(policy);
++		const workspaceArgs = workspaceRoots.flatMap((root) => [
++			"--workspace",
++			root
++		]);
+ 		if (sessionId === void 0 || policy.mode === "read-only") return [
+ 			...this.windowsAclRunnerInvocation(),
+-			"--workspace",
+-			policy.workspaceRoot,
++			...workspaceArgs,
+ 			"--temp",
+ 			tmpdir(),
+ 			"--mode",
+ 			policy.mode
+ 		];
+-		const temp = this.materializeAclGrant(sessionId, policy.workspaceRoot);
++		const temp = this.materializeAclGrant(sessionId, workspaceRoots);
+ 		return [
+ 			...this.windowsAclRunnerInvocation(),
+-			"--workspace",
+-			policy.workspaceRoot,
++			...workspaceArgs,
+ 			"--temp",
+ 			temp.dir,
+ 			"--mode",
+ 			policy.mode,
+ 			"--write-sid",
+-			workspaceWriteSid(policy.workspaceRoot),
++			workspaceWriteSid(workspaceRoots[0]),
+ 			"--temp-write-sid",
+ 			temp.writeSid
+ 		];
+@@ -383,32 +412,47 @@ var LocalSandboxProvider = class extends SandboxProvider {
+ 	/**
+ 	* Materialize one workspace-write policy's ACEs once per provider
+ 	* lifetime. The workspace SID and standing root grant are shared by the
+-	* workspace. The temp directory is random and carries a distinct SID, so
+-	* another session on the same workspace cannot use the shared workspace
+-	* SID to enter it. A fresh provider always chooses a new path; crash
+-	* residue therefore cannot collide with or authorize a resumed session.
+-	* Fail-closed: a half-materialized temp grant is revoked and its directory
+-	* removed before the error propagates.
++	* workspace — DSH Desktop extends that one shared grant to EVERY root of the
++	* workspace under the same per-workspace SID, so a token minted for this
++	* workspace writes all of its directories while another workspace's token (a
++	* different SID, no ACE here) still cannot. A root added to the workspace
++	* later is granted on its next call; the ACL package's exact-ACE skip keeps
++	* already-granted trees at O(1). The temp directory is random and carries a
++	* distinct SID, so another session on the same workspace cannot use the
++	* shared workspace SID to enter it. A fresh provider always chooses a new
++	* path; crash residue therefore cannot collide with or authorize a resumed
++	* session. Fail-closed: a half-materialized workspace grant is disposed
++	* before the error propagates (the standing ACEs already applied to
++	* earlier roots stay, exactly as a mid-life workspace mutation leaves them,
++	* and a retry reuses them through the exact-ACE skip).
+ 	* @param sessionId - the policy's calling-session identity.
+-	* @param workspaceRoot - the resolved policy root.
++	* @param workspaceRoots - the resolved policy roots, primary first.
+ 	* @returns the pair's private temp directory and write capability.
+ 	*/
+-	materializeAclGrant(sessionId, workspaceRoot) {
+-		assertTempRootOutsideWorkspace(workspaceRoot, tmpdir());
+-		const writeSid = workspaceWriteSid(workspaceRoot);
+-		if (!this.workspaceGrants.has(workspaceRoot)) {
+-			const grant = AclWriteGrant.create(writeSid);
++	materializeAclGrant(sessionId, workspaceRoots) {
++		const workspaceRoot = workspaceRoots[0];
++		// EVERY root must be outside the ambient temp root: a private temp
++		// directory nested in any root would inherit that root's standing ACE.
++		for (const root of workspaceRoots) assertTempRootOutsideWorkspace(root, tmpdir());
++		let workspaceGrant = this.workspaceGrants.get(workspaceRoot);
++		if (workspaceGrant === void 0) {
++			workspaceGrant = AclWriteGrant.create(workspaceWriteSid(workspaceRoot));
++			this.workspaceGrants.set(workspaceRoot, workspaceGrant);
++		}
++		const alreadyGranted = new Set(workspaceGrant.paths);
++		for (const root of workspaceRoots) {
++			if (alreadyGranted.has(root)) continue;
+ 			try {
+-				grant.add(workspaceRoot, true);
++				workspaceGrant.add(root, true);
+ 			} catch (error) {
++				this.workspaceGrants.delete(workspaceRoot);
+ 				try {
+-					grant.dispose();
++					workspaceGrant.dispose();
+ 				} catch (cleanupError) {
+ 					throw new AggregateError([error, cleanupError], "sandbox-local windows-acl workspace grant failed and its cleanup also failed");
+ 				}
+ 				throw error;
+ 			}
+-			this.workspaceGrants.set(workspaceRoot, grant);
+ 		}
+ 		const key = JSON.stringify([String(sessionId), workspaceRoot]);
+ 		const existing = this.tempCapabilities.get(key);
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 3468085..b2aabab 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -5,16 +5,24 @@
+  * classification facts. Missing or unusable confinement fails closed rather
+  * than returning the original argv.
+  *
++ * Every rung grants the policy's whole workspace ROOT SET (`workspaceRoots`,
++ * or the primary `workspaceRoot` when that set is absent): bwrap emits one
++ * `--bind` per root, Landlock one read-write grant per root, and the Windows
++ * ACL rung one standing ACE per root.
++ *
+  * The windows-acl rung additionally owns the write grants: the write SID is
+- * the per-WORKSPACE identity derived from the canonical workspace path
+- * (`workspaceWriteSid`), while every live session receives a RANDOM private
+- * temp directory and its own derived capability (`tempWriteSid`). The
+- * workspace-root ACE materializes once per workspace per server lifetime
++ * the per-WORKSPACE identity derived from the canonical PRIMARY workspace
++ * path (`workspaceWriteSid`), while every live session receives a RANDOM
++ * private temp directory and its own derived capability (`tempWriteSid`). The
++ * per-workspace ACE materializes once per workspace root per server lifetime
+  * and STANDS (the cross-session reuse cache — the exact-ACE skip makes
+  * every later provision O(1) instead of re-propagating the tree per
+- * session); the private-temp ACEs are revoked on dispose. The runner
+- * receives both SIDs (their presence marks the seam-managed contract) and
+- * stops managing DACLs itself. The rung reports partial enforcement because
++ * session); the private-temp ACEs are revoked on dispose. Because the SID
++ * derives from the primary root alone, adding or removing a secondary root
++ * never changes a workspace's capability identity, and another workspace's
++ * token (a different SID, no ACE here) still cannot write these roots. The
++ * runner receives both SIDs (their presence marks the seam-managed contract)
++ * and stops managing DACLs itself. The rung reports partial enforcement because
+  * NTFS hard links alias one file object across paths, reads stay unconfined,
+  * and a tree another AppContainer tool has ACL'd with a package SID is not
+  * readable by the Low-integrity child.
+@@ -134,15 +142,17 @@ export declare class LocalSandboxProvider extends SandboxProvider {
+     private windowsAclRunnerArgv;
+     /**
+      * Materialize one workspace-write policy's ACEs once per provider
+-     * lifetime. The workspace SID and standing root grant are shared by the
+-     * workspace. The temp directory is random and carries a distinct SID, so
++     * lifetime. The workspace SID and standing grant are shared by the
++     * workspace and cover EVERY root the policy names (the primary root keys
++     * the SID, so the identity never changes as roots are added or removed).
++     * The temp directory is random and carries a distinct SID, so
+      * another session on the same workspace cannot use the shared workspace
+      * SID to enter it. A fresh provider always chooses a new path; crash
+      * residue therefore cannot collide with or authorize a resumed session.
+-     * Fail-closed: a half-materialized temp grant is revoked and its directory
+-     * removed before the error propagates.
++     * Fail-closed: a half-materialized workspace grant is disposed before the
++     * error propagates.
+      * @param sessionId - the policy's calling-session identity.
+-     * @param workspaceRoot - the resolved policy root.
++     * @param workspaceRoots - the resolved policy roots, primary first.
+      * @returns the pair's private temp directory and write capability.
+      */
+     private materializeAclGrant;

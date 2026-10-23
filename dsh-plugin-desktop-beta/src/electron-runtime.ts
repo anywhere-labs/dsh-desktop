@@ -443,15 +443,16 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   }
 
   /**
-   * Hand one admitted launch folder to the mounted Host page.
-   * @param path - absolute folder already admitted by native policy.
-   * @returns how the page took the folder, or `'unavailable'` before a shell
+   * Hand the folders one launch named to the mounted Host page.
+   * @param paths - absolute folders already admitted by native policy, first one
+   *   being the workspace's primary root.
+   * @returns how the page took the folders, or `'unavailable'` before a shell
    *   generation is mounted.
    */
-  async openWorkspacePath(path: string): Promise<DesktopOpenWorkspaceDelivery | 'unavailable'> {
+  async openWorkspacePath(paths: readonly string[]): Promise<DesktopOpenWorkspaceDelivery | 'unavailable'> {
     const generation = this.generation
     if (generation === undefined) return 'unavailable'
-    return await generation.openWorkspacePath(path)
+    return await generation.openWorkspacePath(paths)
   }
 
   /** @inheritdoc */

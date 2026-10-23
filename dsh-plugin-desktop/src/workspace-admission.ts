@@ -45,6 +45,10 @@ function inspectPathOnDisk(path: string): PathInspectionResult | undefined {
 /** Own native workspace selection and every Desktop policy decision before persistence. */
 export class ElectronWorkspaceAdmission {
   private pickTask: Promise<string | null> | undefined
+  // Deliberately separate from `pickTask`: a multi-folder request belongs to a
+  // different interface intention, so it must never answer with a single-folder
+  // selection that happened to be in flight, nor coalesce with it.
+  private pickManyTask: Promise<string[]> | undefined
 
   constructor(private readonly options: ElectronWorkspaceAdmissionOptions) {}
 
@@ -60,6 +64,32 @@ export class ElectronWorkspaceAdmission {
       return await task
     } finally {
       if (this.pickTask === task) this.pickTask = undefined
+    }
+  }
+
+  /**
+   * Select several directories through the native platform adapter and admit
+   * every one of them.
+   *
+   * The picker itself applies no Desktop policy, so each selected folder goes
+   * through {@link validateDirectory}. A folder that fails policy drops out of
+   * the result instead of failing the whole selection: the user asked for
+   * several roots and a refusal of one must not discard the ones already
+   * accepted. Concurrent requests coalesce on their own in-flight task, kept
+   * apart from the single-folder one.
+   * @returns admitted folders in picker order, empty when the dialog was cancelled.
+   */
+  async pickDirectories(): Promise<string[]> {
+    if (!this.options.canPickDirectory) {
+      throw new Error(`dsh-plugin-desktop: native workspace picker is unavailable on ${this.options.platform}`)
+    }
+    if (this.pickManyTask !== undefined) return await this.pickManyTask
+    const task = this.showDirectoriesPicker()
+    this.pickManyTask = task
+    try {
+      return await task
+    } finally {
+      if (this.pickManyTask === task) this.pickManyTask = undefined
     }
   }
 
@@ -157,5 +187,19 @@ export class ElectronWorkspaceAdmission {
       properties: ['openDirectory', 'dontAddToRecent'],
     })
     return result.canceled ? null : result.filePaths[0] ?? null
+  }
+
+  /** Show the native multi-selection dialog and apply storage policy to each folder. */
+  private async showDirectoriesPicker(): Promise<string[]> {
+    const result = await this.options.showOpenDialog({
+      title: this.options.locale() === 'zh' ? '选择工作区目录' : 'Select Workspace Directories',
+      properties: ['openDirectory', 'multiSelections', 'dontAddToRecent'],
+    })
+    if (result.canceled) return []
+    const admitted: string[] = []
+    for (const path of result.filePaths) {
+      if (await this.validateDirectory(path)) admitted.push(path)
+    }
+    return admitted
   }
 }

@@ -846,19 +846,20 @@ export class ElectronShellGeneration {
   }
 
   /**
-   * Hand one launch folder to the mounted Host page.
+   * Hand the folders one launch named to the mounted Host page.
    *
    * The delivery script resolves immediately in both directions, so a page that
-   * has not yet installed the client seam parks the folder instead of keeping
+   * has not yet installed the client seam parks the folders instead of keeping
    * the main process waiting on a renderer promise.
-   * @param path - absolute folder already admitted by native policy.
-   * @returns how the page took the folder, or `'unavailable'` when no renderer
-   *   could take it.
+   * @param paths - absolute folders already admitted by native policy, first one
+   *   being the workspace's primary root.
+   * @returns how the page took the folders, or `'unavailable'` when no renderer
+   *   could take them.
    */
-  async openWorkspacePath(path: string): Promise<DesktopOpenWorkspaceDelivery | 'unavailable'> {
+  async openWorkspacePath(paths: readonly string[]): Promise<DesktopOpenWorkspaceDelivery | 'unavailable'> {
     const renderer = this.renderer
     if (this.released || renderer === undefined || renderer.isDestroyed()) return 'unavailable'
-    const delivery: unknown = await renderer.executeJavaScript(desktopOpenWorkspaceScript(path))
+    const delivery: unknown = await renderer.executeJavaScript(desktopOpenWorkspaceScript(paths))
     return delivery === 'delivered' || delivery === 'pending' ? delivery : 'unavailable'
   }
 
