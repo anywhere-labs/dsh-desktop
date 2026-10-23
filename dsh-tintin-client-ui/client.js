@@ -135,7 +135,7 @@ window.__ModuleLoader__.load({
           '.tintin-of-skill-group{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:10px 2px 0;border-top:1px solid #1c1d21;margin-top:2px;font-size:11px;color:#8a8a90}.tintin-of-skill-group.first{border-top:0;margin-top:0;padding-top:0}',
           '.tintin-of-skill-card{border:1px solid #26272b;background:#16171a;border-radius:9px;overflow:hidden;padding:0;color:#e2e2e6;font:11px system-ui;text-align:left;cursor:pointer}.tintin-of-skill-card:hover{border-color:#3b6fd4}.tintin-of-skill-cover{position:relative;aspect-ratio:16/9;background:#0b0c0f;display:flex;align-items:center;justify-content:center;overflow:hidden}.tintin-of-skill-cover img{width:100%;height:100%;object-fit:cover;display:block}.tintin-of-skill-name{padding:6px 8px 2px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tintin-of-skill-desc{padding:0 8px 7px;color:#8a8a90;font-size:10px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
           '.tintin-of-skill-list{grid-column:1/-1;display:flex;flex-direction:column;gap:6px}.tintin-of-skill-row{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:8px 10px;border:1px solid #26272b;border-radius:9px;background:#16171a;color:#e2e2e6;font:11px system-ui;cursor:pointer}.tintin-of-skill-row:hover{border-color:#3b6fd4}.tintin-of-skill-row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.tintin-of-skill-row-name{font-size:12px}.tintin-of-skill-row-desc{color:#8a8a90;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tintin-of-skill-state{flex:none;font-size:10px;padding:2px 6px;border-radius:999px;border:1px solid #2a2b31;color:#b9b9c0}.tintin-of-skill-state.installed{border-color:#2f5a3a;color:#8fd6a4}',
-          '.tintin-of-preview{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;z-index:60}.tintin-of-preview-box{max-width:82vw;background:#16171a;border:1px solid #2a2b31;border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}.tintin-of-preview-bar{display:flex;gap:8px;align-items:center}.tintin-of-preview-name{flex:1;min-width:0;font-size:11px;color:#b9b9c0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tintin-of-preview-media{max-width:78vw;max-height:70vh;display:block}',
+          '.tintin-of-preview{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;z-index:1000}.tintin-of-preview-box{max-width:82vw;background:#16171a;border:1px solid #2a2b31;border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}.tintin-of-preview-bar{display:flex;gap:8px;align-items:center}.tintin-of-preview-name{flex:1;min-width:0;font-size:11px;color:#b9b9c0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tintin-of-preview-media{max-width:78vw;max-height:70vh;display:block}',
           '.tintin-of-question{gap:6px}.tintin-of-question .tintin-of-btn.is-on{border-color:#3b6fd4;background:#20304d;color:#fff}.tintin-of-question div[style]>.tintin-of-btn{margin:2px 4px 0 0}.tintin-of-question input{margin-top:2px}',
           '.tintin-of-srctabs{display:flex;gap:4px;align-items:center}.tintin-of-srctab{border:1px solid #2a2b31;background:#1a1b1f;color:#c9c9cf;font:11px system-ui;padding:3px 8px;border-radius:7px;cursor:pointer}.tintin-of-srctab.is-on{background:#3b6fd4;border-color:#3b6fd4;color:#fff}.tintin-of-headcol{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}.tintin-of-headrow{display:flex;gap:6px;align-items:center}.tintin-of-athint{padding:4px 8px 2px;font-size:10px;color:#6f7076;display:flex;gap:10px}',
         ].join('\n')
@@ -1159,7 +1159,18 @@ ${event.data.error.reason}` : result
           const label = document.createElement('span'); label.className = 'tintin-of-atlabel'; label.textContent = '下载到本地项目'
           row.append(icon, label)
           row.onclick = (event) => { event.stopPropagation(); hideLibCtxMenu(); void pickLibrary(item) }
-          menu.append(row)
+          /* 下载到电脑：浏览器下载存系统下载目录（2026-10-23 用户反馈：右键只有入项目一条不够） */
+          const row2 = document.createElement('button'); row2.type = 'button'; row2.className = 'tintin-of-atrow'
+          const icon2 = document.createElement('span'); icon2.className = 'tintin-of-atrow-icon'; icon2.textContent = '⇩'
+          const label2 = document.createElement('span'); label2.className = 'tintin-of-atlabel'; label2.textContent = '下载到电脑'
+          row2.append(icon2, label2)
+          row2.onclick = (event) => {
+            event.stopPropagation(); hideLibCtxMenu()
+            const anchor = document.createElement('a'); anchor.href = libServeUrlOf(item); anchor.download = libFileOf(item)
+            document.body.append(anchor); anchor.click(); anchor.remove()
+            setStatus(`已开始下载 ${libNameOf(item)}（系统下载目录）`)
+          }
+          menu.append(row, row2)
           menu.style.left = `${Math.min(x, innerWidth - 200)}px`
           menu.style.top = `${Math.min(y, innerHeight - 60)}px`
           document.body.append(menu)
