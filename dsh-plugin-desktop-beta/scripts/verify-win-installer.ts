@@ -1,111 +1,31 @@
-/** Verify the unsigned Windows x64 NSIS installer and unpacked executable. */
-
-import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { closeSync, openSync, readFileSync, readSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-
-/** Verify a complete in-memory Windows PE image. */
-export function assertPortableExecutableBuffer(data: Buffer, label: string, source: string): void {
-  if (data.byteLength < 68 || data.subarray(0, 2).toString('ascii') !== 'MZ') {
-    throw new Error(`${label} does not have a Windows PE header: ${source}`)
-  }
-  const peOffset = data.readUInt32LE(0x3c)
-  if (peOffset > data.byteLength - 4) {
-    throw new Error(`${label} has an invalid Windows PE offset: ${source}`)
-  }
-  if (!data.subarray(peOffset, peOffset + 4).equals(Buffer.from('PE\0\0'))) {
-    throw new Error(`${label} does not have a Windows PE signature: ${source}`)
-  }
-}
-
-/** Paths returned after Windows installer verification succeeds. */
-export interface WindowsInstallerArtifacts {
-  /** NSIS installer path. */
-  readonly installerPath: string
-  /** Unpacked application executable path. */
-  readonly applicationPath: string
-}
-
-/** Injectable Windows installer verification boundary. */
-export interface WindowsInstallerVerificationOptions {
-  /** Desktop package root containing package.json and dist. */
-  readonly desktopRoot: string
-  /** Product version embedded in the expected artifact name. */
-  readonly version: string
-}
-
-function readVersion(desktopRoot: string): string {
-  const manifest = JSON.parse(readFileSync(join(desktopRoot, 'package.json'), 'utf8')) as {
-    version?: unknown
-  }
-  if (typeof manifest.version !== 'string' || manifest.version.length === 0) {
-    throw new Error(`desktop package at ${desktopRoot} has no valid version`)
-  }
-  return manifest.version
-}
-
-/** Verify that a generated Windows artifact has a valid PE header. */
-export function assertPortableExecutable(path: string, label: string): void {
-  const stat = statSync(path)
-  if (!stat.isFile() || stat.size < 68) {
-    throw new Error(`${label} is not a non-empty regular file: ${path}`)
-  }
-  const descriptor = openSync(path, 'r')
-  const dosHeader = Buffer.alloc(64)
+import { assertAppImage, assertDebArchive, assertElfExecutable } from '../../dsh-plugin-desktop/scripts/verify-linux-artifacts.ts'
+import { assertPortableExecutable } from '../../dsh-plugin-desktop/scripts/verify-win-installer.ts'
+const root = fileURLToPath(new URL('..', import.meta.url))
+const { version: sourceVersion } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+// `DSH_BETA_BUILD_VERSION` lets a drill build a release whose version differs
+// from the source tree (see scripts/package.ts); electron-builder names the
+// artifact after that override, so the verifier must follow it too.
+const version = process.env.DSH_BETA_BUILD_VERSION ?? sourceVersion
+const verifyMode = process.env.DSH_PACKAGE_VERIFY_MODE ?? 'win'
+if (verifyMode === 'win-portable') {
+  const archivePath = join(root, 'dist', `DSH-Desktop-Beta-${version}-x64-Portable.zip`)
+  const fd = openSync(archivePath, 'r')
+  const header = Buffer.alloc(4)
   try {
-    const dosBytesRead = readSync(descriptor, dosHeader, 0, dosHeader.byteLength, 0)
-    if (dosBytesRead !== dosHeader.byteLength || dosHeader.subarray(0, 2).toString('ascii') !== 'MZ') {
-      throw new Error(`${label} does not have a Windows PE header: ${path}`)
-    }
-    const peOffset = dosHeader.readUInt32LE(0x3c)
-    if (peOffset > stat.size - 4) {
-      throw new Error(`${label} has an invalid Windows PE offset: ${path}`)
-    }
-    const signature = Buffer.alloc(4)
-    const signatureBytesRead = readSync(descriptor, signature, 0, signature.byteLength, peOffset)
-    if (signatureBytesRead !== signature.byteLength || !signature.equals(Buffer.from('PE\0\0'))) {
-      throw new Error(`${label} does not have a Windows PE signature: ${path}`)
-    }
+    readSync(fd, header, 0, 4, 0)
   } finally {
-    closeSync(descriptor)
+    closeSync(fd)
   }
-}
-
-function defaultOptions(): WindowsInstallerVerificationOptions {
-  const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-  return {
-    desktopRoot,
-    version: readVersion(desktopRoot),
-  }
-}
-
-/**
- * Verify the exact NSIS installer and unpacked application executable.
- * @param options - Artifact root and expected product version.
- * @returns The verified artifact paths.
- */
-export function verifyWindowsInstaller(
-  options: WindowsInstallerVerificationOptions = defaultOptions(),
-): WindowsInstallerArtifacts {
-  const distDir = join(options.desktopRoot, 'dist')
-  const installerPath = join(
-    distDir,
-    `DSH-Desktop-Beta-${options.version}-x64-Setup.exe`,
-  )
-  const applicationPath = join(distDir, 'win-unpacked', 'DSH Desktop Beta.exe')
-
-  assertPortableExecutable(installerPath, 'Windows NSIS installer')
-  assertPortableExecutable(applicationPath, 'unpacked Windows application')
-  return { installerPath, applicationPath }
-}
-
-const invokedPath = process.argv[1]
-if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
-  try {
-    const verified = verifyWindowsInstaller()
-    console.log(`Windows installer verification passed: ${verified.installerPath}`)
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error))
-    process.exitCode = 1
-  }
+  if (!header.equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) throw new Error(`Next portable archive is not a ZIP archive: ${archivePath}`)
+  assertPortableExecutable(join(root, 'dist', 'win-unpacked', 'DSH Desktop Beta.exe'), 'Next application')
+} else if (verifyMode === 'linux') {
+  assertAppImage(join(root, 'dist', `DSH-Desktop-Beta-${version}-x86_64.AppImage`), 'Next AppImage')
+  assertDebArchive(join(root, 'dist', `DSH-Desktop-Beta-${version}-amd64.deb`), 'Next Debian package')
+  assertElfExecutable(join(root, 'dist', 'linux-unpacked', 'dsh-desktop-beta'), 'Next Linux application')
+} else {
+  assertPortableExecutable(join(root, 'dist', `DSH-Desktop-Beta-${version}-x64-Setup.exe`), 'Next NSIS installer')
+  assertPortableExecutable(join(root, 'dist', 'win-unpacked', 'DSH Desktop Beta.exe'), 'Next application')
 }

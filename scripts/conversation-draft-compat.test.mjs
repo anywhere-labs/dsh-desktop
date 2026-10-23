@@ -53,7 +53,7 @@ for (const workspace of ['dsh-plugin-desktop', 'dsh-plugin-desktop-beta', 'dsh-d
     const require = createRequire(resolve(workspace, 'package.json'))
     const manifest = require.resolve('@deepseek-ai/dsh-client-ui-conversation/package.json')
     const pkg = JSON.parse(readFileSync(manifest, 'utf8'))
-    assert.equal(pkg.version, '0.2.1-rc.2')
+    assert.equal(pkg.version, '0.2.1-rc.3')
     // The browser loads the `./client` export; assert the patch lands in that file.
     const entry = join(dirname(manifest), pkg.exports['./client'].default)
     const file = ts.createSourceFile(entry, readFileSync(entry, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)

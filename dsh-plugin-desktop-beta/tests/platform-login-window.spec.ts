@@ -1,15 +1,10 @@
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterEach, expect, it } from 'vitest'
-import { DESKTOP_RENDERER_ACCESS_HEADER } from '../src/desktop-browser-access.ts'
-import {
-  classifyPlatformLoginRequest,
-  forwardPlatformLoginCallback,
-  platformLoginUrl,
-} from '../src/platform-login-window.ts'
+import { NATIVE_ACCESS_HEADER } from '../src/desktop-contract.ts'
+import { classifyPlatformLoginRequest, forwardPlatformLoginCallback } from '../src/platform-login-window.ts'
 
 const HOST = 'http://127.0.0.1:43123'
-const HEADER = { name: DESKTOP_RENDERER_ACCESS_HEADER, value: 'renderer-token' }
 const servers: Server[] = []
 
 afterEach(async () => {
@@ -31,7 +26,6 @@ it.each([
   ['https://user:pass@platform.deepseek.com/', 'mainFrame', 'cancel'],
   ['http://platform.deepseek.com/', 'mainFrame', 'cancel'],
   ['wss://platform.deepseek.com/socket', 'webSocket', 'allow'],
-  ['wss://platform.deepseek.com/socket', 'mainFrame', 'cancel'],
   ['data:image/png;base64,AA==', 'image', 'allow'],
   ['data:text/html,hi', 'mainFrame', 'cancel'],
   ['file:///C:/Windows/System32/calc.exe', 'mainFrame', 'cancel'],
@@ -40,12 +34,12 @@ it.each([
   expect(classifyPlatformLoginRequest(url, type, HOST)).toBe(decision)
 })
 
-it('never treats a callback as the Host one while no shell is mounted', () => {
+it('never treats a callback as the Host one while the Host is down', () => {
   expect(classifyPlatformLoginRequest(`${HOST}/oauth/callback?code=c&state=s`, 'mainFrame', undefined)).toBe('cancel')
 })
 
-async function host(status: number): Promise<{ origin: string; seen: { url?: string | undefined; headers?: IncomingHttpHeaders } }> {
-  const seen: { url?: string | undefined; headers?: IncomingHttpHeaders } = {}
+async function host(status: number): Promise<{ url: string; seen: { url?: string; headers?: IncomingHttpHeaders } }> {
+  const seen: { url?: string; headers?: IncomingHttpHeaders } = {}
   const server = createServer((request, response) => {
     seen.url = request.url
     seen.headers = request.headers
@@ -53,24 +47,25 @@ async function host(status: number): Promise<{ origin: string; seen: { url?: str
   })
   servers.push(server)
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  return { origin: `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`, seen }
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/?token=fixture`, seen }
 }
 
-it('replays the callback to the Host as the renderer without following the completion redirect', async () => {
+it('replays the callback to the Host as the native renderer without following the completion redirect', async () => {
   const fixture = await host(302)
-  const status = await forwardPlatformLoginCallback(`${fixture.origin}/oauth/callback?code=c&state=s#frag`,
-    { origin: fixture.origin, cookie: 'dsh=session', header: HEADER })
+  const origin = new URL(fixture.url).origin
+  const status = await forwardPlatformLoginCallback(`${origin}/oauth/callback?code=c&state=s#frag`,
+    { url: fixture.url, cookie: 'dsh=session', token: 'native-token' })
   expect(status).toBe(302)
   expect(fixture.seen.url).toBe('/oauth/callback?code=c&state=s')
-  expect(fixture.seen.headers?.[DESKTOP_RENDERER_ACCESS_HEADER]).toBe('renderer-token')
+  expect(fixture.seen.headers?.[NATIVE_ACCESS_HEADER]).toBe('native-token')
   expect(fixture.seen.headers?.cookie).toBe('dsh=session')
 })
 
-it('reports a failed exchange status and omits an empty cookie', async () => {
+it('reports a failed exchange status', async () => {
   const fixture = await host(204)
-  expect(await forwardPlatformLoginCallback(`${fixture.origin}/oauth/callback?code=c&state=s`,
-    { origin: fixture.origin, cookie: '', header: HEADER })).toBe(204)
-  expect(fixture.seen.headers?.cookie).toBeUndefined()
+  const origin = new URL(fixture.url).origin
+  expect(await forwardPlatformLoginCallback(`${origin}/oauth/callback?code=c&state=s`,
+    { url: fixture.url, cookie: 'dsh=session', token: 'native-token' })).toBe(204)
 })
 
 it.each([
@@ -78,14 +73,7 @@ it.each([
   [`${HOST}/api/account`, 'another route'],
 ])('refuses to replay %s (%s)', async (callback) => {
   let called = false
-  await expect(forwardPlatformLoginCallback(callback, { origin: HOST, cookie: 'c', header: HEADER },
-    () => { called = true; return Promise.resolve(new Response(null)) })).rejects.toThrow('not a Host sign-in callback')
+  await expect(forwardPlatformLoginCallback(callback, { url: `${HOST}/`, cookie: 'c', token: 't' },
+    () => { called = true; return Promise.resolve(new Response(null)) })).rejects.toThrow('Not a Host sign-in callback')
   expect(called).toBe(false)
-})
-
-it('carries the effective palette into the sign-in page', () => {
-  expect(platformLoginUrl('https://platform.deepseek.com/dsh/authorize?state=s&theme=light', true))
-    .toBe('https://platform.deepseek.com/dsh/authorize?state=s&theme=dark')
-  expect(platformLoginUrl('https://platform.deepseek.com/dsh/authorize?state=s', false))
-    .toBe('https://platform.deepseek.com/dsh/authorize?state=s&theme=light')
 })

@@ -1,6 +1,6 @@
 import { spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { lstatSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -103,7 +103,7 @@ afterEach(() => {
 describe('desktop terminal environment', () => {
   it('keeps generated shims isolated by active profile', () => {
     const desktop = desktopTerminalStateDirectory('/tmp/dsh-desktop', 'desktop')
-    const work = desktopTerminalStateDirectory('/tmp/dsh-desktop', '工作 profile')
+    const work = desktopTerminalStateDirectory('/tmp/dsh-desktop', 'work-profile')
 
     expect(dirname(desktop)).toBe(join('/tmp/dsh-desktop', 'cli'))
     expect(dirname(work)).toBe(join('/tmp/dsh-desktop', 'cli'))
@@ -279,6 +279,7 @@ describe('desktop terminal environment', () => {
           DSH_DESKTOP_PNPM_ENTRY: options.pnpmBinPath,
           DSH_DESKTOP_PROFILE_DIRECTORY: options.profileDir,
           DSH_DESKTOP_PRODUCT_VERSION: options.productVersion,
+          DSH_DESKTOP_TERMINAL_MODE: '正常环境 / Normal environment',
           DSH_DESKTOP_SHIM_DIRECTORY: launch.shimDir,
           DSH_DESKTOP_POWERSHELL_WELCOME: launch.welcomePath,
           DSH_DESKTOP_CMD_WELCOME: join(stateDir, 'welcome.cmd'),
@@ -436,7 +437,7 @@ describe('desktop terminal environment', () => {
     const stateDir = join(temporaryDirectory(), '终端 state')
     const harness = spawnHarness()
     const options = windowsOptions(stateDir, harness.spawn)
-    options.profileName = '工作 profile'
+    options.profileName = 'work-profile'
     options.profileDir = 'C:\\用户\\工作 profile'
     options.homeDir = 'C:\\用户'
     options.appExecutable = 'C:\\程序\\DSH Desktop.exe'
@@ -460,7 +461,7 @@ describe('desktop terminal environment', () => {
     expect(harness.calls[0]?.options.cwd).toBe(stateDir)
     expect(harness.calls[0]?.options.env).toEqual(expect.objectContaining({
       DSH_HOME: 'C:\\用户',
-      DSH_DESKTOP_DEFAULT_PROFILE: '工作 profile',
+      DSH_DESKTOP_DEFAULT_PROFILE: 'work-profile',
       DSH_DESKTOP_APP_EXECUTABLE: 'C:\\程序\\DSH Desktop.exe',
       DSH_DESKTOP_DSH_BOOTSTRAP: 'C:\\程序\\resources\\app.asar\\lib\\desktop-cli.js',
       DSH_DESKTOP_ELECTRON_VERSION: '43.4.0',
@@ -471,7 +472,7 @@ describe('desktop terminal environment', () => {
     }))
   })
 
-  it('accepts localized macOS profile names and rejects path escapes before writing state', () => {
+  it('supports Next Profile names with localized paths and rejects escapes before writing state', () => {
     const root = temporaryDirectory()
     const harness = spawnHarness()
     const unsupported = macOptions(join(root, 'unsupported'), harness.spawn)
@@ -481,14 +482,14 @@ describe('desktop terminal environment', () => {
 
     const unsafe = macOptions(join(root, 'unsafe'), harness.spawn)
     unsafe.profileName = '../desktop'
-    expect(() => openDesktopTerminal(unsafe)).toThrow('invalid desktop profile name')
+    expect(() => openDesktopTerminal(unsafe)).toThrow('Profile 名称')
     expect(() => lstatSync(unsafe.stateDir)).toThrow()
 
     const localized = macOptions(join(root, 'localized'), harness.spawn)
-    localized.profileName = '工作 profile'
+    localized.profileName = 'work-profile'
     openDesktopTerminal(localized)
     expect(readFileSync(join(localized.stateDir, 'welcome.command'), 'utf8'))
-      .toContain('Profile: 工作 profile')
+      .toContain('Profile: work-profile')
 
     const newline = macOptions(join(root, 'newline'), harness.spawn)
     newline.productVersion = '2.0.0\ntouch injected'
@@ -496,4 +497,30 @@ describe('desktop terminal environment', () => {
     expect(() => lstatSync(newline.stateDir)).toThrow()
     expect(harness.calls).toHaveLength(1)
   })
+})
+
+
+it.skipIf(process.platform === 'win32').each(['safe', 'recovery'] as const)('launches a macOS %s terminal with matching pwd, DSH_HOME and environment label', mode => {
+  const root = temporaryDirectory()
+  const homeDir = join(root, mode === 'safe' ? 'safe-runtime' : 'original')
+  const profileDir = join(homeDir, 'profiles', 'desktop')
+  mkdirSync(profileDir, { recursive: true })
+  const harness = spawnHarness()
+  const launch = openDesktopTerminal({ ...macOptions(join(homeDir, 'cli'), harness.spawn), homeDir, profileDir, mode })
+  // Execute the generated setup through the welcome text, without opening an interactive terminal.
+  const prefix = readFileSync(launch.welcomePath, 'utf8').split('case "${SHELL:-/bin/zsh}" in')[0]!
+  const result = spawnSync('/bin/sh', ['-c', prefix + '\npwd\nprintf "%s\\n" "$DSH_HOME"'], { encoding: 'utf8' })
+  expect(result.status).toBe(0)
+  expect(result.stdout.trim().split('\n').slice(-2)).toEqual([profileDir, homeDir])
+  expect(result.stdout).toContain(mode === 'safe' ? 'Safe mode: temporary environment' : 'Recovery terminal: original Profile')
+})
+
+it.each(['safe', 'recovery'] as const)('labels the Windows %s terminal for both PowerShell and cmd', mode => {
+  const harness = spawnHarness()
+  const options = { ...windowsOptions(join(temporaryDirectory(), 'cli'), harness.spawn), mode }
+  const launch = openDesktopTerminal(options)
+  expect(harness.calls[0]!.options.env?.DSH_DESKTOP_TERMINAL_MODE).toContain(mode === 'safe' ? 'Safe mode: temporary environment' : 'Recovery terminal: original Profile')
+  expect(harness.calls[0]!.options.env?.DSH_HOME).toBe(options.homeDir)
+  expect(readFileSync(launch.welcomePath, 'utf8')).toContain('Write-Host $env:DSH_DESKTOP_TERMINAL_MODE')
+  expect(readFileSync(join(options.stateDir, 'welcome.cmd'), 'utf8')).toContain('echo(!DSH_DESKTOP_TERMINAL_MODE!')
 })

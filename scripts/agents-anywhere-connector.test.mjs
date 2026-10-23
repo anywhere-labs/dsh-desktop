@@ -13,8 +13,8 @@ import { AA_WORKSPACES } from './agents-anywhere-release-policy.mjs'
 // Exercise the installed upstream artifact used by every Desktop channel.
 function loadConnector(workspace, environment) {
   const source = readFileSync(new URL(`../${workspace}/node_modules/@agents-anywhere/dsh-bridge-next/lib/index.js`, import.meta.url), 'utf8')
-  const start = source.indexOf('//#region src/host/connector/logs.ts')
-  const end = source.indexOf('//#region src/host/desktop/detect.ts', start)
+  const start = source.indexOf('\n// src/host/connector/logs.ts\n')
+  const end = source.indexOf('\n// src/host/desktop/process.ts\n', start)
   assert.ok(start >= 0 && end > start)
   return runInNewContext(`${source.slice(start, end)}; SourceConnector`, {
     execFile, promisify, stripVTControlCharacters, dirname, join, relative, createHash, setTimeout, clearTimeout,
@@ -30,8 +30,9 @@ for (const workspace of AA_WORKSPACES) {
   test(`${workspace}: rc.2 tool results retain the same hash after JSON transport`, () => {
     const source = readFileSync(new URL(`../${workspace}/node_modules/@agents-anywhere/dsh-bridge-next/lib/index.js`, import.meta.url), 'utf8')
     const region = name => {
-      const start = source.indexOf(`//#region src/host/dsh-runtime/${name}.ts`)
-      const end = source.indexOf('//#endregion', start)
+      const marker = `\n// src/host/dsh-runtime/${name}.ts\n`
+      const start = source.indexOf(marker)
+      const end = source.indexOf('\n// src/', start + marker.length)
       assert.ok(start >= 0 && end > start)
       return source.slice(start, end)
     }

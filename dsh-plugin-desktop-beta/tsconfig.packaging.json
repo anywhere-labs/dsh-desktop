@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "allowJs": true, "checkJs": false },
+  "include": ["scripts/package.ts","scripts/mac-runtime.ts","scripts/verify-packaged.ts","scripts/verify-fuses.ts","scripts/verify-mac-release.ts","scripts/verify-mac-smoke.ts","scripts/verify-win-installer.ts","scripts/packaged-payload.ts","scripts/runtime-file-policy.ts","scripts/prepare-payload.ts","scripts/before-build.ts","scripts/prepare-pack.ts","scripts/primary-runtime.ts","scripts/prune-python-tests.ts","scripts/prepare-runtime.ts","scripts/sign-runtime.ts","scripts/office-packages.ts","scripts/verify-mac-runtime.ts"]
+}

@@ -8,30 +8,22 @@ import type {} from '@deepseek-ai/dsh-plugin-market/types'
 import {
   Button, IconWarningOutlineRegular, Modal, PluginArtworkDefault, StateDot, Switch, Tag,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { readMarketState } from '../../../dsh-community-market/src/client/api.ts'
 import { Choice, MARKET_OPTIONS, marketBody, marketTitle } from './DesktopSettingsSection.tsx'
-import { en as desktopEn, zh as desktopZh, type DesktopSettingsLocaleKey } from './desktop-settings-locales.ts'
+import { en as desktopEn, zh as desktopZh, type DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
+import { ComputerUseSettings } from './computer-use.tsx'
+import { ComputerUsePluginArtwork } from './computer-use-command-ui.tsx'
 import {
   BUILT_IN_MARKET_SOURCES, COMMUNITY_MARKET as COMMUNITY, configureSingleMarketToOfficial, DSH_MARKET as MARKET,
   importMarketSourcesToOfficial, marketToggleTargets, OFFICIAL_CONFIGURABLE_MARKET_SOURCES, OFFICIAL_MARKET,
-  REMOTE_CONTROL_BUNDLE, removeMarketSourcesFromOfficial, resolveActiveMarketSource, toggleMarketEndpointInOfficial,
+  removeMarketSourcesFromOfficial, resolveActiveMarketSource, toggleMarketEndpointInOfficial,
   type BuiltInMarketKey, type MarketName, type MarketRuntimeState,
 } from './market-toggle.ts'
 
-export { REMOTE_CONTROL_BUNDLE }
-const REMOTE = REMOTE_CONTROL_BUNDLE
-const PLUGIN_CONTROLS_LOCALE = 'desktop.settings' as const
+const REMOTE = '@agents-anywhere/dsh-bridge-next'
+const COMPUTER_ITEM = 'desktop-next-computer-use'
 
 type Translate = (cn: string, en: string) => string
-
-async function readCommunityMarketSources(signal?: AbortSignal): Promise<MarketRuntimeState['communitySources']> {
-  const response = await fetch('/api/community-market/state', {
-    cache: 'no-store',
-    ...(signal === undefined ? {} : { signal }),
-  })
-  if (!response.ok) return undefined
-  const payload = await response.json() as { readonly sources?: MarketRuntimeState['communitySources'] }
-  return Array.isArray(payload.sources) ? payload.sources : undefined
-}
 
 interface BundlesCacheEntry {
   loaded: boolean
@@ -69,26 +61,29 @@ function getBundlesCache(context: Context): BundlesCacheEntry {
 }
 
 // The cache fills on the first mount, never at registration. listBundles reads
-// every bundle manifest synchronously on the Host; calling it at startup stalls
-// the account, credential, and onboarding RPCs the first window waits on (the
-// official manager loads lazily).
+// every bundle manifest synchronously on the Host and listPlugins walks the
+// whole inventory; calling them at startup stalls the account, credential, and
+// onboarding RPCs the first window waits on (the official manager loads lazily).
 export function registerPluginControls(ctx: Context): void {
-  ctx.inject?.(['remote', 'remote.pluginManager', 'remote.pluginMarket'], inner => {
-    inner.slots.inject('plugins.overview', () => inner.slots.register({
-      name: 'plugins.overview',
-      id: 'desktop-plugins',
-      order: 0,
-      locale: PLUGIN_CONTROLS_LOCALE,
-      inject: () => ({ context: inner }),
-    }, PluginControls))
+  ctx.inject(['remote', 'remote.pluginManager', 'remote.pluginMarket'], inner => {
+    inner.slots.inject('plugins.overview', () => {
+      const dispose = inner.slots.register({ name: 'plugins.overview', id: 'desktop-next', order: 0,
+        locale: 'desktop-next', inject: () => ({ context: inner }),
+      }, PluginControls)
+      const hidden = [COMMUNITY, MARKET, REMOTE].map(key => inner.slots.register({ name: 'plugins.bundle.hidden', key }, () => null))
+      const item = inner.slots.register({ name: 'plugins.item', id: COMPUTER_ITEM, label: 'Computer Use',
+        locale: 'desktop-next', inject: () => ({ context: inner }),
+      }, ComputerUseItem)
+      const hiddenItem = inner.slots.register({ name: 'plugins.item.hidden', key: COMPUTER_ITEM }, () => null)
+      const actions = inner.slots.register({ name: 'plugins.detail.actions', id: COMPUTER_ITEM,
+        locale: 'desktop-next', inject: () => ({ context: inner }),
+      }, ComputerUseActions)
+      return () => { actions(); hiddenItem(); item(); for (const off of hidden) off(); dispose() }
+    })
   })
 }
 
-export function PluginControls({
-  context,
-  t: translate,
-  onOpenBundle,
-}: PropsLocale<typeof PLUGIN_CONTROLS_LOCALE> & PropsRuntime<'plugins.overview'> & { context: Context }) {
+function PluginControls({ context, t: translate, onOpenBundle, onOpenItem }: PropsLocale<'desktop-next'> & PropsRuntime<'plugins.overview'> & { context: Context }) {
   const zh = translate('language') === 'zh'
   const t = (cn: string, en: string): string => zh ? cn : en
   const desktopCopy = zh ? desktopZh : desktopEn
@@ -197,6 +192,10 @@ export function PluginControls({
         <RemoteControlSettings context={context} t={t} row={remoteRow} loading={loading}
           onChanged={() => { refresh(value => value + 1) }} />
       </PluginCard>
+      <PluginCard title="Computer Use" description={computerDescription(t)}
+        icon={<ComputerUsePluginArtwork size={36} />} onOpen={() => { onOpenItem(COMPUTER_ITEM) }}>
+        <ComputerUseSettings context={context} zh={zh} />
+      </PluginCard>
     </div>
     {notice && <p role="status" className="dshDesktopSettingsHint">{notice}</p>}
     {error && <div role="alert" className="dshDesktopSettingsError">{error} <Button variant="outline" size="sm" disabled={loading || busy} onClick={() => { setError(''); refresh(value => value + 1) }}>{t('重试', 'Retry')}</Button></div>}
@@ -259,7 +258,8 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
       const nextRuntime: { communitySources?: MarketRuntimeState['communitySources']; dshMarketRegion?: 'global' | 'china' } = {}
       if (communityEnabled) {
         try {
-          nextRuntime.communitySources = await readCommunityMarketSources(controller.signal)
+          const state = await readMarketState(controller.signal)
+          nextRuntime.communitySources = state.sources
         } catch {
           // Fallback to default community provider if the host route is still warming up.
         }
@@ -493,10 +493,27 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
   </Modal>
 }
 
+
 const remoteDescription = (t: Translate): string => t(
   '通过 Agents Anywhere 从手机或其他设备连接。启用后，在侧边栏的“远程控制”中完成配对。',
   'Connect from your phone or another device with Agents Anywhere. After enabling, pair it from Remote Control in the sidebar.',
 )
+
+const computerDescription = (t: Translate): string => t(
+  '让 AI 查看屏幕、操作鼠标和键盘。截图理解需要支持图片输入的模型。',
+  'Let AI view the screen and control the mouse and keyboard. Understanding screenshots requires a model with image input.',
+)
+
+function ComputerUseItem({ context, t, view }: PropsLocale<'desktop-next'> & PropsRuntime<'plugins.item'> & { context: Context }) {
+  const zh = t('language') === 'zh'
+  if (view === 'summary') return computerDescription((cn, en) => zh ? cn : en)
+  return <ComputerUseSettings context={context} zh={zh} mode="page" />
+}
+
+function ComputerUseActions({ context, t, subject }: PropsLocale<'desktop-next'> & PropsRuntime<'plugins.detail.actions'> & { context: Context }) {
+  if (subject.kind !== 'item' || subject.id !== COMPUTER_ITEM) return null
+  return <ComputerUseSettings context={context} zh={t('language') === 'zh'} mode="actions" />
+}
 
 function PluginCard({ title, description, icon, onOpen, children }: {
   title: string; description: string; icon: ReactNode; onOpen(): void; children: ReactNode

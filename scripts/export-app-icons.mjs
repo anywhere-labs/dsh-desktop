@@ -72,10 +72,10 @@ async function main() {
   // Scoped to this command and its children; do not change xcode-select globally.
   process.env.DEVELOPER_DIR = developer
   process.env.PATH = `${join(developer, 'usr/bin')}${delimiter}${process.env.PATH ?? ''}`
-  const require = createRequire(join(root, 'dsh-plugin-desktop-beta/package.json'))
+  const require = createRequire(join(root, 'dsh-plugin-desktop/package.json'))
   const { generateAssetCatalogForIcon } = require('app-builder-lib/out/util/macosIconComposer.js')
-  const { generateMacAppIcon } = await import('../dsh-plugin-desktop-beta/scripts/generate-mac-app-icon.mjs')
-  const { generateWindowsAppIcon } = await import('../dsh-plugin-desktop-beta/scripts/generate-windows-app-icon.mjs')
+  const { generateMacAppIcon } = await import('../dsh-plugin-desktop/scripts/generate-mac-app-icon.mjs')
+  const { generateWindowsAppIcon } = await import('../dsh-plugin-desktop/scripts/generate-windows-app-icon.mjs')
 
   for (const [channel, name] of selected) {
     const build = join(root, name, 'build')

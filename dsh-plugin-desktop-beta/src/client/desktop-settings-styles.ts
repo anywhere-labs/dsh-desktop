@@ -1,5 +1,5 @@
 /** Desktop settings section styles, installed independently of presentation mode. */
-import { DESKTOP_PACKAGE_NAME } from '../product-identity.ts'
+import { DESKTOP_PACKAGE_NAME } from '../../../dsh-plugin-desktop/src/product-identity.ts'
 
 const STYLE_ID = 'dsh-desktop-settings-styles'
 
@@ -31,12 +31,11 @@ const CSS = `
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-top: 20px;
-  border-top: 1px solid var(--dsw-alias-border-l1);
+  padding-top: 16px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 .dshDesktopSettingsList { display: grid; gap: 8px; }
-.dshDesktopSettingsChoice,
-.dshDesktopSettingsToggleRow {
+.dshDesktopSettingsChoice {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -46,14 +45,43 @@ const CSS = `
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 10px;
   background: var(--dsw-alias-bg-layer-1);
-}
-.dshDesktopSettingsChoice {
   box-sizing: border-box;
   width: 100%;
   color: inherit;
   cursor: default;
   text-align: left;
   font: inherit;
+}
+.dshDesktopSettingsToggleRow,
+.dshDesktopSettingsMaterialField,
+.dshDesktopSettingsUpdateRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 0;
+  padding: 16px 0;
+  border: 0;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 0;
+  background: transparent;
+}
+.dshDesktopSettingsGroup > :is(.dshDesktopSettingsToggleRow, .dshDesktopSettingsMaterialField, .dshDesktopSettingsUpdateRow):first-child,
+.dshDesktopSettingsGroup > .dshDesktopSettingsExpandableGroup:first-child > .dshDesktopSettingsToggleRow:first-child {
+  padding-top: 0;
+}
+.dshDesktopSettingsGroup > :is(.dshDesktopSettingsToggleRow, .dshDesktopSettingsMaterialField, .dshDesktopSettingsUpdateRow):has(+ .dshDesktopSettingsHint:last-child),
+.dshDesktopSettingsGroup > .dshDesktopSettingsExpandableGroup:has(+ .dshDesktopSettingsHint:last-child) > .dshDesktopSettingsToggleRow:last-child,
+.dshDesktopSettingsGroup > .dshDesktopSettingsExpandableGroup:has(+ .dshDesktopSettingsHint:last-child) > .dshDesktopSettingsExpandedRows:last-child > :last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.dshDesktopSettingsGroup > :is(.dshDesktopSettingsToggleRow, .dshDesktopSettingsMaterialField, .dshDesktopSettingsUpdateRow):last-child,
+.dshDesktopSettingsGroup > .dshDesktopSettingsExpandableGroup:last-child > .dshDesktopSettingsToggleRow:last-child,
+.dshDesktopSettingsGroup > .dshDesktopSettingsExpandableGroup:last-child > .dshDesktopSettingsExpandedRows:last-child > :last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: -8px;
 }
 .dshDesktopSettingsChoice[data-actionable="true"] { cursor: pointer; }
 .dshDesktopSettingsChoice[data-actionable="true"]:hover { background: var(--dsw-alias-interactive-bg-hover); }
@@ -67,7 +95,30 @@ const CSS = `
 }
 .dshDesktopSettingsChoice[aria-disabled="true"]:not([data-selected="true"]) { opacity: .58; }
 .dshDesktopSettingsChoiceCopy { display: block; flex: 1; min-width: 0; }
-.dshDesktopSettingsToggleLabel { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.dshDesktopSettingsToggleCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.dshDesktopSettingsToggleLabel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 22px;
+}
+.dshDesktopSettingsToggleDescription {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+}
 .dshDesktopSettingsChoiceAside { flex: 0 0 auto; margin-left: 12px; }
 .dshDesktopSettingsDeleteConfirm { display: flex; align-items: flex-end; flex-direction: column; gap: 8px; max-width: 320px; }
 .dshDesktopSettingsDeleteWarning { color: var(--dsw-alias-state-warning-primary); font-size: 12px; line-height: 1.4; text-align: right; }
@@ -143,22 +194,61 @@ const CSS = `
   border-color: var(--dsw-alias-brand-primary);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 20%, transparent);
 }
-.dshDesktopSettingsButton {
+.dshDesktopSettingsButton,
+button.dshDesktopSettingsButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
-  min-height: 32px;
-  padding: 5px 13px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  background: transparent;
+  box-sizing: border-box;
+  width: fit-content;
+  height: 36px;
+  min-width: 90px;
+  max-width: 280px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--dsw-radius-md, 8px);
+  background: var(--dsw-alias-bg-module-platform);
   color: var(--dsw-alias-label-primary);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  white-space: nowrap;
 }
-.dshDesktopSettingsButton:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
-.dshDesktopSettingsButtonSecondary { color: var(--dsw-alias-label-secondary); }
-.dshDesktopSettingsButtonDanger { color: var(--dsw-alias-state-error-primary); }
-.dshDesktopSettingsButton:disabled { cursor: default; opacity: .55; }
+.dshDesktopSettingsGroup > .dshDesktopSettingsButton {
+  align-self: flex-start;
+  justify-self: start;
+}
+.dshDesktopSettingsToolActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+.dshDesktopSettingsToolActions .dshDesktopSettingsButton {
+  min-width: 0;
+  padding: 0 12px;
+}
+.dshDesktopSettingsButton:hover:not(:disabled),
+button.dshDesktopSettingsButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.dshDesktopSettingsButtonSecondary,
+button.dshDesktopSettingsButtonSecondary {
+  color: var(--dsw-alias-label-primary);
+}
+.dshDesktopSettingsButtonDanger,
+button.dshDesktopSettingsButtonDanger {
+  color: var(--dsw-alias-state-error-primary);
+}
+.dshDesktopSettingsButton:disabled,
+button.dshDesktopSettingsButton:disabled {
+  cursor: default;
+  opacity: .45;
+}
 .dshDesktopNativeActions[data-placement="settings"] {
   display: flex;
   align-items: center;
@@ -226,30 +316,41 @@ const CSS = `
   font-size: 11px;
   line-height: 1.4;
 }
-.dshDesktopSettingsMaterialField {
-  display: flex;
+.dshDesktopSettingsMaterialCopy { min-width: 0; }
+.dshDesktopSettingsSelect,
+button.dshDesktopSettingsSelect {
+  display: inline-flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 10px;
-  background: var(--dsw-alias-bg-layer-1);
-}
-.dshDesktopSettingsMaterialCopy { min-width: 0; }
-.dshDesktopSettingsSelect {
+  gap: 12px;
   flex: 0 0 auto;
-  min-width: 150px;
-  min-height: 32px;
-  padding: 4px 28px 4px 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-1);
+  height: 36px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--dsw-radius-md, 8px);
+  background-color: var(--dsw-alias-bg-module-platform);
   color: var(--dsw-alias-label-primary);
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+  white-space: nowrap;
 }
-.dshDesktopSettingsSelect:disabled { opacity: .55; }
+.dshDesktopSettingsSelect:hover:not(:disabled),
+button.dshDesktopSettingsSelect:hover:not(:disabled) {
+  background-color: var(--dsw-alias-interactive-bg-hover);
+}
+.dshDesktopSettingsSelect:disabled,
+button.dshDesktopSettingsSelect:disabled {
+  cursor: default;
+  opacity: .45;
+}
+.dshDesktopSettingsSelectChevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .dshDesktopSettingsNotice,
 .dshDesktopSettingsError,
 .dshDesktopSettingsSuccess {
@@ -262,54 +363,78 @@ const CSS = `
 .dshDesktopSettingsNotice { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); }
 .dshDesktopSettingsError { color: var(--dsw-alias-state-error-primary); background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent); }
 .dshDesktopSettingsSuccess { color: var(--dsw-alias-state-success-primary); background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent); }
-.dshDesktopSettingsToggle {
+.dshDesktopSettingsExpandableGroup,
+.dshDesktopSettingsExpandedRows {
+  display: flex;
+  flex-direction: column;
+}
+.dshDesktopSettingsToggleControl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   flex: 0 0 auto;
-  position: relative;
-  width: 40px;
-  height: 22px;
-  padding: 2px;
+}
+.dshDesktopSettingsExpander {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   border: none;
-  border-radius: 999px;
-  background: var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs, 4px);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
-  transition: background-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+.dshDesktopSettingsExpander:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.dshDesktopSettingsExpander:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 2px;
+}
+.dshDesktopSettingsExpander svg {
+  transition: transform var(--ds-transition-duration-fast, 120ms) var(--ds-ease-in-out, ease);
+}
+.dshDesktopSettingsExpander[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+.dshDesktopSettingsToggle {
+  box-sizing: border-box;
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 20px;
+  padding: 2px;
+  border: 0;
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-alias-border-l3);
+  cursor: pointer;
 }
 .dshDesktopSettingsToggle[aria-checked="true"] {
   background: var(--dsw-alias-brand-primary);
 }
 .dshDesktopSettingsToggle:disabled { cursor: default; opacity: .5; }
 .dshDesktopSettingsToggle:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: 2px;
 }
 .dshDesktopSettingsToggleKnob {
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
+  corner-shape: round;
   background: var(--dsw-alias-label-primary-foreground);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .24);
-  transform: translateX(0);
-  transition: transform var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+  transition: transform 120ms ease;
+}
+.dshDesktopSettingsToggle[aria-checked="false"] .dshDesktopSettingsToggleKnob {
+  background: var(--dsw-alias-switch-thumb);
 }
 .dshDesktopSettingsToggle[aria-checked="true"] .dshDesktopSettingsToggleKnob {
-  transform: translateX(18px);
-}
-.dshDesktopSettingsDetails {
-  display: grid;
-  gap: 8px;
-  padding-left: 14px;
-  border-left: 2px solid var(--dsw-alias-border-l1);
-}
-.dshDesktopSettingsUpdateRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 13px 14px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 10px;
-  background: var(--dsw-alias-bg-layer-1);
+  transform: translateX(16px);
 }
 .dshDesktopSettingsLanStatus {
   display: grid;

@@ -2,11 +2,11 @@ import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import { assertMacRuntimeSignature, runtimeEntitlements, signMacRuntime, UPSTREAM_DESKTOP_SCRIPTS, withMacSigningIdentity, type MacRuntimeSigningIdentity } from '../scripts/sign-runtime.ts'
+import { assertMacRuntimeSignature, runtimeEntitlements, signMacRuntime, TIMESTAMP_ATTEMPTS, UPSTREAM_DESKTOP_SCRIPTS, withMacSigningIdentity, type MacRuntimeSigningIdentity } from '../scripts/sign-runtime.ts'
 
 const roots: string[] = []
 function root(): string {
-  const path = mkdtempSync(join(tmpdir(), 'desktop-signing-'))
+  const path = mkdtempSync(join(tmpdir(), 'next-signing-'))
   roots.push(path)
   return path
 }
@@ -89,6 +89,40 @@ it('awaits other signers before rejecting and permitting output cleanup', async 
   expect(t.verify).toHaveBeenCalledWith(join(path, 'b.node'), identity)
 })
 
+it('asks the timestamp service again when a signature comes back without its timestamp', async () => {
+  const path = root()
+  for (const name of ['a.node', 'b.node']) writeFileSync(join(path, name), machO)
+  const t = { ...tools(), pause: vi.fn(async () => {}) }
+  let dropped = false
+  t.sign.mockImplementation(async (file) => {
+    if (file.endsWith('a.node') && !dropped) {
+      dropped = true
+      throw new Error(`Next runtime signing: codesign exited with 1 for ${file}: A timestamp was expected but was not found.`)
+    }
+  })
+  await expect(signMacRuntime(path, 'com.example.app', identity, 'arm64', t)).resolves.toBe(2)
+  expect(t.sign).toHaveBeenCalledTimes(3)
+  expect(t.pause).toHaveBeenCalledWith(1)
+  expect(t.verify).toHaveBeenCalledWith(join(path, 'a.node'), identity)
+  expect(t.verify).toHaveBeenCalledWith(join(path, 'b.node'), identity)
+})
+
+it('gives a timestamp three attempts and other codesign failures one', async () => {
+  const path = root()
+  writeFileSync(join(path, 'a.node'), machO)
+  const timestamps = { ...tools(), pause: vi.fn(async () => {}) }
+  timestamps.sign.mockRejectedValue(new Error('The timestamp service is not available.'))
+  await expect(signMacRuntime(path, 'com.example.app', identity, 'arm64', timestamps)).rejects.toThrow('native signing failed')
+  expect(timestamps.sign).toHaveBeenCalledTimes(TIMESTAMP_ATTEMPTS)
+  expect(timestamps.pause).toHaveBeenCalledTimes(TIMESTAMP_ATTEMPTS - 1)
+  expect(timestamps.verify).not.toHaveBeenCalled()
+  const other = { ...tools(), pause: vi.fn(async () => {}) }
+  other.sign.mockRejectedValue(new Error('sign failure'))
+  await expect(signMacRuntime(path, 'com.example.app', identity, 'arm64', other)).rejects.toThrow('native signing failed')
+  expect(other.sign).toHaveBeenCalledTimes(1)
+  expect(other.pause).not.toHaveBeenCalled()
+})
+
 it.each(['arm64', 'x64'] as const)('gives only the standalone Node %s entitlements and signs Python without any', async (arch) => {
   const path = root()
   const node = join(path, 'dependencies/node/bin/node')
@@ -109,8 +143,7 @@ it.each(['arm64', 'x64'] as const)('gives only the standalone Node %s entitlemen
   for (const file of [python, extension]) expect(t.sign).toHaveBeenCalledWith(file, expect.any(String), identity, undefined)
 })
 
-// Windows grants symlink creation only to privileged or developer-mode accounts.
-it.skipIf(process.platform === 'win32')('rejects a payload containing links instead of signing through them', async () => {
+it('rejects a payload containing links instead of signing through them', async () => {
   const path = root()
   writeFileSync(join(path, 'real.node'), machO)
   symlinkSync(join(path, 'real.node'), join(path, 'alias.node'))

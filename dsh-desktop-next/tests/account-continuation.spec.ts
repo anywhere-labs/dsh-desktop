@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { registerDesktopOnboarding } from '../../dsh-plugin-desktop-beta/src/client/onboarding.tsx'
+import { registerDesktopOnboarding } from '../../dsh-plugin-desktop/src/client/onboarding.tsx'
 
 const hooks = vi.hoisted(() => ({ values: [] as unknown[], setters: [] as ReturnType<typeof vi.fn>[], effects: [] as (() => unknown)[] }))
 // Vitest aliases these shared peers to Next's installed copies.

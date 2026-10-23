@@ -2,15 +2,10 @@
 import { isMap, isSeq, parseDocument } from 'yaml'
 
 /**
- * Optional bundle 0.2.0-rc.2 offered for Scheduled Tasks. Upstream removed it
- * and the Web composition now mounts `schedule` and `ui-schedule` itself, so a
- * Profile that still lists it names a package the installation no longer has.
+ * Optional bundle 0.2.0-rc.2 offered for Scheduled Tasks. Upstream removed it and
+ * the Web composition now mounts `schedule` and `ui-schedule` itself.
  */
 export const RETIRED_SCHEDULE_BUNDLE = '@deepseek-ai/dsh-experimental-schedule-bundle'
-
-/** Manifest field recording that this Profile's one-time patch cleanup ran. */
-export const SCHEDULE_RETIREMENT_MARKER = 'desktopScheduleBundleRetired'
-
 const CLOCK_ROW = 'time-context'
 const CLOCK_MODULE = '@deepseek-ai/dsh-time-context'
 

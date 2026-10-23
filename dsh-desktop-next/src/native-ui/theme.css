@@ -1,6 +1,6 @@
-@import '../../../dsh-plugin-desktop-beta/src/native-ui/shared/theme.css';
+@import '../../../dsh-plugin-desktop/src/native-ui/shared/theme.css';
 @import './onboarding.css';
-@source '../../../dsh-plugin-desktop-beta/src/native-ui';
+@source '../../../dsh-plugin-desktop/src/native-ui';
 @source './onboarding.tsx';
 /* Map the official Settings tokens onto the existing native-window theme. */
 :root {

@@ -4,16 +4,16 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
-import { packagedDependencyPath } from './packaged-runtime-path.ts'
-import { assertDesktopProfileName } from './profile-manager.ts'
-import { withoutForwardedDesktopPnpmPolicy } from './pnpm-policy.ts'
-import { installProfilePackageResolver } from './module-resolution.ts'
+import { createRequire } from 'node:module'
+import { NEXT_PACKAGE } from './profiles.ts'
+import { profileName as assertDesktopProfileName } from './profiles.ts'
+import { applyDesktopPackageAgePolicy, withoutForwardedDesktopPnpmPolicy } from './pnpm-policy.ts'
 import { disableAsarArchiveView, type AsarArchiveProcess } from './asar-archive-policy.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 const DEFAULT_PROFILE = 'DSH_DESKTOP_DEFAULT_PROFILE'
 const DSH_ENTRY_URL = pathToFileURL(
-  packagedDependencyPath(import.meta.url, '@deepseek-ai/dsh/lib/bin.js'),
+  join(dirname(createRequire(NEXT_PACKAGE).resolve('@deepseek-ai/dsh/package.json')), 'lib', 'bin.js'),
 ).href
 
 export function clearElectronRunAsNode(environment: NodeJS.ProcessEnv): void {
@@ -39,7 +39,7 @@ function takeDefaultProfile(environment: NodeJS.ProcessEnv): string | undefined 
     if (key.toUpperCase() !== DEFAULT_PROFILE) continue
     const value = environment[key]
     if (value !== undefined && profileName !== undefined && value !== profileName) {
-      throw new Error('dsh-desktop: conflicting default profile environment values')
+      throw new Error('dsh-plugin-desktop-beta: conflicting default profile environment values')
     }
     profileName ??= value
     delete environment[key]
@@ -76,7 +76,7 @@ export function desktopCliProfileManifestUrl(
   // check at the Desktop process boundary so an upstream contract regression
   // cannot turn a CLI flag into an arbitrary module-resolution anchor.
   if (dirname(profileDirectory) !== profileRoot) {
-    throw new Error(`dsh-desktop: unsafe CLI profile path for ${JSON.stringify(profileName)}`)
+    throw new Error(`dsh-plugin-desktop-beta: unsafe CLI profile path for ${JSON.stringify(profileName)}`)
   }
   return pathToFileURL(join(profileDirectory, 'package.json')).href
 }
@@ -91,6 +91,7 @@ export async function runDesktopDshCli(
   argv: string[] = process.argv,
   asarProcess: AsarArchiveProcess = process,
 ): Promise<void> {
+  applyDesktopPackageAgePolicy(environment)
   const profileName = takeDefaultProfile(environment)
   clearElectronRunAsNode(environment)
   // The CLI's agent lists and reads user workspaces; see asar-archive-policy.ts.
@@ -99,28 +100,7 @@ export async function runDesktopDshCli(
     ? argv.slice(2)
     : withDefaultDesktopProfile(argv.slice(2), profileName)
   argv.splice(2, argv.length - 2, ...withoutForwardedDesktopPnpmPolicy(selected))
-  const selectedProfile = selectedDesktopCliProfile(argv.slice(2))
-  const releaseResolver = selectedProfile !== undefined
-    && /([\\/])app\.asar\1/u.test(fileURLToPath(DSH_ENTRY_URL))
-    ? installProfilePackageResolver(desktopCliProfileManifestUrl(selectedProfile, environment))
-    : undefined
-  // The DSH CLI settles once a long-lived Profile is ready;
-  // later HMR and Loader imports still need the same process-wide resolver.
-  // Keep it until process exit rather than treating CLI settlement as app
-  // shutdown. A packaged CLI process owns exactly one Profile invocation.
-  if (releaseResolver === undefined) {
-    await (await load(DSH_ENTRY_URL)).runCli({ manageDesktopProfile: true })
-    return
-  }
-  const releaseAtExit = (): void => { releaseResolver() }
-  process.once('exit', releaseAtExit)
-  try {
-    await (await load(DSH_ENTRY_URL)).runCli({ manageDesktopProfile: true })
-  } catch (cause) {
-    process.off('exit', releaseAtExit)
-    releaseResolver()
-    throw cause
-  }
+  await (await load(DSH_ENTRY_URL)).runCli({ manageDesktopProfile: true })
 }
 
 function isDirectExecution(): boolean {
@@ -130,7 +110,7 @@ function isDirectExecution(): boolean {
 
 if (isDirectExecution()) {
   void runDesktopDshCli().catch((cause: unknown) => {
-    process.stderr.write(`dsh-desktop: failed to start packaged dsh: ${cause instanceof Error ? cause.stack ?? cause.message : String(cause)}\n`)
+    process.stderr.write(`dsh-plugin-desktop-beta: failed to start packaged dsh: ${cause instanceof Error ? cause.stack ?? cause.message : String(cause)}\n`)
     process.exitCode = 1
   })
 }

@@ -1,189 +1,204 @@
-import { describe, expect, it } from 'vitest'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy'
+import { createLaunchEnvironmentSnapshot, type LaunchEnvironmentLayerInput } from '@deepseek-ai/dsh-launch-environment'
 import {
-  buildDesktopProxyOverlay,
-  desktopProxyEnvLookup,
-  parsePacProxyResult,
-  socksProxyDiagnostic,
-  type DesktopProxyEnvLookup,
+  parseSystemProxyProbe,
+  probeSystemProxy,
+  withSystemProxy,
+  type SystemProxyResolver,
 } from '../src/system-proxy.ts'
 
-function env(values: Record<string, string>): DesktopProxyEnvLookup {
-  return { get: name => (values[name] === undefined ? undefined : { value: values[name] }) }
+const PROXY = 'http://127.0.0.1:7897'
+
+function resolver(answers: (url: string, attempt: number) => string): SystemProxyResolver & { rounds: () => number } {
+  let calls = 0
+  return {
+    forceReloadProxyConfig: async () => {},
+    resolveProxy: async url => answers(url, Math.floor(calls++ / 3) + 1),
+    rounds: () => Math.ceil(calls / 3),
+  }
 }
 
-describe('PAC proxy result parsing', () => {
-  it('reads a direct answer', () => {
-    expect(parsePacProxyResult('DIRECT')).toEqual({ kind: 'direct' })
+const noWait = async (): Promise<void> => {}
+
+function snapshot(...layers: LaunchEnvironmentLayerInput[]) {
+  return createLaunchEnvironmentSnapshot([{ source: 'process', values: {} }, ...layers])
+}
+
+describe('probeSystemProxy', () => {
+  it('reports the proxy the system resolver named for each scheme', async () => {
+    const probe = await probeSystemProxy(resolver(() => 'PROXY 127.0.0.1:7897'), noWait)
+
+    expect(probe).toMatchObject({ http: PROXY, https: PROXY, disagreed: false })
   })
 
-  it('reads an HTTP proxy answer', () => {
-    expect(parsePacProxyResult('PROXY 127.0.0.1:7890')).toEqual({ kind: 'proxy', url: 'http://127.0.0.1:7890' })
+  it('retries a DIRECT answer before concluding the machine is direct', async () => {
+    const answers = resolver((_url, attempt) => attempt < 2 ? 'DIRECT' : 'PROXY 127.0.0.1:7897')
+    const probe = await probeSystemProxy(answers, noWait)
+
+    expect(probe.https).toBe(PROXY)
+    expect(answers.rounds()).toBe(2)
   })
 
-  it('reads an HTTPS proxy answer as an https URL', () => {
-    expect(parsePacProxyResult('HTTPS proxy.corp:443')).toEqual({ kind: 'proxy', url: 'https://proxy.corp:443' })
+  it('gives up after three DIRECT rounds', async () => {
+    const answers = resolver(() => 'DIRECT')
+    const probe = await probeSystemProxy(answers, noWait)
+
+    expect(probe).toEqual({ notes: [] })
+    expect(answers.rounds()).toBe(3)
   })
 
-  it('keeps an IPv6 literal bracketed', () => {
-    expect(parsePacProxyResult('PROXY [::1]:8080')).toEqual({ kind: 'proxy', url: 'http://[::1]:8080' })
+  it('explains a SOCKS-only configuration once and does not retry it', async () => {
+    const answers = resolver(() => 'SOCKS5 127.0.0.1:7898')
+    const probe = await probeSystemProxy(answers, noWait)
+
+    expect(probe.https).toBeUndefined()
+    expect(probe.notes).toHaveLength(3)
+    expect(probe.notes?.[0]).toContain('HTTP or mixed port')
+    expect(answers.rounds()).toBe(1)
   })
 
-  it('skips a SOCKS candidate to reach the routable one behind it', () => {
-    expect(parsePacProxyResult('SOCKS5 127.0.0.1:7891;PROXY 127.0.0.1:7890'))
-      .toEqual({ kind: 'proxy', url: 'http://127.0.0.1:7890' })
-  })
+  it('starts direct when the configuration cannot be read', async () => {
+    const probe = await probeSystemProxy({
+      forceReloadProxyConfig: async () => { throw new Error('reload failed') },
+      resolveProxy: async () => { throw new Error('resolver down') },
+    }, noWait)
 
-  it('reports a SOCKS-only answer rather than inventing a proxy', () => {
-    const result = parsePacProxyResult('SOCKS5 127.0.0.1:7891')
-
-    expect(result.kind).toBe('unsupported')
-    expect(result).toMatchObject({ detail: expect.stringContaining('SOCKS5') })
-  })
-
-  it('reports a QUIC-only answer as unusable', () => {
-    expect(parsePacProxyResult('QUIC edge.corp:443').kind).toBe('unsupported')
-  })
-
-  it('takes DIRECT when it is offered before a proxy', () => {
-    expect(parsePacProxyResult('DIRECT;PROXY 127.0.0.1:7890')).toEqual({ kind: 'direct' })
-  })
-
-  it('treats an empty answer as direct', () => {
-    expect(parsePacProxyResult('')).toEqual({ kind: 'direct' })
-    expect(parsePacProxyResult('   ;  ')).toEqual({ kind: 'direct' })
-  })
-
-  it('refuses an entry carrying a path or credentials', () => {
-    expect(parsePacProxyResult('PROXY 127.0.0.1:7890/evil').kind).toBe('unsupported')
-    expect(parsePacProxyResult('PROXY user:pass@127.0.0.1:7890').kind).toBe('unsupported')
-  })
-
-  it('refuses an authority without a port', () => {
-    expect(parsePacProxyResult('PROXY proxy.corp').kind).toBe('unsupported')
-  })
-
-  it('reports an unrecognized entry instead of guessing', () => {
-    expect(parsePacProxyResult('BANANA 127.0.0.1:7890').kind).toBe('unsupported')
+    expect(probe.https).toBeUndefined()
+    expect(probe.notes?.join('\n')).toContain('resolver down')
   })
 })
 
-describe('Desktop proxy overlay', () => {
-  it('prefers an exported proxy over the system configuration', () => {
-    const resolution = buildDesktopProxyOverlay({
-      env: env({ HTTPS_PROXY: 'http://corp:8080' }),
-      probe: { http: 'http://127.0.0.1:7890', https: 'http://127.0.0.1:7890' },
-    })
+describe('parseSystemProxyProbe', () => {
+  it('round-trips what main sends', () => {
+    const sent = { http: PROXY, https: PROXY, disagreed: true, notes: ['n'] }
 
-    expect(resolution.source).toBe('environment')
-    expect(resolution.overlay).toEqual({})
-    expect(resolution.summary).toContain('source: environment HTTPS_PROXY')
+    expect(parseSystemProxyProbe(JSON.stringify(sent))).toEqual(sent)
   })
 
-  it('ignores an exported proxy name that is present but empty', () => {
-    const resolution = buildDesktopProxyOverlay({
-      env: env({ HTTPS_PROXY: '   ' }),
-      probe: { https: 'http://127.0.0.1:7890' },
-    })
-
-    expect(resolution.source).toBe('system')
+  it('treats a missing value as no system proxy', () => {
+    expect(parseSystemProxyProbe(undefined)).toEqual({})
   })
 
-  it('defers to ALL_PROXY as an explicit choice', () => {
-    const resolution = buildDesktopProxyOverlay({
-      env: env({ ALL_PROXY: 'socks5://127.0.0.1:7891' }),
-      probe: { https: 'http://127.0.0.1:7890' },
-    })
-
-    expect(resolution.source).toBe('environment')
-    expect(resolution.overlay).toEqual({})
-  })
-
-  it('synthesizes the system proxy with a bypass list covering this machine', () => {
-    const resolution = buildDesktopProxyOverlay({
-      env: env({}),
-      probe: { http: 'http://127.0.0.1:7890', https: 'http://127.0.0.1:7890' },
-      lanAddresses: ['192.168.1.7'],
-    })
-
-    expect(resolution.source).toBe('system')
-    expect(resolution.overlay).toEqual({
-      http_proxy: 'http://127.0.0.1:7890',
-      https_proxy: 'http://127.0.0.1:7890',
-      no_proxy: '192.168.1.7,.local',
-    })
-  })
-
-  it('keeps the bypass entries the user already wrote', () => {
-    const resolution = buildDesktopProxyOverlay({
-      env: env({ NO_PROXY: 'internal.corp, .example.com' }),
-      probe: { https: 'http://127.0.0.1:7890' },
-      lanAddresses: ['192.168.1.7'],
-    })
-
-    expect(resolution.overlay.no_proxy).toBe('internal.corp,.example.com,192.168.1.7,.local')
-  })
-
-  it('carries only the scheme the resolver answered for', () => {
-    const resolution = buildDesktopProxyOverlay({
-      env: env({}),
-      probe: { https: 'http://127.0.0.1:7890' },
-    })
-
-    expect(resolution.overlay.https_proxy).toBe('http://127.0.0.1:7890')
-    expect(resolution.overlay.http_proxy).toBeUndefined()
-  })
-
-  it('reports a direct machine without a proxy', () => {
-    const resolution = buildDesktopProxyOverlay({ env: env({}), probe: {} })
-
-    expect(resolution.source).toBe('none')
-    expect(resolution.overlay).toEqual({})
-    expect(resolution.summary).toContain('outbound proxy = none')
-  })
-
-  it('keeps probe notes and warns when PAC rules route probes differently', () => {
-    const resolution = buildDesktopProxyOverlay({
-      env: env({}),
-      probe: { https: 'http://127.0.0.1:7890', disagreed: true, notes: ['a probe note'] },
-    })
-
-    expect(resolution.diagnostics[0]).toBe('a probe note')
-    expect(resolution.diagnostics.join(' ')).toContain('PAC')
-  })
-
-  it('reports a SOCKS-only machine as direct while keeping the explanation', () => {
-    const note = socksProxyDiagnostic('https://api.deepseek.com/', 'SOCKS5 (127.0.0.1:7891)')
-    const resolution = buildDesktopProxyOverlay({ env: env({}), probe: { notes: [note] } })
-
-    expect(resolution.source).toBe('none')
-    expect(resolution.diagnostics).toEqual([note])
-    expect(note).toContain('mixed port')
+  it('degrades malformed input to direct with a note instead of stopping the Host', () => {
+    expect(parseSystemProxyProbe('{').https).toBeUndefined()
+    expect(parseSystemProxyProbe('[]').notes).toHaveLength(1)
+    const probe = parseSystemProxyProbe(JSON.stringify({ https: 'socks5://127.0.0.1:1', http: 7 }))
+    expect(probe.https).toBeUndefined()
+    expect(probe.http).toBeUndefined()
+    expect(probe.notes).toHaveLength(2)
   })
 })
 
-describe('Desktop proxy environment lookup', () => {
-  it('lets the synthesized overlay win over the snapshot', () => {
-    const lookup = desktopProxyEnvLookup(env({ no_proxy: 'stale' }), { no_proxy: 'merged,.local' })
+describe('withSystemProxy', () => {
+  it('answers both casings from the system proxy when the user configured none', () => {
+    const { environment, resolution } = withSystemProxy(snapshot(), { http: PROXY, https: PROXY }, ['192.168.1.5'])
 
-    expect(lookup.get('no_proxy')).toEqual({ value: 'merged,.local' })
+    expect(resolution.source).toBe('system')
+    expect(environment.get('HTTPS_PROXY')?.value).toBe(PROXY)
+    expect(environment.get('https_proxy')).toEqual({ value: PROXY, source: 'process' })
+    expect(environment.get('NO_PROXY')?.value).toBe('192.168.1.5,.local')
+    expect(environment.getFrom('HTTPS_PROXY', ['process'])?.value).toBe(PROXY)
+    expect(environment.getFrom('HTTPS_PROXY', ['user-env'])).toBeUndefined()
   })
 
-  it('answers the uppercase spelling from the lowercase overlay', () => {
-    const lookup = desktopProxyEnvLookup(env({}), { https_proxy: 'http://127.0.0.1:7890' })
+  it('keeps an exported proxy and leaves the environment untouched', () => {
+    const base = snapshot({ source: 'process', values: { HTTPS_PROXY: 'http://corp:8080' } })
+    const { environment, resolution } = withSystemProxy(base, { https: PROXY }, [])
 
-    expect(lookup.get('HTTPS_PROXY')).toEqual({ value: 'http://127.0.0.1:7890' })
+    expect(resolution.source).toBe('environment')
+    expect(environment).toBe(base)
   })
 
-  it('falls back to the snapshot for everything else', () => {
-    const lookup = desktopProxyEnvLookup(env({ DSH_HOME: '/home/dsh' }), { no_proxy: '.local' })
+  it('keeps a proxy written in the DSH home .env file', () => {
+    const base = snapshot({ source: 'user-env', path: '/home/.env', values: { HTTP_PROXY: 'http://corp:8080' } })
+    const { environment, resolution } = withSystemProxy(base, { http: PROXY, https: PROXY }, [])
 
-    expect(lookup.get('DSH_HOME')).toEqual({ value: '/home/dsh' })
-    expect(lookup.get('HTTP_PROXY')).toBeUndefined()
+    expect(resolution.source).toBe('environment')
+    expect(environment.get('HTTP_PROXY')?.value).toBe('http://corp:8080')
   })
 
-  it('passes the environment through untouched when no overlay was synthesized', () => {
-    const lookup = desktopProxyEnvLookup(env({ HTTPS_PROXY: 'http://corp:8080' }), {})
+  it('passes other names through', () => {
+    const base = snapshot({ source: 'process', values: { DSH_HOME: '/h' } })
+    const { environment } = withSystemProxy(base, { https: PROXY }, [])
 
-    expect(lookup.get('HTTPS_PROXY')).toEqual({ value: 'http://corp:8080' })
+    expect(environment.get('DSH_HOME')?.value).toBe('/h')
+  })
+
+  it('logs a direct start', () => {
+    expect(withSystemProxy(snapshot(), {}, []).resolution.summary).toContain('outbound proxy = none')
+  })
+})
+
+/**
+ * The Host hands this environment to upstream `runProfile()`, which installs it with
+ * `installProxyFromEnvironment`. Proving bytes arrive at a real socket is the only check that the
+ * wrapped snapshot is actually accepted by the upstream installer.
+ */
+describe('system proxy egress through the upstream installer', () => {
+  let seen: string[] = []
+  let proxy: Server
+  let proxyUrl: string
+
+  beforeAll(async () => {
+    proxy = createServer((request, response) => {
+      seen.push(`REQ ${request.url ?? ''}`)
+      response.writeHead(502)
+      response.end('fake-proxy')
+    })
+    proxy.on('connect', (request, socket) => {
+      seen.push(`CONNECT ${request.url ?? ''}`)
+      socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+      socket.end()
+    })
+    const address = await new Promise<AddressInfo>(resolve => {
+      proxy.listen(0, '127.0.0.1', () => { resolve(proxy.address() as AddressInfo) })
+    })
+    proxyUrl = `http://127.0.0.1:${String(address.port)}`
+  })
+
+  afterAll(async () => {
+    await new Promise<void>(resolve => { proxy.close(() => { resolve() }) })
+  })
+
+  beforeEach(() => {
+    // A developer machine that genuinely has a proxy would otherwise decide these assertions.
+    for (const name of ['http_proxy', 'HTTP_PROXY', 'https_proxy', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY',
+      'no_proxy', 'NO_PROXY']) vi.stubEnv(name, '')
+    seen = []
+  })
+
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  async function observe(base: ReturnType<typeof snapshot>, url: string): Promise<string[]> {
+    const { environment } = withSystemProxy(base, { http: proxyUrl, https: proxyUrl }, ['192.168.77.7'])
+    const dispose = await installProxyFromEnvironment(environment, () => undefined)
+    try {
+      await fetch(url, { signal: AbortSignal.timeout(2_000) }).catch(() => undefined)
+    } finally {
+      await dispose()
+    }
+    return seen
+  }
+
+  it('sends HTTPS through the system proxy', async () => {
+    expect(await observe(snapshot(), 'https://example.invalid/')).toContain('CONNECT example.invalid:443')
+  })
+
+  it('sends plain HTTP through the system proxy', async () => {
+    expect(await observe(snapshot(), 'http://example.invalid/probe')).toContain('REQ http://example.invalid/probe')
+  })
+
+  it('keeps loopback and this machine\'s LAN address off the proxy', async () => {
+    expect(await observe(snapshot(), 'http://127.0.0.1:1/')).toEqual([])
+    expect(await observe(snapshot(), 'http://192.168.77.7:1/')).toEqual([])
+  })
+
+  it('lets a .env proxy win over the system proxy', async () => {
+    const base = snapshot({ source: 'user-env', path: '/home/.env', values: { HTTPS_PROXY: 'http://127.0.0.1:9/' } })
+
+    expect(await observe(base, 'https://example.invalid/')).toEqual([])
   })
 })

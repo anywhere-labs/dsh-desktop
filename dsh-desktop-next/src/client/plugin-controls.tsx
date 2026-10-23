@@ -10,8 +10,9 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { readMarketState } from '../../../dsh-community-market/src/client/api.ts'
 import { Choice, MARKET_OPTIONS, marketBody, marketTitle } from './DesktopSettingsSection.tsx'
-import { en as desktopEn, zh as desktopZh, type DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop-beta/src/client/desktop-settings-locales.ts'
+import { en as desktopEn, zh as desktopZh, type DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
 import { ComputerUseSettings } from './computer-use.tsx'
+import { ComputerUsePluginArtwork } from './computer-use-command-ui.tsx'
 import {
   BUILT_IN_MARKET_SOURCES, COMMUNITY_MARKET as COMMUNITY, configureSingleMarketToOfficial, DSH_MARKET as MARKET,
   importMarketSourcesToOfficial, marketToggleTargets, OFFICIAL_CONFIGURABLE_MARKET_SOURCES, OFFICIAL_MARKET,
@@ -192,7 +193,7 @@ function PluginControls({ context, t: translate, onOpenBundle, onOpenItem }: Pro
           onChanged={() => { refresh(value => value + 1) }} />
       </PluginCard>
       <PluginCard title="Computer Use" description={computerDescription(t)}
-        icon={<PluginArtworkDefault size={36} />} onOpen={() => { onOpenItem(COMPUTER_ITEM) }}>
+        icon={<ComputerUsePluginArtwork size={36} />} onOpen={() => { onOpenItem(COMPUTER_ITEM) }}>
         <ComputerUseSettings context={context} zh={zh} />
       </PluginCard>
     </div>

@@ -404,6 +404,8 @@ it('pops the official editing context menu with Windows labels in the applicatio
 it.each(['normal', '--next-safe-mode'])('stages an explicit update before hiding windows, and preserves its installer until handoff in %s', async mode => {
   const home = mkdtempSync(join(tmpdir(), 'next-install-update-'))
   vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'darwin' })
   const argv = [...process.argv]
   if (mode !== 'normal') process.argv.push(mode)
   let stageReady!: () => void
@@ -413,7 +415,7 @@ it.each(['normal', '--next-safe-mode'])('stages an explicit update before hiding
   vi.doMock('../src/update-installer.ts', () => ({ NextUpdateInstaller: class { stage = stage; launch = launch } }))
   vi.doMock('../src/updates.ts', () => ({ NextUpdates: class {
     constructor(private options: { install(): Promise<void> }) {}
-    snapshot() { return { phase: 'ready', version: '2.0.19-next.1', installable: true } }
+    snapshot() { return { phase: 'ready', version: '2.0.20-next.1', installable: true } }
     start() {}
     dispose = async () => {}
     install = () => this.options.install()
@@ -433,6 +435,7 @@ it.each(['normal', '--next-safe-mode'])('stages an explicit update before hiding
     closed()
     await vi.waitFor(() => expect(launch).toHaveBeenCalledOnce())
   } finally {
+    Object.defineProperty(process, 'platform', platform)
     vi.doUnmock('../src/update-installer.ts'); vi.doUnmock('../src/updates.ts')
     process.argv.splice(0, process.argv.length, ...argv)
     vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
@@ -442,13 +445,15 @@ it.each(['normal', '--next-safe-mode'])('stages an explicit update before hiding
 it.each(['timeout', 'failure'] as const)('still launches a staged update before forced exit when shutdown hits %s', async outcome => {
   const home = mkdtempSync(join(tmpdir(), 'next-install-update-forced-'))
   vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'darwin' })
   const stagedPath = () => join(fixture.appPaths.get('userData')!, 'staged-update')
   const stage = vi.fn(async () => { writeFileSync(stagedPath(), 'installer') })
   const launch = vi.fn(async () => { expect(readFileSync(stagedPath(), 'utf8')).toBe('installer') })
   vi.doMock('../src/update-installer.ts', () => ({ NextUpdateInstaller: class { stage = stage; launch = launch } }))
   vi.doMock('../src/updates.ts', () => ({ NextUpdates: class {
     constructor(private options: { install(): Promise<void> }) {}
-    snapshot() { return { phase: 'ready', version: '2.0.19-next.1', installable: true } }
+    snapshot() { return { phase: 'ready', version: '2.0.20-next.1', installable: true } }
     start() {}
     dispose = async () => {}
     install = () => this.options.install()
@@ -486,6 +491,7 @@ it.each(['timeout', 'failure'] as const)('still launches a staged update before 
       expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ source: 'electron', event: 'shutdown.failed', level: 'error' }))
     }
   } finally {
+    Object.defineProperty(process, 'platform', platform)
     vi.useRealTimers()
     vi.doUnmock('../src/update-installer.ts'); vi.doUnmock('../src/updates.ts')
     vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })

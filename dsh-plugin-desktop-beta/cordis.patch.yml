@@ -1,33 +1,20 @@
-# Desktop Host operations compose around the existing Web bundle. Compatibility
-# mode keeps upstream ownership of the browser carrier and rendered UI.
 - id: ui-sidebar-browser
   # Desktop capability does not depend on the user's Profile name. The later
   # user patch can still disable the Browser explicitly.
   disabled: false
-
 - insert:
-    - id: desktop-shell
+    - id: desktop-next-capabilities
       name: dsh-plugin-desktop-beta
-      config:
-        mode: compatibility
-    - id: desktop-terminal
-      name: dsh-plugin-desktop-beta/terminal
-      disabled: !!js process.platform === 'linux'
-    - id: desktop-diagnostics
-      name: dsh-plugin-desktop-beta/diagnostics
-    - id: desktop-notifications
-      name: dsh-plugin-desktop-beta/notifications
-    - id: desktop-pnpm
-      name: dsh-plugin-desktop-beta/pnpm
-    - id: desktop-profiles
-      name: dsh-plugin-desktop-beta/profiles
-    - id: desktop-updates
-      name: dsh-plugin-desktop-beta/updates
-
-# A desktop launch has no terminal operator waiting for the Web readiness line.
-- id: web-runtime
-  config:
-    openBrowser: false
-    printUrl: false
-    surfaceContext: true
-    trustedHosts: []
+    - id: computer-use
+      name: '@deepseek-ai/dsh-computer-use'
+    - id: computer-use-cua-driver-native
+      name: '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'
+      disabled: true
+# Upstream mounts its Desktop product analytics for every Profile named
+# `desktop` and reports to DeepSeek's collector by default. DSH Desktop does
+# not take part in that collection. Its exporter also requires the upstream
+# Electron shell's DSH_CLIENT_VERSION, which Next never provides.
+- id: desktop-product-telemetry
+  disabled: true
+- id: product-analytics
+  disabled: true

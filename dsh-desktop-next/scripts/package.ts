@@ -1,14 +1,15 @@
 /** Next entry points reuse Stable/Beta's native packaging and credential boundaries. */
 import { spawnSync } from 'node:child_process'
-import { readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { packageDirectory } from '../../dsh-plugin-desktop-beta/scripts/package-dir.mjs'
-import { releaseMac } from '../../dsh-plugin-desktop-beta/scripts/release-mac.ts'
-import { adaptMacReleaseEnvironment, assertMacReleaseReady, withoutMacReleaseSecrets } from '../../dsh-plugin-desktop-beta/scripts/release-preflight.ts'
-import { packageMacSmoke } from '../../dsh-plugin-desktop-beta/scripts/package-mac.ts'
-import { createWindowsPackageOptions, packageWindowsInstaller } from '../../dsh-plugin-desktop-beta/scripts/package-win.ts'
+import { packageDirectory } from '../../dsh-plugin-desktop/scripts/package-dir.mjs'
+import { createLinuxPackageOptions, packageLinuxArtifacts } from '../../dsh-plugin-desktop/scripts/package-linux.ts'
+import { releaseMac } from '../../dsh-plugin-desktop/scripts/release-mac.ts'
+import { adaptMacReleaseEnvironment, assertMacReleaseReady, withoutMacReleaseSecrets } from '../../dsh-plugin-desktop/scripts/release-preflight.ts'
+import { packageMacSmoke } from '../../dsh-plugin-desktop/scripts/package-mac.ts'
+import { createWindowsPackageOptions, packageWindowsArtifact, packageWindowsInstaller } from '../../dsh-plugin-desktop/scripts/package-win.ts'
 import { prepareNextMacRuntime } from './mac-runtime.ts'
 import { runNextPackagingCommand } from './packaging-command.ts'
 import { expectedNextVersion, nextRuntimeBuildPaths, nextRuntimeTargets, prepareNextRuntime, primaryRuntimeDirectory, reusableNextRuntimeTree, smokeNextRuntime, verifyNextRuntimeTree } from './prepare-runtime.ts'
@@ -48,7 +49,7 @@ const run = (command: string, args: readonly string[], cwd: string, env: NodeJS.
     ? [...withoutRebuildFlag, `--config.extraMetadata.version=${TEST_BUILD_VERSION}`, `--config.buildVersion=${TEST_BUILD_VERSION}`]
     : withoutRebuildFlag
   if (TEST_BUILD_VERSION !== undefined && isBuilder) console.log(`Packaging with test build version ${TEST_BUILD_VERSION}; source manifests are unchanged.`)
-  const isPreflight = (args.includes('run') && args.includes('check')) || args.some(arg => arg.includes('check:win-package'))
+  const isPreflight = (args.includes('run') && args.includes('check')) || args.some(arg => arg.includes('check:win-package') || arg.includes('check:linux-package'))
   const stage = isBuilder ? 'builder:total' : isPreflight ? 'build:package-preflight' : 'package:command'
   const measuredArgs = isBuilder && env.DSH_DESKTOP_PACKAGING_RUN_DIR !== undefined
     ? ['--import', new URL('./packaging-builder.mjs', import.meta.url).href, ...forwarded]
@@ -105,6 +106,10 @@ const prepareRuntime = (platform: NodeJS.Platform = process.platform): void => {
   if (!interpretersVerified || platform !== process.platform) {
     verifyNextRuntimeTree(nextRuntimeBuildPaths(desktopRoot).runtime, platform, buildVersion)
   }
+  if (process.env.DSH_WINDOWS_REUSE_UNPACKED === '1' && existsSync(join(desktopRoot, '.desktop-build', 'payload', '.dsh-desktop-runtime.json'))) {
+    console.log('Reusing prepared payload for unpacked Windows application directory.')
+    return
+  }
   preparePayload(platform)
 }
 const mode = process.argv[2]
@@ -135,4 +140,14 @@ if (mode === 'dir') {
   await prepareInterpreters()
   packageWindowsInstaller({ ...createWindowsPackageOptions(), desktopRoot, workspaceRoot, run, prepareRuntime,
     verifier: join(desktopRoot, 'scripts/verify-win-installer.ts') })
-} else throw new Error('Expected dir, mac, mac-smoke or win')
+} else if (mode === 'win-portable') {
+  await prepareInterpreters()
+  const winOptions = createWindowsPackageOptions()
+  packageWindowsArtifact({ ...winOptions, env: { ...winOptions.env, DSH_PACKAGE_VERIFY_MODE: 'win-portable' }, desktopRoot, workspaceRoot, run, prepareRuntime,
+    verifier: join(desktopRoot, 'scripts/verify-win-installer.ts') }, 'zip', 'portable archive')
+} else if (mode === 'linux') {
+  await prepareInterpreters()
+  const linuxOptions = createLinuxPackageOptions()
+  packageLinuxArtifacts({ ...linuxOptions, env: { ...linuxOptions.env, DSH_PACKAGE_VERIFY_MODE: 'linux' }, desktopRoot, workspaceRoot, run, prepareRuntime,
+    verifier: join(desktopRoot, 'scripts/verify-win-installer.ts') })
+} else throw new Error('Expected dir, mac, mac-smoke, win, win-portable or linux')

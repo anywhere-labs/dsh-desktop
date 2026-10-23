@@ -154,7 +154,7 @@ Packaging entry points and the Next update client are implemented. Releases stil
 
 ## Packaging and updates
 
-The product version is `2.0.19-next`. Run from the repository root:
+The product version is `2.0.20-next`. Run from the repository root:
 
 ```sh
 corepack yarn package:dir:next

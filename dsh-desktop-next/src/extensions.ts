@@ -1,4 +1,5 @@
 /** Narrow Host capabilities consumed by the existing plugin markets. */
+import { installComputerUseCommand } from './host/computer-use-command.ts'
 import { installHostLogging } from './host/logging.ts'
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -33,6 +34,7 @@ export function apply(ctx: Context): void {
   // inventory or restart capability.
   ctx.provide('desktopProfiles', { current: { name: profile.name, dir: profile.dir } })
   ctx.provide('desktopPnpm', runner)
+  installComputerUseCommand(ctx, profile.dir)
   if (process.send) ctx.provide('desktopActions', {
     ...(process.platform === 'darwin' || process.platform === 'win32' ? { openTerminal: () => {
       if (!process.connected || !process.send) throw new Error('Next shell is unavailable')

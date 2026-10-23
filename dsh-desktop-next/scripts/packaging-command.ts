@@ -7,7 +7,7 @@ export function runNextPackagingCommand(command: string, args: readonly string[]
   if (isRootCheck && env.DSH_PACKAGE_CHECK_ALREADY_RAN === '1') return
   const mappedArgs = isRootCheck
     ? ['workspace', 'dsh-desktop-next', 'check:mac-package']
-    : args.map(arg => arg.replaceAll('dsh-plugin-desktop-beta', 'dsh-desktop-next'))
+    : args.map(arg => arg.replaceAll(/dsh-plugin-desktop(?!-beta)/gu, 'dsh-desktop-next'))
   const result = spawnSync(command, mappedArgs, { cwd, env, stdio: 'inherit' })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`Packaging command failed (${result.status}): ${command}`)

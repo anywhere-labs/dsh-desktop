@@ -1,311 +1,153 @@
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Context } from '@deepseek-ai/cordis'
-import { readPluginInventory } from '@deepseek-ai/dsh-host-plugin-inventory'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { configureDeveloperLogging, developerLoggingEnabled, initializeDeveloperLogging } from '../src/developer-logging.ts'
-import { apply, inject, name } from '../src/diagnostics.ts'
-import { FileExporter } from '../src/file-exporter.ts'
-import { LogFileSink } from '../src/log-files.ts'
-import { isErrorType, shouldEmit } from '../src/log-level.ts'
-import { maskSecrets } from '../src/mask-secrets.ts'
-import { recordOfficialInspector, recordOfficialPluginInventory } from '../src/official-diagnostics.ts'
-import type { DesktopRuntime, DesktopTrayItem } from '../src/runtime.ts'
-import { DesktopSettingsSchema, DesktopShellConfig, observeDesktopPreferenceSettings } from '../src/settings-bridge.ts'
+import { afterEach, expect, it, vi } from 'vitest'
+import { DesktopDiagnostics } from '../src/diagnostics.ts'
+import { LogHistory, historyFiles } from '../src/log-history.ts'
+import { HOST_LOG_PREFIX, sanitize } from '../src/log-record.ts'
+import { exportHistory } from '../src/diagnostics-export.ts'
+import { DEFAULT_PREFERENCES, type DesktopState } from '../src/desktop-contract.ts'
 
-vi.mock('@deepseek-ai/dsh-host-plugin-inventory', () => ({ readPluginInventory: vi.fn() }))
+const homes: string[] = []
+const logs: DesktopDiagnostics[] = []
+const temporary = () => { const home = mkdtempSync(join(tmpdir(), 'next-logging-')); homes.push(home); return home }
+const diagnostics = (home = temporary()) => { const log = new DesktopDiagnostics(home); logs.push(log); return log }
+afterEach(() => { for (const log of logs.splice(0)) log.flush(); vi.useRealTimers(); for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true }) })
+const state = { version: 'next-test', platform: 'test', selected: 'desktop', profiles: ['desktop'], phase: 'ready', safeMode: false,
+  failure: '', features: { market: false, remoteControl: false }, preferences: { ...DEFAULT_PREFERENCES }, trayAvailable: true,
+  browserUrl: null, lan: null } as DesktopState
+function records(home: string) { return historyFiles(join(home, 'logs')).flatMap(file => readFileSync(file.file, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))) }
 
-beforeEach(() => vi.resetAllMocks())
-
-afterEach(() => {
-  configureDeveloperLogging({ developerLogging: false, logLevel: 'info' })
-  initializeDeveloperLogging(() => {})
+it('keeps lifecycle evidence regardless of verbosity while developer events are opt-in', () => {
+  const home = temporary(); const log = diagnostics(home)
+  log.level = 'error'
+  log.record({ source: 'electron', event: 'run.start' })
+  log.record({ source: 'host.llm', event: 'request.start', developer: true })
+  log.flush()
+  expect(records(home).map(record => record.event)).toEqual(['run.start'])
+  log.developer = true; log.level = 'info'
+  log.record({ source: 'host.llm', event: 'request.start', developer: true })
+  log.record({ source: 'host.kernel', event: 'debug', developer: true, level: 'debug' })
+  log.level = 'debug'; log.record({ source: 'host.kernel', event: 'debug-enabled', developer: true, level: 'debug' }); log.flush()
+  expect(records(home).map(record => record.event)).toEqual(['run.start', 'request.start', 'debug-enabled'])
 })
 
-describe('desktop diagnostics Host plugin', () => {
-  it('owns an effect-scoped tray command that exports diagnostics', async () => {
-    let trayItem: DesktopTrayItem | undefined
-    let disposeEffect: (() => void) | undefined
-    const exportDiagnostics = vi.fn(async () => {})
-    const disposeRegistration = vi.fn()
-    const runtime = {
-      locale: 'en',
-      exportDiagnostics,
-      registerTrayItem: (item: DesktopTrayItem) => {
-        trayItem = item
-        return { refresh: () => {}, dispose: disposeRegistration }
-      },
-    } as unknown as DesktopRuntime
-    const ctx = {
-      desktopRuntime: runtime,
-      effect: (register: () => (() => void)) => {
-        disposeEffect = register()
-        return disposeEffect
-      },
-    } as unknown as Context
-
-    apply(ctx)
-
-    expect(name).toBe('desktop-diagnostics')
-    expect(inject).toEqual(['desktopRuntime'])
-    expect(trayItem).toMatchObject({ group: 'tools', order: 20 })
-    expect(trayItem?.label()).toBe('Export Diagnostics…')
-    await trayItem?.invoke()
-    expect(exportDiagnostics).toHaveBeenCalledOnce()
-
-    disposeEffect?.()
-    expect(disposeRegistration).toHaveBeenCalledOnce()
-  })
-
-  it('uses the active desktop locale for its tray label', () => {
-    let trayItem: DesktopTrayItem | undefined
-    const runtime = {
-      locale: 'zh',
-      exportDiagnostics: vi.fn(async () => {}),
-      registerTrayItem: (item: DesktopTrayItem) => {
-        trayItem = item
-        return { refresh: () => {}, dispose: () => {} }
-      },
-    } as unknown as DesktopRuntime
-    const ctx = {
-      desktopRuntime: runtime,
-      effect: (register: () => (() => void)) => register(),
-    } as unknown as Context
-
-    apply(ctx)
-
-    expect(trayItem?.label()).toBe('导出诊断信息…')
-  })
+it('persists related operations, complete error causes, process identity and redacted fields', () => {
+  const home = temporary(); const log = diagnostics(home)
+  log.begin({ version: 'test' })
+  const finish = log.operation('desktop', 'host.stop')
+  expect(log.pendingOperations()).toHaveLength(1)
+  const cause = Object.assign(new Error('Authorization: Bearer private-value'), { code: 'ECONNRESET' })
+  finish(new Error('token=private-value', { cause })); finish()
+  log.record({ source: 'test', event: 'metadata', fields: { apiKey: 'secret-value', sessionId: 'session-a' } }); log.flush()
+  const history = records(home)
+  const start = history.find(record => record.event === 'host.stop.start')
+  const failure = history.find(record => record.event === 'host.stop.failed')
+  expect(failure).toMatchObject({ runId: log.runId, pid: process.pid, operationId: start.operationId, error: { cause: { code: 'ECONNRESET' } } })
+  expect(failure.error.stack).toContain('Error:')
+  expect(log.pendingOperations()).toEqual([])
+  expect(JSON.stringify(history)).not.toContain('private-value')
+  expect(JSON.stringify(history)).not.toContain('secret-value')
+  expect(history.at(-1).fields.sessionId).toBe('session-a')
 })
 
-describe('shouldEmit', () => {
-  it('emits nothing above the threshold', () => {
-    expect(shouldEmit('debug', 'info')).toBe(false)
-    expect(shouldEmit('info', 'info')).toBe(true)
-    expect(shouldEmit('warn', 'info')).toBe(true)
-    expect(shouldEmit('error', 'info')).toBe(true)
-  })
-
-  it('emits only errors at the error threshold', () => {
-    expect(shouldEmit('error', 'error')).toBe(true)
-    expect(shouldEmit('warn', 'error')).toBe(false)
-    expect(shouldEmit('info', 'error')).toBe(false)
-    expect(shouldEmit('debug', 'error')).toBe(false)
-  })
-
-  it('emits everything at the debug threshold', () => {
-    expect(shouldEmit('debug', 'debug')).toBe(true)
-    expect(shouldEmit('info', 'debug')).toBe(true)
-    expect(shouldEmit('warn', 'debug')).toBe(true)
-    expect(shouldEmit('error', 'debug')).toBe(true)
-  })
+it('detects an unclean previous launch and does not report a clean launch as a crash', () => {
+  const home = temporary(); const first = diagnostics(home)
+  first.begin({ version: 'one' }); first.end(false)
+  const second = diagnostics(home); second.begin({ version: 'two' })
+  expect(records(home).filter(record => record.event === 'run.previous-unclean')).toHaveLength(1)
+  second.end(true)
+  const third = diagnostics(home); third.begin({ version: 'three' })
+  expect(records(home).filter(record => record.event === 'run.previous-unclean')).toHaveLength(1)
 })
 
-describe('isErrorType', () => {
-  it('treats warn and error as the error log', () => {
-    expect(isErrorType('warn')).toBe(true)
-    expect(isErrorType('error')).toBe(true)
-    expect(isErrorType('info')).toBe(false)
-    expect(isErrorType('debug')).toBe(false)
-  })
+it('separates streams and hosts, preserves structured severity and finishes partial lines at exit', () => {
+  const home = temporary(); const log = diagnostics(home)
+  log.hostChunk('Authorization: Bear', 'stderr', 11)
+  log.hostChunk('other host\n', 'stdout', 12)
+  log.hostChunk('er private-value\n', 'stderr', 11)
+  const frame = HOST_LOG_PREFIX + JSON.stringify({ source: 'host.kernel.loader', event: 'log', level: 'warn', message: 'a plain warning', fields: { pluginId: 'example' } }) + '\n'
+  log.hostChunk(frame.slice(0, 15), 'stdout', 11); log.hostChunk(frame.slice(15), 'stdout', 11)
+  log.hostChunk('last line', 'stderr', 11); log.hostClosed(11)
+  const history = records(home)
+  expect(history.find(record => record.source === 'host.kernel.loader')).toMatchObject({ pid: 11, level: 'warn', fields: { pluginId: 'example' } })
+  expect(history.some(record => record.message === 'last line')).toBe(true)
+  expect(JSON.stringify(history)).not.toContain('private-value')
+  expect(history.find(record => record.pid === 12).message).toBe('other host')
 })
 
-describe('developer logging settings', () => {
-  it('defaults existing profiles to disabled and publishes a volatile setting', () => {
-    expect(DesktopSettingsSchema({} as never)).toMatchObject({ developerLogging: false, logLevel: 'info' })
-    expect(DesktopShellConfig({}).developerLogging.get()).toBe(false)
-    expect(DesktopShellConfig({ developerLogging: true }).developerLogging.get()).toBe(true)
-  })
-
-  it('applies tracing and kernel thresholds live and forwards them to Electron even without notification settings', () => {
-    let desktop = { developerLogging: false, logLevel: 'info' }
-    let changed: ((namespace: string) => void) | undefined
-    const native = vi.fn()
-    const threshold = vi.fn()
-    const write = vi.fn(async () => {})
-    const ctx = {
-      get(key: string) {
-        if (key === 'settings') return { describe: () => [{ ns: 'desktop-shell', value: desktop }] }
-        if (key === 'desktopRuntime') return { configureDeveloperLogging: native }
-        return undefined
-      },
-      loader: { entries: () => [] },
-      on(_event: string, callback: typeof changed) { changed = callback },
-    } as unknown as Context
-    observeDesktopPreferenceSettings(ctx, { setThreshold: threshold }, write)
-    expect(developerLoggingEnabled()).toBe(false)
-    desktop = { developerLogging: true, logLevel: 'debug' }
-    changed?.('desktop-shell')
-    expect(developerLoggingEnabled()).toBe(true)
-    expect(native).toHaveBeenLastCalledWith(desktop)
-    expect(threshold).toHaveBeenLastCalledWith('debug')
-    expect(write).not.toHaveBeenCalled()
-    desktop = { developerLogging: false, logLevel: 'error' }
-    changed?.('desktop-shell')
-    expect(developerLoggingEnabled()).toBe(false)
-  })
+it('discards an entire oversized line, including its trailing secret, then recovers at newline', () => {
+  const log = diagnostics()
+  log.hostChunk('x'.repeat(150_000), 'stdout', 12)
+  log.hostChunk('private-value\nnormal line\n', 'stdout', 12)
+  expect(log.snapshot()).not.toContain('private-value')
+  expect(log.snapshot()).toContain('normal line')
+  expect(log.snapshot().length).toBeLessThanOrEqual(128 * 1024)
 })
 
-describe('maskSecrets', () => {
-  it('masks API key values', () => {
-    const masked = maskSecrets('key is sk-1234abcd5678')
-    expect(masked).toContain('sk-****')
-    expect(masked).not.toContain('sk-1234abcd')
-  })
-
-  it('masks bearer tokens in headers', () => {
-    const masked = maskSecrets('Authorization: Bearer abc.def.ghi')
-    expect(masked).toContain('Bearer ****')
-    expect(masked).not.toContain('abc.def.ghi')
-  })
-
-  it('masks basic authorization credentials', () => {
-    const masked = maskSecrets('Authorization: Basic dXNlcjpwYXNzd29yZA==')
-    expect(masked).toBe('Authorization: Basic ****')
-    expect(masked).not.toContain('dXNlcjpwYXNzd29yZA==')
-  })
-
-  it('masks cookie header values', () => {
-    const masked = maskSecrets('Cookie: session=short-secret; theme=dark')
-    expect(masked).toBe('Cookie: ****')
-    expect(masked).not.toContain('short-secret')
-  })
-
-  it('masks URL userinfo and sensitive query values', () => {
-    const masked = maskSecrets('GET https://user:pass@example.com/api?token=short&mode=fast')
-    expect(masked).toBe('GET https://****:****@example.com/api?token=****&mode=fast')
-    expect(masked).not.toContain('user:pass')
-    expect(masked).not.toContain('token=short')
-  })
-
-  it('masks named secret fields even when their values are short', () => {
-    const masked = maskSecrets('api_key=short password: hunter2 mode=fast')
-    expect(masked).toBe('api_key=**** password: **** mode=fast')
-    expect(masked).not.toContain('hunter2')
-  })
-
-  it('masks quoted secret fields in rendered JSON', () => {
-    const masked = maskSecrets(JSON.stringify({
-      api_key: 'short-secret',
-      code: 'short-code',
-      nested: {
-        access_token: 'access123',
-        authorization: 'custom-auth',
-        password: 'hunter2',
-        token: 'abc123',
-        'x-api-key': 'short-key',
-      },
-      mode: 'fast',
-    }))
-
-    expect(masked).toBe('{"api_key":"****","code":"****","nested":{"access_token":"****","authorization":"****","password":"****","token":"****","x-api-key":"****"},"mode":"fast"}')
-    expect(masked).not.toContain('short-secret')
-    expect(masked).not.toContain('short-code')
-    expect(masked).not.toContain('access123')
-    expect(masked).not.toContain('custom-auth')
-    expect(masked).not.toContain('short-key')
-    expect(masked).not.toContain('hunter2')
-    expect(masked).not.toContain('abc123')
-  })
-
-  it('leaves ordinary prose untouched', () => {
-    expect(maskSecrets('hello world, profile "desktop"')).toBe('hello world, profile "desktop"')
-  })
+it('flushes fatal evidence immediately and retains errors without a developer setting', () => {
+  const home = temporary(); const log = diagnostics(home)
+  log.record({ source: 'electron', event: 'shutdown.timeout', level: 'error', fields: { pending: 'host.stop' } })
+  expect(records(home).at(-1)).toMatchObject({ event: 'shutdown.timeout' })
 })
 
-describe('official diagnostics snapshots', () => {
-  function environment(inspector?: object) {
-    const record = vi.fn()
-    const ctx = {
-      fiber: { state: 2 },
-      get: (key: string) => key === 'inspector' ? inspector : key === 'loader' ? {} : undefined,
-      loader: { entries: () => { throw new Error('Desktop must not reconstruct official inventory') } },
-    } as unknown as Context
-    return { ctx, record }
-  }
-
-  it('uses the official inventory projection for effective enablement and named lifecycle phases', async () => {
-    const { ctx, record } = environment()
-    vi.mocked(readPluginInventory).mockResolvedValue({ entries: [{ entryId: 'plugin-a', moduleName: 'example', enabled: false, fiberPhase: 'active' }] } as never)
-    await recordOfficialPluginInventory(ctx, record)
-    expect(readPluginInventory).toHaveBeenCalledExactlyOnceWith(ctx)
-    expect(record).toHaveBeenCalledWith(expect.objectContaining({ event: 'plugin.snapshot', fields: {
-      api: 'readPluginInventory', pluginId: 'plugin-a', module: 'example', enabled: false, fiberPhase: 'active',
-    } }))
-  })
-
-  it('reads public Inspector topology metadata without starting capture or exporting content', async () => {
-    const getTree = vi.fn(async () => ({ schemaVersion: 0, host: {
-      source: { sourceId: 'host-a', kind: 'host' }, connection: { state: 'connected' }, revision: 4, truncated: true,
-      root: { privateData: 'not exported' },
-    }, clients: [] }))
-    const publish = vi.fn()
-    const { ctx, record } = environment({ cordis: { getTree }, publish })
-    await recordOfficialInspector(ctx, record)
-    expect(getTree).toHaveBeenCalledOnce()
-    expect(publish).not.toHaveBeenCalled()
-    expect(record.mock.calls[0]?.[0]).toMatchObject({ event: 'inspector.snapshot', fields: {
-      api: 'ctx.inspector.cordis.getTree', schemaVersion: 0, hostPresent: true, clientCount: 0,
-    } })
-    expect(record.mock.calls[1]?.[0]).toMatchObject({ event: 'realm.snapshot', fields: {
-      sourceId: 'host-a', kind: 'host', revision: 4, connection: 'connected', truncated: true,
-    } })
-    expect(JSON.stringify(record.mock.calls)).not.toContain('not exported')
-  })
-
-  it('reports an unavailable optional Inspector without falling back to private internals', async () => {
-    const { ctx, record } = environment()
-    await recordOfficialInspector(ctx, record)
-    expect(record).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ event: 'inspector.unavailable' }))
-    expect(readPluginInventory).not.toHaveBeenCalled()
-  })
-
-  it('isolates official query failures and suppresses late snapshots after disposal', async () => {
-    const failure = new Error('official query timed out')
-    const getTree = vi.fn(async (): Promise<unknown> => { throw failure })
-    const { ctx, record } = environment({ cordis: { getTree } })
-    await expect(recordOfficialInspector(ctx, record)).resolves.toBeUndefined()
-    expect(record).toHaveBeenCalledWith(expect.objectContaining({ event: 'inspector.query-failed', error: failure }))
-    record.mockClear()
-    const later = Promise.withResolvers<unknown>()
-    getTree.mockImplementation(() => later.promise)
-    const query = recordOfficialInspector(ctx, record)
-    ;(ctx.fiber as unknown as { state: number }).state = 4
-    later.resolve({ schemaVersion: 0, host: null, clients: [] })
-    await query
-    expect(record).not.toHaveBeenCalled()
-  })
+it('rotates complete UTF-8 JSONL records, caps owned files and retains unrelated files', () => {
+  const directory = join(temporary(), 'logs')
+  const sink = new LogHistory(directory, { maxFileBytes: 1024, maxDirectoryBytes: 2048, retentionDays: 7 })
+  writeFileSync(join(directory, 'unrelated.txt'), 'preserve')
+  sink.append(Array.from({ length: 12 }, (_, index) => JSON.stringify({ index, text: '汉'.repeat(150) })))
+  const files = historyFiles(directory)
+  expect(files.length).toBeGreaterThan(1)
+  expect(files.every(file => file.bytes <= 1024)).toBe(true)
+  expect(files.reduce((sum, file) => sum + file.bytes, 0)).toBeLessThanOrEqual(2048)
+  for (const file of files) expect(readFileSync(file.file, 'utf8').trim().split('\n').every(line => typeof JSON.parse(line).text === 'string')).toBe(true)
+  expect(readFileSync(join(directory, 'unrelated.txt'), 'utf8')).toBe('preserve')
+  if (process.platform !== 'win32') expect(lstatSync(files[0]!.file).mode & 0o777).toBe(0o600)
 })
 
-describe('FileExporter', () => {
-  function todaySuffix(): string {
-    const now = new Date()
-    const y = now.getFullYear()
-    const m = String(now.getMonth() + 1).padStart(2, '0')
-    const d = String(now.getDate()).padStart(2, '0')
-    return `${y}-${m}-${d}`
-  }
+it('cleans old owned history and prevents a torn record from corrupting the next line', () => {
+  const directory = join(temporary(), 'logs'); const sink = new LogHistory(directory)
+  const old = join(directory, 'desktop-next-2020-01-01.0.jsonl')
+  writeFileSync(old, '{}\n'); utimesSync(old, new Date(0), new Date(0))
+  sink.append(['{"first":true}'])
+  expect(historyFiles(directory).some(file => file.file === old)).toBe(false)
+  const file = historyFiles(directory)[0]!.file
+  writeFileSync(file, '{"torn":')
+  sink.append(['{"second":true}'])
+  const summary = JSON.stringify({ format: 'test' })
+  expect(JSON.parse(exportHistory(directory, summary)).history.records).toEqual([{ second: true }])
+})
 
-  function exporter(threshold: 'debug' | 'info' | 'warn' | 'error' = 'info'): { e: FileExporter; dir: string } {
-    const dir = mkdtempSync(join(tmpdir(), 'dsh-log-'))
-    const sink = new LogFileSink(dir, { maxFileBytes: 10 * 1024 * 1024, maxDirectoryBytes: 200 * 1024 * 1024 })
-    return { e: new FileExporter(sink, threshold), dir }
-  }
+it('exports bounded historical records with a second redaction pass and explicit omissions', () => {
+  const home = temporary(); const log = diagnostics(home)
+  const directory = join(home, 'logs')
+  const sink = new LogHistory(directory, { maxFileBytes: 1024, maxDirectoryBytes: 4096, retentionDays: 7 })
+  sink.append([JSON.stringify({ text: 'token=private-value', filler: 'z'.repeat(700) }), JSON.stringify({ text: 'newer', filler: 'z'.repeat(700) })])
+  const exported = exportHistory(directory, log.export(state), 1024)
+  const data = JSON.parse(exported)
+  expect(data.version).toBe(2)
+  expect(data.history.omittedFiles).toBe(1)
+  expect(data.history.records).toHaveLength(1)
+  expect(exported).not.toContain('private-value')
+  expect(data.runtime).not.toHaveProperty('home')
+})
 
-  it('renders and writes a message with a level and name prefix', () => {
-    const { e, dir } = exporter('info')
-    e.export({ sn: 0, ts: Date.now(), name: 'test', type: 'info', level: 1, args: ['hello'] })
-    e.close()
-    const day = todaySuffix()
-    const text = readFileSync(join(dir, `dsh-${day}.log`), 'utf8')
-    expect(text).toContain('[I] [test] hello')
-  })
+it('ignores linked history files and refuses a linked logging directory without touching its target', () => {
+  const home = temporary(); const outside = temporary(); mkdirSync(join(home, 'logs'))
+  writeFileSync(join(outside, 'external.log'), 'preserve')
+  if (process.platform === 'win32') return
+  symlinkSync(join(outside, 'external.log'), join(home, 'logs', `desktop-next-${new Date().toISOString().slice(0, 10)}.0.jsonl`))
+  const log = diagnostics(home); log.record({ source: 'test', event: 'write' }); log.flush()
+  expect(readFileSync(join(outside, 'external.log'), 'utf8')).toBe('preserve')
+  const linkedHome = temporary(); symlinkSync(outside, join(linkedHome, 'logs'))
+  const linkedLog = diagnostics(linkedHome)
+  expect(() => linkedLog.record({ source: 'test', event: 'failed-write', level: 'error' })).not.toThrow()
+  expect(JSON.parse(linkedLog.export(state)).logging.storageError).toContain('directory')
+})
 
-  it('drops debug messages at the info threshold', () => {
-    const { e, dir } = exporter('info')
-    e.export({ sn: 0, ts: Date.now(), name: 'test', type: 'debug', level: 3, args: ['hidden'] })
-    e.close()
-    expect(readdirSync(dir)).toEqual([])
-  })
+it('safely renders cyclic and hostile diagnostic values', () => {
+  const cycle: Record<string, unknown> = {}; cycle.self = cycle
+  expect(() => JSON.stringify(sanitize(cycle))).not.toThrow()
+  const hostile = { get message() { throw new Error('accessor') } }
+  expect(sanitize(hostile)).toBe('[unrenderable diagnostic]')
 })

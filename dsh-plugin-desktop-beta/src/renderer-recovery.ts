@@ -1,145 +1,135 @@
-import type { RendererBootReport } from './renderer-boot-contract.ts'
+/** Bounded renderer repair; the Host remains owned by the runtime throughout retries. */
+export type DesktopRendererStatus = 'healthy'
+
+interface RendererRecoveryOptions {
+  available(): boolean
+  reload(): Promise<void>
+  exhausted(detail: string): void
+  record(event: string, fields: Record<string, string | number>): void
+}
 
 const RETRY_DELAYS_MS = [0, 1000, 3000] as const
 const HEALTH_TIMEOUT_MS = 30_000
 const STABLE_PERIOD_MS = 60_000
 
-interface RendererRecoveryOptions {
-  readonly available: () => boolean
-  readonly reload: () => void
-  readonly exhausted: () => void
-  readonly log: (message: string) => void
-  readonly requireSurface?: () => boolean
-}
-
-type RecoveryPhase = 'idle' | 'scheduled' | 'loading' | 'exhausted' | 'stopped'
-
-export class DesktopRendererRecovery {
-  private phase: RecoveryPhase = 'idle'
+export class NextRendererRecovery {
+  private phase: 'idle' | 'waiting' | 'scheduled' | 'exhausted' | 'stopped' = 'idle'
   private attempts = 0
-  private timer: ReturnType<typeof setTimeout> | undefined
-  private stableTimer: ReturnType<typeof setTimeout> | undefined
   private documentLoaded = false
   private clientHealthy = false
-  private failure: string | undefined
-  private surfaceHealthy = false
-  private surfaceHidden = false
+  private timer: ReturnType<typeof setTimeout> | undefined
+  private stableTimer: ReturnType<typeof setTimeout> | undefined
+  private navigation = 0
+  private bootExpected = false
 
   constructor(private readonly options: RendererRecoveryOptions) {}
 
-  get exhausted(): boolean { return this.phase === 'exhausted' }
-  get detail(): string | undefined { return this.failure }
-  get canProbeSurface(): boolean {
-    return this.phase === 'idle'
-      || (this.phase === 'loading' && this.documentLoaded && this.clientHealthy)
+  /** Invalidate both page readiness and pending completions from an older navigation. */
+  navigating(): void {
+    if (!this.available()) return
+    this.navigation++
+    this.documentLoaded = false
+    this.clientHealthy = false
+    this.bootExpected = false
+    this.clearStableTimer()
   }
 
-  confirmSurface(): void {
-    if (this.phase !== 'loading') return
-    this.surfaceHealthy = true
-    this.acceptHealth()
-  }
-
-  visibilityChanged(): void {
-    if (this.phase === 'loading') this.acceptHealth()
-  }
-
-  surfaceBecameHidden(): void {
-    if (this.phase !== 'loading') return
-    this.surfaceHidden = true
-    this.acceptHealth()
-  }
-
-  fail(detail: string): void {
-    if (this.phase === 'stopped' || !this.options.available()) return
-    this.failure = detail
-    clearTimeout(this.stableTimer)
-    this.stableTimer = undefined
-    if (this.phase === 'scheduled' || this.phase === 'exhausted') return
-    this.clearAttemptTimer()
-    const delay = RETRY_DELAYS_MS[this.attempts]
-    if (delay === undefined) {
-      this.phase = 'exhausted'
-      this.options.log(`automatic renderer recovery exhausted: ${detail}`)
-      this.options.exhausted()
-      return
-    }
-    this.phase = 'scheduled'
-    this.timer = setTimeout(() => { this.reload() }, delay)
-    this.timer.unref()
+  /** Start the readiness deadline only after the Host has supplied this document's boot data. */
+  booted(): void {
+    if (this.bootExpected) return
+    this.bootExpected = true
+    this.waitForHealth()
   }
 
   loaded(): void {
-    if (this.phase !== 'loading') return
+    if (!this.available()) return
     this.documentLoaded = true
     this.acceptHealth()
   }
 
-  report(report: RendererBootReport): void {
-    if (this.phase !== 'loading') return
-    if (report.status === 'failed') {
-      this.fail(`renderer recovery Loader failed: ${report.error ?? report.plugins.join(', ')}`)
-      return
-    }
+  report(_status: DesktopRendererStatus): void {
+    if (!this.available()) return
     this.clientHealthy = true
     this.acceptHealth()
   }
 
-  retry(): void {
-    if (this.phase !== 'exhausted') return
-    this.attempts = 0
-    this.phase = 'idle'
-    this.fail(this.failure ?? 'renderer recovery requested')
+  fail(detail: string): void {
+    if (!this.available() || this.phase === 'scheduled') return
+    this.clearTimer()
+    this.clearStableTimer()
+    this.clientHealthy = false
+    const delay = RETRY_DELAYS_MS[this.attempts]
+    if (delay === undefined) {
+      this.phase = 'exhausted'
+      this.options.record('renderer.recovery.exhausted', { attempt: this.attempts, detail })
+      this.options.exhausted(detail)
+      return
+    }
+    this.phase = 'scheduled'
+    this.options.record('renderer.recovery.scheduled', { attempt: this.attempts + 1, delayMs: delay, detail })
+    this.timer = setTimeout(() => {
+      this.timer = undefined
+      if (!this.available()) return
+      this.phase = 'waiting'
+      this.documentLoaded = false
+      this.attempts++
+      this.options.record('renderer.recovery.reload', { attempt: this.attempts })
+      this.armDeadline()
+      // loadURL starts navigation synchronously; navigating() fences this promise
+      // when a later reload or a native reload supersedes it.
+      const loading = this.options.reload()
+      const navigation = this.navigation
+      void loading.catch(error => {
+        if (navigation === this.navigation) this.fail(error instanceof Error ? error.message : String(error))
+      })
+    }, delay)
+    this.timer.unref()
   }
 
   stop(): void {
     this.phase = 'stopped'
-    this.clearAttemptTimer()
-    clearTimeout(this.stableTimer)
-    this.stableTimer = undefined
+    this.navigation++
+    this.clearTimer()
+    this.clearStableTimer()
   }
 
-  private reload(): void {
-    this.timer = undefined
-    if (this.phase !== 'scheduled') return
-    if (!this.options.available()) {
-      this.stop()
-      return
-    }
-    this.phase = 'loading'
-    this.attempts += 1
-    this.documentLoaded = false
-    this.clientHealthy = false
-    this.surfaceHealthy = false
-    this.surfaceHidden = false
-    this.options.log(`automatic renderer recovery attempt ${String(this.attempts)}`)
+  private available(): boolean {
+    return this.phase !== 'stopped' && this.phase !== 'exhausted' && this.options.available()
+  }
+
+  private waitForHealth(): void {
+    if (!this.available() || this.phase === 'scheduled' || this.phase === 'waiting') return
+    this.phase = 'waiting'
+    this.armDeadline()
+  }
+
+  private armDeadline(): void {
+    this.clearTimer()
     this.timer = setTimeout(() => {
-      this.fail('renderer recovery timed out waiting for page load and client health')
+      this.timer = undefined
+      this.fail('Renderer recovery timed out waiting for page load and UI mount')
     }, HEALTH_TIMEOUT_MS)
     this.timer.unref()
-    try {
-      this.options.reload()
-    } catch (cause) {
-      this.fail(`renderer reload failed: ${cause instanceof Error ? cause.message : String(cause)}`)
-    }
   }
 
   private acceptHealth(): void {
-    if (!this.documentLoaded || !this.clientHealthy || !this.options.available()) return
-    if (this.options.requireSurface?.() && !this.surfaceHealthy && !this.surfaceHidden) return
-    this.clearAttemptTimer()
+    if (!this.documentLoaded || !this.clientHealthy || this.phase === 'scheduled') return
+    if (this.phase === 'idle' && this.stableTimer !== undefined) return
+    this.clearTimer()
     this.phase = 'idle'
-    this.failure = undefined
-    this.options.log('automatic renderer recovery healthy')
+    this.options.record('renderer.recovery.healthy', { attempt: this.attempts })
+    this.clearStableTimer()
     this.stableTimer = setTimeout(() => {
-      this.attempts = 0
       this.stableTimer = undefined
+      if (this.available()) this.attempts = 0
     }, STABLE_PERIOD_MS)
     this.stableTimer.unref()
   }
 
-  private clearAttemptTimer(): void {
-    clearTimeout(this.timer)
-    this.timer = undefined
-  }
+  private clearTimer(): void { clearTimeout(this.timer); this.timer = undefined }
+  private clearStableTimer(): void { clearTimeout(this.stableTimer); this.stableTimer = undefined }
+}
+
+export function isDesktopRendererStatus(value: unknown): value is DesktopRendererStatus {
+  return value === 'healthy'
 }

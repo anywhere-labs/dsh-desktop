@@ -1,5 +1,5 @@
 /** Desktop settings section styles, installed independently of presentation mode. */
-import { DESKTOP_PACKAGE_NAME } from '../../../dsh-plugin-desktop-beta/src/product-identity.ts'
+import { DESKTOP_PACKAGE_NAME } from '../../../dsh-plugin-desktop/src/product-identity.ts'
 
 const STYLE_ID = 'dsh-desktop-settings-styles'
 

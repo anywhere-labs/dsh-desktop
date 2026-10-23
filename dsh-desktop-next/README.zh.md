@@ -154,7 +154,7 @@ Next 是正式的 Profile bundle，因此上游插件管理器重新组合配置
 
 ## 打包与更新
 
-产品版本为 `2.0.19-next`。在仓库根目录运行：
+产品版本为 `2.0.20-next`。在仓库根目录运行：
 
 ```sh
 corepack yarn package:dir:next

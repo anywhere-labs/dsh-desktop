@@ -4,7 +4,6 @@ import type { BundleInfo, MarketIndexSummary, RemoteResult } from '@deepseek-ai/
 export const COMMUNITY_MARKET = 'dsh-community-market'
 export const DSH_MARKET = 'dshmarket'
 export const OFFICIAL_MARKET = '@deepseek-ai/dsh-experimental-plugin-market-bundle'
-export const REMOTE_CONTROL_BUNDLE = '@agents-anywhere/dsh-bridge-next'
 export type MarketName = typeof COMMUNITY_MARKET | typeof DSH_MARKET
 export type BuiltInMarketKey = 'dsh-1024store' | 'dshfind' | 'dshmarket'
 
@@ -156,8 +155,8 @@ export interface CommunitySourceLike {
 }
 
 export interface MarketRuntimeState {
-  readonly communitySources?: readonly CommunitySourceLike[] | undefined
-  readonly dshMarketRegion?: 'global' | 'china' | undefined
+  readonly communitySources?: readonly CommunitySourceLike[]
+  readonly dshMarketRegion?: 'global' | 'china'
 }
 
 export interface ActiveMarketResolution {
@@ -477,3 +476,6 @@ export async function toggleMarketEndpointInOfficial(
   ])
   return await applyOfficialIndexes(remote, endpointUrl, configuredUrls, existingUrls, officialBundleEnabled)
 }
+
+
+

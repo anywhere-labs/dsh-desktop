@@ -39,11 +39,11 @@ it.each(['normal', 'store'].flatMap(compression => [true, false].map(enabled => 
   const options = { differentialPackage: false, useZip: false }
   const context = {
     options, isBuildDifferentialAware: false, outDir: directory,
-    packager: { compression, appInfo: { sanitizedName: 'DSH-NEXT', version: '2.0.19-next' } },
+    packager: { compression, appInfo: { sanitizedName: 'DSH-NEXT', version: '2.0.20-next' } },
     getPreCompressedFileExtensions: () => null,
   }
   const packaged = await NsisTarget.prototype.buildAppPackage.call(context, join(directory, 'win-unpacked'), Arch.x64)
-  expect(packaged.path).toBe(join(directory, 'DSH-NEXT-2.0.19-next-x64.nsis.7z'))
+  expect(packaged.path).toBe(join(directory, 'DSH-NEXT-2.0.20-next-x64.nsis.7z'))
   expect(options.differentialPackage).toBe(false)
   expect(effective).toMatchObject({ withoutDir: true, compression, installTimeDecodable: true })
   const args = archive.compute7zCompressArgs('7z', effective!)

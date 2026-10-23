@@ -4,18 +4,18 @@ import {
   useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode,
 } from 'react'
 import { IconChevronDownOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { DesktopSettingsForm } from '../../../dsh-plugin-desktop-beta/src/client/settings-bridge.ts'
+import type { DesktopSettingsForm } from '../../../dsh-plugin-desktop/src/client/settings-bridge.ts'
 import { Check, Copy } from 'lucide-react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   DesktopMarketProvider, DesktopProfileView, DesktopSettingsApi, DesktopSettingsView,
-} from '../../../dsh-plugin-desktop-beta/src/client/desktop-settings-api.ts'
-import type { DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop-beta/src/client/desktop-settings-locales.ts'
-import type { DesktopClientPlatform } from '../../../dsh-plugin-desktop-beta/src/client/environment.ts'
+} from '../../../dsh-plugin-desktop/src/client/desktop-settings-api.ts'
+import type { DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
+import type { DesktopClientPlatform } from '../../../dsh-plugin-desktop/src/client/environment.ts'
 import {
   desktopBrowserAccessAvailable,
   desktopBrowserAccessEnabled,
-} from '../../../dsh-plugin-desktop-beta/src/desktop-network.ts'
+} from '../../../dsh-plugin-desktop/src/desktop-network.ts'
 
 /** Browser view of the Host `dsh-desktop` settings namespace. */
 export interface DesktopShellSettings {
