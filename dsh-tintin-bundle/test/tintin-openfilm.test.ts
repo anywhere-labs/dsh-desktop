@@ -3,10 +3,10 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mergeOpenaiCompat, mergeTinTinService, syncProvidersAt, syncProvidersFile, TINTIN_SERVICE_ID } from '../lib/openfilm/providers-seed.js'
 import {
-  lastStudioProject, parseStudioAddress, parseStudioProject, readStudioRun, resolveOpenfilmRuntime, seedStudioRecents, studioEnv, studioPageUrl,
+  editorFingerprint, lastStudioProject, parseStudioAddress, parseStudioProject, readStudioRun, reconcileStudioInstance, resolveOpenfilmRuntime, seedStudioRecents, studioEnv, studioPageUrl,
 } from '../lib/openfilm/studio-runtime.js'
 import { MANAGED_MARKER, syncBundledSkill } from '../lib/openfilm/skill-sync.js'
 import { syncOpenfilmLibs, THREE_FILES, threeLibDir } from '../lib/openfilm/libs-sync.js'
@@ -112,6 +112,59 @@ describe('studio-runtime', () => {
       OPENFILM_HOME: join(root, 'custom'),
       OPENFILM_STUDIO_PORT: '5000',
     })
+  })
+
+  /* 实例对账(2026-10-23 裁决):指纹不符的陈旧服务在附着前被结束并以当前资源重启 */
+  const fakeRuntime = (root: string) => ({
+    root,
+    node: join(root, 'openfilm', 'bin', 'node.exe'),
+    cli: join(root, 'openfilm', 'node_modules', 'openfilm', 'bin', 'openfilm.mjs'),
+    browsers: null,
+  })
+  const seedEditorDist = (root: string, marker: string) => {
+    const dist = join(root, 'openfilm', 'node_modules', 'openfilm', 'studio', 'ui', 'dist', 'assets')
+    mkdirSync(dist, { recursive: true })
+    writeFileSync(join(root, 'openfilm', 'node_modules', 'openfilm', 'package.json'), JSON.stringify({ version: '1.2.3' }))
+    writeFileSync(join(root, 'openfilm', 'node_modules', 'openfilm', 'studio', 'ui', 'dist', 'index.html'), marker)
+    writeFileSync(join(dist, 'index-aaa.js'), '')
+  }
+
+  it('editorFingerprint 随 dist 内容变化,缺文件时为空', () => {
+    const root = tempDir()
+    seedEditorDist(root, '<html>v1</html>')
+    const before = editorFingerprint(fakeRuntime(root))
+    expect(before).toMatch(/^1\.2\.3-[0-9a-f]{16}$/)
+    writeFileSync(join(root, 'openfilm', 'node_modules', 'openfilm', 'studio', 'ui', 'dist', 'index.html'), '<html>v2</html>')
+    expect(editorFingerprint(fakeRuntime(root))).not.toBe(before)
+    expect(editorFingerprint(fakeRuntime(tempDir()))).toBe('')
+  })
+
+  it('reconcileStudioInstance:无账本/指纹不符清场,相符与空指纹不动', () => {
+    const root = tempDir()
+    seedEditorDist(root, '<html>v1</html>')
+    const runtime = fakeRuntime(root)
+    const fingerprint = editorFingerprint(runtime)
+    const home = tempDir()
+    const kill = vi.spyOn(process, 'kill').mockReturnValue(true)
+    try {
+      // 无 run.json:不做任何事
+      expect(reconcileStudioInstance(home, fingerprint)).toBe(false)
+      // 陈旧实例(无账本):杀 pid + supervisor,清 run.json
+      writeFileSync(join(home, 'run.json'), JSON.stringify({ pid: 111, supervisor: 222, origin: 'http://127.0.0.1:4788', key: 'k' }))
+      expect(reconcileStudioInstance(home, fingerprint)).toBe(true)
+      expect(kill).toHaveBeenCalledWith(222)
+      expect(kill).toHaveBeenCalledWith(111)
+      expect(existsSync(join(home, 'run.json'))).toBe(false)
+      // 相符账本:附着即可,不清场
+      writeFileSync(join(home, 'run.json'), JSON.stringify({ pid: 111, supervisor: 222, origin: 'http://127.0.0.1:4788', key: 'k' }))
+      writeFileSync(join(home, 'run.tintin.json'), JSON.stringify({ fingerprint }))
+      expect(reconcileStudioInstance(home, fingerprint)).toBe(false)
+      expect(existsSync(join(home, 'run.json'))).toBe(true)
+      // 指纹算不出:不误杀
+      expect(reconcileStudioInstance(home, '')).toBe(false)
+    } finally {
+      kill.mockRestore()
+    }
   })
 })
 
