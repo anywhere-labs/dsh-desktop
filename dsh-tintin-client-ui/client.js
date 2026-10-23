@@ -119,7 +119,7 @@ window.__ModuleLoader__.load({
         const style = document.createElement('style')
         style.id = 'tintin-openfilm-css'
         style.textContent = [
-          '.tintin-of-shell{position:absolute;inset:0;display:flex;background:#0b0c0f}.tintin-of-stage{position:relative;flex:1;min-width:0}.tintin-of-stage iframe{width:100%;height:100%;border:0;display:block;background:#0b0c0f}.tintin-of-note{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;white-space:pre-wrap;cursor:pointer;color:#9a9a9a;font:14px/1.6 system-ui;background:#0b0c0f}',
+          '.tintin-of-shell{position:absolute;inset:0;display:flex;background:#0b0c0f}.tintin-of-stage{position:relative;flex:1;min-width:0}.tintin-of-stage iframe{width:100%;height:100%;border:0;display:block;background:#0b0c0f}.tintin-of-note{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;white-space:pre-wrap;cursor:pointer;color:#9a9a9a;font:14px/1.6 system-ui;background:#0b0c0f}.tintin-of-note-busy{display:flex;flex-direction:column;align-items:center;gap:12px}.tintin-of-spin{width:22px;height:22px;border:2px solid #33363d;border-top-color:#7aa2ff;border-radius:50%;animation:tintin-spin .9s linear infinite}@keyframes tintin-spin{to{transform:rotate(1turn)}}',
           '.tintin-of-chat{position:relative;width:420px;flex:none;display:flex;flex-direction:column;border-left:1px solid #202126;background:#0f1013;color:#e8e8e6;font:13px/1.55 system-ui;min-width:0}.tintin-of-top{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #1c1d21;min-height:38px}.tintin-of-top-session{flex:1;min-width:0;background:transparent;border:0;color:#c9c9cf;font:12px system-ui;outline:none;appearance:none}.tintin-of-top-session option{background:#16171a;color:#e8e8e6}.tintin-of-top-btn{width:26px;height:26px;border-radius:7px;border:1px solid #26272b;background:#15161a;color:#c9c9cf;cursor:pointer;font:13px system-ui;line-height:1;flex:none}',
           '.tintin-of-list{flex:1;min-height:0;overflow:auto;padding:16px 14px;display:flex;flex-direction:column;gap:10px}.tintin-of-empty2{margin:auto 0;padding:0 6px 20px;display:flex;flex-direction:column;gap:10px;max-width:360px}.tintin-of-mark{width:22px;height:28px;border-radius:3px;background:#e8e8e6;clip-path:polygon(0 0,100% 0,100% 70%,55% 70%,55% 100%,0 100%)}.tintin-of-h1{font-size:21px;font-weight:700;letter-spacing:.2px;margin-top:2px}.tintin-of-p{font-size:12px;color:#9a9aa0;margin-bottom:6px}',
           '.tintin-of-sugg-head{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#8a8a90;margin-top:4px}.tintin-of-sugg-head button{background:none;border:0;color:#8a8a90;font:11px system-ui;cursor:pointer}.tintin-of-sugg{display:flex;flex-direction:column;gap:7px}.tintin-of-sugg-card{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:10px;border:1px solid #26272b;background:#16171a;color:#e2e2e6;font:13px/1.45 system-ui;text-align:left;cursor:pointer}.tintin-of-sugg-card:hover{background:#1b1c20}.tintin-of-sugg-card span:last-child{color:#6f7076;font-size:13px}',
@@ -148,6 +148,32 @@ window.__ModuleLoader__.load({
       const openFilmArgPreview = (args) => {
         const text = String(args || '').replace(/\s+/g, ' ').trim()
         return text.length > 80 ? `${text.slice(0, 80)}…` : text
+      }
+      // 工具行的友好层(2026-10-23 用户反馈:pwsh 等原始 JSON 行太吵不可读)——
+      // 常见工具给中文名与参数摘要(pwsh 摘命令本体,剥掉开头 $var='…' 赋值段),
+      // 其余工具回落原 JSON 摘要;完整参数与结果仍在折叠体里不受影响。
+      const OPENFILM_TOOL_LABELS = {
+        pwsh: '命令行', read: '读取文件', write: '写入文件', edit: '编辑文件', glob: '查找文件', grep: '搜索内容',
+        skill: '加载技能', todo_write: '任务清单', web_fetch: '抓取网页', web_search: '网页搜索', ask_user_question: '向用户提问',
+      }
+      const openFilmToolView = (name, args) => {
+        const label = OPENFILM_TOOL_LABELS[name] || name
+        let parsed = null
+        try { parsed = JSON.parse(String(args || '{}')) } catch { parsed = null }
+        if (!parsed || typeof parsed !== 'object') return { label, preview: openFilmArgPreview(args) }
+        const base = (v) => String(v || '').split(/[\\/]/).pop()
+        const cut = (v, n = 90) => { const s = String(v ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? `${s.slice(0, n)}…` : s }
+        if (name === 'pwsh') {
+          const command = String(parsed.command || '').replace(/(\$[A-Za-z_]\w*\s*=\s*(?:'[^']*'|"[^"]*")\s*;?\s*)+/g, '')
+          return { label, preview: cut(command) }
+        }
+        if (name === 'read' || name === 'write' || name === 'edit') return { label, preview: base(parsed.path || parsed.file_path || parsed.abspath) }
+        if (name === 'glob' || name === 'grep') return { label, preview: cut(parsed.pattern) }
+        if (name === 'skill') return { label, preview: cut(parsed.name || parsed.skill) }
+        if (name === 'todo_write' || name === 'ask_user_question') return { label, preview: '点开查看详情' }
+        if (name === 'web_fetch') return { label, preview: cut(parsed.url) }
+        if (name === 'web_search') return { label, preview: cut(parsed.query) }
+        return { label, preview: openFilmArgPreview(args) }
       }
       const openFilmRows = (binding) => {
         const rows = []
@@ -305,14 +331,16 @@ ${event.data.error.reason}` : result
         let uiSessionSvc = null
         let modelDirs = null
         let svcWired = false
+        const filmWorkspaces = new Set()
         const wireServices = () => {
           if (svcWired || !sessionsSvc) return
           svcWired = true
-          if (sessionsSvc.list?.subscribe) unsubscribes.push(sessionsSvc.list.subscribe(() => renderSessions()))
+          if (sessionsSvc.list?.subscribe) unsubscribes.push(sessionsSvc.list.subscribe(() => { renderSessions(); backfillFilmWorkspaces() }))
           if (uiSessionSvc?.sessionStatus?.subscribe) unsubscribes.push(uiSessionSvc.sessionStatus.subscribe(() => renderApproval()))
           void sessionsSvc.refresh?.()
           renderSessions()
           renderApproval()
+          backfillFilmWorkspaces()
         }
         let canInject = false
         try { canInject = typeof ctx?.inject === 'function' } catch { canInject = false }
@@ -742,7 +770,21 @@ ${event.data.error.reason}` : result
         watchNativeView()
 
 
-        const setNote = (text) => { note.textContent = text || ''; note.style.display = text ? 'flex' : 'none' }
+        const setNote = (text) => { note.textContent = text || ''; note.style.display = text ? 'flex' : 'none'; if (!text) noteRetry = false }
+        // 舞台级加载态(2026-10-23 报障:Studio 冷启动可达数十秒,期间舞台纯黑、
+        // 只剩聊天列底部一行小字)——note 遮罩带转圈提示;出错态点击整个遮罩重试。
+        let noteRetry = false
+        const setNoteBusy = (text) => {
+          noteRetry = false
+          note.innerHTML = '<div class="tintin-of-note-busy"><div class="tintin-of-spin"></div><div></div></div>'
+          note.lastChild.lastChild.textContent = text || ''
+          note.style.display = 'flex'
+        }
+        note.addEventListener('click', () => {
+          if (!noteRetry) return
+          noteRetry = false
+          void syncProject()
+        })
         const setStatus = (text) => {
           status.textContent = text || ''
           // 空状态不占位（2026-10-20 报障：会话列底部常驻 16px 空状态条被看成「没铺满」的空隙）
@@ -1065,11 +1107,9 @@ ${event.data.error.reason}` : result
             } else { const icon = document.createElement('span'); icon.textContent = '▤'; icon.style.fontSize = '22px'; icon.style.color = '#4a4b52'; thumb.append(icon) }
             const name = document.createElement('div'); name.className = 'tintin-of-asset-name'; name.textContent = libNameOf(item)
             card.append(thumb, name); card.onclick = () => { showLibPreview(item) }
-            // 真拖拽体验 + 拖动即下载（2026-10-21 用户裁决：只有拖动和右键两种下载方式，
-            // 左键=预览）。卡片可拖、拖影跟随、光标 copy；拖动开始的同时后台把原素材
-            // 下载进项目——交付由下载完成（文件落地后左侧 Studio 面板自动出现）。
             if (id && libServer) {
               card.draggable = true
+              card.dataset.materialId = id
               card.addEventListener('dragstart', (event) => {
                 const transfer = event.dataTransfer
                 transfer.effectAllowed = 'copy'
@@ -1079,11 +1119,6 @@ ${event.data.error.reason}` : result
                   .then((rel) => setStatus(`已下载到项目 ${rel}（左侧素材面板可用）`))
                   .catch((error) => setStatus(`素材下载失败：${error?.message || error}`))
               })
-            }
-            card.oncontextmenu = (event) => {
-              event.preventDefault()
-              event.stopPropagation() // 否则冒泡到 window 的关闭监听会把刚弹出的菜单立刻关掉
-              showLibContextMenu(event.clientX, event.clientY, item)
             }
             return card
           }))
@@ -1126,6 +1161,16 @@ ${event.data.error.reason}` : result
         }
         window.addEventListener('click', hideLibCtxMenu)
         window.addEventListener('blur', hideLibCtxMenu)
+        // 右键处理挂 window 捕获阶段（2026-10-21 实机定位：宿主页面在捕获链上层拦截
+        // contextmenu 导致卡片冒泡处理器永远收不到事件——捕获越早注册越早执行，必达）
+        window.addEventListener('contextmenu', (event) => {
+          const target = event.target instanceof Element ? event.target.closest('.tintin-of-asset') : null
+          if (!target?.dataset.materialId) return
+          event.preventDefault()
+          event.stopPropagation()
+          const item = libItems.find((it) => libIdOf(it) === target.dataset.materialId)
+          if (item) showLibContextMenu(event.clientX, event.clientY, item)
+        }, true)
         window.addEventListener('contextmenu', (event) => {
           if (libCtxMenu && !(event.target instanceof Node && libCtxMenu.contains(event.target))) hideLibCtxMenu()
         })
@@ -1277,9 +1322,10 @@ ${event.data.error.reason}` : result
               const summary = document.createElement('summary')
               const dot = document.createElement('span'); dot.className = 'tintin-of-dot'
               dot.style.background = row.status === 'error' ? '#f87171' : row.status === 'running' ? '#eab308' : '#4ade80'
-              const name = document.createElement('span'); name.textContent = row.name
+              const view = openFilmToolView(row.name, row.args)
+              const name = document.createElement('span'); name.textContent = view.label
               const preview = document.createElement('span'); preview.style.opacity = '.6'; preview.style.overflow = 'hidden'; preview.style.textOverflow = 'ellipsis'
-              preview.textContent = row.status === 'running' ? '运行中…' : openFilmArgPreview(row.args)
+              preview.textContent = row.status === 'running' ? '运行中…' : view.preview
               summary.append(dot, name, preview)
               const body = document.createElement('pre')
               body.textContent = [row.args, row.result].filter(Boolean).join('\n\n').slice(0, 4000)
@@ -1437,11 +1483,47 @@ ${event.data.error.reason}` : result
             return false
           }
         }
+        // 归组(2026-10-23 用户裁决:影片会话不再落「未分组」)——工作区按目录精确
+        // 归组(harness 规则,types.ts「cwd equal to path」),每部影片目录注册自己的
+        // 工作区,标题=目录末段(影片名)。workspace/create 幂等(已注册返回原样);
+        // 失败静默:归组是体验增强,不阻塞会话创建。
+        function ensureFilmWorkspace(dir) {
+          const path = String(dir || '')
+          if (!path || filmWorkspaces.has(path)) return Promise.resolve()
+          filmWorkspaces.add(path)
+          return fetch('/api/workspace/create', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ type: 'client-request', rpcId: `tintin-film-ws-${Date.now()}`, method: 'workspace/create', payload: { args: [{ request: { path } }] } }),
+          }).catch(() => { filmWorkspaces.delete(path) /* 失败放下次列表刷新重试 */ })
+        }
+        function backfillFilmWorkspaces() {
+          const state = sessionsSvc?.list?.getSnapshot?.()
+          const byId = state?.byId || {}
+          for (const id of Array.isArray(state?.ids) ? state.ids : []) {
+            const cwd = String(byId[id]?.cwd || '')
+            if (cwd.includes('/OpenFilm/Projects/') || cwd.includes('\\OpenFilm\\Projects\\')) void ensureFilmWorkspace(cwd)
+          }
+        }
         async function createSession() {
           if (!sessionsSvc) { setStatus('会话服务不可用：请重载 TinTin'); return }
           if (!project) { setStatus('请先打开一部影片'); return }
           try {
             const id = await sessionsSvc.create({ cwd: project, agentPreset: roleSelect.value || OPENFILM_ROLES[0].id })
+            void ensureFilmWorkspace(project)
+            // 预设回落诊断（2026-10-21 实测：45/45 会话回落到 standard 且无任何提示）——
+            // 先读回会话投影，与请求的预设比对，不一致时明确告知而不是静默降级
+            const wanted = roleSelect.value || OPENFILM_ROLES[0].id
+            setTimeout(() => {
+              try {
+                const summary = sessionsSvc?.list?.getSnapshot?.()?.byId?.[id]
+                const effective = summary?.projectionValues?.agentPreset || summary?.projections?.values?.agentPreset || summary?.agentPreset
+                if (effective && effective !== wanted) {
+                  console.warn(`[tintin] role preset fell back: wanted=${wanted} effective=${effective}`)
+                  setStatus(`角色预设未生效（要求 ${wanted}，实际 ${effective}）：本会话按通用助手运行`)
+                }
+              } catch { /* 读不到投影值：忽略 */ }
+            }, 1500)
             localStorage.setItem(sessionKey(), id)
             await switchSession(id)
             void sessionsSvc.refresh?.()
@@ -1589,6 +1671,24 @@ ${event.data.error.reason}` : result
           }
           return refs
         }
+        // 首条消息注入的工作规则（2026-10-21 实测：45/45 会话回落到 standard 通用预设，
+        // 媒体工具全在但从未被使用——992 次 pwsh 硬拼成 1025 次模型往返。规则随首条
+        // 消息进上下文，不依赖角色预设注册是否成功）
+        const OPENFILM_WORK_RULES = [
+          '[OpenFilm 工作规则（务必遵守）]',
+          '1. 编辑影片只有一条正确路径：把改动写成结构化时间线 JSON，调用 film_compile 编译成项目',
+          '   （素材落 assets/、字幕生成 vtt），需要成片时调用 film_render。禁止用 pwsh 逐条改片段/写文件。',
+          '   时间线格式：{version:1, resolution:"1920x1080", tracks:[{kind:"video",clips:[{asset,at,in?,out?}]},',
+          '   {kind:"voice|music|sfx",clips:[{asset,at,volume?}]}, {kind:"subtitle",cues:[{at,to,text}]}]}；',
+          '   asset 用 material:<id> / http(s) URL / 项目内路径。校验返回 errors 时改 JSON 再编译。',
+          '2. 配音/转写/配乐/音效/素材检索/生图/生视频/镜头分割，一律用对应工具：',
+          '   tintin_tts / tintin_asr / tintin_bgm / tintin_sfx / tintin_stock_images /',
+          '   tintin_generate_image / tintin_generate_video / montage_split_clips / tintin_capabilities。',
+          '   禁止用 pwsh/curl 去调服务端 HTTP 接口。',
+          '3. pwsh 只用于本地文件操作与 ffmpeg 精修；一条命令完成一类操作，禁止一步一调。',
+          '4. 检查画面用 openfilm look 加 vision_analyze，禁止用 read_image/Read 把整张图片塞进上下文。',
+          '5. 开场先调用 skill 工具加载 openfilm 技能；大文件/长输出只取需要的片段。',
+        ].join('\n')
         async function sendMessage() {
           const text = input.value.trim()
           if (!text) return
@@ -1603,6 +1703,11 @@ ${event.data.error.reason}` : result
               full = text + studioReferencesText(refs, { stage: studioSelection?.stage ?? null, pictures })
             } catch { full = text + studioReferencesText(refs, { stage: studioSelection?.stage ?? null }) }
           }
+          // 会话首条消息带上工作规则（只有没有历史用户消息的会话才注入）
+          try {
+            const hasHistory = binding.eventSource.getSnapshot().entries.some((entry) => entry.type === 'event' && entry.event?.type === 'user/message')
+            if (!hasHistory) full = `${OPENFILM_WORK_RULES}\n\n${full}`
+          } catch { /* 事件窗口未开：按首条处理 */ }
           input.value = ''
           hideAtMenu()
           setStatus('已发送，等待编导…')
@@ -1717,6 +1822,7 @@ ${event.data.error.reason}` : result
         async function syncProject() {
           try {
             setStatus('正在同步 Studio 项目…')
+            setNoteBusy('正在启动视频剪辑工作台…')
             const info = await window.tintin?.openfilm?.studio?.()
             if (!info?.url) throw new Error('Studio 未返回地址')
             if (nativeView?.open) {
@@ -1726,11 +1832,18 @@ ${event.data.error.reason}` : result
               setNote('')
               await syncBounds()
             } else {
+              // iframe 兜底模式：加载遮罩盖住空白框，frame load 事件清它（下方既有契约）
               frame.style.display = 'block'
               frame.src = info.url
+              setNoteBusy('正在加载编辑器…')
             }
             await applyProject(info.project || '')
-          } catch (error) { setStatus(`同步失败：${error?.message || error}`) }
+          } catch (error) {
+            const message = error?.message || error
+            setStatus(`同步失败：${message}`)
+            noteRetry = true
+            setNote(`视频剪辑启动失败：${message}\n点击这里重试`)
+          }
         }
         // Studio 当前项目轮询：studio.json recent[0]（Studio 切项目即重写）→ 变更即切会话
         const projectPoll = setInterval(() => {

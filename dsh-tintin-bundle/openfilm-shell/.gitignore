@@ -1,0 +1,4 @@
+.tmp/
+dist/
+node_modules/
+tintin-resources

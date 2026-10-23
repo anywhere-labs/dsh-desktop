@@ -76,7 +76,16 @@ export function createChannelTable(deps) {
       log: (...a) => ctx.logger.info('tintin-bundle:', ...a),
       warn: (...a) => ctx.logger.warn('tintin-bundle:', ...a),
     }),
-    ...createOpenfilmChannels({ sync: syncOpenfilmAssets, httpRequest }),
+    ...createOpenfilmChannels({
+      sync: syncOpenfilmAssets,
+      httpRequest,
+      // OpenAI 兼容 provider 注入（server.openfilmCompat 门控；对人的真 openai
+      // key / 已有 env 的让位保护在 studioEnv 内做，见 lib/openfilm/studio-runtime.js）
+      compatUrl: () => {
+        if (config?.server?.openfilmCompat !== true) return ''
+        try { return String(getServerUrl() || '') } catch { return '' }
+      },
+    }),
     ...createTtsUploadSampleApi({ multipartPost, isExpectedOfflineError, audioMimeOf, samplesPath: API_ENDPOINTS.tts.voicesSamples }),
     // asr:transcribe — POST /whisper/transcribe（multipart: file 必填 +
     // language/fmt；契约无 {url} JSON 分支——url 时先 GET 取回字节再上传，

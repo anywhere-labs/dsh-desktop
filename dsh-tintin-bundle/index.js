@@ -31,6 +31,7 @@ import { createMontageFinalApi } from './lib/montage/final-ipc.js'
 import { createRembgApi, createAudioArchiveApi, createVsrApi, createTtsUploadSampleApi } from './lib/media-proxy.js'
 import { loopbackCall, readLoopbackConfig, summarizeExtract } from './lib/loopback-helpers.js'
 import { createTintinAgentTools } from './lib/agent-tools.js'
+import { createOpenfilmFilmTools } from './lib/film-tools.js'
 import { createOpenfilmMediaTools } from './lib/openfilm-tools.js'
 import { createContextTaskApi, defaultWorkspaceDir } from './lib/context-task.js'
 import { registerWorkspaceEnsureRoute } from './lib/workspace-ensure-route.js'
@@ -103,6 +104,11 @@ const TintinConfig = z.object({
     // First-boot wizard marker: false until the user has confirmed a server
     // address through the setup overlay (probe → models → provider config).
     provisioned: z.boolean().default(false).volatile(),
+    // Studio 内建媒体功能（生成字幕等）走服务端 OpenAI 兼容 /v1 端点：
+    // 开启后隔离 home 种 use.asr=openai、Studio 进程注入 OPENFILM_OPENAI_URL
+    // （2026-10-22 实测 asr form 字段+verbose_json words 全对齐；tts 等服务端
+    // response_format=wav 修复后再并入）。人的真 openai key 存在时自动让位。
+    openfilmCompat: z.boolean().default(false).volatile(),
   }).default({}),
   // 本地配置（2026-09-24 用户裁决：恢复原客户端「更改」能力——缓存目录可选）；
   // 空 = 使用默认（本机工作区目录 Documents/tintin-workspace）。
@@ -309,8 +315,18 @@ export async function apply(ctx, config) {
         ctx.logger.warn('tintin-bundle: preset %s registration failed: %s', definition.id, error?.message ?? error)
       })
     }
+    // 实测锚点（2026-10-21）：45/45 会话回落 standard、无任何日志——注册成功要留痕
+    ctx.logger.info('tintin-bundle: role presets registered: %s', definitions.map((definition) => definition.id).join(','))
     return undefined
   }, 'tintin-bundle: role preset registration')
+  // 服务名不存在时 inject 永不回调（静默失效）——超时告警把这次情况暴露出来
+  setTimeout(() => {
+    try {
+      if (typeof ctx.get !== 'function' || ctx.get('agentPresets') === undefined) {
+        ctx.logger.warn('tintin-bundle: agentPresets service unavailable — role presets not registered')
+      }
+    } catch { /* 查询失败：忽略 */ }
+  }, 10_000)
 
   const aiConfigPath = process.env.TINTIN_AI_CONFIG || null
   const readAiConfig = aiConfigPath
@@ -331,7 +347,7 @@ export async function apply(ctx, config) {
   // ── OpenFilm 服务端驱动接缝（2026-10-18 用户裁决：A 方案 + 侧栏独立窗口）──
   // 同步随包技能与 `tintin` 自定义服务（实现见 lib/openfilm/plugin.js）；失败只
   // 告警：OpenFilm 是附加能力，不得阻断会话与桥。
-  const syncOpenfilmAssets = createOpenfilmSync({ getServerUrl, logger: ctx.logger })
+  const syncOpenfilmAssets = createOpenfilmSync({ getServerUrl, logger: ctx.logger, openfilmCompat: config?.server?.openfilmCompat === true })
   try { syncOpenfilmAssets() } catch (error) { ctx.logger.warn('tintin-bundle: openfilm sync skipped: %s', error?.message ?? error) }
   const getMachineId = () => resolveMachineIdSync()
   const httpRequest = createHttpRequest({
@@ -593,6 +609,16 @@ export async function apply(ctx, config) {
       httpRequest,
       getServerUrl,
       multipartPost,
+      log: (...a) => ctx.logger.info('tintin-bundle:', ...a),
+      warn: (...a) => ctx.logger.warn('tintin-bundle:', ...a),
+    })) {
+      registerTool(def)
+    }
+    // A 轴（2026-10-21 用户裁决）：编导只产出时间线 JSON，film_compile 确定性编译成
+    // 项目、film_render 本地渲染成片——一次调用取代过去近百次 shell 往返。
+    for (const def of createOpenfilmFilmTools({
+      httpRequest,
+      getServerUrl,
       log: (...a) => ctx.logger.info('tintin-bundle:', ...a),
       warn: (...a) => ctx.logger.warn('tintin-bundle:', ...a),
     })) {

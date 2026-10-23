@@ -25,7 +25,7 @@
 // Pinned versions keep installers reproducible; bump deliberately. Overrides:
 // TINTIN_NODE_VERSION, TINTIN_OPENFILM_VERSION. Mirrors fall back to npmmirror
 // when the primary host is unreachable (1012/1015 阻断先例).
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -39,7 +39,7 @@ const browsersDir = join(resourcesDir, 'playwright-browsers')
 const threeDir = join(resourcesDir, 'openfilm-libs', 'three')
 
 const NODE_VERSION = process.env.TINTIN_NODE_VERSION ?? '22.23.2'
-const OPENFILM_VERSION = process.env.TINTIN_OPENFILM_VERSION ?? '0.2.2'
+const OPENFILM_VERSION = process.env.TINTIN_OPENFILM_VERSION ?? '0.2.5'
 const THREE_VERSION = process.env.TINTIN_THREE_VERSION ?? '0.184.0'
 /** three package paths → vendored paths (the loaders' own relative imports stay valid). */
 const THREE_FILES = [
@@ -97,7 +97,12 @@ if (!existsSync(npmCli)) {
   console.error(`npm CLI not found at ${npmCli}`)
   process.exitCode = 1
 } else {
-  let installed = existsSync(join(openfilmDir, 'node_modules', 'openfilm', 'package.json'))
+  // Reinstall when the vendored tree is absent or not the pinned version — a
+  // bare existsSync kept an old tree forever after a version bump (0.2.2→0.2.5).
+  const vendoredPkg = join(openfilmDir, 'node_modules', 'openfilm', 'package.json')
+  let installed = false
+  try { installed = JSON.parse(readFileSync(vendoredPkg, 'utf8')).version === OPENFILM_VERSION } catch { /* absent or unreadable: install */ }
+  if (installed) console.log(`openfilm@${OPENFILM_VERSION} already vendored`)
   for (const registry of installed ? [] : NPM_REGISTRIES) {
     console.log(`npm install openfilm@${OPENFILM_VERSION} (registry ${registry})`)
     const res = spawnSync(process.execPath, [npmCli, 'install',

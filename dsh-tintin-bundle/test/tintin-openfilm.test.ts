@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { mergeTinTinService, syncProvidersFile, TINTIN_SERVICE_ID } from '../lib/openfilm/providers-seed.js'
+import { mergeOpenaiCompat, mergeTinTinService, syncProvidersAt, syncProvidersFile, TINTIN_SERVICE_ID } from '../lib/openfilm/providers-seed.js'
 import {
   lastStudioProject, parseStudioAddress, parseStudioProject, readStudioRun, resolveOpenfilmRuntime, seedStudioRecents, studioEnv, studioPageUrl,
 } from '../lib/openfilm/studio-runtime.js'
@@ -388,5 +388,39 @@ describe('openfilm skills channel', () => {
   it('returns an empty server group without httpRequest', async () => {
     const result = await createOpenfilmChannels({ sync: () => {} })['openfilm:skills']([])
     expect(result.server).toEqual([])
+  })
+})
+
+describe('openai 兼容注入（server.openfilmCompat，2026-10-22 服务端 /v1 实测对齐）', () => {
+  it('mergeOpenaiCompat 只补未设置的 use，不覆盖人的选择；asr+tts 都指向兼容 provider', () => {
+    expect(mergeOpenaiCompat({ use: { asr: 'elevenlabs' }, keys: { elevenlabs: 'k' } }).use).toEqual({ asr: 'elevenlabs', tts: 'openai' })
+    const filled = mergeOpenaiCompat({})
+    expect(filled.use).toEqual({ asr: 'openai', tts: 'openai' })
+  })
+
+  it('syncProvidersAt openaiCompat=true 时隔离 home 补 use.asr 且幂等；缺省不动 use', () => {
+    const file = join(tempDir(), 'providers.json')
+    expect(syncProvidersAt({ filePath: file, serverUrl: 'http://a:1', openaiCompat: true }).changed).toBe(true)
+    const stored = JSON.parse(readFileSync(file, 'utf8'))
+    expect(stored.use.asr).toBe('openai')
+    expect(stored.custom[0].id).toBe(TINTIN_SERVICE_ID)
+    expect(syncProvidersAt({ filePath: file, serverUrl: 'http://a:1', openaiCompat: true }).changed).toBe(false)
+    const plain = syncProvidersAt({ filePath: join(tempDir(), 'plain.json'), serverUrl: 'http://a:1' })
+    expect(JSON.parse(readFileSync(plain.path, 'utf8')).use).toBeUndefined()
+  })
+
+  it('studioEnv 注入 OPENFILM_OPENAI_URL+占位 key；已有 env key 或人的 keys.openai 时让位', () => {
+    const root = tempDir()
+    const injected = studioEnv(null, { DSH_HOME: root }, { openaiCompatUrl: 'http://192.168.111.31:8000/' })
+    expect(injected.OPENFILM_OPENAI_URL).toBe('http://192.168.111.31:8000')
+    expect(injected.OPENAI_API_KEY).toBe('tintin-server')
+    const keepEnv = studioEnv(null, { DSH_HOME: root, OPENAI_API_KEY: 'sk-person' }, { openaiCompatUrl: 'http://x:1' })
+    expect(keepEnv.OPENFILM_OPENAI_URL).toBeUndefined()
+    expect(keepEnv.OPENAI_API_KEY).toBe('sk-person')
+    mkdirSync(join(root, 'openfilm-studio'), { recursive: true })
+    writeFileSync(join(root, 'openfilm-studio', 'providers.json'), JSON.stringify({ keys: { openai: 'sk-real-openai' } }))
+    const keepFile = studioEnv(null, { DSH_HOME: root }, { openaiCompatUrl: 'http://x:1' })
+    expect(keepFile.OPENFILM_OPENAI_URL).toBeUndefined()
+    expect(keepFile.OPENAI_API_KEY).toBeUndefined()
   })
 })

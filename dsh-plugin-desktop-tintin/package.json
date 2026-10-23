@@ -152,6 +152,7 @@
     "verify:resources": "node scripts/verify-tintin-resources.mjs"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.5.0",
     "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.1.0-desktop.c989d4ceb0d9f.r2e406d2a.tgz",
     "@deepseek-ai/cordis": "4.0.5",
     "@deepseek-ai/cordis-plugin-group": "1.0.5",
@@ -332,13 +333,14 @@
     "@deepseek-ai/dsh-workspace": "0.2.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.5",
     "adm-zip": "^0.6.0",
+    "diff": "^9.0.0",
     "dsh-community-market": "0.1.0-dev.0",
     "dsh-tintin-bundle": "0.1.0-dev.0",
     "dsh-tintin-client-ui": "0.1.0-dev.0",
     "dsh-tintin-creation-bundle": "0.1.0-dev.0",
     "dsh-tintin-media-bundle": "0.1.0-dev.0",
     "dsh-tintin-ops-bundle": "0.1.0-dev.0",
-    "dshmarket": "1.66.45",
+    "dshmarket": "1.66.47",
     "fs-ext": "2.1.1",
     "koffi": "3.1.5",
     "node-addon-require-builtin": "^0.1.9",

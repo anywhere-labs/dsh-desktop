@@ -25,9 +25,9 @@ const libraryDir = () => join(defaultWorkspaceDir(), 'OpenFilm', 'Projects')
  * (into ~/.openfilm/providers.json, current server.url), three.js libs, and
  * the new-projects library (~/.openfilm/prefs.json → the TinTin workspace).
  * Never throws — an OpenFilm problem must not take the session bridge down.
- * @param {{ getServerUrl: () => string, logger?: { info: Function, warn: Function } }} options
+ * @param {{ getServerUrl: () => string, logger?: { info: Function, warn: Function }, openaiCompat?: boolean }} options
  */
-export function createOpenfilmSync({ getServerUrl, logger = console }) {
+export function createOpenfilmSync({ getServerUrl, logger = console, openaiCompat = false }) {
   return () => {
     const dshHome = process.env.DSH_HOME
     if (dshHome) {
@@ -57,7 +57,7 @@ export function createOpenfilmSync({ getServerUrl, logger = console }) {
     if (!serverUrl) return
     try {
       const seeded = syncProvidersFile({ homeDir: homedir(), serverUrl })
-      const isolated = syncProvidersAt({ filePath: join(studioHome, 'providers.json'), serverUrl })
+      const isolated = syncProvidersAt({ filePath: join(studioHome, 'providers.json'), serverUrl, openaiCompat })
       if (seeded.changed || isolated.changed) logger.info('tintin-bundle: openfilm service seeded at %s', isolated.path)
     } catch (error) {
       logger.warn('tintin-bundle: openfilm provider seed failed: %s', error?.message ?? error)
@@ -159,10 +159,13 @@ function readSkillMeta(file) {
  * Renderer channels: Studio address, the project's @ files, file import, and
  * the skills drawer (native OpenFilm skills + the TinTin server registry).
  * `httpRequest` is the host's authenticated server call; without it the server
- * group comes back empty instead of failing the drawer.
- * @param {{ sync: () => void, httpRequest?: (method: string, path: string, options?: object) => Promise<any> }} options
+ * group comes back empty instead of failing the drawer. `compatUrl` resolves
+ * the server's OpenAI-compatible base (server.openfilmCompat gate) for the
+ * Studio child env; empty/unset keeps the person's own provider layout.
+ * @param {{ sync: () => void, httpRequest?: (method: string, path: string, options?: object) => Promise<any>,
+ *   compatUrl?: () => string }} options
  */
-export function createOpenfilmChannels({ sync, httpRequest }) {
+export function createOpenfilmChannels({ sync, httpRequest, compatUrl }) {
   return {
     'openfilm:skills': async () => {
       try {
@@ -326,6 +329,7 @@ export function createOpenfilmChannels({ sync, httpRequest }) {
           homeDir: homedir(),
           folder: project,
           env: { ...process.env, OPENFILM_LIBRARY: libraryDir() },
+          openaiCompatUrl: typeof compatUrl === 'function' ? compatUrl() : '',
         })
         return { url: run.url, project: run.project || project }
       } catch (error) {
@@ -344,6 +348,7 @@ export function createOpenfilmChannels({ sync, httpRequest }) {
           homeDir: homedir(),
           folder: lastStudioProject(tintinStudioHome()),
           env: { ...process.env, OPENFILM_LIBRARY: libraryDir() },
+          openaiCompatUrl: typeof compatUrl === 'function' ? compatUrl() : '',
         })
         return { url: run.url, origin: run.origin, project: run.project }
       } catch (error) {

@@ -119,13 +119,20 @@ const tintinClient = (() => {
       // （2026-10-17 二修：设置面板 portal 直挂 body→扫 body 直接子元素；z1000 全屏浮层
       // 在位→覆盖层降其下 500）。点侧栏其他区域（会话/新会话）=回工作台。
       function detectNativeOverlay() {
-        const open = [...document.body.children].some((el) => { const s = getComputedStyle(el); return s.position === 'fixed' && s.zIndex === '1000' })
+        // pointer-events:none 的全窗层不是弹层（拖入面具同是 fixed+z1000，2026-10-21 根修：
+        // 旧判定把面具当原生浮层，把覆盖层降到 500，拖文件时工具页整页被面具盖住）
+        const open = [...document.body.children].some((el) => {
+          const s = getComputedStyle(el)
+          return s.position === 'fixed' && s.zIndex === '1000' && s.pointerEvents !== 'none'
+        })
         overlay.style.zIndex = open ? '500' : '9998'
       }
       const bodyMo = new MutationObserver(() => detectNativeOverlay())
+      // 拖放隔离的卸钩（2026-10-21，安装见 overlay 挂 body 之后）
+      let releaseDragIsolation = () => {}
       // 析构-重装协议（2026-10-19）：摘行/overlay/观察器；注册表 window 级保留不随实例销毁
       function disposeChrome() {
-        sidebarMo.disconnect(); bodyMo.disconnect()
+        sidebarMo.disconnect(); bodyMo.disconnect(); releaseDragIsolation()
         for (const el of [...document.querySelectorAll('[data-tintin-entry]'), ...document.querySelectorAll('#tintin-view-overlay')]) el.remove()
       }
       const sidebarMo = new MutationObserver(() => {
@@ -215,6 +222,16 @@ const tintinClient = (() => {
       for (const stale of [...document.querySelectorAll('#tintin-view-overlay')]) stale.remove()
       document.body.appendChild(overlay)
       for (const stale of [...document.querySelectorAll('#tintin-strip-cover')]) stale.remove()
+      // 拖放隔离（2026-10-21 用户报障：视频拖不进工具页）：上游聊天组合器在 document 上
+      // 全局监听四类 drag 事件，覆盖层里的拖入区冒泡上去会被接管——dragover 按聊天框状态改写
+      // dropEffect（锁定时置 none，Chromium 之后不再派发 drop），drop 把文件塞进聊天草稿。
+      // 覆盖层可见时在 body 冒泡层截断：目标自己的 @drop/@dragover 已先执行，工具页不受影响。
+      const dragTypes = ['dragenter', 'dragover', 'dragleave', 'drop']
+      const isolateDrag = (event) => { if (overlay.style.display !== 'none') event.stopPropagation() }
+      for (const type of dragTypes) document.body.addEventListener(type, isolateDrag)
+      releaseDragIsolation = () => {
+        for (const type of dragTypes) document.body.removeEventListener(type, isolateDrag)
+      }
 
       function mountActive() {
         syncOverlayBounds() // 切视图即重算顶条盖片（依赖 activeId）——安静页面无侧栏变更时停在旧状态=时露原生页头（2026-10-19 报障「时有时无」根因）
@@ -723,11 +740,13 @@ const tintinClient = (() => {
         config,
         // OpenFilm 启动（2026-10-18 裁决：侧栏入口=独立窗口）：宿主通道同步
         // 技能/服务并启动 Studio（不弹系统浏览器），壳桥按地址开窗；无壳退化为新标签页。
-        openfilm: {
+        // namespaced 兜底转发（2026-10-21 根修）：createProject/stageAsset/writeFilm 原先
+        // 没进这张表，导出必炸「is not a function」——未知成员按 openfilm:<name> 自动转发。
+        openfilm: namespaced('openfilm', {
           studio: () => call('openfilm:studio', { args: [{}] }).then((r) => { if (!r?.url) throw new Error(r?.error || 'Studio 未启动'); return r }),
           // 导出到视频剪辑项目（2026-10-21）：让 Studio 打开指定项目并置为最近项目
           openProject: (payload) => call('openfilm:openProject', { args: [payload] }).then((r) => { if (r?.error) throw new Error(r.error); return r }),
-        },
+        }),
       }
       console.info('[tintin] window.tintin polyfill installed')
     }

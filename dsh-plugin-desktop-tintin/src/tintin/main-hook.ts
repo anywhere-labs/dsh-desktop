@@ -3,12 +3,18 @@
 // stay byte-identical to Beta, so every TinTin-specific main-process behavior
 // installs itself from here, before the mirrored bootstrap runs.
 
-import { app, BrowserWindow, WebContentsView, ipcMain, type WebContents } from 'electron'
-import { existsSync } from 'node:fs'
+import { app, BrowserWindow, WebContentsView, dialog, ipcMain, shell, type WebContents } from 'electron'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { FilmAgentManager, dshBinExists } from './film-acp.ts'
+import { filmChat, keepSnapshot, settleSnapshot } from './film-chat.ts'
+import { resolveDesktopChannelHome } from '../desktop-channel-home.ts'
+import { DESKTOP_PRODUCT_IDENTITY } from '../product-identity.ts'
 import { embedAttach, embedClose, embedHide, embedShow, registerBrowserService } from 'dsh-tintin-browser'
 import {
+  OPENFILM_AGENT_CHANGED, OPENFILM_AGENT_CONNECT, OPENFILM_AGENT_DISCONNECT, OPENFILM_AGENT_LIST, OPENFILM_AGENT_SET_SHOWN,
   OPENFILM_COMMAND_EVENT, OPENFILM_HOST_HOVER, OPENFILM_HOST_REFER, OPENFILM_HOST_SELECTION, OPENFILM_REFER_EVENT, OPENFILM_SELECTION_EVENT,
   OPENFILM_VIEW_CHANNEL, isOpenFilmBounds, isOpenFilmStudioUrl,
   type OpenFilmBounds, type OpenFilmSelection, type OpenFilmStudioRef, type OpenFilmViewRequest,
@@ -227,6 +233,204 @@ export function installTinTinMainHook(): void {
     if (studioView !== null && studioWindow !== null && event.sender === studioWindow.webContents) {
       studioView.webContents.send(OPENFILM_COMMAND_EVENT, command)
     }
+  })
+
+  // ── 影片智能体 ACP 桥(第三行形态, 2026-10-23 用户裁决):dsh --profile acp ──
+  // 每部影片一个子进程, 模型路由到服务端(补丁生成见 film-acp.ts); 语义更新推回
+  // 发起方渲染层, 审批按官方 approve 口径自动放行。
+  let filmAgentManager: FilmAgentManager | null = null
+  let filmSender: WebContents | null = null
+  const channelHome = (): string =>
+    resolveDesktopChannelHome({ identity: DESKTOP_PRODUCT_IDENTITY, environment: process.env, homeDirectory: homedir() }).homeDir
+  const filmAgent = (): FilmAgentManager => {
+    if (filmAgentManager === null) {
+      const home = channelHome()
+      filmAgentManager = new FilmAgentManager({
+        channelHome: home,
+        serverUrl: () => {
+          try {
+            const raw = JSON.parse(readFileSync(join(home, 'tintin', 'config.json'), 'utf8')) as { server?: { url?: unknown } }
+            return typeof raw.server?.url === 'string' && raw.server.url.length > 0 ? raw.server.url : ''
+          } catch { return '' }
+        },
+        onEvent: (update) => {
+          try { filmSender?.send('openfilm:agent:local-event', update) } catch { /* 发起方已关闭 */ }
+        },
+        log: (message) => console.info(`[tintin-film-acp] ${message}`),
+      })
+    }
+    return filmAgentManager
+  }
+  ipcMain.handle('openfilm:agent:local', async (event, payload: unknown) => {
+    filmSender = event.sender
+    const p = (payload ?? {}) as Record<string, unknown>
+    const op = String(p.op ?? '')
+    const manager = filmAgent()
+    try {
+      switch (op) {
+        case 'list': return [manager.listState()]
+        case 'start': {
+          const cwd = String(p.cwd ?? '')
+          if (!cwd) return { ok: false, error: 'cwd 必填' }
+          const resume = typeof p.resume === 'string' && p.resume ? p.resume : null
+          const info = await manager.begin(cwd)
+          void resume /* begin 内部已按历史 sessionId resume */
+          return { ok: true, key: cwd, info }
+        }
+        case 'prompt': {
+          const key = String(p.key ?? '')
+          const text = String(p.text ?? '')
+          if (!key || !text) return { ok: false, error: 'key 与 text 必填' }
+          const images = Array.isArray(p.images) ? p.images as Array<{ data: string; mimeType: string }> : undefined
+          const result = await manager.prompt(key, text, p.meta as { turnId?: string } | undefined, images)
+          return { ok: true, ...result }
+        }
+        case 'running': return []
+        case 'ack': return { ok: true }
+        case 'steer': {
+          const key = String(p.key ?? '')
+          const text = String(p.text ?? '')
+          return manager.steer(key, text, Array.isArray(p.images) ? p.images as Array<{ data: string; mimeType: string }> : undefined)
+        }
+        case 'cancel': return manager.cancel(String(p.key ?? ''))
+        case 'answerPermission': return manager.answerPermission(String(p.key ?? ''), String(p.requestId ?? ''), typeof p.optionId === 'string' ? p.optionId : null)
+        case 'answerQuestion': return manager.answerQuestion(String(p.key ?? ''), String(p.requestId ?? ''), (p.answers ?? null) as Record<string, { label?: string; text?: string }> | null)
+        case 'setOption': return manager.setOption(String(p.key ?? ''), String(p.configId ?? ''), p.value)
+        case 'close': manager.stop(String(p.key ?? '')); return { ok: true }
+        case 'disconnect': manager.dispose(); return { ok: true }
+        case 'probe': {
+          const tmp = join(channelHome(), 'film-agent-home', 'probe')
+          mkdirSync(tmp, { recursive: true })
+          const info = await manager.begin(tmp)
+          manager.stop(tmp)
+          return { ok: true, info }
+        }
+        default: return { ok: false, error: `未知操作 ${op}` }
+      }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  // Settings → Agents(deepseek-only, 阶段 2):注册表来自宿主, dsh CLI 在即 ready。
+  let filmAgentsShown = true
+  const filmAgentRow = () => ({
+    id: 'deepseek',
+    name: 'DeepSeek Harness',
+    shown: filmAgentsShown,
+    status: dshBinExists() ? 'ready' : 'missing',
+    install: 'https://github.com/deepseek-ai/deepseek-harness',
+  })
+  const notifyFilmAgents = (): void => {
+    try { studioView?.webContents.send(OPENFILM_AGENT_CHANGED, [filmAgentRow()]) } catch { /* 视图未开 */ }
+  }
+  ipcMain.handle(OPENFILM_AGENT_LIST, () => [filmAgentRow()])
+  ipcMain.handle(OPENFILM_AGENT_CONNECT, () => {
+    const ok = dshBinExists()
+    if (ok) notifyFilmAgents()
+    return { ok }
+  })
+  ipcMain.handle(OPENFILM_AGENT_DISCONNECT, () => { notifyFilmAgents(); return { ok: true } })
+  ipcMain.handle(OPENFILM_AGENT_SET_SHOWN, (_event, payload: unknown) => {
+    filmAgentsShown = (payload as { shown?: unknown } | null)?.shown !== false
+    notifyFilmAgents()
+    return { ok: true }
+  })
+
+  // ── 影片聊天的持久化(desktop:chat:*, 官方 chat-ipc.mjs 的存储语义, 见 film-chat.ts)──
+  const chatProject = (payload: unknown): string => {
+    const path = String((payload as { project?: unknown } | null)?.project ?? '')
+    if (!path || !existsSync(path)) throw new Error('影片目录不存在')
+    return path
+  }
+  const bytesOf = (value: unknown): ArrayBuffer => value as ArrayBuffer
+  ipcMain.handle('desktop:chat:load', (_e, p: unknown) => filmChat.load(chatProject(p)))
+  ipcMain.handle('desktop:chat:sessions', (_e, p: unknown) => {
+    const q = p as { project?: unknown; sessions?: unknown[]; last?: unknown }
+    filmChat.saveSessions(chatProject(p), Array.isArray(q.sessions) ? q.sessions : [], typeof q.last === 'string' ? q.last : null)
+    return { ok: true }
+  })
+  ipcMain.handle('desktop:chat:turn', (_e, p: unknown) => {
+    const q = p as { project?: unknown; turn?: Record<string, unknown>; items?: unknown[] }
+    filmChat.saveTurn(chatProject(p), q.turn ?? {}, Array.isArray(q.items) ? q.items : [])
+    return { ok: true }
+  })
+  ipcMain.handle('desktop:chat:ref-image', (_e, p: unknown) => {
+    const q = p as { project?: unknown; turnId?: string; n?: number; bytes?: ArrayBuffer }
+    return filmChat.saveRefImage(chatProject(p), String(q.turnId ?? ''), Number(q.n ?? 0), bytesOf(q.bytes))
+  })
+  ipcMain.handle('desktop:chat:attachment', (_e, p: unknown) => {
+    const q = p as { project?: unknown; name?: string; bytes?: ArrayBuffer }
+    return filmChat.saveAttachment(chatProject(p), String(q.name ?? 'file'), bytesOf(q.bytes))
+  })
+  ipcMain.handle('desktop:chat:paths', (_e, p: unknown) => filmChat.describePaths((p as { paths?: string[] } | null)?.paths ?? []))
+  ipcMain.handle('desktop:chat:unsaved', () => [])
+  ipcMain.handle('desktop:chat:log', () => filmChat.log('', ''))
+  ipcMain.handle('desktop:chat:snapshot', (_e, p: unknown) => {
+    const q = p as { project?: unknown; turnId?: string }
+    keepSnapshot(String(q.turnId ?? ''), chatProject(p))
+    return { ok: true }
+  })
+  ipcMain.handle('desktop:chat:changes', (_e, p: unknown) => {
+    const q = p as { project?: unknown; turnId?: string }
+    return settleSnapshot(String(q.turnId ?? ''), chatProject(p))
+  })
+  ipcMain.handle('desktop:chat:reveal', (_event, payload: unknown) => {
+    const project = chatProject(payload)
+    const turnId = String((payload as { turnId?: unknown } | null)?.turnId ?? '')
+    shell.showItemInFolder(join(project, '.film'))
+    void turnId
+    return { ok: true }
+  })
+  ipcMain.handle('desktop:prefs', async () => {
+    const home = channelHome()
+    try {
+      const raw = JSON.parse(readFileSync(join(home, 'preferences.json'), 'utf8')) as { developer?: boolean; changes?: boolean }
+      return { developer: raw.developer === true, changes: raw.changes !== false }
+    } catch { return { developer: false, changes: true } }
+  })
+  ipcMain.handle('desktop:prefs:set', async (_event, next: unknown) => {
+    const home = channelHome()
+    const q = (next ?? {}) as { developer?: unknown; changes?: unknown }
+    let prefs = { developer: false, changes: true }
+    try {
+      const raw = JSON.parse(readFileSync(join(home, 'preferences.json'), 'utf8')) as { developer?: boolean; changes?: boolean }
+      prefs = { developer: raw.developer === true, changes: raw.changes !== false }
+    } catch { /* 首次写入 */ }
+    if (typeof q.developer === 'boolean') prefs.developer = q.developer
+    if (typeof q.changes === 'boolean') prefs.changes = q.changes
+    mkdirSync(home, { recursive: true })
+    writeFileSync(join(home, 'preferences.json'), `${JSON.stringify(prefs, null, 2)}\n`, 'utf8')
+    return prefs
+  })
+
+  // ── openfilmNative 的文件/截帧面(shell 页 bridge.ts 的后端, 见 film-acp.ts 头注)──
+  ipcMain.handle('openfilm:native:reveal-path', (_event, payload: unknown) => {
+    const path = String((payload as { path?: unknown } | null)?.path ?? '')
+    if (path) shell.showItemInFolder(path)
+    return { ok: true }
+  })
+  ipcMain.handle('openfilm:native:pick-folder', async (event, payload: unknown) => {
+    const options = (payload ?? {}) as { title?: string; defaultPath?: string }
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const dialogOptions = {
+      ...(options.title ? { title: options.title } : {}),
+      ...(options.defaultPath ? { defaultPath: options.defaultPath } : {}),
+      properties: ['openDirectory', 'createDirectory'] as Array<'openDirectory' | 'createDirectory'>,
+    }
+    const result = window ? await dialog.showOpenDialog(window, dialogOptions) : await dialog.showOpenDialog(dialogOptions)
+    return result.canceled ? null : result.filePaths[0] ?? null
+  })
+  ipcMain.handle('openfilm:native:capture', async (_event, payload: unknown) => {
+    const rect = (payload ?? {}) as { x?: number; y?: number; width?: number; height?: number }
+    if (studioView === null || studioView.webContents.isDestroyed()) return null
+    const image = await studioView.webContents.capturePage({
+      x: Math.max(0, Math.round(rect.x ?? 0)),
+      y: Math.max(0, Math.round(rect.y ?? 0)),
+      width: Math.max(1, Math.round(rect.width ?? 1)),
+      height: Math.max(1, Math.round(rect.height ?? 1)),
+    })
+    return image.toJPEG(85).toString('base64')
   })
 
   // Embedded browser view (2026-10-19 方案 4, OpenFilm native-view pattern): the chrome

@@ -137,16 +137,35 @@ export function resolveOpenfilmRuntime({ env = process.env, bundleDir } = {}) {
 /**
  * Environment for a Studio child: no browser hand-off, its own Studio home and
  * port (so the official OpenFilm desktop app on ~/.openfilm + port 4747 is
- * never adopted), and the vendored Chromium when present.
+ * never adopted), and the vendored Chromium when present. With
+ * `openaiCompatUrl` the OpenAI provider is pointed at the TinTin server's
+ * OpenAI-compatible /v1 surface with a placeholder key, so Studio's built-in
+ * features (make subtitles…) call the server directly instead of falling back
+ * to agent tool round trips. Skipped when this process already carries an
+ * OpenAI key or URL of its own, or when the person pasted their own openai key
+ * into the isolated Studio home — a file key outranks the env one, and it must
+ * reach api.openai.com, never the server.
  * @param {{ browsers?: string | null } | null | undefined} runtime
  * @param {Record<string, string | undefined>} [env]
+ * @param {{ openaiCompatUrl?: string | null }} [compat]
  * @returns {Record<string, string | undefined>}
  */
-export function studioEnv(runtime, env = process.env) {
+export function studioEnv(runtime, env = process.env, { openaiCompatUrl } = {}) {
   const next = { ...env, OPENFILM_NO_BROWSER: '1' }
   if (String(next.OPENFILM_HOME || '').trim() === '') next.OPENFILM_HOME = tintinStudioHome(env)
   if (String(next.OPENFILM_STUDIO_PORT || '').trim() === '') next.OPENFILM_STUDIO_PORT = '4788'
   if (runtime?.browsers && !next.PLAYWRIGHT_BROWSERS_PATH) next.PLAYWRIGHT_BROWSERS_PATH = runtime.browsers
+  const compat = String(openaiCompatUrl || '').trim().replace(/\/+$/, '')
+  if (compat && String(next.OPENFILM_OPENAI_URL || '').trim() === '' && String(next.OPENAI_API_KEY || '').trim() === '') {
+    let personOpenaiKey = false
+    try {
+      personOpenaiKey = Boolean(JSON.parse(readFileSync(join(next.OPENFILM_HOME, 'providers.json'), 'utf8'))?.keys?.openai)
+    } catch { /* 无文件或坏文件：照常注入 */ }
+    if (!personOpenaiKey) {
+      next.OPENFILM_OPENAI_URL = compat
+      next.OPENAI_API_KEY = 'tintin-server'
+    }
+  }
   return next
 }
 
@@ -155,12 +174,13 @@ export function studioEnv(runtime, env = process.env) {
  * The CLI detaches the Studio server and exits; we read the address it prints,
  * falling back to run.json. Throws a sentence the UI can show on failure.
  * @param {{ folder?: string | null, runtime: NonNullable<ReturnType<typeof resolveOpenfilmRuntime>>,
- *   homeDir: string, timeoutMs?: number, env?: Record<string, string | undefined> }} options
+ *   homeDir: string, timeoutMs?: number, env?: Record<string, string | undefined>,
+ *   openaiCompatUrl?: string | null }} options
  */
-export function startStudio({ folder, runtime, homeDir, timeoutMs = 45_000, env = process.env }) {
+export function startStudio({ folder, runtime, homeDir, timeoutMs = 45_000, env = process.env, openaiCompatUrl }) {
   return new Promise((resolve, reject) => {
     const args = [runtime.cli, 'open', ...(folder ? [String(folder)] : [])]
-    const childEnvironment = studioEnv(runtime, env)
+    const childEnvironment = studioEnv(runtime, env, { openaiCompatUrl })
     const child = spawn(runtime.node, args, { env: childEnvironment, windowsHide: true })
     let output = ''
     let settled = false

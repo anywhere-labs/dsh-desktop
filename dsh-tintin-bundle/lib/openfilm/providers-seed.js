@@ -13,7 +13,9 @@ import { dirname, join } from 'node:path'
 export const TINTIN_SERVICE_ID = 'tintin'
 export const TINTIN_SERVICE_NAME = 'TinTin 服务端'
 
-/** What `openfilm get` shows the agent about the service: which kinds it makes and how they are called. */
+/** What `openfilm get` shows the agent about the service: which kinds it makes and how they are called.
+ * One capability per line — Studio's custom-service page renders the note with `whitespace-pre-line`
+ * (ui CustomServices.tsx), so '\n' shows each service on its own row instead of one wrapped blob. */
 export const TINTIN_SERVICE_NOTE = [
   'TinTin AI service platform (no key).',
   'tts: POST /indextts/tts {text, resp:"json", sample_id} -> {audio_url} (relative; call again with --path <audio_url> --out <name>);',
@@ -23,7 +25,7 @@ export const TINTIN_SERVICE_NOTE = [
   'sfx: POST /audio/gen/sfx;',
   'stock images: POST /material/stock_search {query, kind:"image"} -> {items:[{url}]}.',
   'No text-to-image or text-to-video endpoint is available yet (comfygen-based generation is pending server-side).',
-].join(' ')
+].join('\n')
 
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {})
 
@@ -55,6 +57,28 @@ export function mergeTinTinService(raw, serverUrl) {
   return doc
 }
 
+/**
+ * Verbs the OpenAI-compat provider (`openai` pointed at the TinTin server via
+ * OPENFILM_OPENAI_URL) serves for Studio's built-in features, and the providers
+ * document with `use` defaulted for them. Both measured aligned against the
+ * server's /v1 surface (2026-10-22 20:1x): transcriptions answers
+ * verbose_json with word timings; speech honors response_format=wav (RIFF) and
+ * falls back gracefully on the picker's OpenAI voice names (alloy → default
+ * voice, 200).
+ */
+export const OPENAI_COMPAT_VERBS = ['asr', 'tts']
+
+/** The person's `use` choices are never overwritten: only unset kinds get the compat provider. */
+export function mergeOpenaiCompat(doc) {
+  const next = { ...plain(doc) }
+  const use = { ...plain(next.use) }
+  for (const verb of OPENAI_COMPAT_VERBS) {
+    if (!String(use[verb] || '').trim()) use[verb] = 'openai'
+  }
+  next.use = use
+  return next
+}
+
 /** The providers file path for a home directory: ~/.openfilm/providers.json. */
 export const providersFilePath = (homeDir) => join(String(homeDir || ''), '.openfilm', 'providers.json')
 
@@ -75,13 +99,16 @@ export function readProvidersDocument(homeDir) {
 /**
  * Upsert the TinTin service into one providers file. Returns `{ path, changed }`;
  * a no-op when the service is already current. The file is written whole and
- * atomically (0600), as OpenFilm itself writes it.
- * @param {{ filePath: string, serverUrl: string }} options
+ * atomically (0600), as OpenFilm itself writes it. `openaiCompat` additionally
+ * defaults `use` to the compat provider for the verbs the server's OpenAI /v1
+ * surface serves — meant for the isolated Studio home only.
+ * @param {{ filePath: string, serverUrl: string, openaiCompat?: boolean }} options
  */
-export function syncProvidersAt({ filePath, serverUrl }) {
+export function syncProvidersAt({ filePath, serverUrl, openaiCompat = false }) {
   const path = filePath
   const before = readProvidersAt(path)
-  const after = mergeTinTinService(before, serverUrl)
+  let after = mergeTinTinService(before, serverUrl)
+  if (openaiCompat) after = mergeOpenaiCompat(after)
   const changed = JSON.stringify(before) !== JSON.stringify(after)
   if (!changed && existsSync(path)) return { path, changed: false }
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
