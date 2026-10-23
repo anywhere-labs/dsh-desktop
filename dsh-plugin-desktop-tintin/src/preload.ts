@@ -81,7 +81,7 @@ const openFilmView: DesktopOpenFilmBridge = {
     return () => { ipcRenderer.removeListener(OPENFILM_HOST_HOVER, handler) }
   },
   focus: () => ipcRenderer.invoke(OPENFILM_VIEW_CHANNEL, { action: 'focus' }),
-  hasShellChat: () => ipcRenderer.invoke(OPENFILM_VIEW_CHANNEL, { action: 'has-shell' }),
+  hasShellChat: (restartIfStale?: boolean) => ipcRenderer.invoke(OPENFILM_VIEW_CHANNEL, { action: 'has-shell', restartIfStale }),
 }
 contextBridge.exposeInMainWorld('dshDesktopOpenFilm', Object.freeze(openFilmView))
 

@@ -1,4 +1,4 @@
-/** Minimal context-isolated bridges for drag payloads, Desktop-owned actions, and the upstream Desktop marker. */
+﻿/** Minimal context-isolated bridges for drag payloads, Desktop-owned actions, and the upstream Desktop marker. */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { SETUP_ONBOARDING_CHANNEL } from './setup-onboarding-bridge.ts'
@@ -81,7 +81,7 @@ const openFilmView: DesktopOpenFilmBridge = {
     return () => { ipcRenderer.removeListener(OPENFILM_HOST_HOVER, handler) }
   },
   focus: () => ipcRenderer.invoke(OPENFILM_VIEW_CHANNEL, { action: 'focus' }),
-  hasShellChat: () => ipcRenderer.invoke(OPENFILM_VIEW_CHANNEL, { action: 'has-shell' }),
+  hasShellChat: (restartIfStale?: boolean) => ipcRenderer.invoke(OPENFILM_VIEW_CHANNEL, { action: 'has-shell', restartIfStale }),
 }
 contextBridge.exposeInMainWorld('dshDesktopOpenFilm', Object.freeze(openFilmView))
 

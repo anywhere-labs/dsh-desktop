@@ -1919,7 +1919,24 @@ ${event.data.error.reason}` : result
               const opened = await nativeView.open(info.url)
               if (!opened?.ok) throw new Error(opened?.error || 'Studio 视图打开失败')
               frame.style.display = 'none'
-              setNote('')
+              /* 官方聊天接管: shell 页就绪即命中; 旧 Studio 服务进程伺服旧 editor 时,
+                 第 4 轮起请求主进程结束旧进程(restart), 下一轮以新资源重启再探;
+                 全部轮次未命中 → 兜底恢复过渡版聊天列(功能减但可用)。 */
+              let shell = false
+              for (let attempt = 0; attempt < 8 && !shell; attempt += 1) {
+                const info2 = await window.tintin?.openfilm?.studio?.().catch(() => null)
+                if (info2?.url && nativeView?.open) await nativeView.open(info2.url).catch(() => {})
+                try {
+                  const r = await nativeView.hasShellChat?.(attempt >= 3)
+                  if (r?.has === true) { shell = true; break }
+                  if (r?.restarted === true) { setStatus('已重启视频剪辑服务, 正在接管官方聊天…'); await new Promise((done) => setTimeout(done, 1500)); continue }
+                } catch { shell = false }
+                await new Promise((done) => setTimeout(done, 800))
+              }
+              if (shell) { setNote('') } else {
+                setNote('官方聊天接管失败：已恢复过渡版聊天（需重装含 shell 构建的包）\n点击这里重试')
+                noteRetry = true
+              }
               await syncBounds()
             } else {
               // iframe 兜底模式：加载遮罩盖住空白框，frame load 事件清它（下方既有契约）
