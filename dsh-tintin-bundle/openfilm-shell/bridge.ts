@@ -101,11 +101,9 @@ const shownWidth = () => (layout.open ? Math.max(Math.min(layout.width, innerWid
 const panelState = () => ({ open: layout.open, width: shownWidth(), assets: { open: assets.open && layout.open, bottom: assets.bottom } });
 const panelListeners = new Set<Listener<ReturnType<typeof panelState>>>();
 
-/** The page shows a project: TinTin 按「影片目录」解析 —— 嵌入加载在 /open, 不走 /projects 路由;
-    项目上下文由 studio-preload 轮询 openfilm:currentProject 提供(window.__tintinFilmDir)。 */
-const onProject = () => Boolean(project.get());
+/** 聊天列必现(2026-10-23 用户明确: 会话框不能是隐藏态)—— 只有手动的收起开关能藏它。 */
 function place() {
-  column.hidden = !layout.open || !onProject();
+  column.hidden = !layout.open;
   column.style.width = `${shownWidth()}px`;
   column.style.top = `${TOP_BAR}px`;
   column.toggleAttribute('data-assets-open', assets.open && layout.open);
