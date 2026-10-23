@@ -1844,13 +1844,20 @@ ${event.data.error.reason}` : result
               if (!opened?.ok) throw new Error(opened?.error || 'Studio 视图打开失败')
               frame.style.display = 'none'
               setNote('')
-              /* shell 页加载后探测其聊天列(轮询至页面脚本就绪, 上限 ~4s); 命中即让位 */
+              /* shell 页加载后探测其聊天列(轮询至页面脚本就绪, 上限 ~4s); 未命中时
+                 状态行显示页面诊断(readyState/桥/聊天列), 不静默。 */
               let shell = false
+              let lastDiag = null
               for (let attempt = 0; attempt < 8 && !shell; attempt += 1) {
-                try { shell = (await nativeView.hasShellChat?.()) === true } catch { shell = false }
+                try {
+                  const r = await nativeView.hasShellChat?.()
+                  if (r?.has === true) { shell = true; break }
+                  lastDiag = r?.diag ?? null
+                } catch { shell = false }
                 if (!shell) await new Promise((done) => setTimeout(done, 500))
               }
               setChatMode(shell)
+              if (!shell && lastDiag) setStatus('shell 页探测未命中: ' + JSON.stringify(lastDiag))
               await syncBounds()
             } else {
               // iframe 兜底模式：加载遮罩盖住空白框，frame load 事件清它（下方既有契约）

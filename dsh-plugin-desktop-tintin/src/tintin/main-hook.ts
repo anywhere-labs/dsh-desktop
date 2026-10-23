@@ -212,12 +212,24 @@ export function installTinTinMainHook(): void {
     }
     if (request.action === 'has-shell') {
       // 所伺服的编辑器页是否为 TinTin shell 构建(Studio + 官方聊天): 决定影片视图
-      // 是否让位给页内聊天列(无 shell 构建时保留过渡版聊天列)。
+      // 是否让位给页内聊天列(无 shell 构建时保留过渡版聊天列)。探测失败时带回
+      // 页面诊断(readyState/桥/聊天列), 由聊天状态行显示 —— 不静默。
       if (studioView === null || studioView.webContents.isDestroyed()) return { ok: false, error: 'Studio 视图未开启' }
-      return studioView.webContents.executeJavaScript(
-        'Boolean(window.openfilmDesktop && document.getElementById("of-chat"))',
-        true,
-      ).then((value) => ({ ok: true, has: value === true }))
+      return studioView.webContents.executeJavaScript(`(() => {
+        try {
+          return {
+            readyState: document.readyState,
+            hasDesktop: Boolean(window.openfilmDesktop),
+            hasHost: Boolean(window.openfilmHost),
+            hasChatColumn: Boolean(document.getElementById('of-chat')),
+            hasRoot: Boolean(document.getElementById('root')),
+          }
+        } catch (error) { return { error: String(error) } }
+      })()`, true).then((diag) => {
+        const d = (diag ?? {}) as { readyState?: string; hasDesktop?: boolean; hasHost?: boolean; hasChatColumn?: boolean; hasRoot?: boolean; error?: string }
+        const has = d.hasDesktop === true && d.hasChatColumn === true
+        return { ok: true, has, diag: d }
+      }, (error) => ({ ok: true, has: false, diag: { error: error instanceof Error ? error.message : String(error) } }))
     }
     return { ok: false, error: 'unknown action' }
   })
