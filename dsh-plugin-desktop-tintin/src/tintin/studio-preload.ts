@@ -113,6 +113,13 @@ const noopStop = (): (() => void) => () => {}
 
 contextBridge.exposeInMainWorld('openfilmNative', {
   platform: 'win32',
+  /* 影片目录: shell 桥的 follow() 按目录匹配 Studio 项目(嵌入页不走 /projects 路由) */
+  tintinFilmDir: async (): Promise<string> => {
+    try {
+      const r = await ipcRenderer.invoke('openfilm:currentProject', {})
+      return typeof (r as { project?: unknown } | null)?.project === 'string' ? (r as { project: string }).project : ''
+    } catch { return '' }
+  },
   agents: agentRegistry,
   localAgents,
   chat,

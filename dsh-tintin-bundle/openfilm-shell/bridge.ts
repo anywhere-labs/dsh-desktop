@@ -95,8 +95,9 @@ const shownWidth = () => (layout.open ? Math.max(Math.min(layout.width, innerWid
 const panelState = () => ({ open: layout.open, width: shownWidth(), assets: { open: assets.open && layout.open, bottom: assets.bottom } });
 const panelListeners = new Set<Listener<ReturnType<typeof panelState>>>();
 
-/** The page shows a project (not a new tab's launcher): only then is there a chat to show. */
-const onProject = () => /^\/projects\/[\w-]+/.test(location.pathname);
+/** The page shows a project: TinTin 按「影片目录」解析 —— 嵌入加载在 /open, 不走 /projects 路由;
+    项目上下文由 studio-preload 轮询 openfilm:currentProject 提供(window.__tintinFilmDir)。 */
+const onProject = () => Boolean(project.get());
 function place() {
   column.hidden = !layout.open || !onProject();
   column.style.width = `${shownWidth()}px`;
@@ -149,13 +150,12 @@ theme.on((next) => native.setTheme(next));
 native.setLanguage(language.get());
 language.on((next) => native.setLanguage(next));
 
-/* ── the project Studio shows (its address, /projects/<id>) ── */
+/* ── the project Studio shows: TinTin 按「影片目录」解析 —— 嵌入页在 /open, 不走 /projects 路由;
+   影片目录由 studio-preload 轮询 openfilm:currentProject 经 tintinFilmDir 提供 ── */
 const project = signal<Project | null>(null);
 let projectReady: Promise<void> = Promise.resolve();
 let projectRequest = 0;
-const projectId = () => /^\/projects\/([\w-]+)/.exec(location.pathname)?.[1] ?? null;
 function projectChanged(next: Project, request?: number) {
-  if (next.id !== projectId()) return;
   if (request === undefined) projectRequest += 1;
   else if (request !== projectRequest) return;
   const current = project.get();
@@ -163,15 +163,21 @@ function projectChanged(next: Project, request?: number) {
   project.set({ id: next.id, name: next.name, path: next.path });
 }
 async function follow() {
-  /* Reads from before a rename or a previous visit cannot restore an old folder. */
+  /* TinTin: 按「影片目录」匹配 Studio 的项目(影片目录由 studio-preload 轮询
+     openfilm:currentProject 经 tintinFilmDir 提供; 嵌入页在 /open, 无 /projects 路由)。 */
   const request = ++projectRequest;
-  const id = projectId();
-  if (!id) return; // Keep the chat mounted while the project list covers it.
+  let filmDir: string | null = null;
+  try {
+    const filmDirBridge = (window as unknown as { tintinFilmDir?: () => Promise<string> }).tintinFilmDir;
+    if (typeof filmDirBridge === 'function') filmDir = await filmDirBridge();
+  } catch { filmDir = null }
+  filmDir = typeof filmDir === 'string' && filmDir ? filmDir.replace(/[\\/]+$/, '') : null;
+  if (!filmDir) return; // Keep the chat mounted while the project list covers it.
   try {
     const res = await fetch('/api/projects');
     const body = await res.json() as { projects?: Project[] };
-    const found = body.projects?.find((p) => p.id === id);
-    if (found) projectChanged(found, request);
+    const found = (body.projects ?? []).find((p) => p.path.replace(/[\\/]+$/, '') === filmDir);
+    if (found) projectChanged({ id: found.id, name: found.name, path: found.path }, request);
   } catch { /* told next time the address changes */ }
 }
 for (const method of ['pushState', 'replaceState'] as const) {
@@ -180,6 +186,10 @@ for (const method of ['pushState', 'replaceState'] as const) {
 }
 addEventListener('popstate', () => { projectReady = follow(); place(); });
 projectReady = follow();
+/* TinTin: 影片目录由 studio-preload 轮询提供 —— 周期性按目录重解析项目(嵌入页无 /projects 路由可依赖) */
+setInterval(() => { void follow() }, 2500);
+/* TinTin: 影片目录由 studio-preload 轮询提供 —— 周期性按目录重解析项目(无路由可依赖) */
+setInterval(() => { void follow() }, 2500);
 
 /* ── between Studio and the chat: what is selected, what is referenced, what Studio is asked to show ── */
 const selection = signal<StudioSelection | null>(null);
