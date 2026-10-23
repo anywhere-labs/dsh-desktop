@@ -276,6 +276,17 @@ export function installTinTinMainHook(): void {
   // 发起方渲染层, 审批按官方 approve 口径自动放行。
   let filmAgentManager: FilmAgentManager | null = null
   let filmSender: WebContents | null = null
+  /* 退出即净场(2026-10-23 用户要求): 影片 ACP 子进程与 Studio 服务随主程序退出,
+     不留孤儿 —— 孤儿会锁住构建目录, 并让下次启动附着到旧 editor。 */
+  app.on('will-quit', () => {
+    try { filmAgentManager?.dispose() } catch { /* 已退出 */ }
+    try {
+      const runPath = join(channelHome(), 'openfilm-studio', 'run.json')
+      const run = JSON.parse(readFileSync(runPath, 'utf8')) as { pid?: unknown }
+      if (typeof run.pid === 'number') process.kill(run.pid)
+      rmSync(runPath, { force: true })
+    } catch { /* 无 run.json: 无需收场 */ }
+  })
   const filmAgent = (): FilmAgentManager => {
     if (filmAgentManager === null) {
       const home = channelHome()
