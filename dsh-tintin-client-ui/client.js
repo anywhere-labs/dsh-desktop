@@ -771,6 +771,9 @@ ${event.data.error.reason}` : result
 
 
         const setNote = (text) => { note.textContent = text || ''; note.style.display = text ? 'flex' : 'none'; if (!text) noteRetry = false }
+        /* 官方聊天是唯一聊天(2026-10-23 第三行裁决): 过渡版列退役, 聊天由 shell 页
+           (Studio 编辑器 + 官方聊天同页编译)自带; 打包必跑 prepare:openfilm-shell。 */
+        chat.style.display = 'none'
         /* 官方聊天接管(2026-10-23 第三行裁决): 所伺服的 shell 页(Studio+官方聊天)
            自带聊天列时, 过渡版聊天列整体让位; 检测不到 shell 时恢复过渡版列。 */
         const setChatMode = (official) => { chat.style.display = official ? 'none' : '' }
@@ -1844,18 +1847,6 @@ ${event.data.error.reason}` : result
               if (!opened?.ok) throw new Error(opened?.error || 'Studio 视图打开失败')
               frame.style.display = 'none'
               setNote('')
-              /* 官方聊天接管(第三行裁决): shell 页就绪即让位(原地切换到官方聊天列);
-                 持续探测 60s(大包首载可能超过 4s 旧窗口), 期间过渡版保持可见。 */
-              let shell = false
-              const probeShell = async () => {
-                try { return (await nativeView.hasShellChat?.()) === true } catch { return false }
-              }
-              for (let attempt = 0; attempt < 75 && !shell; attempt += 1) {
-                shell = await probeShell()
-                if (shell) { setChatMode(true); await syncBounds(); break }
-                await new Promise((done) => setTimeout(done, 800))
-              }
-              if (!shell) setChatMode(false)
               await syncBounds()
             } else {
               // iframe 兜底模式：加载遮罩盖住空白框，frame load 事件清它（下方既有契约）
