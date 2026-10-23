@@ -32,3 +32,12 @@
     printUrl: false
     surfaceContext: true
     trustedHosts: []
+
+# Size-capped model endpoints (observed: GitHub Copilot rejects multi-image
+# sessions with HTTP 413) need durable images stored small, not merely rejected
+# large: normalize every saved image to a 1568px long edge within 240KiB, so
+# several inline screenshots stay well under a 1MiB-class request-body limit.
+- id: attachment-local
+  config:
+    normalizedImageMaxBytes: 245760
+    normalizedImageMaxDimension: 1568
