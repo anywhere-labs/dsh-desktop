@@ -59,7 +59,13 @@ const diagState = { selectionReports: 0, referCalls: 0, lastSelTime: null as num
 const diagEl = document.createElement('div');
 diagEl.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483647;background:#000c;color:#8ff;font:11px/1.5 monospace;padding:4px 8px;border-radius:6px;pointer-events:none;white-space:pre;';
 const renderDiag = (): void => {
-  diagEl.textContent = `[tintin诊断] 选中上报=${diagState.selectionReports}  引用调用=${diagState.referCalls}  最后播放头=${diagState.lastSelTime ?? '—'}`;
+  const p = project.get()
+  const col = document.getElementById('of-chat')
+  diagEl.textContent = [
+    `[tintin诊断] 选中上报=${diagState.selectionReports}  引用调用=${diagState.referCalls}  最后播放头=${diagState.lastSelTime ?? '—'}`,
+    `项目=${p ? p.name : '未解析'}  路径=${p ? p.path : '—'}`,
+    `聊天列: ${col ? (col.hidden ? '隐藏(无项目?)' : '显示') : '元素缺失'}  layout.open=${layout.open}`,
+  ].join('\n')
 };
 const startDiag = (): void => {
   document.body.append(diagEl);
