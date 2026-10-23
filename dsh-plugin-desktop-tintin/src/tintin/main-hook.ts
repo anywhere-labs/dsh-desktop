@@ -4,7 +4,7 @@
 // installs itself from here, before the mirrored bootstrap runs.
 
 import { app, BrowserWindow, WebContentsView, dialog, ipcMain, shell, type WebContents } from 'electron'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,6 +25,11 @@ import { seedTinTinDefaults } from './first-boot.ts'
 
 let installed = false
 let browserAttached = false
+let filmShellRestarted = false
+
+/** TinTin 通道 home(影片智能体的 run.json/补丁/偏好都挂在它下面)。 */
+const channelHome = (): string =>
+  resolveDesktopChannelHome({ identity: DESKTOP_PRODUCT_IDENTITY, environment: process.env, homeDirectory: homedir() }).homeDir
 
 /**
  * 页面坐标 → 窗口坐标的 y 偏移（2026-10-20 实机报障：内嵌 Studio 视图底部露出一条
@@ -212,9 +217,10 @@ export function installTinTinMainHook(): void {
     }
     if (request.action === 'has-shell') {
       // 所伺服的编辑器页是否为 TinTin shell 构建(Studio + 官方聊天): 决定影片视图
-      // 是否让位给页内聊天列(无 shell 构建时保留过渡版聊天列)。探测失败时带回
-      // 页面诊断(readyState/桥/聊天列), 由聊天状态行显示 —— 不静默。
+      // 是否让位给页内聊天列。探测失败且未重启过 → 旧 Studio 服务进程伺服旧 editor,
+      // 结束它一次(客户端下一轮 open 会以当前资源重启); 重启只做一次防循环。
       if (studioView === null || studioView.webContents.isDestroyed()) return { ok: false, error: 'Studio 视图未开启' }
+      const restartIfStale = (request as { restartIfStale?: unknown }).restartIfStale === true
       return studioView.webContents.executeJavaScript(`(() => {
         try {
           return {
@@ -225,10 +231,19 @@ export function installTinTinMainHook(): void {
             hasRoot: Boolean(document.getElementById('root')),
           }
         } catch (error) { return { error: String(error) } }
-      })()`, true).then((diag) => {
-        const d = (diag ?? {}) as { readyState?: string; hasDesktop?: boolean; hasHost?: boolean; hasChatColumn?: boolean; hasRoot?: boolean; error?: string }
+      })()`, true).then((raw) => {
+        const d = (raw ?? {}) as { readyState?: string; hasDesktop?: boolean; hasHost?: boolean; hasChatColumn?: boolean; hasRoot?: boolean; error?: string }
         const has = d.hasDesktop === true && d.hasChatColumn === true
-        return { ok: true, has, diag: d }
+        if (has || !restartIfStale || filmShellRestarted) return { ok: true, has, diag: d, restarted: false }
+        filmShellRestarted = true
+        try {
+          const runPath = join(channelHome(), 'openfilm-studio', 'run.json')
+          const stale = JSON.parse(readFileSync(runPath, 'utf8')) as { pid?: unknown }
+          if (typeof stale.pid === 'number') process.kill(stale.pid)
+          /* 陈旧 run.json 一并清除: 否则下次 startStudio 附着到已死服务 —— 无界面无进程 */
+          rmSync(runPath, { force: true })
+        } catch { /* 无 run.json 或已退出: 无需结束 */ }
+        return { ok: true, has, diag: d, restarted: true }
       }, (error) => ({ ok: true, has: false, diag: { error: error instanceof Error ? error.message : String(error) } }))
     }
     return { ok: false, error: 'unknown action' }
@@ -261,8 +276,6 @@ export function installTinTinMainHook(): void {
   // 发起方渲染层, 审批按官方 approve 口径自动放行。
   let filmAgentManager: FilmAgentManager | null = null
   let filmSender: WebContents | null = null
-  const channelHome = (): string =>
-    resolveDesktopChannelHome({ identity: DESKTOP_PRODUCT_IDENTITY, environment: process.env, homeDirectory: homedir() }).homeDir
   const filmAgent = (): FilmAgentManager => {
     if (filmAgentManager === null) {
       const home = channelHome()
