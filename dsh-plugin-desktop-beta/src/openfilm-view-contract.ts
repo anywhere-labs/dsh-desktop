@@ -65,6 +65,7 @@ export type OpenFilmViewRequest =
   | { action: 'hide' }
   | { action: 'close' }
   | { action: 'focus' }
+  | { action: 'has-shell' }
 
 /** Whether the address is a local OpenFilm Studio page (http loopback, `/open` or `/`). */
 export function isOpenFilmStudioUrl(value: unknown): value is string {
@@ -100,4 +101,6 @@ export interface DesktopOpenFilmBridge {
   onHover(listener: (ref: OpenFilmStudioRef | null) => void): () => void
   /** Hand keyboard focus to the Studio view (Space = play/pause instead of page scroll). */
   focus(): Promise<void>
+  /** Whether the served editor page is TinTin's shell build (Studio editor + the official chat column). */
+  hasShellChat(): Promise<boolean>
 }

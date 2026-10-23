@@ -210,6 +210,15 @@ export function installTinTinMainHook(): void {
       }
       return { ok: true }
     }
+    if (request.action === 'has-shell') {
+      // 所伺服的编辑器页是否为 TinTin shell 构建(Studio + 官方聊天): 决定影片视图
+      // 是否让位给页内聊天列(无 shell 构建时保留过渡版聊天列)。
+      if (studioView === null || studioView.webContents.isDestroyed()) return { ok: false, error: 'Studio 视图未开启' }
+      return studioView.webContents.executeJavaScript(
+        'Boolean(window.openfilmDesktop && document.getElementById("of-chat"))',
+        true,
+      ).then((value) => ({ ok: true, has: value === true }))
+    }
     return { ok: false, error: 'unknown action' }
   })
   ipcMain.on(OPENFILM_HOST_SELECTION, (event, selection: OpenFilmSelection) => {
@@ -273,6 +282,7 @@ export function installTinTinMainHook(): void {
           const cwd = String(p.cwd ?? '')
           if (!cwd) return { ok: false, error: 'cwd 必填' }
           const resume = typeof p.resume === 'string' && p.resume ? p.resume : null
+          manager.trackTurn(cwd, p.meta)
           const info = await manager.begin(cwd)
           void resume /* begin 内部已按历史 sessionId resume */
           return { ok: true, key: cwd, info }
@@ -285,8 +295,8 @@ export function installTinTinMainHook(): void {
           const result = await manager.prompt(key, text, p.meta as { turnId?: string } | undefined, images)
           return { ok: true, ...result }
         }
-        case 'running': return []
-        case 'ack': return { ok: true }
+        case 'running': return manager.runningTurns()
+        case 'ack': { manager.ackTurn(String(p.key ?? '')); return { ok: true } }
         case 'steer': {
           const key = String(p.key ?? '')
           const text = String(p.text ?? '')

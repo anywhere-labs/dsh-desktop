@@ -210,17 +210,22 @@ export class FilmAgentManager {
     }
   }
 
-  /** 提交一条消息; 语义更新经 onEvent 流出, Promise 在整轮结束时落定. */
+  /** 提交一条消息; 语义更新经 onEvent 流出并缓存(重载恢复), Promise 在整轮结束时落定. */
   async prompt(project: string, text: string, meta?: { turnId?: string }, images?: Array<{ data: string; mimeType: string }>): Promise<{ stopReason: string }> {
     void meta
+    this.trackTurn(project, null)
+    const entry = this.turns.get(project)!
     const handle = await this.ensure(project)
     const agent = await handle.agent
     try {
       const result = await agent.prompt(text, images)
+      entry.done = { ok: true, stopReason: result.stopReason }
       this.emit(project, { key: project, kind: 'done', ok: true, stopReason: result.stopReason })
       return result
     } catch (error) {
-      this.emit(project, { key: project, kind: 'done', ok: false, error: error instanceof Error ? error.message : String(error) })
+      const message = error instanceof Error ? error.message : String(error)
+      entry.done = { ok: false, error: message }
+      this.emit(project, { key: project, kind: 'done', ok: false, error: message })
       throw error
     }
   }
@@ -310,6 +315,33 @@ export class FilmAgentManager {
     try { handle.child.kill() } catch { /* 已退出 */ }
   }
 
+  /** 轮次回执缓存: 页面重载后 running() 恢复显示用; 聊天 ack 后清除. */
+  private turns = new Map<string, {
+    key: string
+    agent: 'deepseek'
+    cwd: string
+    meta: unknown
+    done: { ok: true; stopReason: string } | { ok: false; error: string } | null
+    events: Array<Record<string, unknown> & { kind: string }>
+  }>()
+
+  /** 聊天重载时取回仍在进行/刚结束未认领的轮次(官方 localAgents.running 语义). */
+  runningTurns(): Array<{ key: string; agent: 'deepseek'; cwd: string; meta: unknown; done: { ok: true; stopReason: string } | { ok: false; error: string } | null; events: Array<Record<string, unknown> & { kind: string }> }> {
+    return [...this.turns.values()].map((turn) => ({ ...turn, events: [...turn.events] }))
+  }
+
+  /** 聊天已把该轮接回显示: 丢弃缓存. */
+  ackTurn(key: string): void {
+    this.turns.delete(key)
+  }
+
+  /** 登记一轮( start 时建档, 供重载恢复; 已有则更新 meta ). */
+  trackTurn(project: string, meta: unknown): void {
+    const existing = this.turns.get(project)
+    if (existing) { existing.meta = meta ?? existing.meta; return }
+    this.turns.set(project, { key: project, agent: 'deepseek', cwd: project, meta: meta ?? null, done: null, events: [] })
+  }
+
   dispose(): void {
     for (const project of [...this.handles.keys()]) this.stop(project)
   }
@@ -317,6 +349,8 @@ export class FilmAgentManager {
   // ── 内部 ────────────────────────────────────────────────────────────────
 
   private emit(project: string, event: FilmAgentEvent): void {
+    const entry = this.turns.get(project)
+    if (entry) entry.events.push({ ...event } as Record<string, unknown> & { kind: string })
     this.options.onEvent?.({ project, event })
   }
 

@@ -771,6 +771,9 @@ ${event.data.error.reason}` : result
 
 
         const setNote = (text) => { note.textContent = text || ''; note.style.display = text ? 'flex' : 'none'; if (!text) noteRetry = false }
+        /* 官方聊天接管(2026-10-23 第三行裁决): 所伺服的 shell 页(Studio+官方聊天)
+           自带聊天列时, 过渡版聊天列整体让位; 检测不到 shell 时恢复过渡版列。 */
+        const setChatMode = (official) => { chat.style.display = official ? 'none' : '' }
         // 舞台级加载态(2026-10-23 报障:Studio 冷启动可达数十秒,期间舞台纯黑、
         // 只剩聊天列底部一行小字)——note 遮罩带转圈提示;出错态点击整个遮罩重试。
         let noteRetry = false
@@ -1830,6 +1833,13 @@ ${event.data.error.reason}` : result
               if (!opened?.ok) throw new Error(opened?.error || 'Studio 视图打开失败')
               frame.style.display = 'none'
               setNote('')
+              /* shell 页加载后探测其聊天列(轮询至页面脚本就绪, 上限 ~4s); 命中即让位 */
+              let shell = false
+              for (let attempt = 0; attempt < 8 && !shell; attempt += 1) {
+                try { shell = (await nativeView.hasShellChat?.()) === true } catch { shell = false }
+                if (!shell) await new Promise((done) => setTimeout(done, 500))
+              }
+              setChatMode(shell)
               await syncBounds()
             } else {
               // iframe 兜底模式：加载遮罩盖住空白框，frame load 事件清它（下方既有契约）
