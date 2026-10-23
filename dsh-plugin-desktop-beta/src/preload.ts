@@ -1,4 +1,4 @@
-﻿/** Minimal context-isolated bridges for drag payloads, Desktop-owned actions, and the upstream Desktop marker. */
+/** Minimal context-isolated bridges for drag payloads, Desktop-owned actions, and the upstream Desktop marker. */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { SETUP_ONBOARDING_CHANNEL } from './setup-onboarding-bridge.ts'
