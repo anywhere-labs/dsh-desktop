@@ -1163,10 +1163,16 @@ ${event.data.error.reason}` : result
                 transfer.effectAllowed = 'copy'
                 transfer.setData('text/plain', libFileOf(item))
                 transfer.setData('text/uri-list', libServeUrlOf(item))
+                /* DownloadURL = 声明为文件下载拖拽: 光标全程 copy; 落点无关紧要 ——
+                   交付本体是下面已触发的 downloadLibraryItem(素材落项目 assets/download)。 */
+                const mime = libTab === 'video' ? 'video/mp4' : libTab === 'audio' ? 'audio/mpeg' : 'image/jpeg'
+                transfer.setData('DownloadURL', `${mime}:${libFileOf(item)}:${libServeUrlOf(item)}`)
+                libDragging = true
                 void downloadLibraryItem(item)
                   .then((rel) => setStatus(`已下载到项目 ${rel}（左侧素材面板可用）`))
                   .catch((error) => setStatus(`素材下载失败：${error?.message || error}`))
               })
+              card.addEventListener('dragend', () => { libDragging = false })
             }
             return card
           }))
@@ -1192,6 +1198,19 @@ ${event.data.error.reason}` : result
         }
         // 右键菜单：下载到本地项目（2026-10-21 用户裁决：替代撤掉的拖拽路径；视频/图片/音频通用）
         let libCtxMenu = null
+        /* 素材拖拽 = 「下载拖拽」(DownloadURL): 光标全程 copy 不再 🚫, 落到任何位置都触发
+           该 URL 的下载; 交付本体是 dragstart 已触发的 downloadLibraryItem(落项目)。 */
+        let libDragging = false
+        window.addEventListener('dragover', (event) => {
+          if (!libDragging) return
+          event.preventDefault()
+          if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+        }, true)
+        window.addEventListener('drop', (event) => {
+          if (!libDragging) return
+          event.preventDefault() /* 防止 uri-list 落在页面上触发导航 */
+          libDragging = false
+        }, true)
         const hideLibCtxMenu = () => { libCtxMenu?.remove(); libCtxMenu = null }
         function showLibContextMenu(x, y, item) {
           hideLibCtxMenu()
