@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TinTin</title>
+<script>
+  /* the theme before the first paint, so the wrong one never flashes: dark unless the person chose another */
+  (function () {
+    var t = 'dark';
+    try { t = localStorage.getItem('openfilm.theme') || 'dark'; } catch (e) {}
+    if (t === 'system') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t === 'dark' ? 'dark' : 'light';
+  })();
+</script>
+</head>
+<body>
+<div id="root"></div>
+<!-- the chat's column beside Studio (the panel Studio leaves room for), and its layer for what floats. Both are
+     Studio's host panel (its keys leave them alone) and take focus: a click anywhere in the chat, not only in its
+     fields, keeps the keyboard in the chat (Space, Delete, ⌘A there never reach Studio). -->
+<div id="of-chat" class="of-chat" data-studio-host-panel tabindex="-1"></div>
+<div id="of-chat-layer" class="of-chat" data-studio-host-panel tabindex="-1"></div>
+<!-- 启动错误浮层(2026-10-23): 任何脚本错误直接上屏, 不再黑屏无声 -->
+<div id="tintin-boot-error" style="position:fixed;inset:auto 0 0 0;z-index:2147483647;background:#3a1010;color:#ffd7d7;font:12px/1.6 monospace;padding:10px 14px;white-space:pre-wrap;display:none"></div>
+<script>
+  (function () {
+    var box = document.getElementById('tintin-boot-error');
+    var lines = [];
+    function show(message) { lines.push(String(message).slice(0, 400)); box.textContent = lines.join('\n'); box.style.display = 'block'; }
+    window.addEventListener('error', function (e) { show((e.message || '脚本错误') + (e.filename ? '\n  @' + e.filename + ':' + e.lineno : '')); });
+    window.addEventListener('unhandledrejection', function (e) { show('未处理的 Promise 拒绝: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason))); });
+    window.__tintinBootFail = show;
+  })();
+</script>
+<script type="module" src="./main.tsx"></script>
+</body>
+</html>
