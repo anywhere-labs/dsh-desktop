@@ -12,14 +12,6 @@ import { boundWebServerPort } from './web-server-port.ts'
 import * as desktopOffice from './desktop-office.ts'
 import { desktopPrimaryRuntime, resolveDesktopOfficeConfig } from './desktop-office.ts'
 import { app, crashReporter, safeStorage, session, shell } from 'electron'
-// TinTin 品牌: 窗口标题固定为产品名 —— 上游页面把 <title> 写成 "DSH Desktop",
-// 每个窗口创建时拦截标题更新, 保持 "TinTin"(2026-10-23 用户要求)。
-app.on('browser-window-created', (_event, window) => {
-  window.on('page-title-updated', (event) => {
-    event.preventDefault()
-    if (window.getTitle() !== DESKTOP_PRODUCT_NAME) window.setTitle(DESKTOP_PRODUCT_NAME)
-  })
-})
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'

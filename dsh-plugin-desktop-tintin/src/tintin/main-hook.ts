@@ -11,7 +11,16 @@ import { fileURLToPath } from 'node:url'
 import { FilmAgentManager, dshBinExists } from './film-acp.ts'
 import { filmChat, keepSnapshot, settleSnapshot } from './film-chat.ts'
 import { resolveDesktopChannelHome } from '../desktop-channel-home.ts'
-import { DESKTOP_PRODUCT_IDENTITY } from '../product-identity.ts'
+import { DESKTOP_PRODUCT_IDENTITY, DESKTOP_PRODUCT_NAME } from '../product-identity.ts'
+
+// TinTin 品牌(通道专属): 窗口标题固定为产品名 —— 上游页面把 <title> 写成
+// "DSH Desktop", 每个窗口创建时拦截标题更新, 保持 "TinTin"(2026-10-23 用户要求)。
+app.on('browser-window-created', (_event, window) => {
+  window.on('page-title-updated', (event) => {
+    event.preventDefault()
+    if (window.getTitle() !== DESKTOP_PRODUCT_NAME) window.setTitle(DESKTOP_PRODUCT_NAME)
+  })
+})
 import { embedAttach, embedClose, embedHide, embedShow, registerBrowserService } from 'dsh-tintin-browser'
 import {
   OPENFILM_AGENT_CHANGED, OPENFILM_AGENT_CONNECT, OPENFILM_AGENT_DISCONNECT, OPENFILM_AGENT_LIST, OPENFILM_AGENT_SET_SHOWN,
