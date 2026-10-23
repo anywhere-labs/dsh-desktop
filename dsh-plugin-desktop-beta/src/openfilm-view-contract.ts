@@ -21,6 +21,21 @@ export const OPENFILM_HOST_HOVER = 'dsh-desktop:openfilm-host-hover'
 /** Main → Studio: a StudioCommand from the chat (reveal a reference, highlight, draft numbering). */
 export const OPENFILM_COMMAND_EVENT = 'dsh-desktop:openfilm-command'
 
+/** Studio preload → main: the host agents registry (Settings → Agents; deepseek-only in phase 2). */
+export const OPENFILM_AGENT_LIST = 'dsh-desktop:openfilm-agent-list'
+
+/** Studio preload → main: verify the agent's program is spawnable (dsh CLI present). */
+export const OPENFILM_AGENT_CONNECT = 'dsh-desktop:openfilm-agent-connect'
+
+/** Studio preload → main: mark the agent disconnected (its own sign-in is kept). */
+export const OPENFILM_AGENT_DISCONNECT = 'dsh-desktop:openfilm-agent-disconnect'
+
+/** Studio preload → main: show or hide the agent in the chat's menu. */
+export const OPENFILM_AGENT_SET_SHOWN = 'dsh-desktop:openfilm-agent-set-shown'
+
+/** Main → Studio preload: the agents registry changed; listeners re-read the list. */
+export const OPENFILM_AGENT_CHANGED = 'dsh-desktop:openfilm-agent-changed'
+
 export interface OpenFilmBounds {
   x: number
   y: number
