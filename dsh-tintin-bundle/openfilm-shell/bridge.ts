@@ -61,12 +61,16 @@ diagEl.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483647;ba
 const renderDiag = (): void => {
   const p = project.get()
   const col = document.getElementById('of-chat')
+  const rootEl = document.getElementById('root')
   diagEl.textContent = [
-    `[tintin诊断] 选中上报=${diagState.selectionReports}  引用调用=${diagState.referCalls}  最后播放头=${diagState.lastSelTime ?? '—'}`,
+    `[tintin诊断] readyState=${document.readyState}`,
+    `openfilmHost=${Boolean(window.openfilmHost)}  openfilmDesktop=${Boolean(window.openfilmDesktop)}  openfilmNative=${Boolean(window.openfilmNative)}`,
+    `Studio已挂载=${Boolean(rootEl && rootEl.childElementCount > 0)}  聊天列=${col ? (col.hidden ? '隐藏' : '显示') : '缺元素'}`,
     `项目=${p ? p.name : '未解析'}  路径=${p ? p.path : '—'}`,
-    `聊天列: ${col ? (col.hidden ? '隐藏(无项目?)' : '显示') : '元素缺失'}  layout.open=${layout.open}`,
+    `选中上报=${diagState.selectionReports}  引用调用=${diagState.referCalls}`,
   ].join('\n')
-};
+}
+setInterval(renderDiag, 600);
 const startDiag = (): void => {
   document.body.append(diagEl);
   renderDiag();
