@@ -493,6 +493,36 @@ export function installTinTinMainHook(): void {
         const res = await fetch(serverUrl + '/api/product-library/items/' + id)
         return await res.json()
       }
+      /* 六视图随选下载(2026-10-25 用户要求): 产品的六视图图片落项目 assets/download,
+         左侧媒体面板可见 → @ 文件引用; 视图值形状未定, 字符串/对象均兼容。 */
+      if (p.op === 'views') {
+        const id = encodeURIComponent(String(p.id ?? ''))
+        const project = String(p.project ?? '').replace(/[\\/]+$/, '')
+        if (!id || !project) return { error: '参数缺失(项目/产品 id)' }
+        const detail = await (await fetch(serverUrl + '/api/product-library/items/' + id)).json() as {
+          item?: { six_views?: Record<string, unknown> }
+        }
+        const views = detail.item?.six_views ?? {}
+        const dir = join(project, 'assets', 'download')
+        mkdirSync(dir, { recursive: true })
+        const files: string[] = []
+        for (const [view, value] of Object.entries(views)) {
+          const url = typeof value === 'string' && value
+            ? (value.startsWith('/') ? serverUrl + value : value)
+            : (value && typeof value === 'object' && 'url' in (value as Record<string, unknown>) ? String((value as Record<string, unknown>).url ?? '') : '')
+          if (!url) continue
+          try {
+            const res = await fetch(url.startsWith('/') ? serverUrl + url : url)
+            if (!res.ok) continue
+            const type = res.headers.get('content-type') ?? ''
+            const ext = type.includes('png') ? '.png' : type.includes('webp') ? '.webp' : '.jpg'
+            const safe = `${id}_${view}`.replace(/[^\w-]/gu, '-')
+            writeFileSync(join(dir, safe + ext), Buffer.from(await res.arrayBuffer()))
+            files.push(safe + ext)
+          } catch { /* 单视图失败不阻断其余视图 */ }
+        }
+        return { ok: true, files }
+      }
       return { error: '未知操作' }
     } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
   })
