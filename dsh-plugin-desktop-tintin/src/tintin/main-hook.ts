@@ -559,6 +559,11 @@ export function installTinTinMainHook(): void {
         }
       }
     } catch { /* 服务端不可达: 只返回本地清单 */ }
+    /* 铁律 3: 技能清单的关键失败路径打点(聊天侧 / 与 @ 菜单的可见性取决于本返回值) */
+    diagnosticLog({
+      source: 'tintin-main', event: 'skills-list', level: 'info', developer: false,
+      fields: { native: openfilm.filter((row) => row.source === 'native').length, server: openfilm.filter((row) => row.source === 'server').length, total: openfilm.length },
+    })
     return { openfilm, own: { agent: String((payload as { agent?: unknown } | null)?.agent ?? ''), filtered: false, skills: [] }, mine: process.env.DSH_HOME ? join(process.env.DSH_HOME, 'skills') : '' }
   })
   /* 服务端技能安装(2026-10-24 交互规范 §9): 写进影片智能体 home, 智能体即可用 */

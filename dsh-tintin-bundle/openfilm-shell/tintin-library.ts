@@ -178,7 +178,17 @@ const mount = (): void => {
     };
     const hide = (): void => { stopAudio(); drawer.style.display = 'none' };
     fab.onclick = open;
-    close.onclick = () => { hide(); closeAssetsDrawer() };
+    /* 关闭按钮(2026-10-24 报障: × 不可用): 用 pointerdown 捕获 + 阻止冒泡, 不依赖 click 合成;
+       同时 Esc 也能关闭; 关闭后回置聊天的素材按钮状态。 */
+    const requestClose = (event?: Event): void => {
+      if (event) { event.preventDefault(); event.stopPropagation() }
+      hide()
+      closeAssetsDrawer()
+    };
+    close.addEventListener('pointerdown', requestClose)
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && drawer.style.display !== 'none') requestClose()
+    })
     registerAssetsDrawer((openState) => { if (openState) open(); else hide() });
 
     async function load(reset: boolean): Promise<void> {
