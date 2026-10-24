@@ -27,6 +27,15 @@ const reportMainError = (kind: string, error: unknown): void => {
 process.on('uncaughtException', (error) => { reportMainError('uncaughtException', error) })
 process.on('unhandledRejection', (reason) => { reportMainError('unhandledRejection', reason) })
 
+// 开机对账: 上次异常退出(failLoud 不走 will-quit)留下的 openfilm node 孤儿清场 ——
+// 只按可执行文件路径甄别(必须是 openfilm\bin\node.exe), 不碰其它任何 node 进程。
+void execFile(
+  'powershell.exe',
+  ['-NoProfile', '-Command', "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.ExecutablePath -like '*\\openfilm\\bin\\node.exe' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
+  { windowsHide: true, timeout: 30_000 },
+  () => {},
+)
+
 // TinTin 品牌(通道专属): 窗口标题固定为产品名 —— 上游页面把 <title> 写成
 // "DSH Desktop", 每个窗口创建时拦截标题更新, 保持 "TinTin"(2026-10-23 用户要求)。
 app.on('browser-window-created', (_event, window) => {
@@ -335,9 +344,13 @@ export function installTinTinMainHook(): void {
   // 发起方渲染层, 审批按官方 approve 口径自动放行。
   let filmAgentManager: FilmAgentManager | null = null
   let filmSender: WebContents | null = null
-  /* 退出即净场(2026-10-23 用户要求): 影片 ACP 子进程与 Studio 服务随主程序退出,
-     不留孤儿 —— 孤儿会锁住构建目录, 并让下次启动附着到旧 editor。 */
-  app.on('will-quit', () => {
+  /* 退出即净场(2026-10-23 用户要求): will-quit 管正常退出, process 'exit' 管
+     failLoud 类崩溃路径(不走 will-quit, 2026-10-24 1142 目录删不掉的事故)。
+     句柄全部同步(kill/rmSync), 'exit' 阶段也能跑完; 幂等防重复。 */
+  let studioTornDown = false
+  const teardownStudioSync = (): void => {
+    if (studioTornDown) return
+    studioTornDown = true
     try { filmAgentManager?.dispose() } catch { /* 已退出 */ }
     try {
       const runPath = join(channelHome(), 'openfilm-studio', 'run.json')
@@ -349,7 +362,9 @@ export function installTinTinMainHook(): void {
       }
       rmSync(runPath, { force: true })
     } catch { /* 无 run.json 或进程已不在: 无需收场 */ }
-  })
+  }
+  app.on('will-quit', teardownStudioSync)
+  process.on('exit', teardownStudioSync)
   const filmAgent = (): FilmAgentManager => {
     if (filmAgentManager === null) {
       const home = channelHome()
