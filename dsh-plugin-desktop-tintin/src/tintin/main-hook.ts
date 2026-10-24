@@ -505,6 +505,10 @@ export function installTinTinMainHook(): void {
     } catch { return '' }
   }
   const openfilmSkillsDir = (): string | null => {
+    if (process.resourcesPath) {
+      const packaged = join(process.resourcesPath, 'skills', 'openfilm')
+      if (existsSync(packaged)) return packaged
+    }
     if (process.env.TINTIN_BIN_DIR) {
       const packaged = join(dirname(process.env.TINTIN_BIN_DIR), 'openfilm', 'node_modules', 'openfilm', 'skills')
       if (existsSync(packaged)) return packaged

@@ -384,6 +384,18 @@ export class FilmAgentManager {
     const patchPath = ensureFilmAgentPatch(this.options.channelHome, serverUrl)
     const home = join(this.options.channelHome, 'film-agent-home')
     mkdirSync(home, { recursive: true })
+    /* 内置 openfilm 技能随包分发(2026-10-24): 同步进影片智能体的 home ——
+       智能体才有该技能可执行; 同步失败不阻断启动。 */
+    try {
+      const bundled = join(process.resourcesPath ?? '', 'skills', 'openfilm', 'SKILL.md')
+      const devSource = resolve(dirname(fileURLToPath(import.meta.url)), '../../../dsh-tintin-bundle/resources/skills/openfilm/SKILL.md')
+      const source = existsSync(bundled) ? bundled : devSource
+      if (existsSync(source)) {
+        const target = join(home, 'skills', 'openfilm')
+        mkdirSync(target, { recursive: true })
+        writeFileSync(join(target, 'SKILL.md'), readFileSync(source, 'utf8'))
+      }
+    } catch { /* 技能同步失败不阻断启动 */ }
     const bin = resolveDshBin()
     const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', DSH_HOME: home, TINTIN_SERVER_API_KEY: 'sk-tintin-local' }
     const child = spawn(process.execPath, [bin, '--profile', 'acp', '--patch', patchPath], {
