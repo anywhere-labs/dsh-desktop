@@ -37,7 +37,7 @@ const mount = (): void => {
 
     const fab = document.createElement('button');
     fab.className = 'openfilm-composer-tool';
-    fab.textContent = '📦 产品';
+    fab.textContent = '📦'; fab.title = '选择产品(资料注入会话)';
     fab.title = '选择产品:资料注入会话(@ 引用)';
     /* 挂进官方 composer 工具条(与素材/技能按钮同行同款) —— 等工具条出现后注入 */
     const attachFab = (): void => {
