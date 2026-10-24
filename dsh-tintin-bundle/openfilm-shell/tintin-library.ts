@@ -31,6 +31,9 @@ const STYLE = [
   '.tintin-lib-play.is-playing{background:#3b6fd4;color:#fff}',
   '.tintin-lib-more{margin:10px 12px 14px;border:1px solid #26272b;background:#16171a;color:#c9c9cf;font-size:12px;padding:6px;border-radius:8px;cursor:pointer}',
   '.tintin-lib-status{padding:6px 12px 12px;color:#8a8a90;font-size:11px;min-height:18px;white-space:pre-wrap}',
+  '.tintin-lib-progress{height:3px;margin:0 12px;background:#1a1b1f;border-radius:2px;overflow:hidden}',
+  '.tintin-lib-progress i{display:block;height:100%;width:40%;background:#3b6fd4;animation:tintin-lib-slide 1.1s linear infinite}',
+  '@keyframes tintin-lib-slide{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}',
   '.tintin-lib-menu{position:fixed;z-index:2147483002;background:#1a1b1f;border:1px solid #2f3036;border-radius:8px;padding:4px;min-width:170px;box-shadow:0 10px 28px rgba(0,0,0,.45)}',
   '.tintin-lib-menu button{display:block;width:100%;text-align:left;padding:7px 10px;border:0;border-radius:6px;background:none;color:#c9c9cf;font:12px system-ui;cursor:pointer}',
   '.tintin-lib-menu button:hover{background:#24262b}',
@@ -79,7 +82,10 @@ const mount = (): void => {
     const list = document.createElement('div'); list.className = 'tintin-lib-list';
     const more = document.createElement('button'); more.className = 'tintin-lib-more'; more.textContent = '加载更多'; more.style.display = 'none';
     const status = document.createElement('div'); status.className = 'tintin-lib-status';
-    drawer.append(head, tabs, search, list, more, status);
+    /* 下载进度条(2026-10-24 用户要求): 抽屉底部的不定长进度条, 下载期间显示 */
+    const progress = document.createElement('div'); progress.className = 'tintin-lib-progress'; progress.style.display = 'none';
+    progress.append(document.createElement('i'));
+    drawer.append(head, tabs, search, list, more, progress, status);
     document.body.append(drawer);
 
     let tab: Tab = 'video';
@@ -145,6 +151,8 @@ const mount = (): void => {
 
     /* 右键菜单: 下载到项目 / 下载到电脑 */
     const download = async (item: LibraryItem, target: 'project' | 'downloads'): Promise<void> => {
+      progress.style.display = 'block';
+      status.textContent = target === 'downloads' ? '正在下载到电脑…' : '正在下载到项目…';
       try {
         const project = target === 'project' ? await projectDir() : '';
         const out = await native.library.download({ project, materialId: idOf(item), filename: nameOf(item), serverUrl, target });
@@ -154,6 +162,8 @@ const mount = (): void => {
           : `已下载到项目 ${out.rel ?? ''}（Studio 媒体面板可见，可拖入时间线）`
       } catch (error) {
         status.textContent = `下载失败：${error instanceof Error ? error.message : String(error)}`;
+      } finally {
+        progress.style.display = 'none';
       }
     };
     const showRowMenu = (x: number, y: number, item: LibraryItem): void => {
