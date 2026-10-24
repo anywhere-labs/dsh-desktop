@@ -108,11 +108,37 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 - 正文:`openfilm:native:skills-texts` = 本地 SKILL.md + 服务端 `instruction` 补齐 → 技能引用的上下文注入带全文;
 - 原生技能随包:`scripts/prepare-skills.mjs` 复制 → extraResources `skills/`;影片智能体启动时同步进 `film-agent-home/skills/openfilm/`。
 
-## 10. 在线素材库
+## 10. 在线素材库(交互需求规范)
 
-- shell 页内抽屉(`tintin-library.ts`):聊天列素材按钮经 `registerAssetsDrawer` 打开,或左下角「⇩ 在线素材」;
-- 数据经主进程代理(`openfilm:library:list`,实测 `/material/list` 返回**顶层 `items`**,无 CORS 问题);
-- 下载:`openfilm:library:download` 写入 `<影片>/assets/download/` → Studio 左侧媒体面板可见 → 拖时间线 / `@` 引用(素材引用闭环)。
+在线素材库是 TinTin 在官方聊天之上的自定义能力(上游无此概念),**交互要求以本节为准**。
+
+### 10.1 入口
+
+| 入口 | 行为 |
+|---|---|
+| 聊天列 composer 的素材按钮 | 经桥 `setAssetsOpen` → `registerAssetsDrawer` 打开抽屉(再点关闭) |
+| shell 页左下角「⇩ 在线素材」 | 打开抽屉 |
+
+### 10.2 抽屉交互
+
+| 交互 | 规格 | 状态 |
+|---|---|---|
+| 类型切换 | 视频 / 图片 / 音频三个 tab,服务端 `media_type` 过滤,切 tab 重置分页 | ✅ |
+| 搜索 | 300ms 防抖,服务端 `search`,与 tab 组合 | ✅ |
+| 分页 | 24 条/页,「加载更多」,无更多时隐藏 | ✅ |
+| 缩略图 | 视频/图片行显示 `/material/thumbnail`;音频无缩略图用 ♪ | ✅ |
+| 空态/错误 | 空结果与加载失败显式文案(不静默) | ✅ |
+| 预览 | 点击名称/缩略图 → 模态预览(视频/音频播放器、图片大图),关闭返回 | ✅ |
+| 音频试听 | 行内 ▶/■ 同键切换,单实例(起播停他行),自然结束复位 | ✅ |
+| 下载到项目 | 行按钮:落 `<影片>/assets/download/` → Studio 左侧媒体面板可见 → 拖时间线 / `@` 引用 | ✅ |
+| 下载到电脑 | 右键菜单:落系统下载目录(`app.getPath('downloads')`) | ✅ |
+| 拖拽出抽屉 | 不提供(以「下载」按钮替代,避免跨视图拖拽的层级问题) | 不适用 |
+
+### 10.3 数据与 IPC
+
+- 列表:`openfilm:library:list`(主进程代理 `GET /material/list?page&size&media_type&search`,实测返回**顶层 `items`**,无 CORS);响应附带 `serverUrl` 供缩略图/预览 URL 拼接(`/material/thumbnail|serve?material_id=`);
+- 下载:`openfilm:library:download { project, materialId, filename, target: 'project'|'downloads' }`(project→影片 assets/download;downloads→系统下载目录),返回 `{ok, rel|path}`;
+- 素材引用闭环:下载到项目 → 左侧面板 → 时间线 / `@` 引用(官方交互)。
 
 ## 11. 角色/智能体名册(进行中)
 

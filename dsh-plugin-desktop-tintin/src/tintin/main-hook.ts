@@ -368,13 +368,14 @@ export function installTinTinMainHook(): void {
   process.on('exit', teardownStudioSync)
   // ── 在线素材库(2026-10-24 用户要求): 主进程代理服务端 /material/*, 供 shell 页抽屉 ──
   ipcMain.handle('openfilm:library:list', async (_event, payload: unknown) => {
-    const q = (payload ?? {}) as { page?: unknown; size?: unknown; search?: unknown }
+    const q = (payload ?? {}) as { page?: unknown; size?: unknown; mediaType?: unknown; search?: unknown }
     const serverUrl = tinServerUrl()
     if (!serverUrl) return { error: '服务端未配置' }
     try {
       const url = new URL(serverUrl + '/material/list')
       url.searchParams.set('page', String(Number(q.page) || 1))
       url.searchParams.set('size', String(Number(q.size) || 24))
+      if (typeof q.mediaType === 'string' && q.mediaType) url.searchParams.set('media_type', q.mediaType)
       if (typeof q.search === 'string' && q.search.trim()) url.searchParams.set('search', q.search.trim())
       const res = await fetch(url)
       /* 实测(2026-10-24 铁律 14): /material/list 返回顶层 items, 不包 data */
@@ -384,21 +385,23 @@ export function installTinTinMainHook(): void {
     } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
   })
   ipcMain.handle('openfilm:library:download', async (_event, payload: unknown) => {
-    const p = (payload ?? {}) as { project?: unknown; materialId?: unknown; filename?: unknown; serverUrl?: unknown }
+    const p = (payload ?? {}) as { project?: unknown; materialId?: unknown; filename?: unknown; serverUrl?: unknown; target?: unknown }
+    const target: 'project' | 'downloads' = p.target === 'downloads' ? 'downloads' : 'project'
     const project = typeof p.project === 'string' && p.project ? p.project.replace(/[\\/]+$/, '') : ''
     const id = String(p.materialId ?? '')
     const filename = String(p.filename ?? `material-${id}`)
-    if (!project || !id) return { error: '参数缺失(项目/素材 id)' }
+    if (!id || (target === 'project' && !project)) return { error: '参数缺失(项目/素材 id)' }
     const serverUrl = typeof p.serverUrl === 'string' && p.serverUrl ? p.serverUrl.replace(/\/+$/, '') : tinServerUrl()
     if (!serverUrl) return { error: '服务端未配置' }
     try {
       const res = await fetch(serverUrl + '/material/serve?material_id=' + encodeURIComponent(id))
       if (!res.ok) throw new Error('HTTP ' + res.status)
-      const dir = join(project, 'assets', 'download')
+      const dir = target === 'downloads' ? app.getPath('downloads') : join(project, 'assets', 'download')
       mkdirSync(dir, { recursive: true })
       const safe = filename.replace(/[/:*?"<>|]/g, '-').slice(0, 100) || `material-${id}`
-      writeFileSync(join(dir, safe), Buffer.from(await res.arrayBuffer()))
-      return { ok: true, rel: 'assets/download/' + safe }
+      const file = join(dir, safe)
+      writeFileSync(file, Buffer.from(await res.arrayBuffer()))
+      return target === 'downloads' ? { ok: true, path: file } : { ok: true, rel: 'assets/download/' + safe }
     } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
   })
   const filmAgent = (): FilmAgentManager => {
