@@ -477,7 +477,7 @@ export function installTinTinMainHook(): void {
   })
   // ── 产品库选择(2026-10-24 用户要求): 仿视频流程的选择产品移植 — 代理 /api/product-library/* ──
   ipcMain.handle('openfilm:products', async (_event, payload: unknown) => {
-    const p = (payload ?? {}) as { op?: unknown; q?: unknown; limit?: unknown; id?: unknown }
+    const p = (payload ?? {}) as { op?: unknown; q?: unknown; limit?: unknown; id?: unknown; project?: unknown }
     const serverUrl = tinServerUrl()
     if (!serverUrl) return { error: '服务端未配置' }
     try {
