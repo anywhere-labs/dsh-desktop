@@ -87,12 +87,22 @@ const mount = (): void => {
         return ''
       };
       const lines: string[] = [];
-      const head4 = [str(['brand']), str(['model']), str(['category']), str(['goods_no'])].filter(Boolean).join(' · ');
+      const head4 = [str(['brand']), str(['model']), str(['category']), str(['goods_no']), str(['spec_no'])].filter(Boolean).join(' · ');
       lines.push(`【产品】${head4 || name0(item)}`);
       const features = str(['features']);
       if (features) lines.push(`性能参数：${features}`);
       const selling = str(['selling_points']);
       if (selling) for (const line of selling.split('\n')) if (line.trim()) lines.push(`卖点：${line.trim()}`);
+      /* 资料补全(2026-10-25 报障: 部分产品 features/selling_points 为空): notes/keywords/
+         规格/条码/仓库一并带上, 智能体拿到的上下文尽量全。 */
+      const notes = str(['notes']);
+      if (notes) lines.push(`备注：${notes}`);
+      const keywords = item.keywords;
+      if (Array.isArray(keywords) && keywords.length) lines.push(`关键词：${keywords.map(String).join('、')}`);
+      const barcode = str(['barcode']);
+      if (barcode) lines.push(`条码：${barcode}`);
+      const warehouse = str(['warehouse']);
+      if (warehouse) lines.push(`仓库：${warehouse}`);
       return lines.join('\n');
     };
     const name0 = (item: Record<string, unknown>): string => {

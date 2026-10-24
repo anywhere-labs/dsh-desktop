@@ -34,6 +34,8 @@ const mount = (): void => {
       const current = kept && ROLES.some(([id]) => id === kept) ? kept : 'tintin-assistant';
       select.value = current;
       ;(window as unknown as { __tintinRole: string }).__tintinRole = current;
+      /* 行内紧凑尺寸: 与模型名同排, 不挤压官方按钮 */
+      select.style.cssText = 'height:26px;min-width:96px;background:transparent;border:0;color:inherit;font:12px system-ui;outline:none;cursor:pointer';
       select.onchange = () => {
         const picked = select.value;
         ;(window as unknown as { __tintinRole: string }).__tintinRole = picked;
