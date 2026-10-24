@@ -1935,19 +1935,28 @@ ${event.data.error.reason}` : result
               const opened = await nativeView.open(info.url)
               if (!opened?.ok) throw new Error(opened?.error || 'Studio 视图打开失败')
               frame.style.display = 'none'
-              /* 官方聊天接管: shell 页就绪即刻命中(250ms 快轮询, 不固定等 800ms);
-                 旧 Studio 服务进程伺服旧 editor 时, 第 24 轮起请求主进程清理陈旧
-                 run.json(restart), 下一轮以新资源重启再探; 未命中 → 兜底过渡版。 */
+              /* 官方聊天接管: shell 页就绪即刻命中(250ms 快轮询);
+                 仅在「页面已加载完成(readyState=complete)且没有桌面桥」连续出现时,
+                 才判定为陈旧服务并请求清理 run.json —— 页面加载慢时绝不重启(否则
+                 会起第二个服务并让视图闪到别的界面)。未命中 → 兜底过渡版。 */
               let shell = false
+              let staleSeen = 0
               for (let attempt = 0; attempt < 40 && !shell; attempt += 1) {
                 if (attempt % 4 === 0) {
                   const info2 = await window.tintin?.openfilm?.studio?.().catch(() => null)
                   if (info2?.url && nativeView?.open) await nativeView.open(info2.url).catch(() => {})
                 }
                 try {
-                  const r = await nativeView.hasShellChat?.(attempt >= 24)
+                  const r = await nativeView.hasShellChat?.()
                   if (r?.has === true) { shell = true; break }
-                  if (r?.restarted === true) { setStatus('已重启视频剪辑服务, 正在接管官方聊天…'); await new Promise((done) => setTimeout(done, 1200)); continue }
+                  const diag = (r?.diag ?? {})
+                  if (diag.readyState === 'complete' && diag.hasDesktop !== true) staleSeen += 1
+                  else staleSeen = 0
+                  if (staleSeen >= 3) {
+                    staleSeen = 0
+                    const rr = await nativeView.hasShellChat?.(true)
+                    if (rr?.restarted === true) { setStatus('已清理陈旧视频剪辑服务, 正在接管官方聊天…'); await new Promise((done) => setTimeout(done, 1200)); continue }
+                  }
                 } catch { shell = false }
                 await new Promise((done) => setTimeout(done, 250))
               }

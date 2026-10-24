@@ -77,6 +77,7 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 ## 5. 影片视图(client-ui)
 
 - 原生视图覆盖舞台;250ms 快轮询 `has-shell`(openfilmDesktop + #of-chat 双判定),命中即接管;
+- **陈旧判定只在确认旧页时触发**(2026-10-24 报障修复):探测诊断须连续 3 次「readyState=complete 且无桌面桥」才请求清理 run.json;页面加载慢时**绝不重启**(否则会起第二个服务、视图闪切到别的界面);未命中兜底恢复过渡版;
 - 顶部填充 40px(原生视图上移)、底部留 40px **日志条**(接管状态 + 诊断 JSON + 日志路径);
 - 未命中兜底:恢复过渡版聊天列 + 状态行;陈旧服务清理后由 `startStudio` 全新拉起。
 
