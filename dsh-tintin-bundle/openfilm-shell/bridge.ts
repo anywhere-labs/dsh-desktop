@@ -53,35 +53,7 @@ interface Native {
 const native = (window as unknown as { openfilmNative: Native }).openfilmNative;
 const hello = native.hello();
 
-/* 临时对齐诊断(验收期, 对齐后移除): Studio→聊天的选中上报与引用调用实时计数。
-   选中时间线片段后 sel上报 不涨 = 编辑器→桥断; 涨了而菜单仍灰 = 桥→聊天断。 */
-const diagState = { selectionReports: 0, referCalls: 0, lastSelTime: null as number | null };
-const diagEl = document.createElement('div');
-diagEl.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483647;background:#000c;color:#8ff;font:11px/1.5 monospace;padding:4px 8px;border-radius:6px;pointer-events:none;white-space:pre;';
-const renderDiag = (): void => {
-  /* 诊断自身绝不能弄崩页面: 本文件后段才初始化 project/layout, 求值早期调用会 TDZ */
-  try {
-    const p = project.get()
-    const col = document.getElementById('of-chat')
-    const rootEl = document.getElementById('root')
-    diagEl.textContent = [
-      `[tintin诊断] readyState=${document.readyState}`,
-      `openfilmHost=${Boolean(window.openfilmHost)}  openfilmDesktop=${Boolean(window.openfilmDesktop)}  openfilmNative=${Boolean(window.openfilmNative)}`,
-      `Studio已挂载=${Boolean(rootEl && rootEl.childElementCount > 0)}  聊天列=${col ? (col.hidden ? '隐藏' : '显示') : '缺元素'}`,
-      `项目=${p ? p.name : '未解析'}  路径=${p ? p.path : '—'}`,
-      `选中上报=${diagState.selectionReports}  引用调用=${diagState.referCalls}`,
-    ].join('\n')
-  } catch { /* 求值未完成: 下一轮再画 */ }
-}
-setInterval(renderDiag, 600);
-const startDiag = (): void => {
-  document.body.append(diagEl);
-  renderDiag();
-};
-/* 模块脚本是 deferred 的: 执行时 readyState 已是 interactive, 直接调用会撞后段
-   const 的 TDZ —— 必须 setTimeout 推迟到整个模块求值完成之后。 */
-setTimeout(startDiag, 0);
-(window as unknown as { __tintinDiag: typeof diagState }).__tintinDiag = diagState;
+/* 诊断改由影片视图底部的日志条承载(client-ui 轮询 has-shell 诊断), 页内不再挂角标。 */
 
 /** A value that tells its listeners when it changes. */
 function signal<T>(value: T) {
@@ -314,15 +286,10 @@ const host: StudioHost = {
   ...(windows ? { titlebar: { inset: 6, insetRight: INSET_RIGHT } } : {}),
   /* in order, each with its picture: two pointed at quickly must not swap or share a screenshot */
   refer: (ref) => {
-    diagState.referCalls += 1;
     if (!layout.open) setChatOpen(true);
     pictured = pictured.then(() => withPicture(ref)).then((done) => refer.set(done));
   },
-  onSelection: (next) => {
-    diagState.selectionReports += 1;
-    diagState.lastSelTime = next.time ?? null;
-    selection.set(next);
-  },
+  onSelection: (next) => selection.set(next),
   onHover: (ref) => hover.set(ref ?? null),
   onCommand: (listener) => { command = listener; },
   settings: { onOpen: (listener) => native.onOpenSettings(listener) },
