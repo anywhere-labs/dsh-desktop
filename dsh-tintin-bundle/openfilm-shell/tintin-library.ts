@@ -11,6 +11,7 @@ type Tab = 'video' | 'image' | 'audio';
 
 const STYLE = [
   '.tintin-lib-fab{position:fixed;left:8px;bottom:52px;z-index:2147483000;background:#16171a;border:1px solid #3b6fd4;color:#cfe0ff;font:12px system-ui;padding:5px 10px;border-radius:8px;cursor:pointer}',
+  '.tintin-lib-backdrop{position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.28)}',
   '.tintin-lib-drawer{position:fixed;top:0;right:0;bottom:0;width:400px;z-index:2147483001;background:#101114;border-left:1px solid #26272b;display:flex;flex-direction:column;font:13px/1.5 system-ui;color:#e2e2e6}',
   '.tintin-lib-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #1c1d21}',
   '.tintin-lib-title{flex:1;font-weight:700;font-size:14px}',
@@ -87,6 +88,9 @@ const mount = (): void => {
     progress.append(document.createElement('i'));
     drawer.append(head, tabs, search, list, more, progress, status);
     document.body.append(drawer);
+    /* 背景遮罩(点抽屉外任意处即关闭): 抽屉 z=3001, 遮罩 z=3000 */
+    const backdrop = document.createElement('div'); backdrop.className = 'tintin-lib-backdrop'; backdrop.style.display = 'none';
+    document.body.append(backdrop);
 
     let tab: Tab = 'video';
     let page = 1;
@@ -184,13 +188,14 @@ const mount = (): void => {
     };
 
     const open = (): void => {
+      backdrop.style.display = 'block'
       drawer.style.display = 'flex';
       if (!list.childElementCount && !busy) void load(true);
     };
-    const hide = (): void => { stopAudio(); drawer.style.display = 'none' };
+    const hide = (): void => { stopAudio(); drawer.style.display = 'none'; backdrop.style.display = 'none' };
     fab.onclick = open;
-    /* 关闭按钮(2026-10-24 报障: × 不可用): 用 pointerdown 捕获 + 阻止冒泡, 不依赖 click 合成;
-       同时 Esc 也能关闭; 关闭后回置聊天的素材按钮状态。 */
+    /* 关闭(2026-10-24 报障三轮): 三条独立路径 —— ①大热区 × (pointerdown+click) ②点抽屉外的背景遮罩
+       ③Esc; 全部落到同一个 requestClose, 关闭后回置聊天素材按钮状态。 */
     const requestClose = (event?: Event): void => {
       if (event) { event.preventDefault(); event.stopPropagation() }
       hide()
@@ -198,6 +203,7 @@ const mount = (): void => {
     };
     close.addEventListener('pointerdown', requestClose)
     close.addEventListener('click', requestClose)
+    backdrop.addEventListener('pointerdown', requestClose)
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && drawer.style.display !== 'none') requestClose()
     })
