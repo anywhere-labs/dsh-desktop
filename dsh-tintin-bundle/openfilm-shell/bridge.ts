@@ -78,7 +78,9 @@ const chatOpenSignal = signal(true);
 
 /** The column's width as the window allows it: Studio keeps its least width, the chat its own while it fits. */
 const shownWidth = () => (layout.open ? Math.max(Math.min(layout.width, innerWidth - layout.studioMin), Math.min(layout.min, innerWidth)) : 0);
-const panelState = () => ({ open: layout.open, width: shownWidth(), assets: { open: assets.open && layout.open, bottom: assets.bottom } });
+  /* TinTin(2026-10-24 用户裁决): 不向 Studio 声明 assets 缝 —— Studio 保留自己的
+     左侧媒体面板(项目素材位); 聊天列抽屉改为 TinTin 在线素材(见 tintin-library)。 */
+  const panelState = () => ({ open: layout.open, width: shownWidth() });
 const panelListeners = new Set<Listener<ReturnType<typeof panelState>>>();
 
 /** 聊天列必现(2026-10-23 用户明确: 会话框不能是隐藏态)—— 只有手动的收起开关能藏它。 */
@@ -86,7 +88,6 @@ function place() {
   column.hidden = !layout.open;
   column.style.width = `${shownWidth()}px`;
   column.style.top = `${TOP_BAR}px`;
-  column.toggleAttribute('data-assets-open', assets.open && layout.open);
   const state = panelState();
   for (const listener of panelListeners) listener(state);
 }
@@ -115,6 +116,18 @@ function setAssetsOpen(open: boolean) {
     assetsSignal.set(assets.open);
     place();
   });
+  /* TinTin(2026-10-24 用户裁决): 聊天列抽屉 = 在线素材(不向 Studio 索取项目媒体);
+     项目素材保留在 Studio 左侧媒体面板位。抽屉的开关转给 TinTin 在线素材抽屉。 */
+  assetsDrawerOpener?.(assets.open);
+}
+/** 在线素材抽屉(tintin-library.ts)注册的开合实现; 聊天的素材按钮经此开合。 */
+let assetsDrawerOpener: ((open: boolean) => void) | null = null;
+export function registerAssetsDrawer(opener: (open: boolean) => void): void {
+  assetsDrawerOpener = opener;
+}
+/** 在线素材抽屉关闭时回置聊天的素材按钮状态。 */
+export function closeAssetsDrawer(): void {
+  setAssetsOpen(false);
 }
 native.onToggleChat(() => setChatOpen(!layout.open));
 
@@ -298,7 +311,8 @@ const host: StudioHost = {
     label: 'Chat',
     get open() { return layout.open; },
     get width() { return shownWidth(); },
-    get assets() { return panelState().assets; },
+    /* TinTin: 不声明 assets 缝 —— 项目素材留在 Studio 左侧面板; 抽屉给在线素材 */
+    get assets() { return { open: false, bottom: 120 }; },
     setOpen: setChatOpen,
     setAssetsOpen,
     setWidth: (width, done) => setChatWidth(width, done === true),

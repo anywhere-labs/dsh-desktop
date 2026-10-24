@@ -4,6 +4,7 @@
  * assets/download, 落地后即出现在 Studio 媒体面板, 走官方交互(拖入时间线/@ 引用)。
  */
 import { bootFail } from './boot';
+import { registerAssetsDrawer, closeAssetsDrawer } from './bridge';
 
 type LibraryItem = { material_id?: unknown; id?: unknown; filename?: unknown; name?: unknown; size?: unknown };
 
@@ -71,8 +72,11 @@ const mount = (): void => {
       drawer.style.display = 'flex';
       if (!list.childElementCount && !busy) void load(false);
     };
+    const hide = (): void => { drawer.style.display = 'none' };
     fab.onclick = open;
-    close.onclick = () => { drawer.style.display = 'none' };
+    close.onclick = () => { hide(); closeAssetsDrawer() };
+    /* 聊天列的素材按钮经桥开合本抽屉(2026-10-24 用户裁决: 抽屉 = 在线素材) */
+    registerAssetsDrawer((openState) => { if (openState) open(); else hide() });
 
     async function load(reset: boolean): Promise<void> {
       if (busy) return;
