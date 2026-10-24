@@ -78,7 +78,7 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 
 
 **加载架构(2026-10-24 用户裁决)**: 舞台上的加载遮罩(note)在原生视图**隐藏**期间显示; 原生视图是独立表面(页面里的遮罩盖不住它), 因此在「页面桥就绪 + 页面已画出过一帧(主进程双 rAF 屏障)」两项都满足后才显示; 遮罩在显示视图之后才撤, 消除遮罩撤了但首帧未画的黑屏窗口期。
-> 入口位置(2026-10-24 用户裁决, 修正): 素材与技能入口就在**右侧聊天列 composer 工具条**(官方按钮); **不再有任何左侧/浮动的素材、技能按钮**。**角色选择器**悬浮在聊天列左缘(编辑器右下角、轨道末端空白区), 不压左侧轨道头。抽屉下移 40px: 顶部栏(上传/语言/更多等窗口 chrome 按钮)已有内容, 抽屉头部让开它, 避免 × 与 chrome 按钮重叠。
+> 入口位置(2026-10-24 用户裁决, 终稿): **素材 / 技能 / 角色 三个入口全部在右侧聊天列的 composer 工具条内**(官方按钮同款样式, 注入式挂载); 无任何左侧/浮动入口。在线素材抽屉由素材按钮开合; 抽屉下移 40px 让开顶部栏。抽屉下移 40px: 顶部栏(上传/语言/更多等窗口 chrome 按钮)已有内容, 抽屉头部让开它, 避免 × 与 chrome 按钮重叠。
 
 
 - **重绘推进(2026-10-24 报障, 二修)**: 1px 微调不足以触发合成器; 改为在页面加载完成与接管确认后**把子视图摘挂一次**(removeChildView/addChildView, 等价于用户切换视图/还原窗口) + 16px 边界往返; 三个时机: showStudio 后 / did-finish-load 后 / has-shell 命中后 200ms;
@@ -180,7 +180,7 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 
 - 角色 = TinTin 角色预设(`dsh-tintin-bundle/presets/`:tintin-assistant 总助手、tintin-director 编导、tintin-producer 制作、tintin-qc 质检、tintin-librarian 素材库),与主应用同源(每角色的 `preset.yml` 元数据 + `agent.cordis.yml` 组合,persona 前缀即角色人设);
 - 影片智能体按角色生成**分角色补丁**(`<channelHome>/tintin/film-agent-<role>.patch.yml`):模型路由 + **persona 前缀替换**(读取角色预设的 persona 块,原样进补丁,与主应用文本一致);无角色时用默认补丁;
-- 选择器:shell 页「角色」下拉(`tintin-role.ts`,持久化 `tintin.role`)→ `window.__tintinRole` → studio-preload 的 `localAgents.start` 随 meta 送达 → 主进程 `begin(project, { tintinRole })`;(选择器位于聊天列 composer 正上方, 2026-10-24 用户裁决)
+- 选择器:shell 页 composer 工具条内的「角色」下拉(官方同款样式, 注入式挂载)(`tintin-role.ts`,持久化 `tintin.role`)→ `window.__tintinRole` → studio-preload 的 `localAgents.start` 随 meta 送达 → 主进程 `begin(project, { tintinRole })`;(选择器位于聊天列 composer 正上方, 2026-10-24 用户裁决)
 - 角色变化 = 人设不同 → `ensure` 重建会话(旧子进程 stop,新角色补丁拉起);
 - 上游依据:`packages/acp/acp/src/index.ts` 明示 ACP 不组预设、部署方经配置加入(本实现以部署补丁承载,不改子模块);role 切换的 UI = TinTin 自有选择器(官方 composer 的 configOptions 仍为模型选择,不变)。
 
