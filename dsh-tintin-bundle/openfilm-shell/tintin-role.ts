@@ -14,7 +14,7 @@ const ROLES: Array<[string, string]> = [
 ]
 
 const STYLE = [
-  '.tintin-role{position:fixed;right:428px;bottom:124px;z-index:2147483000;display:flex;align-items:center;gap:6px;background:#16171a;border:1px solid #2a2b31;border-radius:8px;padding:4px 8px;font:12px system-ui;color:#c9c9cf}',
+  '.tintin-role{position:fixed;right:12px;bottom:140px;z-index:2147483000;display:flex;align-items:center;gap:6px;background:#16171a;border:1px solid #2a2b31;border-radius:8px;padding:4px 8px;font:12px system-ui;color:#c9c9cf}',
   '.tintin-role select{background:transparent;border:0;color:#e8e8e6;font:12px system-ui;outline:none}',
   '.tintin-role select option{background:#16171a;color:#e8e8e6}',
 ].join('\n');
