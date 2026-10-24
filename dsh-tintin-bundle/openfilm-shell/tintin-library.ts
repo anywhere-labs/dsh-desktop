@@ -12,7 +12,7 @@ type Tab = 'video' | 'image' | 'audio';
 const STYLE = [
   '.tintin-lib-fab{position:fixed;right:428px;bottom:52px;z-index:2147483000;background:#16171a;border:1px solid #3b6fd4;color:#cfe0ff;font:12px system-ui;padding:5px 10px;border-radius:8px;cursor:pointer}',
   '.tintin-lib-backdrop{position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.28)}',
-  '.tintin-lib-drawer{position:fixed;top:0;right:0;bottom:0;width:400px;z-index:2147483001;background:#101114;border-left:1px solid #26272b;display:flex;flex-direction:column;font:13px/1.5 system-ui;color:#e2e2e6}',
+  '.tintin-lib-drawer{position:fixed;top:40px;right:0;bottom:0;width:400px;z-index:2147483001;background:#101114;border-left:1px solid #26272b;display:flex;flex-direction:column;font:13px/1.5 system-ui;color:#e2e2e6}',
   '.tintin-lib-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #1c1d21}',
   '.tintin-lib-title{flex:1;font-weight:700;font-size:14px}',
   '.tintin-lib-close{background:#1a1b1f;border:1px solid #2a2b31;border-radius:8px;color:#c9c9cf;font-size:15px;cursor:pointer;min-width:28px;height:28px;padding:0 8px;flex:none}',
@@ -31,7 +31,7 @@ const STYLE = [
   '.tintin-lib-play{width:26px;height:26px;padding:0;border-radius:50%}',
   '.tintin-lib-play.is-playing{background:#3b6fd4;color:#fff}',
   '.tintin-lib-more{margin:10px 12px 14px;border:1px solid #26272b;background:#16171a;color:#c9c9cf;font-size:12px;padding:6px;border-radius:8px;cursor:pointer}',
-  '.tintin-lib-status{padding:6px 12px 12px;color:#8a8a90;font-size:11px;min-height:18px;white-space:pre-wrap}',
+  '.tintin-lib-footer{padding:0 12px 12px}.tintin-lib-status{padding:6px 12px 12px;color:#8a8a90;font-size:11px;min-height:18px;white-space:pre-wrap}',
   '.tintin-lib-progress{height:3px;margin:0 12px;background:#1a1b1f;border-radius:2px;overflow:hidden}',
   '.tintin-lib-progress i{display:block;height:100%;width:40%;background:#3b6fd4;animation:tintin-lib-slide 1.1s linear infinite}',
   '@keyframes tintin-lib-slide{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}',
@@ -66,12 +66,7 @@ const mount = (): void => {
     style.textContent = STYLE;
     document.head.append(style);
 
-    const fab = document.createElement('button');
-    fab.className = 'tintin-lib-fab';
-    fab.textContent = '⇩ 在线素材';
-    document.body.append(fab);
-
-    const drawer = document.createElement('div');
+const drawer = document.createElement('div');
     drawer.className = 'tintin-lib-drawer';
     drawer.style.display = 'none';
     const head = document.createElement('div'); head.className = 'tintin-lib-head';
@@ -86,7 +81,10 @@ const mount = (): void => {
     /* 下载进度条(2026-10-24 用户要求): 抽屉底部的不定长进度条, 下载期间显示 */
     const progress = document.createElement('div'); progress.className = 'tintin-lib-progress'; progress.style.display = 'none';
     progress.append(document.createElement('i'));
-    drawer.append(head, tabs, search, list, more, progress, status);
+    const footer = document.createElement('div'); footer.className = 'tintin-lib-footer';
+    const footerClose = document.createElement('button'); footerClose.className = 'tintin-lib-close'; footerClose.textContent = '关闭'; footerClose.style.width = '100%';
+    footer.append(footerClose);
+    drawer.append(head, tabs, search, list, more, progress, status, footer);
     document.body.append(drawer);
     /* 背景遮罩(点抽屉外任意处即关闭): 抽屉 z=3001, 遮罩 z=3000 */
     const backdrop = document.createElement('div'); backdrop.className = 'tintin-lib-backdrop'; backdrop.style.display = 'none';
@@ -193,7 +191,6 @@ const mount = (): void => {
       if (!list.childElementCount && !busy) void load(true);
     };
     const hide = (): void => { stopAudio(); drawer.style.display = 'none'; backdrop.style.display = 'none' };
-    fab.onclick = open;
     /* 关闭(2026-10-24 报障三轮): 三条独立路径 —— ①大热区 × (pointerdown+click) ②点抽屉外的背景遮罩
        ③Esc; 全部落到同一个 requestClose, 关闭后回置聊天素材按钮状态。 */
     const requestClose = (event?: Event): void => {
@@ -203,6 +200,8 @@ const mount = (): void => {
     };
     close.addEventListener('pointerdown', requestClose)
     close.addEventListener('click', requestClose)
+    footerClose.addEventListener('pointerdown', requestClose)
+    footerClose.addEventListener('click', requestClose)
     backdrop.addEventListener('pointerdown', requestClose)
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && drawer.style.display !== 'none') requestClose()

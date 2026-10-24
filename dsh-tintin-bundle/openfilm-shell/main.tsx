@@ -12,7 +12,6 @@ import { FocusNav } from 'openfilm/studio-ui/components/FocusNav.tsx';
 import { applyStudioHost } from 'openfilm/studio-ui/lib/host.ts';
 import { mountChat } from '../../dsh-plugin-desktop-tintin/tintin-resources/openfilm-shell-src/chat/mount';
 import './tintin-library';
-import './tintin-skills';
 import './tintin-role';
 import { bootFail } from './boot';
 import './shell.css';
