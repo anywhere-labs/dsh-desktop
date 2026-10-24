@@ -62,6 +62,8 @@ let browserAttached = false
 // 60s 内只重启一次防循环,超窗后允许再次对账)。
 const FILM_SHELL_RESTART_WINDOW_MS = 60_000
 let filmShellRestartedAt = 0
+/** 官方聊天「从未就绪 → 就绪」的转变标记: 重绘推进只在转变时执行一次(不再反复摘挂)。 */
+let filmShellWasReady = false
 
 /** TinTin 通道 home(影片智能体的 run.json/补丁/偏好都挂在它下面)。 */
 const channelHome = (): string =>
@@ -151,9 +153,6 @@ function ensureStudioView(window: BrowserWindow, url: string): WebContentsView {
   view.webContents.on('did-finish-load', () => {
     studioLoadFailed = false
     studioLoadedUrl = url
-    /* 页面加载完成后同一位置再推一次重绘(黑屏修复的第二时机: 首帧加载完成时视图的合成器
-       可能仍停在旧状态) */
-    if (studioLastRect !== null) nudgeRepaint(studioLastRect)
   })
   view.webContents.on('destroyed', () => {
     if (studioView === view) {
@@ -192,10 +191,8 @@ function showStudio(bounds: OpenFilmBounds): void {
   }
   studioView.setBounds(rect)
   studioLastRect = rect
-  /* 重绘推进(2026-10-24 报障: 进入视频剪辑后一直黑屏, 还原窗口/切换界面才显示 ——
-     WebContentsView 的内容已加载但合成器不重绘, 直到 bounds 变化。这里在显示后
-     做一次 1px 的边界微调再还原, 强制合成器重绘; 页面加载完成后同一位置再推一次。 */
-  nudgeRepaint(rect)
+  /* 重绘推进只在「从未就绪 → 就绪」转变时做一次(见 has-shell); show 本身不再反复
+     摘挂/微调 —— 那会让画面在每次边界同步时抖动(2026-10-24 报障)。 */
 }
 
 /** 边界往返 + 视图重挂载: 触发 WebContentsView 的合成器重绘(黑屏的确定性修复).
@@ -350,8 +347,12 @@ export function installTinTinMainHook(): void {
             )) === true
           } catch { painted = false }
         }
-        /* 接管确认(页面已交互且已画出帧)后, 延迟再推一次重绘 */
-        if (has && painted && studioLastRect !== null) setTimeout(() => { if (studioLastRect !== null) nudgeRepaint(studioLastRect) }, 200)
+        /* 接管确认(从未就绪 → 就绪的转变, 一次性)后延迟推一次重绘;
+           常驻探测(日志条 4s 轮询)命中时**不再**摘挂/微调 —— 那会让画面持续抖动
+           (2026-10-24 报障: 已加载完成还反复抖)。 */
+        const shellBecameReady = has && painted && !filmShellWasReady
+        filmShellWasReady = has && painted
+        if (shellBecameReady && studioLastRect !== null) setTimeout(() => { if (studioLastRect !== null) nudgeRepaint(studioLastRect) }, 200)
         const restartWindowOpen = Date.now() - filmShellRestartedAt < FILM_SHELL_RESTART_WINDOW_MS
         if (has || !restartIfStale || restartWindowOpen) return { ok: true, has, painted, diag: d, restarted: false }
         filmShellRestartedAt = Date.now()
