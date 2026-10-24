@@ -387,10 +387,25 @@ export function installTinTinMainHook(): void {
   ipcMain.handle('openfilm:library:download', async (_event, payload: unknown) => {
     const p = (payload ?? {}) as { project?: unknown; materialId?: unknown; filename?: unknown; serverUrl?: unknown; target?: unknown }
     const target: 'project' | 'downloads' = p.target === 'downloads' ? 'downloads' : 'project'
-    const project = typeof p.project === 'string' && p.project ? p.project.replace(/[\\/]+$/, '') : ''
+    let project = typeof p.project === 'string' && p.project ? p.project.replace(/[\\/]+$/, '') : ''
     const id = String(p.materialId ?? '')
     const filename = String(p.filename ?? `material-${id}`)
-    if (!id || (target === 'project' && !project)) return { error: '参数缺失(项目/素材 id)' }
+    /* 页面拿不到影片目录时, 主进程自己从 studio.json 解析(2026-10-24 报障: 页面侧
+       openfilm:currentProject 偶发为空 → 下载直接失败且磁盘无文件)。 */
+    if (target === 'project' && !project) {
+      try {
+        const raw = JSON.parse(readFileSync(join(channelHome(), 'openfilm-studio', 'studio.json'), 'utf8')) as { recent?: Array<{ path?: unknown }> }
+        const first = raw.recent?.[0]?.path
+        if (typeof first === 'string' && first) {
+          project = first.replace(/[\\/]+$/, '')
+          diagnosticLog({ source: 'tintin-main', event: 'library-download-project-fallback', level: 'info', developer: false, fields: { project } })
+        }
+      } catch { /* 无 studio.json: 下面的参数校验报错 */ }
+    }
+    if (!id || (target === 'project' && !project)) {
+      diagnosticLog({ source: 'tintin-main', event: 'library-download', level: 'error', developer: false, fields: { reason: '参数缺失', id, project } })
+      return { error: '参数缺失(项目/素材 id)' }
+    }
     const serverUrl = typeof p.serverUrl === 'string' && p.serverUrl ? p.serverUrl.replace(/\/+$/, '') : tinServerUrl()
     if (!serverUrl) return { error: '服务端未配置' }
     try {
@@ -401,8 +416,13 @@ export function installTinTinMainHook(): void {
       const safe = filename.replace(/[/:*?"<>|]/g, '-').slice(0, 100) || `material-${id}`
       const file = join(dir, safe)
       writeFileSync(file, Buffer.from(await res.arrayBuffer()))
+      diagnosticLog({ source: 'tintin-main', event: 'library-download', level: 'info', developer: false, fields: { ok: true, file, target } })
       return target === 'downloads' ? { ok: true, path: file } : { ok: true, rel: 'assets/download/' + safe }
-    } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      diagnosticLog({ source: 'tintin-main', event: 'library-download', level: 'error', developer: false, fields: { ok: false, error: message, id, project } })
+      return { error: message }
+    }
   })
   const filmAgent = (): FilmAgentManager => {
     if (filmAgentManager === null) {

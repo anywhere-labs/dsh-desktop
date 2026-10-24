@@ -236,7 +236,11 @@ const mount = (): void => {
             row.append(play);
           }
           const dl = document.createElement('button'); dl.className = 'tintin-lib-dl'; dl.textContent = '下载到项目';
-          dl.onclick = () => { void download(item, 'project') };
+          dl.onclick = () => {
+            if (dl.dataset.busy === '1') return;
+            dl.dataset.busy = '1'; dl.textContent = '下载中…'
+            void download(item, 'project').finally(() => { dl.dataset.busy = ''; dl.textContent = '下载到项目' })
+          };
           row.append(dl);
           row.addEventListener('contextmenu', (event) => {
             event.preventDefault(); event.stopPropagation();

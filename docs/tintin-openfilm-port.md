@@ -153,8 +153,8 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 ### 10.3 数据与 IPC
 
 - 列表:`openfilm:library:list`(主进程代理 `GET /material/list?page&size&media_type&search`,实测返回**顶层 `items`**,无 CORS);响应附带 `serverUrl` 供缩略图/预览 URL 拼接(`/material/thumbnail|serve?material_id=`);
-- 下载:`openfilm:library:download { project, materialId, filename, target: 'project'|'downloads' }`(project→影片 assets/download;downloads→系统下载目录),返回 `{ok, rel|path}`;
-- 素材引用闭环:下载到项目 → 左侧面板 → 时间线 / `@` 引用(官方交互)。
+- 下载:`openfilm:library:download { project, materialId, filename, target: 'project'|'downloads' }`(project→影片 assets/download;downloads→系统下载目录),返回 `{ok, rel|path}`;**项目路径缺失时主进程自行从 `openfilm-studio/studio.json` 的最近项目解析**(2026-10-24 报障:页面侧 openfilm:currentProject 偶发为空导致下载无反应);每次下载的结果(成功文件路径/失败原因)写统一日志(事件 `library-download`),行按钮有「下载中…」状态;
+- 素材引用闭环:下载到项目 → 左侧面板 → 时间线 / `@` 引用(官方交互);左侧面板的刷新由 Studio 自身的列表拉取决定(外部写入的文件需面板刷新或重开影片才出现)。
 
 ## 11. 角色智能体名册(2026-10-24 实现)
 
