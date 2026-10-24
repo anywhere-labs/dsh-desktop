@@ -133,6 +133,10 @@ contextBridge.exposeInMainWorld('openfilmNative', {
     list: (query: unknown): Promise<unknown> => agentInvoke('openfilm:library:list', query),
     download: (payload: unknown): Promise<unknown> => agentInvoke('openfilm:library:download', payload),
   },
+  /* 产品库选择(2026-10-24 用户要求): 仿视频流程的选择产品移植 — 搜索/详情代理 */
+  products: {
+    call: (payload: unknown): Promise<unknown> => agentInvoke('openfilm:products', payload),
+  },
   agents: agentRegistry,
   localAgents,
   chat,

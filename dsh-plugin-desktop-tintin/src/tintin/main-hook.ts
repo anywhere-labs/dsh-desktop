@@ -475,6 +475,27 @@ export function installTinTinMainHook(): void {
       return { error: message }
     }
   })
+  // ── 产品库选择(2026-10-24 用户要求): 仿视频流程的选择产品移植 — 代理 /api/product-library/* ──
+  ipcMain.handle('openfilm:products', async (_event, payload: unknown) => {
+    const p = (payload ?? {}) as { op?: unknown; q?: unknown; limit?: unknown; id?: unknown }
+    const serverUrl = tinServerUrl()
+    if (!serverUrl) return { error: '服务端未配置' }
+    try {
+      if (p.op === 'search') {
+        const url = new URL(serverUrl + '/api/product-library/search')
+        url.searchParams.set('q', String(p.q ?? ''))
+        url.searchParams.set('limit', String(Number(p.limit) || 50))
+        const res = await fetch(url)
+        return await res.json()
+      }
+      if (p.op === 'detail') {
+        const id = encodeURIComponent(String(p.id ?? ''))
+        const res = await fetch(serverUrl + '/api/product-library/items/' + id)
+        return await res.json()
+      }
+      return { error: '未知操作' }
+    } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
+  })
   const filmAgent = (): FilmAgentManager => {
     if (filmAgentManager === null) {
       const home = channelHome()
