@@ -167,7 +167,16 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 - 下载:`openfilm:library:download { project, materialId, filename, target: 'project'|'downloads' }`(project→影片 assets/download;downloads→系统下载目录),返回 `{ok, rel|path}`;**项目路径缺失时主进程自行从 `openfilm-studio/studio.json` 的最近项目解析**(2026-10-24 报障:页面侧 openfilm:currentProject 偶发为空导致下载无反应);每次下载的结果(成功文件路径/失败原因)写统一日志(事件 `library-download`),行按钮有「下载中…」状态;
 - 素材引用闭环:下载到项目 → 左侧面板 → 时间线 / `@` 引用(官方交互);左侧面板的刷新由 Studio 自身的列表拉取决定(外部写入的文件需面板刷新或重开影片才出现)。
 
-## 11. 角色智能体名册(2026-10-24 实现)
+## 11.1 选择产品(2026-10-24 用户要求: 仿视频流程移植)
+
+| 交互 | 规格 |
+|---|---|
+| 入口 | composer 底部行「📦 产品」按钮(角色选择器旁) |
+| 面板 | 搜索(品类/品牌/型号)+ 产品列表(名称/品类/货号), 点选即注入 |
+| 注入 | 产品资料结构化文本(品牌·型号·品类·货号 + 性能参数 + 核心卖点逐条)以粘贴事件写入官方 composer 输入框(Lexical 原生接住), 即 @ 引用形态 |
+| 数据 | 主进程代理 GET /api/product-library/search?q&limit 与 /items/{id}(实测顶层 items/item) |
+
+## 11. 角色智能体名册(2026-10-24 实现)## 11. 角色智能体名册(2026-10-24 实现)
 
 - 角色 = TinTin 角色预设(`dsh-tintin-bundle/presets/`:tintin-assistant 总助手、tintin-director 编导、tintin-producer 制作、tintin-qc 质检、tintin-librarian 素材库),与主应用同源(每角色的 `preset.yml` 元数据 + `agent.cordis.yml` 组合,persona 前缀即角色人设);
 - 影片智能体按角色生成**分角色补丁**(`<channelHome>/tintin/film-agent-<role>.patch.yml`):模型路由 + **persona 前缀替换**(读取角色预设的 persona 块,原样进补丁,与主应用文本一致);无角色时用默认补丁;
