@@ -757,14 +757,14 @@ ${event.data.error.reason}` : result
             return
           }
           nativeShown = true
-          // 顶部填充 40px(2026-10-24 用户要求: 挂载界面上移填满顶部条)+ 底部收缩 40px
-          // 给日志条让位 —— 原生视图只盖舞台上方区域, 日志条常驻可见。
-          const TOP_FILL = 40
+          /* 原生视图 = 舞台矩形(底部让出 40px 给日志条); **不向上扩张** —— 曾经的
+             TOP_FILL=40 让视图侵入窗口 chrome 条, 抽屉头部压在拖拽区边界上:
+             双击触发窗口最大化、× 的点击落到 chrome(2026-10-24 报障的机制)。 */
           const LOG_STRIP = 40
           const nx = Math.round(rect.left)
-          const ny = Math.round(rect.top - TOP_FILL)
+          const ny = Math.round(rect.top)
           const nw = Math.round(rect.width)
-          const nh = Math.max(8, Math.round(rect.height + TOP_FILL - LOG_STRIP))
+          const nh = Math.max(8, Math.round(rect.height - LOG_STRIP))
           const next = `${nx},${ny},${nw},${nh}`
           if (next === lastBounds) return
           lastBounds = next
