@@ -1948,7 +1948,9 @@ ${event.data.error.reason}` : result
                 }
                 try {
                   const r = await nativeView.hasShellChat?.()
-                  if (r?.has === true) { shell = true; break }
+                  /* 加载完成的判定(2026-10-24 用户裁决的加载架构): 页面桥就绪 **且** 页面已
+                     画出过一帧(主进程侧双 rAF 屏障); 两项都满足才显示原生视图。 */
+                  if (r?.has === true && r?.painted === true) { shell = true; break }
                   const diag = (r?.diag ?? {})
                   if (diag.readyState === 'complete' && diag.hasDesktop !== true) staleSeen += 1
                   else staleSeen = 0
@@ -1960,11 +1962,15 @@ ${event.data.error.reason}` : result
                 } catch { shell = false }
                 await new Promise((done) => setTimeout(done, 250))
               }
-              if (shell) { setNote('') } else {
+              /* 遮罩保持到视图显示之后: 视图是独立表面, 页面遮罩盖不住它; 先 show(已确认首帧),
+                 再撤遮罩, 消除"遮罩撤了但首帧未画"的黑屏窗口期。 */
+              await syncBounds()
+              if (shell) {
+                setNote('')
+              } else {
                 setNote('官方聊天接管失败：已恢复过渡版聊天（需重装含 shell 构建的包）\n点击这里重试')
                 noteRetry = true
               }
-              await syncBounds()
             } else {
               // iframe 兜底模式：加载遮罩盖住空白框，frame load 事件清它（下方既有契约）
               frame.style.display = 'block'

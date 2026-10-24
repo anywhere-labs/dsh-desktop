@@ -333,13 +333,26 @@ export function installTinTinMainHook(): void {
             hasRoot: Boolean(document.getElementById('root')),
           }
         } catch (error) { return { error: String(error) } }
-      })()`, true).then((raw) => {
+      })()`, true).then(async (raw) => {
         const d = (raw ?? {}) as { readyState?: string; hasDesktop?: boolean; hasHost?: boolean; hasChatColumn?: boolean; hasRoot?: boolean; error?: string }
         const has = d.hasDesktop === true && d.hasChatColumn === true
-        /* 接管确认(页面已交互)后, 延迟再推一次重绘 —— 首帧绘制可能晚于加载完成 */
-        if (has && studioLastRect !== null) setTimeout(() => { if (studioLastRect !== null) nudgeRepaint(studioLastRect) }, 200)
+        /* 绘制屏障(2026-10-24 用户裁决的加载架构): 视图是独立表面, 页面里的遮罩盖不住它;
+           必须在**显示视图之前**证明页面已经画出过一帧 —— 在页面内跑双 rAF, 帧排进页面
+           合成器后返回; 客户端据此才 show 视图(遮罩保持到 show 之后), 避免"遮罩撤了、首帧
+           还没画"的黑屏窗口期。 */
+        let painted = false
+        if (has) {
+          try {
+            painted = (await studioView.webContents.executeJavaScript(
+              'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))',
+              true,
+            )) === true
+          } catch { painted = false }
+        }
+        /* 接管确认(页面已交互且已画出帧)后, 延迟再推一次重绘 */
+        if (has && painted && studioLastRect !== null) setTimeout(() => { if (studioLastRect !== null) nudgeRepaint(studioLastRect) }, 200)
         const restartWindowOpen = Date.now() - filmShellRestartedAt < FILM_SHELL_RESTART_WINDOW_MS
-        if (has || !restartIfStale || restartWindowOpen) return { ok: true, has, diag: d, restarted: false }
+        if (has || !restartIfStale || restartWindowOpen) return { ok: true, has, painted, diag: d, restarted: false }
         filmShellRestartedAt = Date.now()
         try {
           /* 只清除陈旧 run.json, 不按 pid 裸杀 —— pid 可能已被系统复用给任何进程
