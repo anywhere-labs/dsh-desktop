@@ -338,12 +338,13 @@ export function installTinTinMainHook(): void {
         const has = d.hasDesktop === true && d.hasChatColumn === true
         /* 绘制屏障(2026-10-24 用户裁决的加载架构): 视图是独立表面, 页面里的遮罩盖不住它;
            必须在**显示视图之前**证明页面已经画出过一帧 —— 在页面内跑双 rAF, 帧排进页面
-           合成器后返回; 客户端据此才 show 视图(遮罩保持到 show 之后), 避免"遮罩撤了、首帧
-           还没画"的黑屏窗口期。 */
+           合成器后返回; 客户端据此才 show 视图(遮罩保持到 show 之后), 避免遮罩撤了而首帧
+           还没画的黑屏窗口期。 */
         let painted = false
-        if (has) {
+        const probeView = studioView
+        if (has && probeView !== null && !probeView.webContents.isDestroyed()) {
           try {
-            painted = (await studioView.webContents.executeJavaScript(
+            painted = (await probeView.webContents.executeJavaScript(
               'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))',
               true,
             )) === true
