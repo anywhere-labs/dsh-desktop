@@ -4,7 +4,7 @@
 // installs itself from here, before the mirrored bootstrap runs.
 
 import { app, BrowserWindow, WebContentsView, dialog, ipcMain, shell, type WebContents } from 'electron'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +12,22 @@ import { FilmAgentManager, dshBinExists } from './film-acp.ts'
 import { filmChat, keepSnapshot, settleSnapshot } from './film-chat.ts'
 import { resolveDesktopChannelHome } from '../desktop-channel-home.ts'
 import { DESKTOP_PRODUCT_IDENTITY, DESKTOP_PRODUCT_NAME } from '../product-identity.ts'
+
+// 铁律 3(关键失败路径必须打点): 主进程未捕获异常落盘 —— Explorer 启动时 stderr
+// 随之丢失, 上一次"程序崩溃"查无证据。日志: <通道 home>\logs\main-error.log
+const mainErrorLogPath = join(
+  resolveDesktopChannelHome({ identity: DESKTOP_PRODUCT_IDENTITY, environment: process.env, homeDirectory: homedir() }).homeDir,
+  'logs',
+  'main-error.log',
+)
+const appendMainError = (kind: string, detail: string): void => {
+  try {
+    mkdirSync(dirname(mainErrorLogPath), { recursive: true })
+    appendFileSync(mainErrorLogPath, `${new Date().toISOString()} ${kind}\n${detail}\n\n`)
+  } catch { /* 日志失败不连带进程 */ }
+}
+process.on('uncaughtException', (error) => { appendMainError('uncaughtException', error.stack ?? String(error)) })
+process.on('unhandledRejection', (reason) => { appendMainError('unhandledRejection', reason instanceof Error ? (reason.stack ?? String(reason)) : String(reason)) })
 
 // TinTin 品牌(通道专属): 窗口标题固定为产品名 —— 上游页面把 <title> 写成
 // "DSH Desktop", 每个窗口创建时拦截标题更新, 保持 "TinTin"(2026-10-23 用户要求)。
