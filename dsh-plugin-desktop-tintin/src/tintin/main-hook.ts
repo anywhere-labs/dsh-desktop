@@ -558,10 +558,29 @@ export function installTinTinMainHook(): void {
     const q = (payload ?? {}) as { project?: unknown; agent?: unknown; names?: unknown }
     const dir = openfilmSkillsDir()
     const texts: Array<{ name: string; text: string }> = []
+    const wanted = (Array.isArray(q.names) ? q.names : []).map(String)
     if (dir !== null) {
-      for (const name of (Array.isArray(q.names) ? q.names : []).map(String)) {
+      for (const name of wanted) {
         try { texts.push({ name, text: readFileSync(join(dir, name, 'SKILL.md'), 'utf8') }) } catch { /* 缺文件: 跳过 */ }
       }
+    }
+    /* 服务端技能的正文注入(2026-10-24): /skills 响应自带 instruction 字段(实测),
+       本地缺 SKILL.md 的名字从这里补 —— 技能引用的上下文注入必须带全文。 */
+    const missing = wanted.filter((name) => !texts.some((t) => t.name === name))
+    if (missing.length) {
+      try {
+        const serverUrl = tinServerUrl()
+        if (serverUrl) {
+          const res = await fetch(serverUrl + '/skills')
+          const body = await res.json() as { skills?: Array<{ name?: unknown; instruction?: unknown }> }
+          for (const s of body.skills ?? []) {
+            const name = String(s.name ?? '')
+            const instruction = String(s.instruction ?? '')
+            if (!name || !instruction || !missing.includes(name)) continue
+            texts.push({ name, text: instruction })
+          }
+        }
+      } catch { /* 服务端不可达: 已尽力 */ }
     }
     return texts
   })
