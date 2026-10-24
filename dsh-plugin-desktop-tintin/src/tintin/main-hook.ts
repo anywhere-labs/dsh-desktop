@@ -12,22 +12,20 @@ import { FilmAgentManager, dshBinExists } from './film-acp.ts'
 import { filmChat, keepSnapshot, settleSnapshot } from './film-chat.ts'
 import { resolveDesktopChannelHome } from '../desktop-channel-home.ts'
 import { DESKTOP_PRODUCT_IDENTITY, DESKTOP_PRODUCT_NAME } from '../product-identity.ts'
+import { diagnosticLog } from '../developer-logging.ts'
 
-// 铁律 3(关键失败路径必须打点): 主进程未捕获异常落盘 —— Explorer 启动时 stderr
-// 随之丢失, 上一次"程序崩溃"查无证据。日志: <通道 home>\logs\main-error.log
-const mainErrorLogPath = join(
-  resolveDesktopChannelHome({ identity: DESKTOP_PRODUCT_IDENTITY, environment: process.env, homeDirectory: homedir() }).homeDir,
-  'logs',
-  'main-error.log',
-)
-const appendMainError = (kind: string, detail: string): void => {
-  try {
-    mkdirSync(dirname(mainErrorLogPath), { recursive: true })
-    appendFileSync(mainErrorLogPath, `${new Date().toISOString()} ${kind}\n${detail}\n\n`)
-  } catch { /* 日志失败不连带进程 */ }
+// 铁律 3(关键失败路径必须打点): 主进程未捕获异常走统一日志管道(diagnosticLog →
+// 滚动的 logs\dsh-*.log), 不另起炉灶私有落盘 —— Explorer 启动时 stderr 会丢失,
+// 上一次"程序崩溃"查无证据的教训(2026-10-24)。
+const reportMainError = (kind: string, error: unknown): void => {
+  diagnosticLog({
+    source: 'tintin-main', event: kind, level: 'error', developer: false,
+    error: error instanceof Error ? error : String(error),
+    fields: { stack: error instanceof Error ? (error.stack ?? '') : String(error) },
+  })
 }
-process.on('uncaughtException', (error) => { appendMainError('uncaughtException', error.stack ?? String(error)) })
-process.on('unhandledRejection', (reason) => { appendMainError('unhandledRejection', reason instanceof Error ? (reason.stack ?? String(reason)) : String(reason)) })
+process.on('uncaughtException', (error) => { reportMainError('uncaughtException', error) })
+process.on('unhandledRejection', (reason) => { reportMainError('unhandledRejection', reason) })
 
 // TinTin 品牌(通道专属): 窗口标题固定为产品名 —— 上游页面把 <title> 写成
 // "DSH Desktop", 每个窗口创建时拦截标题更新, 保持 "TinTin"(2026-10-23 用户要求)。
@@ -121,6 +119,18 @@ function ensureStudioView(window: BrowserWindow, url: string): WebContentsView {
     },
   })
   view.setBackgroundColor('#0b0c0f')
+  /* 视频剪辑页的 console 进统一日志管道(diagnosticLog): Studio 的开发模式在页内
+     可看, 主进程侧同步留档, 与主窗口渲染层日志同文件同格式。 */
+  view.webContents.on('console-message', (...args: unknown[]) => {
+    const details = args[1] as { level?: unknown; message?: unknown; lineNumber?: unknown; sourceId?: unknown } | number | undefined
+    const read = typeof details === 'object' && details !== null
+      ? { level: Number(details.level ?? 2), message: String(details.message ?? ''), line: Number(details.lineNumber ?? 0), sourceId: String(details.sourceId ?? '') }
+      : { level: Number(details ?? 2), message: String(args[2] ?? ''), line: Number(args[3] ?? 0), sourceId: String(args[4] ?? '') }
+    diagnosticLog({
+      source: 'studio-renderer', event: 'console', level: read.level >= 3 ? 'error' : 'info', developer: false,
+      fields: { message: read.message.slice(0, 2000), sourceId: read.sourceId, line: read.line },
+    })
+  })
   view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   view.webContents.on('did-fail-load', (_event, code, description, failedUrl) => {
     studioLoadFailed = true
