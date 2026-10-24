@@ -1,0 +1,152 @@
+# TinTin 视频剪辑 × OpenFilm 移植说明(第三行形态)
+
+状态:现行 · 依据:2026-10-18/23/24 用户裁决 + 官方 openfilm 0.2.5 源码(pin `cf6cd6f`)+ 实测(铁律 12/14) · 关联:[移植方案](tintin-migration-plan.md)、[验收追踪表](tintin-openfilm-alignment-acceptance.md)、[服务端兼容说明](tintin-openfilm-server-providers.md)
+
+## 0. 本文范围
+
+本文是**视频剪辑功能整体从 OpenFilm 移植的说明**:OpenFilm 是什么、我们采用哪种形态、页内三份桥面契约、影片视图、ACP 智能体、持久化、媒体 provider、技能、在线素材库、角色名册、**移植文件清单(锚点)**、生命周期与自愈、服务端契约、验收口径。后续任何视频剪辑相关改动以本文为唯一入口。
+
+## 1. OpenFilm 是什么(上游资产)
+
+OpenFilm 是开源 AI 视频制作应用(仓库 `github.com/openfilm/openfilm`):Studio 编辑器(影片 = HTML 页面 + 时间线)+ 应用壳(聊天列驱动智能体写影片)。官方桌面端 = 编辑器与聊天**同一页编译**(`apps/desktop/shell`),经 `window.openfilmDesktop` 桥把 Studio 与聊天接起来。我们**不重写编辑器、不重写聊天**,以官方源码为资产移植。
+
+## 2. 集成形态裁决(第三行)
+
+| 方案 | 结论 |
+|---|---|
+| 自绘聊天列(过渡版) | **退役**(2026-10-23) |
+| 只嵌编辑器 | 不采用 |
+| **第三行:Studio 官方聊天 UI + DSH ACP 智能体** | **采用** |
+
+铁律落点:过渡版能力**一律以官方机制重建**(删过渡版 ≠ 删功能,2026-10-24 用户裁决);重建映射见 §12 与验收表。
+
+## 3. 总体架构
+
+```
+主窗口(TinTin 客户端页)
+  └─ 视频剪辑视图(client-ui mountOpenFilm)
+       ├─ 原生视图(WebContentsView, 伺服 Studio 服务页 /open?key=…)
+       │    └─ shell 页(官方两树编译): Studio 编辑器 + 官方聊天列
+       │         ├─ window.openfilmHost   ← shell 页 bridge.ts(唯一宿主)
+       │         ├─ window.openfilmDesktop ← shell 页 bridge.ts(聊天桥)
+       │         └─ window.openfilmNative  ← studio-preload(系统面 IPC)
+       ├─ 底部常驻日志条(接管状态 + 诊断 + 日志路径)
+       └─ 加载遮罩 / 失败重试
+主进程(dsh-plugin-desktop-tintin)
+  ├─ FilmAgentManager(每影片一个 dsh --profile acp 子进程)
+  ├─ filmChat(.film/chat.json + .film/logs/*.jsonl)
+  ├─ Studio 服务生命周期(start/attach/reconcile/teardown)
+  └─ 统一日志 diagnosticLog(主进程/studio-renderer/宿主)
+服务端(TinTin server 192.168.111.31:8000):/llm(模型路由)、/v1(asr/tts 兼容)、/material/*、/skills
+```
+
+## 4. 页内桥面三契约
+
+| 契约 | 归属 | 内容 |
+|---|---|---|
+| `window.openfilmHost`(StudioHost) | **shell 页 bridge.ts 唯一设置者**(preload 不再暴露迷你 host — 双宿主劫持选中上报的实障) | panel(不含 assets/setAssetsOpen)、agents、asks、folders、settings、developer、update、onSelection/onRefer/onHover/onCommand |
+| `window.openfilmDesktop`(AppBridge) | shell 页 bridge.ts | agents/localAgents/chat/skills/asks/projectFiles/withPicture/highlightInStudio/draftRefsInStudio/assetsOpen/setAssetsOpen/onRefer/onSelection… |
+| `window.openfilmNative` | studio-preload(contextBridge) | agents 注册表、localAgents(ACP 会话协议)、chat(持久化)、skills(清单/正文)、library(在线素材代理)、tintinFilmDir、capture/pickFolder/revealPath/prefs |
+
+**关键判定(官方源码实证)**:Studio 的左侧媒体面板是否让位,由 `host.ts useHostPanel` 的 **`panel.setAssetsOpen` 是否存在**决定;我们不挂该成员 → 项目素材保留在 Studio 左侧面板,聊天列素材按钮改开在线素材抽屉。
+
+## 5. 影片视图(client-ui)
+
+- 原生视图覆盖舞台;250ms 快轮询 `has-shell`(openfilmDesktop + #of-chat 双判定),命中即接管;
+- 顶部填充 40px(原生视图上移)、底部留 40px **日志条**(接管状态 + 诊断 JSON + 日志路径);
+- 未命中兜底:恢复过渡版聊天列 + 状态行;陈旧服务清理后由 `startStudio` 全新拉起。
+
+## 6. 影片智能体(ACP)
+
+- `dsh --profile acp --patch <channelHome>/tintin/film-agent.patch.yml`,每影片一个子进程;
+- 补丁定义 provider(tintin-server, OpenAI 兼容)+ 模型(deepseek-v4-flash/pro),密钥占位 `sk-tintin-local`;
+- 能力:steering(通知式)、cancel、setConfigOption、permission/elicitation 转发为官方审批卡/提问卡;
+- 启动句柄用 **deferred**(禁止 bare `Promise.reject`:会触发 failLoud 退出主程序 — 2026-10-24 实障);
+- 会话持久化:`session/resume`,失败回落新建;`FilmAgentManager.dispose()` 随 app 退出/崩溃路径执行。
+
+## 7. 会话持久化
+
+- `<影片>/.film/chat.json`(原子整写:{sessions,last,turns:[{turn,items}]});
+- `<影片>/.film/logs/<turnId>.jsonl`(prompt/done/事件逐行);
+- IPC 面 `desktop:chat:*`(load/sessions/turn/log/unsaved/ref-image/attachment/paths/snapshot/changes/reveal);
+- 轮次回执缓存:重载后恢复“运行中”会话,ack 后清理。
+
+## 8. 媒体 provider(服务端为默认)
+
+- `server.openfilmCompat` **默认 true**:隔离 Studio home 种 `use.asr/tts=openai`,Studio 进程注入 `OPENFILM_OPENAI_URL` + 占位 key;人的真 openai key 存在时自动让位;
+- 服务端 `/v1/audio/transcriptions` 对齐(asr form 字段 + verbose_json words);`/v1/audio/speech` wav 对齐;
+- 模型路由:对话不消耗 DeepSeek 官方 API(ACP 补丁走 tintin-server)。
+
+## 9. 技能(原生 + 服务端)
+
+- 名单:`openfilm:native:skills-list` = 随包分发的原生技能(`resources/skills/openfilm`)+ 服务端 `/skills`(实测**顶层 `skills`**,字段 id/name/description/instruction);
+- 正文:`openfilm:native:skills-texts` = 本地 SKILL.md + 服务端 `instruction` 补齐 → 技能引用的上下文注入带全文;
+- 原生技能随包:`scripts/prepare-skills.mjs` 复制 → extraResources `skills/`;影片智能体启动时同步进 `film-agent-home/skills/openfilm/`。
+
+## 10. 在线素材库
+
+- shell 页内抽屉(`tintin-library.ts`):聊天列素材按钮经 `registerAssetsDrawer` 打开,或左下角「⇩ 在线素材」;
+- 数据经主进程代理(`openfilm:library:list`,实测 `/material/list` 返回**顶层 `items`**,无 CORS 问题);
+- 下载:`openfilm:library:download` 写入 `<影片>/assets/download/` → Studio 左侧媒体面板可见 → 拖时间线 / `@` 引用(素材引用闭环)。
+
+## 11. 角色/智能体名册(进行中)
+
+- 上游接缝:`packages/acp/acp/src/index.ts` 明示 ACP 会话**不组合预设**,部署方经 preset-registry「Composing a child agent」**加入名册**(部署配置,不改子模块);
+- 计划:TinTin 角色(总助手/编导/制作/质检/素材库)= 名册条目(系统提示 + 组合),经 `film-agent.patch.yml` 定义;composer 侧以官方机制呈现。
+
+## 12. 移植文件清单(锚点)
+
+### 12.1 过渡版功能 → 官方形态映射(验收口径)
+
+| 过渡版功能 | 官方形态实现 | 移植点 |
+|---|---|---|
+| 自绘聊天列(会话/审批/提问/工具卡) | 官方 chat 源树编译进 shell 页(mountChat),经 `window.openfilmDesktop` 桥通信 | `openfilm-shell/main.tsx`、chat 源树(官方 pin) |
+| 宿主契约桥面 | 官方 `apps/desktop/shell/bridge.ts` 逐字移植;**单宿主**(preload 不暴露迷你 host) | `openfilm-shell/bridge.ts`、`studio-preload.ts` |
+| 选中/时间/引用注入 | Studio ProjectView → `host.onSelection/onRefer` → 官方聊天 @ 菜单与 pill | `bridge.ts`(官方 ProjectView) |
+| 项目素材位 | Studio 左侧媒体面板(panel 不挂 assets/setAssetsOpen) | `bridge.ts` panel |
+| 在线素材库 | shell 页内抽屉(主进程代理 `/material/*`);下载落 `assets/download` | `tintin-library.ts`、main-hook `openfilm:library:*` |
+| 技能(原生+服务端合并) | `app.skills` 名单合并 + 正文注入(`/skills` 的 instruction) | main-hook `openfilm:native:skills-*` |
+| 原生技能随包分发 | `resources/skills/openfilm` → 影片智能体 home 同步 | `scripts/prepare-skills.mjs`、`film-acp.ts` |
+| 影片历史持久化 | `.film/chat.json` + `.film/logs/*.jsonl` | `film-chat.ts`、`desktop:chat:*` |
+| 角色(编导/制作) | ACP 预设名册(部署配置,不改子模块) | `film-agent.patch.yml`(进行中) |
+
+### 12.2 文件清单
+
+| 层 | 文件 |
+|---|---|
+| shell 页构建 | `dsh-tintin-bundle/openfilm-shell/{main.tsx,bridge.ts,tintin-library.ts,boot.ts,index.html,shell.css,vite.config.ts,build.mjs}` + vendor 两树(`tintin-resources/openfilm-shell-src/{openfilm,chat,shared}`,官方 pin) |
+| 通道主进程 | `dsh-plugin-desktop-tintin/src/tintin/{film-acp.ts,film-chat.ts,studio-preload.ts,main-hook.ts}` |
+| 契约 | `dsh-plugin-desktop-tintin/src/openfilm-view-contract.ts`(三通道镜像) |
+| 客户端视图 | `dsh-tintin-client-ui/client.js`(mountOpenFilm + 抽屉/日志条/接管) |
+| 宿主桥插件 | `dsh-tintin-bundle/lib/openfilm/*`(studio-runtime 对账、providers-seed、skill-sync、libs-sync) |
+| 官方运行时 | `dsh-plugin-desktop-tintin/tintin-resources/openfilm`(0.2.5,editor dist 由 shell 构建覆盖) |
+
+## 13. 生命周期与自愈
+
+- **接管**:快轮询 → 命中接管;未命中清陈旧 run.json → `startStudio` 全新拉起(附着前**指纹对账**:editor dist 摘要 + 版本);
+- **净场**:`will-quit` + `process 'exit'`(failLoud 崩溃路径)同步收场;开机对账按可执行路径甄别清理 openfilm node 孤儿(不碰其它 node);
+- **观测**:页面启动错误浮层(含行号)、底部日志条、统一 `diagnosticLog`(`%APPDATA%\TinTin\logs\dsh-*.log` + host 分册)。
+
+## 14. 服务端契约(实测摘要)
+
+| 端点 | 形状 |
+|---|---|
+| `/material/list?page&size&media_type&search` | `{items:[{id,filename,size,media_type,…}]}`(**顶层 items**) |
+| `/material/serve?material_id=` | 二进制流 |
+| `/material/thumbnail?material_id=` | 图片 |
+| `/skills` | `{ok:true,skills:[{id,name,description,instruction}]}`(**顶层 skills**) |
+| `/v1/audio/transcriptions` | multipart(file/model/language/response_format=verbose_json)→ words[]+duration |
+| `/v1/audio/speech` | `{model,input,voice,response_format=wav}` → wav |
+| `/llm/models`、`/llm/chat/completions` | OpenAI 兼容 |
+
+## 15. 验收与门禁
+
+- 逐条状态:[验收追踪表](tintin-openfilm-alignment-acceptance.md);
+- 锚点:`check:tintin`(scripts/tintin-anchors.json)登记本文与承重代码锚点;变体门禁、typecheck、film-acp 单测同链;
+- 运行时行为改动:**先出包自测该项,通过才提交**;任何失败路径必须可观测(页面浮层/日志条/统一日志)。
+
+## 16. 已知缺口/非目标
+
+- 角色名册(§11)实现中;上游 feature:custom 服务作内建 provider、子树归组(远期);
+- Studio 顶栏多窗口/tabs 桩(单视图壳);应用内更新走 TinTin 自身通道;
+- 转写请求明细(calls)暂空(仅 ACP 事件日志)。

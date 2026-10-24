@@ -91,7 +91,7 @@
   },
   {
     "comment": "the plan keeps the interim-to-official feature mapping table",
-    "path": "docs/tintin-migration-plan.md",
+    "path": "docs/tintin-openfilm-port.md",
     "pattern": "过渡版功能 → 官方形态映射",
     "minCount": 1
   },

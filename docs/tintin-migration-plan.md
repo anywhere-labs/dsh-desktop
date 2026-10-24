@@ -151,28 +151,6 @@ dsh-desktop(Yarn 4 monorepo,运行时 0.2.0-rc.2 vendored)
 
 ## 八、OpenFilm 壳/ACP 集成(第三行裁决,2026-10-23 起)
 
-**裁决**:视频剪辑 = Studio 官方聊天 UI(openfilm 0.2.5 页内 shell:编辑器 + 官方聊天同页编译)+ DeepSeek Harness ACP 智能体(模型路由 TinTin 服务端)。**删过渡版不等于删功能** — 过渡版能力一律以**官方机制**重建(用户裁决 2026-10-24)。
+视频剪辑 = Studio 官方聊天 UI(openfilm 0.2.5 页内 shell)+ DeepSeek Harness ACP 智能体(模型路由 TinTin 服务端)。**删过渡版 ≠ 删功能** — 过渡版能力一律以官方机制重建。
 
-### 8.1 过渡版功能 → 官方形态映射(验收口径)
-
-| 过渡版功能 | 官方形态实现 | 移植点(锚点) |
-|---|---|---|
-| 自绘聊天列(会话/审批/提问/工具卡) | 官方 chat 源树编译进 shell 页(mountChat),经 `window.openfilmDesktop` 桥通信 | `openfilm-shell/main.tsx`、chat 源树(官方 pin cf6cd6f) |
-| 宿主契约桥面 | 官方 `apps/desktop/shell/bridge.ts` 逐字移植;**单宿主**(页面 bridge 是唯一 `openfilmHost`,preload 不暴露迷你 host) | `openfilm-shell/bridge.ts`、`studio-preload.ts` |
-| 选中/时间/引用注入 | Studio ProjectView → `host.onSelection/onRefer` → 官方聊天 @ 菜单与 pill | `bridge.ts` selection/refer(官方 ProjectView) |
-| 项目素材位 | Studio 左侧媒体面板(**panel 不挂 assets/setAssetsOpen** — host.ts useHostPanel 判定) | `bridge.ts` panel |
-| 在线素材库(浏览/下载落项目) | shell 页内抽屉(主进程代理 `/material/*`,无 CORS);下载落 `assets/download` → 左侧面板 | `tintin-library.ts`、main-hook `openfilm:library:*` |
-| 技能(原生+服务端合并) | `app.skills` 名单合并(顶层 `skills` 形状);正文注入含服务端 `instruction` | main-hook `openfilm:native:skills-list/texts` |
-| 原生技能随包分发 | `resources/skills/openfilm` → 影片智能体 home 同步 | `scripts/prepare-skills.mjs`、`film-acp.ts` |
-| 影片历史持久化 | `.film/chat.json` + `.film/logs/*.jsonl` | `film-chat.ts`、`desktop:chat:*` |
-| 角色(编导/制作) | 官方 ACP 会话预设名册(上游接缝:preset-registry「Composing a child agent」,经部署配置加入,不改子模块) | `film-agent.patch.yml`(进行中) |
-
-### 8.2 生命周期与自愈(第三行形态)
-
-- **接管**:影片视图 250ms 快轮询 `has-shell`;未命中 → 清陈旧 run.json → `startStudio` 全新拉起(附着前指纹对账)。
-- **净场**:`will-quit` + `process 'exit'`(failLoud 崩溃路径)同步收场;开机对账按可执行路径甄别清理 openfilm node 孤儿。
-- **日志**:统一 `diagnosticLog`(主进程 / studio-renderer / 宿主);页面启动错误浮层;影片视图底部常驻日志条。
-
-### 8.3 验收追踪
-
-需求→实现→验证的逐条状态见 [对齐验收追踪表](tintin-openfilm-alignment-acceptance.md);锚点门禁(`check:tintin`)登记本文与代码的承重锚点([scripts/tintin-anchors.json](../scripts/tintin-anchors.json))。
+**视频剪辑的整体移植说明独立成文**:[TinTin 视频剪辑 × OpenFilm 移植说明](tintin-openfilm-port.md) — 架构、页内三份桥面契约、影片视图、ACP 智能体、持久化、媒体 provider、技能、在线素材库、角色名册、**移植文件锚点与过渡版→官方形态映射**、生命周期与自愈、服务端实测契约、验收口径。该文档是视频剪辑相关改动的唯一入口。
