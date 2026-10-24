@@ -366,6 +366,40 @@ export function installTinTinMainHook(): void {
   }
   app.on('will-quit', teardownStudioSync)
   process.on('exit', teardownStudioSync)
+  // ── 在线素材库(2026-10-24 用户要求): 主进程代理服务端 /material/*, 供 shell 页抽屉 ──
+  ipcMain.handle('openfilm:library:list', async (_event, payload: unknown) => {
+    const q = (payload ?? {}) as { page?: unknown; size?: unknown; search?: unknown }
+    const serverUrl = tinServerUrl()
+    if (!serverUrl) return { error: '服务端未配置' }
+    try {
+      const url = new URL(serverUrl + '/material/list')
+      url.searchParams.set('page', String(Number(q.page) || 1))
+      url.searchParams.set('size', String(Number(q.size) || 24))
+      if (typeof q.search === 'string' && q.search.trim()) url.searchParams.set('search', q.search.trim())
+      const res = await fetch(url)
+      const body = await res.json() as { data?: { items?: unknown[]; list?: unknown[] } }
+      const items = Array.isArray(body.data?.items) ? body.data.items : Array.isArray(body.data?.list) ? body.data.list : []
+      return { serverUrl, items }
+    } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
+  })
+  ipcMain.handle('openfilm:library:download', async (_event, payload: unknown) => {
+    const p = (payload ?? {}) as { project?: unknown; materialId?: unknown; filename?: unknown; serverUrl?: unknown }
+    const project = typeof p.project === 'string' && p.project ? p.project.replace(/[\\/]+$/, '') : ''
+    const id = String(p.materialId ?? '')
+    const filename = String(p.filename ?? `material-${id}`)
+    if (!project || !id) return { error: '参数缺失(项目/素材 id)' }
+    const serverUrl = typeof p.serverUrl === 'string' && p.serverUrl ? p.serverUrl.replace(/\/+$/, '') : tinServerUrl()
+    if (!serverUrl) return { error: '服务端未配置' }
+    try {
+      const res = await fetch(serverUrl + '/material/serve?material_id=' + encodeURIComponent(id))
+      if (!res.ok) throw new Error('HTTP ' + res.status)
+      const dir = join(project, 'assets', 'download')
+      mkdirSync(dir, { recursive: true })
+      const safe = filename.replace(/[/:*?"<>|]/g, '-').slice(0, 100) || `material-${id}`
+      writeFileSync(join(dir, safe), Buffer.from(await res.arrayBuffer()))
+      return { ok: true, rel: 'assets/download/' + safe }
+    } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
+  })
   const filmAgent = (): FilmAgentManager => {
     if (filmAgentManager === null) {
       const home = channelHome()

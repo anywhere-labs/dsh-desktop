@@ -121,6 +121,11 @@ contextBridge.exposeInMainWorld('openfilmNative', {
       return typeof (r as { project?: unknown } | null)?.project === 'string' ? (r as { project: string }).project : ''
     } catch { return '' }
   },
+  /* 在线素材库(2026-10-24 用户要求): 主进程代理服务端 /material/*, 页面无 CORS 问题 */
+  library: {
+    list: (query: unknown): Promise<unknown> => agentInvoke('openfilm:library:list', query),
+    download: (payload: unknown): Promise<unknown> => agentInvoke('openfilm:library:download', payload),
+  },
   agents: agentRegistry,
   localAgents,
   chat,
