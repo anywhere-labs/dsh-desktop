@@ -760,11 +760,13 @@ ${event.data.error.reason}` : result
           /* 原生视图 = 舞台矩形(底部让出 40px 给日志条); **不向上扩张** —— 曾经的
              TOP_FILL=40 让视图侵入窗口 chrome 条, 抽屉头部压在拖拽区边界上:
              双击触发窗口最大化、× 的点击落到 chrome(2026-10-24 报障的机制)。 */
+          // 顶部贴紧 chrome 底缘(2026-10-24 用户裁决: 顶部空隙要填满);
+          // 底部让出 40px 日志条。抽屉已下移 40px, × 不与 chrome 按钮重叠。
           const LOG_STRIP = 40
           const nx = Math.round(rect.left)
-          const ny = Math.round(rect.top)
+          const ny = Math.round(rect.top - 40)
           const nw = Math.round(rect.width)
-          const nh = Math.max(8, Math.round(rect.height - LOG_STRIP))
+          const nh = Math.max(8, Math.round(rect.height + 40 - LOG_STRIP))
           const next = `${nx},${ny},${nw},${nh}`
           if (next === lastBounds) return
           lastBounds = next
