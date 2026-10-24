@@ -111,7 +111,9 @@ function setChatWidth(width: number, done = false) {
 }
 function setAssetsOpen(open: boolean) {
   if (open && !layout.open) setChatOpen(true);
-  assets.open = open && layout.open;
+  /* 没有注册在线素材抽屉时不得置开: 聊天在 assetsOpen=true 时会隐藏内容区,
+     抽屉不存在就会留下整块空白(2026-10-24 实测: 空白列事故)。 */
+  assets.open = open && layout.open && assetsDrawerOpener !== null;
   flushSync(() => {
     assetsSignal.set(assets.open);
     place();

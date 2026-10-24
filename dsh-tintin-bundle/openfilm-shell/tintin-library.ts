@@ -50,7 +50,12 @@ const mount = (): void => {
       }
     }).openfilmNative;
     const filmDirBridge = (window as unknown as { tintinFilmDir?: () => Promise<string> }).tintinFilmDir;
-    if (typeof native?.library?.list !== 'function' || typeof filmDirBridge !== 'function') return; // 非本形态页面: 不挂
+    /* 只有 library.list 缺失才不挂; 影片目录缺失只影响「下载到项目」, 预览/下载到电脑照常 */
+    if (typeof native?.library?.list !== 'function') return;
+    const projectDir = async (): Promise<string> => {
+      if (typeof filmDirBridge !== 'function') return '';
+      try { return await filmDirBridge() } catch { return '' }
+    }
 
     const style = document.createElement('style');
     style.textContent = STYLE;
@@ -140,8 +145,7 @@ const mount = (): void => {
     /* 右键菜单: 下载到项目 / 下载到电脑 */
     const download = async (item: LibraryItem, target: 'project' | 'downloads'): Promise<void> => {
       try {
-        let project = '';
-        if (target === 'project') { try { project = await filmDirBridge() } catch { project = '' } }
+        const project = target === 'project' ? await projectDir() : '';
         const out = await native.library.download({ project, materialId: idOf(item), filename: nameOf(item), serverUrl, target });
         if (out.error) throw new Error(out.error);
         status.textContent = target === 'downloads'

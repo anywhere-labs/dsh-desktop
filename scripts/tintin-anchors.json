@@ -21,7 +21,7 @@
     "comment": "the iron rules keep all 15 numbered rules",
     "path": "docs/tintin-iron-rules.md",
     "pattern": "### 铁律 ",
-    "minCount": 15
+    "minCount": 16
   },
   {
     "comment": "the iron rules keep the four evidence classes",
