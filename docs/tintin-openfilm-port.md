@@ -176,7 +176,7 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 | 注入 | 产品资料结构化文本(品牌·型号·品类·货号 + 性能参数 + 核心卖点逐条)以粘贴事件写入官方 composer 输入框(Lexical 原生接住), 即 @ 引用形态 |
 | 数据 | 主进程代理 GET /api/product-library/search?q&limit 与 /items/{id}(实测顶层 items/item) |
 
-## 11. 角色智能体名册(2026-10-24 实现)## 11. 角色智能体名册(2026-10-24 实现)
+## 11. 角色智能体名册(2026-10-24 实现)
 
 - 角色 = TinTin 角色预设(`dsh-tintin-bundle/presets/`:tintin-assistant 总助手、tintin-director 编导、tintin-producer 制作、tintin-qc 质检、tintin-librarian 素材库),与主应用同源(每角色的 `preset.yml` 元数据 + `agent.cordis.yml` 组合,persona 前缀即角色人设);
 - 影片智能体按角色生成**分角色补丁**(`<channelHome>/tintin/film-agent-<role>.patch.yml`):模型路由 + **persona 前缀替换**(读取角色预设的 persona 块,原样进补丁,与主应用文本一致);无角色时用默认补丁;
@@ -236,7 +236,58 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 - **文档同步门禁**(2026-10-24 用户裁决):视频剪辑运行时范围(openfilm-shell/、tintin/src/tintin/、client-ui/client.js)有改动而本文与验收表均未触碰 → `check:tintin` 失败(应急豁免 `TINTIN_DOC_SYNC=off`);构建产物(dist.stock/、package-lock.json、node_modules/)不计;
 - 运行时行为改动:**先出包自测该项,通过才提交**;任何失败路径必须可观测(页面浮层/日志条/统一日志)。
 
-## 16. 已知缺口/非目标
+## 16. 调用链全解(编排决策与执行的完整时序, 每阶段标注实现者)
+
+### 16.1 参与者清单(谁实现了什么)
+
+| 参与者 | 实现位置 | 职责 |
+|---|---|---|
+| 消息入口(官方聊天 UI) | `chat/src`(官方聊天, TinTin 编译树) | 收集文本/`@`引用/产品/附件, 发起轮次 |
+| 智能体进程(编排执行器) | `dsh --profile acp`(film-agent-home), 由 `main-hook` 拉起 | 组装上下文、调模型、执行工具、循环直至完成 |
+| 编排大模型(决策者) | TinTin 服务端 `/llm`(deepseek-v4-flash/pro) | 每轮推理: 输出"调哪个工具+参数"或最终回复; 从不直接发网络请求 |
+| MCP client | harness 的 McpClient 插件(智能体进程内) | 维护与 MCP server 的连接; 上报工具清单; 执行 MCP 工具调用 |
+| 本地 MCP 桥(规划 §16.4) | TinTin bundle 随包进程(stdio MCP server) | 拉 `/agent/registry` → 39 能力映射为 MCP 工具; 按注册表 api 字段执行 HTTP |
+| 本地工具面 | harness 工具插件(bash/fs/web…)+ openfilm CLI + 媒体工具链 | 本地执行: 文件读写、影片渲染、媒体处理 |
+| 服务端能力层 | TinTin 服务端(`/v1`、`/material`、`/tasks/*`、`/agent/registry`) | 提供媒体生成/素材/换物等能力端点(确定性代码调用) |
+| 轮次留档(TurnLog) | 聊天日志面 + 会话存储(官方 ACP 会话系统) | 每轮的模型请求/响应/工具调用记录(取证入口) |
+
+### 16.2 一轮会话的完整时序(六阶段)
+
+**阶段 0 — 会话建立**(实现: `main-hook` film-acp + `studio-preload` localAgents + 官方聊天会话流程):
+`main-hook` 写角色补丁(`film-agent-<role>.patch.yml`: `llm` 行=模型路由, `acp` 行=provider/model, `system-prompt` 行=角色人设)并拉起 `dsh --profile acp`; 会话 id 走 ACP resume 续聊。
+
+**阶段 1 — 消息组装**(实现: 官方 PromptEditor + 我们的 library/products 桥 + 官方会话流程):
+`@`引用展开为文件路径清单; 产品注入为结构化资料文本(粘贴事件进 Lexical); 附件入消息。产物 = 一条带上下文的消息。
+
+**阶段 2 — 上下文与工具清单组装**(实现: acp bundle 的智能体循环):
+系统提示词(personaPrefix=角色人设) + 技能手册 + 会话历史 + **工具清单**(本地工具 + MCP 桥映射的服务端能力[接线后])。工具清单 = 模型的能力视野 —— 不在清单里的能力模型永远无法编排。
+
+**阶段 3 — 模型推理**(实现: `dsh-llm` 插件 → openai-completions → `POST {server}/llm/chat/completions`):
+返回两种之一: `tool_calls`(决策: 调哪个工具+参数)或纯文本回复(结束)。**推理发生在服务端** —— 这就是"模型走服务端"的落点。
+
+**阶段 4 — 工具执行**(实现: 智能体进程的执行器):
+- MCP 工具: McpClient → stdio → 本地桥 → HTTP → 服务端能力端点(桥按注册表 api 字段确定性调用);
+- 本地工具: harness 工具插件 + openfilm CLI + 媒体工具链直接执行(渲染/文件/换物流水线)。
+
+**阶段 5 — 结果回填与循环**(实现: acp bundle 智能体循环):
+工具结果以 `role:tool` 回填消息流 → 回到阶段 3 再推理。**N 次工具调用 = N+1 次模型推理**(编排的成本载体, flash/pro 档位差异的来源)。循环直至模型给出纯文本回复。
+
+**阶段 6 — 轮次收尾与留档**(实现: 官方聊天轮次收尾 + TurnLog + 统一日志):
+回复渲染给用户; TurnLog 记录本轮的模型请求/响应/工具调用(取证入口); 会话由官方 ACP 会话系统持久化(重进视频剪辑可续)。
+
+### 16.3 分层职责总结(维护边界)
+
+| 层 | 维护方 | 内容 |
+|---|---|---|
+| 客户端 TinTin | 本仓库 | `main-hook`(进程/补丁)、`studio-preload`(原生面)、MCP 桥、聊天编译树组合 |
+| 服务端 | 服务端团队 | `/llm` 推理、`/v1` 媒体、`/material` 素材、`/tasks/*` 能力任务、`/agent/registry` 注册表 |
+| 官方上游 | pinned harness | 智能体循环、工具插件、聊天 UI、ACP 协议(只组合, 不修改) |
+
+### 16.4 本地 MCP 桥(规划, 待用户确认后实施)
+
+目标: 让智能体编排服务端 39 能力(现状只有本地工具)。形态: TinTin 随包的 stdio MCP server —— 启动时拉 `/agent/registry`(实测 v1.1, 39 能力), 每个能力映射为一个 MCP 工具(name=id, description, inputSchema 由 api 字段推导); 收到调用即按 api 字段执行 HTTP。服务端零改动, 编排仍在客户端(符合 2026-09-25 裁决)。
+
+## 17. 已知缺口/非目标
 
 - 角色名册(§11)实现中;上游 feature:custom 服务作内建 provider、子树归组(远期);
 - Studio 顶栏多窗口/tabs 桩(单视图壳);应用内更新走 TinTin 自身通道;
