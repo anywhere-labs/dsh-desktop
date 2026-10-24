@@ -76,6 +76,9 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 
 ## 5. 影片视图(client-ui)
 
+> 入口位置(2026-10-24 用户裁决): 角色/技能/在线素材三个入口悬浮在**右侧聊天列左缘**(编辑器右下角、轨道末端空白区), 不再压住左侧时间线轨道头。
+
+
 - **重绘推进(2026-10-24 报障的确定性修复)**: WebContentsView 的内容已加载但合成器可能不重绘(表现为进入视频剪辑一直黑屏, 还原窗口/切换界面才显示); showStudio 设置边界后与 did-finish-load 后各做一次 1px 边界往返(nudgeRepaint)强制重绘;
 
 - 原生视图覆盖舞台;250ms 快轮询 `has-shell`(openfilmDesktop + #of-chat 双判定),命中即接管;

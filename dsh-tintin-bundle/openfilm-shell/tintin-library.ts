@@ -10,7 +10,7 @@ type LibraryItem = { material_id?: unknown; id?: unknown; filename?: unknown; na
 type Tab = 'video' | 'image' | 'audio';
 
 const STYLE = [
-  '.tintin-lib-fab{position:fixed;left:8px;bottom:52px;z-index:2147483000;background:#16171a;border:1px solid #3b6fd4;color:#cfe0ff;font:12px system-ui;padding:5px 10px;border-radius:8px;cursor:pointer}',
+  '.tintin-lib-fab{position:fixed;right:428px;bottom:52px;z-index:2147483000;background:#16171a;border:1px solid #3b6fd4;color:#cfe0ff;font:12px system-ui;padding:5px 10px;border-radius:8px;cursor:pointer}',
   '.tintin-lib-backdrop{position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.28)}',
   '.tintin-lib-drawer{position:fixed;top:0;right:0;bottom:0;width:400px;z-index:2147483001;background:#101114;border-left:1px solid #26272b;display:flex;flex-direction:column;font:13px/1.5 system-ui;color:#e2e2e6}',
   '.tintin-lib-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #1c1d21}',
