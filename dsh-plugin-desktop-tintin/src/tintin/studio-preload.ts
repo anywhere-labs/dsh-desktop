@@ -15,6 +15,7 @@ const OPENFILM_AGENT_LIST = 'dsh-desktop:openfilm-agent-list'
 const OPENFILM_AGENT_CONNECT = 'dsh-desktop:openfilm-agent-connect'
 const OPENFILM_AGENT_DISCONNECT = 'dsh-desktop:openfilm-agent-disconnect'
 const OPENFILM_AGENT_SET_SHOWN = 'dsh-desktop:openfilm-agent-set-shown'
+const OPENFILM_AGENT_CHANGED = 'dsh-desktop:openfilm-agent-changed'
 const OPENFILM_AGENT_LOCAL = 'openfilm:agent:local'
 const OPENFILM_AGENT_LOCAL_EVENT = 'openfilm:agent:local-event'
 
