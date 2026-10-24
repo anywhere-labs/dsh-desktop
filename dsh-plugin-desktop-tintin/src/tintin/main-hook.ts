@@ -198,18 +198,26 @@ function showStudio(bounds: OpenFilmBounds): void {
   nudgeRepaint(rect)
 }
 
-/** 1px 边界往返: 触发 WebContentsView 的合成器重绘(黑屏问题的确定性修复). */
+/** 边界往返 + 视图重挂载: 触发 WebContentsView 的合成器重绘(黑屏的确定性修复).
+    窗口还原/切换视图之所以有效, 是因为它们改变了窗口的视图树; 这里摘挂一次子视图
+    等价于那次变化, 且比 1px 微调更可靠。 */
 function nudgeRepaint(rect: { x: number; y: number; width: number; height: number }): void {
   const view = studioView
   if (view === null || view.webContents.isDestroyed()) return
-  const bump = { ...rect, width: Math.max(1, rect.width + 1) }
+  const bump = { ...rect, width: Math.max(1, rect.width + 16) }
   setTimeout(() => {
-    if (studioView !== view || view.webContents.isDestroyed() || !studioShown) return
+    if (studioView !== view || view.webContents.isDestroyed() || !studioShown || studioWindow === null || studioWindow.isDestroyed()) return
+    /* ① 视图树变化(摘挂) — 等价于用户切换视图/还原窗口 */
+    try {
+      studioWindow.contentView.removeChildView(view)
+      studioWindow.contentView.addChildView(view)
+    } catch { /* 窗口已销毁: 无需重绘 */ }
+    /* ② 边界微调再还原 */
     view.setBounds(bump)
     setTimeout(() => {
       if (studioView !== view || view.webContents.isDestroyed() || !studioShown) return
       view.setBounds(rect)
-    }, 40)
+    }, 60)
   }, 60)
 }
 
@@ -328,6 +336,8 @@ export function installTinTinMainHook(): void {
       })()`, true).then((raw) => {
         const d = (raw ?? {}) as { readyState?: string; hasDesktop?: boolean; hasHost?: boolean; hasChatColumn?: boolean; hasRoot?: boolean; error?: string }
         const has = d.hasDesktop === true && d.hasChatColumn === true
+        /* 接管确认(页面已交互)后, 延迟再推一次重绘 —— 首帧绘制可能晚于加载完成 */
+        if (has && studioLastRect !== null) setTimeout(() => { if (studioLastRect !== null) nudgeRepaint(studioLastRect) }, 200)
         const restartWindowOpen = Date.now() - filmShellRestartedAt < FILM_SHELL_RESTART_WINDOW_MS
         if (has || !restartIfStale || restartWindowOpen) return { ok: true, has, diag: d, restarted: false }
         filmShellRestartedAt = Date.now()
