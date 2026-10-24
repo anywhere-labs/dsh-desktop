@@ -155,10 +155,13 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 - 下载:`openfilm:library:download { project, materialId, filename, target: 'project'|'downloads' }`(project→影片 assets/download;downloads→系统下载目录),返回 `{ok, rel|path}`;
 - 素材引用闭环:下载到项目 → 左侧面板 → 时间线 / `@` 引用(官方交互)。
 
-## 11. 角色/智能体名册(进行中)
+## 11. 角色智能体名册(2026-10-24 实现)
 
-- 上游接缝:`packages/acp/acp/src/index.ts` 明示 ACP 会话**不组合预设**,部署方经 preset-registry「Composing a child agent」**加入名册**(部署配置,不改子模块);
-- 计划:TinTin 角色(总助手/编导/制作/质检/素材库)= 名册条目(系统提示 + 组合),经 `film-agent.patch.yml` 定义;composer 侧以官方机制呈现。
+- 角色 = TinTin 角色预设(`dsh-tintin-bundle/presets/`:tintin-assistant 总助手、tintin-director 编导、tintin-producer 制作、tintin-qc 质检、tintin-librarian 素材库),与主应用同源(每角色的 `preset.yml` 元数据 + `agent.cordis.yml` 组合,persona 前缀即角色人设);
+- 影片智能体按角色生成**分角色补丁**(`<channelHome>/tintin/film-agent-<role>.patch.yml`):模型路由 + **persona 前缀替换**(读取角色预设的 persona 块,原样进补丁,与主应用文本一致);无角色时用默认补丁;
+- 选择器:shell 页「角色」下拉(`tintin-role.ts`,持久化 `tintin.role`)→ `window.__tintinRole` → studio-preload 的 `localAgents.start` 随 meta 送达 → 主进程 `begin(project, { tintinRole })`;
+- 角色变化 = 人设不同 → `ensure` 重建会话(旧子进程 stop,新角色补丁拉起);
+- 上游依据:`packages/acp/acp/src/index.ts` 明示 ACP 不组预设、部署方经配置加入(本实现以部署补丁承载,不改子模块);role 切换的 UI = TinTin 自有选择器(官方 composer 的 configOptions 仍为模型选择,不变)。
 
 ## 12. 移植文件清单(锚点)
 

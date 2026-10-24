@@ -436,7 +436,7 @@ export function installTinTinMainHook(): void {
           if (!cwd) return { ok: false, error: 'cwd 必填' }
           const resume = typeof p.resume === 'string' && p.resume ? p.resume : null
           manager.trackTurn(cwd, p.meta)
-          const info = await manager.begin(cwd)
+          const info = await manager.begin(cwd, p.meta as { tintinRole?: unknown } | undefined)
           void resume /* begin 内部已按历史 sessionId resume */
           return { ok: true, key: cwd, info }
         }
