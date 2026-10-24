@@ -98,6 +98,8 @@ let studioView: WebContentsView | null = null
 let studioWindow: BrowserWindow | null = null
 let studioShown = false
 let studioBounds = ''
+/** 最近一次设置的视图边界(重绘推进用; 页面加载完成后再推一次). */
+let studioLastRect: { x: number; y: number; width: number; height: number } | null = null
 // 视图自愈(2026-10-23 报障:探测窗口内服务重启,首开吃 did-fail-load 后视图停在错误
 // 页,后续 open 全部命中复用分支 → 探测永远失败):记住已加载 URL 与失败态,目标变了
 // 或上次失败时强制重载,而不是复用死页面。
@@ -149,6 +151,9 @@ function ensureStudioView(window: BrowserWindow, url: string): WebContentsView {
   view.webContents.on('did-finish-load', () => {
     studioLoadFailed = false
     studioLoadedUrl = url
+    /* 页面加载完成后同一位置再推一次重绘(黑屏修复的第二时机: 首帧加载完成时视图的合成器
+       可能仍停在旧状态) */
+    if (studioLastRect !== null) nudgeRepaint(studioLastRect)
   })
   view.webContents.on('destroyed', () => {
     if (studioView === view) {
@@ -179,12 +184,33 @@ function showStudio(bounds: OpenFilmBounds): void {
     studioShown = true
   }
   studioBounds = key
-  studioView.setBounds({
+  const rect = {
     x: Math.round(bounds.x),
     y: Math.round(bounds.y),
     width: Math.max(0, Math.round(bounds.width)),
     height: Math.max(0, Math.round(bounds.height)),
-  })
+  }
+  studioView.setBounds(rect)
+  studioLastRect = rect
+  /* 重绘推进(2026-10-24 报障: 进入视频剪辑后一直黑屏, 还原窗口/切换界面才显示 ——
+     WebContentsView 的内容已加载但合成器不重绘, 直到 bounds 变化。这里在显示后
+     做一次 1px 的边界微调再还原, 强制合成器重绘; 页面加载完成后同一位置再推一次。 */
+  nudgeRepaint(rect)
+}
+
+/** 1px 边界往返: 触发 WebContentsView 的合成器重绘(黑屏问题的确定性修复). */
+function nudgeRepaint(rect: { x: number; y: number; width: number; height: number }): void {
+  const view = studioView
+  if (view === null || view.webContents.isDestroyed()) return
+  const bump = { ...rect, width: Math.max(1, rect.width + 1) }
+  setTimeout(() => {
+    if (studioView !== view || view.webContents.isDestroyed() || !studioShown) return
+    view.setBounds(bump)
+    setTimeout(() => {
+      if (studioView !== view || view.webContents.isDestroyed() || !studioShown) return
+      view.setBounds(rect)
+    }, 40)
+  }, 60)
 }
 
 function hideStudio(): void {
