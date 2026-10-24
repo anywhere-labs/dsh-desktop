@@ -138,6 +138,7 @@ dsh-desktop(Yarn 4 monorepo,运行时 0.2.0-rc.2 vendored)
 | 3 | 三方镜像门禁是治理变更 | Phase 4 前定稿 AGENTS.md 规则,先门禁后代码 |
 | 4 | mac 侧媒体二进制缺失(当前基本为 Windows 形态) | `TinTin_Client_Electron` 先补 mac bin,或 Phase 4 裁决仅发 Windows |
 | 5 | Electron 43→44、builder 26.15.3→26.15.7、npm→Yarn 机械差异 | 逐包过,量小面广 |
+| 6 | Studio 服务实例无主:detached 服务跨 app 重启/版本残留,版本漂移 + 崩溃循环导致官方聊天接管整体失败(2026-10-23 实障) | 见 [lifecycle ownership note](../.agents/notes/proposed/architecture/2026-10-23-tintin-studio-service-lifecycle-ownership.zh.md):指纹化附着 + DSH 持有实例;短期先修视图自愈三缺口 |
 
 ## 七、待裁决清单(附录 E,四类依据之"用户裁决"挂起项)
 
@@ -146,3 +147,32 @@ dsh-desktop(Yarn 4 monorepo,运行时 0.2.0-rc.2 vendored)
 3. `.dshpreset` 导入导出是否保留为本框架能力。
 4. 迁移期间源仓库 `tintin-dsh-desktop` 是否冻结大改(建议:Phase 0–3 冻结,避免双线漂移)。
 5. mac 通道发布范围(仅 Windows 首发?)。
+6. Studio 服务生命周期收归 DSH(指纹化附着、实例对账、崩溃可观测)——依据与方案见 [2026-10-23 lifecycle ownership note](../.agents/notes/proposed/architecture/2026-10-23-tintin-studio-service-lifecycle-ownership.zh.md);随附流程规则:撤销降级路径的改动必须同步审计依赖该兜底的错误处理(拟入铁律)。
+
+## 八、OpenFilm 壳/ACP 集成(第三行裁决,2026-10-23 起)
+
+**裁决**:视频剪辑 = Studio 官方聊天 UI(openfilm 0.2.5 页内 shell:编辑器 + 官方聊天同页编译)+ DeepSeek Harness ACP 智能体(模型路由 TinTin 服务端)。**删过渡版不等于删功能** — 过渡版能力一律以**官方机制**重建(用户裁决 2026-10-24)。
+
+### 8.1 过渡版功能 → 官方形态映射(验收口径)
+
+| 过渡版功能 | 官方形态实现 | 移植点(锚点) |
+|---|---|---|
+| 自绘聊天列(会话/审批/提问/工具卡) | 官方 chat 源树编译进 shell 页(mountChat),经 `window.openfilmDesktop` 桥通信 | `openfilm-shell/main.tsx`、chat 源树(官方 pin cf6cd6f) |
+| 宿主契约桥面 | 官方 `apps/desktop/shell/bridge.ts` 逐字移植;**单宿主**(页面 bridge 是唯一 `openfilmHost`,preload 不暴露迷你 host) | `openfilm-shell/bridge.ts`、`studio-preload.ts` |
+| 选中/时间/引用注入 | Studio ProjectView → `host.onSelection/onRefer` → 官方聊天 @ 菜单与 pill | `bridge.ts` selection/refer(官方 ProjectView) |
+| 项目素材位 | Studio 左侧媒体面板(**panel 不挂 assets/setAssetsOpen** — host.ts useHostPanel 判定) | `bridge.ts` panel |
+| 在线素材库(浏览/下载落项目) | shell 页内抽屉(主进程代理 `/material/*`,无 CORS);下载落 `assets/download` → 左侧面板 | `tintin-library.ts`、main-hook `openfilm:library:*` |
+| 技能(原生+服务端合并) | `app.skills` 名单合并(顶层 `skills` 形状);正文注入含服务端 `instruction` | main-hook `openfilm:native:skills-list/texts` |
+| 原生技能随包分发 | `resources/skills/openfilm` → 影片智能体 home 同步 | `scripts/prepare-skills.mjs`、`film-acp.ts` |
+| 影片历史持久化 | `.film/chat.json` + `.film/logs/*.jsonl` | `film-chat.ts`、`desktop:chat:*` |
+| 角色(编导/制作) | 官方 ACP 会话预设名册(上游接缝:preset-registry「Composing a child agent」,经部署配置加入,不改子模块) | `film-agent.patch.yml`(进行中) |
+
+### 8.2 生命周期与自愈(第三行形态)
+
+- **接管**:影片视图 250ms 快轮询 `has-shell`;未命中 → 清陈旧 run.json → `startStudio` 全新拉起(附着前指纹对账)。
+- **净场**:`will-quit` + `process 'exit'`(failLoud 崩溃路径)同步收场;开机对账按可执行路径甄别清理 openfilm node 孤儿。
+- **日志**:统一 `diagnosticLog`(主进程 / studio-renderer / 宿主);页面启动错误浮层;影片视图底部常驻日志条。
+
+### 8.3 验收追踪
+
+需求→实现→验证的逐条状态见 [对齐验收追踪表](tintin-openfilm-alignment-acceptance.md);锚点门禁(`check:tintin`)登记本文与代码的承重锚点([scripts/tintin-anchors.json](../scripts/tintin-anchors.json))。

@@ -88,5 +88,59 @@
     "path": "dsh-tintin-media-bundle/src/client-entry.ts",
     "pattern": "id: 'dsh-tintin-media-bundle'",
     "minCount": 1
+  },
+  {
+    "comment": "the plan keeps the interim-to-official feature mapping table",
+    "path": "docs/tintin-migration-plan.md",
+    "pattern": "过渡版功能 → 官方形态映射",
+    "minCount": 1
+  },
+  {
+    "comment": "the plan keeps the OpenFilm integration section",
+    "path": "docs/tintin-migration-plan.md",
+    "pattern": "OpenFilm 壳/ACP 集成",
+    "minCount": 1
+  },
+  {
+    "comment": "the acceptance traceability table stays in the docs",
+    "path": "docs/tintin-openfilm-alignment-acceptance.md",
+    "pattern": "需求追踪",
+    "minCount": 1
+  },
+  {
+    "comment": "the shell page mounts the official chat",
+    "path": "dsh-tintin-bundle/openfilm-shell/main.tsx",
+    "pattern": "mountChat",
+    "minCount": 1
+  },
+  {
+    "comment": "the online library drawer seam stays in the bridge",
+    "path": "dsh-tintin-bundle/openfilm-shell/bridge.ts",
+    "pattern": "registerAssetsDrawer",
+    "minCount": 1
+  },
+  {
+    "comment": "the online library drawer registers with the bridge",
+    "path": "dsh-tintin-bundle/openfilm-shell/tintin-library.ts",
+    "pattern": "registerAssetsDrawer",
+    "minCount": 1
+  },
+  {
+    "comment": "the film agent start stays a deferred (never a bare rejected promise)",
+    "path": "dsh-plugin-desktop-tintin/src/tintin/film-acp.ts",
+    "pattern": "settleAgent",
+    "minCount": 1
+  },
+  {
+    "comment": "the studio preload exposes the native surface",
+    "path": "dsh-plugin-desktop-tintin/src/tintin/studio-preload.ts",
+    "pattern": "exposeInMainWorld('openfilmNative'",
+    "minCount": 1
+  },
+  {
+    "comment": "the main process proxies the online library over IPC",
+    "path": "dsh-plugin-desktop-tintin/src/tintin/main-hook.ts",
+    "pattern": "openfilm:library:list",
+    "minCount": 1
   }
 ]

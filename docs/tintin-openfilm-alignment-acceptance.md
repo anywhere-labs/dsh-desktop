@@ -41,3 +41,8 @@
 - tabs 多标签、Studio 顶栏更新面(单视图壳;更新走 TinTin 自身通道)。
 - 转写的模型请求明细(calls)暂空(仅 ACP 事件日志)。
 - 上游 feature:custom 服务作内建 provider、子树归组(远期)。
+
+## 5. 变更记录
+
+- 2026-10-24:过渡版功能以官方形态重建完成 — 在线素材抽屉(主进程代理 `/material/*`,顶层 `items` 形状实测)、服务端技能(顶层 `skills` 形状 + `instruction` 正文注入)、项目素材回归 Studio 左侧面板(panel 不挂 assets/setAssetsOpen,host.ts useHostPanel 判定)、原生技能随包分发(`resources/skills/openfilm`)、聊天列快接管(250ms)、page 错误浮层 + 统一日志、影片视图顶部填充 + 底部日志条。对应提交:3caa611、e9722ec、80ef769、827e133、cc6d3b9、2ff441a、75fd37c。
+- 2026-10-23:诊断角标、接管自愈(指纹对账 + 裸杀 pid 移除)、退出净场(will-quit + exit)、开机对账、TinTin 窗口标题、单宿主修复、preload 常量修复。
