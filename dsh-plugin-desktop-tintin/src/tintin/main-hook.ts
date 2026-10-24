@@ -34,7 +34,10 @@ import { seedTinTinDefaults } from './first-boot.ts'
 
 let installed = false
 let browserAttached = false
-let filmShellRestarted = false
+// 陈旧服务重启改时间窗(2026-10-23:布尔一次性让「点击这里重试」失效,失败锁死;
+// 60s 内只重启一次防循环,超窗后允许再次对账)。
+const FILM_SHELL_RESTART_WINDOW_MS = 60_000
+let filmShellRestartedAt = 0
 
 /** TinTin 通道 home(影片智能体的 run.json/补丁/偏好都挂在它下面)。 */
 const channelHome = (): string =>
@@ -71,14 +74,26 @@ let studioView: WebContentsView | null = null
 let studioWindow: BrowserWindow | null = null
 let studioShown = false
 let studioBounds = ''
+// 视图自愈(2026-10-23 报障:探测窗口内服务重启,首开吃 did-fail-load 后视图停在错误
+// 页,后续 open 全部命中复用分支 → 探测永远失败):记住已加载 URL 与失败态,目标变了
+// 或上次失败时强制重载,而不是复用死页面。
+let studioLoadedUrl = ''
+let studioLoadFailed = false
 // bounds 去重（2026-10-21 报障：播放条抖动）——重复 setBounds 会迫使合成器不断
 // 重排原生视图，干扰 Studio 播放；值不变时直接跳过。
 const boundsKey = (bounds: OpenFilmBounds): string =>
   `${Math.round(bounds.x)},${Math.round(bounds.y)},${Math.round(bounds.width)},${Math.round(bounds.height)}`
 
-/** Create (or reuse) the native Studio view in the window that hosts the chat. */
+/** Create (or reuse) the native Studio view in the window that hosts the chat.
+ *  复用仅限「同一地址且上次加载成功」;否则就地重载(2026-10-23 自愈缺口修复)。 */
 function ensureStudioView(window: BrowserWindow, url: string): WebContentsView {
-  if (studioView !== null && !studioView.webContents.isDestroyed()) return studioView
+  if (studioView !== null && !studioView.webContents.isDestroyed()) {
+    if (studioLoadedUrl === url && !studioLoadFailed) return studioView
+    studioLoadedUrl = url
+    studioLoadFailed = false
+    void studioView.webContents.loadURL(url).catch(() => { studioLoadFailed = true })
+    return studioView
+  }
   studioWindow = window
   const view = new WebContentsView({
     webPreferences: {
@@ -92,16 +107,24 @@ function ensureStudioView(window: BrowserWindow, url: string): WebContentsView {
   view.setBackgroundColor('#0b0c0f')
   view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   view.webContents.on('did-fail-load', (_event, code, description, failedUrl) => {
+    studioLoadFailed = true
     console.error(`dsh-plugin-desktop-tintin: Studio failed to load ${failedUrl} (${String(code)} ${description})`)
+  })
+  view.webContents.on('did-finish-load', () => {
+    studioLoadFailed = false
+    studioLoadedUrl = url
   })
   view.webContents.on('destroyed', () => {
     if (studioView === view) {
       studioView = null
       studioWindow = null
       studioShown = false
+      studioLoadedUrl = ''
+      studioLoadFailed = false
     }
   })
   studioView = view
+  studioLoadedUrl = url
   void view.webContents.loadURL(url)
   // 键盘焦点交给 Studio（2026-10-19 报障：焦点留主窗侧栏行按钮时，视图内按空格被
   // 主窗按 HTML 语义当成「再点一次行」→ 切回工作台）。仅打开时让一次，show 轮询不抢焦
@@ -226,8 +249,8 @@ export function installTinTinMainHook(): void {
     }
     if (request.action === 'has-shell') {
       // 所伺服的编辑器页是否为 TinTin shell 构建(Studio + 官方聊天): 决定影片视图
-      // 是否让位给页内聊天列。探测失败且未重启过 → 旧 Studio 服务进程伺服旧 editor,
-      // 结束它一次(客户端下一轮 open 会以当前资源重启); 重启只做一次防循环。
+      // 是否让位给页内聊天列。探测失败且不在重启窗口内 → 旧 Studio 服务进程伺服旧
+      // editor, 结束它(客户端下一轮 open 会以当前资源重启); 时间窗内不重复, 防循环。
       if (studioView === null || studioView.webContents.isDestroyed()) return { ok: false, error: 'Studio 视图未开启' }
       const restartIfStale = (request as { restartIfStale?: unknown }).restartIfStale === true
       return studioView.webContents.executeJavaScript(`(() => {
@@ -243,15 +266,16 @@ export function installTinTinMainHook(): void {
       })()`, true).then((raw) => {
         const d = (raw ?? {}) as { readyState?: string; hasDesktop?: boolean; hasHost?: boolean; hasChatColumn?: boolean; hasRoot?: boolean; error?: string }
         const has = d.hasDesktop === true && d.hasChatColumn === true
-        if (has || !restartIfStale || filmShellRestarted) return { ok: true, has, diag: d, restarted: false }
-        filmShellRestarted = true
+        const restartWindowOpen = Date.now() - filmShellRestartedAt < FILM_SHELL_RESTART_WINDOW_MS
+        if (has || !restartIfStale || restartWindowOpen) return { ok: true, has, diag: d, restarted: false }
+        filmShellRestartedAt = Date.now()
         try {
-          const runPath = join(channelHome(), 'openfilm-studio', 'run.json')
-          const stale = JSON.parse(readFileSync(runPath, 'utf8')) as { pid?: unknown }
-          if (typeof stale.pid === 'number') process.kill(stale.pid)
-          /* 陈旧 run.json 一并清除: 否则下次 startStudio 附着到已死服务 —— 无界面无进程 */
-          rmSync(runPath, { force: true })
-        } catch { /* 无 run.json 或已退出: 无需结束 */ }
+          /* 只清除陈旧 run.json, 不按 pid 裸杀 —— pid 可能已被系统复用给任何进程
+             (2026-10-24 实测: 裸杀复用 pid 直接崩掉主程序)。陈旧服务的清场由
+             startStudio 附着前的指纹对账(reconcileStudioInstance)安全处理;
+             run.json 清掉后, 下一轮 open 必然全新拉起。 */
+          rmSync(join(channelHome(), 'openfilm-studio', 'run.json'), { force: true })
+        } catch { /* 无 run.json: 无需处理 */ }
         return { ok: true, has, diag: d, restarted: true }
       }, (error) => ({ ok: true, has: false, diag: { error: error instanceof Error ? error.message : String(error) } }))
     }
@@ -292,9 +316,13 @@ export function installTinTinMainHook(): void {
     try {
       const runPath = join(channelHome(), 'openfilm-studio', 'run.json')
       const run = JSON.parse(readFileSync(runPath, 'utf8')) as { pid?: unknown }
-      if (typeof run.pid === 'number') process.kill(run.pid)
+      /* pid 来自我们自己几分钟前写入的 run.json, 复用风险趋零; 仍要求正数且存在才杀 */
+      if (typeof run.pid === 'number' && run.pid > 0) {
+        try { process.kill(run.pid, 0) } catch { throw new Error('stale') }
+        process.kill(run.pid)
+      }
       rmSync(runPath, { force: true })
-    } catch { /* 无 run.json: 无需收场 */ }
+    } catch { /* 无 run.json 或进程已不在: 无需收场 */ }
   })
   const filmAgent = (): FilmAgentManager => {
     if (filmAgentManager === null) {
