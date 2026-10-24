@@ -540,7 +540,7 @@ export function installTinTinMainHook(): void {
           const manifest = JSON.parse(readFileSync(join(folder, 'openfilm.json'), 'utf8')) as { scripts?: unknown }
           if (Array.isArray(manifest.scripts)) scripts = manifest.scripts.map(String)
         } catch { /* 无清单: 空脚本 */ }
-        openfilm.push({ name: entry.name, description, source: 'official', folder, scripts })
+        openfilm.push({ name: entry.name, description, source: 'native', folder, scripts })
       }
     }
     /* 服务端技能(2026-10-23 用户要求: 技能之外还有服务端的技能)——并入 openfilm 清单,
@@ -555,11 +555,29 @@ export function installTinTinMainHook(): void {
         for (const s of serverSkills) {
           const name = String(s.name ?? '')
           if (!name || openfilm.some((row) => String(row.name ?? '') === name)) continue
-          openfilm.push({ name, description: String(s.description ?? ''), source: 'official', folder: '', scripts: [] })
+          openfilm.push({ name, description: String(s.description ?? ''), source: 'server', folder: '', scripts: [] })
         }
       }
     } catch { /* 服务端不可达: 只返回本地清单 */ }
     return { openfilm, own: { agent: String((payload as { agent?: unknown } | null)?.agent ?? ''), filtered: false, skills: [] }, mine: process.env.DSH_HOME ? join(process.env.DSH_HOME, 'skills') : '' }
+  })
+  /* 服务端技能安装(2026-10-24 交互规范 §9): 写进影片智能体 home, 智能体即可用 */
+  ipcMain.handle('openfilm:skills:install', async (_event, payload: unknown) => {
+    const name = String((payload as { name?: unknown } | null)?.name ?? '')
+    const serverUrl = tinServerUrl()
+    if (!name) return { error: '缺少技能名' }
+    if (!serverUrl) return { error: '服务端未配置' }
+    try {
+      const res = await fetch(serverUrl + '/skills')
+      const body = await res.json() as { skills?: Array<{ name?: unknown; instruction?: unknown }> }
+      const skill = (body.skills ?? []).find((s) => String(s.name ?? '') === name)
+      const instruction = String(skill?.instruction ?? '')
+      if (!instruction) return { error: `服务端未返回「${name}」的正文` }
+      const target = join(channelHome(), 'film-agent-home', 'skills', name.replace(/[/:*?"<>|]/g, '-'))
+      mkdirSync(target, { recursive: true })
+      writeFileSync(join(target, 'SKILL.md'), instruction)
+      return { ok: true, path: target }
+    } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
   })
   ipcMain.handle('openfilm:native:skills-texts', async (_event, payload: unknown) => {
     const q = (payload ?? {}) as { project?: unknown; agent?: unknown; names?: unknown }

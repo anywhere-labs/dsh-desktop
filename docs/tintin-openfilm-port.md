@@ -102,11 +102,26 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 - 服务端 `/v1/audio/transcriptions` 对齐(asr form 字段 + verbose_json words);`/v1/audio/speech` wav 对齐;
 - 模型路由:对话不消耗 DeepSeek 官方 API(ACP 补丁走 tintin-server)。
 
-## 9. 技能(原生 + 服务端)
+## 9. 技能(原生 + 服务端,交互需求规范)
 
-- 名单:`openfilm:native:skills-list` = 随包分发的原生技能(`resources/skills/openfilm`)+ 服务端 `/skills`(实测**顶层 `skills`**,字段 id/name/description/instruction);
+技能要求以本节为准:**服务端技能与本地技能全部集成**,两个表面都要完整呈现。
+
+### 9.1 数据
+
+- 名单:`openfilm:native:skills-list` = 随包分发的原生技能(`resources/skills/openfilm`)+ 服务端 `/skills`(实测**顶层 `skills`**,字段 id/name/description/instruction;2026-10-24 实测服务端共 7 个);每项带 `source: 'native' | 'server'` 供分组;
 - 正文:`openfilm:native:skills-texts` = 本地 SKILL.md + 服务端 `instruction` 补齐 → 技能引用的上下文注入带全文;
-- 原生技能随包:`scripts/prepare-skills.mjs` 复制 → extraResources `skills/`;影片智能体启动时同步进 `film-agent-home/skills/openfilm/`。
+- 原生技能随包:`scripts/prepare-skills.mjs` 复制 → extraResources `skills/`;影片智能体启动时同步进 `film-agent-home/skills/openfilm/`;
+- 安装:`openfilm:skills:install`(服务端技能 → 写 `film-agent-home/skills/<name>/SKILL.md`,智能体即可用)。
+
+### 9.2 交互表面
+
+| 表面 | 要求 | 状态 |
+|---|---|---|
+| `@` 技能组(官方聊天) | 列出**全部**原生 + 服务端技能,可插入消息(正文注入带全文) | ✅ |
+| 技能抽屉(shell 页「▦ 技能」) | 两个分组(**原生技能 / 服务端技能**)完整列出;服务端技能带「安装」按钮(装入智能体 home);安装状态与提示 | ✅ |
+| 官方「Skill 示例」画廊 | 官方示例(如视频复刻/长视频转短视频等),与技能列表是两个数据源,不混用 | 官方行为 |
+
+> 口径:官方示例画廊 ≠ 技能清单。判断“技能是否齐全”以技能抽屉与 `@` 技能组为准(原生 1 + 服务端 7 = 8 个)。
 
 ## 10. 在线素材库(交互需求规范)
 
