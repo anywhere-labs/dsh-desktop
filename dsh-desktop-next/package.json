@@ -36,7 +36,7 @@
     "check:win-package": "yarn check"
   },
   "dependencies": {
-    "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.1.0-desktop.c00c927cd3745.r2e406d2a.tgz",
+    "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.1.0-desktop.cc014ba072b83.r2e406d2a.tgz",
     "@deepseek-ai/cordis": "4.0.5",
     "@deepseek-ai/cordis-plugin-group": "1.0.5",
     "@deepseek-ai/cordis-plugin-include": "1.0.10",
@@ -213,7 +213,7 @@
     "@deepseek-ai/dsh-workspace": "0.2.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.5",
     "dsh-community-market": "0.1.0-dev.0",
-    "dshmarket": "1.66.45",
+    "dshmarket": "1.70.1",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm": "^3.1.0",
     "mdast-util-to-string": "^4.0.0",
