@@ -1,0 +1,18 @@
+/* Studio's styles, with Tailwind over both trees (the chat's own styles come scoped, chat/src/chat.css).
+   源树由 fetch-openfilm-shell.mjs vendor(openfilm npm 包剥离了 ui/src,不能用包内路径)。 */
+@import '../../dsh-plugin-desktop-tintin/tintin-resources/openfilm-shell-src/openfilm/studio/ui/src/globals.css';
+@source '../../dsh-plugin-desktop-tintin/tintin-resources/openfilm-shell-src/openfilm/studio/ui/src';
+@source '../../dsh-plugin-desktop-tintin/tintin-resources/openfilm-shell-src/chat';
+
+/* the chat's column: beside Studio, under its top bar (bridge.ts places and sizes it); over Studio's panes and its
+   assets drawer, under its menus and dialogs */
+#of-chat { position: fixed; right: 0; bottom: 0; height: auto; z-index: 40; background: transparent; }
+#of-chat[hidden] { display: none; }
+/* the assets open: Studio's drawer is in the column, above the composer; only the chat's pane (its composer then)
+   takes the pointer, the rest of the column is the drawer's */
+#of-chat[data-assets-open] { pointer-events: none; }
+#of-chat[data-assets-open] aside { pointer-events: auto; }
+/* the chat's layer takes no room: what it holds is fixed in place over the window */
+#of-chat-layer { height: 0; background: transparent; }
+/* focused by a click to keep the keyboard in the chat (index.html), never ringed */
+#of-chat:focus, #of-chat-layer:focus { outline: none; }

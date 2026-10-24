@@ -143,6 +143,7 @@ OpenFilm 是开源 AI 视频制作应用(仓库 `github.com/openfilm/openfilm`):
 
 - 逐条状态:[验收追踪表](tintin-openfilm-alignment-acceptance.md);
 - 锚点:`check:tintin`(scripts/tintin-anchors.json)登记本文与承重代码锚点;变体门禁、typecheck、film-acp 单测同链;
+- **文档同步门禁**(2026-10-24 用户裁决):视频剪辑运行时范围(openfilm-shell/、tintin/src/tintin/、client-ui/client.js)有改动而本文与验收表均未触碰 → `check:tintin` 失败(应急豁免 `TINTIN_DOC_SYNC=off`);构建产物(dist.stock/、package-lock.json、node_modules/)不计;
 - 运行时行为改动:**先出包自测该项,通过才提交**;任何失败路径必须可观测(页面浮层/日志条/统一日志)。
 
 ## 16. 已知缺口/非目标

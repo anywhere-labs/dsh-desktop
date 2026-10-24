@@ -183,11 +183,40 @@ function checkWorkspaceRegistration({ root, readJson }) {
   return violations
 }
 
-export function verifyTintinGate({ root, readText, readJson, listFiles, fileExists, anchors, lineBaseline }) {
+/**
+ * Doc-sync gate (2026-10-24 用户裁决「每次修改都要对齐文档」): 视频剪辑运行时范围的
+ * 改动必须与文档同一批 — 命中运行时文件而未触碰任一文档 = 违规(规则不进门禁 = 假绿灯)。
+ * 应急豁免: 环境变量 TINTIN_DOC_SYNC=off(评审可见)。
+ */
+const DOC_SYNC_RUNTIME_SCOPE = [
+  'dsh-tintin-bundle/openfilm-shell/',
+  'dsh-plugin-desktop-tintin/src/tintin/',
+  'dsh-tintin-client-ui/client.js',
+]
+const DOC_SYNC_DOCS = [
+  'docs/tintin-openfilm-port.md',
+  'docs/tintin-openfilm-alignment-acceptance.md',
+]
+// 构建产物不算运行时改动(它们随每次 shell 构建再生): 备份目录/锁文件/依赖树。
+const DOC_SYNC_ARTIFACTS = ['dist.stock/', 'node_modules/', 'package-lock.json']
+export function checkDocSync({ changedFiles }) {
+  const changed = changedFiles.map(file => toPosix(file))
+  const runtime = changed.filter(file =>
+    DOC_SYNC_RUNTIME_SCOPE.some(scope => file === scope || file.startsWith(scope))
+    && !DOC_SYNC_ARTIFACTS.some(artifact => file.includes(artifact)))
+  if (runtime.length === 0) return []
+  if (changed.some(file => DOC_SYNC_DOCS.includes(file))) return []
+  return [
+    `doc-sync: runtime files changed without touching ${DOC_SYNC_DOCS.join(' or ')}: ${runtime.slice(0, 5).join(', ')}${runtime.length > 5 ? ' …' : ''} (2026-10-24 用户裁决: 每次修改都要对齐文档)`,
+  ]
+}
+
+export function verifyTintinGate({ root, readText, readJson, listFiles, fileExists, anchors, lineBaseline, changedFiles }) {
   const violations = [
     ...checkAnchors({ root, anchors, readText }),
     ...checkLineGate({ root, baseline: lineBaseline, listFiles, readText, ...(fileExists === undefined ? {} : { fileExists }) }),
     ...checkWorkspaceRegistration({ root, readJson }),
+    ...(changedFiles === undefined ? [] : checkDocSync({ changedFiles })),
   ]
   return violations
 }
@@ -208,6 +237,20 @@ const lineBaseline = readJsonSafe(resolve(root, 'scripts/tintin-line-baseline.js
 if (anchors === undefined) throw new Error('verify-tintin-gate: scripts/tintin-anchors.json is missing or invalid')
 if (lineBaseline === undefined) throw new Error('verify-tintin-gate: scripts/tintin-line-baseline.json is missing or invalid')
 
+// 工作树相对 HEAD 的改动(文档同步门禁的输入); 应急豁免 TINTIN_DOC_SYNC=off。
+const changedFiles = (() => {
+  if (process.env.TINTIN_DOC_SYNC === 'off') return []
+  try {
+    return run(['status', '--porcelain'])
+      .split('\n')
+      .filter(Boolean)
+      .map(line => line.slice(3).trim().replace(/^.* -> /u, ''))
+      .filter(Boolean)
+  } catch {
+    return []
+  }
+})()
+
 const violations = verifyTintinGate({
   root,
   readText: path => readFileSync(path, 'utf8'),
@@ -215,6 +258,7 @@ const violations = verifyTintinGate({
   listFiles: listSourceFiles,
   anchors,
   lineBaseline,
+  changedFiles,
 })
 
 if (violations.length > 0) {
