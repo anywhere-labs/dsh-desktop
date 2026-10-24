@@ -283,9 +283,22 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 | 服务端 | 服务端团队 | `/llm` 推理、`/v1` 媒体、`/material` 素材、`/tasks/*` 能力任务、`/agent/registry` 注册表 |
 | 官方上游 | pinned harness | 智能体循环、工具插件、聊天 UI、ACP 协议(只组合, 不修改) |
 
-### 16.4 本地 MCP 桥(规划, 待用户确认后实施)
+### 16.4 本地 MCP 桥(2026-10-25 实现, 桥本体已完成并实测)
 
-目标: 让智能体编排服务端 39 能力(现状只有本地工具)。形态: TinTin 随包的 stdio MCP server —— 启动时拉 `/agent/registry`(实测 v1.1, 39 能力), 每个能力映射为一个 MCP 工具(name=id, description, inputSchema 由 api 字段推导); 收到调用即按 api 字段执行 HTTP。服务端零改动, 编排仍在客户端(符合 2026-09-25 裁决)。
+**桥本体**(`tintin-resources/mcp/registry-bridge.mjs`, stdio MCP server)——已实现并独立实测通过:
+
+- 启动拉取 `/agent/registry`(实测 v1.1, 39 能力), 60s 刷新;
+- `tools/list`: 每能力映射为 MCP 工具(name=id, description=名称+描述, inputSchema 由 input_schema 推导, 带 `?` 字段可省);
+- `tools/call`: 按注册表 `method+path` 执行(POST=JSON body, GET=query), 长任务超时 300s, 结果以 text content 返回;
+- 独立实测: initialize ✓ → tools/list(39 工具) ✓ → tools/call(material_list 实调 HTTP 200 返回真实数据) ✓。
+
+**接线(待实施)——两条候选机制, 勘误后的准确结论**:
+
+1. ~~profile 级 acp 行加 mcpServers~~: acp Config 无此字段(index.ts:75-90, 仅 provider/model/sessionListPageSize/stream), 不可行;
+2. ~~profile 级 McpClient 行~~: 工具注册在挂载作用域的 ctx.tools(mcp-client index.ts:150), acp 特意挂 agent 作用域 —— 根级挂载是否可达 agent 工具面未经验证, 风险未消;
+3. **官方正路: ACP `session/new` 的 `mcpServers` 参数**(acp/src/index.ts:213; stdio 需绝对路径 command, mcp.ts:45) —— 由会话发起方(runner 层)传入; 官方聊天已有每智能体 MCP 设置面(i18n `mcpHidden` 即此), 下一步: 在 dsh 影片智能体的设置中声明本地桥(node + `<resources>/openfilm/mcp/registry-bridge.mjs` + 服务端 URL 参数)。
+
+**验证标准(与用户对齐)**: 智能体轮次的 TurnLog 出现 39 能力工具; 会话中触发一个服务端能力 → 服务端任务库出现对应任务(用户的服务端日志取证法)。
 
 ## 17. 已知缺口/非目标
 
