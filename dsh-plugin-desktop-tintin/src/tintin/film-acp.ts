@@ -394,8 +394,14 @@ export class FilmAgentManager {
     })
     let stderr = ''
     child.stderr?.on('data', (chunk) => { stderr = (stderr + String(chunk)).slice(-16_000) })
+    /* 占位 promise 不能用 Promise.reject: 创建即拒绝且无人接住 → unhandledRejection →
+       failLoud 按致命错误退出主程序(2026-10-24 打开视频剪辑即崩的实测根因)。 */
+    type AgentImpl = { prompt: (text: string, images?: Array<{ data: string; mimeType: string }>) => Promise<{ stopReason: string }> }
+    let settleAgent!: (impl: AgentImpl) => void
+    let failAgent!: (error: Error) => void
+    const agent = new Promise<AgentImpl>((resolve, reject) => { settleAgent = resolve; failAgent = reject })
     const handle: Handle = {
-      project, sessionId: this.sessionIds.get(project) ?? null, child, agent: Promise.reject(new Error('not started')),
+      project, sessionId: this.sessionIds.get(project) ?? null, child, agent,
       conn: null, init: null, session: null, steering: false,
     }
     const forward = (update: unknown) => {
@@ -464,11 +470,14 @@ export class FilmAgentManager {
       }
       return { prompt: promptFn }
     })()
-    handle.agent = started.catch((error) => {
-      this.handles.delete(project)
-      this.log(`film agent start failed: ${error?.message ?? error}; stderr: ${stderr.slice(-500)}`)
-      throw error
-    })
+    void started.then(
+      (impl) => { settleAgent(impl) },
+      (error) => {
+        this.handles.delete(project)
+        this.log(`film agent start failed: ${error?.message ?? error}; stderr: ${stderr.slice(-500)}`)
+        failAgent(error instanceof Error ? error : new Error(String(error)))
+      },
+    )
     return handle
   }
 }
