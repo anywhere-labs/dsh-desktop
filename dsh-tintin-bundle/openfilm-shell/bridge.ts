@@ -311,10 +311,10 @@ const host: StudioHost = {
     label: 'Chat',
     get open() { return layout.open; },
     get width() { return shownWidth(); },
-    /* TinTin: 不声明 assets 缝 —— 项目素材留在 Studio 左侧面板; 抽屉给在线素材 */
-    get assets() { return { open: false, bottom: 120 }; },
+    /* TinTin(2026-10-24 用户裁决): 不在 panel 上挂 assets/setAssetsOpen —— Studio 以两者
+       存在与否判定「宿主收走素材」(host.ts useHostPanel); 不挂 = 项目素材留在 Studio
+       左侧面板。聊天列的素材按钮走 AppBridge 的 setAssetsOpen(在线素材抽屉), 与此无关。 */
     setOpen: setChatOpen,
-    setAssetsOpen,
     setWidth: (width, done) => setChatWidth(width, done === true),
     onChange: (listener) => { panelListeners.add(listener); listener(panelState()); },
   },
