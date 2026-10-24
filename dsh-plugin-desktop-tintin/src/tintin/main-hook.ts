@@ -377,8 +377,9 @@ export function installTinTinMainHook(): void {
       url.searchParams.set('size', String(Number(q.size) || 24))
       if (typeof q.search === 'string' && q.search.trim()) url.searchParams.set('search', q.search.trim())
       const res = await fetch(url)
-      const body = await res.json() as { data?: { items?: unknown[]; list?: unknown[] } }
-      const items = Array.isArray(body.data?.items) ? body.data.items : Array.isArray(body.data?.list) ? body.data.list : []
+      /* 实测(2026-10-24 铁律 14): /material/list 返回顶层 items, 不包 data */
+      const body = await res.json() as { items?: unknown[]; data?: { items?: unknown[] } }
+      const items = Array.isArray(body.items) ? body.items : Array.isArray(body.data?.items) ? body.data.items : []
       return { serverUrl, items }
     } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
   })
@@ -541,8 +542,10 @@ export function installTinTinMainHook(): void {
       const serverUrl = tinServerUrl()
       if (serverUrl) {
         const res = await fetch(serverUrl + '/skills')
-        const body = await res.json() as { data?: { skills?: Array<{ name?: unknown; description?: unknown }> } }
-        for (const s of body.data?.skills ?? []) {
+        /* 实测(2026-10-24 铁律 14): /skills 返回顶层 skills: [{id,name,description,instruction}] */
+        const body = await res.json() as { skills?: Array<{ name?: unknown; description?: unknown }>; data?: { skills?: Array<{ name?: unknown; description?: unknown }> } }
+        const serverSkills = Array.isArray(body.skills) ? body.skills : Array.isArray(body.data?.skills) ? body.data.skills : []
+        for (const s of serverSkills) {
           const name = String(s.name ?? '')
           if (!name || openfilm.some((row) => String(row.name ?? '') === name)) continue
           openfilm.push({ name, description: String(s.description ?? ''), source: 'official', folder: '', scripts: [] })
