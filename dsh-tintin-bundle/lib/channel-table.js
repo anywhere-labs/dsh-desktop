@@ -79,10 +79,11 @@ export function createChannelTable(deps) {
     ...createOpenfilmChannels({
       sync: syncOpenfilmAssets,
       httpRequest,
-      // OpenAI 兼容 provider 注入（server.openfilmCompat 门控；对人的真 openai
-      // key / 已有 env 的让位保护在 studioEnv 内做，见 lib/openfilm/studio-runtime.js）
+      // OpenAI 兼容 provider 注入(2026-10-24 用户裁决: 服务端 = 视频剪辑的默认服务商)。
+      // 默认开; 仅显式 server.openfilmCompat=false 关闭。对人的真 openai key / 已有 env
+      // 的让位保护在 studioEnv 内做(见 lib/openfilm/studio-runtime.js)。
       compatUrl: () => {
-        if (config?.server?.openfilmCompat !== true) return ''
+        if (config?.server?.openfilmCompat === false) return ''
         try { return String(getServerUrl() || '') } catch { return '' }
       },
     }),

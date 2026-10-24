@@ -347,7 +347,7 @@ export async function apply(ctx, config) {
   // ── OpenFilm 服务端驱动接缝（2026-10-18 用户裁决：A 方案 + 侧栏独立窗口）──
   // 同步随包技能与 `tintin` 自定义服务（实现见 lib/openfilm/plugin.js）；失败只
   // 告警：OpenFilm 是附加能力，不得阻断会话与桥。
-  const syncOpenfilmAssets = createOpenfilmSync({ getServerUrl, logger: ctx.logger, openfilmCompat: config?.server?.openfilmCompat === true })
+  const syncOpenfilmAssets = createOpenfilmSync({ getServerUrl, logger: ctx.logger, openfilmCompat: config?.server?.openfilmCompat !== false })
   try { syncOpenfilmAssets() } catch (error) { ctx.logger.warn('tintin-bundle: openfilm sync skipped: %s', error?.message ?? error) }
   const getMachineId = () => resolveMachineIdSync()
   const httpRequest = createHttpRequest({

@@ -97,7 +97,8 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 
 ## 8. 媒体 provider(服务端为默认)
 
-- `server.openfilmCompat` **默认 true**:隔离 Studio home 种 `use.asr/tts=openai`,Studio 进程注入 `OPENFILM_OPENAI_URL` + 占位 key;人的真 openai key 存在时自动让位;
+- `server.openfilmCompat` **默认开,仅显式 `false` 关闭**(2026-10-24 用户裁决:服务端的服务商 = 视频剪辑默认服务商;门控在 channel-table `compatUrl` 与 bundle `createOpenfilmSync` 两处同口径);隔离 Studio home 种 `use.asr/tts=openai` 并注入 `OPENFILM_OPENAI_URL` + 占位 key;人的真 openai key 存在时自动让位;
+- 实证(2026-10-24):影片智能体补丁 `<channelHome>/tintin/film-agent.patch.yml` = provider `tintin-server`(openai-completions, `<server>/llm`)+ 模型 deepseek-v4-flash/pro,`provider`/`model` 默认路由已实测落盘;
 - 服务端 `/v1/audio/transcriptions` 对齐(asr form 字段 + verbose_json words);`/v1/audio/speech` wav 对齐;
 - 模型路由:对话不消耗 DeepSeek 官方 API(ACP 补丁走 tintin-server)。
 
