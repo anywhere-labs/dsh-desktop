@@ -14,7 +14,8 @@ const STYLE = [
   '.tintin-lib-drawer{position:fixed;top:0;right:0;bottom:0;width:400px;z-index:2147483001;background:#101114;border-left:1px solid #26272b;display:flex;flex-direction:column;font:13px/1.5 system-ui;color:#e2e2e6}',
   '.tintin-lib-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #1c1d21}',
   '.tintin-lib-title{flex:1;font-weight:700;font-size:14px}',
-  '.tintin-lib-close{background:none;border:0;color:#9a9aa0;font-size:16px;cursor:pointer}',
+  '.tintin-lib-close{background:#1a1b1f;border:1px solid #2a2b31;border-radius:8px;color:#c9c9cf;font-size:15px;cursor:pointer;min-width:28px;height:28px;padding:0 8px;flex:none}',
+  '.tintin-lib-close:hover{background:#24262b;color:#fff}',
   '.tintin-lib-tabs{display:flex;gap:6px;padding:8px 12px 0}',
   '.tintin-lib-tab{border:1px solid #2a2b31;background:#1a1b1f;color:#c9c9cf;font:11px system-ui;padding:3px 10px;border-radius:7px;cursor:pointer}',
   '.tintin-lib-tab.is-on{background:#3b6fd4;border-color:#3b6fd4;color:#fff}',
@@ -186,6 +187,7 @@ const mount = (): void => {
       closeAssetsDrawer()
     };
     close.addEventListener('pointerdown', requestClose)
+    close.addEventListener('click', requestClose)
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && drawer.style.display !== 'none') requestClose()
     })
