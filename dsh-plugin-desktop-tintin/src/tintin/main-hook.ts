@@ -630,6 +630,21 @@ export function installTinTinMainHook(): void {
         }
       }
     } catch { /* 服务端不可达: 只返回本地清单 */ }
+    /* Studio 官方技能目录(2026-10-25 报障): /api/skills = 项目的+个人的+官方的
+       (视频复刻等官方技能在这里) —— 在 Studio 页内 fetch(自带鉴权 cookie), 主进程汇总。 */
+    try {
+      const view = studioView
+      if (view !== null && !view.webContents.isDestroyed()) {
+        const raw = await view.webContents.executeJavaScript(
+          'fetch("/api/skills?project=").then((r) => r.json())', true,
+        ) as { skills?: Array<{ name?: unknown; description?: unknown; source?: unknown }> }
+        for (const s of raw.skills ?? []) {
+          const name = String(s.name ?? '')
+          if (!name || openfilm.some((row) => String(row.name ?? '') === name)) continue
+          openfilm.push({ name, description: String(s.description ?? ''), source: String(s.source ?? 'official'), folder: '', scripts: [] })
+        }
+      }
+    } catch { /* Studio 页不可用: 已有其余来源 */ }
     /* 铁律 3: 技能清单的关键失败路径打点(聊天侧 / 与 @ 菜单的可见性取决于本返回值) */
     diagnosticLog({
       source: 'tintin-main', event: 'skills-list', level: 'info', developer: false,

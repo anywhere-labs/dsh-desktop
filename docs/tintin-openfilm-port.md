@@ -118,6 +118,7 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 ### 9.1 数据
 
 - 名单:`openfilm:native:skills-list` = 随包分发的原生技能(`resources/skills/openfilm`)+ 服务端 `/skills`(实测**顶层 `skills`**,字段 id/name/description/instruction;2026-10-24 实测服务端共 7 个);每项带 `source: 'native' | 'server'` 供分组;
+- **Studio 官方技能目录**(/api/skills): 项目的+个人的+官方的(视频复刻等) —— 在 Studio 页内 fetch(自带鉴权), 与本地/服务端清单合并;
 - 正文:`openfilm:native:skills-texts` = 本地 SKILL.md + 服务端 `instruction` 补齐 → 技能引用的上下文注入带全文;
 - 原生技能随包:`scripts/prepare-skills.mjs` 复制 → extraResources `skills/`;影片智能体启动时同步进 `film-agent-home/skills/openfilm/`;
 - 安装:`openfilm:skills:install`(服务端技能 → 写 `film-agent-home/skills/<name>/SKILL.md`,智能体即可用)。
@@ -170,7 +171,7 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 
 - 角色 = TinTin 角色预设(`dsh-tintin-bundle/presets/`:tintin-assistant 总助手、tintin-director 编导、tintin-producer 制作、tintin-qc 质检、tintin-librarian 素材库),与主应用同源(每角色的 `preset.yml` 元数据 + `agent.cordis.yml` 组合,persona 前缀即角色人设);
 - 影片智能体按角色生成**分角色补丁**(`<channelHome>/tintin/film-agent-<role>.patch.yml`):模型路由 + **persona 前缀替换**(读取角色预设的 persona 块,原样进补丁,与主应用文本一致);无角色时用默认补丁;
-- 选择器:shell 页「角色」下拉(`tintin-role.ts`,持久化 `tintin.role`)→ `window.__tintinRole` → studio-preload 的 `localAgents.start` 随 meta 送达 → 主进程 `begin(project, { tintinRole })`;
+- 选择器:shell 页「角色」下拉(`tintin-role.ts`,持久化 `tintin.role`)→ `window.__tintinRole` → studio-preload 的 `localAgents.start` 随 meta 送达 → 主进程 `begin(project, { tintinRole })`;(选择器位于聊天列 composer 正上方, 2026-10-24 用户裁决)
 - 角色变化 = 人设不同 → `ensure` 重建会话(旧子进程 stop,新角色补丁拉起);
 - 上游依据:`packages/acp/acp/src/index.ts` 明示 ACP 不组预设、部署方经配置加入(本实现以部署补丁承载,不改子模块);role 切换的 UI = TinTin 自有选择器(官方 composer 的 configOptions 仍为模型选择,不变)。
 
