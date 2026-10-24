@@ -24,13 +24,15 @@ export const FILM_AGENT_MODELS: FilmAgentModels[] = [
   { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
 ]
 
-/** 生成影片智能体的模型路由补丁(叠在 acp bundle 层之后生效); 传入角色人设时一并替换 persona. */
+/** 生成影片智能体的模型路由补丁(叠在 acp bundle 层之后生效); 传入角色人设时一并替换 persona.
+    插件 id 必须是 acp bundle 实际存在的行(llm/acp/system-prompt, 见 dsh-base 与 acp-app 的
+    cordis.patch.yml)—— id 写错(如曾经的 llm-pi-ai)整行被静默忽略, 模型回落官方直连。 */
 export function filmAgentPatchText(serverUrl: string, models: FilmAgentModels[] = FILM_AGENT_MODELS, persona?: string | null): string {
   const rows = models.map((m) => `          - id: ${m.id}\n            name: ${m.name}`).join('\n')
   const lines = [
     '# TinTin 影片智能体: 模型路由到 TinTin 服务端(openai-completions, <server>/llm).',
     '# 由桌面端生成; 手改会被下次启动覆盖. key 走 env TINTIN_SERVER_API_KEY(占位值).',
-    '- id: llm-pi-ai',
+    '- id: llm',
     '  config:',
     '    providers:',
     '      tintin-server:',
@@ -45,10 +47,10 @@ export function filmAgentPatchText(serverUrl: string, models: FilmAgentModels[] 
     '    provider: tintin-server',
     `    model: ${models[0]?.id ?? 'deepseek-v4-flash'}`,
   ]
-  /* 角色人设(2026-10-24 §11): 用 TinTin 角色预设的 persona 前缀替换 ACP 子进程的人设,
-     与主应用的角色预设同源(预设目录的 agent.cordis.yml 即权威文本)。 */
+  /* 角色人设(2026-10-24 §11): 替换 acp bundle 的 system-prompt personaPrefix
+     (该行在 acp-app 的 cordis.patch.yml 声明, 补丁按 id 覆盖, 后写优先)。 */
   if (typeof persona === 'string' && persona.trim()) {
-    lines.push('- id: persona', '  config:', '    prefix: |-')
+    lines.push('- id: system-prompt', '  config:', '    personaPrefix: |-')
     for (const row of persona.trim().split('\n')) lines.push(`      ${row}`)
   }
   lines.push('')
