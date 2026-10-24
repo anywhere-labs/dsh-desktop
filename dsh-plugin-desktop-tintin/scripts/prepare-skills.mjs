@@ -5,8 +5,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const source = join(here, '..', 'dsh-tintin-bundle', 'resources', 'skills', 'openfilm', 'SKILL.md')
-const target = join(here, 'resources', 'skills', 'openfilm', 'SKILL.md')
+// scripts/ → 包根(dsh-plugin-desktop-tintin/)→ 仓库根(兄弟 workspace dsh-tintin-bundle)
+const source = join(here, '..', '..', 'dsh-tintin-bundle', 'resources', 'skills', 'openfilm', 'SKILL.md')
+const target = join(here, '..', 'resources', 'skills', 'openfilm', 'SKILL.md')
 mkdirSync(dirname(target), { recursive: true })
 copyFileSync(source, target)
 console.log('prepare-skills: openfilm SKILL.md -> resources/skills/openfilm/')
