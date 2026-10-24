@@ -119,7 +119,7 @@ window.__ModuleLoader__.load({
         const style = document.createElement('style')
         style.id = 'tintin-openfilm-css'
         style.textContent = [
-          '.tintin-of-shell{position:absolute;inset:0;display:flex;background:#0b0c0f}.tintin-of-stage{position:relative;flex:1;min-width:0}.tintin-of-stage iframe{width:100%;height:100%;border:0;display:block;background:#0b0c0f}.tintin-of-note{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;white-space:pre-wrap;cursor:pointer;color:#9a9a9a;font:14px/1.6 system-ui;background:#0b0c0f}.tintin-of-note-busy{display:flex;flex-direction:column;align-items:center;gap:12px}.tintin-of-spin{width:22px;height:22px;border:2px solid #33363d;border-top-color:#7aa2ff;border-radius:50%;animation:tintin-spin .9s linear infinite}@keyframes tintin-spin{to{transform:rotate(1turn)}}',
+          '.tintin-of-shell{position:absolute;inset:0;display:flex;background:#0b0c0f}.tintin-of-stage{position:relative;flex:1;min-width:0}.tintin-of-stage iframe{width:100%;height:100%;border:0;display:block;background:#0b0c0f}.tintin-of-logbar{position:absolute;left:0;right:0;bottom:0;height:40px;box-sizing:border-box;background:#0d0e11;border-top:1px solid #26272b;color:#8fd6a4;font:11px/1.5 ui-monospace,monospace;padding:3px 12px;overflow:hidden;white-space:pre-wrap;z-index:3}.tintin-of-note{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;white-space:pre-wrap;cursor:pointer;color:#9a9a9a;font:14px/1.6 system-ui;background:#0b0c0f}.tintin-of-note-busy{display:flex;flex-direction:column;align-items:center;gap:12px}.tintin-of-spin{width:22px;height:22px;border:2px solid #33363d;border-top-color:#7aa2ff;border-radius:50%;animation:tintin-spin .9s linear infinite}@keyframes tintin-spin{to{transform:rotate(1turn)}}',
           '.tintin-of-chat{position:relative;width:420px;flex:none;display:flex;flex-direction:column;border-left:1px solid #202126;background:#0f1013;color:#e8e8e6;font:13px/1.55 system-ui;min-width:0}.tintin-of-top{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #1c1d21;min-height:38px}.tintin-of-top-session{flex:1;min-width:0;background:transparent;border:0;color:#c9c9cf;font:12px system-ui;outline:none;appearance:none}.tintin-of-top-session option{background:#16171a;color:#e8e8e6}.tintin-of-top-btn{width:26px;height:26px;border-radius:7px;border:1px solid #26272b;background:#15161a;color:#c9c9cf;cursor:pointer;font:13px system-ui;line-height:1;flex:none}',
           '.tintin-of-list{flex:1;min-height:0;overflow:auto;padding:16px 14px;display:flex;flex-direction:column;gap:10px}.tintin-of-empty2{margin:auto 0;padding:0 6px 20px;display:flex;flex-direction:column;gap:10px;max-width:360px}.tintin-of-mark{width:22px;height:28px;border-radius:3px;background:#e8e8e6;clip-path:polygon(0 0,100% 0,100% 70%,55% 70%,55% 100%,0 100%)}.tintin-of-h1{font-size:21px;font-weight:700;letter-spacing:.2px;margin-top:2px}.tintin-of-p{font-size:12px;color:#9a9aa0;margin-bottom:6px}',
           '.tintin-of-sugg-head{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#8a8a90;margin-top:4px}.tintin-of-sugg-head button{background:none;border:0;color:#8a8a90;font:11px system-ui;cursor:pointer}.tintin-of-sugg{display:flex;flex-direction:column;gap:7px}.tintin-of-sugg-card{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:10px;border:1px solid #26272b;background:#16171a;color:#e2e2e6;font:13px/1.45 system-ui;text-align:left;cursor:pointer}.tintin-of-sugg-card:hover{background:#1b1c20}.tintin-of-sugg-card span:last-child{color:#6f7076;font-size:13px}',
@@ -299,6 +299,19 @@ ${event.data.error.reason}` : result
         const atMenu = document.createElement('div'); atMenu.className = 'tintin-of-atmenu'
         chat.append(top, assetsPanel, list, approvalBar, questionBar, composer, status, atMenu)
         shell.append(stage, chat)
+        /* 底部日志条(2026-10-24 用户要求): 原生视图高度为此收缩 40px, 本条常驻可见 */
+        const logbar = document.createElement('div'); logbar.className = 'tintin-of-logbar'
+        stage.append(logbar)
+        const LOGHINT = '日志文件: %APPDATA%\\TinTin\\logs\\dsh-*.log（.error.log 同目录）'
+        const refreshLogbar = async () => {
+          try {
+            const r = await nativeView?.hasShellChat?.()
+            const diag = r?.diag ? JSON.stringify(r.diag) : ''
+            logbar.textContent = (r?.has === true ? '官方聊天已接管 ✓' : '官方聊天未接管') + (diag ? '  |  ' + diag : '') + '\n' + LOGHINT
+          } catch { logbar.textContent = LOGHINT }
+        }
+        setInterval(() => { void refreshLogbar() }, 4000)
+        setTimeout(() => { void refreshLogbar() }, 0)
         el.append(shell)
         // 系统字幕带（窗口顶条，titleBarOverlay）会吞掉原生 Studio 视图的顶栏点击（2026-10-19 裁决：编辑器
         // 不落到标题栏上）——只让本视图让出条高：壳顶内边距把舞台推到条下，聊天列顶部为纯背景；共享覆盖层
@@ -744,15 +757,18 @@ ${event.data.error.reason}` : result
             return
           }
           nativeShown = true
-          // bounds 去重（2026-10-21 报障：每 800ms/每次 DOM 变更都无条件 show → 主进程
-          // 反复 setBounds，合成器不断重排原生视图，播放时播放条抖动）。四值不变不发包。
-          const next = `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)},${Math.round(rect.height)}`
+          // 顶部填充 40px(2026-10-24 用户要求: 挂载界面上移填满顶部条)+ 底部收缩 40px
+          // 给日志条让位 —— 原生视图只盖舞台上方区域, 日志条常驻可见。
+          const TOP_FILL = 40
+          const LOG_STRIP = 40
+          const nx = Math.round(rect.left)
+          const ny = Math.round(rect.top - TOP_FILL)
+          const nw = Math.round(rect.width)
+          const nh = Math.max(8, Math.round(rect.height + TOP_FILL - LOG_STRIP))
+          const next = `${nx},${ny},${nw},${nh}`
           if (next === lastBounds) return
           lastBounds = next
-          await nativeView.show({
-            x: Math.round(rect.left), y: Math.round(rect.top),
-            width: Math.round(rect.width), height: Math.round(rect.height),
-          })
+          await nativeView.show({ x: nx, y: ny, width: nw, height: nh })
         }
         const watchNativeView = () => {
           if (!nativeView?.show) return
