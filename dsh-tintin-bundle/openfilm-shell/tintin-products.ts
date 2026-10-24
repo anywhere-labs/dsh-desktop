@@ -9,7 +9,7 @@ import { bootFail } from './boot';
 type ProductRow = { id?: unknown; category?: unknown; brand?: unknown; model?: unknown; goods_no?: unknown; features?: unknown; selling_points?: unknown };
 
 const STYLE = [
-  '.tintin-pd-fab{position:fixed;right:110px;bottom:10px;z-index:2147483000;background:#16171a;border:1px solid #2a2b31;color:#c9c9cf;font:12px system-ui;padding:4px 10px;border-radius:8px;cursor:pointer}',
+  '.tintin-pd-fab{z-index:2147483000}',
   '.tintin-pd-panel{position:fixed;right:8px;bottom:120px;width:400px;max-height:480px;z-index:2147483001;background:#101114;border:1px solid #26272b;border-radius:12px;display:flex;flex-direction:column;font:13px/1.5 system-ui;color:#e2e2e6;box-shadow:0 12px 32px rgba(0,0,0,.5)}',
   '.tintin-pd-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #1c1d21}',
   '.tintin-pd-title{flex:1;font-weight:700;font-size:14px}',
@@ -36,10 +36,27 @@ const mount = (): void => {
     document.head.append(style);
 
     const fab = document.createElement('button');
-    fab.className = 'tintin-pd-fab';
+    fab.className = 'openfilm-composer-tool';
     fab.textContent = '📦 产品';
     fab.title = '选择产品:资料注入会话(@ 引用)';
-    document.body.append(fab);
+    /* 挂进官方 composer 工具条(与素材/技能按钮同行同款) —— 等工具条出现后注入 */
+    const attachFab = (): void => {
+      const official = document.querySelector('.openfilm-composer-tool')
+      const row = official?.parentElement
+      if (!row) return false
+      if (row.querySelector('[data-tintin-products]')) return true
+      fab.setAttribute('data-tintin-products', '1')
+      row.append(fab)
+      return true
+    }
+    let fabTries = 0
+    const fabTick = (): void => {
+      if (attachFab()) return
+      fabTries += 1
+      if (fabTries < 80) setTimeout(fabTick, 250)
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(fabTick, 0))
+    else setTimeout(fabTick, 0)
 
     const panel = document.createElement('div');
     panel.className = 'tintin-pd-panel';
