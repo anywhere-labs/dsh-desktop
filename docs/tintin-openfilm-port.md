@@ -6,9 +6,33 @@
 
 本文是**视频剪辑功能整体从 OpenFilm 移植的说明**:OpenFilm 是什么、我们采用哪种形态、页内三份桥面契约、影片视图、ACP 智能体、持久化、媒体 provider、技能、在线素材库、角色名册、**移植文件清单(锚点)**、生命周期与自愈、服务端契约、验收口径。后续任何视频剪辑相关改动以本文为唯一入口。
 
-## 1. OpenFilm 是什么(上游资产)
+## 1. OpenFilm 是什么(上游资产)+ 功能全景盘点
 
-OpenFilm 是开源 AI 视频制作应用(仓库 `github.com/openfilm/openfilm`):Studio 编辑器(影片 = HTML 页面 + 时间线)+ 应用壳(聊天列驱动智能体写影片)。官方桌面端 = 编辑器与聊天**同一页编译**(`apps/desktop/shell`),经 `window.openfilmDesktop` 桥把 Studio 与聊天接起来。我们**不重写编辑器、不重写聊天**,以官方源码为资产移植。
+OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Studio 编辑器(影片 = HTML 页面 + 时间线)+ 应用壳(聊天列驱动智能体写影片)。官方桌面端 = 编辑器与聊天**同一页编译**(`apps/desktop/shell`),经 `window.openfilmDesktop` 桥把 Studio 与聊天接起来。我们**不重写编辑器、不重写聊天**,以官方源码为资产移植。
+
+**上游文档(功能全景的出处)**:`README.md` / `README.zh-CN.md`(产品全貌)、`apps/desktop/README.md`(桌面 = Studio + 聊天窗)、`packages/openfilm/README.md`(命令)、`packages/openfilm/MANUAL.md`(智能体手册)、`packages/openfilm/SPEC.md`(影片格式协议 0.1)、`skills/openfilm/SKILL.md`(技能)、各包 `CHANGELOG.md`。
+
+### 1.1 功能全景 → TinTin 视频剪辑状态
+
+| # | OpenFilm 功能(上游文档) | TinTin 集成 | 状态 |
+|---|---|---|---|
+| 1 | **film.html 格式**:`<section>`=轨道(第一条在最上)、片段=页面/视频/静态图/声音、`#t=12,18` 媒体选取、`at`/`speed`、样式定位、`overrides` 保留手工修改(README/Spec) | 官方 Studio 原样处理,格式不改 | ✅ 对齐(未改) |
+| 2 | **页面契约**:`window.film.frame(t)` + `duration/ready/width/height`;唯一规则「同一 t 同一画面」(README/SPEC) | 官方运行时要价原样 | ✅ 对齐(未改) |
+| 3 | **look 检查**(总览/单帧/区间、乱序重绘、页面错误/字体/缺失音频/截断文字) | 智能体在影片目录执行 CLI(ACP 子进程 cwd=影片) | ✅ 可用 |
+| 4 | **Studio 编辑**:时间线修剪/切分、元素移动缩放旋转、文字/颜色/样式、字幕、画面内元素覆盖(README Studio 段) | 官方编辑器页内(原生视图) | ✅ 对齐(未改) |
+| 5 | **带名版本 + 回退**(Studio 保存版本,git) | 官方 Studio 自带;数据在影片目录 | ✅ 对齐(未改) |
+| 6 | **导出**:MP4/GIF/声音/分轨/字幕/静帧/幻灯片/透明背景(.webm/.mov)、FCP/Premiere/Resolve XML | 官方 Studio 导出面 | ✅ 对齐(未改) |
+| 7 | **媒体面板(项目素材)** | Studio 左侧媒体面板(panel 不挂 assets) | ✅ 本轮修复 |
+| 8 | **桌面聊天窗口**(Studio 旁的对话窗,接 Claude Code/Codex 等智能体;也可自带智能体 + 自己 key)(desktop README) | 官方聊天 UI(shell 页内)+ DSH ACP 智能体(模型走服务端) | ✅ 第三行形态 |
+| 9 | **媒体生成 `openfilm get`**:配音/音乐/音效/转写字幕/图片/视频,provider 用自己的 key(README/get) | Studio 内建功能 → provider = TinTin 服务端(`openfilmCompat` 默认开,/v1 兼容);人的真 key 让位 | ✅ 服务端默认 |
+| 10 | **命令**:`openfilm`(手册)/`open`/`look`/`render`(--4k/--blur/--alpha)/`get`/`doctor` | 智能体经 ACP 在影片目录执行(CLI 随包),TinTin 不改 CLI | ✅ 可用 |
+| 11 | **技能**:`npx skills add openfilm/openfilm`,智能体按技能手册做片 | 随包原生技能(`resources/skills/openfilm`)+ 服务端技能合并;智能体 home 同步 | ✅ 本轮补齐 |
+| 12 | **服务商设置**(Studio 设置→服务商,自己的 key) | 服务端默认注入;人的 key 自动让位 | ✅ |
+| 13 | **SPEC 协议 0.1**(播放器/渲染器/编辑器实现方) | 我们只消费官方实现,不改协议 | ✅ 对齐(未改) |
+| 14 | **在线素材库**(TinTin 自定义,上游无) | shell 页内抽屉 `/material/*` 代理 + 下载落项目 | ✅ 本轮重建 |
+| 15 | **角色智能体**(TinTin 自定义,上游无) | ACP 预设名册(部署配置) | 🔶 实现中 |
+
+口径:**第 1/2/4/5/6/13 项是官方原生能力,TinTin 只负责把它跑起来、不改造**;第 3/7/8/9/10/11/12/14 项是集成点(已对齐或已修复);第 15 项是唯一未完成项。任何偏离此表的视频剪辑功能,以本表的"状态"为准。
 
 ## 2. 集成形态裁决(第三行)
 
