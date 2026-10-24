@@ -667,6 +667,9 @@ export function installTinTinMainHook(): void {
       const target = join(channelHome(), 'film-agent-home', 'skills', name.replace(/[/:*?"<>|]/g, '-'))
       mkdirSync(target, { recursive: true })
       writeFileSync(join(target, 'SKILL.md'), instruction)
+      /* 安装即广播官方的技能变更事件(2026-10-24 用户问的"自动引用"): 聊天清单自动刷新,
+         新装的技能立刻可引用, 无需重进视频剪辑。 */
+      try { await studioView?.webContents.executeJavaScript("window.dispatchEvent(new Event('openfilm:skills-changed'))", true) } catch { /* 页面不在: 下次挂载自然刷新 */ }
       return { ok: true, path: target }
     } catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
   })
