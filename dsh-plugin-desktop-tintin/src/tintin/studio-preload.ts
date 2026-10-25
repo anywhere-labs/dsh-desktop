@@ -54,14 +54,8 @@ const localAgents = {
   signIn: async (agent: string): Promise<{ ok: false; error: string }> =>
     ({ ok: false, error: `${agent} 无需登录: 模型由 TinTin 服务端提供` }),
   probe: (agent: string): Promise<unknown> => agentInvoke(OPENFILM_AGENT_LOCAL, { op: 'probe', agent }),
-  start: (agent: string, cwd: string, resume?: string | null, meta?: unknown): Promise<unknown> => {
-    /* 角色选择(shell 页的选择器写入 window.__tintinRole)随 start 的 meta 送达主进程,
-       影片智能体按角色预设的人设启动会话(§11) */
-    const picked = (window as unknown as { __tintinRole?: unknown }).__tintinRole
-    const role = typeof picked === 'string' && picked ? picked : ''
-    const merged = { ...((typeof meta === 'object' && meta !== null ? meta : {}) as Record<string, unknown>), ...(role ? { tintinRole: role } : {}) }
-    return agentInvoke(OPENFILM_AGENT_LOCAL, { op: 'start', agent, cwd, resume, meta: merged })
-  },
+  start: (agent: string, cwd: string, resume?: string | null, meta?: unknown): Promise<unknown> =>
+    agentInvoke(OPENFILM_AGENT_LOCAL, { op: 'start', agent, cwd, resume, meta }),
   prompt: (key: string, text: string, meta?: unknown, images?: unknown[]): Promise<unknown> =>
     agentInvoke(OPENFILM_AGENT_LOCAL, { op: 'prompt', key, text, meta, images }),
   running: (): Promise<unknown> => agentInvoke(OPENFILM_AGENT_LOCAL, { op: 'running' }),

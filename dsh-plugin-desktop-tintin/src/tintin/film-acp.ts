@@ -24,10 +24,10 @@ export const FILM_AGENT_MODELS: FilmAgentModels[] = [
   { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
 ]
 
-/** 生成影片智能体的模型路由补丁(叠在 acp bundle 层之后生效); 传入角色人设时一并替换 persona.
-    插件 id 必须是 acp bundle 实际存在的行(llm/acp/system-prompt, 见 dsh-base 与 acp-app 的
-    cordis.patch.yml)—— id 写错(如曾经的 llm-pi-ai)整行被静默忽略, 模型回落官方直连。 */
-export function filmAgentPatchText(serverUrl: string, models: FilmAgentModels[] = FILM_AGENT_MODELS, persona?: string | null): string {
+/** 生成影片智能体的模型路由补丁(叠在 acp bundle 层之后生效).
+    插件 id 必须是 acp bundle 实际存在的行(llm/acp, 见 dsh-base 与 acp-app 的 cordis.patch.yml)
+    —— id 写错(如曾经的 llm-pi-ai)整行被静默忽略, 模型回落官方直连。 */
+export function filmAgentPatchText(serverUrl: string, models: FilmAgentModels[] = FILM_AGENT_MODELS): string {
   const rows = models.map((m) => `          - id: ${m.id}\n            name: ${m.name}`).join('\n')
   const lines = [
     '# TinTin 影片智能体: 模型路由到 TinTin 服务端(openai-completions, <server>/llm).',
@@ -47,47 +47,16 @@ export function filmAgentPatchText(serverUrl: string, models: FilmAgentModels[] 
     '    provider: tintin-server',
     `    model: ${models[0]?.id ?? 'deepseek-v4-flash'}`,
   ]
-  /* 角色人设(2026-10-24 §11): 替换 acp bundle 的 system-prompt personaPrefix
-     (该行在 acp-app 的 cordis.patch.yml 声明, 补丁按 id 覆盖, 后写优先)。 */
-  if (typeof persona === 'string' && persona.trim()) {
-    lines.push('- id: system-prompt', '  config:', '    personaPrefix: |-')
-    for (const row of persona.trim().split('\n')) lines.push(`      ${row}`)
-  }
   lines.push('')
   return lines.join('\n')
 }
 
-/** TinTin 角色预设目录(随 dsh-tintin-bundle 分发): 先找包内依赖, 再找仓库兄弟目录. */
-export function tintinPresetsRoot(): string {
-  const here = dirname(fileURLToPath(import.meta.url))
-  const candidates = [
-    join(here, '..', 'node_modules', 'dsh-tintin-bundle', 'presets'),
-    join(here, '..', '..', 'dsh-tintin-bundle', 'presets'),
-  ]
-  for (const candidate of candidates) if (existsSync(candidate)) return candidate
-  return ''
-}
-
-/** 读取某个角色预设的 persona 前缀(agent.cordis.yml 的 persona.config.prefix 块). */
-export function rolePersonaOf(root: string, role: string): string | null {
-  if (!root) return null
-  try {
-    const text = readFileSync(join(root, role, 'agent.cordis.yml'), 'utf8')
-    const block = /- id: persona\b[\s\S]*?prefix:\s*(?:>-|>|\|)\s*\n((?:[ \t]+.*\n?)+)/u.exec(text)
-    if (block === null || typeof block[1] !== 'string') return null
-    return block[1].split('\n').map((line) => line.replace(/^[ \t]+/u, '')).join('\n').trim() || null
-  } catch {
-    return null
-  }
-}
-
-/** 把补丁写到隔离 home 的固定位置(内容变化才写), 返回补丁绝对路径; 角色补丁按角色分文件. */
-export function ensureFilmAgentPatch(channelHome: string, serverUrl: string, models?: FilmAgentModels[], persona?: string | null, role?: string): string {
+/** 把补丁写到隔离 home 的固定位置(内容变化才写), 返回补丁绝对路径. */
+export function ensureFilmAgentPatch(channelHome: string, serverUrl: string, models?: FilmAgentModels[]): string {
   const dir = join(channelHome, 'tintin')
   mkdirSync(dir, { recursive: true })
-  const name = typeof role === 'string' && role.trim() ? `film-agent-${role.replace(/[^\w-]/gu, '')}.patch.yml` : 'film-agent.patch.yml'
-  const path = join(dir, name)
-  const text = filmAgentPatchText(serverUrl, models, persona)
+  const path = join(dir, 'film-agent.patch.yml')
+  const text = filmAgentPatchText(serverUrl, models)
   if (!existsSync(path) || readFileSync(path, 'utf8') !== text) writeFileSync(path, text, 'utf8')
   return path
 }
@@ -204,7 +173,6 @@ export interface FilmAgentState {
 
 interface Handle {
   project: string
-  role: string | null
   sessionId: string | null
   child: ReturnType<typeof spawn>
   agent: Promise<{ prompt(text: string, images?: Array<{ data: string; mimeType: string }>): Promise<{ stopReason: string }> }>
@@ -225,8 +193,6 @@ interface Handle {
  */
 export class FilmAgentManager {
   private handles = new Map<string, Handle>()
-  /** 每片场的角色预设 id(begin 时写入; 角色变化即重建会话, 见 ensure). */
-  private roles = new Map<string, string>()
   private sessionIds = new Map<string, string>()
   private permissions = new Map<string, { project: string; resolve: (response: unknown) => void }>()
   private questions = new Map<string, { project: string; resolve: (response: unknown) => void; questions: Array<{ id: string; options: Array<{ label: string }>; customId: string | null; multi: boolean }> }>()
@@ -280,14 +246,12 @@ export class FilmAgentManager {
 
   /** 显式启动(或续接)一部影片的会话, 返回会话信息(聊天侧 start 的后端). */
   /** 显式启动(或续接)一部影片的会话, 返回会话信息(聊天侧 start 的后端)。
-      角色的选择(meta.tintinRole = 预设 id)决定本会话的人设; 角色变化即重建会话。 */
-  async begin(project: string, meta?: { tintinRole?: unknown }): Promise<{
+      */
+  async begin(project: string): Promise<{
     sessionId: string; resumed: boolean; agentInfo: { name?: string; title?: string; version?: string } | null; authMethods: never[]; mcp: false;
     models: { availableModels: Array<{ modelId: string; name: string; description?: string }>; currentModelId: string } | null;
     modes: null; configOptions: Array<Record<string, unknown>> | null;
   }> {
-    const role = typeof meta?.tintinRole === 'string' ? meta.tintinRole.trim() : ''
-    if (role) this.roles.set(project, role)
     const handle = await this.ensure(project)
     const session = (handle.session ?? {}) as {
       models?: { availableModels?: Array<Record<string, unknown>>; currentModelId?: unknown }
@@ -413,22 +377,19 @@ export class FilmAgentManager {
   }
 
   private ensure(project: string): Promise<Handle> {
-    const role = this.roles.get(project) ?? ''
     const existing = this.handles.get(project)
     /* 角色切换 = 人设不同, 会话必须重建(补丁按角色分文件) */
-    if (existing && existing.child.exitCode === null && (existing.role ?? '') === role) return Promise.resolve(existing)
+    if (existing && existing.child.exitCode === null) return Promise.resolve(existing)
     if (existing) this.stop(project)
-    const handle = this.start(project, role || null)
+    const handle = this.start(project)
     this.handles.set(project, handle)
     return handle.agent.then(() => handle)
   }
 
-  private start(project: string, role: string | null): Handle {
+  private start(project: string): Handle {
     const serverUrl = this.options.serverUrl().replace(/\/+$/, '')
     if (!serverUrl) throw new Error('server.url 未配置: 影片智能体无法启动')
-    /* 角色人设(2026-10-24 §11): 角色预设的 persona 前缀进补丁, 与主应用同源; 无角色时保持默认 */
-    const persona = role !== null ? rolePersonaOf(tintinPresetsRoot(), role) : null
-    const patchPath = ensureFilmAgentPatch(this.options.channelHome, serverUrl, undefined, persona, role ?? undefined)
+    const patchPath = ensureFilmAgentPatch(this.options.channelHome, serverUrl)
     const home = join(this.options.channelHome, 'film-agent-home')
     mkdirSync(home, { recursive: true })
     /* 内置 openfilm 技能随包分发(2026-10-24): 同步进影片智能体的 home ——
@@ -460,7 +421,7 @@ export class FilmAgentManager {
     let failAgent!: (error: Error) => void
     const agent = new Promise<AgentImpl>((resolve, reject) => { settleAgent = resolve; failAgent = reject })
     const handle: Handle = {
-      project, role, sessionId: this.sessionIds.get(project) ?? null, child, agent,
+      project, sessionId: this.sessionIds.get(project) ?? null, child, agent,
       conn: null, init: null, session: null, steering: false,
     }
     const forward = (update: unknown) => {

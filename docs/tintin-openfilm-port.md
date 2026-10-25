@@ -176,7 +176,9 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 | 注入 | 产品资料结构化文本(品牌·型号·品类·货号 + 性能参数 + 核心卖点逐条)以粘贴事件写入官方 composer 输入框(Lexical 原生接住), 即 @ 引用形态 |
 | 数据 | 主进程代理 GET /api/product-library/search?q&limit 与 /items/{id}(实测顶层 items/item) |
 
-## 11. 角色智能体名册(2026-10-24 实现)
+## 11. 角色智能体名册(2026-10-24 实现; **2026-10-25 退役**, 见下)
+
+> **退役(2026-10-25 用户裁决)**: 角色是**服务端定义的智能体资产**, 客户端不使用服务端定义的智能体 —— 移除 composer 的角色选择器、本地预设装配与 `system-prompt` 人设补丁; 智能体以 acp bundle 默认人设运行, 专业分工由服务端能力(MCP 工具)承载。`film-agent.patch.yml` 单文件(模型路由+MCP 会话声明)。
 
 - 角色 = TinTin 角色预设(`dsh-tintin-bundle/presets/`:tintin-assistant 总助手、tintin-director 编导、tintin-producer 制作、tintin-qc 质检、tintin-librarian 素材库),与主应用同源(每角色的 `preset.yml` 元数据 + `agent.cordis.yml` 组合,persona 前缀即角色人设);
 - 影片智能体按角色生成**分角色补丁**(`<channelHome>/tintin/film-agent-<role>.patch.yml`):模型路由 + **persona 前缀替换**(读取角色预设的 persona 块,原样进补丁,与主应用文本一致);无角色时用默认补丁;
