@@ -507,7 +507,12 @@ export class FilmAgentManager {
       }) as { agentInfo?: { name?: string; title?: string; version?: string }; agentCapabilities?: Record<string, unknown>; _meta?: { steering?: { supported?: boolean } } }
       handle.init = init
       handle.steering = init._meta?.steering?.supported === true
-      const params = { cwd: project, mcpServers: [] as unknown[] }
+      /* 服务端 MCP(2026-10-25 用户裁决): 会话声明服务端的 MCP server(streamable-http),
+         智能体工具清单即获得注册表全部能力 —— 大模型可自主编排服务端能力。 */
+      const mcpServers: unknown[] = serverUrl
+        ? [{ name: 'tintin-server', type: 'http', url: `${serverUrl.replace(/\/+$/, '')}/mcp` }]
+        : []
+      const params = { cwd: project, mcpServers }
       let sessionId: string | null = this.sessionIds.get(project) ?? null
       if (sessionId !== null) {
         /* 持久会话: resume 失败(如目录变更)回落新建 */
