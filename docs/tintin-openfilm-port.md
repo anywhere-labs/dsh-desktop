@@ -300,6 +300,8 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 
 **验证标准(与用户对齐)**: 智能体轮次的 TurnLog 出现 39 能力工具; 会话中触发一个服务端能力 → 服务端任务库出现对应任务(用户的服务端日志取证法)。
 
+**接线完成(2026-10-25)**: 服务端 MCP server 已上线(streamable-http, `tintin-agent-server` v1.1, 40 工具, 客户端四项实测通过)——本地桥退场(单一事实源回归服务端)。客户端接线: `film-acp` 在 `session/new`/`resume` 参数声明 `mcpServers: [{name: "tintin-server", type: "http", url: "<server>/mcp"}]`(官方 ACP 语义, acp 插件翻译为 DSH MCP client)。验证标准不变: TurnLog 出现注册表工具 + 服务端任务库出现智能体触发的任务。
+
 ## 17. 已知缺口/非目标
 
 - 角色名册(§11)实现中;上游 feature:custom 服务作内建 provider、子树归组(远期);
