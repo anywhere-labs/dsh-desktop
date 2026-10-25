@@ -306,6 +306,13 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 
 **可观测性(2026-10-25 补)**: 影片智能体子进程的 stderr 实时进管理器日志, 管理器日志全部落统一日志管道(source=film-acp) —— 失败轮次不再无记录。
 
+**"Internal error/仍在处理"的最终定位(2026-10-25 原始 ACP 探针对照实验)**: 
+
+- 同为 0.2.1-rc.2, **工作区构建的 dsh(apps/cli/lib/bin.js) 4 秒完成完整轮次**(模型经 /llm 回复 ✓), **打包副本的 dsh(resources/app/node_modules/@deepseek-ai/dsh) 在 session/prompt 后、发出任何模型请求之前挂死**(本地捕获服务器零请求; 有/无 MCP 声明、空/真实项目目录均复现) —— 缺陷在**打包副本的 dsh 构建**, 与补丁/MCP/服务端无关;
+- 服务端侧已排除: /llm(流式+非流式+任意 key)✓、/mcp(握手+40 工具+健康调用)✓、补丁文件内容与落点 ✓;
+- 修复方向(待实施): 影片智能体的 dsh 换用已验证可用的工作区构建(随包分发或路径解析), 或升级 dshmarket 至无此缺陷的版本;
+- 附带发现: 影片智能体子进程在失败轮次后**不退出**(僵尸累积, 各占 ~130MB); `.codebuddy\logs` 是本机 CodeBuddy CLI 的日志目录(与本项目无关, 勿混读)。
+
 ## 17. 已知缺口/非目标
 
 - 角色名册(§11)实现中;上游 feature:custom 服务作内建 provider、子树归组(远期);
