@@ -87,3 +87,20 @@ describe('planShotGroup / topUpClipGroups 使用计数防重复', () => {
     expect(r.groups[2]).not.toContain(4)
   })
 })
+
+// ── 2026-10-21 实机：5.166667 秒片段被四舍五入成 5.17，导出 film.html 的
+//    #t=0,5.17 越过文件长度，OpenFilm Studio 拒绝绘制整条预览 ──
+describe('planShotGroup 时长不越过片段全长', () => {
+  it('小数时长向下取整（5.166667 → 5.16），不产生 5.17', () => {
+    const p = pool(row(1, 5.166667), row(2, 4))
+    const r = planShotGroup({ duration: 30 } as never, 1, p)
+    expect(r.useDurs[0]).toBeCloseTo(5.16, 2)
+    expect(r.useDurs.every((d) => d <= 5.166667 + 1e-9)).toBe(true)
+  })
+
+  it('整百分位时长原样保留（5.16 不被浮点误差误减成 5.15）', () => {
+    const p = pool(row(1, 5.16), row(2, 4))
+    const r = planShotGroup({ duration: 30 } as never, 1, p)
+    expect(r.useDurs[0]).toBe(5.16)
+  })
+})

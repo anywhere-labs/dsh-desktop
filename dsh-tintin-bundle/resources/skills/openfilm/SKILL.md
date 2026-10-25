@@ -33,6 +33,27 @@ never ask the person for an API key or send them to connect ElevenLabs/OpenAI/Go
   cmd.exe or right after a folder was created. If `render` fails with "Permission denied", wait a few minutes and
   rerun the exact same command; if it persists, tell the person to whitelist ffmpeg or the film folder.
 
+## Editing: one timeline JSON, then `film_compile` (never one shell step per change)
+
+Measured on a real session: editing a film through `pwsh` one step at a time cost 1025 model requests for one film.
+Do it this way instead:
+
+1. Decide the edit as a **timeline document** — tracks and clips, no code:
+   `{ version: 1, resolution: "1920x1080", tracks: [
+      { kind: "video", clips: [{ asset: "material:<id>" | "https://…" | "assets/x.mp4", at, in?, out?, speed? }] },
+      { kind: "voice"|"music"|"sfx", clips: [{ asset, at, in?, out?, volume? }] },
+      { kind: "subtitle", cues: [{ at, to, text }] } ] }`
+2. Call **`film_compile { timeline }`** — it validates, stages every asset into `assets/`
+   (material ids download from the server, URLs download, local paths copy), writes `film.html`
+   and the subtitle `.vtt`. Validation errors come back as `errors`; fix the JSON and call it
+   again (1–2 rounds, not 100 shell calls).
+3. Call **`film_render { out?, fps? }`** for the MP4 (local Chromium + ffmpeg), or `openfilm look`
+   to check frames with `vision_analyze`.
+
+Only reach for `write`/pages when the film needs a designed page (`window.film` drawing) that a
+timeline cannot express — and even then, one write per page, no shell loops. Assets that need
+generating come from the `tintin_*` tools first, then are referenced by path in the timeline.
+
 ## Offline libraries (films must render with no network)
 
 The official examples import three.js from jsDelivr; TinTin ships it instead, pinned to 0.184.0, at
@@ -97,7 +118,23 @@ subtitles in a page; the `.vtt` beside the media is how OpenFilm shows them.
 ### Fallback (tools unavailable)
 
 The same capabilities are reachable through OpenFilm's custom service while Studio runs:
-`openfilm get call --service tintin --path <path> …`. Use it only when a tool above is missing.
+`openfilm get call --service tintin --path <path> --method POST --json '<body>'`. Use it only when a tool above is missing.
+
+**Do not explore this command.** `openfilm get call --help` prints the generic `get` help, not `call`'s options —
+trying `--json` / `--body` / `--service=` variants burns a full model round trip each time (measured: 20+ wasted
+turns in one session). If the exact form above fails once, stop and use the `tintin_*` tool for that capability;
+only if that tool is missing too, call the server's HTTP API directly:
+
+    curl -s -m 30 -X POST "<TinTin server URL>/material/stock_search" \
+      -H "Content-Type: application/json" -d '{"query":"cinema","kind":"image"}'
+
+(The server URL is the one Settings → Server shows; the same one `tintin_capabilities` talks to.)
+
+### Checking pictures: never `Read` an image
+
+`look` writes PNGs. Read them with `vision_analyze { image_path }` — never with a generic file-read tool: a read
+returns the whole image as base64 in the conversation (measured: one look frame = 4.9M characters, inflating every
+later request; it was half of a session's cost). Read one or two frames per check, not the whole sheet repeatedly.
 
 ### What the server does NOT provide (yet)
 

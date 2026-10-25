@@ -109,7 +109,7 @@ const {
   exportAllToJianyingDraft,
   syncStoryboardsToServer,
   previewFinalVideo,
-  ofBusy, ofStage, ofProject, exportToEditingProject, openEditingProject,
+  ofBusy, ofStage, ofProject, ofProgress, ofChecks, exportToEditingProject, openEditingProject,
   step4Candidates,
   toAbsolute: vdToAbsolute,
   fmtBgmTime,
@@ -747,7 +747,7 @@ const fancyCustomPreviewStyle = computed<Record<string, string>>(() => {
     <section class="card">
       <div class="fx-pack-title" style="margin-bottom: var(--space-2)">导出与合成</div>
         <!-- 2026-09-18 用户裁决：动作区加导出方案引导文案，竖排：
-             标题「请选择导出方案」→ 方案一文案 → 其两按钮 → 方案二文案 → 服务端合成按钮 -->
+             标题「请选择导出方案」→ 方案一文案 → 其两按钮 → 方案二（导出到视频剪辑项目）按钮 -->
         <div class="vd4-schemes">
           <div class="vd4-scheme-title">请选择导出方案</div>
           <div class="vd4-scheme-line">方案一，速度快，可以在剪映里编辑，需要本地安装剪映，</div>
@@ -776,8 +776,8 @@ const fancyCustomPreviewStyle = computed<Record<string, string>>(() => {
               title="点击放大查看" @click="openJyImportImg" />
             <span class="jy-import-text">导入的草稿需在剪映里开启「导入工程」才会加载：<b>剪映 → 全局设置 → 通用 → 打开「导入 PR或FCP…」开关</b>（可在启动时导入其他剪辑软件工程），然后重启剪映即可在首页看到导出的草稿。左图为该开关位置。</span>
           </div>
-          <!-- 2026-09-18 用户裁决：导出剪映时间轴进度条+完成提示独立于服务端合成，
-               紧跟方案一按钮（不放到服务端合成下面）；2026-09-20 用户反馈：进度条与按钮拉开间距 -->
+          <!-- 2026-09-18 用户裁决：导出剪映时间轴进度条+完成提示独立于方案二，
+               紧跟方案一按钮（不放到方案二下面）；2026-09-20 用户反馈：进度条与按钮拉开间距 -->
           <div v-if="exportBusy" class="pbar" style="margin-top:8px"><div class="pbar-inner" :style="{ width: exportProgress + '%' }"></div></div>
           <div v-if="exportBusy && exportStage" class="muted" style="margin-top:4px;font-size:12px">{{ exportStage }}</div>
           <!-- 2026-09-24 用户裁决：缺少关键轨道时不导出——橙色警示行（提示先检查） -->
@@ -792,28 +792,8 @@ const fancyCustomPreviewStyle = computed<Record<string, string>>(() => {
             </div>
           </div>
           <!-- 方案二改「导出到视频剪辑项目」（2026-10-21 用户裁决）；共用 UI 见 OpenFilmExportBar.vue -->
-          <OpenFilmExportBar :busy="ofBusy" :stage="ofStage" :project="ofProject" :disabled="finalBusy || exportBusy" @export="exportToEditingProject()" @open="openEditingProject()" />
+          <OpenFilmExportBar :busy="ofBusy" :stage="ofStage" :project="ofProject" :progress="ofProgress" :checks="ofChecks" :disabled="finalBusy || exportBusy" @export="exportToEditingProject()" @open="openEditingProject()" />
         </div>
-        <!-- 服务端合成进度条（独立于导出进度；导出进度/完成提示已移至方案一按钮下方） -->
-        <div v-if="finalBusy" class="pbar"><div class="pbar-inner" :style="{ width: finalProgress + '%' }"></div></div>
-
-        <!-- 结果区：左 成片列表 + 三按钮；右 视频预览 -->
-        <div class="vd4-result">
-          <div class="vd4-left">
-            <div class="vd4-left-title">最终合成生成的视频文件:</div>
-            <ul class="file-list vd4-list">
-              <li
-                v-for="(it, i) in finalVideoList" :key="i"
-                :class="{ picked: finalSelIdx === i }"
-                @click="onStep4Select(i)"
-              >{{ it.name }}</li>
-              <li v-if="!finalVideoList.length" class="muted">暂无成片，点击「服务端合成」后此处展示结果</li>
-            </ul>
-            <div class="vd4-btns">
-              <TButton label="打开视频输出目录" variant="secondary" :disabled="!finalDone" class="grow" @click="openFinalDir" />
-            </div>
-          </div>
-        </div><!-- /vd4-result -->
       </section>
 
         <!-- 导航行（2026-09-21 用户裁决：上一步=视频素材） -->

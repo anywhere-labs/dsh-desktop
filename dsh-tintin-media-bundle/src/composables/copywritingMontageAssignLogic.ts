@@ -245,7 +245,9 @@ export function planShotGroup(
     let use = full
     if (covered + full > target) use = Math.max(0.05, target - covered) // 末端超长 → 裁到剩余量
     idxs.push(cand.scene.idx)
-    useDurs.push(Math.round(use * 100) / 100)
+    // 向下取整到 0.01s（2026-10-21 实机：5.166667 秒片段四舍五入成 5.17，
+    // 导出 film.html 的 #t=0,5.17 越过文件长度，Studio 拒绝绘制整条预览）
+    useDurs.push(Math.floor(use * 100 + 1e-6) / 100)
     covered += use
     if (covered >= target * sealRatio - 1e-6) sealed = true
   }

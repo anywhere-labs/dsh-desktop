@@ -393,7 +393,7 @@ export function useCopywritingMontage() {
     previewFinalVideo, exportJianyingPackageDraft,
     toggleBgmPlay, stopBgmPlay, onBgmVolumeInput, seekBgm,
     // 导出到视频剪辑项目（2026-10-21 用户裁决：替换「服务端生成」占位）
-    ofBusy, ofStage, ofProject, exportToEditingProject, openEditingProject,
+    ofBusy, ofStage, ofProject, ofProgress, ofChecks, exportToEditingProject, openEditingProject,
   } = step4
 
   onUnmounted(() => {
@@ -511,7 +511,7 @@ export function useCopywritingMontage() {
     enterStep4, startFinalMix, openFinalDir, openExportDraftDir,
     exportAllToJianyingDraft, previewFinalVideo, step4Candidates, toAbsolute,
     // 导出到视频剪辑项目（2026-10-21 用户裁决：替换「服务端生成」占位）
-    ofBusy, ofStage, ofProject, exportToEditingProject, openEditingProject,
+    ofBusy, ofStage, ofProject, ofProgress, ofChecks, exportToEditingProject, openEditingProject,
     fmtBgmTime,
     // 景别分类（UI 展示用）
     SHOT_TYPE_LABELS, SHOT_TYPE_COLORS,

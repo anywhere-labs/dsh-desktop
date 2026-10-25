@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mergeOpenaiCompat, mergeTinTinService, syncProvidersAt, syncProvidersFile, TINTIN_SERVICE_ID } from '../lib/openfilm/providers-seed.js'
 import {
-  editorFingerprint, lastStudioProject, parseStudioAddress, parseStudioProject, readStudioRun, reconcileStudioInstance, resolveOpenfilmRuntime, seedStudioRecents, studioEnv, studioPageUrl,
+  editorFingerprint, lastStudioProject, parseStudioAddress, parseStudioProject, readStudioRun, reconcileStudioInstance, resolveOpenfilmRuntime, seedStudioRecents, serverServesOwnedEditor, studioEnv, studioPageUrl,
 } from '../lib/openfilm/studio-runtime.js'
 import { MANAGED_MARKER, syncBundledSkill } from '../lib/openfilm/skill-sync.js'
 import { syncOpenfilmLibs, THREE_FILES, threeLibDir } from '../lib/openfilm/libs-sync.js'
@@ -100,6 +100,7 @@ describe('studio-runtime', () => {
     writeFileSync(join(root, 'openfilm', 'node_modules', 'openfilm', 'bin', 'openfilm.mjs'), '')
     const runtime = resolveOpenfilmRuntime({ env: { TINTIN_BIN_DIR: join(root, 'bin') } })
     expect(runtime?.root).toBe(root)
+    expect(runtime?.source).toBe('bin')
     expect(runtime?.browsers).toBeNull()
     expect(resolveOpenfilmRuntime({ env: {} })).toBeNull()
     // Its own Studio home and port: the official OpenFilm app keeps ~/.openfilm
@@ -139,7 +140,7 @@ describe('studio-runtime', () => {
     expect(editorFingerprint(fakeRuntime(tempDir()))).toBe('')
   })
 
-  it('reconcileStudioInstance:无账本/指纹不符清场,相符与空指纹不动', () => {
+  it('reconcileStudioInstance:无账本/指纹不符清场,相符与空指纹不动', async () => {
     const root = tempDir()
     seedEditorDist(root, '<html>v1</html>')
     const runtime = fakeRuntime(root)
@@ -148,23 +149,115 @@ describe('studio-runtime', () => {
     const kill = vi.spyOn(process, 'kill').mockReturnValue(true)
     try {
       // 无 run.json:不做任何事
-      expect(reconcileStudioInstance(home, fingerprint)).toBe(false)
+      expect(await reconcileStudioInstance(home, fingerprint)).toBe(false)
       // 陈旧实例(无账本):杀 pid + supervisor,清 run.json
       writeFileSync(join(home, 'run.json'), JSON.stringify({ pid: 111, supervisor: 222, origin: 'http://127.0.0.1:4788', key: 'k' }))
-      expect(reconcileStudioInstance(home, fingerprint)).toBe(true)
+      expect(await reconcileStudioInstance(home, fingerprint)).toBe(true)
       expect(kill).toHaveBeenCalledWith(222)
       expect(kill).toHaveBeenCalledWith(111)
       expect(existsSync(join(home, 'run.json'))).toBe(false)
-      // 相符账本:附着即可,不清场
+      // 相符账本(无实测):附着即可,不清场
       writeFileSync(join(home, 'run.json'), JSON.stringify({ pid: 111, supervisor: 222, origin: 'http://127.0.0.1:4788', key: 'k' }))
       writeFileSync(join(home, 'run.tintin.json'), JSON.stringify({ fingerprint }))
-      expect(reconcileStudioInstance(home, fingerprint)).toBe(false)
+      expect(await reconcileStudioInstance(home, fingerprint)).toBe(false)
       expect(existsSync(join(home, 'run.json'))).toBe(true)
       // 指纹算不出:不误杀
-      expect(reconcileStudioInstance(home, '')).toBe(false)
+      expect(await reconcileStudioInstance(home, '')).toBe(false)
     } finally {
       kill.mockRestore()
     }
+  })
+
+  it('reconcileStudioInstance:账本被毒化(相符但实测不符)按陈旧清场', async () => {
+    const root = tempDir()
+    seedEditorDist(root, '<html><script src="/assets/index-owned.js"></script></html>')
+    const home = tempDir()
+    const kill = vi.spyOn(process, 'kill').mockReturnValue(true)
+    try {
+      writeFileSync(join(home, 'run.json'), JSON.stringify({ pid: 111, supervisor: 222, origin: 'http://127.0.0.1:4788', key: 'k' }))
+      writeFileSync(join(home, 'run.tintin.json'), JSON.stringify({ fingerprint: 'poisoned-but-matching' }))
+      // 实测:服务页面伺服的是旧资产 → 账本相符也清场
+      const fetchMock = vi.fn(async () => ({ text: async () => '<html><script src="/assets/index-OLD.js"></script></html>' }))
+      vi.stubGlobal('fetch', fetchMock)
+      try {
+        expect(await reconcileStudioInstance(home, 'poisoned-but-matching', {
+          verify: () => serverServesOwnedEditor('http://127.0.0.1:4788', 'k', '<html><script src="/assets/index-owned.js"></script></html>'),
+        })).toBe(true)
+        expect(existsSync(join(home, 'run.json'))).toBe(false)
+        expect(existsSync(join(home, 'run.tintin.json'))).toBe(false)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+      // 实测相符:不清场
+      writeFileSync(join(home, 'run.json'), JSON.stringify({ pid: 111, supervisor: 222, origin: 'http://127.0.0.1:4788', key: 'k' }))
+      writeFileSync(join(home, 'run.tintin.json'), JSON.stringify({ fingerprint: 'poisoned-but-matching' }))
+      const fetchOwned = vi.fn(async () => ({ text: async () => '<html><script src="/assets/index-owned.js"></script></html>' }))
+      vi.stubGlobal('fetch', fetchOwned)
+      try {
+        expect(await reconcileStudioInstance(home, 'poisoned-but-matching', {
+          verify: () => serverServesOwnedEditor('http://127.0.0.1:4788', 'k', '<html><script src="/assets/index-owned.js"></script></html>'),
+        })).toBe(false)
+        expect(existsSync(join(home, 'run.json'))).toBe(true)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    } finally {
+      kill.mockRestore()
+    }
+  })
+
+  it('serverServesOwnedEditor:比资产名,不应答按不符处理', async () => {
+    const identity = '<html><script src="/assets/index-own.js"></script></html>'
+    const same = vi.fn(async () => ({ text: async () => '<html>…<script type="module" src="/assets/index-own.js"></script>…</html>' }))
+    vi.stubGlobal('fetch', same)
+    try {
+      expect(await serverServesOwnedEditor('http://127.0.0.1:4788', 'k 1', identity)).toBe(true)
+      expect(same).toHaveBeenCalledWith('http://127.0.0.1:4788/open?key=k%201')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    const other = vi.fn(async () => ({ text: async () => '<html><script src="/assets/index-old.js"></script></html>' }))
+    vi.stubGlobal('fetch', other)
+    try {
+      expect(await serverServesOwnedEditor('http://127.0.0.1:4788', 'k', identity)).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    const down = vi.fn(async () => { throw new Error('ECONNREFUSED') })
+    vi.stubGlobal('fetch', down)
+    try {
+      expect(await serverServesOwnedEditor('http://127.0.0.1:4788', 'k', identity)).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    // 自有身份算不出:不判不符(宁可不杀)
+    expect(await serverServesOwnedEditor('http://127.0.0.1:4788', 'k', '')).toBe(true)
+  })
+
+  it('resolveOpenfilmRuntime 归属校验:自有运行时优先于外部 TINTIN_OPENFILM_RUNTIME', () => {
+    const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
+    const seedRuntime = (root: string) => {
+      mkdirSync(join(root, 'openfilm', 'bin'), { recursive: true })
+      mkdirSync(join(root, 'openfilm', 'node_modules', 'openfilm', 'bin'), { recursive: true })
+      writeFileSync(join(root, 'openfilm', 'bin', nodeName), '')
+      writeFileSync(join(root, 'openfilm', 'node_modules', 'openfilm', 'bin', 'openfilm.mjs'), '')
+    }
+    // 自有(dev 工位)与外部 env 都可用:自有胜出 —— 陈旧 env 不得覆盖 app 自带运行时。
+    // bundleDir 语义与 plugin.js 的 bundleRoot 一致:bundle 包目录(dirname 后是工位根)。
+    const owned = tempDir()
+    const foreign = tempDir()
+    seedRuntime(foreign)
+    const bundleDir = join(owned, 'dsh-tintin-bundle')
+    const ownedResources = join(owned, 'dsh-plugin-desktop-tintin', 'tintin-resources')
+    seedRuntime(ownedResources)
+    const resolved = resolveOpenfilmRuntime({ env: { TINTIN_OPENFILM_RUNTIME: foreign }, bundleDir })
+    expect(resolved?.root).toBe(ownedResources)
+    expect(resolved?.source).toBe('dev')
+    // 自有缺失时才落到外部 env
+    const emptyBundle = join(tempDir(), 'dsh-tintin-bundle')
+    const fallback = resolveOpenfilmRuntime({ env: { TINTIN_OPENFILM_RUNTIME: foreign }, bundleDir: emptyBundle })
+    expect(fallback?.root).toBe(foreign)
+    expect(fallback?.source).toBe('env')
   })
 })
 
