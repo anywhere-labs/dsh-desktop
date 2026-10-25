@@ -1,4 +1,5 @@
 diff --git a/lib/client.js b/lib/client.js
+index 16d1674..654224c 100644
 --- a/lib/client.js
 +++ b/lib/client.js
 @@ -17328,7 +17328,7 @@ window.__ModuleLoader__.load({
@@ -201,6 +202,15 @@ diff --git a/lib/client.js b/lib/client.js
  						toggleCommandMenu: void 0,
  						stop: void 0,
  						hooks: {
+@@ -19953,7 +19983,7 @@ window.__ModuleLoader__.load({
+ 								if (bridge === void 0 && directory) return t("attachment.directoryDesktopOnly");
+ 								const path = bridge?.pathFor(file) ?? "";
+ 								if (directory && path === "") return t("attachment.pathUnavailable");
+-								if (path === "" || !directory && isImageMediaType(file.type)) {
++								if (!directory) {
+ 									uploads.push(file);
+ 									continue;
+ 								}
 @@ -19991,6 +20021,11 @@ window.__ModuleLoader__.load({
  						retryFileUpload: (id) => {
  							if (sessions.binding(sessionId) !== void 0) conversation.retryFileUpload(sessionId, id);
@@ -214,6 +224,7 @@ diff --git a/lib/client.js b/lib/client.js
  							shell.dismissPopup();
  							const snapshot = shell.snapshot;
 diff --git a/lib/types/client/contract/slots.d.ts b/lib/types/client/contract/slots.d.ts
+index 14e942f..e4812de 100644
 --- a/lib/types/client/contract/slots.d.ts
 +++ b/lib/types/client/contract/slots.d.ts
 @@ -291,6 +291,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
