@@ -312,6 +312,8 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 - 服务端侧已排除: /llm(流式+非流式+任意 key)✓、/mcp(握手+40 工具+健康调用)✓、补丁文件内容与落点 ✓;
 - 修复方向(待实施): 影片智能体的 dsh 换用已验证可用的工作区构建(随包分发或路径解析), 或升级 dshmarket 至无此缺陷的版本;
 - 附带发现: 影片智能体子进程在失败轮次后**不退出**(僵尸累积, 各占 ~130MB); `.codebuddy\logs` 是本机 CodeBuddy CLI 的日志目录(与本项目无关, 勿混读)。
+- **终极根因(2026-10-25 日志实证)**: 打包版 dsh(dshmarket 构建)的模型解析栈是 **CodeBuddy 产品体系** —— AgentModelResolver 从 `https://copilot.tencent.com/v3/config` 拉云端模型目录(34 模型), **无视补丁里的 llm-pi-ai providers**; MCP 声明同样未生效(子进程内 `allServers=[]`)。其配置面 = `C:\Users\Administrator\.codebuddy\models.json`(日志明示 userConfigPath)与 home 的 `llm-pi-ai:` settings 段。
+- **修复方向(待实施)**: 将 tintin-server provider 与 deepseek 模型写入 dshmarket 构建读取的配置面(models.json / llm-pi-ai settings 段), 使打包版 dsh 的模型与能力经服务端; 或升级 dshmarket 至与补丁语义一致的版本。验证标准不变: 子进程日志出现 tintin-server 路由 + 服务端 /llm 命中。
 
 ## 17. 已知缺口/非目标
 
