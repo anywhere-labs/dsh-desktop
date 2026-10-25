@@ -17,7 +17,7 @@ describe('film agent e2e against the live server', () => {
         events.push(u.event as unknown as Record<string, unknown>)
         if (u.event.kind === 'update') console.log('[update]', JSON.stringify(u.event.update).slice(0, 160))
       },
-      log: (m) => console.log('[film-acp]', m),
+      log: (m: string) => console.log('[film-acp]', m),
     })
     const info = await manager.begin(project)
     expect(info.sessionId).toBeTruthy()
