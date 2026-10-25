@@ -413,7 +413,12 @@ export class FilmAgentManager {
       windowsHide: true,
     })
     let stderr = ''
-    child.stderr?.on('data', (chunk) => { stderr = (stderr + String(chunk)).slice(-16_000) })
+    child.stderr?.on('data', (chunk) => {
+      stderr = (stderr + String(chunk)).slice(-16_000)
+      /* 子进程 stderr 实时进管理器日志(2026-10-25 可观测性缺口: 失败轮次没有任何记录面) */
+      const text = String(chunk).trim()
+      if (text) this.log(`[agent-stderr] ${text.slice(0, 500)}`)
+    })
     /* 占位 promise 不能用 Promise.reject: 创建即拒绝且无人接住 → unhandledRejection →
        failLoud 按致命错误退出主程序(2026-10-24 打开视频剪辑即崩的实测根因)。 */
     type AgentImpl = { prompt: (text: string, images?: Array<{ data: string; mimeType: string }>) => Promise<{ stopReason: string }> }

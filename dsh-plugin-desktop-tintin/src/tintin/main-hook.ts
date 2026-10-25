@@ -540,7 +540,11 @@ export function installTinTinMainHook(): void {
         onEvent: (update) => {
           try { filmSender?.send('openfilm:agent:local-event', update) } catch { /* 发起方已关闭 */ }
         },
-        log: (message) => console.info(`[tintin-film-acp] ${message}`),
+        log: (message) => {
+          /* 统一日志管道(2026-10-25 可观测性): 影片智能体的每个管理器事件都落盘 */
+          try { diagnosticLog({ source: 'film-acp', event: 'log', level: 'info', developer: false, fields: { message: String(message).slice(0, 2000) } }) } catch { /* 日志失败不阻断 */ }
+          console.info(`[tintin-film-acp] ${message}`)
+        },
       })
     }
     return filmAgentManager
