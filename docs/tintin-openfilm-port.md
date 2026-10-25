@@ -313,7 +313,7 @@ OpenFilm 是开源 AI 视频智能体(仓库 `github.com/openfilm/openfilm`):Stu
 - 修复方向(待实施): 影片智能体的 dsh 换用已验证可用的工作区构建(随包分发或路径解析), 或升级 dshmarket 至无此缺陷的版本;
 - 附带发现: 影片智能体子进程在失败轮次后**不退出**(僵尸累积, 各占 ~130MB); `.codebuddy\logs` 是本机 CodeBuddy CLI 的日志目录(与本项目无关, 勿混读)。
 - **终极根因(2026-10-25 日志实证)**: 打包版 dsh(dshmarket 构建)的模型解析栈是 **CodeBuddy 产品体系** —— AgentModelResolver 从 `https://copilot.tencent.com/v3/config` 拉云端模型目录(34 模型), **无视补丁里的 llm-pi-ai providers**; MCP 声明同样未生效(子进程内 `allServers=[]`)。其配置面 = `C:\Users\Administrator\.codebuddy\models.json`(日志明示 userConfigPath)与 home 的 `llm-pi-ai:` settings 段。
-- **修复方向(待实施)**: 将 tintin-server provider 与 deepseek 模型写入 dshmarket 构建读取的配置面(models.json / llm-pi-ai settings 段), 使打包版 dsh 的模型与能力经服务端; 或升级 dshmarket 至与补丁语义一致的版本。验证标准不变: 子进程日志出现 tintin-server 路由 + 服务端 /llm 命中。
+- **修复方向(待实施)**: 将 tintin-server provider 与 deepseek 模型写入 dshmarket 构建读取的配置面(models.json / llm-pi-ai settings 段), 使打包版 dsh 的模型与能力经服务端; 或升级 dshmarket 至与补丁语义一致的版本。验证标准不变: 子进程日志出现 tintin-server 路由 + 服务端 /llm 命中。`n- **pi-ai 版本排除(2026-10-25 隔离探针)**: 打包树 pi-ai 降至 1.1.0(与工作区一致)仍复现挂起 —— pi-ai 版本不是根因; 最终定位: **打包副本 dsh 的 session/prompt 在发出任何模型请求前挂起**(原始 ACP 探针 + 捕获服务器零请求, 隔离 home 下稳定复现), 而工作区构建 4 秒完成同流程。**修复: 影片智能体的 dsh 改用工作区构建(apps/cli/lib), 打包时随包分发**; 附带补齐失败子进程回收。
 
 ## 17. 已知缺口/非目标
 
