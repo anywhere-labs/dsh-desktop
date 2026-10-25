@@ -25,7 +25,7 @@ export const FILM_AGENT_MODELS: FilmAgentModels[] = [
 ]
 
 /** 生成影片智能体的模型路由补丁(叠在 acp bundle 层之后生效).
-    插件 id 必须是 acp bundle 实际存在的行(llm/acp, 见 dsh-base 与 acp-app 的 cordis.patch.yml)
+    插件 id 必须是 acp 组合实际存在的行(llm-pi-ai/acp, 见 dsh-base cordis.patch.yml 135 行)
     —— id 写错(如曾经的 llm-pi-ai)整行被静默忽略, 模型回落官方直连。 */
 export function filmAgentPatchText(serverUrl: string, models: FilmAgentModels[] = FILM_AGENT_MODELS): string {
   const rows = models.map((m) => `          - id: ${m.id}\n            name: ${m.name}`).join('\n')
