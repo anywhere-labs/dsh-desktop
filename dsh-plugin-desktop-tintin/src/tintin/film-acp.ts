@@ -32,7 +32,7 @@ export function filmAgentPatchText(serverUrl: string, models: FilmAgentModels[] 
   const lines = [
     '# TinTin 影片智能体: 模型路由到 TinTin 服务端(openai-completions, <server>/llm).',
     '# 由桌面端生成; 手改会被下次启动覆盖. key 走 env TINTIN_SERVER_API_KEY(占位值).',
-    '- id: llm',
+    '- id: llm-pi-ai',
     '  config:',
     '    providers:',
     '      tintin-server:',
