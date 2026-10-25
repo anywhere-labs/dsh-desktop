@@ -1,6 +1,6 @@
 // Film agent ACP bridge (第三行形态, 2026-10-23 用户裁决): 每部影片一个
 // `dsh --profile acp` 子进程(DeepSeek Harness 的自动化 ACP stdio 面), 会话持久在
-// 隔离 home, 模型路由到 TinTin 服务端(--patch 生成的 llm-pi-ai 路由 + 占位 env
+// 隔离 home, 模型路由到 TinTin 服务端(--patch 生成的模型路由 + 占位 env
 // key). 对齐官方桌面 agents.mjs 的低层用法: initialize → session/new(或 resume)
 // → session/prompt, 语义更新经 onEvent 流向聊天, 审批/提问路由给聊天卡回答
 // (官方 `approve: true` 的口径由聊天 UI 承接; 无人应答时不自动放行).
