@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FilmAgentManager } from '../src/tintin/film-acp'
+import { FilmAgentManager } from '../src/tintin/film-acp.js'
 
 /** 真实端到端(2026-10-25 用户要求"自己先测试"): 真实服务端 /llm + /mcp + 真实补丁。 */
 describe('film agent e2e against the live server', () => {
@@ -15,7 +15,7 @@ describe('film agent e2e against the live server', () => {
     const manager = new FilmAgentManager({
       channelHome: home,
       serverUrl: () => 'http://192.168.111.31:8000',
-      onEvent: (u) => {
+      onEvent: (u: import('../src/tintin/film-acp.js').FilmAgentUpdate) => {
         events.push(u.event as unknown as Record<string, unknown>)
         if (u.event.kind === 'update') console.log('[update]', JSON.stringify(u.event.update).slice(0, 160))
       },
