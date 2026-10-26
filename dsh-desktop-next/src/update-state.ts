@@ -36,3 +36,11 @@ export function updateAction(state: NextUpdateState): 'check-updates' | 'downloa
   if (['idle', 'current', 'error'].includes(state.phase)) return 'check-updates'
   return undefined
 }
+
+const RELEASES_URL = 'https://github.com/anywhere-labs/dsh-desktop/releases'
+
+// Release tags are `v` plus the version, which already carries its channel (-next, -beta). Before a check has
+// reported one the list is the fallback; /releases/latest would resolve to the Stable release.
+export function releaseNotesUrl(version?: string): string {
+  return version ? `${RELEASES_URL}/tag/v${encodeURIComponent(version)}` : RELEASES_URL
+}

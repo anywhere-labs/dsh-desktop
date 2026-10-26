@@ -8,7 +8,7 @@ import { NextUpdateSettings } from '../src/client/updates.tsx'
 import { DEFAULT_PREFERENCES, type DesktopState } from '../src/desktop-contract.ts'
 import { NextUpdates, type NextUpdateOptions } from '../src/updates.ts'
 import { serveMacUpdate } from '../src/mac-update-feed.ts'
-import { updateAction, updateLabel } from '../src/update-state.ts'
+import { releaseNotesUrl, updateAction, updateLabel, type NextUpdateState } from '../src/update-state.ts'
 import type { UpdateRequest } from '../../dsh-plugin-desktop/src/update-checker.ts'
 import type { UpdateArtifactRequest } from '../../dsh-plugin-desktop/src/update-download.ts'
 
@@ -138,15 +138,15 @@ it('notifies once per newly discovered background update version and persists no
   expect(secondAvailable).toHaveBeenCalledTimes(1)
   expect(secondAvailable).toHaveBeenCalledWith('2.0.21-beta.2')
 })
+const baseState: DesktopState = {
+  selected: 'desktop', profiles: ['desktop'], unavailableProfiles: [],
+  features: { market: false, remoteControl: false }, preferences: { ...DEFAULT_PREFERENCES },
+  phase: 'ready', busy: false, failure: '', safeMode: false, home: '/fixture',
+  platform: 'linux', version: '2.0.20-beta.1', trayAvailable: true, notificationsAvailable: true,
+  browserUrl: null, lan: null, checkpoint: null, logs: '',
+  updates: { phase: 'idle', installable: false },
+}
 it('renders only the version on Linux while showing update status and controls on macOS and Windows', () => {
-  const baseState: DesktopState = {
-    selected: 'desktop', profiles: ['desktop'], unavailableProfiles: [],
-    features: { market: false, remoteControl: false }, preferences: { ...DEFAULT_PREFERENCES },
-    phase: 'ready', busy: false, failure: '', safeMode: false, home: '/fixture',
-    platform: 'linux', version: '2.0.20-beta.1', trayAvailable: true, notificationsAvailable: true,
-    browserUrl: null, lan: null, checkpoint: null, logs: '',
-    updates: { phase: 'idle', installable: false },
-  }
   const linuxHtml = renderToStaticMarkup(createElement(NextUpdateSettings, { state: baseState, language: 'zh-CN', run: vi.fn() }))
   expect(linuxHtml).toContain('桌面版本')
   expect(linuxHtml).not.toContain('应用更新')
@@ -161,4 +161,33 @@ it('renders only the version on Linux while showing update status and controls o
   expect(macHtml).toContain('检查更新')
   expect(macHtml).toContain('应用内安装更新需要使用 macOS 或 Windows 安装版。')
   expect(macHtml).toContain('<button')
+})
+it('names the release notes page after the latest channel version reported by the update service', () => {
+  const releases = 'https://github.com/anywhere-labs/dsh-desktop/releases'
+  expect(releaseNotesUrl()).toBe(releases)
+  for (const version of ['2.0.19-beta.1', '2.0.20-beta.2']) expect(releaseNotesUrl(version)).toBe(`${releases}/tag/v${version}`)
+  // The version comes from a remote response and must not be able to leave the tag path.
+  const hostile = new URL(releaseNotesUrl('9.9.9/../../x?y#z'))
+  expect([hostile.search, hostile.hash]).toEqual(['', ''])
+  expect(hostile.pathname).toMatch(/^\/anywhere-labs\/dsh-desktop\/releases\/tag\/v[^/]+$/)
+})
+it('links the release notes beside the update controls in both languages, but not on Linux', () => {
+  const releases = 'https://github.com/anywhere-labs/dsh-desktop/releases'
+  const current: NextUpdateState = { phase: 'current', version: '2.0.20-beta.1', installable: true }
+  const ready: NextUpdateState = { phase: 'ready', version: '2.0.21-beta.1', installable: true }
+  const render = (platform: string, language: string, updates: NextUpdateState) =>
+    renderToStaticMarkup(createElement(NextUpdateSettings, { state: { ...baseState, platform, updates }, language, run: vi.fn() }))
+  const cases: [string, string, NextUpdateState, string, string][] = [
+    ['darwin', 'zh-CN', { phase: 'idle', installable: true }, '更新公告', releases],
+    ['darwin', 'zh-CN', current, '更新公告', `${releases}/tag/v${current.version}`],
+    ['win32', 'en', ready, 'Release notes', `${releases}/tag/v${ready.version}`],
+  ]
+  for (const [platform, language, updates, label, href] of cases) {
+    const anchor = render(platform, language, updates).match(/<a [^>]*>[^<]*<\/a>/)?.[0]
+    expect(anchor).toContain(`href="${href}"`)
+    expect(anchor).toContain('target="_blank"')
+    expect(anchor).toContain('rel="noopener noreferrer"')
+    expect(anchor).toContain(`>${label}</a>`)
+  }
+  expect(render('linux', 'zh-CN', ready)).not.toContain('<a ')
 })

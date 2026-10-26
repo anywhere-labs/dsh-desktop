@@ -13,6 +13,7 @@ import { NextUpdateSettings } from './updates.tsx'
 export function desktopTranslate(language: string): (key: string) => string {
   const copy = language.startsWith('zh') ? zh : en
   return key => {
+    if (key === 'title') return language.startsWith('zh') ? 'DSH Desktop Beta 设置' : 'DSH Desktop Beta settings'
     if (key === 'presentationTitle') return language.startsWith('zh') ? '窗口外观' : 'Window appearance'
     if (key === 'windowMaterialBody') return language.startsWith('zh') ? '设置窗口背景效果，更改后立即生效。' : 'Set the window background effect. Changes apply immediately.'
     if (key === 'sidebarFooterCompat') return language.startsWith('zh') ? '侧边栏底部图标横向排列' : 'Arrange sidebar footer icons in a row'

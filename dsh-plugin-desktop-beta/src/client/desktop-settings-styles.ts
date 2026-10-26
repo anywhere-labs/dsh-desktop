@@ -236,6 +236,11 @@ button.dshDesktopSettingsButton {
 button.dshDesktopSettingsButton:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
 }
+a.dshDesktopSettingsButton,
+a.dshDesktopSettingsButton:hover {
+  color: var(--dsw-alias-label-primary);
+  text-decoration: none;
+}
 .dshDesktopSettingsButtonSecondary,
 button.dshDesktopSettingsButtonSecondary {
   color: var(--dsw-alias-label-primary);
