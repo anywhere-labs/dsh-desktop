@@ -562,7 +562,13 @@ export function installTinTinMainHook(): void {
           if (!cwd) return { ok: false, error: 'cwd 必填' }
           const resume = typeof p.resume === 'string' && p.resume ? p.resume : null
           manager.trackTurn(cwd, p.meta)
-          const info = await manager.begin(cwd)
+          const info = await manager.begin(cwd).catch((error: unknown) => {
+            /* 会话建立失败实录(2026-10-25 可观测性): 智能体子进程被终止的真实原因落统一日志 */
+            const detail = error instanceof Error ? error.message : String(error)
+            try { diagnosticLog({ source: 'film-acp', event: 'begin-error', level: 'error', developer: false, fields: { cwd, message: String(detail).slice(0, 2000) } }) } catch { /* 日志失败不阻断 */ }
+            console.error(`[tintin-film-acp] begin 失败: ${detail}`)
+            throw error
+          })
           void resume /* begin 内部已按历史 sessionId resume */
           return { ok: true, key: cwd, info }
         }
