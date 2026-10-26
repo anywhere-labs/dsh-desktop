@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const root = resolve(import.meta.dirname, '..')
 const nextRoot = join(root, 'dsh-desktop-next')
@@ -145,13 +146,30 @@ function listDirectoryFiles(baseDir, subDir) {
   return result
 }
 
-function collectSyncedPaths() {
+function collectSyncedPaths(nextDir = nextRoot, betaDir = betaRoot) {
   const paths = new Set(SYNCED_FILES)
   for (const dir of SYNCED_DIRECTORIES) {
-    for (const file of listDirectoryFiles(nextRoot, dir)) paths.add(file)
-    for (const file of listDirectoryFiles(betaRoot, dir)) paths.add(file)
+    for (const file of listDirectoryFiles(nextDir, dir)) paths.add(file)
+    for (const file of listDirectoryFiles(betaDir, dir)) paths.add(file)
   }
   return [...paths].sort()
+}
+
+/**
+ * List the Beta files whose bytes differ from Next: the declared channel substitutions, plus any
+ * Beta-only file. Shared behavior is already covered by the Next suite, so only these files can
+ * make a Beta test behave differently.
+ * @param {string} [nextDir] - Next package root.
+ * @param {string} [betaDir] - Beta package root.
+ * @returns {string[]} Sorted package-relative POSIX paths.
+ */
+export function variantSpecificFiles(nextDir = nextRoot, betaDir = betaRoot) {
+  return collectSyncedPaths(nextDir, betaDir).filter(relPath => {
+    const betaFile = join(betaDir, ...relPath.split('/'))
+    if (!existsSync(betaFile)) return false
+    const nextFile = join(nextDir, ...relPath.split('/'))
+    return !existsSync(nextFile) || !readFileSync(nextFile).equals(readFileSync(betaFile))
+  })
 }
 
 export function syncVariants(direction = 'beta-to-next') {
@@ -233,11 +251,13 @@ export function verifyVariants() {
   process.stdout.write(`verify-desktop-variants: ${String(allPaths.length)} files are aligned between Next and Beta\n`)
 }
 
-const args = new Set(process.argv.slice(2))
-if (args.has('--from=next') || args.has('--sync=beta') || args.has('--next-to-beta')) {
-  syncVariants('next-to-beta')
-} else if (args.has('--sync') || args.has('--from=beta') || args.has('--sync=next') || args.has('--beta-to-next')) {
-  syncVariants('beta-to-next')
-} else {
-  verifyVariants()
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const args = new Set(process.argv.slice(2))
+  if (args.has('--from=next') || args.has('--sync=beta') || args.has('--next-to-beta')) {
+    syncVariants('next-to-beta')
+  } else if (args.has('--sync') || args.has('--from=beta') || args.has('--sync=next') || args.has('--beta-to-next')) {
+    syncVariants('beta-to-next')
+  } else {
+    verifyVariants()
+  }
 }
