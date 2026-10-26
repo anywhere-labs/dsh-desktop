@@ -63,6 +63,9 @@ export function ensureFilmAgentPatch(channelHome: string, serverUrl: string, mod
 
 /** app 内的 `@deepseek-ai/dsh` CLI 可执行文件(与宿主同版本, 由包清单解析). */
 export function resolveDshBin(): string {
+  /* 诊断覆盖(2026-10-25): 指定 dsh 可执行文件用于对照实验(打包版 vs 工作区构建)。 */
+  const override = process.env.TINTIN_DSH_BIN
+  if (override !== undefined && override !== '') return override
   const manifest = require_.resolve('@deepseek-ai/dsh/package.json')
   const parsed = JSON.parse(readFileSync(manifest, 'utf8')) as { bin?: Record<string, string> | string }
   const bin = typeof parsed.bin === 'object' && parsed.bin !== null ? parsed.bin.dsh : parsed.bin

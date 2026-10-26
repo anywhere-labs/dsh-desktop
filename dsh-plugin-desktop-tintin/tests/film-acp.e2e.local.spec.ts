@@ -7,8 +7,10 @@ import { FilmAgentManager } from '../src/tintin/film-acp'
 /** 真实端到端(2026-10-25 用户要求"自己先测试"): 真实服务端 /llm + /mcp + 真实补丁。 */
 describe('film agent e2e against the live server', () => {
   it('completes a prompt round trip', async () => {
-    const home = mkdtempSync(join(tmpdir(), 'tintin-e2e-home-'))
-    const project = mkdtempSync(join(tmpdir(), 'tintin-e2e-proj-'))
+    const home = process.env.TINTIN_E2E_HOME ?? mkdtempSync(join(tmpdir(), 'tintin-e2e-home-'))
+    const project = process.env.TINTIN_E2E_CWD ?? mkdtempSync(join(tmpdir(), 'tintin-e2e-proj-'))
+    /* A/B 对照(2026-10-25): TINTIN_E2E_DSH_BIN 指定被测 dsh(打包版/工作区构建), 缺省=工作区 */
+    if (process.env.TINTIN_E2E_DSH_BIN) process.env.TINTIN_DSH_BIN = process.env.TINTIN_E2E_DSH_BIN
     const events: Array<Record<string, unknown>> = []
     const manager = new FilmAgentManager({
       channelHome: home,
