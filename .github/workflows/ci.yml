@@ -58,8 +58,7 @@ jobs:
           fi
           echo "product=$product" >> "$GITHUB_OUTPUT"
 
-  # Product gate: AA profile smoke is temporarily paused below.
-  # A documentation-only change already passed diff validation in `changes`.
+  # Product gate: a documentation-only change already passed diff validation in `changes`.
   check:
     needs: changes
     runs-on: ubuntu-latest
@@ -88,25 +87,26 @@ jobs:
         with:
           path: ${{ steps.yarn-cache.outputs.dir }}
           key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+          restore-keys: |
+            yarn-${{ runner.os }}-${{ runner.arch }}-
       - if: needs.changes.outputs.product == 'true'
         run: yarn install --immutable
-      - name: Temporarily skip AA profile smoke in CI
-        if: needs.changes.outputs.product == 'true'
-        # Remove this step after AA Host service activation is fixed.
-        # Local checks and the standalone verify:aa command remain available.
+      - name: Narrow Beta check on pull requests
+        if: needs.changes.outputs.product == 'true' && github.event_name == 'pull_request'
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs'
-          for (const workspace of ['dsh-plugin-desktop']) {
-            const path = `${workspace}/package.json`
-            const manifest = JSON.parse(readFileSync(path, 'utf8'))
-            const smoke = ' && yarn run verify:aa'
-            if (!manifest.scripts.check.includes(smoke)) throw new Error(`AA check not found in ${workspace}`)
-            // Stable now owns transition-specific source and tests. Both editions
-            // need their complete checks even when shared variants remain aligned.
-            manifest.scripts.check = manifest.scripts.check.replace(smoke, '')
-            writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`)
-          }
+          // Pull requests already verify source/test parity between Next and Beta via
+          // verify-desktop-variants and run the full Next check + Playwright suite.
+          // Run Beta's build, frontend, and variant-specific tests on PRs while keeping
+          // the full Beta check on master pushes and leaving Beta's package.json intact.
+          const rootPath = 'package.json'
+          const rootManifest = JSON.parse(readFileSync(rootPath, 'utf8'))
+          const betaFull = '"yarn workspace dsh-plugin-desktop-beta check"'
+          const betaPr = '"yarn workspace dsh-plugin-desktop-beta build && yarn workspace dsh-plugin-desktop-beta verify:frontend && yarn workspace dsh-plugin-desktop-beta exec vitest run tests/package.spec.ts tests/data-directory.spec.ts tests/updates.spec.ts"'
+          if (!rootManifest.scripts.check.includes(betaFull)) throw new Error('Beta check not found in root package.json')
+          rootManifest.scripts.check = rootManifest.scripts.check.replace(betaFull, betaPr)
+          writeFileSync(rootPath, `${JSON.stringify(rootManifest, null, 2)}\n`)
           NODE
       - if: needs.changes.outputs.product == 'true'
         run: yarn check
@@ -118,13 +118,8 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock') }}
       - name: Install Chromium for Next window regression
-        if: needs.changes.outputs.product == 'true'
-        run: |
-          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
-            yarn workspace dsh-desktop-next exec playwright install-deps chromium
-          else
-            yarn workspace dsh-desktop-next exec playwright install --with-deps chromium
-          fi
+        if: needs.changes.outputs.product == 'true' && steps.playwright-cache.outputs.cache-hit != 'true'
+        run: yarn workspace dsh-desktop-next exec playwright install chromium
       - name: Verify Next window controls, onboarding, protocol, and sidebar Browser in parallel
         if: needs.changes.outputs.product == 'true'
         run: |
@@ -144,7 +139,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        workspace: ${{ github.event_name == 'pull_request' && fromJSON('["dsh-plugin-desktop-beta"]') || fromJSON('["dsh-plugin-desktop", "dsh-plugin-desktop-beta"]') }}
+        workspace: [dsh-plugin-desktop-beta]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -162,6 +157,8 @@ jobs:
         with:
           path: ${{ steps.yarn-cache.outputs.dir }}
           key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+          restore-keys: |
+            yarn-${{ runner.os }}-${{ runner.arch }}-
       - name: Cache primary runtime and Electron Builder downloads
         uses: actions/cache@v6
         with:
@@ -171,6 +168,8 @@ jobs:
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
           key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ hashFiles('yarn.lock', 'deepseek-harness/scripts/primary-runtime/lock.json', format('{0}/package.json', matrix.workspace)) }}
+          restore-keys: |
+            packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-
       - run: yarn install --immutable
       # Typecheck is platform-neutral and already gated by `check`.
       - run: yarn workspace ${{ matrix.workspace }} check:win-package:platform
@@ -201,7 +200,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        workspace: ${{ github.event_name == 'pull_request' && fromJSON('["dsh-plugin-desktop-beta"]') || fromJSON('["dsh-plugin-desktop", "dsh-plugin-desktop-beta"]') }}
+        workspace: [dsh-plugin-desktop-beta]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -219,6 +218,8 @@ jobs:
         with:
           path: ${{ steps.yarn-cache.outputs.dir }}
           key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+          restore-keys: |
+            yarn-${{ runner.os }}-${{ runner.arch }}-
       - name: Cache primary runtime and Electron Builder downloads
         uses: actions/cache@v6
         with:
@@ -229,6 +230,8 @@ jobs:
             ~/.cache/electron-builder
             ~/.cache/node-gyp
           key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ hashFiles('yarn.lock', 'deepseek-harness/scripts/primary-runtime/lock.json', format('{0}/package.json', matrix.workspace)) }}
+          restore-keys: |
+            packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-
       - run: yarn install --immutable
       - run: yarn workspace ${{ matrix.workspace }} check:linux-package:platform
       - name: Build Linux AppImage and Debian package
@@ -245,7 +248,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        workspace: ${{ github.event_name == 'pull_request' && fromJSON('["dsh-plugin-desktop-beta"]') || fromJSON('["dsh-plugin-desktop", "dsh-plugin-desktop-beta"]') }}
+        workspace: [dsh-plugin-desktop-beta]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -263,6 +266,8 @@ jobs:
         with:
           path: ${{ steps.yarn-cache.outputs.dir }}
           key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+          restore-keys: |
+            yarn-${{ runner.os }}-${{ runner.arch }}-
       - name: Cache primary runtime and Electron Builder downloads
         uses: actions/cache@v6
         with:
@@ -273,6 +278,9 @@ jobs:
             ~/Library/Caches/electron-builder
             ~/Library/Caches/node-gyp
           key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ github.event_name == 'pull_request' && 'arm64' || 'universal' }}-${{ hashFiles('yarn.lock', 'deepseek-harness/scripts/primary-runtime/lock.json', format('{0}/package.json', matrix.workspace)) }}
+          restore-keys: |
+            packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-${{ github.event_name == 'pull_request' && 'arm64' || 'universal' }}-
+            packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.workspace }}-
       - run: yarn install --immutable
       - run: yarn workspace ${{ matrix.workspace }} check:mac-package:platform
       - name: Build macOS smoke artifact

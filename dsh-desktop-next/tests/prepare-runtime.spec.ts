@@ -48,8 +48,10 @@ function fixture(): string {
   return root
 }
 
-it('ships both Darwin CPUs, Windows x64, the Linux host CPU and nothing elsewhere', () => {
-  expect(nextRuntimeTargets('darwin')).toEqual([{ target: 'mac-arm64', arch: 'arm64' }, { target: 'mac-x64', arch: 'x64' }])
+it('ships both Darwin CPUs by default or the requested smoke CPU, Windows x64, the Linux host CPU and nothing elsewhere', () => {
+  expect(nextRuntimeTargets('darwin', 'arm64', {})).toEqual([{ target: 'mac-arm64', arch: 'arm64' }, { target: 'mac-x64', arch: 'x64' }])
+  expect(nextRuntimeTargets('darwin', 'arm64', { DSH_MAC_SMOKE_ARCH: 'arm64' })).toEqual([{ target: 'mac-arm64', arch: 'arm64' }])
+  expect(nextRuntimeTargets('darwin', 'arm64', { DSH_MAC_SMOKE_ARCH: 'x64' })).toEqual([{ target: 'mac-x64', arch: 'x64' }])
   expect(nextRuntimeTargets('win32')).toEqual([{ target: 'win-x64', arch: 'x64' }])
   expect(nextRuntimeTargets('linux', 'x64')).toEqual([{ target: 'linux-x64', arch: 'x64' }])
   expect(nextRuntimeTargets('linux', 'arm64')).toEqual([{ target: 'linux-arm64', arch: 'arm64' }])
