@@ -19,7 +19,8 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { cpSync, createHash, existsSync, readFileSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
