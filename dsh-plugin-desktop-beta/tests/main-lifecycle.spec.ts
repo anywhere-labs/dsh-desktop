@@ -457,7 +457,6 @@ it('explains the first Windows GPU launch failure in a native dialog, records it
     app.emit('child-process-gone', {}, gpu)
     Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
     app.emit('child-process-gone', {}, { type: 'Utility', reason: 'launch-failed', exitCode: 18, serviceName: 'audio.mojom.AudioService' })
-    app.emit('child-process-gone', {}, { ...gpu, reason: 'crashed', exitCode: -2147483645 })
     expect(dialog.showMessageBoxSync).not.toHaveBeenCalled()
     app.emit('child-process-gone', {}, gpu)
     app.emit('child-process-gone', {}, gpu)
@@ -474,6 +473,34 @@ it('explains the first Windows GPU launch failure in a native dialog, records it
     }))
     expect(app.exit).toHaveBeenCalledOnce()
     expect(app.exit).toHaveBeenCalledWith(1)
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+})
+
+it('relaunches once with only the GPU sandbox disabled after a Windows GPU breakpoint', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-sandbox-breakpoint-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const { app, dialog } = await import('electron')
+    Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+    const breakpoint = { type: 'GPU', reason: 'crashed', exitCode: -2147483645 }
+    app.emit('child-process-gone', {}, breakpoint)
+    await vi.waitFor(() => expect(app.relaunch).toHaveBeenCalledOnce())
+    expect(vi.mocked(app.relaunch).mock.calls[0]![0]!.args).toContain('--disable-gpu-sandbox')
+    expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'electron', event: 'sandbox.gpu-breakpoint-fallback', level: 'warn',
+      fields: { exitCode: -2147483645, argument: '--disable-gpu-sandbox' },
+    }))
+    expect(app.exit).toHaveBeenCalledWith(0)
+    expect(dialog.showMessageBoxSync).not.toHaveBeenCalled()
+    // The relaunched process carries the switch, so a second failure cannot restart in a loop.
+    app.emit('child-process-gone', {}, breakpoint)
+    expect(app.relaunch).toHaveBeenCalledOnce()
   } finally {
     Object.defineProperty(process, 'platform', platform)
     vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })

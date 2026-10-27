@@ -49,7 +49,7 @@ import { updateLabel } from './update-state.ts'
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
 import { isDesktopRendererStatus, NextRendererRecovery } from './renderer-recovery.ts'
 import { deElevateAtStartup, windowsElevation } from './windows-elevation.ts'
-import { createSandboxLaunchReporter, gpuLaunchFailure, rendererLaunchFailure } from './sandbox-launch.ts'
+import { createSandboxLaunchReporter, DISABLE_GPU_SANDBOX_ARGUMENT, gpuLaunchFailure, gpuSandboxBreakpoint, gpuSandboxFallbackArguments, rendererLaunchFailure } from './sandbox-launch.ts'
 
 // An elevated Windows launch restarts with the user's normal token before Chromium starts any child (#1487).
 const startupElevation = deElevateAtStartup({ platform: process.platform, packaged: app.isPackaged, argv: process.argv, executable: process.execPath })
@@ -1315,6 +1315,20 @@ if (ownsInstance) {
       fields: { type: details.type, reason: details.reason, exitCode: details.exitCode, service: details.serviceName ?? null } })
     const failure = gpuLaunchFailure(process.platform, details)
     if (failure && !quitting) reportSandboxLaunchFailure(failure)
+    // A GPU child that dies with STATUS_BREAKPOINT (0x80000003) leaves Chromium no working GPU mode, and the
+    // browser process ends before any window exists. Relaunch once with only the GPU sandbox disabled; the flag
+    // stays on the command line, so a second failure is not retried into a loop.
+    if (!quitting && gpuSandboxBreakpoint(process.platform, details)) {
+      const fallback = gpuSandboxFallbackArguments(process.argv.slice(1))
+      if (fallback !== undefined) {
+        quitting = true
+        runtime.diagnostics.record({ source: 'electron', event: 'sandbox.gpu-breakpoint-fallback', level: 'warn',
+          fields: { exitCode: details.exitCode, argument: DISABLE_GPU_SANDBOX_ARGUMENT } })
+        runtime.diagnostics.flush()
+        relaunchApp(app, fallback)
+        app.exit(0)
+      }
+    }
   })
   app.on('render-process-gone', (_event, contents, details) => {
     const failure = rendererLaunchFailure(process.platform, details)
