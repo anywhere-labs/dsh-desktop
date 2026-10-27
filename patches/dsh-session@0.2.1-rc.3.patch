@@ -1,0 +1,67 @@
+diff --git a/lib/types/fork.js b/lib/types/fork.js
+index dd4d553..8e82aa9 100644
+--- a/lib/types/fork.js
++++ b/lib/types/fork.js
+@@ -4,25 +4,56 @@
+  */
+ import { openTurnClosers } from "./repair.js";
+ import { SessionSeq } from "./types.js";
++/** Inbox targets owned by the agent loop; both hold input the source has not run yet. */
++const INBOX_TARGETS = ['next-turn', 'next-step'];
+ /**
+- * Copy an inclusive event prefix, mark its inherited cut, and close its open tail with forked results
+- * and step/turn endings. Closed steps and turns are preserved unchanged.
++ * Pending depth of every inbox target after folding the inherited prefix.
++ * Mirrors the loop's own splice fold so a repaired or out-of-order tail can
++ * never produce a negative depth.
++ *
++ * @param prefix - inherited events, in sequence order.
++ * @returns pending message counts keyed by inbox target.
++ */
++function pendingInboxDepth(prefix) {
++    const depth = { 'next-turn': 0, 'next-step': 0 };
++    for (const event of prefix) {
++        if (event.type !== 'agent/inbox/spliced') continue;
++        const { target, removedCount = 0, inserted } = event.data;
++        depth[target] = Math.max(0, depth[target] - removedCount + inserted.length);
++    }
++    return depth;
++}
++/**
++ * Copy an inclusive event prefix, mark its inherited cut, close its open tail with forked results
++ * and step/turn endings, and drop input the source had not started. Closed steps and turns are
++ * preserved unchanged.
+  * The caller validates that the boundary is an existing contiguous event seq;
+  * Session construction snapshots the borrowed events before publication.
+  *
+  * @param events - source log with contiguous seqs from zero.
+  * @param boundary - inclusive source event seq the child inherits through.
+  * @returns a new array retaining the source event objects, followed by synthetic
+- *   closers outside the inherited prefix counted by `inheritedEventCount`.
++ *   events outside the inherited prefix counted by `inheritedEventCount`.
+  */
+ export function buildForkSeed(events, boundary) {
+     const prefix = events.slice(0, boundary + 1);
++    let seq = boundary + 1;
+     prefix.push({
+-        type: 'session/end-seed', seq: SessionSeq(boundary + 1),
++        type: 'session/end-seed', seq: SessionSeq(seq++),
+         // oxlint-disable-next-line typescript/no-non-null-assertion -- the caller validated this exact source event.
+         time: events[boundary].time,
+         data: { inherited: true },
+     });
++    // Pending inbox input is live work rather than history: a branch keeps the
++    // transcript, and must not inherit messages the source has not run yet.
++    const pending = pendingInboxDepth(prefix);
++    for (const target of INBOX_TARGETS) {
++        if (pending[target] === 0) continue;
++        prefix.push({
++            type: 'agent/inbox/spliced', seq: SessionSeq(seq++), time: events[boundary].time,
++            data: { target, start: 0, removedCount: pending[target], inserted: [], outcome: 'canceled' },
++        });
++    }
+     return prefix.concat(openTurnClosers(prefix, { kind: 'forked' }));
+ }
+-//# sourceMappingURL=fork.js.map
+\ No newline at end of file
++//# sourceMappingURL=fork.js.map
