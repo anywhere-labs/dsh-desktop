@@ -6,7 +6,7 @@ import { readFileSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, net, Notification, protocol, safeStorage, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, net, Notification, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
 import { appRequestHeaders, forwardWebRequest, serveWebDocument } from './web-document.ts'
 import { installAppDownloads } from './app-downloads.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
@@ -33,6 +33,7 @@ import { cleanupDisposableTree } from '../../dsh-plugin-desktop/src/disposable-t
 import { installEditingContextMenu } from '../../dsh-plugin-desktop/src/context-menu.ts'
 import { atomicJson, privateDirectory } from './private-files.ts'
 import { windowMaterial } from './window-material.ts'
+import { FileMainWindowStateStore, fitMainWindowBounds, sameMainWindowBounds, type MainWindowBounds } from './main-window-state.ts'
 import { DE_ELEVATED_ARGUMENT, ONBOARDING_ARGUMENT, RECOVERY_ARGUMENT, SAFE_ARGUMENT, relaunchApp, relaunchArguments } from './relaunch.ts'
 import { DESKTOP_RUNTIME_FILE, readInstalledPackageVersion, verifyPackagedRuntimeIdentity } from './runtime-tree.ts'
 import { unpackedPath } from './asar-archive-policy.ts'
@@ -89,6 +90,7 @@ if (ownsInstance) {
 }
 const electronData = ownsInstance && safeModeRequested ? safeElectronData : normalElectronData
 const nativeLocale = new NativeLocaleStore(safeModeRequested ? electronData : home)
+const mainWindowState = new FileMainWindowStateStore(safeModeRequested ? electronData : home)
 app.setPath('userData', electronData)
 app.setPath('sessionData', electronData)
 protocol.registerSchemesAsPrivileged([{ scheme: 'dsh-app', privileges: {
@@ -266,8 +268,47 @@ function show(window: BrowserWindow): void {
  */
 const WINDOWS_CAPTION_FILL = '#00000000'
 
+const MAIN_WINDOW_WIDTH = 1280
+const MAIN_WINDOW_HEIGHT = 840
+const MAIN_WINDOW_MIN_WIDTH = 800
+const MAIN_WINDOW_MIN_HEIGHT = 580
+let persistedBounds: MainWindowBounds | undefined
+let windowStateWriteTimer: ReturnType<typeof setTimeout> | undefined
+
+function restoreMainWindowBounds(): MainWindowBounds | undefined {
+  try {
+    persistedBounds = mainWindowState.read()
+    if (persistedBounds === undefined) return undefined
+    const display = screen.getDisplayMatching(persistedBounds)
+    return fitMainWindowBounds(persistedBounds, display.workArea, { width: MAIN_WINDOW_MIN_WIDTH, height: MAIN_WINDOW_MIN_HEIGHT })
+  } catch (error) {
+    runtime.diagnostics.append(`failed to restore main-window state: ${error instanceof Error ? error.message : String(error)}`, 'warn')
+    return undefined
+  }
+}
+
+function persistMainWindowState(window: BrowserWindow): void {
+  if (window.isDestroyed()) return
+  const bounds = window.getNormalBounds()
+  if (persistedBounds !== undefined && sameMainWindowBounds(bounds, persistedBounds)) return
+  try {
+    mainWindowState.write(bounds)
+    persistedBounds = { ...bounds }
+  } catch (error) {
+    runtime.diagnostics.append(`failed to save main-window state: ${error instanceof Error ? error.message : String(error)}`, 'warn')
+  }
+}
+
+function scheduleMainWindowStateWrite(window: BrowserWindow): void {
+  if (windowStateWriteTimer !== undefined) clearTimeout(windowStateWriteTimer)
+  windowStateWriteTimer = setTimeout(() => { windowStateWriteTimer = undefined; persistMainWindowState(window) }, 250)
+  windowStateWriteTimer.unref()
+}
+
 function createWindow(preload: string, primary = false): BrowserWindow {
-  const window = new BrowserWindow({ width: 1280, height: 840, minWidth: 800, minHeight: 580,
+  const restoredBounds = primary ? restoreMainWindowBounds() : undefined
+  const window = new BrowserWindow({ width: MAIN_WINDOW_WIDTH, height: MAIN_WINDOW_HEIGHT, minWidth: MAIN_WINDOW_MIN_WIDTH, minHeight: MAIN_WINDOW_MIN_HEIGHT,
+    ...(restoredBounds ?? {}),
     show: false, title: 'DSH NEXT',
     ...(process.platform !== 'darwin' ? { icon: unpackedPath(join(root, 'build', process.platform === 'win32' ? 'app-icon.ico' : 'app-icon.png')) } : {}),
     ...(!primary ? auxiliaryWindowChromeOptions() : {}),
@@ -314,9 +355,12 @@ function createWindow(preload: string, primary = false): BrowserWindow {
       if (input.type === 'keyDown' && input.key === ',' && (input.control || input.meta) && !input.alt) { event.preventDefault(); openControls() }
     })
     window.on('close', event => {
+      persistMainWindowState(window)
       if (!quitting && runtime.preferences.closeToTray && native.available) { event.preventDefault(); window.hide() }
       else if (!quitting) { event.preventDefault(); app.quit() }
     })
+    window.on('move', () => scheduleMainWindowStateWrite(window))
+    window.on('resize', () => scheduleMainWindowStateWrite(window))
   }
   const openExternal = (url: string): void => {
     try { if (['https:', 'http:', 'mailto:'].includes(new URL(url).protocol)) void shell.openExternal(url).catch(error => runtime.report(error)) } catch { /* Ignore malformed external links. */ }
