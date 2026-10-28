@@ -14,6 +14,10 @@ export interface LogInput {
   operationId?: string
   pid?: number
   fields?: LogFields
+  /** Structured numeric evidence for the JSONL history only; the readable log shows `fields`. */
+  data?: unknown
+  /** Keep this record out of the readable log entirely; periodic samples would only crowd out failures there. */
+  historyOnly?: boolean
   error?: unknown
 }
 export interface LogRecord {
@@ -28,6 +32,7 @@ export interface LogRecord {
   developer: boolean
   operationId?: string
   fields?: LogFields
+  data?: unknown
   error?: unknown
 }
 
@@ -70,6 +75,8 @@ export function isLogInput(value: unknown): value is LogInput {
     && (v.developer === undefined || typeof v.developer === 'boolean')
     && (v.operationId === undefined || typeof v.operationId === 'string')
     && (v.pid === undefined || Number.isSafeInteger(v.pid))
+    // Process output may imitate this framing; nested evidence and readable-log routing are reserved for the main process.
+    && v.data === undefined && v.historyOnly === undefined
     && (v.fields === undefined || (typeof v.fields === 'object' && v.fields !== null && !Array.isArray(v.fields)
       && Object.values(v.fields).every(item => item === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof item))))
 }

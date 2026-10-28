@@ -5,6 +5,8 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import { desktopNodeEnvironment } from './node-environment.ts'
 import type { DesktopNotification } from './desktop-contract.ts'
+import { exitSummary } from './exit-code.ts'
+import { isHostMemoryUsage, type HostMemoryUsage, type MemoryHostExit } from './memory-monitor.ts'
 import { isDesktopNotification } from './notifications.ts'
 import type { DesktopPermission, DesktopPermissionAction, DesktopPermissionSnapshot } from './permissions.ts'
 
@@ -64,7 +66,7 @@ interface InjectionsEvent {
   readonly error?: string
 }
 
-type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
+type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
   readonly type: 'update-tasks'
   readonly requestId: number
   readonly active: boolean
@@ -72,6 +74,8 @@ type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | Platfor
 }
 
 const MAX_HOST_DIAGNOSTIC_CHARS = 64 * 1024
+/** The stderr tail an exit failure carries; the complete lines remain in the Host output log. */
+const MAX_EXIT_OUTPUT_CHARS = 4 * 1024
 
 function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
   if (typeof message !== 'object' || message === null || !('type' in message)) return false
@@ -79,6 +83,8 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
   switch (candidate.type) {
     case 'shutdown-complete':
       return true
+    case 'memory':
+      return isHostMemoryUsage(candidate)
     case 'ready':
       return typeof candidate.url === 'string'
     case 'platform-session': {
@@ -168,6 +174,37 @@ export class DesktopHostFatalError extends Error {
   get diagnostic(): string | undefined { return this.#diagnostic }
 }
 
+/**
+ * The Host process ended. `output` is its last stderr text, which is labelled as possibly unrelated:
+ * plugins print freely, so the final lines rarely name the cause of a native crash.
+ */
+export class DesktopHostExitError extends Error {
+  /**
+   * @param exitCode - The process exit code; Windows exception codes arrive as unsigned values.
+   * @param signal - The signal that terminated the process, if any.
+   * @param output - The last stderr text, at most a few kilobytes and starting at a line boundary when possible.
+   */
+  constructor(readonly exitCode: number | null, readonly signal: NodeJS.Signals | null, readonly output: string) {
+    super(`dsh desktop host ${exitSummary({ code: exitCode, signal })}${output === '' ? '' : `\nLast Host stderr (may be unrelated to the exit):\n${output}`}`)
+  }
+}
+
+/** Main-process observers of Host facts that are not failures. Observers must not throw. */
+export interface DesktopHostObserver {
+  /** A periodic memory reading the Host pushed over IPC. */
+  memory?(usage: HostMemoryUsage, pid: number | undefined): void
+  /** The process ended; reported before any failure it causes. */
+  exited?(exit: MemoryHostExit, pid: number | undefined): void
+}
+
+function exitOutput(stderr: string): string {
+  const text = stderr.trim()
+  if (text.length <= MAX_EXIT_OUTPUT_CHARS) return text
+  const tail = text.slice(-MAX_EXIT_OUTPUT_CHARS)
+  const line = tail.indexOf('\n')
+  return line === -1 ? tail : tail.slice(line + 1)
+}
+
 /** One Web backend running under the Electron executable in Node mode. */
 export class DesktopHostProcess {
   private child: ChildProcess | undefined
@@ -200,6 +237,7 @@ export class DesktopHostProcess {
    * @param packageManager - Bundled pnpm entry and Node launcher directory, scoped to package operations.
    * @param onPlatformSession - Private credential updates for embedded Platform views.
    * @param onPlatformLogin - Opens a sign-in attempt's authorization page, or settles an ended attempt.
+   * @param observer - Memory pushes and process exits for the Desktop's memory evidence.
    */
   constructor(
     private readonly node: string,
@@ -219,6 +257,7 @@ export class DesktopHostProcess {
     private readonly onPlatformSession?: (session: PlatformSession | null) => void,
     private readonly onPlatformLogin?: (request: DesktopPlatformLoginRequest) => void,
     private readonly onDiagnostic?: (input: LogInput) => void,
+    private readonly observer?: DesktopHostObserver,
   ) {}
 
   /**
@@ -252,6 +291,11 @@ export class DesktopHostProcess {
       if (!isDesktopHostEvent(message)) {
         this.fail(new Error('dsh desktop host sent an invalid IPC event'))
         child.kill('SIGTERM')
+        return
+      }
+      if (message.type === 'memory') {
+        // Periodic evidence, not control traffic: it neither appears in the IPC log nor touches readiness.
+        try { this.observer?.memory?.(message, child.pid) } catch { /* Observational only. */ }
         return
       }
       this.diagnostic({ source: 'host.ipc', event: 'received', developer: true, pid: child.pid, fields: { type: message.type, ...('requestId' in message ? { requestId: message.requestId } : {}) } })
@@ -310,9 +354,8 @@ export class DesktopHostProcess {
     this.exitPromise = new Promise<void>((resolve) => {
       child.once('close', (code, signal) => {
         this.diagnostic({ source: 'host.process', event: 'exit', pid: child.pid, level: this.stopping && code === 0 ? 'info' : 'error', fields: { exitCode: code, signal, expected: this.stopping, acknowledged: this.shutdownCompleted } })
-        const suffix = this.stderr.trim() === '' ? '' : `: ${this.stderr.trim()}`
-        if (code !== 0 && code !== null) this.fail(new Error(`dsh desktop host exited with ${String(code)}${suffix}`))
-        else this.fail(new Error(`dsh desktop host stopped${suffix}`))
+        try { this.observer?.exited?.({ code, signal, expected: this.stopping }, child.pid) } catch { /* Observational only. */ }
+        this.fail(new DesktopHostExitError(code, signal, exitOutput(this.stderr)))
         resolve()
       })
     })

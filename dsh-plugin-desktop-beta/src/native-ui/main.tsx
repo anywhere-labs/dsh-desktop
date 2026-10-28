@@ -11,6 +11,7 @@ import { desktopRecoveryCopy } from '../../../dsh-plugin-desktop/src/recovery-co
 import { useDesktopState } from '../client/desktop-state.ts'
 import { NextSettingsAdapter } from '../client/settings-adapter.ts'
 import type { DesktopCommand } from '../desktop-contract.ts'
+import { hostExitDetail } from '../exit-code.ts'
 import { recoverySupport } from '../recovery-support.ts'
 import './theme.css'
 import { Onboarding } from './onboarding.tsx'
@@ -89,7 +90,8 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     rollbackBody: t('还原所选检查点的 Profile 配置并安装所需插件依赖，不回滚共享数据。', 'Restore the selected Profile configuration and install its required plugin dependencies, without reverting shared data.'),
   }
   const recovery: RecoveryState = {
-    locale, failureStage: 'host-boot', failureDetail: state.failure, requested: !state.failure,
+    locale, failureStage: state.failureStage ?? 'host-boot',
+    failureDetail: state.failureExit === undefined ? state.failure : hostExitDetail(state.failureExit, locale), requested: !state.failure,
     snapshot: { profileName: state.selected, bundles: state.recovery?.bundles ?? [], checkpoints: (['slot-1', 'slot-2', 'slot-3'] as const).map((slotId, index) => {
       const checkpoint = state.recovery?.checkpoints[index]
       return { slotId, status: checkpoint ? 'available' as const : 'empty' as const,

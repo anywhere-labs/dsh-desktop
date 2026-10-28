@@ -5,8 +5,9 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import { freemem, totalmem } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, net, Notification, protocol, safeStorage, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, clipboard, crashReporter, dialog, ipcMain, Menu, nativeTheme, net, Notification, protocol, safeStorage, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
 import { appRequestHeaders, forwardWebRequest, serveWebDocument } from './web-document.ts'
 import { installAppDownloads } from './app-downloads.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
@@ -50,6 +51,7 @@ import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdo
 import { isDesktopRendererStatus, NextRendererRecovery } from './renderer-recovery.ts'
 import { deElevateAtStartup, windowsElevation } from './windows-elevation.ts'
 import { createSandboxLaunchReporter, gpuLaunchFailure, rendererLaunchFailure } from './sandbox-launch.ts'
+import { startCrashReporting } from './crash-reporting.ts'
 
 // An elevated Windows launch restarts with the user's normal token before Chromium starts any child (#1487).
 const startupElevation = deElevateAtStartup({ platform: process.platform, packaged: app.isPackaged, argv: process.argv, executable: process.execPath })
@@ -98,6 +100,8 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'dsh-app', privileges: {
 let mainWindow: BrowserWindow | undefined
 let rendererRecovery: NextRendererRecovery | undefined
 let rendererDocumentId = ''
+/** The main window's interface has mounted at least once, so a later renderer failure stops a running Desktop. */
+let rendererHealthy = false
 // Storage partitions outlive individual windows, so the guest owner is process-scoped.
 let desktopShortcuts: ReturnType<typeof installDesktopShortcuts> | undefined
 const browserGuests = new DesktopBrowserGuests(() => runtime.auth ? [new URL(runtime.auth.url).origin] : [])
@@ -126,12 +130,32 @@ const version = (JSON.parse(readFileSync(NEXT_PACKAGE, 'utf8')) as { version: st
 /** The dsh runtime beside this shell; a development tree may hoist it elsewhere, and the packaged check then reports it. */
 let dshVersion: string | undefined
 try { dshVersion = readInstalledPackageVersion(root, '@deepseek-ai/dsh') } catch { /* Not installed beside the shell; only diagnostics lose the field. */ }
+// Local-only Crashpad, started before any child process exists, so renderers, the GPU process and the
+// Node-mode Host inherit its handler. Dumps stay beside the normal launch, never in Safe Mode's
+// disposable state.
+const crashDumps = join(normalElectronData, 'Crashpad')
+if (ownsInstance) {
+  try {
+    app.setPath('crashDumps', crashDumps)
+    startCrashReporting(crashReporter, { productName: 'DSH NEXT', version, dsh: dshVersion })
+  } catch (error) { console.error('Local crash reporting is unavailable', error) }
+}
 const t = (zh: string, en: string): string => windowsLanguage.toLowerCase().startsWith('zh') ? zh : en
 /** The bundled interpreter payload of this CPU: beside the archive when packaged, prepared by `prepare:runtime` in development. */
 const primaryRuntime = join(app.isPackaged ? join(process.resourcesPath, 'runtime') : join(root, '.desktop-build', 'runtime'), process.arch, 'primary-runtime')
 const runtime = new NextDesktopRuntime({
   home, root, primaryRuntime, executable: process.execPath, addresses: () => [...desktopLanAddresses()], systemProxy: () => systemProxy,
   prepareEnvironment: () => prepareHostEnvironment(),
+  memoryProbe: {
+    appMetrics: () => app.getAppMetrics(),
+    system: () => {
+      // On Windows, Chromium reports GlobalMemoryStatusEx's page-file figures as swap: the commit
+      // limit and the commit still available, which run out before physical memory does (#1511).
+      const memory = process.platform === 'win32' ? process.getSystemMemoryInfo() : undefined
+      return { total: totalmem(), free: freemem(),
+        ...(memory === undefined ? {} : { commitLimit: memory.swapTotal * 1024, commitFree: memory.swapFree * 1024 }) }
+    },
+  },
   ...(safeModeRequested ? { stateHome: electronData } : {}),
   certificate: async addresses => {
     try {
@@ -180,6 +204,7 @@ const runtime = new NextDesktopRuntime({
     return snapshot
   },
 })
+if (ownsInstance) runtime.diagnostics.crashDumps = crashDumps
 const platformLogin = new PlatformLoginWindow({
   BrowserWindow, session: partition => session.fromPartition(partition), host: () => runtime.auth,
   parent: () => mainWindow, title: () => t('登录 DeepSeek', 'Sign in to DeepSeek'), dark: () => nativeTheme.shouldUseDarkColors,
@@ -393,6 +418,7 @@ function openMain(): void {
   if (mainWindow && !mainWindow.isDestroyed()) { show(mainWindow); return }
   mainWindow = createWindow('preload-app.cjs', true)
   const owner = mainWindow
+  rendererHealthy = false
   // The guest owner installs its own navigation, crash and destruction release paths.
   browserGuests.bind(owner, (guest, name) => desktopShortcuts!.attachGuest(owner, guest, name))
   desktopShortcuts!.attach(owner)
@@ -416,7 +442,9 @@ function openMain(): void {
     if (quitting || mainWindow !== owner || owner.isDestroyed() || runtime.recoveryMode) return
     // Preserve the native exit code even when automatic recovery succeeds.
     runtime.diagnostics.record({ source: 'renderer', event: 'process-gone', level: 'error', fields: { reason: details.reason, exitCode: details.exitCode } })
-    if (details.reason !== 'clean-exit') failRenderer(owner, new Error(`Renderer: ${details.reason}`))
+    if (details.reason === 'clean-exit') return
+    runtime.memory.incident({ process: 'renderer', reason: details.reason, exitCode: details.exitCode })
+    failRenderer(owner, new Error(`Renderer: ${details.reason}`))
   })
   mainWindow.webContents.on('preload-error', (_event, _path, error) => failRenderer(owner, error))
   mainWindow.webContents.on('did-fail-load', (_event, code, message, _url, isMain) => {
@@ -431,8 +459,11 @@ function resetRendererRecovery(owner: BrowserWindow): void {
   rendererRecovery = new NextRendererRecovery({
     available: () => !quitting && !runtime.recoveryMode && mainWindow === owner && !owner.isDestroyed() && runtime.backend.state.phase !== 'error',
     reload: () => loadMainDocument(owner),
-    exhausted: detail => runtime.report(new Error(`Renderer recovery exhausted: ${detail}`)),
-    record: (event, fields) => runtime.diagnostics.record({ source: 'renderer', event, fields }),
+    exhausted: detail => runtime.report(new Error(`Renderer recovery exhausted: ${detail}`), rendererHealthy ? 'renderer-runtime' : 'renderer-startup'),
+    record: (event, fields) => {
+      if (event === 'renderer.recovery.healthy') rendererHealthy = true
+      runtime.diagnostics.record({ source: 'renderer', event, fields })
+    },
   })
 }
 
@@ -1172,12 +1203,13 @@ async function main(): Promise<void> {
   runtime.safeMode = safeModeRequested
   runtime.recoveryMode = process.argv.includes(RECOVERY_ARGUMENT)
   runtime.initialize()
+  runtime.memory.start()
   void prepareHostEnvironment()
-  if (dataLocation.error && !runtime.safeMode) { runtime.recoveryMode = true; runtime.report(dataLocation.error) }
+  if (dataLocation.error && !runtime.safeMode) { runtime.recoveryMode = true; runtime.report(dataLocation.error, 'runtime-bootstrap') }
   if (app.isPackaged) {
     // Packaging sealed the payload with the shell, dsh, platform and architectures it was released for.
     try { verifyPackagedRuntimeIdentity(join(root, DESKTOP_RUNTIME_FILE), { version, dshVersion: readInstalledPackageVersion(root, '@deepseek-ai/dsh'), platform: process.platform, arch: process.arch }) }
-    catch (error) { runtime.recoveryMode = true; runtime.report(error) }
+    catch (error) { runtime.recoveryMode = true; runtime.report(error, 'runtime-bootstrap') }
   }
   if (!runtime.safeMode && !runtime.recoveryMode) {
     try {
@@ -1187,7 +1219,7 @@ async function main(): Promise<void> {
     } catch (error) {
       onboarding = false
       runtime.recoveryMode = true
-      runtime.report(error)
+      runtime.report(error, 'profile-composition')
     }
   }
   native.createTray()
@@ -1238,6 +1270,8 @@ app.on('before-quit', event => {
   event.preventDefault()
   quitting = true
   rendererRecovery?.stop()
+  // Pending evidence lands now; a Host that dies of OOM while stopping is written at once.
+  runtime.memory.stop()
   runtime.diagnostics.record({ source: 'electron', event: 'shutdown.start' })
   runtime.diagnostics.flush()
   // Bound the whole shutdown, including cleanup before Host termination starts.
@@ -1298,6 +1332,7 @@ app.on('before-quit', event => {
 if (ownsInstance) {
   process.on('uncaughtExceptionMonitor', (error, origin) => {
     runtime.diagnostics.record({ source: 'electron', event: 'uncaught-exception', level: 'error', error, fields: { origin } })
+    runtime.memory.settle()
     runtime.diagnostics.end(false)
   })
   // Chromium ends the process once no GPU process can launch, leaving nothing on screen; explain it natively first.
@@ -1308,11 +1343,14 @@ if (ownsInstance) {
     record: (failure, elevation) => runtime.diagnostics.record({ source: 'electron', event: 'sandbox.launch-failed', level: 'error',
       fields: { process: failure.process, code: failure.code, elevated: elevation?.elevated ?? null, elevationType: elevation?.type ?? null } }),
     show: text => { dialog.showMessageBoxSync({ type: 'error', title: text.title, message: text.message, detail: text.detail, buttons: [text.button], defaultId: 0, noLink: true }) },
-    exit: () => { runtime.diagnostics.end(false); app.exit(1) },
+    exit: () => { runtime.memory.stop(); runtime.diagnostics.end(false); app.exit(1) },
   })
   app.on('child-process-gone', (_event, details) => {
     runtime.diagnostics.record({ source: 'electron', event: 'child-process-gone', level: 'error',
       fields: { type: details.type, reason: details.reason, exitCode: details.exitCode, service: details.serviceName ?? null } })
+    // A utility process may end normally, and quitting ends every child; only a crash, kill or failed
+    // launch while running is memory evidence.
+    if (details.reason !== 'clean-exit' && !quitting) runtime.memory.incident({ process: 'child', type: details.type, reason: details.reason, exitCode: details.exitCode })
     const failure = gpuLaunchFailure(process.platform, details)
     if (failure && !quitting) reportSandboxLaunchFailure(failure)
   })
@@ -1332,5 +1370,5 @@ if (ownsInstance) {
     runtime.diagnostics.record({ source: 'electron', event: elevation === undefined ? 'elevation.unknown' : 'elevation.kept', level: 'warn',
       ...(error === undefined ? {} : { message: error }), fields: { reason: kept ?? null, win32Code: win32Code ?? null } })
   }
-  void main().catch(error => runtime.report(error))
+  void main().catch(error => runtime.report(error, 'electron-ready'))
 }
