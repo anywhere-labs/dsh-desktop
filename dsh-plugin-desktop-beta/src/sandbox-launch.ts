@@ -21,6 +21,12 @@ export const SBOX_ERROR_CREATE_PROCESS = 18
 /** Startup outcomes in which a restart without administrator rights was attempted and the launch stayed elevated. */
 const RESTART_FAILURES = new Set<string>(['no-shell', 'shell-elevated', 'shell-other-user', 'restarted'])
 
+/** Windows `STATUS_BREAKPOINT`: a sandboxed child died before it could report an exit. */
+export const STATUS_BREAKPOINT_EXIT = -2147483645
+
+/** Chromium switch that leaves the GPU process unsandboxed while every other child stays sandboxed. */
+export const DISABLE_GPU_SANDBOX_ARGUMENT = '--disable-gpu-sandbox'
+
 /**
  * Recognize a failed GPU process launch in Electron's `child-process-gone` details.
  * @param platform - Node platform.
@@ -29,6 +35,34 @@ const RESTART_FAILURES = new Set<string>(['no-shell', 'shell-elevated', 'shell-o
  */
 export function gpuLaunchFailure(platform: NodeJS.Platform, details: { type: string; reason: string; exitCode: number }): SandboxLaunchFailure | undefined {
   return platform === 'win32' && details.type === 'GPU' && details.reason === 'launch-failed' ? { process: 'gpu', code: details.exitCode } : undefined
+}
+
+/**
+ * Recognize a sandboxed GPU child that died with `STATUS_BREAKPOINT` on Windows.
+ *
+ * Electron reports this as `reason: 'crashed'`, `exitCode` 0x80000003 rather than a sandbox launch result, so
+ * {@link gpuLaunchFailure} deliberately ignores it. Chromium then retries every GPU mode and ends the browser
+ * process ("GPU process isn't usable. Goodbye."), which is why the user only sees that nothing opens (#1487,
+ * #1323). It is known to happen on Windows 11 26H2 builds 26200+ (electron/electron#54614) and when an ancestor
+ * of the install directory carries an AppContainer package-SID ACE (#1372). `--disable-gpu-sandbox` is the
+ * documented workaround for the first cause and keeps every other child sandboxed.
+ *
+ * @param platform - Node platform.
+ * @param details - Electron child process details.
+ * @returns whether a GPU child died with the breakpoint status.
+ */
+export function gpuSandboxBreakpoint(platform: NodeJS.Platform, details: { type: string; reason: string; exitCode: number }): boolean {
+  return platform === 'win32' && details.type === 'GPU' && details.reason === 'crashed' && details.exitCode === STATUS_BREAKPOINT_EXIT
+}
+
+/**
+ * Command line for the fallback relaunch: keep this run's arguments and append the switch.
+ * @param argv - argument list without the executable.
+ * @returns the relaunch arguments, or undefined when the switch was already requested, where a second relaunch
+ *          would only reproduce the crash.
+ */
+export function gpuSandboxFallbackArguments(argv: readonly string[]): string[] | undefined {
+  return argv.includes(DISABLE_GPU_SANDBOX_ARGUMENT) ? undefined : [...argv, DISABLE_GPU_SANDBOX_ARGUMENT]
 }
 
 /**

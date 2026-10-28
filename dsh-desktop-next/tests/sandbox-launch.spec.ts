@@ -1,6 +1,6 @@
 /** Native explanation of Windows sandbox launch failures. */
 import { describe, expect, it, vi } from 'vitest'
-import { createSandboxLaunchReporter, gpuLaunchFailure, rendererLaunchFailure, sandboxLaunchDialog, type SandboxLaunchContext } from '../src/sandbox-launch.ts'
+import { createSandboxLaunchReporter, DISABLE_GPU_SANDBOX_ARGUMENT, gpuLaunchFailure, gpuSandboxBreakpoint, gpuSandboxFallbackArguments, rendererLaunchFailure, sandboxLaunchDialog, STATUS_BREAKPOINT_EXIT, type SandboxLaunchContext } from '../src/sandbox-launch.ts'
 
 const EXECUTABLE = 'E:\\Program Files\\DSH NEXT\\DSH NEXT.exe'
 const GPU = { process: 'gpu', code: 18 } as const
@@ -92,5 +92,23 @@ describe('createSandboxLaunchReporter', () => {
     })(GPU)
     expect(record).toHaveBeenCalledWith(GPU, { elevated: false, type: 'limited' })
     expect(show.mock.calls[0]![0].detail).toContain('没有以管理员身份运行')
+  })
+})
+
+describe('gpu sandbox breakpoint fallback', () => {
+  it('recognizes only a Windows GPU child that died with STATUS_BREAKPOINT', () => {
+    const gpu = { type: 'GPU', reason: 'crashed', exitCode: STATUS_BREAKPOINT_EXIT }
+    expect(gpuSandboxBreakpoint('win32', gpu)).toBe(true)
+    expect(gpuSandboxBreakpoint('darwin', gpu)).toBe(false)
+    expect(gpuSandboxBreakpoint('win32', { ...gpu, reason: 'launch-failed' })).toBe(false)
+    expect(gpuSandboxBreakpoint('win32', { ...gpu, exitCode: 18 })).toBe(false)
+    expect(gpuSandboxBreakpoint('win32', { ...gpu, type: 'Utility' })).toBe(false)
+  })
+
+  it('appends the GPU sandbox switch once and keeps the rest of the command line', () => {
+    expect(gpuSandboxFallbackArguments(['--next-channel'])).toEqual(['--next-channel', DISABLE_GPU_SANDBOX_ARGUMENT])
+    expect(gpuSandboxFallbackArguments([])).toEqual([DISABLE_GPU_SANDBOX_ARGUMENT])
+    expect(gpuSandboxFallbackArguments([DISABLE_GPU_SANDBOX_ARGUMENT])).toBeUndefined()
+    expect(gpuSandboxFallbackArguments(['--next-channel', DISABLE_GPU_SANDBOX_ARGUMENT])).toBeUndefined()
   })
 })
