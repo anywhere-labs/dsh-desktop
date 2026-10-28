@@ -1130,8 +1130,8 @@
     "@deepseek-ai/dsh-tool-pwsh-persistent@npm:^0.2.1-rc.4": "file:vendor/dsh-runtime/0.2.1-rc.4/deepseek-ai-dsh-tool-pwsh-persistent-0.2.1-rc.4.tgz",
     "@deepseek-ai/dsh-sdk-minimal@npm:0.2.1-rc.4": "file:vendor/dsh-runtime/0.2.1-rc.4/deepseek-ai-dsh-sdk-minimal-0.2.1-rc.4.tgz",
     "@deepseek-ai/dsh-sdk-minimal@npm:^0.2.1-rc.4": "file:vendor/dsh-runtime/0.2.1-rc.4/deepseek-ai-dsh-sdk-minimal-0.2.1-rc.4.tgz",
-    "@deepseek-ai/dsh-session-reference@npm:0.2.1-rc.4": "file:vendor/dsh-runtime/0.2.1-rc.4/deepseek-ai-dsh-session-reference-0.2.1-rc.4.tgz",
-    "@deepseek-ai/dsh-session-reference@npm:^0.2.1-rc.4": "file:vendor/dsh-runtime/0.2.1-rc.4/deepseek-ai-dsh-session-reference-0.2.1-rc.4.tgz",
+    "@deepseek-ai/dsh-session-reference@npm:0.2.1-rc.4": "patch:@deepseek-ai/dsh-session-reference@file%3Avendor/dsh-runtime/0.2.1-rc.4/deepseek-ai-dsh-session-reference-0.2.1-rc.4.tgz#./patches/dsh-session-reference@0.2.1-rc.4.patch",
+    "@deepseek-ai/dsh-session-reference@npm:^0.2.1-rc.4": "patch:@deepseek-ai/dsh-session-reference@file%3Avendor/dsh-runtime/0.2.1-rc.4/deepseek-ai-dsh-session-reference-0.2.1-rc.4.tgz#./patches/dsh-session-reference@0.2.1-rc.4.patch",
     "@deepseek-ai/dsh-subagent-claude-code@npm:0.2.1-rc.4": "file:vendor/dsh-runtime/0.2.1-rc.4/deepseek-ai-dsh-subagent-claude-code-0.2.1-rc.4.tgz",
     "@deepseek-ai/dsh-subagent-claude-code@npm:^0.2.1-rc.4": "file:vendor/dsh-runtime/0.2.1-rc.4/deepseek-ai-dsh-subagent-claude-code-0.2.1-rc.4.tgz",
     "@deepseek-ai/dsh-subagent-codex@npm:0.2.1-rc.4": "file:vendor/dsh-runtime/0.2.1-rc.4/deepseek-ai-dsh-subagent-codex-0.2.1-rc.4.tgz",
@@ -1874,8 +1874,8 @@
     "@deepseek-ai/dsh-tool-pwsh-persistent@npm:^0.2.2-alpha.2": "file:vendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-tool-pwsh-persistent-0.2.2-alpha.2.tgz",
     "@deepseek-ai/dsh-sdk-minimal@npm:0.2.2-alpha.2": "file:vendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-sdk-minimal-0.2.2-alpha.2.tgz",
     "@deepseek-ai/dsh-sdk-minimal@npm:^0.2.2-alpha.2": "file:vendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-sdk-minimal-0.2.2-alpha.2.tgz",
-    "@deepseek-ai/dsh-session-reference@npm:0.2.2-alpha.2": "file:vendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-session-reference-0.2.2-alpha.2.tgz",
-    "@deepseek-ai/dsh-session-reference@npm:^0.2.2-alpha.2": "file:vendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-session-reference-0.2.2-alpha.2.tgz",
+    "@deepseek-ai/dsh-session-reference@npm:0.2.2-alpha.2": "patch:@deepseek-ai/dsh-session-reference@file%3Avendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-session-reference-0.2.2-alpha.2.tgz#./patches/dsh-session-reference@0.2.2-alpha.2.patch",
+    "@deepseek-ai/dsh-session-reference@npm:^0.2.2-alpha.2": "patch:@deepseek-ai/dsh-session-reference@file%3Avendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-session-reference-0.2.2-alpha.2.tgz#./patches/dsh-session-reference@0.2.2-alpha.2.patch",
     "@deepseek-ai/dsh-subagent-claude-code@npm:0.2.2-alpha.2": "file:vendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-subagent-claude-code-0.2.2-alpha.2.tgz",
     "@deepseek-ai/dsh-subagent-claude-code@npm:^0.2.2-alpha.2": "file:vendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-subagent-claude-code-0.2.2-alpha.2.tgz",
     "@deepseek-ai/dsh-subagent-codex@npm:0.2.2-alpha.2": "file:vendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-subagent-codex-0.2.2-alpha.2.tgz",
@@ -2189,7 +2189,7 @@
     "sync:desktop-variants": "node scripts/verify-desktop-variants.mjs --from=beta",
     "sync:beta-to-next": "node scripts/verify-desktop-variants.mjs --from=beta",
     "sync:next-to-beta": "node scripts/verify-desktop-variants.mjs --from=next",
-    "check:layout": "node scripts/run-parallel.mjs \"node --test scripts/prepare-dsh-market.test.mjs scripts/agents-anywhere-release-policy.test.mjs scripts/bilingual-docs.test.mjs scripts/market-dependency-direction.test.mjs scripts/inspector-compat.test.mjs scripts/conversation-draft-compat.test.mjs scripts/storage-json-compat.test.mjs scripts/export-app-icons.test.mjs\" \"node scripts/verify-bilingual-docs.mjs\" \"node scripts/verify-market-dependency-direction.mjs\" \"node scripts/sync-vendored-runtime.mjs --check --channel stable\" \"node scripts/sync-vendored-runtime.mjs --check --channel beta\" \"node scripts/sync-vendored-runtime.mjs --check --channel next\" \"node scripts/verify-desktop-variants.mjs\" \"node scripts/export-app-icons.mjs --check\" \"node scripts/verify-layout.mjs\"",
+    "check:layout": "node scripts/run-parallel.mjs \"node --test scripts/prepare-dsh-market.test.mjs scripts/agents-anywhere-release-policy.test.mjs scripts/bilingual-docs.test.mjs scripts/market-dependency-direction.test.mjs scripts/inspector-compat.test.mjs scripts/conversation-draft-compat.test.mjs scripts/storage-json-compat.test.mjs scripts/session-reference-compat.test.mjs scripts/export-app-icons.test.mjs\" \"node scripts/verify-bilingual-docs.mjs\" \"node scripts/verify-market-dependency-direction.mjs\" \"node scripts/sync-vendored-runtime.mjs --check --channel stable\" \"node scripts/sync-vendored-runtime.mjs --check --channel beta\" \"node scripts/sync-vendored-runtime.mjs --check --channel next\" \"node scripts/verify-desktop-variants.mjs\" \"node scripts/export-app-icons.mjs --check\" \"node scripts/verify-layout.mjs\"",
     "check": "yarn workspace dsh-community-market check && node scripts/run-parallel.mjs \"yarn workspace dsh-desktop-next check\" \"yarn workspace dsh-plugin-desktop-beta check\" \"yarn check:layout\" \"yarn test:aa-connector\" \"yarn workspace dsh-community-fabric check\"",
     "dev": "yarn market:prepare && yarn aa:prepare-release && yarn workspace dsh-community-market build && yarn workspace dsh-plugin-desktop dev",
     "start": "yarn market:prepare && yarn workspace dsh-plugin-desktop start",
@@ -2230,6 +2230,7 @@
     "test:market-release": "node --test scripts/prepare-dsh-market.test.mjs",
     "test:inspector-compat": "node --test scripts/inspector-compat.test.mjs",
     "test:conversation-draft-compat": "node --test scripts/conversation-draft-compat.test.mjs",
-    "test:storage-json-compat": "node --test scripts/storage-json-compat.test.mjs"
+    "test:storage-json-compat": "node --test scripts/storage-json-compat.test.mjs",
+    "test:session-reference-compat": "node --test scripts/session-reference-compat.test.mjs"
   }
 }
