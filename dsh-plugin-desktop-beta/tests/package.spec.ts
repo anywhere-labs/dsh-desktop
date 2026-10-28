@@ -16,7 +16,7 @@ it('declares every official optional bundle as a discoverable, version-aligned i
 
 it('archives the application like upstream Desktop while keeping fuses and native inventory aligned with Stable', () => {
   const next = read('../package.json'); const stable = read('../../dsh-plugin-desktop/package.json')
-  expect(next.version).toBe('2.0.20-beta.1')
+  expect(next.version).toBe('2.0.21-beta.1')
   expect(next.desktopName).toBe(`${next.build.linux.executableName}.desktop`)
   expect(next.repository).toEqual({ type: 'git', url: stable.repository.url, directory: 'dsh-plugin-desktop-beta' })
   expect(next.build.appId).toBe('ai.deepseek.dsh.desktop.beta')
