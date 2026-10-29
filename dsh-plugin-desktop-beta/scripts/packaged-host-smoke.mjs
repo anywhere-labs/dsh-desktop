@@ -32,8 +32,6 @@ try {
   for (const name of [BADGE_BUNDLE, ...officialOptional]) if (!manifest.dsh.profile.bundles.includes(name)) manifest.dsh.profile.bundles.push(name)
   writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
   await runtime.start()
-  // Optional bundles join once a window reports a mounted interface; no window exists here.
-  await runtime.admitDeferredBundles('request')
   const state = runtime.state()
   if (state.phase !== 'ready' || failures !== 0) throw new Error(`Packaged Host did not reach ready: phase=${state.phase} failure=${state.failure}`)
   const auth = runtime.auth
@@ -49,8 +47,6 @@ try {
   // The loader reports optional plugins it could not activate on stderr, which the shell records.
   const inactive = runtime.diagnostics.snapshot().split('\n').filter(line => line.includes('did not activate'))
   if (inactive.length > 0) throw new Error(`Packaged Host left plugins inactive:\n${inactive.join('\n')}`)
-  const deferred = runtime.diagnostics.snapshot().split('\n').filter(line => / deferred-bundles\.(?:admit\.failed|mount\.failed|warning)\b/u.test(line))
-  if (deferred.length > 0) throw new Error(`Packaged Host could not mount its deferred optional bundles:\n${deferred.join('\n')}`)
   console.log(`Packaged Next Host booted from ${root}: profile ${state.selected}, loopback ${new URL(auth.url).origin}, diagnostics export ok`)
 } finally {
   await runtime.close()

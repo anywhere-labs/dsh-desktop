@@ -143,27 +143,6 @@ describe('desktop host process', () => {
     await expect(host.setBrowserAccess(true)).rejects.toThrow('unavailable')
   })
 
-  it('reports deferred optional bundles at ready and correlates their admission', async () => {
-    const runtime = projectWithHost(HTTP_HOST
-      .replace("'/?token=fixture' })", "'/?token=fixture', deferred: true })")
-      .replace('const server = createServer', 'let admissions = 0\nconst server = createServer')
-      .replace("  if (message.type === 'browser-access') {", `
-        if (message.type === 'deferred-bundles') {
-          admissions++
-          process.send({ type: 'deferred-bundles', requestId: message.requestId, ...(admissions > 1 ? { error: 'fixture rejection' } : {}) }); return;
-        }
-        if (message.type === 'browser-access') {`))
-    const host = hostProcess(runtime)
-    await expect(host.admitDeferredBundles()).rejects.toThrow('unavailable')
-    expect((await host.start()).deferred).toBe(true)
-    await expect(host.admitDeferredBundles()).resolves.toBeUndefined()
-    await expect(host.admitDeferredBundles()).rejects.toThrow('fixture rejection')
-    await host.stop()
-    await expect(host.admitDeferredBundles()).rejects.toThrow('unavailable')
-    // A Host that defers nothing says so.
-    expect((await hostProcess(projectWithHost()).start()).deferred).toBe(false)
-  })
-
   it('correlates task inspections and admission changes over private IPC', async () => {
     const host = hostProcess(projectWithHost())
     await expect(host.updateTasks('inspect')).rejects.toThrow('Host is unavailable')

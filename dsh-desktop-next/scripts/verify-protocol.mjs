@@ -172,8 +172,6 @@ async function verify() {
     runtime.profiles.ensure('desktop')
     runtime.profiles.setFeatures('desktop', { market: true, remoteControl: false })
     await runtime.start()
-    // The Market joins once a window reports a mounted interface; this fixture document never does.
-    await runtime.admitDeferredBundles('request')
     const { url, cookie, token } = runtime.auth
     const browser = await fetch(new URL(url).origin, { headers: { cookie } })
     assert.equal(browser.status, 403, 'The test must keep ordinary browser access disabled')

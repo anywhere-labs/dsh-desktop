@@ -8,7 +8,7 @@ import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { atomicJson, atomicText, readPrivateFile } from './private-files.ts'
 import { NextRecovery } from './recovery.ts'
 import { DEFAULT_PROFILE } from './desktop-contract.ts'
-import { COMPUTER_USE_DRIVER_ROW, computerUsePatch } from './profile-computer-use.ts'
+import { computerUsePatch } from './profile-computer-use.ts'
 import { pluginMarketPatch } from './profile-plugin-market.ts'
 import { RETIRED_SCHEDULE_BUNDLE, retiredSchedulePatch } from './profile-schedule.ts'
 import { removeLinkProjectionsSafely } from '../../dsh-plugin-desktop/src/link-projections.ts'
@@ -22,13 +22,6 @@ export const AA_PACKAGE = '@agents-anywhere/dsh-bridge-next'
 export const COMMUNITY_MARKET_PACKAGE = 'dsh-community-market'
 export const DSH_MARKET_PACKAGE = 'dshmarket'
 export const OFFICIAL_MARKET_PACKAGE = '@deepseek-ai/dsh-experimental-plugin-market-bundle'
-/**
- * Optional bundles a Host mounts only once the main window is up (host/deferred-bundles.ts). Each inserts rows of its
- * own and patches no other row, so mounting it later restarts nothing that already runs.
- */
-export const DEFERRED_BUNDLES: readonly string[] = [AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE, OFFICIAL_MARKET_PACKAGE]
-/** What a Host leaves out of its first composition: selected deferred bundles, and the computer-use driver when enabled. */
-export interface DeferredSelection { readonly bundles: readonly string[]; readonly computerUseDriver: boolean }
 /** Legacy shell shape, now projected from the standard Profile bundle selection. */
 export interface Features { remoteControl: boolean; market: boolean; dshMarket?: boolean; officialMarket?: boolean }
 export interface OnboardingChoices { features: Features; computerUse: boolean }
@@ -183,18 +176,6 @@ export class NextProfiles {
   /** Read the saved native-provider choice without importing any user plugin. */
   computerUseEnabled(name: string): boolean {
     return computerUsePatch(readPrivateFile(join(this.directory(name), 'cordis.patch.yml')) ?? '[]\n').enabled
-  }
-  /**
-   * The deferrable capabilities this Profile selects, read from its files without importing any plugin.
-   * @returns undefined when there is nothing to defer, or when the files cannot be read: the composition then
-   *   reports that problem itself.
-   */
-  deferred(name: string): DeferredSelection | undefined {
-    try {
-      const bundles = this.manifest(name).dsh.profile.bundles.filter(bundle => DEFERRED_BUNDLES.includes(bundle))
-      const computerUseDriver = this.computerUseEnabled(name)
-      return bundles.length > 0 || computerUseDriver ? { bundles, computerUseDriver } : undefined
-    } catch { return undefined }
   }
   /** Save choices before completion. Skip preserves both bundles and the user's patch verbatim. */
   finishOnboarding(name: string, value?: unknown): void {
@@ -387,14 +368,9 @@ function archivedAgentsAnywhereConfig(installAnchor: string): { connectorSourceD
   return config
 }
 
-/**
- * Recompose Next's own layer before user/global patches on every manager or HMR read.
- * @param deferred - What the Host has not mounted yet: those bundle layers stay out, and the computer-use driver stays
- *   disabled whatever the Profile patch says, until host/deferred-bundles.ts admits them.
- */
-export function readNextProfilePatches(projectDir: string, home: string, overlays: readonly string[], profilePatches?: readonly Profile['patches'][number][], deferred?: DeferredSelection) {
+/** Recompose Next's own layer before user/global patches on every manager or HMR read. */
+export function readNextProfilePatches(projectDir: string, home: string, overlays: readonly string[], profilePatches?: readonly Profile['patches'][number][]) {
   const profile = loadProfileDirectory('dsh-plugin-desktop-beta', projectDir, NEXT_PACKAGE, { userLayer: false })
-  if (deferred !== undefined) profile.layers = profile.layers.filter(layer => !deferred.bundles.includes(layer.packageName))
   profile.layers.push({ packageName: 'dsh-plugin-desktop-beta', packageDir: dirname(NEXT_PACKAGE),
     patchPaths: [NEXT_BUNDLE_PATCH], patches: loadOverlayPatches('dsh-plugin-desktop-beta', NEXT_BUNDLE_PATCH) })
   profile.patches = profilePatches === undefined
@@ -402,9 +378,7 @@ export function readNextProfilePatches(projectDir: string, home: string, overlay
     : [...profilePatches]
   const context: ProfileContext = { name: basename(projectDir), dir: projectDir, patchPath: profile.patchPath,
     installAnchor: NEXT_PACKAGE, cwd: process.cwd(), home, startedBundles: profile.layers.map(layer => layer.packageName),
-    // Overlays follow the user and home patches, so this one outranks an enabled driver row.
-    overlays: [...overlays.flatMap(path => loadOverlayPatches('dsh-plugin-desktop-beta', path)),
-      ...deferred?.computerUseDriver ? [{ id: COMPUTER_USE_DRIVER_ROW, disabled: true }] : []],
+    overlays: overlays.flatMap(path => loadOverlayPatches('dsh-plugin-desktop-beta', path)),
     telemetryDisabledEnv: process.env.DSH_TELEMETRY_DISABLED }
   return readProfilePatches('dsh-plugin-desktop-beta', context, profile)
 }

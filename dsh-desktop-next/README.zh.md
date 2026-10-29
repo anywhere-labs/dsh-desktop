@@ -168,8 +168,6 @@ alpha.1 的无端口管道方案已被 alpha.2 的 WebServer 方案替代。本�
 
 Next 是正式的 Profile bundle，因此上游插件管理器重新组合配置时仍保留附加能力。版本限定的补丁从安装清单读取 `dsh.optionalBundles` 和 `dsh.exclusiveBundles`，并为发布版插件管理界面添加 `plugins.overview`、`plugins.bundle.hidden` 槽位。Next 通过槽位添加顶部设置并隐藏重复的 bundle 卡片；未声明互斥组的安装保持原管理器行为。dshmarket 的安装接口调用官方 `runPluginCommand`，使用 Next 当前 Profile、安装路径和内置 pnpm，不依赖系统 PATH 中的 pnpm。开发目录启动时，只为 Next 自身在 `home/profiles/node_modules` 建立一个受管链接；其他依赖由 alpha.2 的 runtime resolver 解析。所有上游运行时依赖来自发布包，不链接或改写 `deepseek-harness/` 源码。
 
-为了让主窗口更早可用，Host 的启动组合会先不挂已选中的 Agents Anywhere 桥接、社区市场、dshmarket 和官方插件市场 bundle，并让 Computer Use（Next）驱动保持禁用。主窗口上报界面已挂载后（或 Host 就绪 5 秒后），Host 通过官方 HMR 服务重新组合 Profile，与插件管理器的在线变更相同，Web 客户端通过实时插件图接收这些插件：已在运行的条目不会重启，市场入口和远控状态会在其余界面出现后稍晚显示。挂载失败只会让这些插件在插件管理器中显示为失败，不会停止 Host。在此之前发生的插件管理器操作或 HMR 重组会立即包含它们。
-
 [upstream-reference.json](upstream-reference.json) 记录参考提交和复制文件的原始摘要；原始许可保存在 [LICENSE.upstream](LICENSE.upstream)。
 
 ## 当前边界

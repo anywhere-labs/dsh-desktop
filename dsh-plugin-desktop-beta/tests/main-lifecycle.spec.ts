@@ -14,7 +14,7 @@ afterEach(() => { for (const listener of process.listeners('uncaughtExceptionMon
 const fixture = vi.hoisted(() => ({
   windows: [] as any[], trays: [] as any[], handlers: new Map<string, (...args: any[]) => any>(),
   load: vi.fn(), report: vi.fn(), plugin: vi.fn(), pluginDone: vi.fn(), diagnosticAppend: vi.fn(),
-  terminalTarget: vi.fn(), openTerminal: vi.fn(), popup: vi.fn(), registerSchemes: vi.fn(), admitDeferred: vi.fn(),
+  terminalTarget: vi.fn(), openTerminal: vi.fn(), popup: vi.fn(), registerSchemes: vi.fn(),
   crashStart: vi.fn(), memory: { start: vi.fn(), stop: vi.fn(), settle: vi.fn(), incident: vi.fn(), hostMemory: vi.fn(), hostExited: vi.fn() },
   stop: vi.fn(async () => {}),
   close: vi.fn(async () => {}), start: vi.fn(async () => {}), preferences: { closeToTray: true, browserAccess: false, networkExposure: 'loopback' as 'loopback' | 'lan' },
@@ -74,7 +74,6 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
   close = fixture.close
   async restart(change: () => Promise<void>) { await fixture.stop(); await change(); this.recoveryMode = false; await fixture.restart() }
   terminalTarget = fixture.terminalTarget
-  admitDeferredBundles = fixture.admitDeferred
   browserLinks() { return { localUrl: null, lanUrls: [] } }
   state() { return { selected: 'desktop', profiles: ['desktop'], unavailableProfiles: [], features: fixture.corruptProfile ? { remoteControl: false, market: true } : this.profiles.features(this.selected),
     preferences: this.preferences, phase: this.recoveryMode ? 'recovery' : fixture.phase, busy: this.busy, failure: 'Fixture Host failure', safeMode: this.safeMode,
@@ -179,7 +178,7 @@ beforeEach(async () => {
   fixture.needsOnboarding = false; fixture.corruptProfile = false; fixture.restart.mockReset(); fixture.hostReady = false
   fixture.plugin.mockReset(); fixture.pluginDone.mockReset().mockResolvedValue({ exitCode: 0 });
   fixture.load.mockReset(); fixture.report.mockReset(); fixture.diagnosticAppend.mockReset();
-  fixture.terminalTarget.mockReset(); fixture.openTerminal.mockClear(); fixture.popup.mockClear(); fixture.registerSchemes.mockClear(); fixture.admitDeferred.mockClear()
+  fixture.terminalTarget.mockReset(); fixture.openTerminal.mockClear(); fixture.popup.mockClear(); fixture.registerSchemes.mockClear()
   fixture.crashStart.mockReset(); for (const action of Object.values(fixture.memory)) action.mockReset()
   fixture.stop.mockReset().mockResolvedValue(undefined); fixture.start.mockClear(); fixture.close.mockReset().mockResolvedValue(undefined)
   fixture.startupElevation = { relaunched: false, state: {} }; fixture.elevation = undefined
@@ -396,24 +395,6 @@ it('preserves safe desktop state and blocks relaunch when final Host shutdown fa
   } finally {
     logError.mockRestore()
     process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
-  }
-})
-
-it('lets the Host mount its deferred bundles once the main window reports a mounted interface', async () => {
-  const home = mkdtempSync(join(tmpdir(), 'next-deferred-admission-'))
-  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
-  fixture.hostReady = true
-  try {
-    await import('../src/main.ts')
-    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
-    const main = fixture.windows[0]
-    const sender = { sender: main.webContents, senderFrame: main.webContents.mainFrame }
-    const { documentId } = await fixture.handlers.get('dsh-next:boot')!(sender)
-    expect(fixture.admitDeferred).not.toHaveBeenCalled()
-    fixture.handlers.get('dsh-next:renderer-status')!(sender, documentId, 'healthy')
-    expect(fixture.admitDeferred).toHaveBeenCalledExactlyOnceWith('renderer')
-  } finally {
-    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
   }
 })
 

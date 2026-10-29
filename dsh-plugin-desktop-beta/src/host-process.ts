@@ -15,7 +15,6 @@ interface ReadyEvent {
   readonly type: 'ready'
   readonly url: string
   readonly injections?: readonly unknown[] | undefined
-  readonly deferred?: boolean
 }
 
 interface FatalEvent {
@@ -68,7 +67,7 @@ interface InjectionsEvent {
   readonly error?: string
 }
 
-type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'deferred-bundles'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
+type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
   readonly type: 'update-tasks'
   readonly requestId: number
   readonly active: boolean
@@ -123,7 +122,6 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
         && (candidate.error === undefined || typeof candidate.error === 'string')
     case 'logging-config':
     case 'browser-access':
-    case 'deferred-bundles':
       return Number.isSafeInteger(candidate.requestId) && (candidate.error === undefined || typeof candidate.error === 'string')
     case 'injections':
       return Number.isSafeInteger(candidate.requestId) && (candidate.error === undefined || typeof candidate.error === 'string')
@@ -150,8 +148,6 @@ async function exitsWithin(exit: Promise<void>, milliseconds: number): Promise<b
 export interface DesktopHostReady {
   readonly url: string
   readonly injections?: readonly unknown[] | undefined
-  /** The Host left optional bundles out of its first composition; see {@link DesktopHostProcess.admitDeferredBundles}. */
-  readonly deferred?: boolean
 }
 
 /** The child has exited, but task teardown did not finish successfully. */
@@ -233,7 +229,6 @@ export class DesktopHostProcess {
   private nextControlId = 1
   private readonly taskQueries = new Map<number, { resolve: (active: boolean) => void; reject: (error: Error) => void }>()
   private readonly accessRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
-  private readonly deferredRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private readonly loggingRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private readonly injectionRequests = new Map<number, { resolve: (injections: readonly unknown[]) => void; reject: (error: Error) => void }>()
 
@@ -313,7 +308,7 @@ export class DesktopHostProcess {
         return
       }
       this.diagnostic({ source: 'host.ipc', event: 'received', developer: true, pid: child.pid, fields: { type: message.type, ...('requestId' in message ? { requestId: message.requestId } : {}) } })
-      if (message.type === 'ready') this.readyResolve({ url: message.url, injections: message.injections, deferred: message.deferred === true })
+      if (message.type === 'ready') this.readyResolve({ url: message.url, injections: message.injections })
       else if (message.type === 'platform-session') this.onPlatformSession?.(message.session)
       else if (message.type === 'platform-login') {
         if (!this.stopping && !this.failureReported) {
@@ -350,11 +345,6 @@ export class DesktopHostProcess {
       }
       else if (message.type === 'browser-access') {
         const request = this.accessRequests.get(message.requestId)
-        if (message.error === undefined) request?.resolve()
-        else request?.reject(new Error(message.error))
-      }
-      else if (message.type === 'deferred-bundles') {
-        const request = this.deferredRequests.get(message.requestId)
         if (message.error === undefined) request?.resolve()
         else request?.reject(new Error(message.error))
       }
@@ -426,25 +416,6 @@ export class DesktopHostProcess {
         child.send({ type: 'browser-access', requestId, enabled }, error => { if (error) reject(error) })
       }).catch(error => { end(error); throw error })
     } finally { end(); clearTimeout(timer); this.accessRequests.delete(requestId) }
-  }
-
-  /**
-   * Let the Host mount the optional bundles its first composition left out; the Host does so once.
-   * @returns after the Host mounted them; rejects with its failure, which leaves those plugins failed but the Host running.
-   */
-  async admitDeferredBundles(): Promise<void> {
-    const child = this.child
-    if (!child?.connected || this.stopping || this.failureReported) throw new Error('Next Host is unavailable')
-    const requestId = this.nextControlId++
-    const end = this.controlOperation('deferred-bundles', requestId)
-    let timer: ReturnType<typeof setTimeout> | undefined
-    try {
-      await new Promise<void>((resolve, reject) => {
-        this.deferredRequests.set(requestId, { resolve, reject })
-        timer = setTimeout(() => reject(new Error('Mounting the optional bundles timed out')), 120_000)
-        child.send({ type: 'deferred-bundles', requestId }, error => { if (error) reject(error) })
-      }).catch(error => { end(error); throw error })
-    } finally { end(); clearTimeout(timer); this.deferredRequests.delete(requestId) }
   }
 
   /**
@@ -532,8 +503,6 @@ export class DesktopHostProcess {
     this.taskQueries.clear()
     for (const request of this.accessRequests.values()) request.reject(error)
     this.accessRequests.clear()
-    for (const request of this.deferredRequests.values()) request.reject(error)
-    this.deferredRequests.clear()
     for (const request of this.loggingRequests.values()) request.reject(error)
     this.loggingRequests.clear()
     for (const request of this.injectionRequests.values()) request.reject(error)

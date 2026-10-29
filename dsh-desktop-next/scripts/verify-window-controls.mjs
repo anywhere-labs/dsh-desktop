@@ -170,9 +170,6 @@ try {
   await page.goto(streamBaseUrl)
   // A mounted official shell is healthy without waiting for connection/session probes.
   await page.waitForFunction(() => globalThis.__NEXT_TEST_BOOT__.rendererStatus === 'healthy')
-  // As the Desktop does, admit the optional bundles only now; the mounted page then receives the grown
-  // plugin graph live, which the Market entries checked below depend on.
-  if (ready.deferred) await host.admitDeferredBundles()
   const collapse = page.getByRole('button', { name: /^(收起侧边栏|Collapse sidebar)$/ })
   const reopen = page.locator('[data-sidebar-header-controls]').getByRole('button', { name: /^(打开侧边栏|Open sidebar)$/ })
   const conversationHeader = page.locator('header[data-window-drag]:has([data-conversation-header-leading])')

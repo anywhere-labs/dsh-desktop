@@ -41,31 +41,9 @@ async function boot(name) {
   const cookie = login.headers.get('set-cookie')?.split(';')[0]
   assert.ok(cookie)
   await login.body?.cancel()
-  // Selected optional bundles join only after the window's interface mounted; the smoke admits them at once.
-  const deferred = manager.deferred(name)
-  const deferredClients = ['dsh-community-market', 'dshmarket', '@agents-anywhere/dsh-bridge-next']
-    .filter(client => deferred?.bundles.includes(client))
-  assert.equal(ready.deferred, deferred !== undefined, 'The Host reports whether it deferred optional bundles')
-  for (const client of deferredClients) assert.equal(bootEntries(ready.injections).includes(client), false, `${client} must wait for admission`)
-  if (ready.deferred) await host.admitDeferredBundles()
-  const admitted = bootEntries(await host.collectInjections())
-  for (const client of deferredClients) assert.ok(admitted.includes(client), `${client} must join the plugin graph once admitted`)
   return { origin: url.origin, cookie }
 }
-/** Client entry ids of the Web boot manifest the Host publishes. */
-function bootEntries(injections) {
-  const boot = injections.find(row => row.kind === 'global' && row.name === '__DSH_BOOT__')?.value
-  return (boot?.entries ?? []).map(entry => entry.id)
-}
 async function stop() { await host.stop(true); host = undefined }
-/** Wait up to five seconds for an asynchronous effect. */
-async function eventually(check, message) {
-  const deadline = Date.now() + 5_000
-  while (!check()) {
-    assert.ok(Date.now() < deadline, message)
-    await new Promise(resolve => setTimeout(resolve, 50))
-  }
-}
 try {
   const dir = manager.ensure('desktop')
   writeFileSync(join(dir, 'pnpm-workspace.yaml'), `storeDir: ${JSON.stringify(join(home, 'store'))}\n`)
@@ -88,8 +66,7 @@ try {
   const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
   assert.ok(manifest.dsh.profile.bundles.includes('fixture-next-plugin'), 'Official plugin operations must activate the bundle')
   let { origin, cookie } = await boot('desktop')
-  // AA's onboarding service creates it while starting asynchronously, which now follows the admission.
-  await eventually(() => existsSync(join(home, '.agents-anywhere', 'dsh-bridge-next')),
+  assert.ok(existsSync(join(home, '.agents-anywhere', 'dsh-bridge-next')),
     'AA must resolve its default shared state inside the smoke user home')
   const rpc = async (method, args = {}) => {
     const rpcId = crypto.randomUUID()

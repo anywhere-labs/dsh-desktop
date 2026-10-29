@@ -7,7 +7,7 @@ import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { hostOperationDiagnostics, webIndexInjections } from '../upstream-family.ts'
-import { loadNextProfile, NEXT_PACKAGE, NextProfiles, readNextProfilePatches } from '../profiles.ts'
+import { loadNextProfile, NEXT_PACKAGE, readNextProfilePatches } from '../profiles.ts'
 import { bundledPnpmInvocation } from '../bundled-pnpm.ts'
 import { configureNextBrowserAccess } from '../desktop-browser-access.ts'
 import { parsePreferences } from '../desktop-preferences.ts'
@@ -18,7 +18,6 @@ import { maskSecrets } from '../mask-secrets.ts'
 import { MEMORY_SAMPLE_INTERVAL_MS, hostMemoryUsage } from '../memory-monitor.ts'
 import { parseSystemProxyProbe, SYSTEM_PROXY_ENV, withSystemProxy } from '../system-proxy.ts'
 import { watchPlatformLogin, type PlatformLoginAccount } from './platform-login.ts'
-import { createDeferredBundles } from './deferred-bundles.ts'
 import { installAgentPresetResolution } from './agent-preset.ts'
 import { installCuaDriverResolution } from './cua-driver.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
@@ -76,17 +75,12 @@ export async function main(): Promise<void> {
   })
   // Announced before the profile starts, so a startup failure and this run's plugin operations share one run identity.
   const operations = hostOperationDiagnostics?.(send)
-  const overlays = [join(runtimeDir, 'host.cordis.patch.yml'), join(projectDir, 'desktop-next.cordis.patch.json'), runtimePatch]
-  // Optional bundles mount once the window has its interface; see deferred-bundles.ts. Only the boot composition
-  // leaves them out: a plugin-manager or HMR recomposition after boot includes them, and so admits them early.
-  const deferred = createDeferredBundles(new NextProfiles(home).deferred(basename(projectDir)), () => readPatches())
-  let booting = true
-  const readPatches = (profilePatches?: Parameters<typeof readNextProfilePatches>[3]) =>
-    readNextProfilePatches(projectDir, home, overlays, profilePatches, booting ? deferred.pending : undefined)
   const application = runProfile({
     environment, profile: basename(projectDir),
-    resolvedProfile: { profile, installAnchor: NEXT_PACKAGE, readPatches },
-    patchFiles: overlays, args: ['--no-open', '--port', String(preferences.port)],
+    resolvedProfile: { profile, installAnchor: NEXT_PACKAGE,
+      readPatches: profilePatches => readNextProfilePatches(projectDir, home,
+        [join(runtimeDir, 'host.cordis.patch.yml'), join(projectDir, 'desktop-next.cordis.patch.json'), runtimePatch], profilePatches) },
+    patchFiles: [join(runtimeDir, 'host.cordis.patch.yml'), join(projectDir, 'desktop-next.cordis.patch.json'), runtimePatch], args: ['--no-open', '--port', String(preferences.port)],
     packageManager: bundledPnpmInvocation(runtimeDir),
   })
   // Memory evidence for the Desktop's incident snapshots. Pushed rather than requested, so a Host too
@@ -129,16 +123,6 @@ export async function main(): Promise<void> {
       }).catch(async () => { await send({ type: 'injections', requestId: query.requestId, error: 'Could not collect Web boot injections' }) }).catch(fatal)
       return
     }
-    if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'deferred-bundles') {
-      const admission = value as { requestId?: unknown }
-      if (!Number.isSafeInteger(admission.requestId)) return
-      void application.then(async ({ ctx }) => {
-        if (stopping) throw new Error('Next Host is stopping')
-        await deferred.admit(ctx)
-        await send({ type: 'deferred-bundles', requestId: admission.requestId })
-      }).catch(async () => { await send({ type: 'deferred-bundles', requestId: admission.requestId, error: 'Could not mount the optional bundles' }) }).catch(fatal)
-      return
-    }
     if (typeof value !== 'object' || value === null || !('type' in value) || value.type !== 'browser-access') return
     const request = value as { requestId?: unknown; enabled?: unknown }
     if (!Number.isSafeInteger(request.requestId) || typeof request.enabled !== 'boolean') return
@@ -151,7 +135,6 @@ export async function main(): Promise<void> {
   })
   process.once('disconnect', () => { void stop().catch(fatal) })
   const { ctx } = await application
-  booting = false
   operations?.observe(ctx)
   // Office skills and the workspace dependency tool need the bundled payload; a packaged Host without it fails here.
   const office = resolveOfficeConfig(runtimeDir, primaryRuntime, home)
@@ -162,7 +145,7 @@ export async function main(): Promise<void> {
   }
   hostLog({ source: 'host', event: 'process.ready' })
   await send({ type: 'ready', url: ctx.connection.authenticatedUrl(`http://127.0.0.1:${ctx.webServer.port}`),
-    injections: webIndexInjections(ctx), deferred: deferred.pending !== undefined })
+    injections: webIndexInjections(ctx) })
   auditHostPlugins(ctx)
   const account = ctx.get('deepseekAccount') as PlatformLoginAccount | undefined
   if (account !== undefined && !stopping) {

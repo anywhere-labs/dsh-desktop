@@ -531,11 +531,7 @@ function resetRendererRecovery(owner: BrowserWindow): void {
     available: () => !quitting && !runtime.recoveryMode && mainWindow === owner && !owner.isDestroyed() && runtime.backend.state.phase !== 'error',
     reload: () => loadMainDocument(owner, 'recovery'),
     exhausted: detail => runtime.report(new Error(`Renderer recovery exhausted: ${detail}`), rendererHealthy ? 'renderer-runtime' : 'renderer-startup'),
-    healthy: () => {
-      rendererHealthy = true
-      // The interface is up: the Host may now mount the optional bundles it left out to get here sooner.
-      void runtime.admitDeferredBundles('renderer')
-    },
+    healthy: () => { rendererHealthy = true },
     record: (event, fields) => runtime.diagnostics.record({ source: 'renderer', event, fields }),
   })
 }

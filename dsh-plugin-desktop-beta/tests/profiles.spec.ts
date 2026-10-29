@@ -5,8 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
 import { composeEntries, loadOverlayPatches, loadProfileDirectory } from '@deepseek-ai/dsh-app-boot'
 import { OPTIONAL_BUNDLES } from '../src/upstream-family.ts'
-import { AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DEFERRED_BUNDLES, DSH_MARKET_PACKAGE, loadNextProfile, NEXT_PACKAGE, NextProfiles, OFFICIAL_MARKET_PACKAGE, profileName, readNextProfilePatches, WEB_BUNDLES } from '../src/profiles.ts'
-import { COMPUTER_USE_DRIVER_ROW } from '../src/profile-computer-use.ts'
+import { AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE, loadNextProfile, NEXT_PACKAGE, NextProfiles, OFFICIAL_MARKET_PACKAGE, profileName, readNextProfilePatches, WEB_BUNDLES } from '../src/profiles.ts'
 import { DEFAULT_OFFICIAL_MARKET_INDEX_URL } from '../src/profile-plugin-market.ts'
 import * as privateFiles from '../src/private-files.ts'
 import * as linkProjections from '../../dsh-plugin-desktop/src/link-projections.ts'
@@ -297,42 +296,6 @@ it.each(['desktop', 'work', 'default'])('offers the Browser in %s without enabli
     writeFileSync(profile.patchPath, `- id: ui-sidebar-browser\n  disabled: ${disabled}\n`)
     expect(browser()?.disabled).toBe(disabled)
   }
-})
-
-it('leaves the selected optional bundles out of a deferred composition and keeps the computer-use driver off', () => {
-  const manager = profiles()
-  const dir = manager.ensure('desktop')
-  expect(manager.deferred('desktop')).toBeUndefined()
-  manager.setFeatures('desktop', { remoteControl: true, market: false, dshMarket: true, officialMarket: true })
-  writeFileSync(join(dir, 'cordis.patch.yml'), '- id: computer-use-cua-driver-native\n  disabled: false\n')
-  loadNextProfile(dir, manager.home)
-  const deferred = manager.deferred('desktop')
-  expect(deferred?.computerUseDriver).toBe(true)
-  expect([...deferred?.bundles ?? []].sort()).toEqual([AA_PACKAGE, DSH_MARKET_PACKAGE, OFFICIAL_MARKET_PACKAGE].sort())
-  expect(DEFERRED_BUNDLES).toEqual(expect.arrayContaining([COMMUNITY_MARKET_PACKAGE, ...deferred!.bundles]))
-  const overlays = [fileURLToPath(new URL('../host.cordis.patch.yml', import.meta.url)), join(dir, 'desktop-next.cordis.patch.json')]
-  const optionalRows = (rows: ReturnType<typeof composeEntries>) => rows.filter(row => row.id === 'agents-anywhere-bridge-next'
-    || row.id === 'dsh-market' || row.id === 'plugin-market' || row.id === 'ui-plugin-market').map(row => row.id).sort()
-  const first = composeEntries([readNextProfilePatches(dir, manager.home, overlays, undefined, deferred)])
-  expect(optionalRows(first)).toEqual([])
-  // The overlay outranks the Profile patch that enabled the driver; the official layout itself is untouched.
-  expect(first.find(row => row.id === COMPUTER_USE_DRIVER_ROW)?.disabled).toBe(true)
-  expect(first.some(row => row.id === 'ui-layout' && !row.disabled)).toBe(true)
-  const admitted = composeEntries([readNextProfilePatches(dir, manager.home, overlays)])
-  expect(optionalRows(admitted)).toEqual(['agents-anywhere-bridge-next', 'dsh-market', 'plugin-market', 'ui-plugin-market'])
-  expect(admitted.find(row => row.id === COMPUTER_USE_DRIVER_ROW)?.disabled).toBe(false)
-  // A bundle enabled after boot is not one the first composition left out, so it composes at once.
-  manager.setFeatures('desktop', { remoteControl: true, market: true, dshMarket: false, officialMarket: true })
-  expect(optionalRows(composeEntries([readNextProfilePatches(dir, manager.home, overlays, undefined, deferred)])))
-    .toEqual([])
-  expect(composeEntries([readNextProfilePatches(dir, manager.home, overlays, undefined, deferred)])
-    .some(row => row.name === COMMUNITY_MARKET_PACKAGE && !row.disabled)).toBe(true)
-  // Nothing selected leaves nothing to defer; an unreadable Profile leaves the composition to report it.
-  manager.setFeatures('desktop', { remoteControl: false, market: false })
-  writeFileSync(join(dir, 'cordis.patch.yml'), '[]\n')
-  expect(manager.deferred('desktop')).toBeUndefined()
-  writeFileSync(join(dir, 'package.json'), '{broken')
-  expect(manager.deferred('desktop')).toBeUndefined()
 })
 
 it('composes optional AA and Market while retaining the official Web layout', () => {
