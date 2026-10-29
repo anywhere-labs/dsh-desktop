@@ -408,7 +408,6 @@
       "buildResources": "build"
     },
     "toolsets": {
-      "appimage": "latest",
       "nsis": "1.2.1"
     },
     "files": [
