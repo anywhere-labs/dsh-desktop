@@ -17,6 +17,10 @@ interface Snapshot {
   healthy: boolean
   files: Record<ConfigFile, { sha256: string } | null>
 }
+/** A backup the recovery assistant can open or restore. */
+export interface RestorableBackup { directory: string; created: string; id: string; fileCount: number; totalBytes: number }
+/** Backups of one Profile read when looking for the latest repair to undo. */
+export const REPAIR_UNDO_WINDOW = 50
 const digest = (text: string): string => createHash('sha256').update(text).digest('hex')
 
 export class NextRecovery {
@@ -40,24 +44,63 @@ export class NextRecovery {
 
   latest(name: string): { directory: string; created: string } | null { return this.checkpoints(name)[0] ?? null }
 
-  checkpoints(name: string): { directory: string; created: string; id: string; fileCount: number; totalBytes: number }[] {
-    const result: { directory: string; created: string; id: string; fileCount: number; totalBytes: number }[] = []
+  checkpoints(name: string): RestorableBackup[] {
+    const result: RestorableBackup[] = []
+    for (const { directory, id, snapshot } of this.snapshots(name)) {
+      const entry = snapshot.healthy ? this.restorable(directory, id, snapshot) : undefined
+      if (entry) {
+        result.push(entry)
+        if (result.length === 3) break
+      }
+    }
+    return result
+  }
+
+  /**
+   * The backup the latest Profile repair made, unless a restore has replaced the repaired configuration since.
+   * Only the Profile's latest {@link REPAIR_UNDO_WINDOW} backups are read, since the recovery state reads this
+   * on every refresh; an older repair backup stays on disk without an undo entry.
+   * @param name - The Profile.
+   * @returns The backup as a restore target, or null.
+   */
+  repairBackup(name: string): RestorableBackup | null {
+    let examined = 0
+    for (const { directory, id, snapshot } of this.snapshots(name)) {
+      if (snapshot.reason === 'before-rollback' || ++examined > REPAIR_UNDO_WINDOW) return null
+      if (snapshot.reason === 'before-profile-repair') return this.restorable(directory, id, snapshot) ?? null
+    }
+    return null
+  }
+
+  /**
+   * @param name - The Profile.
+   * @param id - A backup directory name.
+   * @returns The successful-start checkpoint or latest repair backup with that name.
+   */
+  find(name: string, id: string): RestorableBackup | undefined {
+    const repair = this.repairBackup(name)
+    return this.checkpoints(name).find(item => item.id === id) ?? (repair?.id === id ? repair : undefined)
+  }
+
+  /** @returns This Profile's readable snapshots, newest first. */
+  private *snapshots(name: string): Generator<{ directory: string; id: string; snapshot: Snapshot }> {
     profileName(name)
-    if (!lstatSync(this.directory, { throwIfNoEntry: false })) return result
+    if (!lstatSync(this.directory, { throwIfNoEntry: false })) return
     privateDirectory(this.directory)
     const entries = readdirSync(this.directory, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name).sort().reverse()
     for (const entry of entries) {
       const directory = join(this.directory, entry)
-      try {
-        const snapshot = this.readSnapshot(directory, name)
-        if (snapshot.healthy) {
-          const contents = FILES.map(file => readPrivateFile(join(directory, file)))
-          result.push({ directory, id: entry, created: snapshot.created, fileCount: contents.filter(text => text !== undefined).length, totalBytes: contents.reduce((sum, text) => sum + Buffer.byteLength(text ?? ''), 0) })
-          if (result.length === 3) break
-        }
-      } catch { /* A partial or corrupt backup cannot become a restore target. */ }
+      let snapshot: Snapshot
+      try { snapshot = this.readSnapshot(directory, name) } catch { continue /* Another Profile's backup, or a partial one. */ }
+      yield { directory, id: entry, snapshot }
     }
-    return result
+  }
+
+  private restorable(directory: string, id: string, snapshot: Snapshot): RestorableBackup | undefined {
+    try {
+      const contents = FILES.map(file => readPrivateFile(join(directory, file)))
+      return { directory, id, created: snapshot.created, fileCount: contents.filter(text => text !== undefined).length, totalBytes: contents.reduce((sum, text) => sum + Buffer.byteLength(text ?? ''), 0) }
+    } catch { return undefined /* A partial or corrupt backup cannot become a restore target. */ }
   }
 
   checkpoint(name: string): void {
@@ -73,7 +116,7 @@ export class NextRecovery {
   }
 
   async restore(name: string, id?: string): Promise<void> {
-    const latest = id === undefined ? this.latest(name) : this.checkpoints(name).find(item => item.id === id)
+    const latest = id === undefined ? this.latest(name) : this.find(name, id)
     if (!latest) throw new Error('No successful-start configuration is available')
     const dir = this.profiles.directory(name)
     await withFileLock(join(dir, 'lock'), async () => {

@@ -854,6 +854,7 @@ try {
   controlState.phase = 'error'; controlState.failure = 'Fixture: invalid Profile manifest <script>unsafe()</script>'
   const failureReport = 'dsh-plugin-desktop-beta-failure-2026-10-29T10-30-00-000Z-host-boot.log'
   controlState.failureReport = { status: 'saved', file: '/fixture/logs/' + failureReport }
+  controlState.recovery.repairBackup = { id: 'fixture-repair', created: new Date().toISOString(), fileCount: 2, totalBytes: 96 }
   await recoveryPage.route('http://next-recovery.test/**', async route => {
     const response = await serveWebDocument(new Request(route.request().url()), join(root, 'lib/native-ui'), false)
     await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) })
@@ -873,6 +874,9 @@ try {
   assert.deepEqual(controlCommands.at(-1), { type: 'recovery-action', action: 'show-failure-report' })
   await recoveryPage.getByRole('link', { name: '备份并修复', exact: true }).click()
   assert.deepEqual(controlCommands.at(-1), { type: 'recover' })
+  // A repair is undone from the same tab by restoring the backup it made.
+  await recoveryPage.getByRole('link', { name: '恢复修复前的配置', exact: true }).click()
+  assert.deepEqual(controlCommands.at(-1), { type: 'recovery-action', action: 'preview-checkpoint', id: 'fixture-repair' })
   await recoveryPage.screenshot({ path: join(screenshots, 'recovery-assistant.png'), animations: 'disabled', fullPage: true })
   await recoveryPage.getByRole('tab', { name: /插件/ }).click()
   await recoveryPage.locator('a[href*="preview-uninstall"]').click()

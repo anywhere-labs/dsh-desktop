@@ -93,10 +93,16 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
   }
   const report = state.failureReport
   const reportName = report?.status === 'saved' ? report.file.split(/[\\/]/u).at(-1) : undefined
+  const repair = state.recovery?.repairBackup
+  const repaired = repair === undefined ? '' : new Date(repair.created).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US')
   const quickActions = [
     { action: 'recover', title: t('修复 Profile', 'Repair Profile'), label: t('备份并修复', 'Back up and repair'),
-      body: t('先备份清单、Profile 补丁和功能开关，再恢复内置插件，并停用第三方插件、远控和市场。已安装的插件文件、共享会话和凭据会保留。',
-        'Back up the manifest, Profile patch and feature switches, then restore the bundled plugins and turn off third-party plugins, remote control and Market. Installed plugin files, shared sessions and credentials are kept.') },
+      body: t('先备份清单、Profile 补丁和功能开关，再只保留内置插件：其他插件（包括官方可选插件）、远控和市场都会停用，Profile 补丁中的设置（如界面语言、对话显示）恢复默认。修复后应用会重启并打开设置向导。已安装的插件文件、共享会话和凭据会保留。',
+        'Back up the manifest, Profile patch and feature switches, then keep only the built-in plugins: other plugins, official optional ones included, remote control and Market are turned off, and settings in the Profile patch, such as the interface language and conversation display, return to their defaults. The app then restarts and opens the setup wizard. Installed plugin files, shared sessions and credentials are kept.') },
+    ...repair === undefined ? [] : [{ action: 'preview-checkpoint', id: repair.id, title: t('撤销上次修复', 'Undo the last repair'),
+      label: t('恢复修复前的配置', 'Restore the previous configuration'),
+      body: t(`恢复 ${repaired} 修复前备份的清单、Profile 补丁和功能开关。当前配置会先备份；导致故障的插件可能随之恢复。`,
+        `Restore the manifest, Profile patch and feature switches backed up before the repair on ${repaired}. The current configuration is backed up first; a plugin that caused the failure may return with them.`) }],
     ...report === undefined ? [] : [report.status === 'failed'
       ? { action: 'export-diagnostics', title: t('诊断报告', 'Diagnostic report'), label: copy.saveDiagnostics,
         body: t('本次故障的诊断报告未能保存。反馈问题时，请导出诊断信息或提供此窗口的截图。',

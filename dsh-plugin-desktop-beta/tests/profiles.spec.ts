@@ -236,12 +236,13 @@ it('refuses a symlinked profile before writing outside Next home', () => {
   symlinkSync(outside.home, join(manager.home, 'profiles', 'escape'), process.platform === 'win32' ? 'junction' : 'dir')
   expect(() => manager.ensure('escape')).toThrow('real directory')
 })
-it('recovers without parsing broken patches or deleting plugin packages and home patches', async () => {
+it('recovers like upstream without parsing broken patches or deleting plugin packages and home patches, then runs Desktop setup again', async () => {
   const manager = profiles()
   const dir = manager.ensure('desktop')
   const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
   manifest.dsh.profile.bundles.push('missing-third-party-plugin')
   manifest.dependencies = { 'missing-third-party-plugin': '1.0.0' }
+  manifest.dsh.desktopNextPlugins = 1
   writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
   const broken = ': invalid: [yaml'
   writeFileSync(join(dir, 'cordis.patch.yml'), broken)
@@ -250,13 +251,36 @@ it('recovers without parsing broken patches or deleting plugin packages and home
   writeFileSync(join(dir, 'node_modules', 'missing-third-party-plugin', 'keep'), 'plugin')
   manager.setFeatures('desktop', { remoteControl: true, market: true })
   manager.finishOnboarding('desktop')
+  const original = readFileSync(join(dir, 'package.json'), 'utf8')
   const backup = await manager.recover('desktop')
-  expect(readFileSync(backup!, 'utf8')).toBe(broken)
-  expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).dsh.profile.bundles).toEqual(WEB_BUNDLES)
+  expect(readFileSync(join(backup, 'package.json'), 'utf8')).toBe(original)
+  expect(readFileSync(join(backup, 'cordis.patch.yml'), 'utf8')).toBe(broken)
+  // Upstream's repair moves the patch beside itself; the Profile continues from an empty one.
+  expect(readdirSync(dir).filter(name => name.startsWith('cordis.patch.yml.bak-')).map(name => readFileSync(join(dir, name), 'utf8'))).toEqual([broken])
+  expect(readFileSync(join(dir, 'cordis.patch.yml'), 'utf8')).toBe('[]\n')
+  const repaired = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  expect(repaired.dsh.profile.bundles).toEqual(WEB_BUNDLES)
+  expect(repaired.dependencies).toEqual({ 'missing-third-party-plugin': '1.0.0' })
+  expect(repaired.dsh.desktopNextPlugins).toBe(1)
   expect(manager.features('desktop')).toEqual({ remoteControl: false, market: false })
-  expect(manager.onboardingRequired('desktop')).toBe(false)
+  expect(manager.onboardingRequired('desktop')).toBe(true)
   expect(readFileSync(join(dir, 'node_modules', 'missing-third-party-plugin', 'keep'), 'utf8')).toBe('plugin')
   expect(readFileSync(join(manager.home, 'cordis.patch.yml'), 'utf8')).toContain('keep home patch')
+})
+it.each([
+  ['an unreadable manifest', '{ broken JSON', {}],
+  ['a manifest whose dsh section is not an object', JSON.stringify({ name: 'desktop', dependencies: { kept: '1.0.0' }, dsh: 'broken' }), { dependencies: { kept: '1.0.0' } }],
+  ['a missing manifest', undefined, {}],
+])('replaces %s before the upstream repair', async (_case, text, kept) => {
+  const manager = profiles()
+  const dir = manager.ensure('desktop')
+  if (text === undefined) rmSync(join(dir, 'package.json'))
+  else writeFileSync(join(dir, 'package.json'), text)
+  const backup = await manager.recover('desktop')
+  expect(existsSync(join(backup, 'package.json'))).toBe(text !== undefined)
+  expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))).toMatchObject({ ...kept, dsh: { profile: { bundles: WEB_BUNDLES } } })
+  expect(manager.selectable('desktop')).toBe(true)
+  expect(manager.onboardingRequired('desktop')).toBe(true)
 })
 it.each(['desktop', 'work', 'default'])('offers the Browser in %s without enabling optional bundles or overriding user choices', name => {
   const manager = profiles()

@@ -180,13 +180,14 @@ beforeEach(async () => {
   fixture.crashStart.mockReset(); for (const action of Object.values(fixture.memory)) action.mockReset()
   fixture.stop.mockReset().mockResolvedValue(undefined); fixture.start.mockClear(); fixture.close.mockReset().mockResolvedValue(undefined)
   fixture.startupElevation = { relaunched: false, state: {} }; fixture.elevation = undefined
-  const { app, autoUpdater, dialog } = await import('electron')
+  const { app, autoUpdater, dialog, shell } = await import('electron')
   autoUpdater.removeAllListeners()
   app.removeAllListeners()
   vi.mocked(app.relaunch).mockClear()
   vi.mocked(app.quit).mockClear()
   vi.mocked(app.exit).mockClear()
   vi.mocked(dialog.showMessageBoxSync).mockClear()
+  vi.mocked(shell.showItemInFolder).mockClear()
 })
 
 afterEach(() => {
@@ -1417,6 +1418,36 @@ it.each([
     expect(vi.mocked(app.relaunch).mock.calls[0]![0]!.args!.includes('--next-safe-mode')).toBe(remainSafe)
     expect(existsSync(join(home, 'electron-user-data', 'safe-mode'))).toBe(false)
     expect(new NextProfiles(home).selectable('desktop')).toBe(true)
+  } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it('relaunches into Desktop setup after Profile repair and shows where the previous configuration is', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-profile-repair-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const argv = [...process.argv]
+  process.argv.push('--next-recovery')
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const window = fixture.windows[0]
+    const sender = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
+    const profiles = new NextProfiles(home)
+    expect(profiles.onboardingRequired('desktop')).toBe(false)
+    const { app, dialog, shell } = await import('electron')
+    // Continue past the confirmation, then ask to see the backup.
+    vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 0, checkboxChecked: false }).mockResolvedValueOnce({ response: 1, checkboxChecked: false })
+    await fixture.handlers.get('dsh-next:command')!(sender, { type: 'recover' })
+    const backup = new NextRecovery(profiles).repairBackup('desktop')!.directory
+    const announcement = vi.mocked(dialog.showMessageBox).mock.calls.at(-1)!.at(-1) as { detail: string }
+    expect(announcement.detail).toContain(backup)
+    expect(shell.showItemInFolder).toHaveBeenCalledWith(backup)
+    expect(profiles.onboardingRequired('desktop')).toBe(true)
+    await vi.waitFor(() => expect(app.relaunch).toHaveBeenCalledOnce())
+    const args = vi.mocked(app.relaunch).mock.calls[0]![0]!.args!
+    expect(args).not.toContain('--next-recovery')
+    expect(args).not.toContain('--next-safe-mode')
+    expect(fixture.restart).not.toHaveBeenCalled()
+    expect(fixture.report).not.toHaveBeenCalled()
   } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 

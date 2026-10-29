@@ -115,7 +115,7 @@ export interface RecoveryState {
   readonly safeModeActive?: boolean
   /** Optional host capabilities; absent preserves the full Desktop workflow. */
   readonly availableTabs?: readonly DesktopRecoveryTab[]
-  readonly quickActions?: readonly { readonly action: string; readonly title: string; readonly body: string; readonly label: string }[]
+  readonly quickActions?: readonly { readonly action: string; readonly id?: string; readonly title: string; readonly body: string; readonly label: string }[]
   readonly logs?: string
 }
 
@@ -217,7 +217,7 @@ function QuickRecoveryPanel({ copy, state, onNavigate }: { readonly copy: Deskto
   return <PanelScroll>
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><CircleHelp className="size-5" />{copy.quickRecovery}</CardTitle><CardDescription>{copy.quickRecoveryBody}</CardDescription></CardHeader></Card>
     <SafeModePanel copy={copy} state={state} />
-    {state.quickActions?.map(action => <Card key={action.action}><CardHeader><CardTitle>{action.title}</CardTitle><CardDescription>{action.body}</CardDescription></CardHeader><CardFooter className="justify-end"><Action action={action.action}>{action.label}</Action></CardFooter></Card>)}
+    {state.quickActions?.map(action => <Card key={action.action}><CardHeader><CardTitle>{action.title}</CardTitle><CardDescription>{action.body}</CardDescription></CardHeader><CardFooter className="justify-end"><Action action={action.action} id={action.id}>{action.label}</Action></CardFooter></Card>)}
     {(!state.availableTabs || state.availableTabs.includes('plugins')) && <RecoveryGuideCard disabled={state.busy} actionLabel={copy.guideActions.plugins} onNavigate={() => onNavigate('plugins')} body={copy.pluginGuideBody} icon={<Plug className="size-5" />} title={copy.plugins} />}
     {(!state.availableTabs || state.availableTabs.includes('rollback')) && <RecoveryGuideCard disabled={state.busy} actionLabel={copy.guideActions.rollback} onNavigate={() => onNavigate('rollback')} body={copy.rollbackGuideBody} icon={<History className="size-5" />} title={copy.tabs.rollback} />}
     {(!state.availableTabs || state.availableTabs.includes('profiles')) && <RecoveryGuideCard disabled={state.busy} actionLabel={copy.guideActions.profiles} onNavigate={() => onNavigate('profiles')} body={copy.profileSwitchGuideBody} icon={<Users className="size-5" />} title={copy.tabs.profiles} />}

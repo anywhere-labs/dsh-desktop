@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSy
 import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { initProfile, loadOverlayPatches, loadProfileDirectory, readProfilePatches, type Profile, type ProfileContext } from '@deepseek-ai/dsh-app-boot'
+import { initProfile, loadOverlayPatches, loadProfileDirectory, readProfilePatches, sanitizeProfile, type Profile, type ProfileContext } from '@deepseek-ai/dsh-app-boot'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { atomicJson, atomicText, readPrivateFile } from './private-files.ts'
 import { NextRecovery } from './recovery.ts'
@@ -248,27 +248,51 @@ export class NextProfiles {
     if (!value || !Array.isArray(value.dsh?.profile?.bundles) || value.dsh.profile.bundles.some((item: unknown) => typeof item !== 'string')) throw new Error('Invalid Next Profile manifest')
     return value
   }
-  /** The shell must stop this profile's Host before calling recovery. */
-  async recover(name: string): Promise<string | undefined> {
+  /**
+   * Repair a Profile as upstream Desktop's plugin recovery does, after a complete backup: the Profile
+   * patch moves beside itself as `cordis.patch.yml.bak-<time>` and only the Web template's bundles stay
+   * enabled; other manifest fields and installed packages remain. Remote control and Market are turned
+   * off, and Desktop setup runs again because the repair reset the choices it made.
+   * The shell must stop this profile's Host before calling recovery.
+   * @returns The backup of the manifest, Profile patch and feature switches, which can restore all three.
+   */
+  async recover(name: string): Promise<string> {
     const dir = this.directory(name)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     return withFileLock(join(dir, 'lock'), async () => {
       const backup = new NextRecovery(this).backup(name, 'before-profile-repair')
-      let manifest: Record<string, unknown> = { name, private: true }
-      try {
-        const value: unknown = JSON.parse(readPrivateFile(join(dir, 'package.json')) ?? '{}')
-        if (value && typeof value === 'object' && !Array.isArray(value)) manifest = value as Record<string, unknown>
-      } catch { /* The original bytes have already been backed up. */ }
-      // Keep installed dependencies, but remove malformed activation metadata.
-      const onboarding = (manifest.dsh as Partial<ProfileManifest['dsh']> | undefined)?.desktopNextOnboarding
-      manifest.dsh = { profile: { bundles: WEB_BUNDLES },
-        ...(onboarding?.version === 1 && ['completed', 'skipped'].includes(onboarding.outcome) ? { desktopNextOnboarding: onboarding } : {}) }
-      atomicJson(join(dir, 'package.json'), manifest)
+      // Upstream repairs only a manifest it can update; the original bytes of a replaced one are in the backup.
+      const replacement = manifestForRepair(name, readPrivateFile(join(dir, 'package.json')))
+      if (replacement !== undefined) atomicJson(join(dir, 'package.json'), replacement)
+      sanitizeProfile('dsh-desktop-next', dir, WEB_BUNDLES)
+      const repaired = this.manifest(name)
+      delete repaired.dsh.desktopNextOnboarding
+      atomicJson(join(dir, 'package.json'), repaired)
       atomicText(join(dir, 'cordis.patch.yml'), '[]\n')
       this.setFeatures(name, { remoteControl: false, market: false })
-      return readPrivateFile(join(backup, 'cordis.patch.yml')) === undefined ? undefined : join(backup, 'cordis.patch.yml')
+      return backup
     })
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Decide whether upstream's repair can update a manifest as it is.
+ * @param name - The Profile, named in a replacement manifest.
+ * @param text - The manifest bytes, when the file exists.
+ * @returns undefined for a manifest whose `dsh` and `dsh.profile` are objects where present; otherwise the
+ *   manifest to write first: its other fields when it is a JSON object, or only the Profile name.
+ */
+function manifestForRepair(name: string, text: string | undefined): Record<string, unknown> | undefined {
+  let value: unknown
+  try { value = JSON.parse(text ?? 'null') } catch { value = undefined }
+  if (!isRecord(value)) return { name, private: true }
+  const { dsh } = value
+  if (dsh === undefined || (isRecord(dsh) && (dsh.profile === undefined || isRecord(dsh.profile)))) return undefined
+  return { ...value, dsh: {} }
 }
 
 /**

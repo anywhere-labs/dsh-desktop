@@ -92,6 +92,8 @@ export interface DesktopState {
   recovery?: {
     bundles: { bundleId: string; packageName: string; status: 'active' | 'disabled'; owner: 'core' | 'profile'; action: 'uninstall' | null; toggle: 'disable' | 'enable' | null }[]
     checkpoints: { id: string; created: string; fileCount: number; totalBytes: number }[]
+    /** The backup made by the latest Profile repair, while a restore can still undo that repair. */
+    repairBackup?: { id: string; created: string; fileCount: number; totalBytes: number }
     error?: string
     profileDirectory: string
     usingDefaultDirectory: boolean

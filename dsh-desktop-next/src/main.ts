@@ -247,7 +247,9 @@ function state(): DesktopState {
   const usingDefaultDirectory = dataSource !== 'desktop' && !dataLocation.error
   let recovery: DesktopState['recovery']
   try {
+    const repair = runtime.recovery.repairBackup(runtime.selected)
     recovery = { bundles: [], checkpoints: runtime.recovery.checkpoints(runtime.selected),
+      ...(repair === null ? {} : { repairBackup: { id: repair.id, created: repair.created, fileCount: repair.fileCount, totalBytes: repair.totalBytes } }),
       profileDirectory: runtime.profiles.directory(runtime.selected), usingDefaultDirectory, diagnosticsFile, notice: recoveryNotice }
     try { recovery.bundles = runtime.recovery.bundles(runtime.selected) } catch (error) { recovery.error = String(error) }
   } catch (error) {
@@ -595,6 +597,16 @@ async function confirmed(message: string, detail = t('将停止当前 Host，正
   const result = await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
   return result.response === 0 && !quitting
 }
+/** Say where Profile repair saved the previous configuration before the relaunch opens Desktop setup. */
+async function announceRepair(backup: string): Promise<void> {
+  const owner = raiseDialogOwner()
+  const options = { type: 'info' as const, title: 'DSH NEXT', message: t('Profile 已修复', 'Profile repaired'),
+    detail: t(`修复前的配置已备份到：\n${backup}\n\n应用将重启并打开设置向导，请重新选择插件市场、远程控制等功能。如需撤销修复，可在恢复助手的“快速恢复”页恢复修复前的配置。`,
+      `The previous configuration was backed up to:\n${backup}\n\nThe app will restart and open the setup wizard, where you can choose Market, remote control and other features again. To undo the repair, restore the previous configuration from Quick recovery in the recovery assistant.`),
+    buttons: [t('重启', 'Restart'), t('在文件夹中显示', 'Show in Folder')], defaultId: 0, cancelId: 0 }
+  const result = await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
+  if (result.response === 1) shell.showItemInFolder(backup)
+}
 function confirmLanAccess(): Promise<boolean> {
   return confirmed(
     t('允许局域网 HTTPS 访问？', 'Allow LAN access over HTTPS?'),
@@ -803,7 +815,7 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
     if (type === 'rollback' && !runtime.recovery.latest(next)) throw new Error(t('尚无成功启动的配置备份。', 'No successful-start configuration is available.'))
     const messages: Record<string, string> = {
       switch: t(`切换到 Profile「${next}」并重启应用？`, `Switch to Profile “${next}” and restart the application?`),
-      recover: t('备份并修复当前 Profile？将禁用第三方插件、远控和市场。', 'Back up and repair this Profile? Third-party plugins, remote control and Market will be disabled.'),
+      recover: t('备份并修复当前 Profile？只保留内置插件，其他插件（包括官方可选插件）、远控和市场都会停用，Profile 补丁中的设置会恢复默认。完成后应用将重启并打开设置向导。', 'Back up and repair this Profile? Only built-in plugins stay enabled: other plugins, official optional ones included, remote control and Market are turned off, and settings in the Profile patch return to their defaults. The app then restarts and opens the setup wizard.'),
       'repair-global': t('备份并停用全局补丁？这会影响所有 Next Profile。', 'Back up and disable the global patch? This affects every Next Profile.'),
       rollback: t('恢复最近成功启动的 Profile 配置？当前配置会先备份。', 'Restore the last successful-start Profile configuration? The current configuration will be backed up first.'),
       'safe-mode': t('在独立的临时环境中进入安全模式？原有数据和配置会保留。', 'Enter safe mode in a separate temporary environment? Existing data and configuration are preserved.'),
@@ -831,8 +843,18 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
     rendererRecovery?.stop()
     onboarding = false
     await recoveryStopping
+    if (type === 'recover') {
+      // Repair resets what Desktop setup chose, so the relaunched app runs setup before its Host starts;
+      // the official onboarding follows, as its saved progress was in the Profile patch.
+      await runtime.backend.stop()
+      const backup = await runtime.profiles.recover(next)
+      runtime.diagnostics.append(`Repaired Profile ${next}; its previous configuration is in ${backup}`)
+      await announceRepair(backup)
+      relaunch = relaunchArguments(process.argv.slice(1), false, false)
+      app.quit()
+      return
+    }
     const change = async (): Promise<void> => {
-      if (type === 'recover') await runtime.profiles.recover(next)
       if (type === 'rollback') await restoreCheckpoint()
       if (type === 'repair-global') runtime.recovery.repairGlobalPatch()
       if (features) runtime.profiles.setFeatures(next, features)
@@ -921,11 +943,13 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
     shell.showItemInFolder(file); return
   }
   if (action === 'open-checkpoint' || action === 'preview-checkpoint') {
-    const checkpoint = runtime.recovery.checkpoints(runtime.selected).find(item => item.id === input.id)
+    const checkpoint = typeof input.id === 'string' ? runtime.recovery.find(runtime.selected, input.id) : undefined
     if (!checkpoint) throw new Error('Recovery checkpoint is no longer available')
     if (action === 'open-checkpoint') { await openPath(checkpoint.directory); return }
-    if (!await confirmed(t('还原所选配置备份？', 'Restore the selected configuration backup?'),
-      t(`备份时间：${checkpoint.created}。当前配置会先备份，然后恢复配置并安装所需插件依赖。共享数据不会回滚。`, `Saved: ${checkpoint.created}. Current configuration will be backed up, then the saved configuration and required plugin dependencies will be restored. Shared data is not rolled back.`))) return
+    const undo = runtime.recovery.repairBackup(runtime.selected)?.id === checkpoint.id
+    if (!await confirmed(undo ? t('撤销修复，恢复修复前的配置？', 'Undo the repair and restore the previous configuration?') : t('还原所选配置备份？', 'Restore the selected configuration backup?'),
+      undo ? t(`修复时间：${checkpoint.created}。当前配置会先备份，然后恢复修复前的配置并安装所需插件依赖；导致故障的插件可能随之恢复。共享数据不会回滚。`, `Repaired: ${checkpoint.created}. Current configuration will be backed up, then the configuration from before the repair and its required plugin dependencies will be restored; a plugin that caused the failure may return with it. Shared data is not rolled back.`)
+        : t(`备份时间：${checkpoint.created}。当前配置会先备份，然后恢复配置并安装所需插件依赖。共享数据不会回滚。`, `Saved: ${checkpoint.created}. Current configuration will be backed up, then the saved configuration and required plugin dependencies will be restored. Shared data is not rolled back.`))) return
     await recoveryStopping
     if (!runtime.safeMode) await runtime.backend.stop()
     await restoreCheckpoint(checkpoint.id)
