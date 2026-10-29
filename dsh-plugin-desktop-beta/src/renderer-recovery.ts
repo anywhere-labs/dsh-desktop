@@ -1,10 +1,18 @@
 /** Bounded renderer repair; the Host remains owned by the runtime throughout retries. */
 export type DesktopRendererStatus = 'healthy'
 
+/**
+ * Who started a main-window document: the Desktop opening the window, automatic recovery, an explicit
+ * reload (the reload command, or a Host restart that replaces the document), or the page itself.
+ */
+export type DesktopNavigationCause = 'open' | 'recovery' | 'reload' | 'page'
+
 interface RendererRecoveryOptions {
   available(): boolean
   reload(): Promise<void>
   exhausted(detail: string): void
+  /** A document has loaded and its interface has mounted. */
+  healthy(): void
   record(event: string, fields: Record<string, string | number>): void
 }
 
@@ -21,13 +29,18 @@ export class NextRendererRecovery {
   private stableTimer: ReturnType<typeof setTimeout> | undefined
   private navigation = 0
   private bootExpected = false
+  private cause: DesktopNavigationCause = 'open'
 
   constructor(private readonly options: RendererRecoveryOptions) {}
 
-  /** Invalidate both page readiness and pending completions from an older navigation. */
-  navigating(): void {
+  /**
+   * Invalidate both page readiness and pending completions from an older navigation.
+   * @param cause - Who started the new document; its mount counts as a recovery only when recovery started it.
+   */
+  navigating(cause: DesktopNavigationCause): void {
     if (!this.available()) return
     this.navigation++
+    this.cause = cause
     this.documentLoaded = false
     this.clientHealthy = false
     this.bootExpected = false
@@ -117,7 +130,9 @@ export class NextRendererRecovery {
     if (this.phase === 'idle' && this.stableTimer !== undefined) return
     this.clearTimer()
     this.phase = 'idle'
-    this.options.record('renderer.recovery.healthy', { attempt: this.attempts })
+    if (this.cause === 'recovery') this.options.record('renderer.recovery.healthy', { attempt: this.attempts })
+    else this.options.record('renderer.ready', { cause: this.cause })
+    this.options.healthy()
     this.clearStableTimer()
     this.stableTimer = setTimeout(() => {
       this.stableTimer = undefined

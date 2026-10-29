@@ -208,6 +208,8 @@ it('repairs a crashed renderer and fences old document reports while preserving 
     vi.useFakeTimers({ shouldClearNativeTimers: true })
     const first = await boot(sender)
     report(sender, first.documentId, 'healthy')
+    expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ source: 'renderer', event: 'renderer.navigation', fields: { cause: 'open', initiator: 'none' } }))
+    expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ source: 'renderer', event: 'renderer.ready', fields: { cause: 'open' } }))
     main.webContents.emit('render-process-gone', {}, { reason: 'crashed', exitCode: -1073741819 })
     main.webContents.emit('did-fail-load', {}, -2, 'same crash', 'dsh-app://app/', true)
     await vi.advanceTimersByTimeAsync(0)
@@ -219,6 +221,7 @@ it('repairs a crashed renderer and fences old document reports while preserving 
     expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({
       source: 'renderer', event: 'process-gone', fields: { reason: 'crashed', exitCode: -1073741819 },
     }))
+    expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ source: 'renderer', event: 'renderer.navigation', fields: { cause: 'recovery', initiator: 'none' } }))
     const second = await boot(sender)
     expect(second.documentId).not.toBe(first.documentId)
     fixture.diagnosticAppend.mockClear()
@@ -257,6 +260,41 @@ it('uses the existing recovery assistant only after exhausting automatic rendere
     expect(fixture.stop).toHaveBeenCalledOnce()
     expect(main.destroyed).toBe(true)
     expect(fixture.windows[1].loadedUrls[0]).toContain('#recovery')
+  } finally { vi.useRealTimers(); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it('records who started each main-window document, and reports exhaustion after a mounted interface as a runtime failure', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-renderer-navigation-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  fixture.hostReady = true
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const main = fixture.windows[0]
+    const sender = { sender: main.webContents, senderFrame: main.webContents.mainFrame }
+    const boot = fixture.handlers.get('dsh-next:boot')!
+    const report = fixture.handlers.get('dsh-next:renderer-status')!
+    const fields = (event: string) => fixture.diagnosticAppend.mock.calls.map(([record]) => record).filter(record => record?.event === event).map(record => record.fields)
+    report(sender, (await boot(sender)).documentId, 'healthy')
+    // A navigation the Desktop did not start, such as a page script reloading the document.
+    main.webContents.emit('did-start-navigation', { initiator: {} }, 'dsh-app://app/', false, true)
+    main.webContents.emit('did-finish-load')
+    report(sender, (await boot(sender)).documentId, 'healthy')
+    await fixture.handlers.get('dsh-next:command')!(sender, { type: 'reload' })
+    report(sender, (await boot(sender)).documentId, 'healthy')
+    expect(fields('renderer.navigation')).toEqual([
+      { cause: 'open', initiator: 'none' }, { cause: 'page', initiator: 'frame' }, { cause: 'reload', initiator: 'none' },
+    ])
+    expect(fields('renderer.ready')).toEqual([{ cause: 'open' }, { cause: 'page' }, { cause: 'reload' }])
+    expect(fields('renderer.recovery.healthy')).toEqual([])
+    fixture.report.mockImplementation(() => fixture.runtimeOptions!.onFailure())
+    vi.useFakeTimers()
+    for (const delay of [0, 1000, 3000]) {
+      main.webContents.emit('render-process-gone', {}, { reason: 'crashed', exitCode: -1073741819 })
+      await vi.advanceTimersByTimeAsync(delay)
+    }
+    main.webContents.emit('render-process-gone', {}, { reason: 'crashed', exitCode: -1073741819 })
+    expect(fixture.report).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'Renderer recovery exhausted: Renderer: crashed' }), 'renderer-runtime')
   } finally { vi.useRealTimers(); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 
@@ -365,7 +403,7 @@ it('captures scoped client errors with either Electron console-message signature
     await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
     const consoleMessage = fixture.windows[0].webContents
     // Startup records how the login-shell environment and locale were resolved before any Host starts.
-    await vi.waitFor(() => expect(fixture.diagnosticAppend).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ source: 'desktop', event: 'shell-environment.resolved' })))
+    await vi.waitFor(() => expect(fixture.diagnosticAppend.mock.calls.filter(([record]) => record?.event === 'shell-environment.resolved')).toEqual([[expect.objectContaining({ source: 'desktop' })]]))
     fixture.diagnosticAppend.mockClear()
     Object.assign(fixture.preferences, { developerLogging: true })
     consoleMessage.emit('console-message', {}, 2, '[next-ui-diagnostic] aa=false')

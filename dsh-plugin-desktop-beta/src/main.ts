@@ -49,7 +49,7 @@ import { createArtifactRequest } from './update-transport.ts'
 import { NextUpdateInstaller } from './update-installer.ts'
 import { updateLabel } from './update-state.ts'
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
-import { isDesktopRendererStatus, NextRendererRecovery } from './renderer-recovery.ts'
+import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCause } from './renderer-recovery.ts'
 import { deElevateAtStartup, windowsElevation } from './windows-elevation.ts'
 import { createSandboxLaunchReporter, gpuLaunchFailure, rendererLaunchFailure } from './sandbox-launch.ts'
 import { startCrashReporting } from './crash-reporting.ts'
@@ -102,6 +102,8 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'dsh-app', privileges: {
 let mainWindow: BrowserWindow | undefined
 let rendererRecovery: NextRendererRecovery | undefined
 let rendererDocumentId = ''
+/** The main-window load the Desktop started, until its navigation begins or the load settles; any other main-frame navigation came from the page. */
+let pendingNavigation: { readonly owner: BrowserWindow; readonly cause: Exclude<DesktopNavigationCause, 'page'> } | undefined
 /** The main window's interface has mounted at least once, so a later renderer failure stops a running Desktop. */
 let rendererHealthy = false
 // Storage partitions outlive individual windows, so the guest owner is process-scoped.
@@ -485,10 +487,15 @@ function openMain(): void {
     rendererRecovery?.stop()
     mainWindow = undefined; onboardingSurfaceActive = false
   })
-  mainWindow.webContents.on('did-start-navigation', (_event, _url, inPlace, isMain) => {
+  mainWindow.webContents.on('did-start-navigation', (details, _url, inPlace, isMain) => {
     if (!isMain || inPlace || mainWindow !== owner) return
+    const pending = pendingNavigation?.owner === owner ? pendingNavigation : undefined
+    if (pending) pendingNavigation = undefined
+    const cause = pending?.cause ?? 'page'
     rendererDocumentId = randomUUID()
-    rendererRecovery?.navigating()
+    // Every document records who started it, so a reload without recovery records is still attributable.
+    runtime.diagnostics.record({ source: 'renderer', event: 'renderer.navigation', fields: { cause, initiator: details.initiator ? 'frame' : 'none' } })
+    rendererRecovery?.navigating(cause)
   })
   mainWindow.webContents.on('did-finish-load', () => {
     if (mainWindow !== owner) return
@@ -507,7 +514,7 @@ function openMain(): void {
   mainWindow.webContents.on('did-fail-load', (_event, code, message, _url, isMain) => {
     if (isMain && code !== -3) failRenderer(owner, new Error(message))
   })
-  void loadMainDocument(owner).catch(error => failRenderer(owner, error))
+  void loadMainDocument(owner, 'open').catch(error => failRenderer(owner, error))
 }
 
 function resetRendererRecovery(owner: BrowserWindow): void {
@@ -515,12 +522,10 @@ function resetRendererRecovery(owner: BrowserWindow): void {
   rendererDocumentId = randomUUID()
   rendererRecovery = new NextRendererRecovery({
     available: () => !quitting && !runtime.recoveryMode && mainWindow === owner && !owner.isDestroyed() && runtime.backend.state.phase !== 'error',
-    reload: () => loadMainDocument(owner),
+    reload: () => loadMainDocument(owner, 'recovery'),
     exhausted: detail => runtime.report(new Error(`Renderer recovery exhausted: ${detail}`), rendererHealthy ? 'renderer-runtime' : 'renderer-startup'),
-    record: (event, fields) => {
-      if (event === 'renderer.recovery.healthy') rendererHealthy = true
-      runtime.diagnostics.record({ source: 'renderer', event, fields })
-    },
+    healthy: () => { rendererHealthy = true },
+    record: (event, fields) => runtime.diagnostics.record({ source: 'renderer', event, fields }),
   })
 }
 
@@ -529,12 +534,17 @@ function failRenderer(owner: BrowserWindow, error: unknown): void {
   rendererRecovery?.fail(error instanceof Error ? error.message : String(error))
 }
 /** Cancelled or retired window navigations are not Host failures. */
-async function loadMainDocument(owner: BrowserWindow): Promise<void> {
+async function loadMainDocument(owner: BrowserWindow, cause: Exclude<DesktopNavigationCause, 'page'>): Promise<void> {
+  const pending = { owner, cause }
+  pendingNavigation = pending
   try { await owner.loadURL(APP_URL) } catch (error) {
     if (quitting || owner.isDestroyed() || mainWindow !== owner) return
     const failure = error as { code?: string; errno?: number }
     if (failure?.code === 'ERR_ABORTED' || failure?.errno === -3) return
     throw error
+  } finally {
+    // A load that settles before its navigation starts must not claim the page's next navigation.
+    if (pendingNavigation === pending) pendingNavigation = undefined
   }
 }
 
@@ -545,7 +555,7 @@ async function reloadMain(): Promise<void> {
   // A newly created window already started its first navigation in openMain().
   if (existing && existing === mainWindow && !existing.isDestroyed()) {
     resetRendererRecovery(existing)
-    await loadMainDocument(existing).catch(error => failRenderer(existing, error))
+    await loadMainDocument(existing, 'reload').catch(error => failRenderer(existing, error))
   }
 }
 
