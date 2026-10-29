@@ -17,6 +17,20 @@ export { OPTIONAL_BUNDLES, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-app-boot'
  */
 export const startupCompositionDiagnostic: ((error: StartupError) => string[]) | undefined = undefined
 
+// Plugin operation history for failure reports needs the plugin-manager operation event that dsh 0.2.1
+// does not have, so the Host announces no run, and the shell neither keeps a history nor accepts
+// operation evidence over IPC.
+export const hostOperationDiagnostics: ((send: (message: object) => Promise<void>) => { observe(ctx: Context): void }) | undefined = undefined
+export const recordPluginCommands: (<Runner>(ctx: Context, runner: Runner) => Runner) | undefined = undefined
+export const createOperationHistory: ((directory: string) => {
+  host(): (message: unknown) => boolean
+  readonly runId: string | undefined
+  readonly reportNote: readonly string[] | undefined
+  append(report: string): void
+  close(): Promise<void>
+}) | undefined = undefined
+export const isOperationEvidence: ((message: unknown) => boolean) | undefined = undefined
+
 /**
  * Collect the Web boot injections for the Desktop window.
  * @param ctx - booted Host context with the Web server and connection services.

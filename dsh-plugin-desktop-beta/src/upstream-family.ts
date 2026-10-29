@@ -30,6 +30,13 @@ export function startupCompositionDiagnostic(error: StartupError): string[] {
     '--- plugins (inactive first) ---', ...plugins.map(({ source, ...plugin }) => JSON.stringify({ ...plugin, sourceIndex: sources.indexOf(source) }))]
 }
 
+// Plugin operation history for failure reports, built on the `plugin-manager/operation` event of dsh
+// 0.2.2: the Host announces its run and sends records, and the shell journals them and appends recent
+// ones to saved reports. The modules live below src/upstream-family/, which only Beta carries.
+export { hostOperationDiagnostics, recordPluginCommands } from './upstream-family/operation-diagnostics.ts'
+export { createOperationHistory } from './upstream-family/desktop-operation-history.ts'
+export { isOperationEvidence } from './upstream-family/operation-record.ts'
+
 /**
  * Collect the Web boot injections for the Desktop window.
  * @param ctx - booted Host context with the Web server and connection services.

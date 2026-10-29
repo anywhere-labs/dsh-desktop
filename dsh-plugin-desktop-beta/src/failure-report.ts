@@ -33,6 +33,8 @@ export interface FailureReportInput {
   readonly facts: readonly (readonly [name: string, value: string])[]
   /** The readable log when the failure was reported. */
   readonly log: string
+  /** What the report says about auxiliary diagnostics appended after it, when any will be. */
+  readonly auxiliary?: readonly string[] | undefined
 }
 
 /**
@@ -57,7 +59,7 @@ function logTail(log: string): string {
 
 /**
  * Render one report: header facts, the failure as shown, the Host's own diagnostic or the shell
- * error's details, and the end of the readable log.
+ * error's details, the end of the readable log, and the note about any auxiliary diagnostics.
  * @param input - The failure and its context.
  * @returns The complete file content, with secret-shaped text masked.
  */
@@ -81,6 +83,7 @@ export function renderFailureReport(input: FailureReportInput): string {
     lines.push('', '--- error details ---', maskSecrets(bounded(details, ERROR_DETAIL_CHARS, 'error details')))
   }
   lines.push('', '--- recent log (oldest first) ---', input.log === '' ? '(no log lines were recorded)' : maskSecrets(logTail(input.log)), '')
+  if (input.auxiliary !== undefined) lines.push('--- auxiliary diagnostics ---', ...input.auxiliary, '')
   return lines.join('\n')
 }
 

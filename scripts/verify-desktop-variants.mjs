@@ -42,6 +42,22 @@ const UPSTREAM_FAMILY_FILES = [
   'tests/upstream-family.ts',
 ]
 
+// Modules and specs that only a variant whose release offers their upstream APIs carries. While the
+// releases differ, a file below these directories may exist in one variant only; the other variant's
+// upstream-family files export what its shared code imports in their place.
+const UPSTREAM_FAMILY_DIRECTORIES = [
+  'src/upstream-family/',
+  'tests/upstream-family/',
+]
+
+function isUpstreamFamilyModule(relativePath) {
+  return UPSTREAM_FAMILY_DIRECTORIES.some(directory => relativePath.startsWith(directory))
+}
+
+function isUpstreamFamily(relativePath) {
+  return UPSTREAM_FAMILY_FILES.includes(relativePath) || isUpstreamFamilyModule(relativePath)
+}
+
 const UPSTREAM_FAMILY_DEPENDENCY = /^@deepseek-ai\/(?:dsh|dsh-.+|cordis|cordis-plugin-.+|schemastery|cosmokit)$/u
 const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']
 
@@ -243,7 +259,7 @@ export function syncVariants(direction = 'beta-to-next') {
   const sourceName = isBetaToNext ? 'dsh-plugin-desktop-beta' : 'dsh-desktop-next'
   const targetName = isBetaToNext ? 'dsh-desktop-next' : 'dsh-plugin-desktop-beta'
   const transform = isBetaToNext ? toNextContent : toBetaContent
-  const ownedByTarget = relPath => runtimesDiffer && UPSTREAM_FAMILY_FILES.includes(relPath)
+  const ownedByTarget = relPath => runtimesDiffer && isUpstreamFamily(relPath)
 
   const sourcePaths = new Set(SYNCED_FILES)
   for (const dir of SYNCED_DIRECTORIES) {
@@ -288,6 +304,7 @@ export function verifyVariants() {
   }
   const allPaths = collectSyncedPaths()
   for (const relPath of [...new Set([...allPaths, ...UPSTREAM_FAMILY_FILES])].sort()) {
+    if (runtimesDiffer && isUpstreamFamilyModule(relPath)) continue
     const nextFile = join(nextRoot, ...relPath.split('/'))
     const betaFile = join(betaRoot, ...relPath.split('/'))
     if (!existsSync(nextFile) || !existsSync(betaFile)) {
@@ -326,7 +343,7 @@ export function verifyVariants() {
   }
 
   const declared = runtimesDiffer
-    ? `; Beta follows upstream ${channels.beta.runtimePackageVersion} and Next ${channels.next.runtimePackageVersion}, so their upstream-family pins and optional bundles, ${UPSTREAM_FAMILY_FILES.join(', ')} and Next-lead lines differ`
+    ? `; Beta follows upstream ${channels.beta.runtimePackageVersion} and Next ${channels.next.runtimePackageVersion}, so their upstream-family pins and optional bundles, ${UPSTREAM_FAMILY_FILES.join(', ')}, the files below ${UPSTREAM_FAMILY_DIRECTORIES.join(' and ')} and Next-lead lines differ`
     : ''
   process.stdout.write(`verify-desktop-variants: ${String(allPaths.length)} files are aligned between Next and Beta${declared}\n`)
 }

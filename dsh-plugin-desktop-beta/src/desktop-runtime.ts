@@ -20,6 +20,7 @@ import { DesktopLanHttpsRuntime } from './lan-https-runtime.ts'
 import type { DesktopLanHttpsCertificate } from './lan-https-certificate.ts'
 import type { DesktopPermission, DesktopPermissionAction, DesktopPermissionSnapshot } from './permissions.ts'
 import { SYSTEM_PROXY_ENV, type DesktopSystemProxyProbe } from './system-proxy.ts'
+import { createOperationHistory } from './upstream-family.ts'
 import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
 
 interface RuntimeOptions {
@@ -77,12 +78,15 @@ export class NextDesktopRuntime {
   private failureReport: DesktopFailureReport | undefined
   /** Settles once the current report is saved or has failed; never rejects. */
   private failureReportWrite: Promise<void> = Promise.resolve()
+  /** Plugin operations journaled for failure reports, where the followed DSH release reports them. */
+  private readonly operationHistory: ReturnType<NonNullable<typeof createOperationHistory>> | undefined
 
   constructor(readonly options: RuntimeOptions) {
     this.profiles = new NextProfiles(options.home)
     this.recovery = new NextRecovery(this.profiles)
     this.settings = new DesktopPreferenceStore(options.stateHome ?? options.home)
     this.diagnostics = new DesktopDiagnostics(options.home)
+    this.operationHistory = createOperationHistory?.(join(dirname(this.diagnostics.file), 'plugin-operations'))
     this.memory = new DesktopMemoryMonitor({ probe: options.memoryProbe,
       record: input => { this.diagnostics.record(input) }, flush: () => { this.diagnostics.flush() } })
     this.backend = new DesktopBackendController(onFailure => this.createHost(onFailure), state => {
@@ -321,6 +325,7 @@ export class NextDesktopRuntime {
     this.cleanupSafeHome()
     // A report started just before quitting is completed, not left partially written.
     await this.failureReportWrite
+    await this.operationHistory?.close()
     this.diagnostics.flush()
   }
 
@@ -329,16 +334,21 @@ export class NextDesktopRuntime {
     const report: DesktopFailureReport = { status: 'pending' }
     this.failureReport = report
     const launch = Object.entries(this.diagnostics.launch ?? {}).flatMap(([name, value]) => value === undefined ? [] : [[name, String(value)] as const])
+    // A Host failure names the run whose plugin operation records the appended history shows.
+    const hostRun = stage === 'host-boot' || stage === 'host-runtime' ? this.operationHistory?.runId : undefined
     this.failureReportWrite = writeFailureReport(dirname(this.diagnostics.file), {
       time: new Date(), stage, failure: this.failure,
-      facts: [['run', this.diagnostics.runId], ...launch, ['arch', process.arch], ['profile', this.selected]],
+      facts: [['run', this.diagnostics.runId], ...(hostRun === undefined ? [] : [['host run', hostRun] as const]), ...launch, ['arch', process.arch], ['profile', this.selected]],
       hostDiagnostic: error instanceof DesktopHostFatalError ? error.diagnostic : undefined,
       // The Host's own diagnostic, or its exit code and stderr tail, describe a Host failure; a shell error adds its stack.
       error: error instanceof Error && !(error instanceof DesktopHostFatalError) && !(error instanceof DesktopHostExitError) ? error : undefined,
       log: this.diagnostics.snapshot(),
+      auxiliary: this.operationHistory?.reportNote,
     }).then((file) => {
       if (this.failureReport === report) this.failureReport = { status: 'saved', file }
       this.diagnostics.record({ source: 'desktop', event: 'failure-report.saved', fields: { stage, file } })
+      // Recent plugin operations follow the basic report, which stays complete without them.
+      this.operationHistory?.append(file)
     }, (cause: unknown) => {
       if (this.failureReport === report) this.failureReport = { status: 'failed' }
       this.diagnostics.record({ source: 'desktop', event: 'failure-report.failed', level: 'warn', error: cause, fields: { stage } })
@@ -377,7 +387,8 @@ export class NextDesktopRuntime {
       onFailure, options.primaryRuntime, undefined, join(options.root, 'lib', 'host.js'), options.onRestart, options.onNotification,
       (chunk, stream, pid) => this.diagnostics.hostChunk(chunk, stream, pid), options.onTerminal, options.onPermission, undefined, options.onPlatformLogin,
       input => { if (input.event === 'exit') this.diagnostics.hostClosed(input.pid); this.diagnostics.record(input) },
-      { memory: (usage, pid) => { this.memory.hostMemory(usage, pid) }, exited: (exit, pid) => { this.memory.hostExited(exit, pid) } })
+      { memory: (usage, pid) => { this.memory.hostMemory(usage, pid) }, exited: (exit, pid) => { this.memory.hostExited(exit, pid) },
+        ...(this.operationHistory === undefined ? {} : { operation: this.operationHistory.host() }) })
     this.hostProcess = host
     return {
       start: async (): Promise<void> => {

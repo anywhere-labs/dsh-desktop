@@ -11,6 +11,7 @@ import { HostPermissions } from './host-permissions.ts'
 import type { LaunchPresetBundle } from './launch-presets.ts'
 import { NEXT_PACKAGE, profileName } from './profiles.ts'
 import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
+import { recordPluginCommands } from './upstream-family.ts'
 import { OFFICIAL_OAR_SUBAGENTS } from './upstream-family-labels.ts'
 
 // scripts/verify-host.mjs reads the entry through the built extensions module.
@@ -40,7 +41,8 @@ export function apply(ctx: Context): void {
   // packages through the official pluginManager service and needs no Desktop
   // inventory or restart capability.
   ctx.provide('desktopProfiles', { current: { name: profile.name, dir: profile.dir } })
-  ctx.provide('desktopPnpm', runner)
+  // Plugin commands bypass the plugin manager, so failure reports learn of them from this runner.
+  ctx.provide('desktopPnpm', recordPluginCommands?.(ctx, runner) ?? runner)
   installComputerUseCommand(ctx, profile.dir)
   if (OAR_LAUNCH_PRESETS !== undefined) installLaunchPresets(ctx, OAR_LAUNCH_PRESETS)
   if (process.send) ctx.provide('desktopActions', {

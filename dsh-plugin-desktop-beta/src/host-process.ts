@@ -9,6 +9,7 @@ import { exitSummary } from './exit-code.ts'
 import { isHostMemoryUsage, type HostMemoryUsage, type MemoryHostExit } from './memory-monitor.ts'
 import { isDesktopNotification } from './notifications.ts'
 import type { DesktopPermission, DesktopPermissionAction, DesktopPermissionSnapshot } from './permissions.ts'
+import { isOperationEvidence } from './upstream-family.ts'
 
 interface ReadyEvent {
   readonly type: 'ready'
@@ -195,6 +196,12 @@ export interface DesktopHostObserver {
   memory?(usage: HostMemoryUsage, pid: number | undefined): void
   /** The process ended; reported before any failure it causes. */
   exited?(exit: MemoryHostExit, pid: number | undefined): void
+  /**
+   * Plugin operation evidence the Host pushed over IPC: its run announcement and its records. Without
+   * this observer, a Desktop whose DSH release reports plugin operations drops the evidence.
+   * @returns Whether the message was such evidence; other messages go on to the Host's own events.
+   */
+  operation?(message: unknown): boolean
 }
 
 function exitOutput(stderr: string): string {
@@ -288,6 +295,8 @@ export class DesktopHostProcess {
     child.stdout?.on('data', (chunk: string) => { this.onLog?.(chunk, 'stdout', child.pid) })
     child.stdout?.pipe(process.stdout)
     child.on('message', (message: unknown) => {
+      // Like memory readings, operation evidence is observational and never reaches control handling.
+      try { if ((this.observer?.operation ?? isOperationEvidence)?.(message) === true) return } catch { /* A failing observer leaves the message to the events below. */ }
       if (!isDesktopHostEvent(message)) {
         this.fail(new Error('dsh desktop host sent an invalid IPC event'))
         child.kill('SIGTERM')
