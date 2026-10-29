@@ -96,16 +96,24 @@ vi.mock('electron', async () => {
       setIgnoreMenuShortcuts() {}, isFocused: () => true, executeJavaScript: vi.fn(async () => true) })
     size: { width: number, height: number }
     minSize: { width: number, height: number }
+    position: { x: number, y: number }
+    maximized = false
     constructor(readonly options: any) {
       super()
       this.size = { width: options.width, height: options.height }
       this.minSize = { width: options.minWidth, height: options.minHeight }
+      this.position = { x: options.x ?? 0, y: options.y ?? 0 }
       fixture.windows.push(this)
     }
     destroyed = false
     isDestroyed() { return this.destroyed }
     isMinimized() { return false }
     isFocused() { return false }
+    isVisible() { return this.visible }
+    isFullScreen() { return false }
+    isMaximized() { return this.maximized }
+    maximize() { this.maximized = true; this.visible = true; this.emit('maximize') }
+    getNormalBounds() { return { ...this.position, ...this.size } }
     show() { this.visible = true }
     hide() { this.visible = false }
     focus() {}
@@ -147,6 +155,7 @@ vi.mock('electron', async () => {
     protocol: { registerSchemesAsPrivileged() {}, handle() {} },
     session: { defaultSession: { webRequest: { onBeforeSendHeaders() {} }, setPermissionCheckHandler() {}, setPermissionRequestHandler() {}, setDisplayMediaRequestHandler() {}, on() {} } },
     systemPreferences: { getMediaAccessStatus: () => 'not-determined', askForMediaAccess: vi.fn(async () => false), isTrustedAccessibilityClient: () => false },
+    screen: { getDisplayMatching: () => ({ workArea: { x: 0, y: 25, width: 1728, height: 1092 } }) },
     desktopCapturer: { getSources: vi.fn(async () => []) },
     ipcMain: { removeHandler: (name: string) => fixture.handlers.delete(name), handle: (name: string, action: (...args: any[]) => any) => fixture.handlers.set(name, action), on: (name: string, action: (...args: any[]) => any) => fixture.handlers.set(name, action) },
   }
@@ -638,6 +647,86 @@ it.each(['timeout', 'failure'] as const)('still launches a staged update before 
     vi.doUnmock('../src/update-installer.ts'); vi.doUnmock('../src/updates.ts')
     vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
   }
+})
+
+it.each(['darwin', 'win32'] as const)('reopens the main window at its saved bounds, maximized again on %s, and saves each settled change', async platformName => {
+  const home = mkdtempSync(join(tmpdir(), 'main-window-restore-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: platformName })
+  const statePath = join(home, 'desktop-window-state.json')
+  const saved = (): unknown => JSON.parse(readFileSync(statePath, 'utf8'))
+  writeFileSync(statePath, JSON.stringify({ version: 1, bounds: { x: 120, y: 90, width: 1400, height: 860 }, maximized: true }))
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const window = fixture.windows[0]
+    expect(window.options).toMatchObject({ x: 120, y: 90, width: 1400, height: 860, minWidth: 800, minHeight: 580 })
+    vi.useFakeTimers()
+    const maximize = vi.spyOn(window, 'maximize')
+    const show = vi.spyOn(window, 'show')
+    window.emit('ready-to-show')
+    expect(window).toMatchObject({ maximized: true, visible: true })
+    // macOS zooms after the first show; Windows and Linux show the hidden window maximized.
+    expect(maximize.mock.invocationCallOrder[0]! > show.mock.invocationCallOrder[0]!).toBe(platformName === 'darwin')
+    window.maximized = false
+    window.position = { x: 200, y: 150 }
+    window.size = { width: 1300, height: 800 }
+    window.emit('unmaximize'); window.emit('move'); window.emit('resize')
+    await vi.advanceTimersByTimeAsync(249)
+    expect(saved()).toMatchObject({ bounds: { x: 120 }, maximized: true })
+    await vi.advanceTimersByTimeAsync(1)
+    expect(saved()).toEqual({ version: 1, bounds: { x: 200, y: 150, width: 1300, height: 800 }, maximized: false })
+    window.maximized = true
+    window.emit('maximize')
+    await vi.advanceTimersByTimeAsync(250)
+    expect(saved()).toEqual({ version: 1, bounds: { x: 200, y: 150, width: 1300, height: 800 }, maximized: true })
+    // Closing to the tray captures the window before hiding it, without waiting for the delay.
+    window.maximized = false
+    window.position = { x: 260, y: 170 }
+    window.emit('unmaximize')
+    window.emit('close', { preventDefault() {} })
+    expect(window.visible).toBe(false)
+    expect(saved()).toEqual({ version: 1, bounds: { x: 260, y: 170, width: 1300, height: 800 }, maximized: false })
+    // A hidden window is not a layout to reopen, whatever it reports.
+    window.maximized = true
+    window.emit('resize')
+    await vi.advanceTimersByTimeAsync(250)
+    expect(saved()).toMatchObject({ maximized: false })
+    fixture.trays[0].emit('click')
+    expect(window.visible).toBe(true)
+    // Quitting captures the window before hiding it for shutdown.
+    window.maximized = false
+    window.position = { x: 300, y: 200 }
+    window.emit('move')
+    const { app } = await import('electron')
+    app.quit()
+    expect(window.visible).toBe(false)
+    expect(saved()).toEqual({ version: 1, bounds: { x: 300, y: 200, width: 1300, height: 800 }, maximized: false })
+  } finally {
+    vi.useRealTimers()
+    Object.defineProperty(process, 'platform', platform)
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+})
+
+it.each([
+  ['unusable', { version: 1, bounds: { x: 0, y: 0, width: 0, height: 800 }, maximized: true }, { width: 1280, height: 840 }, ['failed to restore main-window state: main-window dimensions must be positive safe integers', 'warn']],
+  ['off-screen', { version: 1, bounds: { x: 4000, y: -900, width: 2400, height: 1600 }, maximized: false }, { x: 0, y: 25, width: 1728, height: 1092 }, undefined],
+])('opens the main window inside the current work area when its saved state is %s', async (_name, state, expected, warning) => {
+  const home = mkdtempSync(join(tmpdir(), 'main-window-fallback-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  writeFileSync(join(home, 'desktop-window-state.json'), JSON.stringify(state))
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const window = fixture.windows[0]
+    expect({ x: window.options.x, y: window.options.y, width: window.options.width, height: window.options.height }).toEqual({ x: undefined, y: undefined, ...expected })
+    window.emit('ready-to-show')
+    expect(window.maximized).toBe(false)
+    if (warning) expect(fixture.diagnosticAppend).toHaveBeenCalledWith(...warning)
+    else expect(fixture.diagnosticAppend).not.toHaveBeenCalledWith(expect.stringContaining('main-window state'), 'warn')
+  } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 
 it('retains the Host when hiding to tray, restores the window, keeps failed-Host controls, validates IPC, and stops on explicit quit', async () => {

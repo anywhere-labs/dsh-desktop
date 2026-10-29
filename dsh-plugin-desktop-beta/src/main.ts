@@ -7,7 +7,7 @@ import { writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { freemem, totalmem } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import { app, BrowserWindow, clipboard, crashReporter, dialog, ipcMain, Menu, nativeTheme, net, Notification, protocol, safeStorage, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, clipboard, crashReporter, dialog, ipcMain, Menu, nativeTheme, net, Notification, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
 import { appRequestHeaders, forwardWebRequest, serveWebDocument } from './web-document.ts'
 import { installAppDownloads } from './app-downloads.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
@@ -34,6 +34,7 @@ import { cleanupDisposableTree } from '../../dsh-plugin-desktop/src/disposable-t
 import { installEditingContextMenu } from '../../dsh-plugin-desktop/src/context-menu.ts'
 import { atomicJson, privateDirectory } from './private-files.ts'
 import { windowMaterial } from './window-material.ts'
+import { captureMainWindowState, FileMainWindowStateStore, fitMainWindowBounds, sameMainWindowState, type MainWindowState } from './main-window-state.ts'
 import { DE_ELEVATED_ARGUMENT, ONBOARDING_ARGUMENT, RECOVERY_ARGUMENT, SAFE_ARGUMENT, relaunchApp, relaunchArguments } from './relaunch.ts'
 import { DESKTOP_RUNTIME_FILE, readInstalledPackageVersion, verifyPackagedRuntimeIdentity } from './runtime-tree.ts'
 import { unpackedPath } from './asar-archive-policy.ts'
@@ -91,6 +92,7 @@ if (ownsInstance) {
 }
 const electronData = ownsInstance && safeModeRequested ? safeElectronData : normalElectronData
 const nativeLocale = new NativeLocaleStore(safeModeRequested ? electronData : home)
+const mainWindowState = new FileMainWindowStateStore(safeModeRequested ? electronData : home)
 app.setPath('userData', electronData)
 app.setPath('sessionData', electronData)
 protocol.registerSchemesAsPrivileged([{ scheme: 'dsh-app', privileges: {
@@ -291,8 +293,53 @@ function show(window: BrowserWindow): void {
  */
 const WINDOWS_CAPTION_FILL = '#00000000'
 
+const MAIN_WINDOW_WIDTH = 1280
+const MAIN_WINDOW_HEIGHT = 840
+const MAIN_WINDOW_MIN_WIDTH = 800
+const MAIN_WINDOW_MIN_HEIGHT = 580
+/** Moves, resizes and zoom animations settle for this long before the main window is captured. */
+const MAIN_WINDOW_STATE_DELAY_MS = 250
+let settledMainWindowState: MainWindowState | undefined
+let storedMainWindowState: MainWindowState | undefined
+let mainWindowStateTimer: ReturnType<typeof setTimeout> | undefined
+
+function restoreMainWindowState(): MainWindowState | undefined {
+  try {
+    storedMainWindowState = mainWindowState.read()
+    if (storedMainWindowState === undefined) return undefined
+    const { bounds, maximized } = storedMainWindowState
+    const workArea = screen.getDisplayMatching(bounds).workArea
+    return { bounds: fitMainWindowBounds(bounds, workArea, { width: MAIN_WINDOW_MIN_WIDTH, height: MAIN_WINDOW_MIN_HEIGHT }), maximized }
+  } catch (error) {
+    runtime.diagnostics.append(`failed to restore main-window state: ${error instanceof Error ? error.message : String(error)}`, 'warn')
+    return undefined
+  }
+}
+
+function persistMainWindowState(window: BrowserWindow): void {
+  if (mainWindowStateTimer !== undefined) { clearTimeout(mainWindowStateTimer); mainWindowStateTimer = undefined }
+  const state = captureMainWindowState(window, settledMainWindowState, process.platform)
+  settledMainWindowState = state
+  if (state === undefined || (storedMainWindowState !== undefined && sameMainWindowState(state, storedMainWindowState))) return
+  try {
+    mainWindowState.write(state)
+    storedMainWindowState = state
+  } catch (error) {
+    runtime.diagnostics.append(`failed to save main-window state: ${error instanceof Error ? error.message : String(error)}`, 'warn')
+  }
+}
+
+function scheduleMainWindowState(window: BrowserWindow): void {
+  if (mainWindowStateTimer !== undefined) clearTimeout(mainWindowStateTimer)
+  mainWindowStateTimer = setTimeout(() => persistMainWindowState(window), MAIN_WINDOW_STATE_DELAY_MS)
+  mainWindowStateTimer.unref()
+}
+
 function createWindow(preload: string, primary = false): BrowserWindow {
-  const window = new BrowserWindow({ width: 1280, height: 840, minWidth: 800, minHeight: 580,
+  const restored = primary ? restoreMainWindowState() : undefined
+  if (primary) settledMainWindowState = restored
+  const window = new BrowserWindow({ width: MAIN_WINDOW_WIDTH, height: MAIN_WINDOW_HEIGHT, minWidth: MAIN_WINDOW_MIN_WIDTH, minHeight: MAIN_WINDOW_MIN_HEIGHT,
+    ...(restored?.bounds ?? {}),
     show: false, title: 'DSH Desktop Beta',
     ...(process.platform !== 'darwin' ? { icon: unpackedPath(join(root, 'build', process.platform === 'win32' ? 'app-icon.ico' : 'app-icon.png')) } : {}),
     ...(!primary ? auxiliaryWindowChromeOptions() : {}),
@@ -332,16 +379,26 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     runtime.diagnostics.record({ source: 'renderer', event: 'console', level: failure ? 'error' : level === 'warning' || level === 2 ? 'warn' : 'info',
       message: message.slice(0, 8192), developer: !failure, fields: { webContentsId: window.webContents.id } })
   })
-  window.once('ready-to-show', () => show(window))
+  window.once('ready-to-show', () => {
+    const maximize = restored?.maximized === true && !quitting && !window.isDestroyed()
+    // Windows and Linux show a hidden window maximized at once. A macOS zoom of a hidden window
+    // leaves it beside the Stage Manager strip instead, so macOS zooms after the first show.
+    if (maximize && process.platform !== 'darwin') window.maximize()
+    show(window)
+    if (maximize && process.platform === 'darwin') window.maximize()
+  })
   applyWindowMaterial(window, runtime.preferences)
   if (primary) {
     window.webContents.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && input.key === ',' && (input.control || input.meta) && !input.alt) { event.preventDefault(); openControls() }
     })
     window.on('close', event => {
+      persistMainWindowState(window)
       if (!quitting && runtime.preferences.closeToTray && native.available) { event.preventDefault(); window.hide() }
       else if (!quitting) { event.preventDefault(); app.quit() }
     })
+    const schedule = (): void => scheduleMainWindowState(window)
+    window.on('move', schedule).on('resize', schedule).on('maximize', schedule).on('unmaximize', schedule)
   }
   const openExternal = (url: string): void => {
     try { if (['https:', 'http:', 'mailto:'].includes(new URL(url).protocol)) void shell.openExternal(url).catch(error => runtime.report(error)) } catch { /* Ignore malformed external links. */ }
@@ -1309,6 +1366,8 @@ app.on('before-quit', event => {
     if (relaunch) relaunchApp(app, relaunch)
     app.quit()
   }
+  // Capture the main window while it is still visible: hidden windows keep their last state.
+  if (mainWindow && !mainWindow.isDestroyed()) persistMainWindowState(mainWindow)
   // Keep disconnection/reconnection chrome out of the quit/relaunch transition.
   for (const window of [mainWindow, shellWindow]) {
     if (window && !window.isDestroyed()) window.hide()

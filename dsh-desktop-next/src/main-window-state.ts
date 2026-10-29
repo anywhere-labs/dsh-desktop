@@ -1,11 +1,11 @@
-/** Durable bounds for the one DSH NEXT main window. */
+/** Durable size, position and maximized state for the one DSH NEXT main window. */
 import { join } from 'node:path'
 import { atomicJson, readPrivateFile } from './private-files.ts'
 
 const STATE_VERSION = 1
 const MAX_STATE_BYTES = 4 * 1024
 
-export const MAIN_WINDOW_STATE_FILENAME = 'main-window-state.json'
+export const MAIN_WINDOW_STATE_FILENAME = 'desktop-window-state.json'
 
 /** Electron-compatible main-window rectangle, kept independent from Electron at runtime. */
 export interface MainWindowBounds {
@@ -15,15 +15,20 @@ export interface MainWindowBounds {
   readonly height: number
 }
 
-interface MainWindowStateV1 {
-  readonly version: 1
+/** Normal (unmaximized) bounds, and whether the window covered its work area when last settled. */
+export interface MainWindowState {
   readonly bounds: MainWindowBounds
+  readonly maximized: boolean
 }
 
-/** Minimal persistence seam used by the Next shell. */
-export interface MainWindowStateStore {
-  read(): MainWindowBounds | undefined
-  write(bounds: MainWindowBounds): void
+/** The BrowserWindow members a capture reads. */
+export interface MainWindowView {
+  isDestroyed(): boolean
+  isVisible(): boolean
+  isMinimized(): boolean
+  isFullScreen(): boolean
+  isMaximized(): boolean
+  getNormalBounds(): MainWindowBounds
 }
 
 function isSafeCoordinate(value: unknown): value is number {
@@ -53,28 +58,30 @@ function parseBounds(value: unknown): MainWindowBounds {
   }
 }
 
-/** Filesystem-backed state store under the Next home directory. */
-export class FileMainWindowStateStore implements MainWindowStateStore {
+function parseState(value: unknown): MainWindowState {
+  if (value === null || typeof value !== 'object') throw new Error('main-window state must be an object')
+  const candidate = value as { version?: unknown, bounds?: unknown, maximized?: unknown }
+  if (candidate.version !== STATE_VERSION) throw new Error('main-window state has an unsupported version')
+  if (typeof candidate.maximized !== 'boolean') throw new Error('main-window maximized state must be a boolean')
+  return { bounds: parseBounds(candidate.bounds), maximized: candidate.maximized }
+}
+
+/** Filesystem-backed state store in the Desktop data directory. */
+export class FileMainWindowStateStore {
   readonly statePath: string
 
   constructor(homeDirectory: string) {
     this.statePath = join(homeDirectory, MAIN_WINDOW_STATE_FILENAME)
   }
 
-  read(): MainWindowBounds | undefined {
+  read(): MainWindowState | undefined {
     const text = readPrivateFile(this.statePath, MAX_STATE_BYTES)
-    if (text === undefined) return undefined
-    const parsed: unknown = JSON.parse(text)
-    if (parsed === null || typeof parsed !== 'object' || (parsed as { version?: unknown }).version !== STATE_VERSION) {
-      throw new Error('main-window state has an unsupported version')
-    }
-    return parseBounds((parsed as { bounds?: unknown }).bounds)
+    return text === undefined ? undefined : parseState(JSON.parse(text))
   }
 
-  write(bounds: MainWindowBounds): void {
-    const validated = parseBounds(bounds)
-    const state: MainWindowStateV1 = { version: STATE_VERSION, bounds: validated }
-    atomicJson(this.statePath, state)
+  write(state: MainWindowState): void {
+    const { bounds, maximized } = parseState({ ...state, version: STATE_VERSION })
+    atomicJson(this.statePath, { version: STATE_VERSION, bounds, maximized })
   }
 }
 
@@ -112,10 +119,30 @@ export function fitMainWindowBounds(
   }
 }
 
-/** Compare two window rectangles without relying on object identity. */
-export function sameMainWindowBounds(left: MainWindowBounds, right: MainWindowBounds): boolean {
-  return left.x === right.x
-    && left.y === right.y
-    && left.width === right.width
-    && left.height === right.height
+/**
+ * Read the state a settled main window should reopen with. Hidden, minimized, fullscreen and
+ * destroyed windows keep `previous`: they are not a layout to reopen, and closing to the tray or
+ * quitting hides the window before the last capture. On macOS a maximized window also keeps the
+ * previous normal bounds, because Electron updates them there only for programmatic changes, not
+ * for a zoom from the title bar; Windows and Linux report the restore rectangle, which follows a
+ * maximized window moved to another display.
+ * @param window - the main window.
+ * @param previous - the last settled state, if any.
+ * @param platform - the running platform.
+ * @returns the state to keep, or `undefined` while nothing has settled yet.
+ */
+export function captureMainWindowState(window: MainWindowView, previous: MainWindowState | undefined, platform: NodeJS.Platform): MainWindowState | undefined {
+  if (window.isDestroyed() || !window.isVisible() || window.isMinimized() || window.isFullScreen()) return previous
+  const maximized = window.isMaximized()
+  const bounds = maximized && platform === 'darwin' && previous !== undefined ? previous.bounds : window.getNormalBounds()
+  return { bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }, maximized }
+}
+
+/** Compare two states without relying on object identity. */
+export function sameMainWindowState(left: MainWindowState, right: MainWindowState): boolean {
+  return left.maximized === right.maximized
+    && left.bounds.x === right.bounds.x
+    && left.bounds.y === right.bounds.y
+    && left.bounds.width === right.bounds.width
+    && left.bounds.height === right.bounds.height
 }
