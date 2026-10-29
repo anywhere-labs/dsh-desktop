@@ -123,7 +123,7 @@ corepack yarn workspace dsh-desktop-next verify:host --computer-use
 - **回滚 Profile：** 先备份当前文件、校验备份摘要，再恢复最近一次成功启动 Host 时的配置。范围为 `package.json`、`cordis.patch.yml` 和 Next 功能开关，不包含已安装插件的版本或共享数据。
 - **全局补丁修复：** 单独备份并停用 home 级 `cordis.patch.yml`，会影响所有 Next Profile。修复 Profile 不会自动改动全局补丁。
 
-备份保存在 `home/recovery/`。诊断导出为大小受限的 JSON，包含版本、状态和脱敏日志，不读取会话或凭据文件。日志仍可能包含本机路径和插件输出，分享前请检查。本地桌面日志保存在 `home/logs/desktop-next.log`，上限为 128 KiB。桌面设置独立保存在 `home/desktop-preferences.json`，不依赖 Host 设置服务。
+备份保存在 `home/recovery/`。诊断导出为大小受限的 JSON，包含版本、状态和脱敏日志，不读取会话或凭据文件。日志仍可能包含本机路径和插件输出，分享前请检查。本地桌面日志保存在 `home/logs/desktop-next.log`，上限为 128 KiB。桌面设置独立保存在 `home/desktop-preferences.json`，不依赖 Host 设置服务。主窗口会按上次的位置、大小和最大化状态重新打开，记录在 `home/desktop-window-state.json`；删除该文件即可恢复默认大小。
 
 开发和安装版的默认数据目录均为用户目录下的 `~/.dsh`，与 Stable 共用 Profile 和数据；Next 的选定 Profile、桌面偏好等仍使用各自命名的配置文件。Next 不使用现有 `DSH_HOME` 来选择数据目录。恢复出厂仍作用于当前整个数据目录，包括与 Stable 共用的数据。
 
