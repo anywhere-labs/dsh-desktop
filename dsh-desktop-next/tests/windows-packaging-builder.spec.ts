@@ -76,3 +76,23 @@ it('retains long paths, scoped process detection, direct extraction and macOS ke
   expect(signing).toContain('importCerts(keychainFile, certPaths, cscPasswords, keychainPassword)')
   expect(signing).toContain('"set-key-partition-list", "-S", "apple-tool:,apple:", "-s", "-k", keychainPassword')
 })
+
+it('guards the install directory before the first write and checks the files before registration', () => {
+  const section = readFileSync(join(builderRoot, 'templates/nsis/installSection.nsh'), 'utf8')
+  const at = (line: string): number => {
+    const index = section.indexOf(line)
+    expect(index, line).toBeGreaterThanOrEqual(0)
+    return index
+  }
+  const probe = at('!insertmacro dshEnsureInstallDirWritable')
+  expect(probe).toBeGreaterThan(section.lastIndexOf('!insertmacro handleUninstallResult'))
+  expect(probe).toBeLessThan(at('SetOutPath $INSTDIR'))
+  expect(probe).toBeLessThan(at('File /oname=uninstallerIcon.ico'))
+  const verify = at('!insertmacro dshVerifyInstalledFiles')
+  expect(verify).toBeGreaterThan(at('!insertmacro installApplicationFiles'))
+  for (const later of ['!insertmacro registryAddInstallInfo', '!insertmacro addStartMenuLink', '!insertmacro addDesktopLink', '!insertmacro customInstall']) {
+    expect(at(later), later).toBeGreaterThan(verify)
+  }
+  // The probe waits only for the folder the previous version's uninstaller was told to remove.
+  expect(readFileSync(join(builderRoot, 'templates/nsis/include/installUtil.nsh'), 'utf8')).toContain("/S /KEEP_APP_DATA $0 _?=$installationDir' $R0")
+})

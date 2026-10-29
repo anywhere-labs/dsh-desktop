@@ -148,6 +148,36 @@ diff --git a/templates/nsis/include/installUtil.nsh b/templates/nsis/include/ins
 +        # Code 2 is handled by the non-atomic in-place replacement path.
 +        Return
 +      ${endIf}
+diff --git a/templates/nsis/installSection.nsh b/templates/nsis/installSection.nsh
+--- a/templates/nsis/installSection.nsh
++++ b/templates/nsis/installSection.nsh
+@@ -57,6 +57,12 @@
+   !insertmacro handleUninstallResult HKEY_CURRENT_USER
+ ${endIf}
+ 
++# Desktop: wait until $INSTDIR accepts files again after the old version's
++# removal, before the first File command writes into it.
++!ifmacrodef dshEnsureInstallDirWritable
++  !insertmacro dshEnsureInstallDirWritable
++!endif
++
+ SetOutPath $INSTDIR
+ 
+ !ifdef UNINSTALLER_ICON
+@@ -64,6 +70,13 @@
+ !endif
+ 
+ !insertmacro installApplicationFiles
++
++# Desktop: stop before registration, shortcuts and launch when the
++# application files did not land.
++!ifmacrodef dshVerifyInstalledFiles
++  !insertmacro dshVerifyInstalledFiles
++!endif
++
+ !insertmacro registryAddInstallInfo
+ !insertmacro addStartMenuLink $keepShortcuts
+ !insertmacro addDesktopLink $keepShortcuts
 diff --git a/out/util/appFileCopier.js b/out/util/appFileCopier.js
 --- a/out/util/appFileCopier.js
 +++ b/out/util/appFileCopier.js
