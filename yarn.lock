@@ -9645,6 +9645,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-plugin-detail@patch:@deepseek-ai/dsh-plugin-detail@file%3Avendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-plugin-detail-0.2.2-alpha.2.tgz#./patches/dsh-plugin-detail@0.2.2-alpha.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.2.2-alpha.2
+  resolution: "@deepseek-ai/dsh-plugin-detail@patch:@deepseek-ai/dsh-plugin-detail@file%3Avendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-plugin-detail-0.2.2-alpha.2.tgz%23vendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-plugin-detail-0.2.2-alpha.2.tgz%3A%3Ahash=6b7447&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-plugin-detail@0.2.2-alpha.2.patch::version=0.2.2-alpha.2&hash=d4cc81&locator=deepseek-harness-desktop%40workspace%3A."
+  peerDependencies:
+    "@deepseek-ai/cordis": ~4.0.6-alpha.1
+  checksum: 10c0/11c086371bbb0e6abc35007b5a0fe95e1742c7389b8da5740ff924f82d5983900b3fbec259d40453389e9bc25bc7ccc4a295658e3480df83554cc23b0ef591ff
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-plugin-manager@file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-plugin-manager-0.2.1-rc.3.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.1-rc.3
   resolution: "@deepseek-ai/dsh-plugin-manager@file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-plugin-manager-0.2.1-rc.3.tgz#vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-plugin-manager-0.2.1-rc.3.tgz::hash=781ac5&locator=deepseek-harness-desktop%40workspace%3A."
