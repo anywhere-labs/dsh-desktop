@@ -852,6 +852,8 @@ try {
   recoveryPage.on('pageerror', error => { recoveryErrors.push(error.message); diagnostics.push('Recovery: ' + error.message) })
   recoveryPage.on('console', message => { if (message.type() === 'error') diagnostics.push('Recovery: ' + message.text()) })
   controlState.phase = 'error'; controlState.failure = 'Fixture: invalid Profile manifest <script>unsafe()</script>'
+  const failureReport = 'dsh-plugin-desktop-beta-failure-2026-10-29T10-30-00-000Z-host-boot.log'
+  controlState.failureReport = { status: 'saved', file: '/fixture/logs/' + failureReport }
   await recoveryPage.route('http://next-recovery.test/**', async route => {
     const response = await serveWebDocument(new Request(route.request().url()), join(root, 'lib/native-ui'), false)
     await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) })
@@ -865,6 +867,12 @@ try {
   assert.deepEqual(controlCommands.at(-1), { type: 'recovery-action', action: 'restart' })
   await recoveryPage.getByRole('link', { name: '进入安全模式', exact: true }).click()
   assert.equal(controlCommands.at(-1).type, 'safe-mode')
+  // The quick tab repairs the Profile and reveals the report saved for this failure.
+  await recoveryPage.getByText(`本次故障已保存为 ${failureReport}，反馈问题时可作为附件。分享前请检查其中的本机路径和插件输出。`, { exact: true }).waitFor()
+  await recoveryPage.locator('a[href*="show-failure-report"]').click()
+  assert.deepEqual(controlCommands.at(-1), { type: 'recovery-action', action: 'show-failure-report' })
+  await recoveryPage.getByRole('link', { name: '备份并修复', exact: true }).click()
+  assert.deepEqual(controlCommands.at(-1), { type: 'recover' })
   await recoveryPage.screenshot({ path: join(screenshots, 'recovery-assistant.png'), animations: 'disabled', fullPage: true })
   await recoveryPage.getByRole('tab', { name: /插件/ }).click()
   await recoveryPage.locator('a[href*="preview-uninstall"]').click()
@@ -882,6 +890,12 @@ try {
   assert.deepEqual(controlCommands.at(-1), { type: 'recovery-action', action: 'open-profile-manifest' })
   await recoveryPage.getByRole('link', { name: /保存诊断|导出诊断/ }).click()
   assert.equal(controlCommands.at(-1).type, 'diagnostics')
+  // An action that failed after the reason, such as from the tray, appears beside it without replacing it.
+  controlState.actionFailure = 'Fixture: the terminal could not open'
+  await recoveryPage.locator('[data-sonner-toast]').getByText('操作未完成', { exact: true }).waitFor()
+  await recoveryPage.getByText(controlState.actionFailure, { exact: true }).waitFor()
+  assert.equal(await recoveryPage.getByText(controlState.failure, { exact: true }).textContent(), controlState.failure)
+  delete controlState.actionFailure
   assert.deepEqual(recoveryErrors, [])
   await recoveryPage.goto('http://next-recovery.test/?locale=zh&platform=darwin&frame=true#create-profile')
   await recoveryPage.locator('#profile-name').waitFor()

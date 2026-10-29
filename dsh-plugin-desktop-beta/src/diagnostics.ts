@@ -32,6 +32,8 @@ export class DesktopDiagnostics {
   developer = false
   /** Electron's Crashpad directory; exports describe its minidumps without including them. */
   crashDumps: string | undefined
+  /** The launch facts `begin()` recorded, repeated in failure reports. */
+  launch: LogInput['fields']
   constructor(home: string, options?: LogHistoryOptions) {
     const directory = join(home, 'logs')
     this.file = join(directory, 'desktop-next.log')
@@ -41,6 +43,7 @@ export class DesktopDiagnostics {
   }
   /** Called only by the single-instance owner, after preferences are loaded. */
   begin(fields: LogInput['fields']): void {
+    this.launch = fields
     try {
       const previous = readPrivateFile(this.marker)
       if (previous) {

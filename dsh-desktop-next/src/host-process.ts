@@ -19,7 +19,7 @@ interface ReadyEvent {
 interface FatalEvent {
   readonly type: 'fatal'
   readonly message: string
-  /** The Host's complete inspected error: stack, enumerable properties, cause chain. */
+  /** The Host's inspected error (stack, enumerable properties, cause chain) and startup metadata, at most 64 Ki characters. */
   readonly diagnostic?: string
 }
 

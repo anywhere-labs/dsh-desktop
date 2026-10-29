@@ -3,7 +3,7 @@ import { installDesktopShortcuts } from './keyboard.ts'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { access, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { freemem, totalmem } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -629,6 +629,8 @@ async function command(value: unknown, source: 'app' | 'shell' | 'native' = 'app
 }
 
 async function loggedCommand(input: Record<string, unknown>, type: string, source: 'app' | 'shell' | 'native'): Promise<boolean | void> {
+  // Each action replaces the previous action's failure notice; the failure recovery shows stays.
+  runtime.actionFailure = ''
   const end = runtime.diagnostics.operation('electron.commands', type, { caller: source }, true)
   try { const result = await performCommand(input, type, source); end(); return result } catch (error) { end(error); throw error }
 }
@@ -901,6 +903,12 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
   if (action === 'show-diagnostics') {
     if (!diagnosticsFile) throw new Error('No exported diagnostics')
     shell.showItemInFolder(diagnosticsFile); return
+  }
+  if (action === 'show-failure-report') {
+    const file = await runtime.failureReportFile()
+    if (file === undefined) throw new Error(t('诊断报告未能保存，请改为导出诊断信息。', 'The diagnostic report could not be saved. Export diagnostics instead.'))
+    try { await access(file) } catch { throw new Error(t(`找不到诊断报告：${file}`, `The diagnostic report is no longer available: ${file}`)) }
+    shell.showItemInFolder(file); return
   }
   if (action === 'open-checkpoint' || action === 'preview-checkpoint') {
     const checkpoint = runtime.recovery.checkpoints(runtime.selected).find(item => item.id === input.id)

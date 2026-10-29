@@ -1,10 +1,10 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, symlink } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { NextDesktopRuntime } from '../src/desktop-runtime.ts'
-import { DesktopHostExitError, DesktopHostProcess, type DesktopHostObserver } from '../src/host-process.ts'
+import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, type DesktopHostObserver } from '../src/host-process.ts'
 import { historyFiles } from '../src/log-history.ts'
 
 vi.mock('../src/web-document.ts', async importOriginal => ({
@@ -20,9 +20,10 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-async function fixture(options: Partial<ConstructorParameters<typeof NextDesktopRuntime>[0]> = {}) {
+async function fixture(options: Partial<ConstructorParameters<typeof NextDesktopRuntime>[0]> = {}, prepare?: (home: string) => Promise<void>) {
   const home = await mkdtemp(join(tmpdir(), 'next-failure-stage-'))
   directories.push(home)
+  await prepare?.(home)
   const onFailure = vi.fn()
   const runtime = new NextDesktopRuntime({
     home, root: home, executable: process.execPath, addresses: () => ['127.0.0.1'],
@@ -72,6 +73,7 @@ it('reports a Host that ends during startup as Plugin Host startup and clears th
   await runtime.start()
   expect(runtime.state()).not.toHaveProperty('failureStage')
   expect(runtime.state()).not.toHaveProperty('failureExit')
+  expect(runtime.state()).not.toHaveProperty('failureReport')
 })
 
 it('names preparation and Desktop action failures without inventing a Host exit', async () => {
@@ -80,6 +82,65 @@ it('names preparation and Desktop action failures without inventing a Host exit'
   await vi.waitFor(() => expect(onFailure).toHaveBeenCalledOnce())
   expect(runtime.state()).toMatchObject({ failureStage: 'shell-environment', failure: 'login shell timed out' })
   expect(runtime.state()).not.toHaveProperty('failureExit')
-  runtime.report(new Error('Profile is unavailable for Desktop Next'))
-  expect(runtime.state()).toMatchObject({ failureStage: 'desktop-runtime', failure: 'Profile is unavailable for Desktop Next' })
+  const { runtime: actions } = await fixture()
+  actions.report(new Error('Profile is unavailable for Desktop Next'))
+  expect(actions.state()).toMatchObject({ failureStage: 'desktop-runtime', failure: 'Profile is unavailable for Desktop Next' })
+})
+
+it('keeps the failure that opened recovery and reports a later failed action beside it', async () => {
+  const { runtime, onFailure, history } = await fixture({ prepareEnvironment: async () => { throw new Error('login shell timed out') } })
+  await expect(runtime.start()).rejects.toThrow('login shell timed out')
+  await vi.waitFor(() => expect(onFailure).toHaveBeenCalledOnce())
+  const report = await runtime.failureReportFile()
+  expect(report).toMatch(/-shell-environment\.log$/u)
+  runtime.report(new Error('Diagnostics export failed: token=abcdef'))
+  expect(runtime.state()).toMatchObject({ failureStage: 'shell-environment', failure: 'login shell timed out', actionFailure: 'Diagnostics export failed: token=****' })
+  runtime.report(new Error('Renderer recovery exhausted'), 'renderer-runtime')
+  expect(runtime.state()).toMatchObject({ failureStage: 'shell-environment', failure: 'login shell timed out' })
+  expect(onFailure).toHaveBeenCalledOnce()
+  expect(await runtime.failureReportFile()).toBe(report)
+  expect(history().filter(record => record.event === 'runtime.failed').map(record => record.fields)).toEqual([
+    { stage: 'shell-environment' },
+    { stage: 'desktop-runtime', recoveryReason: 'shell-environment' },
+    { stage: 'renderer-runtime', recoveryReason: 'shell-environment' },
+  ])
+})
+
+it('lets a failure of the Desktop itself replace a failed action as the reason', async () => {
+  const { runtime, onFailure } = await fixture()
+  runtime.report(new Error('Could not open the terminal'))
+  runtime.report(new Error('Diagnostics export failed'))
+  expect(runtime.state()).toMatchObject({ failureStage: 'desktop-runtime', failure: 'Could not open the terminal', actionFailure: 'Diagnostics export failed' })
+  runtime.report(new DesktopHostExitError(1, null, ''), 'host-runtime')
+  expect(runtime.state()).toMatchObject({ failureStage: 'host-runtime', failureExit: { code: 1, signal: null, output: '' } })
+  expect(runtime.state()).not.toHaveProperty('actionFailure')
+  expect(onFailure).toHaveBeenCalledTimes(2)
+})
+
+it('saves a masked report of the failure that opened recovery, with the Host diagnostic', async () => {
+  vi.spyOn(DesktopHostProcess.prototype, 'stop').mockResolvedValue()
+  vi.spyOn(DesktopHostProcess.prototype, 'start').mockRejectedValueOnce(new DesktopHostFatalError('dsh-desktop-next: startup failed',
+    'StartupError: dsh-desktop-next: startup failed\nConfiguration file: /profiles/desktop/cordis.yml\nAuthorization: Bearer abcdef'))
+  const { runtime, onFailure } = await fixture()
+  runtime.diagnostics.begin({ version: '2.0.21-next', platform: 'darwin' })
+  await expect(runtime.start()).rejects.toThrow('startup failed')
+  await vi.waitFor(() => expect(onFailure).toHaveBeenCalledOnce())
+  const file = await runtime.failureReportFile()
+  expect(file).toMatch(/[\\/]logs[\\/]dsh-desktop-next-failure-[^\\/]+-host-boot\.log$/u)
+  expect(runtime.state().failureReport).toEqual({ status: 'saved', file })
+  const text = readFileSync(file!, 'utf8')
+  expect(text).toContain(`stage: host-boot\nrun: ${runtime.diagnostics.runId}\nversion: 2.0.21-next\nplatform: darwin\narch: ${process.arch}\nprofile: desktop\n`)
+  expect(text).toContain('--- failure (as shown in the recovery assistant) ---\ndsh-desktop-next: startup failed\n')
+  expect(text).toContain('Configuration file: /profiles/desktop/cordis.yml\nAuthorization: Bearer ****\n')
+  expect(text).not.toContain('--- error details ---')
+})
+
+it.skipIf(process.platform === 'win32')('keeps recovery usable when the report cannot be saved', async () => {
+  const outside = await mkdtemp(join(tmpdir(), 'next-failure-outside-'))
+  directories.push(outside)
+  const { runtime, onFailure } = await fixture({}, home => symlink(outside, join(home, 'logs')))
+  runtime.report(new Error('Invalid Next Profile manifest'), 'profile-composition')
+  expect(onFailure).toHaveBeenCalledOnce()
+  expect(await runtime.failureReportFile()).toBeUndefined()
+  expect(runtime.state()).toMatchObject({ failureStage: 'profile-composition', failure: 'Invalid Next Profile manifest', failureReport: { status: 'failed' } })
 })

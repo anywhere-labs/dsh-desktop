@@ -5,10 +5,30 @@
  * of the source stays mirrored.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { StartupError } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { IndexInjection, WebResource, WebResourceRoute, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 
 export { OPTIONAL_BUNDLES, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
+
+/**
+ * Render the plugin states and missing-service observations a failed startup recorded before
+ * disposal, as upstream Desktop's fatal diagnostic does from dsh 0.2.2.
+ * @param error - startup audit failure.
+ * @returns the composition section, or a notice when capturing the composition failed.
+ */
+export function startupCompositionDiagnostic(error: StartupError): string[] {
+  if (error.composition === undefined) return ['Startup composition diagnostic unavailable.']
+  const { plugins, services, omittedPlugins, omittedServices } = error.composition
+  const sources = [...new Set(plugins.map(plugin => plugin.source))]
+  return ['--- startup composition ---',
+    'Provider lists contain observed registrations only; an empty list means the provider is unknown.',
+    'Source identifies the Loader tree, not necessarily the overriding patch.',
+    `Omitted plugin rows: ${String(omittedPlugins)}; omitted missing-service observations: ${String(omittedServices)}.`,
+    '--- missing services ---', ...services.map(service => JSON.stringify(service)),
+    '--- plugin sources (sourceIndex) ---', ...sources.map((source, index) => JSON.stringify({ index, source })),
+    '--- plugins (inactive first) ---', ...plugins.map(({ source, ...plugin }) => JSON.stringify({ ...plugin, sourceIndex: sources.indexOf(source) }))]
+}
 
 /**
  * Collect the Web boot injections for the Desktop window.

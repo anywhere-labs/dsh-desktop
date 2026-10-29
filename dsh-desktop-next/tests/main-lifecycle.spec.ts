@@ -23,6 +23,8 @@ const fixture = vi.hoisted(() => ({
   appPaths: new Map<string, string>(), lockPaths: [] as string[], ownsInstance: true,
   locationRoot: '',
   runtimeOptions: undefined as ConstructorParameters<typeof NextDesktopRuntime>[0] | undefined,
+  runtime: undefined as { actionFailure: string } | undefined,
+  failureReportFile: vi.fn(async (): Promise<string | undefined> => undefined),
   onPermission: undefined as ConstructorParameters<typeof NextDesktopRuntime>[0]['onPermission'],
   startupElevation: { relaunched: false, state: {} } as ReturnType<typeof import('../src/windows-elevation.ts').deElevateAtStartup>,
   elevation: undefined as import('../src/windows-elevation.ts').WindowsElevation | undefined,
@@ -52,8 +54,11 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
   recovery: import('../src/recovery.ts').NextRecovery
   diagnostics = { append: fixture.diagnosticAppend, flush: vi.fn(), hostChunk: vi.fn(), record: fixture.diagnosticAppend, operation: vi.fn(() => vi.fn()), begin: vi.fn(), end: vi.fn(), pendingOperations: vi.fn(() => []) }
   memory = fixture.memory
+  actionFailure = ''
+  failureReportFile = fixture.failureReportFile
   constructor(options: ConstructorParameters<typeof NextDesktopRuntime>[0]) {
     fixture.runtimeOptions = options
+    fixture.runtime = this
     fixture.preferences = this.preferences; fixture.onPermission = options.onPermission
     this.profiles = new NextProfiles(options.home)
     this.recovery = new NextRecovery(this.profiles)
@@ -165,6 +170,7 @@ beforeEach(async () => {
   vi.resetModules()
   fixture.windows.length = 0; fixture.trays.length = 0; fixture.handlers.clear()
   fixture.appPaths.clear(); fixture.lockPaths.length = 0; fixture.ownsInstance = true; fixture.runtimeOptions = undefined
+  fixture.runtime = undefined; fixture.failureReportFile.mockReset().mockResolvedValue(undefined)
   fixture.locationRoot = mkdtempSync(join(tmpdir(), 'next-location-root-'))
   fixture.phase = 'ready'
   fixture.needsOnboarding = false; fixture.corruptProfile = false; fixture.restart.mockReset(); fixture.hostReady = false
@@ -1505,6 +1511,37 @@ it('disables and re-enables a Profile bundle from recovery without running the p
     expect(JSON.parse(readFileSync(path, 'utf8')).dsh.profile.bundles).toContain('my-plugin')
     expect(dialog.showMessageBox).not.toHaveBeenCalled()
     expect(fixture.plugin).not.toHaveBeenCalled()
+  } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it('reveals the saved failure report, explains a missing one, and clears the previous failed action', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-failure-report-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const argv = [...process.argv]
+  process.argv.push('--next-recovery')
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const window = fixture.windows[0]
+    const sender = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
+    const command = fixture.handlers.get('dsh-next:command')!
+    const { shell } = await import('electron')
+    const logs = join(home, 'logs')
+    const report = join(logs, 'dsh-desktop-next-failure-2026-10-29T10-30-00-000Z-host-boot.log')
+    mkdirSync(logs, { recursive: true })
+    writeFileSync(report, 'report')
+    fixture.runtime!.actionFailure = 'Diagnostics export failed'
+    fixture.failureReportFile.mockResolvedValueOnce(report)
+
+    await command(sender, { type: 'recovery-action', action: 'show-failure-report' })
+    expect(shell.showItemInFolder).toHaveBeenCalledWith(report)
+    expect(fixture.runtime!.actionFailure).toBe('')
+
+    await expect(command(sender, { type: 'recovery-action', action: 'show-failure-report' })).rejects.toThrow('诊断报告未能保存')
+    rmSync(report)
+    fixture.failureReportFile.mockResolvedValueOnce(report)
+    await expect(command(sender, { type: 'recovery-action', action: 'show-failure-report' })).rejects.toThrow(`找不到诊断报告：${report}`)
+    expect(shell.showItemInFolder).toHaveBeenCalledOnce()
   } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 

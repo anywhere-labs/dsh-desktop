@@ -5,10 +5,17 @@
  * of the source stays mirrored.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { StartupError } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { IndexInjection, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 
 export { OPTIONAL_BUNDLES, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-app-boot'
+
+/**
+ * Render the composition a failed startup recorded before disposal. dsh 0.2.1 records none, so the
+ * Host diagnostic has no section for it.
+ */
+export const startupCompositionDiagnostic: ((error: StartupError) => string[]) | undefined = undefined
 
 /**
  * Collect the Web boot injections for the Desktop window.

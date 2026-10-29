@@ -54,7 +54,7 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
       }
       const recoveryActions = ['open-checkpoint', 'preview-checkpoint', 'preview-uninstall',
         'preview-disable', 'preview-enable', 'open-settings-document',
-        'open-profile-patch', 'open-profile-manifest', 'show-diagnostics', 'begin-change-data-directory',
+        'open-profile-patch', 'open-profile-manifest', 'show-diagnostics', 'show-failure-report', 'begin-change-data-directory',
         'restore-default-data-directory', 'factory-reset']
       if (recoveryActions.includes(url.hostname)) {
         const slot = /^slot-([123])$/.exec(url.searchParams.get('id') ?? '')
@@ -78,7 +78,9 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     if (updated.selected === name) await adapter.command({ type: 'close-controls' })
     else await adapter.command({ type: 'controls', page: 'profiles' })
   }} />
-  const notice = failure ? { tone: 'error' as const, title: t('操作未完成', 'Action failed'), body: failure } : undefined
+  // An action that failed outside this page, such as from the tray, is reported here too.
+  const actionFailure = failure || (busy ? '' : state.actionFailure ?? '')
+  const notice = actionFailure ? { tone: 'error' as const, title: t('操作未完成', 'Action failed'), body: actionFailure } : undefined
   const profiles = state.profiles.map(name => ({ name, current: name === state.selected, selectable: !state.unavailableProfiles.includes(name) }))
   if (page === 'profiles') return <ProfileSelectorApp state={{ locale, profiles, busy: busy || state.busy, restartReady: false, ...(notice ? { notice } : {}) }} />
   // Recovery, first-run setup and Profile tools work without a Host. Settings live in the app.
@@ -89,6 +91,21 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     rollbackGuideBody: t('将当前 Profile 的配置恢复到最近一次成功启动的状态。', 'Restore this Profile to its last successful-start configuration.'),
     rollbackBody: t('还原所选检查点的 Profile 配置并安装所需插件依赖，不回滚共享数据。', 'Restore the selected Profile configuration and install its required plugin dependencies, without reverting shared data.'),
   }
+  const report = state.failureReport
+  const reportName = report?.status === 'saved' ? report.file.split(/[\\/]/u).at(-1) : undefined
+  const quickActions = [
+    { action: 'recover', title: t('修复 Profile', 'Repair Profile'), label: t('备份并修复', 'Back up and repair'),
+      body: t('先备份清单、Profile 补丁和功能开关，再恢复内置插件，并停用第三方插件、远控和市场。已安装的插件文件、共享会话和凭据会保留。',
+        'Back up the manifest, Profile patch and feature switches, then restore the bundled plugins and turn off third-party plugins, remote control and Market. Installed plugin files, shared sessions and credentials are kept.') },
+    ...report === undefined ? [] : [report.status === 'failed'
+      ? { action: 'export-diagnostics', title: t('诊断报告', 'Diagnostic report'), label: copy.saveDiagnostics,
+        body: t('本次故障的诊断报告未能保存。反馈问题时，请导出诊断信息或提供此窗口的截图。',
+          'The diagnostic report for this failure could not be saved. When asking for support, export diagnostics or provide a screenshot of this window.') }
+      : { action: 'show-failure-report', title: t('诊断报告', 'Diagnostic report'), label: copy.showDiagnostics,
+        body: reportName === undefined ? t('正在保存本次故障的诊断报告…', 'Saving the diagnostic report for this failure…')
+          : t(`本次故障已保存为 ${reportName}，反馈问题时可作为附件。分享前请检查其中的本机路径和插件输出。`,
+            `This failure was saved as ${reportName}; attach it when asking for support. Review it for local paths and plugin output before sharing.`) }],
+  ]
   const recovery: RecoveryState = {
     locale, failureStage: state.failureStage ?? 'host-boot',
     failureDetail: state.failureExit === undefined ? state.failure : hostExitDetail(state.failureExit, locale), requested: !state.failure,
@@ -103,7 +120,7 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     busy: busy || state.busy, restartReady: true, activeTab: 'quick', configurationAvailable: true,
     diagnostics: state.recovery?.diagnosticsFile ? { status: 'saved', filename: state.recovery.diagnosticsFile } : { status: 'idle' }, logs: state.logs.slice(-24_000), profiles, profileActionToken: 'next', profileCreatorAvailable: true,
     terminalAvailable: state.platform === 'darwin' || state.platform === 'win32', safeModeAvailable: !state.safeMode, safeModeActive: state.safeMode,
-    notice: notice ?? (busy ? undefined : state.recovery?.notice),
+    quickActions, notice: notice ?? (busy ? undefined : state.recovery?.notice),
   }
   return <RecoveryApp state={recovery} copy={copy} support={recoverySupport(locale)} />
 }

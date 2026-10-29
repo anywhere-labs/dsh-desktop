@@ -2,7 +2,6 @@
 import { auditHostPlugins, configureHostLogging, hostLog, hostOperation } from './logging.ts'
 import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { inspect } from 'node:util'
 import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
@@ -25,6 +24,7 @@ import { installOfficeEngineResolution } from './office-engine.ts'
 import { installOfficialCuaResolution } from './official-cua.ts'
 import { installSharpWasmResolution } from './sharp-wasm.ts'
 import { installSkillBadgeResolution } from './skill-badge.ts'
+import { formatFatalDiagnostic } from './fatal-diagnostic.ts'
 import * as desktopOffice from './office.ts'
 import { resolveOfficeConfig } from './office.ts'
 
@@ -152,15 +152,12 @@ export async function main(): Promise<void> {
   }
 }
 
-/** Upper bound of the startup diagnostic carried over IPC; the head holds the message and stack. */
-const MAX_FATAL_DIAGNOSTIC_CHARS = 64 * 1024
-
 function fatal(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error)
   // The shell receives the complete inspected error here, not through stderr:
   // stderr bytes and this IPC message race, and the shell reports the first
   // failure it sees.
-  const diagnostic = inspect(error, { depth: 4, maxArrayLength: 50 }).slice(0, MAX_FATAL_DIAGNOSTIC_CHARS)
+  const diagnostic = formatFatalDiagnostic(error)
   if (process.connected) process.send?.({ type: 'fatal', message, diagnostic }, () => { if (process.connected) process.disconnect() })
   console.error(error)
   process.exitCode = 1
