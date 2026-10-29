@@ -9,6 +9,7 @@ import { chromium } from 'playwright'
 import { DesktopHostProcess } from '../lib/host-process.js'
 import { NextProfiles } from '../lib/profiles.js'
 import { authenticateWebHost, serveWebDocument } from '../lib/web-document.js'
+import { OFFICIAL_PLUGIN_INDEX } from '../src/upstream-family-labels.ts'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(import.meta.url)
@@ -132,16 +133,16 @@ try {
   await shell.getByRole('switch').uncheck()
   assert.equal(await shell.getByRole('radio', { name: 'dsh-community-market', exact: true }).isDisabled(), true)
   assert.equal(await shell.getByRole('radio', { name: 'dsh-market', exact: true }).isDisabled(), true)
-  assert.equal(await shell.getByRole('radio', { name: '自定义插件市场', exact: true }).isDisabled(), false)
-  await shell.getByText('自定义插件市场', { exact: true }).click()
-  assert.equal(await shell.getByRole('radio', { name: '自定义插件市场', exact: true }).isChecked(), true)
+  assert.equal(await shell.getByRole('radio', { name: OFFICIAL_PLUGIN_INDEX.title.zh, exact: true }).isDisabled(), false)
+  await shell.getByText(OFFICIAL_PLUGIN_INDEX.title.zh, { exact: true }).click()
+  assert.equal(await shell.getByRole('radio', { name: OFFICIAL_PLUGIN_INDEX.title.zh, exact: true }).isChecked(), true)
   await shell.getByRole('switch').check()
   await shell.getByText('dsh-market', { exact: true }).click()
   assert.equal(await shell.getByRole('radio', { name: 'dsh-market', exact: true }).isChecked(), true)
-  assert.equal(await shell.getByRole('radio', { name: '自定义插件市场', exact: true }).isChecked(), true)
+  assert.equal(await shell.getByRole('radio', { name: OFFICIAL_PLUGIN_INDEX.title.zh, exact: true }).isChecked(), true)
   assert.equal(await shell.getByRole('radio', { name: 'dsh-community-market', exact: true }).isChecked(), false)
-  await shell.getByText('自定义插件市场', { exact: true }).click()
-  assert.equal(await shell.getByRole('radio', { name: '自定义插件市场', exact: true }).isChecked(), false)
+  await shell.getByText(OFFICIAL_PLUGIN_INDEX.title.zh, { exact: true }).click()
+  assert.equal(await shell.getByRole('radio', { name: OFFICIAL_PLUGIN_INDEX.title.zh, exact: true }).isChecked(), false)
   assert.equal(await shell.getByRole('radio', { name: 'dsh-market', exact: true }).isChecked(), true)
   await page.screenshot({ path: join(screenshots, 'onboarding-official-market-macos.png') })
   await next()

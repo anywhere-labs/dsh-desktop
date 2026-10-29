@@ -36,6 +36,7 @@ import {
   previewMarketOperation,
   readMarketCatalog,
   readMarketInstallable,
+  readMarketInstallationUpdate,
   readMarketInstallations,
   readMarketState,
   readMoreMarketCatalog,
@@ -197,6 +198,24 @@ describe('community market client API', () => {
       '/api/community-market/installations/enabled',
       expect.objectContaining({ method: 'POST', body: JSON.stringify({ packageName: 'dsh-plugin-safe', enabled: false }) }),
     ])
+  })
+
+  it('checks one installation for updates by package name without caching', async () => {
+    const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+      ok: true,
+      json: async () => ({ packageName: '@scope/dsh-plugin-safe', check: { status: 'latest', installed: '1.0.0' } }),
+    } as Response))
+    vi.stubGlobal('fetch', fetch)
+    const controller = new AbortController()
+
+    await expect(readMarketInstallationUpdate('@scope/dsh-plugin-safe', controller.signal)).resolves.toEqual({
+      packageName: '@scope/dsh-plugin-safe',
+      check: { status: 'latest', installed: '1.0.0' },
+    })
+    const url = fetch.mock.calls[0]?.[0] as URL
+    expect(url.pathname).toBe('/api/community-market/installations/update')
+    expect([...url.searchParams]).toEqual([['packageName', '@scope/dsh-plugin-safe']])
+    expect(fetch.mock.calls[0]?.[1]).toEqual({ cache: 'no-store', signal: controller.signal })
   })
 
   it('preserves an unavailable status so the Client can explain the Desktop-only capability', async () => {

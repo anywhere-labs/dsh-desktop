@@ -16,6 +16,21 @@
     "types": [
       "node"
     ],
+    // next-lead:start
+    // Shared Desktop sources under ../dsh-plugin-desktop resolve their imports from Stable's
+    // node_modules, which stays on an older DSH runtime. Type them against this package's
+    // runtime, which the bundles load, so two DSH releases never augment the same Cordis types.
+    "paths": {
+      "@deepseek-ai/dsh-app-boot": ["./node_modules/@deepseek-ai/dsh-app-boot/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-atomic-write": ["./node_modules/@deepseek-ai/dsh-atomic-write/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-primitives": ["./node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-settings/client": ["./node_modules/@deepseek-ai/dsh-client-ui-settings/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-settings-account/client": ["./node_modules/@deepseek-ai/dsh-client-ui-settings-account/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-slots": ["./node_modules/@deepseek-ai/dsh-client-ui-slots/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-host-webserver": ["./node_modules/@deepseek-ai/dsh-host-webserver/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-tool-workspace-dependencies": ["./node_modules/@deepseek-ai/dsh-tool-workspace-dependencies/lib/types/index.d.ts"]
+    },
+    // next-lead:end
     "jsx": "react-jsx"
   },
   "include": [

@@ -5,6 +5,10 @@ import { createRequire } from 'node:module'
 export default defineConfig({ resolve: { alias: [
   { find: /^react$/, replacement: createRequire(import.meta.url).resolve('react') },
   { find: '@deepseek-ai/dsh-client-ui-primitives', replacement: createRequire(import.meta.url).resolve('@deepseek-ai/dsh-client-ui-primitives') },
+  // next-lead:start
+  // Shared Stable sources would otherwise load Stable's own, older DSH runtime instead of this package's.
+  { find: '@deepseek-ai/dsh-atomic-write', replacement: createRequire(import.meta.url).resolve('@deepseek-ai/dsh-atomic-write') },
+  // next-lead:end
 ] }, test: { include: ['tests/**/*.spec.ts'], testTimeout: 20_000,
   server: { deps: { inline: ['@deepseek-ai/dsh-experimental-computer-use-cua-driver-native', '@deepseek-ai/dsh-fs-local', '@deepseek-ai/dsh-host-open-in-app', '@deepseek-ai/dsh-native-command'] } },
 } })

@@ -32,6 +32,59 @@ const OBSOLETE_BETA_FILES = [
   'tsconfig.tests.json',
 ]
 
+// Beta and Next may follow different upstream releases (the beta and next channels in
+// upstream.json). While they do, each keeps its own upstream-family dependency pins in
+// package.json, and the API differences live only in these files.
+const UPSTREAM_FAMILY_FILES = [
+  'src/upstream-family.ts',
+  'src/upstream-family-labels.ts',
+  'tests/upstream-family.ts',
+]
+
+const UPSTREAM_FAMILY_DEPENDENCY = /^@deepseek-ai\/(?:dsh|dsh-.+|cordis|cordis-plugin-.+|schemastery|cosmokit)$/u
+const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']
+
+function withoutUpstreamFamily(manifest) {
+  const copy = { ...manifest }
+  for (const field of DEPENDENCY_FIELDS) {
+    if (copy[field] === undefined) continue
+    const rest = Object.entries(copy[field]).filter(([name]) => !UPSTREAM_FAMILY_DEPENDENCY.test(name))
+    if (rest.length > 0) copy[field] = Object.fromEntries(rest)
+    else delete copy[field]
+  }
+  return copy
+}
+
+/**
+ * Compare two manifests, ignoring upstream-family dependency pins.
+ * @param left - one variant's package.json text.
+ * @param right - the other variant's package.json text.
+ * @returns whether everything but those pins is identical.
+ */
+export function sameOutsideUpstreamFamily(left, right) {
+  return JSON.stringify(withoutUpstreamFamily(JSON.parse(left))) === JSON.stringify(withoutUpstreamFamily(JSON.parse(right)))
+}
+
+/**
+ * Keep the target's own upstream-family pins in a manifest synced from the other variant.
+ * @param synced - the source manifest after the variant transform.
+ * @param target - the target manifest before the sync.
+ * @returns the synced manifest text with the target's pins, each dependency map sorted by name.
+ */
+export function keepUpstreamFamily(synced, target) {
+  const manifest = JSON.parse(synced)
+  const own = JSON.parse(target)
+  for (const field of DEPENDENCY_FIELDS) {
+    if (manifest[field] === undefined && own[field] === undefined) continue
+    const entries = [
+      ...Object.entries(manifest[field] ?? {}).filter(([name]) => !UPSTREAM_FAMILY_DEPENDENCY.test(name)),
+      ...Object.entries(own[field] ?? {}).filter(([name]) => UPSTREAM_FAMILY_DEPENDENCY.test(name)),
+    ].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+    manifest[field] = Object.fromEntries(entries)
+  }
+  return `${JSON.stringify(manifest, null, 2)}\n`
+}
+
 const BINARY_EXTENSIONS = new Set(['.png', '.webp', '.ico', '.icns'])
 
 function isBinaryPath(relativePath) {
@@ -84,12 +137,25 @@ const GLOBAL_PAIRS = [
   ],
 ]
 
+// Next and Beta may follow different upstream DSH runtimes. While they do, the runtime version is a
+// declared difference, the upstream family above may differ, and lines between `// next-lead:start`
+// and `// next-lead:end` exist only in Next. Once both follow one runtime, remove the markers so those
+// lines become shared; the upstream-family files must then mirror as well.
+const { channels } = JSON.parse(readFileSync(join(root, 'upstream.json'), 'utf8'))
+const runtimesDiffer = channels.next.runtimePackageVersion !== channels.beta.runtimePackageVersion
+const RUNTIME_PAIRS = runtimesDiffer ? [[channels.next.runtimePackageVersion, channels.beta.runtimePackageVersion]] : []
+const NEXT_LEAD_REGION = /^[ \t]*\/\/ next-lead:start\n[\s\S]*?^[ \t]*\/\/ next-lead:end\n/gmu
+
+function withoutNextLead(text) {
+  return text.replace(NEXT_LEAD_REGION, '')
+}
+
 export function toBetaContent(relativePath, sourceText) {
-  let text = sourceText
+  let text = withoutNextLead(sourceText)
   for (const [nextStr, betaStr] of FILE_SPECIFIC_PAIRS[relativePath] ?? []) {
     text = text.replaceAll(nextStr, betaStr)
   }
-  for (const [nextStr, betaStr] of GLOBAL_PAIRS) {
+  for (const [nextStr, betaStr] of [...GLOBAL_PAIRS, ...RUNTIME_PAIRS]) {
     text = text.replaceAll(nextStr, betaStr)
   }
   return text
@@ -121,7 +187,7 @@ export function toNextContent(relativePath, sourceText) {
       /(\b\d+\.\d+\.\d+)-beta\.(\d+)\b/gu,
       (_, ver, rev) => (Number(rev) <= 1 ? `${ver}-next` : `${ver}-next.${String(Number(rev) - 1)}`),
     )
-  for (const [nextStr, betaStr] of [...GLOBAL_PAIRS].reverse()) {
+  for (const [nextStr, betaStr] of [...GLOBAL_PAIRS, ...RUNTIME_PAIRS].reverse()) {
     text = text.replaceAll(betaStr, nextStr)
   }
   for (const [nextStr, betaStr] of [...(FILE_SPECIFIC_PAIRS[relativePath] ?? [])].reverse()) {
@@ -165,6 +231,7 @@ export function syncVariants(direction = 'beta-to-next') {
   const sourceName = isBetaToNext ? 'dsh-plugin-desktop-beta' : 'dsh-desktop-next'
   const targetName = isBetaToNext ? 'dsh-desktop-next' : 'dsh-plugin-desktop-beta'
   const transform = isBetaToNext ? toNextContent : toBetaContent
+  const ownedByTarget = relPath => runtimesDiffer && UPSTREAM_FAMILY_FILES.includes(relPath)
 
   const sourcePaths = new Set(SYNCED_FILES)
   for (const dir of SYNCED_DIRECTORIES) {
@@ -172,12 +239,13 @@ export function syncVariants(direction = 'beta-to-next') {
   }
   for (const dir of SYNCED_DIRECTORIES) {
     for (const targetFile of listDirectoryFiles(targetRoot, dir)) {
-      if (!sourcePaths.has(targetFile)) {
+      if (!sourcePaths.has(targetFile) && !ownedByTarget(targetFile)) {
         rmSync(join(targetRoot, ...targetFile.split('/')), { force: true })
       }
     }
   }
   for (const relPath of [...sourcePaths].sort()) {
+    if (ownedByTarget(relPath)) continue
     const sourceFile = join(sourceRoot, ...relPath.split('/'))
     const targetFile = join(targetRoot, ...relPath.split('/'))
     mkdirSync(dirname(targetFile), { recursive: true })
@@ -185,11 +253,20 @@ export function syncVariants(direction = 'beta-to-next') {
       writeFileSync(targetFile, readFileSync(sourceFile))
     } else {
       const transformed = transform(relPath, readFileSync(sourceFile, 'utf8'))
-      writeFileSync(targetFile, transformed, 'utf8')
+      const kept = runtimesDiffer && relPath === 'package.json' && existsSync(targetFile)
+        ? keepUpstreamFamily(transformed, readFileSync(targetFile, 'utf8'))
+        : transformed
+      const current = isBetaToNext && existsSync(targetFile) ? readFileSync(targetFile, 'utf8') : undefined
+      if (current !== undefined && current !== withoutNextLead(current)) {
+        // Beta cannot reproduce Next-lead lines; keep Next's copy when its shared lines already match.
+        if (withoutNextLead(current) === kept) continue
+        throw new Error(`${relPath} carries Next-lead lines; edit it in Next and sync with --from=next`)
+      }
+      writeFileSync(targetFile, kept, 'utf8')
     }
     chmodSync(targetFile, statSync(sourceFile).mode)
   }
-  process.stdout.write(`verify-desktop-variants: synced ${String(sourcePaths.size)} files from ${sourceName} to ${targetName}\n`)
+  process.stdout.write(`verify-desktop-variants: synced ${String(sourcePaths.size)} files from ${sourceName} to ${targetName}${runtimesDiffer ? ', keeping the target\'s upstream family' : ''}\n`)
 }
 
 export function verifyVariants() {
@@ -198,7 +275,7 @@ export function verifyVariants() {
     if (existsSync(join(betaRoot, obsolete))) differences.push(`${obsolete} (obsolete file must be removed)`)
   }
   const allPaths = collectSyncedPaths()
-  for (const relPath of allPaths) {
+  for (const relPath of [...new Set([...allPaths, ...UPSTREAM_FAMILY_FILES])].sort()) {
     const nextFile = join(nextRoot, ...relPath.split('/'))
     const betaFile = join(betaRoot, ...relPath.split('/'))
     if (!existsSync(nextFile) || !existsSync(betaFile)) {
@@ -213,6 +290,7 @@ export function verifyVariants() {
         continue
       }
     }
+    if (runtimesDiffer && UPSTREAM_FAMILY_FILES.includes(relPath)) continue
     if (isBinaryPath(relPath)) {
       if (!readFileSync(nextFile).equals(readFileSync(betaFile))) differences.push(relPath)
     } else {
@@ -220,8 +298,13 @@ export function verifyVariants() {
       const actualBeta = readFileSync(betaFile, 'utf8')
       const expectedBeta = toBetaContent(relPath, actualNext)
       const expectedNext = toNextContent(relPath, actualBeta)
-      if (expectedBeta !== actualBeta || expectedNext !== actualNext) {
+      const aligned = runtimesDiffer && relPath === 'package.json'
+        ? sameOutsideUpstreamFamily(expectedBeta, actualBeta) && sameOutsideUpstreamFamily(expectedNext, actualNext)
+        : expectedBeta === actualBeta && expectedNext === withoutNextLead(actualNext)
+      if (!aligned) {
         differences.push(relPath)
+      } else if (!runtimesDiffer && actualNext !== withoutNextLead(actualNext)) {
+        differences.push(`${relPath} (Beta now uses Next's runtime; remove the next-lead markers and share their lines)`)
       }
     }
   }
@@ -230,7 +313,10 @@ export function verifyVariants() {
     throw new Error(`Desktop variant source drift between Next and Beta is not declared:\n${differences.map(path => `- ${path}`).join('\n')}`)
   }
 
-  process.stdout.write(`verify-desktop-variants: ${String(allPaths.length)} files are aligned between Next and Beta\n`)
+  const declared = runtimesDiffer
+    ? `; Beta follows upstream ${channels.beta.runtimePackageVersion} and Next ${channels.next.runtimePackageVersion}, so their upstream-family pins, ${UPSTREAM_FAMILY_FILES.join(', ')} and Next-lead lines differ`
+    : ''
+  process.stdout.write(`verify-desktop-variants: ${String(allPaths.length)} files are aligned between Next and Beta${declared}\n`)
 }
 
 const args = new Set(process.argv.slice(2))

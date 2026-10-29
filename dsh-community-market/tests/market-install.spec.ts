@@ -1,6 +1,14 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
-import type { BundleInfo, ChangeResult, PluginInfo } from '@deepseek-ai/dsh-plugin-manager'
+import type {
+  BundleInfo,
+  ChangeResult,
+  PackageResult,
+  PluginInfo,
+  PluginUpdateResult,
+  PluginVersion,
+  PluginVersionList,
+} from '@deepseek-ai/dsh-plugin-manager'
 import { DSH_1024STORE_ADAPTER_ID, DSH_1024STORE_PROVIDER_ID } from '../src/adapters/dsh-1024store.js'
 import { MemoryMarketStateStore } from '../src/catalog/state-store.js'
 import type { CatalogHttpClient, CatalogSnapshot } from '../src/contracts/index.js'
@@ -54,6 +62,7 @@ function bundle(name: string, overrides: Partial<BundleInfo> = {}): BundleInfo {
     installed: true,
     optional: false,
     removable: true,
+    updatable: false,
     rows: [],
     overrides: [],
     ...overrides,
@@ -89,6 +98,32 @@ function manager(bundles: readonly BundleInfo[] = [], plugins: readonly PluginIn
   const contract: MarketPluginManager = fake
   void contract
   return fake
+}
+
+const mirror = 'https://registry.npmmirror.com/'
+
+function published(value: string, overrides: Partial<PluginVersion> = {}): PluginVersion {
+  return { version: value, tags: [], prerelease: false, bundle: true, ...overrides }
+}
+
+function listed(installed: string, versions: readonly PluginVersion[]): PluginVersionList {
+  return { status: 'listed', installed, registry: mirror, attempts: [{ registry: mirror }], versions, omitted: 0 }
+}
+
+/** A manager offering the version operations of DSH 0.2.2, listing `list` and updating in place. */
+function versioned(bundles: readonly BundleInfo[], list: PluginVersionList) {
+  const fake = manager(bundles)
+  const withVersions = Object.assign(fake, {
+    listVersions: vi.fn(async (_name: string, _options?: object, _signal?: AbortSignal) => list),
+    updateBundle: vi.fn(async (name: string, to: string, _options?: object): Promise<PluginUpdateResult> => {
+      const from = fake.state.bundles.find(item => item.name === name)?.version ?? ''
+      fake.state.bundles = fake.state.bundles.map(item => item.name === name ? { ...item, version: to } : item)
+      return { from, to, step: 'install', result: applied('install', `${name}@${to}`, { bundle: name, version: to }) }
+    }),
+  })
+  const contract: MarketPluginManager = withVersions
+  void contract
+  return withVersions
 }
 
 describe('npm latest resolution', () => {
@@ -144,6 +179,7 @@ describe('official inventory projection', () => {
       installed: true,
       toggleable: true,
       removable: true,
+      updatable: false,
     })
     // A bundle the manager protects stays read-only.
     expect(marketInstallationView(bundle('dsh-plugin-locked', {
@@ -156,6 +192,18 @@ describe('official inventory projection', () => {
     expect(marketInstallationView(bundle('dsh-plugin-broken', {
       enabled: true, error: { code: 'incompatible-version' },
     }))).toMatchObject({ toggleable: true, error: 'incompatible-version' })
+  })
+
+  it('offers updates only for bundles the manager updates, and only from releases with version operations', () => {
+    expect(marketInstallationView(bundle('dsh-plugin-user', { updatable: true }), true)).toMatchObject({ updatable: true })
+    expect(marketInstallationView(bundle('dsh-plugin-user', { updatable: true }))).toMatchObject({ updatable: false })
+    expect(marketInstallationView(bundle('dsh-plugin-git', { updatable: false }), true)).toMatchObject({ updatable: false })
+    expect(marketInstallationView(bundle('dsh-plugin-locked', {
+      updatable: true, removable: false, readOnlyReason: 'management-required',
+    }), true)).toMatchObject({ updatable: false })
+    // DSH releases before 0.2.2 report no `updatable` flag at all.
+    const { updatable: _, ...legacy } = bundle('dsh-plugin-legacy')
+    expect(marketInstallationView(legacy as BundleInfo, true)).toMatchObject({ updatable: false })
   })
 
   it('lists neither official plugins nor Desktop built-in bundles', () => {
@@ -283,6 +331,26 @@ describe('Profile package operations through the official manager', () => {
     })
     expect(logFailure).toHaveBeenCalledWith(expect.stringContaining('resolved 42 packages'))
     expect(logFailure).toHaveBeenCalledWith(expect.stringContaining('pending build scripts: native-dependency'))
+  })
+
+  it('states a diagnostic that repeats the pnpm output once', async () => {
+    const run = 'ERR_PNPM_TARBALL_INTEGRITY Got unexpected checksum\n'
+    const official = manager()
+    official.installBundle.mockResolvedValue({
+      changed: false,
+      application: 'failed',
+      stage: 'install',
+      target: `${packageName}@${version}`,
+      error: { code: 'operation-error', diagnostic: run },
+      packageResult: { exitCode: 1, output: run, truncated: false, logPath: '/fixtures/profiles/desktop/.plugin-manager/logs/add.log' },
+    })
+    const service = new MarketInstallService(profile, official, { verify: vi.fn(async () => ({ version })) })
+    service.observeCatalog(snapshot())
+    const preview = await service.previewInstall('source-1', 'example/dsh-plugin-safe', new AbortController().signal)
+
+    await expect(service.executePreview(preview.intent, new AbortController().signal)).rejects.toMatchObject({
+      details: 'ERR_PNPM_TARBALL_INTEGRITY Got unexpected checksum',
+    })
   })
 
   it('names the official refusal when the manager rejects the package', async () => {
@@ -520,6 +588,212 @@ describe('Profile package operations through the official manager', () => {
   })
 })
 
+describe('community plugin updates through the official manager', () => {
+  const signal = () => new AbortController().signal
+  const updatable = (version = '1.0.0') => bundle(packageName, { version, updatable: true })
+  const incompatible = (version: string) => ({
+    name: packageName, version, runtimeVersion: '0.2.2-alpha.2', requirements: { '@deepseek-ai/dsh': '>=0.3.0' },
+  })
+
+  it('offers no update while the manager has no version operations', async () => {
+    const service = new MarketInstallService(profile, manager([updatable()]), { verify: vi.fn() })
+
+    await expect(service.listInstallations(signal())).resolves.toMatchObject([{ packageName, updatable: false }])
+    await expect(service.checkUpdate(packageName, signal())).rejects.toMatchObject({ code: 'not-available' })
+    await expect(service.previewUpdatePackage(packageName, signal())).rejects.toMatchObject({ code: 'not-available' })
+  })
+
+  it('checks for the version the official Plugins page would offer', async () => {
+    const official = versioned([updatable()], listed('1.0.0', [
+      published('2.0.0-beta.1', { prerelease: true }),
+      published('1.3.0', { deprecated: 'use 1.2.0' }),
+      published('1.2.5', { incompatible: incompatible('1.2.5') }),
+      published('1.2.1', { bundle: false }),
+      published('1.2.0', { publishedAt: '2026-10-20T08:00:00.000Z', tags: ['latest'] }),
+      published('1.1.0'),
+    ]))
+    const service = new MarketInstallService(profile, official, { verify: vi.fn() })
+
+    await expect(service.listInstallations(signal())).resolves.toMatchObject([{ packageName, updatable: true }])
+    await expect(service.checkUpdate(packageName, signal())).resolves.toEqual({
+      status: 'available', installed: '1.0.0', version: '1.2.0', publishedAt: '2026-10-20T08:00:00.000Z',
+    })
+    // An empty options object lets the manager ask the registries it plans for the package.
+    expect(official.listVersions).toHaveBeenCalledWith(packageName, {}, expect.any(AbortSignal))
+  })
+
+  it('says why a listing offers no update', async () => {
+    const official = versioned([updatable()], listed('1.0.0', []))
+    const service = new MarketInstallService(profile, official, { verify: vi.fn() })
+    await expect(service.checkUpdate(packageName, signal())).resolves.toEqual({ status: 'latest', installed: '1.0.0' })
+
+    official.listVersions.mockResolvedValueOnce(listed('1.0.0', [
+      published('2.0.0-rc.1', { prerelease: true, incompatible: incompatible('2.0.0-rc.1') }),
+      published('1.5.0', { incompatible: incompatible('1.5.0') }),
+      published('1.4.0', { deprecated: 'broken' }),
+    ]))
+    await expect(service.checkUpdate(packageName, signal())).resolves.toEqual({
+      status: 'blocked',
+      installed: '1.0.0',
+      version: '1.5.0',
+      requirements: { '@deepseek-ai/dsh': '>=0.3.0' },
+      runtimeVersion: '0.2.2-alpha.2',
+    })
+
+    official.listVersions.mockResolvedValueOnce(listed('1.0.0', [
+      published('1.2.0-beta.1', { prerelease: true }),
+      published('1.1.0', { deprecated: 'broken' }),
+    ]))
+    await expect(service.checkUpdate(packageName, signal())).resolves.toEqual({ status: 'none-installable', installed: '1.0.0' })
+
+    official.listVersions.mockResolvedValueOnce({
+      status: 'refused', problem: 'network', reason: 'ETIMEDOUT registry.npmmirror.com', attempts: [{ registry: mirror, problem: 'network' }],
+    })
+    await expect(service.checkUpdate(packageName, signal())).resolves.toEqual({
+      status: 'failed', problem: 'network', reason: 'ETIMEDOUT registry.npmmirror.com',
+    })
+  })
+
+  it('refuses checks the Installed view does not offer', async () => {
+    const official = versioned([
+      bundle('dsh-plugin-git', { updatable: false }),
+      bundle('dsh-community-market', { updatable: true }),
+      updatable(),
+    ], listed('1.0.0', []))
+    const service = new MarketInstallService(profile, official, { verify: vi.fn() })
+
+    await expect(service.checkUpdate('dsh-plugin-git', signal())).rejects.toMatchObject({ code: 'conflict' })
+    await expect(service.checkUpdate('dsh-plugin-missing', signal())).rejects.toMatchObject({ code: 'conflict' })
+    await expect(service.checkUpdate('dsh-community-market', signal())).rejects.toMatchObject({ code: 'invalid-request' })
+    // The manager stopped updating the package after the inventory was read.
+    official.listVersions.mockResolvedValueOnce({ status: 'refused', problem: 'not-updatable', reason: 'not a registry package', attempts: [] })
+    await expect(service.checkUpdate(packageName, signal())).rejects.toMatchObject({ code: 'conflict' })
+    expect(official.listVersions).toHaveBeenCalledTimes(1)
+  })
+
+  it('updates to the previewed target from the registry that listed it', async () => {
+    const official = versioned([updatable()], listed('1.0.0', [published('1.2.0')]))
+    const service = new MarketInstallService(profile, official, { verify: vi.fn() })
+
+    const preview = await service.previewUpdatePackage(packageName, signal())
+    expect(preview).toMatchObject({
+      action: 'update', profileName: 'desktop', packageName, fromVersion: '1.0.0', version: '1.2.0', registry: mirror,
+    })
+    await expect(service.executePreview(preview.intent, signal())).resolves.toEqual({
+      action: 'update', packageName, fromVersion: '1.0.0', version: '1.2.0', outcome: 'updated', application: 'applied',
+    })
+    expect(official.updateBundle.mock.calls).toEqual([[packageName, '1.2.0', { registry: mirror }]])
+    await expect(service.executePreview(preview.intent, signal())).rejects.toMatchObject({ code: 'intent-expired' })
+    await expect(service.listInstallations(signal())).resolves.toMatchObject([{ packageName, version: '1.2.0' }])
+  })
+
+  it('passes a restart-pending update through', async () => {
+    const official = versioned([updatable()], listed('1.0.0', [published('1.2.0')]))
+    official.updateBundle.mockResolvedValueOnce({
+      from: '1.0.0', to: '1.2.0', step: 'install',
+      result: applied('install', `${packageName}@1.2.0`, { application: 'restart-required', restartReason: 'no-hmr', bundle: packageName, version: '1.2.0' }),
+    })
+    const service = new MarketInstallService(profile, official, { verify: vi.fn() })
+    const preview = await service.previewUpdatePackage(packageName, signal())
+
+    await expect(service.executePreview(preview.intent, signal())).resolves.toMatchObject({
+      action: 'update', outcome: 'updated', application: 'restart-required',
+    })
+  })
+
+  it('refuses an update without an installable target or after the installed version changed', async () => {
+    const official = versioned([updatable()], listed('1.0.0', [published('1.1.0', { deprecated: 'broken' })]))
+    const service = new MarketInstallService(profile, official, { verify: vi.fn() })
+    await expect(service.previewUpdatePackage(packageName, signal())).rejects.toMatchObject({ code: 'not-available' })
+
+    official.listVersions.mockResolvedValueOnce({ status: 'refused', problem: 'not-found', reason: 'E404', attempts: [{ registry: mirror, problem: 'not-found' }] })
+    await expect(service.previewUpdatePackage(packageName, signal())).rejects.toMatchObject({
+      code: 'verification-failed', details: 'E404',
+    })
+
+    official.listVersions.mockResolvedValueOnce(listed('1.0.0', [published('1.2.0')]))
+    const preview = await service.previewUpdatePackage(packageName, signal())
+    // Another surface updated the package after the preview.
+    official.state.bundles = [updatable('1.1.0')]
+    await expect(service.executePreview(preview.intent, signal())).rejects.toMatchObject({ code: 'conflict' })
+    expect(official.updateBundle).not.toHaveBeenCalled()
+  })
+
+  it('reports how a failed update ended and logs the manager output', async () => {
+    const failed = (target: string, extra: Partial<ChangeResult> = {}): ChangeResult => ({
+      changed: false, application: 'failed', stage: 'install', target, ...extra,
+    })
+    const output = (text: string): PackageResult => ({ exitCode: 1, output: text, truncated: false, logPath: '/fixtures/add.log' })
+    const official = versioned([updatable()], listed('1.0.0', [published('1.2.0')]))
+    const logFailure = vi.fn()
+    const service = new MarketInstallService(profile, official, { verify: vi.fn() }, { logFailure })
+    const cases: readonly [PluginUpdateResult, string, readonly string[]][] = [
+      [{
+        from: '1.0.0', to: '1.2.0', step: 'check',
+        result: failed(packageName, { error: { code: 'incompatible-version', incompatible: [incompatible('1.2.0')] } }),
+      }, 'refused', [`The plugin is not compatible with the running DSH version (${packageName}@1.2.0).`]],
+      [{
+        from: '1.0.0', to: '1.2.0', step: 'remove',
+        result: failed(packageName, { stage: 'remove', error: { code: 'bundle-in-use', diagnostic: 'still running' } }),
+      }, 'remove-failed', ['This plugin is still running and could not be unloaded.', 'still running']],
+      [{
+        from: '1.0.0', to: '1.2.0', step: 'install',
+        result: failed(`${packageName}@1.2.0`, { packageResult: output('ERR_PNPM_FETCH_404') }),
+      }, 'kept', ['ERR_PNPM_FETCH_404']],
+      [{
+        from: '1.0.0', to: '1.2.0', step: 'install',
+        result: failed(`${packageName}@1.2.0`, { packageResult: output('ERR_PNPM_BUILD_SCRIPT_FAILURE') }),
+        restore: applied('install', `${packageName}@1.0.0`, { bundle: packageName, version: '1.0.0' }),
+      }, 'restored', ['ERR_PNPM_BUILD_SCRIPT_FAILURE']],
+      [{
+        from: '1.0.0', to: '1.2.0', step: 'install',
+        result: failed(`${packageName}@1.2.0`, { packageResult: output('ERR_PNPM_BUILD_SCRIPT_FAILURE') }),
+        restore: failed(`${packageName}@1.0.0`, { packageResult: output('ERR_PNPM_META_FETCH_FAIL') }),
+      }, 'broken', ['ERR_PNPM_BUILD_SCRIPT_FAILURE', 'ERR_PNPM_META_FETCH_FAIL']],
+    ]
+    for (const [update, outcome, details] of cases) {
+      official.updateBundle.mockResolvedValueOnce(update)
+      const preview = await service.previewUpdatePackage(packageName, signal())
+      const result = await service.executePreview(preview.intent, signal())
+      expect(result, outcome).toMatchObject({ action: 'update', packageName, fromVersion: '1.0.0', version: '1.2.0', outcome })
+      expect(result, outcome).not.toHaveProperty('application')
+      for (const text of details) expect(result, outcome).toHaveProperty('details', expect.stringContaining(text))
+      expect(logFailure, outcome).toHaveBeenLastCalledWith(expect.stringContaining(`from 1.0.0 to 1.2.0 ended as ${outcome}`))
+    }
+  })
+
+  it('states repeated manager output once', async () => {
+    const run = 'ERR_PNPM_TARBALL_INTEGRITY Got unexpected checksum\n'
+    const official = versioned([updatable()], listed('1.0.0', [published('1.2.0')]))
+    official.updateBundle.mockResolvedValueOnce({
+      from: '1.0.0', to: '1.2.0', step: 'install',
+      result: {
+        changed: false, application: 'failed', stage: 'install', target: `${packageName}@1.2.0`,
+        error: { code: 'operation-error', diagnostic: run },
+        packageResult: { exitCode: 1, output: run, truncated: false, logPath: '/fixtures/add.log' },
+      },
+      restore: applied('install', `${packageName}@1.0.0`, { bundle: packageName, version: '1.0.0' }),
+    })
+    const service = new MarketInstallService(profile, official, { verify: vi.fn() })
+    const preview = await service.previewUpdatePackage(packageName, signal())
+
+    await expect(service.executePreview(preview.intent, signal())).resolves.toMatchObject({
+      outcome: 'restored', details: 'ERR_PNPM_TARBALL_INTEGRITY Got unexpected checksum',
+    })
+  })
+
+  it('reports a manager that throws instead of answering as a failed operation', async () => {
+    const official = versioned([updatable()], listed('1.0.0', [published('1.2.0')]))
+    official.updateBundle.mockRejectedValueOnce(new Error('profile lock timed out'))
+    const service = new MarketInstallService(profile, official, { verify: vi.fn() })
+    const preview = await service.previewUpdatePackage(packageName, signal())
+
+    await expect(service.executePreview(preview.intent, signal())).rejects.toMatchObject({
+      code: 'operation-failed', details: expect.stringContaining('profile lock timed out'),
+    })
+  })
+})
+
 describe('market Profile inventory routes', () => {
   type Handler = (req: any, res: any) => Promise<void>
 
@@ -547,7 +821,7 @@ describe('market Profile inventory routes', () => {
         res.writableEnded = true
       }),
     })
-    const pending = handlers.get(path)!(req, res)
+    const pending = handlers.get(path.split('?')[0]!)!(req, res)
     if (body !== undefined) queueMicrotask(() => {
       req.emit('data', Buffer.from(JSON.stringify(body)))
       req.emit('end')
@@ -619,6 +893,59 @@ describe('market Profile inventory routes', () => {
       packageName: 'dsh-other-market',
     })).resolves.toMatchObject({ status: 400, body: { code: 'invalid-request' } })
     expect(official.removeBundle).not.toHaveBeenCalled()
+    dispose()
+  })
+
+  it('checks and previews updates by package name only', async () => {
+    const handlers = new Map<string, Handler>()
+    const ctx = {
+      webServer: {
+        port: 43_120,
+        register: vi.fn((route: { path: string; handler: Handler }) => {
+          handlers.set(route.path, route.handler)
+          return vi.fn()
+        }),
+      },
+    }
+    const official = versioned([bundle('dsh-other-market', { version: '1.0.0', updatable: true })], listed('1.0.0', [published('1.1.0')]))
+    const install = new MarketInstallService(profile, official, { verify: vi.fn() })
+    const dispose = registerMarketRoutes(ctx as never, new MemoryMarketStateStore(), { get: () => install })
+
+    await expect(request(handlers, marketRoutes.installations, 'GET')).resolves.toMatchObject({
+      status: 200,
+      body: { installations: [{ packageName: 'dsh-other-market', updatable: true }] },
+    })
+    await expect(request(handlers, `${marketRoutes.installationUpdate}?packageName=dsh-other-market`, 'GET')).resolves.toEqual({
+      status: 200,
+      body: { packageName: 'dsh-other-market', check: { status: 'available', installed: '1.0.0', version: '1.1.0' } },
+    })
+    for (const query of ['', '?packageName=', '?packageName=a&packageName=b', '?packageName=dsh-other-market&version=9.9.9']) {
+      await expect(request(handlers, `${marketRoutes.installationUpdate}${query}`, 'GET'), query)
+        .resolves.toMatchObject({ status: 400, body: { code: 'invalid-request' } })
+    }
+    await expect(request(handlers, `${marketRoutes.installationUpdate}?packageName=dsh-other-market`, 'POST'))
+      .resolves.toMatchObject({ status: 405 })
+    await expect(request(handlers, marketRoutes.operationPreview, 'POST', {
+      action: 'update',
+      packageName: 'dsh-other-market',
+    })).resolves.toMatchObject({
+      status: 200,
+      body: {
+        action: 'update',
+        packageName: 'dsh-other-market',
+        fromVersion: '1.0.0',
+        version: '1.1.0',
+        registry: mirror,
+        previewId: expect.any(String),
+      },
+    })
+    // The Renderer names the package; the Host alone picks the version and the registry.
+    await expect(request(handlers, marketRoutes.operationPreview, 'POST', {
+      action: 'update',
+      packageName: 'dsh-other-market',
+      version: '9.9.9',
+    })).resolves.toMatchObject({ status: 400, body: { code: 'invalid-request' } })
+    expect(official.updateBundle).not.toHaveBeenCalled()
     dispose()
   })
 })

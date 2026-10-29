@@ -9,8 +9,9 @@ import ComputerUseRegistry from '@deepseek-ai/dsh-computer-use'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as Provider from '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'
 import {
   COMPUTER_USE_COMMAND_NAME,
@@ -32,6 +33,7 @@ import type {
   InputTriggerCandidate,
   InputTriggerSource,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import { defineContentToolFixture, executeToolFixture, installToolExecution } from './upstream-family.ts'
 
 const native = vi.hoisted(() => ({
   create: vi.fn(),
@@ -132,9 +134,11 @@ describe('installComputerUseCommand', () => {
       },
     })
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await installToolExecution(ctx)
     await ctx.plugin(CommandRuntime)
     await ctx.plugin(ComputerUseRegistry)
 
@@ -173,7 +177,7 @@ describe('installComputerUseCommand', () => {
     expect(assemblyA.sections.some(section => section.name === CUA_PROMPT_SECTION)).toBe(false)
 
     // Direct execution of CUA tool is rejected while gated
-    const denied = await ctx.tools.execute({
+    const denied = await executeToolFixture(ctx, {
       name: 'cua_driver_native__check_permissions',
       callId: ToolCallId('call-denied'),
       arguments: { prompt: false },
@@ -220,7 +224,7 @@ describe('installComputerUseCommand', () => {
       ),
     ).toBe(true)
 
-    const allowed = await ctx.tools.execute({
+    const allowed = await executeToolFixture(ctx, {
       name: 'cua_driver_native__check_permissions',
       callId: ToolCallId('call-allowed'),
       arguments: { prompt: false },

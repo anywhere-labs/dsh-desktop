@@ -14,6 +14,7 @@ import { browserFixture, verifySidebarBrowser, verifyWebBrowserFallback } from '
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(import.meta.url)
+const upstreamVersion = require('@deepseek-ai/dsh/package.json').version
 const webRoot = dirname(require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html'))
 const home = mkdtempSync(join(tmpdir(), 'dsh-next-window-controls-'))
 const workspace = join(home, 'workspace')
@@ -514,6 +515,8 @@ try {
   assert.equal(await refresh.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
   await refresh.click()
   const pluginPanel = page.locator('[data-plugin-panel]')
+  // dsh 0.2.2 scrolls the page body under a pinned header bar; earlier releases scroll the whole panel.
+  const pluginScroller = page.locator('[data-plugin-panel] [data-plugin-body], [data-plugin-panel]:not(:has([data-plugin-body]))')
   const pluginHeader = page.locator('[data-plugin-page-header="list"]')
   const checkPluginReopen = async () => {
     await reopen.waitFor({ state: 'visible' })
@@ -541,10 +544,12 @@ try {
       const style = getComputedStyle(header)
       const pseudo = getComputedStyle(column, '::before')
       return { headerPosition: style.position, region: style.getPropertyValue('-webkit-app-region'),
+        // dsh 0.2.2 positions the head relative to its sticky bar once that bar measured its natural height.
+        naturalBar: header.closest('[data-plugin-bar]')?.hasAttribute('data-natural') === true,
         extraCaption: pseudo.content, extraRegion: pseudo.getPropertyValue('-webkit-app-region') }
     })
     assert.equal(geometry.region, 'drag')
-    assert.equal(geometry.headerPosition, 'static', 'Keep the official header in normal document flow')
+    assert.equal(geometry.headerPosition, geometry.naturalBar ? 'relative' : 'static', 'Keep the official header in normal document flow')
     assert.equal(geometry.extraCaption, 'none', 'Next must not add its old fixed caption band')
     assert.notEqual(geometry.extraRegion, 'drag')
   }
@@ -569,22 +574,23 @@ try {
   await page.getByRole('dialog').waitFor({ state: 'hidden' })
   await page.setViewportSize({ width: 1280, height: 480 })
   const beforeScroll = await pluginHeader.boundingBox()
-  await pluginPanel.evaluate(element => { element.scrollTop = 220 })
-  const scrollTop = await pluginPanel.evaluate(element => element.scrollTop)
+  await pluginScroller.evaluate(element => { element.scrollTop = 220 })
+  const scrollTop = await pluginScroller.evaluate(element => element.scrollTop)
   assert.ok(scrollTop > 0)
-  assert.ok(Math.abs((await pluginHeader.boundingBox()).y - beforeScroll.y + scrollTop) < 1,
+  const pinnedHeader = await pluginHeader.evaluate(header => header.closest('[data-plugin-bar]') !== null)
+  assert.ok(Math.abs((await pluginHeader.boundingBox()).y - (pinnedHeader ? beforeScroll.y : beforeScroll.y - scrollTop)) < 1,
     'The official plugin header keeps its original scrolling behavior')
   await checkPluginHeader()
   // Controls remain interactive when scrolled to the top of the window.
   const remoteGearY = (await remoteGear.boundingBox()).y
-  await pluginPanel.evaluate((element, delta) => { element.scrollTop += delta }, remoteGearY - 16)
+  await pluginScroller.evaluate((element, delta) => { element.scrollTop += delta }, remoteGearY - 16)
   assert.ok((await remoteGear.boundingBox()).y < 52)
   assert.equal(await remoteGear.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
   await remoteGear.click()
   await remoteDialog.waitFor()
   await remoteDialog.getByRole('button', { name: /^(关闭远程控制|Close Remote Control|关闭手机连接)$/ }).click()
   await page.screenshot({ path: join(screenshots, 'plugins-scrolled.png'), animations: 'disabled' })
-  await pluginPanel.evaluate(element => { element.scrollTop = 0 })
+  await pluginScroller.evaluate(element => { element.scrollTop = 0 })
   await page.setViewportSize({ width: 1280, height: 840 })
   await page.locator('[data-plugin-item]').first().getByRole('button').first().click()
   const detailHeader = page.locator('[data-plugin-page-header="detail"]')
@@ -614,8 +620,8 @@ try {
   await page.getByRole('dialog').waitFor({ state: 'hidden' })
   await page.screenshot({ path: join(screenshots, 'plugins-collapsed.png'), animations: 'disabled' })
   await page.setViewportSize({ width: 1280, height: 480 })
-  await pluginPanel.evaluate(element => { element.scrollTop = 220 })
-  assert.ok(await pluginPanel.evaluate(element => element.scrollTop) > 0)
+  await pluginScroller.evaluate(element => { element.scrollTop = 220 })
+  assert.ok(await pluginScroller.evaluate(element => element.scrollTop) > 0)
   await checkPluginReopen()
   await expand()
   await page.setViewportSize({ width: 1280, height: 840 })
@@ -934,7 +940,7 @@ try {
   await webContext.close()
   assert.deepEqual(errors, [])
   assert.deepEqual(await page.evaluate(() => globalThis.__NEXT_TEST_BOOT__.failures), [])
-  console.log('Next window controls passed through the official 0.2.1-rc.3 Desktop boot branch: stacked sidebar extension entries, homepage/plugin collapse and reopen, navigation, caption geometry, clickable actions, existing-header and platform isolation, official Settings header shortcuts and keyboard navigation, grouped Desktop Settings and immediate saves, per-address login URL rows with exact open/copy targets, Profile cards and tray creation, the Host-independent recovery artifact, and native Browser toolbar, navigation, pane geometry, overlay isolation, tab lifetime and Web iframe fallback. Chromium simulates the preload contract; native Electron window movement and page loading are not tested here.')
+  console.log(`Next window controls passed through the official ${upstreamVersion} Desktop boot branch: stacked sidebar extension entries, homepage/plugin collapse and reopen, navigation, caption geometry, clickable actions, existing-header and platform isolation, official Settings header shortcuts and keyboard navigation, grouped Desktop Settings and immediate saves, per-address login URL rows with exact open/copy targets, Profile cards and tray creation, the Host-independent recovery artifact, and native Browser toolbar, navigation, pane geometry, overlay isolation, tab lifetime and Web iframe fallback. Chromium simulates the preload contract; native Electron window movement and page loading are not tested here.`)
   console.log(`Screenshots: ${screenshots}`)
 } catch (error) {
   console.error(error)

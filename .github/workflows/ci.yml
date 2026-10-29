@@ -91,8 +91,14 @@ jobs:
             yarn-${{ runner.os }}-${{ runner.arch }}-
       - if: needs.changes.outputs.product == 'true'
         run: yarn install --immutable
+      - name: Compare the Beta and Next upstream releases
+        if: needs.changes.outputs.product == 'true'
+        id: upstream-families
+        run: |
+          node -e "const { beta: { runtimePackageVersion: beta }, next: { runtimePackageVersion: next } } = require('./upstream.json').channels; console.log('differ=' + String(beta !== next)); console.error('Beta follows ' + beta + ', Next ' + next)" >> "$GITHUB_OUTPUT"
       - name: Narrow Beta check on pull requests
-        if: needs.changes.outputs.product == 'true' && github.event_name == 'pull_request'
+        # Parity with Next only stands in for Beta's own check while both follow one upstream release.
+        if: needs.changes.outputs.product == 'true' && github.event_name == 'pull_request' && steps.upstream-families.outputs.differ != 'true'
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs'
@@ -128,6 +134,14 @@ jobs:
             "yarn workspace dsh-desktop-next verify:onboarding" \
             "xvfb-run --auto-servernum yarn workspace dsh-desktop-next verify:protocol --no-sandbox" \
             "xvfb-run --auto-servernum yarn workspace dsh-desktop-next verify:sidebar-browser --no-sandbox"
+      - name: Verify Beta window controls, onboarding, protocol, and sidebar Browser on its own upstream release
+        if: needs.changes.outputs.product == 'true' && steps.upstream-families.outputs.differ == 'true'
+        run: |
+          node scripts/run-parallel.mjs \
+            "yarn workspace dsh-plugin-desktop-beta verify:window-controls" \
+            "yarn workspace dsh-plugin-desktop-beta verify:onboarding" \
+            "xvfb-run --auto-servernum yarn workspace dsh-plugin-desktop-beta verify:protocol --no-sandbox" \
+            "xvfb-run --auto-servernum yarn workspace dsh-plugin-desktop-beta verify:sidebar-browser --no-sandbox"
 
   # Windows-only logic and unsigned NSIS/portable builds on a real Windows runner:
   # updates, window options, pwsh sandbox, volume diagnostics, and packaging.

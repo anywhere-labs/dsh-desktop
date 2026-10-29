@@ -34,6 +34,8 @@ const nodes = (value: unknown): Node[] => Array.isArray(value) ? value.flatMap(n
     ? [value as Node, ...nodes((value as Node).props.children)] : []
 const component = (tree: Node, name: string): Node | undefined => nodes(tree).find(node => typeof node.type === 'function' && node.type.name === name)
 const render = (node: Node): Node => (node.type as (props: Node['props']) => Node)(node.props)
+/** The switch an EnableSwitch renders; dsh 0.2.2 wraps it with its progress announcement. */
+const switchOf = (enable: Node): Node => nodes(render(enable)).find(node => typeof node.props.onChange === 'function')!
 /** Group ids on the list page; dsh 0.2.1-alpha.2 splits official cards into basic and extensions. */
 const groups = (tree: Node): string[] => nodes(tree).filter(node => node.props['data-plugin-group']).map(node => node.props['data-plugin-group'])
 /** Cards on the list page; the official count badge is gone since 0.2.1-alpha.2. */
@@ -61,7 +63,10 @@ function fixture() {
     if (id === '@deepseek-ai/dsh-client-ui-primitives') return new Proxy({}, { get: (_, name) => (props: Node['props']) => jsx(String(name), props) })
     if (id === '@deepseek-ai/dsh-client-ui-slots') return { resolveSlotLabel: (label: unknown) => label }
     if (id === '@deepseek-ai/dsh-client-store') return {
-      createSnapshotStore: (state: unknown) => ({ getSnapshot: () => state }),
+      createSnapshotStore: (state: unknown) => {
+        let current = state
+        return { getSnapshot: () => current, set: (next: unknown) => { current = next }, subscribe: () => () => {} }
+      },
       defineStore: ({ init, actions }: any) => ({ create: () => {
         const state = init()
         return { getSnapshot: () => state, actions: Object.fromEntries(Object.entries(actions).map(([name, action]) =>
@@ -72,8 +77,10 @@ function fixture() {
   }
   runInNewContext(source, { window: { __ModuleLoader__: { load: (entry: { factory: (require: unknown) => { apply: typeof apply } }) => { apply = entry.factory(require).apply } } } })
   const noop = () => () => {}
-  apply!({ effect: (effect: () => void) => effect(), on: noop,
-    locale: { register: noop, bind: () => (key: string) => key }, remote: { $on: noop },
+  apply!({ effect: (effect: () => void) => effect(), on: noop, provide: noop,
+    locale: { register: noop, bind: () => (key: string) => key, resolveText: (text: string) => text }, remote: { $on: noop },
+    // The page mounts only while the Peer may list bundles; this fixture always may.
+    remoteAccess: { whenAccess: (_method: string, body: () => Iterable<unknown>) => { [...body()] } },
     layout: { panelInfo: { subscribe: noop }, selectPanel: vi.fn() }, reflect: { provide: noop },
     configForms: { describe: () => ({ getSnapshot: () => ({}), subscribe: noop }), get: () => undefined },
     slots: { inject: (_name: string, register: () => unknown) => {
@@ -88,7 +95,7 @@ function fixture() {
     version: '0.1.0', description: 'Remote connection', rows: [{ entryId: undefined as string | undefined, rowId: 'bridge', moduleName: 'bridge', enabled: true, phase: 'active' }] }
   const official = { ...remote, name: 'official-team', rows: [] }
   const state = { status: 'ready', packages: [official, remote], busy: [] as string[], notice: null, highlight: null, confirm: null,
-    install: { open: false } }
+    install: { open: false }, versions: {}, update: null }
   const item = { id: 'desktop-next-computer-use', label: 'Computer Use' }
   const ledger = { items: [item], bundles: new Set([remote.name]), rows: new Set(),
     hiddenBundles: new Set([remote.name]), hiddenItems: new Set([item.id]) }
@@ -99,6 +106,8 @@ function fixture() {
     useStore: (select: (state: unknown) => unknown) => select(navigation.getSnapshot()), actions: navigation.actions,
     t: (key: string) => key, ensure: vi.fn(), resolveText: (text: string) => text,
     useConfigurations: () => [], usePluginManager: () => state, useConfigLedger: () => ledger, usePluginTabs: () => [], setEnabled, setRowEnabled,
+    useBundleDetails: (select: (details: unknown) => unknown) => select({}), useLocale: (select: (locale: { active: string }) => unknown) => select({ active: 'en' }),
+    createHeaderRef: () => () => {}, ensureVersions: vi.fn(), loadDetail: vi.fn(),
     renderSlot: (name: string, owner: Record<string, unknown>, options?: unknown) => {
       if (name === 'plugins.overview') overview = owner as typeof overview
       return jsx('slot', { name, owner, options })
@@ -124,7 +133,7 @@ it('opens an overview-owned bundle through the official detail with native heade
   const header = render(top)
   expect(nodes(header).some(node => Array.isArray(node.props.children) && node.props.children.includes(top.props.actions))).toBe(true)
   expect(nodes(top.props.actions).some(node => node.props.name === 'plugins.detail.actions')).toBe(true)
-  const toggle = render(component(top.props.actions, 'EnableSwitch')!)
+  const toggle = switchOf(component(top.props.actions, 'EnableSwitch')!)
   toggle.props.onChange(false)
   expect(app.setEnabled).toHaveBeenCalledWith(app.remote.name, false)
   expect(nodes(body).some(node => node.props.name === 'plugins.bundle.config')).toBe(true)
@@ -194,33 +203,34 @@ it('keeps an official optional bundle in the extensions group with its artwork, 
     },
   }
   registerPluginControls(ctx as unknown as Context)
-  const name = '@deepseek-ai/dsh-experimental-inspector-profile'
+  // Every followed upstream release keeps this optional bundle on the main list.
+  const name = '@deepseek-ai/dsh-experimental-voice-input-bundle'
   const { meta } = JSON.parse(readFileSync(createRequire(import.meta.url).resolve(`${name}/locale/zh.json`), 'utf8'))
-  const inspector = { ...app.remote, name, enabled: false, meta: { ...meta, icon: '/inspector/icon.svg' },
-    rows: [{ rowId: 'session-inspector', moduleName: '@deepseek-ai/dsh-experimental-session-inspector', entryId: 'include:session-inspector', enabled: false, phase: 'disabled' }] }
-  app.state.packages.push(inspector)
+  const voiceInput = { ...app.remote, name, enabled: false, meta: { ...meta, icon: '/voice-input/icon.svg' },
+    rows: [{ rowId: 'voice-input', moduleName: '@deepseek-ai/dsh-experimental-client-ui-voice-input', entryId: 'include:voice-input', enabled: false, phase: 'disabled' }] }
+  app.state.packages.push(voiceInput)
   const findCard = () => nodes(app.page()).find(node => typeof node.type === 'function' && node.type.name === 'PackageCard' && node.props.pkg.name === name)!
   const card = findCard()
   expect(card).toBeDefined()
   expect(groups(app.page())).toEqual(['extensions'])
   expect(cardCount(app.page())).toBe(2)
   const head = component(render(card), 'CardHead')!
-  expect(head.props.title).toBe('开发者工具')
+  expect(head.props.title).toBe('语音输入')
   expect(head.props.description).toBe(meta.description)
-  expect(head.props.icon.props.src).toBe('/inspector/icon.svg')
+  expect(head.props.icon.props.src).toBe('/voice-input/icon.svg')
   expect(nodes(head.props.tags).some(node => node.props.children === 'statusBeta')).toBe(true)
-  const toggle = render(component(head.props.end, 'EnableSwitch')!)
+  const toggle = switchOf(component(head.props.end, 'EnableSwitch')!)
   expect(toggle.props.checked).toBe(false)
   toggle.props.onChange(true)
   expect(app.setEnabled).toHaveBeenCalledExactlyOnceWith(name, true)
-  inspector.enabled = true
+  voiceInput.enabled = true
   const activeHead = component(render(findCard()), 'CardHead')!
-  expect(render(component(activeHead.props.end, 'EnableSwitch')!).props.checked).toBe(true)
+  expect(switchOf(component(activeHead.props.end, 'EnableSwitch')!).props.checked).toBe(true)
   card.props.onOpen()
   const detail = render(component(app.page(), 'PackageDetail')!)
-  expect(component(detail, 'RowsSection')?.props.rows).toEqual(inspector.rows)
+  expect(component(detail, 'RowsSection')?.props.rows).toEqual(voiceInput.rows)
   const top = component(detail, 'DetailTop')!
-  render(component(top.props.actions, 'EnableSwitch')!).props.onChange(false)
+  switchOf(component(top.props.actions, 'EnableSwitch')!).props.onChange(false)
   expect(app.setEnabled).toHaveBeenLastCalledWith(name, false)
 })
 

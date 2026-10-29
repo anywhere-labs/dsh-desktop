@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '../../../dsh-plugin-desktop/src/native-
 import { DesktopFrame } from '../../../dsh-plugin-desktop/src/native-ui/shared/DesktopFrame.tsx'
 import type { DesktopBridge, DesktopPreferences, DesktopState } from '../desktop-contract.ts'
 import { installPluginControlsStyles } from '../client/plugin-controls-styles.ts'
+import { OFFICIAL_PLUGIN_INDEX } from '../upstream-family-labels.ts'
 import './onboarding.css'
 import whaleArtwork from '../../build/app-icon.icon/Assets/DeepSeek.svg'
 // Reuse the portable device family artwork and composition from the AA landing page.
@@ -45,7 +46,7 @@ export function Onboarding({ state, locale, bridge }: { state: Pick<DesktopState
   const titles = [t('欢迎使用\nDSH NEXT', 'Welcome to\nDSH NEXT'), t('用插件，\n拓展更多可能。', 'Make room\nfor more possibilities.'), t('离开电脑，\n也能继续。', 'Keep going.\nAway from your desk.'), t('让 AI 帮你\n操作电脑。', 'Let AI work\non your desktop.'), t('在浏览器中，\n也能打开。', 'Open in a browser,\nwhen you need to.'), t('遇到问题，\n从这里恢复。', 'A way back,\nwhen you need it.')]
   const descriptions = [
     t(`为 Profile「${state.selected}」选好常用功能。\n几步设置，就可以开始。`, `Set up the essentials for Profile “${state.selected}”.\nA few choices, then you’re ready to go.`),
-    t('选择一个插件市场，浏览和安装社区插件；\n或配置自定义插件市场。\n也可以暂不开启，以后在插件页面调整。', 'Choose a market to browse and install community plugins,\nor configure the custom plugin market.\nYou can also leave it off and decide later in Plugins.'),
+    t(`选择一个插件市场，浏览和安装社区插件；\n或配置${OFFICIAL_PLUGIN_INDEX.title.zh}。\n也可以暂不开启，以后在插件页面调整。`, `Choose a market to browse and install community plugins,\nor configure "${OFFICIAL_PLUGIN_INDEX.title.en}".\nYou can also leave it off and decide later in Plugins.`),
     t('通过 Agents Anywhere，在手机、平板或其他电脑上，\n继续与你的 Agent 对话。', 'Use Agents Anywhere on your phone, tablet or another computer\nto keep the conversation going.'),
     t('查看屏幕内容，操作鼠标和键盘。\n理解截图需要支持图片输入的模型。', 'View the screen and control the mouse and keyboard.\nUnderstanding screenshots requires a model with image input.'),
     t('允许在浏览器中打开当前 Profile，\n并选择可访问的设备范围。', 'Allow browser access to the current Profile,\nand choose which devices can reach it.'),
@@ -149,9 +150,9 @@ export function Onboarding({ state, locale, bridge }: { state: Pick<DesktopState
                 <RadioGroupItem value={option.value} aria-labelledby={`market-${option.value}`} />
               </label>)}
             </RadioGroup>
-            <RadioGroup aria-label={t('自定义插件市场', 'Custom plugin markets')} value={officialMarket ? 'official' : ''} disabled={disabled}>
+            <RadioGroup aria-label={t(OFFICIAL_PLUGIN_INDEX.title.zh, OFFICIAL_PLUGIN_INDEX.title.en)} value={officialMarket ? 'official' : ''} disabled={disabled}>
               <label className="next-onboarding-choice" data-selected={officialMarket} onClick={event => { event.preventDefault(); if (!disabled) setOfficialMarket(current => !current) }}>
-                <span className="next-onboarding-choice-copy"><strong><span id="market-official">{t('自定义插件市场', 'Custom plugin markets')}</span><small>{t('实验性', 'Experimental')}</small></strong><span>{t('开启官方插件市场，并预置 dsh-market 索引源。', 'Enable the official market with the dsh-market source preconfigured.')}</span></span>
+                <span className="next-onboarding-choice-copy"><strong><span id="market-official">{t(OFFICIAL_PLUGIN_INDEX.title.zh, OFFICIAL_PLUGIN_INDEX.title.en)}</span><small>{t('实验性', 'Experimental')}</small></strong><span>{t('开启这个官方插件，并预置 dsh-market 索引源。', 'Enable this official plugin with the dsh-market index source preconfigured.')}</span></span>
                 <RadioGroupItem value="official" aria-labelledby="market-official" />
               </label>
             </RadioGroup>

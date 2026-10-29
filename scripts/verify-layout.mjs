@@ -23,7 +23,7 @@ const upstreamPackage = readJson('deepseek-harness/package.json')
 
 if (stablePlugin.name !== 'dsh-plugin-desktop') fail('the stable Desktop workspace must retain dsh-plugin-desktop')
 if (betaPlugin.name !== 'dsh-plugin-desktop-beta') fail('the Beta Desktop workspace must publish as dsh-plugin-desktop-beta')
-if (!['stable', 'beta'].includes(upstream.activeChannel)) fail('the pinned upstream checkout must follow a declared release channel')
+if (!['stable', 'beta', 'next'].includes(upstream.activeChannel)) fail('the pinned upstream checkout must follow a declared release channel')
 const activeUpstream = upstream.channels?.[upstream.activeChannel]
 if (activeUpstream === undefined) fail('the active upstream channel is missing')
 
@@ -122,7 +122,7 @@ if (run('git', ['remote', 'get-url', 'origin'], upstreamDir) !== upstream.reposi
 if (upstreamPackage.version !== activeUpstream.sourceVersion) {
   fail('deepseek-harness package version differs from upstream.json')
 }
-for (const [channel, plugin] of [['stable', stablePlugin], ['beta', betaPlugin]]) {
+for (const [channel, plugin] of [['stable', stablePlugin], ['beta', betaPlugin], ['next', nextDesktop]]) {
   const metadata = upstream.channels?.[channel]
   if (metadata?.package !== plugin.name) fail(`${channel} upstream metadata points at the wrong package`)
   for (const name of Object.keys(plugin.dependencies).filter(name => name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-'))) {
@@ -133,6 +133,10 @@ for (const [channel, plugin] of [['stable', stablePlugin], ['beta', betaPlugin]]
 }
 
 if (nextDesktop.name !== 'dsh-desktop-next' || nextDesktop.private !== true) fail('Next must remain a private experimental package')
+const nextChannel = upstream.channels.next
+if (nextChannel.commit !== nextReference.commit || nextChannel.sourceVersion !== nextReference.version) {
+  fail('the next upstream channel differs from the Next upstream reference')
+}
 for (const [name, version] of Object.entries(nextDesktop.dependencies)) {
   if ((name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-')) && version !== nextReference.version) fail(`Next ${name} must match the pinned upstream family`)
 }

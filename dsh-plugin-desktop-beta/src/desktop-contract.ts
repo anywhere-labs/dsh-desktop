@@ -1,4 +1,6 @@
 /** General renderer state omits credentials; browser login links use a separate native operation. */
+import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
+import type { DesktopHostExit } from './exit-code.ts'
 import type { Features, OnboardingChoices } from './profiles.ts'
 import type { DesktopLanHttpsRuntimeSnapshot } from './lan-https-runtime.ts'
 import type { DesktopPermissions } from './permissions.ts'
@@ -61,6 +63,10 @@ export interface DesktopState {
   phase: 'starting' | 'ready' | 'error' | 'recovery'
   busy: boolean
   failure: string
+  /** Where `failure` stopped the Desktop: a startup stage, or the part that failed while running. */
+  failureStage?: DesktopFailureStage
+  /** How the Host ended, when its exit is the failure. */
+  failureExit?: DesktopHostExit
   safeMode: boolean
   /** The selected Profile needs Desktop setup in the running official client. */
   onboarding?: boolean

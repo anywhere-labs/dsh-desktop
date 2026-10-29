@@ -1,7 +1,8 @@
 /** Recent readable diagnostics plus private structured history. */
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { Worker } from 'node:worker_threads'
+import { crashDumpInventory } from './crash-reporting.ts'
 import { atomicJson, atomicText, readPrivateFile } from './private-files.ts'
 import { maskSecrets } from './mask-secrets.ts'
 import { LogHistory, type LogHistoryOptions } from './log-history.ts'
@@ -16,6 +17,9 @@ export class DesktopDiagnostics {
   private readonly marker: string
   private history: LogHistory | undefined
   private text = ''
+  /** Bumped whenever the readable text or a partial process line changes; the file is rewritten only then. */
+  private textRevision = 0
+  private writtenRevision = -1
   private partial = new Map<string, { text: string; dropping: boolean; pid?: number }>()
   private pending: string[] = []
   private pendingBytes = 0
@@ -26,6 +30,8 @@ export class DesktopDiagnostics {
   private timer: ReturnType<typeof setTimeout> | undefined
   level: DesktopPreferences['logLevel'] = 'info'
   developer = false
+  /** Electron's Crashpad directory; exports describe its minidumps without including them. */
+  crashDumps: string | undefined
   constructor(home: string, options?: LogHistoryOptions) {
     const directory = join(home, 'logs')
     this.file = join(directory, 'desktop-next.log')
@@ -64,11 +70,14 @@ export class DesktopDiagnostics {
     const record = sanitize({ time: new Date().toISOString(), runId: this.runId, sequence: ++this.sequence,
       pid: input.pid ?? process.pid, source: input.source, event: input.event, level,
       message: input.message ?? '', developer: input.developer ?? false, operationId: input.operationId,
-      fields: input.fields, error: input.error }) as LogRecord
+      fields: input.fields, data: input.data, error: input.error }) as LogRecord
     const line = JSON.stringify(record)
     this.pending.push(line); this.pendingBytes += Buffer.byteLength(line) + 1
-    const detail = record.error === undefined ? '' : ` ${JSON.stringify(record.error)}`
-    this.text = (this.text + `${record.time} [${level}] ${record.message ? record.message + ' ' : ''}[${record.source}] ${record.event}${record.operationId ? ` (${record.operationId})` : ''}${record.fields ? ` ${JSON.stringify(record.fields)}` : ''}${detail}\n`).slice(-LIMIT)
+    if (!input.historyOnly) {
+      const detail = record.error === undefined ? '' : ` ${JSON.stringify(record.error)}`
+      this.text = (this.text + `${record.time} [${level}] ${record.message ? record.message + ' ' : ''}[${record.source}] ${record.event}${record.operationId ? ` (${record.operationId})` : ''}${record.fields ? ` ${JSON.stringify(record.fields)}` : ''}${detail}\n`).slice(-LIMIT)
+      this.textRevision++
+    }
     if (level === 'error' || this.pendingBytes >= MAX_PENDING) this.flush()
     else { this.timer ??= setTimeout(() => this.flush(), 200); this.timer.unref() }
   }
@@ -111,12 +120,15 @@ export class DesktopDiagnostics {
       }
     }
     this.partial.set(key, buffer)
+    // The readable snapshot shows unfinished lines too.
+    this.textRevision++
   }
   hostClosed(pid?: number): void {
     for (const [key, buffer] of this.partial) {
       if (buffer.pid !== pid) continue
       if (buffer.text) this.hostLine(buffer.text, key.slice(key.indexOf(':') + 1), pid)
       this.partial.delete(key)
+      this.textRevision++
     }
     this.flush()
   }
@@ -139,7 +151,13 @@ export class DesktopDiagnostics {
         this.history.append(this.pending)
         this.pending = []; this.pendingBytes = 0
       }
-      atomicText(this.file, this.snapshot())
+      // History-only records leave the readable text unchanged; rewriting its 128 KiB file every
+      // time would turn a quiet 30-second sampler into hundreds of MiB of writes a day.
+      if (this.writtenRevision !== this.textRevision) {
+        const revision = this.textRevision
+        atomicText(this.file, this.snapshot())
+        this.writtenRevision = revision
+      }
       this.storageError = undefined
     } catch (error) {
       this.storageError = maskSecrets(String(error)).slice(0, 2048)
@@ -153,7 +171,9 @@ export class DesktopDiagnostics {
       runtime: sanitize({ profile: state.selected, profiles: state.profiles, phase: state.phase, safeMode: state.safeMode,
         failure: state.failure, features: state.features, preferences: state.preferences,
         trayAvailable: state.trayAvailable, browserUrl: state.browserUrl, lan: state.lan }),
-      logging: { storageError: this.storageError ?? null, droppedRecords: this.droppedRecords }, pendingOperations: this.pendingOperations(), log: this.snapshot() }, null, 2) + '\n'
+      logging: { storageError: this.storageError ?? null, droppedRecords: this.droppedRecords }, pendingOperations: this.pendingOperations(),
+      crashDumps: this.crashDumps === undefined ? null : { location: relative(join(this.file, '..', '..'), this.crashDumps).split(sep).join('/'), ...crashDumpInventory(this.crashDumps) },
+      log: this.snapshot() }, null, 2) + '\n'
   }
   /** Export history off the Electron main thread; terminate stalled workers. */
   exportTo(file: string, state: DesktopState): Promise<void> {

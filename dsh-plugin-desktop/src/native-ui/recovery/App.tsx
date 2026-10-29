@@ -48,9 +48,10 @@ import {
 } from '../shared/RecoveryWindowPrimitives.tsx'
 import {
   desktopRecoveryCopy,
+  isRuntimeFailureStage,
+  type DesktopFailureStage,
   type DesktopRecoveryCopy,
   type DesktopRecoveryTab,
-  type DesktopStartupFailureStage,
 } from '../../recovery-copy.ts'
 import type { DesktopLocale } from '../../runtime.ts'
 
@@ -88,7 +89,7 @@ interface RecoveryProfile {
 }
 export interface RecoveryState {
   readonly locale: DesktopLocale
-  readonly failureStage: DesktopStartupFailureStage
+  readonly failureStage: DesktopFailureStage
   readonly failureDetail: string
   readonly requested?: boolean
   readonly snapshot?: RecoverySnapshot
@@ -254,7 +255,7 @@ function DiagnosticsPanel({ copy, state }: { readonly copy: DesktopRecoveryCopy;
 }
 
 function Reason({ copy, state }: { readonly copy: DesktopRecoveryCopy; readonly state: RecoveryState }): JSX.Element {
-  return <Card className={cn('shrink-0', state.requested === true ? 'border-border' : 'border-amber-500/50')}><CardContent className="flex gap-4 p-4"><div className="mt-0.5 shrink-0">{state.requested === true ? <LifeBuoy className="size-5 text-muted-foreground" /> : <AlertTriangle className="size-5 text-amber-500" />}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h2 className="text-sm font-semibold">{copy.reason}</h2>{state.snapshot === undefined ? null : <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">{copy.currentProfile}: {state.snapshot.profileName}</span>}{state.profileDirectory === undefined ? null : <span className="inline-flex min-w-0 max-w-full items-center rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground"><span className="shrink-0">{copy.currentProfileDirectory}:&nbsp;</span><code className="truncate select-text" title={state.profileDirectory}>{state.profileDirectory}</code></span>}</div>{state.requested === true ? <><p className="mt-1 text-sm font-medium">{copy.requestedMode}</p><p className="mt-1 text-sm text-muted-foreground">{copy.requestedBody}</p></> : <><p className="mt-1 text-xs text-muted-foreground">{copy.failureStage}: {copy.stageLabels[state.failureStage]}</p><pre className="mt-2 max-h-20 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-2.5 text-xs leading-relaxed">{state.failureDetail}</pre></>}</div></CardContent></Card>
+  return <Card className={cn('shrink-0', state.requested === true ? 'border-border' : 'border-amber-500/50')}><CardContent className="flex gap-4 p-4"><div className="mt-0.5 shrink-0">{state.requested === true ? <LifeBuoy className="size-5 text-muted-foreground" /> : <AlertTriangle className="size-5 text-amber-500" />}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h2 className="text-sm font-semibold">{copy.reason}</h2>{state.snapshot === undefined ? null : <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">{copy.currentProfile}: {state.snapshot.profileName}</span>}{state.profileDirectory === undefined ? null : <span className="inline-flex min-w-0 max-w-full items-center rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground"><span className="shrink-0">{copy.currentProfileDirectory}:&nbsp;</span><code className="truncate select-text" title={state.profileDirectory}>{state.profileDirectory}</code></span>}</div>{state.requested === true ? <><p className="mt-1 text-sm font-medium">{copy.requestedMode}</p><p className="mt-1 text-sm text-muted-foreground">{copy.requestedBody}</p></> : <><p className="mt-1 text-xs text-muted-foreground">{isRuntimeFailureStage(state.failureStage) ? copy.runtimeFailureStage : copy.failureStage}: {copy.stageLabels[state.failureStage]}</p><pre className="mt-2 max-h-20 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-2.5 text-xs leading-relaxed">{state.failureDetail}</pre></>}</div></CardContent></Card>
 }
 
 /** Keep the recovery terminal pill opposite the platform's native controls. */

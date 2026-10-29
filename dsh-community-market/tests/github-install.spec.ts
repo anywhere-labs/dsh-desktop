@@ -131,7 +131,7 @@ function manager(installed: (spec: string) => ChangeResult) {
       if (result.bundle !== undefined) {
         bundles.push({
           name: result.bundle, official: false, availability: 'profile', enabled: true, installed: true,
-          optional: false, removable: true, rows: [], overrides: [], ...(result.version === undefined ? {} : { version: result.version }),
+          optional: false, removable: true, updatable: false, rows: [], overrides: [], ...(result.version === undefined ? {} : { version: result.version }),
         })
       }
       return result

@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/deepseek-ai/deepseek-harness",
-  "commit": "1f81c047fc48fa190a683e469daa699857e9afe8",
-  "version": "0.2.1-rc.3",
+  "commit": "504a01a9578abc2c6f1fb896b1dc322c9fe24f66",
+  "version": "0.2.1-rc.4",
   "files": [
     {
       "upstream": "apps/desktop/src/host-process.ts",

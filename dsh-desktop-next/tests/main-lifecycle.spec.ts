@@ -15,6 +15,7 @@ const fixture = vi.hoisted(() => ({
   windows: [] as any[], trays: [] as any[], handlers: new Map<string, (...args: any[]) => any>(),
   load: vi.fn(), report: vi.fn(), plugin: vi.fn(), pluginDone: vi.fn(), diagnosticAppend: vi.fn(),
   terminalTarget: vi.fn(), openTerminal: vi.fn(), popup: vi.fn(),
+  crashStart: vi.fn(), memory: { start: vi.fn(), stop: vi.fn(), settle: vi.fn(), incident: vi.fn(), hostMemory: vi.fn(), hostExited: vi.fn() },
   stop: vi.fn(async () => {}),
   close: vi.fn(async () => {}), start: vi.fn(async () => {}), preferences: { closeToTray: true, browserAccess: false, networkExposure: 'loopback' as 'loopback' | 'lan' },
   phase: 'ready' as 'ready' | 'error',
@@ -50,6 +51,7 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
   profiles: NextProfiles
   recovery: import('../src/recovery.ts').NextRecovery
   diagnostics = { append: fixture.diagnosticAppend, flush: vi.fn(), hostChunk: vi.fn(), record: fixture.diagnosticAppend, operation: vi.fn(() => vi.fn()), begin: vi.fn(), end: vi.fn(), pendingOperations: vi.fn(() => []) }
+  memory = fixture.memory
   constructor(options: ConstructorParameters<typeof NextDesktopRuntime>[0]) {
     fixture.runtimeOptions = options
     fixture.preferences = this.preferences; fixture.onPermission = options.onPermission
@@ -84,6 +86,7 @@ vi.mock('electron', async () => {
   const app = Object.assign(new EventEmitter(), {
     setName() {}, setPath: (name: string, path: string) => fixture.appPaths.set(name, path), getPath: (name: string) => fixture.appPaths.get(name) ?? process.env.DSH_DESKTOP_NEXT_HOME, getLocale: () => 'en-US', getPreferredSystemLanguages: () => ['zh-Hans-CN', 'en-US'], isReady: () => true, whenReady: async () => {},
     requestSingleInstanceLock: () => { fixture.lockPaths.push(fixture.appPaths.get('userData')!); return fixture.ownsInstance }, exit: vi.fn(), relaunch: vi.fn(), focus: vi.fn(), quit: vi.fn(() => app.emit('before-quit', { preventDefault() {} })),
+    getAppMetrics: () => [],
   })
   class BrowserWindow extends EventEmitter {
     visible = false
@@ -135,6 +138,7 @@ vi.mock('electron', async () => {
     destroy() { this.destroyed = true }
   }
   return { app, BrowserWindow, Tray, autoUpdater: Object.assign(new EventEmitter(), { setFeedURL: vi.fn(), checkForUpdates: vi.fn(), quitAndInstall: vi.fn() }), net: { fetch: vi.fn() },
+    crashReporter: { start: fixture.crashStart },
     Notification: class { static isSupported() { return false } },
     clipboard: {}, dialog: { showMessageBox: vi.fn(async () => ({ response: 0 })), showMessageBoxSync: vi.fn(() => 0), showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) }, shell: { showItemInFolder: vi.fn() }, safeStorage: {}, nativeTheme: { shouldUseDarkColors: true, on() {} },
     nativeImage: { createFromPath: () => ({ isEmpty: () => false, setTemplateImage() {} }) },
@@ -158,6 +162,7 @@ beforeEach(async () => {
   fixture.plugin.mockReset(); fixture.pluginDone.mockReset().mockResolvedValue({ exitCode: 0 });
   fixture.load.mockReset(); fixture.report.mockReset(); fixture.diagnosticAppend.mockReset();
   fixture.terminalTarget.mockReset(); fixture.openTerminal.mockClear(); fixture.popup.mockClear();
+  fixture.crashStart.mockReset(); for (const action of Object.values(fixture.memory)) action.mockReset()
   fixture.stop.mockReset().mockResolvedValue(undefined); fixture.start.mockClear(); fixture.close.mockReset().mockResolvedValue(undefined)
   fixture.startupElevation = { relaunched: false, state: {} }; fixture.elevation = undefined
   const { app, autoUpdater, dialog } = await import('electron')
@@ -231,7 +236,9 @@ it('uses the existing recovery assistant only after exhausting automatic rendere
     }
     expect(main.loadedUrls).toHaveLength(4)
     main.webContents.emit('render-process-gone', {}, { reason: 'crashed', exitCode: -1073741819 })
-    expect(fixture.report).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'Renderer recovery exhausted: Renderer: crashed' }))
+    expect(fixture.report).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'Renderer recovery exhausted: Renderer: crashed' }), 'renderer-startup')
+    expect(fixture.memory.incident).toHaveBeenCalledTimes(4)
+    expect(fixture.memory.incident).toHaveBeenLastCalledWith({ process: 'renderer', reason: 'crashed', exitCode: -1073741819 })
     expect(fixture.stop).toHaveBeenCalledOnce()
     expect(main.destroyed).toBe(true)
     expect(fixture.windows[1].loadedUrls[0]).toContain('#recovery')
@@ -478,6 +485,36 @@ it('explains the first Windows GPU launch failure in a native dialog, records it
     Object.defineProperty(process, 'platform', platform)
     vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
   }
+})
+
+it('starts local-only Crashpad before any window and turns renderer and child failures into memory incidents', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-memory-incidents-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const { app } = await import('electron')
+    expect(fixture.crashStart).toHaveBeenCalledExactlyOnceWith({ productName: 'DSH NEXT', uploadToServer: false, globalExtra: expect.objectContaining({ appVersion: expect.any(String) }) })
+    // Safe Mode swaps userData for disposable state; dumps stay beside the normal launch.
+    expect(fixture.appPaths.get('crashDumps')).toBe(join(home, 'electron-user-data', 'Crashpad'))
+    expect(fixture.memory.start).toHaveBeenCalledOnce()
+    const main = fixture.windows[0]
+    main.webContents.emit('render-process-gone', {}, { reason: 'clean-exit', exitCode: 0 })
+    app.emit('child-process-gone', {}, { type: 'Utility', reason: 'clean-exit', exitCode: 0, serviceName: 'audio.mojom.AudioService' })
+    expect(fixture.memory.incident).not.toHaveBeenCalled()
+    main.webContents.emit('render-process-gone', {}, { reason: 'oom', exitCode: -536870904 })
+    app.emit('child-process-gone', {}, { type: 'GPU', reason: 'crashed', exitCode: 34 })
+    expect(fixture.memory.incident.mock.calls).toEqual([
+      [{ process: 'renderer', reason: 'oom', exitCode: -536870904 }],
+      [{ process: 'child', type: 'GPU', reason: 'crashed', exitCode: 34 }],
+    ])
+    expect(fixture.memory.stop).not.toHaveBeenCalled()
+    app.quit()
+    expect(fixture.memory.stop).toHaveBeenCalledOnce()
+    // Quitting ends every child process; that is not memory evidence.
+    app.emit('child-process-gone', {}, { type: 'Utility', reason: 'killed', exitCode: 1, serviceName: 'network.mojom.NetworkService' })
+    expect(fixture.memory.incident).toHaveBeenCalledTimes(2)
+  } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 
 it('explains a Windows renderer launch failure only for the Desktop windows', async () => {

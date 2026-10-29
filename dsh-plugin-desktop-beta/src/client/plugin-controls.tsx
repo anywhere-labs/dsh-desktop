@@ -19,6 +19,7 @@ import {
   removeMarketSourcesFromOfficial, resolveActiveMarketSource, toggleMarketEndpointInOfficial,
   type BuiltInMarketKey, type MarketName, type MarketRuntimeState,
 } from './market-toggle.ts'
+import { OFFICIAL_PLUGIN_INDEX } from '../upstream-family-labels.ts'
 
 const REMOTE = '@agents-anywhere/dsh-bridge-next'
 const COMPUTER_ITEM = 'desktop-next-computer-use'
@@ -231,11 +232,13 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
   const t: Translate = (cn, en) => zh ? cn : en
   const [runtime, setRuntime] = useState<MarketRuntimeState>({})
   const [configuredUrls, setConfiguredUrls] = useState<string[]>([])
-  const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [busyKeys, setBusyKeys] = useState<readonly string[]>([])
+  const pendingKeys = useRef(new Set<string>())
+  const operations = useRef(Promise.resolve())
   const [error, setError] = useState('')
   const [revision, refresh] = useState(0)
 
-  const importing = busyAction !== null
+  const busy = (key: string): boolean => busyKeys.includes(key)
   const communityEnabled = bundles.find(row => row.name === COMMUNITY)?.enabled === true
   const dshMarketEnabled = bundles.find(row => row.name === MARKET)?.enabled === true
   const officialRow = bundles.find(row => row.name === OFFICIAL_MARKET)
@@ -291,10 +294,25 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
   const activeMarketDef = BUILT_IN_MARKET_SOURCES.find(item => item.key === resolution.marketKey) ?? BUILT_IN_MARKET_SOURCES[0]!
   const configuredSet = new Set(configuredUrls)
 
-  const handleToggleOfficialMarket = async (enabled: boolean): Promise<void> => {
-    if (busyAction !== null) return
-    setBusyAction('official-toggle'); setError('')
-    try {
+  /**
+   * Mark only the clicked control busy. Operations still run one at a time: each reads the configured index list and
+   * writes it back whole, so two running together would drop one of the changes.
+   */
+  const run = (key: string, operation: () => Promise<void>): void => {
+    if (pendingKeys.current.has(key)) return
+    pendingKeys.current.add(key)
+    setBusyKeys([...pendingKeys.current]); setError('')
+    operations.current = operations.current.then(operation).catch((failure: unknown) => {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    }).finally(() => {
+      pendingKeys.current.delete(key)
+      setBusyKeys([...pendingKeys.current])
+      refresh(value => value + 1)
+    })
+  }
+
+  const handleToggleOfficialMarket = (enabled: boolean): void => {
+    run('official-toggle', async () => {
       const result = await context.remote.pluginManager.setBundleEnabled(OFFICIAL_MARKET, enabled)
       if (!result.ok) throw new Error(result.error.message)
       const change = result.value
@@ -303,34 +321,20 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
       }
       if (!enabled) setConfiguredUrls([])
       onChanged()
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setBusyAction(null)
-      refresh(value => value + 1)
-    }
+    })
   }
 
-  const handleImport = async (): Promise<void> => {
-    if (busyAction !== null) return
-    setBusyAction('all'); setError('')
-    try {
+  const handleImport = (): void => {
+    run('all', async () => {
       const result = await importMarketSourcesToOfficial(context.remote, resolution, officialEnabled, runtime)
       setConfiguredUrls([...result.configuredUrls])
       reloadDiscoverIndexesIfMounted(context)
       onChanged()
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setBusyAction(null)
-      refresh(value => value + 1)
-    }
+    })
   }
 
-  const handleConfigureSingle = async (marketKey: BuiltInMarketKey, currentlyConfigured: boolean): Promise<void> => {
-    if (busyAction !== null) return
-    setBusyAction(marketKey); setError('')
-    try {
+  const handleConfigureSingle = (marketKey: BuiltInMarketKey, currentlyConfigured: boolean): void => {
+    run(marketKey, async () => {
       if (currentlyConfigured) {
         const nextUrls = await removeMarketSourcesFromOfficial(context.remote, marketKey)
         setConfiguredUrls([...nextUrls])
@@ -341,28 +345,16 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
         reloadDiscoverIndexesIfMounted(context)
         onChanged()
       }
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setBusyAction(null)
-      refresh(value => value + 1)
-    }
+    })
   }
 
-  const handleToggleEndpoint = async (endpointUrl: string, enable: boolean): Promise<void> => {
-    if (busyAction !== null) return
-    setBusyAction(endpointUrl); setError('')
-    try {
+  const handleToggleEndpoint = (endpointUrl: string, enable: boolean): void => {
+    run(endpointUrl, async () => {
       const result = await toggleMarketEndpointInOfficial(context.remote, endpointUrl, enable, officialEnabled)
       setConfiguredUrls([...result.configuredUrls])
       if (enable) reloadDiscoverIndexesIfMounted(context)
       onChanged()
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setBusyAction(null)
-      refresh(value => value + 1)
-    }
+    })
   }
 
   return <Modal open={open} onClose={onClose} title={t('来源配置', 'Source configuration')}
@@ -372,12 +364,12 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
         <div className="dshNextMarketSourceNoticeCopy">
           <IconWarningOutlineRegular size={14} aria-hidden="true" />
           <span>{t(
-            '“快速配置”会自动开启官方的“自定义插件市场”插件，直接配置下方已适配官方索引格式的内置插件市场（dsh-market）默认源，并将其同步为选中源。',
-            '"Quick configuration" automatically enables the official "Custom Plugin Market" plugin, configures the default source of the adapted built-in plugin market below (dsh-market), and syncs it as the selected source.',
+            `“快速配置”会自动开启官方的“${OFFICIAL_PLUGIN_INDEX.title.zh}”插件，配置下方各插件市场的默认源，并选中当前所用插件市场对应的源；未开启插件市场或其没有对应源时，选中 dsh-market 默认源。`,
+            `"Quick configuration" automatically enables the official "${OFFICIAL_PLUGIN_INDEX.title.en}" plugin, configures the default source of each plugin market below, and selects the source of the plugin market you use; when no plugin market is enabled or it has no adapted source, the dsh-market default source is selected.`,
           )}</span>
         </div>
-        <Button variant="primary" size="sm" disabled={importing} onClick={() => { void handleImport() }}>
-          {busyAction === 'all' ? t('正在配置…', 'Configuring…') : t('快速配置', 'Quick configuration')}
+        <Button variant="primary" size="sm" disabled={busy('all')} onClick={() => { handleImport() }}>
+          {busy('all') ? t('正在配置…', 'Configuring…') : t('快速配置', 'Quick configuration')}
         </Button>
       </div>
       {error && <p role="alert" className="dshDesktopSettingsError">{error}</p>}
@@ -387,13 +379,13 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
             <strong>{t('当前使用的插件市场', 'Currently active plugin market')}</strong>
             {resolution.enabled && <Tag>{zh ? activeMarketDef.title.zh : activeMarketDef.title.en}</Tag>}
             {resolution.enabled && activeMarketDef.bundle === COMMUNITY && <Tag>Beta</Tag>}
-            {officialEnabled && <Tag tone="info">{t('官方自定义插件市场', 'Official Custom Plugin Market')}</Tag>}
+            {officialEnabled && <Tag tone="info">{t(`官方${OFFICIAL_PLUGIN_INDEX.title.zh}`, `${OFFICIAL_PLUGIN_INDEX.title.en} (official)`)}</Tag>}
           </div>
           {officialEnabled ? (
             <span className="dshNextPermissionStatus" role="status">
               <StateDot state="done" />
-              {t(`已开启官方“自定义插件市场”插件（已配置 ${String(configuredUrls.length)} 个索引源）`,
-                `Official "Custom Plugin Market" plugin enabled (${String(configuredUrls.length)} index sources configured)`)}
+              {t(`已开启官方“${OFFICIAL_PLUGIN_INDEX.title.zh}”插件（已配置 ${String(configuredUrls.length)} 个索引源）`,
+                `Official "${OFFICIAL_PLUGIN_INDEX.title.en}" plugin enabled (${String(configuredUrls.length)} index sources configured)`)}
             </span>
           ) : !resolution.enabled ? (
             <p className="dshDesktopSettingsHint">
@@ -402,36 +394,33 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
           ) : null}
         </div>
       </div>
-      <div className="dshNextPermissionRow" role="group" aria-label={t('官方自定义插件市场配置', 'Official Custom Plugin Market configuration')}>
+      <div className="dshNextPermissionRow" role="group" aria-label={t(`官方${OFFICIAL_PLUGIN_INDEX.title.zh}配置`, `Official "${OFFICIAL_PLUGIN_INDEX.title.en}" configuration`)}>
         <div className="dshNextPermissionCopy">
           <div className="dshNextMarketSourceHeaderMain">
             <div className="dshNextMarketSourceTitle">
-              <strong>{t('自定义插件市场', 'Custom plugin markets')}</strong>
+              <strong>{t(OFFICIAL_PLUGIN_INDEX.title.zh, OFFICIAL_PLUGIN_INDEX.title.en)}</strong>
               {officialRow?.version && <Tag>{`v${officialRow.version}`}</Tag>}
               <Tag tone="info">{t('实验性', 'Experimental')}</Tag>
             </div>
             {officialEnabled && <code className="dshNextMarketSourceUrl">{OFFICIAL_MARKET}</code>}
             <p className="dshDesktopSettingsHint">
               {officialEnabled
-                ? t(
-                  '在插件页添加「发现」标签页，从你添加的插件市场索引浏览和安装插件。',
-                  'Adds a Discover tab to Plugins for browsing and installing bundles from plugin market indexes you add.',
-                )
+                ? t(OFFICIAL_PLUGIN_INDEX.description.zh, OFFICIAL_PLUGIN_INDEX.description.en)
                 : t(
-                  '开启右侧开关或点击上方“快速配置”以启用官方“自定义插件市场”，启用后可在下方配置与管理内置插件源。',
-                  'Turn on the switch on the right or click "Quick configuration" above to enable the official "Custom Plugin Market" and manage built-in sources below.',
+                  `开启右侧开关或点击上方“快速配置”以启用官方“${OFFICIAL_PLUGIN_INDEX.title.zh}”，启用后可在下方配置与管理内置插件源。`,
+                  `Turn on the switch on the right or click "Quick configuration" above to enable the official "${OFFICIAL_PLUGIN_INDEX.title.en}" and manage built-in sources below.`,
                 )}
             </p>
           </div>
         </div>
         <div className="dshNextPluginActions">
-          <Switch label={t('启用官方自定义插件市场', 'Enable official Custom Plugin Market')} checked={officialEnabled}
-            disabled={importing || officialLocked} onChange={enabled => { void handleToggleOfficialMarket(enabled) }} />
+          <Switch label={t(`启用官方${OFFICIAL_PLUGIN_INDEX.title.zh}`, `Enable the official "${OFFICIAL_PLUGIN_INDEX.title.en}"`)} checked={officialEnabled}
+            disabled={busy('official-toggle') || officialLocked} onChange={enabled => { handleToggleOfficialMarket(enabled) }} />
         </div>
       </div>
       {officialEnabled && <div className="dshNextMarketSourceSectionHeader">
         <div className="dshNextMarketSourceHeaderMain">
-          <strong>{t('可供官方“自定义插件市场”配置的插件源', 'Plugin sources available for the official Custom Plugin Market')}</strong>
+          <strong>{t(`可供官方“${OFFICIAL_PLUGIN_INDEX.title.zh}”配置的插件源`, `Plugin sources available for the official "${OFFICIAL_PLUGIN_INDEX.title.en}"`)}</strong>
         </div>
       </div>}
       {officialEnabled && OFFICIAL_CONFIGURABLE_MARKET_SOURCES.map(marketDef => {
@@ -452,10 +441,10 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
                 <p className="dshDesktopSettingsHint">{zh ? marketDef.description.zh : marketDef.description.en}</p>
               </div>
               <div className="dshNextPluginActions">
-                <Button variant="outline" size="sm" disabled={importing}
+                <Button variant="outline" size="sm" disabled={busy(marketDef.key)}
                   className={isMarketConfigured ? 'dshNextMarketRemoveBtn' : undefined}
-                  onClick={() => { void handleConfigureSingle(marketDef.key, isMarketConfigured) }}>
-                  {busyAction === marketDef.key
+                  onClick={() => { handleConfigureSingle(marketDef.key, isMarketConfigured) }}>
+                  {busy(marketDef.key)
                     ? t('正在处理…', 'Processing…')
                     : isMarketConfigured
                       ? t('重置', 'Reset')
@@ -474,10 +463,10 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
                     </div>
                     <code className="dshNextMarketSourceUrl">{source.url}</code>
                   </div>
-                  <Button variant="outline" size="sm" disabled={importing}
+                  <Button variant="outline" size="sm" disabled={busy(source.url)}
                     className={isConfigured ? 'dshNextMarketRemoveBtn' : undefined}
-                    onClick={() => { void handleToggleEndpoint(source.url, !isConfigured) }}>
-                    {busyAction === source.url
+                    onClick={() => { handleToggleEndpoint(source.url, !isConfigured) }}>
+                    {busy(source.url)
                       ? t('正在处理…', 'Processing…')
                       : isConfigured
                         ? t('删除配置', 'Remove configuration')
