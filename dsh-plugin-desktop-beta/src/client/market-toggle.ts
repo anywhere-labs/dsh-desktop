@@ -74,11 +74,11 @@ export const BUILT_IN_MARKET_SOURCES: readonly BuiltInMarketDefinition[] = [
     providerId: 'com.dshfind.catalog',
     title: { zh: 'dshfind（社区插件市场）', en: 'dshfind (Community Market)' },
     description: {
-      zh: '社区插件市场内置源，提供标准市场目录、Manifest 与全量快照源。',
-      en: 'Built-in Community Market provider with standard market catalog, manifest, and full snapshot endpoints.',
+      zh: `社区插件市场内置源，提供已适配“${OFFICIAL_PLUGIN_INDEX.title.zh}”格式（format 1）的插件目录索引源。`,
+      en: `Built-in Community Market provider with a plugin directory index source adapted for the "${OFFICIAL_PLUGIN_INDEX.title.en}" format (format 1).`,
     },
     homepage: 'https://dshfind.com',
-    defaultSyncUrl: 'https://api.dshfind.com/market/v1/plugins',
+    defaultSyncUrl: 'https://api.dshfind.com/market/dsh-index.json',
     sources: [
       {
         url: 'https://api.dshfind.com/market/v1/plugins',
@@ -102,6 +102,15 @@ export const BUILT_IN_MARKET_SOURCES: readonly BuiltInMarketDefinition[] = [
           { zh: '快照源', en: 'Snapshot' },
           { zh: 'Catalog V1', en: 'Catalog V1' },
         ],
+      },
+      {
+        url: 'https://api.dshfind.com/market/dsh-index.json',
+        label: { zh: 'dshfind 索引源（DSH 插件目录）', en: 'dshfind index source (DSH Plugin Directory)' },
+        tags: [
+          { zh: '全量索引', en: 'Full index' },
+          { zh: 'format 1', en: 'format 1' },
+        ],
+        format1: true,
       },
     ],
   },
@@ -142,11 +151,12 @@ export const BUILT_IN_MARKET_SOURCES: readonly BuiltInMarketDefinition[] = [
 
 /**
  * Built-in markets currently displayed and configurable for the official plugin index bundle
- * (`@deepseek-ai/dsh-experimental-plugin-market-bundle`).
- * Only `dshmarket` currently publishes `format: 1` `dsh-index.json` endpoints.
+ * (`@deepseek-ai/dsh-experimental-plugin-market-bundle`), narrowed to the `format: 1` `dsh-index.json` endpoints they publish.
+ * Quick configuration adds the default source of each; `dshmarket` stays first because it is the fallback selection.
  */
-export const OFFICIAL_CONFIGURABLE_MARKET_SOURCES: readonly BuiltInMarketDefinition[] =
-  BUILT_IN_MARKET_SOURCES.filter(item => item.key === 'dshmarket')
+export const OFFICIAL_CONFIGURABLE_MARKET_SOURCES: readonly BuiltInMarketDefinition[] = (['dshmarket', 'dshfind'] as const)
+  .flatMap(key => BUILT_IN_MARKET_SOURCES.filter(item => item.key === key))
+  .map(item => ({ ...item, sources: item.sources.filter(source => source.format1 === true) }))
 
 export interface CommunitySourceLike {
   readonly providerId?: string
@@ -235,7 +245,8 @@ export function resolveActiveMarketSource(
     bundle: enabledBundle,
     marketKey,
     desktopActiveUrl: enabledBundle ? activeUrl : null,
-    syncUrl: activeUrl,
+    // dshfind publishes a separate format-1 index; 1024Store has none, so its catalog URL stays the sync URL.
+    syncUrl: isDshfind ? 'https://api.dshfind.com/market/dsh-index.json' : activeUrl,
   }
 }
 
@@ -268,7 +279,7 @@ export function resolveMarketSourceByKey(
   return {
     marketKey,
     desktopActiveUrl: url,
-    syncUrl: url,
+    syncUrl: marketKey === 'dshfind' ? 'https://api.dshfind.com/market/dsh-index.json' : url,
   }
 }
 
@@ -287,11 +298,24 @@ function deduplicateUrls(candidates: readonly string[]): string[] {
 }
 
 /**
- * Build the deduplicated list of default index URLs for "Quick configuration" (`pluginMarket.setIndexes`),
- * placing the default source of `dshmarket` (or the active `dshmarket` sync URL) first, followed by any existing user URLs.
+ * Quick configuration selects the index of the market in use when that market publishes one, and otherwise
+ * (no market enabled, or 1024Store) the `dshmarket` index for the current region.
+ */
+function quickConfigurationUrl(
+  resolution: Pick<ActiveMarketResolution, 'enabled' | 'marketKey' | 'syncUrl'>,
+  runtime: MarketRuntimeState,
+): string {
+  return resolution.enabled && OFFICIAL_CONFIGURABLE_MARKET_SOURCES.some(item => item.key === resolution.marketKey)
+    ? resolution.syncUrl
+    : resolveMarketSourceByKey('dshmarket', runtime).syncUrl
+}
+
+/**
+ * Build the deduplicated list of index URLs for "Quick configuration" (`pluginMarket.setIndexes`): the selected source
+ * first, then the default source of every official-configurable market, followed by any existing user URLs.
  */
 export function orderedMarketSourceUrls(
-  resolution: Pick<ActiveMarketResolution, 'marketKey' | 'syncUrl' | 'desktopActiveUrl'>,
+  resolution: Pick<ActiveMarketResolution, 'enabled' | 'marketKey' | 'syncUrl' | 'desktopActiveUrl'>,
   existingUrls: readonly string[] = [],
   runtime: MarketRuntimeState = {},
 ): string[] {
@@ -300,6 +324,7 @@ export function orderedMarketSourceUrls(
       ? resolution.syncUrl
       : resolveMarketSourceByKey(item.key, runtime).syncUrl)
   return deduplicateUrls([
+    quickConfigurationUrl(resolution, runtime),
     ...defaultUrls,
     ...existingUrls,
   ])
@@ -392,27 +417,25 @@ async function applyOfficialIndexes(
 }
 
 /**
- * Quick-configure the official-configurable built-in plugin market (`dshmarket`) default source into the official
- * plugin index bundle (`@deepseek-ai/dsh-experimental-plugin-market-bundle`), synchronizing it as the selected index.
+ * Quick-configure the default source of every official-configurable built-in market into the official plugin index
+ * bundle (`@deepseek-ai/dsh-experimental-plugin-market-bundle`), selecting the source of the market in use as the active index.
  */
 export async function importMarketSourcesToOfficial(
   remote: OfficialMarketImportClient,
-  resolution: Pick<ActiveMarketResolution, 'marketKey' | 'syncUrl' | 'desktopActiveUrl'>,
+  resolution: Pick<ActiveMarketResolution, 'enabled' | 'marketKey' | 'syncUrl' | 'desktopActiveUrl'>,
   officialBundleEnabled: boolean,
   runtime: MarketRuntimeState = {},
 ): Promise<OfficialMarketImportResult> {
   const existingResult = await remote.pluginMarket.listIndexes()
   const existingUrls = existingResult.ok ? existingResult.value.map(item => item.url) : []
   const configuredUrls = orderedMarketSourceUrls(resolution, existingUrls, runtime)
-  const syncedUrl = resolution.marketKey === 'dshmarket'
-    ? resolution.syncUrl
-    : resolveMarketSourceByKey('dshmarket', runtime).syncUrl
+  const syncedUrl = quickConfigurationUrl(resolution, runtime)
   return await applyOfficialIndexes(remote, syncedUrl, configuredUrls, existingUrls, officialBundleEnabled)
 }
 
 /**
  * Enable the official plugin index bundle (`@deepseek-ai/dsh-experimental-plugin-market-bundle`),
- * configure all sources of a single built-in market, and select its default source as the active index.
+ * configure the `format: 1` sources of a single built-in market, and select its default source as the active index.
  */
 export async function configureSingleMarketToOfficial(
   remote: OfficialMarketImportClient,
@@ -421,7 +444,7 @@ export async function configureSingleMarketToOfficial(
   officialBundleEnabled: boolean,
 ): Promise<OfficialMarketImportResult> {
   const target = resolveMarketSourceByKey(marketKey, runtime)
-  const marketDef = BUILT_IN_MARKET_SOURCES.find(item => item.key === marketKey)
+  const marketDef = OFFICIAL_CONFIGURABLE_MARKET_SOURCES.find(item => item.key === marketKey)
   const marketUrls = marketDef ? marketDef.sources.map(source => source.url) : []
   const existingResult = await remote.pluginMarket.listIndexes()
   const existingUrls = existingResult.ok ? existingResult.value.map(item => item.url) : []

@@ -3,11 +3,11 @@ import { installDesktopShortcuts } from './keyboard.ts'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { access, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { freemem, totalmem } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import { app, BrowserWindow, clipboard, crashReporter, dialog, ipcMain, Menu, nativeTheme, net, Notification, protocol, safeStorage, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, clipboard, crashReporter, dialog, ipcMain, Menu, nativeTheme, net, Notification, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
 import { appRequestHeaders, forwardWebRequest, serveWebDocument } from './web-document.ts'
 import { installAppDownloads } from './app-downloads.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
@@ -34,6 +34,7 @@ import { cleanupDisposableTree } from '../../dsh-plugin-desktop/src/disposable-t
 import { installEditingContextMenu } from '../../dsh-plugin-desktop/src/context-menu.ts'
 import { atomicJson, privateDirectory } from './private-files.ts'
 import { windowMaterial } from './window-material.ts'
+import { captureMainWindowState, FileMainWindowStateStore, fitMainWindowBounds, sameMainWindowState, type MainWindowState } from './main-window-state.ts'
 import { DE_ELEVATED_ARGUMENT, ONBOARDING_ARGUMENT, RECOVERY_ARGUMENT, SAFE_ARGUMENT, relaunchApp, relaunchArguments } from './relaunch.ts'
 import { DESKTOP_RUNTIME_FILE, readInstalledPackageVersion, verifyPackagedRuntimeIdentity } from './runtime-tree.ts'
 import { unpackedPath } from './asar-archive-policy.ts'
@@ -48,7 +49,7 @@ import { createArtifactRequest } from './update-transport.ts'
 import { NextUpdateInstaller } from './update-installer.ts'
 import { updateLabel } from './update-state.ts'
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
-import { isDesktopRendererStatus, NextRendererRecovery } from './renderer-recovery.ts'
+import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCause } from './renderer-recovery.ts'
 import { deElevateAtStartup, windowsElevation } from './windows-elevation.ts'
 import { createSandboxLaunchReporter, gpuLaunchFailure, rendererLaunchFailure } from './sandbox-launch.ts'
 import { startCrashReporting } from './crash-reporting.ts'
@@ -91,6 +92,7 @@ if (ownsInstance) {
 }
 const electronData = ownsInstance && safeModeRequested ? safeElectronData : normalElectronData
 const nativeLocale = new NativeLocaleStore(safeModeRequested ? electronData : home)
+const mainWindowState = new FileMainWindowStateStore(safeModeRequested ? electronData : home)
 app.setPath('userData', electronData)
 app.setPath('sessionData', electronData)
 protocol.registerSchemesAsPrivileged([{ scheme: 'dsh-app', privileges: {
@@ -100,6 +102,8 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'dsh-app', privileges: {
 let mainWindow: BrowserWindow | undefined
 let rendererRecovery: NextRendererRecovery | undefined
 let rendererDocumentId = ''
+/** The main-window load the Desktop started, until its navigation begins or the load settles; any other main-frame navigation came from the page. */
+let pendingNavigation: { readonly owner: BrowserWindow; readonly cause: Exclude<DesktopNavigationCause, 'page'> } | undefined
 /** The main window's interface has mounted at least once, so a later renderer failure stops a running Desktop. */
 let rendererHealthy = false
 // Storage partitions outlive individual windows, so the guest owner is process-scoped.
@@ -291,8 +295,53 @@ function show(window: BrowserWindow): void {
  */
 const WINDOWS_CAPTION_FILL = '#00000000'
 
+const MAIN_WINDOW_WIDTH = 1280
+const MAIN_WINDOW_HEIGHT = 840
+const MAIN_WINDOW_MIN_WIDTH = 800
+const MAIN_WINDOW_MIN_HEIGHT = 580
+/** Moves, resizes and zoom animations settle for this long before the main window is captured. */
+const MAIN_WINDOW_STATE_DELAY_MS = 250
+let settledMainWindowState: MainWindowState | undefined
+let storedMainWindowState: MainWindowState | undefined
+let mainWindowStateTimer: ReturnType<typeof setTimeout> | undefined
+
+function restoreMainWindowState(): MainWindowState | undefined {
+  try {
+    storedMainWindowState = mainWindowState.read()
+    if (storedMainWindowState === undefined) return undefined
+    const { bounds, maximized } = storedMainWindowState
+    const workArea = screen.getDisplayMatching(bounds).workArea
+    return { bounds: fitMainWindowBounds(bounds, workArea, { width: MAIN_WINDOW_MIN_WIDTH, height: MAIN_WINDOW_MIN_HEIGHT }), maximized }
+  } catch (error) {
+    runtime.diagnostics.append(`failed to restore main-window state: ${error instanceof Error ? error.message : String(error)}`, 'warn')
+    return undefined
+  }
+}
+
+function persistMainWindowState(window: BrowserWindow): void {
+  if (mainWindowStateTimer !== undefined) { clearTimeout(mainWindowStateTimer); mainWindowStateTimer = undefined }
+  const state = captureMainWindowState(window, settledMainWindowState, process.platform)
+  settledMainWindowState = state
+  if (state === undefined || (storedMainWindowState !== undefined && sameMainWindowState(state, storedMainWindowState))) return
+  try {
+    mainWindowState.write(state)
+    storedMainWindowState = state
+  } catch (error) {
+    runtime.diagnostics.append(`failed to save main-window state: ${error instanceof Error ? error.message : String(error)}`, 'warn')
+  }
+}
+
+function scheduleMainWindowState(window: BrowserWindow): void {
+  if (mainWindowStateTimer !== undefined) clearTimeout(mainWindowStateTimer)
+  mainWindowStateTimer = setTimeout(() => persistMainWindowState(window), MAIN_WINDOW_STATE_DELAY_MS)
+  mainWindowStateTimer.unref()
+}
+
 function createWindow(preload: string, primary = false): BrowserWindow {
-  const window = new BrowserWindow({ width: 1280, height: 840, minWidth: 800, minHeight: 580,
+  const restored = primary ? restoreMainWindowState() : undefined
+  if (primary) settledMainWindowState = restored
+  const window = new BrowserWindow({ width: MAIN_WINDOW_WIDTH, height: MAIN_WINDOW_HEIGHT, minWidth: MAIN_WINDOW_MIN_WIDTH, minHeight: MAIN_WINDOW_MIN_HEIGHT,
+    ...(restored?.bounds ?? {}),
     show: false, title: 'DSH NEXT',
     ...(process.platform !== 'darwin' ? { icon: unpackedPath(join(root, 'build', process.platform === 'win32' ? 'app-icon.ico' : 'app-icon.png')) } : {}),
     ...(!primary ? auxiliaryWindowChromeOptions() : {}),
@@ -332,16 +381,26 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     runtime.diagnostics.record({ source: 'renderer', event: 'console', level: failure ? 'error' : level === 'warning' || level === 2 ? 'warn' : 'info',
       message: message.slice(0, 8192), developer: !failure, fields: { webContentsId: window.webContents.id } })
   })
-  window.once('ready-to-show', () => show(window))
+  window.once('ready-to-show', () => {
+    const maximize = restored?.maximized === true && !quitting && !window.isDestroyed()
+    // Windows and Linux show a hidden window maximized at once. A macOS zoom of a hidden window
+    // leaves it beside the Stage Manager strip instead, so macOS zooms after the first show.
+    if (maximize && process.platform !== 'darwin') window.maximize()
+    show(window)
+    if (maximize && process.platform === 'darwin') window.maximize()
+  })
   applyWindowMaterial(window, runtime.preferences)
   if (primary) {
     window.webContents.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && input.key === ',' && (input.control || input.meta) && !input.alt) { event.preventDefault(); openControls() }
     })
     window.on('close', event => {
+      persistMainWindowState(window)
       if (!quitting && runtime.preferences.closeToTray && native.available) { event.preventDefault(); window.hide() }
       else if (!quitting) { event.preventDefault(); app.quit() }
     })
+    const schedule = (): void => scheduleMainWindowState(window)
+    window.on('move', schedule).on('resize', schedule).on('maximize', schedule).on('unmaximize', schedule)
   }
   const openExternal = (url: string): void => {
     try { if (['https:', 'http:', 'mailto:'].includes(new URL(url).protocol)) void shell.openExternal(url).catch(error => runtime.report(error)) } catch { /* Ignore malformed external links. */ }
@@ -428,10 +487,15 @@ function openMain(): void {
     rendererRecovery?.stop()
     mainWindow = undefined; onboardingSurfaceActive = false
   })
-  mainWindow.webContents.on('did-start-navigation', (_event, _url, inPlace, isMain) => {
+  mainWindow.webContents.on('did-start-navigation', (details, _url, inPlace, isMain) => {
     if (!isMain || inPlace || mainWindow !== owner) return
+    const pending = pendingNavigation?.owner === owner ? pendingNavigation : undefined
+    if (pending) pendingNavigation = undefined
+    const cause = pending?.cause ?? 'page'
     rendererDocumentId = randomUUID()
-    rendererRecovery?.navigating()
+    // Every document records who started it, so a reload without recovery records is still attributable.
+    runtime.diagnostics.record({ source: 'renderer', event: 'renderer.navigation', fields: { cause, initiator: details.initiator ? 'frame' : 'none' } })
+    rendererRecovery?.navigating(cause)
   })
   mainWindow.webContents.on('did-finish-load', () => {
     if (mainWindow !== owner) return
@@ -450,7 +514,7 @@ function openMain(): void {
   mainWindow.webContents.on('did-fail-load', (_event, code, message, _url, isMain) => {
     if (isMain && code !== -3) failRenderer(owner, new Error(message))
   })
-  void loadMainDocument(owner).catch(error => failRenderer(owner, error))
+  void loadMainDocument(owner, 'open').catch(error => failRenderer(owner, error))
 }
 
 function resetRendererRecovery(owner: BrowserWindow): void {
@@ -458,12 +522,10 @@ function resetRendererRecovery(owner: BrowserWindow): void {
   rendererDocumentId = randomUUID()
   rendererRecovery = new NextRendererRecovery({
     available: () => !quitting && !runtime.recoveryMode && mainWindow === owner && !owner.isDestroyed() && runtime.backend.state.phase !== 'error',
-    reload: () => loadMainDocument(owner),
+    reload: () => loadMainDocument(owner, 'recovery'),
     exhausted: detail => runtime.report(new Error(`Renderer recovery exhausted: ${detail}`), rendererHealthy ? 'renderer-runtime' : 'renderer-startup'),
-    record: (event, fields) => {
-      if (event === 'renderer.recovery.healthy') rendererHealthy = true
-      runtime.diagnostics.record({ source: 'renderer', event, fields })
-    },
+    healthy: () => { rendererHealthy = true },
+    record: (event, fields) => runtime.diagnostics.record({ source: 'renderer', event, fields }),
   })
 }
 
@@ -472,12 +534,17 @@ function failRenderer(owner: BrowserWindow, error: unknown): void {
   rendererRecovery?.fail(error instanceof Error ? error.message : String(error))
 }
 /** Cancelled or retired window navigations are not Host failures. */
-async function loadMainDocument(owner: BrowserWindow): Promise<void> {
+async function loadMainDocument(owner: BrowserWindow, cause: Exclude<DesktopNavigationCause, 'page'>): Promise<void> {
+  const pending = { owner, cause }
+  pendingNavigation = pending
   try { await owner.loadURL(APP_URL) } catch (error) {
     if (quitting || owner.isDestroyed() || mainWindow !== owner) return
     const failure = error as { code?: string; errno?: number }
     if (failure?.code === 'ERR_ABORTED' || failure?.errno === -3) return
     throw error
+  } finally {
+    // A load that settles before its navigation starts must not claim the page's next navigation.
+    if (pendingNavigation === pending) pendingNavigation = undefined
   }
 }
 
@@ -488,7 +555,7 @@ async function reloadMain(): Promise<void> {
   // A newly created window already started its first navigation in openMain().
   if (existing && existing === mainWindow && !existing.isDestroyed()) {
     resetRendererRecovery(existing)
-    await loadMainDocument(existing).catch(error => failRenderer(existing, error))
+    await loadMainDocument(existing, 'reload').catch(error => failRenderer(existing, error))
   }
 }
 
@@ -572,6 +639,8 @@ async function command(value: unknown, source: 'app' | 'shell' | 'native' = 'app
 }
 
 async function loggedCommand(input: Record<string, unknown>, type: string, source: 'app' | 'shell' | 'native'): Promise<boolean | void> {
+  // Each action replaces the previous action's failure notice; the failure recovery shows stays.
+  runtime.actionFailure = ''
   const end = runtime.diagnostics.operation('electron.commands', type, { caller: source }, true)
   try { const result = await performCommand(input, type, source); end(); return result } catch (error) { end(error); throw error }
 }
@@ -844,6 +913,12 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
   if (action === 'show-diagnostics') {
     if (!diagnosticsFile) throw new Error('No exported diagnostics')
     shell.showItemInFolder(diagnosticsFile); return
+  }
+  if (action === 'show-failure-report') {
+    const file = await runtime.failureReportFile()
+    if (file === undefined) throw new Error(t('诊断报告未能保存，请改为导出诊断信息。', 'The diagnostic report could not be saved. Export diagnostics instead.'))
+    try { await access(file) } catch { throw new Error(t(`找不到诊断报告：${file}`, `The diagnostic report is no longer available: ${file}`)) }
+    shell.showItemInFolder(file); return
   }
   if (action === 'open-checkpoint' || action === 'preview-checkpoint') {
     const checkpoint = runtime.recovery.checkpoints(runtime.selected).find(item => item.id === input.id)
@@ -1309,6 +1384,8 @@ app.on('before-quit', event => {
     if (relaunch) relaunchApp(app, relaunch)
     app.quit()
   }
+  // Capture the main window while it is still visible: hidden windows keep their last state.
+  if (mainWindow && !mainWindow.isDestroyed()) persistMainWindowState(mainWindow)
   // Keep disconnection/reconnection chrome out of the quit/relaunch transition.
   for (const window of [mainWindow, shellWindow]) {
     if (window && !window.isDestroyed()) window.hide()

@@ -22,9 +22,11 @@ if (verifyMode === 'win-portable') {
   if (!header.equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) throw new Error(`Next portable archive is not a ZIP archive: ${archivePath}`)
   assertPortableExecutable(join(root, 'dist', 'win-unpacked', 'DSH Desktop Beta.exe'), 'Next application')
 } else if (verifyMode === 'linux') {
-  assertAppImage(join(root, 'dist', `DSH-Desktop-Beta-${version}-x86_64.AppImage`), 'Next AppImage')
-  assertDebArchive(join(root, 'dist', `DSH-Desktop-Beta-${version}-amd64.deb`), 'Next Debian package')
-  assertElfExecutable(join(root, 'dist', 'linux-unpacked', 'dsh-desktop-beta'), 'Next Linux application')
+  // Linux packages the host CPU; electron-builder spells x64 as x86_64 and amd64 and keeps arm64 as is.
+  const arm64 = process.arch === 'arm64'
+  assertAppImage(join(root, 'dist', `DSH-Desktop-Beta-${version}-${arm64 ? 'arm64' : 'x86_64'}.AppImage`), 'Next AppImage')
+  assertDebArchive(join(root, 'dist', `DSH-Desktop-Beta-${version}-${arm64 ? 'arm64' : 'amd64'}.deb`), 'Next Debian package')
+  assertElfExecutable(join(root, 'dist', arm64 ? 'linux-arm64-unpacked' : 'linux-unpacked', 'dsh-desktop-beta'), 'Next Linux application')
 } else {
   assertPortableExecutable(join(root, 'dist', `DSH-Desktop-Beta-${version}-x64-Setup.exe`), 'Next NSIS installer')
   assertPortableExecutable(join(root, 'dist', 'win-unpacked', 'DSH Desktop Beta.exe'), 'Next application')

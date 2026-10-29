@@ -54,6 +54,9 @@ export const SAFE_MODE_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze
   scheduleCompleted: false, scheduleFailed: false,
 })
 
+/** A failure report being written, saved to `file`, or not written. */
+export type DesktopFailureReport = { status: 'pending' } | { status: 'saved'; file: string } | { status: 'failed' }
+
 export interface DesktopState {
   selected: string
   profiles: string[]
@@ -67,6 +70,10 @@ export interface DesktopState {
   failureStage?: DesktopFailureStage
   /** How the Host ended, when its exit is the failure. */
   failureExit?: DesktopHostExit
+  /** The report saved in the logs directory when `failure` opened recovery. */
+  failureReport?: DesktopFailureReport
+  /** A Desktop action that failed after `failure`; shown beside it, never replacing it. */
+  actionFailure?: string
   safeMode: boolean
   /** The selected Profile needs Desktop setup in the running official client. */
   onboarding?: boolean

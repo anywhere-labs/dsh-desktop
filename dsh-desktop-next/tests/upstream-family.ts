@@ -23,3 +23,15 @@ export function executeToolFixture(ctx: Context, input: ToolExecutionInput): Pro
  * @param _ctx - test root that already provides the tool runtime, which executes calls itself.
  */
 export async function installToolExecution(_ctx: Context): Promise<void> {}
+
+/** Whether the followed release ships the official Computer Use bundle; dsh 0.2.1 does not. */
+export const OFFICIAL_COMPUTER_USE = false
+
+/**
+ * The followed release has no official Computer Use provider to load.
+ * @param _ctx - test root that would host the provider.
+ * @returns never; callers check {@link OFFICIAL_COMPUTER_USE} first.
+ */
+export function installOfficialComputerUse(_ctx: Context): Promise<() => Promise<void>> {
+  return Promise.reject(new Error('dsh 0.2.1 ships no official Computer Use bundle'))
+}

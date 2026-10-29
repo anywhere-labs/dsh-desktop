@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parsePrimaryRuntime, workspaceDependencyPaths, type PrimaryRuntimeManifest } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import { macSmokeArchitecture } from '../../dsh-plugin-desktop/scripts/mac-universal.ts'
+import { prepareCuaNative } from './cua-native.ts'
 import { machOArchitectures, preparePrimaryRuntime, primaryRuntimePayloadDigest, readPrimaryRuntimeLock, rosettaAvailable, smokePrimaryRuntime, type PrimaryRuntimeTarget } from './primary-runtime.ts'
 
 /** CPU of one bundled payload. */
@@ -242,5 +243,11 @@ if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.m
     const root = await prepareNextRuntime({ desktopRoot, platform: process.platform, version })
     verifyNextRuntimeTree(root, process.platform, version)
     smokeNextRuntime(root, process.platform)
+  }
+  // A development launch runs the Host on this CPU only; packaging builds every CPU's helper.
+  if (process.platform === 'darwin') {
+    for (const helper of prepareCuaNative(desktopRoot, [process.arch === 'x64' ? 'x64' : 'arm64'])) {
+      console.log(`Prepared the official Computer Use helper ${helper}`)
+    }
   }
 }

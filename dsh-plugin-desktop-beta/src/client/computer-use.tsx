@@ -108,7 +108,7 @@ export function ComputerUseSettings({ context, zh, mode = 'overview' }: { contex
         body: JSON.stringify({ commandMode: nextMode }),
       })
       if (!response.ok) {
-        throw new Error(t('无法保存 Computer Use 命令模式设置。', 'Could not save the Computer Use command mode setting.'))
+        throw new Error(t('无法保存 Computer Use（Next）命令模式设置。', 'Could not save the Computer Use (Next) command mode setting.'))
       }
       const payload = await response.json() as { commandMode?: unknown } | null
       const resolved = payload && typeof payload.commandMode === 'boolean' ? payload.commandMode : nextMode
@@ -118,7 +118,7 @@ export function ComputerUseSettings({ context, zh, mode = 'overview' }: { contex
       setNotice(
         resolved
           ? t('已开启按需命令加载（/computer-use）。', 'On-demand command loading (/computer-use) enabled.')
-          : t('已关闭按需命令加载，Computer Use 工具将在所有会话中常驻。', 'On-demand command loading disabled; Computer Use tools remain active across sessions.'),
+          : t('已关闭按需命令加载，Computer Use（Next）工具将在所有会话中常驻。', 'On-demand command loading disabled; Computer Use (Next) tools remain active across sessions.'),
       )
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
@@ -135,7 +135,7 @@ export function ComputerUseSettings({ context, zh, mode = 'overview' }: { contex
     {mode !== 'page' && <>
       <div className="dshNextPluginActions">
         <DesktopPermissionsButton service={window.desktopNext?.permissions} language={zh ? 'zh' : 'en'} label={t('权限设置', 'Permission settings')} />
-        <Switch label={t('启用 Computer Use', 'Enable Computer Use')} checked={row?.enabled ?? false}
+        <Switch label={t('启用 Computer Use（Next）', 'Enable Computer Use (Next)')} checked={row?.enabled ?? false}
           disabled={loading || busy || !row || row.readOnlyReason !== undefined} onChange={enabled => { void change(enabled) }} />
       </div>
     </>}
@@ -165,8 +165,8 @@ export function ComputerUseSettings({ context, zh, mode = 'overview' }: { contex
                 <span className="dshNextComponentRowId">{commandSwitchLabel}</span>
                 <span className="dshNextComponentRowModule">
                   {t(
-                    '默认开启：普通会话不常驻加载 Computer Use 工具与系统提示词，避免占用上下文；需要时可在会话中通过 /computer-use 命令手动加载（/computer-use off 关闭）。若关闭此项，则恢复在所有会话中常驻加载。',
-                    'Enabled by default: Computer Use tools and guidance are not loaded into sessions by default to save context; run /computer-use in a session to load them on demand (/computer-use off to unload). Turn off to keep them resident in all sessions.',
+                    '默认开启：普通会话不常驻加载 Computer Use（Next）工具与系统提示词，避免占用上下文；需要时可在会话中通过 /computer-use 命令手动加载（/computer-use off 关闭）。若关闭此项，则恢复在所有会话中常驻加载。',
+                    'Enabled by default: Computer Use (Next) tools and guidance are not loaded into sessions by default to save context; run /computer-use in a session to load them on demand (/computer-use off to unload). Turn off to keep them resident in all sessions.',
                   )}
                 </span>
                 <code className="dshNextComponentRowModule">computer-use</code>

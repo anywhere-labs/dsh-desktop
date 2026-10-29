@@ -314,6 +314,16 @@ try {
   assert.equal(switchedState.status, 200)
   await switchedState.body?.cancel()
   await stop()
+  // The official Computer Use bundle mounts a computer-use registry of its own; Computer Use (Next)
+  // keeps its registry in a separate realm, so both start.
+  manager.create('computer-use-registries')
+  writeFileSync(join(manager.directory('computer-use-registries'), 'cordis.patch.yml'),
+    "- insert:\n    - id: official-computer-use-registry\n      name: '@deepseek-ai/dsh-computer-use'\n")
+  ;({ origin, cookie } = await boot('computer-use-registries'))
+  const registries = (await rpc('listPlugins')).filter(row => row.moduleName === '@deepseek-ai/dsh-computer-use')
+  assert.equal(registries.length, 2, JSON.stringify(registries))
+  for (const row of registries) assert.equal(row.fiberPhase, 'active', JSON.stringify(row))
+  await stop()
   if (process.argv.includes('--computer-use')) {
     manager.create('computer-use')
     manager.finishOnboarding('computer-use', { features: { remoteControl: false, market: false }, computerUse: true })
@@ -340,7 +350,7 @@ try {
     await stop()
     console.log('Onboarding Cua native provider activation and teardown passed without capturing screens, sending input or prompting for OS permissions.')
   }
-  console.log(`Next Host smoke passed (${process.argv.includes('--electron') ? 'Electron Node mode' : 'Node'}): authenticated ${upstreamVersion} Web, exclusive market selection and independent AA persisted, official row toggles, dshmarket offline install and cross-market toggle and removal through the official manager, official install/remove with a freshly published locked dependency, native dshmarket update origin gate, graceful shutdown, recovery boot and profile switch.`)
+  console.log(`Next Host smoke passed (${process.argv.includes('--electron') ? 'Electron Node mode' : 'Node'}): authenticated ${upstreamVersion} Web, exclusive market selection and independent AA persisted, official row toggles, dshmarket offline install and cross-market toggle and removal through the official manager, official install/remove with a freshly published locked dependency, native dshmarket update origin gate, graceful shutdown, recovery boot, profile switch and a second computer-use registry beside Computer Use (Next).`)
 } finally {
   await runner?.dispose()
   await host?.stop()

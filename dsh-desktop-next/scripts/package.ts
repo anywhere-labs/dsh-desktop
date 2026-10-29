@@ -148,6 +148,7 @@ if (mode === 'dir') {
 } else if (mode === 'linux') {
   await prepareInterpreters()
   const linuxOptions = createLinuxPackageOptions()
-  packageLinuxArtifacts({ ...linuxOptions, env: { ...linuxOptions.env, DSH_PACKAGE_VERIFY_MODE: 'linux' }, desktopRoot, workspaceRoot, run, prepareRuntime,
+  // The interpreter payload and the archive audit follow the host CPU, so both Linux CPUs package natively.
+  packageLinuxArtifacts({ ...linuxOptions, supportedArchs: ['x64', 'arm64'], env: { ...linuxOptions.env, DSH_PACKAGE_VERIFY_MODE: 'linux' }, desktopRoot, workspaceRoot, run, prepareRuntime,
     verifier: join(desktopRoot, 'scripts/verify-win-installer.ts') })
 } else throw new Error('Expected dir, mac, mac-smoke, win, win-portable or linux')

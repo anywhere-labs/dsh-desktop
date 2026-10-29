@@ -53,7 +53,8 @@ function runPackagedNode(path: string, args: readonly string[], timeout: number,
 
 async function verifyFinalArtifacts(result: { outDir: string }): Promise<string[]> {
   const paths = ['mac/DSH NEXT.app/Contents/MacOS/DSH NEXT', 'mac-arm64/DSH NEXT.app/Contents/MacOS/DSH NEXT',
-    'mac-universal/DSH NEXT.app/Contents/MacOS/DSH NEXT', 'win-unpacked/DSH NEXT.exe', 'linux-unpacked/dsh-desktop-next']
+    'mac-universal/DSH NEXT.app/Contents/MacOS/DSH NEXT', 'win-unpacked/DSH NEXT.exe', 'linux-unpacked/dsh-desktop-next',
+    'linux-arm64-unpacked/dsh-desktop-next']
   const executables = paths.map(path => join(result.outDir, path)).filter(existsSync)
   if (!executables.length) throw new Error('No packaged Next executable to verify')
   const expectedVersion = expectedNextVersion(desktopRoot)
@@ -98,6 +99,8 @@ async function verifyFinalArtifacts(result: { outDir: string }): Promise<string[
       runPackagedNode(path, [join(desktopRoot, 'scripts', 'packaged-driver-smoke.mjs'), root], 120_000, 'Packaged computer-use driver smoke failed'),
       // The badge skill announces its asset directory to the model; the Host's resolver must make it physical.
       runPackagedNode(path, [join(desktopRoot, 'scripts', 'packaged-skill-badge-smoke.mjs'), root], 120_000, 'Packaged badge skill smoke failed'),
+      // The official Computer Use provider starts its helper as a child process; the Host's resolver must make both physical.
+      runPackagedNode(path, [join(desktopRoot, 'scripts', 'packaged-official-cua-smoke.mjs'), root], 120_000, 'Packaged official Computer Use smoke failed'),
       // Image attachments and Market icons go through sharp; on Linux the Host's resolver must keep it on the WebAssembly build.
       runPackagedNode(path, [join(desktopRoot, 'scripts', 'packaged-sharp-smoke.mjs'), root], 120_000, 'Packaged sharp smoke failed'),
       // The same Electron, in Node mode, starts the real Host from the archive with a private home.

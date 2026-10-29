@@ -119,6 +119,7 @@ const FILE_SPECIFIC_PAIRS = {
 
 const GLOBAL_PAIRS = [
   ['linux-unpacked/dsh-desktop-next', 'linux-unpacked/dsh-desktop-beta'],
+  ['linux-arm64-unpacked/dsh-desktop-next', 'linux-arm64-unpacked/dsh-desktop-beta'],
   ["'linux-unpacked', 'dsh-desktop-next'", "'linux-unpacked', 'dsh-desktop-beta'"],
   ['ai.deepseek.dsh.desktop.next', 'ai.deepseek.dsh.desktop.beta'],
   ['dsh-desktop-next', 'dsh-plugin-desktop-beta'],

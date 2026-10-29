@@ -114,13 +114,29 @@ describe('Linux packaging orchestration', () => {
     expect(seen[0]!.CSC_IDENTITY_AUTO_DISCOVERY).toBe('false')
   })
 
-  it('rejects non-Linux hosts and non-x64 architectures', () => {
+  it('rejects non-Linux hosts and CPUs the edition does not package', () => {
     expect(() => packageLinuxArtifacts(options({ platform: 'win32' })))
       .toThrow('must be built on a native Linux host')
     expect(() => packageLinuxArtifacts(options({ arch: 'arm64' })))
-      .toThrow('require x64 Node')
+      .toThrow('Linux artifacts require x64 Node; received arm64')
+    expect(() => packageLinuxArtifacts(options({ arch: 'ia32', supportedArchs: ['x64', 'arm64'] })))
+      .toThrow('Linux artifacts require x64 or arm64 Node; received ia32')
     expect(() => packageLinuxArtifacts(options({ nodeVersion: '20.1.0' })))
       .toThrow('Node 22.19+ or Node 24.x')
+  })
+
+  it('packages the host CPU the edition opted into', () => {
+    const run = vi.fn()
+
+    packageLinuxArtifacts(options({ run, arch: 'arm64', supportedArchs: ['x64', 'arm64'], env: { DSH_PACKAGE_CHECK_ALREADY_RAN: '1' } }))
+
+    expect(run.mock.calls[0]![1]).toContain('--arm64')
+    expect(run.mock.calls[0]![1]).not.toContain('--x64')
+
+    const x64 = vi.fn()
+    packageLinuxArtifacts(options({ run: x64, env: { DSH_PACKAGE_CHECK_ALREADY_RAN: '1' } }))
+    expect(x64.mock.calls[0]![1]).toContain('--x64')
+    expect(x64.mock.calls[0]![1]).not.toContain('--arm64')
   })
 
   it('strips signing secrets case-insensitively', () => {
