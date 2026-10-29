@@ -446,7 +446,7 @@ try {
   const cuaSettings = controls.locator('[data-next-computer-use]')
   // The overview now uses compact plugin rows; runtime status lives on the detail page.
   const checkCuaStatus = async status => {
-    await controls.getByRole('button', { name: /^Computer Use — / }).click()
+    await controls.getByRole('button', { name: /^Computer Use(（Next）| \(Next\)) — / }).click()
     await page.locator('[data-next-computer-use]').getByRole('status').getByText(status).waitFor()
     await page.getByRole('button', { name: /^(返回插件(?:列表)?|Back to plugins)$/ }).click()
     await controls.waitFor({ state: 'visible' })
@@ -456,7 +456,7 @@ try {
     })
   }
   await checkCuaStatus(/^(已停用|Disabled)$/)
-  const cuaSwitch = cuaSettings.getByRole('switch', { name: /启用 Computer Use|Enable Computer Use/ })
+  const cuaSwitch = cuaSettings.getByRole('switch', { name: /启用 Computer Use（Next）|Enable Computer Use \(Next\)/ })
   assert.equal(await cuaSwitch.isChecked(), false)
   assert.equal(await cuaSwitch.isDisabled(), false)
   const firstGroup = page.locator('[data-plugin-group]').first()

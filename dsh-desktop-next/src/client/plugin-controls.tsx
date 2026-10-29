@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { BundleInfo } from '@deepseek-ai/dsh-api-remotes/client'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-plugin-market/types'
 import {
@@ -72,7 +73,8 @@ export function registerPluginControls(ctx: Context): void {
         locale: 'desktop-next', inject: () => ({ context: inner }),
       }, PluginControls)
       const hidden = [COMMUNITY, MARKET, REMOTE].map(key => inner.slots.register({ name: 'plugins.bundle.hidden', key }, () => null))
-      const item = inner.slots.register({ name: 'plugins.item', id: COMPUTER_ITEM, label: 'Computer Use',
+      const item = inner.slots.register({ name: 'plugins.item', id: COMPUTER_ITEM,
+        label: () => inner.locale.bind('desktop-next')('language') === 'zh' ? 'Computer Use（Next）' : 'Computer Use (Next)',
         locale: 'desktop-next', inject: () => ({ context: inner }),
       }, ComputerUseItem)
       const hiddenItem = inner.slots.register({ name: 'plugins.item.hidden', key: COMPUTER_ITEM }, () => null)
@@ -193,7 +195,7 @@ function PluginControls({ context, t: translate, onOpenBundle, onOpenItem }: Pro
         <RemoteControlSettings context={context} t={t} row={remoteRow} loading={loading}
           onChanged={() => { refresh(value => value + 1) }} />
       </PluginCard>
-      <PluginCard title="Computer Use" description={computerDescription(t)}
+      <PluginCard title={t('Computer Use（Next）', 'Computer Use (Next)')} description={computerDescription(t)}
         icon={<ComputerUsePluginArtwork size={36} />} onOpen={() => { onOpenItem(COMPUTER_ITEM) }}>
         <ComputerUseSettings context={context} zh={zh} />
       </PluginCard>

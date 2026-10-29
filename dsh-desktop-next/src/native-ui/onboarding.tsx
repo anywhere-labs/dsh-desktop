@@ -41,7 +41,7 @@ export function Onboarding({ state, locale, bridge }: { state: Pick<DesktopState
   const mounted = useRef(true)
   const animation = useRef<Animation | undefined>(undefined)
   const disabled = busy || transitioning
-  const steps = [t('欢迎', 'Welcome'), t('插件市场', 'Plugin market'), t('远程控制', 'Remote control'), 'Computer Use', t('浏览器访问', 'Browser access'), t('恢复模式', 'Recovery')]
+  const steps = [t('欢迎', 'Welcome'), t('插件市场', 'Plugin market'), t('远程控制', 'Remote control'), t('Computer Use（Next）', 'Computer Use (Next)'), t('浏览器访问', 'Browser access'), t('恢复模式', 'Recovery')]
   const lastPage = steps.length - 1
   const titles = [t('欢迎使用\nDSH NEXT', 'Welcome to\nDSH NEXT'), t('用插件，\n拓展更多可能。', 'Make room\nfor more possibilities.'), t('离开电脑，\n也能继续。', 'Keep going.\nAway from your desk.'), t('让 AI 帮你\n操作电脑。', 'Let AI work\non your desktop.'), t('在浏览器中，\n也能打开。', 'Open in a browser,\nwhen you need to.'), t('遇到问题，\n从这里恢复。', 'A way back,\nwhen you need it.')]
   const descriptions = [
@@ -124,7 +124,7 @@ export function Onboarding({ state, locale, bridge }: { state: Pick<DesktopState
           </div>}
           {page === 3 && <div className="next-onboarding-option next-onboarding-reveal">
             <div className="next-onboarding-toggle">
-              <label htmlFor="onboarding-computer-use">{t('启用 Computer Use', 'Enable Computer Use')}</label>
+              <label htmlFor="onboarding-computer-use">{t('启用 Computer Use（Next）', 'Enable Computer Use (Next)')}</label>
               <div className="next-onboarding-option-actions">
                 <Suspense fallback={<span className="next-onboarding-permissions-loading" aria-hidden="true"><LoaderCircle className="animate-spin" /></span>}>
                   <DesktopPermissionsButton service={bridge.permissions} language={locale} label={t('权限设置', 'Permission settings')} disabled={disabled} />

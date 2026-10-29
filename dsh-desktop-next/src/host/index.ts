@@ -22,6 +22,7 @@ import { watchPlatformLogin, type PlatformLoginAccount } from './platform-login.
 import { installAgentPresetResolution } from './agent-preset.ts'
 import { installCuaDriverResolution } from './cua-driver.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
+import { installOfficialCuaResolution } from './official-cua.ts'
 import { installSharpWasmResolution } from './sharp-wasm.ts'
 import { installSkillBadgeResolution } from './skill-badge.ts'
 import * as desktopOffice from './office.ts'
@@ -43,6 +44,8 @@ export async function main(): Promise<void> {
   installCuaDriverResolution(runtimeDir)
   // The badge skill tells the model to take its PNG from the directory it announces, which shells and the Host's filesystem service cannot read inside the archive.
   installSkillBadgeResolution(runtimeDir)
+  // The official Computer Use provider starts the helper beside its own module as a child process, which reads no archive.
+  installOfficialCuaResolution(runtimeDir)
   // Linux sharp must not load its native backends beside the GLib Electron links; it runs its WebAssembly build instead.
   installSharpWasmResolution(runtimeDir)
   const preferences = parsePreferences(JSON.parse(process.env.DSH_NEXT_PREFERENCES ?? '{}'))

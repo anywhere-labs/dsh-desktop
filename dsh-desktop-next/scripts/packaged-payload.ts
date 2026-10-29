@@ -180,6 +180,9 @@ const REQUIRED_UNPACKED = [
   // The computer-use driver resolves its platform package's manifest and hands the library beside it to the system
   // loader; the Host resolves that package to this copy.
   /^node_modules\/@trycua\/cua-driver-/u,
+  // The official Computer Use provider starts the helper below its own package directory as a child process; the
+  // Host resolves the package to this copy.
+  /^node_modules\/@deepseek-ai\/dsh-experimental-cua-macos\//u,
   // The Office CLI and its direct dependencies run under the bundled standalone Node, which reads no archive;
   // beforePack unpacks the complete closure, and these guard its roots.
   /^node_modules\/@deepseek-ai\/libreoffice-kit\//u, /^node_modules\/(?:fflate|fontkit|koffi|saxes)\//u,

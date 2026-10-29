@@ -1,9 +1,14 @@
-/** Per-session on-demand `/computer-use` command and tool/prompt gating for Desktop Next. */
+/**
+ * Per-session on-demand `/computer-use` command and tool/prompt gating for Computer Use (Next).
+ * Wherever the official Computer Use serves an Agent, Computer Use (Next) stays out of that Agent.
+ */
+import { release } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { CommandResult } from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-computer-use'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -15,6 +20,21 @@ export const COMPUTER_USE_SETTINGS_FILE = 'desktop-next.computer-use.json'
 export const COMPUTER_USE_COMMAND_NAME = 'computer-use'
 export const CUA_TOOL_PREFIX = 'cua_driver_native__'
 export const CUA_PROMPT_SECTION = 'computer-use:cua-driver-native'
+/** Name the official provider (`@deepseek-ai/dsh-cua`) takes in the computer-use registry of the official bundle. */
+export const OFFICIAL_COMPUTER_USE_PROVIDER = 'dsh-cua'
+/** Tool the official provider registers in the scope of each Agent it serves, PTC sessions by default. */
+export const OFFICIAL_CUA_TOOL = 'cua'
+
+/**
+ * Whether the official helper cannot start on this system. It requires macOS 14 (Darwin 23), yet the provider
+ * loads and registers its tool on an older macOS too; other platforms never load the official provider.
+ * @param platform - Host platform.
+ * @param osRelease - Kernel release as `os.release()` reports it.
+ * @returns true on macOS 13 and earlier.
+ */
+export function officialHelperUnsupported(platform: NodeJS.Platform = process.platform, osRelease: string = release()): boolean {
+  return platform === 'darwin' && Number.parseInt(osRelease, 10) < 23
+}
 
 export interface ComputerUseCommandConfig {
   commandMode: boolean
@@ -176,6 +196,16 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
       return false
     }
 
+    // The official provider registers its tool only for the Agents it serves (by default, PTC sessions).
+    const officialCanServe = !officialHelperUnsupported()
+    const isOfficialServing = (agent: Agent): boolean =>
+      officialCanServe
+      && runtimeCtx.get('computerUse')?.providerName === OFFICIAL_COMPUTER_USE_PROVIDER
+      && runtimeCtx.tools.get(OFFICIAL_CUA_TOOL, agent) !== undefined
+
+    const isAgentGated = (agent: Agent): boolean =>
+      isOfficialServing(agent) || (commandMode && !isAgentEnabled(agent))
+
     const getGlobalCuaToolNames = (): string[] =>
       runtimeCtx.tools
         .schemas()
@@ -196,7 +226,7 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
     }
 
     const reconcileAgent = (agent: Agent, cuaToolNames: readonly string[]): void => {
-      const shouldGate = commandMode && cuaToolNames.length > 0 && !isAgentEnabled(agent)
+      const shouldGate = cuaToolNames.length > 0 && isAgentGated(agent)
       if (!shouldGate) {
         clearAgentGate(agent)
         return
@@ -241,7 +271,7 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
         if (shouldRegisterCommand && !disposeCommand) {
           disposeCommand = runtimeCtx.commands.register({
             name: COMPUTER_USE_COMMAND_NAME,
-            description: '开启或关闭 Computer Use',
+            description: '开启或关闭 Computer Use（Next）',
             input: {
               hint: '[off|message]',
               attachments: true,
@@ -261,9 +291,10 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
                 reconcileAll()
                 return {
                   kind: 'success',
-                  text: '已关闭 Computer Use。',
+                  text: '已关闭 Computer Use（Next）。',
                 }
               }
+              // The session keeps this choice for modes the official Computer Use does not serve.
               sessionStates.set(agent.session, true)
               reconcileAll()
               const taskText = isOnOnlyCommandArg(trimmed) ? '' : trimmed
@@ -280,7 +311,9 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
               }
               return {
                 kind: 'success',
-                text: '已开启 Computer Use（输入 /computer-use off 关闭）。',
+                text: isOfficialServing(agent)
+                  ? '此会话正在使用官方 Computer Use；切换到其他模式后改用 Computer Use（Next）。'
+                  : '已开启 Computer Use（Next），输入 /computer-use off 关闭。',
               }
             },
           })
@@ -340,7 +373,7 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
         trackAndReconcileAgent(context.agent)
       }
       const resolved = await next()
-      if (commandMode && (context.agent === undefined || !isAgentEnabled(context.agent))) {
+      if (context.agent === undefined ? commandMode : isAgentGated(context.agent)) {
         return {
           ...resolved,
           sections: resolved.sections.filter(section => section.name !== CUA_PROMPT_SECTION),

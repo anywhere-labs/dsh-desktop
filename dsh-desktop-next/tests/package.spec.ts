@@ -30,7 +30,7 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
     '**/@deepseek-ai/node-addon-system-*/bin/landlock-run', '**/@vscode/ripgrep-*/bin/rg', '**/@dataiku/uv-*/bin/uv', '**/meshcall-router-*/bin/*',
     '**/node_modules/@deepseek-ai/libreoffice-kit-*/**/*', '**/node_modules/pnpm/**/*',
     '**/node_modules/@agents-anywhere/dsh-bridge-next/lib/bundled-connector/**/*', '**/node_modules/@deepseek-ai/dsh-agent-preset/**/*',
-    '**/node_modules/@deepseek-ai/dsh-skill-badge/**/*']))
+    '**/node_modules/@deepseek-ai/dsh-skill-badge/**/*', '**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/**/*']))
   // The prepared tree is archived verbatim, as upstream archives its prepared dsh tree: one file set for the
   // shell files and one for the dependency tree, because electron-builder leaves out a file set's root node_modules.
   expect(next.build.files).toEqual([{ from: '.desktop-build/payload', filter: ['**/*'] },
@@ -48,9 +48,10 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
   expect(next.build.afterAllArtifactBuild).toBe('./scripts/verify-fuses.ts')
   expect(next.build.electronFuses).toEqual(stable.build.electronFuses)
   // Stable's rule already keeps the interpreter payloads and the wheels' .dylibs directories, identical across the two
-  // CPU builds. Next adds its own per-CPU native packages and pnpm's reflink addons from its bundled dist/node_modules.
+  // CPU builds. Next adds its own per-CPU native packages, pnpm's reflink addons from its bundled dist/node_modules and
+  // the official Computer Use helpers, which both CPU builds carry for both CPUs.
   expect(next.build.mac.x64ArchFiles).toBe(stable.build.mac.x64ArchFiles
-    .replace('sherpa-onnx-darwin-*/**}', 'sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**}'))
+    .replace('sherpa-onnx-darwin-*/**}', 'sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**,@deepseek-ai/dsh-experimental-cua-macos/native/bin/**}'))
   // Both CPU payloads ride beside the archive as extra resources; electron-builder must not re-sign the pre-signed payloads.
   // macOS also carries the manifest copy the updaters shipped in 2.0.14-next through 2.0.17-next read beside the archive.
   expect(next.build.mac.extraResources).toEqual([{ from: '.desktop-build/runtime', to: 'runtime' }, { from: '.desktop-build/payload/package.json', to: 'app/package.json' }])

@@ -96,7 +96,7 @@ function fixture() {
   const official = { ...remote, name: 'official-team', rows: [] }
   const state = { status: 'ready', packages: [official, remote], busy: [] as string[], notice: null, highlight: null, confirm: null,
     install: { open: false }, versions: {}, update: null }
-  const item = { id: 'desktop-next-computer-use', label: 'Computer Use' }
+  const item = { id: 'desktop-next-computer-use', label: 'Computer Use (Next)' }
   const ledger = { items: [item], bundles: new Set([remote.name]), rows: new Set(),
     hiddenBundles: new Set([remote.name]), hiddenItems: new Set([item.id]) }
   let overview: { onOpenBundle(name: string): void; onOpenItem(id: string): void }
@@ -159,6 +159,24 @@ it('uses the official item detail without adding Computer Use to the basic group
   expect(component(app.page(), 'ItemDetail')).toBeUndefined()
   app.overview().onOpenBundle('missing')
   expect(component(app.page(), 'PackageDetail')).toBeUndefined()
+})
+
+it('labels the Computer Use (Next) item in the active language', () => {
+  let language = 'zh'
+  const items: { name: string; label?: () => string }[] = []
+  const ctx = {
+    inject: (_services: unknown, callback: (context: unknown) => void) => { callback(ctx) },
+    locale: { bind: () => (key: string) => key === 'language' ? language : key },
+    slots: {
+      inject: (_name: string, callback: () => unknown) => { callback() },
+      register: (options: { name: string; label?: () => string }) => { items.push(options); return () => {} },
+    },
+  }
+  registerPluginControls(ctx as unknown as Context)
+  const item = items.find(options => options.name === 'plugins.item')!
+  expect(item.label?.()).toBe('Computer Use（Next）')
+  language = 'en'
+  expect(item.label?.()).toBe('Computer Use (Next)')
 })
 
 it('preserves ordinary official cards and their navigation when no overview entries are hidden', () => {
@@ -343,11 +361,11 @@ it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from th
   expect(remoteSwitch.props.disabled).toBe(false)
 
   const cuaCard = nodes(tree).find(
-    node => typeof node.type === 'function' && node.type.name === 'PluginCard' && node.props.title === 'Computer Use',
+    node => typeof node.type === 'function' && node.type.name === 'PluginCard' && node.props.title === 'Computer Use（Next）',
   )!
   expect(typeof cuaCard.props.icon.type === 'function' && cuaCard.props.icon.type.name).toBe('ComputerUsePluginArtwork')
   const cuaNode = render(component(tree, 'ComputerUseSettings')!)
-  const cuaSwitch = nodes(cuaNode).find(node => node.type === 'input' && node.props.label === '启用 Computer Use')!
+  const cuaSwitch = nodes(cuaNode).find(node => node.type === 'input' && node.props.label === '启用 Computer Use（Next）')!
   expect(cuaSwitch.props.checked).toBe(true)
   expect(cuaSwitch.props.disabled).toBe(false)
 })
