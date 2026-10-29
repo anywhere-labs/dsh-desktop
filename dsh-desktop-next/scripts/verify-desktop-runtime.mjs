@@ -11,8 +11,7 @@ import { forwardWebRequest } from '../lib/web-document.js'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const home = mkdtempSync(join(tmpdir(), 'dsh-next-native-runtime-'))
 let failures = 0
-const compileCache = join(home, 'host-compile-cache', 'smoke')
-const runtime = new NextDesktopRuntime({ root, home, compileCache, executable: process.execPath, addresses: () => [],
+const runtime = new NextDesktopRuntime({ root, home, executable: process.execPath, addresses: () => [],
   certificate: async () => { throw new Error('This test must not request system key storage or expose a LAN listener') },
   onFailure: () => failures++, onChange() {}, onRestart() {}, onTerminal() {}, onNotification() {},
 })
@@ -150,9 +149,6 @@ try {
   const auth = runtime.auth
   await runtime.close()
   await assert.rejects(fetch(new URL(auth.url).origin))
-  // Node keys its cache by its own version; the Host writes what it compiled at the latest when it exits.
-  assert.ok(readdirSync(compileCache).some(version => readdirSync(join(compileCache, version)).length > 0),
-    'The Host keeps its module compile cache in the directory the shell assigned')
   console.log('Next Desktop runtime passed: native-only HTTP/WebSocket gate, hot browser enable/disable with existing browser-stream revocation and native-stream preservation, per-Host credentials, corrupt-manifest recovery, isolated safe mode, separate global repair, and full process shutdown.')
 } finally {
   await runtime.close()

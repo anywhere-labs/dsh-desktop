@@ -1691,15 +1691,13 @@ it('starts reading the login-shell environment before Electron is ready, and rea
   }
 })
 
-it('registers the application scheme with the V8 code cache and gives the Host a per-release compile cache', async () => {
+it('registers the application scheme with the V8 code cache', async () => {
   const home = mkdtempSync(join(tmpdir(), 'next-code-cache-'))
   vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
   try {
     await import('../src/main.ts')
     expect(fixture.registerSchemes).toHaveBeenCalledExactlyOnceWith([{ scheme: 'dsh-app',
       privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }])
-    const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
-    expect(fixture.runtimeOptions?.compileCache).toBe(process.platform === 'win32' ? undefined : join(home, 'electron-user-data', 'host-compile-cache', version))
   } finally {
     vi.unstubAllEnvs()
     rmSync(home, { recursive: true, force: true })

@@ -9,7 +9,7 @@ const upstreamFamilyWorkers = existsSync('src/upstream-family')
 
 export default defineConfig([
   {
-    entry: { 'diagnostics-export': 'src/diagnostics-export.ts', keybindings: 'src/keybindings.ts', recovery: 'src/recovery.ts', 'browser-guests': 'src/browser-guests.ts', permissions: 'src/permissions.ts', 'desktop-cli': 'src/desktop-cli.ts', 'plugin-cli': 'src/plugin-cli.ts', 'desktop-runtime': 'src/desktop-runtime.ts', main: 'src/main.ts', host: 'src/host/bootstrap.ts', 'host-resolution': 'src/host/resolution.ts', profiles: 'src/profiles.ts', extensions: 'src/extensions.ts', webserver: 'src/webserver.ts', 'host-process': 'src/host-process.ts', 'web-document': 'src/web-document.ts', 'app-downloads': 'src/app-downloads.ts', ...upstreamFamilyWorkers },
+    entry: { 'diagnostics-export': 'src/diagnostics-export.ts', keybindings: 'src/keybindings.ts', recovery: 'src/recovery.ts', 'browser-guests': 'src/browser-guests.ts', permissions: 'src/permissions.ts', 'desktop-cli': 'src/desktop-cli.ts', 'plugin-cli': 'src/plugin-cli.ts', 'desktop-runtime': 'src/desktop-runtime.ts', main: 'src/main.ts', host: 'src/host/index.ts', 'host-resolution': 'src/host/resolution.ts', profiles: 'src/profiles.ts', extensions: 'src/extensions.ts', webserver: 'src/webserver.ts', 'host-process': 'src/host-process.ts', 'web-document': 'src/web-document.ts', 'app-downloads': 'src/app-downloads.ts', ...upstreamFamilyWorkers },
     outDir: 'lib', format: 'esm', platform: 'node', target: 'es2024',
     fixedExtension: false, dts: false, clean: true,
     deps: { neverBundle: ['electron'] },

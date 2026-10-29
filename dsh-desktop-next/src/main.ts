@@ -54,7 +54,6 @@ import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCa
 import { deElevateAtStartup, windowsElevation } from './windows-elevation.ts'
 import { createSandboxLaunchReporter, gpuLaunchFailure, rendererLaunchFailure } from './sandbox-launch.ts'
 import { startCrashReporting } from './crash-reporting.ts'
-import { hostCompileCacheDirectory, pruneHostCompileCaches } from './host-compile-cache.ts'
 
 // An elevated Windows launch restarts with the user's normal token before Chromium starts any child (#1487).
 const startupElevation = deElevateAtStartup({ platform: process.platform, packaged: app.isPackaged, argv: process.argv, executable: process.execPath })
@@ -153,9 +152,8 @@ const shellEnvironment = ownsInstance ? readShellEnvironment() : undefined
 const t = (zh: string, en: string): string => windowsLanguage.toLowerCase().startsWith('zh') ? zh : en
 /** The bundled interpreter payload of this CPU: beside the archive when packaged, prepared by `prepare:runtime` in development. */
 const primaryRuntime = join(app.isPackaged ? join(process.resourcesPath, 'runtime') : join(root, '.desktop-build', 'runtime'), process.arch, 'primary-runtime')
-const hostCompileCache = hostCompileCacheDirectory(normalElectronData, version, process.platform)
 const runtime = new NextDesktopRuntime({
-  home, root, primaryRuntime, compileCache: hostCompileCache, executable: process.execPath, addresses: () => [...desktopLanAddresses()], systemProxy: () => systemProxy,
+  home, root, primaryRuntime, executable: process.execPath, addresses: () => [...desktopLanAddresses()], systemProxy: () => systemProxy,
   prepareEnvironment: () => prepareHostEnvironment(),
   memoryProbe: {
     appMetrics: () => app.getAppMetrics(),
@@ -1348,10 +1346,6 @@ async function main(): Promise<void> {
   }
   native.createTray()
   updates.start()
-  // What earlier releases cached goes once this launch no longer competes with Host startup for the disk.
-  if (hostCompileCache !== undefined) {
-    setTimeout(() => { void pruneHostCompileCaches(hostCompileCache).catch(error => runtime.diagnostics.append(String(error), 'warn')) }, 60_000).unref()
-  }
   Menu.setApplicationMenu(process.platform === 'win32' ? null : Menu.buildFromTemplate([
     { label: 'DSH NEXT', submenu: native.items() }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   ]))
