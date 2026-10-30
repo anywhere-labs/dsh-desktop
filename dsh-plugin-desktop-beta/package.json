@@ -450,7 +450,7 @@
       "target": [
         "dir"
       ],
-      "icon": "build/app-icon.png",
+      "icon": "build/icons",
       "artifactName": "DSH-Desktop-Beta-${version}-${arch}.${ext}",
       "category": "Development",
       "synopsis": "Agentic coding desktop for the DeepSeek Harness (Beta)",

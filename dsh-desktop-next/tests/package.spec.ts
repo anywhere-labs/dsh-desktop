@@ -1,5 +1,8 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { OPTIONAL_BUNDLES } from '../src/upstream-family.ts'
 import { expect, it } from 'vitest'
 const read = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
@@ -69,4 +72,26 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
   expect(existsSync(new URL('../build/app-icon.icon/icon.json', import.meta.url))).toBe(true)
   expect(next.build.nsis).toMatchObject({ oneClick: false, perMachine: false, allowElevation: true, allowToChangeInstallationDirectory: true })
   expect(next.build.mac.notarize).toBe(true)
+})
+
+it('gives the Linux packages a hicolor icon for every theme size up to 512 pixels', async () => {
+  const next = read('../package.json')
+  expect(next.build.linux.icon).toBe('build/icons')
+  // Resolve the icon as electron-builder's Linux targets do; the Debian package and the AppImage install each result
+  // under hicolor/<size>x<size>/apps. A single PNG resolves to its own 1024x1024, which the hicolor theme does not declare.
+  const require = createRequire(new URL('../package.json', import.meta.url))
+  const { convertIcon } = require('app-builder-lib/out/util/iconConverter.js')
+  const project = fileURLToPath(new URL('..', import.meta.url))
+  const outDir = mkdtempSync(join(tmpdir(), 'dsh-linux-icons-'))
+  try {
+    const { icons, isFallback } = await convertIcon({ sources: [next.build.linux.icon], fallbackSources: [], roots: [join(project, 'build'), project], format: 'set', outDir })
+    expect(isFallback).toBe(false)
+    expect(icons.map((icon: { size: number }) => icon.size)).toEqual([16, 22, 24, 32, 48, 64, 128, 256, 512])
+    for (const { file, size } of icons) {
+      const png = readFileSync(file)
+      expect([png.readUInt32BE(16), png.readUInt32BE(20)], file).toEqual([size, size])
+    }
+  } finally {
+    rmSync(outDir, { recursive: true, force: true })
+  }
 })
