@@ -1,24 +1,24 @@
 {
   "repository": "https://github.com/anywhere-labs/Agents-Anywhere.git",
   "branch": "main",
-  "commit": "4ccfe15e3358b657b6b958e49367c8541f9a3d43",
+  "commit": "64c3f67ee3b270c1740da4da9dfae56d6217c8e4",
   "packageDirectory": "dsh-bridge-next",
   "sourceVersion": "2.1.0",
-  "desktopVersion": "2.1.0-desktop.c4ccfe15e3358.r1243ffb6",
-  "artifact": "agents-anywhere-dsh-bridge-next-2.1.0-desktop.c4ccfe15e3358.r1243ffb6.tgz",
-  "sha256": "5037e4cf883654f91294b7d3d010cfad7d5fc55d6c0f789659d04cb7943e2f83",
+  "desktopVersion": "2.1.0-desktop.c64c3f67ee3b2.r8501aa49",
+  "artifact": "agents-anywhere-dsh-bridge-next-2.1.0-desktop.c64c3f67ee3b2.r8501aa49.tgz",
+  "sha256": "10b732ffd3608011cfa649a4ea6edf26581fefc066f1cc0f1ac8102a73a6f09f",
   "runtimePeers": {
-    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.1-rc.4",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.1-rc.4",
-    "@deepseek-ai/dsh-session": "0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.1-rc.4"
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.1-rc.5",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.1-rc.5",
+    "@deepseek-ai/dsh-session": "0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.1-rc.5"
   },
   "manifestChanges": [
-    "version set to 2.1.0-desktop.c4ccfe15e3358.r1243ffb6",
+    "version set to 2.1.0-desktop.c64c3f67ee3b2.r8501aa49",
     "release staging removes prepack/postpack hooks; build, typecheck and check:build run explicitly",
     "release staging pins the AA build-time DSH type graph to the source devDependencies",
-    "@deepseek-ai/dsh-typert-protocol peer accepts 0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.1-rc.4",
-    "@deepseek-ai/dsh-llm peer accepts 0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.1-rc.4",
-    "@deepseek-ai/dsh-session peer accepts 0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.1-rc.4"
+    "@deepseek-ai/dsh-typert-protocol peer accepts 0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.1-rc.5",
+    "@deepseek-ai/dsh-llm peer accepts 0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.1-rc.5",
+    "@deepseek-ai/dsh-session peer accepts 0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.1-rc.5"
   ],
   "sourceChanges": []
 }

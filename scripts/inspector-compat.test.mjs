@@ -33,7 +33,7 @@ function nodes(file, predicate) {
 const workspaceVersions = {
   'dsh-plugin-desktop': '0.2.1-rc.3',
   'dsh-plugin-desktop-beta': '0.2.2-alpha.2',
-  'dsh-desktop-next': '0.2.1-rc.4',
+  'dsh-desktop-next': '0.2.1-rc.5',
 }
 
 for (const [workspace, version] of Object.entries(workspaceVersions)) {

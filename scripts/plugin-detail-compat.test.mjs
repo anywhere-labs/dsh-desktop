@@ -52,7 +52,7 @@ function byLanguage(value, exceptions = {}) {
   return Object.fromEntries(DISPLAY_LANGUAGES.map(language => [language, exceptions[language] ?? value]))
 }
 
-// Stable (0.2.1-rc.3) and Next (0.2.1-rc.4) predate bundle detail documents; a workspace whose plugin manager reads
+// Stable (0.2.1-rc.3) and Next (0.2.1-rc.5) predate bundle detail documents; a workspace whose plugin manager reads
 // them must carry the patch.
 for (const workspace of ['dsh-plugin-desktop-beta', 'dsh-desktop-next']) {
   const require = createRequire(resolve(workspace, 'package.json'))

@@ -9,10 +9,10 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 
 it('starts Crashpad locally only, annotating the Desktop and dsh versions', () => {
   const start = vi.fn()
-  startCrashReporting({ start }, { productName: 'DSH NEXT', version: '2.0.21-next', dsh: '0.2.1-rc.4' })
+  startCrashReporting({ start }, { productName: 'DSH NEXT', version: '2.0.21-next', dsh: '0.2.1-rc.5' })
   startCrashReporting({ start }, { productName: 'DSH NEXT', version: '2.0.21-next', dsh: undefined })
   expect(start.mock.calls).toEqual([
-    [{ productName: 'DSH NEXT', uploadToServer: false, globalExtra: { appVersion: '2.0.21-next', dshVersion: '0.2.1-rc.4' } }],
+    [{ productName: 'DSH NEXT', uploadToServer: false, globalExtra: { appVersion: '2.0.21-next', dshVersion: '0.2.1-rc.5' } }],
     [{ productName: 'DSH NEXT', uploadToServer: false, globalExtra: { appVersion: '2.0.21-next' } }],
   ])
 })
