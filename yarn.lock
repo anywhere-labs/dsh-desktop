@@ -43,6 +43,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@anthropic-ai/sdk@npm:0.124.0":
+  version: 0.124.0
+  resolution: "@anthropic-ai/sdk@npm:0.124.0"
+  dependencies:
+    json-schema-to-ts: "npm:^3.1.1"
+    standardwebhooks: "npm:^1.0.0"
+  peerDependencies:
+    zod: ^3.25.0 || ^4.0.0
+  peerDependenciesMeta:
+    zod:
+      optional: true
+  bin:
+    anthropic-ai-sdk: bin/cli
+  checksum: 10c0/80be864be64319e3a2170c26aa93b3103c4fecf8da7719418a0e98c7c7a06a6bfc986491216126602aa8b19aa3149925b58afe333e447fc5af1d31134ea19e52
+  languageName: node
+  linkType: hard
+
 "@anthropic-ai/sdk@npm:0.129.0":
   version: 0.129.0
   resolution: "@anthropic-ai/sdk@npm:0.129.0"
@@ -3716,6 +3733,15 @@ __metadata:
   peerDependencies:
     "@deepseek-ai/cordis": ~4.0.6-alpha.1
   checksum: 10c0/cdffb7c853e0f3cd777e0a1115831284eafdd222365190ece92019116c31c6db6dc4594c6dd44c120ead6e67a2a00a66ca6ab17b28eea81655c45b9b03882481
+  languageName: node
+  linkType: hard
+
+"@deepseek-ai/dsh-client-ui-dockkit@file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-client-ui-dockkit-0.2.1-rc.3.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.2.1-rc.3
+  resolution: "@deepseek-ai/dsh-client-ui-dockkit@file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-client-ui-dockkit-0.2.1-rc.3.tgz#vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-client-ui-dockkit-0.2.1-rc.3.tgz::hash=80735b&locator=deepseek-harness-desktop%40workspace%3A."
+  peerDependencies:
+    "@deepseek-ai/cordis": ~4.0.5
+  checksum: 10c0/b26c4f971a7bb533e818dd8ef5229ce0c68866dc04a5644a43ce3d849771f8600ccb98e0c7a7a2cf4c83b33c896e78bcf25b4a70e4904e1761385570478d1a64
   languageName: node
   linkType: hard
 
@@ -17535,7 +17561,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@deepseek-ai/schemastery@npm:^3.18.5, @deepseek-ai/schemastery@npm:~3.18.5":
+"@deepseek-ai/schemastery@npm:^3.18.4, @deepseek-ai/schemastery@npm:^3.18.5, @deepseek-ai/schemastery@npm:~3.18.5":
   version: 3.18.5
   resolution: "@deepseek-ai/schemastery@npm:3.18.5"
   dependencies:
@@ -17638,6 +17664,26 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@earendil-works/pi-ai@npm:^0.87.1":
+  version: 0.87.1
+  resolution: "@earendil-works/pi-ai@npm:0.87.1"
+  dependencies:
+    "@anthropic-ai/sdk": "npm:0.124.0"
+    "@aws-sdk/client-bedrock-runtime": "npm:3.1127.0"
+    "@earendil-works/pi-telemetry": "npm:^0.87.1"
+    "@google/genai": "npm:2.21.0"
+    "@smithy/node-http-handler": "npm:4.12.1"
+    http-proxy-agent: "npm:9.1.0"
+    https-proxy-agent: "npm:9.1.0"
+    openai: "npm:6.40.0"
+    partial-json: "npm:0.1.7"
+    typebox: "npm:1.3.27"
+  bin:
+    pi-ai: dist/cli.js
+  checksum: 10c0/0153b6481fe1418be36eab8ffd1dabc08a7af53525fc0334013c3cf6ef5d11cac02eba34b34885536248604676c968e4cb920e0e08ce6ed4f2f752590ad7de79
+  languageName: node
+  linkType: hard
+
 "@earendil-works/pi-ai@patch:@earendil-works/pi-ai@npm%3A1.1.0#./patches/pi-ai@1.1.0.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.1.0
   resolution: "@earendil-works/pi-ai@patch:@earendil-works/pi-ai@npm%3A1.1.0#./patches/pi-ai@1.1.0.patch::version=1.1.0&hash=c57289&locator=deepseek-harness-desktop%40workspace%3A."
@@ -17719,6 +17765,13 @@ __metadata:
   version: 1.4.0
   resolution: "@earendil-works/pi-telemetry@npm:1.4.0"
   checksum: 10c0/ee9b1c1fe5fc6df6ecb169ad9ed9e3ffebca47872a4403259aaa4e276163964d4aafdc0fe579603d9dd1da3fc544f4f60636ab197db66230942559acf3380d09
+  languageName: node
+  linkType: hard
+
+"@earendil-works/pi-telemetry@npm:^0.87.1":
+  version: 0.87.1
+  resolution: "@earendil-works/pi-telemetry@npm:0.87.1"
+  checksum: 10c0/8bcbd720043fd7622f431b09b06bdabdaffcb1c87fc645c4a0c277e64211b998b78684b07e7990934cd8330559f25f7c0b2b422a87936f6dfe04f0da7244b616
   languageName: node
   linkType: hard
 
@@ -18363,9 +18416,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@koromix/koffi-darwin-arm64@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-darwin-arm64@npm:3.1.5"
+  conditions: os=darwin & cpu=arm64
+  languageName: node
+  linkType: hard
+
 "@koromix/koffi-darwin-x64@npm:3.1.1":
   version: 3.1.1
   resolution: "@koromix/koffi-darwin-x64@npm:3.1.1"
+  conditions: os=darwin & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@koromix/koffi-darwin-x64@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-darwin-x64@npm:3.1.5"
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
@@ -18377,9 +18444,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@koromix/koffi-freebsd-arm64@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-freebsd-arm64@npm:3.1.5"
+  conditions: os=freebsd & cpu=arm64
+  languageName: node
+  linkType: hard
+
 "@koromix/koffi-freebsd-ia32@npm:3.1.1":
   version: 3.1.1
   resolution: "@koromix/koffi-freebsd-ia32@npm:3.1.1"
+  conditions: os=freebsd & cpu=ia32
+  languageName: node
+  linkType: hard
+
+"@koromix/koffi-freebsd-ia32@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-freebsd-ia32@npm:3.1.5"
   conditions: os=freebsd & cpu=ia32
   languageName: node
   linkType: hard
@@ -18391,9 +18472,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@koromix/koffi-freebsd-x64@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-freebsd-x64@npm:3.1.5"
+  conditions: os=freebsd & cpu=x64
+  languageName: node
+  linkType: hard
+
 "@koromix/koffi-linux-arm64@npm:3.1.1":
   version: 3.1.1
   resolution: "@koromix/koffi-linux-arm64@npm:3.1.1"
+  conditions: os=linux & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@koromix/koffi-linux-arm64@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-linux-arm64@npm:3.1.5"
   conditions: os=linux & cpu=arm64
   languageName: node
   linkType: hard
@@ -18405,9 +18500,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@koromix/koffi-linux-ia32@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-linux-ia32@npm:3.1.5"
+  conditions: os=linux & cpu=ia32
+  languageName: node
+  linkType: hard
+
 "@koromix/koffi-linux-loong64@npm:3.1.1":
   version: 3.1.1
   resolution: "@koromix/koffi-linux-loong64@npm:3.1.1"
+  conditions: os=linux & cpu=loong64
+  languageName: node
+  linkType: hard
+
+"@koromix/koffi-linux-loong64@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-linux-loong64@npm:3.1.5"
   conditions: os=linux & cpu=loong64
   languageName: node
   linkType: hard
@@ -18419,9 +18528,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@koromix/koffi-linux-riscv64@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-linux-riscv64@npm:3.1.5"
+  conditions: os=linux & cpu=riscv64
+  languageName: node
+  linkType: hard
+
 "@koromix/koffi-linux-x64@npm:3.1.1":
   version: 3.1.1
   resolution: "@koromix/koffi-linux-x64@npm:3.1.1"
+  conditions: os=linux & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@koromix/koffi-linux-x64@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-linux-x64@npm:3.1.5"
   conditions: os=linux & cpu=x64
   languageName: node
   linkType: hard
@@ -18433,9 +18556,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@koromix/koffi-openbsd-ia32@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-openbsd-ia32@npm:3.1.5"
+  conditions: os=openbsd & cpu=ia32
+  languageName: node
+  linkType: hard
+
 "@koromix/koffi-openbsd-x64@npm:3.1.1":
   version: 3.1.1
   resolution: "@koromix/koffi-openbsd-x64@npm:3.1.1"
+  conditions: os=openbsd & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@koromix/koffi-openbsd-x64@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-openbsd-x64@npm:3.1.5"
   conditions: os=openbsd & cpu=x64
   languageName: node
   linkType: hard
@@ -18447,6 +18584,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@koromix/koffi-win32-arm64@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-win32-arm64@npm:3.1.5"
+  conditions: os=win32 & cpu=arm64
+  languageName: node
+  linkType: hard
+
 "@koromix/koffi-win32-ia32@npm:3.1.1":
   version: 3.1.1
   resolution: "@koromix/koffi-win32-ia32@npm:3.1.1"
@@ -18454,9 +18598,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@koromix/koffi-win32-ia32@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-win32-ia32@npm:3.1.5"
+  conditions: os=win32 & cpu=ia32
+  languageName: node
+  linkType: hard
+
 "@koromix/koffi-win32-x64@npm:3.1.1":
   version: 3.1.1
   resolution: "@koromix/koffi-win32-x64@npm:3.1.1"
+  conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@koromix/koffi-win32-x64@npm:3.1.5":
+  version: 3.1.5
+  resolution: "@koromix/koffi-win32-x64@npm:3.1.5"
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
@@ -20353,6 +20511,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@xterm/addon-fit@npm:^0.11.0":
+  version: 0.11.0
+  resolution: "@xterm/addon-fit@npm:0.11.0"
+  checksum: 10c0/c0ce94f7e877d07e7197d15d041cc629ce2e853016400aadddc9810838ea8a26e836f87f325eba36df88c03feb72d9f13cd8c3bb41ee31e701f1058edb8553c3
+  languageName: node
+  linkType: hard
+
 "@xterm/addon-serialize@npm:^0.14.0":
   version: 0.14.0
   resolution: "@xterm/addon-serialize@npm:0.14.0"
@@ -20364,6 +20529,13 @@ __metadata:
   version: 6.0.0
   resolution: "@xterm/headless@npm:6.0.0"
   checksum: 10c0/9fa915767d89f52e5c066e2b8160f56701a95382205b03665247b381bb319ed5702626227a933cbb36c4df01c619bc0cc38c96ce9635dc141e88a9742d6ed669
+  languageName: node
+  linkType: hard
+
+"@xterm/xterm@npm:^6.0.0":
+  version: 6.0.0
+  resolution: "@xterm/xterm@npm:6.0.0"
+  checksum: 10c0/b99122553f323a65b708e5eba9903d4c5a1bcb59fe576d29d6e91a33002bccfd1b99403e1e839e1942f4952039db6d3d74ca9d65ed0399b4e9a0a5f35b8c12d9
   languageName: node
   linkType: hard
 
@@ -22270,6 +22442,23 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"dsh-ide-git@workspace:*, dsh-ide-git@workspace:dsh-ide-git":
+  version: 0.0.0-use.local
+  resolution: "dsh-ide-git@workspace:dsh-ide-git"
+  dependencies:
+    "@deepseek-ai/schemastery": "npm:^3.18.4"
+  peerDependencies:
+    "@deepseek-ai/cordis": ^4.0.1
+    "@deepseek-ai/dsh": ">=0.1.6-alpha.2"
+    dsh-better-sidebar: ">=0.12.0"
+  peerDependenciesMeta:
+    "@deepseek-ai/dsh":
+      optional: true
+    dsh-better-sidebar:
+      optional: true
+  languageName: unknown
+  linkType: soft
+
 "dsh-plugin-desktop-beta@workspace:dsh-plugin-desktop-beta":
   version: 0.0.0-use.local
   resolution: "dsh-plugin-desktop-beta@workspace:dsh-plugin-desktop-beta"
@@ -22549,6 +22738,7 @@ __metadata:
     "@deepseek-ai/dsh-api-remotes": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-api-session-controller": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-api-settings-controller": "npm:0.2.1-rc.3"
+    "@deepseek-ai/dsh-api-terminal-controller": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-api-workspace-controller": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-app-boot": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-atomic-write": "npm:0.2.1-rc.3"
@@ -22570,6 +22760,7 @@ __metadata:
     "@deepseek-ai/dsh-client-ui-conversation": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-client-ui-directory-picker-browse": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-client-ui-directory-picker-native": "npm:0.2.1-rc.3"
+    "@deepseek-ai/dsh-client-ui-dockkit": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-client-ui-input-trigger": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-client-ui-layout": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-client-ui-plugin-manager": "npm:0.2.1-rc.3"
@@ -22579,6 +22770,8 @@ __metadata:
     "@deepseek-ai/dsh-client-ui-session": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-client-ui-settings": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-client-ui-sidebar": "npm:0.2.1-rc.3"
+    "@deepseek-ai/dsh-client-ui-sidebar-files": "npm:0.2.1-rc.3"
+    "@deepseek-ai/dsh-client-ui-sidebar-right": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-client-ui-slots": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-client-ui-theme": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-client-ui-tool": "npm:0.2.1-rc.3"
@@ -22707,6 +22900,7 @@ __metadata:
     "@deepseek-ai/dsh-working-directory": "npm:0.2.1-rc.3"
     "@deepseek-ai/dsh-workspace": "npm:0.2.1-rc.3"
     "@deepseek-ai/schemastery": "npm:^3.18.5"
+    "@earendil-works/pi-ai": "npm:^0.87.1"
     "@electron/asar": "npm:3.4.1"
     "@electron/fuses": "npm:1.8.0"
     "@fontsource-variable/inter": "npm:^5.3.0"
@@ -22719,19 +22913,23 @@ __metadata:
     "@types/react-dom": "npm:^18"
     "@types/semver": "npm:^7.7.1"
     "@vitejs/plugin-react": "npm:^6"
+    "@xterm/addon-fit": "npm:^0.11.0"
+    "@xterm/xterm": "npm:^6.0.0"
     adm-zip: "npm:^0.6.0"
     builder-util: "npm:26.15.3"
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
     dsh-community-market: "npm:0.1.0-dev.0"
+    dsh-ide-git: "workspace:*"
     dshmarket: "npm:1.71.1"
     electron: "npm:44.7.0"
     electron-builder: "npm:26.15.7"
     extract-zip: "npm:2.0.1"
     fflate: "npm:0.8.2"
     fs-ext: "npm:2.1.1"
+    immer: "npm:^10.1.1"
     jsdom: "npm:29.1.1"
-    koffi: "npm:3.1.1"
+    koffi: "npm:3.1.5"
     lexical: "npm:0.49.0"
     lucide-react: "npm:^1.33.0"
     node-addon-require-builtin: "npm:^0.1.9"
@@ -22754,6 +22952,7 @@ __metadata:
     vite: "npm:8.2.1"
     vitest: "npm:4.1.8"
     yaml: "npm:^2.9.0"
+    zustand: "npm:~4.4.7"
   peerDependencies:
     electron: 44.7.0
   bin:
@@ -24711,6 +24910,60 @@ __metadata:
   languageName: node
   linkType: hard
 
+"koffi@npm:3.1.5":
+  version: 3.1.5
+  resolution: "koffi@npm:3.1.5"
+  dependencies:
+    "@koromix/koffi-darwin-arm64": "npm:3.1.5"
+    "@koromix/koffi-darwin-x64": "npm:3.1.5"
+    "@koromix/koffi-freebsd-arm64": "npm:3.1.5"
+    "@koromix/koffi-freebsd-ia32": "npm:3.1.5"
+    "@koromix/koffi-freebsd-x64": "npm:3.1.5"
+    "@koromix/koffi-linux-arm64": "npm:3.1.5"
+    "@koromix/koffi-linux-ia32": "npm:3.1.5"
+    "@koromix/koffi-linux-loong64": "npm:3.1.5"
+    "@koromix/koffi-linux-riscv64": "npm:3.1.5"
+    "@koromix/koffi-linux-x64": "npm:3.1.5"
+    "@koromix/koffi-openbsd-ia32": "npm:3.1.5"
+    "@koromix/koffi-openbsd-x64": "npm:3.1.5"
+    "@koromix/koffi-win32-arm64": "npm:3.1.5"
+    "@koromix/koffi-win32-ia32": "npm:3.1.5"
+    "@koromix/koffi-win32-x64": "npm:3.1.5"
+  dependenciesMeta:
+    "@koromix/koffi-darwin-arm64":
+      optional: true
+    "@koromix/koffi-darwin-x64":
+      optional: true
+    "@koromix/koffi-freebsd-arm64":
+      optional: true
+    "@koromix/koffi-freebsd-ia32":
+      optional: true
+    "@koromix/koffi-freebsd-x64":
+      optional: true
+    "@koromix/koffi-linux-arm64":
+      optional: true
+    "@koromix/koffi-linux-ia32":
+      optional: true
+    "@koromix/koffi-linux-loong64":
+      optional: true
+    "@koromix/koffi-linux-riscv64":
+      optional: true
+    "@koromix/koffi-linux-x64":
+      optional: true
+    "@koromix/koffi-openbsd-ia32":
+      optional: true
+    "@koromix/koffi-openbsd-x64":
+      optional: true
+    "@koromix/koffi-win32-arm64":
+      optional: true
+    "@koromix/koffi-win32-ia32":
+      optional: true
+    "@koromix/koffi-win32-x64":
+      optional: true
+  checksum: 10c0/2941703da4b733c6aa92696dd41780194682389058a3ad4a6fed5634959a245dd8ecb3faa257804e965ca2ca6abc1523b784536d40f073c41c5950bc5118fc78
+  languageName: node
+  linkType: hard
+
 "lazy-val@npm:^1.0.5":
   version: 1.0.5
   resolution: "lazy-val@npm:1.0.5"
@@ -26552,6 +26805,21 @@ __metadata:
     powershell-utils: "npm:^0.2.1"
     wsl-utils: "npm:^1.0.0"
   checksum: 10c0/c7baa72a2f5109ece05beea07118628cabe30a7cb60e677f34512ad58c47b7d1e423d7347c4aaadc03454eceee158acd4721b9dd5a8219aeac1fdac5e06c22c7
+  languageName: node
+  linkType: hard
+
+"openai@npm:6.40.0":
+  version: 6.40.0
+  resolution: "openai@npm:6.40.0"
+  peerDependencies:
+    ws: ^8.18.0
+    zod: ^3.25 || ^4.0
+  peerDependenciesMeta:
+    ws:
+      optional: true
+    zod:
+      optional: true
+  checksum: 10c0/fde60f66be934e52c61f0ef864817f4f4ee0bc76ac345599c29a6bfa4ffe5a4563a9e3af5fbc5b9c4bf36a3f06a8b3c0bd9f735f94b8019d6018c6b2ec43c0cf
   languageName: node
   linkType: hard
 
