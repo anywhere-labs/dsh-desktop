@@ -10668,7 +10668,7 @@ __metadata:
 
 "@deepseek-ai/dsh-sandbox-windows-acl@patch:@deepseek-ai/dsh-sandbox-windows-acl@file%3Avendor/dsh-runtime/0.2.1-rc.5/deepseek-ai-dsh-sandbox-windows-acl-0.2.1-rc.5.tgz#./patches/dsh-sandbox-windows-acl@0.2.1-rc.5.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.1-rc.5
-  resolution: "@deepseek-ai/dsh-sandbox-windows-acl@patch:@deepseek-ai/dsh-sandbox-windows-acl@file%3Avendor/dsh-runtime/0.2.1-rc.5/deepseek-ai-dsh-sandbox-windows-acl-0.2.1-rc.5.tgz%23vendor/dsh-runtime/0.2.1-rc.5/deepseek-ai-dsh-sandbox-windows-acl-0.2.1-rc.5.tgz%3A%3Ahash=242a5d&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-sandbox-windows-acl@0.2.1-rc.5.patch::version=0.2.1-rc.5&hash=8af326&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-sandbox-windows-acl@patch:@deepseek-ai/dsh-sandbox-windows-acl@file%3Avendor/dsh-runtime/0.2.1-rc.5/deepseek-ai-dsh-sandbox-windows-acl-0.2.1-rc.5.tgz%23vendor/dsh-runtime/0.2.1-rc.5/deepseek-ai-dsh-sandbox-windows-acl-0.2.1-rc.5.tgz%3A%3Ahash=242a5d&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-sandbox-windows-acl@0.2.1-rc.5.patch::version=0.2.1-rc.5&hash=82e63c&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-lazy-require": "npm:0.2.1-rc.5"
     "@deepseek-ai/dsh-win32-process": "npm:0.2.1-rc.5"
@@ -10678,13 +10678,13 @@ __metadata:
     "@deepseek-ai/cordis": ~4.0.5
     "@deepseek-ai/dsh-skill": 0.2.1-rc.5
     "@deepseek-ai/dsh-subprocess": 0.2.1-rc.5
-  checksum: 10c0/2505ab481f06332d3fa8fc296e68e8cb99106e9415ef18abfb75450f53abec628b86790ced6eddfce3d17ca08d9411e5a7cf6f90a3c006c4dbf51627500bf512
+  checksum: 10c0/6c8f92ff4853c070967b038bc79d505408b28fabd647d87ab3ee904e98ca24bcd557dc9e69ea2c403d23c4117b3e4d325fb5fa27adf8f34309f468f6660382cb
   languageName: node
   linkType: hard
 
 "@deepseek-ai/dsh-sandbox-windows-acl@patch:@deepseek-ai/dsh-sandbox-windows-acl@file%3Avendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-sandbox-windows-acl-0.2.2-alpha.2.tgz#./patches/dsh-sandbox-windows-acl@0.2.2-alpha.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.2-alpha.2
-  resolution: "@deepseek-ai/dsh-sandbox-windows-acl@patch:@deepseek-ai/dsh-sandbox-windows-acl@file%3Avendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-sandbox-windows-acl-0.2.2-alpha.2.tgz%23vendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-sandbox-windows-acl-0.2.2-alpha.2.tgz%3A%3Ahash=4a3fbf&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-sandbox-windows-acl@0.2.2-alpha.2.patch::version=0.2.2-alpha.2&hash=8395d5&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-sandbox-windows-acl@patch:@deepseek-ai/dsh-sandbox-windows-acl@file%3Avendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-sandbox-windows-acl-0.2.2-alpha.2.tgz%23vendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-sandbox-windows-acl-0.2.2-alpha.2.tgz%3A%3Ahash=4a3fbf&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-sandbox-windows-acl@0.2.2-alpha.2.patch::version=0.2.2-alpha.2&hash=379ab5&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-lazy-require": "npm:0.2.2-alpha.2"
     "@deepseek-ai/dsh-win32-process": "npm:0.2.2-alpha.2"
@@ -10694,7 +10694,7 @@ __metadata:
     "@deepseek-ai/cordis": ~4.0.6-alpha.1
     "@deepseek-ai/dsh-skill": 0.2.2-alpha.2
     "@deepseek-ai/dsh-subprocess": 0.2.2-alpha.2
-  checksum: 10c0/e9187a449199e0393e2b1c3e13045cb31c29713c9518728c181f6c2b089071a24d9d2942ad460fc203759f5e0a14f963276b8c720f23082e977d13ff413f9674
+  checksum: 10c0/9494e27f74c78f143ab7ceaa521a0aa5681c45c094b26553d86e6e1aab253a3a0a9d750bea72618bb6afdbd89d550a84942ddce6bbbd288af1081b658e965ab5
   languageName: node
   linkType: hard
 
