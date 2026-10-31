@@ -2205,6 +2205,7 @@
     "upstream:build": "cd deepseek-harness && corepack pnpm run build",
     "upstream:build:official": "cd deepseek-harness && CI=true DSH_BUILD_CLIENT_PROFILE=official corepack pnpm run build",
     "upstream:pack:dsh": "cd deepseek-harness && CI=true corepack pnpm run release:pack --family dsh",
+    "upstream:pack:dsh:local": "cd deepseek-harness && CI=true corepack pnpm run release:pack --family dsh --out dist/local-runtime/npm",
     "upstream:prepare-runtime": "yarn upstream:install && yarn upstream:build:official && yarn upstream:pack:dsh",
     "dev:beta": "yarn market:prepare && yarn aa:prepare-release && yarn workspace dsh-community-market build && yarn workspace dsh-plugin-desktop-beta dev",
     "start:beta": "yarn market:prepare && yarn workspace dsh-plugin-desktop-beta start",
