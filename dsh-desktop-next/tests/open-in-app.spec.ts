@@ -148,3 +148,21 @@ it('opens Explorer through the official route with a visible window', async () =
   expect(fixture.execFile).toHaveBeenCalledWith('explorer.exe', ['file:///C:/项目%20workspace/repo'],
     expect.objectContaining({ windowsHide: false }), expect.any(Function))
 })
+
+it('reads the Windows registry through a UTF-8 console, so a Chinese install path resolves', async () => {
+  fixture.platform = 'win32'
+  const appPaths = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths'
+  const executable = 'D:\\软件\\Sublime Text\\sublime_text.exe'
+  fixture.files.add(executable.replaceAll('\\', '/'))
+  // Without the patch reg.exe runs directly; its GBK bytes would reach the UTF-8 runner as U+FFFD.
+  fixture.execFile.mockImplementation((command, args, _options, callback) => {
+    callback(null, command === 'cmd.exe' && args.at(-1).includes(`"${appPaths}"`)
+      ? `\r\nHKEY_CURRENT_USER${appPaths.slice(4)}\\sublime_text.exe\r\n    (默认)    REG_SZ    ${executable}\r\n\r\n` : '', '')
+  })
+  const result = await routes()('sublimetext')
+  expect(result.statusCode).toBe(200)
+  expect(fixture.spawn.mock.calls[0]![0]).toBe(executable)
+  expect(fixture.execFile).toHaveBeenCalledWith('cmd.exe', ['/d', '/s', '/c', `"chcp 65001 >nul & reg.exe "query" "${appPaths}" "/s""`],
+    expect.objectContaining({ encoding: 'utf8', windowsHide: true, windowsVerbatimArguments: true }), expect.any(Function))
+  expect(fixture.execFile.mock.calls.filter(([command]) => command === 'reg.exe')).toEqual([])
+})
