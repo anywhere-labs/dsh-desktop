@@ -292,6 +292,7 @@
     "@deepseek-ai/dsh-mcp-client": "0.2.2-alpha.2",
     "@deepseek-ai/dsh-message-feedback": "0.2.2-alpha.2",
     "@deepseek-ai/dsh-native-command": "0.2.2-alpha.2",
+    "@deepseek-ai/dsh-official-bundles": "0.2.2-alpha.2",
     "@deepseek-ai/dsh-otel": "0.2.2-alpha.2",
     "@deepseek-ai/dsh-output-retention": "0.2.2-alpha.2",
     "@deepseek-ai/dsh-permission-presets": "0.2.2-alpha.2",

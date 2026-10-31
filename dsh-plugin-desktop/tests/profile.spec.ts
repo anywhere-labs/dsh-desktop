@@ -15,8 +15,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   composeEntries,
   initProfile,
-  PROFILE_TEMPLATES,
 } from '@deepseek-ai/dsh-app-boot'
+import { PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 import {
   configureDesktopOfficialPluginMarket,
   DEFAULT_OFFICIAL_MARKET_INDEX_URL,

@@ -17535,6 +17535,7 @@ __metadata:
     "@deepseek-ai/dsh-mcp-client": "npm:0.2.2-alpha.2"
     "@deepseek-ai/dsh-message-feedback": "npm:0.2.2-alpha.2"
     "@deepseek-ai/dsh-native-command": "npm:0.2.2-alpha.2"
+    "@deepseek-ai/dsh-official-bundles": "npm:0.2.2-alpha.2"
     "@deepseek-ai/dsh-otel": "npm:0.2.2-alpha.2"
     "@deepseek-ai/dsh-output-retention": "npm:0.2.2-alpha.2"
     "@deepseek-ai/dsh-permission-presets": "npm:0.2.2-alpha.2"
