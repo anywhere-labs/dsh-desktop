@@ -135,9 +135,11 @@ async function mountMenu(options: {
       queue: [],
     }),
     inputActions: {
+      insertQuote: () => false,
       captureInsertion,
       insertText,
       setDraft: () => {},
+      persistDraft: () => {},
       addAttachments: () => true,
       removeAttachment: () => {},
       pruneAttachments: () => {},
