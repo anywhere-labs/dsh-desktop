@@ -1,0 +1,22 @@
+# dsh-ide-git bundle patch.
+#
+# Installed through the official CLI —
+#
+#   dsh plugin --profile <name> add dsh-ide-git
+#
+# — the command reconciles dsh.profile.bundles against installed packages and,
+# seeing this declaration, merges THIS patch exactly like the manual mount line
+# below. No profile file edits needed.
+#
+# Manual mount equivalent (profile cordis.patch.yml):
+#
+#   - insert:
+#       - id: ide-git
+#         name: 'dsh-ide-git'
+#
+# Only the Node half loads through this row (the /dsh-ide-git/api git routes).
+# The web client half is served through exports["./client"] and mounted by the
+# browser boot graph; there it registers one dsh-better-sidebar tab.
+- insert:
+    - id: ide-git
+      name: 'dsh-ide-git'

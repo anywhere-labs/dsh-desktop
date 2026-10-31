@@ -1,254 +1,116 @@
-<p align="center">
-  <a href="https://dshdesktop.cn"><img src="assets/desktop-hero-en.png" alt="DSH Desktop, an open-source desktop client built on DeepSeek Harness" width="100%"></a>
-</p>
+<p align="center"><img src="assets/fate-dev-banner.svg" alt="DSH Desktop · fate-dev community extensions: Workspace, Files, Copilot, and Logcat" width="100%"></p>
 
-<h1 align="center">DSH Desktop</h1>
+<h1 align="center">fate-dev DSH Desktop</h1>
 
-<p align="center">
-  <strong>An open-source desktop client for Windows and macOS, built on DeepSeek Harness.</strong>
-</p>
+<p align="center">A community extension of <a href="https://github.com/anywhere-labs/dsh-desktop">upstream DSH Desktop</a> for code workspaces, file review, Git, and Android debugging.</p>
 
-<h3 align="center"><a href="https://dshdesktop.cn">One-click download, ready to use out of the box.</a></h3>
+## Navigation
 
-<p align="center">
-  Everything is a plugin — the desktop itself is a plugin.
-</p>
+- [Changes from upstream](#changes-from-upstream)
+- [Screenshots](#screenshots)
+- [Local Profile plugins](#local-profile-plugins)
+- [Downloads](#downloads)
+- [Code changes / Release Note](#code-changes--release-note)
+- [Security and privacy](#security-and-privacy)
 
-<p align="center"><sub>An independent community project, not affiliated with, authorized by, or endorsed by DeepSeek.<br>No DeepSeek employee or official upstream DeepSeek Harness team member currently participates in this repository; upstream contributors shown by GitHub are inherited from synchronized fork history.<br><a href="README.md">中文</a> · English</sub></p>
+## Changes from upstream
 
-<p align="center">
-  <img src="assets/desktop-chat-en.png" alt="DSH Desktop chat interface in English" width="100%">
-</p>
+One-line summary for each feature:
 
-<p align="center">
-  <a href="https://github.com/anywhere-labs/deepseek-harness-desktop/releases/latest"><img src="https://img.shields.io/github/v/release/anywhere-labs/deepseek-harness-desktop?style=flat&amp;label=release&amp;color=4D6BFE" alt="Latest release"></a>
-  <a href="https://github.com/anywhere-labs/deepseek-harness-desktop/releases"><img src="https://img.shields.io/github/downloads/anywhere-labs/deepseek-harness-desktop/total?style=flat&amp;label=downloads&amp;color=4D6BFE" alt="Total downloads"></a>
-  <a href="https://github.com/anywhere-labs/deepseek-harness-desktop"><img src="https://img.shields.io/github/stars/anywhere-labs/deepseek-harness-desktop?style=flat&amp;label=%E2%98%85&amp;color=08C" alt="GitHub stars"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat" alt="MIT License"></a>
-  <a href="https://discord.gg/TJeGqKRNM"><img src="https://img.shields.io/badge/Discord-5865F2?style=flat&amp;logo=discord&amp;logoColor=white" alt="Join Discord"></a>
-  <img src="https://img.shields.io/badge/macOS%20%7C%20Windows-4493F8?style=flat-square" alt="Supported platforms: macOS and Windows">
-</p>
-
-DSH Desktop integrates the local Web UI, Host service, and plugin system from [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) into a native desktop application. It runs a pinned upstream version unchanged, while DSH Desktop provides the window, tray, terminal, updates, and work profiles through the plugin mechanism provided by DeepSeek Harness.
-
-<a id="run"></a>
-
-## Download and install
-
-Current release installers support Windows x64 and macOS Universal. No extra environment is needed — download, install, and start using it with one click.
-
-| Platform | Download | Installation |
-| --- | --- | --- |
-| Windows x64 | [Download installer](https://www.dshdesktop.cn/api/downloads/windows) | Run the NSIS installer and follow its prompts |
-| macOS Universal | [Download DMG](https://www.dshdesktop.cn/api/downloads/mac) | Open the DMG and drag DSH Desktop into Applications |
-
-See the [user guide](docs/user-guide.en.md) and [FAQ](docs/faq.en.md) for plugin commands, platform details, and troubleshooting.
-
-Together with every plugin author, we want to build an open, composable, and sustainable DSH plugin ecosystem where plugins grow alongside each other. Read the [DSH plugin ecosystem manifesto](docs/plugin-ecosystem.en.md).
-
-<details open>
-<summary>❤️ Sponsors</summary>
-
-| Logo | Introduction |
+| Feature | Summary |
 | --- | --- |
-| <a href="https://dshdesktop.cn/sponsors/wuying"><img src="assets/sponsors/wuying-cloud-computer-logo.png" alt="Alibaba Cloud Wuying Cloud Computer" width="96"></a> | [**Alibaba Cloud · Wuying Cloud Computer**](https://dshdesktop.cn/sponsors/wuying)<br>Thanks to **Alibaba Cloud** Wuying Cloud Computer for sponsoring this project. Wuying Cloud Computer Personal Edition provides a cloud desktop for individual users, with compute, storage, and the desktop environment hosted in the cloud. It supports access from multiple device types and lets users choose specifications on demand, making it useful for remote work, learning, development, and lightweight creative workflows.<br><br>[**Register in WeChat →**](https://dshdesktop.cn/sponsors/wuying) |
-| <a href="https://astraflow.ucloud.cn/modelverse/playground?ytag=geo_waituo_dsh"><img src="assets/sponsors/astraflow-logo.png" alt="UCloud AstraFlow" width="96"></a> | [**UCloud · AstraFlow**](https://astraflow.ucloud.cn/modelverse/playground?ytag=geo_waituo_dsh)<br>Thanks to **UCloud** AstraFlow for sponsoring this project. **UCloud** AstraFlow ModelVerse supports one-click access to 200+ models, including Kimi K3, DeepSeek V4/V3, Qwen 3, GLM5.2, happyhorse, and other leading open-source models worldwide, with no self-training required.<br><br>[**Visit website →**](https://astraflow.ucloud.cn/modelverse/playground?ytag=geo_waituo_dsh) |
-| <a href="https://88api.ai/sign-up?aff=VnEb"><img src="assets/sponsors/88api-logo.png" alt="88API" width="120"></a> | [**88API Token Aggregation Platform**](https://88api.ai/sign-up?aff=VnEb)<br><br>🧠 Access language and coding models including GPT, Claude, Gemini, Grok, DeepSeek, Kimi, and GLM;<br>🎨 Image models: GPT-Image, Gemini, Grok, and more;<br>🎬 Video models: Seedance, Veo, MiniMax H3, Kling, Grok, and more;<br>🎙️ Speech capabilities: Whisper, TTS, and more. From copywriting and image generation and editing to video generation and voiceovers.<br>🎁 New users receive trial credits upon registration to test model capabilities. Live customer support is available on the site!<br>👉 Operated by a registered Hong Kong company · Stable availability · Fully operational, full-capability service · No reduced model intelligence · Invoices available<br><br>[**Register now →**](https://88api.ai/sign-up?aff=VnEb) |
-| <a href="https://onliqiu.com/r/ds2h"><img src="assets/sponsors/liqiu-api-logo.png" alt="Liqiu API" width="96"></a> | [**Liqiu API**](https://onliqiu.com/r/ds2h)<br>“Since ancient times, autumn has brought sorrow and solitude; I say an autumn day surpasses a spring morning.” Liqiu API is a stable, transparent AI API relay offering genuine access to ChatGPT, Claude, Grok, GLM, and more. It offers pay-as-you-go billing and invoice support, stays up when others go down, and provides maintenance even in the early hours, with pricing multipliers starting at 0.09x.<br><br>[**Sign up →**](https://onliqiu.com/r/ds2h) |
+| Multi-directory workspaces | Manage the primary directory and attached code directories in one session without changing the Agent session context when browsing roots. |
+| Files tree shortcuts | Reveal files in the system manager, open them in VS Code, copy paths, or insert structured file references into a conversation. |
+| Git Review | Review committed changes for the current session and switch between authorized workspace roots. |
+| Editable Git workspace | Perform Git workspace operations in Desktop while keeping the Git panel and review directory independent. |
+| GitHub Copilot | Sign in with a GitHub device code and use available Copilot models from the model picker. |
+| Android Logcat | Select an adb device, filter live logs, pause or resume output, copy or export visible logs, and capture a device screenshot. |
+| Session and file safety | File references stay structured, and README/review screenshots contain no sessions, memory databases, credentials, or access tokens. |
 
-</details>
+## Local Profile plugins
 
-## Documentation
+The following third-party plugins are currently installed and enabled in the local `desktop` Profile; versions come from the local Profile manifest.
 
-Ordinary users can start with the [user guide](docs/user-guide.en.md); the developer documentation is only needed when extending or maintaining the application.
+| Plugin | Version | Role |
+| --- | ---: | --- |
+| `@michengai/dsh-archive-manager` | 1.0.16 | Archive management |
+| `@michengai/dsh-automation` | 0.1.61 | Task automation |
+| `@michengai/dsh-btw` | 0.1.18 | BTW extension |
+| `@michengai/dsh-skills-manager` | 1.1.13 | Skills management |
+| `@smalltailqwq/dsh-client-ui-skin-maid-atelier` | 0.1.7 | Client theme |
+| `@wxg-prc-cpg/browser-skill-dsh-plugin` | 0.3.2 | Browser automation skill |
+| `billion-context` | 0.1.181 | Context enhancement |
+| `dsh-dream-skin` | 10.10.0 | UI theme |
+| `dsh-ffmpeg` | 0.4.5 | Audio/video processing |
+| `dsh-figma-mcp` | 0.6.0 | Figma MCP integration |
+| `dsh-file-review` | 0.8.8 | File review |
+| `dsh-ide-git` | 0.16.3 | Git panel |
+| `dsh-image-viewer` | 0.1.9 | Image viewer |
+| `dsh-prompt` | 0.4.9 | Prompt tools |
+| `dsh-rewind-plugin` | 0.15.3 | Session rewind |
+| `dsh-session-recycle-bin` | 0.4.3 | Session recycle bin |
+| `meow-memory` | 0.31.0 | Cross-session memory |
 
-### User documentation
+## Downloads
 
-| Goal | Entry point |
+The current Release keeps only the Stable channel:
+
+| Version | Debian / Ubuntu |
 | --- | --- |
-| Install and use the application | [User guide](docs/user-guide.en.md) |
-| Check platforms, prerequisites, and product boundaries | [FAQ](docs/faq.en.md) |
-| Understand data processing and privacy choices | [Privacy Policy](PRIVACY.md) |
-| Understand why the project exists | [Why DSH Desktop](docs/why-desktop.en.md) |
-| See the full documentation and README map | [Documentation index](docs/README.en.md) |
+| Stable 2.0.17 | [Download `.deb`](https://github.com/FateFeng/dsh-desktop/releases/download/v2.0.17-fate-dev/DSH-Desktop-2.0.17-amd64.deb) |
 
-### Developer and maintainer documentation
+This project will no longer distribute AppImage builds; only the verifiable Debian / Ubuntu Stable package is maintained.
 
-| Goal | Entry point |
-| --- | --- |
-| Read the plugin ecosystem manifesto | [Plugin ecosystem manifesto](docs/plugin-ecosystem.en.md) |
-| Build ordinary or Desktop plugins | [Plugin development](docs/plugin-development.en.md) |
-| Join the unified plugin-contract discussion | [DSH Community Fabric Draft](dsh-community-fabric/README.md) |
-| See the research behind the unified plugin framework | [Framework and real-plugin research](dsh-community-fabric/docs/research/mature-plugin-frameworks.md) |
-| Read the plugin market product and safety design | [DSH Community Market](dsh-community-market/README.md) |
-| See what Desktop plugins can use | [Desktop plugin API](dsh-plugin-desktop/docs/plugin-services.md) |
-| Understand how the desktop works | [Architecture](docs/architecture.en.md) |
-| Read package-level build and release details | [`dsh-plugin-desktop/README.md`](dsh-plugin-desktop/README.md) |
+- Release page: <https://github.com/FateFeng/dsh-desktop/releases/tag/v2.0.17-fate-dev>
+- Debian SHA-256: `2915f6ed9be7beddf42159c9553f1d1473f99b06982e663fa3236356f2a28479`
+- Verified `.deb` asset size: 242,430,032 bytes.
 
-## Features
+## Code changes / Release Note
+
+### 2.0.17-fate-dev
+
+- `5fced936e9`: merged the Git Review worktree into `fate-dev`.
+- `f7c3d06b81`: added session-scoped Git Review with attached workspace roots.
+- `97291e91c9`: integrated editable Git workspace tools.
+- `70962df847`: fixed inserting file references at the cursor.
+- `91efd87d8d`: required absolute file paths in Assistant output.
+- `6458eff142`: persisted workspace sources and integrated Desktop workspace features.
+- `7300dd918c`: added Files tree context-menu shortcuts.
+- `de3b76afbc`: added GitHub Copilot provider support and Android Logcat filter memory.
+- `b125d0203d`: bumped Desktop versions to `2.0.17`.
+- `9765a12e67`: added README, Git Review screenshots, plugin inventory, and Stable download notes.
+
+## Security and privacy
+
+- Local paths, repository details, and personal information in README screenshots have been redacted.
+- The documentation records package names and versions only, not local directories, accounts, session contents, or plugin configuration.
+- Check new screenshots and build artifacts before publishing so local sessions, the memory database, credentials, or access tokens are not included in the repository or Release.
+
+## Screenshots
+
+### Multi-directory workspaces
+
+<p align="center"><img src="assets/readme/workspace.png" alt="Switch between primary and attached directories" width="78%"></p>
+
+### Files tree shortcuts
+
+<p align="center"><img src="assets/readme/files-shortcuts.png" alt="Files tree context actions" width="28%"></p>
+
+### Git Review and code review
 
 <table>
   <tr>
-    <td width="50%" valign="top">
-      <h3>Desktop</h3>
-      <p>Bring the upstream DeepSeek Harness local Web UI to a native desktop application. The app starts and manages the local Harness service, integrates the system tray and desktop window, and requires no Node.js installation or command-line setup.</p>
-    </td>
-    <td width="50%" valign="top">
-      <h3><a href="https://www.agents-anywhere.com">Mobile Remote Control</a> <img src="https://img.shields.io/badge/BUILT_IN-2EA44F?style=flat-square" alt="Built in"></h3>
-      <p>Connect to Desktop from iOS and Android to start tasks, monitor Agent progress, and send follow-ups from your phone. Built in since 2.0.9.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h3><a href="dsh-community-market/README.md">Plugin Marketplace</a> <img src="https://img.shields.io/badge/BUILT_IN-2EA44F?style=flat-square" alt="Built in"></h3>
-      <p>DSH Community Market is complete and built in, with plugin discovery, details, installation, and management. The market openly connects to a wide range of plugin data sources: anyone can provide, integrate, and use a source that follows the public schemas, while existing APIs can join as cooperating sources through a reviewed adapter.</p>
-    </td>
-    <td width="50%" valign="top">
-      <h3>Co-build the Plugin Ecosystem</h3>
-      <p>The DSH plugin ecosystem is built by the community. Upstream plugins, DSH Desktop plugins, and other community plugins follow shared conventions and can work together through the same composition mechanism. Join us — read the <a href="docs/plugin-ecosystem.en.md">DSH plugin ecosystem manifesto</a>.</p>
-    </td>
+    <td width="43%"><img src="assets/readme/code-review.png" alt="Code review directory and multiple workspace roots" width="100%"></td>
+    <td width="57%"><img src="assets/readme/git-review.png" alt="Git Review changes and commit graph" width="100%"></td>
   </tr>
 </table>
 
-### First-run setup, browser access, and LAN exposure
+### GitHub Copilot
 
-On the normal first launch of each uninitialized profile, Desktop shows its native Setup Wizard first. It can configure the window mode and system material, plugin marketplace, notifications, whether to open the system default browser automatically, and the Web access scope; it can also be skipped. The Host and main DSH window do not start until the wizard is completed or skipped. Completion or skip state is recorded separately for each profile; an explicit recovery launch still enters Recovery Assistant first.
+<p align="center"><img src="assets/readme/copilot.png" alt="GitHub Copilot connection and available models" width="58%"></p>
 
-The Web service listens on the local loopback interface by default. When **Open in browser** is enabled, Desktop hands the page to the system default browser after the Web service is actually ready; this preference does not change the listener exposure. **Desktop settings** shows the actual local URL below the control. LAN access is a separate opt-in setting and exposes the currently available LAN URLs when enabled.
+### Android Logcat
 
-> **Danger:** LAN exposure has no authentication. Anyone on the same local network can open DSH and directly operate your computer. Enable it only on a fully trusted network and with great care.
+<p align="center"><img src="assets/readme/android-logcat.png" alt="Android Logcat device selection and filters" width="88%"></p>
 
-The automatic updater's fixed version-check request sends the installed version in the `X-DSH-Desktop-Version` header and a locally generated, persistently stored random UUID in the `X-DSH-Desktop-Installation-Id` header; the value is not derived from hardware information. Package download requests and their download redirects do not receive these headers.
-
-## Plugin Ecosystem
-
-Plugins are extensions that add capabilities to DSH — models, tools, interfaces, and workflows can all be plugins, combined like building blocks.
-
-DSH Desktop does not modify upstream source, and it is not a fixed, hardcoded shell. A pinned upstream DeepSeek Harness version runs unchanged; the desktop shell itself — the window, tray, terminal, updates, and work profiles — integrates as a DSH plugin through the plugin mechanism provided by DeepSeek Harness. From the core agent to the desktop shell, the whole product follows the same "everything is a plugin" rule: plugins compatible with the pinned upstream version can be used, while desktop capabilities are composed, replaced, and evolved in the same way.
-
-We want the plugin ecosystem to work like a phone app store: every plugin is built against the same set of rules, so plugins can be installed together and work together without interfering with each other.
-
-### For developers
-
-Unlike many other projects, this project itself is a DSH [plugin](docs/plugin-development.en.md): the desktop shell uses the same plugin composition mechanism as third-party plugins. Desktop plugin capabilities are now available. We provide Desktop services so plugin developers can integrate their plugins with desktop capabilities: for example, viewing and switching work profiles, or installing, updating, and removing plugins in the active profile. See the [Desktop plugin API](dsh-plugin-desktop/docs/plugin-services.md) for complete usage details. See [Why DSH Desktop](docs/why-desktop.en.md) and [Plugin development](docs/plugin-development.en.md) for the reasoning and the third-party boundary.
-
-## Relationship to DeepSeek Harness
-
-DSH Desktop is an independent community project built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and the Cordis plugin model, intended to provide an open and composable DSH desktop experience.
-
-This repository is independently maintained by the community. No DeepSeek employee or member of the official upstream DeepSeek Harness team currently participates in its development, maintenance, or governance. Contributors from the upstream project may appear on GitHub's Contributors page because this repository inherited and later synchronized upstream commit history when it was forked. Such attribution reflects commit provenance only and does not imply involvement in this repository or any affiliation, partnership, authorization, or endorsement.
-
-The upstream project provides the core agent capabilities, plugin system, and Web UI. DSH Desktop primarily provides:
-
-- Desktop application packaging
-- Starting, stopping, and recovering the local service
-- Desktop window and system tray integration
-- macOS and Windows installer builds and releases
-- An interface designed for desktop use
-
-If you prefer to run DeepSeek Harness from the command line or contribute to its core functionality, refer to the upstream repository first.
-
-## Special Thanks
-
-Special thanks to the [original DeepSeek Harness repository](https://github.com/deepseek-ai/deepseek-harness) and the DeepSeek AI team. DSH Desktop is built from a pinned upstream checkout, and its core agents, models, tools, sessions, Web UI, and plugin ecosystem come from that project.
-
-We also thank [Cordis](https://github.com/cordiverse/cordis) for the plugin foundation that makes this composition possible. DSH Desktop would not exist without these open-source projects.
-
-We are also grateful to the [Koishi.js](https://koishi.chat/) project and community for their long-standing work on plugin practices, tooling, and shared knowledge, and to everyone who contributes discussions, testing, feedback, and plugins.
-
-Also, and you.
-
-<a id="run-from-source"></a>
-
-## Development
-
-Desktop source lives in `dsh-plugin-desktop/`. The outer repository uses Yarn, while the pinned `deepseek-harness/` submodule keeps its own pnpm workspace. From the repository root:
-
-```sh
-git submodule update --init --recursive
-corepack yarn install --immutable
-corepack yarn dev
-```
-
-Use `corepack yarn check` for the headless gate. The [architecture](docs/architecture.en.md) and package [`README`](dsh-plugin-desktop/README.md) describe the full build, test, and release boundaries. See [CONTRIBUTING.en.md](CONTRIBUTING.en.md) for how to contribute.
-
-### macOS microphone permission
-
-Stable, Beta, and Next sign the main application and the Electron Helpers directly with
-`deepseek-harness/apps/desktop/scripts/macos-entitlements.plist` from the pinned upstream checkout. After a submodule update, packaging picks up the matching entitlements automatically, so no local copy is maintained; initialize the submodule before packaging. Each edition's macOS configuration keeps its own product-specific microphone usage description.
-
-Voice input triggers system consent through the upstream recording flow. The voice plugin no longer has a separate permission button, and Stable/Beta no longer install a microphone permission request bridge or interceptor.
-
-## Community
-
-Choose whichever platform you prefer to discuss usage, plugin development, and project updates.
-
-<table>
-  <thead>
-    <tr>
-      <th align="center">WeCom</th>
-      <th align="center">QQ Group</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center"><img src="assets/community-wechat-group.png" alt="DSH Desktop WeCom QR code" title="Scan to add us on WeCom" width="180" height="180"></td>
-      <td align="center"><img src="assets/community-qq-group.jpg" alt="DSH Desktop QQ group QR code" width="180" height="180"></td>
-    </tr>
-  </tbody>
-</table>
-
-Discord: [Join the DSH Desktop community](https://discord.gg/TJeGqKRNM)
-
-If you would like to join our technical team, contact us at [t4wefan@qq.com](mailto:t4wefan@qq.com).
-
-## Related Links
-
-Ecosystem projects and developer tools around DeepSeek Harness.
-
-| Project | About | Link |
-| --- | --- | --- |
-| dshfind | The learning & sharing community for DeepSeek Harness (DSH). | [GitHub](https://github.com/hikariming/dshfind) · [Website](https://dshfind.com) |
-| DSH 1024Store | A community plugin directory for the DeepSeek Harness (DSH) ecosystem (4,120 plugins), open-sourcing an online marketplace, a collection pipeline, and a public query API — fork it to deploy your own marketplace. | [GitHub](https://github.com/imsai-sh/awesome-deepseek-harness-plugins) |
-| Awesome DSH Plugin | Curated list of DeepSeek Harness (DSH) plugins. | [GitHub](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) |
-| dsh-market | Visual plugin market for DeepSeek Harness, with browsing, search, and one-click installation. | [GitHub](https://github.com/dsh-market/dsh-market) |
-| ModLens | Adds OCR, layout, and semantic vision capabilities to DeepSeek Harness and text-only coding agents. | [GitHub](https://github.com/liustack/modlens) · [Website](https://liustack.dev) |
-| DeepSeek Harness Orange Book | Community field manual for DeepSeek Harness. | [GitHub](https://github.com/alchaincyf/deepseek-harness-orange-book) |
-| dsh-web-ui | DeepSeek Harness Web UI plugins and themes. | [GitHub](https://github.com/zhu1090093659/dsh-web-ui) · [Gallery](https://gallery.dsh-market.com) |
-| dsh-TUI | Full-screen interactive terminal interface for DeepSeek Harness. | [GitHub](https://github.com/ccch1mneyyy/dsh-TUI) |
-| dsh-tianshu-tui | Minimalist interactive terminal UI plugin for the DSH web client with a self-developed ANSI rendering core for silky-smooth output; adds TDD, evidence gates, and vision/image module workflows on top of the official UI. | [GitHub](https://github.com/huiliyi37/dsh-tianshu-tui) |
-| dsh-context | DSH context insight panel: Context dashboard + `/context` command + Context browser for one-stop context lifecycle management — category composition, content details, evolution trends, compaction/injection events, and statistics. | [GitHub](https://github.com/bowenliang123/dsh-context) · [NPM](https://www.npmjs.com/package/dsh-context) |
-| Agents-Anywhere | Remote-control your desktop coding agent from your phone. | [GitHub](https://github.com/anywhere-labs/Agents-Anywhere) |
-| deepseek-harness-remote | Remote control and multi-device collaboration plugin for DeepSeek Harness based on P2P and APIProxy. | [GitHub](https://github.com/liguobao/deepseek-harness-remote) |
-| DSH-better-sidebar | Sidebar workbench for DeepSeek Harness with files, terminal, Git, and subagents. | [GitHub](https://github.com/omdsh-dev/DSH-better-sidebar) |
-| Awesome DeepSeek Harness | Curated list of DeepSeek Harness plugins, tools, and infrastructure. | [GitHub](https://github.com/0xsline/awesome-deepseek-harness) · [Website](https://deepseekdocs.com/) |
-| Shenqiu Community (DeepSeek.club) | The world's largest third-party DeepSeek open-source ecosystem community, bringing together model libraries, app rankings, the Harness plugin library, and Harness Academy to serve developers, researchers, and enterprise users in one place. | [Website](https://deepseek.club) |
-| MkSaaS · TanStarter | Commercial SaaS starter templates for indie developers. MkSaaS is built on Next.js; TanStarter on TanStack Start and Cloudflare, with AI, auth, payments, and admin baked in. | [MkSaaS](https://mksaas.com) · [TanStarter](https://tanstarter.dev) |
-
-<sub>To list your project, join the WeChat group and message @王博升Benson, or contact t4wefan@qq.com, or <a href="https://github.com/anywhere-labs/deepseek-harness-desktop/issues">open an issue</a>.</sub>
-
-## About Us
-
-United by a passion for open source, we collaborate to turn the possibilities of AI into accessible tools and meaningful experiences.
-
-<p align="center">
-  <a href="https://github.com/anywhere-labs/about-us"><img src="https://img.shields.io/badge/Meet%20the%20Team-Anywhere%20Labs-4D6BFE?style=for-the-badge" alt="Meet the Team"></a>
-</p>
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
-
-> “DeepSeek Harness” is a registered trademark of DeepSeek AI. The name is used here solely to accurately describe compatibility, technical origin, and this project's relationship to upstream software.
-
-> DSH Desktop is an independent community project and is not affiliated with, sponsored by, authorized by, or endorsed by DeepSeek.
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=anywhere-labs%2Fdeepseek-harness-desktop&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=anywhere-labs/deepseek-harness-desktop&type=date&theme=dark&legend=top-left&sealed_token=BRTkOyC4czCEkIyFb5-QxrsC-kaDotBJ8tsjxrWs-UGfmBqfRCXSwieZPlVTCYOjJVEZ29uLvmBjAPREB524J5dPN1jk-UA7ajFdLdrbjumJqoOBeGWmig" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=anywhere-labs/deepseek-harness-desktop&type=date&legend=top-left&sealed_token=BRTkOyC4czCEkIyFb5-QxrsC-kaDotBJ8tsjxrWs-UGfmBqfRCXSwieZPlVTCYOjJVEZ29uLvmBjAPREB524J5dPN1jk-UA7ajFdLdrbjumJqoOBeGWmig" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=anywhere-labs/deepseek-harness-desktop&type=date&legend=top-left&sealed_token=BRTkOyC4czCEkIyFb5-QxrsC-kaDotBJ8tsjxrWs-UGfmBqfRCXSwieZPlVTCYOjJVEZ29uLvmBjAPREB524J5dPN1jk-UA7ajFdLdrbjumJqoOBeGWmig" />
- </picture>
-</a>
+<p align="center"><sub>Original interface captures are in <a href="dsh-plugin-desktop/docs/screenshots/">dsh-plugin-desktop/docs/screenshots/</a>.</sub></p>

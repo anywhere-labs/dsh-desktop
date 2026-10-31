@@ -1,11 +1,21 @@
 /** DSH Desktop Host plugin: owns the selected native shell generation. */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import type {} from '@deepseek-ai/dsh-fs'
+import type {} from '@deepseek-ai/dsh-sandbox'
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type {} from '@deepseek-ai/dsh-api-workspace-files'
+import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-file-reference'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-client-connection'
+import type {} from '@deepseek-ai/dsh-authorization'
+import type {} from '@deepseek-ai/dsh-credentials'
 import {
   handleRendererBootRequest,
   RENDERER_BOOT_REPORT_PATH,
@@ -18,6 +28,29 @@ import {
   handleDesktopDirectoryPickerRequest,
   handleDesktopDirectoryValidationRequest,
 } from './directory-picker-route.ts'
+import {
+  DESKTOP_WORKSPACE_SOURCES_PATH,
+  handleDesktopWorkspaceSourcesRequest,
+} from './workspace-source-route.ts'
+import { WorkspaceSourceRoots } from './workspace-source-roots.ts'
+
+/** Live Desktop-only association surface; Git never reads the Files selection. */
+export interface DesktopGitSourceRoots {
+  attachedRoots(primaryWorkspace: string): readonly string[]
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    desktopGitSourceRoots: DesktopGitSourceRoots
+  }
+}
+import { desktopFilePathPromptSection } from './desktop-file-path-guidance.ts'
+import {
+  desktopAgentTaskRoutingPromptSection,
+  shouldEnableDesktopAgentTaskRouting,
+} from './desktop-agent-task-routing.ts'
+import { installWorkspaceSourcePolicy } from './workspace-source-policy.ts'
+import { installWorkspaceSourceFileReferences } from './workspace-source-file-references.ts'
 import {
   DESKTOP_DIAGNOSTICS_EXPORT_PATH,
   DESKTOP_DEVELOPER_TOOLS_TOGGLE_PATH,
@@ -59,6 +92,21 @@ import {
 } from './desktop-network.ts'
 import { DESKTOP_FRAME_HEIGHT } from './window-chrome.ts'
 import {
+  DESKTOP_COPILOT_AUTHORIZATION_ANSWER_PATH,
+  DESKTOP_COPILOT_AUTHORIZATION_BEGIN_PATH,
+  DESKTOP_COPILOT_AUTHORIZATION_CANCEL_PATH,
+  DESKTOP_COPILOT_AUTHORIZATION_MODELS_PATH,
+  DESKTOP_COPILOT_AUTHORIZATION_PATH,
+} from './copilot-authorization-contract.ts'
+import {
+  DesktopCopilotAuthorizationController,
+  handleDesktopCopilotAuthorizationAnswerRequest,
+  handleDesktopCopilotAuthorizationBeginRequest,
+  handleDesktopCopilotAuthorizationCancelRequest,
+  handleDesktopCopilotAuthorizationModelsRequest,
+  handleDesktopCopilotAuthorizationReadRequest,
+} from './copilot-authorization-route.ts'
+import {
   effectiveDesktopWindowMaterial,
   type DesktopWindowMaterial,
 } from './window-material.ts'
@@ -81,7 +129,7 @@ export const name = 'desktop-shell'
 
 /** Services required before the shell can register its renderer generation. */
 /** Services required by the desktop shell; `desktopRuntime` is probed, not required. */
-export const inject = ['webServer', 'appExit', 'settings', 'connection']
+export const inject = ['webServer', 'appExit', 'settings', 'connection', 'authorization', 'credentials']
 
 /**
  * Standard settings namespace shared by tray and configuration surfaces, the
@@ -160,6 +208,11 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
   if (appExit === undefined) {
     throw new Error('dsh-plugin-desktop: the launcher did not provide ctx.appExit')
   }
+  const authorization = ctx.get('authorization')
+  const credentials = ctx.get('credentials')
+  if (authorization === undefined || credentials === undefined) {
+    throw new Error('dsh-plugin-desktop: the launcher did not provide authorization and credentials services')
+  }
   const browserAccess = ctx.get('desktopBrowserAccess')
   if (browserAccess === undefined) {
     throw new Error('dsh-plugin-desktop: the launcher did not provide ctx.desktopBrowserAccess')
@@ -191,6 +244,97 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
   let setupSettings: DesktopSetupWizardSettings | undefined
   let setupSaved = false
   const rendererOrigin = `http://127.0.0.1:${String(webServerPort)}`
+  const sourceRoots = new WorkspaceSourceRoots(join(resolveDshHome(), 'desktop-workspace-sources.json'))
+  const disposeWorkspaceSourceRoots = ctx.reflect.provide('desktopWorkspaceSourceRoots', sourceRoots)
+  ctx.effect(() => () => { void disposeWorkspaceSourceRoots() }, 'dsh-plugin-desktop: workspace source roots service')
+  // Keep the legacy read-only root list for the existing IDE Git plugin.
+  if (typeof ctx.provide === 'function') {
+    ctx.provide('desktopGitSourceRoots', {
+      attachedRoots: (primaryWorkspace: string) => runtime.platform === 'win32'
+        ? []
+        : sourceRoots.attachedRoots(primaryWorkspace),
+    })
+  }
+  ctx.inject(['systemPrompt'], scope => {
+    scope.effect(
+      () => scope.systemPrompt.section(desktopFilePathPromptSection(
+        scope.systemPrompt.getSectionOrder('HARNESS_SOURCE') + 1,
+        sourceRoots,
+      )),
+      'dsh-plugin-desktop: absolute file paths in user-facing output',
+    )
+    if (shouldEnableDesktopAgentTaskRouting(resolved.mode)) {
+      scope.effect(
+        () => scope.systemPrompt.section(desktopAgentTaskRoutingPromptSection(
+          scope.systemPrompt.getSectionOrder('HARNESS_SOURCE') + 2,
+        )),
+        'dsh-plugin-desktop: Agent task and skill routing',
+      )
+    }
+  })
+  ctx.effect(
+    () => ctx.webServer.register({
+      kind: 'exact',
+      path: DESKTOP_WORKSPACE_SOURCES_PATH,
+      handler: (req, res) => {
+        if (rejectDesktopRequest(ctx, req, res)) return
+        return handleDesktopWorkspaceSourcesRequest(
+          req,
+          res,
+          rendererOrigin,
+          sourceRoots,
+          () => runtime.pickDirectory(),
+          path => runtime.validateDirectory(path),
+          runtime.platform,
+        )
+      },
+    }),
+    'dsh-plugin-desktop: workspace sources route',
+  )
+  ctx.inject(['sandbox', 'fs', 'sandboxPolicy', 'workspaceFiles'], (scope) => {
+    scope.effect(
+      () => installWorkspaceSourcePolicy(
+        scope.sandbox,
+        scope.fs,
+        scope.workspaceFiles,
+        () => scope.sandboxPolicy.resolve(),
+        sourceRoots,
+        runtime.platform,
+      ),
+      'dsh-plugin-desktop: workspace source authorization and file-browser roots',
+    )
+  })
+  ctx.inject(['agents', 'fileReferences'], (scope) => {
+    const references = installWorkspaceSourceFileReferences(scope.fileReferences, sourceRoots, runtime.platform)
+    scope.on('session/event', (session, event) => {
+      if (event.type !== 'tool/result') return
+      const agent = scope.agents.get(session.id)
+      if (agent !== undefined) references.invalidate(agent)
+    })
+    scope.on('agent/disposed', ({ agent }) => { references.disposeAgent(agent) })
+    scope.effect(() => () => { references.dispose() }, 'dsh-plugin-desktop: attached-root @ references')
+  })
+  const copilotAuthorization = new DesktopCopilotAuthorizationController(authorization, credentials)
+  const copilotAuthorizationRoutes = [
+    [DESKTOP_COPILOT_AUTHORIZATION_PATH, handleDesktopCopilotAuthorizationReadRequest],
+    [DESKTOP_COPILOT_AUTHORIZATION_BEGIN_PATH, handleDesktopCopilotAuthorizationBeginRequest],
+    [DESKTOP_COPILOT_AUTHORIZATION_ANSWER_PATH, handleDesktopCopilotAuthorizationAnswerRequest],
+    [DESKTOP_COPILOT_AUTHORIZATION_CANCEL_PATH, handleDesktopCopilotAuthorizationCancelRequest],
+    [DESKTOP_COPILOT_AUTHORIZATION_MODELS_PATH, handleDesktopCopilotAuthorizationModelsRequest],
+  ] as const
+  for (const [path, handler] of copilotAuthorizationRoutes) {
+    ctx.effect(
+      () => ctx.webServer.register({
+        kind: 'exact',
+        path,
+        handler: (req, res) => {
+          if (rejectDesktopRequest(ctx, req, res)) return
+          return handler(req, res, rendererOrigin, copilotAuthorization)
+        },
+      }),
+      `dsh-plugin-desktop: Copilot authorization route ${path}`,
+    )
+  }
   ctx.effect(
     () => ctx.webServer.register({
       kind: 'exact',
@@ -281,26 +425,26 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
     }),
     'dsh-plugin-desktop: renderer boot report route',
   )
+  ctx.effect(
+    () => ctx.webServer.register({
+      kind: 'exact',
+      path: DESKTOP_DIRECTORY_PICKER_PATH,
+      handler: (req, res) => {
+        if (rejectDesktopRequest(ctx, req, res)) return
+        return handleDesktopDirectoryPickerRequest(
+          req,
+          res,
+          rendererOrigin,
+          () => runtime.pickDirectory(),
+          cause => {
+            ctx.logger.error(`dsh-plugin-desktop: native directory picker failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+          },
+        )
+      },
+    }),
+    'dsh-plugin-desktop: native directory picker route',
+  )
   if (runtime.platform === 'win32') {
-    ctx.effect(
-      () => ctx.webServer.register({
-        kind: 'exact',
-        path: DESKTOP_DIRECTORY_PICKER_PATH,
-        handler: (req, res) => {
-          if (rejectDesktopRequest(ctx, req, res)) return
-          return handleDesktopDirectoryPickerRequest(
-            req,
-            res,
-            rendererOrigin,
-            () => runtime.pickDirectory(),
-            cause => {
-              ctx.logger.error(`dsh-plugin-desktop: native directory picker failed: ${cause instanceof Error ? cause.message : String(cause)}`)
-            },
-          )
-        },
-      }),
-      'dsh-plugin-desktop: native directory picker route',
-    )
     ctx.effect(
       () => ctx.webServer.register({
         kind: 'exact',

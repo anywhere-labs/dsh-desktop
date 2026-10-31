@@ -221,6 +221,26 @@ describe('Desktop WebServer browser gate', () => {
     expect(forged.headers.get('cache-control')).toBe('no-store')
   })
 
+  it('applies the same gate to a resource-shaped route and fallback seat', async () => {
+    // dsh 0.2.2-alpha.2 serves the Web dist as a resource instead of an HTTP handler,
+    // so the gate has to answer for the Fetch shape too, or the dist reaches a browser.
+    const access = createDesktopBrowserAccess(false, Buffer.alloc(32, 6).toString('base64url'))
+    const server = await startWebServer(access)
+    server.register({
+      kind: 'exact',
+      path: '/named',
+      resource: async () => new Response('named resource'),
+    })
+    server.registerFallback({ resource: async () => new Response('resource fallback') })
+    const root = `http://127.0.0.1:${String(server.port)}`
+
+    expect((await fetch(`${root}/assets/app.js`)).status).toBe(403)
+    expect((await fetch(`${root}/named`)).status).toBe(403)
+    const headers = { [access.rendererHeader.name]: access.rendererHeader.value }
+    expect((await fetch(`${root}/named`, { headers })).status).toBe(200)
+    await expect(fetch(`${root}/assets/app.js`, { headers }).then(r => r.text())).resolves.toBe('resource fallback')
+  })
+
   it('applies the same gate to WebSocket upgrades', async () => {
     const access = createDesktopBrowserAccess(false, Buffer.alloc(32, 5).toString('base64url'))
     const server = await startWebServer(access)

@@ -24,6 +24,13 @@ import {
   DESKTOP_DIRECTORY_VALIDATOR_PATH,
 } from '../src/directory-picker-contract.ts'
 import {
+  DESKTOP_COPILOT_AUTHORIZATION_ANSWER_PATH,
+  DESKTOP_COPILOT_AUTHORIZATION_BEGIN_PATH,
+  DESKTOP_COPILOT_AUTHORIZATION_CANCEL_PATH,
+  DESKTOP_COPILOT_AUTHORIZATION_MODELS_PATH,
+  DESKTOP_COPILOT_AUTHORIZATION_PATH,
+} from '../src/copilot-authorization-contract.ts'
+import {
   DESKTOP_DEVELOPER_TOOLS_TOGGLE_PATH,
   DESKTOP_DIAGNOSTICS_EXPORT_PATH,
   DESKTOP_AA_SELECT_PATH,
@@ -41,6 +48,7 @@ import type { DesktopRuntime, DesktopShellSpec } from '../src/runtime.ts'
 import type { DesktopPlatformLoginRequest, PlatformLoginAccount } from '../src/platform-login.ts'
 import { createDesktopBrowserAccess } from '../src/desktop-browser-access.ts'
 import { DESKTOP_LAN_HTTPS_CA_PATH, DesktopLanHttpsRuntime } from '../src/lan-https-runtime.ts'
+import { DESKTOP_WORKSPACE_SOURCES_PATH } from '../src/workspace-source-route.ts'
 import { RENDERER_BOOT_REPORT_PATH, type RendererBootReport } from '../src/renderer-boot-contract.ts'
 
 /** Loader entry id dsh 0.1.7-alpha.1 keys the Desktop shell's settings by. */
@@ -256,7 +264,36 @@ function createHarness(
   const fiber = { id: DESKTOP_SETTINGS_ENTRY_ID }
   const ctx = {
     fiber,
+    reflect: { provide: vi.fn(() => () => {}) },
     desktopRuntime: runtime,
+    systemPrompt: {
+      section: vi.fn(() => () => {}),
+      getSectionOrder: vi.fn(() => 10),
+    },
+    sandbox: {
+      confine: vi.fn(async (argv: string[]) => ({
+        argv,
+        enforcement: 'full',
+        denialSignatures: [],
+        runnerFailureRules: [],
+      })),
+    },
+    fs: {
+      resolve: vi.fn(async (path: string) => path),
+      contains: vi.fn(() => false),
+      writeText: vi.fn(),
+      editText: vi.fn(),
+    },
+    sandboxPolicy: { resolve: vi.fn(() => ({ mode: 'danger-full-access' })) },
+    workspaceFiles: {
+      read: vi.fn(),
+      readBytes: vi.fn(),
+      stat: vi.fn(),
+      list: vi.fn(),
+      changes: vi.fn(),
+    },
+    fileReferences: { list: vi.fn(async () => []) },
+    agents: { get: vi.fn() },
     webServer: {
       host: '127.0.0.1',
       port: 43120,
@@ -536,7 +573,12 @@ describe('desktop Host plugin', () => {
       DESKTOP_PROFILE_DELETE_PATH,
       DESKTOP_PROFILE_SELECT_PATH,
       DESKTOP_AA_SELECT_PATH,
-  DESKTOP_MARKET_SELECT_PATH,
+      DESKTOP_MARKET_SELECT_PATH,
+      DESKTOP_COPILOT_AUTHORIZATION_PATH,
+      DESKTOP_COPILOT_AUTHORIZATION_BEGIN_PATH,
+      DESKTOP_COPILOT_AUTHORIZATION_ANSWER_PATH,
+      DESKTOP_COPILOT_AUTHORIZATION_CANCEL_PATH,
+      DESKTOP_COPILOT_AUTHORIZATION_MODELS_PATH,
       DESKTOP_TERMINAL_OPEN_PATH,
       DESKTOP_RESTART_PATH,
       DESKTOP_RECOVERY_RESTART_PATH,
@@ -546,6 +588,7 @@ describe('desktop Host plugin', () => {
       RENDERER_BOOT_REPORT_PATH,
       DESKTOP_DIRECTORY_PICKER_PATH,
       DESKTOP_DIRECTORY_VALIDATOR_PATH,
+      DESKTOP_WORKSPACE_SOURCES_PATH,
     ].sort()
     const routes = harness.routes().filter(route => route.path !== DESKTOP_LAN_HTTPS_CA_PATH)
     expect(routes.map(route => route.path).sort()).toEqual(expectedPaths)

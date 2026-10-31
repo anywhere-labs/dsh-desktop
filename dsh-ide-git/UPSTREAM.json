@@ -1,0 +1,7 @@
+{
+  "source": "https://github.com/KannaKuron/dsh-ide-git",
+  "commit": "b4e4b5a176de7da9060d1225d9ed027a8df8472c",
+  "version": "0.18.2",
+  "license": "MIT",
+  "integration": "Locally editable Yarn workspace package; Desktop security and packaging adaptations are maintained here."
+}

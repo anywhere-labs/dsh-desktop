@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['tests/**/*.spec.ts'],
+    include: ['tests/**/*.spec.ts', 'tests/**/*.spec.tsx'],
     globalSetup: process.platform === 'win32' ? ['../scripts/prepare-test-electron.mjs'] : [],
     // Keep patched packages in Vitest's module graph so mocks reach their
     // fs/promises and undici imports instead of using the live filesystem/network.

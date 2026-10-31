@@ -7,5 +7,5 @@
     "module": "ESNext",
     "moduleResolution": "Bundler"
   },
-  "include": ["src/native-ui/**/*.ts", "src/native-ui/**/*.tsx"]
+  "include": ["src/native-ui/**/*.ts", "src/native-ui/**/*.tsx", "src/client/*.d.ts", "src/client/**/*.d.ts"]
 }

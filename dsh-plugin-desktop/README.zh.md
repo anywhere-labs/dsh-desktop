@@ -60,9 +60,43 @@ Cordis row 会在 profile 激活期间登记原生窗口参数。Launcher 只在
 
 在 Windows 上，Launcher 会固定使用 browse 目录选择 backend，并保留完整的应用内目录面板。桌面构建通过补丁在该面板中加入一个小型系统文件夹图标；图标经同源路由调用 Electron 的 `dialog.showOpenDialog`，选中的路径继续进入面板原有的 workspace 接纳流程，取消后面板保持打开。普通浏览器与远程启动不会获得这个桌面桥接。macOS 与 Linux 仍使用上游自适应 chooser。
 
-本次 alpha runtime 迁移不再携带 Desktop 自有的工作区文件夹拖放行为或聊天附件拖放隔离补丁。在按 alpha Client UI 重新评估这些交互前，请使用普通工作区选择流程。
+## Desktop 自有扩展功能
+
+以下能力由本仓库在固定上游 Web UI 之上以 Desktop 扩展方式提供，Stable 与 Beta 共享；它们不是上游默认功能。
+
+### 工作区多目录
+
+工作区编辑对话框中的“工作区目录”区域可为当前工作区关联最多 32 个互不重叠的文件夹。第一行始终是主目录：它仍是工作区身份、默认目录和会话工作目录。附加目录彼此独立，不会合并成一棵文件树。文件浏览器刷新按钮旁的目录下拉框只切换该浏览器当前显示的主目录或附加目录。每个标签页会先关闭旧目录树再打开新根目录，并忽略旧加载产生的过期结果；会话 cwd 不变。解除关联只删除关联，不会删除真实文件夹。关联数据保存在 `$DSH_HOME/desktop-workspace-sources.json`。
+
+Desktop Client 通过受支持的工作区编辑与文件工具栏 slot 提供控件。Linux 和 macOS 支持添加、浏览和解除关联。Windows 编辑对话框仍会列出已保存的文件夹，但添加/解除关联控件会禁用，工具栏目录选择器也不会显示：固定的 Windows ACL runner 只授权主工作区根目录。安全的 Windows 多目录访问需要上游提供 ACL 授权生命周期能力；confinement 失败时绝不会降级为不受限访问。
+
+![工作区附加目录与文件浏览器目录切换](docs/screenshots/workspace.png)
+
+### Files 文件树操作与 Agent 引用
+
+在 Files 文件树中右键条目，可在系统文件管理器中定位、用 VS Code 打开文件、复制绝对路径或工作区相对路径，或把工作区相对 `@` 引用插入当前 Agent 输入框。Files 中任意格式的文件和文件夹也可直接拖入 Agent。Desktop 插入结构化工作区引用而不上传文件内容；Host 会根据当前工作区已授权目录校验精确路径和条目类型，并拒绝格式错误、已过期或越权的拖放。
+
+![Files 文件树快捷操作菜单](docs/screenshots/short.png)
+
+### Android Logcat
+
+内置 Logcat 面板通过 Host 读取所选 Android 设备的 `adb` 日志。可选择进程和日志级别，并组合 Tag、Process、Message 正则过滤及 Tag 排除条件。面板支持暂停/跟随实时输出、按设备记忆筛选项、日志换行、分别调整界面和日志字号，以及复制或导出筛选后的日志；设备截图可预览、保存或复制为 PNG。
+
+![Android Logcat 集成面板](docs/screenshots/android_logcat.png)
+
+### GitHub Copilot 模型
+
+可在 Desktop 设置中使用 GitHub 设备码登录 Copilot，并完成设备授权提示。登录后，可用的 Copilot 模型会带类别和成本标记显示在 DSH 模型选择器中。
+
+![GitHub Copilot 登录与已连接模型](docs/screenshots/copilot.png)
+
+### Windows PowerShell 沙箱
 
 在所有呈现模式下，Windows PowerShell 都会保留上游 `pwsh-sandbox` 行为与 Windows ACL confinement。Launcher generation 只会把该 Host provider 替换为同一 package 中的 `dsh-plugin-desktop/windows-pwsh-sandbox` 子路径。对于与上游 ACL runner 完全匹配的 argv，adapter 会让打包后的 Electron executable 通过私有 trampoline 以 Node 模式启动。Trampoline 会先精确校验上游 runner，再在导入它之前移除 Node-mode 环境变量，并确保自身这个原本没有 console 的 Windows 进程拥有一个没有窗口的 console：Windows 11 24H2 及更高版本会直接分配，更早的版本则附加到一个短暂运行、不受限的 `cmd.exe` 的无窗口 console；只有两者都失败时，才分配普通 console 并将其隐藏。受限 PowerShell 进程随后可以继承该 console，而不必在已经使用受限 token 时自行创建，也不会有 console 窗口被交给 Windows Terminal。Console 分配失败会通过现有带签名的 runner 失败路径退出；全部 ACL policy 与后续失败处理仍委托给上游 runner。Desktop deploy root 还会保留 Yarn patch，在两条原生受限进程路径上把 `STARTF_USESHOWWINDOW`、现有的 `STARTF_USESTDHANDLES` 与 `SW_HIDE` 组合起来。它不会使用与上游实现不兼容的 `CREATE_NO_WINDOW` 或 `CREATE_NEW_CONSOLE` flag。直接使用 `danger-full-access` 的 PowerShell、macOS 与 Linux 执行路径保持不变；Windows confinement 失败时不会自动回退到不受限执行。
+
+### 目标续轮死循环止血
+
+自动续轮的目标可能卡住：Agent 反复搜索、读取并重试同一个检查，却拿不到新证据，而下一轮仍会被自动排队。Desktop Host 插件 `dsh-plugin-desktop/goal-loop-containment` 只用本地测量判定死循环——每一轮的工具调用次数、成功数、失败数、耗时，以及被重复最多的完全相同调用——当连续若干轮没有进展、或同一个调用反复出现时介入。它先停掉续轮，再向模型发送一条隐藏请求，要求分析这一轮为什么耗时这么久、卡在哪里，分析轮一结束就重新武装目标，因此未完成的目标仍会自动继续。介入次数用尽后插件把目标标记为 blocked，把循环交回人工处理，而不是继续消耗轮次。可调项：`enabled`、`stallRounds`、`repeatLimit`、`maxInterventions`、`argumentsPreviewChars`。Desktop profile 保留上游 `repeat-tool-reminder` 的提醒，并把它的两项硬性次数上限（`blockAt`、`maxTrackedCallsPerTurn`）清零，因为该守卫只在人工消息时重置计数：自动续轮内一旦触顶，之后的每次调用都会被永久拒绝。
 
 ## 扩展窗口模式
 

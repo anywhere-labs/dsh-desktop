@@ -78,9 +78,6 @@ const workspaceManifest = JSON.parse(readFileSync(new URL('package.json', worksp
 const ciWorkflow = readFileSync(new URL('.github/workflows/ci.yml', workspaceRoot), 'utf8')
 const main = readFileSync(new URL('src/main.ts', packageRoot), 'utf8')
 const runtimeVersion = String(manifest.dependencies?.['@deepseek-ai/dsh'])
-const betaRuntimeVersion = (JSON.parse(readFileSync(
-  new URL('dsh-plugin-desktop-beta/package.json', workspaceRoot), 'utf8',
-)) as { dependencies: Record<string, string> }).dependencies['@deepseek-ai/dsh']
 const dshResolution = (name: string): unknown =>
   workspaceManifest.resolutions?.[`${name}@npm:${runtimeVersion}`]
 
@@ -164,6 +161,14 @@ describe('published package surface', () => {
       types: './lib/types/updates.d.ts',
       default: './lib/updates.js',
     })
+    expect(manifest.exports).toHaveProperty('./android-logcat', {
+      types: './lib/types/android-logcat.d.ts',
+      default: './lib/android-logcat.js',
+    })
+    expect(manifest.exports).toHaveProperty('./git-review', {
+      types: './lib/types/git-review.d.ts',
+      default: './lib/git-review.js',
+    })
     expect(manifest.exports).toHaveProperty('./notifications', {
       types: './lib/types/notifications.d.ts',
       default: './lib/notifications.js',
@@ -180,12 +185,22 @@ describe('published package surface', () => {
       platform: 'web',
       inject: [
         '@deepseek-ai/dsh-api-remotes',
+        '@deepseek-ai/dsh-api-session-controller',
+        '@deepseek-ai/dsh-client-ui-conversation',
+        '@deepseek-ai/dsh-client-ui-session',
         '@deepseek-ai/dsh-client-connection',
         '@deepseek-ai/dsh-client-locale',
         '@deepseek-ai/dsh-client-ui-renderer',
         '@deepseek-ai/dsh-client-ui-settings',
         '@deepseek-ai/dsh-client-ui-theme',
+        '@deepseek-ai/dsh-client-ui-layout',
+        '@deepseek-ai/dsh-client-ui-sidebar',
+        '@deepseek-ai/dsh-client-ui-sidebar-right',
+        '@deepseek-ai/dsh-client-ui-sidebar-files',
         '@deepseek-ai/dsh-client-ui-workspace',
+        '@deepseek-ai/dsh-util-workspace-path',
+        '@deepseek-ai/dsh-api-terminal-controller',
+        '@deepseek-ai/dsh-client-shortcuts',
       ],
     })
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop')
@@ -196,6 +211,10 @@ describe('published package surface', () => {
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop/diagnostics')
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop/notifications')
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop/updates')
+    expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop/android-logcat')
+    expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop/git-review')
+    expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-ide-git')
+    expect(manifest.dependencies).toMatchObject({ 'dsh-ide-git': 'workspace:*' })
   })
 
   it('pins both selectable Market providers in the published runtime', () => {
@@ -303,30 +322,29 @@ describe('published package surface', () => {
     )
   })
 
-  it('resolves both release channels through their recorded runtime families', () => {
+  it('resolves every release channel through its recorded runtime family', () => {
+    const upstream = JSON.parse(readFileSync(new URL('upstream.json', workspaceRoot), 'utf8')) as {
+      channels: Record<string, { sourceVersion?: unknown }>
+    }
     const dshResolutions = Object.entries(workspaceManifest.resolutions ?? {})
       .filter(([selector]) => /^@deepseek-ai\/dsh(?:@|-)/u.test(selector))
-    const stableResolutions = dshResolutions.filter(([selector]) =>
-      selector.endsWith(`@npm:${runtimeVersion}`)
-      || selector.endsWith(`@npm:^${runtimeVersion}`))
-    const betaResolutions = dshResolutions.filter(([selector]) =>
-      selector.endsWith(`@npm:${betaRuntimeVersion}`)
-      || selector.endsWith(`@npm:^${betaRuntimeVersion}`))
-
-    expect(stableResolutions.length).toBeGreaterThan(0)
-    expect(betaResolutions.length).toBeGreaterThan(0)
-    expect(new Set([...stableResolutions, ...betaResolutions].map(([selector]) => selector)).size)
-      .toBe(dshResolutions.length)
-    for (const [selector, resolution] of stableResolutions) {
-      expect([runtimeVersion, `^${runtimeVersion}`]).toContain(selector.split('@npm:')[1])
-      expect(String(resolution)).toContain(runtimeVersion)
-    }
-    // Derived from the beta manifest, not hardcoded: a channel bump moves this
+    const covered = new Set<string>()
+    // Derived from upstream.json, not hardcoded: a channel bump moves this
     // assertion with the pin instead of failing a release that is already correct.
-    for (const [selector, resolution] of betaResolutions) {
-      expect([betaRuntimeVersion, `^${betaRuntimeVersion}`]).toContain(selector.split('@npm:')[1])
-      expect(String(resolution)).toContain(betaRuntimeVersion)
+    for (const [channel, version] of Object.entries(upstream.channels)
+      .map(([name, entry]) => [name, String(entry.sourceVersion)])) {
+      const resolutions = dshResolutions.filter(([selector]) =>
+        selector.endsWith(`@npm:${version}`) || selector.endsWith(`@npm:^${version}`))
+      // Two channels can share one runtime family, so each has to contribute
+      // selectors without having to contribute unique ones.
+      expect(resolutions.length, channel).toBeGreaterThan(0)
+      for (const [selector, resolution] of resolutions) {
+        expect([version, `^${version}`], selector).toContain(selector.split('@npm:')[1])
+        expect(String(resolution), selector).toContain(version)
+        covered.add(selector)
+      }
     }
+    expect(covered.size).toBe(dshResolutions.length)
   })
 
   it('includes the Stable projection-cache compatibility recovery', () => {
@@ -461,13 +479,16 @@ describe('published package surface', () => {
     expect(config).toContain("terminal: 'src/terminal.ts'")
     expect(config).toContain("'update-download': 'src/update-download.ts'")
     expect(config).toContain("updates: 'src/updates.ts'")
+    expect(config).toContain("'android-logcat': 'src/android-logcat.ts'")
+    expect(config).toContain("'git-review': 'src/git-review.ts'")
   })
 
-  it('builds the browser client without Node process globals', () => {
+  it('bundles the pure file-reference grammar into the browser client without Node process globals', () => {
     const config = readFileSync(new URL('vite.client.config.ts', packageRoot), 'utf8')
     const client = readFileSync(new URL('lib/client.js', packageRoot), 'utf8')
 
     expect(config).toContain("'process.env.NODE_ENV': JSON.stringify('production')")
+    expect(client).not.toMatch(/require\(["']@deepseek-ai\/dsh-file-reference\/grammar["']\)/u)
     expect(client).not.toMatch(/\bprocess(?:\.|\[)/u)
   })
 
@@ -1222,26 +1243,33 @@ describe('published package surface', () => {
   })
 
   it('patches the pi-ai release the runtime resolves to parse streamed tool arguments once', () => {
-    // dsh-llm-pi-ai requires ^1.1.0 and upstream pins exactly 1.1.0 with this patch. An
-    // unpatched pi-ai re-parses the whole accumulated tool-call JSON on every stream delta,
-    // so a long tool call (writing a large file) costs quadratic CPU on the event loop.
-    const patchPath = './patches/pi-ai@1.1.0.patch'
-    const patchResolution = `patch:@earendil-works/pi-ai@npm%3A1.1.0#${patchPath}`
+    // dsh-llm-pi-ai requires ^1.3.0 and the channel resolves that to 1.4.0, where the same
+    // hunks still apply. An unpatched pi-ai re-parses the whole accumulated tool-call JSON on
+    // every stream delta, so a long tool call (writing a large file) costs quadratic CPU on
+    // the event loop.
+    const patchPath = './patches/pi-ai@1.4.0.patch'
+    const patchResolution = `patch:@earendil-works/pi-ai@npm%3A1.4.0#${patchPath}`
     const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
     const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8').replaceAll('\r\n', '\n')
-    const piAiRoot = new URL('node_modules/@earendil-works/pi-ai/', packageRoot)
+    // Desktop's own catalog pin holds the hoisted slot, so the runtime copy stays nested.
+    const piAiRoot = new URL('node_modules/@deepseek-ai/dsh-llm-pi-ai/node_modules/@earendil-works/pi-ai/', packageRoot)
     const installedPiAi = JSON.parse(readFileSync(new URL('package.json', piAiRoot), 'utf8')) as { version?: unknown }
 
     expect(workspaceManifest.resolutions).toMatchObject({
-      '@earendil-works/pi-ai@npm:^1.1.0': patchResolution,
+      '@earendil-works/pi-ai@npm:^1.3.0': patchResolution,
+      '@earendil-works/pi-ai@npm:1.4.0': patchResolution,
       '@earendil-works/pi-telemetry@npm:^1.1.0': '1.1.0',
     })
-    // The only npm resolution is the source the patch applies to, so no range escapes it.
-    expect([...lockfile.matchAll(/resolution: "@earendil-works\/pi-ai@npm:([^"]+)"/gu)].map(match => match[1]))
-      .toEqual(['1.1.0'])
     expect(lockfile).toContain(`"@earendil-works/pi-ai@${patchResolution}::`)
     expect(lockfile).toContain('resolution: "@earendil-works/pi-telemetry@npm:1.1.0"')
-    expect(installedPiAi.version).toBe('1.1.0')
+    expect(installedPiAi.version).toBe('1.4.0')
+
+    // Every pi-ai that can reach a stream is patched; the remaining npm resolution is the
+    // hoisted copy pinned by Desktop's own `^0.87.1` dependency, which only feeds the GitHub
+    // Copilot model catalog read in src/copilot-authorization-route.ts and never streams.
+    expect([...lockfile.matchAll(/resolution: "@earendil-works\/pi-ai@npm:([^"]+)"/gu)].map(match => match[1]).sort())
+      .toEqual(['0.87.1', '1.1.0', '1.4.0'])
+    expect(manifest.dependencies?.['@earendil-works/pi-ai']).toBe('^0.87.1')
 
     const files = [...patch.matchAll(/^diff --git a\/(\S+) b\//gmu)].map(match => match[1])
     expect(files).toEqual([
@@ -1375,7 +1403,7 @@ describe('published package surface', () => {
     // dsh 0.2.1-alpha.2 replaced `nodeExecutable` with `launch`; the local default is still this process.
     expect(index).toMatch(/const launch = config \?\? \{\s+kind: "pkg" in process \? "embedded" : "node-script",\s+executable: process\.execPath\s+\};/u)
     expect(index).toContain('confined = policy.mode === "danger-full-access" ? void 0 : await this.ctx.sandbox.confine(')
-    const block = /\t+const env = Object\.fromEntries\(Object\.keys\(process\.env\)[^\n]*\n(?:\t+\/\/[^\n]*\n)*\t+if \(process\.versions\.electron !== void 0\) env\.ELECTRON_RUN_AS_NODE = "1";\n\t+if \(packaged\) \{[\s\S]*?\n\t+\}\n(?=\t+handle = this\.ctx\.subprocess\.spawn\()/u.exec(index)?.[0]
+    const block = /\t+const env = Object\.fromEntries\(Object\.keys\(process\.env\)[^\n]*\n(?:\t+\/\/[^\n]*\n)*\t+if \(process\.versions\.electron !== void 0\) env\.ELECTRON_RUN_AS_NODE = "1";\n\t+if \(packaged\) \{[\s\S]*?\n\t+\}\n(?=\t+const handle = this\.ctx\.subprocess\.spawn\()/u.exec(index)?.[0]
     if (block === undefined) throw new Error('Cannot find the PTC worker environment')
     const evaluate = (electron: string | undefined, parent: Record<string, string>, packaged = true) => runInNewContext(
       `${block}\nenv`,

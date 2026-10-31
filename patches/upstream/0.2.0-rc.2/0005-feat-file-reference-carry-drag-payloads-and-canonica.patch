@@ -1,0 +1,480 @@
+From 43c840cb86aee9cc2e93f12e16983ee4ae5969a9 Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Fri, 23 Oct 2026 16:00:16 +0800
+Subject: [PATCH 05/13] feat(file-reference): carry drag payloads and canonical
+ reference paths
+
+Adds the private DataTransfer payload (serialize/parse/text fallback) so a Files-tree drop can reach the composer, and lets a candidate declare referencePath so a virtual query path inserts the Host-authorized canonical path. ui-reference uses that pair for .dsh-sources crumbs and queryMention.
+---
+ packages/client/ui-reference/README.i18n.yaml |  8 +--
+ packages/client/ui-reference/README.md        |  4 +-
+ packages/client/ui-reference/README.zh.md     |  4 +-
+ .../client/ui-reference/src/client/index.ts   | 38 ++++++++++++-
+ .../client/ui-reference/src/client/locales.ts |  2 +
+ .../tests/browser-plugin.client.spec.ts       | 56 ++++++++++++++++++-
+ .../file-reference-local/tests/search.spec.ts | 10 ++++
+ .../context/file-reference/README.i18n.yaml   |  7 ++-
+ packages/context/file-reference/README.md     |  6 +-
+ packages/context/file-reference/README.zh.md  |  6 +-
+ .../context/file-reference/src/grammar.ts     | 54 +++++++++++++++++-
+ packages/context/file-reference/src/types.ts  |  9 ++-
+ .../context/file-reference/tests/drag.spec.ts | 32 +++++++++++
+ 13 files changed, 218 insertions(+), 18 deletions(-)
+ create mode 100644 packages/context/file-reference/tests/drag.spec.ts
+
+diff --git a/packages/client/ui-reference/README.i18n.yaml b/packages/client/ui-reference/README.i18n.yaml
+index bc7b7c1ebc..e41a8e775e 100644
+--- a/packages/client/ui-reference/README.i18n.yaml
++++ b/packages/client/ui-reference/README.i18n.yaml
+@@ -15,8 +15,8 @@
+   en: d152484eb41ac6b4
+   zh: 09388d293f9be9cb
+ /deepseek-ai-dsh-client-ui-reference/use-this-package:
+-  en: 779a9a534eaad38b
+-  zh: 3dd159a2c35702d6
++  en: 48ae4a0c208ff16c
++  zh: 438d72bb9d78c664
+ /deepseek-ai-dsh-client-ui-reference/use-this-package/what-a-pick-inserts:
+   en: 0b41c33743e5b422
+   zh: 551896094c03f57e
+@@ -30,8 +30,8 @@
+   en: 6c77da1e946f72e1
+   zh: b7b8e1e1d4f5a102
+ /deepseek-ai-dsh-client-ui-reference/understand-the-implementation/serialization:
+-  en: dce929ccd4f0e349
+-  zh: e68bc0f79e184057
++  en: ee15f9e62066525a
++  zh: 390e5d0062536ff5
+ /deepseek-ai-dsh-client-ui-reference/further-exploration:
+   en: 157b1bcf84b5c11b
+   zh: 6b7e4f3326b19036
+diff --git a/packages/client/ui-reference/README.md b/packages/client/ui-reference/README.md
+index 57b5ae2440..1a6835d347 100644
+--- a/packages/client/ui-reference/README.md
++++ b/packages/client/ui-reference/README.md
+@@ -25,7 +25,7 @@ Use `dsh-client-ui-reference` when Web users need to mention files, folders, or
+ <a id="use-this-package"></a>
+ ## Use this package
+ 
+-The source is active whenever the composition mounts this package and a Host `ctx.fileReferences` provider is available. Type `@` followed by an unquoted token to see files first, then sessions; open `@"…` to search files only. The candidate list is a completion menu, not a search result page: pick once and keep typing.
++The source is active whenever the composition mounts this package and a Host `ctx.fileReferences` provider is available. Type `@` followed by an unquoted token to see files first, then sessions; open `@"…` to search files only. The candidate list is a completion menu, not a search result page: pick once and keep typing. Desktop Hosts may expose attached source folders under the temporary `.dsh-sources/<folder>/` navigation prefix; drilling uses that query path, while a selected item keeps the Host-provided canonical path.
+ 
+ ### What a pick inserts
+ 
+@@ -57,7 +57,7 @@ Candidate requests require an existing retained Client Session and share one tem
+ 
+ ### Serialization
+ 
+-File picks preserve the natural text defined by the shared `@path` grammar as the hidden serialized and clipboard form. Session picks use the canonical `@[label](dsh-session:…)` mention; serialization never reconstructs identity from the visible title.
++File picks preserve the natural text defined by the shared `@path` grammar as the hidden serialized and clipboard form. When a Host supplies `referencePath`, the query-only path is used for drilling but the canonical path is inserted, so changing the file-browser root cannot reinterpret a selected file. Session picks use the canonical `@[label](dsh-session:…)` mention; serialization never reconstructs identity from the visible title.
+ 
+ </details>
+ 
+diff --git a/packages/client/ui-reference/README.zh.md b/packages/client/ui-reference/README.zh.md
+index fa5af63c93..a9bff9a9b9 100644
+--- a/packages/client/ui-reference/README.zh.md
++++ b/packages/client/ui-reference/README.zh.md
+@@ -25,7 +25,7 @@ Web 用户需要从同一个 `@` 补全菜单提及文件、文件夹或会话
+ <a id="use-this-package"></a>
+ ## 使用本包
+ 
+-只要组合挂载了本包且存在宿主 `ctx.fileReferences` 提供方，该 source 即处于活动状态。输入 `@` 后跟一个未加引号的 token，会先看到文件、再看到会话；打开 `@"…` 则只搜索文件。候选列表是补全菜单，不是搜索结果页：选一次、继续输入即可。
++只要组合挂载了本包且存在宿主 `ctx.fileReferences` 提供方，该 source 即处于活动状态。输入 `@` 后跟一个未加引号的 token，会先看到文件、再看到会话；打开 `@"…` 则只搜索文件。候选列表是补全菜单，不是搜索结果页：选一次、继续输入即可。Desktop Host 可将附加源文件夹放在临时的 `.dsh-sources/<文件夹>/` 导航前缀下；下钻使用该查询路径，最终选中项仍采用 Host 提供的规范路径。
+ 
+ ### 选择后会插入什么
+ 
+@@ -57,7 +57,7 @@ Web 用户需要从同一个 `@` 补全菜单提及文件、文件夹或会话
+ 
+ ### 序列化
+ 
+-文件选择把共享 `@path` 语法所定义的自然文本保留为隐藏的序列化与剪贴板形式。会话选择使用规范的 `@[label](dsh-session:…)` mention；序列化永远不会根据可见标题重建身份。
++文件选择把共享 `@path` 语法所定义的自然文本保留为隐藏的序列化与剪贴板形式。Host 提供 `referencePath` 时，下钻使用仅供查询的路径，插入引用则使用规范路径，因此切换文件浏览器目录不会改变已选文件的解析位置。会话选择使用规范的 `@[label](dsh-session:…)` mention；序列化永远不会根据可见标题重建身份。
+ 
+ </details>
+ 
+diff --git a/packages/client/ui-reference/src/client/index.ts b/packages/client/ui-reference/src/client/index.ts
+index 6204478f75..f85ff9951b 100644
+--- a/packages/client/ui-reference/src/client/index.ts
++++ b/packages/client/ui-reference/src/client/index.ts
+@@ -117,7 +117,7 @@ export function apply(ctx: ClientContext): void {
+         // row chevron / a header crumb) keeps the literal descent text and
+         // the open menu.
+         if (value.fileKind === 'directory' && action === 'drill') {
+-          return { text: value.mention, continue: true }
++          return { text: value.queryMention ?? value.mention, continue: true }
+         }
+         return {
+           insert: {
+@@ -161,7 +161,7 @@ export function apply(ctx: ClientContext): void {
+ type Translate = (key: ReferenceKey, params?: Record<string, unknown>) => string
+ 
+ type ReferenceCandidateValue =
+-  | { kind: 'file'; fileKind: FileReferenceCandidate['kind']; label: string; mention: string }
++  | { kind: 'file'; fileKind: FileReferenceCandidate['kind']; label: string; mention: string; queryMention?: string }
+   | { kind: 'session'; label: string; mention: string }
+ 
+ /**
+@@ -187,6 +187,36 @@ function crumbsFor(
+   const slash = query.lastIndexOf('/')
+   if (slash < 0) return undefined
+   const segments = query.slice(0, slash).split('/').filter(segment => segment !== '')
++  if (segments[0] === '.dsh-sources') {
++    const sourcesPath = formatFileMention({ path: '.dsh-sources', kind: 'directory' }, quoted)
++    if (sourcesPath === undefined) return undefined
++    const crumbs: InputTriggerCrumb[] = [{
++      label: t('crumb.sources'),
++      value: directoryValue(t('crumb.sources'), sourcesPath),
++      ...(segments.length === 1 ? { current: true } : {}),
++    }]
++    const alias = segments[1]
++    if (alias === undefined) return crumbs
++    const rootPath = `.dsh-sources/${alias}`
++    const rootMention = formatFileMention({ path: rootPath, kind: 'directory' }, quoted)
++    if (rootMention === undefined) return undefined
++    crumbs.push({
++      label: alias,
++      value: directoryValue(alias, rootMention),
++      ...(segments.length === 2 ? { current: true } : {}),
++    })
++    for (const [index, segment] of segments.slice(2).entries()) {
++      const path = `${rootPath}/${segments.slice(2, index + 3).join('/')}`
++      const mention = formatFileMention({ path, kind: 'directory' }, quoted)
++      if (mention === undefined) return undefined
++      crumbs.push({
++        label: segment,
++        value: directoryValue(segment, mention),
++        ...(index === segments.length - 3 ? { current: true } : {}),
++      })
++    }
++    return crumbs
++  }
+   const crumbs: InputTriggerCrumb[] = [{
+     label: t('crumb.root'),
+     value: directoryValue(t('crumb.root'), quoted ? '@"' : '@'),
+@@ -220,6 +250,9 @@ function fileCandidate(
+ ) {
+   const mention = formatFileMention(candidate, preserveQuote)
+   if (mention === undefined) return []
++  const queryMention = candidate.referencePath === undefined
++    ? undefined
++    : formatFileMention({ path: candidate.path, kind: candidate.kind }, preserveQuote)
+   const slash = candidate.path.lastIndexOf('/')
+   const name = candidate.path.slice(slash + 1)
+   const parent = slash < 0 ? '' : candidate.path.slice(0, slash)
+@@ -229,6 +262,7 @@ function fileCandidate(
+     fileKind: candidate.kind,
+     label: name,
+     mention,
++    ...(queryMention !== undefined && queryMention !== mention ? { queryMention } : {}),
+   }
+   return [{
+     name: `${name}${directory ? '/' : ''}`,
+diff --git a/packages/client/ui-reference/src/client/locales.ts b/packages/client/ui-reference/src/client/locales.ts
+index 7d185550cc..61c8dec49e 100644
+--- a/packages/client/ui-reference/src/client/locales.ts
++++ b/packages/client/ui-reference/src/client/locales.ts
+@@ -18,6 +18,7 @@ export const zh = {
+   'section.sessions': '对话',
+   'candidate.noCwd': '（无工作目录）',
+   'crumb.root': '工作区',
++  'crumb.sources': '附加目录',
+   'time.now': '刚刚',
+   'time.minutes': '{n}分钟',
+   'time.hours': '{n}小时',
+@@ -43,6 +44,7 @@ export const en = {
+   'section.sessions': 'Sessions',
+   'candidate.noCwd': '(no cwd)',
+   'crumb.root': 'Workspace',
++  'crumb.sources': 'Attached folders',
+   'time.now': 'now',
+   'time.minutes': '{n}min',
+   'time.hours': '{n}h',
+diff --git a/packages/client/ui-reference/tests/browser-plugin.client.spec.ts b/packages/client/ui-reference/tests/browser-plugin.client.spec.ts
+index b0cb5ebeef..5d1464c942 100644
+--- a/packages/client/ui-reference/tests/browser-plugin.client.spec.ts
++++ b/packages/client/ui-reference/tests/browser-plugin.client.spec.ts
+@@ -549,6 +549,22 @@ describe('directory header', () => {
+       .toEqual(['@"', '@"my dir/', '@"my dir/sub/'])
+   })
+ 
++  it('shows a navigable attached-root breadcrumb without leaking its query alias into the mention', async () => {
++    const { source } = await bench()
++    const crumbs = source.header?.(session, {
++      query: '.dsh-sources/Fate Docs/src/', quoted: true, drilled: true,
++    })
++    expect(crumbs?.map(crumb => ({
++      label: crumb.label,
++      mention: (JSON.parse(crumb.value) as { mention: string }).mention,
++      current: crumb.current,
++    }))).toEqual([
++      { label: 'Attached folders', mention: '@".dsh-sources/', current: undefined },
++      { label: 'Fate Docs', mention: '@".dsh-sources/Fate Docs/', current: undefined },
++      { label: 'src', mention: '@".dsh-sources/Fate Docs/src/', current: true },
++    ])
++  })
++
+   it('publishes no header when a segment cannot be written back as mention text', async () => {
+     const { source } = await bench()
+     expect(source.header?.(session, { query: 'ok/we\u0001ird/', drilled: true })).toBeUndefined()
+@@ -623,6 +639,42 @@ describe('pick and codec', () => {
+     expect(drill(source, quotedDirectory!)).toEqual({ text: '@"src/', continue: true })
+   })
+ 
++  it('drills attached roots with a virtual query path but inserts the authorized absolute file path', async () => {
++    const files: RemoteLookup<FileReferenceCandidate> = vi.fn((_id, query) => Promise.resolve({
++      ok: true as const,
++      value: query === '.dsh-sources/'
++        ? [{
++          path: '.dsh-sources/Fate Docs', kind: 'directory' as const,
++          referencePath: '/work/Fate Docs',
++        }]
++        : [{
++          path: '.dsh-sources/Fate Docs/read me.md', kind: 'file' as const,
++          referencePath: '/work/Fate Docs/read me.md',
++        }],
++    }))
++    const { source } = await bench(files)
++    const [root] = await source.candidates(session, request('.dsh-sources/'))
++    expect(root?.name).toBe('Fate Docs/')
++    expect(source.onPick({
++      candidate: root!, session, position: 'inline', via: 'menu', action: 'drill',
++      span: { start: 0, end: 15, draftRev: 1 },
++    })).toEqual({ text: '@".dsh-sources/Fate Docs/', continue: true })
++
++    const [file] = await source.candidates(session, request('.dsh-sources/Fate Docs/', { quoted: true }))
++    expect(source.onPick({
++      candidate: file!, session, position: 'inline', via: 'menu', action: 'pick',
++      span: { start: 0, end: 34, draftRev: 1 },
++    })).toEqual({
++      insert: {
++        source: 'reference',
++        ref: '@"/work/Fate Docs/read me.md"',
++        label: 'read me.md',
++        appearance: 'file',
++        clipboardText: '@"/work/Fate Docs/read me.md"',
++      },
++    })
++  })
++
+   it('inserts sessions as atomic chips whose clipboard and model forms are canonical mentions', async () => {
+     const { source } = await bench()
+     const candidates = await source.candidates(session, request(''))
+@@ -653,11 +705,13 @@ describe('reference preview', () => {
+     const openResource = vi.spyOn(ctx.sidebarRight, 'openResource')
+     expect(source.openReference?.(session, { ref: '@notes/readme.md', appearance: 'file' })).toBe(true)
+     expect(source.openReference?.(session, { ref: '@"docs/a b.md"', appearance: 'file' })).toBe(true)
++    expect(source.openReference?.(session, { ref: '@"/work/Fate Docs/read me.md"', appearance: 'file' })).toBe(true)
+     expect(openResource).toHaveBeenNthCalledWith(1, 'dsh-resource://file/session/target/notes/readme.md')
+     expect(openResource).toHaveBeenNthCalledWith(2, 'dsh-resource://file/session/target/docs/a%20b.md')
++    expect(openResource).toHaveBeenNthCalledWith(3, 'dsh-resource://file/session/target//work/Fate%20Docs/read%20me.md')
+     expect(source.openReference?.(session, { ref: '@docs/', appearance: 'folder' })).toBe(false)
+     expect(source.openReference?.(session, { ref: '@[Research](dsh-session:abc)', appearance: 'session' })).toBe(false)
+-    expect(openResource).toHaveBeenCalledTimes(2)
++    expect(openResource).toHaveBeenCalledTimes(3)
+     await fiber.dispose()
+   })
+ })
+diff --git a/packages/context/file-reference-local/tests/search.spec.ts b/packages/context/file-reference-local/tests/search.spec.ts
+index a12b41a5b6..138cf4ec37 100644
+--- a/packages/context/file-reference-local/tests/search.spec.ts
++++ b/packages/context/file-reference-local/tests/search.spec.ts
+@@ -91,6 +91,16 @@ describe('file-reference grammar', () => {
+     expect(formatFileMention({ path: 'docs/design notes', kind: 'directory' }, false))
+       .toBe('@"docs/design notes/')
+     expect(formatFileMention({ path: 'README.md', kind: 'file' }, true)).toBe('@"README.md"')
++    expect(formatFileMention({
++      path: '.dsh-sources/FateDocs/readme.md',
++      referencePath: '/work/Fate Docs/readme.md',
++      kind: 'file',
++    }, false)).toBe('@"/work/Fate Docs/readme.md"')
++    expect(formatFileMention({
++      path: '.dsh-sources/FateDocs',
++      referencePath: '/work/FateDocs',
++      kind: 'directory',
++    }, false)).toBe('@/work/FateDocs/')
+     expect(formatFileMention({ path: 'bad\nname', kind: 'file' }, false)).toBeUndefined()
+     expect(formatFileMention({ path: 'bad "name".md', kind: 'file' }, false)).toBeUndefined()
+     expect(formatFileMention({ path: 'bad"name.md', kind: 'file' }, false)).toBeUndefined()
+diff --git a/packages/context/file-reference/README.i18n.yaml b/packages/context/file-reference/README.i18n.yaml
+index 3efb30e977..70e217cc77 100644
+--- a/packages/context/file-reference/README.i18n.yaml
++++ b/packages/context/file-reference/README.i18n.yaml
+@@ -21,8 +21,11 @@
+   en: efbe0e9233f402a4
+   zh: e3ec7c6ae2335a41
+ /deepseek-ai-dsh-file-reference/use-this-package/getting-candidates:
+-  en: 4dc2d6289f532225
+-  zh: af06ce75299f23e5
++  en: 3d7c47f41a6ab439
++  zh: d7f9e7a2e1180726
++/deepseek-ai-dsh-file-reference/use-this-package/dragging-from-files:
++  en: 6adcd548585fd6a1
++  zh: 7907fc029f336c33
+ /deepseek-ai-dsh-file-reference/use-this-package/pairing-with-a-provider:
+   en: 2d443c98aca75438
+   zh: 2299ced5c4e315c1
+diff --git a/packages/context/file-reference/README.md b/packages/context/file-reference/README.md
+index 3b759a88bd..c45aa0e917 100644
+--- a/packages/context/file-reference/README.md
++++ b/packages/context/file-reference/README.md
+@@ -33,7 +33,11 @@ An `@path` token at the start of input or after whitespace triggers completion;
+ 
+ ### Getting candidates
+ 
+-`ctx.fileReferences.list(agent, query, signal)` returns path-only file and directory candidates for one agent's working directory, deterministically ranked by the provider. Directory mentions render with a trailing `/` so completion can descend another level. Browser consumers call the Session Controller adapter as `ctx.remote.fileReferences.list`; the trailing signal cancels a slow autocomplete.
++`ctx.fileReferences.list(agent, query, signal)` returns file and directory candidates for one agent, deterministically ranked by the provider. `path` is the query and drill path, normally relative to the Session cwd; a Host may provide an optional canonical `referencePath` when a candidate is exposed through a virtual or attached-root alias. The picker uses that canonical path only on final selection. Directory mentions render with a trailing `/` so completion can descend another level. Browser consumers call the Session Controller adapter as `ctx.remote.fileReferences.list`; the trailing signal cancels a slow autocomplete.
++
++### Dragging from Files
++
++Files-panel rows can be dragged into the Agent composer. Regular files (regardless of extension) and directories become `@` references, not uploads or attached contents. The composer treats drag data as untrusted and asks the Host to verify the exact parent/name/type through the active authorized workspace root before inserting; unavailable or out-of-root paths fail closed.
+ 
+ ### Pairing with a provider
+ 
+diff --git a/packages/context/file-reference/README.zh.md b/packages/context/file-reference/README.zh.md
+index d7dedc4636..a8a6839e2f 100644
+--- a/packages/context/file-reference/README.zh.md
++++ b/packages/context/file-reference/README.zh.md
+@@ -33,7 +33,11 @@ kind: "package-reference"
+ 
+ ### 获取候选
+ 
+-`ctx.fileReferences.list(agent, query, signal)` 返回指定 agent 工作目录中仅含路径的文件与目录候选，由提供方确定性地排序。目录 mention 呈现时带尾随 `/`，使补全可以继续深入下一层。浏览器消费方通过 Session Controller 适配器的 `ctx.remote.fileReferences.list` 调用同一发现能力；末位 signal 参数可取消慢速自动补全。
++`ctx.fileReferences.list(agent, query, signal)` 返回指定 agent 的文件与目录候选，由提供方确定性地排序。`path` 是查询与下钻路径，通常相对 Session cwd；Host 通过虚拟或附加根别名公开候选时，可提供可选的规范 `referencePath`。只有最终选中时，选择器才使用该规范路径。目录 mention 呈现时带尾随 `/`，使补全可以继续深入下一层。浏览器消费方通过 Session Controller 适配器的 `ctx.remote.fileReferences.list` 调用同一发现能力；末位 signal 参数可取消慢速自动补全。
++
++### 从 Files 拖入引用
++
++Files 面板中的文件行可以拖入 Agent 输入框。普通文件（不限制扩展名）和目录会变成 `@` 引用，不会作为上传附件或文件内容加入提示词。输入框把拖拽数据视为不可信；插入前会让 Host 在当前已授权的工作区根目录下核对准确的父目录、名称和类型。路径不可用或位于根目录之外时会拒绝插入。
+ 
+ ### 搭配提供方
+ 
+diff --git a/packages/context/file-reference/src/grammar.ts b/packages/context/file-reference/src/grammar.ts
+index 86bb51a843..632f683c13 100644
+--- a/packages/context/file-reference/src/grammar.ts
++++ b/packages/context/file-reference/src/grammar.ts
+@@ -46,10 +46,62 @@ export function formatFileMention(
+   candidate: FileReferenceCandidate,
+   preserveQuote: boolean,
+ ): string | undefined {
+-  const path = candidate.kind === 'directory' ? `${candidate.path}/` : candidate.path
++  const selectedPath = candidate.referencePath ?? candidate.path
++  const path = candidate.kind === 'directory' ? `${selectedPath}/` : selectedPath
+   if (/[\u0000-\u001f\u007f-\u009f"]/u.test(path)) return undefined
+   const quoted = preserveQuote || /\s/u.test(path)
+   if (!quoted) return `@${path}`
+   if (candidate.kind === 'directory') return `@"${path}`
+   return `@"${path}"`
+ }
++
++/** Private DataTransfer MIME type for DSH workspace file references. */
++export const FILE_REFERENCE_DRAG_TYPE = 'application/x-dsh-file-reference'
++
++/** One workspace path carried by a Files-tree drag; Host still authorizes it. */
++export interface FileReferenceDragPayload {
++  readonly path: string
++  readonly kind: 'file' | 'directory'
++}
++
++interface SerializedFileReferenceDragPayload extends FileReferenceDragPayload {
++  readonly version: 1
++}
++
++function absoluteDragPath(path: string): boolean {
++  return path.startsWith('/') || /^[A-Za-z]:[\\/]/u.test(path) || /^\\\\[^\\]+\\[^\\]+/u.test(path)
++}
++
++function dragMentionPath(payload: FileReferenceDragPayload): string {
++  if (payload.kind !== 'directory') return payload.path
++  return /[\\/]$/u.test(payload.path) ? payload.path : `${payload.path}/`
++}
++
++/** Plain-text fallback used by non-DSH drop targets. */
++export function fileReferenceDragText(payload: FileReferenceDragPayload): string | undefined {
++  // Keep directory tokens closed on drop; their trailing slash retains folder semantics.
++  return formatFileMention({ path: dragMentionPath(payload), kind: 'file' }, false)
++}
++
++/** Serialize only paths representable by the safe prompt grammar. */
++export function serializeFileReferenceDrag(payload: FileReferenceDragPayload): string | undefined {
++  if (!absoluteDragPath(payload.path) || fileReferenceDragText(payload) === undefined) return undefined
++  const value: SerializedFileReferenceDragPayload = { version: 1, path: payload.path, kind: payload.kind }
++  return JSON.stringify(value)
++}
++
++/** Parse and validate an untrusted DataTransfer payload. */
++export function parseFileReferenceDrag(value: string): FileReferenceDragPayload | undefined {
++  if (value === '' || value.length > 32_768) return undefined
++  try {
++    const candidate: unknown = JSON.parse(value)
++    if (typeof candidate !== 'object' || candidate === null) return undefined
++    const record = candidate as Record<string, unknown>
++    if (record.version !== 1 || typeof record.path !== 'string' || !absoluteDragPath(record.path)) return undefined
++    if (record.kind !== 'file' && record.kind !== 'directory') return undefined
++    const payload: FileReferenceDragPayload = { path: record.path, kind: record.kind }
++    return fileReferenceDragText(payload) === undefined ? undefined : payload
++  } catch {
++    return undefined
++  }
++}
+diff --git a/packages/context/file-reference/src/types.ts b/packages/context/file-reference/src/types.ts
+index 3637b2b2c4..d03f8a4cef 100644
+--- a/packages/context/file-reference/src/types.ts
++++ b/packages/context/file-reference/src/types.ts
+@@ -4,10 +4,15 @@
+  * @module @deepseek-ai/dsh-file-reference/types
+  */
+ 
+-/** One path-only completion candidate inside the target session cwd. */
++/** One path-only completion candidate supplied by the target Session's Host. */
+ export interface FileReferenceCandidate {
+-  /** User-facing path accepted by normal prompts and filesystem tools. */
++  /** Path used to query or drill this candidate; normally relative to Session cwd. */
+   path: string
++  /**
++   * Canonical Host-authorized path inserted when this candidate is selected.
++   * Set when `path` is a virtual query path for a mounted or attached root.
++   */
++  referencePath?: string
+   /** Directories keep completion open; files finish the mention. */
+   kind: 'file' | 'directory'
+ }
+diff --git a/packages/context/file-reference/tests/drag.spec.ts b/packages/context/file-reference/tests/drag.spec.ts
+new file mode 100644
+index 0000000000..1c0845c9a9
+--- /dev/null
++++ b/packages/context/file-reference/tests/drag.spec.ts
+@@ -0,0 +1,32 @@
++import { describe, expect, it } from 'vitest'
++import {
++  FILE_REFERENCE_DRAG_TYPE, fileReferenceDragText, parseFileReferenceDrag, serializeFileReferenceDrag,
++} from '../src/grammar.ts'
++
++describe('workspace file-reference drag payload', () => {
++  it('serializes a regular file with any filename and preserves its canonical absolute path', () => {
++    const payload = { path: '/home/fate/code/FateDocs/archive.data', kind: 'file' as const }
++    const serialized = serializeFileReferenceDrag(payload)
++    expect(FILE_REFERENCE_DRAG_TYPE).toBe('application/x-dsh-file-reference')
++    expect(serialized).toBe(JSON.stringify({ version: 1, ...payload }))
++    expect(parseFileReferenceDrag(serialized!)).toEqual(payload)
++    expect(fileReferenceDragText(payload)).toBe('@/home/fate/code/FateDocs/archive.data')
++  })
++
++  it('keeps directory semantics in a closed prompt token', () => {
++    const payload = { path: '/home/fate/code/Fate Docs', kind: 'directory' as const }
++    expect(fileReferenceDragText(payload)).toBe('@"/home/fate/code/Fate Docs/"')
++    expect(parseFileReferenceDrag(serializeFileReferenceDrag(payload)!)).toEqual(payload)
++  })
++
++  it('rejects malformed or unrepresentable untrusted payloads', () => {
++    expect(parseFileReferenceDrag('not-json')).toBeUndefined()
++    expect(parseFileReferenceDrag(JSON.stringify({ version: 2, path: '/tmp/a', kind: 'file' }))).toBeUndefined()
++    expect(parseFileReferenceDrag(JSON.stringify({ version: 1, path: '/tmp/a', kind: 'device' }))).toBeUndefined()
++    expect(parseFileReferenceDrag(JSON.stringify({ version: 1, path: 'relative/file', kind: 'file' }))).toBeUndefined()
++    expect(parseFileReferenceDrag('x'.repeat(32_769))).toBeUndefined()
++    expect(serializeFileReferenceDrag({ path: 'relative/file', kind: 'file' })).toBeUndefined()
++    expect(serializeFileReferenceDrag({ path: '/tmp/unsafe"path', kind: 'file' })).toBeUndefined()
++    expect(serializeFileReferenceDrag({ path: '/tmp/control\npath', kind: 'file' })).toBeUndefined()
++  })
++})
+-- 
+2.43.0
+

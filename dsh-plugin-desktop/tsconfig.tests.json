@@ -5,7 +5,7 @@
     "noEmit": true,
     "emitDeclarationOnly": false
   },
-  "include": ["scripts/**/*.ts", "src/*.ts", "tests/**/*.ts", "tests/**/*.tsx"],
+  "include": ["scripts/**/*.ts", "src/*.ts", "src/client/*.d.ts", "src/client/**/*.d.ts", "tests/**/*.ts", "tests/**/*.tsx"],
   "exclude": [
     "tests/client-boot-health.spec.ts",
     "tests/client-directory-picker.spec.ts",
@@ -14,6 +14,8 @@
     "tests/client-environment.spec.ts",
     "tests/client-launch-workspace.spec.ts",
     "tests/client-layout-service.spec.ts",
+    "tests/client-desktop-file-context-menu.spec.ts",
+    "tests/client-desktop-file-context-path.spec.ts",
     "tests/client-sidebar-dom-anchor.spec.ts",
     "tests/theme-presenter.spec.ts"
   ]

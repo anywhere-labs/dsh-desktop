@@ -37,6 +37,15 @@ const STYLE_ID = 'dsh-desktop-sidebar-footer-styles'
  * inset disagree with the left, so there is none.
  */
 const CSS = `
+body div:has(> [data-slot="sidebar.footer.action"]) {
+  width: 100% !important;
+  justify-content: flex-start !important;
+}
+body [data-slot="sidebar.footer.action"] > button.dshAndroidLogcatLauncher {
+  align-self: flex-start !important;
+  width: max-content !important;
+  justify-content: flex-start !important;
+}
 body [data-slot="sidebar.footer.action"] {
   display: flex !important;
   box-sizing: border-box;

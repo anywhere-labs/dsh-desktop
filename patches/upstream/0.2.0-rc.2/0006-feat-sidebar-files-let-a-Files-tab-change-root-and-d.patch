@@ -1,0 +1,721 @@
+From fc9355e07203f1d845ba926238013eaa8d354f3c Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Fri, 23 Oct 2026 16:02:51 +0800
+Subject: [PATCH 06/13] feat(sidebar-files): let a Files tab change root and
+ drag entries out
+
+Replaces the per-tab root node with an epoch-guarded tree so the displayed root can change without touching the Session cwd, and puts a canonical file-reference payload on every tree-row drag.
+
+Repairs two gate findings while committing: the openTree root binding no longer uses a definite-assignment let, and long slot/guard lines are rewrapped under 140 columns. No behavior change.
+---
+ .../client/ui-sidebar-files/README.i18n.yaml  |  12 +-
+ packages/client/ui-sidebar-files/README.md    |   6 +-
+ packages/client/ui-sidebar-files/README.zh.md |   6 +-
+ packages/client/ui-sidebar-files/package.json |   2 +
+ .../ui-sidebar-files/src/client/FilesBody.tsx |  34 ++++-
+ .../ui-sidebar-files/src/client/face.ts       | 127 +++++++++++++++---
+ .../ui-sidebar-files/src/client/index.ts      |  14 +-
+ .../ui-sidebar-files/src/client/store.ts      |  14 ++
+ .../tests/face.client.spec.ts                 |  78 +++++++++++
+ .../tests/files-body.client.spec.tsx          |  53 ++++++++
+ .../ui-sidebar-files/tests/mount.client.tsx   |  16 ++-
+ .../tests/store.client.spec.ts                |  19 +++
+ 12 files changed, 339 insertions(+), 42 deletions(-)
+
+diff --git a/packages/client/ui-sidebar-files/README.i18n.yaml b/packages/client/ui-sidebar-files/README.i18n.yaml
+index 4e7e344973..fa027f5be1 100644
+--- a/packages/client/ui-sidebar-files/README.i18n.yaml
++++ b/packages/client/ui-sidebar-files/README.i18n.yaml
+@@ -9,14 +9,14 @@
+   en: ae5625c23b3a864f
+   zh: 20cf48a229e806bf
+ /deepseek-ai-dsh-client-ui-sidebar-files/summary:
+-  en: 1605ae92aee5c231
+-  zh: ad519ddb9e338892
++  en: 1169a9a23d69e3e9
++  zh: 53629d2e3c690b02
+ /deepseek-ai-dsh-client-ui-sidebar-files/table-of-contents:
+   en: 9411fb4809692e09
+   zh: dd13990d39c5be7f
+ /deepseek-ai-dsh-client-ui-sidebar-files/what-it-registers:
+-  en: ed52405be7c3fa24
+-  zh: d06dbd49c786c5f0
++  en: d70334d4bd6cf1c2
++  zh: 1d90b64015354d57
+ /deepseek-ai-dsh-client-ui-sidebar-files/the-tree:
+   en: a0ae0b1f223b3df1
+   zh: 8ddc325519bd75b2
+@@ -27,8 +27,8 @@
+   en: 5a6febb45089991a
+   zh: b17ed755fd098b83
+ /deepseek-ai-dsh-client-ui-sidebar-files/known-limitations-and-deferred-work:
+-  en: c0e1831d8975186c
+-  zh: 332aac8738458bb0
++  en: 63eaa6e92381e04c
++  zh: c01822cf43dc9e81
+ /deepseek-ai-dsh-client-ui-sidebar-files/known-limitations-and-deferred-work/dev-note:
+   en: 3e8f2f242d43973b
+   zh: fb919fb393d51b20
+diff --git a/packages/client/ui-sidebar-files/README.md b/packages/client/ui-sidebar-files/README.md
+index 22431cfc52..43ecbdeedd 100644
+--- a/packages/client/ui-sidebar-files/README.md
++++ b/packages/client/ui-sidebar-files/README.md
+@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
+ 
+ ## Summary
+ 
+-Browse a Session's workspace tree and open files in Sidebar previews. The root and expanded directories refresh automatically from direct-entry watches; manual reload remains available. The tab is reached from the guide and claims no resource address.
++Browse a Session's workspace tree and open files in Sidebar previews. The initial root is the Session's working directory; a Client integration may offer a per-tab replacement root without changing the Session cwd. The root and expanded directories refresh automatically from direct-entry watches; manual reload remains available. The tab is reached from the guide and claims no resource address.
+ 
+ ## Table of Contents
+ 
+@@ -27,7 +27,7 @@ Browse a Session's workspace tree and open files in Sidebar previews. The root a
+ The `workspace.files` command opens or focuses the file page in the focused pane; from the conversation it uses the current Session's active dock pane. A guide gives way to the file page, and repeated opens retain one file page per pane. Desktop defaults to Mod+P. The guide entry displays the effective shortcut; Windows and macOS Web use the [shortcut service’s platform defaults](../shortcuts/README.md); Linux Web leaves this command unbound by default.
+ 
+ - **The type** — `ctx.sidebarRightTabs.register(...)` with kind `files`, id `@deepseek-ai/dsh-client-ui-sidebar-files`, band `builtin`, no patterns, and one guide entry (order 10, its title and description from the `sidebarFiles` namespace, its glyph a yellow folder) that opens the type.
+-- **The body** — the keyed `sidebar.right.pane.tab` seat under that id: a header row under the strip, then the tree. The shared [`PathLabel`](../ui-primitives/README.md#component-catalog) displays the root path with subdued directories and a primary final segment. A clipped path retains its trailing characters with a left-edge fade; hovering reveals the full path. The reload control and the Session-scoped `sidebar.right.tab.files.actions` list stay at its right, with the displayed root passed as `absolutePath`; [`ui-open-in-app`](../ui-open-in-app/README.md) contributes the workspace directory opener.
++- **The body** — the keyed `sidebar.right.pane.tab` seat under that id: a header row under the strip, then the tree. The shared [`PathLabel`](../ui-primitives/README.md#component-catalog) displays the root path with subdued directories and a primary final segment. A clipped path retains its trailing characters with a left-edge fade; hovering reveals the full path. The reload control and the root-scoped `sidebar.right.tab.files.actions` list stay at its right, with the displayed root passed as `absolutePath` and canonical Session cwd as `workspacePath`; an action may also receive `onRootChange(path): Promise<void>` to replace this tab's root. The callback settles after the prior directory tree is closed and the replacement is installed; integrations must persist Host authorization before calling it, and it does not alter Session cwd. [`ui-open-in-app`](../ui-open-in-app/README.md) contributes the workspace directory opener.
+ - **The chip title** — the keyed `sidebar.right.pane.tab.title` seat under that id: a shared `FileTypeIcon` folder glyph at 16px before the type's label. The tree's own rows never draw this sheet.
+ 
+ Source files under `src/client/`: `definition.tsx` (the type), `store.ts` (what it keeps), `face.ts` (Remote reads and watches), `directory-node.ts` (open directories and their lifetimes), `FilesBody.tsx` (what it draws, with its ordering and failure-line helpers), `FilesTitle.tsx` (the chip title), `locales.ts` (what it says), and `index.ts` (the wiring).
+@@ -62,7 +62,7 @@ None; directory listings travel over the Remote and assemble no model request.
+ 
+ <a id="known-limitations-and-deferred-work"></a>
+ - **Listing only.** No search, artifact filter, drag-and-drop, rename, context menu, or current-file highlight.
+-- **One root.** The tree is rooted at the session's working directory; there is no way to browse above it, and the Host refuses paths outside the workspace root anyway.
++- **One root at a time.** This package displays only the active root and does not discover or merge additional roots. An integration must authorize any alternate roots and select them through the action's `onRootChange` callback.
+ 
+ <a id="dev-note"></a>
+ ### Dev Note
+diff --git a/packages/client/ui-sidebar-files/README.zh.md b/packages/client/ui-sidebar-files/README.zh.md
+index 72e6a9bd80..01765a70ec 100644
+--- a/packages/client/ui-sidebar-files/README.zh.md
++++ b/packages/client/ui-sidebar-files/README.zh.md
+@@ -9,7 +9,7 @@ kind: "package-reference"
+ 
+ ## 概述
+ 
+-浏览 Session 的工作区目录树，并在 Sidebar 预览中打开文件。根目录与已展开目录通过直接子项监听自动刷新，手动重新读取仍可用。该 tab 从引导页进入，不认领资源地址。
++浏览 Session 的工作区目录树，并在 Sidebar 预览中打开文件。初始根目录是 Session 的工作目录；Client 集成可以为单个 tab 提供替换根目录，而不改变 Session cwd。根目录与已展开目录通过直接子项监听自动刷新，手动重新读取仍可用。该 tab 从引导页进入，不认领资源地址。
+ 
+ ## 目录
+ 
+@@ -27,7 +27,7 @@ kind: "package-reference"
+ 命令 `workspace.files` 在焦点分栏内打开或聚焦文件页；从聊天区触发时使用当前会话的活动停靠分栏。文件页替换开始页，同一分栏内重复打开仍保留一个文件页。桌面默认键为 Mod+P。开始页入口显示有效快捷键；Windows 和 macOS Web 使用[快捷键服务的平台默认值](../shortcuts/README.zh.md)；Linux Web 默认不绑定此命令。
+ 
+ - **类型**：`ctx.sidebarRightTabs.register(...)`，kind 为 `files`，id 为 `@deepseek-ai/dsh-client-ui-sidebar-files`，档位 `builtin`，没有 patterns，另有一个打开该类型的引导页入口（order 10，标题与描述取自 `sidebarFiles` 命名空间，图标为黄色文件夹）。
+-- **正文**：以该 id 为键的 `sidebar.right.pane.tab` slot：strip 下的一行标题行，然后是树。共享的 [`PathLabel`](../ui-primitives/README.zh.md#component-catalog) 显示根路径，目录使用弱化颜色，最后一段使用主色。路径过长时保留尾部字符并在左侧渐隐；悬停显示完整路径。重新读取控件和 Session 作用域的 `sidebar.right.tab.files.actions` 列表位于右端，并通过 `absolutePath` 传入当前显示的根目录；[`ui-open-in-app`](../ui-open-in-app/README.zh.md) 在此提供工作区目录打开按钮。
++- **正文**：以该 id 为键的 `sidebar.right.pane.tab` slot：strip 下的一行标题行，然后是树。共享的 [`PathLabel`](../ui-primitives/README.zh.md#component-catalog) 显示根路径，目录使用弱化颜色，最后一段使用主色。路径过长时保留尾部字符并在左侧渐隐；悬停显示完整路径。重新读取控件和 root 作用域的 `sidebar.right.tab.files.actions` 列表位于右端，通过 `absolutePath` 传入当前显示的根目录、通过 `workspacePath` 传入规范的 Session cwd；action 还可接收 `onRootChange(path): Promise<void>` 替换当前 tab 的根目录。前一个目录树关闭且替换根已安装后该回调才会完成；集成方必须先持久化 Host 授权再调用它，且不会修改 Session cwd。 [`ui-open-in-app`](../ui-open-in-app/README.zh.md) 在此提供工作区目录打开按钮。
+ - **标签页标题**：以该 id 为键的 `sidebar.right.pane.tab.title` slot：类型标签前的一枚 16px 共享 `FileTypeIcon` 文件夹图标。树本身的行不画这枚图标。
+ 
+ `src/client/` 下的源文件：`definition.tsx`（类型是什么）、`store.ts`（它保存什么）、`face.ts`（Remote 读取与监听）、`directory-node.ts`（打开的目录及其生命周期）、`FilesBody.tsx`（它画什么，含排序与失败行两个辅助函数）、`FilesTitle.tsx`（标签页标题）、`locales.ts`（它说什么）、`index.ts`（接线）。
+@@ -62,7 +62,7 @@ kind: "package-reference"
+ 
+ <a id="known-limitations-and-deferred-work"></a>
+ - **只有列目录。**没有搜索、产物过滤、拖拽、重命名、右键菜单或当前文件高亮。
+-- **只有一个根。**树以会话工作目录为根；没有办法浏览到它之上，而 Host 本来也拒绝工作区根之外的路径。
++- **同一时间只有一个根。**本包只显示当前根，不发现或合并其他根。集成方必须先授权任何替代根，再通过 action 的 `onRootChange` 回调选中它。
+ 
+ <a id="dev-note"></a>
+ ### 开发备注
+diff --git a/packages/client/ui-sidebar-files/package.json b/packages/client/ui-sidebar-files/package.json
+index 7dcbb40978..953af62c73 100644
+--- a/packages/client/ui-sidebar-files/package.json
++++ b/packages/client/ui-sidebar-files/package.json
+@@ -29,6 +29,7 @@
+     "client": {
+       "inject": [
+         "@deepseek-ai/dsh-api-workspace-files",
++        "@deepseek-ai/dsh-file-reference",
+         "@deepseek-ai/dsh-client-ui-sidebar-right",
+         "@deepseek-ai/dsh-client-ui-session",
+         "@deepseek-ai/dsh-api-remotes",
+@@ -49,6 +50,7 @@
+     "@deepseek-ai/cordis": "workspace:~",
+     "@deepseek-ai/dsh-api-remotes": "workspace:*",
+     "@deepseek-ai/dsh-api-workspace-files": "workspace:*",
++    "@deepseek-ai/dsh-file-reference": "workspace:*",
+     "@deepseek-ai/dsh-client-locale": "workspace:*",
+     "@deepseek-ai/dsh-client-store": "workspace:*",
+     "@deepseek-ai/dsh-client-test-runtime": "workspace:*",
+diff --git a/packages/client/ui-sidebar-files/src/client/FilesBody.tsx b/packages/client/ui-sidebar-files/src/client/FilesBody.tsx
+index 2aa024b649..9bc2b00f44 100644
+--- a/packages/client/ui-sidebar-files/src/client/FilesBody.tsx
++++ b/packages/client/ui-sidebar-files/src/client/FilesBody.tsx
+@@ -8,8 +8,8 @@
+  * anything else is shown but refuses to open. The header uses the shared
+  * PathLabel for the root, followed by reload and workspace directory actions.
+  */
+-import { useEffect, useLayoutEffect, useRef } from 'react'
+-import type { ReactNode } from 'react'
++import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
++import type { DragEvent as ReactDragEvent, ReactNode } from 'react'
+ import clsx from 'clsx'
+ import type { RemoteFailure } from '@deepseek-ai/dsh-api-remotes/client'
+ import type {
+@@ -20,6 +20,8 @@ import {
+   IconPauseOutlineRegular, IconPlayOutlineRegular, PathLabel,
+ } from '@deepseek-ai/dsh-client-ui-primitives'
+ import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
++import { FILE_REFERENCE_DRAG_TYPE, fileReferenceDragText, serializeFileReferenceDrag } from '@deepseek-ai/dsh-file-reference/grammar'
++import type { FileReferenceDragPayload } from '@deepseek-ai/dsh-file-reference/grammar'
+ import type { WorkspaceDirectoryEntry } from '@deepseek-ai/dsh-api-workspace-files/types'
+ import { childPath } from './face.ts'
+ import type { FilesInjected } from './face.ts'
+@@ -52,6 +54,19 @@ export function orderEntries(entries: readonly WorkspaceDirectoryEntry[]): Works
+   })
+ }
+ 
++/** Put one canonical tree path on the drag; the receiving Host rechecks authorization. */
++function beginReferenceDrag(event: ReactDragEvent<HTMLButtonElement>, payload: FileReferenceDragPayload): void {
++  const serialized = serializeFileReferenceDrag(payload)
++  const text = fileReferenceDragText(payload)
++  if (serialized === undefined || text === undefined) {
++    event.preventDefault()
++    return
++  }
++  event.dataTransfer.effectAllowed = 'copy'
++  event.dataTransfer.setData(FILE_REFERENCE_DRAG_TYPE, serialized)
++  event.dataTransfer.setData('text/plain', text)
++}
++
+ /**
+  * Say why a directory could not be listed, in terms of the directory.
+  * @param t - namespace-bound translate.
+@@ -84,7 +99,9 @@ function Entry({ parent, entry, tree }: { parent: string; entry: WorkspaceDirect
+     const expanded = tree.state.expanded.includes(path)
+     return (
+       <li className={css.item} data-files-entry="directory" data-files-path={path}>
+-        <button type="button" className={css.row} aria-expanded={expanded} onClick={() => { tree.onToggle(parent, path) }}>
++        <button type="button" className={css.row} aria-expanded={expanded} draggable
++          onDragStart={(event) => { beginReferenceDrag(event, { path, kind: 'directory' }) }}
++          onClick={() => { tree.onToggle(parent, path) }}>
+           {expanded ? <IconFolderOpenRegular className={css.icon} /> : <IconFolderCloseRegular className={css.icon} />}
+           <span className={css.name}>{entry.name}</span>
+         </button>
+@@ -95,7 +112,9 @@ function Entry({ parent, entry, tree }: { parent: string; entry: WorkspaceDirect
+   if (entry.type === 'file') {
+     return (
+       <li className={css.item} data-files-entry="file" data-files-path={path}>
+-        <button type="button" className={css.row} onClick={() => { tree.onOpen(path) }}>
++        <button type="button" className={css.row} draggable
++          onDragStart={(event) => { beginReferenceDrag(event, { path, kind: 'file' }) }}
++          onClick={() => { tree.onOpen(path) }}>
+           <FileTypeIcon kind={classifyFileType(entry.name)} size={16} className={css.fileIcon} />
+           <span className={css.name}>{entry.name}</span>
+         </button>
+@@ -139,9 +158,10 @@ function Level({ path, tree }: { path: string; tree: TreeContext }): ReactNode {
+ /** The file tree's body: the workspace root and whatever the reader has opened under it. */
+ export function FilesBody({
+   useTabInfo, sessionId, useSessions, useStore, actions,
+-  start, refresh, setAutoRefresh, toggle, t, renderSlot,
++  start, changeRoot, refresh, setAutoRefresh, toggle, t, renderSlot,
+ }: FilesBodyProps): ReactNode {
+   const { tab } = useTabInfo()
++  const onRootChange = useCallback((root: string) => changeRoot(tab.id, root, tab.signal), [changeRoot, tab.id, tab.signal])
+   useEffect(() => tab.actions.bindCommands({ refresh: () => { refresh(tab.id) } }), [tab.actions, tab.id, refresh])
+   const { signal, actions: tabActions } = tab
+   const cwd = useSessions(sessions => sessions.byId[sessionId]?.cwd)
+@@ -158,7 +178,7 @@ export function FilesBody({
+       body.scrollTop = state.scrollTop
+       scrollTopRef.current = body.scrollTop
+     }
+-  }, [seeded])
++  }, [seeded, state?.root])
+   // Scrolling only moves the ref; the store hears about it once, on unmount,
+   // so a scroll neither re-renders the tree nor writes after the owner's
+   // abort has forgotten the bucket.
+@@ -216,6 +236,8 @@ export function FilesBody({
+         </Tooltip>
+         {renderSlot('sidebar.right.tab.files.actions', {
+           absolutePath: state.root,
++          workspacePath: cwd,
++          onRootChange,
+         })}
+       </div>
+       <div
+diff --git a/packages/client/ui-sidebar-files/src/client/face.ts b/packages/client/ui-sidebar-files/src/client/face.ts
+index f1a5c13d96..55e537bacb 100644
+--- a/packages/client/ui-sidebar-files/src/client/face.ts
++++ b/packages/client/ui-sidebar-files/src/client/face.ts
+@@ -125,6 +125,14 @@ export interface FilesInjected {
+    * @param signal - the tab record's lifetime.
+    */
+   readonly start: (tabId: TabId, root: string, signal: AbortSignal) => void
++  /**
++   * Replace the open tree root after its previous watches have closed.
++   * @param tabId - the tab being drawn.
++   * @param root - absolute path of the new tree root.
++   * @param signal - the tab record's lifetime.
++   * @returns after the previous tree is closed and the new tree is opened.
++   */
++  readonly changeRoot: (tabId: TabId, root: string, signal: AbortSignal) => Promise<void>
+   /**
+    * List one directory into the store.
+    * @param tabId - the tab being drawn.
+@@ -157,9 +165,20 @@ export function filesFace(
+     sessionId: SessionId,
+     actions: BoundActions<ReturnType<typeof createFilesStore>>,
+   ): FilesInjected => {
+-    /** Per tab, per absolute path: the listing generation a settlement must match; the latest request wins. */
++    type RootTree = {
++      readonly path: string
++      readonly epoch: number
++      readonly node: DirectoryNode
++      automatic: boolean
++      closing?: Promise<void>
++    }
++    type TabTree = { readonly signal: AbortSignal; root?: RootTree; request: number; transitioning: boolean }
++    /** Per tab and path, the latest listing that may publish. */
+     const generations = new Map<TabId, Map<string, number>>()
+-    const roots = new Map<TabId, DirectoryNode>()
++    const epochs = new Map<TabId, number>()
++    const trees = new Map<TabId, TabTree>()
++    let nextEpoch = 0
++    let nextRequest = 0
+     const nextGeneration = (tabId: TabId, path: string): number => {
+       const byPath = generations.get(tabId) ?? new Map<string, number>()
+       generations.set(tabId, byPath)
+@@ -167,45 +186,119 @@ export function filesFace(
+       byPath.set(path, generation)
+       return generation
+     }
++    const closeTree = (root: RootTree): Promise<void> => {
++      root.closing ??= root.node.close()
++      return root.closing
++    }
+     const load = async (tabId: TabId, path: string, signal: AbortSignal): Promise<DirLevel | undefined> => {
+       if (signal.aborted) return
++      const tree = trees.get(tabId)
++      if (tree === undefined || tree.transitioning) return
++      const epoch = epochs.get(tabId)
++      if (epoch === undefined) return
+       const generation = nextGeneration(tabId, path)
+       actions.loading(tabId, path)
+       return list(sessionId, path, signal).then((result) => {
+-        // A newer listing of this level was asked for since, or the record is
+-        // gone and its bookkeeping with it: nothing left for this one to write.
+-        if (signal.aborted || generations.get(tabId)?.get(path) !== generation) return
++        // Both the root epoch and level generation must still be current.
++        if (signal.aborted || epochs.get(tabId) !== epoch || generations.get(tabId)?.get(path) !== generation) return
+         if (result.ok) actions.loaded(tabId, path, result.value)
+         else actions.failed(tabId, path, result.error)
+         return result.ok ? result.value : undefined
+       })
+     }
++    const openTree = (tabId: TabId, tree: TabTree, path: string, automatic: boolean, epoch: number): RootTree => {
++      const bound: { root?: RootTree } = {}
++      const node = new DirectoryNode(path,
++        (childPath, lifetime) => load(tabId, childPath, lifetime),
++        (childPath, lifetime) => watch(sessionId, childPath, lifetime),
++        (childPath, error) => {
++          const root = bound.root
++          if (root === undefined || tree.signal.aborted || trees.get(tabId) !== tree
++            || tree.root !== root || epochs.get(tabId) !== epoch) return
++          actions.failed(tabId, childPath, new RemoteError('gateway/internal', error instanceof Error ? error.message : String(error), {}))
++        }, tree.signal,
++      )
++      const root: RootTree = { path, epoch, node, automatic }
++      bound.root = root
++      node.setAutomatic(automatic)
++      return root
++    }
++    const changeRoot = async (tabId: TabId, path: string, signal: AbortSignal): Promise<void> => {
++      if (signal.aborted) return
++      const tree = trees.get(tabId)
++      const previous = tree?.root
++      if (tree === undefined || tree.signal !== signal || previous === undefined) return
++      if (!tree.transitioning && previous.path === path) return
++      const request = ++nextRequest
++      const epoch = ++nextEpoch
++      tree.request = request
++      tree.transitioning = true
++      epochs.set(tabId, epoch)
++      try {
++        await closeTree(previous)
++      } catch (error) {
++        if (!signal.aborted && trees.get(tabId) === tree && tree.request === request && tree.root === previous) {
++          const replacement = openTree(tabId, tree, previous.path, previous.automatic, epoch)
++          tree.root = replacement
++          tree.transitioning = false
++          generations.delete(tabId)
++          replacement.node.open()
++        }
++        throw error
++      }
++      if (signal.aborted || trees.get(tabId) !== tree || tree.request !== request || tree.root !== previous) return
++      const replacement = openTree(tabId, tree, path, previous.automatic, epoch)
++      tree.root = replacement
++      tree.transitioning = false
++      generations.delete(tabId)
++      actions.changeRoot(tabId, path)
++      replacement.node.open()
++    }
+     return {
+-      refresh: (tabId) => { void roots.get(tabId)?.refreshTree() },
++      refresh: (tabId) => { void trees.get(tabId)?.root?.node.refreshTree() },
+       setAutoRefresh: (tabId, enabled) => {
+         actions.autoRefresh(tabId, enabled)
+-        roots.get(tabId)?.setAutomatic(enabled)
++        const tree = trees.get(tabId)
++        const root = tree?.root
++        if (tree === undefined || root === undefined) return
++        root.automatic = enabled
++        if (!tree.transitioning) root.node.setAutomatic(enabled)
+       },
+       start(tabId, root, signal) {
++        if (signal.aborted) return
++        const previous = trees.get(tabId)
++        if (previous !== undefined) {
++          previous.request = ++nextRequest
++          previous.transitioning = false
++          const previousRoot = previous.root
++          if (previousRoot !== undefined) void closeTree(previousRoot)
++        }
+         actions.start(tabId, root)
++        generations.delete(tabId)
++        const tree: TabTree = { signal, request: ++nextRequest, transitioning: false }
++        const epoch = ++nextEpoch
++        const record = openTree(tabId, tree, root, true, epoch)
++        tree.root = record
++        trees.set(tabId, tree)
++        epochs.set(tabId, record.epoch)
+         signal.addEventListener('abort', () => {
+-          void roots.get(tabId)?.close()
+-          roots.delete(tabId)
++          if (trees.get(tabId) !== tree) return
++          tree.request = ++nextRequest
++          tree.transitioning = false
++          trees.delete(tabId)
++          epochs.delete(tabId)
+           generations.delete(tabId)
+           actions.forget(tabId)
++          const root = tree.root
++          if (root !== undefined) void closeTree(root)
+         }, { once: true })
+-        roots.set(tabId, new DirectoryNode(root,
+-          (path, lifetime) => load(tabId, path, lifetime),
+-          (path, lifetime) => watch(sessionId, path, lifetime),
+-          (path, error) => {
+-            if (!signal.aborted) actions.failed(tabId, path, new RemoteError('gateway/internal', error instanceof Error ? error.message : String(error), {}))
+-          }, signal,
+-        ).open())
++        record.node.open()
+       },
++      changeRoot,
+       load: (tabId, path, signal) => { void load(tabId, path, signal) },
+       toggle(tabId, parentPath, path, expanded, signal) {
+         if (signal.aborted) return
+-        const root = roots.get(tabId)
++        const root = trees.get(tabId)?.root?.node
+         if (root === undefined) return
+         const parent = root.find(parentPath)
+         if (parent === undefined && !expanded.includes(parentPath)) return
+diff --git a/packages/client/ui-sidebar-files/src/client/index.ts b/packages/client/ui-sidebar-files/src/client/index.ts
+index fb2ab7ad43..ed50ce3466 100644
+--- a/packages/client/ui-sidebar-files/src/client/index.ts
++++ b/packages/client/ui-sidebar-files/src/client/index.ts
+@@ -33,10 +33,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+     /** Workspace directory actions after the file tree's reload control. */
+     'sidebar.right.tab.files.actions': {
+       kind: 'list'
+-      scope: 'session'
++      scope: 'root'
+       owner: {
+-        /** Absolute directory path displayed by the file tree. */
++        /** Absolute directory path currently displayed by the file tree. */
+         readonly absolutePath: string
++        /** Session cwd, which remains the canonical primary Workspace path. */
++        readonly workspacePath: string
++        /**
++         * Change this tab's tree root without changing its Session cwd.
++         * @param path - authorized absolute root.
++         * @returns after the previous tree closes and the replacement opens.
++         */
++        readonly onRootChange: (path: string) => Promise<void>
+       }
+     }
+   }
+@@ -86,7 +94,7 @@ export function apply(ctx: ClientContext): void {
+   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register(
+     {
+       name: 'sidebar.right.pane.tab', key: FILES_ID, locale: NS, store, inject,
+-      children: { 'sidebar.right.tab.files.actions': { kind: 'list', scope: 'session' } },
++      children: { 'sidebar.right.tab.files.actions': { kind: 'list', scope: 'root' } },
+     },
+     FilesBody,
+   )), 'ui-sidebar-files: files tab body')
+diff --git a/packages/client/ui-sidebar-files/src/client/store.ts b/packages/client/ui-sidebar-files/src/client/store.ts
+index 897a04a46f..c09fd26798 100644
+--- a/packages/client/ui-sidebar-files/src/client/store.ts
++++ b/packages/client/ui-sidebar-files/src/client/store.ts
+@@ -74,6 +74,7 @@ function bucket(state: FilesState, tabId: TabId): FilesTabState {
+ type FilesActions = {
+   autoRefresh: (draft: FilesState, tabId: TabId, enabled: boolean) => void
+   start: (draft: FilesState, tabId: TabId, root: string) => void
++  changeRoot: (draft: FilesState, tabId: TabId, root: string) => void
+   loading: (draft: FilesState, tabId: TabId, path: string) => void
+   loaded: (draft: FilesState, tabId: TabId, path: string, level: DirLevel) => void
+   failed: (draft: FilesState, tabId: TabId, path: string, failure: RemoteFailure) => void
+@@ -104,6 +105,19 @@ export function createFilesStore(): EngineStoreHandle<FilesState, FilesActions>
+       start: (d, tabId: TabId, root: string) => {
+         d.byTab[tabId] = { root, levels: {}, expanded: [root], scrollTop: 0, autoRefresh: true }
+       },
++      /**
++       * Switch one tab to a different root and discard the previous tree view.
++       * @param d - draft state.
++       * @param tabId - the tab being drawn.
++       * @param root - absolute path of the new tree root.
++       */
++      changeRoot: (d, tabId: TabId, root: string) => {
++        const state = bucket(d, tabId)
++        state.root = root
++        state.levels = {}
++        state.expanded = [root]
++        state.scrollTop = 0
++      },
+       /**
+        * Mark one directory as being listed.
+        * @param d - draft state.
+diff --git a/packages/client/ui-sidebar-files/tests/face.client.spec.ts b/packages/client/ui-sidebar-files/tests/face.client.spec.ts
+index 29de3825cc..eb341d2a99 100644
+--- a/packages/client/ui-sidebar-files/tests/face.client.spec.ts
++++ b/packages/client/ui-sidebar-files/tests/face.client.spec.ts
+@@ -279,6 +279,84 @@ describe('filesFace', () => {
+     expect(watches.opened.map(stream => stream.path)).toEqual([ROOT, child])
+     expect(watches.opened.every(stream => !stream.signal.aborted)).toBe(true)
+   })
++
++  it('waits for the old root watch to release before opening the next root', async () => {
++    const h = mount()
++    h.face.start(TAB, ROOT, h.controller.signal)
++    const oldRoot = await h.watches.ready(ROOT)
++    await h.settle({ ok: true, value: LEVEL })
++    const release = oldRoot.holdRelease()
++
++    let completed = false
++    const change = h.face.changeRoot(TAB, '/work/other', h.controller.signal).then(() => { completed = true })
++    await oldRoot.releasing.promise
++    expect(h.watches.opened.map(watch => watch.path)).toEqual([ROOT])
++    expect(completed).toBe(false)
++
++    release.resolve(undefined)
++    await change
++    expect(h.watches.opened.map(watch => watch.path)).toEqual([ROOT, '/work/other'])
++    expect(h.snapshot()?.root).toBe('/work/other')
++  })
++
++  it('installs only the latest root requested while the old watch is closing', async () => {
++    const h = mount()
++    h.face.start(TAB, ROOT, h.controller.signal)
++    const oldRoot = await h.watches.ready(ROOT)
++    await h.settle({ ok: true, value: LEVEL })
++    const release = oldRoot.holdRelease()
++
++    const first = h.face.changeRoot(TAB, '/work/first', h.controller.signal)
++    await oldRoot.releasing.promise
++    const latest = h.face.changeRoot(TAB, '/work/latest', h.controller.signal)
++    release.resolve(undefined)
++    await Promise.all([first, latest])
++
++    expect(h.watches.opened.map(watch => watch.path)).toEqual([ROOT, '/work/latest'])
++    expect(h.snapshot()?.root).toBe('/work/latest')
++  })
++
++  it('does not reopen a root when the tab aborts during watch release', async () => {
++    const h = mount()
++    h.face.start(TAB, ROOT, h.controller.signal)
++    const oldRoot = await h.watches.ready(ROOT)
++    await h.settle({ ok: true, value: LEVEL })
++    const release = oldRoot.holdRelease()
++
++    const change = h.face.changeRoot(TAB, '/work/other', h.controller.signal)
++    await oldRoot.releasing.promise
++    h.controller.abort()
++    release.resolve(undefined)
++    await change
++
++    expect(h.watches.opened.map(watch => watch.path)).toEqual([ROOT])
++    expect(h.snapshot()).toBeUndefined()
++  })
++
++  it('rejects an old listing after an A-to-B-to-A root change', async () => {
++    const h = mount()
++    const stalePath = `${ROOT}/late`
++    h.face.start(TAB, ROOT, h.controller.signal)
++    await h.watches.ready(ROOT)
++    await h.settle({ ok: true, value: LEVEL })
++
++    h.face.load(TAB, stalePath, h.controller.signal)
++    await h.waitForList(1)
++    await h.face.changeRoot(TAB, '/work/other', h.controller.signal)
++    await h.watches.ready('/work/other')
++    await h.settleLatest({ ok: true, value: LEVEL })
++    await h.face.changeRoot(TAB, ROOT, h.controller.signal)
++    await h.watches.ready(ROOT, 1)
++    await h.settleLatest({ ok: true, value: LEVEL })
++
++    h.face.load(TAB, stalePath, h.controller.signal)
++    await h.waitForList(4)
++    const fresh: DirLevel = { entries: [{ name: 'fresh.txt', type: 'file' }], truncated: false }
++    await h.settleLatest({ ok: true, value: fresh })
++    await h.settle({ ok: true, value: { entries: [{ name: 'stale.txt', type: 'file' }], truncated: false } })
++
++    expect(h.snapshot()?.levels[stalePath]).toEqual({ kind: 'ready', level: fresh })
++  })
+ })
+ 
+ describe('createList', () => {
+diff --git a/packages/client/ui-sidebar-files/tests/files-body.client.spec.tsx b/packages/client/ui-sidebar-files/tests/files-body.client.spec.tsx
+index cee2a11f44..c54cd02fe0 100644
+--- a/packages/client/ui-sidebar-files/tests/files-body.client.spec.tsx
++++ b/packages/client/ui-sidebar-files/tests/files-body.client.spec.tsx
+@@ -5,7 +5,9 @@ import { act, cleanup, fireEvent } from '@testing-library/react'
+ import { makeTranslate, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+ import type { RemoteFailure } from '@deepseek-ai/dsh-api-remotes/client'
+ import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
++import { FILE_REFERENCE_DRAG_TYPE } from '@deepseek-ai/dsh-file-reference/grammar'
+ import { failureLine, orderEntries } from '../src/client/FilesBody.tsx'
++import type { FilesBodyProps } from '../src/client/FilesBody.tsx'
+ import type { DirLevel } from '../src/client/store.ts'
+ import { zh } from '../src/client/locales.ts'
+ import { mountBody, ROOT, SESSION, TAB } from './mount.client.tsx'
+@@ -41,6 +43,23 @@ describe('FilesBody', () => {
+     expect(script.list).not.toHaveBeenCalled()
+   })
+ 
++  it('passes the canonical Session cwd separately from the currently displayed file-tree root', async () => {
++    const owners: unknown[] = []
++    const renderSlot: FilesBodyProps['renderSlot'] = (name, owner) => {
++      if (name === 'sidebar.right.tab.files.actions') owners.push(owner)
++      return null
++    }
++    const { script } = mountBody(ROOT, undefined, renderSlot)
++    await act(() => script.watches.ready(ROOT))
++    await act(() => script.settle({ ok: true, value: ROOT_LEVEL }))
++    const owner = owners.at(-1) as { absolutePath: string; workspacePath: string; onRootChange: (path: string) => Promise<void> }
++    expect(owner).toEqual({
++      absolutePath: ROOT,
++      workspacePath: ROOT,
++      onRootChange: expect.any(Function),
++    })
++  })
++
+   it('lists the root on mount, heads it with its path split at the last segment, and draws directories first with dotfiles kept', async () => {
+     const { view, script } = mountBody()
+     expect(script.list).not.toHaveBeenCalled()
+@@ -158,6 +177,40 @@ describe('FilesBody', () => {
+     expect(other.querySelector('[aria-disabled="true"]')?.getAttribute('title')).toBe(zh['entry.other'])
+   })
+ 
++  it('drags extensionless files and directories as canonical, typed workspace references', async () => {
++    const { view, script } = mountBody()
++    await act(() => script.watches.ready(ROOT))
++    await act(() => script.settle({ ok: true, value: ROOT_LEVEL }))
++
++    const fileData = new Map<string, string>()
++    const fileTransfer = {
++      effectAllowed: 'none',
++      setData: vi.fn((type: string, value: string) => { fileData.set(type, value) }),
++    }
++    const file = view.container.querySelector<HTMLButtonElement>(`[data-files-path="${ROOT}/.env"] > button`)!
++    expect(file.draggable).toBe(true)
++    fireEvent.dragStart(file, { dataTransfer: fileTransfer })
++    expect(fileTransfer.effectAllowed).toBe('copy')
++    expect(fileData.get(FILE_REFERENCE_DRAG_TYPE)).toBe(JSON.stringify({
++      version: 1, path: `${ROOT}/.env`, kind: 'file',
++    }))
++    expect(fileData.get('text/plain')).toBe(`@${ROOT}/.env`)
++
++    const directoryData = new Map<string, string>()
++    const directoryTransfer = {
++      effectAllowed: 'none',
++      setData: vi.fn((type: string, value: string) => { directoryData.set(type, value) }),
++    }
++    const directory = view.container.querySelector<HTMLButtonElement>(`[data-files-path="${ROOT}/src"] > button`)!
++    expect(directory.draggable).toBe(true)
++    fireEvent.dragStart(directory, { dataTransfer: directoryTransfer })
++    expect(directoryData.get(FILE_REFERENCE_DRAG_TYPE)).toBe(JSON.stringify({
++      version: 1, path: `${ROOT}/src`, kind: 'directory',
++    }))
++    expect(directoryData.get('text/plain')).toBe(`@${ROOT}/src/`)
++    expect(view.container.querySelector(`[data-files-path="${ROOT}/pipe"] button`)).toBeNull()
++  })
++
+   it('marks a cut listing and an empty one', async () => {
+     const { view, script } = mountBody()
+     await act(() => script.watches.ready(ROOT))
+diff --git a/packages/client/ui-sidebar-files/tests/mount.client.tsx b/packages/client/ui-sidebar-files/tests/mount.client.tsx
+index 5646e773fb..2dbf3b9f02 100644
+--- a/packages/client/ui-sidebar-files/tests/mount.client.tsx
++++ b/packages/client/ui-sidebar-files/tests/mount.client.tsx
+@@ -59,7 +59,11 @@ export interface Mounted {
+ }
+ 
+ /** One store instance, one face, one owner share. */
+-function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut']) {
++function harness(
++  cwd: string | null,
++  refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut'],
++  renderSlot: FilesBodyProps['renderSlot'] = () => null,
++) {
+   const instance = createFilesStore().create()
+   const script = scriptedList()
+   const face = filesFace(script.list, script.watch)(SESSION, instance.actions)
+@@ -87,7 +91,7 @@ function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps
+         actions: tabActions, refreshShortcut,
+       },
+     }),
+-    renderSlot: () => null,
++    renderSlot,
+     sessionId: SESSION,
+     useSessions: <S,>(sel: (s: SessionListState) => S) => sel(sessions),
+     useStore: hookOf(instance),
+@@ -103,8 +107,12 @@ function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps
+  * @param cwd - the session's working directory as `useSessions` reports it; `null` for a session without one.
+  * @param refreshShortcut - effective binding advertised by the tab owner.
+  */
+-export function mountBody(cwd: string | null = ROOT, refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut']): Mounted {
+-  const { shared, ...hands } = harness(cwd, refreshShortcut)
++export function mountBody(
++  cwd: string | null = ROOT,
++  refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut'],
++  renderSlot?: FilesBodyProps['renderSlot'],
++): Mounted {
++  const { shared, ...hands } = harness(cwd, refreshShortcut, renderSlot)
+   const view = render(<FilesBody {...shared as unknown as FilesBodyProps} />)
+   return { ...hands, view, remount: () => render(<FilesBody {...shared as unknown as FilesBodyProps} />) }
+ }
+diff --git a/packages/client/ui-sidebar-files/tests/store.client.spec.ts b/packages/client/ui-sidebar-files/tests/store.client.spec.ts
+index 660e3bc3dd..eb400c213b 100644
+--- a/packages/client/ui-sidebar-files/tests/store.client.spec.ts
++++ b/packages/client/ui-sidebar-files/tests/store.client.spec.ts
+@@ -89,6 +89,25 @@ describe('createFilesStore', () => {
+     expect(getSnapshot().byTab[TAB]).toEqual({ root: ROOT, levels: {}, expanded: [ROOT, child], scrollTop: 120, autoRefresh: false })
+   })
+ 
++  it('changes the root and clears the old view while preserving the automatic setting', () => {
++    const store = createFilesStore().create()
++    const { actions } = store
++    const nextRoot = '/work/other'
++    const child = `${ROOT}/src`
++    actions.start(TAB, ROOT)
++    actions.loaded(TAB, ROOT, LEVEL)
++    actions.toggled(TAB, child)
++    actions.loaded(TAB, child, LEVEL)
++    actions.scrolled(TAB, 120)
++    actions.autoRefresh(TAB, false)
++
++    actions.changeRoot(TAB, nextRoot)
++
++    expect(store.getSnapshot().byTab[TAB]).toEqual({
++      root: nextRoot, levels: {}, expanded: [nextRoot], scrollTop: 0, autoRefresh: false,
++    })
++  })
++
+   it('keeps the automatic setting independent for each tab', () => {
+     const store = createFilesStore().create()
+     const other = 'tab-2' as TabId
+-- 
+2.43.0
+
