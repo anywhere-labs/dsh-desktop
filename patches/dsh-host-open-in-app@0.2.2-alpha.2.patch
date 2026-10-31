@@ -1,8 +1,16 @@
 diff --git a/lib/index.js b/lib/index.js
-index 6cd610d..72c6b0b 100644
+index 6cd610d..068da51 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -346,12 +346,16 @@ const OPEN_IN_APP_CATALOG = [
+@@ -3,6 +3,7 @@ import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promise
+ import { launchEnvironmentOf, launchedThroughSsh } from "@deepseek-ai/dsh-launch-environment";
+ import z from "@deepseek-ai/schemastery";
+ import { spawn } from "node:child_process";
++import { execFile as desktopExecFile } from "node:child_process";
+ import { homedir, platform, tmpdir } from "node:os";
+ import { canOpenNativePath, desktopApplicationIcon, desktopDataDirectories, desktopEntryFields, openNativePath, runNativeCommand } from "@deepseek-ai/dsh-native-command";
+ import { scrubbedParentEnv } from "@deepseek-ai/dsh-subprocess";
+@@ -346,12 +347,16 @@ const OPEN_IN_APP_CATALOG = [
  * @returns after the launch is counted successful; rejects on early failure.
  */
  const launchDetachedApp = (command, args, options) => new Promise((resolve, reject) => {
@@ -20,11 +28,60 @@ index 6cd610d..72c6b0b 100644
  			...options.env
  		}
  	});
+@@ -407,6 +412,32 @@ function assertNever(value) {
+ 	throw new Error(`unhandled open-in-app catalog kind: ${JSON.stringify(value)}`);
+ }
+ /**
++* Desktop: run `reg.exe` in a UTF-8 console.
++* Redirected `reg.exe` output follows its console's output code page (GBK on
++* zh-CN Windows) and the UTF-8 runner turns those bytes into U+FFFD, so no
++* registry path with non-ASCII characters resolves. `chcp` switches only the
++* hidden console this spawn creates; a failed `chcp` leaves the old output.
++* @param args - `reg.exe` argv: constant registry roots and switches.
++* @param timeoutMs - command deadline.
++* @returns stdout on exit 0; null on any failure, like {@link output}.
++*/
++function desktopRegistryOutput(args, timeoutMs) {
++	const commandLine = ["chcp 65001 >nul & reg.exe", ...args.map((arg) => `"${arg}"`)].join(" ");
++	return new Promise((resolve) => {
++		desktopExecFile("cmd.exe", [
++			"/d",
++			"/s",
++			"/c",
++			`"${commandLine}"`
++		], {
++			encoding: "utf8",
++			signal: AbortSignal.timeout(timeoutMs),
++			windowsHide: true,
++			windowsVerbatimArguments: true
++		}, (error, stdout) => resolve(error === null ? stdout : null));
++	});
++}
++/**
+ * Run one bounded host command.
+ * @param command - executable path or PATH name.
+ * @param args - argv (never a shell string).
+@@ -415,6 +446,7 @@ function assertNever(value) {
+ * @returns stdout on exit 0; null on any failure (spawn, nonzero exit, timeout).
+ */
+ async function output(command, args, timeoutMs, internals) {
++	if (command === "reg.exe" && internals.run === runNativeCommand) return desktopRegistryOutput(args, timeoutMs);
+ 	try {
+ 		const { stdout } = await internals.run(command, args, AbortSignal.timeout(timeoutMs), "hidden");
+ 		return stdout;
 diff --git a/lib/types/resolver.js b/lib/types/resolver.js
-index 9737dfb..ea3606f 100644
+index 9737dfb..9263273 100644
 --- a/lib/types/resolver.js
 +++ b/lib/types/resolver.js
-@@ -35,11 +35,15 @@ import { OPEN_IN_APP_CATALOG, PATH_TOKEN, } from "./catalog.js";
+@@ -12,6 +12,7 @@
+  * the OS shell's open verb — instead of a direct spawn.
+  */
+ import { spawn } from 'node:child_process';
++import { execFile as desktopExecFile } from 'node:child_process';
+ import { readdir, readFile, stat } from 'node:fs/promises';
+ import { homedir, platform as osPlatform } from 'node:os';
+ import { dirname, isAbsolute, join } from 'node:path';
+@@ -35,11 +36,15 @@ import { OPEN_IN_APP_CATALOG, PATH_TOKEN, } from "./catalog.js";
   * @returns after the launch is counted successful; rejects on early failure.
   */
  export const launchDetachedApp = (command, args, options) => new Promise((resolve, reject) => {
@@ -41,3 +98,36 @@ index 9737dfb..ea3606f 100644
      });
      let settled = false;
      const settle = (outcome) => {
+@@ -89,6 +94,24 @@ export function resolveInternals(internals) {
+ function assertNever(value) {
+     throw new Error(`unhandled open-in-app catalog kind: ${JSON.stringify(value)}`);
+ }
++/**
++ * Desktop: run `reg.exe` in a UTF-8 console.
++ * Redirected `reg.exe` output follows its console's output code page (GBK on
++ * zh-CN Windows) and the UTF-8 runner turns those bytes into U+FFFD, so no
++ * registry path with non-ASCII characters resolves. `chcp` switches only the
++ * hidden console this spawn creates; a failed `chcp` leaves the old output.
++ * @param args - `reg.exe` argv: constant registry roots and switches.
++ * @param timeoutMs - command deadline.
++ * @returns stdout on exit 0; null on any failure, like {@link output}.
++ */
++function desktopRegistryOutput(args, timeoutMs) {
++    const commandLine = ['chcp 65001 >nul & reg.exe', ...args.map((arg) => `"${arg}"`)].join(' ');
++    return new Promise((resolve) => {
++        desktopExecFile('cmd.exe', ['/d', '/s', '/c', `"${commandLine}"`], {
++            encoding: 'utf8', signal: AbortSignal.timeout(timeoutMs), windowsHide: true, windowsVerbatimArguments: true,
++        }, (error, stdout) => resolve(error === null ? stdout : null));
++    });
++}
+ /**
+  * Run one bounded host command.
+  * @param command - executable path or PATH name.
+@@ -98,6 +121,7 @@ function assertNever(value) {
+  * @returns stdout on exit 0; null on any failure (spawn, nonzero exit, timeout).
+  */
+ export async function output(command, args, timeoutMs, internals) {
++    if (command === 'reg.exe' && internals.run === runNativeCommand) return desktopRegistryOutput(args, timeoutMs);
+     try {
+         const { stdout } = await internals.run(command, args, AbortSignal.timeout(timeoutMs), 'hidden');
+         return stdout;
