@@ -9,11 +9,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const fixture = vi.hoisted(() => ({
   platform: 'darwin', spawn: vi.fn(), execFile: vi.fn(), exitCode: 0,
-  directories: new Set<string>(), files: new Set<string>(),
+  directories: new Set<string>(), files: new Set<string>(), aliases: new Map<string, string>(),
 }))
 const workspace = '/fixture/workspace with spaces 中文'
 const localAppData = '/fixture/local'
 const githubDirectory = `${localAppData}/GitHubDesktop/app-1.0`
+const terminalAlias = `${localAppData}/Microsoft/WindowsApps/wt.exe`
+const terminalPackage = 'C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal_1.24.11911.0_x64__8wekyb3d8bbwe\\wt.exe'
 const missing = () => Object.assign(new Error('Fixture path is absent'), { code: 'ENOENT' })
 
 vi.mock('node:os', async importOriginal => ({
@@ -37,6 +39,16 @@ vi.mock('node:fs/promises', async importOriginal => ({
     throw missing()
   },
   readFile: async () => { throw missing() },
+  // An App Execution Alias is a reparse point: lstat sees a link, and its target is the packaged executable.
+  lstat: async (path: string) => {
+    if (!fixture.aliases.has(path.replaceAll('\\', '/'))) throw missing()
+    return { isSymbolicLink: () => true, isFile: () => false }
+  },
+  readlink: async (path: string) => {
+    const target = fixture.aliases.get(path.replaceAll('\\', '/'))
+    if (!target) throw Object.assign(new Error('Fixture link target is unreadable'), { code: 'EINVAL' })
+    return target
+  },
 }))
 vi.mock('@deepseek-ai/dsh-native-command', async importOriginal => ({
   canOpenNativePath: () => true,
@@ -48,7 +60,7 @@ vi.mock('@deepseek-ai/dsh-native-command', async importOriginal => ({
 }))
 
 beforeEach(() => {
-  fixture.directories.clear(); fixture.files.clear()
+  fixture.directories.clear(); fixture.files.clear(); fixture.aliases.clear()
   fixture.directories.add(workspace)
   fixture.platform = 'darwin'; fixture.exitCode = 0
   fixture.execFile.mockReset().mockImplementation((_command, _args, _options, callback) => {
@@ -80,7 +92,7 @@ function routes() {
     } },
   }
   OpenInApp.apply(ctx as unknown as Context, { probeTimeoutMs: 100, iconTimeoutMs: 100, launchWatchMs: 100 })
-  return async (app: string, path = workspace) => {
+  const open = async (app: string, path = workspace) => {
     const request = Object.assign(Readable.from([Buffer.from(JSON.stringify({ app, path }))]), {
       method: 'POST', headers: { 'content-type': 'application/json' }, url: '/open-in-app/open',
     })
@@ -88,6 +100,13 @@ function routes() {
     await handlers.get('/open-in-app/open')!(request as unknown as IncomingMessage, response as unknown as ServerResponse)
     return response
   }
+  const icon = async (app: string) => {
+    const request = Object.assign(Readable.from([]), { method: 'GET', headers: {}, url: `/open-in-app/icon/${app}` })
+    const response = { statusCode: 0, body: undefined as unknown, setHeader() {}, end(body?: unknown) { this.body = body } }
+    await handlers.get('/open-in-app/icon')!(request as unknown as IncomingMessage, response as unknown as ServerResponse)
+    return response
+  }
+  return Object.assign(open, { icon })
 }
 
 it.each([
@@ -165,4 +184,27 @@ it('reads the Windows registry through a UTF-8 console, so a Chinese install pat
   expect(fixture.execFile).toHaveBeenCalledWith('cmd.exe', ['/d', '/s', '/c', `"chcp 65001 >nul & reg.exe "query" "${appPaths}" "/s""`],
     expect.objectContaining({ encoding: 'utf8', windowsHide: true, windowsVerbatimArguments: true }), expect.any(Function))
   expect(fixture.execFile.mock.calls.filter(([command]) => command === 'reg.exe')).toEqual([])
+})
+
+it('offers Windows Terminal through its App Execution Alias, which the PATH lookup cannot stat', async () => {
+  fixture.platform = 'win32'
+  // The fixture's PATH lookup knows only VS Code, as it misses the alias on Windows.
+  expect((await routes()('windowsterminal')).statusCode).toBe(400)
+  fixture.aliases.set(terminalAlias, terminalPackage)
+  const result = await routes()('windowsterminal')
+  expect(result.statusCode).toBe(200)
+  const [command, args] = fixture.spawn.mock.calls[0]!
+  expect(command.replaceAll('\\', '/')).toBe(terminalAlias)
+  expect(args).toEqual(['-d', workspace])
+})
+
+it.each([
+  ['the packaged executable the alias names', terminalPackage, terminalPackage],
+  ['the alias when its target is unreadable', '', terminalAlias],
+])('extracts the Windows Terminal icon from %s', async (_case, target, source) => {
+  fixture.platform = 'win32'
+  fixture.aliases.set(terminalAlias, target)
+  await routes().icon('windowsterminal')
+  const extraction = fixture.execFile.mock.calls.find(([command]) => command === 'powershell.exe')
+  expect(extraction?.[1].at(-2).replaceAll('\\', '/')).toBe(source.replaceAll('\\', '/'))
 })

@@ -1,8 +1,11 @@
 diff --git a/lib/index.js b/lib/index.js
-index 6cd610d..068da51 100644
+index 6cd610d..98df499 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -3,6 +3,7 @@ import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promise
+@@ -1,8 +1,10 @@
+ import { dirname, isAbsolute, join } from "node:path";
+ import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
++import { lstat as desktopLstat, readlink as desktopReadlink } from "node:fs/promises";
  import { launchEnvironmentOf, launchedThroughSsh } from "@deepseek-ai/dsh-launch-environment";
  import z from "@deepseek-ai/schemastery";
  import { spawn } from "node:child_process";
@@ -10,7 +13,7 @@ index 6cd610d..068da51 100644
  import { homedir, platform, tmpdir } from "node:os";
  import { canOpenNativePath, desktopApplicationIcon, desktopDataDirectories, desktopEntryFields, openNativePath, runNativeCommand } from "@deepseek-ai/dsh-native-command";
  import { scrubbedParentEnv } from "@deepseek-ai/dsh-subprocess";
-@@ -346,12 +347,16 @@ const OPEN_IN_APP_CATALOG = [
+@@ -346,12 +348,16 @@ const OPEN_IN_APP_CATALOG = [
  * @returns after the launch is counted successful; rejects on early failure.
  */
  const launchDetachedApp = (command, args, options) => new Promise((resolve, reject) => {
@@ -28,7 +31,7 @@ index 6cd610d..068da51 100644
  			...options.env
  		}
  	});
-@@ -407,6 +412,32 @@ function assertNever(value) {
+@@ -407,6 +413,32 @@ function assertNever(value) {
  	throw new Error(`unhandled open-in-app catalog kind: ${JSON.stringify(value)}`);
  }
  /**
@@ -61,7 +64,7 @@ index 6cd610d..068da51 100644
  * Run one bounded host command.
  * @param command - executable path or PATH name.
  * @param args - argv (never a shell string).
-@@ -415,6 +446,7 @@ function assertNever(value) {
+@@ -415,6 +447,7 @@ function assertNever(value) {
  * @returns stdout on exit 0; null on any failure (spawn, nonzero exit, timeout).
  */
  async function output(command, args, timeoutMs, internals) {
@@ -69,19 +72,50 @@ index 6cd610d..068da51 100644
  	try {
  		const { stdout } = await internals.run(command, args, AbortSignal.timeout(timeoutMs), "hidden");
  		return stdout;
+@@ -660,6 +693,19 @@ function executableIcon(path, internals) {
+ 		path
+ 	} : void 0;
+ }
++/**
++* Desktop: Windows Terminal installs `wt.exe` as an App Execution Alias in
++* `%LOCALAPPDATA%\Microsoft\WindowsApps`. `stat` cannot open an alias, so the
++* PATH resolver skips it, yet CreateProcess launches it and `lstat` sees it. The
++* icon comes from the packaged executable the alias names, when readable.
++*/
++async function desktopWindowsAppAlias(name, internals) {
++	if (internals.env.LOCALAPPDATA === void 0) return null;
++	const alias = join(internals.env.LOCALAPPDATA, "Microsoft", "WindowsApps", `${name}.exe`);
++	const entry = await desktopLstat(alias).catch(() => null);
++	if (entry === null || (!entry.isSymbolicLink() && !entry.isFile())) return null;
++	return { alias, icon: await desktopReadlink(alias).catch(() => alias) };
++}
+ /** Resolve one locator to a verified launch, or null when it proves nothing. */
+ async function locate(locator, probeTimeoutMs, registry, internals) {
+ 	switch (locator.kind) {
+@@ -721,6 +767,8 @@ async function locate(locator, probeTimeoutMs, registry, internals) {
+ 				env: { ...internals.env }
+ 			})) return null;
+ 			const found = await internals.resolveExecutable(locator.name);
++			const alias = found === null && internals.platform === "win32" ? await desktopWindowsAppAlias(locator.name, internals) : null;
++			if (alias !== null) return { launch: { kind: "argv", command: alias.alias, args: locator.args }, icon: executableIcon(alias.icon, internals) };
+ 			return found === null ? null : {
+ 				launch: {
+ 					kind: "argv",
 diff --git a/lib/types/resolver.js b/lib/types/resolver.js
-index 9737dfb..9263273 100644
+index 9737dfb..4bb7030 100644
 --- a/lib/types/resolver.js
 +++ b/lib/types/resolver.js
-@@ -12,6 +12,7 @@
+@@ -12,7 +12,9 @@
   * the OS shell's open verb — instead of a direct spawn.
   */
  import { spawn } from 'node:child_process';
 +import { execFile as desktopExecFile } from 'node:child_process';
  import { readdir, readFile, stat } from 'node:fs/promises';
++import { lstat as desktopLstat, readlink as desktopReadlink } from 'node:fs/promises';
  import { homedir, platform as osPlatform } from 'node:os';
  import { dirname, isAbsolute, join } from 'node:path';
-@@ -35,11 +36,15 @@ import { OPEN_IN_APP_CATALOG, PATH_TOKEN, } from "./catalog.js";
+ import { canOpenNativePath, openNativePath, runNativeCommand, desktopEntryFields, desktopDataDirectories, } from '@deepseek-ai/dsh-native-command';
+@@ -35,11 +37,15 @@ import { OPEN_IN_APP_CATALOG, PATH_TOKEN, } from "./catalog.js";
   * @returns after the launch is counted successful; rejects on early failure.
   */
  export const launchDetachedApp = (command, args, options) => new Promise((resolve, reject) => {
@@ -98,7 +132,7 @@ index 9737dfb..9263273 100644
      });
      let settled = false;
      const settle = (outcome) => {
-@@ -89,6 +94,24 @@ export function resolveInternals(internals) {
+@@ -89,6 +95,24 @@ export function resolveInternals(internals) {
  function assertNever(value) {
      throw new Error(`unhandled open-in-app catalog kind: ${JSON.stringify(value)}`);
  }
@@ -123,7 +157,7 @@ index 9737dfb..9263273 100644
  /**
   * Run one bounded host command.
   * @param command - executable path or PATH name.
-@@ -98,6 +121,7 @@ function assertNever(value) {
+@@ -98,6 +122,7 @@ function assertNever(value) {
   * @returns stdout on exit 0; null on any failure (spawn, nonzero exit, timeout).
   */
  export async function output(command, args, timeoutMs, internals) {
@@ -131,3 +165,32 @@ index 9737dfb..9263273 100644
      try {
          const { stdout } = await internals.run(command, args, AbortSignal.timeout(timeoutMs), 'hidden');
          return stdout;
+@@ -365,6 +390,19 @@ export function specFor(app, platform) {
+ function executableIcon(path, internals) {
+     return internals.platform === 'win32' ? { kind: 'executable', path } : undefined;
+ }
++/**
++ * Desktop: Windows Terminal installs `wt.exe` as an App Execution Alias in
++ * `%LOCALAPPDATA%\Microsoft\WindowsApps`. `stat` cannot open an alias, so the
++ * PATH resolver skips it, yet CreateProcess launches it and `lstat` sees it. The
++ * icon comes from the packaged executable the alias names, when readable.
++ */
++async function desktopWindowsAppAlias(name, internals) {
++    if (internals.env.LOCALAPPDATA === undefined) return null;
++    const alias = join(internals.env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', `${name}.exe`);
++    const entry = await desktopLstat(alias).catch(() => null);
++    if (entry === null || (!entry.isSymbolicLink() && !entry.isFile())) return null;
++    return { alias, icon: await desktopReadlink(alias).catch(() => alias) };
++}
+ /** Resolve one locator to a verified launch, or null when it proves nothing. */
+ async function locate(locator, probeTimeoutMs, registry, internals) {
+     switch (locator.kind) {
+@@ -414,6 +452,8 @@ async function locate(locator, probeTimeoutMs, registry, internals) {
+             }))
+                 return null;
+             const found = await internals.resolveExecutable(locator.name);
++            const alias = found === null && internals.platform === 'win32' ? await desktopWindowsAppAlias(locator.name, internals) : null;
++            if (alias !== null) return { launch: { kind: 'argv', command: alias.alias, args: locator.args }, icon: executableIcon(alias.icon, internals) };
+             return found === null
+                 ? null
+                 : { launch: { kind: 'argv', command: found, args: locator.args }, icon: executableIcon(found, internals) };
