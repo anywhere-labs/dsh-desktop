@@ -10394,6 +10394,34 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-pwsh-local@patch:@deepseek-ai/dsh-pwsh-local@file%3Avendor/dsh-runtime/0.2.1-rc.5/deepseek-ai-dsh-pwsh-local-0.2.1-rc.5.tgz#./patches/dsh-pwsh-local@0.2.1-rc.5.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.2.1-rc.5
+  resolution: "@deepseek-ai/dsh-pwsh-local@patch:@deepseek-ai/dsh-pwsh-local@file%3Avendor/dsh-runtime/0.2.1-rc.5/deepseek-ai-dsh-pwsh-local-0.2.1-rc.5.tgz%23vendor/dsh-runtime/0.2.1-rc.5/deepseek-ai-dsh-pwsh-local-0.2.1-rc.5.tgz%3A%3Ahash=f8bcaf&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-pwsh-local@0.2.1-rc.5.patch::version=0.2.1-rc.5&hash=37e2ce&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    "@deepseek-ai/schemastery": "npm:~3.18.5"
+  peerDependencies:
+    "@deepseek-ai/cordis": ~4.0.5
+    "@deepseek-ai/dsh-shell": 0.2.1-rc.5
+    "@deepseek-ai/dsh-subprocess": 0.2.1-rc.5
+    "@deepseek-ai/dsh-timeout": 0.2.1-rc.5
+  checksum: 10c0/5b553566eec7e33222316aaa034b55e0c132a107d51276d376e3273aacbf0a842fa686a6cd6b2fe20f82b28a57c62b62cc3badac7dd7cb7e6f6ee2771926c5c9
+  languageName: node
+  linkType: hard
+
+"@deepseek-ai/dsh-pwsh-local@patch:@deepseek-ai/dsh-pwsh-local@file%3Avendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-pwsh-local-0.2.2-alpha.2.tgz#./patches/dsh-pwsh-local@0.2.2-alpha.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.2.2-alpha.2
+  resolution: "@deepseek-ai/dsh-pwsh-local@patch:@deepseek-ai/dsh-pwsh-local@file%3Avendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-pwsh-local-0.2.2-alpha.2.tgz%23vendor/dsh-runtime/0.2.2-alpha.2/deepseek-ai-dsh-pwsh-local-0.2.2-alpha.2.tgz%3A%3Ahash=72f650&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-pwsh-local@0.2.2-alpha.2.patch::version=0.2.2-alpha.2&hash=37e2ce&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    "@deepseek-ai/schemastery": "npm:~3.18.6-alpha.1"
+  peerDependencies:
+    "@deepseek-ai/cordis": ~4.0.6-alpha.1
+    "@deepseek-ai/dsh-shell": 0.2.2-alpha.2
+    "@deepseek-ai/dsh-subprocess": 0.2.2-alpha.2
+    "@deepseek-ai/dsh-timeout": 0.2.2-alpha.2
+  checksum: 10c0/1a2df2839231f9cc47f13c89b51346f506fb89121964ed5a0c781075246a3b990e1c22447758bd1ca377eac23a3faa53de57a332ce885309ef8a6eed456731b6
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-pwsh-sandbox@file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-pwsh-sandbox-0.2.1-rc.3.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.1-rc.3
   resolution: "@deepseek-ai/dsh-pwsh-sandbox@file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-pwsh-sandbox-0.2.1-rc.3.tgz#vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-pwsh-sandbox-0.2.1-rc.3.tgz::hash=c09f15&locator=deepseek-harness-desktop%40workspace%3A."

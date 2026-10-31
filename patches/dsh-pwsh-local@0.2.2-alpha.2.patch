@@ -1,0 +1,14 @@
+diff --git a/lib/index.js b/lib/index.js
+index 121c8af..4665244 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -85,6 +85,9 @@ function resolvePwshPath(configured, env = process.env, platform = process.platf
+ * deliberately absent; `NO_COLOR` is honored by modern pwsh renderers.
+ */
+ const ENV_OVERRIDES = {
++	// Desktop: piped Python stdio follows the ANSI code page (GBK on zh-CN Windows), but
++	// ENCODING_PREAMBLE makes PowerShell decode native output as UTF-8.
++	PYTHONIOENCODING: "utf-8",
+ 	NO_COLOR: "1",
+ 	PAGER: "cat",
+ 	GIT_PAGER: "cat"
