@@ -4,6 +4,7 @@ import { request as requestHttps } from 'node:https'
 import { connect as connectTls, type TLSSocket } from 'node:tls'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { generate } from 'selfsigned'
+import { MAX_HEADER_BYTES } from '../src/browser-sessions.ts'
 import LanHttpsIngress, { type LanHttpsIngressOptions } from '../src/lan-https-ingress.ts'
 
 const LAN_ADDRESS = '192.168.50.20'
@@ -132,6 +133,7 @@ function httpsCall(
       method: init.method ?? 'GET',
       ca: caCertificate,
       rejectUnauthorized: true,
+      maxHeaderSize: MAX_HEADER_BYTES,
       headers: {
         host: `${LAN_ADDRESS}:${String(ingressPort(ingress))}`,
         ...init.headers,
@@ -278,6 +280,25 @@ describe('LAN HTTPS ingress', () => {
       'sid=one; Path=/; HttpOnly; Secure',
       'theme=dark; Path=/; Secure; SameSite=Lax',
     ])
+  })
+
+  it('carries a crowded browser cookie jar and its session expiries past the default header limit', async () => {
+    const cookie = Array.from({ length: 100 }, (_, index) => `dsh-auth-${String(index)}=${'v'.repeat(220)}`).join('; ')
+    const expiries = Array.from({ length: 400 }, (_, index) => `dsh-auth-${String(index)}=; Max-Age=0; Path=/`)
+    let received: string | undefined
+    const backend = createServer({ maxHeaderSize: MAX_HEADER_BYTES }, (request, response) => {
+      received = request.headers.cookie
+      response.setHeader('set-cookie', expiries)
+      response.end('crowded')
+    })
+    auxiliaryServers.push(backend)
+    const ingress = await startIngress(await listen(backend))
+
+    const result = await httpsCall(ingress, '/', { headers: { cookie } })
+
+    expect(result.statusCode).toBe(200)
+    expect(received).toBe(cookie)
+    expect(result.headers['set-cookie']).toEqual(expiries.map(expiry => `${expiry}; Secure`))
   })
 
   it('returns 403 for an unlisted Host or an explicit cross-site browser request', async () => {

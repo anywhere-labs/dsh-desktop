@@ -3,6 +3,7 @@
 import type { LogInput } from './log-record.ts'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
+import { MAX_HEADER_BYTES } from './browser-sessions.ts'
 import { desktopNodeEnvironment } from './node-environment.ts'
 import type { DesktopNotification } from './desktop-contract.ts'
 import { exitSummary } from './exit-code.ts'
@@ -276,6 +277,7 @@ export class DesktopHostProcess {
     const entry = this.hostEntry ?? join(this.runtimeDir, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'index.js')
     const child = spawn(this.node, [
       '--expose-internals',
+      `--max-http-header-size=${String(MAX_HEADER_BYTES)}`,
       ...(this.inspectPort === undefined ? [] : [`--inspect=127.0.0.1:${String(this.inspectPort)}`]),
       entry,
       this.runtimeDir,
