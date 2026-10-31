@@ -94,6 +94,10 @@ Desktop Client 通过受支持的工作区编辑与文件工具栏 slot 提供�
 
 在所有呈现模式下，Windows PowerShell 都会保留上游 `pwsh-sandbox` 行为与 Windows ACL confinement。Launcher generation 只会把该 Host provider 替换为同一 package 中的 `dsh-plugin-desktop/windows-pwsh-sandbox` 子路径。对于与上游 ACL runner 完全匹配的 argv，adapter 会让打包后的 Electron executable 通过私有 trampoline 以 Node 模式启动。Trampoline 会先精确校验上游 runner，再在导入它之前移除 Node-mode 环境变量，并确保自身这个原本没有 console 的 Windows 进程拥有一个没有窗口的 console：Windows 11 24H2 及更高版本会直接分配，更早的版本则附加到一个短暂运行、不受限的 `cmd.exe` 的无窗口 console；只有两者都失败时，才分配普通 console 并将其隐藏。受限 PowerShell 进程随后可以继承该 console，而不必在已经使用受限 token 时自行创建，也不会有 console 窗口被交给 Windows Terminal。Console 分配失败会通过现有带签名的 runner 失败路径退出；全部 ACL policy 与后续失败处理仍委托给上游 runner。Desktop deploy root 还会保留 Yarn patch，在两条原生受限进程路径上把 `STARTF_USESHOWWINDOW`、现有的 `STARTF_USESTDHANDLES` 与 `SW_HIDE` 组合起来。它不会使用与上游实现不兼容的 `CREATE_NO_WINDOW` 或 `CREATE_NEW_CONSOLE` flag。直接使用 `danger-full-access` 的 PowerShell、macOS 与 Linux 执行路径保持不变；Windows confinement 失败时不会自动回退到不受限执行。
 
+### 目标续轮死循环止血
+
+自动续轮的目标可能卡住：Agent 反复搜索、读取并重试同一个检查，却拿不到新证据，而下一轮仍会被自动排队。Desktop Host 插件 `dsh-plugin-desktop/goal-loop-containment` 只用本地测量判定死循环——每一轮的工具调用次数、成功数、失败数、耗时，以及被重复最多的完全相同调用——当连续若干轮没有进展、或同一个调用反复出现时介入。它先停掉续轮，再向模型发送一条隐藏请求，要求分析这一轮为什么耗时这么久、卡在哪里，分析轮一结束就重新武装目标，因此未完成的目标仍会自动继续。介入次数用尽后插件把目标标记为 blocked，把循环交回人工处理，而不是继续消耗轮次。可调项：`enabled`、`stallRounds`、`repeatLimit`、`maxInterventions`、`argumentsPreviewChars`。Desktop profile 保留上游 `repeat-tool-reminder` 的提醒，并把它的两项硬性次数上限（`blockAt`、`maxTrackedCallsPerTurn`）清零，因为该守卫只在人工消息时重置计数：自动续轮内一旦触顶，之后的每次调用都会被永久拒绝。
+
 ## 扩展窗口模式
 
 扩展窗口会禁用官方上游 `ui-layout` root，并安装 Desktop 自有 root layout。该 layout 负责 sidebar、conversation、details、overlay 和 resize 几何，同时继续渲染官方 sidebar、conversation 与 details slot occupant。Desktop root 上方是一条固定的 36 CSS 像素操作栏；操作栏与 Desktop 自有 sidebar surface 只透出一层不会叠色的材质，组成连续的倒 L 形玻璃区域。conversation surface 位于倒 L 内侧，使用 10 像素内圆角，并让分隔线沿圆角绘制。

@@ -80,6 +80,10 @@
       "types": "./lib/types/git-review.d.ts",
       "default": "./lib/git-review.js"
     },
+    "./goal-loop-containment": {
+      "types": "./lib/types/goal-loop-containment.d.ts",
+      "default": "./lib/goal-loop-containment.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -134,7 +138,9 @@
         "@deepseek-ai/dsh-client-ui-sidebar-right",
         "@deepseek-ai/dsh-client-ui-sidebar-files",
         "@deepseek-ai/dsh-client-ui-workspace",
-        "@deepseek-ai/dsh-util-workspace-path"
+        "@deepseek-ai/dsh-util-workspace-path",
+        "@deepseek-ai/dsh-api-terminal-controller",
+        "@deepseek-ai/dsh-client-shortcuts"
       ],
       "platform": "web"
     },
@@ -376,6 +382,7 @@
   },
   "devDependencies": {
     "@base-ui/react": "^1.7.0",
+    "@deepseek-ai/dsh-api-terminal-controller": "0.2.1-rc.3",
     "@electron/asar": "3.4.1",
     "@electron/fuses": "1.8.0",
     "@fontsource-variable/inter": "^5.3.0",
@@ -388,6 +395,8 @@
     "@types/react-dom": "^18",
     "@types/semver": "^7.7.1",
     "@vitejs/plugin-react": "^6",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "builder-util": "26.15.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

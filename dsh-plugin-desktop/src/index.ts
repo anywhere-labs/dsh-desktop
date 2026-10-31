@@ -45,6 +45,10 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 import { desktopFilePathPromptSection } from './desktop-file-path-guidance.ts'
+import {
+  desktopAgentTaskRoutingPromptSection,
+  shouldEnableDesktopAgentTaskRouting,
+} from './desktop-agent-task-routing.ts'
 import { installWorkspaceSourcePolicy } from './workspace-source-policy.ts'
 import { installWorkspaceSourceFileReferences } from './workspace-source-file-references.ts'
 import {
@@ -259,6 +263,14 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
       )),
       'dsh-plugin-desktop: absolute file paths in user-facing output',
     )
+    if (shouldEnableDesktopAgentTaskRouting(resolved.mode)) {
+      scope.effect(
+        () => scope.systemPrompt.section(desktopAgentTaskRoutingPromptSection(
+          scope.systemPrompt.getSectionOrder('HARNESS_SOURCE') + 2,
+        )),
+        'dsh-plugin-desktop: Agent task and skill routing',
+      )
+    }
   })
   ctx.effect(
     () => ctx.webServer.register({

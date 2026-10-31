@@ -1,6 +1,7 @@
 /** Authenticated, read-only Git review endpoints scoped to registered Workspaces. */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { realpathSync } from 'node:fs'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { SubprocessExecutableNotFoundError, type SubprocessHandle, type SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -20,12 +21,14 @@ import {
   GIT_REVIEW_MAX_COMMITS,
   GIT_REVIEW_STATUS_PATH,
   GIT_REVIEW_WORKSPACE_PATH,
+  GIT_REVIEW_WORKTREES_PATH,
   isGitReviewPath,
   isGitReviewCommitId,
   parseGitReviewBranches,
   parseGitReviewCommits,
   parseGitReviewNumstat,
   parseGitReviewStatus,
+  parseGitReviewWorktrees,
   type GitReviewDiffCategory,
   type GitReviewDiffFile,
   type GitReviewFile,
@@ -127,10 +130,26 @@ function authorizedRoot(ctx: Context, workspace: ReturnType<typeof workspaceForS
   }
 }
 
-function requestScope(ctx: Context, query: URLSearchParams) {
+async function requestScope(ctx: Context, query: URLSearchParams, signal: AbortSignal, handles: Set<SubprocessHandle>) {
   const workspace = workspaceForSession(ctx, query.get('sessionId'))
-  const sourceRoot = authorizedRoot(ctx, workspace, query.get('sourceRoot'))
-  return { workspace, sourceRoot }
+  const requested = query.get('sourceRoot') ?? workspace.path
+  try {
+    return { workspace, sourceRoot: authorizedRoot(ctx, workspace, requested) }
+  } catch (cause) {
+    if (!(cause instanceof GitReviewError) || cause.code !== 'source-root-not-authorized') throw cause
+    const canonical = (() => { try { return realpathSync.native(requested) } catch { return undefined } })()
+    if (canonical === undefined) throw cause
+    const candidates = [workspace.path, ...ctx.desktopWorkspaceSourceRoots.list(workspace.path)]
+    for (const candidate of candidates) {
+      try {
+        const worktrees = await listGitWorktrees(ctx, candidate, signal, handles)
+        if (worktrees.some(worktree => worktree.path === canonical)) return { workspace, sourceRoot: canonical }
+      } catch {
+        // A non-repository source root has no worktrees; continue checking other roots.
+      }
+    }
+    throw cause
+  }
 }
 
 function rootPrefix(worktreePath: string, sourceRoot: string): string {
@@ -204,6 +223,19 @@ async function runGit(
   } finally {
     if (handle !== undefined) handles.delete(handle)
   }
+}
+
+async function listGitWorktrees(
+  ctx: Context,
+  rootPath: string,
+  signal: AbortSignal,
+  handles: Set<SubprocessHandle>,
+): Promise<ReturnType<typeof parseGitReviewWorktrees>> {
+  const result = await runGit(ctx, rootPath, ['worktree', 'list', '--porcelain'], signal, handles, STATUS_MAX_BYTES)
+  return parseGitReviewWorktrees(result.stdout).map(worktree => ({
+    ...worktree,
+    path: (() => { try { return realpathSync.native(worktree.path) } catch { return worktree.path } })(),
+  }))
 }
 
 function withNumstat(files: readonly GitReviewFile[], output: string): GitReviewFile[] {
@@ -415,13 +447,17 @@ export function apply(ctx: Context): void {
       const result: GitReviewWorkspace = { workspaceId: workspace.id, workspaceTitle: workspace.title, path: workspace.path }
       json(res, 200, result)
     }))
+    const unregisterWorktrees = register(GIT_REVIEW_WORKTREES_PATH, withRequest(async (req, res, signal) => {
+      const { sourceRoot } = await requestScope(ctx, parseUrl(req).searchParams, signal, handles)
+      json(res, 200, { root: sourceRoot, worktrees: await listGitWorktrees(ctx, sourceRoot, signal, handles) })
+    }))
     const unregisterStatus = register(GIT_REVIEW_STATUS_PATH, withRequest(async (req, res, signal) => {
-      const { workspace, sourceRoot } = requestScope(ctx, parseUrl(req).searchParams)
+      const { workspace, sourceRoot } = await requestScope(ctx, parseUrl(req).searchParams, signal, handles)
       json(res, 200, await readStatus(ctx, workspace, sourceRoot, signal, handles))
     }))
     const unregisterCommitFiles = register(GIT_REVIEW_COMMIT_FILES_PATH, withRequest(async (req, res, signal) => {
       const query = parseUrl(req).searchParams
-      const { workspace, sourceRoot } = requestScope(ctx, query)
+      const { workspace, sourceRoot } = await requestScope(ctx, query, signal, handles)
       const commitId = query.get('commitId')
       if (commitId === null || !isGitReviewCommitId(commitId)) throw new GitReviewError('Choose a valid commit.', 400, 'invalid-commit')
       const status = await readStatus(ctx, workspace, sourceRoot, signal, handles)
@@ -433,7 +469,7 @@ export function apply(ctx: Context): void {
     }))
     const unregisterDiff = register(GIT_REVIEW_DIFF_PATH, withRequest(async (req, res, signal) => {
       const query = parseUrl(req).searchParams
-      const { workspace, sourceRoot } = requestScope(ctx, query)
+      const { workspace, sourceRoot } = await requestScope(ctx, query, signal, handles)
       const category = query.get('category')
       if (category !== 'last-turn' && category !== 'unstaged' && category !== 'untracked' && category !== 'staged' && category !== 'committed') {
         throw new GitReviewError('Choose a supported Git review category.', 400, 'invalid-category')
@@ -551,12 +587,13 @@ export function apply(ctx: Context): void {
       }
       json(res, 200, { diff: '', files, omittedFiles })
     }))
-    const unregisterLastTurn = register(GIT_REVIEW_LAST_TURN_PATH, withRequest(async (req, res) => {
-      const { workspace, sourceRoot } = requestScope(ctx, parseUrl(req).searchParams)
+    const unregisterLastTurn = register(GIT_REVIEW_LAST_TURN_PATH, withRequest(async (req, res, signal) => {
+      const { workspace, sourceRoot } = await requestScope(ctx, parseUrl(req).searchParams, signal, handles)
       json(res, 200, parseLastTurn(ctx, workspace, sourceRoot))
     }))
     return async () => {
       unregisterWorkspace()
+      unregisterWorktrees()
       unregisterStatus()
       unregisterCommitFiles()
       unregisterDiff()

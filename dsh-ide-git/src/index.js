@@ -74,6 +74,10 @@ function railConfigSchema(schema) {
      does not mark volatile ("Config field … is not volatile"), and the settings
      switch then rolls back silently. */
   shape.immersive = live(schema.boolean().default(true))
+  /* Panel font scale (appearance group): percent, 100 = default; the client
+     clamps to 80–160 in steps of 10. Same volatility rule as `immersive` —
+     undeclared, the Host would reject the settings card's writes. */
+  shape.fontScale = live(schema.number().default(100))
   return schema.object(shape)
 }
 

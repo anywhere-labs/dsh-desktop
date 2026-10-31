@@ -14,6 +14,7 @@ import type { PanelInfo } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { DesktopLayoutState } from '../src/client/layout-state.ts'
 import { en, type DesktopSettingsLocaleKey } from '../src/client/desktop-settings-locales.ts'
 import type { WorkspaceSourcesResponse } from '../src/client/workspace-sources-api.ts'
+import { installWorkspaceSourcesStyles } from '../src/client/workspace-sources-styles.ts'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   IconChevronDownOutlineRegular: () => null,
@@ -86,6 +87,30 @@ function rootActionProps(platform = 'linux'): WorkspaceSourcesRootActionProps {
 }
 
 describe('Workspace source UI', () => {
+  it('installs Workspace Edit styles outside the onboarding-only CSS scope', () => {
+    const style = { id: '', dataset: {} as Record<string, string>, textContent: '', remove: vi.fn() }
+    const appendChild = vi.fn()
+    vi.stubGlobal('document', {
+      getElementById: () => null,
+      createElement: () => style,
+      head: { appendChild },
+    })
+
+    try {
+      const dispose = installWorkspaceSourcesStyles('dsh-plugin-desktop')
+      expect(style.dataset).toMatchObject({ plugin: 'dsh-plugin-desktop', pluginCss: 'dsh-plugin-desktop/workspace-sources' })
+      expect(style.textContent).toContain('.dshWorkspaceSourcesEditor{')
+      expect(style.textContent).toContain('.dshWorkspaceSourcesFolderRow{')
+      expect(style.textContent).toContain('.dshWorkspaceSourcesAttachedRow{')
+      expect(style.textContent).not.toContain('@scope')
+      expect(appendChild).toHaveBeenCalledWith(style)
+      dispose()
+      expect(style.remove).toHaveBeenCalledOnce()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('renders accessible Add and Detach controls in Workspace Edit', () => {
     const markup = renderToStaticMarkup(createElement(WorkspaceSourcesEditor, editorProps()))
 
@@ -94,6 +119,7 @@ describe('Workspace source UI', () => {
     expect(markup).toContain(`aria-label="${en.workspaceSourcesDetach}: ${ATTACHED}"`)
     expect(markup).toContain(WORKSPACE)
     expect(markup).toContain(ATTACHED)
+    expect(markup).toContain('class="dshWorkspaceSourcesFolderRow dshWorkspaceSourcesAttachedRow"')
   })
 
   it('hides Add on Windows and explains unsupported attached folders', () => {
@@ -109,9 +135,9 @@ describe('Workspace source UI', () => {
     expect(markup).toContain(`<select`)
     expect(markup).toContain(`aria-label="${en.workspaceSourcesBrowse}"`)
     expect(markup).toMatch(new RegExp(`<option value="${ATTACHED}" selected="">`, 'u'))
-    expect(markup).toMatch(/class="[^"]*rootSelect/u)
-    expect(markup).toContain(`>${en.workspaceSourcesPrimary} · project — ${WORKSPACE}</option>`)
-    expect(markup).toContain(`>${en.workspaceSourcesAttached} · shared — ${ATTACHED}</option>`)
+    expect(markup).toContain('class="dshWorkspaceSourcesRootSelect"')
+    expect(markup).toContain(`>${en.workspaceSourcesPrimary} · project</option>`)
+    expect(markup).toContain(`>${en.workspaceSourcesAttached} · shared</option>`)
   })
 
   it('limits Windows Files browsing to the primary root', () => {

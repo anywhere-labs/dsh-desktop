@@ -5,8 +5,8 @@ import type { SubprocessHandle, SubprocessRuntime, SubprocessSpawnSpec } from '@
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  GIT_REVIEW_COMMIT_FILES_PATH, GIT_REVIEW_DIFF_PATH, GIT_REVIEW_LAST_TURN_PATH, GIT_REVIEW_STATUS_PATH, GIT_REVIEW_WORKSPACE_PATH,
-  isGitReviewCommitId, isGitReviewPath, parseGitReviewBranches, parseGitReviewCommits,
+  GIT_REVIEW_COMMIT_FILES_PATH, GIT_REVIEW_DIFF_PATH, GIT_REVIEW_LAST_TURN_PATH, GIT_REVIEW_STATUS_PATH, GIT_REVIEW_WORKSPACE_PATH, GIT_REVIEW_WORKTREES_PATH,
+  isGitReviewCommitId, isGitReviewPath, parseGitReviewBranches, parseGitReviewCommits, parseGitReviewWorktrees,
   parseGitReviewNumstat, parseGitReviewStatus,
 } from '../src/git-review-contract.ts'
 import { apply, inject, name } from '../src/git-review.ts'
@@ -97,6 +97,11 @@ describe('Desktop Git review contract', () => {
     ])
     expect(parseGitReviewNumstat('3\t1\tfile.ts\0-\t-\tbinary.png\0').get('file.ts')).toEqual({ additions: 3, deletions: 1 })
     expect(parseGitReviewNumstat('3\t1\tfile.ts\0-\t-\tbinary.png\0').get('binary.png')).toEqual({ additions: 0, deletions: 0 })
+    expect(parseGitReviewWorktrees('worktree /repo/root\nHEAD abc\nbranch refs/heads/main\n\nworktree /repo/root/.worktrees/feature\nHEAD def\nbranch refs/heads/feature\n\nworktree /repo/root/.worktrees/detached\nHEAD ghi\ndetached\nlocked\n')).toEqual([
+      { path: '/repo/root', branch: 'main', detached: false, locked: false },
+      { path: '/repo/root/.worktrees/feature', branch: 'feature', detached: false, locked: false },
+      { path: '/repo/root/.worktrees/detached', detached: true, locked: true },
+    ])
   })
 
   it('rejects path traversal, absolute paths, and Git revision expressions', () => {
@@ -115,7 +120,7 @@ describe('Desktop Git review Host plugin', () => {
     const h = await harness()
     expect(name).toBe('desktop-git-review')
     expect(inject).toEqual(['webServer', 'connection', 'subprocess', 'workspaceRegistry', 'sessions', 'workspaceChanges', 'desktopWorkspaceSourceRoots'])
-    expect([...h.routes.keys()]).toEqual([GIT_REVIEW_WORKSPACE_PATH, GIT_REVIEW_STATUS_PATH, GIT_REVIEW_COMMIT_FILES_PATH, GIT_REVIEW_DIFF_PATH, GIT_REVIEW_LAST_TURN_PATH])
+    expect([...h.routes.keys()]).toEqual([GIT_REVIEW_WORKSPACE_PATH, GIT_REVIEW_WORKTREES_PATH, GIT_REVIEW_STATUS_PATH, GIT_REVIEW_COMMIT_FILES_PATH, GIT_REVIEW_DIFF_PATH, GIT_REVIEW_LAST_TURN_PATH])
     await h.teardown()
   })
 
@@ -139,6 +144,19 @@ describe('Desktop Git review Host plugin', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toEqual({ workspaceId: 'workspace-1', workspaceTitle: 'project', path: '/repo/root' })
     expect(h.spawn).not.toHaveBeenCalled()
+    await h.teardown()
+  })
+
+  it('lists the primary repository Worktree tree for the review directory menu', async () => {
+    const h = await harness({ workspaces: [workspace], children: [child('worktree /repo/root\nHEAD abc\nbranch refs/heads/main\n\nworktree /repo/root/.worktrees/feature\nHEAD def\nbranch refs/heads/feature\n')] })
+    const res = response()
+    await h.routes.get(GIT_REVIEW_WORKTREES_PATH)!.handler(request(`${GIT_REVIEW_WORKTREES_PATH}?${primaryScope}`), res)
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ root: '/repo/root', worktrees: [
+      { path: '/repo/root', branch: 'main', detached: false, locked: false },
+      { path: '/repo/root/.worktrees/feature', branch: 'feature', detached: false, locked: false },
+    ] })
+    expect(h.spawn.mock.calls[0]?.[0].cwd).toBe('/repo/root')
     await h.teardown()
   })
 

@@ -32,6 +32,7 @@ export default defineConfig([
       updates: 'src/updates.ts',
       'android-logcat': 'src/android-logcat.ts',
       'git-review': 'src/git-review.ts',
+      'goal-loop-containment': 'src/goal-loop-containment.ts',
       'windows-pwsh-sandbox': 'src/windows-pwsh-sandbox.ts',
       'windows-acl-runner': 'src/windows-acl-runner.ts',
       main: 'src/main.ts',

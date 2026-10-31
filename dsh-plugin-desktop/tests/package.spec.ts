@@ -202,6 +202,8 @@ describe('published package surface', () => {
         '@deepseek-ai/dsh-client-ui-sidebar-files',
         '@deepseek-ai/dsh-client-ui-workspace',
         '@deepseek-ai/dsh-util-workspace-path',
+        '@deepseek-ai/dsh-api-terminal-controller',
+        '@deepseek-ai/dsh-client-shortcuts',
       ],
     })
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop')

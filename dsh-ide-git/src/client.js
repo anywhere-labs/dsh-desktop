@@ -339,6 +339,12 @@ window.__ModuleLoader__.load({
       'lf.truncated': '只显示前 {count} 行',
       'preview.title': 'Git 预览',
       'preview.hint': '点击文件或提交的「显示差异」,差异会在侧边栏这里打开。',
+      'settings.appearance.title': '外观',
+      'settings.font.label': '界面字号',
+      'settings.font.decrease': '减小字号',
+      'settings.font.increase': '增大字号',
+      'settings.font.reset': '重置',
+      'settings.font.hint': '按比例缩放面板文字与列表行高(80%–160%)',
       'settings.rail.title': '动作条',
       'settings.rail.hint': '勾选要显示在动作条上的动作;顺序固定为默认顺序,取消勾选即隐藏。',
       'settings.rail.unavailable': '当前宿主没有设置服务,请用面板内的「动作条设置」。',
@@ -652,6 +658,12 @@ window.__ModuleLoader__.load({
       'lf.truncated': 'Showing the first {count} lines',
       'preview.title': 'Git Preview',
       'preview.hint': 'Click “Show diff” on a file or commit — the diff opens here in the sidebar.',
+      'settings.appearance.title': 'Appearance',
+      'settings.font.label': 'Interface font size',
+      'settings.font.decrease': 'Decrease font size',
+      'settings.font.increase': 'Increase font size',
+      'settings.font.reset': 'Reset',
+      'settings.font.hint': 'Scales panel text and list row heights (80%–160%)',
       'settings.rail.title': 'Action rail',
       'settings.rail.hint': 'Tick the actions shown on the rail. The order is fixed; unticking one hides it.',
       'settings.rail.unavailable': 'This host has no settings service; use the in-panel “Action rail settings”.',
@@ -973,6 +985,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': '只顯示前 {count} 行',
         'preview.title': 'Git 預覽',
         'preview.hint': '喺檔案或提交撳「顯示差異」,差異就會喺側邊欄度開啟。',
+        'settings.appearance.title': '外觀',
+        'settings.font.label': '介面字體大小',
+        'settings.font.decrease': '縮細字體',
+        'settings.font.increase': '放大字體',
+        'settings.font.reset': '重設',
+        'settings.font.hint': '按比例縮放面板文字同列表行高(80%–160%)',
         'settings.rail.title': '動作列',
         'settings.rail.hint': '勾選要顯示在動作列上的動作;順序固定,取消勾選即隱藏。',
         'settings.rail.unavailable': '目前宿主沒有設定服務,請用面板內的「動作條設定」。',
@@ -1286,6 +1304,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': '只顯示前 {count} 行',
         'preview.title': 'Git 預覽',
         'preview.hint': '點選檔案或提交的「顯示差異」,差異就會在側邊欄開啟。',
+        'settings.appearance.title': '外觀',
+        'settings.font.label': '介面字型大小',
+        'settings.font.decrease': '縮小字型',
+        'settings.font.increase': '放大字型',
+        'settings.font.reset': '重設',
+        'settings.font.hint': '依比例縮放面板文字與列表列高(80%–160%)',
         'settings.rail.title': '動作列',
         'settings.rail.hint': '勾選要顯示在動作列上的動作;順序固定,取消勾選即隱藏。',
         'settings.rail.unavailable': '目前宿主沒有設定服務,請用面板內的「動作條設定」。',
@@ -1599,6 +1623,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': '只顯示前 {count} 行',
         'preview.title': 'Git 預覽',
         'preview.hint': '喺檔案或提交撳「顯示差異」,差異就會喺側邊欄度開啟。',
+        'settings.appearance.title': '外觀',
+        'settings.font.label': '介面字體大小',
+        'settings.font.decrease': '縮細字體',
+        'settings.font.increase': '放大字體',
+        'settings.font.reset': '重設',
+        'settings.font.hint': '按比例縮放面板文字同列表行高(80%–160%)',
         'settings.rail.title': '動作列',
         'settings.rail.hint': '勾選要顯示在動作列上的動作;順序固定,取消勾選即隱藏。',
         'settings.rail.unavailable': '目前宿主沒有設定服務,請用面板內的「動作條設定」。',
@@ -1912,6 +1942,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': '先頭 {count} 行のみ表示',
         'preview.title': 'Git プレビュー',
         'preview.hint': 'ファイルやコミットの「差分を表示」をクリックすると、差分がここに開きます。',
+        'settings.appearance.title': '外観',
+        'settings.font.label': 'パネルの文字サイズ',
+        'settings.font.decrease': '文字を小さく',
+        'settings.font.increase': '文字を大きく',
+        'settings.font.reset': 'リセット',
+        'settings.font.hint': 'パネルの文字とリスト行の高さを拡大縮小します(80%–160%)',
         'settings.rail.title': 'レール',
         'settings.rail.hint': 'レールに表示する操作にチェックを入れてください。順序は固定で、チェックを外すと非表示になります。',
         'settings.rail.unavailable': 'このホストには設定サービスがないため、パネル内の「アクションレール設定」を使ってください。',
@@ -2225,6 +2261,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': '처음 {count}줄만 표시',
         'preview.title': 'Git 미리보기',
         'preview.hint': '파일이나 커밋의 「차이 보기」를 클릭하면 차이가 사이드바 여기에 열립니다.',
+        'settings.appearance.title': '모양',
+        'settings.font.label': '패널 글자 크기',
+        'settings.font.decrease': '글자 축소',
+        'settings.font.increase': '글자 확대',
+        'settings.font.reset': '재설정',
+        'settings.font.hint': '패널 텍스트와 목록 행 높이를 비율로 조정합니다(80%–160%)',
         'settings.rail.title': '레일',
         'settings.rail.hint': '레일에 표시할 동작을 선택하세요. 순서는 고정이며 선택을 해제하면 숨겨집니다.',
         'settings.rail.unavailable': '이 호스트에는 설정 서비스가 없으므로 패널의 "액션 레일 설정"을 사용하세요.',
@@ -2538,6 +2580,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'Nur die ersten {count} Zeilen',
         'preview.title': 'Git-Vorschau',
         'preview.hint': '„Diff anzeigen“ an einer Datei oder einem Commit öffnet den Diff hier in der Seitenleiste.',
+        'settings.appearance.title': 'Darstellung',
+        'settings.font.label': 'Schriftgröße',
+        'settings.font.decrease': 'Schrift verkleinern',
+        'settings.font.increase': 'Schrift vergrößern',
+        'settings.font.reset': 'Zurücksetzen',
+        'settings.font.hint': 'Skaliert Text und Listenzeilenhöhen des Panels (80 %–160 %)',
         'settings.rail.title': 'Aktionsleiste',
         'settings.rail.hint': 'Die auf der Leiste sichtbaren Aktionen ankreuzen. Die Reihenfolge ist fest; abwählen blendet eine aus.',
         'settings.rail.unavailable': 'Dieser Host hat keinen Einstellungsdienst; nutze die „Aktionsleisten-Einstellungen“ im Panel.',
@@ -2851,6 +2899,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'Affichage des {count} premières lignes',
         'preview.title': 'Aperçu Git',
         'preview.hint': 'Cliquez sur « Afficher le diff » sur un fichier ou un commit : le diff s’ouvre ici, dans la barre latérale.',
+        'settings.appearance.title': 'Apparence',
+        'settings.font.label': 'Taille de la police',
+        'settings.font.decrease': 'Réduire la police',
+        'settings.font.increase': 'Agrandir la police',
+        'settings.font.reset': 'Réinitialiser',
+        'settings.font.hint': 'Met à l’échelle le texte du panneau et la hauteur des lignes (80 %–160 %)',
         'settings.rail.title': 'Barre d’actions',
         'settings.rail.hint': 'Cochez les actions affichées sur la barre. L’ordre est fixe ; décocher masque une action.',
         'settings.rail.unavailable': 'Cet hôte n’a pas de service de réglages ; utilisez « Réglages de la barre d’actions » dans le panneau.',
@@ -3164,6 +3218,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'Показаны первые {count} строк',
         'preview.title': 'Git-предпросмотр',
         'preview.hint': 'Нажмите «Показать различия» у файла или коммита — различия откроются здесь, в боковой панели.',
+        'settings.appearance.title': 'Внешний вид',
+        'settings.font.label': 'Размер шрифта',
+        'settings.font.decrease': 'Уменьшить шрифт',
+        'settings.font.increase': 'Увеличить шрифт',
+        'settings.font.reset': 'Сбросить',
+        'settings.font.hint': 'Масштабирует текст панели и высоту строк списка (80%–160%)',
         'settings.rail.title': 'Панель действий',
         'settings.rail.hint': 'Отметьте действия, показываемые на панели. Порядок фиксирован; снятие флажка скрывает действие.',
         'settings.rail.unavailable': 'На этом хосте нет службы настроек; используйте «Настройки панели действий» в панели.',
@@ -3477,6 +3537,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'Mostrando as primeiras {count} linhas',
         'preview.title': 'Pré-visualização do Git',
         'preview.hint': 'Clique em “Mostrar diff” num arquivo ou commit — o diff abre aqui, na barra lateral.',
+        'settings.appearance.title': 'Aparência',
+        'settings.font.label': 'Tamanho da fonte',
+        'settings.font.decrease': 'Diminuir fonte',
+        'settings.font.increase': 'Aumentar fonte',
+        'settings.font.reset': 'Repor',
+        'settings.font.hint': 'Dimensiona o texto do painel e a altura das linhas (80%–160%)',
         'settings.rail.title': 'Barra de ações',
         'settings.rail.hint': 'Marque as ações exibidas na barra. A ordem é fixa; desmarcar oculta uma ação.',
         'settings.rail.unavailable': 'Este host não tem serviço de configurações; use «Configurações da barra de ações» no painel.',
@@ -3790,6 +3856,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'Mostrate le prime {count} righe',
         'preview.title': 'Anteprima Git',
         'preview.hint': 'Fai clic su «Mostra diff» su un file o un commit: il diff si apre qui, nella barra laterale.',
+        'settings.appearance.title': 'Aspetto',
+        'settings.font.label': 'Dimensione del carattere',
+        'settings.font.decrease': 'Riduci carattere',
+        'settings.font.increase': 'Ingrandisci carattere',
+        'settings.font.reset': 'Ripristina',
+        'settings.font.hint': 'Ridimensiona il testo del pannello e l’altezza delle righe (80%–160%)',
         'settings.rail.title': 'Barra delle azioni',
         'settings.rail.hint': 'Seleziona le azioni mostrate sulla barra. L’ordine è fisso; deselezionando se ne nasconde una.',
         'settings.rail.unavailable': 'Questo host non ha un servizio di impostazioni; usa «Impostazioni barra azioni» nel pannello.',
@@ -4103,6 +4175,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'Eerste {count} regels worden weergegeven',
         'preview.title': 'Git-voorbeeld',
         'preview.hint': 'Klik op „Diff tonen“ bij een bestand of commit — de diff opent hier in de zijbalk.',
+        'settings.appearance.title': 'Weergave',
+        'settings.font.label': 'Tekengrootte',
+        'settings.font.decrease': 'Tekst verkleinen',
+        'settings.font.increase': 'Tekst vergroten',
+        'settings.font.reset': 'Standaard',
+        'settings.font.hint': 'Schaalt de tekst en de rijhoogte van het paneel (80%–160%)',
         'settings.rail.title': 'Actiebalk',
         'settings.rail.hint': 'Vink de acties aan die op de balk verschijnen. De volgorde ligt vast; uitvinken verbergt er een.',
         'settings.rail.unavailable': 'Deze host heeft geen instellingenservice; gebruik "Actiebalk-instellingen" in het paneel.',
@@ -4416,6 +4494,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'Pokazano pierwsze {count} wierszy',
         'preview.title': 'Podgląd Git',
         'preview.hint': 'Kliknij „Pokaż różnice” przy pliku lub commicie — różnice otworzą się tutaj, na pasku bocznym.',
+        'settings.appearance.title': 'Wygląd',
+        'settings.font.label': 'Rozmiar czcionki',
+        'settings.font.decrease': 'Zmniejsz czcionkę',
+        'settings.font.increase': 'Zwiększ czcionkę',
+        'settings.font.reset': 'Resetuj',
+        'settings.font.hint': 'Skaluje tekst panelu i wysokość wierszy listy (80%–160%)',
         'settings.rail.title': 'Pasek akcji',
         'settings.rail.hint': 'Zaznacz akcje widoczne na pasku. Kolejność jest stała; odznaczenie ukrywa akcję.',
         'settings.rail.unavailable': 'Ten host nie ma usługi ustawień; użyj „Ustawienia paska akcji” w panelu.',
@@ -4729,6 +4813,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'Visar de första {count} raderna',
         'preview.title': 'Git-förhandsvisning',
         'preview.hint': 'Klicka på ”Visa diff” på en fil eller en commit — diffen öppnas här i sidopanelen.',
+        'settings.appearance.title': 'Utseende',
+        'settings.font.label': 'Teckenstorlek',
+        'settings.font.decrease': 'Minska teckenstorlek',
+        'settings.font.increase': 'Öka teckenstorlek',
+        'settings.font.reset': 'Återställ',
+        'settings.font.hint': 'Skalar panelens text och listans radhöjd (80 %–160 %)',
         'settings.rail.title': 'Åtgärdsfältet',
         'settings.rail.hint': 'Markera de åtgärder som visas i fältet. Ordningen är fast; avmarkering döljer en.',
         'settings.rail.unavailable': 'Denna värd saknar inställningstjänst; använd ”Åtgärdsfältets inställningar” i panelen.',
@@ -5042,6 +5132,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'Yalnızca ilk {count} satır gösteriliyor',
         'preview.title': 'Git Önizlemesi',
         'preview.hint': 'Bir dosya veya commit üzerinde „Farkı göster”e tıklayın — fark burada, kenar çubuğunda açılır.',
+        'settings.appearance.title': 'Görünüm',
+        'settings.font.label': 'Yazı tipi boyutu',
+        'settings.font.decrease': 'Yazıyı küçült',
+        'settings.font.increase': 'Yazıyı büyüt',
+        'settings.font.reset': 'Sıfırla',
+        'settings.font.hint': 'Panel metnini ve liste satır yüksekliğini ölçekler (%80–%160)',
         'settings.rail.title': 'Eylem çubuğu',
         'settings.rail.hint': 'Çubukta gösterilecek eylemleri işaretleyin. Sıra sabittir; işareti kaldırmak eylemi gizler.',
         'settings.rail.unavailable': 'Bu ana bilgisayarda ayar hizmeti yok; paneldeki "Eylem çubuğu ayarları"nı kullanın.',
@@ -5355,6 +5451,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'Menampilkan {count} baris pertama',
         'preview.title': 'Pratinjau Git',
         'preview.hint': 'Klik “Tampilkan diff” pada file atau commit — diff terbuka di sini, di bilah sisi.',
+        'settings.appearance.title': 'Tampilan',
+        'settings.font.label': 'Ukuran fonta',
+        'settings.font.decrease': 'Perkecil fonta',
+        'settings.font.increase': 'Perbesar fonta',
+        'settings.font.reset': 'Atur ulang',
+        'settings.font.hint': 'Menskalakan teks panel dan tinggi baris daftar (80%–160%)',
         'settings.rail.title': 'Bilah aksi',
         'settings.rail.hint': 'Centang aksi yang ditampilkan di bilah. Urutannya tetap; menghapus centang menyembunyikannya.',
         'settings.rail.unavailable': 'Host ini tidak punya layanan pengaturan; gunakan "Pengaturan bilah aksi" di panel.',
@@ -5668,6 +5770,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'Chỉ hiện {count} dòng đầu',
         'preview.title': 'Xem trước Git',
         'preview.hint': 'Bấm “Xem diff” trên tệp hoặc commit — diff sẽ mở ở đây, trên thanh bên.',
+        'settings.appearance.title': 'Giao diện',
+        'settings.font.label': 'Cỡ chữ',
+        'settings.font.decrease': 'Thu nhỏ chữ',
+        'settings.font.increase': 'Phóng to chữ',
+        'settings.font.reset': 'Đặt lại',
+        'settings.font.hint': 'Co giãn chữ trên bảng và chiều cao hàng danh sách (80%–160%)',
         'settings.rail.title': 'Thanh tác vụ',
         'settings.rail.hint': 'Chọn các tác vụ hiển thị trên thanh. Thứ tự cố định; bỏ chọn sẽ ẩn tác vụ đó.',
         'settings.rail.unavailable': 'Máy chủ này không có dịch vụ cài đặt; hãy dùng “Cài đặt thanh tác vụ” trong bảng điều khiển.',
@@ -5981,6 +6089,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'عرض أول {count} سطرًا فقط',
         'preview.title': 'معاينة Git',
         'preview.hint': 'انقر «عرض الفروق» على ملف أو commit — تُفتح الفروق هنا في الشريط الجانبي.',
+        'settings.appearance.title': 'المظهر',
+        'settings.font.label': 'حجم الخط',
+        'settings.font.decrease': 'تصغير الخط',
+        'settings.font.increase': 'تكبير الخط',
+        'settings.font.reset': 'إعادة الضبط',
+        'settings.font.hint': 'يغيّر حجم نص اللوحة وارتفاع صفوف القوائم (80%–160%)',
         'settings.rail.title': 'شريط الإجراءات',
         'settings.rail.hint': 'حدّد الإجراءات المعروضة على الشريط. الترتيب ثابت، وإلغاء التحديد يخفي الإجراء.',
         'settings.rail.unavailable': 'لا تتوفر خدمة إعدادات على هذا المضيف؛ استخدم «إعدادات شريط الإجراءات» في اللوحة.',
@@ -6294,6 +6408,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'केवल पहली {count} पंक्तियाँ दिखाई जा रही हैं',
         'preview.title': 'Git पूर्वावलोकन',
         'preview.hint': 'फ़ाइल या कमिट पर “अंतर दिखाएँ” पर क्लिक करें — अंतर यहीं साइडबार में खुलेगा।',
+        'settings.appearance.title': 'रूप',
+        'settings.font.label': 'फ़ॉन्ट आकार',
+        'settings.font.decrease': 'फ़ॉन्ट छोटा करें',
+        'settings.font.increase': 'फ़ॉन्ट बड़ा करें',
+        'settings.font.reset': 'रीसेट',
+        'settings.font.hint': 'पैनल का टेक्स्ट और सूची पंक्ति की ऊँचाई बदलता है (80%–160%)',
         'settings.rail.title': 'क्रिया रेल',
         'settings.rail.hint': 'रेल पर दिखने वाली क्रियाएँ चुनें। क्रम निश्चित है; चुनाव हटाने पर वह छिप जाती है।',
         'settings.rail.unavailable': 'इस होस्ट में सेटिंग सेवा नहीं है; पैनल में «एक्शन रेल सेटिंग» का उपयोग करें।',
@@ -6607,6 +6727,12 @@ window.__ModuleLoader__.load({
         'lf.truncated': 'แสดงเฉพาะ {count} บรรทัดแรก',
         'preview.title': 'ดูตัวอย่าง Git',
         'preview.hint': 'คลิก “แสดงความต่าง” ที่ไฟล์หรือคอมมิต — ความต่างจะเปิดที่นี่ในแถบข้าง',
+        'settings.appearance.title': 'รูปลักษณ์',
+        'settings.font.label': 'ขนาดตัวอักษร',
+        'settings.font.decrease': 'ลดขนาดตัวอักษร',
+        'settings.font.increase': 'เพิ่มขนาดตัวอักษร',
+        'settings.font.reset': 'รีเซ็ต',
+        'settings.font.hint': 'ปรับขนาดตัวอักษรของแผงและความสูงแถวของรายการ (80%–160%)',
         'settings.rail.title': 'แถบการทำงาน',
         'settings.rail.hint': 'ทำเครื่องหมายการทำงานที่จะแสดงบนแถบ ลำดับคงที่; ยกเลิกเครื่องหมายเพื่อซ่อน',
         'settings.rail.unavailable': 'โฮสต์นี้ไม่มีบริการตั้งค่า ให้ใช้ «ตั้งค่าแถบการทำงาน» ในแผง',
@@ -7356,14 +7482,24 @@ window.__ModuleLoader__.load({
       if (railForm !== null) return { sent: false, reason: 'not-ready' }
       const current = readRailConfig()
       let hidden = current.hidden.slice()
+      /* The font scale is not a rail field: on a host without the row Config it
+         keeps its own localStorage key instead of being refused as unknown. */
+      let font = null
       for (const op of ops) {
+        if (String(op.path[0]) === 'fontScale') {
+          font = fontScaleOf({ fontScale: op.value })
+          continue
+        }
         const id = railIdOfField(String(op.path[0]))
         if (id === null) return { sent: false, reason: 'unknown' }
         const wanted = op.value === true
         if (wanted === true) hidden = hidden.filter((entry) => entry !== id)
         else if (hidden.indexOf(id) < 0) hidden = hidden.concat([id])
       }
-      try { window.localStorage.setItem(RAIL_KEY, JSON.stringify({ order: current.order, hidden: hidden })) } catch (error) { void error }
+      try {
+        window.localStorage.setItem(RAIL_KEY, JSON.stringify({ order: current.order, hidden: hidden }))
+        if (font !== null) window.localStorage.setItem(FONT_KEY, String(font))
+      } catch (error) { void error }
       notifyRailConfig()
       return { sent: true }
     }
@@ -7431,6 +7567,106 @@ window.__ModuleLoader__.load({
       for (const listener of Array.from(railWatchers)) {
         try { listener() } catch (error) { void error }
       }
+    }
+
+    /* ============================== font scale ============================== */
+    /* One setting, `fontScale` (percent, 80–160, step 10, default 100), lives in
+       the same row Config document as the rail switches; hosts without the row
+       Config fall back to a localStorage key of their own. The value drives TWO
+       kinds of CSS variables on documentElement:
+         --dig-fs            the raw multiplier, consumed by every font-size rule
+         --dig-rh-* / --dig-ctl  INTEGER pixel row/control heights, computed here
+       The heights cannot ride the raw multiplier (calc rounding would drift
+       away from the windowing math over thousands of virtualised rows): the JS
+       side and the CSS pins must agree to the pixel, so this module computes
+       both and the virtual lists read the very same integers. */
+    const FONT_KEY = 'dsh-ide-git.font.v1'
+    const FONT_MIN = 80
+    const FONT_MAX = 160
+    const FONT_STEP = 10
+    const FONT_DEFAULT = 100
+
+    function fontScaleOf(values) {
+      const raw = values !== null && typeof values === 'object' ? Number(values.fontScale) : NaN
+      if (isFinite(raw) !== true) return FONT_DEFAULT
+      return Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(raw / FONT_STEP) * FONT_STEP))
+    }
+
+    function readFontScale() {
+      const ready = railFormReady()
+      if (ready !== null) return fontScaleOf(ready.value)
+      try {
+        const raw = window.localStorage.getItem(FONT_KEY)
+        if (raw !== null && raw !== '') return fontScaleOf({ fontScale: Number(raw) })
+      } catch (error) { void error }
+      return FONT_DEFAULT
+    }
+
+    /* Integer pixel heights for the rows the virtual lists window by, at a
+       given scale percent. The CSS pins read the same numbers from the
+       --dig-rh-* variables applyFontScale() publishes. */
+    function fontRowsOf(scale) {
+      const s = scale / 100
+      return {
+        commit: Math.round(26 * s),
+        group: Math.round(17 * s),
+        folder: Math.round(14 * s),
+        row: Math.round(20 * s),
+        badge: Math.round(14 * s),
+        control: Math.round(22 * s),
+      }
+    }
+
+    /* Total heights the windowing math uses (row box + its vertical padding):
+       .dig-commit 26+2×1, .dig-group-head 17+2×2, .dig-folder-head 14+2×1,
+       .dig-row-file 20+2×2. */
+    function historyRowH(scale) { return fontRowsOf(scale).commit + 2 }
+    function itemHeights(scale) {
+      const rows = fontRowsOf(scale)
+      return { group: rows.group + 4, folder: rows.folder + 2, row: rows.row + 4 }
+    }
+
+    /* Publishes the scale (and the derived integer row heights) to the CSS.
+       `scale` lets the settings card apply its optimistic value before the
+       Host has echoed the write; omitted, the accepted document wins. */
+    function applyFontScale(scale) {
+      const value = scale === undefined ? readFontScale() : fontScaleOf({ fontScale: scale })
+      try {
+        const root = document.documentElement
+        if (value === FONT_DEFAULT) {
+          root.style.removeProperty('--dig-fs')
+          for (const name of ['--dig-rh-commit', '--dig-rh-group', '--dig-rh-folder', '--dig-rh-row', '--dig-rh-badge', '--dig-ctl']) root.style.removeProperty(name)
+          return
+        }
+        const rows = fontRowsOf(value)
+        root.style.setProperty('--dig-fs', String(value / 100))
+        root.style.setProperty('--dig-rh-commit', rows.commit + 'px')
+        root.style.setProperty('--dig-rh-group', rows.group + 'px')
+        root.style.setProperty('--dig-rh-folder', rows.folder + 'px')
+        root.style.setProperty('--dig-rh-row', rows.row + 'px')
+        root.style.setProperty('--dig-rh-badge', rows.badge + 'px')
+        root.style.setProperty('--dig-ctl', rows.control + 'px')
+      } catch (error) { void error }
+    }
+
+    function clearFontScale() {
+      try {
+        const root = document.documentElement
+        root.style.removeProperty('--dig-fs')
+        for (const name of ['--dig-rh-commit', '--dig-rh-group', '--dig-rh-folder', '--dig-rh-row', '--dig-rh-badge', '--dig-ctl']) root.style.removeProperty(name)
+      } catch (error) { void error }
+    }
+
+    /* Components whose layout math derives from the row heights re-render on
+       every config change; the percent is their dependency value. */
+    function useFontScale() {
+      const [scale, setScale] = useState(() => readFontScale())
+      useEffect(() => {
+        const sync = () => setScale(readFontScale())
+        sync()
+        return subscribeRailConfig(sync)
+      }, [])
+      return scale
     }
 
     /* ============================== pane sizes ============================== */
@@ -9328,8 +9564,8 @@ window.__ModuleLoader__.load({
       return wrapCard(E('div', { className: 'dig-settings dig-card-body', 'data-settings-status': status, 'data-settings-readonly': readOnly === true ? 'true' : 'false' },
         E('div', { className: readOnly === true ? 'dig-settings-note' : 'dig-settings-note dig-settings-note-hidden', 'data-settings-readonly-note': '' }, t('settings.rail.readonly')),
         note === '' ? null : E('div', { className: 'dig-settings-error', 'data-settings-error': '' }, note),
-        /* Three collapsible sections, one per functional domain — the header
-           rows are what a collapsed card shows. The readonly/error notes stay
+        /* Collapsible sections, one per functional domain — the header rows
+           are what a collapsed card shows. The readonly/error notes stay
            OUTSIDE them: they are status, not settings, and must stay visible.
            Section 1 carries its own hint (it describes exactly this list). */
         fold('settings.rail.title',
@@ -9469,7 +9705,70 @@ window.__ModuleLoader__.load({
               E('span', { id: inputId + '-label', className: 'dig-settings-label', onClick: toggle }, t('settings.placement.immersive'))),
             E('div', { className: 'dig-settings-subnote' }, t('settings.placement.immersiveHint')))
         })()),
-        /* Section 3 — the AI commit message (issue #6): model, reasoning and the
+        /* Section 3 — appearance: the panel font scale. A stepper (not a free
+           field) so the value always lands on a step the layout math rounds
+           cleanly; the write is the same optimistic draft + host round trip
+           the picker rows keep, and the panel re-scales live because the
+           accepted document drives the --dig-fs variables. */
+        fold('settings.appearance.title',
+        (() => {
+          const field = 'fontScale'
+          const shown = Object.prototype.hasOwnProperty.call(textDraft, field) && typeof textDraft[field] === 'number'
+            ? textDraft[field]
+            : fontScaleOf(values)
+          const commitScale = (next) => {
+            if (readOnly === true) { setNote(t('settings.rail.readonly')); return }
+            const clamped = Math.min(FONT_MAX, Math.max(FONT_MIN, next))
+            setTextDraft((now) => Object.assign({}, now, { [field]: clamped }))
+            /* Instant feedback: scale the panel right away instead of waiting
+               for the host to echo the write (the echo re-applies the same
+               value through the config subscription, so nothing flickers). */
+            applyFontScale(clamped)
+            setNote('')
+            const outcome = writeRailFields([{ op: 'set', path: [field], value: clamped }], scope)
+            if (outcome.sent !== true) {
+              setTextDraft((now) => { const copy = Object.assign({}, now); delete copy[field]; return copy })
+              applyFontScale()
+              setNote(t(outcome.reason === 'read-only' ? 'settings.rail.readonly' : 'settings.rail.writeFailed'))
+              return
+            }
+            if (outcome.settled === undefined) return
+            void outcome.settled.then((ok) => {
+              if (ok !== true) {
+                setTextDraft((now) => { const copy = Object.assign({}, now); delete copy[field]; return copy })
+                applyFontScale()
+                setNote(t('settings.rail.writeFailed'))
+                return
+              }
+              /* The accepted document now carries it: drop the draft so the
+                 control shows the Host's own value again. */
+              setTextDraft((now) => { const copy = Object.assign({}, now); delete copy[field]; return copy })
+            })
+          }
+          return E('div', { className: 'dig-settings-text', key: field },
+            E('label', { id: 'dig-fontScale-label', className: 'dig-settings-text-label' }, t('settings.font.label')),
+            E('div', { className: 'dig-fontstep', role: 'group', 'aria-labelledby': 'dig-fontScale-label' },
+              E('button', {
+                type: 'button', className: 'dig-fontstep-btn',
+                disabled: readOnly === true || shown <= FONT_MIN,
+                title: t('settings.font.decrease'), 'aria-label': t('settings.font.decrease'),
+                onClick: () => commitScale(shown - FONT_STEP),
+              }, '−'),
+              E('span', { className: 'dig-fontstep-value' }, String(shown) + '%'),
+              E('button', {
+                type: 'button', className: 'dig-fontstep-btn',
+                disabled: readOnly === true || shown >= FONT_MAX,
+                title: t('settings.font.increase'), 'aria-label': t('settings.font.increase'),
+                onClick: () => commitScale(shown + FONT_STEP),
+              }, '+'),
+              shown !== FONT_DEFAULT ? E('button', {
+                type: 'button', className: 'dig-fontstep-btn dig-fontstep-reset',
+                disabled: readOnly === true,
+                onClick: () => commitScale(FONT_DEFAULT),
+              }, t('settings.font.reset')) : null),
+            E('div', { className: 'dig-settings-subnote' }, t('settings.font.hint')))
+        })()),
+        /* Section 4 — the AI commit message (issue #6): model, reasoning and the
            prompt template. */
         fold('settings.commit.title',
         (() => {
@@ -10408,12 +10707,17 @@ window.__ModuleLoader__.load({
         return entries
       }
       /* Windowing: the change list is flattened into (group-head | folder-head
-         | row) items with FIXED heights (see ITEM_HEIGHTS + the CSS pins), a
+         | row) items with EXACT per-scale heights (itemHeights() + the CSS pins), a
          prefix-sum index locates the visible window, and only that slice is
          mounted. A tree with thousands of files scrolls at frame rate. */
       const changesScrollRef = useRef(null)
       const changesViewport = useViewportBox(changesScrollRef)
+      /* The font scale resizes every row (the CSS heights ride the --dig-rh-*
+         variables), so the flattened items — and with them the prefix sums —
+         rebuild when it changes. */
+      const fontScale = useFontScale()
       const changeItems = useMemo(() => {
+        const heights = itemHeights(fontScale)
         const out = []
         const groupHead = (key, title, entries) => E('div', { className: 'dig-group-head' },
           E('span', null, title),
@@ -10422,7 +10726,7 @@ window.__ModuleLoader__.load({
         const emitRows = (key, entries) => {
           const sorted = sortedOf(entries)
           if (groupBy !== 'dir') {
-            for (const item of sorted) out.push({ kind: 'row', key: key + ':' + item.path, h: ITEM_HEIGHTS.row, node: entryRow(key, item) })
+            for (const item of sorted) out.push({ kind: 'row', key: key + ':' + item.path, h: heights.row, node: entryRow(key, item) })
             return
           }
           const folders = new Map()
@@ -10436,7 +10740,7 @@ window.__ModuleLoader__.load({
             const open = foldedDirs[id] !== true
             const list = folders.get(name)
             out.push({
-              kind: 'folder', key: 'folder:' + id, h: ITEM_HEIGHTS.folder,
+              kind: 'folder', key: 'folder:' + id, h: heights.folder,
               node: E('button', {
                 type: 'button', className: 'dig-folder-head',
                 onClick: () => setFoldedDirs((previous) => Object.assign({}, previous, { [id]: previous[id] !== true })),
@@ -10445,12 +10749,12 @@ window.__ModuleLoader__.load({
                 E('span', { className: 'dig-folder-name' }, name),
                 E('span', { className: 'dig-count' }, String(list.length))),
             })
-            if (open === true) for (const item of list) out.push({ kind: 'row', key: key + ':' + item.path, h: ITEM_HEIGHTS.row, node: entryRow(key, item) })
+            if (open === true) for (const item of list) out.push({ kind: 'row', key: key + ':' + item.path, h: heights.row, node: entryRow(key, item) })
           }
         }
         const emitGroup = (key, title, entries) => {
           if (entries.length === 0) return
-          out.push({ kind: 'group', key: 'group:' + key, h: ITEM_HEIGHTS.group, node: groupHead(key, title, entries) })
+          out.push({ kind: 'group', key: 'group:' + key, h: heights.group, node: groupHead(key, title, entries) })
           emitRows(key, entries)
         }
         emitGroup('conflicted', fill(t('counts.conflicted'), { n: conflicted.length }), conflicted)
@@ -10459,7 +10763,7 @@ window.__ModuleLoader__.load({
         emitGroup('untracked', fill(t('counts.untracked'), { n: untracked.length }), untracked)
         emitGroup('ignored', fill(t('counts.ignored'), { n: ignored.length }), ignored)
         return out
-      }, [conflicted, staged, unstaged, untracked, ignored, groupBy, foldedDirs, sortKey, t, selection, handleRowClick, props.onUnstageAll, props.onStageAll])
+      }, [conflicted, staged, unstaged, untracked, ignored, groupBy, foldedDirs, sortKey, t, selection, handleRowClick, props.onUnstageAll, props.onStageAll, fontScale])
       const changeOffsets = useMemo(() => {
         const sums = [0]
         for (const item of changeItems) sums.push(sums[sums.length - 1] + item.h)
@@ -10598,7 +10902,7 @@ window.__ModuleLoader__.load({
             collapsed ? null : [
               total === 0 && ignored.length === 0 ? E('div', { className: 'dig-empty', key: 'empty' }, t('changes.empty')) : null,
               /* Windowed slice: spacers above/below stand in for the unmounted
-                 rows (fixed heights, see ITEM_HEIGHTS). */
+                 rows (exact per-scale heights, itemHeights()). */
               winFirst > 0 ? E('div', { key: 'pad-top', style: { height: String(changeOffsets[winFirst]) + 'px' } }) : null,
               visibleItems.map((item) => E(Fragment, { key: item.key }, item.node)),
               winLast < changeItems.length ? E('div', { key: 'pad-bottom', style: { height: String(changeOffsets[changeItems.length] - changeOffsets[winLast]) + 'px' } }) : null,
@@ -10640,11 +10944,11 @@ window.__ModuleLoader__.load({
     /* ---- list windowing (issue #11 follow-up: hundreds of rows stay smooth) ----
        Both long lists (history rows, change rows) render only what the viewport
        can see plus an overscan skirt; spacer divs keep the scrollbar honest.
-       Row heights are FIXED constants — the CSS pins each row kind to an exact
-       height, so a prefix-sum index plus binary search locates the first
-       visible item without measuring. */
-    const HISTORY_ROW_H = 28 /* .dig-commit: height 26 + 2×1px padding */
-    const ITEM_HEIGHTS = { group: 21, folder: 16, row: 24 }
+       Row heights are EXACT per font scale — the CSS pins each row kind to the
+       --dig-rh-* pixel variables applyFontScale() publishes, so a prefix-sum
+       index plus binary search locates the first visible item without
+       measuring. historyRowH()/itemHeights() (font scale section) compute the
+       same integers the CSS variables carry. */
     const WINDOW_OVERSCAN = 6
 
     /* Tracks a scroll container's scrollTop (rAF-throttled) and clientHeight
@@ -10738,7 +11042,7 @@ window.__ModuleLoader__.load({
       },
         E('span', { className: 'dig-commit-date', title: shortDate(commit.date) }, relativeTime(commit.date)),
         E('span', { className: 'dig-commit-author', title: commit.author }, commit.author),
-        E(GraphCell, { row: props.row, height: 26 }),
+        E(GraphCell, { row: props.row, height: props.rowH - 2 }),
         shown.map((decoration, index) => E('span', {
           key: decoration.kind + ':' + decoration.name + ':' + index,
           className: 'dig-ref dig-ref-' + decoration.kind,
@@ -10767,7 +11071,7 @@ window.__ModuleLoader__.load({
         }, '+' + String(hidden + folded.length)) : null,
         E('span', { className: 'dig-commit-subject', title: commit.subject }, commit.subject),
         E('span', { className: 'dig-commit-fill' }))
-    }, (prev, next) => prev.commit === next.commit && prev.row === next.row && prev.selected === next.selected && prev.t === next.t)
+    }, (prev, next) => prev.commit === next.commit && prev.row === next.row && prev.selected === next.selected && prev.t === next.t && prev.rowH === next.rowH)
 
     function sinceThreshold(key) {
       if (key === 'today') { const start = new Date(); start.setHours(0, 0, 0, 0); return start.getTime() }
@@ -10780,6 +11084,11 @@ window.__ModuleLoader__.load({
     function HistoryList(props) {
       const t = props.t
       const commits = props.commits
+      /* Row height follows the font scale (the CSS pins .dig-commit to
+         --dig-rh-commit); CommitRow gets it as a prop so the memoised row —
+         and with it the graph cell — re-renders when the scale changes. */
+      const fontScale = useFontScale()
+      const rowH = historyRowH(fontScale)
       const historyScrollRef = useRef(null)
       const viewport = useViewportBox(historyScrollRef)
       const pickAnchor = useRef(null)
@@ -10964,8 +11273,8 @@ window.__ModuleLoader__.load({
       /* Windowed rendering: only the visible slice (± overscan) is mounted —
          "load more" into the hundreds still scrolls at frame rate. Spacers
          keep the scrollbar and the load-more button at honest positions. */
-      const winStart = Math.max(0, Math.floor(viewport.scrollTop / HISTORY_ROW_H) - WINDOW_OVERSCAN)
-      const winEnd = Math.min(rows.length, winStart + Math.ceil(viewport.viewH / HISTORY_ROW_H) + WINDOW_OVERSCAN * 2)
+      const winStart = Math.max(0, Math.floor(viewport.scrollTop / rowH) - WINDOW_OVERSCAN)
+      const winEnd = Math.min(rows.length, winStart + Math.ceil(viewport.viewH / rowH) + WINDOW_OVERSCAN * 2)
       const visibleRows = rows.slice(winStart, winEnd)
 
       return E('div', { className: 'dig-history' }, filterBar,
@@ -10992,15 +11301,15 @@ window.__ModuleLoader__.load({
           onMouseLeave: (event) => event.currentTarget.removeAttribute('data-hover-lane'),
         },
           rows.length === 0 ? E('div', { className: 'dig-empty' }, dirtyFilter ? t('filter.none') : t('history.empty')) : null,
-          winStart > 0 ? E('div', { key: 'pad-top', style: { height: String(winStart * HISTORY_ROW_H) + 'px' } }) : null,
+          winStart > 0 ? E('div', { key: 'pad-top', style: { height: String(winStart * rowH) + 'px' } }) : null,
           visibleRows.map((row) => E(CommitRow, {
             key: row.commit.hash,
-            commit: row.commit, row: row, t: t,
+            commit: row.commit, row: row, t: t, rowH: rowH,
             selected: props.selectedHash === row.commit.hash
               || (props.pickedHashes !== undefined && props.pickedHashes.has(row.commit.hash) === true),
             onRowClick: handleRowClick, onMenu: props.onMenu, openMenuAt: props.openMenuAt,
           })),
-          winEnd < rows.length ? E('div', { key: 'pad-bottom', style: { height: String((rows.length - winEnd) * HISTORY_ROW_H) + 'px' } }) : null,
+          winEnd < rows.length ? E('div', { key: 'pad-bottom', style: { height: String((rows.length - winEnd) * rowH) + 'px' } }) : null,
           props.hasMore === true
             ? E('button', { type: 'button', className: 'dig-load-more', disabled: props.busy === true, onClick: props.onLoadMore }, t('history.loadMore'))
             : null))
@@ -13265,21 +13574,21 @@ window.__ModuleLoader__.load({
     LANE_TRACE_RULES.push('@keyframes dig-spin-rotate{to{transform:rotate(360deg)}}')
 
     const CSS = [
-      '.dig-root{position:relative;display:flex;flex-direction:column;height:100%;min-height:0;background:transparent;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,system-ui,sans-serif);font-size:13px;line-height:1.5;font-weight:600;overflow:hidden}',
-      '.dig-root-boundary{position:relative;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,system-ui,sans-serif);font-size:13px;line-height:1.5;font-weight:600}',
+      '.dig-root{position:relative;display:flex;flex-direction:column;height:100%;min-height:0;background:transparent;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,system-ui,sans-serif);font-size:calc(13px * var(--dig-fs,1));line-height:1.5;font-weight:600;overflow:hidden}',
+      '.dig-root-boundary{position:relative;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,system-ui,sans-serif);font-size:calc(13px * var(--dig-fs,1));line-height:1.5;font-weight:600}',
       '.dig-root-panel-holder{height:100%;min-height:0}',
       '.dig-root-gate{position:absolute;inset:0;z-index:79;display:flex;align-items:center;justify-content:center;gap:10px;padding:12px;overflow-wrap:anywhere;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary)}',
       '.dig-root-select{max-width:48%;flex-shrink:1}',
       '.dig-root-menu-backdrop{position:absolute;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:flex-start;padding:30px 6px 6px;background:transparent}',
       '.dig-root-menu{position:relative;min-width:min(320px,100%);max-width:100%;max-height:100%;overflow:auto}',
       '.dig-root-menu .dig-menu-item{display:flex;flex-wrap:wrap;white-space:normal;width:100%;gap:2px 8px}',
-      '.dig-root-menu-path{color:var(--dsw-alias-label-tertiary);font-size:11px;overflow-wrap:anywhere;width:100%;padding-left:20px}',
+      '.dig-root-menu-path{color:var(--dsw-alias-label-tertiary);font-size:calc(11px * var(--dig-fs,1));overflow-wrap:anywhere;width:100%;padding-left:20px}',
       '.dig-topbar{display:flex;align-items:center;gap:6px;padding:4px 6px;flex:none;min-width:0;border-bottom:1px solid var(--dsw-alias-border-l2);overflow:hidden}',
       '.dig-topbar-spacer{flex:1;min-width:4px}',
       '.dig-busy{color:var(--dsw-alias-label-tertiary);flex:none;white-space:nowrap}',
       '.dig-track{color:var(--dsw-alias-label-secondary);flex:none;font-variant-numeric:tabular-nums;white-space:nowrap}',
       '.dig-select-wrap{display:inline-flex;align-items:center;gap:4px;min-width:0;flex:0 1 auto;max-width:90%;color:var(--dsw-alias-label-secondary)}',
-      '.dig-select{appearance:none;-webkit-appearance:none;background:transparent;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm,8px);color:var(--dsw-alias-label-primary);font:inherit;font-weight:500;padding:1px 6px;height:22px;max-width:min(280px,42%);min-width:0;cursor:pointer;text-overflow:ellipsis}',
+      '.dig-select{appearance:none;-webkit-appearance:none;background:transparent;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm,8px);color:var(--dsw-alias-label-primary);font:inherit;font-weight:500;padding:1px 6px;height:var(--dig-ctl,22px);max-width:min(280px,42%);min-width:0;cursor:pointer;text-overflow:ellipsis}',
       '.dig-select:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.dig-select:focus-visible{outline:1px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-1px}',
       '.dig-select-btn{display:inline-flex;align-items:center;gap:4px;text-align:left;white-space:nowrap;overflow:hidden}',
@@ -13337,8 +13646,8 @@ window.__ModuleLoader__.load({
       '.dig-card-header:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}',
       '.dig-card-header-flat{cursor:default}',
       '.dig-card-head-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}',
-      '.dig-card-name{font-size:15px;font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary)}',
-      '.dig-card-desc{font-size:13px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}',
+      '.dig-card-name{font-size:calc(15px * var(--dig-fs,1));font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary)}',
+      '.dig-card-desc{font-size:calc(13px * var(--dig-fs,1));line-height:1.5;color:var(--dsw-alias-label-tertiary)}',
       '.dig-card-chevron{flex:none;display:inline-flex;color:var(--dsw-alias-label-tertiary);transition:transform .16s}',
       '.dig-card-chevron.dig-card-chevron-open{transform:rotate(180deg)}',
       '.dig-card-body{padding:8px 16px 16px}',
@@ -13350,15 +13659,21 @@ window.__ModuleLoader__.load({
       '.dig-settings-note{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-brand-primary));font-weight:400}',
       '.dig-settings-note-hidden{display:none}',
       '.dig-settings-error{color:var(--dsw-alias-state-error-primary);font-weight:400}',
-      '.dig-settings-subnote{color:var(--dsw-alias-label-tertiary);font-weight:400;font-size:12px}',
+      '.dig-settings-subnote{color:var(--dsw-alias-label-tertiary);font-weight:400;font-size:calc(12px * var(--dig-fs,1))}',
       '.dig-settings-sub{margin-top:6px;font-weight:600;color:var(--dsw-alias-label-primary)}',
       '.dig-settings-text{display:flex;flex-direction:column;gap:3px;min-width:0}',
       '.dig-settings-text-label{color:var(--dsw-alias-label-secondary);font-weight:400}',
       '.dig-settings-input{width:100%;box-sizing:border-box;font:inherit}',
+      '.dig-fontstep{display:inline-flex;align-items:center;gap:8px}',
+      '.dig-fontstep-btn{min-width:26px;height:var(--dig-ctl,22px);padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm,8px);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;font-weight:600;line-height:1}',
+      '.dig-fontstep-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}',
+      '.dig-fontstep-btn:disabled{opacity:.4;cursor:default}',
+      '.dig-fontstep-value{min-width:44px;text-align:center;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary)}',
+      '.dig-fontstep-reset{margin-left:4px}',
       '.dig-commit-ai{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}',
-      '.dig-commit-ai-hint{color:var(--dsw-alias-label-tertiary);font-size:11px}',
-      '.dig-commit-ai-hint-block{flex:1 0 100%;font-size:11px}',
-      '.dig-commit-ai-note{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-brand-primary));font-size:11px;margin-bottom:4px;word-break:break-word}',
+      '.dig-commit-ai-hint{color:var(--dsw-alias-label-tertiary);font-size:calc(11px * var(--dig-fs,1))}',
+      '.dig-commit-ai-hint-block{flex:1 0 100%;font-size:calc(11px * var(--dig-fs,1))}',
+      '.dig-commit-ai-note{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-brand-primary));font-size:calc(11px * var(--dig-fs,1));margin-bottom:4px;word-break:break-word}',
       '.dig-settings-list{display:flex;flex-direction:column;gap:2px;max-height:min(46vh,360px);overflow:auto;padding:2px;border:1px solid var(--dsw-alias-hairline,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-sm,8px)}',
       '.dig-settings-row{display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:calc(var(--dsw-radius-sm,8px) - 2px);cursor:pointer;min-width:0}',
       '.dig-settings-row:hover{background:var(--dsw-alias-interactive-bg-hover)}',
@@ -13369,7 +13684,7 @@ window.__ModuleLoader__.load({
       /* Collapsible setting sections (hand-drawn, same pattern as dsh-gitbash-shell v0.38.4). */
       '.dig-fold{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm,8px);padding:4px 12px 12px;background:var(--dsw-alias-bg-layer-1,transparent)}',
       '.dig-fold .dig-stack{padding-top:10px}',
-      '.dig-foldHead{display:flex;align-items:center;gap:8px;width:100%;appearance:none;background:none;border:0;padding:6px 0;font:inherit;font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--dsw-alias-label-secondary);cursor:pointer;text-align:left}',
+      '.dig-foldHead{display:flex;align-items:center;gap:8px;width:100%;appearance:none;background:none;border:0;padding:6px 0;font:inherit;font-size:calc(13px * var(--dig-fs,1));font-weight:600;letter-spacing:.02em;color:var(--dsw-alias-label-secondary);cursor:pointer;text-align:left}',
       '.dig-foldHead:hover{color:var(--dsw-alias-label-primary)}',
       '.dig-foldChevron{flex:none;display:inline-block;color:var(--dsw-alias-label-tertiary);transition:transform .16s}',
       '.dig-foldChevron.dig-foldChevronOpen{transform:rotate(90deg)}',
@@ -13452,7 +13767,7 @@ window.__ModuleLoader__.load({
       '.dig-folder{display:flex;flex-direction:column}',
       '.dig-branch-folder{display:flex;flex-direction:column}',
       '.dig-row-picked{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary)}',
-      '.dig-folder-head{display:flex;align-items:center;gap:6px;width:100%;padding:1px 8px 1px 4px;height:14px;border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer;text-align:left}',
+      '.dig-folder-head{display:flex;align-items:center;gap:6px;width:100%;padding:1px 8px 1px 4px;height:var(--dig-rh-folder,14px);border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:calc(11px * var(--dig-fs,1));cursor:pointer;text-align:left}',
       '.dig-folder-head:hover{color:var(--dsw-alias-label-primary)}',
       '.dig-folder-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.dig-count{margin-left:auto;opacity:.6;font-weight:400}',
@@ -13467,20 +13782,20 @@ window.__ModuleLoader__.load({
       '.dig-row-head .dig-row-label{font-weight:600}',
       '.dig-row-icon{display:inline-flex;flex:none;opacity:.9}',
       '.dig-row-label{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;font-weight:600}',
-      '.dig-row-sub{color:var(--dsw-alias-label-tertiary);font-size:11px;flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis}',
+      '.dig-row-sub{color:var(--dsw-alias-label-tertiary);font-size:calc(11px * var(--dig-fs,1));flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis}',
       '.dig-row-dir{margin-left:auto;opacity:.75}',
-      '.dig-badge{font-size:10px;padding:0 5px;border-radius:999px;corner-shape:round;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);flex:none}',
+      '.dig-badge{font-size:calc(10px * var(--dig-fs,1));padding:0 5px;border-radius:999px;corner-shape:round;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);flex:none}',
       /* Ahead/behind colours + size (user request): pending pushes read green,
          pending pulls read blue — the same semantics in the tree rows and the
          top bar. 12px/600 keeps the counts legible at a glance. */
-      '.dig-badge-ahead,.dig-track-ahead{color:var(--dsw-alias-state-success-primary);font-size:12px;font-weight:600}',
-      '.dig-badge-behind,.dig-track-behind{color:var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary));font-size:12px;font-weight:600}',
+      '.dig-badge-ahead,.dig-track-ahead{color:var(--dsw-alias-state-success-primary);font-size:calc(12px * var(--dig-fs,1));font-weight:600}',
+      '.dig-badge-behind,.dig-track-behind{color:var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary));font-size:calc(12px * var(--dig-fs,1));font-weight:600}',
       '.dig-badge.dig-badge-ahead,.dig-badge.dig-badge-behind{padding:0 6px}',
       '.dig-badge-muted{opacity:.8}',
-      '.dig-badge-worktree{padding:0 3px;display:inline-flex;align-items:center;height:14px}',
+      '.dig-badge-worktree{padding:0 3px;display:inline-flex;align-items:center;height:var(--dig-rh-badge,14px)}',
       '.dig-history{display:flex;flex-direction:column;min-height:0;flex:1}',
       '.dig-history-scroll{flex:1;overflow:auto}',
-      '.dig-commit{display:flex;align-items:center;gap:6px;padding:1px 8px 1px 0;cursor:pointer;height:26px;overflow:hidden}',
+      '.dig-commit{display:flex;align-items:center;gap:6px;padding:1px 8px 1px 0;cursor:pointer;height:var(--dig-rh-commit,26px);overflow:hidden}',
       '.dig-commit:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.dig-commit-selected{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover))}',
       '.dig-graph{flex:none}',
@@ -13488,7 +13803,7 @@ window.__ModuleLoader__.load({
       '.dig-commit-author{color:var(--dsw-alias-label-secondary);flex:none;width:96px;overflow:hidden;text-overflow:ellipsis;font-weight:500}',
       '.dig-commit-subject{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}',
       '.dig-commit-fill{flex:1 1 0;min-width:0}',
-      '.dig-ref{font-size:10px;padding:0 5px;border-radius:999px;corner-shape:round;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);flex:none;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}',
+      '.dig-ref{font-size:calc(10px * var(--dig-fs,1));padding:0 5px;border-radius:999px;corner-shape:round;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);flex:none;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}',
       '.dig-ref-head{color:var(--dsw-alias-state-success-primary)}',
       '.dig-ref-local{color:var(--dsw-alias-brand-primary)}',
       '.dig-ref-remote{color:#b083f0}',
@@ -13496,7 +13811,7 @@ window.__ModuleLoader__.load({
       '.dig-ref-more{color:var(--dsw-alias-label-tertiary);cursor:pointer}',
       '.dig-filters{display:flex;align-items:center;gap:4px;padding:4px 6px;flex:none;min-width:0;overflow-x:auto;overflow-y:hidden;border-bottom:1px solid var(--dsw-alias-border-l2)}',
       '.dig-filter-text{flex:1 1 90px;min-width:80px;width:auto}',
-      '.dig-filter-select{flex:none;max-width:118px;appearance:none;-webkit-appearance:none;background:transparent;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm,8px);color:var(--dsw-alias-label-secondary);font:inherit;font-weight:500;height:22px;padding:0 4px;cursor:pointer;text-overflow:ellipsis}',
+      '.dig-filter-select{flex:none;max-width:118px;appearance:none;-webkit-appearance:none;background:transparent;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm,8px);color:var(--dsw-alias-label-secondary);font:inherit;font-weight:500;height:var(--dig-ctl,22px);padding:0 4px;cursor:pointer;text-overflow:ellipsis}',
       '.dig-filter-select:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
       '.dig-filter-select{display:inline-flex;align-items:center;gap:3px}',
       '.dig-filter-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:96px}',
@@ -13512,7 +13827,7 @@ window.__ModuleLoader__.load({
          VIEWPORT-space .dig-changes (invariant 13: position:fixed would be
          captured by the workbench's contain:layout and flung off-panel). */
       '.dig-marquee{position:absolute;border:1px solid var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent);pointer-events:none;z-index:6}',
-      '.dig-selection-bar{display:flex;align-items:center;gap:12px;padding:3px 10px;font-size:11px;background:var(--dsw-alias-interactive-bg-hover);border-bottom:1px solid var(--dsw-alias-border-subtle,transparent)}',
+      '.dig-selection-bar{display:flex;align-items:center;gap:12px;padding:3px 10px;font-size:calc(11px * var(--dig-fs,1));background:var(--dsw-alias-interactive-bg-hover);border-bottom:1px solid var(--dsw-alias-border-subtle,transparent)}',
       '.dig-selection-bar .dig-link{margin-left:0}',
       '.dig-selection-bar .dig-link-danger{color:var(--dsw-alias-state-error-primary)}',
       '.dig-selection-count{color:var(--dsw-alias-label-secondary);white-space:nowrap}',
@@ -13520,11 +13835,11 @@ window.__ModuleLoader__.load({
          indicator, so the container ring is suppressed. */
       '.dig-changes-list:focus-visible,.dig-tree:focus-visible,.dig-history-scroll:focus-visible{outline:none}',
       '.dig-group{display:flex;flex-direction:column}',
-      '.dig-group-head{display:flex;align-items:center;gap:8px;padding:2px 8px;height:17px;color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600}',
+      '.dig-group-head{display:flex;align-items:center;gap:8px;padding:2px 8px;height:var(--dig-rh-group,17px);color:var(--dsw-alias-label-secondary);font-size:calc(11px * var(--dig-fs,1));font-weight:600}',
       '.dig-link{margin-left:auto;border:none;background:transparent;color:var(--dsw-alias-brand-primary);font:inherit;cursor:pointer;padding:0;flex:none}',
       '.dig-link:hover{text-decoration:underline}',
-      '.dig-row-file{gap:6px;height:20px}',
-      '.dig-file-status{flex:none;width:14px;text-align:center;font-weight:700;font-size:10px;color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-secondary))}',
+      '.dig-row-file{gap:6px;height:var(--dig-rh-row,20px)}',
+      '.dig-file-status{flex:none;width:14px;text-align:center;font-weight:700;font-size:calc(10px * var(--dig-fs,1));color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-secondary))}',
       '.dig-file-status-A{color:var(--dsw-alias-state-success-primary)}',
       '.dig-file-status-D{color:var(--dsw-alias-state-error-primary)}',
       '.dig-file-status-R{color:var(--dsw-alias-brand-primary)}',
@@ -13545,7 +13860,7 @@ window.__ModuleLoader__.load({
       '.dig-btn{padding:3px 10px;border-radius:var(--dsw-radius-sm,8px);border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-weight:500;cursor:pointer;flex:none}',
       '.dig-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}',
       '.dig-btn:disabled{opacity:.45;cursor:default}',
-      '.dig-btn-small{padding:2px 8px;font-size:11px}',
+      '.dig-btn-small{padding:2px 8px;font-size:calc(11px * var(--dig-fs,1))}',
       '.dig-btn-primary{margin-left:auto;background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary));border-color:transparent;color:var(--dsw-alias-label-primary-inverted,#fff)}',
       '.dig-btn-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover,var(--dsw-alias-brand-primary))}',
       '.dig-btn-danger{background:var(--dsw-alias-state-error-primary);border-color:transparent;color:var(--dsw-alias-label-primary-inverted,#fff)}',
@@ -13560,7 +13875,7 @@ window.__ModuleLoader__.load({
       '.dig-diff-pane{flex:none;max-height:55%;display:flex;flex-direction:column;min-height:0;border-top:1px solid var(--dsw-alias-border-l2)}',
       '.dig-diff-head{display:flex;align-items:center;gap:8px;padding:3px 8px;color:var(--dsw-alias-label-tertiary);flex:none;min-width:0}',
       '.dig-diff-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}',
-      '.dig-diff{flex:1;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.5;font-weight:500;min-height:0}',
+      '.dig-diff{flex:1;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:calc(12px * var(--dig-fs,1));line-height:1.5;font-weight:500;min-height:0}',
       '.dig-diff-line{display:flex;gap:8px;padding:0 6px;white-space:pre}',
       '.dig-diff-gutter{width:32px;flex:none;text-align:right;color:var(--dsw-alias-label-dimmed,var(--dsw-alias-label-tertiary));user-select:none}',
       '.dig-diff-text{white-space:pre-wrap;word-break:break-word;flex:1;min-width:0}',
@@ -13572,7 +13887,7 @@ window.__ModuleLoader__.load({
          pane's scroll contract (everything renders, the pane scrolls), and the
          card's own 16px vertical margin is tightened to the panel rhythm. */
       '.dig-diff-host{flex:1;overflow:auto;min-height:0}',
-      '.dig-diff-card{margin:4px 6px 8px;font-size:12px}',
+      '.dig-diff-card{margin:4px 6px 8px;font-size:calc(12px * var(--dig-fs,1))}',
       /* File-type glyphs lead every change row (v0.14); a transparent-theme
          host still tints them through the component's own category colors. */
       '.dig-file-icon{flex:none;opacity:.95}',
@@ -13590,9 +13905,9 @@ window.__ModuleLoader__.load({
       '.dig-gitlog-meta{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}',
       '.dig-gitlog-code{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
       '.dig-gitlog-ms{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
-      '.dig-gitlog-at{color:var(--dsw-alias-label-tertiary);font-size:11px}',
+      '.dig-gitlog-at{color:var(--dsw-alias-label-tertiary);font-size:calc(11px * var(--dig-fs,1))}',
       '.dig-gitlog-argv{font-weight:600;word-break:break-all}',
-      '.dig-gitlog-pre{margin:4px 0 0;padding:6px 8px;border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));overflow:auto;max-height:160px;white-space:pre-wrap;word-break:break-all;font-size:11px}',
+      '.dig-gitlog-pre{margin:4px 0 0;padding:6px 8px;border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));overflow:auto;max-height:160px;white-space:pre-wrap;word-break:break-all;font-size:calc(11px * var(--dig-fs,1))}',
       '.dig-dialog-wide{min-width:min(360px,92%)}',
       '.dig-dialog-title{font-weight:600}',
       '.dig-dialog-text{color:var(--dsw-alias-label-secondary);white-space:pre-wrap}',
@@ -13658,7 +13973,7 @@ window.__ModuleLoader__.load({
          official theme and reading habits carry over. */
       '.dig-lf-root{--diff-empty-fill:color-mix(in srgb,var(--dsw-alias-interactive-bg-hover) 50%,transparent);display:flex;flex-direction:column;box-sizing:border-box;width:100%;min-height:0;color:var(--dsw-alias-label-primary)}',
       '.dig-lf-header{display:flex;flex:0 0 auto;gap:6px;align-items:center;box-sizing:border-box;min-height:38px;padding:0 6px 0 8px;border-bottom:0.5px solid var(--dsw-alias-border-l3)}',
-      '.dig-lf-status{display:flex;gap:12px;align-items:center;margin:0;padding:16px;font-size:13px;color:var(--dsw-alias-label-secondary)}',
+      '.dig-lf-status{display:flex;gap:12px;align-items:center;margin:0;padding:16px;font-size:calc(13px * var(--dig-fs,1));color:var(--dsw-alias-label-secondary)}',
       '.dig-lf-body{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;overflow:auto;padding:8px 0 16px;font:var(--dsw-font-markdown-code-block)}',
       '.dig-lf-columns{display:grid;flex:1 1 auto;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-height:0}',
       '.dig-lf-column,.dig-lf-body[data-review-view=unified]:not([data-review-wrap]){display:grid;grid-template-columns:minmax(max-content,100%);align-content:start}',
@@ -13686,14 +14001,14 @@ window.__ModuleLoader__.load({
       '.dig-lf-empty{background:var(--diff-empty-fill)}',
       /* header pieces from ReviewTab.module.css */
       '.dig-lf-selector{flex:0 1 auto;min-width:0}',
-      '.dig-lf-selectorStatic{flex:0 1 auto;min-width:0;overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap;font-weight:600}',
-      '.dig-lf-selectorFallback{max-width:60%;padding:2px 6px;border:none;border-radius:var(--dsw-radius-sm,8px);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1));color:inherit;font:inherit;font-size:12px}',
-      '.dig-lf-selectorButton{display:inline-flex;gap:4px;align-items:center;box-sizing:border-box;max-width:100%;height:28px;padding:0 6px 0 8px;border:0;border-radius:var(--dsw-radius-sm,8px);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;font-size:12px;line-height:20px}',
+      '.dig-lf-selectorStatic{flex:0 1 auto;min-width:0;overflow:hidden;font-size:calc(12px * var(--dig-fs,1));text-overflow:ellipsis;white-space:nowrap;font-weight:600}',
+      '.dig-lf-selectorFallback{max-width:60%;padding:2px 6px;border:none;border-radius:var(--dsw-radius-sm,8px);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1));color:inherit;font:inherit;font-size:calc(12px * var(--dig-fs,1))}',
+      '.dig-lf-selectorButton{display:inline-flex;gap:4px;align-items:center;box-sizing:border-box;max-width:100%;height:28px;padding:0 6px 0 8px;border:0;border-radius:var(--dsw-radius-sm,8px);background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;font-size:calc(12px * var(--dig-fs,1));line-height:20px}',
       '.dig-lf-selectorButton:hover,.dig-lf-selectorButton[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover)}',
       '.dig-lf-selectorButton svg{display:block;flex:none}',
       '.dig-lf-item{display:flex;gap:12px;align-items:center;justify-content:space-between;min-width:0}',
       '.dig-lf-itemPath{min-width:0;overflow:hidden;line-height:20px;text-overflow:ellipsis;white-space:nowrap}',
-      '.dig-lf-itemCounts,.dig-lf-counts{display:inline-flex;flex:none;gap:6px;align-items:center;font-family:var(--ds-font-family-code);font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary)}',
+      '.dig-lf-itemCounts,.dig-lf-counts{display:inline-flex;flex:none;gap:6px;align-items:center;font-family:var(--ds-font-family-code);font-size:calc(12px * var(--dig-fs,1));line-height:20px;color:var(--dsw-alias-label-tertiary)}',
       '.dig-lf-counts{min-width:0;margin-right:auto}',
       '.dig-lf-added{color:var(--dsw-alias-state-success-primary)}',
       '.dig-lf-deleted{color:var(--dsw-alias-state-error-primary)}',
@@ -14213,6 +14528,16 @@ window.__ModuleLoader__.load({
       style.textContent = CSS
       document.head.appendChild(style)
       ctx.effect(() => () => { style.remove() }, 'dsh-ide-git: panel styles')
+
+      /* Font scale: publish --dig-fs/--dig-rh-* from the accepted config now
+         and on every config change (the settings card's stepper writes through
+         the same row Config document), and take the variables back down when
+         the plugin unloads. */
+      applyFontScale()
+      ctx.effect(() => {
+        const offFont = subscribeRailConfig(() => applyFontScale())
+        return () => { offFont(); clearFontScale() }
+      }, 'dsh-ide-git: font scale')
 
       const t = translatorOf(ctx)
 

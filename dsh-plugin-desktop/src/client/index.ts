@@ -39,7 +39,11 @@ import { installAndroidLogcatStyles } from './android-logcat-styles.ts'
 import { createGitReviewClient } from './git-review-api.ts'
 import { GitReviewPanel, GIT_REVIEW_TAB_ID } from './GitReviewPanel.tsx'
 import { GIT_REVIEW_LOCALE_NAMESPACE, gitReviewEn, gitReviewZh } from './git-review-locales.ts'
-import { createGitReviewTabDefinition } from './git-review-tab.ts'
+import {
+  createGitReviewDeliverablesRedirectDefinition,
+  createGitReviewTabDefinition,
+  GIT_REVIEW_DELIVERABLES_REDIRECT_KIND,
+} from './git-review-tab.ts'
 import { installGitReviewStyles } from './git-review-styles.ts'
 import { installDesktopDirectoryPickerBridge } from './directory-picker.ts'
 import { parseDesktopClientEnvironment } from './environment.ts'
@@ -50,6 +54,10 @@ import { DESKTOP_SETTINGS_FORMS_SERVICE } from './settings-bridge.ts'
 import { installSidebarFooterStyles } from './sidebar-footer-styles.ts'
 import { applyDesktopWorkspaceSources } from './WorkspaceSources.tsx'
 import { desktopWindowService, provideDesktopWindow } from './window-service.ts'
+import { applyDesktopTerminalPanel } from './desktop-terminal-panel.ts'
+// Type-only service convergence for the terminal panel's coordinator.
+import type {} from '@deepseek-ai/dsh-api-terminal-controller/client'
+import type {} from '@deepseek-ai/dsh-client-shortcuts/client'
 
 export { applyAdvancedShell } from './advanced-shell.ts'
 export { applyDesktopSettings } from './desktop-settings.ts'
@@ -180,6 +188,7 @@ export function apply(ctx: ClientContext): void {
     locale: ANDROID_LOGCAT_LOCALE_NAMESPACE,
     store: androidLogcatStore,
   }, AndroidLogcatDrawer))
+  applyDesktopTerminalPanel(ctx)
   ctx.effect(
     () => provideDesktopWindow(ctx, desktopWindowService(environment)),
     'dsh-plugin-desktop: native window geometry service',
@@ -256,12 +265,24 @@ export function apply(ctx: ClientContext): void {
       }
       const t = scope.locale.bind(GIT_REVIEW_LOCALE_NAMESPACE)
       const removeType = scope.sidebarRightTabs.register(createGitReviewTabDefinition(t))
-      const removePage = scope.slots.inject('sidebar.right.pane.tab', () => scope.slots.register({
-        name: 'sidebar.right.pane.tab', key: GIT_REVIEW_TAB_ID, locale: GIT_REVIEW_LOCALE_NAMESPACE,
-        inject: () => ({ client, openFile, platform: environment.platform }),
-      }, GitReviewPanel))
+      const removeDeliverablesRedirect = scope.sidebarRightTabs.register(createGitReviewDeliverablesRedirectDefinition(t))
+      const removePage = scope.slots.inject('sidebar.right.pane.tab', () => {
+        const inject = () => ({ client, openFile, platform: environment.platform })
+        const removeReviewPage = scope.slots.register({
+          name: 'sidebar.right.pane.tab', key: GIT_REVIEW_TAB_ID, locale: GIT_REVIEW_LOCALE_NAMESPACE, inject,
+        }, GitReviewPanel)
+        const removeDeliverablesRedirectPage = scope.slots.register({
+          name: 'sidebar.right.pane.tab', key: GIT_REVIEW_DELIVERABLES_REDIRECT_KIND,
+          locale: GIT_REVIEW_LOCALE_NAMESPACE, inject,
+        }, GitReviewPanel)
+        return () => {
+          removeReviewPage()
+          removeDeliverablesRedirectPage()
+        }
+      })
       return () => {
         removeType()
+        removeDeliverablesRedirect()
         removePage()
         for (const dispose of [...pending]) dispose()
       }

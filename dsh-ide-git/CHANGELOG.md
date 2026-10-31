@@ -3,6 +3,15 @@
 > 倒序排列,新版本条目在最上面。条目格式:`## vX.Y.Z — YYYY-MM-DD` + 类型(feat / fix / docs / chore)+ 要点 + 相关链接。
 > 纪律见 AGENTS.md「变更记录纪律」:发版前先更新本文件并随版本提交。
 
+## v0.18.3 — 2026-10-23
+
+**类型**:feat(外观设置:面板字号调节,用户反馈)
+
+- **feat 界面字号可调**:设置卡片新增「外观」折叠组,`− / 百分比 / + / 重置` 步进器按 10% 步进在 **80%–160%** 之间缩放面板全部文字;写入行 Config 的 `fontScale` 字段(host 半 schema 同步声明 volatile、默认 100;未声明会被 Host 的 volatile 检查拒绝,与 immersive 同款教训),无行 Config 的老宿主回落 localStorage 键 `dsh-ide-git.font.v1`。调整后即时生效,无需重载。
+- **实现要点**:29 处 `font-size` 字面量全部改为 `calc(Npx * var(--dig-fs,1))`;虚拟化列表行高**不跟**浮点系数(千行累积亚像素漂移会让上下占位条失真),改由 `applyFontScale()` 向 `documentElement` 发布整数像素变量 `--dig-rh-commit/group/folder/row/badge/ctl`,JS 窗口化数学(`historyRowH()` / `itemHeights()`)与 CSS 行高读同一组整数,逐像素一致;`CommitRow` memo 增加 `rowH` 比较,缩放时提交图谱单元格跟着重绘;插件卸载时变量全部移除。
+- **词典**:新增 6 键 × 21 门(appearance/font.*),键集由冒烟测试强制。
+- **验证**:`node --test` 122/122(新增「font scale」命名守卫:schema 声明、CSS 无字面量字号、行高变量锚点、乐观缩放与订阅即时生效)。
+
 ## v0.18.2 — 2026-10-13
 
 **类型**:fix(徽章字号 + Shift 锚点缺陷,均为用户反馈)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -24,7 +24,37 @@ import {
 } from './workspace-root-selection.ts'
 import { createWorkspaceSourcesStore } from './workspace-sources-store.ts'
 import type { WorkspaceSourcesStore } from './workspace-sources-store.ts'
-import css from './WorkspaceSources.module.css'
+import { installWorkspaceSourcesStyles } from './workspace-sources-styles.ts'
+
+const classes = {
+  editor: 'dshWorkspaceSourcesEditor',
+  editorHeader: 'dshWorkspaceSourcesEditorHeader',
+  editorHeading: 'dshWorkspaceSourcesEditorHeading',
+  editorTitle: 'dshWorkspaceSourcesEditorTitle',
+  note: 'dshWorkspaceSourcesNote',
+  windowsNote: 'dshWorkspaceSourcesWindowsNote',
+  status: 'dshWorkspaceSourcesStatus',
+  error: 'dshWorkspaceSourcesError',
+  folderList: 'dshWorkspaceSourcesFolderList',
+  folderRow: 'dshWorkspaceSourcesFolderRow',
+  primaryRow: 'dshWorkspaceSourcesPrimaryRow',
+  attachedRow: 'dshWorkspaceSourcesAttachedRow',
+  folderIconWrap: 'dshWorkspaceSourcesFolderIconWrap',
+  folderIcon: 'dshWorkspaceSourcesFolderIcon',
+  folderDetails: 'dshWorkspaceSourcesFolderDetails',
+  folderName: 'dshWorkspaceSourcesFolderName',
+  folderPath: 'dshWorkspaceSourcesFolderPath',
+  primary: 'dshWorkspaceSourcesPrimaryBadge',
+  attached: 'dshWorkspaceSourcesAttachedBadge',
+  add: 'dshWorkspaceSourcesAdd',
+  detach: 'dshWorkspaceSourcesDetach',
+  empty: 'dshWorkspaceSourcesEmpty',
+  emptyIcon: 'dshWorkspaceSourcesEmptyIcon',
+  rootAction: 'dshWorkspaceSourcesRootAction',
+  rootActionIcon: 'dshWorkspaceSourcesRootActionIcon',
+  rootActionChevron: 'dshWorkspaceSourcesRootActionChevron',
+  rootSelect: 'dshWorkspaceSourcesRootSelect',
+} as const
 
 type PublishWorkspaceSources = (
   workspacePath: string,
@@ -61,17 +91,18 @@ export type WorkspaceSourcesEditorProps = PropsRuntime<'sidebar.workspaces.works
   & PropsStore<WorkspaceSourcesStore>
   & InjectFace<WorkspaceSourcesEditorInjected>
 
-export type WorkspaceSourcesRootActionProps = PropsRuntime<'sidebar.right.tab.files.actions'>
+export type WorkspaceSourcesRootActionProps = Omit<PropsRuntime<'sidebar.right.tab.files.actions'>, 'useSession' | 'sessionId' | 'useProjection'>
   & PropsLocale<'desktop.settings'>
   & PropsStore<WorkspaceSourcesStore>
   & InjectFace<WorkspaceSourcesRootActionInjected>
+  & { readonly workspacePath?: string; readonly onRootChange?: (path: string) => Promise<void> }
 
 function basename(path: string): string {
   const parts = path.split(/[\\/]/u).filter(Boolean)
   return parts.at(-1) ?? path
 }
 
-function displayRoot(path: string, primary: boolean, t: WorkspaceSourcesEditorProps['t']): string {
+function displayRoot(path: string, primary: boolean, t: WorkspaceSourcesRootActionProps['t']): string {
   const kind = primary ? t('workspaceSourcesPrimary') : t('workspaceSourcesAttached')
   return `${kind} · ${basename(path)}`
 }
@@ -80,10 +111,8 @@ function describeFailure(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** Manage Desktop-owned additional roots from the upstream Workspace Edit modal. */
-export function WorkspaceSourcesEditor({
-  path, t, actions, platform, useStore, load, add, remove,
-}: WorkspaceSourcesEditorProps) {
+/** Manage Desktop-owned additional roots from the browser-owned Workspace Edit dialog. */
+export function WorkspaceSourcesEditor({ path, t, actions, platform, useStore, load, add, remove }: WorkspaceSourcesEditorProps) {
   const snapshot = useStore(state => state[path])
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>()
@@ -99,76 +128,76 @@ export function WorkspaceSourcesEditor({
     return () => { active = false }
   }, [load, path, publish])
 
-  const mutate = useCallback(async (operation: () => Promise<void>): Promise<void> => {
+  const run = (operation: () => Promise<void>): void => {
     setBusy(true)
     setFailure(undefined)
-    try {
-      await operation()
-    } catch (error) {
-      setFailure(describeFailure(error))
-    } finally {
-      setBusy(false)
-    }
-  }, [])
+    void operation().catch(error => setFailure(describeFailure(error))).finally(() => setBusy(false))
+  }
+  const sources = snapshot?.sources ?? []
 
   return (
-    <section className={css.editor} aria-label={t('workspaceSources')}>
-      <div className={css.editorHeader}>
-        <h3 className={css.editorTitle}>{t('workspaceSources')}</h3>
+    <section className={classes.editor} aria-label={t('workspaceSources')}>
+      <div className={classes.editorHeader}>
+        <div className={classes.editorHeading}>
+          <h3 className={classes.editorTitle}>{t('workspaceSources')}</h3>
+          <p className={classes.note}>{t('workspaceSourcesNote')}</p>
+        </div>
         {platform !== 'win32' && (
           <button
             type="button"
-            className={css.add}
+            className={classes.add}
             disabled={busy || snapshot === undefined}
-            onClick={() => { void mutate(() => add(path, publish)) }}
+            onClick={() => { void run(() => add(path, publish)) }}
           >
-            <span aria-hidden="true"><IconPlusOutlineRegular /></span>
+            <IconPlusOutlineRegular aria-hidden="true" />
             <span>{t('workspaceSourcesAdd')}</span>
           </button>
         )}
       </div>
-      <p className={css.note}>{platform === 'win32'
-        ? t('workspaceSourcesWindowsNote')
-        : t('workspaceSourcesNote')}</p>
+
+      {platform === 'win32' && <p className={classes.windowsNote}>{t('workspaceSourcesWindowsNote')}</p>}
       {snapshot === undefined
-        ? <p className={css.status} role="status">{t('workspaceSourcesLoading')}</p>
+        ? <p className={classes.status} role="status">{t('workspaceSourcesLoading')}</p>
         : (
-          <ul className={css.folderList} aria-label={t('workspaceSourcesList')}>
-            <li className={css.folderRow} title={path}>
-              <span aria-hidden="true"><IconFolderOpenOutlineRegular className={css.folderIcon} /></span>
-              <span className={css.folderName}>{path}</span>
-              <span className={css.primary}>{t('workspaceSourcesPrimary')}</span>
+          <ul className={classes.folderList} aria-label={t('workspaceSourcesList')}>
+            <li className={`${classes.folderRow} ${classes.primaryRow}`} title={path}>
+              <span className={classes.folderIconWrap} aria-hidden="true"><IconFolderOpenOutlineRegular className={classes.folderIcon} /></span>
+              <span className={classes.folderDetails}>
+                <span className={classes.folderName}>{basename(path)}</span>
+                <span className={classes.folderPath}>{path}</span>
+              </span>
+              <span className={classes.primary}>{t('workspaceSourcesPrimary')}</span>
             </li>
-            {snapshot.sources.map(source => (
-              <li key={source} className={css.folderRow} title={source}>
-                <span aria-hidden="true"><IconFolderOpenOutlineRegular className={css.folderIcon} /></span>
-                <span className={css.folderName}>{source}</span>
-                <span className={css.attached}>{t('workspaceSourcesAttached')}</span>
+            {sources.map(source => (
+              <li key={source} className={`${classes.folderRow} ${classes.attachedRow}`} title={source}>
+                <span className={classes.folderIconWrap} aria-hidden="true"><IconFolderOpenOutlineRegular className={classes.folderIcon} /></span>
+                <span className={classes.folderDetails}>
+                  <span className={classes.folderName}>{basename(source)}</span>
+                  <span className={classes.folderPath}>{source}</span>
+                </span>
+                <span className={classes.attached}>{t('workspaceSourcesAttached')}</span>
                 <button
                   type="button"
-                  className={css.detach}
+                  className={classes.detach}
                   aria-label={`${t('workspaceSourcesDetach')}: ${source}`}
                   title={t('workspaceSourcesDetach')}
                   disabled={busy}
-                  onClick={() => {
-                    void mutate(() => remove(path, source, publish))
-                  }}
+                  onClick={() => { void run(() => remove(path, source, publish)) }}
                 >
-                  <span aria-hidden="true"><IconCloseOutlineRegular /></span>
+                  <IconCloseOutlineRegular aria-hidden="true" />
                 </button>
               </li>
             ))}
-            {snapshot.sources.length === 0 && (
-              <li className={css.status}>{t('workspaceSourcesEmpty')}</li>
+            {sources.length === 0 && (
+              <li className={classes.empty}>
+                <span className={classes.emptyIcon} aria-hidden="true"><IconFolderOpenOutlineRegular /></span>
+                <span>{t('workspaceSourcesEmpty')}</span>
+              </li>
             )}
           </ul>
         )}
-      {busy && <p className={css.status} role="status">{t('workspaceSourcesWorking')}</p>}
-      {failure !== undefined && (
-        <p className={css.error} role="alert">
-          {t('workspaceSourcesActionFailed')} <span>{failure}</span>
-        </p>
-      )}
+      {busy && <p className={classes.status} role="status">{t('workspaceSourcesWorking')}</p>}
+      {failure !== undefined && <p className={classes.error} role="alert">{t('workspaceSourcesActionFailed')} <span>{failure}</span></p>}
     </section>
   )
 }
@@ -176,8 +205,6 @@ export function WorkspaceSourcesEditor({
 /** Switch only the Files tree root; the Workspace identity and Session cwd remain untouched. */
 export function WorkspaceSourcesRootAction({
   absolutePath,
-  workspacePath,
-  onRootChange,
   t,
   actions,
   platform,
@@ -185,6 +212,9 @@ export function WorkspaceSourcesRootAction({
   selectRoot,
   useStore,
 }: WorkspaceSourcesRootActionProps) {
+  // The supported Files action owner exposes the current absolute root only.
+  // Persist source selection against that root; the next Files mount adopts it.
+  const workspacePath = absolutePath
   const snapshot = useStore(state => state[workspacePath])
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>()
@@ -208,33 +238,20 @@ export function WorkspaceSourcesRootAction({
     ? snapshot.selectedRoot
     : workspacePath
 
-  // Host authorization is Workspace-global, so every open and newly opened Files tab
-  // follows the same persisted selected root.
-  useEffect(() => {
-    if (snapshot === undefined || currentRoot === selectedRoot) return
-    let active = true
-    void onRootChange(selectedRoot).then(() => {
-      if (active) setFailure(undefined)
-    }).catch(error => {
-      if (active) setFailure(describeFailure(error))
-    })
-    return () => { active = false }
-  }, [absolutePath, currentRoot, onRootChange, selectedRoot, snapshot, workspacePath])
-
   const changeRoot = (root: string): void => {
     setBusy(true)
     setFailure(undefined)
-    void selectRoot(workspacePath, root, onRootChange, value => publish(workspacePath, value))
+    void selectRoot(workspacePath, root, async () => {}, value => publish(workspacePath, value))
       .catch(error => { setFailure(describeFailure(error)) })
       .finally(() => { setBusy(false) })
   }
 
   return (
     <>
-      <label className={css.rootAction} title={currentRoot ?? workspacePath}>
-        <span aria-hidden="true"><IconFolderOpenOutlineRegular className={css.rootActionIcon} /></span>
+      <label className={classes.rootAction} title={currentRoot ?? workspacePath}>
+        <span aria-hidden="true"><IconFolderOpenOutlineRegular className={classes.rootActionIcon} /></span>
         <select
-          className={css.rootSelect}
+          className={classes.rootSelect}
           aria-label={t('workspaceSourcesBrowse')}
           value={selectedRoot}
           disabled={busy || snapshot === undefined}
@@ -242,15 +259,15 @@ export function WorkspaceSourcesRootAction({
         >
           {roots.map((root, index) => (
             <option key={root} value={root}>
-              {displayRoot(root, index === 0, t)} — {root}
+              {displayRoot(root, index === 0, t)}
             </option>
           ))}
         </select>
-        <span aria-hidden="true"><IconChevronDownOutlineRegular className={css.rootActionChevron} /></span>
+        <span aria-hidden="true"><IconChevronDownOutlineRegular className={classes.rootActionChevron} /></span>
       </label>
-      {busy && <span className={css.status} role="status">{t('workspaceSourcesWorking')}</span>}
+      {busy && <span className={classes.status} role="status">{t('workspaceSourcesWorking')}</span>}
       {failure !== undefined && (
-        <span className={css.error} role="alert">
+        <span className={classes.error} role="alert">
           {t('workspaceSourcesActionFailed')} {failure}
         </span>
       )}
@@ -262,6 +279,7 @@ export type { WorkspaceSourcesResponse }
 
 /** Register the same source snapshot at the Workspace editor and Files toolbar. */
 export function applyDesktopWorkspaceSources(ctx: ClientContext, platform: string): void {
+  ctx.effect(() => installWorkspaceSourcesStyles('dsh-plugin-desktop'), 'dsh-plugin-desktop: Workspace Sources styles')
   const store = createWorkspaceSourcesStore()
   const queue = createWorkspaceSourcesQueue()
   const load: LoadWorkspaceSources = (workspacePath, publishSnapshot) =>

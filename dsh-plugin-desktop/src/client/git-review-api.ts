@@ -5,7 +5,9 @@ import {
   GIT_REVIEW_LAST_TURN_PATH,
   GIT_REVIEW_STATUS_PATH,
   GIT_REVIEW_WORKSPACE_PATH,
+  GIT_REVIEW_WORKTREES_PATH,
   type GitReviewCommitFiles,
+  type GitReviewWorktrees,
   type GitReviewDiff,
   type GitReviewDiffCategory,
   type GitReviewStatus,
@@ -27,6 +29,7 @@ export interface GitReviewLastTurnView {
 
 export interface GitReviewClient {
   workspace(sessionId: SessionId, signal: AbortSignal): Promise<GitReviewWorkspace>
+  worktrees(sessionId: SessionId, sourceRoot: string, signal: AbortSignal): Promise<GitReviewWorktrees>
   status(sessionId: SessionId, sourceRoot: string, signal: AbortSignal): Promise<GitReviewStatus>
   commitFiles(sessionId: SessionId, sourceRoot: string, commitId: string, signal: AbortSignal): Promise<GitReviewCommitFiles>
   lastTurn(sessionId: SessionId, sourceRoot: string, signal: AbortSignal): Promise<GitReviewLastTurnView>
@@ -56,6 +59,8 @@ export function createGitReviewClient(): GitReviewClient {
   return {
     workspace: (sessionId, signal) => request<GitReviewWorkspace>(
       `${GIT_REVIEW_WORKSPACE_PATH}?${new URLSearchParams({ sessionId })}`, signal),
+    worktrees: (sessionId, sourceRoot, signal) => request<GitReviewWorktrees>(
+      `${GIT_REVIEW_WORKTREES_PATH}?${scopeQuery(sessionId, sourceRoot)}`, signal),
     status: (sessionId, sourceRoot, signal) => request<GitReviewStatus>(
       `${GIT_REVIEW_STATUS_PATH}?${scopeQuery(sessionId, sourceRoot)}`, signal),
     commitFiles: (sessionId, sourceRoot, commitId, signal) => request<GitReviewCommitFiles>(

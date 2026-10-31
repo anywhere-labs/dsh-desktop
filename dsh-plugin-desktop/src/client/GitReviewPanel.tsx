@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { GitReviewBranch, GitReviewCommit, GitReviewCommitFiles, GitReviewDiff, GitReviewDiffCategory, GitReviewDiffFile, GitReviewFile, GitReviewLastTurnFile, GitReviewStatus, GitReviewWorkspace } from '../git-review-contract.ts'
+import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { GitReviewBranch, GitReviewCommit, GitReviewCommitFiles, GitReviewDiff, GitReviewDiffCategory, GitReviewDiffFile, GitReviewFile, GitReviewLastTurnFile, GitReviewStatus, GitReviewWorkspace, GitReviewWorktree } from '../git-review-contract.ts'
 import type { GitReviewClient, GitReviewLastTurnView } from './git-review-api.ts'
-import { addDesktopWorkspaceSource, readDesktopWorkspaceSources, updateDesktopWorkspaceSource, type WorkspaceSourcesResponse } from './workspace-sources-api.ts'
+import {
+  IconChevronDownOutlineRegular,
+  IconFolderOpenOutlineRegular,
+  IconPlusOutlineRegular,
+} from '@deepseek-ai/dsh-client-ui-primitives'
+import { addDesktopWorkspaceSource, readDesktopWorkspaceSources } from './workspace-sources-api.ts'
 import { GIT_REVIEW_LOCALE_NAMESPACE } from './git-review-locales.ts'
 import { formatGitReviewTurnDiff, gitReviewNoteKey, parseGitReviewDiffLines, readGitReviewNotes, statusFromGitReviewTurnDiff, writeGitReviewNotes, type GitReviewNotes } from './git-review-view.ts'
 
@@ -18,6 +23,12 @@ interface DiffTarget {
   readonly index?: number
   readonly commitId?: string
   readonly title: string
+}
+
+interface ReviewRootTree {
+  readonly path: string
+  readonly worktrees: readonly GitReviewWorktree[]
+  readonly error?: boolean
 }
 
 export interface GitReviewPanelInjected {
@@ -104,6 +115,69 @@ function rootLabel(root: string, primaryRoot: string, t: GitReviewPanelProps['t'
   return `${root === primaryRoot ? t('primaryRoot') : t('attachedRoot')} — ${leaf}`
 }
 
+export function GitReviewRootSelector({
+  roots,
+  activeRoot,
+  primaryRoot,
+  expandedRoots,
+  onChooseRoot,
+  onToggleRoot,
+  onRetryWorktrees,
+  t,
+}: {
+  roots: readonly ReviewRootTree[]
+  activeRoot: string
+  primaryRoot: string
+  expandedRoots: ReadonlySet<string>
+  onChooseRoot: (root: string) => void
+  onToggleRoot: (root: string) => void
+  onRetryWorktrees: () => void
+  t: TranslateNS<typeof GIT_REVIEW_LOCALE_NAMESPACE>
+}) {
+  return <nav className="dshGitReviewRootTree" aria-label={t('sourceRoot')}>
+    {roots.map(root => {
+      const expanded = expandedRoots.has(root.path)
+      const worktrees = root.worktrees.filter(worktree => worktree.path !== root.path)
+      const containsActive = activeRoot === root.path || worktrees.some(worktree => worktree.path === activeRoot)
+      return <div className="dshGitReviewRootNode" data-active={containsActive} key={root.path}>
+        <div className="dshGitReviewRootRow">
+          <button type="button" className="dshGitReviewRootSelect" aria-current={activeRoot === root.path ? 'page' : undefined}
+            title={root.path} onClick={() => onChooseRoot(root.path)}>
+            <IconFolderOpenOutlineRegular className="dshGitReviewRootIcon" aria-hidden="true" />
+            <span className="dshGitReviewRootDetails">
+              <span className="dshGitReviewRootName">{root.path.split(/[\\/]+/u).filter(Boolean).at(-1) ?? root.path}</span>
+              <span className="dshGitReviewRootPath">{root.path}</span>
+            </span>
+            <span className="dshGitReviewRootBadge">{root.path === primaryRoot ? t('primaryRoot') : t('attachedRoot')}</span>
+          </button>
+          {worktrees.length > 0 && <button type="button" className="dshGitReviewRootToggle" aria-expanded={expanded}
+            aria-label={`${expanded ? t('collapseWorktrees') : t('expandWorktrees')}: ${rootLabel(root.path, primaryRoot, t)}`}
+            onClick={() => onToggleRoot(root.path)}>
+            <IconChevronDownOutlineRegular aria-hidden="true" />
+          </button>}
+        </div>
+        {root.error === true && <div className="dshGitReviewWorktreeStatus" role="alert">
+          <span>{t('worktreesUnavailable')}</span>
+          <button type="button" className="dshGitReviewWorktreeRetry" onClick={onRetryWorktrees}>{t('retryWorktrees')}</button>
+        </div>}
+        {root.error !== true && worktrees.length === 0 && <p className="dshGitReviewWorktreeEmpty" role="status">{t('noWorktrees')}</p>}
+        {expanded && worktrees.length > 0 && <div className="dshGitReviewRootChildren">
+          {worktrees.map(worktree => <button type="button" className="dshGitReviewWorktree" key={worktree.path}
+            aria-current={activeRoot === worktree.path ? 'page' : undefined} title={worktree.path}
+            onClick={() => onChooseRoot(worktree.path)}>
+            <span className="dshGitReviewWorktreeMarker" aria-hidden="true" />
+            <span className="dshGitReviewWorktreeDetails">
+              <span className="dshGitReviewWorktreeName">{worktree.branch ?? worktree.path.split(/[\\/]+/u).filter(Boolean).at(-1) ?? worktree.path}</span>
+              <span className="dshGitReviewWorktreePath">{worktree.path}</span>
+            </span>
+            {worktree.detached && <span className="dshGitReviewRootBadge">{t('detached')}</span>}
+          </button>)}
+        </div>}
+      </div>
+    })}
+  </nav>
+}
+
 function DiffRows({
   diff, worktreePath, path, scope, notes, activeNoteKey, noteDraft, allowNotes = true,
   onAddNote, onDraftChange, onSaveNote, onCancelNote, t,
@@ -155,7 +229,10 @@ function DiffRows({
 export function GitReviewPanel({ sessionId, useSessions, client, openFile, platform, t }: GitReviewPanelProps): ReactNode {
   const sessions = useSessions(snapshot => snapshot.byId)
   const [workspace, setWorkspace] = useState<GitReviewWorkspace>()
-  const [sources, setSources] = useState<WorkspaceSourcesResponse>()
+  const [rootTrees, setRootTrees] = useState<readonly ReviewRootTree[]>([])
+  const [sourceRoots, setSourceRoots] = useState<readonly string[]>([])
+  const [treeRefreshVersion, setTreeRefreshVersion] = useState(0)
+  const [expandedRoots, setExpandedRoots] = useState<ReadonlySet<string>>(() => new Set())
   const [sourceRoot, setSourceRoot] = useState('')
   const [category, setCategory] = useState<Category>('last-turn')
   const [status, setStatus] = useState<GitReviewStatus>()
@@ -177,7 +254,11 @@ export function GitReviewPanel({ sessionId, useSessions, client, openFile, platf
   const [noteDraft, setNoteDraft] = useState('')
   const [notice, setNotice] = useState('')
   const activeRoot = sourceRoot || workspace?.path || ''
-  const roots = workspace === undefined ? [] : [workspace.path, ...(platform === 'win32' ? [] : sources?.sources ?? [])]
+  const roots = rootTrees
+  const activeRootRef = useRef(activeRoot)
+  const rootTreesRef = useRef(rootTrees)
+  activeRootRef.current = activeRoot
+  rootTreesRef.current = rootTrees
   const categories: readonly Category[] = ['last-turn', 'unstaged', 'untracked', 'staged', 'committed', 'branches']
 
   useEffect(() => {
@@ -185,20 +266,52 @@ export function GitReviewPanel({ sessionId, useSessions, client, openFile, platf
     let active = true
     setWorkspaceLoading(true)
     setWorkspace(undefined)
-    setSources(undefined)
+    setRootTrees([])
+    setSourceRoots([])
+    setExpandedRoots(new Set())
     setSourceRoot('')
     setError('')
     void client.workspace(sessionId, controller.signal).then(async nextWorkspace => {
       const nextSources = await readDesktopWorkspaceSources(nextWorkspace.path)
       if (controller.signal.aborted || !active) return
+      const rootPaths = [...new Set([nextWorkspace.path, ...(platform === 'win32' ? [] : nextSources.sources)])]
       setWorkspace(nextWorkspace)
-      setSources(nextSources)
-      setSourceRoot(nextSources.selectedRoot)
+      setSourceRoots(rootPaths)
+      setExpandedRoots(new Set([nextWorkspace.path]))
+      setSourceRoot(nextWorkspace.path)
     }).catch(cause => {
       if (!controller.signal.aborted && active) setError(cause instanceof Error ? cause.message : t('error'))
     }).finally(() => { if (!controller.signal.aborted && active) setWorkspaceLoading(false) })
     return () => { active = false; controller.abort() }
-  }, [client, refreshVersion, sessionId, t])
+  }, [client, platform, sessionId, t])
+
+  useEffect(() => {
+    if (workspace === undefined || sourceRoots.length === 0) {
+      setRootTrees([])
+      return
+    }
+    const controller = new AbortController()
+    void Promise.all(sourceRoots.map(async path => {
+      try {
+        const tree = await client.worktrees(sessionId, path, controller.signal)
+        return { path: tree.root, worktrees: tree.worktrees }
+      } catch {
+        return { path, worktrees: [], error: true }
+      }
+    })).then(nextTrees => {
+      if (controller.signal.aborted) return
+      setRootTrees(nextTrees)
+      const selectedRoot = activeRootRef.current
+      const oldParent = rootTreesRef.current.find(root => root.worktrees.some(worktree => worktree.path === selectedRoot))?.path
+      const stillAvailable = sourceRoots.includes(selectedRoot)
+        || nextTrees.some(root => root.worktrees.some(worktree => worktree.path === selectedRoot))
+      const parentLookupFailed = oldParent !== undefined && nextTrees.some(root => root.path === oldParent && root.error === true)
+      if (!stillAvailable && !parentLookupFailed) {
+        setSourceRoot(oldParent !== undefined && sourceRoots.includes(oldParent) ? oldParent : workspace.path)
+      }
+    })
+    return () => { controller.abort() }
+  }, [client, sessionId, sourceRoots, treeRefreshVersion, workspace])
 
   useEffect(() => {
     if (workspace === undefined || activeRoot.length === 0) {
@@ -235,20 +348,13 @@ export function GitReviewPanel({ sessionId, useSessions, client, openFile, platf
     if (workspace === undefined || rootBusy || root === activeRoot) return
     setRootBusy(true)
     setError('')
-    try {
-      const next = await updateDesktopWorkspaceSource('select', workspace.path, root)
-      setSources(next)
-      setSourceRoot(next.selectedRoot)
-      setCategory('last-turn')
-      setTarget(undefined)
-      setDiff(undefined)
-      setCollapsedKeys(new Set())
-      setRefreshVersion(value => value + 1)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('rootError'))
-    } finally {
-      setRootBusy(false)
-    }
+    setSourceRoot(root)
+    setCategory('last-turn')
+    setTarget(undefined)
+    setDiff(undefined)
+    setCollapsedKeys(new Set())
+    setExpandedRoots(current => new Set([...current, root]))
+    setRootBusy(false)
   }
 
   const addRoot = async (): Promise<void> => {
@@ -258,13 +364,12 @@ export function GitReviewPanel({ sessionId, useSessions, client, openFile, platf
     try {
       const next = await addDesktopWorkspaceSource(workspace.path)
       if (next.cancelled !== true) {
-        setSources(next)
+        setSourceRoots([...new Set([workspace.path, ...(platform === 'win32' ? [] : next.sources)])])
         setSourceRoot(next.selectedRoot)
         setCategory('last-turn')
         setTarget(undefined)
         setDiff(undefined)
         setCollapsedKeys(new Set())
-        setRefreshVersion(value => value + 1)
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t('rootError'))
@@ -480,14 +585,11 @@ export function GitReviewPanel({ sessionId, useSessions, client, openFile, platf
   return <main className="dshGitReview" data-desktop-git-review data-layout={layout}>
     <header className="dshGitReviewTop">
       <h1 className="dshGitReviewTitle">{t('title')}</h1>
-      <label className="sr-only" htmlFor="dsh-git-review-root">{t('sourceRoot')}</label>
-      <select id="dsh-git-review-root" className="dshGitReviewWorkspace" value={activeRoot} aria-label={t('sourceRoot')}
-        disabled={rootBusy || workspaceLoading} onChange={event => { void chooseRoot(event.currentTarget.value) }}>
-        {roots.map(root => <option key={root} value={root}>{rootLabel(root, workspace.path, t)} — {root}</option>)}
-      </select>
-      {platform !== 'win32' && <button type="button" className="dshGitReviewAction" onClick={() => { void addRoot() }} disabled={rootBusy || workspaceLoading}>{t('addRoot')}</button>}
-      {status?.repository === true && <><span className="dshGitReviewBranch" title={status.branch ?? ''}>{status.branch ?? '—'}</span>
-        {(status.ahead > 0 || status.behind > 0) && <span className="dshGitReviewBranchDelta">{status.ahead > 0 && `${t('ahead')} ${status.ahead}`}{status.ahead > 0 && status.behind > 0 ? ' · ' : ''}{status.behind > 0 && `${t('behind')} ${status.behind}`}</span>}
+      {status?.repository === true && <>
+        <span className="dshGitReviewBranch" title={status.branch ?? ''}>{status.branch ?? '—'}</span>
+        {(status.ahead > 0 || status.behind > 0) && <span className="dshGitReviewBranchDelta">
+          {status.ahead > 0 && `${t('ahead')} ${status.ahead}`}{status.ahead > 0 && status.behind > 0 ? ' · ' : ''}{status.behind > 0 && `${t('behind')} ${status.behind}`}
+        </span>}
       </>}
       <div className="dshGitReviewTotals" aria-label={`${totals.count} ${countLabel}`}>
         <span>{totals.count} {countLabel}</span>{isFileCategory && <><span className="dshGitReviewAdd">+{totals.additions}</span><span className="dshGitReviewDel">−{totals.deletions}</span></>}
@@ -499,6 +601,34 @@ export function GitReviewPanel({ sessionId, useSessions, client, openFile, platf
       </select>
     </header>
 
+    {workspaceLoading && <p className="dshGitReviewRootLoading" role="status">{t('loading')}</p>}
+    {workspace !== undefined && <section className="dshGitReviewSources" aria-labelledby="dsh-git-review-sources-title">
+      <div className="dshGitReviewSourcesHeader">
+        <div className="dshGitReviewSourcesHeading">
+          <h2 id="dsh-git-review-sources-title" className="dshGitReviewSourcesTitle">{t('sourceRoot')}</h2>
+          <span className="dshGitReviewSourcesPath" title={activeRoot}>{activeRoot}</span>
+        </div>
+        {platform !== 'win32' && <button type="button" className="dshGitReviewAddRoot" onClick={() => { void addRoot() }} disabled={rootBusy || workspaceLoading}>
+          <IconPlusOutlineRegular aria-hidden="true" />{t('addRoot')}
+        </button>}
+      </div>
+      <GitReviewRootSelector
+        roots={roots}
+        activeRoot={activeRoot}
+        primaryRoot={workspace.path}
+        expandedRoots={expandedRoots}
+        onChooseRoot={root => { void chooseRoot(root) }}
+        onToggleRoot={root => setExpandedRoots(current => {
+          const next = new Set(current)
+          if (next.has(root)) next.delete(root)
+          else next.add(root)
+          return next
+        })}
+        onRetryWorktrees={() => setTreeRefreshVersion(value => value + 1)}
+        t={t}
+      />
+    </section>}
+
     <div className="dshGitReviewToolbar">
       <label className="sr-only" htmlFor="dsh-git-review-category">{t('category')}</label>
       <select id="dsh-git-review-category" className="dshGitReviewScope" value={category} aria-label={t('category')} onChange={event => selectCategory(event.currentTarget.value as Category)}>
@@ -506,7 +636,7 @@ export function GitReviewPanel({ sessionId, useSessions, client, openFile, platf
       </select>
       <span className="dshGitReviewTopSpacer" />
       <button type="button" className="dshGitReviewAction" onClick={toggleAllFiles} disabled={!isFileCategory || files.length === 0}>{allFilesCollapsed ? t('expandAll') : t('collapseAll')}</button>
-      <button type="button" className="dshGitReviewAction" onClick={() => { setRefreshVersion(value => value + 1); setError('') }}>{t('refresh')}</button>
+      <button type="button" className="dshGitReviewAction" onClick={() => { setRefreshVersion(value => value + 1); setTreeRefreshVersion(value => value + 1); setError('') }}>{t('refresh')}</button>
       <button type="button" className="dshGitReviewAction" onClick={() => { void doCopy() }} disabled={diff === undefined || diffLoading}>{t('copyAll')}</button>
     </div>
     {category === 'last-turn' && turnInfo.length > 0 && <div className="dshGitReviewMeta"><strong>{t('lastTurn')}</strong><span>{turnInfo}</span><span>{new Date(lastTurn?.time ?? 0).toLocaleString()}</span></div>}
