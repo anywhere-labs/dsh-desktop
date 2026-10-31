@@ -27,6 +27,8 @@
     "koffi@npm:^3.1.0": "3.1.1",
     "node-pty@npm:1.2.0-beta.15": "patch:node-pty@npm%3A1.2.0-beta.15#./patches/node-pty@1.2.0-beta.15.patch",
     "@earendil-works/pi-ai@npm:^1.1.0": "patch:@earendil-works/pi-ai@npm%3A1.1.0#./patches/pi-ai@1.1.0.patch",
+    "@earendil-works/pi-ai@npm:^1.3.0": "patch:@earendil-works/pi-ai@npm%3A1.4.0#./patches/pi-ai@1.4.0.patch",
+    "@earendil-works/pi-ai@npm:1.4.0": "patch:@earendil-works/pi-ai@npm%3A1.4.0#./patches/pi-ai@1.4.0.patch",
     "@earendil-works/pi-telemetry@npm:^1.1.0": "1.1.0",
     "@vscode/ripgrep@npm:1.18.0": "patch:@vscode/ripgrep@npm%3A1.18.0#./patches/vscode-ripgrep@1.18.0.patch",
     "@vscode/ripgrep@npm:^1.18.0": "patch:@vscode/ripgrep@npm%3A1.18.0#./patches/vscode-ripgrep@1.18.0.patch",
