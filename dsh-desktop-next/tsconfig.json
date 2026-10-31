@@ -18,9 +18,11 @@
     ],
     // next-lead:start
     // Shared Desktop sources under ../dsh-plugin-desktop resolve their imports from Stable's
-    // node_modules, which stays on an older DSH runtime. Type them against this package's
-    // runtime, which the bundles load, so two DSH releases never augment the same Cordis types.
+    // node_modules, whose DSH runtime line can differ from this package's. Type them against
+    // this package's runtime, which the bundles load, so exactly one Cordis copy — and the one
+    // settings augmentation landing on its Context — is present in this program.
     "paths": {
+      "@deepseek-ai/cordis": ["./node_modules/@deepseek-ai/cordis/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-app-boot": ["./node_modules/@deepseek-ai/dsh-app-boot/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-atomic-write": ["./node_modules/@deepseek-ai/dsh-atomic-write/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-client-ui-primitives": ["./node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/types/index.d.ts"],
