@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { initProfile, loadOverlayPatches, loadProfileDirectory, readProfilePatches, sanitizeProfile, type Profile, type ProfileContext } from '@deepseek-ai/dsh-app-boot'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
-import { atomicJson, atomicText, readPrivateFile } from './private-files.ts'
+import { atomicJson, atomicText, readPrivateFile, removePrivateFileBom } from './private-files.ts'
 import { NextRecovery } from './recovery.ts'
 import { DEFAULT_PROFILE } from './desktop-contract.ts'
 import { computerUsePatch } from './profile-computer-use.ts'
@@ -119,6 +119,7 @@ export class NextProfiles {
     const existing = existsSync(join(dir, 'package.json'))
     if (!existing) initProfile(dir, WEB_BUNDLES)
     if (existing) {
+      removePrivateFileBom(join(dir, 'package.json'))
       const manifest = this.manifest(name)
       if (manifest.dsh.profile.bundles.includes('dsh-plugin-desktop-beta')) {
         // Retire the former Next-specific selection from the shared manifest.
@@ -261,6 +262,7 @@ export class NextProfiles {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     return withFileLock(join(dir, 'lock'), async () => {
       const backup = new NextRecovery(this).backup(name, 'before-profile-repair')
+      removePrivateFileBom(join(dir, 'package.json'))
       // Upstream repairs only a manifest it can update; the original bytes of a replaced one are in the backup.
       const replacement = manifestForRepair(name, readPrivateFile(join(dir, 'package.json')))
       if (replacement !== undefined) atomicJson(join(dir, 'package.json'), replacement)

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -142,4 +143,19 @@ it('derives disabled bundles directly from dependencies outside profile.bundles'
   delete removed.dependencies['my-plugin']
   writeFileSync(path, JSON.stringify(removed))
   expect(recovery.bundles('desktop').some(item => item.packageName === 'my-plugin')).toBe(false)
+})
+it('restores a backup that hashed the BOM it kept before reads dropped one', async () => {
+  const { directory, recovery } = fixture()
+  const path = join(directory, 'package.json')
+  const original = readFileSync(path, 'utf8')
+  recovery.checkpoint('desktop')
+  const checkpoint = recovery.checkpoints('desktop')[0]!
+  const snapshotPath = join(checkpoint.directory, 'snapshot.json')
+  const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8'))
+  writeFileSync(join(checkpoint.directory, 'package.json'), `\uFEFF${original}`)
+  snapshot.files['package.json'].sha256 = createHash('sha256').update(`\uFEFF${original}`).digest('hex')
+  writeFileSync(snapshotPath, JSON.stringify(snapshot))
+  writeFileSync(path, '{}')
+  await recovery.restore('desktop', checkpoint.id)
+  expect(readFileSync(path, 'utf8')).toBe(original)
 })
