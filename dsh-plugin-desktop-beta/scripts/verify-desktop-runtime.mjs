@@ -74,6 +74,23 @@ try {
   const authenticated = await fetch(new URL(first.url).origin, { headers: { cookie: browserCookie } })
   assert.equal(authenticated.status, 200, 'The issued cookie authenticates the clean URL after the redirect')
   await authenticated.body?.cancel()
+  // A browser holding the sessions of many former Hosts still gets in and sheds all but the newest.
+  const formerSessions = Array.from({ length: 100 }, (_, index) => {
+    const issuedAt = Date.now() - (index + 1) * 60_000
+    const payload = Buffer.from(JSON.stringify({ version: 1, authority: `127.0.0.1:${String(20_000 + index)}`, issuedAt, expiresAt: issuedAt + 86_400_000 })).toString('base64url')
+    return `dsh-auth-${String(20_000 + index)}=v1.${payload}.${'s'.repeat(43)}`
+  })
+  assert.ok(formerSessions.join('; ').length > 16 * 1024, 'The fixture exceeds Node\'s default header limit')
+  const crowdedLogin = await fetch(runtime.resolveBrowserLink(links.localUrl), { redirect: 'manual', headers: { cookie: formerSessions.join('; ') } })
+  assert.equal(crowdedLogin.status, 303, 'A crowded browser still exchanges the login token')
+  assert.ok(crowdedLogin.headers.getSetCookie().some(cookie => cookie.startsWith(`${browserCookie.slice(0, browserCookie.indexOf('='))}=v`)), 'The exchange still issues the session')
+  await crowdedLogin.body?.cancel()
+  const crowded = await fetch(new URL(first.url).origin, { headers: { cookie: [...formerSessions, browserCookie].join('; ') } })
+  assert.equal(crowded.status, 200, 'A crowded browser still reaches the clean URL')
+  await crowded.body?.cancel()
+  const expiries = crowded.headers.getSetCookie()
+  assert.equal(expiries.length, 85, 'Only the newest 16 of 101 sessions remain')
+  assert.ok(expiries.every(cookie => formerSessions.some(session => cookie === `${session.slice(0, session.indexOf('='))}=; Max-Age=0; Path=/`)), 'Only former sessions expire')
   const browserStream = await upgrade(new URL(first.url).origin, { cookie: first.cookie }, true)
   const browserClosed = new Promise(resolve => browserStream.once('close', resolve))
   await runtime.applyPreferences({ ...runtime.preferences, browserAccess: false, networkExposure: 'loopback' })
@@ -149,7 +166,7 @@ try {
   const auth = runtime.auth
   await runtime.close()
   await assert.rejects(fetch(new URL(auth.url).origin))
-  console.log('Next Desktop runtime passed: native-only HTTP/WebSocket gate, hot browser enable/disable with existing browser-stream revocation and native-stream preservation, per-Host credentials, corrupt-manifest recovery, isolated safe mode, separate global repair, and full process shutdown.')
+  console.log('Next Desktop runtime passed: native-only HTTP/WebSocket gate, hot browser enable/disable with existing browser-stream revocation and native-stream preservation, per-Host credentials, bounded browser sessions, corrupt-manifest recovery, isolated safe mode, separate global repair, and full process shutdown.')
 } finally {
   await runtime.close()
   rmSync(home, { recursive: true, force: true })
