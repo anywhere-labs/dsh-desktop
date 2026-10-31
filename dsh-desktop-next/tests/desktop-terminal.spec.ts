@@ -149,6 +149,8 @@ describe('desktop terminal environment', () => {
     expect(pnpmShim).toContain("npm_config_disturl='https://electronjs.org/headers'")
     expect(pnpmShim.match(/--config\.minimumReleaseAge=0/gu)).toHaveLength(1)
     expect(pnpmShim).toContain('--config.minimumReleaseAge=0 "$@"')
+    expect(pnpmShim.match(/--config\.updateNotifier=false/gu)).toHaveLength(1)
+    expect(pnpmShim).toContain("pnpm.mjs' --config.updateNotifier=false --config.minimumReleaseAge=0 \"$@\"")
     const nodeShim = readFileSync(launch.nodeShimPath, 'utf8')
     expect(nodeShim).toBe([
       '#!/bin/sh',
@@ -237,6 +239,8 @@ describe('desktop terminal environment', () => {
     expect(pnpmShim).toContain('set "npm_config_disturl=https://electronjs.org/headers"')
     expect(pnpmShim.match(/--config\.minimumReleaseAge=0/gu)).toHaveLength(1)
     expect(pnpmShim).toContain('--config.minimumReleaseAge=0 %*')
+    expect(pnpmShim.match(/--config\.updateNotifier=false/gu)).toHaveLength(1)
+    expect(pnpmShim).toContain('"%DSH_DESKTOP_PNPM_ENTRY%" --config.updateNotifier=false --config.minimumReleaseAge=0 %*')
     expect(readFileSync(launch.nodeShimPath, 'utf8')).toContain(
       '"%DSH_DESKTOP_APP_EXECUTABLE%" %*',
     )

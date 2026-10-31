@@ -21,6 +21,7 @@ import {
   FORBIDDEN_MACOS_UNIVERSAL_ENTRIES,
   MACOS_UNIVERSAL_NATIVE_ENTRIES,
 } from './mac-universal.ts'
+import { expectedDesktopVersion, verifyDesktopRuntimeTree } from './prepare-runtime.ts'
 
 /** Resolve a package root even when its exports hide `package.json`. */
 export function resolveRuntimePackageRoot(
@@ -96,6 +97,7 @@ export const ALLOWED_SMART_UNPACK_PACKAGE_PREFIXES = [
   'node_modules/@img/sharp-',
   'node_modules/@koromix/koffi-',
   'node_modules/@vscode/ripgrep-',
+  'node_modules/meshcall-router-',
   'node_modules/node-addon-require-builtin-',
 ] as const
 
@@ -881,6 +883,23 @@ export function verifyPackagedAgentsAnywhere(
 }
 
 /**
+ * Check the interpreter payloads Electron Builder copied beside the application as extra resources:
+ * every CPU this platform ships declares the platform, CPU and product version with Node, pnpm and
+ * the Office resources.
+ * @param context - Electron Builder's afterPack or afterAllArtifactBuild context.
+ * @returns The verified payload CPUs.
+ */
+export function verifyPackagedPrimaryRuntime(context: PackagedRuntimeContext): string[] {
+  const resources = dirname(resolvePackagedApplicationRoot(context))
+  const projectDir = context.packager.projectDir ?? join(dirname(fileURLToPath(import.meta.url)), '..')
+  const runtimes = verifyDesktopRuntimeTree(join(resources, 'runtime'), context.electronPlatformName as NodeJS.Platform, expectedDesktopVersion(projectDir))
+  for (const runtime of runtimes) {
+    console.log(`Verified the ${runtime.arch} primary runtime: Python ${runtime.manifest.python}, Node ${String(runtime.manifest.node)}, pnpm ${String(runtime.manifest.pnpm)}`)
+  }
+  return runtimes.map(runtime => runtime.arch)
+}
+
+/**
  * Run the static packaged-runtime check as Electron Builder's afterPack hook.
  * @param context - Electron Builder's afterPack context.
  * @returns A promise that rejects before signing when the runtime is incomplete.
@@ -890,9 +909,11 @@ export async function afterPack(
   verify: typeof verifyPackagedRuntime = verifyPackagedRuntime,
   report: (summary: UnpackedRuntimeSummary) => void = reportUnpackedRuntime,
   verifyAa: typeof verifyPackagedAgentsAnywhere = verifyPackagedAgentsAnywhere,
+  verifyRuntime: typeof verifyPackagedPrimaryRuntime = verifyPackagedPrimaryRuntime,
 ): Promise<void> {
   const summary = verify(context)
   verifyAa(context)
+  verifyRuntime(context)
   report(summary)
 }
 

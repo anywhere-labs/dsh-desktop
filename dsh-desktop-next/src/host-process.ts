@@ -1,11 +1,15 @@
 /** Electron Node-mode child lifecycle for the shared Web application. */
 
+import type { LogInput } from './log-record.ts'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import { desktopNodeEnvironment } from './node-environment.ts'
 import type { DesktopNotification } from './desktop-contract.ts'
+import { exitSummary } from './exit-code.ts'
+import { isHostMemoryUsage, type HostMemoryUsage, type MemoryHostExit } from './memory-monitor.ts'
 import { isDesktopNotification } from './notifications.ts'
 import type { DesktopPermission, DesktopPermissionAction, DesktopPermissionSnapshot } from './permissions.ts'
+import { isOperationEvidence } from './upstream-family.ts'
 
 interface ReadyEvent {
   readonly type: 'ready'
@@ -16,7 +20,7 @@ interface ReadyEvent {
 interface FatalEvent {
   readonly type: 'fatal'
   readonly message: string
-  /** The Host's complete inspected error: stack, enumerable properties, cause chain. */
+  /** The Host's inspected error (stack, enumerable properties, cause chain) and startup metadata, at most 64 Ki characters. */
   readonly diagnostic?: string
 }
 
@@ -63,7 +67,7 @@ interface InjectionsEvent {
   readonly error?: string
 }
 
-type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
+type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
   readonly type: 'update-tasks'
   readonly requestId: number
   readonly active: boolean
@@ -71,6 +75,8 @@ type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | Platfor
 }
 
 const MAX_HOST_DIAGNOSTIC_CHARS = 64 * 1024
+/** The stderr tail an exit failure carries; the complete lines remain in the Host output log. */
+const MAX_EXIT_OUTPUT_CHARS = 4 * 1024
 
 function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
   if (typeof message !== 'object' || message === null || !('type' in message)) return false
@@ -78,6 +84,8 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
   switch (candidate.type) {
     case 'shutdown-complete':
       return true
+    case 'memory':
+      return isHostMemoryUsage(candidate)
     case 'ready':
       return typeof candidate.url === 'string'
     case 'platform-session': {
@@ -112,6 +120,7 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
     case 'update-tasks':
       return Number.isSafeInteger(candidate.requestId) && typeof candidate.active === 'boolean'
         && (candidate.error === undefined || typeof candidate.error === 'string')
+    case 'logging-config':
     case 'browser-access':
       return Number.isSafeInteger(candidate.requestId) && (candidate.error === undefined || typeof candidate.error === 'string')
     case 'injections':
@@ -166,6 +175,43 @@ export class DesktopHostFatalError extends Error {
   get diagnostic(): string | undefined { return this.#diagnostic }
 }
 
+/**
+ * The Host process ended. `output` is its last stderr text, which is labelled as possibly unrelated:
+ * plugins print freely, so the final lines rarely name the cause of a native crash.
+ */
+export class DesktopHostExitError extends Error {
+  /**
+   * @param exitCode - The process exit code; Windows exception codes arrive as unsigned values.
+   * @param signal - The signal that terminated the process, if any.
+   * @param output - The last stderr text, at most a few kilobytes and starting at a line boundary when possible.
+   */
+  constructor(readonly exitCode: number | null, readonly signal: NodeJS.Signals | null, readonly output: string) {
+    super(`dsh desktop host ${exitSummary({ code: exitCode, signal })}${output === '' ? '' : `\nLast Host stderr (may be unrelated to the exit):\n${output}`}`)
+  }
+}
+
+/** Main-process observers of Host facts that are not failures. Observers must not throw. */
+export interface DesktopHostObserver {
+  /** A periodic memory reading the Host pushed over IPC. */
+  memory?(usage: HostMemoryUsage, pid: number | undefined): void
+  /** The process ended; reported before any failure it causes. */
+  exited?(exit: MemoryHostExit, pid: number | undefined): void
+  /**
+   * Plugin operation evidence the Host pushed over IPC: its run announcement and its records. Without
+   * this observer, a Desktop whose DSH release reports plugin operations drops the evidence.
+   * @returns Whether the message was such evidence; other messages go on to the Host's own events.
+   */
+  operation?(message: unknown): boolean
+}
+
+function exitOutput(stderr: string): string {
+  const text = stderr.trim()
+  if (text.length <= MAX_EXIT_OUTPUT_CHARS) return text
+  const tail = text.slice(-MAX_EXIT_OUTPUT_CHARS)
+  const line = tail.indexOf('\n')
+  return line === -1 ? tail : tail.slice(line + 1)
+}
+
 /** One Web backend running under the Electron executable in Node mode. */
 export class DesktopHostProcess {
   private child: ChildProcess | undefined
@@ -183,6 +229,7 @@ export class DesktopHostProcess {
   private nextControlId = 1
   private readonly taskQueries = new Map<number, { resolve: (active: boolean) => void; reject: (error: Error) => void }>()
   private readonly accessRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
+  private readonly loggingRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private readonly injectionRequests = new Map<number, { resolve: (injections: readonly unknown[]) => void; reject: (error: Error) => void }>()
 
   /**
@@ -197,6 +244,7 @@ export class DesktopHostProcess {
    * @param packageManager - Bundled pnpm entry and Node launcher directory, scoped to package operations.
    * @param onPlatformSession - Private credential updates for embedded Platform views.
    * @param onPlatformLogin - Opens a sign-in attempt's authorization page, or settles an ended attempt.
+   * @param observer - Memory pushes and process exits for the Desktop's memory evidence.
    */
   constructor(
     private readonly node: string,
@@ -210,11 +258,13 @@ export class DesktopHostProcess {
     private readonly hostEntry?: string,
     private readonly onRestart?: () => void,
     private readonly onNotification?: (notification: DesktopNotification) => void,
-    private readonly onLog?: (chunk: string) => void,
+    private readonly onLog?: (chunk: string, stream?: string, pid?: number) => void,
     private readonly onTerminal?: () => void,
     private readonly onPermission?: (action: DesktopPermissionAction, permission: DesktopPermission) => Promise<DesktopPermissionSnapshot>,
     private readonly onPlatformSession?: (session: PlatformSession | null) => void,
     private readonly onPlatformLogin?: (request: DesktopPlatformLoginRequest) => void,
+    private readonly onDiagnostic?: (input: LogInput) => void,
+    private readonly observer?: DesktopHostObserver,
   ) {}
 
   /**
@@ -238,17 +288,26 @@ export class DesktopHostProcess {
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     })
     this.child = child
+    this.diagnostic({ source: 'host.process', event: 'spawn', pid: child.pid })
     child.stderr?.setEncoding('utf8')
-    child.stderr?.on('data', (chunk: string) => { this.stderr = (this.stderr + chunk).slice(-MAX_HOST_DIAGNOSTIC_CHARS); this.onLog?.(chunk) })
+    child.stderr?.on('data', (chunk: string) => { this.stderr = (this.stderr + chunk).slice(-MAX_HOST_DIAGNOSTIC_CHARS); this.onLog?.(chunk, 'stderr', child.pid) })
     child.stdout?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => { this.onLog?.(chunk) })
+    child.stdout?.on('data', (chunk: string) => { this.onLog?.(chunk, 'stdout', child.pid) })
     child.stdout?.pipe(process.stdout)
     child.on('message', (message: unknown) => {
+      // Like memory readings, operation evidence is observational and never reaches control handling.
+      try { if ((this.observer?.operation ?? isOperationEvidence)?.(message) === true) return } catch { /* A failing observer leaves the message to the events below. */ }
       if (!isDesktopHostEvent(message)) {
         this.fail(new Error('dsh desktop host sent an invalid IPC event'))
         child.kill('SIGTERM')
         return
       }
+      if (message.type === 'memory') {
+        // Periodic evidence, not control traffic: it neither appears in the IPC log nor touches readiness.
+        try { this.observer?.memory?.(message, child.pid) } catch { /* Observational only. */ }
+        return
+      }
+      this.diagnostic({ source: 'host.ipc', event: 'received', developer: true, pid: child.pid, fields: { type: message.type, ...('requestId' in message ? { requestId: message.requestId } : {}) } })
       if (message.type === 'ready') this.readyResolve({ url: message.url, injections: message.injections })
       else if (message.type === 'platform-session') this.onPlatformSession?.(message.session)
       else if (message.type === 'platform-login') {
@@ -279,6 +338,11 @@ export class DesktopHostProcess {
           else this.onTerminal?.()
         }
       }
+      else if (message.type === 'logging-config') {
+        const request = this.loggingRequests.get(message.requestId)
+        if (message.error === undefined) request?.resolve()
+        else request?.reject(new Error(message.error))
+      }
       else if (message.type === 'browser-access') {
         const request = this.accessRequests.get(message.requestId)
         if (message.error === undefined) request?.resolve()
@@ -297,14 +361,45 @@ export class DesktopHostProcess {
     })
     child.once('error', (error) => { this.fail(error) })
     this.exitPromise = new Promise<void>((resolve) => {
-      child.once('close', (code) => {
-        const suffix = this.stderr.trim() === '' ? '' : `: ${this.stderr.trim()}`
-        if (code !== 0 && code !== null) this.fail(new Error(`dsh desktop host exited with ${String(code)}${suffix}`))
-        else this.fail(new Error(`dsh desktop host stopped${suffix}`))
+      child.once('close', (code, signal) => {
+        this.diagnostic({ source: 'host.process', event: 'exit', pid: child.pid, level: this.stopping && code === 0 ? 'info' : 'error', fields: { exitCode: code, signal, expected: this.stopping, acknowledged: this.shutdownCompleted } })
+        try { this.observer?.exited?.({ code, signal, expected: this.stopping }, child.pid) } catch { /* Observational only. */ }
+        this.fail(new DesktopHostExitError(code, signal, exitOutput(this.stderr)))
         resolve()
       })
     })
     return this.readyPromise
+  }
+
+  private diagnostic(input: LogInput): void { try { this.onDiagnostic?.(input) } catch { /* Observational only. */ } }
+
+  private controlOperation(type: string, requestId: number): (error?: unknown) => void {
+    const started = Date.now()
+    const pid = this.child?.pid
+    const operationId = `host-${pid ?? 0}-control-${requestId}`
+    this.diagnostic({ source: 'host.ipc', event: 'control.start', operationId, pid, developer: true, fields: { type, requestId } })
+    let finished = false
+    return error => {
+      if (finished) return
+      finished = true
+      this.diagnostic({ source: 'host.ipc', event: error === undefined ? 'control.complete' : 'control.failed', operationId, pid,
+        developer: error === undefined, level: error === undefined ? 'info' : 'error', error, fields: { type, requestId, durationMs: Date.now() - started } })
+    }
+  }
+
+  async setLogging(value: { developerLogging: boolean; logLevel: string }): Promise<void> {
+    const child = this.child
+    if (!child?.connected || this.stopping || this.failureReported) throw new Error('Next Host is unavailable')
+    const requestId = this.nextControlId++
+    const end = this.controlOperation('logging-config', requestId)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await new Promise<void>((resolve, reject) => {
+        this.loggingRequests.set(requestId, { resolve, reject })
+        timer = setTimeout(() => reject(new Error('Host logging configuration timed out')), 10_000)
+        child.send({ type: 'logging-config', requestId, ...value }, error => { if (error) reject(error) })
+      }).catch(error => { end(error); throw error })
+    } finally { end(); clearTimeout(timer); this.loggingRequests.delete(requestId) }
   }
 
   /** Acknowledge the live request gate before publishing browser access as enabled. */
@@ -312,14 +407,15 @@ export class DesktopHostProcess {
     const child = this.child
     if (!child?.connected || this.stopping || this.failureReported) throw new Error('Next Host is unavailable')
     const requestId = this.nextControlId++
+    const end = this.controlOperation('browser-access', requestId)
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       await new Promise<void>((resolve, reject) => {
         this.accessRequests.set(requestId, { resolve, reject })
         timer = setTimeout(() => reject(new Error('Browser access change timed out')), 5_000)
         child.send({ type: 'browser-access', requestId, enabled }, error => { if (error) reject(error) })
-      })
-    } finally { clearTimeout(timer); this.accessRequests.delete(requestId) }
+      }).catch(error => { end(error); throw error })
+    } finally { end(); clearTimeout(timer); this.accessRequests.delete(requestId) }
   }
 
   /**
@@ -332,14 +428,15 @@ export class DesktopHostProcess {
     const child = this.child
     if (!child?.connected || this.stopping || this.failureReported) throw new Error('Next Host is unavailable')
     const requestId = this.nextControlId++
+    const end = this.controlOperation('injections', requestId)
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       return await new Promise<readonly unknown[]>((resolve, reject) => {
         this.injectionRequests.set(requestId, { resolve, reject })
         timer = setTimeout(() => { reject(new Error('Web boot injection collection timed out')) }, 10_000)
         child.send({ type: 'injections', requestId }, error => { if (error !== null) reject(error) })
-      })
-    } finally { clearTimeout(timer); this.injectionRequests.delete(requestId) }
+      }).catch(error => { end(error); throw error })
+    } finally { end(); clearTimeout(timer); this.injectionRequests.delete(requestId) }
   }
 
   /**
@@ -354,14 +451,15 @@ export class DesktopHostProcess {
       throw new Error('desktop update: Host is unavailable')
     }
     const requestId = this.nextControlId++
+    const end = this.controlOperation('update-tasks', requestId)
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       return await new Promise<boolean>((resolve, reject) => {
         this.taskQueries.set(requestId, { resolve, reject })
         timer = setTimeout(() => { reject(new Error('desktop update: task inspection timed out')) }, 10_000)
         child.send({ type: 'update-tasks', requestId, action }, (error) => { if (error !== null) reject(error) })
-      })
-    } finally {
+      }).catch(error => { end(error); throw error })
+    } finally { end();
       clearTimeout(timer)
       this.taskQueries.delete(requestId)
     }
@@ -377,14 +475,17 @@ export class DesktopHostProcess {
     const child = this.child
     if (child === undefined) return
     this.stopping = true
+    this.diagnostic({ source: 'host.process', event: 'shutdown.request', pid: child.pid })
     this.onPlatformSession?.(null)
     if (child.connected) child.send({ type: 'shutdown' }, (error) => { if (error !== null) this.fail(error) })
     const exited = this.exitPromise ?? Promise.resolve()
-    const graceful = await exitsWithin(exited, 10_000)
-    if (!graceful) child.kill('SIGTERM')
-    if (!await exitsWithin(exited, 5_000)) {
+    const graceful = await exitsWithin(exited, requireGraceful ? 10_000 : 3_000)
+    const signalTimeoutMs = requireGraceful ? 5_000 : 750
+    if (!graceful) { this.diagnostic({ source: 'host.process', event: 'shutdown.escalate', level: 'warn', pid: child.pid, fields: { signal: 'SIGTERM' } }); child.kill('SIGTERM') }
+    if (!await exitsWithin(exited, signalTimeoutMs)) {
+      this.diagnostic({ source: 'host.process', event: 'shutdown.escalate', level: 'warn', pid: child.pid, fields: { signal: 'SIGKILL' } })
       child.kill('SIGKILL')
-      if (!await exitsWithin(exited, 5_000)) {
+      if (!await exitsWithin(exited, signalTimeoutMs)) {
         throw new Error('dsh desktop host did not exit after SIGKILL')
       }
     }
@@ -402,6 +503,8 @@ export class DesktopHostProcess {
     this.taskQueries.clear()
     for (const request of this.accessRequests.values()) request.reject(error)
     this.accessRequests.clear()
+    for (const request of this.loggingRequests.values()) request.reject(error)
+    this.loggingRequests.clear()
     for (const request of this.injectionRequests.values()) request.reject(error)
     this.injectionRequests.clear()
     if (!this.failureReported && !this.stopping) {

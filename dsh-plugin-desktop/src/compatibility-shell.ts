@@ -20,6 +20,14 @@ export class CompatibilityShell {
   readonly chromeView: WebContentsView
   private expanded = false
   private readonly chrome: WebContents
+  /**
+   * The page, held from construction like `chrome`. Electron clears
+   * `WebContentsView.webContents` to `undefined` once that page is destroyed,
+   * which can happen before dispose() — exhausted renderer recovery shows the
+   * window right after the page went away — while this reference keeps
+   * answering `isDestroyed()`.
+   */
+  private readonly page: WebContents
   private contentBounds: Electron.Rectangle | undefined
   private chromeBounds: Electron.Rectangle | undefined
 
@@ -45,6 +53,7 @@ export class CompatibilityShell {
       sandbox: true,
       webSecurity: true,
     } })
+    this.page = this.content.webContents
     // Let the native window material show through the extended sidebar.
     // CSS transparency alone cannot cross an opaque WebContentsView surface.
     if (spec.mode === 'extended' && spec.material !== 'off') {
@@ -77,7 +86,7 @@ export class CompatibilityShell {
     this.resize()
   }
 
-  get webContents(): WebContents { return this.content.webContents }
+  get webContents(): WebContents { return this.page }
   get chromeWebContents(): WebContents { return this.chrome }
 
   async load(): Promise<void> {
@@ -147,7 +156,7 @@ export class CompatibilityShell {
     if (this.disposed || this.window.isDestroyed() || this.window.isMinimized()) return
     this.resize()
     if (!this.chrome.isDestroyed()) this.chrome.invalidate()
-    if (!this.content.webContents.isDestroyed()) this.content.webContents.invalidate()
+    if (!this.page.isDestroyed()) this.page.invalidate()
   }
 
   private readonly preventNavigation = (event: Electron.Event): void => { event.preventDefault() }
@@ -205,7 +214,7 @@ export class CompatibilityShell {
       this.window.contentView.removeChildView(this.chromeView)
     }
     if (!this.chrome.isDestroyed()) this.chrome.close({ waitForBeforeUnload: false })
-    if (!this.webContents.isDestroyed()) this.webContents.close({ waitForBeforeUnload: false })
+    if (!this.page.isDestroyed()) this.page.close({ waitForBeforeUnload: false })
   }
 }
 

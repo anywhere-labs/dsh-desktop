@@ -3,6 +3,7 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/clie
 import {
   DESKTOP_OPEN_WORKSPACE_GLOBAL,
   DESKTOP_PENDING_WORKSPACE_GLOBAL,
+  desktopOpenWorkspaceScript,
 } from '../src/launch-workspace-contract.ts'
 import {
   installDesktopLaunchWorkspaceBridge,
@@ -10,6 +11,11 @@ import {
   type DesktopLaunchWorkspaceTarget,
   type DesktopLaunchWorkspaceWindow,
 } from '../src/client/launch-workspace.ts'
+
+/** Evaluate the delivery script against one stand-in page object. */
+function runOpenWorkspaceScript(path: string, page: Record<string, unknown>): unknown {
+  return new Function('window', `return ${desktopOpenWorkspaceScript(path)}`)(page) as unknown
+}
 
 /** Build a target whose every seam is observable and individually overridable. */
 function target(overrides: Partial<DesktopLaunchWorkspaceTarget> = {}): {
@@ -30,6 +36,45 @@ function target(overrides: Partial<DesktopLaunchWorkspaceTarget> = {}): {
   }
   return { target: { ...base, ...overrides }, order, errors }
 }
+
+describe('Desktop open workspace script', () => {
+  it('names both page seams', () => {
+    expect(DESKTOP_OPEN_WORKSPACE_GLOBAL).toBe('__DSH_DESKTOP_OPEN_WORKSPACE__')
+    expect(DESKTOP_PENDING_WORKSPACE_GLOBAL).toBe('__DSH_DESKTOP_PENDING_WORKSPACE__')
+    const source = desktopOpenWorkspaceScript('C:\\Work')
+    expect(source).toContain(DESKTOP_OPEN_WORKSPACE_GLOBAL)
+    expect(source).toContain(DESKTOP_PENDING_WORKSPACE_GLOBAL)
+  })
+
+  it('calls the installed seam and reports the delivery', () => {
+    const taken: string[] = []
+    const page = { [DESKTOP_OPEN_WORKSPACE_GLOBAL]: (path: string) => { taken.push(path) } }
+    expect(runOpenWorkspaceScript('C:\\Work\\repo', page)).toBe('delivered')
+    expect(taken).toEqual(['C:\\Work\\repo'])
+    expect(page).not.toHaveProperty(DESKTOP_PENDING_WORKSPACE_GLOBAL)
+  })
+
+  it('parks the folder when the seam is not installed yet', () => {
+    const page: Record<string, unknown> = {}
+    expect(runOpenWorkspaceScript('/home/anna/work', page)).toBe('pending')
+    expect(page[DESKTOP_PENDING_WORKSPACE_GLOBAL]).toBe('/home/anna/work')
+  })
+
+  it('encodes every path through JSON so nothing can escape the string', () => {
+    for (const path of [
+      'C:\\Work\\repo',
+      'C:\\a"quote\\repo',
+      "/home/anna/it's here",
+      '/home/anna/line\nbreak',
+      '/home/anna/</script><script>x=1</script>',
+      '/home/anna/back\\slash',
+    ]) {
+      const page: Record<string, unknown> = {}
+      expect(runOpenWorkspaceScript(path, page)).toBe('pending')
+      expect(page[DESKTOP_PENDING_WORKSPACE_GLOBAL]).toBe(path)
+    }
+  })
+})
 
 describe('Desktop launch workspace client bridge', () => {
   it('registers and opens one folder in order', async () => {

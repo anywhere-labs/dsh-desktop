@@ -1,5 +1,7 @@
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { describe, expect, it } from 'vitest'
+import { electronBuilderEnvironment } from '../scripts/electron-builder-environment.ts'
+import { serializeHostEnvironment } from '../src/host-launch-environment.ts'
 import { withDesktopDshHome } from '../src/launch-environment.ts'
 
 describe('Desktop DSH home launch environment', () => {
@@ -40,5 +42,38 @@ describe('Desktop DSH home launch environment', () => {
     expect(launch.getFrom('VALUE', ['project-env'])).toEqual(environment.getFrom('VALUE', ['project-env']))
     expect(launch.getFrom('VALUE', ['user-env'])).toEqual(environment.getFrom('VALUE', ['user-env']))
     expect(launch.get('MISSING')).toBeUndefined()
+  })
+})
+
+describe('Host launch environment serialization', () => {
+  it('retains shadowed environment values and their trust sources across structured clone', () => {
+    const snapshot = createLaunchEnvironmentSnapshot([
+      { source: 'process', values: { EXAMPLE: 'inherited' } },
+      { source: 'project-env', path: '/fixture/project/.env', values: { EXAMPLE: 'project' } },
+      { source: 'user-env', path: '/fixture/user/.env', values: { EXAMPLE: 'user', ONLY_USER: 'value' } },
+    ])
+    const restored = createLaunchEnvironmentSnapshot(structuredClone(serializeHostEnvironment(snapshot, ['EXAMPLE', 'ONLY_USER'])))
+    expect(restored.get('EXAMPLE')).toEqual(snapshot.get('EXAMPLE'))
+    expect(restored.getFrom('EXAMPLE', ['project-env'])).toEqual(snapshot.getFrom('EXAMPLE', ['project-env']))
+    expect(restored.getFrom('ONLY_USER', ['process'])).toBeUndefined()
+    expect(restored.get('ONLY_USER')).toEqual(snapshot.get('ONLY_USER'))
+  })
+})
+
+describe('Electron Builder resource environment', () => {
+  it('selects bounded dependency traversal without mutating the caller', () => {
+    const source = { SAFE_VALUE: 'kept', NODE_OPTIONS: '--enable-source-maps' }
+
+    expect(electronBuilderEnvironment(source)).toEqual({
+      SAFE_VALUE: 'kept',
+      DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY: '1',
+      NODE_OPTIONS: '--enable-source-maps',
+    })
+    expect(source).toEqual({ SAFE_VALUE: 'kept', NODE_OPTIONS: '--enable-source-maps' })
+  })
+
+  it('forces traversal when a caller tries to disable the product safeguard', () => {
+    expect(electronBuilderEnvironment({ DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY: '0' }))
+      .toEqual({ DSH_ELECTRON_BUILDER_TRAVERSAL_ONLY: '1' })
   })
 })

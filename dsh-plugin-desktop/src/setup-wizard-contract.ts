@@ -6,7 +6,7 @@ export type DesktopSetupWizardMacosMaterial = 'off' | 'transparent'
 /** Windows has no selectable material; Setup always keeps the opaque window. */
 export type DesktopSetupWizardWindowsMaterial = 'off'
 export type DesktopSetupWizardNetworkExposure = 'loopback' | 'lan'
-export type DesktopSetupWizardMarket = 'disabled' | 'community-market' | 'dsh-market'
+export type DesktopSetupWizardMarket = 'disabled' | 'community-market' | 'dsh-market' | 'official-market'
 
 export interface DesktopSetupWizardNotifications {
   readonly enabled: boolean
@@ -94,7 +94,10 @@ function isNetworkExposure(value: unknown): value is DesktopSetupWizardNetworkEx
 }
 
 function isMarket(value: unknown): value is DesktopSetupWizardMarket {
-  return value === 'disabled' || value === 'community-market' || value === 'dsh-market'
+  return value === 'disabled'
+    || value === 'community-market'
+    || value === 'dsh-market'
+    || value === 'official-market'
 }
 
 function isPlatform(value: unknown): value is DesktopSetupWizardPlatform {

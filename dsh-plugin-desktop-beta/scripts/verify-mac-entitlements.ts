@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
-export const MAC_REQUIRED_ENTITLEMENTS = [
+export const NEXT_MAC_REQUIRED_ENTITLEMENTS = [
   'com.apple.security.cs.allow-jit',
   'com.apple.security.cs.allow-unsigned-executable-memory',
   'com.apple.security.cs.disable-library-validation',
@@ -17,13 +17,13 @@ const readEntitlements: ReadEntitlements = (path, arch) => {
 }
 
 /** Both Universal slices and every Electron Helper must retain microphone access. */
-export function verifyMacEntitlements(appPath: string, productName: string, read: ReadEntitlements = readEntitlements): void {
+export function verifyNextMacEntitlements(appPath: string, read: ReadEntitlements = readEntitlements): void {
   const targets = [appPath, ...['', ' (Renderer)', ' (GPU)', ' (Plugin)']
-    .map(suffix => join(appPath, 'Contents', 'Frameworks', `${productName} Helper${suffix}.app`))]
+    .map(suffix => join(appPath, 'Contents', 'Frameworks', `DSH Desktop Beta Helper${suffix}.app`))]
   for (const target of targets) {
     for (const arch of ['arm64', 'x86_64']) {
       const entitlements = read(target, arch)
-      for (const key of MAC_REQUIRED_ENTITLEMENTS) {
+      for (const key of NEXT_MAC_REQUIRED_ENTITLEMENTS) {
         if (entitlements[key] !== true) throw new Error(`Missing macOS entitlement ${key} in ${target} (${arch})`)
       }
     }

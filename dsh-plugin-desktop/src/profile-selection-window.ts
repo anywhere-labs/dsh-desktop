@@ -67,6 +67,7 @@ export class DesktopProfileSelectionWindow {
     })
     const window = createDesktopLocalWindow({
       partition: 'dsh-profile-selector',
+      locale: this.options.locale,
       title: copy.tabs.profiles,
       ...auxiliaryWindowChromeOptions(process.platform, false),
       width: 640,

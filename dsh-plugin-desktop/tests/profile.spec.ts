@@ -18,12 +18,15 @@ import {
   PROFILE_TEMPLATES,
 } from '@deepseek-ai/dsh-app-boot'
 import {
+  configureDesktopOfficialPluginMarket,
+  DEFAULT_OFFICIAL_MARKET_INDEX_URL,
   DESKTOP_PACKAGE_NAME,
   desktopShellModeFromSettings,
   desktopStartupSettingsFromSettings,
   desktopBundleList,
   ensureDesktopProfile,
   prepareDesktopProfile,
+  readDesktopOfficialPluginMarketEnabled,
   migrateDesktopSettingsDocumentSections,
   readDesktopShellMode,
   resolveDesktopSettingsDocument,
@@ -455,9 +458,98 @@ virtualStoreDirMaxLength: 60
         trustedHosts: ['lab.internal', '192.168.1.5', '10.0.0.7'],
       }),
     }))
+    // dsh 0.2.1-alpha.2 dropped the webRuntime service; Connection keeps the
+    // invocation authorities and appends Desktop's trust after them.
+    const connection = rows.find(row => row.id === 'connection')
+    expect(connection?.inject).toEqual(['webStartup'])
+    expect(connection?.config).toEqual(expect.objectContaining({
+      trustedHosts: {
+        __jsExpr: '[...new Set([...(ctx.webStartup.trustedHosts), ...["lab.internal","192.168.1.5","10.0.0.7"]])]',
+      },
+    }))
+    const evaluateTrust = new Function('ctx', `return ${(connection?.config as { trustedHosts: { __jsExpr: string } }).trustedHosts.__jsExpr}`) as
+      (ctx: { webStartup: { trustedHosts: string[] } }) => string[]
+    expect(evaluateTrust({ webStartup: { trustedHosts: ['cli.internal', '10.0.0.7'] } }))
+      .toEqual(['cli.internal', '10.0.0.7', 'lab.internal', '192.168.1.5'])
     expect(rows.find(row => row.id === 'desktop-webserver')).toEqual(expect.objectContaining({
       config: { host: '127.0.0.1', port: 43_120 },
     }))
+  })
+
+  it('re-targets a third-party Connection override from the retired webRuntime service', () => {
+    // Issue #1424: bundles built for dsh 0.2.0 (e.g. @tnnevol/dsh-codebuddy
+    // 0.2.0-rc.2.6) replace Connection's inject with `[webRuntime, webServer]`.
+    // 0.2.1 no longer provides webRuntime, so the required row waited forever.
+    const home = temporaryHome()
+    const packageName = 'legacy-connection-bundle'
+    installBundle(home, packageName, [
+      '- id: connection',
+      '  inject:',
+      '    - webRuntime',
+      '    - webServer',
+      '',
+    ].join('\n'))
+    const profileManifestPath = join(ensureDesktopProfile(home), 'package.json')
+    const profileManifest = JSON.parse(readFileSync(profileManifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    profileManifest.dsh.profile.bundles.push(packageName)
+    writeFileSync(profileManifestPath, JSON.stringify(profileManifest) + '\n')
+
+    const prepared = prepareDesktopProfile(
+      undefined,
+      home,
+      'darwin',
+      'desktop',
+      undefined,
+      undefined,
+      { lanAddresses: ['10.0.0.7'] },
+    )
+    const connection = composeEntries([prepared.patches]).find(row => row.id === 'connection')
+
+    expect(connection?.inject).toEqual(['webStartup', 'webServer'])
+    expect(connection?.config).toEqual(expect.objectContaining({
+      trustedHosts: {
+        __jsExpr: '[...new Set([...(ctx.webStartup.trustedHosts), ...["10.0.0.7"]])]',
+      },
+    }))
+    expect(prepared.legacyWebRuntimeSources).toEqual([packageName])
+  })
+
+  it('substitutes the retired webRuntime values inside a Connection trust expression', () => {
+    // dsh-local-link 1.2.3 and similar deployment patches follow the 0.2.0
+    // guidance of concatenating `ctx.webRuntime.trustedHosts`.
+    const home = temporaryHome()
+    const profileDir = ensureDesktopProfile(home)
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), [
+      '- id: connection',
+      '  inject: [webRuntime, localLinkGateway]',
+      '  config:',
+      '    trustedHosts: !!js "[...ctx.webRuntime.trustedHosts, ...ctx.localLinkGateway.trustedHosts]"',
+      '',
+    ].join('\n'))
+
+    const prepared = prepareDesktopProfile(
+      undefined,
+      home,
+      'darwin',
+      'desktop',
+      undefined,
+      undefined,
+      { lanAddresses: ['10.0.0.7'] },
+    )
+    const connection = composeEntries([prepared.patches]).find(row => row.id === 'connection')
+
+    expect(connection?.inject).toEqual(['webStartup', 'localLinkGateway'])
+    const expression = (connection?.config as { trustedHosts: { __jsExpr: string } }).trustedHosts.__jsExpr
+    expect(expression).not.toContain('webRuntime')
+    const evaluateTrust = new Function('ctx', `return ${expression}`) as
+      (ctx: Record<string, { trustedHosts: string[] }>) => string[]
+    expect(evaluateTrust({
+      webStartup: { trustedHosts: ['cli.internal'] },
+      localLinkGateway: { trustedHosts: ['gateway.local'] },
+    })).toEqual(['10.0.0.7', 'gateway.local'])
+    expect(prepared.legacyWebRuntimeSources).toEqual([join(profileDir, 'cordis.patch.yml')])
   })
 
   it('rejects malformed Web trust config and non-IPv4 launcher addresses', () => {
@@ -739,6 +831,31 @@ virtualStoreDirMaxLength: 60
       name: 'dsh-plugin-desktop',
       config: expect.objectContaining({ mode: 'compatibility' }),
     }))
+  })
+
+  it.each(['desktop', 'web', 'work'])('offers the Browser in %s while preserving explicit user patch overrides', (profileName) => {
+    const home = temporaryHome()
+    const template = PROFILE_TEMPLATES.web
+    if (template === undefined) throw new Error('test requires the shipped Web template')
+    const profileDir = profileName === 'desktop'
+      ? ensureDesktopProfile(home)
+      : join(home, 'profiles', profileName)
+    if (profileName !== 'desktop') {
+      initProfile(profileDir, template.bundles)
+    }
+    const browserRow = () => composeEntries([prepareDesktopProfile(undefined, home, 'darwin', profileName).patches])
+      .find(row => row.id === 'ui-sidebar-browser')
+
+    expect(browserRow()).toEqual({
+      id: 'ui-sidebar-browser',
+      name: '@deepseek-ai/dsh-client-ui-sidebar-browser',
+      disabled: false,
+    })
+
+    for (const disabled of [true, false]) {
+      writeFileSync(join(profileDir, 'cordis.patch.yml'), `- id: ui-sidebar-browser\n  disabled: ${disabled}\n`)
+      expect(browserRow()?.disabled).toBe(disabled)
+    }
   })
 
   it('keeps a custom layout and withdraws incompatible browser and LAN access', () => {
@@ -1624,5 +1741,20 @@ describe('desktop profile composition and the recovery deselection ledger', () =
 
     await setDesktopProfileBundleSelected(selectionBootstrap(home), packageName, false)
     expect(() => prepareDesktopProfile(undefined, home, 'darwin')).not.toThrow()
+  })
+
+  it('enables the official Custom Plugin Market bundle and preconfigures the built-in dsh-market source', () => {
+    const home = temporaryHome()
+    const profileDir = ensureDesktopProfile(home)
+    expect(readDesktopOfficialPluginMarketEnabled(profileDir)).toBe(false)
+
+    configureDesktopOfficialPluginMarket(profileDir, true)
+    expect(readDesktopOfficialPluginMarketEnabled(profileDir)).toBe(true)
+    const patch = readFileSync(join(profileDir, 'cordis.patch.yml'), 'utf8')
+    expect(patch).toContain('id: plugin-market')
+    expect(patch).toContain(DEFAULT_OFFICIAL_MARKET_INDEX_URL)
+
+    configureDesktopOfficialPluginMarket(profileDir, false)
+    expect(readDesktopOfficialPluginMarketEnabled(profileDir)).toBe(false)
   })
 })

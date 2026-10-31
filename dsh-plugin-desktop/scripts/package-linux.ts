@@ -1,4 +1,4 @@
-/** Build an unsigned Linux x64 AppImage and Debian package on a native Linux host. */
+/** Build an unsigned Linux AppImage and Debian package for the host CPU on a native Linux host. */
 
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -6,6 +6,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { prepareFsExtForElectron } from './prepare-fs-ext.ts'
 import { electronBuilderEnvironment } from './electron-builder-environment.ts'
+import { prepareDesktopInterpreters, verifyPreparedDesktopRuntime } from './prepare-runtime.ts'
 
 const LINUX_SIGNING_KEYS = [
   'CSC_IDENTITY_AUTO_DISCOVERY',
@@ -13,6 +14,29 @@ const LINUX_SIGNING_KEYS = [
   'CSC_LINK',
   'CSC_NAME',
 ] as const
+
+const LINUX_COMPRESSION_LEVELS = new Set(['store', 'normal', 'maximum'])
+
+/**
+ * Read an optional electron-builder compression override for unsigned CI
+ * artifacts. Single-threaded xz compression dominates the Linux job while the
+ * CI artifacts are never published, so CI may select `store`; release builds
+ * leave the variable unset and keep the default compression.
+ * @param environment - Environment of the packaging process.
+ * @returns The override, or `undefined` to keep the package configuration.
+ */
+export function linuxCompressionOverride(
+  environment: NodeJS.ProcessEnv,
+): string | undefined {
+  const value = environment.DSH_LINUX_PACKAGE_COMPRESSION
+  if (value === undefined || value === '') return undefined
+  if (!LINUX_COMPRESSION_LEVELS.has(value)) {
+    throw new Error(
+      `DSH_LINUX_PACKAGE_COMPRESSION must be store, normal, or maximum; received ${JSON.stringify(value)}`,
+    )
+  }
+  return value
+}
 
 /** Injectable native Linux packaging boundary used by focused tests. */
 export interface LinuxPackageOptions {
@@ -22,6 +46,8 @@ export interface LinuxPackageOptions {
   readonly platform: NodeJS.Platform
   /** Node architecture executing the package build. */
   readonly arch: string
+  /** CPUs the edition can package; Stable carries an x64 payload only and keeps the x64 default. */
+  readonly supportedArchs?: readonly string[]
   /** Node version executing the package build. */
   readonly nodeVersion: string
   /** Repository root containing the Yarn workspace. */
@@ -94,6 +120,7 @@ export function createLinuxPackageOptions(verifier = './verify-linux-artifacts.t
     builderRunner: fileURLToPath(new URL('./electron-builder-cli.cjs', import.meta.url)),
     prepareRuntime: () => {
       prepareFsExtForElectron({ platform: 'linux', arch: 'x64', desktopRoot })
+      verifyPreparedDesktopRuntime(desktopRoot, 'linux')
     },
     verifier: fileURLToPath(new URL(verifier, import.meta.url)),
     nodeExecutable: process.execPath,
@@ -107,8 +134,9 @@ function assertLinuxPackageHost(options: LinuxPackageOptions): void {
   if (options.platform !== 'linux') {
     throw new Error('Linux artifacts must be built on a native Linux host')
   }
-  if (options.arch !== 'x64') {
-    throw new Error(`Linux artifacts require x64 Node; received ${options.arch}`)
+  const supportedArchs = options.supportedArchs ?? ['x64']
+  if (!supportedArchs.includes(options.arch)) {
+    throw new Error(`Linux artifacts require ${supportedArchs.join(' or ')} Node; received ${options.arch}`)
   }
   const versionMatch = /^(\d+)\.(\d+)\./u.exec(options.nodeVersion)
   const major = Number(versionMatch?.[1])
@@ -120,14 +148,18 @@ function assertLinuxPackageHost(options: LinuxPackageOptions): void {
   }
 }
 
-/** Run the gates and package the unsigned x64 Linux AppImage and Debian package. */
+/** Run the gates and package the unsigned Linux AppImage and Debian package for the host CPU. */
 export function packageLinuxArtifacts(
   options: LinuxPackageOptions = createLinuxPackageOptions(),
 ): void {
   assertLinuxPackageHost(options)
+  const compression = linuxCompressionOverride(options.env)
 
   const cleanEnvironment = withoutLinuxSigningSecrets(options.env)
-  options.log('Building unsigned Linux x64 AppImage and Debian package; signing is a separate release step.')
+  options.log(`Building unsigned Linux ${options.arch} AppImage and Debian package; signing is a separate release step.`)
+  if (compression !== undefined) {
+    options.log(`Packaging the Linux artifacts with ${compression} compression.`)
+  }
   if (options.env.DSH_PACKAGE_CHECK_ALREADY_RAN !== '1') {
     options.run(
       'corepack',
@@ -147,11 +179,13 @@ export function packageLinuxArtifacts(
       '--linux',
       'AppImage',
       'deb',
-      '--x64',
+      `--${options.arch}`,
       '--publish',
       'never',
       '--config.npmRebuild=false',
       '--config.electronFuses.onlyLoadAppFromAsar=false',
+      ...(compression === undefined ? [] : [`--config.compression=${compression}`]),
+      ...(compression === 'store' ? ['--config.deb.compression=gz'] : []),
     ],
     options.desktopRoot,
     electronBuilderEnvironment({
@@ -170,6 +204,7 @@ export function packageLinuxArtifacts(
 const invokedPath = process.argv[1]
 if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
   try {
+    await prepareDesktopInterpreters({ desktopRoot: resolve(dirname(fileURLToPath(import.meta.url)), '..') })
     packageLinuxArtifacts()
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))

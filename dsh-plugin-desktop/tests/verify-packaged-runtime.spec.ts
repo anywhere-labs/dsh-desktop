@@ -278,9 +278,10 @@ describe('packaged desktop runtime verification', () => {
         calls.push('report')
       },
       () => { calls.push('aa') },
+      () => { calls.push('runtime'); return [] },
     )
 
-    expect(calls).toEqual(['static', 'aa', 'report'])
+    expect(calls).toEqual(['static', 'aa', 'runtime', 'report'])
   })
 
   it.skipIf(process.platform === 'win32')('rejects a 0644 packaged uv before signing', () => {

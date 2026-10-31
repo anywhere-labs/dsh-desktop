@@ -1,9 +1,14 @@
-import { fileURLToPath } from 'node:url'
+import { execFileSync, spawn } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Config as PwshConfig } from '@deepseek-ai/dsh-pwsh-local'
 import type { ShellExecSpec } from '@deepseek-ai/dsh-shell'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ensureWindowsConsoleHost,
+  type WindowsConsoleDonorLauncher,
   type WindowsConsoleHostApi,
 } from '../src/windows-console-host.ts'
 import {
@@ -16,12 +21,19 @@ const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 
 function consoleApi(overrides: Partial<WindowsConsoleHostApi> = {}): WindowsConsoleHostApi {
   return {
+    hasConsole: vi.fn(() => true),
+    attachConsole: vi.fn(() => 1),
     getConsoleWindow: vi.fn(() => ({})),
     allocConsole: vi.fn(() => 1),
     getLastError: vi.fn(() => 0),
     showWindow: vi.fn(() => 1),
     ...overrides,
   }
+}
+
+function consoleDonor(pid = 4242): { launch: WindowsConsoleDonorLauncher, release: () => void } {
+  const release = vi.fn()
+  return { launch: vi.fn(async () => ({ pid, release })), release }
 }
 
 function shellSpec(env?: Record<string, string>): ShellExecSpec {
@@ -298,7 +310,7 @@ describe('Windows ACL runner trampoline', () => {
     )
     const argv = [process.execPath, 'windows-acl-runner.js', upstreamRunner, 'shell-argument']
     vi.doMock('../src/windows-console-host.ts', () => ({
-      ensureWindowsConsoleHost: () => {
+      ensureWindowsConsoleHost: async () => {
         throw new Error('could not allocate a console for the Windows ACL runner (Win32 5)')
       },
     }))
@@ -342,34 +354,76 @@ describe('Windows ACL runner trampoline', () => {
 })
 
 describe('Windows ACL runner console host', () => {
-  it('does not load native APIs outside Windows', () => {
+  it('does not load native APIs outside Windows', async () => {
     const loadApi = vi.fn(() => consoleApi())
+    const donor = consoleDonor()
 
-    ensureWindowsConsoleHost('darwin', loadApi)
+    await ensureWindowsConsoleHost('darwin', loadApi, donor.launch)
 
     expect(loadApi).not.toHaveBeenCalled()
+    expect(donor.launch).not.toHaveBeenCalled()
   })
 
-  it('keeps an existing console unchanged', () => {
-    const api = consoleApi()
+  it('keeps an existing console unchanged, including one without a window', async () => {
+    const api = consoleApi({
+      getConsoleWindow: vi.fn(() => null),
+      allocWindowlessConsole: vi.fn(() => true),
+    })
+    const donor = consoleDonor()
 
-    ensureWindowsConsoleHost('win32', () => api)
+    await ensureWindowsConsoleHost('win32', () => api, donor.launch)
 
+    expect(api.allocWindowlessConsole).not.toHaveBeenCalled()
+    expect(donor.launch).not.toHaveBeenCalled()
     expect(api.allocConsole).not.toHaveBeenCalled()
     expect(api.showWindow).not.toHaveBeenCalled()
   })
 
-  it('allocates and hides a console for a consoleless Windows runner', () => {
+  it('allocates a windowless console where Windows supports it', async () => {
+    const api = consoleApi({
+      hasConsole: vi.fn(() => false),
+      allocWindowlessConsole: vi.fn(() => true),
+    })
+    const donor = consoleDonor()
+
+    await ensureWindowsConsoleHost('win32', () => api, donor.launch)
+
+    expect(api.allocWindowlessConsole).toHaveBeenCalledOnce()
+    expect(donor.launch).not.toHaveBeenCalled()
+    expect(api.allocConsole).not.toHaveBeenCalled()
+    expect(api.showWindow).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['is unavailable', undefined],
+    ['fails', () => false],
+  ])('attaches to a windowless donor console when windowless allocation %s', async (_, allocWindowlessConsole) => {
+    const api = consoleApi({
+      hasConsole: vi.fn(() => false),
+      allocWindowlessConsole,
+    })
+    const donor = consoleDonor(4242)
+
+    await ensureWindowsConsoleHost('win32', () => api, donor.launch)
+
+    expect(api.attachConsole).toHaveBeenCalledWith(4242)
+    expect(donor.release).toHaveBeenCalledOnce()
+    expect(api.allocConsole).not.toHaveBeenCalled()
+    expect(api.showWindow).not.toHaveBeenCalled()
+  })
+
+  it('falls back to a hidden console when the donor cannot start', async () => {
     const allocatedWindow = {}
     const calls: string[] = []
     const api = consoleApi({
-      getConsoleWindow: vi.fn(() => {
-        calls.push('get-console')
-        return calls.length === 1 ? null : allocatedWindow
-      }),
+      hasConsole: vi.fn(() => false),
       allocConsole: vi.fn(() => {
         calls.push('allocate')
         return 1
+      }),
+      getConsoleWindow: vi.fn(() => {
+        calls.push('get-console')
+        return allocatedWindow
       }),
       showWindow: vi.fn((window, command) => {
         expect(window).toBe(allocatedWindow)
@@ -377,33 +431,157 @@ describe('Windows ACL runner console host', () => {
         return 1
       }),
     })
+    const launch = vi.fn(async () => {
+      throw new Error('console donor did not start')
+    })
 
-    ensureWindowsConsoleHost('win32', () => api)
+    await ensureWindowsConsoleHost('win32', () => api, launch)
 
-    expect(calls).toEqual(['get-console', 'allocate', 'get-console', 'hide-0'])
+    expect(api.attachConsole).not.toHaveBeenCalled()
+    expect(calls).toEqual(['allocate', 'get-console', 'hide-0'])
   })
 
-  it('fails closed with the native error when console allocation fails', () => {
+  it('releases the donor and falls back to a hidden console when attaching fails', async () => {
     const api = consoleApi({
-      getConsoleWindow: vi.fn(() => null),
+      hasConsole: vi.fn(() => false),
+      attachConsole: vi.fn(() => 0),
+    })
+    const donor = consoleDonor()
+
+    await ensureWindowsConsoleHost('win32', () => api, donor.launch)
+
+    expect(donor.release).toHaveBeenCalledOnce()
+    expect(api.allocConsole).toHaveBeenCalledOnce()
+    expect(api.showWindow).toHaveBeenCalledWith(expect.anything(), 0)
+  })
+
+  it('fails closed with the native error when every console strategy fails', async () => {
+    const api = consoleApi({
+      hasConsole: vi.fn(() => false),
+      allocWindowlessConsole: vi.fn(() => false),
+      attachConsole: vi.fn(() => 0),
       allocConsole: vi.fn(() => 0),
       getLastError: vi.fn(() => 5),
     })
+    const donor = consoleDonor()
 
-    expect(() => ensureWindowsConsoleHost('win32', () => api)).toThrow(
+    await expect(ensureWindowsConsoleHost('win32', () => api, donor.launch)).rejects.toThrow(
       'could not allocate a console for the Windows ACL runner (Win32 5)',
     )
     expect(api.showWindow).not.toHaveBeenCalled()
   })
 
-  it('accepts a successful allocation without a visible console window', () => {
+  it('accepts a fallback allocation without a visible console window', async () => {
     const api = consoleApi({
+      hasConsole: vi.fn(() => false),
+      attachConsole: vi.fn(() => 0),
       getConsoleWindow: vi.fn(() => null),
     })
+    const donor = consoleDonor()
 
-    ensureWindowsConsoleHost('win32', () => api)
+    await ensureWindowsConsoleHost('win32', () => api, donor.launch)
 
     expect(api.allocConsole).toHaveBeenCalledOnce()
     expect(api.showWindow).not.toHaveBeenCalled()
   })
+})
+
+const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
+const consoleHost = pathToFileURL(join(packageRoot, 'src', 'windows-console-host.ts')).href
+const realWindowsRoots: string[] = []
+
+afterEach(() => {
+  for (const root of realWindowsRoots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+const consoleProbe = `
+import { AclSandbox, workspaceWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
+import { ensureWindowsConsoleHost, loadWindowsConsoleHostApi } from ${JSON.stringify(consoleHost)}
+const [workspace, strategy] = process.argv.slice(-2)
+const api = loadWindowsConsoleHostApi()
+const report = { consoleBefore: api.hasConsole(), windowless: api.allocWindowlessConsole !== undefined }
+const loadApi = strategy === 'donor' ? () => ({ ...api, allocWindowlessConsole: undefined }) : () => api
+await ensureWindowsConsoleHost('win32', loadApi)
+report.consoleAfter = api.hasConsole()
+report.consoleWindow = api.getConsoleWindow() !== null
+const sandbox = new AclSandbox({ writableDirs: [workspace], mode: 'workspace-write', tempDir: null, writeSid: workspaceWriteSid(workspace) })
+const cmd = (process.env.SystemRoot ?? 'C:\\\\Windows') + '\\\\System32\\\\cmd.exe'
+try {
+  await sandbox.init()
+  const child = sandbox.spawn({ command: cmd, args: ['/d', '/c', 'echo inside>inside.txt'], cwd: workspace, stdio: 'inherit' })
+  report.exitCode = (await child.wait()).exitCode
+} finally {
+  sandbox.dispose()
+}
+process.stdout.write(JSON.stringify(report))
+`
+
+function runDetachedConsoleProbe(workspace: string, strategy: string): Promise<{ status: number | null, stdout: string, stderr: string }> {
+  const child = spawn(process.execPath, ['--no-warnings', '--input-type=module', '-e', consoleProbe, workspace, strategy], {
+    cwd: packageRoot,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  let stdout = ''
+  let stderr = ''
+  child.stdout.setEncoding('utf8').on('data', (chunk: string) => { stdout += chunk })
+  child.stderr.setEncoding('utf8').on('data', (chunk: string) => { stderr += chunk })
+  return new Promise((resolve, reject) => {
+    child.once('error', reject)
+    child.once('close', status => resolve({ status, stdout, stderr }))
+  })
+}
+
+function workspaceWithoutWriteOwner(): { root: string, workspace: string, outside: string } {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-acl-write-owner-'))
+  realWindowsRoots.push(root)
+  const workspace = join(root, 'workspace')
+  const outside = join(root, 'outside')
+  mkdirSync(join(workspace, 'nested'), { recursive: true })
+  mkdirSync(outside)
+  execFileSync('icacls', [root, '/inheritance:r', '/grant:r', '*S-1-5-11:(OI)(CI)M', '*S-1-5-18:(OI)(CI)F'], { stdio: 'ignore', windowsHide: true })
+  return { root, workspace, outside }
+}
+
+describe.runIf(process.platform === 'win32')('Windows ACL runner console host on real Windows', () => {
+  it.each(['default', 'donor'])('gives a consoleless runner a windowless console restricted children inherit (%s)', async (strategy) => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-console-host-'))
+    realWindowsRoots.push(root)
+    const workspace = join(root, 'workspace')
+    mkdirSync(workspace)
+
+    const result = await runDetachedConsoleProbe(workspace, strategy)
+
+    expect(result.stderr).toBe('')
+    expect(result.status).toBe(0)
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      consoleBefore: false,
+      consoleAfter: true,
+      consoleWindow: false,
+      exitCode: 0,
+    })
+    expect(existsSync(join(workspace, 'inside.txt'))).toBe(true)
+    expect(readFileSync(join(workspace, 'inside.txt'), 'utf8').trim()).toBe('inside')
+  }, 60_000)
+
+  it('grants a workspace without WRITE_OWNER and still confines writes to it', async () => {
+    const { AclSandbox, workspaceWriteSid } = await import('@deepseek-ai/dsh-sandbox-windows-acl')
+    const { workspace, outside } = workspaceWithoutWriteOwner()
+    const sandbox = new AclSandbox({ writableDirs: [workspace], mode: 'workspace-write', tempDir: null, writeSid: workspaceWriteSid(workspace) })
+    const cmd = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe')
+    try {
+      await sandbox.init()
+      const inside = await sandbox.spawn({ command: cmd, args: ['/d', '/c', 'echo inside>nested\\inside.txt'], cwd: workspace }).wait()
+      const escaped = await sandbox.spawn({ command: cmd, args: ['/d', '/c', 'echo outside>..\\outside\\escaped.txt'], cwd: workspace }).wait()
+
+      expect(inside.exitCode).toBe(0)
+      expect(existsSync(join(workspace, 'nested', 'inside.txt'))).toBe(true)
+      expect(escaped.exitCode).not.toBe(0)
+      expect(existsSync(join(outside, 'escaped.txt'))).toBe(false)
+    }
+    finally {
+      sandbox.dispose()
+    }
+  }, 60_000)
 })

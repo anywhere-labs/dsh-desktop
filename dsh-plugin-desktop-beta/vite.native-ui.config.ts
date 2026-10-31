@@ -1,31 +1,14 @@
-import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
 
-const root = dirname(fileURLToPath(import.meta.url))
-const uiRoot = resolve(root, 'src/native-ui')
-
-/** Build the Desktop-owned static native surfaces without network dependencies. */
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  root: uiRoot,
+  root: fileURLToPath(new URL('./src/native-ui', import.meta.url)),
   base: './',
-  resolve: { alias: { '@': resolve(root, 'src/native-ui') } },
-  build: {
-    outDir: resolve(root, 'lib/native-ui'),
-    emptyOutDir: false,
-    sourcemap: true,
-    rollupOptions: {
-      input: {
-        'compatibility-chrome': resolve(uiRoot, 'compatibility-chrome.html'),
-        'desktop-dialog': resolve(uiRoot, 'desktop-dialog.html'),
-        recovery: resolve(uiRoot, 'recovery.html'),
-        'profile-create': resolve(uiRoot, 'profile-create.html'),
-        'profile-selector': resolve(uiRoot, 'profile-selector.html'),
-        'setup-wizard': resolve(uiRoot, 'setup-wizard.html'),
-      },
-    },
-  },
+  plugins: [react(), tailwindcss()],
+  // Shared components live in another workspace; hooks must use this renderer's React.
+  resolve: { dedupe: ['react', 'react-dom'] },
+  // Native documents allow only same-origin assets, including fonts from official UI atoms.
+  build: { outDir: fileURLToPath(new URL('./lib/native-ui', import.meta.url)), emptyOutDir: true, assetsInlineLimit: 0 },
 })

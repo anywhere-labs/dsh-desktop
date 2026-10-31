@@ -1,0 +1,37 @@
+diff --git a/lib/index.js b/lib/index.js
+index b77bf6c..7250690 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -146,12 +146,24 @@ function versionOf(info) {
+ 	return FsVersion(`${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`);
+ }
+ /**
++* DSH Desktop (#1419): drop the slash a file-URL pathname leaves before a Windows
++* drive (`/C:/a` -> `C:/a`). Win32 resolves `/C:/a` against the current drive
++* root as `C:\C:\a`, which no Windows filesystem can name; POSIX keeps it literal.
++* @param path - requested path or provider base directory.
++* @returns the native drive spelling on Windows, otherwise `path` unchanged.
++*/
++function windowsDrivePath(path) {
++	return process.platform === "win32" ? path.replace(/^[\\/](?=[A-Za-z]:[\\/])/u, "") : path;
++}
++/**
+ * Anchor a path using native drive semantics and POSIX physical parent traversal.
+ * @param cwd - provider base directory for relative paths.
+ * @param path - non-empty requested path.
+ * @returns absolute display spelling shared by target resolution and no-follow metadata.
+ */
+ function localDisplayPath(cwd, path) {
++	cwd = windowsDrivePath(cwd);
++	path = windowsDrivePath(path);
+ 	const absoluteCwd = isAbsolute(cwd) ? cwd : `${process.cwd()}${sep}${cwd}`;
+ 	const raw = isAbsolute(path) ? path : `${absoluteCwd}${sep}${path}`;
+ 	const physicalSpelling = /(?:^|[\\/])\.\.(?:[\\/]|$)/u.test(raw) ? raw : resolve(cwd, path);
+@@ -790,6 +802,7 @@ var LocalFileSystem = class extends FileSystem {
+ 		return String(target.targetKey);
+ 	}
+ 	processPathFromHostPath(hostPath) {
++		hostPath = windowsDrivePath(hostPath);
+ 		return isAbsolute(hostPath) ? resolve(hostPath) : void 0;
+ 	}
+ 	fileUrl(target) {

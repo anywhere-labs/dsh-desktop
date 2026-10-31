@@ -1,14 +1,29 @@
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   DESKTOP_BOOT_RECOVERY_SCRIPT,
   DESKTOP_BOOT_RECOVERY_STYLE,
-  DESKTOP_BOOT_TERMINAL_STYLE,
   DESKTOP_BOOT_TERMINAL_SCRIPT,
+  DESKTOP_BOOT_TERMINAL_STYLE,
   DESKTOP_RECOVERY_RESTART_REQUEST,
   DESKTOP_TERMINAL_OPEN_REQUEST,
   desktopBootRecoveryInjections,
 } from '../src/desktop-boot-recovery.ts'
 import { DESKTOP_RECOVERY_RESTART_PATH } from '../src/desktop-settings-contract.ts'
+import {
+  recoverOversizedSessionProjectionCache,
+  SESSION_PROJCACHE_RELATIVE_PATH,
+} from '../src/session-projcache-recovery.ts'
+import { routeDesktopStartupFailure } from '../src/startup-failure-routing.ts'
+import type { DesktopStartupFailureStage } from '../src/startup-recovery-window.ts'
 
 describe('Desktop early-boot recovery injection', () => {
   it('preserves the plugin-failure report and appends accessible Recovery Mode guidance', () => {
@@ -55,5 +70,71 @@ describe('Desktop early-boot recovery injection', () => {
     expect(DESKTOP_BOOT_RECOVERY_STYLE).toContain('--dsw-alias-button-primary-fill')
     expect(DESKTOP_BOOT_RECOVERY_STYLE).toContain(':focus-visible')
     expect(DESKTOP_BOOT_RECOVERY_STYLE).toContain('prefers-color-scheme: dark')
+  })
+})
+
+describe('Desktop startup failure routing', () => {
+  const READY_STAGES: readonly DesktopStartupFailureStage[] = [
+    'electron-ready',
+    'shell-environment',
+    'runtime-bootstrap',
+    'profile-selection',
+    'profile-composition',
+    'host-boot',
+    'renderer-startup',
+    'health-commit',
+  ]
+
+  it('uses stderr before Electron is ready', () => {
+    expect(routeDesktopStartupFailure({ appReady: false, stage: 'electron-ready' })).toBe('stderr-only')
+  })
+
+  it('opens unified Recovery for every app-ready startup stage', () => {
+    for (const stage of READY_STAGES) {
+      expect(routeDesktopStartupFailure({ appReady: true, stage })).toBe('startup-recovery')
+    }
+  })
+})
+
+describe('session projection cache recovery', () => {
+  function fixtureHome(): string {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-projcache-'))
+    mkdirSync(join(home, SESSION_PROJCACHE_RELATIVE_PATH[0]))
+    return home
+  }
+
+  it('quarantines an oversized cache before the runtime could parse it', () => {
+    const home = fixtureHome()
+    const cachePath = join(home, ...SESSION_PROJCACHE_RELATIVE_PATH)
+    const oversized = 'x'.repeat(33)
+    writeFileSync(cachePath, oversized)
+
+    const recovered = recoverOversizedSessionProjectionCache(home, {
+      maxBytes: 32,
+      now: () => new Date('2026-08-24T08:15:16.123Z'),
+    })
+
+    expect(recovered).toMatchObject({
+      status: 'quarantined',
+      cachePath,
+      sizeBytes: Buffer.byteLength(oversized),
+    })
+    expect(existsSync(cachePath)).toBe(false)
+    expect(recovered.status === 'quarantined' && recovered.backupPath).toContain(
+      'session_projcache.oversized-20260824T081516123Z.json',
+    )
+    expect(recovered.status === 'quarantined' && readFileSync(recovered.backupPath, 'utf8')).toBe(oversized)
+  })
+
+  it('leaves a bounded cache untouched', () => {
+    const home = fixtureHome()
+    const cachePath = join(home, ...SESSION_PROJCACHE_RELATIVE_PATH)
+    writeFileSync(cachePath, 'small-cache')
+
+    expect(recoverOversizedSessionProjectionCache(home, { maxBytes: 32 })).toEqual({
+      status: 'within-limit',
+      cachePath,
+    })
+    expect(readFileSync(cachePath, 'utf8')).toBe('small-cache')
   })
 })

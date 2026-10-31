@@ -3,18 +3,25 @@
   "activeChannel": "beta",
   "channels": {
     "stable": {
-      "commit": "639ed015397290b3745d163aafe02ffee4aa3f84",
-      "sourceVersion": "0.2.0-rc.2",
-      "runtimePackageVersion": "0.2.0-rc.2",
-      "runtimeSource": "vendor/dsh-runtime/0.2.0-rc.2/manifest.json",
+      "commit": "1f81c047fc48fa190a683e469daa699857e9afe8",
+      "sourceVersion": "0.2.1-rc.3",
+      "runtimePackageVersion": "0.2.1-rc.3",
+      "runtimeSource": "vendor/dsh-runtime/0.2.1-rc.3/manifest.json",
       "package": "dsh-plugin-desktop"
     },
     "beta": {
-      "commit": "639ed015397290b3745d163aafe02ffee4aa3f84",
-      "sourceVersion": "0.2.0-rc.2",
-      "runtimePackageVersion": "0.2.0-rc.2",
-      "runtimeSource": "vendor/dsh-runtime/0.2.0-rc.2/manifest.json",
+      "commit": "f3803c96974ad4a94195fb97e5c637e9c2a3afe3",
+      "sourceVersion": "0.2.2-alpha.2",
+      "runtimePackageVersion": "0.2.2-alpha.2",
+      "runtimeSource": "vendor/dsh-runtime/0.2.2-alpha.2/manifest.json",
       "package": "dsh-plugin-desktop-beta"
+    },
+    "next": {
+      "commit": "b830ec950faba0a46dda564be3e2d854afed94f1",
+      "sourceVersion": "0.2.1-rc.5",
+      "runtimePackageVersion": "0.2.1-rc.5",
+      "runtimeSource": "vendor/dsh-runtime/0.2.1-rc.5/manifest.json",
+      "package": "dsh-desktop-next"
     }
   }
 }

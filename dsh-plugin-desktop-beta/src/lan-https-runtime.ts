@@ -97,7 +97,7 @@ export class DesktopLanHttpsRuntime {
   attach(targetPort: number): void {
     if (this.targetPort !== undefined) {
       if (this.targetPort === targetPort) return
-      throw new Error('dsh-plugin-desktop: LAN HTTPS runtime is already attached to another port')
+      throw new Error('dsh-plugin-desktop-beta: LAN HTTPS runtime is already attached to another port')
     }
     this.targetPort = targetPort
     this.attachIngress()
@@ -126,7 +126,7 @@ export class DesktopLanHttpsRuntime {
   /** Hot-enable or disable the edge without rebuilding the Host generation. */
   async setEnabled(enabled: boolean): Promise<DesktopLanHttpsRuntimeSnapshot> {
     if (typeof enabled !== 'boolean') {
-      throw new TypeError('dsh-plugin-desktop: LAN HTTPS enabled state must be a boolean')
+      throw new TypeError('dsh-plugin-desktop-beta: LAN HTTPS enabled state must be a boolean')
     }
     this.enabled = enabled
     const transition = this.serial.then(async () => {

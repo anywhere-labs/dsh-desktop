@@ -18,6 +18,8 @@ function fixture(nativeBridge = true, lastVisible: unknown = null, apiKeyBridge?
     if (id === '@deepseek-ai/dsh-client-ui-primitives') return { Button: 'button' }
     throw new Error(`Unexpected dependency ${id}`)
   }
+  // Official artwork resolves through the module loader's asset table.
+  require.asset = (path: string) => `asset:${path}`
   runInNewContext(source, {
     ...(nativeBridge ? { dshDesktopSetup: {} } : {}), dshOnboarding: apiKeyBridge,
     window: { matchMedia: () => ({ matches: false }), __ModuleLoader__: { load: (module: any) => { const exported = module.factory(require); entry = exported.testEntry; readKeys = exported.readKeys } } }, URL, console,

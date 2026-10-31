@@ -1,8 +1,24 @@
+import { EventEmitter } from 'node:events'
 import { readFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Context } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const assetRef = 'mktimg_0123456789abcdefghijklmnopqrstuv'
+const assetBody = Buffer.from('normalized-png-fixture')
+
+const media = vi.hoisted(() => ({
+  register: vi.fn(() => assetRef),
+  resolve: vi.fn(),
+  unregisterSource: vi.fn(),
+  dispose: vi.fn(),
+}))
+
+vi.mock('../src/media/service.js', () => ({
+  createMarketMediaService: () => media,
+}))
+
 import {
   DSH_1024STORE_ADAPTER_ID,
   DSH_1024STORE_ENDPOINT,
@@ -18,6 +34,7 @@ import {
 import { MemoryMarketStateStore, type MarketStateStore } from '../src/catalog/state-store.js'
 import type { CatalogSourceManifest, LocalSourceRecord } from '../src/contracts/index.js'
 import { marketRoutes, registerMarketRoutes } from '../src/host/routes.js'
+import { apply, inject as marketInject } from '../src/index.js'
 import { restrictedHttpClient } from '../src/network/restricted-http.js'
 
 type RouteHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
@@ -585,5 +602,310 @@ describe('community market Host routes', () => {
       controller.abort()
       await server.close()
     }
+  })
+})
+
+interface TestAssetServer {
+  readonly baseUrl: string
+  readonly disposeRoutes: () => void
+  readonly close: () => Promise<void>
+}
+
+async function startAssetServer(): Promise<TestAssetServer> {
+  const handlers = new Map<string, (req: any, res: any) => void | Promise<void>>()
+  const server = createServer((req, res) => {
+    const path = new URL(req.url ?? '/', 'http://localhost').pathname
+    const handler = handlers.get(path)
+    if (handler === undefined) {
+      res.statusCode = 404
+      res.end()
+      return
+    }
+    void Promise.resolve(handler(req, res)).catch(() => {
+      if (!res.writableEnded) {
+        res.statusCode = 500
+        res.end()
+      }
+    })
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const { port } = server.address() as AddressInfo
+  const scope = {
+    get: () => ({ sources: [] }),
+    update: async () => {},
+  }
+  const context = {
+    webServer: {
+      port,
+      register: (route: { path: string; handler: (req: any, res: any) => void | Promise<void> }) => {
+        handlers.set(route.path, route.handler)
+        return () => { handlers.delete(route.path) }
+      },
+    },
+    logger: { error: vi.fn() },
+  }
+  const disposeRoutes = registerMarketRoutes(context as never, scope as never)
+  return {
+    baseUrl: `http://127.0.0.1:${String(port)}`,
+    disposeRoutes,
+    close: async () => {
+      disposeRoutes()
+      await closeServer(server)
+    },
+  }
+}
+
+function assetUrl(server: TestAssetServer): string {
+  return `${server.baseUrl}${marketRoutes.assets}?ref=${assetRef}`
+}
+
+describe('community market asset routes', () => {
+  beforeEach(() => {
+    media.resolve.mockReset()
+    media.dispose.mockClear()
+  })
+
+  it('serves an asset with cache validators and browser isolation headers', async () => {
+    media.resolve.mockResolvedValue({
+      body: assetBody,
+      contentType: 'image/png',
+      etag: '"asset-etag"',
+    })
+    const server = await startAssetServer()
+    try {
+      const response = await fetch(assetUrl(server))
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toBe('image/png')
+      expect(response.headers.get('content-length')).toBe(String(assetBody.byteLength))
+      expect(response.headers.get('content-disposition')).toBe('inline')
+      expect(response.headers.get('etag')).toBe('"asset-etag"')
+      expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+      expect(response.headers.get('cross-origin-resource-policy')).toBe('same-origin')
+      expect(response.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox")
+      expect(response.headers.get('referrer-policy')).toBe('no-referrer')
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(assetBody))
+
+      const cached = await fetch(assetUrl(server), { headers: { 'if-none-match': '"asset-etag"' } })
+      expect(cached.status).toBe(304)
+      expect(cached.headers.get('content-length')).toBeNull()
+      expect((await cached.arrayBuffer()).byteLength).toBe(0)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('rejects malformed and unknown asset references without resolving media', async () => {
+    media.resolve.mockResolvedValue(undefined)
+    const server = await startAssetServer()
+    try {
+      const malformed = await fetch(`${server.baseUrl}${marketRoutes.assets}?ref=javascript:alert(1)`)
+      expect(malformed.status).toBe(404)
+      expect(media.resolve).not.toHaveBeenCalled()
+
+      const unknown = await fetch(`${server.baseUrl}${marketRoutes.assets}?ref=${assetRef}`)
+      expect(unknown.status).toBe(404)
+      expect(media.resolve).toHaveBeenCalledWith(assetRef, expect.any(AbortSignal))
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('aborts an in-flight asset resolution when the market generation is disposed', async () => {
+    let observedSignal: AbortSignal | undefined
+    media.resolve.mockImplementation(async (_ref: string, signal: AbortSignal) => {
+      observedSignal = signal
+      await new Promise<void>(resolve => signal.addEventListener('abort', () => { resolve() }, { once: true }))
+      throw signal.reason
+    })
+    const server = await startAssetServer()
+    const controller = new AbortController()
+    const request = fetch(assetUrl(server), { signal: controller.signal }).catch(() => undefined)
+    try {
+      await vi.waitFor(() => { expect(observedSignal).toBeDefined() })
+      server.disposeRoutes()
+      await vi.waitFor(() => { expect(observedSignal?.aborted).toBe(true) })
+    } finally {
+      controller.abort()
+      await request
+      await server.close()
+    }
+  })
+})
+
+type Handler = (req: any, res: any) => void | Promise<void>
+
+interface Injection {
+  readonly names: readonly string[]
+  readonly factory: (ctx: { get(name: string): unknown; effect(factory: () => void | (() => void)): void }) => void
+  cleanups: (() => void)[]
+  active: boolean
+}
+
+function createHarness() {
+  const values = new Map<string, unknown>()
+  const handlers = new Map<string, Handler>()
+  const injections: Injection[] = []
+  const globalCleanups: (() => void)[] = []
+  let activeInjection: Injection | undefined
+
+  const registerEffect = (factory: () => void | (() => void), owner = activeInjection): void => {
+    const cleanup = factory()
+    if (typeof cleanup !== 'function') return
+    if (owner === undefined) globalCleanups.push(cleanup)
+    else owner.cleanups.push(cleanup)
+  }
+
+  const activate = (injection: Injection): void => {
+    if (injection.active || !injection.names.every(name => values.has(name))) return
+    injection.active = true
+    activeInjection = injection
+    injection.factory({
+      get: name => values.get(name),
+      effect: factory => { registerEffect(factory, injection) },
+    })
+    activeInjection = undefined
+  }
+
+  const context = {
+    logger: { error: vi.fn(), warn: vi.fn() },
+    webServer: {
+      port: 43_120,
+      register: vi.fn((route: { path: string; handler: Handler }) => {
+        handlers.set(route.path, route.handler)
+        return () => { handlers.delete(route.path) }
+      }),
+    },
+    effect: (factory: () => void | (() => void)) => { registerEffect(factory) },
+    inject: (
+      names: readonly string[],
+      factory: (ctx: { get(name: string): unknown; effect(factory: () => void | (() => void)): void }) => void,
+    ) => {
+      const injection: Injection = { names, factory, cleanups: [], active: false }
+      injections.push(injection)
+      activate(injection)
+    },
+  }
+
+  const request = async (path: string) => {
+    const req = Object.assign(new EventEmitter(), {
+      method: 'GET',
+      url: path,
+      headers: {
+        host: '127.0.0.1:43120',
+        origin: 'http://127.0.0.1:43120',
+        'sec-fetch-site': 'same-origin',
+      },
+      socket: { remoteAddress: '127.0.0.1' },
+      destroy: vi.fn(),
+    })
+    let body: unknown
+    const response = Object.assign(new EventEmitter(), {
+      destroyed: false,
+      writableEnded: false,
+      statusCode: 0,
+      headers: new Map<string, string>(),
+      setHeader(name: string, value: string) { response.headers.set(name.toLowerCase(), value) },
+      removeHeader(name: string) { response.headers.delete(name.toLowerCase()) },
+      end(value?: string) {
+        response.writableEnded = true
+        body = value === undefined || value === '' ? undefined : JSON.parse(value)
+      },
+    })
+    const handler = handlers.get(path)
+    if (handler === undefined) throw new Error(`missing route ${path}`)
+    await handler(req, response)
+    return { status: response.statusCode, body }
+  }
+
+  return {
+    context,
+    request,
+    /** Every soft-injection `apply` asked for, in registration order. */
+    injectedNames: () => injections.map(injection => [...injection.names]),
+    provide(name: string, value: unknown) {
+      values.set(name, value)
+      for (const injection of injections) activate(injection)
+    },
+    remove(name: string) {
+      values.delete(name)
+      for (const injection of injections) {
+        if (!injection.active || !injection.names.includes(name)) continue
+        for (const cleanup of injection.cleanups.splice(0).reverse()) cleanup()
+        injection.active = false
+      }
+    },
+    dispose() {
+      for (const injection of injections.toReversed()) {
+        for (const cleanup of injection.cleanups.splice(0).reverse()) cleanup()
+        injection.active = false
+      }
+      for (const cleanup of globalCleanups.splice(0).reverse()) cleanup()
+    },
+  }
+}
+
+describe('community market Host capability lifecycle', () => {
+  it('starts and serves state on a Host that has no storage domain', async () => {
+    const harness = createHarness()
+    apply(harness.context as never)
+
+    // Durable storage is optional: `webServer` is the only hard requirement, and
+    // the storage domain arrives (or does not) through a soft injection.
+    expect(marketInject).toEqual(['webServer'])
+    expect(harness.injectedNames()).toContainEqual(['storageDomain'])
+    expect(harness.injectedNames()).toContainEqual(['pluginManager', 'profileContext'])
+    await expect(harness.request(marketRoutes.state)).resolves.toMatchObject({
+      status: 200,
+      body: { sources: [] },
+    })
+    expect(harness.context.logger.error).not.toHaveBeenCalled()
+
+    harness.dispose()
+  })
+  it('serves package operations once the official plugin manager and its profile are live', async () => {
+    const harness = createHarness()
+    apply(harness.context as never)
+    const listBundles = vi.fn(async () => [])
+    harness.provide('pluginManager', { listBundles, installBundle: vi.fn(), setBundleEnabled: vi.fn(), removeBundle: vi.fn() })
+    harness.provide('profileContext', { name: 'next', dir: 'C:/fixture-profile' })
+    await expect(harness.request(marketRoutes.installations)).resolves.toMatchObject({
+      status: 200,
+      body: { installations: [] },
+    })
+    expect(listBundles).toHaveBeenCalledOnce()
+    await expect(harness.request(marketRoutes.state)).resolves.toMatchObject({
+      body: { desktopActions: { openTerminal: false } },
+    })
+    harness.dispose()
+  })
+  it('keeps package routes fail-closed until the official manager is live and after it is disposed', async () => {
+    const harness = createHarness()
+    apply(harness.context as never)
+
+    await expect(harness.request(marketRoutes.installable)).resolves.toMatchObject({ status: 503 })
+    await expect(harness.request(marketRoutes.installations)).resolves.toMatchObject({ status: 503 })
+    await expect(harness.request(marketRoutes.state)).resolves.toMatchObject({
+      status: 200,
+      body: { desktopActions: { openTerminal: false } },
+    })
+
+    harness.provide('desktopActions', { openTerminal: vi.fn() })
+    await expect(harness.request(marketRoutes.state)).resolves.toMatchObject({
+      body: { desktopActions: { openTerminal: true } },
+    })
+
+    harness.provide('profileContext', { name: 'web', dir: 'C:/fixture-profile' })
+    harness.provide('pluginManager', { listBundles: vi.fn(async () => []), installBundle: vi.fn(), setBundleEnabled: vi.fn(), removeBundle: vi.fn() })
+    await expect(harness.request(marketRoutes.installable)).resolves.toMatchObject({ status: 404 })
+
+    harness.remove('pluginManager')
+    await expect(harness.request(marketRoutes.installable)).resolves.toMatchObject({ status: 503 })
+    await expect(harness.request(marketRoutes.installations)).resolves.toMatchObject({ status: 503 })
+
+    harness.dispose()
   })
 })

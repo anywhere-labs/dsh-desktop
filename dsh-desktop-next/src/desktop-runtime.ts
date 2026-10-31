@@ -1,14 +1,17 @@
 /** Headless owner of the Host, desktop preferences, Profiles and recovery. */
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
-import { cleanupDisposableTree } from '../../dsh-plugin-desktop-beta/src/disposable-tree.ts'
-import { join } from 'node:path'
+import { cleanupDisposableTree } from '../../dsh-plugin-desktop/src/disposable-tree.ts'
+import { dirname, join } from 'node:path'
 import { DesktopBackendController } from './backend-controller.ts'
-import { DesktopHostFatalError, DesktopHostProcess, type DesktopPlatformLoginRequest } from './host-process.ts'
+import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, type DesktopPlatformLoginRequest } from './host-process.ts'
 import { DesktopPreferenceStore, parsePreferences } from './desktop-preferences.ts'
 import { DEFAULT_FEATURES, NextProfiles } from './profiles.ts'
-import { DEFAULT_PREFERENCES, DEFAULT_PROFILE, SAFE_MODE_PREFERENCES, type DesktopBrowserLinks, type DesktopPreferences, type DesktopState, type DesktopNotification } from './desktop-contract.ts'
+import { DEFAULT_PREFERENCES, DEFAULT_PROFILE, SAFE_MODE_PREFERENCES, type DesktopBrowserLinks, type DesktopFailureReport, type DesktopPreferences, type DesktopState, type DesktopNotification } from './desktop-contract.ts'
 import { DesktopDiagnostics } from './diagnostics.ts'
+import type { DesktopHostExit } from './exit-code.ts'
+import { writeFailureReport } from './failure-report.ts'
+import { DesktopMemoryMonitor, type DesktopMemoryProbe } from './memory-monitor.ts'
 import { NextRecovery } from './recovery.ts'
 import { maskSecrets } from './mask-secrets.ts'
 import { privateDirectory } from './private-files.ts'
@@ -17,16 +20,24 @@ import { DesktopLanHttpsRuntime } from './lan-https-runtime.ts'
 import type { DesktopLanHttpsCertificate } from './lan-https-certificate.ts'
 import type { DesktopPermission, DesktopPermissionAction, DesktopPermissionSnapshot } from './permissions.ts'
 import { SYSTEM_PROXY_ENV, type DesktopSystemProxyProbe } from './system-proxy.ts'
+import { createOperationHistory } from './upstream-family.ts'
+import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
 
 interface RuntimeOptions {
   home: string
   /** Disposable desktop settings; recovery continues to address the original home. */
   stateHome?: string
   root: string
+  /** Bundled interpreter payload for this CPU; a development tree without one runs without Office skills. */
+  primaryRuntime?: string
   executable: string
   addresses(): string[]
+  /** Finish login-shell and system-proxy discovery before a Host child captures `process.env`. */
+  prepareEnvironment?(): Promise<void>
   /** The system proxy main probed at startup; the Host decides whether it applies. */
   systemProxy?(): DesktopSystemProxyProbe
+  /** Electron process and system memory readings for memory evidence; omitted where Electron is absent. */
+  memoryProbe?: DesktopMemoryProbe
   certificate(addresses: readonly string[]): Promise<DesktopLanHttpsCertificate>
   onFailure(): void
   onChange(): void
@@ -42,6 +53,8 @@ export class NextDesktopRuntime {
   readonly recovery: NextRecovery
   readonly settings: DesktopPreferenceStore
   readonly diagnostics: DesktopDiagnostics
+  /** Memory trend ring and incident snapshots; the main process starts sampling once Electron is ready. */
+  readonly memory: DesktopMemoryMonitor
   readonly backend: DesktopBackendController<{ start(): Promise<void>; stop(): Promise<void> }>
   preferences: DesktopPreferences = { ...DEFAULT_PREFERENCES }
   selected: string = DEFAULT_PROFILE
@@ -50,21 +63,36 @@ export class NextDesktopRuntime {
   busy = false
   closing = false
   failure = ''
+  failureStage: DesktopFailureStage | undefined
+  failureExit: DesktopHostExit | undefined
+  /** A Desktop action that failed while `failure` is shown; the next action clears it. */
+  actionFailure = ''
   startup: Promise<void> = Promise.resolve()
   /** Main-process transport only; never copied into a DesktopState. */
   auth: { url: string; cookie: string; token: string; injections: readonly unknown[] } | undefined
   lan: DesktopLanHttpsRuntime | undefined
   private safeHome: string | undefined
   private hostProcess: DesktopHostProcess | undefined
+  /** Where a backend failure stops the Desktop: preparation, Host startup, or a Host that was running. */
+  private hostStage: DesktopFailureStage = 'host-boot'
+  private failureReport: DesktopFailureReport | undefined
+  /** Settles once the current report is saved or has failed; never rejects. */
+  private failureReportWrite: Promise<void> = Promise.resolve()
+  /** Plugin operations journaled for failure reports, where the followed DSH release reports them. */
+  private readonly operationHistory: ReturnType<NonNullable<typeof createOperationHistory>> | undefined
 
   constructor(readonly options: RuntimeOptions) {
     this.profiles = new NextProfiles(options.home)
     this.recovery = new NextRecovery(this.profiles)
     this.settings = new DesktopPreferenceStore(options.stateHome ?? options.home)
     this.diagnostics = new DesktopDiagnostics(options.home)
+    this.operationHistory = createOperationHistory?.(join(dirname(this.diagnostics.file), 'plugin-operations'))
+    this.memory = new DesktopMemoryMonitor({ probe: options.memoryProbe,
+      record: input => { this.diagnostics.record(input) }, flush: () => { this.diagnostics.flush() } })
     this.backend = new DesktopBackendController(onFailure => this.createHost(onFailure), state => {
+      this.diagnostics.record({ source: 'desktop.backend', event: 'phase', fields: { phase: state.phase } })
       if (state.phase === 'error' && !this.closing) {
-        this.report(state.message)
+        this.report(state.failure ?? state.message, this.hostStage)
         // The Host now ships its complete inspected error with `fatal`. Recovery
         // shows only the message; the stack, properties and cause chain go to the
         // diagnostics log so a startup failure stays diagnosable after the fact.
@@ -80,25 +108,64 @@ export class NextDesktopRuntime {
   initialize(): void {
     try { this.selected = this.profiles.active } catch (error) {
       if (this.safeMode) this.diagnostics.append(`Original Profile selection is unavailable: ${String(error)}`, 'warn')
-      else this.report(error)
+      else this.report(error, 'profile-selection')
     }
     if (this.safeMode) this.preferences = { ...SAFE_MODE_PREFERENCES }
-    else try { this.preferences = this.settings.read() } catch (error) { this.report(error) }
+    else try { this.preferences = this.settings.read() } catch (error) { this.report(error, 'runtime-bootstrap') }
     this.diagnostics.level = this.preferences.logLevel
+    this.diagnostics.developer = this.preferences.developerLogging
   }
 
-  report(error: unknown): void {
+  /**
+   * Enter the failed state shown by the recovery assistant and save a report of it. The failure that
+   * opened recovery stays its reason: a Desktop action failing afterwards becomes `actionFailure`, and a
+   * later failure of another stage is only logged. A failure of the Desktop itself replaces a failed
+   * action as the reason.
+   * @param error - The failure; a Host exit also keeps its code and last stderr for display.
+   * @param stage - Where the failure stopped the Desktop; failed Desktop actions by default.
+   */
+  report(error: unknown, stage: DesktopFailureStage = 'desktop-runtime'): void {
     if (this.closing) return
-    this.failure = maskSecrets(error instanceof Error ? error.message : String(error))
-    this.diagnostics.append(this.failure, 'error')
+    const message = maskSecrets(error instanceof Error ? error.message : String(error))
+    if (this.failure && (stage === 'desktop-runtime' || this.failureStage !== 'desktop-runtime')) {
+      this.diagnostics.record({ source: 'desktop', event: 'runtime.failed', level: 'error', error, fields: { stage, recoveryReason: this.failureStage } })
+      if (stage === 'desktop-runtime') this.actionFailure = message
+      this.options.onChange()
+      return
+    }
+    this.failure = message
+    this.failureStage = stage
+    this.failureExit = error instanceof DesktopHostExitError
+      ? { code: error.exitCode, signal: error.signal, output: maskSecrets(error.output) } : undefined
+    this.actionFailure = ''
+    this.diagnostics.record({ source: 'desktop', event: 'runtime.failed', level: 'error', error, fields: { stage } })
+    // A pending memory snapshot lands before recovery mode stops the Host and closes the main window.
+    this.memory.settle()
+    this.saveFailureReport(error, stage)
     this.options.onFailure()
     this.options.onChange()
+  }
+
+  /**
+   * Wait for the report of the failure the recovery assistant shows.
+   * @returns Its file, or undefined when none was saved.
+   */
+  async failureReportFile(): Promise<string | undefined> {
+    await this.failureReportWrite
+    return this.failureReport?.status === 'saved' ? this.failureReport.file : undefined
   }
 
   start(): Promise<void> {
     this.recoveryMode = false
     this.failure = ''
+    this.failureStage = undefined
+    this.failureExit = undefined
+    this.failureReport = undefined
+    this.actionFailure = ''
     this.startup = this.backend.start(async () => {
+      this.hostStage = 'shell-environment'
+      await this.options.prepareEnvironment?.()
+      this.hostStage = 'profile-composition'
       if (this.safeMode && !this.safeHome) {
         privateDirectory(this.recovery.directory)
         this.safeHome = mkdtempSync(join(this.recovery.directory, 'safe-runtime-'))
@@ -108,6 +175,7 @@ export class NextDesktopRuntime {
       }
       if (this.safeMode) this.preferences = { ...SAFE_MODE_PREFERENCES }
       if (!this.safeMode) this.profiles.ensure(this.selected)
+      this.hostStage = 'host-boot'
     })
     // The backend publishes failures after owned process cleanup.
     void this.startup.catch(() => {})
@@ -141,6 +209,7 @@ export class NextDesktopRuntime {
     if (this.safeMode) throw new Error('Desktop preferences are fixed in Safe Mode')
     this.preferences = this.settings.write(parsePreferences(value))
     this.diagnostics.level = this.preferences.logLevel
+    this.diagnostics.developer = this.preferences.developerLogging
     this.options.onChange()
   }
 
@@ -174,9 +243,11 @@ export class NextDesktopRuntime {
     if (!host || !lan || !this.auth || this.safeMode || this.backend.state.phase !== 'ready') {
       this.writePreferences(next); return
     }
+    const loggingChanged = next.developerLogging !== previous.developerLogging || next.logLevel !== previous.logLevel
     const changed = next.browserAccess !== previous.browserAccess || next.networkExposure !== previous.networkExposure
-    if (!changed) { this.writePreferences(next); return }
     try {
+      if (loggingChanged) await host.setLogging(next)
+      if (!changed) { this.writePreferences(next); return }
       await host.setBrowserAccess(next.browserAccess)
       const edge = await lan.setEnabled(next.browserAccess && next.networkExposure === 'lan')
       if (this.closing) throw new Error('Next is shutting down')
@@ -185,6 +256,7 @@ export class NextDesktopRuntime {
     } catch (error) {
       if (!this.closing) {
         try {
+          if (loggingChanged) await host.setLogging(previous)
           await host.setBrowserAccess(previous.browserAccess)
           await lan.setEnabled(previous.browserAccess && previous.networkExposure === 'lan')
         } catch {
@@ -196,16 +268,24 @@ export class NextDesktopRuntime {
     }
   }
 
-  state(): Pick<DesktopState, 'selected' | 'profiles' | 'unavailableProfiles' | 'features' | 'preferences' | 'phase' | 'busy' | 'failure' | 'safeMode' | 'home' | 'browserUrl' | 'lan' | 'checkpoint' | 'logs'> {
+  state(): Pick<DesktopState, 'selected' | 'profiles' | 'unavailableProfiles' | 'features' | 'preferences' | 'phase' | 'busy' | 'failure' | 'failureStage' | 'failureExit' | 'failureReport' | 'actionFailure' | 'safeMode' | 'home' | 'browserUrl' | 'lan' | 'checkpoint' | 'logs'> {
     let features = { ...DEFAULT_FEATURES }
     let profiles: string[] = []
     let checkpoint: DesktopState['checkpoint'] = null
     let failure = this.failure
-    try { profiles = this.profiles.list() } catch (error) { failure ||= maskSecrets(String(error)) }
-    if (!this.safeMode) try { features = this.profiles.features(this.selected) } catch (error) { failure ||= maskSecrets(String(error)) }
+    let failureStage = this.failureStage
+    const unreadable = (error: unknown): void => {
+      if (failure) return
+      failure = maskSecrets(String(error))
+      failureStage = 'profile-selection'
+    }
+    try { profiles = this.profiles.list() } catch (error) { unreadable(error) }
+    if (!this.safeMode) try { features = this.profiles.features(this.selected) } catch (error) { unreadable(error) }
     try { const saved = this.recovery.latest(this.selected); if (saved) checkpoint = { created: saved.created } } catch { /* Recovery remains usable without backups. */ }
     return { selected: this.selected, profiles, unavailableProfiles: profiles.filter(name => !this.profiles.selectable(name)), features, preferences: { ...this.preferences }, phase: this.recoveryMode ? 'recovery' : !this.auth && failure ? 'error' : this.backend.state.phase,
-      busy: this.busy, failure, safeMode: this.safeMode, home: this.options.home,
+      busy: this.busy, failure, ...(failureStage === undefined ? {} : { failureStage }), ...(this.failureExit === undefined ? {} : { failureExit: this.failureExit }),
+      ...(this.failureReport === undefined ? {} : { failureReport: this.failureReport }), ...(this.actionFailure ? { actionFailure: this.actionFailure } : {}),
+      safeMode: this.safeMode, home: this.options.home,
       browserUrl: this.auth && this.preferences.browserAccess && !this.safeMode ? new URL(this.auth.url).origin : null,
       lan: this.lan?.snapshot() ?? null, checkpoint, logs: this.diagnostics.snapshot() }
   }
@@ -238,9 +318,41 @@ export class NextDesktopRuntime {
 
   async close(): Promise<void> {
     this.closing = true
-    await this.backend.close()
+    // Before the Host stops: a Host that dies of OOM while stopping is still recorded.
+    this.memory.stop()
+    const end = this.diagnostics.operation('desktop', 'backend.close')
+    try { await this.backend.close(); end() } catch (error) { end(error); throw error }
     this.cleanupSafeHome()
+    // A report started just before quitting is completed, not left partially written.
+    await this.failureReportWrite
+    await this.operationHistory?.close()
     this.diagnostics.flush()
+  }
+
+  /** Save what opened recovery as one attachable file; recovery remains usable when it cannot be saved. */
+  private saveFailureReport(error: unknown, stage: DesktopFailureStage): void {
+    const report: DesktopFailureReport = { status: 'pending' }
+    this.failureReport = report
+    const launch = Object.entries(this.diagnostics.launch ?? {}).flatMap(([name, value]) => value === undefined ? [] : [[name, String(value)] as const])
+    // A Host failure names the run whose plugin operation records the appended history shows.
+    const hostRun = stage === 'host-boot' || stage === 'host-runtime' ? this.operationHistory?.runId : undefined
+    this.failureReportWrite = writeFailureReport(dirname(this.diagnostics.file), {
+      time: new Date(), stage, failure: this.failure,
+      facts: [['run', this.diagnostics.runId], ...(hostRun === undefined ? [] : [['host run', hostRun] as const]), ...launch, ['arch', process.arch], ['profile', this.selected]],
+      hostDiagnostic: error instanceof DesktopHostFatalError ? error.diagnostic : undefined,
+      // The Host's own diagnostic, or its exit code and stderr tail, describe a Host failure; a shell error adds its stack.
+      error: error instanceof Error && !(error instanceof DesktopHostFatalError) && !(error instanceof DesktopHostExitError) ? error : undefined,
+      log: this.diagnostics.snapshot(),
+      auxiliary: this.operationHistory?.reportNote,
+    }).then((file) => {
+      if (this.failureReport === report) this.failureReport = { status: 'saved', file }
+      this.diagnostics.record({ source: 'desktop', event: 'failure-report.saved', fields: { stage, file } })
+      // Recent plugin operations follow the basic report, which stays complete without them.
+      this.operationHistory?.append(file)
+    }, (cause: unknown) => {
+      if (this.failureReport === report) this.failureReport = { status: 'failed' }
+      this.diagnostics.record({ source: 'desktop', event: 'failure-report.failed', level: 'warn', error: cause, fields: { stage } })
+    })
   }
 
   private cleanupSafeHome(): void {
@@ -272,39 +384,50 @@ export class NextDesktopRuntime {
         DSH_NEXT_PREFERENCES: JSON.stringify(effective), DSH_NEXT_TRUSTED_HOSTS: JSON.stringify(addresses),
         [SYSTEM_PROXY_ENV]: JSON.stringify(options.systemProxy?.() ?? {}),
         ...(this.safeMode ? { DSH_TELEMETRY_DISABLED: '1' } : {}) },
-      onFailure, undefined, undefined, join(options.root, 'lib', 'host.js'), options.onRestart, options.onNotification,
-      chunk => this.diagnostics.hostChunk(chunk), options.onTerminal, options.onPermission, undefined, options.onPlatformLogin)
+      onFailure, options.primaryRuntime, undefined, join(options.root, 'lib', 'host.js'), options.onRestart, options.onNotification,
+      (chunk, stream, pid) => this.diagnostics.hostChunk(chunk, stream, pid), options.onTerminal, options.onPermission, undefined, options.onPlatformLogin,
+      input => { if (input.event === 'exit') this.diagnostics.hostClosed(input.pid); this.diagnostics.record(input) },
+      { memory: (usage, pid) => { this.memory.hostMemory(usage, pid) }, exited: (exit, pid) => { this.memory.hostExited(exit, pid) },
+        ...(this.operationHistory === undefined ? {} : { operation: this.operationHistory.host() }) })
     this.hostProcess = host
     return {
       start: async (): Promise<void> => {
         let timer: ReturnType<typeof setTimeout> | undefined
-        const ready = await Promise.race([host.start(), new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error('Host startup exceeded 60 seconds')), 60_000)
-          timer.unref()
-        })]).finally(() => clearTimeout(timer))
-        const url = new URL(ready.url)
-        if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1') throw new Error('Next Host must use loopback HTTP')
-        if (!ready.injections) throw new Error('Next Host omitted Web boot injections')
-        const cookie = await authenticateWebHost(ready.url, token)
-        if (stopped) return
-        this.auth = { url: ready.url, cookie, token, injections: ready.injections }
-        lan.attach(Number(url.port))
-        if (effective.browserAccess && effective.networkExposure === 'lan') {
-          const edge = await lan.setEnabled(true)
-          if (stopped) { await lan.stop(); return }
-          // The optional LAN edge must not turn a ready loopback Host into recovery mode.
-          if (edge.state === 'failed') this.diagnostics.append(`LAN HTTPS: ${edge.errorCode}`, 'warn')
-        }
-        if (!this.safeMode) {
-          try { this.recovery.checkpoint(this.selected) } catch (error) { this.diagnostics.append(`Recovery checkpoint: ${String(error)}`, 'warn') }
-        }
-        this.diagnostics.append(`Host ready: ${profile}${this.safeMode ? ' (safe mode)' : ''}`)
+        const started = this.diagnostics.operation('desktop', 'host.start', { profile, safeMode: this.safeMode })
+        try {
+          const ready = await Promise.race([host.start(), new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error('Host startup exceeded 60 seconds')), 60_000)
+            timer.unref()
+          })]).finally(() => clearTimeout(timer))
+          const url = new URL(ready.url)
+          if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1') throw new Error('Next Host must use loopback HTTP')
+          if (!ready.injections) throw new Error('Next Host omitted Web boot injections')
+          const cookie = await authenticateWebHost(ready.url, token)
+          if (stopped) { started(); return }
+          this.auth = { url: ready.url, cookie, token, injections: ready.injections }
+          lan.attach(Number(url.port))
+          if (effective.browserAccess && effective.networkExposure === 'lan') {
+            const edge = await lan.setEnabled(true)
+            if (stopped) { await lan.stop(); started(); return }
+            // The optional LAN edge must not turn a ready loopback Host into recovery mode.
+            if (edge.state === 'failed') this.diagnostics.append(`LAN HTTPS: ${edge.errorCode}`, 'warn')
+          }
+          if (!this.safeMode) {
+            try { this.recovery.checkpoint(this.selected) } catch (error) { this.diagnostics.append(`Recovery checkpoint: ${String(error)}`, 'warn') }
+          }
+          started()
+          // From here a Host failure stops a running Desktop rather than its startup.
+          this.hostStage = 'host-runtime'
+          this.diagnostics.append(`Host ready: ${profile}${this.safeMode ? ' (safe mode)' : ''}`)
+        } catch (error) { started(error); throw error }
       },
       stop: async (): Promise<void> => {
         stopped = true
         this.auth = undefined
-        await lan.stop()
-        await host.stop()
+        const edgeStopped = this.diagnostics.operation('desktop', 'lan.stop')
+        try { await lan.stop(); edgeStopped() } catch (error) { edgeStopped(error); throw error }
+        const hostStopped = this.diagnostics.operation('desktop', 'host.stop')
+        try { await host.stop(); hostStopped() } catch (error) { hostStopped(error); throw error }
         if (this.hostProcess === host) this.hostProcess = undefined
         if (this.lan === lan) this.lan = undefined
       },

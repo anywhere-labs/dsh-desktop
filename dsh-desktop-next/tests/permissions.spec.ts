@@ -11,7 +11,7 @@ function fixture(platform = 'darwin') {
   return { native, service: new NativePermissions(native), setStatus(value: DesktopPermissionStatus) { status = value } }
 }
 
-it('queries without prompting and requests only undecided macOS grants', async () => {
+it('queries without prompting and requests only grants macOS can still give', async () => {
   const { service, native, setStatus } = fixture()
   expect(service.query('microphone')).toEqual({ permission: 'microphone', status: 'not-determined', canRequest: true, canOpenSettings: true })
   expect(native.microphone).not.toHaveBeenCalled()
@@ -19,12 +19,17 @@ it('queries without prompting and requests only undecided macOS grants', async (
   expect((await service.request('microphone')).status).toBe('granted')
   await service.request('microphone')
   expect(native.microphone).toHaveBeenCalledOnce()
-  for (const status of ['denied', 'restricted'] as const) {
-    setStatus(status)
-    expect(await service.request('screen')).toMatchObject({ status, canRequest: false, canOpenSettings: true })
-    expect(native.screen).not.toHaveBeenCalled()
-  }
-  setStatus('unknown')
+  setStatus('restricted')
+  expect(await service.request('screen')).toMatchObject({ status: 'restricted', canRequest: false, canOpenSettings: true })
+  expect(native.screen).not.toHaveBeenCalled()
+  // A refused microphone stays refused; macOS has no undecided state for the screen or Accessibility, so a denied
+  // answer there keeps the request available until the grant appears.
+  setStatus('denied')
+  expect(await service.request('microphone')).toMatchObject({ status: 'denied', canRequest: false, canOpenSettings: true })
+  expect(native.microphone).toHaveBeenCalledOnce()
+  expect(await service.request('screen')).toMatchObject({ status: 'granted', canRequest: false })
+  expect(native.screen).toHaveBeenCalledOnce()
+  setStatus('denied')
   expect((await service.request('accessibility')).status).toBe('granted')
   expect(native.accessibility).toHaveBeenCalledOnce()
 })

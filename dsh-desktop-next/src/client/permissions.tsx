@@ -6,18 +6,22 @@ import type { DesktopPermission, DesktopPermissionSnapshot, DesktopPermissions }
 export function DesktopPermissionsSection({ service, language }: { service: DesktopPermissions; language: string }) {
   const zh = language.startsWith('zh')
   return <section className="dshDesktopSettingsGroup" aria-label={zh ? '系统权限' : 'System permissions'}>
-    <h3>{zh ? '系统权限' : 'System permissions'}</h3>
-    <DesktopPermissionsButton service={service} language={language} />
+    <div className="dshDesktopSettingsUpdateRow">
+      <div className="dshDesktopSettingsUpdateSummary">
+        <h3>{zh ? '系统权限' : 'System permissions'}</h3>
+      </div>
+      <DesktopPermissionsButton service={service} language={language} className="dshDesktopSettingsButton" />
+    </div>
   </section>
 }
 
-export function DesktopPermissionsButton({ service, language, iconOnly = false, disabled = false, label: customLabel, permission }: { service?: DesktopPermissions | undefined; language: string; iconOnly?: boolean; disabled?: boolean; label?: string; permission?: DesktopPermission | undefined }) {
+export function DesktopPermissionsButton({ service, language, iconOnly = false, disabled = false, label: customLabel, permission, className }: { service?: DesktopPermissions | undefined; language: string; iconOnly?: boolean; disabled?: boolean; label?: string; permission?: DesktopPermission | undefined; className?: string }) {
   const [open, setOpen] = useState(false)
   const zh = language.startsWith('zh')
   const label = customLabel ?? (zh ? '授权设置' : 'Permissions')
   return <>
     <Button variant={iconOnly ? 'ghost' : 'outline'} size="sm" aria-label={label} disabled={disabled}
-      className={iconOnly ? 'dshNextSettingsGear' : undefined} icon={iconOnly ? <IconSettingsOutlineRegular /> : undefined}
+      className={iconOnly ? 'dshNextSettingsGear' : className} icon={iconOnly ? <IconSettingsOutlineRegular /> : undefined}
       onClick={() => { setOpen(true) }}>{iconOnly ? null : label}</Button>
     <DesktopPermissionsDialog open={open} onClose={() => { setOpen(false) }} service={service} language={language} permission={permission} />
   </>
@@ -84,9 +88,16 @@ export function PermissionDetails({ service, language, permission: onlyPermissio
       setSnapshots(values => values.map(value => value.permission === permission ? snapshot : value))
     } catch (error) { setFailure(error instanceof Error ? error.message : String(error)) } finally { pending.current = false; setBusy(false) }
   }
-  const labels = {
-    granted: t('已允许', 'Allowed'), denied: t('已拒绝', 'Denied'), restricted: t('受系统限制', 'Restricted'),
-    'not-determined': t('尚未授权', 'Not requested'), unknown: t('由系统管理', 'Managed by the system'),
+  // macOS cannot tell a screen or Accessibility grant that was never given from a refused one.
+  const labels = (permission: DesktopPermission) => ({
+    granted: t('已允许', 'Allowed'), denied: permission === 'microphone' ? t('已拒绝', 'Denied') : t('未授权', 'Not granted'),
+    restricted: t('受系统限制', 'Restricted'), 'not-determined': t('尚未授权', 'Not requested'), unknown: t('由系统管理', 'Managed by the system'),
+  })
+  // Steps the system does not explain: macOS reopens the app once screen recording is enabled, and an Accessibility
+  // entry it still shows enabled belongs to an earlier build's signature.
+  const guidance = {
+    screen: t('开启后 macOS 会要求重新打开应用。', 'macOS asks to reopen the app after you turn this on.'),
+    accessibility: t('若系统设置中已显示开启，请移除本应用后重新添加。', 'If System Settings already shows it on, remove the app from the list and add it again.'),
   }
   const descriptions = {
     screen: t('用于截图，让 AI 读取屏幕内容。', 'Take screenshots so AI can read what is on screen.'),
@@ -100,7 +111,8 @@ export function PermissionDetails({ service, language, permission: onlyPermissio
       const label = { microphone: t('麦克风', 'Microphone'), screen: t('屏幕录制', 'Screen recording'), accessibility: t('辅助功能', 'Accessibility') }[permission]
       return <div key={permission} className="dshNextPermissionRow" role="group" aria-label={label}>
         <div className="dshNextPermissionCopy"><strong>{label}</strong><p className="dshDesktopSettingsHint">{descriptions[permission]}</p>
-          <span className="dshNextPermissionStatus" role="status"><StateDot state={snapshot?.status === 'granted' ? 'done' : snapshot?.status === 'denied' || snapshot?.status === 'restricted' ? 'error' : 'idle'} />{snapshot ? labels[snapshot.status] : t('正在读取…', 'Loading…')}</span></div>
+          <span className="dshNextPermissionStatus" role="status"><StateDot state={snapshot?.status === 'granted' ? 'done' : snapshot?.status === 'denied' || snapshot?.status === 'restricted' ? 'error' : 'idle'} />{snapshot ? labels(permission)[snapshot.status] : t('正在读取…', 'Loading…')}</span>
+          {snapshot?.status === 'denied' && permission !== 'microphone' && <p className="dshDesktopSettingsHint">{guidance[permission]}</p>}</div>
         <div className="dshNextPluginActions">
           {snapshot?.canRequest && <Button variant="primary" size="sm" disabled={busy} onClick={() => { void perform(permission, 'request') }}>{t('请求授权', 'Request access')}</Button>}
           {snapshot?.canOpenSettings && <Button variant="outline" size="sm" disabled={busy} onClick={() => { void perform(permission, 'openSettings') }}>{t('打开系统设置', 'Open system settings')}</Button>}

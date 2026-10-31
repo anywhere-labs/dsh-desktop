@@ -14,7 +14,10 @@ const electron = vi.hoisted(() => {
     accessibleTitle = ''
     readonly isDestroyed = vi.fn(() => false)
     readonly isMinimized = vi.fn(() => false)
-    readonly show = vi.fn()
+    visible = false
+    readonly isVisible = vi.fn(() => this.visible)
+    readonly show = vi.fn(() => { this.visible = true })
+    readonly hide = vi.fn(() => { this.visible = false })
     readonly focus = vi.fn()
     readonly restore = vi.fn()
     readonly removeMenu = vi.fn()
@@ -128,6 +131,43 @@ describe('DesktopDialogWindow', () => {
     await expect(result).resolves.toEqual({ response: 0 })
     expect(event.preventDefault).toHaveBeenCalledOnce()
     expect(window?.destroy).toHaveBeenCalledOnce()
+  })
+
+  async function answerParentedDialog(platform: NodeJS.Platform, reveal: boolean) {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue(platform)
+    const parent = new electron.BrowserWindow({})
+    const result = new DesktopDialogWindow({
+      title: 'Confirm',
+      message: 'Continue?',
+      buttons: ['Continue', 'Cancel'],
+      cancelId: 1,
+    }, parent as unknown as Electron.BrowserWindow).run()
+    await vi.waitFor(() => { expect(electron.windows).toHaveLength(2) })
+    const window = electron.windows[1]!
+    if (reveal) {
+      window.onceListeners.get('ready-to-show')?.()
+      window.webListeners.get('preferred-size-changed')?.({}, { width: 480, height: 134 })
+      window.webListeners.get('did-finish-load')?.()
+      expect(window.show).toHaveBeenCalledOnce()
+    }
+    window.webListeners.get('will-navigate')?.({ preventDefault: vi.fn() }, 'dsh-desktop-dialog://response?id=0')
+    await expect(result).resolves.toEqual({ response: 0 })
+    expect(window.destroy).toHaveBeenCalledOnce()
+    return window
+  }
+
+  it('releases Windows modality by hiding a visible dialog before destroying it', async () => {
+    const window = await answerParentedDialog('win32', true)
+
+    expect(window.hide).toHaveBeenCalledOnce()
+    expect(window.hide.mock.invocationCallOrder[0]!)
+      .toBeLessThan(window.destroy.mock.invocationCallOrder[0]!)
+  })
+
+  it('destroys without hiding outside Windows or before the dialog was shown', async () => {
+    expect((await answerParentedDialog('darwin', true)).hide).not.toHaveBeenCalled()
+    electron.windows.length = 0
+    expect((await answerParentedDialog('win32', false)).hide).not.toHaveBeenCalled()
   })
 
   it('uses a larger scrollable presentation for detailed recovery failures', async () => {

@@ -3,11 +3,12 @@
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import { resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
+import { resolveProfileDir, type ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot'
 import { createRequire } from 'node:module'
 import { NEXT_PACKAGE } from './profiles.ts'
 import { profileName as assertDesktopProfileName } from './profiles.ts'
-import { applyDesktopPackageAgePolicy, withoutForwardedDesktopPnpmPolicy } from './pnpm-policy.ts'
+import { applyDesktopPackageManagerPolicy, withoutForwardedDesktopPnpmPolicy } from './pnpm-policy.ts'
+import { bundledPnpmInvocation, ELECTRON_HEADERS_URL } from './bundled-pnpm.ts'
 import { disableAsarArchiveView, type AsarArchiveProcess } from './asar-archive-policy.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
@@ -82,16 +83,29 @@ export function desktopCliProfileManifestUrl(
 }
 
 /**
+ * Bundled pnpm for terminal `dsh` commands, so plugin commands do not depend on the terminal `PATH`.
+ * Native dependencies build for the running Electron ABI, as through the terminal `pnpm` command.
+ * @param electronVersion - Running Electron version; outside Electron the native-module settings are omitted.
+ * @returns Package-manager invocation passed to the official CLI.
+ */
+export function desktopCliPackageManager(electronVersion: string | undefined = process.versions.electron): ProfilePnpmInvocation {
+  const invocation = bundledPnpmInvocation(dirname(NEXT_PACKAGE))
+  if (electronVersion === undefined) return invocation
+  return { ...invocation, env: { ...invocation.env,
+    npm_config_runtime: 'electron', npm_config_target: electronVersion, npm_config_disturl: ELECTRON_HEADERS_URL } }
+}
+
+/**
  * Enter the packaged DSH CLI without any plugin-install transaction wrapper.
  * Manual plugin commands and Market operations rely on unified checkpoints.
  */
 export async function runDesktopDshCli(
   environment: NodeJS.ProcessEnv = process.env,
-  load: (url: string) => Promise<{ runCli(options: { manageDesktopProfile: boolean }): Promise<void> }> = url => import(url),
+  load: (url: string) => Promise<{ runCli(options: { manageDesktopProfile: boolean, packageManager: ProfilePnpmInvocation }): Promise<void> }> = url => import(url),
   argv: string[] = process.argv,
   asarProcess: AsarArchiveProcess = process,
 ): Promise<void> {
-  applyDesktopPackageAgePolicy(environment)
+  applyDesktopPackageManagerPolicy(environment)
   const profileName = takeDefaultProfile(environment)
   clearElectronRunAsNode(environment)
   // The CLI's agent lists and reads user workspaces; see asar-archive-policy.ts.
@@ -100,7 +114,7 @@ export async function runDesktopDshCli(
     ? argv.slice(2)
     : withDefaultDesktopProfile(argv.slice(2), profileName)
   argv.splice(2, argv.length - 2, ...withoutForwardedDesktopPnpmPolicy(selected))
-  await (await load(DSH_ENTRY_URL)).runCli({ manageDesktopProfile: true })
+  await (await load(DSH_ENTRY_URL)).runCli({ manageDesktopProfile: true, packageManager: desktopCliPackageManager() })
 }
 
 function isDirectExecution(): boolean {

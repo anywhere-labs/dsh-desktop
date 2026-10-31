@@ -2,9 +2,17 @@
 
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import type { IncomingHttpHeaders } from 'node:http'
+import { NATIVE_ACCESS_HEADER } from './desktop-contract.ts'
 
 /** Header attached only by the Electron renderer's native network session. */
-export const DESKTOP_RENDERER_ACCESS_HEADER = 'x-dsh-desktop-renderer'
+export const DESKTOP_RENDERER_ACCESS_HEADER = NATIVE_ACCESS_HEADER
+
+let nextAccess: DesktopBrowserAccess | undefined
+/** Called before boot; credentials are removed from the inherited environment. */
+export function configureNextBrowserAccess(token: string | undefined, enabled: boolean): void {
+  nextAccess = token === undefined ? undefined : createDesktopBrowserAccess(enabled, token)
+}
+export function nextBrowserAccess(): DesktopBrowserAccess | undefined { return nextAccess }
 
 const ACCESS_TOKEN_BYTES = 32
 const ACCESS_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u
@@ -35,10 +43,10 @@ export function createDesktopBrowserAccess(
   token: string = randomBytes(ACCESS_TOKEN_BYTES).toString('base64url'),
 ): DesktopBrowserAccess {
   if (typeof ordinaryBrowserEnabled !== 'boolean') {
-    throw new TypeError('dsh-plugin-desktop: ordinary browser access must be a boolean')
+    throw new TypeError('dsh-plugin-desktop-beta: ordinary browser access must be a boolean')
   }
   if (!ACCESS_TOKEN_PATTERN.test(token)) {
-    throw new TypeError('dsh-plugin-desktop: renderer access token must be 32 base64url bytes')
+    throw new TypeError('dsh-plugin-desktop-beta: renderer access token must be 32 base64url bytes')
   }
   let enabled = ordinaryBrowserEnabled
   return Object.freeze({
@@ -49,7 +57,7 @@ export function createDesktopBrowserAccess(
     }),
     setOrdinaryBrowserEnabled(next: boolean) {
       if (typeof next !== 'boolean') {
-        throw new TypeError('dsh-plugin-desktop: ordinary browser access must be a boolean')
+        throw new TypeError('dsh-plugin-desktop-beta: ordinary browser access must be a boolean')
       }
       enabled = next
     },

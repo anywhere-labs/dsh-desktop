@@ -36,6 +36,7 @@ import { isMap, isPair, isScalar, isSeq, parseAllDocuments, parseDocument, type 
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
 import { removeLinkProjectionsSafely } from './link-projections.ts'
 import { DESKTOP_DEFAULT_WEB_PORT } from './desktop-port.ts'
+import { RETIRED_SCHEDULE_BUNDLE, retiredSchedulePatch, SCHEDULE_RETIREMENT_MARKER } from './profile-schedule.ts'
 import {
   desktopBrowserAccessAvailable,
   desktopBrowserAccessEnabled,
@@ -466,6 +467,7 @@ const PENDING_DESKTOP_SHELL_FIELDS: ReadonlySet<string> = new Set([
   'openBrowser',
   'networkExposure',
   'logLevel',
+  'developerLogging',
 ])
 
 /**
@@ -648,6 +650,8 @@ export interface PreparedDesktopProfile {
   marketFailure?: string
   /** Whether packaged pnpm must rebuild a legacy Profile dependency layout. */
   requiresDependencyMigration: boolean
+  /** Layers whose Connection override still targets the retired `webRuntime` service. */
+  legacyWebRuntimeSources?: readonly string[]
 }
 
 /** Optional observations emitted before profile preparation can fail. */
@@ -746,6 +750,183 @@ export function ensureDesktopProfile(home: string = resolveDshHome()): string {
     })
   }
   return dir
+}
+
+const MANAGED_MARKET_BUNDLES = new Set<string>([
+  DESKTOP_MARKET_IDENTITIES.community.packageName,
+  DESKTOP_MARKET_IDENTITIES.dshMarket.packageName,
+])
+
+/** Read the Market provider and AA toggle state encoded in the Profile manifest's bundle list. */
+export function readDesktopManagedProfileBundles(profileDir: string): {
+  market: DesktopMarketProvider
+  aaEnabled: boolean
+} {
+  if (!existsSync(join(profileDir, 'package.json'))) {
+    return { market: 'disabled', aaEnabled: false }
+  }
+  const manifest = readProfileManifest(BIN_NAME, profileDir)
+  const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
+  if (!Array.isArray(rawBundles)) {
+    return { market: 'disabled', aaEnabled: false }
+  }
+  const bundles = rawBundles.filter((value): value is string => typeof value === 'string')
+  const dshMarketIndex = bundles.lastIndexOf(DESKTOP_MARKET_IDENTITIES.dshMarket.packageName)
+  const communityIndex = bundles.lastIndexOf(DESKTOP_MARKET_IDENTITIES.community.packageName)
+  const market: DesktopMarketProvider = dshMarketIndex < 0 && communityIndex < 0
+    ? 'disabled'
+    : dshMarketIndex > communityIndex
+      ? 'dsh-market'
+      : 'community-market'
+  const aaEnabled = bundles.includes(AA_PACKAGE_NAME)
+  return { market, aaEnabled }
+}
+
+/**
+ * Synchronize the Profile manifest's `dsh.profile.bundles` list with the active
+ * Market provider and AA toggle state so `dsh-plugin-manager` reports and
+ * toggles the exact bundles that Desktop is running.
+ */
+export function syncDesktopManagedProfileBundles(
+  profileDir: string,
+  state: { market: DesktopMarketProvider; aaEnabled: boolean },
+): void {
+  if (!existsSync(join(profileDir, 'package.json'))) return
+  const manifest = readProfileManifest(BIN_NAME, profileDir)
+  const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
+  if (rawBundles !== undefined
+    && (!Array.isArray(rawBundles) || rawBundles.some(value => typeof value !== 'string'))) {
+    return
+  }
+  const current = rawBundles === undefined ? [] : rawBundles as string[]
+  const wantedMarketBundle = state.market === 'dsh-market'
+    ? DESKTOP_MARKET_IDENTITIES.dshMarket.packageName
+    : state.market === 'community-market'
+      ? DESKTOP_MARKET_IDENTITIES.community.packageName
+      : undefined
+  const next = current.filter(name => {
+    if (MANAGED_MARKET_BUNDLES.has(name)) return name === wantedMarketBundle
+    if (name === AA_PACKAGE_NAME) return state.aaEnabled
+    return true
+  })
+  if (wantedMarketBundle !== undefined && !next.includes(wantedMarketBundle)) {
+    next.push(wantedMarketBundle)
+  }
+  if (state.aaEnabled && !next.includes(AA_PACKAGE_NAME)) {
+    next.push(AA_PACKAGE_NAME)
+  }
+  if (!sameList(current, next)) {
+    writeProfileManifest(profileDir, {
+      ...manifest,
+      dsh: {
+        ...manifest.dsh,
+        profile: {
+          ...manifest.dsh?.profile,
+          bundles: next,
+        },
+      },
+    })
+  }
+}
+
+const OFFICIAL_PLUGIN_MARKET_BUNDLE = '@deepseek-ai/dsh-experimental-plugin-market-bundle'
+const OFFICIAL_PLUGIN_MARKET_ROW_ID = 'plugin-market'
+const OFFICIAL_PLUGIN_MARKET_PACKAGE = '@deepseek-ai/dsh-plugin-market'
+
+/** Built-in dsh-market index URL preconfigured when enabling the official Custom Plugin Market in Setup. */
+export const DEFAULT_OFFICIAL_MARKET_INDEX_URL = 'https://cdn.jsdelivr.net/gh/realguan/dsh-plugin-market@dist/dsh-index.json'
+
+/** Inspect whether the active Profile manifest currently enables the official Custom Plugin Market bundle. */
+export function readDesktopOfficialPluginMarketEnabled(profileDir: string): boolean {
+  if (!existsSync(join(profileDir, 'package.json'))) return false
+  try {
+    const manifest = readProfileManifest(BIN_NAME, profileDir)
+    const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
+    return Array.isArray(rawBundles) && rawBundles.includes(OFFICIAL_PLUGIN_MARKET_BUNDLE)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Enable or disable the official Custom Plugin Market bundle in the Profile manifest,
+ * and preconfigure the built-in dsh-market index URL in `cordis.patch.yml` when enabling.
+ */
+export function configureDesktopOfficialPluginMarket(
+  profileDir: string,
+  enabled: boolean,
+): void {
+  if (!existsSync(join(profileDir, 'package.json'))) return
+  const manifest = readProfileManifest(BIN_NAME, profileDir)
+  const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
+  if (rawBundles !== undefined
+    && (!Array.isArray(rawBundles) || rawBundles.some(value => typeof value !== 'string'))) {
+    return
+  }
+  const current = rawBundles === undefined ? [] : rawBundles as string[]
+  const next = enabled
+    ? (current.includes(OFFICIAL_PLUGIN_MARKET_BUNDLE) ? current : [...current, OFFICIAL_PLUGIN_MARKET_BUNDLE])
+    : current.filter(name => name !== OFFICIAL_PLUGIN_MARKET_BUNDLE)
+  if (!sameList(current, next)) {
+    writeProfileManifest(profileDir, {
+      ...manifest,
+      dsh: {
+        ...manifest.dsh,
+        profile: {
+          ...manifest.dsh?.profile,
+          bundles: next,
+        },
+      },
+    })
+  }
+  if (!enabled) return
+  configureDesktopOfficialPluginMarketDefaultSource(join(profileDir, PROFILE_PATCH_FILENAME))
+}
+
+function configureDesktopOfficialPluginMarketDefaultSource(patchPath: string): void {
+  if (lstatSync(patchPath, { throwIfNoEntry: false })?.isSymbolicLink()) return
+  let before: string
+  try {
+    before = readFileSync(patchPath, 'utf8')
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+    before = '[]\n'
+  }
+  const patchDocument = parseDocument(before, {
+    customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }],
+  })
+  if (patchDocument.errors.length > 0 || !isSeq(patchDocument.contents)) return
+  const rows = patchDocument.contents
+  rows.flow = false
+  const index = rows.items.findLastIndex((item, index) => isMap(item)
+    && patchDocument.getIn([index, 'id']) === OFFICIAL_PLUGIN_MARKET_ROW_ID
+    && !item.has('insert')
+    && (!item.has('name') || patchDocument.getIn([index, 'name']) === OFFICIAL_PLUGIN_MARKET_PACKAGE))
+  if (index < 0) {
+    patchDocument.addIn([], {
+      id: OFFICIAL_PLUGIN_MARKET_ROW_ID,
+      config: { indexes: [DEFAULT_OFFICIAL_MARKET_INDEX_URL] },
+    })
+  } else {
+    const config = patchDocument.getIn([index, 'config'], true)
+    if (config === undefined) {
+      patchDocument.setIn([index, 'config'], patchDocument.createNode({
+        indexes: [DEFAULT_OFFICIAL_MARKET_INDEX_URL],
+      }))
+    } else if (isMap(config)) {
+      const rawIndexes = config.toJS(patchDocument) as { indexes?: unknown }
+      const existing = Array.isArray(rawIndexes.indexes)
+        ? rawIndexes.indexes.filter((entry): entry is string => typeof entry === 'string')
+        : []
+      const nextIndexes = existing.includes(DEFAULT_OFFICIAL_MARKET_INDEX_URL)
+        ? existing
+        : [DEFAULT_OFFICIAL_MARKET_INDEX_URL, ...existing]
+      config.set('indexes', patchDocument.createNode(nextIndexes))
+    } else {
+      return
+    }
+  }
+  replaceDocument(patchPath, String(patchDocument))
 }
 
 interface ParsedProfileYaml {
@@ -860,6 +1041,53 @@ function marketFailureMessage(cause: unknown): string {
 }
 
 /**
+ * Drop the retired Scheduled Tasks bundle before Desktop resolves the bundle
+ * list: a Profile 0.2.0-rc.2 wrote still names it, the installation no longer
+ * ships it, and app-boot only prunes it after Desktop has already failed to
+ * resolve it. The `time-context` overrides that no longer match a row are
+ * removed once per Profile. Health snapshots can restore an older manifest, so
+ * the bundle check runs on every load. A failed write still lets this launch
+ * continue with the pruned list.
+ */
+function retireScheduleBundle(profileDir: string, manifest: ProfileManifest): ProfileManifest {
+  const dsh = (manifest.dsh ?? {}) as Record<string, unknown>
+  const profileSection = (dsh.profile ?? {}) as Record<string, unknown>
+  const bundles = Array.isArray(profileSection.bundles) ? profileSection.bundles as unknown[] : undefined
+  const listsRetired = bundles?.includes(RETIRED_SCHEDULE_BUNDLE) === true
+  if (!listsRetired && dsh[SCHEDULE_RETIREMENT_MARKER] === true) return manifest
+  const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
+  let patch: string | undefined
+  let patchReviewed = false
+  try {
+    if (!lstatSync(patchPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      patch = retiredSchedulePatch(existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : '[]\n')
+      patchReviewed = true
+    }
+  } catch {
+    // A malformed patch is left for recovery to report; retry on the next start.
+  }
+  const next = {
+    ...manifest,
+    dsh: {
+      ...dsh,
+      profile: {
+        ...profileSection,
+        ...(bundles === undefined ? {} : { bundles: bundles.filter(bundle => bundle !== RETIRED_SCHEDULE_BUNDLE) }),
+      },
+      ...(patchReviewed ? { [SCHEDULE_RETIREMENT_MARKER]: true } : {}),
+    },
+  } as ProfileManifest
+  try {
+    // Patch first: both steps are idempotent, so an interrupted run simply repeats.
+    if (patch !== undefined) replaceDocument(patchPath, patch)
+    writeProfileManifest(profileDir, next)
+  } catch {
+    // Read-only or contended Profile: this launch still skips the missing package.
+  }
+  return next
+}
+
+/**
  * Load a profile while resolving disabled third-party bundles only after they have been filtered.
  * Every direct bundle uses the same Desktop/Profile SemVer overlay that Loader imports use.
  * The `dshmarket` bundle is filtered before resolution unless explicitly selected.
@@ -878,7 +1106,7 @@ function loadRecoveryFilteredProfile(
     }
     initProfile(profileDir, template.bundles)
   }
-  const manifest = readProfileManifest(BIN_NAME, profileDir)
+  const manifest = retireScheduleBundle(profileDir, readProfileManifest(BIN_NAME, profileDir))
   const rawBundles = (manifest.dsh?.profile as { bundles?: unknown } | undefined)?.bundles
   if (rawBundles !== undefined
     && (!Array.isArray(rawBundles) || rawBundles.some(value => typeof value !== 'string'))) {
@@ -996,6 +1224,130 @@ function webRuntimeTrustedHosts(
     throw new Error(`${BIN_NAME}: web-runtime trustedHosts must be an array of strings`)
   }
   return [...new Set([...configured, ...lanAddresses])]
+}
+
+/**
+ * Carry Desktop's Web trust into Connection when the core no longer routes it
+ * through the web-runtime row.
+ *
+ * Through dsh 0.2.1-alpha.1, web-runtime provided the `webRuntime` service and
+ * Connection read `ctx.webRuntime.trustedHosts`, so the web-runtime patch was
+ * enough. 0.2.1-alpha.2 removed that service: Connection now reads only
+ * `--trusted-host` authorities from `webStartup` and separately accepts its
+ * bind address. Desktop binds loopback behind the LAN HTTPS edge, which
+ * forwards the external LAN Host header, so the launcher's snapshot (plus the
+ * profile's own web-runtime entries) must be appended to Connection itself.
+ */
+function connectionTrustPatch(
+  connection: EntryOptions | undefined,
+  trustedHosts: readonly string[],
+): PatchOptions | undefined {
+  if (connection === undefined) return undefined
+  const inject = connection.inject
+  const injected = Array.isArray(inject) ? inject : Object.keys(inject ?? {})
+  if (injected.includes('webRuntime')) return undefined
+  const config = rowConfig(connection)
+  const configured: unknown = config.trustedHosts
+  let merged: unknown
+  if (isJsExpr(configured)) {
+    merged = trustedHosts.length === 0
+      ? configured
+      : { __jsExpr: `[...new Set([...(${configured.__jsExpr}), ...${JSON.stringify(trustedHosts)}])]` }
+  } else if (configured === undefined) {
+    merged = [...trustedHosts]
+  } else if (Array.isArray(configured) && configured.every(entry => typeof entry === 'string')) {
+    merged = [...new Set([...configured as string[], ...trustedHosts])]
+  } else {
+    throw new Error(`${BIN_NAME}: connection trustedHosts must be an array of strings`)
+  }
+  return { id: 'connection', config: { ...config, trustedHosts: merged } }
+}
+
+const RETIRED_WEB_RUNTIME_SERVICE = 'webRuntime'
+const WEB_STARTUP_SERVICE = 'webStartup'
+const RETIRED_WEB_RUNTIME_REFERENCE = /\bctx\s*(?:\?\.|\.)\s*webRuntime\b/gu
+
+/** Service names one row's `inject` declares, in either Cordis form. */
+function injectedServices(inject: EntryOptions['inject']): string[] {
+  if (Array.isArray(inject)) return inject.filter((name): name is string => typeof name === 'string')
+  return inject !== null && typeof inject === 'object' ? Object.keys(inject) : []
+}
+
+/** Whether a config value carries a `!!js` expression that reads `ctx.webRuntime`. */
+function readsRetiredWebRuntime(value: unknown): boolean {
+  if (isJsExpr(value)) return new RegExp(RETIRED_WEB_RUNTIME_REFERENCE.source, 'u').test(value.__jsExpr)
+  if (Array.isArray(value)) return value.some(readsRetiredWebRuntime)
+  if (value !== null && typeof value === 'object') return Object.values(value).some(readsRetiredWebRuntime)
+  return false
+}
+
+/** Whether one patch layer rewrites Connection against the retired service. */
+function patchesTargetRetiredWebRuntime(patches: readonly PatchOptions[]): boolean {
+  return patches.some(patch => patch.id === 'connection' && patch.insert === undefined
+    && (injectedServices(patch.inject).includes(RETIRED_WEB_RUNTIME_SERVICE)
+      || readsRetiredWebRuntime(patch.config)))
+}
+
+/** Replace each `ctx.webRuntime` read with the generation's frozen 0.2.0 values. */
+function substituteRetiredWebRuntime(value: unknown, literal: string): unknown {
+  if (isJsExpr(value)) {
+    return { __jsExpr: value.__jsExpr.replace(RETIRED_WEB_RUNTIME_REFERENCE, literal) }
+  }
+  if (Array.isArray(value)) return value.map(item => substituteRetiredWebRuntime(item, literal))
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) =>
+      [key, substituteRetiredWebRuntime(item, literal)]))
+  }
+  return value
+}
+
+/**
+ * Re-target a Connection row that a pre-0.2.1 layer bound to `webRuntime`.
+ *
+ * dsh 0.2.0 Web bundles provided `webRuntime` ({ lanAddresses, trustedHosts })
+ * and Connection injected it. Third-party bundles written for that core
+ * (issue #1424: e.g. `@tnnevol/dsh-codebuddy@0.2.0-rc.2.6`, `@hr98w/dsh-memory`,
+ * `dsh-local-link`) replace Connection's whole `inject` with `[webRuntime, ...]`
+ * or concatenate `ctx.webRuntime.trustedHosts`. Once the installed Web bundle
+ * no longer declares that service, nothing provides it: the required row stays
+ * pending and every Desktop startup aborts. Only Connection is rewritten,
+ * because it is the required row whose absence takes the whole Host down; the
+ * webRuntime service itself is not resurrected for other plugins.
+ *
+ * `webStartup` replaces the retired injection, and every `ctx.webRuntime` read
+ * becomes the literal values that service carried for this generation: the
+ * frozen LAN snapshot and the Web trust Desktop composes from it.
+ * @param connection - the composed Connection row.
+ * @param values - this generation's equivalent of the retired service.
+ * @returns the replacement row, or undefined when it does not use the service.
+ */
+function retargetRetiredWebRuntimeConnection(
+  connection: EntryOptions | undefined,
+  values: { readonly lanAddresses: readonly string[], readonly trustedHosts: readonly string[] },
+): EntryOptions | undefined {
+  if (connection === undefined) return undefined
+  const inject = connection.inject
+  const injects = injectedServices(inject).includes(RETIRED_WEB_RUNTIME_SERVICE)
+  if (!injects && !readsRetiredWebRuntime(connection.config)) return undefined
+  let retargeted = inject
+  if (injects && Array.isArray(inject)) {
+    retargeted = [...new Set(inject.map(name =>
+      name === RETIRED_WEB_RUNTIME_SERVICE ? WEB_STARTUP_SERVICE : name))]
+  } else if (injects && inject !== null && typeof inject === 'object') {
+    const { [RETIRED_WEB_RUNTIME_SERVICE]: retired, ...rest } = inject as Record<string, unknown>
+    retargeted = { [WEB_STARTUP_SERVICE]: retired, ...rest } as EntryOptions['inject']
+  }
+  const literal = `(${JSON.stringify({
+    lanAddresses: [...values.lanAddresses],
+    trustedHosts: [...values.trustedHosts],
+  })})`
+  return {
+    ...connection,
+    ...(retargeted === undefined ? {} : { inject: retargeted }),
+    ...(connection.config === undefined
+      ? {}
+      : { config: substituteRetiredWebRuntime(connection.config, literal) }),
+  }
 }
 
 /** Resolve a Loader row's platform gate without mutating the host process. */
@@ -1275,12 +1627,15 @@ export function prepareDesktopProfile(
   let aaLayer: Profile['layers'][number] | undefined
   let dshMarketPatches: PatchOptions[] | undefined
   let desktopLayerInserted = false
+  let webAppPatches: readonly PatchOptions[] = []
+  const retiredWebRuntimeLayers: string[] = []
   const providerAwareDisabledBundles = new Set(disabledBundles)
   if (marketSelection.requested === DESKTOP_MARKET_IDENTITIES.dshMarket.provider) {
     providerAwareDisabledBundles.delete(DESKTOP_MARKET_IDENTITIES.dshMarket.packageName)
   }
   if (hooks.aaEnabled === true) providerAwareDisabledBundles.delete(AA_PACKAGE_NAME)
   for (const layer of activeDesktopProfileLayers(profile, providerAwareDisabledBundles)) {
+    if (patchesTargetRetiredWebRuntime(layer.patches)) retiredWebRuntimeLayers.push(layer.packageName)
     if (layer.packageName === AA_PACKAGE_NAME) { aaLayer = layer; continue }
     if (layer.packageName === DESKTOP_MARKET_IDENTITIES.dshMarket.packageName) {
       dshMarketPatches = layer.patches
@@ -1288,6 +1643,7 @@ export function prepareDesktopProfile(
     }
     bundlePatches.push(...layer.patches)
     if (layer.packageName !== '@deepseek-ai/dsh-web-app') continue
+    webAppPatches = layer.patches
     bundlePatches.push(...desktopPatches)
     desktopLayerInserted = true
   }
@@ -1435,6 +1791,7 @@ export function prepareDesktopProfile(
     throw new Error(`${BIN_NAME}: desktop profile has no web-runtime row`)
   }
   const webRuntimeConfig = rowConfig(webRuntime)
+  const desktopTrustedHosts = webRuntimeTrustedHosts(webRuntimeConfig.trustedHosts, lanAddresses)
   patches.push({
     id: 'web-runtime',
     config: {
@@ -1442,9 +1799,32 @@ export function prepareDesktopProfile(
       // Browser access is an advertised Desktop capability, never an
       // instruction to launch the operating system's default browser.
       openBrowser: false,
-      trustedHosts: webRuntimeTrustedHosts(webRuntimeConfig.trustedHosts, lanAddresses),
+      trustedHosts: desktopTrustedHosts,
     },
   })
+  // A Web bundle that still injects webRuntime into its own Connection row
+  // also provides that service; only a core that retired it needs re-targeting.
+  const webBundleProvidesWebRuntime = webAppPatches.some(patch => (patch.insert ?? []).some(row =>
+    row.id === 'connection' && injectedServices(row.inject).includes(RETIRED_WEB_RUNTIME_SERVICE)))
+  const retargetedConnection = webBundleProvidesWebRuntime
+    ? undefined
+    : retargetRetiredWebRuntimeConnection(rows.get('connection'), {
+        lanAddresses,
+        trustedHosts: desktopTrustedHosts,
+      })
+  const legacyWebRuntimeSources = retargetedConnection === undefined ? [] : [
+    ...retiredWebRuntimeLayers,
+    ...patchesTargetRetiredWebRuntime(profile.patches) ? [profile.patchPath] : [],
+    ...patchesTargetRetiredWebRuntime(homePatches) ? [join(home, PROFILE_PATCH_FILENAME)] : [],
+  ]
+  const connectionPatch = connectionTrustPatch(retargetedConnection ?? rows.get('connection'), desktopTrustedHosts)
+  if (retargetedConnection !== undefined) {
+    patches.push({
+      id: 'connection',
+      ...(retargetedConnection.inject === undefined ? {} : { inject: retargetedConnection.inject }),
+      config: connectionPatch?.config ?? rowConfig(retargetedConnection),
+    })
+  } else if (connectionPatch !== undefined) patches.push(connectionPatch)
   // The saved mode is what the next generation boots, so the config editor's
   // validation pass must still reject a layout it could not start.
   if (mode === 'advanced' || mode === 'extended') {
@@ -1622,6 +2002,7 @@ export function prepareDesktopProfile(
     market: desktopMarketSnapshotWithEffective(marketSelection, effectiveMarket),
     requiresDependencyMigration,
     ...(marketFailure === undefined ? {} : { marketFailure }),
+    ...(legacyWebRuntimeSources.length === 0 ? {} : { legacyWebRuntimeSources }),
   }
 }
 

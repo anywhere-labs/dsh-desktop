@@ -66,6 +66,7 @@ export class ProfileCreateWindow {
     const copy = desktopProfileCreateCopy(this.options.locale)
     const window = createDesktopLocalWindow({
       partition: 'dsh-profile-create',
+      locale: this.options.locale,
       title: copy.title,
       ...auxiliaryWindowChromeOptions(),
       width: 480,
