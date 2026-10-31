@@ -40,3 +40,13 @@ describe('desktop single-instance ownership', () => {
     expect(focus).toHaveBeenCalledOnce()
   })
 })
+
+it('forwards every later-launch argument without flattening the workspace roots', () => {
+  let receive: ((event?: unknown, argv?: string[]) => void) | undefined
+  const focus = vi.fn()
+  claimDesktopSingleInstance({ requestSingleInstanceLock: () => true, quit: vi.fn(),
+    on: (_event, listener) => { receive = listener } }, focus)
+  const argv = ['desktop', '--dsh-desktop-workspace=/frontend', '--dsh-desktop-workspace=/backend']
+  receive?.({}, argv)
+  expect(focus).toHaveBeenCalledExactlyOnceWith(argv)
+})

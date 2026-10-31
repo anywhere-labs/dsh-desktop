@@ -3,7 +3,7 @@ import {
   DESKTOP_HOST_PATHS_BRIDGE,
   type DesktopHostPathBridge,
 } from '../src/file-path-bridge-contract.ts'
-import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL } from '../src/directory-picker-contract.ts'
+import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL, DESKTOP_NATIVE_DIRECTORIES_PICKER_CHANNEL } from '../src/directory-picker-contract.ts'
 import {
   DESKTOP_RENDERER_ACTION_CHANNEL,
   DESKTOP_RENDERER_ACTIONS_BRIDGE,
@@ -75,9 +75,11 @@ describe('Desktop renderer preload bridges', () => {
     await actions?.invoke('terminal')
     expect(electron.ipcRenderer.invoke).toHaveBeenCalledWith(DESKTOP_RENDERER_ACTION_CHANNEL, 'terminal')
 
-    const picker = electron.exposed.get('__DSH_DIRECTORY_PICKER__') as { pick(): Promise<string | null> } | undefined
+    const picker = electron.exposed.get('__DSH_DIRECTORY_PICKER__') as { pick(): Promise<string | null>; pickMany(): Promise<string[]> } | undefined
     await picker?.pick()
     expect(electron.ipcRenderer.invoke).toHaveBeenCalledWith(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL)
+    await picker?.pickMany()
+    expect(electron.ipcRenderer.invoke).toHaveBeenCalledWith(DESKTOP_NATIVE_DIRECTORIES_PICKER_CHANNEL)
 
     expect(electron.exposed.get('dshDesktop')).toEqual({ protocolVersion: 1 })
 

@@ -26,7 +26,7 @@ import {
   type DesktopOpenWorkspaceDelivery,
 } from './launch-workspace-contract.ts'
 import { DESKTOP_RENDERER_ACTION_CHANNEL } from './renderer-actions-contract.ts'
-import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL } from './directory-picker-contract.ts'
+import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL, DESKTOP_NATIVE_DIRECTORIES_PICKER_CHANNEL } from './directory-picker-contract.ts'
 import { createDesktopRendererActionDispatcher } from './renderer-actions-dispatch.ts'
 import type { DesktopNotification, DesktopShellSpec } from './runtime.ts'
 import { prepareTrayIcon } from './tray-icons.ts'
@@ -199,6 +199,7 @@ export interface ElectronShellGenerationOptions {
   readonly spec: DesktopShellSpec
   readonly preloadPath: string
   readonly pickDirectory: () => Promise<string | null>
+  readonly pickDirectories: () => Promise<string[]>
   readonly buildApplicationMenuItems: () => readonly Electron.MenuItemConstructorOptions[]
   readonly isQuitting: () => boolean
   readonly buildTrayTemplate: () => Electron.MenuItemConstructorOptions[]
@@ -220,6 +221,7 @@ export interface ElectronShellGenerationOptions {
 export class ElectronShellGeneration {
   private window: BrowserWindow | undefined
   private renderer: WebContents | undefined
+  private workspaceDocument: object = {}
   private compatibilityShell: CompatibilityShell | undefined
   private tray: Tray | undefined
   private mounted = false
@@ -366,14 +368,24 @@ export class ElectronShellGeneration {
     })
 
     if (platform.platform === 'darwin') {
-      renderer.ipc.handle(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL, async event => {
-        if (this.released || event.sender !== renderer
-          || event.senderFrame === null || event.senderFrame !== renderer.mainFrame
-          || !sameOriginFrame(event.senderFrame.url, origin)) {
-          throw new Error('dsh-plugin-desktop: untrusted directory picker sender')
-        }
-        return await this.options.pickDirectory()
-      })
+      for (const channel of [DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL, DESKTOP_NATIVE_DIRECTORIES_PICKER_CHANNEL]) {
+        renderer.ipc.handle(channel, async event => {
+          const frame = event.senderFrame
+          const document = this.workspaceDocument
+          if (this.released || event.sender !== renderer
+            || frame === null || frame !== renderer.mainFrame
+            || !sameOriginFrame(frame.url, origin)) {
+            throw new Error('dsh-plugin-desktop: untrusted directory picker sender')
+          }
+          const result = channel === DESKTOP_NATIVE_DIRECTORIES_PICKER_CHANNEL
+            ? await this.options.pickDirectories() : await this.options.pickDirectory()
+          // A native modal can outlive its renderer generation. Never return its
+          // result to a replaced document, even when it has the same origin.
+          if (this.released || this.workspaceDocument !== document || renderer.isDestroyed() || renderer.mainFrame !== frame
+            || !sameOriginFrame(frame.url, origin)) return channel === DESKTOP_NATIVE_DIRECTORIES_PICKER_CHANNEL ? [] : null
+          return result
+        })
+      }
     }
 
     renderer.ipc.handle(SETUP_ONBOARDING_CHANNEL, async (event, request: unknown) => {
@@ -599,6 +611,10 @@ export class ElectronShellGeneration {
     renderer.on('will-redirect', redirect)
     renderer.on('render-process-gone', rendererGone)
     renderer.on('did-fail-load', loadFailed)
+    const resetDocument = (details: Electron.WebContentsDidStartNavigationEventParams): void => {
+      if (details.isMainFrame && !details.isSameDocument) this.workspaceDocument = {}
+    }
+    renderer.on('did-start-navigation', resetDocument)
     renderer.on('did-start-loading', resetSurface)
     renderer.on('did-finish-load', loaded)
     if (isolated) {
@@ -647,11 +663,15 @@ export class ElectronShellGeneration {
       renderer.off('will-redirect', redirect)
       renderer.off('render-process-gone', rendererGone)
       renderer.off('did-fail-load', loadFailed)
+      renderer.off('did-start-navigation', resetDocument)
       renderer.off('did-start-loading', resetSurface)
       renderer.off('did-finish-load', loaded)
       if (!renderer.isDestroyed()) {
         renderer.ipc.removeHandler(DESKTOP_RENDERER_ACTION_CHANNEL)
-        if (platform.platform === 'darwin') renderer.ipc.removeHandler(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL)
+        if (platform.platform === 'darwin') {
+          renderer.ipc.removeHandler(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL)
+          renderer.ipc.removeHandler(DESKTOP_NATIVE_DIRECTORIES_PICKER_CHANNEL)
+        }
         renderer.ipc.removeHandler(SETUP_ONBOARDING_CHANNEL)
       }
       if (isolated) {
@@ -833,6 +853,9 @@ export class ElectronShellGeneration {
     this.replacementExit = undefined
   }
 
+  /** Opaque request owner changes on reload even when Electron reuses its main frame. */
+  workspaceDocumentOwner(): object { return this.workspaceDocument }
+
   /** Toggle Developer Tools for the active renderer. */
   toggleDeveloperTools(): void {
     const window = this.window
@@ -846,19 +869,20 @@ export class ElectronShellGeneration {
   }
 
   /**
-   * Hand one launch folder to the mounted Host page.
+   * Hand the folders one launch named to the mounted Host page.
    *
    * The delivery script resolves immediately in both directions, so a page that
-   * has not yet installed the client seam parks the folder instead of keeping
+   * has not yet installed the client seam parks the folders instead of keeping
    * the main process waiting on a renderer promise.
-   * @param path - absolute folder already admitted by native policy.
-   * @returns how the page took the folder, or `'unavailable'` when no renderer
-   *   could take it.
+   * @param paths - absolute folders already admitted by native policy, first one
+   *   being the workspace's primary root.
+   * @returns how the page took the folders, or `'unavailable'` when no renderer
+   *   could take them.
    */
-  async openWorkspacePath(path: string): Promise<DesktopOpenWorkspaceDelivery | 'unavailable'> {
+  async openWorkspacePath(paths: readonly string[]): Promise<DesktopOpenWorkspaceDelivery | 'unavailable'> {
     const renderer = this.renderer
     if (this.released || renderer === undefined || renderer.isDestroyed()) return 'unavailable'
-    const delivery: unknown = await renderer.executeJavaScript(desktopOpenWorkspaceScript(path))
+    const delivery: unknown = await renderer.executeJavaScript(desktopOpenWorkspaceScript(paths))
     return delivery === 'delivered' || delivery === 'pending' ? delivery : 'unavailable'
   }
 

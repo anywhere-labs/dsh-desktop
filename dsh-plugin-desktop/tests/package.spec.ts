@@ -78,9 +78,10 @@ const workspaceManifest = JSON.parse(readFileSync(new URL('package.json', worksp
 const ciWorkflow = readFileSync(new URL('.github/workflows/ci.yml', workspaceRoot), 'utf8')
 const main = readFileSync(new URL('src/main.ts', packageRoot), 'utf8')
 const runtimeVersion = String(manifest.dependencies?.['@deepseek-ai/dsh'])
-const betaRuntimeVersion = (JSON.parse(readFileSync(
-  new URL('dsh-plugin-desktop-beta/package.json', workspaceRoot), 'utf8',
-)) as { dependencies: Record<string, string> }).dependencies['@deepseek-ai/dsh']
+const desktopChannels = ['dsh-plugin-desktop', 'dsh-plugin-desktop-beta', 'dsh-desktop-next']
+const channelRuntimeVersions = desktopChannels.map(channel => (JSON.parse(readFileSync(
+  new URL(`${channel}/package.json`, workspaceRoot), 'utf8',
+)) as { dependencies: Record<string, string> }).dependencies['@deepseek-ai/dsh']!)
 const dshResolution = (name: string): unknown =>
   workspaceManifest.resolutions?.[`${name}@npm:${runtimeVersion}`]
 
@@ -92,7 +93,7 @@ describe('published package surface', () => {
 
   it('runs all desktop editions and community market tests from the root command', () => {
     expect(workspaceManifest.scripts?.test)
-      .toBe('yarn workspace dsh-plugin-desktop test && yarn workspace dsh-plugin-desktop-beta test && yarn workspace dsh-community-market test && yarn workspace dsh-desktop-next test')
+      .toBe('yarn workspace dsh-plugin-desktop test && yarn workspace dsh-plugin-desktop-beta test && yarn workspace dsh-community-market test && yarn workspace dsh-desktop-next test && yarn test:multi-root')
   })
 
   it('registers both npm launcher names', () => {
@@ -303,30 +304,23 @@ describe('published package surface', () => {
     )
   })
 
-  it('resolves both release channels through their recorded runtime families', () => {
+  it('resolves every Desktop channel through its recorded runtime family', () => {
     const dshResolutions = Object.entries(workspaceManifest.resolutions ?? {})
       .filter(([selector]) => /^@deepseek-ai\/dsh(?:@|-)/u.test(selector))
-    const stableResolutions = dshResolutions.filter(([selector]) =>
-      selector.endsWith(`@npm:${runtimeVersion}`)
-      || selector.endsWith(`@npm:^${runtimeVersion}`))
-    const betaResolutions = dshResolutions.filter(([selector]) =>
-      selector.endsWith(`@npm:${betaRuntimeVersion}`)
-      || selector.endsWith(`@npm:^${betaRuntimeVersion}`))
-
-    expect(stableResolutions.length).toBeGreaterThan(0)
-    expect(betaResolutions.length).toBeGreaterThan(0)
-    expect(new Set([...stableResolutions, ...betaResolutions].map(([selector]) => selector)).size)
-      .toBe(dshResolutions.length)
-    for (const [selector, resolution] of stableResolutions) {
-      expect([runtimeVersion, `^${runtimeVersion}`]).toContain(selector.split('@npm:')[1])
-      expect(String(resolution)).toContain(runtimeVersion)
+    const covered = new Set<string>()
+    // All three channels may follow different releases. Validate every family,
+    // without accepting a stray selector belonging to no current channel.
+    for (const version of new Set(channelRuntimeVersions)) {
+      const resolutions = dshResolutions.filter(([selector]) =>
+        selector.endsWith(`@npm:${version}`) || selector.endsWith(`@npm:^${version}`))
+      expect(resolutions.length).toBeGreaterThan(0)
+      for (const [selector, resolution] of resolutions) {
+        covered.add(selector)
+        expect([version, `^${version}`]).toContain(selector.split('@npm:')[1])
+        expect(String(resolution)).toContain(version)
+      }
     }
-    // Derived from the beta manifest, not hardcoded: a channel bump moves this
-    // assertion with the pin instead of failing a release that is already correct.
-    for (const [selector, resolution] of betaResolutions) {
-      expect([betaRuntimeVersion, `^${betaRuntimeVersion}`]).toContain(selector.split('@npm:')[1])
-      expect(String(resolution)).toContain(betaRuntimeVersion)
-    }
+    expect(covered.size).toBe(dshResolutions.length)
   })
 
   it('includes the Stable projection-cache compatibility recovery', () => {
@@ -1236,9 +1230,17 @@ describe('published package surface', () => {
       '@earendil-works/pi-ai@npm:^1.1.0': patchResolution,
       '@earendil-works/pi-telemetry@npm:^1.1.0': '1.1.0',
     })
-    // The only npm resolution is the source the patch applies to, so no range escapes it.
-    expect([...lockfile.matchAll(/resolution: "@earendil-works\/pi-ai@npm:([^"]+)"/gu)].map(match => match[1]))
-      .toEqual(['1.1.0'])
+    // Stable/Next's ^1.1.0 remains patched; newer Beta owns a separate ^1.3.0
+    // family. Every npm source in the lock must back an actually installed channel.
+    const channelPiAiVersions = desktopChannels.map(channel => {
+      const root = new URL(`${channel}/node_modules/`, workspaceRoot)
+      const provider = JSON.parse(readFileSync(new URL('@deepseek-ai/dsh-llm-pi-ai/package.json', root), 'utf8')) as { dependencies: Record<string, string> }
+      const piAi = JSON.parse(readFileSync(new URL('@earendil-works/pi-ai/package.json', root), 'utf8')) as { version: string }
+      if (provider.dependencies['@earendil-works/pi-ai'] === '^1.1.0') expect(piAi.version).toBe('1.1.0')
+      return piAi.version
+    })
+    expect([...lockfile.matchAll(/resolution: "@earendil-works\/pi-ai@npm:([^"]+)"/gu)].map(match => match[1]).sort())
+      .toEqual([...new Set(channelPiAiVersions)].sort())
     expect(lockfile).toContain(`"@earendil-works/pi-ai@${patchResolution}::`)
     expect(lockfile).toContain('resolution: "@earendil-works/pi-telemetry@npm:1.1.0"')
     expect(installedPiAi.version).toBe('1.1.0')

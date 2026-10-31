@@ -1,0 +1,27 @@
+diff --git a/lib/index.js b/lib/index.js
+index ddbe0a0..1dd69ea 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -224,7 +224,8 @@ function canonicalPath(path) {
+ */
+ function workspaceWritableRoots(policy) {
+ 	if (policy.mode !== "workspace-write") return [];
+-	return [...new Set([canonicalPath(policy.workspaceRoot), ...(policy.additionalWritableRoots ?? []).map(additionalRoot)])];
++	const roots = policy.workspaceRoots?.length ? policy.workspaceRoots : [policy.workspaceRoot];
++	return [...new Set([...roots.map(canonicalPath), ...(policy.additionalWritableRoots ?? []).map(additionalRoot)])];
+ }
+ /**
+ * The roots one confined execution may WRITE under — the mode's meaning as a
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 6b0455c..89505ca 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -29,6 +29,8 @@ export interface SandboxExecutionPolicy {
+     mode: SandboxMode;
+     /** Absolute root directory `workspace-write` may write under. */
+     workspaceRoot: string;
++    /** Complete ordered Workspace root set; omitted or empty keeps the single-root policy. */
++    workspaceRoots?: readonly string[];
+     /**
+      * Extra physical absolute directories `workspace-write` may also write under.
+      * Absence means none. The enforcing host rejects missing, non-directory, and

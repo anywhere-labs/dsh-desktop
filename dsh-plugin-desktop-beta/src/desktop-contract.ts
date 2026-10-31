@@ -128,6 +128,7 @@ export type DesktopCommand =
     | 'diagnostics' | 'open-browser' | 'open-lan' | 'copy-browser' | 'copy-lan' | 'export-ca' | 'quit' }
 
 export interface DesktopBridge {
+  readonly workspaceLaunch?: import('./workspace-startup.ts').DesktopWorkspaceLaunchBridge
   readonly renderer?: DesktopRendererBridge
   readonly permissions?: DesktopPermissions
   /** Native menu/Host requests, delivered only to the main app. */

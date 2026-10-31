@@ -3,6 +3,7 @@ import { Readable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import {
   handleDesktopDirectoryPickerRequest,
+  handleDesktopDirectoriesPickerRequest,
   handleDesktopDirectoryValidationRequest,
 } from '../src/directory-picker-route.ts'
 
@@ -152,5 +153,32 @@ describe('desktop directory validation route', () => {
 
     expect(res.statusCode).toBe(500)
     expect(JSON.parse(res.body)).toEqual({ error: 'directory validation failed' })
+  })
+})
+
+
+describe('Desktop multi-folder picker route', () => {
+  it('returns an ordered admitted list and an empty list on cancellation', async () => {
+    for (const paths of [['/primary', '/extra'], []]) {
+      const res = response()
+      await handleDesktopDirectoriesPickerRequest(request(), res, 'http://127.0.0.1:43120', async () => paths)
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toEqual({ paths })
+    }
+  })
+  it('rejects untrusted origins and methods before a native dialog', async () => {
+    const pick = vi.fn(async () => ['/primary'])
+    for (const req of [request('https://example.com'), request(undefined, 'GET')]) {
+      const res = response()
+      await handleDesktopDirectoriesPickerRequest(req, res, 'http://127.0.0.1:43120', pick)
+      expect(res.statusCode).toBe(req.method === 'GET' ? 405 : 403)
+    }
+    expect(pick).not.toHaveBeenCalled()
+  })
+  it('does not leak private native errors', async () => {
+    const res = response()
+    await handleDesktopDirectoriesPickerRequest(request(), res, 'http://127.0.0.1:43120', async () => { throw new Error('private native failure') })
+    expect(res.statusCode).toBe(500)
+    expect(JSON.parse(res.body)).toEqual({ error: 'native directory picker failed' })
   })
 })

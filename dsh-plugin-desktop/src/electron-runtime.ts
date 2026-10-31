@@ -338,6 +338,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         spec,
         preloadPath: desktopPreloadPath(),
         pickDirectory: () => this.pickDirectory(),
+        pickDirectories: () => this.pickDirectories(),
         buildApplicationMenuItems: () => this.buildApplicationMenuItems(),
         isQuitting: () => this.quitting,
         buildTrayTemplate: () => this.buildTrayTemplate(spec),
@@ -429,7 +430,16 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
 
   /** @inheritdoc */
   async pickDirectory(): Promise<string | null> {
-    return await this.workspaceAdmission.pickDirectory()
+    const generation = this.generation
+    const owner = generation?.workspaceDocumentOwner()
+    return await this.workspaceAdmission.pickDirectory(owner, () => this.generation === generation && generation?.workspaceDocumentOwner() === owner)
+  }
+
+  /** Select multiple folders through the same native admission owner. */
+  async pickDirectories(): Promise<string[]> {
+    const generation = this.generation
+    const owner = generation?.workspaceDocumentOwner()
+    return await this.workspaceAdmission.pickDirectories(owner, () => this.generation === generation && generation?.workspaceDocumentOwner() === owner)
   }
 
   /** @inheritdoc */
@@ -451,15 +461,21 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   }
 
   /**
-   * Hand one admitted launch folder to the mounted Host page.
-   * @param path - absolute folder already admitted by native policy.
-   * @returns how the page took the folder, or `'unavailable'` before a shell
-   *   generation is mounted.
+   * Hand the folders one launch named to the mounted Host page.
+   * Admission and delivery share one generation; a profile change during a
+   * native confirmation cannot deliver its roots to the replacement renderer.
+   * @param paths - requested folders, primary first.
+   * @returns the delivery outcome, or a refused/unavailable request.
    */
-  async openWorkspacePath(path: string): Promise<DesktopOpenWorkspaceDelivery | 'unavailable'> {
+  async openWorkspacePath(paths: readonly string[]): Promise<DesktopOpenWorkspaceDelivery | 'unavailable' | 'refused'> {
     const generation = this.generation
     if (generation === undefined) return 'unavailable'
-    return await generation.openWorkspacePath(path)
+    const owner = generation.workspaceDocumentOwner()
+    const current = (): boolean => this.generation === generation && generation.workspaceDocumentOwner() === owner
+    const admitted = await this.workspaceAdmission.admitWorkspacePaths(paths, current)
+    if (!current()) return 'unavailable'
+    if (admitted === null) return 'refused'
+    return await generation.openWorkspacePath(admitted)
   }
 
   /** @inheritdoc */

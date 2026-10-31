@@ -1,4 +1,5 @@
 /** Headless owner of the Host, desktop preferences, Profiles and recovery. */
+import { DesktopWorkspaceLaunches } from './workspace-startup.ts'
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
 import { cleanupDisposableTree } from '../../dsh-plugin-desktop/src/disposable-tree.ts'
@@ -49,6 +50,7 @@ interface RuntimeOptions {
 }
 
 export class NextDesktopRuntime {
+  readonly workspaceLaunches = new DesktopWorkspaceLaunches()
   readonly profiles: NextProfiles
   readonly recovery: NextRecovery
   readonly settings: DesktopPreferenceStore

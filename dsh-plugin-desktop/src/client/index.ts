@@ -21,10 +21,11 @@ import './onboarding.css'
 import { applyAdvancedShell } from './advanced-shell.ts'
 import { startRendererBootReporter } from './boot-health.ts'
 import { applyDesktopSettings } from './desktop-settings.ts'
-import { installDesktopDirectoryPickerBridge } from './directory-picker.ts'
+import { installDesktopDirectoryPickerBridge, requestDesktopDirectory, requestDesktopDirectories } from './directory-picker.ts'
+import { desktopDirectoryPicker, registerDesktopDirectoryPicker } from './native-directory-flow.ts'
 import { parseDesktopClientEnvironment } from './environment.ts'
 import { applyExtendedShell } from './extended-shell.ts'
-import { installDesktopLaunchWorkspaceBridge } from './launch-workspace.ts'
+import { installDesktopLaunchWorkspaceBridge, reportDesktopLaunchWorkspaceError } from './launch-workspace.ts'
 import { DESKTOP_SETTINGS_FORMS_SERVICE } from './settings-bridge.ts'
 import { installSidebarFooterStyles } from './sidebar-footer-styles.ts'
 import { desktopWindowService, provideDesktopWindow } from './window-service.ts'
@@ -158,6 +159,10 @@ export function apply(ctx: ClientContext): void {
       'dsh-plugin-desktop: native directory picker bridge',
     )
   }
+  const nativePicker = environment.platform === 'win32'
+    ? { pick: () => requestDesktopDirectory(), pickMany: () => requestDesktopDirectories() }
+    : desktopDirectoryPicker()
+  if (nativePicker) registerDesktopDirectoryPicker(ctx, nativePicker)
   if (environment.mode === 'advanced') applyAdvancedShell(ctx, environment)
   if (environment.mode === 'extended') applyExtendedShell(ctx, environment, desktopSettings)
   // Scoped rather than module-level on purpose: the shells above provide
@@ -169,8 +174,9 @@ export function apply(ctx: ClientContext): void {
       () => installDesktopLaunchWorkspaceBridge({
         ready: async () => { await whenWorkspaceListsReady(scope) },
         create: async path => (await scope.workspaces.create({ path })).workspaceId,
+        setRoots: async (workspaceId, paths) => { await scope.workspaces.setRoots(workspaceId, paths) },
         open: async workspaceId => { await scope.uiWorkspace.openWorkspace(workspaceId) },
-        reportError: message => { console.error(`dsh-plugin-desktop: ${message}`) },
+        reportError: message => { reportDesktopLaunchWorkspaceError(message) },
       }),
       'dsh-plugin-desktop: launch workspace bridge',
     )

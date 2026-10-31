@@ -3,7 +3,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { SETUP_ONBOARDING_CHANNEL } from './setup-onboarding-bridge.ts'
 import { DESKTOP_HOST_PATHS_BRIDGE } from './file-path-bridge-contract.ts'
-import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL } from './directory-picker-contract.ts'
+import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL, DESKTOP_NATIVE_DIRECTORIES_PICKER_CHANNEL } from './directory-picker-contract.ts'
 import {
   DESKTOP_RENDERER_ACTION_CHANNEL,
   DESKTOP_RENDERER_ACTIONS_BRIDGE,
@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld(DESKTOP_RENDERER_ACTIONS_BRIDGE, actions)
 if (process.platform === 'darwin') {
   contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', Object.freeze({
     pick: (): Promise<string | null> => ipcRenderer.invoke(DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL),
+    pickMany: (): Promise<string[]> => ipcRenderer.invoke(DESKTOP_NATIVE_DIRECTORIES_PICKER_CHANNEL),
   }))
 }
 

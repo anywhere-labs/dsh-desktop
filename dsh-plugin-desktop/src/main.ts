@@ -484,11 +484,12 @@ async function start(): Promise<void> {
   // with it, so keep it for the Host exit record.
   let lastChildProcessGone: string | undefined
   let fileExporter: FileExporter | undefined
-  // A folder named by this launch waits here until the Host page is mounted.
+  // Folders named by this launch wait here until the Host page is mounted.
   // No background-Node guard applies to the first instance: a development run
   // legitimately looks like one, and a first instance is by definition a real
   // launch rather than a descendant command re-entering the executable.
-  let pendingLaunchWorkspacePath = desktopLaunchWorkspaceRequest(process.argv)?.path
+  const applicationRoot = app.isPackaged ? undefined : fileURLToPath(new URL('..', import.meta.url))
+  let pendingLaunchWorkspacePaths = desktopLaunchWorkspaceRequest(process.argv, process.platform, applicationRoot)?.paths
   let launchWorkspaceReady = false
   let runtime!: ElectronDesktopRuntime
   let logSink: LogFileSink | undefined
@@ -711,13 +712,12 @@ async function start(): Promise<void> {
     }
     return false
   }
-  /** Apply native policy to one launch folder and hand it to the Host page. */
-  const openLaunchWorkspace = async (path: string): Promise<void> => {
+  /** Apply native policy to every launch folder, then hand them to the Host page as one workspace. */
+  const openLaunchWorkspace = async (paths: readonly string[]): Promise<void> => {
     try {
-      if (!await runtime.admitWorkspacePath(path)) return
-      const delivery = await runtime.openWorkspacePath(path)
+      const delivery = await runtime.openWorkspacePath(paths)
       if (delivery === 'unavailable') {
-        electronLogger.error(`${BIN_NAME}: no renderer could accept the launch workspace: ${path}`)
+        electronLogger.error(`${BIN_NAME}: no renderer could accept the launch workspace: ${paths.join(', ')}`)
       }
     } catch (cause) {
       electronLogger.error(
@@ -726,14 +726,14 @@ async function start(): Promise<void> {
     }
   }
 
-  /** Take one launch folder, deferring it until the Host page can accept it. */
+  /** Take one launch hand-off, deferring it until the Host page can accept it. */
   const acceptLaunchWorkspace = (request: DesktopLaunchWorkspaceRequest | undefined): void => {
-    if (request === undefined) return
+    if (request === undefined || request.paths.length === 0) return
     if (!launchWorkspaceReady) {
-      pendingLaunchWorkspacePath = request.path
+      pendingLaunchWorkspacePaths = [...request.paths]
       return
     }
-    void openLaunchWorkspace(request.path)
+    void openLaunchWorkspace(request.paths)
   }
 
   app.on('activate', () => { showPreHostSurface() })
@@ -743,7 +743,7 @@ async function start(): Promise<void> {
       requestQuit(0)
       return
     }
-    const launchWorkspace = desktopLaunchWorkspaceRequest(argv)
+    const launchWorkspace = desktopLaunchWorkspaceRequest(argv, process.platform, applicationRoot)
     if (isDesktopBackgroundNodeRequest(argv)) {
       // A descendant Node command re-entered as a GUI process. Only the
       // launcher's own flag tells a workspace hand-off apart from whatever
@@ -1934,9 +1934,9 @@ async function start(): Promise<void> {
     // hand-off is released here rather than beside the mount: a startup that
     // ended in the recovery route must not also try to open a folder.
     launchWorkspaceReady = true
-    const requestedWorkspacePath = pendingLaunchWorkspacePath
-    pendingLaunchWorkspacePath = undefined
-    if (requestedWorkspacePath !== undefined) void openLaunchWorkspace(requestedWorkspacePath)
+    const requestedWorkspacePaths = pendingLaunchWorkspacePaths
+    pendingLaunchWorkspacePaths = undefined
+    if (requestedWorkspacePaths !== undefined) void openLaunchWorkspace(requestedWorkspacePaths)
     notifySkippedOptionalEntries(runtime, electronLogger, prepared.skippedOptionalEntries)
     notifyWindowsVolumeConcerns(runtime, electronLogger, windowsVolumeConcerns)
     if (safeModePaths !== undefined && DESKTOP_SAFE_MODE_DEFAULTS.settings.notifications.enabled) {

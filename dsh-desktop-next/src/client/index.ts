@@ -22,6 +22,10 @@ import { desktopDirectoryPicker, registerDesktopDirectoryPicker } from './direct
 import { SettingsRequests } from './settings-requests.tsx'
 import type { DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
 import { installRendererRecovery } from './renderer-recovery.ts'
+import { installWorkspaceStartup } from './workspace-startup.ts'
+import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -48,6 +52,15 @@ export function apply(ctx: Context): void {
   const directoryPicker = desktopDirectoryPicker()
   if (directoryPicker) registerDesktopDirectoryPicker(ctx, directoryPicker)
   registerDesktopOnboarding(ctx, () => null)
+  const workspaceLaunch = window.desktopNext?.workspaceLaunch
+  if (workspaceLaunch) ctx.inject(['workspaces', 'sessions', 'uiWorkspace'], (scope: Context) => {
+    scope.effect(() => installWorkspaceStartup({
+      ready: signal => workspaceListsReady(scope, signal),
+      create: async path => (await scope.workspaces.create({ path })).workspaceId,
+      setRoots: async (workspaceId, roots) => { await scope.workspaces.setRoots(workspaceId as WorkspaceId, [...roots]) },
+      open: async workspaceId => { await scope.uiWorkspace.openWorkspace(workspaceId as WorkspaceId) },
+    }, workspaceLaunch), 'Native multi-folder launch requests')
+  })
   if (window.desktopNext?.state) {
     ctx.slots.inject('shell.overlay', () => ctx.slots.register({
       name: 'shell.overlay', id: 'desktop-next-renderer-health', order: 0,
@@ -86,6 +99,27 @@ export function apply(ctx: Context): void {
     }, SafeModeNotice))
   }
   ctx.effect(installWindowStyles, 'Next native materials and recovery notice')
+}
+
+/** Readiness includes Sessions so a repeated launch can reuse the existing conversation. */
+function workspaceListsReady(ctx: Context, signal: AbortSignal): Promise<void> {
+  // This package typechecks Host and Client together; only this injected Client scope
+  // carries ISessions, rather than the Host registry's same-named service.
+  const sessions = ctx.sessions as unknown as ISessions
+  const ready = (): boolean => signal.aborted || (ctx.workspaces.list.getSnapshot().phase === 'ready' && sessions.list.getSnapshot().phase === 'ready')
+  if (ready()) return Promise.resolve()
+  return new Promise(resolve => {
+    const disposers: (() => void)[] = []
+    const check = (): void => {
+      if (!ready()) return
+      for (const dispose of disposers.splice(0)) dispose()
+      signal.removeEventListener('abort', check)
+      resolve()
+    }
+    signal.addEventListener('abort', check, { once: true })
+    disposers.push(ctx.workspaces.list.subscribe(check), sessions.list.subscribe(check))
+    check()
+  })
 }
 
 /** The effect runs only after React mounts the assembled shell. */

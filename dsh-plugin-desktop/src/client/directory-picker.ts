@@ -1,5 +1,6 @@
 import {
   DESKTOP_DIRECTORY_PICKER_PATH,
+  DESKTOP_DIRECTORIES_PICKER_PATH,
   DESKTOP_DIRECTORY_VALIDATOR_PATH,
   type DesktopDirectoryPickerResponse,
   type DesktopDirectoryValidationResponse,
@@ -8,6 +9,7 @@ import {
 /** Window seam consumed by the patched upstream browse panel. */
 export interface DesktopDirectoryPickerWindow {
   __DSH_DESKTOP_PICK_DIRECTORY__?: () => Promise<string | null>
+  __DSH_DESKTOP_PICK_DIRECTORIES__?: () => Promise<string[]>
   __DSH_DESKTOP_VALIDATE_DIRECTORY__?: (path: string) => Promise<boolean>
 }
 
@@ -43,6 +45,22 @@ export async function requestDesktopDirectory(
   return value.path
 }
 
+/** Ask for all admitted selections; cancellation never becomes a failed request. */
+export async function requestDesktopDirectories(
+  request: DirectoryPickerRequest = window.fetch.bind(window),
+): Promise<string[]> {
+  const response = await request(DESKTOP_DIRECTORIES_PICKER_PATH, {
+    method: 'POST', headers: { accept: 'application/json' },
+  })
+  if (!response.ok) throw new Error('DSH Desktop could not open the system folder picker')
+  const value: unknown = await response.json()
+  const paths = typeof value === 'object' && value !== null && 'paths' in value ? value.paths : undefined
+  if (!Array.isArray(paths) || !paths.every(path => typeof path === 'string')) {
+    throw new Error('DSH Desktop received an invalid response from the system folder picker')
+  }
+  return paths
+}
+
 /** Ask the desktop Host whether a workspace path is safe to persist. */
 export async function requestDesktopDirectoryValidation(
   path: string,
@@ -69,11 +87,18 @@ export function installDesktopDirectoryPickerBridge(
 ): () => void {
   const previousPicker = target.__DSH_DESKTOP_PICK_DIRECTORY__
   const previousValidator = target.__DSH_DESKTOP_VALIDATE_DIRECTORY__
+  const previousMany = target.__DSH_DESKTOP_PICK_DIRECTORIES__
   const pick = async (): Promise<string | null> => await requestDesktopDirectory(request)
+  const pickMany = async (): Promise<string[]> => await requestDesktopDirectories(request)
   const validate = async (path: string): Promise<boolean> => await requestDesktopDirectoryValidation(path, request)
   target.__DSH_DESKTOP_PICK_DIRECTORY__ = pick
+  target.__DSH_DESKTOP_PICK_DIRECTORIES__ = pickMany
   target.__DSH_DESKTOP_VALIDATE_DIRECTORY__ = validate
   return () => {
+    if (target.__DSH_DESKTOP_PICK_DIRECTORIES__ === pickMany) {
+      if (previousMany === undefined) delete target.__DSH_DESKTOP_PICK_DIRECTORIES__
+      else target.__DSH_DESKTOP_PICK_DIRECTORIES__ = previousMany
+    }
     if (target.__DSH_DESKTOP_PICK_DIRECTORY__ === pick) {
       if (previousPicker === undefined) delete target.__DSH_DESKTOP_PICK_DIRECTORY__
       else target.__DSH_DESKTOP_PICK_DIRECTORY__ = previousPicker

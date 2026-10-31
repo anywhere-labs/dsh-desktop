@@ -1,3 +1,4 @@
+import { DESKTOP_WORKSPACE_ARGUMENT } from '../../dsh-plugin-desktop/src/launch-workspace-path.ts'
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { NEXT_APP_ID } from './update-installer.ts'
@@ -10,7 +11,7 @@ export const ONBOARDING_ARGUMENT = '--next-onboarding'
 export const DE_ELEVATED_ARGUMENT = '--next-de-elevated'
 
 export function relaunchArguments(argv: readonly string[], recovery: boolean, safe: boolean, onboarding = false): string[] {
-  return [...argv.filter(value => value !== RECOVERY_ARGUMENT && value !== SAFE_ARGUMENT && value !== ONBOARDING_ARGUMENT && value !== DE_ELEVATED_ARGUMENT),
+  return [...argv.filter(value => !value.startsWith(`${DESKTOP_WORKSPACE_ARGUMENT}=`) && value !== RECOVERY_ARGUMENT && value !== SAFE_ARGUMENT && value !== ONBOARDING_ARGUMENT && value !== DE_ELEVATED_ARGUMENT),
     ...recovery ? [RECOVERY_ARGUMENT] : safe ? [SAFE_ARGUMENT] : onboarding ? [ONBOARDING_ARGUMENT] : []]
 }
 

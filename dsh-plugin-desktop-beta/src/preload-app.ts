@@ -32,6 +32,16 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
       profile: () => profile,
       report: (status: unknown) => ipcRenderer.invoke(IPC.rendererStatus, documentId, status),
     },
+    workspaceLaunch: {
+      take: () => ipcRenderer.invoke(IPC.workspaceLaunchTake, documentId),
+      complete: (id: number) => ipcRenderer.invoke(IPC.workspaceLaunchComplete, documentId, id),
+      reportError: (message: string) => ipcRenderer.invoke(IPC.workspaceLaunchError, documentId, message),
+      onAvailable: (listener: () => void) => {
+        const receive = () => { listener() }
+        ipcRenderer.on(IPC.workspaceLaunchAvailable, receive)
+        return () => { ipcRenderer.removeListener(IPC.workspaceLaunchAvailable, receive) }
+      },
+    },
     permissions: permissionBridge(),
     onOpenSettings,
     state: () => ipcRenderer.invoke(IPC.state),
@@ -50,7 +60,7 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
     },
     failed: (message: string) => ipcRenderer.invoke(IPC.failed, message, documentId),
   })
-  contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', { pick: () => ipcRenderer.invoke(IPC.directory) })
+  contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', { pick: () => ipcRenderer.invoke(IPC.directory, documentId), pickMany: () => ipcRenderer.invoke(IPC.directories, documentId) })
   // The official composer cites dropped, picked, and pasted files and folders that have a
   // real path as `@path` references instead of uploading them, and refuses folders outright
   // when this bridge is absent; a File without a path (pasted bytes) answers '' and uploads.

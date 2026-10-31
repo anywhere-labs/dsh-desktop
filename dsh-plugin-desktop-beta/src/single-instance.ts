@@ -16,7 +16,7 @@ export interface DesktopSingleInstanceApplication {
  */
 export function claimDesktopSingleInstance(
   application: DesktopSingleInstanceApplication,
-  focusOwner: () => void,
+  focusOwner: (argv: readonly string[]) => void,
   invocation = { platform: process.platform, argv: process.argv },
 ): boolean {
   if (!application.requestSingleInstanceLock()) {
@@ -26,7 +26,7 @@ export function claimDesktopSingleInstance(
   if (isDesktopInstallerQuitRequest(invocation.argv, invocation.platform)) { application.quit(); return false }
   application.on('second-instance', (_event, argv = []) => {
     if (isDesktopInstallerQuitRequest(argv, invocation.platform)) application.quit()
-    else focusOwner()
+    else focusOwner(argv)
   })
   return true
 }

@@ -1,4 +1,5 @@
-import { readFileSync, unlinkSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -962,6 +963,57 @@ describe('Electron desktop runtime', () => {
       frame.url = previousUrl
       await release()
     }
+  })
+
+  it('admits every macOS folder and drops a multi-picker result after its generation ends', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    electron.dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: ['/primary', '/extra'] })
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const runtime = new ElectronDesktopRuntime(async () => {})
+    const release = runtime.schedule(spec)
+    await runtime.mountScheduled()
+    const handler = electron.webContents.ipc.handle.mock.calls
+      .find(([name]) => name === 'dsh-desktop:native-directories-picker')?.[1]
+    const frame = electron.webContents.mainFrame
+    const previousUrl = frame.url
+    frame.url = spec.url
+    try {
+      await expect(handler({ sender: electron.webContents, senderFrame: frame })).resolves.toEqual(['/primary', '/extra'])
+      expect(electron.dialog.showOpenDialog).toHaveBeenCalledWith(electron.browserWindows[0], {
+        title: 'Select Workspace Directories', properties: ['openDirectory', 'multiSelections', 'dontAddToRecent'],
+      })
+      await expect(handler({ sender: electron.webContents, senderFrame: { url: spec.url } })).rejects.toThrow('untrusted directory picker sender')
+      let finish!: (value: { canceled: boolean; filePaths: string[] }) => void
+      electron.dialog.showOpenDialog.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+      const beforeReload = handler({ sender: electron.webContents, senderFrame: frame })
+      const reload = electron.webContents.on.mock.calls.find(([name]) => name === 'did-start-navigation')?.[1]
+      reload?.({ isMainFrame: true, isSameDocument: false })
+      finish({ canceled: false, filePaths: ['/stale-on-reload'] })
+      await expect(beforeReload).resolves.toEqual([])
+      electron.dialog.showOpenDialog.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+      const pending = handler({ sender: electron.webContents, senderFrame: frame })
+      await release()
+      finish({ canceled: false, filePaths: ['/late-primary', '/late-extra'] })
+      await expect(pending).resolves.toEqual([])
+    } finally { frame.url = previousUrl; await release() }
+  })
+
+  it('delivers a launch only after every root is admitted', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    const primary = mkdtempSync(join(tmpdir(), 'dsh-launch-primary-'))
+    const extra = mkdtempSync(join(tmpdir(), 'dsh-launch-extra-'))
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const runtime = new ElectronDesktopRuntime(async () => {})
+    const release = runtime.schedule(spec)
+    await runtime.mountScheduled()
+    try {
+      electron.webContents.executeJavaScript.mockClear()
+      await expect(runtime.openWorkspacePath([primary, join(extra, 'missing')])).resolves.toBe('refused')
+      expect(electron.webContents.executeJavaScript).not.toHaveBeenCalled()
+      electron.webContents.executeJavaScript.mockResolvedValueOnce('delivered')
+      await expect(runtime.openWorkspacePath([primary, extra])).resolves.toBe('delivered')
+      expect(electron.webContents.executeJavaScript).toHaveBeenCalledWith(expect.stringContaining(JSON.stringify([primary, extra])))
+    } finally { await release(); rmSync(primary, { recursive: true, force: true }); rmSync(extra, { recursive: true, force: true }) }
   })
 
   it('uses Electron media consent without the microphone workaround or permission IPC', async () => {

@@ -118,3 +118,10 @@ it('restarts a macOS app that LaunchServices started through LaunchServices once
   expect(relaunches).toEqual(Array.from({ length: 4 }, () => ({ args: ['--example=value'] })))
   expect(spawns).toHaveLength(1)
 })
+
+
+it('strips consumed explicit workspace flags without removing the Electron application directory', () => {
+  const argv = ['/repo/desktop-app', '--dsh-desktop-workspace=/frontend', '--dsh-desktop-workspace=/backend', '--example=value']
+  expect(relaunchArguments(argv, false, false)).toEqual(['/repo/desktop-app', '--example=value'])
+  expect(relaunchArguments(argv, false, true)).toEqual(['/repo/desktop-app', '--example=value', '--next-safe-mode'])
+})

@@ -1,5 +1,89 @@
+diff --git a/lib/runner.js b/lib/runner.js
+index 729329d..f0e1786 100644
+--- a/lib/runner.js
++++ b/lib/runner.js
+@@ -1,6 +1,6 @@
+ import { a as workspaceWriteSid, c as win32, i as tempWriteSid, s as assertTempRootOutsideWorkspace, t as AclSandbox } from "./types-Cl_DXjhk.js";
+ import { closeSync, existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+-import { join } from "node:path";
++import { join, resolve } from "node:path";
+ import { SUBPROCESS_CONTROL_ENV, SUBPROCESS_CONTROL_FD } from "@deepseek-ai/dsh-subprocess/control";
+ //#region lib/types/runner.js
+ /**
+@@ -13,7 +13,7 @@ import { SUBPROCESS_CONTROL_ENV, SUBPROCESS_CONTROL_FD } from "@deepseek-ai/dsh-
+ *
+ * Stable argv contract (the seam builds it; a native-exe replacement would
+ * keep the same contract):
+-*   [node, runner.js, '--workspace', <dir>, '--temp', <dir>,
++*   [node, runner.js, '--workspace', <dir>, ['--workspace', <dir> ...], '--temp', <dir>,
+ *    '--mode', <read-only|workspace-write>,
+ *    ['--write-sid', <S-1-4-…>,
+ *     '--temp-write-sid', <S-1-4-…>], '--', <argv...>]
+@@ -57,7 +57,7 @@ function fail(detail) {
+ 	throw new RunnerFailure(detail);
+ }
+ function parseArgs(raw) {
+-	let workspace;
++	const workspaces = [];
+ 	let temp;
+ 	let mode;
+ 	let writeSid;
+@@ -74,7 +74,7 @@ function parseArgs(raw) {
+ 		if (value === void 0) fail(`missing value after ${token}`);
+ 		switch (token) {
+ 			case "--workspace":
+-				workspace = value;
++				workspaces.push(value);
+ 				break;
+ 			case "--temp":
+ 				temp = value;
+@@ -91,6 +91,11 @@ function parseArgs(raw) {
+ 			default: fail(`unknown argument: ${token}`);
+ 		}
+ 	}
++	if (workspaces.some((root) => root.length === 0)) fail("--workspace must not be empty");
++	// Normalize once before deriving capabilities; AclSandbox validates these
++	// same absolute spellings, including standalone trailing-separator inputs.
++	const normalizedWorkspaces = [...new Set(workspaces.map((root) => resolve(root)))];
++	const workspace = normalizedWorkspaces[0];
+ 	if (workspace === void 0) fail("missing --workspace");
+ 	if (temp === void 0) fail("missing --temp");
+ 	if (mode !== "read-only" && mode !== "workspace-write") fail(`unknown mode: ${String(mode)}`);
+@@ -99,6 +104,7 @@ function parseArgs(raw) {
+ 	if (command === void 0) fail("missing command after --");
+ 	return {
+ 		workspace,
++		workspaces: normalizedWorkspaces,
+ 		temp,
+ 		mode,
+ 		writeSid,
+@@ -112,12 +118,12 @@ function requireDirectory(label, path) {
+ }
+ async function main() {
+ 	const parsed = parseArgs(process.argv.slice(2));
+-	requireDirectory("--workspace", parsed.workspace);
++	for (const workspace of parsed.workspaces) requireDirectory("--workspace", workspace);
+ 	requireDirectory("--temp", parsed.temp);
+ 	const seamManaged = parsed.writeSid !== void 0 || parsed.tempWriteSid !== void 0;
+ 	if (parsed.mode === "read-only" && seamManaged) fail("read-only does not accept --write-sid or --temp-write-sid");
+ 	if (parsed.mode === "workspace-write" && parsed.writeSid === void 0 !== (parsed.tempWriteSid === void 0)) fail("workspace-write requires --write-sid and --temp-write-sid together");
+-	if (parsed.mode === "workspace-write") assertTempRootOutsideWorkspace(parsed.workspace, parsed.temp);
++	if (parsed.mode === "workspace-write") for (const workspace of parsed.workspaces) assertTempRootOutsideWorkspace(workspace, parsed.temp);
+ 	const api = await win32();
+ 	if (api.setConsoleCtrlHandler(null, 1) === 0) fail(`SetConsoleCtrlHandler failed (Win32 ${api.getLastError()})`);
+ 	let ownedTempDir;
+@@ -141,7 +147,8 @@ async function main() {
+ 			}
+ 		}
+ 		sandbox = new AclSandbox({
+-			writableDirs: parsed.mode === "workspace-write" ? [parsed.workspace] : [],
++			writableDirs: parsed.mode === "workspace-write" ? parsed.workspaces : [],
++			...parsed.mode === "workspace-write" ? { workspaceWriteSids: parsed.workspaces.map(workspaceWriteSid) } : {},
+ 			tempDir: privateTempDir,
+ 			mode: parsed.mode,
+ 			...writeSid === void 0 ? {} : { writeSid },
 diff --git a/lib/types-Cl_DXjhk.js b/lib/types-Cl_DXjhk.js
-index 4d906d1..1f65214 100644
+index 4d906d1..11f1b6d 100644
 --- a/lib/types-Cl_DXjhk.js
 +++ b/lib/types-Cl_DXjhk.js
 @@ -590,6 +590,52 @@ function hasForeignGrant(oldAcl, sidPtr) {
@@ -55,3 +139,108 @@ index 4d906d1..1f65214 100644
  	withPathLock(api, path, () => {
  		const { oldAcl, labelAcl, descriptor } = readCurrentSecurity(api, path);
  		if (oldAcl !== null && labelAcl !== null && hasExactGrant(oldAcl, sidPtr) && hasExactDeny(oldAcl, worldSidPtr) && hasExactLabel(labelAcl, lowLabelSidPtr)) {
+@@ -1217,6 +1263,8 @@ var AclSandbox = class {
+ 	api;
+ 	token;
+ 	writeSidPtr;
++	workspaceWriteSids;
++	additionalWriteSidPtrs = [];
+ 	tempWriteSidPtr;
+ 	/** The well-known/logon SID allocations init() makes; freed by dispose() alongside the write SIDs. */
+ 	sidAllocations = [];
+@@ -1232,6 +1280,12 @@ var AclSandbox = class {
+ 		this.tempDirOption = options.tempDir;
+ 		this.writeSid = options.writeSid;
+ 		this.tempWriteSid = options.tempWriteSid;
++		this.workspaceWriteSids = options.workspaceWriteSids === void 0 ? void 0 : [...options.workspaceWriteSids];
++		if (this.workspaceWriteSids !== void 0) {
++			if (this.mode !== "workspace-write" || this.workspaceWriteSids.length !== this.writableDirs.length || this.workspaceWriteSids[0] !== this.writeSid) throw new Error("AclSandbox per-root write SIDs must match the writable directories and primary write SID");
++			for (let index = 0; index < this.writableDirs.length; index++) if (this.workspaceWriteSids[index] !== workspaceWriteSid(this.writableDirs[index])) throw new Error("AclSandbox per-root write SID does not match its writable directory");
++			if (this.workspaceWriteSids.includes(this.tempWriteSid)) throw new Error("AclSandbox workspace and temp write SIDs must be distinct");
++		}
+ 		if (this.mode === "workspace-write" && this.writeSid === void 0) throw new Error("AclSandbox workspace-write requires a write SID — derive it from the workspace via workspaceWriteSid()");
+ 		if (this.mode === "workspace-write" && this.tempDirOption === void 0) throw new Error("AclSandbox workspace-write requires an explicit private temp directory or null");
+ 		if (this.mode === "read-only" && this.tempDirOption !== void 0 && this.tempDirOption !== null) throw new Error("AclSandbox read-only does not accept a temp directory");
+@@ -1260,6 +1314,8 @@ var AclSandbox = class {
+ 				return parsedSid;
+ 			};
+ 			this.writeSidPtr = this.writeSid === void 0 ? void 0 : parseSid(this.writeSid);
++			// Record each allocation immediately so partial parse failures clean up.
++			for (const sid of this.workspaceWriteSids?.slice(1) ?? []) this.additionalWriteSidPtrs.push(parseSid(sid));
+ 			this.tempWriteSidPtr = this.tempWriteSid === void 0 ? void 0 : parseSid(this.tempWriteSid);
+ 			const tempDir = this.mode === "read-only" || this.tempDirOption === null ? null : this.tempDirOption;
+ 			/* v8 ignore next -- constructor validation requires workspace-write to supply
+@@ -1275,7 +1331,10 @@ var AclSandbox = class {
+ 			this.sidAllocations.push(lowLabelSid, worldSid);
+ 			if (this.manageDacls) {
+ 				if (this.writeSidPtr !== void 0) {
+-					for (const path of this.writableDirs) grantWrite(api, path, this.writeSidPtr, lowLabelSid, worldSid);
++					for (let index = 0; index < this.writableDirs.length; index++) {
++						const sidPtr = this.workspaceWriteSids === void 0 || index === 0 ? this.writeSidPtr : this.additionalWriteSidPtrs[index - 1];
++						grantWrite(api, this.writableDirs[index], sidPtr, lowLabelSid, worldSid);
++					}
+ 					if (tempDir !== null && this.tempWriteSidPtr !== void 0) {
+ 						this.grantedPaths.push({
+ 							path: tempDir,
+@@ -1287,7 +1346,7 @@ var AclSandbox = class {
+ 			}
+ 			const logonSid = findLogonSid(api, currentToken);
+ 			this.sidAllocations.push(logonSid);
+-			restrictedToken = createRestrictedToken(api, currentToken, logonSid, [this.writeSidPtr, this.tempWriteSidPtr].filter((sid) => sid !== void 0), { world: worldSid }, this.mode);
++			restrictedToken = createRestrictedToken(api, currentToken, logonSid, [this.writeSidPtr, ...this.additionalWriteSidPtrs, this.tempWriteSidPtr].filter((sid) => sid !== void 0), { world: worldSid }, this.mode);
+ 			restrictTokenIntegrity(api, restrictedToken, lowLabelSid);
+ 			this.token = restrictedToken;
+ 			setTokenDefaultDaclGrant(api, restrictedToken, this.tempWriteSidPtr ?? this.writeSidPtr ?? worldSid);
+@@ -1304,6 +1363,7 @@ var AclSandbox = class {
+ 				cleanupFailures.push(cleanupError);
+ 			}
+ 			for (const [label, sidPtr] of [["workspace write SID", this.writeSidPtr], ["temp write SID", this.tempWriteSidPtr]]) freeSidBestEffort(api, sidPtr, label, cleanupFailures);
++			for (const sidPtr of this.additionalWriteSidPtrs.splice(0)) freeSidBestEffort(api, sidPtr, "additional workspace write SID", cleanupFailures);
+ 			for (const sidPtr of this.sidAllocations.splice(0)) freeSidBestEffort(api, sidPtr, "init SID allocation", cleanupFailures);
+ 			this.token = void 0;
+ 			this.writeSidPtr = void 0;
+@@ -1398,6 +1458,7 @@ var AclSandbox = class {
+ 		} catch (error) {
+ 			failures.push(error);
+ 		}
++		for (const sidPtr of this.additionalWriteSidPtrs.splice(0)) freeSidBestEffort(api, sidPtr, "additional workspace write SID", failures);
+ 		for (const sidPtr of this.sidAllocations.splice(0)) freeSidBestEffort(api, sidPtr, "init SID allocation", failures);
+ 		this.api = void 0;
+ 		this.token = void 0;
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 12a6957..012a73d 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -64,6 +64,10 @@ export interface AclSandboxOptions {
+      * outlives every instance and later provisions hit the exact-ACE skip.
+      */
+     writeSid?: string;
++    /** Optional per-directory capability SIDs, derived from writableDirs in the same order.
++     * The first remains writeSid. Omitting a removed root from a new token makes
++     * its standing ACE inert without revoking grants under another live child. */
++    workspaceWriteSids?: readonly string[];
+     /**
+      * The private temp directory's write SID. Required whenever
+      * workspace-write grants a temp directory, absent otherwise. It must be
+@@ -142,6 +146,8 @@ export declare class AclSandbox {
+     private api;
+     private token;
+     private writeSidPtr;
++    private workspaceWriteSids;
++    private additionalWriteSidPtrs;
+     private tempWriteSidPtr;
+     /** The well-known/logon SID allocations init() makes; freed by dispose() alongside the write SIDs. */
+     private sidAllocations;
+diff --git a/lib/types/runner.d.ts b/lib/types/runner.d.ts
+index 388b441..cb1c226 100644
+--- a/lib/types/runner.d.ts
++++ b/lib/types/runner.d.ts
+@@ -8,7 +8,7 @@
+  *
+  * Stable argv contract (the seam builds it; a native-exe replacement would
+  * keep the same contract):
+- *   [node, runner.js, '--workspace', <dir>, '--temp', <dir>,
++ *   [node, runner.js, '--workspace', <dir>, ['--workspace', <dir> ...], '--temp', <dir>,
+  *    '--mode', <read-only|workspace-write>,
+  *    ['--write-sid', <S-1-4-…>,
+  *     '--temp-write-sid', <S-1-4-…>], '--', <argv...>]

@@ -56,6 +56,8 @@ describe('desktop client environment', () => {
       apply(ctx)
       expect(inject.mock.calls.map(([name]) => name)).toEqual([
         'settings.section', 'settings.action', 'plugins.bundle.hidden',
+        // Native folder selection is shared behavior, not compatibility chrome.
+        ...(platform === 'win32' ? ['conversation.hero.workspace.directoryFlow'] : []),
       ])
       expect(effect.mock.calls.map(([, label]) => label)).not.toContain('desktop: independent compatibility frame styles')
     } finally {

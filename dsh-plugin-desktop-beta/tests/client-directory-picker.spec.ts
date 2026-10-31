@@ -27,7 +27,7 @@ vi.mock('react', async importOriginal => ({
 }))
 import {
   DESKTOP_DIRECTORY_FLOW_PRIORITY, DESKTOP_DIRECTORY_PICKER_GLOBAL, DIRECTORY_FLOW_HOLES, NativeDirectoryFlow,
-  desktopDirectoryPicker, registerDesktopDirectoryPicker, type NativeDirectoryFlowInjected,
+  desktopDirectoryPicker, registerDesktopDirectoryPicker, createNativeDirectorySelectionQueue, type NativeDirectoryFlowInjected,
 } from '../src/client/directory-picker.ts'
 
 type FlowProps = DirectoryFlowOwnerProps & NativeDirectoryFlowInjected
@@ -184,4 +184,124 @@ it('discards a settlement that lands after the occupant unmounted', async () => 
   reject(new Error('too late'))
   await settle()
   expect(late.onError).not.toHaveBeenCalled()
+})
+
+it('delivers all roots to the latest multi-folder owner using one dialog', async () => {
+  let resolve!: (paths: readonly string[]) => void
+  const pick = vi.fn(async () => '/unused')
+  const pickMany = vi.fn(() => new Promise<readonly string[]>(accept => { resolve = accept }))
+  const first = owner({ onPickedDirectories: vi.fn() })
+  const latest = owner({ onPickedDirectories: vi.fn() })
+  const view = mount()
+  view.render({ ...first, pick, pickMany })
+  view.render({ ...latest, pick, pickMany })
+  resolve(['/frontend', '/backend'])
+  await settle()
+  expect(pickMany).toHaveBeenCalledOnce()
+  expect(pick).not.toHaveBeenCalled()
+  expect(latest.onPickedDirectories).toHaveBeenCalledExactlyOnceWith(['/frontend', '/backend'])
+  expect(first.onPickedDirectories).not.toHaveBeenCalled()
+  expect(latest.onPicked).not.toHaveBeenCalled()
+})
+
+it('keeps legacy owners on the single picker and treats empty multi-selection as cancellation', async () => {
+  const pick = vi.fn(async () => '/single')
+  const pickMany = vi.fn(async () => [])
+  const legacy = owner()
+  mount().render({ ...legacy, pick, pickMany })
+  await settle()
+  expect(legacy.onPicked).toHaveBeenCalledExactlyOnceWith('/single')
+  expect(pickMany).not.toHaveBeenCalled()
+  reset()
+  const multiple = owner({ onPickedDirectories: vi.fn() })
+  mount().render({ ...multiple, pick, pickMany })
+  await settle()
+  expect(multiple.onCancel).toHaveBeenCalledOnce()
+  expect(multiple.onPickedDirectories).not.toHaveBeenCalled()
+})
+
+it('does not deliver a dismissed request into a newer open edge', async () => {
+  const resolvers: ((paths: readonly string[]) => void)[] = []
+  const pick = vi.fn(async () => null)
+  const pickMany = vi.fn(() => new Promise<readonly string[]>(resolve => { resolvers.push(resolve) }))
+  const props = owner({ onPickedDirectories: vi.fn() })
+  const view = mount()
+  view.render({ ...props, pick, pickMany })
+  view.render({ ...props, open: false, pick, pickMany })
+  view.render({ ...props, pick, pickMany })
+  resolvers[0]!(['/stale'])
+  await settle()
+  expect(props.onPickedDirectories).not.toHaveBeenCalled()
+  resolvers[1]!(['/fresh', '/second'])
+  await settle()
+  expect(props.onPickedDirectories).toHaveBeenCalledExactlyOnceWith(['/fresh', '/second'])
+})
+
+
+it('waits out a withdrawn native promise before reopening a coalesced picker', async () => {
+  let active: Promise<readonly string[]> | undefined
+  const settleNative: ((roots: readonly string[]) => void)[] = []
+  const pickMany = vi.fn(() => {
+    active ??= new Promise<readonly string[]>(resolve => { settleNative.push(resolve) }).finally(() => { active = undefined })
+    return active
+  })
+  const pick = vi.fn(async () => null)
+  const props = owner({ onPickedDirectories: vi.fn() })
+  const view = mount()
+  view.render({ ...props, pick, pickMany })
+  view.render({ ...props, open: false, pick, pickMany })
+  view.render({ ...props, pick, pickMany })
+  expect(pickMany).toHaveBeenCalledOnce()
+  settleNative[0]!(['/withdrawn'])
+  await settle()
+  expect(props.onPickedDirectories).not.toHaveBeenCalled()
+  expect(pickMany).toHaveBeenCalledTimes(2)
+  settleNative[1]!(['/new-primary', '/new-secondary'])
+  await settle()
+  expect(props.onPickedDirectories).toHaveBeenCalledExactlyOnceWith(['/new-primary', '/new-secondary'])
+})
+
+
+it("keeps a remounted occupant from adopting an unmounted occupant's coalesced dialog", async () => {
+  let active: Promise<readonly string[]> | undefined
+  const settleNative: ((roots: readonly string[]) => void)[] = []
+  const pickMany = vi.fn(() => {
+    active ??= new Promise<readonly string[]>(resolve => { settleNative.push(resolve) }).finally(() => { active = undefined })
+    return active
+  })
+  const schedule = createNativeDirectorySelectionQueue()
+  const pick = vi.fn(async () => null)
+  const old = owner({ onPickedDirectories: vi.fn() })
+  const first = mount()
+  first.render({ ...old, pick, pickMany, schedule })
+  first.unmount()
+  const fresh = owner({ onPickedDirectories: vi.fn() })
+  const second = mount()
+  second.render({ ...fresh, pick, pickMany, schedule })
+  expect(pickMany).toHaveBeenCalledOnce()
+  settleNative[0]!(['/old'])
+  await settle()
+  expect(old.onPickedDirectories).not.toHaveBeenCalled()
+  expect(fresh.onPickedDirectories).not.toHaveBeenCalled()
+  expect(pickMany).toHaveBeenCalledTimes(2)
+  settleNative[1]!(['/new-primary', '/new-secondary'])
+  await settle()
+  expect(fresh.onPickedDirectories).toHaveBeenCalledExactlyOnceWith(['/new-primary', '/new-secondary'])
+})
+
+it('does not open a queued native dialog after its occupant also unmounts', async () => {
+  let finish!: (roots: readonly string[]) => void
+  const firstPick = vi.fn(() => new Promise<readonly string[]>(resolve => { finish = resolve }))
+  const queuedPick = vi.fn(async () => ['/should-not-open'])
+  const schedule = createNativeDirectorySelectionQueue()
+  const pick = vi.fn(async () => null)
+  const first = mount()
+  first.render({ ...owner({ onPickedDirectories: vi.fn() }), pick, pickMany: firstPick, schedule })
+  first.unmount()
+  const second = mount()
+  second.render({ ...owner({ onPickedDirectories: vi.fn() }), pick, pickMany: queuedPick, schedule })
+  second.unmount()
+  finish(['/old'])
+  await settle()
+  expect(queuedPick).not.toHaveBeenCalled()
 })

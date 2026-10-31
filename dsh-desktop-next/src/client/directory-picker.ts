@@ -29,11 +29,29 @@ export const DESKTOP_DIRECTORY_FLOW_PRIORITY = -1
 /** The Desktop preload bridge: one system folder dialog per call, `null` when dismissed. */
 export interface DesktopDirectoryPicker {
   pick(): Promise<string | null>
+  pickMany?(): Promise<readonly string[]>
 }
 
 /** Injected face of the flow occupant: the bridge call bound in the registration closure. */
 export interface NativeDirectoryFlowInjected {
+  schedule?: NativeDirectorySelectionQueue
   pick: () => Promise<string | null>
+  pickMany?: () => Promise<readonly string[]>
+}
+
+/** One registration owns the native picker across occupant unmounts and remounts. */
+export type NativeDirectorySelectionQueue = (pick: () => Promise<readonly string[]>, current: () => boolean) => Promise<readonly string[]>
+
+export function createNativeDirectorySelectionQueue(): NativeDirectorySelectionQueue {
+  let pending: Promise<readonly string[]> | undefined
+  return (pick, current) => {
+    const run = (): Promise<readonly string[]> => current() ? pick() : Promise.resolve([])
+    const task = pending === undefined ? run() : pending.catch(() => []).then(run)
+    pending = task
+    const release = (): void => { if (pending === task) pending = undefined }
+    void task.then(release, release)
+    return task
+  }
 }
 
 /**
@@ -46,7 +64,9 @@ export function desktopDirectoryPicker(target: object = globalThis): DesktopDire
   if (typeof bridge !== 'object' || bridge === null) return undefined
   const pick = (bridge as { pick?: unknown }).pick
   if (typeof pick !== 'function') return undefined
-  return { pick: () => (pick as () => Promise<string | null>).call(bridge) }
+  const pickMany = (bridge as { pickMany?: unknown }).pickMany
+  return { pick: () => (pick as () => Promise<string | null>).call(bridge),
+    ...(typeof pickMany === 'function' ? { pickMany: () => (pickMany as () => Promise<readonly string[]>).call(bridge) } : {}) }
 }
 
 /**
@@ -60,8 +80,10 @@ export function desktopDirectoryPicker(target: object = globalThis): DesktopDire
  * @returns Nothing; the system dialog renders on the host display.
  */
 export function NativeDirectoryFlow(props: DirectoryFlowOwnerProps & NativeDirectoryFlowInjected): ReactElement | null {
-  const { open, pick } = props
+  const { open, pick, pickMany, schedule } = props
   const armed = useRef(false)
+  const generation = useRef(0)
+  const pending = useRef<Promise<readonly string[]> | null>(null)
   const outcome = useRef(props)
   outcome.current = props
   const alive = useRef(true)
@@ -73,21 +95,39 @@ export function NativeDirectoryFlow(props: DirectoryFlowOwnerProps & NativeDirec
   useEffect(() => {
     if (!open) {
       armed.current = false
+      generation.current++
       return
     }
     if (armed.current) return
     armed.current = true
-    pick().then(
-      (path) => {
-        if (!alive.current) return
-        if (path === null) outcome.current.onCancel(); else outcome.current.onPicked(path)
+    const current = ++generation.current
+    const multiple = typeof props.onPickedDirectories === 'function' && pickMany !== undefined
+    const choose = (): Promise<readonly string[]> => multiple ? pickMany() : pick().then(path => path === null ? [] : [path])
+    // Native dialogs cannot be aborted. If the owner closes and reopens, wait for
+    // the withdrawn dialog to settle before asking again; otherwise the native
+    // coalescer would return its stale promise to the new open edge.
+    const previous = pending.current
+    const isCurrent = (): boolean => alive.current && generation.current === current
+    const selection = schedule ? schedule(choose, isCurrent)
+      : previous === null ? choose() : previous.catch(() => []).then(() => isCurrent() ? choose() : [])
+    pending.current = selection
+    const release = (): void => { if (pending.current === selection) pending.current = null }
+    selection.then(
+      (paths) => {
+        release()
+        if (!alive.current || generation.current !== current) return
+        if (paths.length === 0) outcome.current.onCancel()
+        else if (multiple && outcome.current.onPickedDirectories) outcome.current.onPickedDirectories(paths)
+        else if (paths.length === 1) outcome.current.onPicked(paths[0]!)
+        else outcome.current.onError('This workspace picker cannot accept multiple folders')
       },
       (reason: unknown) => {
-        if (!alive.current) return
+        release()
+        if (!alive.current || generation.current !== current) return
         outcome.current.onError(reason instanceof Error ? reason.message : String(reason))
       },
     )
-  }, [open, pick])
+  }, [open, pick, pickMany, schedule])
   return null
 }
 
@@ -99,7 +139,9 @@ export function NativeDirectoryFlow(props: DirectoryFlowOwnerProps & NativeDirec
  * @param picker - The Desktop preload bridge.
  */
 export function registerDesktopDirectoryPicker(ctx: Context, picker: DesktopDirectoryPicker): void {
-  const injected = (): NativeDirectoryFlowInjected => ({ pick: () => picker.pick() })
+  const schedule = createNativeDirectorySelectionQueue()
+  const injected = (): NativeDirectoryFlowInjected => ({ schedule, pick: () => picker.pick(),
+    ...(picker.pickMany ? { pickMany: () => picker.pickMany!() } : {}) })
   const [hero, sidebar] = DIRECTORY_FLOW_HOLES
   ctx.slots.inject(hero, () => ctx.slots.inject(sidebar, function* () {
     yield ctx.slots.register({ name: hero, inject: injected, priority: DESKTOP_DIRECTORY_FLOW_PRIORITY }, NativeDirectoryFlow)

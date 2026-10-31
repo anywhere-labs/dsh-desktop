@@ -1,8 +1,12 @@
 /** Same-origin endpoint used by the Windows browse panel's native-picker shortcut. */
 export const DESKTOP_DIRECTORY_PICKER_PATH = '/_dsh/desktop/pick-directory'
 
+/** Same-origin multi-folder chooser; the legacy single-folder endpoint is unchanged. */
+export const DESKTOP_DIRECTORIES_PICKER_PATH = '/_dsh/desktop/pick-directories'
+
 /** macOS preload-to-main picker, available before the official client plugins load. */
 export const DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL = 'dsh-desktop:native-directory-picker'
+export const DESKTOP_NATIVE_DIRECTORIES_PICKER_CHANNEL = 'dsh-desktop:native-directories-picker'
 
 /** Same-origin endpoint used before either workspace picker accepts a path. */
 export const DESKTOP_DIRECTORY_VALIDATOR_PATH = '/_dsh/desktop/validate-directory'
@@ -21,4 +25,9 @@ export interface DesktopDirectoryValidationRequest {
 /** Native decision returned without exposing filesystem details to the renderer. */
 export interface DesktopDirectoryValidationResponse {
   readonly allowed: boolean
+}
+
+/** Admitted native selections, primary first; empty when cancelled or all refused. */
+export interface DesktopDirectoriesPickerResponse {
+  paths: string[]
 }

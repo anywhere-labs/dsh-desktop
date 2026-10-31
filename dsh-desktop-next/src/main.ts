@@ -11,6 +11,9 @@ import { app, BrowserWindow, clipboard, crashReporter, dialog, ipcMain, Menu, na
 import { appRequestHeaders, forwardWebRequest, serveWebDocument } from './web-document.ts'
 import { installAppDownloads } from './app-downloads.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
+import { desktopWorkspaceLaunchPaths } from './workspace-startup.ts'
+import { ElectronWorkspaceAdmission } from '../../dsh-plugin-desktop/src/workspace-admission.ts'
+import { DesktopDirectorySelection } from './directory-selection.ts'
 import { NEXT_PACKAGE, parseFeatures, profileName } from './profiles.ts'
 import { APP_URL, IPC, SHELL_URL } from './ipc.ts'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
@@ -79,7 +82,12 @@ app.setName('DSH NEXT')
 // Chromium storage to the disposable environment.
 app.setPath('userData', normalElectronData)
 // app.exit() before the message loop exits at once; never let the replaced launch own the instance regardless.
-const ownsInstance = !startupElevation.relaunched && claimDesktopSingleInstance(app, openMain)
+const pendingWorkspaceInvocations: (readonly string[])[] = [process.argv]
+let workspaceLaunchesReady = false
+const ownsInstance = !startupElevation.relaunched && claimDesktopSingleInstance(app, argv => {
+  pendingWorkspaceInvocations.push(argv)
+  if (workspaceLaunchesReady) { enqueueWorkspaceInvocations(); openMain() }
+})
 const safeModeRequested = process.argv.includes(SAFE_ARGUMENT)
 const safeElectronData = join(normalElectronData, 'safe-mode')
 if (ownsInstance) {
@@ -272,6 +280,37 @@ function assertSender(event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>,
   if (!owner || owner.isDestroyed() || event.sender !== owner.webContents
     || event.senderFrame !== owner.webContents.mainFrame || !event.senderFrame.url.startsWith(origin)) throw new Error('Rejected Next IPC sender')
 }
+/** Bind a launch to the Profile selected when Desktop receives it, never whichever one later opens. */
+function enqueueWorkspaceInvocations(): void {
+  for (const argv of pendingWorkspaceInvocations.splice(0)) {
+    const paths = desktopWorkspaceLaunchPaths(argv)
+    if (paths) runtime.workspaceLaunches.enqueue(runtime.selected, paths)
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.workspaceLaunchAvailable)
+}
+
+/** Every asynchronous folder operation belongs to one window, document, Profile and Host generation. */
+function workspaceDocument(event: IpcMainInvokeEvent, document: unknown) {
+  assertSender(event, mainWindow, APP_URL)
+  if (!document || document !== rendererDocumentId) throw new Error('Workspace document was superseded')
+  const window = mainWindow!
+  const profile = runtime.selected
+  const auth = runtime.auth
+  const safeMode = runtime.safeMode
+  const current = (): boolean => !quitting && !window.isDestroyed() && mainWindow === window
+    && rendererDocumentId === document && runtime.selected === profile && runtime.auth === auth
+    && runtime.safeMode === safeMode && !runtime.recoveryMode && !onboarding && !onboardingSurfaceActive
+  if (!current()) throw new Error('Workspace selection is unavailable')
+  const admission = new ElectronWorkspaceAdmission({
+    platform: process.platform as 'darwin' | 'win32' | 'linux', canPickDirectory: ['darwin', 'win32', 'linux'].includes(process.platform),
+    locale: () => windowsLanguage.toLowerCase().startsWith('zh') ? 'zh' : 'en',
+    showOpenDialog: options => { if (!current()) throw new Error('Workspace document was superseded'); return dialog.showOpenDialog(window, options) },
+    showMessageBox: options => { if (!current()) throw new Error('Workspace document was superseded'); return dialog.showMessageBox(window, options) },
+    logError: message => runtime.diagnostics.append(message, 'warn'),
+  })
+  return { window, profile, document: document as string, key: `${window.webContents.id}:${document}:${profile}`, current, admission }
+}
+
 function assertDesktopSender(event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>): void {
   if (event.sender === mainWindow?.webContents) assertSender(event, mainWindow, APP_URL)
   else assertSender(event, shellWindow, 'dsh-app://shell/')
@@ -1205,6 +1244,7 @@ async function main(): Promise<void> {
     if (value.action === 'active') {
       if (typeof value.active !== 'boolean') throw new Error('Invalid onboarding state')
       onboardingSurfaceActive = value.active
+      if (!value.active) mainWindow?.webContents.send(IPC.workspaceLaunchAvailable)
       return
     }
     if (value.action === 'read') {
@@ -1273,14 +1313,59 @@ async function main(): Promise<void> {
   })
   ipcMain.handle(IPC.material, event => { assertSender(event, mainWindow, APP_URL); return windowMaterial(runtime.preferences) })
   ipcMain.handle(IPC.command, (event, value: unknown) => { assertDesktopSender(event); return command(value, event.sender === shellWindow?.webContents ? 'shell' : 'app') })
-  let picking: Promise<string | null> | undefined
-  ipcMain.handle(IPC.directory, event => {
+  const directorySelection = new DesktopDirectorySelection()
+  const pickDirectories = (event: IpcMainInvokeEvent, document: unknown, multiple: boolean): Promise<string[]> => {
+    const owner = workspaceDocument(event, document)
+    show(owner.window)
+    return directorySelection.select(owner, multiple, {
+      pick: async () => {
+        const result = await dialog.showOpenDialog(owner.window, { properties: ['openDirectory', 'createDirectory', ...(multiple ? ['multiSelections' as const] : [])] })
+        return result.canceled ? null : result.filePaths
+      },
+      admit: path => owner.admission.admitWorkspacePath(path),
+    })
+  }
+  ipcMain.handle(IPC.directory, async (event, document: unknown) => (await pickDirectories(event, document, false))[0] ?? null)
+  ipcMain.handle(IPC.directories, (event, document: unknown) => pickDirectories(event, document, true))
+  ipcMain.handle(IPC.workspaceLaunchTake, async (event, document: unknown) => {
     assertSender(event, mainWindow, APP_URL)
-    const window = mainWindow!
-    show(window)
-    picking ??= dialog.showOpenDialog(window, { properties: ['openDirectory', 'createDirectory'] })
-      .then(result => result.canceled ? null : result.filePaths[0] ?? null).finally(() => { picking = undefined })
-    return picking
+    if (quitting || runtime.safeMode || runtime.recoveryMode || onboarding || onboardingSurfaceActive) return null
+    const owner = workspaceDocument(event, document)
+    if (!runtime.auth || runtime.backend.state.phase !== 'ready') return null
+    for (;;) {
+      const request = runtime.workspaceLaunches.take(owner.profile, owner.document)
+      if (!request) return null
+      const admitted: string[] = []
+      try {
+        for (const path of request.paths) {
+          if (!owner.current()) return null
+          if (!await owner.admission.admitWorkspacePath(path)) { admitted.length = 0; break }
+          admitted.push(path)
+          if (!owner.current()) return null
+        }
+      } catch (error) {
+        if (!owner.current()) return null
+        await dialog.showMessageBox(owner.window, { type: 'error', title: 'DSH NEXT',
+          message: t('无法打开工作区文件夹', 'Could not open workspace folders'), detail: String(error).slice(0, 4096) })
+        admitted.length = 0
+      }
+      if (!owner.current()) return null
+      if (admitted.length) return { id: request.id, paths: admitted }
+      runtime.workspaceLaunches.complete(owner.profile, owner.document, request.id)
+    }
+  })
+  ipcMain.handle(IPC.workspaceLaunchComplete, (event, document: unknown, id: unknown) => {
+    const owner = workspaceDocument(event, document)
+    if (typeof id !== 'number' || !Number.isSafeInteger(id)) throw new Error('Invalid workspace launch')
+    runtime.workspaceLaunches.complete(owner.profile, owner.document, id)
+  })
+  ipcMain.handle(IPC.workspaceLaunchError, async (event, document: unknown, message: unknown) => {
+    const owner = workspaceDocument(event, document)
+    if (typeof message !== 'string') throw new Error('Invalid workspace launch error')
+    const detail = message.slice(0, 4096)
+    runtime.diagnostics.append(`Workspace launch: ${detail}`, 'warn')
+    await dialog.showMessageBox(owner.window, { type: 'error', title: 'DSH NEXT',
+      message: t('无法打开全部工作区文件夹', 'Could not open all workspace folders'), detail })
   })
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
     const auth = runtime.auth
@@ -1321,6 +1406,8 @@ async function main(): Promise<void> {
   runtime.safeMode = safeModeRequested
   runtime.recoveryMode = process.argv.includes(RECOVERY_ARGUMENT)
   runtime.initialize()
+  workspaceLaunchesReady = true
+  enqueueWorkspaceInvocations()
   runtime.memory.start()
   void prepareHostEnvironment()
   if (dataLocation.error && !runtime.safeMode) { runtime.recoveryMode = true; runtime.report(dataLocation.error, 'runtime-bootstrap') }
