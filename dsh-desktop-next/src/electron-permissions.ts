@@ -55,20 +55,20 @@ export function installMediaPermissions(session: Session, options: {
   language(): string
   warn(error: unknown): void
 }): void {
-  const trusted = (contents: Electron.WebContents | null, url: string, isMainFrame: boolean): boolean => {
+  const trusted = (contents: Electron.WebContents | null, url: string, isMainFrame: boolean, permission: string): boolean => {
     const owner = options.window()
     return !!owner && !owner.isDestroyed() && owner.webContents === contents && !contents.isDestroyed()
-      && isMainFrame && appOrigin(url) && contents.getURL().startsWith(APP_URL)
+      && (isMainFrame || permission === 'clipboard-sanitized-write') && appOrigin(url) && contents.getURL().startsWith(APP_URL)
   }
   session.setPermissionCheckHandler((contents, permission, origin, details) => {
-    if (!trusted(contents, origin, details.isMainFrame)) return false
+    if (!trusted(contents, origin, details.isMainFrame, permission)) return false
     if (permission === 'media') return details.mediaType === 'audio'
     // Keep the existing trusted renderer's non-media behavior; OS media grants remain separate.
     return true
   })
   session.setPermissionRequestHandler((contents, permission, callback, details) => {
     const reply = replyOnce(callback, options.warn)
-    const allowed = (): boolean => trusted(contents, details.requestingUrl, details.isMainFrame)
+    const allowed = (): boolean => trusted(contents, details.requestingUrl, details.isMainFrame, permission)
     if (!allowed()) return reply(false)
     if (permission !== 'media') return reply(true)
     const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined
