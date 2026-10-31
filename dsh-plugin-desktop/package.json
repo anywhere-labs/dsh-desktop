@@ -368,7 +368,7 @@
     "dsh-ide-git": "workspace:*",
     "dshmarket": "1.71.1",
     "fs-ext": "2.1.1",
-    "koffi": "3.1.5",
+    "koffi": "3.1.1",
     "node-addon-require-builtin": "^0.1.9",
     "pnpm": "11.28.5",
     "react": "18.3.1",

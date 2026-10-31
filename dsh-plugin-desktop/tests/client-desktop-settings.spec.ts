@@ -759,11 +759,11 @@ describe('Desktop settings Slot registration', () => {
       name: 'plugins.bundle.hidden',
       key: 'dsh-community-market',
     }, expect.any(Function))
-    expect(register).toHaveBeenNthCalledWith(4, {
+    expect(register).toHaveBeenNthCalledWith(5, {
       name: 'plugins.bundle.hidden',
       key: 'dshmarket',
     }, expect.any(Function))
-    expect(register).toHaveBeenNthCalledWith(5, {
+    expect(register).toHaveBeenNthCalledWith(6, {
       name: 'plugins.bundle.hidden',
       key: '@agents-anywhere/dsh-bridge-next',
     }, expect.any(Function))
