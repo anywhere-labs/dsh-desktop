@@ -5,7 +5,8 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { basename as posixBasename, dirname as posixDirname } from 'node:path/posix'
 import { getRawHeader } from '@electron/asar'
-import { nextRuntimeFileExclusion, type NextPackagingTarget } from './runtime-file-policy.ts'
+import { nextRuntimeFileExclusion, nextRuntimePackageExclusion, type NextPackagingTarget, type RuntimePackageConstraints } from './runtime-file-policy.ts'
+import { OFFICIAL_CUA_UNPACKED } from './upstream-family.ts'
 import { DESKTOP_RUNTIME_FILE, parseDesktopRuntime, verifyPayload, type DesktopRuntimeDescriptor, type DesktopRuntimeFile, type NextRelease, type PayloadEntry, type PayloadSource, type VerifyPayloadOptions } from '../src/runtime-tree.ts'
 
 /** Application-relative directory holding the prepared payload that Electron Builder archives verbatim. */
@@ -61,21 +62,33 @@ export function archivedPayload(resourcesDir: string): ArchivedPayload {
         const stat = lstatSync(physical, { throwIfNoEntry: false })
         if (stat === undefined || !stat.isFile()) throw new Error(`Next payload: unpacked entry ${path} has no physical file`)
         entries.set(path, { path, unpacked: true, executable: process.platform !== 'win32' && (stat.mode & 0o111) !== 0,
-          read: () => readFileSync(physical) })
+          read: () => readFileSync(physical),
+          readHeader: (bytes) => {
+            const unpackedFd = openSync(physical, 'r')
+            try {
+              const buffer = Buffer.alloc(bytes)
+              return buffer.subarray(0, readSync(unpackedFd, buffer, 0, bytes, 0))
+            } finally {
+              closeSync(unpackedFd)
+            }
+          } })
         continue
       }
       const { size } = node
       const offset = Number(node.offset)
-      entries.set(path, { path, unpacked: false, executable: node.executable === true, read: () => {
-        const buffer = Buffer.alloc(size)
+      const readSlice = (length: number): Buffer => {
+        const buffer = Buffer.alloc(length)
         let done = 0
-        while (done < size) {
-          const read = readSync(descriptor(), buffer, done, size - done, dataOffset + offset + done)
+        while (done < length) {
+          const read = readSync(descriptor(), buffer, done, length - done, dataOffset + offset + done)
           if (read === 0) throw new Error(`Next payload: truncated archive entry ${path}`)
           done += read
         }
         return buffer
-      } })
+      }
+      entries.set(path, { path, unpacked: false, executable: node.executable === true,
+        read: () => readSlice(size),
+        readHeader: bytes => readSlice(Math.min(bytes, size)) })
     }
   }
   visit(header, '')
@@ -168,6 +181,9 @@ const REQUIRED_UNPACKED = [
   // The computer-use driver resolves its platform package's manifest and hands the library beside it to the system
   // loader; the Host resolves that package to this copy.
   /^node_modules\/@trycua\/cua-driver-/u,
+  // The official Computer Use provider starts the helper below its own package directory as a child process; the
+  // Host resolves the package to this copy.
+  ...OFFICIAL_CUA_UNPACKED === undefined ? [] : [OFFICIAL_CUA_UNPACKED],
   // The Office CLI and its direct dependencies run under the bundled standalone Node, which reads no archive;
   // beforePack unpacks the complete closure, and these guard its roots.
   /^node_modules\/@deepseek-ai\/libreoffice-kit\//u, /^node_modules\/(?:fflate|fontkit|koffi|saxes)\//u,
@@ -177,9 +193,44 @@ const REQUIRED_UNPACKED = [
 const ALLOWED_ROOT_ENTRIES = new Set(['assets', 'build', 'cordis.patch.yml', DESKTOP_RUNTIME_FILE, 'host.cordis.patch.yml', 'lib', 'node_modules', 'package.json', 'scripts'])
 
 /**
+ * Resolve a dependency as Node does from a packaged manifest: the package's own node_modules, then each enclosing one.
+ * @param source - Assembled payload.
+ * @param fromManifest - Payload path of the requesting package's manifest.
+ * @param name - Dependency name.
+ * @returns Payload path of the dependency's manifest, or undefined when none is packaged.
+ */
+function packagedManifest(source: PayloadSource, fromManifest: string, name: string): string | undefined {
+  let parent = posixDirname(fromManifest)
+  while (true) {
+    const candidate = `${parent === '.' ? '' : `${parent}/`}node_modules/${name}/package.json`
+    if (source.entry(candidate) !== undefined) return candidate
+    if (parent === '.') return undefined
+    parent = posixDirname(parent)
+  }
+}
+
+/**
+ * Check that every packaged sharp can load on Linux. The WebAssembly build is optional and packaging
+ * omits the native Linux backends, so without this a package whose build is missing, or from another
+ * sharp release, would leave image processing unable to load without failing the build.
+ * @param source - Assembled payload.
+ * @param sharpManifests - Payload paths of every packaged `sharp` manifest.
+ * @returns Problems, one line each.
+ */
+function linuxSharpProblems(source: PayloadSource, sharpManifests: readonly string[]): string[] {
+  const version = (path: string): string => String((JSON.parse(source.entry(path)!.read().toString('utf8')) as { version?: unknown }).version)
+  return sharpManifests.flatMap((manifest) => {
+    const backend = packagedManifest(source, manifest, '@img/sharp-wasm32')
+    if (backend === undefined) return [`${manifest}: sharp ${version(manifest)} has no packaged @img/sharp-wasm32 to run on Linux`]
+    return version(backend) === version(manifest) ? [] : [`${backend}: ${version(backend)} does not match sharp ${version(manifest)} at ${manifest}`]
+  })
+}
+
+/**
  * Audit an assembled payload: only the declared root entries may exist, nothing the Desktop file
- * policy omits may be present, and native code and shell-executed files must be unpacked, because
- * Electron's archive view serves only its own `fs` and `dlopen`, not child processes.
+ * policy omits may be present, native code and shell-executed files must be unpacked, because
+ * Electron's archive view serves only its own `fs` and `dlopen`, not child processes, and every sharp
+ * of a Linux package must find the WebAssembly build of its own release.
  * @param source - Assembled payload.
  * @param target - Platform and architectures of the package.
  * @returns Problems, one line each; empty when the payload passes.
@@ -187,17 +238,30 @@ const ALLOWED_ROOT_ENTRIES = new Set(['assets', 'build', 'cordis.patch.yml', DES
 export function auditNextPayload(source: PayloadSource, target: NextPackagingTarget): string[] {
   const problems: string[] = []
   const strayRoots = new Set<string>()
+  const sharpManifests: string[] = []
   for (const entry of source.list()) {
     const root = entry.path.split('/')[0] ?? ''
     if (!ALLOWED_ROOT_ENTRIES.has(root)) { strayRoots.add(root); continue }
+    if (target.platform === 'linux' && /(?:^|\/)node_modules\/sharp\/package\.json$/u.test(entry.path)) sharpManifests.push(entry.path)
     if (entry.path.startsWith('node_modules/')) {
       const reason = nextRuntimeFileExclusion(entry.path.slice('node_modules/'.length), target)
       if (reason !== undefined) problems.push(`${entry.path}: ${reason} must not be packaged`)
+      if (entry.path.endsWith('/package.json')) {
+        const parts = entry.path.split('/')
+        const packageParts = parts.slice(parts.lastIndexOf('node_modules') + 1)
+        const nameParts = packageParts[0]?.startsWith('@') ? 2 : 1
+        if (packageParts.length === nameParts + 1) {
+          const manifest = JSON.parse(entry.read().toString('utf8')) as RuntimePackageConstraints
+          const packageReason = nextRuntimePackageExclusion(manifest, target)
+          if (packageReason !== undefined) problems.push(`${entry.path}: ${packageReason} must not be packaged`)
+        }
+      }
     }
     if (entry.unpacked) continue
     if (REQUIRED_UNPACKED.some(pattern => pattern.test(entry.path))) problems.push(`${entry.path}: must be unpacked beside app.asar`)
-    else if (isNativeImage(entry.read().subarray(0, 4))) problems.push(`${entry.path}: native code is packed inside app.asar`)
+    else if (isNativeImage(entry.readHeader ? entry.readHeader(4) : entry.read().subarray(0, 4))) problems.push(`${entry.path}: native code is packed inside app.asar`)
   }
+  problems.push(...linuxSharpProblems(source, sharpManifests))
   return [...[...strayRoots].sort().map(root => `${root}: outside the declared application files`), ...problems]
 }
 
@@ -235,14 +299,7 @@ export function verifyNextPayload(source: PayloadSource): void {
     const required = [...Object.keys(data.dependencies ?? {}),
       ...Object.keys(data.peerDependencies ?? {}).filter(name => optionalPeers[name]?.optional !== true)]
     for (const name of required) {
-      let parent = posixDirname(manifestPath)
-      let found: string | undefined
-      while (true) {
-        const candidate = `${parent === '.' ? '' : `${parent}/`}node_modules/${name}/package.json`
-        if (source.entry(candidate) !== undefined) { found = candidate; break }
-        if (parent === '.') break
-        parent = posixDirname(parent)
-      }
+      const found = packagedManifest(source, manifestPath, name)
       if (found === undefined) {
         if (Object.hasOwn(data.optionalDependencies ?? {}, name)) continue
         throw new Error(`Missing packaged dependency ${name} required by ${String(data.name)}`)

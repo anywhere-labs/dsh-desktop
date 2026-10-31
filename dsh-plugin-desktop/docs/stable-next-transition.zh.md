@@ -1,6 +1,6 @@
 # 稳定版向 Next 过渡
 
-稳定版会提示：计划在下个版本发布后，用 Next 取代当前稳定版。用户勾选**确认后不再弹出**并点击**确认**后停止提示；否则每次启动应用时提示一次。关闭弹窗或按 Escape 不保存勾选结果。选择保存在 Electron 用户数据目录的 `notices/next-transition-v1`，不依赖 Profile 或安装版本。稳定版开发环境（`corepack yarn dev`）也显示此提示；Beta 和 Next 不显示。
+稳定版会提示：计划在下个版本发布后，用 Next 取代当前稳定版。用户点击**不再提醒**后停止提示；点击**知道了**、关闭弹窗或按 Escape 时，下次启动应用仍提示一次。不再提醒是独立按钮而非勾选框：macOS 上弹窗的勾选框无法勾选，导致提示每次都出现（#1418）。选择保存在 Electron 用户数据目录的 `notices/next-transition-v1`，不依赖 Profile 或安装版本。稳定版开发环境（`corepack yarn dev`）也显示此提示；Beta 和 Next 不显示。
 
 ## 发布接替版本
 

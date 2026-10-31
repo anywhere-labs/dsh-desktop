@@ -6,18 +6,22 @@ import type { DesktopPermission, DesktopPermissionSnapshot, DesktopPermissions }
 export function DesktopPermissionsSection({ service, language }: { service: DesktopPermissions; language: string }) {
   const zh = language.startsWith('zh')
   return <section className="dshDesktopSettingsGroup" aria-label={zh ? '系统权限' : 'System permissions'}>
-    <h3>{zh ? '系统权限' : 'System permissions'}</h3>
-    <DesktopPermissionsButton service={service} language={language} />
+    <div className="dshDesktopSettingsUpdateRow">
+      <div className="dshDesktopSettingsUpdateSummary">
+        <h3>{zh ? '系统权限' : 'System permissions'}</h3>
+      </div>
+      <DesktopPermissionsButton service={service} language={language} className="dshDesktopSettingsButton" />
+    </div>
   </section>
 }
 
-export function DesktopPermissionsButton({ service, language, iconOnly = false, disabled = false, label: customLabel, permission }: { service?: DesktopPermissions | undefined; language: string; iconOnly?: boolean; disabled?: boolean; label?: string; permission?: DesktopPermission | undefined }) {
+export function DesktopPermissionsButton({ service, language, iconOnly = false, disabled = false, label: customLabel, permission, className }: { service?: DesktopPermissions | undefined; language: string; iconOnly?: boolean; disabled?: boolean; label?: string; permission?: DesktopPermission | undefined; className?: string }) {
   const [open, setOpen] = useState(false)
   const zh = language.startsWith('zh')
   const label = customLabel ?? (zh ? '授权设置' : 'Permissions')
   return <>
     <Button variant={iconOnly ? 'ghost' : 'outline'} size="sm" aria-label={label} disabled={disabled}
-      className={iconOnly ? 'dshNextSettingsGear' : undefined} icon={iconOnly ? <IconSettingsOutlineRegular /> : undefined}
+      className={iconOnly ? 'dshNextSettingsGear' : className} icon={iconOnly ? <IconSettingsOutlineRegular /> : undefined}
       onClick={() => { setOpen(true) }}>{iconOnly ? null : label}</Button>
     <DesktopPermissionsDialog open={open} onClose={() => { setOpen(false) }} service={service} language={language} permission={permission} />
   </>

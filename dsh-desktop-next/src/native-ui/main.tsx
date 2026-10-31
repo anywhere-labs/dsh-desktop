@@ -2,17 +2,19 @@
 import { CSPProvider } from '@base-ui/react/csp-provider'
 import { createRoot } from 'react-dom/client'
 import { useEffect, useMemo, useState } from 'react'
-import { RecoveryApp, type RecoveryState } from '../../../dsh-plugin-desktop-beta/src/native-ui/recovery/App.tsx'
-import { ProfileCreateApp } from '../../../dsh-plugin-desktop-beta/src/native-ui/profile-create/App.tsx'
-import { ProfileSelectorApp } from '../../../dsh-plugin-desktop-beta/src/native-ui/profile-selector/App.tsx'
-import { DesktopFrame } from '../../../dsh-plugin-desktop-beta/src/native-ui/shared/DesktopFrame.tsx'
-import { Alert, AlertDescription } from '../../../dsh-plugin-desktop-beta/src/native-ui/components/ui/alert.tsx'
-import { desktopRecoveryCopy } from '../../../dsh-plugin-desktop-beta/src/recovery-copy.ts'
+import { RecoveryApp, type RecoveryState } from '../../../dsh-plugin-desktop/src/native-ui/recovery/App.tsx'
+import { ProfileCreateApp } from '../../../dsh-plugin-desktop/src/native-ui/profile-create/App.tsx'
+import { ProfileSelectorApp } from '../../../dsh-plugin-desktop/src/native-ui/profile-selector/App.tsx'
+import { DesktopFrame } from '../../../dsh-plugin-desktop/src/native-ui/shared/DesktopFrame.tsx'
+import { Alert, AlertDescription } from '../../../dsh-plugin-desktop/src/native-ui/components/ui/alert.tsx'
+import { desktopRecoveryCopy } from '../../../dsh-plugin-desktop/src/recovery-copy.ts'
 import { useDesktopState } from '../client/desktop-state.ts'
 import { NextSettingsAdapter } from '../client/settings-adapter.ts'
 import type { DesktopCommand } from '../desktop-contract.ts'
+import { hostExitDetail } from '../exit-code.ts'
 import { recoverySupport } from '../recovery-support.ts'
 import './theme.css'
+import { Onboarding } from './onboarding.tsx'
 
 function App() {
   const adapter = useMemo(() => window.desktopNext ? new NextSettingsAdapter(window.desktopNext) : undefined, [])
@@ -52,7 +54,7 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
       }
       const recoveryActions = ['open-checkpoint', 'preview-checkpoint', 'preview-uninstall',
         'preview-disable', 'preview-enable', 'open-settings-document',
-        'open-profile-patch', 'open-profile-manifest', 'show-diagnostics', 'begin-change-data-directory',
+        'open-profile-patch', 'open-profile-manifest', 'show-diagnostics', 'show-failure-report', 'begin-change-data-directory',
         'restore-default-data-directory', 'factory-reset']
       if (recoveryActions.includes(url.hostname)) {
         const slot = /^slot-([123])$/.exec(url.searchParams.get('id') ?? '')
@@ -67,7 +69,8 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     document.addEventListener('click', navigate)
     return () => document.removeEventListener('click', navigate)
   }, [adapter, busy, state])
-  if (!state) return <><DesktopFrame /><main className="dshNativeContent p-6"><Alert><AlertDescription>{t('正在读取桌面状态…', 'Loading Desktop state…')}</AlertDescription></Alert></main></>
+  if (!state) return <><DesktopFrame /><main className={page === 'onboarding' ? 'next-onboarding dshNativeContent p-6' : 'dshNativeContent p-6'} data-platform={new URLSearchParams(location.search).get('platform') ?? undefined} data-material="transparent"><Alert><AlertDescription>{t('正在读取桌面状态…', 'Loading Desktop state…')}</AlertDescription></Alert></main></>
+  if (page === 'onboarding') return <Onboarding key={state.selected} state={state} locale={locale} bridge={adapter.bridge} />
   if (page === 'create-profile') return <ProfileCreateApp onCancel={() => { void perform({ type: 'close-controls' }) }} onCreate={async name => {
     await adapter.command({ type: 'create', name })
     await adapter.command({ type: 'switch', name })
@@ -75,7 +78,9 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     if (updated.selected === name) await adapter.command({ type: 'close-controls' })
     else await adapter.command({ type: 'controls', page: 'profiles' })
   }} />
-  const notice = failure ? { tone: 'error' as const, title: t('操作未完成', 'Action failed'), body: failure } : undefined
+  // An action that failed outside this page, such as from the tray, is reported here too.
+  const actionFailure = failure || (busy ? '' : state.actionFailure ?? '')
+  const notice = actionFailure ? { tone: 'error' as const, title: t('操作未完成', 'Action failed'), body: actionFailure } : undefined
   const profiles = state.profiles.map(name => ({ name, current: name === state.selected, selectable: !state.unavailableProfiles.includes(name) }))
   if (page === 'profiles') return <ProfileSelectorApp state={{ locale, profiles, busy: busy || state.busy, restartReady: false, ...(notice ? { notice } : {}) }} />
   // Recovery, first-run setup and Profile tools work without a Host. Settings live in the app.
@@ -86,8 +91,30 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     rollbackGuideBody: t('将当前 Profile 的配置恢复到最近一次成功启动的状态。', 'Restore this Profile to its last successful-start configuration.'),
     rollbackBody: t('还原所选检查点的 Profile 配置并安装所需插件依赖，不回滚共享数据。', 'Restore the selected Profile configuration and install its required plugin dependencies, without reverting shared data.'),
   }
+  const report = state.failureReport
+  const reportName = report?.status === 'saved' ? report.file.split(/[\\/]/u).at(-1) : undefined
+  const repair = state.recovery?.repairBackup
+  const repaired = repair === undefined ? '' : new Date(repair.created).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US')
+  const quickActions = [
+    { action: 'recover', title: t('修复 Profile', 'Repair Profile'), label: t('备份并修复', 'Back up and repair'),
+      body: t('先备份清单、Profile 补丁和功能开关，再只保留内置插件：其他插件（包括官方可选插件）、远控和市场都会停用，Profile 补丁中的设置（如界面语言、对话显示）恢复默认。修复后应用会重启并打开设置向导。已安装的插件文件、共享会话和凭据会保留。',
+        'Back up the manifest, Profile patch and feature switches, then keep only the built-in plugins: other plugins, official optional ones included, remote control and Market are turned off, and settings in the Profile patch, such as the interface language and conversation display, return to their defaults. The app then restarts and opens the setup wizard. Installed plugin files, shared sessions and credentials are kept.') },
+    ...repair === undefined ? [] : [{ action: 'preview-checkpoint', id: repair.id, title: t('撤销上次修复', 'Undo the last repair'),
+      label: t('恢复修复前的配置', 'Restore the previous configuration'),
+      body: t(`恢复 ${repaired} 修复前备份的清单、Profile 补丁和功能开关。当前配置会先备份；导致故障的插件可能随之恢复。`,
+        `Restore the manifest, Profile patch and feature switches backed up before the repair on ${repaired}. The current configuration is backed up first; a plugin that caused the failure may return with them.`) }],
+    ...report === undefined ? [] : [report.status === 'failed'
+      ? { action: 'export-diagnostics', title: t('诊断报告', 'Diagnostic report'), label: copy.saveDiagnostics,
+        body: t('本次故障的诊断报告未能保存。反馈问题时，请导出诊断信息或提供此窗口的截图。',
+          'The diagnostic report for this failure could not be saved. When asking for support, export diagnostics or provide a screenshot of this window.') }
+      : { action: 'show-failure-report', title: t('诊断报告', 'Diagnostic report'), label: copy.showDiagnostics,
+        body: reportName === undefined ? t('正在保存本次故障的诊断报告…', 'Saving the diagnostic report for this failure…')
+          : t(`本次故障已保存为 ${reportName}，反馈问题时可作为附件。分享前请检查其中的本机路径和插件输出。`,
+            `This failure was saved as ${reportName}; attach it when asking for support. Review it for local paths and plugin output before sharing.`) }],
+  ]
   const recovery: RecoveryState = {
-    locale, failureStage: 'host-boot', failureDetail: state.failure, requested: !state.failure,
+    locale, failureStage: state.failureStage ?? 'host-boot',
+    failureDetail: state.failureExit === undefined ? state.failure : hostExitDetail(state.failureExit, locale), requested: !state.failure,
     snapshot: { profileName: state.selected, bundles: state.recovery?.bundles ?? [], checkpoints: (['slot-1', 'slot-2', 'slot-3'] as const).map((slotId, index) => {
       const checkpoint = state.recovery?.checkpoints[index]
       return { slotId, status: checkpoint ? 'available' as const : 'empty' as const,
@@ -99,7 +126,7 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     busy: busy || state.busy, restartReady: true, activeTab: 'quick', configurationAvailable: true,
     diagnostics: state.recovery?.diagnosticsFile ? { status: 'saved', filename: state.recovery.diagnosticsFile } : { status: 'idle' }, logs: state.logs.slice(-24_000), profiles, profileActionToken: 'next', profileCreatorAvailable: true,
     terminalAvailable: state.platform === 'darwin' || state.platform === 'win32', safeModeAvailable: !state.safeMode, safeModeActive: state.safeMode,
-    notice: notice ?? (busy ? undefined : state.recovery?.notice),
+    quickActions, notice: notice ?? (busy ? undefined : state.recovery?.notice),
   }
   return <RecoveryApp state={recovery} copy={copy} support={recoverySupport(locale)} />
 }

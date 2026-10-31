@@ -488,7 +488,8 @@ async function start(): Promise<void> {
   // No background-Node guard applies to the first instance: a development run
   // legitimately looks like one, and a first instance is by definition a real
   // launch rather than a descendant command re-entering the executable.
-  let pendingLaunchWorkspacePaths = desktopLaunchWorkspaceRequest(process.argv)?.paths
+  const applicationRoot = app.isPackaged ? undefined : fileURLToPath(new URL('..', import.meta.url))
+  let pendingLaunchWorkspacePaths = desktopLaunchWorkspaceRequest(process.argv, process.platform, applicationRoot)?.paths
   let launchWorkspaceReady = false
   let runtime!: ElectronDesktopRuntime
   let logSink: LogFileSink | undefined
@@ -714,27 +715,9 @@ async function start(): Promise<void> {
   /** Apply native policy to every launch folder, then hand them to the Host page as one workspace. */
   const openLaunchWorkspace = async (paths: readonly string[]): Promise<void> => {
     try {
-      const admitted: string[] = []
-      for (const path of paths) {
-        if (await runtime.admitWorkspacePath(path)) admitted.push(path)
-      }
-      const primary = admitted[0]
-      if (primary === undefined) {
-        if (paths.length > 0) {
-          electronLogger.error(`${BIN_NAME}: no launch workspace folder passed native policy: ${paths.join(', ')}`)
-        }
-        return
-      }
-      // An extra root refused by native policy must not cost the user the whole
-      // launch, so the hand-off continues with the primary root and reports the
-      // dropped folders instead of opening nothing.
-      if (admitted.length < paths.length) {
-        const refused = paths.filter(path => !admitted.includes(path))
-        electronLogger.error(`${BIN_NAME}: launch workspace folders refused by native policy: ${refused.join(', ')}`)
-      }
-      const delivery = await runtime.openWorkspacePath(admitted)
+      const delivery = await runtime.openWorkspacePath(paths)
       if (delivery === 'unavailable') {
-        electronLogger.error(`${BIN_NAME}: no renderer could accept the launch workspace: ${admitted.join(', ')}`)
+        electronLogger.error(`${BIN_NAME}: no renderer could accept the launch workspace: ${paths.join(', ')}`)
       }
     } catch (cause) {
       electronLogger.error(
@@ -760,7 +743,7 @@ async function start(): Promise<void> {
       requestQuit(0)
       return
     }
-    const launchWorkspace = desktopLaunchWorkspaceRequest(argv)
+    const launchWorkspace = desktopLaunchWorkspaceRequest(argv, process.platform, applicationRoot)
     if (isDesktopBackgroundNodeRequest(argv)) {
       // A descendant Node command re-entered as a GUI process. Only the
       // launcher's own flag tells a workspace hand-off apart from whatever
@@ -1448,6 +1431,11 @@ async function start(): Promise<void> {
         pluginManagementStatePath,
         marketSelection,
         preparationHooks,
+      )
+    }
+    if (prepared.legacyWebRuntimeSources !== undefined) {
+      electronLogger.info(
+        `${BIN_NAME}: re-targeted Connection from the retired webRuntime service to webStartup; outdated layers: ${prepared.legacyWebRuntimeSources.join(', ')}`,
       )
     }
     // Desktop setup has its own per-Profile trigger, independent of account state.

@@ -238,6 +238,9 @@ export interface DesktopRuntime {
   /** Open the desktop operating system's native workspace-folder chooser. */
   pickDirectory(): Promise<string | null>
 
+  /** Select and admit all folders for a multi-root workspace. */
+  pickDirectories(): Promise<string[]>
+
   /** Open the isolated native Profile creator, focusing an existing instance. */
   openProfileCreateWindow(options: Omit<ProfileCreateWindowOptions, 'locale'>): void
 

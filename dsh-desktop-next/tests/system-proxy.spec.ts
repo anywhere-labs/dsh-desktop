@@ -50,6 +50,41 @@ describe('probeSystemProxy', () => {
     expect(answers.rounds()).toBe(3)
   })
 
+  it('believes the first DIRECT round when the operating system configures no proxy', async () => {
+    const answers = resolver(() => 'DIRECT')
+    const probe = await probeSystemProxy(answers, noWait, Promise.resolve('none'))
+
+    expect(probe).toEqual({ notes: [] })
+    expect(answers.rounds()).toBe(1)
+  })
+
+  it('keeps every retry and its full delay while a configuration exists or is unknown', async () => {
+    for (const configuration of ['configured', 'unknown'] as const) {
+      const answers = resolver((_url, attempt) => attempt < 3 ? 'DIRECT' : 'PROXY 127.0.0.1:7897')
+      const wait = vi.fn(noWait)
+      const probe = await probeSystemProxy(answers, wait, Promise.resolve(configuration))
+
+      expect(probe.https).toBe(PROXY)
+      expect(answers.rounds()).toBe(3)
+      expect(wait).toHaveBeenCalledTimes(2)
+    }
+  })
+
+  it('does not wait for an operating-system answer slower than the retry delay', async () => {
+    const answers = resolver((_url, attempt) => attempt < 2 ? 'DIRECT' : 'PROXY 127.0.0.1:7897')
+    const probe = await probeSystemProxy(answers, noWait, new Promise(() => {}))
+
+    expect(probe.https).toBe(PROXY)
+    expect(answers.rounds()).toBe(2)
+  })
+
+  it('retries when the operating-system answer fails', async () => {
+    const answers = resolver(() => 'DIRECT')
+    await probeSystemProxy(answers, noWait, Promise.reject(new Error('scutil failed')))
+
+    expect(answers.rounds()).toBe(3)
+  })
+
   it('explains a SOCKS-only configuration once and does not retry it', async () => {
     const answers = resolver(() => 'SOCKS5 127.0.0.1:7898')
     const probe = await probeSystemProxy(answers, noWait)

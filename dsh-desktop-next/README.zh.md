@@ -41,9 +41,11 @@ corepack yarn workspace dsh-desktop-next verify:onboarding
 
 ## 应用图标资源
 
-`build/app-icon.icon` 是可编辑的 Icon Composer 工程，保留最终 NEXT 徽标布局和 System Dark 背景。在安装了 Xcode 27 和 Icon Composer 的 Mac 上，从仓库根目录运行 `corepack yarn icons:export --channel next`，可更新 `build/app-icon.png`、Windows 使用的 `build/app-icon.ico`、原生编译生成的 `build/app-icon.icns` 和开发运行的 Dock 图标 `build/app-icon-mac.png`。这些文件需与 `build/app-icon.resources.json` 一起提交；`corepack yarn icons:check` 可在任何系统中无界面验证。
+`build/app-icon.icon` 是可编辑的 Icon Composer 工程，保留最终 NEXT 徽标布局和 System Dark 背景。在安装了 Xcode 27 和 Icon Composer 的 Mac 上，从仓库根目录运行 `corepack yarn icons:export --channel next`，可更新 `build/app-icon.png`、Windows 使用的 `build/app-icon.ico`、Linux 图标集 `build/icons/`、原生编译生成的 `build/app-icon.icns` 和开发运行的 Dock 图标 `build/app-icon-mac.png`。这些文件需与 `build/app-icon.resources.json` 一起提交；`corepack yarn icons:check` 可在任何系统中无界面验证。
 
 Next 的 macOS 打包与 Stable、Beta 一样，直接使用分层 `.icon` 源工程编译 `Assets.car`。PNG Dock 图标仅用于未打包的开发运行；Windows 和 Linux 窗口分别使用 ICO 与 PNG 导出资源。
+
+Linux 图标集按 hicolor 主题的尺寸，从 16 到 512 像素每档一张 PNG。Debian 包和 AppImage 把每张装进对应的 `hicolor/<size>x<size>/apps` 目录，桌面环境在这里查找桌面条目的 `Icon=dsh-desktop-next`；该主题没有 1024 像素目录，只有一张 1024 像素的 PNG 会让启动器和任务栏找不到图标。`corepack yarn icons:export --channel next --linux` 只从已提交的 `build/app-icon.png` 重新生成这组图标，无需 Xcode。
 
 ## 使用
 
@@ -53,12 +55,12 @@ Next 的 macOS 打包与 Stable、Beta 一样，直接使用分层 `.icon` 源�
 - **侧边栏浏览器：** 桌面应用复用官方浏览器工具栏，由隔离的 Electron `WebContentsView` 承载网页。GitHub 等禁止 iframe 嵌入的网站按顶层页面加载，保留 CSP 与 `X-Frame-Options`。前进、后退与地址栏跟随真实导航。视图跟随分栏尺寸和缩放，避让调整宽度的拖动区域，在弹窗或其他分栏遮挡时隐藏，并随标签关闭或渲染器退出而释放。每个标签使用临时会话，不含应用 preload、应用 Cookie、Node 接口、下载或自动授权。普通 Web 客户端继续使用官方 iframe。
 - **桌面设置：** 后台运行、macOS 透明材质、本机和局域网访问、日志级别，以及用户回合完成／失败时的独立通知开关。后台任务不发送通知。沿用原桌面版的分组卡片、Profile 选择和通知开关；开关与材质即时保存。官方设置顶部提供终端和重启菜单，包含重新加载界面、重启应用和重启到恢复模式。与原桌面版保持一致，Windows 不提供材质选项，始终使用不透明窗口；旧的 Acrylic 或 Mica 偏好按关闭读取。通知还需系统授权，仅在主窗口未聚焦时显示。成功通知以本轮用户消息为标题、AI 最后一条可见回复为正文，过长内容会截断；失败通知显示通用状态，子代理和自动回合不发送通知。
 - **Profile：** 首次启动和隔离的安全模式默认使用 `desktop`。已有的选择继续保留，包括此前名为 `default` 的 Profile；不会重命名或覆盖已有目录。支持新建、切换、打开目录或移除未使用的 Profile。托盘的新建入口直接聚焦名称，创建后可切换；损坏的清单或缺少 Next bundle 的 Profile 标为不可用，切换当前 Profile 不会重复重启。移除操作将文件移入恢复备份目录，当前 Profile 和 `desktop` 不可移除。Profile 分别保存插件依赖、激活列表和补丁；会话、设置和凭据仍按上游规则在同一个 Next home 内共享，不提供账号或数据隔离。
-- **首次引导：** 先按桌面端自己的 Profile 完成记录或主动重新打开请求判断是否显示桌面设置。无需显示、完成或跳过后，官方 rc.2 再按账号、API Key 和官方进度独立判断是否显示账号引导；两者不代替对方完成或重置记录。原来的 Next 五步引导组件嵌入官方容器并沿用官方主题：欢迎、插件市场、远程控制、Computer Use（含现有系统权限弹窗）、恢复说明；保留原文案、插图、导航和选项。不再于 Host 启动前打开独立欢迎窗口。返回保留草稿；完成时保存 Profile 功能和 Computer Use provider，最后记录完成并重启 Host；跳过保留原配置。未完成的引导下次继续，已完成的 Profile 不自动重复，安全模式和恢复模式绕过桌面引导。“桌面设置 → 桌面工具 → 设置向导”可确认重启并带入当前配置。由于 rc.2 尚无公开的第三方引导扩展接口，兼容补丁为官方页面增加续接槽。
+- **首次引导：** 先按桌面端自己的 Profile 完成记录或主动重新打开请求判断是否显示桌面设置。需要引导时，在启动 Host 之前先打开轻量独立欢迎窗口，展示 Next 六步引导流程：欢迎、插件市场、远程控制、Computer Use（Next，含现有系统权限弹窗）、浏览器访问、恢复说明。返回保留草稿；完成时保存 Profile 功能、浏览器访问设置和 Computer Use provider，最后记录完成，随后按所选配置一次性启动 Host 并打开主窗口；跳过保留原配置并启动 Host。主窗口打开后，通过续接槽展示 DeepSeek 账号登录引导卡片（完成引导后），随后交由官方按账号、API Key 和官方进度独立判断是否显示账号引导；两者不代替对方完成或重置记录。未完成的引导下次继续，已完成的 Profile 不自动重复（修复 Profile 会重置这些选择，修复后会再次引导），安全模式和恢复模式绕过桌面引导。“桌面设置 → 桌面工具 → 设置向导”可确认重启并带入当前配置。
 - **插件市场：** 新 Profile 默认不启用插件市场。官方**插件**页顶部的开关可启用或停用上次在当前页面选择的市场；没有选择记录时默认启用 `dsh-community-market`。也可直接选择 `dsh-community-market` 或 `dshmarket`。选项复用旧版桌面的名称、说明和仓库链接。选择一个市场时，官方插件管理器会在同一次操作中停用另一个，并保留已安装的插件。社区市场保留侧边栏入口；dshmarket 保留**设置 → 插件市场**入口。社区市场沿用发现、来源管理、安装预览、确认安装、启用/停用开关和卸载流程。包操作通过官方插件管理器执行，无需重启即可生效；macOS 和 Windows 也支持市场中的终端入口。
 - **手机远控：** 在**插件**页顶部通过独立开关启用 `@agents-anywhere/dsh-bridge-next`（默认关闭）。开关左侧的齿轮打开现有手机连接弹窗，也可从侧边栏进入；启用后齿轮才可使用。AA 使用默认状态目录（`~/.agents-anywhere/dsh-bridge-next`），与 Stable/Beta 及其他 Next Profile 共享登录、设备绑定和 Connector 设置。启用状态仍按 Profile 保存；切换 Profile 会停止旧 Host 和其中的远控连接。旧版 Next 生成的逐 Profile 状态目录覆盖会在下次 Host 启动时移除。原状态目录保留，不自动合并凭据；只在旧隔离目录中登录过的用户可能需要重新登录。多个版本同时运行时，仍受 AA 的共享状态所有权检查约束。
-- **桌面工具：** 打开数据、Profile 和日志目录，刷新界面，打开开发者工具，导出诊断，以及打开 macOS/Windows 终端。终端提供当前安装的 `dsh`、`pnpm` 和基于 Electron 的 `node`；应用处于安全模式时，终端仍选择原 Profile。
+- **桌面工具：** 打开数据、Profile 和日志目录，刷新界面，打开开发者工具，导出诊断，以及打开 macOS/Windows 终端。终端提供当前安装的 `dsh`、`pnpm` 和基于 Electron 的 `node`，其中 `dsh` 的插件命令始终使用内置 pnpm，与终端 `PATH` 解析到哪个 `pnpm` 无关；应用处于安全模式时，终端仍选择原 Profile。
 
-市场、远程控制和 Computer Use 位于普通插件列表上方，并与列表的内容宽度对齐。远程控制和 Computer Use 上下排列，设置齿轮位于各自开关左侧。两个市场和远控 bundle 不再重复显示为普通插件卡片。开关仍调用官方管理器，选择保存在当前 Profile 中；已有 Profile 如果同时开启了两个市场，会提示用户选择其中一个。两个市场安装的 bundle 插件仍在普通列表中管理，可继续启用、停用和卸载。dshmarket 自己的插件停用逻辑保持原样。旧 `desktop-next.features.json` 中的选择只迁移一次到 `package.json`，以后启动遵循官方管理器的设置。
+市场、远程控制和 Computer Use（Next）位于普通插件列表上方，并与列表的内容宽度对齐。远程控制和 Computer Use（Next）上下排列，设置齿轮位于各自开关左侧。两个市场和远控 bundle 不再重复显示为普通插件卡片。开关仍调用官方管理器，选择保存在当前 Profile 中；已有 Profile 如果同时开启了两个市场，会提示用户选择其中一个。两个市场安装的 bundle 插件仍在普通列表中管理，可继续启用、停用和卸载。dshmarket 自己的插件停用逻辑保持原样。旧 `desktop-next.features.json` 中的选择只迁移一次到 `package.json`，以后启动遵循官方管理器的设置。
 
 侧边栏扩展入口复用原桌面的底部布局：多个入口纵向排列在设置上方，数量较多时在限定高度内滚动，保留工作区列表空间。
 
@@ -72,7 +74,7 @@ Next 的 macOS 打包与 Stable、Beta 一样，直接使用分层 `.icon` 源�
 
 ### 原生权限与 Computer Use
 
-Computer Use 旁的齿轮，以及**设置 → 桌面设置 → 授权设置**，都使用应用内授权弹窗，复用官方 Modal、Button 和 StateDot 组件。弹窗显示屏幕录制、macOS 辅助功能和麦克风的权限状态。打开弹窗时只查询权限；用户点击按钮后才请求系统授权或打开对应的系统隐私设置。macOS 系统设置中的权限变更可能需要重启应用。macOS 对屏幕录制和辅助功能没有“尚未询问”状态：两者在授权出现前都显示为未授权并保持可请求，屏幕录制的请求就是首次截屏尝试触发的系统弹窗；弹窗会说明开启屏幕录制后 macOS 会要求重新打开应用，以及系统设置中仍显示开启的辅助功能条目属于更早一次构建的签名，需要移除后重新添加。Windows 麦克风限制提供隐私设置入口；平台不支持的状态查询返回 `unknown`，不假定已经授权。
+Computer Use（Next）旁的齿轮，以及**设置 → 桌面设置 → 授权设置**，都使用应用内授权弹窗，复用官方 Modal、Button 和 StateDot 组件。弹窗显示屏幕录制、macOS 辅助功能和麦克风的权限状态。打开弹窗时只查询权限；用户点击按钮后才请求系统授权或打开对应的系统隐私设置。macOS 系统设置中的权限变更可能需要重启应用。macOS 对屏幕录制和辅助功能没有“尚未询问”状态：两者在授权出现前都显示为未授权并保持可请求，屏幕录制的请求就是首次截屏尝试触发的系统弹窗；弹窗会说明开启屏幕录制后 macOS 会要求重新打开应用，以及系统设置中仍显示开启的辅助功能条目属于更早一次构建的签名，需要移除后重新添加。Windows 麦克风限制提供隐私设置入口；平台不支持的状态查询返回 `unknown`，不假定已经授权。
 
 Next 向原生客户端插件和 Host 插件提供 Cordis 服务 `desktopPermissions`。从 `dsh-desktop-next/permissions` 导入类型，并注入 `desktopPermissions`；普通浏览器客户端没有此服务。方法为 `query(permission)`、`request(permission)` 和 `openSettings(permission)`，权限名称包括 `microphone`、`screen`、`accessibility`。结果包含 `status`、`canRequest` 和 `canOpenSettings`。
 
@@ -96,7 +98,7 @@ export async function record(ctx: Context) {
 
 屏幕共享应在用户点击“共享”时直接调用 `navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })`。macOS 15 及以上使用 Electron 的系统选择器，其余系统使用原生菜单选择来源，不自动选择屏幕。系统选择器的单次共享授权可能不同于全局屏幕录制权限。权限服务本身不录制媒体，屏幕共享也不授予电脑输入控制能力。打包 Next 时保留产品自己的 `NSMicrophoneUsageDescription`，主应用和 Helper 签名直接使用固定上游 checkout 中的 `apps/desktop/scripts/macos-entitlements.plist`。语音输入通过 `getUserMedia` 触发 Chromium/macOS 的录音授权，语音插件旁不再提供额外权限按钮。
 
-内置官方 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.2`，**默认停用**。在**插件**页顶部的 Computer Use 分区中启用，并查看实际加载状态。入口复用官方插件槽位、开关和插件管理服务；Profile 条目 ID 为 `computer-use-cua-driver-native`。共享的 `computer-use` 注册服务已提供。操作和截图沿用现有对话工具卡片及图片附件；理解截图需要模型路由声明支持图片输入。开关左侧的齿轮打开授权弹窗。
+Computer Use（Next）是桌面端自带的电脑操作，基于内置的官方 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native`，**默认停用**。在**插件**页顶部的 Computer Use（Next）分区中启用，并查看实际加载状态。入口复用官方插件槽位、开关和插件管理服务；Profile 条目 ID 为 `computer-use-cua-driver-native`。操作和截图沿用现有对话工具卡片及图片附件；理解截图需要模型路由声明支持图片输入。开关左侧的齿轮打开授权弹窗。默认情况下，会话运行 `/computer-use` 后才加载其工具和提示词，`/computer-use off` 将其移除；也可在其插件页改为在所有会话中常驻。
 
 版本限定的 Yarn 补丁位于 `patches/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.2.patch`。存在 `desktopPermissions` 时，`check_permissions` 通过桌面服务查询权限；`prompt: true` 为缺失的权限打开授权弹窗，再以 `prompt: false` 由驱动执行只读检查。驱动始终报告其实际权限，不根据桌面返回值假定授权成功。没有桌面服务时保留上游行为。固定的 `@trycua/cua-driver@0.28.0` 二进制、操作工具、图片处理和关闭流程保持上游实现。只能注册一个 provider，但这不会自动串行化多个会话对同一桌面的操作。
 
@@ -110,20 +112,38 @@ corepack yarn workspace dsh-desktop-next verify:host --computer-use
 
 ### 恢复
 
-独立恢复助手在没有 Host 运行时也能显示启动错误和近期日志，提供重试、切换 Profile、导出诊断、安全模式、修复、回滚和退出。从设置顶部选择“重启到恢复模式”时，应用先完整停止后台服务，再重新启动并只打开恢复助手；选择“启动或重试”前不加载当前 Profile 和插件。
+独立恢复助手在没有 Host 运行时也能显示启动错误和近期日志，提供重试、切换 Profile、导出诊断、安全模式、修复、回滚和退出。从设置顶部选择“重启到恢复模式”时，应用先完整停止后台服务，再重新启动并只打开恢复助手；选择“启动或重试”前不加载当前 Profile 和插件。恢复助手始终显示打开它的那次故障；之后某项操作失败时，只显示“操作未完成”提示，不替换该原因。
 
 启动时打开的恢复助手按系统首选语言的顺序选择受支持的中文或英文，无需等待 Host 加载语言设置。主界面可用后，原生控件继续跟随设置中选择的语言。
 
 - **安全模式：** 使用独立的临时 home 和随应用提供的 bundle 启动官方界面，不载入原有凭据，并关闭远控、市场和浏览器访问。原始数据与配置保持不变。退出安全模式后返回原 Profile，并移除临时环境；在临时环境中创建的内容不会保留。
-- **修复 Profile：** 先备份清单、Profile 补丁和功能开关，再恢复内置 bundle，停用第三方插件、远控和市场。损坏的 `package.json` 也可以修复。已安装的插件文件、共享会话和凭据会保留。
+- **修复 Profile：** 位于“快速恢复”页。先把清单、Profile 补丁和功能开关备份到 `home/recovery/`，再按上游 Desktop 的插件恢复方式（`sanitizeProfile`）修复：Profile 补丁原地改名为 `cordis.patch.yml.bak-<时间>`，只保留 Web 模板的 bundle。因此其他插件（包括官方可选插件）都会停用，补丁中的设置（如界面语言、对话显示）恢复默认。远控和市场关闭。损坏的 `package.json` 会先被替换，原始内容保留在备份中。已安装的插件文件、清单中的其他字段、共享会话和凭据会保留。修复后会弹窗显示备份位置，应用随后重启并进入桌面引导；官方引导的进度保存在补丁中，因此之后也会再次出现。同一页的“撤销上次修复”可恢复这份备份，直到之后又进行了其他恢复。
 - **回滚 Profile：** 先备份当前文件、校验备份摘要，再恢复最近一次成功启动 Host 时的配置。范围为 `package.json`、`cordis.patch.yml` 和 Next 功能开关，不包含已安装插件的版本或共享数据。
 - **全局补丁修复：** 单独备份并停用 home 级 `cordis.patch.yml`，会影响所有 Next Profile。修复 Profile 不会自动改动全局补丁。
 
-备份保存在 `home/recovery/`。诊断导出为大小受限的 JSON，包含版本、状态和脱敏日志，不读取会话或凭据文件。日志仍可能包含本机路径和插件输出，分享前请检查。本地桌面日志保存在 `home/logs/desktop-next.log`，上限为 128 KiB。桌面设置独立保存在 `home/desktop-preferences.json`，不依赖 Host 设置服务。
+故障打开恢复助手时，Next 会把这次故障保存为 `home/logs/dsh-desktop-next-failure-<UTC 时间>-<阶段>.log`，供反馈问题时附上。报告包括恢复助手显示的故障、Host 自己报告的诊断或壳层错误的堆栈与 cause 链、启动信息，以及最近 64 KiB 可读日志。Host 启动失败时，报告还包含 `util.inspect` 会省略的配置路径和启动条目。报告与日志一样经过脱敏，仅当前用户可读，保留最近 10 份。“快速恢复”页的“诊断报告”可在文件夹中定位该文件；未能保存时，该卡片改为提供“导出诊断信息”。
 
-开发和安装版的默认数据目录均为用户目录下的 `~/.dsh`，与 Stable 共用 Profile 和数据；Next 的选定 Profile、桌面偏好等仍使用各自命名的配置文件。原系统应用数据目录下的 `DSH NEXT/home` 只保留之前保存的数据目录位置，已有的手动选择继续有效。可通过绝对路径 `DSH_DESKTOP_NEXT_HOME` 指定专用目录；Next 不使用现有 `DSH_HOME` 来选择数据目录。恢复出厂仍作用于当前整个数据目录，包括与 Stable 共用的数据。
+备份保存在 `home/recovery/`。诊断导出为大小受限的 JSON，包含版本、状态和脱敏日志，不读取会话或凭据文件。日志仍可能包含本机路径和插件输出，分享前请检查。本地桌面日志保存在 `home/logs/desktop-next.log`，上限为 128 KiB。桌面设置独立保存在 `home/desktop-preferences.json`，不依赖 Host 设置服务。主窗口会按上次的位置、大小和最大化状态重新打开，记录在 `home/desktop-window-state.json`；删除该文件即可恢复默认大小。
+
+开发和安装版的默认数据目录均为用户目录下的 `~/.dsh`，与 Stable 共用 Profile 和数据；Next 的选定 Profile、桌面偏好等仍使用各自命名的配置文件。Next 不使用现有 `DSH_HOME` 来选择数据目录。恢复出厂仍作用于当前整个数据目录，包括与 Stable 共用的数据。
+
+数据目录按以下顺序确定，桌面设置的“数据目录”一行会标出当前目录的来源：
+
+1. **应用内选择：** 在桌面设置或恢复助手中切换的目录。这项选择保存在系统应用数据目录下 `DSH NEXT/home/desktop-next-location.json`（开发运行时为 `.desktop-next/home/`），位置固定，不随环境变量移动；已有的手动选择继续有效。恢复助手中的“恢复默认”会删除这项选择。
+2. **`DSH_DESKTOP_NEXT_HOME`：** 没有应用内选择时使用的绝对路径。环境变量只在进程启动时读取，应用内重启（包括托盘的“退出并重启”）会沿用旧进程的环境。修改这个变量后，请完全退出 Next，再从开始菜单、程序坞或新打开的终端启动。
+3. **默认目录：** 前两项都没有时使用 `~/.dsh`。
+
+同一位置还记录上一次启动使用的目录。如果本次确定的目录与上次不同，而上次的目录中仍有 Next 数据或当前无法访问，Next 会在初始化之前询问：改用上次的目录（保存为应用内选择）、继续使用本次目录，或退出。通过桌面设置或恢复助手切换、恢复默认时不会出现这个询问。
+
+桌面设置中的“备份”会暂停 Host，把当前数据目录复制到所选位置下一个带时间戳的新文件夹，完成后重新启动 Host。备份不包含 `electron-user-data` 中的窗口和浏览器缓存；目录内的链接会改为指向备份自身。备份本身就是一个可用的数据目录，需要时可以直接切换过去。重置数据目录之前请先备份，再在恢复助手中操作。
 
 普通 Web Profile 无需在 `package.json` 中声明 `dsh-desktop-next`；Next 仅在自身 Host 启动和配置重组时提供该能力。已有的旧 Next Profile 会在备份清单后移除这个历史 bundle 条目，避免 Stable 或 CLI 打开同一 Profile 时载入 Next 能力。
+
+### Windows 下以管理员身份启动
+
+在部分 Windows 环境中，应用以管理员身份运行时，Chromium 沙箱无法创建 GPU 进程和渲染进程；不加处理的话，这样的启动约一秒后会无声退出。因此，打包版 Next 如果以拆分令牌中提权的一半启动（UAC 开启时），例如通过“以管理员身份运行”、管理员终端或提权的安装程序启动，会在启动任何子进程之前用桌面 shell 的普通令牌重新启动一次自身，做法与 Chromium 的 `base::win::RunDeElevated` 相同。重新启动的进程沿用原有参数和工作目录，环境变量按用户配置重新生成。如需保留有意的管理员启动，请加上 `--next-keep-elevated`。关闭 UAC 或使用内置 Administrator 账户时没有可以回到的普通令牌，这类启动会保持提权。
+
+如果 Windows 上沙箱化的 GPU 进程或渲染进程仍然无法启动，Next 会显示原生对话框后退出，而不是直接消失。对话框按当前提权状态说明可能原因和取消“以管理员身份运行”的方法，给出 Chromium 沙箱错误码，并说明临时绕过参数 `--no-sandbox`：它会关闭所有页面的沙箱，包括侧边栏浏览器打开的网站。桌面日志以 `sandbox.launch-failed` 记录这次失败。
 
 ## 架构与来源
 
@@ -140,7 +160,7 @@ corepack yarn workspace dsh-desktop-next verify:host --computer-use
               └─ Agents Anywhere bridge
 ```
 
-alpha.1 的无端口管道方案已被 alpha.2 的 WebServer 方案替代。本包使用真正的上游 WebServer，不实现模拟 HTTP 路由层。Host 仅绑定 `127.0.0.1`，默认由系统分配端口，以便与其他版本并行运行；可选的独立 TLS 入口负责局域网访问。主进程保管 Host cookie 和每次启动新生成的原生访问凭据。关闭浏览器访问时，普通 HTTP 和 WebSocket 请求都会被拒绝。Electron 保持在 44.0.0，以兼容上游原生模块。转发到 Host 前，主进程只为自有主窗口中来源为 `dsh-app://app` 的主 frame 请求附加原生访问凭据，并从其他目标及重定向请求中移除该标记；原生 fetch 可以不带 HTTP `Origin` 头。市场请求还需通过 Host 认证，写请求继续校验转换后的本机 HTTP 来源。
+alpha.1 的无端口管道方案已被 alpha.2 的 WebServer 方案替代。本包使用真正的上游 WebServer，不实现模拟 HTTP 路由层。Host 仅绑定 `127.0.0.1`，默认由系统分配端口，以便与其他版本并行运行；可选的独立 TLS 入口负责局域网访问。主进程保管 Host cookie 和每次启动新生成的原生访问凭据。关闭浏览器访问时，普通 HTTP 和 WebSocket 请求都会被拒绝。Electron 保持在 44.7.0，以兼容上游原生模块。转发到 Host 前，主进程只为自有主窗口中来源为 `dsh-app://app` 的主 frame 请求附加原生访问凭据，并从其他目标及重定向请求中移除该标记；原生 fetch 可以不带 HTTP `Origin` 头。市场请求还需通过 Host 认证，写请求继续校验转换后的本机 HTTP 来源。
 
 主界面使用官方前端产物，不复制聊天、设置或插件管理页面。macOS 窗口材质、平台标记、Windows 标题栏菜单与主题同步参考官方实现。主窗口与 shell 窗口中的可编辑区域显示官方的右键编辑菜单：撤销、重做、剪切、复制、粘贴和全选，不带快捷键标注，可用状态由 Chromium 提供，选中的只读文本只提供“复制”，Windows 文案跟随当前应用语言。Windows 原生窗口按钮是例外：按钮背景保持透明，只有图标颜色跟随主题，因此始终透出下方页面实际绘制的底色，包括官方全窗口的引导页与登录页。Next 通过官方的 `settings.section` 槽位添加“桌面”分区，通过 `settings.action` 添加顶部快捷操作。桌面分区直接复用 `dsh-plugin-desktop-beta` 的 `DesktopSettingsSection`、顶部操作和样式；恢复与 Profile 窗口复用原有 React 页面、窗口标题区和基础组件。Next 只适配状态与操作接口，并按能力隐藏未支持的功能，不维护另一套页面副本。共享组件改动同步到 Stable，保留两个版本原有的默认行为。应用 preload 同样安装官方的 `__DSH_HOST_PATHS__` 桥接（基于 Electron 的 `webUtils`）：拖入、选择或粘贴的、带有真实路径的文件和文件夹会以 `@path` 引用进入输入框而不是上传；官方输入框只有在该桥接存在时才接受拖入的文件夹。经过发送者校验的窄 IPC 接口只提供预定义的原生操作，普通浏览器不会获得原生 Desktop 接口。在主窗口添加工作区会直接打开系统文件夹对话框（macOS 为 Finder，Windows 为资源管理器），与上游桌面端一致：Next 启动时把采样到的局域网地址作为可信来源交给 Host，以便开启局域网访问时无需重启 Host，而上游的自适应目录选择器据此挂载应用内目录浏览面板，因此 Next 的客户端 bundle 在桌面窗口里用基于 preload 桥接的无界面驱动遮蔽该占位。通过本机或局域网访问的普通浏览器仍使用 Host 挂载的面板。
 
@@ -154,7 +174,7 @@ Next 是正式的 Profile bundle，因此上游插件管理器重新组合配置
 
 ## 打包与更新
 
-产品版本为 `2.0.19-next`。在仓库根目录运行：
+产品版本为 `2.0.21-next`。在仓库根目录运行：
 
 ```sh
 corepack yarn package:dir:next
@@ -182,12 +202,16 @@ Host 挂载上游的 Office 组合：`load_workspace_dependencies` 工具首次�
 从 Finder 或 Dock 启动的打包版没有登录 shell 的导出变量。在任何 Host 启动之前，壳层像 Desktop 变体一样运行一次账户的登录 shell（zsh、bash 或 fish），只把 `PATH`、locale 变量、`TZ` 和固定的一组工具链变量合并进自己的环境；凭据、`DSH_*` 值和进程启动钩子不会被导入，shell 失败、超时或不受支持时保留继承的环境。当启动环境和登录 shell 都没有给出 locale 时，壳层按系统语言把 `LANG` 设为第一个已安装的 UTF-8 locale，和 Terminal.app 一样，这样 Host 的终端和工具子进程不会跑在 C locale 下，否则 `ls` 会把非 ASCII 文件名打印成 `?`。诊断日志以 `shell-environment.resolved` 记录结果。
 ## 运行日志与开发者日志
 
-Next 在 `<数据目录>/logs/desktop-next.log` 保存可直接阅读的近期日志，在 `logs/desktop-next-YYYY-MM-DD.<分段>.jsonl` 保存结构化历史。历史按每天和每文件 10 MiB 轮转，保留七天，总量上限 200 MiB，新文件使用私有权限。启动、Host 退出和退出清理阶段不受日志级别过滤；运行标记用于识别上一次未正常结束的启动。错误和强退证据立即刷新，其余记录约 200 毫秒批量保存。日志写入失败不会阻止应用运行，诊断导出会报告存储故障或丢弃的记录数。
+Next 在 `<数据目录>/logs/desktop-next.log` 保存可直接阅读的近期日志，在 `logs/desktop-next-YYYY-MM-DD.<分段>.jsonl` 保存结构化历史。历史按每天和每文件 10 MiB 轮转，保留七天，总量上限 200 MiB，新文件使用私有权限。启动、Host 退出和退出清理阶段不受日志级别过滤；运行标记用于识别上一次未正常结束的启动。错误和强退证据立即刷新，其余记录约 200 毫秒批量保存。可读日志只在内容变化时重写。日志写入失败不会阻止应用运行，诊断导出会报告存储故障或丢弃的记录数。
 
-在桌面工具中打开 **开发者日志**，即可记录 Electron 命令、前端控制台、插件状态变化、模型流式请求及重试决策、工具执行和 Host HTTP 请求，无需重启 Host。日志级别控制详细程度，选择 `debug` 可进一步保留内核调试消息。记录包含启动标识、进程标识、来源和序号，操作共享关联标识并记录耗时，模型和工具事件可按会话和调用标识关联。新增模型、工具和网络事件只投影元数据，不记录提示词、工具参数与结果、HTTP 正文或认证头；已有插件日志和错误仍会保留，并进行规则脱敏。
+在桌面工具中打开 **开发者日志**，即可记录 Electron 命令、前端控制台、插件状态变化、模型流式请求及重试决策、工具执行和 Host HTTP 请求，并每 30 秒记录一条 `memory.sample`：各 Chromium 进程的工作集、Windows 专用内存和 CPU，系统内存及 Windows 提交上限与可用提交量，以及 Host 的 `process.memoryUsage()`。样本只写入 JSONL 历史，每个进程一行紧凑数组，列名随每条记录一起保存。设置无需重启 Host 即可生效。日志级别控制详细程度，选择 `debug` 可进一步保留内核调试消息。记录包含启动标识、进程标识、来源和序号，操作共享关联标识并记录耗时，模型和工具事件可按会话和调用标识关联。新增模型、工具和网络事件只投影元数据，不记录提示词、工具参数与结果、HTTP 正文或认证头；已有插件日志和错误仍会保留，并进行规则脱敏。
 
-**导出诊断** 会生成版本 2 的 JSON 包，包含应用及运行状态、近期日志、未完成操作和最多 50 MiB 的历史证据。导出在独立 Worker 中进行，超时期限为 60 秒，并报告未纳入的文件数；不会遍历 Profile、凭据或对话数据。
+无论是否打开开发者日志，Next 都在内存中保留最近 40 条内存样本（约 20 分钟）。主窗口渲染进程异常退出、其他 Chromium 子进程崩溃或被终止，或者 Host 在未被要求时退出（或在停止过程中以 Chromium 内存不足代码 `0xE0000008` 退出）时，Next 会把这些样本一次性写成一条 error 级别的 `memory.snapshot`，列出五秒内的全部触发原因，并在进入恢复模式或退出前落盘。样本只包含进程类型、进程标识、MB 数和 CPU，不包含命令行、路径或会话内容。可读日志只显示一行摘要，样本保存在 JSONL 历史中，因此会随诊断导出。
 
-官方启动器没有挂载前的 Context 钩子，因此 Next 回放有限的日志缓冲、记录启动完成后的插件状态，并保留原始进程输出和致命错误；不在官方缓冲中的极早期调试日志无法补录。这是进程及应用日志，不包含操作系统系统调用追踪或崩溃转储采集。
+主窗口每加载一个文档，都会记录一条 `renderer.navigation`，写明由什么发起：`open`（Next 打开窗口）、`recovery`（渲染进程自动恢复）、`reload`（重新加载命令，或 Host 重启后替换文档）或 `page`（其他来源，例如页面脚本或插件重新加载文档），并记录是否由某个 frame 发起。界面挂载完成时，文档记录 `renderer.ready`；只有自动恢复加载的文档改为记录带尝试次数的 `renderer.recovery.healthy`。因此，没有 `renderer.recovery.*` 记录的重新加载不是自动恢复造成的。
+
+**导出诊断** 会生成版本 2 的 JSON 包，包含应用及运行状态、近期日志、未完成操作、本地崩溃转储的文件名、大小和时间（不含文件内容），以及最多 50 MiB 的历史证据。导出在独立 Worker 中进行，超时期限为 60 秒，并报告未纳入的文件数；不会遍历 Profile、凭据或对话数据。
+
+官方启动器没有挂载前的 Context 钩子，因此 Next 回放有限的日志缓冲、记录启动完成后的插件状态，并保留原始进程输出和致命错误；不在官方缓冲中的极早期调试日志无法补录。这是进程及应用日志，不包含操作系统系统调用追踪。Electron Crashpad 另在本地运行且不上传，Electron 进程或 Node 模式 Host 的原生崩溃会在 `electron-user-data/Crashpad` 中留下 minidump。
 
 插件清单通过官方 `readPluginInventory()` 获取实际启用状态和生命周期阶段。可选的官方 Inspector 可用时，通过 `ctx.inspector.cordis.getTree()` 获取运行时来源、版本序号、连接状态和截断标记等元数据，桌面端不自行重建其拓扑。会话元数据使用官方 `session/event` 事件，保留原始事件类型、序号和时间，便于与 Session Log 对照。原始会话和聊天数据查看、NodeJS 调试及出站 fetch 抓取由官方开发者工具提供；桌面端保留操作耗时、进程/IPC 诊断、日志留存和诊断导出。开启开发者日志不会自动开启官方抓取工具，也不会将其原始正文复制到导出包。

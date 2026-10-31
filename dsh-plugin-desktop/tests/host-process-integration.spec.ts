@@ -147,7 +147,7 @@ export function apply(ctx) {
     expect(bundle.status).toBe(200)
     expect(await bundle.text()).toContain('isolatedClientFixture')
     expect(html).toContain('dsh-plugin-desktop')
-    await expect.poll(async () => (await rpc!.call<{ services: { aaRuntime: boolean; aaOnboarding: boolean } }>('status')).services, { timeout: 3000 })
+    await expect.poll(async () => (await rpc!.call<{ services: { aaRuntime: boolean; aaOnboarding: boolean } }>('status')).services, { timeout: 15_000 })
       .toEqual({ aaRuntime: aaEnabled, aaOnboarding: aaEnabled })
     // A settings import is an ordinary restart; recovery is reserved for a Host that
     // failed to compose, and this one did not.

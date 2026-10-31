@@ -113,6 +113,23 @@ it('reports stray root entries, policy leftovers, packed native code and packed 
   } finally { source.close() }
 })
 
+it('requires every sharp of a Linux package to find the WebAssembly build of its own release', async () => {
+  const audit = async (packageTarget: ReturnType<typeof nextPackagingTarget>, wasmVersion?: string): Promise<string[]> => {
+    const { resources } = await assembled((app) => {
+      writePackage(join(app, 'node_modules'), 'sharp', { version: '0.35.5' })
+      if (wasmVersion !== undefined) writePackage(join(app, 'node_modules'), '@img/sharp-wasm32', { version: wasmVersion })
+    })
+    const source = archivedPayload(resources)
+    try { return auditNextPayload(source, packageTarget) } finally { source.close() }
+  }
+  const linux = nextPackagingTarget('linux', 'x64')
+  expect(await audit(linux, '0.35.5')).toEqual([])
+  expect(await audit(linux)).toEqual(['node_modules/sharp/package.json: sharp 0.35.5 has no packaged @img/sharp-wasm32 to run on Linux'])
+  expect(await audit(linux, '0.35.4')).toEqual(['node_modules/@img/sharp-wasm32/package.json: 0.35.4 does not match sharp 0.35.5 at node_modules/sharp/package.json'])
+  // Elsewhere sharp runs its native backends, and the WebAssembly build is not packaged at all.
+  expect(await audit(nextPackagingTarget('darwin'))).toEqual([])
+})
+
 it('rejects an archive missing a declared dependency or a shell-owned file', async () => {
   const { resources } = await assembled((app) => {
     rmSync(join(app, 'node_modules', '@deepseek-ai', 'cordis'), { recursive: true })
@@ -122,6 +139,22 @@ it('rejects an archive missing a declared dependency or a shell-owned file', asy
   const { resources: without } = await assembled((app) => { rmSync(join(app, 'host.cordis.patch.yml')) }, false)
   const missing = archivedPayload(without)
   try { expect(() => verifyNextPayload(missing)).toThrow(/Missing Next payload: host\.cordis\.patch\.yml/u) } finally { missing.close() }
+})
+
+it('rejects incompatible native package manifests even inside a nested archived dependency', async () => {
+  const { resources } = await assembled((app) => {
+    writePackage(join(app, 'node_modules'), '@fixture/wrong-cpu', { os: [target.platform], cpu: ['mips'] })
+    writePackage(join(app, 'node_modules', 'native-pkg', 'node_modules'), '@fixture/wrong-os', { os: ['unsupported-platform'] })
+    mkdirSync(join(app, 'node_modules', 'native-pkg', 'assets'))
+    writeFileSync(join(app, 'node_modules', 'native-pkg', 'assets', 'package.json'), '{"cpu":["mips"]}')
+  })
+  const source = archivedPayload(resources)
+  try {
+    expect(auditNextPayload(source, target)).toEqual([
+      'node_modules/@fixture/wrong-cpu/package.json: package CPU does not match target must not be packaged',
+      'node_modules/native-pkg/node_modules/@fixture/wrong-os/package.json: package OS does not match target must not be packaged',
+    ])
+  } finally { source.close() }
 })
 
 it('cross-checks the archive against the prepared descriptor, then the final application against the embedded copy', async () => {

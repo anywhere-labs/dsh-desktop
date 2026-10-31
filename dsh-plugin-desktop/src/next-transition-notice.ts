@@ -10,15 +10,18 @@ export const nextTransitionNoticeCopy = {
     title: 'DSH Desktop 版本更新说明',
     message: 'Next 将成为新的稳定版桌面端',
     detail: '下个版本发布后，我们计划用 Next 版取代当前稳定版桌面端。届时，你可以通过“检查更新”获取新版本。感谢你的支持！',
-    checkboxLabel: '确认后不再弹出', confirm: '确认',
+    dismiss: '不再提醒', acknowledge: '知道了',
   },
   en: {
     title: 'DSH Desktop release update',
     message: 'Next will become the new stable desktop app',
     detail: 'After the next release, we plan to replace the current stable desktop app with Next. You will be able to get the new version through Check for Updates. Thank you for your support!',
-    checkboxLabel: 'Do not show again after confirming', confirm: 'OK',
+    dismiss: "Don't show again", acknowledge: 'OK',
   },
 } as const
+
+/** Button index whose response stores the opt-out. */
+const DISMISS_RESPONSE = 0
 
 export class NextTransitionNotice {
   private attempted = false
@@ -51,12 +54,14 @@ export class NextTransitionNotice {
     }
     if (!active()) return
     const copy = nextTransitionNoticeCopy[locale]
+    // The opt-out is its own button rather than a checkbox (#1418): buttons are
+    // the only Desktop dialog control proven on macOS modal sheets, where the
+    // checkbox could not be ticked and the notice returned on every launch.
     const result = await this.options.show({
       type: 'info', title: copy.title, message: copy.message, detail: copy.detail,
-      checkboxLabel: copy.checkboxLabel, checkboxChecked: false,
-      buttons: [copy.confirm], defaultId: 0, cancelId: 0, noLink: true,
+      buttons: [copy.dismiss, copy.acknowledge], defaultId: 1, cancelId: 1, noLink: true,
     })
-    if (result.response === 0 && result.checkboxChecked) {
+    if (result.response === DISMISS_RESPONSE) {
       await writeFileAtomic(this.options.path, 'next-transition-v1:dismissed\n', { mode: 0o600, dirMode: 0o700 })
     }
   }

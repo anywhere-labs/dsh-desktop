@@ -1,9 +1,14 @@
 /** Cross-check the assembled `app.asar` payload against the prepared tree before signing, without a GUI. */
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { archivedPayload, auditNextPayload, nextPackagingTarget, PAYLOAD_DIR, verifyArchiveAgainstPrepared, verifyNextPayload, verifyUpdaterManifestShim } from './packaged-payload.ts'
 import { expectedNextVersion, verifyNextRuntimeTree } from './prepare-runtime.ts'
 import { DESKTOP_RUNTIME_FILE } from '../src/runtime-tree.ts'
+import { packagingStepSync } from './packaging-step.ts'
+import { verifyWindowsCodeUnpacked } from './windows-asar-unpack.ts'
+
+/** Resources directories already cross-checked by afterPack in the current packaging process. */
+export const verifiedPackagedResources = new Set<string>()
 
 interface PackContext {
   appOutDir: string
@@ -26,23 +31,30 @@ interface PackContext {
 export default async function afterPack(context: PackContext): Promise<void> {
   const resources = context.electronPlatformName === 'darwin' ? join(context.appOutDir, 'DSH NEXT.app/Contents/Resources') : join(context.appOutDir, 'resources')
   if (!existsSync(join(resources, 'app.asar'))) throw new Error('Next must package its application into app.asar like upstream Desktop')
+  if (context.electronPlatformName === 'darwin' && /-(?:x64|arm64)-temp$/u.test(context.appOutDir)) {
+    // electron-builder's universal packager immediately merges the two temporary per-CPU bundles
+    // into mac-universal, deletes both staging directories, and invokes afterPack on the merged app.
+    return
+  }
   const platform = context.electronPlatformName as NodeJS.Platform
-  const source = archivedPayload(resources)
+  const source = packagingStepSync('archive:open', () => archivedPayload(resources))
   try {
-    verifyUpdaterManifestShim(resources, source, platform, context.packager.appInfo.version)
-    verifyNextPayload(source)
+    packagingStepSync('archive:verify-updater-shim', () => verifyUpdaterManifestShim(resources, source, platform, context.packager.appInfo.version))
+    packagingStepSync('archive:verify-dependencies', () => verifyNextPayload(source))
     const target = nextPackagingTarget(platform)
-    const problems = auditNextPayload(source, target)
+    const problems = packagingStepSync('archive:audit', () => auditNextPayload(source, target))
     if (problems.length > 0) throw new Error(`Next payload audit failed:\n${problems.join('\n')}`)
     const prepared = join(context.packager.projectDir, ...PAYLOAD_DIR.split('/'), DESKTOP_RUNTIME_FILE)
-    const { descriptor, rewrittenPlists } = verifyArchiveAgainstPrepared(source, prepared, context.packager.appInfo.version, target)
+    const { descriptor, rewrittenPlists } = packagingStepSync('archive:verify-bytes', () => verifyArchiveAgainstPrepared(source, prepared, context.packager.appInfo.version, target))
+    if (platform === 'win32') packagingStepSync('archive:verify-pe-unpack', () => verifyWindowsCodeUnpacked(source, join(context.packager.projectDir, ...PAYLOAD_DIR.split('/'))))
     const unpacked = source.list().filter(entry => entry.unpacked).length
     const { release } = descriptor
     console.log(`Verified the archive against the prepared Next payload: ${String(descriptor.files.length)} files (${String(unpacked)} unpacked) for ${descriptor.platform} ${descriptor.archs.join('/')}; `
       + `DSH NEXT ${release.version}, dsh ${release.dshVersion}, Electron ${release.electronVersion}, pnpm ${release.pnpmVersion}`
       + (rewrittenPlists.length === 0 ? '' : `; the universal merge rewrote ${rewrittenPlists.join(', ')}`))
   } finally { source.close() }
-  const runtimes = verifyNextRuntimeTree(join(resources, 'runtime'), platform, expectedNextVersion(context.packager.projectDir))
+  const runtimes = packagingStepSync('runtime:verify-packaged', () => verifyNextRuntimeTree(join(resources, 'runtime'), platform, expectedNextVersion(context.packager.projectDir)))
   for (const runtime of runtimes) console.log(`Verified the ${runtime.arch} primary runtime: Python ${runtime.manifest.python}, Node ${runtime.manifest.node}, pnpm ${runtime.manifest.pnpm}`)
+  verifiedPackagedResources.add(resolve(resources))
   await Promise.resolve()
 }

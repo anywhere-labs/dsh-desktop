@@ -4,7 +4,7 @@ import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, readFileSync,
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
-import { AA_PACKAGE, AA_PEERS, AA_REPOSITORY, AA_WORKSPACES, aaConnectorResolution, assertPreparedAaRelease } from './agents-anywhere-release-policy.mjs'
+import { AA_PACKAGE, AA_PEERS, AA_REPOSITORY, AA_WORKSPACES, aaArtifactResolution, assertPreparedAaRelease } from './agents-anywhere-release-policy.mjs'
 import { patchManifest, versionForCommit } from './prepare-agents-anywhere-release.mjs'
 import { prepareInstalledAaRuntime } from './prepare-agents-anywhere-runtime.mjs'
 
@@ -26,7 +26,7 @@ function fixture(t, desktopVersion = version) {
     write(path, data)
   }
   const runtimePeers = Object.fromEntries(AA_PEERS.map(name => [name, '0.1.5-rc.2 || 0.1.6-alpha.2']))
-  write('package.json', { resolutions: { [AA_PACKAGE]: aaConnectorResolution(artifact) } })
+  write('package.json', { resolutions: { [AA_PACKAGE]: aaArtifactResolution(artifact) } })
   for (const [index, workspace] of AA_WORKSPACES.entries()) {
     write(`${workspace}/package.json`, {
       dependencies: {
@@ -62,10 +62,19 @@ test('rejects a version identifying a different commit even when provenance matc
   assert.throws(() => assertPreparedAaRelease(root, commit), /artifact version does not identify the selected commit/)
 })
 
-test('rejects a compatibility patch pinned to a previous AA artifact', t => {
+test('rejects a root resolution pinned to a previous AA artifact', t => {
   const { root, patch } = fixture(t)
-  patch('package.json', data => { data.resolutions[AA_PACKAGE] = aaConnectorResolution('old.tgz') })
-  assert.throws(() => assertPreparedAaRelease(root, commit), /compatibility patch references a different AA artifact/)
+  patch('package.json', data => { data.resolutions[AA_PACKAGE] = aaArtifactResolution('old.tgz') })
+  assert.throws(() => assertPreparedAaRelease(root, commit), /root resolution references a different AA artifact/)
+})
+
+test('rejects the retired Desktop compatibility patch', t => {
+  const { root, patch } = fixture(t)
+  assert.equal(aaArtifactResolution(artifact), `file:vendor/agents-anywhere/${artifact}`)
+  patch('package.json', data => {
+    data.resolutions[AA_PACKAGE] = `patch:${AA_PACKAGE}@file%3Avendor/agents-anywhere/${artifact}#./patches/agents-anywhere-connector-httpx.patch`
+  })
+  assert.throws(() => assertPreparedAaRelease(root, commit), /root resolution references a different AA artifact/)
 })
 
 for (const [schemaVersion, cosmokitVersion] of [['3.18.2', '1.8.3'], ['3.18.4', '1.8.5'], ['3.18.5', '1.8.6']]) {

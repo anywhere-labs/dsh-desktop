@@ -1,0 +1,123 @@
+diff --git a/lib/index.js b/lib/index.js
+index 47c48dd..db45119 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -5,7 +5,7 @@ import { join } from "node:path";
+ import { fileURLToPath } from "node:url";
+ import { LAUNCHER_BIN, LAUNCHER_FAILURE_EXIT, grantArgs, launcherPath, probe } from "@deepseek-ai/node-addon-system/landlock-run";
+ import z from "@deepseek-ai/schemastery";
+-import { SandboxProvider, SandboxUnavailableError, canonicalPath, writableRoots } from "@deepseek-ai/dsh-sandbox";
++import { SandboxProvider, SandboxUnavailableError, canonicalPath, workspaceWritableRoots, writableRoots } from "@deepseek-ai/dsh-sandbox";
+ import { AclWriteGrant, assertTempRootOutsideWorkspace, registerAclDiagnosisSkill, tempWriteSid, workspaceWriteSid } from "@deepseek-ai/dsh-sandbox-windows-acl";
+ import { assertNever } from "@deepseek-ai/dsh-util-values";
+ //#region lib/types/profiles.js
+@@ -33,7 +33,7 @@ function bwrapProfileArgs(policy) {
+ 	];
+ 	if (policy.mode === "workspace-write") {
+ 		args.push("--tmpfs", "/tmp");
+-		args.push("--bind", policy.workspaceRoot, policy.workspaceRoot);
++		for (const root of workspaceWritableRoots(policy)) args.push("--bind", root, root);
+ 	}
+ 	return args;
+ }
+@@ -44,7 +44,7 @@ function bwrapProfileArgs(policy) {
+ */
+ function landlockProfileArgs(policy) {
+ 	const readWrite = ["/dev/null"];
+-	if (policy.mode === "workspace-write") readWrite.push("/tmp", policy.workspaceRoot);
++	if (policy.mode === "workspace-write") readWrite.push("/tmp", ...workspaceWritableRoots(policy));
+ 	return grantArgs({
+ 		readOnly: ["/"],
+ 		readWrite
+@@ -306,7 +306,8 @@ var LocalSandboxProvider = class extends SandboxProvider {
+ 		signal?.throwIfAborted();
+ 		policy = {
+ 			...policy,
+-			workspaceRoot: canonicalPath(policy.workspaceRoot)
++			workspaceRoot: canonicalPath(policy.workspaceRoot),
++			...policy.workspaceRoots?.length ? { workspaceRoots: [...new Set(policy.workspaceRoots.map(canonicalPath))] } : {}
+ 		};
+ 		if (this.runnerCommand !== void 0) return Promise.resolve({
+ 			argv: [
+@@ -356,26 +357,26 @@ var LocalSandboxProvider = class extends SandboxProvider {
+ 	*/
+ 	windowsAclRunnerArgv(policy) {
+ 		const sessionId = policy.sessionId;
++		const workspaceRoots = policy.workspaceRoots?.length ? policy.workspaceRoots : [policy.workspaceRoot];
++		const workspaceArgs = workspaceRoots.flatMap((root) => ["--workspace", root]);
+ 		if (sessionId === void 0 || policy.mode === "read-only") return [
+ 			...this.windowsAclRunnerInvocation(),
+-			"--workspace",
+-			policy.workspaceRoot,
++			...workspaceArgs,
+ 			"--temp",
+ 			tmpdir(),
+ 			"--mode",
+ 			policy.mode
+ 		];
+-		const temp = this.materializeAclGrant(sessionId, policy.workspaceRoot);
++		const temp = this.materializeAclGrant(sessionId, workspaceRoots);
+ 		return [
+ 			...this.windowsAclRunnerInvocation(),
+-			"--workspace",
+-			policy.workspaceRoot,
++			...workspaceArgs,
+ 			"--temp",
+ 			temp.dir,
+ 			"--mode",
+ 			policy.mode,
+ 			"--write-sid",
+-			workspaceWriteSid(policy.workspaceRoot),
++			workspaceWriteSid(workspaceRoots[0]),
+ 			"--temp-write-sid",
+ 			temp.writeSid
+ 		];
+@@ -390,16 +391,19 @@ var LocalSandboxProvider = class extends SandboxProvider {
+ 	* Fail-closed: a half-materialized temp grant is revoked and its directory
+ 	* removed before the error propagates.
+ 	* @param sessionId - the policy's calling-session identity.
+-	* @param workspaceRoot - the resolved policy root.
++	* @param workspaceRoots - the canonical roots in primary-first order.
+ 	* @returns the pair's private temp directory and write capability.
+ 	*/
+-	materializeAclGrant(sessionId, workspaceRoot) {
+-		assertTempRootOutsideWorkspace(workspaceRoot, tmpdir());
+-		const writeSid = workspaceWriteSid(workspaceRoot);
+-		if (!this.workspaceGrants.has(workspaceRoot)) {
+-			const grant = AclWriteGrant.create(writeSid);
++	materializeAclGrant(sessionId, workspaceRoots) {
++		const workspaceRoot = workspaceRoots[0];
++		// Validate the whole set before mutating any ACL. Each root has its own
++		// standing capability; new tokens omit a removed root's capability.
++		for (const root of workspaceRoots) assertTempRootOutsideWorkspace(root, tmpdir());
++		for (const root of workspaceRoots) {
++			if (this.workspaceGrants.has(root)) continue;
++			const grant = AclWriteGrant.create(workspaceWriteSid(root));
+ 			try {
+-				grant.add(workspaceRoot, true);
++				grant.add(root, true);
+ 			} catch (error) {
+ 				try {
+ 					grant.dispose();
+@@ -408,7 +412,7 @@ var LocalSandboxProvider = class extends SandboxProvider {
+ 				}
+ 				throw error;
+ 			}
+-			this.workspaceGrants.set(workspaceRoot, grant);
++			this.workspaceGrants.set(root, grant);
+ 		}
+ 		const key = JSON.stringify([String(sessionId), workspaceRoot]);
+ 		const existing = this.tempCapabilities.get(key);
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 3468085..e591a55 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -142,7 +142,7 @@ export declare class LocalSandboxProvider extends SandboxProvider {
+      * Fail-closed: a half-materialized temp grant is revoked and its directory
+      * removed before the error propagates.
+      * @param sessionId - the policy's calling-session identity.
+-     * @param workspaceRoot - the resolved policy root.
++     * @param workspaceRoots - the canonical roots in primary-first order.
+      * @returns the pair's private temp directory and write capability.
+      */
+     private materializeAclGrant;

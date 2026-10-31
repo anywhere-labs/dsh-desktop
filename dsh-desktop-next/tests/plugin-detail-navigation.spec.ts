@@ -18,11 +18,12 @@ vi.mock('react', async importOriginal => ({
   },
 }))
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
-  Button: 'button', PluginArtworkDefault: 'svg', Switch: 'input', StateDot: 'span',
+  Button: 'button', PluginArtworkDefault: 'svg', PluginArtworkSubagent: 'svg', Switch: 'input', StateDot: 'span',
   Toast: 'aside', Modal: 'dialog', IconSettingsOutlineRegular: 'svg',
   IconWarningOutlineRegular: 'svg', Tag: 'span',
 }))
 import { registerPluginControls } from '../src/client/plugin-controls.tsx'
+import { ComputerUseSettings } from '../src/client/computer-use.tsx'
 
 afterEach(() => { hooks.effects = []; hooks.states = []; hooks.cursor = 0; vi.unstubAllGlobals() })
 
@@ -33,6 +34,8 @@ const nodes = (value: unknown): Node[] => Array.isArray(value) ? value.flatMap(n
     ? [value as Node, ...nodes((value as Node).props.children)] : []
 const component = (tree: Node, name: string): Node | undefined => nodes(tree).find(node => typeof node.type === 'function' && node.type.name === name)
 const render = (node: Node): Node => (node.type as (props: Node['props']) => Node)(node.props)
+/** The switch an EnableSwitch renders; dsh 0.2.2 wraps it with its progress announcement. */
+const switchOf = (enable: Node): Node => nodes(render(enable)).find(node => typeof node.props.onChange === 'function')!
 /** Group ids on the list page; dsh 0.2.1-alpha.2 splits official cards into basic and extensions. */
 const groups = (tree: Node): string[] => nodes(tree).filter(node => node.props['data-plugin-group']).map(node => node.props['data-plugin-group'])
 /** Cards on the list page; the official count badge is gone since 0.2.1-alpha.2. */
@@ -60,7 +63,10 @@ function fixture() {
     if (id === '@deepseek-ai/dsh-client-ui-primitives') return new Proxy({}, { get: (_, name) => (props: Node['props']) => jsx(String(name), props) })
     if (id === '@deepseek-ai/dsh-client-ui-slots') return { resolveSlotLabel: (label: unknown) => label }
     if (id === '@deepseek-ai/dsh-client-store') return {
-      createSnapshotStore: (state: unknown) => ({ getSnapshot: () => state }),
+      createSnapshotStore: (state: unknown) => {
+        let current = state
+        return { getSnapshot: () => current, set: (next: unknown) => { current = next }, subscribe: () => () => {} }
+      },
       defineStore: ({ init, actions }: any) => ({ create: () => {
         const state = init()
         return { getSnapshot: () => state, actions: Object.fromEntries(Object.entries(actions).map(([name, action]) =>
@@ -71,8 +77,10 @@ function fixture() {
   }
   runInNewContext(source, { window: { __ModuleLoader__: { load: (entry: { factory: (require: unknown) => { apply: typeof apply } }) => { apply = entry.factory(require).apply } } } })
   const noop = () => () => {}
-  apply!({ effect: (effect: () => void) => effect(), on: noop,
-    locale: { register: noop, bind: () => (key: string) => key }, remote: { $on: noop },
+  apply!({ effect: (effect: () => void) => effect(), on: noop, provide: noop,
+    locale: { register: noop, bind: () => (key: string) => key, resolveText: (text: string) => text }, remote: { $on: noop },
+    // The page mounts only while the Peer may list bundles; this fixture always may.
+    remoteAccess: { whenAccess: (_method: string, body: () => Iterable<unknown>) => { [...body()] } },
     layout: { panelInfo: { subscribe: noop }, selectPanel: vi.fn() }, reflect: { provide: noop },
     configForms: { describe: () => ({ getSnapshot: () => ({}), subscribe: noop }), get: () => undefined },
     slots: { inject: (_name: string, register: () => unknown) => {
@@ -87,8 +95,8 @@ function fixture() {
     version: '0.1.0', description: 'Remote connection', rows: [{ entryId: undefined as string | undefined, rowId: 'bridge', moduleName: 'bridge', enabled: true, phase: 'active' }] }
   const official = { ...remote, name: 'official-team', rows: [] }
   const state = { status: 'ready', packages: [official, remote], busy: [] as string[], notice: null, highlight: null, confirm: null,
-    install: { open: false } }
-  const item = { id: 'desktop-next-computer-use', label: 'Computer Use' }
+    install: { open: false }, versions: {}, update: null }
+  const item = { id: 'desktop-next-computer-use', label: 'Computer Use (Next)' }
   const ledger = { items: [item], bundles: new Set([remote.name]), rows: new Set(),
     hiddenBundles: new Set([remote.name]), hiddenItems: new Set([item.id]) }
   let overview: { onOpenBundle(name: string): void; onOpenItem(id: string): void }
@@ -98,6 +106,8 @@ function fixture() {
     useStore: (select: (state: unknown) => unknown) => select(navigation.getSnapshot()), actions: navigation.actions,
     t: (key: string) => key, ensure: vi.fn(), resolveText: (text: string) => text,
     useConfigurations: () => [], usePluginManager: () => state, useConfigLedger: () => ledger, usePluginTabs: () => [], setEnabled, setRowEnabled,
+    useBundleDetails: (select: (details: unknown) => unknown) => select({}), useLocale: (select: (locale: { active: string }) => unknown) => select({ active: 'en' }),
+    createHeaderRef: () => () => {}, ensureVersions: vi.fn(), loadDetail: vi.fn(),
     renderSlot: (name: string, owner: Record<string, unknown>, options?: unknown) => {
       if (name === 'plugins.overview') overview = owner as typeof overview
       return jsx('slot', { name, owner, options })
@@ -123,7 +133,7 @@ it('opens an overview-owned bundle through the official detail with native heade
   const header = render(top)
   expect(nodes(header).some(node => Array.isArray(node.props.children) && node.props.children.includes(top.props.actions))).toBe(true)
   expect(nodes(top.props.actions).some(node => node.props.name === 'plugins.detail.actions')).toBe(true)
-  const toggle = render(component(top.props.actions, 'EnableSwitch')!)
+  const toggle = switchOf(component(top.props.actions, 'EnableSwitch')!)
   toggle.props.onChange(false)
   expect(app.setEnabled).toHaveBeenCalledWith(app.remote.name, false)
   expect(nodes(body).some(node => node.props.name === 'plugins.bundle.config')).toBe(true)
@@ -149,6 +159,24 @@ it('uses the official item detail without adding Computer Use to the basic group
   expect(component(app.page(), 'ItemDetail')).toBeUndefined()
   app.overview().onOpenBundle('missing')
   expect(component(app.page(), 'PackageDetail')).toBeUndefined()
+})
+
+it('labels the Computer Use (Next) item in the active language', () => {
+  let language = 'zh'
+  const items: { name: string; label?: () => string }[] = []
+  const ctx = {
+    inject: (_services: unknown, callback: (context: unknown) => void) => { callback(ctx) },
+    locale: { bind: () => (key: string) => key === 'language' ? language : key },
+    slots: {
+      inject: (_name: string, callback: () => unknown) => { callback() },
+      register: (options: { name: string; label?: () => string }) => { items.push(options); return () => {} },
+    },
+  }
+  registerPluginControls(ctx as unknown as Context)
+  const item = items.find(options => options.name === 'plugins.item')!
+  expect(item.label?.()).toBe('Computer Use（Next）')
+  language = 'en'
+  expect(item.label?.()).toBe('Computer Use (Next)')
 })
 
 it('preserves ordinary official cards and their navigation when no overview entries are hidden', () => {
@@ -193,33 +221,34 @@ it('keeps an official optional bundle in the extensions group with its artwork, 
     },
   }
   registerPluginControls(ctx as unknown as Context)
-  const name = '@deepseek-ai/dsh-experimental-inspector-profile'
+  // Every followed upstream release keeps this optional bundle on the main list.
+  const name = '@deepseek-ai/dsh-experimental-voice-input-bundle'
   const { meta } = JSON.parse(readFileSync(createRequire(import.meta.url).resolve(`${name}/locale/zh.json`), 'utf8'))
-  const inspector = { ...app.remote, name, enabled: false, meta: { ...meta, icon: '/inspector/icon.svg' },
-    rows: [{ rowId: 'session-inspector', moduleName: '@deepseek-ai/dsh-experimental-session-inspector', entryId: 'include:session-inspector', enabled: false, phase: 'disabled' }] }
-  app.state.packages.push(inspector)
+  const voiceInput = { ...app.remote, name, enabled: false, meta: { ...meta, icon: '/voice-input/icon.svg' },
+    rows: [{ rowId: 'voice-input', moduleName: '@deepseek-ai/dsh-experimental-client-ui-voice-input', entryId: 'include:voice-input', enabled: false, phase: 'disabled' }] }
+  app.state.packages.push(voiceInput)
   const findCard = () => nodes(app.page()).find(node => typeof node.type === 'function' && node.type.name === 'PackageCard' && node.props.pkg.name === name)!
   const card = findCard()
   expect(card).toBeDefined()
   expect(groups(app.page())).toEqual(['extensions'])
   expect(cardCount(app.page())).toBe(2)
   const head = component(render(card), 'CardHead')!
-  expect(head.props.title).toBe('开发者工具')
+  expect(head.props.title).toBe('语音输入')
   expect(head.props.description).toBe(meta.description)
-  expect(head.props.icon.props.src).toBe('/inspector/icon.svg')
+  expect(head.props.icon.props.src).toBe('/voice-input/icon.svg')
   expect(nodes(head.props.tags).some(node => node.props.children === 'statusBeta')).toBe(true)
-  const toggle = render(component(head.props.end, 'EnableSwitch')!)
+  const toggle = switchOf(component(head.props.end, 'EnableSwitch')!)
   expect(toggle.props.checked).toBe(false)
   toggle.props.onChange(true)
   expect(app.setEnabled).toHaveBeenCalledExactlyOnceWith(name, true)
-  inspector.enabled = true
+  voiceInput.enabled = true
   const activeHead = component(render(findCard()), 'CardHead')!
-  expect(render(component(activeHead.props.end, 'EnableSwitch')!).props.checked).toBe(true)
+  expect(switchOf(component(activeHead.props.end, 'EnableSwitch')!).props.checked).toBe(true)
   card.props.onOpen()
   const detail = render(component(app.page(), 'PackageDetail')!)
-  expect(component(detail, 'RowsSection')?.props.rows).toEqual(inspector.rows)
+  expect(component(detail, 'RowsSection')?.props.rows).toEqual(voiceInput.rows)
   const top = component(detail, 'DetailTop')!
-  render(component(top.props.actions, 'EnableSwitch')!).props.onChange(false)
+  switchOf(component(top.props.actions, 'EnableSwitch')!).props.onChange(false)
   expect(app.setEnabled).toHaveBeenLastCalledWith(name, false)
 })
 
@@ -246,7 +275,7 @@ it('lets composite item details reuse the official component list, live state an
   expect(updatedSlot.props.owner.renderComponents(['@deepseek-ai/dsh-schedule']).props.rows[0].enabled).toBe(false)
 })
 
-it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from the official snapshot and warmed cache without disabling switches on remount', async () => {
+it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from the official snapshot and first-mount cache without disabling switches on remount', async () => {
   vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
   const packages = [
     { name: 'dsh-community-market', enabled: true },
@@ -292,10 +321,27 @@ it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from th
     },
   }
   registerPluginControls(ctx as Context)
+  // Registration must not reach the Host: both listings block its event loop
+  // and would delay the first window's account and onboarding state.
+  await Promise.resolve()
+  expect(listBundles).not.toHaveBeenCalled()
+  expect(listPlugins).not.toHaveBeenCalled()
+
+  // The first mount loads the listings and fills the per-context cache.
+  const props = {
+    context: ctx,
+    t: (key: string) => key === 'language' ? 'zh' : key,
+    onOpenBundle: vi.fn(),
+    onOpenItem: vi.fn(),
+  }
+  render(component(OverviewView!(props), 'ComputerUseSettings')!)
+  for (const effect of hooks.effects.splice(0)) effect()
   await vi.waitFor(() => {
     expect(listBundles).toHaveBeenCalledTimes(1)
     expect(listPlugins).toHaveBeenCalledTimes(1)
   })
+  await Promise.all([listBundles.mock.results[0]!.value, listPlugins.mock.results[0]!.value])
+  await new Promise(resolve => setTimeout(resolve, 0))
 
   // Simulate remounting the Installed Plugins page while background refresh RPCs are still in flight
   listBundles.mockReturnValue(new Promise(() => {}))
@@ -304,12 +350,7 @@ it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from th
   hooks.cursor = 0
   hooks.effects = []
 
-  const tree = OverviewView!({
-    context: ctx,
-    t: (key: string) => key === 'language' ? 'zh' : key,
-    onOpenBundle: vi.fn(),
-    onOpenItem: vi.fn(),
-  })
+  const tree = OverviewView!(props)
   const marketSwitch = nodes(tree).find(node => node.type === 'input' && node.props.label === '启用插件市场')!
   expect(marketSwitch.props.checked).toBe(true)
   expect(marketSwitch.props.disabled).toBe(false)
@@ -319,9 +360,120 @@ it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from th
   expect(remoteSwitch.props.checked).toBe(true)
   expect(remoteSwitch.props.disabled).toBe(false)
 
+  const cuaCard = nodes(tree).find(
+    node => typeof node.type === 'function' && node.type.name === 'PluginCard' && node.props.title === 'Computer Use（Next）',
+  )!
+  expect(typeof cuaCard.props.icon.type === 'function' && cuaCard.props.icon.type.name).toBe('ComputerUsePluginArtwork')
   const cuaNode = render(component(tree, 'ComputerUseSettings')!)
-  const cuaSwitch = nodes(cuaNode).find(node => node.type === 'input' && node.props.label === '启用 Computer Use')!
+  const cuaSwitch = nodes(cuaNode).find(node => node.type === 'input' && node.props.label === '启用 Computer Use（Next）')!
   expect(cuaSwitch.props.checked).toBe(true)
   expect(cuaSwitch.props.disabled).toBe(false)
 })
 
+it('renders the on-demand /computer-use command sub-switch on the Computer Use detail page (default on) and updates it via the Host route', async () => {
+  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
+  let savedCommandMode = true
+  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') {
+      const body = JSON.parse(String(init.body ?? '{}')) as { commandMode?: boolean }
+      savedCommandMode = Boolean(body.commandMode)
+    }
+    return {
+      ok: true,
+      json: async () => ({ commandMode: savedCommandMode }),
+    }
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  const cuaRow = {
+    entryId: 'include:cua',
+    moduleName: '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native',
+    enabled: true,
+    fiberPhase: 'active',
+  }
+  const ctx: any = {
+    on: () => () => {},
+    remote: {
+      $on: () => () => {},
+      pluginManager: {
+        listBundles: vi.fn(async () => ({ ok: true as const, value: [] })),
+        listPlugins: vi.fn(async () => ({ ok: true as const, value: [cuaRow] })),
+        setPluginEnabled: vi.fn(),
+      },
+    },
+  }
+
+  hooks.cursor = 0
+  let pageTree = ComputerUseSettings({ context: ctx as Context, zh: true, mode: 'page' }) as unknown as Node
+  for (const effect of hooks.effects.splice(0)) effect()
+  await new Promise(resolve => setTimeout(resolve, 0))
+
+  hooks.cursor = 0
+  pageTree = ComputerUseSettings({ context: ctx as Context, zh: true, mode: 'page' }) as unknown as Node
+  const sectionCount = nodes(pageTree).find(node => node.props.className === 'dshNextComponentSectionCount')!
+  expect(sectionCount.props.children).toBe('共 1 个 · 1 运行中')
+  const rowNode = nodes(pageTree).find(node => node.props['data-plugin-row'] === 'computer-use-command')!
+  expect(rowNode.props['data-state']).toBeUndefined()
+  const rowIcon = nodes(rowNode).find(
+    node => typeof node.type === 'function' && node.type.name === 'ComputerUsePluginArtwork',
+  )!
+  expect(rowIcon).toBeDefined()
+  expect(rowIcon.props.size).toBe(30)
+  const commandSwitch = nodes(pageTree).find(
+    node => node.type === 'input' && node.props.label === '按需命令加载（/computer-use）',
+  )!
+  expect(commandSwitch).toBeDefined()
+  expect(commandSwitch.props.checked).toBe(true)
+  expect(commandSwitch.props.disabled).toBe(false)
+
+  commandSwitch.props.onChange(false)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/api/desktop-next/computer-use',
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ commandMode: false }),
+    }),
+  )
+
+  hooks.cursor = 0
+  pageTree = ComputerUseSettings({ context: ctx as Context, zh: true, mode: 'page' }) as unknown as Node
+  const updatedSwitch = nodes(pageTree).find(
+    node => node.type === 'input' && node.props.label === '按需命令加载（/computer-use）',
+  )!
+  expect(updatedSwitch.props.checked).toBe(false)
+  const offRow = nodes(pageTree).find(node => node.props['data-plugin-row'] === 'computer-use-command')!
+  expect(offRow.props['data-state']).toBe('off')
+
+  // When the parent Computer Use plugin is disabled, the component row hides its switch and displays "已关闭"
+  hooks.states = []
+  hooks.effects = []
+  hooks.cursor = 0
+  cuaRow.enabled = false
+  savedCommandMode = true
+  const disabledCtx: any = {
+    on: () => () => {},
+    remote: {
+      $on: () => () => {},
+      pluginManager: {
+        listBundles: vi.fn(async () => ({ ok: true as const, value: [] })),
+        listPlugins: vi.fn(async () => ({ ok: true as const, value: [cuaRow] })),
+        setPluginEnabled: vi.fn(),
+      },
+    },
+  }
+  pageTree = ComputerUseSettings({ context: disabledCtx as Context, zh: true, mode: 'page' }) as unknown as Node
+  for (const effect of hooks.effects.splice(0)) effect()
+  await new Promise(resolve => setTimeout(resolve, 0))
+
+  hooks.cursor = 0
+  pageTree = ComputerUseSettings({ context: disabledCtx as Context, zh: true, mode: 'page' }) as unknown as Node
+  const disabledRow = nodes(pageTree).find(node => node.props['data-plugin-row'] === 'computer-use-command')!
+  expect(disabledRow.props['data-state']).toBe('off')
+  const disabledState = nodes(pageTree).find(node => node.props.className === 'dshNextComponentRowState')!
+  expect(disabledState.props.children).toContain('已关闭')
+  const hiddenSwitch = nodes(pageTree).find(
+    node => node.type === 'input' && node.props.label === '按需命令加载（/computer-use）',
+  )
+  expect(hiddenSwitch).toBeUndefined()
+})

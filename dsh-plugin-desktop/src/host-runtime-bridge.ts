@@ -25,7 +25,7 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
   const shellSpecs = new Map<string, DesktopShellSpec>()
   const send = <T = void>(method: string, args: unknown[] = [], signal?: AbortSignal): Promise<T> => {
     const interactive = ['update:confirmDownload', 'update:showManualCheckResult', 'update:downloadAndOpen',
-      'native:pickDirectory', 'native:exportDiagnostics'].includes(method)
+      'native:pickDirectory', 'native:pickDirectories', 'native:exportDiagnostics'].includes(method)
     const task = rpc.call<T>(method, args, signal, interactive ? 0 : undefined)
     calls.add(task)
     // Report fire-and-forget failures without creating an unhandled rejection.
@@ -113,6 +113,7 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
     toggleDeveloperTools() { void send('native:toggleDeveloperTools') },
     exportDiagnostics: () => send('native:exportDiagnostics'),
     pickDirectory: () => send('native:pickDirectory'),
+    pickDirectories: () => send('native:pickDirectories'),
     validateDirectory: path => send('native:validateDirectory', [path]),
     platformLogin(request) { void send('native:platformLogin', [request]) },
     reportRendererBoot: report => { void send('native:reportRendererBoot', [report]) },
@@ -144,7 +145,7 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () => 
   const callback = (method: string, args: unknown[] = []) => rpc.call(method, args)
   const report = (promise: Promise<unknown>) => { void promise.catch(error => process.stderr.write(`${String(error)}\n`)) }
   for (const method of ['show', 'notifyAttention', 'openTerminal', 'reloadRenderer', 'toggleDeveloperTools',
-    'exportDiagnostics', 'pickDirectory', 'validateDirectory', 'reportRendererBoot',
+    'exportDiagnostics', 'pickDirectory', 'pickDirectories', 'validateDirectory', 'reportRendererBoot',
     'setThemeSource', 'prepareToQuit'] as const) {
     handle(`native:${method}`, args => (runtime[method] as (...args: any[]) => unknown).apply(runtime, args))
   }

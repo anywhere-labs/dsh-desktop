@@ -12,6 +12,8 @@ import { createDesktopKeyboardBridge } from './preload-keyboard.ts'
 import { createDesktopBrowserBridge } from './preload-browser.ts'
 
 if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
+  let documentId: string | undefined
+  let profile = ''
   markDocumentPlatform()
   syncNativeTheme()
   syncNativeLocale()
@@ -26,6 +28,20 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
     finish: (profile: string, selection?: unknown) => ipcRenderer.invoke('dsh-desktop:setup-onboarding', { action: 'finish', profile, selection }),
   })
   contextBridge.exposeInMainWorld('desktopNext', {
+    renderer: {
+      profile: () => profile,
+      report: (status: unknown) => ipcRenderer.invoke(IPC.rendererStatus, documentId, status),
+    },
+    workspaceLaunch: {
+      take: () => ipcRenderer.invoke(IPC.workspaceLaunchTake, documentId),
+      complete: (id: number) => ipcRenderer.invoke(IPC.workspaceLaunchComplete, documentId, id),
+      reportError: (message: string) => ipcRenderer.invoke(IPC.workspaceLaunchError, documentId, message),
+      onAvailable: (listener: () => void) => {
+        const receive = () => { listener() }
+        ipcRenderer.on(IPC.workspaceLaunchAvailable, receive)
+        return () => { ipcRenderer.removeListener(IPC.workspaceLaunchAvailable, receive) }
+      },
+    },
     permissions: permissionBridge(),
     onOpenSettings,
     state: () => ipcRenderer.invoke(IPC.state),
@@ -36,10 +52,15 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
   // carrier; without `browser` the official plugin silently falls back to the sandboxed iframe.
   contextBridge.exposeInMainWorld('dshDesktop', { protocolVersion: 1, browser: createDesktopBrowserBridge(), ...createDesktopKeyboardBridge() })
   contextBridge.exposeInMainWorld('dshDesktopBoot', {
-    ready: () => ipcRenderer.invoke(IPC.boot),
-    failed: (message: string) => ipcRenderer.invoke(IPC.failed, message),
+    ready: async () => {
+      const boot = await ipcRenderer.invoke(IPC.boot)
+      documentId = boot.documentId
+      profile = boot.profile
+      return boot
+    },
+    failed: (message: string) => ipcRenderer.invoke(IPC.failed, message, documentId),
   })
-  contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', { pick: () => ipcRenderer.invoke(IPC.directory) })
+  contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', { pick: () => ipcRenderer.invoke(IPC.directory, documentId), pickMany: () => ipcRenderer.invoke(IPC.directories, documentId) })
   // The official composer cites dropped, picked, and pasted files and folders that have a
   // real path as `@path` references instead of uploading them, and refuses folders outright
   // when this bridge is absent; a File without a path (pasted bytes) answers '' and uploads.

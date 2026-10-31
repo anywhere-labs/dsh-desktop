@@ -3,6 +3,7 @@ import type {
   MarketDesktopActionResponse,
   MarketInstallableResponse,
   MarketInstallationToggleResponse,
+  MarketInstallationUpdateResponse,
   MarketInstallationsResponse,
   MarketOperationExecuteResponse,
   MarketOperationPreviewRequest,
@@ -100,6 +101,19 @@ export async function mutateMarketSource(mutation: MarketSourceMutation, signal?
 
 export async function readMarketInstallations(signal?: AbortSignal): Promise<MarketInstallationsResponse> {
   return await readJson(await fetch('/api/community-market/installations', {
+    cache: 'no-store',
+    ...(signal === undefined ? {} : { signal }),
+  }))
+}
+
+/** Ask the Host which newer version an update of one updatable installation would install. */
+export async function readMarketInstallationUpdate(
+  packageName: string,
+  signal?: AbortSignal,
+): Promise<MarketInstallationUpdateResponse> {
+  const url = new URL('/api/community-market/installations/update', window.location.origin)
+  url.searchParams.set('packageName', packageName)
+  return await readJson(await fetch(url, {
     cache: 'no-store',
     ...(signal === undefined ? {} : { signal }),
   }))

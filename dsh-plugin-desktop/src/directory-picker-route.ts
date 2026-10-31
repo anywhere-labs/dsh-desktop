@@ -81,3 +81,20 @@ export async function handleDesktopDirectoryValidationRequest(
     finishJson(res, 500, { error: 'directory validation failed' })
   }
 }
+
+/** Serve the admitted multi-folder result with the same origin/method guard as the legacy route. */
+export async function handleDesktopDirectoriesPickerRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  pickDirectories: () => Promise<string[]>,
+  reportError: (cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, { error: 'method not allowed' })
+  if (req.headers.origin !== expectedOrigin) return finishJson(res, 403, { error: 'forbidden' })
+  try { finishJson(res, 200, { paths: await pickDirectories() }) }
+  catch (cause: unknown) {
+    reportError(cause)
+    finishJson(res, 500, { error: 'native directory picker failed' })
+  }
+}

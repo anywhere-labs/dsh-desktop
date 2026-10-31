@@ -132,12 +132,12 @@ describe('Desktop launch workspace client bridge', () => {
     expect(seam.order).toEqual(['ready', 'create:/home/anna/main', 'open:workspace-1'])
   })
 
-  it('still opens the primary root when the extra roots are refused', async () => {
+  it('reports root attachment failure without opening a partial workspace', async () => {
     const seam = target({
       setRoots: async () => { throw new Error('workspace/setRoots unavailable') },
     })
     await openDesktopLaunchWorkspace(seam.target, ['/home/anna/main', '/home/anna/docs'])
-    expect(seam.order).toEqual(['ready', 'create:/home/anna/main', 'open:workspace-1'])
+    expect(seam.order).toEqual(['ready', 'create:/home/anna/main'])
     expect(seam.errors).toHaveLength(1)
     expect(seam.errors[0]).toContain('/home/anna/main, /home/anna/docs')
     expect(seam.errors[0]).toContain('workspace/setRoots unavailable')
@@ -258,6 +258,33 @@ describe('Desktop launch workspace client bridge', () => {
         'open:workspace-1',
       ])
     })
+    expect(seam.errors).toEqual([])
+  })
+})
+
+
+describe('Desktop launch workspace lifetime', () => {
+  it('does not create after disposal while awaiting readiness', async () => {
+    let ready!: () => void
+    const seam = target({ ready: () => new Promise<void>(resolve => { ready = resolve }) })
+    const page: DesktopLaunchWorkspaceWindow = {}
+    const dispose = installDesktopLaunchWorkspaceBridge(seam.target, page)
+    page[DESKTOP_OPEN_WORKSPACE_GLOBAL]?.(['/primary', '/extra'])
+    dispose(); ready()
+    await Promise.resolve(); await Promise.resolve()
+    expect(seam.order).toEqual([])
+    expect(seam.errors).toEqual([])
+  })
+  it('does not open after disposal during an in-flight root update', async () => {
+    let finish!: () => void
+    const seam = target({ setRoots: () => new Promise<void>(resolve => { finish = resolve }) })
+    const page: DesktopLaunchWorkspaceWindow = {}
+    const dispose = installDesktopLaunchWorkspaceBridge(seam.target, page)
+    page[DESKTOP_OPEN_WORKSPACE_GLOBAL]?.(['/primary', '/extra'])
+    await vi.waitFor(() => { expect(finish).toBeTypeOf('function') })
+    dispose(); finish()
+    await Promise.resolve(); await Promise.resolve()
+    expect(seam.order).toEqual(['ready', 'create:/primary'])
     expect(seam.errors).toEqual([])
   })
 })

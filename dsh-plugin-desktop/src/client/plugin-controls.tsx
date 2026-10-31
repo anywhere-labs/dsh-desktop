@@ -68,24 +68,12 @@ function getBundlesCache(context: Context): BundlesCacheEntry {
   return entry
 }
 
-function warmBundlesCache(context: Context): void {
-  const listBundles = context.remote?.pluginManager?.listBundles
-  if (typeof listBundles !== 'function') return
-  const cache = getBundlesCache(context)
-  void listBundles().then(result => {
-    if (!result.ok) return
-    cache.bundles = result.value
-    cache.loaded = true
-    const community = result.value.find(row => row.name === COMMUNITY)
-    const market = result.value.find(row => row.name === MARKET)
-    if (market?.enabled && !community?.enabled) cache.preferredMarket = MARKET
-    else if (community?.enabled && !market?.enabled) cache.preferredMarket = COMMUNITY
-  }).catch(() => {})
-}
-
+// The cache fills on the first mount, never at registration. listBundles reads
+// every bundle manifest synchronously on the Host; calling it at startup stalls
+// the account, credential, and onboarding RPCs the first window waits on (the
+// official manager loads lazily).
 export function registerPluginControls(ctx: Context): void {
   ctx.inject?.(['remote', 'remote.pluginManager', 'remote.pluginMarket'], inner => {
-    warmBundlesCache(inner)
     inner.slots.inject('plugins.overview', () => inner.slots.register({
       name: 'plugins.overview',
       id: 'desktop-plugins',

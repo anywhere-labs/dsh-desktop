@@ -4,18 +4,12 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   DesktopDialogToneIcon,
-  desktopDialogResponseUrl,
   desktopDialogAdvisoryLines,
   desktopDialogButtonClassName,
   desktopDialogShowsToneIcon,
 } from '../src/native-ui/desktop-dialog/App.tsx'
 
 describe('Desktop dialog native UI', () => {
-  it('sends the opt-out only when supplied by a confirmation button', () => {
-    expect(desktopDialogResponseUrl(0, true)).toBe('dsh-desktop-dialog://response?id=0&checked=true')
-    expect(desktopDialogResponseUrl(0, false)).toBe('dsh-desktop-dialog://response?id=0&checked=false')
-    expect(desktopDialogResponseUrl(0)).toBe('dsh-desktop-dialog://response?id=0')
-  })
   it('omits the leading tone icon for the centered Profile compatibility surface', () => {
     expect(desktopDialogShowsToneIcon('profile-compatibility')).toBe(false)
     expect(desktopDialogShowsToneIcon('default')).toBe(true)

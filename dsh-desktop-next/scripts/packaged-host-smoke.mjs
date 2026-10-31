@@ -24,9 +24,12 @@ try {
   runtime.profiles.finishOnboarding('desktop', { features: { market: true, remoteControl: false }, computerUse: true })
   if (!runtime.profiles.computerUseEnabled('desktop')) throw new Error('The smoke profile did not enable the native computer-use provider')
   // The badge skill bundle is off by default; enabled, the Host loads its provider from the unpacked copy through the resolver.
+  // Official packages the installation offers among its optional bundles (Beta's OAR subagents) load from the archive.
+  const installation = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const officialOptional = installation.dsh.optionalBundles.filter(name => name.startsWith('@deepseek-ai/'))
   const manifestPath = join(runtime.profiles.directory('desktop'), 'package.json')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  if (!manifest.dsh.profile.bundles.includes(BADGE_BUNDLE)) manifest.dsh.profile.bundles.push(BADGE_BUNDLE)
+  for (const name of [BADGE_BUNDLE, ...officialOptional]) if (!manifest.dsh.profile.bundles.includes(name)) manifest.dsh.profile.bundles.push(name)
   writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
   await runtime.start()
   const state = runtime.state()

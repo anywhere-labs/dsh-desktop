@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from '../src/host-process.ts'
+import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from '../src/host-process.ts'
 
 const roots: string[] = []
 const hosts: DesktopHostProcess[] = []
@@ -233,24 +233,48 @@ describe('desktop host process', () => {
     expect(failure).toHaveBeenCalledWith(new Error('plugin unavailable'))
   })
 
-  it('reports a child crash after readiness with its stderr diagnostic', async () => {
+  it('reports a child crash after readiness with its exit, observed first, and its stderr labelled as possibly unrelated', async () => {
     const runtime = projectWithHost()
     const failure = vi.fn()
-    const host = hostProcess(runtime, runtime, failure)
+    const exited = vi.fn()
+    const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env, failure,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, { exited })
+    hosts.push(host)
     const { url } = await host.start()
     await fetch(new URL('/crash', url))
     await expect.poll(() => failure.mock.calls.length).toBe(1)
-    expect(failure).toHaveBeenCalledWith(new Error('dsh desktop host exited with 7: plugin crashed'))
+    const [error] = failure.mock.calls[0] as [DesktopHostExitError]
+    expect(error).toBeInstanceOf(DesktopHostExitError)
+    expect(error.message).toBe('dsh desktop host exited with code 7\nLast Host stderr (may be unrelated to the exit):\nplugin crashed')
+    expect([error.exitCode, error.signal, error.output]).toEqual([7, null, 'plugin crashed'])
+    expect(exited).toHaveBeenCalledExactlyOnceWith({ code: 7, signal: null, expected: false }, expect.any(Number))
+    expect(exited.mock.invocationCallOrder[0]).toBeLessThan(failure.mock.invocationCallOrder[0]!)
+  })
+
+  it('delivers validated Host memory pushes to the observer without logging them as IPC traffic', async () => {
+    const runtime = projectWithHost(HTTP_HOST.replace("process.send({ type: 'ready'",
+      "process.send({ type: 'memory', rss: 5, heapTotal: 4, heapUsed: 3, external: 2, arrayBuffers: 1 }); process.send({ type: 'ready'"))
+    const memory = vi.fn()
+    const exited = vi.fn()
+    const diagnostic = vi.fn()
+    const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, diagnostic, { memory, exited })
+    hosts.push(host)
+    await host.start()
+    expect(memory).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ rss: 5, heapTotal: 4, heapUsed: 3, external: 2, arrayBuffers: 1 }), expect.any(Number))
+    expect(diagnostic.mock.calls.map(([record]) => record.fields?.type)).not.toContain('memory')
+    await host.stop()
+    expect(exited).toHaveBeenCalledExactlyOnceWith({ code: 0, signal: null, expected: true }, expect.any(Number))
   })
 
   it('retains only recent diagnostics from a noisy child', async () => {
     const runtime = projectWithHost('process.stderr.write(\'discarded-prefix\' + \'x\'.repeat(70_000) + \'recent-failure\', () => { process.exitCode = 7; process.disconnect() })')
     const failure = await hostProcess(runtime).start().catch((error: unknown) => error)
-    expect(failure).toBeInstanceOf(Error)
+    expect(failure).toBeInstanceOf(DesktopHostExitError)
     const message = (failure as Error).message
     expect(message).not.toContain('discarded-prefix')
     expect(message.endsWith('recent-failure')).toBe(true)
-    expect(message.length).toBeLessThan(66_000)
+    expect((failure as DesktopHostExitError).output.length).toBe(4096)
   })
 
   it('settles teardown when the executable cannot be spawned', async () => {
@@ -277,6 +301,8 @@ describe('desktop host process', () => {
     ["process.send({ type: 'fatal', message: 'startup failed' }); process.disconnect()", 'startup failed'],
     ["process.send({ type: 'ready', url: 4 })", 'invalid IPC event'],
     ["process.send({ type: 'fatal', message: 'startup failed', diagnostic: 42 })", 'invalid IPC event'],
+    ["process.send({ type: 'memory', rss: -1, heapTotal: 0, heapUsed: 0, external: 0, arrayBuffers: 0 })", 'invalid IPC event'],
+    ["process.send({ type: 'memory', rss: 1.5, heapTotal: 0, heapUsed: 0, external: 0 })", 'invalid IPC event'],
     ['process.exit(0)', 'host stopped'],
   ])('rejects startup when the child fails before readiness: %s', async (source, message) => {
     const host = hostProcess(projectWithHost(source))

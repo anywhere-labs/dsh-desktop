@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { desktopMenu } from '../src/desktop-menu.ts'
 import { DEFAULT_PREFERENCES, type DesktopState } from '../src/desktop-contract.ts'
-import { APPIMAGE_RELAUNCH_SCRIPT, appImageExtractingRuntimePid, appImageRelaunchEnvironment, relaunchApp, relaunchArguments, type RelaunchSpawn } from '../src/relaunch.ts'
+import { APPIMAGE_RELAUNCH_SCRIPT, MAC_RELAUNCH_SCRIPT, appImageExtractingRuntimePid, appImageRelaunchEnvironment, relaunchApp, relaunchArguments, type RelaunchSpawn } from '../src/relaunch.ts'
 
 const state: DesktopState = {
   selected: 'desktop', profiles: ['desktop', 'work', 'broken'], unavailableProfiles: ['broken'],
@@ -37,8 +37,10 @@ it('keeps the original tray tool order, direct recovery actions and Profile crea
 })
 
 it('keeps valid escape routes during failure or safe mode and only advertises supported tools', () => {
-  const menu = desktopMenu({ ...state, safeMode: true, busy: true, phase: 'error', platform: 'linux' }, 'en', vi.fn(), vi.fn())
+  const menu = desktopMenu({ ...state, safeMode: true, busy: true, phase: 'error', platform: 'linux', updates: { phase: 'idle', installable: false } }, 'en', vi.fn(), vi.fn())
   expect(menu.some(item => item.label === 'Open DSH Terminal')).toBe(false)
+  expect(menu.some(item => item.label === 'Check for updates')).toBe(false)
+  expect(desktopMenu({ ...state, platform: 'darwin', updates: { phase: 'idle', installable: true } }, 'en', vi.fn(), vi.fn()).some(item => item.label === 'Check for updates')).toBe(true)
   expect(menu.find(item => item.label === 'Reload Interface')!.enabled).toBe(false)
   expect(menu.find(item => item.label === 'Quit and Restart')!.enabled).toBe(false)
   expect(menu.find(item => item.label === 'Exit Safe Mode and Restart…')!.enabled).toBe(false)
@@ -48,11 +50,11 @@ it('keeps valid escape routes during failure or safe mode and only advertises su
 })
 
 it('preserves application arguments while replacing one-shot launch modes', () => {
-  const argv = ['/fixture/lib/main.js', '--next-recovery', '--next-safe-mode', '--next-onboarding', '--example=value']
-  expect(relaunchArguments(argv, true, true, true)).toEqual(['/fixture/lib/main.js', '--example=value', '--next-recovery'])
-  expect(relaunchArguments(argv, false, true, true)).toEqual(['/fixture/lib/main.js', '--example=value', '--next-safe-mode'])
-  expect(relaunchArguments(argv, false, false, true)).toEqual(['/fixture/lib/main.js', '--example=value', '--next-onboarding'])
-  expect(relaunchArguments(argv, false, false)).toEqual(['/fixture/lib/main.js', '--example=value'])
+  const argv = ['/fixture/lib/main.js', '--next-recovery', '--next-safe-mode', '--next-onboarding', '--next-de-elevated', '--next-keep-elevated', '--example=value']
+  expect(relaunchArguments(argv, true, true, true)).toEqual(['/fixture/lib/main.js', '--next-keep-elevated', '--example=value', '--next-recovery'])
+  expect(relaunchArguments(argv, false, true, true)).toEqual(['/fixture/lib/main.js', '--next-keep-elevated', '--example=value', '--next-safe-mode'])
+  expect(relaunchArguments(argv, false, false, true)).toEqual(['/fixture/lib/main.js', '--next-keep-elevated', '--example=value', '--next-onboarding'])
+  expect(relaunchArguments(argv, false, false)).toEqual(['/fixture/lib/main.js', '--next-keep-elevated', '--example=value'])
 })
 
 it('hands an AppImage relaunch to a detached shell instead of Electron\'s relauncher', () => {
@@ -93,4 +95,33 @@ it('waits for an extracting AppImage runtime and restarts extracted', () => {
 it('leaves search paths alone outside an AppImage mount', () => {
   expect(appImageRelaunchEnvironment({ PATH: '/usr/bin' })).toEqual({ PATH: '/usr/bin' })
   expect(appImageRelaunchEnvironment({ APPDIR: '/tmp/.mount_NEXT', LD_LIBRARY_PATH: '/tmp/.mount_NEXT/usr/lib' })).toEqual({ APPDIR: '/tmp/.mount_NEXT' })
+})
+
+it('restarts a macOS app that LaunchServices started through LaunchServices once this process exits (#1515)', () => {
+  const executable = '/Applications/DSH NEXT.app/Contents/MacOS/DSH NEXT'
+  const relaunches: Array<{ args: string[] }> = []
+  const spawns: unknown[][] = []
+  const child = { on: vi.fn(), unref: vi.fn() }
+  const spawn = ((...call: unknown[]) => { spawns.push(call); return child }) as unknown as RelaunchSpawn
+  const app = { relaunch: (options: { args: string[] }) => { relaunches.push(options) } }
+  const env = { __CFBundleIdentifier: 'ai.deepseek.dsh.desktop.next', PATH: '/usr/bin:/bin' }
+  relaunchApp(app, ['--example=value'], { env, platform: 'darwin', pid: 42, executable, spawn })
+  expect(spawns).toEqual([['/bin/sh', ['-c', MAC_RELAUNCH_SCRIPT, '42', '/Applications/DSH NEXT.app', executable, '--example=value'],
+    { detached: true, stdio: 'ignore', env }]])
+  expect(child.on).toHaveBeenCalledWith('error', expect.any(Function))
+  expect(child.unref).toHaveBeenCalledOnce()
+  // Runs started from a terminal, a development script or a test harness keep Electron's relauncher and their environment.
+  relaunchApp(app, ['--example=value'], { env: { __CFBundleIdentifier: 'com.apple.Terminal' }, platform: 'darwin', executable, spawn })
+  relaunchApp(app, ['--example=value'], { env: {}, platform: 'darwin', executable, spawn })
+  relaunchApp(app, ['--example=value'], { env, platform: 'darwin', executable: '/usr/local/lib/node_modules/electron/dist/electron', spawn })
+  relaunchApp(app, ['--example=value'], { env, platform: 'win32', executable, spawn })
+  expect(relaunches).toEqual(Array.from({ length: 4 }, () => ({ args: ['--example=value'] })))
+  expect(spawns).toHaveLength(1)
+})
+
+
+it('strips consumed explicit workspace flags without removing the Electron application directory', () => {
+  const argv = ['/repo/desktop-app', '--dsh-desktop-workspace=/frontend', '--dsh-desktop-workspace=/backend', '--example=value']
+  expect(relaunchArguments(argv, false, false)).toEqual(['/repo/desktop-app', '--example=value'])
+  expect(relaunchArguments(argv, false, true)).toEqual(['/repo/desktop-app', '--example=value', '--next-safe-mode'])
 })

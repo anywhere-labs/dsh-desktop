@@ -1,10 +1,12 @@
 /** Prepare, execute and check the bundled interpreter payloads for every CPU one Next package carries. */
-import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parsePrimaryRuntime, workspaceDependencyPaths, type PrimaryRuntimeManifest } from '@deepseek-ai/dsh-tool-workspace-dependencies'
-import { machOArchitectures, preparePrimaryRuntime, readPrimaryRuntimeLock, rosettaAvailable, smokePrimaryRuntime, type PrimaryRuntimeTarget } from './primary-runtime.ts'
+import { macSmokeArchitecture } from '../../dsh-plugin-desktop/scripts/mac-universal.ts'
+import { prepareCuaNative } from './upstream-family.ts'
+import { machOArchitectures, preparePrimaryRuntime, primaryRuntimePayloadDigest, readPrimaryRuntimeLock, rosettaAvailable, smokePrimaryRuntime, type PrimaryRuntimeTarget } from './primary-runtime.ts'
 
 /** CPU of one bundled payload. */
 export type NextRuntimeArch = 'arm64' | 'x64'
@@ -16,14 +18,30 @@ export interface NextRuntimeTarget {
 }
 
 /**
- * Payloads one Next package carries: both Darwin CPUs, because macOS releases are universal and the
- * installed slice selects its payload at runtime; Windows x64 only; nothing on other platforms.
+ * Payloads one Next package carries: both Darwin CPUs by default (or the single smoke CPU when
+ * `DSH_MAC_SMOKE_ARCH` selects one), because macOS releases are universal and the installed slice
+ * selects its payload at runtime; Windows x64; and the build host CPU on Linux.
  * @param platform - Electron platform being packaged.
+ * @param hostArch - Build host architecture, used on Linux where packages are single-architecture.
+ * @param env - Process environment inspected for single-architecture smoke selection.
  * @returns Locked targets and their CPUs.
  */
-export function nextRuntimeTargets(platform: NodeJS.Platform): readonly NextRuntimeTarget[] {
-  if (platform === 'darwin') return [{ target: 'mac-arm64', arch: 'arm64' }, { target: 'mac-x64', arch: 'x64' }]
+export function nextRuntimeTargets(
+  platform: NodeJS.Platform,
+  hostArch: string = process.arch,
+  env: NodeJS.ProcessEnv = process.env,
+): readonly NextRuntimeTarget[] {
+  if (platform === 'darwin') {
+    const arch = macSmokeArchitecture(env)
+    if (arch === 'arm64') return [{ target: 'mac-arm64', arch: 'arm64' }]
+    if (arch === 'x64') return [{ target: 'mac-x64', arch: 'x64' }]
+    return [{ target: 'mac-arm64', arch: 'arm64' }, { target: 'mac-x64', arch: 'x64' }]
+  }
   if (platform === 'win32') return [{ target: 'win-x64', arch: 'x64' }]
+  if (platform === 'linux') {
+    if (hostArch === 'arm64') return [{ target: 'linux-arm64', arch: 'arm64' }]
+    if (hostArch === 'x64') return [{ target: 'linux-x64', arch: 'x64' }]
+  }
   return []
 }
 
@@ -74,6 +92,7 @@ export interface PrepareNextRuntimeOptions {
   readonly desktopRoot: string
   readonly platform: NodeJS.Platform
   readonly version: string
+  readonly hostArch?: string
   readonly log?: (message: string) => void
 }
 
@@ -87,17 +106,19 @@ export async function prepareNextRuntime(options: PrepareNextRuntimeOptions): Pr
   const paths = nextRuntimeBuildPaths(options.desktopRoot)
   const log = options.log ?? console.log
   rmSync(paths.runtime, { recursive: true, force: true })
-  const targets = nextRuntimeTargets(options.platform)
+  const targets = nextRuntimeTargets(options.platform, options.hostArch)
   if (targets.length === 0) {
     log(`Next ships no interpreter payload for ${options.platform}`)
     return paths.runtime
   }
   const lock = readPrimaryRuntimeLock()
   const skillSource = join(dirname(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-skill-office/package.json')), 'assets')
-  for (const { target, arch } of targets) {
+  for (const { target } of targets) {
     log(`Preparing the ${target} primary runtime (Python ${lock.pythonVersion}, Node ${lock.nodeVersion}) for ${options.version}`)
-    await preparePrimaryRuntime({ lock, target, output: join(paths.runtime, arch), cache: paths.downloads, version: options.version, skillSource })
   }
+  await Promise.all(targets.map(({ target, arch }) =>
+    preparePrimaryRuntime({ lock, target, output: join(paths.runtime, arch), cache: paths.downloads, version: options.version, skillSource }),
+  ))
   return paths.runtime
 }
 
@@ -107,11 +128,12 @@ export async function prepareNextRuntime(options: PrepareNextRuntimeOptions): Pr
  * @param runtimeRoot - Prepared runtime root.
  * @param platform - Platform the payloads target.
  * @param log - Progress output.
+ * @param hostArch - Build host architecture, used on Linux where packages are single-architecture.
  * @returns CPUs whose payload ran.
  */
-export function smokeNextRuntime(runtimeRoot: string, platform: NodeJS.Platform, log: (message: string) => void = console.log): NextRuntimeArch[] {
+export function smokeNextRuntime(runtimeRoot: string, platform: NodeJS.Platform, log: (message: string) => void = console.log, hostArch: string = process.arch): NextRuntimeArch[] {
   const executed: NextRuntimeArch[] = []
-  for (const { arch } of nextRuntimeTargets(platform)) {
+  for (const { arch } of nextRuntimeTargets(platform, hostArch)) {
     const root = primaryRuntimeDirectory(runtimeRoot, arch)
     const launcher = platform === 'darwin' && arch === 'x64' && process.arch === 'arm64' && rosettaAvailable() ? ['/usr/bin/arch', '-x86_64'] : undefined
     if (smokePrimaryRuntime(root, { launcher })) {
@@ -140,11 +162,12 @@ function requireFile(path: string, description: string): void {
  * @param runtimeRoot - `.desktop-build/runtime` or the packaged `Resources/runtime`.
  * @param platform - Platform the package targets.
  * @param expectedVersion - Product version every manifest must record.
+ * @param hostArch - Build host architecture, used on Linux where packages are single-architecture.
  * @returns The verified payloads in target order.
  */
-export function verifyNextRuntimeTree(runtimeRoot: string, platform: NodeJS.Platform, expectedVersion: string): VerifiedNextRuntime[] {
+export function verifyNextRuntimeTree(runtimeRoot: string, platform: NodeJS.Platform, expectedVersion: string, hostArch: string = process.arch): VerifiedNextRuntime[] {
   const verified: VerifiedNextRuntime[] = []
-  for (const { arch } of nextRuntimeTargets(platform)) {
+  for (const { arch } of nextRuntimeTargets(platform, hostArch)) {
     const directory = primaryRuntimeDirectory(runtimeRoot, arch)
     const manifestFile = join(directory, 'runtime.json')
     requireFile(manifestFile, `${arch} payload manifest`)
@@ -173,11 +196,58 @@ export function verifyNextRuntimeTree(runtimeRoot: string, platform: NodeJS.Plat
   return verified
 }
 
+/**
+ * Check whether an existing runtime root already matches the locked payload digests and product
+ * version for every target of the platform without stale entries.
+ * @param runtimeRoot - `.desktop-build/runtime`.
+ * @param platform - Platform the package targets.
+ * @param expectedVersion - Product version every manifest must record.
+ * @param hostArch - Build host architecture, used on Linux where packages are single-architecture.
+ * @returns The verified payloads when the existing tree can be reused, or an empty array.
+ */
+export function reusableNextRuntimeTree(
+  runtimeRoot: string,
+  platform: NodeJS.Platform,
+  expectedVersion: string,
+  hostArch: string = process.arch,
+): VerifiedNextRuntime[] {
+  const targets = nextRuntimeTargets(platform, hostArch)
+  if (targets.length === 0 || !existsSync(runtimeRoot)) return []
+  try {
+    const verified = verifyNextRuntimeTree(runtimeRoot, platform, expectedVersion, hostArch)
+    const expectedArchs = new Set<string>(targets.map(item => item.arch))
+    if (readdirSync(runtimeRoot).some(entry => !expectedArchs.has(entry))) return []
+    const lock = readPrimaryRuntimeLock()
+    const pnpmManifest = createRequire(import.meta.url).resolve('pnpm')
+    const pnpmVersion = (JSON.parse(readFileSync(pnpmManifest, 'utf8')) as { version: string }).version
+    for (let index = 0; index < targets.length; index++) {
+      const target = targets[index]!
+      const runtime = verified[index]
+      if (runtime?.manifest.payloadDigest !== primaryRuntimePayloadDigest(target.target, lock, pnpmVersion)) return []
+    }
+    return verified
+  } catch {
+    return []
+  }
+}
+
 const invokedPath = process.argv[1]
 if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
   const desktopRoot = resolve(import.meta.dirname, '..')
   const version = expectedNextVersion(desktopRoot)
-  const root = await prepareNextRuntime({ desktopRoot, platform: process.platform, version })
-  verifyNextRuntimeTree(root, process.platform, version)
-  smokeNextRuntime(root, process.platform)
+  const paths = nextRuntimeBuildPaths(desktopRoot)
+  const reusable = reusableNextRuntimeTree(paths.runtime, process.platform, version)
+  if (reusable.length > 0) {
+    console.log(`Reusing prepared primary runtime for ${reusable.map(item => item.arch).join(', ')}`)
+  } else {
+    const root = await prepareNextRuntime({ desktopRoot, platform: process.platform, version })
+    verifyNextRuntimeTree(root, process.platform, version)
+    smokeNextRuntime(root, process.platform)
+  }
+  // A development launch runs the Host on this CPU only; packaging builds every CPU's helper.
+  if (process.platform === 'darwin' && prepareCuaNative !== undefined) {
+    for (const helper of prepareCuaNative(desktopRoot, [process.arch === 'x64' ? 'x64' : 'arm64'])) {
+      console.log(`Prepared the official Computer Use helper ${helper}`)
+    }
+  }
 }

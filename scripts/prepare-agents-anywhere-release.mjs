@@ -4,7 +4,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { AA_PACKAGE, AA_REPOSITORY, AA_WORKSPACES, aaConnectorResolution, assertPreparedAaRelease, runtimePeerRanges as readRuntimePeerRanges } from './agents-anywhere-release-policy.mjs'
+import { AA_PACKAGE, AA_REPOSITORY, AA_WORKSPACES, aaArtifactResolution, assertPreparedAaRelease, runtimePeerRanges as readRuntimePeerRanges } from './agents-anywhere-release-policy.mjs'
 import { prepareInstalledAaRuntime } from './prepare-agents-anywhere-runtime.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -248,7 +248,7 @@ function prepare() {
       writeFileSync(join(root, path), `${JSON.stringify(manifest, null, 2)}\n`)
     }
     const rootManifest = readJson(join(root, 'package.json'))
-    rootManifest.resolutions[AA_PACKAGE] = aaConnectorResolution(artifactName)
+    rootManifest.resolutions[AA_PACKAGE] = aaArtifactResolution(artifactName)
     writeFileSync(join(root, 'package.json'), `${JSON.stringify(rootManifest, null, 2)}\n`)
     run('corepack', ['yarn', 'install', '--mode=skip-build'], root)
     prepareInstalledAaRuntime(root)

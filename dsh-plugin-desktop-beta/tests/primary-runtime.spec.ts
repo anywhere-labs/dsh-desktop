@@ -17,8 +17,8 @@ const libraryWheel = Buffer.from('UEsDBAoAAAAAAASeLl0sYMPjDAAAAAwAAAAJAAAAc2FtcG
 const relocatedWheel = Buffer.from('UEsDBAoAAAAAAASeLl3x0Nj9FAAAABQAAAAeAAAAc2FtcGxlLTEuMC5kYXRhL3NjcmlwdHMvc2FtcGxlcmVxdWlyZXMgcmVsb2NhdGlvbgpQSwECHgMKAAAAAAAEni5d8dDY/RQAAAAUAAAAHgAAAAAAAAABAAAApIEAAAAAc2FtcGxlLTEuMC5kYXRhL3NjcmlwdHMvc2FtcGxlUEsFBgAAAAABAAEATAAAAFAAAAAAAA==', 'base64')
 const externalLibraryWheel = Buffer.from('UEsDBBQAAAAAAAAAIVyBOE8OHAAAABwAAAAhAAAAc2FtcGxlLTEuMC5kYXRhL3B1cmVsaWIvc2FtcGxlLnB5cmVxdWlyZXMgbGlicmFyeSByZWxvY2F0aW9uClBLAQIUAxQAAAAAAAAAIVyBOE8OHAAAABwAAAAhAAAAAAAAAAAAAACAAQAAAABzYW1wbGUtMS4wLmRhdGEvcHVyZWxpYi9zYW1wbGUucHlQSwUGAAAAAAEAAQBPAAAAWwAAAAAA', 'base64')
 
-it('pins the Darwin and Windows targets Desktop packages and the distributions the Office smoke imports', () => {
-  for (const target of ['mac-arm64', 'mac-x64', 'win-x64'] as const) expect(lock.targets[target].wheels.length).toBeGreaterThan(0)
+it('pins the Darwin, Windows and Linux targets Next packages and the distributions the Office smoke imports', () => {
+  for (const target of ['mac-arm64', 'mac-x64', 'win-x64', 'linux-x64', 'linux-arm64'] as const) expect(lock.targets[target].wheels.length).toBeGreaterThan(0)
   for (const name of ['numpy', 'pandas', 'python-docx', 'python-pptx', 'openpyxl', 'Pillow', 'lxml', 'XlsxWriter']) expect(lock.pythonPackages).toHaveProperty(name)
 })
 
@@ -76,10 +76,10 @@ it('reports a payload of another platform or CPU as not executed unless a launch
   const root = await mkdtemp(join(tmpdir(), 'desktop-foreign-runtime-'))
   try {
     await writeFile(join(root, 'runtime.json'), JSON.stringify({ desktopVersion: '1.0.0', platform: process.platform === 'win32' ? 'darwin' : 'win32', arch: 'x64',
-      python: '3.12.14', node: '24.21.0', pnpm: '11.8.0', pythonPackages: { numpy: '2.3.5' } }))
+      python: '3.12.14', node: '24.21.0', pnpm: '11.28.5', pythonPackages: { numpy: '2.3.5' } }))
     expect(smokePrimaryRuntime(root)).toBe(false)
     await writeFile(join(root, 'runtime.json'), JSON.stringify({ desktopVersion: '1.0.0', platform: process.platform, arch: process.arch === 'x64' ? 'arm64' : 'x64',
-      python: '3.12.14', node: '24.21.0', pnpm: '11.8.0', pythonPackages: { numpy: '2.3.5' } }))
+      python: '3.12.14', node: '24.21.0', pnpm: '11.28.5', pythonPackages: { numpy: '2.3.5' } }))
     expect(smokePrimaryRuntime(root)).toBe(false)
     // A launcher commits to executing the foreign CPU; the missing interpreter is then an error.
     expect(() => smokePrimaryRuntime(root, { launcher: ['/usr/bin/arch', '-x86_64'] })).toThrow()
@@ -176,7 +176,7 @@ it.skipIf(process.platform === 'win32')('rejects expanded interpreter aliases in
   const root = await mkdtemp(join(tmpdir(), 'primary-expanded-aliases-'))
   try {
     await writeFile(join(root, 'runtime.json'), JSON.stringify({ desktopVersion: '1', platform: process.platform, arch: process.arch,
-      python: '3.12.14', node: '24.21.0', pnpm: '11.8.0', pythonPackages: { numpy: '2.3.5' } }))
+      python: '3.12.14', node: '24.21.0', pnpm: '11.28.5', pythonPackages: { numpy: '2.3.5' } }))
     await mkdir(join(root, 'dependencies/python/bin'), { recursive: true })
     for (const name of ['python', 'python3', 'python3.12']) await writeFile(join(root, 'dependencies/python/bin', name), 'interpreter')
     expect(() => { smokePrimaryRuntime(root) }).toThrow('Python commands must be relative aliases')

@@ -218,7 +218,7 @@ describe('Electron workspace admission', () => {
     }))
   })
 
-  it('drops a refused folder instead of failing the whole multi-selection', async () => {
+  it('cancels the entire selection when any folder fails native policy', async () => {
     const showOpenDialog = vi.fn(async () => ({
       canceled: false,
       filePaths: ['C:\\repo', 'E:\\exfat-repo', 'C:\\docs'],
@@ -230,7 +230,7 @@ describe('Electron workspace admission', () => {
         : { root: 'C:\\', fileSystem: 'NTFS', driveType: 3 },
     })
 
-    await expect(subject.pickDirectories()).resolves.toEqual(['C:\\repo', 'C:\\docs'])
+    await expect(subject.pickDirectories()).resolves.toEqual([])
     expect(options.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
       type: 'error',
       message: expect.stringContaining('EXFAT'),
@@ -243,7 +243,7 @@ describe('Electron workspace admission', () => {
     await expect(subject.pickDirectories()).resolves.toEqual([])
   })
 
-  it('coalesces concurrent multi-selections without reusing the single-folder task', async () => {
+  it('serializes mixed picker intentions and coalesces repeated multi-selections', async () => {
     const finishes: ((value: { canceled: false; filePaths: string[] }) => void)[] = []
     const showOpenDialog = vi.fn<ElectronWorkspaceAdmissionOptions['showOpenDialog']>(() => new Promise((resolve) => {
       finishes.push(resolve)
@@ -253,11 +253,12 @@ describe('Electron workspace admission', () => {
     const single = subject.pickDirectory()
     const first = subject.pickDirectories()
     const second = subject.pickDirectories()
-    // Three dialogs: one for the single-folder request and one for the
-    // multi-folder pair. The two shapes never share an in-flight task.
-    expect(showOpenDialog).toHaveBeenCalledTimes(2)
-
+    // The multi-folder request queues behind the existing native modal; it
+    // still gets its own multi-selection dialog rather than a narrowed result.
+    expect(showOpenDialog).toHaveBeenCalledTimes(1)
     finishes[0]?.({ canceled: false, filePaths: ['C:\\Single'] })
+    await single
+    expect(showOpenDialog).toHaveBeenCalledTimes(2)
     finishes[1]?.({ canceled: false, filePaths: ['C:\\Many', 'D:\\More'] })
 
     await expect(Promise.all([single, first, second]))
@@ -285,4 +286,45 @@ describe('Electron workspace admission', () => {
     await expect(subject.pickDirectories()).rejects.toThrow('native workspace picker is unavailable on linux')
     expect(showOpenDialog).not.toHaveBeenCalled()
   })
+})
+
+
+describe('atomic launch folder admission', () => {
+  it('never returns a partial launch or changes the primary root after refusal', async () => {
+    const { admission: subject } = admission({ inspectPath: path => ({ directory: path !== 'C:\\missing' }) })
+    await expect(subject.admitWorkspacePaths(['C:\\primary', 'C:\\missing', 'C:\\extra'])).resolves.toBeNull()
+    await expect(subject.admitWorkspacePaths(['C:\\missing', 'C:\\extra'])).resolves.toBeNull()
+  })
+  it('preserves a valid primary and deduplicates the group', async () => {
+    const { admission: subject } = admission({ inspectPath: () => ({ directory: true }) })
+    await expect(subject.admitWorkspacePaths(['C:\\primary', 'C:\\extra', 'C:\\primary']))
+      .resolves.toEqual(['C:\\primary', 'C:\\extra'])
+    await expect(subject.admitWorkspacePaths(['C:\\single'])).resolves.toEqual(['C:\\single'])
+  })
+  it('drops a native confirmation when its owning generation is replaced', async () => {
+    let current = true
+    const { admission: subject } = admission({ inspectPath: () => ({ directory: true }) })
+    const validate = vi.spyOn(subject, 'admitWorkspacePath').mockImplementation(async () => { current = false; return true })
+    await expect(subject.admitWorkspacePaths(['C:\\primary', 'C:\\extra'], () => current)).resolves.toBeNull()
+    expect(validate).toHaveBeenCalledTimes(1)
+  })
+})
+
+
+it('does not share selections across renderer owners or open a queued stale modal', async () => {
+  const pending: ((value: { canceled: boolean; filePaths: string[] }) => void)[] = []
+  const showOpenDialog = vi.fn<ElectronWorkspaceAdmissionOptions['showOpenDialog']>(() => new Promise(resolve => { pending.push(resolve) }))
+  const { admission: subject } = admission({ platform: 'darwin', showOpenDialog })
+  const first = subject.pickDirectories({})
+  let current = true
+  const stale = subject.pickDirectories({}, () => current)
+  const replacement = subject.pickDirectories({})
+  current = false
+  expect(showOpenDialog).toHaveBeenCalledTimes(1)
+  pending[0]?.({ canceled: false, filePaths: ['/old'] })
+  await expect(first).resolves.toEqual(['/old'])
+  await expect(stale).resolves.toEqual([])
+  expect(showOpenDialog).toHaveBeenCalledTimes(2)
+  pending[1]?.({ canceled: false, filePaths: ['/new'] })
+  await expect(replacement).resolves.toEqual(['/new'])
 })

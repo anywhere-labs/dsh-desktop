@@ -151,3 +151,55 @@ it('safely renders cyclic and hostile diagnostic values', () => {
   const hostile = { get message() { throw new Error('accessor') } }
   expect(sanitize(hostile)).toBe('[unrenderable diagnostic]')
 })
+
+it('rewrites the readable log only when its text changed and keeps history-only records out of it', () => {
+  const home = temporary(); const log = diagnostics(home)
+  const readable = join(home, 'logs', 'desktop-next.log')
+  log.developer = true
+  log.record({ source: 'desktop', event: 'visible' }); log.flush()
+  // atomicText replaces the file, so an unchanged inode means no rewrite.
+  const written = lstatSync(readable).ino
+  log.record({ source: 'desktop.memory', event: 'memory.sample', developer: true, historyOnly: true, data: { freeMB: 1 } }); log.flush()
+  log.flush()
+  expect(lstatSync(readable).ino).toBe(written)
+  expect(records(home).map(record => record.event)).toEqual(['visible', 'memory.sample'])
+  expect(records(home).at(-1)).not.toHaveProperty('historyOnly')
+  expect(readFileSync(readable, 'utf8')).not.toContain('memory.sample')
+  // An unfinished process line is part of the readable snapshot, so it does count as a change.
+  log.hostChunk('partial output without newline', 'stdout', 7); log.flush()
+  expect(lstatSync(readable).ino).not.toBe(written)
+  expect(readFileSync(readable, 'utf8')).toContain('partial output without newline')
+  const framed = `${HOST_LOG_PREFIX}${JSON.stringify({ source: 'host', event: 'hidden', historyOnly: true })}\n`
+  log.hostChunk(framed, 'stdout', 8); log.flush()
+  expect(records(home).some(record => record.event === 'hidden')).toBe(false)
+})
+
+it('keeps structured evidence in history only and refuses it from framed process output', () => {
+  const home = temporary(); const log = diagnostics(home)
+  const data = { samples: [{ freeMB: 12.5, processes: [{ type: 'Tab', pid: 7, workingSetMB: 2048 }] }] }
+  log.record({ source: 'desktop.memory', event: 'memory.snapshot', level: 'error', fields: { samples: 1 }, data })
+  log.hostChunk(`${HOST_LOG_PREFIX}${JSON.stringify({ source: 'host', event: 'forged', data: { nested: [1, 2] } })}\n`, 'stdout', 99)
+  log.flush()
+  const history = records(home)
+  expect(history.find(record => record.event === 'memory.snapshot').data).toEqual(data)
+  expect(history.some(record => record.event === 'forged')).toBe(false)
+  expect(history.find(record => record.source === 'host.stdout')).toMatchObject({ event: 'output', pid: 99 })
+  expect(log.snapshot()).toContain('[desktop.memory] memory.snapshot {"samples":1}')
+  expect(log.snapshot()).not.toContain('workingSetMB')
+})
+
+it('describes local minidumps in exports without including or following them', () => {
+  const home = temporary(); const log = diagnostics(home)
+  const dumps = join(home, 'electron-user-data', 'Crashpad')
+  mkdirSync(join(dumps, 'pending'), { recursive: true })
+  writeFileSync(join(dumps, 'pending', 'host.dmp'), 'MDMP-private-memory')
+  writeFileSync(join(dumps, 'settings.dat'), 'settings')
+  const elsewhere = temporary(); writeFileSync(join(elsewhere, 'foreign.dmp'), 'MDMP')
+  symlinkSync(elsewhere, join(dumps, 'linked'))
+  expect(JSON.parse(log.export(state)).crashDumps).toBeNull()
+  log.crashDumps = dumps
+  const exported = log.export(state)
+  expect(JSON.parse(exported).crashDumps).toEqual({ location: 'electron-user-data/Crashpad', count: 1,
+    files: [{ name: 'pending/host.dmp', bytes: 19, modified: expect.any(String) }] })
+  expect(exported).not.toContain('private-memory')
+})

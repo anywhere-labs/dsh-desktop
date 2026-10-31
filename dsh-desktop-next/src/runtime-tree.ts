@@ -1,7 +1,7 @@
 /** Relocatable, integrity-recorded production payload carried by one Next release. */
 
 import { createHash } from 'node:crypto'
-import { lstatSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { closeSync, createReadStream, lstatSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative, sep } from 'node:path'
 
 /** Descriptor sealed at the payload root; a packaged application carries it inside `app.asar`. */
@@ -61,6 +61,10 @@ export interface PayloadEntry {
   readonly executable: boolean
   /** Final bytes. */
   read(): Buffer
+  /** Stream final bytes for bounded-memory asynchronous inventory, when available. */
+  readChunks?(): AsyncIterable<Buffer>
+  /** Read at most the leading `bytes` of the entry without loading the entire file. */
+  readHeader?(bytes: number): Buffer
 }
 
 /** A complete payload: an unpacked directory, or an archive with its unpacked sibling. */
@@ -140,7 +144,17 @@ export function physicalPayload(root: string, omit: readonly string[] = [DESKTOP
         entries.set(name, { path: name, unpacked: false,
           // Windows has no portable Unix executable permission bits.
           executable: process.platform !== 'win32' && (lstatSync(path).mode & 0o111) !== 0,
-          read: () => readFileSync(path) })
+          read: () => readFileSync(path),
+          readChunks: () => createReadStream(path),
+          readHeader: (bytes) => {
+            const fd = openSync(path, 'r')
+            try {
+              const buffer = Buffer.alloc(bytes)
+              return buffer.subarray(0, readSync(fd, buffer, 0, bytes, 0))
+            } finally {
+              closeSync(fd)
+            }
+          } })
       } else throw new Error(`desktop runtime: unsupported filesystem entry ${name}`)
     }
   }
@@ -165,6 +179,45 @@ function runtimeFile(entry: PayloadEntry, body: Buffer): DesktopRuntimeFile {
  */
 export function inventoryPayload(source: PayloadSource): DesktopRuntimeFile[] {
   return source.list().map(entry => runtimeFile(entry, entry.read()))
+}
+
+async function runtimeFileAsync(entry: PayloadEntry): Promise<DesktopRuntimeFile> {
+  if (entry.readChunks === undefined) return runtimeFile(entry, entry.read())
+  const hash = createHash('sha256')
+  let bytes = 0
+  let header = Buffer.alloc(0)
+  for await (const chunk of entry.readChunks()) {
+    if (header.length < 4) header = Buffer.concat([header, chunk.subarray(0, 4 - header.length)])
+    bytes += chunk.byteLength
+    hash.update(chunk)
+  }
+  return { path: entry.path, bytes, sha256: hash.digest('hex'), executable: entry.executable, machO: isMachO(header) }
+}
+
+/**
+ * Inventory every byte with a bounded number of readers, preserving the source's sorted order.
+ * Physical files stream through SHA-256 so large native binaries do not accumulate in memory.
+ * @param source - Complete payload to hash.
+ * @param concurrency - Number of readers, from 1 to 32; eight by default.
+ * @returns The same inventory as the synchronous path, independent of completion order.
+ */
+export async function inventoryPayloadAsync(source: PayloadSource, concurrency = 8): Promise<DesktopRuntimeFile[]> {
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32) throw new Error('desktop runtime: hash concurrency must be an integer from 1 to 32')
+  const entries = source.list()
+  const files = new Array<DesktopRuntimeFile>(entries.length)
+  let cursor = 0
+  let failed = false
+  const worker = async (): Promise<void> => {
+    while (!failed && cursor < entries.length) {
+      const index = cursor++
+      try { files[index] = await runtimeFileAsync(entries[index]!) }
+      catch (error) { failed = true; throw error }
+    }
+  }
+  // Drain readers on failure before returning control to callers that may remove the tree.
+  const results = await Promise.allSettled(Array.from({ length: Math.min(concurrency, entries.length) }, worker))
+  for (const result of results) if (result.status === 'rejected') throw result.reason
+  return files
 }
 
 /**
@@ -196,17 +249,14 @@ function readManifest(source: PayloadSource, path: string): unknown {
 }
 
 /**
- * Seal a complete payload: the prepared tree before Electron Builder archives it.
+ * Validate the release, target and release-owned package metadata before inventorying files.
  * @param source - Complete payload.
- * @param descriptorFile - Where the descriptor is written; outside the payload's inventory.
  * @param release - Matching shell, dsh, Electron and pnpm versions.
  * @param sharedNames - Release-owned packages supplied to Profiles.
  * @param target - Platform and architectures whose native dependencies the payload includes.
- * @returns The written descriptor.
+ * @returns Descriptor fields shared by both inventory paths.
  */
-export function sealPayload(
-  source: PayloadSource, descriptorFile: string, release: NextRelease, sharedNames: readonly string[], target: NextRuntimeTarget,
-): DesktopRuntimeDescriptor {
+function payloadMetadata(source: PayloadSource, release: NextRelease, sharedNames: readonly string[], target: NextRuntimeTarget): Omit<DesktopRuntimeDescriptor, 'files'> {
   const { platform, archs } = parseTarget(target.platform, target.archs)
   const sharedPackages = [...new Set(sharedNames)].sort().map((name) => {
     if (!PACKAGE_NAME.test(name)) throw new Error(`desktop runtime: invalid shared package ${name}`)
@@ -217,11 +267,46 @@ export function sealPayload(
     }
     return { name, version: manifest.version, path }
   })
-  const descriptor: DesktopRuntimeDescriptor = {
-    schemaVersion: 1, release: parseNextRelease(release), platform, archs, sharedPackages, files: inventoryPayload(source),
-  }
+  return { schemaVersion: 1, release: parseNextRelease(release), platform, archs, sharedPackages }
+}
+
+function writeDescriptor(descriptorFile: string, descriptor: DesktopRuntimeDescriptor): DesktopRuntimeDescriptor {
   writeFileSync(descriptorFile, `${JSON.stringify(descriptor, undefined, 2)}\n`)
   return descriptor
+}
+
+/**
+ * Seal the complete payload synchronously; fixture and archive callers keep this API.
+ * @param source - Complete payload.
+ * @param descriptorFile - Output descriptor, excluded from the inventory.
+ * @param release - Shell and runtime versions.
+ * @param sharedNames - Packages supplied to Profiles.
+ * @param target - Release platform and architectures.
+ * @returns The written descriptor.
+ */
+export function sealPayload(
+  source: PayloadSource, descriptorFile: string, release: NextRelease, sharedNames: readonly string[], target: NextRuntimeTarget,
+): DesktopRuntimeDescriptor {
+  return writeDescriptor(descriptorFile, { ...payloadMetadata(source, release, sharedNames, target), files: inventoryPayload(source) })
+}
+
+/**
+ * Seal a prepared payload using bounded asynchronous readers and unchanged descriptor bytes.
+ * Nothing is written until every file has been hashed successfully.
+ * @param source - Complete physical payload.
+ * @param descriptorFile - Output descriptor, excluded from the inventory.
+ * @param release - Shell and runtime versions.
+ * @param sharedNames - Packages supplied to Profiles.
+ * @param target - Release platform and architectures.
+ * @param concurrency - Number of hash readers, eight by default.
+ * @returns The written descriptor.
+ */
+export async function sealPayloadAsync(
+  source: PayloadSource, descriptorFile: string, release: NextRelease, sharedNames: readonly string[], target: NextRuntimeTarget, concurrency = 8,
+): Promise<DesktopRuntimeDescriptor> {
+  const metadata = payloadMetadata(source, release, sharedNames, target)
+  const files = await inventoryPayloadAsync(source, concurrency)
+  return writeDescriptor(descriptorFile, { ...metadata, files })
 }
 
 /**

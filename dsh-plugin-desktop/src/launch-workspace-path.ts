@@ -46,12 +46,13 @@ function pushUnique(paths: string[], value: string): void {
 }
 
 /** Collect every absolute folder carried by the attached flag form. */
-function attachedLaunchPaths(args: readonly string[], platform: NodeJS.Platform): string[] {
+function attachedLaunchPaths(args: readonly string[], platform: NodeJS.Platform): string[] | undefined {
   const paths: string[] = []
   for (const argument of args) {
     if (!argument.startsWith(WORKSPACE_ARGUMENT_PREFIX)) continue
     const value = argument.slice(WORKSPACE_ARGUMENT_PREFIX.length)
-    if (isAbsoluteLaunchPath(value, platform)) pushUnique(paths, value)
+    if (!isAbsoluteLaunchPath(value, platform)) return undefined
+    pushUnique(paths, value)
   }
   return paths
 }
@@ -81,11 +82,11 @@ export function desktopLaunchWorkspaceFromArguments(
 ): DesktopLaunchWorkspaceRequest | undefined {
   // The attached form wins because it is the only one a command line rebuild
   // cannot detach; repeating it is how one launch names several folders. An
-  // attached flag carrying nothing usable refuses the hand-off outright rather
+  // attached flag carrying any unusable root refuses the complete hand-off rather
   // than falling back to an unrelated absolute path in the rebuilt tail.
   if (args.some(argument => argument.startsWith(WORKSPACE_ARGUMENT_PREFIX))) {
     const paths = attachedLaunchPaths(args, platform)
-    return paths.length === 0 ? undefined : { paths, explicit: true }
+    return paths === undefined || paths.length === 0 ? undefined : { paths, explicit: true }
   }
   const spaced = spacedLaunchPaths(args, platform)
   if (spaced.length > 0) return { paths: spaced, explicit: true }
@@ -100,13 +101,26 @@ export function desktopLaunchWorkspaceFromArguments(
  * Recover a folder hand-off from a complete command line.
  * @param argv - command line including the executable at index zero.
  * @param platform - platform whose path semantics apply.
+ * @param applicationRoot - known unpackaged Electron application entry to exclude.
  * @returns the requested folders, or `undefined` when the launch named none.
  */
 export function desktopLaunchWorkspaceRequest(
   argv: readonly string[] = process.argv,
   platform: NodeJS.Platform = process.platform,
+  applicationRoot?: string,
 ): DesktopLaunchWorkspaceRequest | undefined {
-  return desktopLaunchWorkspaceFromArguments(argv.slice(1), platform)
+  const args = argv.slice(1)
+  if (applicationRoot !== undefined) {
+    const path = platform === 'win32' ? win32 : posix
+    const normalize = (value: string): string => platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value)
+    const entry = args.findIndex((argument, index) => isAbsoluteLaunchPath(argument, platform)
+      && args[index - 1] !== DESKTOP_WORKSPACE_ARGUMENT
+      && normalize(argument) === normalize(applicationRoot))
+    // Development Electron also accepts a package directory as its executable
+    // entry. Strip only that known positional entry, never an explicit root.
+    if (entry >= 0) args.splice(entry, 1)
+  }
+  return desktopLaunchWorkspaceFromArguments(args, platform)
 }
 
 /**

@@ -16,6 +16,30 @@ import { prepareFsExtForElectron } from './prepare-fs-ext.ts'
 import { electronBuilderEnvironment } from './electron-builder-environment.ts'
 import { prepareDesktopInterpreters, verifyPreparedDesktopRuntime } from './prepare-runtime.ts'
 
+const MAC_COMPRESSION_LEVELS = new Set(['store', 'normal', 'maximum'])
+
+/**
+ * Read an optional electron-builder compression override for unsigned CI
+ * smoke artifacts. DMG zlib compression and blockmap generation dominate the
+ * macOS job while smoke artifacts are never published, so CI may select
+ * `store`; release builds leave the variable unset and keep the package
+ * configuration.
+ * @param environment - Environment of the packaging process.
+ * @returns The override, or `undefined` to keep the package configuration.
+ */
+export function macCompressionOverride(
+  environment: NodeJS.ProcessEnv,
+): string | undefined {
+  const value = environment.DSH_MAC_PACKAGE_COMPRESSION
+  if (value === undefined || value === '') return undefined
+  if (!MAC_COMPRESSION_LEVELS.has(value)) {
+    throw new Error(
+      `DSH_MAC_PACKAGE_COMPRESSION must be store, normal, or maximum; received ${JSON.stringify(value)}`,
+    )
+  }
+  return value
+}
+
 /** Injectable native macOS packaging boundary used by focused tests. */
 export interface MacSmokePackageOptions {
   /** Environment inherited by the packaging command. */
@@ -134,10 +158,14 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
   }
 
   const architecture = macSmokeArchitecture(options.env)
+  const compression = macCompressionOverride(options.env)
   const cleanEnvironment = withoutMacReleaseSecrets(options.env)
   options.log('Building an unsigned macOS DMG smoke; signing and notarization are release-only steps.')
   if (architecture !== 'universal') {
     options.log(`Packaging only the ${architecture} application; the universal merge is skipped.`)
+  }
+  if (compression !== undefined) {
+    options.log(`Packaging the macOS DMG smoke with ${compression} compression.`)
   }
   if (options.env.DSH_PACKAGE_CHECK_ALREADY_RAN !== '1') {
     options.run(
@@ -163,6 +191,8 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
       '--config.mac.notarize=false',
       '--config.npmRebuild=false',
       `--config.directories.output=${options.outputDir}`,
+      ...(compression === undefined ? [] : [`--config.mac.compression=${compression}`]),
+      ...(compression === 'store' ? ['--config.dmg.writeUpdateInfo=false'] : []),
     ],
     options.desktopRoot,
     electronBuilderEnvironment({

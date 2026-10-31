@@ -10,29 +10,40 @@ afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(p
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'next-transition-')); directories.push(directory)
   const options = { path: join(directory, 'notices', 'next-transition-v1'),
-    show: vi.fn(async (): Promise<MessageBoxReturnValue> => ({ response: 0, checkboxChecked: false })), reportError: vi.fn() }
+    show: vi.fn(async (): Promise<MessageBoxReturnValue> => ({ response: 1, checkboxChecked: false })), reportError: vi.fn() }
   return { options, notice: new NextTransitionNotice(options) }
 }
-it('shows on first Stable launch with an unchecked opt-out and localizes the copy', async () => {
+it('shows on first Stable launch with a separate opt-out button and localizes the copy', async () => {
   const { options, notice } = await fixture()
   await notice.open('zh', 'stable', () => true)
   expect(options.show).toHaveBeenCalledWith(expect.objectContaining({
-    message: 'Next 将成为新的稳定版桌面端', checkboxLabel: '确认后不再弹出', checkboxChecked: false,
+    message: 'Next 将成为新的稳定版桌面端', buttons: ['不再提醒', '知道了'], defaultId: 1, cancelId: 1,
   }))
   await notice.open('zh', 'stable', () => true)
   expect(options.show).toHaveBeenCalledTimes(1)
   await new NextTransitionNotice(options).open('en', 'stable', () => true)
-  expect(options.show).toHaveBeenLastCalledWith(expect.objectContaining({ message: 'Next will become the new stable desktop app' }))
+  expect(options.show).toHaveBeenLastCalledWith(expect.objectContaining({
+    message: 'Next will become the new stable desktop app', buttons: ["Don't show again", 'OK'],
+  }))
 })
-it('persists only an explicitly confirmed opt-out across launches', async () => {
+// #1418: on macOS the in-dialog checkbox could not be ticked, so the notice
+// returned on every launch. The opt-out must not depend on any checkbox state.
+it('never asks the dialog for checkbox state', async () => {
   const { options, notice } = await fixture()
-  options.show.mockResolvedValue({ response: 0, checkboxChecked: true })
+  await notice.open('zh', 'stable', () => true)
+  const shown = options.show.mock.calls[0] as unknown as [Record<string, unknown>]
+  expect(shown[0]).not.toHaveProperty('checkboxLabel')
+  expect(shown[0]).not.toHaveProperty('checkboxChecked')
+})
+it('persists the opt-out button across launches even when no checkbox was ticked', async () => {
+  const { options, notice } = await fixture()
+  options.show.mockResolvedValue({ response: 0, checkboxChecked: false })
   await notice.open('zh', 'stable', () => true)
   expect(await readFile(options.path, 'utf8')).toBe('next-transition-v1:dismissed\n')
   await new NextTransitionNotice(options).open('zh', 'stable', () => true)
   expect(options.show).toHaveBeenCalledTimes(1)
 })
-it('does not save an unconfirmed checkbox selection', async () => {
+it('keeps reminding after the acknowledgement button, Escape or closing the window', async () => {
   const { options, notice } = await fixture()
   options.show.mockResolvedValue({ response: 1, checkboxChecked: true })
   await notice.open('zh', 'stable', () => true)

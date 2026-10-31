@@ -1,9 +1,9 @@
 /** Main-process update ownership survives a stopped or broken Profile Host. */
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { checkForDesktopUpdate, type UpdateCheckResult, type UpdateRequest } from '../../dsh-plugin-desktop-beta/src/update-checker.ts'
-import { desktopUpdateFilename, downloadDesktopUpdate, type UpdateArtifactRequest } from '../../dsh-plugin-desktop-beta/src/update-download.ts'
-import { getOrCreateDesktopInstallationId } from '../../dsh-plugin-desktop-beta/src/desktop-installation-id.ts'
+import { checkForDesktopUpdate, type UpdateCheckResult, type UpdateRequest } from '../../dsh-plugin-desktop/src/update-checker.ts'
+import { desktopUpdateFilename, downloadDesktopUpdate, type UpdateArtifactRequest } from '../../dsh-plugin-desktop/src/update-download.ts'
+import { getOrCreateDesktopInstallationId } from '../../dsh-plugin-desktop/src/desktop-installation-id.ts'
 import { atomicJson, privateDirectory, readPrivateFile } from './private-files.ts'
 import type { NextUpdateState } from './update-state.ts'
 
@@ -66,7 +66,7 @@ export class NextUpdates {
     this.options.changed()
   }
   start(): void {
-    if (!this.options.packaged || this.timer || this.disposed) return
+    if (!this.options.packaged || !['darwin', 'win32'].includes(this.options.platform) || this.timer || this.disposed) return
     void this.initializeCache().catch(this.options.log)
     const poll = (): void => {
       if (this.disposed) return

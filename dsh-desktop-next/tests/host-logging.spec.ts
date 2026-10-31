@@ -110,3 +110,13 @@ it('correlates metadata with canonical Session Log sequence and time without rec
   expect(events[1]).toMatchObject({ event: 'tool/call', fields: { sessionSequence: 18, callId: 'call-a', tool: 'bash' } })
   expect(JSON.stringify(events)).not.toContain('private')
 })
+
+it('records lightweight plugin state transitions directly from fiber entry without inventory scans', async () => {
+  const { ctx, records } = await environment()
+  ctx.emit('internal/status', { state: 2, entry: { id: 'plugin-a', options: { name: 'example-module' } } } as never, 1 as never)
+  expect(records().at(-1)).toMatchObject({
+    source: 'host.plugins',
+    event: 'plugin.state',
+    fields: { pluginId: 'plugin-a', module: 'example-module', previous: 1, state: 2 },
+  })
+})

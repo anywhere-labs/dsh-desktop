@@ -8,14 +8,13 @@ type RecordDiagnostic = (input: LogInput) => void
 const active = (ctx: Context): boolean => ctx.fiber?.state !== 4 && ctx.fiber?.state !== 5
 
 /** Keep the official inventory's enablement and named phases, including ancestor enablement. */
-export async function recordOfficialPluginInventory(ctx: Context, record: RecordDiagnostic, entryId?: string): Promise<void> {
+export async function recordOfficialPluginInventory(ctx: Context, record: RecordDiagnostic): Promise<void> {
   if (!ctx.get('loader')) return
   try {
     const inventory = await readPluginInventory(ctx)
     if (!active(ctx)) return
     for (const entry of inventory.entries) {
-      if (entryId !== undefined && entry.entryId !== entryId) continue
-      record({ source: 'host.plugins', event: entryId === undefined ? 'plugin.snapshot' : 'plugin.state', developer: true,
+      record({ source: 'host.plugins', event: 'plugin.snapshot', developer: true,
         fields: { api: 'readPluginInventory', pluginId: entry.entryId, module: entry.moduleName,
           enabled: entry.enabled, fiberPhase: entry.fiberPhase } })
     }

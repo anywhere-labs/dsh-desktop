@@ -470,6 +470,82 @@ virtualStoreDirMaxLength: 60
     }))
   })
 
+  it('re-targets a third-party Connection override from the retired webRuntime service', () => {
+    // Issue #1424: bundles built for dsh 0.2.0 (e.g. @tnnevol/dsh-codebuddy
+    // 0.2.0-rc.2.6) replace Connection's inject with `[webRuntime, webServer]`.
+    // 0.2.1 no longer provides webRuntime, so the required row waited forever.
+    const home = temporaryHome()
+    const packageName = 'legacy-connection-bundle'
+    installBundle(home, packageName, [
+      '- id: connection',
+      '  inject:',
+      '    - webRuntime',
+      '    - webServer',
+      '',
+    ].join('\n'))
+    const profileManifestPath = join(ensureDesktopProfile(home), 'package.json')
+    const profileManifest = JSON.parse(readFileSync(profileManifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    profileManifest.dsh.profile.bundles.push(packageName)
+    writeFileSync(profileManifestPath, JSON.stringify(profileManifest) + '\n')
+
+    const prepared = prepareDesktopProfile(
+      undefined,
+      home,
+      'darwin',
+      'desktop',
+      undefined,
+      undefined,
+      { lanAddresses: ['10.0.0.7'] },
+    )
+    const connection = composeEntries([prepared.patches]).find(row => row.id === 'connection')
+
+    expect(connection?.inject).toEqual(['webStartup', 'webServer'])
+    expect(connection?.config).toEqual(expect.objectContaining({
+      trustedHosts: {
+        __jsExpr: '[...new Set([...(ctx.webStartup.trustedHosts), ...["10.0.0.7"]])]',
+      },
+    }))
+    expect(prepared.legacyWebRuntimeSources).toEqual([packageName])
+  })
+
+  it('substitutes the retired webRuntime values inside a Connection trust expression', () => {
+    // dsh-local-link 1.2.3 and similar deployment patches follow the 0.2.0
+    // guidance of concatenating `ctx.webRuntime.trustedHosts`.
+    const home = temporaryHome()
+    const profileDir = ensureDesktopProfile(home)
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), [
+      '- id: connection',
+      '  inject: [webRuntime, localLinkGateway]',
+      '  config:',
+      '    trustedHosts: !!js "[...ctx.webRuntime.trustedHosts, ...ctx.localLinkGateway.trustedHosts]"',
+      '',
+    ].join('\n'))
+
+    const prepared = prepareDesktopProfile(
+      undefined,
+      home,
+      'darwin',
+      'desktop',
+      undefined,
+      undefined,
+      { lanAddresses: ['10.0.0.7'] },
+    )
+    const connection = composeEntries([prepared.patches]).find(row => row.id === 'connection')
+
+    expect(connection?.inject).toEqual(['webStartup', 'localLinkGateway'])
+    const expression = (connection?.config as { trustedHosts: { __jsExpr: string } }).trustedHosts.__jsExpr
+    expect(expression).not.toContain('webRuntime')
+    const evaluateTrust = new Function('ctx', `return ${expression}`) as
+      (ctx: Record<string, { trustedHosts: string[] }>) => string[]
+    expect(evaluateTrust({
+      webStartup: { trustedHosts: ['cli.internal'] },
+      localLinkGateway: { trustedHosts: ['gateway.local'] },
+    })).toEqual(['10.0.0.7', 'gateway.local'])
+    expect(prepared.legacyWebRuntimeSources).toEqual([join(profileDir, 'cordis.patch.yml')])
+  })
+
   it('rejects malformed Web trust config and non-IPv4 launcher addresses', () => {
     const malformedHome = temporaryHome()
     writeFileSync(join(malformedHome, 'cordis.patch.yml'), [

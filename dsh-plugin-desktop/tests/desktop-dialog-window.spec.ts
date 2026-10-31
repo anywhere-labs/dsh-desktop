@@ -14,7 +14,10 @@ const electron = vi.hoisted(() => {
     accessibleTitle = ''
     readonly isDestroyed = vi.fn(() => false)
     readonly isMinimized = vi.fn(() => false)
-    readonly show = vi.fn()
+    visible = false
+    readonly isVisible = vi.fn(() => this.visible)
+    readonly show = vi.fn(() => { this.visible = true })
+    readonly hide = vi.fn(() => { this.visible = false })
     readonly focus = vi.fn()
     readonly restore = vi.fn()
     readonly removeMenu = vi.fn()
@@ -53,8 +56,6 @@ import {
   DesktopDialogWindow,
   desktopDialogPreferredHeight,
   parseDesktopDialogResponse,
-  parseDesktopDialogResult,
-  showDesktopMessageBox,
 } from '../src/desktop-dialog-window.ts'
 
 describe('DesktopDialogWindow', () => {
@@ -69,32 +70,6 @@ describe('DesktopDialogWindow', () => {
     expect(parseDesktopDialogResponse('dsh-desktop-dialog://response?id=-1', 2)).toBeUndefined()
     expect(parseDesktopDialogResponse('dsh-desktop-dialog://response?id=1&command=bad', 2)).toBeUndefined()
     expect(parseDesktopDialogResponse('https://response/?id=1', 2)).toBeUndefined()
-  })
-
-  it('round trips a MessageBox checkbox and clears it on native close', async () => {
-    const options = { message: 'Next', checkboxLabel: 'Do not show again', buttons: ['OK'] }
-    const pending = showDesktopMessageBox(options)
-    const window = electron.windows[0]!
-    const query = (window.loadFile.mock.calls[0] as unknown as unknown[])?.[1] as { query: { state: string } } | undefined
-    expect(JSON.parse(Buffer.from(query!.query.state, 'base64url').toString())).toMatchObject({
-      checkboxLabel: 'Do not show again', checkboxChecked: false,
-    })
-    window.webListeners.get('will-navigate')?.({ preventDefault: vi.fn() }, 'dsh-desktop-dialog://response?id=0&checked=true')
-    await expect(pending).resolves.toEqual({ response: 0, checkboxChecked: true })
-    const closed = showDesktopMessageBox(options)
-    electron.windows[1]!.listeners.get('closed')?.()
-    await expect(closed).resolves.toEqual({ response: 0, checkboxChecked: false })
-  })
-
-  it('rejects malformed checkbox navigation and checkbox fields on ordinary dialogs', () => {
-    expect(parseDesktopDialogResult('dsh-desktop-dialog://response?id=0&checked=true', 1, true))
-      .toEqual({ response: 0, checkboxChecked: true })
-    for (const href of [
-      'dsh-desktop-dialog://response?id=0&checked=yes',
-      'dsh-desktop-dialog://response?id=0&checked=true&checked=false',
-      'dsh-desktop-dialog://response?id=0&id=0',
-    ]) expect(parseDesktopDialogResult(href, 1, true)).toBeUndefined()
-    expect(parseDesktopDialogResponse('dsh-desktop-dialog://response?id=0&checked=true', 1)).toBeUndefined()
   })
 
   it('does not add the legacy action-row offset on Windows', () => {
@@ -156,6 +131,43 @@ describe('DesktopDialogWindow', () => {
     await expect(result).resolves.toEqual({ response: 0 })
     expect(event.preventDefault).toHaveBeenCalledOnce()
     expect(window?.destroy).toHaveBeenCalledOnce()
+  })
+
+  async function answerParentedDialog(platform: NodeJS.Platform, reveal: boolean) {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue(platform)
+    const parent = new electron.BrowserWindow({})
+    const result = new DesktopDialogWindow({
+      title: 'Confirm',
+      message: 'Continue?',
+      buttons: ['Continue', 'Cancel'],
+      cancelId: 1,
+    }, parent as unknown as Electron.BrowserWindow).run()
+    await vi.waitFor(() => { expect(electron.windows).toHaveLength(2) })
+    const window = electron.windows[1]!
+    if (reveal) {
+      window.onceListeners.get('ready-to-show')?.()
+      window.webListeners.get('preferred-size-changed')?.({}, { width: 480, height: 134 })
+      window.webListeners.get('did-finish-load')?.()
+      expect(window.show).toHaveBeenCalledOnce()
+    }
+    window.webListeners.get('will-navigate')?.({ preventDefault: vi.fn() }, 'dsh-desktop-dialog://response?id=0')
+    await expect(result).resolves.toEqual({ response: 0 })
+    expect(window.destroy).toHaveBeenCalledOnce()
+    return window
+  }
+
+  it('releases Windows modality by hiding a visible dialog before destroying it', async () => {
+    const window = await answerParentedDialog('win32', true)
+
+    expect(window.hide).toHaveBeenCalledOnce()
+    expect(window.hide.mock.invocationCallOrder[0]!)
+      .toBeLessThan(window.destroy.mock.invocationCallOrder[0]!)
+  })
+
+  it('destroys without hiding outside Windows or before the dialog was shown', async () => {
+    expect((await answerParentedDialog('darwin', true)).hide).not.toHaveBeenCalled()
+    electron.windows.length = 0
+    expect((await answerParentedDialog('win32', false)).hide).not.toHaveBeenCalled()
   })
 
   it('uses a larger scrollable presentation for detailed recovery failures', async () => {

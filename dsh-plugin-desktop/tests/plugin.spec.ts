@@ -21,6 +21,7 @@ import {
 } from '../src/index.ts'
 import {
   DESKTOP_DIRECTORY_PICKER_PATH,
+  DESKTOP_DIRECTORIES_PICKER_PATH,
   DESKTOP_DIRECTORY_VALIDATOR_PATH,
 } from '../src/directory-picker-contract.ts'
 import {
@@ -231,6 +232,7 @@ function createHarness(
     toggleDeveloperTools: () => {},
     exportDiagnostics: async () => {},
     pickDirectory,
+    pickDirectories: async () => [],
     validateDirectory,
     openProfileCreateWindow: () => {},
     reportRendererBoot: rendererBoot,
@@ -545,6 +547,7 @@ describe('desktop Host plugin', () => {
       DESKTOP_DIAGNOSTICS_EXPORT_PATH,
       RENDERER_BOOT_REPORT_PATH,
       DESKTOP_DIRECTORY_PICKER_PATH,
+  DESKTOP_DIRECTORIES_PICKER_PATH,
       DESKTOP_DIRECTORY_VALIDATOR_PATH,
     ].sort()
     const routes = harness.routes().filter(route => route.path !== DESKTOP_LAN_HTTPS_CA_PATH)
@@ -592,6 +595,20 @@ describe('desktop Host plugin', () => {
     expect(harness.pickDirectory).toHaveBeenCalledOnce()
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(body)).toEqual({ path: 'C:\\Work' })
+  })
+
+  it('serves every admitted Windows folder through the private multi-picker route', async () => {
+    const harness = createHarness('win32')
+    const pick = vi.spyOn(harness.runtime, 'pickDirectories').mockResolvedValue(['C:\\primary', 'D:\\extra'])
+    apply(harness.ctx, harness.config)
+    const route = harness.route(DESKTOP_DIRECTORIES_PICKER_PATH)
+    const req = { method: 'POST', headers: { origin: 'http://127.0.0.1:43120' } } as unknown as IncomingMessage
+    let body = ''
+    const res = { statusCode: 200, setHeader: vi.fn(), end: vi.fn((value?: string) => { body = value ?? '' }) } as unknown as ServerResponse
+    await route?.handler(req, res)
+    expect(pick).toHaveBeenCalledOnce()
+    expect(JSON.parse(body)).toEqual({ paths: ['C:\\primary', 'D:\\extra'] })
+    expect(harness.pickDirectory).not.toHaveBeenCalled()
   })
 
   it('validates a Windows workspace through a same-origin desktop route', async () => {

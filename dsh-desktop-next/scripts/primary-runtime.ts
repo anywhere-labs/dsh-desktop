@@ -248,14 +248,20 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
     const dependencies = join(output, 'dependencies')
     mkdirSync(dependencies, { recursive: true })
     const node = join(dependencies, 'node')
-    await downloadNodeRuntime(target, node, paths.downloads, lock)
-    mkdirSync(join(node, 'node_modules'))
-    writeFileSync(join(node, 'node_modules', 'README.txt'), 'Reserved for bundled Node packages. pnpm uses its default installation directories.\n')
     // pnpm exports only its manifest, which resolves the package entry to package.json itself.
     const pnpmManifest = createRequire(import.meta.url).resolve('pnpm')
     const pnpmVersion = (JSON.parse(readFileSync(pnpmManifest, 'utf8')) as { version: string }).version
-    await cp(dirname(pnpmManifest), join(dependencies, 'pnpm'), { recursive: true, dereference: true })
-    await extractTar({ file: await pythonArchive(target, paths.downloads, lock), cwd: dependencies })
+    const wheels = [...lock.targets[target].wheels, ...lock.wheels]
+    const [, , , wheelArchives] = await Promise.all([
+      (async () => {
+        await downloadNodeRuntime(target, node, paths.downloads, lock)
+        mkdirSync(join(node, 'node_modules'))
+        writeFileSync(join(node, 'node_modules', 'README.txt'), 'Reserved for bundled Node packages. pnpm uses its default installation directories.\n')
+      })(),
+      cp(dirname(pnpmManifest), join(dependencies, 'pnpm'), { recursive: true, dereference: true }),
+      pythonArchive(target, paths.downloads, lock).then(file => extractTar({ file, cwd: dependencies })),
+      Promise.all(wheels.map(wheel => downloadPrimaryRuntimeAsset(wheel.url, wheel.sha256, paths.downloads))),
+    ])
     const manifest: PrimaryRuntimeManifest = {
       desktopVersion: options.version,
       platform: target === 'win-x64' ? 'win32' : target.startsWith('linux-') ? 'linux' : 'darwin',
@@ -267,8 +273,8 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
       pythonPackages: lock.pythonPackages,
     }
     const entries = workspaceDependencyPaths(output, manifest)
-    for (const wheel of [...lock.targets[target].wheels, ...lock.wheels]) {
-      await unpackPrimaryRuntimeWheel(await downloadPrimaryRuntimeAsset(wheel.url, wheel.sha256, paths.downloads), entries.pythonPackages)
+    for (const archive of wheelArchives) {
+      await unpackPrimaryRuntimeWheel(archive, entries.pythonPackages)
     }
     const { numpy, pandas } = lock.pythonPackages
     if (numpy === undefined || pandas === undefined) throw new Error('primary runtime lock: numpy and pandas versions are required')
@@ -276,12 +282,14 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
     writeFileSync(join(output, 'runtime.json'), `${JSON.stringify(manifest, undefined, 2)}\n`)
     const destination = join(paths.runtime, 'primary-runtime')
     rmSync(destination, { recursive: true, force: true })
-    await copyPrimaryRuntime(output, destination, manifest)
+    const assets = options.skillSource ?? join(dirname(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-skill-office/package.json')), 'assets')
+    await Promise.all([
+      copyPrimaryRuntime(output, destination, manifest),
+      prepareOfficeSkillAssets(assets, join(paths.runtime, 'office-skills')),
+    ])
   } finally {
     rmSync(staging, { recursive: true, force: true })
   }
-  const assets = options.skillSource ?? join(dirname(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-skill-office/package.json')), 'assets')
-  await prepareOfficeSkillAssets(assets, join(paths.runtime, 'office-skills'))
 }
 
 /**

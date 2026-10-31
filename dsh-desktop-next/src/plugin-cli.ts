@@ -1,6 +1,6 @@
 /** Headless adapter to the same official operation used by `dsh plugin`. */
 import { runPluginCommand } from '@deepseek-ai/dsh-plugin-manager/operations'
-import { bundledPnpmEntry } from './extensions.ts'
+import { bundledPnpmEntry } from './bundled-pnpm.ts'
 import { NEXT_PACKAGE, NextProfiles, profileName } from './profiles.ts'
 import { withDesktopPnpmPolicy } from './pnpm-policy.ts'
 

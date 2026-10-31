@@ -1,0 +1,2417 @@
+{
+  "formatVersion": 1,
+  "repository": "https://github.com/deepseek-ai/deepseek-harness.git",
+  "commit": "504a01a9578abc2c6f1fb896b1dc322c9fe24f66",
+  "version": "0.2.1-rc.4",
+  "buildProfile": "official",
+  "packages": [
+    {
+      "name": "@deepseek-ai/dsh-brand",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-brand-0.2.1-rc.4.tgz",
+      "size": 6410,
+      "sha256": "b49eaafc398e2e37eb0c294fdb5c8d09b78a32bb64744e0e8393f2df3b6d491f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-timeout",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-timeout-0.2.1-rc.4.tgz",
+      "size": 11530,
+      "sha256": "117c9410fd5a9ab2919cb15297951a014c250ce8bebc80f3d13e31b77a6df7c1"
+    },
+    {
+      "name": "@deepseek-ai/dsh-typert-protocol",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-typert-protocol-0.2.1-rc.4.tgz",
+      "size": 40868,
+      "sha256": "7e9311d916588c8487fd4a891929d855ad4d044baaa4baf3fe13f840d1bdb953"
+    },
+    {
+      "name": "@deepseek-ai/dsh-util-crypto",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-util-crypto-0.2.1-rc.4.tgz",
+      "size": 5082,
+      "sha256": "e1458ad48be14e0501376c5149bdb1fd8b29b06cdfcea79f4572b3108d05c933"
+    },
+    {
+      "name": "@deepseek-ai/dsh-util-values",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-util-values-0.2.1-rc.4.tgz",
+      "size": 17919,
+      "sha256": "2fd835b1d72bb29fcae6bb06e8fe858d1bbefb3d580ac2502eb137e0f4a26400"
+    },
+    {
+      "name": "@deepseek-ai/dsh-llm",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-llm-0.2.1-rc.4.tgz",
+      "size": 115787,
+      "sha256": "95caa88ada1b5c5f8ded8cf929453c2d53eb32e3d486a0b3955c23055ed1cf69"
+    },
+    {
+      "name": "@deepseek-ai/dsh-scope",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-scope-0.2.1-rc.4.tgz",
+      "size": 13883,
+      "sha256": "ebaebc8e1e85bf3bb941585f52eeb578a7d74642dc360151438107d3d4e681af"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-0.2.1-rc.4.tgz",
+      "size": 98627,
+      "sha256": "ef08563fa55acab060eed61fe2f251053634e12c6ae421f618f26467069aec78"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-projection",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-projection-0.2.1-rc.4.tgz",
+      "size": 23877,
+      "sha256": "ce1b05c1e748502e367caeb7e137f39cffb39c68e6383f858a345740b58b3ac5"
+    },
+    {
+      "name": "@deepseek-ai/dsh-system-prompt",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-system-prompt-0.2.1-rc.4.tgz",
+      "size": 23275,
+      "sha256": "479e3ce86c83e7305f9a33e2e6a2d85cfbe32f07c2def7cb254a672a38e16aec"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-persistence",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-persistence-0.2.1-rc.4.tgz",
+      "size": 24915,
+      "sha256": "6cf885dc0d772608bf512ccaf1c9dd44d317d41d2af390cb0af3e7bc9ea983d0"
+    },
+    {
+      "name": "@deepseek-ai/dsh-storage",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-storage-0.2.1-rc.4.tgz",
+      "size": 13888,
+      "sha256": "f038b2c3a4ed46aef4460b5dddcf91f2ed13d0c2f26994236fce169f018fb3db"
+    },
+    {
+      "name": "@deepseek-ai/dsh-storage-domain",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-storage-domain-0.2.1-rc.4.tgz",
+      "size": 21864,
+      "sha256": "ebf4a5df006bb2eb5e7d55701743d3d51a2f520eadcb582800838754537eb27b"
+    },
+    {
+      "name": "@deepseek-ai/dsh-workspace",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-workspace-0.2.1-rc.4.tgz",
+      "size": 42813,
+      "sha256": "1bd6258f2ee47f0c759b70aa173babac4f188737b923cc47e84843e1c24077aa"
+    },
+    {
+      "name": "@deepseek-ai/dsh-agent",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-agent-0.2.1-rc.4.tgz",
+      "size": 46870,
+      "sha256": "148299c2f4e53e2126131fefc805cc352eefa31a56ab0994c11ad257e069ca29"
+    },
+    {
+      "name": "@deepseek-ai/dsh-attachment",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-attachment-0.2.1-rc.4.tgz",
+      "size": 22980,
+      "sha256": "91c941901fcc7b8c5ec14da11738dbe4e0056c1c41f3bab8263336599bf8b391"
+    },
+    {
+      "name": "@deepseek-ai/dsh-sandbox",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-sandbox-0.2.1-rc.4.tgz",
+      "size": 22961,
+      "sha256": "638ccb7404086f223b65e683da32d0e68ac527a39e6df2a88a94eeda6e03d0fa"
+    },
+    {
+      "name": "@deepseek-ai/dsh-ptc-runtime",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-ptc-runtime-0.2.1-rc.4.tgz",
+      "size": 16681,
+      "sha256": "271a6865370c618262764564b7fad0ba56a900890f57f6751e5031f7e3c6f0f1"
+    },
+    {
+      "name": "@deepseek-ai/dsh-sandbox-policy",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-sandbox-policy-0.2.1-rc.4.tgz",
+      "size": 13843,
+      "sha256": "d15d9af04d3522a25d75cf9d1d4c93980625351ef06f3d012817e32daf7a11ea"
+    },
+    {
+      "name": "@deepseek-ai/dsh-user-approval",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-user-approval-0.2.1-rc.4.tgz",
+      "size": 18067,
+      "sha256": "431b6ce0ca316014766873f3e5fce1d776be1e7793e798862998843bb12d23e1"
+    },
+    {
+      "name": "@deepseek-ai/dsh-fs",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-fs-0.2.1-rc.4.tgz",
+      "size": 16827,
+      "sha256": "ff05e5704ac37e9288a723e3cc98db1a477b6e414ab1d70bdf2e697dffab0458"
+    },
+    {
+      "name": "@deepseek-ai/dsh-working-directory",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-working-directory-0.2.1-rc.4.tgz",
+      "size": 8448,
+      "sha256": "f8a6e9c7e027b838c471c0af71ae02b986b0bd35ccfadab4ec99433439c9be2b"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tools",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tools-0.2.1-rc.4.tgz",
+      "size": 149901,
+      "sha256": "b9cce1f87779c15aa584a81e57af717dba3f38e70299c4589dbb80b471849676"
+    },
+    {
+      "name": "@deepseek-ai/dsh-mcp-resources",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-mcp-resources-0.2.1-rc.4.tgz",
+      "size": 11484,
+      "sha256": "19d51dcfe21e55239a29c19e99a92038323a82e8351d5f914d016c1d1c5e6f8b"
+    },
+    {
+      "name": "@deepseek-ai/dsh-http-proxy",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-http-proxy-0.2.1-rc.4.tgz",
+      "size": 23036,
+      "sha256": "995bb072e392a73f3048c2cacc5fed969258bb6a40c2ceedeb5d18ed4b241b95"
+    },
+    {
+      "name": "@deepseek-ai/dsh-subprocess",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-subprocess-0.2.1-rc.4.tgz",
+      "size": 21592,
+      "sha256": "077d0c72396725b6292e46a86fb6a100d5c5cf1d6d1705572281d2225e482181"
+    },
+    {
+      "name": "@deepseek-ai/dsh-mcp-client",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-mcp-client-0.2.1-rc.4.tgz",
+      "size": 33168,
+      "sha256": "85c2bcd2e548d4a0d5c58f18ff7782fa8f6eb2804b100d7180e4eed97a933d1d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-commands",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-commands-0.2.1-rc.4.tgz",
+      "size": 36973,
+      "sha256": "4df8b42cbd0b388c6be9a11dadc05b69e3c40205c3f0b6da24be0d95afe04628"
+    },
+    {
+      "name": "@deepseek-ai/dsh-compaction",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-compaction-0.2.1-rc.4.tgz",
+      "size": 22449,
+      "sha256": "6ee04e57b6691e22a2fa2a28602fa3738d2b96044022e007d587ba56a488d7e4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-compaction-image-offload",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-compaction-image-offload-0.2.1-rc.4.tgz",
+      "size": 12504,
+      "sha256": "554791c9fe724e9aa39f231f1c853d676417be1201f16c5f21a3062e1aa618f0"
+    },
+    {
+      "name": "@deepseek-ai/dsh-llm-retry",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-llm-retry-0.2.1-rc.4.tgz",
+      "size": 14987,
+      "sha256": "a543ab75fe010466e33454fa417facbce29d675cc62ea5c1930e59e001301bed"
+    },
+    {
+      "name": "@deepseek-ai/dsh-token-meter",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-token-meter-0.2.1-rc.4.tgz",
+      "size": 41887,
+      "sha256": "40b277b05e94166a737498583e241ce1738d28afdddb2100a55f5f0a92925455"
+    },
+    {
+      "name": "@deepseek-ai/dsh-acp",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-acp-0.2.1-rc.4.tgz",
+      "size": 32923,
+      "sha256": "a0e2126f1a683144e08ff45beb96083d7ada2cc792c49d191ff0734a70d1df91"
+    },
+    {
+      "name": "@deepseek-ai/dsh-cmdline",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-cmdline-0.2.1-rc.4.tgz",
+      "size": 12998,
+      "sha256": "36c076e04df35cd8556b65314436b1edc20b355768271cf39ee4c5f2a17ea390"
+    },
+    {
+      "name": "@deepseek-ai/dsh-acp-app",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-acp-app-0.2.1-rc.4.tgz",
+      "size": 7426,
+      "sha256": "e779b2a63933ebe52f4542489b422167ff3eba9e3a575647a7cf6f0a57959ee0"
+    },
+    {
+      "name": "@deepseek-ai/dsh-home-paths",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-home-paths-0.2.1-rc.4.tgz",
+      "size": 10055,
+      "sha256": "2ee45422706f5910a24fad2e185aca287bdcece5f2fffdaf6f07a639edda2078"
+    },
+    {
+      "name": "@deepseek-ai/dsh-agent-instructions",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-agent-instructions-0.2.1-rc.4.tgz",
+      "size": 35459,
+      "sha256": "707adebd634fc02c06be8f35b7d8eab699a6c0208f1171ee667bbc8b67fd1521"
+    },
+    {
+      "name": "@deepseek-ai/dsh-atomic-write",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-atomic-write-0.2.1-rc.4.tgz",
+      "size": 13838,
+      "sha256": "b8ed5d7c710b122a9d015ea19dd94b8a7a3a14a5b04f335c9ec3387b2608435f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-package-manifest",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-package-manifest-0.2.1-rc.4.tgz",
+      "size": 7177,
+      "sha256": "6a059896117c4658a0d06f16bc8840fc12abd8bf63ea401a9c20c80bd4740b7a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-launch-environment",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-launch-environment-0.2.1-rc.4.tgz",
+      "size": 9117,
+      "sha256": "7613526a441e5d7e43f3a4c675a86be49ac21b9cf422efcd104f347ebc69a220"
+    },
+    {
+      "name": "@deepseek-ai/dsh-app-boot",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-app-boot-0.2.1-rc.4.tgz",
+      "size": 117800,
+      "sha256": "12e0a09846c61a5f743f9ecbef84a693d9e52786a11054bc6248cd4f0a724180"
+    },
+    {
+      "name": "@deepseek-ai/dsh-hmr",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-hmr-0.2.1-rc.4.tgz",
+      "size": 37046,
+      "sha256": "1eb0df303e8c3cc98ef9615f723408640065f1aeac38094b5050361f3d5636d1"
+    },
+    {
+      "name": "@deepseek-ai/dsh-config-editor",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-config-editor-0.2.1-rc.4.tgz",
+      "size": 7609,
+      "sha256": "8dda20a86738c74426965f1f165f106594a382e9c8ae06804eb527c40c0f7f88"
+    },
+    {
+      "name": "@deepseek-ai/dsh-settings",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-settings-0.2.1-rc.4.tgz",
+      "size": 19843,
+      "sha256": "7cd36fd1e53dfe3b3c3ef818f5a3bc8d6d74bbd2c556a6c6ccdacb46c8b9c563"
+    },
+    {
+      "name": "@deepseek-ai/dsh-agent-preset-registry",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-agent-preset-registry-0.2.1-rc.4.tgz",
+      "size": 42580,
+      "sha256": "25031e06b6f03a72de0260471c72dc1877ae372bfb0bc20018493fe499d11f67"
+    },
+    {
+      "name": "@deepseek-ai/dsh-agent-preset",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-agent-preset-0.2.1-rc.4.tgz",
+      "size": 32726,
+      "sha256": "ac789cf2b09ee35e627dabfbade3c09f994282371bd3b1a0614c4b7b81dbbb7a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-agent-tool-presentation",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-agent-tool-presentation-0.2.1-rc.4.tgz",
+      "size": 8469,
+      "sha256": "49e72e1f100fe4e3034b211dd8a76d4cba6b8891942c76d1df365e171a175de5"
+    },
+    {
+      "name": "@deepseek-ai/dsh-agent-default-model",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-agent-default-model-0.2.1-rc.4.tgz",
+      "size": 7804,
+      "sha256": "84569789662074d730ef2a2297a08a09841ee6e61f9b57f12653ecee9dcb7315"
+    },
+    {
+      "name": "@deepseek-ai/dsh-agent-loop",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-agent-loop-0.2.1-rc.4.tgz",
+      "size": 48508,
+      "sha256": "a2ea982c05812a3d7f824970d99e2e9817a63d2b45e9f42efb531ac31505ee1c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-deque",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-deque-0.2.1-rc.4.tgz",
+      "size": 6337,
+      "sha256": "3be4a50f1c30db2d5a052aed3749edfd2f22afc2b23eb1b147f4622c96d21743"
+    },
+    {
+      "name": "@deepseek-ai/dsh-api-gateway",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-api-gateway-0.2.1-rc.4.tgz",
+      "size": 131986,
+      "sha256": "846f804f67073348822dc927b9d068fe561d23d253de35d16e5bf0fccb6fd773"
+    },
+    {
+      "name": "@deepseek-ai/dsh-api-remote-access",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-api-remote-access-0.2.1-rc.4.tgz",
+      "size": 35379,
+      "sha256": "7901fbe06a889666e7d7f1eb285c71f0257fdaa7bda048bd515669763d160e75"
+    },
+    {
+      "name": "@deepseek-ai/dsh-lazy-require",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-lazy-require-0.2.1-rc.4.tgz",
+      "size": 4673,
+      "sha256": "e17b6a299cce58cc953ef4b8f66db141eea8e3532d4b65a7a7536b3fed68f690"
+    },
+    {
+      "name": "@deepseek-ai/dsh-attachment-local",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-attachment-local-0.2.1-rc.4.tgz",
+      "size": 30746,
+      "sha256": "2b0825fc9e65da3f7541e2f4e544ce2e8e84f9f2b086e17833c09a49cf6dc543"
+    },
+    {
+      "name": "@deepseek-ai/dsh-credentials",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-credentials-0.2.1-rc.4.tgz",
+      "size": 19418,
+      "sha256": "2c717d4987a5e7b1283e2c752c924e5a7c3031b75b29fdc8738487d8d3fb6efa"
+    },
+    {
+      "name": "@deepseek-ai/dsh-authorization",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-authorization-0.2.1-rc.4.tgz",
+      "size": 21713,
+      "sha256": "efa430783c2cf28ad06e02bc9fe84d54543df5db0b1e14a673068d702d1a0cc5"
+    },
+    {
+      "name": "@deepseek-ai/dsh-shell",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-shell-0.2.1-rc.4.tgz",
+      "size": 17234,
+      "sha256": "9435ddb989da57e7194c7b5492c61db1d30d1d0df5e7808d8d4933538c590ba9"
+    },
+    {
+      "name": "@deepseek-ai/dsh-bash-local",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-bash-local-0.2.1-rc.4.tgz",
+      "size": 16387,
+      "sha256": "fa356e57e2fc936125d24881aae1221737013ef33d7828459a453559b4f679bb"
+    },
+    {
+      "name": "@deepseek-ai/dsh-bash-sandbox",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-bash-sandbox-0.2.1-rc.4.tgz",
+      "size": 15066,
+      "sha256": "493528f0f1b17e33e1b1da69efcceaad7291098837971e728c63c6a8e8be4974"
+    },
+    {
+      "name": "@deepseek-ai/dsh-command-compact",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-command-compact-0.2.1-rc.4.tgz",
+      "size": 10953,
+      "sha256": "693e442f892a25123e32c85c6042cd0db44ee8f103bcbdbace9c422a0e90722c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-anonymous-user-id",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-anonymous-user-id-0.2.1-rc.4.tgz",
+      "size": 10640,
+      "sha256": "f01f887b8a4db97d0a3fd58f70b51c3de866ed1f6a9941ded12fe7131c6389f2"
+    },
+    {
+      "name": "@deepseek-ai/dsh-command-feedback",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-command-feedback-0.2.1-rc.4.tgz",
+      "size": 17413,
+      "sha256": "5fa45b377b1e0d5d7e9e04ecf1773f664f1c10e41fb6de8502fda1f8d0279b43"
+    },
+    {
+      "name": "@deepseek-ai/dsh-goal",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-goal-0.2.1-rc.4.tgz",
+      "size": 47354,
+      "sha256": "15647817fc42eead761020e281e857fa581cd093f8b296ec5a2c56ec8c43b598"
+    },
+    {
+      "name": "@deepseek-ai/dsh-command-goal",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-command-goal-0.2.1-rc.4.tgz",
+      "size": 11776,
+      "sha256": "aa9ab0d811b59b8c2d89d736d0c69c77aa7f4ed9f16dd0d067cd4e3340d1901a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-compaction-tool-result-pruner",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-compaction-tool-result-pruner-0.2.1-rc.4.tgz",
+      "size": 13230,
+      "sha256": "c5d6089059e69556e44a1d22226d11763a1541b883c3bfca29b1ddd43c315436"
+    },
+    {
+      "name": "@deepseek-ai/dsh-compaction-basic",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-compaction-basic-0.2.1-rc.4.tgz",
+      "size": 37044,
+      "sha256": "d6240902ec68d235fdc03ecd6326bc937f48550ae8a3166f4e9b8b4592677fcb"
+    },
+    {
+      "name": "@deepseek-ai/dsh-credentials-local",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-credentials-local-0.2.1-rc.4.tgz",
+      "size": 27368,
+      "sha256": "31e7b334fee95e9132fd951e30f20d5e6abc0b66b2eb93b436d103eea418ee47"
+    },
+    {
+      "name": "@deepseek-ai/dsh-deepseek-account",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-deepseek-account-0.2.1-rc.4.tgz",
+      "size": 12856,
+      "sha256": "1890f55bf9cbc2ddd8f9f72e97efe775446a22fbf86c9dc7b9196cbf6eb77693"
+    },
+    {
+      "name": "@deepseek-ai/dsh-host-webserver",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-host-webserver-0.2.1-rc.4.tgz",
+      "size": 23032,
+      "sha256": "62c346e1b2a65f6508753f3eb1a46e5c31ad8d0fbf1678d5e6222e32dbf1851b"
+    },
+    {
+      "name": "@deepseek-ai/dsh-deepseek-account-platform",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-deepseek-account-platform-0.2.1-rc.4.tgz",
+      "size": 38662,
+      "sha256": "454fcdb10b09e46bccacff905776b31704148e7f2126683d80481116a4e7cf44"
+    },
+    {
+      "name": "@deepseek-ai/dsh-deepseek-llm-api-extensions",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-deepseek-llm-api-extensions-0.2.1-rc.4.tgz",
+      "size": 8402,
+      "sha256": "d65ec61b7b08e064f1bb632a3c24318fdca3f55be796aec86658ca72e817eace"
+    },
+    {
+      "name": "@deepseek-ai/dsh-fs-local",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-fs-local-0.2.1-rc.4.tgz",
+      "size": 27435,
+      "sha256": "5b22381b43004e2ef9e3a225f27d187b48c90db04cae01b7882d06fc6bd5de12"
+    },
+    {
+      "name": "@deepseek-ai/dsh-fs-observation-policy",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-fs-observation-policy-0.2.1-rc.4.tgz",
+      "size": 11607,
+      "sha256": "dbee1fa180cd997a3288c032f7d3ebe10ca325075c60b0c3c2a329f5ef61be58"
+    },
+    {
+      "name": "@deepseek-ai/dsh-fs-sandbox",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-fs-sandbox-0.2.1-rc.4.tgz",
+      "size": 12501,
+      "sha256": "ebc132e4bf15d2d6d6e82a868ff27275d8cb1578088578f86d6cb0cfef8ec63c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-chunked-list",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-chunked-list-0.2.1-rc.4.tgz",
+      "size": 5948,
+      "sha256": "32b38219641471bfb2b822b81a5029fdbe05b0bad018974b8267edb87f15c9fc"
+    },
+    {
+      "name": "@deepseek-ai/dsh-permission-presets",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-permission-presets-0.2.1-rc.4.tgz",
+      "size": 32039,
+      "sha256": "e56b7fe1b0c2008171435f8840c91e07b10493f5611b9c46855bb49469f6e84d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-format",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-format-0.2.1-rc.4.tgz",
+      "size": 14906,
+      "sha256": "b9ffb3ab810b154f6a9f9a20895ab6ad945a704877bf4d6839aa95becf5a973f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-format-v0-to-v1",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-format-v0-to-v1-0.2.1-rc.4.tgz",
+      "size": 31998,
+      "sha256": "b87668cab7cad62aff75780daa30a2c6346f907b480c61f111b03f0e5ccd01dd"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-format-v1-to-v2",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-format-v1-to-v2-0.2.1-rc.4.tgz",
+      "size": 16968,
+      "sha256": "f45430d1250a13c2490ccebbc7c8ce4185cee61109fd794357786c8ef7892f9d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-format-v2-to-v3",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-format-v2-to-v3-0.2.1-rc.4.tgz",
+      "size": 27809,
+      "sha256": "c7abef3cf8b14b58f9f9a46b48114b0535bdc65930ab2f5cdc9b4e8977d2ee65"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-format-v3-to-v4",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-format-v3-to-v4-0.2.1-rc.4.tgz",
+      "size": 49411,
+      "sha256": "c32e2ae3bdba8649ce23df7b7645550e3fa4cc9bba78175fca39638ade7e098d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-format-catalog",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-format-catalog-0.2.1-rc.4.tgz",
+      "size": 9734,
+      "sha256": "80620d1cfe1efed501203c073e9a11c0a881b9c92d691a553335b299b385e5c3"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-projection-cache",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-projection-cache-0.2.1-rc.4.tgz",
+      "size": 22360,
+      "sha256": "1fd593a260fbfacaf1f4671f997f525d7cfb4521665bf61c0fc21c90e68c27c4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-title",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-title-0.2.1-rc.4.tgz",
+      "size": 26871,
+      "sha256": "3665c896a869c1f68ebfa47f92d28e775eb104aa5f6be74f75e576b471f5731a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-todo",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-todo-0.2.1-rc.4.tgz",
+      "size": 16564,
+      "sha256": "8741f67ead0bd7acae8dbaf016e7cefe97cab7572994893788552f44fe80b3b9"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-query",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-query-0.2.1-rc.4.tgz",
+      "size": 33259,
+      "sha256": "4e692ec19a1606372e5f9ef03da520c45d2e94b629106e25552a526b93eedb64"
+    },
+    {
+      "name": "@deepseek-ai/dsh-util-time",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-util-time-0.2.1-rc.4.tgz",
+      "size": 5190,
+      "sha256": "80666ffe3746af0fdd003797d6ad7e9cf2060c9bb6d65d0e72544caa0dc7da84"
+    },
+    {
+      "name": "@deepseek-ai/dsh-subagent",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-subagent-0.2.1-rc.4.tgz",
+      "size": 144697,
+      "sha256": "4360cda95e3de83c31ba2ee0b726ea17a0d37c7976e9075490ab62b09dd2aab5"
+    },
+    {
+      "name": "@deepseek-ai/dsh-goal-round-driver",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-goal-round-driver-0.2.1-rc.4.tgz",
+      "size": 14223,
+      "sha256": "3da5df33637a7d050028bba74621fb8c8a9966a46a085aa7fe65730d2dbea8d2"
+    },
+    {
+      "name": "@deepseek-ai/dsh-jobs",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-jobs-0.2.1-rc.4.tgz",
+      "size": 22792,
+      "sha256": "389348a4bd57375cadb9c5118a008ad45a13496b59b848954ee276814e4ba96c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-jobs-local",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-jobs-local-0.2.1-rc.4.tgz",
+      "size": 26671,
+      "sha256": "30552d4fbc4ac92fa3b2f09ba80185e6ddcf828756102e505c495783a8c42838"
+    },
+    {
+      "name": "@deepseek-ai/dsh-llm-deepseek",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-llm-deepseek-0.2.1-rc.4.tgz",
+      "size": 75516,
+      "sha256": "33a3631944f6af3e351af0142d89670adec8c0ec1feeb29a8f63ed95ad41e555"
+    },
+    {
+      "name": "@deepseek-ai/dsh-llm-deepseek-account",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-llm-deepseek-account-0.2.1-rc.4.tgz",
+      "size": 13476,
+      "sha256": "39e4d57a4db2c1ad960a71eaa401cbb5b6f197e44f586416b67bf1a33fdd9419"
+    },
+    {
+      "name": "@deepseek-ai/dsh-llm-deepseek-api-key",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-llm-deepseek-api-key-0.2.1-rc.4.tgz",
+      "size": 11529,
+      "sha256": "fe27957bc38f28903c9cd0974f03acbdd38b9a42c3dc266b65ed31af65475f47"
+    },
+    {
+      "name": "@deepseek-ai/dsh-llm-pi-ai",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-llm-pi-ai-0.2.1-rc.4.tgz",
+      "size": 81738,
+      "sha256": "cc8ca51daf4fa3e1c792a408634711a71055a390b68238873692b2dec0496ef1"
+    },
+    {
+      "name": "@deepseek-ai/dsh-otel",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-otel-0.2.1-rc.4.tgz",
+      "size": 13248,
+      "sha256": "71806f39d27e17dfabeb1ca5bb7ed77e4c9a00536a6c6796e91dda45e9faa165"
+    },
+    {
+      "name": "@deepseek-ai/dsh-user-questions",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-user-questions-0.2.1-rc.4.tgz",
+      "size": 39709,
+      "sha256": "8f52d66b8bdd615386eca6a76686bc09913f3e5000b5bd06540d4fb708278bca"
+    },
+    {
+      "name": "@deepseek-ai/dsh-plan-mode",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-plan-mode-0.2.1-rc.4.tgz",
+      "size": 24552,
+      "sha256": "71feb2734d5a2d89fa0cabc9d673ee7913a5afe994d13c2d6d918e95b9a47a7f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-host-plugin-inventory",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-host-plugin-inventory-0.2.1-rc.4.tgz",
+      "size": 14616,
+      "sha256": "068ba6b656788d7b7f6f5ea96af55dedefbbb9b9d4bb52558c3f1e8985b544c4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-plugin-manager",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-plugin-manager-0.2.1-rc.4.tgz",
+      "size": 120076,
+      "sha256": "a0ef39b576e09534372dc0b18cdd82e736a185d16b918f8fdd209f284f46c0b5"
+    },
+    {
+      "name": "@deepseek-ai/dsh-plugin-package-inventory-deepseek",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-plugin-package-inventory-deepseek-0.2.1-rc.4.tgz",
+      "size": 10595,
+      "sha256": "9c2542ef9524bba40c17f77b99b270adc0be0e675bbdef7dbedd488f0ba8cbd4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-ptc-runtime-node",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-ptc-runtime-node-0.2.1-rc.4.tgz",
+      "size": 64951,
+      "sha256": "820b08dc2bc4ee0d30251fe603cd695b54717ef4fbbdb64e7fc78f66149dc6fb"
+    },
+    {
+      "name": "@deepseek-ai/dsh-pwsh-local",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-pwsh-local-0.2.1-rc.4.tgz",
+      "size": 20078,
+      "sha256": "214d57e1fb4a888b76e2c6a909b49e550ba3296b4cce4727294663f8c161adad"
+    },
+    {
+      "name": "@deepseek-ai/dsh-pwsh-sandbox",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-pwsh-sandbox-0.2.1-rc.4.tgz",
+      "size": 15307,
+      "sha256": "7c95a955e8b96ddf396455b3b402deabc8127faf7ada896adee499ffd21beb2a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-repeat-tool-reminder",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-repeat-tool-reminder-0.2.1-rc.4.tgz",
+      "size": 38221,
+      "sha256": "ca41bfa8451db80e990aaeb3fbe6a8fabd00faf44b513ebec91ec278c30ef0cf"
+    },
+    {
+      "name": "@deepseek-ai/dsh-win32-process",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-win32-process-0.2.1-rc.4.tgz",
+      "size": 21099,
+      "sha256": "8a1a1b2306b23c3f670eb99d0c7ebb57564edcb3c5fb965967817962cb5b1c45"
+    },
+    {
+      "name": "@deepseek-ai/dsh-skill",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-skill-0.2.1-rc.4.tgz",
+      "size": 22000,
+      "sha256": "e3aa19743a64ea49abc698cefe9b4fb38a4b17cb9ad3dce1337a5e532eed873b"
+    },
+    {
+      "name": "@deepseek-ai/dsh-sandbox-windows-acl",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-sandbox-windows-acl-0.2.1-rc.4.tgz",
+      "size": 73511,
+      "sha256": "b66ef04d48987fee69a2c525e6f7460b8cbf9f82d18229d1b1c5d5524611c362"
+    },
+    {
+      "name": "@deepseek-ai/dsh-sandbox-local",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-sandbox-local-0.2.1-rc.4.tgz",
+      "size": 22135,
+      "sha256": "3158b0cfb4d04dab9b4451366e48445a46d899fbcb6ba75892755d0e6f90e3a8"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-checkpoint-policy",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-checkpoint-policy-0.2.1-rc.4.tgz",
+      "size": 9449,
+      "sha256": "456fdcd0f1e570dd23e173241526bf3a225873702efbd0d064a49ab64f068646"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-log-deepseek",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-log-deepseek-0.2.1-rc.4.tgz",
+      "size": 13240,
+      "sha256": "c1b2a4602d44489b807ea26c86a0b0cbad081f8c48fba8e9e3a9c1bdcfa2830e"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-persistence-jsonl",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-persistence-jsonl-0.2.1-rc.4.tgz",
+      "size": 204367,
+      "sha256": "fb42741e4120b47291e5c7b7e31dc92f725869b4ab678ab58110ad465a2b8702"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-query-sqlite",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-query-sqlite-0.2.1-rc.4.tgz",
+      "size": 27535,
+      "sha256": "530833d2891ba88762500d9a7435bdba58e2a450461e975b385e2d6e48dcad02"
+    },
+    {
+      "name": "@deepseek-ai/dsh-message-feedback",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-message-feedback-0.2.1-rc.4.tgz",
+      "size": 22521,
+      "sha256": "5cab6d76530b0175f64f321306869332a30df9bcde003807fb58052ca268e851"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-telemetry",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-telemetry-0.2.1-rc.4.tgz",
+      "size": 16748,
+      "sha256": "2560803f5afe026831f6ce1151674926b8fb55c89a46e38a7c649d1cbe6bc386"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-telemetry-otel",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-telemetry-otel-0.2.1-rc.4.tgz",
+      "size": 15330,
+      "sha256": "4465d9dde9584860e08e75190e7b5867bbf08efbcfafde1005b510090b9e2e19"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-title-llm",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-title-llm-0.2.1-rc.4.tgz",
+      "size": 13120,
+      "sha256": "3672f89e227a5878d7464f2649a23ba9a9c68bfb8535ccfe22ea131321e7049e"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-title-first-prompt-llm",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-title-first-prompt-llm-0.2.1-rc.4.tgz",
+      "size": 9955,
+      "sha256": "a26afbe461128a5cffcf25ba9ff5fc689e241af4162dc60620b82626b2dd6717"
+    },
+    {
+      "name": "@deepseek-ai/dsh-shell-env",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-shell-env-0.2.1-rc.4.tgz",
+      "size": 11048,
+      "sha256": "b26636d48459ddb2f69b8ce4bb74648b344e36b2f7c15ba4b5b782d522d9ed84"
+    },
+    {
+      "name": "@deepseek-ai/dsh-skill-filesystem",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-skill-filesystem-0.2.1-rc.4.tgz",
+      "size": 20917,
+      "sha256": "f53859cb8885801076b897d63199ddf5fa0b201f6101ffa7edb173db03e71a92"
+    },
+    {
+      "name": "@deepseek-ai/dsh-spill",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-spill-0.2.1-rc.4.tgz",
+      "size": 11590,
+      "sha256": "572550c8ef7350201228ff10b1da15946e27cbe8de05d0c2d7a92c219e1a4a9c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-spill-local",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-spill-local-0.2.1-rc.4.tgz",
+      "size": 19388,
+      "sha256": "0546bb32d2ccdefd7caf532ee67027d2b1adc721f18513547274ae0e0e289ed4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-output-retention",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-output-retention-0.2.1-rc.4.tgz",
+      "size": 15168,
+      "sha256": "3ddb094741a0ead926294675563e79bcb3ede5ef8eb8def25dabe727440fa467"
+    },
+    {
+      "name": "@deepseek-ai/dsh-spill-policy",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-spill-policy-0.2.1-rc.4.tgz",
+      "size": 16973,
+      "sha256": "6d13f4cbe55b60e928735f4ec0fb4546fe50720bca914868b7227ed430f34b8d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-storage-json",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-storage-json-0.2.1-rc.4.tgz",
+      "size": 19034,
+      "sha256": "82fa20bc270bf317569c7accfc3971ecf546d95f12040b1ae3754bda5d3db600"
+    },
+    {
+      "name": "@deepseek-ai/dsh-subagent-fork-in-process",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-subagent-fork-in-process-0.2.1-rc.4.tgz",
+      "size": 10489,
+      "sha256": "d51be7e93618786f1b75a94ef48e68583dc47bafc55f6c9b25cb7d93b79600f1"
+    },
+    {
+      "name": "@deepseek-ai/dsh-subagent-spawn-in-process",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-subagent-spawn-in-process-0.2.1-rc.4.tgz",
+      "size": 9543,
+      "sha256": "f42417a0ce014c39da7985a5dd126bcc5b569e62a39a9fcf34169313aaffa8c6"
+    },
+    {
+      "name": "@deepseek-ai/dsh-subprocess-local",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-subprocess-local-0.2.1-rc.4.tgz",
+      "size": 76814,
+      "sha256": "16c74578965eb40007f204840958e07232df717ada2156cef70beb222b2b81d9"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-bash",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-bash-0.2.1-rc.4.tgz",
+      "size": 26903,
+      "sha256": "07501bfe9082d0fed744e59194d9192f99043ab2ee2e85c073b82328d20800c5"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-call-timeout-policy",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-call-timeout-policy-0.2.1-rc.4.tgz",
+      "size": 11494,
+      "sha256": "6e77200dd3b41dedf552f2aa814e33a1ac381590693c557411e9e7c6fb0ffc85"
+    },
+    {
+      "name": "@deepseek-ai/dsh-util-code-language",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-util-code-language-0.2.1-rc.4.tgz",
+      "size": 8052,
+      "sha256": "1a17b9ba3579100e7db27af4bad9f1a8d6f1fd1ca83743b3dc86dd801f7f554a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-fs",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-fs-0.2.1-rc.4.tgz",
+      "size": 39487,
+      "sha256": "c251054f77f11c9aba0be7d6c016fd090dafb86f18096e023997530da57b12d1"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-fs-search",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-fs-search-0.2.1-rc.4.tgz",
+      "size": 39959,
+      "sha256": "1538e33fd550000633accb60a21bffe4143b2c7b16b09e72a0a971eb4b203e75"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-goal",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-goal-0.2.1-rc.4.tgz",
+      "size": 16754,
+      "sha256": "05a9cd6061e7b5a3bb8a20087375a7a3e2454c56ce6ebaa113fd229a76c43db7"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-jobs",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-jobs-0.2.1-rc.4.tgz",
+      "size": 20499,
+      "sha256": "dab5b1dbd39d0cb045bb4bca38c3af00d0b7b688560d25f7ad0db98f2c87be80"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-present",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-present-0.2.1-rc.4.tgz",
+      "size": 9111,
+      "sha256": "48465efaf9db15711a9f0c57bbf99de7e8d1bbbe44fbb33d1fe1b434d0efb976"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-pwsh",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-pwsh-0.2.1-rc.4.tgz",
+      "size": 26250,
+      "sha256": "d7cef6496f0fb742149d695e05ae3cdbb371d35c7ac4968075dfe95d356b3e95"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-skill",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-skill-0.2.1-rc.4.tgz",
+      "size": 24391,
+      "sha256": "da8a06e74c0b0cb3f33ce150ab55c8cadf7d0f4ca3c2b8fa56eff47fb9a19b58"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-subagent",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-subagent-0.2.1-rc.4.tgz",
+      "size": 29010,
+      "sha256": "8dc2b45748af334cdba3eb8c560db73d324876ee9af4118e0b05364b1c0b1402"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-subagent-control",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-subagent-control-0.2.1-rc.4.tgz",
+      "size": 14875,
+      "sha256": "422f750dc0cf31498b1fa848b4a4f46103f42acf7038116fc3a38c0058484061"
+    },
+    {
+      "name": "@deepseek-ai/dsh-web",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-web-0.2.1-rc.4.tgz",
+      "size": 15952,
+      "sha256": "6f4d80046a6a9dc9ccbdb022921feffec07a59d07072b425bdbec88f324d4f2f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-web",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-web-0.2.1-rc.4.tgz",
+      "size": 29670,
+      "sha256": "f0be4a35bc6f8b2172338317e5e545bf652c6b504157be98b52be2d401636953"
+    },
+    {
+      "name": "@deepseek-ai/dsh-workflow",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-workflow-0.2.1-rc.4.tgz",
+      "size": 16176,
+      "sha256": "54f69d2c36fea139ce5128d7cc83122b34715dc14efd31cadce38119f1a4fbfc"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-workflow",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-workflow-0.2.1-rc.4.tgz",
+      "size": 23915,
+      "sha256": "825fcb2f8899e597c51a10201070548f2ffcd370bbdfb74f6cae85c8b9924617"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-working-directory",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-working-directory-0.2.1-rc.4.tgz",
+      "size": 5093,
+      "sha256": "da271a50609435de809ef751158e680a03ef2d65ae2173f687a0cfc8c3c1a18c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-typert-registry",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-typert-registry-0.2.1-rc.4.tgz",
+      "size": 23528,
+      "sha256": "4fd3b595a4f1f25be2e22495b0166433140631067e979d0e305d98b11b8f4450"
+    },
+    {
+      "name": "@deepseek-ai/dsh-typert-loader",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-typert-loader-0.2.1-rc.4.tgz",
+      "size": 14625,
+      "sha256": "1182205d94d0d8827a0429a4bf378112d16c27feda389b57609d37766248e1be"
+    },
+    {
+      "name": "@deepseek-ai/dsh-web-deepseek-api",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-web-deepseek-api-0.2.1-rc.4.tgz",
+      "size": 16315,
+      "sha256": "8993994029bede7352c3af28450ec9c62019c280a5774a1dc11110887717d9d2"
+    },
+    {
+      "name": "@deepseek-ai/dsh-web-fetch-http",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-web-fetch-http-0.2.1-rc.4.tgz",
+      "size": 22114,
+      "sha256": "8f22b8515bbcb1319da70b66e38d9c4e5be1fd28cd518e32e1ebdd0127615979"
+    },
+    {
+      "name": "@deepseek-ai/dsh-web-search-deepseek",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-web-search-deepseek-0.2.1-rc.4.tgz",
+      "size": 21362,
+      "sha256": "0f681d9547a93e7a8e6dda682ad0c6f6d433a2e76ceccc618132f8b8c602c7a4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-workflow-ptc",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-workflow-ptc-0.2.1-rc.4.tgz",
+      "size": 45866,
+      "sha256": "d61c767b0f2d2e96b08d460f9a4976d075cee49125f552d5465637571a29e7fb"
+    },
+    {
+      "name": "@deepseek-ai/dsh-base",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-base-0.2.1-rc.4.tgz",
+      "size": 17780,
+      "sha256": "b20d4ab929b6daa32aaa486ec13b384d4690221baaffe67120eb11b83387cef3"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-agent-preset",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-agent-preset-0.2.1-rc.4.tgz",
+      "size": 48290,
+      "sha256": "2dd23ad5d94ccd8802436a83d103cf347d9603827ee28d82bdf79629bd84caa3"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-cordis",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-cordis-0.2.1-rc.4.tgz",
+      "size": 31226,
+      "sha256": "db56c9f850e44b19a78d0c2d3a8b6b38bc522a5942476ed1d86a4c0d286b2339"
+    },
+    {
+      "name": "@deepseek-ai/dsh-cordis-client-runner",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-cordis-client-runner-0.2.1-rc.4.tgz",
+      "size": 89246,
+      "sha256": "714a35fca7884c3708262f6e3a97997cc3e51d65a6d6e58732f218b3b2855212"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-agent-team",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-agent-team-0.2.1-rc.4.tgz",
+      "size": 56593,
+      "sha256": "6476d14da9907568fd5bf0ebfcc5dca2f35ef186a438ea747ad7f683883a92d5"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-client-ui-agent-team",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-client-ui-agent-team-0.2.1-rc.4.tgz",
+      "size": 15463,
+      "sha256": "ed1e3b5c5602077b2e667f77cbd57093c784c0070982a7361aab8b90078025c9"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-tool-agent-team",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-tool-agent-team-0.2.1-rc.4.tgz",
+      "size": 16247,
+      "sha256": "9eae613fe569cd95fcb1e821fdf51f91eacba880b57c2d9b0fff508bcf01985a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-agent-team-profile",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-agent-team-profile-0.2.1-rc.4.tgz",
+      "size": 8052,
+      "sha256": "4198646fb8997280047aeba9e49e8930de64c36daa35f0640f4a953f7f7659dd"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-auto-review",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-auto-review-0.2.1-rc.4.tgz",
+      "size": 18816,
+      "sha256": "03939c5cffc805eec486b5d73f9477d0f0f273fb8df8d5c5bae4235aa9632e4b"
+    },
+    {
+      "name": "@deepseek-ai/dsh-skill-badge",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-skill-badge-0.2.1-rc.4.tgz",
+      "size": 21293,
+      "sha256": "185c03d09d6ffaa20bea29e7382eea44ab387eeac91a06457f0d56bd5f4caa66"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-badge-skill-bundle",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-badge-skill-bundle-0.2.1-rc.4.tgz",
+      "size": 4552,
+      "sha256": "22c6021d7c0a1345ebb6934d6a1c805871933fa11716a24a91b03282866e3a6e"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-translator",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-translator-0.2.1-rc.4.tgz",
+      "size": 31798,
+      "sha256": "03a8587378867b33d400935cb713edb2024ad078c79055705960d80fb86d7972"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-client-ui-cot-translation",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-client-ui-cot-translation-0.2.1-rc.4.tgz",
+      "size": 27120,
+      "sha256": "c692f7b3bb4ea332e970decd4fe983cf2341546a19157c6c44e0f51e0ee2a5bc"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-cot-translation-bundle",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-cot-translation-bundle-0.2.1-rc.4.tgz",
+      "size": 7118,
+      "sha256": "f2c1f3648f2295658ac06fe8abd6a7137032bcf274d3b20486dc9d7aa09ef3fe"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-inspector",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-inspector-0.2.1-rc.4.tgz",
+      "size": 4959058,
+      "sha256": "9375305fd88a94620c19f844b1322c9b20e40b948880ff88ef831fd2fbb36277"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-session-inspector",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-session-inspector-0.2.1-rc.4.tgz",
+      "size": 69655,
+      "sha256": "95f75f2469f07b78b645b1391cdd298367804fa8557c24de68f060ac818c48ae"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-inspector-profile",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-inspector-profile-0.2.1-rc.4.tgz",
+      "size": 5159,
+      "sha256": "7ba7c971e3976f541c0461f3147657ed312cd0deeb7a03014d8cfa01cd7e7a3e"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-plugin-market",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-plugin-market-0.2.1-rc.4.tgz",
+      "size": 28208,
+      "sha256": "e60a148f1ddcc8910bf3ebba1c318b37cb0aa7d720bd6b859b6c38bdf1235ab9"
+    },
+    {
+      "name": "@deepseek-ai/dsh-plugin-market-index",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-plugin-market-index-0.2.1-rc.4.tgz",
+      "size": 10467,
+      "sha256": "a3320730b2fc2d93eb4dbadc2f892018b48ae6c79c6e14653580e81ec995dbf7"
+    },
+    {
+      "name": "@deepseek-ai/dsh-plugin-market",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-plugin-market-0.2.1-rc.4.tgz",
+      "size": 53036,
+      "sha256": "c599a971da2957c828517cd4cda4fb03cf9c58e7b27bd6477c3440046f4a37a8"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-plugin-market-bundle",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-plugin-market-bundle-0.2.1-rc.4.tgz",
+      "size": 5106,
+      "sha256": "0fb242d15dd61d5511b68d1ae6740a7541e5b3f3f024c1630200505fc5e8fdb3"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-ralph",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-ralph-0.2.1-rc.4.tgz",
+      "size": 16759,
+      "sha256": "9b71c33b463173fec142f1be02a24219183b3ea857abd3f56e120f7a3a4aa6fd"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-ralph-bundle",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-ralph-bundle-0.2.1-rc.4.tgz",
+      "size": 5001,
+      "sha256": "1a3807e8e9d7bf1d44fcdbc8e9381a42d500c84cb6723c8a402596579f08afc3"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-session-query",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-session-query-0.2.1-rc.4.tgz",
+      "size": 23795,
+      "sha256": "b77b397eb1538bc3af10c19c4b404fdec5f5ec66b271a3bc26187fdc435fe78f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-session-search",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-session-search-0.2.1-rc.4.tgz",
+      "size": 5155,
+      "sha256": "9af013891c96344e39e1057c21023875d8b44e983160be49739b3ec5ea5ee027"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-title-all-prompts-llm",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-title-all-prompts-llm-0.2.1-rc.4.tgz",
+      "size": 10945,
+      "sha256": "0b420fe455eaac9cf3664907b685789b6c7153decee6982a0cc784ce907f6839"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-session-titles-bundle",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-session-titles-bundle-0.2.1-rc.4.tgz",
+      "size": 5124,
+      "sha256": "ba42f5ad0131f8993b4c9853a423e32c75b67d737ae99c9cf6fa93558cd47ef0"
+    },
+    {
+      "name": "@deepseek-ai/dsh-terminal",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-terminal-0.2.1-rc.4.tgz",
+      "size": 17363,
+      "sha256": "c39960873201fb7ff5d99f12ac1d207ec19c68facfa9f5ff79cdfb48054a8721"
+    },
+    {
+      "name": "@deepseek-ai/dsh-terminal-bash",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-terminal-bash-0.2.1-rc.4.tgz",
+      "size": 25831,
+      "sha256": "6d115110db69a4a2de7cf16048d48490edd0fba267c735858bb5ea6e2ce85627"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-terminal",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-terminal-0.2.1-rc.4.tgz",
+      "size": 17048,
+      "sha256": "f871ba58741f25e8a2524304485776346cc2002c8ce78e49310920f761dbcd0c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-terminal-bundle",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-terminal-bundle-0.2.1-rc.4.tgz",
+      "size": 4760,
+      "sha256": "a5dcad48a436fe3545d735f1405e9ecd2bd0b860ff203d3478284b45edfe5dcc"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-worktree",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-worktree-0.2.1-rc.4.tgz",
+      "size": 13722,
+      "sha256": "cda84d240544f23f2f1f1f2f231d08cf8aa0d2da4d4c6a879ee362e652bd9ff8"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-tool-worktree",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-tool-worktree-0.2.1-rc.4.tgz",
+      "size": 7337,
+      "sha256": "cf802cf0087abcdfdb4177a736d915dc8401beade018b84706a989b437eb00d6"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-speech-to-text",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-speech-to-text-0.2.1-rc.4.tgz",
+      "size": 11420,
+      "sha256": "bbd9df044ddb195faba9ce6c03f24bf97ba056b6984eff974e6577b7a552d290"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-api-speech-to-text",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-api-speech-to-text-0.2.1-rc.4.tgz",
+      "size": 15241,
+      "sha256": "a15f820714c5e574e87e1bd40063816983d3b830f5a394934f49848d8f498227"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-client-ui-voice-input",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-client-ui-voice-input-0.2.1-rc.4.tgz",
+      "size": 36487,
+      "sha256": "cf24a834cd94d765cee7a6621df85d173ea79053ab0a893110d06fed7f4c205f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-speech-to-text-sensevoice",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-speech-to-text-sensevoice-0.2.1-rc.4.tgz",
+      "size": 24737,
+      "sha256": "a79027b1f74f2425357662f7b845ba1d7398a9c1ad1a0b9aa6bcd3a480ff7087"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-voice-input-bundle",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-voice-input-bundle-0.2.1-rc.4.tgz",
+      "size": 5895,
+      "sha256": "b1c84e6675b06fa780b3788fbc5bcb94ea2f3334edd19244484343812fd05753"
+    },
+    {
+      "name": "@deepseek-ai/dsh-headless",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-headless-0.2.1-rc.4.tgz",
+      "size": 27093,
+      "sha256": "791c2db76eeca8f18400cec2b5d6d033d220457fe6dc30f7bbde8ff67ee18f70"
+    },
+    {
+      "name": "@deepseek-ai/dsh-persona",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-persona-0.2.1-rc.4.tgz",
+      "size": 9196,
+      "sha256": "1075481ec8486492e90a359de04c901b4f8493fab29ad37231c6290d330088aa"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-connection",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-connection-0.2.1-rc.4.tgz",
+      "size": 58710,
+      "sha256": "47de56ae48b870d6d9ae9fd2f843f36c9bf14571a159901c6a85265fda279a25"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-file-upload",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-file-upload-0.2.1-rc.4.tgz",
+      "size": 32894,
+      "sha256": "0a0f439ac5f98449f228ec6b96598c12cbafec9827cccd9d0b85181d14e2294f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-file-reference",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-file-reference-0.2.1-rc.4.tgz",
+      "size": 9392,
+      "sha256": "46c6e42c2bf237cd770ae7e5efbc3b6c5c7e9056aca323fa67a81e660f6923eb"
+    },
+    {
+      "name": "@deepseek-ai/dsh-native-command",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-native-command-0.2.1-rc.4.tgz",
+      "size": 37178,
+      "sha256": "a14bcb91563062a75b5c66bef56c51fb7d824f2446aebc6a9146a4561cba7499"
+    },
+    {
+      "name": "@deepseek-ai/dsh-util-workspace-path",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-util-workspace-path-0.2.1-rc.4.tgz",
+      "size": 8867,
+      "sha256": "775544fc600c8572dcb95e17785113443915ceaf4a73f18749b903a2fd3bb4f0"
+    },
+    {
+      "name": "@deepseek-ai/dsh-api-session-controller",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-api-session-controller-0.2.1-rc.4.tgz",
+      "size": 272972,
+      "sha256": "5a325a70f1963236486c310b410a36c8f476933e34ce5891aeba040c58018ddf"
+    },
+    {
+      "name": "@deepseek-ai/dsh-schedule",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-schedule-0.2.1-rc.4.tgz",
+      "size": 96951,
+      "sha256": "bf0929f377d53e89414020ec424ece8f03dfbd6e37eadb87d75905e0e7e8bb82"
+    },
+    {
+      "name": "@deepseek-ai/dsh-sdk-protocol",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-sdk-protocol-0.2.1-rc.4.tgz",
+      "size": 15152,
+      "sha256": "a831ca055ea1b2710a69d82d697211d85e7de0070e5641660f2b29a9e05deb1a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-sdk-jsonrpc-server",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-sdk-jsonrpc-server-0.2.1-rc.4.tgz",
+      "size": 18264,
+      "sha256": "3b82bd69a371b3330330e63c5006d7e1afda0193b021000fc963a000d8b12250"
+    },
+    {
+      "name": "@deepseek-ai/dsh-skill-office",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-skill-office-0.2.1-rc.4.tgz",
+      "size": 17242,
+      "sha256": "e6c3ac6c4597c6cbc413d851368fcba9b3b19d35a3087192ad9d4d6a790497d3"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-workspace-dependencies",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-workspace-dependencies-0.2.1-rc.4.tgz",
+      "size": 13086,
+      "sha256": "5bfe370fe5c6cce1b0bf59d8aa4d31eceed78907f72f3d8e62e14811ec9aa3ba"
+    },
+    {
+      "name": "@deepseek-ai/dsh-sdk-app",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-sdk-app-0.2.1-rc.4.tgz",
+      "size": 8168,
+      "sha256": "a48b1567cb1a9755a800bf063a5c3284657a39101ba9866e545966bbef57ac34"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-bash-persistent",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-bash-persistent-0.2.1-rc.4.tgz",
+      "size": 15780,
+      "sha256": "2ec38c89c652c016865de699bd31eb93bd934242c8ace5cee8ad499ef58ba42f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-pwsh-persistent",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-pwsh-persistent-0.2.1-rc.4.tgz",
+      "size": 17707,
+      "sha256": "d3bbcecac4c308049550f17d6225a90bb69b67b1fed19fbf3b6a1f3359500ed3"
+    },
+    {
+      "name": "@deepseek-ai/dsh-sdk-minimal",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-sdk-minimal-0.2.1-rc.4.tgz",
+      "size": 9619,
+      "sha256": "4b75d0b18b6b4e92d23d7cf167607a77cdc2f352abaf6aae9a270c38769f71b6"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-reference",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-reference-0.2.1-rc.4.tgz",
+      "size": 45810,
+      "sha256": "868bd2c4e4029ddb25b1e1ed8f6a12810a2cd5e693c0ec68948445f777bc52bb"
+    },
+    {
+      "name": "@deepseek-ai/dsh-subagent-claude-code",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-subagent-claude-code-0.2.1-rc.4.tgz",
+      "size": 23367,
+      "sha256": "5a8be204ff250aaf5c628cae5a61270df76d7c94c7ea96a358956cdfe4f3371f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-subagent-codex",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-subagent-codex-0.2.1-rc.4.tgz",
+      "size": 25984,
+      "sha256": "4efa89b9156875fd8fe963cbf2a2a2d7a67b4b5ce8f7fc45283cb63c6b4646af"
+    },
+    {
+      "name": "@deepseek-ai/dsh-time-context",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-time-context-0.2.1-rc.4.tgz",
+      "size": 13688,
+      "sha256": "a5ce02d27f5c6451e2da9b2b725825410763d667041098e5ab449c07aa73045d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tmux-context",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tmux-context-0.2.1-rc.4.tgz",
+      "size": 34936,
+      "sha256": "c56ac564f1142b94daf61132fe4f11bef381cbb3da3c3907685d78b5be922168"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-ask-user",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-ask-user-0.2.1-rc.4.tgz",
+      "size": 13092,
+      "sha256": "1848f940674e4c60d976595908752c3719bac19c602ff274a664b5e191ff9008"
+    },
+    {
+      "name": "@deepseek-ai/dsh-cordis-host-runner",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-cordis-host-runner-0.2.1-rc.4.tgz",
+      "size": 112756,
+      "sha256": "2027a0e6a1f0f4b841316b2b54ab3bacef6d3e4926212783ffabe4d8008b5301"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-cordis",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-cordis-0.2.1-rc.4.tgz",
+      "size": 146412,
+      "sha256": "750206882eaaeae47eab92b1930bb7507f3b44e35ac77c3c2e8043b1a6ba756c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-schedule",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-schedule-0.2.1-rc.4.tgz",
+      "size": 13630,
+      "sha256": "1ae771bdee262b9a95601bf580165a6f1244c3921794cda50f433bd5a0fd2ef1"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-str-replace-editor",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-str-replace-editor-0.2.1-rc.4.tgz",
+      "size": 14160,
+      "sha256": "417a54953e6b11f055ae877b30b2b8d744f8fafea1bac3d79b95a390699a8124"
+    },
+    {
+      "name": "@deepseek-ai/dsh-api-account-controller",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-api-account-controller-0.2.1-rc.4.tgz",
+      "size": 16694,
+      "sha256": "1f47a185da314c5e421097f5ab1d46be7eede717985d4aa55d96e5ec64b77dc4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-api-job-controller",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-api-job-controller-0.2.1-rc.4.tgz",
+      "size": 31795,
+      "sha256": "41677aa242a5b100507c0cdfafaba0ececdd316cf3afc00a88a63b3739683e9f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-api-remotes",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-api-remotes-0.2.1-rc.4.tgz",
+      "size": 122550,
+      "sha256": "a1d01466c91190b26ee767ed1b04c1e9c4c0839f1ca8daac4fe93ff50cdf81ce"
+    },
+    {
+      "name": "@deepseek-ai/dsh-api-settings-controller",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-api-settings-controller-0.2.1-rc.4.tgz",
+      "size": 23501,
+      "sha256": "b6472e194706accfd09ea5caddde5502b4cfa6bcb72499fc69b812d102cdef83"
+    },
+    {
+      "name": "@deepseek-ai/dsh-api-terminal-controller",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-api-terminal-controller-0.2.1-rc.4.tgz",
+      "size": 75819,
+      "sha256": "92e7892a90c8d1f9e67d2d99b61e818c155f28f0254d2dd80896eeda8bc5c47a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-host-directory-picker",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-host-directory-picker-0.2.1-rc.4.tgz",
+      "size": 9983,
+      "sha256": "85ba4a8f0e3174769af4332aebc030cfbcc2e678668f4ed1a94a2bb492774c8c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-api-workspace-controller",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-api-workspace-controller-0.2.1-rc.4.tgz",
+      "size": 54087,
+      "sha256": "226eb4963a505151d4785b11f123cdf4c17ae168a730e162e0cd756a8bd97aa5"
+    },
+    {
+      "name": "@deepseek-ai/dsh-api-workspace-files",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-api-workspace-files-0.2.1-rc.4.tgz",
+      "size": 49315,
+      "sha256": "d528f9f04d65d10a77b39a87f0b03374ece218a0205e35c6b446afbf692e96f1"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-hmr",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-hmr-0.2.1-rc.4.tgz",
+      "size": 15140,
+      "sha256": "4aed1f58b3ebfa7a81f8fb681521bcc460c5530102da6f993d494ff7a42000a6"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-locale",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-locale-0.2.1-rc.4.tgz",
+      "size": 33685,
+      "sha256": "26308a853d0ed1b0f181d1d141cb24e41126211ba41c2c50abd9fad9e559dbe4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-modules",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-modules-0.2.1-rc.4.tgz",
+      "size": 53507,
+      "sha256": "69d9febd2852d41f51828fd85cecb40ece57351a966c5d8251b23507b7252782"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-product-analytics",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-product-analytics-0.2.1-rc.4.tgz",
+      "size": 24875,
+      "sha256": "d1d4a23ef1c2a9ef31ace1142f01a69273a2135f101f1c7234560b8fd6b2f988"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-resources",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-resources-0.2.1-rc.4.tgz",
+      "size": 11271,
+      "sha256": "1e7d487de9701062b36c6dc3bed29cbd15f9f96f8a007b2300947a86d9be5966"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-shortcuts",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-shortcuts-0.2.1-rc.4.tgz",
+      "size": 49718,
+      "sha256": "818055890153ec9fed92b59562233af6a41b51ff5c62fe52e571daa65831024d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-approval",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-approval-0.2.1-rc.4.tgz",
+      "size": 10318,
+      "sha256": "aaa7833e4f0a6756a72f4185ef1273c20eab81df7e4af8ba11c751841ca925d0"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-attachment",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-attachment-0.2.1-rc.4.tgz",
+      "size": 23913,
+      "sha256": "1278d4698dc68180d43cbaca9e92229090a2aba48fb4cb032e1267580c0e279b"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-brand-official",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-brand-official-0.2.1-rc.4.tgz",
+      "size": 6974,
+      "sha256": "c8bdf1b6d11cefcf1936aa6962ea7d9e5762f84463db7bbd51977f1bf8e5a2e2"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-chat",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-chat-0.2.1-rc.4.tgz",
+      "size": 231843,
+      "sha256": "a75bb0f8f5f08fe006268dd91d3fc913c95e408483d61a793c945ad9df816f31"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-commands",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-commands-0.2.1-rc.4.tgz",
+      "size": 43495,
+      "sha256": "d984a74293ccc852896e86ab4dd6c9faf63baa589bc803aa9a84c8d581e62219"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-conversation",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-conversation-0.2.1-rc.4.tgz",
+      "size": 296634,
+      "sha256": "cd8954fa046c58d74f577126e21cf0a0c60d0cdb8dfde7d0058cded314a67518"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-deepseek-model-label-1017",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-deepseek-model-label-1017-0.2.1-rc.4.tgz",
+      "size": 6827,
+      "sha256": "53a11d4d7d5fa097e0e4215c11d902d40838dff728b22cf7a6a7bb7ed89a7b14"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-deliverables",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-deliverables-0.2.1-rc.4.tgz",
+      "size": 57208,
+      "sha256": "8cb607bf123f5a845d364097cac0d00c90a7b5328bc5cc1107b9357dc69df623"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-directory-picker-browse",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-directory-picker-browse-0.2.1-rc.4.tgz",
+      "size": 21007,
+      "sha256": "6e70774aaa0b38c7c47b0edbf5c334a7747ce748be6aef95ed36fea7304c4dfc"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-directory-picker-native",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-directory-picker-native-0.2.1-rc.4.tgz",
+      "size": 8214,
+      "sha256": "1c183ffacd6e7ba8fde854394ddae376a04f2e2b48e509cdc6e8318a7ad6aa93"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-entry-customization",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-entry-customization-0.2.1-rc.4.tgz",
+      "size": 9367,
+      "sha256": "d76c6e798e5a942d01ec236d7c286b6b95ca6cbd6c10395762f0791aab439744"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-goal",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-goal-0.2.1-rc.4.tgz",
+      "size": 18580,
+      "sha256": "52b4d76f272800a3ec4eae29394e3b0329bf149fb282af736ebab828f5a04e81"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-input-trigger",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-input-trigger-0.2.1-rc.4.tgz",
+      "size": 41935,
+      "sha256": "0b35c8de3a48c475ecb7e69196f8789f61ec8493eae24edab4bcb6309226672a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-jobs",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-jobs-0.2.1-rc.4.tgz",
+      "size": 17459,
+      "sha256": "b2b0033e94645ed129dab21f1ce5e1a627a0f20a5240b0e46a33d298c5a76f59"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-layout",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-layout-0.2.1-rc.4.tgz",
+      "size": 26734,
+      "sha256": "681855109e8e8ade3333d95c18f42d34b870e679d71a3530714dbe650830d419"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-message-feedback",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-message-feedback-0.2.1-rc.4.tgz",
+      "size": 22965,
+      "sha256": "3388d7e4a76b371470b7391271bcb41dac641822a991889f23b1cf5436d2adf0"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-model-selection",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-model-selection-0.2.1-rc.4.tgz",
+      "size": 36758,
+      "sha256": "a176e5637e09c838854cb1ac399e80d996b632eed3437d065455ea51eb3b3092"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-open-in-app",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-open-in-app-0.2.1-rc.4.tgz",
+      "size": 25205,
+      "sha256": "a599e20cfd80e79d11be1bc463d798a1d9fe69e992c605ef478b5938e5f4808d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-permission-presets",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-permission-presets-0.2.1-rc.4.tgz",
+      "size": 22328,
+      "sha256": "5a748410d9da009bb46511c2a7280da272d1190526a784946f331c0c54b135f0"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-plan",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-plan-0.2.1-rc.4.tgz",
+      "size": 22411,
+      "sha256": "9f71ab8626b38eef48e8dc1d0d578c665c752e20d9d005f061f7ad874b9ea85a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-plugin-manager",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-plugin-manager-0.2.1-rc.4.tgz",
+      "size": 277081,
+      "sha256": "34879ad982fe05c8ab7f39ce2b9ab1d419562dfbf4b535021a0add66a7a3552e"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-reference",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-reference-0.2.1-rc.4.tgz",
+      "size": 16566,
+      "sha256": "3b4e497e272481abc4cc7009e4f7e7848bfc77be2d65e3ef383b620460648269"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-renderer",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-renderer-0.2.1-rc.4.tgz",
+      "size": 32021,
+      "sha256": "8996ae114173dc548853cbc25a8de05855f1d865b9bfa27b5a70df5eed783e0d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-schedule",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-schedule-0.2.1-rc.4.tgz",
+      "size": 129949,
+      "sha256": "c2a452c91983b04f3724a3751af77316cf2feb2faae9a75706f7ed1c6b34c81c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-secret-mask",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-secret-mask-0.2.1-rc.4.tgz",
+      "size": 21788,
+      "sha256": "8f3a72698c9458b5082b7be0fa302f56fff56d812f9a1a28c7655b3c5d904aff"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-session",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-session-0.2.1-rc.4.tgz",
+      "size": 17586,
+      "sha256": "6c22d9c0973692c555574c6a39f2991d51577973b8efe9eeb48cacb760602d93"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-settings",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-settings-0.2.1-rc.4.tgz",
+      "size": 32886,
+      "sha256": "a2099fbd2ce92e53da10a41a2ba357a0223d6b9c0401a9ee8809687215dabff5"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-settings-account",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-settings-account-0.2.1-rc.4.tgz",
+      "size": 2504281,
+      "sha256": "0d029b1626448cbfc097da7a6ea668c2469330accd9388581dbd3314ebaece17"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-settings-agent-loop",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-settings-agent-loop-0.2.1-rc.4.tgz",
+      "size": 8577,
+      "sha256": "832fc9da68bd5b771803f8da97b79d21ca87908e42705261d14211c1e200a8ed"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-settings-general",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-settings-general-0.2.1-rc.4.tgz",
+      "size": 34564,
+      "sha256": "29053aa09918966bd6a2e92154f0a693311b2c86d0d0d49a75481336bf1b1196"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-settings-models",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-settings-models-0.2.1-rc.4.tgz",
+      "size": 91098,
+      "sha256": "c58e1a6413b1723e4d6ed2f550a44abd36e2c1fb87ee7de899f66a66337cd0cc"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-settings-plugin-inventory",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-settings-plugin-inventory-0.2.1-rc.4.tgz",
+      "size": 20724,
+      "sha256": "5dad1bb1dc7c48a0b8119167448315fa51a9e480406e90ebaeb336ed11f25ec6"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-settings-plugins",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-settings-plugins-0.2.1-rc.4.tgz",
+      "size": 9202,
+      "sha256": "51f7360c456a56bea46b48714827f6e364cfab1d3aaee4c8b9c116dd9b4a18fb"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-settings-session-log",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-settings-session-log-0.2.1-rc.4.tgz",
+      "size": 7630,
+      "sha256": "50037de850fec151405dae5d76068127464143e96a8dcd274dca3b6dcbba450b"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-settings-shell",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-settings-shell-0.2.1-rc.4.tgz",
+      "size": 9315,
+      "sha256": "d54b1fe37fadf605d1ebb6f6aeca0f942caacc2182ebe78f09641a431d058ef9"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-settings-subagent",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-settings-subagent-0.2.1-rc.4.tgz",
+      "size": 20081,
+      "sha256": "84e990faf5b8d3d9644862d8f4b5d96f50af75a5e4e5418230fb4a21f396ed8a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-settings-web-search",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-settings-web-search-0.2.1-rc.4.tgz",
+      "size": 17049,
+      "sha256": "c79cd6b742c4cf17b6e6299e9de7379130079b8991a9e6c81b2c228bd9e1a771"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-shortcuts",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-shortcuts-0.2.1-rc.4.tgz",
+      "size": 26998,
+      "sha256": "8dc4e6f12a1b4f71e88c058dbf7e41625773fd5847f2ea050029eda83e067517"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-sidebar",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-sidebar-0.2.1-rc.4.tgz",
+      "size": 25050,
+      "sha256": "66fdd7c606a4cbd5b7918701fd88ecaa7437c37c0c628ea3fdfd491193142194"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-sidebar-browser",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-sidebar-browser-0.2.1-rc.4.tgz",
+      "size": 33980,
+      "sha256": "fdf6d34220accf4b5b27086617c88d5814d68d2693aa9a407c257a76420cb796"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-sidebar-documentpreview",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-sidebar-documentpreview-0.2.1-rc.4.tgz",
+      "size": 4664174,
+      "sha256": "2498174f1ecdd5fa3f45531a6054d21f203b507c18b30fb4f6075c829917fe86"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-sidebar-files",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-sidebar-files-0.2.1-rc.4.tgz",
+      "size": 24907,
+      "sha256": "37e3a2a679a4cde805c2ce36a36aa0095a0d81f52879d3dc1d4faa7a010fb235"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-sidebar-right",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-sidebar-right-0.2.1-rc.4.tgz",
+      "size": 99113,
+      "sha256": "98fe0bae24bcb5e6f542fc407c6f55d43b081780acaf07b56e62caa579db8d76"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-sidebar-terminal",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-sidebar-terminal-0.2.1-rc.4.tgz",
+      "size": 159845,
+      "sha256": "d49475645982b3f82aa3b4e7e781f5a9341b0826738b0b827d18d2f11417b733"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-skill",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-skill-0.2.1-rc.4.tgz",
+      "size": 19657,
+      "sha256": "e75cf9b6b29cb5c1d160ca9adb9169fa5a9fc6e293f880636221df2b1330aa9f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-subagent",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-subagent-0.2.1-rc.4.tgz",
+      "size": 26744,
+      "sha256": "67eba301187e8e612142b036af4e3ab2df26fe8b1a51e08dcfb334ce43d3ab47"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-theme",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-theme-0.2.1-rc.4.tgz",
+      "size": 244161,
+      "sha256": "009504dc3b31369c639b3ec16f3b1fe415da1eb432448edf4aea1a19b090df69"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-tool",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-tool-0.2.1-rc.4.tgz",
+      "size": 79234,
+      "sha256": "93d41be993ad741a5ccefe8c785d087210f464a51cb185c879c1ab26c984bfe0"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-trajectory",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-trajectory-0.2.1-rc.4.tgz",
+      "size": 108186,
+      "sha256": "f0ef18d828f21cad5ac17961ac0ead9c04992104c6573d037b84c8c1a2b3c4ff"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-user-questions",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-user-questions-0.2.1-rc.4.tgz",
+      "size": 43958,
+      "sha256": "130f39f1a140037505b888eca69fac898b33906f22661fd2feb13dd8fba166f4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-workflow-run",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-workflow-run-0.2.1-rc.4.tgz",
+      "size": 16462,
+      "sha256": "b4be2bad8f658ac40650b5bde4d8f89620a4e72f1402adf11147e85f91f009bb"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-workspace",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-workspace-0.2.1-rc.4.tgz",
+      "size": 106497,
+      "sha256": "e98d78a15c4fbdedf355df9773fd0b260bbbb3a8bc34b3c270437a2da630bef7"
+    },
+    {
+      "name": "@deepseek-ai/dsh-file-reference-local",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-file-reference-local-0.2.1-rc.4.tgz",
+      "size": 18122,
+      "sha256": "c5c7441c7df2ce9430b7b25c17572f08df19b80c7385407673460be195bbd421"
+    },
+    {
+      "name": "@deepseek-ai/dsh-harness-dev-context",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-harness-dev-context-0.2.1-rc.4.tgz",
+      "size": 10738,
+      "sha256": "ce5b6a62c0fd20bdf2a14b5c29c2bcbe6d8b95d88ca9dcbaeb84b5239f704082"
+    },
+    {
+      "name": "@deepseek-ai/dsh-host-directory-picker-browse",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-host-directory-picker-browse-0.2.1-rc.4.tgz",
+      "size": 12674,
+      "sha256": "7c5f98de1eab5f65092f055482fb9efadd1d10645d6d5e48ff1697bc533ce071"
+    },
+    {
+      "name": "@deepseek-ai/dsh-host-directory-picker-native",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-host-directory-picker-native-0.2.1-rc.4.tgz",
+      "size": 20047,
+      "sha256": "8d767a9ee26b60ccc25062531b479626569068419c0b35689f00423872ee097c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-host-directory-picker-auto",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-host-directory-picker-auto-0.2.1-rc.4.tgz",
+      "size": 12657,
+      "sha256": "152bfde2e661e25705189aa1ff7b8038aa8c2961a22fb1ed7b8306fc0fbd4e9c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-host-frontend-static",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-host-frontend-static-0.2.1-rc.4.tgz",
+      "size": 9930,
+      "sha256": "3174785e652baff7d64f01d0d3e499fe066f7e75525221a70123bc1e65c2f6d1"
+    },
+    {
+      "name": "@deepseek-ai/dsh-host-open-in-app",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-host-open-in-app-0.2.1-rc.4.tgz",
+      "size": 45721,
+      "sha256": "d5f63f0818707223938700b97b4b401b75cdaf72a6fd901c3b0e52aa748ee6d0"
+    },
+    {
+      "name": "@deepseek-ai/dsh-host-product-telemetry-otel",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-host-product-telemetry-otel-0.2.1-rc.4.tgz",
+      "size": 9207,
+      "sha256": "f1a7a98cdd3123fe4e2194f238fb9d68200463afd4d3fefa7739decf66dd1fa0"
+    },
+    {
+      "name": "@deepseek-ai/dsh-office-to-pdf",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-office-to-pdf-0.2.1-rc.4.tgz",
+      "size": 29188,
+      "sha256": "9e34a472eff35753127c7b137816574991af3467c28463a038b6549a6cf71a6c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-log-export",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-log-export-0.2.1-rc.4.tgz",
+      "size": 25719,
+      "sha256": "65ceea46dced4f88ab4c67b3b84b9999a76430897f731046776a03634facf3db"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-stats",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-stats-0.2.1-rc.4.tgz",
+      "size": 13478,
+      "sha256": "f77f3b8723a76585bf492b68f7684a12d1b5b10a0d45a9670ec3566ae0046bcd"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-turn-outline",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-turn-outline-0.2.1-rc.4.tgz",
+      "size": 12834,
+      "sha256": "66d0f379f13a787c63b1576c72b7c997b74d5856aea6a3eb353f6e60ddb030b4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-web-frontend",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-web-frontend-0.2.1-rc.4.tgz",
+      "size": 1319640,
+      "sha256": "b8ce53430f220626548adf72aac94393d0a67a9026cb869bfe0c023749f4b304"
+    },
+    {
+      "name": "@deepseek-ai/dsh-workspace-changes",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-workspace-changes-0.2.1-rc.4.tgz",
+      "size": 40554,
+      "sha256": "dcf7379faf51a651fe8d3a3538f699bb7047f27b5103fb59d4e8cc2ac8e1b3f0"
+    },
+    {
+      "name": "@deepseek-ai/dsh-web-app",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-web-app-0.2.1-rc.4.tgz",
+      "size": 34101,
+      "sha256": "80f6a6608b00e41645576ffe030e22709a72b6671926b1ec9d7f54885852575d"
+    },
+    {
+      "name": "@deepseek-ai/dsh",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-0.2.1-rc.4.tgz",
+      "size": 25132,
+      "sha256": "b0914a7ffb053e8e53aad4ffb5c8c81fed60bc5156266d5207be72f0984ca638"
+    },
+    {
+      "name": "@deepseek-ai/dsh-agent-loop-testkit",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-agent-loop-testkit-0.2.1-rc.4.tgz",
+      "size": 10058,
+      "sha256": "1e5c4b40d7fe930b218739b1a0c2562d309648ffe7523e18935870d5954a4c39"
+    },
+    {
+      "name": "@deepseek-ai/dsh-browser-use",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-browser-use-0.2.1-rc.4.tgz",
+      "size": 5629,
+      "sha256": "8f29591200d43e18f6ef38d2124355a403e8d86b439185304fe2bd4e0b4f7952"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-store",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-store-0.2.1-rc.4.tgz",
+      "size": 8998,
+      "sha256": "a03aeb5527b08f3f95f84f57fa8105935afbe3e7297c45979a0d57168649a5f4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-slots",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-slots-0.2.1-rc.4.tgz",
+      "size": 31964,
+      "sha256": "d833b1507d1774cbbe39241310ce4e0f8ba1707db40a8bb697effdf827432ab2"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-web",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-web-0.2.1-rc.4.tgz",
+      "size": 26006,
+      "sha256": "d5c1a0551bc1a308efc01891f9084e75bf7bafef0e905ef61808c7849bf7ec9a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-remote-mock",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-remote-mock-0.2.1-rc.4.tgz",
+      "size": 24411,
+      "sha256": "df9ffc7ee0ed6cfb3b61d47261eded2558c9d6ec0a53ab7cba68825af19127a9"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-test-runtime",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-test-runtime-0.2.1-rc.4.tgz",
+      "size": 49314,
+      "sha256": "15e41c07146c1b5b0d2514cd77be1d5929cf8e84a07c65b06670db547f34994d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-dockkit",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-dockkit-0.2.1-rc.4.tgz",
+      "size": 77832,
+      "sha256": "0719143cdc9080b72b1238357f6deba0fec9542350b924e99015423989b5afa6"
+    },
+    {
+      "name": "@deepseek-ai/dsh-client-ui-primitives",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-client-ui-primitives-0.2.1-rc.4.tgz",
+      "size": 289386,
+      "sha256": "5ab56c7ff70d919e21a36a6d37df495a13a2e4f54381f6fe835180619bb5c0bf"
+    },
+    {
+      "name": "@deepseek-ai/dsh-computer-use",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-computer-use-0.2.1-rc.4.tgz",
+      "size": 5566,
+      "sha256": "49bce8a97a7933c2960abf16ba9fe2488f0d1505aa15465867387cb31db34cdb"
+    },
+    {
+      "name": "@deepseek-ai/dsh-cua",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-cua-0.2.1-rc.4.tgz",
+      "size": 40475,
+      "sha256": "8104246ce13ed59196bb5aa0523c1259721e7ba0d12af8a588f5954cbd09ca2f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-browser-use-runtime",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-browser-use-runtime-0.2.1-rc.4.tgz",
+      "size": 14440,
+      "sha256": "b56b2887a22561e8651970de468b452abc6ff15ff9f0b2d8028212b6f48ce6d4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-browser-use-chrome-devtools-mcp-0.2.1-rc.4.tgz",
+      "size": 8667,
+      "sha256": "ad0fdf7171fb6c64cd9f43a026bc630b5cdce1ca6a24217a2ebf02bc278f75b4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-browser-use-playwright-mcp",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-browser-use-playwright-mcp-0.2.1-rc.4.tgz",
+      "size": 8731,
+      "sha256": "16cf0bb69a38af441e67201d9e9b97e4bc74fee35f8aefb1685cafbe7e26bacb"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-browser-use-stagehand-native",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-browser-use-stagehand-native-0.2.1-rc.4.tgz",
+      "size": 19848,
+      "sha256": "9110c06dbd33f71f2fa21fd4a2452f79aca86263bd3df9fdd8373aab149fb261"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-claude-code-mods",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-claude-code-mods-0.2.1-rc.4.tgz",
+      "size": 107525,
+      "sha256": "ac97ae27a92d0489d6f0ac598d083383b684ca7f82c9c35aabc1138a6f50c351"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-client-ui-claude-code-mods",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-client-ui-claude-code-mods-0.2.1-rc.4.tgz",
+      "size": 13436,
+      "sha256": "328cc2a547c1fa2e9e0ab6063d25d8f02ab2eb147591aa9266853d65546c8150"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-computer-use-cua-driver-mcp",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-computer-use-cua-driver-mcp-0.2.1-rc.4.tgz",
+      "size": 8813,
+      "sha256": "f18128554bc9c6613c8d083c0661bae6784ea326d7da370d7a6a45e6f18aea2d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-computer-use-cua-driver-native",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-computer-use-cua-driver-native-0.2.1-rc.4.tgz",
+      "size": 10792,
+      "sha256": "e2dbd18b761802fd47de4e427a64d6beaf12609a0d8c4b19a909bf0b24a7bef1"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-cua-macos",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-cua-macos-0.2.1-rc.4.tgz",
+      "size": 128815,
+      "sha256": "01aae327af658ac1469c2d4f5951ff41f745eeba62b11432a262f80f3ccd03a2"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-ptc-runtime-python",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-ptc-runtime-python-0.2.1-rc.4.tgz",
+      "size": 97594,
+      "sha256": "8ee0b42e7698e3bfa72319f6fe44050e4dadad17a672695eae6bd38c582dc0ac"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-webworker-runtime",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-webworker-runtime-0.2.1-rc.4.tgz",
+      "size": 304797,
+      "sha256": "10897dfdf0a955b25831b92a6a8a512e52ed069edf73d61bf769a2d473776eb6"
+    },
+    {
+      "name": "@deepseek-ai/dsh-experimental-webworker-packer",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-experimental-webworker-packer-0.2.1-rc.4.tgz",
+      "size": 30341,
+      "sha256": "fcb8c43f35c138a22e48f4c000806894151cd6f9bf1154cb44d3b38704e4883d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-ssh",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-ssh-0.2.1-rc.4.tgz",
+      "size": 29815,
+      "sha256": "5a725e9572c67bc9a533d9cf6aa0fe83335fbdb28a7acc5a2b2fbbafb8fb4794"
+    },
+    {
+      "name": "@deepseek-ai/dsh-fs-ssh",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-fs-ssh-0.2.1-rc.4.tgz",
+      "size": 7316,
+      "sha256": "7f72b971e8478f35ea92f895aa7392746637a74d061e5f8d3fe336b64050ebc4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-hook-protocol",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-hook-protocol-0.2.1-rc.4.tgz",
+      "size": 23251,
+      "sha256": "0990226c39d3328f44a511749867b0d5475416288654b1591dae84d4a3821f03"
+    },
+    {
+      "name": "@deepseek-ai/dsh-hooks-claude-code",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-hooks-claude-code-0.2.1-rc.4.tgz",
+      "size": 21462,
+      "sha256": "ea3832767767bc6c0f42c82cc50d9824ac3d0bed5e405afdc47be3b8831e7771"
+    },
+    {
+      "name": "@deepseek-ai/dsh-hooks-codex",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-hooks-codex-0.2.1-rc.4.tgz",
+      "size": 18509,
+      "sha256": "14745b146452fb47ecad497a16a1a82f666b9d865ae8feaf4087738989f31b6a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-llm-mock-server",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-llm-mock-server-0.2.1-rc.4.tgz",
+      "size": 18018,
+      "sha256": "d966378b47e6e5af4a573b3482097453e4a9d245fc3ca169a8135ef2140577de"
+    },
+    {
+      "name": "@deepseek-ai/dsh-llm-replay",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-llm-replay-0.2.1-rc.4.tgz",
+      "size": 27967,
+      "sha256": "50324d4e6b1c9a1070de05f0677dbcecf46530e724b6758f227e9b022bb3a80b"
+    },
+    {
+      "name": "@deepseek-ai/dsh-loader-smoke",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-loader-smoke-0.2.1-rc.4.tgz",
+      "size": 14187,
+      "sha256": "bc17ef58e2a50b3aff46de5128078e7f62c1ea69a71deac5deef584c7d485f5c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-lsp",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-lsp-0.2.1-rc.4.tgz",
+      "size": 13595,
+      "sha256": "c6e73bcf1180bf20cc6b7290d675a7168527f78e437a2419543b9eef2aa4c00a"
+    },
+    {
+      "name": "@deepseek-ai/dsh-lsp-stdio",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-lsp-stdio-0.2.1-rc.4.tgz",
+      "size": 32872,
+      "sha256": "801cb9ed7f863903724f0dbd64977bf57b469ed91f9d5628a028443fd2cfef2f"
+    },
+    {
+      "name": "@deepseek-ai/dsh-sandbox-ssh",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-sandbox-ssh-0.2.1-rc.4.tgz",
+      "size": 5506,
+      "sha256": "e1aef3a78cdd1bce37b7740378f8a3c3aa5a02caf98ebe11090660df1c9a7097"
+    },
+    {
+      "name": "@deepseek-ai/dsh-sdk-client",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-sdk-client-0.2.1-rc.4.tgz",
+      "size": 28104,
+      "sha256": "3069880243242a41d5918565495261f9e401a61113529820239cf1dc0a3927eb"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session-snapshot",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-session-snapshot-0.2.1-rc.4.tgz",
+      "size": 72268,
+      "sha256": "8bb70991dcd451e242e823f7ab4642450b745ae0e45c7c11d05fb6572a100cb6"
+    },
+    {
+      "name": "@deepseek-ai/dsh-storage-sqlite",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-storage-sqlite-0.2.1-rc.4.tgz",
+      "size": 14486,
+      "sha256": "aa7bdc03de7285fd8a655a7ec1662b20548a7d0accb603451fb9db5af34dc8ee"
+    },
+    {
+      "name": "@deepseek-ai/dsh-subagent-acp",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-subagent-acp-0.2.1-rc.4.tgz",
+      "size": 20598,
+      "sha256": "fe663012a3ca05379baa6be5f272c78b6f2d95b614587ad3eb21ef60fe32cac2"
+    },
+    {
+      "name": "@deepseek-ai/dsh-subagent-dsh-sdk",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-subagent-dsh-sdk-0.2.1-rc.4.tgz",
+      "size": 20183,
+      "sha256": "9dbcb019ba622864ff62a43aadf0a4a112fdead8ec809fb9c8e20abc859ccea2"
+    },
+    {
+      "name": "@deepseek-ai/dsh-subprocess-ssh",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-subprocess-ssh-0.2.1-rc.4.tgz",
+      "size": 10794,
+      "sha256": "07e95ecf7530de31044ded90c354c5292044623d12eccb9cd5b8138f8fc7ac4b"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-lsp",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-tool-lsp-0.2.1-rc.4.tgz",
+      "size": 16037,
+      "sha256": "d747e6f7d7f062dc9ea059dbf113bd7378d357c13ae5ed8dab6accab0f59621d"
+    },
+    {
+      "name": "@deepseek-ai/dsh-typert-generator",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-typert-generator-0.2.1-rc.4.tgz",
+      "size": 150894,
+      "sha256": "2501fbad2826a8061844818bf784a48e384ff4e6a91bfc3c77429798716a73b4"
+    },
+    {
+      "name": "@deepseek-ai/dsh-web-search-exa",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-web-search-exa-0.2.1-rc.4.tgz",
+      "size": 12225,
+      "sha256": "19551dd60e979850d55e478128517f4bfbcdec6f186dbfd7e5f0bc8fd1e0d45c"
+    },
+    {
+      "name": "@deepseek-ai/dsh-web-search-perplexity",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-web-search-perplexity-0.2.1-rc.4.tgz",
+      "size": 13204,
+      "sha256": "0e65b7b1c6b52ad44b7cdd6ff67914139ecf518961305eac77f9bbfc30d2c6b5"
+    },
+    {
+      "name": "@deepseek-ai/dsh-webhook",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-webhook-0.2.1-rc.4.tgz",
+      "size": 15164,
+      "sha256": "33cb689d424189baffa464209a2333e959e7317585adba14f2e50ed84576caab"
+    },
+    {
+      "name": "@deepseek-ai/dsh-webhook-github",
+      "version": "0.2.1-rc.4",
+      "filename": "deepseek-ai-dsh-webhook-github-0.2.1-rc.4.tgz",
+      "size": 11794,
+      "sha256": "13f1413bc350a477ba03d2e5505ccb0784cc4533d4a390ee179a13fd90b2c5d1"
+    }
+  ]
+}

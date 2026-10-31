@@ -82,8 +82,11 @@ export function installHostLogging(ctx: Context): void {
   ctx.logger.exporter(exporter)
   // The runner has no pre-mount hook. Replay its bounded buffer and audit the settled graph.
   for (const message of ctx.logger.buffer) exporter.export(message)
-  ctx.on('internal/status', fiber => {
-    if (preferences.developerLogging && fiber.entry) void recordOfficialPluginInventory(ctx, hostLog, fiber.entry.id)
+  ctx.on('internal/status', (fiber, previous) => {
+    const entry = fiber.entry
+    if (!preferences.developerLogging || !entry) return
+    hostLog({ source: 'host.plugins', event: 'plugin.state', developer: true,
+      fields: { pluginId: entry.id, module: entry.options.name, previous, state: fiber.state } })
   })
   ctx.on('agent/error', ({ agent, turn, step, error }) => hostLog({ source: 'host.agent', event: 'agent.failed',
     level: 'error', fields: { sessionId: String(agent.id), turn, step }, error }))

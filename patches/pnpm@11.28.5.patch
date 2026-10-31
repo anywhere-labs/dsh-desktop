@@ -1,0 +1,64 @@
+diff --git a/dist/pnpm.mjs b/dist/pnpm.mjs
+--- a/dist/pnpm.mjs
++++ b/dist/pnpm.mjs
+@@ -148308,13 +148308,14 @@ function detectMinReleaseAgeViolation(args) {
+   if (Array.isArray(excludeResult) && excludeResult.includes(args.version))
+     return void 0;
+   const ts = new Date(args.publishedAt).getTime();
+-  if (Number.isNaN(ts) || ts <= args.publishedBy.getTime())
++  const cutoff = args.publishedBy.getTime();
++  if (!Number.isFinite(ts) || !Number.isFinite(cutoff) || ts <= cutoff)
+     return void 0;
+   return {
+     name: args.name,
+     version: args.version,
+     resolution: args.resolution,
+     code: MINIMUM_RELEASE_AGE_VIOLATION_CODE,
+-    reason: `was published at ${new Date(ts).toISOString()}, within the minimumReleaseAge cutoff (${args.publishedBy.toISOString()})`
++    reason: `was published at ${new Date(ts).toISOString()}, within the minimumReleaseAge cutoff (${new Date(cutoff).toISOString()})`
+   };
+ }
+@@ -149376,8 +149377,9 @@ function createPackageVersionPolicyOrThrow(patterns, key) {
+   }
+ }
+ function getPublishedByPolicy(opts3) {
++  const minimumReleaseAge = Number(opts3.minimumReleaseAge);
+   return {
+-    publishedBy: opts3.minimumReleaseAge ? new Date(Date.now() - opts3.minimumReleaseAge * 60 * 1e3) : void 0,
++    publishedBy: Number.isFinite(minimumReleaseAge) && minimumReleaseAge > 0 ? new Date(Date.now() - minimumReleaseAge * 60 * 1e3) : void 0,
+     publishedByExclude: opts3.minimumReleaseAgeExclude ? createPackageVersionPolicyOrThrow(opts3.minimumReleaseAgeExclude, "minimumReleaseAgeExclude") : void 0
+   };
+ }
+@@ -150038,8 +150040,10 @@ function createNpmResolutionVerifier(opts3) {
+   };
+ }
+ function createVerifierSettings(opts3) {
+-  const ageCheckActive = Boolean(opts3.minimumReleaseAge);
+-  const cutoff = ageCheckActive ? (opts3.now ?? Date.now()) - opts3.minimumReleaseAge * 60 * 1e3 : 0;
++  const configuredMinimumReleaseAge = Number(opts3.minimumReleaseAge);
++  const minimumReleaseAge = Number.isFinite(configuredMinimumReleaseAge) && configuredMinimumReleaseAge > 0 ? configuredMinimumReleaseAge : 0;
++  const ageCheckActive = minimumReleaseAge > 0;
++  const cutoff = ageCheckActive ? (opts3.now ?? Date.now()) - minimumReleaseAge * 60 * 1e3 : 0;
+   const excludePolicy = createOptionalExcludePolicy(opts3.minimumReleaseAgeExclude, "minimumReleaseAgeExclude");
+   const trustExcludePolicy = createOptionalExcludePolicy(opts3.trustPolicyExclude, "trustPolicyExclude");
+   const mergedRegistriesByPrefix = normalizeRegistriesByPrefix(opts3.registriesByPrefix);
+@@ -150161,16 +150165,18 @@ async function runPolicyChecks(settings, pin, scope) {
+   });
+ }
+ function snapshotVerifierPolicy(opts3, mergedRegistriesByPrefix) {
++  const configuredMinimumReleaseAge = Number(opts3.minimumReleaseAge);
++  const minimumReleaseAge = Number.isFinite(configuredMinimumReleaseAge) && configuredMinimumReleaseAge > 0 ? configuredMinimumReleaseAge : 0;
+   const sortedRegistriesByPrefix = Object.fromEntries(Object.entries(mergedRegistriesByPrefix).sort(([aliasA], [aliasB]) => aliasA.localeCompare(aliasB)));
+   return {
+     // Marks runs that enforced the tarball-URL binding.
+     tarballUrlBinding: true,
+     revisionHistoryBinding: true,
+     // Same cache identity rule for the missing-integrity structural check.
+     integrityRequired: true,
+     variationResolutionsVerified: true,
+     namedRegistriesRouting: createHash3("sha256").update(JSON.stringify(sortedRegistriesByPrefix)).digest("hex"),
+-    minimumReleaseAge: opts3.minimumReleaseAge ?? 0,
++    minimumReleaseAge,
+     minimumReleaseAgeExclude: sortUniquePatterns(opts3.minimumReleaseAgeExclude),
+     trustPolicy: opts3.trustPolicy ?? null,
+     trustPolicyExclude: sortUniquePatterns(opts3.trustPolicyExclude),

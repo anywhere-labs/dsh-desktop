@@ -1,5 +1,5 @@
 /** Electron single-instance ownership before any Desktop profile lifecycle begins. */
-import { isDesktopInstallerQuitRequest } from '../../dsh-plugin-desktop-beta/src/desktop-installer-quit.ts'
+import { isDesktopInstallerQuitRequest } from '../../dsh-plugin-desktop/src/desktop-installer-quit.ts'
 
 /** Minimal Electron application operations needed for instance ownership. */
 export interface DesktopSingleInstanceApplication {
@@ -16,7 +16,7 @@ export interface DesktopSingleInstanceApplication {
  */
 export function claimDesktopSingleInstance(
   application: DesktopSingleInstanceApplication,
-  focusOwner: () => void,
+  focusOwner: (argv: readonly string[]) => void,
   invocation = { platform: process.platform, argv: process.argv },
 ): boolean {
   if (!application.requestSingleInstanceLock()) {
@@ -26,7 +26,7 @@ export function claimDesktopSingleInstance(
   if (isDesktopInstallerQuitRequest(invocation.argv, invocation.platform)) { application.quit(); return false }
   application.on('second-instance', (_event, argv = []) => {
     if (isDesktopInstallerQuitRequest(argv, invocation.platform)) application.quit()
-    else focusOwner()
+    else focusOwner(argv)
   })
   return true
 }

@@ -137,8 +137,8 @@ describe('Desktop launch workspace path', () => {
     )).toEqual({ paths: ['C:\\Work', 'D:\\Data'], explicit: true })
   })
 
-  it('drops the attached folders that are unusable and keeps the rest', () => {
-    // A malformed attached value must not discard the folders that were fine.
+  it('refuses the whole attached root set when any folder is unusable', () => {
+    // Never silently narrow the requested roots or change their primary.
     expect(desktopLaunchWorkspaceFromArguments(
       [
         `${DESKTOP_WORKSPACE_ARGUMENT}=`,
@@ -146,7 +146,7 @@ describe('Desktop launch workspace path', () => {
         `${DESKTOP_WORKSPACE_ARGUMENT}=C:\\Work`,
       ],
       'win32',
-    )).toEqual({ paths: ['C:\\Work'], explicit: true })
+    )).toBeUndefined()
   })
 
   it('keeps the bare folder form a single hand-off', () => {
@@ -216,5 +216,27 @@ describe('Desktop launch workspace path', () => {
       expect(filtered).not.toContain('D:\\Data')
       expect(desktopLaunchWorkspaceFromArguments(filtered, 'win32')).toBeUndefined()
     }
+  })
+})
+
+
+describe('Electron application entry normalization', () => {
+  it('does not adopt either shipped Stable start entry or an explicit package-directory entry', () => {
+    // Stable bin.ts spawns lib/main.js; direct Electron launches may use its package root.
+    expect(desktopLaunchWorkspaceRequest(['/electron', '/app/dsh/lib/main.js'], 'linux', '/app/dsh')).toBeUndefined()
+    expect(desktopLaunchWorkspaceRequest(['/electron', '/app/dsh'], 'linux', '/app/dsh/')).toBeUndefined()
+    expect(desktopLaunchWorkspaceRequest(['/electron', '--allow-file-access-from-files', '/app/dsh'], 'linux', '/app/dsh')).toBeUndefined()
+  })
+  it('keeps a legitimate bare-folder handoff after the known application entry', () => {
+    expect(desktopLaunchWorkspaceRequest(['/electron', '/app/dsh', '/work/project'], 'linux', '/app/dsh'))
+      .toEqual({ paths: ['/work/project'], explicit: false })
+    expect(desktopLaunchWorkspaceRequest(['C:\\Electron.exe', 'C:\\APP\\DSH', 'D:\\Work'], 'win32', 'c:\\app\\dsh'))
+      .toEqual({ paths: ['D:\\Work'], explicit: false })
+  })
+  it('never removes an explicitly selected application directory', () => {
+    expect(desktopLaunchWorkspaceRequest(['/electron', '/app/dsh', '--dsh-desktop-workspace=/app/dsh', '--dsh-desktop-workspace=/extra'], 'linux', '/app/dsh'))
+      .toEqual({ paths: ['/app/dsh', '/extra'], explicit: true })
+    expect(desktopLaunchWorkspaceRequest(['/electron', '/app/dsh', '--dsh-desktop-workspace', '/app/dsh'], 'linux', '/app/dsh'))
+      .toEqual({ paths: ['/app/dsh'], explicit: true })
   })
 })

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { readFileSync } from 'node:fs'
 
 // Execute the exact native watchdog probe against the real body portal.
-const probe = readFileSync(new URL('../dsh-plugin-desktop-beta/src/renderer-surface-watchdog.ts', import.meta.url), 'utf8')
+const probe = readFileSync(new URL('../dsh-plugin-desktop/src/renderer-surface-watchdog.ts', import.meta.url), 'utf8')
   .match(/export const RENDERER_SURFACE_PROBE = String.raw`([^`]+)`/u)?.[1]
 assert.ok(probe)
 

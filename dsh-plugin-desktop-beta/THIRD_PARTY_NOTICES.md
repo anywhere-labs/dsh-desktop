@@ -5,7 +5,7 @@ the package names, versions, and licenses for transparency.
 | Package | Version | License |
 | --- | --- | --- |
 | @agentclientprotocol/sdk | 1.4.0 | Apache-2.0 |
-| @agents-anywhere/dsh-bridge-next | 2.1.0-desktop.c58d98da25a23.r2e406d2a | MIT |
+| @agents-anywhere/dsh-bridge-next | 2.1.0-desktop.c43434415e1d6.r2e406d2a | MIT |
 | @anthropic-ai/sdk | 0.129.0 | MIT |
 | @aws-sdk/client-bedrock-runtime | 3.1127.0 | Apache-2.0 |
 | @aws-sdk/core | 3.978.1 | Apache-2.0 |
@@ -345,8 +345,8 @@ the package names, versions, and licenses for transparency.
 | @deepseek-ai/node-addon-system-darwin-arm64 | 0.1.2 | BSD-3-Clause |
 | @deepseek-ai/node-addon-system-darwin-x64 | 0.1.2 | BSD-3-Clause |
 | @deepseek-ai/schemastery | 3.18.5 | MIT |
-| @earendil-works/pi-ai | 1.2.0 | MIT |
-| @earendil-works/pi-telemetry | 1.2.0 | MIT |
+| @earendil-works/pi-ai | 1.1.0 | MIT |
+| @earendil-works/pi-telemetry | 1.1.0 | MIT |
 | @eslint-community/regexpp | 4.12.2 | MIT |
 | @google/genai | 2.21.0 | Apache-2.0 |
 | @img/colour | 1.1.0 | MIT |
@@ -357,8 +357,8 @@ the package names, versions, and licenses for transparency.
 | @joplin/turndown-plugin-gfm | 1.0.67 | MIT |
 | @js-temporal/polyfill | 0.5.1 | ISC |
 | @keyv/serialize | 1.1.1 | MIT |
-| @koromix/koffi-darwin-arm64 | 3.1.5 | MIT |
-| @koromix/koffi-darwin-x64 | 3.1.5 | MIT |
+| @koromix/koffi-darwin-arm64 | 3.1.1 | MIT |
+| @koromix/koffi-darwin-x64 | 3.1.1 | MIT |
 | @mixmark-io/domino | 2.2.0 | BSD-2-Clause |
 | @modelcontextprotocol/client | 2.2.0 | MIT |
 | @modelcontextprotocol/core | 2.2.0 | MIT |
@@ -458,7 +458,7 @@ the package names, versions, and licenses for transparency.
 | diff | 9.0.0 | BSD-3-Clause |
 | dijkstrajs | 1.0.3 | MIT |
 | dsh-community-market | 0.1.0-dev.0 | MIT |
-| dshmarket | 1.66.34 | MIT |
+| dshmarket | 1.66.45 | MIT |
 | ecdsa-sig-formatter | 1.0.11 | Apache-2.0 |
 | ee-first | 1.1.1 | MIT |
 | emoji-regex | 8.0.0 | MIT |
@@ -515,12 +515,15 @@ the package names, versions, and licenses for transparency.
 | jwa | 2.0.1 | MIT |
 | jws | 4.0.1 | MIT |
 | keyv | 5.6.0 | MIT |
-| koffi | 3.1.5 | MIT |
+| koffi | 3.1.1 | MIT |
 | locate-path | 5.0.0 | MIT |
 | long | 5.3.2 | Apache-2.0 |
 | loose-envify | 1.4.0 | MIT |
 | lowercase-keys | 3.0.0 | MIT |
 | lucide-react | 1.41.0 | ISC |
+| meshcall | 0.3.0 | MIT |
+| meshcall-router-darwin-arm64 | 0.3.0 | MIT |
+| meshcall-router-darwin-x64 | 0.3.0 | MIT |
 | mime-db | 1.54.0 | MIT |
 | mime-types | 3.0.2 | MIT |
 | mimic-response | 4.0.0 | MIT |
@@ -557,7 +560,7 @@ the package names, versions, and licenses for transparency.
 | pkce-challenge | 5.0.1 | MIT |
 | pkijs | 3.4.0 | BSD-3-Clause |
 | pngjs | 5.0.0 | MIT |
-| pnpm | 11.8.0 | MIT |
+| pnpm | 11.28.5 | MIT |
 | powershell-utils | 0.2.1 | MIT |
 | pretty-ms | 9.3.1 | MIT |
 | protobufjs | 7.6.5 | BSD-3-Clause |

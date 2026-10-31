@@ -81,3 +81,25 @@ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on c
     expect(disposeShell).toHaveBeenCalledOnce()
   } finally { await release(); parent.close(); child.close(); port1.close(); port2.close() }
 })
+
+
+it('roundtrips admitted multi-folder selections without replacing the legacy picker', async () => {
+  const { port1, port2 } = new MessageChannel()
+  const [parent, child] = [port1, port2].map(port => new HostRpc({
+    send: value => port.postMessage(value),
+    listen: receive => { port.on('message', receive); return () => { port.off('message', receive) } },
+  })) as [HostRpc, HostRpc]
+  const native = {
+    platform: 'win32', locale: 'en', updates: {},
+    pickDirectory: vi.fn(async () => '/legacy'),
+    pickDirectories: vi.fn(async () => ['/primary', '/extra']),
+  } as unknown as DesktopRuntime
+  const release = bindNativeRuntime(parent, native)
+  try {
+    const runtime = createHostRuntime(child, runtimeSnapshot(native))
+    await expect(runtime.pickDirectories()).resolves.toEqual(['/primary', '/extra'])
+    await expect(runtime.pickDirectory()).resolves.toBe('/legacy')
+    expect(native.pickDirectories).toHaveBeenCalledOnce()
+    expect(native.pickDirectory).toHaveBeenCalledOnce()
+  } finally { await release(); parent.close(); child.close(); port1.close(); port2.close() }
+})

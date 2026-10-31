@@ -24,6 +24,8 @@ export interface DesktopLaunchWorkspaceWindow {
 export interface DesktopLaunchWorkspaceTarget {
   /** Settle once both workspace and session lists have arrived from the Host. */
   ready(): Promise<void>
+  /** Whether the owning renderer/plugin lifetime still accepts this launch. */
+  isCurrent?(): boolean
   /**
    * Register one folder, reusing the existing Workspace when the path is known.
    * @param path - absolute folder the main side already admitted.
@@ -61,9 +63,9 @@ function parkedWorkspacePaths(parked: DesktopParkedWorkspacePaths): readonly str
  * The extra roots are attached before the open on purpose. A new Session takes
  * its working directory from the Workspace's primary root, so opening first
  * would let a user start a Session against a Workspace whose root policy is
- * still the single-folder one. When attaching them fails, the primary root is
- * already registered: the failure is reported and the open still runs, so the
- * launch degrades to the single-folder Workspace instead of opening nothing.
+ * still the single-folder one. When attaching them fails, the primary root may
+ * already be registered, but no session is opened under a silently narrowed
+ * root set. Existing registrations are never deleted as an unsafe rollback.
  * @param target - client-context seam.
  * @param paths - absolute folders the main side already admitted, primary first.
  */
@@ -79,18 +81,16 @@ export async function openDesktopLaunchWorkspace(
   }
   try {
     await target.ready()
+    if (target.isCurrent?.() === false) return
     const workspaceId = await target.create(primary)
+    if (target.isCurrent?.() === false) return
     if (roots.length > 1) {
-      try {
-        await target.setRoots(workspaceId, roots)
-      } catch (cause) {
-        target.reportError(
-          `failed to attach the additional launch folders ${roots.join(', ')}: ${cause instanceof Error ? cause.message : String(cause)}`,
-        )
-      }
+      await target.setRoots(workspaceId, roots)
+      if (target.isCurrent?.() === false) return
     }
     await target.open(workspaceId)
   } catch (cause) {
+    if (target.isCurrent?.() === false) return
     target.reportError(
       `failed to open the launch workspace ${roots.join(', ')}: ${cause instanceof Error ? cause.message : String(cause)}`,
     )
@@ -111,7 +111,9 @@ export function installDesktopLaunchWorkspaceBridge(
   target: DesktopLaunchWorkspaceTarget,
   globalTarget: DesktopLaunchWorkspaceWindow = window as DesktopLaunchWorkspaceWindow,
 ): () => void {
-  const open = (paths: readonly string[]): void => { void openDesktopLaunchWorkspace(target, paths) }
+  let active = true
+  const currentTarget = { ...target, isCurrent: () => active && target.isCurrent?.() !== false }
+  const open = (paths: readonly string[]): void => { void openDesktopLaunchWorkspace(currentTarget, paths) }
   const previous = globalTarget[DESKTOP_OPEN_WORKSPACE_GLOBAL]
   globalTarget[DESKTOP_OPEN_WORKSPACE_GLOBAL] = open
 
@@ -122,8 +124,28 @@ export function installDesktopLaunchWorkspaceBridge(
   }
 
   return () => {
+    active = false
     if (globalTarget[DESKTOP_OPEN_WORKSPACE_GLOBAL] !== open) return
     if (previous === undefined) delete globalTarget[DESKTOP_OPEN_WORKSPACE_GLOBAL]
     else globalTarget[DESKTOP_OPEN_WORKSPACE_GLOBAL] = previous
   }
+}
+
+/** Keep a launch failure visible until dismissed; do not silently open only its primary folder. */
+export function reportDesktopLaunchWorkspaceError(message: string, target: Document = document): void {
+  console.error(`dsh-plugin-desktop: ${message}`)
+  target.getElementById('dsh-desktop-launch-workspace-error')?.remove()
+  const notice = target.createElement('div')
+  notice.id = 'dsh-desktop-launch-workspace-error'
+  notice.setAttribute('role', 'alert')
+  notice.style.cssText = 'position:fixed;z-index:10000;bottom:16px;left:16px;right:16px;padding:16px;border:1px solid #b91c1c;border-radius:8px;background:#fff;color:#991b1b;font:14px system-ui;white-space:pre-wrap'
+  const text = target.createElement('span')
+  text.textContent = message
+  const close = target.createElement('button')
+  close.textContent = '×'
+  close.setAttribute('aria-label', 'Dismiss workspace error')
+  close.style.cssText = 'float:right;margin-left:12px;cursor:pointer'
+  close.onclick = () => notice.remove()
+  notice.append(close, text)
+  target.body.append(notice)
 }

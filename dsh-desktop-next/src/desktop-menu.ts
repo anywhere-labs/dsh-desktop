@@ -27,7 +27,7 @@ export function desktopMenu(state: DesktopState, language: string, show: () => v
     ] },
     { type: 'separator' },
     action(t('设置…', 'Settings…'), 'controls'),
-    ...(state.updates ? [action(updateLabel(state.updates, language), updateAction(state.updates) ?? 'check-updates', !!updateAction(state.updates))] : []),
+    ...(['darwin', 'win32'].includes(state.platform) && state.updates ? [action(updateLabel(state.updates, language), updateAction(state.updates) ?? 'check-updates', !!updateAction(state.updates))] : []),
     ...(state.browserUrl ? [action(t('在浏览器中打开', 'Open in Browser'), 'open-browser')] : []),
     { label: t('恢复助手…', 'Recovery Assistant…'), click: () => run({ type: 'controls', page: 'recovery' }) },
     { type: 'separator' },

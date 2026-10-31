@@ -1,6 +1,6 @@
-import { createServer, type Server } from 'node:http'
+import { createServer, Server } from 'node:http'
 import { connect } from 'node:net'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import {
   createDesktopBrowserAccess,
@@ -14,6 +14,7 @@ const occupied: Server[] = []
 const contexts: Context[] = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(contexts.splice(0).map(context => context.fiber.dispose()))
   await Promise.all(occupied.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))))
 })
@@ -28,6 +29,32 @@ async function occupy(): Promise<{ server: Server; port: number }> {
   const address = server.address()
   if (address === null || typeof address === 'string') throw new Error('test server did not expose an address')
   return { server, port: address.port }
+}
+
+/**
+ * Make `listen` fail like Windows does for a port inside a Hyper-V/WinNAT
+ * excluded range: no process owns it, but the bind reports `EACCES`.
+ */
+function rejectListen(code: string, rejects: (port: number) => boolean): number[] {
+  const attempted: number[] = []
+  const listen = Server.prototype.listen
+  vi.spyOn(Server.prototype, 'listen').mockImplementation(function (this: Server, ...args: unknown[]) {
+    const port = Number(args[0])
+    attempted.push(port)
+    if (!rejects(port)) return Reflect.apply(listen, this, args) as Server
+    process.nextTick(() => {
+      this.emit('error', Object.assign(new Error(`listen ${code} 127.0.0.1:${String(port)}`), { code, syscall: 'listen', port }))
+    })
+    return this
+  })
+  return attempted
+}
+
+async function freePort(): Promise<number> {
+  const { server, port } = await occupy()
+  occupied.splice(occupied.indexOf(server), 1)
+  await new Promise<void>(resolve => server.close(() => resolve()))
+  return port
 }
 
 async function startWebServer(access?: DesktopBrowserAccess): Promise<DesktopWebServer> {
@@ -91,6 +118,45 @@ describe('Desktop WebServer port policy', () => {
     const selectedPort = context.get('webServer')?.port ?? 0
     expect(selectedPort).toBeGreaterThan(blocked.port)
     expect(selectedPort).toBeLessThanOrEqual(blocked.port + DESKTOP_WEB_PORT_RETRY_LIMIT)
+  })
+
+  it('moves past a Windows-reserved port that reports EACCES', async () => {
+    const base = await freePort()
+    const attempted = rejectListen('EACCES', port => port >= base && port < base + 3)
+    const context = new Context()
+    contexts.push(context)
+
+    await context.plugin(DesktopWebServer, { host: '127.0.0.1', port: base })
+
+    const selectedPort = context.get('webServer')?.port ?? 0
+    expect(attempted.slice(0, 3)).toEqual([base, base + 1, base + 2])
+    expect(selectedPort).toBeGreaterThanOrEqual(base + 3)
+    expect(selectedPort).toBeLessThanOrEqual(base + DESKTOP_WEB_PORT_RETRY_LIMIT)
+  })
+
+  it('falls back to an OS-assigned port when the whole retry window is reserved', async () => {
+    const base = await freePort()
+    const attempted = rejectListen('EACCES', port => port !== 0)
+    const context = new Context()
+    contexts.push(context)
+
+    await context.plugin(DesktopWebServer, { host: '127.0.0.1', port: base })
+
+    expect(attempted).toHaveLength(DESKTOP_WEB_PORT_RETRY_LIMIT + 2)
+    expect(attempted.at(-2)).toBe(base + DESKTOP_WEB_PORT_RETRY_LIMIT)
+    expect(attempted.at(-1)).toBe(0)
+    expect(context.get('webServer')?.port).toBeGreaterThan(0)
+  })
+
+  it('still fails startup on bind errors that do not mean the port is unavailable', async () => {
+    const base = await freePort()
+    const attempted = rejectListen('EADDRNOTAVAIL', () => true)
+    const context = new Context()
+    contexts.push(context)
+
+    await expect(context.plugin(DesktopWebServer, { host: '127.0.0.1', port: base }))
+      .rejects.toMatchObject({ code: 'EADDRNOTAVAIL' })
+    expect(attempted).toEqual([base])
   })
 
   it('preserves an OS-assigned port when the explicit value is zero', async () => {

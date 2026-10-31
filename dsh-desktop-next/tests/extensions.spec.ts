@@ -2,15 +2,15 @@ import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it } from 'vitest'
 import { createPackageRunner } from '../src/extensions.ts'
-import { applyDesktopPackageAgePolicy, PNPM_IGNORE_MINIMUM_RELEASE_AGE } from '../src/pnpm-policy.ts'
+import { applyDesktopPackageManagerPolicy, PNPM_IGNORE_MINIMUM_RELEASE_AGE } from '../src/pnpm-policy.ts'
 
-it('sets the zero-age policy for pnpm and Yarn in runtime descendants', () => {
+it('sets the zero-age and silent-update policies for pnpm and Yarn in runtime descendants', () => {
   const environment: NodeJS.ProcessEnv = {
-    pnpm_config_minimum_release_age: '1440', YARN_NPM_MINIMAL_AGE_GATE: '1440',
+    pnpm_config_minimum_release_age: '1440', pnpm_config_update_notifier: 'true', YARN_NPM_MINIMAL_AGE_GATE: '1440',
   }
-  applyDesktopPackageAgePolicy(environment)
+  applyDesktopPackageManagerPolicy(environment)
   expect(environment).toEqual({
-    pnpm_config_minimum_release_age: '0', YARN_NPM_MINIMAL_AGE_GATE: '0',
+    pnpm_config_minimum_release_age: '0', pnpm_config_update_notifier: 'false', YARN_NPM_MINIMAL_AGE_GATE: '0',
   })
 })
 

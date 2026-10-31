@@ -1,6 +1,6 @@
 # Stable transition to Next
 
-The Stable app announces that Next is planned to replace it after the next release. The notice appears once per app launch until the user selects **Do not show again after confirming** and presses **OK**. Closing the notice or pressing Escape does not save the selection. The opt-out is stored in `notices/next-transition-v1` under Electron user data, independently of profiles and the installed version. Stable development runs (`corepack yarn dev`) also show the notice. Beta and Next do not show it.
+The Stable app announces that Next is planned to replace it after the next release. The notice appears once per app launch until the user presses **Don't show again**. Pressing **OK**, closing the notice or pressing Escape shows it again on the next launch. The opt-out is a dedicated button rather than a checkbox: on macOS the dialog checkbox could not be ticked, so the notice returned on every launch (#1418). The opt-out is stored in `notices/next-transition-v1` under Electron user data, independently of profiles and the installed version. Stable development runs (`corepack yarn dev`) also show the notice. Beta and Next do not show it.
 
 ## Publishing the successor
 

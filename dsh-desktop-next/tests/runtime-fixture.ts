@@ -21,7 +21,7 @@ export function writePackage(modules: string, name: string, fields: Record<strin
 }
 
 /** Release facts every fixture payload declares. */
-export const FIXTURE_RELEASE: NextRelease = { schemaVersion: 1, version: '2.0.0-next', dshVersion: '1.0.0', electronVersion: '44.0.0', pnpmVersion: '11.8.0' }
+export const FIXTURE_RELEASE: NextRelease = { schemaVersion: 1, version: '2.0.0-next', dshVersion: '1.0.0', electronVersion: '44.0.0', pnpmVersion: '11.28.5' }
 
 /** Target every fixture payload declares. */
 export const FIXTURE_TARGET: NextRuntimeTarget = { platform: process.platform, archs: [process.arch] }

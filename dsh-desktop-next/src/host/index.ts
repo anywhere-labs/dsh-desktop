@@ -1,27 +1,29 @@
 /** Alpha.2 shared Web profile runner, hosted by an Electron Node-mode child. */
 import { auditHostPlugins, configureHostLogging, hostLog, hostOperation } from './logging.ts'
-import { basename, delimiter, join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { inspect } from 'node:util'
 import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import { hostOperationDiagnostics, installOfficialCuaResolution, webIndexInjections } from '../upstream-family.ts'
 import { loadNextProfile, NEXT_PACKAGE, readNextProfilePatches } from '../profiles.ts'
-import { bundledPnpmEntry } from '../extensions.ts'
-import { withDesktopPnpmPolicy } from '../pnpm-policy.ts'
+import { bundledPnpmInvocation } from '../bundled-pnpm.ts'
 import { configureNextBrowserAccess } from '../desktop-browser-access.ts'
 import { parsePreferences } from '../desktop-preferences.ts'
 import { atomicJson } from '../private-files.ts'
 import type NextWebServer from '../webserver.ts'
-import { disableAsarArchiveView, unpackedPath } from '../asar-archive-policy.ts'
+import { disableAsarArchiveView } from '../asar-archive-policy.ts'
 import { maskSecrets } from '../mask-secrets.ts'
+import { MEMORY_SAMPLE_INTERVAL_MS, hostMemoryUsage } from '../memory-monitor.ts'
 import { parseSystemProxyProbe, SYSTEM_PROXY_ENV, withSystemProxy } from '../system-proxy.ts'
 import { watchPlatformLogin, type PlatformLoginAccount } from './platform-login.ts'
 import { installAgentPresetResolution } from './agent-preset.ts'
 import { installCuaDriverResolution } from './cua-driver.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
+import { installSharpWasmResolution } from './sharp-wasm.ts'
 import { installSkillBadgeResolution } from './skill-badge.ts'
+import { formatFatalDiagnostic } from './fatal-diagnostic.ts'
 import * as desktopOffice from './office.ts'
 import { resolveOfficeConfig } from './office.ts'
 
@@ -41,6 +43,10 @@ export async function main(): Promise<void> {
   installCuaDriverResolution(runtimeDir)
   // The badge skill tells the model to take its PNG from the directory it announces, which shells and the Host's filesystem service cannot read inside the archive.
   installSkillBadgeResolution(runtimeDir)
+  // The official Computer Use provider starts the helper beside its own module as a child process, which reads no archive.
+  installOfficialCuaResolution?.(runtimeDir)
+  // Linux sharp must not load its native backends beside the GLib Electron links; it runs its WebAssembly build instead.
+  installSharpWasmResolution(runtimeDir)
   const preferences = parsePreferences(JSON.parse(process.env.DSH_NEXT_PREFERENCES ?? '{}'))
   configureHostLogging(preferences)
   hostLog({ source: 'host', event: 'process.start', fields: { profile: basename(projectDir), node: process.version } })
@@ -62,30 +68,32 @@ export async function main(): Promise<void> {
   const { environment, resolution: proxy } = withSystemProxy(loadLayeredEnv('dsh-desktop-next'), systemProxy, trustedHosts as string[])
   // One line on every start, direct included: a connectivity report cannot be answered without it.
   for (const line of [proxy.summary, ...proxy.diagnostics]) process.stderr.write(`dsh-desktop-next: ${maskSecrets(line)}\n`)
+  const send = (value: object): Promise<void> => new Promise((resolveSend, reject) => {
+    if (!process.connected || !process.send) return resolveSend()
+    process.send(value, error => error ? reject(error) : resolveSend())
+  })
+  // Announced before the profile starts, so a startup failure and this run's plugin operations share one run identity.
+  const operations = hostOperationDiagnostics?.(send)
   const application = runProfile({
     environment, profile: basename(projectDir),
     resolvedProfile: { profile, installAnchor: NEXT_PACKAGE,
       readPatches: profilePatches => readNextProfilePatches(projectDir, home,
         [join(runtimeDir, 'host.cordis.patch.yml'), join(projectDir, 'desktop-next.cordis.patch.json'), runtimePatch], profilePatches) },
     patchFiles: [join(runtimeDir, 'host.cordis.patch.yml'), join(projectDir, 'desktop-next.cordis.patch.json'), runtimePatch], args: ['--no-open', '--port', String(preferences.port)],
-    packageManager: {
-      command: process.execPath, args: ['--expose-internals', bundledPnpmEntry(NEXT_PACKAGE), ...withDesktopPnpmPolicy([])],
-      env: {
-        DSH_DESKTOP_NODE_EXECUTABLE: process.execPath,
-        ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
-        // Package scripts execute the shims through the shell, which cannot enter app.asar.
-        PATH: `${unpackedPath(join(runtimeDir, 'scripts', 'node-bin'))}${delimiter}${process.env.PATH ?? ''}`,
-      },
-    },
+    packageManager: bundledPnpmInvocation(runtimeDir),
   })
-  const send = (value: object): Promise<void> => new Promise((resolveSend, reject) => {
-    if (!process.connected || !process.send) return resolveSend()
-    process.send(value, error => error ? reject(error) : resolveSend())
-  })
+  // Memory evidence for the Desktop's incident snapshots. Pushed rather than requested, so a Host too
+  // busy or too short of memory to answer still leaves its last reading behind (#1511).
+  const memory = setInterval(() => {
+    try { void send({ type: 'memory', ...hostMemoryUsage(process.memoryUsage()) }).catch(() => {}) }
+    catch { /* A failed reading drops only this sample. */ }
+  }, MEMORY_SAMPLE_INTERVAL_MS)
+  memory.unref()
   let stopping: Promise<void> | undefined
   const accountWatch = new AbortController()
   const stop = (): Promise<void> => stopping ??= (async () => {
     const end = hostOperation('host', 'shutdown')
+    clearInterval(memory)
     accountWatch.abort()
     const running = await application.catch(() => undefined)
     try { await running?.shutdown.shutdown(0); end() } catch (error) { end(error); throw error }
@@ -110,7 +118,7 @@ export async function main(): Promise<void> {
       if (!Number.isSafeInteger(query.requestId)) return
       void application.then(async ({ ctx }) => {
         if (stopping) throw new Error('Next Host is stopping')
-        await send({ type: 'injections', requestId: query.requestId, injections: ctx.webServer.collectIndexInjections() })
+        await send({ type: 'injections', requestId: query.requestId, injections: webIndexInjections(ctx) })
       }).catch(async () => { await send({ type: 'injections', requestId: query.requestId, error: 'Could not collect Web boot injections' }) }).catch(fatal)
       return
     }
@@ -126,7 +134,7 @@ export async function main(): Promise<void> {
   })
   process.once('disconnect', () => { void stop().catch(fatal) })
   const { ctx } = await application
-  auditHostPlugins(ctx)
+  operations?.observe(ctx)
   // Office skills and the workspace dependency tool need the bundled payload; a packaged Host without it fails here.
   const office = resolveOfficeConfig(runtimeDir, primaryRuntime, home)
   if (office === undefined) hostLog({ source: 'host', event: 'office.unavailable', level: 'warn', fields: { source: primaryRuntime } })
@@ -136,7 +144,8 @@ export async function main(): Promise<void> {
   }
   hostLog({ source: 'host', event: 'process.ready' })
   await send({ type: 'ready', url: ctx.connection.authenticatedUrl(`http://127.0.0.1:${ctx.webServer.port}`),
-    injections: ctx.webServer.collectIndexInjections() })
+    injections: webIndexInjections(ctx) })
+  auditHostPlugins(ctx)
   const account = ctx.get('deepseekAccount') as PlatformLoginAccount | undefined
   if (account !== undefined && !stopping) {
     // A broken watcher only loses the automatic browser hand-off; the dialog still offers the link.
@@ -145,15 +154,12 @@ export async function main(): Promise<void> {
   }
 }
 
-/** Upper bound of the startup diagnostic carried over IPC; the head holds the message and stack. */
-const MAX_FATAL_DIAGNOSTIC_CHARS = 64 * 1024
-
 function fatal(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error)
   // The shell receives the complete inspected error here, not through stderr:
   // stderr bytes and this IPC message race, and the shell reports the first
   // failure it sees.
-  const diagnostic = inspect(error, { depth: 4, maxArrayLength: 50 }).slice(0, MAX_FATAL_DIAGNOSTIC_CHARS)
+  const diagnostic = formatFatalDiagnostic(error)
   if (process.connected) process.send?.({ type: 'fatal', message, diagnostic }, () => { if (process.connected) process.disconnect() })
   console.error(error)
   process.exitCode = 1

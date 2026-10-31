@@ -76,10 +76,10 @@ it('reports a payload of another platform or CPU as not executed unless a launch
   const root = await mkdtemp(join(tmpdir(), 'desktop-foreign-runtime-'))
   try {
     await writeFile(join(root, 'runtime.json'), JSON.stringify({ desktopVersion: '1.0.0', platform: process.platform === 'win32' ? 'darwin' : 'win32', arch: 'x64',
-      python: '3.12.14', node: '24.21.0', pnpm: '11.8.0', pythonPackages: { numpy: '2.3.5' } }))
+      python: '3.12.14', node: '24.21.0', pnpm: '11.28.5', pythonPackages: { numpy: '2.3.5' } }))
     expect(smokePrimaryRuntime(root)).toBe(false)
     await writeFile(join(root, 'runtime.json'), JSON.stringify({ desktopVersion: '1.0.0', platform: process.platform, arch: process.arch === 'x64' ? 'arm64' : 'x64',
-      python: '3.12.14', node: '24.21.0', pnpm: '11.8.0', pythonPackages: { numpy: '2.3.5' } }))
+      python: '3.12.14', node: '24.21.0', pnpm: '11.28.5', pythonPackages: { numpy: '2.3.5' } }))
     expect(smokePrimaryRuntime(root)).toBe(false)
     // A launcher commits to executing the foreign CPU; the missing interpreter is then an error.
     expect(() => smokePrimaryRuntime(root, { launcher: ['/usr/bin/arch', '-x86_64'] })).toThrow()
@@ -151,6 +151,7 @@ it('rejects library files requiring an unsupported installation scheme', async (
   }
 })
 
+// Two full directory replacements: I/O-starved CI workers have exceeded the 5 s default.
 it('copies complete Office resources outside the application archive and removes obsolete assets', async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-office-assets-'))
   try {
@@ -169,14 +170,14 @@ it('copies complete Office resources outside the application archive and removes
     }
     await expect(readFile(join(destination, 'obsolete.py'))).rejects.toMatchObject({ code: 'ENOENT' })
   } finally { await rm(root, { recursive: true, force: true }) }
-})
+}, 20_000)
 
 // Native Windows payloads require python.exe rather than POSIX interpreter aliases.
 it.skipIf(process.platform === 'win32')('rejects expanded interpreter aliases in the native payload smoke', async () => {
   const root = await mkdtemp(join(tmpdir(), 'primary-expanded-aliases-'))
   try {
     await writeFile(join(root, 'runtime.json'), JSON.stringify({ desktopVersion: '1', platform: process.platform, arch: process.arch,
-      python: '3.12.14', node: '24.21.0', pnpm: '11.8.0', pythonPackages: { numpy: '2.3.5' } }))
+      python: '3.12.14', node: '24.21.0', pnpm: '11.28.5', pythonPackages: { numpy: '2.3.5' } }))
     await mkdir(join(root, 'dependencies/python/bin'), { recursive: true })
     for (const name of ['python', 'python3', 'python3.12']) await writeFile(join(root, 'dependencies/python/bin', name), 'interpreter')
     expect(() => { smokePrimaryRuntime(root) }).toThrow('Python commands must be relative aliases')

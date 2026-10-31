@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
-import { composeEntries, loadOverlayPatches, loadProfileDirectory, OPTIONAL_BUNDLES } from '@deepseek-ai/dsh-app-boot'
+import { composeEntries, loadOverlayPatches, loadProfileDirectory } from '@deepseek-ai/dsh-app-boot'
+import { OPTIONAL_BUNDLES } from '../src/upstream-family.ts'
 import { AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE, loadNextProfile, NEXT_PACKAGE, NextProfiles, OFFICIAL_MARKET_PACKAGE, profileName, readNextProfilePatches, WEB_BUNDLES } from '../src/profiles.ts'
 import { DEFAULT_OFFICIAL_MARKET_INDEX_URL } from '../src/profile-plugin-market.ts'
 import * as privateFiles from '../src/private-files.ts'
-import * as linkProjections from '../../dsh-plugin-desktop-beta/src/link-projections.ts'
+import * as linkProjections from '../../dsh-plugin-desktop/src/link-projections.ts'
 
 const roots: string[] = []
 function profiles() { const home = mkdtempSync(join(tmpdir(), 'dsh-next-profiles-')); roots.push(home); return new NextProfiles(home) }
@@ -130,6 +131,8 @@ it('enables the official custom plugin market bundle and preconfigures the built
   expect(rows.find(row => row.id === 'plugin-market')?.config).toEqual({
     indexes: [DEFAULT_OFFICIAL_MARKET_INDEX_URL, 'https://example.com/custom-index.json'],
   })
+  manager.finishOnboarding('desktop', { features: { market: false, dshMarket: true, officialMarket: true, remoteControl: false }, computerUse: false })
+  expect(manager.features('desktop')).toEqual({ market: false, dshMarket: true, officialMarket: true, remoteControl: false })
 })
 
 it('skips onboarding without changing current choices, while a recreated Profile starts fresh', () => {
@@ -152,8 +155,6 @@ it('skips onboarding without changing current choices, while a recreated Profile
 
 it.each([
   { market: true, dshMarket: true, remoteControl: false },
-  { market: true, officialMarket: true, remoteControl: false },
-  { market: false, dshMarket: true, officialMarket: true, remoteControl: false },
   { market: true, remoteControl: 'yes' },
   { market: false, remoteControl: false, extra: true },
 ])('leaves onboarding incomplete and configuration untouched on invalid choices %j', value => {
@@ -235,12 +236,13 @@ it('refuses a symlinked profile before writing outside Next home', () => {
   symlinkSync(outside.home, join(manager.home, 'profiles', 'escape'), process.platform === 'win32' ? 'junction' : 'dir')
   expect(() => manager.ensure('escape')).toThrow('real directory')
 })
-it('recovers without parsing broken patches or deleting plugin packages and home patches', async () => {
+it('recovers like upstream without parsing broken patches or deleting plugin packages and home patches, then runs Desktop setup again', async () => {
   const manager = profiles()
   const dir = manager.ensure('desktop')
   const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
   manifest.dsh.profile.bundles.push('missing-third-party-plugin')
   manifest.dependencies = { 'missing-third-party-plugin': '1.0.0' }
+  manifest.dsh.desktopNextPlugins = 1
   writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
   const broken = ': invalid: [yaml'
   writeFileSync(join(dir, 'cordis.patch.yml'), broken)
@@ -249,13 +251,36 @@ it('recovers without parsing broken patches or deleting plugin packages and home
   writeFileSync(join(dir, 'node_modules', 'missing-third-party-plugin', 'keep'), 'plugin')
   manager.setFeatures('desktop', { remoteControl: true, market: true })
   manager.finishOnboarding('desktop')
+  const original = readFileSync(join(dir, 'package.json'), 'utf8')
   const backup = await manager.recover('desktop')
-  expect(readFileSync(backup!, 'utf8')).toBe(broken)
-  expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).dsh.profile.bundles).toEqual(WEB_BUNDLES)
+  expect(readFileSync(join(backup, 'package.json'), 'utf8')).toBe(original)
+  expect(readFileSync(join(backup, 'cordis.patch.yml'), 'utf8')).toBe(broken)
+  // Upstream's repair moves the patch beside itself; the Profile continues from an empty one.
+  expect(readdirSync(dir).filter(name => name.startsWith('cordis.patch.yml.bak-')).map(name => readFileSync(join(dir, name), 'utf8'))).toEqual([broken])
+  expect(readFileSync(join(dir, 'cordis.patch.yml'), 'utf8')).toBe('[]\n')
+  const repaired = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  expect(repaired.dsh.profile.bundles).toEqual(WEB_BUNDLES)
+  expect(repaired.dependencies).toEqual({ 'missing-third-party-plugin': '1.0.0' })
+  expect(repaired.dsh.desktopNextPlugins).toBe(1)
   expect(manager.features('desktop')).toEqual({ remoteControl: false, market: false })
-  expect(manager.onboardingRequired('desktop')).toBe(false)
+  expect(manager.onboardingRequired('desktop')).toBe(true)
   expect(readFileSync(join(dir, 'node_modules', 'missing-third-party-plugin', 'keep'), 'utf8')).toBe('plugin')
   expect(readFileSync(join(manager.home, 'cordis.patch.yml'), 'utf8')).toContain('keep home patch')
+})
+it.each([
+  ['an unreadable manifest', '{ broken JSON', {}],
+  ['a manifest whose dsh section is not an object', JSON.stringify({ name: 'desktop', dependencies: { kept: '1.0.0' }, dsh: 'broken' }), { dependencies: { kept: '1.0.0' } }],
+  ['a missing manifest', undefined, {}],
+])('replaces %s before the upstream repair', async (_case, text, kept) => {
+  const manager = profiles()
+  const dir = manager.ensure('desktop')
+  if (text === undefined) rmSync(join(dir, 'package.json'))
+  else writeFileSync(join(dir, 'package.json'), text)
+  const backup = await manager.recover('desktop')
+  expect(existsSync(join(backup, 'package.json'))).toBe(text !== undefined)
+  expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))).toMatchObject({ ...kept, dsh: { profile: { bundles: WEB_BUNDLES } } })
+  expect(manager.selectable('desktop')).toBe(true)
+  expect(manager.onboardingRequired('desktop')).toBe(true)
 })
 it.each(['desktop', 'work', 'default'])('offers the Browser in %s without enabling optional bundles or overriding user choices', name => {
   const manager = profiles()
@@ -384,19 +409,17 @@ it('migrates legacy switches once and preserves later official plugin selections
   expect(manager.features('work')).toEqual({ market: false, remoteControl: false })
 })
 
-it('keeps the recovery deselection ledger across a feature change and never reselects from it', () => {
+it('never reselects a disabled dependency across a feature change', () => {
   const manager = profiles()
   const dir = manager.ensure('desktop')
   const file = join(dir, 'package.json')
   const manifest = JSON.parse(readFileSync(file, 'utf8'))
   manifest.dependencies = { 'my-plugin': '1.0.0' }
-  manifest.dsh.desktopNextDeselectedBundles = ['my-plugin']
   writeFileSync(file, JSON.stringify(manifest))
 
   manager.finishOnboarding('desktop', { features: { market: false, dshMarket: true, remoteControl: true }, computerUse: false })
 
   const after = JSON.parse(readFileSync(file, 'utf8'))
-  expect(after.dsh.desktopNextDeselectedBundles).toEqual(['my-plugin'])
   expect(after.dsh.profile.bundles).not.toContain('my-plugin')
   expect(after.dependencies['my-plugin']).toBe('1.0.0')
   expect(after.dsh.profile.bundles).toContain(DSH_MARKET_PACKAGE)

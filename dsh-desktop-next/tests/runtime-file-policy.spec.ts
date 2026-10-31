@@ -2,12 +2,13 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, it } from 'vitest'
-import { nextRuntimeFileExclusion } from '../scripts/runtime-file-policy.ts'
+import { nextRuntimeFileExclusion, nextRuntimePackageExclusion } from '../scripts/runtime-file-policy.ts'
 import { DESKTOP_RUNTIME_FILE, physicalPayload, verifyPayload } from '../src/runtime-tree.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
 
 const windows = { platform: 'win32' as const, archs: ['x64'] }
 const universal = { platform: 'darwin' as const, archs: ['arm64', 'x64'] }
+const linuxX64 = { platform: 'linux' as const, archs: ['x64'] }
 
 it('omits development artifacts while preserving executable modules, assets and license files', () => {
   const root = mkdtempSync(join(tmpdir(), 'desktop-file-policy-'))
@@ -26,12 +27,20 @@ it('omits development artifacts while preserving executable modules, assets and 
     'node-pty/prebuilds/win32-arm64/conpty.node',
     'node-pty/prebuilds/linux-x64/pty.node', 'node-pty/prebuilds/darwin-x64/pty.node',
     'node-pty/prebuilds/win32-x64/conpty.pdb',
+    'node-pty/third_party/conpty/1.25.260303002/win10-arm64/OpenConsole.exe',
+    'node-pty/third_party/conpty/1.25.260303002/win10-arm64/conpty.dll',
+    'pnpm/dist/node_modules/@reflink/reflink-win32-arm64-msvc/reflink.win32-arm64-msvc.node',
+    'pnpm/dist/node_modules/@reflink/reflink-darwin-arm64/reflink.darwin-arm64.node',
+    'pnpm/dist/node_modules/@reflink/reflink-darwin-x64/reflink.darwin-x64.node',
     '@koromix/koffi-win32-x64/win32_x64/koffi.lib',
     '@mixmark-io/domino/test/entities.html',
     '@mixmark-io/domino/.yarn/plugins/@yarnpkg/plugin-version.cjs',
     '@mixmark-io/domino/.yarn/versions/release.yml',
     '@deepseek-ai/libreoffice-kit-wasm/assets/soffice.data',
     '@deepseek-ai/libreoffice-kit-darwin-arm64/bin/libreoffice-kit',
+    '@img/sharp-wasm32/lib/sharp-wasm32-0.35.5.node.wasm',
+    '@img/sharp-linux-x64/lib/sharp-linux-x64.node',
+    '@img/sharp-darwin-arm64/lib/sharp-darwin-arm64.node',
     '.modules.yaml', '.pnpm-workspace-state-v1.json', '.yarn-state.yml', '.bin/tool', '.pnpm/cache',
   ]
   const retained = [
@@ -46,11 +55,15 @@ it('omits development artifacts while preserving executable modules, assets and 
     'node-pty/prebuilds/win32-x64/conpty/conpty.dll',
     'node-pty/prebuilds/win32-x64/conpty/OpenConsole.exe',
     'node-pty/third_party/conpty/win10-x64/OpenConsole.exe',
+    'node-pty/third_party/conpty/1.25.260303002/win10-x64/conpty.dll',
+    'example/assets/win10-arm64/help.json',
     '@koromix/koffi-win32-x64/win32_x64/koffi.node',
     '@mixmark-io/domino/lib/HTMLParser.js', '@mixmark-io/domino/lib/EntityParser.js',
     '@mixmark-io/domino/LICENSE', '@mixmark-io/domino/package.json',
     'example/.yarn/runtime.cjs', '@mixmark-io/domino/.yarn-data.json',
     '@img/sharp-win32-x64/lib/libvips-42.dll',
+    'pnpm/dist/node_modules/@reflink/reflink-win32-x64-msvc/reflink.win32-x64-msvc.node',
+    'pnpm/dist/node_modules/@reflink/reflink/index.js',
     '@deepseek-ai/libreoffice-kit-win32-x64/bin/libreoffice-kit.exe',
     '@deepseek-ai/libreoffice-kit-win32-x64/sources/core-source.json',
     '@deepseek-ai/libreoffice-kit-win32-x64/licenses/MPL-2.0.txt',
@@ -96,7 +109,26 @@ it('retains native prebuilds and Office engines for every architecture of a univ
   expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-darwin-arm64/program/soffice', universal)).toBeUndefined()
   expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-darwin-x64/program/soffice', universal)).toBeUndefined()
   expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-win32-x64/bin/libreoffice-kit.exe', universal)).toBe('LibreOffice other platform')
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-wasm/assets/soffice.data', universal)).toBe('LibreOffice other platform')
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-wasm/assets/soffice.data', linuxX64)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-darwin-arm64/program/soffice', linuxX64)).toBe('LibreOffice other platform')
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-win32-x64/bin/libreoffice-kit.exe', linuxX64)).toBe('LibreOffice other platform')
+  expect(nextRuntimeFileExclusion('@img/sharp-darwin-arm64/lib/sharp-darwin-arm64.node', universal)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('@img/sharp-darwin-x64/lib/sharp-darwin-x64.node', universal)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.2.dylib', universal)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('@img/sharp-wasm32/lib/sharp-wasm32-0.35.5.node.wasm', universal)).toBe('sharp other platform')
+  expect(nextRuntimeFileExclusion('@img/sharp-linux-x64/lib/sharp-linux-x64.node', universal)).toBe('sharp other platform')
+  expect(nextRuntimeFileExclusion('@img/sharp-wasm32/lib/sharp-wasm32-0.35.5.node.wasm', linuxX64)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('@img/sharp-linux-x64/lib/sharp-linux-x64.node', linuxX64)).toBe('sharp other platform')
+  expect(nextRuntimeFileExclusion('@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.2', linuxX64)).toBe('sharp other platform')
+  expect(nextRuntimeFileExclusion('node-pty/prebuilds/linux-x64/pty.node', linuxX64)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('node-pty/prebuilds/linux-arm64/pty.node', linuxX64)).toBe('node-pty other platform')
   expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit/lib/cli.js', universal)).toBeUndefined()
+  for (const arch of ['arm64', 'x64']) {
+    expect(nextRuntimeFileExclusion(`pnpm/dist/node_modules/@reflink/reflink-darwin-${arch}/package.json`, universal)).toBeUndefined()
+  }
+  expect(nextRuntimeFileExclusion('pnpm/dist/node_modules/@reflink/reflink-linux-arm64-gnu/package.json', linuxX64)).toBeDefined()
+  expect(nextRuntimeFileExclusion('pnpm/dist/node_modules/@reflink/reflink-linux-x64-musl/package.json', linuxX64)).toBeUndefined()
 })
 
 it('keeps every other platform file and unrecognized asset', () => {
@@ -104,4 +136,26 @@ it('keeps every other platform file and unrecognized asset', () => {
     'sherpa-onnx-darwin-x64/libonnxruntime.dylib', 'lucide-react/dist/esm/icons/a.js', 'openai/src/client.ts', 'dshmarket/package.json']) {
     expect(nextRuntimeFileExclusion(path, universal), path).toBeUndefined()
   }
+})
+
+it('selects native packages by published OS and CPU constraints, including universal and negative lists', () => {
+  expect(nextRuntimePackageExclusion({ os: ['win32'], cpu: ['arm64'] }, windows)).toBe('package CPU does not match target')
+  expect(nextRuntimePackageExclusion({ os: ['darwin'], cpu: ['x64'] }, windows)).toBe('package OS does not match target')
+  expect(nextRuntimePackageExclusion({ os: ['win32'], cpu: ['x64'] }, windows)).toBeUndefined()
+  for (const arch of ['arm64', 'x64']) {
+    expect(nextRuntimePackageExclusion({ os: ['darwin'], cpu: [arch] }, universal)).toBeUndefined()
+  }
+  expect(nextRuntimePackageExclusion({ os: ['linux'], cpu: ['arm64'] }, linuxX64)).toBeDefined()
+  expect(nextRuntimePackageExclusion({ os: ['linux'], cpu: ['arm64'] }, { platform: 'linux', archs: ['arm64'] })).toBeUndefined()
+  expect(nextRuntimePackageExclusion({ name: '@img/sharp-wasm32' }, windows)).toBe('sharp other platform')
+  expect(nextRuntimePackageExclusion({ name: '@img/sharp-wasm32' }, universal)).toBe('sharp other platform')
+  expect(nextRuntimePackageExclusion({ name: '@img/sharp-wasm32' }, linuxX64)).toBeUndefined()
+  expect(nextRuntimePackageExclusion({ name: '@img/sharp-linux-x64', os: ['linux'], cpu: ['x64'] }, linuxX64)).toBe('sharp other platform')
+  expect(nextRuntimePackageExclusion({ name: '@img/sharp-libvips-linux-x64', os: ['linux'], cpu: ['x64'] }, linuxX64)).toBe('sharp other platform')
+  expect(nextRuntimePackageExclusion({ name: '@img/sharp-linuxmusl-x64', os: ['linux'], cpu: ['x64'] }, linuxX64)).toBe('sharp other platform')
+  expect(nextRuntimePackageExclusion({}, windows)).toBeUndefined()
+  expect(nextRuntimePackageExclusion({ os: [], cpu: ['any'] }, windows)).toBeUndefined()
+  expect(nextRuntimePackageExclusion({ os: ['!darwin'], cpu: ['!arm64'] }, windows)).toBeUndefined()
+  expect(nextRuntimePackageExclusion({ cpu: ['!x64'] }, windows)).toBeDefined()
+  expect(nextRuntimePackageExclusion({ os: ['any', '!win32'] }, windows)).toBeDefined()
 })

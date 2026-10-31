@@ -3,35 +3,45 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { BundleInfo } from '@deepseek-ai/dsh-api-remotes/client'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-plugin-market/types'
 import {
-  Button, IconWarningOutlineRegular, Modal, PluginArtworkDefault, StateDot, Switch, Tag,
+  Button, IconWarningOutlineRegular, Modal, PluginArtworkDefault, PluginArtworkSubagent, StateDot, Switch, Tag,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { readMarketState } from '../../../dsh-community-market/src/client/api.ts'
 import { Choice, MARKET_OPTIONS, marketBody, marketTitle } from './DesktopSettingsSection.tsx'
-import { en as desktopEn, zh as desktopZh, type DesktopSettingsLocaleKey } from './desktop-settings-locales.ts'
+import { en as desktopEn, zh as desktopZh, type DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
+import { ComputerUseSettings } from './computer-use.tsx'
+import { ComputerUsePluginArtwork } from './computer-use-command-ui.tsx'
 import {
   BUILT_IN_MARKET_SOURCES, COMMUNITY_MARKET as COMMUNITY, configureSingleMarketToOfficial, DSH_MARKET as MARKET,
   importMarketSourcesToOfficial, marketToggleTargets, OFFICIAL_CONFIGURABLE_MARKET_SOURCES, OFFICIAL_MARKET,
-  REMOTE_CONTROL_BUNDLE, removeMarketSourcesFromOfficial, resolveActiveMarketSource, toggleMarketEndpointInOfficial,
+  removeMarketSourcesFromOfficial, resolveActiveMarketSource, toggleMarketEndpointInOfficial,
   type BuiltInMarketKey, type MarketName, type MarketRuntimeState,
 } from './market-toggle.ts'
+import { OFFICIAL_OAR_SUBAGENTS, OFFICIAL_PLUGIN_INDEX } from '../upstream-family-labels.ts'
+import type { LaunchPresetBundle } from '../launch-presets.ts'
+import { registerLaunchPresets } from './launch-presets.tsx'
 
-export { REMOTE_CONTROL_BUNDLE }
-const REMOTE = REMOTE_CONTROL_BUNDLE
-const PLUGIN_CONTROLS_LOCALE = 'desktop.settings' as const
+const REMOTE = '@agents-anywhere/dsh-bridge-next'
+const COMPUTER_ITEM = 'desktop-next-computer-use'
 
 type Translate = (cn: string, en: string) => string
 
-async function readCommunityMarketSources(signal?: AbortSignal): Promise<MarketRuntimeState['communitySources']> {
-  const response = await fetch('/api/community-market/state', {
-    cache: 'no-store',
-    ...(signal === undefined ? {} : { signal }),
-  })
-  if (!response.ok) return undefined
-  const payload = await response.json() as { readonly sources?: MarketRuntimeState['communitySources'] }
-  return Array.isArray(payload.sources) ? payload.sources : undefined
+/** An official optional bundle shown with a card of its own, in the words of the bundle's locale files. */
+export interface OfficialBundleCard {
+  readonly bundle: string
+  readonly title: { readonly zh: string; readonly en: string }
+  readonly description: { readonly zh: string; readonly en: string }
+  /** The package belongs to the official experimental group; the card carries the official Experimental tag. */
+  readonly experimental?: boolean
 }
+
+/** OAR subagents, when the followed release ships the provider. */
+const OAR_SUBAGENTS: OfficialBundleCard | undefined = OFFICIAL_OAR_SUBAGENTS
+/** Launch choices of the OAR provider rows, on their configuration pages. */
+const OAR_LAUNCH_PRESETS: LaunchPresetBundle | undefined = OFFICIAL_OAR_SUBAGENTS
 
 interface BundlesCacheEntry {
   loaded: boolean
@@ -68,39 +78,33 @@ function getBundlesCache(context: Context): BundlesCacheEntry {
   return entry
 }
 
-function warmBundlesCache(context: Context): void {
-  const listBundles = context.remote?.pluginManager?.listBundles
-  if (typeof listBundles !== 'function') return
-  const cache = getBundlesCache(context)
-  void listBundles().then(result => {
-    if (!result.ok) return
-    cache.bundles = result.value
-    cache.loaded = true
-    const community = result.value.find(row => row.name === COMMUNITY)
-    const market = result.value.find(row => row.name === MARKET)
-    if (market?.enabled && !community?.enabled) cache.preferredMarket = MARKET
-    else if (community?.enabled && !market?.enabled) cache.preferredMarket = COMMUNITY
-  }).catch(() => {})
-}
-
+// The cache fills on the first mount, never at registration. listBundles reads
+// every bundle manifest synchronously on the Host and listPlugins walks the
+// whole inventory; calling them at startup stalls the account, credential, and
+// onboarding RPCs the first window waits on (the official manager loads lazily).
 export function registerPluginControls(ctx: Context): void {
-  ctx.inject?.(['remote', 'remote.pluginManager', 'remote.pluginMarket'], inner => {
-    warmBundlesCache(inner)
-    inner.slots.inject('plugins.overview', () => inner.slots.register({
-      name: 'plugins.overview',
-      id: 'desktop-plugins',
-      order: 0,
-      locale: PLUGIN_CONTROLS_LOCALE,
-      inject: () => ({ context: inner }),
-    }, PluginControls))
+  ctx.inject(['remote', 'remote.pluginManager', 'remote.pluginMarket'], inner => {
+    inner.slots.inject('plugins.overview', () => {
+      const dispose = inner.slots.register({ name: 'plugins.overview', id: 'desktop-next', order: 0,
+        locale: 'desktop-next', inject: () => ({ context: inner }),
+      }, PluginControls)
+      const hidden = [COMMUNITY, MARKET, REMOTE, ...OAR_SUBAGENTS === undefined ? [] : [OAR_SUBAGENTS.bundle]]
+        .map(key => inner.slots.register({ name: 'plugins.bundle.hidden', key }, () => null))
+      const item = inner.slots.register({ name: 'plugins.item', id: COMPUTER_ITEM,
+        label: () => inner.locale.bind('desktop-next')('language') === 'zh' ? 'Computer Use（Next）' : 'Computer Use (Next)',
+        locale: 'desktop-next', inject: () => ({ context: inner }),
+      }, ComputerUseItem)
+      const hiddenItem = inner.slots.register({ name: 'plugins.item.hidden', key: COMPUTER_ITEM }, () => null)
+      const actions = inner.slots.register({ name: 'plugins.detail.actions', id: COMPUTER_ITEM,
+        locale: 'desktop-next', inject: () => ({ context: inner }),
+      }, ComputerUseActions)
+      return () => { actions(); hiddenItem(); item(); for (const off of hidden) off(); dispose() }
+    })
+    if (OAR_LAUNCH_PRESETS !== undefined) registerLaunchPresets(inner, OAR_LAUNCH_PRESETS)
   })
 }
 
-export function PluginControls({
-  context,
-  t: translate,
-  onOpenBundle,
-}: PropsLocale<typeof PLUGIN_CONTROLS_LOCALE> & PropsRuntime<'plugins.overview'> & { context: Context }) {
+function PluginControls({ context, t: translate, onOpenBundle, onOpenItem }: PropsLocale<'desktop-next'> & PropsRuntime<'plugins.overview'> & { context: Context }) {
   const zh = translate('language') === 'zh'
   const t = (cn: string, en: string): string => zh ? cn : en
   const desktopCopy = zh ? desktopZh : desktopEn
@@ -209,6 +213,20 @@ export function PluginControls({
         <RemoteControlSettings context={context} t={t} row={remoteRow} loading={loading}
           onChanged={() => { refresh(value => value + 1) }} />
       </PluginCard>
+      <PluginCard title={t('Computer Use（Next）', 'Computer Use (Next)')} description={computerDescription(t)}
+        icon={<ComputerUsePluginArtwork size={36} />} onOpen={() => { onOpenItem(COMPUTER_ITEM) }}>
+        <ComputerUseSettings context={context} zh={zh} />
+      </PluginCard>
+      {OAR_SUBAGENTS !== undefined && <PluginCard title={t(OAR_SUBAGENTS.title.zh, OAR_SUBAGENTS.title.en)}
+        description={t(OAR_SUBAGENTS.description.zh, OAR_SUBAGENTS.description.en)}
+        tags={OAR_SUBAGENTS.experimental === true
+          ? <Tag className="dshNextPluginStatusTag" tone="info">{t('实验性', 'Experimental')}</Tag> : undefined}
+        icon={<PluginArtworkSubagent size={36} />} onOpen={() => { onOpenBundle(OAR_SUBAGENTS.bundle) }}>
+        <BundleSwitch context={context} t={t} name={OAR_SUBAGENTS.bundle}
+          label={t(`启用 ${OAR_SUBAGENTS.title.zh}`, `Enable ${OAR_SUBAGENTS.title.en}`)}
+          row={bundles.find(row => row.name === OAR_SUBAGENTS.bundle)} loading={loading}
+          onChanged={() => { refresh(value => value + 1) }} />
+      </PluginCard>}
     </div>
     {notice && <p role="status" className="dshDesktopSettingsHint">{notice}</p>}
     {error && <div role="alert" className="dshDesktopSettingsError">{error} <Button variant="outline" size="sm" disabled={loading || busy} onClick={() => { setError(''); refresh(value => value + 1) }}>{t('重试', 'Retry')}</Button></div>}
@@ -244,11 +262,13 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
   const t: Translate = (cn, en) => zh ? cn : en
   const [runtime, setRuntime] = useState<MarketRuntimeState>({})
   const [configuredUrls, setConfiguredUrls] = useState<string[]>([])
-  const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [busyKeys, setBusyKeys] = useState<readonly string[]>([])
+  const pendingKeys = useRef(new Set<string>())
+  const operations = useRef(Promise.resolve())
   const [error, setError] = useState('')
   const [revision, refresh] = useState(0)
 
-  const importing = busyAction !== null
+  const busy = (key: string): boolean => busyKeys.includes(key)
   const communityEnabled = bundles.find(row => row.name === COMMUNITY)?.enabled === true
   const dshMarketEnabled = bundles.find(row => row.name === MARKET)?.enabled === true
   const officialRow = bundles.find(row => row.name === OFFICIAL_MARKET)
@@ -271,7 +291,8 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
       const nextRuntime: { communitySources?: MarketRuntimeState['communitySources']; dshMarketRegion?: 'global' | 'china' } = {}
       if (communityEnabled) {
         try {
-          nextRuntime.communitySources = await readCommunityMarketSources(controller.signal)
+          const state = await readMarketState(controller.signal)
+          nextRuntime.communitySources = state.sources
         } catch {
           // Fallback to default community provider if the host route is still warming up.
         }
@@ -303,10 +324,25 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
   const activeMarketDef = BUILT_IN_MARKET_SOURCES.find(item => item.key === resolution.marketKey) ?? BUILT_IN_MARKET_SOURCES[0]!
   const configuredSet = new Set(configuredUrls)
 
-  const handleToggleOfficialMarket = async (enabled: boolean): Promise<void> => {
-    if (busyAction !== null) return
-    setBusyAction('official-toggle'); setError('')
-    try {
+  /**
+   * Mark only the clicked control busy. Operations still run one at a time: each reads the configured index list and
+   * writes it back whole, so two running together would drop one of the changes.
+   */
+  const run = (key: string, operation: () => Promise<void>): void => {
+    if (pendingKeys.current.has(key)) return
+    pendingKeys.current.add(key)
+    setBusyKeys([...pendingKeys.current]); setError('')
+    operations.current = operations.current.then(operation).catch((failure: unknown) => {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    }).finally(() => {
+      pendingKeys.current.delete(key)
+      setBusyKeys([...pendingKeys.current])
+      refresh(value => value + 1)
+    })
+  }
+
+  const handleToggleOfficialMarket = (enabled: boolean): void => {
+    run('official-toggle', async () => {
       const result = await context.remote.pluginManager.setBundleEnabled(OFFICIAL_MARKET, enabled)
       if (!result.ok) throw new Error(result.error.message)
       const change = result.value
@@ -315,34 +351,20 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
       }
       if (!enabled) setConfiguredUrls([])
       onChanged()
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setBusyAction(null)
-      refresh(value => value + 1)
-    }
+    })
   }
 
-  const handleImport = async (): Promise<void> => {
-    if (busyAction !== null) return
-    setBusyAction('all'); setError('')
-    try {
+  const handleImport = (): void => {
+    run('all', async () => {
       const result = await importMarketSourcesToOfficial(context.remote, resolution, officialEnabled, runtime)
       setConfiguredUrls([...result.configuredUrls])
       reloadDiscoverIndexesIfMounted(context)
       onChanged()
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setBusyAction(null)
-      refresh(value => value + 1)
-    }
+    })
   }
 
-  const handleConfigureSingle = async (marketKey: BuiltInMarketKey, currentlyConfigured: boolean): Promise<void> => {
-    if (busyAction !== null) return
-    setBusyAction(marketKey); setError('')
-    try {
+  const handleConfigureSingle = (marketKey: BuiltInMarketKey, currentlyConfigured: boolean): void => {
+    run(marketKey, async () => {
       if (currentlyConfigured) {
         const nextUrls = await removeMarketSourcesFromOfficial(context.remote, marketKey)
         setConfiguredUrls([...nextUrls])
@@ -353,28 +375,16 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
         reloadDiscoverIndexesIfMounted(context)
         onChanged()
       }
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setBusyAction(null)
-      refresh(value => value + 1)
-    }
+    })
   }
 
-  const handleToggleEndpoint = async (endpointUrl: string, enable: boolean): Promise<void> => {
-    if (busyAction !== null) return
-    setBusyAction(endpointUrl); setError('')
-    try {
+  const handleToggleEndpoint = (endpointUrl: string, enable: boolean): void => {
+    run(endpointUrl, async () => {
       const result = await toggleMarketEndpointInOfficial(context.remote, endpointUrl, enable, officialEnabled)
       setConfiguredUrls([...result.configuredUrls])
       if (enable) reloadDiscoverIndexesIfMounted(context)
       onChanged()
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-    } finally {
-      setBusyAction(null)
-      refresh(value => value + 1)
-    }
+    })
   }
 
   return <Modal open={open} onClose={onClose} title={t('来源配置', 'Source configuration')}
@@ -384,12 +394,12 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
         <div className="dshNextMarketSourceNoticeCopy">
           <IconWarningOutlineRegular size={14} aria-hidden="true" />
           <span>{t(
-            '“快速配置”会自动开启官方的“自定义插件市场”插件，直接配置下方已适配官方索引格式的内置插件市场（dsh-market）默认源，并将其同步为选中源。',
-            '"Quick configuration" automatically enables the official "Custom Plugin Market" plugin, configures the default source of the adapted built-in plugin market below (dsh-market), and syncs it as the selected source.',
+            `“快速配置”会自动开启官方的“${OFFICIAL_PLUGIN_INDEX.title.zh}”插件，配置下方各插件市场的默认源，并选中当前所用插件市场对应的源；未开启插件市场或其没有对应源时，选中 dsh-market 默认源。`,
+            `"Quick configuration" automatically enables the official "${OFFICIAL_PLUGIN_INDEX.title.en}" plugin, configures the default source of each plugin market below, and selects the source of the plugin market you use; when no plugin market is enabled or it has no adapted source, the dsh-market default source is selected.`,
           )}</span>
         </div>
-        <Button variant="primary" size="sm" disabled={importing} onClick={() => { void handleImport() }}>
-          {busyAction === 'all' ? t('正在配置…', 'Configuring…') : t('快速配置', 'Quick configuration')}
+        <Button variant="primary" size="sm" disabled={busy('all')} onClick={() => { handleImport() }}>
+          {busy('all') ? t('正在配置…', 'Configuring…') : t('快速配置', 'Quick configuration')}
         </Button>
       </div>
       {error && <p role="alert" className="dshDesktopSettingsError">{error}</p>}
@@ -399,13 +409,13 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
             <strong>{t('当前使用的插件市场', 'Currently active plugin market')}</strong>
             {resolution.enabled && <Tag>{zh ? activeMarketDef.title.zh : activeMarketDef.title.en}</Tag>}
             {resolution.enabled && activeMarketDef.bundle === COMMUNITY && <Tag>Beta</Tag>}
-            {officialEnabled && <Tag tone="info">{t('官方自定义插件市场', 'Official Custom Plugin Market')}</Tag>}
+            {officialEnabled && <Tag tone="info">{t(`官方${OFFICIAL_PLUGIN_INDEX.title.zh}`, `${OFFICIAL_PLUGIN_INDEX.title.en} (official)`)}</Tag>}
           </div>
           {officialEnabled ? (
             <span className="dshNextPermissionStatus" role="status">
               <StateDot state="done" />
-              {t(`已开启官方“自定义插件市场”插件（已配置 ${String(configuredUrls.length)} 个索引源）`,
-                `Official "Custom Plugin Market" plugin enabled (${String(configuredUrls.length)} index sources configured)`)}
+              {t(`已开启官方“${OFFICIAL_PLUGIN_INDEX.title.zh}”插件（已配置 ${String(configuredUrls.length)} 个索引源）`,
+                `Official "${OFFICIAL_PLUGIN_INDEX.title.en}" plugin enabled (${String(configuredUrls.length)} index sources configured)`)}
             </span>
           ) : !resolution.enabled ? (
             <p className="dshDesktopSettingsHint">
@@ -414,36 +424,33 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
           ) : null}
         </div>
       </div>
-      <div className="dshNextPermissionRow" role="group" aria-label={t('官方自定义插件市场配置', 'Official Custom Plugin Market configuration')}>
+      <div className="dshNextPermissionRow" role="group" aria-label={t(`官方${OFFICIAL_PLUGIN_INDEX.title.zh}配置`, `Official "${OFFICIAL_PLUGIN_INDEX.title.en}" configuration`)}>
         <div className="dshNextPermissionCopy">
           <div className="dshNextMarketSourceHeaderMain">
             <div className="dshNextMarketSourceTitle">
-              <strong>{t('自定义插件市场', 'Custom plugin markets')}</strong>
+              <strong>{t(OFFICIAL_PLUGIN_INDEX.title.zh, OFFICIAL_PLUGIN_INDEX.title.en)}</strong>
               {officialRow?.version && <Tag>{`v${officialRow.version}`}</Tag>}
               <Tag tone="info">{t('实验性', 'Experimental')}</Tag>
             </div>
             {officialEnabled && <code className="dshNextMarketSourceUrl">{OFFICIAL_MARKET}</code>}
             <p className="dshDesktopSettingsHint">
               {officialEnabled
-                ? t(
-                  '在插件页添加「发现」标签页，从你添加的插件市场索引浏览和安装插件。',
-                  'Adds a Discover tab to Plugins for browsing and installing bundles from plugin market indexes you add.',
-                )
+                ? t(OFFICIAL_PLUGIN_INDEX.description.zh, OFFICIAL_PLUGIN_INDEX.description.en)
                 : t(
-                  '开启右侧开关或点击上方“快速配置”以启用官方“自定义插件市场”，启用后可在下方配置与管理内置插件源。',
-                  'Turn on the switch on the right or click "Quick configuration" above to enable the official "Custom Plugin Market" and manage built-in sources below.',
+                  `开启右侧开关或点击上方“快速配置”以启用官方“${OFFICIAL_PLUGIN_INDEX.title.zh}”，启用后可在下方配置与管理内置插件源。`,
+                  `Turn on the switch on the right or click "Quick configuration" above to enable the official "${OFFICIAL_PLUGIN_INDEX.title.en}" and manage built-in sources below.`,
                 )}
             </p>
           </div>
         </div>
         <div className="dshNextPluginActions">
-          <Switch label={t('启用官方自定义插件市场', 'Enable official Custom Plugin Market')} checked={officialEnabled}
-            disabled={importing || officialLocked} onChange={enabled => { void handleToggleOfficialMarket(enabled) }} />
+          <Switch label={t(`启用官方${OFFICIAL_PLUGIN_INDEX.title.zh}`, `Enable the official "${OFFICIAL_PLUGIN_INDEX.title.en}"`)} checked={officialEnabled}
+            disabled={busy('official-toggle') || officialLocked} onChange={enabled => { handleToggleOfficialMarket(enabled) }} />
         </div>
       </div>
       {officialEnabled && <div className="dshNextMarketSourceSectionHeader">
         <div className="dshNextMarketSourceHeaderMain">
-          <strong>{t('可供官方“自定义插件市场”配置的插件源', 'Plugin sources available for the official Custom Plugin Market')}</strong>
+          <strong>{t(`可供官方“${OFFICIAL_PLUGIN_INDEX.title.zh}”配置的插件源`, `Plugin sources available for the official "${OFFICIAL_PLUGIN_INDEX.title.en}"`)}</strong>
         </div>
       </div>}
       {officialEnabled && OFFICIAL_CONFIGURABLE_MARKET_SOURCES.map(marketDef => {
@@ -464,10 +471,10 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
                 <p className="dshDesktopSettingsHint">{zh ? marketDef.description.zh : marketDef.description.en}</p>
               </div>
               <div className="dshNextPluginActions">
-                <Button variant="outline" size="sm" disabled={importing}
+                <Button variant="outline" size="sm" disabled={busy(marketDef.key)}
                   className={isMarketConfigured ? 'dshNextMarketRemoveBtn' : undefined}
-                  onClick={() => { void handleConfigureSingle(marketDef.key, isMarketConfigured) }}>
-                  {busyAction === marketDef.key
+                  onClick={() => { handleConfigureSingle(marketDef.key, isMarketConfigured) }}>
+                  {busy(marketDef.key)
                     ? t('正在处理…', 'Processing…')
                     : isMarketConfigured
                       ? t('重置', 'Reset')
@@ -486,10 +493,10 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
                     </div>
                     <code className="dshNextMarketSourceUrl">{source.url}</code>
                   </div>
-                  <Button variant="outline" size="sm" disabled={importing}
+                  <Button variant="outline" size="sm" disabled={busy(source.url)}
                     className={isConfigured ? 'dshNextMarketRemoveBtn' : undefined}
-                    onClick={() => { void handleToggleEndpoint(source.url, !isConfigured) }}>
-                    {busyAction === source.url
+                    onClick={() => { handleToggleEndpoint(source.url, !isConfigured) }}>
+                    {busy(source.url)
                       ? t('正在处理…', 'Processing…')
                       : isConfigured
                         ? t('删除配置', 'Remove configuration')
@@ -505,18 +512,38 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
   </Modal>
 }
 
+
 const remoteDescription = (t: Translate): string => t(
   '通过 Agents Anywhere 从手机或其他设备连接。启用后，在侧边栏的“远程控制”中完成配对。',
   'Connect from your phone or another device with Agents Anywhere. After enabling, pair it from Remote Control in the sidebar.',
 )
 
-function PluginCard({ title, description, icon, onOpen, children }: {
-  title: string; description: string; icon: ReactNode; onOpen(): void; children: ReactNode
+const computerDescription = (t: Translate): string => t(
+  '让 AI 查看屏幕、操作鼠标和键盘。截图理解需要支持图片输入的模型。',
+  'Let AI view the screen and control the mouse and keyboard. Understanding screenshots requires a model with image input.',
+)
+
+function ComputerUseItem({ context, t, view }: PropsLocale<'desktop-next'> & PropsRuntime<'plugins.item'> & { context: Context }) {
+  const zh = t('language') === 'zh'
+  if (view === 'summary') return computerDescription((cn, en) => zh ? cn : en)
+  return <ComputerUseSettings context={context} zh={zh} mode="page" />
+}
+
+function ComputerUseActions({ context, t, subject }: PropsLocale<'desktop-next'> & PropsRuntime<'plugins.detail.actions'> & { context: Context }) {
+  if (subject.kind !== 'item' || subject.id !== COMPUTER_ITEM) return null
+  return <ComputerUseSettings context={context} zh={t('language') === 'zh'} mode="actions" />
+}
+
+function PluginCard({ title, description, icon, tags, onOpen, children }: {
+  title: string; description: string; icon: ReactNode; tags?: ReactNode; onOpen(): void; children: ReactNode
 }) {
   return <div className="dshNextPluginCard" data-next-plugin-card>
     <span className="dshNextPluginIcon" aria-hidden="true">{icon}</span>
     <div className="dshNextPluginCardMain">
-      <button type="button" className="dshNextPluginCardOpen" aria-label={`${title} — ${description}`} onClick={onOpen}>{title}</button>
+      <div className="dshNextPluginCardTitle">
+        <button type="button" className="dshNextPluginCardOpen" aria-label={`${title} — ${description}`} onClick={onOpen}>{title}</button>
+        {tags}
+      </div>
       <span className="dshNextPluginCardDescription">{description}</span>
     </div>
     <div className="dshNextPluginCardActions">{children}</div>
@@ -555,6 +582,43 @@ function RemoteControlSettings({ context, t, row, loading, onChanged }: {
     <div className="dshNextPluginActions">
       <Button variant="outline" size="sm" disabled={!row?.enabled || loading || busy} onClick={openPanel}>{t('打开面板', 'Open panel')}</Button>
       <Switch label={t('启用远程控制', 'Enable remote control')} checked={row?.enabled ?? false}
+        disabled={loading || busy || !row || row.readOnlyReason !== undefined || row.error !== undefined}
+        onChange={enabled => { void change(enabled) }} />
+    </div>
+    {notice && <span role="status" className="dshDesktopSettingsHint">{notice}</span>}
+    {error && <span role="alert" className="dshDesktopSettingsError">{error}</span>}
+  </div>
+}
+
+/** A card's switch: selects the installation-shipped bundle in the Profile through the official manager. */
+function BundleSwitch({ context, t, name, label, row, loading, onChanged }: {
+  context: Context
+  t: Translate
+  name: string
+  label: string
+  row: BundleInfo | undefined
+  loading: boolean
+  onChanged(): void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const change = async (enabled: boolean): Promise<void> => {
+    if (busy || loading || !row) return
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const result = await context.remote.pluginManager.setBundleEnabled(name, enabled)
+      if (!result.ok) throw new Error(result.error.message)
+      const change = result.value
+      if (change.application === 'failed' || change.application === 'cancelled') throw new Error(change.error?.diagnostic ?? t('无法更改插件状态。', 'Could not change the plugin state.'))
+      if (change.application === 'restart-required') setNotice(t('已保存，请重启后台服务以应用。', 'Saved. Restart the background service to apply.'))
+      if (change.application === 'overridden') setNotice(t('已保存，但当前配置覆盖了此选择。', 'Saved, but another configuration overrides this choice.'))
+    } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
+    finally { setBusy(false); onChanged() }
+  }
+  return <div className="dshNextPluginDetail" data-next-bundle-switch={name}>
+    <div className="dshNextPluginActions">
+      <Switch label={label} checked={row?.enabled ?? false}
         disabled={loading || busy || !row || row.readOnlyReason !== undefined || row.error !== undefined}
         onChange={enabled => { void change(enabled) }} />
     </div>

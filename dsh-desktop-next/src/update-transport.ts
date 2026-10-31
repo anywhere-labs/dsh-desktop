@@ -5,7 +5,7 @@ import {
   assertSecureDownloadUrl,
   type UpdateArtifactRequest,
   type UpdateArtifactResponse,
-} from '../../dsh-plugin-desktop-beta/src/update-download.ts'
+} from '../../dsh-plugin-desktop/src/update-download.ts'
 
 /** Redirect hops accepted before the transport reports a loop. */
 const MAX_REDIRECTS = 8

@@ -1,0 +1,96 @@
+diff --git a/lib/index.js b/lib/index.js
+index b1f0d6c..c189426 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -308,7 +308,8 @@ var LocalSandboxProvider = class extends SandboxProvider {
+ 		signal?.throwIfAborted();
+ 		policy = {
+ 			...policy,
+-			workspaceRoot: canonicalPath(policy.workspaceRoot)
++			workspaceRoot: canonicalPath(policy.workspaceRoot),
++			...policy.workspaceRoots?.length ? { workspaceRoots: [...new Set(policy.workspaceRoots.map(canonicalPath))] } : {}
+ 		};
+ 		if (this.runnerCommand !== void 0) return Promise.resolve({
+ 			argv: [
+@@ -359,26 +360,26 @@ var LocalSandboxProvider = class extends SandboxProvider {
+ 	windowsAclRunnerArgv(policy) {
+ 		if (policy.mode === "workspace-write" && (policy.additionalWritableRoots?.length ?? 0) > 0) throw new SandboxUnsupportedPolicyError("Windows ACL confinement does not support additional writable directories; remove the extra grants or use a supported host");
+ 		const sessionId = policy.sessionId;
++		const workspaceRoots = policy.workspaceRoots?.length ? policy.workspaceRoots : [policy.workspaceRoot];
++		const workspaceArgs = workspaceRoots.flatMap((root) => ["--workspace", root]);
+ 		if (sessionId === void 0 || policy.mode === "read-only") return [
+ 			...this.windowsAclRunnerInvocation(),
+-			"--workspace",
+-			policy.workspaceRoot,
++			...workspaceArgs,
+ 			"--temp",
+ 			tmpdir(),
+ 			"--mode",
+ 			policy.mode
+ 		];
+-		const temp = this.materializeAclGrant(sessionId, policy.workspaceRoot);
++		const temp = this.materializeAclGrant(sessionId, workspaceRoots);
+ 		return [
+ 			...this.windowsAclRunnerInvocation(),
+-			"--workspace",
+-			policy.workspaceRoot,
++			...workspaceArgs,
+ 			"--temp",
+ 			temp.dir,
+ 			"--mode",
+ 			policy.mode,
+ 			"--write-sid",
+-			workspaceWriteSid(policy.workspaceRoot),
++			workspaceWriteSid(workspaceRoots[0]),
+ 			"--temp-write-sid",
+ 			temp.writeSid
+ 		];
+@@ -393,16 +394,19 @@ var LocalSandboxProvider = class extends SandboxProvider {
+ 	* Fail-closed: a half-materialized temp grant is revoked and its directory
+ 	* removed before the error propagates.
+ 	* @param sessionId - the policy's calling-session identity.
+-	* @param workspaceRoot - the resolved policy root.
++	* @param workspaceRoots - the canonical roots in primary-first order.
+ 	* @returns the pair's private temp directory and write capability.
+ 	*/
+-	materializeAclGrant(sessionId, workspaceRoot) {
+-		assertTempRootOutsideWorkspace(workspaceRoot, tmpdir());
+-		const writeSid = workspaceWriteSid(workspaceRoot);
+-		if (!this.workspaceGrants.has(workspaceRoot)) {
+-			const grant = AclWriteGrant.create(writeSid);
++	materializeAclGrant(sessionId, workspaceRoots) {
++		const workspaceRoot = workspaceRoots[0];
++		// Validate the whole set before mutating any ACL. Each root has its own
++		// standing capability; new tokens omit a removed root's capability.
++		for (const root of workspaceRoots) assertTempRootOutsideWorkspace(root, tmpdir());
++		for (const root of workspaceRoots) {
++			if (this.workspaceGrants.has(root)) continue;
++			const grant = AclWriteGrant.create(workspaceWriteSid(root));
+ 			try {
+-				grant.add(workspaceRoot, true);
++				grant.add(root, true);
+ 			} catch (error) {
+ 				try {
+ 					grant.dispose();
+@@ -411,7 +415,7 @@ var LocalSandboxProvider = class extends SandboxProvider {
+ 				}
+ 				throw error;
+ 			}
+-			this.workspaceGrants.set(workspaceRoot, grant);
++			this.workspaceGrants.set(root, grant);
+ 		}
+ 		const key = JSON.stringify([String(sessionId), workspaceRoot]);
+ 		const existing = this.tempCapabilities.get(key);
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 3468085..e591a55 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -142,7 +142,7 @@ export declare class LocalSandboxProvider extends SandboxProvider {
+      * Fail-closed: a half-materialized temp grant is revoked and its directory
+      * removed before the error propagates.
+      * @param sessionId - the policy's calling-session identity.
+-     * @param workspaceRoot - the resolved policy root.
++     * @param workspaceRoots - the canonical roots in primary-first order.
+      * @returns the pair's private temp directory and write capability.
+      */
+     private materializeAclGrant;

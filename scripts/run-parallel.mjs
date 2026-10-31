@@ -25,13 +25,10 @@ function acquireSlots(weight) {
 
 function releaseSlots(allocated) {
   usedSlots -= allocated
-  for (let i = 0; i < waitQueue.length; i += 1) {
-    if (usedSlots + waitQueue[i].needed <= maxSlots) {
-      const next = waitQueue.splice(i, 1)[0]
-      usedSlots += next.needed
-      next.resolveSlot(next.needed)
-      i -= 1
-    }
+  while (waitQueue.length > 0 && usedSlots + waitQueue[0].needed <= maxSlots) {
+    const next = waitQueue.shift()
+    usedSlots += next.needed
+    next.resolveSlot(next.needed)
   }
 }
 

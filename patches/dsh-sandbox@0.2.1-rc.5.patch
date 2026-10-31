@@ -1,0 +1,63 @@
+diff --git a/lib/index.js b/lib/index.js
+index ffca630..25acbd8 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -163,10 +163,16 @@ function canonicalPath(path) {
+ * @param policy - the file-effect policy to derive the allow-list from.
+ * @returns the canonical writable roots; empty exactly under `read-only`.
+ */
++/** Canonical workspace roots, separate from each backend's temporary-directory policy. */
++function workspaceWritableRoots(policy) {
++	if (policy.mode !== "workspace-write") return [];
++	const roots = policy.workspaceRoots?.length ? policy.workspaceRoots : [policy.workspaceRoot];
++	return [...new Set(roots.map(canonicalPath))];
++}
+ function writableRoots(policy) {
+ 	if (policy.mode !== "workspace-write") return [];
+ 	return [...new Set([
+-		policy.workspaceRoot,
++		...workspaceWritableRoots(policy),
+ 		"/tmp",
+ 		tmpdir()
+ 	].map(canonicalPath))];
+@@ -286,4 +292,4 @@ var SandboxProvider = class extends Service {
+ 	}
+ };
+ //#endregion
+-export { ESCALATION_TARGETS, SANDBOX_UNAVAILABLE, SandboxProvider, SandboxProvider as default, SandboxUnavailableError, WIDER_MODES, approveEscalation, canonicalPath, classifyRunnerFailure, escalationHintMarker, isRunnerSpawnFailure, matchesSignature, sandboxDenialMarker, sandboxPermissionsDescription, validateEscalationArgs, writableRoots };
++export { ESCALATION_TARGETS, SANDBOX_UNAVAILABLE, SandboxProvider, SandboxProvider as default, SandboxUnavailableError, WIDER_MODES, approveEscalation, canonicalPath, classifyRunnerFailure, escalationHintMarker, isRunnerSpawnFailure, matchesSignature, sandboxDenialMarker, sandboxPermissionsDescription, validateEscalationArgs, workspaceWritableRoots, writableRoots };
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 02a6c21..b36b038 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -9,7 +9,7 @@ import { HarnessError } from '@deepseek-ai/dsh-llm';
+ import type { SessionId } from '@deepseek-ai/dsh-session';
+ export { ESCALATION_TARGETS, WIDER_MODES, approveEscalation, escalationHintMarker, sandboxDenialMarker, sandboxPermissionsDescription, validateEscalationArgs, } from './escalation.ts';
+ export type { EscalationApproval, EscalationApprover, EscalationOutcome, EscalationRequest } from './escalation.ts';
+-export { canonicalPath, writableRoots } from './roots.ts';
++export { canonicalPath, workspaceWritableRoots, writableRoots } from './roots.ts';
+ /**
+  * File-effect policy for confined processes. `read-only` permits only required
+  * sinks such as `/dev/null`; `workspace-write` also permits the workspace and a
+@@ -29,6 +29,8 @@ export interface SandboxExecutionPolicy {
+     mode: SandboxMode;
+     /** Absolute root directory `workspace-write` may write under. */
+     workspaceRoot: string;
++    /** Complete ordered Workspace root set; omitted or empty keeps the single-root policy. */
++    workspaceRoots?: readonly string[];
+     /**
+      * Opaque identity of the calling session (the branded `dsh-session`
+      * SessionId). Backends key per-session state off it (e.g. windows-acl gives
+diff --git a/lib/types/roots.d.ts b/lib/types/roots.d.ts
+index 278628f..404ec30 100644
+--- a/lib/types/roots.d.ts
++++ b/lib/types/roots.d.ts
+@@ -33,5 +33,7 @@ export declare function canonicalPath(path: string): string;
+  * @param policy - the file-effect policy to derive the allow-list from.
+  * @returns the canonical writable roots; empty exactly under `read-only`.
+  */
++/** Canonical workspace roots without platform temporary directories; empty under read-only. */
++export declare function workspaceWritableRoots(policy: SandboxExecutionPolicy): string[];
+ export declare function writableRoots(policy: SandboxExecutionPolicy): string[];
+ //# sourceMappingURL=roots.d.ts.map
+\ No newline at end of file
