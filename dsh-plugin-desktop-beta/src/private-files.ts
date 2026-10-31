@@ -19,7 +19,15 @@ export function readPrivateFile(path: string, limit = 1024 * 1024): string | und
   const info = lstatSync(path, { throwIfNoEntry: false })
   if (!info) return undefined
   if (!info.isFile() || info.isSymbolicLink() || info.size > limit) throw new Error(`Configuration must be a regular file smaller than ${limit} bytes: ${path}`)
-  return readFileSync(path, 'utf8')
+  // PowerShell 5.1 and other Windows tools can prepend a UTF-8 BOM, which JSON.parse rejects.
+  return readFileSync(path, 'utf8').replace(/^\uFEFF/u, '')
+}
+
+/** Drop a BOM from a file that upstream also reads itself, because its readers reject one. */
+export function removePrivateFileBom(path: string): void {
+  if (readPrivateFile(path) === undefined) return
+  const text = readFileSync(path, 'utf8')
+  if (text.startsWith('\uFEFF')) atomicText(path, text.slice(1))
 }
 
 export function atomicText(path: string, text: string): void {
