@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { warmBeforeLaunch } from './dev-warmup.ts'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(join(root, 'package.json'))
 for (const file of ['lib/main.js', 'lib/host.js', 'lib/client.js', 'lib/preload-app.cjs', 'lib/preload-shell.cjs']) {
@@ -11,6 +12,8 @@ for (const file of ['lib/main.js', 'lib/host.js', 'lib/client.js', 'lib/preload-
 }
 const market = dirname(require.resolve('dsh-community-market/package.json'))
 if (!existsSync(join(market, 'lib/client.js'))) throw new Error('Build the Community Market first: corepack yarn workspace dsh-community-market build')
+// After an install, overlap the Windows first-open scans the Host would otherwise wait on one file at a time.
+warmBeforeLaunch(root)
 const electron = require('electron')
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
