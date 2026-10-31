@@ -180,6 +180,17 @@ try {
         requestRejection() { return undefined },
       })
       host.provide('webRuntime', {})
+      // The shell requires the credential services for the Copilot route, which no
+      // smoke request reaches. A real call surfaces as an error instead of a
+      // fabricated record.
+      host.provide('authorization', {
+        describe: () => undefined,
+        begin: async () => { throw new Error('loader smoke: no authorization backend') },
+      })
+      host.provide('credentials', {
+        readRecord: async () => undefined,
+        describeRecord: async () => { throw new Error('loader smoke: no credential backend') },
+      })
       host.provide('appExit', () => {})
       host.provide('settings', {
         register() {
