@@ -1,16 +1,21 @@
 /** Desktop-owned WebServer wrapper with bounded bind-conflict retry. */
 
 import { diagnosticOperation } from './developer-logging.ts'
-import type { ServerResponse } from 'node:http'
+import type { IncomingHttpHeaders, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { Service } from '@deepseek-ai/cordis'
 import WebServer, {
   type Config,
+  type WebResource,
+  type WebResourceRoute,
   type WebRoute,
   type WebUpgradeRoute,
 } from '@deepseek-ai/dsh-host-webserver'
 import { decideDesktopBrowserAccess } from './desktop-browser-access.ts'
 import { DESKTOP_WEB_PORT_RETRY_LIMIT } from './desktop-port.ts'
+
+/** Either response owner the official WebServer accepts for the fallback seat. */
+type WebFallback = Parameters<WebServer['registerFallback']>[0]
 
 /**
  * Bind failures that mean "this port is unavailable", not "binding is broken".
@@ -39,6 +44,18 @@ function rejectBrowserRequest(res: ServerResponse): void {
   res.setHeader('content-type', 'text/plain; charset=utf-8')
   res.setHeader('x-content-type-options', 'nosniff')
   res.end('forbidden')
+}
+
+/** {@link rejectBrowserRequest} for a route that answers with a Fetch response. */
+function rejectBrowserResource(): Response {
+  return new Response('forbidden', {
+    status: 403,
+    headers: {
+      'cache-control': 'no-store',
+      'content-type': 'text/plain; charset=utf-8',
+      'x-content-type-options': 'nosniff',
+    },
+  })
 }
 
 function rejectBrowserUpgrade(socket: Duplex): void {
@@ -73,6 +90,27 @@ export class DesktopWebServer extends WebServer {
     return access === undefined || decideDesktopBrowserAccess(access, request) !== 'denied'
   }
 
+  /** The same gate for a Fetch-shaped request, which the WebServer builds for its resources. */
+  private permitsResource(request: Request): boolean {
+    const access = this.ctx.get('desktopBrowserAccess')
+    if (access === undefined) return true
+    const headers: IncomingHttpHeaders = {}
+    request.headers.forEach((value, name) => { headers[name] = value })
+    return decideDesktopBrowserAccess(access, { headers, url: request.url }) !== 'denied'
+  }
+
+  /**
+   * Guard one resource. The WebServer calls it without a Peer over HTTP and with
+   * the admitted Peer for an in-process read, which the caller has already gated.
+   */
+  private gateResource(resource: WebResource): WebResource {
+    return (request, peer) => (
+      peer === undefined && !this.permitsResource(request)
+        ? Promise.resolve(rejectBrowserResource())
+        : resource(request, peer)
+    )
+  }
+
   private traceHttp(route: string, handler: WebRoute['handler']): WebRoute['handler'] {
     return async (req, res) => {
       const end = diagnosticOperation('host.http', 'request', { route, method: req.method })
@@ -84,7 +122,10 @@ export class DesktopWebServer extends WebServer {
     }
   }
 
-  override register(route: WebRoute): () => void {
+  override register(route: WebRoute | WebResourceRoute): () => void {
+    if ('resource' in route) {
+      return super.register({ ...route, resource: this.gateResource(route.resource) })
+    }
     return super.register({
       ...route,
       handler: this.traceHttp(String(route.path), async (req, res) => {
@@ -94,7 +135,11 @@ export class DesktopWebServer extends WebServer {
     })
   }
 
-  override registerFallback(handler: WebRoute['handler']): () => void {
+  override registerFallback(fallback: WebFallback): () => void {
+    if (typeof fallback !== 'function') {
+      return super.registerFallback({ resource: this.gateResource(fallback.resource) })
+    }
+    const handler = fallback
     return super.registerFallback(this.traceHttp('fallback', async (req, res) => {
       if (!this.permits(req)) return rejectBrowserRequest(res)
       await handler(req, res)
