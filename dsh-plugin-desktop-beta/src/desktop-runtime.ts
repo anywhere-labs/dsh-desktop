@@ -136,7 +136,8 @@ export class NextDesktopRuntime {
     this.failure = message
     this.failureStage = stage
     this.failureExit = error instanceof DesktopHostExitError
-      ? { code: error.exitCode, signal: error.signal, output: maskSecrets(error.output) } : undefined
+      ? { code: error.exitCode, signal: error.signal, output: maskSecrets(error.output),
+        ...(error.fatal === undefined ? {} : { fatal: maskSecrets(error.fatal) }) } : undefined
     this.actionFailure = ''
     this.diagnostics.record({ source: 'desktop', event: 'runtime.failed', level: 'error', error, fields: { stage } })
     // A pending memory snapshot lands before recovery mode stops the Host and closes the main window.
