@@ -7,7 +7,7 @@ import { closeSync, cpSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFil
 import { cp } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import extractZip from 'extract-zip'
 import { x as extractTar } from 'tar'
@@ -32,8 +32,8 @@ export interface PrimaryRuntimeArtifact {
   readonly wheels: readonly PrimaryRuntimeWheel[]
 }
 
-/** Targets the upstream lock pins. */
-export const PRIMARY_RUNTIME_TARGETS = ['mac-arm64', 'mac-x64', 'win-x64', 'linux-x64', 'linux-arm64'] as const
+/** Runtime targets; Windows ARM64 can be supplied by the Desktop supplement. */
+export const PRIMARY_RUNTIME_TARGETS = ['mac-arm64', 'mac-x64', 'win-x64', 'win-arm64', 'linux-x64', 'linux-arm64'] as const
 /** A locked interpreter and wheel target. */
 export type PrimaryRuntimeTarget = (typeof PRIMARY_RUNTIME_TARGETS)[number]
 
@@ -42,7 +42,7 @@ export interface PrimaryRuntimeLock {
   readonly nodeVersion: string
   readonly pythonVersion: string
   readonly pythonRelease: string
-  readonly targets: Readonly<Record<PrimaryRuntimeTarget, PrimaryRuntimeArtifact>>
+  readonly targets: Readonly<Record<Exclude<PrimaryRuntimeTarget, 'win-arm64'>, PrimaryRuntimeArtifact> & { 'win-arm64'?: PrimaryRuntimeArtifact }>
   readonly wheels: readonly PrimaryRuntimeWheel[]
   readonly pythonPackages: Readonly<Record<string, string>>
 }
@@ -86,20 +86,39 @@ export function parsePrimaryRuntimeLock(value: unknown): PrimaryRuntimeLock {
   const targets: Partial<Record<PrimaryRuntimeTarget, PrimaryRuntimeArtifact>> = {}
   for (const target of PRIMARY_RUNTIME_TARGETS) {
     const artifact = value.targets[target]
+    if (target === 'win-arm64' && artifact === undefined) continue
     if (!isArtifact(artifact)) throw new Error(`primary runtime lock: malformed target ${target}`)
     targets[target] = artifact
   }
   if (!wheels.every(isWheel) || !isDistributionMap(pythonPackages)) throw new Error('primary runtime lock: malformed wheel records')
-  return { nodeVersion, pythonVersion, pythonRelease, targets: targets as Record<PrimaryRuntimeTarget, PrimaryRuntimeArtifact>, wheels, pythonPackages }
+  return { nodeVersion, pythonVersion, pythonRelease, targets: targets as PrimaryRuntimeLock['targets'], wheels, pythonPackages }
 }
 
 /**
  * Read the upstream lock from the pinned checkout.
  * @param path - Lock file; defaults to the submodule's.
+ * @param target - Target to prepare; only Windows ARM64 reads Desktop's supplemental pins.
  * @returns The validated lock.
  */
-export function readPrimaryRuntimeLock(path: string = join(UPSTREAM_PRIMARY_RUNTIME, 'lock.json')): PrimaryRuntimeLock {
-  return parsePrimaryRuntimeLock(JSON.parse(readFileSync(path, 'utf8')))
+export function readPrimaryRuntimeLock(path: string = join(UPSTREAM_PRIMARY_RUNTIME, 'lock.json'), target?: PrimaryRuntimeTarget): PrimaryRuntimeLock {
+  const upstream: unknown = JSON.parse(readFileSync(path, 'utf8'))
+  if (target !== 'win-arm64' || (isRecord(upstream) && isRecord(upstream.targets) && upstream.targets['win-arm64'] !== undefined)) return parsePrimaryRuntimeLock(upstream)
+  const extension: unknown = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../scripts/primary-runtime-win-arm64.json'), 'utf8'))
+  return withWindowsArm64Runtime(upstream, extension)
+}
+
+/** Merge Desktop's Windows ARM64 pins without modifying the pinned upstream checkout. */
+export function withWindowsArm64Runtime(upstream: unknown, extension: unknown): PrimaryRuntimeLock {
+  if (!isRecord(upstream) || !isRecord(upstream.targets) || !isRecord(upstream.pythonPackages)
+    || !isRecord(extension) || !isDistributionMap(extension.pythonPackages)) throw new Error('primary runtime: malformed Windows ARM64 lock extension')
+  for (const key of ['nodeVersion', 'pythonVersion', 'pythonRelease'] as const) {
+    if (extension[key] !== upstream[key]) throw new Error(`primary runtime: Windows ARM64 ${key} differs from upstream; refresh its pins`)
+  }
+  for (const [name, version] of Object.entries(extension.pythonPackages)) {
+    if (upstream.pythonPackages[name] !== version) throw new Error(`primary runtime: Windows ARM64 ${name} differs from upstream; refresh its wheel`)
+  }
+  if (!isArtifact(extension.artifact)) throw new Error('primary runtime lock: malformed target win-arm64')
+  return parsePrimaryRuntimeLock({ ...upstream, targets: { ...upstream.targets, 'win-arm64': extension.artifact } })
 }
 
 // Retry transport failures through body consumption: fetch can succeed before the socket closes.
@@ -168,6 +187,12 @@ export async function downloadPrimaryRuntimeAsset(url: string, sha256: string, c
   return destination
 }
 
+function primaryRuntimeArtifact(lock: PrimaryRuntimeLock, target: PrimaryRuntimeTarget): PrimaryRuntimeArtifact {
+  const artifact = lock.targets[target]
+  if (artifact === undefined) throw new Error(`primary runtime lock: missing target ${target}; load its pins before preparing the payload`)
+  return artifact
+}
+
 /**
  * Prepare the locked standalone Node independently of Python and pnpm.
  * @param target - Target interpreter platform.
@@ -177,17 +202,17 @@ export async function downloadPrimaryRuntimeAsset(url: string, sha256: string, c
  * @returns Resolves after extracting the interpreter.
  */
 export async function downloadNodeRuntime(target: PrimaryRuntimeTarget, destination: string, cache: string, lock: PrimaryRuntimeLock): Promise<void> {
-  const artifact = lock.targets[target]
+  const artifact = primaryRuntimeArtifact(lock, target)
   const filename = `node-v${lock.nodeVersion}-${artifact.nodeArchive}`
   const archive = await downloadPrimaryRuntimeAsset(`https://nodejs.org/dist/v${lock.nodeVersion}/${filename}`, artifact.nodeSha256, cache)
   const staging = mkdtempSync(join(tmpdir(), 'dsh-node-'))
   try {
-    if (target === 'win-x64') await extractZip(archive, { dir: staging })
+    if (target.startsWith('win-')) await extractZip(archive, { dir: staging })
     else await extractTar({ file: archive, cwd: staging })
     const source = join(staging, filename.replace(/\.(?:zip|tar\.gz)$/u, ''))
     mkdirSync(join(destination, 'bin'), { recursive: true })
-    cpSync(join(source, ...(target === 'win-x64' ? ['node.exe'] : ['bin', 'node'])),
-      join(destination, 'bin', target === 'win-x64' ? 'node.exe' : 'node'))
+    cpSync(join(source, ...(target.startsWith('win-') ? ['node.exe'] : ['bin', 'node'])),
+      join(destination, 'bin', target.startsWith('win-') ? 'node.exe' : 'node'))
     cpSync(join(source, 'LICENSE'), join(destination, 'LICENSE'))
   } finally {
     rmSync(staging, { recursive: true, force: true })
@@ -195,7 +220,7 @@ export async function downloadNodeRuntime(target: PrimaryRuntimeTarget, destinat
 }
 
 async function pythonArchive(target: PrimaryRuntimeTarget, cache: string, lock: PrimaryRuntimeLock): Promise<string> {
-  const artifact = lock.targets[target]
+  const artifact = primaryRuntimeArtifact(lock, target)
   const filename = `cpython-${lock.pythonVersion}+${lock.pythonRelease}-${artifact.pythonTarget}-install_only_stripped.tar.gz`
   return downloadPrimaryRuntimeAsset(`https://github.com/astral-sh/python-build-standalone/releases/download/${lock.pythonRelease}/${encodeURIComponent(filename)}`, artifact.pythonSha256, cache)
 }
@@ -210,11 +235,39 @@ async function pythonArchive(target: PrimaryRuntimeTarget, cache: string, lock: 
 export function primaryRuntimePayloadDigest(target: PrimaryRuntimeTarget, runtimeLock: PrimaryRuntimeLock, pnpmVersion: string | undefined): string {
   const { pythonVersion, pythonRelease, nodeVersion, wheels, pythonPackages } = runtimeLock
   // Identity preserves key order within the selected target, wheel records and distribution map, plus wheel-entry order.
-  // Bump format when extraction or assembly changes payload bytes without changing locked inputs.
-  return createHash('sha256').update(JSON.stringify({
-    format: 7, target, pythonVersion, pythonRelease, nodeVersion: pnpmVersion === undefined ? undefined : nodeVersion,
-    artifact: runtimeLock.targets[target], wheels, pythonPackages, pnpm: pnpmVersion,
-  })).digest('hex')
+  const digest = createHash('sha256').update(JSON.stringify({
+    target, pythonVersion, pythonRelease, nodeVersion: pnpmVersion === undefined ? undefined : nodeVersion,
+    artifact: primaryRuntimeArtifact(runtimeLock, target), wheels, pythonPackages, pnpm: pnpmVersion,
+    officeSkillsInPackage: OFFICE_SKILLS_IN_PACKAGE,
+  }))
+  // Assembly changes invalidate both local reuse and CI caches. Unrelated workspace/lockfile
+  // edits must keep the prepared runtime reusable, as the CI cache policy requires.
+  for (const input of ['primary-runtime.ts', 'prepare-runtime.ts', 'prune-python-tests.ts',
+    '../../scripts/windows-python-sitecustomize.py']) {
+    digest.update('\0').update(input).update('\0').update(readFileSync(resolve(import.meta.dirname, input)))
+  }
+  const require = createRequire(import.meta.url)
+  const workspace = JSON.parse(readFileSync(resolve(import.meta.dirname, '../package.json'), 'utf8')) as {
+    dependencies: Record<string, string>; devDependencies: Record<string, string>
+  }
+  const { resolutions } = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../package.json'), 'utf8')) as {
+    resolutions: Record<string, string>
+  }
+  // Only packages copied into this runtime and its direct assembly tools participate. Installed
+  // versions cover ranges; repository-owned archives and patches cover edits at the same version.
+  for (const name of ['pnpm', '@deepseek-ai/dsh-skill-office', '@deepseek-ai/dsh-tool-workspace-dependencies', 'extract-zip', 'tar', 'papaparse']) {
+    if (name === '@deepseek-ai/dsh-skill-office' && OFFICE_SKILLS_IN_PACKAGE) continue
+    const { version } = JSON.parse(readFileSync(require.resolve(name === 'pnpm' ? name : `${name}/package.json`), 'utf8')) as { version: string }
+    const range = workspace.dependencies[name] ?? workspace.devDependencies[name]
+    const resolution = resolutions[`${name}@npm:${range}`] ?? ''
+    digest.update('\0').update(JSON.stringify([name, version, resolution]))
+    const archive = /(?:^file:|@file%3A)([^#]+)/u.exec(resolution)?.[1]
+    const patches = resolution.startsWith('patch:') ? resolution.split('#')[1]?.split('::')[0]?.split('&') ?? [] : []
+    for (const input of [...(archive === undefined ? [] : [archive]), ...patches]) {
+      digest.update('\0').update(readFileSync(resolve(import.meta.dirname, '../..', decodeURIComponent(input))))
+    }
+  }
+  return digest.digest('hex')
 }
 
 /**
@@ -270,6 +323,8 @@ export interface PreparePrimaryRuntimeOptions {
  */
 export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOptions): Promise<void> {
   const { target, lock } = options
+  const platform = target.startsWith('win-') ? 'win32' : target.startsWith('linux-') ? 'linux' : 'darwin'
+  const arch = target.endsWith('-arm64') ? 'arm64' : 'x64'
   const paths = { runtime: resolve(options.output), downloads: resolve(options.cache) }
   mkdirSync(paths.runtime, { recursive: true })
   mkdirSync(paths.downloads, { recursive: true })
@@ -282,21 +337,35 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
     // pnpm exports only its manifest, which resolves the package entry to package.json itself.
     const pnpmManifest = createRequire(import.meta.url).resolve('pnpm')
     const pnpmVersion = (JSON.parse(readFileSync(pnpmManifest, 'utf8')) as { version: string }).version
-    const wheels = [...lock.targets[target].wheels, ...lock.wheels]
+    const wheels = [...primaryRuntimeArtifact(lock, target).wheels, ...lock.wheels]
     const [, , , wheelArchives] = await Promise.all([
       (async () => {
         await downloadNodeRuntime(target, node, paths.downloads, lock)
         mkdirSync(join(node, 'node_modules'))
         writeFileSync(join(node, 'node_modules', 'README.txt'), 'Reserved for bundled Node packages. pnpm uses its default installation directories.\n')
       })(),
-      cp(dirname(pnpmManifest), join(dependencies, 'pnpm'), { recursive: true, dereference: true }),
+      cp(dirname(pnpmManifest), join(dependencies, 'pnpm'), { recursive: true, dereference: true,
+        // pnpm vendors every platform's optional reflink addon outside its manifest closure.
+        filter: (source) => {
+          const native = /^reflink-(darwin|linux|win32)-(x64|arm64|ia32)(?:-(?:gnu|musl|msvc))?$/u.exec(basename(source))
+          return native === null || (native[1] === platform && native[2] === arch)
+        },
+      }),
       pythonArchive(target, paths.downloads, lock).then(file => extractTar({ file, cwd: dependencies })),
       Promise.all(wheels.map(wheel => downloadPrimaryRuntimeAsset(wheel.url, wheel.sha256, paths.downloads))),
     ])
+    // The pinned ARM64 Python archive also contains an unused AMD64 C++ unwinder.
+    // ARM64 extensions use vcruntime140.dll; Windows rejects this extra DLL with ERROR_BAD_EXE_FORMAT.
+    if (target === 'win-arm64') {
+      rmSync(join(dependencies, 'python', 'vcruntime140_1.dll'), { force: true })
+      // Keep native extensions relocatable even when the portable application lives beyond MAX_PATH.
+      cpSync(resolve(import.meta.dirname, '../../scripts/windows-python-sitecustomize.py'),
+        join(dependencies, 'python', 'Lib', 'site-packages', 'sitecustomize.py'))
+    }
     const manifest: PrimaryRuntimeManifest = {
       desktopVersion: options.version,
-      platform: target === 'win-x64' ? 'win32' : target.startsWith('linux-') ? 'linux' : 'darwin',
-      arch: target.endsWith('-arm64') ? 'arm64' : 'x64',
+      platform,
+      arch,
       payloadDigest: primaryRuntimePayloadDigest(target, lock, pnpmVersion),
       python: lock.pythonVersion,
       node: lock.nodeVersion,
@@ -372,8 +441,14 @@ export function smokePrimaryRuntime(root: string, options: PrimaryRuntimeSmokeOp
   run(entries.python, ['-I', '-B', join(UPSTREAM_PRIMARY_RUNTIME, 'smoke.py'), JSON.stringify(manifest.pythonPackages),
     manifest.python])
   run(entries.python, ['-I', '-B', '-m', 'pip', 'check'])
-  run(entries.node, ['-e', `if (process.versions.node !== ${JSON.stringify(manifest.node)}) process.exit(1)`])
-  run(entries.node, [entries.pnpm, '--version'])
+  if (manifest.platform === 'win32' && manifest.arch === 'arm64') run(entries.python, ['-I', '-B', '-c', 'import sysconfig; assert sysconfig.get_platform() == "win-arm64"'])
+  run(entries.node, ['-e', `if (process.versions.node !== ${JSON.stringify(manifest.node)} || process.platform !== ${JSON.stringify(manifest.platform)} || process.arch !== ${JSON.stringify(manifest.arch)}) process.exit(1)`])
+  // pnpm must report its bundled version independently of an enclosing Yarn checkout.
+  const pnpmCwd = mkdtempSync(join(tmpdir(), 'dsh-pnpm-smoke-'))
+  try {
+    const [command, ...prefix] = launcher.length === 0 ? [entries.node] : [...launcher, entries.node]
+    execFileSync(command!, [...prefix, entries.pnpm, '--version'], { cwd: pnpmCwd, stdio: 'inherit', timeout: 120_000, env: environment })
+  } finally { rmSync(pnpmCwd, { recursive: true, force: true }) }
   return true
 }
 

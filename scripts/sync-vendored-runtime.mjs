@@ -82,7 +82,9 @@ function packageName(filename) {
 function expectedResolution(entry) {
   const source = `file:${vendorRelative}/${entry.filename}`
   const unscoped = entry.name.slice('@deepseek-ai/'.length)
-  const patchRelative = `patches/${unscoped}@${version}.patch`
+  const patchRelative = unscoped === 'dsh-experimental-speech-to-text-sensevoice'
+    ? 'patches/sensevoice-win-arm64.patch'
+    : `patches/${unscoped}@${version}.patch`
   return existsSync(join(root, patchRelative))
     ? `patch:${entry.name}@${source.replace(':', '%3A')}#./${patchRelative}`
     : source
