@@ -1,12 +1,15 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { packageLinuxArtifacts, type LinuxPackageOptions } from '../../dsh-plugin-desktop/scripts/package-linux.ts'
 import { packageMacSmoke, type MacSmokePackageOptions } from '../../dsh-plugin-desktop/scripts/package-mac.ts'
 import { verifyMacRelease } from '../../dsh-plugin-desktop/scripts/verify-mac-release.ts'
 import { linuxPackageTargets, macApplicationDirectory, macSmokeTarget } from '../scripts/package-targets.ts'
 import { nextMacVerification } from '../scripts/verify-mac-release.ts'
+
+// The native inventory reads installed darwin packages, which a Linux install does not carry.
+vi.mock('../scripts/mac-runtime.ts', () => ({ nextMacNativeEntries: () => [{ arch: 'arm64', path: 'node_modules/fixture-native/bin/uv' }] }))
 
 type Command = readonly string[]
 
@@ -84,6 +87,7 @@ describe('macOS smoke verification', () => {
     expect(commands.map(([command]) => command)).not.toContain('hdiutil')
     expect(commands).toContainEqual(['lipo', `${app}/Contents/MacOS/DSH Desktop Beta`, '-verify_arch', 'arm64'])
     expect(commands).not.toContainEqual(['lipo', `${app}/Contents/MacOS/DSH Desktop Beta`, '-verify_arch', 'x86_64'])
+    expect(commands).toContainEqual(['lipo', `${app}/Contents/Resources/app.asar.unpacked/node_modules/fixture-native/bin/uv`, '-verify_arch', 'arm64'])
   })
 
   it('mounts the DMG for a DMG smoke and always for a signed release', () => {
