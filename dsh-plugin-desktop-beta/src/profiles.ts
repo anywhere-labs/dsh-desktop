@@ -1,7 +1,9 @@
 /** Next-owned profile state. Recovery works without importing any user plugin. */
+import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, isAbsolute, join, posix, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { initProfile, loadOverlayPatches, loadProfileDirectory, readProfilePatches, sanitizeProfile, type Profile, type ProfileContext } from '@deepseek-ai/dsh-app-boot'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
@@ -343,6 +345,7 @@ export function loadNextProfile(projectDir: string, home: string, installAnchor 
       dshHome: home,
       ...archivedAgentsAnywhereConfig(installAnchor),
     } },
+    ...linuxDocumentsPatch(profile.patches),
   ]
   // Leave AA stateRoot unset to share its default credentials and device binding with Stable/Beta.
   // Rewriting the generated overlay also removes the former per-Profile stateRoot on upgrade.
@@ -368,6 +371,33 @@ function archivedAgentsAnywhereConfig(installAnchor: string): { connectorSourceD
     config.uvPath = unpackedPath(join(uv, 'bin', process.platform === 'win32' ? 'uv.exe' : 'uv'))
   } catch { /* No bundled uv for this platform; the bridge searches PATH as before. */ }
   return config
+}
+
+/**
+ * First-use Workspace location on Linux without an XDG Documents directory, such as WSL and minimal installs.
+ * Upstream's lookup gives up when `xdg-user-dir` fails or answers with the home directory, which leaves the
+ * official client asking for a folder. This fills in the controller's documented `documentsDirectory` only then.
+ * @param profilePatches - the Profile's own rows; a controller row wins, because an overlay would replace its config.
+ * @param platform - Node platform; other platforms keep upstream's lookup.
+ * @param userHome - the account's home directory, compared as upstream does.
+ * @param lookup - `xdg-user-dir DOCUMENTS` output, or `undefined` when the command fails.
+ * @returns the overlay row, or none where upstream's lookup succeeds.
+ */
+export function linuxDocumentsPatch(
+  profilePatches: Profile['patches'],
+  platform: NodeJS.Platform = process.platform,
+  userHome = homedir(),
+  lookup: () => string | undefined = xdgDocumentsDirectory,
+): { id: string; config: { documentsDirectory: string } }[] {
+  if (platform !== 'linux' || profilePatches.some(row => row.id === 'workspace-controller')) return []
+  const directory = lookup()?.replace(/[\r\n]+$/u, '')
+  if (directory && posix.isAbsolute(directory) && posix.normalize(directory) !== userHome) return []
+  return [{ id: 'workspace-controller', config: { documentsDirectory: posix.join(userHome, 'Documents') } }]
+}
+
+function xdgDocumentsDirectory(): string | undefined {
+  const { status, stdout } = spawnSync('xdg-user-dir', ['DOCUMENTS'], { encoding: 'utf8', timeout: 2_000, stdio: ['ignore', 'pipe', 'ignore'] })
+  return status === 0 ? stdout : undefined
 }
 
 /** Recompose Next's own layer before user/global patches on every manager or HMR read. */

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
 import { composeEntries, loadOverlayPatches, loadProfileDirectory } from '@deepseek-ai/dsh-app-boot'
 import { OPTIONAL_BUNDLES } from '../src/upstream-family.ts'
-import { AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE, loadNextProfile, NEXT_PACKAGE, NextProfiles, OFFICIAL_MARKET_PACKAGE, profileName, readNextProfilePatches, WEB_BUNDLES } from '../src/profiles.ts'
+import { AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE, linuxDocumentsPatch, loadNextProfile, NEXT_PACKAGE, NextProfiles, OFFICIAL_MARKET_PACKAGE, profileName, readNextProfilePatches, WEB_BUNDLES } from '../src/profiles.ts'
 import { DEFAULT_OFFICIAL_MARKET_INDEX_URL } from '../src/profile-plugin-market.ts'
 import * as privateFiles from '../src/private-files.ts'
 import * as linkProjections from '../../dsh-plugin-desktop/src/link-projections.ts'
@@ -400,6 +400,34 @@ it('shares AA defaults across Profiles and replaces legacy generated state overr
   }
 })
 
+it.each([
+  ['fails', undefined],
+  ['answers with the home directory', '/home/a\n'],
+  ['answers with nothing', '\n'],
+  ['answers with a relative path', 'Documents\n'],
+])('uses ~/Documents for the default Workspace when xdg-user-dir %s on Linux', (_case, answer) => {
+  expect(linuxDocumentsPatch([], 'linux', '/home/a', () => answer))
+    .toEqual([{ id: 'workspace-controller', config: { documentsDirectory: '/home/a/Documents' } }])
+})
+
+it('leaves the Documents lookup to upstream where it succeeds or the Profile configures the controller', () => {
+  expect(linuxDocumentsPatch([], 'linux', '/home/a', () => '/home/a/文档\n')).toEqual([])
+  const lookup = vi.fn(() => undefined)
+  expect(linuxDocumentsPatch([], 'win32', 'C:\\Users\\a', lookup)).toEqual([])
+  expect(linuxDocumentsPatch([], 'darwin', '/Users/a', lookup)).toEqual([])
+  expect(linuxDocumentsPatch([{ id: 'workspace-controller', config: { documentsLookupTimeoutMs: 5 } }], 'linux', '/home/a', lookup)).toEqual([])
+  expect(lookup).not.toHaveBeenCalled()
+})
+
+it('points the Documents override at the official workspace controller row', () => {
+  const manager = profiles()
+  const profile = loadNextProfile(manager.ensure('desktop'), manager.home)
+  const rows = composeEntries([...profile.layers.map(layer => layer.patches), linuxDocumentsPatch([], 'linux', '/home/a', () => undefined)])
+  expect(rows.find(row => row.id === 'workspace-controller')).toMatchObject({
+    name: '@deepseek-ai/dsh-api-workspace-controller', config: { documentsDirectory: '/home/a/Documents' },
+  })
+})
+
 it('refuses to overwrite an unmanaged bundle fallback', () => {
   const manager = profiles()
   const dir = manager.ensure('desktop')
@@ -631,13 +659,13 @@ it('leaves no Profile link into an archived installation and points the AA bridg
   expect(profile.layers.map(layer => layer.packageName)).toContain('dsh-plugin-desktop-beta')
   const overlay = JSON.parse(readFileSync(join(dir, 'desktop-next.cordis.patch.json'), 'utf8')) as { id: string; config: Record<string, string> }[]
   const unpacked = join(resources, 'app.asar.unpacked', 'node_modules')
-  expect(overlay).toEqual([{ id: 'agents-anywhere-bridge-next', config: {
+  expect(overlay).toContainEqual({ id: 'agents-anywhere-bridge-next', config: {
     dshHome: manager.home,
     connectorSourceDir: join(unpacked, '@agents-anywhere', 'dsh-bridge-next', 'lib', 'bundled-connector'),
     uvPath: join(unpacked, '@dataiku', `uv-${process.platform}-${process.arch}`, 'bin', process.platform === 'win32' ? 'uv.exe' : 'uv'),
-  } }])
+  } })
   // A physical installation keeps the managed link and the bridge's own defaults.
   loadNextProfile(dir, manager.home)
   expect(lstatSync(link).isSymbolicLink()).toBe(true)
-  expect(JSON.parse(readFileSync(join(dir, 'desktop-next.cordis.patch.json'), 'utf8'))).toEqual([{ id: 'agents-anywhere-bridge-next', config: { dshHome: manager.home } }])
+  expect(JSON.parse(readFileSync(join(dir, 'desktop-next.cordis.patch.json'), 'utf8'))).toContainEqual({ id: 'agents-anywhere-bridge-next', config: { dshHome: manager.home } })
 })
