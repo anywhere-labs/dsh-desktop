@@ -10,7 +10,7 @@
 import { formatUnexpectedHostExit, startIsolatedDesktopHost } from './host-process.ts'
 import * as desktopOffice from './desktop-office.ts'
 import { desktopPrimaryRuntime, resolveDesktopOfficeConfig } from './desktop-office.ts'
-import { app, crashReporter, safeStorage, session, shell } from 'electron'
+import { app, clipboard, crashReporter, desktopCapturer, safeStorage, session, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -121,6 +121,7 @@ import {
 } from './desktop-data-directory.ts'
 import { acquireDesktopDataOperationLock } from './desktop-data-operation-lock.ts'
 import { resetDesktopDataDirectory } from './desktop-factory-reset.ts'
+import { desktopRecycleBinEnabled } from './desktop-recycle-bin.ts'
 import {
   clearDesktopProfilePreferences,
   desktopProfilePreferencesFromSettings,
@@ -523,9 +524,12 @@ async function start(): Promise<void> {
     logSink = new LogFileSink(join(app.getPath('userData'), 'logs'), {
       maxFileBytes: 10 * 1024 * 1024,
       maxDirectoryBytes: 200 * 1024 * 1024,
+      ...(desktopRecycleBinEnabled()
+        ? { trashItem: (path: string) => shell.trashItem(path) }
+        : {}),
     })
     logSink.enforceDirectoryCap()
-    logSink.purgeOlderThan(7)
+    await logSink.purgeOlderThan(7)
     logSink.writeHeader(`--- ${BIN_NAME} ${PRODUCT_NAME} ${appVersion} ${process.platform} node ${process.version} run ${Date.now()} ---`)
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : String(cause)
@@ -1746,6 +1750,20 @@ async function start(): Promise<void> {
           hostCtx.provide('desktopLanHttps', lanHttps)
           hostCtx.provide('desktopRuntime', runtime)
           hostCtx.provide('desktopPnpmBootstrap', desktopPnpmBootstrap)
+          hostCtx.provide('desktopClipboard', {
+            writeText: (text: string) => clipboard.writeText(text),
+            readText: () => clipboard.readText(),
+          })
+          hostCtx.provide('desktopCapture', {
+            captureScreen: async () => {
+              const sources = await desktopCapturer.getSources({
+                types: ['screen'],
+                thumbnailSize: { width: 1920, height: 1080 },
+              })
+              const primary = sources[0]
+              return primary === undefined ? undefined : primary.thumbnail.toDataURL()
+            },
+          })
           await hostCtx.plugin(DesktopActionsService, {
             openTerminal: () => { runtime.openTerminal() },
             requestRestart: () => runtime.requestRestart(),

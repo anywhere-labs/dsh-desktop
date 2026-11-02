@@ -241,7 +241,8 @@
     "pnpm": "11.28.5",
     "react": "18.3.1",
     "selfsigned": "5.5.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
   },
   "optionalDependencies": {
     "@img/sharp-wasm32": "0.35.5"
@@ -305,7 +306,10 @@
       "types": "./src/permissions.ts",
       "default": "./lib/permissions.js"
     },
+    "./context": "./lib/context.js",
+    "./loop-guard": "./lib/loop-guard.js",
     "./package.json": "./package.json",
+    "./web-search": "./lib/web-search.js",
     "./webserver": "./lib/webserver.js"
   },
   "dsh": {
