@@ -366,33 +366,5 @@ export function isMachO(path: string): boolean {
   return head.length === 4 && MACH_O_MAGICS.has(head.toString('hex'))
 }
 
-/** CPU a Mach-O slice targets; `other` covers CPUs Next does not ship. */
-export type MachOArchitecture = 'arm64' | 'x64' | 'other'
-
-function cpuArchitecture(cputype: number): MachOArchitecture {
-  return cputype === 0x0100000c ? 'arm64' : cputype === 0x01000007 ? 'x64' : 'other'
-}
-
-/**
- * Read the CPU types a Mach-O file carries, one per slice of a fat archive.
- * @param path - Regular file.
- * @returns CPU types in header order; empty for a file that is not Mach-O.
- */
-export function machOArchitectures(path: string): readonly MachOArchitecture[] {
-  const head = readHead(path, 4096)
-  if (head.length < 8) return []
-  const magic = head.subarray(0, 4).toString('hex')
-  switch (magic) {
-    case 'cffaedfe': case 'cefaedfe': return [cpuArchitecture(head.readUInt32LE(4))]
-    case 'feedfacf': case 'feedface': return [cpuArchitecture(head.readUInt32BE(4))]
-    case 'cafebabe': case 'cafebabf': {
-      const stride = magic === 'cafebabe' ? 20 : 32
-      const slices: MachOArchitecture[] = []
-      for (let index = 0, offset = 8; index < head.readUInt32BE(4) && offset + 4 <= head.length; index++, offset += stride) {
-        slices.push(cpuArchitecture(head.readUInt32BE(offset)))
-      }
-      return slices
-    }
-    default: return []
-  }
-}
+// The installed updater checks downloaded applications with the same parser.
+export { machOArchitectures, type MachOArchitecture } from '../src/mach-o.ts'

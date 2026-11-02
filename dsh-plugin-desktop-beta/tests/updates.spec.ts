@@ -9,6 +9,7 @@ import { DEFAULT_PREFERENCES, type DesktopState } from '../src/desktop-contract.
 import { NextUpdates, type NextUpdateOptions } from '../src/updates.ts'
 import { serveMacUpdate } from '../src/mac-update-feed.ts'
 import { releaseNotesUrl, updateAction, updateLabel, type NextUpdateState } from '../src/update-state.ts'
+import { UpdateArchError } from '../src/update-arch.ts'
 import type { UpdateRequest } from '../../dsh-plugin-desktop/src/update-checker.ts'
 import type { UpdateArtifactRequest } from '../../dsh-plugin-desktop/src/update-download.ts'
 
@@ -51,6 +52,32 @@ it('does not confuse an unpublished channel, invalid response or network failure
     await updates.check()
     expect(updates.snapshot()).toMatchObject({ phase: 'error', error: 'service' })
   }
+})
+it('names the CPU of this Mac on the version check and on the first download request', async () => {
+  const { updates, request, artifactRequest } = await fixture({ arch: 'arm64' })
+  await updates.download()
+  expect(updates.snapshot().phase).toBe('ready')
+  const [versionUrl, versionInit] = request.mock.calls[0]!
+  expect(versionUrl).toContain('/version')
+  expect(new Headers(versionInit.headers).get('X-DSH-Desktop-Arch')).toBe('arm64')
+  expect(new Headers(versionInit.headers).get('X-DSH-Desktop-Channel')).toBe('beta')
+  const downloadInit = artifactRequest.mock.calls[0]![1]
+  expect(new Headers(downloadInit.headers).get('X-DSH-Desktop-Arch')).toBe('arm64')
+  expect(new Headers(downloadInit.headers).get('X-DSH-Desktop-Target-Version')).toBe('2.0.20-beta.2')
+})
+it('leaves requests without a CPU header where the platform names none', async () => {
+  const { updates, request, artifactRequest } = await fixture({ platform: 'win32' })
+  await updates.check()
+  expect(new Headers(request.mock.calls[0]![1].headers).has('X-DSH-Desktop-Arch')).toBe(false)
+  expect(artifactRequest).not.toHaveBeenCalled()
+})
+it('reports an installer for the wrong CPU apart from other preparation failures', async () => {
+  const { updates } = await fixture({ arch: 'x64', prepare: async () => { throw new UpdateArchError('runs on arm64, not on x64') } })
+  await updates.download()
+  expect(updates.snapshot()).toMatchObject({ phase: 'error', error: 'architecture', version: '2.0.20-beta.2' })
+  expect(updateLabel(updates.snapshot(), 'zh-CN')).toContain('处理器不匹配')
+  expect(updateLabel(updates.snapshot(), 'en')).toContain('does not match the processor')
+  expect(updateAction(updates.snapshot())).toBe('download-update')
 })
 it('allows checks in development, but never downloads or replaces the development application', async () => {
   const { updates, options, request } = await fixture({ packaged: false })

@@ -4,6 +4,7 @@ import { constants } from 'node:fs'
 import { access, lstat, mkdir, readdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
+import { assertMacBundleArch, UpdateArchError, type UpdateArch } from './update-arch.ts'
 
 const execute = promisify(execFile)
 export const NEXT_APP_ID = 'ai.deepseek.dsh.desktop.next'
@@ -83,7 +84,7 @@ export function assertNextWindowsInstaller(info: { ProductName?: unknown; Produc
 export class NextUpdateInstaller {
   private prepared?: { path: string; version: string; directory?: string; bundle?: string; installed?: string }
   private nativeReady = false
-  constructor(private readonly options: { platform: string; executable: string; language?: () => string; log(error: unknown): void }) {}
+  constructor(private readonly options: { platform: string; executable: string; arch?: UpdateArch; language?: () => string; log(error: unknown): void }) {}
   async prepare(path: string, version: string, directory: string, signal: AbortSignal): Promise<void> {
     this.prepared = undefined; this.nativeReady = false
     if (this.options.platform === 'win32') {
@@ -95,6 +96,8 @@ export class NextUpdateInstaller {
       this.prepared = { path, version }; return
     }
     if (this.options.platform !== 'darwin') throw new Error('Unsupported update platform')
+    const arch = this.options.arch
+    if (arch === undefined) throw new UpdateArchError('No macOS package runs on this CPU')
     const mount = join(directory, 'volume'); await mkdir(mount, { mode: 0o700 })
     const run = (file: string, args: string[]) => execute(file, args, { signal, timeout: 10 * 60_000, maxBuffer: 1024 * 1024 })
     const installed = dirname(dirname(dirname(this.options.executable)))
@@ -107,7 +110,8 @@ export class NextUpdateInstaller {
       const apps = entries.filter(entry => entry.isDirectory() && entry.name.endsWith('.app'))
       if (apps.length !== 1) throw new Error('Expected one application in the Next disk image')
       const bundle = join(mount, apps[0]!.name)
-      const info = await run('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleIdentifier', join(bundle, 'Contents', 'Info.plist')])
+      const plist = join(bundle, 'Contents', 'Info.plist')
+      const info = await run('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleIdentifier', plist])
       // Releases through 2.0.17-next shipped the application unpacked, and every shipped updater reads the manifest
       // at that location. Archived releases keep a byte-for-byte copy of the archived manifest there as an extra
       // resource (`build.mac.extraResources`, checked by scripts/packaged-payload.ts) so that they all accept them.
@@ -120,6 +124,9 @@ export class NextUpdateInstaller {
       const candidateSignature = await run('/usr/bin/codesign', ['-dv', '--verbose=4', bundle])
       const team = /^TeamIdentifier=([A-Z0-9]+)$/m.exec(installedSignature.stderr)?.[1]
       if (!team || !candidateSignature.stderr.split('\n').includes(`TeamIdentifier=${team}`)) throw new Error('Next update signing team does not match the installed application')
+      // The update script deletes the previous application once the swap succeeds, so one that cannot run here is refused now.
+      const executable = await run('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleExecutable', plist])
+      await assertMacBundleArch(bundle, executable.stdout.trim(), arch)
       const staged = join(directory, apps[0]!.name)
       await run('/usr/bin/ditto', [bundle, staged])
       this.prepared = { path, version, directory, bundle: staged, installed }

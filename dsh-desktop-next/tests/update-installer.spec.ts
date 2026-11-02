@@ -23,6 +23,7 @@ vi.mock('node:child_process', () => {
 })
 
 import { assertNextMacBundle, assertNextWindowsInstaller, NextUpdateInstaller } from '../src/update-installer.ts'
+import { UpdateArchError, type UpdateArch } from '../src/update-arch.ts'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -75,7 +76,15 @@ it('launches the Windows NSIS installer visibly without /S so progress is shown 
   )
 })
 
-it('stages the verified macOS app bundle and launches the detached progress updater script', async () => {
+const UNIVERSAL_EXECUTABLE = Buffer.concat([Buffer.from('cafebabe00000002', 'hex'),
+  Buffer.from('0100000700000003000010000000100000000000', 'hex'), Buffer.from('0100000c00000000000020000000100000000000', 'hex')])
+const X64_EXECUTABLE = Buffer.from('cffaedfe07000001000000000200000000000000', 'hex')
+
+/**
+ * A downloaded disk image whose application carries the given main executable and interpreter payloads, and an
+ * installed application to replace; every macOS tool the installer runs is mocked.
+ */
+async function macUpdateFixture(executable: Buffer, runtimes: readonly string[]) {
   const root = await mkdtemp(join(tmpdir(), 'next-mac-update-')); roots.push(root)
   const applications = join(root, 'Applications')
   const installedBundle = join(applications, 'DSH NEXT.app')
@@ -91,16 +100,24 @@ it('stages the verified macOS app bundle and launches the detached progress upda
     if (file === '/usr/bin/hdiutil' && args[0] === 'attach') {
       const mountPoint = args[args.indexOf('-mountpoint') + 1]!
       const mountedBundle = join(mountPoint, 'DSH NEXT.app')
-      mkdir(join(mountedBundle, 'Contents', 'Resources', 'app'), { recursive: true })
-        .then(() => writeFile(join(mountedBundle, 'Contents', 'Resources', 'app', 'package.json'), JSON.stringify({
+      ;(async () => {
+        await mkdir(join(mountedBundle, 'Contents', 'Resources', 'app'), { recursive: true })
+        await writeFile(join(mountedBundle, 'Contents', 'Resources', 'app', 'package.json'), JSON.stringify({
           name: 'dsh-desktop-next',
           version: '2.0.18-next.1',
-        })))
-        .then(() => callback(null, '', ''), err => callback(err as Error, '', ''))
+        }))
+        await mkdir(join(mountedBundle, 'Contents', 'MacOS'), { recursive: true })
+        await writeFile(join(mountedBundle, 'Contents', 'MacOS', 'DSH NEXT'), executable)
+        for (const arch of runtimes) await mkdir(join(mountedBundle, 'Contents', 'Resources', 'runtime', arch, 'primary-runtime'), { recursive: true })
+      })().then(() => callback(null, '', ''), err => callback(err as Error, '', ''))
       return
     }
-    if (file === '/usr/libexec/PlistBuddy') {
+    if (file === '/usr/libexec/PlistBuddy' && args[1] === 'Print :CFBundleIdentifier') {
       callback(null, 'ai.deepseek.dsh.desktop.next\n', '')
+      return
+    }
+    if (file === '/usr/libexec/PlistBuddy' && args[1] === 'Print :CFBundleExecutable') {
+      callback(null, 'DSH NEXT\n', '')
       return
     }
     if (file === '/usr/bin/codesign' && args[0] === '--verify') {
@@ -123,13 +140,21 @@ it('stages the verified macOS app bundle and launches the detached progress upda
     callback(new Error(`Unexpected execFile: ${file} ${args.join(' ')}`), '', '')
   })
   mockSpawnSuccess()
-
-  const installer = new NextUpdateInstaller({
+  const installer = (arch: UpdateArch | undefined) => new NextUpdateInstaller({
     platform: 'darwin',
     executable: installedExecutable,
+    arch,
     language: () => 'zh-CN',
     log: vi.fn(),
   })
+  return { installer, installedBundle, staging, dmg }
+}
+
+const calledTools = (): string[] => execFileMock.mock.calls.map(call => `${String(call[0])} ${String((call[1] as string[])[0])}`)
+
+it('stages the verified macOS app bundle and launches the detached progress updater script', async () => {
+  const { installer: create, installedBundle, staging, dmg } = await macUpdateFixture(UNIVERSAL_EXECUTABLE, ['arm64', 'x64'])
+  const installer = create('arm64')
   await installer.prepare(dmg, '2.0.18-next.1', staging, new AbortController().signal)
   await installer.stage()
   await installer.launch()
@@ -142,4 +167,21 @@ it('stages the verified macOS app bundle and launches the detached progress upda
   expect(spawnOptions.env.DSH_UPDATE_STAGED).toBe(join(staging, 'DSH NEXT.app'))
   expect(spawnOptions.env.DSH_UPDATE_INSTALLED).toBe(installedBundle)
   expect(spawnOptions.env.DSH_UPDATE_MESSAGE).toContain('2.0.18-next.1')
+})
+
+it('refuses an application built for the other CPU before staging it, and still unmounts the image', async () => {
+  const { installer: create, staging, dmg } = await macUpdateFixture(X64_EXECUTABLE, ['x64'])
+  const installer = create('arm64')
+  await expect(installer.prepare(dmg, '2.0.18-next.1', staging, new AbortController().signal)).rejects.toThrow(UpdateArchError)
+  expect(calledTools().filter(tool => tool.startsWith('/usr/bin/ditto'))).toEqual([])
+  expect(calledTools()).toContain('/usr/bin/hdiutil detach')
+  await expect(installer.stage()).rejects.toThrow('No prepared Next update')
+})
+
+it('accepts the Intel application on an Intel Mac and refuses to prepare without a known CPU', async () => {
+  const { installer: create, staging, dmg } = await macUpdateFixture(X64_EXECUTABLE, ['x64'])
+  await expect(create('x64').prepare(dmg, '2.0.18-next.1', staging, new AbortController().signal)).resolves.toBeUndefined()
+  execFileMock.mockClear()
+  await expect(create(undefined).prepare(dmg, '2.0.18-next.1', staging, new AbortController().signal)).rejects.toThrow(UpdateArchError)
+  expect(execFileMock).not.toHaveBeenCalled()
 })

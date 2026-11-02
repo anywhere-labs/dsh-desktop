@@ -4,7 +4,7 @@ export interface NextUpdateState {
   version?: string
   received?: number
   total?: number
-  error?: 'service' | 'download' | 'prepare' | 'install' | 'development' | 'unsupported'
+  error?: 'service' | 'download' | 'prepare' | 'architecture' | 'install' | 'development' | 'unsupported'
   installable: boolean
 }
 
@@ -25,6 +25,7 @@ export function updateLabel(state: NextUpdateState, language: string): string {
       if (state.error === 'development') return t('开发环境可检查更新，请使用安装版进行更新。', 'Updates can be checked in development. Install a packaged build to update.')
       if (state.error === 'unsupported') return t('当前平台暂不支持应用内更新。', 'In-app updates are unavailable on this platform.')
       if (state.error === 'service') return t('暂时无法获取 Next 更新，请稍后重试。', 'Next updates are temporarily unavailable. Try again later.')
+      if (state.error === 'architecture') return t('更新包与这台 Mac 的处理器不匹配，未安装。请稍后重试。', 'The update does not match the processor of this Mac and was not installed. Try again later.')
       return t('更新未完成，请重试。', 'The update could not be completed. Please retry.')
     default: return t('检查更新', 'Check for updates')
   }
