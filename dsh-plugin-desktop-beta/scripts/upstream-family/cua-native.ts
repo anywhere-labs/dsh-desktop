@@ -49,6 +49,20 @@ export function cuaNativeExecutable(arch: CuaNativeArch): string {
 }
 
 /**
+ * Leave the helper of a CPU a package does not carry out of its payload. Desktop builds one helper per CPU into the
+ * provider's package directory, and the package for one CPU ships only that CPU's.
+ * @param name - Package name.
+ * @param entry - Slash-separated path below the package directory.
+ * @param archs - CPUs the package carries.
+ * @returns Omission reason, or undefined to keep the entry.
+ */
+export function cuaNativeExclusion(name: string, entry: string, archs: readonly string[]): string | undefined {
+  if (name !== OFFICIAL_CUA_PROVIDER_PACKAGE) return undefined
+  const arch = /^native\/bin\/darwin-([^/]+)(?:\/|$)/u.exec(entry)?.[1]
+  return arch !== undefined && !archs.includes(arch) ? 'Computer Use helper other architecture' : undefined
+}
+
+/**
  * The helpers a packaged application must carry, as entries of the universal native-file inventory.
  * @param desktopRoot - Desktop package root.
  * @returns One thin executable per CPU, or none when the package does not ship the official bundle.

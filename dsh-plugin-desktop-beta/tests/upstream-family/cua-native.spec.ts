@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import { cuaNativeEntries, prepareCuaNative, type RunXcrun } from '../../scripts/upstream-family/cua-native.ts'
+import { cuaNativeEntries, cuaNativeExclusion, prepareCuaNative, type RunXcrun } from '../../scripts/upstream-family/cua-native.ts'
+import { nextRuntimeFileExclusion } from '../../scripts/runtime-file-policy.ts'
 
 const roots: string[] = []
 afterEach(() => {
@@ -106,4 +107,17 @@ it('fails when the package ships the bundle but its macOS provider is not instal
   const run = swift(() => 'unused')
   expect(() => prepareCuaNative(root, ['arm64'], run)).toThrow(PROVIDER)
   expect(run).not.toHaveBeenCalled()
+})
+
+it('leaves the helper of a CPU a package does not carry out of its payload', () => {
+  expect(cuaNativeExclusion(PROVIDER, 'native/bin/darwin-x64/dsh-cua-native', ['arm64'])).toBe('Computer Use helper other architecture')
+  expect(cuaNativeExclusion(PROVIDER, 'native/bin/darwin-arm64', ['x64'])).toBe('Computer Use helper other architecture')
+  expect(cuaNativeExclusion(PROVIDER, 'native/bin/darwin-arm64/dsh-cua-native', ['arm64'])).toBeUndefined()
+  expect(cuaNativeExclusion(PROVIDER, 'native/bin/darwin-x64/dsh-cua-native', ['arm64', 'x64'])).toBeUndefined()
+  expect(cuaNativeExclusion(PROVIDER, 'native/Sources/main.swift', ['arm64'])).toBeUndefined()
+  expect(cuaNativeExclusion('@trycua/cua-driver-darwin-x64', 'native/bin/darwin-x64/driver', ['arm64'])).toBeUndefined()
+  // The payload file policy applies it to macOS packages.
+  const path = `${PROVIDER}/native/bin/darwin-x64/dsh-cua-native`
+  expect(nextRuntimeFileExclusion(path, { platform: 'darwin', archs: ['arm64'] })).toBe('Computer Use helper other architecture')
+  expect(nextRuntimeFileExclusion(path, { platform: 'darwin', archs: ['arm64', 'x64'] })).toBeUndefined()
 })

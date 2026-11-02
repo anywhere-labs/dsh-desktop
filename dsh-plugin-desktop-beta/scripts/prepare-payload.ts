@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { nextRuntimeFileExclusion, nextRuntimePackageExclusion, type NextPackagingTarget, type RuntimePackageConstraints } from './runtime-file-policy.ts'
 import { nextPackagingTarget, nextPayloadRelease, PAYLOAD_DIR, verifyNextPayload } from './packaged-payload.ts'
+import type { MacPackageArch } from './mac-runtime.ts'
 import { DESKTOP_RUNTIME_FILE, physicalPayload, sealPayloadAsync, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 import { packagingStep, packagingStepSync } from './packaging-step.ts'
 import { windowsCodePayload, writeWindowsCodeFiles } from './windows-asar-unpack.ts'
@@ -293,11 +294,15 @@ function electronVersion(desktopRoot: string): string {
 }
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-  const { values } = parseArgs({ options: { platform: { type: 'string' }, version: { type: 'string' } }, allowPositionals: false })
+  const { values } = parseArgs({ options: { platform: { type: 'string' }, arch: { type: 'string' }, version: { type: 'string' } }, allowPositionals: false })
   const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+  const platform = (values.platform ?? process.platform) as NodeJS.Platform
+  if (values.arch !== undefined && (platform !== 'darwin' || !['arm64', 'x64', 'universal'].includes(values.arch))) {
+    throw new Error(`Next payload: --arch selects arm64, x64 or universal for a macOS package; received ${values.arch} for ${platform}`)
+  }
   await preparePayload({
     desktopRoot, output: join(desktopRoot, ...PAYLOAD_DIR.split('/')),
-    target: nextPackagingTarget((values.platform ?? process.platform) as NodeJS.Platform),
+    target: nextPackagingTarget(platform, process.arch, values.arch as MacPackageArch | undefined),
     electronVersion: electronVersion(desktopRoot),
     ...(values.version === undefined ? {} : { extraMetadata: { version: values.version } }),
     log: message => console.log(message),

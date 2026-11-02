@@ -1,4 +1,5 @@
 /** Desktop-only omissions from the production dependency tree Electron Builder copies into the payload. */
+import { cuaNativeExclusion } from './upstream-family.ts'
 
 /** Platform and every CPU architecture whose native dependencies one Next package carries. */
 export interface NextPackagingTarget {
@@ -100,5 +101,9 @@ export function nextRuntimeFileExclusion(path: string, target: NextPackagingTarg
     if (file.endsWith('.pdb')) return 'node-pty debug symbols'
   }
   if (name === '@koromix/koffi-win32-x64' && entry === 'win32_x64/koffi.lib') return 'Koffi import library'
+  if (target.platform === 'darwin') {
+    const helper = cuaNativeExclusion?.(name, entry, target.archs)
+    if (helper !== undefined) return helper
+  }
   return undefined
 }

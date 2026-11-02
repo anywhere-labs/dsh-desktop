@@ -1,4 +1,4 @@
-/** Build a signed and notarized macOS DMG from validated release credentials. */
+/** Build signed and notarized macOS DMGs from validated release credentials. */
 
 import { spawnSync } from 'node:child_process'
 import { readFileSync, rmSync } from 'node:fs'
@@ -9,11 +9,14 @@ import {
   assertMacReleaseReady,
   withoutMacReleaseSecrets,
 } from './release-preflight.ts'
-import { prepareInstalledMacUniversalRuntime } from './mac-universal.ts'
+import { prepareInstalledMacUniversalRuntime, type MacSmokeArchitecture } from './mac-universal.ts'
 import { prepareFsExtForElectron } from './prepare-fs-ext.ts'
 import { electronBuilderEnvironment } from './electron-builder-environment.ts'
 import { desktopRuntimeTargets, prepareDesktopInterpreters, primaryRuntimeDirectory, verifyPreparedDesktopRuntime } from './prepare-runtime.ts'
 import { signMacRuntime, withMacSigningIdentity } from './sign-runtime.ts'
+
+/** Application one release DMG holds: one CPU's, or the universal application carrying both. */
+export type MacReleaseTarget = MacSmokeArchitecture
 
 /** Injectable release boundary used by focused tests. */
 export interface MacReleaseOptions {
@@ -38,8 +41,10 @@ export interface MacReleaseOptions {
   ) => void
   /** Report non-secret release progress. */
   readonly log: (message: string) => void
-  /** Validate and prepare both architecture-specific runtime trees. */
-  readonly prepareRuntime: () => void
+  /** DMGs to build into the output directory, in order; one universal DMG when omitted. */
+  readonly targets?: readonly MacReleaseTarget[]
+  /** Validate and prepare the runtime trees the next DMG packages. */
+  readonly prepareRuntime: (target: MacReleaseTarget) => void
 }
 
 function listCodeSigningIdentities(env: NodeJS.ProcessEnv): string {
@@ -110,13 +115,15 @@ export function releaseMac(options: MacReleaseOptions = defaultReleaseOptions())
   options.run(process.execPath, ['scripts/prepare-dsh-market.mjs', '--check'], resolve(options.desktopRoot, '..'), buildEnvironment)
   options.run('yarn', ['run', 'check'], resolve(options.desktopRoot, '..'), buildEnvironment)
   options.resetOutput()
-  options.prepareRuntime()
-  options.run('yarn', [
-    'exec', 'electron-builder', '--mac', 'dmg', '--universal',
-    '--config.forceCodeSigning=true', '--config.mac.notarize=true',
-    '--config.npmRebuild=false',
-    `--config.directories.output=${options.outputDir}`,
-  ], options.desktopRoot, electronBuilderEnvironment(releaseEnvironment))
+  for (const target of options.targets ?? ['universal']) {
+    options.prepareRuntime(target)
+    options.run('yarn', [
+      'exec', 'electron-builder', '--mac', 'dmg', `--${target}`,
+      '--config.forceCodeSigning=true', '--config.mac.notarize=true',
+      '--config.npmRebuild=false',
+      `--config.directories.output=${options.outputDir}`,
+    ], options.desktopRoot, electronBuilderEnvironment(releaseEnvironment))
+  }
   options.run(
     process.execPath,
     ['scripts/verify-mac-release.ts', options.outputDir],

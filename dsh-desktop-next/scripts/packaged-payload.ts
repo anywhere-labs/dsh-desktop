@@ -6,24 +6,36 @@ import { dirname, join } from 'node:path'
 import { basename as posixBasename, dirname as posixDirname } from 'node:path/posix'
 import { getRawHeader } from '@electron/asar'
 import { nextRuntimeFileExclusion, nextRuntimePackageExclusion, type NextPackagingTarget, type RuntimePackageConstraints } from './runtime-file-policy.ts'
+import { macPackageCpus, type MacPackageArch } from './mac-runtime.ts'
 import { OFFICIAL_CUA_UNPACKED } from './upstream-family.ts'
-import { DESKTOP_RUNTIME_FILE, parseDesktopRuntime, verifyPayload, type DesktopRuntimeDescriptor, type DesktopRuntimeFile, type NextRelease, type PayloadEntry, type PayloadSource, type VerifyPayloadOptions } from '../src/runtime-tree.ts'
+import { DESKTOP_RUNTIME_FILE, parseDesktopRuntime, readDesktopRuntime, verifyPayload, type DesktopRuntimeDescriptor, type DesktopRuntimeFile, type NextRelease, type PayloadEntry, type PayloadSource, type VerifyPayloadOptions } from '../src/runtime-tree.ts'
 
 /** Application-relative directory holding the prepared payload that Electron Builder archives verbatim. */
 export const PAYLOAD_DIR = '.desktop-build/payload'
 
 /**
  * Architectures whose native dependencies one Next package carries.
- * macOS releases are universal and the Yarn tree installs both Darwin CPU variants, so even a
- * single-architecture directory build ships both; Windows releases are x64 only.
+ * A macOS package carries one CPU or, as the universal application, both; Windows releases are x64 only.
  * @param platform - Electron platform being packaged.
  * @param hostArch - Build host architecture, used for platforms without a release target.
+ * @param macArch - The macOS package; universal unless one CPU is selected.
  * @returns Platform and architectures recorded in the payload descriptor.
  */
-export function nextPackagingTarget(platform: NodeJS.Platform, hostArch: string = process.arch): NextPackagingTarget {
-  if (platform === 'darwin') return { platform, archs: ['arm64', 'x64'] }
+export function nextPackagingTarget(platform: NodeJS.Platform, hostArch: string = process.arch, macArch: MacPackageArch = 'universal'): NextPackagingTarget {
+  if (platform === 'darwin') return { platform, archs: macPackageCpus(macArch) }
   if (platform === 'win32') return { platform, archs: ['x64'] }
   return { platform, archs: [hostArch] }
+}
+
+/**
+ * Target of the payload prepared for the package being built, as its sealed descriptor records it. Electron
+ * Builder's hooks package whatever was prepared, so they read the target from there rather than deriving it again.
+ * @param projectDir - Application package directory.
+ * @returns Platform and architectures of the prepared payload.
+ */
+export function preparedPackagingTarget(projectDir: string): NextPackagingTarget {
+  const { platform, archs } = readDesktopRuntime(join(projectDir, ...PAYLOAD_DIR.split('/'), DESKTOP_RUNTIME_FILE))
+  return { platform, archs }
 }
 
 interface AsarFile { readonly size: number; readonly offset?: string; readonly executable?: boolean; readonly unpacked?: boolean }

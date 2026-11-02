@@ -1,9 +1,11 @@
 /** Check the bundled interpreter payloads inside a mounted Next application. */
 import { spawnSync } from 'node:child_process'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { workspaceDependencyPaths } from '@deepseek-ai/dsh-tool-workspace-dependencies'
+import { machOArchitectures } from '../src/mach-o.ts'
+import type { MacPackageCpu } from './mac-runtime.ts'
 import { archivedPayload, verifyUpdaterManifestShim } from './packaged-payload.ts'
-import { expectedNextVersion, verifyNextRuntimeTree } from './prepare-runtime.ts'
+import { expectedNextVersion, verifyPackagedNextRuntime } from './prepare-runtime.ts'
 import { readSignedEntitlements } from './sign-runtime.ts'
 
 const desktopRoot = resolve(import.meta.dirname, '..')
@@ -20,24 +22,36 @@ const runCommand: RunCommand = (command, args) => {
 
 /**
  * Verify every payload of a mounted application: the manifest copy the updaters of earlier
- * releases read first; manifests, files and CPU slices for both CPUs; imports, the Node version
- * and pnpm on the host's CPU; and, for a signed release, hardened-runtime signatures with the
- * upstream entitlement policy: JIT for Node, unsigned executable memory only for x64 Node, no
+ * releases read first; that the main executable, the archived payload and the interpreter
+ * payloads carry exactly the package's CPUs, which the updater relies on when it accepts a
+ * package for a Mac; manifests, files and CPU slices for each of those CPUs; imports, the Node
+ * version and pnpm on the host's CPU; and, for a signed release, hardened-runtime signatures with
+ * the upstream entitlement policy: JIT for Node, unsigned executable memory only for x64 Node, no
  * entitlements for Python.
  * @param appPath - Mounted `DSH Desktop Beta.app`.
  * @param signed - Whether the release carries Developer ID signatures.
+ * @param cpus - CPUs the package carries.
  * @param run - Command executor.
  * @param readEntitlements - Entitlement reader for one signed file.
  */
 export function verifyNextMacRuntime(
-  appPath: string, signed: boolean, run: RunCommand = runCommand, readEntitlements: (file: string) => Record<string, unknown> = readSignedEntitlements,
+  appPath: string, signed: boolean, cpus: readonly MacPackageCpu[], run: RunCommand = runCommand,
+  readEntitlements: (file: string) => Record<string, unknown> = readSignedEntitlements,
 ): void {
+  const expected = [...cpus].sort().join(',')
+  const executable = join(appPath, 'Contents', 'MacOS', basename(appPath, '.app'))
+  const slices = machOArchitectures(executable)
+  if ([...slices].sort().join(',') !== expected) throw new Error(`Next package: ${executable} runs on ${slices.join('/') || 'no known CPU'}, not ${expected}`)
   const resources = join(appPath, 'Contents', 'Resources')
   // The same path a 2.0.14 to 2.0.17 updater reads in the mounted image before it trusts the application.
   const archived = archivedPayload(resources)
-  try { verifyUpdaterManifestShim(resources, archived, 'darwin', expectedNextVersion(desktopRoot)) } finally { archived.close() }
+  try {
+    verifyUpdaterManifestShim(resources, archived, 'darwin', expectedNextVersion(desktopRoot))
+    const { archs } = archived.descriptor()
+    if ([...archs].sort().join(',') !== expected) throw new Error(`Next package: the archived payload carries ${archs.join(', ')}, not ${expected}`)
+  } finally { archived.close() }
   const runtimeRoot = join(resources, 'runtime')
-  for (const { arch, directory, manifest } of verifyNextRuntimeTree(runtimeRoot, 'darwin', expectedNextVersion(desktopRoot))) {
+  for (const { arch, directory, manifest } of verifyPackagedNextRuntime(runtimeRoot, 'darwin', expectedNextVersion(desktopRoot), cpus)) {
     const entries = workspaceDependencyPaths(directory, manifest)
     if (entries.node === undefined || entries.pnpm === undefined) throw new Error(`Next runtime: ${directory} resolves no Node or pnpm entry`)
     if (signed) {

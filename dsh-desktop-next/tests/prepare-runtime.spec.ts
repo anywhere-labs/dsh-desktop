@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { primaryRuntimePayloadDigest, readPrimaryRuntimeLock } from '../scripts/primary-runtime.ts'
-import { expectedNextVersion, nextRuntimeBuildPaths, nextRuntimeTargets, officeSkillsDirectory, primaryRuntimeDirectory, reusableNextRuntimeTree, verifyNextRuntimeTree, type NextRuntimeArch } from '../scripts/prepare-runtime.ts'
+import { expectedNextVersion, nextRuntimeBuildPaths, nextRuntimeTargets, officeSkillsDirectory, primaryRuntimeDirectory, reusableNextRuntimeTree, verifyNextRuntimeTree, verifyPackagedNextRuntime, type NextRuntimeArch } from '../scripts/prepare-runtime.ts'
 
 const roots: string[] = []
 afterEach(() => { for (const path of roots.splice(0)) rmSync(path, { recursive: true, force: true }) })
@@ -59,6 +59,12 @@ it('ships both Darwin CPUs by default or the requested smoke CPU, Windows x64, t
   expect(nextRuntimeTargets('freebsd')).toEqual([])
 })
 
+it('prepares the macOS CPUs a release selects in place of the smoke selection', () => {
+  expect(nextRuntimeTargets('darwin', 'arm64', { DSH_MAC_SMOKE_ARCH: 'x64' }, ['arm64'])).toEqual([{ target: 'mac-arm64', arch: 'arm64' }])
+  expect(nextRuntimeTargets('darwin', 'x64', {}, ['arm64', 'x64'])).toEqual([{ target: 'mac-arm64', arch: 'arm64' }, { target: 'mac-x64', arch: 'x64' }])
+  expect(nextRuntimeTargets('win32', 'x64', {}, ['arm64'])).toEqual([{ target: 'win-x64', arch: 'x64' }])
+})
+
 it('lays out each CPU payload beside its Office resources under the build directory', () => {
   expect(nextRuntimeBuildPaths('/next')).toEqual({ runtime: join('/next', '.desktop-build', 'runtime'), downloads: join('/next', '.desktop-build', 'downloads') })
   expect(primaryRuntimeDirectory('/resources/runtime', 'x64')).toBe(join('/resources/runtime', 'x64', 'primary-runtime'))
@@ -106,6 +112,20 @@ it('rejects a missing CPU, another version, a payload without Node, or a foreign
   writePayload(slice, 'arm64')
   writePayload(slice, 'x64', { cpu: 'arm64' })
   expect(() => verifyNextRuntimeTree(slice, 'darwin', '2.0.0-next')).toThrow('expected a thin x64 executable')
+})
+
+it('accepts the payloads a package copies only when they are exactly its own CPUs', () => {
+  const root = fixture()
+  writePayload(root, 'arm64')
+  expect(verifyPackagedNextRuntime(root, 'darwin', '2.0.0-next', ['arm64']).map(runtime => runtime.arch)).toEqual(['arm64'])
+  expect(() => verifyPackagedNextRuntime(root, 'darwin', '2.0.0-next', ['arm64', 'x64'])).toThrow('holds arm64; the package carries arm64 and x64')
+  writePayload(root, 'x64')
+  expect(() => verifyPackagedNextRuntime(root, 'darwin', '2.0.0-next', ['arm64'])).toThrow('holds arm64, x64; the package carries arm64')
+  expect(verifyPackagedNextRuntime(root, 'darwin', '2.0.0-next', ['x64', 'arm64']).map(runtime => runtime.arch)).toEqual(['arm64', 'x64'])
+  expect(() => verifyPackagedNextRuntime(join(root, 'missing'), 'darwin', '2.0.0-next', ['x64'])).toThrow('holds no payload')
+  const swapped = fixture()
+  writePayload(swapped, 'arm64', { manifest: { arch: 'x64' } })
+  expect(() => verifyPackagedNextRuntime(swapped, 'darwin', '2.0.0-next', ['arm64'])).toThrow('declares darwin x64, expected darwin arm64')
 })
 
 it('rejects missing entry points and Office resources', () => {

@@ -131,6 +131,22 @@ it('retains native prebuilds and Office engines for every architecture of a univ
   expect(nextRuntimeFileExclusion('pnpm/dist/node_modules/@reflink/reflink-linux-x64-musl/package.json', linuxX64)).toBeUndefined()
 })
 
+it('drops the native files of the other CPU from a macOS package for one CPU', () => {
+  const arm64 = { platform: 'darwin' as const, archs: ['arm64'] }
+  const x64 = { platform: 'darwin' as const, archs: ['x64'] }
+  expect(nextRuntimeFileExclusion('node-pty/prebuilds/darwin-arm64/pty.node', arm64)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('node-pty/prebuilds/darwin-x64/spawn-helper', arm64)).toBe('node-pty other platform')
+  expect(nextRuntimeFileExclusion('node-pty/prebuilds/darwin-arm64/spawn-helper', x64)).toBe('node-pty other platform')
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-darwin-x64/program/soffice', arm64)).toBe('LibreOffice other platform')
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit-darwin-arm64/program/soffice', arm64)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('@img/sharp-darwin-x64/lib/sharp-darwin-x64.node', arm64)).toBe('sharp other platform')
+  expect(nextRuntimeFileExclusion('@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.2.dylib', x64)).toBe('sharp other platform')
+  expect(nextRuntimeFileExclusion('pnpm/dist/node_modules/@reflink/reflink-darwin-x64/package.json', arm64)).toBe('Reflink other platform or architecture')
+  expect(nextRuntimePackageExclusion({ name: '@dataiku/uv-darwin-x64', os: ['darwin'], cpu: ['x64'] }, arm64)).toBe('package CPU does not match target')
+  expect(nextRuntimePackageExclusion({ name: '@dataiku/uv-darwin-arm64', os: ['darwin'], cpu: ['arm64'] }, arm64)).toBeUndefined()
+  expect(nextRuntimePackageExclusion({ name: 'sherpa-onnx-darwin-arm64', os: ['darwin'], cpu: ['arm64'] }, x64)).toBe('package CPU does not match target')
+})
+
 it('keeps every other platform file and unrecognized asset', () => {
   for (const path of ['@trycua/cua-driver-darwin-x64/cua_driver_node_runtime.node', '@dataiku/uv-darwin-arm64/bin/uv',
     'sherpa-onnx-darwin-x64/libonnxruntime.dylib', 'lucide-react/dist/esm/icons/a.js', 'openai/src/client.ts', 'dshmarket/package.json']) {

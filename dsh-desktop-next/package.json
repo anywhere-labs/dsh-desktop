@@ -386,7 +386,7 @@
       "icon": "build/app-icon.icon",
       "extraResources": [
         {
-          "from": ".desktop-build/runtime",
+          "from": ".desktop-build/package-runtime",
           "to": "runtime"
         },
         {

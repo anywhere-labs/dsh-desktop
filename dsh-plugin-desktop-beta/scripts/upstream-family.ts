@@ -7,7 +7,7 @@
 // The official Computer Use bundle of dsh 0.2.2 starts a macOS helper that its release does not ship: Desktop builds
 // it, keeps the provider unpacked beside the archive and loads the packaged provider in a smoke. The scripts live below
 // scripts/upstream-family/, which only Beta carries.
-export { cuaNativeEntries, prepareCuaNative } from './upstream-family/cua-native.ts'
+export { cuaNativeEntries, cuaNativeExclusion, prepareCuaNative } from './upstream-family/cua-native.ts'
 
 /** The provider package, which starts the helper below its own directory; the Host resolves it to its unpacked copy. */
 export const OFFICIAL_CUA_UNPACKED: RegExp | undefined = /^node_modules\/@deepseek-ai\/dsh-experimental-cua-macos\//u

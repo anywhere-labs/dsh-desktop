@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { verifyElectronExecutableFuses } from '../../dsh-plugin-desktop/scripts/verify-electron-fuses.ts'
 import { withoutMacReleaseSecrets } from '../../dsh-plugin-desktop/scripts/release-preflight.ts'
 import { withoutWindowsSigningSecrets } from '../../dsh-plugin-desktop/scripts/package-win.ts'
-import { archivedPayload, nextPackagingTarget, PAYLOAD_DIR, universalMergeRewrite, verifyNextRuntime, verifyUpdaterManifestShim } from './packaged-payload.ts'
+import { archivedPayload, nextPackagingTarget, PAYLOAD_DIR, preparedPackagingTarget, universalMergeRewrite, verifyNextRuntime, verifyUpdaterManifestShim } from './packaged-payload.ts'
 import { expectedNextVersion, verifyNextRuntimeTree } from './prepare-runtime.ts'
 import { verifiedPackagedResources } from './verify-packaged.ts'
 import { packagingStep } from './packaging-step.ts'
@@ -56,7 +56,10 @@ async function verifyFinalArtifacts(result: { outDir: string }): Promise<string[
   const paths = ['mac/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta', 'mac-arm64/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta',
     'mac-universal/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta', 'win-unpacked/DSH Desktop Beta.exe', 'linux-unpacked/dsh-desktop-beta',
     'linux-arm64-unpacked/dsh-desktop-beta']
-  const executables = paths.map(path => join(result.outDir, path)).filter(existsSync)
+  // A macOS release packages one CPU after another into the same output directory, and each run verifies the
+  // application it packaged, which afterPack has checked: macOS packages always pass through afterPack.
+  const executables = paths.map(path => join(result.outDir, path))
+    .filter(path => existsSync(path) && (!path.includes('.app/') || verifiedPackagedResources.has(resolve(dirname(path), '../Resources'))))
   if (!executables.length) throw new Error('No packaged Next executable to verify')
   const expectedVersion = expectedNextVersion(desktopRoot)
   for (const path of executables) {
@@ -68,7 +71,8 @@ async function verifyFinalArtifacts(result: { outDir: string }): Promise<string[
     // electron-builder signs unpacked Mach-O files and nested bundles on macOS after afterPack
     // cross-checked the archive, so macOS re-checks the archive with code-signing tolerance.
     // On Windows/Linux, resources are not mutated after afterPack, so skip re-hashing when afterPack already verified them.
-    const target = nextPackagingTarget(darwin ? 'darwin' : path.endsWith('.exe') ? 'win32' : 'linux')
+    // A macOS package carries the CPUs of the payload prepared for it.
+    const target = darwin ? preparedPackagingTarget(desktopRoot) : nextPackagingTarget(path.endsWith('.exe') ? 'win32' : 'linux')
     const alreadyVerifiedByAfterPack = verifiedPackagedResources.has(resolve(resources))
     if (darwin || !alreadyVerifiedByAfterPack) {
       const merge = universalMergeRewrite(join(desktopRoot, ...PAYLOAD_DIR.split('/')))

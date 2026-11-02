@@ -9,10 +9,12 @@ import { createLinuxPackageOptions, packageLinuxArtifacts } from '../../dsh-plug
 import { releaseMac } from '../../dsh-plugin-desktop/scripts/release-mac.ts'
 import { adaptMacReleaseEnvironment, assertMacReleaseReady, withoutMacReleaseSecrets } from '../../dsh-plugin-desktop/scripts/release-preflight.ts'
 import { packageMacSmoke } from '../../dsh-plugin-desktop/scripts/package-mac.ts'
+import { macSmokeArchitecture } from '../../dsh-plugin-desktop/scripts/mac-universal.ts'
 import { createWindowsPackageOptions, packageWindowsArtifact, packageWindowsInstaller } from '../../dsh-plugin-desktop/scripts/package-win.ts'
-import { prepareNextMacRuntime } from './mac-runtime.ts'
+import { assertMacPackagesRunnable, macPackageCpus, macReleaseArchs, prepareNextMacRuntime, stagePackagedRuntime, type MacPackageArch, type MacPackageCpu } from './mac-runtime.ts'
+import { rosettaAvailable } from './primary-runtime.ts'
 import { runNextPackagingCommand } from './packaging-command.ts'
-import { expectedNextVersion, nextRuntimeBuildPaths, nextRuntimeTargets, prepareNextRuntime, primaryRuntimeDirectory, reusableNextRuntimeTree, smokeNextRuntime, verifyNextRuntimeTree } from './prepare-runtime.ts'
+import { expectedNextVersion, nextRuntimeBuildPaths, nextRuntimeTargets, prepareNextRuntime, primaryRuntimeDirectory, reusableNextRuntimeTree, smokeNextRuntime, verifyNextRuntimeTree, verifyPackagedNextRuntime } from './prepare-runtime.ts'
 import { signMacRuntime, withMacSigningIdentity } from './sign-runtime.ts'
 import { packagingStep, packagingStepSync } from './packaging-step.ts'
 
@@ -67,11 +69,13 @@ let interpretersVerified = false
 
 /**
  * Prepare every interpreter payload the platform ships, sign them when a release identity is given,
- * then check and execute the final bytes. electron-builder copies the tree as extra resources.
+ * then check and execute the final bytes. Packages copy them as extra resources.
+ * @param sign - Signs the prepared tree with the release identity.
+ * @param macCpus - macOS CPUs a release selected, in place of the smoke selection.
  */
-async function prepareInterpreters(sign?: (runtimeRoot: string) => Promise<void>): Promise<void> {
+async function prepareInterpreters(sign?: (runtimeRoot: string) => Promise<void>, macCpus?: readonly MacPackageCpu[]): Promise<void> {
   const paths = nextRuntimeBuildPaths(desktopRoot)
-  const reusable = packagingStepSync('runtime:check-reuse', () => reusableNextRuntimeTree(paths.runtime, process.platform, buildVersion))
+  const reusable = packagingStepSync('runtime:check-reuse', () => reusableNextRuntimeTree(paths.runtime, process.platform, buildVersion, process.arch, macCpus))
   if (reusable.length > 0 && sign === undefined) {
     console.log(`Reusing prepared primary runtime for ${reusable.map(item => item.arch).join(', ')}`)
     interpretersVerified = true
@@ -79,38 +83,48 @@ async function prepareInterpreters(sign?: (runtimeRoot: string) => Promise<void>
   }
   const root = reusable.length > 0
     ? paths.runtime
-    : await packagingStep('runtime:prepare-primary', () => prepareNextRuntime({ desktopRoot, platform: process.platform, version: buildVersion }))
+    : await packagingStep('runtime:prepare-primary', () => prepareNextRuntime({ desktopRoot, platform: process.platform, version: buildVersion, macCpus }))
   if (sign !== undefined) await sign(root)
-  packagingStepSync('runtime:verify-primary', () => verifyNextRuntimeTree(root, process.platform, buildVersion))
-  packagingStepSync('runtime:smoke-primary', () => smokeNextRuntime(root, process.platform))
+  packagingStepSync('runtime:verify-primary', () => verifyNextRuntimeTree(root, process.platform, buildVersion, process.arch, macCpus))
+  packagingStepSync('runtime:smoke-primary', () => smokeNextRuntime(root, process.platform, console.log, process.arch, macCpus))
   interpretersVerified = true
 }
 /**
  * Materialize and seal the payload electron-builder archives. A separate process keeps the
  * manifest transformer it borrows from electron-builder out of this entry point.
  * @param platform - Platform being packaged.
+ * @param macArch - The macOS package the payload is for.
  */
-const preparePayload = (platform: NodeJS.Platform): void => packagingStepSync('payload:total', () => {
+const preparePayload = (platform: NodeJS.Platform, macArch?: MacPackageArch): void => packagingStepSync('payload:total', () => {
   const result = spawnSync(process.execPath, [join(desktopRoot, 'scripts', 'prepare-payload.ts'), '--platform', platform,
+    ...(macArch === undefined ? [] : ['--arch', macArch]),
     ...(TEST_BUILD_VERSION === undefined ? [] : ['--version', TEST_BUILD_VERSION])], { cwd: desktopRoot, env: process.env, stdio: 'inherit' })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`Next payload preparation exited with ${String(result.status)}`)
 })
 /**
  * The shared flows call this right before electron-builder: the interpreter payloads were prepared
- * before they started and must still verify, and the archive payload is prepared now.
+ * before they started and must still verify, and the archive payload is prepared now. A macOS
+ * package also gets its own copy of the interpreter payloads of its CPUs, which its extra
+ * resources take as `Resources/runtime`.
  * @param platform - Platform being packaged; the shared flows package the host platform.
+ * @param macArch - The macOS package: a release names each in turn, other builds follow `DSH_MAC_SMOKE_ARCH`.
  */
-const prepareRuntime = (platform: NodeJS.Platform = process.platform): void => {
-  if (platform === 'darwin') prepareNextMacRuntime(desktopRoot)
+const prepareRuntime = (platform: NodeJS.Platform = process.platform, macArch: MacPackageArch = macSmokeArchitecture(process.env)): void => {
+  const cpus = macPackageCpus(macArch)
+  const runtime = nextRuntimeBuildPaths(desktopRoot).runtime
+  if (platform === 'darwin') prepareNextMacRuntime(desktopRoot, cpus)
   if (!interpretersVerified || platform !== process.platform) {
-    verifyNextRuntimeTree(nextRuntimeBuildPaths(desktopRoot).runtime, platform, buildVersion)
+    verifyNextRuntimeTree(runtime, platform, buildVersion, process.arch, platform === 'darwin' ? cpus : undefined)
+  }
+  if (platform === 'darwin') {
+    packagingStepSync('runtime:stage-package', () => verifyPackagedNextRuntime(stagePackagedRuntime(desktopRoot, runtime, cpus), platform, buildVersion, cpus))
   }
   if (process.env.DSH_WINDOWS_REUSE_UNPACKED === '1' && existsSync(join(desktopRoot, '.desktop-build', 'payload', '.dsh-desktop-runtime.json'))) {
     console.log('Reusing prepared payload for unpacked Windows application directory.')
     return
   }
-  preparePayload(platform)
+  preparePayload(platform, platform === 'darwin' ? macArch : undefined)
 }
 const mode = process.argv[2]
 const outputDir = join(desktopRoot, 'dist', mode === 'mac' ? 'mac-release' : 'mac-smoke')
@@ -121,18 +135,24 @@ if (mode === 'dir') {
   prepareRuntime()
   packageDirectory({ cwd: desktopRoot, electronBuilderCli: require.resolve('electron-builder/cli.js'), electronDistPath: join(dirname(require.resolve('electron/package.json')), 'dist') })
 } else if (mode === 'mac') {
+  // The DMGs this release builds, and the CPUs whose interpreter payloads they carry between them.
+  const releaseArchs = macReleaseArchs(process.env)
+  assertMacPackagesRunnable(releaseArchs, process.arch, rosettaAvailable)
+  const releaseCpus = (['arm64', 'x64'] as const).filter(cpu => releaseArchs.some(arch => macPackageCpus(arch).includes(cpu)))
   // The preflight the shared release flow repeats; the payload signatures must carry the identity it selects.
   const releaseEnvironment = adaptMacReleaseEnvironment(process.env)
   const ready = assertMacReleaseReady({ env: releaseEnvironment, platform: process.platform,
     listCodeSigningIdentities: () => listCodeSigningIdentities(withoutMacReleaseSecrets(releaseEnvironment)) })
   await prepareInterpreters(root => withMacSigningIdentity(releaseEnvironment, ready.identity, async (signer) => {
-    for (const { arch } of nextRuntimeTargets('darwin')) {
+    for (const { arch } of nextRuntimeTargets('darwin', process.arch, process.env, releaseCpus)) {
       const signed = await signMacRuntime(primaryRuntimeDirectory(root, arch), APP_ID, signer, arch)
       console.log(`Signed ${String(signed)} native files of the ${arch} primary runtime as ${ready.identity}`)
     }
-  }))
-  releaseMac({ ...shared, listCodeSigningIdentities })
+  }), releaseCpus)
+  console.log(`Building the macOS DMGs for ${releaseArchs.join(', ')}`)
+  releaseMac({ ...shared, listCodeSigningIdentities, targets: releaseArchs, prepareRuntime: target => { prepareRuntime('darwin', target) } })
 } else if (mode === 'mac-smoke') {
+  assertMacPackagesRunnable([macSmokeArchitecture(process.env)], process.arch, rosettaAvailable)
   await prepareInterpreters()
   packageMacSmoke({ ...shared, workspaceRoot, arch: process.arch, nodeVersion: process.versions.node,
     builderCli: require.resolve('electron-builder/cli.js'), verifier: join(desktopRoot, 'scripts/verify-mac-smoke.ts'), nodeExecutable: process.execPath })
