@@ -7,11 +7,10 @@
  * while Beta follows Next's upstream release; otherwise the root `check:beta` runs Beta's full check.
  */
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { dirname, join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BETA_MIRROR_CHECK, expectedBetaCheck, variantSpecificFiles } from './verify-desktop-variants.mjs'
+import { vitestEntry } from './vitest-entry.mjs'
 
 const betaRoot = resolve(import.meta.dirname, '..', 'dsh-plugin-desktop-beta')
 const MODULE_PATH = /^(?:src|scripts|tests)\/.+\.(?:[cm]?[jt]sx?|css)$/u
@@ -25,12 +24,6 @@ export function relatedTestTargets(files) {
   return files.filter(file => MODULE_PATH.test(file))
 }
 
-function vitestEntry() {
-  const manifestPath = createRequire(join(betaRoot, 'package.json')).resolve('vitest/package.json')
-  const { bin } = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  return join(dirname(manifestPath), typeof bin === 'string' ? bin : bin.vitest)
-}
-
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (expectedBetaCheck() !== BETA_MIRROR_CHECK) {
     throw new Error('test-beta-variant: Beta follows its own upstream release, so only its full check covers it; run `corepack yarn check:beta`')
@@ -39,7 +32,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   // Beta always differs from Next at least in its data directory, so an empty set means the comparison broke.
   if (targets.length === 0) throw new Error('test-beta-variant: found no channel-specific Beta modules')
   process.stdout.write(`test-beta-variant: running the Beta specs related to ${String(targets.length)} channel-specific modules\n`)
-  const result = spawnSync(process.execPath, [vitestEntry(), 'related', '--run', ...process.argv.slice(2), ...targets], {
+  const result = spawnSync(process.execPath, [vitestEntry(betaRoot), 'related', '--run', ...process.argv.slice(2), ...targets], {
     cwd: betaRoot,
     stdio: 'inherit',
   })
