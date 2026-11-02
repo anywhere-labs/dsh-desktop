@@ -106,6 +106,10 @@ async function verifyFinalArtifacts(result: { outDir: string }): Promise<string[
       ],
       // Image attachments and Market icons go through sharp; on Linux the Host's resolver must keep it on the WebAssembly build.
       runPackagedNode(path, [join(desktopRoot, 'scripts', 'packaged-sharp-smoke.mjs'), root], 120_000, 'Packaged sharp smoke failed'),
+      // Linux has no tray terminal; the application executable itself answers `<app> dsh …` (#1568).
+      ...target.platform === 'linux' ? [
+        runPackagedNode(path, [join(desktopRoot, 'scripts', 'packaged-dsh-command-smoke.mjs'), root], 120_000, 'Packaged dsh command smoke failed'),
+      ] : [],
       // The same Electron, in Node mode, starts the real Host from the archive with a private home.
       runPackagedNode(path, ['--expose-internals', join(desktopRoot, 'scripts', 'packaged-host-smoke.mjs'), root], 300_000, 'Packaged Next Host smoke failed'),
     ])

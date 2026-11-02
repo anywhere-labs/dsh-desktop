@@ -1,11 +1,11 @@
 /** Native lifecycle contracts exercised without starting Electron or a Host. */
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { DEFAULT_PREFERENCES, SAFE_MODE_PREFERENCES } from '../src/desktop-contract.ts'
 import type { NextDesktopRuntime } from '../src/desktop-runtime.ts'
-import { NextProfiles } from '../src/profiles.ts'
+import { NEXT_PACKAGE, NextProfiles } from '../src/profiles.ts'
 import { NextRecovery } from '../src/recovery.ts'
 
 const originalMonitors = new Set(process.listeners('uncaughtExceptionMonitor'))
@@ -500,6 +500,67 @@ it('exits before claiming the instance when an elevated Windows launch restarted
   } finally {
     vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
   }
+})
+
+/** Start the main process as an AppImage's AppRun starts `<app> dsh plugin list` on Linux, with `process.execve` replaced. */
+async function launchLinuxDshCommand(home: string, check: (execve: ReturnType<typeof vi.fn>) => Promise<void>): Promise<void> {
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const argv = [...process.argv]
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  const original = process.execve
+  const execve = vi.fn((): never => { throw new Error('replaced by the CLI') })
+  process.execve = execve
+  process.argv.splice(0, process.argv.length, '/opt/app/desktop', '--no-sandbox', 'dsh', 'plugin', 'list')
+  Object.defineProperty(process, 'platform', { ...platform, value: 'linux' })
+  try {
+    await check(execve)
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+    process.argv.splice(0, process.argv.length, ...argv)
+    process.execve = original
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+}
+
+it('replaces a Linux `<app> dsh …` launch with the packaged CLI before it claims the instance or sets up the desktop', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-dsh-command-'))
+  writeFileSync(join(home, 'desktop-next.json'), JSON.stringify({ version: 1, active: 'work' }))
+  await launchLinuxDshCommand(home, async execve => {
+    await expect(import('../src/main.ts')).rejects.toThrow('replaced by the CLI')
+    expect(execve).toHaveBeenCalledWith(process.execPath,
+      [process.execPath, '--expose-internals', join(dirname(NEXT_PACKAGE), 'lib', 'desktop-cli.js'), 'plugin', 'list'],
+      expect.objectContaining({ ELECTRON_RUN_AS_NODE: '1', DSH_HOME: home, DSH_DESKTOP_DEFAULT_PROFILE: 'work' }))
+    expect(fixture.lockPaths).toEqual([])
+    expect(existsSync(join(home, 'electron-user-data'))).toBe(false)
+    expect(fixture.windows).toHaveLength(0)
+  })
+})
+
+it('leaves the Profile to `--profile` when a Linux `dsh` command cannot read the selection', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-dsh-command-'))
+  writeFileSync(join(home, 'desktop-next.json'), JSON.stringify({ version: 1, active: '../escape' }))
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    await launchLinuxDshCommand(home, async execve => {
+      await expect(import('../src/main.ts')).rejects.toThrow('replaced by the CLI')
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('the selected Profile cannot be read'))
+      expect(execve.mock.calls[0]?.[2]).not.toHaveProperty('DSH_DESKTOP_DEFAULT_PROFILE')
+    })
+  } finally { error.mockRestore() }
+})
+
+it('runs no `dsh` command on the fallback directory when the data directory choice cannot be read', async () => {
+  writeFileSync(join(fixture.locationRoot, 'desktop-next-location.json'), '{')
+  const exit = vi.spyOn(process, 'exit').mockImplementation((code): never => { throw new Error(`exit ${String(code)}`) })
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    await launchLinuxDshCommand(mkdtempSync(join(tmpdir(), 'next-dsh-command-')), async execve => {
+      await expect(import('../src/main.ts')).rejects.toThrow('exit 1')
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('the data directory choice cannot be read'))
+      expect(execve).not.toHaveBeenCalled()
+      expect(fixture.lockPaths).toEqual([])
+    })
+  } finally { exit.mockRestore(); error.mockRestore() }
 })
 
 it('explains the first Windows GPU launch failure in a native dialog, records it and quits', async () => {
