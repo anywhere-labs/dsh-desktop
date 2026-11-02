@@ -54,7 +54,9 @@ it('describes the architectures each release target carries', () => {
   // A macOS package for one CPU carries that CPU whichever CPU builds it.
   expect(nextPackagingTarget('darwin', 'x64', 'arm64')).toEqual({ platform: 'darwin', archs: ['arm64'] })
   expect(nextPackagingTarget('darwin', 'arm64', 'x64')).toEqual({ platform: 'darwin', archs: ['x64'] })
-  expect(nextPackagingTarget('win32')).toEqual({ platform: 'win32', archs: ['x64'] })
+  expect(nextPackagingTarget('win32', 'x64')).toEqual({ platform: 'win32', archs: ['x64'] })
+  expect(nextPackagingTarget('win32', 'arm64')).toEqual({ platform: 'win32', archs: ['arm64'] })
+  expect(() => nextPackagingTarget('win32', 'ia32')).toThrow('Unsupported Windows')
   expect(nextPackagingTarget('linux', 'arm64')).toEqual({ platform: 'linux', archs: ['arm64'] })
 })
 

@@ -1,9 +1,10 @@
-/** Build an unsigned Windows x64 artifact on a native Windows host. */
+/** Build an unsigned Windows artifact on a native host supported by the Desktop channel. */
 
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { windowsUnpackedDirectory, type WindowsArchitecture } from './windows-architecture.ts'
 import { prepareFsExtForElectron } from './prepare-fs-ext.ts'
 import { electronBuilderEnvironment } from './electron-builder-environment.ts'
 import { prepareDesktopInterpreters, verifyPreparedDesktopRuntime } from './prepare-runtime.ts'
@@ -48,6 +49,8 @@ export interface WindowsPackageOptions {
   readonly platform: NodeJS.Platform
   /** Node architecture executing the package build. */
   readonly arch: string
+  /** Native CPU targets this Desktop channel supports. */
+  readonly supportedArchs?: readonly WindowsArchitecture[]
   /** Node version executing the package build. */
   readonly nodeVersion: string
   /** Repository root containing the Yarn workspace. */
@@ -137,8 +140,8 @@ function assertWindowsPackageHost(options: WindowsPackageOptions, artifact: stri
   if (options.platform !== 'win32') {
     throw new Error(`Windows ${artifact} must be built on a native Windows host`)
   }
-  if (options.arch !== 'x64') {
-    throw new Error(`Windows ${artifact} requires x64 Node; received ${options.arch}`)
+  if (!(options.supportedArchs ?? ['x64']).includes(options.arch as WindowsArchitecture)) {
+    throw new Error(`Windows ${artifact} requires ${(options.supportedArchs ?? ['x64']).join(' or ')} Node; received ${options.arch}`)
   }
   const versionMatch = /^(\d+)\.(\d+)\./u.exec(options.nodeVersion)
   const major = Number(versionMatch?.[1])
@@ -150,7 +153,7 @@ function assertWindowsPackageHost(options: WindowsPackageOptions, artifact: stri
   }
 }
 
-/** Run the gates and package one unsigned x64 Windows artifact. */
+/** Run the gates and package one unsigned native Windows artifact. */
 export function packageWindowsArtifact(
   options: WindowsPackageOptions,
   target: 'nsis' | 'zip',
@@ -161,7 +164,7 @@ export function packageWindowsArtifact(
   const reuseUnpacked = options.env.DSH_WINDOWS_REUSE_UNPACKED === '1'
 
   const cleanEnvironment = withoutWindowsSigningSecrets(options.env)
-  options.log(`Building an unsigned Windows x64 ${artifact}; Authenticode is a separate release step.`)
+  options.log(`Building an unsigned Windows ${options.arch} ${artifact}; Authenticode is a separate release step.`)
   if (compression !== undefined) {
     options.log(`Packaging the ${artifact} with ${compression} compression.`)
   }
@@ -190,14 +193,14 @@ export function packageWindowsArtifact(
       options.builderCli,
       '--win',
       target,
-      '--x64',
+      `--${options.arch}`,
       '--publish',
       'never',
       '--config.win.signExecutable=false',
       '--config.npmRebuild=false',
       '--config.electronFuses.onlyLoadAppFromAsar=false',
       ...(compression === undefined ? [] : [`--config.win.compression=${compression}`]),
-      ...(reuseUnpacked ? [`--prepackaged=${join(options.desktopRoot, 'dist', 'win-unpacked')}`] : []),
+      ...(reuseUnpacked ? [`--prepackaged=${join(options.desktopRoot, 'dist', windowsUnpackedDirectory(options.arch))}`] : []),
     ],
     options.desktopRoot,
     electronBuilderEnvironment({
@@ -213,7 +216,7 @@ export function packageWindowsArtifact(
   )
 }
 
-/** Run the headless release gates and package one unsigned x64 NSIS installer. */
+/** Run the headless release gates and package one unsigned native NSIS installer. */
 export function packageWindowsInstaller(
   options: WindowsPackageOptions = createWindowsPackageOptions(),
 ): void {

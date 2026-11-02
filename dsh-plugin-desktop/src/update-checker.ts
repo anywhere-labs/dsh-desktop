@@ -46,6 +46,8 @@ export interface UpdateCheckOptions {
   readonly currentVersion: string
   /** Release stream that must be returned by the service. */
   readonly channel: DesktopReleaseChannel
+  /** CPU selecting the Windows installer digest; older callers use x64. */
+  readonly arch?: 'x64' | 'arm64'
   /** Channel of the installed application when explicitly switching streams. */
   readonly currentChannel?: DesktopReleaseChannel
   /** Treat a different older version as selectable for an explicit channel switch. */
@@ -168,7 +170,7 @@ export async function checkForDesktopUpdate(
   const latest = parseVersionResponse(body, options.channel)
   if (latest === null) return null
   const comparison = compareParsedSemVer(latest, current)
-  const digests = parseInstallerDigestResponse(digestInput)
+  const digests = parseInstallerDigestResponse(digestInput, options.arch)
   return {
     status: comparison > 0 || (options.allowDowngrade === true && comparison !== 0)
       ? 'update-available'
@@ -285,7 +287,7 @@ export function parseCanonicalChannelVersion(
  * Hex digits are case-normalized; absent or malformed fields simply leave the
  * digest gate unset for that platform.
  */
-function parseInstallerDigestResponse(value: unknown): UpdateCheckResult['installerSha256'] | undefined {
+function parseInstallerDigestResponse(value: unknown, arch: 'x64' | 'arm64' = 'x64'): UpdateCheckResult['installerSha256'] | undefined {
   if (!isRecord(value) || !isRecord(value.sha256)) return undefined
   const digests: Partial<Record<'win32' | 'darwin', string>> = {}
   const normalize = (digest: unknown): string | undefined => {
@@ -293,7 +295,7 @@ function parseInstallerDigestResponse(value: unknown): UpdateCheckResult['instal
     const normalized = digest.trim().toLowerCase()
     return /^[0-9a-f]{64}$/u.test(normalized) ? normalized : undefined
   }
-  const windows = normalize(value.sha256.windows)
+  const windows = normalize(arch === 'arm64' ? value.sha256.windowsArm64 : value.sha256.windows)
   const mac = normalize(value.sha256.mac)
   if (windows !== undefined) digests.win32 = windows
   if (mac !== undefined) digests.darwin = mac

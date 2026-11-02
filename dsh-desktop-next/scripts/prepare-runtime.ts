@@ -1,11 +1,13 @@
 import { OFFICE_SKILLS_IN_PACKAGE, prepareCuaNative } from './upstream-family.ts'
 /** Prepare, execute and check the bundled interpreter payloads for every CPU one Next package carries. */
+import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parsePrimaryRuntime, workspaceDependencyPaths, type PrimaryRuntimeManifest } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import { macSmokeArchitecture } from '../../dsh-plugin-desktop/scripts/mac-universal.ts'
+import { assertWindowsArchitecture, verifyWindowsNativeTree } from '../../dsh-plugin-desktop/scripts/windows-architecture.ts'
 import { machOArchitectures, preparePrimaryRuntime, primaryRuntimePayloadDigest, readPrimaryRuntimeLock, rosettaAvailable, smokePrimaryRuntime, type PrimaryRuntimeTarget } from './primary-runtime.ts'
 
 /** CPU of one bundled payload. */
@@ -20,7 +22,7 @@ export interface NextRuntimeTarget {
 /**
  * Payloads one packaging run prepares: on macOS the CPUs of its packages, both Darwin CPUs unless
  * `DSH_MAC_SMOKE_ARCH` selects one, because the installed application selects the payload of the CPU it
- * runs on; Windows x64; and the build host CPU on Linux.
+ * runs on; and the build host CPU on Windows and Linux.
  * @param platform - Electron platform being packaged.
  * @param hostArch - Build host architecture, used on Linux where packages are single-architecture.
  * @param env - Process environment inspected for single-architecture smoke selection.
@@ -40,7 +42,11 @@ export function nextRuntimeTargets(
     if (arch === 'x64') return [{ target: 'mac-x64', arch: 'x64' }]
     return [{ target: 'mac-arm64', arch: 'arm64' }, { target: 'mac-x64', arch: 'x64' }]
   }
-  if (platform === 'win32') return [{ target: 'win-x64', arch: 'x64' }]
+  if (platform === 'win32') {
+    if (hostArch === 'arm64') return [{ target: 'win-arm64', arch: 'arm64' }]
+    if (hostArch === 'x64') return [{ target: 'win-x64', arch: 'x64' }]
+    throw new Error(`Unsupported Windows runtime architecture: ${hostArch}`)
+  }
   if (platform === 'linux') {
     if (hostArch === 'arm64') return [{ target: 'linux-arm64', arch: 'arm64' }]
     if (hostArch === 'x64') return [{ target: 'linux-x64', arch: 'x64' }]
@@ -116,7 +122,7 @@ export async function prepareNextRuntime(options: PrepareNextRuntimeOptions): Pr
     log(`Next ships no interpreter payload for ${options.platform}`)
     return paths.runtime
   }
-  const lock = readPrimaryRuntimeLock()
+  const lock = readPrimaryRuntimeLock(undefined, targets[0]?.target)
   const skillSource = join(dirname(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-skill-office/package.json')), 'assets')
   for (const { target } of targets) {
     log(`Preparing the ${target} primary runtime (Python ${lock.pythonVersion}, Node ${lock.nodeVersion}) for ${options.version}`)
@@ -196,6 +202,11 @@ export function verifyNextRuntimeTree(runtimeRoot: string, platform: NodeJS.Plat
         if (slices.length !== 1 || slices[0] !== arch) throw new Error(`Next runtime: ${file} is ${slices.join('/') || 'not Mach-O'}, expected a thin ${arch} executable`)
       }
     }
+    if (platform === 'win32') {
+      assertWindowsArchitecture(entries.node, arch)
+      assertWindowsArchitecture(entries.python, arch)
+      verifyWindowsNativeTree(directory, arch)
+    }
     const skills = officeSkillsDirectory(runtimeRoot, arch)
     for (const skill of OFFICE_SKILLS_IN_PACKAGE ? [] : ['office', 'office-docx', 'office-pptx', 'office-xlsx', 'office-render', 'office-recalculate', 'office-export-pdf']) {
       requireFile(join(skills, skill, 'SKILL.md'), `${arch} ${skill} skill`)
@@ -250,7 +261,7 @@ export function reusableNextRuntimeTree(
     const verified = verifyNextRuntimeTree(runtimeRoot, platform, expectedVersion, hostArch, macCpus)
     const expectedArchs = new Set<string>(targets.map(item => item.arch))
     if (readdirSync(runtimeRoot).some(entry => !expectedArchs.has(entry))) return []
-    const lock = readPrimaryRuntimeLock()
+    const lock = readPrimaryRuntimeLock(undefined, targets[0]?.target)
     const pnpmManifest = createRequire(import.meta.url).resolve('pnpm')
     const pnpmVersion = (JSON.parse(readFileSync(pnpmManifest, 'utf8')) as { version: string }).version
     for (let index = 0; index < targets.length; index++) {
@@ -264,21 +275,35 @@ export function reusableNextRuntimeTree(
   }
 }
 
+/** Identify the same locked payloads used by local reuse, including both CPUs of the macOS cache. */
+export function nextRuntimeCacheKey(platform: NodeJS.Platform = process.platform, hostArch: string = process.arch): string {
+  const targets = nextRuntimeTargets(platform, hostArch, {})
+  if (targets.length === 0) throw new Error(`Unsupported runtime cache platform: ${platform}-${hostArch}`)
+  const lock = readPrimaryRuntimeLock(undefined, targets[0]!.target)
+  const pnpmManifest = createRequire(import.meta.url).resolve('pnpm')
+  const pnpmVersion = (JSON.parse(readFileSync(pnpmManifest, 'utf8')) as { version: string }).version
+  return createHash('sha256').update(JSON.stringify(targets.map(({ target }) => primaryRuntimePayloadDigest(target, lock, pnpmVersion)))).digest('hex')
+}
+
 const invokedPath = process.argv[1]
 if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
-  const desktopRoot = resolve(import.meta.dirname, '..')
-  const version = expectedNextVersion(desktopRoot)
-  const paths = nextRuntimeBuildPaths(desktopRoot)
-  // `dev` and `start` run this entry, and the development shell selects the payload of its own CPU (src/main.ts), so a
-  // Mac prepares that one, as upstream's development launcher does. Packaging prepares every CPU through package.ts.
-  const macCpus = process.platform === 'darwin' ? [process.arch === 'x64' ? 'x64' : 'arm64'] as const : undefined
-  const reusable = reusableNextRuntimeTree(paths.runtime, process.platform, version, process.arch, macCpus)
-  if (reusable.length > 0) {
-    console.log(`Reusing prepared primary runtime for ${reusable.map(item => item.arch).join(', ')}`)
+  if (process.argv.includes('--cache-key')) {
+    console.log(nextRuntimeCacheKey())
   } else {
-    const root = await prepareNextRuntime({ desktopRoot, platform: process.platform, version, macCpus })
-    verifyNextRuntimeTree(root, process.platform, version, process.arch, macCpus)
-    smokeNextRuntime(root, process.platform, console.log, process.arch, macCpus)
+    const desktopRoot = resolve(import.meta.dirname, '..')
+    const version = expectedNextVersion(desktopRoot)
+    const paths = nextRuntimeBuildPaths(desktopRoot)
+    // `dev` and `start` run this entry, and the development shell selects the payload of its own CPU (src/main.ts), so a
+    // Mac prepares that one, as upstream's development launcher does. Packaging prepares every CPU through package.ts.
+    const macCpus = process.platform === 'darwin' ? [process.arch === 'x64' ? 'x64' : 'arm64'] as const : undefined
+    const reusable = reusableNextRuntimeTree(paths.runtime, process.platform, version, process.arch, macCpus)
+    if (reusable.length > 0) {
+      console.log(`Reusing prepared primary runtime for ${reusable.map(item => item.arch).join(', ')}`)
+    } else {
+      const root = await prepareNextRuntime({ desktopRoot, platform: process.platform, version, macCpus })
+      verifyNextRuntimeTree(root, process.platform, version, process.arch, macCpus)
+      smokeNextRuntime(root, process.platform, console.log, process.arch, macCpus)
+    }
+    if (macCpus !== undefined) prepareCuaNative(desktopRoot, macCpus)
   }
-  if (macCpus !== undefined) prepareCuaNative(desktopRoot, macCpus)
 }

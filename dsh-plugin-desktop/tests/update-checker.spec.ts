@@ -272,3 +272,14 @@ describe('Next release isolation', () => {
     expect(await checkForDesktopUpdate({ currentVersion:'2.0.14-next', channel:'next', request:async()=>Response.json(body) })).toBeNull();
   });
 });
+
+
+it('selects the ARM64 installer digest and never reuses the x64 digest for ARM64', async () => {
+  const request: UpdateRequest = async () => Response.json({ version: '2.0.22-beta.1', channel: 'beta',
+    sha256: { windows: 'a'.repeat(64), windowsArm64: 'b'.repeat(64), mac: 'c'.repeat(64) } })
+  const options = { currentVersion: '2.0.21-beta.1', channel: 'beta' as const, request }
+  expect((await checkForDesktopUpdate({ ...options, arch: 'arm64' }))?.installerSha256?.win32).toBe('b'.repeat(64))
+  expect((await checkForDesktopUpdate({ ...options, arch: 'x64' }))?.installerSha256?.win32).toBe('a'.repeat(64))
+  const legacy: UpdateRequest = async () => Response.json({ version: '2.0.22-beta.1', channel: 'beta', sha256: { windows: 'a'.repeat(64) } })
+  expect((await checkForDesktopUpdate({ ...options, arch: 'arm64', request: legacy }))?.installerSha256?.win32).toBeUndefined()
+})

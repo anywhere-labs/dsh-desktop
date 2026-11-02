@@ -719,6 +719,7 @@ it('explains the first Windows GPU launch failure in a native dialog, records it
     }))
     const gpu = { type: 'GPU', reason: 'launch-failed', exitCode: 18 }
     // Other platforms and other children keep Chromium's own handling.
+    Object.defineProperty(process, 'platform', { ...platform, value: 'darwin' })
     app.emit('child-process-gone', {}, gpu)
     Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
     app.emit('child-process-gone', {}, { type: 'Utility', reason: 'launch-failed', exitCode: 18, serviceName: 'audio.mojom.AudioService' })

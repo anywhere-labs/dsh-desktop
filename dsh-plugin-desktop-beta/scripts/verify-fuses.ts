@@ -10,6 +10,7 @@ import { archivedPayload, nextPackagingTarget, PAYLOAD_DIR, preparedPackagingTar
 import { expectedNextVersion, verifyNextRuntimeTree } from './prepare-runtime.ts'
 import { verifiedPackagedResources } from './verify-packaged.ts'
 import { packagingStep } from './packaging-step.ts'
+import { windowsUnpackedDirectory } from '../../dsh-plugin-desktop/scripts/windows-architecture.ts'
 
 const desktopRoot = fileURLToPath(new URL('..', import.meta.url))
 
@@ -53,7 +54,7 @@ function runPackagedNode(path: string, args: readonly string[], timeout: number,
 
 async function verifyFinalArtifacts(result: { outDir: string }): Promise<string[]> {
   const paths = ['mac/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta', 'mac-arm64/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta',
-    'mac-universal/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta', 'win-unpacked/DSH Desktop Beta.exe', 'linux-unpacked/dsh-desktop-beta',
+    'mac-universal/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta', `${windowsUnpackedDirectory()}/DSH Desktop Beta.exe`, 'linux-unpacked/dsh-desktop-beta',
     'linux-arm64-unpacked/dsh-desktop-beta']
   // A macOS release packages one CPU after another into the same output directory, and each run verifies the
   // application it packaged, which afterPack has checked: macOS packages always pass through afterPack.

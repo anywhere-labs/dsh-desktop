@@ -56,8 +56,10 @@ export type UpdateArtifactRequest = (url: string, init: RequestInit) => Promise<
 
 /** Inputs for one user-confirmed installer download. */
 export interface DownloadDesktopUpdateOptions {
-  /** Host platform selecting the fixed endpoint and installer validation. */
+  /** Host platform selecting the installer format and validation. */
   readonly platform: DesktopDownloadPlatform
+  /** Explicit native Windows CPU; legacy callers retain x64 downloads. */
+  readonly arch?: 'x64' | 'arm64'
   /** Stable release version used to validate the selected installer. */
   readonly version: string
   /** Release stream selected by the running Desktop flavor. */
@@ -146,7 +148,7 @@ export async function downloadDesktopUpdate(options: DownloadDesktopUpdateOption
   let response: Response
   let finalUrl: string
   try {
-    const settled = await options.request(DESKTOP_DOWNLOAD_URLS[platform], {
+    const settled = await options.request(desktopUpdateUrl(platform, options.version, channel, options.arch), {
       method: 'GET',
       headers: {
         [DESKTOP_RELEASE_CHANNEL_HEADER]: channel,
@@ -215,13 +217,25 @@ export function desktopUpdateFilename(
   platform: DesktopDownloadPlatform,
   version: string,
   channel: DesktopReleaseChannel = 'stable',
+  arch: 'x64' | 'arm64' = 'x64',
 ): string {
   validatedPlatform(platform)
   validatedVersion(version, channel)
   const extension = platform === 'darwin' ? 'dmg' : 'exe'
   const platformName = platform === 'darwin' ? 'mac' : 'windows'
   const product = parseCanonicalChannelVersion(version, 'next') !== null ? 'DSH-NEXT' : channel === 'beta' ? 'DSH-Desktop-Beta' : 'DSH-Desktop'
+  if (platform === 'win32' && arch === 'arm64') return `${product}-${version}-arm64-Setup.exe`
   return `${product}-${version}-${platformName}.${extension}`
+}
+
+/** ARM64 assets are selected by their release filename, never by the legacy x64 download redirect. */
+export function desktopUpdateUrl(platform: DesktopDownloadPlatform, version: string, channel: DesktopReleaseChannel = 'stable', arch: 'x64' | 'arm64' = 'x64'): string {
+  validatedPlatform(platform)
+  validatedVersion(version, channel)
+  if (platform === 'win32' && arch === 'arm64') {
+    return `https://github.com/anywhere-labs/dsh-desktop/releases/download/v${version}/${desktopUpdateFilename(platform, version, channel, arch)}`
+  }
+  return DESKTOP_DOWNLOAD_URLS[platform]
 }
 
 /** Remember a downloaded installer until an upgraded application resolves its retention. */

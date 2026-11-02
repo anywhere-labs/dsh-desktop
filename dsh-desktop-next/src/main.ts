@@ -276,7 +276,8 @@ const updateInstaller = new NextUpdateInstaller({ platform: process.platform, ex
 const updates = new NextUpdates({ version, platform: process.platform, packaged: app.isPackaged, userData: electronData,
   portable: isWindowsPortableCopy(process.platform, app.isPackaged, process.execPath),
   downloads: updateDownloadDirectory(process.platform),
-  arch: process.platform === 'darwin' ? macUpdateArch(process.arch, app.runningUnderARM64Translation) : undefined,
+  arch: process.platform === 'darwin' ? macUpdateArch(process.arch, app.runningUnderARM64Translation)
+    : process.platform === 'win32' && (process.arch === 'arm64' || process.arch === 'x64') ? process.arch : undefined,
   request: (url, init) => net.fetch(url, { ...init, credentials: 'omit' }),
   artifactRequest: createArtifactRequest(),
   changed: () => { if (app.isReady() && !quitting) native.refresh() },
