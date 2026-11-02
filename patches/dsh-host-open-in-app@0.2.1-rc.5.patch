@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index 6cd610d..98df499 100644
+index 6cd610d..e0895d6 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -1,8 +1,10 @@
@@ -13,7 +13,24 @@ index 6cd610d..98df499 100644
  import { homedir, platform, tmpdir } from "node:os";
  import { canOpenNativePath, desktopApplicationIcon, desktopDataDirectories, desktopEntryFields, openNativePath, runNativeCommand } from "@deepseek-ai/dsh-native-command";
  import { scrubbedParentEnv } from "@deepseek-ai/dsh-subprocess";
-@@ -346,12 +348,16 @@ const OPEN_IN_APP_CATALOG = [
+@@ -305,6 +307,16 @@ const OPEN_IN_APP_CATALOG = [
+ 			args: [`--working-directory=${PATH_TOKEN}`]
+ 		}) }
+ 	},
++	// Desktop: Ptyxis is the default terminal of Ubuntu 25.10+ and Fedora 41+, and Console is
++	// GNOME's own. Ptyxis applies --working-directory only together with --new-window or --tab.
++	{
++		id: "ptyxis",
++		platforms: { linux: desktopSpec("org.gnome.Ptyxis", cli("ptyxis", "--new-window", `--working-directory=${PATH_TOKEN}`)) }
++	},
++	{
++		id: "gnomeconsole",
++		platforms: { linux: desktopSpec("org.gnome.Console", cli("kgx", `--working-directory=${PATH_TOKEN}`)) }
++	},
+ 	{
+ 		id: "konsole",
+ 		platforms: { linux: desktopSpec("org.kde.konsole", cli("konsole", "--workdir"), {
+@@ -346,12 +358,16 @@ const OPEN_IN_APP_CATALOG = [
  * @returns after the launch is counted successful; rejects on early failure.
  */
  const launchDetachedApp = (command, args, options) => new Promise((resolve, reject) => {
@@ -31,7 +48,7 @@ index 6cd610d..98df499 100644
  			...options.env
  		}
  	});
-@@ -407,6 +413,32 @@ function assertNever(value) {
+@@ -407,6 +423,32 @@ function assertNever(value) {
  	throw new Error(`unhandled open-in-app catalog kind: ${JSON.stringify(value)}`);
  }
  /**
@@ -64,7 +81,7 @@ index 6cd610d..98df499 100644
  * Run one bounded host command.
  * @param command - executable path or PATH name.
  * @param args - argv (never a shell string).
-@@ -415,6 +447,7 @@ function assertNever(value) {
+@@ -415,6 +457,7 @@ function assertNever(value) {
  * @returns stdout on exit 0; null on any failure (spawn, nonzero exit, timeout).
  */
  async function output(command, args, timeoutMs, internals) {
@@ -72,7 +89,7 @@ index 6cd610d..98df499 100644
  	try {
  		const { stdout } = await internals.run(command, args, AbortSignal.timeout(timeoutMs), "hidden");
  		return stdout;
-@@ -660,6 +693,19 @@ function executableIcon(path, internals) {
+@@ -660,6 +703,19 @@ function executableIcon(path, internals) {
  		path
  	} : void 0;
  }
@@ -92,7 +109,7 @@ index 6cd610d..98df499 100644
  /** Resolve one locator to a verified launch, or null when it proves nothing. */
  async function locate(locator, probeTimeoutMs, registry, internals) {
  	switch (locator.kind) {
-@@ -721,6 +767,8 @@ async function locate(locator, probeTimeoutMs, registry, internals) {
+@@ -721,6 +777,8 @@ async function locate(locator, probeTimeoutMs, registry, internals) {
  				env: { ...internals.env }
  			})) return null;
  			const found = await internals.resolveExecutable(locator.name);
@@ -101,6 +118,21 @@ index 6cd610d..98df499 100644
  			return found === null ? null : {
  				launch: {
  					kind: "argv",
+diff --git a/lib/types/catalog.js b/lib/types/catalog.js
+index 7302c81..c241fdb 100644
+--- a/lib/types/catalog.js
++++ b/lib/types/catalog.js
+@@ -228,6 +228,10 @@ export const OPEN_IN_APP_CATALOG = [
+             linux: desktopSpec('org.gnome.Terminal', cli('gnome-terminal', `--working-directory=${PATH_TOKEN}`), { kind: 'desktop', desktopId: 'org.gnome.Terminal', args: [`--working-directory=${PATH_TOKEN}`] }),
+         },
+     },
++    // Desktop: Ptyxis is the default terminal of Ubuntu 25.10+ and Fedora 41+, and Console is
++    // GNOME's own. Ptyxis applies --working-directory only together with --new-window or --tab.
++    { id: 'ptyxis', platforms: { linux: desktopSpec('org.gnome.Ptyxis', cli('ptyxis', '--new-window', `--working-directory=${PATH_TOKEN}`)) } },
++    { id: 'gnomeconsole', platforms: { linux: desktopSpec('org.gnome.Console', cli('kgx', `--working-directory=${PATH_TOKEN}`)) } },
+     {
+         id: 'konsole',
+         platforms: {
 diff --git a/lib/types/resolver.js b/lib/types/resolver.js
 index 9737dfb..4bb7030 100644
 --- a/lib/types/resolver.js

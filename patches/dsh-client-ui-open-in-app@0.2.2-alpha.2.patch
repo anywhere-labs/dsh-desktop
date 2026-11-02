@@ -1,0 +1,24 @@
+diff --git a/lib/client.js b/lib/client.js
+index 36f20e5..70f4846 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -51,6 +51,9 @@ window.__ModuleLoader__.load({
+ 			windowsterminal: "app.windowsterminal",
+ 			gitbash: "app.gitbash",
+ 			gnometerminal: "app.gnometerminal",
++			// Desktop: Linux terminals that the Desktop's dsh-host-open-in-app patch adds.
++			ptyxis: "app.ptyxis",
++			gnomeconsole: "app.gnomeconsole",
+ 			konsole: "app.konsole"
+ 		};
+ 		//#endregion
+@@ -669,6 +672,9 @@ window.__ModuleLoader__.load({
+ 			"app.windowsterminal": "Windows Terminal",
+ 			"app.gitbash": "Git Bash",
+ 			"app.gnometerminal": "GNOME Terminal",
++			// Desktop: product names of the Linux terminals that the Desktop adds.
++			"app.ptyxis": "Ptyxis",
++			"app.gnomeconsole": "GNOME Console",
+ 			"app.konsole": "Konsole"
+ 		};
+ 		/** Simplified Chinese dictionary (the key-set source of truth). */
