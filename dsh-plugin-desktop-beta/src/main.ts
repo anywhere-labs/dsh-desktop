@@ -37,7 +37,7 @@ import { installEditingContextMenu } from '../../dsh-plugin-desktop/src/context-
 import { atomicJson, privateDirectory } from './private-files.ts'
 import { windowMaterial } from './window-material.ts'
 import { captureMainWindowState, FileMainWindowStateStore, fitMainWindowBounds, sameMainWindowState, type MainWindowState } from './main-window-state.ts'
-import { DE_ELEVATED_ARGUMENT, ONBOARDING_ARGUMENT, RECOVERY_ARGUMENT, SAFE_ARGUMENT, relaunchApp, relaunchArguments } from './relaunch.ts'
+import { DE_ELEVATED_ARGUMENT, ONBOARDING_ARGUMENT, RECOVERY_ARGUMENT, SAFE_ARGUMENT, appImageRelaunchEnvironment, relaunchApp, relaunchArguments } from './relaunch.ts'
 import { DESKTOP_RUNTIME_FILE, readInstalledPackageVersion, verifyPackagedRuntimeIdentity } from './runtime-tree.ts'
 import { unpackedPath } from './asar-archive-policy.ts'
 import { createNativePermissions, installMediaPermissions } from './electron-permissions.ts'
@@ -85,7 +85,7 @@ const locationFile = dataDirectoryLocationFile(locationRoot)
 const dataLocation = readDataDirectory(locationRoot, environmentHome)
 const home = dataLocation.home
 let dataSource = dataLocation.source
-// Linux has no tray terminal; `<app> dsh …` is its `dsh` command and never opens the desktop (#1568).
+// On Linux, `<app> dsh …` runs the `dsh` command without opening the desktop (#1568).
 const dshArguments = dshCommandArguments(process.argv, process.platform, process.defaultApp === true)
 if (dshArguments !== undefined) execDshCommand(dshArguments)
 const normalElectronData = join(home, 'electron-user-data')
@@ -781,10 +781,21 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
     if (type === 'terminal') {
       await prepareHostEnvironment()
       const target = runtime.terminalTarget(source === 'shell')
-      openDesktopTerminal({ platform: process.platform, appExecutable: process.execPath, dshBootstrapPath: join(root, 'lib', 'desktop-cli.js'),
-        pnpmBinPath: bundledPnpmEntry(NEXT_PACKAGE), electronVersion: process.versions.electron, ...target,
-        productVersion: version, stateDir: desktopTerminalStateDirectory(join(target.homeDir, 'electron-user-data'), target.profileName),
-        spawn, onLaunchError: error => runtime.report(error) })
+      // Linux may simply have no usable terminal, which is no reason to stop the Host for recovery.
+      const linux = process.platform === 'linux'
+      const linuxFailure = (error: unknown): void => dialog.showErrorBox(t('无法打开 DSH 终端', 'Could not open DSH Terminal'),
+        `${error instanceof Error ? error.message : String(error)}\n\n${t('请安装一个终端（例如 xterm），或用 TERMINAL 环境变量指定要使用的终端。', 'Install a terminal such as xterm, or name one in the TERMINAL environment variable.')}`)
+      try {
+        openDesktopTerminal({ platform: process.platform, appExecutable: process.execPath, dshBootstrapPath: join(root, 'lib', 'desktop-cli.js'),
+          pnpmBinPath: bundledPnpmEntry(NEXT_PACKAGE), electronVersion: process.versions.electron, ...target,
+          productVersion: version, stateDir: desktopTerminalStateDirectory(join(target.homeDir, 'electron-user-data'), target.profileName),
+          // A system terminal must not load the libraries of the AppImage that started it.
+          environment: linux ? appImageRelaunchEnvironment(process.env) : process.env,
+          spawn, onLaunchError: error => { if (linux) linuxFailure(error); else runtime.report(error) } })
+      } catch (error) {
+        if (!linux) throw error
+        linuxFailure(error)
+      }
       return
     }
     if (type === 'open-home') { await openPath(home); return }

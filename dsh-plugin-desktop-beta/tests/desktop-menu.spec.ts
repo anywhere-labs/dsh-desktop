@@ -38,7 +38,8 @@ it('keeps the original tray tool order, direct recovery actions and Profile crea
 
 it('keeps valid escape routes during failure or safe mode and only advertises supported tools', () => {
   const menu = desktopMenu({ ...state, safeMode: true, busy: true, phase: 'error', platform: 'linux', updates: { phase: 'idle', installable: false } }, 'en', vi.fn(), vi.fn())
-  expect(menu.some(item => item.label === 'Open DSH Terminal')).toBe(false)
+  expect(menu.some(item => item.label === 'Open DSH Terminal')).toBe(true)
+  expect(desktopMenu({ ...state, platform: 'freebsd' }, 'en', vi.fn(), vi.fn()).some(item => item.label === 'Open DSH Terminal')).toBe(false)
   expect(menu.some(item => item.label === 'Check for updates')).toBe(false)
   expect(desktopMenu({ ...state, platform: 'darwin', updates: { phase: 'idle', installable: true } }, 'en', vi.fn(), vi.fn()).some(item => item.label === 'Check for updates')).toBe(true)
   expect(menu.find(item => item.label === 'Reload Interface')!.enabled).toBe(false)

@@ -46,7 +46,7 @@ export function apply(ctx: Context): void {
   installComputerUseCommand(ctx, profile.dir)
   if (OAR_LAUNCH_PRESETS !== undefined) installLaunchPresets(ctx, OAR_LAUNCH_PRESETS)
   if (process.send) ctx.provide('desktopActions', {
-    ...(process.platform === 'darwin' || process.platform === 'win32' ? { openTerminal: () => {
+    ...(process.platform === 'darwin' || process.platform === 'win32' || process.platform === 'linux' ? { openTerminal: () => {
       if (!process.connected || !process.send) throw new Error('Next shell is unavailable')
       process.send({ type: 'desktop-action', action: 'terminal' }, () => {})
     } } : {}),

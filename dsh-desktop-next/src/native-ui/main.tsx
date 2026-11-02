@@ -125,7 +125,7 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     dataDirectory: { currentDirectory: state.home, usingDefaultDirectory: state.recovery?.usingDefaultDirectory ?? true, editing: false },
     busy: busy || state.busy, restartReady: true, activeTab: 'quick', configurationAvailable: true,
     diagnostics: state.recovery?.diagnosticsFile ? { status: 'saved', filename: state.recovery.diagnosticsFile } : { status: 'idle' }, logs: state.logs.slice(-24_000), profiles, profileActionToken: 'next', profileCreatorAvailable: true,
-    terminalAvailable: state.platform === 'darwin' || state.platform === 'win32', safeModeAvailable: !state.safeMode, safeModeActive: state.safeMode,
+    terminalAvailable: state.platform === 'darwin' || state.platform === 'win32' || state.platform === 'linux', safeModeAvailable: !state.safeMode, safeModeActive: state.safeMode,
     quickActions, notice: notice ?? (busy ? undefined : state.recovery?.notice),
   }
   return <RecoveryApp state={recovery} copy={copy} support={recoverySupport(locale)} />

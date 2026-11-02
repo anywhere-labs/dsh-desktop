@@ -203,7 +203,7 @@ try {
   assert.equal(state.status, 200, await state.clone().text())
   const stateBody = await state.json()
   assert.ok(Array.isArray(stateBody.sources))
-  assert.deepEqual(stateBody.desktopActions, { openTerminal: ['darwin', 'win32'].includes(process.platform) })
+  assert.deepEqual(stateBody.desktopActions, { openTerminal: ['darwin', 'win32', 'linux'].includes(process.platform) })
   const nativeToken = 'fixture-native-request'
   const call = async (path, body, expected = 200) => {
     // Match the native session marker, including an absent Origin header.
