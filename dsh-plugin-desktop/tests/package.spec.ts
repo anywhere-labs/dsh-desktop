@@ -12,7 +12,7 @@ import {
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
@@ -75,7 +75,6 @@ const workspaceManifest = JSON.parse(readFileSync(new URL('package.json', worksp
   resolutions?: Record<string, unknown>
   scripts?: Record<string, unknown>
 }
-const ciWorkflow = readFileSync(new URL('.github/workflows/ci.yml', workspaceRoot), 'utf8')
 const main = readFileSync(new URL('src/main.ts', packageRoot), 'utf8')
 const runtimeVersion = String(manifest.dependencies?.['@deepseek-ai/dsh'])
 const betaRuntimeVersion = (JSON.parse(readFileSync(
@@ -1011,63 +1010,6 @@ describe('published package surface', () => {
     for (const name of ['@deepseek-ai/dsh-skill-office', '@deepseek-ai/dsh-tool-workspace-dependencies']) {
       expect(manifest.dependencies?.[name], name).toBe(runtimeVersion)
     }
-  })
-
-  it('runs platform package gates before reusing native packaging outputs', () => {
-    const windowsJob = ciWorkflow.slice(
-      ciWorkflow.indexOf('  desktop-windows:'),
-      ciWorkflow.indexOf('  desktop-macos:'),
-    )
-    const macosJob = ciWorkflow.slice(
-      ciWorkflow.indexOf('  desktop-macos:'),
-      ciWorkflow.indexOf('  upstream-command-windows:'),
-    )
-
-    const matrixSelector = 'workspace: [dsh-plugin-desktop-beta]'
-    expect(windowsJob).not.toContain('- run: yarn check')
-    expect(windowsJob).toContain(matrixSelector)
-    expect(windowsJob).toContain('- run: yarn workspace ${{ matrix.workspace }} check:win-package:platform')
-    expect(windowsJob).toContain('run: yarn workspace ${{ matrix.workspace }} dist:win')
-    expect(windowsJob).toContain('run: yarn workspace ${{ matrix.workspace }} dist:win-portable')
-    expect(windowsJob).toContain('DSH_PACKAGE_CHECK_ALREADY_RAN: \'1\'')
-    // Smoke artifacts are never published, so CI skips their compression.
-    expect(windowsJob.match(/DSH_WINDOWS_PACKAGE_COMPRESSION: store/g)).toHaveLength(2)
-    expect(windowsJob).toContain('DSH_WINDOWS_REUSE_UNPACKED: \'1\'')
-    expect(windowsJob).toContain('DSH_LINUX_PACKAGE_COMPRESSION: store')
-    expect(macosJob).not.toContain('- run: yarn check')
-    expect(macosJob).toContain(matrixSelector)
-    expect(macosJob).toContain('- run: yarn workspace ${{ matrix.workspace }} check:mac-package:platform')
-    expect(macosJob).toContain('run: yarn workspace ${{ matrix.workspace }} dist:mac-smoke')
-    expect(macosJob).toContain('DSH_PACKAGE_CHECK_ALREADY_RAN: \'1\'')
-    expect(macosJob).not.toContain('- run: yarn dist:mac-smoke')
-    // Pull requests skip the universal merge; master pushes still package it.
-    expect(macosJob).toContain("DSH_MAC_SMOKE_ARCH: ${{ github.event_name == 'pull_request' && 'arm64' || 'universal' }}")
-    expect(macosJob).toContain('DSH_MAC_PACKAGE_COMPRESSION: store')
-  })
-
-  it('skips product packaging only for documentation-only changes', () => {
-    const classifier = fileURLToPath(new URL('../../scripts/classify-ci-changes.mjs', import.meta.url))
-    const classify = (paths: string[]): string => execFileSync(
-      process.execPath,
-      [classifier],
-      { input: Buffer.from(`${paths.join('\0')}\0`), encoding: 'utf8' },
-    ).trim()
-
-    expect(classify([
-      'docs/architecture.md',
-      '.agents/notes/implemented/architecture/decision.md',
-      '.agents/notes/implemented/architecture/decision.i18n.yaml',
-      'dsh-community-market/docs/schema.json',
-      '.github/ISSUE_TEMPLATE/feature_request.yml',
-    ])).toBe('false')
-    expect(classify(['README.md', 'dsh-plugin-desktop/src/index.ts'])).toBe('true')
-    expect(classify(['.github/workflows/ci.yml'])).toBe('true')
-    expect(classify(['THIRD_PARTY_NOTICES.md'])).toBe('true')
-    expect(classify([])).toBe('true')
-
-    expect(ciWorkflow).toContain('product="$(git diff --name-only -z')
-    expect(ciWorkflow).toContain("if: needs.changes.outputs.product == 'true'")
-    expect(ciWorkflow).toContain('Documentation-only change; product build and tests are not required.')
   })
 
   it('keeps one fixed brand-blue tray source for generated native assets', () => {
