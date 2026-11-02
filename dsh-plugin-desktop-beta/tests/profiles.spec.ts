@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
-import { composeEntries, loadOverlayPatches, loadProfileDirectory, OPTIONAL_BUNDLES } from '@deepseek-ai/dsh-app-boot'
+import { composeEntries, loadOverlayPatches, loadProfileDirectory } from '@deepseek-ai/dsh-app-boot'
+import { OPTIONAL_BUNDLES } from '../src/upstream-family.ts'
 import { AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE, loadNextProfile, NEXT_PACKAGE, NextProfiles, OFFICIAL_MARKET_PACKAGE, profileName, readNextProfilePatches, WEB_BUNDLES } from '../src/profiles.ts'
 import { DEFAULT_OFFICIAL_MARKET_INDEX_URL } from '../src/profile-plugin-market.ts'
 import * as privateFiles from '../src/private-files.ts'
@@ -235,12 +236,13 @@ it('refuses a symlinked profile before writing outside Next home', () => {
   symlinkSync(outside.home, join(manager.home, 'profiles', 'escape'), process.platform === 'win32' ? 'junction' : 'dir')
   expect(() => manager.ensure('escape')).toThrow('real directory')
 })
-it('recovers without parsing broken patches or deleting plugin packages and home patches', async () => {
+it('recovers like upstream without parsing broken patches or deleting plugin packages and home patches, then runs Desktop setup again', async () => {
   const manager = profiles()
   const dir = manager.ensure('desktop')
   const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
   manifest.dsh.profile.bundles.push('missing-third-party-plugin')
   manifest.dependencies = { 'missing-third-party-plugin': '1.0.0' }
+  manifest.dsh.desktopNextPlugins = 1
   writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
   const broken = ': invalid: [yaml'
   writeFileSync(join(dir, 'cordis.patch.yml'), broken)
@@ -249,13 +251,82 @@ it('recovers without parsing broken patches or deleting plugin packages and home
   writeFileSync(join(dir, 'node_modules', 'missing-third-party-plugin', 'keep'), 'plugin')
   manager.setFeatures('desktop', { remoteControl: true, market: true })
   manager.finishOnboarding('desktop')
+  const original = readFileSync(join(dir, 'package.json'), 'utf8')
   const backup = await manager.recover('desktop')
-  expect(readFileSync(backup!, 'utf8')).toBe(broken)
-  expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).dsh.profile.bundles).toEqual(WEB_BUNDLES)
+  expect(readFileSync(join(backup, 'package.json'), 'utf8')).toBe(original)
+  expect(readFileSync(join(backup, 'cordis.patch.yml'), 'utf8')).toBe(broken)
+  // Upstream's repair moves the patch beside itself; the Profile continues from an empty one.
+  expect(readdirSync(dir).filter(name => name.startsWith('cordis.patch.yml.bak-')).map(name => readFileSync(join(dir, name), 'utf8'))).toEqual([broken])
+  expect(readFileSync(join(dir, 'cordis.patch.yml'), 'utf8')).toBe('[]\n')
+  const repaired = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  expect(repaired.dsh.profile.bundles).toEqual(WEB_BUNDLES)
+  expect(repaired.dependencies).toEqual({ 'missing-third-party-plugin': '1.0.0' })
+  expect(repaired.dsh.desktopNextPlugins).toBe(1)
   expect(manager.features('desktop')).toEqual({ remoteControl: false, market: false })
-  expect(manager.onboardingRequired('desktop')).toBe(false)
+  expect(manager.onboardingRequired('desktop')).toBe(true)
   expect(readFileSync(join(dir, 'node_modules', 'missing-third-party-plugin', 'keep'), 'utf8')).toBe('plugin')
   expect(readFileSync(join(manager.home, 'cordis.patch.yml'), 'utf8')).toContain('keep home patch')
+})
+it.each([
+  ['an unreadable manifest', '{ broken JSON', {}],
+  ['a manifest whose dsh section is not an object', JSON.stringify({ name: 'desktop', dependencies: { kept: '1.0.0' }, dsh: 'broken' }), { dependencies: { kept: '1.0.0' } }],
+  ['a missing manifest', undefined, {}],
+])('replaces %s before the upstream repair', async (_case, text, kept) => {
+  const manager = profiles()
+  const dir = manager.ensure('desktop')
+  if (text === undefined) rmSync(join(dir, 'package.json'))
+  else writeFileSync(join(dir, 'package.json'), text)
+  const backup = await manager.recover('desktop')
+  expect(existsSync(join(backup, 'package.json'))).toBe(text !== undefined)
+  expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))).toMatchObject({ ...kept, dsh: { profile: { bundles: WEB_BUNDLES } } })
+  expect(manager.selectable('desktop')).toBe(true)
+  expect(manager.onboardingRequired('desktop')).toBe(true)
+})
+it('drops one leading BOM from a configuration read', () => {
+  const path = join(profiles().home, 'configuration.json')
+  writeFileSync(path, '\uFEFF\uFEFF{"value":"a\uFEFFb"}')
+  expect(privateFiles.readPrivateFile(path)).toBe('\uFEFF{"value":"a\uFEFFb"}')
+})
+it('removes a BOM from an opened Profile manifest because the upstream Host read rejects one', () => {
+  const manager = profiles()
+  const dir = manager.ensure('desktop')
+  const path = join(dir, 'package.json')
+  const original = readFileSync(path, 'utf8')
+  writeFileSync(path, `\uFEFF${original}`)
+  manager.ensure('desktop')
+  expect(readFileSync(path, 'utf8')).toBe(original)
+  const removed = lstatSync(path).mtimeMs
+  manager.ensure('desktop')
+  expect(lstatSync(path).mtimeMs).toBe(removed)
+  writeFileSync(path, `\uFEFF${original}`)
+  expect(() => loadNextProfile(dir, manager.home)).not.toThrow()
+  expect(readFileSync(path, 'utf8')).toBe(original)
+})
+it('reads a Profile with a BOM for the selector without rewriting it', () => {
+  const manager = profiles()
+  const path = join(manager.ensure('work'), 'package.json')
+  writeFileSync(path, `\uFEFF${readFileSync(path, 'utf8')}`)
+  expect(manager.selectable('work')).toBe(true)
+  expect(manager.features('work')).toEqual({ remoteControl: false, market: false })
+  expect(readFileSync(path, 'utf8').startsWith('\uFEFF')).toBe(true)
+})
+it('reads a Profile selection with a BOM', () => {
+  const manager = profiles()
+  manager.ensure('work')
+  manager.select('work')
+  const path = join(manager.home, 'desktop-next.json')
+  writeFileSync(path, `\uFEFF${readFileSync(path, 'utf8')}`)
+  expect(new NextProfiles(manager.home).active).toBe('work')
+})
+it('keeps a manifest with a BOM through the upstream repair', async () => {
+  const manager = profiles()
+  const dir = manager.ensure('desktop')
+  const path = join(dir, 'package.json')
+  const manifest = JSON.parse(readFileSync(path, 'utf8'))
+  writeFileSync(path, `\uFEFF${JSON.stringify({ ...manifest, dependencies: { kept: '1.0.0' } })}`)
+  const backup = await manager.recover('desktop')
+  expect(JSON.parse(readFileSync(path, 'utf8'))).toMatchObject({ name: manifest.name, dependencies: { kept: '1.0.0' }, dsh: { profile: { bundles: WEB_BUNDLES } } })
+  expect(JSON.parse(readFileSync(join(backup, 'package.json'), 'utf8')).dependencies).toEqual({ kept: '1.0.0' })
 })
 it.each(['desktop', 'work', 'default'])('offers the Browser in %s without enabling optional bundles or overriding user choices', name => {
   const manager = profiles()

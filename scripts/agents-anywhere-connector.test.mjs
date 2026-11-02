@@ -16,13 +16,18 @@ function loadConnector(workspace, environment) {
   const start = source.indexOf('\n// src/host/connector/logs.ts\n')
   const end = source.indexOf('\n// src/host/desktop/process.ts\n', start)
   assert.ok(start >= 0 && end > start)
-  return runInNewContext(`${source.slice(start, end)}; SourceConnector`, {
+  // The launch environment passes through the real package-index helper; the rest of
+  // environment.ts uses import.meta, which a script context cannot parse, and stays stubbed.
+  const indexStart = source.indexOf('\nconst PYPI_SIMPLE = ')
+  const indexEnd = source.indexOf('\nasync function resolveUv(', indexStart)
+  assert.ok(indexStart >= 0 && indexEnd > indexStart)
+  return runInNewContext(`${source.slice(indexStart, indexEnd)}${source.slice(start, end)}; SourceConnector`, {
     execFile, promisify, stripVTControlCharacters, dirname, join, relative, createHash, setTimeout, clearTimeout,
     access, cp, mkdtemp, readFile, readdir, rename, rm,
     process: { platform: process.platform, env: environment },
     readJson$1: async () => [], writeJson: async () => {}, mkdir,
     resolveUv: async () => 'uv',
-    DEFAULT_CONNECTOR_SETTINGS: { syncIntervalSeconds: 30 },
+    DEFAULT_CONNECTOR_SETTINGS: { uvPath: '', uvPypiIndexUrl: '', uvPythonInstallMirror: '', syncIntervalSeconds: 30 },
   })
 }
 

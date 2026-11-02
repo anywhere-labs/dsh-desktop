@@ -139,7 +139,7 @@ function NextDesktopOptions({ adapter, state, language }: { adapter: NextSetting
       </div>
       <DesktopSettingsToggleRow
         label={t('开发者日志', 'Developer logging')}
-        description={t('记录模型请求、工具执行和通信的耗时与结果，不记录聊天正文或工具输入输出。日志保留七天，最多占用 200 MiB。会话事件可按序号与官方 Session Log 对照。', 'Record model requests, tool execution and communication timing and outcomes, without chat bodies or tool inputs and outputs. History is retained for seven days, up to 200 MiB. Match session events to the official Session Log by sequence number.')}
+        description={t('记录模型请求、工具执行和通信的耗时与结果，以及每 30 秒一次的内存使用情况，不记录聊天正文或工具输入输出。日志保留七天，最多占用 200 MiB。会话事件可按序号与官方 Session Log 对照。', 'Record model requests, tool execution and communication timing and outcomes, plus memory usage every 30 seconds, without chat bodies or tool inputs and outputs. History is retained for seven days, up to 200 MiB. Match session events to the official Session Log by sequence number.')}
         checked={state.preferences.developerLogging}
         disabled={state.safeMode}
         onChange={developerLogging => { void savePreference({ developerLogging }) }}

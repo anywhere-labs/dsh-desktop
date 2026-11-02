@@ -1,0 +1,24 @@
+diff --git a/lib/client.js b/lib/client.js
+index cbdf5d8..aa53b39 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -4369,6 +4369,10 @@ window.__ModuleLoader__.load({
+ 				text: input,
+ 				references: []
+ 			};
++			if (typeof input !== "object" || input === null || typeof input.text !== "string" || !Array.isArray(input.references)) return {
++				text: typeof input?.text === "string" ? input.text : "",
++				references: []
++			};
+ 			return {
+ 				text: input.text,
+ 				references: input.references.map(copyReference),
+@@ -14684,7 +14688,7 @@ window.__ModuleLoader__.load({
+ 			* @param text - the full next draft.
+ 			*/
+ 			setDraft(text) {
+-				const clean = text.replace(REFERENCE_PLACEHOLDER_RE, "");
++				const clean = (typeof text === "string" ? text : "").replace(REFERENCE_PLACEHOLDER_RE, "");
+ 				if (clean === this.projection.clipboardText && this.projection.occurrences.length === 0) return;
+ 				this.editor.update(() => {
+ 					nl().clear();

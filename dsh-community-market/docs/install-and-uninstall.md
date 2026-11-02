@@ -10,7 +10,7 @@ This guide describes the package-operation boundary used by DSH Community Market
 | --- | --- | --- |
 | Discover | Normalized selected catalog source | Browse details and request install preview |
 | Installable | Catalog entries with one npm package identity | Request install preview |
-| Installed | The official plugin manager's bundle list for the active Profile, reduced to community plugins | Enable, disable, or uninstall listed bundles; official and Desktop built-in bundles are not listed |
+| Installed | The official plugin manager's bundle list for the active Profile, reduced to community plugins | Enable, disable, update, or uninstall listed bundles; official and Desktop built-in bundles are not listed |
 | Sources | User-owned catalog source settings | Add, select, order, and remove sources |
 
 Installed state is independent of the selected catalog and of which market performed the installation.
@@ -48,6 +48,18 @@ Failure keeps the item browseable and may expose a display-only manual command.
 
 This flow applies equally to plugins installed by Community Market, another plugin market, or the DSH CLI.
 
+## Update
+
+Updates use the official plugin manager's version operations, which DSH 0.2.2 and later provide; on earlier releases the Installed view offers no update.
+
+1. A listed bundle offers updates when the manager marks it `updatable` and reports no `readOnlyReason`. The manager updates a third-party dependency saved as a registry spec under its own name, with a semver version and no plugin management; bundles installed from GitHub or a local path are not updatable.
+2. The Installed view checks each updatable bundle once, one bundle at a time, and **Refresh** checks all of them again. The Host calls `listVersions` and offers the version the official Plugins page offers: the newest listed version that declares a bundle, accepts the running DSH version, and is neither deprecated nor a prerelease. A check that finds none says whether the newer versions need a newer DSH, are all deprecated, prereleases, or without a bundle, or could not be read from any registry.
+3. Update submits only the package name. The Host lists the versions again, picks the target, and returns a one-shot confirmation with the installed version, the target, and the registry that listed it. On execution it confirms that the bundle is still updatable at the same installed version, then calls `updateBundle` with the target and that registry.
+4. The manager checks the target on the registry. Where the Host runs HMR, it removes the installed version and installs the target with the same selection; when that installation fails, it installs the removed version again. Without HMR it installs the target over the running version, which takes effect at the next start.
+5. The Market reports how the update ended: updated, refused before any change, stopped because the installed version could not be removed, kept, restored after the target failed, or not installed because the reinstallation failed too. A failed update is written to the Desktop log with the manager's bounded pnpm output, which the dialog also shows.
+
+The Renderer never sends a version or a registry; the Host takes both from the manager's version listing. Each update check and each update runs the same lookups and the same operation as the official Plugins page.
+
 ## Manual fallback
 
 If automatic preview is unavailable, the Host may construct a bounded display-only npm command from normalized identity. **Open DSH Terminal** opens the terminal only; it sends no package command, path, or Profile and performs no mutation.
@@ -60,6 +72,7 @@ If automatic preview is unavailable, the Host may construct a bounded display-on
 | Profile changes after preview | The one-shot preview is rejected |
 | The manager reports a failed or cancelled change | The error is reported with the manager's bounded pnpm output; the manager has already restored the Profile files it snapshotted |
 | The manager installs a bundle other than the verified package | The error is reported for diagnosis; the installed dependency stays visible in the Installed view |
+| The update target fails to install | The manager installs the removed version again; the dialog says whether it was restored and shows the pnpm output |
 
 For a failed package run, the Host records the manager's bounded pnpm output in the Desktop log and returns it to the local failure dialog. The dialog shows the verified package command and can open DSH Terminal, but never pastes, executes, or silently retries it.
 | Renderer closes after confirmation | The Host-owned package operation continues; only the response may be lost |

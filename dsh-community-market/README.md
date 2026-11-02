@@ -14,7 +14,7 @@ The Market has four views:
 
 1. **Discover** browses the selected source, with search, category filters, details, and source attribution.
 2. **Installable** shows normalized entries that expose one unambiguous npm package identity. It does not trust a source-provided version.
-3. **Installed** lists the active Profile's community plugins as the official plugin manager reports them, including plugins installed by this Market, another market, or the DSH CLI, and lets the user enable, disable, or uninstall them. Official plugins, bundles the installation ships, DeepSeek's own packages, and Desktop's built-in bundles (`dsh-community-market`, `dshmarket`, `@agents-anywhere/dsh-bridge-next`) are managed on the official Plugins page and do not appear here.
+3. **Installed** lists the active Profile's community plugins as the official plugin manager reports them, including plugins installed by this Market, another market, or the DSH CLI, and lets the user enable, disable, update, or uninstall them. Official plugins, bundles the installation ships, DeepSeek's own packages, and Desktop's built-in bundles (`dsh-community-market`, `dshmarket`, `@agents-anywhere/dsh-bridge-next`) are managed on the official Plugins page and do not appear here.
 4. **Sources** saves, orders, and selects catalog sources. Exactly one source is active for browsing.
 
 The Renderer never sends a package name or package-manager command for an installation. It submits the selected source and item identity, then the Host resolves the normalized package identity it previously observed.
@@ -32,11 +32,13 @@ Source versions, verification badges, repository equality, deprecation metadata,
 
 After confirmation, the Host calls the official plugin manager's `installBundle` with the exact `name@version` target, saved exactly and activated. The manager validates the bundle, restores the Profile manifest and lockfile when installation fails, selects the bundle, and applies it live where the Host runs HMR. The Market creates no install receipt, snapshot, retry, cleanup, or rollback path of its own. When the manager reports that a restart is still required, the Market says so in its completion notice instead of prompting for one.
 
-## Enable, disable, uninstall, and cross-market compatibility
+## Enable, disable, update, uninstall, and cross-market compatibility
 
 The Installed view is derived from the official plugin manager's bundle list, not from Market receipts or the selected catalog. This makes plugins installed by external markets and the DSH CLI visible without special integration. The view keeps to community plugins: a bundle the manager marks official, a bundle the installation ships, a package in the `@deepseek-ai` scope, or one of Desktop's built-in bundles is left to the official Plugins page.
 
 Enable and disable call the manager's `setBundleEnabled` directly and keep the dependency installed. Uninstall preview accepts a package name from that list; the Host confirms through the manager that the bundle is still removable before the preview and again before execution, then calls `removeBundle`, which deselects and unloads the bundle before pnpm removes it. The manager's `readOnlyReason`, `error`, and `removable` flags decide which actions a listed bundle offers.
+
+Updates follow the official Plugins page. On DSH 0.2.2 and later, a bundle the manager marks `updatable` is checked through the manager's `listVersions`, and the Market offers the version the official page offers: the newest that declares a bundle, accepts the running DSH version, and is neither deprecated nor a prerelease. Update preview accepts only the package name; after confirmation the Host calls `updateBundle` with that version and the registry that listed it, and the manager installs the removed version again when the new one fails. Earlier DSH releases have no version operations, so the Market offers no update there.
 
 ## Catalog sources
 

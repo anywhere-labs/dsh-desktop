@@ -140,6 +140,10 @@ dsh plugin update
 
 显式 `--profile <name>` 始终具有更高优先级，可用于在切换前准备其他 profile。
 
+**OAR 子智能体。** **插件**页在 Computer Use（Next）下方列出 OAR 子智能体。它的开关默认关闭，打开后启用官方 `@deepseek-ai/dsh-experimental-subagent-oar` 提供方。Beta 将它作为可选组合包随安装提供，组合方式与提供方 README 的示例一致，只有 Claude Code 的权限模式不同：Codex 以 `-c sandbox_mode="workspace-write"` 启动，Claude Code 以 `--permission-mode acceptEdits --permission-prompts none` 启动，两者都能修改任务目录里的文件。其他需要确认的操作（例如大多数 shell 命令），Claude Code 一律拒绝，除非它自己的设置已预先放行（`permissions.allow`）；示例中的 `dontAsk` 会让它只能读。模型通过 `subagent_oar` 工具把一个独立文本任务交给其中之一。每个任务都使用本机已安装的 Codex 或 Claude Code 命令行，以及该命令行自己的登录和设置，因此请先安装并登录。这些进程在 DSH 的命令沙箱之外运行，它们自身的审批请求也不会转到 DSH 界面。点卡片标题会打开官方插件页，列出该组合包的三行。在这个页面上，每个提供方行的「配置」入口会打开它的启动选项：Claude Code 可选只读、可改文件（默认）、自动审核或完全放行；Codex 可选只读、可写工作区（默认）或不限制。保存后，官方配置编辑器把选择记录到当前 Profile 的补丁里并重启这一行，之后委派的任务按新设置启动；重新选回默认会删除这条覆盖。这一行必须在运行才能修改。该版本以普通包发布这个提供方；`patches/dsh-experimental-subagent-oar@<version>.patch` 在安装时为已安装的包加上组合包声明。
+
+**官方 Computer Use。** dsh 0.2.2 新增官方 Computer Use bundle `@deepseek-ai/dsh-cua-bundle`（仅 macOS）。它的发布版默认隐藏，桌面端仍在**插件**页列出它。`computer-use` 注册服务条目和 provider 条目共用 `computerUse: computer-use-next` 隔离域，因此官方 bundle 可以同时挂载自己的注册服务。官方 provider 服务 PTC 会话。在它服务的会话中，Computer Use（Next）不加载工具和提示词，也不提供 `/computer-use` 命令；官方 provider 不再服务该会话后（例如会话切换到其他模式，或关闭官方 bundle），命令随即恢复，无需重启。其他会话、Windows 和 Linux、官方 helper 无法启动的 macOS 14 以下版本，以及没有加载官方 provider 的会话，继续使用 Computer Use（Next）。Computer Use（Next）的插件页提供官方 bundle 的开关。该开关仅在 macOS 14 及以上可用；其他系统上保持关闭且不可操作；运行时不带该 bundle 时不显示开关。开启后，点击 Computer Use（Next）插件页中的这一行，可打开它在**插件**页中的详情页。官方包只发布 helper 的 Swift 源码，不带编译好的 helper，已安装的包也不会自己编译。因此 Beta 会用 provider 在源码 checkout 中使用的同一组 `xcrun swift build` 参数，把 helper 编译到 provider 包目录下的 `native/bin/darwin-<arch>/dsh-cua-native`。开发启动时由 `prepare:runtime` 编译本机 CPU 的 helper；macOS 打包时编译两种 CPU 的 helper，纳入 universal 原生文件清单检查，并把 provider 解包放在归档旁。两者都需要 Xcode 或 Command Line Tools。Host 把 provider 解析到这份解包副本，因为它以子进程启动自身包目录下的 helper。相关模块、脚本和测试位于 `src/upstream-family/`、`scripts/upstream-family/` 和 `tests/upstream-family/`；跟随 dsh 0.2.1 的 Next 不包含这些内容。
+
 `dshmarket@1.2.3` 尚未预装，也不是 DSH Desktop 的 dependency。该版本仍从 config/argv 解析 profile，并通过私有 child-process 代码启动 `dsh plugin`；它既不读取 `desktopProfiles`，也不使用 `desktopPnpm`，package exports 也没有 runner injection seam。后续兼容版本必须动态探测 Desktop service，同时在普通 DSH 中保留现有 CLI fallback。此外，`1.2.3` 的源码仓库与 npm tarball 均未包含完整 MIT 许可文本或版权通知，因此该版本尚未通过内置再分发 gate。用户主动安装第三方 package 与 Desktop 将其嵌入 application archive 或 installer 是两个独立边界。
 
 Required injection、可选 Desktop 适配、TypeScript 示例、cancellation 与 fallback 指南详见[面向插件作者的 service 文档](docs/plugin-services.zh.md)。
@@ -195,6 +199,8 @@ DSH Desktop Beta 将 UTF-8 日志写入独立的 Electron 用户数据目录：W
 
 在 macOS 与 Windows 上，从托盘选择 **导出诊断信息…**，应用会在相邻的 `diagnostics` 目录创建 ZIP，并在系统文件管理器中定位它。导出在 Electron 主线程之外执行，会在共享的 50 MiB evidence cap 内收集最近的自有日志和本地 Crashpad `.dmp`，并在存在时包含 `crash-evidence/active-run.json` 标记，同时加入 `system-info.txt`，只保留最新三份 ZIP。创建任何文件前，确认对话框会说明隐私边界。系统会脱敏可识别的凭据，但日志仍可能包含本地路径、工作区 ID、会话 ID、提示词、工具输出或第三方插件消息；crash dump 可能包含进程内存片段。分享诊断包前应先检查内容，公开上传时尤其如此。
 
+故障打开恢复助手时，Beta 会把这次故障保存到数据目录（默认 `~/.dsh-beta`）下的 `logs/dsh-plugin-desktop-beta-failure-<UTC 时间>-<阶段>.log`，“快速恢复”页的 **诊断报告** 可在文件夹中定位该文件。与 DSH 0.2.2 的 Desktop 一样，Beta 还会为这些报告保留近期插件操作：经官方插件管理器进行的安装、卸载、启用和停用（插件页、插件市场和社区市场都经由它），以及 dsh-market 通过桌面端 `desktopPnpm.runPlugin` 执行的插件命令。每条记录只包含操作、包名或插件条目、请求的精确版本、结果或退出码，以及观察到该操作的 Host 运行；其他包说明符可能包含路径或凭据，不会记录。记录保存在 `logs/plugin-operations/`，分两段，每段不超过 256 KiB。报告保存后，Worker 会在 500 毫秒内追加最多 100 条近期记录（不超过 64 KiB）；Host 故障的报告还会写明对应的 `host run`。这些记录只是上下文，不能证明故障原因：通过命令行或手动改文件做的修改不会记录，缺少记录也不代表没有改动。跟随 DSH 0.2.1 的 Next 不保留这类记录。
+
 ## 原生生命周期
 
 关闭窗口会隐藏窗口，Host Cordis 树继续运行。托盘可以重新打开窗口、选择激活 profile、打开隔离的 DSH 终端、检查 stable release、通过标准 settings namespace 更改模式，或请求显式退出。Profile 与模式切换都会先 dispose 当前 Cordis 树，再让 Electron relaunch。原生退出、`SIGINT` 与 `SIGTERM` 也会在退出前请求 dispose；超过五秒或收到重复请求时会强制完成最终退出。导航与重定向被限制在确切的 loopback origin；外部 HTTP、HTTPS 与邮件链接由操作系统打开；renderer 启用 `contextIsolation` 与 Chromium sandbox，并关闭 Node integration。
@@ -207,9 +213,9 @@ Stable 与 Beta 在 Windows、macOS 和 Linux 上均关闭 ASAR。打包后的 E
 
 `yarn package:dir` 为当前宿主平台创建未封装目录。如果应用目录缺少 desktop 更新与终端模块、DSH CLI bootstrap、内置 pnpm 入口或物理 deployment package，packaged-runtime gate 会拒绝该产物。Electron Builder 会把根 manifest、desktop runtime 与完整依赖树输出到 `resources/app/`（macOS 为 `Contents/Resources/app/`）；Host profile boot 与 CLI bootstrap 都会使用这棵物理树，因此 DSH profile fallback 的符号链接不会指向虚拟 ASAR 目录。
 
-可编辑的图标工程位于 `build/app-icon.icon`，使用 System Dark 背景，保留 BETA 徽标。macOS 打包直接把这个分层源工程编译为 `Assets.car`，并声明 `CFBundleIconName`；打包后的应用保留原生 Dock 图标。Apple 编译器同时生成 `build/app-icon.icns`，用于较旧的 macOS 和 DMG 卷图标。Composer 导出的 `build/app-icon.png` 用于 Linux，并作为 Windows `build/app-icon.ico` 的来源；ICO 提供常用高 DPI 档位的精确帧，保留对应版本的图案，供应用程序、NSIS 安装器和卸载器使用。带内边距的 `build/app-icon-mac.png` 仅用于未打包的 Electron 开发运行，此时还没有编译后的应用包。
+可编辑的图标工程位于 `build/app-icon.icon`，使用 System Dark 背景，保留 BETA 徽标。macOS 打包直接把这个分层源工程编译为 `Assets.car`，并声明 `CFBundleIconName`；打包后的应用保留原生 Dock 图标。Apple 编译器同时生成 `build/app-icon.icns`，用于较旧的 macOS 和 DMG 卷图标。Composer 导出的 `build/app-icon.png` 是 Linux 窗口图标，并作为 Windows `build/app-icon.ico` 的来源；ICO 提供常用高 DPI 档位的精确帧，保留对应版本的图案，供应用程序、NSIS 安装器和卸载器使用。它同时生成 Linux 图标集 `build/icons/`：按 hicolor 主题的尺寸，从 16 到 512 像素每档一张 PNG，因为该主题没有 1024 像素目录。Debian 包和 AppImage 把每张装进对应的 `hicolor/<size>x<size>/apps` 目录，桌面环境在这里查找桌面条目的 `Icon=dsh-desktop-beta`。带内边距的 `build/app-icon-mac.png` 仅用于未打包的 Electron 开发运行，此时还没有编译后的应用包。
 
-在 Icon Composer 保存工程后，在安装了 Xcode 27 和 Icon Composer 的 Mac 上，从仓库根目录运行 `corepack yarn icons:export --channel beta`。省略 `--channel` 可一起导出 Stable、Beta 和 Next。请同时提交工程、所有导出资源和 `build/app-icon.resources.json`；`corepack yarn icons:check` 可在任何系统上检查资源是否过期或缺失，无需 Xcode。macOS 原生打包要求 Xcode 26 或更新版本；若 `xcode-select` 指向 Command Line Tools，请为打包命令设置 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，导出脚本则会自动查找完整 Xcode 安装。
+在 Icon Composer 保存工程后，在安装了 Xcode 27 和 Icon Composer 的 Mac 上，从仓库根目录运行 `corepack yarn icons:export --channel beta`。省略 `--channel` 可一起导出 Stable、Beta 和 Next。加上 `--linux` 则只从已提交的 PNG 重新生成 Beta 和 Next 的 Linux 图标集，无需 Xcode。请同时提交工程、所有导出资源和 `build/app-icon.resources.json`；`corepack yarn icons:check` 可在任何系统上检查资源是否过期或缺失，无需 Xcode。macOS 原生打包要求 Xcode 26 或更新版本；若 `xcode-select` 指向 Command Line Tools，请为打包命令设置 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，导出脚本则会自动查找完整 Xcode 安装。
 
 `build/tray-icon.svg` 是品牌蓝托盘源文件：构建过程会派生由 macOS 系统自动着色的模板图，以及固定品牌蓝的 Windows 与 Linux 托盘图。
 

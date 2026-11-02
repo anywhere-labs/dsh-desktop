@@ -451,6 +451,24 @@ const css = `
   overflow-wrap: anywhere;
 }
 
+.dshMarketReceiptMeta .dshMarketUpdateStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.dshMarketUpdateStatus[data-tone="info"] {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.dshMarketUpdateStatus[data-tone="warn"] {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.dshMarketUpdateStatus[data-tone="error"] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
 .dshMarketDetails {
   display: flex;
   flex-direction: column;

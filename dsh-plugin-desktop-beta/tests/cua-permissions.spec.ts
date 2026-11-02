@@ -7,6 +7,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import * as Provider from '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'
 import type { DesktopPermission, DesktopPermissions } from '../src/permissions.ts'
+import { executeToolFixture, installToolExecution } from './upstream-family.ts'
 
 const native = vi.hoisted(() => ({ create: vi.fn(), call: vi.fn(), shutdown: vi.fn(), destroy: vi.fn() }))
 vi.mock('@trycua/cua-driver', () => ({ CuaDriver: { create: () => {
@@ -27,6 +28,7 @@ beforeEach(async () => {
   await ctx.plugin(ComputerUseRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await installToolExecution(ctx)
 })
 afterEach(async () => { await ctx.fiber.dispose() })
 const state = (permission: DesktopPermission) => ({ permission, status: 'denied' as const, canRequest: false, canOpenSettings: true })
@@ -43,7 +45,7 @@ async function mount() {
   return fiber
 }
 function execute(name = 'check_permissions', args: Record<string, unknown> = { prompt: false }) {
-  return ctx.tools.execute({ name: `cua_driver_native__${name}`, callId: ToolCallId('desktop-cua-test'), arguments: args, signal: new AbortController().signal })
+  return executeToolFixture(ctx, { name: `cua_driver_native__${name}`, callId: ToolCallId('desktop-cua-test'), arguments: args, signal: new AbortController().signal })
 }
 
 it('queries Desktop without prompting and preserves the driver permission result', async () => {

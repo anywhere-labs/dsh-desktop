@@ -44,6 +44,12 @@ const SYSTEM_PROXY_PROBE_ATTEMPTS = 3
 const SYSTEM_PROXY_PROBE_BACKOFF_MS = 200
 
 /**
+ * Whether the operating system names any proxy, PAC file or proxy auto-discovery at all, read
+ * without Chromium. `unknown` wherever it cannot be read; see system-proxy-configuration.ts.
+ */
+export type SystemProxyConfiguration = 'configured' | 'none' | 'unknown'
+
+/**
  * Ask Chromium what the operating system routes each probe URL through.
  *
  * A failure is never fatal: the application must still start, connecting directly, on a machine
@@ -52,14 +58,20 @@ const SYSTEM_PROXY_PROBE_BACKOFF_MS = 200
  *
  * @param resolver - the default session, or a test double.
  * @param wait - delay between attempts; injectable for tests.
+ * @param configuration - the operating system's own answer. An early DIRECT can only hide a
+ *   configuration that exists, so `none` makes the first DIRECT round final instead of waiting
+ *   out the retries before the Host can start. An answer slower than a retry delay counts as
+ *   `unknown`, so it never delays the probe.
  * @returns the proxy for each scheme, whether probes disagreed, and what was rejected.
  */
 export async function probeSystemProxy(
   resolver: SystemProxyResolver,
   wait: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms)),
+  configuration: Promise<SystemProxyConfiguration> = Promise.resolve('unknown'),
 ): Promise<DesktopSystemProxyProbe> {
   const notes: string[] = []
   const rejected: string[] = []
+  const operatingSystem = configuration.catch(() => 'unknown' as const)
   try {
     try {
       await resolver.forceReloadProxyConfig()
@@ -78,9 +90,12 @@ export async function probeSystemProxy(
       }
       if (answers.size === 0) {
         // A session may answer before its configuration lands; retry before concluding the machine
-        // is direct, but never delay a SOCKS-only or genuinely direct start past the last attempt.
+        // is direct, unless the operating system has no proxy that could land. Never delay a
+        // SOCKS-only or genuinely direct start past the last attempt.
         if (rejected.length > 0 || attempt === SYSTEM_PROXY_PROBE_ATTEMPTS) break
-        await wait(SYSTEM_PROXY_PROBE_BACKOFF_MS)
+        const delay = wait(SYSTEM_PROXY_PROBE_BACKOFF_MS)
+        if (await Promise.race([operatingSystem, delay.then(() => 'unknown' as const)]) === 'none') break
+        await delay
         continue
       }
       const probe: { http?: string; https?: string } = {}

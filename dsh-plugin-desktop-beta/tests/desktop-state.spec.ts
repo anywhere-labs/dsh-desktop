@@ -6,7 +6,7 @@ import { DEFAULT_PREFERENCES, type DesktopState } from '../src/desktop-contract.
 import { DesktopPreferenceStore, portsChanged, parsePreferences } from '../src/desktop-preferences.ts'
 import { DesktopDiagnostics } from '../src/diagnostics.ts'
 import { NextProfiles, WEB_BUNDLES } from '../src/profiles.ts'
-import { NextRecovery } from '../src/recovery.ts'
+import { NextRecovery, REPAIR_UNDO_WINDOW } from '../src/recovery.ts'
 
 const homes: string[] = []
 const logs: DesktopDiagnostics[] = []
@@ -48,7 +48,9 @@ it('backs up a malformed manifest, repairs without deleting data, and restores t
   writeFileSync(join(home, 'credentials.json'), 'do not change')
   writeFileSync(join(home, 'cordis.patch.yml'), 'global broken')
   const backup = await profiles.recover('desktop')
-  expect(readFileSync(backup!, 'utf8')).toBe('[broken: yaml')
+  expect(readFileSync(join(backup, 'package.json'), 'utf8')).toBe('{ broken JSON')
+  expect(readFileSync(join(backup, 'cordis.patch.yml'), 'utf8')).toBe('[broken: yaml')
+  expect(recovery.repairBackup('desktop')?.directory).toBe(backup)
   expect(readFileSync(join(checkpoint.directory, 'package.json'), 'utf8')).toBe(original)
   expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).dsh.profile.bundles).toEqual(WEB_BUNDLES)
   expect(profiles.features('desktop')).toEqual({ market: false, remoteControl: false })
@@ -60,6 +62,46 @@ it('backs up a malformed manifest, repairs without deleting data, and restores t
   expect(profiles.features('desktop')).toEqual({ market: true, remoteControl: true })
   recovery.repairGlobalPatch()
   expect(readFileSync(join(home, 'cordis.patch.yml'), 'utf8')).toBe('[]\n')
+})
+
+it('offers the latest repair backup as a restore target until a restore replaces the repaired configuration', async () => {
+  const { profiles, recovery } = environment()
+  const dir = profiles.directory('desktop')
+  // Backups sort by their millisecond names, so each step starts in a later millisecond.
+  const later = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 5))
+  profiles.setFeatures('desktop', { market: true, remoteControl: true })
+  profiles.finishOnboarding('desktop')
+  const original = readFileSync(join(dir, 'package.json'), 'utf8')
+  recovery.checkpoint('desktop')
+  expect(recovery.repairBackup('desktop')).toBeNull()
+  await later()
+  const backup = await profiles.recover('desktop')
+  await later()
+  // The repaired Profile starts successfully before the user undoes the repair.
+  recovery.checkpoint('desktop')
+  const repair = recovery.repairBackup('desktop')!
+  expect(repair).toMatchObject({ directory: backup })
+  expect(recovery.checkpoints('desktop').map(item => item.id)).not.toContain(repair.id)
+  expect(recovery.find('desktop', repair.id)).toEqual(repair)
+  expect(recovery.find('desktop', 'missing')).toBeUndefined()
+  expect(profiles.onboardingRequired('desktop')).toBe(true)
+  await later()
+  await recovery.restore('desktop', repair.id)
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(original)
+  expect(profiles.features('desktop')).toEqual({ market: true, remoteControl: true })
+  expect(profiles.onboardingRequired('desktop')).toBe(false)
+  expect(recovery.repairBackup('desktop')).toBeNull()
+})
+
+it('stops offering to undo a repair once the Profile has more recent backups than it reads', async () => {
+  const { profiles, recovery } = environment()
+  await profiles.recover('desktop')
+  // Backups sort by their millisecond names; the later ones must not share the repair's millisecond.
+  await new Promise(resolve => setTimeout(resolve, 5))
+  for (let index = 1; index < REPAIR_UNDO_WINDOW; index++) recovery.backup('desktop', 'before-plugin-disable')
+  expect(recovery.repairBackup('desktop')).not.toBeNull()
+  recovery.backup('desktop', 'before-plugin-enable')
+  expect(recovery.repairBackup('desktop')).toBeNull()
 })
 
 it('refuses corrupt backups and linked configuration before modifying original files', async () => {

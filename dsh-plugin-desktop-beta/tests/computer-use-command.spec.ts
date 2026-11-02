@@ -9,8 +9,9 @@ import ComputerUseRegistry from '@deepseek-ai/dsh-computer-use'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as Provider from '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'
 import {
   COMPUTER_USE_COMMAND_NAME,
@@ -20,6 +21,7 @@ import {
   installComputerUseCommand,
   readComputerUseCommandConfig,
 } from '../src/host/computer-use-command.ts'
+import { officialComputerUse } from '../src/upstream-family.ts'
 import {
   ComputerUseCommandIcon,
   ComputerUsePluginArtwork,
@@ -32,6 +34,7 @@ import type {
   InputTriggerCandidate,
   InputTriggerSource,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import { defineContentToolFixture, executeToolFixture, installToolExecution } from './upstream-family.ts'
 
 const native = vi.hoisted(() => ({
   create: vi.fn(),
@@ -132,9 +135,11 @@ describe('installComputerUseCommand', () => {
       },
     })
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await installToolExecution(ctx)
     await ctx.plugin(CommandRuntime)
     await ctx.plugin(ComputerUseRegistry)
 
@@ -173,7 +178,7 @@ describe('installComputerUseCommand', () => {
     expect(assemblyA.sections.some(section => section.name === CUA_PROMPT_SECTION)).toBe(false)
 
     // Direct execution of CUA tool is rejected while gated
-    const denied = await ctx.tools.execute({
+    const denied = await executeToolFixture(ctx, {
       name: 'cua_driver_native__check_permissions',
       callId: ToolCallId('call-denied'),
       arguments: { prompt: false },
@@ -220,7 +225,7 @@ describe('installComputerUseCommand', () => {
       ),
     ).toBe(true)
 
-    const allowed = await ctx.tools.execute({
+    const allowed = await executeToolFixture(ctx, {
       name: 'cua_driver_native__check_permissions',
       callId: ToolCallId('call-allowed'),
       arguments: { prompt: false },
@@ -318,7 +323,7 @@ describe('installComputerUseCommand', () => {
       new Request(`http://localhost${COMPUTER_USE_SETTINGS_ROUTE}`, { method: 'GET' }),
     )
     expect(getRes.status).toBe(200)
-    expect(await getRes.json()).toEqual({ commandMode: true })
+    expect(await getRes.json()).toEqual({ commandMode: true, ...officialComputerUse?.settings() })
 
     // Turn off commandMode via POST /api/desktop-next/computer-use
     const postRes = await route!.fetch(
@@ -352,14 +357,14 @@ describe('computer-use-command-ui', () => {
   it('enriches the /computer-use trigger row with the custom icon, localized label, and short description', () => {
     const rawRows: InputTriggerCandidate[] = [
       { name: 'compact', label: '压缩', description: '压缩以上对话内容', section: '指令' },
-      { name: 'computer-use', description: '开启或关闭 Computer Use', hint: '[off|message]', section: '指令' },
+      { name: 'computer-use', description: '开启或关闭 Computer Use（Next）', hint: '[off|message]', section: '指令' },
     ]
     const zhRows = enrichComputerUseCandidates(rawRows, true)
     expect(zhRows[0]).toBe(rawRows[0])
     expect(zhRows[1]).toEqual({
       name: 'computer-use',
-      label: '电脑操作',
-      description: '开启或关闭 Computer Use',
+      label: '电脑操作（Next）',
+      description: '开启或关闭 Computer Use（Next）',
       hint: '[off|message]',
       section: '指令',
       icon: ComputerUseCommandIcon,
@@ -368,8 +373,8 @@ describe('computer-use-command-ui', () => {
     const enRows = enrichComputerUseCandidates(rawRows, false)
     expect(enRows[1]).toMatchObject({
       name: 'computer-use',
-      label: 'Computer Use',
-      description: 'Enable or disable Computer Use',
+      label: 'Computer Use (Next)',
+      description: 'Enable or disable Computer Use (Next)',
       icon: ComputerUseCommandIcon,
     })
 
@@ -396,7 +401,7 @@ describe('computer-use-command-ui', () => {
   it('decorates the / command trigger source and supports searching by localized label', async () => {
     const rawCatalog: InputTriggerCandidate[] = [
       { name: 'compact', label: '压缩', description: '压缩以上对话内容', section: '指令' },
-      { name: 'computer-use', description: '开启或关闭 Computer Use', hint: '[off|message]', section: '指令' },
+      { name: 'computer-use', description: '开启或关闭 Computer Use（Next）', hint: '[off|message]', section: '指令' },
     ]
     const commandSource: InputTriggerSource = {
       trigger: '/',
@@ -442,8 +447,8 @@ describe('computer-use-command-ui', () => {
     const row = emptyQueryRows.find(item => item.name === 'computer-use')
     expect(row).toMatchObject({
       name: 'computer-use',
-      label: '电脑操作',
-      description: '开启或关闭 Computer Use',
+      label: '电脑操作（Next）',
+      description: '开启或关闭 Computer Use（Next）',
       icon: ComputerUseCommandIcon,
     })
 
@@ -457,8 +462,8 @@ describe('computer-use-command-ui', () => {
     expect(labelQueryRows).toHaveLength(1)
     expect(labelQueryRows[0]).toMatchObject({
       name: 'computer-use',
-      label: '电脑操作',
-      description: '开启或关闭 Computer Use',
+      label: '电脑操作（Next）',
+      description: '开启或关闭 Computer Use（Next）',
       icon: ComputerUseCommandIcon,
     })
 
@@ -471,8 +476,8 @@ describe('computer-use-command-ui', () => {
     })
     expect(enRows.find(item => item.name === 'computer-use')).toMatchObject({
       name: 'computer-use',
-      label: 'Computer Use',
-      description: 'Enable or disable Computer Use',
+      label: 'Computer Use (Next)',
+      description: 'Enable or disable Computer Use (Next)',
       icon: ComputerUseCommandIcon,
     })
   })

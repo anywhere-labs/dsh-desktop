@@ -1,14 +1,19 @@
-/** Per-session on-demand `/computer-use` command and tool/prompt gating for Desktop Next. */
+/**
+ * Per-session on-demand `/computer-use` command and tool/prompt gating for Computer Use (Next). Where
+ * `officialComputerUse` (src/upstream-family.ts) reports that the official Computer Use serves an Agent,
+ * Computer Use (Next) and its command stay out of that Agent.
+ */
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-client-connection'
-import type { CommandResult } from '@deepseek-ai/dsh-commands'
+import type { CommandDefinition, CommandResult } from '@deepseek-ai/dsh-commands'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { atomicJson, readPrivateFile } from '../private-files.ts'
+import { officialComputerUse } from '../upstream-family.ts'
 
 export const COMPUTER_USE_SETTINGS_ROUTE = '/api/desktop-next/computer-use'
 export const COMPUTER_USE_SETTINGS_FILE = 'desktop-next.computer-use.json'
@@ -106,7 +111,7 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
       fetch: async (request: Request): Promise<Response> => {
         if (request.method === 'GET') {
           return Response.json(
-            { commandMode: controller.getCommandMode() },
+            { commandMode: controller.getCommandMode(), ...officialComputerUse?.settings() },
             { headers: { 'cache-control': 'no-store' } },
           )
         }
@@ -176,6 +181,13 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
       return false
     }
 
+    const isAgentGated = (agent: Agent): boolean =>
+      officialComputerUse?.serves(runtimeCtx, agent) === true || (commandMode && !isAgentEnabled(agent))
+
+    // Beside the official Computer Use, `/computer-use` is registered per Agent and leaves the Agents it serves.
+    const registerCommand = officialComputerUse?.commandRegistrar(runtimeCtx)
+      ?? ((definition: CommandDefinition): (() => void) => runtimeCtx.commands.register(definition))
+
     const getGlobalCuaToolNames = (): string[] =>
       runtimeCtx.tools
         .schemas()
@@ -196,7 +208,7 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
     }
 
     const reconcileAgent = (agent: Agent, cuaToolNames: readonly string[]): void => {
-      const shouldGate = commandMode && cuaToolNames.length > 0 && !isAgentEnabled(agent)
+      const shouldGate = cuaToolNames.length > 0 && isAgentGated(agent)
       if (!shouldGate) {
         clearAgentGate(agent)
         return
@@ -239,9 +251,9 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
         const cuaToolNames = getGlobalCuaToolNames()
         const shouldRegisterCommand = commandMode && cuaToolNames.length > 0
         if (shouldRegisterCommand && !disposeCommand) {
-          disposeCommand = runtimeCtx.commands.register({
+          disposeCommand = registerCommand({
             name: COMPUTER_USE_COMMAND_NAME,
-            description: '开启或关闭 Computer Use',
+            description: '开启或关闭 Computer Use（Next）',
             input: {
               hint: '[off|message]',
               attachments: true,
@@ -261,7 +273,7 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
                 reconcileAll()
                 return {
                   kind: 'success',
-                  text: '已关闭 Computer Use。',
+                  text: '已关闭 Computer Use（Next）。',
                 }
               }
               sessionStates.set(agent.session, true)
@@ -280,7 +292,7 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
               }
               return {
                 kind: 'success',
-                text: '已开启 Computer Use（输入 /computer-use off 关闭）。',
+                text: '已开启 Computer Use（Next），输入 /computer-use off 关闭。',
               }
             },
           })
@@ -340,7 +352,7 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
         trackAndReconcileAgent(context.agent)
       }
       const resolved = await next()
-      if (commandMode && (context.agent === undefined || !isAgentEnabled(context.agent))) {
+      if (context.agent === undefined ? commandMode : isAgentGated(context.agent)) {
         return {
           ...resolved,
           sections: resolved.sections.filter(section => section.name !== CUA_PROMPT_SECTION),

@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { desktopMenu } from '../src/desktop-menu.ts'
 import { DEFAULT_PREFERENCES, type DesktopState } from '../src/desktop-contract.ts'
-import { APPIMAGE_RELAUNCH_SCRIPT, appImageExtractingRuntimePid, appImageRelaunchEnvironment, relaunchApp, relaunchArguments, type RelaunchSpawn } from '../src/relaunch.ts'
+import { APPIMAGE_RELAUNCH_SCRIPT, MAC_RELAUNCH_SCRIPT, appImageExtractingRuntimePid, appImageRelaunchEnvironment, relaunchApp, relaunchArguments, type RelaunchSpawn } from '../src/relaunch.ts'
 
 const state: DesktopState = {
   selected: 'desktop', profiles: ['desktop', 'work', 'broken'], unavailableProfiles: ['broken'],
@@ -95,4 +95,26 @@ it('waits for an extracting AppImage runtime and restarts extracted', () => {
 it('leaves search paths alone outside an AppImage mount', () => {
   expect(appImageRelaunchEnvironment({ PATH: '/usr/bin' })).toEqual({ PATH: '/usr/bin' })
   expect(appImageRelaunchEnvironment({ APPDIR: '/tmp/.mount_NEXT', LD_LIBRARY_PATH: '/tmp/.mount_NEXT/usr/lib' })).toEqual({ APPDIR: '/tmp/.mount_NEXT' })
+})
+
+it('restarts a macOS app that LaunchServices started through LaunchServices once this process exits (#1515)', () => {
+  const executable = '/Applications/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta'
+  const relaunches: Array<{ args: string[] }> = []
+  const spawns: unknown[][] = []
+  const child = { on: vi.fn(), unref: vi.fn() }
+  const spawn = ((...call: unknown[]) => { spawns.push(call); return child }) as unknown as RelaunchSpawn
+  const app = { relaunch: (options: { args: string[] }) => { relaunches.push(options) } }
+  const env = { __CFBundleIdentifier: 'ai.deepseek.dsh.desktop.beta', PATH: '/usr/bin:/bin' }
+  relaunchApp(app, ['--example=value'], { env, platform: 'darwin', pid: 42, executable, spawn })
+  expect(spawns).toEqual([['/bin/sh', ['-c', MAC_RELAUNCH_SCRIPT, '42', '/Applications/DSH Desktop Beta.app', executable, '--example=value'],
+    { detached: true, stdio: 'ignore', env }]])
+  expect(child.on).toHaveBeenCalledWith('error', expect.any(Function))
+  expect(child.unref).toHaveBeenCalledOnce()
+  // Runs started from a terminal, a development script or a test harness keep Electron's relauncher and their environment.
+  relaunchApp(app, ['--example=value'], { env: { __CFBundleIdentifier: 'com.apple.Terminal' }, platform: 'darwin', executable, spawn })
+  relaunchApp(app, ['--example=value'], { env: {}, platform: 'darwin', executable, spawn })
+  relaunchApp(app, ['--example=value'], { env, platform: 'darwin', executable: '/usr/local/lib/node_modules/electron/dist/electron', spawn })
+  relaunchApp(app, ['--example=value'], { env, platform: 'win32', executable, spawn })
+  expect(relaunches).toEqual(Array.from({ length: 4 }, () => ({ args: ['--example=value'] })))
+  expect(spawns).toHaveLength(1)
 })

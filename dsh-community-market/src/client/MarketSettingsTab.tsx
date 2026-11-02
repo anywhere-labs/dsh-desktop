@@ -28,14 +28,17 @@ import type {
   MarketBuiltInProvider,
   MarketCatalogResponse,
   MarketCatalogSourceResult,
+  MarketInstallationUpdateCheck,
   MarketInstallationView,
   MarketInstallableResponse,
   MarketOperationApplication,
+  MarketOperationExecuteResponse,
   MarketOperationPreviewRequest,
   MarketOperationPreviewResponse,
   MarketSourceMutation,
   MarketSourceView,
   MarketStateResponse,
+  MarketUpdateOutcome,
 } from '../api-types.js'
 import { marketMediaAssetUrl } from '../media/ref.js'
 import {
@@ -45,6 +48,7 @@ import {
   previewMarketOperation,
   readMarketCatalog,
   readMarketInstallable,
+  readMarketInstallationUpdate,
   readMarketInstallations,
   readMarketState,
   readMoreMarketCatalog,
@@ -88,6 +92,64 @@ type ManualInstallHint = MarketCatalogResponse['manualInstall'][number]
 type InstallationLoadOutcome =
   | { readonly installations: readonly MarketInstallationView[] }
   | { readonly error: string }
+
+/** One package's update check: queued or in flight under its sequence number, or what the Host answered. */
+type UpdateCheckState =
+  | { readonly phase: 'checking'; readonly seq: number }
+  | { readonly phase: 'done'; readonly check: MarketInstallationUpdateCheck }
+
+type UpdateChecks = Readonly<Record<string, UpdateCheckState>>
+
+/** A finished update that left the target uninstalled. */
+type UpdateFailure = Extract<MarketOperationExecuteResponse, { readonly action: 'update' }>
+  & { readonly outcome: Exclude<MarketUpdateOutcome, 'updated'> }
+
+function updatableNames(installations: readonly MarketInstallationView[]): readonly string[] {
+  return installations.filter(installation => installation.updatable).map(installation => installation.packageName)
+}
+
+/**
+ * The checks that still describe the inventory: a package that left it or stopped being updatable loses its check,
+ * and so does an answer for another installed version.
+ */
+function currentUpdateChecks(checks: UpdateChecks, installations: readonly MarketInstallationView[]): UpdateChecks {
+  const kept = Object.entries(checks).filter(([packageName, state]) => {
+    const installation = installations.find(item => item.packageName === packageName)
+    return installation?.updatable === true
+      && (state.phase === 'checking' || state.check.status === 'failed' || state.check.installed === installation.version)
+  })
+  return kept.length === Object.keys(checks).length ? checks : Object.fromEntries(kept)
+}
+
+/** A registry by host, or the default one pnpm's own configuration names. */
+function registryLabel(registry: string | null, t: MarketSettingsTabProps['t']): string {
+  if (registry === null) return t('updateSourceDefault')
+  try {
+    return new URL(registry).host
+  } catch {
+    // The Host read this registry from pnpm; one that does not parse is shown as written.
+    return registry
+  }
+}
+
+/** A publication time as its local day, `YYYY-MM-DD`, which reads the same in every UI language. */
+function publishedDay(publishedAt: string): string | undefined {
+  const day = new Date(publishedAt)
+  if (Number.isNaN(day.getTime())) return undefined
+  return `${String(day.getFullYear())}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
+}
+
+/** The title and sentence a failed update reads as, following the official Plugins page. */
+function updateFailureText(failure: UpdateFailure, t: MarketSettingsTabProps['t']): { readonly title: string; readonly detail: string } {
+  const { fromVersion: from, version: to, packageName: name } = failure
+  switch (failure.outcome) {
+    case 'refused': return { title: t('updateRefused', { version: to }), detail: t('updateRefusedDetail', { from }) }
+    case 'remove-failed': return { title: t('updateRemoveFailed', { version: from }), detail: t('updateRemoveFailedDetail', { to }) }
+    case 'kept': return { title: t('updateKept', { version: to }), detail: t('updateKeptDetail', { from }) }
+    case 'restored': return { title: t('updateRestored', { version: from }), detail: t('updateRestoredDetail', { from, to }) }
+    case 'broken': return { title: t('updateBroken'), detail: t('updateBrokenDetail', { from, to, name }) }
+  }
+}
 
 function visibleItemKey(value: VisibleItem): string {
   return `${value.source.sourceRecordId}\0${value.source.providerId}\0${value.item.id}\0${value.item.package?.name ?? ''}`
@@ -289,6 +351,8 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
   const [operationPending, setOperationPending] = useState(false)
   const [desktopActionError, setDesktopActionError] = useState<string>()
   const [desktopActionPending, setDesktopActionPending] = useState(false)
+  const [updateChecks, setUpdateChecks] = useState<UpdateChecks>({})
+  const [updateFailure, setUpdateFailure] = useState<UpdateFailure>()
   const readRequest = useRef<AbortController>()
   const pageRequest = useRef<AbortController>()
   const mutationRequest = useRef<AbortController>()
@@ -298,9 +362,61 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
   const operationStage = useRef<'preview' | 'execute'>()
   const desktopActionRequest = useRef<AbortController>()
   const toggleRequest = useRef<AbortController>()
+  const updateCheckRequest = useRef<AbortController>()
+  const updateChecksRef = useRef<UpdateChecks>({})
+  const updateQueue = useRef<{ readonly packageName: string; readonly seq: number }[]>([])
+  const updateCheckSeq = useRef(0)
   const noticeSeq = useRef(0)
   const selectedKeyRef = useRef<string>()
   const viewRef = useRef<MarketView>(initialView)
+
+  const commitUpdateChecks = useCallback((next: UpdateChecks) => {
+    updateChecksRef.current = next
+    setUpdateChecks(next)
+  }, [])
+
+  /** Run the queued update checks one after another, so at most one package's registry lookups run at a time. */
+  const drainUpdateChecks = useCallback(async () => {
+    if (updateCheckRequest.current !== undefined) return
+    const request = new AbortController()
+    updateCheckRequest.current = request
+    try {
+      for (let next = updateQueue.current.shift(); next !== undefined; next = updateQueue.current.shift()) {
+        const { packageName, seq } = next
+        const queued = updateChecksRef.current[packageName]
+        if (queued?.phase !== 'checking' || queued.seq !== seq) continue
+        let check: MarketInstallationUpdateCheck
+        try {
+          check = (await readMarketInstallationUpdate(packageName, request.signal)).check
+        } catch (cause) {
+          if (request.signal.aborted) return
+          // A refused or lost request reads as a check no registry answered.
+          check = { status: 'failed', problem: 'unknown', reason: cause instanceof Error ? cause.message : '' }
+        }
+        if (request.signal.aborted) return
+        const current = updateChecksRef.current[packageName]
+        if (current?.phase === 'checking' && current.seq === seq) {
+          commitUpdateChecks({ ...updateChecksRef.current, [packageName]: { phase: 'done', check } })
+        }
+      }
+    } finally {
+      if (updateCheckRequest.current === request) updateCheckRequest.current = undefined
+    }
+  }, [commitUpdateChecks])
+
+  /** Check packages without a check; `force` checks the others again, replacing a check still queued or in flight. */
+  const queueUpdateChecks = useCallback((packageNames: readonly string[], force: boolean) => {
+    let next = updateChecksRef.current
+    for (const packageName of packageNames) {
+      if (!force && next[packageName] !== undefined) continue
+      updateCheckSeq.current += 1
+      next = { ...next, [packageName]: { phase: 'checking', seq: updateCheckSeq.current } }
+      updateQueue.current.push({ packageName, seq: updateCheckSeq.current })
+    }
+    if (next === updateChecksRef.current) return
+    commitUpdateChecks(next)
+    void drainUpdateChecks()
+  }, [commitUpdateChecks, drainUpdateChecks])
 
   const rememberCategories = useCallback((next: MarketCatalogResponse) => {
     setCategoryOptions([...next.categories]
@@ -425,7 +541,13 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
     }
   }, [loadCatalog, t])
 
-  const loadInstallations = useCallback(async (): Promise<InstallationLoadOutcome | undefined> => {
+  /**
+   * Read the inventory. The Installed view checks each updatable package once; `recheckUpdates` checks every
+   * updatable package, or the named ones, again, as the official Refresh and update do.
+   */
+  const loadInstallations = useCallback(async (
+    recheckUpdates: boolean | readonly string[] = false,
+  ): Promise<InstallationLoadOutcome | undefined> => {
     installationsRequest.current?.abort()
     const request = new AbortController()
     installationsRequest.current = request
@@ -438,6 +560,13 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
       setInstallations(response.installations)
       setInstallationsLoaded(true)
       setInstallationsUnavailable(false)
+      commitUpdateChecks(currentUpdateChecks(updateChecksRef.current, response.installations))
+      const updatable = updatableNames(response.installations)
+      const recheck = recheckUpdates === true
+        ? updatable
+        : recheckUpdates === false ? [] : updatable.filter(name => recheckUpdates.includes(name))
+      queueUpdateChecks(recheck, true)
+      if (viewRef.current === 'installed') queueUpdateChecks(updatable, false)
       return { installations: response.installations }
     } catch (cause) {
       if (request.signal.aborted || installationsRequest.current !== request) return
@@ -451,7 +580,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
         setInstallationsLoading(false)
       }
     }
-  }, [t])
+  }, [commitUpdateChecks, queueUpdateChecks, t])
 
   const loadInstallable = useCallback(async (
     refresh = false,
@@ -525,6 +654,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
       operationRequest.current?.abort()
       desktopActionRequest.current?.abort()
       toggleRequest.current?.abort()
+      updateCheckRequest.current?.abort()
       readRequest.current = undefined
       pageRequest.current = undefined
       mutationRequest.current = undefined
@@ -533,6 +663,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
       operationRequest.current = undefined
       desktopActionRequest.current = undefined
       toggleRequest.current = undefined
+      updateCheckRequest.current = undefined
     }
   }, [])
 
@@ -724,6 +855,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
     setOperationError(undefined)
     setOperationErrorDetailsValue(undefined)
     setOperationExecutionFailed(false)
+    setUpdateFailure(undefined)
     setDesktopActionError(undefined)
     try {
       const preview = await previewMarketOperation(requestValue, request.signal)
@@ -740,7 +872,9 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
       } else {
         setOperationError(operationErrorMessage(cause, t(requestValue.action === 'install'
           ? 'previewError'
-          : 'uninstallPreviewError')))
+          : requestValue.action === 'uninstall' ? 'uninstallPreviewError' : 'updatePreviewError')))
+        // The Host no longer offers the update the last check found; check the package again.
+        if (requestValue.action === 'update') queueUpdateChecks([requestValue.packageName], true)
       }
     } finally {
       if (operationRequest.current === request) {
@@ -787,8 +921,12 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
       if (selectedKeyRef.current !== selectionKey) return
       const installation = matchingInstallation(value, current)
       setSelectedInventoryLoading(false)
-      if (installation !== undefined) setSelectedInstallation(installation)
-      else beginInstallPreview()
+      if (installation === undefined) {
+        beginInstallPreview()
+        return
+      }
+      setSelectedInstallation(installation)
+      if (installation.updatable) queueUpdateChecks([installation.packageName], false)
     }
     if (installationsLoaded) {
       resolveInventory(installations)
@@ -842,6 +980,18 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
       const result = await executeMarketOperation(preview.previewId, request.signal)
       if (request.signal.aborted || operationRequest.current !== request) return
       if (result.action !== preview.action) throw new Error('operation response action mismatch')
+      if (result.action === 'update') {
+        // Whatever the outcome, read the inventory and check the package's versions again, as the official page does.
+        void loadInstallations([result.packageName])
+        if (result.outcome !== 'updated') {
+          setOperationExecutionFailed(true)
+          setUpdateFailure({ ...result, outcome: result.outcome })
+          return
+        }
+        setOperationPreview(undefined)
+        announce(`${t('updateComplete', { version: result.version })}${applicationHint(result.application ?? 'applied')}`)
+        return
+      }
       setInstallations(current => {
         if (result.action === 'install') return current
         return current.filter(installation => installation.packageName !== result.packageName)
@@ -1054,11 +1204,19 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
             operationPending={operationPending}
             togglingPackage={togglingPackage}
             toggleError={toggleError}
-            onRetry={() => { setToggleError(undefined); void loadInstallations() }}
+            updateChecks={updateChecks}
+            onRetry={() => {
+              setToggleError(undefined)
+              void loadInstallations(true)
+            }}
             onToggle={(packageName, enabled) => { void toggleInstallation(packageName, enabled) }}
             onUninstall={packageName => {
               void beginOperationPreview({ action: 'uninstall', packageName })
             }}
+            onUpdate={packageName => {
+              void beginOperationPreview({ action: 'update', packageName })
+            }}
+            onCheckUpdate={packageName => { queueUpdateChecks([packageName], true) }}
             t={t}
           />
         ) : (
@@ -1090,6 +1248,7 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
           desktopActionPending={desktopActionPending}
           toggling={togglingPackage}
           toggleError={toggleError}
+          updateCheck={selectedInstallation === undefined ? undefined : updateChecks[selectedInstallation.packageName]}
           canOpenTerminal={state?.desktopActions.openTerminal === true}
           verificationHelpHref={installRequirementsUrl(readLocale())}
           onClose={closeItem}
@@ -1102,6 +1261,13 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
             setSelectedInstallation(undefined)
             void beginOperationPreview({ action: 'uninstall', packageName })
           }}
+          onUpdate={packageName => {
+            selectedKeyRef.current = undefined
+            setSelected(undefined)
+            setSelectedInstallation(undefined)
+            void beginOperationPreview({ action: 'update', packageName })
+          }}
+          onCheckUpdate={packageName => { queueUpdateChecks([packageName], true) }}
           t={t}
         />
       )}
@@ -1110,12 +1276,14 @@ export function MarketSurface({ initialView = 'installable', readLocale, t, show
           preview={operationPreview}
           pending={operationPending}
           error={operationError}
+          failure={updateFailure}
           onCancel={() => {
             if (operationPending) return
             setOperationPreview(undefined)
             setOperationError(undefined)
             setOperationErrorDetailsValue(undefined)
             setOperationExecutionFailed(false)
+            setUpdateFailure(undefined)
           }}
           onConfirm={() => { void executePreview() }}
           t={t}
@@ -1442,9 +1610,12 @@ function InstalledView(props: {
   operationPending: boolean
   togglingPackage?: string | undefined
   toggleError?: string | undefined
+  updateChecks: UpdateChecks
   onRetry: () => void
   onToggle: (packageName: string, enabled: boolean) => void
   onUninstall: (packageName: string) => void
+  onUpdate: (packageName: string) => void
+  onCheckUpdate: (packageName: string) => void
   t: MarketSettingsTabProps['t']
 }) {
   if (props.unavailable) return (
@@ -1488,8 +1659,11 @@ function InstalledView(props: {
               installation={installation}
               operationPending={props.operationPending}
               toggling={props.togglingPackage === installation.packageName}
+              updateCheck={props.updateChecks[installation.packageName]}
               onToggle={props.onToggle}
               onUninstall={props.onUninstall}
+              onUpdate={props.onUpdate}
+              onCheckUpdate={props.onCheckUpdate}
               t={props.t}
             />
           ))}
@@ -1499,18 +1673,65 @@ function InstalledView(props: {
   )
 }
 
+/** The line an updatable installation shows for its version check. */
+function UpdateCheckText({ state, t }: {
+  state: UpdateCheckState
+  t: MarketSettingsTabProps['t']
+}) {
+  if (state.phase === 'checking') {
+    return <span className="dshMarketUpdateStatus"><StateDot state="ongoing" size={8} />{t('updateChecking')}</span>
+  }
+  const { check } = state
+  switch (check.status) {
+    case 'available': {
+      const day = check.publishedAt === undefined ? undefined : publishedDay(check.publishedAt)
+      return <>
+        <span className="dshMarketUpdateStatus" data-tone="info">{t('updateAvailable', { version: check.version })}</span>
+        {day !== undefined && <span>{t('updatePublished', { date: day })}</span>}
+      </>
+    }
+    case 'latest':
+      return <span className="dshMarketUpdateStatus">{t('updateLatest')}</span>
+    case 'blocked':
+      return <>
+        <span className="dshMarketUpdateStatus" data-tone="warn">{t('updateBlocked')}</span>
+        <span>{t('updateBlockedDetail', {
+          version: check.version,
+          requirements: Object.entries(check.requirements).map(([name, range]) => `${name} ${range}`).join(', '),
+          runtime: check.runtimeVersion,
+        })}</span>
+      </>
+    case 'none-installable':
+      return <>
+        <span className="dshMarketUpdateStatus" data-tone="warn">{t('updateNoneInstallable')}</span>
+        <span>{t('updateNoneInstallableDetail')}</span>
+      </>
+    case 'failed':
+      return (
+        <span className="dshMarketUpdateStatus" data-tone="error" {...(check.reason === '' ? {} : { title: check.reason })}>
+          {t(check.problem === 'network' ? 'updateCheckNetwork' : 'updateCheckFailed')}
+        </span>
+      )
+  }
+}
+
 function InstallationCard(props: {
   installation: MarketInstallationView
   operationPending: boolean
   toggling: boolean
+  updateCheck?: UpdateCheckState | undefined
   onToggle: (packageName: string, enabled: boolean) => void
   onUninstall: (packageName: string) => void
+  onUpdate: (packageName: string) => void
+  onCheckUpdate: (packageName: string) => void
   t: MarketSettingsTabProps['t']
 }) {
   const { installation } = props
   const packageName = installation.packageName
   const broken = installation.error !== undefined
   const readOnly = !installation.toggleable && !installation.removable
+  const updateCheck = installation.updatable ? props.updateCheck : undefined
+  const checked = updateCheck?.phase === 'done' ? updateCheck.check : undefined
   return (
     <article className="dshMarketReceipt">
       <div className="dshMarketReceiptMain">
@@ -1523,9 +1744,25 @@ function InstallationCard(props: {
         <div className="dshMarketReceiptMeta">
           {installation.version !== undefined && <span>{props.t('pluginVersion')}: {installation.version}</span>}
           {installation.error !== undefined && <span>{installation.error}</span>}
+          {updateCheck !== undefined && <UpdateCheckText state={updateCheck} t={props.t} />}
         </div>
       </div>
       <div className="dshMarketReceiptActions">
+        {checked?.status === 'available' && <Button
+          variant="outline"
+          size="sm"
+          aria-label={`${props.t('update')}: ${packageName}`}
+          disabled={props.operationPending || props.toggling}
+          icon={<IconDownloadOutlineRegular />}
+          onClick={() => props.onUpdate(packageName)}
+        >{props.t('update')}</Button>}
+        {checked?.status === 'failed' && <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`${props.t('retry')}: ${packageName}`}
+          icon={<IconRefreshOutlineRegular />}
+          onClick={() => props.onCheckUpdate(packageName)}
+        >{props.t('retry')}</Button>}
         {installation.toggleable && <Switch
           label={`${props.t('enablePlugin')}: ${packageName}`}
           checked={installation.enabled}
@@ -1818,35 +2055,43 @@ function OperationFacts({ operation, showExpiry = true, t }: {
     <dl className="dshMarketOperationFacts">
       <div><dt>{t('plugin')}</dt><dd>{operation.displayName}</dd></div>
       <div><dt>{t('package')}</dt><dd>{operation.packageName}</dd></div>
-      {operation.version !== undefined && <div><dt>{t('exactVersion')}</dt><dd>{operation.version}</dd></div>}
+      {operation.action === 'update' ? <>
+        {operation.fromVersion !== undefined && <div><dt>{t('currentVersion')}</dt><dd>{operation.fromVersion}</dd></div>}
+        {operation.version !== undefined && <div><dt>{t('targetVersion')}</dt><dd>{operation.version}</dd></div>}
+        {operation.registry !== undefined && <div><dt>{t('updateSource')}</dt><dd>{registryLabel(operation.registry, t)}</dd></div>}
+      </> : operation.version !== undefined && <div><dt>{t('exactVersion')}</dt><dd>{operation.version}</dd></div>}
       <div><dt>{t('profile')}</dt><dd>{operation.profileName}</dd></div>
       {showExpiry && <div><dt>{t('previewExpires')}</dt><dd>{operation.expiresAt}</dd></div>}
     </dl>
   )
 }
 
-function OperationConfirmModal({ preview, pending, error, onCancel, onConfirm, t }: {
+const OPERATION_COPY = {
+  install: { title: 'confirmInstallTitle', confirm: 'confirmInstall', pending: 'installing' },
+  uninstall: { title: 'confirmUninstallTitle', confirm: 'confirmUninstall', pending: 'uninstalling' },
+  update: { title: 'confirmUpdateTitle', confirm: 'confirmUpdate', pending: 'updating' },
+} as const
+
+function OperationConfirmModal({ preview, pending, error, failure, onCancel, onConfirm, t }: {
   preview: MarketOperationPreviewResponse
   pending: boolean
   error?: string | undefined
+  /** A finished update that left the target uninstalled; the dialog then reports it instead of asking. */
+  failure?: UpdateFailure | undefined
   onCancel: () => void
   onConfirm: () => void
   t: MarketSettingsTabProps['t']
 }) {
-  const installing = preview.action === 'install'
-  const title = installing
-    ? t('confirmInstallTitle')
-    : t('confirmUninstallTitle')
-  const description = installing
+  const copy = OPERATION_COPY[preview.action]
+  // Installing and updating both bring new plugin code into the Profile.
+  const addsCode = preview.action !== 'uninstall'
+  const outcome = failure === undefined ? undefined : updateFailureText(failure, t)
+  const description = preview.action === 'install'
     ? t('confirmInstallBody')
-    : t('confirmUninstallBody')
-  const confirmLabel = pending
-    ? installing
-      ? t('installing')
-      : t('uninstalling')
-    : installing
-      ? t('confirmInstall')
-      : t('confirmUninstall')
+    : preview.action === 'uninstall'
+      ? t('confirmUninstallBody')
+      : t('confirmUpdateBody', { from: preview.fromVersion, to: preview.version })
+  const confirmLabel = pending ? t(copy.pending) : t(copy.confirm)
   return (
     <Modal
       open
@@ -1854,22 +2099,32 @@ function OperationConfirmModal({ preview, pending, error, onCancel, onConfirm, t
       contentClassName="dshMarketModalContent"
       onClose={onCancel}
       closeLabel={t('cancel')}
-      title={title}
-      description={description}
+      title={outcome?.title ?? t(copy.title)}
+      {...(outcome === undefined ? { description } : {})}
       footer={<div className="dshMarketModalActions">
-        <Button variant="ghost" disabled={pending} onClick={onCancel}>{t('cancel')}</Button>
-        <Button
-          variant="primary"
-          disabled={pending}
-          icon={installing ? <IconDownloadOutlineRegular /> : <IconTrashOutlineRegular />}
-          onClick={onConfirm}
-        >{confirmLabel}</Button>
+        {outcome !== undefined ? (
+          <Button variant="primary" onClick={onCancel}>{t('close')}</Button>
+        ) : <>
+          <Button variant="ghost" disabled={pending} onClick={onCancel}>{t('cancel')}</Button>
+          <Button
+            variant="primary"
+            disabled={pending}
+            icon={preview.action === 'uninstall' ? <IconTrashOutlineRegular /> : <IconDownloadOutlineRegular />}
+            onClick={onConfirm}
+          >{confirmLabel}</Button>
+        </>}
       </div>}
     >
       <div className="dshMarketOperationReview">
-        <OperationFacts operation={preview} t={t} />
-        {installing && <div className="dshMarketOperationWarning"><StateDot state="warning" size={12} /><span>{t('operationWarning')}</span></div>}
-        {installing && (
+        {outcome !== undefined && (
+          <div className="dshMarketFailureSummary" role="alert">
+            <StateDot state="error" size={12} />
+            <span>{outcome.detail}</span>
+          </div>
+        )}
+        <OperationFacts operation={preview} showExpiry={outcome === undefined} t={t} />
+        {outcome === undefined && addsCode && <div className="dshMarketOperationWarning"><StateDot state="warning" size={12} /><span>{t('operationWarning')}</span></div>}
+        {outcome === undefined && addsCode && (
           <div className="dshMarketOperationWarning">
             <StateDot state="warning" size={12} />
             <span>
@@ -1877,6 +2132,12 @@ function OperationConfirmModal({ preview, pending, error, onCancel, onConfirm, t
               <a href={DSH_DESKTOP_ISSUES_URL} target="_blank" rel="noopener noreferrer">{t('contactUs')}</a>
               {t('operationRiskAfterContact')}
             </span>
+          </div>
+        )}
+        {failure !== undefined && (
+          <div className="dshMarketFailureOutput">
+            <span>{t('failureOutput')}</span>
+            <pre>{failure.details ?? t('noFailureOutput')}</pre>
           </div>
         )}
         {pending && <div className="dshMarketOperationProgress" role="status"><StateDot state="ongoing" size={12} />{confirmLabel}</div>}
@@ -1901,6 +2162,7 @@ function ItemActionModal({
   desktopActionPending,
   toggling,
   toggleError,
+  updateCheck,
   canOpenTerminal,
   verificationHelpHref,
   onClose,
@@ -1908,6 +2170,8 @@ function ItemActionModal({
   onOpenTerminal,
   onToggle,
   onUninstall,
+  onUpdate,
+  onCheckUpdate,
   t,
 }: {
   value: VisibleItem
@@ -1924,6 +2188,7 @@ function ItemActionModal({
   desktopActionPending: boolean
   toggling?: string | undefined
   toggleError?: string | undefined
+  updateCheck?: UpdateCheckState | undefined
   canOpenTerminal: boolean
   verificationHelpHref: string
   onClose: () => void
@@ -1931,6 +2196,8 @@ function ItemActionModal({
   onOpenTerminal: () => void
   onToggle: (packageName: string, enabled: boolean) => void
   onUninstall: (packageName: string) => void
+  onUpdate: (packageName: string) => void
+  onCheckUpdate: (packageName: string) => void
   t: MarketSettingsTabProps['t']
 }) {
   const checking = preview === undefined && pending && operationError === undefined
@@ -2053,8 +2320,11 @@ function ItemActionModal({
                   installation={installation}
                   operationPending={pending}
                   toggling={toggling === installation.packageName}
+                  updateCheck={updateCheck}
                   onToggle={onToggle}
                   onUninstall={onUninstall}
+                  onUpdate={onUpdate}
+                  onCheckUpdate={onCheckUpdate}
                   t={t}
                 />
                 {toggleError !== undefined && <div className="dshMarketError" role="alert">{toggleError}</div>}

@@ -1,4 +1,6 @@
 /** General renderer state omits credentials; browser login links use a separate native operation. */
+import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
+import type { DesktopHostExit } from './exit-code.ts'
 import type { Features, OnboardingChoices } from './profiles.ts'
 import type { DesktopLanHttpsRuntimeSnapshot } from './lan-https-runtime.ts'
 import type { DesktopPermissions } from './permissions.ts'
@@ -52,6 +54,9 @@ export const SAFE_MODE_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze
   scheduleCompleted: false, scheduleFailed: false,
 })
 
+/** A failure report being written, saved to `file`, or not written. */
+export type DesktopFailureReport = { status: 'pending' } | { status: 'saved'; file: string } | { status: 'failed' }
+
 export interface DesktopState {
   selected: string
   profiles: string[]
@@ -61,6 +66,14 @@ export interface DesktopState {
   phase: 'starting' | 'ready' | 'error' | 'recovery'
   busy: boolean
   failure: string
+  /** Where `failure` stopped the Desktop: a startup stage, or the part that failed while running. */
+  failureStage?: DesktopFailureStage
+  /** How the Host ended, when its exit is the failure. */
+  failureExit?: DesktopHostExit
+  /** The report saved in the logs directory when `failure` opened recovery. */
+  failureReport?: DesktopFailureReport
+  /** A Desktop action that failed after `failure`; shown beside it, never replacing it. */
+  actionFailure?: string
   safeMode: boolean
   /** The selected Profile needs Desktop setup in the running official client. */
   onboarding?: boolean
@@ -79,6 +92,8 @@ export interface DesktopState {
   recovery?: {
     bundles: { bundleId: string; packageName: string; status: 'active' | 'disabled'; owner: 'core' | 'profile'; action: 'uninstall' | null; toggle: 'disable' | 'enable' | null }[]
     checkpoints: { id: string; created: string; fileCount: number; totalBytes: number }[]
+    /** The backup made by the latest Profile repair, while a restore can still undo that repair. */
+    repairBackup?: { id: string; created: string; fileCount: number; totalBytes: number }
     error?: string
     profileDirectory: string
     usingDefaultDirectory: boolean

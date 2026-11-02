@@ -6,11 +6,22 @@ afterEach(() => vi.useRealTimers())
 
 function fixture() {
   const options = {
-    available: vi.fn(() => true), reload: vi.fn(async () => {}), exhausted: vi.fn(), record: vi.fn(),
+    available: vi.fn(() => true), reload: vi.fn(async () => {}), exhausted: vi.fn(), healthy: vi.fn(), record: vi.fn(),
   }
   const recovery = new NextRendererRecovery(options)
   return { recovery, ...options }
 }
+
+it('records an ordinary mount as ready, never as a recovery', () => {
+  const f = fixture()
+  f.recovery.navigating('open')
+  f.recovery.loaded()
+  f.recovery.booted()
+  f.recovery.report('healthy')
+  expect(f.record.mock.calls).toEqual([['renderer.ready', { cause: 'open' }]])
+  expect(f.healthy).toHaveBeenCalledOnce()
+  f.recovery.stop()
+})
 
 it('coalesces crash, preload and navigation errors into one reload', async () => {
   const f = fixture()
@@ -27,20 +38,39 @@ it('requires both a loaded document and a mounted client', async () => {
   const f = fixture()
   f.recovery.fail('crashed')
   await vi.advanceTimersByTimeAsync(0)
-  f.recovery.navigating()
+  f.recovery.navigating('recovery')
   f.recovery.booted()
   f.recovery.report('healthy')
   expect(f.record).not.toHaveBeenCalledWith('renderer.recovery.healthy', expect.anything())
+  expect(f.healthy).not.toHaveBeenCalled()
   f.recovery.loaded()
   expect(f.record).toHaveBeenCalledWith('renderer.recovery.healthy', { attempt: 1 })
+  expect(f.record).not.toHaveBeenCalledWith('renderer.ready', expect.anything())
+  expect(f.healthy).toHaveBeenCalledOnce()
   await vi.advanceTimersByTimeAsync(30_000)
   expect(f.reload).toHaveBeenCalledOnce()
   f.recovery.stop()
 })
 
+it('records a page navigation after a recovery as ready, while the crash budget waits for stable health', async () => {
+  const f = fixture()
+  f.recovery.fail('crashed')
+  await vi.advanceTimersByTimeAsync(0)
+  f.recovery.navigating('recovery')
+  f.recovery.loaded(); f.recovery.report('healthy')
+  f.recovery.navigating('page')
+  f.recovery.loaded(); f.recovery.report('healthy')
+  expect(f.record).toHaveBeenLastCalledWith('renderer.ready', { cause: 'page' })
+  expect(f.healthy).toHaveBeenCalledTimes(2)
+  f.recovery.fail('crashed again')
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(f.record).toHaveBeenLastCalledWith('renderer.recovery.reload', { attempt: 2 })
+  f.recovery.stop()
+})
+
 it('does not time out a slow Host before it has supplied boot data', async () => {
   const f = fixture()
-  f.recovery.navigating()
+  f.recovery.navigating('open')
   f.recovery.loaded()
   await vi.advanceTimersByTimeAsync(120_000)
   expect(f.reload).not.toHaveBeenCalled()
@@ -64,7 +94,7 @@ it('requires a fresh mount report after navigation', async () => {
   const f = fixture()
   f.recovery.loaded()
   f.recovery.report('healthy')
-  f.recovery.navigating()
+  f.recovery.navigating('page')
   f.recovery.loaded()
   f.recovery.booted()
   await vi.advanceTimersByTimeAsync(30_001)
@@ -132,7 +162,7 @@ it('ignores a rejected navigation after a newer document or shutdown supersedes 
   f.reload.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail }))
   f.recovery.fail('crashed')
   await vi.advanceTimersByTimeAsync(0)
-  f.recovery.navigating()
+  f.recovery.navigating('page')
   f.recovery.loaded(); f.recovery.report('healthy')
   reject(new Error('old load failed'))
   await vi.advanceTimersByTimeAsync(30_000)

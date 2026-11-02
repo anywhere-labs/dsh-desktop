@@ -90,8 +90,8 @@ export function ComputerUsePluginArtwork({ size = 36, className }: IconProps) {
 
 export function computerUseCommandCopy(zh: boolean): { label: string; description: string } {
   return zh
-    ? { label: '电脑操作', description: '开启或关闭 Computer Use' }
-    : { label: 'Computer Use', description: 'Enable or disable Computer Use' }
+    ? { label: '电脑操作（Next）', description: '开启或关闭 Computer Use（Next）' }
+    : { label: 'Computer Use (Next)', description: 'Enable or disable Computer Use (Next)' }
 }
 
 export function enrichComputerUseCandidate(

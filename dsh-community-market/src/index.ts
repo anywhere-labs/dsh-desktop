@@ -69,7 +69,8 @@ export function apply(ctx: Context): void {
   })
   // Browsing remains portable. Package operations appear whenever the official
   // plugin manager and the profile it manages are live: the Market only verifies
-  // catalog identity and delegates every install, enable, disable and removal.
+  // catalog identity and delegates every install, enable, disable, update and
+  // removal. Updates need the version operations DSH 0.2.2 added to the manager.
   ctx.inject(['pluginManager', 'profileContext'], (managedCtx) => {
     const manager: MarketPluginManager | undefined = managedCtx.get('pluginManager')
     const profile = managedCtx.get('profileContext')

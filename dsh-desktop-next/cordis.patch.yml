@@ -5,11 +5,17 @@
 - insert:
     - id: desktop-next-capabilities
       name: dsh-desktop-next
+    # Computer Use (Next) keeps its registry in a realm of its own, so the
+    # official Computer Use bundle can mount its registry beside it.
     - id: computer-use
       name: '@deepseek-ai/dsh-computer-use'
+      isolate:
+        computerUse: computer-use-next
     - id: computer-use-cua-driver-native
       name: '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'
       disabled: true
+      isolate:
+        computerUse: computer-use-next
 # Upstream mounts its Desktop product analytics for every Profile named
 # `desktop` and reports to DeepSeek's collector by default. DSH Desktop does
 # not take part in that collection. Its exporter also requires the upstream

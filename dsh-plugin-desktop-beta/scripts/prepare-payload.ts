@@ -84,7 +84,9 @@ function installedPackage(installedModules: string, name: string): { source: str
  * Packages inside the application's own `node_modules` keep their installed nesting. A
  * workspace package, and dependencies installed beside one, are placed the way an installer
  * hoists them: at the payload root unless the root already holds another version of the same
- * name, in which case they nest under their dependent. One version is copied once.
+ * name, in which case they nest under their dependent. One version is copied once. The peers of
+ * a workspace package resolve to the root copies, as they will in the payload, rather than to the
+ * development copies its own tree installs for its tests.
  * @param desktopRoot - Application package directory.
  * @param target - Release platform and architectures used to select optional native packages.
  * @returns Packages sorted by destination.
@@ -97,6 +99,8 @@ export function collectProductionClosure(desktopRoot: string, target = nextPacka
     return rel === '' || rel.startsWith('..') || isAbsolute(rel) ? undefined : rel.split(sep).join('/')
   }
   const placed = new Map<string, ClosurePackage>()
+  // The copy Node finds from a package at the payload root: one placed there, else the application's.
+  const rootPackageDir = (name: string): string | undefined => placed.get(name)?.source ?? resolvePackageDir(name, root)
   const visited = new Set<string>()
   const queue: { real: string; destination: string | undefined }[] = [{ real: root, destination: undefined }]
   while (queue.length > 0) {
@@ -109,8 +113,12 @@ export function collectProductionClosure(desktopRoot: string, target = nextPacka
     const optional = Object.keys(manifest.optionalDependencies ?? {})
     const required = [...Object.keys(manifest.dependencies ?? {}).filter(name => !optional.includes(name)),
       ...Object.keys(manifest.peerDependencies ?? {}).filter(name => optionalPeers[name]?.optional !== true)]
+    // A workspace package sits at the payload root, away from the tree that holds its development peers.
+    const rootPeers = dependentDestination !== undefined && !dependentDestination.includes('/node_modules/') && installedPlacement(real) === undefined
+      ? Object.keys(manifest.peerDependencies ?? {}).filter(name => manifest.dependencies?.[name] === undefined)
+      : []
     for (const name of new Set([...required, ...optional])) {
-      const installed = resolvePackageDir(name, real)
+      const installed = (rootPeers.includes(name) ? rootPackageDir(name) : undefined) ?? resolvePackageDir(name, real)
       if (installed === undefined) {
         if (required.includes(name)) throw new Error(`Next payload: dependency ${name} required by ${dependent} is not installed`)
         continue

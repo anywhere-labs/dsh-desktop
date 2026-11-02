@@ -15,6 +15,21 @@ export type DesktopStartupFailureStage =
   | 'renderer-startup'
   | 'health-commit'
 
+/** Failures after a successful start, which Next and Beta report through the same recovery assistant. */
+export type DesktopRuntimeFailureStage = 'host-runtime' | 'renderer-runtime' | 'desktop-runtime'
+
+export type DesktopFailureStage = DesktopStartupFailureStage | DesktopRuntimeFailureStage
+
+const RUNTIME_FAILURE_STAGES: ReadonlySet<DesktopFailureStage> = new Set<DesktopRuntimeFailureStage>(['host-runtime', 'renderer-runtime', 'desktop-runtime'])
+
+/**
+ * @param stage - Where a failure stopped the Desktop.
+ * @returns Whether startup had already finished, so the recovery assistant must not say startup stopped.
+ */
+export function isRuntimeFailureStage(stage: DesktopFailureStage): stage is DesktopRuntimeFailureStage {
+  return RUNTIME_FAILURE_STAGES.has(stage)
+}
+
 export interface DesktopRecoveryCopy {
   readonly title: string
   readonly fallbackBody: string
@@ -24,7 +39,9 @@ export interface DesktopRecoveryCopy {
   readonly currentProfile: string
   readonly currentProfileDirectory: string
   readonly failureStage: string
-  readonly stageLabels: Readonly<Record<DesktopStartupFailureStage, string>>
+  /** Replaces `failureStage` for a runtime stage, where startup had already finished. */
+  readonly runtimeFailureStage: string
+  readonly stageLabels: Readonly<Record<DesktopFailureStage, string>>
   readonly tabs: Readonly<Record<DesktopRecoveryTab, string>>
   readonly guideActions: Readonly<Record<Exclude<DesktopRecoveryTab, 'quick'>, string>>
   readonly quickRecovery: string
@@ -169,6 +186,7 @@ const COPY: Record<DesktopLocale, DesktopRecoveryCopy> = {
     currentProfile: 'Current Profile',
     currentProfileDirectory: 'Profile folder',
     failureStage: 'Startup stopped at',
+    runtimeFailureStage: 'Stopped while running',
     stageLabels: {
       'electron-ready': 'Electron initialization',
       'shell-environment': 'Shell environment preparation',
@@ -178,6 +196,9 @@ const COPY: Record<DesktopLocale, DesktopRecoveryCopy> = {
       'host-boot': 'Plugin Host startup',
       'renderer-startup': 'Desktop interface startup',
       'health-commit': 'Startup health confirmation',
+      'host-runtime': 'Plugin Host',
+      'renderer-runtime': 'Desktop interface',
+      'desktop-runtime': 'Desktop action',
     },
     tabs: { quick: 'Quick recovery', plugins: 'Plugin management', rollback: 'Rollback', profiles: 'Switch Profile', data: 'Reset & data', diagnostics: 'Diagnostics' },
     guideActions: { plugins: 'Manage plugins', rollback: 'View checkpoints', profiles: 'Switch Profile', data: 'Manage data', diagnostics: 'View diagnostics' },
@@ -326,6 +347,7 @@ const COPY: Record<DesktopLocale, DesktopRecoveryCopy> = {
     currentProfile: '当前 Profile',
     currentProfileDirectory: 'Profile 目录',
     failureStage: '启动停止位置',
+    runtimeFailureStage: '运行中断位置',
     stageLabels: {
       'electron-ready': 'Electron 初始化',
       'shell-environment': 'Shell 环境准备',
@@ -335,6 +357,9 @@ const COPY: Record<DesktopLocale, DesktopRecoveryCopy> = {
       'host-boot': '启动插件服务',
       'renderer-startup': '桌面界面启动',
       'health-commit': '确认启动结果',
+      'host-runtime': '插件服务',
+      'renderer-runtime': '桌面界面',
+      'desktop-runtime': '桌面操作',
     },
     tabs: { quick: '快速恢复', plugins: '插件管理', rollback: '回滚', profiles: '切换 Profile', data: '重置与数据管理', diagnostics: '诊断' },
     guideActions: { plugins: '管理插件', rollback: '查看检查点', profiles: '切换 Profile', data: '管理数据', diagnostics: '查看诊断' },

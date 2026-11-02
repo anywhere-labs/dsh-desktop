@@ -1,13 +1,27 @@
 import { randomBytes } from 'node:crypto'
 import { isAbsolute, resolve } from 'node:path'
-import type { BundleInfo, ChangeResult, InstallBundleOptions, ManagementError, PluginInfo } from '@deepseek-ai/dsh-plugin-manager'
+import type {
+  BundleInfo,
+  ChangeResult,
+  InstallBundleOptions,
+  ListVersionsOptions,
+  ManagementError,
+  PluginInfo,
+  PluginUpdateResult,
+  PluginVersion,
+  PluginVersionList,
+  Registry,
+  UpdateBundleOptions,
+} from '@deepseek-ai/dsh-plugin-manager'
 import { prerelease, valid } from 'semver'
 import type {
   MarketCatalogMetadata,
   MarketInstallableResponse,
+  MarketInstallationUpdateCheck,
   MarketInstallationView,
   MarketOperationApplication,
   MarketSourceView,
+  MarketUpdateOutcome,
 } from '../api-types.js'
 import type { CatalogHttpClient } from '../contracts/types.js'
 import {
@@ -62,7 +76,13 @@ export interface MarketPluginManager {
   installBundle(spec: string, options?: InstallBundleOptions): Promise<ChangeResult>
   setBundleEnabled(name: string, enabled: boolean): Promise<ChangeResult>
   removeBundle(name: string): Promise<ChangeResult>
+  /** Offered from DSH 0.2.2 on, with `updateBundle`; without both, the Market offers no updates. */
+  listVersions?(name: string, options?: ListVersionsOptions, signal?: AbortSignal): Promise<PluginVersionList>
+  updateBundle?(name: string, version: string, options?: UpdateBundleOptions): Promise<PluginUpdateResult>
 }
+
+/** A manager that lists and installs newer published versions. */
+type VersionedMarketPluginManager = MarketPluginManager & Required<Pick<MarketPluginManager, 'listVersions' | 'updateBundle'>>
 
 export interface MarketInstallPreview {
   readonly intent: string
@@ -84,6 +104,18 @@ export interface MarketUninstallPreview {
   readonly expiresAt: string
 }
 
+export interface MarketUpdatePreview {
+  readonly intent: string
+  readonly action: 'update'
+  readonly profileName: string
+  readonly packageName: string
+  readonly fromVersion: string
+  readonly version: string
+  readonly registry: Registry
+  readonly displayName: string
+  readonly expiresAt: string
+}
+
 export interface MarketInstallResult {
   readonly packageName: string
   readonly version: string
@@ -95,6 +127,15 @@ export interface MarketUninstallResult {
   readonly application: MarketOperationApplication
 }
 
+export interface MarketUpdateResult {
+  readonly packageName: string
+  readonly fromVersion: string
+  readonly version: string
+  readonly outcome: MarketUpdateOutcome
+  readonly application?: MarketOperationApplication
+  readonly details?: string
+}
+
 export interface MarketToggleResult {
   readonly packageName: string
   readonly enabled: boolean
@@ -104,6 +145,7 @@ export interface MarketToggleResult {
 export type MarketOperationResult =
   | ({ readonly action: 'install' } & MarketInstallResult)
   | ({ readonly action: 'uninstall' } & MarketUninstallResult)
+  | ({ readonly action: 'update' } & MarketUpdateResult)
 
 export type MarketInstallErrorCode =
   | 'invalid-request'
@@ -153,7 +195,18 @@ interface UninstallIntent {
   readonly expiresAt: number
 }
 
-type MarketIntent = InstallIntent | UninstallIntent
+interface UpdateIntent {
+  readonly kind: 'update'
+  readonly packageName: string
+  readonly from: string
+  readonly to: string
+  /** The registry that listed the target; the manager checks and installs it there first. */
+  readonly registry: Registry
+  readonly profile: MarketDesktopProfile
+  readonly expiresAt: number
+}
+
+type MarketIntent = InstallIntent | UninstallIntent | UpdateIntent
 
 export interface MarketNpmPackageVerifier {
   verify(
@@ -325,8 +378,9 @@ function marketListedBundle(bundle: BundleInfo): boolean {
  * Project one official bundle onto the Installed view, or nothing for a bundle
  * the Market does not list. Actions follow the manager's flags: a bundle it
  * protects is read-only, and a bundle it cannot read can be switched off but not on.
+ * @param updates Whether the manager lists and installs newer versions; DSH releases before 0.2.2 do not.
  */
-export function marketInstallationView(bundle: BundleInfo): MarketInstallationView | undefined {
+export function marketInstallationView(bundle: BundleInfo, updates = false): MarketInstallationView | undefined {
   if (!marketListedBundle(bundle)) return undefined
   const editable = bundle.readOnlyReason === undefined
   return {
@@ -338,8 +392,69 @@ export function marketInstallationView(bundle: BundleInfo): MarketInstallationVi
     // A bundle the Host cannot read can still be switched off, never on.
     toggleable: editable && (bundle.enabled || bundle.error === undefined),
     removable: editable && bundle.removable,
+    // Releases before 0.2.2 report no `updatable` flag.
+    updatable: updates && editable && bundle.updatable === true,
     ...(bundle.error === undefined ? {} : { error: bundle.error.code }),
   }
+}
+
+/** A version listing the registries answered. */
+type ListedVersions = Extract<PluginVersionList, { status: 'listed' }>
+
+/** A version listing no registry answered. */
+type UnlistedVersions = Extract<MarketInstallationUpdateCheck, { status: 'failed' }>
+
+/**
+ * The version an update installs, as the official Plugins page picks it: the newest listed version that declares a
+ * bundle, accepts the running DSH version, and is neither deprecated nor a prerelease.
+ */
+function updateCandidate(list: ListedVersions): PluginVersion | undefined {
+  return list.versions.find(version => version.bundle
+    && version.incompatible === undefined
+    && version.deprecated === undefined
+    && !version.prerelease)
+}
+
+/** Summarize a version listing the way the official Plugins page summarizes its version check. */
+function updateCheck(list: ListedVersions): MarketInstallationUpdateCheck {
+  const candidate = updateCandidate(list)
+  if (candidate !== undefined) {
+    return {
+      status: 'available',
+      installed: list.installed,
+      version: candidate.version,
+      ...(candidate.publishedAt === undefined ? {} : { publishedAt: candidate.publishedAt }),
+    }
+  }
+  if (list.versions.length === 0) return { status: 'latest', installed: list.installed }
+  const blocked = list.versions.find(version => !version.prerelease && version.incompatible !== undefined)?.incompatible
+  return blocked === undefined
+    ? { status: 'none-installable', installed: list.installed }
+    : {
+        status: 'blocked',
+        installed: list.installed,
+        version: blocked.version,
+        requirements: blocked.requirements,
+        runtimeVersion: blocked.runtimeVersion,
+      }
+}
+
+/** Whether a change result left its operation undone. */
+function failedChange(result: ChangeResult): boolean {
+  return result.application === 'failed' || result.application === 'cancelled'
+}
+
+/** The diagnostics, bounded pnpm output, and pending build scripts of failed changes, each distinct section once. */
+function changeDetails(...results: readonly ChangeResult[]): string {
+  const sections = results.flatMap(result => [
+    result.error?.diagnostic ?? '',
+    result.packageResult?.output ?? '',
+    result.pendingBuilds === undefined || result.pendingBuilds.length === 0
+      ? ''
+      : `pending build scripts: ${result.pendingBuilds.join(', ')}`,
+  ]).map(section => section.trim()).filter(section => section.length > 0)
+  // The manager's diagnostic for a failed pnpm run is often that run's whole output.
+  return [...new Set(sections)].join('\n\n')
 }
 
 /** A safe sentence for the management refusal codes the official manager reports. */
@@ -490,10 +605,18 @@ export class MarketInstallService {
     const operationSignal = this.operationSignal(signal)
     const bundles = await this.listBundles()
     operationSignal.throwIfAborted()
+    const updates = this.versionedManager() !== undefined
     return bundles.flatMap(bundle => {
-      const view = marketInstallationView(bundle)
+      const view = marketInstallationView(bundle, updates)
       return view === undefined ? [] : [view]
     })
+  }
+
+  /** Check one updatable community bundle for newer versions through the official manager's version listing. */
+  async checkUpdate(packageName: string, signal: AbortSignal): Promise<MarketInstallationUpdateCheck> {
+    const operationSignal = this.operationSignal(signal)
+    const list = await this.listUpdateVersions(packageName, operationSignal)
+    return list.status === 'failed' ? list : updateCheck(list)
   }
 
   async previewInstall(
@@ -594,10 +717,11 @@ export class MarketInstallService {
     if (intent === undefined) {
       throw new MarketInstallError('intent-expired', 'The confirmation expired or was already used. Preview the operation again.')
     }
-    const result: MarketOperationResult = intent.kind === 'install'
-      ? { action: 'install', ...await this.executeInstall(token, signal) }
-      : { action: 'uninstall', ...await this.executeUninstall(token, signal) }
-    return result
+    switch (intent.kind) {
+      case 'install': return { action: 'install', ...await this.executeInstall(token, signal) }
+      case 'uninstall': return { action: 'uninstall', ...await this.executeUninstall(token, signal) }
+      case 'update': return { action: 'update', ...await this.executeUpdate(token, signal) }
+    }
   }
 
   async previewUninstallPackage(packageName: string, signal: AbortSignal): Promise<MarketUninstallPreview> {
@@ -638,6 +762,68 @@ export class MarketInstallService {
         'The plugin could not be removed.',
       )
       return { packageName: intent.packageName, application: result.application }
+    })
+  }
+
+  /**
+   * Confirm an update to the version the official Plugins page would offer: the manager lists the bundle's newer
+   * versions again, and the newest installable one becomes the one-shot target.
+   */
+  async previewUpdatePackage(packageName: string, signal: AbortSignal): Promise<MarketUpdatePreview> {
+    const operationSignal = this.operationSignal(signal)
+    const profile = this.profile()
+    const list = await this.listUpdateVersions(packageName, operationSignal)
+    if (list.status === 'failed') {
+      throw new MarketInstallError('verification-failed', 'The newer versions of this plugin could not be read from its registry.', list.reason)
+    }
+    const target = updateCandidate(list)
+    if (target === undefined) throw new MarketInstallError('not-available', 'No newer version of this plugin can be installed.')
+    const expiresAt = this.now() + this.intentTtlMs
+    const token = this.issueIntent({
+      kind: 'update',
+      packageName,
+      from: list.installed,
+      to: target.version,
+      registry: list.registry,
+      profile,
+      expiresAt,
+    })
+    return {
+      intent: token,
+      action: 'update',
+      profileName: profile.name,
+      packageName,
+      fromVersion: list.installed,
+      version: target.version,
+      registry: list.registry,
+      displayName: packageName,
+      expiresAt: new Date(expiresAt).toISOString(),
+    }
+  }
+
+  async executeUpdate(token: string, signal: AbortSignal): Promise<MarketUpdateResult> {
+    return await this.runExclusive(async () => {
+      const operationSignal = this.operationSignal(signal)
+      const intent = this.consumeIntent(token, 'update')
+      this.sameProfile(intent.profile)
+      const { manager, bundle } = await this.updatableBundle(intent.packageName)
+      if (bundle.version !== intent.from) {
+        throw new MarketInstallError('conflict', 'The installed version changed after preview. Check for updates again.')
+      }
+      operationSignal.throwIfAborted()
+      // The manager checks the target on the registry. With HMR it removes the installed version and installs the
+      // target with the same selection, installing the removed version again when the target fails; without HMR it
+      // installs over the running version for the next start.
+      let update: PluginUpdateResult
+      try {
+        update = await manager.updateBundle(intent.packageName, intent.to, { registry: intent.registry })
+      } catch (cause) {
+        throw this.packageManagerError(
+          'The plugin manager could not run the package operation.',
+          cause instanceof Error ? cause.stack ?? cause.message : String(cause),
+        )
+      }
+      return this.updateResult(intent, update)
     })
   }
 
@@ -715,6 +901,88 @@ export class MarketInstallService {
     return bundle
   }
 
+  /** The manager, when it lists and installs newer versions. */
+  private versionedManager(): VersionedMarketPluginManager | undefined {
+    const manager = this.manager
+    return typeof manager.listVersions === 'function' && typeof manager.updateBundle === 'function'
+      ? manager as VersionedMarketPluginManager
+      : undefined
+  }
+
+  /** The bundle and the manager that updates it, while the Installed view still offers its update. */
+  private async updatableBundle(packageName: string): Promise<{ readonly manager: VersionedMarketPluginManager; readonly bundle: BundleInfo }> {
+    if (!safePackageName(packageName) || !marketManagedPackage(packageName)) {
+      throw new MarketInstallError('invalid-request', 'The Profile plugin package name is invalid.')
+    }
+    const manager = this.versionedManager()
+    if (manager === undefined) {
+      throw new MarketInstallError('not-available', 'The plugin manager of this DSH release does not update plugins.')
+    }
+    const bundle = (await this.listBundles()).find(item => item.name === packageName)
+    if (bundle === undefined || marketInstallationView(bundle, true)?.updatable !== true) {
+      throw new MarketInstallError('conflict', 'This plugin can no longer be updated here. Refresh and try again.')
+    }
+    return { manager, bundle }
+  }
+
+  /** List an updatable bundle's newer versions, or why no registry listed them. */
+  private async listUpdateVersions(packageName: string, signal: AbortSignal): Promise<ListedVersions | UnlistedVersions> {
+    const { manager } = await this.updatableBundle(packageName)
+    signal.throwIfAborted()
+    let list: PluginVersionList
+    try {
+      // An empty options object asks the registries the manager plans for the package.
+      list = await manager.listVersions(packageName, {}, signal)
+    } catch (cause) {
+      signal.throwIfAborted()
+      throw this.packageManagerError(
+        'The plugin manager could not list the plugin versions.',
+        cause instanceof Error ? cause.stack ?? cause.message : String(cause),
+      )
+    }
+    signal.throwIfAborted()
+    if (list.status === 'listed') return list
+    switch (list.problem) {
+      case 'not-updatable':
+        throw new MarketInstallError('conflict', 'This plugin can no longer be updated here. Refresh and try again.')
+      case 'network':
+      case 'not-found':
+      case 'unknown':
+        return { status: 'failed', problem: list.problem, reason: list.reason }
+    }
+  }
+
+  /** Read how an official update ended; an update that left the target uninstalled goes to the Desktop log. */
+  private updateResult(intent: UpdateIntent, update: PluginUpdateResult): MarketUpdateResult {
+    const base = { packageName: intent.packageName, fromVersion: intent.from, version: intent.to }
+    const result = update.result
+    if (update.step === 'install') {
+      switch (result.application) {
+        case 'applied':
+        case 'restart-required':
+        case 'overridden':
+          return { ...base, version: result.version ?? intent.to, outcome: 'updated', application: result.application }
+        case 'failed':
+        case 'cancelled':
+          break
+      }
+    }
+    // Without a reinstallation nothing was removed: the target was refused, or installed over the running version and rolled back.
+    const outcome: MarketUpdateOutcome = update.step === 'check'
+      ? 'refused'
+      : update.step === 'remove'
+        ? 'remove-failed'
+        : update.restore === undefined
+          ? 'kept'
+          : failedChange(update.restore) ? 'broken' : 'restored'
+    const details = [
+      managementMessage(result.error) ?? '',
+      changeDetails(result, ...(update.restore !== undefined && failedChange(update.restore) ? [update.restore] : [])),
+    ].filter(section => section.length > 0).join('\n\n')
+    this.logPackageFailure(`The update of ${intent.packageName} from ${intent.from} to ${intent.to} ended as ${outcome}.`, details)
+    return { ...base, outcome, ...(details === '' ? {} : { details }) }
+  }
+
   /**
    * Run one official change and settle it: an applied, restart-pending or
    * overridden change returns; a failed or cancelled one becomes a Market
@@ -745,14 +1013,7 @@ export class MarketInstallService {
         throw this.packageManagerError('The package operation was cancelled.', result.packageResult?.output ?? '')
       case 'failed': {
         if (result.changed && recover !== undefined && await recover(result)) return { ...result, application: 'applied' }
-        const details = [
-          result.error?.diagnostic ?? '',
-          result.packageResult?.output ?? '',
-          result.pendingBuilds === undefined || result.pendingBuilds.length === 0
-            ? ''
-            : `pending build scripts: ${result.pendingBuilds.join(', ')}`,
-        ].filter(section => section.trim().length > 0).join('\n\n')
-        throw this.packageManagerError(managementMessage(result.error) ?? fallback, details)
+        throw this.packageManagerError(managementMessage(result.error) ?? fallback, changeDetails(result))
       }
     }
   }
@@ -854,7 +1115,11 @@ export class MarketInstallService {
   }
 
   private packageManagerError(message: string, details: string): MarketInstallError {
-    try { this.logFailure?.(`dsh-community-market: ${message}${details === '' ? '' : `\n${details}`}`) } catch {}
+    this.logPackageFailure(message, details)
     return new MarketInstallError('operation-failed', message, ...(details === '' ? [] : [details]))
+  }
+
+  private logPackageFailure(message: string, details: string): void {
+    try { this.logFailure?.(`dsh-community-market: ${message}${details === '' ? '' : `\n${details}`}`) } catch {}
   }
 }

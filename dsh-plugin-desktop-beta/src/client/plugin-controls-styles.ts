@@ -16,6 +16,9 @@ const STYLES = `
 .dshNextPluginCard:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dshNextPluginIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 48px; height: 48px; border: .5px solid var(--dsw-alias-border-l3); border-radius: 10px; color: var(--dsw-alias-label-secondary); }
 .dshNextPluginCardMain { display: grid; flex: 1; min-width: 0; gap: 4px; }
+/* Title row and status tag as the official Plugins cards draw them. */
+.dshNextPluginCardTitle { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.dshNextPluginStatusTag { height: 18px; padding: 0 7px; font-size: 10px; line-height: 1; }
 .dshNextPluginCardOpen { width: max-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer; }
 .dshNextPluginCardOpen::after { content: ''; position: absolute; inset: 0; border-radius: 12px; }
 .dshNextPluginCardOpen:focus-visible { outline: none; }
@@ -25,6 +28,10 @@ const STYLES = `
 .dshNextPluginCardActions .dshNextPluginDetail, .dshNextPluginCardActions .dshNextComputerUse { display: block; }
 .dshNextPluginCardActions .dshNextPluginActions { flex-wrap: nowrap; }
 .dshNextPluginDetail, .dshNextComputerUse { display: grid; gap: 12px; }
+.dshNextLaunchPresets { display: grid; gap: 12px; max-width: 720px; color: var(--dsw-alias-label-primary); }
+.dshNextLaunchPresets p { margin: 0; }
+.dshNextLaunchPresetsTitle { margin: 0; font-size: 14px; line-height: 22px; font-weight: 500; }
+.dshNextLaunchPresetChoices { display: grid; gap: 8px; }
 .dshNextPluginActions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dshNextPluginCardActions [role="status"], .dshNextPluginCardActions [role="alert"] { display: block; max-width: 220px; white-space: normal; }
 button.dshNextSettingsGear { width: 28px; padding: 0; }

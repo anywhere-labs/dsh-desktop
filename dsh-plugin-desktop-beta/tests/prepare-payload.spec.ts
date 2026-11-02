@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
 import beforeBuild from '../scripts/before-build.ts'
 import { nextPackagingTarget, PAYLOAD_DIR, verifyNextPayload } from '../scripts/packaged-payload.ts'
@@ -84,6 +85,30 @@ it('places the production closure like an installer and copies one version once'
   expect(closure.map(pkg => pkg.name)).not.toContain('missing-optional')
   expect(closure.map(pkg => pkg.name)).not.toContain('absent-peer')
   expect(closure.map(pkg => pkg.name)).toContain('peer-user')
+})
+
+it('resolves the peers of a workspace package to the application copies instead of its development copies', () => {
+  const { desktop, market } = workspace()
+  const modules = join(desktop, 'node_modules')
+  const application = JSON.parse(readFileSync(join(desktop, 'package.json'), 'utf8')) as { dependencies: Record<string, string> }
+  application.dependencies['@deepseek-ai/dsh-jobs'] = '1.0.0'
+  writeFileSync(join(desktop, 'package.json'), JSON.stringify(application) + '\n')
+  writePackage(modules, '@deepseek-ai/dsh-jobs', { version: '1.0.0' })
+  // The market accepts either release as a peer and tests against the other one, whose own
+  // dependency only that release's tree would install.
+  const manifest = JSON.parse(readFileSync(join(market, 'package.json'), 'utf8')) as { devDependencies: Record<string, string> }
+  writeFileSync(join(market, 'package.json'), JSON.stringify({ ...manifest, peerDependencies: { '@deepseek-ai/dsh-jobs': '1.0.0 || 2.0.0' },
+    devDependencies: { ...manifest.devDependencies, '@deepseek-ai/dsh-jobs': '2.0.0' } }) + '\n')
+  writePackage(join(market, 'node_modules'), '@deepseek-ai/dsh-jobs', { version: '2.0.0', dependencies: { '@deepseek-ai/dsh-scope': '2.0.0' } })
+  const placed = Object.fromEntries(collectProductionClosure(desktop).map(pkg => [pkg.destination, pkg]))
+  expect(placed['@deepseek-ai/dsh-jobs']).toMatchObject({ version: '1.0.0', source: realpathSync(join(modules, '@deepseek-ai', 'dsh-jobs')) })
+  expect(placed['dsh-community-market/node_modules/@deepseek-ai/dsh-jobs']).toBeUndefined()
+  expect(Object.values(placed).map(pkg => pkg.name)).not.toContain('@deepseek-ai/dsh-scope')
+})
+
+it('collects a complete production closure from the installed application for this platform', () => {
+  // Packaging runs natively, and an install only carries this platform's conditional packages.
+  expect(collectProductionClosure(fileURLToPath(new URL('..', import.meta.url)), target).length).toBeGreaterThan(0)
 })
 
 it('materializes, cleans and seals the payload the archive is later checked against', async () => {

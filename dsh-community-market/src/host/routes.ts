@@ -47,6 +47,7 @@ const ROUTE_INSTALLABLE = '/api/community-market/installable'
 const ROUTE_ASSETS = '/api/community-market/assets'
 const ROUTE_INSTALLATIONS = '/api/community-market/installations'
 const ROUTE_INSTALLATION_ENABLED = '/api/community-market/installations/enabled'
+const ROUTE_INSTALLATION_UPDATE = '/api/community-market/installations/update'
 const ROUTE_OPEN_TERMINAL = '/api/community-market/desktop/open-terminal'
 const ROUTE_OPERATION_PREVIEW = '/api/community-market/operations/preview'
 const ROUTE_OPERATION_EXECUTE = '/api/community-market/operations/execute'
@@ -374,7 +375,7 @@ function asMutation(value: unknown): MarketSourceMutation {
 
 type MarketOperationPreviewRequest =
   | { readonly action: 'install'; readonly sourceRecordId: string; readonly itemId: string }
-  | { readonly action: 'uninstall'; readonly packageName: string }
+  | { readonly action: 'uninstall' | 'update'; readonly packageName: string }
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
   const actual = Object.keys(value).sort()
@@ -397,11 +398,22 @@ function asOperationPreview(value: unknown): MarketOperationPreviewRequest {
     && boundedIdentifier(request.itemId)
   ) return { action: 'install', sourceRecordId: request.sourceRecordId, itemId: request.itemId }
   if (
-    request.action === 'uninstall'
+    (request.action === 'uninstall' || request.action === 'update')
     && exactKeys(request, ['action', 'packageName'])
     && boundedIdentifier(request.packageName)
-  ) return { action: 'uninstall', packageName: request.packageName }
+  ) return { action: request.action, packageName: request.packageName }
   throw new MarketInstallError('invalid-request', 'Invalid package operation preview request.')
+}
+
+/** The one package name an update check names in its query. */
+function asUpdateCheckPackage(url: string | undefined): string {
+  const params = new URL(url ?? '/', 'http://localhost').searchParams
+  const names = params.getAll('packageName')
+  const packageName = names.length === 1 && [...params.keys()].length === 1 ? names[0] : undefined
+  if (!boundedIdentifier(packageName)) {
+    throw new MarketInstallError('invalid-request', 'Invalid plugin update check request.')
+  }
+  return packageName
 }
 
 function asOperationExecute(value: unknown): string {
@@ -1004,6 +1016,29 @@ export function registerMarketRoutes(
           stopWatching()
         }
       }}),
+      ctx.webServer.register({ kind: 'exact', path: ROUTE_INSTALLATION_UPDATE, handler: async (req, res) => {
+        if (req.method !== 'GET' || !requestAllowed(req, expectedPort)) {
+          sendJson(res, 405, { error: 'market update checks require a local GET' })
+          return
+        }
+        const install = installProvider.get()
+        if (install === undefined) {
+          sendJson(res, 503, { error: 'market package operations are unavailable' })
+          return
+        }
+        const controller = new AbortController()
+        const signal = AbortSignal.any([controller.signal, generationController.signal])
+        const stopWatching = abortOnDisconnect(req, res, controller)
+        try {
+          const packageName = asUpdateCheckPackage(req.url)
+          const check = await install.checkUpdate(packageName, signal)
+          if (!signal.aborted && !res.destroyed) sendJson(res, 200, { packageName, check })
+        } catch (cause) {
+          if (!signal.aborted && !res.destroyed) sendInstallError(res, cause)
+        } finally {
+          stopWatching()
+        }
+      }}),
       ctx.webServer.register({ kind: 'exact', path: ROUTE_OPERATION_PREVIEW, handler: async (req, res) => {
         if (req.method !== 'POST' || !mutationAllowed(req, expectedPort)) {
           sendJson(res, 405, { error: 'market package previews require a local same-origin POST' })
@@ -1020,7 +1055,9 @@ export function registerMarketRoutes(
           }
           const preview = request.action === 'install'
             ? await install.previewInstall(request.sourceRecordId, request.itemId, signal)
-            : await install.previewUninstallPackage(request.packageName, signal)
+            : request.action === 'uninstall'
+              ? await install.previewUninstallPackage(request.packageName, signal)
+              : await install.previewUpdatePackage(request.packageName, signal)
           const { intent, ...summary } = preview
           if (!signal.aborted && !res.destroyed) sendJson(res, 200, { ...summary, previewId: intent })
         } catch (cause) {
@@ -1096,6 +1133,7 @@ export const marketRoutes = {
   assets: ROUTE_ASSETS,
   installations: ROUTE_INSTALLATIONS,
   installationEnabled: ROUTE_INSTALLATION_ENABLED,
+  installationUpdate: ROUTE_INSTALLATION_UPDATE,
   openTerminal: ROUTE_OPEN_TERMINAL,
   operationPreview: ROUTE_OPERATION_PREVIEW,
   operationExecute: ROUTE_OPERATION_EXECUTE,
