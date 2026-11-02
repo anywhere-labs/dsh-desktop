@@ -2,16 +2,19 @@
 
 import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import {
+  accessSync,
   chmodSync,
+  constants,
   existsSync,
   lstatSync,
   mkdirSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
-import { basename, dirname, join, win32 } from 'node:path'
+import { basename, dirname, join, posix, win32 } from 'node:path'
 import { profileName as assertDesktopProfileName } from './profiles.ts'
 import { PNPM_DISABLE_UPDATE_NOTIFIER, PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
 import { ELECTRON_HEADERS_URL } from './bundled-pnpm.ts'
@@ -49,9 +52,26 @@ const STATE_DIRECTORY_MODE = 0o700
 const EXECUTABLE_FILE_MODE = 0o700
 const PRIVATE_FILE_MODE = 0o600
 const WINDOWS_SHELL_COMMANDS = ['pwsh.exe', 'powershell.exe', 'cmd.exe'] as const
+/** Linux terminals in preference order, with the arguments that run one program in a new window. */
+const LINUX_TERMINALS = new Map<string, readonly string[]>([
+  ['xdg-terminal-exec', []],
+  ['x-terminal-emulator', ['-e']],
+  ['gnome-terminal', ['--']],
+  ['ptyxis', ['--']],
+  ['kgx', ['--']],
+  ['konsole', ['-e']],
+  ['xfce4-terminal', ['-x']],
+  ['mate-terminal', ['-x']],
+  ['alacritty', ['-e']],
+  ['kitty', []],
+  ['foot', []],
+  ['xterm', ['-e']],
+])
+/** A non-zero exit this soon means a Linux terminal could not start. */
+const LINUX_START_FAILURE_WINDOW_MS = 3_000
 
 /** Platforms with a native terminal launch contract owned by DSH Desktop. */
-export type DesktopTerminalPlatform = 'darwin' | 'win32'
+export type DesktopTerminalPlatform = 'darwin' | 'win32' | 'linux'
 
 /** Process launcher injected by the Electron adapter. */
 export type DesktopTerminalSpawn = (
@@ -60,7 +80,7 @@ export type DesktopTerminalSpawn = (
   options: SpawnOptions,
 ) => ChildProcess
 
-/** Filesystem probe used while resolving a Windows terminal shell. */
+/** Filesystem probe used while resolving a terminal or shell. */
 export type DesktopTerminalExecutableExists = (filename: string) => boolean
 
 /** Resolver used to locate one Windows terminal shell without a command interpreter. */
@@ -112,6 +132,8 @@ export interface DesktopTerminalOptions {
   windowsExecutableExists?: DesktopTerminalExecutableExists
   /** Windows executable resolver; defaults to a trusted PATH/SystemRoot lookup. */
   windowsExecutableResolver?: DesktopTerminalExecutableResolver
+  /** Linux terminal existence probe; defaults to an executable-file check. */
+  linuxExecutableExists?: DesktopTerminalExecutableExists
   /** Reporter attached before the platform launcher can emit an asynchronous failure. */
   onLaunchError?: (cause: Error) => void
 }
@@ -333,7 +355,7 @@ function terminalModeLabel(mode: DesktopTerminalOptions['mode']): string {
   return '正常环境 / Normal environment'
 }
 
-/** Build the macOS script opened by LaunchServices in the user's terminal. */
+/** Build the script a terminal runs: LaunchServices opens it on macOS, the terminal's command line on Linux. */
 function macWelcome(
   options: DesktopTerminalOptions,
   shimDir: string,
@@ -343,6 +365,7 @@ function macWelcome(
   const pluginAdd = 'dsh plugin add <third-party-plugin>'
   const pluginRemove = 'dsh plugin remove <third-party-plugin>'
   const pluginUpdate = 'dsh plugin update'
+  const linux = options.platform === 'linux'
   return [
     '#!/bin/sh',
     `unset ${RUN_AS_NODE}`,
@@ -362,7 +385,7 @@ function macWelcome(
     `printf '  %s\\n' ${quoteSh(pluginRemove)}`,
     `printf '  %s\\n' ${quoteSh(pluginUpdate)}`,
     `printf '%s\\n' ${quoteSh('Restart DSH Desktop after plugin changes.')}`,
-    'case "${SHELL:-/bin/zsh}" in',
+    `case "\${SHELL:-${linux ? '' : '/bin/zsh'}}" in`,
     '  */bash)',
     '    export DSH_DESKTOP_USER_BASHRC="${HOME:-}/.bashrc"',
     `    exec "\${SHELL}" --noprofile --rcfile ${quoteSh(bashRcPath)} -i`,
@@ -373,9 +396,12 @@ function macWelcome(
     '    exec "${SHELL}" -i',
     '    ;;',
     '  *)',
-    '    export DSH_DESKTOP_USER_ZDOTDIR="${ZDOTDIR:-${HOME:-}}"',
-    `    export ZDOTDIR=${quoteSh(options.stateDir)}`,
-    '    exec /bin/zsh -i',
+    // macOS always has zsh; Linux keeps the account's own shell.
+    ...(linux ? ['    exec "${SHELL:-/bin/sh}" -i'] : [
+      '    export DSH_DESKTOP_USER_ZDOTDIR="${ZDOTDIR:-${HOME:-}}"',
+      `    export ZDOTDIR=${quoteSh(options.stateDir)}`,
+      '    exec /bin/zsh -i',
+    ]),
     '    ;;',
     'esac',
     '',
@@ -440,7 +466,7 @@ function windowsCmdWelcome(): string {
 
 /** Create command shims and the interactive welcome script. */
 function prepareDesktopTerminalFiles(options: DesktopTerminalOptions): DesktopTerminalFiles {
-  if (options.platform !== 'darwin' && options.platform !== 'win32') {
+  if (options.platform !== 'darwin' && options.platform !== 'win32' && options.platform !== 'linux') {
     throw new Error(`dsh-desktop-next: terminal is unsupported on ${options.platform}`)
   }
   assertDesktopProfileName(options.profileName)
@@ -458,13 +484,14 @@ function prepareDesktopTerminalFiles(options: DesktopTerminalOptions): DesktopTe
   prepareStateDirectory(options.stateDir)
   const shimDir = join(options.stateDir, 'bin')
   prepareStateDirectory(shimDir)
-  if (options.platform === 'darwin') {
+  // The macOS shims and shell startup files are plain POSIX, so Linux shares them.
+  if (options.platform === 'darwin' || options.platform === 'linux') {
     const files: DesktopTerminalFiles = {
       shimDir,
       dshShimPath: join(shimDir, 'dsh'),
       pnpmShimPath: join(shimDir, 'pnpm'),
       nodeShimPath: join(shimDir, 'node'),
-      welcomePath: join(options.stateDir, 'welcome.command'),
+      welcomePath: join(options.stateDir, options.platform === 'darwin' ? 'welcome.command' : 'welcome.sh'),
     }
     const bashRcPath = join(options.stateDir, 'bashrc')
     replacePrivateFile(files.dshShimPath, macDshShim(options), EXECUTABLE_FILE_MODE)
@@ -671,6 +698,32 @@ function reportLaunchError(options: DesktopTerminalOptions, cause: Error): void 
   process.stderr.write(`dsh-desktop-next: failed to open terminal: ${cause.message}\n`)
 }
 
+/** Check that one candidate can start, following links such as `/etc/alternatives`. */
+function isExecutableFile(filename: string): boolean {
+  try {
+    accessSync(filename, constants.X_OK)
+    return statSync(filename).isFile()
+  } catch {
+    return false
+  }
+}
+
+/** Select `$TERMINAL`, then the default-terminal commands, then common terminals on the inherited PATH. */
+function resolveLinuxTerminal(
+  options: DesktopTerminalOptions,
+  environment: Readonly<NodeJS.ProcessEnv>,
+): { executable: string; arguments: readonly string[] } {
+  const exists = options.linuxExecutableExists ?? isExecutableFile
+  const directories = (environment[PATH] ?? '').split(':').filter(directory => directory.length > 0)
+  for (const command of [environment.TERMINAL, ...LINUX_TERMINALS.keys()]) {
+    if (!command) continue
+    const candidates = command.includes('/') ? [command] : directories.map(directory => posix.join(directory, command))
+    const executable = candidates.find(candidate => exists(candidate))
+    if (executable !== undefined) return { executable, arguments: LINUX_TERMINALS.get(posix.basename(command)) ?? ['-e'] }
+  }
+  throw new Error('dsh-desktop-next: terminal requires a terminal emulator on Linux')
+}
+
 /**
  * Generate a private desktop CLI environment and open it in a native terminal.
  * @param options - packaged CLI paths, profile identity, private state, and process adapter.
@@ -688,6 +741,10 @@ export function openDesktopTerminal(options: DesktopTerminalOptions): DesktopTer
   if (options.platform === 'darwin') {
     command = '/usr/bin/open'
     args = ['-a', 'Terminal', files.welcomePath]
+  } else if (options.platform === 'linux') {
+    const terminal = resolveLinuxTerminal(options, env)
+    command = terminal.executable
+    args = [...terminal.arguments, files.welcomePath]
   } else {
     const shell = resolveWindowsShell(options, env)
     const shellArgs = windowsShellArgv(shell, files)
@@ -719,6 +776,7 @@ export function openDesktopTerminal(options: DesktopTerminalOptions): DesktopTer
     windowsHide,
   }
   const child = options.spawn(command, args, spawnOptions)
+  const startedAt = Date.now()
   let launchFailureReported = false
   const reportLaunchFailure = (cause: Error): void => {
     if (launchFailureReported) return
@@ -728,6 +786,8 @@ export function openDesktopTerminal(options: DesktopTerminalOptions): DesktopTer
   child.once('error', reportLaunchFailure)
   child.once('exit', (code, signal) => {
     if (code === 0) return
+    // A Linux launcher is often the terminal itself, so a later exit only means its window closed.
+    if (options.platform === 'linux' && Date.now() - startedAt > LINUX_START_FAILURE_WINDOW_MS) return
     const outcome = code === null
       ? `signal ${signal ?? 'unknown'}`
       : `code ${String(code)}`

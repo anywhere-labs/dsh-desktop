@@ -96,11 +96,105 @@ function windowsOptions(stateDir: string, spawn: DesktopTerminalSpawn): DesktopT
   }
 }
 
+function linuxOptions(stateDir: string, spawn: DesktopTerminalSpawn, installed: readonly string[], terminal?: string): DesktopTerminalOptions {
+  return {
+    platform: 'linux',
+    appExecutable: "/opt/DSH O'Brien/dsh-desktop-beta",
+    dshBootstrapPath: "/opt/DSH O'Brien/resources/app.asar/lib/desktop-cli.js",
+    pnpmBinPath: "/opt/DSH O'Brien/resources/app.asar/node_modules/pnpm/bin/pnpm.mjs",
+    electronVersion: '44.7.0',
+    profileName: 'desktop',
+    productVersion: '2.0.0',
+    profileDir: "/home/example/.dsh O'Brien/profiles/desktop",
+    homeDir: "/home/example/.dsh O'Brien",
+    stateDir,
+    spawn,
+    environment: {
+      PATH: '/usr/local/bin:/usr/bin',
+      DSH_HOME: '/inherited/dsh-home',
+      ELECTRON_RUN_AS_NODE: 'inherited-node-mode',
+      ...(terminal === undefined ? {} : { TERMINAL: terminal }),
+    },
+    linuxExecutableExists: filename => installed.includes(filename),
+  }
+}
+
 afterEach(() => {
   for (const dir of temporaryDirectories.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
 describe('desktop terminal environment', () => {
+  it('opens the Linux welcome script in the default terminal with the shared POSIX shims', () => {
+    const stateDir = join(temporaryDirectory(), 'state')
+    const harness = spawnHarness()
+    const options = linuxOptions(stateDir, harness.spawn, ['/usr/bin/x-terminal-emulator', '/usr/bin/xterm'])
+    const launch = openDesktopTerminal(options)
+    expect(basename(launch.welcomePath)).toBe('welcome.sh')
+    expect(harness.calls).toHaveLength(1)
+    const call = harness.calls[0]!
+    expect(call.command).toBe('/usr/bin/x-terminal-emulator')
+    expect(call.args).toEqual(['-e', launch.welcomePath])
+    expect(call.options).toMatchObject({ cwd: options.profileDir, detached: true, shell: false, stdio: 'ignore' })
+    const env = call.options.env!
+    expect(env.PATH).toBe(`${launch.shimDir}:/usr/local/bin:/usr/bin`)
+    expect(env.DSH_HOME).toBe(options.homeDir)
+    expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined()
+    expect(readFileSync(launch.dshShimPath, 'utf8')).toContain("DSH_DESKTOP_DEFAULT_PROFILE='desktop' ELECTRON_RUN_AS_NODE=1 exec")
+    const welcome = readFileSync(launch.welcomePath, 'utf8')
+    expect(welcome).toContain('case "${SHELL:-}" in')
+    expect(welcome).toContain('--rcfile')
+    expect(welcome).toContain('exec "${SHELL:-/bin/sh}" -i')
+    expect(welcome).not.toContain('/bin/zsh')
+    if (process.platform !== 'win32') {
+      for (const script of [launch.dshShimPath, launch.pnpmShimPath, launch.nodeShimPath, launch.welcomePath]) {
+        expect(spawnSync('/bin/sh', ['-n', script]).status).toBe(0)
+      }
+    }
+  })
+
+  it.each([
+    ['a named terminal with its own arguments', ['/usr/bin/gnome-terminal', '/usr/bin/x-terminal-emulator'], 'gnome-terminal', '/usr/bin/gnome-terminal', ['--']],
+    ['a named terminal by path, assuming the common -e', ['/opt/custom/term'], '/opt/custom/term', '/opt/custom/term', ['-e']],
+    ['the next terminal when the named one is missing', ['/usr/local/bin/konsole'], 'missing', '/usr/local/bin/konsole', ['-e']],
+    ['the freedesktop default before the Debian one', ['/usr/bin/xdg-terminal-exec', '/usr/bin/x-terminal-emulator'], undefined, '/usr/bin/xdg-terminal-exec', []],
+    ['a common terminal when no default exists', ['/usr/bin/xfce4-terminal', '/usr/bin/xterm'], undefined, '/usr/bin/xfce4-terminal', ['-x']],
+    ['a terminal that takes the program directly', ['/usr/bin/kitty'], undefined, '/usr/bin/kitty', []],
+  ])('selects %s on Linux', (_case, installed, terminal, command, prefix) => {
+    const harness = spawnHarness()
+    const launch = openDesktopTerminal(linuxOptions(join(temporaryDirectory(), 'state'), harness.spawn, installed, terminal))
+    expect(harness.calls[0]!.command).toBe(command)
+    expect(harness.calls[0]!.args).toEqual([...prefix, launch.welcomePath])
+  })
+
+  it('explains a missing Linux terminal without starting anything', () => {
+    const harness = spawnHarness()
+    expect(() => openDesktopTerminal(linuxOptions(join(temporaryDirectory(), 'state'), harness.spawn, [])))
+      .toThrow('terminal requires a terminal emulator on Linux')
+    expect(harness.calls).toHaveLength(0)
+  })
+
+  it('reports a Linux terminal that cannot start but not one whose window closes later', () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    try {
+      const open = () => {
+        const harness = spawnHarness()
+        const onLaunchError = vi.fn()
+        openDesktopTerminal({ ...linuxOptions(join(temporaryDirectory(), 'state'), harness.spawn, ['/usr/bin/xterm']), onLaunchError })
+        return { harness, onLaunchError }
+      }
+      const failed = open()
+      failed.harness.emitExit(1)
+      expect(failed.onLaunchError).toHaveBeenCalledOnce()
+      expect(failed.onLaunchError.mock.calls[0]![0].message).toBe('terminal launcher exited with code 1')
+      const closed = open()
+      clock.mockReturnValue(60_000)
+      closed.harness.emitExit(1)
+      expect(closed.onLaunchError).not.toHaveBeenCalled()
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
   it('keeps generated shims isolated by active profile', () => {
     const desktop = desktopTerminalStateDirectory('/tmp/dsh-desktop', 'desktop')
     const work = desktopTerminalStateDirectory('/tmp/dsh-desktop', 'work-profile')
@@ -480,8 +574,8 @@ describe('desktop terminal environment', () => {
     const root = temporaryDirectory()
     const harness = spawnHarness()
     const unsupported = macOptions(join(root, 'unsupported'), harness.spawn)
-    unsupported.platform = 'linux'
-    expect(() => openDesktopTerminal(unsupported)).toThrow('terminal is unsupported on linux')
+    unsupported.platform = 'freebsd'
+    expect(() => openDesktopTerminal(unsupported)).toThrow('terminal is unsupported on freebsd')
     expect(() => lstatSync(unsupported.stateDir)).toThrow()
 
     const unsafe = macOptions(join(root, 'unsafe'), harness.spawn)

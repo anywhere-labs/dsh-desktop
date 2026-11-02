@@ -14,7 +14,7 @@ afterEach(() => { for (const listener of process.listeners('uncaughtExceptionMon
 const fixture = vi.hoisted(() => ({
   windows: [] as any[], trays: [] as any[], handlers: new Map<string, (...args: any[]) => any>(),
   load: vi.fn(), report: vi.fn(), plugin: vi.fn(), pluginDone: vi.fn(), diagnosticAppend: vi.fn(),
-  terminalTarget: vi.fn(), openTerminal: vi.fn(), popup: vi.fn(), registerSchemes: vi.fn(),
+  terminalTarget: vi.fn(), openTerminal: vi.fn(), popup: vi.fn(), registerSchemes: vi.fn(), showErrorBox: vi.fn(),
   crashStart: vi.fn(), memory: { start: vi.fn(), stop: vi.fn(), settle: vi.fn(), incident: vi.fn(), hostMemory: vi.fn(), hostExited: vi.fn() },
   stop: vi.fn(async () => {}),
   close: vi.fn(async () => {}), start: vi.fn(async () => {}), preferences: { closeToTray: true, browserAccess: false, networkExposure: 'loopback' as 'loopback' | 'lan' },
@@ -155,7 +155,7 @@ vi.mock('electron', async () => {
   return { app, BrowserWindow, Tray, autoUpdater: Object.assign(new EventEmitter(), { setFeedURL: vi.fn(), checkForUpdates: vi.fn(), quitAndInstall: vi.fn() }), net: { fetch: vi.fn() },
     crashReporter: { start: fixture.crashStart },
     Notification: class { static isSupported() { return false } },
-    clipboard: {}, dialog: { showMessageBox: vi.fn(async () => ({ response: 0 })), showMessageBoxSync: vi.fn(() => 0), showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) }, shell: { showItemInFolder: vi.fn() }, safeStorage: {}, nativeTheme: { shouldUseDarkColors: true, on() {} },
+    clipboard: {}, dialog: { showErrorBox: fixture.showErrorBox, showMessageBox: vi.fn(async () => ({ response: 0 })), showMessageBoxSync: vi.fn(() => 0), showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) }, shell: { showItemInFolder: vi.fn() }, safeStorage: {}, nativeTheme: { shouldUseDarkColors: true, on() {} },
     nativeImage: { createFromPath: () => ({ isEmpty: () => false, setTemplateImage() {} }) },
     // Templates stay plain arrays for tray assertions; the popup spy is non-enumerable.
     Menu: { buildFromTemplate: (items: any) => Object.defineProperty(items, 'popup', { value: (options: unknown) => fixture.popup(items, options), configurable: true }), setApplicationMenu() {} },
@@ -178,7 +178,7 @@ beforeEach(async () => {
   fixture.needsOnboarding = false; fixture.corruptProfile = false; fixture.restart.mockReset(); fixture.hostReady = false
   fixture.plugin.mockReset(); fixture.pluginDone.mockReset().mockResolvedValue({ exitCode: 0 });
   fixture.load.mockReset(); fixture.report.mockReset(); fixture.diagnosticAppend.mockReset();
-  fixture.terminalTarget.mockReset(); fixture.openTerminal.mockClear(); fixture.popup.mockClear(); fixture.registerSchemes.mockClear()
+  fixture.terminalTarget.mockReset(); fixture.openTerminal.mockClear(); fixture.popup.mockClear(); fixture.registerSchemes.mockClear(); fixture.showErrorBox.mockClear()
   fixture.crashStart.mockReset(); for (const action of Object.values(fixture.memory)) action.mockReset()
   fixture.stop.mockReset().mockResolvedValue(undefined); fixture.start.mockClear(); fixture.close.mockReset().mockResolvedValue(undefined)
   fixture.startupElevation = { relaunched: false, state: {} }; fixture.elevation = undefined
@@ -1390,6 +1390,29 @@ it('routes terminal commands by their authenticated window, ignoring a forged so
     expect(original).toMatchObject({ homeDir: home, mode: 'recovery' })
     expect(original.stateDir).not.toBe(safe.stateDir)
   } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it('shows a Linux terminal failure in a dialog and stays out of recovery', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-terminal-failure-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'linux' })
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const main = fixture.windows[0]
+    const sender = { sender: main.webContents, senderFrame: main.webContents.mainFrame }
+    fixture.terminalTarget.mockReturnValue({ homeDir: home, profileDir: join(home, 'profiles', 'desktop'), profileName: 'desktop', mode: 'normal' })
+    fixture.report.mockClear()
+    fixture.openTerminal.mockImplementationOnce(() => { throw new Error('no terminal here') })
+    await fixture.handlers.get('dsh-next:command')!(sender, { type: 'terminal' })
+    expect(fixture.showErrorBox).toHaveBeenCalledOnce()
+    expect(fixture.showErrorBox.mock.calls[0]![1]).toContain('no terminal here')
+    fixture.openTerminal.mock.calls.at(-1)![0].onLaunchError(new Error('terminal launcher exited with code 1'))
+    expect(fixture.showErrorBox).toHaveBeenCalledTimes(2)
+    expect(fixture.showErrorBox.mock.calls[1]![1]).toContain('terminal launcher exited with code 1')
+    expect(fixture.report).not.toHaveBeenCalled()
+  } finally { Object.defineProperty(process, 'platform', platform); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 
 

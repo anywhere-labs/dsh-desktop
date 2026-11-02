@@ -50,7 +50,7 @@ export function NextDesktopSettings({ adapter, language, onOpenPlugins }: { adap
 
 export function NextDesktopActions({ adapter, language }: { adapter: NextSettingsAdapter; language: string }) {
   const state = useDesktopState(adapter)
-  return <DesktopNativeActions api={adapter.api} t={desktopTranslate(language)} placement="settings" terminalAvailable={state?.platform === 'darwin' || state?.platform === 'win32'} />
+  return <DesktopNativeActions api={adapter.api} t={desktopTranslate(language)} placement="settings" terminalAvailable={state?.platform === 'darwin' || state?.platform === 'win32' || state?.platform === 'linux'} />
 }
 
 function NextBrowserActions({ adapter, state, language }: { adapter: NextSettingsAdapter; state: DesktopState; language: string }) {

@@ -14,7 +14,7 @@ export function desktopMenu(state: DesktopState, language: string, show: () => v
     action(t('重新加载界面', 'Reload Interface'), 'reload', state.phase === 'ready'),
     action(t('退出并重启', 'Quit and Restart'), 'restart-app'),
     { type: 'separator' },
-    ...(['darwin', 'win32'].includes(state.platform) ? [action(t('打开 DSH 终端', 'Open DSH Terminal'), 'terminal')] : []),
+    ...(['darwin', 'win32', 'linux'].includes(state.platform) ? [action(t('打开 DSH 终端', 'Open DSH Terminal'), 'terminal')] : []),
     action(t('导出诊断信息…', 'Export Diagnostics…'), 'diagnostics'),
     action(state.safeMode ? t('退出安全模式并重启…', 'Exit Safe Mode and Restart…') : t('进入安全模式…', 'Enter Safe Mode…'), state.safeMode ? 'normal-mode' : 'safe-mode'),
     { type: 'separator' },
