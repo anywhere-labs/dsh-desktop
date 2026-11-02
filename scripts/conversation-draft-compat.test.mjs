@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { runInNewContext } from 'node:vm'
 
-// `check:layout` also runs in CI jobs that never install dependencies (upstream-command-windows).
+// `check:layout` can run before dependencies are installed.
 // Without an install there is neither TypeScript nor the conversation package to read, so skip there.
 function loadTypeScript() {
   try {
