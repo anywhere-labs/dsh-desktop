@@ -1,6 +1,7 @@
-/** Alpha.2 boot, directory-picker, and host-path contracts; no generic IPC bridge. */
+/** Alpha.2 boot, directory-picker, host-path and Platform-page contracts; no generic IPC bridge. */
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC } from './ipc.ts'
+import { PLATFORM_IPC } from './platform-ipc.ts'
 import { markDocumentPlatform } from './preload-platform.ts'
 import { syncNativeTheme } from './preload-theme.ts'
 import { syncWindowsAppearance } from './preload-windows.ts'
@@ -51,6 +52,13 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
     failed: (message: string) => ipcRenderer.invoke(IPC.failed, message, documentId),
   })
   contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', { pick: () => ipcRenderer.invoke(IPC.directory) })
+  // The official account plugin opens its Platform pages (top-up, usage) in a native view only when
+  // this bridge exists; without it the onboarding's top-up actions stay disabled.
+  contextBridge.exposeInMainWorld('dshPlatform', {
+    open: (page: 'usage' | 'top-up', bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke(PLATFORM_IPC.open, page, bounds),
+    setBounds: (bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke(PLATFORM_IPC.bounds, bounds),
+    close: () => ipcRenderer.invoke(PLATFORM_IPC.close),
+  })
   // The official composer cites dropped, picked, and pasted files and folders that have a
   // real path as `@path` references instead of uploading them, and refuses folders outright
   // when this bridge is absent; a File without a path (pasted bytes) answers '' and uploads.

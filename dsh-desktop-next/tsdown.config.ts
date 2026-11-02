@@ -14,7 +14,7 @@ export default defineConfig([
     fixedExtension: false, dts: false, clean: true,
     deps: { neverBundle: ['electron'] },
   },
-  ...['preload-app', 'preload-shell'].map(name => ({
+  ...['preload-app', 'preload-shell', 'preload-platform-account'].map(name => ({
     entry: { [name]: `src/${name}.ts` },
     outDir: 'lib', format: 'cjs' as const, platform: 'node' as const, target: 'es2024',
     fixedExtension: false, dts: false, clean: false,

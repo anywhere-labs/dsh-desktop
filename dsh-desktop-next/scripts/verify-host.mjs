@@ -20,6 +20,8 @@ const upstreamVersion = createRequire(import.meta.url)('@deepseek-ai/dsh/package
 let host
 let runner
 let registry
+/** Every Platform grant the Hosts published to the shell, in order. */
+const platformSessions = []
 const pnpmInvocation = { command: executable, args: ['--expose-internals', bundledPnpmEntry(NEXT_PACKAGE)], env: {
   ELECTRON_RUN_AS_NODE: '1', DSH_DESKTOP_NODE_EXECUTABLE: executable,
   PATH: `${join(root, 'scripts', 'node-bin')}${delimiter}${process.env.PATH ?? ''}`,
@@ -27,7 +29,8 @@ const pnpmInvocation = { command: executable, args: ['--expose-internals', bundl
 async function boot(name) {
   host = new DesktopHostProcess(executable, root, manager.directory(name), undefined,
     { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' }, undefined, undefined, undefined,
-    join(root, 'scripts', 'fixtures', 'isolated-user-host.mjs'), () => {})
+    join(root, 'scripts', 'fixtures', 'isolated-user-host.mjs'), () => {}, undefined, undefined, undefined, undefined,
+    session => { platformSessions.push(session) })
   let timer
   const ready = await Promise.race([
     host.start(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Next Host smoke exceeded 60 seconds')), 60_000) }),
@@ -68,6 +71,10 @@ try {
   let { origin, cookie } = await boot('desktop')
   assert.ok(existsSync(join(home, '.agents-anywhere', 'dsh-bridge-next')),
     'AA must resolve its default shared state inside the smoke user home')
+  // The real account service drives the embedded Platform page's grant; signed out, it has none to give.
+  for (const started = Date.now(); platformSessions.length === 0 && Date.now() - started < 10_000;) await new Promise(resolve => setTimeout(resolve, 50))
+  assert.ok(platformSessions.length > 0, 'The Host must publish its account Platform grant to the shell')
+  assert.ok(platformSessions.every(session => session === null), 'A signed-out account has no Platform grant')
   const rpc = async (method, args = {}) => {
     const rpcId = crypto.randomUUID()
     const response = await fetch(`${origin}/api/pluginManager/${method}`, {
