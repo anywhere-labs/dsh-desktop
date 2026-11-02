@@ -9,5 +9,5 @@ export const OFFICE_SKILLS_IN_PACKAGE = true
 export const OFFICE_SKILL_UNPACKED: RegExp | undefined = /^node_modules\/@deepseek-ai\/dsh-skill-office\//u
 export const LEGACY_AGENT_TEAM_BUNDLE: string | undefined = undefined
 
-export { prepareCuaNative } from './upstream-family/cua-native.ts'
+export { cuaNativeExclusion, prepareCuaNative } from './upstream-family/cua-native.ts'
 export const OFFICIAL_CUA_UNPACKED: RegExp | undefined = /^node_modules\/@deepseek-ai\/dsh-experimental-cua-macos\//u

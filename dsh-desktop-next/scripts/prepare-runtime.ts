@@ -18,13 +18,13 @@ export interface NextRuntimeTarget {
 }
 
 /**
- * Payloads one Next package carries: both Darwin CPUs by default (or the single smoke CPU when
- * `DSH_MAC_SMOKE_ARCH` selects one), because macOS releases are universal and the installed slice
- * selects its payload at runtime; Windows x64; and the build host CPU on Linux.
+ * Payloads one packaging run prepares: on macOS the CPUs of its packages, both Darwin CPUs unless
+ * `DSH_MAC_SMOKE_ARCH` selects one, because the installed application selects the payload of the CPU it
+ * runs on; Windows x64; and the build host CPU on Linux.
  * @param platform - Electron platform being packaged.
  * @param hostArch - Build host architecture, used on Linux where packages are single-architecture.
  * @param env - Process environment inspected for single-architecture smoke selection.
- * @param macCpus - Darwin CPUs to prepare instead, such as the single CPU of a development launch.
+ * @param macCpus - Darwin CPUs to prepare instead: the CPUs of a release's packages, or the single CPU of a development launch.
  * @returns Locked targets and their CPUs.
  */
 export function nextRuntimeTargets(
@@ -201,6 +201,28 @@ export function verifyNextRuntimeTree(runtimeRoot: string, platform: NodeJS.Plat
       requireFile(join(skills, skill, 'SKILL.md'), `${arch} ${skill} skill`)
     }
     verified.push({ arch, directory, manifest })
+  }
+  return verified
+}
+
+/**
+ * Check the payloads a package copies: the runtime root holds a directory for each CPU the package carries and
+ * nothing else, and every payload verifies.
+ * @param runtimeRoot - The packaged `Resources/runtime`, or the tree staged for it.
+ * @param platform - Platform the package targets.
+ * @param expectedVersion - Product version every manifest must record.
+ * @param cpus - CPUs the package carries.
+ * @returns The verified payloads in target order.
+ */
+export function verifyPackagedNextRuntime(runtimeRoot: string, platform: NodeJS.Platform, expectedVersion: string, cpus: readonly string[]): VerifiedNextRuntime[] {
+  const present = existsSync(runtimeRoot) ? readdirSync(runtimeRoot).sort() : []
+  const expected = [...cpus].sort()
+  if (present.join(',') !== expected.join(',')) {
+    throw new Error(`Next runtime: ${runtimeRoot} holds ${present.join(', ') || 'no payload'}; the package carries ${expected.join(' and ')}`)
+  }
+  const verified = verifyNextRuntimeTree(runtimeRoot, platform, expectedVersion, process.arch, platform === 'darwin' ? expected as NextRuntimeArch[] : undefined)
+  if (verified.map(runtime => runtime.arch).sort().join(',') !== expected.join(',')) {
+    throw new Error(`Next runtime: ${platform} packages carry ${verified.map(runtime => runtime.arch).join(' and ')}, not ${expected.join(' and ')}`)
   }
   return verified
 }

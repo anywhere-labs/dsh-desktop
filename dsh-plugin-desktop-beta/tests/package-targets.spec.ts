@@ -9,7 +9,8 @@ import { linuxPackageTargets, macApplicationDirectory, macSmokeTarget } from '..
 import { nextMacVerification } from '../scripts/verify-mac-release.ts'
 
 // A one-file inventory stands in for the application's native files.
-vi.mock('../scripts/mac-runtime.ts', () => ({ NEXT_MAC_NATIVE_ENTRIES: [{ arch: 'arm64', path: 'node_modules/fixture-native/bin/uv' }] }))
+vi.mock('../scripts/mac-runtime.ts', async importOriginal => ({ ...await importOriginal<typeof import('../scripts/mac-runtime.ts')>(),
+  nextMacNativeEntries: () => [{ arch: 'arm64', path: 'node_modules/fixture-native/bin/uv' }] }))
 
 type Command = readonly string[]
 

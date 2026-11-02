@@ -51,6 +51,20 @@ export function cuaNativeExecutable(arch: CuaNativeArch, packageDir: string): st
 }
 
 /**
+ * Leave the helper of a CPU a package does not carry out of its payload. The provider keeps one helper application
+ * per CPU below `native/bin/darwin-<cpu>/`, and the package for one CPU ships only that CPU's.
+ * @param name - Package name.
+ * @param entry - Slash-separated path below the package directory.
+ * @param archs - CPUs the package carries.
+ * @returns Omission reason, or undefined to keep the entry.
+ */
+export function cuaNativeExclusion(name: string, entry: string, archs: readonly string[]): string | undefined {
+  if (name !== OFFICIAL_CUA_PROVIDER_PACKAGE) return undefined
+  const arch = /^native\/bin\/darwin-([^/]+)(?:\/|$)/u.exec(entry)?.[1]
+  return arch !== undefined && !archs.includes(arch) ? 'Computer Use helper other architecture' : undefined
+}
+
+/**
  * Use a published signed application unchanged, or invoke the official application builder.
  * Each immutable application is selected by current.json; locally built applications are
  * tracked outside the package so subsequent builds can refresh their sources.
