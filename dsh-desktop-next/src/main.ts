@@ -46,6 +46,8 @@ import { assertBackupLocation, backupDirectoryName, copyDataDirectory } from './
 import { maskSecrets } from './mask-secrets.ts'
 import { DesktopBrowserGuests } from './browser-guests.ts'
 import { PlatformLoginWindow } from './platform-login-window.ts'
+import { DesktopPlatformView, platformBounds } from './platform-view.ts'
+import { PLATFORM_IPC } from './platform-ipc.ts'
 import { NextUpdates } from './updates.ts'
 import { createArtifactRequest } from './update-transport.ts'
 import { NextUpdateInstaller } from './update-installer.ts'
@@ -165,6 +167,9 @@ if (ownsInstance) {
 const shellEnvironment = ownsInstance ? readShellEnvironment() : undefined
 const language = (): 'zh' | 'en' => windowsLanguage.toLowerCase().startsWith('zh') ? 'zh' : 'en'
 const t = (zh: string, en: string): string => language() === 'zh' ? zh : en
+/** The official account plugin's embedded Platform page; the Host supplies its grant and the application renderer asks for pages. */
+const platformView = new DesktopPlatformView(join(root, 'lib', 'preload-platform-account.cjs'),
+  () => language() === 'zh' ? 'zh_CN' : 'en_US', process.platform === 'darwin' || process.platform === 'win32' ? process.platform : null, dshVersion)
 /** The bundled interpreter payload of this CPU: beside the archive when packaged, prepared by `prepare:runtime` in development. */
 const primaryRuntime = join(app.isPackaged ? join(process.resourcesPath, 'runtime') : join(root, '.desktop-build', 'runtime'), process.arch, 'primary-runtime')
 const runtime = new NextDesktopRuntime({
@@ -202,6 +207,7 @@ const runtime = new NextDesktopRuntime({
   onRestart: () => run({ type: 'restart' }),
   onTerminal: () => run({ type: 'terminal' }),
   onNotification: notification => native.notify(notification),
+  onPlatformSession: session => platformView.setSession(session),
   onPlatformLogin: (request) => {
     if (quitting || !app.isReady()) return
     if (request.action === 'close') {
@@ -1286,6 +1292,20 @@ async function main(): Promise<void> {
     assertSender(event, mainWindow, APP_URL)
     return browserGuests.release(event.sender, lease)
   })
+  // The Platform page's own preload asks for its credentials synchronously; bootstrap answers only that view's main frame.
+  ipcMain.on(PLATFORM_IPC.bootstrap, (event) => {
+    try { event.returnValue = platformView.bootstrap(event) } catch { event.returnValue = null }
+  })
+  ipcMain.handle(PLATFORM_IPC.open, (event, page: unknown, bounds: unknown) => {
+    assertSender(event, mainWindow, APP_URL)
+    if (page !== 'usage' && page !== 'top-up') throw new Error('Invalid Platform page')
+    return platformView.open(mainWindow!, page, platformBounds(bounds))
+  })
+  ipcMain.handle(PLATFORM_IPC.bounds, (event, bounds: unknown) => {
+    assertSender(event, mainWindow, APP_URL)
+    platformView.setBounds(platformBounds(bounds))
+  })
+  ipcMain.handle(PLATFORM_IPC.close, (event) => { assertSender(event, mainWindow, APP_URL); platformView.close() })
   ipcMain.handle(IPC.permissionQuery, (event, permission: unknown) => { assertDesktopSender(event); return permissions.query(permission) })
   const permissionGesture = async (event: IpcMainInvokeEvent): Promise<void> => {
     assertDesktopSender(event)
@@ -1351,6 +1371,7 @@ async function main(): Promise<void> {
     }
     if (language === windowsLanguage) return
     windowsLanguage = language
+    platformView.notifyLocaleChanged()
     native.refresh()
   })
   ipcMain.handle(IPC.localeRead, event => {
@@ -1481,7 +1502,11 @@ app.on('before-quit', event => {
   platformLogin.close()
   const updatesDone = runtime.diagnostics.operation('electron', 'updates.dispose')
   const recoveryDone = runtime.diagnostics.operation('electron', 'recovery.dispose')
-  void Promise.all([updates.dispose(installingUpdate).then(() => updatesDone(), error => { updatesDone(error); throw error }), (async () => { try { await recoveryRunner?.dispose(); recoveryDone() } catch (error) { recoveryDone(error); throw error }; await runtime.close() })()]).then(async () => {
+  // Clears the Platform page's sign-in before exit or an installer handoff; a failed cleanup is recorded,
+  // not a failed shutdown, and the next page open clears that storage again.
+  const platformDone = runtime.diagnostics.operation('electron', 'platform.dispose')
+  void Promise.all([updates.dispose(installingUpdate).then(() => updatesDone(), error => { updatesDone(error); throw error }), (async () => { try { await recoveryRunner?.dispose(); recoveryDone() } catch (error) { recoveryDone(error); throw error }; await runtime.close() })(),
+    platformView.dispose().then(() => platformDone(), error => platformDone(error))]).then(async () => {
     if (!finish()) return
     // A staged installer must survive until handoff; the next boot removes it.
     if (safeModeRequested && !installingUpdate) {

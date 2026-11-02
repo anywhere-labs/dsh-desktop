@@ -18,6 +18,7 @@ import { maskSecrets } from '../mask-secrets.ts'
 import { MEMORY_SAMPLE_INTERVAL_MS, hostMemoryUsage } from '../memory-monitor.ts'
 import { parseSystemProxyProbe, SYSTEM_PROXY_ENV, withSystemProxy } from '../system-proxy.ts'
 import { watchPlatformLogin, type PlatformLoginAccount } from './platform-login.ts'
+import { installPlatformSessionPublisher } from './platform-session.ts'
 import { installAgentPresetResolution } from './agent-preset.ts'
 import { installCuaDriverResolution } from './cua-driver.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
@@ -135,6 +136,8 @@ export async function main(): Promise<void> {
   process.once('disconnect', () => { void stop().catch(fatal) })
   const { ctx } = await application
   operations?.observe(ctx)
+  // The shell signs the official account plugin's embedded Platform pages (top-up, usage) in with this grant.
+  if (!stopping) installPlatformSessionPublisher(ctx, (session) => { void send({ type: 'platform-session', session }).catch(() => {}) })
   // Office skills and the workspace dependency tool need the bundled payload; a packaged Host without it fails here.
   const office = resolveOfficeConfig(runtimeDir, primaryRuntime, home)
   if (office === undefined) hostLog({ source: 'host', event: 'office.unavailable', level: 'warn', fields: { source: primaryRuntime } })

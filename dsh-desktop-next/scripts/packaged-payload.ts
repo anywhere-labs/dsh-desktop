@@ -275,7 +275,7 @@ export function verifyNextPayload(source: PayloadSource): void {
   // Host: the overlay swaps the official webserver for Next's private loopback one, and the shims
   // put a `node` on the package manager's PATH. Both are invisible to a `yarn start` run, which
   // resolves them in the source tree, so only this check keeps them in the payload.
-  for (const path of ['lib/main.js', 'lib/host.js', 'lib/client.js', 'lib/preload-app.cjs', 'lib/preload-shell.cjs',
+  for (const path of ['lib/main.js', 'lib/host.js', 'lib/client.js', 'lib/preload-app.cjs', 'lib/preload-shell.cjs', 'lib/preload-platform-account.cjs',
     'lib/native-ui/index.html', 'cordis.patch.yml', 'host.cordis.patch.yml',
     'scripts/node-bin/node', 'scripts/node-bin/node.cmd',
     'assets/tray-iconTemplate.png', 'assets/tray-icon-blue.png']) {

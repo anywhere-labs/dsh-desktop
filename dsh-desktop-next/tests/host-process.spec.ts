@@ -338,25 +338,47 @@ process.stderr.write("plugin started\\n" + report + "plugin teardown\\n".repeat(
   })
 
   it('carries Platform credentials over private IPC and clears them on shutdown', async () => {
-    const runtime = projectWithHost(HTTP_HOST.replace("process.send({ type: 'ready'", "process.send({ type: 'platform-session', session: { origin: 'https://platform.deepseek.com', token: 'fixture-secret', embeddedPageDist: 'feat/test' } }); process.send({ type: 'ready'"))
+    const runtime = projectWithHost(HTTP_HOST.replace("process.send({ type: 'ready'", "process.send({ type: 'platform-session', session: { origin: 'https://platform.deepseek.com', userId: 'fixture-user', token: 'fixture-secret', embeddedPageDist: 'feat/test' } }); process.send({ type: 'ready'"))
     const changed = vi.fn()
     const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env, undefined,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, changed)
     hosts.push(host)
     await host.start()
-    expect(changed).toHaveBeenCalledWith({ origin: 'https://platform.deepseek.com', token: 'fixture-secret', embeddedPageDist: 'feat/test' })
+    expect(changed).toHaveBeenCalledWith({ origin: 'https://platform.deepseek.com', userId: 'fixture-user', token: 'fixture-secret', embeddedPageDist: 'feat/test' })
     await host.stop()
     expect(changed).toHaveBeenLastCalledWith(null)
   })
 
+  it('lets a stopping Host withdraw its Platform credentials but not install new ones', async () => {
+    const runtime = projectWithHost(HTTP_HOST.replace("if (message.type !== 'shutdown') return", [
+      "if (message.type !== 'shutdown') return",
+      "  process.send({ type: 'platform-session', session: { origin: 'https://platform.deepseek.com', userId: null, token: 'late-secret' } })",
+      "  process.send({ type: 'platform-session', session: null })",
+    ].join('\n')))
+    const changed = vi.fn()
+    const received: string[] = []
+    const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, changed, undefined,
+      (input) => { if (input.event === 'received') received.push(String(input.fields?.type)) })
+    hosts.push(host)
+    await host.start()
+    await host.stop()
+    expect(received.filter(type => type === 'platform-session')).toHaveLength(2)
+    expect(changed).not.toHaveBeenCalledWith(expect.objectContaining({ token: 'late-secret' }))
+    expect(changed).toHaveBeenLastCalledWith(null)
+  })
+
   it.each([
-    ["{ origin: 'https://platform.deepseek.com', token: '' }", 'an empty credential'],
-    ["{ origin: 'http://platform.deepseek.com', token: 'secret' }", 'a plaintext non-loopback origin'],
-    ["{ origin: 'https://user:pass@platform.deepseek.com', token: 'secret' }", 'embedded userinfo'],
-    ["{ origin: 'https://platform.deepseek.com/app', token: 'secret' }", 'a path beyond the origin'],
-    ["{ origin: 'https://platform.deepseek.com', token: 'secret', requestHeaders: { 'X-Deploy': 'a' } }", 'an upper-case header name'],
-    ["{ origin: 'https://platform.deepseek.com', token: 'secret', requestHeaders: { authorization: 'a' } }", 'a forbidden header'],
-    ["{ origin: 'https://platform.deepseek.com', token: 'secret', requestHeaders: { 'x-deploy': 'a\\r\\nx: b' } }", 'a header value carrying CRLF'],
+    ["{ origin: 'https://platform.deepseek.com', userId: null, token: '' }", 'an empty credential'],
+    ["{ origin: 'http://platform.deepseek.com', userId: null, token: 'secret' }", 'a plaintext non-loopback origin'],
+    ["{ origin: 'https://user:pass@platform.deepseek.com', userId: null, token: 'secret' }", 'embedded userinfo'],
+    ["{ origin: 'https://platform.deepseek.com/app', userId: null, token: 'secret' }", 'a path beyond the origin'],
+    ["{ origin: 'https://platform.deepseek.com', userId: null, token: 'secret', requestHeaders: { 'X-Deploy': 'a' } }", 'an upper-case header name'],
+    ["{ origin: 'https://platform.deepseek.com', userId: null, token: 'secret', requestHeaders: { authorization: 'a' } }", 'a forbidden header'],
+    ["{ origin: 'https://platform.deepseek.com', userId: null, token: 'secret', requestHeaders: { 'x-deploy': 'a\\r\\nx: b' } }", 'a header value carrying CRLF'],
+    ["{ origin: 'https://platform.deepseek.com', token: 'secret' }", 'no account ID'],
+    ["{ origin: 'https://platform.deepseek.com', userId: '', token: 'secret' }", 'an empty account ID'],
+    ["{ origin: 'https://platform.deepseek.com', userId: 7, token: 'secret' }", 'a numeric account ID'],
   ])('refuses a Platform session with %s (%s)', async (session) => {
     const host = hostProcess(projectWithHost(`process.send({ type: 'platform-session', session: ${session} })`))
     await expect(host.start()).rejects.toThrow('invalid IPC event')
