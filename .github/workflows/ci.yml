@@ -235,8 +235,8 @@ jobs:
             ~/AppData/Local/electron-builder/Cache
           key: ${{ steps.packaging-cache.outputs.cache-primary-key }}
 
-  # Linux x64 distribution artifacts: unsigned AppImage and Debian package
-  # built on a stock ubuntu runner, mirroring the Windows packaging job.
+  # Linux x64 distribution artifacts built on a stock ubuntu runner, mirroring the Windows packaging
+  # job: the unsigned AppImage, plus the Debian package outside pull requests.
   desktop-linux:
     needs: changes
     if: needs.changes.outputs.product == 'true'
@@ -287,10 +287,13 @@ jobs:
           path: ${{ steps.yarn-cache-dir.outputs.dir }}
           key: ${{ steps.yarn-cache.outputs.cache-primary-key }}
       - run: yarn workspace dsh-plugin-desktop-beta check:linux-package:platform
-      - name: Build Linux AppImage and Debian package
+      - name: Build Linux artifacts
         env:
           DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
           DSH_LINUX_PACKAGE_COMPRESSION: store
+          # The Debian package takes about 100 s and its check reads only the archive header, so pull
+          # requests build the AppImage alone. Pushes to master and manual runs build both.
+          DSH_LINUX_PACKAGE_TARGETS: ${{ github.event_name == 'pull_request' && 'AppImage' || 'AppImage,deb' }}
         run: yarn workspace dsh-plugin-desktop-beta dist:linux
       - name: Save primary runtime and Electron Builder downloads
         if: github.event_name != 'pull_request' && steps.packaging-cache.outputs.cache-hit != 'true'
@@ -371,6 +374,9 @@ jobs:
           # manual runs keep the full universal DMG.
           DSH_MAC_SMOKE_ARCH: ${{ github.event_name == 'pull_request' && 'arm64' || 'universal' }}
           DSH_MAC_PACKAGE_COMPRESSION: store
+          # Pull requests verify the packaged application directory in place and skip the DMG, whose
+          # build and mount cost about 45 s. Pushes to master and manual runs build and mount it.
+          DSH_MAC_SMOKE_TARGET: ${{ github.event_name == 'pull_request' && 'dir' || 'dmg' }}
         run: yarn workspace dsh-plugin-desktop-beta dist:mac-smoke
       - name: Save primary runtime and Electron Builder downloads
         if: github.event_name != 'pull_request' && steps.packaging-cache.outputs.cache-hit != 'true'
