@@ -25563,6 +25563,68 @@ __metadata:
   languageName: node
   linkType: hard
 
+"meshcall@patch:meshcall@npm%3A0.3.0#./patches/meshcall@0.3.0.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.3.0
+  resolution: "meshcall@patch:meshcall@npm%3A0.3.0#./patches/meshcall@0.3.0.patch::version=0.3.0&hash=32c325&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    ajv: "npm:^8"
+    ajv-formats: "npm:^3"
+    meshcall-router-darwin-arm64: "npm:0.3.0"
+    meshcall-router-darwin-x64: "npm:0.3.0"
+    meshcall-router-freebsd-arm64: "npm:0.3.0"
+    meshcall-router-freebsd-x64: "npm:0.3.0"
+    meshcall-router-linux-arm: "npm:0.3.0"
+    meshcall-router-linux-arm64: "npm:0.3.0"
+    meshcall-router-linux-ia32: "npm:0.3.0"
+    meshcall-router-linux-ppc64: "npm:0.3.0"
+    meshcall-router-linux-riscv64: "npm:0.3.0"
+    meshcall-router-linux-s390x: "npm:0.3.0"
+    meshcall-router-linux-x64: "npm:0.3.0"
+    meshcall-router-win32-arm64: "npm:0.3.0"
+    meshcall-router-win32-ia32: "npm:0.3.0"
+    meshcall-router-win32-x64: "npm:0.3.0"
+    ws: "npm:^8.21.3"
+    zod: "npm:^4"
+  peerDependencies:
+    "@opentelemetry/api": ^1.4.0
+  dependenciesMeta:
+    meshcall-router-darwin-arm64:
+      optional: true
+    meshcall-router-darwin-x64:
+      optional: true
+    meshcall-router-freebsd-arm64:
+      optional: true
+    meshcall-router-freebsd-x64:
+      optional: true
+    meshcall-router-linux-arm:
+      optional: true
+    meshcall-router-linux-arm64:
+      optional: true
+    meshcall-router-linux-ia32:
+      optional: true
+    meshcall-router-linux-ppc64:
+      optional: true
+    meshcall-router-linux-riscv64:
+      optional: true
+    meshcall-router-linux-s390x:
+      optional: true
+    meshcall-router-linux-x64:
+      optional: true
+    meshcall-router-win32-arm64:
+      optional: true
+    meshcall-router-win32-ia32:
+      optional: true
+    meshcall-router-win32-x64:
+      optional: true
+  peerDependenciesMeta:
+    "@opentelemetry/api":
+      optional: true
+  bin:
+    meshcall: dist/src/launcher.js
+  checksum: 10c0/25bfead9eb03080d279b0fc68aa86a4f7f327a120a8ff06c39088e2bdcee10d784b5c2015f2da8206c916b6898091fe0d53404e6f12ffffa222734b6ae4716b9
+  languageName: node
+  linkType: hard
+
 "micromark-core-commonmark@npm:^2.0.0, micromark-core-commonmark@npm:^2.0.3":
   version: 2.0.3
   resolution: "micromark-core-commonmark@npm:2.0.3"
