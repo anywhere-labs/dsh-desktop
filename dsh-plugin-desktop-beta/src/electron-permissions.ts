@@ -40,6 +40,12 @@ function appOrigin(value: string): boolean {
   try { const url = new URL(value); return url.protocol === 'dsh-app:' && url.host === 'app' } catch { return false }
 }
 
+/**
+ * Clipboard access open to app-origin sub-frames such as plugin viewers; other permissions need the main frame.
+ * Chromium asks for `clipboard-read` to read, to write custom formats, and to write without user activation.
+ */
+const SUBFRAME_PERMISSIONS: ReadonlySet<string> = new Set(['clipboard-read', 'clipboard-sanitized-write'])
+
 /** A frame may close while native consent is open; settle its callback at most once. */
 function replyOnce<T>(callback: (value: T) => void, warn: (error: unknown) => void): (value: T) => void {
   let replied = false
@@ -58,7 +64,7 @@ export function installMediaPermissions(session: Session, options: {
   const trusted = (contents: Electron.WebContents | null, url: string, isMainFrame: boolean, permission: string): boolean => {
     const owner = options.window()
     return !!owner && !owner.isDestroyed() && owner.webContents === contents && !contents.isDestroyed()
-      && (isMainFrame || permission === 'clipboard-sanitized-write') && appOrigin(url) && contents.getURL().startsWith(APP_URL)
+      && (isMainFrame || SUBFRAME_PERMISSIONS.has(permission)) && appOrigin(url) && contents.getURL().startsWith(APP_URL)
   }
   session.setPermissionCheckHandler((contents, permission, origin, details) => {
     if (!trusted(contents, origin, details.isMainFrame, permission)) return false
