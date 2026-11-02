@@ -11,7 +11,7 @@ import { app, BrowserWindow, clipboard, crashReporter, dialog, ipcMain, Menu, na
 import { appRequestHeaders, forwardWebRequest, serveWebDocument } from './web-document.ts'
 import { installAppDownloads } from './app-downloads.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
-import { NEXT_PACKAGE, parseFeatures, profileName } from './profiles.ts'
+import { NEXT_PACKAGE, NextProfiles, parseFeatures, profileName } from './profiles.ts'
 import { APP_URL, IPC, SHELL_URL } from './ipc.ts'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 import { preferredDesktopLocale, resolveDesktopLocale } from './menu-locale.ts'
@@ -27,6 +27,7 @@ import { NativeDesktop, applyWindowMaterial } from './native-desktop.ts'
 import { desktopLanAddresses } from './lan-addresses.ts'
 import { createLanHttpsCertificate, lanHttpsCertificateDiagnostic } from './lan-https-certificate.ts'
 import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-terminal.ts'
+import { dshCommandArguments, dshCommandInvocation } from './dsh-command.ts'
 import { createPackageRunner } from './extensions.ts'
 import { bundledPnpmEntry } from './bundled-pnpm.ts'
 import { applyDesktopPackageManagerPolicy } from './pnpm-policy.ts'
@@ -82,6 +83,9 @@ const locationFile = dataDirectoryLocationFile(locationRoot)
 const dataLocation = readDataDirectory(locationRoot, environmentHome)
 const home = dataLocation.home
 let dataSource = dataLocation.source
+// Linux has no tray terminal; `<app> dsh …` is its `dsh` command and never opens the desktop (#1568).
+const dshArguments = dshCommandArguments(process.argv, process.platform, process.defaultApp === true)
+if (dshArguments !== undefined) execDshCommand(dshArguments)
 const normalElectronData = join(home, 'electron-user-data')
 privateDirectory(normalElectronData)
 app.setName('DSH NEXT')
@@ -1019,6 +1023,23 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
     app.quit(); return
   }
   throw new Error('Unknown recovery action')
+}
+
+/**
+ * Replace this process with the packaged CLI on this launch's data directory and selected Profile.
+ * An unreadable data directory choice sends the desktop into recovery, so no command runs on the fallback.
+ */
+function execDshCommand(args: readonly string[]): never {
+  if (dataLocation.error) {
+    console.error(`dsh-desktop-next: the data directory choice cannot be read; open DSH NEXT to repair it: ${dataLocation.error}`)
+    return process.exit(1)
+  }
+  let profile: string | undefined
+  try { profile = new NextProfiles(home).active } catch (error) {
+    console.error(`dsh-desktop-next: the selected Profile cannot be read; name one with --profile: ${String(error)}`)
+  }
+  const command = dshCommandInvocation({ executable: process.execPath, root, args, home, profile, environment: process.env })
+  return process.execve!(command.file, command.args, command.env)
 }
 
 function rememberLaunchDirectory(directory: string): void {
