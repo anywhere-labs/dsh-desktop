@@ -117,6 +117,15 @@ it('lets a failure of the Desktop itself replace a failed action as the reason',
   expect(onFailure).toHaveBeenCalledTimes(2)
 })
 
+it('passes the fatal line a Host exit carries to recovery, masked like its stderr (#1574)', async () => {
+  const { runtime } = await fixture()
+  runtime.report(new DesktopHostExitError(1, null, 'plugin teardown', 'dsh: fatal load failure: Error: Authorization: Bearer abcdef'), 'host-runtime')
+  expect(runtime.state().failureExit).toEqual({ code: 1, signal: null, output: 'plugin teardown', fatal: 'dsh: fatal load failure: Error: Authorization: Bearer ****' })
+  const { runtime: crashed } = await fixture()
+  crashed.report(new DesktopHostExitError(3221225477, null, ''), 'host-runtime')
+  expect(crashed.state().failureExit).toStrictEqual({ code: 3221225477, signal: null, output: '' })
+})
+
 it('saves a masked report of the failure that opened recovery, with the Host diagnostic', async () => {
   vi.spyOn(DesktopHostProcess.prototype, 'stop').mockResolvedValue()
   vi.spyOn(DesktopHostProcess.prototype, 'start').mockRejectedValueOnce(new DesktopHostFatalError('dsh-plugin-desktop-beta: startup failed',

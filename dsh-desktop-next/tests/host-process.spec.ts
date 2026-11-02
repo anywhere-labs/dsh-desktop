@@ -1,8 +1,10 @@
+import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { installFailLoud } from '@deepseek-ai/dsh-app-boot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from '../src/host-process.ts'
+import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError, exitFatalLine } from '../src/host-process.ts'
 
 const roots: string[] = []
 const hosts: DesktopHostProcess[] = []
@@ -277,6 +279,19 @@ describe('desktop host process', () => {
     expect((failure as DesktopHostExitError).output.length).toBe(4096)
   })
 
+  it('carries the fatal line the Host printed before its teardown pushed it out of the stderr tail (#1574)', async () => {
+    const runtime = projectWithHost(`
+const report = "dsh: fatal load failure: MeshCallError: Call deadline exceeded\\n    at localDeadlineError (client.js:781:12)\\n"
+process.stderr.write("plugin started\\n" + report + "plugin teardown\\n".repeat(400), () => { process.exitCode = 1; process.disconnect() })
+`)
+    const failure = await hostProcess(runtime).start().catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(DesktopHostExitError)
+    const exit = failure as DesktopHostExitError
+    expect(exit.fatal).toBe('dsh: fatal load failure: MeshCallError: Call deadline exceeded')
+    expect(exit.output).not.toContain('fatal load failure')
+    expect(exit.message).toBe(`dsh desktop host exited with code 1\nHost fatal error: ${exit.fatal!}\nLast Host stderr (may be unrelated to the exit):\n${exit.output}`)
+  })
+
   it('settles teardown when the executable cannot be spawned', async () => {
     const runtime = projectWithHost()
     const host = new DesktopHostProcess(join(runtime, 'missing-node'), runtime, runtime)
@@ -369,5 +384,37 @@ describe('desktop host process', () => {
   ])('refuses a Platform sign-in request %s (%s)', async (event) => {
     const host = hostProcess(projectWithHost(`process.send(${event})`))
     await expect(host.start()).rejects.toThrow('invalid IPC event')
+  })
+})
+
+describe('Host fatal line', () => {
+  /** What the DSH runtime's fail-loud handler writes for one fatal process event. */
+  function failLoudReport(event: 'unhandledRejection' | 'uncaughtException', error: Error): string {
+    let written = ''
+    const proc = Object.assign(new EventEmitter(), { stderr: { write(chunk: string) { written += chunk } }, exit: vi.fn() })
+    const uninstall = installFailLoud('dsh', proc)
+    try {
+      proc.emit(event, error)
+    } finally {
+      uninstall()
+    }
+    expect(proc.exit).toHaveBeenCalledWith(1)
+    return written
+  }
+
+  it('finds the line the DSH runtime prints when it fails loud, among other Host output (#1574)', () => {
+    const report = failLoudReport('unhandledRejection', new Error('Call deadline exceeded'))
+    expect(exitFatalLine(`remote-web-ui: relay lease claim failed\n${report}(node:28708) PromiseRejectionHandledWarning: Promise rejection was handled asynchronously (rejection id: 3804)\n`))
+      .toBe('dsh: fatal load failure: Error: Call deadline exceeded')
+    expect(exitFatalLine(failLoudReport('uncaughtException', new TypeError('listener failed'))))
+      .toBe('dsh: fatal uncaught exception: TypeError: listener failed')
+  })
+
+  it('ignores output that only mentions a fatal failure and bounds a long line', () => {
+    expect(exitFatalLine('plugin: fatal error: disk full\n[bridge] dsh: fatal load failure: quoted\n')).toBeUndefined()
+    expect(exitFatalLine('')).toBeUndefined()
+    const long = exitFatalLine(`dsh: fatal load failure: Error: ${'x'.repeat(2000)}\n`)
+    expect(long).toHaveLength(1024)
+    expect(long?.endsWith('…')).toBe(true)
   })
 })

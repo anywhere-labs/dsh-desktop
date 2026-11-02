@@ -37,3 +37,12 @@ it('labels the last Host stderr as possibly unrelated instead of presenting it a
   expect(hostExitDetail({ code: null, signal: 'SIGKILL', output: '' }, 'zh')).toBe('插件服务进程被 SIGKILL 终止：被强制结束（可能是系统内存不足）')
   expect(hostExitDetail({ code: 7, signal: null, output: '' }, 'en')).toBe('The Plugin Host process exited with code 7')
 })
+
+it('keeps the fatal error the Host reported in view, above the stderr tail that may no longer contain it (#1574)', () => {
+  const fatal = 'dsh: fatal load failure: MeshCallError: Call deadline exceeded'
+  const output = '(node:28708) PromiseRejectionHandledWarning: Promise rejection was handled asynchronously (rejection id: 3804)'
+  expect(hostExitDetail({ code: 1, signal: null, output, fatal }, 'zh')).toBe(
+    `插件服务进程已退出，退出码 1\n插件服务报告的致命错误：${fatal}\n\n退出前最后的 stderr 输出（可能与退出原因无关）：\n${output}`)
+  expect(hostExitDetail({ code: 1, signal: null, output: '', fatal }, 'en')).toBe(
+    `The Plugin Host process exited with code 1\nFatal error reported by the Plugin Host: ${fatal}`)
+})

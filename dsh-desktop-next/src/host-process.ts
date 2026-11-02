@@ -78,6 +78,13 @@ type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | Platfor
 const MAX_HOST_DIAGNOSTIC_CHARS = 64 * 1024
 /** The stderr tail an exit failure carries; the complete lines remain in the Host output log. */
 const MAX_EXIT_OUTPUT_CHARS = 4 * 1024
+/**
+ * The first line of upstream's fail-loud report, such as `dsh: fatal load failure: Error: …`. The Host
+ * prints it once and exits with 1 after a teardown whose own output can push it out of the stderr tail.
+ */
+const FAIL_LOUD_LINE = /^[^\s:]+: fatal (?:load failure|uncaught exception): .*$/mu
+/** Longest fatal line an exit failure carries; the error's name and message come first. */
+const MAX_FATAL_LINE_CHARS = 1024
 
 function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
   if (typeof message !== 'object' || message === null || !('type' in message)) return false
@@ -181,14 +188,21 @@ export class DesktopHostFatalError extends Error {
  * plugins print freely, so the final lines rarely name the cause of a native crash.
  */
 export class DesktopHostExitError extends Error {
+  readonly #fatal: string | undefined
+
   /**
    * @param exitCode - The process exit code; Windows exception codes arrive as unsigned values.
    * @param signal - The signal that terminated the process, if any.
    * @param output - The last stderr text, at most a few kilobytes and starting at a line boundary when possible.
+   * @param fatal - The first line of the fatal error the Host reported before it exited, if it reported one.
    */
-  constructor(readonly exitCode: number | null, readonly signal: NodeJS.Signals | null, readonly output: string) {
-    super(`dsh desktop host ${exitSummary({ code: exitCode, signal })}${output === '' ? '' : `\nLast Host stderr (may be unrelated to the exit):\n${output}`}`)
+  constructor(readonly exitCode: number | null, readonly signal: NodeJS.Signals | null, readonly output: string, fatal?: string) {
+    super(`dsh desktop host ${exitSummary({ code: exitCode, signal })}${fatal === undefined ? '' : `\nHost fatal error: ${fatal}`}${output === '' ? '' : `\nLast Host stderr (may be unrelated to the exit):\n${output}`}`)
+    this.#fatal = fatal
   }
+
+  /** The Host's fatal line; a getter so `util.inspect` of this error does not repeat it after the message. */
+  get fatal(): string | undefined { return this.#fatal }
 }
 
 /** Main-process observers of Host facts that are not failures. Observers must not throw. */
@@ -211,6 +225,16 @@ function exitOutput(stderr: string): string {
   const tail = text.slice(-MAX_EXIT_OUTPUT_CHARS)
   const line = tail.indexOf('\n')
   return line === -1 ? tail : tail.slice(line + 1)
+}
+
+/**
+ * @param stderr - The Host's retained stderr.
+ * @returns The first line of the fatal error the Host reported, or `undefined` when it reported none.
+ */
+export function exitFatalLine(stderr: string): string | undefined {
+  const line = FAIL_LOUD_LINE.exec(stderr)?.[0].trimEnd()
+  if (line === undefined || line.length <= MAX_FATAL_LINE_CHARS) return line
+  return `${line.slice(0, MAX_FATAL_LINE_CHARS - 1).replace(/[\uD800-\uDBFF]$/u, '')}…`
 }
 
 /** One Web backend running under the Electron executable in Node mode. */
@@ -366,7 +390,7 @@ export class DesktopHostProcess {
       child.once('close', (code, signal) => {
         this.diagnostic({ source: 'host.process', event: 'exit', pid: child.pid, level: this.stopping && code === 0 ? 'info' : 'error', fields: { exitCode: code, signal, expected: this.stopping, acknowledged: this.shutdownCompleted } })
         try { this.observer?.exited?.({ code, signal, expected: this.stopping }, child.pid) } catch { /* Observational only. */ }
-        this.fail(new DesktopHostExitError(code, signal, exitOutput(this.stderr)))
+        this.fail(new DesktopHostExitError(code, signal, exitOutput(this.stderr), exitFatalLine(this.stderr)))
         resolve()
       })
     })
