@@ -51,10 +51,18 @@ import { NextUpdateInstaller } from './update-installer.ts'
 import { updateLabel } from './update-state.ts'
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
 import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCause } from './renderer-recovery.ts'
-import { deElevateAtStartup, windowsElevation } from './windows-elevation.ts'
-import { createSandboxLaunchReporter, gpuLaunchFailure, rendererLaunchFailure } from './sandbox-launch.ts'
+import { deElevateAtStartup, lowIntegrityAtStartup, windowsElevation } from './windows-elevation.ts'
+import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure } from './sandbox-launch.ts'
+import { pickOutsideProgramDirectory, programDirectory, programDirectoryRefusal, refusedProgramDirectoryOverlap, type ProgramDirectoryOverlap, type ProgramDirectoryPurpose } from './program-directory.ts'
 import { startCrashReporting } from './crash-reporting.ts'
 
+// Below Medium integrity Chromium cannot start its GPU process and ends the launch without a word (#1564).
+const lowIntegrity = lowIntegrityAtStartup({ platform: process.platform, argv: process.argv, executable: process.execPath })
+if (lowIntegrity) {
+  const text = lowIntegrityLaunchDialog(lowIntegrity, preferredDesktopLocale(app.getPreferredSystemLanguages()))
+  dialog.showErrorBox(text.title, `${text.message}\n\n${text.detail}`)
+  app.exit(1)
+}
 // An elevated Windows launch restarts with the user's normal token before Chromium starts any child (#1487).
 const startupElevation = deElevateAtStartup({ platform: process.platform, packaged: app.isPackaged, argv: process.argv, executable: process.execPath })
 if (startupElevation.relaunched) app.exit(0)
@@ -64,6 +72,8 @@ const startupElevationState = startupElevation.relaunched ? {} : startupElevatio
 applyDesktopPackageManagerPolicy(process.env)
 
 const root = dirname(NEXT_PACKAGE)
+// Workspace and data directory choices stay out of the installation (#1564).
+const program = programDirectory(process.platform, process.execPath)
 // Read once: an in-app relaunch inherits this process's environment, not later user variables.
 const environmentHome = process.env[DATA_DIRECTORY_VARIABLE] || undefined
 // The in-app choice keeps its former Next-owned anchor, whatever the variable says.
@@ -149,7 +159,8 @@ if (ownsInstance) {
 // Finder and Dock launches carry no login-shell exports. Reading them takes one login shell's startup
 // and no Electron API, so it overlaps Electron's own startup; the Host still waits for the result.
 const shellEnvironment = ownsInstance ? readShellEnvironment() : undefined
-const t = (zh: string, en: string): string => windowsLanguage.toLowerCase().startsWith('zh') ? zh : en
+const language = (): 'zh' | 'en' => windowsLanguage.toLowerCase().startsWith('zh') ? 'zh' : 'en'
+const t = (zh: string, en: string): string => language() === 'zh' ? zh : en
 /** The bundled interpreter payload of this CPU: beside the archive when packaged, prepared by `prepare:runtime` in development. */
 const primaryRuntime = join(app.isPackaged ? join(process.resourcesPath, 'runtime') : join(root, '.desktop-build', 'runtime'), process.arch, 'primary-runtime')
 const runtime = new NextDesktopRuntime({
@@ -599,6 +610,14 @@ async function confirmed(message: string, detail = t('将停止当前 Host，正
   const owner = raiseDialogOwner()
   const options = { type: 'question' as const, title: 'DSH NEXT', message, detail,
     buttons: [t('继续', 'Continue'), t('取消', 'Cancel')], defaultId: 1, cancelId: 1 }
+  const result = await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
+  return result.response === 0 && !quitting
+}
+/** Explain a folder choice that overlaps the installation; true opens the folder dialog again. */
+async function chooseAgain(purpose: ProgramDirectoryPurpose, overlap: ProgramDirectoryOverlap, owner: BrowserWindow | undefined): Promise<boolean> {
+  const text = programDirectoryRefusal(purpose, overlap, program, language())
+  const options = { type: 'warning' as const, title: text.title, message: text.message, detail: text.detail,
+    buttons: [...text.buttons], defaultId: 0, cancelId: 1, noLink: true }
   const result = await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
   return result.response === 0 && !quitting
 }
@@ -1052,8 +1071,10 @@ async function changeDataDirectory(restoreDefault: boolean): Promise<void> {
   if (!restoreDefault) {
     const owner = raiseDialogOwner()
     const options: OpenDialogOptions = { properties: ['openDirectory', 'createDirectory'] }
-    const choice = await (owner === undefined ? dialog.showOpenDialog(options) : dialog.showOpenDialog(owner, options))
-    const selected = choice.canceled ? undefined : choice.filePaths[0]
+    const selected = await pickOutsideProgramDirectory(async () => {
+      const choice = await (owner === undefined ? dialog.showOpenDialog(options) : dialog.showOpenDialog(owner, options))
+      return choice.canceled ? undefined : choice.filePaths[0]
+    }, choice => refusedProgramDirectoryOverlap('data', choice, program), overlap => chooseAgain('data', overlap, owner))
     if (!selected || !isAbsolute(selected)) return
     target = selected
   }
@@ -1278,8 +1299,10 @@ async function main(): Promise<void> {
     assertSender(event, mainWindow, APP_URL)
     const window = mainWindow!
     show(window)
-    picking ??= dialog.showOpenDialog(window, { properties: ['openDirectory', 'createDirectory'] })
-      .then(result => result.canceled ? null : result.filePaths[0] ?? null).finally(() => { picking = undefined })
+    picking ??= pickOutsideProgramDirectory(
+      () => dialog.showOpenDialog(window, { properties: ['openDirectory', 'createDirectory'] }).then(result => result.canceled ? undefined : result.filePaths[0]),
+      choice => refusedProgramDirectoryOverlap('workspace', choice, program), overlap => chooseAgain('workspace', overlap, window))
+      .then(path => path ?? null).finally(() => { picking = undefined })
     return picking
   })
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {

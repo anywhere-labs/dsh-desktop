@@ -1,6 +1,6 @@
 /** Native explanation of Windows sandbox launch failures. */
 import { describe, expect, it, vi } from 'vitest'
-import { createSandboxLaunchReporter, gpuLaunchFailure, rendererLaunchFailure, sandboxLaunchDialog, type SandboxLaunchContext } from '../src/sandbox-launch.ts'
+import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure, sandboxLaunchDialog, type SandboxLaunchContext } from '../src/sandbox-launch.ts'
 
 const EXECUTABLE = 'E:\\Program Files\\DSH NEXT\\DSH NEXT.exe'
 const GPU = { process: 'gpu', code: 18 } as const
@@ -92,5 +92,32 @@ describe('createSandboxLaunchReporter', () => {
     })(GPU)
     expect(record).toHaveBeenCalledWith(GPU, { elevated: false, type: 'limited' })
     expect(show.mock.calls[0]![0].detail).toContain('没有以管理员身份运行')
+  })
+})
+
+describe('lowIntegrityLaunchDialog', () => {
+  const FOLDER = 'C:\\Users\\Zhou\\AppData\\Local\\Programs\\DSH NEXT'
+  const FILE = `${FOLDER}\\DSH NEXT.exe`
+
+  it('names the labeled folder and the command that gives it Medium integrity again', () => {
+    const text = lowIntegrityLaunchDialog({ executable: FILE, labeled: FOLDER }, 'zh')
+    expect(text.title).toBe('DSH NEXT 无法启动')
+    expect(text.message).toContain('低完整性级别')
+    expect(text.detail).toContain(`标签来自：${FOLDER}`)
+    expect(text.detail).toContain('工作区')
+    expect(text.detail).toContain(`icacls "${FOLDER}" /setintegritylevel "(OI)(CI)Medium" /T /C /Q`)
+    expect(text.detail).toContain(`程序位置：${FILE}`)
+  })
+
+  it('keeps the closing quote of a drive root', () => {
+    const text = lowIntegrityLaunchDialog({ executable: 'D:\\DSH\\DSH NEXT.exe', labeled: 'D:\\' }, 'en')
+    expect(text.detail).toContain('icacls "D:\\\\" /setintegritylevel "(OI)(CI)Medium" /T /C /Q')
+  })
+
+  it('tells a user whose program carries no label to start it normally', () => {
+    const text = lowIntegrityLaunchDialog({ executable: FILE }, 'en')
+    expect(text.title).toBe('DSH NEXT cannot start')
+    expect(text.detail).toContain('a Low integrity process started DSH NEXT')
+    expect(text.detail).not.toContain('icacls')
   })
 })
