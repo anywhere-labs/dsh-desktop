@@ -173,12 +173,17 @@ it('names the release notes page after the latest channel version reported by th
 })
 it('links the release notes beside the update controls in both languages, but not on Linux', () => {
   const releases = 'https://github.com/anywhere-labs/dsh-desktop/releases'
-  const current: NextUpdateState = { phase: 'current', version: '2.0.20-beta.1', installable: true }
+  const installed = baseState.version
+  // An installed build ahead of the last release (a source run) is reported the older, published version.
+  const current: NextUpdateState = { phase: 'current', version: '2.0.19-beta.1', installable: true }
   const ready: NextUpdateState = { phase: 'ready', version: '2.0.21-beta.1', installable: true }
   const render = (platform: string, language: string, updates: NextUpdateState) =>
     renderToStaticMarkup(createElement(NextUpdateSettings, { state: { ...baseState, platform, updates }, language, run: vi.fn() }))
   const cases: [string, string, NextUpdateState, string, string][] = [
-    ['darwin', 'zh-CN', { phase: 'idle', installable: true }, '更新公告', releases],
+    // Until the service has reported a version, and after a failed check cleared it, the installed version names the page.
+    ['darwin', 'zh-CN', { phase: 'idle', installable: true }, '更新公告', `${releases}/tag/v${installed}`],
+    ['darwin', 'zh-CN', { phase: 'error', error: 'service', installable: true }, '更新公告', `${releases}/tag/v${installed}`],
+    // A reported version wins over the installed one, whether it is older or newer.
     ['darwin', 'zh-CN', current, '更新公告', `${releases}/tag/v${current.version}`],
     ['win32', 'en', ready, 'Release notes', `${releases}/tag/v${ready.version}`],
   ]

@@ -707,7 +707,7 @@ try {
   assert.equal(await settings.locator('nav').count(), 0)
   const updateSection = settings.locator('[data-next-updates]')
   const releaseNotes = updateSection.getByRole('link', { name: /^(更新公告|Release notes)$/ })
-  assert.equal(await releaseNotes.getAttribute('href'), 'https://github.com/anywhere-labs/dsh-desktop/releases')
+  assert.equal(await releaseNotes.getAttribute('href'), `https://github.com/anywhere-labs/dsh-desktop/releases/tag/v${controlState.version}`)
   assert.equal(await releaseNotes.getAttribute('target'), '_blank')
   assert.equal(await releaseNotes.getAttribute('rel'), 'noopener noreferrer')
   await updateSection.getByRole('button', { name: /检查更新|Check for updates/ }).click()

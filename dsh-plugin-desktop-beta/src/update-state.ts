@@ -39,8 +39,9 @@ export function updateAction(state: NextUpdateState): 'check-updates' | 'downloa
 
 const RELEASES_URL = 'https://github.com/anywhere-labs/dsh-desktop/releases'
 
-// Release tags are `v` plus the version, which already carries its channel (-next, -beta). Before a check has
-// reported one the list is the fallback; /releases/latest would resolve to the Stable release.
+// Release tags are `v` plus the version, which already carries its channel (-next, -beta). /releases/latest is no
+// substitute: it resolves to one release for every channel and never to a prerelease, so Beta could not reach its own.
+// Callers pass the version the update service reported, else the installed one; the list is the last resort.
 export function releaseNotesUrl(version?: string): string {
   return version ? `${RELEASES_URL}/tag/v${encodeURIComponent(version)}` : RELEASES_URL
 }
