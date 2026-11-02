@@ -1,11 +1,12 @@
 diff --git a/lib/types-Cl_DXjhk.js b/lib/types-Cl_DXjhk.js
-index 4d906d1..1f65214 100644
+index 4d906d1..1a848e6 100644
 --- a/lib/types-Cl_DXjhk.js
 +++ b/lib/types-Cl_DXjhk.js
-@@ -590,6 +590,52 @@ function hasForeignGrant(oldAcl, sidPtr) {
+@@ -590,6 +590,66 @@ function hasForeignGrant(oldAcl, sidPtr) {
  * @param worldSidPtr - the Everyone SID the ambient-delete deny names.
  */
  function grantWrite(api, path, sidPtr, lowLabelSidPtr, worldSidPtr) {
++	assertOutsideProgramDirectory(path);
 +	try {
 +		grantWriteOnce(api, path, sidPtr, lowLabelSidPtr, worldSidPtr);
 +	} catch (error) {
@@ -50,6 +51,19 @@ index 4d906d1..1f65214 100644
 +		}
 +		mergeAndApply(api, path, buildExplicitAccess(owner, 1, 524288), decodePtr(daclSlot), { kind: "keep" }, descriptor, "grantOwnerWriteOwner");
 +	});
++}
++/**
++* DSH Desktop: refuse a grant that overlaps the running program's directory.
++* The grant's Low label is inheritable and SetNamedSecurityInfoW propagates it
++* to every existing child. A workspace that is or holds the program directory
++* hands it to the executable, whose next launch then runs at Low integrity,
++* where Chromium cannot start its GPU process (#1564); a workspace inside the
++* program directory hands it to the program's own executables.
++* @param path - the directory that would gain the grant.
++*/
++function assertOutsideProgramDirectory(path) {
++	const program = dirname(process.execPath);
++	if (containsDirectory(path, program) || containsDirectory(program, path)) throw new Error(`Windows ACL workspace must not overlap the program directory: workspace=${path}; program=${program}. Its Low integrity label would stop the program from starting; use a workspace outside the program directory.`);
 +}
 +function grantWriteOnce(api, path, sidPtr, lowLabelSidPtr, worldSidPtr) {
  	withPathLock(api, path, () => {
