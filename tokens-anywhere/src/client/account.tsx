@@ -198,9 +198,9 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
     { id: 'models', label: t('模型', 'Models'), icon: <IconDataOutlineMedium size={16} /> },
     // The usage comes through the session, which may have ended while the models keep working.
     ...(account.sessionEnded === true ? [] : [{ id: 'usage' as const, label: t('用量', 'Usage'), icon: <IconGaugeOutlineMedium size={16} /> }]),
-    { id: 'local', label: t('本机设置', 'This computer'), icon: <IconSettingsOutlineMedium size={16} /> },
+    { id: 'local', label: t('设置', 'Settings'), icon: <IconSettingsOutlineMedium size={16} /> },
     // Only where the page is given the placement to change.
-    ...(placement === undefined ? [] : [{ id: 'placement' as const, label: t('显示位置', 'Placement'), icon: <IconPanelLeftOutlineMedium size={16} /> }]),
+    ...(placement === undefined ? [] : [{ id: 'placement' as const, label: t('显示', 'Display'), icon: <IconPanelLeftOutlineMedium size={16} /> }]),
   ]
   const tab: AccountTab = tabs.some(item => item.id === selected) ? selected : 'models'
   return (
@@ -243,22 +243,17 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
         <div className="dshAnywhereBalanceCard">
           <div className="dshAnywhereRow">
             <span>{t('账户余额', 'Balance')}</span>
-            {state.balance !== undefined ? (
-              <span className="dshAnywhereAmountColumn">
-                <span className="dshAnywhereAmount">{formatYuan(state.balance.available, language)}</span>
-                {held && state.balance !== undefined && (
-                  <span className="dshAnywhereSecondary">{t(`另有 ${formatYuan(state.balance.held, language)} 正在使用中`, `plus ${formatYuan(state.balance.held, language)} held by running requests`)}</span>
-                )}
-              </span>
-            ) : (
-              <span className="dshAnywhereSecondary">{state.balanceError === undefined ? t('正在读取…', 'Reading…') : problemText(state.balanceError, t)}</span>
-            )}
-          </div>
-          <div className="dshAnywhereDivider" />
-          <div className="dshAnywhereRow">
-            <span>{t('更多', 'More')}</span>
             <span className="dshAnywhereActions">
-              <ExternalLink className="dshAnywhereLinkButton" href={`${state.origin}/console/usage/`}>{t('查询用量', 'View usage')}</ExternalLink>
+              {state.balance !== undefined ? (
+                <span className="dshAnywhereAmountColumn">
+                  <span className="dshAnywhereAmount">{formatYuan(state.balance.available, language)}</span>
+                  {held && state.balance !== undefined && (
+                    <span className="dshAnywhereSecondary">{t(`另有 ${formatYuan(state.balance.held, language)} 正在使用中`, `plus ${formatYuan(state.balance.held, language)} held by running requests`)}</span>
+                  )}
+                </span>
+              ) : (
+                <span className="dshAnywhereSecondary">{state.balanceError === undefined ? t('正在读取…', 'Reading…') : problemText(state.balanceError, t)}</span>
+              )}
               <ExternalLink className="dshAnywhereLinkButton dshAnywherePrimary" href={`${state.origin}/console/settings/billing/`}>{t('充值', 'Top up')}</ExternalLink>
             </span>
           </div>

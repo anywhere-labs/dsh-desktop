@@ -167,7 +167,7 @@ function CustomSwitch({ state, t, act }: { state: AnywhereAccountSnapshot; t: Co
 }
 
 /** One model of the list: renamed in place, and switched on or off for the model picker. */
-function ModelRow({ model, isDefault, t, act }: { model: AnywhereModelView; isDefault: boolean; t: Copy; act: AnywhereAction }) {
+function ModelRow({ model, t, act }: { model: AnywhereModelView; t: Copy; act: AnywhereAction }) {
   const [pending, setPending] = useState<boolean>()
   const [draft, setDraft] = useState<string>()
   const [saving, setSaving] = useState(false)
@@ -202,7 +202,6 @@ function ModelRow({ model, isDefault, t, act }: { model: AnywhereModelView; isDe
         {draft === undefined ? (
           <span className="dshAnywhereToggleLabel">
             <span className="dshAnywhereModelTitle">{model.name}</span>
-            {isDefault && <span className="dshAnywhereBadge">{t('默认', 'Default')}</span>}
             {callable && (
               <button type="button" className="dshAnywhereIconButton" aria-label={t(`重命名 ${model.name}`, `Rename ${model.name}`)}
                 title={t('重命名', 'Rename')} onClick={() => { setDraft(model.name) }}>
@@ -260,7 +259,6 @@ function ModelCatalogList({ state, t, act }: { state: AnywhereAccountSnapshot; t
       return next
     })
   }
-  const isDefault = (model: AnywhereModelView): boolean => model.route === state.defaultModel?.provider && model.id === state.defaultModel?.model
   return (
     <>
       {ANYWHERE_MODEL_FAMILIES.map((family) => {
@@ -268,7 +266,6 @@ function ModelCatalogList({ state, t, act }: { state: AnywhereAccountSnapshot; t
         if (members.length === 0) return null
         const [zh, en] = FAMILY_NAMES[family]
         const callable = members.filter(model => model.route !== undefined).length
-        const shownDefault = members.find(isDefault)
         const on = members.filter(model => model.enabled).length
         const count = on === callable
           ? t(`${members.length} 个模型`, `${members.length} models`)
@@ -281,11 +278,7 @@ function ModelCatalogList({ state, t, act }: { state: AnywhereAccountSnapshot; t
             <ToggleRow
               label={t(zh, en)}
               badge={callable > 0 ? undefined : t('暂不支持', 'Not yet')}
-              description={callable === 0
-                ? t(`${members.length} 个模型，DSH 暂时不能调用。`, `${members.length} models. DSH cannot call them yet.`)
-                : shownDefault === undefined
-                  ? count
-                  : t(`${count}，默认使用 ${shownDefault.name}`, `${count}, defaulting to ${shownDefault.name}`)}
+              description={callable === 0 ? t(`${members.length} 个模型，DSH 暂时不能调用。`, `${members.length} models. DSH cannot call them yet.`) : count}
               checked={pending.get(family) ?? on > 0}
               disabled={callable === 0 || pending.has(family)}
               onChange={(next) => { void switchFamily(family, next) }}
@@ -297,7 +290,7 @@ function ModelCatalogList({ state, t, act }: { state: AnywhereAccountSnapshot; t
             />
             {open.has(family) && (
               <div id={regionId} className="dshAnywhereExpandedRows">
-                {members.map(model => <ModelRow key={model.id} model={model} isDefault={isDefault(model)} t={t} act={act} />)}
+                {members.map(model => <ModelRow key={model.id} model={model} t={t} act={act} />)}
               </div>
             )}
           </div>
@@ -495,8 +488,8 @@ export function AnywhereModelsPanel({ state, t, act, officialModels }: {
       <div className="dshAnywherePanel">
         <div className="dshAnywherePanelHead">
           <p className="dshAnywhereSecondary">{t(
-            '本机设置里关闭了写入模型配置，模型选择器里不会出现 Tokens Anywhere 的模型。',
-            'Writing the models is turned off under This computer, so none of Tokens Anywhere\'s are in the model picker.',
+            '“设置”里关闭了写入模型配置，模型选择器里不会出现 Tokens Anywhere 的模型。',
+            'Writing the models is turned off on the Settings tab, so none of Tokens Anywhere\'s are in the model picker.',
           )}</p>
           <div className="dshAnywhereActions">
             <Button variant="outline" size="sm" disabled={writing || !state.local.writable} onClick={() => { void write() }}>
