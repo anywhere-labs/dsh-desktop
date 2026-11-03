@@ -37,11 +37,10 @@ export { hostOperationDiagnostics, recordPluginCommands } from './upstream-famil
 export { createOperationHistory } from './upstream-family/desktop-operation-history.ts'
 export { isOperationEvidence } from './upstream-family/operation-record.ts'
 
-// The official Computer Use bundle of dsh 0.2.2 beside Computer Use (Next): the Agents it serves, the per-Agent
-// `/computer-use` that leaves them, and the unpacked copy its provider starts the helper from. The modules live
-// below src/upstream-family/, which only Beta carries.
+// The official Computer Use bundle of dsh 0.2.2 beside Computer Use (Next): the Agents it serves and the per-Agent
+// `/computer-use` that leaves them. The release installs the bundle on demand into the Profile. The module lives below
+// src/upstream-family/, which only Beta carries.
 export { officialComputerUse } from './upstream-family/official-computer-use.ts'
-export { OFFICIAL_CUA_PROVIDER_PACKAGE, installOfficialCuaResolution } from './upstream-family/official-cua.ts'
 
 /**
  * Collect the Web boot injections for the Desktop window.

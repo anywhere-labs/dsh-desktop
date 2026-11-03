@@ -10,7 +10,6 @@ import { archivedPayload, nextPackagingTarget, PAYLOAD_DIR, universalMergeRewrit
 import { expectedNextVersion, verifyNextRuntimeTree } from './prepare-runtime.ts'
 import { verifiedPackagedResources } from './verify-packaged.ts'
 import { packagingStep } from './packaging-step.ts'
-import { PACKAGED_OFFICIAL_CUA_SMOKE } from './upstream-family.ts'
 
 const desktopRoot = fileURLToPath(new URL('..', import.meta.url))
 
@@ -100,10 +99,6 @@ async function verifyFinalArtifacts(result: { outDir: string }): Promise<string[
       runPackagedNode(path, [join(desktopRoot, 'scripts', 'packaged-driver-smoke.mjs'), root], 120_000, 'Packaged computer-use driver smoke failed'),
       // The badge skill announces its asset directory to the model; the Host's resolver must make it physical.
       runPackagedNode(path, [join(desktopRoot, 'scripts', 'packaged-skill-badge-smoke.mjs'), root], 120_000, 'Packaged badge skill smoke failed'),
-      // The official Computer Use provider starts its helper as a child process; the Host's resolver must make both physical.
-      ...PACKAGED_OFFICIAL_CUA_SMOKE === undefined ? [] : [
-        runPackagedNode(path, [join(desktopRoot, 'scripts', PACKAGED_OFFICIAL_CUA_SMOKE), root], 120_000, 'Packaged official Computer Use smoke failed'),
-      ],
       // Image attachments and Market icons go through sharp; on Linux the Host's resolver must keep it on the WebAssembly build.
       runPackagedNode(path, [join(desktopRoot, 'scripts', 'packaged-sharp-smoke.mjs'), root], 120_000, 'Packaged sharp smoke failed'),
       // Linux has no tray terminal; the application executable itself answers `<app> dsh …` (#1568).

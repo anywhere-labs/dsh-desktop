@@ -51,7 +51,7 @@ const invalidDrafts = [undefined, null, 42, true, [], {}, { text: 7, references:
 // Each workspace follows its own upstream.json channel runtime.
 const workspaceVersions = {
   'dsh-plugin-desktop': '0.2.1-rc.3',
-  'dsh-plugin-desktop-beta': '0.2.2-alpha.2',
+  'dsh-plugin-desktop-beta': '0.2.2-alpha.3',
   'dsh-desktop-next': '0.2.1-rc.5',
 }
 

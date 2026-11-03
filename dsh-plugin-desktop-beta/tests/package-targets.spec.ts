@@ -8,8 +8,8 @@ import { verifyMacRelease } from '../../dsh-plugin-desktop/scripts/verify-mac-re
 import { linuxPackageTargets, macApplicationDirectory, macSmokeTarget } from '../scripts/package-targets.ts'
 import { nextMacVerification } from '../scripts/verify-mac-release.ts'
 
-// The native inventory reads installed darwin packages, which a Linux install does not carry.
-vi.mock('../scripts/mac-runtime.ts', () => ({ nextMacNativeEntries: () => [{ arch: 'arm64', path: 'node_modules/fixture-native/bin/uv' }] }))
+// A one-file inventory stands in for the application's native files.
+vi.mock('../scripts/mac-runtime.ts', () => ({ NEXT_MAC_NATIVE_ENTRIES: [{ arch: 'arm64', path: 'node_modules/fixture-native/bin/uv' }] }))
 
 type Command = readonly string[]
 

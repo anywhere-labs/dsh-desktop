@@ -7,3 +7,7 @@
 // The official Computer Use bundle of dsh 0.2.2 gets a row on the Computer Use (Next) page. The module lives below
 // src/upstream-family/, which only Beta carries.
 export { installOfficialComputerUseStyles, useOfficialComputerUse } from '../upstream-family/official-computer-use-row.tsx'
+
+// The settings shell of dsh 0.2.2 takes section icons from plugins, so Desktop settings shows its display glyph
+// without patching the shell. The module lives below src/upstream-family/, which only Beta carries.
+export { registerDesktopSettingsIcon } from '../upstream-family/desktop-settings-icon.tsx'
