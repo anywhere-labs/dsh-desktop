@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { OPTIONAL_BUNDLES } from '../src/upstream-family.ts'
 import { expect, it } from 'vitest'
 const read = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
@@ -94,4 +94,23 @@ it('gives the Linux packages a hicolor icon for every theme size up to 512 pixel
   } finally {
     rmSync(outDir, { recursive: true, force: true })
   }
+})
+
+it('sends Gemini 4 models a thinking level, as they refuse a thinking budget', async () => {
+  // pi-ai picks Gemini's thinking control by model id and 1.1.0 knows only Gemini 3, so the Tokens Anywhere Gemini route
+  // sent gemini-4-argon a budget it rejects. patches/pi-ai@1.1.0.patch carries pi-ai 1.4.0's match (#10890).
+  const llm = createRequire(new URL('../package.json', import.meta.url)).resolve('@deepseek-ai/dsh-llm-pi-ai/package.json')
+  const piAi = createRequire(llm).resolve.paths('@earendil-works/pi-ai')?.map(dir => join(dir, '@earendil-works/pi-ai')).find(dir => existsSync(dir))
+  expect(piAi).toBeDefined()
+  const google = await import(pathToFileURL(join(piAi!, 'dist/api/google-shared.js')).href) as {
+    usesGoogleThinkingLevel(model: object): boolean
+    getDisabledGoogleThinkingConfig(model: object): object
+  }
+  // A route model declaring low/medium/high, as llm-pi-ai materializes it.
+  const thinkingLevelMap = { off: null, minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: null, max: null }
+  const argon = { id: 'gemini-4-argon', provider: 'tokens-anywhere-gemini', reasoning: true, thinkingLevelMap }
+  expect(google.usesGoogleThinkingLevel(argon)).toBe(true)
+  // Its thinking cannot be switched off, so a request that names no level asks for the lowest one.
+  expect(google.getDisabledGoogleThinkingConfig(argon)).toEqual({ thinkingLevel: 'LOW' })
+  expect(google.usesGoogleThinkingLevel({ ...argon, id: 'gemini-2.5-flash' })).toBe(false)
 })
