@@ -68,13 +68,15 @@ it.runIf(oarSubagents !== undefined)('shows OAR subagents with a card of its own
   const page = overview([...BASE_BUNDLES.map(name => ({ name, enabled: false })), { name: card.bundle, enabled: false }])
   expect(page.hidden).toEqual([...BASE_BUNDLES, card.bundle])
   const cards = named(page.tree(), 'PluginCard')
-  expect(cards.map(node => node.props.title)).toEqual(['远程控制', 'Computer Use（Next）', card.title.zh])
-  const oar = cards[2]!
+  expect(cards.map(node => node.props.title)).toEqual(['远程控制', 'Tokens Anywhere', 'Computer Use（Next）', card.title.zh])
+  const oar = cards[3]!
   expect(oar.props.description).toBe(card.description.zh)
   expect(oar.props.icon.type).toBe('subagent-artwork')
-  // The official experimental group's packages carry the official Experimental tag; Desktop's own cards carry none.
+  // The official experimental group's packages carry the official Experimental tag; of Desktop's own cards only
+  // Tokens Anywhere carries one, the Beta tag of its account page.
   expect([oar.props.tags.type, oar.props.tags.props.tone, oar.props.tags.props.children]).toEqual(['span', 'info', '实验性'])
-  expect(cards.slice(0, 2).map(node => node.props.tags)).toEqual([undefined, undefined])
+  expect([cards[0]!.props.tags, cards[2]!.props.tags]).toEqual([undefined, undefined])
+  expect([cards[1]!.props.tags.type, cards[1]!.props.tags.props.tone, cards[1]!.props.tags.props.children]).toEqual(['span', 'info', 'Beta'])
   oar.props.onOpen()
   expect(page.props.onOpenBundle).toHaveBeenCalledExactlyOnceWith(card.bundle)
 })
@@ -107,6 +109,6 @@ it.runIf(oarSubagents !== undefined)('locks the OAR subagents switch while the H
 it.skipIf(oarSubagents !== undefined)('offers no OAR subagents card on a release without the provider', () => {
   const page = overview(BASE_BUNDLES.map(name => ({ name, enabled: false })))
   expect(page.hidden).toEqual(BASE_BUNDLES)
-  expect(named(page.tree(), 'PluginCard').map(node => node.props.title)).toEqual(['远程控制', 'Computer Use（Next）'])
+  expect(named(page.tree(), 'PluginCard').map(node => node.props.title)).toEqual(['远程控制', 'Tokens Anywhere', 'Computer Use（Next）'])
   expect(named(page.tree(), 'BundleSwitch')).toEqual([])
 })
