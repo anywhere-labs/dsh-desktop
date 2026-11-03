@@ -1,0 +1,13 @@
+diff --git a/lib/client.js b/lib/client.js
+index 89d6b81..05632a8 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -16906,6 +16906,8 @@ window.__ModuleLoader__.load({
+ 								children: [
+ 									(0, react_jsx_runtime.jsxs)("div", {
+ 										className: TaskManagerPage_module_css_default.pageHeading,
++										// DSH Desktop: the heading row owns the window drag over the strip above the title, as its styles intend and like the Plugins page head.
++										"data-window-drag": true,
+ 										children: [(0, react_jsx_runtime.jsx)("h1", {
+ 											ref: headingRef,
+ 											tabIndex: -1,
