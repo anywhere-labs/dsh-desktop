@@ -1,0 +1,22 @@
+diff --git a/lib/client.js b/lib/client.js
+index 7c780b1e02..438cf200f9 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -705,6 +705,9 @@ window.__ModuleLoader__.load({
+ 			"actionCards",
+ 			"pluginNavigation"
+ 		];
++		// DSH Desktop: a LiveShare reader's page offers no Plugins page, so the plugin manager provides no navigation there;
++		// the cards mount without it rather than hold the reader's page on a service that never arrives.
++		if (globalThis.__DSH_LIVESHARE_VIEWER__ !== void 0) inject.splice(inject.indexOf("pluginNavigation"), 1);
+ 		/** Mount the catalog-text Remote, then register the body for the same plugin lifetime.
+ 		* @param ctx - Client plugin context.
+ 		* @param contribution - Generated Remote descriptors supplied by the built entry.
+@@ -733,6 +736,7 @@ window.__ModuleLoader__.load({
+ 					return result.ok ? result.value : void 0;
+ 				},
+ 				openDetails: (packageName) => {
++					if (globalThis.__DSH_LIVESHARE_VIEWER__ !== void 0) return;
+ 					ctx.pluginNavigation.openBundle(packageName);
+ 				},
+ 				resolveText: (text) => ctx.locale.resolveText(text)
