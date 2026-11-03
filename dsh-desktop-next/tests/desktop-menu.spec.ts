@@ -55,6 +55,8 @@ it('preserves application arguments while replacing one-shot launch modes', () =
   expect(relaunchArguments(argv, false, true, true)).toEqual(['/fixture/lib/main.js', '--next-keep-elevated', '--example=value', '--next-safe-mode'])
   expect(relaunchArguments(argv, false, false, true)).toEqual(['/fixture/lib/main.js', '--next-keep-elevated', '--example=value', '--next-onboarding'])
   expect(relaunchArguments(argv, false, false)).toEqual(['/fixture/lib/main.js', '--next-keep-elevated', '--example=value'])
+  // A sign-in link was handled when it opened the app; relaunching must not start another sign-in.
+  expect(relaunchArguments(['/fixture/lib/main.js', 'dsh://v1/tokens/login'], false, false)).toEqual(['/fixture/lib/main.js'])
 })
 
 it('hands an AppImage relaunch to a detached shell instead of Electron\'s relauncher', () => {

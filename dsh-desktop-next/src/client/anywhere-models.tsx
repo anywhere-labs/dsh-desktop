@@ -1,0 +1,564 @@
+/**
+ * Tokens Anywhere's models on the account page. By default Tokens Anywhere configures them, and the list, in the rows
+ * of Desktop settings' notifications, switches whole families or single models on or off and renames models. Custom
+ * configuration hands the routes to the official model catalog editor, which the official Models section shares
+ * through its patch (patches/dsh-client-ui-settings-models@0.2.1-rc.5.patch); the writes are the official ones too.
+ */
+import { useCallback, useEffect, useId, useMemo, useState, useSyncExternalStore, type ComponentType, type KeyboardEvent, type ReactNode } from 'react'
+import { Button, IconChevronDownOutlineRegular, IconEditOutlineRegular, IconRefreshOutlineRegular, Input, Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  ANYWHERE_ACCOUNT_ROUTES, ANYWHERE_MODEL_FAMILIES, ANYWHERE_ROUTE_IDS, anywhereRoutes, stableJson,
+  type AnywhereAccountSnapshot, type AnywhereModelFamily, type AnywhereModelView,
+} from '../anywhere-account.ts'
+import { DesktopSettingsSelect, DesktopSettingsToggleRow } from './DesktopSettingsSection.tsx'
+import { formatTokenLimit, preferredThinking, thinkingLabel, type Copy, type RouteReply } from './anywhere-shared.ts'
+
+const PI_AI_NAMESPACE = 'llm-pi-ai'
+
+const FAMILY_NAMES: Readonly<Record<AnywhereModelFamily, readonly [string, string]>> = {
+  deepseek: ['DeepSeek', 'DeepSeek'],
+  claude: ['Claude', 'Claude'],
+  gpt: ['GPT', 'GPT'],
+  gemini: ['Gemini', 'Gemini'],
+  other: ['其他', 'Other'],
+}
+
+/** Run an action on the Host; the page applies the state it answers with and shows its failure. */
+export type AnywhereAction = (path: string, body?: object) => Promise<RouteReply | undefined>
+
+type ModelDraft = Record<string, unknown>
+type OfficialCopy = (key: string) => string
+interface RowFailure { readonly index: number; readonly key: string }
+
+interface OfficialNamespace {
+  readonly user?: unknown
+  readonly value?: unknown
+  readonly revision: number
+}
+
+/** The official editor's parts its patch shares. */
+interface OfficialCatalog {
+  readonly ModelListEditor: ComponentType<{
+    models: readonly ModelDraft[]
+    reasoningLevels: readonly string[]
+    defaultInput?: readonly string[]
+    overridden?: boolean
+    onChange: (models: ModelDraft[]) => void
+    onReset?: () => void
+    probe: { settingsNs: string; provider: string; baseURL?: string; api?: string }
+    operations: unknown
+    t: OfficialCopy
+    disabled: boolean
+    onBusyChange: (busy: boolean) => void
+  }>
+  readonly EditorFooter: ComponentType<{
+    t: OfficialCopy
+    busy: boolean
+    submitDisabled: boolean
+    submitLabelKey: string
+    submitBusyLabelKey: string
+    onCancel: () => void
+    onSubmit: () => void
+  }>
+  modelDrafts(value: unknown): ModelDraft[]
+  validateDeepSeekModels(value: unknown): RowFailure | undefined
+  validateReasoningEfforts(value: unknown): RowFailure | undefined
+  reasoningLevelChoices(namespace: OfficialNamespace, schema: unknown): string[]
+}
+
+/** What the official Models section is injected with: its store, writes, schema helpers and copy. */
+export interface OfficialModelsFace {
+  readonly controller: {
+    load(): Promise<void>
+    readonly store: {
+      getSnapshot(): { readonly status: string; readonly namespaces: ReadonlyMap<string, OfficialNamespace> }
+      subscribe(listener: () => void): () => void
+    }
+  }
+  readonly operations: {
+    writeSettings(ns: string, ops: { op: 'set'; path: string[]; value: unknown }[], expectedRevision: number): Promise<
+      { kind: 'written'; view: { revision: number } } | { kind: 'conflict' | 'refused'; message: string }>
+  }
+  readonly schema: { getPath(source: unknown, path: readonly string[]): unknown }
+  readonly t: OfficialCopy
+  readonly desktopCatalog?: OfficialCatalog
+}
+
+function modelFacts(model: AnywhereModelView, t: Copy): string {
+  return [
+    model.id,
+    ...(model.contextWindow === undefined ? [] : [t(`${formatTokenLimit(model.contextWindow)} 上下文`, `${formatTokenLimit(model.contextWindow)} context`)]),
+    ...(model.maxTokens === undefined ? [] : [t(`${formatTokenLimit(model.maxTokens)} 输出`, `${formatTokenLimit(model.maxTokens)} output`)]),
+    ...(model.vision ? [t('支持图片', 'Images')] : []),
+  ].join(' · ')
+}
+
+/** A row whose whole width opens what is under it, in the look of the notifications row's expander. */
+function DisclosureRow({ label, badge, description, open, controls, onToggle }: {
+  label: string
+  badge?: string | undefined
+  description: string
+  open: boolean
+  controls: string
+  onToggle: () => void
+}) {
+  return (
+    <button type="button" className="dshDesktopSettingsToggleRow dshAnywhereDisclosure" aria-expanded={open} aria-controls={controls} onClick={onToggle}>
+      <span className="dshDesktopSettingsToggleCopy">
+        <span className="dshDesktopSettingsToggleLabel">
+          {label}
+          {badge !== undefined && <span className="dshDesktopSettingsBadge">{badge}</span>}
+        </span>
+        <span className="dshDesktopSettingsToggleDescription">{description}</span>
+      </span>
+      <span className="dshDesktopSettingsToggleControl">
+        <span className="dshDesktopSettingsExpander"><IconChevronDownOutlineRegular size={12} /></span>
+      </span>
+    </button>
+  )
+}
+
+export function ControlRow({ label, description, children }: { label: string; description: string; children?: ReactNode }) {
+  return (
+    <div className="dshDesktopSettingsToggleRow">
+      <span className="dshDesktopSettingsToggleCopy">
+        <span className="dshDesktopSettingsToggleLabel">{label}</span>
+        <span className="dshDesktopSettingsToggleDescription">{description}</span>
+      </span>
+      {children !== undefined && <div className="dshDesktopSettingsToggleControl">{children}</div>}
+    </div>
+  )
+}
+
+/** The default model for new sessions and how hard it thinks. */
+function ModelDefaults({ state, t, act }: { state: AnywhereAccountSnapshot; t: Copy; act: AnywhereAction }) {
+  const [busy, setBusy] = useState<'model' | 'thinking'>()
+  const selection = state.defaultModel
+  const offered = state.offered ?? []
+  const current = offered.find(model => model.route === selection?.provider && model.id === selection?.model)
+  const value = current === undefined ? '' : `${current.route}\n${current.id}`
+  const options = offered.map(model => ({ value: `${model.route}\n${model.id}`, label: model.name }))
+  const thinking = current === undefined ? undefined : preferredThinking(current.thinking, selection?.reasoningEffort)
+
+  const choose = async (control: 'model' | 'thinking', model: (typeof offered)[number], reasoningEffort: string | undefined): Promise<void> => {
+    setBusy(control)
+    await act(ANYWHERE_ACCOUNT_ROUTES.defaultModel, {
+      provider: model.route, model: model.id, ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    })
+    setBusy(undefined)
+  }
+
+  return (
+    <>
+      <ControlRow label={t('默认模型', 'Default model')} description={current === undefined
+        ? t('当前默认模型不是 Tokens Anywhere 的模型。', 'The current default model is not a Tokens Anywhere model.')
+        : t('新会话默认使用，会话里也可以随时切换。', 'New sessions start with it; you can switch in any session.')}>
+        <DesktopSettingsSelect
+          value={value}
+          options={current === undefined ? [{ value: '', label: t('选择模型', 'Choose a model') }, ...options] : options}
+          disabled={busy === 'model'}
+          ariaLabel={t('默认模型', 'Default model')}
+          onChange={(next) => {
+            const model = offered.find(item => `${item.route}\n${item.id}` === next)
+            if (model !== undefined) void choose('model', model, preferredThinking(model.thinking, selection?.reasoningEffort))
+          }}
+        />
+      </ControlRow>
+      {current !== undefined && thinking !== undefined && (
+        <ControlRow label={t('思考等级', 'Thinking')} description={t('默认开启。等级越高，回答越深入，用量也越多。', 'On by default. Higher levels answer in more depth and use more.')}>
+          <DesktopSettingsSelect
+            value={thinking}
+            options={current.thinking.map(level => ({ value: level, label: thinkingLabel(level, t) }))}
+            disabled={busy === 'thinking'}
+            ariaLabel={t('思考等级', 'Thinking')}
+            onChange={(next) => { void choose('thinking', current, next) }}
+          />
+        </ControlRow>
+      )}
+    </>
+  )
+}
+
+/** Whether the routes follow Tokens Anywhere's list or are the user's. Leaving custom configuration can lose edits, so it asks first. */
+function CustomSwitch({ state, t, act }: { state: AnywhereAccountSnapshot; t: Copy; act: AnywhereAction }) {
+  const [busy, setBusy] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const custom = state.custom === true
+  const set = async (enabled: boolean): Promise<void> => {
+    setConfirming(false)
+    setBusy(true)
+    await act(ANYWHERE_ACCOUNT_ROUTES.custom, { enabled })
+    setBusy(false)
+  }
+  return (
+    <>
+      <DesktopSettingsToggleRow
+        label={t('自定义配置', 'Custom configuration')}
+        description={custom
+          ? t('模型目录由你管理，Tokens Anywhere 的新模型不会自动加入。', 'You manage the model catalog; new Tokens Anywhere models are not added for you.')
+          : t('默认由 Tokens Anywhere 自动配置。开启后可以在这里修改模型目录和参数。', 'Tokens Anywhere configures models for you. Turn this on to edit the catalog and its settings here.')}
+        checked={custom}
+        disabled={busy}
+        onChange={(next) => {
+          if (!next && state.customEdited === true) setConfirming(true)
+          else void set(next)
+        }}
+      />
+      {confirming && (
+        <ControlRow label={t('恢复自动配置？', 'Back to automatic configuration?')} description={t('你对模型目录的修改会丢失。', 'Your edits to the model catalog will be lost.')}>
+          <Button variant="outline" size="sm" onClick={() => { setConfirming(false) }}>{t('取消', 'Cancel')}</Button>
+          <Button variant="primary" size="sm" onClick={() => { void set(false) }}>{t('恢复', 'Restore')}</Button>
+        </ControlRow>
+      )}
+    </>
+  )
+}
+
+/** One model of the list: renamed in place, and switched on or off for the model picker. */
+function ModelRow({ model, isDefault, t, act }: { model: AnywhereModelView; isDefault: boolean; t: Copy; act: AnywhereAction }) {
+  const [pending, setPending] = useState<boolean>()
+  const [draft, setDraft] = useState<string>()
+  const [saving, setSaving] = useState(false)
+
+  const toggle = async (enabled: boolean): Promise<void> => {
+    setPending(enabled)
+    await act(ANYWHERE_ACCOUNT_ROUTES.model, { id: model.id, enabled })
+    setPending(undefined)
+  }
+
+  const save = async (): Promise<void> => {
+    if (draft === undefined) return
+    if (draft.trim() === model.name) { setDraft(undefined); return }
+    setSaving(true)
+    // An empty name goes back to Tokens Anywhere's.
+    const reply = await act(ANYWHERE_ACCOUNT_ROUTES.model, { id: model.id, name: draft.trim() === model.defaultName ? '' : draft })
+    setSaving(false)
+    if (reply !== undefined && reply.error === undefined) setDraft(undefined)
+  }
+
+  const keys = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.nativeEvent.isComposing) return
+    if (event.key === 'Enter') { event.preventDefault(); void save() }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setDraft(undefined) }
+  }
+
+  const callable = model.route !== undefined
+  const on = pending ?? model.enabled
+  return (
+    <div className="dshDesktopSettingsToggleRow dshAnywhereModel" data-off={callable && !on ? '' : undefined}>
+      <span className="dshDesktopSettingsToggleCopy">
+        {draft === undefined ? (
+          <span className="dshDesktopSettingsToggleLabel">
+            <span className="dshAnywhereModelTitle">{model.name}</span>
+            {isDefault && <span className="dshDesktopSettingsBadge">{t('默认', 'Default')}</span>}
+            {callable && (
+              <button type="button" className="dshAnywhereIconButton" aria-label={t(`重命名 ${model.name}`, `Rename ${model.name}`)}
+                title={t('重命名', 'Rename')} onClick={() => { setDraft(model.name) }}>
+                <IconEditOutlineRegular size={14} />
+              </button>
+            )}
+          </span>
+        ) : (
+          <span className="dshAnywhereModelEdit">
+            <Input autoFocus value={draft} maxLength={80} disabled={saving} placeholder={model.defaultName}
+              aria-label={t(`${model.id} 的显示名称`, `Display name of ${model.id}`)}
+              onChange={(event) => { setDraft(event.target.value) }} onKeyDown={keys} />
+            <Button variant="primary" size="sm" disabled={saving} onClick={() => { void save() }}>
+              {saving ? t('正在保存…', 'Saving…') : t('保存', 'Save')}
+            </Button>
+            <Button variant="ghost" size="sm" disabled={saving} onClick={() => { setDraft(undefined) }}>{t('取消', 'Cancel')}</Button>
+          </span>
+        )}
+        <span className="dshDesktopSettingsToggleDescription">{modelFacts(model, t)}</span>
+      </span>
+      <div className="dshDesktopSettingsToggleControl">
+        {callable ? (
+          <Switch checked={on} disabled={pending !== undefined}
+            label={t(`在模型选择器中提供 ${model.name}`, `Offer ${model.name} in the model picker`)}
+            onChange={(next) => { void toggle(next) }} />
+        ) : (
+          <span title={t('DSH 暂时不能调用这个模型。', 'DSH cannot call this model yet.')}>
+            <Tag tone="neutral">{t('暂不支持', 'Not yet')}</Tag>
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** What Tokens Anywhere configures, by family: each switched on or off as a whole, and opening to its models. */
+function ModelCatalogList({ state, t, act }: { state: AnywhereAccountSnapshot; t: Copy; act: AnywhereAction }) {
+  const id = useId()
+  const [open, setOpen] = useState<ReadonlySet<AnywhereModelFamily>>(new Set())
+  const [pending, setPending] = useState<ReadonlyMap<AnywhereModelFamily, boolean>>(new Map())
+  const models = state.models ?? []
+  const toggle = (family: AnywhereModelFamily): void => {
+    setOpen((current) => {
+      const next = new Set(current)
+      if (!next.delete(family)) next.add(family)
+      return next
+    })
+  }
+  const switchFamily = async (family: AnywhereModelFamily, enabled: boolean): Promise<void> => {
+    setPending(current => new Map(current).set(family, enabled))
+    await act(ANYWHERE_ACCOUNT_ROUTES.model, { family, enabled })
+    setPending((current) => {
+      const next = new Map(current)
+      next.delete(family)
+      return next
+    })
+  }
+  const isDefault = (model: AnywhereModelView): boolean => model.route === state.defaultModel?.provider && model.id === state.defaultModel?.model
+  return (
+    <>
+      {ANYWHERE_MODEL_FAMILIES.map((family) => {
+        const members = models.filter(model => model.family === family)
+        if (members.length === 0) return null
+        const [zh, en] = FAMILY_NAMES[family]
+        const callable = members.filter(model => model.route !== undefined).length
+        const shownDefault = members.find(isDefault)
+        const on = members.filter(model => model.enabled).length
+        const count = on === callable
+          ? t(`${members.length} 个模型`, `${members.length} models`)
+          : on === 0
+            ? t(`${members.length} 个模型，已全部关闭`, `${members.length} models, all off`)
+            : t(`${members.length} 个模型，已开启 ${on} 个`, `${members.length} models, ${on} on`)
+        const regionId = `${id}-${family}`
+        return (
+          <div key={family} className="dshDesktopSettingsExpandableGroup">
+            <DesktopSettingsToggleRow
+              label={t(zh, en)}
+              badge={callable > 0 ? undefined : t('暂不支持', 'Not yet')}
+              description={callable === 0
+                ? t(`${members.length} 个模型，DSH 暂时不能调用。`, `${members.length} models. DSH cannot call them yet.`)
+                : shownDefault === undefined
+                  ? count
+                  : t(`${count}，默认使用 ${shownDefault.name}`, `${count}, defaulting to ${shownDefault.name}`)}
+              checked={pending.get(family) ?? on > 0}
+              disabled={callable === 0 || pending.has(family)}
+              onChange={(next) => { void switchFamily(family, next) }}
+              expander={{
+                open: open.has(family), controls: regionId,
+                label: t(family === 'other' ? '其他模型' : `${zh} 模型`, `${en} models`),
+                onToggle: () => { toggle(family) },
+              }}
+            />
+            {open.has(family) && (
+              <div id={regionId} className="dshDesktopSettingsExpandedRows">
+                {members.map(model => <ModelRow key={model.id} model={model} isDefault={isDefault(model)} t={t} act={act} />)}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
+/** One route's catalog in the official editor, committed the way the official card does: one fenced settings write. */
+function RouteEditor({ face, catalog, namespace, route, auto, onSaved }: {
+  face: OfficialModelsFace
+  catalog: OfficialCatalog
+  namespace: OfficialNamespace
+  route: string
+  /** What Tokens Anywhere's list would write, for the official reset; undefined until it was read. */
+  auto: readonly ModelDraft[] | undefined
+  onSaved: () => Promise<unknown>
+}) {
+  const { schema, t, operations } = face
+  const { ModelListEditor, EditorFooter } = catalog
+  const stored = useMemo(() => catalog.modelDrafts(schema.getPath(namespace.user, ['providers', route, 'models'])), [catalog, namespace.user, route, schema])
+  const [baseline, setBaseline] = useState(stored)
+  const [draft, setDraft] = useState(stored)
+  const [revision, setRevision] = useState(namespace.revision)
+  const [busy, setBusy] = useState(false)
+  const [listBusy, setListBusy] = useState(false)
+  const [failure, setFailure] = useState<string>()
+  const dirty = stableJson(draft) !== stableJson(baseline)
+  const adopt = useCallback((models: ModelDraft[], at: number): void => {
+    setBaseline(models)
+    setDraft(models)
+    setRevision(at)
+    setFailure(undefined)
+  }, [])
+  // While nothing is being edited the card follows the stored routes; with edits, a stale revision is refused on save.
+  useEffect(() => {
+    if (!dirty) adopt(stored, namespace.revision)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new stored answer moves the card
+  }, [namespace.revision, stored])
+
+  const fallback = schema.getPath(namespace.value, ['providers', route])
+  const textOf = (key: string): string | undefined => {
+    const value = schema.getPath(fallback, [key])
+    return typeof value === 'string' && value !== '' ? value : undefined
+  }
+  const baseURL = textOf('baseURL')
+  const api = textOf('api')
+  const defaultInput = schema.getPath(fallback, ['defaultInput'])
+  const reasoningLevels = useMemo(() => catalog.reasoningLevelChoices(namespace, schema), [catalog, namespace, schema])
+  const rowFailure = catalog.validateDeepSeekModels(draft) ?? catalog.validateReasoningEfforts(draft)
+
+  const save = async (): Promise<void> => {
+    setBusy(true)
+    setFailure(undefined)
+    try {
+      const written = await operations.writeSettings(PI_AI_NAMESPACE, [{ op: 'set', path: ['providers', route, 'models'], value: draft }], revision)
+      if (written.kind !== 'written') {
+        setFailure(written.kind === 'conflict' ? t('conflict') : written.message)
+        return
+      }
+      adopt(draft, written.view.revision)
+      await onSaved()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="dshAnywhereRouteEditor">
+      <ModelListEditor
+        models={draft}
+        reasoningLevels={reasoningLevels}
+        {...(Array.isArray(defaultInput) ? { defaultInput: defaultInput as string[] } : {})}
+        {...(auto === undefined ? {} : { overridden: stableJson(draft) !== stableJson(auto), onReset: () => { setDraft([...auto]) } })}
+        onChange={setDraft}
+        probe={{ settingsNs: PI_AI_NAMESPACE, provider: route, ...(baseURL === undefined ? {} : { baseURL }), ...(api === undefined ? {} : { api }) }}
+        operations={operations}
+        t={t}
+        disabled={busy}
+        onBusyChange={setListBusy}
+      />
+      {rowFailure !== undefined && <p className="dshDesktopSettingsHint">{`${t('model')} ${rowFailure.index + 1}: ${t(rowFailure.key)}`}</p>}
+      {failure !== undefined && <p className="dshDesktopSettingsError" role="alert">{failure}</p>}
+      <EditorFooter
+        t={t}
+        busy={busy}
+        submitDisabled={busy || listBusy || !dirty || rowFailure !== undefined}
+        submitLabelKey="apply"
+        submitBusyLabelKey="applying"
+        onCancel={() => { adopt(stored, namespace.revision) }}
+        onSubmit={() => { void save() }}
+      />
+    </div>
+  )
+}
+
+/** Each of our routes behind its own row, since the official editor edits one route at a time. */
+function CustomRoutes({ face, catalog, state, t, act }: {
+  face: OfficialModelsFace
+  catalog: OfficialCatalog
+  state: AnywhereAccountSnapshot
+  t: Copy
+  act: AnywhereAction
+}) {
+  const id = useId()
+  const store = face.controller.store
+  const official = useSyncExternalStore(useCallback((listener: () => void) => store.subscribe(listener), [store]), useCallback(() => store.getSnapshot(), [store]))
+  useEffect(() => { void face.controller.load().catch(() => {}) }, [face.controller])
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
+  const [mounted, setMounted] = useState<ReadonlySet<string>>(new Set())
+  const namespace = official.namespaces.get(PI_AI_NAMESPACE)
+  const planned = useMemo(() => state.models === undefined ? undefined : anywhereRoutes(state.models, state.origin), [state.models, state.origin])
+  if (namespace === undefined) return <p className="dshAnywhereSecondary dshAnywhereRowsNote" role="status">{t('正在读取配置…', 'Reading the configuration…')}</p>
+  return (
+    <>
+      {Object.values(ANYWHERE_ROUTE_IDS).map((route) => {
+        const profile = face.schema.getPath(namespace.user, ['providers', route])
+        if (profile === undefined) return null
+        const displayName = face.schema.getPath(profile, ['displayName'])
+        const count = catalog.modelDrafts(face.schema.getPath(profile, ['models'])).length
+        const api = face.schema.getPath(profile, ['api'])
+        const protocol = api === 'anthropic-messages' ? 'Anthropic Messages' : api === 'google-generative-ai' ? 'Gemini API' : 'OpenAI Chat Completions'
+        const isOpen = open.has(route)
+        const regionId = `${id}-${route}`
+        return (
+          <div key={route} className="dshDesktopSettingsExpandableGroup dshAnywhereRouteGroup">
+            <DisclosureRow
+              label={typeof displayName === 'string' ? displayName : route}
+              description={t(`${protocol}，${count} 个模型`, `${protocol}, ${count} models`)}
+              open={isOpen}
+              controls={regionId}
+              onToggle={() => {
+                setMounted(current => new Set(current).add(route))
+                setOpen((current) => {
+                  const next = new Set(current)
+                  if (!next.delete(route)) next.add(route)
+                  return next
+                })
+              }}
+            />
+            {/* An open editor stays mounted once opened, so closing its row never discards a draft. */}
+            {mounted.has(route) && (
+              <div id={regionId} hidden={!isOpen}>
+                <RouteEditor
+                  face={face}
+                  catalog={catalog}
+                  namespace={namespace}
+                  route={route}
+                  auto={planned?.[route]?.models as unknown as ModelDraft[] | undefined}
+                  onSaved={() => act(ANYWHERE_ACCOUNT_ROUTES.custom, { enabled: true })}
+                />
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
+export function AnywhereModelsPanel({ state, t, act, officialModels }: {
+  state: AnywhereAccountSnapshot
+  t: Copy
+  act: AnywhereAction
+  /** The official Models section's face, read when the page renders. */
+  officialModels: () => OfficialModelsFace | undefined
+}) {
+  const [refreshing, setRefreshing] = useState(false)
+  const [restoring, setRestoring] = useState(false)
+  const face = useMemo(() => officialModels(), [officialModels])
+  const catalog = face?.desktopCatalog
+  const custom = state.custom === true
+  const offered = state.offered?.length ?? 0
+  const changed = !custom && state.models?.some(model => model.name !== model.defaultName || (model.route !== undefined && !model.enabled)) === true
+  const refresh = async (): Promise<void> => {
+    setRefreshing(true)
+    await act(ANYWHERE_ACCOUNT_ROUTES.refresh, {})
+    setRefreshing(false)
+  }
+  const restore = async (): Promise<void> => {
+    setRestoring(true)
+    await act(ANYWHERE_ACCOUNT_ROUTES.resetModels, {})
+    setRestoring(false)
+  }
+  return (
+    <div className="dshAnywherePanel">
+      <div className="dshAnywherePanelHead">
+        <p className="dshAnywhereSecondary">{state.models === undefined && !custom
+          ? state.modelsError === undefined
+            ? t('正在读取模型列表…', 'Reading the model list…')
+            : t('暂时读不到模型列表，已配置好的模型仍可使用。', 'The model list is unavailable right now. Models already set up keep working.')
+          : custom
+            ? t(`模型选择器里有 ${offered} 个模型。`, `${offered} models in the model picker.`)
+            : t(`由 Tokens Anywhere 自动配置，模型选择器里有 ${offered} 个模型。`, `Configured by Tokens Anywhere, with ${offered} models in the model picker.`)}</p>
+        <div className="dshAnywhereActions">
+          {changed && (
+            <Button variant="ghost" size="sm" disabled={restoring} onClick={() => { void restore() }}>
+              {restoring ? t('正在恢复…', 'Restoring…') : t('恢复默认', 'Restore defaults')}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular size={16} />} disabled={refreshing} onClick={() => { void refresh() }}>
+            {refreshing ? t('正在刷新…', 'Refreshing…') : t('刷新', 'Refresh')}
+          </Button>
+        </div>
+      </div>
+      <div className="dshAnywhereRows">
+        {state.offered !== undefined && <ModelDefaults state={state} t={t} act={act} />}
+        <CustomSwitch state={state} t={t} act={act} />
+        {!custom && <ModelCatalogList state={state} t={t} act={act} />}
+        {custom && face !== undefined && catalog !== undefined && <CustomRoutes face={face} catalog={catalog} state={state} t={t} act={act} />}
+        {custom && catalog === undefined && <p className="dshAnywhereSecondary dshAnywhereRowsNote">{t('请在 设置 → 模型 中修改这些模型。', 'Edit these models in Settings → Models.')}</p>}
+      </div>
+    </div>
+  )
+}

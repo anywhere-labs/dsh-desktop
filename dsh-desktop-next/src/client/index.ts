@@ -20,13 +20,18 @@ import { registerComputerUseCommandUi } from './computer-use-command-ui.tsx'
 import { installOfficialComputerUseStyles } from './upstream-family.ts'
 import { desktopDirectoryPicker, registerDesktopDirectoryPicker } from './directory-picker.ts'
 import { SettingsRequests } from './settings-requests.tsx'
+import { AnywhereAccountSettings } from './anywhere-account.tsx'
+import { anywherePlacement, registerAnywhereEntries } from './anywhere-entries.tsx'
+import type { OfficialModelsFace } from './anywhere-models.tsx'
+import type { AnywherePlacement } from './anywhere-shared.ts'
+import { installAnywhereAccountStyles } from './anywhere-account-styles.ts'
 import type { DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
 import { installRendererRecovery } from './renderer-recovery.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     'desktop.settings': DesktopSettingsLocaleKey | 'sidebarFooterCompat' | 'sidebarFooterCompatBody' | 'sidebarFooterBalanced' | 'sidebarFooterBalancedBody'
-    'desktop-next': 'settings' | 'language' | 'safeMode' | 'safeModeDetail' | 'recovery' | 'dismiss'
+    'desktop-next': 'settings' | 'anywhereAccount' | 'language' | 'safeMode' | 'safeModeDetail' | 'recovery' | 'dismiss'
   }
 }
 
@@ -35,8 +40,8 @@ export const inject = ['slots', 'layout', 'locale']
 export function apply(ctx: Context): void {
   ctx.effect(installUiDiagnostics, 'AA and Plugins client lifecycle diagnostics')
   ctx.effect(() => ctx.locale.register('desktop-next', {
-    zh: { settings: '桌面设置', language: 'zh', safeMode: '安全模式', safeModeDetail: '当前使用临时环境。退出安全模式并重启后返回原 Profile，临时数据不会保留。', dismiss: '关闭提示', recovery: '打开恢复助手' },
-    en: { settings: 'Desktop settings', language: 'en', safeMode: 'Safe mode', safeModeDetail: 'You are using a temporary environment. Exiting Safe Mode and restarting returns to the original Profile and removes the temporary data.', dismiss: 'Dismiss notice', recovery: 'Open recovery assistant' },
+    zh: { settings: '桌面设置', anywhereAccount: 'Anywhere 账户', language: 'zh', safeMode: '安全模式', safeModeDetail: '当前使用临时环境。退出安全模式并重启后返回原 Profile，临时数据不会保留。', dismiss: '关闭提示', recovery: '打开恢复助手' },
+    en: { settings: 'Desktop settings', anywhereAccount: 'Anywhere account', language: 'en', safeMode: 'Safe mode', safeModeDetail: 'You are using a temporary environment. Exiting Safe Mode and restarting returns to the original Profile and removes the temporary data.', dismiss: 'Dismiss notice', recovery: 'Open recovery assistant' },
   }), 'Next settings and recovery labels')
   ctx.effect(() => installDesktopSettingsStyles('dsh-desktop-next'), 'Shared Desktop settings styles')
   ctx.effect(installPluginControlsStyles, 'Plugin controls and permission dialog styles')
@@ -75,6 +80,20 @@ export function apply(ctx: Context): void {
       name: 'settings.section', id: 'desktop', order: 100, locale: 'desktop-next', label: () => t('settings'),
       inject: () => ({ adapter, openPlugins: () => ctx.layout.selectPanel('plugins' as MainPanelId) }),
     }, DesktopSettings))
+    // Signing in and the account's provider routes need the Host, which only the Desktop window reaches natively.
+    // The patched settings shell maps this section ID to its icon, as it does `desktop`'s.
+    ctx.effect(installAnywhereAccountStyles, 'Anywhere account page styles')
+    // Custom configuration edits the account's routes with the official Models section's own parts.
+    const officialModels = (): OfficialModelsFace | undefined =>
+      ctx.slots.entries('settings.section').find(entry => entry.options.id === 'models')?.inject?.() as OfficialModelsFace | undefined
+    const placement = anywherePlacement(adapter)
+    ctx.slots.inject('settings.section', () => ctx.slots.register({
+      name: 'settings.section', id: 'anywhere-account', order: 90, locale: 'desktop-next', label: () => t('anywhereAccount'),
+      inject: () => ({ officialModels, placement }),
+    }, AnywhereAccount))
+    // The left sidebar entry and the Conversation View follow the Desktop preferences, read once the window's state is in.
+    registerAnywhereEntries(ctx, { label: () => t('anywhereAccount'), placement, officialModels })
+    void adapter.refresh().catch(() => {})
     ctx.slots.inject('settings.action', () => ctx.slots.register({
       name: 'settings.action', id: 'desktop-native-actions', order: 1, locale: 'desktop-next', inject: () => ({ adapter }),
     }, SettingsActions))
@@ -170,6 +189,10 @@ function SafeModeNotice({ t }: PropsLocale<'desktop-next'>) {
 
 function DesktopSettings({ t, adapter, close, openPlugins }: PropsLocale<'desktop-next'> & PropsRuntime<'settings.section'> & { adapter: NextSettingsAdapter; openPlugins(): void }) {
   return createElement(NextDesktopSettings, { adapter, language: t('language'), onOpenPlugins: () => { openPlugins(); close() } })
+}
+
+function AnywhereAccount({ t, officialModels, placement }: PropsLocale<'desktop-next'> & { officialModels(): OfficialModelsFace | undefined; placement: AnywherePlacement }) {
+  return createElement(AnywhereAccountSettings, { language: t('language'), officialModels, placement })
 }
 
 function SettingsActions({ t, adapter }: PropsLocale<'desktop-next'> & { adapter: NextSettingsAdapter }) {

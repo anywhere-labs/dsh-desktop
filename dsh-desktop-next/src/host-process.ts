@@ -51,6 +51,36 @@ export type DesktopPlatformLoginRequest = { readonly action: 'open'; readonly ur
 
 type PlatformLoginEvent = { readonly type: 'platform-login' } & DesktopPlatformLoginRequest
 
+/** Tokens Anywhere sign-in hand-off from the Host's account (src/host/anywhere-account.ts). */
+export type DesktopAnywhereLoginRequest =
+  | { readonly action: 'open'; readonly url: string; readonly callback: string }
+  | { readonly action: 'close'; readonly focus: boolean }
+
+/** What the Anywhere account asks of the Electron shell. */
+export interface DesktopAnywhereBridge {
+  /** Show an attempt's authorize page in the built-in window, or settle the attempt once it ended. */
+  login(request: DesktopAnywhereLoginRequest): void
+  /** Seal a secret with the OS credential store, or open one it sealed; rejects while the store is unavailable. */
+  secret(action: 'seal' | 'open', value: string): Promise<string>
+}
+
+type AnywhereLoginEvent = { readonly type: 'anywhere-login' } & DesktopAnywhereLoginRequest
+
+interface AnywhereSecretEvent {
+  readonly type: 'anywhere-secret'
+  readonly requestId: number
+  readonly action: 'seal' | 'open'
+  readonly value: string
+}
+
+/** Longest secret the Host may ask to seal or open: a refresh token, or its sealed form. */
+const MAX_ANYWHERE_SECRET_CHARS = 8 * 1024
+
+/** The loopback redirect URI Tokens Anywhere accepts from DSH (anywhere-tokenhub docs/oauth-provider-design.md §3). */
+function isAnywhereCallback(value: unknown): boolean {
+  return typeof value === 'string' && /^http:\/\/127\.0\.0\.1:[1-9][0-9]{3,4}\/oauth\/callback$/u.test(value)
+}
+
 /** Same destination rule as upstream Desktop's account backend: HTTPS, or loopback HTTP for development. */
 function isPlatformLoginDestination(value: unknown): boolean {
   if (typeof value !== 'string') return false
@@ -68,7 +98,7 @@ interface InjectionsEvent {
   readonly error?: string
 }
 
-type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
+type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | AnywhereLoginEvent | AnywhereSecretEvent | InjectionsEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
   readonly type: 'update-tasks'
   readonly requestId: number
   readonly active: boolean
@@ -115,6 +145,12 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
     }
     case 'platform-login':
       return (candidate.action === 'close' && typeof candidate.focus === 'boolean') || (candidate.action === 'open' && isPlatformLoginDestination(candidate.url))
+    case 'anywhere-login':
+      return (candidate.action === 'close' && typeof candidate.focus === 'boolean')
+        || (candidate.action === 'open' && isPlatformLoginDestination(candidate.url) && isAnywhereCallback(candidate.callback))
+    case 'anywhere-secret':
+      return Number.isSafeInteger(candidate.requestId) && (candidate.action === 'seal' || candidate.action === 'open')
+        && typeof candidate.value === 'string' && candidate.value.length > 0 && candidate.value.length <= MAX_ANYWHERE_SECRET_CHARS
     case 'fatal':
       return typeof candidate.message === 'string' && (candidate.diagnostic === undefined || typeof candidate.diagnostic === 'string')
     case 'notification':
@@ -270,6 +306,7 @@ export class DesktopHostProcess {
    * @param onPlatformSession - Private credential updates for embedded Platform views.
    * @param onPlatformLogin - Opens a sign-in attempt's authorization page, or settles an ended attempt.
    * @param observer - Memory pushes and process exits for the Desktop's memory evidence.
+   * @param onAnywhere - The Anywhere account's sign-in window and secret sealing.
    */
   constructor(
     private readonly node: string,
@@ -290,6 +327,7 @@ export class DesktopHostProcess {
     private readonly onPlatformLogin?: (request: DesktopPlatformLoginRequest) => void,
     private readonly onDiagnostic?: (input: LogInput) => void,
     private readonly observer?: DesktopHostObserver,
+    private readonly onAnywhere?: DesktopAnywhereBridge,
   ) {}
 
   /**
@@ -340,6 +378,23 @@ export class DesktopHostProcess {
         if (!this.stopping && !this.failureReported) {
           this.onPlatformLogin?.(message.action === 'open' ? { action: 'open', url: message.url } : { action: 'close', focus: message.focus })
         }
+      }
+      else if (message.type === 'anywhere-login') {
+        if (!this.stopping && !this.failureReported) {
+          this.onAnywhere?.login(message.action === 'open'
+            ? { action: 'open', url: message.url, callback: message.callback }
+            : { action: 'close', focus: message.focus })
+        }
+      }
+      else if (message.type === 'anywhere-secret') {
+        // The value never reaches a log: the IPC diagnostic above records only the type and request id.
+        const reply = (result: object): void => {
+          if (child.connected && !this.stopping && !this.failureReported) child.send({ type: 'anywhere-secret-result', requestId: message.requestId, ...result }, () => {})
+        }
+        void Promise.resolve().then(() => {
+          if (this.stopping || this.failureReported || !this.onAnywhere) throw new Error('Secure storage is unavailable')
+          return this.onAnywhere.secret(message.action, message.value)
+        }).then(value => reply({ value }), () => reply({ error: 'Secure storage is unavailable' }))
       }
       else if (message.type === 'shutdown-complete') {
         if (this.stopping) this.shutdownCompleted = true
@@ -429,6 +484,18 @@ export class DesktopHostProcess {
   }
 
   /** Acknowledge the live request gate before publishing browser access as enabled. */
+  /** Tell the Host's Anywhere account that the user closed the built-in sign-in window. */
+  anywhereLoginClosed(): void {
+    const child = this.child
+    if (child?.connected && !this.stopping && !this.failureReported) child.send({ type: 'anywhere-login-closed' }, () => {})
+  }
+
+  /** Tell the Host's Anywhere account that Tokens Anywhere's link opened DSH. */
+  anywhereLoginRequested(): void {
+    const child = this.child
+    if (child?.connected && !this.stopping && !this.failureReported) child.send({ type: 'anywhere-login-requested' }, () => {})
+  }
+
   async setBrowserAccess(enabled: boolean): Promise<void> {
     const child = this.child
     if (!child?.connected || this.stopping || this.failureReported) throw new Error('Next Host is unavailable')

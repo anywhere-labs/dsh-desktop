@@ -45,6 +45,7 @@ import { assertBackupLocation, backupDirectoryName, copyDataDirectory } from './
 import { maskSecrets } from './mask-secrets.ts'
 import { DesktopBrowserGuests } from './browser-guests.ts'
 import { PlatformLoginWindow } from './platform-login-window.ts'
+import { ANYWHERE_LOGIN_PARTITION, DSH_URL_SCHEME, classifyAnywhereLoginRequest, deliverAnywhereCallback, isAnywhereLoginLink, isLocalSignIn } from './anywhere-login.ts'
 import { NextUpdates } from './updates.ts'
 import { createArtifactRequest } from './update-transport.ts'
 import { NextUpdateInstaller } from './update-installer.ts'
@@ -79,7 +80,10 @@ app.setName('DSH NEXT')
 // Chromium storage to the disposable environment.
 app.setPath('userData', normalElectronData)
 // app.exit() before the message loop exits at once; never let the replaced launch own the instance regardless.
-const ownsInstance = !startupElevation.relaunched && claimDesktopSingleInstance(app, openMain)
+const ownsInstance = !startupElevation.relaunched && claimDesktopSingleInstance(app, (argv) => {
+  openMain()
+  if (argv.some(isAnywhereLoginLink)) openAnywhereLink()
+})
 const safeModeRequested = process.argv.includes(SAFE_ARGUMENT)
 const safeElectronData = join(normalElectronData, 'safe-mode')
 if (ownsInstance) {
@@ -183,6 +187,7 @@ const runtime = new NextDesktopRuntime({
     if (!app.isReady()) return
     if (runtime.backend.state.phase === 'ready') rendererRecovery?.booted()
     native.refresh()
+    deliverAnywhereLink()
   },
   onRestart: () => run({ type: 'restart' }),
   onTerminal: () => run({ type: 'terminal' }),
@@ -200,6 +205,28 @@ const runtime = new NextDesktopRuntime({
     if (runtime.state().browserUrl !== null) {
       void shell.openExternal(url).catch(error => runtime.diagnostics.append(String(error), 'warn'))
     } else platformLogin.open(url)
+  },
+  anywhere: {
+    login: (request) => {
+      if (quitting || !app.isReady()) return
+      if (request.action === 'close') {
+        anywhereCallback = undefined
+        anywhereLogin.close()
+        if (request.focus) openMain()
+        return
+      }
+      anywhereCallback = request.callback
+      anywhereLocal = isLocalSignIn(request.url)
+      anywhereLogin.open(request.url)
+    },
+    // The refresh token is sealed with the key the OS keeps for this app (Keychain, DPAPI, or the Linux secret
+    // service); the Host stores only the sealed form.
+    secret: async (action, value) => {
+      if (!secretStorageAvailable()) throw new Error('Secure storage is unavailable')
+      return action === 'seal'
+        ? safeStorage.encryptString(value).toString('base64')
+        : safeStorage.decryptString(Buffer.from(value, 'base64'))
+    },
   },
   onPermission: async (action, permission) => {
     if (quitting) throw new Error('Desktop is shutting down')
@@ -219,6 +246,42 @@ const platformLogin = new PlatformLoginWindow({
   parent: () => mainWindow, title: () => t('登录 DeepSeek', 'Sign in to DeepSeek'), dark: () => nativeTheme.shouldUseDarkColors,
   warn: error => runtime.diagnostics.append(String(error), 'warn'),
 })
+/** The Tokens Anywhere attempt the sign-in window serves: its redirect URI, and whether its pages are local. */
+let anywhereCallback: string | undefined
+let anywhereLocal = false
+const anywhereLogin = new PlatformLoginWindow({
+  BrowserWindow, session: partition => session.fromPartition(partition), host: () => runtime.auth,
+  parent: () => mainWindow, title: () => t('登录 Tokens Anywhere', 'Sign in to Tokens Anywhere'), dark: () => nativeTheme.shouldUseDarkColors,
+  warn: error => runtime.diagnostics.append(String(error), 'warn'),
+  partition: ANYWHERE_LOGIN_PARTITION,
+  classify: (url, resourceType) => classifyAnywhereLoginRequest(url, resourceType, anywhereCallback, anywhereLocal),
+  deliver: url => deliverAnywhereCallback(url, anywhereCallback),
+  closedByUser: () => { anywhereCallback = undefined; runtime.anywhereLoginClosed() },
+})
+/** Whether Tokens Anywhere's link opened DSH and the Host has not heard yet: it may still be starting. */
+let anywhereLinkPending = process.argv.some(isAnywhereLoginLink)
+function deliverAnywhereLink(): void {
+  if (!anywhereLinkPending || quitting || !app.isReady() || runtime.backend.state.phase !== 'ready') return
+  anywhereLinkPending = false
+  openMain()
+  runtime.anywhereLoginRequested()
+}
+function openAnywhereLink(): void {
+  anywhereLinkPending = true
+  deliverAnywhereLink()
+}
+if (ownsInstance) {
+  // macOS declares the scheme in the bundle (build.protocols) and delivers links here, also the one it launched for.
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    if (isAnywhereLoginLink(url)) openAnywhereLink()
+  })
+  // A development Electron must not claim the scheme for itself.
+  if (app.isPackaged && process.platform !== 'darwin') app.setAsDefaultProtocolClient(DSH_URL_SCHEME)
+}
+function secretStorageAvailable(): boolean {
+  return safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text')
+}
 const native = new NativeDesktop({ root, language: () => windowsLanguage, state, window: () => mainWindow,
   show: openMain, run, warn: error => runtime.diagnostics.append(String(error), 'warn') })
 const permissions = createNativePermissions()
@@ -1435,6 +1498,7 @@ app.on('before-quit', event => {
   }
   native.close()
   platformLogin.close()
+  anywhereLogin.close()
   const updatesDone = runtime.diagnostics.operation('electron', 'updates.dispose')
   const recoveryDone = runtime.diagnostics.operation('electron', 'recovery.dispose')
   void Promise.all([updates.dispose(installingUpdate).then(() => updatesDone(), error => { updatesDone(error); throw error }), (async () => { try { await recoveryRunner?.dispose(); recoveryDone() } catch (error) { recoveryDone(error); throw error }; await runtime.close() })()]).then(async () => {

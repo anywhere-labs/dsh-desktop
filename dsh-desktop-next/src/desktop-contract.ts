@@ -37,13 +37,17 @@ export interface DesktopPreferences {
   jobFailed: boolean
   scheduleCompleted: boolean
   scheduleFailed: boolean
+  /** The Anywhere account's entry in the left sidebar, opening its page in the main column. */
+  anywhereSidebar: boolean
+  /** The Anywhere account as a Conversation View tab beside every conversation. */
+  anywhereConversation: boolean
 }
 
 export const DEFAULT_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
   closeToTray: true, macosMaterial: 'transparent', windowsMaterial: 'off', linuxMaterial: 'off',
   browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
   sidebarFooterCompat: true, sidebarFooterBalanced: true, notifications: true, turnCompleted: true, turnFailed: true, jobCompleted: false, jobFailed: false,
-  scheduleCompleted: true, scheduleFailed: true,
+  scheduleCompleted: true, scheduleFailed: true, anywhereSidebar: true, anywhereConversation: false,
 })
 
 /** Fixed startup defaults matching Beta's disposable Safe Mode settings. */

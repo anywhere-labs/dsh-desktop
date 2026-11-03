@@ -83,6 +83,14 @@ export interface PlatformLoginWindowOptions {
   readonly title: () => string
   readonly dark: () => boolean
   readonly warn: (error: unknown) => void
+  /** In-memory partition of another sign-in; defaults to the Platform's. */
+  readonly partition?: string
+  /** Request rules of another sign-in; defaults to classifyPlatformLoginRequest against the Host. */
+  readonly classify?: (url: string, resourceType: string) => PlatformLoginDecision
+  /** Delivers another sign-in's intercepted callback and resolves to its HTTP status; defaults to the Host replay. */
+  readonly deliver?: (url: string) => Promise<number>
+  /** The user closed the window before the attempt ended. */
+  readonly closedByUser?: () => void
 }
 
 /** Owns the single built-in sign-in window and its in-memory session. */
@@ -91,8 +99,16 @@ export class PlatformLoginWindow {
   private readonly popups = new Set<BrowserWindow>()
   private configured: Session | undefined
   private clearing: Promise<void> = Promise.resolve()
+  /** The window `close()` is closing, which the user did not close. */
+  private closing: BrowserWindow | undefined
 
   constructor(private readonly options: PlatformLoginWindowOptions) {}
+
+  private classify(url: string, resourceType: string, withHost: boolean): PlatformLoginDecision {
+    if (this.options.classify !== undefined) return this.options.classify(url, resourceType)
+    const host = withHost ? this.options.host() : undefined
+    return classifyPlatformLoginRequest(url, resourceType, host === undefined ? undefined : new URL(host.url).origin)
+  }
 
   /**
    * Show an attempt's authorization page, replacing any earlier sign-in window.
@@ -121,6 +137,7 @@ export class PlatformLoginWindow {
       if (this.window !== window) return
       this.window = undefined
       this.clear(loginSession)
+      if (this.closing !== window) this.options.closedByUser?.()
     })
     void this.clearing.then(async () => {
       if (!window.isDestroyed()) await window.loadURL(url)
@@ -134,11 +151,12 @@ export class PlatformLoginWindow {
   close(): void {
     const window = this.window
     for (const popup of [...this.popups]) if (!popup.isDestroyed()) popup.destroy()
+    this.closing = window
     if (window !== undefined && !window.isDestroyed()) window.destroy()
   }
 
   private loginSession(): Session {
-    const loginSession = this.options.session(PLATFORM_LOGIN_PARTITION)
+    const loginSession = this.options.session(this.options.partition ?? PLATFORM_LOGIN_PARTITION)
     if (this.configured === loginSession) return loginSession
     this.configured = loginSession
     loginSession.setPermissionRequestHandler((_contents, _permission, callback) => { callback(false) })
@@ -147,23 +165,25 @@ export class PlatformLoginWindow {
     loginSession.setDisplayMediaRequestHandler((_request, callback) => { callback({}) })
     loginSession.on('will-download', (event) => { event.preventDefault() })
     loginSession.webRequest.onBeforeRequest((details, callback) => {
-      const host = this.options.host()
-      const decision = classifyPlatformLoginRequest(details.url, details.resourceType,
-        host === undefined ? undefined : new URL(host.url).origin)
+      const decision = this.classify(details.url, details.resourceType, true)
       callback({ cancel: decision !== 'allow' })
-      if (decision === 'callback' && host !== undefined) {
-        forwardPlatformLoginCallback(details.url, host).then((status) => {
-          // The account watcher closes the window once the attempt ends; only an unexpected answer is worth a note.
-          if (status !== 204 && status !== 302) this.options.warn(new Error(`Platform sign-in callback returned HTTP ${status}`))
-        }, (error: unknown) => { this.options.warn(error) })
-      }
+      if (decision === 'callback') this.deliver(details.url)
     })
     return loginSession
   }
 
+  private deliver(url: string): void {
+    const host = this.options.host()
+    const deliver = this.options.deliver ?? (host === undefined ? undefined : (callback: string) => forwardPlatformLoginCallback(callback, host))
+    deliver?.(url).then((status) => {
+      // The account watcher closes the window once the attempt ends; only an unexpected answer is worth a note.
+      if (status !== 204 && status !== 302) this.options.warn(new Error(`Platform sign-in callback returned HTTP ${status}`))
+    }, (error: unknown) => { this.options.warn(error) })
+  }
+
   private guard(contents: WebContents, loginSession: Session): void {
     // Third-party sign-in providers may open a popup; keep it in the same guarded session.
-    contents.setWindowOpenHandler(({ url }) => classifyPlatformLoginRequest(url, 'mainFrame', undefined) === 'allow'
+    contents.setWindowOpenHandler(({ url }) => this.classify(url, 'mainFrame', false) === 'allow'
       ? { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, webPreferences: popupPreferences(loginSession) } }
       : { action: 'deny' })
     contents.on('did-create-window', (child) => {
@@ -171,6 +191,15 @@ export class PlatformLoginWindow {
       child.once('closed', () => { this.popups.delete(child) })
       this.guard(child.webContents, loginSession)
     })
+    // A navigation to the callback stops here: cancelling its request would fail the load, and Electron prints a failed
+    // load's whole URL, authorization code included, to stderr, and rejects loadURL with it for the diagnostics.
+    const stop = (event: { preventDefault(): void }, url: string): void => {
+      if (this.classify(url, 'mainFrame', true) !== 'callback') return
+      event.preventDefault()
+      this.deliver(url)
+    }
+    contents.on('will-navigate', (event, url) => { stop(event, url) })
+    contents.on('will-redirect', (event, url, _isInPlace, isMainFrame) => { if (isMainFrame) stop(event, url) })
     contents.on('will-attach-webview', (event) => { event.preventDefault() })
     contents.on('login', (event, _details, _authInfo, callback) => { event.preventDefault(); callback() })
   }

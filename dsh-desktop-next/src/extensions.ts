@@ -1,4 +1,5 @@
 /** Narrow Host capabilities consumed by the existing plugin markets. */
+import { installAnywhereAccount } from './host/anywhere-account.ts'
 import { installComputerUseCommand } from './host/computer-use-command.ts'
 import { installLaunchPresets } from './host/launch-presets.ts'
 import { installHostLogging } from './host/logging.ts'
@@ -44,6 +45,7 @@ export function apply(ctx: Context): void {
   // Plugin commands bypass the plugin manager, so failure reports learn of them from this runner.
   ctx.provide('desktopPnpm', recordPluginCommands?.(ctx, runner) ?? runner)
   installComputerUseCommand(ctx, profile.dir)
+  installAnywhereAccount(ctx)
   if (OAR_LAUNCH_PRESETS !== undefined) installLaunchPresets(ctx, OAR_LAUNCH_PRESETS)
   if (process.send) ctx.provide('desktopActions', {
     ...(process.platform === 'darwin' || process.platform === 'win32' ? { openTerminal: () => {
