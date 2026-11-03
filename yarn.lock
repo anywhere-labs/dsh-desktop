@@ -4289,6 +4289,24 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-client-ui-schedule@patch:@deepseek-ai/dsh-client-ui-schedule@file%3Avendor/dsh-runtime/0.2.1-rc.5/deepseek-ai-dsh-client-ui-schedule-0.2.1-rc.5.tgz#./patches/dsh-client-ui-schedule@0.2.1-rc.5.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.2.1-rc.5
+  resolution: "@deepseek-ai/dsh-client-ui-schedule@patch:@deepseek-ai/dsh-client-ui-schedule@file%3Avendor/dsh-runtime/0.2.1-rc.5/deepseek-ai-dsh-client-ui-schedule-0.2.1-rc.5.tgz%23vendor/dsh-runtime/0.2.1-rc.5/deepseek-ai-dsh-client-ui-schedule-0.2.1-rc.5.tgz%3A%3Ahash=a757e5&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-client-ui-schedule@0.2.1-rc.5.patch::version=0.2.1-rc.5&hash=d20166&locator=deepseek-harness-desktop%40workspace%3A."
+  peerDependencies:
+    "@deepseek-ai/cordis": ~4.0.5
+  checksum: 10c0/fe673a4627e9ea54e9f9d99d4ec477a89c4101379a31cab5055a8972d2a9f82e614c32a777921524a4d97a92a5749f6777c0a505def42c32977041628eddfa5f
+  languageName: node
+  linkType: hard
+
+"@deepseek-ai/dsh-client-ui-schedule@patch:@deepseek-ai/dsh-client-ui-schedule@file%3Avendor/dsh-runtime/0.2.2-alpha.3/deepseek-ai-dsh-client-ui-schedule-0.2.2-alpha.3.tgz#./patches/dsh-client-ui-schedule@0.2.2-alpha.3.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.2.2-alpha.3
+  resolution: "@deepseek-ai/dsh-client-ui-schedule@patch:@deepseek-ai/dsh-client-ui-schedule@file%3Avendor/dsh-runtime/0.2.2-alpha.3/deepseek-ai-dsh-client-ui-schedule-0.2.2-alpha.3.tgz%23vendor/dsh-runtime/0.2.2-alpha.3/deepseek-ai-dsh-client-ui-schedule-0.2.2-alpha.3.tgz%3A%3Ahash=cecb2e&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-client-ui-schedule@0.2.2-alpha.3.patch::version=0.2.2-alpha.3&hash=768b5b&locator=deepseek-harness-desktop%40workspace%3A."
+  peerDependencies:
+    "@deepseek-ai/cordis": ~4.0.6-alpha.2
+  checksum: 10c0/1de21a73ec77fbf8fd26f192c1ab16eb2303322d62fd24ea184480389e456cb85378a4cae65b5c1b235a2b0b53b1c647ff5b50f61ab2a0da419e35f0529dfe29
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-client-ui-secret-mask@file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-client-ui-secret-mask-0.2.1-rc.3.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.1-rc.3
   resolution: "@deepseek-ai/dsh-client-ui-secret-mask@file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-client-ui-secret-mask-0.2.1-rc.3.tgz#vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-client-ui-secret-mask-0.2.1-rc.3.tgz::hash=e61d78&locator=deepseek-harness-desktop%40workspace%3A."
