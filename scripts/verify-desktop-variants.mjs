@@ -177,6 +177,19 @@ const { channels } = JSON.parse(readFileSync(join(root, 'upstream.json'), 'utf8'
 const runtimesDiffer = channels.next.runtimePackageVersion !== channels.beta.runtimePackageVersion
 const RUNTIME_PAIRS = runtimesDiffer ? [[channels.next.runtimePackageVersion, channels.beta.runtimePackageVersion]] : []
 
+// While the runtimes differ, Beta may also release on its own, so each variant owns the product version its
+// package.json declares and its package spec pins. The pair replaces only that whole version string in these
+// files, before the channel suffix mapping below, so fixture versions keep following the shared mapping.
+const PRODUCT_VERSION_FILES = new Set(['package.json', 'tests/package.spec.ts'])
+const productVersion = directory => JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')).version
+const PRODUCT_VERSIONS = runtimesDiffer ? { next: productVersion(nextRoot), beta: productVersion(betaRoot) } : undefined
+
+function withProductVersion(relativePath, text, from, to) {
+  if (PRODUCT_VERSIONS === undefined || !PRODUCT_VERSION_FILES.has(relativePath)) return text
+  const escaped = PRODUCT_VERSIONS[from].replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  return text.replace(new RegExp(`(?<![\\w.-])${escaped}(?![\\w.-])`, 'gu'), PRODUCT_VERSIONS[to])
+}
+
 // The root check covers Beta through its `check:beta` script. While Beta follows its own upstream
 // release, only Beta's full check covers it. While both follow one release, Beta mirrors Next apart
 // from declared channel values and the Next suite covers the shared behavior, so Beta only builds,
@@ -201,7 +214,7 @@ function withoutNextLead(text) {
 }
 
 export function toBetaContent(relativePath, sourceText) {
-  let text = withoutNextLead(sourceText)
+  let text = withProductVersion(relativePath, withoutNextLead(sourceText), 'next', 'beta')
   for (const [nextStr, betaStr] of FILE_SPECIFIC_PAIRS[relativePath] ?? []) {
     text = text.replaceAll(nextStr, betaStr)
   }
@@ -224,7 +237,7 @@ export function toBetaContent(relativePath, sourceText) {
 }
 
 export function toNextContent(relativePath, sourceText) {
-  let text = sourceText
+  let text = withProductVersion(relativePath, sourceText, 'beta', 'next')
     .replace(
       /(\b\d+\\\\\.\d+\\\\\.\d+)-beta\\\\\.(\d+)\b/gu,
       (_, ver, rev) => (Number(rev) <= 1 ? `${ver}-next` : `${ver}-next\\\\.${String(Number(rev) - 1)}`),
@@ -391,7 +404,7 @@ export function verifyVariants() {
   }
 
   const declared = runtimesDiffer
-    ? `; Beta follows upstream ${channels.beta.runtimePackageVersion} and Next ${channels.next.runtimePackageVersion}, so their upstream-family pins and optional bundles, ${UPSTREAM_FAMILY_FILES.join(', ')}, the files below ${UPSTREAM_FAMILY_DIRECTORIES.join(' and ')} and Next-lead lines differ`
+    ? `; Beta follows upstream ${channels.beta.runtimePackageVersion} and Next ${channels.next.runtimePackageVersion}, so their product versions (${PRODUCT_VERSIONS.beta} and ${PRODUCT_VERSIONS.next}), upstream-family pins and optional bundles, ${UPSTREAM_FAMILY_FILES.join(', ')}, the files below ${UPSTREAM_FAMILY_DIRECTORIES.join(' and ')} and Next-lead lines differ`
     : ''
   process.stdout.write(`verify-desktop-variants: ${String(allPaths.length)} files are aligned between Next and Beta${declared}\n`)
 }
