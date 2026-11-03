@@ -93,7 +93,8 @@ export function tokensAnywhereOrigin(override: string | undefined): string {
  * that way, and the credential reference they read. DeepSeek and GPT go through OpenAI Chat Completions
  * (dsh-desktop#1583); Tokens Anywhere serves Claude only through Anthropic Messages and Gemini only through its own API.
  * Models of a vendor the price list does not name share Chat Completions under the plain id. `llm-pi-ai` takes Gemini's
- * protocol on a hand-declared route since dsh 0.2.2-rc.2.
+ * protocol on a hand-declared route since dsh 0.2.2-rc.2, and pi-ai 1.4 sends Gemini 4 models the thinking level they
+ * require, not a thinking budget.
  */
 export const ANYWHERE_ROUTE_IDS = {
   deepseek: 'tokens-anywhere-deepseek',

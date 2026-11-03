@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { OPTIONAL_BUNDLES } from '../src/upstream-family.ts'
 import { expect, it } from 'vitest'
 const read = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
@@ -106,4 +106,23 @@ it('makes the Debian package depend on the GBM and ALSA libraries the executable
   const require = createRequire(new URL('../package.json', import.meta.url))
   const { default: FpmTarget } = require('app-builder-lib/out/targets/FpmTarget.js')
   expect(next.build.deb.depends).toEqual([...FpmTarget.prototype.getDefaultDepends.call(undefined, 'deb'), 'libgbm1', 'libasound2 (>= 1.0.17)'])
+})
+
+it('sends Gemini 4 models a thinking level, as they refuse a thinking budget', async () => {
+  // pi-ai picks Gemini's thinking control by model id, and Tokens Anywhere's gemini-4-argon rejects a budget. Next's
+  // runtime resolves pi-ai 1.4, whose match covers Gemini 4 and later; an older pi-ai would send it a budget again.
+  const llm = createRequire(new URL('../package.json', import.meta.url)).resolve('@deepseek-ai/dsh-llm-pi-ai/package.json')
+  const piAi = createRequire(llm).resolve.paths('@earendil-works/pi-ai')?.map(dir => join(dir, '@earendil-works/pi-ai')).find(dir => existsSync(dir))
+  expect(piAi).toBeDefined()
+  const google = await import(pathToFileURL(join(piAi!, 'dist/api/google-shared.js')).href) as {
+    usesGoogleThinkingLevel(model: object): boolean
+    getDisabledGoogleThinkingConfig(model: object): object
+  }
+  // A route model declaring low/medium/high, as llm-pi-ai materializes it.
+  const thinkingLevelMap = { off: null, minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: null, max: null }
+  const argon = { id: 'gemini-4-argon', provider: 'tokens-anywhere-gemini', reasoning: true, thinkingLevelMap }
+  expect(google.usesGoogleThinkingLevel(argon)).toBe(true)
+  // Its thinking cannot be switched off, so a request that names no level asks for the lowest one.
+  expect(google.getDisabledGoogleThinkingConfig(argon)).toEqual({ thinkingLevel: 'LOW' })
+  expect(google.usesGoogleThinkingLevel({ ...argon, id: 'gemini-2.5-flash' })).toBe(false)
 })
