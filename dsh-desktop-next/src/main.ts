@@ -51,7 +51,7 @@ import { PLATFORM_IPC } from './platform-ipc.ts'
 import { NextUpdates } from './updates.ts'
 import { createArtifactRequest } from './update-transport.ts'
 import { NextUpdateInstaller } from './update-installer.ts'
-import { updateLabel } from './update-state.ts'
+import { manualUpdateHint, releaseNotesUrl, updateLabel } from './update-state.ts'
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
 import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCause } from './renderer-recovery.ts'
 import { deElevateAtStartup, lowIntegrityAtStartup, windowsElevation } from './windows-elevation.ts'
@@ -284,7 +284,7 @@ function state(): DesktopState {
   }
   return { ...runtime.state(), recovery, dataDirectory: { source: dataSource, environmentHome: environmentHome === undefined ? null : resolve(environmentHome) },
     onboarding, ...(onboarding ? { onboardingComputerUse } : {}), platform: process.platform, version,
-    ...(['darwin', 'win32'].includes(process.platform) ? { updates: updates.snapshot() } : {}),
+    ...(['darwin', 'win32', 'linux'].includes(process.platform) ? { updates: updates.snapshot() } : {}),
     trayAvailable: native.available, notificationsAvailable: Notification.isSupported() }
 }
 function run(value: DesktopCommand): void { void command(value, 'native').catch(error => runtime.report(error)) }
@@ -647,22 +647,29 @@ function confirmLanAccess(): Promise<boolean> {
     t('同一网络中的设备可以连接。请仅向可信设备分享登录链接，并在设备上核对和信任 CA 证书。', 'Devices on your local network can connect. Share login links only with trusted devices, and verify and trust the CA certificate on each device.'),
   )
 }
+/** Linux packages are not installed in the app: open the release page, which carries every package format. */
+function openUpdateDownload(version: string | undefined): void {
+  void shell.openExternal(releaseNotesUrl(version)).catch(error => runtime.diagnostics.append(String(error), 'warn'))
+}
 async function promptAvailableUpdate(): Promise<void> {
   if (quitting || runtime.busy) return
   const snapshot = updates.snapshot()
-  if (snapshot.phase !== 'available' || !snapshot.installable) return
+  const manual = process.platform === 'linux'
+  if (snapshot.phase !== 'available' || !snapshot.installable && !manual) return
   const owner = raiseDialogOwner()
   const options = {
     type: 'info' as const,
     title: 'DSH NEXT',
     message: updateLabel(snapshot, windowsLanguage),
-    buttons: [t('下载更新', 'Download update'), t('稍后', 'Later')],
+    buttons: [manual ? t('前往下载', 'Open download page') : t('下载更新', 'Download update'), t('稍后', 'Later')],
     defaultId: 0,
     cancelId: 1,
-    detail: t('下载完成后可一键安装并重启。', 'When the download finishes, choose Install and restart.'),
+    detail: manual ? manualUpdateHint(windowsLanguage) : t('下载完成后可一键安装并重启。', 'When the download finishes, choose Install and restart.'),
   }
   const choice = await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
-  if (choice.response === 0 && !quitting && !runtime.busy) void updates.download()
+  if (choice.response !== 0 || quitting) return
+  if (manual) openUpdateDownload(snapshot.version)
+  else if (!runtime.busy) void updates.download()
 }
 async function openPath(path: string): Promise<void> { const error = await shell.openPath(path); if (error) throw new Error(error) }
 
@@ -700,20 +707,22 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
   if (type === 'close-controls') { shellWindow?.close(); return }
   if (type === 'quit') { app.quit(); return }
   if (['check-updates', 'download-update', 'install-update'].includes(type)) {
-    if (!['darwin', 'win32'].includes(process.platform) || quitting || runtime.busy) return
+    if (!['darwin', 'win32', 'linux'].includes(process.platform) || quitting || runtime.busy) return
     if (type === 'check-updates') {
       void updates.check().then(async () => {
         if (source !== 'native' || quitting) return
         const snapshot = updates.snapshot()
-        if (snapshot.phase === 'available' && snapshot.installable) await promptAvailableUpdate()
+        if (snapshot.phase === 'available' && (snapshot.installable || process.platform === 'linux')) await promptAvailableUpdate()
         else {
           const owner = raiseDialogOwner()
           const options = { type: 'info' as const, title: 'DSH NEXT', message: updateLabel(snapshot, windowsLanguage) }
           await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
         }
       }).catch(error => runtime.diagnostics.append(String(error), 'warn'))
-    } else if (type === 'download-update') void updates.download()
-    else {
+    } else if (type === 'download-update') {
+      if (process.platform === 'linux') openUpdateDownload(updates.snapshot().version)
+      else void updates.download()
+    } else {
       if (updates.snapshot().phase !== 'ready') return
       void updates.install()
     }

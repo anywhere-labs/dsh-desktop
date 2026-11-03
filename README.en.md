@@ -5,7 +5,7 @@
 <h1 align="center">DSH Desktop</h1>
 
 <p align="center">
-  <strong>An open-source desktop client for Windows and macOS, built on DeepSeek Harness.</strong>
+  <strong>An open-source desktop client for Windows, macOS, and Linux, built on DeepSeek Harness.</strong>
 </p>
 
 <h3 align="center"><a href="https://dshdesktop.cn">One-click download, ready to use out of the box.</a></h3>
@@ -26,7 +26,7 @@
   <a href="https://github.com/anywhere-labs/deepseek-harness-desktop"><img src="https://img.shields.io/github/stars/anywhere-labs/deepseek-harness-desktop?style=flat&amp;label=%E2%98%85&amp;color=08C" alt="GitHub stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat" alt="MIT License"></a>
   <a href="https://discord.gg/TJeGqKRNM"><img src="https://img.shields.io/badge/Discord-5865F2?style=flat&amp;logo=discord&amp;logoColor=white" alt="Join Discord"></a>
-  <img src="https://img.shields.io/badge/macOS%20%7C%20Windows-4493F8?style=flat-square" alt="Supported platforms: macOS and Windows">
+  <img src="https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-4493F8?style=flat-square" alt="Supported platforms: macOS, Windows and Linux">
 </p>
 
 DSH Desktop integrates the local Web UI, Host service, and plugin system from [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) into a native desktop application. It runs a pinned upstream version unchanged, while DSH Desktop provides the window, tray, terminal, updates, and work profiles through the plugin mechanism provided by DeepSeek Harness.
@@ -35,12 +35,29 @@ DSH Desktop integrates the local Web UI, Host service, and plugin system from [D
 
 ## Download and install
 
-Current release installers support Windows x64 and macOS Universal. No extra environment is needed — download, install, and start using it with one click.
+Current release installers support Windows x64, macOS Universal, and Linux (x64 and arm64). No extra environment is needed — download, install, and start using it with one click.
 
 | Platform | Download | Installation |
 | --- | --- | --- |
 | Windows x64 | [Download installer](https://www.dshdesktop.cn/api/downloads/windows) | Run the NSIS installer and follow its prompts |
 | macOS Universal | [Download DMG](https://www.dshdesktop.cn/api/downloads/mac) | Open the DMG and drag DSH Desktop into Applications |
+| Linux x64 / arm64 | [GitHub Release](https://github.com/anywhere-labs/dsh-desktop/releases/latest) | Pick the deb, AppImage, or tar.gz for your distribution; see [Linux installation](#linux) below |
+
+<a id="linux"></a>
+
+### Linux installation
+
+Linux packages are published only on GitHub Releases, in three formats for both x64 and arm64:
+
+| Format | For | Install and start |
+| --- | --- | --- |
+| deb | Debian, Ubuntu, and their derivatives | `sudo apt install ./DSH-NEXT-<version>-amd64.deb` (`-arm64.deb` on arm64), then start it from the application menu |
+| AppImage | Other distributions, no installation | `chmod +x DSH-NEXT-<version>-x86_64.AppImage` (`-arm64.AppImage` on arm64), then run it |
+| tar.gz | Managing the files yourself | Extract `DSH-NEXT-<version>-linux-x64.tar.gz` (`-linux-arm64.tar.gz` on arm64) and run the `dsh-desktop-next` inside; no application menu entry is created |
+
+On Ubuntu 24.04 and later, prefer the deb: it installs the AppArmor profile the Chromium sandbox needs. Use `SHA256SUMS.txt` from the release page to verify a download.
+
+Linux builds cannot install updates in the app: when a new version is available, the app tells you and offers to open that version's release page, where you download the format you installed and update manually. Install a newer deb with the same `sudo apt install` command, or replace the old AppImage file with the new one.
 
 See the [user guide](docs/user-guide.en.md) and [FAQ](docs/faq.en.md) for plugin commands, platform details, and troubleshooting.
 
@@ -118,7 +135,7 @@ The Web service listens on the local loopback interface by default. When **Open 
 
 > **Danger:** LAN exposure has no authentication. Anyone on the same local network can open DSH and directly operate your computer. Enable it only on a fully trusted network and with great care.
 
-The automatic updater's fixed version-check request sends the installed version in the `X-DSH-Desktop-Version` header and a locally generated, persistently stored random UUID in the `X-DSH-Desktop-Installation-Id` header; the value is not derived from hardware information. Package download requests and their download redirects do not receive these headers.
+The automatic updater's fixed version-check request sends the installed version in the `X-DSH-Desktop-Version` header. On macOS and Windows it also sends a locally generated, persistently stored random UUID in the `X-DSH-Desktop-Installation-Id` header; the value is not derived from hardware information. Linux builds do not send this header. Package download requests and their download redirects do not receive these headers.
 
 ## Plugin Ecosystem
 
@@ -143,7 +160,7 @@ The upstream project provides the core agent capabilities, plugin system, and We
 - Desktop application packaging
 - Starting, stopping, and recovering the local service
 - Desktop window and system tray integration
-- macOS and Windows installer builds and releases
+- macOS, Windows, and Linux installer builds and releases
 - An interface designed for desktop use
 
 If you prefer to run DeepSeek Harness from the command line or contribute to its core functionality, refer to the upstream repository first.

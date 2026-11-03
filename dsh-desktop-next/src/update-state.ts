@@ -37,6 +37,13 @@ export function updateAction(state: NextUpdateState): 'check-updates' | 'downloa
   return undefined
 }
 
+/** Linux has no in-app installer: an update is downloaded from its release page, which carries every package format. */
+export function manualUpdateHint(language: string): string {
+  return language.toLowerCase().startsWith('zh')
+    ? 'Linux 版需要手动更新：在发布页下载与当前安装方式相同的安装包（deb、AppImage 或 tar.gz）。'
+    : 'Linux builds update manually: download the package that matches your installation (deb, AppImage or tar.gz) from the release page.'
+}
+
 const RELEASES_URL = 'https://github.com/anywhere-labs/dsh-desktop/releases'
 
 // Release tags are `v` plus the version, which already carries its channel (-next, -beta). /releases/latest is no
