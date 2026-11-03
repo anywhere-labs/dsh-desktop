@@ -4,7 +4,6 @@
  * (scripts/verify-desktop-variants.mjs); callers import these names from here so that the rest
  * of the source stays mirrored.
  */
-import type { ModuleHooks } from 'node:module'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { StartupError } from '@deepseek-ai/dsh-app-boot'
@@ -35,14 +34,12 @@ export const createOperationHistory: ((directory: string) => {
 export const isOperationEvidence: ((message: unknown) => boolean) | undefined = undefined
 
 // dsh 0.2.1 ships no official Computer Use bundle: Computer Use (Next) serves every Agent through one global
-// `/computer-use`, and the Host resolves no official provider.
+// `/computer-use`.
 export const officialComputerUse: {
   serves(ctx: Context, agent: Agent): boolean
   settings(): { officialSupported: boolean }
   commandRegistrar(ctx: Context): (definition: CommandDefinition) => () => void
 } | undefined = undefined
-export const OFFICIAL_CUA_PROVIDER_PACKAGE: string | undefined = undefined
-export const installOfficialCuaResolution: ((runtimeDir: string) => ModuleHooks | undefined) | undefined = undefined
 
 /**
  * Collect the Web boot injections for the Desktop window.

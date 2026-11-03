@@ -101,15 +101,15 @@ async function createAgentInTest(
 }
 
 /**
- * Install the official Computer Use as the shipped bundle's macOS provider does once its helper is
- * prepared: `installCua` of `@deepseek-ai/dsh-cua`, the bundle's runtime for every platform, since the
- * macOS-only provider package is not installed elsewhere. No test operation starts a helper.
+ * Install the official Computer Use as the bundle's macOS provider does once its helper is prepared:
+ * `installCua` of `@deepseek-ai/dsh-cua`, the bundle's runtime for every platform, since the macOS-only
+ * provider package is not installed elsewhere. The bundle installs on demand into the Profile, so the
+ * specs depend on that runtime directly. No test operation starts a helper.
  * @param ctx - test root providing the provider's registry, tool, prompt, Agent and preset services.
  * @returns disposer that unloads the provider.
  */
 async function installOfficialComputerUse(ctx: Context): Promise<() => Promise<void>> {
-  const bundle = createRequire(import.meta.url).resolve('@deepseek-ai/dsh-cua-bundle/package.json')
-  const cua = await import(pathToFileURL(createRequire(bundle).resolve('@deepseek-ai/dsh-cua')).href) as typeof OfficialCua
+  const cua = await import(pathToFileURL(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-cua')).href) as typeof OfficialCua
   const fiber = ctx.plugin({
     name: 'official-computer-use',
     inject: ['computerUse', 'tools', 'systemPrompt', 'agents'],

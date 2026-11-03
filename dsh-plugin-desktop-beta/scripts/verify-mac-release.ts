@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { macSmokeArchitecture, macSmokeExecutableSlices, type MacUniversalArch } from '../../dsh-plugin-desktop/scripts/mac-universal.ts'
 import { verifyMacRelease, type MacReleaseVerificationOptions } from '../../dsh-plugin-desktop/scripts/verify-mac-release.ts'
-import { nextMacNativeEntries } from './mac-runtime.ts'
+import { NEXT_MAC_NATIVE_ENTRIES } from './mac-runtime.ts'
 import { macApplicationDirectory, macSmokeTarget } from './package-targets.ts'
 import { verifyNextMacEntitlements } from './verify-mac-entitlements.ts'
 import { verifyNextMacRuntime } from './verify-mac-runtime.ts'
@@ -30,7 +30,7 @@ export function nextMacVerification(signed: boolean, distDir: string, env: NodeJ
   const architecture = signed ? undefined : macSmokeArchitecture(env)
   const smokeSlices = architecture === undefined ? undefined : macSmokeExecutableSlices(architecture)
   const inPlace = architecture !== undefined && macSmokeTarget(env) === 'dir' ? join(distDir, macApplicationDirectory(architecture)) : undefined
-  return { distDir, productName: 'DSH Desktop Beta', nativeEntries: nextMacNativeEntries(resolve(import.meta.dirname, '..')),
+  return { distDir, productName: 'DSH Desktop Beta', nativeEntries: NEXT_MAC_NATIVE_ENTRIES,
     // Next archives its application; native files live beside the archive.
     unpackedRoot: appPath => join(appPath, 'Contents', 'Resources', 'app.asar.unpacked'),
     listDmgs: inPlace !== undefined ? () => [inPlace] : path => readdirSync(path).filter(name => name.endsWith('.dmg')).map(name => join(path, name)).filter(path => statSync(path).isFile()),
