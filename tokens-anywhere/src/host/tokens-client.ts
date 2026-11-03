@@ -3,7 +3,7 @@
  * dsh-desktop#1583): the authorize URL, the token and revocation endpoints, and the console API an access token
  * reaches. Every request carries a code, a token or a key, so none follows a redirect and none is ever logged.
  */
-import type { AnywhereErrorCode, AnywhereProblem, TokensUsageRow } from '../anywhere-account.ts'
+import type { AnywhereErrorCode, AnywhereProblem, TokensUsageRow } from '../account.ts'
 
 /** The public client Tokens Anywhere registers for DSH, with loopback redirect URIs. */
 export const TOKENS_CLIENT_ID = 'dsh'
@@ -138,6 +138,13 @@ export interface TokensKey {
   readonly secret: string
 }
 
+/** A managed key and its secret, as `keys/managed` and `keys/{id}/rotate` answer. */
+function managedKeyOf(body: unknown): TokensKey {
+  const value = body as { key?: { id?: unknown; prefix?: unknown }; secret?: unknown } | undefined
+  if (typeof value?.secret !== 'string' || value.secret === '' || typeof value.key?.id !== 'string') throw new AnywhereError('server', 'no API key')
+  return { id: value.key.id, prefix: typeof value.key.prefix === 'string' ? value.key.prefix : '', secret: value.secret }
+}
+
 /** The console API with the account's access token. */
 export class TokensApi {
   /**
@@ -185,9 +192,15 @@ export class TokensApi {
     const { body } = await this.call('/api/v1/keys/managed', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ app: TOKENS_APP }),
     }, signal)
-    const value = body as { key?: { id?: unknown; prefix?: unknown }; secret?: unknown } | undefined
-    if (typeof value?.secret !== 'string' || value.secret === '' || typeof value.key?.id !== 'string') throw new AnywhereError('server', 'no API key')
-    return { id: value.key.id, prefix: typeof value.key.prefix === 'string' ? value.key.prefix : '', secret: value.secret }
+    return managedKeyOf(body)
+  }
+
+  /** Give the grant's key a new secret; the old one stops working at once. */
+  async rotateKey(id: string, signal: AbortSignal): Promise<TokensKey> {
+    const { body } = await this.call(`/api/v1/keys/${encodeURIComponent(id)}/rotate`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    }, signal)
+    return managedKeyOf(body)
   }
 
   /** Usage per Beijing day and model, from one date to another, both included. */

@@ -1,33 +1,65 @@
 /**
  * Anywhere account: sign in to Tokens Anywhere and use its models without setting up a provider (dsh-desktop#1583).
  * Tokens Anywhere is an OAuth 2.1 authorization server for DSH (anywhere-tokenhub docs/oauth-provider-design.md):
- * the Host opens its authorize page with PKCE in a built-in window, the user signs in there with an Agents Anywhere
- * account, and the code comes back to a one-shot listener on 127.0.0.1. With the tokens the Host asks for the grant's
- * own `dsh-next` key, writes the gateway as `llm-pi-ai` provider routes, and keeps the refresh token sealed by the OS
- * credential store for the balance, usage and key updates. Shared by the Host and the renderer, so this module
- * imports nothing.
+ * the Host opens its authorize page with PKCE, in DSH Next's built-in window where the Desktop serves one, the user
+ * signs in there with an Agents Anywhere account, and the code comes back to a one-shot listener on 127.0.0.1. With
+ * the tokens the Host asks for the grant's own `dsh-next` key, writes the gateway as `llm-pi-ai` provider routes, and
+ * keeps the refresh token sealed by the OS credential store for the balance, usage and key updates. Shared by the
+ * Host and the renderer, so this module imports nothing.
  */
 
 /** Host routes; GET reads, POST acts with a JSON body. */
 export const ANYWHERE_ACCOUNT_ROUTES = {
-  state: '/api/desktop-next/anywhere/state',
-  signIn: '/api/desktop-next/anywhere/sign-in',
-  cancel: '/api/desktop-next/anywhere/cancel',
-  signOut: '/api/desktop-next/anywhere/sign-out',
-  refresh: '/api/desktop-next/anywhere/refresh',
-  defaultModel: '/api/desktop-next/anywhere/default-model',
+  state: '/api/tokens-anywhere/state',
+  signIn: '/api/tokens-anywhere/sign-in',
+  cancel: '/api/tokens-anywhere/cancel',
+  signOut: '/api/tokens-anywhere/sign-out',
+  refresh: '/api/tokens-anywhere/refresh',
   /**
    * POST `{ id, enabled?, name? }` switches one model on or off in the model picker or renames it; `{ family, enabled }`
    * switches a whole family.
    */
-  model: '/api/desktop-next/anywhere/model',
+  model: '/api/tokens-anywhere/model',
   /** POST: forget those switches and names. */
-  resetModels: '/api/desktop-next/anywhere/models/reset',
+  resetModels: '/api/tokens-anywhere/models/reset',
   /** POST `{ enabled }`: whether the routes are the user's to edit, with the official model editor. */
-  custom: '/api/desktop-next/anywhere/custom',
+  custom: '/api/tokens-anywhere/custom',
   /** GET with `days` (7 or 30): the account's usage by day and model, which the page sums up. */
-  usage: '/api/desktop-next/anywhere/usage',
+  usage: '/api/tokens-anywhere/usage',
+  /** GET reads where the page shows besides Settings; POST `{ sidebar?, conversation? }` changes it. */
+  placement: '/api/tokens-anywhere/placement',
+  /** POST `{ storeKey?, writeModels? }`: what the account writes into DSH's local files. */
+  local: '/api/tokens-anywhere/local',
+  /** POST: the key's secret, for the clipboard. */
+  copyKey: '/api/tokens-anywhere/key/copy',
+  /** POST: give the key a new secret; the old one stops working at once. */
+  rotateKey: '/api/tokens-anywhere/key/rotate',
+  /** POST `{ file }`: show one of the account's local files in the file manager. */
+  revealFile: '/api/tokens-anywhere/reveal',
 } as const
+
+/** DSH's local files the account writes: the active Profile's configuration (model routes), and the credentials document (the key). */
+export type AnywhereLocalFile = 'profile-config' | 'credentials'
+
+/** What the account writes into DSH's local files, kept in the plugin's configuration. */
+export interface AnywhereLocalState {
+  /** The key is kept in the credentials document, where the model routes read it. */
+  readonly storeKey: boolean
+  /** The models are written into the active Profile's configuration; they need the stored key. */
+  readonly writeModels: boolean
+  /** Whether a configuration editor can save a change. */
+  readonly writable: boolean
+  /** Whether the shell can show the files in the file manager. */
+  readonly revealFiles: boolean
+}
+
+/** Where the page shows besides Settings, kept in the plugin's configuration. */
+export interface AnywherePlacementState {
+  readonly sidebar: boolean
+  readonly conversation: boolean
+  /** Whether a configuration editor can save a change. */
+  readonly writable: boolean
+}
 
 /** Tokens Anywhere: its sign-in and authorize pages, the console, its API and its gateway share this origin. */
 export const TOKENS_ANYWHERE_ORIGIN = 'https://tokens-anywhere.com'
@@ -57,12 +89,19 @@ export function tokensAnywhereOrigin(override: string | undefined): string {
 }
 
 /**
- * Provider routes the account writes into the `llm-pi-ai` entry, and the credential reference they read. GPT and
- * DeepSeek go through OpenAI Chat Completions (dsh-desktop#1583); Tokens Anywhere serves Claude only through Anthropic
- * Messages and Gemini only through its own API, so each has a route of its own. `llm-pi-ai` takes Gemini's protocol
- * on a hand-declared route since dsh 0.2.2-rc.2.
+ * Provider routes the account writes into the `llm-pi-ai` entry, one per model vendor so the model picker groups them
+ * that way, and the credential reference they read. DeepSeek and GPT go through OpenAI Chat Completions
+ * (dsh-desktop#1583); Tokens Anywhere serves Claude only through Anthropic Messages and Gemini only through its own API.
+ * Models of a vendor the price list does not name share Chat Completions under the plain id. `llm-pi-ai` takes Gemini's
+ * protocol on a hand-declared route since dsh 0.2.2-rc.2.
  */
-export const ANYWHERE_ROUTE_IDS = { chat: 'tokens-anywhere', claude: 'tokens-anywhere-claude', gemini: 'tokens-anywhere-gemini' } as const
+export const ANYWHERE_ROUTE_IDS = {
+  deepseek: 'tokens-anywhere-deepseek',
+  claude: 'tokens-anywhere-claude',
+  gpt: 'tokens-anywhere-gpt',
+  gemini: 'tokens-anywhere-gemini',
+  other: 'tokens-anywhere',
+} as const satisfies Record<AnywhereModelFamily, string>
 /** Routes an earlier build wrote, removed whenever the routes are rewritten. */
 export const RETIRED_ROUTE_IDS: readonly string[] = ['tokens-anywhere-openai']
 export const ANYWHERE_API_KEY_REF = 'TOKENS_ANYWHERE_API_KEY'
@@ -81,7 +120,7 @@ export type AnywhereSignInPhase =
 /** Failure kinds the page explains in its own language. */
 export type AnywhereErrorCode =
   | 'network' | 'server' | 'rejected' | 'session-ended' | 'denied' | 'cancelled' | 'expired' | 'busy'
-  | 'no-models' | 'no-catalog' | 'unknown-model' | 'unsupported-thinking' | 'last-model' | 'failed'
+  | 'no-models' | 'no-catalog' | 'unknown-model' | 'failed'
 
 /** A failure as the page shows it; `detail` is Tokens Anywhere's own wording, if any. */
 export interface AnywhereProblem {
@@ -171,6 +210,7 @@ export interface AnywhereAccountSnapshot {
   readonly defaultModel?: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string }
   /** Why the account signed itself out, until the next sign-in. */
   readonly notice?: AnywhereProblem
+  readonly local: AnywhereLocalState
 }
 
 /** Usage ranges the page offers, in days. */
@@ -457,10 +497,9 @@ export function planAnywhereModels(input: {
   const order = (family: AnywhereModelFamily) => ANYWHERE_MODEL_FAMILIES.indexOf(family)
   return [...ids].map((id): AnywhereModelView => {
     const family = anywhereModelFamily(priced.get(id)?.provider, id)
-    const route = family === 'claude' && input.anthropic.includes(id) ? ANYWHERE_ROUTE_IDS.claude
-      : family === 'gemini' && input.gemini.includes(id) ? ANYWHERE_ROUTE_IDS.gemini
-        : (family === 'gpt' || family === 'deepseek' || family === 'other') && input.chat.includes(id) ? ANYWHERE_ROUTE_IDS.chat
-          : undefined
+    // Claude and Gemini only through their own protocols, every other vendor through Chat Completions.
+    const listed = family === 'claude' ? input.anthropic.includes(id) : family === 'gemini' ? input.gemini.includes(id) : input.chat.includes(id)
+    const route = listed ? ANYWHERE_ROUTE_IDS[family] : undefined
     const profile = input.profiles[id]
     const defaultName = profile?.displayName || id
     const contextWindow = typeof profile?.contextWindow === 'number' ? profile.contextWindow : undefined
@@ -490,9 +529,11 @@ export function anywhereRoutes(models: readonly AnywhereModelView[], origin: str
   const base = origin.replace(/\/+$/, '')
   const routes: Record<string, PiAiRoute> = {}
   for (const [id, api, baseURL, displayName] of [
-    [ANYWHERE_ROUTE_IDS.chat, 'openai-completions', `${base}/v1`, 'Tokens Anywhere'],
+    [ANYWHERE_ROUTE_IDS.deepseek, 'openai-completions', `${base}/v1`, 'Tokens Anywhere · DeepSeek'],
     [ANYWHERE_ROUTE_IDS.claude, 'anthropic-messages', base, 'Tokens Anywhere · Claude'],
+    [ANYWHERE_ROUTE_IDS.gpt, 'openai-completions', `${base}/v1`, 'Tokens Anywhere · GPT'],
     [ANYWHERE_ROUTE_IDS.gemini, 'google-generative-ai', `${base}/v1beta`, 'Tokens Anywhere · Gemini'],
+    [ANYWHERE_ROUTE_IDS.other, 'openai-completions', `${base}/v1`, 'Tokens Anywhere'],
   ] as const) {
     const entries = models.filter(model => model.enabled && model.route === id).map((model): PiAiRouteModel => {
       const known = KNOWN_THINKING[model.id]

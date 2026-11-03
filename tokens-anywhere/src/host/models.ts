@@ -1,5 +1,5 @@
 /**
- * The Anywhere account's model routes (see ../anywhere-account.ts): what Tokens Anywhere offers the key, written as
+ * The Anywhere account's model routes (see ../account.ts): what Tokens Anywhere offers the key, written as
  * `llm-pi-ai` routes. By default the routes follow Tokens Anywhere's list, with the models the user switched off left
  * out and the ones they renamed under their new names. Someone who needs more turns custom configuration on and edits
  * the routes with the official model editor, on the account page or in Settings → Models; the routes are theirs then,
@@ -14,13 +14,13 @@ import {
   pickAnywhereDefaultModel, planAnywhereModels, stableJson,
   type AnywhereModelOverrides, type AnywhereModelView, type AnywhereOfferedModel, type AnywhereProblem, type PiAiRoute,
   type TokensModelProfile, type TokensPricedModel,
-} from '../anywhere-account.ts'
+} from '../account.ts'
 import { AnywhereError, anywhereProblem } from './tokens-client.ts'
 
 const PI_AI_ENTRY = 'llm-pi-ai'
-const MODELS_RECORD = credentialKey('anywhere-account', 'models')
+const MODELS_RECORD = credentialKey('tokens-anywhere', 'models')
 /** Apart from the models record: signing out forgets how the routes were managed, not the user's switches and names. */
-const OVERRIDES_RECORD = credentialKey('anywhere-account', 'model-overrides')
+const OVERRIDES_RECORD = credentialKey('tokens-anywhere', 'model-overrides')
 const REQUEST_TIMEOUT_MS = 20_000
 const OUR_ROUTES: readonly string[] = [...Object.values(ANYWHERE_ROUTE_IDS), ...RETIRED_ROUTE_IDS]
 
@@ -95,7 +95,16 @@ export class AnywhereModels {
     private readonly credentials: CredentialProvider,
     private readonly settings: SettingsForms,
     private readonly defaults: DefaultModels,
+    /** The default model from before signing in, for when none of ours is left on offer. */
+    private readonly previousDefault: () => Promise<ModelSelection | undefined>,
+    /** Whether the routes are written into the Profile at all; off, ours are taken out and the list is only read. */
+    readonly writes: () => boolean = () => true,
   ) {}
+
+  /** Whether the list was read since the Host started. */
+  get loaded(): boolean {
+    return this.inputs !== undefined
+  }
 
   private async record(): Promise<ModelsRecord> {
     const record = await this.credentials.readRecord(MODELS_RECORD)
@@ -117,12 +126,15 @@ export class AnywhereModels {
     return { hidden: payload?.hidden ?? [], names: payload?.names ?? {}, hiddenFamilies: payload?.hiddenFamilies ?? [] }
   }
 
-  /** The list with the user's choices. Choices that leave nothing on offer, as the list changed since, are set aside. */
+  /** The list with the user's choices, which may leave nothing on offer. */
   private async catalog(): Promise<AnywhereModelView[] | undefined> {
     if (this.inputs === undefined) return undefined
-    const overrides = await this.overrides()
-    const models = planAnywhereModels({ ...this.inputs, overrides })
-    return models.some(model => model.enabled) ? models : planAnywhereModels({ ...this.inputs, overrides: { ...overrides, hidden: [], hiddenFamilies: [] } })
+    return planAnywhereModels({ ...this.inputs, overrides: await this.overrides() })
+  }
+
+  /** Whether the list has a model our routes can call, switched on or not. */
+  listsModels(): boolean {
+    return this.inputs !== undefined && planAnywhereModels(this.inputs).some(model => model.route !== undefined)
   }
 
   /** Our routes as the active Profile stores them, whoever wrote them last. */
@@ -179,6 +191,7 @@ export class AnywhereModels {
    * in Settings → Models, which turns custom configuration on instead of being overwritten.
    */
   private async follow(): Promise<Record<string, PiAiRoute>> {
+    if (!this.writes()) return this.withdraw()
     const record = await this.record()
     const stored = this.storedRoutes()
     const present = Object.keys(stored).length > 0
@@ -193,6 +206,7 @@ export class AnywhereModels {
 
   /** Write the routes from the list; a list that has not changed writes nothing. */
   private async write(): Promise<Record<string, PiAiRoute>> {
+    if (!this.writes()) return this.withdraw()
     const routes = await this.plannedRoutes()
     if (routes === undefined) throw new AnywhereError('no-catalog')
     await this.writeRoutes(routes)
@@ -218,7 +232,8 @@ export class AnywhereModels {
 
   /**
    * Keep edited routes working: a route's default thinking level must be one all its models offer, or their requests
-   * fail, and the default model must still be on offer, at a level it has.
+   * fail, and the default model must still be on offer, at a level it has. With none of ours left on offer, the default
+   * goes back to the one from before signing in.
    */
   private async reconcile(): Promise<void> {
     const ops = Object.entries(this.storedRoutes()).flatMap(([id, route]): SettingsPathOp[] => {
@@ -230,15 +245,33 @@ export class AnywhereModels {
     const selection = this.defaults.currentSelection()
     if (!isAnywhereRoute(selection.provider)) return
     const routes = this.storedRoutes()
-    const model = offeredAnywhereModels(routes).find(item => item.route === selection.provider && item.id === selection.model)
+    const offered = offeredAnywhereModels(routes)
+    // The same model on another route of ours keeps the choice, as when the route DeepSeek and GPT shared split by vendor.
+    const model = offered.find(item => item.route === selection.provider && item.id === selection.model)
+      ?? offered.find(item => item.id === selection.model)
     if (model === undefined) {
-      const pick = pickAnywhereDefaultModel(routes)
+      const pick = pickAnywhereDefaultModel(routes) ?? await this.previousDefault()
       if (pick !== undefined) await this.defaults.saveSelection(pick)
-    } else if (selection.reasoningEffort !== undefined && !model.thinking.includes(selection.reasoningEffort)) {
-      const level = defaultThinkingLevel(model.thinking)
-      const { reasoningEffort: _unsupported, ...rest } = selection
-      await this.defaults.saveSelection({ ...rest, ...(level === undefined ? {} : { reasoningEffort: level }) })
+      return
     }
+    const { reasoningEffort, ...rest } = selection
+    const level = reasoningEffort === undefined || model.thinking.includes(reasoningEffort) ? reasoningEffort : defaultThinkingLevel(model.thinking)
+    if (model.route !== selection.provider || level !== reasoningEffort) {
+      await this.defaults.saveSelection({ ...rest, provider: model.route, ...(level === undefined ? {} : { reasoningEffort: level }) })
+    }
+  }
+
+  /** Take our routes, custom ones included, out of the Profile; a default model of ours goes back to the one before. */
+  private async withdraw(): Promise<Record<string, PiAiRoute>> {
+    await this.writeRoutes({})
+    await this.reconcile()
+    return {}
+  }
+
+  /** Bring the routes in line with whether they are written: out of the Profile, or back from the list read last. */
+  async apply(): Promise<void> {
+    if (!this.writes()) await this.withdraw()
+    else if (this.inputs !== undefined) await this.follow()
   }
 
   /** Remove our routes and forget the list and how they were managed. */
@@ -253,7 +286,7 @@ export class AnywhereModels {
   /**
    * Switch one model on or off in the model picker, or rename it; an empty name goes back to Tokens Anywhere's. Or
    * switch a whole family: off, it keeps the models Tokens Anywhere adds to it later off too; on, all of it comes on.
-   * Something must stay on offer: signing out is how to stop using these models.
+   * Everything may go off: the account stays signed in, and our routes go until a model comes back on.
    */
   async change(change: { id?: unknown; family?: unknown; enabled?: unknown; name?: unknown }): Promise<void> {
     if (this.inputs === undefined) throw new AnywhereError('no-catalog')
@@ -289,7 +322,6 @@ export class AnywhereModels {
     const next: AnywhereModelOverrides = {
       hidden: [...hidden].sort(), names, ...(families.size === 0 ? {} : { hiddenFamilies: [...families].sort() }),
     }
-    if (!planAnywhereModels({ ...this.inputs, overrides: next }).some(model => model.enabled)) throw new AnywhereError('last-model')
     await this.credentials.modifyRecord(OVERRIDES_RECORD, async () => ({ kind: 'grant', payload: next }))
     await this.follow()
   }
@@ -311,15 +343,6 @@ export class AnywhereModels {
     await this.saveRecord({ custom: enabled })
     if (enabled) await this.reconcile()
     else await this.write()
-  }
-
-  /** Make one of the offered models, at one of its thinking levels, the default for new sessions. */
-  async setDefault(change: { provider?: unknown; model?: unknown; reasoningEffort?: unknown }): Promise<void> {
-    const model = offeredAnywhereModels(this.storedRoutes()).find(item => item.id === change.model && item.route === change.provider)
-    if (model === undefined) throw new AnywhereError('unknown-model')
-    const effort = typeof change.reasoningEffort === 'string' && change.reasoningEffort !== '' ? change.reasoningEffort : undefined
-    if (effort !== undefined && !model.thinking.includes(effort)) throw new AnywhereError('unsupported-thinking')
-    await this.defaults.saveSelection({ provider: model.route, model: model.id, ...(effort === undefined ? {} : { reasoningEffort: effort }) })
   }
 }
 

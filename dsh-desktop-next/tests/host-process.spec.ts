@@ -441,7 +441,7 @@ process.stderr.write("plugin started\\n" + report + "plugin teardown\\n".repeat(
 describe('Anywhere account IPC', () => {
   const CALLBACK = 'http://127.0.0.1:43123/oauth/callback'
 
-  function hostWithBridge(script: string, bridge: { login: (request: unknown) => void; secret: (action: 'seal' | 'open', value: string) => Promise<string> }) {
+  function hostWithBridge(script: string, bridge: { login: (request: unknown) => void; secret: (action: 'seal' | 'open', value: string) => Promise<string>; reveal?: (file: string) => void }) {
     const runtime = projectWithHost(HTTP_HOST.replace("process.send({ type: 'ready'", `${script}; process.send({ type: 'ready'`))
     const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env, undefined,
       undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
@@ -478,6 +478,14 @@ describe('Anywhere account IPC', () => {
     expect(secret.mock.calls).toEqual([['seal', 'ta_rt_secret'], ['open', 'refuse']])
   })
 
+  it('asks the shell to show the account\'s local files', async () => {
+    const reveal = vi.fn()
+    const host = hostWithBridge("process.send({ type: 'anywhere-reveal', file: 'profile-config' }); process.send({ type: 'anywhere-reveal', file: 'credentials' })",
+      { login: () => {}, secret: async () => '', reveal })
+    await host.start()
+    expect(reveal.mock.calls).toEqual([['profile-config'], ['credentials']])
+  })
+
   it.each([
     [`{ type: 'anywhere-login', action: 'open', url: 'http://tokens-anywhere.com/oauth/authorize/', callback: '${CALLBACK}' }`, 'a plaintext non-loopback page'],
     [`{ type: 'anywhere-login', action: 'open', url: 'file:///C:/Windows/System32/calc.exe', callback: '${CALLBACK}' }`, 'a local file'],
@@ -489,6 +497,7 @@ describe('Anywhere account IPC', () => {
     ["{ type: 'anywhere-secret', requestId: 1, action: 'seal', value: '' }", 'an empty secret'],
     ["{ type: 'anywhere-secret', requestId: 1, action: 'seal', value: 'x'.repeat(9000) }", 'an oversized secret'],
     ["{ type: 'anywhere-secret', action: 'seal', value: 'x' }", 'no request id'],
+    ["{ type: 'anywhere-reveal', file: '/etc/passwd' }", 'a path instead of a known file'],
   ])('refuses %s (%s)', async (event) => {
     const host = hostProcess(projectWithHost(`process.send(${event})`))
     await expect(host.start()).rejects.toThrow('invalid IPC event')

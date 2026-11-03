@@ -264,6 +264,13 @@ const runtime = new NextDesktopRuntime({
         ? safeStorage.encryptString(value).toString('base64')
         : safeStorage.decryptString(Buffer.from(value, 'base64'))
     },
+    // Shown in the file manager, not opened: the credentials document holds every provider's key.
+    reveal: (file) => {
+      if (quitting || !app.isReady()) return
+      const path = file === 'credentials' ? join(home, '.credentials.yaml') : join(runtime.profiles.directory(runtime.selected), 'cordis.patch.yml')
+      void access(path).then(() => { shell.showItemInFolder(path) }, () => openPath(dirname(path)))
+        .catch((error: unknown) => { runtime.diagnostics.append(String(error), 'warn') })
+    },
   },
   onPermission: async (action, permission) => {
     if (quitting) throw new Error('Desktop is shutting down')

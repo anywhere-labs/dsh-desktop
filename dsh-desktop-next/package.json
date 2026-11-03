@@ -16,7 +16,7 @@
     "node": ">=24.9.0"
   },
   "scripts": {
-    "build": "node scripts/clean.mjs && node ../scripts/run-parallel.mjs \"tsdown\" \"vite build --config vite.client.config.ts\" \"vite build --config vite.native-ui.config.ts\" && node scripts/verify-build-output.mjs",
+    "build": "yarn workspace tokens-anywhere build && node scripts/clean.mjs && node ../scripts/run-parallel.mjs \"tsdown\" \"vite build --config vite.client.config.ts\" \"vite build --config vite.native-ui.config.ts\" && node scripts/verify-build-output.mjs",
     "typecheck": "node ../scripts/run-parallel.mjs \"tsc --noEmit\" \"tsc -p tsconfig.packaging.json --noEmit\"",
     "test": "vitest run",
     "verify:host": "node scripts/verify-host.mjs",
@@ -244,6 +244,7 @@
     "pnpm": "11.28.5",
     "react": "18.3.1",
     "selfsigned": "5.5.0",
+    "tokens-anywhere": "0.1.0-dev.0",
     "yaml": "^2.9.0"
   },
   "optionalDependencies": {

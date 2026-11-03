@@ -1,0 +1,4 @@
+- insert:
+    - id: tokens-anywhere
+      name: tokens-anywhere
+      config: {}

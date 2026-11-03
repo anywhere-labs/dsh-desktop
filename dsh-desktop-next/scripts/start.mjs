@@ -11,6 +11,8 @@ for (const file of ['lib/main.js', 'lib/host.js', 'lib/client.js', 'lib/preload-
 }
 const market = dirname(require.resolve('dsh-community-market/package.json'))
 if (!existsSync(join(market, 'lib/client.js'))) throw new Error('Build the Community Market first: corepack yarn workspace dsh-community-market build')
+const tokensAnywhere = dirname(require.resolve('tokens-anywhere/package.json'))
+if (!existsSync(join(tokensAnywhere, 'lib/client.js'))) throw new Error('Build Tokens Anywhere first: corepack yarn workspace tokens-anywhere build')
 const electron = require('electron')
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE

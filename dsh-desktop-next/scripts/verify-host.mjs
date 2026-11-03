@@ -143,7 +143,6 @@ try {
   const startupRow = officialRows.find(row => row.moduleName === 'dsh-desktop-next/startup-entries')
   assert.equal(startupRow?.fiberPhase, 'active', `Startup entries row unavailable: ${JSON.stringify(startupRow)}`)
   assert.deepEqual(await host.startupEntries(), [])
-  assert.equal(officialRows.some(row => row.moduleName === 'tokens-anywhere'), false)
   assert.equal(JSON.parse(readFileSync(join(shadow, 'package.json'), 'utf8')).version, '99.0.0',
     'Runtime isolation must leave installed Profile packages untouched')
   const translation = await rpc('setBundleEnabled', {
@@ -163,6 +162,16 @@ try {
   const scheduleRow = officialRows.find(row => row.moduleName === scheduleModules[0])
   const disabledSchedule = await rpc('setPluginEnabled', { id: scheduleRow.entryId, enabled: false })
   assert.equal(disabledSchedule.application, 'applied', JSON.stringify(disabledSchedule))
+  // Next's own layer mounts the Anywhere account for every Profile; switching it off is the usual row override.
+  const tokensRow = officialRows.find(row => row.moduleName === 'tokens-anywhere')
+  assert.equal(tokensRow?.enabled, true, `Next must mount tokens-anywhere: ${JSON.stringify(tokensRow)}`)
+  assert.equal(tokensRow?.fiberPhase, 'active', JSON.stringify(tokensRow))
+  const disabledTokens = await rpc('setPluginEnabled', { id: tokensRow.entryId, enabled: false })
+  assert.equal(disabledTokens.application, 'applied', JSON.stringify(disabledTokens))
+  assert.equal((await rpc('listPlugins')).find(row => row.moduleName === 'tokens-anywhere')?.enabled, false)
+  const enabledTokens = await rpc('setPluginEnabled', { id: tokensRow.entryId, enabled: true })
+  assert.equal(enabledTokens.application, 'applied', JSON.stringify(enabledTokens))
+  assert.equal((await rpc('listPlugins')).find(row => row.moduleName === 'tokens-anywhere')?.fiberPhase, 'active')
   const availableBundles = await rpc('listBundles')
   // Older runtimes offer Team as a bundle; rc.2 composes its services into Web.
   for (const [name, rowIds] of [
@@ -353,6 +362,7 @@ try {
   const html = await page.text()
   assert.ok(html.includes('dsh-community-market'), 'Market client must appear in the boot manifest')
   assert.ok(html.includes('"id":"dsh-desktop-next"'), 'Next window controls must be a client boot entry')
+  assert.ok(html.includes('"id":"tokens-anywhere"'), 'The Anywhere account client must be a boot entry')
   assert.ok(html.includes('@agents-anywhere/dsh-bridge-next'), 'AA client must appear in the boot manifest')
   assert.ok(html.includes('"id":"@deepseek-ai/dsh-client-ui-account-notifications"'), 'Account notification cards must be a client boot entry')
   assert.ok(html.includes('globalThis["__DSH_ACCOUNT_NOTIFICATIONS_CONFIG__"]'), 'Account notifications must receive their polling interval')

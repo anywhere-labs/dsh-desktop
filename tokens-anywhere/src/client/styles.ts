@@ -1,19 +1,83 @@
 /**
  * Anywhere account page styles. The cards take the official account page's measures (dsh-client-ui-settings-account in
- * 0.2.1-rc.5) under names of their own, since those class names are hashed per release; the usage board follows the
- * one-series chart spec: thin columns, hairline grid, text in text tokens.
+ * 0.2.1-rc.5) under names of their own, since those class names are hashed per release; the page frame, switch rows and
+ * dropdowns take the Desktop settings sections' (dsh-desktop-next src/client/desktop-settings-styles.ts) under this
+ * plugin's names, so the page looks the same wherever it loads; the usage board follows the one-series chart spec:
+ * thin columns, hairline grid, text in text tokens.
  */
 const SERIES = 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)'
+const STYLE_ID = 'tokens-anywhere-styles'
 
 const CSS = `
+.dshAnywherePage {
+  display: flex; flex-direction: column; gap: 24px; width: min(100%, 880px); padding: 2px 0 36px;
+  color: var(--dsw-alias-label-primary);
+}
+.dshAnywhereHeader h2 { margin: 0; font-size: 22px; font-weight: 600; line-height: 1.35; }
+.dshAnywhereHint { margin: 6px 0 0; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 1.6; }
+.dshAnywhereError {
+  margin: 0; padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.55;
+  color: var(--dsw-alias-state-error-primary); background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+}
+.dshAnywhereBadge {
+  display: inline-flex; align-items: center; min-height: 20px; padding: 1px 8px; border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 400;
+}
+.dshAnywhereToggleRow {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px; min-width: 0; padding: 16px 0;
+  border: 0; border-bottom: .5px solid var(--dsw-alias-border-l2); border-radius: 0; background: transparent;
+}
+.dshAnywhereToggleCopy { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.dshAnywhereToggleLabel {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0;
+  color: var(--dsw-alias-label-primary); font-size: 14px; line-height: 22px;
+}
+.dshAnywhereToggleDescription { margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; font-weight: 400; line-height: 18px; }
+.dshAnywhereToggleControl { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.dshAnywhereToggle {
+  box-sizing: border-box; position: relative; flex: 0 0 auto; width: 36px; height: 20px; padding: 2px;
+  border: 0; border-radius: 999px; corner-shape: round; background: var(--dsw-alias-border-l3); cursor: pointer;
+}
+.dshAnywhereToggle[aria-checked="true"] { background: var(--dsw-alias-brand-primary); }
+.dshAnywhereToggle:disabled { cursor: default; opacity: .5; }
+.dshAnywhereToggle:focus-visible, .dshAnywhereExpander:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 2px;
+}
+.dshAnywhereToggleKnob {
+  display: block; width: 16px; height: 16px; border-radius: 50%; corner-shape: round;
+  background: var(--dsw-alias-label-primary-foreground); transition: transform 120ms ease;
+}
+.dshAnywhereToggle[aria-checked="false"] .dshAnywhereToggleKnob { background: var(--dsw-alias-switch-thumb); }
+.dshAnywhereToggle[aria-checked="true"] .dshAnywhereToggleKnob { transform: translateX(16px); }
+.dshAnywhereExpandableGroup, .dshAnywhereExpandedRows { display: flex; flex-direction: column; }
+.dshAnywhereExpander {
+  display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;
+  border: none; border-radius: var(--dsw-radius-xs, 4px); background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer;
+}
+.dshAnywhereExpander:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.dshAnywhereExpander svg { transition: transform var(--ds-transition-duration-fast, 120ms) var(--ds-ease-in-out, ease); }
+.dshAnywhereExpander[aria-expanded="true"] svg { transform: rotate(180deg); }
+.dshAnywhereSelect {
+  display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px;
+  height: 36px; padding: 0 14px; border: none; border-radius: var(--dsw-radius-md, 8px);
+  background-color: var(--dsw-alias-bg-module-platform); color: var(--dsw-alias-label-primary);
+  font: inherit; font-size: 14px; line-height: 22px; white-space: nowrap; cursor: pointer;
+}
+.dshAnywhereSelect:hover:not(:disabled) { background-color: var(--dsw-alias-interactive-bg-hover); }
+.dshAnywhereSelect:disabled { cursor: default; opacity: .45; }
+.dshAnywhereSelectChevron { display: inline-flex; flex: none; align-items: center; justify-content: center; }
+@media (max-width: 720px) {
+  .dshAnywhereToggleRow { align-items: flex-start; }
+}
 /* The page outside Settings: a scrolling column like the main panels', also the body of its Conversation View. */
 .dshAnywhereStandalone { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
 .dshAnywhereStandaloneScroll { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
-.dshAnywhereStandaloneScroll > .dshDesktopSettings {
+.dshAnywhereStandaloneScroll > .dshAnywherePage {
   box-sizing: border-box; width: min(100%, 880px); margin: 0 auto; padding: 28px clamp(24px, 4vw, 48px) 48px;
 }
-.dshAnywhereStandalone[data-view] .dshAnywhereStandaloneScroll > .dshDesktopSettings { padding-top: 20px; }
-[data-next-anywhere-account] .dshDesktopSettingsHeader h2 { display: flex; align-items: center; gap: 8px; }
+.dshAnywhereStandalone[data-view] .dshAnywhereStandaloneScroll > .dshAnywherePage { padding-top: 20px; }
+[data-tokens-anywhere] .dshAnywhereHeader h2 { display: flex; align-items: center; gap: 8px; }
 .dshAnywhereSection { display: flex; flex-direction: column; gap: 16px; font-size: 13px; line-height: 22px; color: var(--dsw-alias-label-primary); }
 .dshAnywhereSection p { margin: 0; }
 .dshAnywhereCard,
@@ -81,11 +145,11 @@ const CSS = `
 .dshAnywherePanel { display: flex; flex-direction: column; gap: 12px; }
 .dshAnywherePanelHead { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .dshAnywhereRows { display: flex; flex-direction: column; }
-.dshAnywhereRows > :last-child, .dshAnywhereRows > .dshDesktopSettingsExpandableGroup:last-child > :last-child { border-bottom: 0; }
+.dshAnywhereRows > :last-child, .dshAnywhereRows > .dshAnywhereExpandableGroup:last-child > :last-child { border-bottom: 0; }
 .dshAnywhereRowsNote { padding: 16px 0; }
 .dshAnywhereDisclosure { width: 100%; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.dshAnywhereDisclosure:hover .dshDesktopSettingsExpander { background: var(--dsw-alias-interactive-bg-hover); }
-.dshAnywhereDisclosure[aria-expanded="true"] .dshDesktopSettingsExpander svg { transform: rotate(180deg); }
+.dshAnywhereDisclosure:hover .dshAnywhereExpander { background: var(--dsw-alias-interactive-bg-hover); }
+.dshAnywhereDisclosure[aria-expanded="true"] .dshAnywhereExpander svg { transform: rotate(180deg); }
 .dshAnywhereModel { padding-left: 12px; }
 .dshAnywhereModelTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dshAnywhereModel[data-off] .dshAnywhereModelTitle { color: var(--dsw-alias-label-tertiary); }
@@ -105,8 +169,8 @@ const CSS = `
 
 .dshAnywhereFilters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .dshAnywhereFiltersEnd { margin-left: auto; }
-.dshAnywhereFilters .dshDesktopSettingsSelect { max-width: 220px; }
-.dshAnywhereFilters .dshDesktopSettingsSelect > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dshAnywhereFilters .dshAnywhereSelect { max-width: 220px; }
+.dshAnywhereFilters .dshAnywhereSelect > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dshAnywhereInlineProblem { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--dsw-alias-label-secondary); }
 .dshAnywhereBoard { display: flex; flex-direction: column; gap: 12px; transition: opacity .15s; }
 .dshAnywhereBoard[data-loading] { opacity: .5; }
@@ -169,9 +233,15 @@ body[data-ds-dark-theme] .dshAnywhereBoard {
 }
 `
 
+/** Install the page's stylesheet once; tolerate a headless client. */
 export function installAnywhereAccountStyles(): () => void {
+  if (typeof document === 'undefined' || document.getElementById(STYLE_ID) !== null) return () => {}
   const style = document.createElement('style')
-  style.dataset.owner = 'dsh-desktop-next-anywhere-account'
+  style.id = STYLE_ID
+  // The upstream loader claims every untagged stylesheet for the next module it materializes, and removes it with that
+  // module; tagged, the sheet is this plugin's and goes when it unloads.
+  style.dataset.plugin = 'tokens-anywhere'
+  style.dataset.pluginCss = 'tokens-anywhere/account'
   style.textContent = CSS
   document.head.append(style)
   return () => { style.remove() }
