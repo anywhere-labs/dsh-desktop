@@ -1,0 +1,96 @@
+From e8aa5a0831d7083c2aff2b0c4e101830525e9cfa Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Tue, 3 Nov 2026 10:58:06 +0800
+Subject: [PATCH 1/2] fix(session-persistence): read past a newer harness's job
+ bookkeeping
+
+A shared user data directory holds logs written by a newer harness build.
+Those logs append background job records and a working-directory change that
+this vocabulary does not know, and the fail-closed gate refuses the whole
+file, so 21 of 203 Sessions lose their transcript on open.
+
+None of those three event types carries Conversation history, so reading
+past them cannot reconstruct a wrong Session. Mark exactly them ignorable
+and let the existing unknown-ignorable path skip them; every other unknown
+type still refuses.
+---
+ .../src/storage-contract.ts                   | 22 +++++++++++++++++--
+ .../tests/storage-contract.spec.ts            | 17 ++++++++++++++
+ 2 files changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/packages/session/session-persistence/src/storage-contract.ts b/packages/session/session-persistence/src/storage-contract.ts
+index 172a59a258..d4b5411c77 100644
+--- a/packages/session/session-persistence/src/storage-contract.ts
++++ b/packages/session/session-persistence/src/storage-contract.ts
+@@ -52,13 +52,27 @@ export function assertVersion(
+   }
+ }
+ 
++/**
++ * Event vocabulary a newer harness writes that carries no Conversation
++ * history of its own — background job bookkeeping and a working-directory
++ * change. Reading past these cannot reconstruct a wrong Session, so a log
++ * containing them stays readable; any other unknown type still refuses.
++ */
++const SKIPPABLE_FOREIGN_EVENT_TYPES: ReadonlySet<string> = new Set([
++  'job/registered',
++  'job/settled',
++  'working-directory/change',
++])
++
+ /**
+  * Validate one exclusively owned stored event array in place: adopt each
+  * record (validating and freezing it) and refuse any event type this build
+  * does not know, unless its writer marked it `ignorable: true` — silently
+  * skipping an unknown required event could reconstruct a wrong session (the
+- * envelope contract on `SessionEvent.ignorable`). Unknown required types and
+- * retired pre-release shapes refuse here; this validator performs no migration.
++ * envelope contract on `SessionEvent.ignorable`). `SKIPPABLE_FOREIGN_EVENT_TYPES`
++ * is the one declared exception: those records are marked ignorable here and
++ * then skipped by the existing path. Unknown required types and retired
++ * pre-release shapes refuse; this validator performs no migration.
+  * @param meta - the stored header the events belong to.
+  * @param events - exclusively owned decoded events; validated in place.
+  * @param location - the backend's artifact location for refusals, when one exists.
+@@ -73,6 +87,10 @@ export function validateStoredEvents(
+ ): SessionEvent[] {
+   for (const event of events) {
+     if (!KNOWN_SESSION_EVENT_TYPES.has(event.type) && event.ignorable !== true) {
++      if (SKIPPABLE_FOREIGN_EVENT_TYPES.has(event.type)) {
++        event.ignorable = true
++        continue
++      }
+       throw unsupported(
+         `session "${meta.id}" contains event type "${event.type}" (seq ${event.seq}) unknown to this harness and not marked ignorable; refusing to interpret the log — it was likely written by a newer harness`,
+         location,
+diff --git a/packages/session/session-persistence/tests/storage-contract.spec.ts b/packages/session/session-persistence/tests/storage-contract.spec.ts
+index 2f34cd384f..b168cd677d 100644
+--- a/packages/session/session-persistence/tests/storage-contract.spec.ts
++++ b/packages/session/session-persistence/tests/storage-contract.spec.ts
+@@ -147,6 +147,23 @@ describe('validateStoredEvents', () => {
+     expect(events[0]).toMatchObject({ type: 'foreign/telemetry', ignorable: true })
+   })
+ 
++  it('marks a declared foreign bookkeeping type ignorable instead of refusing', () => {
++    const m = meta('foreign-skippable')
++    const events = [
++      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
++      {
++        type: 'job/registered',
++        seq: 1,
++        time: 2,
++        data: { jobId: 'bash-1', owner: 'foreign-skippable', kind: 'bash', label: 'sleep 1' },
++      },
++      userMessage(3),
++    ] as unknown as SessionEvent[]
++    expect(validateStoredEvents(m, events)).toBe(events)
++    expect(events[1]!.ignorable).toBe(true)
++    expect(events[0]!.ignorable).toBeUndefined()
++  })
++
+   it('refuses the retired request/header "fallback" reason while accepting current headers', () => {
+     const m = meta('retired-reason')
+     const retired = [
+-- 
+2.43.0
+

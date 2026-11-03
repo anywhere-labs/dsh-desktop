@@ -44,7 +44,7 @@ A patch whose behavior now exists upstream is dropped at replay time
 `app-builder-lib@26.15.7.patch` and `pnpm@11.8.0.patch` were deleted by upstream
 instead of re-recorded.
 
-## `0.2.0-rc.2` — 13 patches
+## `0.2.0-rc.2` — 15 patches
 
 Base pin `639ed015397290b3745d163aafe02ffee4aa3f84`.
 
@@ -61,3 +61,17 @@ Base pin `639ed015397290b3745d163aafe02ffee4aa3f84`.
 | 0011 | `packages/guard/repeat-tool-reminder`, `packages/bundle/base` | L3 + L0 | Opt-in `blockAt` / `maxTrackedCallsPerTurn` hard denials, enabled in the base bundle. |
 | 0012 | `docs/subsystems/slots.*` | L3 | Documents the two new slots; pairing record re-recorded with `verify-translation-pairing --write`. |
 | 0013 | `packages/bundle/web-app`, `apps/web` | L0 + L3 | Persona names DeepSeek Harness instead of the selected model. |
+| 0014 | `packages/session/session-persistence` | L3 | Read past a newer harness's `job/registered`, `job/settled` and `working-directory/change` records instead of refusing the log; restores the transcripts of 21 of 203 Sessions. |
+| 0015 | `packages/client/ui-conversation` | L3 | Seed the composer only from a usable stored draft, so a `{text, references}` draft written by a newer build cannot unmount the whole Session slot. |
+
+## Working-tree drift
+
+Measured 2026-11-03 against `cec59fa8af`. Replaying 0005-0015 applies cleanly, but
+the result is not the submodule working tree that current local builds package: 35
+changed files carry edits no patch records — `packages/api/workspace-files`,
+`packages/client/ui-sidebar-terminal`, `ui-sidebar-files` search and locales, the
+`ui-conversation` READMEs, three `apps/web/tests/expected` snapshots, and
+`pnpm-lock.yaml` — and 15 files recorded in 0005-0013 have moved past their patch
+text. Only 0014 and 0015 are byte-verified against the working tree today. Refresh
+the whole set before trusting a replay; the round-trip check above is what catches
+this.

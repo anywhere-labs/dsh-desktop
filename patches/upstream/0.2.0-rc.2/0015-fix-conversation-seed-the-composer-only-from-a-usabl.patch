@@ -1,0 +1,62 @@
+From 2cb8754d9da44e6c9a8f1159678b5cf963b69397 Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Tue, 3 Nov 2026 10:58:43 +0800
+Subject: [PATCH 2/2] fix(conversation): seed the composer only from a usable
+ stored draft
+
+Store rehydration replaces state wholesale with parsed JSON, so a draft
+written by a newer harness arrives as a {text, references} object. The
+mount seed checked only for emptiness and handed that object to the Lexical
+editor, whose setDraft calls String#replace; the throw unmounted the whole
+conversation.session slot, leaving an empty transcript and no composer on
+every boot.
+
+Seed a plain string, or the text of a chipless snapshot, and nothing
+otherwise. A draft that still carries reference chips stays untouched, so a
+later build that understands it reads its own shape back.
+---
+ .../skeleton/DefaultConversationViews.tsx     | 21 ++++++++++++++++++-
+ 1 file changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/packages/client/ui-conversation/src/client/skeleton/DefaultConversationViews.tsx b/packages/client/ui-conversation/src/client/skeleton/DefaultConversationViews.tsx
+index 4e91d709f1..1793e98c40 100644
+--- a/packages/client/ui-conversation/src/client/skeleton/DefaultConversationViews.tsx
++++ b/packages/client/ui-conversation/src/client/skeleton/DefaultConversationViews.tsx
+@@ -4,6 +4,24 @@ import { conversationPhase } from '../contract/snapshot.ts'
+ import { resolveActiveView } from '../view-selection.ts'
+ import css from './ConversationRoot.module.css'
+ 
++/**
++ * Rehydration replaces persisted state wholesale with parsed JSON, so a shared
++ * user data directory can hold another harness build's draft shape. Seed a
++ * plain string, or a chipless snapshot's text; anything else seeds nothing,
++ * because handing the editor a non-string crashes the whole Session slot.
++ * @param stored - the persisted draft value.
++ * @returns the draft text to seed, or the empty string for an unusable value.
++ */
++function draftTextOf(stored: unknown): string {
++  if (typeof stored === 'string') return stored
++  if (typeof stored !== 'object' || stored === null) return ''
++  const { text, references } = stored as { text?: unknown; references?: unknown }
++  if (typeof text !== 'string') return ''
++  // Reference chips have no plain-text form, so a rich snapshot is not this editor's draft.
++  if (Array.isArray(references) && references.length > 0) return ''
++  return text
++}
++
+ /**
+  * Renders the active Session view inside the resident scrollport and keeps
+  * the input draft mirrored while blank Hero chrome is visible.
+@@ -25,7 +43,8 @@ export function DefaultConversationViews({
+   const viewRequest = useStore(s => s.viewRequest ?? null)
+ 
+   useEffect(() => {
+-    if (inputState.draft === '' && storedDraft !== '') inputActions.setDraft(storedDraft)
++    const seed = draftTextOf(storedDraft)
++    if (inputState.draft === '' && seed !== '') inputActions.setDraft(seed)
+     const unmirror = bindDraftMirror(actions.setDraft)
+     return () => { unmirror() }
+     // Mount-only (deps pinned to inputActions): later store writes come from
+-- 
+2.43.0
+
