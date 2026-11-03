@@ -1,13 +1,12 @@
 /**
- * Anywhere account page in the official Settings dialog, driving the Host routes of ../account.ts; the left sidebar and
- * the Conversation Views can show it too (./entries.tsx). Its identity and balance cards follow the official account
- * page; below them a bar leads to what only this account has: its models, its usage, its settings on this computer, and
- * where the page shows besides Settings.
+ * Anywhere account page in the official Settings dialog, driving the Host routes of ../account.ts; the main column and
+ * the Conversation Views can show it too (./entries.tsx), the main column in the frame of the official entry pages. Its
+ * identity and balance cards follow the official account page; below them the official segmented tabs lead to what only
+ * this account has: its models, its usage, its settings on this computer, and where the page shows besides Settings.
  */
-import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useState, useSyncExternalStore } from 'react'
 import {
-  Button, IconDataOutlineMedium, IconGaugeOutlineMedium, IconPanelLeftOutlineMedium, IconRightUpOutlineRegular, IconSettingsOutlineMedium,
-  IconUserOutlineRegular,
+  Button, IconRightUpOutlineRegular, IconUserOutlineRegular, SegmentedTabs, Tag, type SegmentedTab,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ANYWHERE_ACCOUNT_ROUTES, type AnywhereAccountSnapshot, type AnywhereProblem } from '../account.ts'
 import { ToggleRow } from './controls.tsx'
@@ -91,49 +90,6 @@ function SignedOut({ state, t, busy, run, notice }: {
 
 type AccountTab = 'models' | 'usage' | 'local' | 'placement'
 
-/** The account's parts side by side, in a bar with the look of the settings navigation to its left. */
-function AccountNav({ id, tabs, value, label, onChange }: {
-  id: string
-  tabs: readonly { readonly id: AccountTab; readonly label: string; readonly icon: ReactNode }[]
-  value: AccountTab
-  label: string
-  onChange: (tab: AccountTab) => void
-}) {
-  const cells = useRef(new Map<AccountTab, HTMLButtonElement>())
-  const keys = (event: KeyboardEvent, index: number): void => {
-    const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length
-      : event.key === 'ArrowLeft' ? (index - 1 + tabs.length) % tabs.length
-        : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : undefined
-    if (next === undefined) return
-    event.preventDefault()
-    const tab = tabs[next]!
-    onChange(tab.id)
-    cells.current.get(tab.id)?.focus()
-  }
-  return (
-    <div className="dshAnywhereNav" role="tablist" aria-label={label}>
-      {tabs.map((tab, index) => (
-        <button
-          key={tab.id}
-          ref={(cell) => { if (cell === null) cells.current.delete(tab.id); else cells.current.set(tab.id, cell) }}
-          type="button"
-          role="tab"
-          id={`${id}-${tab.id}`}
-          className="dshAnywhereNavCell"
-          aria-selected={value === tab.id}
-          aria-controls={`${id}-${tab.id}-panel`}
-          tabIndex={value === tab.id ? 0 : -1}
-          onClick={() => { onChange(tab.id) }}
-          onKeyDown={(event) => { keys(event, index) }}
-        >
-          {tab.icon}
-          <span>{tab.label}</span>
-        </button>
-      ))}
-    </div>
-  )
-}
-
 type PlacementKey = 'sidebar' | 'conversation'
 
 /** Where the account shows besides Settings; the right sidebar has no entry yet. */
@@ -194,15 +150,17 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
   const attempt = state.attempt
   const pending = attempt !== undefined && PENDING_PHASES.includes(attempt.phase)
   const held = state.balance !== undefined && Number(state.balance.held) > 0
-  const tabs: readonly { id: AccountTab; label: string; icon: ReactNode }[] = [
-    { id: 'models', label: t('模型', 'Models'), icon: <IconDataOutlineMedium size={16} /> },
+  const part = (value: AccountTab, label: string): SegmentedTab<AccountTab> =>
+    ({ value, label, id: `${navId}-${value}`, panelId: `${navId}-${value}-panel` })
+  const parts: [SegmentedTab<AccountTab>, ...SegmentedTab<AccountTab>[]] = [
+    part('models', t('模型', 'Models')),
     // The usage comes through the session, which may have ended while the models keep working.
-    ...(account.sessionEnded === true ? [] : [{ id: 'usage' as const, label: t('用量', 'Usage'), icon: <IconGaugeOutlineMedium size={16} /> }]),
-    { id: 'local', label: t('设置', 'Settings'), icon: <IconSettingsOutlineMedium size={16} /> },
+    ...(account.sessionEnded === true ? [] : [part('usage', t('用量', 'Usage'))]),
+    part('local', t('设置', 'Settings')),
     // Only where the page is given the placement to change.
-    ...(placement === undefined ? [] : [{ id: 'placement' as const, label: t('显示', 'Display'), icon: <IconPanelLeftOutlineMedium size={16} /> }]),
+    ...(placement === undefined ? [] : [part('placement', t('显示', 'Display'))]),
   ]
-  const tab: AccountTab = tabs.some(item => item.id === selected) ? selected : 'models'
+  const tab: AccountTab = parts.some(item => item.value === selected) ? selected : 'models'
   return (
     <>
       <div className="dshAnywhereCard">
@@ -260,11 +218,12 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
         </div>
       )}
 
-      <AccountNav
-        id={navId}
+      {/* The account's parts side by side, in the tabs of the official Plugins page. */}
+      <SegmentedTabs
+        className="dshAnywhereTabs"
         label={t('账户内容', 'Account sections')}
         value={tab}
-        tabs={tabs}
+        items={parts}
         onChange={(next) => {
           setSelected(next)
           setVisited(current => new Set(current).add(next))
@@ -317,13 +276,18 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
   )
 }
 
-export function AnywhereAccountSettings({ language, officialModels, placement, heading = true }: {
+/**
+ * Where the page shows: a Settings section, under a heading of its own like the Desktop settings beside it; the main
+ * column, in the official entry pages' frame with the page title; or a Conversation View, whose tab names the page.
+ */
+export type AnywherePageFrame = 'section' | 'page' | 'view'
+
+export function AnywhereAccountSettings({ language, officialModels, placement, frame = 'section' }: {
   language: string
   officialModels: () => OfficialModelsFace | undefined
   /** Where the account shows besides Settings; absent where it cannot be changed. */
   placement?: AnywherePlacement | undefined
-  /** A Conversation View tab already names the page. */
-  heading?: boolean
+  frame?: AnywherePageFrame
 }) {
   const t: Copy = useCallback((zh, en) => language.startsWith('zh') ? zh : en, [language])
   const [state, setState] = useState<AnywhereAccountSnapshot>()
@@ -378,10 +342,13 @@ export function AnywhereAccountSettings({ language, officialModels, placement, h
   }, [act])
 
   return (
-    <div className="dshAnywherePage" data-tokens-anywhere="">
-      {heading && (
-        <header className="dshAnywhereHeader">
-          <h2>{t('Anywhere 账户', 'Anywhere account')} <span className="dshAnywhereBadge">Beta</span></h2>
+    <div className="dshAnywherePage" data-tokens-anywhere="" data-frame={frame}>
+      {frame !== 'view' && (
+        // As the official title rows: the title, then its tags. In the main column the row, which reaches the window's
+        // top strip, drags the window like the Plugins page's.
+        <header className="dshAnywhereHeader" data-window-drag={frame === 'page' ? '' : undefined}>
+          {frame === 'page' ? <h1>{t('Anywhere 账户', 'Anywhere account')}</h1> : <h2>{t('Anywhere 账户', 'Anywhere account')}</h2>}
+          <Tag className="dshAnywhereStatusTag" tone="info">Beta</Tag>
         </header>
       )}
       <div className="dshAnywhereSection">
