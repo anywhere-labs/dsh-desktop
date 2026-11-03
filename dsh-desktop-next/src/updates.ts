@@ -66,7 +66,8 @@ export class NextUpdates {
     this.options.changed()
   }
   start(): void {
-    if (!this.options.packaged || !['darwin', 'win32'].includes(this.options.platform) || this.timer || this.disposed) return
+    // Linux checks too, although its packages are downloaded from the release page rather than installed here.
+    if (!this.options.packaged || !['darwin', 'win32', 'linux'].includes(this.options.platform) || this.timer || this.disposed) return
     void this.initializeCache().catch(this.options.log)
     const poll = (): void => {
       if (this.disposed) return
@@ -88,7 +89,8 @@ export class NextUpdates {
   }
   private async query(signal: AbortSignal): Promise<UpdateCheckResult | null> {
     let installationId
-    if (this.options.packaged) {
+    // The privacy policy limits the installation UUID to the macOS and Windows update flow, so Linux checks without it.
+    if (this.state.installable) {
       try { installationId = await getOrCreateDesktopInstallationId(this.options.userData) } catch (error) { this.options.log(error) }
     }
     return checkForDesktopUpdate({ currentVersion: this.options.version, channel: 'next', installationId,
@@ -103,7 +105,7 @@ export class NextUpdates {
         if (!this.result) { this.set({ phase: 'error', error: 'service', version: undefined }); return }
         this.set({ phase: this.result.status === 'update-available' ? 'available' : 'current', version: this.result.latestVersion })
         if (this.result.status === 'update-available') {
-          if (background && this.state.installable && this.result.latestVersion !== this.notifiedVersion) {
+          if (background && this.result.latestVersion !== this.notifiedVersion) {
             this.recordNotifiedVersion(this.result.latestVersion)
             if (!this.disposed) this.options.available?.(this.result.latestVersion)
           } else if (!background && this.result.latestVersion !== this.notifiedVersion) {

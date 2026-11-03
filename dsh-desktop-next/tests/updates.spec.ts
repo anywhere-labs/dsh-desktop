@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -58,12 +59,26 @@ it('allows checks in development, but never downloads or replaces the developmen
   expect(updates.snapshot()).toMatchObject({ installable: false, error: 'development' })
   expect(request).toHaveBeenCalledOnce(); expect(options.prepare).not.toHaveBeenCalled()
 })
-it('does not start background update polling on Linux', async () => {
+it('polls on Linux without the installation UUID, notifies once and leaves the download to the release page', async () => {
+  const mac = await fixture()
+  await mac.updates.check()
+  expect(new Headers(mac.request.mock.calls[0]![1].headers).get('X-DSH-Desktop-Installation-Id')).toMatch(/^[0-9a-f-]{36}$/)
   vi.useFakeTimers()
-  const { updates, request } = await fixture({ platform: 'linux', packaged: true })
+  const available = vi.fn()
+  const { updates, options, request } = await fixture({ platform: 'linux', packaged: true, available })
   updates.start()
-  await vi.advanceTimersByTimeAsync(60_000)
-  expect(request).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(30_000)
+  await vi.waitFor(() => expect(updates.snapshot().phase).toBe('available'))
+  expect(request).toHaveBeenCalledOnce()
+  const headers = new Headers(request.mock.calls[0]![1].headers)
+  expect(headers.get('X-DSH-Desktop-Channel')).toBe('next')
+  expect(headers.has('X-DSH-Desktop-Installation-Id')).toBe(false)
+  expect(existsSync(join(options.userData, 'identity'))).toBe(false)
+  expect(updates.snapshot()).toMatchObject({ version: '2.0.20-next.1', installable: false })
+  expect(available).toHaveBeenCalledExactlyOnceWith('2.0.20-next.1')
+  await updates.download()
+  expect(updates.snapshot()).toMatchObject({ phase: 'error', error: 'unsupported' })
+  expect(request).toHaveBeenCalledOnce()
 })
 it('rechecks the selected version before downloading, and preserves preparation failures for retry', async () => {
   const { updates, options } = await fixture({ prepare: async () => { throw new Error('Signature mismatch') } })
@@ -146,21 +161,29 @@ const baseState: DesktopState = {
   browserUrl: null, lan: null, checkpoint: null, logs: '',
   updates: { phase: 'idle', installable: false },
 }
-it('renders only the version on Linux while showing update status and controls on macOS and Windows', () => {
-  const linuxHtml = renderToStaticMarkup(createElement(NextUpdateSettings, { state: baseState, language: 'zh-CN', run: vi.fn() }))
-  expect(linuxHtml).toContain('桌面版本')
-  expect(linuxHtml).not.toContain('应用更新')
+it('shows update status and controls on every platform, and sends Linux to the release page to download', () => {
+  const render = (platform: string, updates: NextUpdateState) =>
+    renderToStaticMarkup(createElement(NextUpdateSettings, { state: { ...baseState, platform, updates }, language: 'zh-CN', run: vi.fn() }))
+  const linuxHtml = render('linux', { phase: 'idle', installable: false })
+  expect(linuxHtml).toContain('应用更新')
   expect(linuxHtml).toContain('DSH NEXT · 2.0.20-next')
-  expect(linuxHtml).not.toContain('检查更新')
+  expect(linuxHtml).toMatch(/<button[^>]*>检查更新<\/button>/)
+  expect(linuxHtml).not.toMatch(/<button[^>]*disabled/)
+  expect(linuxHtml).toContain('Linux 版需要手动更新：在发布页下载与当前安装方式相同的安装包（deb、AppImage 或 tar.gz）。')
   expect(linuxHtml).not.toContain('应用内安装更新需要使用 macOS 或 Windows 安装版。')
-  expect(linuxHtml).not.toContain('<button')
+  const linuxAvailable = render('linux', { phase: 'available', version: '2.0.21-next', installable: false })
+  expect(linuxAvailable).toContain('发现新版本 2.0.21-next')
+  expect(linuxAvailable).toMatch(/<button[^>]*>前往下载<\/button>/)
+  expect(linuxAvailable).not.toMatch(/<button[^>]*disabled/)
 
-  const macHtml = renderToStaticMarkup(createElement(NextUpdateSettings, { state: { ...baseState, platform: 'darwin' }, language: 'zh-CN', run: vi.fn() }))
+  const macHtml = render('darwin', { phase: 'idle', installable: false })
   expect(macHtml).toContain('应用更新')
   expect(macHtml).toContain('DSH NEXT · 2.0.20-next')
   expect(macHtml).toContain('检查更新')
   expect(macHtml).toContain('应用内安装更新需要使用 macOS 或 Windows 安装版。')
-  expect(macHtml).toContain('<button')
+  expect(macHtml).not.toContain('Linux 版需要手动更新')
+  // A development build cannot download, but it is not sent elsewhere either.
+  expect(render('darwin', { phase: 'available', version: '2.0.21-next', installable: false })).toMatch(/<button[^>]*disabled=""[^>]*>下载更新<\/button>/)
 })
 it('names the release notes page after the latest channel version reported by the update service', () => {
   const releases = 'https://github.com/anywhere-labs/dsh-desktop/releases'
@@ -171,7 +194,7 @@ it('names the release notes page after the latest channel version reported by th
   expect([hostile.search, hostile.hash]).toEqual(['', ''])
   expect(hostile.pathname).toMatch(/^\/anywhere-labs\/dsh-desktop\/releases\/tag\/v[^/]+$/)
 })
-it('links the release notes beside the update controls in both languages, but not on Linux', () => {
+it('links the release notes beside the update controls in both languages', () => {
   const releases = 'https://github.com/anywhere-labs/dsh-desktop/releases'
   const installed = baseState.version
   // An installed build ahead of the last release (a source run) is reported the older, published version.
@@ -186,6 +209,8 @@ it('links the release notes beside the update controls in both languages, but no
     // A reported version wins over the installed one, whether it is older or newer.
     ['darwin', 'zh-CN', current, '更新公告', `${releases}/tag/v${current.version}`],
     ['win32', 'en', ready, 'Release notes', `${releases}/tag/v${ready.version}`],
+    // Linux downloads every package from the same page.
+    ['linux', 'zh-CN', { ...ready, phase: 'available', installable: false }, '更新公告', `${releases}/tag/v${ready.version}`],
   ]
   for (const [platform, language, updates, label, href] of cases) {
     const anchor = render(platform, language, updates).match(/<a [^>]*>[^<]*<\/a>/)?.[0]
@@ -194,5 +219,4 @@ it('links the release notes beside the update controls in both languages, but no
     expect(anchor).toContain('rel="noopener noreferrer"')
     expect(anchor).toContain(`>${label}</a>`)
   }
-  expect(render('linux', 'zh-CN', ready)).not.toContain('<a ')
 })

@@ -95,3 +95,14 @@ it('gives the Linux packages a hicolor icon for every theme size up to 512 pixel
     rmSync(outDir, { recursive: true, force: true })
   }
 })
+
+it('makes the Debian package depend on the GBM and ALSA libraries the executable links', () => {
+  const next = read('../package.json')
+  // A depends list replaces electron-builder's default Depends, so it keeps every default and appends what the executable
+  // also links: none of the defaults pulls in libgbm.so.1 or libasound.so.2, and on minimal Debian and Ubuntu systems the
+  // installed application then cannot start. Since the 64-bit time_t transition libasound2 is a virtual package, and
+  // OSS4's ALSA emulation provides it without a version; the version bound leaves only the real ALSA library to apt.
+  const require = createRequire(new URL('../package.json', import.meta.url))
+  const { default: FpmTarget } = require('app-builder-lib/out/targets/FpmTarget.js')
+  expect(next.build.deb.depends).toEqual([...FpmTarget.prototype.getDefaultDepends.call(undefined, 'deb'), 'libgbm1', 'libasound2 (>= 1.0.17)'])
+})

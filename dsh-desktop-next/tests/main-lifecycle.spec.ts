@@ -155,7 +155,7 @@ vi.mock('electron', async () => {
   return { app, BrowserWindow, Tray, autoUpdater: Object.assign(new EventEmitter(), { setFeedURL: vi.fn(), checkForUpdates: vi.fn(), quitAndInstall: vi.fn() }), net: { fetch: vi.fn() },
     crashReporter: { start: fixture.crashStart },
     Notification: class { static isSupported() { return false } },
-    clipboard: {}, dialog: { showMessageBox: vi.fn(async () => ({ response: 0 })), showMessageBoxSync: vi.fn(() => 0), showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) }, shell: { showItemInFolder: vi.fn() }, safeStorage: {}, nativeTheme: { shouldUseDarkColors: true, on() {} },
+    clipboard: {}, dialog: { showMessageBox: vi.fn(async () => ({ response: 0 })), showMessageBoxSync: vi.fn(() => 0), showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) }, shell: { showItemInFolder: vi.fn(), openExternal: vi.fn(async () => {}) }, safeStorage: {}, nativeTheme: { shouldUseDarkColors: true, on() {} },
     nativeImage: { createFromPath: () => ({ isEmpty: () => false, setTemplateImage() {} }) },
     // Templates stay plain arrays for tray assertions; the popup spy is non-enumerable.
     Menu: { buildFromTemplate: (items: any) => Object.defineProperty(items, 'popup', { value: (options: unknown) => fixture.popup(items, options), configurable: true }), setApplicationMenu() {} },
@@ -753,6 +753,50 @@ it.each(['timeout', 'failure'] as const)('still launches a staged update before 
     Object.defineProperty(process, 'platform', platform)
     vi.useRealTimers()
     vi.doUnmock('../src/update-installer.ts'); vi.doUnmock('../src/updates.ts')
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+})
+
+it('sends an available Linux update to its release page from the tray and Settings instead of downloading it', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-linux-update-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'linux' })
+  let snapshot = { phase: 'current', version: '2.0.21-next', installable: false }
+  const check = vi.fn(async () => { snapshot = { phase: 'available', version: '2.0.22-next', installable: false } })
+  const download = vi.fn(async () => {})
+  vi.doMock('../src/updates.ts', () => ({ NextUpdates: class {
+    snapshot() { return { ...snapshot } }
+    start() {}
+    check = check
+    download = download
+    dispose = async () => {}
+  } }))
+  const { dialog, shell } = await import('electron')
+  vi.mocked(dialog.showMessageBox).mockClear()
+  vi.mocked(shell.openExternal).mockClear()
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const window = fixture.windows[0]
+    const sender = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
+    expect(fixture.handlers.get('dsh-next:state')!(sender).updates).toEqual(snapshot)
+    // A tray check that finds an update explains the manual update before it opens the release page.
+    fixture.trays[0].menu.find((item: any) => item.label === '已是最新版本').click()
+    await vi.waitFor(() => expect(shell.openExternal).toHaveBeenCalledOnce())
+    expect(check).toHaveBeenCalledOnce()
+    expect(dialog.showMessageBox).toHaveBeenCalledOnce()
+    expect(vi.mocked(dialog.showMessageBox).mock.calls[0]!.at(-1)).toMatchObject({ message: '发现新版本 2.0.22-next',
+      buttons: ['前往下载', '稍后'], detail: expect.stringContaining('deb、AppImage 或 tar.gz') })
+    expect(shell.openExternal).toHaveBeenLastCalledWith(`https://github.com/anywhere-labs/dsh-desktop/releases/tag/v${snapshot.version}`)
+    // The Settings and tray download action opens the same page without asking again.
+    await fixture.handlers.get('dsh-next:command')!(sender, { type: 'download-update' })
+    expect(shell.openExternal).toHaveBeenCalledTimes(2)
+    expect(dialog.showMessageBox).toHaveBeenCalledOnce()
+    expect(download).not.toHaveBeenCalled()
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+    vi.doUnmock('../src/updates.ts')
     vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
   }
 })

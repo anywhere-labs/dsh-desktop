@@ -4,7 +4,7 @@ Thank you for wanting to contribute to DSH Desktop. This is a community project 
 
 ## Regular users: use, report, and spread the word
 
-- Report problems or odd behavior in an [issue](https://github.com/anywhere-labs/deepseek-harness-desktop/issues): include your operating system (macOS / Windows), application version, and reproduction steps.
+- Report problems or odd behavior in an [issue](https://github.com/anywhere-labs/deepseek-harness-desktop/issues): include your operating system (macOS / Windows / Linux), application version, and reproduction steps.
 - Feature ideas and improvement suggestions are welcome as issues too.
 - Join the [community channels](README.en.md#community) (WeChat group, QQ group, Discord) and help other users.
 - Write tutorials or experience posts, or help improve and translate the documentation.
