@@ -118,6 +118,7 @@ async function installOfficialComputerUse(ctx: Context): Promise<() => Promise<v
         helperPath: join(tmpdir(), 'dsh-cua-native'),
         createChannel: () => { throw new Error('official Computer Use fixtures start no helper') },
         guidance: 'Official Computer Use guidance', description: 'Official Computer Use',
+        permissionParameters: (_method, permission) => ({ permission }),
       })
     },
   })

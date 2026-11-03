@@ -690,6 +690,9 @@ try {
   await restartOptions.press('ArrowDown')
   await actions.getByRole('menuitem', { name: /^(重启到恢复模式|Restart in Recovery Mode)$/ }).click()
   assert.equal(controlCommands.at(-1).type, 'restart-recovery')
+  // The navigation row shows the Desktop display glyph instead of the settings gear, through the settings shell's
+  // icon slot where the release has one and through the shell's Yarn patch otherwise.
+  assert.equal(await page.getByRole('button', { name: /^(桌面设置|Desktop settings)$/ }).locator('svg rect[width="13"][height="9"]').count(), 1)
   await page.getByRole('button', { name: /^(桌面设置|Desktop settings)$/ }).click()
   const settings = page.locator('[data-next-desktop-settings]')
   await settings.getByRole('heading', { name: /^(DSH NEXT 设置|DSH NEXT settings)$/ }).waitFor()

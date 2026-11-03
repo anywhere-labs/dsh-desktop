@@ -8,8 +8,8 @@ import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 
 const DETAIL = '@deepseek-ai/dsh-plugin-detail'
-// Bundles Beta lists whose release declares no `meta.detail` but ships `README.zh.md`.
-const README_BUNDLES = ['@deepseek-ai/dsh-experimental-liveshare', '@deepseek-ai/dsh-experimental-forge-bundle']
+// Bundles Beta lists whose release declares no `meta.detail` but ships `README.zh.md`; Forge gained `meta.detail` documents in 0.2.2-alpha.3.
+const README_BUNDLES = ['@deepseek-ai/dsh-experimental-liveshare']
 // The display languages the 0.2.2 Client offers.
 const DISPLAY_LANGUAGES = ['zh', 'en', 'ja', 'es', 'fr', 'de', 'ru', 'pt']
 const CHINESE_NAMES = ['README.zh.md', 'README.zh-CN.md', 'README-zh.md', 'README-zh-CN.md', 'README_zh.md', 'README_ZH.md', 'README_CN.md']

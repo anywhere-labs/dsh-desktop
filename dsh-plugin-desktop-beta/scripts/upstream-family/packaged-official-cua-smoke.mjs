@@ -21,7 +21,11 @@ const shared = createRequire(entry).resolve('@deepseek-ai/dsh-cua')
 if (shared.includes('app.asar.unpacked')) throw new Error(`packaged-official-cua-smoke: @deepseek-ai/dsh-cua resolved outside the archive: ${shared}`)
 const provider = await import(pathToFileURL(entry).href)
 if (typeof provider.apply !== 'function') throw new Error('packaged-official-cua-smoke: the provider exports no apply')
-// The provider starts native/bin/darwin-<arch>/dsh-cua-native below its package directory as a child process.
-const helper = join(dirname(dirname(entry)), 'native', 'bin', `darwin-${process.arch}`, 'dsh-cua-native')
+// The provider starts dsh-cua-native inside the DSH Computer Use.app generation that
+// native/bin/darwin-<arch>/current.json below its package directory selects.
+const directory = join(dirname(dirname(entry)), 'native', 'bin', `darwin-${process.arch}`)
+const { bundle } = JSON.parse(readFileSync(join(directory, 'current.json'), 'utf8'))
+if (typeof bundle !== 'string' || !/^[a-f0-9]{64}$/u.test(bundle)) throw new Error(`packaged-official-cua-smoke: ${directory} selects no helper application`)
+const helper = join(directory, bundle, 'DSH Computer Use.app', 'Contents', 'MacOS', 'dsh-cua-native')
 accessSync(helper, constants.X_OK)
 console.log(`Packaged official Computer Use provider loaded from ${dirname(entry)} with its helper ${helper}`)

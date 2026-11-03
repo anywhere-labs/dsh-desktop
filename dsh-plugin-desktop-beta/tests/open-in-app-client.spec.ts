@@ -38,6 +38,8 @@ async function client(apps: string[]) {
     locale: { register: (_namespace: string, value: typeof dictionaries) => { dictionaries = value }, bind: () => (key: string) => key },
     shortcuts: { register: (shortcut: Shortcut) => { shortcuts.push(shortcut) }, catalog: store({}) },
     slots: { inject: () => {}, register: () => {} },
+    // dsh 0.2.2 also offers its workspace actions through the context menu service.
+    contextMenus: { register: () => () => {} },
     layout: { panelInfo: store({ activePanelId: null }) },
     sessions: { list: store({ byId: { session: { cwd: '/workspace', retainedBy: { mainView: 1 } } } }) },
     remote: {},

@@ -17,3 +17,6 @@ export const useOfficialComputerUse: ((options: {
   onNotice(message: string): void
   onChanged(): void
 }) => { row: ReactNode; componentCount(commandActive: boolean): string } | undefined) | undefined = undefined
+
+// dsh 0.2.1's settings shell takes no section icons; its Yarn patch draws the Desktop settings glyph itself.
+export const registerDesktopSettingsIcon: ((ctx: Context, id: string) => void) | undefined = undefined
