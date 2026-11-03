@@ -40,6 +40,10 @@ export interface DesktopPreferences {
   scheduleFailed: boolean
   /** How long a Host start may take before recovery opens; stored apart, see desktop-preferences.ts. */
   hostStartupTimeout: HostStartupTimeout
+  /** The Anywhere account's entry in the left sidebar, opening its page in the main column. */
+  anywhereSidebar: boolean
+  /** The Anywhere account as a Conversation View tab beside every conversation. */
+  anywhereConversation: boolean
 }
 
 export const DEFAULT_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
@@ -47,6 +51,7 @@ export const DEFAULT_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
   browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
   sidebarFooterCompat: true, sidebarFooterBalanced: true, notifications: true, turnCompleted: true, turnFailed: true, jobCompleted: false, jobFailed: false,
   scheduleCompleted: true, scheduleFailed: true, hostStartupTimeout: DEFAULT_HOST_STARTUP_TIMEOUT,
+  anywhereSidebar: true, anywhereConversation: false,
 })
 
 /** Fixed startup defaults matching Beta's disposable Safe Mode settings. */

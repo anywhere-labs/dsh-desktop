@@ -438,6 +438,63 @@ process.stderr.write("plugin started\\n" + report + "plugin teardown\\n".repeat(
   })
 })
 
+describe('Anywhere account IPC', () => {
+  const CALLBACK = 'http://127.0.0.1:43123/oauth/callback'
+
+  function hostWithBridge(script: string, bridge: { login: (request: unknown) => void; secret: (action: 'seal' | 'open', value: string) => Promise<string> }) {
+    const runtime = projectWithHost(HTTP_HOST.replace("process.send({ type: 'ready'", `${script}; process.send({ type: 'ready'`))
+    const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, bridge as never)
+    hosts.push(host)
+    return host
+  }
+
+  it('hands sign-in pages and ended attempts to the shell', async () => {
+    const url = 'https://tokens-anywhere.com/oauth/authorize/?state=fixture'
+    const login = vi.fn()
+    const host = hostWithBridge(`process.send({ type: 'anywhere-login', action: 'open', url: '${url}', callback: '${CALLBACK}' }); process.send({ type: 'anywhere-login', action: 'close', focus: false })`,
+      { login, secret: async () => '' })
+    await host.start()
+    expect(login.mock.calls).toEqual([[{ action: 'open', url, callback: CALLBACK }], [{ action: 'close', focus: false }]])
+  })
+
+  it('answers secret requests, including the refusal where secure storage is unavailable', async () => {
+    const secret = vi.fn(async (action: 'seal' | 'open', value: string) => {
+      if (value === 'refuse') throw new Error('Secure storage is unavailable')
+      return `${action}:${value}`
+    })
+    const host = hostWithBridge(`
+      const answers = []
+      process.on('message', (message) => {
+        if (message.type !== 'anywhere-secret-result') return
+        answers.push(message)
+        if (answers.length === 2) process.stderr.write('answers ' + JSON.stringify(answers) + '\\n')
+      })
+      process.send({ type: 'anywhere-secret', requestId: 1, action: 'seal', value: 'ta_rt_secret' })
+      process.send({ type: 'anywhere-secret', requestId: 2, action: 'open', value: 'refuse' })`, { login: () => {}, secret })
+    await host.start()
+    await vi.waitFor(() => { expect(secret).toHaveBeenCalledTimes(2) })
+    expect(secret.mock.calls).toEqual([['seal', 'ta_rt_secret'], ['open', 'refuse']])
+  })
+
+  it.each([
+    [`{ type: 'anywhere-login', action: 'open', url: 'http://tokens-anywhere.com/oauth/authorize/', callback: '${CALLBACK}' }`, 'a plaintext non-loopback page'],
+    [`{ type: 'anywhere-login', action: 'open', url: 'file:///C:/Windows/System32/calc.exe', callback: '${CALLBACK}' }`, 'a local file'],
+    ["{ type: 'anywhere-login', action: 'open', url: 'https://tokens-anywhere.com/' }", 'no callback'],
+    ["{ type: 'anywhere-login', action: 'open', url: 'https://tokens-anywhere.com/', callback: 'https://evil.example/oauth/callback' }", 'a callback off this computer'],
+    ["{ type: 'anywhere-login', action: 'open', url: 'https://tokens-anywhere.com/', callback: 'http://127.0.0.1:43123/other' }", 'a callback on another path'],
+    ["{ type: 'anywhere-login', action: 'close' }", 'a close without a focus decision'],
+    ["{ type: 'anywhere-secret', requestId: 1, action: 'run', value: 'x' }", 'an unknown secret action'],
+    ["{ type: 'anywhere-secret', requestId: 1, action: 'seal', value: '' }", 'an empty secret'],
+    ["{ type: 'anywhere-secret', requestId: 1, action: 'seal', value: 'x'.repeat(9000) }", 'an oversized secret'],
+    ["{ type: 'anywhere-secret', action: 'seal', value: 'x' }", 'no request id'],
+  ])('refuses %s (%s)', async (event) => {
+    const host = hostProcess(projectWithHost(`process.send(${event})`))
+    await expect(host.start()).rejects.toThrow('invalid IPC event')
+  })
+})
+
 describe('Host fatal line', () => {
   /** What the DSH runtime's fail-loud handler writes for one fatal process event. */
   function failLoudReport(event: 'unhandledRejection' | 'uncaughtException', error: Error): string {

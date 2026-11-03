@@ -5,7 +5,7 @@ import { cleanupDisposableTree } from '../../dsh-plugin-desktop/src/disposable-t
 import { dirname, join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { DesktopBackendController } from './backend-controller.ts'
-import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, type DesktopPlatformLoginRequest } from './host-process.ts'
+import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, type DesktopAnywhereBridge, type DesktopPlatformLoginRequest } from './host-process.ts'
 import { DesktopPreferenceStore, parsePreferences } from './desktop-preferences.ts'
 import { DEFAULT_FEATURES, NextProfiles } from './profiles.ts'
 import { DEFAULT_PREFERENCES, DEFAULT_PROFILE, SAFE_MODE_PREFERENCES, type DesktopBrowserLinks, type DesktopFailureReport, type DesktopPreferences, type DesktopState, type DesktopNotification } from './desktop-contract.ts'
@@ -58,6 +58,8 @@ interface RuntimeOptions {
   /** The current Host's account grant for the embedded Platform page, or null once it has none. */
   onPlatformSession?(session: PlatformSession | null): void
   onPlatformLogin?(request: DesktopPlatformLoginRequest): void
+  /** The Anywhere account's sign-in window and secret sealing. */
+  anywhere?: DesktopAnywhereBridge
 }
 
 export class NextDesktopRuntime {
@@ -347,6 +349,16 @@ export class NextDesktopRuntime {
       lan: this.lan?.snapshot() ?? null, checkpoint, logs: this.diagnostics.snapshot() }
   }
 
+  /** Tell the running Host that the user closed the Tokens Anywhere sign-in window. */
+  anywhereLoginClosed(): void {
+    this.hostProcess?.anywhereLoginClosed()
+  }
+
+  /** Tell the running Host that Tokens Anywhere's link opened DSH. */
+  anywhereLoginRequested(): void {
+    this.hostProcess?.anywhereLoginRequested()
+  }
+
   browserLinks(): DesktopBrowserLinks {
     if (!this.auth || this.closing || this.recoveryMode || this.backend.state.phase !== 'ready' || !this.preferences.browserAccess || this.safeMode) return { localUrl: null, lanUrls: [] }
     const localUrl = new URL(this.auth.url).href
@@ -535,7 +547,7 @@ export class NextDesktopRuntime {
       (chunk, stream, pid) => this.diagnostics.hostChunk(chunk, stream, pid), options.onTerminal, options.onPermission, options.onPlatformSession, options.onPlatformLogin,
       input => { if (input.event === 'exit') this.diagnostics.hostClosed(input.pid); this.diagnostics.record(input) },
       { memory: (usage, pid) => { this.memory.hostMemory(usage, pid) }, exited: (exit, pid) => { this.memory.hostExited(exit, pid) },
-        ...(this.operationHistory === undefined ? {} : { operation: this.operationHistory.host() }) })
+        ...(this.operationHistory === undefined ? {} : { operation: this.operationHistory.host() }) }, options.anywhere)
     this.hostProcess = host
     return {
       start: async (): Promise<void> => {

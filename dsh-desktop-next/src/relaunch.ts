@@ -10,7 +10,8 @@ export const ONBOARDING_ARGUMENT = '--next-onboarding'
 export const DE_ELEVATED_ARGUMENT = '--next-de-elevated'
 
 export function relaunchArguments(argv: readonly string[], recovery: boolean, safe: boolean, onboarding = false): string[] {
-  return [...argv.filter(value => value !== RECOVERY_ARGUMENT && value !== SAFE_ARGUMENT && value !== ONBOARDING_ARGUMENT && value !== DE_ELEVATED_ARGUMENT),
+  // A link the first launch came with was handled then; a relaunch must not act on it again.
+  return [...argv.filter(value => value !== RECOVERY_ARGUMENT && value !== SAFE_ARGUMENT && value !== ONBOARDING_ARGUMENT && value !== DE_ELEVATED_ARGUMENT && !value.startsWith('dsh://')),
     ...recovery ? [RECOVERY_ARGUMENT] : safe ? [SAFE_ARGUMENT] : onboarding ? [ONBOARDING_ARGUMENT] : []]
 }
 

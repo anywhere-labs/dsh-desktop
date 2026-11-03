@@ -357,6 +357,14 @@
       "output": "dist",
       "buildResources": "build"
     },
+    "protocols": [
+      {
+        "name": "DSH",
+        "schemes": [
+          "dsh"
+        ]
+      }
+    ],
     "toolsets": {
       "appimage": "1.0.3",
       "nsis": "1.2.1"
