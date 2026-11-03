@@ -6,12 +6,11 @@
  * and reading the list no longer touches them. It knows nothing of how the key was obtained.
  */
 import { createHash } from 'node:crypto'
-import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { credentialKey, type CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import type { SettingsForms, SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import {
-  ANYWHERE_ROUTE_IDS, RETIRED_ROUTE_IDS, anywhereRoutes, commonThinkingLevel, defaultThinkingLevel, offeredAnywhereModels,
-  pickAnywhereDefaultModel, planAnywhereModels, stableJson,
+  ANYWHERE_ROUTE_IDS, RETIRED_ROUTE_IDS, anywhereRoutes, commonThinkingLevel, offeredAnywhereModels, planAnywhereModels,
+  stableJson,
   type AnywhereModelOverrides, type AnywhereModelView, type AnywhereOfferedModel, type AnywhereProblem, type PiAiRoute,
   type TokensModelProfile, type TokensPricedModel,
 } from '../account.ts'
@@ -23,13 +22,6 @@ const MODELS_RECORD = credentialKey('tokens-anywhere', 'models')
 const OVERRIDES_RECORD = credentialKey('tokens-anywhere', 'model-overrides')
 const REQUEST_TIMEOUT_MS = 20_000
 const OUR_ROUTES: readonly string[] = [...Object.values(ANYWHERE_ROUTE_IDS), ...RETIRED_ROUTE_IDS]
-
-export interface ModelSelection { provider: string; model: string; reasoningEffort?: string }
-
-export interface DefaultModels {
-  currentSelection(): ModelSelection
-  saveSelection(next: ModelSelection): Promise<void>
-}
 
 /** What Tokens Anywhere says about the models, as read with one key. */
 export interface CatalogInputs {
@@ -94,9 +86,6 @@ export class AnywhereModels {
   constructor(
     private readonly credentials: CredentialProvider,
     private readonly settings: SettingsForms,
-    private readonly defaults: DefaultModels,
-    /** The default model from before signing in, for when none of ours is left on offer. */
-    private readonly previousDefault: () => Promise<ModelSelection | undefined>,
     /** Whether the routes are written into the Profile at all; off, ours are taken out and the list is only read. */
     readonly writes: () => boolean = () => true,
   ) {}
@@ -230,11 +219,7 @@ export class AnywhereModels {
     if (ops.length > 0) await this.settings.mutate(PI_AI_ENTRY, ops)
   }
 
-  /**
-   * Keep edited routes working: a route's default thinking level must be one all its models offer, or their requests
-   * fail, and the default model must still be on offer, at a level it has. With none of ours left on offer, the default
-   * goes back to the one from before signing in.
-   */
+  /** Keep edited routes working: a route's default thinking level must be one all its models offer, or their requests fail. */
   private async reconcile(): Promise<void> {
     const ops = Object.entries(this.storedRoutes()).flatMap(([id, route]): SettingsPathOp[] => {
       const level = commonThinkingLevel(route.models)
@@ -242,29 +227,11 @@ export class AnywhereModels {
       return [level === undefined ? { op: 'unset', path: ['providers', id, 'reasoning'] } : { op: 'set', path: ['providers', id, 'reasoning'], value: level }]
     })
     if (ops.length > 0) await this.settings.mutate(PI_AI_ENTRY, ops)
-    const selection = this.defaults.currentSelection()
-    if (!isAnywhereRoute(selection.provider)) return
-    const routes = this.storedRoutes()
-    const offered = offeredAnywhereModels(routes)
-    // The same model on another route of ours keeps the choice, as when the route DeepSeek and GPT shared split by vendor.
-    const model = offered.find(item => item.route === selection.provider && item.id === selection.model)
-      ?? offered.find(item => item.id === selection.model)
-    if (model === undefined) {
-      const pick = pickAnywhereDefaultModel(routes) ?? await this.previousDefault()
-      if (pick !== undefined) await this.defaults.saveSelection(pick)
-      return
-    }
-    const { reasoningEffort, ...rest } = selection
-    const level = reasoningEffort === undefined || model.thinking.includes(reasoningEffort) ? reasoningEffort : defaultThinkingLevel(model.thinking)
-    if (model.route !== selection.provider || level !== reasoningEffort) {
-      await this.defaults.saveSelection({ ...rest, provider: model.route, ...(level === undefined ? {} : { reasoningEffort: level }) })
-    }
   }
 
-  /** Take our routes, custom ones included, out of the Profile; a default model of ours goes back to the one before. */
+  /** Take our routes, custom ones included, out of the Profile. */
   private async withdraw(): Promise<Record<string, PiAiRoute>> {
     await this.writeRoutes({})
-    await this.reconcile()
     return {}
   }
 
@@ -344,9 +311,4 @@ export class AnywhereModels {
     if (enabled) await this.reconcile()
     else await this.write()
   }
-}
-
-/** Whether a provider route is one of ours. */
-export function isAnywhereRoute(provider: string): boolean {
-  return OUR_ROUTES.includes(provider)
 }

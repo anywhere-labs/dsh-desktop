@@ -201,13 +201,12 @@ export interface AnywhereAccountSnapshot {
   readonly models?: readonly AnywhereModelView[]
   /** Why the model list could not be read. */
   readonly modelsError?: AnywhereProblem
-  /** What the routes offer now: the default model is chosen among these. */
+  /** What the routes offer now, as the model picker lists them. */
   readonly offered?: readonly AnywhereOfferedModel[]
   /** The routes are the user's, edited with the official model editor; Tokens Anywhere's list no longer changes them. */
   readonly custom?: boolean
   /** Custom routes differ from what Tokens Anywhere's list would write, so leaving custom configuration loses something. */
   readonly customEdited?: boolean
-  readonly defaultModel?: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string }
   /** Why the account signed itself out, until the next sign-in. */
   readonly notice?: AnywhereProblem
   readonly local: AnywhereLocalState
@@ -461,14 +460,6 @@ export function anywhereModelFamily(provider: string | undefined, id: string): A
 /** Thinking level preferred as the default, strongest that every model is likely to offer first. */
 const DEFAULT_THINKING_ORDER = ['high', 'medium', 'xhigh', 'max', 'low'] as const
 
-/**
- * The strongest usual level among some, for a default that thinks.
- * @param levels - levels on offer.
- */
-export function defaultThinkingLevel(levels: readonly string[]): string | undefined {
-  return DEFAULT_THINKING_ORDER.find(level => levels.includes(level))
-}
-
 /** A route's default level: one every model on it offers, as a default some model lacks fails its requests. */
 export function commonThinkingLevel(models: readonly Pick<PiAiRouteModel, 'reasoningEfforts'>[]): string | undefined {
   const offered = models.map(model => model.reasoningEfforts ? Object.keys(model.reasoningEfforts) : [])
@@ -560,27 +551,6 @@ export function anywhereRoutes(models: readonly AnywhereModelView[], origin: str
   return routes
 }
 
-/** Models offered as the default after signing in, DeepSeek V4.1 Flash first (user, 2026-11-03), then best value for a coding agent. */
-const DEFAULT_MODEL_PREFERENCE = ['deepseek-flash', 'deepseek-v4-pro', 'claude-sonnet-5-5', 'gpt-6-sol']
-
-/** The default model to select once signed in, thinking at its route's default level; undefined without a model. */
-export function pickAnywhereDefaultModel(routes: Readonly<Record<string, PiAiRoute>>): { provider: string; model: string; reasoningEffort?: string } | undefined {
-  const entries = Object.entries(routes)
-  const pick = (provider: string, route: PiAiRoute, model: string) => {
-    // A route with a model that does not think has no default of its own; the chosen model still thinks.
-    const efforts = route.models.find(item => item.id === model)?.reasoningEfforts
-    const level = route.reasoning ?? (efforts ? defaultThinkingLevel(Object.keys(efforts)) : undefined)
-    return { provider, model, ...(level === undefined ? {} : { reasoningEffort: level }) }
-  }
-  for (const wanted of DEFAULT_MODEL_PREFERENCE) {
-    const found = entries.find(([, route]) => route.models.some(model => model.id === wanted))
-    if (found) return pick(found[0], found[1], wanted)
-  }
-  const [first] = entries
-  const model = first?.[1].models[0]
-  return first && model ? pick(first[0], first[1], model.id) : undefined
-}
-
 /** JSON with sorted keys: a settings round trip may reorder them. */
 export function stableJson(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) => typeof item === 'object' && item !== null && !Array.isArray(item)
@@ -589,7 +559,7 @@ export function stableJson(value: unknown): string {
 }
 
 /**
- * What routes offer, in the shape the page chooses a default from.
+ * What routes offer, as the model picker lists them.
  * @param routes - our routes as stored, however they were edited.
  */
 export function offeredAnywhereModels(routes: Readonly<Record<string, Pick<PiAiRoute, 'models'>>>): AnywhereOfferedModel[] {

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import {
   ANYWHERE_API_KEY_REF, ANYWHERE_ROUTE_IDS, TOKENS_ANYWHERE_ORIGIN, anywhereRoutes, beijingDates, commonThinkingLevel,
-  offeredAnywhereModels, pickAnywhereDefaultModel, planAnywhereModels, stableJson, summarizeAnywhereUsage, tokensAnywhereOrigin,
+  offeredAnywhereModels, planAnywhereModels, stableJson, summarizeAnywhereUsage, tokensAnywhereOrigin,
 } from '../src/account.ts'
 import { formatCount, formatTokenLimit, formatYuan, usageTicks } from '../src/client/shared.ts'
 import { AnywhereAccount, LoopbackCallback, type CallbackResult, type LocalFiles } from '../src/host/account.ts'
@@ -135,19 +135,13 @@ describe('models', () => {
     expect(claude.get('claude-sonnet-5-5')).toMatchObject({
       input: ['text', 'image'], compat: { forceAdaptiveThinking: true, supportsTemperature: false },
     })
-    expect(pickAnywhereDefaultModel(routes)).toEqual({ provider: ANYWHERE_ROUTE_IDS.deepseek, model: 'deepseek-v4-pro', reasoningEffort: 'high' })
-    expect(pickAnywhereDefaultModel({})).toBeUndefined()
-    // DeepSeek V4.1 Flash comes first wherever the key can call it.
-    expect(pickAnywhereDefaultModel(anywhereRoutes(catalog(['deepseek-v4-pro', 'deepseek-flash']), 'https://tokens.example/')))
-      .toEqual({ provider: ANYWHERE_ROUTE_IDS.deepseek, model: 'deepseek-flash', reasoningEffort: 'high' })
   })
 
-  it('declares no route default that some model on the route lacks, and the default model still thinks', () => {
+  it('declares no route default that some model on the route lacks', () => {
     const routes = anywhereRoutes(catalog(), 'https://tokens.example')
     // The unknown model does not think, so nothing is common to every model on the route.
     expect(routes[ANYWHERE_ROUTE_IDS.other]?.reasoning).toBeUndefined()
     expect(new Map(routes[ANYWHERE_ROUTE_IDS.other]?.models.map(model => [model.id, model])).get('mystery-model')?.reasoningEfforts).toBe(false)
-    expect(pickAnywhereDefaultModel(routes)).toEqual({ provider: ANYWHERE_ROUTE_IDS.deepseek, model: 'deepseek-v4-pro', reasoningEffort: 'high' })
     expect(commonThinkingLevel([])).toBeUndefined()
     expect(commonThinkingLevel([{ reasoningEfforts: { high: 'high', max: 'max' } }, { reasoningEfforts: { off: null, high: 'high' } }])).toBe('high')
   })
@@ -353,7 +347,6 @@ function services() {
   const refs = new Map<string, string>()
   const records = new Map<string, { kind: 'grant'; payload: unknown }>()
   let providers: Record<string, unknown> = {}
-  let selection: { provider: string; model: string; reasoningEffort?: string } = { provider: 'deepseek-official', model: 'deepseek-flash' }
   const credentials = {
     resolve: async (ref: string) => refs.has(ref) ? { value: refs.get(ref)!, source: 'file' } : undefined,
     set: vi.fn(async (ref: string, value: string) => { refs.set(ref, value) }),
@@ -379,17 +372,13 @@ function services() {
       providers = next
     }),
   }
-  const defaults = {
-    currentSelection: () => selection,
-    saveSelection: vi.fn(async (next: typeof selection) => { selection = next }),
-  }
   const shell = {
     openLogin: vi.fn(), closeLogin: vi.fn(),
     seal: vi.fn(async (value: string): Promise<string | undefined> => `sealed:${value}`),
     open: vi.fn(async (value: string): Promise<string | undefined> => value.replace(/^sealed:/, '')),
     dispose: vi.fn(),
   }
-  return { credentials, settings, defaults, shell, refs, records, get providers() { return providers }, get record() { return records.get(credentialKey('tokens-anywhere', 'account') as string)?.payload as Record<string, unknown> | undefined } }
+  return { credentials, settings, shell, refs, records, get providers() { return providers }, get record() { return records.get(credentialKey('tokens-anywhere', 'account') as string)?.payload as Record<string, unknown> | undefined } }
 }
 
 const ORIGIN = 'http://tokens.test'
@@ -466,7 +455,7 @@ function fakeTokens() {
 }
 
 function newAccount(fake: ReturnType<typeof services>, local?: LocalFiles) {
-  return new AnywhereAccount(fake.credentials as never, fake.settings as never, fake.defaults, fake.shell as never, ORIGIN, local)
+  return new AnywhereAccount(fake.credentials as never, fake.settings as never, fake.shell as never, ORIGIN, local)
 }
 
 /** The plugin's two switches for DSH's local files, saved as the configuration editor would. */
@@ -508,8 +497,7 @@ describe('Anywhere account', () => {
 
       expect(fake.refs.get(ANYWHERE_API_KEY_REF)).toBe(KEY)
       expect(Object.keys(fake.providers).sort()).toEqual(['tokens-anywhere-claude', 'tokens-anywhere-deepseek', 'tokens-anywhere-gpt'])
-      // Thinking is on by default: the selection names a level and so does each route.
-      expect(fake.defaults.saveSelection).toHaveBeenCalledWith({ provider: 'tokens-anywhere-deepseek', model: 'deepseek-v4-pro', reasoningEffort: 'high' })
+      // Thinking is on by default: each route names a level.
       expect(fake.providers['tokens-anywhere-deepseek']).toMatchObject({ reasoning: 'high', api: 'openai-completions', baseURL: `${ORIGIN}/v1` })
 
       // Only the sealed form of the refresh token is stored, and the page never gets a secret.
@@ -520,7 +508,6 @@ describe('Anywhere account', () => {
       const snapshot = await account.snapshot()
       expect(snapshot.account).toMatchObject({ displayName: 'Ada', email: 'ada@example.com', keyPrefix: KEY.slice(0, 11) })
       expect(snapshot.models?.map(model => model.id)).toContain('claude-sonnet-5-5')
-      expect(snapshot.defaultModel).toEqual({ provider: 'tokens-anywhere-deepseek', model: 'deepseek-v4-pro', reasoningEffort: 'high' })
       expect(JSON.stringify(snapshot)).not.toMatch(new RegExp(`ta_at_|ta_rt_|${KEY}`))
 
       await account.signOut()
@@ -528,7 +515,6 @@ describe('Anywhere account', () => {
       expect(fake.refs.has(ANYWHERE_API_KEY_REF)).toBe(false)
       expect(fake.providers).toEqual({})
       expect(fake.record).toBeUndefined()
-      expect(fake.defaults.currentSelection()).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
       expect((await account.snapshot()).account).toBeUndefined()
     } finally {
       account.dispose()
@@ -662,7 +648,6 @@ describe('Anywhere account', () => {
       await vi.waitFor(() => { expect(fake.record).toBeUndefined() })
       expect(fake.refs.has(ANYWHERE_API_KEY_REF)).toBe(false)
       expect(fake.providers).toEqual({})
-      expect(fake.defaults.currentSelection().provider).toBe('deepseek-official')
       const snapshot = await account.snapshot()
       expect(snapshot.account).toBeUndefined()
       expect(snapshot.notice).toEqual({ code: 'session-ended' })
@@ -846,7 +831,7 @@ describe('Anywhere account', () => {
     const chatModels = (fake: ReturnType<typeof services>) => ['tokens-anywhere-deepseek', 'tokens-anywhere-gpt']
       .flatMap(route => (fake.providers[route] as { models: { id: string; name: string }[] } | undefined)?.models ?? [])
 
-    it('applies them to the routes, moves a default that was switched off, and keeps them for the next sign-in', async () => {
+    it('applies them to the routes and keeps them for the next sign-in', async () => {
       const server = fakeTokens()
       const fake = services()
       const account = newAccount(fake)
@@ -857,7 +842,6 @@ describe('Anywhere account', () => {
 
         await account.changeModel({ id: 'deepseek-v4-pro', enabled: false })
         expect(chatModels(fake).map(model => model.id)).toEqual(['gpt-6-sol'])
-        expect(fake.defaults.currentSelection()).toEqual({ provider: 'tokens-anywhere-claude', model: 'claude-sonnet-5-5', reasoningEffort: 'high' })
         const snapshot = await account.snapshot()
         expect(snapshot.models?.find(model => model.id === 'deepseek-v4-pro')).toMatchObject({ enabled: false, name: 'Pro', defaultName: 'deepseek-v4-pro' })
         expect(snapshot.offered?.map(model => model.id)).not.toContain('deepseek-v4-pro')
@@ -918,7 +902,7 @@ describe('Anywhere account', () => {
       }
     })
 
-    it('lets every model go off: the routes go, the default goes back, and the account stays signed in', async () => {
+    it('lets every model go off: the routes go, and the account stays signed in', async () => {
       const server = fakeTokens()
       const fake = services()
       const account = newAccount(fake)
@@ -928,7 +912,6 @@ describe('Anywhere account', () => {
         await account.changeModel({ id: 'gpt-6-sol', enabled: false })
         await account.changeModel({ id: 'deepseek-v4-pro', enabled: false })
         expect(fake.providers).toEqual({})
-        expect(fake.defaults.currentSelection()).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
         expect(await account.snapshot()).toMatchObject({ account: { email: expect.any(String) }, offered: [] })
 
         // Reading the list again, or signing in again, keeps them off and is no failure.
@@ -941,21 +924,6 @@ describe('Anywhere account', () => {
 
         await account.changeModel({ id: 'gpt-6-sol', enabled: true })
         expect(chatModels(fake).map(model => model.id)).toEqual(['gpt-6-sol'])
-      } finally {
-        account.dispose()
-      }
-    })
-
-    it('keeps a default model of the route DeepSeek and GPT once shared, on its vendor\'s route now', async () => {
-      const server = fakeTokens()
-      const fake = services()
-      const account = newAccount(fake)
-      try {
-        await signIn(account, server)
-        // An earlier build offered both under this id, which now takes only the models of no known vendor.
-        await fake.defaults.saveSelection({ provider: 'tokens-anywhere', model: 'gpt-6-sol' })
-        await account.sync()
-        expect(fake.defaults.currentSelection()).toEqual({ provider: 'tokens-anywhere-gpt', model: 'gpt-6-sol' })
       } finally {
         account.dispose()
       }
@@ -1037,26 +1005,18 @@ describe('Anywhere account', () => {
       }
     })
 
-    it('keeps edited routes working: the route default and the default model follow them', async () => {
+    it('keeps edited routes working: the route default follows them', async () => {
       const server = fakeTokens()
       const fake = services()
       const account = newAccount(fake)
       try {
         await signIn(account, server)
-        expect(fake.defaults.currentSelection()).toEqual({ provider: 'tokens-anywhere-deepseek', model: 'deepseek-v4-pro', reasoningEffort: 'high' })
         await account.setCustom({ enabled: true })
 
         // A model that does not think would fail its requests under a route default of high.
         await officialSave(fake, 'tokens-anywhere-deepseek', [{ id: 'deepseek-v4-pro', name: 'Pro', reasoningEfforts: { low: 'low', max: 'max' } }, { id: 'plain', name: 'Plain' }])
         await account.setCustom({ enabled: true })
         expect(chatRoute(fake).reasoning).toBeUndefined()
-        // The default keeps its model, at a level it still has.
-        expect(fake.defaults.currentSelection()).toEqual({ provider: 'tokens-anywhere-deepseek', model: 'deepseek-v4-pro', reasoningEffort: 'max' })
-
-        // Its model gone, the default moves to the best one left, still thinking.
-        await officialSave(fake, 'tokens-anywhere-deepseek', [{ id: 'plain', name: 'Plain' }])
-        await account.setCustom({ enabled: true })
-        expect(fake.defaults.currentSelection()).toEqual({ provider: 'tokens-anywhere-claude', model: 'claude-sonnet-5-5', reasoningEffort: 'high' })
       } finally {
         account.dispose()
       }
@@ -1122,8 +1082,6 @@ describe('Anywhere account', () => {
         expect(state).toEqual({ storeKey: true, writeModels: false })
         expect(fake.providers).toEqual({})
         expect(fake.refs.get(ANYWHERE_API_KEY_REF)).toBe(KEY)
-        // The default model was one of ours, so it goes back to the one from before signing in.
-        expect(fake.defaults.currentSelection()).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
         expect((await account.snapshot()).local).toEqual({ storeKey: true, writeModels: false, writable: true, revealFiles: false })
 
         await account.setLocal({ storeKey: false })
@@ -1155,7 +1113,6 @@ describe('Anywhere account', () => {
         expect((await account.snapshot()).attempt?.phase).toBe('succeeded')
         expect(fake.refs.has(ANYWHERE_API_KEY_REF)).toBe(false)
         expect(fake.providers).toEqual({})
-        expect(fake.defaults.saveSelection).not.toHaveBeenCalled()
       } finally {
         account.dispose()
       }

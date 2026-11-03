@@ -14,13 +14,13 @@ Switch the plugin off in Plugins; Safe Mode leaves it off. Switching it off does
 
 Without DSH Next, the page links the authorize page for the browser, and the refresh token is kept in memory only. After a restart the models keep working, and showing the balance and usage needs another sign-in.
 
-## On this computer
+## Settings
 
-The account's key is for this computer only. The This computer tab copies it, or rotates it, which stops the old key at once. Two switches there say what the account writes into DSH's own files: the key into the credentials file (`.credentials.yaml`), and the models into the active Profile's `cordis.patch.yml`. The models need the stored key, so switching the key off takes them with it. Both switches are the plugin's configuration (`storeKey` and `writeModels`), saved in the active Profile. DSH Next can also show either file in the file manager.
+The account's key is for this computer only. The account page's Settings tab copies it, or rotates it, which stops the old key at once. Two switches there say what the account writes into DSH's own files: the key into the credentials file (`.credentials.yaml`), and the models into the active Profile's `cordis.patch.yml`. The models need the stored key, so switching the key off takes them with it. Both switches are the plugin's configuration (`storeKey` and `writeModels`), saved in the active Profile. DSH Next can also show either file in the file manager.
 
-## Where it shows
+## Display
 
-The account page is in Settings. On its Placement tab it can also add an entry to the left sidebar (on by default) and a View tab beside every conversation (off by default). Both choices are the plugin's configuration (`sidebar` and `conversation`), saved in the active Profile.
+The account page is in Settings. On its Display tab it can also add an entry to the left sidebar (on by default) and a View tab beside every conversation (off by default). Both choices are the plugin's configuration (`sidebar` and `conversation`), saved in the active Profile.
 
 ## Development
 

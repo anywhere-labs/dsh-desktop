@@ -9,16 +9,14 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import { credentialKey, credentialRef, type CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import type { SettingsForms } from '@deepseek-ai/dsh-settings'
 import {
-  ANYWHERE_ACCOUNT_ROUTES, ANYWHERE_API_KEY_REF, TOKENS_ANYWHERE_URL_VARIABLE, beijingDates, pickAnywhereDefaultModel,
-  tokensAnywhereOrigin,
+  ANYWHERE_ACCOUNT_ROUTES, ANYWHERE_API_KEY_REF, TOKENS_ANYWHERE_URL_VARIABLE, beijingDates, tokensAnywhereOrigin,
   type AnywhereAccountSnapshot, type AnywhereProblem, type AnywhereSignInPhase, type AnywhereUsageRows,
 } from '../account.ts'
-import { AnywhereModels, isAnywhereRoute, type DefaultModels, type ModelSelection } from './models.ts'
+import { AnywhereModels } from './models.ts'
 import type { AnywhereSettings } from './settings.ts'
 import { AnywhereShell } from './shell.ts'
 import {
@@ -46,8 +44,6 @@ interface AccountRecord {
   /** The refresh token as the OS credential store sealed it; absent where the store is unavailable. */
   readonly sealedRefreshToken?: string
   readonly connectedAt: string
-  /** The default model before signing in selected ours, restored on sign-out. */
-  readonly previousDefault?: ModelSelection
 }
 
 function isAccountRecord(value: unknown): value is AccountRecord {
@@ -188,14 +184,12 @@ export class AnywhereAccount {
   constructor(
     private readonly credentials: CredentialProvider,
     settings: SettingsForms,
-    private readonly defaults: DefaultModels,
     private readonly shell: AnywhereShell,
     /** The Tokens Anywhere to sign in to. */
     private readonly origin: string,
     private readonly local: LocalFiles = WRITE_ALL,
   ) {
-    this.models = new AnywhereModels(credentials, settings, defaults, async () => (await this.account())?.previousDefault,
-      () => local.storeKey() && local.writeModels())
+    this.models = new AnywhereModels(credentials, settings, () => local.storeKey() && local.writeModels())
   }
 
   /** Pick up a stored account: open its refresh token, then check its key, models and balance in the background. */
@@ -266,7 +260,6 @@ export class AnywhereAccount {
       && (this.balance === undefined || Date.now() - Date.parse(this.balance.checkedAt) > BALANCE_MAX_AGE_MS)) {
       void this.refreshBalance(account)
     }
-    const selection = this.defaults.currentSelection()
     const attempt = this.attempt
     const catalog = account === undefined ? undefined : await this.models.view()
     return {
@@ -293,8 +286,6 @@ export class AnywhereAccount {
         ...(catalog.error === undefined ? {} : { modelsError: catalog.error }),
         offered: catalog.offered, custom: catalog.custom, customEdited: catalog.customEdited,
       }),
-      defaultModel: { provider: selection.provider, model: selection.model,
-        ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }) },
       ...(account === undefined && this.notice !== undefined ? { notice: this.notice } : {}),
     }
   }
@@ -388,19 +379,16 @@ export class AnywhereAccount {
       const [user, key] = await Promise.all([api.me(signal), api.managedKey(signal)])
 
       attempt.phase = 'configuring'
-      const routes = await this.models.load(origin, key.secret, signal)
+      await this.models.load(origin, key.secret, signal)
       // The user may have switched every model off before: that is no reason to refuse the sign-in.
       if (!this.models.listsModels()) throw new AnywhereError('no-models')
       if (this.local.storeKey()) await this.credentials.set(credentialRef(ANYWHERE_API_KEY_REF), key.secret)
       const sealed = await this.shell.seal(set.refreshToken)
-      const previousAccount = await this.account()
-      const previous = previousAccount?.previousDefault ?? this.defaults.currentSelection()
       const record: AccountRecord = {
         version: 3, origin, user: { displayName: user.displayName || user.loginName, email: user.email },
         key: { id: key.id, prefix: key.prefix },
         ...(sealed === undefined ? {} : { sealedRefreshToken: sealed }),
         connectedAt: new Date().toISOString(),
-        ...(isAnywhereRoute(previous.provider) ? {} : { previousDefault: previous }),
       }
       await this.credentials.modifyRecord(ACCOUNT_RECORD, async () => ({ kind: 'grant', payload: record }))
       stored = true
@@ -408,9 +396,6 @@ export class AnywhereAccount {
       this.refreshToken = set.refreshToken
       this.sessionEnded = false
       this.memoryOnly = sealed === undefined
-      // A new user needs a model that works at once, thinking by default; signing out restores the one before.
-      const pick = pickAnywhereDefaultModel(routes)
-      if (pick !== undefined && !isAnywhereRoute(this.defaults.currentSelection().provider)) await this.defaults.saveSelection(pick)
       this.balance = undefined
       this.balanceError = undefined
       this.finish(attempt, 'succeeded')
@@ -523,15 +508,12 @@ export class AnywhereAccount {
     return { days, dates, rows: await this.api(account.origin).dailyUsage(from, to, this.lifetime.signal) }
   }
 
-  /** Remove the key, our routes and the account; a default model of ours goes back to the one before. */
+  /** Remove the key, our routes and the account. */
   private async clearAccount(notice?: AnywhereProblem): Promise<void> {
     const account = await this.account()
     await this.models.clear()
     await this.credentials.unset(credentialRef(ANYWHERE_API_KEY_REF))
     await this.credentials.deleteRecord(ACCOUNT_RECORD)
-    if (isAnywhereRoute(this.defaults.currentSelection().provider) && account?.previousDefault !== undefined) {
-      await this.defaults.saveSelection(account.previousDefault)
-    }
     clearInterval(this.syncTimer)
     this.access = undefined
     this.refreshToken = undefined
@@ -622,8 +604,8 @@ export class AnywhereAccount {
 }
 
 /**
- * Mount the account's Host routes while the connection, credentials, settings and default-model services are up, and
- * use DSH Next's sign-in window and keychain whenever its shell serves them.
+ * Mount the account's Host routes while the connection, credentials and settings services are up, and use DSH Next's
+ * sign-in window and keychain whenever its shell serves them.
  * @param ctx - the plugin's context.
  * @param settings - the plugin's configuration, which says what the account writes into DSH's local files.
  */
@@ -634,7 +616,7 @@ export function installAnywhereAccount(ctx: Context, settings: AnywhereSettings)
     get writable() { return settings.writable },
     save: change => settings.save(change),
   }
-  ctx.inject(['connection', 'credentials', 'settings', 'agentDefaultModel'], (inner) => {
+  ctx.inject(['connection', 'credentials', 'settings'], (inner) => {
     const override = process.env[TOKENS_ANYWHERE_URL_VARIABLE]
     const origin = tokensAnywhereOrigin(override)
     if (override !== undefined && override.trim() !== '' && origin !== override.trim().replace(/\/+$/, '')) {
@@ -642,7 +624,7 @@ export function installAnywhereAccount(ctx: Context, settings: AnywhereSettings)
     }
     let account: AnywhereAccount | undefined
     const shell = new AnywhereShell(() => { account?.windowClosed() }, () => { account?.linkOpened() })
-    account = new AnywhereAccount(inner.credentials, inner.settings, inner.agentDefaultModel as DefaultModels, shell, origin, local)
+    account = new AnywhereAccount(inner.credentials, inner.settings, shell, origin, local)
     const current = account
     inner.effect(() => () => { current.dispose() }, 'Anywhere account sign-in')
     // The Desktop's service comes and goes with its own generation; the account outlives it.
