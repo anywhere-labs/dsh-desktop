@@ -1,12 +1,13 @@
 /**
  * Anywhere account page in the official Settings dialog, driving the Host routes of ../anywhere-account.ts; the left
  * sidebar and the Conversation Views can show it too (./anywhere-entries.tsx). Its identity and balance cards follow the
- * official account page; below them a bar leads to what only this account has: its models, its usage and this
- * computer's connection.
+ * official account page; below them a bar leads to what only this account has: its models, its usage, this computer's
+ * connection, and where the page shows besides Settings.
  */
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import {
-  Button, IconDataOutlineMedium, IconGaugeOutlineMedium, IconLinkOutlineMedium, IconRightUpOutlineRegular, IconUserOutlineRegular,
+  Button, IconDataOutlineMedium, IconGaugeOutlineMedium, IconLinkOutlineMedium, IconPanelLeftOutlineMedium, IconRightUpOutlineRegular,
+  IconUserOutlineRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ANYWHERE_ACCOUNT_ROUTES, type AnywhereAccountSnapshot, type AnywhereProblem } from '../anywhere-account.ts'
 import { DesktopSettingsToggleRow } from './DesktopSettingsSection.tsx'
@@ -87,7 +88,7 @@ function SignedOut({ state, t, busy, run, notice }: {
   )
 }
 
-type AccountTab = 'models' | 'usage' | 'connection'
+type AccountTab = 'models' | 'usage' | 'connection' | 'placement'
 
 /** The account's parts side by side, in a bar with the look of the settings navigation to its left. */
 function AccountNav({ id, tabs, value, label, onChange }: {
@@ -197,6 +198,8 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
     // The usage comes through the session, which may have ended while the models keep working.
     ...(account.sessionEnded === true ? [] : [{ id: 'usage' as const, label: t('用量', 'Usage'), icon: <IconGaugeOutlineMedium size={16} /> }]),
     { id: 'connection', label: t('本机连接', 'This computer'), icon: <IconLinkOutlineMedium size={16} /> },
+    // Only where the window can change it.
+    ...(placement === undefined ? [] : [{ id: 'placement' as const, label: t('显示位置', 'Placement'), icon: <IconPanelLeftOutlineMedium size={16} /> }]),
   ]
   const tab: AccountTab = tabs.some(item => item.id === selected) ? selected : 'models'
   return (
@@ -291,7 +294,6 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
               'The system keychain is unavailable, so you will need to sign in again after quitting to see your balance and usage.',
             )} />
           )}
-          {placement !== undefined && <PlacementRows placement={placement} t={t} />}
           {confirmSignOut ? (
             <ControlRow label={t('退出登录？', 'Sign out?')} description={t(
               '退出后会断开这台电脑，并移除本机的 Key 和 Tokens Anywhere 模型。',
@@ -310,6 +312,13 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
           )}
         </div>
       </div>
+      {placement !== undefined && (
+        <div role="tabpanel" id={`${navId}-placement-panel`} aria-labelledby={`${navId}-placement`} hidden={tab !== 'placement'}>
+          <div className="dshAnywhereRows">
+            <PlacementRows placement={placement} t={t} />
+          </div>
+        </div>
+      )}
     </>
   )
 }
