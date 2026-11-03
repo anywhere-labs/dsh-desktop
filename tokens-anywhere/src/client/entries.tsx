@@ -59,12 +59,12 @@ function AnywhereAccountGlyph({ size }: { size: number; active: boolean }) {
   )
 }
 
-/** The account page in the main column, as the left sidebar entry opens it. */
+/** The account page in the main column, as the left sidebar entry opens it, in the frame of the official entry pages. */
 function AnywhereAccountPanel({ t, officialModels, placement }: PropsLocale<'tokens-anywhere'> & AccountFace) {
   return (
     <div className="dshAnywhereStandalone">
       <div className="dshAnywhereStandaloneScroll">
-        <AnywhereAccountSettings language={t('language')} officialModels={officialModels} placement={placement} />
+        <AnywhereAccountSettings language={t('language')} officialModels={officialModels} placement={placement} frame="page" />
       </div>
     </div>
   )
@@ -73,9 +73,9 @@ function AnywhereAccountPanel({ t, officialModels, placement }: PropsLocale<'tok
 /** The account page as a Conversation View: the tab names it, so the page drops its own heading. */
 function AnywhereAccountView({ t, officialModels, placement }: PropsLocale<'tokens-anywhere'> & AccountFace) {
   return (
-    <div className="dshAnywhereStandalone" data-view="">
+    <div className="dshAnywhereStandalone">
       <div className="dshAnywhereStandaloneScroll">
-        <AnywhereAccountSettings language={t('language')} officialModels={officialModels} placement={placement} heading={false} />
+        <AnywhereAccountSettings language={t('language')} officialModels={officialModels} placement={placement} frame="view" />
       </div>
     </div>
   )

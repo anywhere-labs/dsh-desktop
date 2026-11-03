@@ -1,9 +1,10 @@
 /**
  * Anywhere account page styles. The cards take the official account page's measures (dsh-client-ui-settings-account in
- * 0.2.1-rc.5) under names of their own, since those class names are hashed per release; the page frame, switch rows and
- * dropdowns take the Desktop settings sections' (dsh-desktop-next src/client/desktop-settings-styles.ts) under this
- * plugin's names, so the page looks the same wherever it loads; the usage board follows the one-series chart spec:
- * thin columns, hairline grid, text in text tokens.
+ * 0.2.1-rc.5) under names of their own, since those class names are hashed per release; in Settings the page frame,
+ * switch rows and dropdowns take the Desktop settings sections' (dsh-desktop-next src/client/desktop-settings-styles.ts)
+ * under this plugin's names, so the page looks the same wherever it loads, while the main column takes the official
+ * entry pages' frame (the Plugins page); the usage board follows the one-series chart spec: thin columns, hairline grid,
+ * text in text tokens.
  */
 const SERIES = 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)'
 const STYLE_ID = 'tokens-anywhere-styles'
@@ -13,7 +14,11 @@ const CSS = `
   display: flex; flex-direction: column; gap: 24px; width: min(100%, 880px); padding: 2px 0 36px;
   color: var(--dsw-alias-label-primary);
 }
+/* Title rows as the official pages draw theirs: the title, then its tags. */
+.dshAnywhereHeader { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .dshAnywhereHeader h2 { margin: 0; font-size: 22px; font-weight: 600; line-height: 1.35; }
+/* The official status tag size: beside a larger title, the capsule's own line box shows. */
+.dshAnywhereStatusTag { height: 18px; padding: 0 7px; font-size: 10px; line-height: 1; }
 .dshAnywhereHint { margin: 6px 0 0; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 1.6; }
 .dshAnywhereError {
   margin: 0; padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.55;
@@ -70,14 +75,26 @@ const CSS = `
 @media (max-width: 720px) {
   .dshAnywhereToggleRow { align-items: flex-start; }
 }
-/* The page outside Settings: a scrolling column like the main panels', also the body of its Conversation View. */
+/*
+ * The page outside Settings scrolls in a column of its own. In the main column it takes the official entry pages' frame
+ * (the Plugins and Automation pages in 0.2.1-rc.5): content at most 960px wide between clamp(24px, 4vw, 48px) insets,
+ * and the title row 28px down, plus the window strip's clearance on macOS (76px in all). A Conversation View starts 20px
+ * down.
+ */
 .dshAnywhereStandalone { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
-.dshAnywhereStandaloneScroll { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
-.dshAnywhereStandaloneScroll > .dshAnywherePage {
-  box-sizing: border-box; width: min(100%, 880px); margin: 0 auto; padding: 28px clamp(24px, 4vw, 48px) 48px;
+.dshAnywhereStandaloneScroll {
+  flex: 1; min-height: 0; overflow: auto;
+  scrollbar-gutter: stable; --dsh-scrollbar-width: 9px; --dsh-scrollbar-thumb-border: 2px;
 }
-.dshAnywhereStandalone[data-view] .dshAnywhereStandaloneScroll > .dshAnywherePage { padding-top: 20px; }
-[data-tokens-anywhere] .dshAnywhereHeader h2 { display: flex; align-items: center; gap: 8px; }
+.dshAnywherePage[data-frame="page"], .dshAnywherePage[data-frame="view"] {
+  box-sizing: content-box; width: auto; max-width: 960px; margin: 0 auto; padding: 0 clamp(24px, 4vw, 48px) 48px;
+}
+.dshAnywherePage[data-frame="view"] { padding-top: 20px; }
+.dshAnywherePage[data-frame="page"] > .dshAnywhereHeader { padding-top: 28px; }
+[data-platform='darwin'] .dshAnywherePage[data-frame="page"] > .dshAnywhereHeader {
+  padding-top: calc(28px + var(--dsh-frame-top-clearance, 0px));
+}
+.dshAnywherePage[data-frame="page"] h1 { min-width: 0; max-width: 100%; margin: 0; font-size: 20px; font-weight: 500; line-height: 28px; }
 .dshAnywhereSection { display: flex; flex-direction: column; gap: 16px; font-size: 13px; line-height: 22px; color: var(--dsw-alias-label-primary); }
 .dshAnywhereSection p { margin: 0; }
 .dshAnywhereCard,
@@ -129,16 +146,9 @@ const CSS = `
 .dshAnywhereAmountColumn { display: flex; flex-direction: column; align-items: flex-end; }
 .dshAnywhereAmount { font-size: 18px; font-weight: 510; line-height: 28px; }
 
-.dshAnywhereNav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 8px; padding-bottom: 8px; border-bottom: .5px solid var(--dsw-alias-border-l2); }
-.dshAnywhereNavCell {
-  box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px;
-  height: 36px; padding: 0 14px 0 12px; border: 0; border-radius: var(--dsw-radius-md);
-  background: transparent; color: var(--dsw-alias-label-primary);
-  font: inherit; font-size: 14px; line-height: 22px; white-space: nowrap; cursor: pointer;
-}
-.dshAnywhereNavCell:hover { background: var(--dsw-specific-sidebar-nav-item-hover); }
-.dshAnywhereNavCell[aria-selected="true"] { background: var(--dsw-specific-sidebar-nav-item-active); }
-.dshAnywhereNavCell:focus-visible, .dshAnywhereDisclosure:focus-visible {
+/* The official Plugins page's tab list, a step of 24px below the cards like the title above them. */
+.dshAnywhereTabs { width: fit-content; min-width: 240px; margin-top: 8px; }
+.dshAnywhereDisclosure:focus-visible {
   outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: -2px;
 }
@@ -181,7 +191,7 @@ const CSS = `
   border-radius: var(--dsw-radius-xl);
   background: var(--dsw-alias-settings-card-fill);
 }
-.dshAnywhereStatValue { overflow: hidden; font-size: 20px; font-weight: 600; line-height: 30px; text-overflow: ellipsis; white-space: nowrap; }
+.dshAnywhereStatValue { overflow: hidden; font-size: 20px; font-weight: 500; line-height: 30px; text-overflow: ellipsis; white-space: nowrap; }
 .dshAnywhereStatDetail { font-size: 12px; line-height: 18px; }
 .dshAnywhereUsageCard { margin: 0; padding: 12px 16px; }
 .dshAnywherePanelTitle { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; margin-bottom: 8px; font-weight: 500; }
@@ -218,7 +228,7 @@ body[data-ds-dark-theme] .dshAnywhereBoard {
   color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; white-space: nowrap;
 }
 .dshAnywhereTooltip[data-before] { transform: translateX(-100%); }
-.dshAnywhereTooltip strong { color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 600; }
+.dshAnywhereTooltip strong { color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 500; }
 .dshAnywhereTooltipDate { color: var(--dsw-alias-label-tertiary); }
 .dshAnywhereTableFrame { overflow-x: auto; }
 .dshAnywhereTable { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 18px; }
