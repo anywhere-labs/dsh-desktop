@@ -1,17 +1,18 @@
 /**
  * Tokens Anywhere's models on the account page. By default Tokens Anywhere configures them, and the list, in the rows
  * of Desktop settings' notifications, switches whole families or single models on or off and renames models. Custom
- * configuration hands the routes to the official model catalog editor, which the official Models section shares
- * through its patch (patches/dsh-client-ui-settings-models@0.2.1-rc.5.patch); the writes are the official ones too.
+ * configuration hands the routes to the official model catalog editor, which the official Models section shares where
+ * DSH Next patches it in (dsh-desktop-next patches/dsh-client-ui-settings-models@0.2.1-rc.5.patch); the writes are the
+ * official ones too.
  */
 import { useCallback, useEffect, useId, useMemo, useState, useSyncExternalStore, type ComponentType, type KeyboardEvent, type ReactNode } from 'react'
 import { Button, IconChevronDownOutlineRegular, IconEditOutlineRegular, IconRefreshOutlineRegular, Input, Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   ANYWHERE_ACCOUNT_ROUTES, ANYWHERE_MODEL_FAMILIES, ANYWHERE_ROUTE_IDS, anywhereRoutes, stableJson,
   type AnywhereAccountSnapshot, type AnywhereModelFamily, type AnywhereModelView,
-} from '../anywhere-account.ts'
-import { DesktopSettingsSelect, DesktopSettingsToggleRow } from './DesktopSettingsSection.tsx'
-import { formatTokenLimit, preferredThinking, thinkingLabel, type Copy, type RouteReply } from './anywhere-shared.ts'
+} from '../account.ts'
+import { Select, ToggleRow } from './controls.tsx'
+import { formatTokenLimit, type Copy, type RouteReply } from './shared.ts'
 
 const PI_AI_NAMESPACE = 'llm-pi-ai'
 
@@ -103,16 +104,16 @@ function DisclosureRow({ label, badge, description, open, controls, onToggle }: 
   onToggle: () => void
 }) {
   return (
-    <button type="button" className="dshDesktopSettingsToggleRow dshAnywhereDisclosure" aria-expanded={open} aria-controls={controls} onClick={onToggle}>
-      <span className="dshDesktopSettingsToggleCopy">
-        <span className="dshDesktopSettingsToggleLabel">
+    <button type="button" className="dshAnywhereToggleRow dshAnywhereDisclosure" aria-expanded={open} aria-controls={controls} onClick={onToggle}>
+      <span className="dshAnywhereToggleCopy">
+        <span className="dshAnywhereToggleLabel">
           {label}
-          {badge !== undefined && <span className="dshDesktopSettingsBadge">{badge}</span>}
+          {badge !== undefined && <span className="dshAnywhereBadge">{badge}</span>}
         </span>
-        <span className="dshDesktopSettingsToggleDescription">{description}</span>
+        <span className="dshAnywhereToggleDescription">{description}</span>
       </span>
-      <span className="dshDesktopSettingsToggleControl">
-        <span className="dshDesktopSettingsExpander"><IconChevronDownOutlineRegular size={12} /></span>
+      <span className="dshAnywhereToggleControl">
+        <span className="dshAnywhereExpander"><IconChevronDownOutlineRegular size={12} /></span>
       </span>
     </button>
   )
@@ -120,62 +121,13 @@ function DisclosureRow({ label, badge, description, open, controls, onToggle }: 
 
 export function ControlRow({ label, description, children }: { label: string; description: string; children?: ReactNode }) {
   return (
-    <div className="dshDesktopSettingsToggleRow">
-      <span className="dshDesktopSettingsToggleCopy">
-        <span className="dshDesktopSettingsToggleLabel">{label}</span>
-        <span className="dshDesktopSettingsToggleDescription">{description}</span>
+    <div className="dshAnywhereToggleRow">
+      <span className="dshAnywhereToggleCopy">
+        <span className="dshAnywhereToggleLabel">{label}</span>
+        <span className="dshAnywhereToggleDescription">{description}</span>
       </span>
-      {children !== undefined && <div className="dshDesktopSettingsToggleControl">{children}</div>}
+      {children !== undefined && <div className="dshAnywhereToggleControl">{children}</div>}
     </div>
-  )
-}
-
-/** The default model for new sessions and how hard it thinks. */
-function ModelDefaults({ state, t, act }: { state: AnywhereAccountSnapshot; t: Copy; act: AnywhereAction }) {
-  const [busy, setBusy] = useState<'model' | 'thinking'>()
-  const selection = state.defaultModel
-  const offered = state.offered ?? []
-  const current = offered.find(model => model.route === selection?.provider && model.id === selection?.model)
-  const value = current === undefined ? '' : `${current.route}\n${current.id}`
-  const options = offered.map(model => ({ value: `${model.route}\n${model.id}`, label: model.name }))
-  const thinking = current === undefined ? undefined : preferredThinking(current.thinking, selection?.reasoningEffort)
-
-  const choose = async (control: 'model' | 'thinking', model: (typeof offered)[number], reasoningEffort: string | undefined): Promise<void> => {
-    setBusy(control)
-    await act(ANYWHERE_ACCOUNT_ROUTES.defaultModel, {
-      provider: model.route, model: model.id, ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-    })
-    setBusy(undefined)
-  }
-
-  return (
-    <>
-      <ControlRow label={t('默认模型', 'Default model')} description={current === undefined
-        ? t('当前默认模型不是 Tokens Anywhere 的模型。', 'The current default model is not a Tokens Anywhere model.')
-        : t('新会话默认使用，会话里也可以随时切换。', 'New sessions start with it; you can switch in any session.')}>
-        <DesktopSettingsSelect
-          value={value}
-          options={current === undefined ? [{ value: '', label: t('选择模型', 'Choose a model') }, ...options] : options}
-          disabled={busy === 'model'}
-          ariaLabel={t('默认模型', 'Default model')}
-          onChange={(next) => {
-            const model = offered.find(item => `${item.route}\n${item.id}` === next)
-            if (model !== undefined) void choose('model', model, preferredThinking(model.thinking, selection?.reasoningEffort))
-          }}
-        />
-      </ControlRow>
-      {current !== undefined && thinking !== undefined && (
-        <ControlRow label={t('思考等级', 'Thinking')} description={t('默认开启。等级越高，回答越深入，用量也越多。', 'On by default. Higher levels answer in more depth and use more.')}>
-          <DesktopSettingsSelect
-            value={thinking}
-            options={current.thinking.map(level => ({ value: level, label: thinkingLabel(level, t) }))}
-            disabled={busy === 'thinking'}
-            ariaLabel={t('思考等级', 'Thinking')}
-            onChange={(next) => { void choose('thinking', current, next) }}
-          />
-        </ControlRow>
-      )}
-    </>
   )
 }
 
@@ -192,7 +144,7 @@ function CustomSwitch({ state, t, act }: { state: AnywhereAccountSnapshot; t: Co
   }
   return (
     <>
-      <DesktopSettingsToggleRow
+      <ToggleRow
         label={t('自定义配置', 'Custom configuration')}
         description={custom
           ? t('模型目录由你管理，Tokens Anywhere 的新模型不会自动加入。', 'You manage the model catalog; new Tokens Anywhere models are not added for you.')
@@ -245,12 +197,12 @@ function ModelRow({ model, isDefault, t, act }: { model: AnywhereModelView; isDe
   const callable = model.route !== undefined
   const on = pending ?? model.enabled
   return (
-    <div className="dshDesktopSettingsToggleRow dshAnywhereModel" data-off={callable && !on ? '' : undefined}>
-      <span className="dshDesktopSettingsToggleCopy">
+    <div className="dshAnywhereToggleRow dshAnywhereModel" data-off={callable && !on ? '' : undefined}>
+      <span className="dshAnywhereToggleCopy">
         {draft === undefined ? (
-          <span className="dshDesktopSettingsToggleLabel">
+          <span className="dshAnywhereToggleLabel">
             <span className="dshAnywhereModelTitle">{model.name}</span>
-            {isDefault && <span className="dshDesktopSettingsBadge">{t('默认', 'Default')}</span>}
+            {isDefault && <span className="dshAnywhereBadge">{t('默认', 'Default')}</span>}
             {callable && (
               <button type="button" className="dshAnywhereIconButton" aria-label={t(`重命名 ${model.name}`, `Rename ${model.name}`)}
                 title={t('重命名', 'Rename')} onClick={() => { setDraft(model.name) }}>
@@ -269,9 +221,9 @@ function ModelRow({ model, isDefault, t, act }: { model: AnywhereModelView; isDe
             <Button variant="ghost" size="sm" disabled={saving} onClick={() => { setDraft(undefined) }}>{t('取消', 'Cancel')}</Button>
           </span>
         )}
-        <span className="dshDesktopSettingsToggleDescription">{modelFacts(model, t)}</span>
+        <span className="dshAnywhereToggleDescription">{modelFacts(model, t)}</span>
       </span>
-      <div className="dshDesktopSettingsToggleControl">
+      <div className="dshAnywhereToggleControl">
         {callable ? (
           <Switch checked={on} disabled={pending !== undefined}
             label={t(`在模型选择器中提供 ${model.name}`, `Offer ${model.name} in the model picker`)}
@@ -325,8 +277,8 @@ function ModelCatalogList({ state, t, act }: { state: AnywhereAccountSnapshot; t
             : t(`${members.length} 个模型，已开启 ${on} 个`, `${members.length} models, ${on} on`)
         const regionId = `${id}-${family}`
         return (
-          <div key={family} className="dshDesktopSettingsExpandableGroup">
-            <DesktopSettingsToggleRow
+          <div key={family} className="dshAnywhereExpandableGroup">
+            <ToggleRow
               label={t(zh, en)}
               badge={callable > 0 ? undefined : t('暂不支持', 'Not yet')}
               description={callable === 0
@@ -344,7 +296,7 @@ function ModelCatalogList({ state, t, act }: { state: AnywhereAccountSnapshot; t
               }}
             />
             {open.has(family) && (
-              <div id={regionId} className="dshDesktopSettingsExpandedRows">
+              <div id={regionId} className="dshAnywhereExpandedRows">
                 {members.map(model => <ModelRow key={model.id} model={model} isDefault={isDefault(model)} t={t} act={act} />)}
               </div>
             )}
@@ -428,8 +380,8 @@ function RouteEditor({ face, catalog, namespace, route, auto, onSaved }: {
         disabled={busy}
         onBusyChange={setListBusy}
       />
-      {rowFailure !== undefined && <p className="dshDesktopSettingsHint">{`${t('model')} ${rowFailure.index + 1}: ${t(rowFailure.key)}`}</p>}
-      {failure !== undefined && <p className="dshDesktopSettingsError" role="alert">{failure}</p>}
+      {rowFailure !== undefined && <p className="dshAnywhereHint">{`${t('model')} ${rowFailure.index + 1}: ${t(rowFailure.key)}`}</p>}
+      {failure !== undefined && <p className="dshAnywhereError" role="alert">{failure}</p>}
       <EditorFooter
         t={t}
         busy={busy}
@@ -472,7 +424,7 @@ function CustomRoutes({ face, catalog, state, t, act }: {
         const isOpen = open.has(route)
         const regionId = `${id}-${route}`
         return (
-          <div key={route} className="dshDesktopSettingsExpandableGroup dshAnywhereRouteGroup">
+          <div key={route} className="dshAnywhereExpandableGroup dshAnywhereRouteGroup">
             <DisclosureRow
               label={typeof displayName === 'string' ? displayName : route}
               description={t(`${protocol}，${count} 个模型`, `${protocol}, ${count} models`)}
@@ -516,6 +468,7 @@ export function AnywhereModelsPanel({ state, t, act, officialModels }: {
 }) {
   const [refreshing, setRefreshing] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  const [writing, setWriting] = useState(false)
   const face = useMemo(() => officialModels(), [officialModels])
   const catalog = face?.desktopCatalog
   const custom = state.custom === true
@@ -531,6 +484,29 @@ export function AnywhereModelsPanel({ state, t, act, officialModels }: {
     await act(ANYWHERE_ACCOUNT_ROUTES.resetModels, {})
     setRestoring(false)
   }
+  // Switched off on this computer: nothing of ours is in the Profile to list or edit, until the switch comes back on.
+  if (!state.local.writeModels) {
+    const write = async (): Promise<void> => {
+      setWriting(true)
+      await act(ANYWHERE_ACCOUNT_ROUTES.local, { writeModels: true })
+      setWriting(false)
+    }
+    return (
+      <div className="dshAnywherePanel">
+        <div className="dshAnywherePanelHead">
+          <p className="dshAnywhereSecondary">{t(
+            '本机设置里关闭了写入模型配置，模型选择器里不会出现 Tokens Anywhere 的模型。',
+            'Writing the models is turned off under This computer, so none of Tokens Anywhere\'s are in the model picker.',
+          )}</p>
+          <div className="dshAnywhereActions">
+            <Button variant="outline" size="sm" disabled={writing || !state.local.writable} onClick={() => { void write() }}>
+              {writing ? t('正在写入…', 'Writing…') : t('写入模型配置', 'Write the models')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="dshAnywherePanel">
       <div className="dshAnywherePanelHead">
@@ -540,7 +516,9 @@ export function AnywhereModelsPanel({ state, t, act, officialModels }: {
             : t('暂时读不到模型列表，已配置好的模型仍可使用。', 'The model list is unavailable right now. Models already set up keep working.')
           : custom
             ? t(`模型选择器里有 ${offered} 个模型。`, `${offered} models in the model picker.`)
-            : t(`由 Tokens Anywhere 自动配置，模型选择器里有 ${offered} 个模型。`, `Configured by Tokens Anywhere, with ${offered} models in the model picker.`)}</p>
+            : offered === 0
+              ? t('模型已全部关闭，模型选择器里不会出现 Tokens Anywhere 的模型。', 'All models are off, so none of Tokens Anywhere\'s are in the model picker.')
+              : t(`由 Tokens Anywhere 自动配置，模型选择器里有 ${offered} 个模型。`, `Configured by Tokens Anywhere, with ${offered} models in the model picker.`)}</p>
         <div className="dshAnywhereActions">
           {changed && (
             <Button variant="ghost" size="sm" disabled={restoring} onClick={() => { void restore() }}>
@@ -553,7 +531,6 @@ export function AnywhereModelsPanel({ state, t, act, officialModels }: {
         </div>
       </div>
       <div className="dshAnywhereRows">
-        {state.offered !== undefined && <ModelDefaults state={state} t={t} act={act} />}
         <CustomSwitch state={state} t={t} act={act} />
         {!custom && <ModelCatalogList state={state} t={t} act={act} />}
         {custom && face !== undefined && catalog !== undefined && <CustomRoutes face={face} catalog={catalog} state={state} t={t} act={act} />}

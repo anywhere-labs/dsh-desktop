@@ -1,10 +1,10 @@
 /**
- * Host half of the Anywhere account (see ../anywhere-account.ts and dsh-desktop#1583). A sign-in opens Tokens
- * Anywhere's authorize page, with PKCE, in the shell's built-in window; the code comes back to a one-shot listener on
- * 127.0.0.1 (the Host web server admits only the native renderer, and the official DeepSeek sign-in owns its
- * `/oauth/callback`). The Host redeems it, asks for the grant's own `dsh-next` key, writes the gateway as `llm-pi-ai`
- * provider routes, and keeps the refresh token sealed by the OS credential store for the balance, usage and key
- * updates. The page reads and drives it through ANYWHERE_ACCOUNT_ROUTES.
+ * Host half of the Anywhere account (see ../account.ts and dsh-desktop#1583). A sign-in opens Tokens Anywhere's
+ * authorize page, with PKCE, in DSH Next's built-in window where the Desktop serves one (./shell.ts); the code comes
+ * back to a one-shot listener on 127.0.0.1 (the Host web server admits only the native renderer, and the official
+ * DeepSeek sign-in owns its `/oauth/callback`). The Host redeems it, asks for the grant's own `dsh-next` key, writes the
+ * gateway as `llm-pi-ai` provider routes, and keeps the refresh token sealed by the OS credential store for the
+ * balance, usage and key updates. The page reads and drives it through ANYWHERE_ACCOUNT_ROUTES.
  */
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
@@ -17,16 +17,17 @@ import {
   ANYWHERE_ACCOUNT_ROUTES, ANYWHERE_API_KEY_REF, TOKENS_ANYWHERE_URL_VARIABLE, beijingDates, pickAnywhereDefaultModel,
   tokensAnywhereOrigin,
   type AnywhereAccountSnapshot, type AnywhereProblem, type AnywhereSignInPhase, type AnywhereUsageRows,
-} from '../anywhere-account.ts'
-import { AnywhereModels, isAnywhereRoute, type DefaultModels, type ModelSelection } from './anywhere-models.ts'
-import { AnywhereShell } from './anywhere-shell.ts'
+} from '../account.ts'
+import { AnywhereModels, isAnywhereRoute, type DefaultModels, type ModelSelection } from './models.ts'
+import type { AnywhereSettings } from './settings.ts'
+import { AnywhereShell } from './shell.ts'
 import {
   AnywhereError, TokensApi, TokensGrantError, anywhereProblem, exchangeTokensCode, refreshTokens, revokeTokens,
   tokensAuthorizeUrl,
 } from './tokens-client.ts'
 
 const NO_STORE = { 'cache-control': 'no-store' }
-const ACCOUNT_RECORD = credentialKey('anywhere-account', 'default')
+const ACCOUNT_RECORD = credentialKey('tokens-anywhere', 'account')
 /** The browser part of a sign-in, including signing up and signing in to Agents Anywhere on the way. */
 const ATTEMPT_TIMEOUT_MS = 10 * 60_000
 const BALANCE_MAX_AGE_MS = 30_000
@@ -150,6 +151,20 @@ export class LoopbackCallback {
   }
 }
 
+/** What the account writes into DSH's local files, as the plugin's configuration keeps it. */
+export interface LocalFiles {
+  /** Keep the key in the credentials document. */
+  storeKey(): boolean
+  /** Write the models into the active Profile's configuration; never without the stored key. */
+  writeModels(): boolean
+  /** Whether a change can be saved. */
+  readonly writable: boolean
+  save(change: { storeKey: boolean; writeModels: boolean }): Promise<void>
+}
+
+/** Both written, as a Host without the plugin's configuration has it. */
+const WRITE_ALL: LocalFiles = { storeKey: () => true, writeModels: () => true, writable: false, save: async () => { throw new AnywhereError('failed') } }
+
 /** Sign-in, tokens, key, models and account state; every change runs in order through one queue. */
 export class AnywhereAccount {
   private attempt: Attempt | undefined
@@ -177,8 +192,10 @@ export class AnywhereAccount {
     private readonly shell: AnywhereShell,
     /** The Tokens Anywhere to sign in to. */
     private readonly origin: string,
+    private readonly local: LocalFiles = WRITE_ALL,
   ) {
-    this.models = new AnywhereModels(credentials, settings, defaults)
+    this.models = new AnywhereModels(credentials, settings, defaults, async () => (await this.account())?.previousDefault,
+      () => local.storeKey() && local.writeModels())
   }
 
   /** Pick up a stored account: open its refresh token, then check its key, models and balance in the background. */
@@ -237,6 +254,12 @@ export class AnywhereAccount {
     return new TokensApi(origin, renew => this.bearer(renew))
   }
 
+  /** The key as the credentials document keeps it; a value from the environment is not the account's. */
+  private async storedKey(): Promise<string | undefined> {
+    const resolved = await this.credentials.resolve(credentialRef(ANYWHERE_API_KEY_REF))
+    return resolved?.source === 'file' ? resolved.value : undefined
+  }
+
   async snapshot(): Promise<AnywhereAccountSnapshot> {
     const account = await this.account()
     if (account !== undefined && !this.sessionEnded
@@ -259,6 +282,10 @@ export class AnywhereAccount {
         ...(this.sessionEnded ? { sessionEnded: true } : {}),
         ...(this.memoryOnly ? { memoryOnly: true } : {}),
       } }),
+      local: {
+        storeKey: this.local.storeKey(), writeModels: this.local.storeKey() && this.local.writeModels(),
+        writable: this.local.writable, revealFiles: this.shell.revealsFiles === true,
+      },
       ...(account === undefined || this.balance === undefined ? {} : { balance: this.balance }),
       ...(account === undefined || this.balanceError === undefined ? {} : { balanceError: this.balanceError }),
       ...(catalog === undefined ? {} : {
@@ -308,7 +335,7 @@ export class AnywhereAccount {
     void this.serial(async () => {
       if ((await this.account()) !== undefined && !this.sessionEnded) return
       await this.startAttempt()
-    }).catch((error: unknown) => { if (!(error instanceof AnywhereError)) console.error('[dsh-desktop-next] Anywhere sign-in link failed', error) })
+    }).catch((error: unknown) => { if (!(error instanceof AnywhereError)) console.error('[tokens-anywhere] Anywhere sign-in link failed', error) })
   }
 
   cancel(id: string): void {
@@ -362,8 +389,9 @@ export class AnywhereAccount {
 
       attempt.phase = 'configuring'
       const routes = await this.models.load(origin, key.secret, signal)
-      if (Object.keys(routes).length === 0) throw new AnywhereError('no-models')
-      await this.credentials.set(credentialRef(ANYWHERE_API_KEY_REF), key.secret)
+      // The user may have switched every model off before: that is no reason to refuse the sign-in.
+      if (!this.models.listsModels()) throw new AnywhereError('no-models')
+      if (this.local.storeKey()) await this.credentials.set(credentialRef(ANYWHERE_API_KEY_REF), key.secret)
       const sealed = await this.shell.seal(set.refreshToken)
       const previousAccount = await this.account()
       const previous = previousAccount?.previousDefault ?? this.defaults.currentSelection()
@@ -389,7 +417,7 @@ export class AnywhereAccount {
       this.schedule()
       void this.refreshBalance(record)
     } catch (error) {
-      if (!(error instanceof AnywhereError)) console.error('[dsh-desktop-next] Anywhere sign-in failed', error)
+      if (!(error instanceof AnywhereError)) console.error('[tokens-anywhere] Anywhere sign-in failed', error)
       // Nothing is left half signed in: a grant this attempt made goes, with its key, and so do routes nobody holds a key for.
       if (tokens !== undefined && !stored) void revokeTokens(origin, tokens.refreshToken, AbortSignal.timeout(10_000))
       if (!stored && (await this.account()) === undefined) await this.models.clear().catch(() => {})
@@ -443,14 +471,14 @@ export class AnywhereAccount {
       const account = await this.account()
       if (account === undefined) return
       const signal = this.lifetime.signal
-      let secret = (await this.credentials.resolve(credentialRef(ANYWHERE_API_KEY_REF)))?.value
+      let secret = await this.storedKey()
+      // A key the switch says not to keep goes, however it got there.
+      if (!this.local.storeKey() && secret !== undefined) await this.credentials.unset(credentialRef(ANYWHERE_API_KEY_REF))
       if (!this.sessionEnded) {
         try {
           const key = await this.api(account.origin).managedKey(signal)
-          if (key.secret !== secret) {
-            await this.credentials.set(credentialRef(ANYWHERE_API_KEY_REF), key.secret)
-            secret = key.secret
-          }
+          if (this.local.storeKey() && key.secret !== secret) await this.credentials.set(credentialRef(ANYWHERE_API_KEY_REF), key.secret)
+          secret = key.secret
           if (key.id !== account.key.id || key.prefix !== account.key.prefix) {
             await this.updateAccount(current => ({ ...current, key: { id: key.id, prefix: key.prefix } }))
           }
@@ -538,28 +566,90 @@ export class AnywhereAccount {
     return this.serial(() => this.models.setCustom(change))
   }
 
-  setDefaultModel(change: { provider?: unknown; model?: unknown; reasoningEffort?: unknown }): Promise<void> {
-    return this.serial(() => this.models.setDefault(change))
+  /**
+   * Change what the account writes into DSH's local files. The models need the stored key: switching the key off takes
+   * them with it, and switching them on keeps the key again.
+   */
+  setLocal(change: { storeKey?: unknown; writeModels?: unknown }): Promise<void> {
+    return this.serial(async () => {
+      let storeKey = typeof change.storeKey === 'boolean' ? change.storeKey : this.local.storeKey()
+      let writeModels = typeof change.writeModels === 'boolean' ? change.writeModels : this.local.writeModels()
+      if (change.writeModels === true) storeKey = true
+      if (!storeKey) writeModels = false
+      await this.local.save({ storeKey, writeModels })
+      const account = await this.account()
+      if (account === undefined) return
+      const ref = credentialRef(ANYWHERE_API_KEY_REF)
+      let secret = await this.storedKey()
+      if (!storeKey && secret !== undefined) await this.credentials.unset(ref)
+      if (storeKey && secret === undefined) {
+        if (this.sessionEnded) throw new AnywhereError('session-ended')
+        secret = (await this.api(account.origin).managedKey(this.lifetime.signal)).secret
+        await this.credentials.set(ref, secret)
+      }
+      if (this.models.writes() && !this.models.loaded && secret !== undefined) await this.models.load(account.origin, secret, this.lifetime.signal)
+      else await this.models.apply()
+    })
   }
+
+  /** The key's secret, for the clipboard: the one kept here, else Tokens Anywhere's. */
+  async copyKey(): Promise<{ secret: string }> {
+    const account = await this.account()
+    if (account === undefined) throw new AnywhereError('session-ended')
+    const stored = await this.storedKey()
+    if (stored !== undefined) return { secret: stored }
+    if (this.sessionEnded) throw new AnywhereError('session-ended')
+    return { secret: (await this.api(account.origin).managedKey(this.lifetime.signal)).secret }
+  }
+
+  /** Give the key a new secret: the old one stops working at once, and the routes read the new one from here. */
+  rotateKey(): Promise<void> {
+    return this.serial(async () => {
+      const account = await this.account()
+      if (account === undefined || this.sessionEnded) throw new AnywhereError('session-ended')
+      const key = await this.api(account.origin).rotateKey(account.key.id, this.lifetime.signal)
+      if (this.local.storeKey()) await this.credentials.set(credentialRef(ANYWHERE_API_KEY_REF), key.secret)
+      await this.updateAccount(current => ({ ...current, key: { id: key.id, prefix: key.prefix } }))
+    })
+  }
+
+  /** Show one of the account's local files in the file manager, where the Desktop can. */
+  revealFile(change: { file?: unknown }): void {
+    if (change.file !== 'profile-config' && change.file !== 'credentials') throw new AnywhereError('failed')
+    this.shell.revealFile(change.file)
+  }
+
 }
 
 /**
- * Mount the account's Host routes while the connection, credentials, settings and default-model services are up.
- * @param ctx - the desktop-next-capabilities context.
+ * Mount the account's Host routes while the connection, credentials, settings and default-model services are up, and
+ * use DSH Next's sign-in window and keychain whenever its shell serves them.
+ * @param ctx - the plugin's context.
+ * @param settings - the plugin's configuration, which says what the account writes into DSH's local files.
  */
-export function installAnywhereAccount(ctx: Context): void {
+export function installAnywhereAccount(ctx: Context, settings: AnywhereSettings): void {
+  const local: LocalFiles = {
+    storeKey: () => settings.get('storeKey'),
+    writeModels: () => settings.get('writeModels'),
+    get writable() { return settings.writable },
+    save: change => settings.save(change),
+  }
   ctx.inject(['connection', 'credentials', 'settings', 'agentDefaultModel'], (inner) => {
     const override = process.env[TOKENS_ANYWHERE_URL_VARIABLE]
     const origin = tokensAnywhereOrigin(override)
     if (override !== undefined && override.trim() !== '' && origin !== override.trim().replace(/\/+$/, '')) {
-      console.warn(`[dsh-desktop-next] ${TOKENS_ANYWHERE_URL_VARIABLE} is not HTTPS or local HTTP; using ${origin}`)
+      console.warn(`[tokens-anywhere] ${TOKENS_ANYWHERE_URL_VARIABLE} is not HTTPS or local HTTP; using ${origin}`)
     }
     let account: AnywhereAccount | undefined
-    const shell = new AnywhereShell(process.send === undefined ? undefined : process, () => { account?.windowClosed() }, () => { account?.linkOpened() })
-    account = new AnywhereAccount(inner.credentials, inner.settings, inner.agentDefaultModel as DefaultModels, shell, origin)
+    const shell = new AnywhereShell(() => { account?.windowClosed() }, () => { account?.linkOpened() })
+    account = new AnywhereAccount(inner.credentials, inner.settings, inner.agentDefaultModel as DefaultModels, shell, origin, local)
     const current = account
     inner.effect(() => () => { current.dispose() }, 'Anywhere account sign-in')
-    void current.start().catch((error: unknown) => { console.error('[dsh-desktop-next] Anywhere account did not start', error) })
+    // The Desktop's service comes and goes with its own generation; the account outlives it.
+    inner.inject(['desktopTokensAnywhere'], (desktop) => {
+      desktop.effect(() => shell.attach(desktop.desktopTokensAnywhere), 'Anywhere account: DSH Next sign-in window and keychain')
+    })
+    void current.start().catch((error: unknown) => { console.error('[tokens-anywhere] Anywhere account did not start', error) })
     const act = async (request: Request, run: (body: Record<string, unknown>, query: URLSearchParams) => Promise<unknown>): Promise<Response> => {
       let body: Record<string, unknown> = {}
       if (request.method === 'POST') {
@@ -575,7 +665,7 @@ export function installAnywhereAccount(ctx: Context): void {
         const result = await run(body, new URL(request.url).searchParams)
         return Response.json({ ...(result === undefined ? {} : { result }), state: await current.snapshot() }, { headers: NO_STORE })
       } catch (error) {
-        if (!(error instanceof AnywhereError)) console.error('[dsh-desktop-next] Anywhere account request failed', error)
+        if (!(error instanceof AnywhereError)) console.error('[tokens-anywhere] Anywhere account request failed', error)
         return Response.json({ error: anywhereProblem(error), state: await current.snapshot() }, { status: 409, headers: NO_STORE })
       }
     }
@@ -585,9 +675,12 @@ export function installAnywhereAccount(ctx: Context): void {
       [ANYWHERE_ACCOUNT_ROUTES.cancel, 'POST', async (body) => { current.cancel(String(body.id ?? '')) }],
       [ANYWHERE_ACCOUNT_ROUTES.signOut, 'POST', () => current.signOut()],
       [ANYWHERE_ACCOUNT_ROUTES.refresh, 'POST', () => current.refresh()],
-      [ANYWHERE_ACCOUNT_ROUTES.defaultModel, 'POST', body => current.setDefaultModel(body)],
       [ANYWHERE_ACCOUNT_ROUTES.model, 'POST', body => current.changeModel(body)],
       [ANYWHERE_ACCOUNT_ROUTES.resetModels, 'POST', () => current.resetModels()],
+      [ANYWHERE_ACCOUNT_ROUTES.local, 'POST', body => current.setLocal(body)],
+      [ANYWHERE_ACCOUNT_ROUTES.copyKey, 'POST', () => current.copyKey()],
+      [ANYWHERE_ACCOUNT_ROUTES.rotateKey, 'POST', () => current.rotateKey()],
+      [ANYWHERE_ACCOUNT_ROUTES.revealFile, 'POST', async (body) => { current.revealFile(body) }],
       [ANYWHERE_ACCOUNT_ROUTES.custom, 'POST', body => current.setCustom(body)],
       [ANYWHERE_ACCOUNT_ROUTES.usage, 'GET', (_body, query) => current.usage(query)],
     ]

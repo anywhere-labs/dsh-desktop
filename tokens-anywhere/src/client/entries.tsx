@@ -1,7 +1,7 @@
 /**
- * The Anywhere account beyond Settings, where the Desktop preferences put it: an entry in the left sidebar that opens
- * the account page in the main column, and a Conversation View tab that shows the page beside the conversation. The
- * right sidebar has no entry yet.
+ * The Anywhere account beyond Settings, where the plugin's configuration puts it: an entry in the left sidebar that
+ * opens the account page in the main column, and a Conversation View tab that shows the page beside the conversation.
+ * The right sidebar has no entry yet.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
@@ -9,14 +9,14 @@ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import { AnywhereAccountSettings } from './anywhere-account.tsx'
-import type { OfficialModelsFace } from './anywhere-models.tsx'
-import type { AnywherePlacement, AnywherePlacementView } from './anywhere-shared.ts'
-import type { NextSettingsAdapter } from './settings-adapter.ts'
+import { ANYWHERE_ACCOUNT_ROUTES, type AnywherePlacementState } from '../account.ts'
+import { AnywhereAccountSettings } from './account.tsx'
+import type { OfficialModelsFace } from './models.tsx'
+import { callHost, type AnywherePlacement, type AnywherePlacementView } from './shared.ts'
 
 /** The account page's main-column panel and its sidebar entry share this id. */
-export const ANYWHERE_PANEL_ID = 'anywhere-account' as MainPanelId
-const VIEW_ID = 'anywhere-account'
+export const ANYWHERE_PANEL_ID = 'tokens-anywhere' as MainPanelId
+const VIEW_ID = 'tokens-anywhere'
 
 /** What the account page needs wherever it shows. */
 interface AccountFace {
@@ -24,32 +24,27 @@ interface AccountFace {
   placement: AnywherePlacement
 }
 
-/**
- * The placement kept in the Desktop preferences, read and written through the settings adapter.
- * @param adapter - the window's settings adapter; its state is the source.
- */
-export function anywherePlacement(adapter: NextSettingsAdapter): AnywherePlacement {
-  let source: unknown
+/** The placement in the plugin's configuration, read once and written through the Host's placement route. */
+export function anywherePlacement(): AnywherePlacement & { load(): Promise<void> } {
   let view: AnywherePlacementView | undefined
+  const listeners = new Set<() => void>()
+  const publish = (state: AnywherePlacementState | undefined): void => {
+    if (state === undefined) return
+    view = state
+    for (const listener of [...listeners]) listener()
+  }
   return {
-    // One object per Desktop state, as React compares snapshots by identity.
-    getSnapshot: () => {
-      const state = adapter.getSnapshot()
-      if (state !== source) {
-        source = state
-        view = state === undefined ? undefined : {
-          sidebar: state.preferences.anywhereSidebar !== false,
-          conversation: state.preferences.anywhereConversation === true,
-          writable: !state.safeMode,
-        }
-      }
-      return view
+    getSnapshot: () => view,
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
     },
-    subscribe: listener => adapter.subscribe(listener),
-    set: change => adapter.savePreferences({
-      ...(change.sidebar === undefined ? {} : { anywhereSidebar: change.sidebar }),
-      ...(change.conversation === undefined ? {} : { anywhereConversation: change.conversation }),
-    }),
+    load: async () => { publish((await callHost<AnywherePlacementState>(ANYWHERE_ACCOUNT_ROUTES.placement)).result) },
+    set: async (change) => {
+      const reply = await callHost<AnywherePlacementState>(ANYWHERE_ACCOUNT_ROUTES.placement, change)
+      publish(reply.result)
+      if (reply.error !== undefined) throw new Error(reply.error.code)
+    },
   }
 }
 
@@ -65,7 +60,7 @@ function AnywhereAccountGlyph({ size }: { size: number; active: boolean }) {
 }
 
 /** The account page in the main column, as the left sidebar entry opens it. */
-function AnywhereAccountPanel({ t, officialModels, placement }: PropsLocale<'desktop-next'> & AccountFace) {
+function AnywhereAccountPanel({ t, officialModels, placement }: PropsLocale<'tokens-anywhere'> & AccountFace) {
   return (
     <div className="dshAnywhereStandalone">
       <div className="dshAnywhereStandaloneScroll">
@@ -76,7 +71,7 @@ function AnywhereAccountPanel({ t, officialModels, placement }: PropsLocale<'des
 }
 
 /** The account page as a Conversation View: the tab names it, so the page drops its own heading. */
-function AnywhereAccountView({ t, officialModels, placement }: PropsLocale<'desktop-next'> & AccountFace) {
+function AnywhereAccountView({ t, officialModels, placement }: PropsLocale<'tokens-anywhere'> & AccountFace) {
   return (
     <div className="dshAnywhereStandalone" data-view="">
       <div className="dshAnywhereStandaloneScroll">
@@ -87,15 +82,15 @@ function AnywhereAccountView({ t, officialModels, placement }: PropsLocale<'desk
 }
 
 /**
- * Keep the account's entries where the preferences put them. The main-column panel itself stays registered, so a page
- * being read survives turning its sidebar entry off, and the sidebar's More menu can still open it.
- * @param ctx - the Next client context.
+ * Keep the account's entries where the configuration puts them. The main-column panel itself stays registered, so a
+ * page being read survives turning its sidebar entry off, and the sidebar's More menu can still open it.
+ * @param ctx - the plugin's client context.
  * @param options.label - the account's name in the sidebar and the View tabs.
  */
 export function registerAnywhereEntries(ctx: Context, { label, placement, officialModels }: AccountFace & { label: () => string }): void {
   const face: AccountFace = { officialModels, placement }
   ctx.slots.inject('main', () => ctx.slots.register({
-    name: 'main', key: ANYWHERE_PANEL_ID, locale: 'desktop-next', inject: () => face,
+    name: 'main', key: ANYWHERE_PANEL_ID, locale: 'tokens-anywhere', inject: () => face,
   }, AnywhereAccountPanel))
   let sidebar: (() => void) | undefined
   let view: (() => void) | undefined
@@ -104,7 +99,7 @@ export function registerAnywhereEntries(ctx: Context, { label, placement, offici
     if (current === undefined) return
     if (current.sidebar && sidebar === undefined) {
       sidebar = ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-        name: 'sidebar.panellist', id: ANYWHERE_PANEL_ID, order: 20, locale: 'desktop-next', label,
+        name: 'sidebar.panellist', id: ANYWHERE_PANEL_ID, order: 20, locale: 'tokens-anywhere', label,
       }, AnywhereAccountGlyph))
     } else if (!current.sidebar && sidebar !== undefined) {
       sidebar()
@@ -112,7 +107,7 @@ export function registerAnywhereEntries(ctx: Context, { label, placement, offici
     }
     if (current.conversation && view === undefined) {
       view = ctx.slots.inject('conversation.view', () => ctx.slots.register({
-        name: 'conversation.view', id: VIEW_ID, order: 50, locale: 'desktop-next', label, inject: () => face,
+        name: 'conversation.view', id: VIEW_ID, order: 50, locale: 'tokens-anywhere', label, inject: () => face,
       }, AnywhereAccountView))
     } else if (!current.conversation && view !== undefined) {
       view()
@@ -129,5 +124,5 @@ export function registerAnywhereEntries(ctx: Context, { label, placement, offici
       sidebar = undefined
       view = undefined
     }
-  }, 'Anywhere account entries where the preferences put them')
+  }, 'tokens-anywhere: entries where the configuration puts them')
 }

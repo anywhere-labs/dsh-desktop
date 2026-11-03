@@ -16,6 +16,11 @@
       disabled: true
       isolate:
         computerUse: computer-use-next
+    # The Anywhere account, on for every Profile Next runs. This layer is Next's own,
+    # so other launchers sharing the Profile never see the row; switching it off in
+    # Plugins writes the usual `disabled` override into the Profile patch.
+    - id: tokens-anywhere
+      name: tokens-anywhere
 # Upstream mounts its Desktop product analytics for every Profile named
 # `desktop` and reports to DeepSeek's collector by default. DSH Desktop does
 # not take part in that collection. Its exporter also requires the upstream

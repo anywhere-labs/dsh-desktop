@@ -51,10 +51,13 @@ export type DesktopPlatformLoginRequest = { readonly action: 'open'; readonly ur
 
 type PlatformLoginEvent = { readonly type: 'platform-login' } & DesktopPlatformLoginRequest
 
-/** Tokens Anywhere sign-in hand-off from the Host's account (src/host/anywhere-account.ts). */
+/** Tokens Anywhere sign-in hand-off from the tokens-anywhere plugin, through src/host/tokens-anywhere-shell.ts. */
 export type DesktopAnywhereLoginRequest =
   | { readonly action: 'open'; readonly url: string; readonly callback: string }
   | { readonly action: 'close'; readonly focus: boolean }
+
+/** Local files the Anywhere account writes: the active Profile's configuration, and the credentials document. */
+export type DesktopAnywhereFile = 'profile-config' | 'credentials'
 
 /** What the Anywhere account asks of the Electron shell. */
 export interface DesktopAnywhereBridge {
@@ -62,9 +65,16 @@ export interface DesktopAnywhereBridge {
   login(request: DesktopAnywhereLoginRequest): void
   /** Seal a secret with the OS credential store, or open one it sealed; rejects while the store is unavailable. */
   secret(action: 'seal' | 'open', value: string): Promise<string>
+  /** Show one of the files the account writes in the system file manager. */
+  reveal(file: DesktopAnywhereFile): void
 }
 
 type AnywhereLoginEvent = { readonly type: 'anywhere-login' } & DesktopAnywhereLoginRequest
+
+interface AnywhereRevealEvent {
+  readonly type: 'anywhere-reveal'
+  readonly file: DesktopAnywhereFile
+}
 
 interface AnywhereSecretEvent {
   readonly type: 'anywhere-secret'
@@ -98,7 +108,7 @@ interface InjectionsEvent {
   readonly error?: string
 }
 
-type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | AnywhereLoginEvent | AnywhereSecretEvent | InjectionsEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
+type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | AnywhereLoginEvent | AnywhereSecretEvent | AnywhereRevealEvent | InjectionsEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
   readonly type: 'update-tasks'
   readonly requestId: number
   readonly active: boolean
@@ -151,6 +161,8 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
     case 'anywhere-secret':
       return Number.isSafeInteger(candidate.requestId) && (candidate.action === 'seal' || candidate.action === 'open')
         && typeof candidate.value === 'string' && candidate.value.length > 0 && candidate.value.length <= MAX_ANYWHERE_SECRET_CHARS
+    case 'anywhere-reveal':
+      return candidate.file === 'profile-config' || candidate.file === 'credentials'
     case 'fatal':
       return typeof candidate.message === 'string' && (candidate.diagnostic === undefined || typeof candidate.diagnostic === 'string')
     case 'notification':
@@ -395,6 +407,9 @@ export class DesktopHostProcess {
           if (this.stopping || this.failureReported || !this.onAnywhere) throw new Error('Secure storage is unavailable')
           return this.onAnywhere.secret(message.action, message.value)
         }).then(value => reply({ value }), () => reply({ error: 'Secure storage is unavailable' }))
+      }
+      else if (message.type === 'anywhere-reveal') {
+        if (!this.stopping && !this.failureReported) this.onAnywhere?.reveal(message.file)
       }
       else if (message.type === 'shutdown-complete') {
         if (this.stopping) this.shutdownCompleted = true

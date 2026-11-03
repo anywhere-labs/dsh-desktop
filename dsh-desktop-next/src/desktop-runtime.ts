@@ -7,6 +7,7 @@ import { DesktopBackendController } from './backend-controller.ts'
 import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, type DesktopAnywhereBridge, type DesktopPlatformLoginRequest } from './host-process.ts'
 import { DesktopPreferenceStore, parsePreferences } from './desktop-preferences.ts'
 import { DEFAULT_FEATURES, NextProfiles } from './profiles.ts'
+import { setTokensAnywhere } from './profile-tokens-anywhere.ts'
 import { DEFAULT_PREFERENCES, DEFAULT_PROFILE, SAFE_MODE_PREFERENCES, type DesktopBrowserLinks, type DesktopFailureReport, type DesktopPreferences, type DesktopState, type DesktopNotification } from './desktop-contract.ts'
 import { DesktopDiagnostics } from './diagnostics.ts'
 import type { DesktopHostExit } from './exit-code.ts'
@@ -175,6 +176,8 @@ export class NextDesktopRuntime {
         const safe = new NextProfiles(this.safeHome)
         safe.ensure(DEFAULT_PROFILE)
         safe.setFeatures(DEFAULT_PROFILE, { remoteControl: false, market: false })
+        // Next's own optional plugin stays off too, like Remote Control and the market.
+        setTokensAnywhere(join(safe.directory(DEFAULT_PROFILE), 'cordis.patch.yml'), false)
       }
       if (this.safeMode) this.preferences = { ...SAFE_MODE_PREFERENCES }
       if (!this.safeMode) this.profiles.ensure(this.selected)

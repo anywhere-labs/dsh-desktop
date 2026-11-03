@@ -19,6 +19,7 @@ const nextDesktop = readJson('dsh-desktop-next/package.json')
 const nextReference = readJson('dsh-desktop-next/upstream-reference.json')
 const fabric = readJson('dsh-community-fabric/package.json')
 const market = readJson('dsh-community-market/package.json')
+const tokensAnywhere = readJson('tokens-anywhere/package.json')
 const upstreamPackage = readJson('deepseek-harness/package.json')
 
 if (stablePlugin.name !== 'dsh-plugin-desktop') fail('the stable Desktop workspace must retain dsh-plugin-desktop')
@@ -36,8 +37,9 @@ if (JSON.stringify(workspace.workspaces) !== JSON.stringify([
   'dsh-desktop-next',
   'dsh-community-fabric',
   'dsh-community-market',
+  'tokens-anywhere',
 ])) {
-  fail('the root Yarn workspace must contain the desktop, community-fabric, and community-market packages')
+  fail('the root Yarn workspace must contain the desktop, community-fabric, community-market, and tokens-anywhere packages')
 }
 for (const [name, manifest] of [
   ['dsh-plugin-desktop', stablePlugin],
@@ -45,11 +47,13 @@ for (const [name, manifest] of [
   ['dsh-desktop-next', nextDesktop],
   ['dsh-community-fabric', fabric],
   ['dsh-community-market', market],
+  ['tokens-anywhere', tokensAnywhere],
 ]) {
   if (manifest.packageManager !== undefined) fail(`${name} must inherit the root Yarn release`)
 }
 if (fabric.name !== 'dsh-community-fabric') fail('the Fabric workspace must own dsh-community-fabric')
 if (market.name !== 'dsh-community-market') fail('the market workspace must own dsh-community-market')
+if (tokensAnywhere.name !== 'tokens-anywhere') fail('the Tokens Anywhere workspace must own tokens-anywhere')
 const claudePath = resolve(root, 'CLAUDE.md')
 const claudeStat = lstatSync(claudePath)
 // Windows checkouts materialize the symlink as a regular file holding the
@@ -73,6 +77,8 @@ for (const legacyFile of [
   'dsh-community-fabric/pnpm-workspace.yaml',
   'dsh-community-market/pnpm-lock.yaml',
   'dsh-community-market/pnpm-workspace.yaml',
+  'tokens-anywhere/pnpm-lock.yaml',
+  'tokens-anywhere/pnpm-workspace.yaml',
 ]) {
   if (existsSync(resolve(root, legacyFile))) fail(`${legacyFile} must not exist`)
 }
@@ -93,6 +99,7 @@ for (const [owner, manifest] of [
   ['next desktop', nextDesktop],
   ['fabric', fabric],
   ['market', market],
+  ['tokens anywhere', tokensAnywhere],
 ]) {
   for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'resolutions']) {
     for (const [name, range] of Object.entries(manifest[field] ?? {})) {

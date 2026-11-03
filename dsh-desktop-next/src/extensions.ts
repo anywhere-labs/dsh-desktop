@@ -1,8 +1,8 @@
 /** Narrow Host capabilities consumed by the existing plugin markets. */
-import { installAnywhereAccount } from './host/anywhere-account.ts'
 import { installComputerUseCommand } from './host/computer-use-command.ts'
 import { installLaunchPresets } from './host/launch-presets.ts'
 import { installHostLogging } from './host/logging.ts'
+import { TokensAnywhereShell } from './host/tokens-anywhere-shell.ts'
 import { spawn } from 'node:child_process'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -34,6 +34,12 @@ export function apply(ctx: Context): void {
   if (process.send) installNotifications(ctx, notification => {
     if (process.connected) process.send?.({ type: 'notification', notification }, () => {})
   })
+  if (process.send) {
+    // The tokens-anywhere plugin signs in through the shell's window and seals its refresh token with the keychain.
+    const tokensAnywhere = new TokensAnywhereShell(process)
+    ctx.provide('desktopTokensAnywhere', tokensAnywhere)
+    ctx.effect(() => () => { tokensAnywhere.dispose() }, 'Next Tokens Anywhere sign-in bridge')
+  }
   const profile = ctx.profileContext
   const invocation = profile.packageManager
   if (!invocation) throw new Error('Next requires its bundled pnpm invocation')
@@ -45,7 +51,6 @@ export function apply(ctx: Context): void {
   // Plugin commands bypass the plugin manager, so failure reports learn of them from this runner.
   ctx.provide('desktopPnpm', recordPluginCommands?.(ctx, runner) ?? runner)
   installComputerUseCommand(ctx, profile.dir)
-  installAnywhereAccount(ctx)
   if (OAR_LAUNCH_PRESETS !== undefined) installLaunchPresets(ctx, OAR_LAUNCH_PRESETS)
   if (process.send) ctx.provide('desktopActions', {
     ...(process.platform === 'darwin' || process.platform === 'win32' ? { openTerminal: () => {

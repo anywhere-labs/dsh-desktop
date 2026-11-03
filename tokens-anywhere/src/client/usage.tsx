@@ -10,9 +10,9 @@ import { Button, IconRefreshOutlineRegular, SegmentedControl } from '@deepseek-a
 import {
   ANYWHERE_ACCOUNT_ROUTES, summarizeAnywhereUsage,
   type AnywhereModelView, type AnywhereProblem, type AnywhereUsage, type AnywhereUsageRange, type AnywhereUsageRows, type AnywhereUsageTotals,
-} from '../anywhere-account.ts'
-import { DesktopSettingsSelect } from './DesktopSettingsSection.tsx'
-import { callHost, formatCount, formatYuan, intlLocale, problemText, usageTicks, type Copy } from './anywhere-shared.ts'
+} from '../account.ts'
+import { Select } from './controls.tsx'
+import { callHost, formatCount, formatYuan, intlLocale, problemText, usageTicks, type Copy } from './shared.ts'
 
 /** The model filter's value for every model; `''` is taken by rows without a model. */
 const ALL_MODELS = 'all'
@@ -313,7 +313,7 @@ export function AnywhereUsageBoard({ t, language, models }: {
         <SegmentedControl id={`${id}-range`} label={t('时间范围', 'Date range')} value={String(days) as '7' | '30'}
           options={[{ value: '7', label: t('近 7 天', 'Last 7 days') }, { value: '30', label: t('近 30 天', 'Last 30 days') }]}
           onChange={(next) => { setDays(next === '7' ? 7 : 30) }} />
-        <DesktopSettingsSelect value={model} disabled={choices.length === 0} ariaLabel={t('按模型筛选', 'Filter by model')}
+        <Select value={model} disabled={choices.length === 0} ariaLabel={t('按模型筛选', 'Filter by model')}
           options={[{ value: ALL_MODELS, label: t('全部模型', 'All models') }, ...choices.map(choice => ({ value: choice, label: name(choice) }))]}
           onChange={setModel} />
         <Button className="dshAnywhereFiltersEnd" variant="outline" size="sm" icon={<IconRefreshOutlineRegular size={16} />} disabled={loading}

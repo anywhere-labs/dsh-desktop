@@ -99,6 +99,16 @@ try {
   const scheduleRow = officialRows.find(row => row.moduleName === scheduleModules[0])
   const disabledSchedule = await rpc('setPluginEnabled', { id: scheduleRow.entryId, enabled: false })
   assert.equal(disabledSchedule.application, 'applied', JSON.stringify(disabledSchedule))
+  // Next's own layer mounts the Anywhere account for every Profile; switching it off is the usual row override.
+  const tokensRow = officialRows.find(row => row.moduleName === 'tokens-anywhere')
+  assert.equal(tokensRow?.enabled, true, `Next must mount tokens-anywhere: ${JSON.stringify(tokensRow)}`)
+  assert.equal(tokensRow?.fiberPhase, 'active', JSON.stringify(tokensRow))
+  const disabledTokens = await rpc('setPluginEnabled', { id: tokensRow.entryId, enabled: false })
+  assert.equal(disabledTokens.application, 'applied', JSON.stringify(disabledTokens))
+  assert.equal((await rpc('listPlugins')).find(row => row.moduleName === 'tokens-anywhere')?.enabled, false)
+  const enabledTokens = await rpc('setPluginEnabled', { id: tokensRow.entryId, enabled: true })
+  assert.equal(enabledTokens.application, 'applied', JSON.stringify(enabledTokens))
+  assert.equal((await rpc('listPlugins')).find(row => row.moduleName === 'tokens-anywhere')?.fiberPhase, 'active')
   const availableBundles = await rpc('listBundles')
   // dsh 0.1.7 deleted `-web-profile` and merged its `ui-agent-team` row into `-profile`.
   for (const [name, rowIds] of [
@@ -276,6 +286,7 @@ try {
   const html = await page.text()
   assert.ok(html.includes('dsh-community-market'), 'Market client must appear in the boot manifest')
   assert.ok(html.includes('"id":"dsh-desktop-next"'), 'Next window controls must be a client boot entry')
+  assert.ok(html.includes('"id":"tokens-anywhere"'), 'The Anywhere account client must be a boot entry')
   assert.ok(html.includes('@agents-anywhere/dsh-bridge-next'), 'AA client must appear in the boot manifest')
   assert.equal(html.includes('"id":"dshmarket"'), false, 'The other market client must be unloaded')
   const installedAgain = await rpc('installBundle', { spec: fixture })

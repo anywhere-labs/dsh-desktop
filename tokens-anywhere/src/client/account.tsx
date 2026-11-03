@@ -1,19 +1,20 @@
 /**
- * Anywhere account page in the official Settings dialog, driving the Host routes of ../anywhere-account.ts; the left
- * sidebar and the Conversation Views can show it too (./anywhere-entries.tsx). Its identity and balance cards follow the
- * official account page; below them a bar leads to what only this account has: its models, its usage, this computer's
- * connection, and where the page shows besides Settings.
+ * Anywhere account page in the official Settings dialog, driving the Host routes of ../account.ts; the left sidebar and
+ * the Conversation Views can show it too (./entries.tsx). Its identity and balance cards follow the official account
+ * page; below them a bar leads to what only this account has: its models, its usage, its settings on this computer, and
+ * where the page shows besides Settings.
  */
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import {
-  Button, IconDataOutlineMedium, IconGaugeOutlineMedium, IconLinkOutlineMedium, IconPanelLeftOutlineMedium, IconRightUpOutlineRegular,
+  Button, IconDataOutlineMedium, IconGaugeOutlineMedium, IconPanelLeftOutlineMedium, IconRightUpOutlineRegular, IconSettingsOutlineMedium,
   IconUserOutlineRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ANYWHERE_ACCOUNT_ROUTES, type AnywhereAccountSnapshot, type AnywhereProblem } from '../anywhere-account.ts'
-import { DesktopSettingsToggleRow } from './DesktopSettingsSection.tsx'
-import { AnywhereModelsPanel, ControlRow, type OfficialModelsFace } from './anywhere-models.tsx'
-import { callHost, formatYuan, intlLocale, problemText, type AnywherePlacement, type Copy, type RouteReply } from './anywhere-shared.ts'
-import { AnywhereUsageBoard } from './anywhere-usage.tsx'
+import { ANYWHERE_ACCOUNT_ROUTES, type AnywhereAccountSnapshot, type AnywhereProblem } from '../account.ts'
+import { ToggleRow } from './controls.tsx'
+import { AnywhereKeyRows, AnywhereLocalFileRows } from './local.tsx'
+import { AnywhereModelsPanel, ControlRow, type OfficialModelsFace } from './models.tsx'
+import { callHost, formatYuan, problemText, type AnywherePlacement, type Copy, type RouteReply } from './shared.ts'
+import { AnywhereUsageBoard } from './usage.tsx'
 
 /** A sign-in and a first balance arrive soon; otherwise the page only has the balance to keep fresh. */
 const POLL_WAITING_MS = 1500
@@ -50,7 +51,7 @@ function SignedOut({ state, t, busy, run, notice }: {
         <div className="dshAnywhereSignedOutDescription">{waiting
           ? t('窗口没有出现，或想用已登录的浏览器？可以在浏览器中打开。', 'No window, or prefer the browser you are signed in to? Open it there.')
           : t('用 Agents Anywhere 账号登录，即可直接使用下面这些模型，不需要填写 API Key。', 'Sign in with your Agents Anywhere account to use these models right away, with no API key to enter.')}</div>
-        {failure !== undefined && <div className="dshDesktopSettingsError" role="alert">{problemText(failure, t)}</div>}
+        {failure !== undefined && <div className="dshAnywhereError" role="alert">{problemText(failure, t)}</div>}
         <div className="dshAnywhereActions">
           {!pending && (
             <Button variant="primary" className="dshAnywhereSignIn" disabled={busy.has('sign-in')}
@@ -88,7 +89,7 @@ function SignedOut({ state, t, busy, run, notice }: {
   )
 }
 
-type AccountTab = 'models' | 'usage' | 'connection' | 'placement'
+type AccountTab = 'models' | 'usage' | 'local' | 'placement'
 
 /** The account's parts side by side, in a bar with the look of the settings navigation to its left. */
 function AccountNav({ id, tabs, value, label, onChange }: {
@@ -145,7 +146,7 @@ function PlacementRows({ placement, t }: { placement: AnywherePlacement; t: Copy
     try {
       await placement.set(key === 'sidebar' ? { sidebar: value } : { conversation: value })
     } catch {
-      // The preferences keep what they had, and the switch shows it again.
+      // The configuration keeps what it had, and the switch shows it again.
     } finally {
       setPending((current) => {
         const next = new Map(current)
@@ -156,14 +157,14 @@ function PlacementRows({ placement, t }: { placement: AnywherePlacement; t: Copy
   }
   return (
     <>
-      <DesktopSettingsToggleRow
+      <ToggleRow
         label={t('在左侧边栏显示', 'Show in the left sidebar')}
         description={t('左侧边栏加一个 Anywhere 账户入口，点开直接进入这个页面。', 'Adds an Anywhere account entry to the left sidebar that opens this page.')}
         checked={pending.get('sidebar') ?? view.sidebar}
         disabled={!view.writable || pending.has('sidebar')}
         onChange={(next) => { void set('sidebar', next) }}
       />
-      <DesktopSettingsToggleRow
+      <ToggleRow
         label={t('在会话区显示', 'Show in conversations')}
         description={t('会话的视图标签里加一个 Anywhere 账户，不离开会话就能查看模型和用量。', 'Adds an Anywhere account tab beside each conversation, to see models and usage without leaving it.')}
         checked={pending.get('conversation') ?? view.conversation}
@@ -197,8 +198,8 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
     { id: 'models', label: t('模型', 'Models'), icon: <IconDataOutlineMedium size={16} /> },
     // The usage comes through the session, which may have ended while the models keep working.
     ...(account.sessionEnded === true ? [] : [{ id: 'usage' as const, label: t('用量', 'Usage'), icon: <IconGaugeOutlineMedium size={16} /> }]),
-    { id: 'connection', label: t('本机连接', 'This computer'), icon: <IconLinkOutlineMedium size={16} /> },
-    // Only where the window can change it.
+    { id: 'local', label: t('本机设置', 'This computer'), icon: <IconSettingsOutlineMedium size={16} /> },
+    // Only where the page is given the placement to change.
     ...(placement === undefined ? [] : [{ id: 'placement' as const, label: t('显示位置', 'Placement'), icon: <IconPanelLeftOutlineMedium size={16} /> }]),
   ]
   const tab: AccountTab = tabs.some(item => item.id === selected) ? selected : 'models'
@@ -282,12 +283,10 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
           <AnywhereUsageBoard t={t} language={language} models={state.models} />
         </div>
       )}
-      <div role="tabpanel" id={`${navId}-connection-panel`} aria-labelledby={`${navId}-connection`} hidden={tab !== 'connection'}>
+      <div role="tabpanel" id={`${navId}-local-panel`} aria-labelledby={`${navId}-local`} hidden={tab !== 'local'}>
         <div className="dshAnywhereRows">
-          <ControlRow label={t('专用 Key', 'Key')} description={t('这台电脑专用，退出登录时一并删除。', 'For this computer only; signing out deletes it.')}>
-            <code className="dshAnywhereSecondary">{account.keyPrefix}…</code>
-          </ControlRow>
-          <ControlRow label={t('连接时间', 'Connected')} description={new Date(account.connectedAt).toLocaleString(intlLocale(language))} />
+          <AnywhereKeyRows state={state} t={t} act={act} />
+          <AnywhereLocalFileRows state={state} t={t} act={act} />
           {account.memoryOnly === true && (
             <ControlRow label={t('登录状态', 'Sign-in')} description={t(
               '系统钥匙串不可用，退出应用后需要重新登录才能查看余额和用量。',
@@ -326,7 +325,7 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
 export function AnywhereAccountSettings({ language, officialModels, placement, heading = true }: {
   language: string
   officialModels: () => OfficialModelsFace | undefined
-  /** Where the account shows besides Settings; absent where the window cannot change it. */
+  /** Where the account shows besides Settings; absent where it cannot be changed. */
   placement?: AnywherePlacement | undefined
   /** A Conversation View tab already names the page. */
   heading?: boolean
@@ -384,16 +383,16 @@ export function AnywhereAccountSettings({ language, officialModels, placement, h
   }, [act])
 
   return (
-    <div className="dshDesktopSettings" data-next-anywhere-account="">
+    <div className="dshAnywherePage" data-tokens-anywhere="">
       {heading && (
-        <header className="dshDesktopSettingsHeader">
-          <h2>{t('Anywhere 账户', 'Anywhere account')} <span className="dshDesktopSettingsBadge">Beta</span></h2>
+        <header className="dshAnywhereHeader">
+          <h2>{t('Anywhere 账户', 'Anywhere account')} <span className="dshAnywhereBadge">Beta</span></h2>
         </header>
       )}
       <div className="dshAnywhereSection">
         {state === undefined && !unreachable && <p className="dshAnywhereSecondary" role="status">{t('正在读取…', 'Loading…')}</p>}
-        {unreachable && <p className="dshDesktopSettingsError" role="alert">{t('暂时读不到账户状态。', 'The account state is unavailable right now.')}</p>}
-        {error !== undefined && <p className="dshDesktopSettingsError" role="alert">{problemText(error, t)}</p>}
+        {unreachable && <p className="dshAnywhereError" role="alert">{t('暂时读不到账户状态。', 'The account state is unavailable right now.')}</p>}
+        {error !== undefined && <p className="dshAnywhereError" role="alert">{problemText(error, t)}</p>}
         {state !== undefined && state.account === undefined && <SignedOut state={state} t={t} busy={busy} run={run} notice={state.notice} />}
         {state?.account !== undefined && <SignedIn state={state} t={t} language={language} busy={busy} run={run} act={act} officialModels={officialModels} placement={placement} />}
       </div>

@@ -77,7 +77,7 @@ index 6ed613a..6729440 100644
 +				className: SettingsRoot_module_css_default.navIcon,
 +				size: 16
 +			});
-+			if (id === "anywhere-account") return (0, react_jsx_runtime.jsx)(IconAnywhereAccount, {
++			if (id === "tokens-anywhere") return (0, react_jsx_runtime.jsx)(IconAnywhereAccount, {
 +				className: SettingsRoot_module_css_default.navIcon,
 +				size: 16
 +			});
