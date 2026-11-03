@@ -236,7 +236,7 @@ it('keeps an official optional bundle in the extensions group with its artwork, 
 })
 
 
-it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from the official snapshot and first-mount cache without disabling switches on remount', async () => {
+it('seeds PluginControls, RemoteControlSettings, ComputerUseSettings, and the Tokens Anywhere card from the official snapshot and first-mount cache without disabling switches on remount', async () => {
   vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
   const packages = [
     { name: 'dsh-community-market', enabled: true },
@@ -249,8 +249,9 @@ it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from th
     enabled: true,
     fiberPhase: 'active',
   }
+  const anywhereRow = { entryId: 'include:tokens-anywhere', patchId: 'tokens-anywhere', moduleName: 'tokens-anywhere', enabled: true, fiberPhase: 'active' }
   const listBundles = vi.fn(async () => ({ ok: true as const, value: packages }))
-  const listPlugins = vi.fn(async () => ({ ok: true as const, value: [cuaRow] }))
+  const listPlugins = vi.fn(async () => ({ ok: true as const, value: [cuaRow, anywhereRow] }))
   let OverviewView: ((props: any) => Node) | undefined
   const ctx: any = {
     get: (key: string) => key === 'slots' ? ctx.slots : undefined,
@@ -288,7 +289,8 @@ it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from th
   expect(listBundles).not.toHaveBeenCalled()
   expect(listPlugins).not.toHaveBeenCalled()
 
-  // The first mount loads the listings and fills the per-context cache.
+  // The first mount loads the listings and fills the per-context caches; Computer Use (Next) and Tokens Anywhere
+  // each list the plugin rows.
   const props = {
     context: ctx,
     t: (key: string) => key === 'language' ? 'zh' : key,
@@ -299,9 +301,9 @@ it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from th
   for (const effect of hooks.effects.splice(0)) effect()
   await vi.waitFor(() => {
     expect(listBundles).toHaveBeenCalledTimes(1)
-    expect(listPlugins).toHaveBeenCalledTimes(1)
+    expect(listPlugins).toHaveBeenCalledTimes(2)
   })
-  await Promise.all([listBundles.mock.results[0]!.value, listPlugins.mock.results[0]!.value])
+  await Promise.all([listBundles.mock.results[0]!.value, ...listPlugins.mock.results.map(result => result.value)])
   await new Promise(resolve => setTimeout(resolve, 0))
 
   // Simulate remounting the Installed Plugins page while background refresh RPCs are still in flight
@@ -329,6 +331,11 @@ it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from th
   const cuaSwitch = nodes(cuaNode).find(node => node.type === 'input' && node.props.label === '启用 Computer Use（Next）')!
   expect(cuaSwitch.props.checked).toBe(true)
   expect(cuaSwitch.props.disabled).toBe(false)
+
+  const anywhereNode = render(component(tree, 'TokensAnywhereActions')!)
+  const anywhereSwitch = nodes(anywhereNode).find(node => node.type === 'input' && node.props.label === '启用 Tokens Anywhere')!
+  expect(anywhereSwitch.props.checked).toBe(true)
+  expect(anywhereSwitch.props.disabled).toBe(false)
 })
 
 it('renders the on-demand /computer-use command sub-switch on the Computer Use detail page (default on) and updates it via the Host route', async () => {

@@ -13,13 +13,15 @@ const STYLES = `
 .dshNextMarketChoices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .dshNextPluginSections { display: grid; gap: 2px; }
 .dshNextPluginCard { position: relative; display: flex; align-items: center; min-width: 0; gap: 14px; margin: 0 -8px; padding: 8px; border-radius: 12px; }
-.dshNextPluginCard:hover { background: var(--dsw-alias-interactive-bg-hover); }
+/* A card with nothing to open (data-static) draws its title as plain text and no hover. */
+.dshNextPluginCard:not([data-static]):hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dshNextPluginIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 48px; height: 48px; border: .5px solid var(--dsw-alias-border-l3); border-radius: 10px; color: var(--dsw-alias-label-secondary); }
 .dshNextPluginCardMain { display: grid; flex: 1; min-width: 0; gap: 4px; }
 /* Title row and status tag as the official Plugins cards draw them. */
 .dshNextPluginCardTitle { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .dshNextPluginStatusTag { height: 18px; padding: 0 7px; font-size: 10px; line-height: 1; }
-.dshNextPluginCardOpen { width: max-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer; }
+.dshNextPluginCardOpen, .dshNextPluginCardName { width: max-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; font-size: 14px; line-height: 20px; font-weight: 500; }
+.dshNextPluginCardOpen { cursor: pointer; }
 .dshNextPluginCardOpen::after { content: ''; position: absolute; inset: 0; border-radius: 12px; }
 .dshNextPluginCardOpen:focus-visible { outline: none; }
 .dshNextPluginCardOpen:focus-visible::after { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }

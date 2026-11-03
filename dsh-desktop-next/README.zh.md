@@ -64,7 +64,7 @@ Linux 图标集按 hicolor 主题的尺寸，从 16 到 512 像素每档一张 P
 - **手机远控：** 在**插件**页顶部通过独立开关启用 `@agents-anywhere/dsh-bridge-next`（默认关闭）。开关左侧的齿轮打开现有手机连接弹窗，也可从侧边栏进入；启用后齿轮才可使用。AA 使用默认状态目录（`~/.agents-anywhere/dsh-bridge-next`），与 Stable/Beta 及其他 Next Profile 共享登录、设备绑定和 Connector 设置。启用状态仍按 Profile 保存；切换 Profile 会停止旧 Host 和其中的远控连接。旧版 Next 生成的逐 Profile 状态目录覆盖会在下次 Host 启动时移除。原状态目录保留，不自动合并凭据；只在旧隔离目录中登录过的用户可能需要重新登录。多个版本同时运行时，仍受 AA 的共享状态所有权检查约束。
 - **桌面工具：** 打开数据、Profile 和日志目录，刷新界面，打开开发者工具，导出诊断，以及打开 macOS/Windows 终端。终端提供当前安装的 `dsh`、`pnpm` 和基于 Electron 的 `node`，其中 `dsh` 的插件命令始终使用内置 pnpm，与终端 `PATH` 解析到哪个 `pnpm` 无关；应用处于安全模式时，终端仍选择原 Profile。
 
-市场、远程控制和 Computer Use（Next）位于普通插件列表上方，并与列表的内容宽度对齐。远程控制和 Computer Use（Next）上下排列，设置齿轮位于各自开关左侧。两个市场和远控 bundle 不再重复显示为普通插件卡片。开关仍调用官方管理器，选择保存在当前 Profile 中；已有 Profile 如果同时开启了两个市场，会提示用户选择其中一个。两个市场安装的 bundle 插件仍在普通列表中管理，可继续启用、停用和卸载。dshmarket 自己的插件停用逻辑保持原样。旧 `desktop-next.features.json` 中的选择只迁移一次到 `package.json`，以后启动遵循官方管理器的设置。
+市场、远程控制、Tokens Anywhere 和 Computer Use（Next）位于普通插件列表上方，并与列表的内容宽度对齐。远程控制、Tokens Anywhere 和 Computer Use（Next）依次上下排列，按钮位于各自开关左侧；插件开启时，Tokens Anywhere 卡片和“打开页面”按钮会打开 Anywhere 账户页面。两个市场和远控 bundle 不再重复显示为普通插件卡片。开关仍调用官方管理器，选择保存在当前 Profile 中；已有 Profile 如果同时开启了两个市场，会提示用户选择其中一个。两个市场安装的 bundle 插件仍在普通列表中管理，可继续启用、停用和卸载。dshmarket 自己的插件停用逻辑保持原样。旧 `desktop-next.features.json` 中的选择只迁移一次到 `package.json`，以后启动遵循官方管理器的设置。
 
 侧边栏扩展入口复用原桌面的底部布局：多个入口纵向排列在设置上方，数量较多时在限定高度内滚动，保留工作区列表空间。
 

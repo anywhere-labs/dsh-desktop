@@ -8,7 +8,7 @@ DeepSeek Harness 的 Anywhere 账户。用 Agents Anywhere 账号登录 Tokens A
 
 DSH Next 自带这个插件，并从自己的 bundle 层为每个 Profile 加载它，所以共用同一个 Profile 的其他启动器看不到它。Next 还以 `desktopTokensAnywhere` Host 服务提供桌面外壳这一半：内置登录窗口、用系统钥匙串加密刷新令牌，以及 Tokens Anywhere 的 `dsh://v1/tokens/login` 唤起链接。
 
-可以在插件页关掉这个插件，安全模式下它也保持关闭。关掉插件不会删除它配置好的模型和 Key，这些模型照常可用。要退出登录，需要先重新打开插件，再在账户页面里退出。
+插件页里远程控制和 Computer Use（Next）之间有它的卡片，可以打开账户页面，也可以关掉这个插件；安全模式下它也保持关闭。关掉插件不会删除它配置好的模型和 Key，这些模型照常可用。要退出登录，需要先重新打开插件，再在账户页面里退出。
 
 ## 在其他环境中
 

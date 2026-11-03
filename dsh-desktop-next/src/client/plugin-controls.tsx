@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { BundleInfo } from '@deepseek-ai/dsh-api-remotes/client'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-plugin-market/types'
@@ -14,6 +15,9 @@ import { Choice, MARKET_OPTIONS, marketBody, marketTitle } from './DesktopSettin
 import { en as desktopEn, zh as desktopZh, type DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
 import { ComputerUseSettings } from './computer-use.tsx'
 import { ComputerUsePluginArtwork } from './computer-use-command-ui.tsx'
+import {
+  TOKENS_ANYWHERE_PANEL, TokensAnywhereActions, TokensAnywhereArtwork, tokensAnywhereDescription, useTokensAnywhere,
+} from './tokens-anywhere.tsx'
 import {
   BUILT_IN_MARKET_SOURCES, COMMUNITY_MARKET as COMMUNITY, configureSingleMarketToOfficial, DSH_MARKET as MARKET,
   importMarketSourcesToOfficial, marketToggleTargets, OFFICIAL_CONFIGURABLE_MARKET_SOURCES, OFFICIAL_MARKET,
@@ -83,10 +87,12 @@ function getBundlesCache(context: Context): BundlesCacheEntry {
 // whole inventory; calling them at startup stalls the account, credential, and
 // onboarding RPCs the first window waits on (the official manager loads lazily).
 export function registerPluginControls(ctx: Context): void {
+  // The Anywhere account's page is the tokens-anywhere plugin's main panel; this face declares the layout service.
+  const openAnywhere = (): void => { ctx.layout.selectPanel(TOKENS_ANYWHERE_PANEL as MainPanelId) }
   ctx.inject(['remote', 'remote.pluginManager', 'remote.pluginMarket'], inner => {
     inner.slots.inject('plugins.overview', () => {
       const dispose = inner.slots.register({ name: 'plugins.overview', id: 'desktop-next', order: 0,
-        locale: 'desktop-next', inject: () => ({ context: inner }),
+        locale: 'desktop-next', inject: () => ({ context: inner, openAnywhere }),
       }, PluginControls)
       const hidden = [COMMUNITY, MARKET, REMOTE, ...OAR_SUBAGENTS === undefined ? [] : [OAR_SUBAGENTS.bundle]]
         .map(key => inner.slots.register({ name: 'plugins.bundle.hidden', key }, () => null))
@@ -104,7 +110,10 @@ export function registerPluginControls(ctx: Context): void {
   })
 }
 
-function PluginControls({ context, t: translate, onOpenBundle, onOpenItem }: PropsLocale<'desktop-next'> & PropsRuntime<'plugins.overview'> & { context: Context }) {
+function PluginControls({ context, openAnywhere, t: translate, onOpenBundle, onOpenItem }: PropsLocale<'desktop-next'> & PropsRuntime<'plugins.overview'> & {
+  context: Context
+  openAnywhere(): void
+}) {
   const zh = translate('language') === 'zh'
   const t = (cn: string, en: string): string => zh ? cn : en
   const desktopCopy = zh ? desktopZh : desktopEn
@@ -118,6 +127,7 @@ function PluginControls({ context, t: translate, onOpenBundle, onOpenItem }: Pro
   const pending = useRef(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const anywhere = useTokensAnywhere({ context, t, revision, openPage: openAnywhere, onChanged: () => { refresh(value => value + 1) } })
   useEffect(() => {
     const reload = (): void => { refresh(value => value + 1) }
     const off = context.remote.$on('plugin-manager/changed', reload)
@@ -212,6 +222,11 @@ function PluginControls({ context, t: translate, onOpenBundle, onOpenItem }: Pro
         icon={<PluginArtworkDefault size={36} />} onOpen={() => { onOpenBundle(REMOTE) }}>
         <RemoteControlSettings context={context} t={t} row={remoteRow} loading={loading}
           onChanged={() => { refresh(value => value + 1) }} />
+      </PluginCard>
+      <PluginCard title="Tokens Anywhere" description={tokensAnywhereDescription(t)}
+        tags={<Tag className="dshNextPluginStatusTag" tone="info">Beta</Tag>}
+        icon={<TokensAnywhereArtwork size={36} />} onOpen={anywhere.openable ? anywhere.open : undefined}>
+        <TokensAnywhereActions t={t} card={anywhere} />
       </PluginCard>
       <PluginCard title={t('Computer Use（Next）', 'Computer Use (Next)')} description={computerDescription(t)}
         icon={<ComputerUsePluginArtwork size={36} />} onOpen={() => { onOpenItem(COMPUTER_ITEM) }}>
@@ -535,13 +550,16 @@ function ComputerUseActions({ context, t, subject }: PropsLocale<'desktop-next'>
 }
 
 function PluginCard({ title, description, icon, tags, onOpen, children }: {
-  title: string; description: string; icon: ReactNode; tags?: ReactNode; onOpen(): void; children: ReactNode
+  title: string; description: string; icon: ReactNode; tags?: ReactNode; children: ReactNode
+  /** Open the plugin's page; without it the card has nothing to open and does not respond to clicks. */
+  onOpen?: () => void
 }) {
-  return <div className="dshNextPluginCard" data-next-plugin-card>
+  return <div className="dshNextPluginCard" data-next-plugin-card data-static={onOpen === undefined ? '' : undefined}>
     <span className="dshNextPluginIcon" aria-hidden="true">{icon}</span>
     <div className="dshNextPluginCardMain">
       <div className="dshNextPluginCardTitle">
-        <button type="button" className="dshNextPluginCardOpen" aria-label={`${title} — ${description}`} onClick={onOpen}>{title}</button>
+        {onOpen === undefined ? <span className="dshNextPluginCardName">{title}</span>
+          : <button type="button" className="dshNextPluginCardOpen" aria-label={`${title} — ${description}`} onClick={onOpen}>{title}</button>}
         {tags}
       </div>
       <span className="dshNextPluginCardDescription">{description}</span>

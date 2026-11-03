@@ -8,7 +8,7 @@ The Anywhere account for DeepSeek Harness. Sign in to Tokens Anywhere with an Ag
 
 DSH Next ships this plugin and loads it for every Profile from its own bundle layer, so other launchers that share the Profile never see it. Next also serves the shell half as the `desktopTokensAnywhere` Host service: the built-in sign-in window, sealing the refresh token with the system keychain, and Tokens Anywhere's `dsh://v1/tokens/login` link.
 
-Switch the plugin off in Plugins; Safe Mode leaves it off. Switching it off does not remove the models it set up or their key, and they keep working. To sign out, switch it back on and sign out on the account page.
+Its card on the Plugins page, between Remote Control and Computer Use (Next), opens the account page and switches the plugin off; Safe Mode leaves it off. Switching it off does not remove the models it set up or their key, and they keep working. To sign out, switch it back on and sign out on the account page.
 
 ## Elsewhere
 
