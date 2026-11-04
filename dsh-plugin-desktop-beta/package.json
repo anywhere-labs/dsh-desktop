@@ -219,6 +219,7 @@
     "@deepseek-ai/dsh-user-approval": "0.2.2-rc.1",
     "@deepseek-ai/dsh-user-questions": "0.2.2-rc.1",
     "@deepseek-ai/dsh-util-crypto": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-util-file-drag": "0.2.2-rc.1",
     "@deepseek-ai/dsh-util-time": "0.2.2-rc.1",
     "@deepseek-ai/dsh-util-values": "0.2.2-rc.1",
     "@deepseek-ai/dsh-util-workspace-path": "0.2.2-rc.1",
@@ -247,6 +248,7 @@
   },
   "devDependencies": {
     "@base-ui/react": "^1.7.0",
+    "@deepseek-ai/dsh-client-ui-file-actions": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-sidebar-browser": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-sidebar-right": "0.2.2-rc.1",
     "@deepseek-ai/dsh-cua": "0.2.2-rc.1",

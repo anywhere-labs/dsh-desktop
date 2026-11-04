@@ -181,6 +181,8 @@ npx dsh-plugin-desktop-beta
 
 官方账号插件的充值和用量入口（首次引导的额度页、额度不足提示以及**设置 → 账号与余额**）与官方桌面端一样，会在主窗口上叠加一个 Electron `WebContentsView` 打开 DeepSeek 开放平台页面。Host 经私有 IPC 把已登录账号的开放平台凭证交给主进程；只有该页面自己的沙箱 preload 在开放平台域名下才能拿到 token。支付等外部链接在系统浏览器中打开。每个账号使用独立的存储分区，页面关闭和应用退出时都会清除其中的登录数据（cookie、IndexedDB、缓存和 service worker）。
 
+官方图片和文件右键菜单提供**复制图片**、**下载**和**另存为…**，由只接受主应用页面的原生文件操作实现。**下载**在 Downloads 目录中预留不重名的文件名，**另存为…**在该目录打开原生保存对话框；完成后返回目标路径，菜单提示可通过现有的 Host 路径打开 API 显示文件。两者都使用 Chromium URL 下载，并通过私有 URL fragment 与 Desktop 自身的 Host 路由下载互不干扰。`DSH_DESKTOP_FILE_DOWNLOAD_TIMEOUT_MS` 限定 Chromium 创建下载前的启动期限（300000 毫秒），不限制原生保存对话框的停留时间；网络错误中断的下载会立即失败，不会等待恢复。复制跨域图片时，主进程在内存会话中通过 Chromium 网络栈读取，因此与显示该图片的窗口一样遵循系统代理和证书。这些读取不携带凭据，逐次校验重定向，拒绝应用 Host 及其回环别名，在主框架导航时终止，并使用 `DSH_DESKTOP_IMAGE_READ_TIMEOUT_MS`（30000 毫秒）与 `DSH_DESKTOP_IMAGE_READ_MAX_BYTES`（67108864 字节）。随后渲染进程把图片转换为 PNG 并写入 Clipboard API。
+
 打包后的 macOS 与 Windows 应用会在启动 60 秒后查询 `https://www.dshdesktop.cn/api/desktop/version`，并在每次检查完成六小时后再次查询。每次 no-cache 请求的期限为 15 秒，会携带 `X-DSH-Desktop-Channel: beta` 和当前安装版本，并与托盘中的 **Check for Updates…** 命令共用一个 in-flight operation。Beta 只接受规范的 `-beta.N` SemVer，且响应必须明确包含 `channel: "beta"`；它不会静默使用稳定版。后台失败和非更新版本保持静默；手工检查一定会显示原生结果对话框。**安装稳定版** 会另行查询稳定通道，允许目标版本更低，并把稳定版安装在 Beta 旁边。开发运行、未打包启动与 Linux 不会下载安装包。
 
 选择 **Download** 后，应用会先重新确认服务端版本没有变化，然后打开原生保存对话框。默认位置是 Downloads，但用户可以选择其他绝对路径和文件名；取消对话框不会发起下载请求。DSH Desktop 使用 Electron 网络跟随 service redirect，把不超过 1 GiB 的文件流式写入用户选择的路径，记录安装包位置用于升级交接，并在交付前拒绝不完整的 DMG 或 Windows PE。macOS 会打开下载好的 DMG，并提示用户替换 `Applications` 中的应用后重新打开。Windows 会在 NSIS 安装器准备完成后再次确认；选择 **Restart and Install** 会启动安装器，并在当前进程退出前请求 Cordis 有序 teardown。升级后的应用启动时会询问删除已记录的安装包，或保留它；任一选择都会消费 pending cleanup state。下载、文件系统与安装器打开失败都会保持静默，同时保留托盘中的可重试版本操作。

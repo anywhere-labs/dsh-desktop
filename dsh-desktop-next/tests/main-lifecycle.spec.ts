@@ -7,6 +7,7 @@ import { DEFAULT_PREFERENCES, SAFE_MODE_PREFERENCES } from '../src/desktop-contr
 import type { NextDesktopRuntime } from '../src/desktop-runtime.ts'
 import { NEXT_PACKAGE, NextProfiles } from '../src/profiles.ts'
 import { NextRecovery } from '../src/recovery.ts'
+import { installFileActions } from '../src/upstream-family.ts'
 
 const originalMonitors = new Set(process.listeners('uncaughtExceptionMonitor'))
 afterEach(() => { for (const listener of process.listeners('uncaughtExceptionMonitor')) if (!originalMonitors.has(listener)) process.off('uncaughtExceptionMonitor', listener) })
@@ -238,6 +239,41 @@ it('repairs a crashed renderer and fences old document reports while preserving 
     await vi.advanceTimersByTimeAsync(30_000)
     expect(main.loadedUrls).toHaveLength(2)
   } finally { vi.useRealTimers(); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it.runIf(installFileActions)('accepts file actions only from the main application frame', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-file-actions-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  fixture.hostReady = true
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const main = fixture.windows[0]
+    const sender = { sender: main.webContents, senderFrame: main.webContents.mainFrame }
+    const save = async (from: unknown, value: unknown) => fixture.handlers.get('dsh-desktop:file-save')!(from, value)
+    const read = async (from: unknown, value: unknown) => fixture.handlers.get('dsh-desktop:clipboard-image-read')!(from, value)
+    for (const invoke of [save, read]) {
+      await expect(invoke({ ...sender, senderFrame: { url: 'dsh-app://app/' } }, {})).rejects.toThrow('Rejected')
+      await expect(invoke({ sender: {}, senderFrame: { url: 'dsh-app://app/' } }, {})).rejects.toThrow('Rejected')
+    }
+    await expect(save(sender, {})).rejects.toThrow('Invalid file save request')
+    await expect(read(sender, 42)).rejects.toThrow('Invalid image URL')
+    // The running Host is excluded from image reads, whichever loopback name reaches it.
+    await expect(read(sender, 'http://localhost:1234/api/private')).rejects.toThrow('Invalid image URL')
+    main.webContents.mainFrame.url = 'dsh-app://shell/index.html'
+    for (const invoke of [save, read]) await expect(invoke(sender, {})).rejects.toThrow('Rejected')
+  } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it.skipIf(installFileActions)('registers no file actions where the followed DSH release has no client for them', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-file-actions-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    expect(fixture.handlers.has('dsh-desktop:file-save')).toBe(false)
+    expect(fixture.handlers.has('dsh-desktop:clipboard-image-read')).toBe(false)
+  } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 
 it('uses the existing recovery assistant only after exhausting automatic renderer repair', async () => {
