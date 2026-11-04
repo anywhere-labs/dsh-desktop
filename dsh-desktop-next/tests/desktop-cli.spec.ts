@@ -18,7 +18,7 @@ it('keeps CLI commands on the selected Next Profile without overriding an explic
   const runCli = vi.fn(async () => {})
   await runDesktopDshCli(environment, async () => ({ runCli }), argv)
   expect(argv.slice(2)).toEqual(['plugin', '--profile', 'work', 'list'])
-  expect(environment).toEqual({ DSH_HOME: '/next/home',
+  expect(environment).toEqual({ ELECTRON_RUN_AS_NODE: '1', DSH_HOME: '/next/home',
     pnpm_config_minimum_release_age: '0', pnpm_config_update_notifier: 'false', YARN_NPM_MINIMAL_AGE_GATE: '0' })
   expect(runCli).toHaveBeenCalledWith({ manageDesktopProfile: true, packageManager: desktopCliPackageManager() })
 })
