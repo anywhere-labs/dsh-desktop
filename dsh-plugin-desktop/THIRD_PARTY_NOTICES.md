@@ -5,7 +5,7 @@ the package names, versions, and licenses for transparency.
 | Package | Version | License |
 | --- | --- | --- |
 | @agentclientprotocol/sdk | 1.4.0 | Apache-2.0 |
-| @agents-anywhere/dsh-bridge-next | 2.1.0-desktop.cb9f491df9a97.r7504932a | MIT |
+| @agents-anywhere/dsh-bridge-next | 2.1.0-desktop.c1f827133d6d6.r7c1a233b | MIT |
 | @anthropic-ai/sdk | 0.129.0 | MIT |
 | @aws-sdk/client-bedrock-runtime | 3.1127.0 | Apache-2.0 |
 | @aws-sdk/core | 3.978.1 | Apache-2.0 |

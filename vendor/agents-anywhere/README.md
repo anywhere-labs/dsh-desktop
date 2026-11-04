@@ -100,11 +100,26 @@ credential, or device binding is silently copied between the two layouts.
 
 ## Validation history
 
-The current artifact was prepared by the release script from AA v2 commit
+The current artifact was prepared by the release script from AA `main` commit
+`1f827133d6d6de86df424898d9b9738b6b3aebf3` (AA 2.1.0). Build, typecheck,
+`check:build` and `pack` passed in the isolated checkout; the prepared artifact
+passes the AA release policy (`aa:check`) in all three channels, and the
+release-policy and Connector compatibility suites pass. It carries the MeshCall
+bridge 2.0 (`connector.json` rendezvous, `aa.dsh.v2.Bridge` / `aa.dsh.v2.Sync`)
+instead of the 1.0 loopback endpoint. No signed Electron package, interactive
+device onboarding, or live AA Desktop handshake was tested for this update.
+
+The artifact shipped by Desktop 0.2.1-rc.2 came from AA commit `39b82d4fffb1`
+and still exposed the 1.0 loopback endpoint. With an Agents Anywhere 2.1.0
+Desktop on the same machine that Desktop yields the local Connector to, nothing
+published `connector.json`, so the AA-side DSH runtime stayed at “waiting for
+the local DSH Bridge” (anywhere-labs/Agents-Anywhere#498). Bridge 2.0 is what
+lets the plugin serve whichever Connector currently owns the machine.
+
+The earlier artifact was prepared by the release script from AA v2 commit
 `c26402633cb840d376048b0bdb42c2db59e7cb33`. Build, typecheck and build-artifact
 checks passed. Both Desktop variants passed actual AA Host/client profile
-loading, and repeating preparation reused the verified artifact. No signed
-Electron package or interactive device onboarding was tested for this update.
+loading, and repeating preparation reused the verified artifact.
 
 The previous manually prepared artifact came from AA v2 commit
 `ae47731c50f02033728faed1ba55f95c8008ec86` and includes the matching Python
