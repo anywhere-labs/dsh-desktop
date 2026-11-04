@@ -10742,6 +10742,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-util-file-drag@file:vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-util-file-drag-0.2.2-rc.1.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.2.2-rc.1
+  resolution: "@deepseek-ai/dsh-util-file-drag@file:vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-util-file-drag-0.2.2-rc.1.tgz#vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-util-file-drag-0.2.2-rc.1.tgz::hash=e9fe4f&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    mime: "npm:^4.1.1"
+  peerDependencies:
+    "@deepseek-ai/cordis": ~4.1.0
+  checksum: 10c0/e2a9230d509610853073005b4791703bb7a9124360aea611c419979c84c25a8317b7b230b3a9d69c2dc24da9ae9fa7fe64b65e756ca540436e038bbfe51182e7
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-util-time@file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-util-time-0.2.1-rc.3.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.1-rc.3
   resolution: "@deepseek-ai/dsh-util-time@file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-util-time-0.2.1-rc.3.tgz#vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-util-time-0.2.1-rc.3.tgz::hash=5e0a74&locator=deepseek-harness-desktop%40workspace%3A."
@@ -16826,6 +16837,7 @@ __metadata:
     "@deepseek-ai/dsh-client-ui-conversation": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-client-ui-directory-picker-browse": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-client-ui-directory-picker-native": "npm:0.2.2-rc.1"
+    "@deepseek-ai/dsh-client-ui-file-actions": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-client-ui-input-trigger": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-client-ui-layout": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-client-ui-plugin-manager": "npm:0.2.2-rc.1"
@@ -16963,6 +16975,7 @@ __metadata:
     "@deepseek-ai/dsh-user-approval": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-user-questions": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-util-crypto": "npm:0.2.2-rc.1"
+    "@deepseek-ai/dsh-util-file-drag": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-util-time": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-util-values": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-util-workspace-path": "npm:0.2.2-rc.1"
@@ -17080,6 +17093,7 @@ __metadata:
     "@deepseek-ai/dsh-client-ui-conversation": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-client-ui-directory-picker-browse": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-client-ui-directory-picker-native": "npm:0.2.2-rc.1"
+    "@deepseek-ai/dsh-client-ui-file-actions": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-client-ui-input-trigger": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-client-ui-layout": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-client-ui-plugin-manager": "npm:0.2.2-rc.1"
@@ -17217,6 +17231,7 @@ __metadata:
     "@deepseek-ai/dsh-user-approval": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-user-questions": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-util-crypto": "npm:0.2.2-rc.1"
+    "@deepseek-ai/dsh-util-file-drag": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-util-time": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-util-values": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-util-workspace-path": "npm:0.2.2-rc.1"
@@ -20754,6 +20769,15 @@ __metadata:
   bin:
     mime: cli.js
   checksum: 10c0/a7f2589900d9c16e3bdf7672d16a6274df903da958c1643c9c45771f0478f3846dcb1097f31eb9178452570271361e2149310931ec705c037210fc69639c8e6c
+  languageName: node
+  linkType: hard
+
+"mime@npm:^4.1.1":
+  version: 4.1.2
+  resolution: "mime@npm:4.1.2"
+  bin:
+    mime: bin/cli.js
+  checksum: 10c0/fb135a0a9b6350d823fa04400816fbe164085bcd1f7b116d88e3659c2cebe08d38d33603b46a3793a2ebd44569e0aa43189c383f6f90371c19d5f0daf309e90a
   languageName: node
   linkType: hard
 

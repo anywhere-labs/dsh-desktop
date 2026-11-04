@@ -1,6 +1,6 @@
 /** Check the real official Web entry and sandboxed preload bundles without a GUI. */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -122,6 +122,10 @@ for (const platform of ['darwin', 'win32', 'linux']) {
       assert.deepEqual(received, ['general', 'permissions'])
       stop()
       assert.equal(listeners.has('dsh-next:settings-open'), false)
+      // The official context menus offer Save as and cross-origin image copy only beside this carrier; a release whose
+      // client has no file actions gets none.
+      assert.equal(typeof exposed.get('dshDesktop').fileActions?.save,
+        existsSync(join(root, 'node_modules/@deepseek-ai/dsh-client-ui-file-actions')) ? 'function' : 'undefined')
       // The official composer refuses dropped folders without this bridge and uploads every
       // non-image file instead of citing it; the carrier name and `pathFor` are upstream's.
       const picked = { name: 'notes.md' }

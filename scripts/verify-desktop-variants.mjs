@@ -40,6 +40,7 @@ const OBSOLETE_BETA_FILES = [
 const UPSTREAM_FAMILY_FILES = [
   'src/upstream-family.ts',
   'src/upstream-family-labels.ts',
+  'src/upstream-family-preload.ts',
   'src/client/upstream-family.ts',
   'scripts/upstream-family.ts',
   'tests/upstream-family.ts',

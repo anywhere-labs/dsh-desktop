@@ -42,6 +42,10 @@ export { isOperationEvidence } from './upstream-family/operation-record.ts'
 // src/upstream-family/.
 export { officialComputerUse } from './upstream-family/official-computer-use.ts'
 
+// The official context menus of dsh 0.2.2 save originals and copy cross-origin images through the native file actions.
+// The module lives below src/upstream-family/.
+export { installFileActions } from './upstream-family/file-actions.ts'
+
 /**
  * Collect the Web boot injections for the Desktop window.
  * @param ctx - booted Host context with the Web server and connection services.
