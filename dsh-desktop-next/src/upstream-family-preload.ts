@@ -4,6 +4,7 @@
  * the sandboxed preload bundle may load nothing but Electron.
  */
 
-// The official context menus of dsh 0.2.2 read their native file actions from `window.dshDesktop`. The module lives
-// below src/upstream-family/.
+// The official context menus of dsh 0.2.2 read their native file actions from `window.dshDesktop`, and its official images
+// read their native file drag from there. The modules live below src/upstream-family/.
 export { createDesktopFileActionsBridge } from './upstream-family/file-actions-bridge.ts'
+export { createDesktopFileDragBridge } from './upstream-family/file-drag-bridge.ts'

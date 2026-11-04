@@ -11,7 +11,7 @@ import { permissionBridge } from './preload-permissions.ts'
 import { onOpenSettings } from './preload-settings.ts'
 import { createDesktopKeyboardBridge } from './preload-keyboard.ts'
 import { createDesktopBrowserBridge } from './preload-browser.ts'
-import { createDesktopFileActionsBridge } from './upstream-family-preload.ts'
+import { createDesktopFileActionsBridge, createDesktopFileDragBridge } from './upstream-family-preload.ts'
 
 if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
   let documentId: string | undefined
@@ -42,7 +42,7 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
   })
   // dsh 0.1.7 implements the native Sidebar browser itself and reads its transport from this
   // carrier; without `browser` the official plugin silently falls back to the sandboxed iframe.
-  contextBridge.exposeInMainWorld('dshDesktop', { protocolVersion: 1, browser: createDesktopBrowserBridge(), ...createDesktopKeyboardBridge(), ...createDesktopFileActionsBridge?.() })
+  contextBridge.exposeInMainWorld('dshDesktop', { protocolVersion: 1, browser: createDesktopBrowserBridge(), ...createDesktopKeyboardBridge(), ...createDesktopFileActionsBridge?.(), ...createDesktopFileDragBridge?.() })
   contextBridge.exposeInMainWorld('dshDesktopBoot', {
     ready: async () => {
       const boot = await ipcRenderer.invoke(IPC.boot)

@@ -46,6 +46,13 @@ export { officialComputerUse } from './upstream-family/official-computer-use.ts'
 // The module lives below src/upstream-family/.
 export { installFileActions } from './upstream-family/file-actions.ts'
 
+// The official images of dsh 0.2.2 drag out as files through the native file drag: the shell copies the bytes or borrows a
+// Session's workspace original that the Host authorizes, then starts the operating-system drag. The modules live below
+// src/upstream-family/.
+export { installDesktopFileDrag } from './upstream-family/file-drag.ts'
+export { createFileDragAuthorization } from './upstream-family/file-drag-authorization.ts'
+export { installHostFileDragResources } from './upstream-family/file-drag-resource.ts'
+
 /**
  * Collect the Web boot injections for the Desktop window.
  * @param ctx - booted Host context with the Web server and connection services.
