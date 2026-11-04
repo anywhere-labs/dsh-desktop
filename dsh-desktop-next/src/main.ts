@@ -10,7 +10,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { app, BrowserWindow, clipboard, crashReporter, dialog, ipcMain, Menu, nativeTheme, net, Notification, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
 import { appRequestHeaders, forwardWebRequest, serveWebDocument } from './web-document.ts'
 import { installAppDownloads } from './app-downloads.ts'
-import { installDesktopFileDrag, installFileActions } from './upstream-family.ts'
+import { installDesktopFileDrag, installFileActions, liveshareOwnerLogin } from './upstream-family.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
 import { NEXT_PACKAGE, NextProfiles, parseFeatures, profileName } from './profiles.ts'
 import { APP_URL, IPC, SHELL_URL } from './ipc.ts'
@@ -436,7 +436,18 @@ function createWindow(preload: string, primary = false): BrowserWindow {
   const openExternal = (url: string): void => {
     try { if (['https:', 'http:', 'mailto:'].includes(new URL(url).protocol)) void shell.openExternal(url).catch(error => runtime.report(error)) } catch { /* Ignore malformed external links. */ }
   }
-  window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' } })
+  // Pages open their windows in the system browser, except the Relay sign-in popup the LiveShare owner page opens.
+  const ownerLogin = primary ? liveshareOwnerLogin : undefined
+  window.webContents.setWindowOpenHandler((details) => {
+    if (ownerLogin?.accepts(details)) return { action: 'allow', overrideBrowserWindowOptions: ownerLogin.windowOptions(window) }
+    openExternal(details.url)
+    return { action: 'deny' }
+  })
+  if (ownerLogin !== undefined) {
+    window.webContents.on('did-create-window', (child) => {
+      ownerLogin.guard(child.webContents, { hostOrigin: () => runtime.auth === undefined ? undefined : new URL(runtime.auth.url).origin, openExternal })
+    })
+  }
   window.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith(primary ? APP_URL : SHELL_URL)) { event.preventDefault(); openExternal(url) }
   })
