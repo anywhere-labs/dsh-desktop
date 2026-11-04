@@ -77,7 +77,7 @@ test('rejects the retired Desktop compatibility patch', t => {
   assert.throws(() => assertPreparedAaRelease(root, commit), /root resolution references a different AA artifact/)
 })
 
-for (const [schemaVersion, cosmokitVersion] of [['3.18.2', '1.8.3'], ['3.18.4', '1.8.5'], ['3.18.5', '1.8.6']]) {
+for (const [schemaVersion, cosmokitVersion] of [['3.18.2', '1.8.3'], ['3.18.4', '1.8.5'], ['3.18.5', '1.8.6'], ['3.19.0', '1.9.0']]) {
   test(`pins the AA staging type graph for schemastery ${schemaVersion} while keeping Desktop runtime peer ranges`, t => {
     const { root } = fixture(t)
     const packagePath = join(root, 'staged')
