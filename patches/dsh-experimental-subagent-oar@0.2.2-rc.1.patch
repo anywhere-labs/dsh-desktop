@@ -36,7 +36,7 @@ index 0000000..f1e52c0
 +          codex: oar-codex
 +          claude: oar-claude
 diff --git a/package.json b/package.json
-index 5527441..9ad9580 100644
+index 9797511..fc50b07 100644
 --- a/package.json
 +++ b/package.json
 @@ -31,6 +31,11 @@
@@ -49,5 +49,5 @@ index 5527441..9ad9580 100644
 +    }
 +  },
    "peerDependencies": {
-     "@deepseek-ai/cordis": "~4.0.6-alpha.2",
-     "@deepseek-ai/dsh-llm": "0.2.2-alpha.3",
+     "@deepseek-ai/cordis": "~4.1.0",
+     "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
