@@ -32,8 +32,8 @@ function nodes(file, predicate) {
 // Each workspace follows its own upstream.json channel runtime.
 const workspaceVersions = {
   'dsh-plugin-desktop': '0.2.1-rc.3',
-  'dsh-plugin-desktop-beta': '0.2.2-alpha.3',
-  'dsh-desktop-next': '0.2.1-rc.5',
+  'dsh-plugin-desktop-beta': '0.2.2-rc.1',
+  'dsh-desktop-next': '0.2.2-rc.1',
 }
 
 for (const [workspace, version] of Object.entries(workspaceVersions)) {

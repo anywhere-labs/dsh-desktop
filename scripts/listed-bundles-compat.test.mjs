@@ -86,7 +86,7 @@ for (const workspace of ['dsh-plugin-desktop-beta', 'dsh-desktop-next']) {
   const manifest = JSON.parse(readFileSync(resolve(workspace, 'package.json'), 'utf8'))
   const require = createRequire(resolve(workspace, 'package.json'))
   const catalog = installed(require, '@deepseek-ai/dsh-official-bundles')
-  // Next's 0.2.1 has no official on-demand catalog.
+  // A release without the official on-demand catalog (0.2.1) offers nothing on demand.
   if (Object.hasOwn(manifest.dependencies, '@deepseek-ai/dsh-official-bundles')) test(`${workspace}: the plugin manager offers the on-demand bundles it would hide`, { skip: catalog === undefined && notInstalled }, async () => {
     const { OFFICIAL_ON_DEMAND_CATALOG: entries } = await import(pathToFileURL(catalog).href)
     for (const name of ON_DEMAND_LISTED) {

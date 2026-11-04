@@ -5,57 +5,58 @@
  * of the source stays mirrored.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { StartupError } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
-import type { CommandDefinition } from '@deepseek-ai/dsh-commands'
-import type { IndexInjection, WebRoute } from '@deepseek-ai/dsh-host-webserver'
+import type { IndexInjection, WebResource, WebResourceRoute, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 
-export { OPTIONAL_BUNDLES, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-app-boot'
+export { ON_DEMAND_BUNDLES, OPTIONAL_BUNDLES, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 
 /**
- * Render the composition a failed startup recorded before disposal. dsh 0.2.1 records none, so the
- * Host diagnostic has no section for it.
+ * Render the plugin states and missing-service observations a failed startup recorded before
+ * disposal, as upstream Desktop's fatal diagnostic does from dsh 0.2.2.
+ * @param error - startup audit failure.
+ * @returns the composition section, or a notice when capturing the composition failed.
  */
-export const startupCompositionDiagnostic: ((error: StartupError) => string[]) | undefined = undefined
+export function startupCompositionDiagnostic(error: StartupError): string[] {
+  if (error.composition === undefined) return ['Startup composition diagnostic unavailable.']
+  const { plugins, services, omittedPlugins, omittedServices } = error.composition
+  const sources = [...new Set(plugins.map(plugin => plugin.source))]
+  return ['--- startup composition ---',
+    'Provider lists contain observed registrations only; an empty list means the provider is unknown.',
+    'Source identifies the Loader tree, not necessarily the overriding patch.',
+    `Omitted plugin rows: ${String(omittedPlugins)}; omitted missing-service observations: ${String(omittedServices)}.`,
+    '--- missing services ---', ...services.map(service => JSON.stringify(service)),
+    '--- plugin sources (sourceIndex) ---', ...sources.map((source, index) => JSON.stringify({ index, source })),
+    '--- plugins (inactive first) ---', ...plugins.map(({ source, ...plugin }) => JSON.stringify({ ...plugin, sourceIndex: sources.indexOf(source) }))]
+}
 
-// Plugin operation history for failure reports needs the plugin-manager operation event that dsh 0.2.1
-// does not have, so the Host announces no run, and the shell neither keeps a history nor accepts
-// operation evidence over IPC.
-export const hostOperationDiagnostics: ((send: (message: object) => Promise<void>) => { observe(ctx: Context): void }) | undefined = undefined
-export const recordPluginCommands: (<Runner>(ctx: Context, runner: Runner) => Runner) | undefined = undefined
-export const createOperationHistory: ((directory: string) => {
-  host(): (message: unknown) => boolean
-  readonly runId: string | undefined
-  readonly reportNote: readonly string[] | undefined
-  append(report: string): void
-  close(): Promise<void>
-}) | undefined = undefined
-export const isOperationEvidence: ((message: unknown) => boolean) | undefined = undefined
+// Plugin operation history for failure reports, built on the `plugin-manager/operation` event of dsh
+// 0.2.2: the Host announces its run and sends records, and the shell journals them and appends recent
+// ones to saved reports. The modules live below src/upstream-family/.
+export { hostOperationDiagnostics, recordPluginCommands } from './upstream-family/operation-diagnostics.ts'
+export { createOperationHistory } from './upstream-family/desktop-operation-history.ts'
+export { isOperationEvidence } from './upstream-family/operation-record.ts'
 
-// dsh 0.2.1 ships no official Computer Use bundle: Computer Use (Next) serves every Agent through one global
-// `/computer-use`.
-export const officialComputerUse: {
-  serves(ctx: Context, agent: Agent): boolean
-  settings(): { officialSupported: boolean }
-  commandRegistrar(ctx: Context): (definition: CommandDefinition) => () => void
-} | undefined = undefined
+// The official Computer Use bundle of dsh 0.2.2 beside Computer Use (Next): the Agents it serves and the per-Agent
+// `/computer-use` that leaves them. The release installs the bundle on demand into the Profile. The module lives below
+// src/upstream-family/.
+export { officialComputerUse } from './upstream-family/official-computer-use.ts'
 
 /**
  * Collect the Web boot injections for the Desktop window.
  * @param ctx - booted Host context with the Web server and connection services.
- * @returns the injection table rendered into the window document.
+ * @returns the injection table rendered into the window document for its browser Peer.
  */
 export function webIndexInjections(ctx: Context): IndexInjection[] {
-  return ctx.webServer.collectIndexInjections()
+  return ctx.webServer.collectIndexInjections(ctx.connection.browserPeer)
 }
 
-/** A Fetch responder; this release's Web server registers none, so it is never called. */
-export type WebResourceResponder = (request: Request, peer?: unknown) => Promise<Response>
-/** A named route as the Web server accepts it: a response handler. */
-export type WebRegistration = WebRoute
-/** The fallback seat as the Web server accepts it: a response handler. */
-export type WebFallback = WebRoute['handler']
+/** A Fetch responder: the Peer is absent for an HTTP request and present for an in-process read. */
+export type WebResourceResponder = WebResource
+/** A named route as the Web server accepts it: a response handler or a Fetch resource. */
+export type WebRegistration = WebRoute | WebResourceRoute
+/** The fallback seat as the Web server accepts it: a response handler or a Fetch resource. */
+export type WebFallback = WebRoute['handler'] | Pick<WebResourceRoute, 'resource'>
 
 /** Desktop policy applied around whichever responder a registration carries. */
 export interface ResponderWrappers {
@@ -70,7 +71,7 @@ export interface ResponderWrappers {
  * @returns the registration with its wrapped responder.
  */
 export function wrapRegistration(route: WebRegistration, wrap: ResponderWrappers): WebRegistration {
-  return { ...route, handler: wrap.handler(route.handler) }
+  return 'resource' in route ? { ...route, resource: wrap.resource(route.resource) } : { ...route, handler: wrap.handler(route.handler) }
 }
 
 /**
@@ -80,5 +81,5 @@ export function wrapRegistration(route: WebRegistration, wrap: ResponderWrappers
  * @returns the fallback with its wrapped responder.
  */
 export function wrapFallback(fallback: WebFallback, wrap: ResponderWrappers): WebFallback {
-  return wrap.handler(fallback)
+  return typeof fallback === 'function' ? wrap.handler(fallback) : { resource: wrap.resource(fallback.resource) }
 }

@@ -65,7 +65,7 @@ for (const workspace of ['dsh-plugin-desktop-beta', 'dsh-desktop-next']) {
           return { content, additionalContext }
         },
       }
-      // Beta's alpha runtime adds a route parameter before the signal; the fake receives neither.
+      // dsh 0.2.2 adds a route parameter before the signal; the fake receives neither.
       const preStep = messages => SessionReferenceResolver.prototype.prepareDirectMessages.call(resolver, {}, messages)
       const message = text => Object.freeze({ id: text, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text }] })
 

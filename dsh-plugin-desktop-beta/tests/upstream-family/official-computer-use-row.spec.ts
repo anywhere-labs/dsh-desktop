@@ -1,4 +1,4 @@
-/** The official Computer Use row, titled macOS Computer Use, on the Computer Use (Next) page, for the dsh 0.2.2 bundle only Beta follows. */
+/** The official Computer Use row, titled macOS Computer Use, on the Computer Use (Next) page, for the dsh 0.2.2 bundle. */
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 
@@ -102,7 +102,7 @@ const OFFICIAL_BUNDLE_ROW = {
 const OFFERED_BUNDLE_ROW = {
   name: '@deepseek-ai/dsh-cua-bundle', official: true, availability: 'missing', enabled: false, installed: false,
   optional: false, removable: false, updatable: false, rows: [], overrides: [], listedByDefault: true,
-  installTarget: { spec: '@deepseek-ai/dsh-cua-bundle@0.2.2-alpha.3', version: '0.2.2-alpha.3' },
+  installTarget: { spec: '@deepseek-ai/dsh-cua-bundle@0.2.2-rc.1', version: '0.2.2-rc.1' },
 }
 
 it('switches the official Computer Use bundle on the Computer Use (Next) page on macOS 14 and later', async () => {
@@ -186,7 +186,7 @@ it('installs the official Computer Use when switched on while the current Profil
 
   view.toggle!.props.onChange(true)
   await new Promise(resolve => setTimeout(resolve, 0))
-  expect(app.pluginManager.installBundle).toHaveBeenCalledExactlyOnceWith('@deepseek-ai/dsh-cua-bundle@0.2.2-alpha.3', { enabled: true, saveExact: true })
+  expect(app.pluginManager.installBundle).toHaveBeenCalledExactlyOnceWith('@deepseek-ai/dsh-cua-bundle@0.2.2-rc.1', { enabled: true, saveExact: true })
   expect(app.pluginManager.setBundleEnabled).not.toHaveBeenCalled()
   view = app.view()
   expect(view.state).toContain('正在下载并安装')

@@ -1,4 +1,4 @@
-/** Computer Use (Next) beside the official Computer Use bundle of dsh 0.2.2, which only Beta follows. */
+/** Computer Use (Next) beside the official Computer Use bundle of dsh 0.2.2. */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
