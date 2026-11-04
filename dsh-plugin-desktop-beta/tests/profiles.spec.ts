@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
-import { composeEntries, loadOverlayPatches, loadProfileDirectory } from '@deepseek-ai/dsh-app-boot'
-import { OPTIONAL_BUNDLES } from '../src/upstream-family.ts'
+import { composeEntries, getDshRuntimeVersion, loadOverlayPatches, loadProfileDirectory, type ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot'
+import { ON_DEMAND_BUNDLES, OPTIONAL_BUNDLES } from '../src/upstream-family.ts'
 import { AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE, loadNextProfile, NEXT_PACKAGE, NextProfiles, OFFICIAL_MARKET_PACKAGE, profileName, readNextProfilePatches, WEB_BUNDLES } from '../src/profiles.ts'
 import { DEFAULT_OFFICIAL_MARKET_INDEX_URL } from '../src/profile-plugin-market.ts'
 import * as privateFiles from '../src/private-files.ts'
@@ -606,6 +606,105 @@ it('still loads the Profile when the projection sweep fails', () => {
     expect(sweep).toHaveBeenCalledWith(dir)
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining('could not remove dsh 0.1.5 link projections'))
   } finally { sweep.mockRestore(); stderr.mockRestore() }
+})
+
+/**
+ * A pnpm stand-in that records its arguments and, like pnpm's own `remove`, drops the named dependencies.
+ * @param root - directory for the script and its record.
+ * @param failure - pnpm's error output, to fail with instead.
+ * @returns the invocation and the calls it recorded.
+ */
+function fakePnpm(root: string, failure?: string): { invocation: ProfilePnpmInvocation; calls(): { args: string[]; cwd: string }[] } {
+  const script = join(root, 'fake-pnpm.mjs')
+  const record = join(root, 'fake-pnpm.jsonl')
+  writeFileSync(script, [
+    "import { appendFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs'",
+    'const args = process.argv.slice(2)',
+    "appendFileSync(process.env.FAKE_PNPM_RECORD, JSON.stringify({ args, cwd: process.cwd() }) + '\\n')",
+    'if (process.env.FAKE_PNPM_FAILURE) { process.stderr.write(process.env.FAKE_PNPM_FAILURE); process.exit(1) }',
+    "const manifest = JSON.parse(readFileSync('package.json', 'utf8'))",
+    "for (const name of args.slice(args.indexOf('remove') + 1)) { delete manifest.dependencies[name]; rmSync('node_modules/' + name, { recursive: true, force: true }) }",
+    "writeFileSync('package.json', JSON.stringify(manifest, null, 2) + '\\n')",
+  ].join('\n'))
+  return {
+    invocation: { command: process.execPath, args: [script], env: { FAKE_PNPM_RECORD: record, ...failure === undefined ? {} : { FAKE_PNPM_FAILURE: failure } } },
+    calls: () => existsSync(record) ? readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { args: string[]; cwd: string }) : [],
+  }
+}
+
+/**
+ * Save and select on-demand bundles in a Profile, placing the installed ones as pnpm's hoisted layout does.
+ * @param dir - the Profile directory.
+ * @param saved - the exact version each dependency was saved with.
+ * @param installed - the version of each copy pnpm placed, where it differs from the saved one or the copy is absent.
+ */
+function saveOnDemand(dir: string, saved: Record<string, string>, installed: Record<string, string | undefined> = {}): void {
+  const path = join(dir, 'package.json')
+  const manifest = JSON.parse(readFileSync(path, 'utf8'))
+  manifest.dependencies = { ...manifest.dependencies, ...saved }
+  manifest.dsh.profile.bundles.push(...Object.keys(saved))
+  writeFileSync(path, JSON.stringify(manifest, null, 2))
+  for (const [name, version] of Object.entries(saved)) {
+    const copy = Object.hasOwn(installed, name) ? installed[name] : version
+    if (copy === undefined) continue
+    mkdirSync(join(dir, 'node_modules', name), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', name, 'package.json'), JSON.stringify({ name, version: copy, dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+    writeFileSync(join(dir, 'node_modules', name, 'cordis.patch.yml'), '[]\n')
+  }
+}
+
+it('removes official on-demand bundles installed for another DSH release before resolving the Profile', () => {
+  const manager = profiles()
+  const dir = manager.ensure('desktop')
+  const release = getDshRuntimeVersion()
+  const [claude, codex, computerUse] = ON_DEMAND_BUNDLES as [string, string, string]
+  // Codex pins an older release; Computer Use was saved for one but never placed.
+  saveOnDemand(dir, { [claude]: release, [codex]: '0.2.1-rc.5', [computerUse]: '0.2.2-alpha.3' }, { [computerUse]: undefined })
+  const pnpm = fakePnpm(manager.home)
+  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+  try {
+    const profile = loadNextProfile(dir, manager.home, NEXT_PACKAGE, pnpm.invocation)
+    expect(pnpm.calls()).toEqual([{ args: ['--config.offline=true', 'remove', codex, computerUse], cwd: realpathSync(dir) }])
+    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    expect(manifest.dependencies).toEqual({ [claude]: release })
+    expect(manifest.dsh.profile.bundles).toContain(claude)
+    expect(manifest.dsh.profile.bundles).not.toContain(codex)
+    expect(manifest.dsh.profile.bundles).not.toContain(computerUse)
+    expect(existsSync(join(dir, 'node_modules', codex))).toBe(false)
+    expect(profile.layers.map(layer => layer.packageName)).toContain(claude)
+    expect(profile.layers.map(layer => layer.packageName)).not.toContain(codex)
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining(`removed ${codex}, ${computerUse} from Profile desktop`))
+  } finally { stderr.mockRestore() }
+})
+
+it('leaves on-demand bundles of this DSH release alone and runs no pnpm', () => {
+  const manager = profiles()
+  const dir = manager.ensure('desktop')
+  const release = getDshRuntimeVersion()
+  const [claude, codex] = ON_DEMAND_BUNDLES as [string, string]
+  // The installed copy decides, whatever version the manifest saved.
+  saveOnDemand(dir, { [claude]: release, [codex]: '0.2.1-rc.5' }, { [codex]: release })
+  const before = readFileSync(join(dir, 'package.json'), 'utf8')
+  const pnpm = fakePnpm(manager.home)
+  loadNextProfile(dir, manager.home, NEXT_PACKAGE, pnpm.invocation)
+  expect(pnpm.calls()).toEqual([])
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
+})
+
+it('still loads the Profile when pnpm cannot remove on-demand bundles of another DSH release', () => {
+  const manager = profiles()
+  const dir = manager.ensure('desktop')
+  const [, codex] = ON_DEMAND_BUNDLES as [string, string]
+  saveOnDemand(dir, { [codex]: '0.2.1-rc.5' })
+  const before = readFileSync(join(dir, 'package.json'), 'utf8')
+  const pnpm = fakePnpm(manager.home, 'ERR_PNPM_FAKE no offline metadata')
+  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+  try {
+    expect(loadNextProfile(dir, manager.home, NEXT_PACKAGE, pnpm.invocation).layers.map(layer => layer.packageName)).toContain('dsh-plugin-desktop-beta')
+    expect(pnpm.calls()).toHaveLength(1)
+    expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
+    expect(stderr).toHaveBeenCalledWith(expect.stringMatching(/could not remove on-demand bundles of another DSH release from Profile desktop: .*ERR_PNPM_FAKE/u))
+  } finally { stderr.mockRestore() }
 })
 
 it('leaves no Profile link into an archived installation and points the AA bridge at its unpacked files', () => {

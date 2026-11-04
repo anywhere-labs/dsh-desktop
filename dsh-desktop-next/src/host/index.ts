@@ -57,7 +57,8 @@ export async function main(): Promise<void> {
   delete process.env.DSH_NEXT_PREFERENCES
   delete process.env.DSH_NEXT_TRUSTED_HOSTS
   delete process.env[SYSTEM_PROXY_ENV]
-  const profile = loadNextProfile(projectDir, home)
+  const packageManager = bundledPnpmInvocation(runtimeDir)
+  const profile = loadNextProfile(projectDir, home, NEXT_PACKAGE, packageManager)
   const runtimePatch = join(projectDir, 'desktop-next.runtime.patch.json')
   atomicJson(runtimePatch, [
     { id: 'desktop-next-webserver', config: { host: '127.0.0.1', port: preferences.port } },
@@ -79,7 +80,7 @@ export async function main(): Promise<void> {
       readPatches: profilePatches => readNextProfilePatches(projectDir, home,
         [join(runtimeDir, 'host.cordis.patch.yml'), join(projectDir, 'desktop-next.cordis.patch.json'), runtimePatch], profilePatches) },
     patchFiles: [join(runtimeDir, 'host.cordis.patch.yml'), join(projectDir, 'desktop-next.cordis.patch.json'), runtimePatch], args: ['--no-open', '--port', String(preferences.port)],
-    packageManager: bundledPnpmInvocation(runtimeDir),
+    packageManager,
   })
   // Memory evidence for the Desktop's incident snapshots. Pushed rather than requested, so a Host too
   // busy or too short of memory to answer still leaves its last reading behind (#1511).

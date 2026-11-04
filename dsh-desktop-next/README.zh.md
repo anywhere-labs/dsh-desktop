@@ -71,6 +71,8 @@ Linux 图标集按 hicolor 主题的尺寸，从 16 到 512 像素每档一张 P
 
 **发布版默认隐藏的官方插件。** DSH 0.2.2 把 LiveShare、Ralph 和会话搜索标为默认不列出，官方插件管理器要等 Profile 启用它们后才会显示。Next 通过版本限定的补丁（`patches/dsh-experimental-liveshare@<version>.patch` 以及 Ralph、会话搜索对应的补丁）在**插件**页像其他可选组合包一样列出它们；LiveShare 的补丁还让它的 owner gateway worker 以 Electron 的 Node 模式启动。包里没有 `meta.detail` 文档时，插件详情页在中文界面显示中文 README 译本（例如 `README.zh.md` 或 `README_CN.md`），在其他语言界面显示英文译本（例如 `README.en.md`），都没有时才回退到 `README.md`（`patches/dsh-plugin-detail@<version>.patch`）。
 
+**更新后的按需插件。** 官方 Codex、Claude Code 子智能体和官方 Computer Use 按需安装到 Profile，版本锁定为安装它们时的 DSH 版本。它们依赖的 DSH 包由 pnpm 放在 Profile 的 `node_modules` 顶层，运行时解析会优先使用这些副本，而不是安装包自带的。更新到其他 DSH 版本后，核心插件会因此加载旧副本，子智能体工具随之消失，或者 Host 无法启动；这些插件本身也不再匹配新版本。因此，Next 在 Host 解析 Profile 之前，用内置 pnpm 离线移除为其他版本安装的按需插件，效果与在**插件**页移除相同，并在日志中写明移除了哪些。之后**插件**页把它们显示为未安装，打开开关即可安装当前版本。移除失败只记录日志，Host 照常启动，下次启动时重试。
+
 ### 浏览器与局域网访问
 
 浏览器访问默认关闭。启用本机访问后可获得经过认证的本机登录链接；启用局域网访问后，另设 HTTPS/WSS 入口，Host 仍只绑定 `127.0.0.1`。端口默认为 `0`，由系统自动分配。访问开关无需重启 Host。关闭浏览器访问也会断开已有的浏览器 WebSocket，而原生窗口连接和正在运行的任务继续保留。更改端口需要重启 Host；局域网地址在启动时读取，切换网络后需要重启。
