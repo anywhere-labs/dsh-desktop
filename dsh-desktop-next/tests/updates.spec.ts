@@ -53,6 +53,24 @@ it('does not confuse an unpublished channel, invalid response or network failure
     expect(updates.snapshot()).toMatchObject({ phase: 'error', error: 'service' })
   }
 })
+it('names the CPU of this Mac on the version check and on the first download request', async () => {
+  const { updates, request, artifactRequest } = await fixture({ arch: 'arm64' })
+  await updates.download()
+  expect(updates.snapshot().phase).toBe('ready')
+  const [versionUrl, versionInit] = request.mock.calls[0]!
+  expect(versionUrl).toContain('/version')
+  expect(new Headers(versionInit.headers).get('X-DSH-Desktop-Arch')).toBe('arm64')
+  expect(new Headers(versionInit.headers).get('X-DSH-Desktop-Channel')).toBe('next')
+  const downloadInit = artifactRequest.mock.calls[0]![1]
+  expect(new Headers(downloadInit.headers).get('X-DSH-Desktop-Arch')).toBe('arm64')
+  expect(new Headers(downloadInit.headers).get('X-DSH-Desktop-Target-Version')).toBe('2.0.20-next.1')
+})
+it('leaves requests without a CPU header where the platform names none', async () => {
+  const { updates, request, artifactRequest } = await fixture({ platform: 'win32' })
+  await updates.check()
+  expect(new Headers(request.mock.calls[0]![1].headers).has('X-DSH-Desktop-Arch')).toBe(false)
+  expect(artifactRequest).not.toHaveBeenCalled()
+})
 it('allows checks in development, but never downloads or replaces the development application', async () => {
   const { updates, options, request } = await fixture({ packaged: false })
   await updates.check(); await updates.download()
