@@ -53,6 +53,11 @@ export { installDesktopFileDrag } from './upstream-family/file-drag.ts'
 export { createFileDragAuthorization } from './upstream-family/file-drag-authorization.ts'
 export { installHostFileDragResources } from './upstream-family/file-drag-resource.ts'
 
+// The LiveShare bundle of dsh 0.2.2 signs its owner in through a Relay popup the page opens itself. The Desktop window
+// opens that one popup, keeps it on web pages, and addresses the Relay's code to the Desktop document. The module lives
+// below src/upstream-family/.
+export { liveshareOwnerLogin } from './upstream-family/liveshare-owner-login.ts'
+
 /**
  * Collect the Web boot injections for the Desktop window.
  * @param ctx - booted Host context with the Web server and connection services.
