@@ -718,7 +718,6 @@
     "@deepseek-ai/dsh-webhook@npm:^0.2.1-rc.3": "file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-webhook-0.2.1-rc.3.tgz",
     "@deepseek-ai/dsh-webhook-github@npm:0.2.1-rc.3": "file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-webhook-github-0.2.1-rc.3.tgz",
     "@deepseek-ai/dsh-webhook-github@npm:^0.2.1-rc.3": "file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-webhook-github-0.2.1-rc.3.tgz",
-    "dshmarket@npm:1.71.1": "patch:dshmarket@npm%3A1.71.1#./.yarn/patches/dshmarket-desktop.patch",
     "@deepseek-ai/dsh-brand@npm:0.2.2-rc.1": "file:vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-brand-0.2.2-rc.1.tgz",
     "@deepseek-ai/dsh-brand@npm:^0.2.2-rc.1": "file:vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-brand-0.2.2-rc.1.tgz",
     "@deepseek-ai/dsh-timeout@npm:0.2.2-rc.1": "file:vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-timeout-0.2.2-rc.1.tgz",
@@ -1464,7 +1463,8 @@
     "@deepseek-ai/dsh-webhook@npm:0.2.2-rc.1": "file:vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-webhook-0.2.2-rc.1.tgz",
     "@deepseek-ai/dsh-webhook@npm:^0.2.2-rc.1": "file:vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-webhook-0.2.2-rc.1.tgz",
     "@deepseek-ai/dsh-webhook-github@npm:0.2.2-rc.1": "file:vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-webhook-github-0.2.2-rc.1.tgz",
-    "@deepseek-ai/dsh-webhook-github@npm:^0.2.2-rc.1": "file:vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-webhook-github-0.2.2-rc.1.tgz"
+    "@deepseek-ai/dsh-webhook-github@npm:^0.2.2-rc.1": "file:vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-webhook-github-0.2.2-rc.1.tgz",
+    "dshmarket@npm:1.73.10": "patch:dshmarket@npm%3A1.73.10#./.yarn/patches/dshmarket-desktop.patch"
   },
   "dependenciesMeta": {
     "@deepseek-ai/dsh-subprocess-local": {
