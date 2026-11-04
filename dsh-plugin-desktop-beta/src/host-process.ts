@@ -11,7 +11,7 @@ import { exitSummary } from './exit-code.ts'
 import { isHostMemoryUsage, type HostMemoryUsage, type MemoryHostExit } from './memory-monitor.ts'
 import { isDesktopNotification } from './notifications.ts'
 import type { DesktopPermission, DesktopPermissionAction, DesktopPermissionSnapshot } from './permissions.ts'
-import { isOperationEvidence } from './upstream-family.ts'
+import { createFileDragAuthorization, isOperationEvidence } from './upstream-family.ts'
 
 interface ReadyEvent {
   readonly type: 'ready'
@@ -248,6 +248,12 @@ export class DesktopHostProcess {
   private readonly accessRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private readonly loggingRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private readonly injectionRequests = new Map<number, { resolve: (injections: readonly unknown[]) => void; reject: (error: Error) => void }>()
+  /** Authorizes the workspace files native file drags borrow, where the followed DSH release drags files natively. */
+  readonly dragResources = createFileDragAuthorization?.(message => new Promise<void>((resolve, reject) => {
+    const child = this.child
+    if (!child?.connected || this.stopping || this.failureReported) { reject(new Error('Next Host is unavailable')); return }
+    child.send(message, (error) => { if (error === null) resolve(); else reject(error) })
+  }))
 
   /**
    * @param node - Absolute Electron executable in Node mode.
@@ -315,6 +321,8 @@ export class DesktopHostProcess {
     child.on('message', (message: unknown) => {
       // Like memory readings, operation evidence is observational and never reaches control handling.
       try { if ((this.observer?.operation ?? isOperationEvidence)?.(message) === true) return } catch { /* A failing observer leaves the message to the events below. */ }
+      // An authorization answer settles its own request; a malformed one fails below as invalid IPC.
+      if (this.dragResources?.receive(message) === true) return
       if (!isDesktopHostEvent(message)) {
         this.fail(new Error('dsh desktop host sent an invalid IPC event'))
         child.kill('SIGTERM')
@@ -528,6 +536,7 @@ export class DesktopHostProcess {
     this.loggingRequests.clear()
     for (const request of this.injectionRequests.values()) request.reject(error)
     this.injectionRequests.clear()
+    this.dragResources?.fail(error)
     if (!this.failureReported && !this.stopping) {
       this.failureReported = true
       try { this.onFailure?.(error) } catch (listenerError) {

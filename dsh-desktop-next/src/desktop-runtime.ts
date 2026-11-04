@@ -234,6 +234,18 @@ export class NextDesktopRuntime {
     }
   }
 
+  /**
+   * Ask the running Host to authorize a Session's workspace file for a native file drag.
+   * @param address - Session-scoped file reference the application window supplied.
+   * @param signal - Cancels the Host's read.
+   * @returns The file's path and content identity, or null when the file cannot be borrowed. Rejects while no Host runs
+   * or where the followed DSH release drags no files natively.
+   */
+  dragResource(address: string, signal: AbortSignal): Promise<{ readonly path: string; readonly sha256: string; readonly size: number } | null> {
+    const resources = this.backend.host === undefined ? undefined : this.hostProcess?.dragResources
+    return resources === undefined ? Promise.reject(new Error('File drag Host unavailable')) : resources.resolve(address, signal)
+  }
+
   /** Apply access toggles without stopping conversations or changing the renderer capability. */
   async applyPreferences(value: unknown): Promise<void> {
     const next = parsePreferences(value)

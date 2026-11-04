@@ -7,7 +7,7 @@ import { DEFAULT_PREFERENCES, SAFE_MODE_PREFERENCES } from '../src/desktop-contr
 import type { NextDesktopRuntime } from '../src/desktop-runtime.ts'
 import { NEXT_PACKAGE, NextProfiles } from '../src/profiles.ts'
 import { NextRecovery } from '../src/recovery.ts'
-import { installFileActions } from '../src/upstream-family.ts'
+import { installDesktopFileDrag, installFileActions } from '../src/upstream-family.ts'
 
 const originalMonitors = new Set(process.listeners('uncaughtExceptionMonitor'))
 afterEach(() => { for (const listener of process.listeners('uncaughtExceptionMonitor')) if (!originalMonitors.has(listener)) process.off('uncaughtExceptionMonitor', listener) })
@@ -26,6 +26,7 @@ const fixture = vi.hoisted(() => ({
   runtimeOptions: undefined as ConstructorParameters<typeof NextDesktopRuntime>[0] | undefined,
   runtime: undefined as { actionFailure: string } | undefined,
   failureReportFile: vi.fn(async (): Promise<string | undefined> => undefined),
+  dragResource: vi.fn(async (_address: string, _signal: AbortSignal): Promise<null> => null),
   onPermission: undefined as ConstructorParameters<typeof NextDesktopRuntime>[0]['onPermission'],
   startupElevation: { relaunched: false, state: {} } as ReturnType<typeof import('../src/windows-elevation.ts').deElevateAtStartup>,
   elevation: undefined as import('../src/windows-elevation.ts').WindowsElevation | undefined,
@@ -59,6 +60,7 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
   memory = fixture.memory
   actionFailure = ''
   failureReportFile = fixture.failureReportFile
+  dragResource = fixture.dragResource
   constructor(options: ConstructorParameters<typeof NextDesktopRuntime>[0]) {
     fixture.runtimeOptions = options
     fixture.runtime = this
@@ -174,6 +176,7 @@ beforeEach(async () => {
   fixture.windows.length = 0; fixture.trays.length = 0; fixture.handlers.clear()
   fixture.appPaths.clear(); fixture.lockPaths.length = 0; fixture.ownsInstance = true; fixture.runtimeOptions = undefined
   fixture.runtime = undefined; fixture.failureReportFile.mockReset().mockResolvedValue(undefined)
+  fixture.dragResource.mockReset().mockResolvedValue(null)
   fixture.locationRoot = mkdtempSync(join(tmpdir(), 'next-location-root-'))
   fixture.phase = 'ready'
   fixture.needsOnboarding = false; fixture.corruptProfile = false; fixture.restart.mockReset(); fixture.hostReady = false
@@ -273,6 +276,44 @@ it.skipIf(installFileActions)('registers no file actions where the followed DSH 
     await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
     expect(fixture.handlers.has('dsh-desktop:file-save')).toBe(false)
     expect(fixture.handlers.has('dsh-desktop:clipboard-image-read')).toBe(false)
+  } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it.runIf(installDesktopFileDrag)('accepts file drags only from the main application frame, asks the running Host about resources, and stops at quit', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-file-drag-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  fixture.hostReady = true
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const main = fixture.windows[0]
+    const sender = { sender: main.webContents, senderFrame: main.webContents.mainFrame }
+    const channels = ['dsh-desktop:file-drag-prepare', 'dsh-desktop:file-drag-cancel', 'dsh-desktop:file-drag-start', 'dsh-desktop:file-drag-release']
+    const invoke = async (channel: string, from: unknown, ...args: unknown[]) => fixture.handlers.get(channel)!(from, ...args)
+    for (const channel of channels) {
+      await expect(invoke(channel, { ...sender, senderFrame: { url: 'dsh-app://app/' } }, {}, 'request-1')).rejects.toThrow('Rejected')
+      await expect(invoke(channel, { sender: {}, senderFrame: { url: 'dsh-app://app/' } }, {}, 'request-1')).rejects.toThrow('Rejected')
+    }
+    await expect(invoke(channels[0]!, sender, {}, 'request-1')).rejects.toThrow('Invalid file drag request')
+    // A resource the running Host does not lend leaves the window to copy the bytes.
+    const address = 'dsh-resource://file/session/s/a.png'
+    await expect(invoke(channels[0]!, sender, { kind: 'resource', address, name: 'a.png', mediaType: 'image/png' }, 'request-2')).resolves.toBeUndefined()
+    expect(fixture.dragResource).toHaveBeenCalledExactlyOnceWith(address, expect.any(AbortSignal))
+    main.webContents.mainFrame.url = 'dsh-app://shell/index.html'
+    for (const channel of channels) await expect(invoke(channel, sender, {}, 'request-3')).rejects.toThrow('Rejected')
+    const { app } = await import('electron')
+    app.quit()
+    await vi.waitFor(() => expect(channels.filter(channel => fixture.handlers.has(channel))).toEqual([]))
+  } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it.skipIf(installDesktopFileDrag)('registers no file drag where the followed DSH release drags no files natively', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-file-drag-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    for (const channel of ['prepare', 'cancel', 'start', 'release']) expect(fixture.handlers.has(`dsh-desktop:file-drag-${channel}`)).toBe(false)
   } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 

@@ -10,7 +10,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { app, BrowserWindow, clipboard, crashReporter, dialog, ipcMain, Menu, nativeTheme, net, Notification, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
 import { appRequestHeaders, forwardWebRequest, serveWebDocument } from './web-document.ts'
 import { installAppDownloads } from './app-downloads.ts'
-import { installFileActions } from './upstream-family.ts'
+import { installDesktopFileDrag, installFileActions } from './upstream-family.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
 import { NEXT_PACKAGE, NextProfiles, parseFeatures, profileName } from './profiles.ts'
 import { APP_URL, IPC, SHELL_URL } from './ipc.ts'
@@ -127,6 +127,8 @@ let pendingNavigation: { readonly owner: BrowserWindow; readonly cause: Exclude<
 let rendererHealthy = false
 // Storage partitions outlive individual windows, so the guest owner is process-scoped.
 let desktopShortcuts: ReturnType<typeof installDesktopShortcuts> | undefined
+/** Removes the native file drag's temporary exports, where the followed DSH release drags files natively. */
+let disposeFileDrag: (() => Promise<void>) | undefined
 const browserGuests = new DesktopBrowserGuests(() => runtime.auth ? [new URL(runtime.auth.url).origin] : [])
 let shellWindow: BrowserWindow | undefined
 let recoveryRunner: ReturnType<typeof createPackageRunner> | undefined
@@ -1347,6 +1349,10 @@ async function main(): Promise<void> {
     assertSender(event, mainWindow, APP_URL)
     return mainWindow!
   }, () => runtime.auth?.url)
+  disposeFileDrag = installDesktopFileDrag?.({ app, ipcMain }, (event) => {
+    assertSender(event, mainWindow, APP_URL)
+    return mainWindow!
+  }, (address, signal) => runtime.dragResource(address, signal))
   ipcMain.handle(IPC.material, event => { assertSender(event, mainWindow, APP_URL); return windowMaterial(runtime.preferences) })
   ipcMain.handle(IPC.command, (event, value: unknown) => { assertDesktopSender(event); return command(value, event.sender === shellWindow?.webContents ? 'shell' : 'app') })
   let picking: Promise<string | null> | undefined
@@ -1520,7 +1526,9 @@ app.on('before-quit', event => {
   // not a failed shutdown, and the next page open clears that storage again.
   const platformDone = runtime.diagnostics.operation('electron', 'platform.dispose')
   void Promise.all([updates.dispose(installingUpdate).then(() => updatesDone(), error => { updatesDone(error); throw error }), (async () => { try { await recoveryRunner?.dispose(); recoveryDone() } catch (error) { recoveryDone(error); throw error }; await runtime.close() })(),
-    platformView.dispose().then(() => platformDone(), error => platformDone(error))]).then(async () => {
+    platformView.dispose().then(() => platformDone(), error => platformDone(error)),
+    // A temporary drag export that cannot be removed is recorded, not a failed shutdown.
+    disposeFileDrag?.().catch(error => runtime.diagnostics.append(`File drag cleanup: ${String(error)}`, 'warn'))]).then(async () => {
     if (!finish()) return
     // A staged installer must survive until handoff; the next boot removes it.
     if (safeModeRequested && !installingUpdate) {
