@@ -11,17 +11,10 @@ import { applyDesktopPackageManagerPolicy, withoutForwardedDesktopPnpmPolicy } f
 import { bundledPnpmInvocation, ELECTRON_HEADERS_URL } from './bundled-pnpm.ts'
 import { disableAsarArchiveView, type AsarArchiveProcess } from './asar-archive-policy.ts'
 
-const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 const DEFAULT_PROFILE = 'DSH_DESKTOP_DEFAULT_PROFILE'
 const DSH_ENTRY_URL = pathToFileURL(
   join(dirname(createRequire(NEXT_PACKAGE).resolve('@deepseek-ai/dsh/package.json')), 'lib', 'bin.js'),
 ).href
-
-export function clearElectronRunAsNode(environment: NodeJS.ProcessEnv): void {
-  for (const key of Object.keys(environment)) {
-    if (key.toUpperCase() === RUN_AS_NODE) delete environment[key]
-  }
-}
 
 export function withDefaultDesktopProfile(argv: readonly string[], profileName: string): string[] {
   assertDesktopProfileName(profileName)
@@ -107,7 +100,7 @@ export async function runDesktopDshCli(
 ): Promise<void> {
   applyDesktopPackageManagerPolicy(environment)
   const profileName = takeDefaultProfile(environment)
-  clearElectronRunAsNode(environment)
+  // Keep ELECTRON_RUN_AS_NODE: confined commands start the Windows ACL runner as process.execPath.
   // The CLI's agent lists and reads user workspaces; see asar-archive-policy.ts.
   disableAsarArchiveView(DSH_ENTRY_URL, asarProcess)
   const selected = profileName === undefined

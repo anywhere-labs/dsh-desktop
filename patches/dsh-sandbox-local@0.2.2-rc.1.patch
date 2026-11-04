@@ -1,0 +1,25 @@
+diff --git a/lib/index.js b/lib/index.js
+index b1f0d6cfc7..fa6af3268a 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -415,7 +415,19 @@ var LocalSandboxProvider = class extends SandboxProvider {
+ 		}
+ 		const key = JSON.stringify([String(sessionId), workspaceRoot]);
+ 		const existing = this.tempCapabilities.get(key);
+-		if (existing !== void 0) return existing;
++		if (existing !== void 0) {
++			if (existsSync(existing.dir)) return existing;
++			// DSH Desktop: temp cleanup can delete the private directory, and its
++			// ACE with it, while the Host runs. Free the stale SID (revoking the
++			// missing path is expected to fail) and create a new random directory.
++			this.tempCapabilities.delete(key);
++			this.ctx.logger.warn(`sandbox-local: windows-acl private temp ${existing.dir} was removed; creating a new one`);
++			try {
++				existing.grant.dispose();
++			} catch (error) {
++				this.ctx.logger.warn(error);
++			}
++		}
+ 		const tempDir = mkdtempSync(join(tmpdir(), "dsh-"));
+ 		const tempSid = tempWriteSid(tempDir);
+ 		let grant;
