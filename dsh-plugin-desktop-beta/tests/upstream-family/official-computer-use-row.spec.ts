@@ -1,4 +1,4 @@
-/** The official Computer Use row, titled macOS Computer Use, on the Computer Use (Next) page, for the dsh 0.2.2 bundle only Beta follows. */
+/** The official Computer Use row, titled macOS Computer Use, on the Computer Use (Next) page, for the dsh 0.2.2 bundle. */
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 

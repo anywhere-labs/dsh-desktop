@@ -4,5 +4,5 @@
  * here so that the rest of the scripts stay mirrored.
  */
 
-// No packaging step differs at present.
+// No packaging step differs at present: dsh 0.2.2 installs its official Computer Use on demand into the Profile.
 export {}

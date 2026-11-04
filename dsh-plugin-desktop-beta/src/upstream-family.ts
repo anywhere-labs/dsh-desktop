@@ -32,14 +32,14 @@ export function startupCompositionDiagnostic(error: StartupError): string[] {
 
 // Plugin operation history for failure reports, built on the `plugin-manager/operation` event of dsh
 // 0.2.2: the Host announces its run and sends records, and the shell journals them and appends recent
-// ones to saved reports. The modules live below src/upstream-family/, which only Beta carries.
+// ones to saved reports. The modules live below src/upstream-family/.
 export { hostOperationDiagnostics, recordPluginCommands } from './upstream-family/operation-diagnostics.ts'
 export { createOperationHistory } from './upstream-family/desktop-operation-history.ts'
 export { isOperationEvidence } from './upstream-family/operation-record.ts'
 
 // The official Computer Use bundle of dsh 0.2.2 beside Computer Use (Next): the Agents it serves and the per-Agent
 // `/computer-use` that leaves them. The release installs the bundle on demand into the Profile. The module lives below
-// src/upstream-family/, which only Beta carries.
+// src/upstream-family/.
 export { officialComputerUse } from './upstream-family/official-computer-use.ts'
 
 /**

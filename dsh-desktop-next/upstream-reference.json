@@ -1,12 +1,14 @@
 {
   "repository": "https://github.com/deepseek-ai/deepseek-harness",
-  "commit": "b830ec950faba0a46dda564be3e2d854afed94f1",
-  "version": "0.2.1-rc.5",
+  "commit": "66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db",
+  "version": "0.2.2-rc.1",
   "files": [
     {
       "upstream": "apps/desktop/src/host-process.ts",
       "local": "src/host-process.ts",
-      "upstreamSha256": "6b9d3e558f526b7832020fb43d6682a07a68bf2d5657f26951f50a4f3eabfa28"
+      "upstreamSha256": "6b9d3e558f526b7832020fb43d6682a07a68bf2d5657f26951f50a4f3eabfa28",
+      "commit": "b830ec950faba0a46dda564be3e2d854afed94f1",
+      "version": "0.2.1-rc.5"
     },
     {
       "upstream": "apps/desktop/src/browser-guests.ts",
@@ -46,7 +48,9 @@
     {
       "upstream": "apps/desktop/tests/host-process.spec.ts",
       "local": "tests/host-process.spec.ts",
-      "upstreamSha256": "b539b90d064ba2b52f2a5a2faf3a83d08911cc69f8644bc4783f17dbc98fcb86"
+      "upstreamSha256": "b539b90d064ba2b52f2a5a2faf3a83d08911cc69f8644bc4783f17dbc98fcb86",
+      "commit": "b830ec950faba0a46dda564be3e2d854afed94f1",
+      "version": "0.2.1-rc.5"
     },
     {
       "upstream": "apps/desktop/tests/node-environment.spec.ts",
@@ -111,7 +115,9 @@
     {
       "upstream": "apps/desktop/src/runtime-tree.ts",
       "local": "src/runtime-tree.ts",
-      "upstreamSha256": "aaef471a94c1bb295c7aecd080f2bf9f4fa037a8fc3f2d76c63db9b367c80778"
+      "upstreamSha256": "aaef471a94c1bb295c7aecd080f2bf9f4fa037a8fc3f2d76c63db9b367c80778",
+      "commit": "b830ec950faba0a46dda564be3e2d854afed94f1",
+      "version": "0.2.1-rc.5"
     },
     {
       "upstream": "apps/desktop/scripts/runtime-file-policy.ts",
@@ -121,7 +127,9 @@
     {
       "upstream": "apps/desktop/tests/runtime-tree.spec.ts",
       "local": "tests/runtime-tree.spec.ts",
-      "upstreamSha256": "b72793f4458b6ce36629fe4c26c17ac320051c75e2ac9a7a2493ec55ad959873"
+      "upstreamSha256": "b72793f4458b6ce36629fe4c26c17ac320051c75e2ac9a7a2493ec55ad959873",
+      "commit": "b830ec950faba0a46dda564be3e2d854afed94f1",
+      "version": "0.2.1-rc.5"
     },
     {
       "upstream": "apps/desktop/tests/runtime-file-policy.spec.ts",
@@ -151,17 +159,23 @@
     {
       "upstream": "apps/desktop-host/tests/office.spec.ts",
       "local": "tests/host-office.spec.ts",
-      "upstreamSha256": "b3e0270a535e299cf97c60e7f098626bb6ec99c58d5a61f71ec1b9d82a04885e"
+      "upstreamSha256": "b3e0270a535e299cf97c60e7f098626bb6ec99c58d5a61f71ec1b9d82a04885e",
+      "commit": "b830ec950faba0a46dda564be3e2d854afed94f1",
+      "version": "0.2.1-rc.5"
     },
     {
       "upstream": "scripts/primary-runtime/prepare.ts",
       "local": "scripts/primary-runtime.ts",
-      "upstreamSha256": "31f631ebcc2937f813ccf37ac82168ba6c410406cb6f9a17304211d2528de3ee"
+      "upstreamSha256": "31f631ebcc2937f813ccf37ac82168ba6c410406cb6f9a17304211d2528de3ee",
+      "commit": "b830ec950faba0a46dda564be3e2d854afed94f1",
+      "version": "0.2.1-rc.5"
     },
     {
       "upstream": "scripts/primary-runtime/prepare.spec.ts",
       "local": "tests/primary-runtime.spec.ts",
-      "upstreamSha256": "7b048237bda543a9cb598dc77acfcd0055c34f2aa1a0031022ea3ed05b43d56d"
+      "upstreamSha256": "7b048237bda543a9cb598dc77acfcd0055c34f2aa1a0031022ea3ed05b43d56d",
+      "commit": "b830ec950faba0a46dda564be3e2d854afed94f1",
+      "version": "0.2.1-rc.5"
     },
     {
       "upstream": "scripts/primary-runtime/prune-python-tests.ts",

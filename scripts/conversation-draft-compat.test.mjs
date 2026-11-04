@@ -52,7 +52,7 @@ const invalidDrafts = [undefined, null, 42, true, [], {}, { text: 7, references:
 const workspaceVersions = {
   'dsh-plugin-desktop': '0.2.1-rc.3',
   'dsh-plugin-desktop-beta': '0.2.2-rc.1',
-  'dsh-desktop-next': '0.2.1-rc.5',
+  'dsh-desktop-next': '0.2.2-rc.1',
 }
 
 for (const [workspace, version] of Object.entries(workspaceVersions)) {
