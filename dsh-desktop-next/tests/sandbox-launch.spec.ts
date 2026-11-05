@@ -1,6 +1,6 @@
 /** Native explanation of Windows sandbox launch failures. */
 import { describe, expect, it, vi } from 'vitest'
-import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure, sandboxLaunchDialog, type SandboxLaunchContext } from '../src/sandbox-launch.ts'
+import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure, sandboxLaunchDialog, type SandboxLaunchContext, DISABLE_GPU_SANDBOX_ARGUMENT, gpuSandboxBreakpoint, gpuSandboxFallbackArguments, STATUS_BREAKPOINT_EXIT } from '../src/sandbox-launch.ts'
 
 const EXECUTABLE = 'E:\\Program Files\\DSH NEXT\\DSH NEXT.exe'
 const GPU = { process: 'gpu', code: 18 } as const
@@ -120,4 +120,21 @@ describe('lowIntegrityLaunchDialog', () => {
     expect(text.detail).toContain('a Low integrity process started DSH NEXT')
     expect(text.detail).not.toContain('icacls')
   })
+})
+
+describe('gpu sandbox breakpoint fallback', () => {
+  it('recognizes only a Windows GPU child that died with STATUS_BREAKPOINT', () => {
+    const gpu = { type: 'GPU', reason: 'crashed', exitCode: STATUS_BREAKPOINT_EXIT }
+    expect(gpuSandboxBreakpoint('win32', gpu)).toBe(true)
+    expect(gpuSandboxBreakpoint('darwin', gpu)).toBe(false)
+    expect(gpuSandboxBreakpoint('win32', { ...gpu, reason: 'launch-failed' })).toBe(false)
+    expect(gpuSandboxBreakpoint('win32', { ...gpu, exitCode: 18 })).toBe(false)
+    expect(gpuSandboxBreakpoint('win32', { ...gpu, type: 'Utility' })).toBe(false)
+  })
+
+  it('appends the GPU sandbox switch once and keeps the rest of the command line', () => {
+    expect(gpuSandboxFallbackArguments(['--next-channel'])).toEqual(['--next-channel', DISABLE_GPU_SANDBOX_ARGUMENT])
+    expect(gpuSandboxFallbackArguments([])).toEqual([DISABLE_GPU_SANDBOX_ARGUMENT])
+    expect(gpuSandboxFallbackArguments([DISABLE_GPU_SANDBOX_ARGUMENT])).toBeUndefined()
+    expect(gpuSandboxFallbackArguments(['--next-channel', DISABLE_GPU_SANDBOX_ARGUMENT])).toBeUndefined()  })
 })
