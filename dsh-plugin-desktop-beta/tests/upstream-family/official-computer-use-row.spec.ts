@@ -1,4 +1,4 @@
-/** The official Computer Use row on the Computer Use (Next) page, for the dsh 0.2.2 bundle only Beta follows. */
+/** The official Computer Use row, titled macOS Computer Use, on the Computer Use (Next) page, for the dsh 0.2.2 bundle. */
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 
@@ -42,6 +42,8 @@ async function mountOfficialComputerUse(officialSupported: boolean, bundle: Reco
     fiberPhase: 'active',
   }
   const plugins: Record<string, unknown>[] = [cuaRow]
+  // An installation finishes when the test resolves it, so its in-flight state can be read.
+  const installed = Promise.withResolvers<void>()
   const pluginManager = {
     listBundles: vi.fn(async () => ({ ok: true as const, value: [bundle] })),
     listPlugins: vi.fn(async () => ({ ok: true as const, value: plugins })),
@@ -49,6 +51,11 @@ async function mountOfficialComputerUse(officialSupported: boolean, bundle: Reco
     setBundleEnabled: vi.fn(async (_name: string, enabled: boolean) => {
       bundle.enabled = enabled
       return { ok: true as const, value: { changed: true, application: 'applied', stage: 'enable', target: bundle.name, enabled } }
+    }),
+    installBundle: vi.fn(async (spec: string, _options: { enabled?: boolean; saveExact?: boolean }) => {
+      await installed.promise
+      Object.assign(bundle, { availability: 'profile', installed: true, enabled: true })
+      return { ok: true as const, value: { changed: true, application: 'applied', stage: 'enable', target: spec, bundle: bundle.name, enabled: true } }
     }),
   }
   const navigation = { openBundle: vi.fn(), openList: vi.fn() }
@@ -76,23 +83,33 @@ async function mountOfficialComputerUse(officialSupported: boolean, bundle: Reco
     return {
       count: nodes(tree).find(node => node.props.className === 'dshNextComponentSectionCount')!.props.children as string,
       row: body,
-      toggle: body === undefined ? undefined : nodes(body).find(node => node.type === 'input' && node.props.label === '启用官方 Computer Use'),
+      title: body === undefined ? undefined : nodes(body).find(node => node.props.className === 'dshNextComponentRowId')!.props.children as string,
+      toggle: body === undefined ? undefined : nodes(body).find(node => node.type === 'input' && node.props.label === '启用 macOS Computer Use'),
       open: body === undefined ? undefined : nodes(body).find(node => node.type === 'button' && node.props.className === 'dshNextComponentRowOpen'),
       state: body === undefined ? undefined : nodes(body).find(node => node.props.className === 'dshNextComponentRowState')!.props.children as unknown[],
     }
   }
-  return { pluginManager, plugins, navigation, settle, view }
+  return { pluginManager, plugins, navigation, installed, settle, view }
 }
 
+/** The bundle once the current Profile installed it. */
 const OFFICIAL_BUNDLE_ROW = {
-  name: '@deepseek-ai/dsh-cua-bundle', official: true, availability: 'installation', enabled: false, installed: false,
-  optional: true, removable: false, updatable: false, rows: [], overrides: [],
+  name: '@deepseek-ai/dsh-cua-bundle', official: true, availability: 'profile', enabled: false, installed: true,
+  optional: false, removable: true, updatable: false, rows: [], overrides: [],
+}
+
+/** The bundle as the official catalog offers it before the current Profile installs it. */
+const OFFERED_BUNDLE_ROW = {
+  name: '@deepseek-ai/dsh-cua-bundle', official: true, availability: 'missing', enabled: false, installed: false,
+  optional: false, removable: false, updatable: false, rows: [], overrides: [], listedByDefault: true,
+  installTarget: { spec: '@deepseek-ai/dsh-cua-bundle@0.2.2-rc.1', version: '0.2.2-rc.1' },
 }
 
 it('switches the official Computer Use bundle on the Computer Use (Next) page on macOS 14 and later', async () => {
   const app = await mountOfficialComputerUse(true, { ...OFFICIAL_BUNDLE_ROW })
   let view = app.view()
   expect(view.row!.props['data-plugin-row']).toBe('official-computer-use')
+  expect(view.title).toBe('macOS Computer Use')
   expect(view.row!.props['data-state']).toBe('off')
   expect(nodes(view.row).some(node => typeof node.props.children === 'string' && node.props.children.includes('仅支持 macOS 14 及以上的 PTC 模式'))).toBe(true)
   expect(view.toggle!.props.checked).toBe(false)
@@ -113,7 +130,7 @@ it('switches the official Computer Use bundle on the Computer Use (Next) page on
 
   // Once on, the row opens the official bundle's page in the Plugins panel.
   expect(view.row!.props['data-opens']).toBeDefined()
-  expect(view.open!.props['aria-label']).toBe('查看官方 Computer Use 的插件详情')
+  expect(view.open!.props['aria-label']).toBe('查看 macOS Computer Use 的插件详情')
   view.open!.props.onClick()
   expect(app.navigation.openBundle).toHaveBeenCalledExactlyOnceWith('@deepseek-ai/dsh-cua-bundle')
 
@@ -135,13 +152,13 @@ it('switches the official Computer Use bundle on the Computer Use (Next) page on
 })
 
 it('greys out the official Computer Use switch, off and locked, where it cannot run', async () => {
-  // Windows lists the shipped bundle as unsupported; a Profile that already selected it still shows the switch off.
-  const app = await mountOfficialComputerUse(false, { ...OFFICIAL_BUNDLE_ROW, enabled: true, listedByDefault: false, error: { code: 'unsupported-platform' } })
+  // Windows lists the offered bundle as unsupported; a Profile that already selected it still shows the switch off.
+  const app = await mountOfficialComputerUse(false, { ...OFFERED_BUNDLE_ROW, enabled: true, listedByDefault: false, error: { code: 'unsupported-platform' } })
   const view = app.view()
   expect(view.row!.props['data-state']).toBe('off')
   expect(view.toggle!.props.checked).toBe(false)
   expect(view.toggle!.props.disabled).toBe(true)
-  expect(view.toggle!.props.title).toBe('官方 Computer Use 仅支持 macOS 14 及以上')
+  expect(view.toggle!.props.title).toBe('macOS Computer Use 仅支持 macOS 14 及以上')
   expect(view.state).toContain('当前系统不支持')
   expect(view.count).toBe('共 2 个 · 1 运行中 · 1 已停用')
   expect(view.open).toBeUndefined()
@@ -154,4 +171,31 @@ it('keeps the official Computer Use switch locked before macOS 14, where the plu
   expect(view.toggle!.props.checked).toBe(false)
   expect(view.toggle!.props.disabled).toBe(true)
   expect(view.state).toContain('当前系统不支持')
+})
+
+it('installs the official Computer Use when switched on while the current Profile lacks it', async () => {
+  const app = await mountOfficialComputerUse(true, { ...OFFERED_BUNDLE_ROW })
+  let view = app.view()
+  expect(view.title).toBe('macOS Computer Use')
+  expect(view.state).toContain('未安装')
+  expect(view.toggle!.props.checked).toBe(false)
+  expect(view.toggle!.props.disabled).toBe(false)
+  expect(view.open).toBeUndefined()
+  expect(view.count).toBe('共 2 个 · 1 运行中 · 1 已停用')
+  expect(nodes(view.row).some(node => typeof node.props.children === 'string' && node.props.children.includes('首次开启时会下载并安装官方插件'))).toBe(true)
+
+  view.toggle!.props.onChange(true)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(app.pluginManager.installBundle).toHaveBeenCalledExactlyOnceWith('@deepseek-ai/dsh-cua-bundle@0.2.2-rc.1', { enabled: true, saveExact: true })
+  expect(app.pluginManager.setBundleEnabled).not.toHaveBeenCalled()
+  view = app.view()
+  expect(view.state).toContain('正在下载并安装')
+  expect(view.toggle!.props.checked).toBe(true)
+
+  app.installed.resolve()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  view = app.view()
+  expect(view.state).toContain('等待加载')
+  expect(view.toggle!.props.checked).toBe(true)
+  expect(view.open).toBeDefined()
 })

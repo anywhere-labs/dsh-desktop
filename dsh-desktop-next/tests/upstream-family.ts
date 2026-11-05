@@ -4,22 +4,15 @@
  * Beta tracks a newer upstream prerelease than Next.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 
-export { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-
-/**
- * Run one parsed invocation through the tool runtime.
- * @param ctx - context owning the tool definitions and execution policy.
- * @param input - parsed invocation.
- * @returns the settled capability result.
- */
-export function executeToolFixture(ctx: Context, input: ToolExecutionInput): Promise<ToolExecutionResult> {
-  return ctx.tools.execute(input)
-}
+export { defineContentToolFixture, executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 
 /**
  * Load what a test Context needs before its registered tools can execute.
- * @param _ctx - test root that already provides the tool runtime, which executes calls itself.
+ * @param ctx - test root that already provides the tool runtime.
  */
-export async function installToolExecution(_ctx: Context): Promise<void> {}
+export async function installToolExecution(ctx: Context): Promise<void> {
+  // dsh 0.2.2 dispatches every call through the selected executor plugin.
+  await ctx.plugin(NativeToolExecutor)
+}

@@ -6,7 +6,6 @@ import { dirname, join } from 'node:path'
 import { basename as posixBasename, dirname as posixDirname } from 'node:path/posix'
 import { getRawHeader } from '@electron/asar'
 import { nextRuntimeFileExclusion, nextRuntimePackageExclusion, type NextPackagingTarget, type RuntimePackageConstraints } from './runtime-file-policy.ts'
-import { OFFICIAL_CUA_UNPACKED } from './upstream-family.ts'
 import { DESKTOP_RUNTIME_FILE, parseDesktopRuntime, verifyPayload, type DesktopRuntimeDescriptor, type DesktopRuntimeFile, type NextRelease, type PayloadEntry, type PayloadSource, type VerifyPayloadOptions } from '../src/runtime-tree.ts'
 
 /** Application-relative directory holding the prepared payload that Electron Builder archives verbatim. */
@@ -181,9 +180,6 @@ const REQUIRED_UNPACKED = [
   // The computer-use driver resolves its platform package's manifest and hands the library beside it to the system
   // loader; the Host resolves that package to this copy.
   /^node_modules\/@trycua\/cua-driver-/u,
-  // The official Computer Use provider starts the helper below its own package directory as a child process; the
-  // Host resolves the package to this copy.
-  ...OFFICIAL_CUA_UNPACKED === undefined ? [] : [OFFICIAL_CUA_UNPACKED],
   // The Office CLI and its direct dependencies run under the bundled standalone Node, which reads no archive;
   // beforePack unpacks the complete closure, and these guard its roots.
   /^node_modules\/@deepseek-ai\/libreoffice-kit\//u, /^node_modules\/(?:fflate|fontkit|koffi|saxes)\//u,
@@ -275,7 +271,7 @@ export function verifyNextPayload(source: PayloadSource): void {
   // Host: the overlay swaps the official webserver for Next's private loopback one, and the shims
   // put a `node` on the package manager's PATH. Both are invisible to a `yarn start` run, which
   // resolves them in the source tree, so only this check keeps them in the payload.
-  for (const path of ['lib/main.js', 'lib/host.js', 'lib/client.js', 'lib/preload-app.cjs', 'lib/preload-shell.cjs',
+  for (const path of ['lib/main.js', 'lib/host.js', 'lib/client.js', 'lib/preload-app.cjs', 'lib/preload-shell.cjs', 'lib/preload-platform-account.cjs',
     'lib/native-ui/index.html', 'cordis.patch.yml', 'host.cordis.patch.yml',
     'scripts/node-bin/node', 'scripts/node-bin/node.cmd',
     'assets/tray-iconTemplate.png', 'assets/tray-icon-blue.png']) {

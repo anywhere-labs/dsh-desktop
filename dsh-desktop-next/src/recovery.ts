@@ -22,6 +22,8 @@ export interface RestorableBackup { directory: string; created: string; id: stri
 /** Backups of one Profile read when looking for the latest repair to undo. */
 export const REPAIR_UNDO_WINDOW = 50
 const digest = (text: string): string => createHash('sha256').update(text).digest('hex')
+/** A backup made before reads dropped a BOM hashed the BOM it kept. */
+const matchesBackup = (text: string, sha256: string): boolean => digest(text) === sha256 || digest(`\uFEFF${text}`) === sha256
 
 export class NextRecovery {
   readonly directory: string
@@ -125,7 +127,7 @@ export class NextRecovery {
       const contents = FILES.map(file => {
         const text = readPrivateFile(join(latest.directory, file))
         const saved = snapshot.files[file]
-        if (saved === null ? text !== undefined : text === undefined || digest(text) !== saved.sha256) throw new Error('Recovery backup checksum mismatch')
+        if (saved === null ? text !== undefined : text === undefined || !matchesBackup(text, saved.sha256)) throw new Error('Recovery backup checksum mismatch')
         return [file, text] as const
       })
       this.backup(name, 'before-rollback')

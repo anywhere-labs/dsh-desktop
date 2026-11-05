@@ -1,6 +1,7 @@
 /** Exercise the actual pinned upstream Host, credentials, Market routes and AA manifest without Electron UI. */
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
@@ -20,6 +21,8 @@ const upstreamVersion = createRequire(import.meta.url)('@deepseek-ai/dsh/package
 let host
 let runner
 let registry
+/** Every Platform grant the Hosts published to the shell, in order. */
+const platformSessions = []
 const pnpmInvocation = { command: executable, args: ['--expose-internals', bundledPnpmEntry(NEXT_PACKAGE)], env: {
   ELECTRON_RUN_AS_NODE: '1', DSH_DESKTOP_NODE_EXECUTABLE: executable,
   PATH: `${join(root, 'scripts', 'node-bin')}${delimiter}${process.env.PATH ?? ''}`,
@@ -27,7 +30,8 @@ const pnpmInvocation = { command: executable, args: ['--expose-internals', bundl
 async function boot(name) {
   host = new DesktopHostProcess(executable, root, manager.directory(name), undefined,
     { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' }, undefined, undefined, undefined,
-    join(root, 'scripts', 'fixtures', 'isolated-user-host.mjs'), () => {})
+    join(root, 'scripts', 'fixtures', 'isolated-user-host.mjs'), () => {}, undefined, undefined, undefined, undefined,
+    session => { platformSessions.push(session) })
   let timer
   const ready = await Promise.race([
     host.start(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Next Host smoke exceeded 60 seconds')), 60_000) }),
@@ -68,15 +72,34 @@ try {
   let { origin, cookie } = await boot('desktop')
   assert.ok(existsSync(join(home, '.agents-anywhere', 'dsh-bridge-next')),
     'AA must resolve its default shared state inside the smoke user home')
-  const rpc = async (method, args = {}) => {
+  // The real account service drives the embedded Platform page's grant; signed out, it has none to give.
+  for (const started = Date.now(); platformSessions.length === 0 && Date.now() - started < 10_000;) await new Promise(resolve => setTimeout(resolve, 50))
+  assert.ok(platformSessions.length > 0, 'The Host must publish its account Platform grant to the shell')
+  assert.ok(platformSessions.every(session => session === null), 'A signed-out account has no Platform grant')
+  const rpc = async (method, args = {}, namespace = 'pluginManager') => {
     const rpcId = crypto.randomUUID()
-    const response = await fetch(`${origin}/api/pluginManager/${method}`, {
+    const response = await fetch(`${origin}/api/${namespace}/${method}`, {
       method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'client-request', rpcId, method: `pluginManager/${method}`, payload: { args } }),
+      body: JSON.stringify({ type: 'client-request', rpcId, method: `${namespace}/${method}`, payload: { args } }),
     })
     const reply = await response.json()
     assert.equal(reply.result.ok, true, JSON.stringify(reply))
     return reply.result.value
+  }
+  if (host.dragResources !== undefined) {
+    // Native file drags borrow a Session's workspace file only after the real Host authorizes it over its IPC channel.
+    const { sessionFileAddress } = await import('@deepseek-ai/dsh-util-workspace-path')
+    const workspace = realpathSync(mkdtempSync(join(home, 'drag-workspace-')))
+    const image = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    writeFileSync(join(workspace, 'drag.png'), image)
+    const { sessionId } = await rpc('create', { request: { cwd: workspace } }, 'session')
+    const lend = address => host.dragResources.resolve(address, AbortSignal.timeout(15_000))
+    assert.deepEqual(await lend(sessionFileAddress(sessionId, 'drag.png')),
+      { path: join(workspace, 'drag.png'), size: image.length, sha256: createHash('sha256').update(image).digest('hex') })
+    assert.equal(await lend(sessionFileAddress(sessionId, '.')), null, 'A directory is not lent')
+    for (const address of [join(workspace, 'drag.png'), sessionFileAddress('missing-session', 'drag.png')]) {
+      await assert.rejects(lend(address), /File drag resource unavailable/, 'The Host answers a refused reference without a path')
+    }
   }
   // The official overview discovers installation-owned bundles from direct
   // dependencies, even when their packages are already present transitively.

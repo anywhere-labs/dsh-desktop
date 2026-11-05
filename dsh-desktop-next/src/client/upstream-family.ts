@@ -3,17 +3,11 @@
  * declared difference between the variants (scripts/verify-desktop-variants.mjs); client modules import these names
  * from here so that the rest of the client stays mirrored.
  */
-import type { ReactNode } from 'react'
-import type { Context } from '@deepseek-ai/cordis'
 
-// dsh 0.2.1 ships no official Computer Use bundle, so the Computer Use (Next) page has no row for it.
-export const installOfficialComputerUseStyles: (() => () => void) | undefined = undefined
-export const useOfficialComputerUse: ((options: {
-  context: Context
-  t: (chinese: string, english: string) => string
-  page: boolean
-  revision: number
-  onError(message: string): void
-  onNotice(message: string): void
-  onChanged(): void
-}) => { row: ReactNode; componentCount(commandActive: boolean): string } | undefined) | undefined = undefined
+// The official Computer Use bundle of dsh 0.2.2 gets a row on the Computer Use (Next) page. The module lives below
+// src/upstream-family/.
+export { installOfficialComputerUseStyles, useOfficialComputerUse } from '../upstream-family/official-computer-use-row.tsx'
+
+// The settings shell of dsh 0.2.2 takes section icons from plugins, so Desktop settings shows its display glyph
+// without patching the shell. The module lives below src/upstream-family/.
+export { registerDesktopSettingsIcon } from '../upstream-family/desktop-settings-icon.tsx'

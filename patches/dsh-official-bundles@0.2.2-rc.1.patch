@@ -1,0 +1,13 @@
+diff --git a/lib/index.js b/lib/index.js
+index 1063751..91c28e0 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -199,6 +199,8 @@ const OFFICIAL_ON_DEMAND_CATALOG = [
+ 		packageName: "@deepseek-ai/dsh-cua-bundle",
+ 		platforms: ["darwin"],
+ 		listedByDefault: false,
++		// DSH Desktop Beta offers the official Computer Use like its other on-demand bundles; hosts its platforms exclude still hide it.
++		listedByDefault: true,
+ 		meta: {
+ 			title: {
+ 				"de": "Computernutzung",

@@ -45,6 +45,56 @@ it('keeps passive checks prompt-free and denies foreign frames and camera access
   expect(fixture.microphone).not.toHaveBeenCalled()
 })
 
+const clipboard = ['clipboard-sanitized-write', 'clipboard-read'] as const
+
+it.each([
+  ['clipboard-sanitized-write', true], ['clipboard-sanitized-write', false], ['clipboard-read', true], ['clipboard-read', false],
+] as const)('allows app-origin %s with isMainFrame=%s', (permission, isMainFrame) => {
+  const { check, request, owner } = setup()
+  expect(check(owner.webContents, permission, 'dsh-app://app', { isMainFrame })).toBe(true)
+  const callback = vi.fn()
+  request(owner.webContents, permission, callback, { requestingUrl: 'dsh-app://app/univer-viewer/?file=test', isMainFrame })
+  expect(callback.mock.calls).toEqual([[true]])
+})
+
+it.each(['https://example.com', 'https://app/', 'dsh-app://app.evil/', 'dsh-app://app:1234/', 'about:blank', 'null', 'invalid'])('denies iframe clipboard access from %s', url => {
+  const { check, request, owner } = setup()
+  for (const permission of clipboard) {
+    expect(check(owner.webContents, permission, url, { isMainFrame: false }), permission).toBe(false)
+    const callback = vi.fn()
+    request(owner.webContents, permission, callback, { requestingUrl: url, isMainFrame: false })
+    expect(callback.mock.calls, permission).toEqual([[false]])
+  }
+})
+
+it.each(['media', 'notifications'] as const)('keeps %s denied for app-origin iframes', permission => {
+  const { check, request, owner } = setup()
+  expect(check(owner.webContents, permission, 'dsh-app://app', { isMainFrame: false, mediaType: 'audio' })).toBe(false)
+  const callback = vi.fn()
+  request(owner.webContents, permission, callback, { requestingUrl: 'dsh-app://app/univer-viewer/', isMainFrame: false, mediaTypes: ['audio'] })
+  expect(callback.mock.calls).toEqual([[false]])
+})
+
+it.each(clipboard)('keeps window, contents, and navigation checks for iframe %s', permission => {
+  const { check, request, owner } = setup()
+  const denied = (contents: Electron.WebContents = owner.webContents): void => {
+    expect(check(contents, permission, 'dsh-app://app', { isMainFrame: false })).toBe(false)
+    const callback = vi.fn()
+    request(contents, permission, callback, { requestingUrl: 'dsh-app://app/univer-viewer/', isMainFrame: false })
+    expect(callback.mock.calls).toEqual([[false]])
+  }
+  expect(check(null, permission, 'dsh-app://app', { isMainFrame: false })).toBe(false)
+  denied(setup().owner.webContents)
+  const getURL = vi.spyOn(owner.webContents, 'getURL').mockReturnValue('https://example.com/')
+  denied()
+  getURL.mockReturnValue('dsh-app://app/')
+  const destroyed = vi.spyOn(owner.webContents, 'isDestroyed').mockReturnValue(true)
+  denied()
+  destroyed.mockReturnValue(false)
+  vi.spyOn(owner, 'isDestroyed').mockReturnValue(true)
+  denied()
+})
+
 it('lets getUserMedia trigger native consent after asynchronous voice initialization', async () => {
   const { request, owner } = setup()
   vi.mocked(owner.webContents.executeJavaScript).mockResolvedValue(false)

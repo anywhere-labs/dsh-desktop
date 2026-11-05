@@ -1,6 +1,6 @@
 /** Check the real official Web entry and sandboxed preload bundles without a GUI. */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -122,17 +122,42 @@ for (const platform of ['darwin', 'win32', 'linux']) {
       assert.deepEqual(received, ['general', 'permissions'])
       stop()
       assert.equal(listeners.has('dsh-next:settings-open'), false)
+      // The official context menus offer Save as and cross-origin image copy only beside this carrier; a release whose
+      // client has no file actions gets none.
+      assert.equal(typeof exposed.get('dshDesktop').fileActions?.save,
+        existsSync(join(root, 'node_modules/@deepseek-ai/dsh-client-ui-file-actions')) ? 'function' : 'undefined')
+      // The official images drag out as files through this carrier; without it a release whose client drags files natively
+      // falls back to browser transfers.
+      const fileDrag = exposed.get('dshDesktop').fileDrag
+      if (existsSync(join(root, 'node_modules/@deepseek-ai/dsh-client-ui-file-drag'))) {
+        const source = { kind: 'resource', address: 'dsh-resource://file/session/s/a.png', mediaType: 'image/png' }
+        await fileDrag.prepare(source, 'request-1')
+        assert.deepEqual([...invocations.at(-1)], ['dsh-desktop:file-drag-prepare', source, 'request-1'])
+        await fileDrag.start('handle-1')
+        assert.deepEqual([...invocations.at(-1)], ['dsh-desktop:file-drag-start', 'handle-1'])
+      } else assert.equal(fileDrag, undefined)
       // The official composer refuses dropped folders without this bridge and uploads every
       // non-image file instead of citing it; the carrier name and `pathFor` are upstream's.
       const picked = { name: 'notes.md' }
       hostPaths.set(picked, '/Users/me/notes.md')
       assert.equal(exposed.get('__DSH_HOST_PATHS__')?.pathFor(picked), '/Users/me/notes.md', 'A dropped or picked file reports its host path')
       assert.equal(exposed.get('__DSH_HOST_PATHS__')?.pathFor({ name: 'pasted.png' }), '', 'A File without a host path answers empty so the composer uploads it')
+      // The official account plugin enables its top-up and usage pages only beside this bridge.
+      const platformPage = own.get('dshPlatform')
+      assert.equal(typeof platformPage?.open, 'function', 'The application document must expose the dshPlatform bridge')
+      const pageBounds = { x: 0, y: 40, width: 800, height: 560 }
+      await platformPage.open('top-up', pageBounds)
+      assert.deepEqual([...invocations.at(-1)], ['dsh-platform:open', 'top-up', pageBounds])
+      await platformPage.setBounds(pageBounds)
+      assert.deepEqual([...invocations.at(-1)], ['dsh-platform:bounds', pageBounds])
+      await platformPage.close()
+      assert.deepEqual([...invocations.at(-1)], ['dsh-platform:close'])
     } else {
       assert.equal(own.get('desktopNext').onOpenSettings, undefined)
       assert.equal(own.get('desktopNext').renderer, undefined, 'Recovery pages cannot report application renderer health')
       assert.equal(own.has('dshDesktop'), false, 'Only the application document may reach guest browsers')
       assert.equal(own.has('__DSH_HOST_PATHS__'), false, 'Only the application document may read host paths of its files')
+      assert.equal(own.has('dshPlatform'), false, 'Only the application document may open Platform pages')
     }
   }
   assert.equal(dataset.platform, platform)
@@ -152,4 +177,50 @@ for (const platform of ['darwin', 'win32', 'linux']) {
   await permissions.openSettings('screen')
   assert.deepEqual([...invocations.at(-1)], ['dsh-next:permission-settings', 'screen'])
 }
+
+/**
+ * Run the embedded Platform page's sandboxed preload against a stand-in Electron.
+ * @returns the `dsh` bridge it exposed, if any, its bootstrap count and its IPC listeners.
+ */
+function loadPlatformPreload({ mainFrame = true, origin = 'https://platform.deepseek.com', response }) {
+  const bridges = new Map()
+  const listeners = new Map()
+  let bootstraps = 0
+  runInNewContext(readFileSync(join(root, 'lib', 'preload-platform-account.cjs'), 'utf8'), {
+    require: name => {
+      assert.equal(name, 'electron', 'The Platform preload may not require local chunks or Node modules')
+      return {
+        contextBridge: { exposeInMainWorld: (key, value) => bridges.set(key, value) },
+        ipcRenderer: {
+          sendSync: (channel) => { assert.equal(channel, 'dsh-platform:bootstrap'); bootstraps++; return response },
+          on: (channel, listener) => listeners.set(channel, listener),
+        },
+      }
+    },
+    process: { isMainFrame: mainFrame, argv: ['--dsh-platform-origin=https://platform.deepseek.com'] },
+    location: new URL('/top_up', origin), console,
+  }, { filename: 'preload-platform-account.cjs' })
+  return { bridge: bridges.get('dsh'), bootstraps: () => bootstraps, listeners }
+}
+const platformGrant = { origin: 'https://platform.deepseek.com', token: 'fixture-secret', locale: 'zh_CN' }
+{
+  const { bridge, bootstraps, listeners } = loadPlatformPreload({ response: platformGrant })
+  assert.equal(bridge.displayMode, 'embedded')
+  assert.equal(bridge.getAuthToken(), 'fixture-secret')
+  assert.equal(bridge.getAuthToken(), 'fixture-secret')
+  assert.equal(bootstraps(), 1, 'The Platform token getter must not perform IPC')
+  const changed = []
+  const stop = bridge.onLocaleChange(locale => changed.push(locale))
+  listeners.get('dsh-platform:locale-changed')({}, 'en_US')
+  listeners.get('dsh-platform:locale-changed')({}, 'invalid')
+  assert.equal(bridge.getLocale(), 'en_US')
+  stop()
+  listeners.get('dsh-platform:locale-changed')({}, 'zh_CN')
+  assert.deepEqual(changed, ['en_US'])
+  assert.equal(bridge.getLocale(), 'zh_CN')
+}
+assert.equal(loadPlatformPreload({ mainFrame: false, response: platformGrant }).bridge, undefined, 'Platform subframes must not receive the credential bridge')
+assert.equal(loadPlatformPreload({ origin: 'https://other.example', response: platformGrant }).bridge, undefined, 'Another origin must not receive the credential bridge')
+assert.throws(() => loadPlatformPreload({ response: { ...platformGrant, origin: 'https://other.example' } }).bridge.getAuthToken(), /initialization failed/)
+assert.throws(() => loadPlatformPreload({ response: null }).bridge.getAuthToken(), /initialization failed/)
 console.log(`Next frontend check passed: official ${upstreamVersion} entry and independent sandboxed preloads for macOS, Windows and Linux.`)

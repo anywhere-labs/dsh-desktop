@@ -9,11 +9,15 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const fixture = vi.hoisted(() => ({
   platform: 'darwin', spawn: vi.fn(), execFile: vi.fn(), exitCode: 0,
-  directories: new Set<string>(), files: new Set<string>(),
+  directories: new Set<string>(), files: new Set<string>(), aliases: new Map<string, string>(),
+  executables: new Map<string, string>(), contents: new Map<string, string>(),
 }))
 const workspace = '/fixture/workspace with spaces 中文'
 const localAppData = '/fixture/local'
+const dataDirectory = '/fixture/share'
 const githubDirectory = `${localAppData}/GitHubDesktop/app-1.0`
+const terminalAlias = `${localAppData}/Microsoft/WindowsApps/wt.exe`
+const terminalPackage = 'C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal_1.24.11911.0_x64__8wekyb3d8bbwe\\wt.exe'
 const missing = () => Object.assign(new Error('Fixture path is absent'), { code: 'ENOENT' })
 
 vi.mock('node:os', async importOriginal => ({
@@ -36,7 +40,21 @@ vi.mock('node:fs/promises', async importOriginal => ({
     if (path.replaceAll('\\', '/') === `${localAppData}/GitHubDesktop`) return ['app-1.0']
     throw missing()
   },
-  readFile: async () => { throw missing() },
+  readFile: async (path: string) => {
+    const content = fixture.contents.get(path.replaceAll('\\', '/'))
+    if (content === undefined) throw missing()
+    return content
+  },
+  // An App Execution Alias is a reparse point: lstat sees a link, and its target is the packaged executable.
+  lstat: async (path: string) => {
+    if (!fixture.aliases.has(path.replaceAll('\\', '/'))) throw missing()
+    return { isSymbolicLink: () => true, isFile: () => false }
+  },
+  readlink: async (path: string) => {
+    const target = fixture.aliases.get(path.replaceAll('\\', '/'))
+    if (!target) throw Object.assign(new Error('Fixture link target is unreadable'), { code: 'EINVAL' })
+    return target
+  },
 }))
 vi.mock('@deepseek-ai/dsh-native-command', async importOriginal => ({
   canOpenNativePath: () => true,
@@ -45,10 +63,14 @@ vi.mock('@deepseek-ai/dsh-native-command', async importOriginal => ({
   // dsh 0.1.7 resolves Linux desktop entries through this helper. It is pure path
   // arithmetic, so the real one is used alongside the captured command boundary.
   desktopDataDirectories: (await importOriginal<typeof import('@deepseek-ai/dsh-native-command')>()).desktopDataDirectories,
+  // Linux icons follow a desktop entry's Icon= key; the real helpers parse the entry and read the fixture icon.
+  desktopEntryFields: (await importOriginal<typeof import('@deepseek-ai/dsh-native-command')>()).desktopEntryFields,
+  desktopApplicationIcon: (await importOriginal<typeof import('@deepseek-ai/dsh-native-command')>()).desktopApplicationIcon,
 }))
 
 beforeEach(() => {
-  fixture.directories.clear(); fixture.files.clear()
+  fixture.directories.clear(); fixture.files.clear(); fixture.aliases.clear()
+  fixture.executables.clear(); fixture.contents.clear()
   fixture.directories.add(workspace)
   fixture.platform = 'darwin'; fixture.exitCode = 0
   fixture.execFile.mockReset().mockImplementation((_command, _args, _options, callback) => {
@@ -60,6 +82,8 @@ beforeEach(() => {
     return child
   })
   vi.stubEnv('LOCALAPPDATA', localAppData)
+  vi.stubEnv('XDG_DATA_HOME', `${dataDirectory}-home`)
+  vi.stubEnv('XDG_DATA_DIRS', dataDirectory)
   vi.stubEnv('ELECTRON_RUN_AS_NODE', '1')
   vi.stubEnv('electron_run_as_node', '1')
   vi.stubEnv('EDITOR_TEST_PLAIN', 'retained')
@@ -73,14 +97,14 @@ function routes() {
     get: () => createLaunchEnvironmentSnapshot([{ source: 'process', values: {} }]),
     effect: (register: () => unknown) => register(),
     connection: { requestRejection: () => undefined },
-    subprocess: { resolveExecutable: async (name: string) => name === 'code' ? '/fixture/bin/code' : null },
+    subprocess: { resolveExecutable: async (name: string) => name === 'code' ? '/fixture/bin/code' : fixture.executables.get(name) ?? null },
     webServer: { register: (route: { path: string; handler: (request: IncomingMessage, response: ServerResponse) => Promise<void> }) => {
       handlers.set(route.path, route.handler)
       return () => {}
     } },
   }
   OpenInApp.apply(ctx as unknown as Context, { probeTimeoutMs: 100, iconTimeoutMs: 100, launchWatchMs: 100 })
-  return async (app: string, path = workspace) => {
+  const open = async (app: string, path = workspace) => {
     const request = Object.assign(Readable.from([Buffer.from(JSON.stringify({ app, path }))]), {
       method: 'POST', headers: { 'content-type': 'application/json' }, url: '/open-in-app/open',
     })
@@ -88,6 +112,13 @@ function routes() {
     await handlers.get('/open-in-app/open')!(request as unknown as IncomingMessage, response as unknown as ServerResponse)
     return response
   }
+  const icon = async (app: string) => {
+    const request = Object.assign(Readable.from([]), { method: 'GET', headers: {}, url: `/open-in-app/icon/${app}` })
+    const response = { statusCode: 0, body: undefined as unknown, setHeader() {}, end(body?: unknown) { this.body = body } }
+    await handlers.get('/open-in-app/icon')!(request as unknown as IncomingMessage, response as unknown as ServerResponse)
+    return response
+  }
+  return Object.assign(open, { icon })
 }
 
 it.each([
@@ -147,4 +178,63 @@ it('opens Explorer through the official route with a visible window', async () =
   expect(fixture.spawn).not.toHaveBeenCalled()
   expect(fixture.execFile).toHaveBeenCalledWith('explorer.exe', ['file:///C:/项目%20workspace/repo'],
     expect.objectContaining({ windowsHide: false }), expect.any(Function))
+})
+
+it('reads the Windows registry through a UTF-8 console, so a Chinese install path resolves', async () => {
+  fixture.platform = 'win32'
+  const appPaths = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths'
+  const executable = 'D:\\软件\\Sublime Text\\sublime_text.exe'
+  fixture.files.add(executable.replaceAll('\\', '/'))
+  // Without the patch reg.exe runs directly; its GBK bytes would reach the UTF-8 runner as U+FFFD.
+  fixture.execFile.mockImplementation((command, args, _options, callback) => {
+    callback(null, command === 'cmd.exe' && args.at(-1).includes(`"${appPaths}"`)
+      ? `\r\nHKEY_CURRENT_USER${appPaths.slice(4)}\\sublime_text.exe\r\n    (默认)    REG_SZ    ${executable}\r\n\r\n` : '', '')
+  })
+  const result = await routes()('sublimetext')
+  expect(result.statusCode).toBe(200)
+  expect(fixture.spawn.mock.calls[0]![0]).toBe(executable)
+  expect(fixture.execFile).toHaveBeenCalledWith('cmd.exe', ['/d', '/s', '/c', `"chcp 65001 >nul & reg.exe "query" "${appPaths}" "/s""`],
+    expect.objectContaining({ encoding: 'utf8', windowsHide: true, windowsVerbatimArguments: true }), expect.any(Function))
+  expect(fixture.execFile.mock.calls.filter(([command]) => command === 'reg.exe')).toEqual([])
+})
+
+it('offers Windows Terminal through its App Execution Alias, which the PATH lookup cannot stat', async () => {
+  fixture.platform = 'win32'
+  // The fixture's PATH lookup knows only VS Code, as it misses the alias on Windows.
+  expect((await routes()('windowsterminal')).statusCode).toBe(400)
+  fixture.aliases.set(terminalAlias, terminalPackage)
+  const result = await routes()('windowsterminal')
+  expect(result.statusCode).toBe(200)
+  const [command, args] = fixture.spawn.mock.calls[0]!
+  expect(command.replaceAll('\\', '/')).toBe(terminalAlias)
+  expect(args).toEqual(['-d', workspace])
+})
+
+it.each([
+  ['the packaged executable the alias names', terminalPackage, terminalPackage],
+  ['the alias when its target is unreadable', '', terminalAlias],
+])('extracts the Windows Terminal icon from %s', async (_case, target, source) => {
+  fixture.platform = 'win32'
+  fixture.aliases.set(terminalAlias, target)
+  await routes().icon('windowsterminal')
+  const extraction = fixture.execFile.mock.calls.find(([command]) => command === 'powershell.exe')
+  expect(extraction?.[1].at(-2).replaceAll('\\', '/')).toBe(source.replaceAll('\\', '/'))
+})
+
+it.each([
+  // Ptyxis ignores --working-directory unless it opens a new window or tab.
+  ['ptyxis', 'ptyxis', 'org.gnome.Ptyxis', ['--new-window', `--working-directory=${workspace}`]],
+  ['gnomeconsole', 'kgx', 'org.gnome.Console', [`--working-directory=${workspace}`]],
+] as const)('offers %s, a default Linux terminal the official list lacks, on the workspace', async (app, command, desktopId, args) => {
+  fixture.platform = 'linux'
+  expect((await routes()(app)).statusCode).toBe(400)
+  fixture.executables.set(command, `/usr/bin/${command}`)
+  const open = routes()
+  expect((await open(app)).statusCode).toBe(200)
+  expect(fixture.spawn.mock.calls[0]!.slice(0, 2)).toEqual([`/usr/bin/${command}`, args])
+  // Its icon comes from its desktop entry, like GNOME Terminal's.
+  const icon = `${dataDirectory}/icons/hicolor/scalable/apps/${desktopId}.svg`
+  fixture.contents.set(`${dataDirectory}/applications/${desktopId}.desktop`, `[Desktop Entry]\nExec=${command}\nIcon=${desktopId}\n`)
+  fixture.files.add(icon); fixture.contents.set(icon, '<svg/>')
+  expect((await open.icon(app)).body).toBe('<svg/>')
 })

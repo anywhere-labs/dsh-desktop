@@ -16,7 +16,6 @@
     "types": [
       "node"
     ],
-    // next-lead:start
     // Shared Desktop sources under ../dsh-plugin-desktop resolve their imports from Stable's
     // node_modules, whose DSH runtime line can differ from this package's. Type them against
     // this package's runtime, which the bundles load, so exactly one Cordis copy — and the one
@@ -32,7 +31,6 @@
       "@deepseek-ai/dsh-host-webserver": ["./node_modules/@deepseek-ai/dsh-host-webserver/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-tool-workspace-dependencies": ["./node_modules/@deepseek-ai/dsh-tool-workspace-dependencies/lib/types/index.d.ts"]
     },
-    // next-lead:end
     "jsx": "react-jsx"
   },
   "include": [

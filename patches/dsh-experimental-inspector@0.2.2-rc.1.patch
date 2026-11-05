@@ -1,0 +1,15 @@
+diff --git a/lib/devtools/chunks/legacy-BI6C3bCa.js b/lib/devtools/chunks/legacy-BI6C3bCa.js
+index c1202ac..422393d 100644
+--- a/lib/devtools/chunks/legacy-BI6C3bCa.js
++++ b/lib/devtools/chunks/legacy-BI6C3bCa.js
+@@ -867,7 +867,9 @@ var Wn = function(e, t, n, r, i) {
+ 	setWhitelistedShortcuts(e) {}
+ 	setEyeDropperActive(e) {}
+ 	showCertificateViewer(e) {}
+-	reattach(e) {}
++	reattach(e) {
++		e();
++	}
+ 	readyForTest() {}
+ 	connectionReady() {}
+ 	setOpenNewWindowForPopups(e) {}

@@ -38,6 +38,9 @@ export function linuxCompressionOverride(
   return value
 }
 
+/** Electron Builder Linux target an edition can build. */
+export type LinuxPackageTarget = 'AppImage' | 'deb'
+
 /** Injectable native Linux packaging boundary used by focused tests. */
 export interface LinuxPackageOptions {
   /** Environment inherited by the packaging command. */
@@ -56,8 +59,10 @@ export interface LinuxPackageOptions {
   readonly desktopRoot: string
   /** Absolute electron-builder CLI module. */
   readonly builderCli: string
-  /** Local argv-normalizing launcher for electron-builder. */
-  readonly builderRunner: string
+  /** Local argv-normalizing launcher for electron-builder; the CLI is invoked directly without it. */
+  readonly builderRunner?: string
+  /** Electron Builder targets in build order; the AppImage and the Debian package by default. */
+  readonly targets?: readonly LinuxPackageTarget[]
   /** Prepare platform-specific native runtime dependencies before packaging. */
   readonly prepareRuntime: () => void
   /** Absolute packaged-artifact verification script. */
@@ -154,9 +159,12 @@ export function packageLinuxArtifacts(
 ): void {
   assertLinuxPackageHost(options)
   const compression = linuxCompressionOverride(options.env)
+  const targets = options.targets ?? ['AppImage', 'deb']
+  if (targets.length === 0) throw new Error('Linux packaging needs at least one target')
 
   const cleanEnvironment = withoutLinuxSigningSecrets(options.env)
-  options.log(`Building unsigned Linux ${options.arch} AppImage and Debian package; signing is a separate release step.`)
+  const artifacts = targets.map(target => target === 'deb' ? 'Debian package' : target).join(' and ')
+  options.log(`Building unsigned Linux ${options.arch} ${artifacts}; signing is a separate release step.`)
   if (compression !== undefined) {
     options.log(`Packaging the Linux artifacts with ${compression} compression.`)
   }
@@ -174,18 +182,17 @@ export function packageLinuxArtifacts(
   options.run(
     options.nodeExecutable,
     [
-      options.builderRunner,
+      ...(options.builderRunner === undefined ? [] : [options.builderRunner]),
       options.builderCli,
       '--linux',
-      'AppImage',
-      'deb',
+      ...targets,
       `--${options.arch}`,
       '--publish',
       'never',
       '--config.npmRebuild=false',
       '--config.electronFuses.onlyLoadAppFromAsar=false',
       ...(compression === undefined ? [] : [`--config.compression=${compression}`]),
-      ...(compression === 'store' ? ['--config.deb.compression=gz'] : []),
+      ...(compression === 'store' && targets.includes('deb') ? ['--config.deb.compression=gz'] : []),
     ],
     options.desktopRoot,
     electronBuilderEnvironment({

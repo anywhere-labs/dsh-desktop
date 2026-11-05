@@ -2,6 +2,7 @@
 import { hostLog, hostOperation } from './host/logging.ts'
 import WebServer, { type WebRoute, type WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-client-connection'
+import { expireSurplusSessions, surplusSessionExpiries } from './browser-sessions.ts'
 import { decideDesktopBrowserAccess, nextBrowserAccess } from './desktop-browser-access.ts'
 import { wrapFallback, wrapRegistration, type ResponderWrappers, type WebFallback, type WebRegistration } from './upstream-family.ts'
 import type { Duplex } from 'node:stream'
@@ -47,6 +48,9 @@ export default class NextWebServer extends WebServer {
     return {
       handler: inner => this.observeHttp(route, async (request, response) => {
         if (!this.permits(request)) { response.writeHead(403, { 'cache-control': 'no-store' }); response.end('Browser access is disabled'); return }
+        // A token exchange's own writeHead replaces these; the request its redirect causes expires them instead.
+        const expiries = surplusSessionExpiries(request.headers.cookie, request.headers.host)
+        if (expiries.length > 0) response.setHeader('set-cookie', expiries)
         if (!isMarketRoute(route)) {
           await inner(request, response); return
         }
@@ -72,7 +76,7 @@ export default class NextWebServer extends WebServer {
             }
             const response = await inner(request, peer)
             end(undefined, { status: response.status })
-            return response
+            return peer === undefined ? expireSurplusSessions(request, response) : response
           } catch (error) { end(error); throw error }
         }
       },

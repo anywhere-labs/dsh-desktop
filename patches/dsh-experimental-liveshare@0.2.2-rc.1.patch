@@ -1,0 +1,27 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -2123,7 +2123,10 @@
+ 			env: {
+ 				NODE_ENV: process.env.NODE_ENV,
+ 				LIVESHARE_TUNNEL_MODE: "gateway",
+-				...workerTransportEnv(process.env)
++				...workerTransportEnv(process.env),
++				// DSH Desktop runs the Host on Electron's executable. This environment names its variables, so Electron's
++				// Node-mode selector is set here; without it the worker would start as a second Electron application.
++				...process.versions.electron === void 0 ? {} : { ELECTRON_RUN_AS_NODE: "1" }
+ 			},
+ 			stdio: [
+ 				"ignore",
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -146,7 +146,7 @@
+   "dsh": {
+     "bundle": {
+       "patch": "./cordis.patch.yml",
+-      "listedByDefault": false
++      "listedByDefault": true
+     },
+     "client": {
+       "inject": [

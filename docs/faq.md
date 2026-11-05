@@ -6,7 +6,7 @@
 
 ## DSH Desktop 是什么？
 
-DSH Desktop 是面向 Windows 和 macOS 的开源 DeepSeek Harness 桌面客户端。它把官方 Harness 的本地 Web UI、Host 服务和插件系统装进原生桌面应用，并提供窗口、系统托盘、终端、更新和 profile 管理。
+DSH Desktop 是面向 Windows、macOS 和 Linux 的开源 DeepSeek Harness 桌面客户端。它把官方 Harness 的本地 Web UI、Host 服务和插件系统装进原生桌面应用，并提供窗口、系统托盘、终端、更新和 profile 管理。
 
 ## 这是 DeepSeek 官方产品吗？
 
@@ -14,7 +14,7 @@ DSH Desktop 是面向 Windows 和 macOS 的开源 DeepSeek Harness 桌面客户�
 
 ## 支持哪些操作系统？
 
-当前正式安装包支持 Windows x64 和 universal macOS（Intel 与 Apple Silicon）。Linux x64 的 AppImage 与 deb 已由 CI 构建，但尚未随任何已发布版本一同发出；在发布说明中看到 Linux 产物之前，不要根据源码中存在跨平台兼容代码推断已经发布了对应安装包。Linux 暂不提供 arm64 产物。
+当前正式安装包支持 Windows x64、universal macOS（Intel 与 Apple Silicon）和 Linux（x64 与 arm64）。Linux 提供 deb、AppImage 和 tar.gz 三种格式，只在 [GitHub Release](https://github.com/anywhere-labs/dsh-desktop/releases/latest) 发布；选择与安装方法见 [README 的 Linux 安装](../README.md#linux)。
 
 ## 需要安装 Node.js、pnpm 或 DSH 吗？
 
@@ -44,6 +44,8 @@ Desktop Host、profile 和 DSH home 位于本机。是否向外部服务发送�
 
 打包后的应用会在后台检查稳定版本，但不会静默安装。发现新版本后先征得用户确认；下载前可以在原生保存对话框中选择安装包的目录和文件名，取消保存不会开始下载。macOS 下载并打开 DMG，Windows 下载并启动 NSIS 安装程序。升级完成并重新启动后，应用会询问是否删除或保留安装包。网络或下载失败不会破坏当前安装。
 
+Linux 版不能在应用内安装更新：它同样在后台检查新版本并提示，选择“前往下载”会打开该版本的发布页，请下载与当前安装方式相同的 deb、AppImage 或 tar.gz 手动更新。
+
 ## 应用会走我的系统代理吗？
 
 会。启动时应用会读取操作系统的代理配置——Windows 的 Internet 选项、macOS 的网络设置、Linux 的桌面设置，包含自动配置脚本（PAC/WPAD）——并把它应用到自己发出的全部请求上：模型对话、网页抓取、联网搜索、MCP 服务、插件安装，以及终端里由应用启动的命令。在 Clash、v2rayN 这类客户端里打开“系统代理”开关就够了，不需要在应用里另外填写。
@@ -59,4 +61,4 @@ Desktop Host、profile 和 DSH home 位于本机。是否向外部服务发送�
 
 ## 在哪里下载和报告问题？
 
-从[项目下载页](https://www.dshdesktop.cn/)或[最新 GitHub Release](https://github.com/anywhere-labs/deepseek-harness-desktop/releases/latest)下载安装包。遇到问题时先查看[用户指南的排查部分](user-guide.md#排查)，仍无法解决再提交 [GitHub Issue](https://github.com/anywhere-labs/deepseek-harness-desktop/issues/new/choose)，并附上操作系统、应用版本、复现步骤和错误信息。
+从[项目下载页](https://www.dshdesktop.cn/)或[最新 GitHub Release](https://github.com/anywhere-labs/deepseek-harness-desktop/releases/latest)下载安装包，Linux 安装包只在 GitHub Release 发布。遇到问题时先查看[用户指南的排查部分](user-guide.md#排查)，仍无法解决再提交 [GitHub Issue](https://github.com/anywhere-labs/deepseek-harness-desktop/issues/new/choose)，并附上操作系统、应用版本、复现步骤和错误信息。

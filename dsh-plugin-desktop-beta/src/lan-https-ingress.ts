@@ -4,6 +4,7 @@ import { request as requestHttp, type IncomingHttpHeaders, type IncomingMessage,
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
 import { isIPv4, Socket } from 'node:net'
 import type { Duplex } from 'node:stream'
+import { MAX_HEADER_BYTES } from './browser-sessions.ts'
 import { NATIVE_ACCESS_HEADER as DESKTOP_RENDERER_ACCESS_HEADER } from './desktop-contract.ts'
 
 const EDGE_HOST = '0.0.0.0'
@@ -238,6 +239,7 @@ export class LanHttpsIngress {
       method: request.method,
       path: request.url,
       headers: sanitizedHeaders(request.headers),
+      maxHeaderSize: MAX_HEADER_BYTES,
     })
     proxyRequest.once('socket', socket => this.track(socket))
     proxyRequest.once('response', (proxyResponse) => {
@@ -288,7 +290,7 @@ export class LanHttpsIngress {
 
     let server: HttpsServer
     try {
-      server = createHttpsServer({ key: this.key, cert: this.cert, minVersion: 'TLSv1.2' }, (request, response) => {
+      server = createHttpsServer({ key: this.key, cert: this.cert, minVersion: 'TLSv1.2', maxHeaderSize: MAX_HEADER_BYTES }, (request, response) => {
         this.proxyHttp(request, response)
       })
       this.server = server

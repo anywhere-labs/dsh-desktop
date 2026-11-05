@@ -2,7 +2,7 @@
 
 ## 安装与首次启动
 
-从产品下载入口获取 macOS 或 Windows 安装包。安装后的 DSH Desktop 自带运行所需的 Electron、Node 和 DSH 依赖，普通用户不需要另行安装 Node.js 或 pnpm。
+从产品下载入口获取 macOS 或 Windows 安装包；Linux 的 deb、AppImage 和 tar.gz 在 [GitHub Release](https://github.com/anywhere-labs/dsh-desktop/releases/latest) 下载，选择与安装方法见 [README 的 Linux 安装](../README.md#linux)。安装后的 DSH Desktop 自带运行所需的 Electron、Node 和 DSH 依赖，普通用户不需要另行安装 Node.js 或 pnpm。
 
 首次启动时，应用会准备默认 profile，并在本机启动官方 DSH Web surface。关闭窗口通常只会隐藏窗口；可以从托盘重新打开，选择 **退出** 才会结束应用和 Host 进程。
 
@@ -79,6 +79,8 @@ dsh plugin update
 托盘中的 **Check for Updates…** 是当前发行通道的手动检查：稳定版只接收稳定更新，Beta 只接收 Beta 更新。即使已经是当前版本，也会显示结果；检查失败会提示稍后重试。Beta 还提供 **安装稳定版…**，它会在保留 Beta 的同时安装稳定版。用户取消不会访问计数下载入口。
 
 确认下载后，应用会先打开原生的“保存更新安装包”对话框，默认建议保存到 Downloads；你可以改用其他目录和文件名，取消对话框则不会开始下载。保存后应用才会请求当前平台的固定下载地址，并记录安装包位置。macOS 会打开 DMG，由用户把应用替换到 Applications；Windows 会准备 NSIS 安装器，再询问是否退出并启动安装。升级完成并重新启动后，应用会询问是否删除安装包以释放磁盘空间，也可以选择保留。下载和安装失败不会破坏当前版本，托盘仍可重试。
+
+打包后的 Linux 应用同样在后台检查新版本，每个版本只通知一次，但不会在应用内下载或安装。托盘里的新版本菜单项、设置中的 **前往下载** 和点击通知后的提示都会打开该版本的 GitHub 发布页，请下载与当前安装方式相同的安装包手动更新：deb 用 `sudo apt install ./<文件名>.deb` 覆盖安装，AppImage 用新文件替换旧文件。Linux 的版本检查不发送安装 UUID。
 
 ## 排查
 

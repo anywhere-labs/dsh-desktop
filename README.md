@@ -84,6 +84,16 @@ Profile 的 bundle 顺序里还包含官方包 `@deepseek-ai/dsh-base`、`@deeps
 
 ## 代码改动记录 / Release Note
 
+### 与上游原仓库拉齐（2026-11-05）
+
+- 本地 `master` 先与 <https://github.com/anywhere-labs/dsh-desktop> 同步，再合入 `fate-dev`，带入 48 个上游提交：Beta 与 Next 一起升到 DeepSeek Harness `0.2.2-rc.1`，子模块 pin 取 `66491b05e3`（与 `upstream.json` 的 activeChannel 一致），`vendor/dsh-runtime/0.2.2-rc.1/`、`patches/` 下的 `@0.2.2-rc.1` 补丁与 Next 的打包脚本随之更新，`_deprecated/` 里的旧 runtime 快照和旧补丁清理掉。
+- 通道取值的取舍：Stable 继续留在 `0.2.2-alpha.2`（本机 2.0.17 装机包和 71 个本地 Stable 源码文件都按这条运行时验证过），Beta/Next 接受上游的 `0.2.2-rc.1`。因此根 `package.json` 的 `resolutions` 同时保留 alpha.2 与 rc.1 两套 vendor 映射，`dsh-ide-git`、`@earendil-works/pi-ai` 的本地补丁映射不变；`0.2.1-rc.5` 那一套随 Next 升级删除。
+- `dsh-community-market` 的 peer 兼容串扩成 `0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.2-rc.1`（Cordis `4.0.5 || 4.0.6-alpha.1 || 4.1.0`），`tests/contracts.spec.ts` 的期望同步；该包仍是文档脚手架，不声明可载入入口。
+- Beta 和 Next 现在跟同一条上游发布，必须完全镜像：`dsh-desktop-next/tsconfig.json` 里那段 `paths` 去掉 `next-lead` 标记并同步到 `dsh-plugin-desktop-beta/tsconfig.json`，`corepack yarn check:desktop-variants` 按 359 个文件对齐通过。
+- 上游删掉了 `0.2.2-alpha.2` 那批运行时补丁，但 Stable 仍然依赖，已把 31 个 `patches/*@0.2.2-alpha.2.patch` 恢复到工作树。
+- 上游 README 的徽章、下载表和插件生态章节没有并入：本文件的社区版内容（功能表、本地 Profile 插件、本地配置、本地改动记录、唯一一张效果图）继续以 `fate-dev` 为准。
+- 门禁状态：`corepack yarn install --immutable`、`yarn test`、`yarn typecheck`（Beta / Market / Next）、`check:desktop-variants`、`check:bilingual-docs` 全绿。`dsh-plugin-desktop` 自身的 typecheck 仍在 `sidebar.workspaces.workspace.edit` 上报红——该 slot 只存在于未发布的 harness 源码，两个已发布运行时都不带；`check:layout` 仍在 `dsh-plugin-desktop` 依赖 `dsh-ide-git: workspace:*` 上报红。这两条合并前就已如此，且都不在 CI 的打包门禁里。
+
 ### 与云端 0.2.2-alpha.2 线合并（`ce00e94318`，2026-11-05）
 
 - 运行时升到 `0.2.2-alpha.2`，上游补丁序列按云端版本重做，`patches/` 下的 `patch:` 文件与 `yarn.lock` 一起对齐。
@@ -101,6 +111,7 @@ Profile 的 bundle 顺序里还包含官方包 `@deepseek-ai/dsh-base`、`@deeps
 | 上游本地补丁序列存档 | [`patches/upstream/`](patches/upstream/) | rc.2 的 0014（会话持久化不读更新 harness 的数据）、0015（草稿只从可用 seed 恢复），以及 rc.2 / rc.5 两份工作区快照 |
 | Profile 配置快照 | [`config/desktop-profile/cordis.patch.yml`](config/desktop-profile/cordis.patch.yml) | 见「本地配置」一节 |
 | 布局门禁补第 6 个 workspace | [`scripts/verify-layout.mjs:33`](scripts/verify-layout.mjs) | 根 `workspaces` 已含 `dsh-ide-git`，检查列表漏了这一项 |
+| electron-builder 启动器改为可选 | [`dsh-plugin-desktop/scripts/package-linux.ts:63`](dsh-plugin-desktop/scripts/package-linux.ts) | 本地 argv 归一化启动器缺省时直接调用 electron-builder CLI，上游新增的 `package-targets.spec.ts` 固定装置不提供该字段也能通过 |
 
 ### 2.0.17-fate-dev
 

@@ -5,6 +5,7 @@ import { checkForDesktopUpdate, type UpdateCheckResult, type UpdateRequest } fro
 import { desktopUpdateFilename, downloadDesktopUpdate, type UpdateArtifactRequest } from '../../dsh-plugin-desktop/src/update-download.ts'
 import { getOrCreateDesktopInstallationId } from '../../dsh-plugin-desktop/src/desktop-installation-id.ts'
 import { atomicJson, privateDirectory, readPrivateFile } from './private-files.ts'
+import { withUpdateArch, type UpdateArch } from './update-arch.ts'
 import type { NextUpdateState } from './update-state.ts'
 
 export interface NextUpdateOptions {
@@ -12,6 +13,8 @@ export interface NextUpdateOptions {
   platform: string
   packaged: boolean
   userData: string
+  /** CPU of this Mac. The version check and the download name it, so the service answers with that CPU's installer. */
+  arch?: UpdateArch
   /** Fetch adapter for the version check. */
   request: UpdateRequest
   /** Installer transport; it owns redirect following and its per-hop HTTPS check. */
@@ -66,7 +69,8 @@ export class NextUpdates {
     this.options.changed()
   }
   start(): void {
-    if (!this.options.packaged || !['darwin', 'win32'].includes(this.options.platform) || this.timer || this.disposed) return
+    // Linux checks too, although its packages are downloaded from the release page rather than installed here.
+    if (!this.options.packaged || !['darwin', 'win32', 'linux'].includes(this.options.platform) || this.timer || this.disposed) return
     void this.initializeCache().catch(this.options.log)
     const poll = (): void => {
       if (this.disposed) return
@@ -86,13 +90,18 @@ export class NextUpdates {
     })().finally(() => { this.operation = undefined; this.controller = undefined })
     return this.operation
   }
+  /** Request options naming this Mac's CPU; unchanged where the platform names none. */
+  private withArch(init: RequestInit): RequestInit {
+    return this.options.arch === undefined ? init : withUpdateArch(init, this.options.arch)
+  }
   private async query(signal: AbortSignal): Promise<UpdateCheckResult | null> {
     let installationId
-    if (this.options.packaged) {
+    // The privacy policy limits the installation UUID to the macOS and Windows update flow, so Linux checks without it.
+    if (this.state.installable) {
       try { installationId = await getOrCreateDesktopInstallationId(this.options.userData) } catch (error) { this.options.log(error) }
     }
     return checkForDesktopUpdate({ currentVersion: this.options.version, channel: 'beta', installationId,
-      request: this.options.request, signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]) })
+      request: (url, init) => this.options.request(url, this.withArch(init)), signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]) })
   }
   check(background = false): Promise<void> {
     if (this.state.phase === 'ready' || this.state.phase === 'installing') return Promise.resolve()
@@ -103,7 +112,7 @@ export class NextUpdates {
         if (!this.result) { this.set({ phase: 'error', error: 'service', version: undefined }); return }
         this.set({ phase: this.result.status === 'update-available' ? 'available' : 'current', version: this.result.latestVersion })
         if (this.result.status === 'update-available') {
-          if (background && this.state.installable && this.result.latestVersion !== this.notifiedVersion) {
+          if (background && this.result.latestVersion !== this.notifiedVersion) {
             this.recordNotifiedVersion(this.result.latestVersion)
             if (!this.disposed) this.options.available?.(this.result.latestVersion)
           } else if (!background && this.result.latestVersion !== this.notifiedVersion) {
@@ -136,7 +145,7 @@ export class NextUpdates {
         let lastProgress = 0
         const path = await downloadDesktopUpdate({ platform, version: result.latestVersion, channel: 'beta',
           destinationPath: join(directory, desktopUpdateFilename(platform, result.latestVersion, 'beta')),
-          request: this.options.artifactRequest, expectedSha256: result.installerSha256?.[platform],
+          request: (url, init) => this.options.artifactRequest(url, this.withArch(init)), expectedSha256: result.installerSha256?.[platform],
           signal: AbortSignal.any([signal, AbortSignal.timeout(60 * 60_000)]), onProgress: (received, total) => {
             if (Date.now() - lastProgress < 250 && received !== total) return
             lastProgress = Date.now(); this.set({ received, total })
