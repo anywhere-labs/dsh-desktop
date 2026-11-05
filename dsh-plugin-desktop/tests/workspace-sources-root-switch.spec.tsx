@@ -21,8 +21,8 @@ const WORKSPACE = '/work/project'
 const ATTACHED = '/work/shared'
 const t = ((key: DesktopSettingsLocaleKey) => en[key]) as WorkspaceSourcesRootActionProps['t']
 
-function useStoreFor(value: WorkspaceSourcesResponse) {
-  return <S,>(selector: (state: WorkspaceSourcesState) => S): S => selector({ [WORKSPACE]: value })
+function useStoreFor(key: string, value: WorkspaceSourcesResponse) {
+  return <S,>(selector: (state: WorkspaceSourcesState) => S): S => selector({ [key]: value })
 }
 
 const useSessions = vi.fn() as WorkspaceSourcesRootActionProps['useSessions']
@@ -67,7 +67,7 @@ describe('Workspace source root switching', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   })
 
-  it('moves the Files tree through the owner callback when the selection changes', async () => {
+  it('switches only the Files tree root and hands the owner no way to move the Session cwd', async () => {
     const onRootChange = vi.fn(async (_path: string) => {})
     const selectRoot = vi.fn(async (
       _workspacePath: string,
@@ -89,7 +89,7 @@ describe('Workspace source root switching', () => {
       usePanelInfo,
       t,
       actions: { publish: vi.fn() },
-      useStore: useStoreFor({ sources: [ATTACHED], selectedRoot: WORKSPACE }),
+      useStore: useStoreFor(WORKSPACE, { sources: [ATTACHED], selectedRoot: WORKSPACE }),
       platform: 'linux',
       load: vi.fn(async () => {}),
       selectRoot: selectRoot as WorkspaceSourcesRootActionProps['selectRoot'],
@@ -98,10 +98,14 @@ describe('Workspace source root switching', () => {
     await choose(select, ATTACHED)
 
     expect(selectRoot).toHaveBeenCalledWith(WORKSPACE, ATTACHED, expect.any(Function), expect.any(Function))
-    expect(onRootChange).toHaveBeenCalledWith(ATTACHED)
+    const [keyedWorkspace, keyedRoot, change] = selectRoot.mock.calls[0]!
+    expect(keyedWorkspace).toBe(WORKSPACE)
+    expect(keyedRoot).toBe(ATTACHED)
+    await change(ATTACHED)
+    expect(onRootChange).not.toHaveBeenCalled()
   })
 
-  it('keys the selection by the Session cwd after the tree moved to an attached root', async () => {
+  it('keys the selection by the tree root after that root moved to an attached source', async () => {
     const selectRoot = vi.fn(async (
       _workspacePath: string,
       _root: string,
@@ -122,15 +126,17 @@ describe('Workspace source root switching', () => {
       usePanelInfo,
       t,
       actions: { publish: vi.fn() },
-      useStore: useStoreFor({ sources: [ATTACHED], selectedRoot: ATTACHED }),
+      useStore: useStoreFor(ATTACHED, { sources: [WORKSPACE], selectedRoot: WORKSPACE }),
       platform: 'linux',
       load: vi.fn(async () => {}),
       selectRoot: selectRoot as WorkspaceSourcesRootActionProps['selectRoot'],
     })
 
-    await choose(select, WORKSPACE)
+    expect(select.value).toBe(WORKSPACE)
 
-    expect(selectRoot.mock.calls[0]?.[0]).toBe(WORKSPACE)
-    expect(selectRoot.mock.calls[0]?.[1]).toBe(WORKSPACE)
+    await choose(select, ATTACHED)
+
+    expect(selectRoot.mock.calls[0]?.[0]).toBe(ATTACHED)
+    expect(selectRoot.mock.calls[0]?.[1]).toBe(ATTACHED)
   })
 })

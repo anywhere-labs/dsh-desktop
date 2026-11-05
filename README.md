@@ -45,7 +45,7 @@
 | `dsh-ffmpeg` | 0.4.5 | 用自然语言调用 FFmpeg 处理已有音视频 |
 | `@linxin666/dsh-client-ui-git-graph` | 0.4.6 | 新会话 Git 分支选择与提交图 |
 
-Profile 的 bundle 顺序里还包含官方包 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@deepseek-ai/dsh-experimental-auto-review` 和 `dshmarket`。`dsh-byte-guard-recovery` 只在 Profile 目录以 `file:` 依赖存在，不进装机包。
+Profile 的 bundle 顺序里还包含官方包 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@deepseek-ai/dsh-experimental-auto-review` 和 `dshmarket`。`dsh-byte-guard-recovery` 只在 Profile 目录以 `file:` 依赖存在，不进装机包。`dsh-rewind-plugin` 的快照文件名超长（ENAMETOOLONG，上游到 0.20.0 仍未限长）由 `config/desktop-profile/patches/dsh-rewind-plugin@0.15.3-name-cap.patch` 修在 Profile 安装副本上，升级插件后要重新套用，`scripts/rewind-snapshot-name-cap.test.mjs` 会拦住漏套的情况。
 
 ## 本地配置
 
@@ -87,12 +87,16 @@ Profile 的 bundle 顺序里还包含官方包 `@deepseek-ai/dsh-base`、`@deeps
 ### 与上游原仓库拉齐（2026-11-05）
 
 - 本地 `master` 先与 <https://github.com/anywhere-labs/dsh-desktop> 同步，再合入 `fate-dev`，带入 48 个上游提交：Beta 与 Next 一起升到 DeepSeek Harness `0.2.2-rc.1`，子模块 pin 取 `66491b05e3`（与 `upstream.json` 的 activeChannel 一致），`vendor/dsh-runtime/0.2.2-rc.1/`、`patches/` 下的 `@0.2.2-rc.1` 补丁与 Next 的打包脚本随之更新，`_deprecated/` 里的旧 runtime 快照和旧补丁清理掉。
-- 通道取值的取舍：Stable 继续留在 `0.2.2-alpha.2`（本机 2.0.17 装机包和 71 个本地 Stable 源码文件都按这条运行时验证过），Beta/Next 接受上游的 `0.2.2-rc.1`。因此根 `package.json` 的 `resolutions` 同时保留 alpha.2 与 rc.1 两套 vendor 映射，`dsh-ide-git`、`@earendil-works/pi-ai` 的本地补丁映射不变；`0.2.1-rc.5` 那一套随 Next 升级删除。
+- 通道取值的取舍：Stable 继续留在 `0.2.2-alpha.2`（本机 2.0.17 装机包和 71 个本地 Stable 源码文件都按这条运行时验证过），Beta/Next 接受上游的 `0.2.2-rc.1`。因此根 `package.json` 的 `resolutions` 同时保留 alpha.2 与 rc.1 两套 vendor 映射，`dsh-ide-git`、`@earendil-works/pi-ai` 的本地补丁映射不变；`0.2.1-rc.5` 和 `0.2.1-rc.3` 两套随 Next 升级删除（688 条 rc.3 selector），`yarn.lock` 随之重生成——`dsh-plugin-desktop/tests/package.spec.ts` 要求每条 `@deepseek-ai/dsh*` selector 都属于某个通道记录的 `sourceVersion`，留着没通道引用的族就直接报错。
+- Stable 留在 alpha.2 的代价：上游带来的 Agents Anywhere 桥 `@agents-anywhere/dsh-bridge-next@2.1.0-desktop.cc1883dad3ff4.r5dbd817f` 只接受 peer `0.2.1-rc.3 || 0.2.2-rc.1`，alpha.2 运行时的插件兼容门禁会禁用这一行，所以 `tests/host-process-integration.spec.ts` 的「AA enabled: true」在本分支红。合并前的本地桥（`r156e8f86`，peer `0.2.0-rc.2`）同样落在 alpha.2 之外，这条不是新引入的回归；要让 Stable 的 AA 可用，只能把 stable 通道也推到 `0.2.2-rc.1` 并重出包。
 - `dsh-community-market` 的 peer 兼容串扩成 `0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.2-rc.1`（Cordis `4.0.5 || 4.0.6-alpha.1 || 4.1.0`），`tests/contracts.spec.ts` 的期望同步；该包仍是文档脚手架，不声明可载入入口。
 - Beta 和 Next 现在跟同一条上游发布，必须完全镜像：`dsh-desktop-next/tsconfig.json` 里那段 `paths` 去掉 `next-lead` 标记并同步到 `dsh-plugin-desktop-beta/tsconfig.json`，`corepack yarn check:desktop-variants` 按 359 个文件对齐通过。
 - 上游删掉了 `0.2.2-alpha.2` 那批运行时补丁，但 Stable 仍然依赖，已把 31 个 `patches/*@0.2.2-alpha.2.patch` 恢复到工作树。
+- `dsh-plugin-desktop/tests/package.spec.ts` 的 pi-ai / pi-telemetry 断言按合并后的依赖图改：pi-ai 只剩两条 npm 解析——`0.87.1`（Desktop 自己的 Copilot 目录 pin）与打了 `patches/pi-ai@1.4.0.patch` 的 `1.4.0`（运行时）；`pi-telemetry@npm:^1.1.0` 这条根 guard 的唯一请求方随 rc.5 族消失，条目按上游保留，lock 里只剩各 pi-ai 自带的 `0.87.1` 和 `1.4.0`。
+- Host 与 supervisor 的 RPC 换了传输：上游把 `src/host-process-entry.ts` 从 `process.send` 改成 `process.parentPort`，而 `process.parentPort` 只有 Electron 的 `utilityProcess.fork`（`src/host-process.ts:49`）才提供，`child_process.fork` + `ELECTRON_RUN_AS_NODE` 里它是 `undefined`。两个本地测试按新契约重写：`host-process-node-mode.spec.ts` 现在断言非 utility 进程必须拒绝启动，`workspace-sources-root-switch.spec.tsx` 断言 Files 树只切自己的根、不再回调移动会话 cwd。
+- `dsh-plugin-desktop/lib/` 是按合并前的本地 runtime 覆盖层编出来的，`yarn install` 换成已发布包后 `lib/profile-manager-*.js` 会引用 alpha.2 不导出的 `PROFILE_TEMPLATES`；已用 `tsdown` + 两个 `vite build` 重编，并给 `DesktopWebServer.Config` 加了显式类型标注（Stable 树里 alpha.2 的 `dsh-llm` 自带一份 schemastery，继承来的 `Schema<Config>` 无法在 `.d.ts` 里命名）。
 - 上游 README 的徽章、下载表和插件生态章节没有并入：本文件的社区版内容（功能表、本地 Profile 插件、本地配置、本地改动记录、唯一一张效果图）继续以 `fate-dev` 为准。
-- 门禁状态：`corepack yarn install --immutable`、`yarn test`、`yarn typecheck`（Beta / Market / Next）、`check:desktop-variants`、`check:bilingual-docs` 全绿。`dsh-plugin-desktop` 自身的 typecheck 仍在 `sidebar.workspaces.workspace.edit` 上报红——该 slot 只存在于未发布的 harness 源码，两个已发布运行时都不带；`check:layout` 仍在 `dsh-plugin-desktop` 依赖 `dsh-ide-git: workspace:*` 上报红。这两条合并前就已如此，且都不在 CI 的打包门禁里。
+- 门禁状态：`corepack yarn install --immutable`、`yarn typecheck`（Beta / Market / Next）、`check:desktop-variants`、`check:bilingual-docs` 全绿；`corepack yarn workspace dsh-plugin-desktop test` 2102 条里只剩「AA enabled: true」这一条红（上一条），根 `yarn test` 因此一起红。`dsh-plugin-desktop` 自身的 typecheck 仍在 `sidebar.workspaces.workspace.edit` 上报红——该 slot 只存在于未发布的 harness 源码，两个已发布运行时都不带；`check:layout` 仍在 `dsh-plugin-desktop` 依赖 `dsh-ide-git: workspace:*` 上报红；`corepack yarn aa:check` 报记录的 AA 产物（`cc1883dad3ff4`）落后于 AA `main`（`296f70ed4036`），发版前要重跑 `aa:prepare-release`。前两条合并前就已如此，且这几条都不在 CI 的打包门禁里。
 
 ### 与云端 0.2.2-alpha.2 线合并（`ce00e94318`，2026-11-05）
 
@@ -107,7 +111,7 @@ Profile 的 bundle 顺序里还包含官方包 `@deepseek-ai/dsh-base`、`@deeps
 | 多 worktree 仓库扫描 | [`dsh-ide-git/src/index.js:1501`](dsh-ide-git/src/index.js) | 仓库枚举默认跳过所有点目录，这里放行 `.worktrees`，Git 面板与代码审阅才能发现并列的 worktree；配套测试在 `dsh-ide-git/tests/repos.test.mjs` |
 | 字节保险丝恢复插件 | [`config/desktop-profile/plugins/dsh-byte-guard-recovery/`](config/desktop-profile/plugins/dsh-byte-guard-recovery/) | 请求体超限时原地修剪压缩并重试，含恢复阶梯、压缩不变量、真实 surface 折叠三个测试 |
 | Crashpad minidump 取证 | [`dsh-plugin-desktop/src/crashpad-evidence.ts`](dsh-plugin-desktop/src/crashpad-evidence.ts) | 解析本地 minidump 头部，诊断导出只列元信息，dump 本体不出机器 |
-| Node-mode Host 与附加根切换测试 | `dsh-plugin-desktop/tests/host-process-node-mode.spec.ts`、`dsh-plugin-desktop/tests/workspace-sources-root-switch.spec.tsx` | 覆盖 Host 独立子进程的 RPC，以及 Files 树切到附加根后按会话 cwd 记选择 |
+| Host 入口与 Files 根切换测试 | `dsh-plugin-desktop/tests/host-process-node-mode.spec.ts`、`dsh-plugin-desktop/tests/workspace-sources-root-switch.spec.tsx` | 按上游的新传输契约重写：一个断言非 Electron `utilityProcess` 启动必须拒绝并带回 supervisor 报错，一个断言 Files 树只切自己的根、`selectRoot` 收到的是空操作回调而不移动会话 cwd |
 | 上游本地补丁序列存档 | [`patches/upstream/`](patches/upstream/) | rc.2 的 0014（会话持久化不读更新 harness 的数据）、0015（草稿只从可用 seed 恢复），以及 rc.2 / rc.5 两份工作区快照 |
 | Profile 配置快照 | [`config/desktop-profile/cordis.patch.yml`](config/desktop-profile/cordis.patch.yml) | 见「本地配置」一节 |
 | 布局门禁补第 6 个 workspace | [`scripts/verify-layout.mjs:33`](scripts/verify-layout.mjs) | 根 `workspaces` 已含 `dsh-ide-git`，检查列表漏了这一项 |

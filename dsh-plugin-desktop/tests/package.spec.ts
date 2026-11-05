@@ -1193,15 +1193,20 @@ describe('published package surface', () => {
       '@earendil-works/pi-telemetry@npm:^1.1.0': '1.1.0',
     })
     expect(lockfile).toContain(`"@earendil-works/pi-ai@${patchResolution}::`)
-    expect(lockfile).toContain('resolution: "@earendil-works/pi-telemetry@npm:1.1.0"')
     expect(installedPiAi.version).toBe('1.4.0')
 
     // Every pi-ai that can reach a stream is patched; the remaining npm resolution is the
     // hoisted copy pinned by Desktop's own `^0.87.1` dependency, which only feeds the GitHub
     // Copilot model catalog read in src/copilot-authorization-route.ts and never streams.
     expect([...lockfile.matchAll(/resolution: "@earendil-works\/pi-ai@npm:([^"]+)"/gu)].map(match => match[1]).sort())
-      .toEqual(['0.87.1', '1.1.0', '1.4.0'])
+      .toEqual(['0.87.1', '1.4.0'])
     expect(manifest.dependencies?.['@earendil-works/pi-ai']).toBe('^0.87.1')
+
+    // pi-telemetry is only ever pulled in by a pi-ai copy, so it resolves to the exact version
+    // that copy declares. The root `^1.1.0` guard above is inert in the merged graph: the
+    // retired 0.2.2-rc.5 runtime family was its only requester.
+    expect([...lockfile.matchAll(/resolution: "@earendil-works\/pi-telemetry@npm:([^"]+)"/gu)].map(match => match[1]).sort())
+      .toEqual(['0.87.1', '1.4.0'])
 
     const files = [...patch.matchAll(/^diff --git a\/(\S+) b\//gmu)].map(match => match[1])
     expect(files).toEqual([

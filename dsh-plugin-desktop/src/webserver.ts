@@ -71,7 +71,9 @@ function rejectBrowserUpgrade(socket: Duplex): void {
 
 /** Reuse the upstream WebServer while retrying only real bind collisions. */
 export class DesktopWebServer extends WebServer {
-  static override Config = WebServer.Config
+  // Stable's alpha.2 dsh-llm installs its own schemastery under node_modules, so the inherited
+  // `Schema<Config>` cannot be named portably in the emitted declaration without this hint.
+  static override Config: typeof WebServer.Config = WebServer.Config
 
   private readonly desktopConfig: Config
 
