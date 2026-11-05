@@ -1,0 +1,12 @@
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -35,7 +35,7 @@
+   "license": "MIT",
+   "dsh": {
+     "bundle": {
+-      "listedByDefault": false,
++      "listedByDefault": true,
+       "patch": "./cordis.patch.yml",
+       "platforms": [
+         "darwin"

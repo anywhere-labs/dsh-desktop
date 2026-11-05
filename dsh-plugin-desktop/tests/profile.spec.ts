@@ -15,8 +15,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   composeEntries,
   initProfile,
-  PROFILE_TEMPLATES,
 } from '@deepseek-ai/dsh-app-boot'
+import { PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 import {
   configureDesktopOfficialPluginMarket,
   DEFAULT_OFFICIAL_MARKET_INDEX_URL,
@@ -412,6 +412,12 @@ virtualStoreDirMaxLength: 60
     }))
     expect(rows.find(row => row.id === 'desktop-updates')).toEqual(expect.objectContaining({
       name: 'dsh-plugin-desktop/updates',
+    }))
+    expect(rows.find(row => row.id === 'desktop-android-logcat')).toEqual(expect.objectContaining({
+      name: 'dsh-plugin-desktop/android-logcat',
+    }))
+    expect(rows.find(row => row.id === 'desktop-git-review')).toEqual(expect.objectContaining({
+      name: 'dsh-plugin-desktop/git-review',
     }))
     expect(rows.find(row => row.id === 'desktop-notifications')).toEqual(expect.objectContaining({
       name: 'dsh-plugin-desktop/notifications',

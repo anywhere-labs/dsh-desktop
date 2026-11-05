@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="340" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#101827"/>
+      <stop offset=".55" stop-color="#17243B"/>
+      <stop offset="1" stop-color="#20244A"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="746" y1="24" x2="1130" y2="326" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4DE1C1" stop-opacity=".88"/>
+      <stop offset="1" stop-color="#7887FF" stop-opacity=".8"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="54" y1="0" x2="468" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4DE1C1"/>
+      <stop offset="1" stop-color="#8C9BFF"/>
+    </linearGradient>
+    <filter id="blur" x="712" y="-38" width="556" height="416" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="44"/>
+    </filter>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M28 0H0V28" stroke="#D5E4FF" stroke-opacity=".07"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="340" rx="28" fill="url(#bg)"/>
+  <rect width="1200" height="340" rx="28" fill="url(#grid)"/>
+  <ellipse cx="1000" cy="176" rx="196" ry="126" fill="url(#glow)" opacity=".48" filter="url(#blur)"/>
+  <path d="M734 48h410a18 18 0 0 1 18 18v207a18 18 0 0 1-18 18H734a18 18 0 0 1-18-18V66a18 18 0 0 1 18-18Z" fill="#111A2B" fill-opacity=".66" stroke="#D5E4FF" stroke-opacity=".24"/>
+  <path d="M716 88h446" stroke="#D5E4FF" stroke-opacity=".18"/>
+  <circle cx="742" cy="68" r="5" fill="#FF7F8B"/><circle cx="760" cy="68" r="5" fill="#F7C66A"/><circle cx="778" cy="68" r="5" fill="#4DE1C1"/>
+  <rect x="746" y="114" width="123" height="72" rx="13" fill="#263752" stroke="#4DE1C1" stroke-opacity=".7"/>
+  <rect x="888" y="114" width="123" height="72" rx="13" fill="#29304F" stroke="#8994FF" stroke-opacity=".7"/>
+  <rect x="1030" y="114" width="104" height="72" rx="13" fill="#263752" stroke="#4DE1C1" stroke-opacity=".7"/>
+  <path d="M768 148h79M768 160h55M910 148h79M910 160h55M1050 148h63M1050 160h44" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M746 211h388" stroke="#D5E4FF" stroke-opacity=".14"/>
+  <circle cx="760" cy="239" r="7" fill="#4DE1C1"/><path d="M779 239h94" stroke="#E6EDF8" stroke-opacity=".8" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="905" cy="239" r="7" fill="#8994FF"/><path d="M924 239h88" stroke="#E6EDF8" stroke-opacity=".55" stroke-width="5" stroke-linecap="round"/>
+  <path d="M54 74h52" stroke="url(#accent)" stroke-width="6" stroke-linecap="round"/>
+  <text x="54" y="137" fill="#F5F8FF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="42" font-weight="750" letter-spacing="2">DSH DESKTOP</text>
+  <text x="54" y="184" fill="#B9C6DC" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="19" font-weight="600" letter-spacing="3">FATE-DEV · COMMUNITY EXTENSIONS</text>
+  <text x="54" y="226" fill="#91A2BC" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="16">A more capable workspace, shaped around your workflow.</text>
+  <g font-family="Inter,Segoe UI,Arial,sans-serif" font-size="13" font-weight="650" letter-spacing=".5">
+    <rect x="54" y="258" width="142" height="34" rx="17" fill="#243A47"/><circle cx="71" cy="275" r="4" fill="#4DE1C1"/><text x="83" y="280" fill="#DDFBF4">WORKSPACE</text>
+    <rect x="207" y="258" width="91" height="34" rx="17" fill="#2C334D"/><circle cx="224" cy="275" r="4" fill="#8994FF"/><text x="236" y="280" fill="#E7E9FF">FILES</text>
+    <rect x="309" y="258" width="111" height="34" rx="17" fill="#243A47"/><circle cx="326" cy="275" r="4" fill="#4DE1C1"/><text x="338" y="280" fill="#DDFBF4">COPILOT</text>
+    <rect x="431" y="258" width="115" height="34" rx="17" fill="#2C334D"/><circle cx="448" cy="275" r="4" fill="#8994FF"/><text x="460" y="280" fill="#E7E9FF">LOGCAT</text>
+  </g>
+</svg>

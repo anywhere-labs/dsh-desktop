@@ -6,6 +6,7 @@
     "moduleResolution": "NodeNext",
     "jsx": "react-jsx",
     "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
     "rootDir": "src",
     "outDir": "lib/types",
     "declaration": true,
@@ -21,5 +22,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/*.ts"]
+  "include": ["src/*.ts", "src/client/*.d.ts", "src/client/**/*.d.ts"]
 }

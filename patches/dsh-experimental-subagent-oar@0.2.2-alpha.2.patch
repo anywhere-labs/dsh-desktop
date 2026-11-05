@@ -1,0 +1,53 @@
+diff --git a/cordis.patch.yml b/cordis.patch.yml
+new file mode 100644
+index 0000000..f1e52c0
+--- /dev/null
++++ b/cordis.patch.yml
+@@ -0,0 +1,31 @@
++# DSH Desktop ships this provider as an optional bundle. The rows are the
++# README's example composition: Codex and Claude Code providers and the
++# subagent_oar tool. Claude Code runs in acceptEdits instead of the example's
++# dontAsk: it can change files in the task's directory, as Codex can in its
++# workspace-write sandbox, and anything else that would ask for approval is
++# refused.
++- insert:
++    - id: experimental-subagent-oar-codex
++      name: '@deepseek-ai/dsh-experimental-subagent-oar'
++      config:
++        runtime: codex
++        providerName: oar-codex
++        launchArgs:
++          - -c
++          - sandbox_mode="workspace-write"
++    - id: experimental-subagent-oar-claude
++      name: '@deepseek-ai/dsh-experimental-subagent-oar'
++      config:
++        runtime: claude
++        providerName: oar-claude
++        launchArgs:
++          - --permission-mode
++          - acceptEdits
++          - --permission-prompts
++          - none
++    - id: tool-subagent-oar
++      name: '@deepseek-ai/dsh-experimental-tool-subagent-oar'
++      config:
++        providers:
++          codex: oar-codex
++          claude: oar-claude
+diff --git a/package.json b/package.json
+index 1c0fe61..66ac7d7 100644
+--- a/package.json
++++ b/package.json
+@@ -31,6 +31,11 @@
+   ],
+   "license": "MIT",
+   "icon": "./icon.svg",
++  "dsh": {
++    "bundle": {
++      "patch": "./cordis.patch.yml"
++    }
++  },
+   "peerDependencies": {
+     "@deepseek-ai/cordis": "~4.0.6-alpha.1",
+     "@deepseek-ai/dsh-llm": "0.2.2-alpha.2",

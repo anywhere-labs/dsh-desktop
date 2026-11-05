@@ -1,0 +1,76 @@
+From f3394208a31edd00862ba4a1e444d3e5f66b8813 Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Fri, 23 Oct 2026 16:03:33 +0800
+Subject: [PATCH 09/13] fix(deliverables): keep the turn review card without
+ developer tooling
+
+The changed-files card no longer hides when the code-diff toggle is off, so Git Review owns the entry point instead of suppressing it, and the open-in-app bench records the files-actions slot as root-scoped.
+---
+ .../client/ui-deliverables/src/client/Deliverables.tsx     | 7 ++++---
+ packages/client/ui-deliverables/src/client/locales.ts      | 4 ++--
+ .../ui-open-in-app/tests/browser-plugin.client.spec.ts     | 2 +-
+ 3 files changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/packages/client/ui-deliverables/src/client/Deliverables.tsx b/packages/client/ui-deliverables/src/client/Deliverables.tsx
+index 544e7a82b2..205bf839b7 100644
+--- a/packages/client/ui-deliverables/src/client/Deliverables.tsx
++++ b/packages/client/ui-deliverables/src/client/Deliverables.tsx
+@@ -67,16 +67,17 @@ export function DeliverablesTail(props: PropsRuntime<'conversation.chat.turnTail
+  */
+ export function Deliverables({
+   matched, openFile, t, sessionId, useSessions, openPresented, openChangesReview, usePresentedOpen, usePresentedHost,
+-  useChangesDiff, loadChangesDiff, useChangesSummary, reloadPresentedHost, loadChangesSummary, useShowCodeDiff, renderSlot,
++  useChangesDiff, loadChangesDiff, useChangesSummary, reloadPresentedHost, loadChangesSummary, renderSlot,
+ }: Pick<TurnTailOwnerProps, 'openFile'> & {
+   matched: DeliverablesMatch
+ } & PropsLocale<typeof NS> & Pick<SessionStandardProps, 'sessionId'> & Pick<GlobalStandardProps, 'useSessions'> & InjectFace<DeliverablesInjected> & PropsRenderSlots<'deliverables.file.actions'>) {
+   const [expanded, setExpanded] = useState(false)
+-  const showCodeDiff = useShowCodeDiff(value => value)
+   const cwd = useSessions(state => state.byId[sessionId]?.cwd)
+   const states = usePresentedOpen(value => value)
+   const host = usePresentedHost(value => value)
+-  const announced = showCodeDiff ? matched.changes : null
++  // Desktop Git Review owns the turn-level review entry. The card must remain
++  // visible for an actual changed-files summary even when developer tools are off.
++  const announced = matched.changes
+   const summary = useChangesSummary(value => announced === null ? undefined : value[changesSummaryUrl(sessionId, announced.seq)])
+   useEffect(() => {
+     if (announced !== null && summary === undefined) void loadChangesSummary(sessionId, announced.seq)
+diff --git a/packages/client/ui-deliverables/src/client/locales.ts b/packages/client/ui-deliverables/src/client/locales.ts
+index 6a1a8813d3..63e5630f6d 100644
+--- a/packages/client/ui-deliverables/src/client/locales.ts
++++ b/packages/client/ui-deliverables/src/client/locales.ts
+@@ -38,7 +38,7 @@ export const zh = {
+   'changes.added': '+{count}',
+   'changes.deleted': '-{count}',
+   'changes.binary': '二进制',
+-  'changes.openReview': '在侧边栏查看本轮改动',
++  'changes.openReview': '打开本轮审阅',
+   'changes.all': '全部 {count} 个文件',
+   'changes.expandAria': '展开全部 {count} 个改动文件',
+   'changes.collapse': '收起',
+@@ -102,7 +102,7 @@ export const en: Record<DeliverablesKey, string> = {
+   'changes.added': '+{count}',
+   'changes.deleted': '-{count}',
+   'changes.binary': 'binary',
+-  'changes.openReview': 'Review this turn’s changes in the sidebar',
++  'changes.openReview': 'Open this turn’s review',
+   'changes.all': 'All {count} files',
+   'changes.expandAria': 'Show all {count} changed files',
+   'changes.collapse': 'Collapse',
+diff --git a/packages/client/ui-open-in-app/tests/browser-plugin.client.spec.ts b/packages/client/ui-open-in-app/tests/browser-plugin.client.spec.ts
+index 43b988f2c9..e6f41d8e1f 100644
+--- a/packages/client/ui-open-in-app/tests/browser-plugin.client.spec.ts
++++ b/packages/client/ui-open-in-app/tests/browser-plugin.client.spec.ts
+@@ -46,7 +46,7 @@ async function bench() {
+     name: 'root',
+     children: {
+       'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
+-      'sidebar.right.tab.files.actions': { kind: 'list', scope: 'session' },
++      'sidebar.right.tab.files.actions': { kind: 'list', scope: 'root' },
+       'sidebar.right.tab.document.actions': { kind: 'list', scope: 'session' },
+       'sidebar.right.tab.document.unpreviewable': { kind: 'list', scope: 'session' },
+       'deliverables.file.actions': { kind: 'list', scope: 'session' },
+-- 
+2.43.0
+

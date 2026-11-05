@@ -1,0 +1,516 @@
+From a6534c005eaae3d37dcc05c70bf18a9d267142ec Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Fri, 23 Oct 2026 16:03:51 +0800
+Subject: [PATCH 10/13] fix(goal): scope streaks and denial budgets to the goal
+ in charge
+
+goal-progress-guard keeps the no-progress trail on one goal id, so a superseded goal's streak can neither annotate nor block the goal now being continued. goal-completion-gate bounds how many times a single agent is denied before the completion is admitted with a recorded warning, because a denial settles as an errored tool result and would otherwise hold the turn open forever.
+
+One non-null event index read replaced with an undefined guard; no behavior change.
+---
+ packages/goal/goal-completion-gate/README.md  | 27 ++++--
+ .../goal/goal-completion-gate/src/index.ts    | 84 +++++++++++++++----
+ .../tests/goal-completion-gate.spec.ts        | 50 ++++++++++-
+ packages/goal/goal-progress-guard/README.md   |  7 +-
+ .../goal/goal-progress-guard/src/index.ts     | 31 +++++--
+ .../tests/goal-progress-guard.spec.ts         | 48 ++++++++++-
+ 6 files changed, 213 insertions(+), 34 deletions(-)
+
+diff --git a/packages/goal/goal-completion-gate/README.md b/packages/goal/goal-completion-gate/README.md
+index 0785ddf52b..c254b61159 100644
+--- a/packages/goal/goal-completion-gate/README.md
++++ b/packages/goal/goal-completion-gate/README.md
+@@ -9,12 +9,19 @@ assistant narration that carries it cites session-verifiable evidence.
+ A `tools/pre-execute` hook intercepts `update_goal` calls whose `action` is
+ `complete` (other actions stay transparent). The gate extracts citation
+ candidates from the assistant message carrying the call — backtick spans,
+-quoted spans, and path- or identifier-like tokens — and verifies each against
+-the session log's anchor corpus: recent tool call ids, call arguments, and
+-result texts. With fewer than `minVerifiedCitations` verified citations the
+-call is denied with corrective feedback naming exactly what is required, so
+-the model retries with citations instead of failing the turn. Calls without
+-an owning agent (direct `ctx.tools.execute()`) are not gated.
++quoted spans, and path-like tokens, where a bare token must carry a `/` or `.`
++— and verifies each against the session log's anchor corpus: recent tool call
++ids, call arguments, and result texts. The corpus excludes the gated tool's own
++calls, every tool name, the current call id, and the corrective text this gate
++emitted earlier, because each of those is evidence a completion call writes
++for itself: the `tool/call` event of the gated call is logged before
++`tools/pre-execute` runs. With fewer than `minVerifiedCitations` verified
++citations the call is denied with corrective feedback naming exactly what is
++required, so the model retries with citations instead of failing the turn. A
++denial settles as an errored tool result and leaves the turn open, so
++`maxDenialAttempts` bounds how many times one agent is denied before the
++completion is admitted and the missed verification is recorded in the log.
++Calls without an owning agent (direct `ctx.tools.execute()`) are not gated.
+ 
+ The gate adds one system-prompt policy section while loaded so the model
+ learns the requirement before the first denial. It changes no tool schema and
+@@ -29,6 +36,7 @@ not part of shipped default profiles.
+ | `minVerifiedCitations` | `1` | Verified citations required to admit a completion. |
+ | `anchorEventWindow` | `400` | Recent session events scanned for verifiable anchors. |
+ | `minCitationLength` | `6` | Minimum character length for a citation candidate. |
++| `maxDenialAttempts` | `2` | Denials one agent may receive before the completion is admitted anyway. |
+ 
+ Misconfiguration throws at plugin load. Opt in through a profile overlay:
+ 
+@@ -41,7 +49,8 @@ plugins:
+ ## Model Experience
+ 
+ One short system-prompt section while loaded; one corrective tool-error
+-result per denied completion. No history rewriting, no token-budget impact
++result per denied completion, up to `maxDenialAttempts`, then a host-side
++warning and an unblocked call. No history rewriting, no token-budget impact
+ beyond those two bounded texts.
+ 
+ ## Known Limitations and Deferred Work
+@@ -56,6 +65,10 @@ beyond those two bounded texts.
+   tool calls must repeat the citation in the carrying message.
+ - Fabricated tool call ids are not distinguished from other unverifiable
+   citations; both are denied identically.
++- The denial budget bounds the retry loop, not the outcome: an agent that keeps
++  asserting completion without evidence is eventually admitted, with a warning
++  recorded, because denying forever would hold the turn open indefinitely.
++  Blocking or escalation belongs to a guard that owns the goal phase.
+ - This package omits `./invariant`: the gated-denial relation is asserted
+   directly by the behavior suite, and there is no second independent
+   observation to diverge.
+diff --git a/packages/goal/goal-completion-gate/src/index.ts b/packages/goal/goal-completion-gate/src/index.ts
+index be9fbd4b59..ce94b268b4 100644
+--- a/packages/goal/goal-completion-gate/src/index.ts
++++ b/packages/goal/goal-completion-gate/src/index.ts
+@@ -6,8 +6,13 @@
+  * command, or quoted span that appears verbatim in the session's tool-call
+  * arguments or results, or a real tool call id. The denial is corrective
+  * feedback, so the model retries with citations instead of being failed
+- * outright. The gate changes no tool schema and composes with
+- * `dsh-tool-goal` unmodified; deployments opt in through a profile overlay.
++ * outright, and a bounded number of denials per agent keeps the retry loop
++ * finite because a denial never ends the turn. The anchor corpus deliberately
++ * excludes the gated tool's own calls and every tool name: otherwise the
++ * gated call's own `name` and arguments, which are logged before the
++ * pre-execute waterfall runs, would be self-verifying evidence. The gate
++ * changes no tool schema and composes with `dsh-tool-goal` unmodified;
++ * deployments opt in through a profile overlay.
+  * @module @deepseek-ai/dsh-goal-completion-gate
+  */
+ 
+@@ -33,6 +38,12 @@ export interface Config {
+   anchorEventWindow?: number
+   /** Minimum character length for a citation candidate (default `6`). */
+   minCitationLength?: number
++  /**
++   * Denials a single agent may receive before the gate stops blocking (default
++   * `2`). A denial never ends the turn, so this bound is what keeps a model
++   * that cannot produce evidence from retrying `update_goal` forever.
++   */
++  maxDenialAttempts?: number
+ }
+ 
+ /** Schemastery config for the goal completion gate. */
+@@ -41,6 +52,7 @@ export const Config: z<Config> = z.object({
+   minVerifiedCitations: z.number().default(1),
+   anchorEventWindow: z.number().default(400),
+   minCitationLength: z.number().default(6),
++  maxDenialAttempts: z.number().default(2),
+ })
+ 
+ /** Fully materialized gate policy. */
+@@ -49,6 +61,7 @@ interface ResolvedConfig {
+   readonly minVerifiedCitations: number
+   readonly anchorEventWindow: number
+   readonly minCitationLength: number
++  readonly maxDenialAttempts: number
+ }
+ 
+ /** Character cap on the joined anchor corpus; the tail is the most relevant end. */
+@@ -65,8 +78,12 @@ const GUIDANCE =
+ const DENIAL =
+   'goal-completion-gate: completion requires verifiable evidence. In the reply that carries the '
+   + 'update_goal call, cite at least one concrete artifact from this session verbatim — a file '
+-  + 'path you wrote, a command whose output you read, or a tool call id — then retry update_goal. '
+-  + 'Citations are checked against the session log; references that do not appear there are rejected.'
++  + 'path you wrote, a command whose output you read, or a tool call id from an earlier step — '
++  + 'then retry update_goal. Naming the goal tool itself is not evidence. Citations are checked '
++  + 'against the session log; references that do not appear there are rejected.'
++
++/** Text of a denial this gate already issued; never usable as evidence for the next one. */
++const DENIAL_PREFIX = 'Error: goal-completion-gate:'
+ 
+ /** Validate config even when apply is called directly outside Loader normalization. */
+ function resolveConfig(config: Config): ResolvedConfig {
+@@ -75,6 +92,7 @@ function resolveConfig(config: Config): ResolvedConfig {
+     minVerifiedCitations: config.minVerifiedCitations ?? 1,
+     anchorEventWindow: config.anchorEventWindow ?? 400,
+     minCitationLength: config.minCitationLength ?? 6,
++    maxDenialAttempts: config.maxDenialAttempts ?? 2,
+   }
+   if (resolved.goalToolName.length === 0) {
+     throw new TypeError('goal-completion-gate: goalToolName must be non-empty')
+@@ -83,6 +101,7 @@ function resolveConfig(config: Config): ResolvedConfig {
+     ['minVerifiedCitations', resolved.minVerifiedCitations],
+     ['anchorEventWindow', resolved.anchorEventWindow],
+     ['minCitationLength', resolved.minCitationLength],
++    ['maxDenialAttempts', resolved.maxDenialAttempts],
+   ] as const) {
+     if (!Number.isSafeInteger(value) || value < 1) {
+       throw new TypeError(`goal-completion-gate: ${field} must be a positive safe integer`)
+@@ -100,7 +119,9 @@ function textOf(content: readonly { type: string }[]): string {
+ 
+ /**
+  * Citation candidates of one assistant narration: backtick spans, quoted
+- * spans, and path- or identifier-like tokens long enough to be specific.
++ * spans, and path-like tokens long enough to be specific. A bare token counts
++ * only when it carries a `/` or `.`, so an identifier such as `update_goal`
++ * or `goal_id` cannot become evidence by naming the gated machinery.
+  */
+ export function extractCitations(text: string, minLength: number): string[] {
+   const found = new Set<string>()
+@@ -110,7 +131,7 @@ export function extractCitations(text: string, minLength: number): string[] {
+   }
+   for (const raw of text.split(/\s+/)) {
+     const token = raw.replace(/^[\s"'([{]+|[\s"')\]}.,;:!?]+$/g, '')
+-    if (token.length >= minLength && /[/._-]/.test(token) && /[a-zA-Z0-9]/.test(token)) {
++    if (token.length >= minLength && /[/.]/.test(token) && /[a-zA-Z0-9]/.test(token)) {
+       found.add(token)
+     }
+   }
+@@ -118,22 +139,40 @@ export function extractCitations(text: string, minLength: number): string[] {
+ }
+ 
+ /**
+- * The verifiable anchor corpus of one session: tool call ids plus the
+- * verbatim arguments and result texts of recent tool activity, tail-capped.
++ * The verifiable anchor corpus of one session: tool call ids plus the verbatim
++ * arguments and result texts of recent tool activity, tail-capped. Excluded by
++ * design — each would otherwise be evidence the completion call manufactured
++ * for itself: the gated tool's own calls and results (its `tool/call` event is
++ * logged before `tools/pre-execute` runs, so its name and arguments are
++ * already in the log), every tool name, the current call's id, and the
++ * corrective text this gate emitted on an earlier denial.
+  */
+-export function anchorCorpus(agent: Agent, eventWindow: number): { corpus: string; callIds: ReadonlySet<string> } {
++export function anchorCorpus(
++  agent: Agent,
++  eventWindow: number,
++  gatedToolName: string,
++  currentCallId: string,
++): { corpus: string; callIds: ReadonlySet<string> } {
+   const events = agent.session.snapshotEvents().slice(-eventWindow)
++  const gated = new Set<string>()
++  for (const event of events) {
++    if (event.type === 'tool/call' && event.data.name === gatedToolName) gated.add(event.data.callId)
++  }
+   const callIds = new Set<string>()
+   const parts: string[] = []
+   for (const event of events) {
+     if (event.type === 'tool/call') {
++      if (gated.has(event.data.callId)) continue
+       callIds.add(event.data.callId)
+-      parts.push(event.data.callId, event.data.name, event.data.arguments)
++      parts.push(event.data.callId, event.data.arguments)
+     }
+     else if (event.type === 'tool/result') {
+-      parts.push(textOf(event.data.message.content))
++      if (gated.has(event.data.message.toolCallId)) continue
++      const text = textOf(event.data.message.content)
++      if (!text.startsWith(DENIAL_PREFIX)) parts.push(text)
+     }
+   }
++  callIds.delete(currentCallId)
+   return { corpus: parts.join('\n').slice(-ANCHOR_CORPUS_MAX_CHARS), callIds }
+ }
+ 
+@@ -141,7 +180,8 @@ export function anchorCorpus(agent: Agent, eventWindow: number): { corpus: strin
+ function latestNarration(agent: Agent): string {
+   const events = agent.session.snapshotEvents()
+   for (let index = events.length - 1; index >= 0; index -= 1) {
+-    const event = events[index]!
++    const event = events[index]
++    if (event === undefined) continue
+     if (event.type === 'assistant/message' && event.data.interrupted !== true) {
+       return textOf(event.data.message.content)
+     }
+@@ -162,6 +202,8 @@ function isCompletionCall(args: unknown): boolean {
+  */
+ export function apply(ctx: Context, config: Config): void {
+   const resolved = resolveConfig(config)
++  /** Consecutive denied completions per agent; bounds the retry loop. */
++  const denials = new WeakMap<Agent, number>()
+ 
+   ctx.systemPrompt.section({
+     name: 'tool:goal-completion-gate',
+@@ -178,9 +220,23 @@ export function apply(ctx: Context, config: Config): void {
+     if (exec.name !== resolved.goalToolName || !isCompletionCall(exec.arguments)) return next()
+     const narration = latestNarration(exec.agent)
+     const citations = extractCitations(narration, resolved.minCitationLength)
+-    const { corpus, callIds } = anchorCorpus(exec.agent, resolved.anchorEventWindow)
++    const { corpus, callIds } = anchorCorpus(exec.agent, resolved.anchorEventWindow, resolved.goalToolName, exec.callId)
+     const verified = citations.filter(citation => callIds.has(citation) || corpus.includes(citation))
+-    if (verified.length >= resolved.minVerifiedCitations) return next()
++    if (verified.length >= resolved.minVerifiedCitations) {
++      denials.delete(exec.agent)
++      return next()
++    }
++    // A denial settles as an errored tool result and leaves the turn open, so
++    // only this counter keeps an evidence-less model from re-issuing
++    // `update_goal` indefinitely. Past the cap the completion is admitted and
++    // the missed verification is recorded in the log.
++    const attempts = (denials.get(exec.agent) ?? 0) + 1
++    denials.set(exec.agent, attempts)
++    if (attempts > resolved.maxDenialAttempts) {
++      ctx.logger.warn(`goal-completion-gate: agent "${exec.agent.id}" exceeded ${resolved.maxDenialAttempts} `
++        + 'uncited completions; admitting without evidence')
++      return next()
++    }
+     return { kind: 'deny', reason: DENIAL }
+   })
+ }
+diff --git a/packages/goal/goal-completion-gate/tests/goal-completion-gate.spec.ts b/packages/goal/goal-completion-gate/tests/goal-completion-gate.spec.ts
+index b40d0733a4..2fdcc2ed6a 100644
+--- a/packages/goal/goal-completion-gate/tests/goal-completion-gate.spec.ts
++++ b/packages/goal/goal-completion-gate/tests/goal-completion-gate.spec.ts
+@@ -16,9 +16,11 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
+ /**
+  * Behavior suite for the goal completion gate: uncited completions are denied
+  * with corrective feedback, completions citing session-verifiable artifacts
+- * pass, fabricated citations are rejected, non-complete actions stay
+- * transparent, and misconfiguration fails at load — all through a real agent
+- * loop against a scripted mock adapter (no network).
++ * pass, fabricated citations and citations that only name the gated tool
++ * itself are rejected, the denial budget admits a completion rather than
++ * holding the turn open forever, non-complete actions stay transparent, and
++ * misconfiguration fails at load — all through a real agent loop against a
++ * scripted mock adapter (no network).
+  */
+ 
+ /** Boot the core spine + goal domain + goal tools + the gate. */
+@@ -112,6 +114,38 @@ describe('completion gating', () => {
+     expect(toolErrors(agent)[0]).toContain('goal-completion-gate')
+   })
+ 
++  it('denies a completion that cites only the gated tool itself', async () => {
++    const ctx = await harness()
++    let goalId = ''
++    const adapter = new MockAdapter([
++      () => toolCallResponse('c1', 'update_goal', { goal_id: goalId, revision: 1, action: 'complete' },
++        'Called `update_goal` with `goal_id` and `revision` set, so the objective is done.'),
++      textResponse('ack'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    goalId = ctx.goals.create(agent, { objective: 'finish the feature' }).id
++
++    await prompt(ctx, agent, 'finish it')
++    expect(ctx.goals.get(agent)).toMatchObject({ phase: 'active' })
++    expect(toolErrors(agent)).toHaveLength(1)
++  })
++
++  it('stops denying once the agent exceeds the denial budget', async () => {
++    const ctx = await harness({ maxDenialAttempts: 2 })
++    let goalId = ''
++    const uncited = () => toolCallResponse('c1', 'update_goal',
++      { goal_id: goalId, revision: 1, action: 'complete' }, 'Trust me, it works now.')
++    const adapter = new MockAdapter([uncited, uncited, uncited, textResponse('ack')])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    goalId = ctx.goals.create(agent, { objective: 'finish the feature' }).id
++
++    await prompt(ctx, agent, 'finish it')
++    expect(toolErrors(agent)).toHaveLength(2)
++    expect(ctx.goals.get(agent)).toMatchObject({ phase: 'complete' })
++  })
++
+   it('leaves non-complete actions transparent to the gate', async () => {
+     const ctx = await harness()
+     let goalId = ''
+@@ -142,6 +176,16 @@ describe('config validation', () => {
+       .rejects.toThrow('minVerifiedCitations')
+   })
+ 
++  it('fails loud on a zero denial budget', async () => {
++    const ctx = new Context()
++    await mountAgentLoopTestDependencies(ctx)
++    await ctx.plugin(AgentLoop, { agents: [] })
++    await ctx.plugin(GoalService)
++    await ctx.plugin(ToolGoal)
++    await expect(ctx.plugin(GoalCompletionGate, { maxDenialAttempts: 0 }))
++      .rejects.toThrow('maxDenialAttempts')
++  })
++
+   it('fails loud on an empty gated tool name', async () => {
+     const ctx = new Context()
+     await mountAgentLoopTestDependencies(ctx)
+diff --git a/packages/goal/goal-progress-guard/README.md b/packages/goal/goal-progress-guard/README.md
+index 8a917e9e64..a5484fc788 100644
+--- a/packages/goal/goal-progress-guard/README.md
++++ b/packages/goal/goal-progress-guard/README.md
+@@ -20,8 +20,13 @@ guard pairs `tool/call` with `tool/result` and classifies the round at
+ - **noop** — zero tool calls, or every call failed. The consecutive
+   no-progress streak increments.
+ 
+-Before the next round of the same goal enters its step, a live streak either:
++The streak belongs to the goal that produced it. The first admitted round of a
++goal the agent has not trailed yet clears the streak, the round number and the
++counters, so neither a notice nor `blockAfterNoProgressRounds` can act on an
++earlier goal's failures. A trail left open by a superseded goal is dropped
++rather than folded in.
+ 
++Before the next round of the same goal enters its step, a live streak either:
+ - **advisory (default)** — appends a logged `<goal_progress>` notice to the
+   admitted messages naming the last round's counters and the streak, telling
+   the model to change strategy or report blocked. Logged implies
+diff --git a/packages/goal/goal-progress-guard/src/index.ts b/packages/goal/goal-progress-guard/src/index.ts
+index 0692be56f8..0bb727a2a9 100644
+--- a/packages/goal/goal-progress-guard/src/index.ts
++++ b/packages/goal/goal-progress-guard/src/index.ts
+@@ -1,9 +1,11 @@
+ /**
+  * Advisory goal-round progress guard. It classifies the tool trail of every
+  * admitted goal round from the session event log as a verifiable mutation, a
+- * weak observation, or a no-op, keeps a consecutive no-progress streak per
+- * agent, and — before the next continuation round of the same goal enters its
+- * step — appends a logged strategy-change notice. With
++ * weak observation, or a no-op, keeps a consecutive no-progress streak for the
++ * goal one agent is currently pursuing, and — before the next continuation
++ * round of the same goal enters its step — appends a logged strategy-change
++ * notice. A new goal starts with an empty streak, so no round is annotated or
++ * blocked for the failures of an earlier goal. With
+  * `blockAfterNoProgressRounds > 0` the streak instead hard-blocks the goal
+  * through the durable `goals.block` channel and rejects the round. The guard
+  * observes and annotates only; it never rewrites the driver's reservation
+@@ -79,13 +81,15 @@ interface RoundTrail {
+ /** Closed outcome vocabulary for one finished round. */
+ type RoundOutcome = 'progress' | 'observation' | 'noop'
+ 
+-/** Process-local per-agent guard state; never persisted. */
++/** Process-local per-agent guard state; the streak inside it belongs to one goal. */
+ interface GuardState {
+   readonly agent: Agent
+   /** Trail of the currently open round, if a goal round was admitted. */
+   trail: RoundTrail | undefined
+   /** Tool names of in-flight calls, keyed by call id for result pairing. */
+   calls: Map<ToolCallId, string>
++  /** Goal the streak and notice wording describe, empty until one is admitted. */
++  streakGoalId: string | undefined
+   /** Consecutive rounds closed without any successful tool result. */
+   noopStreak: number
+   /** Round number of the last closed trail, for notice wording. */
+@@ -144,6 +148,7 @@ export function apply(ctx: Context, config: Config): void {
+       agent,
+       trail: undefined,
+       calls: new Map(),
++      streakGoalId: undefined,
+       noopStreak: 0,
+       lastRound: 0,
+       lastTrail: { mutations: 0, observations: 0, failures: 0 },
+@@ -159,6 +164,10 @@ export function apply(ctx: Context, config: Config): void {
+ 
+   /** Fold one finished trail into the streak and the notice wording record. */
+   function closeTrail(state: GuardState, trail: RoundTrail): void {
++    // A trail left open by a goal that was superseded mid-turn says nothing
++    // about the streak of the goal now being continued.
++    if (state.streakGoalId === undefined) state.streakGoalId = trail.goalId
++    else if (state.streakGoalId !== trail.goalId) return
+     const outcome: RoundOutcome = trail.mutations > 0 ? 'progress'
+       : trail.observations > 0 ? 'observation'
+         : 'noop'
+@@ -245,10 +254,20 @@ export function apply(ctx: Context, config: Config): void {
+       isGoalRoundSource(message.source))
+     const decision = await next()
+     if (submitted === undefined || decision.kind !== 'enter') return decision
+-    const state = stateFor(agent)
+-    if (state.noopStreak < 1) return decision
+     const goal = ctx.goals.get(agent)
+     if (goal === undefined || goal.id !== submitted.source.goalId) return decision
++    const state = stateFor(agent)
++    if (state.streakGoalId !== goal.id) {
++      // First admitted round of a goal this agent has not trailed yet: the
++      // streak, round number and counters below it belong to an earlier goal
++      // and must not annotate — or with a block threshold, stop — this one.
++      state.streakGoalId = goal.id
++      state.noopStreak = 0
++      state.lastRound = 0
++      state.lastTrail = { mutations: 0, observations: 0, failures: 0 }
++      return decision
++    }
++    if (state.noopStreak < 1) return decision
+     if (resolved.blockAfterNoProgressRounds > 0 && state.noopStreak >= resolved.blockAfterNoProgressRounds) {
+       const message = `Goal round ${state.lastRound} closed ${state.noopStreak} consecutive rounds without a verifiable state delta.`
+       try {
+diff --git a/packages/goal/goal-progress-guard/tests/goal-progress-guard.spec.ts b/packages/goal/goal-progress-guard/tests/goal-progress-guard.spec.ts
+index 7367ebce09..5da18e6250 100644
+--- a/packages/goal/goal-progress-guard/tests/goal-progress-guard.spec.ts
++++ b/packages/goal/goal-progress-guard/tests/goal-progress-guard.spec.ts
+@@ -16,9 +16,10 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
+ /**
+  * Behavior suite for the goal-progress guard: round-trail classification
+  * (mutation / observation / no-op), the advisory notice folded onto the next
+- * goal round's admitted messages, the optional hard block through the durable
+- * goal channel, and fail-loud config validation — all driven through a real
+- * agent loop against a scripted mock adapter (no network).
++ * goal round's admitted messages, the streak starting empty for a new goal,
++ * the optional hard block through the durable goal channel, and fail-loud
++ * config validation — all driven through a real agent loop against a scripted
++ * mock adapter (no network).
+  */
+ 
+ /** Boot the core spine + goal service + the guard; the caller registers adapters and tools. */
+@@ -138,6 +139,28 @@ describe('advisory mode (default)', () => {
+     expect(found[0]!.text).toContain('Consecutive no-progress rounds: 1')
+     expect(found[1]!.text).toContain('Consecutive no-progress rounds: 1')
+   })
++
++  it('does not carry a no-progress streak onto a new goal', async () => {
++    const ctx = await harness()
++    const adapter = new MockAdapter([
++      textResponse('goal A round 1: noop'),
++      textResponse('goal A round 2: noop'),
++      textResponse('goal B round 1: noop'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    const first = ctx.goals.create(agent, { objective: 'finish the feature', maxGoalRounds: 9 })
++
++    await runRound(ctx, agent, 1) // noop → streak 1
++    await runRound(ctx, agent, 2) // notice(× 1); noop → streak 2
++    expect(notices(agent)).toHaveLength(1)
++
++    ctx.goals.complete(agent, { id: first.id, revision: first.revision })
++    ctx.goals.create(agent, { objective: 'refactor the parser', maxGoalRounds: 9 })
++    await runRound(ctx, agent, 1) // first round of a fresh goal: nothing to report
++    expect(notices(agent)).toHaveLength(1)
++    expect(ctx.goals.get(agent)).toMatchObject({ phase: 'active' })
++  })
+ })
+ 
+ describe('blocking mode', () => {
+@@ -161,6 +184,25 @@ describe('blocking mode', () => {
+       blockedReason: { code: 'no-progress' },
+     })
+   })
++
++  it('does not block a new goal for an earlier goal streak', async () => {
++    const ctx = await harness({ blockAfterNoProgressRounds: 1 })
++    const adapter = new MockAdapter([
++      textResponse('goal A round 1: noop'),
++      textResponse('goal B round 1: noop'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    const first = ctx.goals.create(agent, { objective: 'finish the feature', maxGoalRounds: 9 })
++
++    await runRound(ctx, agent, 1) // noop → streak 1
++
++    ctx.goals.complete(agent, { id: first.id, revision: first.revision })
++    const second = ctx.goals.create(agent, { objective: 'refactor the parser', maxGoalRounds: 9 })
++    await runRound(ctx, agent, 1) // its own first round; A's streak must not carry over
++    expect(ctx.goals.get(agent)).toMatchObject({ id: second.id, phase: 'active' })
++    expect(adapter.requests).toHaveLength(2)
++  })
+ })
+ 
+ describe('composition with the round driver', () => {
+-- 
+2.43.0
+

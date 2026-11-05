@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Git Tool Window",
+    "description": "An IDE-style Git tool window as a native sidebar tab: branch tree, commit graph, changes and commit details with staged/unstaged diffs, submodules as repos, destructive-action guards with undo handles, and the full argv-only git surface served same-origin."
+  }
+}

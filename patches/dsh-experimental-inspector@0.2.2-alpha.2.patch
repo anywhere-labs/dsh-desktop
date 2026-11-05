@@ -1,0 +1,15 @@
+diff --git a/lib/devtools/chunks/legacy-DTnDT7oK.js b/lib/devtools/chunks/legacy-DTnDT7oK.js
+index 51ebf90..6fc5655 100644
+--- a/lib/devtools/chunks/legacy-DTnDT7oK.js
++++ b/lib/devtools/chunks/legacy-DTnDT7oK.js
+@@ -867,7 +867,9 @@ var Wn = function(e, t, n, r, i) {
+ 	setWhitelistedShortcuts(e) {}
+ 	setEyeDropperActive(e) {}
+ 	showCertificateViewer(e) {}
+-	reattach(e) {}
++	reattach(e) {
++		e();
++	}
+ 	readyForTest() {}
+ 	connectionReady() {}
+ 	setOpenNewWindowForPopups(e) {}

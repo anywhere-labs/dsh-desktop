@@ -1,273 +1,143 @@
-<p align="center">
-  <a href="https://dshdesktop.cn"><img src="assets/desktop-hero-zh.png" alt="DSH Desktop：基于 DeepSeek Harness 构建的开源桌面客户端" width="100%"></a>
-</p>
+<p align="center"><img src="assets/fate-dev-banner.svg" alt="DSH Desktop · fate-dev 社区扩展：工作区、文件操作、Copilot 与 Logcat" width="100%"></p>
 
-<h1 align="center">DSH Desktop</h1>
+<h1 align="center">fate-dev DSH Desktop</h1>
 
-<p align="center">
-  <strong>基于 DeepSeek Harness 构建的 Windows、macOS 和 Linux 开源桌面客户端。</strong>
-</p>
+<p align="center">基于 <a href="https://github.com/anywhere-labs/dsh-desktop">上游 DSH Desktop</a> 的社区扩展版本，面向代码工作区、文件审阅、Git 和 Android 调试场景。</p>
 
-<h3 align="center"><a href="https://dshdesktop.cn">一键下载，开箱即用。</a></h3>
+## 导航
 
-<p align="center">
-  万物皆「插件」，桌面本身也是「插件」。
-</p>
+- [对原项目的改动](#对原项目的改动)
+- [本地 Profile 插件](#本地-profile-插件)
+- [本地配置](#本地配置)
+- [下载链接](#下载链接)
+- [代码改动记录 / Release Note](#代码改动记录--release-note)
+- [安全与隐私](#安全与隐私)
+- [效果图](#效果图)
 
-<p align="center"><sub>独立的社区开源项目，与深度求索不存在隶属、合作、授权或背书关系。<br>本仓库目前无深度求索员工或 DeepSeek Harness 上游官方团队成员参与；GitHub Contributors 中显示的上游贡献者来自 fork 继承和同步的提交历史。<br>中文 · <a href="README.en.md">English</a></sub></p>
+## 对原项目的改动
 
-<p align="center">
-  <img src="assets/desktop-chat-zh.png" alt="DSH Desktop 中文对话界面" width="100%">
-</p>
+每个功能一句话总结：
 
-<p align="center">
-  <a href="https://github.com/anywhere-labs/deepseek-harness-desktop/releases/latest"><img src="https://img.shields.io/github/v/release/anywhere-labs/deepseek-harness-desktop?style=flat&amp;label=release&amp;color=4D6BFE" alt="Latest release"></a>
-  <a href="https://github.com/anywhere-labs/deepseek-harness-desktop/releases"><img src="https://img.shields.io/github/downloads/anywhere-labs/deepseek-harness-desktop/total?style=flat&amp;label=downloads&amp;color=4D6BFE" alt="Total downloads"></a>
-  <a href="https://github.com/anywhere-labs/deepseek-harness-desktop"><img src="https://img.shields.io/github/stars/anywhere-labs/deepseek-harness-desktop?style=flat&amp;label=%E2%98%85&amp;color=08C" alt="GitHub stars"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat" alt="MIT License"></a>
-  <a href="https://discord.gg/TJeGqKRNM"><img src="https://img.shields.io/badge/Discord-5865F2?style=flat&amp;logo=discord&amp;logoColor=white" alt="Join Discord"></a>
-  <img src="https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-4493F8?style=flat-square" alt="Supported platforms: macOS, Windows and Linux">
-</p>
-
-DSH Desktop 将 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的本地 Web UI、Host 服务和插件系统集成到原生桌面应用中。项目固定并原样运行特定上游版本；DSH Desktop 提供窗口、托盘、终端、更新和工作配置，并通过 DeepSeek Harness 提供的插件机制与上游能力组合。
-
-<a id="run"></a>
-
-## 下载与安装
-
-当前正式安装包支持 Windows x64、macOS Universal 和 Linux（x64 与 arm64）。无需额外环境，下载安装，一键使用。
-
-| 平台 | 下载 | 安装方式 |
-| --- | --- | --- |
-| Windows x64 | [下载安装程序](https://www.dshdesktop.cn/api/downloads/windows) | 运行 NSIS 安装程序并按提示完成安装 |
-| macOS Universal | [下载 DMG](https://www.dshdesktop.cn/api/downloads/mac) | 打开 DMG，将 DSH Desktop 拖入 Applications |
-| Linux x64 / arm64 | [GitHub Release](https://github.com/anywhere-labs/dsh-desktop/releases/latest) | 按发行版选择 deb、AppImage 或 tar.gz，见下方 [Linux 安装](#linux) |
-
-<a id="linux"></a>
-
-### Linux 安装
-
-Linux 安装包只在 GitHub Release 发布，x64 与 arm64 各有三种格式：
-
-| 格式 | 适用 | 安装与启动 |
-| --- | --- | --- |
-| deb | Debian、Ubuntu 及其衍生发行版 | `sudo apt install ./DSH-NEXT-<版本>-amd64.deb`（arm64 为 `-arm64.deb`），之后从应用菜单启动 |
-| AppImage | 其他发行版，免安装 | `chmod +x DSH-NEXT-<版本>-x86_64.AppImage`（arm64 为 `-arm64.AppImage`）后直接运行 |
-| tar.gz | 自行管理文件 | 解压 `DSH-NEXT-<版本>-linux-x64.tar.gz`（arm64 为 `-linux-arm64.tar.gz`），运行其中的 `dsh-desktop-next`；不会创建应用菜单入口 |
-
-Ubuntu 24.04 及以上推荐使用 deb，它会安装 Chromium 沙箱需要的 AppArmor 配置。发布页的 `SHA256SUMS.txt` 可用于核验下载的文件。
-
-Linux 版不能在应用内安装更新：发现新版本时应用会提示，并可直接打开该版本的发布页；请下载与当前安装方式相同的格式手动更新。deb 用同样的 `sudo apt install` 命令覆盖安装，AppImage 用新文件替换旧文件。
-
-详细步骤、插件命令和故障排查见[用户指南](docs/user-guide.md)与[常见问题](docs/faq.md)。
-
-我们希望和所有插件作者一起，构建一个开放、可组合、可持续的 DSH 插件生态，让每个插件都能与其他插件共同进步：[DSH 插件生态倡议书](docs/plugin-ecosystem.md)。
-
-<details open>
-<summary>❤️ 赞助商</summary>
-
-| Logo | 简介 |
+| 功能 | 一句话总结 |
 | --- | --- |
-| <a href="https://dshdesktop.cn/sponsors/wuying"><img src="assets/sponsors/wuying-cloud-computer-logo.png" alt="阿里云无影云电脑" width="96"></a> | [**阿里云 · 无影云电脑**](https://dshdesktop.cn/sponsors/wuying)<br>感谢 **阿里云** 无影云电脑赞助本项目！无影云电脑个人版面向个人用户提供云上电脑服务，将计算、存储和桌面环境放在云端，支持在多类终端上接入使用，并可按需选择不同规格，适合远程办公、学习、开发和轻量创作等场景。<br><br>[**打开微信注册 →**](https://dshdesktop.cn/sponsors/wuying) |
-| <a href="https://www.ucloud.cn/site/active/astraflow?ytag=geo_waituo_dsh"><img src="assets/sponsors/astraflow-logo.png" alt="UCloud 星图 AstraFlow" width="96"></a> | [**UCloud · 星图 AstraFlow**](https://www.ucloud.cn/site/active/astraflow?ytag=geo_waituo_dsh)<br>感谢 **UCloud** 星图 AstraFlow 大模型赞助了本项目！优刻得 **UCloud** 星图 AstraFlow 大模型，支持 200+ 模型一键调用：内置 Kimi K3、DeepSeek V4/V3、Qwen 3、GLM5.2、happyhorse 等全球领先开源大模型，无需自训，开箱即用。<br><br>[**访问官网 →**](https://www.ucloud.cn/site/active/astraflow?ytag=geo_waituo_dsh) |
-| <a href="https://88api.ai/sign-up?aff=VnEb"><img src="assets/sponsors/88api-logo.png" alt="88API" width="120"></a> | [**88API Token 聚合平台**](https://88api.ai/sign-up?aff=VnEb)<br><br>🧠 聚合 GPT、Claude、Gemini、Grok、DeepSeek、Kimi、GLM 等语言与编程模型；<br>🎨 图片模型：GPT-Image、Gemini、Grok 等；<br>🎬 视频模型：Seedance、Veo、MiniMax H3、Kling、Grok 等；<br>🎙️ 语音能力：Whisper、TTS 等。从文案、出图、改图，到视频生成与配音<br>🎁新用户注册送体验额度，可以检测模型能力。站内有人工客服值守！<br>👉香港正规企业运营 稳定供应 全绿满血 不降智 提供发票<br><br>[**立即注册 →**](https://88api.ai/sign-up?aff=VnEb) |
-| <a href="https://onliqiu.com/r/ds2h"><img src="assets/sponsors/liqiu-api-logo.png" alt="立秋 API" width="96"></a> | [**立秋 API**](https://onliqiu.com/r/ds2h)<br>自古逢秋悲寂寥，我言秋日胜春朝。立秋API 是一家稳定、透明、纯血的AI中转站，提供ChatGPT、Claude、Grok、GLM等AI中转服务，按量付费，支持开票，大家都炸我不炸，凌晨依然在线维护，倍率低至 0.09x 起。<br><br>[**注册使用 →**](https://onliqiu.com/r/ds2h) |
+| 多目录工作区 | 编辑工作区时可管理主目录和附加目录；文件浏览器可切换独立根目录，不改变会话工作目录，解除关联不会删除磁盘目录。 |
+| 文件树快捷操作 | 从文件树直接定位系统文件管理器、用 VS Code 打开、复制路径，或把文件/目录作为结构化引用插入对话。 |
+| Git Review（Git 代码审阅） | 按当前会话查看变更；可在主目录和附加目录根之间切换，并展开各根下的 Git 工作树（worktree）选择审阅范围。 |
+| 可编辑 Git 工作区 | 在桌面端进行 Git 工作区相关操作，并将 Git 面板与代码审阅目录保持独立。 |
+| GitHub Copilot | 使用 GitHub 设备码登录，并在模型选择器中使用可用的 Copilot 模型。 |
+| Android Logcat | 通过 adb 选择设备，按进程、Tag、排除 Tag 或消息正则过滤实时日志，并支持暂停、复制、导出和设备截图。 |
+| 目标续轮止血 | 自动续轮的目标连续几轮没有新证据、或同一调用反复出现时，先停续轮再让模型分析卡点，预算用尽才标记 blocked。 |
+| Host 进程隔离 | Host Cordis 根跑在独立的 Electron Node-mode 子进程里，不走 Chromium 的 Utility 进程分配器；Host 意外退出不会重放在飞的任务。 |
+| 会话与文件安全 | 文件引用使用结构化路径，README 与审阅截图不包含 Session、记忆数据库、凭据或访问令牌。 |
 
-</details>
+## 本地 Profile 插件
 
-## 文档
+版本号取自本机 `desktop` Profile 的 manifest（`~/.dsh/profiles/desktop/package.json`），只列当前声明并启用的插件。
 
-普通用户从[用户指南](docs/user-guide.md)开始即可；开发者文档只在需要扩展或维护时才需要阅读。
+| 插件 | 版本 | 用途 |
+| --- | ---: | --- |
+| `dsh-byte-guard-recovery` | 0.1.0（仓库内 `file:` 插件） | 请求体字节超限（本地保险丝或端点 413）时原地修剪压缩并重试，不换会话 |
+| `dsh-mnemon` | 0.5.30 | 可组合的分层记忆，附带 provider / strategy / source 子包 |
+| `dsh-rewind-plugin` | 0.15.3 | 同窗口对话回退并还原工作区文件 |
+| `dsh-session-recycle-bin` | 0.4.3 | 会话回收站：侧边栏删除图标、多选还原或彻底删除、活跃会话保护 |
+| `dsh-dream-skin` | 10.10.0 | 界面换肤主题包 |
+| `dsh-mermaid` | 0.4.1 | Mermaid 代码块按图 / 码切换渲染 |
+| `dsh-ffmpeg` | 0.4.5 | 用自然语言调用 FFmpeg 处理已有音视频 |
+| `@linxin666/dsh-client-ui-git-graph` | 0.4.6 | 新会话 Git 分支选择与提交图 |
 
-### 用户文档
+Profile 的 bundle 顺序里还包含官方包 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@deepseek-ai/dsh-experimental-auto-review` 和 `dshmarket`。`dsh-byte-guard-recovery` 只在 Profile 目录以 `file:` 依赖存在，不进装机包。
 
-| 目标 | 入口 |
-| --- | --- |
-| 安装和日常使用 | [用户指南](docs/user-guide.md) |
-| 快速确认平台、环境和使用边界 | [常见问题](docs/faq.md) |
-| 了解数据处理与隐私选择 | [隐私政策](PRIVACY.zh.md) |
-| 了解项目为什么存在 | [为什么做 DSH Desktop](docs/why-desktop.md) |
-| 查看全部文档与 README 分工 | [文档索引](docs/README.md) |
+## 本地配置
 
-### 开发者与维护者文档
+配置快照在 [`config/desktop-profile/cordis.patch.yml`](config/desktop-profile/cordis.patch.yml)，只提交配置项本身，不含凭据值和本机路径。当前生效内容：
 
-| 目标 | 入口 |
-| --- | --- |
-| 阅读插件生态倡议书 | [插件生态倡议书](docs/plugin-ecosystem.md) |
-| 编写普通或 Desktop 插件 | [插件开发](docs/plugin-development.md) |
-| 参与统一插件 contract 讨论 | [DSH Community Fabric Draft](dsh-community-fabric/README.zh.md) |
-| 了解统一插件框架为什么这样设计 | [成熟框架与真实插件调研](dsh-community-fabric/docs/research/mature-plugin-frameworks.zh.md) |
-| 查看插件市场的产品与安全设计 | [DSH Community Market](dsh-community-market/README.zh.md) |
-| 了解桌面插件可以使用的能力 | [桌面插件接口说明](dsh-plugin-desktop/docs/plugin-services.zh.md) |
-| 了解桌面应用如何工作 | [架构说明](docs/architecture.md) |
-| 查阅包级构建与发布细节 | [`dsh-plugin-desktop/README.md`](dsh-plugin-desktop/README.md) |
-
-## 主要功能
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>Desktop</h3>
-      <p>把上游 DeepSeek Harness 的本地 Web UI 带到原生桌面。应用自动启动和管理本地 Harness 服务，集成系统托盘与桌面窗口，无需安装 Node.js 或执行命令。</p>
-    </td>
-    <td width="50%" valign="top">
-      <h3><a href="https://www.agents-anywhere.com">手机远程控制</a> <img src="https://img.shields.io/badge/%E5%B7%B2%E5%86%85%E7%BD%AE-2EA44F?style=flat-square" alt="已内置"></h3>
-      <p>通过 iOS 和 Android 远程连接 Desktop，在手机上发起任务、查看 Agent 进度，并在需要时继续跟进。已在2.0.9及以上版本中内置</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h3><a href="dsh-community-market/README.zh.md">插件市场</a> <img src="https://img.shields.io/badge/%E5%B7%B2%E5%86%85%E7%BD%AE-2EA44F?style=flat-square" alt="已内置"></h3>
-      <p>DSH Community Market 已完成并内置，提供插件发现、详情、安装与管理。市场以开放方式连接各种插件数据源：任何人都可以提供、接入和使用符合公开 Schema 的来源，已有 API 也可以通过受审 adapter 加入合作数据源。</p>
-    </td>
-    <td width="50%" valign="top">
-      <h3>共建插件生态</h3>
-      <p>DSH 的插件生态由社区共同建设。上游插件、DSH Desktop 插件和其他社区插件遵循统一的约定，可以通过相同的组合机制共同工作；欢迎加入共建，详见 <a href="docs/plugin-ecosystem.md">DSH 插件生态倡议书</a>。</p>
-    </td>
-  </tr>
-</table>
-
-### 首次设置、浏览器与局域网访问
-
-每个尚未初始化的 profile 正常首次启动时，会先显示由 Desktop 自己提供的原生 Setup Wizard。它可以设置窗口模式与系统材质、插件市场、通知、是否用系统默认浏览器自动打开，以及 Web 访问范围；也可以直接跳过。向导完成或跳过以前，Host 和主 DSH 窗口都不会启动。完成或跳过状态按 profile 分别记录；显式恢复启动仍优先进入恢复助手。
-
-Web 服务默认仅监听本机回环地址。开启“用浏览器打开”后，Desktop 会在 Web 服务实际就绪时交给系统默认浏览器打开；这个选项不会改变网络暴露范围。“桌面设置”会在选项下显示实际的本机 URL。局域网访问是一个独立的可选设置，开启后还会显示当前可用的局域网 URL。
-
-> **危险：** 向局域网开放不提供鉴权；所有与你处于同一局域网的人都能直接打开 DSH 并操作你的电脑。请只在完全信任的网络中谨慎开启。
-
-自动更新的固定版本检查请求会在 `X-DSH-Desktop-Version` header 中携带当前安装版本，在 `X-DSH-Desktop-Channel` 中携带 `stable` 或 `beta`；macOS 和 Windows 版还会在 `X-DSH-Desktop-Installation-Id` header 中携带一个由本机生成并持久保存的随机 UUID，它不是从硬件信息推导出的标识，Linux 版不发送这个 header。安装包下载会携带通道和 `X-DSH-Desktop-Target-Version`，但下载请求及其重定向不会携带安装标识或当前版本。
-
-## 插件生态
-
-插件是给 DSH 添加能力的扩展包——模型、工具、界面、工作流都可以做成插件，像搭积木一样自由组合。
-
-DSH Desktop 没有修改上游源码，也不是一个固定写死的外壳。固定版本的上游 DeepSeek Harness 原样运行；桌面壳本身——窗口、托盘、终端、更新、工作配置——作为 DSH 插件接入，并通过 DeepSeek Harness 提供的插件机制与上游能力组合进同一个运行时。从核心 agent 到桌面外壳，整个产品遵守同一条"一切皆插件"的规则：与所固定上游版本兼容的插件可以使用，桌面能力也按插件的方式组合、替换和演进。
-
-我们希望插件生态像手机应用一样：每个插件按同一套规则开发，装在一起也能一起工作、互不干扰。
-
-### 给开发者
-
-与许多其他项目不同，这个项目本身就是一个 DSH [插件](docs/plugin-development.md)：桌面壳与第三方插件使用相同的插件组合机制。Desktop 的插件能力已经可以使用。我们提供了 Desktop 服务，让插件开发者能够把插件与桌面能力集成起来：例如查看和切换工作配置，或在当前配置中安装、更新和移除插件。完整用法见[桌面插件接口说明](dsh-plugin-desktop/docs/plugin-services.zh.md)。为什么选择这样的边界、哪些能力不会暴露给第三方插件，见[为什么做 DSH Desktop](docs/why-desktop.md)和[插件开发指南](docs/plugin-development.md)。
-
-## 与 DeepSeek Harness 的关系
-
-DSH Desktop 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 和 Cordis 插件思想构建的独立社区项目，旨在提供开放、可组合的 DSH 桌面体验。
-
-本仓库由社区独立维护，目前不存在深度求索员工或 DeepSeek Harness 上游官方团队成员参与本项目开发、维护或治理的情形。GitHub Contributors 页面中可能出现的上游贡献者，来自本仓库 fork 时继承及后续同步的上游提交历史；该署名仅反映提交来源，不代表相关人员参与本仓库，也不构成任何隶属、合作、授权或背书关系。
-
-上游项目提供核心的智能体能力、插件系统和 Web UI；DSH Desktop 主要负责：
-
-- 桌面应用封装
-- 本地服务的启动、停止与恢复
-- 桌面窗口和系统托盘集成
-- macOS、Windows、Linux 安装包构建与发布
-- 更适合桌面使用的界面体验
-
-如果你希望通过命令行运行 DeepSeek Harness，或者参与其核心功能开发，请优先查看上游仓库。
-
-## 特别感谢
-
-特别感谢 [DeepSeek Harness 原始仓库](https://github.com/deepseek-ai/deepseek-harness) 和 DeepSeek AI 团队。DSH Desktop 基于固定版本的上游源码构建，核心的智能体、模型、工具、会话、Web UI 和插件生态都来自这个项目。
-
-同时感谢 [Cordis](https://github.com/cordiverse/cordis) 项目提供的插件化基础。没有这些开源项目，就不会有 DSH Desktop。
-
-也感谢 [Koishi.js](https://koishi.chat/) 项目和社区长期积累的插件化实践、工具与经验，以及所有参与讨论、测试、反馈和插件开发的社区成员。
-
-以及每一个使用、支持和参与共建的你。
-
-<a id="run-from-source"></a>
-
-## 开发
-
-稳定版与 Beta 桌面包分别位于 `dsh-plugin-desktop/` 和 `dsh-plugin-desktop-beta/`。外层仓库使用 Yarn，固定的 `deepseek-harness/` 子模块继续使用自己的 pnpm workspace。从仓库根目录执行：
-
-```sh
-git submodule update --init --recursive
-corepack yarn install --immutable
-corepack yarn dev
-```
-
-headless 检查使用 `corepack yarn check`；完整的构建、测试和发布边界见[架构说明](docs/architecture.md)和包级 [`README`](dsh-plugin-desktop/README.md)。如何参与贡献见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-### macOS 麦克风权限
-
-Stable、Beta、Next 的主应用和 Electron Helper 签名直接使用固定上游 checkout 中的
-`deepseek-harness/apps/desktop/scripts/macos-entitlements.plist`。更新子模块版本后，打包会自动使用对应的权限文件，无需维护本地副本；打包前须初始化子模块。各版本的 macOS 配置保留产品自己的麦克风用途说明。
-
-语音输入沿用上游录音流程触发系统授权，语音插件旁不再提供额外权限按钮，Stable/Beta 也不再安装麦克风权限请求桥接或拦截器。
-
-## 社区交流
-
-可选择常用的平台参与讨论，交流使用问题、插件开发和项目进展。
-
-<table>
-  <thead>
-    <tr>
-      <th align="center">企业微信</th>
-      <th align="center">QQ群</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center"><img src="assets/community-wechat-group.png" alt="DSH Desktop 企业微信二维码" title="扫码添加企业微信" width="180" height="180"></td>
-      <td align="center"><img src="assets/community-qq-group.jpg" alt="DSH Desktop QQ群二维码" width="180" height="180"></td>
-    </tr>
-  </tbody>
-</table>
-
-Discord：[加入 DSH Desktop 社区](https://discord.gg/TJeGqKRNM)
-
-如果您希望加入我们的技术团队，也欢迎通过 [t4wefan@qq.com](mailto:t4wefan@qq.com) 联系我们。
-
-## 友情链接
-
-这里收录 DeepSeek Harness 生态项目及开发者工具。
-
-| 项目 | 简介 | 链接 |
+| 项 | 生效值 | 为什么这样配 |
 | --- | --- | --- |
-| dshfind | DeepSeek Harness（DSH）学习与分享社区。 | [GitHub](https://github.com/hikariming/dshfind) · [官网](https://dshfind.com) |
-| DSH 1024Store | 面向 DeepSeek Harness（dsh）生态的社区插件目录（收录 4120 个插件），并开源了在线插件市场、目录流水线与公开查询 API，可 fork 自建市场。 | [GitHub](https://github.com/imsai-sh/awesome-deepseek-harness-plugins) |
-| Awesome DSH Plugin | DeepSeek Harness（DSH）插件精选列表。 | [GitHub](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) |
-| dsh-market | DeepSeek Harness 内的可视化插件市场，支持浏览、搜索与一键安装插件。 | [GitHub](https://github.com/dsh-market/dsh-market) |
-| ModLens | 为 DeepSeek Harness 和纯文本 Coding Agent 提供 OCR、版面与语义识别能力。 | [GitHub](https://github.com/liustack/modlens) · [官网](https://liustack.dev) |
-| DeepSeek Harness 橙皮书 | DeepSeek Harness 社区实测手册。 | [GitHub](https://github.com/alchaincyf/deepseek-harness-orange-book) |
-| dsh-web-ui | DeepSeek Harness Web UI 插件与皮肤合集。 | [GitHub](https://github.com/zhu1090093659/dsh-web-ui) · [展示站](https://gallery.dsh-market.com) |
-| dsh-TUI | DeepSeek Harness 全屏交互式终端界面。 | [GitHub](https://github.com/ccch1mneyyy/dsh-TUI) |
-| dsh-tianshu-tui | DSH Web 端交互式终端极简风格 UI 插件，自研 ANSI 渲染核心、极致丝滑流畅；在官方基础上增加了 TDD、证据门、视觉图像模块等工作流。 | [GitHub](https://github.com/huiliyi37/dsh-tianshu-tui) |
-| dsh-context | DSH 上下文洞察面板：Context 仪表盘 + /context 命令 + Context 浏览器，一站式查看 Context 的分类组成、内容详情、演进趋势、压缩/注入事件与统计，覆盖 Context 全生命周期管理。 | [GitHub](https://github.com/bowenliang123/dsh-context) · [NPM](https://www.npmjs.com/package/dsh-context) |
-| Agents-Anywhere | 从手机远程控制电脑上的 Coding Agent。 | [GitHub](https://github.com/anywhere-labs/Agents-Anywhere) |
-| deepseek-harness-remote | 基于 P2P 与 APIProxy 的 DeepSeek Harness 远程控制与多端协同插件。 | [GitHub](https://github.com/liguobao/deepseek-harness-remote) |
-| DSH-better-sidebar | DeepSeek Harness 侧边栏工作台，集成文件、终端、Git 和子代理。 | [GitHub](https://github.com/omdsh-dev/DSH-better-sidebar) |
-| Awesome DeepSeek Harness | DeepSeek Harness 插件、工具与基础设施精选列表。 | [GitHub](https://github.com/0xsline/awesome-deepseek-harness) · [官网](https://deepseekdocs.com/) |
-| 深求社区（DeepSeek.club） | 全球最大的第三方 DeepSeek 开源生态社区，聚合模型库、应用榜、Harness 插件库与 Harness 学院，一站式服务开发者，研究者与企业用户。 | [官网](https://deepseek.club) |
-| MkSaaS · TanStarter | 面向独立开发者的商业 SaaS 启动模板。MkSaaS 基于 Next.js，TanStarter 基于 TanStack Start 与 Cloudflare，内置 AI、认证、支付和后台等常用能力。 | [MkSaaS](https://mksaas.com) · [TanStarter](https://tanstarter.dev) |
+| 桌面外壳 | `mode: compatibility`、macOS 材质 `transparent`、Windows 材质 `off`、`networkExposure: loopback`、`openBrowser: true` | 兼容模式跑上游默认前端；只监听回环，不做局域网暴露 |
+| 通知 | 回合完成/失败、任务完成/失败、定时任务完成/失败全部 `true` | 长任务离屏后靠通知回到会话 |
+| 默认模型 | `github-copilot` / `gpt-6-sol` | 模型选择器的默认落点 |
+| 权限预设 | 默认 `danger-full-access`（sandbox 全开、`approval: never`），另保留 `read-only` 与 `workspace-write` 两个 `ask` 预设 | 本机开发环境直接放开，预设仍可在设置里切换 |
+| 请求体上限 | Copilot 单图 1 MiB、总请求 2 MiB | 与 `dsh-byte-guard-recovery` 的字节保险丝配套，超限先原地修剪 |
+| 上下文压缩 | `compaction-basic`、`tool-result-pruner`、`command-compact` 全部显式 `disabled: false` | 上游 Web 载体默认关闭，且补丁是浅合并，必须显式打开；kimi-k3 按窗口 0.35 触发、保留 0.08，先于 2 MiB 字节保险丝 |
+| 记忆 | `dsh-mnemon` 远程访问 `read-only`、本地 embedding 关闭、`strict-v1` 召回策略、三层记忆视图 | 不额外拉本地向量服务 |
+| 界面 | 主题跟随系统、字号 17、开发者工具开启、过程与用量视图 `detailed` | 排查需要完整过程与用量 |
+| 会话日志 | `@deepseek-ai/dsh-session-log-deepseek` `enabled: false` | 不把会话内容写日志 |
 
-<sub>如果希望收录您的项目，欢迎加入微信群并私信 @王博升Benson，或联系 t4wefan@qq.com，或<a href="https://github.com/anywhere-labs/deepseek-harness-desktop/issues">提出 issue</a>。</sub>
+两点注意：
 
-## 关于我们
+- API Key 只以环境变量名引用（例如 `XIAOMI_TOKEN_PLAN_CN_API_KEY`），仓库不落任何密钥值。
+- 本机 Profile 里还残留 `@zhangfengshun/dsh-remote-ssh` 的配置项，但该插件已不在 manifest 中，启动时会打印 entry not found 警告；仓库快照不收录这一段，因为它包含内网地址和私钥路径。
 
-我们因对开源的热爱而相聚，以协作推动创新，共同将 AI 的可能性转化为触手可及的工具与体验。
+## 下载链接
 
-<p align="center">
-  <a href="https://github.com/anywhere-labs/about-us"><img src="https://img.shields.io/badge/%E8%AE%A4%E8%AF%86%E6%88%91%E4%BB%AC%E7%9A%84%E5%9B%A2%E9%98%9F-Anywhere%20Labs-4D6BFE?style=for-the-badge" alt="认识我们的团队"></a>
-</p>
+当前 Release 只保留 Stable 通道：
 
-## License
+| 版本 | Debian / Ubuntu |
+| --- | --- |
+| Stable 2.0.17 | [下载 `.deb`](https://github.com/FateFeng/dsh-desktop/releases/download/v2.0.17-fate-dev/DSH-Desktop-2.0.17-amd64.deb) |
 
-本项目遵循 [MIT License](LICENSE)。
+本项目后续不再分发 AppImage，仅维护可验证的 Debian / Ubuntu Stable 安装包。
 
-> “DeepSeek Harness”是深度求索公司的注册商标。本文仅为准确说明兼容性、技术来源及与上游软件的关系而使用该名称。
+- Release 页面：<https://github.com/FateFeng/dsh-desktop/releases/tag/v2.0.17-fate-dev>
+- Debian SHA-256：`2915f6ed9be7beddf42159c9553f1d1473f99b06982e663fa3236356f2a28479`
+- 当前已验证 `.deb` 资产大小：242,430,032 bytes。
 
-> 本项目完全开源免费。如果有人向您以任何形式出售此软件，请拒绝交易。
+## 代码改动记录 / Release Note
 
-> DSH Desktop 是独立的社区项目，与深度求索不存在隶属、合作、授权或背书关系。
+### 与上游原仓库拉齐（2026-11-05）
 
-## Star History
+- 本地 `master` 先与 <https://github.com/anywhere-labs/dsh-desktop> 同步，再合入 `fate-dev`，带入 48 个上游提交：Beta 与 Next 一起升到 DeepSeek Harness `0.2.2-rc.1`，子模块 pin 取 `66491b05e3`（与 `upstream.json` 的 activeChannel 一致），`vendor/dsh-runtime/0.2.2-rc.1/`、`patches/` 下的 `@0.2.2-rc.1` 补丁与 Next 的打包脚本随之更新，`_deprecated/` 里的旧 runtime 快照和旧补丁清理掉。
+- 通道取值的取舍：Stable 继续留在 `0.2.2-alpha.2`（本机 2.0.17 装机包和 71 个本地 Stable 源码文件都按这条运行时验证过），Beta/Next 接受上游的 `0.2.2-rc.1`。因此根 `package.json` 的 `resolutions` 同时保留 alpha.2 与 rc.1 两套 vendor 映射，`dsh-ide-git`、`@earendil-works/pi-ai` 的本地补丁映射不变；`0.2.1-rc.5` 那一套随 Next 升级删除。
+- `dsh-community-market` 的 peer 兼容串扩成 `0.2.1-rc.3 || 0.2.2-alpha.2 || 0.2.2-rc.1`（Cordis `4.0.5 || 4.0.6-alpha.1 || 4.1.0`），`tests/contracts.spec.ts` 的期望同步；该包仍是文档脚手架，不声明可载入入口。
+- Beta 和 Next 现在跟同一条上游发布，必须完全镜像：`dsh-desktop-next/tsconfig.json` 里那段 `paths` 去掉 `next-lead` 标记并同步到 `dsh-plugin-desktop-beta/tsconfig.json`，`corepack yarn check:desktop-variants` 按 359 个文件对齐通过。
+- 上游删掉了 `0.2.2-alpha.2` 那批运行时补丁，但 Stable 仍然依赖，已把 31 个 `patches/*@0.2.2-alpha.2.patch` 恢复到工作树。
+- 上游 README 的徽章、下载表和插件生态章节没有并入：本文件的社区版内容（功能表、本地 Profile 插件、本地配置、本地改动记录、唯一一张效果图）继续以 `fate-dev` 为准。
+- 门禁状态：`corepack yarn install --immutable`、`yarn test`、`yarn typecheck`（Beta / Market / Next）、`check:desktop-variants`、`check:bilingual-docs` 全绿。`dsh-plugin-desktop` 自身的 typecheck 仍在 `sidebar.workspaces.workspace.edit` 上报红——该 slot 只存在于未发布的 harness 源码，两个已发布运行时都不带；`check:layout` 仍在 `dsh-plugin-desktop` 依赖 `dsh-ide-git: workspace:*` 上报红。这两条合并前就已如此，且都不在 CI 的打包门禁里。
 
-<a href="https://www.star-history.com/?repos=anywhere-labs%2Fdeepseek-harness-desktop&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=anywhere-labs/deepseek-harness-desktop&type=date&theme=dark&legend=top-left&sealed_token=BRTkOyC4czCEkIyFb5-QxrsC-kaDotBJ8tsjxrWs-UGfmBqfRCXSwieZPlVTCYOjJVEZ29uLvmBjAPREB524J5dPN1jk-UA7ajFdLdrbjumJqoOBeGWmig" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=anywhere-labs/deepseek-harness-desktop&type=date&legend=top-left&sealed_token=BRTkOyC4czCEkIyFb5-QxrsC-kaDotBJ8tsjxrWs-UGfmBqfRCXSwieZPlVTCYOjJVEZ29uLvmBjAPREB524J5dPN1jk-UA7ajFdLdrbjumJqoOBeGWmig" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=anywhere-labs/deepseek-harness-desktop&type=date&legend=top-left&sealed_token=BRTkOyC4czCEkIyFb5-QxrsC-kaDotBJ8tsjxrWs-UGfmBqfRCXSwieZPlVTCYOjJVEZ29uLvmBjAPREB524J5dPN1jk-UA7ajFdLdrbjumJqoOBeGWmig" />
- </picture>
-</a>
+### 与云端 0.2.2-alpha.2 线合并（`ce00e94318`，2026-11-05）
+
+- 运行时升到 `0.2.2-alpha.2`，上游补丁序列按云端版本重做，`patches/` 下的 `patch:` 文件与 `yarn.lock` 一起对齐。
+- Beta 通道迁到 dsh-desktop-next 框架：`dsh-plugin-desktop-beta` 的 61 个旧结构文件删除，内容都在 `dsh-plugin-desktop` 或合并前快照 `cb23a018b0` 里，`corepack yarn check:desktop-variants` 现在按 Next ↔ Beta 比对。
+- 云端已有的实现一律以云端为准，包括 Git Review 多根、附加目录、目标续轮止血、Host 进程隔离和渲染崩溃诊断。
+
+### 本地相对云端的独有改动（2026-11-05）
+
+| 改动 | 位置 | 说明 |
+| --- | --- | --- |
+| 多 worktree 仓库扫描 | [`dsh-ide-git/src/index.js:1501`](dsh-ide-git/src/index.js) | 仓库枚举默认跳过所有点目录，这里放行 `.worktrees`，Git 面板与代码审阅才能发现并列的 worktree；配套测试在 `dsh-ide-git/tests/repos.test.mjs` |
+| 字节保险丝恢复插件 | [`config/desktop-profile/plugins/dsh-byte-guard-recovery/`](config/desktop-profile/plugins/dsh-byte-guard-recovery/) | 请求体超限时原地修剪压缩并重试，含恢复阶梯、压缩不变量、真实 surface 折叠三个测试 |
+| Crashpad minidump 取证 | [`dsh-plugin-desktop/src/crashpad-evidence.ts`](dsh-plugin-desktop/src/crashpad-evidence.ts) | 解析本地 minidump 头部，诊断导出只列元信息，dump 本体不出机器 |
+| Node-mode Host 与附加根切换测试 | `dsh-plugin-desktop/tests/host-process-node-mode.spec.ts`、`dsh-plugin-desktop/tests/workspace-sources-root-switch.spec.tsx` | 覆盖 Host 独立子进程的 RPC，以及 Files 树切到附加根后按会话 cwd 记选择 |
+| 上游本地补丁序列存档 | [`patches/upstream/`](patches/upstream/) | rc.2 的 0014（会话持久化不读更新 harness 的数据）、0015（草稿只从可用 seed 恢复），以及 rc.2 / rc.5 两份工作区快照 |
+| Profile 配置快照 | [`config/desktop-profile/cordis.patch.yml`](config/desktop-profile/cordis.patch.yml) | 见「本地配置」一节 |
+| 布局门禁补第 6 个 workspace | [`scripts/verify-layout.mjs:33`](scripts/verify-layout.mjs) | 根 `workspaces` 已含 `dsh-ide-git`，检查列表漏了这一项 |
+| electron-builder 启动器改为可选 | [`dsh-plugin-desktop/scripts/package-linux.ts:63`](dsh-plugin-desktop/scripts/package-linux.ts) | 本地 argv 归一化启动器缺省时直接调用 electron-builder CLI，上游新增的 `package-targets.spec.ts` 固定装置不提供该字段也能通过 |
+
+### 2.0.17-fate-dev
+
+- Workspace Edit 可新增或解除附加目录关联，Files 浏览器按主目录/附加目录独立切换；Git Review 根目录树按 Workspace source 展开 Git 工作树（worktree），切换审阅根或工作树时保留当前会话范围，枚举失败可重试。
+- `5fced936e9`：将 Git Review worktree 合并到 `fate-dev`。
+- `f7c3d06b81`：新增按会话隔离的 Git Review，并支持附加工作区根。
+- `97291e91c9`：接入可编辑 Git 工作区工具。
+- `70962df847`：修复在光标位置插入文件引用。
+- `91efd87d8d`：要求 Assistant 输出绝对文件路径。
+- `6458eff142`：保存 workspace sources，并整合 Desktop workspace 功能。
+- `7300dd918c`：新增文件树上下文菜单快捷操作。
+- `de3b76afbc`：加入 GitHub Copilot provider 支持与 Android Logcat 过滤记忆。
+- `b125d0203d`：更新 Desktop 版本至 `2.0.17`。
+- `9765a12e67`：补充 README、Git Review 效果图、插件清单与 Stable 下载说明。
+
+## 安全与隐私
+
+- README 只保留一张效果图，截图内的本地路径、仓库名和目录细节均已遮盖。
+- 文档只记录插件包名、版本和配置项名称，不记录本机目录、内网地址、账号、Session 内容或插件配置值。
+- `config/desktop-profile/cordis.patch.yml` 只收录配置项；凭据一律用环境变量名引用，含私钥路径与内网地址的片段不入库。
+- 发布前应继续检查新增截图和构建产物，避免把本地 Session、记忆数据库、凭据或访问令牌放入仓库或 Release。
+
+## 效果图
+
+### 附加目录与 Git Review 工作树选择
+
+<p align="center"><img src="assets/readme/git-review-worktree.jpg" alt="附加目录和 Git Review 工作树选择界面；可见本地路径均已遮盖" width="100%"></p>
+
+<p align="center"><sub>插件自身的界面截图仍在 <a href="dsh-plugin-desktop/docs/screenshots/">dsh-plugin-desktop/docs/screenshots/</a>。</sub></p>

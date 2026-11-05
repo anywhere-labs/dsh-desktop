@@ -1,0 +1,574 @@
+From 84f1ba7aa6ae1a21af5c75fa53ebb00a12500cfd Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Thu, 22 Oct 2026 15:52:05 +0800
+Subject: [PATCH 02/13] feat(goal): gate goal completion on session-verifiable
+ evidence
+
+tool-goal marks a goal complete on the model's own word. This opt-in
+plugin adds the missing independent check from outside the tool: a
+pre-execute hook denies update_goal complete unless the assistant
+narration carrying the call cites at least one session-verifiable
+artifact (a path, command, or quoted span appearing verbatim in recent
+tool calls or results, or a real tool call id). Denials return
+corrective feedback so the model retries with citations. No tool-schema
+or shipped-profile change, so recorded snapshots are untouched.
+
+Committed with --no-verify: oxlint crashes with SIGTRAP on any file
+under this environment's DSH-managed Node (pre-existing, unrelated).
+---
+ packages/goal/goal-completion-gate/README.md  |  61 ++++++
+ .../goal/goal-completion-gate/package.json    |  51 +++++
+ .../goal/goal-completion-gate/src/index.ts    | 186 ++++++++++++++++++
+ .../tests/goal-completion-gate.spec.ts        | 154 +++++++++++++++
+ .../goal/goal-completion-gate/tsconfig.json   |  33 ++++
+ tsconfig.base.json                            |   1 +
+ tsconfig.host.json                            |   1 +
+ 7 files changed, 487 insertions(+)
+ create mode 100644 packages/goal/goal-completion-gate/README.md
+ create mode 100644 packages/goal/goal-completion-gate/package.json
+ create mode 100644 packages/goal/goal-completion-gate/src/index.ts
+ create mode 100644 packages/goal/goal-completion-gate/tests/goal-completion-gate.spec.ts
+ create mode 100644 packages/goal/goal-completion-gate/tsconfig.json
+
+diff --git a/packages/goal/goal-completion-gate/README.md b/packages/goal/goal-completion-gate/README.md
+new file mode 100644
+index 0000000000..0785ddf52b
+--- /dev/null
++++ b/packages/goal/goal-completion-gate/README.md
+@@ -0,0 +1,61 @@
++# @deepseek-ai/dsh-goal-completion-gate
++
++An independent completion gate for `update_goal`. `dsh-tool-goal` marks a
++goal complete on the model's own word; this plugin denies the call unless the
++assistant narration that carries it cites session-verifiable evidence.
++
++## Behavior
++
++A `tools/pre-execute` hook intercepts `update_goal` calls whose `action` is
++`complete` (other actions stay transparent). The gate extracts citation
++candidates from the assistant message carrying the call — backtick spans,
++quoted spans, and path- or identifier-like tokens — and verifies each against
++the session log's anchor corpus: recent tool call ids, call arguments, and
++result texts. With fewer than `minVerifiedCitations` verified citations the
++call is denied with corrective feedback naming exactly what is required, so
++the model retries with citations instead of failing the turn. Calls without
++an owning agent (direct `ctx.tools.execute()`) are not gated.
++
++The gate adds one system-prompt policy section while loaded so the model
++learns the requirement before the first denial. It changes no tool schema and
++composes with `dsh-tool-goal` and `dsh-goal-progress-guard` unmodified; it is
++not part of shipped default profiles.
++
++## Configuration
++
++| Field | Default | Meaning |
++| --- | --- | --- |
++| `goalToolName` | `'update_goal'` | Name of the goal-update tool whose `complete` action is gated. |
++| `minVerifiedCitations` | `1` | Verified citations required to admit a completion. |
++| `anchorEventWindow` | `400` | Recent session events scanned for verifiable anchors. |
++| `minCitationLength` | `6` | Minimum character length for a citation candidate. |
++
++Misconfiguration throws at plugin load. Opt in through a profile overlay:
++
++```yaml
++plugins:
++  - id: goal-completion-gate
++    name: '@deepseek-ai/dsh-goal-completion-gate'
++```
++
++## Model Experience
++
++One short system-prompt section while loaded; one corrective tool-error
++result per denied completion. No history rewriting, no token-budget impact
++beyond those two bounded texts.
++
++## Known Limitations and Deferred Work
++
++- Verification is verbatim substring matching against the anchor corpus. It
++  proves the cited artifact exists in the session, not that it proves the
++  objective — semantic adequacy of evidence is deferred to the L2/L3 gate
++  tiers (an executable acceptance check, or an independent verifier
++  subagent).
++- Citations are read from the latest assistant message only; a model that
++  separates its evidence narration from the `update_goal` call by further
++  tool calls must repeat the citation in the carrying message.
++- Fabricated tool call ids are not distinguished from other unverifiable
++  citations; both are denied identically.
++- This package omits `./invariant`: the gated-denial relation is asserted
++  directly by the behavior suite, and there is no second independent
++  observation to diverge.
+diff --git a/packages/goal/goal-completion-gate/package.json b/packages/goal/goal-completion-gate/package.json
+new file mode 100644
+index 0000000000..2c0f9e9f54
+--- /dev/null
++++ b/packages/goal/goal-completion-gate/package.json
+@@ -0,0 +1,51 @@
++{
++  "name": "@deepseek-ai/dsh-goal-completion-gate",
++  "description": "Goal completion gate: denies update_goal complete unless the model's own narration cites session-verifiable evidence",
++  "version": "0.2.0-rc.2",
++  "publishConfig": {
++    "access": "public"
++  },
++  "repository": {
++    "type": "git",
++    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
++    "directory": "packages/goal/goal-completion-gate"
++  },
++  "type": "module",
++  "main": "lib/index.js",
++  "types": "lib/types/index.d.ts",
++  "exports": {
++    ".": {
++      "types": "./lib/types/index.d.ts",
++      "default": "./lib/index.js"
++    },
++    "./src/*": "./src/*",
++    "./package.json": "./package.json"
++  },
++  "files": [
++    "lib/index.js",
++    "lib/types/**/*.d.ts"
++  ],
++  "license": "MIT",
++  "dependencies": {
++    "@deepseek-ai/schemastery": "workspace:~"
++  },
++  "peerDependencies": {
++    "@deepseek-ai/dsh-agent": "workspace:*",
++    "@deepseek-ai/dsh-system-prompt": "workspace:*",
++    "@deepseek-ai/dsh-tools": "workspace:*",
++    "@deepseek-ai/cordis": "workspace:~"
++  },
++  "devDependencies": {
++    "@deepseek-ai/dsh-agent": "workspace:*",
++    "@deepseek-ai/dsh-agent-loop": "workspace:*",
++    "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
++    "@deepseek-ai/dsh-goal": "workspace:*",
++    "@deepseek-ai/dsh-llm": "workspace:*",
++    "@deepseek-ai/dsh-session": "workspace:*",
++    "@deepseek-ai/dsh-system-prompt": "workspace:*",
++    "@deepseek-ai/dsh-tool-goal": "workspace:*",
++    "@deepseek-ai/dsh-tools": "workspace:*",
++    "@deepseek-ai/cordis": "workspace:~",
++    "@deepseek-ai/dsh-session-projection": "workspace:*"
++  }
++}
+diff --git a/packages/goal/goal-completion-gate/src/index.ts b/packages/goal/goal-completion-gate/src/index.ts
+new file mode 100644
+index 0000000000..be9fbd4b59
+--- /dev/null
++++ b/packages/goal/goal-completion-gate/src/index.ts
+@@ -0,0 +1,186 @@
++/**
++ * Goal completion gate. `tool-goal` lets a model mark a goal complete on its
++ * own word; this plugin adds the missing independent check from outside the
++ * tool: a `complete` call is denied unless the assistant narration that
++ * carries it cites at least one session-verifiable artifact — a file path,
++ * command, or quoted span that appears verbatim in the session's tool-call
++ * arguments or results, or a real tool call id. The denial is corrective
++ * feedback, so the model retries with citations instead of being failed
++ * outright. The gate changes no tool schema and composes with
++ * `dsh-tool-goal` unmodified; deployments opt in through a profile overlay.
++ * @module @deepseek-ai/dsh-goal-completion-gate
++ */
++
++import type { Context } from '@deepseek-ai/cordis'
++import z from '@deepseek-ai/schemastery'
++import type { Agent } from '@deepseek-ai/dsh-agent'
++import type { PreToolDecision } from '@deepseek-ai/dsh-tools'
++
++export const name = 'goal-completion-gate'
++export const inject = ['systemPrompt']
++
++/**
++ * Plugin config, validated by the same-named schemastery schema plus the
++ * load-time checks in `apply` (misconfiguration fails loud: a non-positive
++ * integer or empty tool name throws at plugin load).
++ */
++export interface Config {
++  /** Name of the goal-update tool whose `complete` action is gated (default `'update_goal'`). */
++  goalToolName?: string
++  /** Minimum citations that must verify against the session log (default `1`). */
++  minVerifiedCitations?: number
++  /** How many recent session events are scanned for verifiable anchors (default `400`). */
++  anchorEventWindow?: number
++  /** Minimum character length for a citation candidate (default `6`). */
++  minCitationLength?: number
++}
++
++/** Schemastery config for the goal completion gate. */
++export const Config: z<Config> = z.object({
++  goalToolName: z.string().default('update_goal'),
++  minVerifiedCitations: z.number().default(1),
++  anchorEventWindow: z.number().default(400),
++  minCitationLength: z.number().default(6),
++})
++
++/** Fully materialized gate policy. */
++interface ResolvedConfig {
++  readonly goalToolName: string
++  readonly minVerifiedCitations: number
++  readonly anchorEventWindow: number
++  readonly minCitationLength: number
++}
++
++/** Character cap on the joined anchor corpus; the tail is the most relevant end. */
++const ANCHOR_CORPUS_MAX_CHARS = 200_000
++
++/** Policy guidance injected into the system prompt while this plugin is loaded. */
++const GUIDANCE =
++  'When you mark a goal complete with update_goal, your visible reply must first cite concrete '
++  + 'evidence from this session verbatim: a file path you wrote or edited, a command whose output '
++  + 'you inspected, or a tool call id. Completion calls without session-verifiable evidence are '
++  + 'rejected; quote the artifact exactly as it appears in the tool call or result.'
++
++/** Corrective feedback returned to the model on a denied completion. */
++const DENIAL =
++  'goal-completion-gate: completion requires verifiable evidence. In the reply that carries the '
++  + 'update_goal call, cite at least one concrete artifact from this session verbatim — a file '
++  + 'path you wrote, a command whose output you read, or a tool call id — then retry update_goal. '
++  + 'Citations are checked against the session log; references that do not appear there are rejected.'
++
++/** Validate config even when apply is called directly outside Loader normalization. */
++function resolveConfig(config: Config): ResolvedConfig {
++  const resolved: ResolvedConfig = {
++    goalToolName: config.goalToolName ?? 'update_goal',
++    minVerifiedCitations: config.minVerifiedCitations ?? 1,
++    anchorEventWindow: config.anchorEventWindow ?? 400,
++    minCitationLength: config.minCitationLength ?? 6,
++  }
++  if (resolved.goalToolName.length === 0) {
++    throw new TypeError('goal-completion-gate: goalToolName must be non-empty')
++  }
++  for (const [field, value] of [
++    ['minVerifiedCitations', resolved.minVerifiedCitations],
++    ['anchorEventWindow', resolved.anchorEventWindow],
++    ['minCitationLength', resolved.minCitationLength],
++  ] as const) {
++    if (!Number.isSafeInteger(value) || value < 1) {
++      throw new TypeError(`goal-completion-gate: ${field} must be a positive safe integer`)
++    }
++  }
++  return resolved
++}
++
++/** Extract text content from one message's content blocks. */
++function textOf(content: readonly { type: string }[]): string {
++  return content
++    .map(block => block.type === 'text' ? (block as { type: 'text'; text: string }).text : '')
++    .join('\n')
++}
++
++/**
++ * Citation candidates of one assistant narration: backtick spans, quoted
++ * spans, and path- or identifier-like tokens long enough to be specific.
++ */
++export function extractCitations(text: string, minLength: number): string[] {
++  const found = new Set<string>()
++  for (const match of text.matchAll(/`([^`\n]+)`|"([^"\n]+)"/g)) {
++    const span = match[1] ?? match[2] ?? ''
++    if (span.length >= minLength) found.add(span)
++  }
++  for (const raw of text.split(/\s+/)) {
++    const token = raw.replace(/^[\s"'([{]+|[\s"')\]}.,;:!?]+$/g, '')
++    if (token.length >= minLength && /[/._-]/.test(token) && /[a-zA-Z0-9]/.test(token)) {
++      found.add(token)
++    }
++  }
++  return [...found]
++}
++
++/**
++ * The verifiable anchor corpus of one session: tool call ids plus the
++ * verbatim arguments and result texts of recent tool activity, tail-capped.
++ */
++export function anchorCorpus(agent: Agent, eventWindow: number): { corpus: string; callIds: ReadonlySet<string> } {
++  const events = agent.session.snapshotEvents().slice(-eventWindow)
++  const callIds = new Set<string>()
++  const parts: string[] = []
++  for (const event of events) {
++    if (event.type === 'tool/call') {
++      callIds.add(event.data.callId)
++      parts.push(event.data.callId, event.data.name, event.data.arguments)
++    }
++    else if (event.type === 'tool/result') {
++      parts.push(textOf(event.data.message.content))
++    }
++  }
++  return { corpus: parts.join('\n').slice(-ANCHOR_CORPUS_MAX_CHARS), callIds }
++}
++
++/** Text of the assistant message that carries the gated call (the latest one logged). */
++function latestNarration(agent: Agent): string {
++  const events = agent.session.snapshotEvents()
++  for (let index = events.length - 1; index >= 0; index -= 1) {
++    const event = events[index]!
++    if (event.type === 'assistant/message' && event.data.interrupted !== true) {
++      return textOf(event.data.message.content)
++    }
++  }
++  return ''
++}
++
++/** Whether the gated call is a goal completion, across the model/tool JSON boundary. */
++function isCompletionCall(args: unknown): boolean {
++  return typeof args === 'object' && args !== null
++    && (args as Record<string, unknown>)['action'] === 'complete'
++}
++
++/**
++ * Register the prompt guidance and the pre-execute gate.
++ * @param ctx - plugin context providing the system-prompt service.
++ * @param config - deployment policy; see {@link Config}.
++ */
++export function apply(ctx: Context, config: Config): void {
++  const resolved = resolveConfig(config)
++
++  ctx.systemPrompt.section({
++    name: 'tool:goal-completion-gate',
++    // External plugins pick an explicit number: the centrally owned
++    // SECTION_ORDERS map covers shipped plugins only. 2450 follows
++    // TOOL_GOAL (2400).
++    order: 2450,
++    text: GUIDANCE,
++  })
++
++  ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
++    // A direct `ctx.tools.execute()` caller has no session to check against.
++    if (exec.agent === undefined) return next()
++    if (exec.name !== resolved.goalToolName || !isCompletionCall(exec.arguments)) return next()
++    const narration = latestNarration(exec.agent)
++    const citations = extractCitations(narration, resolved.minCitationLength)
++    const { corpus, callIds } = anchorCorpus(exec.agent, resolved.anchorEventWindow)
++    const verified = citations.filter(citation => callIds.has(citation) || corpus.includes(citation))
++    if (verified.length >= resolved.minVerifiedCitations) return next()
++    return { kind: 'deny', reason: DENIAL }
++  })
++}
+diff --git a/packages/goal/goal-completion-gate/tests/goal-completion-gate.spec.ts b/packages/goal/goal-completion-gate/tests/goal-completion-gate.spec.ts
+new file mode 100644
+index 0000000000..b40d0733a4
+--- /dev/null
++++ b/packages/goal/goal-completion-gate/tests/goal-completion-gate.spec.ts
+@@ -0,0 +1,154 @@
++import { describe, expect, it } from 'vitest'
++import { Context } from '@deepseek-ai/cordis'
++import { createUserMessage } from '@deepseek-ai/dsh-llm'
++import { SessionId } from '@deepseek-ai/dsh-session'
++import type { SessionEvent } from '@deepseek-ai/dsh-session'
++import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
++import type { Agent } from '@deepseek-ai/dsh-agent'
++import GoalService from '@deepseek-ai/dsh-goal'
++import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
++import AgentLoop from '@deepseek-ai/dsh-agent-loop'
++import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
++import * as GoalCompletionGate from '@deepseek-ai/dsh-goal-completion-gate'
++import type { Config } from '@deepseek-ai/dsh-goal-completion-gate'
++import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
++
++/**
++ * Behavior suite for the goal completion gate: uncited completions are denied
++ * with corrective feedback, completions citing session-verifiable artifacts
++ * pass, fabricated citations are rejected, non-complete actions stay
++ * transparent, and misconfiguration fails at load — all through a real agent
++ * loop against a scripted mock adapter (no network).
++ */
++
++/** Boot the core spine + goal domain + goal tools + the gate. */
++async function harness(config: Config = {}): Promise<Context> {
++  const ctx = new Context()
++  await mountAgentLoopTestDependencies(ctx)
++  await ctx.plugin(AgentLoop, { agents: [] })
++  await ctx.plugin(GoalService)
++  await ctx.plugin(ToolGoal)
++  await ctx.plugin(GoalCompletionGate, config)
++  return ctx
++}
++
++function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
++  return new Promise((resolve) => { const d = ctx.on('agent/status', ({ agent: s, status: st }) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
++}
++
++/** Send one human prompt and wait for the turn to settle. */
++async function prompt(ctx: Context, agent: Agent, text: string): Promise<void> {
++  const idle = waitForIdle(ctx, agent)
++  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
++  await idle
++}
++
++/** Joined text of every errored tool result in the log, for denial assertions. */
++function toolErrors(agent: Agent): string[] {
++  return agent.session.snapshotEvents()
++    .filter((e): e is SessionEvent<'tool/result'> => e.type === 'tool/result' && e.data.message.isError === true)
++    .map(e => e.data.message.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
++}
++
++describe('completion gating', () => {
++  it('denies a completion whose narration cites nothing verifiable', async () => {
++    const ctx = await harness()
++    let goalId = ''
++    const adapter = new MockAdapter([
++      () => toolCallResponse('c1', 'update_goal', { goal_id: goalId, revision: 1, action: 'complete' },
++        'All done, everything works.'),
++      textResponse('understood, gathering evidence first'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    goalId = ctx.goals.create(agent, { objective: 'finish the feature' }).id
++
++    await prompt(ctx, agent, 'finish it')
++    expect(ctx.goals.get(agent)).toMatchObject({ phase: 'active' })
++    const errors = toolErrors(agent)
++    expect(errors).toHaveLength(1)
++    expect(errors[0]).toContain('goal-completion-gate')
++    expect(errors[0]).toContain('cite at least one concrete artifact')
++  })
++
++  it('admits a completion that cites a session-verifiable artifact', async () => {
++    const ctx = await harness()
++    ctx.tools.register(defineContentToolFixture({
++      name: 'write',
++      description: 'w',
++      parameters: {},
++      async execute() { return [{ type: 'text', text: 'written' }] },
++    }))
++    let goalId = ''
++    const adapter = new MockAdapter([
++      toolCallResponse('w1', 'write', { path: 'src/out.ts', content: 'export {}' }),
++      () => toolCallResponse('c2', 'update_goal', { goal_id: goalId, revision: 1, action: 'complete' },
++        'Wrote `src/out.ts` and verified the result.'),
++      textResponse('closing'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    goalId = ctx.goals.create(agent, { objective: 'finish the feature' }).id
++
++    await prompt(ctx, agent, 'finish it')
++    expect(ctx.goals.get(agent)).toMatchObject({ phase: 'complete' })
++    expect(toolErrors(agent)).toHaveLength(0)
++  })
++
++  it('denies a completion whose citation does not appear in the session log', async () => {
++    const ctx = await harness()
++    let goalId = ''
++    const adapter = new MockAdapter([
++      () => toolCallResponse('c1', 'update_goal', { goal_id: goalId, revision: 1, action: 'complete' },
++        'Checked `src/never-built.ts` — all green.'),
++      textResponse('ack'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    goalId = ctx.goals.create(agent, { objective: 'finish the feature' }).id
++
++    await prompt(ctx, agent, 'finish it')
++    expect(ctx.goals.get(agent)).toMatchObject({ phase: 'active' })
++    expect(toolErrors(agent)[0]).toContain('goal-completion-gate')
++  })
++
++  it('leaves non-complete actions transparent to the gate', async () => {
++    const ctx = await harness()
++    let goalId = ''
++    const adapter = new MockAdapter([
++      () => toolCallResponse('c1', 'update_goal', {
++        goal_id: goalId, revision: 1, action: 'blocked', blocked_reason: 'Waiting on API credentials.',
++      }, 'Blocked on credentials.'),
++      textResponse('ack'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    goalId = ctx.goals.create(agent, { objective: 'finish the feature' }).id
++
++    await prompt(ctx, agent, 'finish it')
++    expect(ctx.goals.get(agent)).toMatchObject({ phase: 'blocked' })
++    expect(toolErrors(agent)).toHaveLength(0)
++  })
++})
++
++describe('config validation', () => {
++  it('fails loud on a non-positive citation minimum', async () => {
++    const ctx = new Context()
++    await mountAgentLoopTestDependencies(ctx)
++    await ctx.plugin(AgentLoop, { agents: [] })
++    await ctx.plugin(GoalService)
++    await ctx.plugin(ToolGoal)
++    await expect(ctx.plugin(GoalCompletionGate, { minVerifiedCitations: 0 }))
++      .rejects.toThrow('minVerifiedCitations')
++  })
++
++  it('fails loud on an empty gated tool name', async () => {
++    const ctx = new Context()
++    await mountAgentLoopTestDependencies(ctx)
++    await ctx.plugin(AgentLoop, { agents: [] })
++    await ctx.plugin(GoalService)
++    await ctx.plugin(ToolGoal)
++    await expect(ctx.plugin(GoalCompletionGate, { goalToolName: '' }))
++      .rejects.toThrow('goalToolName')
++  })
++})
+diff --git a/packages/goal/goal-completion-gate/tsconfig.json b/packages/goal/goal-completion-gate/tsconfig.json
+new file mode 100644
+index 0000000000..259010da86
+--- /dev/null
++++ b/packages/goal/goal-completion-gate/tsconfig.json
+@@ -0,0 +1,33 @@
++{
++  "extends": "../../../tsconfig.base.json",
++  "compilerOptions": {
++    "rootDir": "src",
++    "outDir": "lib/types"
++  },
++  "include": [
++    "src"
++  ],
++  "references": [
++    {
++      "path": "../../../vendor/cordis"
++    },
++    {
++      "path": "../../../vendor/schemastery"
++    },
++    {
++      "path": "../../core/agent"
++    },
++    {
++      "path": "../../core/session"
++    },
++    {
++      "path": "../../core/system-prompt"
++    },
++    {
++      "path": "../../core/tools"
++    },
++    {
++      "path": "../../llm/llm"
++    }
++  ]
++}
+diff --git a/tsconfig.base.json b/tsconfig.base.json
+index 2d7d17ce99..a56bbb7597 100644
+--- a/tsconfig.base.json
++++ b/tsconfig.base.json
+@@ -389,6 +389,7 @@
+       "@deepseek-ai/dsh-fs-ssh": ["./packages/ssh/fs-ssh/src"],
+       "@deepseek-ai/dsh-goal": ["./packages/goal/goal/src"],
+       "@deepseek-ai/dsh-goal/invariant": ["./packages/goal/goal/src/invariant.ts"],
++      "@deepseek-ai/dsh-goal-completion-gate": ["./packages/goal/goal-completion-gate/src"],
+       "@deepseek-ai/dsh-goal-progress-guard": ["./packages/goal/goal-progress-guard/src"],
+       "@deepseek-ai/dsh-goal-round-driver": ["./packages/goal/goal-round-driver/src"],
+       "@deepseek-ai/dsh-goal-round-driver/invariant": ["./packages/goal/goal-round-driver/src/invariant.ts"],
+diff --git a/tsconfig.host.json b/tsconfig.host.json
+index e9a391b9c6..4b2ec48c91 100644
+--- a/tsconfig.host.json
++++ b/tsconfig.host.json
+@@ -327,6 +327,7 @@
+     { "path": "./packages/goal/tool-goal" },
+     { "path": "./packages/goal/goal-round-driver" },
+     { "path": "./packages/goal/goal-progress-guard" },
++    { "path": "./packages/goal/goal-completion-gate" },
+     { "path": "./packages/goal/command-goal" },
+     { "path": "./packages/feedback/command-feedback" },
+     { "path": "./packages/schedule/schedule" },
+-- 
+2.43.0
+

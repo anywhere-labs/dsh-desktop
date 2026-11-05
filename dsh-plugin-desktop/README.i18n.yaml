@@ -1,3 +1,5 @@
-# Git blob hashes for the confirmed English and Chinese pair.
-README.md: d444946ef8417fd4912ba7adc4984c680223d2be
-README.zh.md: 26958a04dc371718b4cfb503caaf032132dfbd6b
+# Bilingual-pair consistency record: the git blob hash of each side as of the last
+# confirmed-consistent state. Both languages carry equal authority; after editing
+# either side, bring the other along and record both new Git blob hashes below.
+README.md: b6ec5d62b22c227794c38bf7c33ed6b5140402f4
+README.zh.md: 32a04d0ea48045d3335a73495baefefa4354f4d8

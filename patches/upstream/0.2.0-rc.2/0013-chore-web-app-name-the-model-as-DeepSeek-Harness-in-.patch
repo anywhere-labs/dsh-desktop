@@ -1,0 +1,173 @@
+From 8a453284937c3b9cb05b7628ca7c8421d4a66939 Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Fri, 23 Oct 2026 16:04:42 +0800
+Subject: [PATCH 13/13] chore(web-app): name the model as DeepSeek Harness in
+ the persona
+
+The Web bundle and its presets stop interpolating the selected model into the persona prefix, and the shipped-composition test follows the new wording.
+---
+ apps/web/tests/shipped-composition.e2e.ts     | 71 ++++++++++++++++++-
+ packages/bundle/web-app/cordis.patch.yml      |  2 +-
+ .../bundle/web-app/presets/cordis.patch.yml   |  2 +-
+ packages/bundle/web-app/presets/ptc.patch.yml |  2 +-
+ .../bundle/web-app/presets/standard.patch.yml |  2 +-
+ 5 files changed, 74 insertions(+), 5 deletions(-)
+
+diff --git a/apps/web/tests/shipped-composition.e2e.ts b/apps/web/tests/shipped-composition.e2e.ts
+index 00dae46f4c..84c34057da 100644
+--- a/apps/web/tests/shipped-composition.e2e.ts
++++ b/apps/web/tests/shipped-composition.e2e.ts
+@@ -9,7 +9,7 @@ import { join } from 'node:path'
+ import { fileURLToPath } from 'node:url'
+ import { afterEach, expect, it } from 'vitest'
+ import type { Agent } from '@deepseek-ai/dsh-agent'
+-import { LlmAdapter, ToolCallId } from '@deepseek-ai/dsh-llm'
++import { createUserMessage, LlmAdapter, ToolCallId } from '@deepseek-ai/dsh-llm'
+ import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+ import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
+ import { SESSION_FORMAT_VERSION, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+@@ -35,6 +35,8 @@ const HEADLESS_PATCH_PATH = join(REPO_ROOT, 'packages/bundle/headless/cordis.pat
+ const AUTO_CHILD_OVERLAY_PATH = join(REPO_ROOT, 'apps/web/tests/auto-review-child.overlay.yml')
+ const AUTO_PROVIDER = 'shipped-auto-review-test'
+ const AUTO_MODEL = 'same-route'
++const LATE_ROUTE_PROVIDER = 'shipped-late-route-test'
++const LATE_ROUTE_MODEL = 'selected-after-assemble'
+ const AUTO_CALL_ID = ToolCallId('shipped-auto-review-denied-delete')
+ const AUTO_RAW_REASON = `  direct user authorized inspection only\nTEST_ONLY_SECRET_${'x'.repeat(16_384)}  `
+ const AUTO_FINAL_TEXT = 'SHIPPED_AUTO_REVIEW_REJECTION_OBSERVED'
+@@ -136,6 +138,24 @@ class ShippedAutoAdapter extends LlmAdapter {
+   }
+ }
+ 
++/** Minimal adapter proving that the shipped Web persona permits request-time routing. */
++class ShippedLateRouteAdapter extends LlmAdapter {
++  readonly requests: GenerateOptions[] = []
++
++  override async listModels(provider: string) {
++    return [{ provider, id: LATE_ROUTE_MODEL, name: LATE_ROUTE_MODEL }]
++  }
++
++  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
++    return Promise.resolve({ provider, id: model, name: model, contextWindow: 128_000 })
++  }
++
++  override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
++    this.requests.push(options)
++    yield* textChunks('late-route-ok')
++  }
++}
++
+ type ChildAutoRisk = 'low' | 'medium' | 'high'
+ type ChildAutoDecision = 'allow' | 'deny'
+ 
+@@ -651,6 +671,55 @@ it('assembles the shipped Web transport, catalog, guidance, and defaults', async
+   }
+ }, 120_000)
+ 
++it('keeps shipped Web personas usable when the model is selected at request time', async () => {
++  scaffold = await launchWebScaffold({ deepSeekMissingCredential: true })
++  const ctx = scaffold.ctx
++  const adapter = new ShippedLateRouteAdapter()
++  ctx.effect(
++    () => ctx.llm.registerAdapter([LATE_ROUTE_PROVIDER], adapter),
++    'shipped Web late-route adapter',
++  )
++  ctx.effect(() => ctx.on('agent/request', async (_payload, next) => ({
++    ...await next(),
++    provider: LATE_ROUTE_PROVIDER,
++    model: LATE_ROUTE_MODEL,
++  })), 'shipped Web late-route selection')
++
++  const targets = [
++    { id: 'shipped-web-late-route-global' },
++    { id: 'shipped-web-late-route-standard', preset: 'standard' },
++  ] as const
++  for (const target of targets) {
++    const handle = await ctx.agents.create({
++      sessionId: SessionId(target.id),
++      meta: { cwd: scaffold.workspaceCwd },
++      agentOptions: {},
++      ...('preset' in target ? {
++        setup: agentCtx => ctx.agentPresets.mount(agentCtx, target.preset).then(() => undefined),
++      } : {}),
++    })
++    try {
++      handle.agent.followup(createUserMessage({
++        content: [{ type: 'text', text: 'Reply with OK.' }],
++        source: { kind: 'user' },
++      }))
++      await handle.agent.whenIdle()
++    } finally {
++      await handle.dispose()
++    }
++  }
++
++  expect(adapter.requests).toHaveLength(targets.length)
++  for (const request of adapter.requests) {
++    expect(request.model).toBe(LATE_ROUTE_MODEL)
++    const systemMessage = request.messages[0]
++    expect(systemMessage?.role).toBe('system')
++    expect(systemMessage?.role === 'system'
++      ? systemMessage.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
++      : '').toContain('You are a coding agent powered by DeepSeek Harness.')
++  }
++}, 120_000)
++
+ it('ships PTC with run_code but without the general workflow SDK binding', async () => {
+   scaffold = await launchWebScaffold({ deepSeekMissingCredential: true })
+   const ctx = scaffold.ctx
+diff --git a/packages/bundle/web-app/cordis.patch.yml b/packages/bundle/web-app/cordis.patch.yml
+index f9c2abfe9f..8c41dffc06 100644
+--- a/packages/bundle/web-app/cordis.patch.yml
++++ b/packages/bundle/web-app/cordis.patch.yml
+@@ -17,7 +17,7 @@
+   config:
+     personaSuffix: Your working directory is {{cwd}}.
+     personaPrefix: >-
+-      You are a coding agent powered by the {{model}} model.
++      You are a coding agent powered by DeepSeek Harness.
+ 
+ # Full-text session search is opt-in (the base row's `openAt: never`). This
+ # restatement keeps the Web values on one ephemeral in-memory index; a
+diff --git a/packages/bundle/web-app/presets/cordis.patch.yml b/packages/bundle/web-app/presets/cordis.patch.yml
+index 2f22d8c933..eb605a593a 100644
+--- a/packages/bundle/web-app/presets/cordis.patch.yml
++++ b/packages/bundle/web-app/presets/cordis.patch.yml
+@@ -15,7 +15,7 @@
+             config:
+               suffix: Your working directory is {{cwd}}.
+               prefix: >-
+-                You are a coding agent powered by the {{model}} model.
++                You are a coding agent powered by DeepSeek Harness.
+           - id: agent-instructions
+             name: '@deepseek-ai/dsh-agent-instructions'
+             config:
+diff --git a/packages/bundle/web-app/presets/ptc.patch.yml b/packages/bundle/web-app/presets/ptc.patch.yml
+index 10b7ffc87f..5ece4f4526 100644
+--- a/packages/bundle/web-app/presets/ptc.patch.yml
++++ b/packages/bundle/web-app/presets/ptc.patch.yml
+@@ -12,7 +12,7 @@
+             name: '@deepseek-ai/dsh-persona'
+             config:
+               suffix: Your working directory is {{cwd}}.
+-              prefix: You are a coding agent powered by the {{model}} model.
++              prefix: You are a coding agent powered by DeepSeek Harness.
+           - id: agent-instructions
+             name: '@deepseek-ai/dsh-agent-instructions'
+             config:
+diff --git a/packages/bundle/web-app/presets/standard.patch.yml b/packages/bundle/web-app/presets/standard.patch.yml
+index 0b898bf774..808c0edf88 100644
+--- a/packages/bundle/web-app/presets/standard.patch.yml
++++ b/packages/bundle/web-app/presets/standard.patch.yml
+@@ -12,7 +12,7 @@
+             name: '@deepseek-ai/dsh-persona'
+             config:
+               suffix: Your working directory is {{cwd}}.
+-              prefix: You are a coding agent powered by the {{model}} model.
++              prefix: You are a coding agent powered by DeepSeek Harness.
+           - id: agent-instructions
+             name: '@deepseek-ai/dsh-agent-instructions'
+             config:
+-- 
+2.43.0
+
