@@ -7,11 +7,12 @@
 ## Navigation
 
 - [Changes from upstream](#changes-from-upstream)
-- [Screenshots](#screenshots)
 - [Local Profile plugins](#local-profile-plugins)
+- [Local configuration](#local-configuration)
 - [Downloads](#downloads)
 - [Code changes / Release Note](#code-changes--release-note)
 - [Security and privacy](#security-and-privacy)
+- [Screenshot](#screenshot)
 
 ## Changes from upstream
 
@@ -25,33 +26,47 @@ One-line summary for each feature:
 | Editable Git workspace | Perform Git workspace operations in Desktop while keeping the Git panel and review directory independent. |
 | GitHub Copilot | Sign in with a GitHub device code and use available Copilot models from the model picker. |
 | Android Logcat | Select an adb device, filter live logs, pause or resume output, copy or export visible logs, and capture a device screenshot. |
+| Goal-round loop containment | When auto-continuing goal rounds stop producing new evidence, or one identical call keeps repeating, Desktop first halts the continuation and asks the model to analyse the stall; the goal is only marked blocked once the intervention budget runs out. |
+| Host process isolation | The Host Cordis root runs in its own Electron Node-mode child instead of Chromium's Utility process allocator, and an unexpected Host exit never replays in-flight work. |
 | Session and file safety | File references stay structured, and README/review screenshots contain no sessions, memory databases, credentials, or access tokens. |
 
 ## Local Profile plugins
 
-The following third-party plugins are currently installed and enabled in the local `desktop` Profile; versions come from the local Profile manifest.
+Versions come from the local Profile manifest at `~/.dsh/profiles/desktop/package.json`; only plugins currently declared and enabled are listed.
 
 | Plugin | Version | Role |
 | --- | ---: | --- |
-| `@michengai/dsh-archive-manager` | 1.0.16 | Archive management |
-| `@michengai/dsh-automation` | 0.1.61 | Task automation |
-| `@michengai/dsh-btw` | 0.1.18 | BTW extension |
-| `@michengai/dsh-skills-manager` | 1.1.13 | Skills management |
-| `@smalltailqwq/dsh-client-ui-skin-maid-atelier` | 0.1.7 | Client theme |
-| `@wxg-prc-cpg/browser-skill-dsh-plugin` | 0.3.2 | Browser automation skill |
-| `billion-context` | 0.1.181 | Context enhancement |
-| `dsh-dream-skin` | 10.10.0 | UI theme |
-| `dsh-ffmpeg` | 0.4.5 | Audio/video processing |
-| `dsh-figma-mcp` | 0.6.0 | Figma MCP integration |
-| `dsh-file-review` | 0.8.8 | File review |
-| `dsh-ide-git` | 0.16.3 | Git panel |
-| `dsh-image-viewer` | 0.1.9 | Image viewer |
-| `dsh-prompt` | 0.4.9 | Prompt tools |
-| `dsh-rewind-plugin` | 0.15.3 | Session rewind |
-| `dsh-session-recycle-bin` | 0.4.3 | Session recycle bin |
-| `meow-memory` | 0.31.0 | Cross-session memory |
+| `dsh-byte-guard-recovery` | 0.1.0 (in-repo `file:` plugin) | When a request body exceeds the byte fuse or the endpoint returns 413, prune and compact in place and retry in the same session |
+| `dsh-mnemon` | 0.5.30 | Composable layered memory, with provider / strategy / source sub-packages |
+| `dsh-rewind-plugin` | 0.15.3 | In-window conversation rewind with workspace file restore |
+| `dsh-session-recycle-bin` | 0.4.3 | Session trash: sidebar delete icon, multi-select restore or permanent delete, active-session protection |
+| `dsh-dream-skin` | 10.10.0 | UI theme pack |
+| `dsh-mermaid` | 0.4.1 | Render Mermaid blocks with a diagram/code toggle |
+| `dsh-ffmpeg` | 0.4.5 | Process existing audio and video through natural-language FFmpeg calls |
+| `@linxin666/dsh-client-ui-git-graph` | 0.4.6 | Git branch picker for a blank session plus the commit graph |
 
-The current local `desktop` Profile configuration snapshot (settings only, without API credential values) lives at [`config/desktop-profile/cordis.patch.yml`](config/desktop-profile/cordis.patch.yml). API keys are still referenced by environment variable name, never committed.
+The Profile bundle order also includes the official packages `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, `@deepseek-ai/dsh-experimental-auto-review`, and `dshmarket`. `dsh-byte-guard-recovery` exists only as a `file:` dependency inside the Profile directory and is not shipped inside the installer.
+
+## Local configuration
+
+The configuration snapshot lives at [`config/desktop-profile/cordis.patch.yml`](config/desktop-profile/cordis.patch.yml) and records the settings themselves, without credential values or local paths. What is currently active:
+
+| Setting | Active value | Why |
+| --- | --- | --- |
+| Desktop shell | `mode: compatibility`, macOS material `transparent`, Windows material `off`, `networkExposure: loopback`, `openBrowser: true` | Compatibility mode runs the upstream default frontend; only the loopback interface is exposed, never the LAN |
+| Notifications | turn completion/failure, job completion/failure, and schedule completion/failure all `true` | Long tasks pull you back to the session through notifications |
+| Default model | `github-copilot` / `gpt-6-sol` | The default landing point of the model picker |
+| Permission presets | default `danger-full-access` (full sandbox, `approval: never`), plus `read-only` and `workspace-write` presets kept as `ask` | This is a local development machine; the presets remain switchable in Settings |
+| Request body caps | Copilot image 1 MiB, total request 2 MiB | Pairs with the `dsh-byte-guard-recovery` byte fuse, which prunes before the endpoint rejects |
+| Context compaction | `compaction-basic`, `tool-result-pruner`, and `command-compact` all explicitly `disabled: false` | The upstream Web carrier disables them by default and patches merge shallowly, so they must be turned on explicitly; kimi-k3 compacts at 0.35 of the window and retains 0.08, ahead of the 2 MiB byte fuse |
+| Memory | `dsh-mnemon` remote access `read-only`, local embedding off, `strict-v1` recall policy, three-tier memory view | No extra local vector service is started |
+| Interface | theme follows the system, font size 17, developer tools on, process and usage views `detailed` | Troubleshooting needs the full process and usage detail |
+| Session logging | `@deepseek-ai/dsh-session-log-deepseek` `enabled: false` | Session content never lands in logs |
+
+Two notes:
+
+- API keys are referenced only by environment variable name (for example `XIAOMI_TOKEN_PLAN_CN_API_KEY`); no key value is committed.
+- The live Profile still carries a `@zhangfengshun/dsh-remote-ssh` entry whose plugin is no longer in the manifest, which prints an "entry not found" warning at startup. The repository snapshot omits that block because it contains an internal address and a private key path.
 
 ## Downloads
 
@@ -69,9 +84,27 @@ This project will no longer distribute AppImage builds; only the verifiable Debi
 
 ## Code changes / Release Note
 
+### Merge with the cloud 0.2.2-alpha.2 line (`ce00e94318`, 2026-11-05)
+
+- The runtime moved to `0.2.2-alpha.2`, the upstream patch series was redone against cloud's versions, and the `patches/` `patch:` files and `yarn.lock` were aligned together.
+- The Beta channel migrated to the dsh-desktop-next framework: 61 legacy files were removed from `dsh-plugin-desktop-beta`, and their content still lives in `dsh-plugin-desktop` or in the pre-merge snapshot `cb23a018b0`. `corepack yarn check:desktop-variants` now compares Next against Beta.
+- Everywhere cloud already had an implementation, cloud's version wins, including Git Review multi-root, attached directories, goal-round loop containment, Host process isolation, and renderer crash diagnostics.
+
+### Local changes on top of cloud (2026-11-05)
+
+| Change | Location | Notes |
+| --- | --- | --- |
+| Multi-worktree repository scan | [`dsh-ide-git/src/index.js:1501`](dsh-ide-git/src/index.js) | Repository enumeration skips every dot directory by default; `.worktrees` is allow-listed so the Git panel and Git Review can discover sibling worktrees. Covered by `dsh-ide-git/tests/repos.test.mjs` |
+| Byte-fuse recovery plugin | [`config/desktop-profile/plugins/dsh-byte-guard-recovery/`](config/desktop-profile/plugins/dsh-byte-guard-recovery/) | Prunes and compacts an oversized request body in place, then retries; ships three tests for the recovery ladder, the compaction invariant, and the real surface fold |
+| Crashpad minidump evidence | [`dsh-plugin-desktop/src/crashpad-evidence.ts`](dsh-plugin-desktop/src/crashpad-evidence.ts) | Parses local minidump headers so a diagnostic export lists metadata only; dumps never leave the machine |
+| Node-mode Host and attached-root tests | `dsh-plugin-desktop/tests/host-process-node-mode.spec.ts`, `dsh-plugin-desktop/tests/workspace-sources-root-switch.spec.tsx` | Cover Host RPC over the separate child process, and keying the Files tree selection by the session cwd after it moves to an attached root |
+| Local upstream patch archive | [`patches/upstream/`](patches/upstream/) | rc.2 0014 (session persistence must not read data written by a newer harness) and 0015 (seed the composer only from a usable draft), plus the rc.2 and rc.5 worktree snapshots |
+| Profile configuration snapshot | [`config/desktop-profile/cordis.patch.yml`](config/desktop-profile/cordis.patch.yml) | See the Local configuration section |
+| Layout gate now lists the sixth workspace | [`scripts/verify-layout.mjs:33`](scripts/verify-layout.mjs) | The root `workspaces` array already contains `dsh-ide-git`; the expected list was missing it |
+
 ### 2.0.17-fate-dev
 
-- **Local changes in this tree (not released)**: Workspace edit can add or detach attached directories, and the Files browser switches between the primary and attached roots independently; the Git Review root tree expands Git worktrees under each Workspace source, and switching the review root or worktree keeps the current session scope, with retry on enumeration failure. The matching screenshot masks the local attached-directory and review-directory paths.
+- Workspace edit can add or detach attached directories, and the Files browser switches between the primary and attached roots independently; the Git Review root tree expands Git worktrees under each Workspace source, and switching the review root or worktree keeps the current session scope, with retry on enumeration failure.
 - `5fced936e9`: merged the Git Review worktree into `fate-dev`.
 - `f7c3d06b81`: added session-scoped Git Review with attached workspace roots.
 - `97291e91c9`: integrated editable Git workspace tools.
@@ -85,30 +118,15 @@ This project will no longer distribute AppImage builds; only the verifiable Debi
 
 ## Security and privacy
 
-- Local paths, repository details, and personal information in README screenshots have been redacted.
-- The documentation records package names and versions only, not local directories, accounts, session contents, or plugin configuration.
+- The README keeps a single screenshot, and the local paths, repository names, and directory details inside it are masked.
+- Documentation records package names, versions, and setting names only, not local directories, internal addresses, accounts, session contents, or plugin configuration values.
+- `config/desktop-profile/cordis.patch.yml` records settings only; credentials stay referenced by environment variable name, and fragments containing private key paths or internal addresses are not committed.
 - Check new screenshots and build artifacts before publishing so local sessions, the memory database, credentials, or access tokens are not included in the repository or Release.
 
-## Screenshots
-
-### Multi-directory workspaces
-
-<p align="center"><img src="assets/readme/workspace.png" alt="Switch between primary and attached directories" width="78%"></p>
-
-### Files tree shortcuts
-
-<p align="center"><img src="assets/readme/files-shortcuts.png" alt="Files tree context actions" width="28%"></p>
+## Screenshot
 
 ### Attached directories and Git Review worktree selection
 
 <p align="center"><img src="assets/readme/git-review-worktree.jpg" alt="Attached directories and the Git Review worktree picker; every visible local path is masked" width="100%"></p>
 
-### GitHub Copilot
-
-<p align="center"><img src="assets/readme/copilot.png" alt="GitHub Copilot connection and available models" width="58%"></p>
-
-### Android Logcat
-
-<p align="center"><img src="assets/readme/android-logcat.png" alt="Android Logcat device selection and filters" width="88%"></p>
-
-<p align="center"><sub>Original interface captures are in <a href="dsh-plugin-desktop/docs/screenshots/">dsh-plugin-desktop/docs/screenshots/</a>.</sub></p>
+<p align="center"><sub>The plugin's own interface captures remain in <a href="dsh-plugin-desktop/docs/screenshots/">dsh-plugin-desktop/docs/screenshots/</a>.</sub></p>
