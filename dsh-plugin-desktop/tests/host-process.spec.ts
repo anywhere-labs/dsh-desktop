@@ -3,7 +3,7 @@ import { expect, it, vi } from 'vitest'
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import type { DesktopStartupGenerationHost } from '../src/startup-generation.ts'
 const state = vi.hoisted(() => ({ fork: vi.fn() }))
-vi.mock('electron', () => ({ utilityProcess: { fork: state.fork } }))
+vi.mock('node:child_process', async importOriginal => ({ ...await importOriginal(), fork: state.fork }))
 import {
   formatUnexpectedHostExit, HOST_STDERR_TAIL_CHARS, startIsolatedDesktopHost,
   type IsolatedHostExit, type IsolatedHostOptions,
@@ -11,11 +11,15 @@ import {
 
 function fixture() {
   const child = Object.assign(new EventEmitter(), {
-    stdout: new EventEmitter(), stderr: new EventEmitter(),
-    postMessage: vi.fn((message: { kind: string; id: number; method?: string }) => {
+    pid: 233_197,
+    stdout: Object.assign(new EventEmitter(), { destroy: vi.fn() }),
+    stderr: Object.assign(new EventEmitter(), { destroy: vi.fn() }),
+    connected: true,
+    send: vi.fn((message: { kind: string; id: number; method?: string }) => {
       if (message.kind === 'call') queueMicrotask(() => child.emit('message', { kind: 'result', id: message.id, value: { pid: 123 } }))
+      return true
     }),
-    kill: vi.fn(() => { queueMicrotask(() => child.emit('exit', 0)); return true }),
+    kill: vi.fn(() => { queueMicrotask(() => child.emit('exit', 0, null)); return true }),
   })
   state.fork.mockReturnValue(child)
   let host!: DesktopStartupGenerationHost
@@ -34,7 +38,7 @@ it('binds the child before startup and makes repeated teardown idempotent', asyn
   await Promise.all([f.host().fiber.dispose(), f.host().fiber.dispose()])
   expect(f.child.kill).toHaveBeenCalledOnce()
   expect(f.onFailure).not.toHaveBeenCalled()
-  expect(f.child.postMessage.mock.calls.filter(([m]) => m.method === 'stop')).toHaveLength(1)
+  expect(f.child.send.mock.calls.filter(([m]) => m.method === 'stop')).toHaveLength(1)
 })
 it('reports unexpected Host exit without automatically relaunching or replaying work', async () => {
   const f = fixture()
@@ -48,9 +52,10 @@ it('carries the exit code and how long the Host lived, so a code 0 is not read a
   const f = fixture()
   await startIsolatedDesktopHost(f.options)
   f.child.emit('exit', 0)
-  const [error, exit] = f.onFailure.mock.calls[0] as [Error, { exitCode: number; uptimeMs: number }]
+  const [error, exit] = f.onFailure.mock.calls[0] as [Error, { exitCode: number; hostPid?: number; uptimeMs: number }]
   expect(error.message).toContain('DSH Host exited (0)')
   expect(exit.exitCode).toBe(0)
+  expect(exit.hostPid).toBe(233_197)
   expect(exit.uptimeMs).toBeGreaterThanOrEqual(0)
   expect(Number.isFinite(exit.uptimeMs)).toBe(true)
 })
@@ -76,7 +81,41 @@ it('keeps what a fatal Host said last, since its stderr is otherwise never persi
   expect(exit.stderrTail).toHaveLength(HOST_STDERR_TAIL_CHARS)
   expect(exit.stderrTail.endsWith('dsh: fatal load failure: boom €')).toBe(true)
   expect(formatUnexpectedHostExit(error, exit))
-    .toBe(`DSH Host exited (1); restart the application to reconnect\nLast DSH Host stderr:\n${exit.stderrTail}`)
+    .toBe(`DSH Host exited (1) (pid 233197); restart the application to reconnect\nLast DSH Host stderr:\n${exit.stderrTail}`)
+})
+it('launches an isolated Electron Node child with portable IPC and no inspector arguments', async () => {
+  const f = fixture()
+  await startIsolatedDesktopHost(f.options)
+  const [entry, args, options] = state.fork.mock.calls.at(-1)! as [string, string[], {
+    execPath: string; execArgv: string[]; env: NodeJS.ProcessEnv; serialization: string; stdio: string[]
+  }]
+  expect(entry).toMatch(/host-process-entry\.js$/u)
+  expect(args).toEqual([])
+  expect(options).toMatchObject({ execPath: process.execPath, execArgv: [], serialization: 'json',
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
+  expect(options.env.ELECTRON_RUN_AS_NODE).toBe('1')
+  await f.host().fiber.dispose()
+})
+it('reports signaled termination and rejects a disconnected Host without replay', async () => {
+  const f = fixture()
+  await startIsolatedDesktopHost(f.options)
+  f.child.emit('disconnect')
+  f.child.emit('exit', null, 'SIGTRAP')
+  expect(f.onFailure).toHaveBeenCalledOnce()
+  const [error, exit] = f.onFailure.mock.calls[0] as [Error, IsolatedHostExit]
+  expect(error.message).toContain('DSH Host exited (133)')
+  expect(exit.exitCode).toBe(133)
+  await f.host().fiber.dispose()
+})
+it('rejects startup promptly if the Node child cannot spawn or report exit', async () => {
+  const f = fixture()
+  f.child.send.mockImplementation(() => true)
+  const startup = startIsolatedDesktopHost(f.options)
+  f.child.emit('error', new Error('spawn denied'))
+  f.child.emit('close', null, null)
+  await expect(startup).rejects.toThrow('DSH Host spawn failed: spawn denied')
+  expect(f.child.stdout.destroy).toHaveBeenCalledOnce()
+  expect(f.onFailure).not.toHaveBeenCalled()
 })
 it('logs only the exit reason when the Host wrote nothing', () => {
   const error = new Error('DSH Host exited (0); restart the application to reconnect')

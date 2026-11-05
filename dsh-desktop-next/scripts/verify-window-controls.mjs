@@ -176,7 +176,7 @@ try {
   assert.deepEqual(await page.evaluate(() => globalThis.__DSH_TRANSPORT__), { ownsHost: true, streamBaseUrl },
     'The official entry must execute its Desktop boot branch')
   assert.equal(await page.evaluate(() => globalThis.__NEXT_TEST_BOOT__.calls), 1)
-  // rc.2 moves official Desktop onboarding into its native shell. Older Web
+  // rc.5 moves official Desktop onboarding into its native shell. Older Web
   // notices may still appear when a persisted profile requests them.
   const welcome = page.getByRole('button', { name: /^(继续|Continue)$/ })
   if (await welcome.isVisible()) {
@@ -484,7 +484,7 @@ try {
     assert.equal(geometry.pointerEvents, 'none', 'The caption must not intercept DOM clicks')
     assert.equal(geometry.background, 'rgba(0, 0, 0, 0)', 'The caption must not paint over page content')
     assert.equal(geometry.headerPosition, 'static', 'Keep the official header in normal document flow')
-    assert.equal(geometry.headerRegion, 'drag', 'rc.2 keeps the official plugin header as a data-window-drag row')
+    assert.equal(geometry.headerRegion, 'drag', 'rc.5 keeps the official plugin header as a data-window-drag row')
   }
   await checkPluginCaption()
   const titleBox = await pluginHeader.getByRole('heading', { level: 1 }).boundingBox()
@@ -791,7 +791,7 @@ try {
   const webWelcome = webPage.getByRole('button', { name: /^(继续|Continue)$/ })
   await webWelcome.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {})
   if (await webWelcome.isVisible()) await webWelcome.click()
-  // The rc.2 Web entry can open directly when the default model is available.
+  // The rc.5 Web entry can open directly when the default model is available.
   await webPage.getByRole('button', { name: /^(稍后配置|Configure later)$/ }).click({ timeout: 2_000 }).catch(() => {})
   await webPage.locator('[aria-modal=true]').waitFor({ state: 'hidden' })
   await openSettingsPanel(webPage)
@@ -811,7 +811,7 @@ try {
   await webContext.close()
   assert.deepEqual(errors, [])
   assert.deepEqual(await page.evaluate(() => globalThis.__NEXT_TEST_BOOT__.failures), [])
-  console.log('Next window controls passed through the official 0.2.0-rc.2 Desktop boot branch: stacked sidebar extension entries, homepage/plugin collapse and reopen, navigation, caption geometry, clickable actions, existing-header and platform isolation, official Settings header shortcuts and keyboard navigation, grouped Desktop Settings and immediate saves, per-address login URL rows with exact open/copy targets, Profile cards and tray creation, the Host-independent recovery artifact, and native Browser toolbar, navigation, pane geometry, overlay isolation, tab lifetime and Web iframe fallback. Chromium simulates the preload contract; native Electron window movement and page loading are not tested here.')
+  console.log('Next window controls passed through the official 0.2.1-rc.5 Desktop boot branch: stacked sidebar extension entries, homepage/plugin collapse and reopen, navigation, caption geometry, clickable actions, existing-header and platform isolation, official Settings header shortcuts and keyboard navigation, grouped Desktop Settings and immediate saves, per-address login URL rows with exact open/copy targets, Profile cards and tray creation, the Host-independent recovery artifact, and native Browser toolbar, navigation, pane geometry, overlay isolation, tab lifetime and Web iframe fallback. Chromium simulates the preload contract; native Electron window movement and page loading are not tested here.')
   console.log(`Screenshots: ${screenshots}`)
 } catch (error) {
   console.error(error)

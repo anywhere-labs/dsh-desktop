@@ -624,7 +624,13 @@ export function registerMarketRoutes(
   desktopActionsProvider?: MarketDesktopActionsProvider,
   desktopPluginsProvider?: MarketDesktopPluginsProvider,
 ): () => void {
-  const expectedPort = ctx.webServer.port
+  // v0.2.1-rc.5 reports `undefined` until the server binds, and a request can only
+  // reach a handler after it has.
+  const expectedPort = () => {
+    const port = ctx.webServer.port
+    if (port === undefined) throw new Error('market routes require a listening webServer')
+    return port
+  }
   const generationController = new AbortController()
   const store = new PersistentCatalogSourceStore(state)
   const media = createMarketMediaService({
@@ -697,7 +703,7 @@ export function registerMarketRoutes(
   const routes = [
     ctx.webServer.register({ kind: 'exact', path: ROUTE_STATE, handler: async (_req, res) => {
       if (generationController.signal.aborted) return
-      if (!requestAllowed(_req, expectedPort)) {
+      if (!requestAllowed(_req, expectedPort())) {
         sendJson(res, 403, { error: 'market request authority rejected' })
         return
       }
@@ -718,7 +724,7 @@ export function registerMarketRoutes(
       }
     }}),
     ctx.webServer.register({ kind: 'exact', path: ROUTE_CATALOG, handler: async (req, res) => {
-      if (!requestAllowed(req, expectedPort)) {
+      if (!requestAllowed(req, expectedPort())) {
         sendJson(res, 403, { error: 'market request authority rejected' })
         return
       }
@@ -846,7 +852,7 @@ export function registerMarketRoutes(
       }
     }}),
     ctx.webServer.register({ kind: 'exact', path: ROUTE_ASSETS, handler: async (req, res) => {
-      if (!requestAllowed(req, expectedPort)) {
+      if (!requestAllowed(req, expectedPort())) {
         sendJson(res, 403, { error: 'market request authority rejected' })
         return
       }
@@ -895,7 +901,7 @@ export function registerMarketRoutes(
       }
     }}),
     ctx.webServer.register({ kind: 'exact', path: ROUTE_SOURCES, handler: async (req, res) => {
-      if (req.method !== 'POST' || !mutationAllowed(req, expectedPort)) {
+      if (req.method !== 'POST' || !mutationAllowed(req, expectedPort())) {
         sendJson(res, 405, { error: 'source changes require a local same-origin POST' })
         return
       }
@@ -918,7 +924,7 @@ export function registerMarketRoutes(
   if (desktopActionsProvider !== undefined) {
     routes.push(
       ctx.webServer.register({ kind: 'exact', path: ROUTE_OPEN_TERMINAL, handler: async (req, res) => {
-        if (req.method !== 'POST' || !mutationAllowed(req, expectedPort)) {
+        if (req.method !== 'POST' || !mutationAllowed(req, expectedPort())) {
           sendJson(res, 405, { error: 'opening DSH Terminal requires a local same-origin POST' })
           return
         }
@@ -946,7 +952,7 @@ export function registerMarketRoutes(
   if (installProvider !== undefined) {
     routes.push(
       ctx.webServer.register({ kind: 'exact', path: ROUTE_INSTALLABLE, handler: async (req, res) => {
-        if (req.method !== 'GET' || !requestAllowed(req, expectedPort)) {
+        if (req.method !== 'GET' || !requestAllowed(req, expectedPort())) {
           sendJson(res, 405, { error: 'market installable catalog requires a local GET' })
           return
         }
@@ -1029,7 +1035,7 @@ export function registerMarketRoutes(
         }
       }}),
       ctx.webServer.register({ kind: 'exact', path: ROUTE_INSTALLATIONS, handler: async (req, res) => {
-        if (req.method !== 'GET' || !requestAllowed(req, expectedPort)) {
+        if (req.method !== 'GET' || !requestAllowed(req, expectedPort())) {
           sendJson(res, 405, { error: 'market installations require a local GET' })
           return
         }
@@ -1046,7 +1052,7 @@ export function registerMarketRoutes(
         }
       }}),
       ctx.webServer.register({ kind: 'exact', path: ROUTE_OPERATION_PREVIEW, handler: async (req, res) => {
-        if (req.method !== 'POST' || !mutationAllowed(req, expectedPort)) {
+        if (req.method !== 'POST' || !mutationAllowed(req, expectedPort())) {
           sendJson(res, 405, { error: 'market package previews require a local same-origin POST' })
           return
         }
@@ -1079,7 +1085,7 @@ export function registerMarketRoutes(
         }
       }}),
       ctx.webServer.register({ kind: 'exact', path: ROUTE_OPERATION_EXECUTE, handler: async (req, res) => {
-        if (req.method !== 'POST' || !mutationAllowed(req, expectedPort)) {
+        if (req.method !== 'POST' || !mutationAllowed(req, expectedPort())) {
           sendJson(res, 405, { error: 'market package execution requires a local same-origin POST' })
           return
         }
@@ -1106,7 +1112,7 @@ export function registerMarketRoutes(
   }
   if (desktopActionsProvider !== undefined) {
     routes.push(ctx.webServer.register({ kind: 'exact', path: ROUTE_REQUEST_RESTART, handler: async (req, res) => {
-      if (req.method !== 'POST' || !mutationAllowed(req, expectedPort)) {
+      if (req.method !== 'POST' || !mutationAllowed(req, expectedPort())) {
         sendJson(res, 405, { error: 'requesting a restart requires a local same-origin POST' })
         return
       }

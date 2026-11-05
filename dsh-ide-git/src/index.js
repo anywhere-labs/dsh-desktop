@@ -74,6 +74,10 @@ function railConfigSchema(schema) {
      does not mark volatile ("Config field … is not volatile"), and the settings
      switch then rolls back silently. */
   shape.immersive = live(schema.boolean().default(true))
+  /* Panel font scale (appearance group): percent, 100 = default; the client
+     clamps to 80–160 in steps of 10. Same volatility rule as `immersive` —
+     undeclared, the Host would reject the settings card's writes. */
+  shape.fontScale = live(schema.number().default(100))
   return schema.object(shape)
 }
 
@@ -1488,6 +1492,14 @@ async function compare(payload) {
 /** Directories never descended into while looking for repositories. */
 const REPO_SCAN_SKIP = new Set(['node_modules', 'dist', 'build', 'out', 'target', 'vendor', 'venv', '.venv', '__pycache__', 'coverage', 'tmp', 'temp'])
 
+/**
+ * Dot-named directories that ARE worth entering. `git worktree add` checkouts
+ * conventionally live in a hidden `.worktrees/` folder inside the repository,
+ * and each one is a working tree with its own HEAD and index — a repository the
+ * panel can bind to like any nested checkout.
+ */
+const REPO_SCAN_DOT_DIRS = new Set(['.worktrees'])
+
 /* `git submodule status --recursive` already reports every nesting level of a
    repository in ONE call (paths arrive fully qualified), so the submodule walk
    costs exactly one `status` per checkout; the lists stay bounded so a
@@ -1648,7 +1660,12 @@ async function scanRepos(cwd, workspace) {
   return { cached: false, rows: capped.map((row) => ({ ...row })) }
 }
 
-/** Depth-capped search for repositories nested in a workspace. */
+/**
+ * Depth-capped search for repositories nested in a workspace. A linked
+ * `git worktree` counts: its `.git` is a `gitdir:` FILE rather than a directory,
+ * and `existsSync` treats both the same, so the worktree below `.worktrees/`
+ * arrives as its own row with its own HEAD.
+ */
 function findNestedRepos(root, maxDepth) {
   const found = []
   const walk = (dir, depth) => {
@@ -1656,7 +1673,8 @@ function findNestedRepos(root, maxDepth) {
     let entries
     try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.') || REPO_SCAN_SKIP.has(entry.name)) continue
+      if (!entry.isDirectory() || REPO_SCAN_SKIP.has(entry.name)) continue
+      if (entry.name.startsWith('.') && !REPO_SCAN_DOT_DIRS.has(entry.name)) continue
       const child = path.join(dir, entry.name)
       if (existsSync(path.join(child, '.git'))) { found.push(child); continue }
       if (depth < maxDepth) walk(child, depth + 1)
@@ -1675,13 +1693,13 @@ async function branchOrNull(root) {
 
 /**
  * Repositories this panel may bind to: the session workspace itself when it is
- * one, repositories nested inside it (a sandbox holding many checkouts), and
- * the submodules of every checkout discovered that way — git records each
- * submodule as its own working tree with its own HEAD, index and branches, so
- * it is a repository the panel can bind to like any other. The client turns
- * this into the repo picker, and picking a row is all it takes: every later
- * call carries that path as `repoRoot`, which is the working directory the git
- * commands run in.
+ * one, repositories nested inside it (a sandbox holding many checkouts), the
+ * linked worktrees under `.worktrees/`, and the submodules of every checkout
+ * discovered that way — git records each of these as its own working tree with
+ * its own HEAD, index and branches, so it is a repository the panel can bind
+ * to like any other. The client turns this into the repo picker, and picking a
+ * row is all it takes: every later call carries that path as `repoRoot`, which
+ * is the working directory the git commands run in.
  */
 async function repos(payload) {
   const cwd = cwdOf(payload)

@@ -45,6 +45,7 @@ import {
   describeDesktopChildProcess,
   ElectronStderrLogger,
   installDesktopChildProcessLogging,
+  installDesktopProcessLifecycleLogging,
   installDesktopUncaughtExceptionLogging,
   type DesktopLogger,
 } from './desktop-logger.ts'
@@ -53,6 +54,7 @@ import {
   startDesktopCrashReporting,
   type DesktopRun,
 } from './crash-evidence.ts'
+import { summarizeDesktopCrashDumps } from './crashpad-evidence.ts'
 import { dshProductVersion } from './dsh-product-version.ts'
 import { exportDesktopDiagnostics } from './diagnostic-export.ts'
 import { createDesktopLifecycleRecorder } from './lifecycle-events.ts'
@@ -66,6 +68,7 @@ import { observeDesktopPreferenceSettings } from './settings-bridge.ts'
 import {
   desktopLanBrowserUrls,
   desktopLoopbackBrowserUrl,
+  desktopWebServerPort,
 } from './desktop-network.ts'
 import { desktopLanAddresses } from './lan-addresses.ts'
 import {
@@ -545,16 +548,45 @@ async function start(): Promise<void> {
     arch: process.arch,
     logger: electronLogger,
   })
+  const runId = lifecycleRecorder.runId
   lifecycleRecorder.startStartup(startupStage)
+  const displayContext = {
+    sessionType: process.env.XDG_SESSION_TYPE ?? 'unset',
+    gdkBackend: process.env.GDK_BACKEND ?? 'default',
+    display: process.env.DISPLAY === undefined ? 'unset' : 'set',
+    waylandDisplay: process.env.WAYLAND_DISPLAY === undefined ? 'unset' : 'set',
+    gDebug: process.env.G_DEBUG ?? 'unset',
+    gMessagesDebug: process.env.G_MESSAGES_DEBUG ?? 'unset',
+  }
+  electronLogger.info(
+    `${BIN_NAME}: runtime context runId=${runId} pid=${String(process.pid)} app=${appVersion}`
+    + ` platform=${process.platform} arch=${process.arch}`
+    + ` electron=${process.versions.electron ?? 'unknown'} chromium=${process.versions.chrome ?? 'unknown'}`
+    + ` node=${process.versions.node ?? process.version} v8=${process.versions.v8 ?? 'unknown'}`
+    + ` display=${JSON.stringify(displayContext)}`,
+  )
   try {
     startDesktopCrashReporting(crashReporter, {
       productName: PRODUCT_NAME,
       version: appVersion,
       platform: process.platform,
       arch: process.arch,
+      runId,
+      mainPid: process.pid,
     })
   } catch (cause) {
     electronLogger.error(`${BIN_NAME}: local crash reporting unavailable: ${cause instanceof Error ? cause.message : String(cause)}`)
+  }
+  const crashReporterDirectory = join(app.getPath('userData'), 'Crashpad')
+  const logCrashpadDumps = (reason: string, since: string | undefined): void => {
+    try {
+      const dumps = summarizeDesktopCrashDumps(crashReporterDirectory, since)
+      const message = `${BIN_NAME}: Crashpad correlation runId=${runId} reason=${reason} dumps=${JSON.stringify(dumps)}`
+      if (dumps.length === 0) electronLogger.info(message)
+      else electronLogger.error(message)
+    } catch (cause) {
+      electronLogger.error(`${BIN_NAME}: Crashpad summary failed for runId=${runId}: ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
   }
   let desktopRun: DesktopRun | undefined
   try {
@@ -564,19 +596,42 @@ async function start(): Promise<void> {
         startedAt: new Date().toISOString(),
         pid: process.pid,
         version: appVersion,
+        runId,
       },
     )
     const previousRun = desktopRun.previousRun
     if (previousRun !== undefined) {
       electronLogger.error('unreadable' in previousRun
-        ? `${BIN_NAME}: previous desktop run did not shut down cleanly (active run marker unreadable)`
-        : `${BIN_NAME}: previous desktop run did not shut down cleanly (startedAt: ${previousRun.startedAt}, pid: ${String(previousRun.pid)}, version: ${previousRun.version})`)
+        ? `${BIN_NAME}: previous desktop run did not shut down cleanly (active run marker unreadable); current runId=${runId}`
+        : `${BIN_NAME}: previous desktop run did not shut down cleanly (startedAt: ${previousRun.startedAt}, pid: ${String(previousRun.pid)}, version: ${previousRun.version}, runId: ${previousRun.runId ?? 'unknown'}); current runId=${runId}`)
+      logCrashpadDumps(`previous-run:${'unreadable' in previousRun ? 'unreadable-marker' : previousRun.runId ?? previousRun.pid}`,
+        'unreadable' in previousRun ? undefined : previousRun.startedAt)
     }
   } catch (cause) {
     electronLogger.error(`${BIN_NAME}: active run tracking unavailable: ${cause instanceof Error ? cause.message : String(cause)}`)
   }
+  installDesktopProcessLifecycleLogging(app, process, electronLogger, {
+    runId,
+    pid: process.pid,
+    onAppPhase: phase => lifecycleRecorder.recordDesktopAppPhase(phase),
+    onExit: exitCode => {
+      lifecycleRecorder.recordDesktopProcessExit(exitCode)
+      try { desktopRun?.markClean() } catch (cause) {
+        electronLogger.error(`${BIN_NAME}: failed to clear active run marker at process exit: ${cause instanceof Error ? cause.message : String(cause)}`)
+      }
+    },
+  })
   removeChildProcessLogging = installDesktopChildProcessLogging(app, electronLogger, details => {
     lastChildProcessGone = describeDesktopChildProcess(details)
+    lifecycleRecorder.recordElectronChildProcessGone(details)
+    if (details.reason === 'crashed' || details.reason === 'oom' || details.reason === 'launch-failed') {
+      electronLogger.error(`${BIN_NAME}: crash correlation runId=${runId} parentPid=${String(process.pid)} child=${lastChildProcessGone}`)
+      const since = new Date(Date.now() - 15_000).toISOString()
+      logCrashpadDumps(`child-process-gone:${details.type}/${details.serviceName ?? details.name ?? 'unnamed'}`, since)
+      // Crashpad may finish flushing the minidump just after Chromium emits the
+      // child event. Re-scan once after a short delay, never blocking recovery.
+      setTimeout(() => { logCrashpadDumps(`child-process-gone-late:${details.type}/${details.serviceName ?? details.name ?? 'unnamed'}`, since) }, 750)
+    }
   })
   const nativeExit = createDesktopExitCoordinator(
     {
@@ -598,11 +653,6 @@ async function start(): Promise<void> {
         } catch (cause) {
           electronLogger.error(`${BIN_NAME}: failed to remove the Safe Mode environment: ${cause instanceof Error ? cause.message : String(cause)}`)
         }
-      }
-      try {
-        desktopRun?.markClean()
-      } catch (cause) {
-        electronLogger.error(`${BIN_NAME}: failed to clear active run marker: ${cause instanceof Error ? cause.message : String(cause)}`)
       }
     },
   )
@@ -636,8 +686,19 @@ async function start(): Promise<void> {
     // Main owns every pre-health failure branch. Returning true prevents the
     // legacy Renderer recovery dialog from racing the native startup window.
     return report.status === 'failed'
-  }, electronLogger, undefined, undefined, installationId)
-  const finalExit = (code: number): void => { nativeExit.finish(code) }
+  }, electronLogger, undefined, undefined, installationId, runId, event => {
+    if (event.event === 'gone') lifecycleRecorder.recordRendererProcessGone(event)
+    else lifecycleRecorder.recordRendererResponsiveness({
+      surface: event.surface,
+      webContentsId: event.webContentsId,
+      responsive: event.event === 'responsive',
+    })
+  })
+  const finalExit = (code: number): void => {
+    electronLogger.info(`${BIN_NAME}: controlled exit requested runId=${runId} pid=${String(process.pid)} exitCode=${String(code)}`)
+    lifecycleRecorder.recordDesktopExitRequested(code)
+    nativeExit.finish(code)
+  }
   shutdown = createDesktopShutdown(
     async () => { await generation.release() },
     finalExit,
@@ -1625,6 +1686,7 @@ async function start(): Promise<void> {
             exitCode: exit.exitCode,
             expected: false,
             uptimeMs: exit.uptimeMs,
+            ...(exit.hostPid === undefined ? {} : { hostPid: exit.hostPid }),
             ...(lastChildProcessGone === undefined ? {} : { childProcessGone: lastChildProcessGone }),
           })
           runtime.notifyAttention({ title: PRODUCT_NAME, body: error.message })
@@ -1794,7 +1856,7 @@ async function start(): Promise<void> {
                 : []
               return {
                 localUrl: hostCtx.connection.authenticatedUrl(
-                  desktopLoopbackBrowserUrl(hostCtx.webServer.port),
+                  desktopLoopbackBrowserUrl(desktopWebServerPort(hostCtx.webServer.port)),
                 ),
                 lanUrls: lanOrigins.map(url => hostCtx.connection.authenticatedUrl(url)),
                 lanState: lan.state,

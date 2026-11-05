@@ -64,14 +64,40 @@ Base pin `639ed015397290b3745d163aafe02ffee4aa3f84`.
 | 0014 | `packages/session/session-persistence` | L3 | Read past a newer harness's `job/registered`, `job/settled` and `working-directory/change` records instead of refusing the log; restores the transcripts of 21 of 203 Sessions. |
 | 0015 | `packages/client/ui-conversation` | L3 | Seed the composer only from a usable stored draft, so a `{text, references}` draft written by a newer build cannot unmount the whole Session slot. |
 
-## Working-tree drift
+## `0.2.1-rc.5` — 1 squashed snapshot
 
-Measured 2026-11-03 against `cec59fa8af`. Replaying 0005-0015 applies cleanly, but
-the result is not the submodule working tree that current local builds package: 35
-changed files carry edits no patch records — `packages/api/workspace-files`,
-`packages/client/ui-sidebar-terminal`, `ui-sidebar-files` search and locales, the
-`ui-conversation` READMEs, three `apps/web/tests/expected` snapshots, and
-`pnpm-lock.yaml` — and 15 files recorded in 0005-0013 have moved past their patch
-text. Only 0014 and 0015 are byte-verified against the working tree today. Refresh
-the whole set before trusting a replay; the round-trip check above is what catches
-this.
+Base pin `b830ec950faba0a46dda564be3e2d854afed94f1` (tag `dsh-v0.2.1-rc.5`).
+
+`worktree-snapshot-20261104.patch` is the whole local edit set for this pin in one
+`git apply` payload — 120 files, +3026/−235 — recorded by diffing the submodule
+working tree against the pin instead of replaying the `0.2.0-rc.2` series patch by
+patch. It is byte-equal to the tree by construction, so it needs no round-trip
+check, but it also has no per-concern history: split it back into L2/L3 patches
+before the next bump if the replay has to be resolved interactively.
+
+Package counts, largest first: `client/ui-sidebar-files` 17, `client/ui-workspace`
+13, `client/ui-conversation` 12, `client/ui-sidebar-terminal` 12, `llm/llm-pi-ai`
+11, `api/workspace-files` 10, `client/ui-reference` 6, `compaction/compaction-image-offload`
+6, `context/file-reference` 6, `client/ui-deliverables` 5, `guard/repeat-tool-reminder`
+5, `apps/web` 4, `bundle/web-app` 4, `docs/subsystems` 3, `llm/llm` 2, and one file
+each in `bundle/base`, `client/ui-open-in-app`, `context/file-reference-local`, plus
+`pnpm-lock.yaml`.
+
+### What did not carry over from `0.2.0-rc.2`
+
+| Old patch | Outcome | Evidence |
+| --- | --- | --- |
+| 0001-0003, 0010 (goal `progress-guard`, `completion-gate`, `round-ledger`) | dropped | Never loaded by a `cordis.patch.yml` row; Desktop owns the behavior through `dsh-plugin-desktop{,-beta}/goal-loop-containment`. Only stale `lib/` and `node_modules/` build output still sits under `deepseek-harness/packages/goal/`; no source survives the pin. |
+| 0014 (`session-persistence` skippable event types) | absorbed | rc.5 `packages/core/session/src/known-event-types.ts` already knows `job/registered`, `job/settled` and `working-directory/change`, so the log reads past them without a local edit. |
+| 0015 (`ui-conversation` draft seed guard) | absorbed | rc.5 widened the setter input to `type DraftInput = string \| DraftSnapshot` and `setDraft` resolves it, so a `{text, references}` draft no longer unmounts the Session slot. |
+
+0004-0013 all appear in the snapshot (`grep -c` on their package paths in the patch
+text confirms each one).
+
+### Vendored-runtime counterpart
+
+The snapshot edits submodule *source*. The same bump must also re-record the 21
+`patches/dsh-*@<version>.patch` Yarn `patch:` files that edit the published runtime
+tarballs, referenced from the root `package.json` resolutions and asserted by
+`dsh-plugin-desktop-beta/tests/package.spec.ts`. Both sets are keyed to the runtime
+version, so an rc bump orphans both if only one is refreshed.

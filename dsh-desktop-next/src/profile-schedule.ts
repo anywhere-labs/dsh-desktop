@@ -1,50 +1,37 @@
-/** Carry 0.1.7-rc.2 Scheduled Tasks choices onto the upstream optional bundle. */
-import { isMap, isScalar, isSeq, parseDocument } from 'yaml'
+/** Normalise the rc.2 Scheduled Tasks patch after v0.2.1-rc.5 retired the bundle. */
+import { isMap, isSeq, parseDocument } from 'yaml'
 
-/** Upstream bundle that now inserts the three rows the Web bundle used to carry disabled. */
+/** Optional bundle the rc.2 shell selected; v0.2.1-rc.5 retired it and the Web composition mounts Schedule itself. */
 export const SCHEDULE_BUNDLE = '@deepseek-ai/dsh-experimental-schedule-bundle'
-const ROWS: Readonly<Record<string, string>> = {
+
+/** Rows the release removed from the Web composition; an override on one matches nothing and only warns. */
+const RETIRED_ROWS: Readonly<Record<string, string>> = {
+  // The clock reading belongs to the `standard`, `cordis`, and `ptc` presets.
   'time-context': '@deepseek-ai/dsh-time-context',
-  schedule: '@deepseek-ai/dsh-schedule',
-  'ui-schedule': '@deepseek-ai/dsh-client-ui-schedule',
 }
 
 /**
- * Rewrite a Profile patch written against the rc.2 Web rows. Returns undefined
- * when it carries no such row. `select` is true when any row was effectively
- * enabled; the rows the user had left off are kept off explicitly because the
- * bundle inserts them enabled.
+ * Drop the entries a Profile patch carries for rows that no longer exist, and
+ * return undefined when it carries none. Overrides on `schedule` and
+ * `ui-schedule` are left as written: the Web composition still mounts both
+ * rows, so `disabled: true` keeps a row the user turned off switched off.
  */
-export function legacySchedulePatch(text: string): { select: boolean; text: string } | undefined {
+export function legacySchedulePatch(text: string): string | undefined {
   // Same comment-preserving dialect as the official manager; !!js is never evaluated here.
   const document = parseDocument(text, { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }] })
   if (document.errors[0]) throw document.errors[0]
   if (!isSeq(document.contents)) throw new Error('Profile patch must be a YAML sequence')
   const items = document.contents.items
-  const legacy: number[] = []
-  const enabled = new Set<string>()
+  const retired: number[] = []
   items.forEach((item, index) => {
     if (!isMap(item) || item.has('insert')) return
     const id = document.getIn([index, 'id'])
-    if (typeof id !== 'string' || !Object.hasOwn(ROWS, id)) return
+    if (typeof id !== 'string' || !Object.hasOwn(RETIRED_ROWS, id)) return
     const name = document.getIn([index, 'name'])
-    if (name && name !== ROWS[id]) return
-    legacy.push(index)
-    // Later entries override earlier ones; anything but a literal `false` leaves the row off.
-    if (item.has('disabled')) {
-      if (document.getIn([index, 'disabled']) === false) enabled.add(id)
-      else enabled.delete(id)
-    }
+    if (name && name !== RETIRED_ROWS[id]) return
+    retired.push(index)
   })
-  if (!legacy.length) return undefined
-  for (const index of legacy.reverse()) {
-    const item = items[index]
-    if (!isMap(item)) continue
-    item.delete('disabled')
-    // Keep user configuration for the same row; drop entries that only toggled it.
-    if (item.items.every(pair => ['id', 'name'].includes(String(isScalar(pair.key) ? pair.key.value : pair.key)))) items.splice(index, 1)
-  }
-  const select = enabled.size > 0
-  if (select) for (const id of Object.keys(ROWS)) if (!enabled.has(id)) document.add({ id, disabled: true })
-  return { select, text: String(document) }
+  if (!retired.length) return undefined
+  for (const index of retired.reverse()) items.splice(index, 1)
+  return String(document)
 }

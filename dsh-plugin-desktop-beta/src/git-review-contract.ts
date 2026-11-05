@@ -7,6 +7,7 @@ export const GIT_REVIEW_STATUS_PATH = '/api/desktop/git-review/status'
 export const GIT_REVIEW_DIFF_PATH = '/api/desktop/git-review/diff'
 export const GIT_REVIEW_LAST_TURN_PATH = '/api/desktop/git-review/last-turn'
 export const GIT_REVIEW_COMMIT_FILES_PATH = '/api/desktop/git-review/commit-files'
+export const GIT_REVIEW_WORKTREES_PATH = '/api/desktop/git-review/worktrees'
 
 export type GitReviewCategory = 'last-turn' | 'unstaged' | 'untracked' | 'staged' | 'committed' | 'branches'
 export type GitReviewDiffCategory = 'last-turn' | 'unstaged' | 'untracked' | 'staged' | 'committed'
@@ -47,6 +48,18 @@ export interface GitReviewWorkspace {
   readonly workspaceTitle: string
   /** Registered primary Workspace path; attachments are separately Host-authorized. */
   readonly path: string
+}
+
+export interface GitReviewWorktree {
+  readonly path: string
+  readonly branch?: string
+  readonly detached: boolean
+  readonly locked: boolean
+}
+
+export interface GitReviewWorktrees {
+  readonly root: string
+  readonly worktrees: readonly GitReviewWorktree[]
 }
 
 export interface GitReviewStatus {
@@ -172,6 +185,28 @@ export function parseGitReviewStatus(workspaceId: string, workspaceTitle: string
     if (isRenameOrCopy) at++
   }
   return { workspaceId, workspaceTitle, ...(branch === undefined ? {} : { branch }), ahead, behind, unstaged, untracked, staged }
+}
+
+/** Parse `git worktree list --porcelain` into bounded tree items. */
+export function parseGitReviewWorktrees(output: string): GitReviewWorktree[] {
+  const result: GitReviewWorktree[] = []
+  let current: GitReviewWorktree | undefined
+  const flush = (): void => { if (current !== undefined && current.path.length > 0) result.push(current); current = undefined }
+  for (const line of output.split(/\r?\n/u)) {
+    if (line.length === 0) { flush(); continue }
+    if (line.startsWith('worktree ')) {
+      flush()
+      current = { path: line.slice('worktree '.length), detached: false, locked: false }
+    } else if (current !== undefined && line.startsWith('branch refs/heads/')) {
+      current = { ...current, branch: line.slice('branch refs/heads/'.length) }
+    } else if (current !== undefined && line === 'detached') {
+      current = { ...current, detached: true }
+    } else if (current !== undefined && line.startsWith('locked')) {
+      current = { ...current, locked: true }
+    }
+  }
+  flush()
+  return result
 }
 
 /** Parse NUL-delimited `git branch --format` rows. */

@@ -1242,6 +1242,43 @@ test('a rail switch writes exactly its own field, and a refused write rolls back
   }
 })
 
+test('the font scale rides the row Config, scales every font rule, and keeps row math exact', () => {
+  // Appearance group: one percent value (100 = default), a stepper in the
+  // settings card, the SAME volatility trap as the placement switches — the
+  // Host rejects writes to paths the schema does not declare, so both halves
+  // must carry the field.
+  assert.match(host, /shape\.fontScale = live\(schema\.number\(\)\.default\(100\)\)/,
+    'the host schema declares the fontScale field with default 100')
+  const card = client.slice(client.indexOf('function RailSettingsCard('), client.indexOf('function RailSettings('))
+  assert.match(card, /fold\('settings\.appearance\.title'/, 'the stepper lives in its own fold section')
+  assert.match(card, /path: \[field\], value: clamped/, 'the stepper writes one clamped field per commit')
+  assert.match(card, /applyFontScale\(clamped\)/, 'the panel re-scales optimistically, before the Host echoes')
+  for (const key of ['settings.appearance.title', 'settings.font.label', 'settings.font.decrease',
+    'settings.font.increase', 'settings.font.reset', 'settings.font.hint']) {
+    const occurrences = client.split("'" + key + "'").length - 1
+    assert.ok(occurrences >= 22, key + ' must ship in ZH + EN + every LOCALES entry (saw ' + occurrences + ')')
+  }
+
+  const css = client.slice(client.indexOf('const CSS = ['), client.indexOf('].join('))
+  assert.doesNotMatch(css, /font-size:\d+px/, 'every font-size literal rides the --dig-fs multiplier')
+  // The virtualised lists window by EXACT pixel heights: the CSS pins read the
+  // --dig-rh-* integers applyFontScale() publishes, and the JS math calls the
+  // same helpers — a calc() on the raw multiplier would drift sub-pixel per
+  // row and desynchronise the spacers over a long history.
+  for (const pin of ['--dig-rh-commit', '--dig-rh-group', '--dig-rh-folder', '--dig-rh-row']) {
+    assert.ok(css.indexOf('var(' + pin + ',') >= 0, 'the CSS pins the row to ' + pin)
+  }
+  assert.match(client, /function historyRowH\(scale\) \{ return fontRowsOf\(scale\)\.commit \+ 2 \}/,
+    'the history row height comes from the shared helper')
+  assert.match(client, /const rowH = historyRowH\(fontScale\)/, 'HistoryList windows by the scaled height')
+  assert.match(client, /prev\.rowH === next\.rowH/, 'the memoised commit row re-renders on a scale change')
+  assert.match(client, /const heights = itemHeights\(fontScale\)/, 'the changes list windows by the scaled heights')
+  assert.match(client, /root\.style\.setProperty\('--dig-fs', String\(value \/ 100\)\)/,
+    'applyFontScale publishes the multiplier')
+  assert.match(client, /subscribeRailConfig\(\(\) => applyFontScale\(\)\)/,
+    'a config change re-applies the scale live')
+})
+
 test('the settings card folds into collapsible sections, collapsed by default', () => {
   // The card's controls group into three functional domains behind fold headers
   // (action rail / placement / AI commit), all collapsed until clicked. The
@@ -1257,7 +1294,7 @@ test('the settings card folds into collapsible sections, collapsed by default', 
   assert.match(card, /'aria-expanded': open \? 'true' : 'false'/, 'the header announces its state to assistive tech')
   assert.match(card, /open \? E\('div', \{ className: 'dig-stack' \}, body\) : null/,
     'a collapsed section renders no body at all')
-  for (const key of ['settings.rail.title', 'settings.placement.title', 'settings.commit.title']) {
+  for (const key of ['settings.rail.title', 'settings.placement.title', 'settings.appearance.title', 'settings.commit.title']) {
     assert.match(card, new RegExp("fold\\('" + key.replace(/\./g, '\\.') + "'"),
       'the ' + key + ' section header comes from the dictionary')
   }

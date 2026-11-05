@@ -1031,7 +1031,8 @@ describe('Electron desktop runtime', () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
     const logger = { error: vi.fn(), errorCause: vi.fn(), info: vi.fn() }
-    const runtime = new ElectronDesktopRuntime(async () => {}, undefined, logger)
+    const recordRendererEvent = vi.fn()
+    const runtime = new ElectronDesktopRuntime(async () => {}, undefined, logger, undefined, undefined, undefined, 'run-test', recordRendererEvent)
     const release = runtime.schedule(spec)
     await runtime.mountScheduled()
 
@@ -1041,8 +1042,17 @@ describe('Electron desktop runtime', () => {
     gone({}, { reason: 'crashed', exitCode: -1073741819 })
 
     expect(logger.error).toHaveBeenCalledWith(
-      'dsh-plugin-desktop: renderer process gone (reason: crashed, exitCode: -1073741819 / 0xc0000005)',
+      'dsh-plugin-desktop: renderer process gone (runId=run-test, surface=main, webContentsId=73, reason: crashed, exitCode: -1073741819 / 0xc0000005)',
     )
+    expect(recordRendererEvent).toHaveBeenCalledWith({
+      event: 'gone', surface: 'main', webContentsId: 73, reason: 'crashed', exitCode: -1073741819,
+    })
+    const unresponsive = electron.webContents.on.mock.calls.find(([event]) => event === 'unresponsive')?.[1] as (() => void) | undefined
+    const responsive = electron.webContents.on.mock.calls.find(([event]) => event === 'responsive')?.[1] as (() => void) | undefined
+    unresponsive?.()
+    responsive?.()
+    expect(recordRendererEvent).toHaveBeenNthCalledWith(2, { event: 'unresponsive', surface: 'main', webContentsId: 73 })
+    expect(recordRendererEvent).toHaveBeenNthCalledWith(3, { event: 'responsive', surface: 'main', webContentsId: 73 })
     await release()
   })
 
@@ -1068,7 +1078,7 @@ describe('Electron desktop runtime', () => {
     expect(onRendererBoot).toHaveBeenCalledWith({
       status: 'failed',
       plugins: [],
-      error: 'renderer process gone (reason: crashed, exitCode: -1073741819 / 0xc0000005)',
+      error: 'renderer process gone (runId=unknown, surface=main, webContentsId=73, reason: crashed, exitCode: -1073741819 / 0xc0000005)',
     })
     expect(electron.dialog.showMessageBox).not.toHaveBeenCalled()
     await release()

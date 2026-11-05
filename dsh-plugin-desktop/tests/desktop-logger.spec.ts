@@ -10,6 +10,7 @@ import {
   ElectronStderrLogger,
   formatDesktopErrorDetails,
   installDesktopChildProcessLogging,
+  installDesktopProcessLifecycleLogging,
   installDesktopUncaughtExceptionLogging,
 } from '../src/desktop-logger.ts'
 import { LogFileSink } from '../src/log-files.ts'
@@ -26,6 +27,31 @@ function sink(): { s: LogFileSink; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-log-'))
   return { s: new LogFileSink(dir, { maxFileBytes: 1e6, maxDirectoryBytes: 1e7 }), dir }
 }
+
+describe('desktop process lifecycle logging', () => {
+  it('records quit phases and the final main-process exit code with run identity', () => {
+    const app = new EventEmitter()
+    const proc = new EventEmitter()
+    const logger = { error: vi.fn(), errorCause: vi.fn(), info: vi.fn() }
+    const onAppPhase = vi.fn()
+    const onExit = vi.fn()
+
+    installDesktopProcessLifecycleLogging(app, proc, logger, {
+      runId: 'run-stable-123', pid: 233_087, onAppPhase, onExit,
+    })
+    app.emit('before-quit', {})
+    app.emit('will-quit', {})
+    proc.emit('exit', 0)
+
+    expect(logger.info.mock.calls.map(([line]) => line)).toEqual([
+      'dsh-plugin-desktop: process lifecycle event=app.before-quit runId=run-stable-123 pid=233087',
+      'dsh-plugin-desktop: process lifecycle event=app.will-quit runId=run-stable-123 pid=233087',
+      'dsh-plugin-desktop: process lifecycle event=main.process-exit runId=run-stable-123 pid=233087 phase=will-quit exitCode=0',
+    ])
+    expect(onAppPhase.mock.calls).toEqual([['before-quit'], ['will-quit']])
+    expect(onExit).toHaveBeenCalledWith(0)
+  })
+})
 
 describe('ElectronStderrLogger', () => {
   it('logs Electron child process crashes with the Windows exception code', () => {

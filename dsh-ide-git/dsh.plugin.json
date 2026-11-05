@@ -1,6 +1,6 @@
 {
   "id": "dsh-external/dsh-ide-git",
-  "version": "0.18.2",
+  "version": "0.18.3",
   "main": "./src/index.js",
   "description": "IDE 级 Git 操作面板:分支树 + 提交图谱 + 变更/暂存/提交 + 提交详情。装了 dsh-better-sidebar 时挂成它的原生 tab(右侧栏 + 底部工作台);没装时直接挂 DSH 原生右侧栏,单独安装即可用。JetBrains 风格 Git 工具窗口 for DeepSeek Harness.",
   "engines": {

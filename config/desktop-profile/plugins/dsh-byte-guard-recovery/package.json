@@ -1,0 +1,31 @@
+{
+  "name": "dsh-byte-guard-recovery",
+  "version": "0.1.0",
+  "private": true,
+  "description": "请求体字节超限（本地保险丝/端点 413）时原地修剪压缩并重试，不换会话。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "compaction",
+    "recovery"
+  ],
+  "license": "UNLICENSED"
+}

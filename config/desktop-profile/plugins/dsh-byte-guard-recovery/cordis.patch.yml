@@ -1,0 +1,17 @@
+# dsh-byte-guard-recovery 组合包补丁：把字节超限恢复插件行插入 profile。
+# 本补丁按 id 覆盖；在用户 profile 的 cordis.patch.yml 里覆盖本行的整个
+# config 可调参（maxAttempts / keepRecentNodes / discardRatio / compact.enabled）。
+#
+# 示例（用户 profile 的 cordis.patch.yml）：
+#   - id: byte-guard-recovery
+#     name: 'dsh-byte-guard-recovery'
+#     config:
+#       maxAttempts: 3        # 单次故障连续恢复尝试上限（1-10，默认 3）
+#       keepRecentNodes: 20   # 保护的最近表层节点数（4-200，默认 20）
+#       discardRatio: 0.25    # 每轮抛弃占可用区间的比例（0.05-0.9，默认 0.25）
+#       compact:
+#         enabled: true       # 关掉则跳过 LLM 摘要，只做修剪与抛弃
+#
+- insert:
+    - id: byte-guard-recovery
+      name: 'dsh-byte-guard-recovery'

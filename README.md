@@ -19,9 +19,9 @@
 
 | 功能 | 一句话总结 |
 | --- | --- |
-| 多目录工作区 | 在一个会话中管理主目录和多个附加代码目录，切换文件浏览根目录不会改变 Agent 会话上下文。 |
+| 多目录工作区 | 编辑工作区时可管理主目录和附加目录；文件浏览器可切换独立根目录，不改变会话工作目录，解除关联不会删除磁盘目录。 |
 | 文件树快捷操作 | 从文件树直接定位系统文件管理器、用 VS Code 打开、复制路径，或把文件/目录作为结构化引用插入对话。 |
-| Git Review | 按当前会话查看已提交变更，并在多个已授权工作区根之间切换审阅目录。 |
+| Git Review（Git 代码审阅） | 按当前会话查看变更；可在主目录和附加目录根之间切换，并展开各根下的 Git 工作树（worktree）选择审阅范围。 |
 | 可编辑 Git 工作区 | 在桌面端进行 Git 工作区相关操作，并将 Git 面板与代码审阅目录保持独立。 |
 | GitHub Copilot | 使用 GitHub 设备码登录，并在模型选择器中使用可用的 Copilot 模型。 |
 | Android Logcat | 通过 adb 选择设备，按进程、Tag、排除 Tag 或消息正则过滤实时日志，并支持暂停、复制、导出和设备截图。 |
@@ -51,6 +51,8 @@
 | `dsh-session-recycle-bin` | 0.4.3 | 会话回收站 |
 | `meow-memory` | 0.31.0 | 跨会话记忆 |
 
+当前本机 `desktop` Profile 配置快照（仅提交配置项，不含 API 凭据值）见 [`config/desktop-profile/cordis.patch.yml`](config/desktop-profile/cordis.patch.yml)。其中 API Key 仍通过环境变量名引用，不把密钥写入仓库。
+
 ## 下载链接
 
 当前 Release 只保留 Stable 通道：
@@ -69,6 +71,7 @@
 
 ### 2.0.17-fate-dev
 
+- **本次本地更新（未发布）**：Workspace Edit 可新增或解除附加目录关联，Files 浏览器按主目录/附加目录独立切换；Git Review 根目录树按 Workspace source 展开 Git 工作树（worktree），切换审阅根或工作树时保留当前会话范围，枚举失败可重试。配套界面截图已遮盖本地附加目录路径与审阅目录路径。
 - `5fced936e9`：将 Git Review worktree 合并到 `fate-dev`。
 - `f7c3d06b81`：新增按会话隔离的 Git Review，并支持附加工作区根。
 - `97291e91c9`：接入可编辑 Git 工作区工具。
@@ -96,14 +99,9 @@
 
 <p align="center"><img src="assets/readme/files-shortcuts.png" alt="文件树项目的快捷操作菜单" width="28%"></p>
 
-### Git Review 与代码审阅
+### 附加目录与 Git Review 工作树选择
 
-<table>
-  <tr>
-    <td width="43%"><img src="assets/readme/code-review.png" alt="代码审阅目录与多工作区根选择" width="100%"></td>
-    <td width="57%"><img src="assets/readme/git-review.png" alt="Git Review 变更列表与提交图" width="100%"></td>
-  </tr>
-</table>
+<p align="center"><img src="assets/readme/git-review-worktree.jpg" alt="附加目录和 Git Review 工作树选择界面；可见本地路径均已遮盖" width="100%"></p>
 
 ### GitHub Copilot
 

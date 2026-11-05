@@ -141,6 +141,7 @@ async function mountMenu(options: {
       addAttachments: () => true,
       removeAttachment: () => {},
       pruneAttachments: () => {},
+      persistDraft: () => {},
       submit: () => {},
     },
     openWorkspacePath,

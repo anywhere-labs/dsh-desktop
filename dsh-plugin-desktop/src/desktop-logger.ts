@@ -37,6 +37,44 @@ export interface DesktopChildProcessSource {
   off(event: 'child-process-gone', listener: (event: unknown, details: DesktopChildProcessDetails) => void): unknown
 }
 
+export interface DesktopAppQuitEventSource {
+  on(event: 'before-quit' | 'will-quit', listener: (event: unknown) => void): unknown
+}
+
+export interface DesktopProcessExitEventSource {
+  once(event: 'exit', listener: (exitCode: number) => void): unknown
+}
+
+/** Persist clean shutdown boundaries so an absent exit event means abrupt death. */
+export function installDesktopProcessLifecycleLogging(
+  app: DesktopAppQuitEventSource,
+  proc: DesktopProcessExitEventSource,
+  logger: DesktopLogger,
+  context: {
+    readonly runId: string
+    readonly pid: number
+    readonly onAppPhase?: (phase: 'before-quit' | 'will-quit') => void
+    readonly onExit?: (exitCode: number) => void
+  },
+): void {
+  let phase = 'running'
+  const identity = `runId=${context.runId} pid=${String(context.pid)}`
+  app.on('before-quit', () => {
+    phase = 'before-quit'
+    logger.info(`dsh-plugin-desktop: process lifecycle event=app.before-quit ${identity}`)
+    try { context.onAppPhase?.('before-quit') } catch { /* diagnostics must not interfere with shutdown */ }
+  })
+  app.on('will-quit', () => {
+    phase = 'will-quit'
+    logger.info(`dsh-plugin-desktop: process lifecycle event=app.will-quit ${identity}`)
+    try { context.onAppPhase?.('will-quit') } catch { /* diagnostics must not interfere with shutdown */ }
+  })
+  proc.once('exit', exitCode => {
+    logger.info(`dsh-plugin-desktop: process lifecycle event=main.process-exit ${identity} phase=${phase} exitCode=${String(exitCode)}`)
+    try { context.onExit?.(exitCode) } catch { /* diagnostics must not interfere with process exit */ }
+  })
+}
+
 /** Render an error with its `cause` chain expanded, mirroring the upstream
  * `formatErrorDetails()` convention: each level appends `cause=<detail>` and
  * keeps its own `stack` so wrapped LLM/loader failures stay diagnosable (#952). */

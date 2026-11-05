@@ -227,6 +227,8 @@ describe('published package surface', () => {
         '@deepseek-ai/dsh-client-ui-sidebar-files',
         '@deepseek-ai/dsh-client-ui-workspace',
         '@deepseek-ai/dsh-util-workspace-path',
+        '@deepseek-ai/dsh-api-terminal-controller',
+        '@deepseek-ai/dsh-client-shortcuts',
       ],
     })
     expect(readFileSync(new URL('cordis.patch.yml', packageRoot), 'utf8')).toContain('name: dsh-plugin-desktop-beta')
@@ -395,12 +397,12 @@ describe('published package surface', () => {
 
   it('keeps the canonical web profile configurable while Desktop disables browser opening', () => {
     const patchPath = `./patches/dsh-web-app@${runtimeVersion}.patch`
-    const openPatchPath = './patches/open@11.0.1.patch'
-    const openPatchResolution = `patch:open@npm%3A11.0.1#${openPatchPath}`
+    const openPatchPath = './patches/open@11.0.4.patch'
+    const openPatchResolution = `patch:open@npm%3A11.0.4#${openPatchPath}`
     expect(dshResolution('@deepseek-ai/dsh-web-app')).toContain(patchPath)
     expect(workspaceManifest.resolutions).toMatchObject({
-      'open@npm:11.0.1': openPatchResolution,
       'open@npm:^11.0.0': openPatchResolution,
+      'open@npm:^11.0.2': openPatchResolution,
     })
     const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
     const openPatch = readFileSync(new URL(openPatchPath, workspaceRoot), 'utf8')
@@ -426,7 +428,7 @@ describe('published package surface', () => {
     expect(installedWebApp).toMatch(
       /function spawnBrowserLauncher\(url\) \{\s+return spawn\(process\.execPath, \[[\s\S]*?\], \{\s+windowsHide: true,\s+env:/u,
     )
-    expect(lockfile).toContain('open@patch:open@npm%3A11.0.1#./patches/open@11.0.1.patch')
+    expect(lockfile).toContain('open@patch:open@npm%3A11.0.4#./patches/open@11.0.4.patch')
     expect(openPatch).toContain('+\t\t\tchildProcessOptions.windowsHide = true;')
     expect(installedOpen).toMatch(
       /if \(!isWsl\) \{\s+childProcessOptions\.windowsVerbatimArguments = true;\s+childProcessOptions\.windowsHide = true;\s+\}/u,
@@ -640,17 +642,21 @@ describe('published package surface', () => {
     const startCrashReporter = main.indexOf('startDesktopCrashReporting(crashReporter')
     const beginRun = main.indexOf('beginDesktopRun(')
     const childLogging = main.indexOf('installDesktopChildProcessLogging(app')
+    const processLogging = main.indexOf('installDesktopProcessLifecycleLogging(app')
     const exitCoordinator = main.indexOf('createDesktopExitCoordinator(')
     const ready = main.indexOf('await app.whenReady()')
-    const markClean = main.indexOf('desktopRun?.markClean()')
+    const onExit = main.indexOf('onExit: exitCode =>', processLogging)
+    const markClean = main.indexOf('desktopRun?.markClean()', onExit)
     const nativeExit = main.indexOf('app.exit(code)')
 
     expect(startCrashReporter).toBeGreaterThanOrEqual(0)
     expect(beginRun).toBeGreaterThan(startCrashReporter)
-    expect(childLogging).toBeGreaterThan(beginRun)
+    expect(processLogging).toBeGreaterThan(beginRun)
+    expect(childLogging).toBeGreaterThan(processLogging)
     expect(exitCoordinator).toBeGreaterThan(childLogging)
-    expect(nativeExit).toBeGreaterThan(exitCoordinator)
-    expect(markClean).toBeGreaterThan(nativeExit)
+    expect(onExit).toBeGreaterThan(processLogging)
+    expect(markClean).toBeGreaterThan(onExit)
+    expect(markClean).toBeLessThan(nativeExit)
     expect(ready).toBeGreaterThan(markClean)
   })
 

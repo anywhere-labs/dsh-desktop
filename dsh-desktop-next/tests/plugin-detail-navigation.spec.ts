@@ -158,7 +158,7 @@ it('places keyed bundle actions before the native switch without sharing the car
   expect(nodes(openButton).some(node => node.props.name === 'plugins.bundle.actions')).toBe(false)
 })
 
-it('keeps Automation tasks in the official group with its artwork, badge, native switches and component details under Next composition', () => {
+it('keeps an official experimental bundle in its group with artwork, badge, native switches and component details under Next composition', () => {
   const app = fixture()
   const ctx = {
     inject: (_services: unknown, callback: (context: unknown) => void) => { callback(ctx) },
@@ -171,7 +171,7 @@ it('keeps Automation tasks in the official group with its artwork, badge, native
     },
   }
   registerPluginControls(ctx as unknown as Context)
-  const name = '@deepseek-ai/dsh-experimental-schedule-bundle'
+  const name = '@deepseek-ai/dsh-experimental-agent-team-profile'
   const { meta } = JSON.parse(readFileSync(createRequire(import.meta.url).resolve(`${name}/locale/zh.json`), 'utf8'))
   const schedule = { ...app.remote, name, enabled: false, meta: { ...meta, icon: '/schedule/icon.svg' },
     rows: [{ rowId: 'schedule', moduleName: '@deepseek-ai/dsh-schedule', entryId: 'include:schedule', enabled: false, phase: 'disabled' }] }
@@ -181,7 +181,7 @@ it('keeps Automation tasks in the official group with its artwork, badge, native
   expect(card).toBeDefined()
   expect(nodes(app.page()).find(node => node.props['data-plugin-count'])?.props['data-plugin-count']).toBe(2)
   const head = component(render(card), 'CardHead')!
-  expect(head.props.title).toBe('自动化任务')
+  expect(head.props.title).toBe('智能体团队')
   expect(head.props.description).toBe(meta.description)
   expect(head.props.icon.props.src).toBe('/schedule/icon.svg')
   expect(nodes(head.props.tags).some(node => node.props.children === 'statusBeta')).toBe(true)

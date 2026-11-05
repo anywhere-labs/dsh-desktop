@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-terminal.ts'
 import { showDesktopMessageBox } from './desktop-dialog-window.ts'
 import { packagedDependencyPath } from './packaged-runtime-path.ts'
-import { ElectronShellGeneration } from './electron-shell-generation.ts'
+import { ElectronShellGeneration, type ElectronRendererDiagnosticEvent } from './electron-shell-generation.ts'
 import { isPlatformLoginDestination, type DesktopPlatformLoginRequest } from './platform-login.ts'
 import { PLATFORM_LOGIN_TITLE, platformLoginUrl } from './platform-login-window.ts'
 import type { DesktopOpenWorkspaceDelivery } from './launch-workspace-contract.ts'
@@ -207,6 +207,8 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     workspaceVolumeQuery: WindowsVolumeQuery | undefined = undefined,
     private readonly mainWindowState: MainWindowStateStore = new FileMainWindowStateStore(app.getPath('userData')),
     installationId?: DesktopInstallationId,
+    private readonly runId = 'unknown',
+    private readonly recordRendererEvent?: (event: ElectronRendererDiagnosticEvent) => void,
   ) {
     this.platformStrategy = electronPlatformStrategy()
     this.platform = this.platformStrategy.platform
@@ -336,6 +338,9 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         canRecoverRenderer: () => this.rendererBootHealthy,
         rendererRecoveryCopy: () => rendererRecoveryCopy[this.currentLocale],
         logError: message => { this.logError(message) },
+        logInfo: message => { this.logger?.info(message) },
+        runId: this.runId,
+        ...(this.recordRendererEvent === undefined ? {} : { recordRendererEvent: this.recordRendererEvent }),
         mainWindowState: this.mainWindowState,
         platformLoginTitle: () => PLATFORM_LOGIN_TITLE[this.currentLocale],
         setupOnboarding: this.setupOnboarding,

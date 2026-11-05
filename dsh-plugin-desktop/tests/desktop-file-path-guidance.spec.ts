@@ -21,6 +21,9 @@ describe('Desktop file path output guidance', () => {
   it('instructs absolute output and separate grouping of worktrees and attached roots', () => {
     const text = renderDesktopFilePathGuidance('/work/main', ['/work/z', '/work/a'])
     expect(text).toContain('verified absolute filesystem path')
+    expect(text).toContain('exact @path reference')
+    expect(text).toContain('Resolve relative references against the Session working directory exactly once')
+    expect(text).toContain('without prepending the working directory or duplicating path components')
     expect(text).toContain('group them under their actual directory roots')
     expect(text).toContain('independent Git worktree')
     expect(text).toContain('Files browser selection does not change the Session working directory')

@@ -45,6 +45,10 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 import { desktopFilePathPromptSection } from './desktop-file-path-guidance.ts'
+import {
+  desktopAgentTaskRoutingPromptSection,
+  shouldEnableDesktopAgentTaskRouting,
+} from './desktop-agent-task-routing.ts'
 import { installWorkspaceSourcePolicy } from './workspace-source-policy.ts'
 import { installWorkspaceSourceFileReferences } from './workspace-source-file-references.ts'
 import {
@@ -84,6 +88,7 @@ import {
   desktopBrowserAccessEnabled,
   desktopNetworkExposureForBrowserAccess,
   desktopWebServerHost,
+  desktopWebServerPort,
   type DesktopNetworkExposure,
 } from './desktop-network.ts'
 import { DESKTOP_FRAME_HEIGHT } from './window-chrome.ts'
@@ -125,7 +130,7 @@ export const name = 'desktop-shell'
 
 /** Services required before the shell can register its renderer generation. */
 /** Services required by the desktop shell; `desktopRuntime` is probed, not required. */
-export const inject = ['webServer', 'webRuntime', 'appExit', 'settings', 'connection', 'authorization', 'credentials']
+export const inject = ['webServer', 'webApp', 'appExit', 'settings', 'connection', 'authorization', 'credentials']
 
 /**
  * Standard settings namespace shared by tray and configuration surfaces, the
@@ -221,7 +226,7 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
   if (ctx.webServer.host !== desktopWebServerHost(resolved.networkExposure)) {
     throw new Error('dsh-plugin-desktop: desktop shell WebServer host does not match networkExposure')
   }
-  lanHttps.attach(ctx.webServer.port)
+  lanHttps.attach(desktopWebServerPort(ctx.webServer.port))
   const iconFilename = runtime.platform === 'darwin'
     ? 'app-icon-mac.png'
     : 'app-icon.png'
@@ -255,6 +260,14 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
       )),
       'dsh-plugin-desktop: absolute file paths in user-facing output',
     )
+    if (shouldEnableDesktopAgentTaskRouting(resolved.mode)) {
+      scope.effect(
+        () => scope.systemPrompt.section(desktopAgentTaskRoutingPromptSection(
+          scope.systemPrompt.getSectionOrder('HARNESS_SOURCE') + 2,
+        )),
+        'dsh-plugin-desktop: Agent task and skill routing',
+      )
+    }
   })
   ctx.effect(
     () => ctx.webServer.register({
@@ -555,7 +568,7 @@ export function apply(ctx: Context, config: DesktopShellConfig): void {
         resolved.linuxMaterial,
       )
       const url = desktopRendererUrl(
-        ctx.webServer.port,
+        desktopWebServerPort(ctx.webServer.port),
         resolved.mode,
         runtime.platform,
         runtime.updates.currentVersion,

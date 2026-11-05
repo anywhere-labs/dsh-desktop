@@ -5,6 +5,7 @@ import type { WorkspaceSourceRoots } from './workspace-source-roots.ts'
 
 const GUIDANCE = [
   'When reporting files to the user (including final answers, changed-file lists, and links), use the verified absolute filesystem path for each file, not a relative path or basename alone.',
+  'A file or folder attached through the composer is represented by its exact @path reference. Use that reference instead of reconstructing a path from the chip label. Resolve relative references against the Session working directory exactly once; use absolute references as written, without prepending the working directory or duplicating path components.',
   'If files belong to multiple working directories, group them under their actual directory roots before listing them. Put the Session working directory first; sort other directory groups by absolute root path, then sort absolute file paths within each group.',
   'An independent Git worktree is its own working directory when its root is verified. A relative path such as .worktrees/... is not enough to establish the file location: resolve it against its actual root first.',
   'Attached source folders are separate roots. The Files browser selection does not change the Session working directory or the ownership of a file. Never prepend the selected browser root to an unrelated Session-relative path.',

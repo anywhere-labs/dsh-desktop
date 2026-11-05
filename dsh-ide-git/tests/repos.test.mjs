@@ -6,11 +6,13 @@
  * index that the parent only ever sees as one gitlink line, so the picker must
  * offer them as repositories of their own — the behavior a desktop Git client
  * gives when a submodule is clicked. A workspace that is only a container of
- * checkouts must keep listing them too.
+ * checkouts must keep listing them too, and so must a linked worktree — a
+ * checkout in a hidden `.worktrees/` folder is a working tree with its own HEAD,
+ * not a folder to walk past.
  */
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -211,5 +213,47 @@ test('an uninitialised submodule is registered but not offered', async () => {
   } finally {
     workspaces.delete(blank)
     rmSync(blank, { recursive: true, force: true })
+  }
+})
+
+test('a linked worktree under .worktrees/ is listed and bindable', async () => {
+  /* The convention is `<repo>/.worktrees/<task>`: a dot-named folder, which the
+     scan used to refuse to enter, so a worktree never reached the picker. It is
+     a real working tree — its `.git` is a `gitdir:` FILE rather than a
+     directory, and it has its own HEAD and index — so binding the git methods to
+     it reports the worktree's branch, not the main checkout's. */
+  const repo = mkdtempSync(join(tmpdir(), 'dsh-ide-git-worktree-'))
+  workspaces.add(repo)
+  try {
+    execFileSync('git', ['init', '-q', '-b', 'main', repo], { encoding: 'utf8' })
+    git(repo, 'config', 'core.autocrlf', 'false')
+    git(repo, 'config', 'core.eol', 'lf')
+    git(repo, 'config', 'user.name', 'Check')
+    git(repo, 'config', 'user.email', 'check@example.com')
+    writeFileSync(join(repo, 'top.txt'), 'top\n')
+    commitAll(repo, 'initial')
+    git(repo, 'worktree', 'add', '-q', '-b', 'task-a', join('.worktrees', 'task-a'))
+
+    const worktree = join(repo, '.worktrees', 'task-a')
+    assert.ok(readFileSync(join(worktree, '.git'), 'utf8').startsWith('gitdir:'),
+      'the fixture is a linked worktree with a pointer file')
+
+    const { status, body } = await call('repos', { cwd: repo })
+    assert.equal(status, 200)
+    const nested = rows(body).filter((row) => row.kind === 'nested')
+    assert.equal(nested.length, 1, `only the worktree, not its folder: ${JSON.stringify(rows(body).map((row) => row.path))}`)
+    assert.equal(nested[0].name, 'task-a')
+    assert.equal(nested[0].branch, 'task-a')
+
+    const summary = await call('summary', { cwd: repo, repoRoot: nested[0].path })
+    assert.equal(summary.status, 200, JSON.stringify(summary.body))
+    assert.equal(summary.body.data.branch, 'task-a')
+
+    const branches = await call('branches', { cwd: repo, repoRoot: nested[0].path })
+    assert.equal(branches.status, 200)
+    assert.equal(branches.body.data.branch, 'task-a')
+  } finally {
+    workspaces.delete(repo)
+    rmSync(repo, { recursive: true, force: true })
   }
 })

@@ -474,6 +474,7 @@ describe('desktop lifecycle events', () => {
       exitCode: 0,
       expected: false,
       uptimeMs: 27_000_000,
+      hostPid: 233_197,
       childProcessGone: 'Utility/Network Service reason: killed, exitCode: 1073807364 / 0x40010004',
     })
 
@@ -485,6 +486,7 @@ describe('desktop lifecycle events', () => {
       exitCode: 0,
       disposition: 'unexpected',
       uptimeMs: 27_000_000,
+      hostPid: 233_197,
       childProcessGone: 'Utility/Network Service reason: killed, exitCode: 1073807364 / 0x40010004',
     })
   })
@@ -513,6 +515,53 @@ describe('desktop lifecycle events', () => {
     expect(exit?.details.exitCode).toBe(-1073741819)
     expect(String(exit?.details.childProcessGone)).toHaveLength(128)
     expect(String(exit?.details.childProcessGone)).not.toContain('\n')
+  })
+
+  it('correlates native child, renderer, and main-process exits in lifecycle evidence', () => {
+    const userDataDir = tempUserData('dsh-lifecycle-native-crash-')
+    const recorder = createDesktopLifecycleRecorder({
+      userDataDir,
+      appVersion: '2.0.17-test',
+      platform: 'linux',
+      arch: 'x64',
+      logger: createLogger(),
+      now: () => FIXED_NOW,
+    })
+
+    recorder.recordElectronChildProcessGone({
+      type: 'Utility', reason: 'crashed', exitCode: 133,
+      serviceName: 'node.mojom.NodeService', name: 'DSH Host',
+    })
+    recorder.recordRendererResponsiveness({ surface: 'main', webContentsId: 7, responsive: false })
+    recorder.recordRendererProcessGone({
+      surface: 'main', webContentsId: 7, reason: 'crashed', exitCode: 5,
+    })
+    recorder.recordDesktopAppPhase('before-quit')
+    recorder.recordDesktopExitRequested(0)
+    recorder.recordDesktopProcessExit(0)
+
+    const events = readEvents(userDataDir)
+    expect(events.slice(1).map(event => event.eventName)).toEqual([
+      'electron.child-process.gone',
+      'renderer.process.unresponsive',
+      'renderer.process.gone',
+      'desktop.app.before-quit',
+      'desktop.app.exit-requested',
+      'desktop.process.exit',
+    ])
+    expect(events[1]?.details).toMatchObject({
+      type: 'Utility', reason: 'crashed', exitCode: 133,
+      serviceName: 'node.mojom.NodeService', name: 'DSH Host',
+    })
+    expect(events[3]?.details).toMatchObject({ surface: 'main', webContentsId: 7, reason: 'crashed', exitCode: 5 })
+    const summary = JSON.parse(summarizeDesktopLifecycleEvidence(
+      Buffer.from(events.map(event => JSON.stringify(event)).join('\n') + '\n', 'utf8'),
+    )?.toString('utf8') ?? '') as DesktopLifecycleSummary
+    expect(summary).toMatchObject({
+      electronChildProcessGoneCount: 1,
+      rendererProcessGoneCount: 1,
+      lastDesktopProcessExitCode: 0,
+    })
   })
 
   it('counts only unwanted Host exits in the summary', () => {

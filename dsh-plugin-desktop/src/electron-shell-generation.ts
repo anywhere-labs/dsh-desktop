@@ -191,7 +191,24 @@ function isZoomShortcut(input: Electron.Input): 'in' | 'out' | 'reset' | undefin
   return undefined
 }
 
+export type ElectronRendererDiagnosticEvent =
+  | {
+      readonly event: 'gone'
+      readonly surface: string
+      readonly webContentsId: number
+      readonly reason: string
+      readonly exitCode: number
+    }
+  | {
+      readonly event: 'unresponsive' | 'responsive'
+      readonly surface: string
+      readonly webContentsId: number
+    }
+
 export interface ElectronShellGenerationOptions {
+  readonly runId?: string
+  readonly recordRendererEvent?: (event: ElectronRendererDiagnosticEvent) => void
+  readonly logInfo?: (message: string) => void
   readonly setupOnboarding?: import('./setup-onboarding-bridge.ts').DesktopOnboardingBridge | undefined
   readonly platform: ElectronPlatformStrategy
   readonly spec: DesktopShellSpec
@@ -534,19 +551,38 @@ export class ElectronShellGeneration {
       }
       if (targetOrigin !== origin) event.preventDefault()
     }
-    const rendererGone = (_event: Electron.Event, details: Electron.RenderProcessGoneDetails): void => {
-      this.surfaceWatchdog.reset()
-      if (this.replacementExit !== undefined && (details.reason === 'crashed' || details.reason === 'killed')) {
-        this.finishRendererReplacement(details)
-        return
+    const rendererGone = (surface: string, target: WebContents) =>
+      (_event: Electron.Event, details: Electron.RenderProcessGoneDetails): void => {
+        this.surfaceWatchdog.reset()
+        const detail = `renderer process gone (runId=${this.options.runId ?? 'unknown'}, surface=${surface}, webContentsId=${String(target.id)}, reason: ${details.reason}, exitCode: ${formatDesktopExitCode(details.exitCode)})`
+        this.options.logError(`dsh-plugin-desktop: ${detail}`)
+        try {
+          this.options.recordRendererEvent?.({
+            event: 'gone', surface, webContentsId: target.id,
+            reason: details.reason, exitCode: details.exitCode,
+          })
+        } catch { /* diagnostics must not interfere with recovery */ }
+        if (this.replacementExit !== undefined && (details.reason === 'crashed' || details.reason === 'killed')) {
+          this.finishRendererReplacement(details)
+          return
+        }
+        this.options.failRendererBoot(detail)
+        if (details.reason !== 'clean-exit' && details.reason !== 'killed'
+          && this.options.canRecoverRenderer()) {
+          this.rendererRecovery.fail(detail)
+        }
       }
-      const detail = `renderer process gone (reason: ${details.reason}, exitCode: ${formatDesktopExitCode(details.exitCode)})`
+    const rendererUnresponsive = (surface: string, target: WebContents) => (): void => {
+      const detail = `renderer unresponsive (runId=${this.options.runId ?? 'unknown'}, surface=${surface}, webContentsId=${String(target.id)})`
       this.options.logError(`dsh-plugin-desktop: ${detail}`)
-      this.options.failRendererBoot(detail)
-      if (details.reason !== 'clean-exit' && details.reason !== 'killed'
-        && this.options.canRecoverRenderer()) {
-        this.rendererRecovery.fail(detail)
-      }
+      try { this.options.recordRendererEvent?.({ event: 'unresponsive', surface, webContentsId: target.id }) }
+      catch { /* diagnostics must not interfere with recovery */ }
+    }
+    const rendererResponsive = (surface: string, target: WebContents) => (): void => {
+      const detail = `renderer responsive (runId=${this.options.runId ?? 'unknown'}, surface=${surface}, webContentsId=${String(target.id)})`
+      this.options.logInfo?.(`dsh-plugin-desktop: ${detail}`)
+      try { this.options.recordRendererEvent?.({ event: 'responsive', surface, webContentsId: target.id }) }
+      catch { /* diagnostics must not interfere with recovery */ }
     }
     const loadFailed = (
       _event: Electron.Event,
@@ -575,6 +611,13 @@ export class ElectronShellGeneration {
       if (this.recoveryContentLoaded) this.rendererRecovery.loaded()
     }
 
+    const rendererGoneHandler = rendererGone('main', renderer)
+    const rendererUnresponsiveHandler = rendererUnresponsive('main', renderer)
+    const rendererResponsiveHandler = rendererResponsive('main', renderer)
+    const chromeRendererGoneHandler = chrome === renderer ? undefined : rendererGone('compatibility-chrome', chrome)
+    const chromeRendererUnresponsiveHandler = chrome === renderer ? undefined : rendererUnresponsive('compatibility-chrome', chrome)
+    const chromeRendererResponsiveHandler = chrome === renderer ? undefined : rendererResponsive('compatibility-chrome', chrome)
+
     app.on('activate', activate)
     const resetSurface = (): void => {
       this.surfaceWatchdog.reset()
@@ -593,13 +636,17 @@ export class ElectronShellGeneration {
     renderer.on('before-input-event', handleZoomShortcut)
     renderer.on('will-frame-navigate', navigate)
     renderer.on('will-redirect', redirect)
-    renderer.on('render-process-gone', rendererGone)
+    renderer.on('render-process-gone', rendererGoneHandler)
+    renderer.on('unresponsive', rendererUnresponsiveHandler)
+    renderer.on('responsive', rendererResponsiveHandler)
     renderer.on('did-fail-load', loadFailed)
     renderer.on('did-start-loading', resetSurface)
     renderer.on('did-finish-load', loaded)
     if (isolated) {
       chrome.on('before-input-event', handleZoomShortcut)
-      chrome.on('render-process-gone', rendererGone)
+      if (chromeRendererGoneHandler !== undefined) chrome.on('render-process-gone', chromeRendererGoneHandler)
+      if (chromeRendererUnresponsiveHandler !== undefined) chrome.on('unresponsive', chromeRendererUnresponsiveHandler)
+      if (chromeRendererResponsiveHandler !== undefined) chrome.on('responsive', chromeRendererResponsiveHandler)
       chrome.on('did-fail-load', loadFailed)
       chrome.on('did-finish-load', chromeLoaded)
     }
@@ -636,7 +683,9 @@ export class ElectronShellGeneration {
       renderer.off('before-input-event', handleZoomShortcut)
       renderer.off('will-frame-navigate', navigate)
       renderer.off('will-redirect', redirect)
-      renderer.off('render-process-gone', rendererGone)
+      renderer.off('render-process-gone', rendererGoneHandler)
+      renderer.off('unresponsive', rendererUnresponsiveHandler)
+      renderer.off('responsive', rendererResponsiveHandler)
       renderer.off('did-fail-load', loadFailed)
       renderer.off('did-start-loading', resetSurface)
       renderer.off('did-finish-load', loaded)
@@ -647,7 +696,9 @@ export class ElectronShellGeneration {
       }
       if (isolated) {
         chrome.off('before-input-event', handleZoomShortcut)
-        chrome.off('render-process-gone', rendererGone)
+        if (chromeRendererGoneHandler !== undefined) chrome.off('render-process-gone', chromeRendererGoneHandler)
+        if (chromeRendererUnresponsiveHandler !== undefined) chrome.off('unresponsive', chromeRendererUnresponsiveHandler)
+        if (chromeRendererResponsiveHandler !== undefined) chrome.off('responsive', chromeRendererResponsiveHandler)
         chrome.off('did-fail-load', loadFailed)
         chrome.off('did-finish-load', chromeLoaded)
       }

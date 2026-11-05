@@ -155,6 +155,8 @@ describe('Desktop WebServer browser gate', () => {
   it('applies the same gate to WebSocket upgrades', async () => {
     const access = createDesktopBrowserAccess(false, Buffer.alloc(32, 5).toString('base64url'))
     const server = await startWebServer(access)
+    const port = server.port
+    if (port === undefined) throw new Error('Desktop WebServer did not bind a port')
     server.registerUpgrade({
       path: '/socket',
       handler: (_req, socket) => {
@@ -168,8 +170,8 @@ describe('Desktop WebServer browser gate', () => {
       },
     })
 
-    await expect(requestUpgrade(server.port, '/socket')).resolves.toContain('403 Forbidden')
-    await expect(requestUpgrade(server.port, '/socket', {
+    await expect(requestUpgrade(port, '/socket')).resolves.toContain('403 Forbidden')
+    await expect(requestUpgrade(port, '/socket', {
       [access.rendererHeader.name]: access.rendererHeader.value,
     })).resolves.toContain('101 Switching Protocols')
   })

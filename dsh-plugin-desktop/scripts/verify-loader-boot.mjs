@@ -179,7 +179,7 @@ try {
         },
         requestRejection() { return undefined },
       })
-      host.provide('webRuntime', {})
+      host.provide('webApp', {})
       host.provide('appExit', () => {})
       host.provide('settings', {
         register() {
