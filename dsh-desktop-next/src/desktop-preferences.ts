@@ -25,6 +25,8 @@ export function parsePreferences(value: unknown): DesktopPreferences {
   }
   // The upstream compatibility client paints an opaque background, so a transparent Linux
   // frame stays invisible. Fail closed to the solid frame exactly like the existing Desktop.
+  // Job notifications are intentionally forced off: the Next settings page hides their toggles
+  // via `capabilities.jobNotifications: false` in settings.tsx (see #1245).
   return { ...result, linuxMaterial: 'off', jobCompleted: false, jobFailed: false } as DesktopPreferences
 }
 
