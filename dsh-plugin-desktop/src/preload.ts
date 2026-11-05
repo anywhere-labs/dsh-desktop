@@ -2,7 +2,7 @@
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { SETUP_ONBOARDING_CHANNEL } from './setup-onboarding-bridge.ts'
-import { DESKTOP_FILE_PATH_BRIDGE } from './file-path-bridge-contract.ts'
+import { DESKTOP_HOST_PATHS_BRIDGE } from './file-path-bridge-contract.ts'
 import { DESKTOP_NATIVE_DIRECTORY_PICKER_CHANNEL } from './directory-picker-contract.ts'
 import {
   DESKTOP_RENDERER_ACTION_CHANNEL,
@@ -11,9 +11,11 @@ import {
   type DesktopRendererActionsBridge,
 } from './renderer-actions-contract.ts'
 
-contextBridge.exposeInMainWorld(DESKTOP_FILE_PATH_BRIDGE, {
-  /** Resolve only genuine disk-backed Web File objects selected by the operator. */
-  getPathForFile(file: File): string {
+// The official composer cites dropped, picked, and pasted files and folders that have a
+// real path as `@path` references instead of uploading them, and refuses folders outright
+// when this bridge is absent; a File without a path (pasted bytes) answers '' and uploads.
+contextBridge.exposeInMainWorld(DESKTOP_HOST_PATHS_BRIDGE, {
+  pathFor(file: File): string {
     return webUtils.getPathForFile(file)
   },
 })

@@ -191,7 +191,7 @@ interface DesktopPnpmHandle {
 
 Service 在每个 generation 同时最多启动一个 package operation；已有 operation 活跃时再次调用会同步抛错。它只暴露输出，不选择 progress UI，也没有内置 timeout。Consumer 拥有 deadline、读取两个 stream、报告 progress、在需要时调用 `cancel()` 或 abort signal、等待 `done`，并同时检查 `exitCode` 与 `signal`。
 
-无效 argv、已经关闭或忙碌的 generation，以及调用前就已 abort 的 signal，都会在返回 handle 前同步抛错。Handle 存在后，cancellation 与 generation teardown 会作用于完整 subprocess tree。`done` 不会仅因直接 wrapper 退出而 settle；在后代进程消失前，operation gate 始终保持占用。异步 spawn-level failure 会 reject `done`，普通命令失败则 resolve 为非零 exit code。Desktop 会仅在当前进程中、最终执行 pnpm 时为所有操作加入一次 `--config.minimumReleaseAge=0`，包括打包的 `dsh plugin` 转发和终端 shim，不会持久化修改用户配置。在 Windows 上，provider 会使用 argv 启动准确的已打包 pnpm entry，并把进程树 ownership 委托给 subprocess service，因此插件作者无需发现 `.cmd` shim，也不应拼接 shell 文本。
+无效 argv、已经关闭或忙碌的 generation，以及调用前就已 abort 的 signal，都会在返回 handle 前同步抛错。Handle 存在后，cancellation 与 generation teardown 会作用于完整 subprocess tree。`done` 不会仅因直接 wrapper 退出而 settle；在后代进程消失前，operation gate 始终保持占用。异步 spawn-level failure 会 reject `done`，普通命令失败则 resolve 为非零 exit code。Desktop 会仅在当前进程中、最终执行 pnpm 时为所有操作加入一次 `--config.minimumReleaseAge=0`，包括打包的 `dsh plugin` 转发和终端 shim，不会持久化修改用户配置。终端 shim 还会加入 `--config.updateNotifier=false`，应用环境也会向后代进程导出 `pnpm_config_update_notifier=false`：内置 pnpm 只随 Desktop 更新，pnpm 提示的 `self-update` 无法生效。在 Windows 上，provider 会使用 argv 启动准确的已打包 pnpm entry，并把进程树 ownership 委托给 subprocess service，因此插件作者无需发现 `.cmd` shim，也不应拼接 shell 文本。
 
 ## 内部与 launcher 私有 capability
 

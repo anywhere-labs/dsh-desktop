@@ -1,12 +1,20 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, expect, it, vi } from 'vitest'
+import { NextUpdateSettings } from '../src/client/updates.tsx'
+import { DEFAULT_PREFERENCES, type DesktopState } from '../src/desktop-contract.ts'
 import { NextUpdates, type NextUpdateOptions } from '../src/updates.ts'
-import { artifactRequest } from '../src/update-transport.ts'
 import { serveMacUpdate } from '../src/mac-update-feed.ts'
-import { updateAction, updateLabel } from '../src/update-state.ts'
-import type { UpdateRequest } from '../../dsh-plugin-desktop-beta/src/update-checker.ts'
+import { releaseNotesUrl, updateAction, updateLabel, type NextUpdateState } from '../src/update-state.ts'
+import type { UpdateRequest } from '../../dsh-plugin-desktop/src/update-checker.ts'
+import type { UpdateArtifactRequest } from '../../dsh-plugin-desktop/src/update-download.ts'
+
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
+  Button: ({ children, ...props }: Record<string, unknown>) => createElement('button', props, children as never),
+}))
 
 const roots: string[] = []
 const owners: NextUpdates[] = []
@@ -15,12 +23,13 @@ async function fixture(overrides: Partial<NextUpdateOptions> = {}) {
   const home = await mkdtemp(join(tmpdir(), 'next-updates-test-')); roots.push(home)
   const artifact = Buffer.alloc(1024); artifact.write('koly', 512)
   const request = vi.fn<UpdateRequest>(async url => url.includes('/version')
-    ? Response.json({ version: '2.0.17-next.1', channel: 'next' }) : new Response(artifact, { headers: { 'content-length': '1024' } }))
+    ? Response.json({ version: '2.0.20-next.1', channel: 'next' }) : new Response(artifact, { headers: { 'content-length': '1024' } }))
+  const artifactRequest = vi.fn<UpdateArtifactRequest>(async (url, init) => ({ response: await request(url, init), finalUrl: url }))
   const options: NextUpdateOptions = { userData: home, version: '2.0.14-next', platform: 'darwin', packaged: true,
-    request, prepare: vi.fn(async path => { expect(await readFile(path)).toEqual(artifact) }), install: vi.fn(async () => {}),
+    request, artifactRequest, prepare: vi.fn(async path => { expect(await readFile(path)).toEqual(artifact) }), install: vi.fn(async () => {}),
     changed: vi.fn(), log: vi.fn(), ...overrides }
   const updates = new NextUpdates(options); owners.push(updates)
-  return { updates, options, request }
+  return { updates, options, request, artifactRequest }
 }
 
 it('checks without downloading; download completion waits for an explicit installation', async () => {
@@ -37,7 +46,7 @@ it('checks without downloading; download completion waits for an explicit instal
   expect(updates.snapshot().phase).toBe('installing')
 })
 it('does not confuse an unpublished channel, invalid response or network failure with up to date', async () => {
-  for (const response of [new Response('', { status: 400 }), new Response('', { status: 503 }), Response.json({ version: '2.0.17', channel: 'stable' })]) {
+  for (const response of [new Response('', { status: 400 }), new Response('', { status: 503 }), Response.json({ version: '2.0.20', channel: 'stable' })]) {
     const { updates } = await fixture({ request: async () => response })
     await updates.check()
     expect(updates.snapshot()).toMatchObject({ phase: 'error', error: 'service' })
@@ -48,6 +57,13 @@ it('allows checks in development, but never downloads or replaces the developmen
   await updates.check(); await updates.download()
   expect(updates.snapshot()).toMatchObject({ installable: false, error: 'development' })
   expect(request).toHaveBeenCalledOnce(); expect(options.prepare).not.toHaveBeenCalled()
+})
+it('does not start background update polling on Linux', async () => {
+  vi.useFakeTimers()
+  const { updates, request } = await fixture({ platform: 'linux', packaged: true })
+  updates.start()
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(request).not.toHaveBeenCalled()
 })
 it('rechecks the selected version before downloading, and preserves preparation failures for retry', async () => {
   const { updates, options } = await fixture({ prepare: async () => { throw new Error('Signature mismatch') } })
@@ -70,46 +86,108 @@ it('shows progress and an actionable downloaded state in both languages', () => 
   expect(updateAction({ phase: 'preparing', installable: true })).toBeUndefined()
   expect(updateAction({ phase: 'ready', installable: true })).toBe('install-update')
 })
-it('follows the ModelScope CDN redirect and drops release headers before contacting artifact storage', async () => {
-  const mirror = 'https://modelscope.cn/models/t4wefan/deepseek-harness-desktop/resolve/master/next.dmg'
-  const cdn = 'https://cdn-lfs-cn-1.modelscope.cn/prod/lfs-objects/next.dmg?signature=test'
-  const request = vi.fn<UpdateRequest>()
-  request.mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: mirror } }))
-  request.mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: cdn } }))
-  request.mockResolvedValueOnce(new Response('artifact'))
-  const result = await artifactRequest(request)('https://www.dshdesktop.cn/api/downloads/mac', { headers: { 'X-DSH-Desktop-Channel': 'next' } })
-  expect(result.finalUrl).toBe(cdn)
-  expect(new Headers(request.mock.calls[1]?.[1]?.headers).get('X-DSH-Desktop-Channel')).toBeNull()
-  expect(new Headers(request.mock.calls[2]?.[1]?.headers).get('X-DSH-Desktop-Channel')).toBeNull()
-  expect(request.mock.calls[2]?.[1]?.credentials).toBe('omit')
-  request.mockReset().mockResolvedValue(new Response(null, { status: 302, headers: { location: 'http://127.0.0.1/private' } }))
-  await expect(artifactRequest(request)('https://www.dshdesktop.cn/api/downloads/mac', {})).rejects.toThrow()
-  expect(request).toHaveBeenCalledOnce()
-})
-it('downloads a Next installer that settles on an external HTTPS CDN', async () => {
+it('downloads a Next installer through the injected artifact transport', async () => {
   const cdn = 'https://cdn-lfs-cn-1.modelscope.cn/prod/lfs-objects/next.dmg'
   const artifact = Buffer.alloc(1024); artifact.write('koly', 512)
-  const request = vi.fn<UpdateRequest>(async url => url.includes('/version')
-    ? Response.json({ version: '2.0.17-next.1', channel: 'next' })
-    : url.includes('/api/downloads/')
-      ? new Response(null, { status: 302, headers: { location: cdn } })
-      : new Response(artifact))
-  const { updates, options } = await fixture({ request })
+  const request = vi.fn<UpdateRequest>(async () => Response.json({ version: '2.0.20-next.1', channel: 'next' }))
+  const artifactRequest = vi.fn<UpdateArtifactRequest>(async () => ({ response: new Response(artifact), finalUrl: cdn }))
+  const { updates, options } = await fixture({ request, artifactRequest })
   await updates.download()
-  expect(updates.snapshot().phase).toBe('ready')
+  expect(updates.snapshot()).toMatchObject({ phase: 'ready', version: '2.0.20-next.1' })
+  expect(artifactRequest).toHaveBeenCalledOnce()
   expect(options.prepare).toHaveBeenCalledOnce()
-  expect(request.mock.calls.at(-1)?.[0]).toBe(cdn)
 })
 it('serves only the private archive to the native updater and closes its loopback listener', async () => {
   const root = await mkdtemp(join(tmpdir(), 'next-feed-test-')); roots.push(root)
   const path = join(root, 'update.zip'); await writeFile(path, 'test archive')
-  const feed = await serveMacUpdate(path, '2.0.17-next.1')
+  const feed = await serveMacUpdate(path, '2.0.20-next.1')
   try {
     const metadata = await (await fetch(feed.url)).json() as { url: string; name: string }
-    expect(metadata.name).toBe('2.0.17-next.1')
+    expect(metadata.name).toBe('2.0.20-next.1')
     expect(await (await fetch(metadata.url)).text()).toBe('test archive')
     expect((await fetch(new URL('/update.zip', feed.url))).status).toBe(404)
     expect((await fetch(feed.url, { method: 'POST' })).status).toBe(404)
   } finally { await feed.close() }
   await expect(fetch(feed.url)).rejects.toThrow()
+})
+it('notifies once per newly discovered background update version and persists notifiedVersion across restarts', async () => {
+  let latestVersion = '2.0.20-next.1'
+  const available = vi.fn()
+  const { updates, options } = await fixture({
+    available,
+    request: async () => Response.json({ version: latestVersion, channel: 'next' }),
+  })
+  await updates.check(true)
+  expect(available).toHaveBeenCalledTimes(1)
+  expect(available).toHaveBeenCalledWith('2.0.20-next.1')
+
+  // Subsequent background poll of the same version does not re-notify.
+  await updates.check(true)
+  expect(available).toHaveBeenCalledTimes(1)
+
+  // A new NextUpdates instance reading the same userData also skips duplicate notification.
+  const secondAvailable = vi.fn()
+  const restarted = new NextUpdates({ ...options, available: secondAvailable })
+  owners.push(restarted)
+  await restarted.check(true)
+  expect(secondAvailable).not.toHaveBeenCalled()
+
+  // When a newer version is published, background check notifies once for the new version.
+  latestVersion = '2.0.21-next.1'
+  await restarted.check(true)
+  expect(secondAvailable).toHaveBeenCalledTimes(1)
+  expect(secondAvailable).toHaveBeenCalledWith('2.0.21-next.1')
+})
+const baseState: DesktopState = {
+  selected: 'desktop', profiles: ['desktop'], unavailableProfiles: [],
+  features: { market: false, remoteControl: false }, preferences: { ...DEFAULT_PREFERENCES },
+  phase: 'ready', busy: false, failure: '', safeMode: false, home: '/fixture',
+  platform: 'linux', version: '2.0.20-next', trayAvailable: true, notificationsAvailable: true,
+  browserUrl: null, lan: null, checkpoint: null, logs: '',
+  updates: { phase: 'idle', installable: false },
+}
+it('renders only the version on Linux while showing update status and controls on macOS and Windows', () => {
+  const linuxHtml = renderToStaticMarkup(createElement(NextUpdateSettings, { state: baseState, language: 'zh-CN', run: vi.fn() }))
+  expect(linuxHtml).toContain('桌面版本')
+  expect(linuxHtml).not.toContain('应用更新')
+  expect(linuxHtml).toContain('DSH NEXT · 2.0.20-next')
+  expect(linuxHtml).not.toContain('检查更新')
+  expect(linuxHtml).not.toContain('应用内安装更新需要使用 macOS 或 Windows 安装版。')
+  expect(linuxHtml).not.toContain('<button')
+
+  const macHtml = renderToStaticMarkup(createElement(NextUpdateSettings, { state: { ...baseState, platform: 'darwin' }, language: 'zh-CN', run: vi.fn() }))
+  expect(macHtml).toContain('应用更新')
+  expect(macHtml).toContain('DSH NEXT · 2.0.20-next')
+  expect(macHtml).toContain('检查更新')
+  expect(macHtml).toContain('应用内安装更新需要使用 macOS 或 Windows 安装版。')
+  expect(macHtml).toContain('<button')
+})
+it('names the release notes page after the latest channel version reported by the update service', () => {
+  const releases = 'https://github.com/anywhere-labs/dsh-desktop/releases'
+  expect(releaseNotesUrl()).toBe(releases)
+  for (const version of ['2.0.19-next', '2.0.20-next.1']) expect(releaseNotesUrl(version)).toBe(`${releases}/tag/v${version}`)
+  // The version comes from a remote response and must not be able to leave the tag path.
+  const hostile = new URL(releaseNotesUrl('9.9.9/../../x?y#z'))
+  expect([hostile.search, hostile.hash]).toEqual(['', ''])
+  expect(hostile.pathname).toMatch(/^\/anywhere-labs\/dsh-desktop\/releases\/tag\/v[^/]+$/)
+})
+it('links the release notes beside the update controls in both languages, but not on Linux', () => {
+  const releases = 'https://github.com/anywhere-labs/dsh-desktop/releases'
+  const current: NextUpdateState = { phase: 'current', version: '2.0.20-next', installable: true }
+  const ready: NextUpdateState = { phase: 'ready', version: '2.0.21-next', installable: true }
+  const render = (platform: string, language: string, updates: NextUpdateState) =>
+    renderToStaticMarkup(createElement(NextUpdateSettings, { state: { ...baseState, platform, updates }, language, run: vi.fn() }))
+  const cases: [string, string, NextUpdateState, string, string][] = [
+    ['darwin', 'zh-CN', { phase: 'idle', installable: true }, '更新公告', releases],
+    ['darwin', 'zh-CN', current, '更新公告', `${releases}/tag/v${current.version}`],
+    ['win32', 'en', ready, 'Release notes', `${releases}/tag/v${ready.version}`],
+  ]
+  for (const [platform, language, updates, label, href] of cases) {
+    const anchor = render(platform, language, updates).match(/<a [^>]*>[^<]*<\/a>/)?.[0]
+    expect(anchor).toContain(`href="${href}"`)
+    expect(anchor).toContain('target="_blank"')
+    expect(anchor).toContain('rel="noopener noreferrer"')
+    expect(anchor).toContain(`>${label}</a>`)
+  }
+  expect(render('linux', 'zh-CN', ready)).not.toContain('<a ')
 })

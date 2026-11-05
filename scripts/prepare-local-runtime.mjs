@@ -27,6 +27,14 @@ const upstreamDocument = readJson(join(root, 'upstream.json'))
 const desktopManifest = readJson(join(root, 'package.json'))
 const channels = ['stable', 'beta']
 
+// Chrome DevTools names each of its chunks after its content, so a Desktop
+// compatibility patch on one of those files can only ever match the official
+// tarball: rebuilding the same source rehashes the name and the patch has no
+// target. These packages therefore keep their pinned official payload during a
+// local overlay, which means local edits to them are silently not shipped. Give
+// such a patch a stable target file before adding an overlay-only source edit.
+const overlayPinnedPackages = new Set(['@deepseek-ai/dsh-experimental-inspector'])
+
 function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'))
 }
@@ -403,6 +411,7 @@ function packagePlan(workspaceRoot, packages) {
   const workspaceManifest = readJson(join(workspaceRoot, 'package.json'))
   const plan = []
   for (const entry of packages) {
+    if (overlayPinnedPackages.has(entry.name)) continue
     const installed = findInstalledPackage(workspaceRoot, entry.name)
     if (installed === null) {
       if (requiredByWorkspace(workspaceManifest, entry.name)) {

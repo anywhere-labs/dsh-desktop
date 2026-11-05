@@ -1,25 +1,29 @@
 {
   "compilerOptions": {
     "target": "ES2024",
-    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2024",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "jsx": "react-jsx",
     "allowImportingTsExtensions": true,
-    "skipLibCheck": true,
-    "rootDir": "src",
-    "outDir": "lib/types",
-    "declaration": true,
-    "emitDeclarationOnly": true,
     "strict": true,
-    "exactOptionalPropertyTypes": true,
-    "noFallthroughCasesInSwitch": true,
-    "noImplicitOverride": true,
+    "noEmit": true,
+    "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "verbatimModuleSyntax": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "jsx": "react-jsx"
   },
-  "include": ["src/*.ts", "src/client/*.d.ts", "src/client/**/*.d.ts"]
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "tsdown.config.ts",
+    "vitest.config.ts",
+    "src/**/*.tsx",
+    "vite.native-ui.config.ts"
+  ]
 }

@@ -1,3 +1,4 @@
+import { observeDesktopRenderer, traceRendererBootStage } from './renderer-logging.ts'
 import {
   app,
   BrowserWindow,
@@ -15,6 +16,7 @@ import {
 import { isDesktopSetupWizardSelection } from './setup-wizard-contract.ts'
 import { SETUP_ONBOARDING_CHANNEL } from './setup-onboarding-bridge.ts'
 import { CompatibilityShell, type CompatibilityShellActions } from './compatibility-shell.ts'
+import { installEditingContextMenu, type EditingContextMenuLabels } from './context-menu.ts'
 import { formatDesktopExitCode } from './desktop-logger.ts'
 import { showDesktopMessageBox } from './desktop-dialog-window.ts'
 import { applicationNeedsReveal, revealApplication } from './electron-reveal.ts'
@@ -76,19 +78,19 @@ async function authenticateRendererSession(
   const headers = {
     [spec.rendererAccessHeader.name]: spec.rendererAccessHeader.value,
   }
-  const authenticated = await session.fetch(spec.authenticationUrl, {
+  const authenticated = await traceRendererBootStage('authentication-request', () => session.fetch(spec.authenticationUrl, {
     method: 'GET',
     credentials: 'include',
     redirect: 'follow',
     cache: 'no-store',
     headers,
-  })
+  }))
   if (authenticated.status !== 200) {
     throw new Error(
       `dsh-plugin-desktop: browser authentication failed with HTTP ${String(authenticated.status)}`,
     )
   }
-  await authenticated.body?.cancel()
+  await traceRendererBootStage('authentication-body-release', async () => { await authenticated.body?.cancel() })
 }
 
 function sameRendererCarrierOrigin(requestUrl: string, httpOrigin: string, webSocketOrigin: string): boolean {
@@ -191,24 +193,7 @@ function isZoomShortcut(input: Electron.Input): 'in' | 'out' | 'reset' | undefin
   return undefined
 }
 
-export type ElectronRendererDiagnosticEvent =
-  | {
-      readonly event: 'gone'
-      readonly surface: string
-      readonly webContentsId: number
-      readonly reason: string
-      readonly exitCode: number
-    }
-  | {
-      readonly event: 'unresponsive' | 'responsive'
-      readonly surface: string
-      readonly webContentsId: number
-    }
-
 export interface ElectronShellGenerationOptions {
-  readonly runId?: string
-  readonly recordRendererEvent?: (event: ElectronRendererDiagnosticEvent) => void
-  readonly logInfo?: (message: string) => void
   readonly setupOnboarding?: import('./setup-onboarding-bridge.ts').DesktopOnboardingBridge | undefined
   readonly platform: ElectronPlatformStrategy
   readonly spec: DesktopShellSpec
@@ -227,6 +212,8 @@ export interface ElectronShellGenerationOptions {
   readonly chromeActions: CompatibilityShellActions
   /** Localized caption of the built-in DeepSeek Platform sign-in window. */
   readonly platformLoginTitle: () => string
+  /** Windows labels of the native editing context menu in the current Desktop language. */
+  readonly editingContextMenuLabels: () => EditingContextMenuLabels
 }
 
 /** Own one BrowserWindow and Tray generation, including every native listener. */
@@ -357,6 +344,9 @@ export class ElectronShellGeneration {
     }
     const renderer = this.compatibilityShell?.webContents ?? window.webContents
     const chrome = this.compatibilityShell?.chromeWebContents ?? window.webContents
+    observeDesktopRenderer(renderer, 'application')
+    if (chrome !== renderer) observeDesktopRenderer(chrome, 'chrome')
+    if (window.webContents !== renderer && window.webContents !== chrome) observeDesktopRenderer(window.webContents, 'shell')
     this.renderer = renderer
 
     // Desktop-owned actions stay on the Electron lifetime. The page reaches the
@@ -551,38 +541,19 @@ export class ElectronShellGeneration {
       }
       if (targetOrigin !== origin) event.preventDefault()
     }
-    const rendererGone = (surface: string, target: WebContents) =>
-      (_event: Electron.Event, details: Electron.RenderProcessGoneDetails): void => {
-        this.surfaceWatchdog.reset()
-        const detail = `renderer process gone (runId=${this.options.runId ?? 'unknown'}, surface=${surface}, webContentsId=${String(target.id)}, reason: ${details.reason}, exitCode: ${formatDesktopExitCode(details.exitCode)})`
-        this.options.logError(`dsh-plugin-desktop: ${detail}`)
-        try {
-          this.options.recordRendererEvent?.({
-            event: 'gone', surface, webContentsId: target.id,
-            reason: details.reason, exitCode: details.exitCode,
-          })
-        } catch { /* diagnostics must not interfere with recovery */ }
-        if (this.replacementExit !== undefined && (details.reason === 'crashed' || details.reason === 'killed')) {
-          this.finishRendererReplacement(details)
-          return
-        }
-        this.options.failRendererBoot(detail)
-        if (details.reason !== 'clean-exit' && details.reason !== 'killed'
-          && this.options.canRecoverRenderer()) {
-          this.rendererRecovery.fail(detail)
-        }
+    const rendererGone = (_event: Electron.Event, details: Electron.RenderProcessGoneDetails): void => {
+      this.surfaceWatchdog.reset()
+      if (this.replacementExit !== undefined && (details.reason === 'crashed' || details.reason === 'killed')) {
+        this.finishRendererReplacement(details)
+        return
       }
-    const rendererUnresponsive = (surface: string, target: WebContents) => (): void => {
-      const detail = `renderer unresponsive (runId=${this.options.runId ?? 'unknown'}, surface=${surface}, webContentsId=${String(target.id)})`
+      const detail = `renderer process gone (reason: ${details.reason}, exitCode: ${formatDesktopExitCode(details.exitCode)})`
       this.options.logError(`dsh-plugin-desktop: ${detail}`)
-      try { this.options.recordRendererEvent?.({ event: 'unresponsive', surface, webContentsId: target.id }) }
-      catch { /* diagnostics must not interfere with recovery */ }
-    }
-    const rendererResponsive = (surface: string, target: WebContents) => (): void => {
-      const detail = `renderer responsive (runId=${this.options.runId ?? 'unknown'}, surface=${surface}, webContentsId=${String(target.id)})`
-      this.options.logInfo?.(`dsh-plugin-desktop: ${detail}`)
-      try { this.options.recordRendererEvent?.({ event: 'responsive', surface, webContentsId: target.id }) }
-      catch { /* diagnostics must not interfere with recovery */ }
+      this.options.failRendererBoot(detail)
+      if (details.reason !== 'clean-exit' && details.reason !== 'killed'
+        && this.options.canRecoverRenderer()) {
+        this.rendererRecovery.fail(detail)
+      }
     }
     const loadFailed = (
       _event: Electron.Event,
@@ -611,13 +582,6 @@ export class ElectronShellGeneration {
       if (this.recoveryContentLoaded) this.rendererRecovery.loaded()
     }
 
-    const rendererGoneHandler = rendererGone('main', renderer)
-    const rendererUnresponsiveHandler = rendererUnresponsive('main', renderer)
-    const rendererResponsiveHandler = rendererResponsive('main', renderer)
-    const chromeRendererGoneHandler = chrome === renderer ? undefined : rendererGone('compatibility-chrome', chrome)
-    const chromeRendererUnresponsiveHandler = chrome === renderer ? undefined : rendererUnresponsive('compatibility-chrome', chrome)
-    const chromeRendererResponsiveHandler = chrome === renderer ? undefined : rendererResponsive('compatibility-chrome', chrome)
-
     app.on('activate', activate)
     const resetSurface = (): void => {
       this.surfaceWatchdog.reset()
@@ -636,20 +600,21 @@ export class ElectronShellGeneration {
     renderer.on('before-input-event', handleZoomShortcut)
     renderer.on('will-frame-navigate', navigate)
     renderer.on('will-redirect', redirect)
-    renderer.on('render-process-gone', rendererGoneHandler)
-    renderer.on('unresponsive', rendererUnresponsiveHandler)
-    renderer.on('responsive', rendererResponsiveHandler)
+    renderer.on('render-process-gone', rendererGone)
     renderer.on('did-fail-load', loadFailed)
     renderer.on('did-start-loading', resetSurface)
     renderer.on('did-finish-load', loaded)
     if (isolated) {
       chrome.on('before-input-event', handleZoomShortcut)
-      if (chromeRendererGoneHandler !== undefined) chrome.on('render-process-gone', chromeRendererGoneHandler)
-      if (chromeRendererUnresponsiveHandler !== undefined) chrome.on('unresponsive', chromeRendererUnresponsiveHandler)
-      if (chromeRendererResponsiveHandler !== undefined) chrome.on('responsive', chromeRendererResponsiveHandler)
+      chrome.on('render-process-gone', rendererGone)
       chrome.on('did-fail-load', loadFailed)
       chrome.on('did-finish-load', chromeLoaded)
     }
+    // The official Desktop pops the same editing menu over editable content and
+    // selected text. The command bar gets it too, so copying its text behaves alike.
+    const contextMenuOptions = { platform: platform.platform, labels: this.options.editingContextMenuLabels, menu: () => Menu }
+    const removeRendererContextMenu = installEditingContextMenu(renderer, window, contextMenuOptions)
+    const removeChromeContextMenu = isolated ? installEditingContextMenu(chrome, window, contextMenuOptions) : undefined
     renderer.setWindowOpenHandler(({ url }) => {
       try {
         const target = new URL(url)
@@ -683,9 +648,7 @@ export class ElectronShellGeneration {
       renderer.off('before-input-event', handleZoomShortcut)
       renderer.off('will-frame-navigate', navigate)
       renderer.off('will-redirect', redirect)
-      renderer.off('render-process-gone', rendererGoneHandler)
-      renderer.off('unresponsive', rendererUnresponsiveHandler)
-      renderer.off('responsive', rendererResponsiveHandler)
+      renderer.off('render-process-gone', rendererGone)
       renderer.off('did-fail-load', loadFailed)
       renderer.off('did-start-loading', resetSurface)
       renderer.off('did-finish-load', loaded)
@@ -696,12 +659,12 @@ export class ElectronShellGeneration {
       }
       if (isolated) {
         chrome.off('before-input-event', handleZoomShortcut)
-        if (chromeRendererGoneHandler !== undefined) chrome.off('render-process-gone', chromeRendererGoneHandler)
-        if (chromeRendererUnresponsiveHandler !== undefined) chrome.off('unresponsive', chromeRendererUnresponsiveHandler)
-        if (chromeRendererResponsiveHandler !== undefined) chrome.off('responsive', chromeRendererResponsiveHandler)
+        chrome.off('render-process-gone', rendererGone)
         chrome.off('did-fail-load', loadFailed)
         chrome.off('did-finish-load', chromeLoaded)
       }
+      removeRendererContextMenu()
+      removeChromeContextMenu?.()
       removeRendererAccessHeader?.()
       removeRendererAccessHeader = undefined
       tray?.off('click', show)
@@ -712,16 +675,18 @@ export class ElectronShellGeneration {
     }
 
     try {
-      await this.compatibilityShell?.load()
-      await authenticateRendererSession(renderer, spec)
+      await traceRendererBootStage('shell-load', async () => { await this.compatibilityShell?.load() })
+      await traceRendererBootStage('authenticate', () => authenticateRendererSession(renderer, spec))
       removeRendererAccessHeader = installRendererAccessHeader(
         renderer,
         origin,
         spec.rendererAccessHeader,
       )
       revealStartupSurface()
-      if (isolated) await renderer.loadURL(spec.url)
-      else await window.loadURL(spec.url)
+      await traceRendererBootStage('page-load', async () => {
+        if (isolated) await renderer.loadURL(spec.url)
+        else await window.loadURL(spec.url)
+      })
       if (isolated) renderer.focus()
       tray = new Tray(prepareTrayIcon(spec.trayIcons, platform.platform))
       this.tray = tray

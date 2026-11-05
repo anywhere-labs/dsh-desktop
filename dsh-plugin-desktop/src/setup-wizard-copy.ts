@@ -13,6 +13,7 @@ export interface DesktopSetupWizardCopy {
   readonly aaNextBody: string
   readonly aaNextDesktop: string
   readonly beta: string
+  readonly experimental: string
   readonly title: string
   readonly profile: string
   readonly welcomeTitle: string
@@ -60,6 +61,8 @@ export interface DesktopSetupWizardCopy {
   readonly communityMarketBody: string
   readonly dshMarket: string
   readonly dshMarketBody: string
+  readonly officialMarket: string
+  readonly officialMarketBody: string
   readonly notificationsTitle: string
   readonly notificationsBody: string
   readonly notificationsEnabled: string
@@ -95,6 +98,7 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     aaNextDesktop: 'If the Agents-Anywhere desktop app is installed on this computer, manage the connection directly in that app.',
 
     beta: 'Beta',
+    experimental: 'Experimental',
     title: 'Set up DSH Desktop',
     profile: 'Profile',
     welcomeTitle: 'Welcome to DSH Desktop',
@@ -135,13 +139,15 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     confirmLan: 'Enable local-network access',
     cancelLan: 'Keep this computer only',
     marketTitle: 'Choose a plugin market',
-    marketBody: 'Choose a plugin market for the current Profile. Only one can be enabled at a time.',
+    marketBody: 'Choose a market to browse and install community plugins,\nor configure the custom plugin market.\nYou can also leave it off and decide later in Plugins.',
     marketDisabled: 'Turn off plugin market',
     marketDisabledBody: 'Do not load a plugin market interface.',
     communityMarket: 'dsh-community-market',
     communityMarketBody: 'The open market built into DSH Desktop, including custom data sources.',
     dshMarket: 'dsh-market',
     dshMarketBody: 'The popular community market powered by awesome-dsh-plugin data.',
+    officialMarket: 'Custom plugin markets',
+    officialMarketBody: 'Enable the official market with the dsh-market source preconfigured.',
     notificationsTitle: 'Set up Desktop notifications',
     notificationsBody: 'Receive system notifications when tasks finish or fail. Notifications do not show conversation content.',
     notificationsEnabled: 'Enable Desktop notifications',
@@ -175,6 +181,7 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     aaNextDesktop: '如果本机已安装 Agents-Anywhere 桌面端，直接在桌面端管理连接即可。',
 
     beta: 'Beta',
+    experimental: '实验性',
     title: '设置 DSH Desktop',
     profile: 'Profile',
     welcomeTitle: '欢迎使用 DSH Desktop',
@@ -215,13 +222,15 @@ const COPY: Record<DesktopLocale, DesktopSetupWizardCopy> = {
     confirmLan: '开启局域网访问',
     cancelLan: '保持仅本机访问',
     marketTitle: '选择插件市场',
-    marketBody: '为当前 Profile 选择一个插件市场。一次只能启用一个。',
+    marketBody: '选择一个插件市场，浏览和安装社区插件；\n或配置自定义插件市场。\n也可以暂不开启，以后在插件页面调整。',
     marketDisabled: '关闭插件市场',
     marketDisabledBody: '不加载插件市场界面。',
     communityMarket: 'dsh-community-market',
     communityMarketBody: 'DSH Desktop 内置的开放市场，并支持自定义数据源。',
     dshMarket: 'dsh-market',
     dshMarketBody: '使用 awesome-dsh-plugin 数据的热门社区市场。',
+    officialMarket: '自定义插件市场',
+    officialMarketBody: '开启官方插件市场，并预置 dsh-market 索引源。',
     notificationsTitle: '设置桌面通知',
     notificationsBody: '在任务完成或失败时接收系统通知。通知不会显示会话内容。',
     notificationsEnabled: '启用桌面通知',

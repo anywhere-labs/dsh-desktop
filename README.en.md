@@ -19,9 +19,9 @@ One-line summary for each feature:
 
 | Feature | Summary |
 | --- | --- |
-| Multi-directory workspaces | Manage the primary directory and attached code directories in one session without changing the Agent session context when browsing roots. |
+| Multi-directory workspaces | Manage the primary directory and attached directories from the Workspace edit dialog; the Files browser switches independent roots without changing the session's working directory, and detaching a directory never deletes it from disk. |
 | Files tree shortcuts | Reveal files in the system manager, open them in VS Code, copy paths, or insert structured file references into a conversation. |
-| Git Review | Review committed changes for the current session and switch between authorized workspace roots. |
+| Git Review | Review changes for the current session; switch between the primary and attached roots, and expand the Git worktrees under each root to choose the review scope. |
 | Editable Git workspace | Perform Git workspace operations in Desktop while keeping the Git panel and review directory independent. |
 | GitHub Copilot | Sign in with a GitHub device code and use available Copilot models from the model picker. |
 | Android Logcat | Select an adb device, filter live logs, pause or resume output, copy or export visible logs, and capture a device screenshot. |
@@ -51,6 +51,8 @@ The following third-party plugins are currently installed and enabled in the loc
 | `dsh-session-recycle-bin` | 0.4.3 | Session recycle bin |
 | `meow-memory` | 0.31.0 | Cross-session memory |
 
+The current local `desktop` Profile configuration snapshot (settings only, without API credential values) lives at [`config/desktop-profile/cordis.patch.yml`](config/desktop-profile/cordis.patch.yml). API keys are still referenced by environment variable name, never committed.
+
 ## Downloads
 
 The current Release keeps only the Stable channel:
@@ -69,6 +71,7 @@ This project will no longer distribute AppImage builds; only the verifiable Debi
 
 ### 2.0.17-fate-dev
 
+- **Local changes in this tree (not released)**: Workspace edit can add or detach attached directories, and the Files browser switches between the primary and attached roots independently; the Git Review root tree expands Git worktrees under each Workspace source, and switching the review root or worktree keeps the current session scope, with retry on enumeration failure. The matching screenshot masks the local attached-directory and review-directory paths.
 - `5fced936e9`: merged the Git Review worktree into `fate-dev`.
 - `f7c3d06b81`: added session-scoped Git Review with attached workspace roots.
 - `97291e91c9`: integrated editable Git workspace tools.
@@ -96,14 +99,9 @@ This project will no longer distribute AppImage builds; only the verifiable Debi
 
 <p align="center"><img src="assets/readme/files-shortcuts.png" alt="Files tree context actions" width="28%"></p>
 
-### Git Review and code review
+### Attached directories and Git Review worktree selection
 
-<table>
-  <tr>
-    <td width="43%"><img src="assets/readme/code-review.png" alt="Code review directory and multiple workspace roots" width="100%"></td>
-    <td width="57%"><img src="assets/readme/git-review.png" alt="Git Review changes and commit graph" width="100%"></td>
-  </tr>
-</table>
+<p align="center"><img src="assets/readme/git-review-worktree.jpg" alt="Attached directories and the Git Review worktree picker; every visible local path is masked" width="100%"></p>
 
 ### GitHub Copilot
 

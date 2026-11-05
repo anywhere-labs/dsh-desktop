@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,12 +7,12 @@ import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility, defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { stringify } from 'yaml'
 import { z } from 'zod'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DSH_1024STORE_ADAPTER_ID, DSH_1024STORE_PROVIDER_ID } from '../src/adapters/dsh-1024store.js'
 import { activateMarketDurableState, marketDomainSpec } from '../src/catalog/domain.js'
 import { PersistentCatalogSourceStore } from '../src/catalog/source-store.js'
-import { DeferredMarketStateStore, type MarketCatalogCache } from '../src/catalog/state-store.js'
-import type { LocalSourceRecord } from '../src/contracts/index.js'
+import { DeferredMarketStateStore, MemoryMarketStateStore, type MarketCatalogCache, type MarketStateStore } from '../src/catalog/state-store.js'
+import type { CatalogSourceManifest, LocalSourceRecord } from '../src/contracts/index.js'
 import { MemoryMedium, createMemoryBackend } from './fixtures/memory-storage-backend.js'
 
 const cleanups: Array<() => Promise<void>> = []
@@ -215,5 +216,70 @@ describe('community market durable state', () => {
     // if the caller had not closed the handle it owns.
     const reopened = await bootMarketState(medium)
     expect(reopened.state.isDurable).toBe(true)
+  })
+})
+
+const manifest = JSON.parse(
+  readFileSync(new URL('../docs/examples/catalog-source.example.json', import.meta.url), 'utf8'),
+) as CatalogSourceManifest
+
+const userSource: LocalSourceRecord = {
+  sourceRecordId: '018f1f77-a5c4-7b73-a9ae-0242ac120002',
+  registrationKind: 'user-added',
+  adapterId: 'market.standard-http-v1',
+  providerId: 'org.example.community-catalog',
+  manifestUrl: 'https://plugins.example.org/catalog-source.json',
+  manifest,
+  enabled: true,
+  order: 0,
+}
+
+function observedStore() {
+  const inner = new MemoryMarketStateStore()
+  const setSources = vi.fn((records: readonly LocalSourceRecord[]) => inner.setSources(records))
+  const state: MarketStateStore = {
+    getSources: () => inner.getSources(),
+    setSources,
+    getCatalogCache: () => inner.getCatalogCache(),
+    setCatalogCache: cache => inner.setCatalogCache(cache),
+  }
+  return { state, setSources }
+}
+
+describe('storage-backed catalog source store', () => {
+  it('persists validated source records through the state store', async () => {
+    const { state, setSources } = observedStore()
+    const store = new PersistentCatalogSourceStore(state)
+
+    await store.save([userSource])
+
+    expect(setSources).toHaveBeenCalledWith([userSource])
+    await expect(store.load()).resolves.toEqual([userSource])
+  })
+
+  it('normalizes a legacy multi-enabled registry to one selected source', async () => {
+    const secondSource: LocalSourceRecord = {
+      ...userSource,
+      sourceRecordId: '028f1f77-a5c4-7b73-a9ae-0242ac120003',
+      order: 1,
+    }
+    const { state, setSources } = observedStore()
+    const store = new PersistentCatalogSourceStore(state)
+
+    await store.save([userSource, secondSource])
+
+    expect(setSources).toHaveBeenCalledWith([userSource, { ...secondSource, enabled: false }])
+    await expect(store.load()).resolves.toEqual([
+      userSource,
+      { ...secondSource, enabled: false },
+    ])
+  })
+
+  it('rejects a persisted registry that no longer satisfies the local-source contract', async () => {
+    const state = new MemoryMarketStateStore({
+      sources: [{ ...userSource, sourceRecordId: 'not-a-uuid' }],
+    })
+
+    await expect(new PersistentCatalogSourceStore(state).load()).rejects.toThrow(/sourceRecordId/u)
   })
 })

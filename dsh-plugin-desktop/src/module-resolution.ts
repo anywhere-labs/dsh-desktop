@@ -129,6 +129,12 @@ function refreshCanonicalProfilePath(registration: ProfileResolverRegistration):
   }
 }
 
+/** Package presence and symlink targets may have changed; already loaded modules keep their URLs. */
+function invalidatePackageSelections(registration: ProfileResolverRegistration): void {
+  registration.overlayCandidates.clear()
+  refreshCanonicalProfilePath(registration)
+}
+
 function canonicalModuleKey(registration: ProfileResolverRegistration, url: string): string {
   const cached = registration.canonicalModuleKeys.get(url)
   if (cached !== undefined) return cached
@@ -162,6 +168,20 @@ function isWithin(
     )
 }
 
+/**
+ * True for a path relative to a Profile directory that the Loader itself owns:
+ * the directory, its direct files, and its `.cordis` helper directory, where
+ * cordis-plugin-loader writes the project resolver used as an import parent.
+ * Never a nested directory, which could belong to another Profile.
+ */
+function isProfileBridgeOffset(offset: string): boolean {
+  if (offset === '') return true
+  if (offset === '..' || isAbsolute(offset)) return false
+  const segments = offset.split(sep)
+  return segments.length === 1
+    || (segments.length === 2 && segments[0] === '.cordis')
+}
+
 function isLexicalProfileBoundary(
   registration: ProfileResolverRegistration,
   url: string | undefined,
@@ -169,11 +189,7 @@ function isLexicalProfileBoundary(
   if (url === registration.profileBaseUrl) return true
   const candidate = filePath(url)
   if (candidate === undefined) return false
-  const offset = relative(registration.profileDirectory, candidate)
-  // The native Loader has used the directory URL, package.json, and cordis
-  // config files as its parentURL across supported Node releases. Restrict the
-  // bridge to that directory and its direct files, never another Profile.
-  return offset === '' || (!offset.includes(sep) && offset !== '..' && !isAbsolute(offset))
+  return isProfileBridgeOffset(relative(registration.profileDirectory, candidate))
 }
 
 function isCanonicalProfileBoundary(
@@ -183,7 +199,7 @@ function isCanonicalProfileBoundary(
   const candidate = filePath(canonicalUrl)
   if (candidate === undefined) return false
   const offset = relative(canonicalPath(registration, registration.profileDirectory), candidate)
-  return offset === '' || (!offset.includes(sep) && offset !== '..' && !isAbsolute(offset))
+  return isProfileBridgeOffset(offset)
 }
 
 function isSharedFallbackPath(registration: ProfileResolverRegistration, candidate: string): boolean {
@@ -727,10 +743,8 @@ export function installProfilePackageResolver(profileBaseUrl: string): () => voi
     state.registrations.set(normalizedBaseUrl, registration)
     refreshCanonicalProfilePath(registration)
   } else {
-    // A retain denotes a new Loader/HMR generation. Package presence and
-    // symlink targets may have changed since the preceding generation.
-    registration.overlayCandidates.clear()
-    refreshCanonicalProfilePath(registration)
+    // A retain denotes a new Loader/HMR generation.
+    invalidatePackageSelections(registration)
   }
   const retainSequence = ++state.nextSequence
   registration.references += 1
@@ -759,5 +773,37 @@ export function installProfilePackageResolver(profileBaseUrl: string): () => voi
       state.commonJsModule._resolveFilename = state.previousResolveFilename
     }
     if (currentResolverState() === state) setResolverState(undefined)
+  }
+}
+
+/**
+ * Report the package a bare import from `parentURL` loads, without requiring package exports.
+ * @param specifier - module specifier naming the package, including any subpath.
+ * @param parentURL - resolution base of the request.
+ * @returns the selected package; `null` when an active Profile boundary owns the request but neither the
+ * installation nor the Profile provides the package; `undefined` when no active registration owns `parentURL`
+ * as a Profile boundary, so Node's own lookup from that parent applies.
+ */
+export function selectProfilePackage(
+  specifier: string,
+  parentURL: string,
+): PackageOverlayCandidate | null | undefined {
+  const state = currentResolverState()
+  if (state === undefined) return undefined
+  const parent = registrationForParent(state, parentURL)
+  const packageName = parent?.boundary === true ? resolvablePackageName(specifier) : undefined
+  if (parent === undefined || packageName === undefined) return undefined
+  try {
+    return selectedOverlayCandidate(parent.registration, packageName)
+  } catch (cause) {
+    if (cause instanceof PackageOverlayNotFoundError) return null
+    throw cause
+  }
+}
+
+/** Re-select packages for later imports after a package operation; loaded modules are not reloaded. */
+export function refreshProfilePackageSelections(): void {
+  for (const registration of currentResolverState()?.registrations.values() ?? []) {
+    invalidatePackageSelections(registration)
   }
 }

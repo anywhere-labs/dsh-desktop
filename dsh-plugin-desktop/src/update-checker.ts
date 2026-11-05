@@ -255,7 +255,13 @@ function parseVersionResponse(body: string, expectedChannel: DesktopReleaseChann
   if (!isRecord(value) || typeof value.version !== 'string') return null
   if (expectedChannel !== 'stable' && value.channel !== expectedChannel) return null
   if (value.channel !== undefined && value.channel !== expectedChannel) return null
-  return parseCanonicalChannelVersion(value.version, expectedChannel)
+  return parseCanonicalUpdateVersion(value.version, expectedChannel)
+}
+
+/** Stable may promote a Next installer while keeping the stable service stream authoritative. */
+export function parseCanonicalUpdateVersion(input: string, channel: DesktopReleaseChannel): ParsedSemVer | null {
+  return parseCanonicalChannelVersion(input, channel)
+    ?? (channel === 'stable' ? parseCanonicalChannelVersion(input, 'next') : null)
 }
 
 export function parseCanonicalChannelVersion(

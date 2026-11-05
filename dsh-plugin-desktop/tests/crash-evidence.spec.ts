@@ -13,8 +13,6 @@ describe('desktop crash evidence', () => {
       version: '2.0.1',
       platform: 'win32',
       arch: 'x64',
-      runId: 'run-test',
-      mainPid: 41,
     })
 
     expect(reporter.start).toHaveBeenCalledWith({
@@ -24,8 +22,6 @@ describe('desktop crash evidence', () => {
         appVersion: '2.0.1',
         platform: 'win32',
         arch: 'x64',
-        desktopRunId: 'run-test',
-        desktopMainPid: '41',
       },
     })
   })
@@ -36,7 +32,6 @@ describe('desktop crash evidence', () => {
       startedAt: '2026-08-18T00:00:00.000Z',
       pid: 41,
       version: '2.0.1',
-      runId: 'old-run-id',
     })
 
     const next = beginDesktopRun(statePath, {
@@ -49,7 +44,6 @@ describe('desktop crash evidence', () => {
       startedAt: '2026-08-18T00:00:00.000Z',
       pid: 41,
       version: '2.0.1',
-      runId: 'old-run-id',
     })
   })
 

@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
-import type { DesktopPermissions } from '../src/permissions.ts'
+import type { DesktopPermission, DesktopPermissionSnapshot, DesktopPermissions } from '../src/permissions.ts'
 
 const hooks = vi.hoisted(() => ({ effects: [] as (() => unknown)[], states: [] as unknown[], cursor: 0 }))
 vi.mock('react', async importOriginal => ({
@@ -51,4 +51,18 @@ it('opens the scoped dialog and only queries or requests microphone permission',
   expect(permissions.request).toHaveBeenCalledExactlyOnceWith('microphone')
   nodes(detail).find(node => node.props.children === '打开系统设置')!.props.onClick()
   await vi.waitFor(() => { expect(permissions.openSettings).toHaveBeenCalledExactlyOnceWith('microphone') })
+})
+
+it('names ungranted screen and Accessibility access and explains the macOS steps the system omits', () => {
+  const snapshot = (permission: DesktopPermission, status: DesktopPermissionSnapshot['status'], canRequest: boolean): DesktopPermissionSnapshot =>
+    ({ permission, status, canRequest, canOpenSettings: true })
+  hooks.states = [[snapshot('screen', 'denied', true), snapshot('accessibility', 'denied', true), snapshot('microphone', 'denied', false)]]
+  hooks.cursor = 0
+  const detail = PermissionDetails({ service: service(), language: 'zh' })
+  const texts = nodes(detail).flatMap(node => [node.props.children].flat().filter((child): child is string => typeof child === 'string'))
+  expect(texts.filter(text => text === '未授权')).toHaveLength(2)
+  expect(texts).toContain('已拒绝')
+  expect(texts).toContain('开启后 macOS 会要求重新打开应用。')
+  expect(texts).toContain('若系统设置中已显示开启，请移除本应用后重新添加。')
+  expect(nodes(detail).filter(node => node.props.children === '请求授权')).toHaveLength(2)
 })

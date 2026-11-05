@@ -1,82 +1,72 @@
-import type { Serializable } from 'node:child_process'
 import type { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { DESKTOP_PACKAGE_NAME } from '../src/product-identity.ts'
 
-const entryProcess = process as typeof process & { noAsar?: boolean }
+type EntryProcess = { parentPort?: unknown, noAsar?: boolean }
+const entryProcess = process as unknown as EntryProcess
 const processEvents: EventEmitter = process
-type EntryEvent = 'unhandledRejection' | 'uncaughtException' | 'disconnect' | 'message'
-const entryEvents: EntryEvent[] = ['unhandledRejection', 'uncaughtException', 'disconnect', 'message']
-let preexisting = new Map<EntryEvent, Set<(...args: unknown[]) => void>>()
-let originalSend: PropertyDescriptor | undefined
-let originalConnected: PropertyDescriptor | undefined
+type FatalEvent = 'unhandledRejection' | 'uncaughtException'
+const fatalEvents: FatalEvent[] = ['unhandledRejection', 'uncaughtException']
+let preexisting = new Map<FatalEvent, Set<(...args: unknown[]) => void>>()
 
-function installedListeners(event: EntryEvent): Array<(...args: unknown[]) => void> {
+/** Listeners the entry installed on this test worker's own process; they must not outlive the test. */
+function installedListeners(event: FatalEvent): Array<(...args: unknown[]) => void> {
   const before = preexisting.get(event) ?? new Set()
   return (processEvents.listeners(event) as Array<(...args: unknown[]) => void>).filter(listener => !before.has(listener))
 }
 
-function fakeParentIpc() {
-  const outgoing: Serializable[] = []
-  const send = vi.fn((message: Serializable, callback?: (error: Error | null) => void) => {
-    outgoing.push(message)
-    callback?.(null)
-    return true
-  })
-  Object.defineProperty(process, 'send', { configurable: true, writable: true, value: send })
-  Object.defineProperty(process, 'connected', { configurable: true, writable: true, value: true })
-  return { send, outgoing, receive: (message: unknown) => processEvents.emit('message', message) }
+function fakeParentPort() {
+  let receive: ((event: { data: unknown }) => void) | undefined
+  const parentPort = {
+    postMessage: vi.fn(),
+    on: vi.fn((_event: string, listener: (event: { data: unknown }) => void) => { receive = listener }),
+    removeListener: vi.fn(),
+  }
+  return { parentPort, send: (data: unknown) => { receive?.({ data }) } }
 }
 
 beforeEach(() => {
-  preexisting = new Map(entryEvents.map(event => [event, new Set(processEvents.listeners(event) as Array<(...args: unknown[]) => void>)]))
-  originalSend = Object.getOwnPropertyDescriptor(process, 'send')
-  originalConnected = Object.getOwnPropertyDescriptor(process, 'connected')
+  preexisting = new Map(fatalEvents.map(event => [event, new Set(processEvents.listeners(event) as Array<(...args: unknown[]) => void>)]))
 })
 
 afterEach(() => {
-  for (const event of entryEvents) for (const listener of installedListeners(event)) processEvents.off(event, listener)
-  if (originalSend) Object.defineProperty(process, 'send', originalSend)
-  else Reflect.deleteProperty(process, 'send')
-  if (originalConnected) Object.defineProperty(process, 'connected', originalConnected)
-  else Reflect.deleteProperty(process, 'connected')
+  for (const event of fatalEvents) for (const listener of installedListeners(event)) processEvents.off(event, listener)
   vi.restoreAllMocks()
-  Reflect.deleteProperty(entryProcess, 'noAsar')
+  delete entryProcess.parentPort
+  delete entryProcess.noAsar
   vi.resetModules()
 })
 
-it('reads user workspaces physically once the Node-mode Host starts', async () => {
-  const ipc = fakeParentIpc()
-  Reflect.deleteProperty(entryProcess, 'noAsar')
+it('reads user workspaces physically once the Host utility process starts', async () => {
+  const { parentPort } = fakeParentPort()
+  entryProcess.parentPort = parentPort
+  delete entryProcess.noAsar
+
   await import('../src/host-process-entry.ts')
+
   expect(entryProcess.noAsar).toBe(true)
-  ipc.receive({ kind: 'call', id: 1, method: 'status', args: [] })
-  await vi.waitFor(() => { expect(ipc.send).toHaveBeenCalledWith({ kind: 'result', id: 1,
-    value: { pid: process.pid, services: { aaRuntime: false, aaOnboarding: false } } }, expect.any(Function)) })
+  expect(parentPort.on).toHaveBeenCalledWith('message', expect.any(Function))
 })
 
 it('fails loud on an unhandled rejection instead of serving on in a broken state', async () => {
-  const ipc = fakeParentIpc()
+  // A utility process only prints a warning for an unhandled rejection and keeps running.
+  const { parentPort, send } = fakeParentPort()
+  entryProcess.parentPort = parentPort
   const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
   const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+
   await import('../src/host-process-entry.ts')
   const [onRejection, ...others] = installedListeners('unhandledRejection')
   expect(others).toHaveLength(0)
   onRejection?.(new Error('host boom'), Promise.resolve())
-  await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith(1) })
-  expect(stderr.mock.calls.map(([chunk]) => String(chunk)).join(''))
-    .toContain(`${DESKTOP_PACKAGE_NAME}: fatal load failure: `)
-  ipc.receive({ kind: 'call', id: 2, method: 'boot', args: [{ launchEnvironmentLayers: [] }, {}, 'token'] })
-  await vi.waitFor(() => {
-    expect(ipc.send).toHaveBeenCalledWith({ kind: 'result', id: 2,
-      error: 'DSH Host generation already started or stopped' }, expect.any(Function))
-  })
-})
 
-it('releases the Host and exits when its parent disconnects', async () => {
-  fakeParentIpc()
-  const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
-  await import('../src/host-process-entry.ts')
-  processEvents.emit('disconnect')
-  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+  await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith(1) })
+  const written = stderr.mock.calls.map(([chunk]) => String(chunk)).join('')
+  expect(written).toContain(`${DESKTOP_PACKAGE_NAME}: fatal load failure: `)
+  expect(written).toContain('host boom')
+  // The generation was released before exit, so it refuses to boot again.
+  send({ kind: 'call', id: 1, method: 'boot', args: [{ launchEnvironmentLayers: [] }, {}, 'token'] })
+  await vi.waitFor(() => {
+    expect(parentPort.postMessage).toHaveBeenCalledWith({ kind: 'result', id: 1, error: 'DSH Host generation already started or stopped' })
+  })
 })

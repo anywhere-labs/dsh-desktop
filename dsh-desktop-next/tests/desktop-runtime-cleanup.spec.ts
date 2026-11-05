@@ -1,5 +1,5 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { cleanupDisposableTree } from '../../dsh-plugin-desktop-beta/src/disposable-tree.ts'
+import { cleanupDisposableTree } from '../../dsh-plugin-desktop/src/disposable-tree.ts'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -7,7 +7,7 @@ import { NextDesktopRuntime } from '../src/desktop-runtime.ts'
 import { DEFAULT_PREFERENCES, SAFE_MODE_PREFERENCES } from '../src/desktop-contract.ts'
 import { NextProfiles } from '../src/profiles.ts'
 
-vi.mock('../../dsh-plugin-desktop-beta/src/disposable-tree.ts', () => ({
+vi.mock('../../dsh-plugin-desktop/src/disposable-tree.ts', () => ({
   cleanupDisposableTree: vi.fn(),
 }))
 

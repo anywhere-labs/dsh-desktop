@@ -63,24 +63,24 @@ function makeLocalStorage() {
   }
 }
 
-// Every coordinator is disposed at test end so its debounced persistence timer
-// cannot fire later inside another test's stubbed localStorage.
-const liveCoordinators: DesktopTerminalPanelCoordinator[] = []
-function makeCoordinator(source: DesktopTerminalViewSource): DesktopTerminalPanelCoordinator {
+/** Every coordinator a case builds, so no debounced write reaches the next case's storage. */
+const coordinators: DesktopTerminalPanelCoordinator[] = []
+
+function createCoordinator(source: DesktopTerminalViewSource): DesktopTerminalPanelCoordinator {
   const coordinator = new DesktopTerminalPanelCoordinator(source)
-  liveCoordinators.push(coordinator)
+  coordinators.push(coordinator)
   return coordinator
 }
 
 afterEach(() => {
-  for (const coordinator of liveCoordinators.splice(0)) coordinator.dispose()
+  for (const coordinator of coordinators.splice(0)) coordinator.dispose()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
 describe('DesktopTerminalPanelCoordinator', () => {
   it('opens, toggles, and closes the drawer with clamped height', () => {
-    const coordinator = makeCoordinator(makeSource().source)
+    const coordinator = createCoordinator(makeSource().source)
     const read = (): DesktopTerminalPanelSnapshot => coordinator.snapshot.getSnapshot()
     expect(read().open).toBe(false)
     coordinator.toggle()
@@ -97,7 +97,7 @@ describe('DesktopTerminalPanelCoordinator', () => {
 
   it('opens tabs, activates the newest, and creates one view per tab', () => {
     const { source } = makeSource()
-    const coordinator = makeCoordinator(source)
+    const coordinator = createCoordinator(source)
     coordinator.openTab(SESSION_A)
     coordinator.openTab(SESSION_A)
     coordinator.openTab(SESSION_B)
@@ -115,12 +115,13 @@ describe('DesktopTerminalPanelCoordinator', () => {
 
   it('pins tabs across sessions and resolves the strip per visible Session', () => {
     const { source } = makeSource()
-    const coordinator = makeCoordinator(source)
+    const coordinator = createCoordinator(source)
     coordinator.openTab(SESSION_A)
     coordinator.openTab(SESSION_B)
     const keyA = coordinator.snapshot.getSnapshot().tabsBySession[SESSION_A as string]?.tabs[0]?.key ?? ''
     const keyB = coordinator.snapshot.getSnapshot().tabsBySession[SESSION_B as string]?.tabs[0]?.key ?? ''
     coordinator.togglePin(keyA)
+    coordinator.focusTab(keyA)
 
     // On Session B's strip the pinned foreign tab leads, followed by B's own.
     let snapshot = coordinator.snapshot.getSnapshot()
@@ -145,11 +146,12 @@ describe('DesktopTerminalPanelCoordinator', () => {
 
   it('closeTab strips pin and focus membership of the closed tab', () => {
     const { source } = makeSource()
-    const coordinator = makeCoordinator(source)
+    const coordinator = createCoordinator(source)
     coordinator.openTab(SESSION_A)
     coordinator.openTab(SESSION_B)
     const keyA = coordinator.snapshot.getSnapshot().tabsBySession[SESSION_A as string]?.tabs[0]?.key ?? ''
     coordinator.togglePin(keyA)
+    coordinator.focusTab(keyA)
     coordinator.closeTab(SESSION_A, keyA)
     const snapshot = coordinator.snapshot.getSnapshot()
     expect(snapshot.pinnedKeys).toEqual([])
@@ -161,7 +163,7 @@ describe('DesktopTerminalPanelCoordinator', () => {
     const storage = makeLocalStorage()
     vi.stubGlobal('localStorage', storage)
     const { source } = makeSource()
-    const coordinator = makeCoordinator(source)
+    const coordinator = createCoordinator(source)
     coordinator.setFontSize(4)
     expect(coordinator.snapshot.getSnapshot().fontSize).toBe(10)
     coordinator.setFontSize(99)
@@ -171,14 +173,14 @@ describe('DesktopTerminalPanelCoordinator', () => {
     const keyA = coordinator.snapshot.getSnapshot().tabsBySession[SESSION_A as string]?.tabs[0]?.key ?? ''
     coordinator.togglePin(keyA)
     await vi.waitFor(() => { expect(storage.data.size).toBeGreaterThan(0) })
-    const restored = makeCoordinator(source)
+    const restored = createCoordinator(source)
     expect(restored.snapshot.getSnapshot().fontSize).toBe(16)
     expect(restored.snapshot.getSnapshot().pinnedKeys).toEqual([keyA])
   })
 
   it('ensureViews reattaches restored tabs exactly once', () => {
     const { source } = makeSource()
-    const coordinator = makeCoordinator(source)
+    const coordinator = createCoordinator(source)
     coordinator.openTab(SESSION_A)
     const key = coordinator.snapshot.getSnapshot().tabsBySession[SESSION_A as string]?.tabs[0]?.key ?? ''
     coordinator.ensureViews(SESSION_A)
@@ -189,7 +191,7 @@ describe('DesktopTerminalPanelCoordinator', () => {
 
   it('closeTab terminates the process, drops the bucket, and fixes the active key', () => {
     const { source } = makeSource()
-    const coordinator = makeCoordinator(source)
+    const coordinator = createCoordinator(source)
     coordinator.openTab(SESSION_A)
     coordinator.openTab(SESSION_A)
     const bucket = coordinator.snapshot.getSnapshot().tabsBySession[SESSION_A as string]
@@ -204,7 +206,7 @@ describe('DesktopTerminalPanelCoordinator', () => {
 
   it('insertCommand writes text, appending Enter only when run is set', () => {
     const { source } = makeSource()
-    const coordinator = makeCoordinator(source)
+    const coordinator = createCoordinator(source)
     coordinator.openTab(SESSION_A)
     const key = coordinator.snapshot.getSnapshot().tabsBySession[SESSION_A as string]?.tabs[0]?.key ?? ''
     const view = coordinator.viewFor(key)
@@ -218,14 +220,14 @@ describe('DesktopTerminalPanelCoordinator', () => {
     const storage = makeLocalStorage()
     vi.stubGlobal('localStorage', storage)
     const { source } = makeSource()
-    const coordinator = makeCoordinator(source)
+    const coordinator = createCoordinator(source)
     coordinator.toggle()
     coordinator.openTab(SESSION_A)
     const created = coordinator.snapshot.getSnapshot().tabsBySession[SESSION_A as string]?.tabs[0]
     // Persistence is debounced; the write lands within a few hundred ms.
     await vi.waitFor(() => { expect(storage.data.size).toBeGreaterThan(0) })
 
-    const restored = makeCoordinator(source)
+    const restored = createCoordinator(source)
     const bucket = restored.snapshot.getSnapshot().tabsBySession[SESSION_A as string]
     expect(restored.snapshot.getSnapshot().open).toBe(true)
     expect(bucket?.tabs).toHaveLength(1)
@@ -237,7 +239,7 @@ describe('DesktopTerminalPanelCoordinator', () => {
 
   it('reports every live tab in the hold inventory', () => {
     const { source } = makeSource()
-    const coordinator = makeCoordinator(source)
+    const coordinator = createCoordinator(source)
     coordinator.openTab(SESSION_A)
     coordinator.openTab(SESSION_B)
     const inventory = coordinator.holdInventory()

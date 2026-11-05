@@ -155,7 +155,7 @@ function createHarness(available: readonly OptionalService[] = ['jobs', 'session
     jobFilters,
     stopJobs,
     stopSessions,
-    async jobSettled(job) { await jobListener?.({ type: 'settled', job, cause: 'natural', awaited: false }) },
+    async jobSettled(job) { await jobListener?.({ type: 'settled', job, cause: 'producer', awaited: false }) },
     async jobEvent(event) { await jobListener?.(event) },
     async sessionEvent(session, event) { await sessionListener?.(session, event) },
     async sessionDisposed(session) { await sessionDisposedListener?.(session) },
@@ -259,6 +259,43 @@ describe('desktop notifications Host plugin', () => {
       [{ title: 'Background Job Failed', body: 'A background job could not finish. Open DSH Desktop for details.' }],
     ])
     expect(JSON.stringify(harness.notifyAttention.mock.calls)).not.toMatch(/Users|private|secret|session-123/u)
+  })
+
+  it.each(['completed', 'failed'])('keeps a %s foreground command silent because its caller already has the result', async (status) => {
+    const harness = createHarness(['jobs', 'settings'])
+
+    await harness.jobEvent({ type: 'settled', job: job('bash-fg', status), cause: 'producer', awaited: true })
+
+    expect(harness.notifyAttention).not.toHaveBeenCalled()
+  })
+
+  it.each(['completed', 'failed'])('keeps a %s settlement silent when its owner is being torn down', async (status) => {
+    const harness = createHarness(['jobs', 'settings'])
+
+    await harness.jobEvent({ type: 'settled', job: job('bash-disposed', status), cause: 'teardown', awaited: false })
+
+    expect(harness.notifyAttention).not.toHaveBeenCalled()
+  })
+
+  it('still reports a command that outlived its foreground wait and finished in the background', async () => {
+    const harness = createHarness(['jobs', 'settings'])
+
+    // The tool call's wait timed out first, so the settlement released no waiter.
+    await harness.jobEvent({ type: 'settled', job: job('bash-promoted', 'completed'), cause: 'producer', awaited: false })
+    await harness.jobEvent({ type: 'settled', job: job('bash-promoted', 'failed'), cause: 'producer', awaited: false })
+
+    expect(harness.notifyAttention.mock.calls).toEqual([
+      [{ title: 'Background Job Completed', body: 'A background job has finished.' }],
+      [{ title: 'Background Job Failed', body: 'A background job could not finish. Open DSH Desktop for details.' }],
+    ])
+  })
+
+  it('keeps a background job the user killed silent', async () => {
+    const harness = createHarness(['jobs', 'settings'])
+
+    await harness.jobEvent({ type: 'settled', job: job('bash-killed', 'killed'), cause: 'kill', awaited: false })
+
+    expect(harness.notifyAttention).not.toHaveBeenCalled()
   })
 
   it('ignores the non-terminal events sharing the job stream', async () => {

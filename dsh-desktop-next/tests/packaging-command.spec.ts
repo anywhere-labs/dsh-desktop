@@ -7,23 +7,27 @@ const spawn = vi.mocked(spawnSync)
 afterEach(() => spawn.mockReset())
 const succeeded: ReturnType<typeof spawnSync> = { status: 0, output: [], pid: 1, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
 
-it('includes the Next build after the shared gate and aborts packaging when either gate fails', () => {
+it('routes the root check gate directly to Next package preflight and honours DSH_PACKAGE_CHECK_ALREADY_RAN', () => {
   const env = { PATH: '/test/bin' }
   spawn.mockReturnValue(succeeded)
   runNextPackagingCommand('yarn', ['run', 'check'], '/workspace', env, '/workspace')
-  expect(spawn.mock.calls.map(call => call[1])).toEqual([['run', 'check'], ['run', 'check:next']])
+  expect(spawn.mock.calls.map(call => call[1])).toEqual([['workspace', 'dsh-desktop-next', 'check:mac-package']])
   expect(spawn.mock.calls.every(call => call[2]?.env === env)).toBe(true)
+  spawn.mockReset()
+  runNextPackagingCommand('yarn', ['run', 'check'], '/workspace', { ...env, DSH_PACKAGE_CHECK_ALREADY_RAN: '1' }, '/workspace')
+  expect(spawn).not.toHaveBeenCalled()
   spawn.mockReset().mockReturnValue({ ...succeeded, status: 1 })
   expect(() => runNextPackagingCommand('yarn', ['run', 'check'], '/workspace', env, '/workspace')).toThrow('Packaging command failed')
   expect(spawn).toHaveBeenCalledOnce()
-  spawn.mockReset().mockReturnValueOnce(succeeded).mockReturnValue({ ...succeeded, status: 1 })
-  expect(() => runNextPackagingCommand('yarn', ['run', 'check'], '/workspace', env, '/workspace')).toThrow('Packaging command failed')
-  expect(spawn).toHaveBeenCalledTimes(2)
 })
 
 it('routes the shared Windows package gate to Next without adding unrelated commands', () => {
   spawn.mockReturnValue(succeeded)
-  runNextPackagingCommand('cmd.exe', ['/d', '/s', '/c', 'corepack yarn workspace dsh-plugin-desktop-beta check:win-package'], '/workspace', {}, '/workspace')
+  runNextPackagingCommand('cmd.exe', ['/d', '/s', '/c', 'corepack yarn workspace dsh-plugin-desktop check:win-package'], '/workspace', {}, '/workspace')
   expect(spawn).toHaveBeenCalledOnce()
   expect(spawn.mock.calls[0]?.[1]).toContain('corepack yarn workspace dsh-desktop-next check:win-package')
+  spawn.mockReset().mockReturnValue(succeeded)
+  const betaScript = `/workspace/dsh-plugin-desktop${'-beta'}/scripts/verify-mac-smoke.ts`
+  runNextPackagingCommand('node', ['/workspace/dsh-desktop-next/scripts/verify-mac-smoke.ts', betaScript], '/workspace', {}, '/workspace')
+  expect(spawn.mock.calls[0]?.[1]).toEqual(['/workspace/dsh-desktop-next/scripts/verify-mac-smoke.ts', betaScript])
 })

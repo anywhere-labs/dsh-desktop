@@ -46,22 +46,22 @@ const useSessionRetainInfo = vi.fn() as WorkspaceSourcesRootActionProps['useSess
 const useWorkspaces = vi.fn() as WorkspaceSourcesRootActionProps['useWorkspaces']
 const layout = new DesktopLayoutState()
 const usePanelInfo = <S,>(select: (info: PanelInfo) => S): S => select(layout.getPanelInfo())
-const useRemoteAccess = (() => true) as WorkspaceSourcesEditorProps['useRemoteAccess']
-const useSessionAccess = (() => true) as WorkspaceSourcesEditorProps['useSessionAccess']
-const useWorkspaceAccess = (() => true) as WorkspaceSourcesEditorProps['useWorkspaceAccess']
+const useRemoteAccess = () => true
+const useSessionAccess = () => true
+const useWorkspaceAccess = () => true
 
 function editorProps(platform = 'linux'): WorkspaceSourcesEditorProps {
   return {
     workspaceId: 'workspace:test' as WorkspaceSourcesEditorProps['workspaceId'],
     path: WORKSPACE,
     title: 'Project',
+    useRemoteAccess,
+    useSessionAccess,
+    useWorkspaceAccess,
     useSessions,
     useSessionStatus,
     useSessionRetainInfo,
     useWorkspaces,
-    useRemoteAccess,
-    useSessionAccess,
-    useWorkspaceAccess,
     usePanelInfo,
     t,
     actions: { publish },
@@ -78,13 +78,13 @@ function rootActionProps(platform = 'linux'): WorkspaceSourcesRootActionProps {
     absolutePath: WORKSPACE,
     workspacePath: WORKSPACE,
     onRootChange: vi.fn(async (_path: string) => {}),
+    useRemoteAccess,
+    useSessionAccess,
+    useWorkspaceAccess,
     useSessions,
     useSessionStatus,
     useSessionRetainInfo,
     useWorkspaces,
-    useRemoteAccess,
-    useSessionAccess,
-    useWorkspaceAccess,
     usePanelInfo,
     t,
     actions: { publish },

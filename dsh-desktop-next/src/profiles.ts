@@ -1,15 +1,19 @@
 /** Next-owned profile state. Recovery works without importing any user plugin. */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, unlinkSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { initProfile, loadOverlayPatches, loadProfileDirectory, PROFILE_TEMPLATES, readProfilePatches, type Profile, type ProfileContext } from '@deepseek-ai/dsh-app-boot'
+import { initProfile, loadOverlayPatches, loadProfileDirectory, readProfilePatches, sanitizeProfile, type Profile, type ProfileContext } from '@deepseek-ai/dsh-app-boot'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { atomicJson, atomicText, readPrivateFile } from './private-files.ts'
 import { NextRecovery } from './recovery.ts'
 import { DEFAULT_PROFILE } from './desktop-contract.ts'
 import { computerUsePatch } from './profile-computer-use.ts'
-import { legacySchedulePatch, SCHEDULE_BUNDLE } from './profile-schedule.ts'
-import { removeLinkProjectionsSafely } from '../../dsh-plugin-desktop-beta/src/link-projections.ts'
+import { pluginMarketPatch } from './profile-plugin-market.ts'
+import { RETIRED_SCHEDULE_BUNDLE, retiredSchedulePatch } from './profile-schedule.ts'
+import { removeLinkProjectionsSafely } from '../../dsh-plugin-desktop/src/link-projections.ts'
+import { insideArchive, unpackedPath } from './asar-archive-policy.ts'
+import { PROFILE_TEMPLATES } from './upstream-family.ts'
 
 export const NEXT_PACKAGE = fileURLToPath(new URL('../package.json', import.meta.url))
 export const WEB_BUNDLES = [...PROFILE_TEMPLATES.web!.bundles]
@@ -17,31 +21,31 @@ const NEXT_BUNDLE_PATCH = fileURLToPath(new URL('../cordis.patch.yml', import.me
 export const AA_PACKAGE = '@agents-anywhere/dsh-bridge-next'
 export const COMMUNITY_MARKET_PACKAGE = 'dsh-community-market'
 export const DSH_MARKET_PACKAGE = 'dshmarket'
+export const OFFICIAL_MARKET_PACKAGE = '@deepseek-ai/dsh-experimental-plugin-market-bundle'
 /** Legacy shell shape, now projected from the standard Profile bundle selection. */
-export interface Features { remoteControl: boolean; market: boolean; dshMarket?: boolean }
+export interface Features { remoteControl: boolean; market: boolean; dshMarket?: boolean; officialMarket?: boolean }
 export interface OnboardingChoices { features: Features; computerUse: boolean }
 export const DEFAULT_FEATURES: Readonly<Features> = { remoteControl: false, market: false }
 
 interface ProfileManifest {
   dsh: {
     desktopNextPlugins?: number
-    /** Written by the rc.2 migration that carried the Web-row choices onto the retired optional bundle. */
+    /**
+     * Scheduled Tasks migration step: 1 carried 0.1.7 Web-row choices onto the
+     * rc.2 optional bundle, 2 retired that bundle once upstream removed it.
+     */
     desktopNextScheduleBundle?: number
-    /** Generation of the Scheduled Tasks patch cleanup; 2 retires the bundle and the dead clock row. */
-    desktopNextSchedulePatch?: number
     desktopNextOnboarding?: { version: number; outcome: 'completed' | 'skipped'; accountPending?: boolean }
-    /** Names recovery removed from `profile.bundles`; a UI ledger, never a policy. */
-    desktopNextDeselectedBundles?: string[]
     profile: { bundles: string[] }
   }
   [key: string]: unknown
 }
 
 function applyFeatures(manifest: ProfileManifest, features: Features): void {
-  const optional = [AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE]
+  const optional = [AA_PACKAGE, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE, OFFICIAL_MARKET_PACKAGE]
   manifest.dsh.profile.bundles = [...manifest.dsh.profile.bundles.filter(name => !optional.includes(name)),
     ...(features.market ? [COMMUNITY_MARKET_PACKAGE] : []), ...(features.dshMarket ? [DSH_MARKET_PACKAGE] : []),
-    ...(features.remoteControl ? [AA_PACKAGE] : [])]
+    ...(features.officialMarket ? [OFFICIAL_MARKET_PACKAGE] : []), ...(features.remoteControl ? [AA_PACKAGE] : [])]
   manifest.dsh.desktopNextPlugins = 1
 }
 
@@ -58,8 +62,14 @@ export function parseFeatures(value: unknown): Features {
   const features = value as Record<string, unknown>
   if (typeof features.remoteControl !== 'boolean' || typeof features.market !== 'boolean'
     || (features.dshMarket !== undefined && typeof features.dshMarket !== 'boolean')
-    || Object.keys(features).some(key => !['remoteControl', 'market', 'dshMarket'].includes(key))) throw new Error('Invalid Next features')
-  return { remoteControl: features.remoteControl, market: features.market, ...(features.dshMarket ? { dshMarket: true } : {}) }
+    || (features.officialMarket !== undefined && typeof features.officialMarket !== 'boolean')
+    || Object.keys(features).some(key => !['remoteControl', 'market', 'dshMarket', 'officialMarket'].includes(key))) throw new Error('Invalid Next features')
+  return {
+    remoteControl: features.remoteControl,
+    market: features.market,
+    ...(features.dshMarket ? { dshMarket: true } : {}),
+    ...(features.officialMarket ? { officialMarket: true } : {}),
+  }
 }
 
 export class NextProfiles {
@@ -137,7 +147,8 @@ export class NextProfiles {
     if (manifest.dsh.desktopNextPlugins === 1 || !manifest.dsh.profile.bundles.includes('dsh-desktop-next')) {
       const bundles = manifest.dsh.profile.bundles
       return { remoteControl: bundles.includes(AA_PACKAGE), market: bundles.includes(COMMUNITY_MARKET_PACKAGE),
-        ...(bundles.includes(DSH_MARKET_PACKAGE) ? { dshMarket: true } : {}) }
+        ...(bundles.includes(DSH_MARKET_PACKAGE) ? { dshMarket: true } : {}),
+        ...(bundles.includes(OFFICIAL_MARKET_PACKAGE) ? { officialMarket: true } : {}) }
     }
     const file = join(this.directory(name), 'desktop-next.features.json')
     const text = readPrivateFile(file)
@@ -181,6 +192,7 @@ export class NextProfiles {
       if (typeof choices.computerUse !== 'boolean') throw new Error('Invalid Computer Use choice')
       originalPatch = readPrivateFile(patchPath)
       nextPatch = computerUsePatch(originalPatch ?? '[]\n', choices.computerUse).text
+      if (features.officialMarket) nextPatch = pluginMarketPatch(nextPatch, true).text
       applyFeatures(manifest, features)
     }
     manifest.dsh.desktopNextOnboarding = { version: 1, outcome: value === undefined ? 'skipped' : 'completed',
@@ -202,64 +214,85 @@ export class NextProfiles {
   migrateFeatures(name: string): void {
     const manifest = this.manifest(name)
     if (manifest.dsh.desktopNextPlugins === 1) return
-    this.setFeatures(name, { ...this.features(name), dshMarket: manifest.dsh.profile.bundles.includes(DSH_MARKET_PACKAGE) })
+    this.setFeatures(name, {
+      ...this.features(name),
+      dshMarket: manifest.dsh.profile.bundles.includes(DSH_MARKET_PACKAGE),
+      officialMarket: manifest.dsh.profile.bundles.includes(OFFICIAL_MARKET_PACKAGE),
+    })
   }
   /**
-   * Once per Profile per generation: v0.2.1-rc.5 retired the optional bundle
-   * that carried Scheduled Tasks and moved the clock reading into the agent
-   * presets. Drop the bundle selection and the patch rows that can no longer
-   * match; the bundle's own migration left a `disabled: true` row for every
-   * row the user had off, and only `time-context` among those is now dead.
-   * The generation marker stops a later deselection from being re-read as a
-   * legacy row.
+   * Once per Profile: upstream retired the Scheduled Tasks bundle and the Web
+   * composition now mounts Schedule. Drop the bundle (app-boot would on load,
+   * but Next reads the list first) and the `time-context` overrides that no
+   * longer match a row; overrides on `schedule` and `ui-schedule` keep applying.
    */
   private migrateSchedule(name: string): void {
-    const dir = this.directory(name)
     const manifest = this.manifest(name)
-    if (manifest.dsh.desktopNextSchedulePatch === 2) return
-    const patchPath = join(dir, 'cordis.patch.yml')
-    let text: ReturnType<typeof legacySchedulePatch>
+    if (manifest.dsh.desktopNextScheduleBundle === 2) return
+    const patchPath = join(this.directory(name), 'cordis.patch.yml')
+    let patch: string | undefined
     // A malformed patch is left for recovery to handle; retry on the next start.
-    try { text = legacySchedulePatch(readPrivateFile(patchPath) ?? '[]\n') } catch { return }
-    const bundles = manifest.dsh.profile.bundles.filter(bundle => bundle !== SCHEDULE_BUNDLE)
-    const dropped = bundles.length !== manifest.dsh.profile.bundles.length
-    if (text || dropped) {
+    try { patch = retiredSchedulePatch(readPrivateFile(patchPath) ?? '[]\n') } catch { return }
+    const bundles = manifest.dsh.profile.bundles.filter(bundle => bundle !== RETIRED_SCHEDULE_BUNDLE)
+    if (patch !== undefined || bundles.length !== manifest.dsh.profile.bundles.length) {
       new NextRecovery(this).backup(name, 'before-schedule-bundle-retirement')
-      // Patch first: an interrupted manifest write only re-runs this pass, while
-      // the reverse would strand the dead row behind the generation marker.
-      if (text) atomicText(patchPath, text)
-      manifest.dsh.profile.bundles = bundles
     }
-    delete manifest.dsh.desktopNextScheduleBundle
-    manifest.dsh.desktopNextSchedulePatch = 2
-    atomicJson(join(dir, 'package.json'), manifest)
+    // Patch first: both steps are idempotent, so an interrupted run simply repeats.
+    if (patch !== undefined) atomicText(patchPath, patch)
+    manifest.dsh.profile.bundles = bundles
+    manifest.dsh.desktopNextScheduleBundle = 2
+    atomicJson(join(this.directory(name), 'package.json'), manifest)
   }
   private manifest(name: string): ProfileManifest {
     const value = JSON.parse(readPrivateFile(join(this.directory(name), 'package.json')) ?? 'null')
     if (!value || !Array.isArray(value.dsh?.profile?.bundles) || value.dsh.profile.bundles.some((item: unknown) => typeof item !== 'string')) throw new Error('Invalid Next Profile manifest')
     return value
   }
-  /** The shell must stop this profile's Host before calling recovery. */
-  async recover(name: string): Promise<string | undefined> {
+  /**
+   * Repair a Profile as upstream Desktop's plugin recovery does, after a complete backup: the Profile
+   * patch moves beside itself as `cordis.patch.yml.bak-<time>` and only the Web template's bundles stay
+   * enabled; other manifest fields and installed packages remain. Remote control and Market are turned
+   * off, and Desktop setup runs again because the repair reset the choices it made.
+   * The shell must stop this profile's Host before calling recovery.
+   * @returns The backup of the manifest, Profile patch and feature switches, which can restore all three.
+   */
+  async recover(name: string): Promise<string> {
     const dir = this.directory(name)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     return withFileLock(join(dir, 'lock'), async () => {
       const backup = new NextRecovery(this).backup(name, 'before-profile-repair')
-      let manifest: Record<string, unknown> = { name, private: true }
-      try {
-        const value: unknown = JSON.parse(readPrivateFile(join(dir, 'package.json')) ?? '{}')
-        if (value && typeof value === 'object' && !Array.isArray(value)) manifest = value as Record<string, unknown>
-      } catch { /* The original bytes have already been backed up. */ }
-      // Keep installed dependencies, but remove malformed activation metadata.
-      const onboarding = (manifest.dsh as Partial<ProfileManifest['dsh']> | undefined)?.desktopNextOnboarding
-      manifest.dsh = { profile: { bundles: WEB_BUNDLES },
-        ...(onboarding?.version === 1 && ['completed', 'skipped'].includes(onboarding.outcome) ? { desktopNextOnboarding: onboarding } : {}) }
-      atomicJson(join(dir, 'package.json'), manifest)
+      // Upstream repairs only a manifest it can update; the original bytes of a replaced one are in the backup.
+      const replacement = manifestForRepair(name, readPrivateFile(join(dir, 'package.json')))
+      if (replacement !== undefined) atomicJson(join(dir, 'package.json'), replacement)
+      sanitizeProfile('dsh-desktop-next', dir, WEB_BUNDLES)
+      const repaired = this.manifest(name)
+      delete repaired.dsh.desktopNextOnboarding
+      atomicJson(join(dir, 'package.json'), repaired)
       atomicText(join(dir, 'cordis.patch.yml'), '[]\n')
       this.setFeatures(name, { remoteControl: false, market: false })
-      return readPrivateFile(join(backup, 'cordis.patch.yml')) === undefined ? undefined : join(backup, 'cordis.patch.yml')
+      return backup
     })
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Decide whether upstream's repair can update a manifest as it is.
+ * @param name - The Profile, named in a replacement manifest.
+ * @param text - The manifest bytes, when the file exists.
+ * @returns undefined for a manifest whose `dsh` and `dsh.profile` are objects where present; otherwise the
+ *   manifest to write first: its other fields when it is a JSON object, or only the Profile name.
+ */
+function manifestForRepair(name: string, text: string | undefined): Record<string, unknown> | undefined {
+  let value: unknown
+  try { value = JSON.parse(text ?? 'null') } catch { value = undefined }
+  if (!isRecord(value)) return { name, private: true }
+  const { dsh } = value
+  if (dsh === undefined || (isRecord(dsh) && (dsh.profile === undefined || isRecord(dsh.profile)))) return undefined
+  return { ...value, dsh: {} }
 }
 
 /**
@@ -286,23 +319,27 @@ export function loadNextProfile(projectDir: string, home: string, installAnchor 
   retireLinkProjections(projectDir)
   // Upstream bundle discovery walks physical node_modules before installing its
   // runtime resolver. Project only this application's bundle, not its dependency
-  // tree; the alpha.2 runtime resolver owns all other package fallbacks.
+  // tree; the alpha.2 runtime resolver owns all other package fallbacks. No
+  // filesystem link can enter app.asar: a packaged application leaves the resolver
+  // to supply its own package and removes a link a development launch left behind.
   const modules = join(home, 'profiles', 'node_modules')
   const existingModules = lstatSync(modules, { throwIfNoEntry: false })
   if (existingModules && !existingModules.isDirectory()) throw new Error('Next bundle fallback must be a real directory')
   mkdirSync(modules, { recursive: true, mode: 0o700 })
   const link = join(modules, 'dsh-desktop-next')
   const target = realpathSync(dirname(installAnchor))
+  const linkTarget = insideArchive(installAnchor) ? undefined : target
   const existingLink = lstatSync(link, { throwIfNoEntry: false })
   if (existingLink && !existingLink.isSymbolicLink()) throw new Error('Next bundle fallback is occupied by an unmanaged package')
-  if (existingLink && resolve(modules, readlinkSync(link)) !== target) unlinkSync(link)
-  if (!lstatSync(link, { throwIfNoEntry: false })) symlinkSync(target, link, 'junction')
+  if (existingLink && (linkTarget === undefined || resolve(modules, readlinkSync(link)) !== linkTarget)) unlinkSync(link)
+  if (linkTarget !== undefined && !lstatSync(link, { throwIfNoEntry: false })) symlinkSync(linkTarget, link, 'junction')
   const profile = loadProfileDirectory('dsh-desktop-next', projectDir, installAnchor)
   profile.layers.push({ packageName: 'dsh-desktop-next', packageDir: target,
     patchPaths: [NEXT_BUNDLE_PATCH], patches: loadOverlayPatches('dsh-desktop-next', NEXT_BUNDLE_PATCH) })
   const overlay = [
     { id: 'agents-anywhere-bridge-next', config: {
       dshHome: home,
+      ...archivedAgentsAnywhereConfig(installAnchor),
     } },
   ]
   // Leave AA stateRoot unset to share its default credentials and device binding with Stable/Beta.
@@ -310,6 +347,25 @@ export function loadNextProfile(projectDir: string, home: string, installAnchor 
   // The official manager still owns per-Profile bundle/row enablement.
   atomicJson(join(projectDir, 'desktop-next.cordis.patch.json'), overlay)
   return profile
+}
+
+/**
+ * Paths the AA bridge cannot derive once it runs from app.asar: it copies its bundled Connector
+ * project with `fs.cp` and spawns uv, and both need the copies unpacked beside the archive.
+ * @param installAnchor - Next's package.json.
+ * @returns Overrides for an archived installation; empty for a physical one.
+ */
+function archivedAgentsAnywhereConfig(installAnchor: string): { connectorSourceDir?: string; uvPath?: string } {
+  if (!insideArchive(installAnchor)) return {}
+  let packageDir: string
+  try { packageDir = dirname(createRequire(installAnchor).resolve(`${AA_PACKAGE}/package.json`)) }
+  catch { return {} /* The bridge is optional; without it there is nothing to redirect. */ }
+  const config: { connectorSourceDir: string; uvPath?: string } = { connectorSourceDir: unpackedPath(join(packageDir, 'lib', 'bundled-connector')) }
+  try {
+    const uv = dirname(createRequire(join(packageDir, 'package.json')).resolve(`@dataiku/uv-${process.platform}-${process.arch}/package.json`))
+    config.uvPath = unpackedPath(join(uv, 'bin', process.platform === 'win32' ? 'uv.exe' : 'uv'))
+  } catch { /* No bundled uv for this platform; the bridge searches PATH as before. */ }
+  return config
 }
 
 /** Recompose Next's own layer before user/global patches on every manager or HMR read. */

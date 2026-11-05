@@ -1,18 +1,20 @@
-import { createServer, type Server } from 'node:http'
+import { createServer, Server } from 'node:http'
 import { connect } from 'node:net'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import {
   createDesktopBrowserAccess,
   type DesktopBrowserAccess,
 } from '../src/desktop-browser-access.ts'
 import { DESKTOP_WEB_PORT_RETRY_LIMIT } from '../src/desktop-port.ts'
+import { configureDeveloperLogging, initializeDeveloperLogging } from '../src/developer-logging.ts'
 import DesktopWebServer from '../src/webserver.ts'
 
 const occupied: Server[] = []
 const contexts: Context[] = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(contexts.splice(0).map(context => context.fiber.dispose()))
   await Promise.all(occupied.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))))
 })
@@ -27,6 +29,32 @@ async function occupy(): Promise<{ server: Server; port: number }> {
   const address = server.address()
   if (address === null || typeof address === 'string') throw new Error('test server did not expose an address')
   return { server, port: address.port }
+}
+
+/**
+ * Make `listen` fail like Windows does for a port inside a Hyper-V/WinNAT
+ * excluded range: no process owns it, but the bind reports `EACCES`.
+ */
+function rejectListen(code: string, rejects: (port: number) => boolean): number[] {
+  const attempted: number[] = []
+  const listen = Server.prototype.listen
+  vi.spyOn(Server.prototype, 'listen').mockImplementation(function (this: Server, ...args: unknown[]) {
+    const port = Number(args[0])
+    attempted.push(port)
+    if (!rejects(port)) return Reflect.apply(listen, this, args) as Server
+    process.nextTick(() => {
+      this.emit('error', Object.assign(new Error(`listen ${code} 127.0.0.1:${String(port)}`), { code, syscall: 'listen', port }))
+    })
+    return this
+  })
+  return attempted
+}
+
+async function freePort(): Promise<number> {
+  const { server, port } = await occupy()
+  occupied.splice(occupied.indexOf(server), 1)
+  await new Promise<void>(resolve => server.close(() => resolve()))
+  return port
 }
 
 async function startWebServer(access?: DesktopBrowserAccess): Promise<DesktopWebServer> {
@@ -74,8 +102,10 @@ describe('Desktop WebServer port policy', () => {
     const context = new Context()
     contexts.push(context)
 
+    // dsh 0.2.1-alpha.2's webserver schema rejects wildcard binds before the
+    // Desktop policy runs; either refusal keeps the bind closed.
     await expect(context.plugin(DesktopWebServer, { host: '0.0.0.0', port: 0 }))
-      .rejects.toThrow('requires loopback until LAN HTTPS is available')
+      .rejects.toThrow(/requires loopback until LAN HTTPS is available|unspecified \(wildcard\) address, which is not supported/u)
   })
 
   it('increments only after the requested loopback bind reports EADDRINUSE', async () => {
@@ -88,6 +118,45 @@ describe('Desktop WebServer port policy', () => {
     const selectedPort = context.get('webServer')?.port ?? 0
     expect(selectedPort).toBeGreaterThan(blocked.port)
     expect(selectedPort).toBeLessThanOrEqual(blocked.port + DESKTOP_WEB_PORT_RETRY_LIMIT)
+  })
+
+  it('moves past a Windows-reserved port that reports EACCES', async () => {
+    const base = await freePort()
+    const attempted = rejectListen('EACCES', port => port >= base && port < base + 3)
+    const context = new Context()
+    contexts.push(context)
+
+    await context.plugin(DesktopWebServer, { host: '127.0.0.1', port: base })
+
+    const selectedPort = context.get('webServer')?.port ?? 0
+    expect(attempted.slice(0, 3)).toEqual([base, base + 1, base + 2])
+    expect(selectedPort).toBeGreaterThanOrEqual(base + 3)
+    expect(selectedPort).toBeLessThanOrEqual(base + DESKTOP_WEB_PORT_RETRY_LIMIT)
+  })
+
+  it('falls back to an OS-assigned port when the whole retry window is reserved', async () => {
+    const base = await freePort()
+    const attempted = rejectListen('EACCES', port => port !== 0)
+    const context = new Context()
+    contexts.push(context)
+
+    await context.plugin(DesktopWebServer, { host: '127.0.0.1', port: base })
+
+    expect(attempted).toHaveLength(DESKTOP_WEB_PORT_RETRY_LIMIT + 2)
+    expect(attempted.at(-2)).toBe(base + DESKTOP_WEB_PORT_RETRY_LIMIT)
+    expect(attempted.at(-1)).toBe(0)
+    expect(context.get('webServer')?.port).toBeGreaterThan(0)
+  })
+
+  it('still fails startup on bind errors that do not mean the port is unavailable', async () => {
+    const base = await freePort()
+    const attempted = rejectListen('EADDRNOTAVAIL', () => true)
+    const context = new Context()
+    contexts.push(context)
+
+    await expect(context.plugin(DesktopWebServer, { host: '127.0.0.1', port: base }))
+      .rejects.toMatchObject({ code: 'EADDRNOTAVAIL' })
+    expect(attempted).toEqual([base])
   })
 
   it('preserves an OS-assigned port when the explicit value is zero', async () => {
@@ -152,11 +221,29 @@ describe('Desktop WebServer browser gate', () => {
     expect(forged.headers.get('cache-control')).toBe('no-store')
   })
 
+  it('applies the same gate to a resource-shaped route and fallback seat', async () => {
+    // dsh 0.2.2-alpha.2 serves the Web dist as a resource instead of an HTTP handler,
+    // so the gate has to answer for the Fetch shape too, or the dist reaches a browser.
+    const access = createDesktopBrowserAccess(false, Buffer.alloc(32, 6).toString('base64url'))
+    const server = await startWebServer(access)
+    server.register({
+      kind: 'exact',
+      path: '/named',
+      resource: async () => new Response('named resource'),
+    })
+    server.registerFallback({ resource: async () => new Response('resource fallback') })
+    const root = `http://127.0.0.1:${String(server.port)}`
+
+    expect((await fetch(`${root}/assets/app.js`)).status).toBe(403)
+    expect((await fetch(`${root}/named`)).status).toBe(403)
+    const headers = { [access.rendererHeader.name]: access.rendererHeader.value }
+    expect((await fetch(`${root}/named`, { headers })).status).toBe(200)
+    await expect(fetch(`${root}/assets/app.js`, { headers }).then(r => r.text())).resolves.toBe('resource fallback')
+  })
+
   it('applies the same gate to WebSocket upgrades', async () => {
     const access = createDesktopBrowserAccess(false, Buffer.alloc(32, 5).toString('base64url'))
     const server = await startWebServer(access)
-    const port = server.port
-    if (port === undefined) throw new Error('Desktop WebServer did not bind a port')
     server.registerUpgrade({
       path: '/socket',
       handler: (_req, socket) => {
@@ -170,9 +257,28 @@ describe('Desktop WebServer browser gate', () => {
       },
     })
 
-    await expect(requestUpgrade(port, '/socket')).resolves.toContain('403 Forbidden')
-    await expect(requestUpgrade(port, '/socket', {
+    await expect(requestUpgrade(server.port!, '/socket')).resolves.toContain('403 Forbidden')
+    await expect(requestUpgrade(server.port!, '/socket', {
       [access.rendererHeader.name]: access.rendererHeader.value,
     })).resolves.toContain('101 Switching Protocols')
   })
+})
+
+it('traces HTTP status and duration without query, headers or bodies', async () => {
+  const records: any[] = []
+  initializeDeveloperLogging((_level, line) => records.push(JSON.parse(line)), 'http-test')
+  configureDeveloperLogging({ developerLogging: true, logLevel: 'info' })
+  try {
+    const server = await startWebServer()
+    server.register({ kind: 'exact', path: '/fixture', handler: (_req, res) => { res.end('private response') } })
+    const response = await fetch(`http://127.0.0.1:${String(server.port)}/fixture?token=private-query`, {
+      method: 'POST', body: 'private body', headers: { authorization: 'Bearer private-header' },
+    })
+    expect(await response.text()).toBe('private response')
+    expect(records.at(-1)).toMatchObject({ event: 'request.complete', fields: { route: '/fixture', method: 'POST', status: 200, aborted: false, durationMs: expect.any(Number) } })
+    expect(JSON.stringify(records)).not.toContain('private')
+  } finally {
+    configureDeveloperLogging({ developerLogging: false, logLevel: 'info' })
+    initializeDeveloperLogging(() => {})
+  }
 })

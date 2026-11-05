@@ -8,6 +8,8 @@
 // runner child alone.
 
 import { formatUnexpectedHostExit, startIsolatedDesktopHost } from './host-process.ts'
+import * as desktopOffice from './desktop-office.ts'
+import { desktopPrimaryRuntime, resolveDesktopOfficeConfig } from './desktop-office.ts'
 import { app, crashReporter, safeStorage, session, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -45,7 +47,6 @@ import {
   describeDesktopChildProcess,
   ElectronStderrLogger,
   installDesktopChildProcessLogging,
-  installDesktopProcessLifecycleLogging,
   installDesktopUncaughtExceptionLogging,
   type DesktopLogger,
 } from './desktop-logger.ts'
@@ -54,7 +55,6 @@ import {
   startDesktopCrashReporting,
   type DesktopRun,
 } from './crash-evidence.ts'
-import { summarizeDesktopCrashDumps } from './crashpad-evidence.ts'
 import { dshProductVersion } from './dsh-product-version.ts'
 import { exportDesktopDiagnostics } from './diagnostic-export.ts'
 import { createDesktopLifecycleRecorder } from './lifecycle-events.ts'
@@ -63,12 +63,13 @@ import type {
   DesktopLifecycleRendererFailureReason,
 } from './lifecycle-events.ts'
 import { FileExporter } from './file-exporter.ts'
+import { initializeDeveloperLogging, diagnosticRunId } from './developer-logging.ts'
+import { installHostDeveloperLogging } from './host-developer-logging.ts'
 import { installAgentErrorLogging } from './agent-error-logging.ts'
 import { observeDesktopPreferenceSettings } from './settings-bridge.ts'
 import {
   desktopLanBrowserUrls,
   desktopLoopbackBrowserUrl,
-  desktopWebServerPort,
 } from './desktop-network.ts'
 import { desktopLanAddresses } from './lan-addresses.ts'
 import {
@@ -88,6 +89,7 @@ import { LogFileSink } from './log-files.ts'
 import { maskSecrets } from './mask-secrets.ts'
 import { resolveDesktopShellEnvironment } from './shell-environment.ts'
 import { installProfilePackageResolver } from './module-resolution.ts'
+import { DesktopPluginPackages } from './plugin-packages.ts'
 import { packagedDependencyPath } from './packaged-runtime-path.ts'
 import {
   beginDesktopProfileStartup,
@@ -142,9 +144,11 @@ import {
 import { routeDesktopStartupFailure } from './startup-failure-routing.ts'
 import { DesktopStartupGeneration } from './startup-generation.ts'
 import {
+  configureDesktopOfficialPluginMarket,
   desktopInstallAnchor,
   healDesktopProfileModuleFallback,
   prepareDesktopProfile,
+  readDesktopOfficialPluginMarketEnabled,
   type SkippedOptionalEntry,
 } from './profile.ts'
 import { DesktopProfileCheckpoint } from './profile-checkpoint.ts'
@@ -528,6 +532,7 @@ async function start(): Promise<void> {
     process.stderr.write(`${BIN_NAME}: file logging unavailable: ${maskSecrets(detail)}\n`)
     logSink = undefined
   }
+  initializeDeveloperLogging((level, line) => logSink?.writeRecord(level, JSON.parse(line)))
   const electronLogger = new ElectronStderrLogger(logSink)
   if (safeModeRequested) {
     safeModePaths = ensureDesktopSafeModeEnvironment(desktopUserDataDir)
@@ -548,45 +553,16 @@ async function start(): Promise<void> {
     arch: process.arch,
     logger: electronLogger,
   })
-  const runId = lifecycleRecorder.runId
   lifecycleRecorder.startStartup(startupStage)
-  const displayContext = {
-    sessionType: process.env.XDG_SESSION_TYPE ?? 'unset',
-    gdkBackend: process.env.GDK_BACKEND ?? 'default',
-    display: process.env.DISPLAY === undefined ? 'unset' : 'set',
-    waylandDisplay: process.env.WAYLAND_DISPLAY === undefined ? 'unset' : 'set',
-    gDebug: process.env.G_DEBUG ?? 'unset',
-    gMessagesDebug: process.env.G_MESSAGES_DEBUG ?? 'unset',
-  }
-  electronLogger.info(
-    `${BIN_NAME}: runtime context runId=${runId} pid=${String(process.pid)} app=${appVersion}`
-    + ` platform=${process.platform} arch=${process.arch}`
-    + ` electron=${process.versions.electron ?? 'unknown'} chromium=${process.versions.chrome ?? 'unknown'}`
-    + ` node=${process.versions.node ?? process.version} v8=${process.versions.v8 ?? 'unknown'}`
-    + ` display=${JSON.stringify(displayContext)}`,
-  )
   try {
     startDesktopCrashReporting(crashReporter, {
       productName: PRODUCT_NAME,
       version: appVersion,
       platform: process.platform,
       arch: process.arch,
-      runId,
-      mainPid: process.pid,
     })
   } catch (cause) {
     electronLogger.error(`${BIN_NAME}: local crash reporting unavailable: ${cause instanceof Error ? cause.message : String(cause)}`)
-  }
-  const crashReporterDirectory = join(app.getPath('userData'), 'Crashpad')
-  const logCrashpadDumps = (reason: string, since: string | undefined): void => {
-    try {
-      const dumps = summarizeDesktopCrashDumps(crashReporterDirectory, since)
-      const message = `${BIN_NAME}: Crashpad correlation runId=${runId} reason=${reason} dumps=${JSON.stringify(dumps)}`
-      if (dumps.length === 0) electronLogger.info(message)
-      else electronLogger.error(message)
-    } catch (cause) {
-      electronLogger.error(`${BIN_NAME}: Crashpad summary failed for runId=${runId}: ${cause instanceof Error ? cause.message : String(cause)}`)
-    }
   }
   let desktopRun: DesktopRun | undefined
   try {
@@ -596,42 +572,19 @@ async function start(): Promise<void> {
         startedAt: new Date().toISOString(),
         pid: process.pid,
         version: appVersion,
-        runId,
       },
     )
     const previousRun = desktopRun.previousRun
     if (previousRun !== undefined) {
       electronLogger.error('unreadable' in previousRun
-        ? `${BIN_NAME}: previous desktop run did not shut down cleanly (active run marker unreadable); current runId=${runId}`
-        : `${BIN_NAME}: previous desktop run did not shut down cleanly (startedAt: ${previousRun.startedAt}, pid: ${String(previousRun.pid)}, version: ${previousRun.version}, runId: ${previousRun.runId ?? 'unknown'}); current runId=${runId}`)
-      logCrashpadDumps(`previous-run:${'unreadable' in previousRun ? 'unreadable-marker' : previousRun.runId ?? previousRun.pid}`,
-        'unreadable' in previousRun ? undefined : previousRun.startedAt)
+        ? `${BIN_NAME}: previous desktop run did not shut down cleanly (active run marker unreadable)`
+        : `${BIN_NAME}: previous desktop run did not shut down cleanly (startedAt: ${previousRun.startedAt}, pid: ${String(previousRun.pid)}, version: ${previousRun.version})`)
     }
   } catch (cause) {
     electronLogger.error(`${BIN_NAME}: active run tracking unavailable: ${cause instanceof Error ? cause.message : String(cause)}`)
   }
-  installDesktopProcessLifecycleLogging(app, process, electronLogger, {
-    runId,
-    pid: process.pid,
-    onAppPhase: phase => lifecycleRecorder.recordDesktopAppPhase(phase),
-    onExit: exitCode => {
-      lifecycleRecorder.recordDesktopProcessExit(exitCode)
-      try { desktopRun?.markClean() } catch (cause) {
-        electronLogger.error(`${BIN_NAME}: failed to clear active run marker at process exit: ${cause instanceof Error ? cause.message : String(cause)}`)
-      }
-    },
-  })
   removeChildProcessLogging = installDesktopChildProcessLogging(app, electronLogger, details => {
     lastChildProcessGone = describeDesktopChildProcess(details)
-    lifecycleRecorder.recordElectronChildProcessGone(details)
-    if (details.reason === 'crashed' || details.reason === 'oom' || details.reason === 'launch-failed') {
-      electronLogger.error(`${BIN_NAME}: crash correlation runId=${runId} parentPid=${String(process.pid)} child=${lastChildProcessGone}`)
-      const since = new Date(Date.now() - 15_000).toISOString()
-      logCrashpadDumps(`child-process-gone:${details.type}/${details.serviceName ?? details.name ?? 'unnamed'}`, since)
-      // Crashpad may finish flushing the minidump just after Chromium emits the
-      // child event. Re-scan once after a short delay, never blocking recovery.
-      setTimeout(() => { logCrashpadDumps(`child-process-gone-late:${details.type}/${details.serviceName ?? details.name ?? 'unnamed'}`, since) }, 750)
-    }
   })
   const nativeExit = createDesktopExitCoordinator(
     {
@@ -653,6 +606,11 @@ async function start(): Promise<void> {
         } catch (cause) {
           electronLogger.error(`${BIN_NAME}: failed to remove the Safe Mode environment: ${cause instanceof Error ? cause.message : String(cause)}`)
         }
+      }
+      try {
+        desktopRun?.markClean()
+      } catch (cause) {
+        electronLogger.error(`${BIN_NAME}: failed to clear active run marker: ${cause instanceof Error ? cause.message : String(cause)}`)
       }
     },
   )
@@ -686,19 +644,8 @@ async function start(): Promise<void> {
     // Main owns every pre-health failure branch. Returning true prevents the
     // legacy Renderer recovery dialog from racing the native startup window.
     return report.status === 'failed'
-  }, electronLogger, undefined, undefined, installationId, runId, event => {
-    if (event.event === 'gone') lifecycleRecorder.recordRendererProcessGone(event)
-    else lifecycleRecorder.recordRendererResponsiveness({
-      surface: event.surface,
-      webContentsId: event.webContentsId,
-      responsive: event.event === 'responsive',
-    })
-  })
-  const finalExit = (code: number): void => {
-    electronLogger.info(`${BIN_NAME}: controlled exit requested runId=${runId} pid=${String(process.pid)} exitCode=${String(code)}`)
-    lifecycleRecorder.recordDesktopExitRequested(code)
-    nativeExit.finish(code)
-  }
+  }, electronLogger, undefined, undefined, installationId)
+  const finalExit = (code: number): void => { nativeExit.finish(code) }
   shutdown = createDesktopShutdown(
     async () => { await generation.release() },
     finalExit,
@@ -1486,6 +1433,11 @@ async function start(): Promise<void> {
         preparationHooks,
       )
     }
+    if (prepared.legacyWebRuntimeSources !== undefined) {
+      electronLogger.info(
+        `${BIN_NAME}: re-targeted Connection from the retired webRuntime service to webStartup; outdated layers: ${prepared.legacyWebRuntimeSources.join(', ')}`,
+      )
+    }
     // Desktop setup has its own per-Profile trigger, independent of account state.
     // The official page checks that trigger before showing its own account flow.
     const setupWizardState = safeModePaths === undefined
@@ -1497,7 +1449,12 @@ async function start(): Promise<void> {
     if (setupPending) await beginDesktopSetupWizard(marketUserDataDir, prepared.profile.dir)
     const setupInput = { ...readDesktopSetupWizardSettings(prepared.settingsDocument), appVersion,
       profileName: activeProfileName, platform: runtime.platform,
-      market: marketSelection.requested, aaEnabled: profilePreferences?.aaEnabled === true }
+      market: marketSelection.requested !== 'disabled'
+        ? marketSelection.requested
+        : readDesktopOfficialPluginMarketEnabled(prepared.profile.dir)
+          ? ('official-market' as const)
+          : ('disabled' as const),
+      aaEnabled: profilePreferences?.aaEnabled === true }
     let setupSaving = false
     let setupRestartPending = false
     runtime.setupOnboarding = {
@@ -1531,9 +1488,10 @@ async function start(): Promise<void> {
         setupSaving = true
         try {
           if (selection !== undefined) {
+            const desktopMarket: DesktopMarketProvider = selection.market === 'official-market' ? 'disabled' : selection.market
             profilePreferences = await writeDesktopProfilePreferences(marketUserDataDir, prepared.profile.dir,
-              desktopProfilePreferencesFromSettings(selection, selection.notifications, selection.market, selection.aaEnabled === true))
-            await selectDesktopMarketProvider(marketUserDataDir, selection.market)
+              desktopProfilePreferencesFromSettings(selection, selection.notifications, desktopMarket, selection.aaEnabled === true))
+            await selectDesktopMarketProvider(marketUserDataDir, desktopMarket)
             // A new Profile has no settings document left to import, so save
             // through the live settings scopes the way the mode picker does.
             await applySettings!(normalizeDesktopSetupWizardSettings({
@@ -1544,6 +1502,7 @@ async function start(): Promise<void> {
               networkExposure: selection.networkExposure,
               notifications: selection.notifications,
             }))
+            configureDesktopOfficialPluginMarket(prepared.profile.dir, selection.market === 'official-market')
           }
           // Keep the existing per-Profile marker; a failed save must remain resumable.
           await completeOrSkipDesktopSetupWizard(marketUserDataDir, prepared.profile.dir,
@@ -1665,6 +1624,12 @@ async function start(): Promise<void> {
       clearEnvironmentPath: pnpmRuntime.clearEnvironmentPath,
       dshBootstrapPath,
     }
+    // The bundled interpreter payload of this CPU: beside the application when packaged, prepared by `prepare:runtime` in development.
+    const primaryRuntime = desktopPrimaryRuntime({
+      packaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      packageRoot: fileURLToPath(new URL('..', import.meta.url)),
+    })
     await healDesktopProfileModuleFallback(homeDir, prepared.profile)
     if (profilePreferences === undefined) {
       throw new Error(`${BIN_NAME}: active Profile preferences were not initialized`)
@@ -1676,7 +1641,7 @@ async function start(): Promise<void> {
         host: { prepared, profilePreferences, homeDir, activeProfileName, pluginManagementStatePath,
           selectionStatePath, marketUserDataDir, releaseUserDataLocations, desktopLaunchEnvironment,
           desktopProxyOverlay: proxyResolution.overlay,
-          desktopPnpmBootstrap, logDirectory: join(desktopUserDataDir, 'logs', 'host') },
+          desktopPnpmBootstrap, primaryRuntime, diagnosticRunId: diagnosticRunId(), logDirectory: join(desktopUserDataDir, 'logs', 'host') },
         runtime, rendererToken: browserAccess.rendererHeader.value,
         prepareCertificate: prepareHostCertificate,
         bindHost: host => generation.bindHost(host), requestQuit,
@@ -1686,7 +1651,6 @@ async function start(): Promise<void> {
             exitCode: exit.exitCode,
             expected: false,
             uptimeMs: exit.uptimeMs,
-            ...(exit.hostPid === undefined ? {} : { hostPid: exit.hostPid }),
             ...(lastChildProcessGone === undefined ? {} : { childProcessGone: lastChildProcessGone }),
           })
           runtime.notifyAttention({ title: PRODUCT_NAME, body: error.message })
@@ -1731,8 +1695,22 @@ async function start(): Promise<void> {
       }
       startupStage = 'host-boot'
       lifecycleRecorder.transitionStartupStage(startupStage)
+      let effectiveMarket = prepared.market.effective
+      let effectiveAa = prepared.aaEnabled
       const releasePackageResolver = installProfilePackageResolver(prepared.bareModuleBaseUrl)
-      const profileBoot = createDesktopProfileBoot(prepared, desktopPnpmBootstrap)
+      const profileBoot = createDesktopProfileBoot(prepared, desktopPnpmBootstrap, {
+        onManagedBundlesChanged: state => {
+          effectiveMarket = state.effectiveMarket
+          effectiveAa = state.effectiveAa
+          void enqueueProfilePreferencesWrite(current => desktopProfilePreferencesFromSettings(
+            current,
+            current.notifications,
+            state.requestedMarket,
+            state.requestedAa,
+          )).then(() => selectDesktopMarketProvider(marketUserDataDir, state.requestedMarket))
+            .catch(() => {})
+        },
+      })
       const ctx = await boot(
         BIN_NAME,
         prepared.rootConfig,
@@ -1761,6 +1739,8 @@ async function start(): Promise<void> {
             () => releasePackageResolver,
             'dsh-plugin-desktop: profile package resolution',
           )
+          // Official plugin metadata and package lookups read the packages this resolver loads.
+          await hostCtx.plugin(DesktopPluginPackages)
           hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, desktopLaunchEnvironment)
           hostCtx.provide('desktopBrowserAccess', browserAccess)
           hostCtx.provide('desktopLanHttps', lanHttps)
@@ -1770,20 +1750,27 @@ async function start(): Promise<void> {
             openTerminal: () => { runtime.openTerminal() },
             requestRestart: () => runtime.requestRestart(),
           })
-          if (prepared.market.effective === 'community-market') {
-            await hostCtx.plugin(DesktopPluginsService, {
-              profileName: activeProfileName,
-              homeDir,
-              statePath: pluginManagementStatePath,
-              installAnchor: desktopInstallAnchor(),
-            })
-          }
+          await hostCtx.plugin(DesktopPluginsService, {
+            profileName: activeProfileName,
+            homeDir,
+            statePath: pluginManagementStatePath,
+            installAnchor: desktopInstallAnchor(),
+          })
           if (logSink !== undefined) {
             fileExporter = new FileExporter(logSink)
             hostCtx.logger.exporter(fileExporter)
           }
           // Registered before the plugin tree mounts, so no agent can fail unrecorded.
           installAgentErrorLogging(hostCtx)
+          installHostDeveloperLogging(hostCtx)
+          // Office skills and the workspace dependency tool need the bundled payload; a packaged Host without it fails here.
+          const office = resolveDesktopOfficeConfig(primaryRuntime, homeDir)
+          if (office === undefined) {
+            hostCtx.logger.warn(`${BIN_NAME}: Office skills are unavailable; run yarn prepare:runtime to prepare the primary runtime`)
+          } else {
+            await hostCtx.plugin(desktopOffice, office)
+            hostCtx.logger.info(`${BIN_NAME}: Office skills mounted from ${office.source}`)
+          }
           await hostCtx.plugin(DesktopProfileService, {
             current: {
               name: activeProfileName,
@@ -1835,12 +1822,12 @@ async function start(): Promise<void> {
           }, 'dsh-plugin-desktop: pending Desktop settings restart')
           const readMarket = () => desktopMarketSnapshotWithEffective(
             desktopProfileMarketSnapshot(readProfilePreferences().market),
-            prepared.market.effective,
+            effectiveMarket,
           )
           hostCtx.provide('desktopSettingsController', new DesktopSettingsController({
             profiles: hostCtx.desktopProfiles,
             readMarket,
-            readAa: () => ({ requested: readProfilePreferences().aaEnabled === true, effective: prepared.aaEnabled }),
+            readAa: () => ({ requested: readProfilePreferences().aaEnabled === true, effective: effectiveAa }),
             selectAa: async enabled => {
               await enqueueProfilePreferencesWrite(current => desktopProfilePreferencesFromSettings(
                 current,
@@ -1850,13 +1837,17 @@ async function start(): Promise<void> {
               ))
             },
             readWeb: () => {
+              const port = hostCtx.webServer.port
+              if (port === undefined) {
+                throw new Error('dsh-plugin-desktop: the WebServer has not bound a port')
+              }
               const lan = lanHttps.snapshot()
               const lanOrigins = lan.state === 'ready' && lan.actualPort !== null
                 ? desktopLanBrowserUrls(lan.actualPort, lan.addresses)
                 : []
               return {
                 localUrl: hostCtx.connection.authenticatedUrl(
-                  desktopLoopbackBrowserUrl(desktopWebServerPort(hostCtx.webServer.port)),
+                  desktopLoopbackBrowserUrl(port),
                 ),
                 lanUrls: lanOrigins.map(url => hostCtx.connection.authenticatedUrl(url)),
                 lanState: lan.state,
@@ -1876,7 +1867,7 @@ async function start(): Promise<void> {
               ))
               return desktopMarketSnapshotWithEffective(
                 await selectDesktopMarketProvider(marketUserDataDir, provider),
-                prepared.market.effective,
+                effectiveMarket,
               )
             },
             scheduleRestart: scheduleSettingsRestart,

@@ -1,6 +1,30 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { NativeImage } from 'electron'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import {
+  auxiliaryWindowChromeOptions,
+  auxiliaryWindowHasCustomFrame,
+} from '../src/auxiliary-window-options.ts'
+import {
+  FileMainWindowStateStore,
+  fitMainWindowBounds,
+} from '../src/main-window-state.ts'
+import { desktopFrameIsVisible } from '../src/native-ui/shared/DesktopFrame.tsx'
 import type { DesktopShellSpec } from '../src/runtime.ts'
+import {
+  ADVANCED_MACOS_TRAFFIC_LIGHT_TOP,
+  ADVANCED_WINDOWS_TITLEBAR_HEIGHT,
+  DESKTOP_FRAME_HEIGHT,
+  DESKTOP_FRAME_MACOS_TRAFFIC_LIGHT_TOP,
+} from '../src/window-chrome.ts'
+import {
+  effectiveDesktopWindowMaterial,
+  parseLinuxWindowMaterial,
+  parseMacosWindowMaterial,
+  parseWindowsWindowMaterial,
+} from '../src/window-material.ts'
 import {
   advancedWindowOptions,
   compatibilityWindowOptions,
@@ -8,12 +32,6 @@ import {
   desktopWindowOptions,
   extendedWindowOptions,
 } from '../src/window-options.ts'
-import {
-  ADVANCED_MACOS_TRAFFIC_LIGHT_TOP,
-  ADVANCED_WINDOWS_TITLEBAR_HEIGHT,
-  DESKTOP_FRAME_HEIGHT,
-  DESKTOP_FRAME_MACOS_TRAFFIC_LIGHT_TOP,
-} from '../src/window-chrome.ts'
 
 const spec: DesktopShellSpec = {
   mode: 'compatibility',
@@ -44,6 +62,20 @@ const spec: DesktopShellSpec = {
 }
 
 const preload = '/tmp/preload.cjs'
+const theme = readFileSync(new URL('../src/native-ui/shared/theme.css', import.meta.url), 'utf8')
+const temporaryDirectories: string[] = []
+
+function temporaryDirectory(): string {
+  const directory = mkdtempSync(join(tmpdir(), 'dsh-main-window-state-'))
+  temporaryDirectories.push(directory)
+  return directory
+}
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
 
 describe('compatibility BrowserWindow options', () => {
   it('uses an independent 36px macOS frame and enables renderer isolation', () => {
@@ -91,7 +123,6 @@ describe('compatibility BrowserWindow options', () => {
     expect(options).not.toHaveProperty('titleBarOverlay')
     expect(options).not.toHaveProperty('trafficLightPosition')
   })
-
 
   it('reveals transparent material behind the macOS compatibility frame', () => {
     const options = compatibilityWindowOptions(
@@ -195,5 +226,142 @@ describe('compatibility BrowserWindow options', () => {
       'linux',
       preload,
     )).toThrow('supported on macOS and Windows')
+  })
+})
+
+describe('desktop window material capabilities', () => {
+  it('keeps platform preferences portable and always renders Windows opaque', () => {
+    expect(effectiveDesktopWindowMaterial('compatibility', 'win32', 'transparent')).toBe('off')
+    expect(effectiveDesktopWindowMaterial('extended', 'win32', 'transparent')).toBe('off')
+    expect(effectiveDesktopWindowMaterial('advanced', 'win32', 'transparent')).toBe('off')
+    expect(effectiveDesktopWindowMaterial('compatibility', 'darwin', 'transparent')).toBe('transparent')
+    expect(effectiveDesktopWindowMaterial('extended', 'darwin', 'transparent')).toBe('transparent')
+    expect(effectiveDesktopWindowMaterial('extended', 'darwin', 'off')).toBe('off')
+  })
+
+  it('resolves Linux generations from their own transparent-or-solid preference', () => {
+    expect(effectiveDesktopWindowMaterial(
+      'compatibility', 'linux', 'transparent', 'off',
+    )).toBe('off')
+    expect(effectiveDesktopWindowMaterial(
+      'compatibility', 'linux', 'transparent', 'transparent',
+    )).toBe('transparent')
+    expect(effectiveDesktopWindowMaterial(
+      'compatibility', 'linux', 'transparent',
+    )).toBe('off')
+  })
+
+  it('validates persisted material values independently for each platform', () => {
+    expect(parseMacosWindowMaterial(undefined)).toBe('transparent')
+    expect(parseWindowsWindowMaterial(undefined)).toBe('off')
+    expect(parseWindowsWindowMaterial('off')).toBe('off')
+    // Removed Windows materials remain readable and fail closed to opaque.
+    expect(parseWindowsWindowMaterial('acrylic')).toBe('off')
+    expect(parseWindowsWindowMaterial('mica')).toBe('off')
+    expect(parseLinuxWindowMaterial(undefined)).toBe('off')
+    expect(parseLinuxWindowMaterial('transparent')).toBe('off')
+    expect(() => parseLinuxWindowMaterial('mica')).toThrow('linuxMaterial')
+    expect(() => parseMacosWindowMaterial('mica')).toThrow('macosMaterial')
+    expect(() => parseWindowsWindowMaterial('transparent')).toThrow('windowsMaterial')
+  })
+})
+
+describe('Desktop auxiliary window chrome', () => {
+  it('uses an empty 36px inset frame on macOS', () => {
+    expect(auxiliaryWindowChromeOptions('darwin')).toEqual({
+      titleBarStyle: 'hiddenInset',
+      trafficLightPosition: { x: 16, y: 12 },
+    })
+    expect(auxiliaryWindowHasCustomFrame('darwin')).toBe(true)
+  })
+
+  it('uses native caption controls over an empty 36px frame on Windows', () => {
+    expect(auxiliaryWindowChromeOptions('win32')).toEqual({
+      titleBarStyle: 'hidden',
+      titleBarOverlay: {
+        color: '#00000000',
+        symbolColor: '#7f858f',
+        height: 36,
+      },
+      hasShadow: true,
+      roundedCorners: true,
+      thickFrame: true,
+    })
+    expect(auxiliaryWindowHasCustomFrame('win32')).toBe(true)
+  })
+
+  it('does not fake native controls on Linux', () => {
+    expect(auxiliaryWindowChromeOptions('linux')).toEqual({})
+    expect(auxiliaryWindowHasCustomFrame('linux')).toBe(false)
+  })
+
+  it('removes both native controls and the renderer frame from action-only dialogs', () => {
+    expect(auxiliaryWindowChromeOptions('darwin', false)).toEqual({
+      frame: false,
+      closable: false,
+      minimizable: false,
+      maximizable: false,
+    })
+    expect(auxiliaryWindowHasCustomFrame('darwin', false)).toBe(false)
+    expect(auxiliaryWindowHasCustomFrame('win32', false)).toBe(false)
+  })
+})
+
+describe('Desktop-owned native UI frame', () => {
+  it('renders only when the BrowserWindow declares visible custom controls', () => {
+    expect(desktopFrameIsVisible('?platform=darwin&frame=true')).toBe(true)
+    expect(desktopFrameIsVisible('?platform=win32&frame=true')).toBe(true)
+    expect(desktopFrameIsVisible('?platform=darwin&frame=false')).toBe(false)
+    expect(desktopFrameIsVisible('?platform=linux')).toBe(false)
+    expect(desktopFrameIsVisible('')).toBe(false)
+  })
+
+  it('reserves the frame inset when fixed window actions sit before the content', () => {
+    expect(theme).toContain('.dshNativeFrame ~ .dshNativeContent')
+    expect(theme).not.toContain('.dshNativeFrame + .dshNativeContent')
+  })
+
+  it('isolates the app root so body-level dialogs cover the high native frame layer', () => {
+    expect(theme).toMatch(/#root\s*\{\s*isolation:\s*isolate;/u)
+  })
+})
+
+describe('main-window state', () => {
+  it('atomically round-trips one validated rectangle', () => {
+    const store = new FileMainWindowStateStore(temporaryDirectory())
+    expect(store.read()).toBeUndefined()
+
+    const bounds = { x: -1200, y: 48, width: 1360, height: 820 }
+    store.write(bounds)
+
+    expect(store.read()).toEqual(bounds)
+  })
+
+  it('rejects malformed state instead of constructing an invalid BrowserWindow', () => {
+    const store = new FileMainWindowStateStore(temporaryDirectory())
+    writeFileSync(store.statePath, '{"version":1,"bounds":{"x":0,"y":0,"width":0,"height":800}}\n')
+
+    expect(() => store.read()).toThrow('dimensions must be positive safe integers')
+  })
+
+  it('preserves visible bounds and clamps stale monitor geometry to the work area', () => {
+    const workArea = { x: -1440, y: 24, width: 1440, height: 876 }
+    const minimum = { width: 900, height: 640 }
+
+    expect(fitMainWindowBounds(
+      { x: -1320, y: 80, width: 1280, height: 760 },
+      workArea,
+      minimum,
+    )).toEqual({ x: -1320, y: 80, width: 1280, height: 760 })
+    expect(fitMainWindowBounds(
+      { x: -1448, y: 0, width: 1280, height: 760 },
+      workArea,
+      minimum,
+    )).toEqual({ x: -1448, y: 0, width: 1280, height: 760 })
+    expect(fitMainWindowBounds(
+      { x: 4200, y: -800, width: 2000, height: 1400 },
+      workArea,
+      minimum,
+    )).toEqual({ x: -1440, y: 24, width: 1440, height: 876 })
   })
 })

@@ -100,6 +100,13 @@ class MemoryKvUnit implements KvUnit {
     this.medium.documents.delete(this.recordPath(table, key))
   }
 
+  async deleteRecords(table: string, keys: readonly string[]): Promise<void> {
+    this.assertOpen()
+    // An unsafe key rejects the whole batch before anything is deleted.
+    const paths = keys.map(key => this.recordPath(table, key))
+    for (const path of paths) this.medium.documents.delete(path)
+  }
+
   async backupRecord(table: string, key: string): Promise<string> {
     this.assertOpen()
     const path = this.recordPath(table, key)

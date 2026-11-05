@@ -13,7 +13,8 @@ import {
 import { createHash, randomUUID } from 'node:crypto'
 import { basename, dirname, join, win32 } from 'node:path'
 import { profileName as assertDesktopProfileName } from './profiles.ts'
-import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
+import { PNPM_DISABLE_UPDATE_NOTIFIER, PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
+import { ELECTRON_HEADERS_URL } from './bundled-pnpm.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 const DEFAULT_PROFILE = 'DSH_DESKTOP_DEFAULT_PROFILE'
@@ -48,7 +49,6 @@ const STATE_DIRECTORY_MODE = 0o700
 const EXECUTABLE_FILE_MODE = 0o700
 const PRIVATE_FILE_MODE = 0o600
 const WINDOWS_SHELL_COMMANDS = ['pwsh.exe', 'powershell.exe', 'cmd.exe'] as const
-const ELECTRON_HEADERS_URL = 'https://electronjs.org/headers'
 
 /** Platforms with a native terminal launch contract owned by DSH Desktop. */
 export type DesktopTerminalPlatform = 'darwin' | 'win32'
@@ -272,7 +272,7 @@ function macPnpmShim(options: DesktopTerminalOptions): string {
       'npm_config_runtime=electron',
       `npm_config_target=${quoteSh(options.electronVersion)}`,
       `npm_config_disturl=${quoteSh(ELECTRON_HEADERS_URL)}`,
-      `exec ${quoteSh(options.appExecutable)} ${quoteSh(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
+      `exec ${quoteSh(options.appExecutable)} ${quoteSh(options.pnpmBinPath)} ${PNPM_DISABLE_UPDATE_NOTIFIER} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
     ].join(' '),
     '',
   ].join('\n')
@@ -287,7 +287,7 @@ function windowsPnpmShim(): string {
     'set "npm_config_runtime=electron"',
     `set "npm_config_target=%${WINDOWS_ELECTRON_VERSION}%"`,
     `set "npm_config_disturl=${ELECTRON_HEADERS_URL}"`,
-    `"%${WINDOWS_APP_EXECUTABLE}%" "%${WINDOWS_PNPM_ENTRY}%" ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} %*`,
+    `"%${WINDOWS_APP_EXECUTABLE}%" "%${WINDOWS_PNPM_ENTRY}%" ${PNPM_DISABLE_UPDATE_NOTIFIER} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} %*`,
     'exit /b %errorlevel%',
     '',
   ].join('\r\n')

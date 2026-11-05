@@ -1,5 +1,5 @@
 /** Electron single-instance ownership before any Desktop profile lifecycle begins. */
-import { isDesktopInstallerQuitRequest } from '../../dsh-plugin-desktop-beta/src/desktop-installer-quit.ts'
+import { isDesktopInstallerQuitRequest } from '../../dsh-plugin-desktop/src/desktop-installer-quit.ts'
 
 /** Minimal Electron application operations needed for instance ownership. */
 export interface DesktopSingleInstanceApplication {

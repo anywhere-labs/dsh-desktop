@@ -10,7 +10,10 @@ import { DesktopBrowserGuests } from '../lib/browser-guests.js'
 if (process.platform !== 'linux' || !process.env.DISPLAY) {
   console.error('Run this native Browser check on Linux under xvfb-run; portable checks do not start Electron.')
   app.exit(1)
-} else { void verify() }
+} else {
+  process.on('uncaughtException', error => { console.error(error); app.exit(1) })
+  void verify()
+}
 
 async function verify() {
   const home = mkdtempSync(join(tmpdir(), 'dsh-native-browser-'))
@@ -36,7 +39,7 @@ async function verify() {
     const guests = new DesktopBrowserGuests(() => [`http://127.0.0.1:${server.address().port + 1}`])
     window = new BrowserWindow({ show: false,
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: true } })
-    guests.bind(window)
+    guests.bind(window, () => () => {})
     await window.webContents.session.cookies.set({ url: origin, name: 'app-secret', value: 'app-only' })
     await window.loadURL(`${origin}/embed`)
     assert.equal(await window.webContents.executeJavaScript("document.querySelector('iframe').contentDocument?.querySelector('#native-proof')?.textContent ?? null"), null,
@@ -94,6 +97,7 @@ async function verify() {
   } finally {
     clearTimeout(deadline)
     window?.destroy()
+    server.closeAllConnections()
     await new Promise(resolve => server.close(resolve))
     rmSync(home, { recursive: true, force: true })
     app.exit(code)

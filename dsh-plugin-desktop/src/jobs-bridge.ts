@@ -23,9 +23,16 @@ function desktopJobOutcome(status: string): DesktopJobOutcome {
 }
 
 /**
- * Observe the settlements of every job composed under this context's scope.
+ * Observe the unattended settlements of jobs composed under this context's scope.
+ *
+ * Every shell command runs as a job, including the foreground ones a tool call
+ * waits on. A settlement that released a live wait (`awaited`) already handed
+ * its result to that caller, and one caused by owner teardown has no reader
+ * left, so neither is reported. A foreground wait that timed out before the job
+ * settled does not count as awaited: that job really did finish in the
+ * background and is still reported.
  * @param ctx - a context with the `jobs` service injected.
- * @param listener - receives each settled job's narrowed outcome.
+ * @param listener - receives each unattended settled job's narrowed outcome.
  * @returns the disposer unregistering the observer.
  */
 export function observeDesktopJobOutcomes(
@@ -33,7 +40,7 @@ export function observeDesktopJobOutcomes(
   listener: (outcome: DesktopJobOutcome) => void,
 ): () => void {
   return ctx.jobs.events.subscribe({ owners: 'scope' }, (event) => {
-    if (event.type !== 'settled') return
+    if (event.type !== 'settled' || event.awaited || event.cause === 'teardown') return
     listener(desktopJobOutcome(event.job.status))
   })
 }

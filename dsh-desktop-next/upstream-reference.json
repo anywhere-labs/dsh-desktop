@@ -107,6 +107,96 @@
       "upstream": "apps/desktop/tests/keybindings.spec.ts",
       "local": "tests/keybindings.spec.ts",
       "upstreamSha256": "3d90e7dfde4733a9fec33b44a3347805404d4ba0a1a68ca4648ec5e94002a3ad"
+    },
+    {
+      "upstream": "apps/desktop/src/runtime-tree.ts",
+      "local": "src/runtime-tree.ts",
+      "upstreamSha256": "aaef471a94c1bb295c7aecd080f2bf9f4fa037a8fc3f2d76c63db9b367c80778"
+    },
+    {
+      "upstream": "apps/desktop/scripts/runtime-file-policy.ts",
+      "local": "scripts/runtime-file-policy.ts",
+      "upstreamSha256": "4f2daa3210c983d9cd8f1f0947382cd51b7a181dc50a51f59944f78a62c18940"
+    },
+    {
+      "upstream": "apps/desktop/tests/runtime-tree.spec.ts",
+      "local": "tests/runtime-tree.spec.ts",
+      "upstreamSha256": "b72793f4458b6ce36629fe4c26c17ac320051c75e2ac9a7a2493ec55ad959873"
+    },
+    {
+      "upstream": "apps/desktop/tests/runtime-file-policy.spec.ts",
+      "local": "tests/runtime-file-policy.spec.ts",
+      "upstreamSha256": "ec729b67ca487a03be9cce40070cdd7fbd79bc179ab5cf715379065121fd9003"
+    },
+    {
+      "upstream": "apps/desktop/tests/runtime-fixture.ts",
+      "local": "tests/runtime-fixture.ts",
+      "upstreamSha256": "578b43a9b65f23627134f954c642f722dff52c09340860142a49f285bc7ddac1"
+    },
+    {
+      "upstream": "apps/desktop-host/src/office-engine.ts",
+      "local": "src/host/office-engine.ts",
+      "upstreamSha256": "9e399122d163f92aca01c57c0f5fd207946ebd7b7a3f6967b7e2e262e7f46432"
+    },
+    {
+      "upstream": "apps/desktop-host/tests/office-engine.spec.ts",
+      "local": "tests/office-engine.spec.ts",
+      "upstreamSha256": "0ef9ae8b2de83cb00a19db96b11cab886672277582986346df4431df189f6344"
+    },
+    {
+      "upstream": "apps/desktop-host/src/office.ts",
+      "local": "src/host/office.ts",
+      "upstreamSha256": "476724125820e03f258aee5939ea9adbda9c3125b7b07bd41cb0e6ee48bf34e3"
+    },
+    {
+      "upstream": "apps/desktop-host/tests/office.spec.ts",
+      "local": "tests/host-office.spec.ts",
+      "upstreamSha256": "b3e0270a535e299cf97c60e7f098626bb6ec99c58d5a61f71ec1b9d82a04885e"
+    },
+    {
+      "upstream": "scripts/primary-runtime/prepare.ts",
+      "local": "scripts/primary-runtime.ts",
+      "upstreamSha256": "31f631ebcc2937f813ccf37ac82168ba6c410406cb6f9a17304211d2528de3ee"
+    },
+    {
+      "upstream": "scripts/primary-runtime/prepare.spec.ts",
+      "local": "tests/primary-runtime.spec.ts",
+      "upstreamSha256": "7b048237bda543a9cb598dc77acfcd0055c34f2aa1a0031022ea3ed05b43d56d"
+    },
+    {
+      "upstream": "scripts/primary-runtime/prune-python-tests.ts",
+      "local": "scripts/prune-python-tests.ts",
+      "upstreamSha256": "030e3db3e733ac0e4a3ded3762bdba498cbc57f91405567aef40c02018319881"
+    },
+    {
+      "upstream": "scripts/primary-runtime/prune-python-tests.spec.ts",
+      "local": "tests/prune-python-tests.spec.ts",
+      "upstreamSha256": "c3d5528a5ac6ef88b184a3652b16c6a1f3548f292341c6e777f711f3e3f97bd0"
+    },
+    {
+      "upstream": "scripts/libreoffice-packages.mjs",
+      "local": "scripts/office-packages.ts",
+      "upstreamSha256": "dee06b3337deec553858d9edbbbef09bbca88dadefead0903cbd42162acfe445"
+    },
+    {
+      "upstream": "apps/desktop/scripts/macos-runtime.ts",
+      "local": "scripts/sign-runtime.ts",
+      "upstreamSha256": "13f2c1a0214e07e8ab9e6ac852c8d4439a52f9ee278849d481afe2c28afe374f"
+    },
+    {
+      "upstream": "apps/desktop/scripts/verify-macos-signature.mjs",
+      "local": "scripts/sign-runtime.ts",
+      "upstreamSha256": "b39245a6d5a53125897e77ca1c7747aa00d0a6fc54d2a794ab99d33b8d895258"
+    },
+    {
+      "upstream": "apps/desktop/scripts/macos-signing-keychain.mjs",
+      "local": "scripts/sign-runtime.ts",
+      "upstreamSha256": "e73ad2ab60d56e610dfa5322f5bcd27e43bd297f2bda83aa44c69cd8d0352b3e"
+    },
+    {
+      "upstream": "apps/desktop/tests/macos-runtime.spec.ts",
+      "local": "tests/sign-runtime.spec.ts",
+      "upstreamSha256": "1a31f1ab50252efd709d5ccd9f5d8f951e67fe82e57eea1283cf331c1225a183"
     }
   ]
 }

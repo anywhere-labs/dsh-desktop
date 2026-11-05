@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-account/client'
 import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { DesktopOnboardingBridge, DesktopOnboardingSnapshot } from '../setup-onboarding-bridge.ts'
+import type { DesktopOnboardingBridge, DesktopOnboardingSnapshot } from '../../../dsh-plugin-desktop/src/setup-onboarding-bridge.ts'
 
 export type SetupNavigation = PropsRuntime<'onboarding.desktop.before'>['renderNavigation']
 export type SetupContent = (snapshot: DesktopOnboardingSnapshot, locale: 'zh' | 'en', finish: DesktopOnboardingBridge['finish'], renderNavigation: SetupNavigation) => ReactNode

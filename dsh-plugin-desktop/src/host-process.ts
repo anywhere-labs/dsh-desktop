@@ -1,7 +1,7 @@
-/** An Electron Node-mode child owns the DSH Web server outside Chromium's Utility allocator. */
+/** Electron owns the child lifetime; the child owns the unchanged DSH Web server. */
+import { createProcessOutputLogging } from './process-output-logging.ts'
 import { serializeHostEnvironment } from './host-launch-environment.ts'
-import { fork, type Serializable } from 'node:child_process'
-import { constants } from 'node:os'
+import { utilityProcess } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { performance } from 'node:perf_hooks'
 import { StringDecoder } from 'node:string_decoder'
@@ -24,10 +24,8 @@ export interface IsolatedHostOptions {
 
 /** What an unexpected Host exit leaves behind for evidence. */
 export interface IsolatedHostExit {
-  /** Child exit code, or 128 + signal number when terminated by a signal. */
+  /** Electron's reported code. A terminated Host reports the terminator's code, not a self-chosen one. */
   readonly exitCode: number
-  /** Child PID for the crash and lifecycle records; Node-mode failures may have no Crashpad dump. */
-  readonly hostPid?: number
   /** Milliseconds between fork and exit; separates an instant death from one hours in. */
   readonly uptimeMs: number
   /**
@@ -48,28 +46,26 @@ export function formatUnexpectedHostExit(error: Error, exit: IsolatedHostExit): 
 
 export async function startIsolatedDesktopHost(options: IsolatedHostOptions): Promise<void> {
   const forkedAt = performance.now()
-  const child = fork(fileURLToPath(new URL('./host-process-entry.js', import.meta.url)), [], {
-    execPath: process.execPath, execArgv: [], cwd: process.cwd(),
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-    stdio: ['ignore', 'pipe', 'pipe', 'ipc'], serialization: 'json',
+  const child = utilityProcess.fork(fileURLToPath(new URL('./host-process-entry.js', import.meta.url)), [], {
+    serviceName: 'DSH Host', stdio: 'pipe', cwd: process.cwd(), env: { ...process.env },
   })
   // Keep normal Host logs in its own files; stderr includes bootstrap failures.
-  child.stdout?.on('data', (data: Buffer) => { process.stdout.write(data) })
+  const stdoutLog = createProcessOutputLogging('stdout', () => child.pid)
+  const stderrLog = createProcessOutputLogging('stderr', () => child.pid)
+  child.stdout?.on('data', (data: Buffer) => { process.stdout.write(data); stdoutLog.write(data) })
+  child.stdout?.once('end', () => stdoutLog.end())
+  child.stderr?.once('end', () => stderrLog.end())
   const stderrDecoder = new StringDecoder('utf8')
   let stderrTail = ''
   child.stderr?.on('data', (data: Buffer) => {
     process.stderr.write(data)
+    stderrLog.write(data)
     stderrTail = (stderrTail + stderrDecoder.write(data)).slice(-HOST_STDERR_TAIL_CHARS)
   })
   const rpc = new HostRpc({
-    send: message => {
-      if (!child.connected) throw new Error('DSH Host IPC is disconnected')
-      child.send(message as Serializable, error => { if (error) rpc.close(`DSH Host IPC failed: ${error.message}`) })
-    },
+    send: message => child.postMessage(message),
     listen: receive => { child.on('message', receive); return () => { child.removeListener('message', receive) } },
   }, 120_000)
-  child.once('error', error => rpc.close(`DSH Host spawn failed: ${error.message}`))
-  child.once('disconnect', () => rpc.close('DSH Host IPC disconnected'))
   const releaseNative = bindNativeRuntime(rpc, options.runtime)
   rpc.handle('certificate', () => options.prepareCertificate())
   rpc.handle('quit', ([code]) => { setImmediate(() => options.requestQuit(code)) })
@@ -78,29 +74,18 @@ export async function startIsolatedDesktopHost(options: IsolatedHostOptions): Pr
   let booted = false
   let resolveExit!: () => void
   const exit = new Promise<void>(resolve => { resolveExit = resolve })
-  const observeExit = (code: number | null, signal: NodeJS.Signals | null): void => {
-    if (exited) return
-    const exitCode = code ?? (signal ? 128 + (constants.signals[signal] ?? 1) : 1)
+  child.once('exit', (code) => {
+    stdoutLog.end(); stderrLog.end()
     exited = true
-    rpc.close(`DSH Host exited (${exitCode})`)
+    rpc.close(`DSH Host exited (${code})`)
     resolveExit()
     if (!stopping && booted) {
       options.onFailure(
-        new Error(`DSH Host exited (${exitCode})${child.pid === undefined ? '' : ` (pid ${String(child.pid)})`}; restart the application to reconnect`),
-        {
-          exitCode,
-          ...(child.pid === undefined ? {} : { hostPid: child.pid }),
-          uptimeMs: Math.max(0, performance.now() - forkedAt),
-          stderrTail,
-        },
+        new Error(`DSH Host exited (${code}); restart the application to reconnect`),
+        { exitCode: code, uptimeMs: Math.max(0, performance.now() - forkedAt), stderrTail },
       )
     }
-    // Electron Crashpad may inherit the stdio pipes, preventing ChildProcess 'close'.
-    child.stdout?.destroy()
-    child.stderr?.destroy()
-  }
-  child.once('exit', observeExit)
-  child.once('close', observeExit)
+  })
   let stopTask: Promise<void> | undefined
   const stop = (): Promise<void> => stopTask ??= (async () => {
     stopping = true

@@ -18,7 +18,10 @@ export class NativePermissions {
     const permission = desktopPermission(value)
     const status = this.native.platform === 'darwin' || this.native.platform === 'win32' ? this.native.status(permission) : 'unknown'
     return { permission, status,
-      canRequest: this.native.platform === 'darwin' && (status === 'not-determined' || status === 'unknown'),
+      // macOS reports the microphone as undecided until its first prompt. It keeps no undecided state for screen
+      // recording, where only a first capture attempt prompts, or for Accessibility, where the prompt opens the
+      // privacy pane, so both stay requestable until granted; a managed restriction is not.
+      canRequest: this.native.platform === 'darwin' && (status === 'not-determined' || (permission !== 'microphone' && status === 'denied')),
       canOpenSettings: this.settingsUrl(permission) !== undefined,
     }
   }

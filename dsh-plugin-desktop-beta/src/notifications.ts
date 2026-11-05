@@ -1,146 +1,107 @@
-/** Privacy-safe desktop attention for completed user turns and background jobs. */
-
+/** Native notifications for user and scheduled turns, with bounded user previews. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import type { DesktopLocale, DesktopNotification } from './runtime.ts'
-import { observeDesktopJobOutcomes, type DesktopJobOutcome } from './jobs-bridge.ts'
-import {
-  bindDesktopNotificationSettings,
-  DEFAULT_NOTIFICATION_SETTINGS,
-  DESKTOP_NOTIFICATIONS_SETTINGS_ENTRY_ID,
-  type DesktopNotificationConfig,
-  type DesktopNotificationSettings,
-} from './settings-bridge.ts'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { Nodes } from 'mdast'
+import { fromMarkdown } from 'mdast-util-from-markdown'
+import { gfmFromMarkdown } from 'mdast-util-gfm'
+import { toString } from 'mdast-util-to-string'
+import { gfm } from 'micromark-extension-gfm'
+import type { DesktopNotification, DesktopPreferences, NotificationOutcome } from './desktop-contract.ts'
 
-export const name = 'desktop-notifications'
-export const inject = ['desktopRuntime']
+const TITLE_LIMIT = 160
+const BODY_LIMIT = 1000
 
-export const DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE = DESKTOP_NOTIFICATIONS_SETTINGS_ENTRY_ID
-
-/**
- * The editable notification preference subset and this instance's validated
- * configuration are edition-local because the two channels' cores model plugin
- * configuration differently; see `src/settings-bridge.ts`.
- */
-export {
-  DesktopNotificationSettingsSchema,
-  DesktopNotificationConfig as Config,
-  type DesktopNotificationSettings,
-} from './settings-bridge.ts'
-
-type NotificationOutcome = 'turn-completed' | 'turn-failed' | 'job-completed' | 'job-failed' | 'schedule-completed' | 'schedule-failed'
-
-const NOTIFICATION_COPY: Record<DesktopLocale, Record<NotificationOutcome, DesktopNotification>> = {
-  en: {
-    'turn-completed': { title: 'User Turn Completed', body: 'A user-initiated turn has finished.' },
-    'turn-failed': { title: 'User Turn Failed', body: 'A user-initiated turn could not finish. Open DSH Desktop for details.' },
-    'job-completed': { title: 'Background Job Completed', body: 'A background job has finished.' },
-    'job-failed': { title: 'Background Job Failed', body: 'A background job could not finish. Open DSH Desktop for details.' },
-    'schedule-completed': { title: 'Automation Task Completed', body: 'An automation task has finished.' },
-    'schedule-failed': { title: 'Automation Task Failed', body: 'An automation task could not finish. Open DSH Desktop for details.' },
-  },
-  zh: {
-    'turn-completed': { title: '用户回合已完成', body: '一个由你发起的回合已完成。' },
-    'turn-failed': { title: '用户回合失败', body: '一个由你发起的回合未能完成，请打开 DSH Desktop 查看详情。' },
-    'job-completed': { title: '后台任务已完成', body: '有一个后台任务已结束。' },
-    'job-failed': { title: '后台任务失败', body: '一个后台任务未能完成，请打开 DSH Desktop 查看详情。' },
-    'schedule-completed': { title: '自动化任务完成', body: '一个自动化任务已完成。' },
-    'schedule-failed': { title: '自动化任务失败', body: '一个自动化任务未能完成，请打开 DSH Desktop 查看详情。' },
-  },
+/** The native notification API accepts plain text, so project the Web client's GFM grammar before truncating. */
+function plainText(node: Nodes): string {
+  if (node.type === 'root' || node.type === 'list' || node.type === 'listItem'
+    || node.type === 'blockquote' || node.type === 'table' || node.type === 'tableRow') {
+    return node.children.map(plainText).filter(Boolean).join(' ')
+  }
+  return toString(node, { includeHtml: false })
 }
 
-interface OpenTurn {
-  readonly turn: number
-  source: 'user' | 'schedule' | undefined
+function preview(content: readonly ContentBlock[], limit: number): string {
+  const markdown = content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+  let text: string
+  try {
+    text = plainText(fromMarkdown(markdown, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }))
+      .replace(/\s+/g, ' ').trim()
+  } catch {
+    return ''
+  }
+  return text.length <= limit ? text : `${text.slice(0, limit - 1).replace(/[\uD800-\uDBFF]$/u, '')}…`
 }
 
-function notifyJob(
-  runtime: Context['desktopRuntime'],
-  settings: DesktopNotificationSettings,
-  outcome: DesktopJobOutcome,
-): void {
-  if (!settings.enabled) return
-  if (outcome === 'completed' && settings.notifyOnJobCompletion) {
-    runtime.notifyAttention(NOTIFICATION_COPY[runtime.locale]['job-completed'])
-  } else if (outcome === 'failed' && settings.notifyOnJobFailure) {
-    runtime.notifyAttention(NOTIFICATION_COPY[runtime.locale]['job-failed'])
+export function isDesktopNotification(value: unknown): value is DesktopNotification {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  if (candidate.outcome === 'turn-failed' || candidate.outcome === 'schedule-completed' || candidate.outcome === 'schedule-failed') return true
+  return candidate.outcome === 'turn-completed'
+    && typeof candidate.userMessage === 'string' && candidate.userMessage.length <= TITLE_LIMIT
+    && typeof candidate.assistantMessage === 'string' && candidate.assistantMessage.length <= BODY_LIMIT
+}
+
+export function notificationCopy(notification: DesktopNotification, language: string): { title: string; body: string } {
+  const zh = language.startsWith('zh')
+  if (notification.outcome === 'schedule-completed') return {
+    title: zh ? '自动化任务完成' : 'Automation task completed',
+    body: zh ? '一个自动化任务已完成。' : 'An automation task has finished.',
+  }
+  if (notification.outcome === 'schedule-failed') return {
+    title: zh ? '自动化任务失败' : 'Automation task failed',
+    body: zh ? '打开 DSH Desktop Beta 查看详情。' : 'Open DSH Desktop Beta for details.',
+  }
+  return notification.outcome === 'turn-completed' ? {
+    title: notification.userMessage || (zh ? '回合已完成' : 'Turn completed'),
+    body: notification.assistantMessage || (zh ? '你发起的回合已完成。' : 'A turn you started has finished.'),
+  } : {
+    title: zh ? '回合未能完成' : 'Turn could not finish',
+    body: zh ? '打开 DSH Desktop Beta 查看详情。' : 'Open DSH Desktop Beta for details.',
   }
 }
 
-function trackTurn(
-  runtime: Context['desktopRuntime'],
-  settings: DesktopNotificationSettings,
-  openTurns: Map<string, OpenTurn>,
-  session: Session,
-  event: SessionEvent,
-): void {
-  if (!settings.enabled) return
-  if (session.header.origin === 'subagent') return
-  const sessionId = String(session.header.id)
+export function notificationEnabled(preferences: DesktopPreferences, outcome: NotificationOutcome): boolean {
+  const key = { 'turn-completed': 'turnCompleted', 'turn-failed': 'turnFailed', 'schedule-completed': 'scheduleCompleted', 'schedule-failed': 'scheduleFailed' } as const
+  return preferences.notifications && preferences[key[outcome]]
+}
 
-  if (event.type === 'turn/start') {
-    openTurns.set(sessionId, { turn: event.data.turn, source: undefined })
-    return
-  }
-  if (event.type === 'user/message') {
-    const openTurn = openTurns.get(sessionId)
-    const source = event.data.source.kind as string
-    if (openTurn !== undefined && (source === 'user' || source === 'schedule')) {
-      openTurn.source = source
+export class TurnAttention {
+  private readonly open = new Map<string, { turn: number; source: 'user' | 'schedule' | undefined; userMessage: string; assistantMessage: string }>()
+  constructor(private readonly notify: (notification: DesktopNotification) => void) {}
+  event(session: Session, event: SessionEvent): void {
+    if (session.header.origin === 'subagent') return
+    const id = String(session.header.id)
+    if (event.type === 'turn/start') { this.open.set(id, { turn: event.data.turn, source: undefined, userMessage: '', assistantMessage: '' }); return }
+    const turn = this.open.get(id)
+    if (!turn) return
+    if (event.type === 'user/message') {
+      const source = event.data.source.kind as string
+      if (source !== 'user' && source !== 'schedule') return
+      turn.source = source
+      if (turn.source === 'user') turn.userMessage = preview(event.data.content, TITLE_LIMIT)
     }
-    return
+    if (event.type === 'assistant/message' && turn.source === 'user' && event.data.turn === turn.turn && !event.data.interrupted) {
+      turn.assistantMessage = preview(event.data.message.content, BODY_LIMIT)
+    }
+    if (event.type !== 'turn/end' || event.data.turn !== turn.turn) return
+    this.open.delete(id)
+    if (!turn.source) return
+    const reason = event.data.reason.kind
+    if (turn.source === 'schedule') {
+      if (reason === 'completed') this.notify({ outcome: 'schedule-completed' })
+      else if (reason === 'error' || reason === 'max-tokens') this.notify({ outcome: 'schedule-failed' })
+    } else if (reason === 'completed') this.notify({ outcome: 'turn-completed', userMessage: turn.userMessage, assistantMessage: turn.assistantMessage })
+    else if (reason === 'error' || reason === 'max-tokens') this.notify({ outcome: 'turn-failed' })
   }
-  if (event.type !== 'turn/end') return
-
-  const openTurn = openTurns.get(sessionId)
-  if (openTurn === undefined || openTurn.turn !== event.data.turn) return
-  openTurns.delete(sessionId)
-  if (!openTurn.source) return
-
-  const reason = event.data.reason.kind
-  const outcome = reason === 'completed' ? 'completed'
-    : reason === 'error' || reason === 'max-tokens' ? 'failed' : undefined
-  if (!outcome) return
-  const enabled = openTurn.source === 'schedule'
-    ? outcome === 'completed' ? settings.notifyOnScheduleCompletion : settings.notifyOnScheduleFailure
-    : outcome === 'completed' ? settings.notifyOnTurnCompletion : settings.notifyOnTurnFailure
-  if (enabled) runtime.notifyAttention(NOTIFICATION_COPY[runtime.locale][`${openTurn.source === 'schedule' ? 'schedule' : 'turn'}-${outcome}`])
+  dispose(session: Session): void { this.open.delete(String(session.header.id)) }
 }
 
-/** Register independently optional settings, job, and live-session observers.
- * @param ctx - the notification plugin context.
- * @param config - validated live notification preferences.
- */
-export function apply(ctx: Context, config: DesktopNotificationConfig): void {
-  let settings = DEFAULT_NOTIFICATION_SETTINGS
-
-  // Loader sends volatile updates only to this plugin's fiber. An injected
-  // settings child owns a different fiber and cannot receive those updates.
-  ctx.effect(
-    () => bindDesktopNotificationSettings(ctx, config, (next) => { settings = next }),
-    'dsh-plugin-desktop: native notification settings',
-  )
-
-  ctx.inject(['jobs'], (jobsCtx) => {
-    jobsCtx.effect(
-      () => observeDesktopJobOutcomes(jobsCtx, (outcome) => { notifyJob(jobsCtx.desktopRuntime, settings, outcome) }),
-      'dsh-plugin-desktop: background job attention',
-    )
-  })
-
-  ctx.inject(['sessions'], (sessionsCtx) => {
-    sessionsCtx.effect(() => {
-      const openTurns = new Map<string, OpenTurn>()
-      const stopEvents = sessionsCtx.on('session/event', (session, event) => {
-        trackTurn(sessionsCtx.desktopRuntime, settings, openTurns, session, event)
-      })
-      const stopDisposed = sessionsCtx.on('session/disposed', (session) => {
-        openTurns.delete(String(session.header.id))
-      })
-      return () => {
-        stopDisposed()
-        stopEvents()
-      }
-    }, 'dsh-plugin-desktop: direct user turn attention')
-  })
+export function installNotifications(ctx: Context, notify: (notification: DesktopNotification) => void): void {
+  ctx.inject(['sessions'], child => child.effect(() => {
+    const turns = new TurnAttention(notify)
+    const events = child.on('session/event', (session, event) => turns.event(session, event))
+    const disposed = child.on('session/disposed', session => turns.dispose(session))
+    return () => { events(); disposed() }
+  }, 'Next turn notifications'))
 }

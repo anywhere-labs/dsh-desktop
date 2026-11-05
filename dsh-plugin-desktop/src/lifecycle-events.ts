@@ -62,14 +62,6 @@ const EVENT_NAMES = new Set<DesktopLifecycleEventName>([
   'renderer.boot.failed',
   'renderer.boot.timeout',
   'host.exited',
-  'electron.child-process.gone',
-  'renderer.process.gone',
-  'renderer.process.unresponsive',
-  'renderer.process.responsive',
-  'desktop.app.before-quit',
-  'desktop.app.will-quit',
-  'desktop.app.exit-requested',
-  'desktop.process.exit',
 ])
 
 const HOST_EXIT_DISPOSITIONS = new Set<DesktopLifecycleHostExitDisposition>(['expected', 'unexpected'])
@@ -93,14 +85,6 @@ export type DesktopLifecycleEventName =
   | 'renderer.boot.failed'
   | 'renderer.boot.timeout'
   | 'host.exited'
-  | 'electron.child-process.gone'
-  | 'renderer.process.gone'
-  | 'renderer.process.unresponsive'
-  | 'renderer.process.responsive'
-  | 'desktop.app.before-quit'
-  | 'desktop.app.will-quit'
-  | 'desktop.app.exit-requested'
-  | 'desktop.process.exit'
 
 type DesktopLifecycleDetailValue = string | number | readonly string[]
 type DesktopLifecycleDetails = Readonly<Record<string, DesktopLifecycleDetailValue>>
@@ -136,10 +120,6 @@ export interface DesktopLifecycleSummary {
   /** Host exits this run did not ask for; absent when the Host outlived the run. */
   readonly unexpectedHostExitCount?: number
   readonly lastHostExitCode?: number
-  readonly lastHostPid?: number
-  readonly electronChildProcessGoneCount?: number
-  readonly rendererProcessGoneCount?: number
-  readonly lastDesktopProcessExitCode?: number
   readonly stages: readonly DesktopLifecycleSummaryStage[]
 }
 
@@ -217,10 +197,6 @@ export function summarizeDesktopLifecycleEvidence(content: Buffer): Buffer | und
   let totalDurationMs: number | undefined
   let unexpectedHostExitCount = 0
   let lastHostExitCode: number | undefined
-  let lastHostPid: number | undefined
-  let electronChildProcessGoneCount = 0
-  let rendererProcessGoneCount = 0
-  let lastDesktopProcessExitCode: number | undefined
   const stages: DesktopLifecycleSummaryStage[] = []
 
   for (const line of content.toString('utf8').split(/\n/u)) {
@@ -265,12 +241,8 @@ export function summarizeDesktopLifecycleEvidence(content: Buffer): Buffer | und
     else if (event.eventName === 'renderer.boot.timeout') rendererStatus = 'timeout'
     if (event.eventName === 'host.exited') {
       lastHostExitCode = event.details.exitCode as number
-      if (typeof event.details.hostPid === 'number') lastHostPid = event.details.hostPid
       if (event.details.disposition === 'unexpected') unexpectedHostExitCount += 1
     }
-    if (event.eventName === 'electron.child-process.gone') electronChildProcessGoneCount += 1
-    if (event.eventName === 'renderer.process.gone') rendererProcessGoneCount += 1
-    if (event.eventName === 'desktop.process.exit') lastDesktopProcessExitCode = event.details.exitCode as number
     if (event.eventName === 'startup.run.completed' || event.eventName === 'startup.run.failed') {
       finalOutcome = event.eventName === 'startup.run.completed' ? 'completed' : 'failed'
       finalStage = event.details.finalStage as DesktopStartupFailureStage | undefined
@@ -291,18 +263,13 @@ export function summarizeDesktopLifecycleEvidence(content: Buffer): Buffer | und
     ...(totalDurationMs === undefined ? {} : { totalDurationMs }),
     ...(unexpectedHostExitCount === 0 ? {} : { unexpectedHostExitCount }),
     ...(lastHostExitCode === undefined ? {} : { lastHostExitCode }),
-    ...(lastHostPid === undefined ? {} : { lastHostPid }),
-    ...(electronChildProcessGoneCount === 0 ? {} : { electronChildProcessGoneCount }),
-    ...(rendererProcessGoneCount === 0 ? {} : { rendererProcessGoneCount }),
-    ...(lastDesktopProcessExitCode === undefined ? {} : { lastDesktopProcessExitCode }),
     stages,
   } satisfies DesktopLifecycleSummary, undefined, 2)}\n`, 'utf8')
 }
 
 export class DesktopLifecycleRecorder {
   private readonly evidencePath: string
-  /** Shared with Crashpad and process-exit logs to correlate one desktop run. */
-  readonly runId: string
+  private readonly runId: string
   private readonly operationId: string
   private readonly now: () => Date
   private readonly monotonicNow: () => number
@@ -412,7 +379,6 @@ export class DesktopLifecycleRecorder {
     readonly exitCode: number
     readonly expected: boolean
     readonly uptimeMs: number
-    readonly hostPid?: number
     readonly childProcessGone?: string
   }): void {
     const childProcessGone = info.childProcessGone === undefined
@@ -422,63 +388,8 @@ export class DesktopLifecycleRecorder {
       exitCode: info.exitCode,
       disposition: info.expected ? 'expected' : 'unexpected',
       uptimeMs: clampUptime(info.uptimeMs),
-      ...(info.hostPid === undefined ? {} : { hostPid: info.hostPid }),
       ...(childProcessGone === undefined ? {} : { childProcessGone }),
     })
-  }
-
-  /** Persist Chromium's native child failure independently of the Host RPC exit. */
-  recordElectronChildProcessGone(details: {
-    readonly type: string
-    readonly reason: string
-    readonly exitCode: number
-    readonly serviceName?: string
-    readonly name?: string
-  }): void {
-    this.record('electron.child-process.gone', {
-      type: safeLine(details.type),
-      reason: safeLine(details.reason),
-      exitCode: details.exitCode,
-      ...(details.serviceName === undefined ? {} : { serviceName: safeLine(details.serviceName) }),
-      ...(details.name === undefined ? {} : { name: safeLine(details.name) }),
-    })
-  }
-
-  recordRendererProcessGone(info: {
-    readonly surface: string
-    readonly webContentsId: number
-    readonly reason: string
-    readonly exitCode: number
-  }): void {
-    this.record('renderer.process.gone', {
-      surface: safeLine(info.surface),
-      webContentsId: info.webContentsId,
-      reason: safeLine(info.reason),
-      exitCode: info.exitCode,
-    })
-  }
-
-  recordRendererResponsiveness(info: {
-    readonly surface: string
-    readonly webContentsId: number
-    readonly responsive: boolean
-  }): void {
-    this.record(info.responsive ? 'renderer.process.responsive' : 'renderer.process.unresponsive', {
-      surface: safeLine(info.surface),
-      webContentsId: info.webContentsId,
-    })
-  }
-
-  recordDesktopAppPhase(phase: 'before-quit' | 'will-quit'): void {
-    this.record(phase === 'before-quit' ? 'desktop.app.before-quit' : 'desktop.app.will-quit', {})
-  }
-
-  recordDesktopExitRequested(exitCode: number): void {
-    this.record('desktop.app.exit-requested', { exitCode })
-  }
-
-  recordDesktopProcessExit(exitCode: number): void {
-    this.record('desktop.process.exit', { exitCode })
   }
 
   private completeCurrentStage(): void {
@@ -699,14 +610,6 @@ function parseDetails(eventName: DesktopLifecycleEventName, value: unknown): Des
   if (eventName === 'renderer.boot.completed') return { rendererStatus: parseRendererStatus(details.rendererStatus) }
   if (eventName === 'renderer.boot.failed' || eventName === 'renderer.boot.timeout') return parseRendererFailedDetails(details)
   if (eventName === 'host.exited') return parseHostExitedDetails(details)
-  if (eventName === 'electron.child-process.gone') return parseElectronChildProcessGoneDetails(details)
-  if (eventName === 'renderer.process.gone') return parseRendererProcessGoneDetails(details)
-  if (eventName === 'renderer.process.unresponsive' || eventName === 'renderer.process.responsive') {
-    return parseRendererResponsivenessDetails(details)
-  }
-  if (eventName === 'desktop.app.exit-requested' || eventName === 'desktop.process.exit') {
-    return { exitCode: parseExitCode(details.exitCode) }
-  }
   return {}
 }
 
@@ -718,13 +621,7 @@ function allowedDetailKeys(eventName: DesktopLifecycleEventName): ReadonlySet<st
   if (eventName === 'renderer.boot.failed' || eventName === 'renderer.boot.timeout') {
     return new Set(['failureReason', 'pluginCount', 'pluginIds', 'rendererStatus'])
   }
-  if (eventName === 'host.exited') return new Set(['childProcessGone', 'disposition', 'exitCode', 'hostPid', 'uptimeMs'])
-  if (eventName === 'electron.child-process.gone') return new Set(['exitCode', 'name', 'reason', 'serviceName', 'type'])
-  if (eventName === 'renderer.process.gone') return new Set(['exitCode', 'reason', 'surface', 'webContentsId'])
-  if (eventName === 'renderer.process.unresponsive' || eventName === 'renderer.process.responsive') {
-    return new Set(['surface', 'webContentsId'])
-  }
-  if (eventName === 'desktop.app.exit-requested' || eventName === 'desktop.process.exit') return new Set(['exitCode'])
+  if (eventName === 'host.exited') return new Set(['childProcessGone', 'disposition', 'exitCode', 'uptimeMs'])
   return new Set()
 }
 
@@ -766,36 +663,8 @@ function parseHostExitedDetails(details: Record<string, unknown>): DesktopLifecy
     disposition: parseHostExitDisposition(details.disposition),
     uptimeMs: parseUptime(details.uptimeMs),
   }
-  if (details.hostPid !== undefined) parsed.hostPid = parsePid(details.hostPid)
   if (details.childProcessGone !== undefined) parsed.childProcessGone = safeLine(details.childProcessGone)
   return parsed
-}
-
-function parseElectronChildProcessGoneDetails(details: Record<string, unknown>): DesktopLifecycleDetails {
-  const parsed: Record<string, DesktopLifecycleDetailValue> = {
-    type: safeLine(details.type),
-    reason: safeLine(details.reason),
-    exitCode: parseExitCode(details.exitCode),
-  }
-  if (details.name !== undefined) parsed.name = safeLine(details.name)
-  if (details.serviceName !== undefined) parsed.serviceName = safeLine(details.serviceName)
-  return parsed
-}
-
-function parseRendererProcessGoneDetails(details: Record<string, unknown>): DesktopLifecycleDetails {
-  return {
-    surface: safeLine(details.surface),
-    webContentsId: parseCount(details.webContentsId),
-    reason: safeLine(details.reason),
-    exitCode: parseExitCode(details.exitCode),
-  }
-}
-
-function parseRendererResponsivenessDetails(details: Record<string, unknown>): DesktopLifecycleDetails {
-  return {
-    surface: safeLine(details.surface),
-    webContentsId: parseCount(details.webContentsId),
-  }
 }
 
 function parseHostExitDisposition(value: unknown): DesktopLifecycleHostExitDisposition {
@@ -865,13 +734,6 @@ function parseFailureReason(value: unknown): DesktopLifecycleFailureReason {
 function parseCount(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > 10_000) {
     throw new Error('detail count is invalid')
-  }
-  return value
-}
-
-function parsePid(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > 4_294_967_295) {
-    throw new Error('process id is invalid')
   }
   return value
 }

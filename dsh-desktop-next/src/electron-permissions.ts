@@ -6,8 +6,10 @@ import { APP_URL } from './ipc.ts'
 export function createNativePermissions(): NativePermissions {
   return new NativePermissions({
     platform: process.platform,
+    // AXIsProcessTrusted and Electron's screen-capture preflight answer only yes or no, so an ungranted screen or
+    // Accessibility grant reads as denied whether or not the person ever refused it.
     status: permission => permission === 'accessibility'
-      ? process.platform === 'darwin' && systemPreferences.isTrustedAccessibilityClient(false) ? 'granted' : 'unknown'
+      ? process.platform === 'darwin' ? systemPreferences.isTrustedAccessibilityClient(false) ? 'granted' : 'denied' : 'unknown'
       : systemPreferences.getMediaAccessStatus(permission),
     microphone: () => systemPreferences.askForMediaAccess('microphone'),
     // Enumeration triggers macOS consent when needed; zero-sized thumbnails avoid capturing images.

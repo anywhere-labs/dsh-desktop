@@ -1,7 +1,8 @@
 diff --git a/lib/index.js b/lib/index.js
+index 39401ea..71fe21d 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -1125,6 +1125,10 @@
+@@ -1125,6 +1125,10 @@ function readBundlePatches(binName, context, initialProfile) {
  * @returns Detached ordered patches; this function does not update the Loader.
  */
  function readProfilePatches(binName, context, initialProfile) {
@@ -12,7 +13,7 @@ diff --git a/lib/index.js b/lib/index.js
  	const patches = structuredClone([
  		...readBundlePatches(binName, context, initialProfile),
  		...initialProfile?.patches ?? loadOptionalPatches(binName, context.patchPath) ?? [],
-@@ -2261,10 +2265,15 @@
+@@ -2261,10 +2265,15 @@ function patchWarning(ctx) {
  function manifestOf(ctx, name, parentURL) {
  	if (name.startsWith("cordis:")) return void 0;
  	const specifier = name.startsWith("#") ? resolvePluginResource(name, parentURL) : name;
@@ -30,9 +31,10 @@ diff --git a/lib/index.js b/lib/index.js
  		const filename = join(path, bare, "package.json");
  		if (existsSync(filename)) return readManifest(filename);
 diff --git a/lib/types/profile-context.d.ts b/lib/types/profile-context.d.ts
+index ef6fc6a..77c159f 100644
 --- a/lib/types/profile-context.d.ts
 +++ b/lib/types/profile-context.d.ts
-@@ -8,6 +8,14 @@
+@@ -8,6 +8,14 @@ export interface ProfilePnpmInvocation {
  }
  /** Current profile facts; scheduling and mutation belong to their callers. */
  export interface ProfileContext {

@@ -1,3 +1,15 @@
+diff --git a/out/targets/nsis/NsisTarget.js b/out/targets/nsis/NsisTarget.js
+--- a/out/targets/nsis/NsisTarget.js
++++ b/out/targets/nsis/NsisTarget.js
+@@ -81,6 +81,8 @@ class NsisTarget extends core_1.Target {
+         const archiveOptions = {
+             withoutDir: true,
+             compression: packager.compression,
++            // Next keeps the official fast archive settings without changing Stable/Beta defaults.
++            ...(process.env.DSH_NEXT_WINDOWS_FAST_COMPRESSION === "1" ? { dictSize: 1, solid: false } : {}),
+             // The install-time Nsis7z extractor only decodes plain LZMA2/Copy and single-stream BCJ — not
+             // the CPU branch converters modern 7za applies to executables (BCJ2 on x86/x64, ARM64 on
+             // arm64), which it silently skips, dropping the main exe and every native binary from the
 diff --git a/out/codeSign/macCodeSign.js b/out/codeSign/macCodeSign.js
 index 3bde9755d703a70fc3a45c048c249559fef78d82..9db6a66ee59dbe28a167683b791d835766f279dd 100644
 --- a/out/codeSign/macCodeSign.js

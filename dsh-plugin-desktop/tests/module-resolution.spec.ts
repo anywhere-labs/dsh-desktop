@@ -77,7 +77,11 @@ vi.mock('../src/package-overlay.ts', () => ({
   resolveOverlayPackage: harness.overlay,
 }))
 
-const { installProfilePackageResolver: retainProfilePackageResolver } = await import('../src/module-resolution.ts')
+const {
+  installProfilePackageResolver: retainProfilePackageResolver,
+  refreshProfilePackageSelections,
+  selectProfilePackage,
+} = await import('../src/module-resolution.ts')
 const releases: Array<() => void> = []
 
 function installProfilePackageResolver(profileBaseUrl: string): () => void {
@@ -189,6 +193,42 @@ describe('installProfilePackageResolver', () => {
     expect(refreshed.context.parentURL).toBe(profileBaseUrl)
   })
 
+  it('reports the Loader selection for Profile-boundary package lookups and shares its cache', () => {
+    const profileBaseUrl = 'file:///tmp/dsh/profiles/desktop/package.json'
+    harness.sources.set('plugin', 'install')
+    expect(selectProfilePackage('plugin', profileBaseUrl)).toBeUndefined()
+    installProfilePackageResolver(profileBaseUrl)
+    const nextResolve = vi.fn((specifier: string, context: { parentURL?: string }) => ({ specifier, context }))
+
+    expect(selectProfilePackage('plugin/feature', 'file:///tmp/dsh/profiles/desktop/')).toEqual({
+      source: 'install', manifestPath: '/install/plugin/package.json',
+    })
+    harness.resolve?.('plugin', { parentURL: profileBaseUrl }, nextResolve)
+    expect(harness.overlay).toHaveBeenCalledTimes(1)
+
+    harness.overlay.mockReturnValueOnce(undefined as never)
+    expect(selectProfilePackage('missing', profileBaseUrl)).toBeNull()
+    for (const specifier of ['node:fs', './relative.js', '#internal']) {
+      expect(selectProfilePackage(specifier, profileBaseUrl)).toBeUndefined()
+    }
+    // Requests from untracked modules keep Node's own lookup from their parent.
+    expect(selectProfilePackage('plugin', pathToFileURL(join(tmpdir(), 'untracked', 'index.js')).href)).toBeUndefined()
+    expect(harness.overlay).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-selects packages for later imports after a package operation refresh', () => {
+    const profileBaseUrl = 'file:///tmp/dsh/profiles/desktop/package.json'
+    harness.sources.set('plugin', 'install')
+    installProfilePackageResolver(profileBaseUrl)
+    expect(selectProfilePackage('plugin', profileBaseUrl)).toMatchObject({ source: 'install' })
+
+    harness.sources.set('plugin', 'profile')
+    expect(selectProfilePackage('plugin', profileBaseUrl)).toMatchObject({ source: 'install' })
+    refreshProfilePackageSelections()
+    expect(selectProfilePackage('plugin', profileBaseUrl)).toMatchObject({ source: 'profile' })
+    expect(harness.overlay).toHaveBeenCalledTimes(2)
+  })
+
   it('also recognizes the Loader native dynamic-import fallback', () => {
     const profileBaseUrl = 'file:///C:/Users/test/profile/package.json'
     installProfilePackageResolver(profileBaseUrl)
@@ -219,6 +259,32 @@ describe('installProfilePackageResolver', () => {
       context: { parentURL: profileBaseUrl },
     })
     expect(harness.overlay).toHaveBeenCalledWith('@deepseek-ai/dsh-web-app', expect.any(Object))
+  })
+
+  it('recognizes the Loader project resolver helper as a Profile boundary', () => {
+    // cordis-plugin-loader 1.0.7 writes `.cordis/resolve.mjs` inside the Profile and
+    // resolves every plugin import from it, so that helper is this Profile's parent.
+    const profileBaseUrl = 'file:///tmp/dsh/profiles/desktop/package.json'
+    installProfilePackageResolver(profileBaseUrl)
+    const nextResolve = vi.fn((specifier: string, context: { parentURL?: string }) => ({ specifier, context }))
+
+    expect(harness.resolve?.(
+      '@deepseek-ai/dsh-web-app',
+      { parentURL: 'file:///tmp/dsh/profiles/desktop/.cordis/resolve.mjs' },
+      nextResolve,
+    )).toEqual({
+      specifier: '@deepseek-ai/dsh-web-app',
+      context: { parentURL: profileBaseUrl },
+    })
+    expect(harness.overlay).toHaveBeenCalledWith('@deepseek-ai/dsh-web-app', expect.any(Object))
+    // Any other nested directory stays outside the bridge; it could be another Profile.
+    harness.overlay.mockClear()
+    const nested = 'file:///tmp/dsh/profiles/desktop/subdir/module.js'
+    expect(harness.resolve?.('@deepseek-ai/dsh-web-app', { parentURL: nested }, nextResolve)).toEqual({
+      specifier: '@deepseek-ai/dsh-web-app',
+      context: { parentURL: nested },
+    })
+    expect(harness.overlay).not.toHaveBeenCalled()
   })
 
   it('keeps non-package Loader specifiers on ordinary Node resolution', () => {

@@ -31,9 +31,6 @@ export interface DesktopCrashMetadata {
   readonly version: string
   readonly platform: string
   readonly arch: string
-  /** Correlates a local Crashpad dump with lifecycle and child-exit logs. */
-  readonly runId?: string
-  readonly mainPid?: number
 }
 
 /** Start local-only Crashpad collection for native main and child process failures. */
@@ -48,8 +45,6 @@ export function startDesktopCrashReporting(
       appVersion: metadata.version,
       platform: metadata.platform,
       arch: metadata.arch,
-      ...(metadata.runId === undefined ? {} : { desktopRunId: metadata.runId }),
-      ...(metadata.mainPid === undefined ? {} : { desktopMainPid: String(metadata.mainPid) }),
     },
   })
 }
@@ -59,8 +54,6 @@ export interface DesktopRunRecord {
   readonly startedAt: string
   readonly pid: number
   readonly version: string
-  /** Present on new markers; optional so markers from older Desktop builds remain readable. */
-  readonly runId?: string
 }
 
 export interface UnreadableDesktopRun {
@@ -70,7 +63,7 @@ export interface UnreadableDesktopRun {
 /** Active run marker and evidence recovered from the previous launch. */
 export interface DesktopRun {
   readonly previousRun: DesktopRunRecord | UnreadableDesktopRun | undefined
-  /** Remove this process's marker only after the actual process exit event. */
+  /** Remove this process's active marker before a controlled exit. */
   markClean(): void
 }
 
@@ -110,7 +103,6 @@ function readStoredRun(statePath: string): StoredDesktopRun | UnreadableDesktopR
       startedAt: record.startedAt,
       pid: record.pid,
       version: record.version,
-      ...(typeof record.runId === 'string' ? { runId: record.runId } : {}),
       ...(typeof record.ownerId === 'string' ? { ownerId: record.ownerId } : {}),
     }
   } catch (cause) {
@@ -161,7 +153,6 @@ export function beginDesktopRun(statePath: string, currentRun: DesktopRunRecord)
         startedAt: storedPreviousRun.startedAt,
         pid: storedPreviousRun.pid,
         version: storedPreviousRun.version,
-        ...(storedPreviousRun.runId === undefined ? {} : { runId: storedPreviousRun.runId }),
       }
   const ownerId = randomUUID()
   writeCurrentRun(statePath, { ...currentRun, ownerId })

@@ -1,7 +1,8 @@
 diff --git a/lib/bin.js b/lib/bin.js
+index 5cd5b00..286b382 100755
 --- a/lib/bin.js
 +++ b/lib/bin.js
-@@ -109,7 +109,7 @@
+@@ -109,7 +109,7 @@ function parseDshArgs(argv, version, manageDesktopProfile = false) {
  		}
  		const profile = options.profile;
  		if (profile === "") program.error("error: --profile needs a name");
@@ -11,9 +12,10 @@ diff --git a/lib/bin.js b/lib/bin.js
  	});
  	if (first === "plugin") {
 diff --git a/lib/profile-boot-C14i-8IN.js b/lib/profile-boot-C14i-8IN.js
+index a21f351..fca75dd 100644
 --- a/lib/profile-boot-C14i-8IN.js
 +++ b/lib/profile-boot-C14i-8IN.js
-@@ -290,6 +290,7 @@
+@@ -290,6 +290,7 @@ async function runProfile(options) {
  		const profileContext = {
  			name: options.profile,
  			...options.packageManager === void 0 ? {} : { packageManager: options.packageManager },
@@ -22,9 +24,10 @@ diff --git a/lib/profile-boot-C14i-8IN.js b/lib/profile-boot-C14i-8IN.js
  			patchPath: composed.profile.patchPath,
  			installAnchor: options.resolvedProfile?.installAnchor ?? INSTALL_ANCHOR,
 diff --git a/lib/types/profile-boot.d.ts b/lib/types/profile-boot.d.ts
+index aaccfb3..ac70a1a 100644
 --- a/lib/types/profile-boot.d.ts
 +++ b/lib/types/profile-boot.d.ts
-@@ -65,6 +65,8 @@
+@@ -65,6 +65,8 @@ export interface ResolvedProfileRuntime {
      profile: Profile;
      /** Absolute package.json path of the application's dsh installation. */
      installAnchor: string;

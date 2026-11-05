@@ -29,3 +29,12 @@ index cd5c5d8..c708f66 100644
  			const { loader } = this.ctx;
  			const { root, ignored } = this.config;
  			if (!this.config.base) this.ctx.logger.info("watching %o", root);
+@@ -1360,7 +1362,7 @@ let Hmr = (() => {
+ 					requiredIds,
+ 					running
+ 				});
+-				const restartReason = compared === void 0 || unavailable ? "module-comparison" : result.restartReason;
++				const restartReason = compared === void 0 || (this.internal !== void 0 && unavailable) ? "module-comparison" : result.restartReason;
+ 				return {
+ 					warnings: result.warnings,
+ 					pending,

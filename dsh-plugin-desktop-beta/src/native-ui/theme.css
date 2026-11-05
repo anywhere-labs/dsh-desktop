@@ -1,0 +1,46 @@
+@import '../../../dsh-plugin-desktop/src/native-ui/shared/theme.css';
+@import './onboarding.css';
+@source '../../../dsh-plugin-desktop/src/native-ui';
+@source './onboarding.tsx';
+/* Map the official Settings tokens onto the existing native-window theme. */
+:root {
+  --ds-ease-in-out: cubic-bezier(.4, 0, .2, 1);
+  --ds-transition-duration: .2s;
+  --ds-transition-duration-fast: .1s;
+  --ds-transition-duration-slow: .3s;
+  --dsw-radius-xs: 4px;
+  --dsw-radius-sm: 8px;
+  --dsw-radius-md: 12px;
+  --dsw-radius-lg: 16px;
+  --dsw-radius-xl: 20px;
+  --dsw-radius-panel: 28px;
+  --dsw-alias-label-primary: var(--foreground);
+  --dsw-alias-label-secondary: var(--muted-foreground);
+  --dsw-alias-label-tertiary: var(--muted-foreground);
+  --dsw-alias-label-primary-foreground: var(--primary-foreground);
+  --dsw-alias-bg-base: var(--background);
+  --dsw-alias-bg-layer-1: var(--card);
+  --dsw-alias-bg-layer-2: var(--popover);
+  --dsw-alias-border-l1: var(--border);
+  --dsw-alias-border-l2: var(--border);
+  --dsw-alias-border-l3: var(--border);
+  --dsw-alias-border-l4: var(--border);
+  --dsw-alias-button-primary-fill: var(--primary);
+  --dsw-alias-button-primary-hover: color-mix(in srgb, var(--primary) 90%, var(--background));
+  --dsw-alias-interactive-bg-hover: var(--muted);
+  --dsw-alias-interactive-bg-active: var(--secondary);
+  --dsw-alias-bg-mask-1: rgb(0 0 0 / 24%);
+  --dsw-mask-blur: blur(2px);
+  --dsw-elevation-prominent: 0 20px 70px rgb(0 0 0 / 20%);
+  --dsw-alias-brand-primary: var(--primary);
+  --dsw-alias-state-error-primary: var(--destructive);
+  --dsw-alias-state-warn-primary: #f59e0b;
+  --dsw-alias-state-success-primary: oklch(.65 .16 150);
+  --dsw-alias-state-idle-primary: var(--muted-foreground);
+}
+[data-dsh-automatic-focus]:focus,
+[data-dsh-automatic-focus]:focus:focus-visible {
+  outline: none;
+}
+.dshNextPermissionsDialog .dshDesktopSettingsHint { margin: 6px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }
+.dshNextPermissionsDialog .dshDesktopSettingsError { color: var(--destructive); }

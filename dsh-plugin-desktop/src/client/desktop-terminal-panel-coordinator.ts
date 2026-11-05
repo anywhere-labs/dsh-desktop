@@ -190,14 +190,8 @@ export class DesktopTerminalPanelCoordinator {
   togglePin(key: string): void {
     this.snapshot.update(draft => {
       const index = draft.pinnedKeys.indexOf(key)
-      if (index >= 0) {
-        draft.pinnedKeys.splice(index, 1)
-        if (draft.focusedKey === key) draft.focusedKey = undefined
-      } else {
-        draft.pinnedKeys.push(key)
-        // Pinning the tab in view keeps it focused across Session switches.
-        draft.focusedKey = key
-      }
+      if (index >= 0) draft.pinnedKeys.splice(index, 1)
+      else draft.pinnedKeys.push(key)
     })
   }
 

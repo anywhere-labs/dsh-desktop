@@ -4,7 +4,7 @@ import { request as requestHttp, type IncomingHttpHeaders, type IncomingMessage,
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
 import { isIPv4, Socket } from 'node:net'
 import type { Duplex } from 'node:stream'
-import { DESKTOP_RENDERER_ACCESS_HEADER } from './desktop-browser-access.ts'
+import { NATIVE_ACCESS_HEADER as DESKTOP_RENDERER_ACCESS_HEADER } from './desktop-contract.ts'
 
 const EDGE_HOST = '0.0.0.0'
 const TARGET_HOST = '127.0.0.1'
@@ -36,18 +36,18 @@ export interface LanHttpsIngressSnapshot {
 function exactPort(value: number, allowZero: boolean, label: string): number {
   const minimum = allowZero ? 0 : 1
   if (!Number.isSafeInteger(value) || value < minimum || value > 65_535) {
-    throw new TypeError(`dsh-plugin-desktop: ${label} must be an integer from ${String(minimum)} through 65535`)
+    throw new TypeError(`dsh-plugin-desktop-beta: ${label} must be an integer from ${String(minimum)} through 65535`)
   }
   return value
 }
 
 function canonicalIpv4(value: string): string {
   if (!isIPv4(value)) {
-    throw new TypeError(`dsh-plugin-desktop: invalid LAN HTTPS IPv4 address ${JSON.stringify(value)}`)
+    throw new TypeError(`dsh-plugin-desktop-beta: invalid LAN HTTPS IPv4 address ${JSON.stringify(value)}`)
   }
   const canonical = value.split('.').map(part => String(Number(part))).join('.')
   if (canonical !== value) {
-    throw new TypeError(`dsh-plugin-desktop: LAN HTTPS IPv4 address must be canonical: ${JSON.stringify(value)}`)
+    throw new TypeError(`dsh-plugin-desktop-beta: LAN HTTPS IPv4 address must be canonical: ${JSON.stringify(value)}`)
   }
   return canonical
 }
@@ -58,7 +58,7 @@ function normalizeAddresses(values: readonly string[]): readonly string[] {
 
 function copyTlsValue(value: string | Buffer, label: string): string | Buffer {
   if ((typeof value === 'string' && value.length === 0) || (Buffer.isBuffer(value) && value.length === 0)) {
-    throw new TypeError(`dsh-plugin-desktop: LAN HTTPS ${label} must not be empty`)
+    throw new TypeError(`dsh-plugin-desktop-beta: LAN HTTPS ${label} must not be empty`)
   }
   return Buffer.isBuffer(value) ? Buffer.from(value) : value
 }
@@ -195,7 +195,7 @@ export class LanHttpsIngress {
     this.key = copyTlsValue(options.key, 'private key')
     this.cert = copyTlsValue(options.cert, 'certificate')
     const fingerprint = options.caFingerprint.trim()
-    if (fingerprint.length === 0) throw new TypeError('dsh-plugin-desktop: LAN HTTPS CA fingerprint must not be empty')
+    if (fingerprint.length === 0) throw new TypeError('dsh-plugin-desktop-beta: LAN HTTPS CA fingerprint must not be empty')
     this.caFingerprint = fingerprint
     this.addresses = normalizeAddresses(options.allowedAddresses)
     this.allowedAddresses = new Set(this.addresses)

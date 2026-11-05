@@ -70,7 +70,7 @@ body:has(.dshDesktopOnboardingContent) {
 .dshSetupWizard :is(.dshSetupPage, .dshSetupWelcome) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "copy options" "actions options"; align-items: center; column-gap: clamp(32px, 5vw, 72px); width: 100%; max-width: 960px; margin: auto; padding: 0; }
 .dshSetupWizard .dshSetupCopy { grid-area: copy; align-self: end; margin: 0; }
 .dshSetupWizard .dshSetupCopy h1 { font-size: clamp(30px, 4.4vw, 52px); font-weight: 500; line-height: 1.22; letter-spacing: -.035em; outline: none; }
-.dshSetupWizard .dshSetupCopy > p { font-size: 15px; line-height: 1.9; margin-top: 24px; }
+.dshSetupWizard .dshSetupCopy > p { font-size: 15px; line-height: 1.9; margin-top: 24px; white-space: pre-line; }
 .dshSetupWizard .dshSetupOptions { grid-area: options; margin: 0; padding: 0; background: transparent; border: 0; box-shadow: none; }
 .dshSetupWizard .dshSetupOptions > [data-slot="card-content"] { padding: 0; }
 .dshSetupWizard .dshSetupOptions label:has([role="radio"]) { align-items: center; padding: 18px 20px; border-radius: 16px; }

@@ -11,6 +11,7 @@ import {
   macSmokeExecutableSlices,
   type MacUniversalArch,
 } from './mac-universal.ts'
+import { verifyDesktopMacRuntime } from './verify-mac-runtime.ts'
 
 /** Injectable filesystem and command boundaries for smoke verification. */
 export interface MacSmokeVerificationOptions {
@@ -28,6 +29,8 @@ export interface MacSmokeVerificationOptions {
   readonly run: (command: string, args: readonly string[]) => void
   /** Remove the detached empty mount point. */
   readonly removeMountPoint: (mountPoint: string) => void
+  /** Check resources beside the application, such as the bundled interpreter payloads, inside the mounted image. */
+  readonly verifyRuntime?: (appPath: string) => void
   /** Probe a physical path inside the mounted application. */
   readonly exists: (path: string) => boolean
   /** Report file metadata for a physical path inside the mounted application. */
@@ -65,6 +68,7 @@ function defaultOptions(): MacSmokeVerificationOptions {
     makeMountPoint: () => mkdtempSync(join(tmpdir(), 'dsh-desktop-dmg-smoke-')),
     run,
     removeMountPoint: mountPoint => rmdirSync(mountPoint),
+    verifyRuntime: appPath => verifyDesktopMacRuntime(appPath, false),
     exists: existsSync,
     stat: path => {
       const result = statSync(path)
@@ -122,7 +126,8 @@ export function verifyMacSmoke(
     ) {
       throw new Error(`packaged application has an invalid main executable: ${executablePath}`)
     }
-    for (const slice of options.executableSlices ?? macSmokeExecutableSlices('universal')) {
+    const slices = options.executableSlices ?? macSmokeExecutableSlices('universal')
+    for (const slice of slices) {
       options.run('lipo', [executablePath, '-verify_arch', slice])
     }
 
@@ -138,7 +143,7 @@ export function verifyMacSmoke(
       }
     }
 
-    for (const entry of MACOS_UNIVERSAL_NATIVE_ENTRIES) {
+    for (const entry of MACOS_UNIVERSAL_NATIVE_ENTRIES.filter(entry => slices.includes(entry.arch))) {
       const nativePath = join(unpackedRoot, entry.path)
       if (!options.exists(nativePath)) {
         throw new Error(`universal application is missing ${nativePath}`)
@@ -152,6 +157,7 @@ export function verifyMacSmoke(
       }
       options.run('lipo', [nativePath, '-verify_arch', entry.arch])
     }
+    options.verifyRuntime?.(appPath)
   } catch (cause) {
     failure = cause
   }

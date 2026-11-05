@@ -65,12 +65,6 @@ export function desktopWebServerHost(_exposure: DesktopNetworkExposure): WebServ
   return '127.0.0.1'
 }
 
-/** v0.2.1-rc.5 reports `undefined` until the WebServer binds; every Desktop caller below runs after it has. */
-export function desktopWebServerPort(port: number | undefined): number {
-  if (port === undefined) throw new Error('dsh-plugin-desktop: asked for a WebServer URL before the server bound a port')
-  return port
-}
-
 /** Marker-free URL suitable for an ordinary local browser. */
 export function desktopLoopbackBrowserUrl(port: number): string {
   return `http://127.0.0.1:${String(port)}/`

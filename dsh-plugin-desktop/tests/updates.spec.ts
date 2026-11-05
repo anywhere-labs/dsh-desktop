@@ -150,6 +150,45 @@ afterEach(() => {
 })
 
 describe('desktop update Host plugin', () => {
+  it('remembers notifications for the promoted Next release across launches', async () => {
+    vi.useFakeTimers()
+    const harness = await createHarness({ currentVersion: '2.0.19', releaseChannel: 'stable',
+      state: JSON.stringify({ version: 3, lastNotifiedVersion: '2.0.20-next' }),
+      request: async () => Response.json({ version: '2.0.20-next', channel: 'stable' }) })
+    try {
+      await vi.advanceTimersByTimeAsync(testConfig.initialDelayMs)
+      expect(harness.notifications).toEqual([])
+      expect(JSON.parse(await readFile(harness.statePath, 'utf8'))).toEqual({ version: 3, lastNotifiedVersion: '2.0.20-next' })
+    } finally { await harness.dispose() }
+  })
+
+  it('rechecks Stable after confirmation and downloads its promoted Next release', async () => {
+    const request = vi.fn(async (_url: string, init: RequestInit) => {
+      expect(new Headers(init.headers).get(DESKTOP_RELEASE_CHANNEL_HEADER)).toBe('stable')
+      return Response.json({ version: '2.0.20-next', channel: 'stable' })
+    })
+    const harness = await createHarness({ currentVersion: '2.0.19', releaseChannel: 'stable',
+      config: { ...testConfig, enabled: false }, request, confirmDownload: async () => true })
+    try {
+      await harness.tray.invoke()
+      expect(request).toHaveBeenCalledTimes(2)
+      expect(harness.confirmDownload).toHaveBeenCalledWith('2.0.20-next', 'stable')
+      expect(harness.downloadAndOpen).toHaveBeenCalledWith('2.0.20-next', expect.any(AbortSignal), 'stable')
+    } finally { await harness.dispose() }
+  })
+
+  it('does not download when the promoted Next release changes after confirmation', async () => {
+    let version = '2.0.20-next'
+    const harness = await createHarness({ currentVersion: '2.0.19', releaseChannel: 'stable',
+      config: { ...testConfig, enabled: false }, request: async () => Response.json({ version, channel: 'stable' }),
+      confirmDownload: async () => { version = '2.0.21-next'; return true } })
+    try {
+      await harness.tray.invoke()
+      expect(harness.downloadAndOpen).not.toHaveBeenCalled()
+    } finally { await harness.dispose() }
+  })
+
+
   it('checks Beta automatically and installs an older stable release only through the explicit action', async () => {
     const request = vi.fn(async (_url: string, init: RequestInit) => {
       const channel = new Headers(init.headers).get(DESKTOP_RELEASE_CHANNEL_HEADER)

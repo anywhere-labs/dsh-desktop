@@ -1,5 +1,4 @@
-/** Node-mode Host entrypoint. No BrowserWindow or Electron main APIs are imported here. */
-import type { Serializable } from 'node:child_process'
+/** Utility-process entrypoint. No BrowserWindow or Electron main APIs are imported here. */
 import { installFailLoud } from '@deepseek-ai/dsh-app-boot'
 import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy'
 import { createLaunchEnvironmentSnapshot, type LaunchEnvironmentLayerInput } from '@deepseek-ai/dsh-launch-environment'
@@ -16,15 +15,14 @@ import { DESKTOP_PACKAGE_NAME } from './product-identity.ts'
 // The Host lists and reads user workspaces; see asar-archive-policy.ts.
 disableAsarArchiveView(import.meta.url)
 
-if (!process.send) throw new Error('DSH Host must be started by the Desktop supervisor')
+const parentPort = process.parentPort
+if (!parentPort) throw new Error('DSH Host must be started by the Desktop supervisor')
 const rpc = new HostRpc({
-  send: message => {
-    if (!process.connected || !process.send) throw new Error('DSH Host parent IPC is disconnected')
-    process.send(message as Serializable, error => { if (error) rpc.close(`DSH Host parent IPC failed: ${error.message}`) })
-  },
+  send: message => parentPort.postMessage(message),
   listen: receive => {
-    process.on('message', receive)
-    return () => { process.removeListener('message', receive) }
+    const listener = (event: { data: unknown }) => receive(event.data)
+    parentPort.on('message', listener)
+    return () => { parentPort.removeListener('message', listener) }
   },
 }, 120_000)
 let host: DesktopStartupGenerationHost | undefined
@@ -44,13 +42,10 @@ const release = (): Promise<void> => releaseTask ??= (async () => {
   releaseProxy = undefined
 })()
 rpc.handle('stop', release)
-process.once('disconnect', () => {
-  rpc.close('DSH Host parent IPC disconnected')
-  const deadline = setTimeout(() => process.exit(1), 5_000)
-  void release().catch(error => { process.stderr.write(`DSH Host parent disconnect: ${String(error)}\n`) })
-    .finally(() => { clearTimeout(deadline); process.exit(1) })
-})
-// An unhandled failure must release the Host and exit instead of serving from an unknown state.
+// A utility process only warns on an unhandled rejection and keeps serving from whatever state
+// the failure left, so adopt the same fail-loud contract as the Desktop main process and the
+// upstream CLI: report, release what this generation holds, exit 1. The supervisor then sees an
+// unexpected exit and keeps this stderr diagnostic in the Desktop log.
 installFailLoud(DESKTOP_PACKAGE_NAME, process, release)
 rpc.handle('boot', async args => {
   const [wire, snapshot, token] = args as [Omit<DesktopHostOptions, 'desktopLaunchEnvironment'> & { launchEnvironmentLayers: LaunchEnvironmentLayerInput[] }, RuntimeSnapshot, string]

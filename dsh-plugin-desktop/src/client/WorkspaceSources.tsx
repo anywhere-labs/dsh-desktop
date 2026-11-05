@@ -205,8 +205,6 @@ export function WorkspaceSourcesEditor({ path, t, actions, platform, useStore, l
 /** Switch only the Files tree root; the Workspace identity and Session cwd remain untouched. */
 export function WorkspaceSourcesRootAction({
   absolutePath,
-  workspacePath: sessionWorkspacePath,
-  onRootChange,
   t,
   actions,
   platform,
@@ -214,9 +212,9 @@ export function WorkspaceSourcesRootAction({
   selectRoot,
   useStore,
 }: WorkspaceSourcesRootActionProps) {
-  // The selection is keyed by the Session cwd, which stays the Workspace
-  // identity even after the tree moves to an attached root.
-  const workspacePath = sessionWorkspacePath ?? absolutePath
+  // The supported Files action owner exposes the current absolute root only.
+  // Persist source selection against that root; the next Files mount adopts it.
+  const workspacePath = absolutePath
   const snapshot = useStore(state => state[workspacePath])
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>()
@@ -243,7 +241,7 @@ export function WorkspaceSourcesRootAction({
   const changeRoot = (root: string): void => {
     setBusy(true)
     setFailure(undefined)
-    void selectRoot(workspacePath, root, async path => { await onRootChange?.(path) }, value => publish(workspacePath, value))
+    void selectRoot(workspacePath, root, async () => {}, value => publish(workspacePath, value))
       .catch(error => { setFailure(describeFailure(error)) })
       .finally(() => { setBusy(false) })
   }

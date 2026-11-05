@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index e5a25d3..443ab18 100644
+index 16de78d..cc19d28 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -284,7 +284,7 @@ function readSourceMap(clientPath) {

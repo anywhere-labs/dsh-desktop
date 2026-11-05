@@ -1,4 +1,6 @@
 /** General renderer state omits credentials; browser login links use a separate native operation. */
+import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
+import type { DesktopHostExit } from './exit-code.ts'
 import type { Features, OnboardingChoices } from './profiles.ts'
 import type { DesktopLanHttpsRuntimeSnapshot } from './lan-https-runtime.ts'
 import type { DesktopPermissions } from './permissions.ts'
@@ -24,6 +26,9 @@ export interface DesktopPreferences {
   port: number
   lanPort: number
   logLevel: 'debug' | 'info' | 'warn' | 'error'
+  developerLogging: boolean
+  sidebarFooterCompat: boolean
+  sidebarFooterBalanced: boolean
   notifications: boolean
   turnCompleted: boolean
   turnFailed: boolean
@@ -36,18 +41,21 @@ export interface DesktopPreferences {
 
 export const DEFAULT_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
   closeToTray: true, macosMaterial: 'transparent', windowsMaterial: 'off', linuxMaterial: 'off',
-  browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info',
-  notifications: true, turnCompleted: true, turnFailed: true, jobCompleted: false, jobFailed: false,
+  browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
+  sidebarFooterCompat: true, sidebarFooterBalanced: true, notifications: true, turnCompleted: true, turnFailed: true, jobCompleted: false, jobFailed: false,
   scheduleCompleted: true, scheduleFailed: true,
 })
 
 /** Fixed startup defaults matching Beta's disposable Safe Mode settings. */
 export const SAFE_MODE_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
   ...DEFAULT_PREFERENCES, macosMaterial: 'off', windowsMaterial: 'off', linuxMaterial: 'off',
-  browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info',
-  notifications: false, turnCompleted: false, turnFailed: false, jobCompleted: false, jobFailed: false,
+  browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
+  sidebarFooterCompat: true, sidebarFooterBalanced: true, notifications: false, turnCompleted: false, turnFailed: false, jobCompleted: false, jobFailed: false,
   scheduleCompleted: false, scheduleFailed: false,
 })
+
+/** A failure report being written, saved to `file`, or not written. */
+export type DesktopFailureReport = { status: 'pending' } | { status: 'saved'; file: string } | { status: 'failed' }
 
 export interface DesktopState {
   selected: string
@@ -58,12 +66,22 @@ export interface DesktopState {
   phase: 'starting' | 'ready' | 'error' | 'recovery'
   busy: boolean
   failure: string
+  /** Where `failure` stopped the Desktop: a startup stage, or the part that failed while running. */
+  failureStage?: DesktopFailureStage
+  /** How the Host ended, when its exit is the failure. */
+  failureExit?: DesktopHostExit
+  /** The report saved in the logs directory when `failure` opened recovery. */
+  failureReport?: DesktopFailureReport
+  /** A Desktop action that failed after `failure`; shown beside it, never replacing it. */
+  actionFailure?: string
   safeMode: boolean
   /** The selected Profile needs Desktop setup in the running official client. */
   onboarding?: boolean
   /** Initial saved choice for setup; live state belongs to pluginManager. */
   onboardingComputerUse?: boolean
   home: string
+  /** How `home` was chosen: in the app (wins), by `DSH_DESKTOP_NEXT_HOME`, or by default. */
+  dataDirectory?: { source: 'desktop' | 'environment' | 'default'; environmentHome: string | null }
   platform: string
   version: string
   updates?: import('./update-state.ts').NextUpdateState
@@ -74,6 +92,8 @@ export interface DesktopState {
   recovery?: {
     bundles: { bundleId: string; packageName: string; status: 'active' | 'disabled'; owner: 'core' | 'profile'; action: 'uninstall' | null; toggle: 'disable' | 'enable' | null }[]
     checkpoints: { id: string; created: string; fileCount: number; totalBytes: number }[]
+    /** The backup made by the latest Profile repair, while a restore can still undo that repair. */
+    repairBackup?: { id: string; created: string; fileCount: number; totalBytes: number }
     error?: string
     profileDirectory: string
     usingDefaultDirectory: boolean
@@ -93,25 +113,34 @@ export interface DesktopBrowserLinks {
 export type DesktopCommand =
   | { type: 'check-updates' | 'download-update' | 'install-update' }
   | { type: 'recovery-action'; action: string; id?: string }
-  | ({ type: 'onboarding-complete'; profile: string } & OnboardingChoices)
+  | ({ type: 'onboarding-complete'; profile: string; browserAccess?: boolean; networkExposure?: 'loopback' | 'lan' } & OnboardingChoices)
   | { type: 'onboarding-skip'; profile: string }
+  | { type: 'confirm-lan' }
   | { type: 'open-browser-url' | 'copy-browser-url'; url: string }
   | { type: 'create' | 'switch' | 'delete'; name: string }
   | { type: 'features'; features: Features }
   | { type: 'preferences'; preferences: DesktopPreferences }
   | { type: 'controls'; page?: 'general' | 'profiles' | 'create-profile' | 'tools' | 'recovery' | 'permissions' }
   | { type: 'restart-app' | 'restart-recovery' | 'restart-onboarding' | 'close-controls' }
+  | { type: 'change-data-directory' | 'backup-data-directory' }
   | { type: 'restart' | 'recover' | 'safe-mode' | 'normal-mode' | 'rollback' | 'repair-global'
     | 'reload' | 'devtools' | 'terminal' | 'open-home' | 'open-profile' | 'open-logs' | 'open-backups'
     | 'diagnostics' | 'open-browser' | 'open-lan' | 'copy-browser' | 'copy-lan' | 'export-ca' | 'quit' }
 
 export interface DesktopBridge {
+  readonly renderer?: DesktopRendererBridge
   readonly permissions?: DesktopPermissions
   /** Native menu/Host requests, delivered only to the main app. */
   onOpenSettings?(listener: (page: DesktopSettingsPage) => void): () => void
   state(): Promise<DesktopState>
   browserLinks(): Promise<DesktopBrowserLinks>
-  command(command: DesktopCommand): Promise<void>
+  command(command: DesktopCommand): Promise<boolean | void>
+}
+
+/** Metadata-only health reports from the mounted Next client. */
+export interface DesktopRendererBridge {
+  profile(): string
+  report(status: import('./renderer-recovery.ts').DesktopRendererStatus): Promise<void>
 }
 
 declare global { interface Window { desktopNext?: DesktopBridge } }

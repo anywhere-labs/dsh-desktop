@@ -2,6 +2,8 @@ import type {
   MarketCatalogResponse,
   MarketDesktopActionResponse,
   MarketInstallableResponse,
+  MarketInstallationToggleResponse,
+  MarketInstallationUpdateResponse,
   MarketInstallationsResponse,
   MarketOperationExecuteResponse,
   MarketOperationPreviewRequest,
@@ -104,6 +106,19 @@ export async function readMarketInstallations(signal?: AbortSignal): Promise<Mar
   }))
 }
 
+/** Ask the Host which newer version an update of one updatable installation would install. */
+export async function readMarketInstallationUpdate(
+  packageName: string,
+  signal?: AbortSignal,
+): Promise<MarketInstallationUpdateResponse> {
+  const url = new URL('/api/community-market/installations/update', window.location.origin)
+  url.searchParams.set('packageName', packageName)
+  return await readJson(await fetch(url, {
+    cache: 'no-store',
+    ...(signal === undefined ? {} : { signal }),
+  }))
+}
+
 export async function readMarketInstallable(
   locale: string,
   options: {
@@ -161,14 +176,15 @@ export async function openMarketTerminal(signal?: AbortSignal): Promise<MarketDe
   }))
 }
 
-export async function requestMarketRestart(
-  restartToken: string,
+export async function setMarketInstallationEnabled(
+  packageName: string,
+  enabled: boolean,
   signal?: AbortSignal,
-): Promise<MarketDesktopActionResponse> {
-  return await readJson(await fetch('/api/community-market/desktop/request-restart', {
+): Promise<MarketInstallationToggleResponse> {
+  return await readJson(await fetch('/api/community-market/installations/enabled', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ restartToken }),
+    body: JSON.stringify({ packageName, enabled }),
     ...(signal === undefined ? {} : { signal }),
   }))
 }

@@ -15,7 +15,7 @@ export function homeDirectoryOf(cwd: string): string | undefined {
 /**
  * Fold a long path for a tab label: the home prefix becomes `~`, and a
  * result longer than maxChars keeps the root and trailing segments around
- * an ellipsis, e.g. `~/…/large-project/capability-contract`.
+ * an ellipsis, e.g. `~/…/osagentproject/capability-contract`.
  * @param path - absolute path or already-folded display path.
  * @param home - home prefix from {@link homeDirectoryOf}, when known.
  * @param maxChars - display budget; the folded result never exceeds it.

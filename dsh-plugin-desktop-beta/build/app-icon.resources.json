@@ -12,10 +12,33 @@
     "designGeneration": 27,
     "size": 1024
   },
+  "linux": {
+    "input": "app-icon.png",
+    "sizes": [
+      16,
+      22,
+      24,
+      32,
+      48,
+      64,
+      128,
+      256,
+      512
+    ]
+  },
   "outputs": {
     "app-icon.png": "897343a299d1b3b47eb4ea37d3dea1ac5aee7c3d4a2cdbcd6ff4e93303fa0ad9",
     "app-icon-mac.png": "5d35071f1d575e251a3c1bb8b8a7b3ba779471b91cbfa374b05f3a93db703287",
     "app-icon.ico": "a1a6c879c5fb999515b54dd6133150e075d02628b87a4ccb89926d5241665bf6",
-    "app-icon.icns": "7218691684dd053ce9b7a2a39ddc27df2eecab5add61d1858ef9d2c6cb6a7df7"
+    "app-icon.icns": "7218691684dd053ce9b7a2a39ddc27df2eecab5add61d1858ef9d2c6cb6a7df7",
+    "icons/16x16.png": "627301dacf883cf32f39b3ef58e932b6385d45d68c85a1bf24bc5ca8154935b3",
+    "icons/22x22.png": "0aa7644cd33e8a8e6ae5203e2b120898d46bc1a51ff6445b5c077d1d3cbeff12",
+    "icons/24x24.png": "db94f022f406017a3f6fdb37d177d4e1f0dedb7d01e59324ca7f933294caa6cf",
+    "icons/32x32.png": "8b8b6cdf79836554a4af36d644afab536400322ce27df8bc546e4604c3e4f6b6",
+    "icons/48x48.png": "5d0911acfeeeab6d01d85b20b0ad677fffd6334087fcf2870d11654063fd4e65",
+    "icons/64x64.png": "fd980a04447bff756a032c10d6365b5ac7434d348f3d8295dfa12138781d8da6",
+    "icons/128x128.png": "8d0ba1b037e15af98bdd4057cc39cb3f7d54f74f91ad4970ec122d202dab23d6",
+    "icons/256x256.png": "f022bf3cbdacad43fbd5d94f76399066170a19d288b351b75f0460560cf8ccb9",
+    "icons/512x512.png": "8dde023a0c64d68ae41c15898bcd42c94a4088f7abd2b995b3e80def35aaffa0"
   }
 }

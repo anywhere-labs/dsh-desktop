@@ -162,6 +162,29 @@ describe('isolated compatibility shell', () => {
     shell.dispose()
   })
 
+  it('survives showing and disposing after Electron dropped the destroyed page from its view', () => {
+    const { shell, window, webContents } = fixture('win32')
+    // Exhausted renderer recovery shows the window after the page was destroyed
+    // but before the shell is disposed. Electron then answers the view's
+    // `webContents` with undefined while the page object reports destroyed.
+    ;(shell.content as unknown as { webContents: undefined }).webContents = undefined
+    electron.content.isDestroyed.mockReturnValue(true)
+    try {
+      expect(() => window.emit('show')).not.toThrow()
+      expect(() => window.emit('restore')).not.toThrow()
+      expect(webContents.invalidate).toHaveBeenCalledTimes(2)
+      expect(electron.content.invalidate).not.toHaveBeenCalled()
+      // The generation reads the page through this getter; it must stay the page, not undefined.
+      expect(shell.webContents).toBe(electron.content)
+      expect(() => shell.dispose()).not.toThrow()
+      expect(webContents.close).toHaveBeenCalledExactlyOnceWith({ waitForBeforeUnload: false })
+      expect(electron.content.close).not.toHaveBeenCalled()
+      expect(window.listenerCount('show')).toBe(0)
+    } finally {
+      electron.content.isDestroyed.mockReturnValue(false)
+    }
+  })
+
   it('does not resize the page when chrome popups expand, collapse, or lose focus', async () => {
     const { shell, window, handler, event } = fixture('win32')
     await shell.load()

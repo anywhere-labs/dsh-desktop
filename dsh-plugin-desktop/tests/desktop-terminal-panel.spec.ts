@@ -33,8 +33,8 @@ function entry(id: number, command: string, at: number): TerminalHistoryEntry {
 
 describe('homeDirectoryOf', () => {
   it('recognizes the Linux and macOS home layouts only', () => {
-    expect(homeDirectoryOf('/home/tester/code')).toBe('/home/tester')
-    expect(homeDirectoryOf('/Users/tester/code')).toBe('/Users/tester')
+    expect(homeDirectoryOf('/home/fate/code')).toBe('/home/fate')
+    expect(homeDirectoryOf('/Users/fate/code')).toBe('/Users/fate')
     expect(homeDirectoryOf('/opt/DSH Desktop')).toBeUndefined()
     expect(homeDirectoryOf('/home')).toBeUndefined()
     expect(homeDirectoryOf('relative/path')).toBeUndefined()
@@ -42,24 +42,24 @@ describe('homeDirectoryOf', () => {
 })
 
 describe('collapseTerminalPath', () => {
-  const home = '/home/tester'
+  const home = '/home/fate'
   it('returns short paths unchanged, folding home to ~', () => {
-    expect(collapseTerminalPath('/home/tester/code', home)).toBe('~/code')
+    expect(collapseTerminalPath('/home/fate/code', home)).toBe('~/code')
     expect(collapseTerminalPath('/opt/x', home)).toBe('/opt/x')
-    expect(collapseTerminalPath('/home/tester', home)).toBe('~')
+    expect(collapseTerminalPath('/home/fate', home)).toBe('~')
   })
   it('folds long paths around an ellipsis within the budget', () => {
-    const collapsed = collapseTerminalPath('/home/tester/code/projects/large-project/capability-contract', home)
-    expect(collapsed).toBe('~/…/large-project/capability-contract')
+    const collapsed = collapseTerminalPath('/home/fate/code/AndroidApk/osagentproject/capability-contract', home)
+    expect(collapsed).toBe('~/…/osagentproject/capability-contract')
     expect(collapsed.length).toBeLessThanOrEqual(40)
   })
   it('drops further tail segments when still over budget', () => {
-    const collapsed = collapseTerminalPath('/home/tester/code/a-very-long-segment-name-here/another-long-segment-name', home, 30)
+    const collapsed = collapseTerminalPath('/home/fate/code/a-very-long-segment-name-here/another-long-segment-name', home, 30)
     expect(collapsed).toBe('~/…/another-long-segment-name')
     expect(collapsed.length).toBeLessThanOrEqual(30)
   })
   it('truncates a tail segment that alone overflows the budget', () => {
-    const collapsed = collapseTerminalPath('/home/tester/code/an-extremely-long-segment-overflowing-the-budget', home, 24)
+    const collapsed = collapseTerminalPath('/home/fate/code/an-extremely-long-segment-overflowing-the-budget', home, 24)
     expect(collapsed.length).toBeLessThanOrEqual(24)
     expect(collapsed.endsWith('…')).toBe(true)
   })
@@ -75,24 +75,24 @@ describe('collapseTerminalPath', () => {
 })
 
 describe('resolveCdTarget', () => {
-  const cwd = '/home/tester/code'
-  const home = '/home/tester'
+  const cwd = '/home/fate/code'
+  const home = '/home/fate'
   it('resolves relative, absolute, parent, and bare cd', () => {
-    expect(resolveCdTarget(cwd, 'cd sub', home)).toBe('/home/tester/code/sub')
+    expect(resolveCdTarget(cwd, 'cd sub', home)).toBe('/home/fate/code/sub')
     expect(resolveCdTarget(cwd, 'cd /opt/x', home)).toBe('/opt/x')
-    expect(resolveCdTarget(cwd, 'cd ..', home)).toBe('/home/tester')
+    expect(resolveCdTarget(cwd, 'cd ..', home)).toBe('/home/fate')
     expect(resolveCdTarget(cwd, 'cd ../..', home)).toBe('/home')
     expect(resolveCdTarget(cwd, 'cd', home)).toBe(home)
     expect(resolveCdTarget(cwd, 'cd ~', home)).toBe(home)
-    expect(resolveCdTarget(cwd, 'cd ~/Tools', home)).toBe('/home/tester/Tools')
+    expect(resolveCdTarget(cwd, 'cd ~/Tools', home)).toBe('/home/fate/Tools')
   })
   it('normalizes dots and trailing slashes', () => {
-    expect(resolveCdTarget(cwd, 'cd ./a/./b/', home)).toBe('/home/tester/code/a/b')
+    expect(resolveCdTarget(cwd, 'cd ./a/./b/', home)).toBe('/home/fate/code/a/b')
     expect(resolveCdTarget('/', 'cd ..', home)).toBe('/')
   })
   it('handles quoted directories', () => {
-    expect(resolveCdTarget(cwd, 'cd "my dir"', home)).toBe('/home/tester/code/my dir')
-    expect(resolveCdTarget(cwd, "cd 'my dir'", home)).toBe('/home/tester/code/my dir')
+    expect(resolveCdTarget(cwd, 'cd "my dir"', home)).toBe('/home/fate/code/my dir')
+    expect(resolveCdTarget(cwd, "cd 'my dir'", home)).toBe('/home/fate/code/my dir')
   })
   it('refuses compound, option, and unsupported forms', () => {
     expect(resolveCdTarget(cwd, 'cd sub && ls', home)).toBeUndefined()
@@ -104,7 +104,7 @@ describe('resolveCdTarget', () => {
   it('degrades gracefully without a known home', () => {
     expect(resolveCdTarget(cwd, 'cd', undefined)).toBeUndefined()
     expect(resolveCdTarget(cwd, 'cd ~', undefined)).toBeUndefined()
-    expect(resolveCdTarget(cwd, 'cd sub', undefined)).toBe('/home/tester/code/sub')
+    expect(resolveCdTarget(cwd, 'cd sub', undefined)).toBe('/home/fate/code/sub')
   })
 })
 
@@ -241,15 +241,15 @@ describe('desktop terminal panel store', () => {
 
   it('tracks per-tab directories, filters, and purges tab data', () => {
     const store = createDesktopTerminalPanelStore().create()
-    store.actions.initTab('c1', '/home/tester/code', '/home/tester')
+    store.actions.initTab('c1', '/home/fate/code', '/home/fate')
     store.actions.initTab('c1', '/elsewhere', '')
-    store.actions.setCwd('c1', '/home/tester/code/sub')
+    store.actions.setCwd('c1', '/home/fate/code/sub')
     store.actions.setFilter('c1', 'git')
     store.actions.appendHistory('c1', 'ls')
     let state = store.getSnapshot() as PanelStoreState
     // initTab never overwrites an existing record.
-    expect(state.cwds['c1']).toBe('/home/tester/code/sub')
-    expect(state.homes['c1']).toBe('/home/tester')
+    expect(state.cwds['c1']).toBe('/home/fate/code/sub')
+    expect(state.homes['c1']).toBe('/home/fate')
     expect(state.filters['c1']).toBe('git')
     store.actions.purgeTab('c1')
     state = store.getSnapshot() as PanelStoreState

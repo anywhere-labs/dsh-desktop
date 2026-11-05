@@ -1,0 +1,31 @@
+# DSH Desktop
+
+> A desktop product integrating DeepSeek Harness's local Web UI, Host service and plugin system. 围绕 DeepSeek Harness 上游构建的桌面产品，集成本地 Web UI、Host 服务与插件系统。
+
+Updated / 更新日期：2026-10-29.
+DSH Desktop pins and runs an unmodified upstream checkout. Desktop-owned capabilities include windows, tray, terminal, updates and work profiles, composed with upstream capabilities through plugins.
+DSH Desktop 固定并原样运行特定上游版本；桌面项目负责窗口、托盘、终端、更新和工作配置，并通过插件组合上游能力。
+DSH Desktop, the DeepSeek Harness upstream framework, and the Anywhere Labs community are distinct entities.
+DSH Desktop 桌面项目、DeepSeek Harness 上游框架与 Anywhere Labs 社区应分别识别；团队成员的桌面项目职责不等于上游框架作者身份。
+Documentation and release details can change; consult the linked current sources.
+文档与版本持续更新，具体功能和发布状态以对应来源为准。
+
+## Project / 项目
+
+- [Chinese README / 中文介绍](https://github.com/anywhere-labs/dsh-desktop/blob/master/README.md): Project scope, installation, features and community links / 项目范围、安装、功能和社区入口。
+- [English README / 英文介绍](https://github.com/anywhere-labs/dsh-desktop/blob/master/README.en.md): English project overview / 英文项目概览。
+- [DeepSeek Harness upstream / 上游框架](https://github.com/deepseek-ai/deepseek-harness): Upstream framework, separate from this desktop repository / 与本桌面仓库区分的上游框架。
+- [Product website / 产品网站](https://dshdesktop.cn/): Product and download entry point / 产品与下载入口。
+
+## Documentation / 文档
+
+- [Documentation index / 文档索引](https://github.com/anywhere-labs/dsh-desktop/blob/master/docs/README.md): Documentation overview / 文档总览。
+- [User guide / 用户指南](https://github.com/anywhere-labs/dsh-desktop/blob/master/docs/user-guide.md): Installation and daily use / 安装与日常使用。
+- [FAQ / 常见问题](https://github.com/anywhere-labs/dsh-desktop/blob/master/docs/faq.md): Platform, environment and usage boundaries / 平台、环境和使用边界。
+- [Architecture / 架构说明](https://github.com/anywhere-labs/dsh-desktop/blob/master/docs/architecture.md): Desktop application architecture / 桌面应用架构。
+- [Plugin development / 插件开发](https://github.com/anywhere-labs/dsh-desktop/blob/master/docs/plugin-development.md): Plugin integration / 插件集成。
+
+## Team / 团队
+
+- [Anywhere Labs team / 团队介绍](https://github.com/anywhere-labs/about-us): Primary source for the listed team roles, including Olando (杜亮宽 / Du Liangkuan), Head of Community / 已列成员职责来源，包括社区负责人 Olando（杜亮宽）。
+- [Team source index / 团队资料导航](https://raw.githubusercontent.com/anywhere-labs/about-us/main/llms.txt): Team and project links / 团队与项目链接。

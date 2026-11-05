@@ -12,8 +12,9 @@ import {
 } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { basename, dirname, join, win32 } from 'node:path'
-import { assertDesktopProfileName } from './profile-manager.ts'
-import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
+import { profileName as assertDesktopProfileName } from './profiles.ts'
+import { PNPM_DISABLE_UPDATE_NOTIFIER, PNPM_IGNORE_MINIMUM_RELEASE_AGE } from './pnpm-policy.ts'
+import { ELECTRON_HEADERS_URL } from './bundled-pnpm.ts'
 
 const RUN_AS_NODE = 'ELECTRON_RUN_AS_NODE'
 const DEFAULT_PROFILE = 'DSH_DESKTOP_DEFAULT_PROFILE'
@@ -24,6 +25,7 @@ const WINDOWS_DSH_BOOTSTRAP = 'DSH_DESKTOP_DSH_BOOTSTRAP'
 const WINDOWS_ELECTRON_VERSION = 'DSH_DESKTOP_ELECTRON_VERSION'
 const WINDOWS_PNPM_ENTRY = 'DSH_DESKTOP_PNPM_ENTRY'
 const WINDOWS_PROFILE_DIRECTORY = 'DSH_DESKTOP_PROFILE_DIRECTORY'
+const WINDOWS_TERMINAL_MODE = 'DSH_DESKTOP_TERMINAL_MODE'
 const WINDOWS_PRODUCT_VERSION = 'DSH_DESKTOP_PRODUCT_VERSION'
 const WINDOWS_SHIM_DIRECTORY = 'DSH_DESKTOP_SHIM_DIRECTORY'
 const WINDOWS_POWERSHELL_WELCOME = 'DSH_DESKTOP_POWERSHELL_WELCOME'
@@ -37,6 +39,7 @@ const WINDOWS_GENERATED_ENVIRONMENT_KEYS = new Set([
   WINDOWS_PNPM_ENTRY,
   WINDOWS_PROFILE_DIRECTORY,
   WINDOWS_PRODUCT_VERSION,
+  WINDOWS_TERMINAL_MODE,
   WINDOWS_SHIM_DIRECTORY,
   WINDOWS_POWERSHELL_WELCOME,
   WINDOWS_CMD_WELCOME,
@@ -46,7 +49,6 @@ const STATE_DIRECTORY_MODE = 0o700
 const EXECUTABLE_FILE_MODE = 0o700
 const PRIVATE_FILE_MODE = 0o600
 const WINDOWS_SHELL_COMMANDS = ['pwsh.exe', 'powershell.exe', 'cmd.exe'] as const
-const ELECTRON_HEADERS_URL = 'https://electronjs.org/headers'
 
 /** Platforms with a native terminal launch contract owned by DSH Desktop. */
 export type DesktopTerminalPlatform = 'darwin' | 'win32'
@@ -92,6 +94,8 @@ export interface DesktopTerminalOptions {
   profileName: string
   /** Product version displayed in the welcome message. */
   productVersion: string
+  /** Explain whether commands modify the temporary runtime or the original Profile. */
+  mode?: 'normal' | 'safe' | 'recovery'
   /** Absolute working directory of the selected profile. */
   profileDir: string
   /** Harness home exported as `DSH_HOME` inside the terminal. */
@@ -154,9 +158,9 @@ interface DesktopTerminalFiles {
 
 /** Reject values that cannot be represented safely in generated command files. */
 function assertScriptValue(label: string, value: string): void {
-  if (value.length === 0) throw new Error(`dsh-plugin-desktop: terminal ${label} must not be empty`)
+  if (value.length === 0) throw new Error(`dsh-plugin-desktop-beta: terminal ${label} must not be empty`)
   if (/[\0\r\n]/.test(value)) {
-    throw new Error(`dsh-plugin-desktop: terminal ${label} must not contain NUL or newlines`)
+    throw new Error(`dsh-plugin-desktop-beta: terminal ${label} must not contain NUL or newlines`)
   }
 }
 
@@ -168,7 +172,7 @@ function quoteSh(value: string): string {
 /** Escape printable text following an `echo(` batch builtin. */
 function escapeBatchText(value: string): string {
   if (/\r|\n/.test(value)) {
-    throw new Error('dsh-plugin-desktop: terminal Windows welcome text must not contain newlines')
+    throw new Error('dsh-plugin-desktop-beta: terminal Windows welcome text must not contain newlines')
   }
   return value
     .replaceAll('^', '^^')
@@ -207,7 +211,7 @@ function prepareStateDirectory(stateDir: string): void {
   mkdirSync(stateDir, { recursive: true, mode: STATE_DIRECTORY_MODE })
   const stat = lstatSync(stateDir)
   if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    throw new Error(`dsh-plugin-desktop: terminal state path is not a private directory: ${stateDir}`)
+    throw new Error(`dsh-plugin-desktop-beta: terminal state path is not a private directory: ${stateDir}`)
   }
   chmodSync(stateDir, STATE_DIRECTORY_MODE)
 }
@@ -268,7 +272,7 @@ function macPnpmShim(options: DesktopTerminalOptions): string {
       'npm_config_runtime=electron',
       `npm_config_target=${quoteSh(options.electronVersion)}`,
       `npm_config_disturl=${quoteSh(ELECTRON_HEADERS_URL)}`,
-      `exec ${quoteSh(options.appExecutable)} ${quoteSh(options.pnpmBinPath)} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
+      `exec ${quoteSh(options.appExecutable)} ${quoteSh(options.pnpmBinPath)} ${PNPM_DISABLE_UPDATE_NOTIFIER} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} "$@"`,
     ].join(' '),
     '',
   ].join('\n')
@@ -283,7 +287,7 @@ function windowsPnpmShim(): string {
     'set "npm_config_runtime=electron"',
     `set "npm_config_target=%${WINDOWS_ELECTRON_VERSION}%"`,
     `set "npm_config_disturl=${ELECTRON_HEADERS_URL}"`,
-    `"%${WINDOWS_APP_EXECUTABLE}%" "%${WINDOWS_PNPM_ENTRY}%" ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} %*`,
+    `"%${WINDOWS_APP_EXECUTABLE}%" "%${WINDOWS_PNPM_ENTRY}%" ${PNPM_DISABLE_UPDATE_NOTIFIER} ${PNPM_IGNORE_MINIMUM_RELEASE_AGE} %*`,
     'exit /b %errorlevel%',
     '',
   ].join('\r\n')
@@ -323,6 +327,12 @@ function macBashRc(options: DesktopTerminalOptions, shimDir: string): string {
   ].join('\n')
 }
 
+function terminalModeLabel(mode: DesktopTerminalOptions['mode']): string {
+  if (mode === 'safe') return '安全模式临时环境 / Safe mode: temporary environment'
+  if (mode === 'recovery') return '恢复修复终端：原 Profile / Recovery terminal: original Profile'
+  return '正常环境 / Normal environment'
+}
+
 /** Build the macOS script opened by LaunchServices in the user's terminal. */
 function macWelcome(
   options: DesktopTerminalOptions,
@@ -341,6 +351,7 @@ function macWelcome(
     `cd ${quoteSh(options.profileDir)}`,
     "printf '\\033[2J\\033[3J\\033[H'",
     `printf '%s\\n' ${quoteSh(`DSH Desktop ${options.productVersion} terminal`)}`,
+    `printf '%s\\n' ${quoteSh(terminalModeLabel(options.mode))}`,
     `printf '%s\\n' ${quoteSh(`Profile: ${options.profileName}`)}`,
     `printf '%s\\n' ${quoteSh(`Profile directory: ${options.profileDir}`)}`,
     `printf '%s\\n' ${quoteSh(`Harness home: ${options.homeDir}`)}`,
@@ -384,6 +395,7 @@ function windowsWelcome(): string {
     `$env:${PATH} = (@($dshDesktopShimDir) + $dshDesktopPath) -join ';'`,
     `Set-Location -LiteralPath $env:${WINDOWS_PROFILE_DIRECTORY}`,
     `Write-Host ("DSH Desktop {0} terminal" -f $env:${WINDOWS_PRODUCT_VERSION})`,
+    `Write-Host $env:${WINDOWS_TERMINAL_MODE}`,
     `Write-Host ("Profile: {0}" -f $env:${DEFAULT_PROFILE})`,
     `Write-Host ("Profile directory: {0}" -f $env:${WINDOWS_PROFILE_DIRECTORY})`,
     `Write-Host ("Harness home: {0}" -f $env:${DSH_HOME})`,
@@ -410,6 +422,7 @@ function windowsCmdWelcome(): string {
     `set "${RUN_AS_NODE}="`,
     `cd /d "!${WINDOWS_PROFILE_DIRECTORY}!"`,
     `echo(DSH Desktop !${WINDOWS_PRODUCT_VERSION}! terminal`,
+    `echo(!${WINDOWS_TERMINAL_MODE}!`,
     `echo(Profile: !${DEFAULT_PROFILE}!`,
     `echo(Profile directory: !${WINDOWS_PROFILE_DIRECTORY}!`,
     `echo(Harness home: !${DSH_HOME}!`,
@@ -428,7 +441,7 @@ function windowsCmdWelcome(): string {
 /** Create command shims and the interactive welcome script. */
 function prepareDesktopTerminalFiles(options: DesktopTerminalOptions): DesktopTerminalFiles {
   if (options.platform !== 'darwin' && options.platform !== 'win32') {
-    throw new Error(`dsh-plugin-desktop: terminal is unsupported on ${options.platform}`)
+    throw new Error(`dsh-plugin-desktop-beta: terminal is unsupported on ${options.platform}`)
   }
   assertDesktopProfileName(options.profileName)
   for (const [label, value] of [
@@ -479,7 +492,7 @@ function prepareDesktopTerminalFiles(options: DesktopTerminalOptions): DesktopTe
     replacePrivateFile(windowsCmdWelcomePath, windowsCmdWelcome(), PRIVATE_FILE_MODE)
     return files
   }
-  throw new Error(`dsh-plugin-desktop: terminal is unsupported on ${options.platform}`)
+  throw new Error(`dsh-plugin-desktop-beta: terminal is unsupported on ${options.platform}`)
 }
 
 /** Copy the Host environment and scope desktop command discovery to one terminal child. */
@@ -513,6 +526,7 @@ function terminalEnvironment(options: DesktopTerminalOptions, files: DesktopTerm
     env[WINDOWS_PNPM_ENTRY] = options.pnpmBinPath
     env[WINDOWS_PROFILE_DIRECTORY] = options.profileDir
     env[WINDOWS_PRODUCT_VERSION] = options.productVersion
+    env[WINDOWS_TERMINAL_MODE] = terminalModeLabel(options.mode)
     env[WINDOWS_SHIM_DIRECTORY] = files.shimDir
     env[WINDOWS_POWERSHELL_WELCOME] = files.welcomePath
     if (files.windowsCmdWelcomePath !== undefined) env[WINDOWS_CMD_WELCOME] = files.windowsCmdWelcomePath
@@ -584,7 +598,7 @@ function resolveWindowsShell(
       executable,
     }
   }
-  throw new Error('dsh-plugin-desktop: terminal requires pwsh.exe, powershell.exe, or cmd.exe on Windows')
+  throw new Error('dsh-plugin-desktop-beta: terminal requires pwsh.exe, powershell.exe, or cmd.exe on Windows')
 }
 
 /** Convert one selected Windows shell into an argv-only launch. */
@@ -595,7 +609,7 @@ function windowsShellArgv(
   if (shell.kind === 'cmd') {
     const welcome = files.windowsCmdWelcomePath
     if (welcome === undefined) {
-      throw new Error('dsh-plugin-desktop: terminal did not generate the Windows command prompt welcome script')
+      throw new Error('dsh-plugin-desktop-beta: terminal did not generate the Windows command prompt welcome script')
     }
     return ['/D', '/K', 'call', welcome]
   }
@@ -620,7 +634,7 @@ function resolveWindowsCommandProcessor(
   const resolveExecutable = options.windowsExecutableResolver ?? defaultWindowsExecutableResolver
   const executable = resolveExecutable('cmd.exe', environment, exists)
   if (executable === undefined) {
-    throw new Error('dsh-plugin-desktop: terminal requires cmd.exe to create a visible Windows console')
+    throw new Error('dsh-plugin-desktop-beta: terminal requires cmd.exe to create a visible Windows console')
   }
   assertScriptValue('cmd.exe executable', executable)
   return executable
@@ -650,11 +664,11 @@ function reportLaunchError(options: DesktopTerminalOptions, cause: Error): void 
       return
     } catch (reportCause) {
       const detail = reportCause instanceof Error ? reportCause.message : String(reportCause)
-      process.stderr.write(`dsh-plugin-desktop: terminal error reporter failed: ${detail}\n`)
+      process.stderr.write(`dsh-plugin-desktop-beta: terminal error reporter failed: ${detail}\n`)
       return
     }
   }
-  process.stderr.write(`dsh-plugin-desktop: failed to open terminal: ${cause.message}\n`)
+  process.stderr.write(`dsh-plugin-desktop-beta: failed to open terminal: ${cause.message}\n`)
 }
 
 /**

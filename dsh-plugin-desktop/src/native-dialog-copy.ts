@@ -20,6 +20,8 @@ export interface DesktopNativeCopy {
   readonly updateAvailableTitle: string
   readonly updateAvailableMessage: (version: string) => string
   readonly downloadUpdate: string
+  readonly installNext: string
+  readonly macNextInstallInstructions: string
   readonly installStableAlongsideBeta: string
   readonly download: string
   readonly later: string
@@ -99,6 +101,8 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     updateAvailableTitle: 'DSH Desktop Update Available',
     updateAvailableMessage: version => `DSH Desktop ${version} is available.`,
     downloadUpdate: 'Download this update now?',
+    installNext: 'Download DSH NEXT, the successor to the current stable desktop app? It installs as a separate app.',
+    macNextInstallInstructions: 'The disk image has opened. Drag DSH NEXT into Applications, then open DSH NEXT.',
     installStableAlongsideBeta: 'Install the stable edition alongside DSH Desktop Beta? The Beta app will remain installed.',
     download: 'Download',
     later: 'Later',
@@ -176,6 +180,8 @@ const COPY: Record<DesktopLocale, DesktopNativeCopy> = {
     updateAvailableTitle: 'DSH Desktop 有可用更新',
     updateAvailableMessage: version => `DSH Desktop ${version} 已可用。`,
     downloadUpdate: '现在下载此更新？',
+    installNext: '是否下载 DSH NEXT？它将接替当前稳定版桌面端，将作为独立应用安装。',
+    macNextInstallInstructions: '磁盘映像已打开。请将 DSH NEXT 拖入“应用程序”，然后打开 DSH NEXT。',
     installStableAlongsideBeta: '是否同时安装稳定版？DSH Desktop Beta 将继续保留。',
     download: '下载',
     later: '稍后',

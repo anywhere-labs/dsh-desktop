@@ -20,10 +20,11 @@ import {
   previewMarketOperation,
   readMarketCatalog,
   readMarketInstallable,
+  readMarketInstallationUpdate,
   readMarketInstallations,
   readMarketState,
   readMoreMarketCatalog,
-  requestMarketRestart,
+  setMarketInstallationEnabled,
 } from '../src/client/api.js'
 import { en, type MarketLocaleKey } from '../src/client/locales.js'
 
@@ -34,10 +35,11 @@ vi.mock('../src/client/api.js', () => ({
   previewMarketOperation: vi.fn(),
   readMarketCatalog: vi.fn(),
   readMarketInstallable: vi.fn(),
+  readMarketInstallationUpdate: vi.fn(),
   readMarketInstallations: vi.fn(),
   readMoreMarketCatalog: vi.fn(),
   readMarketState: vi.fn(),
-  requestMarketRestart: vi.fn(),
+  setMarketInstallationEnabled: vi.fn(),
 }))
 
 afterEach(() => {
@@ -45,9 +47,13 @@ afterEach(() => {
   vi.resetAllMocks()
 })
 
-const t = ((key: MarketLocaleKey): string => en[key]) as MarketSettingsTabProps['t']
+/** Translate as the Client locale does, filling `{name}` template params. */
+const t = ((key: MarketLocaleKey, params?: Record<string, unknown>): string => en[key].replace(
+  /\{(\w+)\}/gu,
+  (match, name: string) => params?.[name] === undefined ? match : String(params[name]),
+)) as MarketSettingsTabProps['t']
 const props = { initialView: 'discover', t, readLocale: () => 'en' } as MarketSettingsTabProps
-const desktopActions = { openTerminal: true, requestRestart: true } as const
+const desktopActions = { openTerminal: true } as const
 const emptyState: MarketStateResponse = { sources: [], builtIns: [], desktopActions }
 
 function expectMarketModal(dialog: HTMLElement, sizeClass: string): void {
@@ -554,7 +560,7 @@ describe('MarketSettingsTab', () => {
     }, expect.any(AbortSignal))
   })
 
-  it('previews an exact package and profile before install, executes only its preview id, and prompts for restart', async () => {
+  it('previews an exact package and profile before install, executes only its preview id, and announces completion', async () => {
     const linkedSource = { ...firstSource, homepage: 'https://fixture-home.example/catalog' }
     const item = makeInstallableItem(linkedSource)
     const installCatalog = catalogForSource(linkedSource, [item])
@@ -583,9 +589,8 @@ describe('MarketSettingsTab', () => {
       action: 'install',
       packageName: target.packageName,
       version: target.version,
-      restartToken: 'opaque-install-restart',
+      application: 'restart-required',
     })
-    vi.mocked(requestMarketRestart).mockResolvedValue({ ok: true })
     render(<MarketSettingsTab {...props} />)
 
     await screen.findByRole('button', { name: /Installable Plugin/u })
@@ -627,25 +632,333 @@ describe('MarketSettingsTab', () => {
     expect(support.href).toBe('https://github.com/anywhere-labs/deepseek-harness-desktop/issues')
     expect(support.target).toBe('_blank')
     expect(support.rel).toContain('noopener')
-    expect(screen.getByText(en.restartAfterOperation)).toBeTruthy()
+    expect(screen.queryByText(/restart/iu)).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: en.confirmInstall }))
     await waitFor(() => {
       expect(executeMarketOperation).toHaveBeenCalledWith('opaque-install-preview', expect.any(AbortSignal))
     })
-    expectMarketModal(await screen.findByRole('dialog', { name: en.installComplete }), 'dshMarketStatusModal')
-    expect(screen.getByText(en.restartRequiredBody)).toBeTruthy()
-    expect(screen.getByRole('button', { name: en.restartLater })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: en.restartNow }))
-    await waitFor(() => {
-      expect(requestMarketRestart).toHaveBeenCalledWith('opaque-install-restart', expect.any(AbortSignal))
-    })
+    // The official manager applied the change live; the Market announces it instead of asking for a restart.
+    expect(await screen.findByText(`${en.installComplete} ${en.restartHint}`)).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
     await waitFor(() => {
       expect(readMarketInstallable).toHaveBeenCalledTimes(2)
-      expect(readMarketInstallations).toHaveBeenCalledOnce()
+      expect(readMarketInstallations).toHaveBeenCalledTimes(2)
       expect(readMarketState).toHaveBeenCalledTimes(1)
       expect(readMarketCatalog).toHaveBeenCalledTimes(1)
     })
+  })
+
+  it('enables, disables, and uninstalls profile bundles from the Installed view by package name', async () => {
+    const installed = {
+      kind: 'profile' as const,
+      packageName: 'dsh-plugin-installed',
+      version: '2.3.4',
+      enabled: true,
+      installed: true,
+      toggleable: true,
+      removable: true,
+      updatable: false,
+    }
+    const core = {
+      kind: 'profile' as const,
+      packageName: 'dsh-plugin-locked',
+      enabled: true,
+      installed: true,
+      toggleable: false,
+      removable: false,
+      updatable: false,
+    }
+    vi.mocked(readMarketState).mockResolvedValue(emptyState)
+    // Each re-read after an official change returns the inventory the Host now reports.
+    vi.mocked(readMarketInstallations)
+      .mockResolvedValueOnce({ installations: [installed, core] })
+      .mockResolvedValueOnce({ installations: [{ ...installed, enabled: false }, core] })
+      .mockResolvedValue({ installations: [core] })
+    vi.mocked(setMarketInstallationEnabled).mockResolvedValue({
+      packageName: installed.packageName,
+      enabled: false,
+      application: 'applied',
+    })
+    vi.mocked(previewMarketOperation).mockResolvedValue({
+      action: 'uninstall',
+      profileName: 'web',
+      packageName: installed.packageName,
+      version: installed.version,
+      displayName: installed.packageName,
+      expiresAt: '2026-08-18T00:05:00.000Z',
+      previewId: 'opaque-uninstall-preview',
+    })
+    vi.mocked(executeMarketOperation).mockResolvedValue({
+      action: 'uninstall',
+      packageName: installed.packageName,
+      application: 'applied',
+    })
+    render(<MarketSettingsTab {...props} />)
+
+    await screen.findByRole('heading', { name: en.emptyTitle })
+    fireEvent.click(screen.getByRole('button', { name: en.installed }))
+    const toggle = await screen.findByRole('switch', { name: `${en.enablePlugin}: ${installed.packageName}` })
+    expect((toggle as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByText(`${en.pluginVersion}: ${installed.version}`)).toBeTruthy()
+    expect(screen.getByText(en.immutablePlugin)).toBeTruthy()
+    expect(screen.queryByRole('switch', { name: `${en.enablePlugin}: ${core.packageName}` })).toBeNull()
+    expect(screen.queryByRole('button', { name: `${en.uninstall}: ${core.packageName}` })).toBeNull()
+
+    fireEvent.click(toggle)
+    await waitFor(() => {
+      expect(setMarketInstallationEnabled).toHaveBeenCalledWith(installed.packageName, false, expect.any(AbortSignal))
+    })
+    expect(await screen.findByText(en.disableComplete)).toBeTruthy()
+    await waitFor(() => {
+      expect((screen.getByRole('switch', { name: `${en.enablePlugin}: ${installed.packageName}` }) as HTMLInputElement).checked).toBe(false)
+    })
+    expect(readMarketInstallations).toHaveBeenCalledTimes(2)
+
+    fireEvent.click(screen.getByRole('button', { name: `${en.uninstall}: ${installed.packageName}` }))
+    await waitFor(() => {
+      expect(previewMarketOperation).toHaveBeenCalledWith(
+        { action: 'uninstall', packageName: installed.packageName },
+        expect.any(AbortSignal),
+      )
+    })
+    const confirmation = await screen.findByRole('dialog', { name: en.confirmUninstallTitle })
+    expectMarketModal(confirmation, 'dshMarketConfirmModal')
+    expect(within(confirmation).queryByText(/restart/iu)).toBeNull()
+    fireEvent.click(within(confirmation).getByRole('button', { name: en.confirmUninstall }))
+    await waitFor(() => {
+      expect(executeMarketOperation).toHaveBeenCalledWith('opaque-uninstall-preview', expect.any(AbortSignal))
+    })
+    expect(await screen.findByText(en.uninstallComplete)).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    await waitFor(() => { expect(readMarketInstallations).toHaveBeenCalledTimes(3) })
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: `${en.uninstall}: ${installed.packageName}` })).toBeNull()
+    })
+    expect(screen.getByRole('heading', { name: core.packageName })).toBeTruthy()
+  })
+
+  describe('updates', () => {
+    const updatable = {
+      kind: 'profile' as const,
+      packageName: 'dsh-plugin-old',
+      version: '1.0.0',
+      enabled: true,
+      installed: true,
+      toggleable: true,
+      removable: true,
+      updatable: true,
+    }
+    const preview = {
+      action: 'update' as const,
+      profileName: 'web',
+      packageName: updatable.packageName,
+      fromVersion: '1.0.0',
+      version: '1.2.0',
+      registry: 'https://registry.npmmirror.com/',
+      displayName: updatable.packageName,
+      expiresAt: '2026-10-28T00:05:00.000Z',
+      previewId: 'opaque-update-preview',
+    }
+
+    async function openInstalled(): Promise<void> {
+      render(<MarketSettingsTab {...props} />)
+      await screen.findByRole('heading', { name: en.emptyTitle })
+      fireEvent.click(screen.getByRole('button', { name: en.installed }))
+    }
+
+    it('checks each updatable plugin once, updates one after confirmation, and checks it again', async () => {
+      const current = { ...updatable, packageName: 'dsh-plugin-current', version: '2.0.0' }
+      const git = { ...updatable, packageName: 'dsh-plugin-git', updatable: false }
+      let oldVersion = '1.0.0'
+      vi.mocked(readMarketState).mockResolvedValue(emptyState)
+      vi.mocked(readMarketInstallations).mockImplementation(async () => ({
+        installations: [{ ...updatable, version: oldVersion }, current, git],
+      }))
+      vi.mocked(readMarketInstallationUpdate).mockImplementation(async packageName => ({
+        packageName,
+        check: packageName === updatable.packageName && oldVersion === '1.0.0'
+          ? { status: 'available', installed: '1.0.0', version: '1.2.0', publishedAt: '2026-10-20T08:00:00.000Z' }
+          : { status: 'latest', installed: packageName === updatable.packageName ? oldVersion : '2.0.0' },
+      }))
+      vi.mocked(previewMarketOperation).mockResolvedValue(preview)
+      vi.mocked(executeMarketOperation).mockImplementation(async () => {
+        oldVersion = '1.2.0'
+        return {
+          action: 'update', packageName: updatable.packageName, fromVersion: '1.0.0', version: '1.2.0', outcome: 'updated', application: 'applied',
+        }
+      })
+      await openInstalled()
+
+      expect(await screen.findByText('Update to 1.2.0 available')).toBeTruthy()
+      expect(await screen.findByText('Up to date')).toBeTruthy()
+      // Checks run one package at a time, and never for a package the manager does not update.
+      expect(vi.mocked(readMarketInstallationUpdate).mock.calls.map(call => call[0])).toEqual([updatable.packageName, current.packageName])
+
+      fireEvent.click(screen.getByRole('button', { name: `${en.update}: ${updatable.packageName}` }))
+      await waitFor(() => {
+        expect(previewMarketOperation).toHaveBeenCalledWith({ action: 'update', packageName: updatable.packageName }, expect.any(AbortSignal))
+      })
+      const confirmation = await screen.findByRole('dialog', { name: en.confirmUpdateTitle })
+      expectMarketModal(confirmation, 'dshMarketConfirmModal')
+      expect(within(confirmation).getByText(
+        'The update replaces 1.0.0 with 1.2.0; the plugin may stop briefly. If the installation fails, 1.0.0 is kept or installed again.',
+      )).toBeTruthy()
+      expect(within(confirmation).getByText('registry.npmmirror.com')).toBeTruthy()
+      expect(within(confirmation).getByText(en.operationWarning)).toBeTruthy()
+      fireEvent.click(within(confirmation).getByRole('button', { name: en.confirmUpdate }))
+
+      await waitFor(() => {
+        expect(executeMarketOperation).toHaveBeenCalledWith('opaque-update-preview', expect.any(AbortSignal))
+      })
+      expect(await screen.findByText('Plugin updated to 1.2.0')).toBeTruthy()
+      expect(screen.queryByRole('dialog')).toBeNull()
+      await waitFor(() => { expect(screen.getAllByText('Up to date')).toHaveLength(2) })
+      expect(screen.queryByRole('button', { name: `${en.update}: ${updatable.packageName}` })).toBeNull()
+      expect(readMarketInstallations).toHaveBeenCalledTimes(2)
+      // The new version is checked once after the reload.
+      expect(readMarketInstallationUpdate).toHaveBeenCalledTimes(3)
+      expect(readMarketInstallationUpdate).toHaveBeenLastCalledWith(updatable.packageName, expect.any(AbortSignal))
+    })
+
+    it('reports a failed update with its outcome and the manager output', async () => {
+      vi.mocked(readMarketState).mockResolvedValue(emptyState)
+      vi.mocked(readMarketInstallations).mockResolvedValue({ installations: [updatable] })
+      vi.mocked(readMarketInstallationUpdate).mockResolvedValue({
+        packageName: updatable.packageName,
+        check: { status: 'available', installed: '1.0.0', version: '1.2.0' },
+      })
+      vi.mocked(previewMarketOperation).mockResolvedValue({ ...preview, registry: null })
+      vi.mocked(executeMarketOperation).mockResolvedValue({
+        action: 'update',
+        packageName: updatable.packageName,
+        fromVersion: '1.0.0',
+        version: '1.2.0',
+        outcome: 'restored',
+        details: 'ERR_PNPM_BUILD_SCRIPT_FAILURE native dependency failed',
+      })
+      await openInstalled()
+
+      fireEvent.click(await screen.findByRole('button', { name: `${en.update}: ${updatable.packageName}` }))
+      const confirmation = await screen.findByRole('dialog', { name: en.confirmUpdateTitle })
+      expect(within(confirmation).getByText(en.updateSourceDefault)).toBeTruthy()
+      fireEvent.click(within(confirmation).getByRole('button', { name: en.confirmUpdate }))
+
+      const failure = await screen.findByRole('dialog', { name: 'Update failed; restored 1.0.0' })
+      expect(within(failure).getByRole('alert').textContent).toContain('1.2.0 failed to install; 1.0.0 was installed again.')
+      expect(within(failure).getByText(/ERR_PNPM_BUILD_SCRIPT_FAILURE native dependency failed/u)).toBeTruthy()
+      expect(within(failure).queryByRole('button', { name: en.confirmUpdate })).toBeNull()
+      // The inventory is read again and the package checked again whatever the outcome.
+      await waitFor(() => { expect(readMarketInstallations).toHaveBeenCalledTimes(2) })
+      await waitFor(() => { expect(readMarketInstallationUpdate).toHaveBeenCalledTimes(2) })
+
+      fireEvent.click(within(failure).getByRole('button', { name: en.close }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+
+    it('says why a plugin offers no update, retries a failed check, and checks everything again on refresh', async () => {
+      const blocked = { ...updatable, packageName: 'dsh-plugin-blocked' }
+      const deprecated = { ...updatable, packageName: 'dsh-plugin-deprecated' }
+      const unreachable = { ...updatable, packageName: 'dsh-plugin-unreachable' }
+      vi.mocked(readMarketState).mockResolvedValue(emptyState)
+      vi.mocked(readMarketInstallations).mockResolvedValue({ installations: [blocked, deprecated, unreachable] })
+      vi.mocked(readMarketInstallationUpdate).mockImplementation(async packageName => ({
+        packageName,
+        check: packageName === blocked.packageName
+          ? { status: 'blocked', installed: '1.0.0', version: '2.0.0', requirements: { '@deepseek-ai/dsh': '>=0.3.0' }, runtimeVersion: '0.2.2-alpha.2' }
+          : packageName === deprecated.packageName
+            ? { status: 'none-installable', installed: '1.0.0' }
+            : { status: 'failed', problem: 'network', reason: 'ETIMEDOUT registry.npmmirror.com' },
+      }))
+      await openInstalled()
+
+      expect(await screen.findByText(en.updateBlocked)).toBeTruthy()
+      expect(screen.getByText('2.0.0 needs @deepseek-ai/dsh >=0.3.0; this DSH is 0.2.2-alpha.2')).toBeTruthy()
+      expect(await screen.findByText(en.updateNoneInstallable)).toBeTruthy()
+      expect((await screen.findByText(en.updateCheckNetwork)).getAttribute('title')).toBe('ETIMEDOUT registry.npmmirror.com')
+      expect(screen.queryByRole('button', { name: new RegExp(`^${en.update}: `, 'u') })).toBeNull()
+
+      vi.mocked(readMarketInstallationUpdate).mockResolvedValueOnce({
+        packageName: unreachable.packageName,
+        check: { status: 'latest', installed: '1.0.0' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: `${en.retry}: ${unreachable.packageName}` }))
+      expect(await screen.findByText(en.updateLatest)).toBeTruthy()
+      expect(readMarketInstallationUpdate).toHaveBeenCalledTimes(4)
+
+      fireEvent.click(screen.getByRole('button', { name: en.refresh }))
+      await waitFor(() => { expect(readMarketInstallationUpdate).toHaveBeenCalledTimes(7) })
+      expect(readMarketInstallations).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it('settles a toggle after the locale hands out a new translate function mid-flight', async () => {
+    const installed = {
+      kind: 'profile' as const,
+      packageName: 'dsh-plugin-client',
+      version: '1.0.0',
+      enabled: true,
+      installed: true,
+      toggleable: true,
+      removable: true,
+      updatable: false,
+    }
+    vi.mocked(readMarketState).mockResolvedValue(emptyState)
+    vi.mocked(readMarketInstallations)
+      .mockResolvedValueOnce({ installations: [installed] })
+      .mockResolvedValue({ installations: [{ ...installed, enabled: false }] })
+    let settle: ((value: { packageName: string; enabled: boolean; application: 'applied' }) => void) | undefined
+    vi.mocked(setMarketInstallationEnabled).mockReturnValue(new Promise(resolve => { settle = resolve }))
+    const { rerender } = render(<MarketSettingsTab {...props} />)
+
+    await screen.findByRole('heading', { name: en.emptyTitle })
+    fireEvent.click(screen.getByRole('button', { name: en.installed }))
+    const toggle = await screen.findByRole('switch', { name: `${en.enablePlugin}: ${installed.packageName}` })
+    fireEvent.click(toggle)
+    await waitFor(() => { expect(setMarketInstallationEnabled).toHaveBeenCalledOnce() })
+    expect((toggle as HTMLInputElement).disabled).toBe(true)
+    // Unloading the plugin's client dictionary bumps the locale revision: every slot gets a fresh `t`.
+    const freshT = ((key: MarketLocaleKey): string => en[key]) as MarketSettingsTabProps['t']
+    rerender(<MarketSettingsTab {...props} t={freshT} />)
+    expect(readMarketState).toHaveBeenCalledTimes(1)
+
+    await act(async () => { settle?.({ packageName: installed.packageName, enabled: false, application: 'applied' }) })
+    expect(await screen.findByText(en.disableComplete)).toBeTruthy()
+    const settled = screen.getByRole('switch', { name: `${en.enablePlugin}: ${installed.packageName}` }) as HTMLInputElement
+    expect(settled.checked).toBe(false)
+    expect(settled.disabled).toBe(false)
+  })
+
+  it('shows the saved selection after a failed toggle and clears the failure on refresh', async () => {
+    const installed = {
+      kind: 'profile' as const,
+      packageName: 'dsh-plugin-flaky',
+      enabled: false,
+      installed: true,
+      toggleable: true,
+      removable: true,
+      updatable: false,
+    }
+    vi.mocked(readMarketState).mockResolvedValue(emptyState)
+    vi.mocked(readMarketInstallations)
+      .mockResolvedValueOnce({ installations: [installed] })
+      .mockResolvedValue({ installations: [{ ...installed, enabled: true }] })
+    vi.mocked(setMarketInstallationEnabled).mockRejectedValue(new Error('The plugin could not be enabled.'))
+    render(<MarketSettingsTab {...props} />)
+
+    await screen.findByRole('heading', { name: en.emptyTitle })
+    fireEvent.click(screen.getByRole('button', { name: en.installed }))
+    fireEvent.click(await screen.findByRole('switch', { name: `${en.enablePlugin}: ${installed.packageName}` }))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'The plugin could not be enabled.')
+    // The Host saved the selection even though it reported a failure: the switch shows what it saved.
+    await waitFor(() => {
+      expect((screen.getByRole('switch', { name: `${en.enablePlugin}: ${installed.packageName}` }) as HTMLInputElement).checked).toBe(true)
+    })
+    expect(screen.getByRole('alert')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: en.refresh }))
+    await waitFor(() => { expect(readMarketInstallations).toHaveBeenCalledTimes(3) })
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('shows detailed output and a terminal handoff after installation fails', async () => {

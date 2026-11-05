@@ -71,6 +71,18 @@ export function parseDesktopDialogResponse(href: string, buttonCount: number): n
   return Number.isSafeInteger(response) && response >= 0 && response < buttonCount ? response : undefined
 }
 
+/**
+ * Destroy a dialog window, hiding it first on Windows. Destroying a visible
+ * modal leaves its parent disabled while Windows picks the next window to
+ * activate, so focus can jump to another application; hiding first re-enables
+ * the parent before activation changes (upstream 4fe2381cb5).
+ */
+function destroyDialogWindow(window: BrowserWindow): void {
+  if (window.isDestroyed()) return
+  if (process.platform === 'win32' && window.isVisible()) window.hide()
+  window.destroy()
+}
+
 /** One-shot modal Desktop window; closing it always produces the cancel result. */
 export class DesktopDialogWindow {
   constructor(
@@ -144,7 +156,7 @@ export class DesktopDialogWindow {
         if (settled) return
         settled = true
         if (revealTimer !== undefined) clearTimeout(revealTimer)
-        if (!window.isDestroyed()) window.destroy()
+        destroyDialogWindow(window)
         resolve(Object.freeze({ response }))
       }
       const scheduleReveal = (): void => {
@@ -202,7 +214,7 @@ export class DesktopDialogWindow {
         if (settled) return
         settled = true
         if (revealTimer !== undefined) clearTimeout(revealTimer)
-        if (!window.isDestroyed()) window.destroy()
+        destroyDialogWindow(window)
         reject(cause)
       })
     })
