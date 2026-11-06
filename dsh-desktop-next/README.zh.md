@@ -37,7 +37,7 @@ corepack yarn workspace dsh-desktop-next verify:window-controls
 corepack yarn workspace dsh-desktop-next verify:onboarding
 ```
 
-设置 `DSH_NEXT_TEST_BROWSER_CHANNEL=chrome` 可使用已安装的 Google Chrome。截图保存在 `dsh-desktop-next/.desktop-next/verification/`。macOS 原生窗口拖动仍需手工验证。Next 使用官方前端的窗口拖动区域归属、交互控件排除规则、弹窗 Portal 几何布局和 Electron 拖动区域重算监听器。会话顶栏和插件页顶栏各自持有拖动区域；官方框架把侧栏和新会话控件放在 macOS 红黄绿按钮旁。Next 不增加标题行拖动覆盖、固定标题带、侧栏控件定位或弹窗／全屏拖动覆盖。
+设置 `DSH_NEXT_TEST_BROWSER_CHANNEL=chrome` 可使用已安装的 Google Chrome。截图保存在 `dsh-desktop-next/.desktop-next/verification/`。macOS 原生窗口拖动仍需手工验证。Next 使用官方前端的窗口拖动区域归属、交互控件排除规则、弹窗 Portal 几何布局和 Electron 拖动区域重算监听器。会话顶栏和插件页顶栏各自持有拖动区域；官方框架把侧栏和新会话控件放在 macOS 红黄绿按钮旁。Next 不增加标题行拖动覆盖、固定标题带、侧栏控件定位或弹窗／全屏拖动覆盖。唯一的例外是这些行下方滚动区里的内容：Chromium 收集拖动区域时不按滚动容器裁剪，滚到行下面的控件会把自己的整个盒子从行里减掉。`src/client/styles.ts` 去掉这些盒子以及插件页顶栏收起后未绘制的部分，`verify:window-controls` 对每一行都带一组只用官方规则的对照。
 
 ## 应用图标资源
 
