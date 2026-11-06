@@ -115,14 +115,14 @@ function PlacementRows({ placement, t }: { placement: AnywherePlacement; t: Copy
     <>
       <ToggleRow
         label={t('在左侧边栏显示', 'Show in the left sidebar')}
-        description={t('左侧边栏加一个 Anywhere 账户入口，点开直接进入这个页面。', 'Adds an Anywhere account entry to the left sidebar that opens this page.')}
+        description={t('左侧边栏加一个 Tokens Anywhere 入口，点开直接进入这个页面。', 'Adds a Tokens Anywhere entry to the left sidebar that opens this page.')}
         checked={pending.get('sidebar') ?? view.sidebar}
         disabled={!view.writable || pending.has('sidebar')}
         onChange={(next) => { void set('sidebar', next) }}
       />
       <ToggleRow
         label={t('在会话区显示', 'Show in conversations')}
-        description={t('会话的视图标签里加一个 Anywhere 账户，不离开会话就能查看模型和用量。', 'Adds an Anywhere account tab beside each conversation, to see models and usage without leaving it.')}
+        description={t('会话的视图标签里加一个 Tokens Anywhere，不离开会话就能查看模型和用量。', 'Adds a Tokens Anywhere tab beside each conversation, to see models and usage without leaving it.')}
         checked={pending.get('conversation') ?? view.conversation}
         disabled={!view.writable || pending.has('conversation')}
         onChange={(next) => { void set('conversation', next) }}
@@ -347,7 +347,7 @@ export function AnywhereAccountSettings({ language, officialModels, placement, f
         // As the official title rows: the title, then its tags. In the main column the row, which reaches the window's
         // top strip, drags the window like the Plugins page's.
         <header className="dshAnywhereHeader" data-window-drag={frame === 'page' ? '' : undefined}>
-          {frame === 'page' ? <h1>{t('Anywhere 账户', 'Anywhere account')}</h1> : <h2>{t('Anywhere 账户', 'Anywhere account')}</h2>}
+          {frame === 'page' ? <h1>Tokens Anywhere</h1> : <h2>Tokens Anywhere</h2>}
           <Tag className="dshAnywhereStatusTag" tone="info">Beta</Tag>
         </header>
       )}

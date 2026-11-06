@@ -24,9 +24,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const inject = ['slots', 'layout', 'locale']
 
 export function apply(ctx: Context): void {
+  // The page, its Settings section, the sidebar entry and the View tab go by the product's own name in both languages.
   ctx.effect(() => ctx.locale.register('tokens-anywhere', {
-    zh: { title: 'Anywhere 账户', language: 'zh' },
-    en: { title: 'Anywhere account', language: 'en' },
+    zh: { title: 'Tokens Anywhere', language: 'zh' },
+    en: { title: 'Tokens Anywhere', language: 'en' },
   }), 'tokens-anywhere: labels')
   ctx.effect(installAnywhereAccountStyles, 'tokens-anywhere: page styles')
   const t = ctx.locale.bind('tokens-anywhere')

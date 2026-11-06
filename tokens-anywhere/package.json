@@ -2,7 +2,7 @@
   "name": "tokens-anywhere",
   "version": "0.1.0-dev.0",
   "private": true,
-  "description": "Anywhere account for DeepSeek Harness: sign in to Tokens Anywhere, get its models set up, and see the balance and usage",
+  "description": "Tokens Anywhere for DeepSeek Harness: sign in, get its models set up, and see the balance and usage",
   "license": "MIT",
   "repository": {
     "type": "git",
