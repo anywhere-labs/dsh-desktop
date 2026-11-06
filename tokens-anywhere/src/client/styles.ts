@@ -179,7 +179,8 @@ const CSS = `
 
 .dshAnywhereFilters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .dshAnywhereFiltersEnd { margin-left: auto; }
-.dshAnywhereFilters .dshAnywhereSelect { max-width: 220px; }
+/* Beside the range tabs the model dropdown takes their outer box: 42px tall on the same fill, with the track's corners. */
+.dshAnywhereFilters .dshAnywhereSelect { max-width: 220px; height: 42px; border-radius: var(--dsw-radius-lg); }
 .dshAnywhereFilters .dshAnywhereSelect > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dshAnywhereInlineProblem { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--dsw-alias-label-secondary); }
 .dshAnywhereBoard { display: flex; flex-direction: column; gap: 12px; transition: opacity .15s; }
