@@ -1,7 +1,8 @@
 /**
- * The plugin's own volatile configuration: where the account page shows besides Settings, and what the account writes
- * into DSH's local files. Read live and saved through the configuration editor into the active Profile's patch, as the
- * official default model selection is; a change never reloads the plugin, so a sign-in in progress carries on.
+ * The plugin's own volatile configuration: where the account page shows besides Settings, how it shows money, and what
+ * the account writes into DSH's local files. Read live and saved through the configuration editor into the active
+ * Profile's patch, as the official default model selection is; a change never reloads the plugin, so a sign-in in
+ * progress carries on.
  */
 import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
@@ -19,6 +20,8 @@ export interface SettingsConfig {
   readonly storeKey: Volatile<boolean>
   readonly writeModels: Volatile<boolean>
   readonly geminiNative: Volatile<boolean>
+  /** Absent while the page follows the account's own setting. */
+  readonly localCurrency: Volatile<boolean | undefined>
 }
 
 export type SettingName = keyof SettingsConfig
@@ -32,8 +35,8 @@ export class AnywhereSettings {
    */
   constructor(private readonly owner: Context, private readonly config: SettingsConfig) {}
 
-  get(name: SettingName): boolean {
-    return this.config[name].get()
+  get<N extends SettingName>(name: N): ReturnType<SettingsConfig[N]['get']> {
+    return this.config[name].get() as ReturnType<SettingsConfig[N]['get']>
   }
 
   /** Whether a configuration editor can save a change. */

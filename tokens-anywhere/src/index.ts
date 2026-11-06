@@ -23,6 +23,8 @@ export interface Config {
   writeModels: Volatile<boolean>
   /** Configure the Gemini models with Google's Gemini API instead of OpenAI Chat Completions. */
   geminiNative: Volatile<boolean>
+  /** Amounts in the local currency beside US dollars; absent, the page follows the account's setting in the Tokens Anywhere console. */
+  localCurrency: Volatile<boolean | undefined>
 }
 
 export const Config = z.object({
@@ -31,6 +33,7 @@ export const Config = z.object({
   storeKey: z.boolean().default(true).volatile().description('Keep the account\'s key in the credentials file.'),
   writeModels: z.boolean().default(true).volatile().description('Write the account\'s models into the Profile configuration.'),
   geminiNative: z.boolean().default(false).volatile().description('Configure the Gemini models with Google\'s Gemini API instead of Chat Completions.'),
+  localCurrency: z.boolean().volatile().description('Show amounts in the local currency beside US dollars; unset, follow the account\'s setting in the Tokens Anywhere console.'),
 })
 
 export function apply(ctx: Context, config: Config): void {

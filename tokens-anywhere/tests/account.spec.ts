@@ -11,7 +11,7 @@ import {
   formatCount, formatMoney, formatMoneyShort, formatTokenLimit, formatUsd, formatYuanOf, moneyFormat, usageTicks,
 } from '../src/client/shared.ts'
 import {
-  AnywhereAccount, LoopbackCallback, openProfileConfiguration, type CallbackResult, type LocalFiles,
+  AnywhereAccount, LoopbackCallback, openProfileConfiguration, type CallbackResult, type CurrencyChoice, type LocalFiles,
 } from '../src/host/account.ts'
 import { AnywhereShell } from '../src/host/shell.ts'
 
@@ -427,6 +427,8 @@ function fakeTokens() {
     challenge: '', redirectUri: '', refreshed: 0, refreshError: undefined as string | undefined,
     access: new Set<string>(), refresh: new Set<string>(), revoked: [] as string[], keySecret: KEY,
     models: { chat: ['deepseek-v4-pro', 'gpt-6-sol'], anthropic: ['claude-sonnet-5-5', 'deepseek-v4-pro'] } as { chat: string[]; anthropic: string[]; gemini?: string[] },
+    /** The account's display preferences; undefined answers 404, as a Tokens Anywhere without them would. */
+    preferences: { localCurrency: true } as Record<string, unknown> | undefined,
     usageQueries: [] as URLSearchParams[], calls: [] as string[],
   }
   let counter = 0
@@ -473,7 +475,7 @@ function fakeTokens() {
     if (!server.access.has(bearer)) return json({ error: { code: 'unauthenticated' } }, 401)
     if (path === '/api/v1/me') return json({ id: '7', displayName: 'Ada', email: 'ada@example.com', loginName: '' })
     if (path === '/api/v1/balance') return json({ balance: '20.000000', held: '0.500000', available: '19.500000', bonus: '0.000000', topupPayRate: 10000 })
-    if (path === '/api/v1/me/preferences') return json({ localCurrency: true })
+    if (path === '/api/v1/me/preferences') return server.preferences === undefined ? json({ error: { code: 'not_found' } }, 404) : json(server.preferences)
     if (path === '/api/v1/keys/42/rotate') {
       server.keySecret = `sk-rotated-${String(++counter)}`
       return json({ key: { id: '42', prefix: server.keySecret.slice(0, 11) }, secret: server.keySecret })
@@ -492,8 +494,15 @@ function fakeTokens() {
   return server
 }
 
-function newAccount(fake: ReturnType<typeof services>, local?: LocalFiles) {
-  return new AnywhereAccount(fake.credentials as never, fake.settings as never, fake.shell as never, ORIGIN, local)
+function newAccount(fake: ReturnType<typeof services>, local?: LocalFiles, currency?: CurrencyChoice) {
+  return new AnywhereAccount(fake.credentials as never, fake.settings as never, fake.shell as never, ORIGIN, local, currency)
+}
+
+/** The page's own choice of local currency, saved as the configuration editor would. */
+function currencyChoice() {
+  const state: { localCurrency?: boolean } = {}
+  const currency: CurrencyChoice = { localCurrency: () => state.localCurrency, save: async (localCurrency) => { state.localCurrency = localCurrency } }
+  return { state, currency }
 }
 
 /** The plugin's switches for DSH's local files, saved as the configuration editor would. */
@@ -1114,6 +1123,39 @@ describe('Anywhere account', () => {
         expect(chatRoute(fake).models.map(model => model.id)).toEqual(['deepseek-v4-pro'])
       } finally {
         second.dispose()
+      }
+    })
+  })
+
+  describe('local currency', () => {
+    it('follows the account\'s setting in the console, off where it says nothing, until the page chooses for itself', async () => {
+      const server = fakeTokens()
+      const fake = services()
+      const choice = currencyChoice()
+      const account = newAccount(fake, undefined, choice.currency)
+      try {
+        server.preferences = undefined
+        await signIn(account, server)
+        await account.refresh()
+        expect((await account.snapshot()).money).toEqual({ localCurrency: false, cnyRate: 7.1 })
+        server.preferences = {}
+        await account.refresh()
+        expect((await account.snapshot()).money?.localCurrency).toBe(false)
+        server.preferences = { localCurrency: true }
+        await account.refresh()
+        expect((await account.snapshot()).money?.localCurrency).toBe(true)
+
+        // The page's own choice wins over the account's, which is only ever read.
+        await account.setLocalCurrency({ localCurrency: false })
+        expect(choice.state).toEqual({ localCurrency: false })
+        expect((await account.snapshot()).money?.localCurrency).toBe(false)
+        await account.refresh()
+        expect((await account.snapshot()).money?.localCurrency).toBe(false)
+        expect(server.calls.filter(call => call.endsWith('/api/v1/me/preferences') && !call.startsWith('GET '))).toEqual([])
+        await expect(account.setLocalCurrency({ localCurrency: 'on' })).rejects.toThrow()
+        expect(choice.state).toEqual({ localCurrency: false })
+      } finally {
+        account.dispose()
       }
     })
   })

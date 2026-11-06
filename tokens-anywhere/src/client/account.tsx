@@ -2,7 +2,8 @@
  * Anywhere account page in the official Settings dialog, driving the Host routes of ../account.ts; the main column and
  * the Conversation Views can show it too (./entries.tsx), the main column in the frame of the official entry pages. Its
  * identity and balance cards follow the official account page; below them the official segmented tabs lead to what only
- * this account has: its models, its usage, its settings on this computer, and where the page shows besides Settings.
+ * this account has: its models, its usage, its settings on this computer, and how the page shows: where besides
+ * Settings, and whether in the local currency too.
  */
 import { useCallback, useEffect, useId, useState, useSyncExternalStore } from 'react'
 import {
@@ -128,6 +129,36 @@ function PlacementRows({ placement, t }: { placement: AnywherePlacement; t: Copy
         onChange={(next) => { void set('conversation', next) }}
       />
     </>
+  )
+}
+
+/**
+ * Amounts in the language's own currency too: as the account has it in the Tokens Anywhere console until changed here,
+ * which leaves the console's setting alone. Shown as it will be once saved.
+ */
+function LocalCurrencyRow({ state, t, act }: {
+  state: AnywhereAccountSnapshot
+  t: Copy
+  act: (path: string, body?: object) => Promise<RouteReply | undefined>
+}) {
+  const [pending, setPending] = useState<boolean>()
+  const set = async (next: boolean): Promise<void> => {
+    setPending(next)
+    await act(ANYWHERE_ACCOUNT_ROUTES.currency, { localCurrency: next })
+    setPending(undefined)
+  }
+  return (
+    <ToggleRow
+      label={t('显示当地货币', 'Show local currency')}
+      // As in the console, only Chinese has a currency of its own here.
+      description={t(
+        '同时以人民币显示金额。默认跟随网页端的设置，在这里更改不影响网页端。',
+        'Your language has no local currency here, so amounts stay in US dollars.',
+      )}
+      checked={pending ?? state.money?.localCurrency === true}
+      disabled={!state.local.writable || pending !== undefined}
+      onChange={(next) => { void set(next) }}
+    />
   )
 }
 
@@ -271,6 +302,7 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
         <div role="tabpanel" id={`${navId}-placement-panel`} aria-labelledby={`${navId}-placement`} hidden={tab !== 'placement'}>
           <div className="dshAnywhereRows">
             <PlacementRows placement={placement} t={t} />
+            <LocalCurrencyRow state={state} t={t} act={act} />
           </div>
         </div>
       )}
