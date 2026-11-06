@@ -21,6 +21,8 @@ export interface Config {
   storeKey: Volatile<boolean>
   /** Write the account's models into the active Profile's configuration; they need the stored key. */
   writeModels: Volatile<boolean>
+  /** Configure the Gemini models with Google's Gemini API instead of OpenAI Chat Completions. */
+  geminiNative: Volatile<boolean>
 }
 
 export const Config = z.object({
@@ -28,6 +30,7 @@ export const Config = z.object({
   conversation: z.boolean().default(false).volatile().description('Show Tokens Anywhere beside every conversation.'),
   storeKey: z.boolean().default(true).volatile().description('Keep the account\'s key in the credentials file.'),
   writeModels: z.boolean().default(true).volatile().description('Write the account\'s models into the Profile configuration.'),
+  geminiNative: z.boolean().default(false).volatile().description('Configure the Gemini models with Google\'s Gemini API instead of Chat Completions.'),
 })
 
 export function apply(ctx: Context, config: Config): void {

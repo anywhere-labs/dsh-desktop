@@ -18,6 +18,7 @@ export interface SettingsConfig {
   readonly conversation: Volatile<boolean>
   readonly storeKey: Volatile<boolean>
   readonly writeModels: Volatile<boolean>
+  readonly geminiNative: Volatile<boolean>
 }
 
 export type SettingName = keyof SettingsConfig

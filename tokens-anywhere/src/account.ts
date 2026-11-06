@@ -28,7 +28,7 @@ export const ANYWHERE_ACCOUNT_ROUTES = {
   usage: '/api/tokens-anywhere/usage',
   /** GET reads where the page shows besides Settings; POST `{ sidebar?, conversation? }` changes it. */
   placement: '/api/tokens-anywhere/placement',
-  /** POST `{ storeKey?, writeModels? }`: what the account writes into DSH's local files. */
+  /** POST `{ storeKey?, writeModels?, geminiNative? }`: what the account writes into DSH's local files, and how. */
   local: '/api/tokens-anywhere/local',
   /** POST: the key's secret, for the clipboard. */
   copyKey: '/api/tokens-anywhere/key/copy',
@@ -49,6 +49,8 @@ export interface AnywhereLocalState {
   readonly storeKey: boolean
   /** The models are written into the active Profile's configuration; they need the stored key. */
   readonly writeModels: boolean
+  /** Gemini models go through Google's own Gemini API rather than OpenAI Chat Completions. */
+  readonly geminiNative: boolean
   /** Whether a configuration editor can save a change. */
   readonly writable: boolean
   /** Whether the shell can show the files in the file manager. */
@@ -93,10 +95,11 @@ export function tokensAnywhereOrigin(override: string | undefined): string {
 /**
  * Provider routes the account writes into the `llm-pi-ai` entry, one per model vendor so the model picker groups them
  * that way, and the credential reference they read. DeepSeek and GPT go through OpenAI Chat Completions
- * (dsh-desktop#1583); Tokens Anywhere serves Claude only through Anthropic Messages and Gemini only through its own API.
- * Models of a vendor the price list does not name share Chat Completions under the plain id. `llm-pi-ai` takes Gemini's
- * protocol on a hand-declared route through DSH Next's patches/dsh-llm-pi-ai@0.2.2-rc.1.patch, and pi-ai 1.4 sends
- * Gemini 4 models the thinking level they require, not a thinking budget.
+ * (dsh-desktop#1583), and Claude through Anthropic Messages, the only protocol Tokens Anywhere serves it with. Gemini
+ * goes through Chat Completions too, as Tokens Anywhere's own DeepSeek Harness guide sets it up, or, where the account's
+ * setting asks, through Google's Gemini API: `llm-pi-ai` takes that protocol on a hand-declared route through DSH Next's
+ * patches/dsh-llm-pi-ai@0.2.2-rc.1.patch. Models of a vendor the price list does not name share Chat Completions under
+ * the plain id. pi-ai 1.4 sends Gemini 4 models the thinking level they require, not a thinking budget.
  */
 export const ANYWHERE_ROUTE_IDS = {
   deepseek: 'tokens-anywhere-deepseek',
@@ -426,6 +429,12 @@ const DEEPSEEK_COMPAT = {
 } as const
 
 /**
+ * Gemini through Chat Completions, which Tokens Anywhere passes to Google's OpenAI compatibility as it is: system
+ * instructions in the system role, as pi-ai's catalog sends Gemini through OpenAI-style gateways, and no `store`.
+ */
+const GEMINI_CHAT_COMPAT = { supportsStore: false, supportsDeveloperRole: false } as const
+
+/**
  * The levels a DSH profile declares for a catalog thinking map. In pi-ai's catalog a level left out keeps its default
  * wire value and only `xhigh` and `max` must be named; a DSH profile offers exactly the levels it declares. So a
  * missing `off` becomes "off, send nothing", missing standard levels are declared under their own names (Claude takes
@@ -487,8 +496,9 @@ export function commonThinkingLevel(models: readonly Pick<PiAiRouteModel, 'reaso
 
 /**
  * Everything Tokens Anywhere offers the key, with the user's switches and names: families, display names, sizes and
- * the thinking levels each model offers. A model reaches a route only through the protocol Tokens Anywhere serves it
- * with: Claude through Anthropic Messages, Gemini through its own API, GPT and DeepSeek through Chat Completions.
+ * the thinking levels each model offers. A model reaches a route only through the protocol it goes through: Claude
+ * through Anthropic Messages, Gemini through Chat Completions or, with `geminiNative`, its own API, GPT and DeepSeek
+ * through Chat Completions.
  * @param input.chat - ids `GET /v1/models` lists in OpenAI form; input.anthropic - ids it lists in Anthropic form;
  * input.gemini - ids it lists to a Gemini client.
  */
@@ -499,6 +509,8 @@ export function planAnywhereModels(input: {
   readonly priced: readonly TokensPricedModel[]
   readonly profiles: Readonly<Record<string, TokensModelProfile>>
   readonly overrides?: AnywhereModelOverrides
+  /** Gemini through Google's Gemini API rather than Chat Completions. */
+  readonly geminiNative?: boolean
 }): AnywhereModelView[] {
   const priced = new Map(input.priced.map(item => [item.model, item]))
   const ids = new Set([...input.chat, ...input.anthropic, ...input.gemini])
@@ -507,8 +519,9 @@ export function planAnywhereModels(input: {
   const order = (family: AnywhereModelFamily) => ANYWHERE_MODEL_FAMILIES.indexOf(family)
   return [...ids].map((id): AnywhereModelView => {
     const family = anywhereModelFamily(priced.get(id)?.provider, id)
-    // Claude and Gemini only through their own protocols, every other vendor through Chat Completions.
-    const listed = family === 'claude' ? input.anthropic.includes(id) : family === 'gemini' ? input.gemini.includes(id) : input.chat.includes(id)
+    // Claude only through its own protocol, Gemini through the one the account chose, every other vendor through Chat Completions.
+    const listed = family === 'claude' ? input.anthropic.includes(id)
+      : family === 'gemini' && input.geminiNative === true ? input.gemini.includes(id) : input.chat.includes(id)
     const route = listed ? ANYWHERE_ROUTE_IDS[family] : undefined
     const profile = input.profiles[id]
     const defaultName = profile?.displayName || id
@@ -534,15 +547,19 @@ export function planAnywhereModels(input: {
  * The `llm-pi-ai` routes for the enabled models. Each model carries its thinking levels and the switches that send
  * them; a route's default level is the strongest common one every model on it offers, so new sessions think.
  * @param origin - the Tokens Anywhere origin; Chat Completions lives under `/v1`, Gemini's API under `/v1beta`.
+ * @param geminiNative - the Gemini route speaks Google's Gemini API rather than Chat Completions.
  */
-export function anywhereRoutes(models: readonly AnywhereModelView[], origin: string): Record<string, PiAiRoute> {
+export function anywhereRoutes(models: readonly AnywhereModelView[], origin: string, geminiNative = false): Record<string, PiAiRoute> {
   const base = origin.replace(/\/+$/, '')
   const routes: Record<string, PiAiRoute> = {}
   for (const [id, api, baseURL, displayName] of [
     [ANYWHERE_ROUTE_IDS.deepseek, 'openai-completions', `${base}/v1`, 'Tokens Anywhere · DeepSeek'],
     [ANYWHERE_ROUTE_IDS.claude, 'anthropic-messages', base, 'Tokens Anywhere · Claude'],
     [ANYWHERE_ROUTE_IDS.gpt, 'openai-completions', `${base}/v1`, 'Tokens Anywhere · GPT'],
-    [ANYWHERE_ROUTE_IDS.gemini, 'google-generative-ai', `${base}/v1beta`, 'Tokens Anywhere · Gemini'],
+    // A const context stops at a conditional, so each side is a tuple of its own.
+    geminiNative
+      ? [ANYWHERE_ROUTE_IDS.gemini, 'google-generative-ai', `${base}/v1beta`, 'Tokens Anywhere · Gemini'] as const
+      : [ANYWHERE_ROUTE_IDS.gemini, 'openai-completions', `${base}/v1`, 'Tokens Anywhere · Gemini'] as const,
     [ANYWHERE_ROUTE_IDS.other, 'openai-completions', `${base}/v1`, 'Tokens Anywhere'],
   ] as const) {
     const entries = models.filter(model => model.enabled && model.route === id).map((model): PiAiRouteModel => {
@@ -551,6 +568,7 @@ export function anywhereRoutes(models: readonly AnywhereModelView[], origin: str
       const efforts = levels === undefined ? undefined : declaredThinking(levels, model.family)
       const compat: Record<string, string | boolean> = {
         ...(model.family === 'deepseek' ? DEEPSEEK_COMPAT : {}),
+        ...(model.family === 'gemini' && api === 'openai-completions' ? GEMINI_CHAT_COMPAT : {}),
         ...(known?.adaptive ? { forceAdaptiveThinking: true } : {}),
         ...(known?.noTemperature ? { supportsTemperature: false } : {}),
       }

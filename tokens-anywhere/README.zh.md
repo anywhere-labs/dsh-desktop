@@ -12,11 +12,11 @@ DSH Next 自带这个插件，并从自己的 bundle 层为每个 Profile 加载
 
 ## 在其他环境中
 
-没有 DSH Next 时，页面会给出在浏览器中打开授权页的链接，刷新令牌只保存在内存里。重启后模型照常可用，查看余额和用量需要重新登录。Gemini 模型需要 DSH Next 对 `dsh-llm-pi-ai` 的补丁。
+没有 DSH Next 时，页面会给出在浏览器中打开授权页的链接，刷新令牌只保存在内存里。重启后模型照常可用，查看余额和用量需要重新登录。Gemini 模型在这里同样通过 Chat Completions 调用；谷歌格式需要 DSH Next 对 `dsh-llm-pi-ai` 的补丁。
 
 ## 设置
 
-账户的 Key 只给这台电脑用。在账户页面的“设置”里可以复制它，也可以轮换，轮换后旧 Key 立即失效。给需要自定义的用户：“打开配置文件”打开当前 Profile 的 `cordis.patch.yml`，模型就写在这里，和设置弹窗自己的按钮一样；在 DSH Next 中，“显示凭据文件”在文件管理器里显示存放 Key 的凭据文件（`.credentials.yaml`）。Key 和模型写不写，是插件自己的配置（`storeKey` 和 `writeModels`，默认都开启），也保存在这个文件里；模型要用保存的 Key，所以关掉保存 Key 时模型也会一并移除。
+账户的 Key 只给这台电脑用。在账户页面的“设置”里可以复制它，也可以轮换，轮换后旧 Key 立即失效。Gemini 模型通过 OpenAI Chat Completions 调用；打开这一页的“用谷歌格式配置 Gemini 模型”开关后，改用谷歌自己的 Gemini 接口。它是插件自己的配置（`geminiNative`，默认关闭）；开启自定义配置时路由归用户自己管理，这个开关不能更改。给需要自定义的用户：“打开配置文件”打开当前 Profile 的 `cordis.patch.yml`，模型就写在这里，和设置弹窗自己的按钮一样；在 DSH Next 中，“显示凭据文件”在文件管理器里显示存放 Key 的凭据文件（`.credentials.yaml`）。Key 和模型写不写，是插件自己的配置（`storeKey` 和 `writeModels`，默认都开启），也保存在这个文件里；模型要用保存的 Key，所以关掉保存 Key 时模型也会一并移除。
 
 ## 显示
 

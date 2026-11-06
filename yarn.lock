@@ -6551,7 +6551,7 @@ __metadata:
 
 "@deepseek-ai/dsh-llm-pi-ai@patch:@deepseek-ai/dsh-llm-pi-ai@file%3Avendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-llm-pi-ai-0.2.2-rc.1.tgz#./patches/dsh-llm-pi-ai@0.2.2-rc.1.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.2-rc.1
-  resolution: "@deepseek-ai/dsh-llm-pi-ai@patch:@deepseek-ai/dsh-llm-pi-ai@file%3Avendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-llm-pi-ai-0.2.2-rc.1.tgz%23vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-llm-pi-ai-0.2.2-rc.1.tgz%3A%3Ahash=e59470&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-llm-pi-ai@0.2.2-rc.1.patch::version=0.2.2-rc.1&hash=b7a085&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-llm-pi-ai@patch:@deepseek-ai/dsh-llm-pi-ai@file%3Avendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-llm-pi-ai-0.2.2-rc.1.tgz%23vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-llm-pi-ai-0.2.2-rc.1.tgz%3A%3Ahash=e59470&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-llm-pi-ai@0.2.2-rc.1.patch::version=0.2.2-rc.1&hash=ee91f8&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-brand": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-util-values": "npm:0.2.2-rc.1"
@@ -6570,7 +6570,7 @@ __metadata:
   peerDependenciesMeta:
     "@deepseek-ai/cordis-plugin-loader":
       optional: true
-  checksum: 10c0/5a30970be166ed19e102485fbae7ee0c4129b7aa3cbe6e70bf4133ec19b90abfc26361af27c786b9403dc2169363ab3ca1599efd472df7f8f8b4a8ad12cd9788
+  checksum: 10c0/6c6851ee025c5934fefd6d63d4fffbaa1ad71d072f215953956d23c2ca52b321da5eb18875187db331c311121434c4956bb2af9207849a8b56cda38f5de4a35b
   languageName: node
   linkType: hard
 

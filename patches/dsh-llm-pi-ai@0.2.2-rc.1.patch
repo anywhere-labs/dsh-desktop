@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index f0836c2..d49352c 100644
+index f0836c2..3e996cd 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -10,6 +10,7 @@ import { builtinModels, builtinProviders, getAllBuiltinModels, getBuiltinModels
@@ -14,7 +14,7 @@ index f0836c2..d49352c 100644
  	"openai-responses": openAIResponsesApi,
  	"anthropic-messages": anthropicMessagesApi
  };
-+/** Desktop-owned: Tokens Anywhere serves Gemini only through Gemini's own protocol. */
++/** Desktop-owned: Tokens Anywhere's Gemini routes in Google's format name Gemini's own protocol. */
 +PROTOCOLS["google-generative-ai"] = googleGenerativeAIApi;
  /**
  * Every wire protocol a configured route may name, most-reached first. The

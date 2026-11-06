@@ -156,13 +156,17 @@ export interface LocalFiles {
   storeKey(): boolean
   /** Write the models into the active Profile's configuration; never without the stored key. */
   writeModels(): boolean
+  /** Configure the Gemini models with Google's Gemini API rather than Chat Completions. */
+  geminiNative(): boolean
   /** Whether a change can be saved. */
   readonly writable: boolean
-  save(change: { storeKey: boolean; writeModels: boolean }): Promise<void>
+  save(change: { storeKey: boolean; writeModels: boolean; geminiNative: boolean }): Promise<void>
 }
 
 /** Both written, as a Host without the plugin's configuration has it. */
-const WRITE_ALL: LocalFiles = { storeKey: () => true, writeModels: () => true, writable: false, save: async () => { throw new AnywhereError('failed') } }
+const WRITE_ALL: LocalFiles = {
+  storeKey: () => true, writeModels: () => true, geminiNative: () => false, writable: false, save: async () => { throw new AnywhereError('failed') },
+}
 
 /** Sign-in, tokens, key, models and account state; every change runs in order through one queue. */
 export class AnywhereAccount {
@@ -196,7 +200,7 @@ export class AnywhereAccount {
     private readonly origin: string,
     private readonly local: LocalFiles = WRITE_ALL,
   ) {
-    this.models = new AnywhereModels(credentials, settings, () => local.storeKey() && local.writeModels())
+    this.models = new AnywhereModels(credentials, settings, () => local.storeKey() && local.writeModels(), () => local.geminiNative())
   }
 
   /** Pick up a stored account: open its refresh token, then check its key, models and balance in the background. */
@@ -284,6 +288,7 @@ export class AnywhereAccount {
       } }),
       local: {
         storeKey: this.local.storeKey(), writeModels: this.local.storeKey() && this.local.writeModels(),
+        geminiNative: this.local.geminiNative(),
         writable: this.local.writable, revealFiles: this.shell.revealsFiles === true,
       },
       ...(account === undefined || this.balance === undefined ? {} : { balance: this.balance }),
@@ -578,13 +583,14 @@ export class AnywhereAccount {
    * Change what the account writes into DSH's local files. The models need the stored key: switching the key off takes
    * them with it, and switching them on keeps the key again.
    */
-  setLocal(change: { storeKey?: unknown; writeModels?: unknown }): Promise<void> {
+  setLocal(change: { storeKey?: unknown; writeModels?: unknown; geminiNative?: unknown }): Promise<void> {
     return this.serial(async () => {
       let storeKey = typeof change.storeKey === 'boolean' ? change.storeKey : this.local.storeKey()
       let writeModels = typeof change.writeModels === 'boolean' ? change.writeModels : this.local.writeModels()
+      const geminiNative = typeof change.geminiNative === 'boolean' ? change.geminiNative : this.local.geminiNative()
       if (change.writeModels === true) storeKey = true
       if (!storeKey) writeModels = false
-      await this.local.save({ storeKey, writeModels })
+      await this.local.save({ storeKey, writeModels, geminiNative })
       const account = await this.account()
       if (account === undefined) return
       const ref = credentialRef(ANYWHERE_API_KEY_REF)
@@ -661,6 +667,7 @@ export function installAnywhereAccount(ctx: Context, settings: AnywhereSettings)
   const local: LocalFiles = {
     storeKey: () => settings.get('storeKey'),
     writeModels: () => settings.get('writeModels'),
+    geminiNative: () => settings.get('geminiNative'),
     get writable() { return settings.writable },
     save: change => settings.save(change),
   }

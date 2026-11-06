@@ -10,7 +10,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ANYWHERE_ACCOUNT_ROUTES, type AnywhereAccountSnapshot, type AnywhereProblem } from '../account.ts'
 import { MoneyAmount, ToggleRow } from './controls.tsx'
-import { AnywhereKeyRows, AnywhereLocalFileRows } from './local.tsx'
+import { AnywhereGeminiRow, AnywhereKeyRows, AnywhereLocalFileRows } from './local.tsx'
 import { AnywhereModelsPanel, ControlRow, type OfficialModelsFace } from './models.tsx'
 import { callHost, formatMoney, moneyFormat, problemText, type AnywherePlacement, type Copy, type RouteReply } from './shared.ts'
 import { AnywhereUsageBoard } from './usage.tsx'
@@ -241,6 +241,7 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
       <div role="tabpanel" id={`${navId}-local-panel`} aria-labelledby={`${navId}-local`} hidden={tab !== 'local'}>
         <div className="dshAnywhereRows">
           <AnywhereKeyRows state={state} t={t} act={act} />
+          <AnywhereGeminiRow state={state} t={t} act={act} />
           <AnywhereLocalFileRows state={state} t={t} act={act} />
           {account.memoryOnly === true && (
             <ControlRow label={t('登录状态', 'Sign-in')} description={t(
