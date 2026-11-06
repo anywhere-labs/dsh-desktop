@@ -245,6 +245,75 @@ try {
     assert.ok(geometry.width > 300 && geometry.height >= 30, JSON.stringify(geometry))
     assert.equal(await page.locator('[data-next-window-controls]').count(), 0, 'No extra visible titlebar or overlay component')
   }
+  // Chromium collects app-region boxes without clipping them, and the window lets the last box containing
+  // a point decide it.
+  const installDragRegions = () => page.evaluate(() => {
+    globalThis.__nextDragRegions = points => {
+      const regions = [...document.querySelectorAll('*')].flatMap(element => {
+        const style = getComputedStyle(element)
+        const region = style.getPropertyValue('-webkit-app-region')
+        if (region === 'none' || style.visibility !== 'visible' || ['none', 'contents', 'inline'].includes(style.display)) return []
+        const box = element.getBoundingClientRect()
+        const collected = [{ region, box }]
+        // The one generated box this reads: the part of the Plugins head that does not paint.
+        const trim = getComputedStyle(element, '::after')
+        if (element.hasAttribute('data-window-drag') && !['none', 'normal'].includes(trim.content)) {
+          collected.push({ region: trim.getPropertyValue('-webkit-app-region'),
+            box: { left: box.left, right: box.right, top: box.bottom - Number.parseFloat(trim.height), bottom: box.bottom } })
+        }
+        return collected
+      })
+      return points.map(([x, y]) => regions.reduce((decided, { region, box }) =>
+        x >= box.left && x < box.right && y >= box.top && y < box.bottom ? region : decided, 'none'))
+    }
+  })
+  // A control inside a scroller whose box reaches a chrome row must change nothing about that row: its empty
+  // run still drags and its controls stay clickable. Without the Desktop window styles the official rules alone
+  // let the control punch the row; once they stop doing so, retire the reset in src/client/styles.ts.
+  const checkRowAboveScroller = async (row, scroller) => {
+    await installDragRegions()
+    const result = await row.evaluate(async (element, hostSelector) => {
+      // While a drag row moves, the official recall pulse marks the body no-drag, and the boxes inheriting
+      // it cover the row. The mark also flickers off for single frames as a movement starts, so the
+      // surface is read in this task once the mark has stayed off for a dozen frames.
+      await new Promise(resolve => {
+        let quiet = 0
+        const tick = () => {
+          quiet = document.body.hasAttribute('data-window-drag-recall') ? 0 : quiet + 1
+          if (quiet >= 12) resolve()
+          else requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      })
+      const host = document.querySelector(hostSelector)
+      if (host === null) return { missing: hostSelector }
+      const box = element.getBoundingClientRect()
+      const points = []
+      for (let y = Math.max(box.top, 0) + 2; y < Math.min(box.bottom, innerHeight); y += 6) {
+        for (let x = Math.max(box.left, 0) + 2; x < Math.min(box.right, innerWidth); x += 12) points.push([x, y])
+      }
+      const before = globalThis.__nextDragRegions(points)
+      const control = document.createElement('button')
+      control.style.cssText = `position:fixed;left:0;top:0;width:${box.width}px;height:${box.height}px;padding:0;border:0;z-index:-1`
+      const content = document.createElement('span')
+      content.style.cssText = 'display:block;height:100%'
+      control.append(content)
+      host.append(control)
+      const placed = control.getBoundingClientRect()
+      control.style.translate = `${box.left - placed.left}px ${box.top - placed.top}px`
+      const own = document.querySelector('style[data-plugin$="/window-controls"]')
+      own.disabled = true
+      const official = globalThis.__nextDragRegions(points)
+      own.disabled = false
+      const corrected = globalThis.__nextDragRegions(points)
+      control.remove()
+      const differs = regions => regions.filter((region, index) => region !== before[index]).length
+      return { drags: before.filter(region => region === 'drag').length, punched: differs(official), changed: differs(corrected) }
+    }, scroller)
+    assert.ok(result.drags > 0, `The row above ${scroller} declares no drag: ${JSON.stringify(result)}`)
+    assert.ok(result.punched > 0, `The official rules no longer let a control in ${scroller} punch the row: ${JSON.stringify(result)}`)
+    assert.equal(result.changed, 0, `A control in ${scroller} changes the drag surface of the row above it: ${JSON.stringify(result)}`)
+  }
   const expand = async () => {
     await reopen.waitFor({ state: 'visible' })
     assert.equal(await reopen.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
@@ -267,10 +336,24 @@ try {
   assert.equal(await conversationHeader.count(), 1)
   assert.equal(await page.locator('[data-conversation-header-leading]').count(), 1)
   await checkDrag()
+  for (const index of [0, 1]) await checkRowAboveScroller(page.locator('[data-window-drag]:not(header)').nth(index), '[role="tree"]')
   await collapse.click()
   await reopen.waitFor({ state: 'visible' })
   assert.equal(await page.locator('[data-sidebar-header-controls] button').count(), 2,
     'Conversation headers keep both official sidebar and new-session controls')
+  await checkRowAboveScroller(conversationHeader, '[data-conversation-scroll]')
+  // Only a surface that can escape the transcript keeps its subtraction.
+  assert.deepEqual(await page.evaluate(() => {
+    const plain = document.createElement('button')
+    const menu = document.createElement('div')
+    menu.setAttribute('role', 'menu')
+    const item = menu.appendChild(document.createElement('button'))
+    document.querySelector('[data-conversation-scroll]').append(plain, menu)
+    const regions = [plain, menu, item].map(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))
+    plain.remove()
+    menu.remove()
+    return regions
+  }), ['none', 'no-drag', 'no-drag'])
   mkdirSync(screenshots, { recursive: true })
   await page.screenshot({ path: join(screenshots, 'new-session-collapsed.png'), animations: 'disabled' })
   // A tray/shortcut request activates the official Settings trigger even with the sidebar collapsed.
@@ -581,11 +664,22 @@ try {
   assert.ok(Math.abs((await pluginHeader.boundingBox()).y - (pinnedHeader ? beforeScroll.y : beforeScroll.y - scrollTop)) < 1,
     'The official plugin header keeps its original scrolling behavior')
   await checkPluginHeader()
+  await checkRowAboveScroller(pluginHeader, '[data-plugin-body]')
+  // The collapsed head paints only its top part, so only that part drags.
+  const headerTrim = await pluginHeader.evaluate(header => ({
+    region: getComputedStyle(header, '::after').getPropertyValue('-webkit-app-region'),
+    top: getComputedStyle(header, '::after').top,
+    paint: getComputedStyle(header.closest('[data-plugin-bar]')).getPropertyValue('--plugin-header-paint-height'),
+  }))
+  assert.deepEqual(headerTrim, { region: 'no-drag', top: headerTrim.paint, paint: headerTrim.paint })
   // Controls remain interactive when scrolled to the top of the window.
   const remoteGearY = (await remoteGear.boundingBox()).y
   await pluginScroller.evaluate((element, delta) => { element.scrollTop += delta }, remoteGearY - 16)
   assert.ok((await remoteGear.boundingBox()).y < 52)
-  assert.equal(await remoteGear.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
+  await remoteGear.scrollIntoViewIfNeeded()
+  const remoteGearBox = await remoteGear.boundingBox()
+  assert.notDeepEqual(await page.evaluate(points => globalThis.__nextDragRegions(points),
+    [[remoteGearBox.x + remoteGearBox.width / 2, remoteGearBox.y + remoteGearBox.height / 2]]), ['drag'])
   await remoteGear.click()
   await remoteDialog.waitFor()
   await remoteDialog.getByRole('button', { name: /^(关闭远程控制|Close Remote Control|关闭手机连接)$/ }).click()
@@ -668,6 +762,11 @@ try {
     await expand()
     await settleLayout(width, false)
   }
+  await page.getByRole('button', { name: /^(打开右侧边栏|Open right sidebar)$/ }).click()
+  const paneStrip = page.locator('[data-dockkit-strip][data-window-drag]')
+  await paneStrip.waitFor()
+  await checkRowAboveScroller(paneStrip, '[data-dockkit-content][data-dockkit-pane] > :not(:first-child) > *')
+  await page.getByRole('button', { name: /^(收起右侧边栏|Collapse right sidebar)$/ }).click()
   await verifySidebarBrowser(page, nativeBrowser, screenshots)
 
   // Other platforms retain their own native chrome; no macOS drag region leaks through.
@@ -961,7 +1060,7 @@ try {
   await webContext.close()
   assert.deepEqual(errors, [])
   assert.deepEqual(await page.evaluate(() => globalThis.__NEXT_TEST_BOOT__.failures), [])
-  console.log(`Next window controls passed through the official ${upstreamVersion} Desktop boot branch: stacked sidebar extension entries, homepage/plugin collapse and reopen, navigation, caption geometry, clickable actions, existing-header and platform isolation, official Settings header shortcuts and keyboard navigation, grouped Desktop Settings and immediate saves, per-address login URL rows with exact open/copy targets, Profile cards and tray creation, the Host-independent recovery artifact, and native Browser toolbar, navigation, pane geometry, overlay isolation, tab lifetime and Web iframe fallback. Chromium simulates the preload contract; native Electron window movement and page loading are not tested here.`)
+  console.log(`Next window controls passed through the official ${upstreamVersion} Desktop boot branch: stacked sidebar extension entries, homepage/plugin collapse and reopen, navigation, caption geometry, drag rows above scrolled content, clickable actions, existing-header and platform isolation, official Settings header shortcuts and keyboard navigation, grouped Desktop Settings and immediate saves, per-address login URL rows with exact open/copy targets, Profile cards and tray creation, the Host-independent recovery artifact, and native Browser toolbar, navigation, pane geometry, overlay isolation, tab lifetime and Web iframe fallback. Chromium simulates the preload contract; native Electron window movement and page loading are not tested here.`)
   console.log(`Screenshots: ${screenshots}`)
 } catch (error) {
   console.error(error)
