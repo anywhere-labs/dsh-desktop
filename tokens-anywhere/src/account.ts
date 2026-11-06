@@ -36,6 +36,8 @@ export const ANYWHERE_ACCOUNT_ROUTES = {
   rotateKey: '/api/tokens-anywhere/key/rotate',
   /** POST `{ file }`: show one of the account's local files in the file manager. */
   revealFile: '/api/tokens-anywhere/reveal',
+  /** POST: open the active Profile's configuration, where the models are, as the Settings dialog's own button does. */
+  openConfig: '/api/tokens-anywhere/config/open',
 } as const
 
 /** DSH's local files the account writes: the active Profile's configuration (model routes), and the credentials document (the key). */

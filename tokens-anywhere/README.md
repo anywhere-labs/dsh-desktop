@@ -16,7 +16,7 @@ Without DSH Next, the page links the authorize page for the browser, and the ref
 
 ## Settings
 
-The account's key is for this computer only. The account page's Settings tab copies it, or rotates it, which stops the old key at once. Two switches there say what the account writes into DSH's own files: the key into the credentials file (`.credentials.yaml`), and the models into the active Profile's `cordis.patch.yml`. The models need the stored key, so switching the key off takes them with it. Both switches are the plugin's configuration (`storeKey` and `writeModels`), saved in the active Profile. DSH Next can also show either file in the file manager.
+The account's key is for this computer only. The account page's Settings tab copies it, or rotates it, which stops the old key at once. For custom setups, Open configuration file opens the active Profile's `cordis.patch.yml`, where the models are written, as the Settings dialog's own button does; in DSH Next, Show credentials file shows the credentials file (`.credentials.yaml`), which holds the key, in the file manager. Whether the key and the models are written at all is the plugin's configuration (`storeKey` and `writeModels`, both on), saved in that same file; the models need the stored key, so turning the key off takes them with it.
 
 ## Display
 

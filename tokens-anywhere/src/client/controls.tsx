@@ -66,7 +66,6 @@ export function ToggleRow({
   disabled,
   onChange,
   expander,
-  action,
 }: {
   label: ReactNode
   description?: ReactNode
@@ -76,8 +75,6 @@ export function ToggleRow({
   disabled: boolean
   onChange: (checked: boolean) => void
   expander?: ToggleExpander
-  /** A control shown before the switch. */
-  action?: ReactNode
 }) {
   const generatedId = useId()
   const labelId = titleId ?? generatedId
@@ -93,7 +90,6 @@ export function ToggleRow({
         )}
       </span>
       <div className="dshAnywhereToggleControl">
-        {action}
         <button
           type="button"
           role="switch"

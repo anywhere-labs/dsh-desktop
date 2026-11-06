@@ -119,12 +119,12 @@ function DisclosureRow({ label, badge, description, open, controls, onToggle }: 
   )
 }
 
-export function ControlRow({ label, description, children }: { label: string; description: string; children?: ReactNode }) {
+export function ControlRow({ label, description, children }: { label: string; description?: string; children?: ReactNode }) {
   return (
     <div className="dshAnywhereToggleRow">
       <span className="dshAnywhereToggleCopy">
         <span className="dshAnywhereToggleLabel">{label}</span>
-        <span className="dshAnywhereToggleDescription">{description}</span>
+        {description !== undefined && <span className="dshAnywhereToggleDescription">{description}</span>}
       </span>
       {children !== undefined && <div className="dshAnywhereToggleControl">{children}</div>}
     </div>
@@ -477,7 +477,7 @@ export function AnywhereModelsPanel({ state, t, act, officialModels }: {
     await act(ANYWHERE_ACCOUNT_ROUTES.resetModels, {})
     setRestoring(false)
   }
-  // Switched off on this computer: nothing of ours is in the Profile to list or edit, until the switch comes back on.
+  // Switched off in the plugin's configuration: nothing of ours is in the Profile to list or edit, until writing comes back on.
   if (!state.local.writeModels) {
     const write = async (): Promise<void> => {
       setWriting(true)
@@ -488,8 +488,8 @@ export function AnywhereModelsPanel({ state, t, act, officialModels }: {
       <div className="dshAnywherePanel">
         <div className="dshAnywherePanelHead">
           <p className="dshAnywhereSecondary">{t(
-            '“设置”里关闭了写入模型配置，模型选择器里不会出现 Tokens Anywhere 的模型。',
-            'Writing the models is turned off on the Settings tab, so none of Tokens Anywhere\'s are in the model picker.',
+            '模型没有写入配置文件，模型选择器里不会出现 Tokens Anywhere 的模型。',
+            'The models are not written into the configuration, so the model picker does not offer Tokens Anywhere\'s.',
           )}</p>
           <div className="dshAnywhereActions">
             <Button variant="outline" size="sm" disabled={writing || !state.local.writable} onClick={() => { void write() }}>

@@ -72,6 +72,11 @@ const CSS = `
 .dshAnywhereSelect:hover:not(:disabled) { background-color: var(--dsw-alias-interactive-bg-hover); }
 .dshAnywhereSelect:disabled { cursor: default; opacity: .45; }
 .dshAnywhereSelectChevron { display: inline-flex; flex: none; align-items: center; justify-content: center; }
+/* A failed file action says so beside its button, as the Settings dialog's 打开配置文件 does. */
+.dshAnywhereActionError {
+  max-width: 180px; overflow: hidden; color: var(--dsw-alias-state-error-primary);
+  font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap;
+}
 @media (max-width: 720px) {
   .dshAnywhereToggleRow { align-items: flex-start; }
 }

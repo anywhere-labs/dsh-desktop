@@ -1,13 +1,16 @@
 import { createHash } from 'node:crypto'
 import { request as httpRequest } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { Context } from '@deepseek-ai/cordis'
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import {
   ANYWHERE_API_KEY_REF, ANYWHERE_ROUTE_IDS, TOKENS_ANYWHERE_ORIGIN, anywhereRoutes, beijingDates, commonThinkingLevel,
   offeredAnywhereModels, planAnywhereModels, stableJson, summarizeAnywhereUsage, tokensAnywhereOrigin,
 } from '../src/account.ts'
 import { formatCount, formatTokenLimit, formatYuan, usageTicks } from '../src/client/shared.ts'
-import { AnywhereAccount, LoopbackCallback, type CallbackResult, type LocalFiles } from '../src/host/account.ts'
+import {
+  AnywhereAccount, LoopbackCallback, openProfileConfiguration, type CallbackResult, type LocalFiles,
+} from '../src/host/account.ts'
 import { AnywhereShell } from '../src/host/shell.ts'
 
 afterEach(() => { vi.unstubAllGlobals() })
@@ -1135,5 +1138,20 @@ describe('Anywhere account', () => {
         account.dispose()
       }
     })
+  })
+})
+
+describe('Open configuration file', () => {
+  it('runs the official settings controller, as the Settings dialog does', async () => {
+    const controller = { openSettingsDocument: vi.fn(async (_signal: AbortSignal) => ({ opened: true as const })) }
+    await openProfileConfiguration({ get: (name: string) => name === 'settingsController' ? controller : undefined } as unknown as Context)
+    expect(controller.openSettingsDocument).toHaveBeenCalledOnce()
+    expect(controller.openSettingsDocument.mock.calls[0]![0]).toBeInstanceOf(AbortSignal)
+  })
+
+  it('fails plainly without the controller or when no editor opens the document', async () => {
+    await expect(openProfileConfiguration({ get: () => undefined } as unknown as Context)).rejects.toMatchObject({ code: 'failed' })
+    const refused = { openSettingsDocument: vi.fn(async (_signal: AbortSignal) => { throw new Error('no text editor') }) }
+    await expect(openProfileConfiguration({ get: () => refused } as unknown as Context)).rejects.toMatchObject({ code: 'failed' })
   })
 })

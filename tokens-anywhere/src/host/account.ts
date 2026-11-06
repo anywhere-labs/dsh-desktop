@@ -603,6 +603,28 @@ export class AnywhereAccount {
 
 }
 
+/** The official settings controller (dsh-api-settings-controller), whose action the Settings dialog's 打开配置文件 runs. */
+interface SettingsDocumentOpener {
+  openSettingsDocument(signal: AbortSignal): Promise<unknown>
+}
+
+/** How long a text editor gets to accept the configuration. */
+const OPEN_CONFIG_TIMEOUT_MS = 20_000
+
+/**
+ * Open the active Profile's configuration, where the models are written, through the official settings controller:
+ * the same document in the same text editor as the Settings dialog's 打开配置文件.
+ */
+export async function openProfileConfiguration(ctx: Context): Promise<void> {
+  const controller = ctx.get('settingsController') as SettingsDocumentOpener | undefined
+  if (controller === undefined) throw new AnywhereError('failed')
+  try {
+    await controller.openSettingsDocument(AbortSignal.timeout(OPEN_CONFIG_TIMEOUT_MS))
+  } catch {
+    throw new AnywhereError('failed')
+  }
+}
+
 /**
  * Mount the account's Host routes while the connection, credentials and settings services are up, and use DSH Next's
  * sign-in window and keychain whenever its shell serves them.
@@ -663,6 +685,7 @@ export function installAnywhereAccount(ctx: Context, settings: AnywhereSettings)
       [ANYWHERE_ACCOUNT_ROUTES.copyKey, 'POST', () => current.copyKey()],
       [ANYWHERE_ACCOUNT_ROUTES.rotateKey, 'POST', () => current.rotateKey()],
       [ANYWHERE_ACCOUNT_ROUTES.revealFile, 'POST', async (body) => { current.revealFile(body) }],
+      [ANYWHERE_ACCOUNT_ROUTES.openConfig, 'POST', () => openProfileConfiguration(inner)],
       [ANYWHERE_ACCOUNT_ROUTES.custom, 'POST', body => current.setCustom(body)],
       [ANYWHERE_ACCOUNT_ROUTES.usage, 'GET', (_body, query) => current.usage(query)],
     ]
