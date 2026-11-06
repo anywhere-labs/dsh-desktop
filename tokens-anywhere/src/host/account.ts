@@ -525,7 +525,7 @@ export class AnywhereAccount {
     return this.balancePending
   }
 
-  /** How the account shows money: dollars, with yuan beside them while local currency is on and there is a rate. */
+  /** How the account shows money: dollars, or yuan while local currency is on and there is a rate. */
   private money(origin: string): AnywhereMoneyDisplay {
     const rate = this.yuanRate?.origin === origin ? this.yuanRate.rate : undefined
     // The page's own choice, else the account's setting in the console, else off.

@@ -8,7 +8,7 @@ import {
   offeredAnywhereModels, planAnywhereModels, stableJson, summarizeAnywhereUsage, tokensAnywhereOrigin, type PiAiRoute,
 } from '../src/account.ts'
 import {
-  formatCount, formatMoney, formatMoneyShort, formatTokenLimit, formatUsd, formatYuanOf, moneyFormat, usageTicks,
+  formatCount, formatMoney, formatTokenLimit, formatUsd, formatYuanOf, moneyFormat, usageTicks,
 } from '../src/client/shared.ts'
 import {
   AnywhereAccount, LoopbackCallback, openProfileConfiguration, type CallbackResult, type CurrencyChoice, type LocalFiles,
@@ -233,11 +233,9 @@ describe('usage', () => {
     expect(formatYuanOf('10.000000', 7.1, 'zh-CN')).toBe('¥71')
     expect(formatYuanOf('1.000000', 7.12345, 'zh-CN')).toBe('¥7.12')
     expect(formatYuanOf('200.000000', 7.1, 'zh-CN')).toBe('¥1,420')
-    // Yuan for a Chinese reader whose account shows them, at a rate; the dollars stay beside them.
-    const yuan = moneyFormat({ localCurrency: true, cnyRate: 7.1 }, 'zh')
-    expect(formatMoney('10.000000', yuan)).toBe('¥71（$10.00）')
-    expect(formatMoneyShort('10.000000', yuan)).toBe('¥71')
-    // English has no currency of its own; a preference turned off or a missing rate leaves dollars alone too.
+    // One currency at a time: yuan for a Chinese reader with local currency on and a rate, otherwise dollars.
+    expect(formatMoney('10.000000', moneyFormat({ localCurrency: true, cnyRate: 7.1 }, 'zh'))).toBe('¥71')
+    // English has no currency of its own; local currency turned off or a missing rate leaves dollars alone too.
     for (const dollars of [
       moneyFormat({ localCurrency: true, cnyRate: 7.1 }, 'en'),
       moneyFormat({ localCurrency: false, cnyRate: 7.1 }, 'zh'),
@@ -245,7 +243,6 @@ describe('usage', () => {
       moneyFormat(undefined, 'zh'),
     ]) {
       expect(formatMoney('10.000000', dollars)).toBe('$10.00')
-      expect(formatMoneyShort('10.000000', dollars)).toBe('$10.00')
     }
   })
 
