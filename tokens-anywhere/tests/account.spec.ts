@@ -7,7 +7,9 @@ import {
   ANYWHERE_API_KEY_REF, ANYWHERE_ROUTE_IDS, TOKENS_ANYWHERE_ORIGIN, anywhereRoutes, beijingDates, commonThinkingLevel,
   offeredAnywhereModels, planAnywhereModels, stableJson, summarizeAnywhereUsage, tokensAnywhereOrigin,
 } from '../src/account.ts'
-import { formatCount, formatTokenLimit, formatYuan, usageTicks } from '../src/client/shared.ts'
+import {
+  formatCount, formatMoney, formatMoneyShort, formatTokenLimit, formatUsd, formatYuanOf, moneyFormat, usageTicks,
+} from '../src/client/shared.ts'
 import {
   AnywhereAccount, LoopbackCallback, openProfileConfiguration, type CallbackResult, type LocalFiles,
 } from '../src/host/account.ts'
@@ -177,17 +179,18 @@ describe('usage', () => {
       date, model, requests, inputTokens: 10, outputTokens: 5, cacheReadTokens: 2, cacheWrite5mTokens: 1, cacheWrite1hTokens: 0, amountCharged: amount,
     })
     const usage = summarizeAnywhereUsage({ days: 7, dates: ['2026-10-31', '2026-11-01', '2026-11-02'], rows: [
-      row('2026-11-01', 'deepseek-v4-pro', '0.1000', 1),
-      row('2026-11-01', 'claude-sonnet-5-5', '0.2000', 1),
-      row('2026-11-02', 'claude-sonnet-5-5', '1.0003', 2),
-      row('2026-10-01', 'old-model', '9.0000', 9),
+      row('2026-11-01', 'deepseek-v4-pro', '0.100000', 1),
+      row('2026-11-01', 'claude-sonnet-5-5', '0.200000', 1),
+      // Tokens Anywhere bills in millionths of a dollar: a short reply costs less than a cent.
+      row('2026-11-02', 'claude-sonnet-5-5', '1.000250', 2),
+      row('2026-10-01', 'old-model', '9.000000', 9),
     ] })
     expect(usage).toMatchObject({ days: 7, from: '2026-10-31', to: '2026-11-02' })
-    expect(usage.totals).toEqual({ requests: 4, inputTokens: 30, outputTokens: 15, cacheTokens: 9, amount: '1.3003' })
-    expect(usage.daily.map(day => [day.date, day.amount, day.requests])).toEqual([['2026-10-31', '0.0000', 0], ['2026-11-01', '0.3000', 2], ['2026-11-02', '1.0003', 2]])
+    expect(usage.totals).toEqual({ requests: 4, inputTokens: 30, outputTokens: 15, cacheTokens: 9, amount: '1.300250' })
+    expect(usage.daily.map(day => [day.date, day.amount, day.requests])).toEqual([['2026-10-31', '0.000000', 0], ['2026-11-01', '0.300000', 2], ['2026-11-02', '1.000250', 2]])
     // Each day's spend per model, for the stacked chart.
-    expect(usage.daily.map(day => day.byModel)).toEqual([{}, { 'deepseek-v4-pro': '0.1000', 'claude-sonnet-5-5': '0.2000' }, { 'claude-sonnet-5-5': '1.0003' }])
-    expect(usage.models.map(model => [model.model, model.amount])).toEqual([['claude-sonnet-5-5', '1.2003'], ['deepseek-v4-pro', '0.1000']])
+    expect(usage.daily.map(day => day.byModel)).toEqual([{}, { 'deepseek-v4-pro': '0.100000', 'claude-sonnet-5-5': '0.200000' }, { 'claude-sonnet-5-5': '1.000250' }])
+    expect(usage.models.map(model => [model.model, model.amount])).toEqual([['claude-sonnet-5-5', '1.200250'], ['deepseek-v4-pro', '0.100000']])
   })
 
   it('sums up one model alone, and rows without a model under no name', () => {
@@ -195,28 +198,44 @@ describe('usage', () => {
       date, model, requests: 1, inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWrite5mTokens: 0, cacheWrite1hTokens: 0, amountCharged: amount,
     })
     const read = { days: 7 as const, dates: ['2026-11-01', '2026-11-02'], rows: [
-      row('2026-11-01', 'deepseek-v4-pro', '0.1000'),
-      row('2026-11-01', 'claude-sonnet-5-5', '0.2000'),
-      row('2026-11-02', null, '0.4000'),
+      row('2026-11-01', 'deepseek-v4-pro', '0.100000'),
+      row('2026-11-01', 'claude-sonnet-5-5', '0.200000'),
+      row('2026-11-02', null, '0.400000'),
     ] }
     const one = summarizeAnywhereUsage(read, 'claude-sonnet-5-5')
-    expect(one.totals).toMatchObject({ requests: 1, inputTokens: 10, amount: '0.2000' })
-    expect(one.daily.map(day => [day.date, day.amount])).toEqual([['2026-11-01', '0.2000'], ['2026-11-02', '0.0000']])
+    expect(one.totals).toMatchObject({ requests: 1, inputTokens: 10, amount: '0.200000' })
+    expect(one.daily.map(day => [day.date, day.amount])).toEqual([['2026-11-01', '0.200000'], ['2026-11-02', '0.000000']])
     expect(one.models.map(model => model.model)).toEqual(['claude-sonnet-5-5'])
-    expect(summarizeAnywhereUsage(read, '').totals.amount).toBe('0.4000')
+    expect(summarizeAnywhereUsage(read, '').totals.amount).toBe('0.400000')
     expect(summarizeAnywhereUsage(read, 'not-used').totals.requests).toBe(0)
-    expect(summarizeAnywhereUsage(read).totals.amount).toBe('0.7000')
+    expect(summarizeAnywhereUsage(read).totals.amount).toBe('0.700000')
   })
 
-  it('formats amounts, counts and limits for reading', () => {
-    expect(formatYuan('12.3456', 'en')).toBe('¥12.35')
-    expect(formatYuan('0.7000', 'zh')).toBe('¥0.70')
-    expect(formatYuan('1234.0000', 'en')).toBe('¥1,234.00')
-    expect(formatYuan('19.5', 'zh')).toBe('¥19.50')
-    expect(formatYuan('0.9950', 'zh')).toBe('¥1.00')
-    expect(formatYuan('0.0049', 'zh')).toBe('¥0.00')
-    expect(formatYuan('-1.2345', 'en')).toBe('-¥1.23')
-    expect(formatYuan('-0.0012', 'en')).toBe('¥0.00')
+  it('writes money as the Tokens Anywhere console does', () => {
+    expect(formatUsd('12.345600', 'en-US')).toBe('$12.3456')
+    expect(formatUsd('19.500000', 'zh-CN')).toBe('$19.50')
+    expect(formatUsd('0.000250', 'en-US')).toBe('$0.00025')
+    expect(formatUsd('1234.000000', 'en-US')).toBe('$1,234.00')
+    expect(formatYuanOf('10.000000', 7.1, 'zh-CN')).toBe('¥71')
+    expect(formatYuanOf('1.000000', 7.12345, 'zh-CN')).toBe('¥7.12')
+    expect(formatYuanOf('200.000000', 7.1, 'zh-CN')).toBe('¥1,420')
+    // Yuan for a Chinese reader whose account shows them, at a rate; the dollars stay beside them.
+    const yuan = moneyFormat({ localCurrency: true, cnyRate: 7.1 }, 'zh')
+    expect(formatMoney('10.000000', yuan)).toBe('¥71（$10.00）')
+    expect(formatMoneyShort('10.000000', yuan)).toBe('¥71')
+    // English has no currency of its own; a preference turned off or a missing rate leaves dollars alone too.
+    for (const dollars of [
+      moneyFormat({ localCurrency: true, cnyRate: 7.1 }, 'en'),
+      moneyFormat({ localCurrency: false, cnyRate: 7.1 }, 'zh'),
+      moneyFormat({ localCurrency: true }, 'zh'),
+      moneyFormat(undefined, 'zh'),
+    ]) {
+      expect(formatMoney('10.000000', dollars)).toBe('$10.00')
+      expect(formatMoneyShort('10.000000', dollars)).toBe('$10.00')
+    }
+  })
+
+  it('formats counts and limits for reading', () => {
     expect(formatCount(1284, 'zh')).toBe('1,284')
     expect(formatCount(12900, 'en')).toBe('12.9K')
     expect(formatTokenLimit(1_000_000)).toBe('1M')
@@ -226,7 +245,7 @@ describe('usage', () => {
   it('picks clean axis ticks at any scale', () => {
     expect(usageTicks(0)).toEqual([0])
     expect(usageTicks(10)).toEqual([0, 5, 10])
-    // Amounts show two decimals, so the axis never steps below a fen.
+    // The axis never steps below a cent or a fen.
     expect(usageTicks(0.0053)).toEqual([0, 0.01])
     expect(usageTicks(0.2874)).toEqual([0, 0.1, 0.2, 0.3])
     expect(usageTicks(137)).toEqual([0, 50, 100, 150])
@@ -435,10 +454,12 @@ function fakeTokens() {
       return json({ data: listed.map(id => ({ id })) })
     }
     if (path === '/api/v1/pricing') return json({ groups: [{ name: 'default', models: priced }], profiles })
+    if (path === '/api/v1/exchange-rates') return json({ date: '2026-11-06', rates: { CNY: 7.1, JPY: 152 } })
     const bearer = headers.get('authorization')?.replace(/^Bearer /, '') ?? ''
     if (!server.access.has(bearer)) return json({ error: { code: 'unauthenticated' } }, 401)
     if (path === '/api/v1/me') return json({ id: '7', displayName: 'Ada', email: 'ada@example.com', loginName: '' })
-    if (path === '/api/v1/balance') return json({ balance: '20.0000', held: '0.5000', available: '19.5000' })
+    if (path === '/api/v1/balance') return json({ balance: '20.000000', held: '0.500000', available: '19.500000', bonus: '0.000000', topupPayRate: 10000 })
+    if (path === '/api/v1/me/preferences') return json({ localCurrency: true })
     if (path === '/api/v1/keys/42/rotate') {
       server.keySecret = `sk-rotated-${String(++counter)}`
       return json({ key: { id: '42', prefix: server.keySecret.slice(0, 11) }, secret: server.keySecret })
@@ -449,7 +470,7 @@ function fakeTokens() {
     }
     if (path === '/api/v1/usage/daily') {
       server.usageQueries.push(url.searchParams)
-      return json({ items: [{ date: url.searchParams.get('to'), model: 'deepseek-v4-pro', requests: 3, inputTokens: 100, outputTokens: 50, cacheReadTokens: 10, cacheWrite5mTokens: 0, cacheWrite1hTokens: 0, amountCharged: '0.1234' }] })
+      return json({ items: [{ date: url.searchParams.get('to'), model: 'deepseek-v4-pro', requests: 3, inputTokens: 100, outputTokens: 50, cacheReadTokens: 10, cacheWrite5mTokens: 0, cacheWrite1hTokens: 0, amountCharged: '0.000250' }] })
     }
     throw new Error(`unexpected ${path}`)
   })
@@ -507,7 +528,9 @@ describe('Anywhere account', () => {
       expect(fake.shell.seal).toHaveBeenCalledWith('ta_rt_1')
       expect(fake.record).toMatchObject({ version: 3, origin: ORIGIN, sealedRefreshToken: 'sealed:ta_rt_1', key: { id: '42' } })
       expect(JSON.stringify(fake.record)).not.toMatch(new RegExp(`"ta_rt_1"|ta_at_|${KEY}`))
-      await vi.waitFor(async () => { expect((await account.snapshot()).balance?.available).toBe('19.5000') })
+      await vi.waitFor(async () => { expect((await account.snapshot()).balance?.available).toBe('19.500000') })
+      // With the balance comes how the account shows money: its preference and the day's yuan rate.
+      await vi.waitFor(async () => { expect((await account.snapshot()).money).toEqual({ localCurrency: true, cnyRate: 7.1 }) })
       const snapshot = await account.snapshot()
       expect(snapshot.account).toMatchObject({ displayName: 'Ada', email: 'ada@example.com', keyPrefix: KEY.slice(0, 11) })
       expect(snapshot.models?.map(model => model.id)).toContain('claude-sonnet-5-5')
@@ -629,7 +652,7 @@ describe('Anywhere account', () => {
       expect(fake.record).toMatchObject({ sealedRefreshToken: 'sealed:ta_rt_2' })
       expect(results[0].days).toBe(7)
       expect(results[0].dates).toHaveLength(7)
-      expect(summarizeAnywhereUsage(results[0]).totals).toMatchObject({ requests: 3, amount: '0.1234' })
+      expect(summarizeAnywhereUsage(results[0]).totals).toMatchObject({ requests: 3, amount: '0.000250' })
       expect(results[1].days).toBe(30)
       expect(server.usageQueries[0]?.has('keyId')).toBe(false)
       expect(server.usageQueries[0]?.get('groupBy')).toBe('model')
@@ -711,7 +734,7 @@ describe('Anywhere account', () => {
     try {
       await second.start()
       await vi.waitFor(() => { expect(server.calls).toContain('GET /api/v1/balance') })
-      await vi.waitFor(async () => { expect((await second.snapshot()).balance?.available).toBe('19.5000') })
+      await vi.waitFor(async () => { expect((await second.snapshot()).balance?.available).toBe('19.500000') })
       // The key check and the balance share one refresh.
       expect(server.refreshed).toBe(1)
     } finally {
@@ -739,7 +762,7 @@ describe('Anywhere account', () => {
       expect((await second.snapshot()).account?.sessionEnded).toBeUndefined()
       open()
       await started
-      await vi.waitFor(async () => { expect((await second.snapshot()).balance?.available).toBe('19.5000') })
+      await vi.waitFor(async () => { expect((await second.snapshot()).balance?.available).toBe('19.500000') })
       expect((await second.snapshot()).account?.sessionEnded).toBeUndefined()
       expect(server.refreshed).toBe(1)
     } finally {

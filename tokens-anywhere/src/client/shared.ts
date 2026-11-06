@@ -1,5 +1,5 @@
 /** What the account page shares: Host calls, wording of failures, number formats. */
-import type { AnywhereAccountSnapshot, AnywherePlacementState, AnywhereProblem } from '../account.ts'
+import type { AnywhereAccountSnapshot, AnywhereMoneyDisplay, AnywherePlacementState, AnywhereProblem } from '../account.ts'
 
 export type Copy = (zh: string, en: string) => string
 
@@ -55,15 +55,48 @@ export function intlLocale(language: string): string {
   return language.startsWith('zh') ? 'zh-CN' : 'en-US'
 }
 
-/** An amount in yuan with two decimals, rounded half up. */
-export function formatYuan(amount: string, language: string): string {
-  const match = /^(-)?(\d+)(?:\.(\d+))?$/u.exec(amount.trim())
-  if (match === null) return `¥${amount}`
-  // In fen, from the decimal digits, so the rounding is exact: the third decimal decides.
-  const digits = (match[3] ?? '').padEnd(3, '0')
-  const fen = Number(match[2]) * 100 + Number(digits.slice(0, 2)) + (Number(digits[2]) >= 5 ? 1 : 0)
-  const whole = new Intl.NumberFormat(intlLocale(language)).format(Math.floor(fen / 100))
-  return `${match[1] !== undefined && fen > 0 ? '-' : ''}¥${whole}.${String(fen % 100).padStart(2, '0')}`
+/**
+ * How the page writes money, as Tokens Anywhere's console does (web/lib/local-currency.ts, hooks/use-local-currency.ts):
+ * US dollars, and for a Chinese reader whose account shows its local currency, yuan at the day's rate with the dollars
+ * beside them. English has no currency of its own, so it stays in dollars.
+ */
+export interface MoneyFormat {
+  readonly locale: string
+  /** Yuan per dollar while yuan are shown; undefined shows dollars only. */
+  readonly yuanRate: number | undefined
+}
+
+export function moneyFormat(money: AnywhereMoneyDisplay | undefined, language: string): MoneyFormat {
+  const shown = language.startsWith('zh') && money?.localCurrency === true ? money.cnyRate : undefined
+  return { locale: intlLocale(language), yuanRate: shown }
+}
+
+/** Dollars as the console writes them: at least two decimals, at most six. */
+export function formatUsd(usd: string, locale: string): string {
+  // Intl reads the decimal string itself, so six decimals never pass through a float.
+  return new Intl.NumberFormat(locale, {
+    style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 2, maximumFractionDigits: 6,
+  }).format(usd as unknown as number)
+}
+
+/** A dollar amount in yuan at `rate`, for reading rather than paying: three significant digits, whole yuan from a thousand up. */
+export function formatYuanOf(usd: string, rate: number, locale: string): string {
+  const value = Number(usd) * rate
+  return new Intl.NumberFormat(locale, {
+    style: 'currency', currency: 'CNY', currencyDisplay: 'narrowSymbol',
+    ...(Math.abs(value) >= 1000 ? { maximumFractionDigits: 0 } : { maximumSignificantDigits: 3 }),
+  }).format(value)
+}
+
+/** An amount for a sentence: yuan with the dollars beside them while yuan are shown, otherwise the dollars. */
+export function formatMoney(usd: string, format: MoneyFormat): string {
+  const dollars = formatUsd(usd, format.locale)
+  return format.yuanRate === undefined ? dollars : `${formatYuanOf(usd, format.yuanRate, format.locale)}（${dollars}）`
+}
+
+/** An amount where one currency fits, such as on a chart: yuan while they are shown, otherwise the dollars. */
+export function formatMoneyShort(usd: string, format: MoneyFormat): string {
+  return format.yuanRate === undefined ? formatUsd(usd, format.locale) : formatYuanOf(usd, format.yuanRate, format.locale)
 }
 
 /** A count, compact from ten thousand up in Chinese and a thousand up otherwise. */
@@ -80,7 +113,7 @@ export function formatTokenLimit(value: number): string {
   return String(value)
 }
 
-/** Clean y-axis ticks for an amount in yuan up to at least `max`, starting at zero, never finer than a fen. */
+/** Clean y-axis ticks for an amount up to at least `max`, starting at zero, never finer than a cent or a fen. */
 export function usageTicks(max: number): number[] {
   if (max <= 0) return [0]
   const rough = max / 3

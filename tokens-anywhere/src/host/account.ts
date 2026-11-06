@@ -14,13 +14,13 @@ import { credentialKey, credentialRef, type CredentialProvider } from '@deepseek
 import type { SettingsForms } from '@deepseek-ai/dsh-settings'
 import {
   ANYWHERE_ACCOUNT_ROUTES, ANYWHERE_API_KEY_REF, TOKENS_ANYWHERE_URL_VARIABLE, beijingDates, tokensAnywhereOrigin,
-  type AnywhereAccountSnapshot, type AnywhereProblem, type AnywhereSignInPhase, type AnywhereUsageRows,
+  type AnywhereAccountSnapshot, type AnywhereMoneyDisplay, type AnywhereProblem, type AnywhereSignInPhase, type AnywhereUsageRows,
 } from '../account.ts'
 import { AnywhereModels } from './models.ts'
 import type { AnywhereSettings } from './settings.ts'
 import { AnywhereShell } from './shell.ts'
 import {
-  AnywhereError, TokensApi, TokensGrantError, anywhereProblem, exchangeTokensCode, refreshTokens, revokeTokens,
+  AnywhereError, TokensApi, TokensGrantError, anywhereProblem, exchangeTokensCode, readYuanRate, refreshTokens, revokeTokens,
   tokensAuthorizeUrl,
 } from './tokens-client.ts'
 
@@ -29,6 +29,9 @@ const ACCOUNT_RECORD = credentialKey('tokens-anywhere', 'account')
 /** The browser part of a sign-in, including signing up and signing in to Agents Anywhere on the way. */
 const ATTEMPT_TIMEOUT_MS = 10 * 60_000
 const BALANCE_MAX_AGE_MS = 30_000
+/** The day's yuan rate is kept an hour, as the Tokens Anywhere console keeps it; a failed read is tried again a minute on. */
+const RATE_MAX_AGE_MS = 3_600_000
+const RATE_RETRY_MS = 60_000
 /** Access tokens are renewed this long before Tokens Anywhere would refuse them. */
 const ACCESS_MARGIN_MS = 60_000
 /** How often a signed-in Host checks its key and the models again. */
@@ -175,6 +178,10 @@ export class AnywhereAccount {
   private balance: AnywhereAccountSnapshot['balance']
   private balanceError: AnywhereProblem | undefined
   private balancePending: Promise<void> | undefined
+  /** The account's local currency preference, read with each balance; undefined until read. */
+  private localCurrency: boolean | undefined
+  /** The day's yuan rate at the Tokens Anywhere it came from, undefined in `rate` while there is none. */
+  private yuanRate: { readonly origin: string; readonly rate: number | undefined; readonly checkedAt: number } | undefined
   private notice: AnywhereProblem | undefined
   private syncing: Promise<void> | undefined
   private syncTimer: NodeJS.Timeout | undefined
@@ -281,6 +288,7 @@ export class AnywhereAccount {
       },
       ...(account === undefined || this.balance === undefined ? {} : { balance: this.balance }),
       ...(account === undefined || this.balanceError === undefined ? {} : { balanceError: this.balanceError }),
+      ...(account === undefined ? {} : { money: this.money(account.origin) }),
       ...(catalog === undefined ? {} : {
         ...(catalog.models === undefined ? {} : { models: catalog.models }),
         ...(catalog.error === undefined ? {} : { modelsError: catalog.error }),
@@ -398,6 +406,7 @@ export class AnywhereAccount {
       this.memoryOnly = sealed === undefined
       this.balance = undefined
       this.balanceError = undefined
+      this.localCurrency = undefined
       this.finish(attempt, 'succeeded')
       this.schedule()
       void this.refreshBalance(record)
@@ -479,15 +488,31 @@ export class AnywhereAccount {
 
   private refreshBalance(account: AccountRecord): Promise<void> {
     this.balancePending ??= (async () => {
+      const api = this.api(account.origin)
+      const signal = this.lifetime.signal
+      // The preference and the rate only change how amounts read, so neither failing holds the balance back.
+      const preference = api.preferences(signal).then((value) => { this.localCurrency = value.localCurrency }, () => {})
+      const known = this.yuanRate?.origin === account.origin ? this.yuanRate : undefined
+      const rate = known !== undefined && Date.now() - known.checkedAt < RATE_MAX_AGE_MS ? Promise.resolve() : readYuanRate(account.origin, signal).then(
+        (value) => { this.yuanRate = { origin: account.origin, rate: value, checkedAt: Date.now() } },
+        () => { this.yuanRate = { origin: account.origin, rate: known?.rate, checkedAt: Date.now() - RATE_MAX_AGE_MS + RATE_RETRY_MS } },
+      )
       try {
-        const balance = await this.api(account.origin).balance(this.lifetime.signal)
+        const balance = await api.balance(signal)
         this.balance = { ...balance, checkedAt: new Date().toISOString() }
         this.balanceError = undefined
       } catch (error) {
         this.balanceError = anywhereProblem(error)
       }
+      await Promise.all([preference, rate])
     })().finally(() => { this.balancePending = undefined })
     return this.balancePending
+  }
+
+  /** How the account shows money: dollars, with yuan beside them while its preference is on and there is a rate. */
+  private money(origin: string): AnywhereMoneyDisplay {
+    const rate = this.yuanRate?.origin === origin ? this.yuanRate.rate : undefined
+    return { localCurrency: this.localCurrency ?? false, ...(rate === undefined ? {} : { cnyRate: rate }) }
   }
 
   /** Re-read the balance, the key and the model list. */
@@ -521,6 +546,7 @@ export class AnywhereAccount {
     this.memoryOnly = false
     this.balance = undefined
     this.balanceError = undefined
+    this.localCurrency = undefined
     this.notice = account === undefined ? undefined : notice
   }
 

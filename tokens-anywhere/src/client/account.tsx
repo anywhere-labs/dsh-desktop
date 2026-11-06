@@ -9,10 +9,10 @@ import {
   Button, IconRightUpOutlineRegular, IconUserOutlineRegular, SegmentedTabs, Tag, type SegmentedTab,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ANYWHERE_ACCOUNT_ROUTES, type AnywhereAccountSnapshot, type AnywhereProblem } from '../account.ts'
-import { ToggleRow } from './controls.tsx'
+import { MoneyAmount, ToggleRow } from './controls.tsx'
 import { AnywhereKeyRows, AnywhereLocalFileRows } from './local.tsx'
 import { AnywhereModelsPanel, ControlRow, type OfficialModelsFace } from './models.tsx'
-import { callHost, formatYuan, problemText, type AnywherePlacement, type Copy, type RouteReply } from './shared.ts'
+import { callHost, formatMoney, moneyFormat, problemText, type AnywherePlacement, type Copy, type RouteReply } from './shared.ts'
 import { AnywhereUsageBoard } from './usage.tsx'
 
 /** A sign-in and a first balance arrive soon; otherwise the page only has the balance to keep fresh. */
@@ -72,7 +72,7 @@ function SignedOut({ state, t, busy, run, notice }: {
       <div className="dshAnywhereBalanceCard">
         {[
           [t('模型', 'Models'), t('Claude、GPT、DeepSeek 自动配置好，思考等级默认开启', 'Claude, GPT and DeepSeek set up for you, with thinking on by default')],
-          [t('计费', 'Billing'), t('人民币余额，用多少扣多少，可随时查看用量', 'A CNY balance, charged as you use it, with usage to check anytime')],
+          [t('计费', 'Billing'), t('美元余额，用多少扣多少，可随时查看用量', 'A US dollar balance, charged as you use it, with usage to check anytime')],
           [t('本机', 'This computer'), t('退出登录后，本机的 Key 和模型配置都会移除', 'Signing out removes the key and the models from this computer')],
         ].map(([label, text], index) => (
           <div key={label}>
@@ -150,6 +150,7 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
   const attempt = state.attempt
   const pending = attempt !== undefined && PENDING_PHASES.includes(attempt.phase)
   const held = state.balance !== undefined && Number(state.balance.held) > 0
+  const money = moneyFormat(state.money, language)
   const part = (value: AccountTab, label: string): SegmentedTab<AccountTab> =>
     ({ value, label, id: `${navId}-${value}`, panelId: `${navId}-${value}-panel` })
   const parts: [SegmentedTab<AccountTab>, ...SegmentedTab<AccountTab>[]] = [
@@ -204,9 +205,9 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
             <span className="dshAnywhereActions">
               {state.balance !== undefined ? (
                 <span className="dshAnywhereAmountColumn">
-                  <span className="dshAnywhereAmount">{formatYuan(state.balance.available, language)}</span>
+                  <span className="dshAnywhereAmount"><MoneyAmount usd={state.balance.available} format={money} /></span>
                   {held && state.balance !== undefined && (
-                    <span className="dshAnywhereSecondary">{t(`另有 ${formatYuan(state.balance.held, language)} 正在使用中`, `plus ${formatYuan(state.balance.held, language)} held by running requests`)}</span>
+                    <span className="dshAnywhereSecondary">{t(`另有 ${formatMoney(state.balance.held, money)} 正在使用中`, `plus ${formatMoney(state.balance.held, money)} held by running requests`)}</span>
                   )}
                 </span>
               ) : (
@@ -234,7 +235,7 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
       </div>
       {account.sessionEnded !== true && visited.has('usage') && (
         <div role="tabpanel" id={`${navId}-usage-panel`} aria-labelledby={`${navId}-usage`} hidden={tab !== 'usage'}>
-          <AnywhereUsageBoard t={t} language={language} models={state.models} />
+          <AnywhereUsageBoard t={t} language={language} models={state.models} money={state.money} />
         </div>
       )}
       <div role="tabpanel" id={`${navId}-local-panel`} aria-labelledby={`${navId}-local`} hidden={tab !== 'local'}>

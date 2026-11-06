@@ -124,6 +124,18 @@ export async function revokeTokens(origin: string, token: string, signal: AbortS
   }
 }
 
+/**
+ * How many yuan a US dollar buys today, from the public `GET /api/v1/exchange-rates`; undefined while Tokens Anywhere
+ * has no rate. Display only: every charge stays in dollars.
+ * @param origin - Tokens Anywhere.
+ */
+export async function readYuanRate(origin: string, signal: AbortSignal): Promise<number | undefined> {
+  const { status, body } = await send(`${origin}/api/v1/exchange-rates`, { headers: { accept: 'application/json' } }, signal)
+  if (status !== 200) throw new AnywhereError(status >= 500 ? 'server' : 'rejected', `HTTP ${status}`)
+  const rate = (body as { rates?: { CNY?: unknown } } | undefined)?.rates?.CNY
+  return typeof rate === 'number' && Number.isFinite(rate) && rate > 0 ? rate : undefined
+}
+
 /** The signed-in user as `GET /api/v1/me` reports it. */
 export interface TokensUser {
   readonly displayName: string
@@ -184,7 +196,13 @@ export class TokensApi {
   async balance(signal: AbortSignal): Promise<{ available: string; held: string }> {
     const { body } = await this.call('/api/v1/balance', {}, signal)
     const value = body as { available?: unknown; held?: unknown } | undefined
-    return { available: String(value?.available ?? '0.0000'), held: String(value?.held ?? '0.0000') }
+    return { available: String(value?.available ?? '0.000000'), held: String(value?.held ?? '0.000000') }
+  }
+
+  /** Whether the account shows money in its language's currency beside dollars; on unless the user turned it off. */
+  async preferences(signal: AbortSignal): Promise<{ localCurrency: boolean }> {
+    const { body } = await this.call('/api/v1/me/preferences', {}, signal)
+    return { localCurrency: (body as { localCurrency?: unknown } | undefined)?.localCurrency !== false }
   }
 
   /** The grant's own key, made on first call and returned as it is now afterwards (rotated keys included). */
