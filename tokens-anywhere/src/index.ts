@@ -24,8 +24,8 @@ export interface Config {
 }
 
 export const Config = z.object({
-  sidebar: z.boolean().default(true).volatile().description('Show the Anywhere account in the left sidebar.'),
-  conversation: z.boolean().default(false).volatile().description('Show the Anywhere account beside every conversation.'),
+  sidebar: z.boolean().default(true).volatile().description('Show Tokens Anywhere in the left sidebar.'),
+  conversation: z.boolean().default(false).volatile().description('Show Tokens Anywhere beside every conversation.'),
   storeKey: z.boolean().default(true).volatile().description('Keep the account\'s key in the credentials file.'),
   writeModels: z.boolean().default(true).volatile().description('Write the account\'s models into the Profile configuration.'),
 })
