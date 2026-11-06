@@ -271,23 +271,13 @@ describe('published package surface', () => {
     }
   })
 
-  it('gives the Desktop settings section a dedicated display icon', () => {
-    const patchPath = `./patches/dsh-client-ui-settings-general@${runtimeVersion}.patch`
+  it('leaves the settings shell unpached now that it declares the section icon slot', () => {
+    // The Desktop navigation glyph registers into 'settings.section.icon'; a
+    // patched bundle would paint a second, unfollowing fallback instead.
     expect(dshResolution('@deepseek-ai/dsh-client-ui-settings-general'))
-      .toContain(patchPath)
-    const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8')
-    const installedClient = readFileSync(new URL(
-      'node_modules/@deepseek-ai/dsh-client-ui-settings-general/lib/client.js',
-      packageRoot,
-    ), 'utf8')
-    for (const marker of [
-      'function IconDesktopSettings',
-      'if (id === "desktop")',
-      'M5 14h6M8 11.5V14',
-    ]) {
-      expect(patch).toContain(marker)
-      expect(installedClient).toContain(marker)
-    }
+      .toBe(`file:vendor/dsh-runtime/${runtimeVersion}/deepseek-ai-dsh-client-ui-settings-general-${runtimeVersion}.tgz`)
+    expect(existsSync(new URL(`./patches/dsh-client-ui-settings-general@${runtimeVersion}.patch`, workspaceRoot)))
+      .toBe(false)
   })
 
   it('keeps wide Markdown table scrollbars visible without hover', () => {

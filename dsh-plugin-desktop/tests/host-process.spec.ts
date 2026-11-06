@@ -11,6 +11,7 @@ import {
 
 function fixture() {
   const child = Object.assign(new EventEmitter(), {
+    pid: 4242,
     stdout: new EventEmitter(), stderr: new EventEmitter(),
     postMessage: vi.fn((message: { kind: string; id: number; method?: string }) => {
       if (message.kind === 'call') queueMicrotask(() => child.emit('message', { kind: 'result', id: message.id, value: { pid: 123 } }))
@@ -48,9 +49,11 @@ it('carries the exit code and how long the Host lived, so a code 0 is not read a
   const f = fixture()
   await startIsolatedDesktopHost(f.options)
   f.child.emit('exit', 0)
-  const [error, exit] = f.onFailure.mock.calls[0] as [Error, { exitCode: number; uptimeMs: number }]
+  const [error, exit] = f.onFailure.mock.calls[0] as [Error, IsolatedHostExit]
   expect(error.message).toContain('DSH Host exited (0)')
   expect(exit.exitCode).toBe(0)
+  // The pid is what matches the exit to the minidump Crashpad wrote for this child.
+  expect(exit.hostPid).toBe(4242)
   expect(exit.uptimeMs).toBeGreaterThanOrEqual(0)
   expect(Number.isFinite(exit.uptimeMs)).toBe(true)
 })
@@ -80,5 +83,5 @@ it('keeps what a fatal Host said last, since its stderr is otherwise never persi
 })
 it('logs only the exit reason when the Host wrote nothing', () => {
   const error = new Error('DSH Host exited (0); restart the application to reconnect')
-  expect(formatUnexpectedHostExit(error, { exitCode: 0, uptimeMs: 1, stderrTail: '\n' })).toBe(error.message)
+  expect(formatUnexpectedHostExit(error, { hostPid: 4242, exitCode: 0, uptimeMs: 1, stderrTail: '\n' })).toBe(error.message)
 })

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parseDesktopMinidumpHeader, summarizeDesktopCrashDumps } from '../src/crashpad-evidence.ts'
+import { formatDesktopCrashDumps, parseDesktopMinidumpHeader, summarizeDesktopCrashDumps } from '../src/crashpad-evidence.ts'
 
 function minidump(): Buffer {
   const buffer = Buffer.alloc(2048)
@@ -85,6 +85,35 @@ describe('Crashpad minidump evidence', () => {
       exceptionModule: 'dsh-desktop',
     })
     expect(recent[0]?.modifiedAt).toBeTruthy()
+  })
+
+  it('renders one bounded log line per dump, without private paths', () => {
+    expect(formatDesktopCrashDumps([])).toBe('none')
+
+    const line = formatDesktopCrashDumps([{
+      file: 'e63c94c0-ea8e-49c4-a4d3-5bb1e190bac5.dmp',
+      modifiedAt: '2026-11-05T14:13:20.000Z',
+      sizeBytes: 223_746,
+      dumpTimestamp: '2026-11-05T14:13:19.000Z',
+      processId: 1_583_845,
+      exceptionCode: 5,
+      exceptionCodeHex: '0x5',
+      instructionPointer: '0x100123',
+      exceptionModule: 'dsh-desktop',
+      exceptionModuleOffset: '0x123',
+    }])
+    expect(line).toBe(
+      '1 dump | e63c94c0-ea8e-49c4-a4d3-5bb1e190bac5.dmp 2026-11-05T14:13:19.000Z bytes=223746 '
+      + 'pid=1583845 code=0x5 ip=0x100123 module=dsh-desktop +0x123',
+    )
+    expect(line).not.toContain('/opt/')
+
+    expect(formatDesktopCrashDumps([
+      { file: 'a.dmp', modifiedAt: '2026-11-05T00:00:01.000Z', sizeBytes: 12 },
+      { file: 'b.dmp', modifiedAt: '2026-11-05T00:00:02.000Z', sizeBytes: 8, parseError: 'not a minidump' },
+    ])).toBe(
+      '2 dumps | a.dmp 2026-11-05T00:00:01.000Z bytes=12 || b.dmp 2026-11-05T00:00:02.000Z bytes=8 unreadable=not a minidump',
+    )
   })
 })
 

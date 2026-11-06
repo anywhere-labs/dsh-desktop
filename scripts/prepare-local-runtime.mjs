@@ -546,6 +546,10 @@ function restorePinnedPackage(channel, name) {
   if (!isInside(root, vendorManifestPath) || !isInside(root, workspaceRoot)) {
     throw new Error(`unsafe pinned runtime path for ${channel}`)
   }
+  // A package the channel workspace no longer installs is already gone. Upstream can delete a
+  // package, and then no vendor manifest carries a record to restore it from.
+  const installed = findInstalledPackage(workspaceRoot, name)
+  if (installed === null) return
   const vendorManifest = readJson(vendorManifestPath)
   if (vendorManifest.commit !== channelInfo.commit || vendorManifest.version !== channelInfo.runtimePackageVersion
     || !Array.isArray(vendorManifest.packages)) {
@@ -563,8 +567,6 @@ function restorePinnedPackage(channel, name) {
   if (!existsSync(tarballPath) || sha256(readFileSync(tarballPath)) !== entry.sha256) {
     throw new Error(`pinned runtime tarball failed integrity check: ${tarballPath}`)
   }
-  const installed = findInstalledPackage(workspaceRoot, name)
-  if (installed === null) return
   const target = resolve(workspaceRoot, 'node_modules', ...name.split('/'))
   if (installed.root !== target || realpathSync(target) !== target || lstatSync(target).isSymbolicLink()) {
     throw new Error(`cannot safely restore ${name} outside ${workspaceRoot}/node_modules`)

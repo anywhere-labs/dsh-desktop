@@ -34,6 +34,11 @@ const usePanelInfo = <S,>(select: (info: PanelInfo) => S): S => select(layout.ge
 const useRemoteAccess = (() => true) as WorkspaceSourcesRootActionProps['useRemoteAccess']
 const useSessionAccess = (() => true) as WorkspaceSourcesRootActionProps['useSessionAccess']
 const useWorkspaceAccess = (() => true) as WorkspaceSourcesRootActionProps['useWorkspaceAccess']
+const useContextMenu = vi.fn() as WorkspaceSourcesRootActionProps['useContextMenu']
+const useAccess = vi.fn() as WorkspaceSourcesRootActionProps['useAccess']
+const useConversation = vi.fn() as WorkspaceSourcesRootActionProps['useConversation']
+const useInput = vi.fn() as WorkspaceSourcesRootActionProps['useInput']
+const inputActions = {} as WorkspaceSourcesRootActionProps['inputActions']
 
 let root: Root | undefined
 let container: HTMLDivElement | undefined
@@ -87,6 +92,11 @@ describe('Workspace source root switching', () => {
       useSessionAccess,
       useWorkspaceAccess,
       usePanelInfo,
+      useContextMenu,
+      useAccess,
+      useConversation,
+      useInput,
+      inputActions,
       t,
       actions: { publish: vi.fn() },
       useStore: useStoreFor(WORKSPACE, { sources: [ATTACHED], selectedRoot: WORKSPACE }),
@@ -124,6 +134,11 @@ describe('Workspace source root switching', () => {
       useSessionAccess,
       useWorkspaceAccess,
       usePanelInfo,
+      useContextMenu,
+      useAccess,
+      useConversation,
+      useInput,
+      inputActions,
       t,
       actions: { publish: vi.fn() },
       useStore: useStoreFor(ATTACHED, { sources: [WORKSPACE], selectedRoot: WORKSPACE }),

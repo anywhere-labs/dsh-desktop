@@ -261,9 +261,9 @@ export function createDesktopSettingsPort(
     developerLogging: config.developerLogging?.get() ?? false,
   })
   assertDesktopSettings(read(), platform)
-  ctx.on('internal/config', function (_raw, next) {
+  ctx.on('internal/config', function (fiber, next) {
     const raw: unknown = next()
-    if (this !== ctx.fiber) return raw
+    if (fiber !== ctx.fiber) return raw
     assertDesktopSettings(readCandidate(raw), platform)
     return raw
   })

@@ -367,7 +367,7 @@ function createHarness(
       for (const listener of documentUpdated) listener('ui-theme', 1)
     },
     validate: (candidate) => {
-      for (const waterfall of configWaterfall) waterfall.call(fiber, candidate, () => candidate)
+      for (const waterfall of configWaterfall) waterfall.call(fiber, fiber, () => candidate)
     },
   }
 }

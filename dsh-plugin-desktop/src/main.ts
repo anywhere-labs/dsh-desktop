@@ -55,6 +55,7 @@ import {
   startDesktopCrashReporting,
   type DesktopRun,
 } from './crash-evidence.ts'
+import { formatDesktopCrashDumps, summarizeDesktopCrashDumps } from './crashpad-evidence.ts'
 import { dshProductVersion } from './dsh-product-version.ts'
 import { exportDesktopDiagnostics } from './diagnostic-export.ts'
 import { createDesktopLifecycleRecorder } from './lifecycle-events.ts'
@@ -245,6 +246,11 @@ import { desktopRecoveryCopy } from './recovery-copy.ts'
 
 const BIN_NAME = DESKTOP_PACKAGE_NAME
 const PRODUCT_NAME = DESKTOP_PRODUCT_NAME
+
+/** How far back a child-process event looks for its minidump: Crashpad writes within seconds. */
+const CHILD_PROCESS_DUMP_WINDOW_MS = 15_000
+/** Delay before re-reading the dump directory, for a Crashpad flush that trails the event. */
+const CHILD_PROCESS_DUMP_RESCAN_MS = 750
 
 function withDesktopDshHome(
   environment: LaunchEnvironmentSnapshot,
@@ -564,6 +570,19 @@ async function start(): Promise<void> {
   } catch (cause) {
     electronLogger.error(`${BIN_NAME}: local crash reporting unavailable: ${cause instanceof Error ? cause.message : String(cause)}`)
   }
+  // Crashpad writes the minidump next to its settings, and Electron's events say only that a child
+  // died. Reading the dump header is what turns that into a signal, a module and an offset.
+  const crashReporterDirectory = join(app.getPath('userData'), 'Crashpad')
+  const logCrashpadDumps = (reason: string, since: string | undefined): void => {
+    try {
+      const dumps = summarizeDesktopCrashDumps(crashReporterDirectory, since)
+      const message = `${BIN_NAME}: Crashpad dumps (${reason}) since ${since ?? 'the beginning'}: ${formatDesktopCrashDumps(dumps)}`
+      if (dumps.length === 0) electronLogger.info(message)
+      else electronLogger.error(message)
+    } catch (cause) {
+      electronLogger.error(`${BIN_NAME}: Crashpad summary failed (${reason}): ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
+  }
   let desktopRun: DesktopRun | undefined
   try {
     desktopRun = beginDesktopRun(
@@ -579,11 +598,25 @@ async function start(): Promise<void> {
       electronLogger.error('unreadable' in previousRun
         ? `${BIN_NAME}: previous desktop run did not shut down cleanly (active run marker unreadable)`
         : `${BIN_NAME}: previous desktop run did not shut down cleanly (startedAt: ${previousRun.startedAt}, pid: ${String(previousRun.pid)}, version: ${previousRun.version})`)
+      logCrashpadDumps(`previous-run ${'unreadable' in previousRun ? 'marker unreadable' : `started ${previousRun.startedAt}`}`,
+        'unreadable' in previousRun ? undefined : previousRun.startedAt)
     }
   } catch (cause) {
     electronLogger.error(`${BIN_NAME}: active run tracking unavailable: ${cause instanceof Error ? cause.message : String(cause)}`)
   }
   removeChildProcessLogging = installDesktopChildProcessLogging(app, electronLogger, details => {
+    // Recovery handles a clean or killed child; only an abnormal death is worth a dump scan.
+    // The scan runs first: the logger swallows a failing observer, so nothing may sit between the
+    // event and the evidence that explains it.
+    if (details.reason === 'crashed' || details.reason === 'oom' || details.reason === 'launch-failed') {
+      const since = new Date(Date.now() - CHILD_PROCESS_DUMP_WINDOW_MS).toISOString()
+      const reason = `${details.type}/${details.serviceName ?? details.name ?? 'unnamed'} ${details.reason}`
+      logCrashpadDumps(reason, since)
+      // Crashpad can finish flushing just after Chromium emits the event, so re-scan without
+      // delaying the recovery that follows this observer.
+      const timer = setTimeout(() => { logCrashpadDumps(`${reason} (late)`, since) }, CHILD_PROCESS_DUMP_RESCAN_MS)
+      timer.unref()
+    }
     lastChildProcessGone = describeDesktopChildProcess(details)
   })
   const nativeExit = createDesktopExitCoordinator(
@@ -1647,10 +1680,17 @@ async function start(): Promise<void> {
         bindHost: host => generation.bindHost(host), requestQuit,
         onFailure: (error, exit) => {
           electronLogger.error(formatUnexpectedHostExit(error, exit))
+          // The Host is an Electron utility process, so Crashpad owns its native crash: without
+          // this scan a SIGTRAP leaves only the stderr flood behind.
+          logCrashpadDumps(
+            `DSH Host pid ${String(exit.hostPid ?? 'unknown')} exited (${exit.exitCode})`,
+            new Date(Date.now() - exit.uptimeMs - CHILD_PROCESS_DUMP_WINDOW_MS).toISOString(),
+          )
           lifecycleRecorder.recordHostExit({
             exitCode: exit.exitCode,
             expected: false,
             uptimeMs: exit.uptimeMs,
+            ...(exit.hostPid === undefined ? {} : { hostPid: exit.hostPid }),
             ...(lastChildProcessGone === undefined ? {} : { childProcessGone: lastChildProcessGone }),
           })
           runtime.notifyAttention({ title: PRODUCT_NAME, body: error.message })

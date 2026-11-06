@@ -101,3 +101,48 @@ The snapshot edits submodule *source*. The same bump must also re-record the 21
 tarballs, referenced from the root `package.json` resolutions and asserted by
 `dsh-plugin-desktop-beta/tests/package.spec.ts`. Both sets are keyed to the runtime
 version, so an rc bump orphans both if only one is refreshed.
+
+## `0.2.2-rc.1` — 1 squashed snapshot
+
+Base pin `66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db` (tag `dsh-v0.2.2-rc.1`), now
+recorded for all three channels in `upstream.json`.
+
+`worktree-snapshot-20261106.patch` is `git diff <pin> 013e5314e0` — 116 files,
++2793/−188 — over three local commits: `b884b86930` (carry the `0.2.1-rc.5` set onto
+the pin), `09c5d1177d` (compile the replay against the rc.1 client program), and
+`013e5314e0` (re-record the four pairing hashes the replay left stale). As before the
+payload is byte-equal to the tree by construction and needs no round-trip check.
+
+Package counts, largest first: `client/ui-sidebar-files` 13, `client/ui-workspace` 12,
+`client/ui-sidebar-terminal` 12, `client/ui-conversation` 12, `llm/llm-pi-ai` 11,
+`api/workspace-files` 10, `client/ui-reference` 6, `compaction/compaction-image-offload`
+6, `context/file-reference` 6, `client/ui-deliverables` 5, `guard/repeat-tool-reminder`
+5, `apps/web` 4, `bundle/web-app` 4, `docs/subsystems` 3, `llm/llm` 2, and one file each
+in `bundle/base`, `client/ui-open-in-app`, `context/file-reference-local`,
+`experimental/liveshare`, plus `pnpm-lock.yaml`.
+
+### What rc.1 forced beyond a textual conflict
+
+| Drift | Where | Decision |
+| --- | --- | --- |
+| `ui-sidebar-documentpreview` now depends on `ui-sidebar-files`, so the Files tree cannot import a previewer type — the client program reports TS6202. | `packages/client/ui-sidebar-files/src/client/index.ts`, `FilesBody.tsx`, `package.json`, `tsconfig.json` | Keep the line jump: re-declare `SidebarRightResourceParamsMap.file = WorkspaceFileParams` here instead of importing it, and drop the `dsh-client-ui-sidebar-documentpreview` devDependency plus its tsconfig reference. `as unknown as` is banned by the upstream `AGENTS.md`, and dropping the `line` parameter would lose visible behavior. |
+| Locale dictionaries grew from zh/en to eight (`en ja es fr de ru pt zh`) behind a `satisfies Record<keyof typeof en, string>` gate. | `client/ui-workspace/src/client/locales.ts` (+24), `client/ui-reference/src/client/locales.ts` (+6) | Translate the local keys into the six new dictionaries (`编辑` / `强制新建会话` and `附加文件夹` families) rather than widening the gate. |
+| `VIEWER_ENDPOINT_CLASSES` became an exhaustive `Record<RemoteEndpoint, ViewerEndpointClass>`. | `packages/experimental/liveshare/src/endpoint-classification.ts` | Classify the local `workspaceFiles/search` endpoint as `owner-only`, matching its `list`/`read` siblings. |
+| The settings shell grew a `settings.section.icon` slot addressed by section id. | `packages/client/ui-sidebar-files/README*` untouched; the change is in `dsh-plugin-desktop` | Drop the vendored `patches/dsh-client-ui-settings-general@<version>.patch` — see the counterpart note below. |
+
+### What did not carry over from `0.2.1-rc.5`
+
+| rc.5 content | Outcome | Evidence |
+| --- | --- | --- |
+| `ui-sidebar-files/src/client/store.ts`, `tests/store.client.spec.ts`, `tests/files-body.client.spec.tsx` | absorbed | rc.1's own `store.ts:86-97` roots each pane's tree at its own absolute path, which is the behavior the local edit added. |
+| `ui-sidebar-files/package.json`, `tsconfig.json` | reverted to pin | Only carried the `dsh-client-ui-sidebar-documentpreview` reference that the new dependency cycle forbids (row above) and an unused `dsh-file-reference` inject. |
+| 7 `README.i18n.yaml` / `README.md` / `README.zh.md` docs rows | re-derived | The rc.5 records could not be copied: their hashes point at rc.5 prose. The replay re-applies the doc text and re-records with `pnpm run verify-translation-pairing --write <file>` (`013e5314e0`), which is also what clears the 5 stale sections the compile fixes left. |
+
+### Vendored-runtime counterpart
+
+36 `patches/*@0.2.2-rc.1.patch` Yarn `patch:` files back the rc.1 tarballs, against 31
+at `0.2.2-alpha.2`. `dsh-client-ui-settings-general` is the one entry the alpha.2 series
+carried and rc.1 does not: its Desktop navigation glyph now registers through the
+`settings.section.icon` slot from `dsh-plugin-desktop/src/client/DesktopSettingsIcon.tsx`,
+and `dsh-plugin-desktop/tests/package.spec.ts` asserts the package stays unpached.
+

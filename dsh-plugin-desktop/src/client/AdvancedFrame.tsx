@@ -127,7 +127,7 @@ export function DesktopOwnedFrame({
           className="dshDesktopUpstreamSidebar dshDesktop_sidebarCol"
           data-pane="sidebar"
         >
-          {renderSlot('sidebar', { collapsed, width: sidebarOwnerWidth })}
+          {renderSlot('sidebar', { collapsed, width: sidebarOwnerWidth, drawer: false })}
         </div>
       </aside>
       <main className="dshDesktopConversationSurface"><MainPanel usePanelInfo={usePanelInfo} renderSlot={renderSlot} /></main>

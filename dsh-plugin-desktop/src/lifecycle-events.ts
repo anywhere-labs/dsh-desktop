@@ -372,13 +372,14 @@ export class DesktopLifecycleRecorder {
    * vanishing Host have nothing to hand a maintainer. Deliberately outside the
    * `startupSettled` latch: a settled startup is the normal case here.
    * @param info - exit code, whether this run asked for the exit, how long the
-   *   Host lived, and the correlated Chromium child-process failure when one
-   *   was observed.
+   *   Host lived, its pid (the same value Crashpad writes inside the minidump),
+   *   and the correlated Chromium child-process failure when one was observed.
    */
   recordHostExit(info: {
     readonly exitCode: number
     readonly expected: boolean
     readonly uptimeMs: number
+    readonly hostPid?: number
     readonly childProcessGone?: string
   }): void {
     const childProcessGone = info.childProcessGone === undefined
@@ -388,6 +389,7 @@ export class DesktopLifecycleRecorder {
       exitCode: info.exitCode,
       disposition: info.expected ? 'expected' : 'unexpected',
       uptimeMs: clampUptime(info.uptimeMs),
+      ...(info.hostPid === undefined ? {} : { hostPid: info.hostPid }),
       ...(childProcessGone === undefined ? {} : { childProcessGone }),
     })
   }
@@ -621,7 +623,7 @@ function allowedDetailKeys(eventName: DesktopLifecycleEventName): ReadonlySet<st
   if (eventName === 'renderer.boot.failed' || eventName === 'renderer.boot.timeout') {
     return new Set(['failureReason', 'pluginCount', 'pluginIds', 'rendererStatus'])
   }
-  if (eventName === 'host.exited') return new Set(['childProcessGone', 'disposition', 'exitCode', 'uptimeMs'])
+  if (eventName === 'host.exited') return new Set(['childProcessGone', 'disposition', 'exitCode', 'hostPid', 'uptimeMs'])
   return new Set()
 }
 
@@ -664,6 +666,7 @@ function parseHostExitedDetails(details: Record<string, unknown>): DesktopLifecy
     uptimeMs: parseUptime(details.uptimeMs),
   }
   if (details.childProcessGone !== undefined) parsed.childProcessGone = safeLine(details.childProcessGone)
+  if (details.hostPid !== undefined) parsed.hostPid = parsePid(details.hostPid)
   return parsed
 }
 
@@ -735,6 +738,12 @@ function parseCount(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > 10_000) {
     throw new Error('detail count is invalid')
   }
+  return value
+}
+
+/** A process id is a native identifier, so it is not bounded like a count. */
+function parsePid(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) throw new Error('detail pid is invalid')
   return value
 }
 

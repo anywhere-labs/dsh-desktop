@@ -24,6 +24,8 @@ export interface IsolatedHostOptions {
 
 /** What an unexpected Host exit leaves behind for evidence. */
 export interface IsolatedHostExit {
+  /** The dead Host's pid, which is also the process id Crashpad records inside its minidump. */
+  readonly hostPid: number | undefined
   /** Electron's reported code. A terminated Host reports the terminator's code, not a self-chosen one. */
   readonly exitCode: number
   /** Milliseconds between fork and exit; separates an instant death from one hours in. */
@@ -49,6 +51,8 @@ export async function startIsolatedDesktopHost(options: IsolatedHostOptions): Pr
   const child = utilityProcess.fork(fileURLToPath(new URL('./host-process-entry.js', import.meta.url)), [], {
     serviceName: 'DSH Host', stdio: 'pipe', cwd: process.cwd(), env: { ...process.env },
   })
+  // The pid disappears with the process; keep it to identify the minidump Crashpad wrote for it.
+  const hostPid = child.pid
   // Keep normal Host logs in its own files; stderr includes bootstrap failures.
   const stdoutLog = createProcessOutputLogging('stdout', () => child.pid)
   const stderrLog = createProcessOutputLogging('stderr', () => child.pid)
@@ -82,7 +86,7 @@ export async function startIsolatedDesktopHost(options: IsolatedHostOptions): Pr
     if (!stopping && booted) {
       options.onFailure(
         new Error(`DSH Host exited (${code}); restart the application to reconnect`),
-        { exitCode: code, uptimeMs: Math.max(0, performance.now() - forkedAt), stderrTail },
+        { hostPid, exitCode: code, uptimeMs: Math.max(0, performance.now() - forkedAt), stderrTail },
       )
     }
   })

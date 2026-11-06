@@ -1,0 +1,16 @@
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -351,8 +351,12 @@
+   },
+   isLink: isLinkPath
+ };
++// Copilot and Anthropic-style call ids run past ext4's 255-byte name limit once the
++// `-<shortHash>.json/.before` suffix is appended, so long ids keep a digest instead of a tail.
+ function safeFileId(callId) {
+-  return callId.replace(/[^a-zA-Z0-9._-]/g, "_");
++  const safe = callId.replace(/[^a-zA-Z0-9._-]/g, "_");
++  if (safe.length <= 200) return safe;
++  return `${safe.slice(0, 160)}-${createHash("sha256").update(safe).digest("hex").slice(0, 16)}`;
+ }
+ function safeSessionId(sessionId) {
+   const safe = sessionId.replace(/[^a-zA-Z0-9._-]/g, "_");

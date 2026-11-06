@@ -49,6 +49,11 @@ const usePanelInfo = <S,>(select: (info: PanelInfo) => S): S => select(layout.ge
 const useRemoteAccess = () => true
 const useSessionAccess = () => true
 const useWorkspaceAccess = () => true
+const useContextMenu = vi.fn() as WorkspaceSourcesEditorProps['useContextMenu']
+const useAccess = vi.fn() as WorkspaceSourcesRootActionProps['useAccess']
+const useConversation = vi.fn() as WorkspaceSourcesRootActionProps['useConversation']
+const useInput = vi.fn() as WorkspaceSourcesRootActionProps['useInput']
+const inputActions = {} as WorkspaceSourcesRootActionProps['inputActions']
 
 function editorProps(platform = 'linux'): WorkspaceSourcesEditorProps {
   return {
@@ -63,6 +68,7 @@ function editorProps(platform = 'linux'): WorkspaceSourcesEditorProps {
     useSessionRetainInfo,
     useWorkspaces,
     usePanelInfo,
+    useContextMenu,
     t,
     actions: { publish },
     useStore,
@@ -86,6 +92,11 @@ function rootActionProps(platform = 'linux'): WorkspaceSourcesRootActionProps {
     useSessionRetainInfo,
     useWorkspaces,
     usePanelInfo,
+    useContextMenu,
+    useAccess,
+    useConversation,
+    useInput,
+    inputActions,
     t,
     actions: { publish },
     useStore,

@@ -474,6 +474,7 @@ describe('desktop lifecycle events', () => {
       exitCode: 0,
       expected: false,
       uptimeMs: 27_000_000,
+      hostPid: 1_583_845,
       childProcessGone: 'Utility/Network Service reason: killed, exitCode: 1073807364 / 0x40010004',
     })
 
@@ -485,6 +486,7 @@ describe('desktop lifecycle events', () => {
       exitCode: 0,
       disposition: 'unexpected',
       uptimeMs: 27_000_000,
+      hostPid: 1_583_845,
       childProcessGone: 'Utility/Network Service reason: killed, exitCode: 1073807364 / 0x40010004',
     })
   })

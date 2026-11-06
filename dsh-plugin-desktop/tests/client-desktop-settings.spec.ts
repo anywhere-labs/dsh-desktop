@@ -716,6 +716,7 @@ describe('Desktop settings Slot registration', () => {
     expect(get).toHaveBeenNthCalledWith(2, DESKTOP_NOTIFICATIONS_SETTINGS_NAMESPACE)
     expect(inject).toHaveBeenCalledWith('settings.models.provider-card', expect.any(Function))
     expect(inject).toHaveBeenCalledWith('settings.section', expect.any(Function))
+    expect(inject).toHaveBeenCalledWith('settings.section.icon', expect.any(Function))
     expect(inject).toHaveBeenCalledWith('settings.action', expect.any(Function))
     expect(register).toHaveBeenNthCalledWith(1, {
       name: 'settings.models.provider-card',
@@ -742,7 +743,19 @@ describe('Desktop settings Slot registration', () => {
     })
     expect(component).toBe(DesktopSettingsSection)
 
-    const [actionOptions, actionComponent] = register.mock.calls[2] as unknown as [
+    // The section glyph goes through the slot the settings shell addresses by
+    // section id, so no vendor bundle patch is needed for it.
+    const [iconOptions, iconComponent] = register.mock.calls[2] as unknown as [
+      { name: string; id: string },
+      (props: { size: number; active: boolean }) => ReturnType<typeof createElement>,
+    ]
+    expect(iconOptions).toEqual({ name: 'settings.section.icon', id: 'desktop' })
+    const iconMarkup = renderToStaticMarkup(createElement(iconComponent, { size: 16, active: false }))
+    expect(iconMarkup).toContain('width="16"')
+    expect(iconMarkup).toContain('aria-hidden="true"')
+    expect(iconMarkup).toContain('M5 14h6M8 11.5V14')
+
+    const [actionOptions, actionComponent] = register.mock.calls[3] as unknown as [
       { id: string; order: number; locale: string; inject: () => Record<string, unknown> },
       unknown,
     ]
@@ -755,15 +768,15 @@ describe('Desktop settings Slot registration', () => {
     expect(actionOptions.inject()).toHaveProperty('api')
     expect(actionComponent).toBe(DesktopTerminalSettingsAction)
     expect(inject).toHaveBeenCalledWith('plugins.bundle.hidden', expect.any(Function))
-    expect(register).toHaveBeenNthCalledWith(4, {
+    expect(register).toHaveBeenNthCalledWith(5, {
       name: 'plugins.bundle.hidden',
       key: 'dsh-community-market',
     }, expect.any(Function))
-    expect(register).toHaveBeenNthCalledWith(5, {
+    expect(register).toHaveBeenNthCalledWith(6, {
       name: 'plugins.bundle.hidden',
       key: 'dshmarket',
     }, expect.any(Function))
-    expect(register).toHaveBeenNthCalledWith(6, {
+    expect(register).toHaveBeenNthCalledWith(7, {
       name: 'plugins.bundle.hidden',
       key: '@agents-anywhere/dsh-bridge-next',
     }, expect.any(Function))

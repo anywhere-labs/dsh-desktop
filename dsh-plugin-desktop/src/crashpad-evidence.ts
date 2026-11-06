@@ -93,6 +93,33 @@ export function summarizeDesktopCrashDumps(
   return candidates.slice(0, maximum).map(({ path, mtimeMs }) => summarizeDump(path, mtimeMs))
 }
 
+/**
+ * Render summaries as one bounded log line, newest first. A JSON dump of every field would bury
+ * the event it is supposed to explain, so each entry keeps only what identifies the process and
+ * where it died: the signal-like exception code, the crashing module and its offset.
+ * @param dumps - Summaries from {@link summarizeDesktopCrashDumps}.
+ * @returns `none` when no dump was written, otherwise `2 dumps | …` separated entries.
+ */
+export function formatDesktopCrashDumps(dumps: readonly DesktopCrashDumpSummary[]): string {
+  if (dumps.length === 0) return 'none'
+  return `${String(dumps.length)} dump${dumps.length === 1 ? '' : 's'} | ${dumps.map(dump => {
+    const crash = [
+      ...(dump.instructionPointer === undefined ? [] : [`ip=${dump.instructionPointer}`]),
+      ...(dump.exceptionModule === undefined ? [] : [`module=${dump.exceptionModule}`]),
+      ...(dump.exceptionModuleOffset === undefined ? [] : [`+${dump.exceptionModuleOffset}`]),
+    ].join(' ')
+    return [
+      dump.file,
+      dump.dumpTimestamp ?? dump.modifiedAt,
+      `bytes=${String(dump.sizeBytes)}`,
+      ...(dump.processId === undefined ? [] : [`pid=${String(dump.processId)}`]),
+      ...(dump.exceptionCodeHex === undefined ? [] : [`code=${dump.exceptionCodeHex}`]),
+      ...(crash === '' ? [] : [crash]),
+      ...(dump.parseError === undefined ? [] : [`unreadable=${dump.parseError}`]),
+    ].join(' ')
+  }).join(' || ')}`
+}
+
 function parseMinidump(
   fileSize: number,
   readMetadata: ReadMetadata,
