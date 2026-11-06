@@ -12,9 +12,9 @@ import {
   type AnywhereModelView, type AnywhereMoneyDisplay, type AnywhereProblem, type AnywhereUsage, type AnywhereUsageRange,
   type AnywhereUsageRows, type AnywhereUsageTotals,
 } from '../account.ts'
-import { MoneyAmount, Select } from './controls.tsx'
+import { Select } from './controls.tsx'
 import {
-  callHost, formatCount, formatMoney, formatMoneyShort, intlLocale, moneyFormat, problemText, usageTicks, type Copy, type MoneyFormat,
+  callHost, formatCount, formatMoney, intlLocale, moneyFormat, problemText, usageTicks, type Copy, type MoneyFormat,
 } from './shared.ts'
 
 /** The model filter's value for every model; `''` is taken by rows without a model. */
@@ -177,7 +177,7 @@ function DailyChart({ daily, series, other, t, language, format }: {
           })}
           {max > 0 && active === undefined && (
             <text className="dshAnywherePeak" x={center(peak)} y={y(max) - 6}
-              textAnchor={center(peak) < 40 ? 'start' : center(peak) > width - 40 ? 'end' : 'middle'}>{formatMoneyShort(daily[peak]!.amount, format)}</text>
+              textAnchor={center(peak) < 40 ? 'start' : center(peak) > width - 40 ? 'end' : 'middle'}>{formatMoney(daily[peak]!.amount, format)}</text>
           )}
         </svg>
       )}
@@ -335,7 +335,7 @@ export function AnywhereUsageBoard({ t, language, models, money: display }: {
       {usage !== undefined && totals !== undefined && (
         <div className="dshAnywhereBoard" id={`${id}-board`} data-loading={loading ? '' : undefined} aria-busy={loading}>
           <div className="dshAnywhereStats">
-            <Stat label={t('花费', 'Spend')} value={<MoneyAmount usd={totals.amount} format={money} />} />
+            <Stat label={t('花费', 'Spend')} value={formatMoney(totals.amount, money)} />
             <Stat label={t('请求', 'Requests')} value={formatCount(totals.requests, language)} />
             <Stat label="Tokens" value={formatCount(tokensOf(totals), language)}
               detail={t(

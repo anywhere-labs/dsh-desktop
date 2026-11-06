@@ -56,9 +56,9 @@ export function intlLocale(language: string): string {
 }
 
 /**
- * How the page writes money, as Tokens Anywhere's console does (web/lib/local-currency.ts, hooks/use-local-currency.ts):
- * US dollars, and for a Chinese reader whose account shows its local currency, yuan at the day's rate with the dollars
- * beside them. English has no currency of its own, so it stays in dollars.
+ * How the page writes money, in one currency: US dollars, as Tokens Anywhere bills, or for a Chinese reader with local
+ * currency on, yuan at the day's rate instead, rounded as the console rounds them (web/lib/local-currency.ts). English
+ * has no currency of its own, so it stays in dollars.
  */
 export interface MoneyFormat {
   readonly locale: string
@@ -88,14 +88,8 @@ export function formatYuanOf(usd: string, rate: number, locale: string): string 
   }).format(value)
 }
 
-/** An amount for a sentence: yuan with the dollars beside them while yuan are shown, otherwise the dollars. */
+/** An amount in one currency: yuan while they are shown, otherwise the dollars. */
 export function formatMoney(usd: string, format: MoneyFormat): string {
-  const dollars = formatUsd(usd, format.locale)
-  return format.yuanRate === undefined ? dollars : `${formatYuanOf(usd, format.yuanRate, format.locale)}（${dollars}）`
-}
-
-/** An amount where one currency fits, such as on a chart: yuan while they are shown, otherwise the dollars. */
-export function formatMoneyShort(usd: string, format: MoneyFormat): string {
   return format.yuanRate === undefined ? formatUsd(usd, format.locale) : formatYuanOf(usd, format.yuanRate, format.locale)
 }
 

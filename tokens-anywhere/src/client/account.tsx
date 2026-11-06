@@ -3,14 +3,14 @@
  * the Conversation Views can show it too (./entries.tsx), the main column in the frame of the official entry pages. Its
  * identity and balance cards follow the official account page; below them the official segmented tabs lead to what only
  * this account has: its models, its usage, its settings on this computer, and how the page shows: where besides
- * Settings, and whether in the local currency too.
+ * Settings, and in which currency.
  */
 import { useCallback, useEffect, useId, useState, useSyncExternalStore } from 'react'
 import {
   Button, IconRightUpOutlineRegular, IconUserOutlineRegular, SegmentedTabs, Tag, type SegmentedTab,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ANYWHERE_ACCOUNT_ROUTES, type AnywhereAccountSnapshot, type AnywhereProblem } from '../account.ts'
-import { MoneyAmount, ToggleRow } from './controls.tsx'
+import { ToggleRow } from './controls.tsx'
 import { AnywhereGeminiRow, AnywhereKeyRows, AnywhereLocalFileRows } from './local.tsx'
 import { AnywhereModelsPanel, ControlRow, type OfficialModelsFace } from './models.tsx'
 import { callHost, formatMoney, moneyFormat, problemText, type AnywherePlacement, type Copy, type RouteReply } from './shared.ts'
@@ -133,8 +133,8 @@ function PlacementRows({ placement, t }: { placement: AnywherePlacement; t: Copy
 }
 
 /**
- * Amounts in the language's own currency too: as the account has it in the Tokens Anywhere console until changed here,
- * which leaves the console's setting alone. Shown as it will be once saved.
+ * Amounts in the language's own currency instead of dollars: as the account has it in the Tokens Anywhere console until
+ * changed here, which leaves the console's setting alone. Shown as it will be once saved.
  */
 function LocalCurrencyRow({ state, t, act }: {
   state: AnywhereAccountSnapshot
@@ -152,7 +152,7 @@ function LocalCurrencyRow({ state, t, act }: {
       label={t('显示当地货币', 'Show local currency')}
       // As in the console, only Chinese has a currency of its own here.
       description={t(
-        '同时以人民币显示金额。默认跟随网页端的设置，在这里更改不影响网页端。',
+        '按当天汇率以人民币显示金额。默认跟随网页端的设置，在这里更改不影响网页端。',
         'Your language has no local currency here, so amounts stay in US dollars.',
       )}
       checked={pending ?? state.money?.localCurrency === true}
@@ -236,7 +236,7 @@ function SignedIn({ state, t, language, busy, run, act, officialModels, placemen
             <span className="dshAnywhereActions">
               {state.balance !== undefined ? (
                 <span className="dshAnywhereAmountColumn">
-                  <span className="dshAnywhereAmount"><MoneyAmount usd={state.balance.available} format={money} /></span>
+                  <span className="dshAnywhereAmount">{formatMoney(state.balance.available, money)}</span>
                   {held && state.balance !== undefined && (
                     <span className="dshAnywhereSecondary">{t(`另有 ${formatMoney(state.balance.held, money)} 正在使用中`, `plus ${formatMoney(state.balance.held, money)} held by running requests`)}</span>
                   )}
