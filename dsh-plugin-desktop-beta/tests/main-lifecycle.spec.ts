@@ -24,7 +24,7 @@ const fixture = vi.hoisted(() => ({
   appPaths: new Map<string, string>(), lockPaths: [] as string[], ownsInstance: true,
   locationRoot: '',
   runtimeOptions: undefined as ConstructorParameters<typeof NextDesktopRuntime>[0] | undefined,
-  runtime: undefined as { actionFailure: string } | undefined,
+  runtime: undefined as { actionFailure: string; failureStage?: NextDesktopRuntime['failureStage'] } | undefined,
   failureReportFile: vi.fn(async (): Promise<string | undefined> => undefined),
   dragResource: vi.fn(async (_address: string, _signal: AbortSignal): Promise<null> => null),
   onPermission: undefined as ConstructorParameters<typeof NextDesktopRuntime>[0]['onPermission'],
@@ -199,6 +199,63 @@ beforeEach(async () => {
 afterEach(() => {
   for (const window of fixture.windows) if (!window.destroyed) window.destroy()
   rmSync(fixture.locationRoot, { recursive: true, force: true })
+})
+
+it.each(['complete', 'fail'] as const)('opt-in Host recovery waits for whole-app cleanup to %s before relaunching', async outcome => {
+  const home = mkdtempSync(join(tmpdir(), 'next-host-auto-recovery-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  vi.stubEnv('DSH_DESKTOP_AUTO_RECOVER_HOST', '1')
+  let finishClose: ((error?: Error) => void) | undefined
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.start).toHaveBeenCalledOnce())
+    const { app } = await import('electron')
+    fixture.close.mockImplementationOnce(() => new Promise<void>((resolve, reject) => {
+      finishClose = error => error ? reject(error) : resolve()
+    }))
+    vi.useFakeTimers({ shouldClearNativeTimers: true })
+    fixture.phase = 'error'
+    fixture.runtime!.failureStage = 'host-runtime'
+    fixture.runtimeOptions!.onFailure()
+    fixture.runtimeOptions!.onFailure()
+    await vi.advanceTimersByTimeAsync(999)
+    expect(app.quit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fixture.close).toHaveBeenCalledOnce()
+    expect(app.relaunch).not.toHaveBeenCalled()
+    expect(fixture.start).toHaveBeenCalledOnce()
+    finishClose!(outcome === 'fail' ? new Error('Host cleanup failed') : undefined)
+    await vi.advanceTimersByTimeAsync(0)
+    if (outcome === 'complete') expect(app.relaunch).toHaveBeenCalledOnce()
+    else {
+      expect(app.relaunch).not.toHaveBeenCalled()
+      expect(app.exit).toHaveBeenCalledWith(1)
+    }
+    expect(fixture.restart).not.toHaveBeenCalled()
+    expect(fixture.plugin).not.toHaveBeenCalled()
+    expect(JSON.parse(readFileSync(join(fixture.appPaths.get('userData')!, 'host-recovery.json'), 'utf8')).attempts).toHaveLength(1)
+  } finally {
+    finishClose?.()
+    vi.useRealTimers(); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+})
+
+it('normal quit cancels a pending automatic Host restart', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-host-recovery-quit-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  vi.stubEnv('DSH_DESKTOP_AUTO_RECOVER_HOST', '1')
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.start).toHaveBeenCalledOnce())
+    const { app } = await import('electron')
+    vi.useFakeTimers({ shouldClearNativeTimers: true })
+    fixture.runtime!.failureStage = 'host-runtime'
+    fixture.runtimeOptions!.onFailure()
+    app.quit()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fixture.close).toHaveBeenCalledOnce()
+    expect(app.relaunch).not.toHaveBeenCalled()
+  } finally { vi.useRealTimers(); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 
 it('repairs a crashed renderer and fences old document reports while preserving its Host', async () => {
