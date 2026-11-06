@@ -403,7 +403,7 @@ function CustomRoutes({ face, catalog, state, t, act }: {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
   const [mounted, setMounted] = useState<ReadonlySet<string>>(new Set())
   const namespace = official.namespaces.get(PI_AI_NAMESPACE)
-  const planned = useMemo(() => state.models === undefined ? undefined : anywhereRoutes(state.models, state.origin), [state.models, state.origin])
+  const planned = useMemo(() => state.models === undefined ? undefined : anywhereRoutes(state.models, state.origin, state.local.geminiNative), [state.models, state.origin, state.local.geminiNative])
   if (namespace === undefined) return <p className="dshAnywhereSecondary dshAnywhereRowsNote" role="status">{t('正在读取配置…', 'Reading the configuration…')}</p>
   return (
     <>

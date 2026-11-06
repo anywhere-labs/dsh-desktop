@@ -12,11 +12,11 @@ Its card on the Plugins page, between Remote Control and Computer Use (Next), op
 
 ## Elsewhere
 
-Without DSH Next, the page links the authorize page for the browser, and the refresh token is kept in memory only. After a restart the models keep working, and showing the balance and usage needs another sign-in.
+Without DSH Next, the page links the authorize page for the browser, and the refresh token is kept in memory only. After a restart the models keep working, and showing the balance and usage needs another sign-in. Both of Gemini's formats work there too.
 
 ## Settings
 
-The account's key is for this computer only. The account page's Settings tab copies it, or rotates it, which stops the old key at once. For custom setups, Open configuration file opens the active Profile's `cordis.patch.yml`, where the models are written, as the Settings dialog's own button does; in DSH Next, Show credentials file shows the credentials file (`.credentials.yaml`), which holds the key, in the file manager. Whether the key and the models are written at all is the plugin's configuration (`storeKey` and `writeModels`, both on), saved in that same file; the models need the stored key, so turning the key off takes them with it.
+The account's key is for this computer only. The account page's Settings tab copies it, or rotates it, which stops the old key at once. Gemini models go through OpenAI Chat Completions; the tab's Configure Gemini models in Google's format switch sends them through Google's own Gemini API instead. It is the plugin's configuration (`geminiNative`, off), and it cannot be changed while custom configuration is on, since the routes are the user's then. For custom setups, Open configuration file opens the active Profile's `cordis.patch.yml`, where the models are written, as the Settings dialog's own button does; in DSH Next, Show credentials file shows the credentials file (`.credentials.yaml`), which holds the key, in the file manager. Whether the key and the models are written at all is the plugin's configuration (`storeKey` and `writeModels`, both on), saved in that same file; the models need the stored key, so turning the key off takes them with it.
 
 ## Display
 

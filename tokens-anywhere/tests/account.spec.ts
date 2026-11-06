@@ -5,7 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import {
   ANYWHERE_API_KEY_REF, ANYWHERE_ROUTE_IDS, TOKENS_ANYWHERE_ORIGIN, anywhereRoutes, beijingDates, commonThinkingLevel,
-  offeredAnywhereModels, planAnywhereModels, stableJson, summarizeAnywhereUsage, tokensAnywhereOrigin,
+  offeredAnywhereModels, planAnywhereModels, stableJson, summarizeAnywhereUsage, tokensAnywhereOrigin, type PiAiRoute,
 } from '../src/account.ts'
 import {
   formatCount, formatMoney, formatMoneyShort, formatTokenLimit, formatUsd, formatYuanOf, moneyFormat, usageTicks,
@@ -44,7 +44,7 @@ const profiles = {
   'claude-sonnet-5-5': { displayName: 'Claude Sonnet 5.5', contextWindow: 1_000_000, capabilities: ['reasoning', 'vision', 'tools'] },
   'gpt-6-sol': { displayName: 'GPT-6 Sol', contextWindow: 400_000, capabilities: ['tools'] },
 }
-const CHAT_IDS = ['gpt-6-sol', 'deepseek-v4-pro', 'mystery-model']
+const CHAT_IDS = ['gpt-6-sol', 'deepseek-v4-pro', 'gemini-3.5-flash', 'mystery-model']
 const ANTHROPIC_IDS = ['claude-sonnet-5-5', 'claude-haiku-4-5', 'deepseek-v4-pro']
 const GEMINI_IDS = ['gemini-3.5-flash']
 
@@ -100,9 +100,23 @@ describe('models', () => {
     expect(anywhereRoutes(familyOff, 'https://tokens.example/')[ANYWHERE_ROUTE_IDS.claude]).toBeUndefined()
   })
 
-  it('writes a Gemini route with the levels of pi-ai\'s catalog, thinking by default', () => {
+  it('sends Gemini through Chat Completions unless Google\'s format is on, routing what that format lists', () => {
+    const input = { chat: ['gemini-3.5-flash'], anthropic: [], gemini: ['gemini-3.5-flash', 'gemini-4-argon'], priced, profiles }
+    const chat = planAnywhereModels(input)
+    expect(chat.map(model => [model.id, model.route])).toEqual([['gemini-3.5-flash', ANYWHERE_ROUTE_IDS.gemini], ['gemini-4-argon', undefined]])
+    const route = anywhereRoutes(chat, 'https://tokens.example/')[ANYWHERE_ROUTE_IDS.gemini]
+    expect(route).toMatchObject({
+      displayName: 'Tokens Anywhere · Gemini', api: 'openai-completions', baseURL: 'https://tokens.example/v1', apiKeyEnv: ANYWHERE_API_KEY_REF, reasoning: 'high',
+    })
+    expect(route?.models.map(model => [model.id, model.compat])).toEqual([['gemini-3.5-flash', { supportsStore: false, supportsDeveloperRole: false }]])
+    const native = planAnywhereModels({ ...input, geminiNative: true })
+    expect(native.map(model => model.route)).toEqual([ANYWHERE_ROUTE_IDS.gemini, ANYWHERE_ROUTE_IDS.gemini])
+  })
+
+  it('writes a Gemini route in Google\'s format with the levels of pi-ai\'s catalog, thinking by default', () => {
     const models = planAnywhereModels({
       chat: [], anthropic: [], gemini: ['gemini-2.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-4-argon'], priced, profiles,
+      geminiNative: true,
     })
     expect(Object.fromEntries(models.map(model => [model.id, model.thinking]))).toEqual({
       'gemini-2.5-flash': ['off', 'minimal', 'low', 'medium', 'high'],
@@ -111,7 +125,7 @@ describe('models', () => {
       // Not in the catalog: the levels every catalogued Gemini 3 offers.
       'gemini-4-argon': ['low', 'medium', 'high'],
     })
-    const route = anywhereRoutes(models, 'https://tokens.example/')[ANYWHERE_ROUTE_IDS.gemini]
+    const route = anywhereRoutes(models, 'https://tokens.example/', true)[ANYWHERE_ROUTE_IDS.gemini]
     expect(route).toMatchObject({ api: 'google-generative-ai', baseURL: 'https://tokens.example/v1beta', apiKeyEnv: ANYWHERE_API_KEY_REF, reasoning: 'high' })
     const byId = new Map(route?.models.map(model => [model.id, model]))
     expect(byId.get('gemini-2.5-flash')?.reasoningEfforts).toEqual({ off: null, minimal: 'minimal', low: 'low', medium: 'medium', high: 'high' })
@@ -482,11 +496,11 @@ function newAccount(fake: ReturnType<typeof services>, local?: LocalFiles) {
   return new AnywhereAccount(fake.credentials as never, fake.settings as never, fake.shell as never, ORIGIN, local)
 }
 
-/** The plugin's two switches for DSH's local files, saved as the configuration editor would. */
-function localFiles(initial = { storeKey: true, writeModels: true }) {
-  const state = { ...initial }
+/** The plugin's switches for DSH's local files, saved as the configuration editor would. */
+function localFiles(initial: Partial<{ storeKey: boolean; writeModels: boolean; geminiNative: boolean }> = {}) {
+  const state = { storeKey: true, writeModels: true, geminiNative: false, ...initial }
   const files: LocalFiles = {
-    storeKey: () => state.storeKey, writeModels: () => state.writeModels, writable: true,
+    storeKey: () => state.storeKey, writeModels: () => state.writeModels, geminiNative: () => state.geminiNative, writable: true,
     save: async (change) => { Object.assign(state, change) },
   }
   return { state, files }
@@ -812,17 +826,25 @@ describe('Anywhere account', () => {
     }
   })
 
-  it('writes a Gemini route for what the key lists as Gemini, and removes it on sign-out', async () => {
+  it('writes a Gemini route for what the key lists, in the format the switch picks, and removes it on sign-out', async () => {
     const server = fakeTokens()
     const fake = services()
-    const account = newAccount(fake)
+    const { state, files } = localFiles()
+    const account = newAccount(fake, files)
     try {
-      server.models = { chat: ['deepseek-v4-pro'], anthropic: ['claude-sonnet-5-5'], gemini: ['gemini-3.5-flash'] }
+      server.models = { chat: ['deepseek-v4-pro', 'gemini-3.5-flash'], anthropic: ['claude-sonnet-5-5'], gemini: ['gemini-3.5-flash'] }
       await signIn(account, server)
-      expect(fake.providers['tokens-anywhere-gemini']).toMatchObject({ api: 'google-generative-ai', baseURL: `${ORIGIN}/v1beta`, apiKeyEnv: ANYWHERE_API_KEY_REF, reasoning: 'high' })
+      expect(fake.providers['tokens-anywhere-gemini']).toMatchObject({ api: 'openai-completions', baseURL: `${ORIGIN}/v1`, apiKeyEnv: ANYWHERE_API_KEY_REF, reasoning: 'high' })
       const snapshot = await account.snapshot()
+      expect(snapshot.local.geminiNative).toBe(false)
       expect(snapshot.models?.find(model => model.id === 'gemini-3.5-flash')).toMatchObject({ route: 'tokens-anywhere-gemini', enabled: true })
       expect(snapshot.offered).toContainEqual({ route: 'tokens-anywhere-gemini', id: 'gemini-3.5-flash', name: 'gemini-3.5-flash', thinking: ['minimal', 'low', 'medium', 'high'] })
+
+      await account.setLocal({ geminiNative: true })
+      expect(state).toEqual({ storeKey: true, writeModels: true, geminiNative: true })
+      expect(fake.providers['tokens-anywhere-gemini']).toMatchObject({ api: 'google-generative-ai', baseURL: `${ORIGIN}/v1beta`, apiKeyEnv: ANYWHERE_API_KEY_REF, reasoning: 'high' })
+      expect((fake.providers['tokens-anywhere-gemini'] as PiAiRoute).models.map(model => model.compat)).toEqual([undefined])
+      expect((await account.snapshot()).local.geminiNative).toBe(true)
       await account.signOut()
       expect(fake.providers).toEqual({})
     } finally {
@@ -1105,10 +1127,10 @@ describe('Anywhere account', () => {
       try {
         await signIn(account, server)
         await account.setLocal({ writeModels: false })
-        expect(state).toEqual({ storeKey: true, writeModels: false })
+        expect(state).toEqual({ storeKey: true, writeModels: false, geminiNative: false })
         expect(fake.providers).toEqual({})
         expect(fake.refs.get(ANYWHERE_API_KEY_REF)).toBe(KEY)
-        expect((await account.snapshot()).local).toEqual({ storeKey: true, writeModels: false, writable: true, revealFiles: false })
+        expect((await account.snapshot()).local).toEqual({ storeKey: true, writeModels: false, geminiNative: false, writable: true, revealFiles: false })
 
         await account.setLocal({ storeKey: false })
         expect(fake.refs.has(ANYWHERE_API_KEY_REF)).toBe(false)
@@ -1121,7 +1143,7 @@ describe('Anywhere account', () => {
 
         // The models need the key: switching them on keeps it again.
         await account.setLocal({ writeModels: true })
-        expect(state).toEqual({ storeKey: true, writeModels: true })
+        expect(state).toEqual({ storeKey: true, writeModels: true, geminiNative: false })
         expect(fake.refs.get(ANYWHERE_API_KEY_REF)).toBe(KEY)
         expect(Object.keys(fake.providers).sort()).toEqual(['tokens-anywhere-claude', 'tokens-anywhere-deepseek', 'tokens-anywhere-gpt'])
       } finally {

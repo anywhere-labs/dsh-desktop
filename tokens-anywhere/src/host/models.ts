@@ -88,6 +88,8 @@ export class AnywhereModels {
     private readonly settings: SettingsForms,
     /** Whether the routes are written into the Profile at all; off, ours are taken out and the list is only read. */
     readonly writes: () => boolean = () => true,
+    /** Whether the Gemini route speaks Google's Gemini API rather than Chat Completions. */
+    private readonly geminiNative: () => boolean = () => false,
   ) {}
 
   /** Whether the list was read since the Host started. */
@@ -118,12 +120,12 @@ export class AnywhereModels {
   /** The list with the user's choices, which may leave nothing on offer. */
   private async catalog(): Promise<AnywhereModelView[] | undefined> {
     if (this.inputs === undefined) return undefined
-    return planAnywhereModels({ ...this.inputs, overrides: await this.overrides() })
+    return planAnywhereModels({ ...this.inputs, overrides: await this.overrides(), geminiNative: this.geminiNative() })
   }
 
   /** Whether the list has a model our routes can call, switched on or not. */
   listsModels(): boolean {
-    return this.inputs !== undefined && planAnywhereModels(this.inputs).some(model => model.route !== undefined)
+    return this.inputs !== undefined && planAnywhereModels({ ...this.inputs, geminiNative: this.geminiNative() }).some(model => model.route !== undefined)
   }
 
   /** Our routes as the active Profile stores them, whoever wrote them last. */
@@ -139,7 +141,7 @@ export class AnywhereModels {
   /** The routes Tokens Anywhere's list and the user's choices would write. */
   private async plannedRoutes(): Promise<Record<string, PiAiRoute> | undefined> {
     const models = await this.catalog()
-    return models === undefined || this.origin === undefined ? undefined : anywhereRoutes(models, this.origin)
+    return models === undefined || this.origin === undefined ? undefined : anywhereRoutes(models, this.origin, this.geminiNative())
   }
 
   /** What the page shows: the list if it was read, what the routes offer, and who manages them. */
@@ -258,7 +260,7 @@ export class AnywhereModels {
   async change(change: { id?: unknown; family?: unknown; enabled?: unknown; name?: unknown }): Promise<void> {
     if (this.inputs === undefined) throw new AnywhereError('no-catalog')
     const current = await this.overrides()
-    const listed = planAnywhereModels({ ...this.inputs, overrides: current })
+    const listed = planAnywhereModels({ ...this.inputs, overrides: current, geminiNative: this.geminiNative() })
     const hidden = new Set(current.hidden)
     const families = new Set(current.hiddenFamilies)
     const names = { ...current.names }
