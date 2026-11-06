@@ -16,7 +16,7 @@ DSH Next 自带这个插件，并从自己的 bundle 层为每个 Profile 加载
 
 ## 设置
 
-账户的 Key 只给这台电脑用。在账户页面的“设置”里可以复制它，也可以轮换，轮换后旧 Key 立即失效。那里的两个开关决定账户往 DSH 自己的文件里写什么：Key 写进凭据文件（`.credentials.yaml`），模型写进当前 Profile 的 `cordis.patch.yml`。模型要用保存的 Key，所以关掉保存 Key 时模型也会一并移除。这两个开关是插件自己的配置（`storeKey` 和 `writeModels`），保存在当前 Profile 里。在 DSH Next 中还可以在文件管理器里显示这两个文件。
+账户的 Key 只给这台电脑用。在账户页面的“设置”里可以复制它，也可以轮换，轮换后旧 Key 立即失效。给需要自定义的用户：“打开配置文件”打开当前 Profile 的 `cordis.patch.yml`，模型就写在这里，和设置弹窗自己的按钮一样；在 DSH Next 中，“显示凭据文件”在文件管理器里显示存放 Key 的凭据文件（`.credentials.yaml`）。Key 和模型写不写，是插件自己的配置（`storeKey` 和 `writeModels`，默认都开启），也保存在这个文件里；模型要用保存的 Key，所以关掉保存 Key 时模型也会一并移除。
 
 ## 显示
 
