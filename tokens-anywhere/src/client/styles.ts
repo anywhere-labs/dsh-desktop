@@ -150,6 +150,8 @@ const CSS = `
 .dshAnywhereSignIn { min-width: 72px; }
 .dshAnywhereAmountColumn { display: flex; flex-direction: column; align-items: flex-end; }
 .dshAnywhereAmount { font-size: 18px; font-weight: 510; line-height: 28px; }
+/* The dollars beside an amount shown in yuan, as the console's Price draws them. */
+.dshAnywhereMoneyUsd { margin-left: 6px; color: var(--dsw-alias-label-tertiary); font-size: 12px; font-weight: 400; }
 
 /* The official Plugins page's tab list, a step of 24px below the cards like the title above them. */
 .dshAnywhereTabs { width: fit-content; min-width: 240px; margin-top: 8px; }

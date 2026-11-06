@@ -194,12 +194,15 @@ export interface AnywhereAccountSnapshot {
     readonly memoryOnly?: boolean
   }
   readonly balance?: {
+    /** US dollars with six decimals, as are all of the page's amounts. */
     readonly available: string
     readonly held: string
     readonly checkedAt: string
   }
   /** Why the balance could not be read, while the account stays signed in. */
   readonly balanceError?: AnywhereProblem
+  /** How the account shows money, while signed in. */
+  readonly money?: AnywhereMoneyDisplay
   /** Every model Tokens Anywhere offers the key, absent until it was read once since the Host started. */
   readonly models?: readonly AnywhereModelView[]
   /** Why the model list could not be read. */
@@ -215,6 +218,18 @@ export interface AnywhereAccountSnapshot {
   readonly local: AnywhereLocalState
 }
 
+/**
+ * How Tokens Anywhere's console shows money (web/lib/local-currency.ts): every amount is US dollars, and a reader whose
+ * language has a currency of its own sees it beside them at the day's rate, display only, while the account's local
+ * currency preference is on. The page reads Chinese as yuan; English stays in dollars.
+ */
+export interface AnywhereMoneyDisplay {
+  /** The account's preference (`GET /api/v1/me/preferences`), which Tokens Anywhere turns on for every new account. */
+  readonly localCurrency: boolean
+  /** How many yuan a US dollar buys (`GET /api/v1/exchange-rates`); absent while there is no rate. */
+  readonly cnyRate?: number
+}
+
 /** Usage ranges the page offers, in days. */
 export type AnywhereUsageRange = 7 | 30
 
@@ -224,7 +239,7 @@ export interface AnywhereUsageTotals {
   readonly outputTokens: number
   /** Cache reads and writes. */
   readonly cacheTokens: number
-  /** Charged, in yuan with four decimals. */
+  /** Charged, in US dollars with six decimals. */
   readonly amount: string
 }
 
@@ -276,18 +291,19 @@ export function beijingDates(days: number, now: Date): { from: string; to: strin
   return { from: dates[0]!, to: dates[dates.length - 1]!, dates }
 }
 
-/** Ten-thousandths of a yuan, so sums stay exact. */
-function amountUnits(value: string): number {
-  const match = /^(-)?(\d+)(?:\.(\d{1,4}))?$/u.exec(value.trim())
+/** Millionths of a US dollar, Tokens Anywhere's unit of money, so sums stay exact. */
+export function usdUnits(value: string): number {
+  const match = /^(-)?(\d+)(?:\.(\d{1,6}))?$/u.exec(value.trim())
   if (match === null) return 0
-  const units = Number(match[2]) * 10_000 + Number((match[3] ?? '').padEnd(4, '0'))
+  const units = Number(match[2]) * 1_000_000 + Number((match[3] ?? '').padEnd(6, '0'))
   return match[1] === undefined ? units : -units
 }
 
-function formatUnits(units: number): string {
+/** Millionths of a dollar as Tokens Anywhere writes an amount: dollars with six decimals. */
+export function formatUsdUnits(units: number): string {
   const sign = units < 0 ? '-' : ''
   const absolute = Math.abs(units)
-  return `${sign}${Math.floor(absolute / 10_000)}.${String(absolute % 10_000).padStart(4, '0')}`
+  return `${sign}${Math.floor(absolute / 1_000_000)}.${String(absolute % 1_000_000).padStart(6, '0')}`
 }
 
 /**
@@ -303,9 +319,9 @@ export function summarizeAnywhereUsage({ days, dates, rows }: AnywhereUsageRows,
     sum.inputTokens += row.inputTokens
     sum.outputTokens += row.outputTokens
     sum.cacheTokens += row.cacheReadTokens + row.cacheWrite5mTokens + row.cacheWrite1hTokens
-    sum.units += amountUnits(row.amountCharged)
+    sum.units += usdUnits(row.amountCharged)
   }
-  const done = ({ units, ...rest }: Sum): AnywhereUsageTotals => ({ ...rest, amount: formatUnits(units) })
+  const done = ({ units, ...rest }: Sum): AnywhereUsageTotals => ({ ...rest, amount: formatUsdUnits(units) })
   const total = empty()
   const byDate = new Map(dates.map(date => [date, empty()]))
   const byDateModel = new Map(dates.map(date => [date, new Map<string, number>()]))
@@ -317,7 +333,7 @@ export function summarizeAnywhereUsage({ days, dates, rows }: AnywhereUsageRows,
     if (only !== undefined && model !== only) continue
     add(day, row)
     const spent = byDateModel.get(row.date)!
-    spent.set(model, (spent.get(model) ?? 0) + amountUnits(row.amountCharged))
+    spent.set(model, (spent.get(model) ?? 0) + usdUnits(row.amountCharged))
     add(total, row)
     const sum = byModel.get(model) ?? empty()
     add(sum, row)
@@ -327,7 +343,7 @@ export function summarizeAnywhereUsage({ days, dates, rows }: AnywhereUsageRows,
     days, from: dates[0] ?? '', to: dates[dates.length - 1] ?? '', totals: done(total),
     daily: dates.map(date => ({
       date, ...done(byDate.get(date)!),
-      byModel: Object.fromEntries([...byDateModel.get(date)!].map(([model, units]) => [model, formatUnits(units)])),
+      byModel: Object.fromEntries([...byDateModel.get(date)!].map(([model, units]) => [model, formatUsdUnits(units)])),
     })),
     models: [...byModel.entries()].sort(([a, x], [b, y]) => y.units - x.units || y.requests - x.requests || a.localeCompare(b))
       .map(([model, sum]) => ({ model, ...done(sum) })),

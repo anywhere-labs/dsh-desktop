@@ -5,14 +5,17 @@
  * series colors, the five costliest models of the range in their own color and the rest as Other, named in a legend
  * beneath it; a table view carries the daily values without hovering.
  */
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Button, IconRefreshOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  ANYWHERE_ACCOUNT_ROUTES, summarizeAnywhereUsage,
-  type AnywhereModelView, type AnywhereProblem, type AnywhereUsage, type AnywhereUsageRange, type AnywhereUsageRows, type AnywhereUsageTotals,
+  ANYWHERE_ACCOUNT_ROUTES, formatUsdUnits, summarizeAnywhereUsage, usdUnits,
+  type AnywhereModelView, type AnywhereMoneyDisplay, type AnywhereProblem, type AnywhereUsage, type AnywhereUsageRange,
+  type AnywhereUsageRows, type AnywhereUsageTotals,
 } from '../account.ts'
-import { Select } from './controls.tsx'
-import { callHost, formatCount, formatYuan, intlLocale, problemText, usageTicks, type Copy } from './shared.ts'
+import { MoneyAmount, Select } from './controls.tsx'
+import {
+  callHost, formatCount, formatMoney, formatMoneyShort, intlLocale, moneyFormat, problemText, usageTicks, type Copy, type MoneyFormat,
+} from './shared.ts'
 
 /** The model filter's value for every model; `''` is taken by rows without a model. */
 const ALL_MODELS = 'all'
@@ -42,21 +45,13 @@ interface Series {
 
 type Day = AnywhereUsage['daily'][number]
 
-/** Ten-thousandths of a yuan, as Tokens Anywhere bills, so sums stay exact. */
-function units(amount: string): number {
-  return Math.round(Number(amount) * 10_000)
-}
-
-function yuan(value: number): string {
-  return (value / 10_000).toFixed(4)
-}
-
 function tokensOf(totals: AnywhereUsageTotals): number {
   return totals.inputTokens + totals.outputTokens + totals.cacheTokens
 }
 
-function tickLabel(value: number): string {
-  return `¥${Number(value.toPrecision(3))}`
+/** An axis value in the one currency the chart has room for. */
+function tickLabel(value: number, format: MoneyFormat): string {
+  return `${format.yuanRate === undefined ? '$' : '¥'}${Number(value.toPrecision(3))}`
 }
 
 /** A column with a rounded data end, square at its foot. */
@@ -67,18 +62,19 @@ function columnPath(x: number, width: number, top: number, foot: number): string
 
 /** A day's stack from the baseline up: the colored models in their order, then Other; parts without spend left out. */
 function stackOf(day: Day, series: readonly Series[], other: Series): { series: Series; units: number }[] {
-  const colored = series.map(item => ({ series: item, units: units(day.byModel[item.key] ?? '0') }))
+  const colored = series.map(item => ({ series: item, units: usdUnits(day.byModel[item.key] ?? '0') }))
   const rest = Object.entries(day.byModel)
-    .reduce((sum, [model, amount]) => series.some(item => item.key === model) ? sum : sum + units(amount), 0)
+    .reduce((sum, [model, amount]) => series.some(item => item.key === model) ? sum : sum + usdUnits(amount), 0)
   return [...colored, { series: other, units: rest }].filter(part => part.units > 0)
 }
 
-function DailyChart({ daily, series, other, t, language }: {
+function DailyChart({ daily, series, other, t, language, format }: {
   daily: AnywhereUsage['daily']
   series: readonly Series[]
   other: Series
   t: Copy
   language: string
+  format: MoneyFormat
 }) {
   const frame = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
@@ -95,11 +91,12 @@ function DailyChart({ daily, series, other, t, language }: {
     return () => { observer.disconnect() }
   }, [])
 
-  const values = daily.map(day => Number(day.amount))
+  // Heights and the axis follow the currency the chart shows, yuan at the day's rate or dollars.
+  const values = daily.map(day => Number(day.amount) * (format.yuanRate ?? 1))
   const max = Math.max(0, ...values)
   const ticks = usageTicks(max)
   const top = ticks[ticks.length - 1] ?? 0
-  const axisWidth = Math.max(...ticks.map(tick => tickLabel(tick).length)) * 7 + AXIS_GAP
+  const axisWidth = Math.max(...ticks.map(tick => tickLabel(tick, format).length)) * 7 + AXIS_GAP
   const plotWidth = Math.max(0, width - axisWidth)
   const slot = daily.length === 0 ? 0 : plotWidth / daily.length
   const barWidth = Math.max(2, Math.min(MAX_BAR_WIDTH, slot - BAR_GAP))
@@ -111,10 +108,10 @@ function DailyChart({ daily, series, other, t, language }: {
   const date = (value: string): string => `${Number(value.slice(5, 7))}/${Number(value.slice(8, 10))}`
   const spoken = (index: number): string => {
     const day = daily[index]!
-    const parts = stackOf(day, series, other).map(part => `${part.series.label} ${formatYuan(yuan(part.units), language)}`).join(t('，', ', '))
+    const parts = stackOf(day, series, other).map(part => `${part.series.label} ${formatMoney(formatUsdUnits(part.units), format)}`).join(t('，', ', '))
     return t(
-      `${date(day.date)}，花费 ${formatYuan(day.amount, language)}（${parts}），${formatCount(day.requests, language)} 次请求，${formatCount(tokensOf(day), language)} Tokens`,
-      `${date(day.date)}: ${formatYuan(day.amount, language)} (${parts}), ${formatCount(day.requests, language)} requests, ${formatCount(tokensOf(day), language)} tokens`,
+      `${date(day.date)}，花费 ${formatMoney(day.amount, format)}（${parts}），${formatCount(day.requests, language)} 次请求，${formatCount(tokensOf(day), language)} Tokens`,
+      `${date(day.date)}: ${formatMoney(day.amount, format)} (${parts}), ${formatCount(day.requests, language)} requests, ${formatCount(tokensOf(day), language)} tokens`,
     )
   }
 
@@ -138,7 +135,7 @@ function DailyChart({ daily, series, other, t, language }: {
           {ticks.map(tick => (
             <g key={tick}>
               <line className="dshAnywhereGrid" x1={axisWidth} x2={width} y1={y(tick) + 0.5} y2={y(tick) + 0.5} />
-              <text className="dshAnywhereTick" x={axisWidth - AXIS_GAP} y={y(tick) + 4} textAnchor="end">{tickLabel(tick)}</text>
+              <text className="dshAnywhereTick" x={axisWidth - AXIS_GAP} y={y(tick) + 4} textAnchor="end">{tickLabel(tick, format)}</text>
             </g>
           ))}
           {daily.map((day, index) => {
@@ -180,19 +177,19 @@ function DailyChart({ daily, series, other, t, language }: {
           })}
           {max > 0 && active === undefined && (
             <text className="dshAnywherePeak" x={center(peak)} y={y(max) - 6}
-              textAnchor={center(peak) < 40 ? 'start' : center(peak) > width - 40 ? 'end' : 'middle'}>{formatYuan(daily[peak]!.amount, language)}</text>
+              textAnchor={center(peak) < 40 ? 'start' : center(peak) > width - 40 ? 'end' : 'middle'}>{formatMoneyShort(daily[peak]!.amount, format)}</text>
           )}
         </svg>
       )}
       {shown !== undefined && active !== undefined && (
         <div className="dshAnywhereTooltip" data-before={tipBefore ? '' : undefined} role="presentation"
           style={{ left: center(active) + (tipBefore ? -1 : 1) * (barWidth / 2 + 8), top: PLOT_TOP }}>
-          <strong>{formatYuan(shown.amount, language)}</strong>
+          <strong>{formatMoney(shown.amount, format)}</strong>
           {stackOf(shown, series, other).map(part => (
             <span key={part.series.key} className="dshAnywhereTooltipRow">
               <span className="dshAnywhereSwatch" style={{ background: part.series.color }} />
               <span className="dshAnywhereTooltipName">{part.series.label}</span>
-              <span className="dshAnywhereTooltipValue">{formatYuan(yuan(part.units), language)}</span>
+              <span className="dshAnywhereTooltipValue">{formatMoney(formatUsdUnits(part.units), format)}</span>
             </span>
           ))}
           <span>{formatCount(shown.requests, language)} {t('次请求', 'requests')}</span>
@@ -204,14 +201,14 @@ function DailyChart({ daily, series, other, t, language }: {
 }
 
 /** The chart's colors named, with what each cost in the range, beneath the chart as in the console. */
-function Legend({ items, language }: { items: readonly (Series & { amount: string })[]; language: string }) {
+function Legend({ items, format }: { items: readonly (Series & { amount: string })[]; format: MoneyFormat }) {
   return (
     <ul className="dshAnywhereLegend">
       {items.map(item => (
         <li key={item.key}>
           <span className="dshAnywhereSwatch" style={{ background: item.color }} aria-hidden="true" />
           <span className="dshAnywhereLegendName" title={item.key === OTHER ? undefined : item.key}>{item.label}</span>
-          <span className="dshAnywhereLegendValue">{formatYuan(item.amount, language)}</span>
+          <span className="dshAnywhereLegendValue">{formatMoney(item.amount, format)}</span>
         </li>
       ))}
     </ul>
@@ -219,7 +216,7 @@ function Legend({ items, language }: { items: readonly (Series & { amount: strin
 }
 
 /** The chart's values without hovering. */
-function DailyTable({ daily, t, language }: { daily: AnywhereUsage['daily']; t: Copy; language: string }) {
+function DailyTable({ daily, t, language, format }: { daily: AnywhereUsage['daily']; t: Copy; language: string; format: MoneyFormat }) {
   return (
     <div className="dshAnywhereTableFrame">
       <table className="dshAnywhereTable">
@@ -235,7 +232,7 @@ function DailyTable({ daily, t, language }: { daily: AnywhereUsage['daily']; t: 
           {[...daily].reverse().map(day => (
             <tr key={day.date}>
               <th scope="row">{day.date}</th>
-              <td>{formatYuan(day.amount, language)}</td>
+              <td>{formatMoney(day.amount, format)}</td>
               <td>{formatCount(day.requests, language)}</td>
               <td>{formatCount(tokensOf(day), language)}</td>
             </tr>
@@ -246,7 +243,7 @@ function DailyTable({ daily, t, language }: { daily: AnywhereUsage['daily']; t: 
   )
 }
 
-function Stat({ label, value, detail }: { label: string; value: string; detail?: string }) {
+function Stat({ label, value, detail }: { label: string; value: ReactNode; detail?: string }) {
   return (
     <div className="dshAnywhereStat">
       <span className="dshAnywhereSecondary">{label}</span>
@@ -256,12 +253,15 @@ function Stat({ label, value, detail }: { label: string; value: string; detail?:
   )
 }
 
-export function AnywhereUsageBoard({ t, language, models }: {
+export function AnywhereUsageBoard({ t, language, models, money: display }: {
   t: Copy
   language: string
   /** Named in the per-model table where the catalog knows them. */
   models: readonly AnywhereModelView[] | undefined
+  /** How the account shows money; dollars alone until the Host has read it. */
+  money: AnywhereMoneyDisplay | undefined
 }) {
+  const money = moneyFormat(display, language)
   const id = useId()
   const [days, setDays] = useState<AnywhereUsageRange>(30)
   const [model, setModel] = useState(ALL_MODELS)
@@ -298,13 +298,13 @@ export function AnywhereUsageBoard({ t, language, models }: {
   const other: Series = { key: OTHER, label: t('其他', 'Other'), color: 'var(--dsh-anywhere-series-other)' }
   // A model of Other shown alone keeps Other's color, under its own name.
   const series = model === ALL_MODELS || colored.some(item => item.key === model) ? colored : [...colored, { key: model, label: name(model), color: other.color }]
-  const rest = usage?.models.filter(row => !series.some(item => item.key === row.model)).reduce((sum, row) => sum + units(row.amount), 0) ?? 0
+  const rest = usage?.models.filter(row => !series.some(item => item.key === row.model)).reduce((sum, row) => sum + usdUnits(row.amount), 0) ?? 0
   const legend = [
     ...series.flatMap((item) => {
       const row = usage?.models.find(entry => entry.model === item.key)
       return row === undefined ? [] : [{ ...item, amount: row.amount }]
     }),
-    ...(rest > 0 ? [{ ...other, amount: yuan(rest) }] : []),
+    ...(rest > 0 ? [{ ...other, amount: formatUsdUnits(rest) }] : []),
   ]
   const totals = usage?.totals
   return (
@@ -335,7 +335,7 @@ export function AnywhereUsageBoard({ t, language, models }: {
       {usage !== undefined && totals !== undefined && (
         <div className="dshAnywhereBoard" id={`${id}-board`} data-loading={loading ? '' : undefined} aria-busy={loading}>
           <div className="dshAnywhereStats">
-            <Stat label={t('花费', 'Spend')} value={formatYuan(totals.amount, language)} />
+            <Stat label={t('花费', 'Spend')} value={<MoneyAmount usd={totals.amount} format={money} />} />
             <Stat label={t('请求', 'Requests')} value={formatCount(totals.requests, language)} />
             <Stat label="Tokens" value={formatCount(tokensOf(totals), language)}
               detail={t(
@@ -358,10 +358,10 @@ export function AnywhereUsageBoard({ t, language, models }: {
                 : t('这段时间这个模型还没有用量。', 'This model has no usage in this period.')}</p>
             ) : view === 'chart' ? (
               <>
-                <DailyChart key={usage.days} daily={usage.daily} series={series} other={other} t={t} language={language} />
-                {legend.length > 0 && <Legend items={legend} language={language} />}
+                <DailyChart key={usage.days} daily={usage.daily} series={series} other={other} t={t} language={language} format={money} />
+                {legend.length > 0 && <Legend items={legend} format={money} />}
               </>
-            ) : <DailyTable daily={usage.daily} t={t} language={language} />}
+            ) : <DailyTable daily={usage.daily} t={t} language={language} format={money} />}
           </figure>
           {usage.models.length > 0 && (
             <div className="dshAnywhereUsageCard">
@@ -382,7 +382,7 @@ export function AnywhereUsageBoard({ t, language, models }: {
                     {usage.models.map(row => (
                       <tr key={row.model}>
                         <th scope="row" title={row.model}>{name(row.model)}</th>
-                        <td>{formatYuan(row.amount, language)}</td>
+                        <td>{formatMoney(row.amount, money)}</td>
                         <td>{formatCount(row.requests, language)}</td>
                         <td>{formatCount(row.inputTokens, language)}</td>
                         <td>{formatCount(row.outputTokens, language)}</td>

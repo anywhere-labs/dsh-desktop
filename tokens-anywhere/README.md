@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Tokens Anywhere for DeepSeek Harness. Sign in to Tokens Anywhere with an Agents Anywhere account, and its models (DeepSeek, Claude, GPT and Gemini) are set up as `llm-pi-ai` provider routes, one per vendor, with no API key to enter. Its page also shows the balance and the usage by day and model.
+Tokens Anywhere for DeepSeek Harness. Sign in to Tokens Anywhere with an Agents Anywhere account, and its models (DeepSeek, Claude, GPT and Gemini) are set up as `llm-pi-ai` provider routes, one per vendor, with no API key to enter. Its page also shows the balance and the usage by day and model. Amounts are US dollars, as Tokens Anywhere bills; in Chinese the page shows yuan at the day's rate with the dollars beside them while the account's Show local currency setting is on, as the Tokens Anywhere console does.
 
 ## In DSH Next
 

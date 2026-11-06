@@ -1,9 +1,18 @@
 /**
  * The page's dropdown and switch rows, in the look of the Desktop settings sections (dsh-desktop-next
- * src/client/DesktopSettingsSection.tsx) under class names of this plugin, so they render the same wherever it loads.
+ * src/client/DesktopSettingsSection.tsx) under class names of this plugin, so they render the same wherever it loads;
+ * and its large amounts, as the Tokens Anywhere console's `Price` shows them.
  */
 import { useId, useState, type ReactNode } from 'react'
 import { IconChevronDownOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { formatUsd, formatYuanOf, type MoneyFormat } from './shared.ts'
+
+/** A large amount: yuan with the dollars small beside them while yuan are shown, otherwise the dollars. */
+export function MoneyAmount({ usd, format }: { usd: string; format: MoneyFormat }) {
+  const dollars = formatUsd(usd, format.locale)
+  if (format.yuanRate === undefined) return <>{dollars}</>
+  return <>{formatYuanOf(usd, format.yuanRate, format.locale)}<span className="dshAnywhereMoneyUsd">{dollars}</span></>
+}
 
 export interface ToggleExpander {
   readonly open: boolean
