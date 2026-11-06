@@ -534,8 +534,8 @@ const remoteDescription = (t: Translate): string => t(
 )
 
 const computerDescription = (t: Translate): string => t(
-  '让 AI 查看屏幕、操作鼠标和键盘。截图理解需要支持图片输入的模型。',
-  'Let AI view the screen and control the mouse and keyboard. Understanding screenshots requires a model with image input.',
+  '让 AI 查看屏幕、操作鼠标和键盘，支持 macOS、Windows 和 Linux。截图理解需要支持图片输入的模型。',
+  'Let AI view the screen and control the mouse and keyboard on macOS, Windows and Linux. Understanding screenshots requires a model with image input.',
 )
 
 function ComputerUseItem({ context, t, view }: PropsLocale<'desktop-next'> & PropsRuntime<'plugins.item'> & { context: Context }) {

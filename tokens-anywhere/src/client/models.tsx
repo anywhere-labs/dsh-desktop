@@ -2,7 +2,7 @@
  * Tokens Anywhere's models on the account page. By default Tokens Anywhere configures them, and the list, in the rows
  * of Desktop settings' notifications, switches whole families or single models on or off and renames models. Custom
  * configuration hands the routes to the official model catalog editor, which the official Models section shares where
- * DSH Next patches it in (dsh-desktop-next patches/dsh-client-ui-settings-models@0.2.1-rc.5.patch); the writes are the
+ * DSH Next patches it in (dsh-desktop-next patches/dsh-client-ui-settings-models@0.2.2-rc.1.patch); the writes are the
  * official ones too.
  */
 import { useCallback, useEffect, useId, useMemo, useState, useSyncExternalStore, type ComponentType, type KeyboardEvent, type ReactNode } from 'react'

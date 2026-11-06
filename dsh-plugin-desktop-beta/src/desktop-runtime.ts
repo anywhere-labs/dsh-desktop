@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
 import { cleanupDisposableTree } from '../../dsh-plugin-desktop/src/disposable-tree.ts'
 import { dirname, join } from 'node:path'
+import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { DesktopBackendController } from './backend-controller.ts'
 import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, type DesktopPlatformLoginRequest } from './host-process.ts'
 import { DesktopPreferenceStore, parsePreferences } from './desktop-preferences.ts'
@@ -45,6 +46,8 @@ interface RuntimeOptions {
   onTerminal(): void
   onNotification(notification: DesktopNotification): void
   onPermission?(action: DesktopPermissionAction, permission: DesktopPermission): Promise<DesktopPermissionSnapshot>
+  /** The current Host's account grant for the embedded Platform page, or null once it has none. */
+  onPlatformSession?(session: PlatformSession | null): void
   onPlatformLogin?(request: DesktopPlatformLoginRequest): void
 }
 
@@ -231,6 +234,18 @@ export class NextDesktopRuntime {
     }
   }
 
+  /**
+   * Ask the running Host to authorize a Session's workspace file for a native file drag.
+   * @param address - Session-scoped file reference the application window supplied.
+   * @param signal - Cancels the Host's read.
+   * @returns The file's path and content identity, or null when the file cannot be borrowed. Rejects while no Host runs
+   * or where the followed DSH release drags no files natively.
+   */
+  dragResource(address: string, signal: AbortSignal): Promise<{ readonly path: string; readonly sha256: string; readonly size: number } | null> {
+    const resources = this.backend.host === undefined ? undefined : this.hostProcess?.dragResources
+    return resources === undefined ? Promise.reject(new Error('File drag Host unavailable')) : resources.resolve(address, signal)
+  }
+
   /** Apply access toggles without stopping conversations or changing the renderer capability. */
   async applyPreferences(value: unknown): Promise<void> {
     const next = parsePreferences(value)
@@ -386,7 +401,7 @@ export class NextDesktopRuntime {
         [SYSTEM_PROXY_ENV]: JSON.stringify(options.systemProxy?.() ?? {}),
         ...(this.safeMode ? { DSH_TELEMETRY_DISABLED: '1' } : {}) },
       onFailure, options.primaryRuntime, undefined, join(options.root, 'lib', 'host.js'), options.onRestart, options.onNotification,
-      (chunk, stream, pid) => this.diagnostics.hostChunk(chunk, stream, pid), options.onTerminal, options.onPermission, undefined, options.onPlatformLogin,
+      (chunk, stream, pid) => this.diagnostics.hostChunk(chunk, stream, pid), options.onTerminal, options.onPermission, options.onPlatformSession, options.onPlatformLogin,
       input => { if (input.event === 'exit') this.diagnostics.hostClosed(input.pid); this.diagnostics.record(input) },
       { memory: (usage, pid) => { this.memory.hostMemory(usage, pid) }, exited: (exit, pid) => { this.memory.hostExited(exit, pid) },
         ...(this.operationHistory === undefined ? {} : { operation: this.operationHistory.host() }) })

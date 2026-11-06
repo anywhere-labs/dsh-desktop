@@ -10,7 +10,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { AnywhereAccountSettings } from './account.tsx'
-import { anywherePlacement, registerAnywhereEntries } from './entries.tsx'
+import { AnywhereAccountGlyph, anywherePlacement, registerAnywhereEntries } from './entries.tsx'
 import type { OfficialModelsFace } from './models.tsx'
 import type { AnywherePlacement } from './shared.ts'
 import { installAnywhereAccountStyles } from './styles.ts'
@@ -35,7 +35,8 @@ export function apply(ctx: Context): void {
   const officialModels = (): OfficialModelsFace | undefined =>
     ctx.slots.entries('settings.section').find(entry => entry.options.id === 'models')?.inject?.() as OfficialModelsFace | undefined
   const placement = anywherePlacement()
-  // DSH Next's patched settings shell maps this section id to the account glyph; elsewhere it shows the gear.
+  // The settings shell draws a section's navigation glyph from the `settings.section.icon` slot, keyed by the section id.
+  ctx.slots.inject('settings.section.icon', () => ctx.slots.register({ name: 'settings.section.icon', id: 'tokens-anywhere' }, AnywhereAccountGlyph))
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'tokens-anywhere', order: 90, locale: 'tokens-anywhere', label: () => t('title'),
     inject: () => ({ officialModels, placement }),

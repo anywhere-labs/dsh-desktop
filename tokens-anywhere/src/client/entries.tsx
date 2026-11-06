@@ -48,8 +48,8 @@ export function anywherePlacement(): AnywherePlacement & { load(): Promise<void>
   }
 }
 
-/** The settings navigation's account glyph, at the sidebar's size. */
-function AnywhereAccountGlyph({ size }: { size: number; active: boolean }) {
+/** The account glyph, sized by its owner: the settings navigation and the left sidebar both draw it. */
+export function AnywhereAccountGlyph({ size }: { size: number; active: boolean }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <circle cx="8" cy="8" r="6.375" stroke="currentColor" strokeWidth="1.25" />

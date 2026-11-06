@@ -1,0 +1,13 @@
+diff --git a/lib/client.js b/lib/client.js
+index 8768526..2eda854 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -5427,6 +5427,8 @@ window.__ModuleLoader__.load({
+ 				hooks: { snapshot: controller.store },
+ 				operations,
+ 				schema,
++				/** Desktop-owned: the Anywhere account page edits its routes with the official catalog editor. */
++				desktopCatalog: { ModelListEditor, EditorFooter, modelDrafts, validateDeepSeekModels, validateReasoningEfforts, reasoningLevelChoices },
+ 				t
+ 			});
+ 			const deepSeekOnboardingInjected = () => ({

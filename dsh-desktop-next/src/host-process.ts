@@ -3,6 +3,7 @@
 import type { LogInput } from './log-record.ts'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
+import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { MAX_HEADER_BYTES } from './browser-sessions.ts'
 import { desktopNodeEnvironment } from './node-environment.ts'
 import type { DesktopNotification } from './desktop-contract.ts'
@@ -10,7 +11,7 @@ import { exitSummary } from './exit-code.ts'
 import { isHostMemoryUsage, type HostMemoryUsage, type MemoryHostExit } from './memory-monitor.ts'
 import { isDesktopNotification } from './notifications.ts'
 import type { DesktopPermission, DesktopPermissionAction, DesktopPermissionSnapshot } from './permissions.ts'
-import { isOperationEvidence } from './upstream-family.ts'
+import { createFileDragAuthorization, isOperationEvidence } from './upstream-family.ts'
 
 interface ReadyEvent {
   readonly type: 'ready'
@@ -26,21 +27,9 @@ interface FatalEvent {
 }
 
 /**
- * Host-only credentials for an embedded Platform document, mirroring
- * `PlatformSession` in dsh 0.1.7's `@deepseek-ai/dsh-deepseek-account`
- * (`packages/credentials/deepseek-account/src/index.ts:13-20`). Declared here
- * rather than imported: Next does not depend on that package, and this shape is
- * only ever reached by structural validation of a child IPC payload.
+ * Host-only credentials for the embedded Platform page (src/platform-view.ts), published by
+ * src/host/platform-session.ts; isDesktopHostEvent validates every field of this child IPC payload.
  */
-export interface PlatformSession {
-  readonly origin: string
-  readonly token: string
-  /** Optional dist query value selecting the embedded frontend deployment. */
-  readonly embeddedPageDist?: string
-  /** Private deployment headers for native requests; excluded from renderer bootstrap. */
-  readonly requestHeaders?: Readonly<Record<string, string>>
-}
-
 interface PlatformSessionEvent {
   readonly type: 'platform-session'
   readonly session: PlatformSession | null
@@ -141,6 +130,9 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
       if (session === null) return true
       if (typeof session !== 'object' || !('origin' in session) || !('token' in session)
         || typeof session.origin !== 'string' || typeof session.token !== 'string' || session.token.length === 0) return false
+      // The shell keys the page's persistent storage by this ID; null selects disposable storage.
+      if (!('userId' in session) || (session.userId !== null
+        && (typeof session.userId !== 'string' || session.userId.length === 0))) return false
       if ('embeddedPageDist' in session && typeof session.embeddedPageDist !== 'string') return false
       if ('requestHeaders' in session && (typeof session.requestHeaders !== 'object' || session.requestHeaders === null
         || Array.isArray(session.requestHeaders)
@@ -304,6 +296,12 @@ export class DesktopHostProcess {
   private readonly accessRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private readonly loggingRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private readonly injectionRequests = new Map<number, { resolve: (injections: readonly unknown[]) => void; reject: (error: Error) => void }>()
+  /** Authorizes the workspace files native file drags borrow, where the followed DSH release drags files natively. */
+  readonly dragResources = createFileDragAuthorization?.(message => new Promise<void>((resolve, reject) => {
+    const child = this.child
+    if (!child?.connected || this.stopping || this.failureReported) { reject(new Error('Next Host is unavailable')); return }
+    child.send(message, (error) => { if (error === null) resolve(); else reject(error) })
+  }))
 
   /**
    * @param node - Absolute Electron executable in Node mode.
@@ -373,6 +371,8 @@ export class DesktopHostProcess {
     child.on('message', (message: unknown) => {
       // Like memory readings, operation evidence is observational and never reaches control handling.
       try { if ((this.observer?.operation ?? isOperationEvidence)?.(message) === true) return } catch { /* A failing observer leaves the message to the events below. */ }
+      // An authorization answer settles its own request; a malformed one fails below as invalid IPC.
+      if (this.dragResources?.receive(message) === true) return
       if (!isDesktopHostEvent(message)) {
         this.fail(new Error('dsh desktop host sent an invalid IPC event'))
         child.kill('SIGTERM')
@@ -385,7 +385,10 @@ export class DesktopHostProcess {
       }
       this.diagnostic({ source: 'host.ipc', event: 'received', developer: true, pid: child.pid, fields: { type: message.type, ...('requestId' in message ? { requestId: message.requestId } : {}) } })
       if (message.type === 'ready') this.readyResolve({ url: message.url, injections: message.injections })
-      else if (message.type === 'platform-session') this.onPlatformSession?.(message.session)
+      else if (message.type === 'platform-session') {
+        // A stopping or failed Host may only withdraw its grant; stop() and fail() already did.
+        if (message.session === null || (!this.stopping && !this.failureReported)) this.onPlatformSession?.(message.session)
+      }
       else if (message.type === 'platform-login') {
         if (!this.stopping && !this.failureReported) {
           this.onPlatformLogin?.(message.action === 'open' ? { action: 'open', url: message.url } : { action: 'close', focus: message.focus })
@@ -615,6 +618,7 @@ export class DesktopHostProcess {
     this.loggingRequests.clear()
     for (const request of this.injectionRequests.values()) request.reject(error)
     this.injectionRequests.clear()
+    this.dragResources?.fail(error)
     if (!this.failureReported && !this.stopping) {
       this.failureReported = true
       try { this.onFailure?.(error) } catch (listenerError) {

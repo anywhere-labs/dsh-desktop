@@ -39,14 +39,24 @@ it('keeps the original tray tool order, direct recovery actions and Profile crea
 it('keeps valid escape routes during failure or safe mode and only advertises supported tools', () => {
   const menu = desktopMenu({ ...state, safeMode: true, busy: true, phase: 'error', platform: 'linux', updates: { phase: 'idle', installable: false } }, 'en', vi.fn(), vi.fn())
   expect(menu.some(item => item.label === 'Open DSH Terminal')).toBe(false)
-  expect(menu.some(item => item.label === 'Check for updates')).toBe(false)
+  expect(menu.find(item => item.label === 'Check for updates')!.enabled).toBe(false)
   expect(desktopMenu({ ...state, platform: 'darwin', updates: { phase: 'idle', installable: true } }, 'en', vi.fn(), vi.fn()).some(item => item.label === 'Check for updates')).toBe(true)
+  expect(desktopMenu({ ...state, platform: 'freebsd', updates: { phase: 'idle', installable: false } }, 'en', vi.fn(), vi.fn()).some(item => item.label === 'Check for updates')).toBe(false)
   expect(menu.find(item => item.label === 'Reload Interface')!.enabled).toBe(false)
   expect(menu.find(item => item.label === 'Quit and Restart')!.enabled).toBe(false)
   expect(menu.find(item => item.label === 'Exit Safe Mode and Restart…')!.enabled).toBe(false)
   expect(menu.find(item => item.label === 'Settings…')!.enabled).toBe(true)
   expect(menu.at(-1)!.enabled).not.toBe(false)
   expect(desktopMenu({ ...state, browserUrl: 'http://127.0.0.1:1234' }, 'en', vi.fn(), vi.fn()).some(item => item.label === 'Open in Browser')).toBe(true)
+})
+
+it('checks for updates on Linux and hands an available one to the download action', () => {
+  const run = vi.fn()
+  const menu = desktopMenu({ ...state, platform: 'linux', updates: { phase: 'available', version: '2.0.22-beta.1', installable: false } }, 'zh-CN', vi.fn(), run)
+  const update = menu.find(item => item.label === '发现新版本 2.0.22-beta.1')!
+  expect(update.enabled).toBe(true)
+  ;(update.click as () => void)()
+  expect(run).toHaveBeenLastCalledWith({ type: 'download-update' })
 })
 
 it('preserves application arguments while replacing one-shot launch modes', () => {

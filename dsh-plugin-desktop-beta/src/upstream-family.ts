@@ -9,7 +9,7 @@ import type { StartupError } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { IndexInjection, WebResource, WebResourceRoute, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 
-export { OPTIONAL_BUNDLES, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
+export { ON_DEMAND_BUNDLES, OPTIONAL_BUNDLES, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 
 /**
  * Render the plugin states and missing-service observations a failed startup recorded before
@@ -32,16 +32,31 @@ export function startupCompositionDiagnostic(error: StartupError): string[] {
 
 // Plugin operation history for failure reports, built on the `plugin-manager/operation` event of dsh
 // 0.2.2: the Host announces its run and sends records, and the shell journals them and appends recent
-// ones to saved reports. The modules live below src/upstream-family/, which only Beta carries.
+// ones to saved reports. The modules live below src/upstream-family/.
 export { hostOperationDiagnostics, recordPluginCommands } from './upstream-family/operation-diagnostics.ts'
 export { createOperationHistory } from './upstream-family/desktop-operation-history.ts'
 export { isOperationEvidence } from './upstream-family/operation-record.ts'
 
-// The official Computer Use bundle of dsh 0.2.2 beside Computer Use (Next): the Agents it serves, the per-Agent
-// `/computer-use` that leaves them, and the unpacked copy its provider starts the helper from. The modules live
-// below src/upstream-family/, which only Beta carries.
+// The official Computer Use bundle of dsh 0.2.2 beside Computer Use (Next): the Agents it serves and the per-Agent
+// `/computer-use` that leaves them. The release installs the bundle on demand into the Profile. The module lives below
+// src/upstream-family/.
 export { officialComputerUse } from './upstream-family/official-computer-use.ts'
-export { OFFICIAL_CUA_PROVIDER_PACKAGE, installOfficialCuaResolution } from './upstream-family/official-cua.ts'
+
+// The official context menus of dsh 0.2.2 save originals and copy cross-origin images through the native file actions.
+// The module lives below src/upstream-family/.
+export { installFileActions } from './upstream-family/file-actions.ts'
+
+// The official images of dsh 0.2.2 drag out as files through the native file drag: the shell copies the bytes or borrows a
+// Session's workspace original that the Host authorizes, then starts the operating-system drag. The modules live below
+// src/upstream-family/.
+export { installDesktopFileDrag } from './upstream-family/file-drag.ts'
+export { createFileDragAuthorization } from './upstream-family/file-drag-authorization.ts'
+export { installHostFileDragResources } from './upstream-family/file-drag-resource.ts'
+
+// The LiveShare bundle of dsh 0.2.2 signs its owner in through a Relay popup the page opens itself. The Desktop window
+// opens that one popup, keeps it on web pages, and addresses the Relay's code to the Desktop document. The module lives
+// below src/upstream-family/.
+export { liveshareOwnerLogin } from './upstream-family/liveshare-owner-login.ts'
 
 /**
  * Collect the Web boot injections for the Desktop window.

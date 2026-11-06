@@ -20,18 +20,6 @@ diff --git a/dist/api/bedrock-converse-stream.js b/dist/api/bedrock-converse-str
          stream.push({ type: "toolcall_delta", contentIndex: index, delta: delta.toolUse.input || "", partial: output });
      }
      else if (delta?.reasoningContent) {
-diff --git a/dist/api/google-shared.js b/dist/api/google-shared.js
---- a/dist/api/google-shared.js
-+++ b/dist/api/google-shared.js
-@@ -40,6 +40,8 @@ export function usesGoogleThinkingLevel(model) {
-     // Match Gemini 3 Pro/Flash IDs with or without a minor version, such as
-     // gemini-3-flash-preview, gemini-3.1-pro-preview, and gemini-3.8-flash.
-     /gemini-3(?:\.\d+)?-(?:pro|flash)/.test(id) ||
-+        // Match Gemini 4 and later, such as gemini-4-argon (#10890).
-+        /gemini-(?:[4-9]|[1-9]\d)/.test(id) ||
-         id === "gemini-flash-latest" ||
-         id === "gemini-flash-lite-latest" ||
-         // Match both hosted Gemma 4 naming forms: gemma-4-* and gemma4-*.
 diff --git a/dist/api/mistral-conversations.js b/dist/api/mistral-conversations.js
 --- a/dist/api/mistral-conversations.js
 +++ b/dist/api/mistral-conversations.js

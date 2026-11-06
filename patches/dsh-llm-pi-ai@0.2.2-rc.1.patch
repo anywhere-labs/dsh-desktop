@@ -1,0 +1,21 @@
+diff --git a/lib/index.js b/lib/index.js
+index f0836c2..d49352c 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -10,6 +10,7 @@ import { builtinModels, builtinProviders, getAllBuiltinModels, getBuiltinModels
+ import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
+ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+ import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
++import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generative-ai.lazy";
+ import { isContextOverflow } from "@earendil-works/pi-ai/utils/overflow";
+ import { homedir } from "node:os";
+ import { access } from "node:fs/promises";
+@@ -837,6 +838,8 @@ const PROTOCOLS = {
+ 	"openai-responses": openAIResponsesApi,
+ 	"anthropic-messages": anthropicMessagesApi
+ };
++/** Desktop-owned: Tokens Anywhere serves Gemini only through Gemini's own protocol. */
++PROTOCOLS["google-generative-ai"] = googleGenerativeAIApi;
+ /**
+ * Every wire protocol a configured route may name, most-reached first. The
+ * order is the table's and therefore stable; a configuration surface offering

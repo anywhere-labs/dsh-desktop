@@ -6,8 +6,13 @@
  * electron/electron#49167). Chrome restarts itself de-elevated before launching any child. This module
  * follows Chromium's `base::win::RunDeElevated`: the desktop shell's process token is the same user's
  * normal token, so a process created with it runs without administrator rights.
+ *
+ * A launch below Medium integrity cannot start the GPU process either, and no restart raises it: Windows
+ * starts a program at most at the integrity level of its file's label (#1564). The startup check reads
+ * both levels so the user learns which one to fix.
  */
 import { createRequire } from 'node:module'
+import { win32 as windowsPath } from 'node:path'
 import { isDesktopInstallerQuitRequest } from '../../dsh-plugin-desktop/src/desktop-installer-quit.ts'
 import { DE_ELEVATED_ARGUMENT } from './relaunch.ts'
 
@@ -18,6 +23,8 @@ type Handle = bigint
 export const KEEP_ELEVATED_ARGUMENT = '--next-keep-elevated'
 /** Win32 `ERROR_ELEVATION_REQUIRED`: Windows insists on administrator rights for the program. */
 export const ERROR_ELEVATION_REQUIRED = 740
+/** `SECURITY_MANDATORY_MEDIUM_RID`, the level of a normal launch and of an object without a label. */
+export const MEDIUM_INTEGRITY = 0x2000
 
 /** `TokenIsElevated` and `TOKEN_ELEVATION_TYPE` of one token. */
 export interface WindowsElevation {
@@ -60,6 +67,19 @@ const TOKEN_PRIMARY = 1
 const SE_PRIVILEGE_ENABLED = 0x0002
 /** TOKEN_USER plus the SID it points to: at most 16 + 68 bytes on 64-bit Windows. */
 const TOKEN_USER_BYTES = 256
+const TOKEN_INTEGRITY_LEVEL_CLASS = 25
+/** TOKEN_MANDATORY_LABEL plus the label SID it points to: 16 + 12 bytes on 64-bit Windows. */
+const TOKEN_LABEL_BYTES = 64
+const SE_FILE_OBJECT = 1
+const LABEL_SECURITY_INFORMATION = 0x10
+const ACL_HEADER_BYTES = 8
+const SYSTEM_MANDATORY_LABEL_ACE_TYPE = 0x11
+const INHERIT_ONLY_ACE = 0x08
+/** SYSTEM_MANDATORY_LABEL_ACE: the label SID follows the ACE header and the access mask. */
+const LABEL_SID_OFFSET = 8
+/** S-1-16-<level>: the revision, one sub-authority, the six-byte authority and the level. */
+const LABEL_SID_BYTES = 12
+const MANDATORY_LABEL_AUTHORITY = 16
 
 /**
  * Win32 types and functions this module binds, by library.
@@ -89,6 +109,7 @@ export function win32Signatures(koffi: Koffi) {
         OpenProcess: [HANDLE, ['uint32', 'int', 'uint32']],
         CloseHandle: ['int', [HANDLE]],
         GetLastError: ['uint32', []],
+        LocalFree: [HANDLE, [HANDLE]],
       },
       'advapi32.dll': {
         OpenProcessToken: ['int', [HANDLE, 'uint32', handleOut]],
@@ -100,6 +121,8 @@ export function win32Signatures(koffi: Koffi) {
         EqualSid: ['int', [HANDLE, HANDLE]],
         CreateProcessWithTokenW: ['int', [HANDLE, 'uint32', 'str16', 'str16', 'uint32', HANDLE, 'str16',
           koffi.pointer(STARTUPINFOW), koffi.out(koffi.pointer(PROCESS_INFORMATION))]],
+        // Returns the Win32 error code itself; the label ACL points into the returned security descriptor.
+        GetNamedSecurityInfoW: ['uint32', ['str16', 'int', 'uint32', HANDLE, HANDLE, HANDLE, handleOut, handleOut]],
       },
       'user32.dll': {
         GetShellWindow: [HANDLE, []],
@@ -184,6 +207,85 @@ export function windowsElevation(): WindowsElevation {
   const win = win32()
   const token = openToken(win, win.api.GetCurrentProcess(), TOKEN_QUERY)
   try { return tokenElevation(win, token) } finally { win.api.CloseHandle(token) }
+}
+
+/**
+ * The level of a mandatory label SID, S-1-16-<level>.
+ * @param sid - SID bytes.
+ * @returns the level.
+ * @throws RangeError for any other SID or truncated bytes, so that misread memory never counts as a low level.
+ */
+export function mandatoryLabelLevel(sid: Uint8Array): number {
+  const bytes = Buffer.from(sid.buffer, sid.byteOffset, sid.byteLength)
+  if (bytes.length < LABEL_SID_BYTES || bytes.readUInt8(0) !== 1 || bytes.readUInt8(1) !== 1 || bytes.readUIntBE(2, 6) !== MANDATORY_LABEL_AUTHORITY) {
+    throw new RangeError('Not a mandatory label SID')
+  }
+  return bytes.readUInt32LE(8)
+}
+
+/**
+ * The level of the first mandatory label in an ACL that applies to the object itself.
+ * @param acl - ACL bytes read with `LABEL_SECURITY_INFORMATION`.
+ * @returns the label's level, or undefined when the object carries none and counts as Medium.
+ * @throws RangeError for a truncated ACL or a label without a mandatory label SID.
+ */
+export function aclIntegrityLevel(acl: Uint8Array): number | undefined {
+  const bytes = Buffer.from(acl.buffer, acl.byteOffset, acl.byteLength)
+  let offset = ACL_HEADER_BYTES
+  for (let index = 0; index < bytes.readUInt16LE(4); index++) {
+    const size = bytes.readUInt16LE(offset + 2)
+    if (size < LABEL_SID_OFFSET) throw new RangeError('ACE is shorter than its header')
+    if (bytes.readUInt8(offset) === SYSTEM_MANDATORY_LABEL_ACE_TYPE && (bytes.readUInt8(offset + 1) & INHERIT_ONLY_ACE) === 0) {
+      return mandatoryLabelLevel(bytes.subarray(offset + LABEL_SID_OFFSET, offset + size))
+    }
+    offset += size
+  }
+  return undefined
+}
+
+function nativeBytes({ koffi }: Win32, pointer: Handle, length: number): Buffer {
+  return Buffer.from(koffi.decode(pointer, 'uint8', length) as Uint8Array)
+}
+
+/**
+ * Read this process token's integrity level.
+ * @returns the mandatory label level of the current process token.
+ * @throws when Koffi cannot load or the token cannot be queried.
+ */
+export function windowsIntegrityLevel(): number {
+  const win = win32()
+  const token = openToken(win, win.api.GetCurrentProcess(), TOKEN_QUERY)
+  const information = win.koffi.alloc('uint8', TOKEN_LABEL_BYTES) as Handle
+  try {
+    if (!win.api.GetTokenInformation(token, TOKEN_INTEGRITY_LEVEL_CLASS, information, TOKEN_LABEL_BYTES, [0])) throw lastError(win, 'GetTokenInformation')
+    // TOKEN_MANDATORY_LABEL points at the label SID inside the same buffer.
+    const sid = win.koffi.decode(information, 'void *') as Handle | null
+    if (sid === null) throw new Win32CallError('GetTokenInformation', 0)
+    return mandatoryLabelLevel(nativeBytes(win, sid, LABEL_SID_BYTES))
+  } finally {
+    win.koffi.free(information)
+    win.api.CloseHandle(token)
+  }
+}
+
+/**
+ * Read the integrity level of a file's mandatory label, its own or inherited.
+ * @param path - file or folder path.
+ * @returns the label's level, or undefined when the file carries none and counts as Medium.
+ * @throws when the label cannot be read.
+ */
+export function fileIntegrityLevel(path: string): number | undefined {
+  const win = win32()
+  const acl: [Handle | null] = [null]
+  const descriptor: [Handle | null] = [null]
+  const code = win.api.GetNamedSecurityInfoW(path, SE_FILE_OBJECT, LABEL_SECURITY_INFORMATION, null, null, null, acl, descriptor) as number
+  if (code !== 0) throw new Win32CallError('GetNamedSecurityInfoW', code)
+  try {
+    if (acl[0] === null) return undefined
+    return aclIntegrityLevel(nativeBytes(win, acl[0], win.koffi.decode(acl[0], 2, 'uint16') as number))
+  } finally {
+    if (descriptor[0] !== null) win.api.LocalFree(descriptor[0])
+  }
 }
 
 /**
@@ -296,4 +398,50 @@ export function deElevateAtStartup(options: StartupElevationOptions): { readonly
   } catch (error) {
     return { relaunched: false, state: { elevation, error: String(error), ...error instanceof Win32CallError ? { win32Code: error.code } : {} } }
   }
+}
+
+/** With these Chromium arguments the GPU process needs no sandbox, the part a Low integrity launch cannot create. */
+const GPU_SANDBOX_OFF = new Set(['--no-sandbox', '--disable-gpu-sandbox'])
+
+/** A launch below Medium integrity, which cannot start Chromium's GPU process (#1564). */
+export interface LowIntegrityLaunch {
+  readonly executable: string
+  /**
+   * Set when the executable carries a label below Medium: the highest folder above it that carries one
+   * too, where the label it inherits comes from, or its own folder.
+   */
+  readonly labeled?: string
+}
+
+/** The injectable environment of {@link lowIntegrityAtStartup}. */
+export interface LowIntegrityOptions {
+  readonly platform: NodeJS.Platform
+  /** Full `process.argv`. */
+  readonly argv: readonly string[]
+  readonly executable: string
+  readonly integrity?: () => number
+  readonly fileIntegrity?: (path: string) => number | undefined
+}
+
+/**
+ * Recognize a Windows launch below Medium integrity before Chromium starts any child. A level that cannot
+ * be read lets the launch go on.
+ * @param options - process facts and, in tests, Win32 replacements.
+ * @returns what to explain, or undefined for a launch that can start.
+ */
+export function lowIntegrityAtStartup(options: LowIntegrityOptions): LowIntegrityLaunch | undefined {
+  // The installer's quit handoff ends at once and must not wait on a message box.
+  if (options.platform !== 'win32' || isDesktopInstallerQuitRequest(options.argv, options.platform)
+    || options.argv.some(argument => GPU_SANDBOX_OFF.has(argument))) return undefined
+  let level: number
+  try { level = (options.integrity ?? windowsIntegrityLevel)() } catch { return undefined }
+  if (level >= MEDIUM_INTEGRITY) return undefined
+  const fileLevel = options.fileIntegrity ?? fileIntegrityLevel
+  const lowered = (path: string): boolean => {
+    try { return (fileLevel(path) ?? MEDIUM_INTEGRITY) < MEDIUM_INTEGRITY } catch { return false }
+  }
+  if (!lowered(options.executable)) return { executable: options.executable }
+  let folder = windowsPath.dirname(options.executable)
+  for (let parent = windowsPath.dirname(folder); parent !== folder && lowered(parent); parent = windowsPath.dirname(folder)) folder = parent
+  return { executable: options.executable, labeled: folder }
 }

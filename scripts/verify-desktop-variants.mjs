@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const root = resolve(import.meta.dirname, '..')
 const nextRoot = join(root, 'dsh-desktop-next')
@@ -39,6 +40,7 @@ const OBSOLETE_BETA_FILES = [
 const UPSTREAM_FAMILY_FILES = [
   'src/upstream-family.ts',
   'src/upstream-family-labels.ts',
+  'src/upstream-family-preload.ts',
   'src/client/upstream-family.ts',
   'scripts/upstream-family.ts',
   'tests/upstream-family.ts',
@@ -175,6 +177,37 @@ const GLOBAL_PAIRS = [
 const { channels } = JSON.parse(readFileSync(join(root, 'upstream.json'), 'utf8'))
 const runtimesDiffer = channels.next.runtimePackageVersion !== channels.beta.runtimePackageVersion
 const RUNTIME_PAIRS = runtimesDiffer ? [[channels.next.runtimePackageVersion, channels.beta.runtimePackageVersion]] : []
+
+// While the runtimes differ, Beta may also release on its own, so each variant owns the product version its
+// package.json declares and its package spec pins. The pair replaces only that whole version string in these
+// files, before the channel suffix mapping below, so fixture versions keep following the shared mapping.
+const PRODUCT_VERSION_FILES = new Set(['package.json', 'tests/package.spec.ts'])
+const productVersion = directory => JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')).version
+const PRODUCT_VERSIONS = runtimesDiffer ? { next: productVersion(nextRoot), beta: productVersion(betaRoot) } : undefined
+
+function withProductVersion(relativePath, text, from, to) {
+  if (PRODUCT_VERSIONS === undefined || !PRODUCT_VERSION_FILES.has(relativePath)) return text
+  const escaped = PRODUCT_VERSIONS[from].replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  return text.replace(new RegExp(`(?<![\\w.-])${escaped}(?![\\w.-])`, 'gu'), PRODUCT_VERSIONS[to])
+}
+
+// The root check covers Beta through its `check:beta` script. While Beta follows its own upstream
+// release, only Beta's full check covers it. While both follow one release, Beta mirrors Next apart
+// from declared channel values and the Next suite covers the shared behavior, so Beta only builds,
+// checks its frontend and runs the specs related to its channel-specific files.
+export const BETA_OWN_RELEASE_CHECK = 'yarn workspace dsh-plugin-desktop-beta check'
+export const BETA_MIRROR_CHECK = 'yarn workspace dsh-plugin-desktop-beta build && yarn workspace dsh-plugin-desktop-beta verify:frontend && yarn test:beta-variant'
+
+/**
+ * Choose the root `check:beta` script for the recorded upstream channels.
+ * @param {{ next: { runtimePackageVersion: string }, beta: { runtimePackageVersion: string } }} [upstreamChannels] - The `upstream.json` channels.
+ * @returns {string} The script the root package must declare.
+ */
+export function expectedBetaCheck(upstreamChannels = channels) {
+  return upstreamChannels.next.runtimePackageVersion === upstreamChannels.beta.runtimePackageVersion
+    ? BETA_MIRROR_CHECK
+    : BETA_OWN_RELEASE_CHECK
+}
 const NEXT_LEAD_REGION = /^[ \t]*\/\/ next-lead:start\n[\s\S]*?^[ \t]*\/\/ next-lead:end\n/gmu
 
 function withoutNextLead(text) {
@@ -182,7 +215,7 @@ function withoutNextLead(text) {
 }
 
 export function toBetaContent(relativePath, sourceText) {
-  let text = withoutNextLead(sourceText)
+  let text = withProductVersion(relativePath, withoutNextLead(sourceText), 'next', 'beta')
   for (const [nextStr, betaStr] of FILE_SPECIFIC_PAIRS[relativePath] ?? []) {
     text = text.replaceAll(nextStr, betaStr)
   }
@@ -205,7 +238,7 @@ export function toBetaContent(relativePath, sourceText) {
 }
 
 export function toNextContent(relativePath, sourceText) {
-  let text = sourceText
+  let text = withProductVersion(relativePath, sourceText, 'beta', 'next')
     .replace(
       /(\b\d+\\\\\.\d+\\\\\.\d+)-beta\\\\\.(\d+)\b/gu,
       (_, ver, rev) => (Number(rev) <= 1 ? `${ver}-next` : `${ver}-next\\\\.${String(Number(rev) - 1)}`),
@@ -242,13 +275,30 @@ function listDirectoryFiles(baseDir, subDir) {
   return result
 }
 
-function collectSyncedPaths() {
+function collectSyncedPaths(nextDir = nextRoot, betaDir = betaRoot) {
   const paths = new Set(SYNCED_FILES)
   for (const dir of SYNCED_DIRECTORIES) {
-    for (const file of listDirectoryFiles(nextRoot, dir)) paths.add(file)
-    for (const file of listDirectoryFiles(betaRoot, dir)) paths.add(file)
+    for (const file of listDirectoryFiles(nextDir, dir)) paths.add(file)
+    for (const file of listDirectoryFiles(betaDir, dir)) paths.add(file)
   }
   return [...paths].sort()
+}
+
+/**
+ * List the Beta files whose bytes differ from Next: the declared channel substitutions, plus any
+ * Beta-only file. Shared behavior is already covered by the Next suite, so only these files can
+ * make a Beta test behave differently.
+ * @param {string} [nextDir] - Next package root.
+ * @param {string} [betaDir] - Beta package root.
+ * @returns {string[]} Sorted package-relative POSIX paths.
+ */
+export function variantSpecificFiles(nextDir = nextRoot, betaDir = betaRoot) {
+  return collectSyncedPaths(nextDir, betaDir).filter(relPath => {
+    const betaFile = join(betaDir, ...relPath.split('/'))
+    if (!existsSync(betaFile)) return false
+    const nextFile = join(nextDir, ...relPath.split('/'))
+    return !existsSync(nextFile) || !readFileSync(nextFile).equals(readFileSync(betaFile))
+  })
 }
 
 export function syncVariants(direction = 'beta-to-next') {
@@ -345,17 +395,28 @@ export function verifyVariants() {
     throw new Error(`Desktop variant source drift between Next and Beta is not declared:\n${differences.map(path => `- ${path}`).join('\n')}`)
   }
 
+  const betaCheck = expectedBetaCheck()
+  const declaredBetaCheck = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts?.['check:beta']
+  if (declaredBetaCheck !== betaCheck) {
+    const reason = runtimesDiffer
+      ? `Beta follows upstream ${channels.beta.runtimePackageVersion} and Next ${channels.next.runtimePackageVersion}`
+      : 'Beta and Next follow one upstream release'
+    throw new Error(`The root check:beta script must be ${JSON.stringify(betaCheck)} while ${reason}; it is ${JSON.stringify(declaredBetaCheck)}`)
+  }
+
   const declared = runtimesDiffer
-    ? `; Beta follows upstream ${channels.beta.runtimePackageVersion} and Next ${channels.next.runtimePackageVersion}, so their upstream-family pins and optional bundles, ${UPSTREAM_FAMILY_FILES.join(', ')}, the files below ${UPSTREAM_FAMILY_DIRECTORIES.join(' and ')} and Next-lead lines differ`
+    ? `; Beta follows upstream ${channels.beta.runtimePackageVersion} and Next ${channels.next.runtimePackageVersion}, so their product versions (${PRODUCT_VERSIONS.beta} and ${PRODUCT_VERSIONS.next}), upstream-family pins and optional bundles, ${UPSTREAM_FAMILY_FILES.join(', ')}, the files below ${UPSTREAM_FAMILY_DIRECTORIES.join(' and ')} and Next-lead lines differ`
     : ''
   process.stdout.write(`verify-desktop-variants: ${String(allPaths.length)} files are aligned between Next and Beta${declared}\n`)
 }
 
-const args = new Set(process.argv.slice(2))
-if (args.has('--from=next') || args.has('--sync=beta') || args.has('--next-to-beta')) {
-  syncVariants('next-to-beta')
-} else if (args.has('--sync') || args.has('--from=beta') || args.has('--sync=next') || args.has('--beta-to-next')) {
-  syncVariants('beta-to-next')
-} else {
-  verifyVariants()
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const args = new Set(process.argv.slice(2))
+  if (args.has('--from=next') || args.has('--sync=beta') || args.has('--next-to-beta')) {
+    syncVariants('next-to-beta')
+  } else if (args.has('--sync') || args.has('--from=beta') || args.has('--sync=next') || args.has('--beta-to-next')) {
+    syncVariants('beta-to-next')
+  } else {
+    verifyVariants()
+  }
 }

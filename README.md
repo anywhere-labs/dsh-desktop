@@ -5,7 +5,7 @@
 <h1 align="center">DSH Desktop</h1>
 
 <p align="center">
-  <strong>基于 DeepSeek Harness 构建的 Windows 和 macOS 开源桌面客户端。</strong>
+  <strong>基于 DeepSeek Harness 构建的 Windows、macOS 和 Linux 开源桌面客户端。</strong>
 </p>
 
 <h3 align="center"><a href="https://dshdesktop.cn">一键下载，开箱即用。</a></h3>
@@ -26,7 +26,7 @@
   <a href="https://github.com/anywhere-labs/deepseek-harness-desktop"><img src="https://img.shields.io/github/stars/anywhere-labs/deepseek-harness-desktop?style=flat&amp;label=%E2%98%85&amp;color=08C" alt="GitHub stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat" alt="MIT License"></a>
   <a href="https://discord.gg/TJeGqKRNM"><img src="https://img.shields.io/badge/Discord-5865F2?style=flat&amp;logo=discord&amp;logoColor=white" alt="Join Discord"></a>
-  <img src="https://img.shields.io/badge/macOS%20%7C%20Windows-4493F8?style=flat-square" alt="Supported platforms: macOS and Windows">
+  <img src="https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-4493F8?style=flat-square" alt="Supported platforms: macOS, Windows and Linux">
 </p>
 
 DSH Desktop 将 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的本地 Web UI、Host 服务和插件系统集成到原生桌面应用中。项目固定并原样运行特定上游版本；DSH Desktop 提供窗口、托盘、终端、更新和工作配置，并通过 DeepSeek Harness 提供的插件机制与上游能力组合。
@@ -35,12 +35,29 @@ DSH Desktop 将 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harne
 
 ## 下载与安装
 
-当前正式安装包支持 Windows x64 和 macOS Universal。无需额外环境，下载安装，一键使用。
+当前正式安装包支持 Windows x64、macOS Universal 和 Linux（x64 与 arm64）。无需额外环境，下载安装，一键使用。
 
 | 平台 | 下载 | 安装方式 |
 | --- | --- | --- |
 | Windows x64 | [下载安装程序](https://www.dshdesktop.cn/api/downloads/windows) | 运行 NSIS 安装程序并按提示完成安装 |
 | macOS Universal | [下载 DMG](https://www.dshdesktop.cn/api/downloads/mac) | 打开 DMG，将 DSH Desktop 拖入 Applications |
+| Linux x64 / arm64 | [GitHub Release](https://github.com/anywhere-labs/dsh-desktop/releases/latest) | 按发行版选择 deb、AppImage 或 tar.gz，见下方 [Linux 安装](#linux) |
+
+<a id="linux"></a>
+
+### Linux 安装
+
+Linux 安装包只在 GitHub Release 发布，x64 与 arm64 各有三种格式：
+
+| 格式 | 适用 | 安装与启动 |
+| --- | --- | --- |
+| deb | Debian、Ubuntu 及其衍生发行版 | `sudo apt install ./DSH-NEXT-<版本>-amd64.deb`（arm64 为 `-arm64.deb`），之后从应用菜单启动 |
+| AppImage | 其他发行版，免安装 | `chmod +x DSH-NEXT-<版本>-x86_64.AppImage`（arm64 为 `-arm64.AppImage`）后直接运行 |
+| tar.gz | 自行管理文件 | 解压 `DSH-NEXT-<版本>-linux-x64.tar.gz`（arm64 为 `-linux-arm64.tar.gz`），运行其中的 `dsh-desktop-next`；不会创建应用菜单入口 |
+
+Ubuntu 24.04 及以上推荐使用 deb，它会安装 Chromium 沙箱需要的 AppArmor 配置。发布页的 `SHA256SUMS.txt` 可用于核验下载的文件。
+
+Linux 版不能在应用内安装更新：发现新版本时应用会提示，并可直接打开该版本的发布页；请下载与当前安装方式相同的格式手动更新。deb 用同样的 `sudo apt install` 命令覆盖安装，AppImage 用新文件替换旧文件。
 
 详细步骤、插件命令和故障排查见[用户指南](docs/user-guide.md)与[常见问题](docs/faq.md)。
 
@@ -118,7 +135,7 @@ Web 服务默认仅监听本机回环地址。开启“用浏览器打开”后�
 
 > **危险：** 向局域网开放不提供鉴权；所有与你处于同一局域网的人都能直接打开 DSH 并操作你的电脑。请只在完全信任的网络中谨慎开启。
 
-自动更新的固定版本检查请求会在 `X-DSH-Desktop-Version` header 中携带当前安装版本，在 `X-DSH-Desktop-Channel` 中携带 `stable` 或 `beta`，并在 `X-DSH-Desktop-Installation-Id` header 中携带一个由本机生成并持久保存的随机 UUID；它不是从硬件信息推导出的标识。安装包下载会携带通道和 `X-DSH-Desktop-Target-Version`，但下载请求及其重定向不会携带安装标识或当前版本。
+自动更新的固定版本检查请求会在 `X-DSH-Desktop-Version` header 中携带当前安装版本，在 `X-DSH-Desktop-Channel` 中携带 `stable` 或 `beta`；macOS 和 Windows 版还会在 `X-DSH-Desktop-Installation-Id` header 中携带一个由本机生成并持久保存的随机 UUID，它不是从硬件信息推导出的标识，Linux 版不发送这个 header。安装包下载会携带通道和 `X-DSH-Desktop-Target-Version`，但下载请求及其重定向不会携带安装标识或当前版本。
 
 ## 插件生态
 
@@ -143,7 +160,7 @@ DSH Desktop 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 - 桌面应用封装
 - 本地服务的启动、停止与恢复
 - 桌面窗口和系统托盘集成
-- macOS、Windows 安装包构建与发布
+- macOS、Windows、Linux 安装包构建与发布
 - 更适合桌面使用的界面体验
 
 如果你希望通过命令行运行 DeepSeek Harness，或者参与其核心功能开发，请优先查看上游仓库。
