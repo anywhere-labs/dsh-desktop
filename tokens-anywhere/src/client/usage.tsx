@@ -6,7 +6,7 @@
  * beneath it; a table view carries the daily values without hovering.
  */
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { Button, IconRefreshOutlineRegular, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconRefreshOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   ANYWHERE_ACCOUNT_ROUTES, summarizeAnywhereUsage,
   type AnywhereModelView, type AnywhereProblem, type AnywhereUsage, type AnywhereUsageRange, type AnywhereUsageRows, type AnywhereUsageTotals,
@@ -310,8 +310,12 @@ export function AnywhereUsageBoard({ t, language, models }: {
   return (
     <div className="dshAnywherePanel">
       <div className="dshAnywhereFilters">
-        <SegmentedControl id={`${id}-range`} label={t('时间范围', 'Date range')} value={String(days) as '7' | '30'}
-          options={[{ value: '7', label: t('近 7 天', 'Last 7 days') }, { value: '30', label: t('近 30 天', 'Last 30 days') }]}
+        {/* The range takes the page's own section tabs, so both rows read as one control family. */}
+        <SegmentedTabs label={t('时间范围', 'Date range')} value={String(days) as '7' | '30'}
+          items={[
+            { value: '7', label: t('近 7 天', 'Last 7 days'), id: `${id}-range-7`, panelId: `${id}-board` },
+            { value: '30', label: t('近 30 天', 'Last 30 days'), id: `${id}-range-30`, panelId: `${id}-board` },
+          ]}
           onChange={(next) => { setDays(next === '7' ? 7 : 30) }} />
         <Select value={model} disabled={choices.length === 0} ariaLabel={t('按模型筛选', 'Filter by model')}
           options={[{ value: ALL_MODELS, label: t('全部模型', 'All models') }, ...choices.map(choice => ({ value: choice, label: name(choice) }))]}
@@ -329,7 +333,7 @@ export function AnywhereUsageBoard({ t, language, models }: {
       )}
       {usage === undefined && problem === undefined && <p className="dshAnywhereSecondary" role="status">{t('正在读取用量…', 'Reading usage…')}</p>}
       {usage !== undefined && totals !== undefined && (
-        <div className="dshAnywhereBoard" data-loading={loading ? '' : undefined} aria-busy={loading}>
+        <div className="dshAnywhereBoard" id={`${id}-board`} data-loading={loading ? '' : undefined} aria-busy={loading}>
           <div className="dshAnywhereStats">
             <Stat label={t('花费', 'Spend')} value={formatYuan(totals.amount, language)} />
             <Stat label={t('请求', 'Requests')} value={formatCount(totals.requests, language)} />
