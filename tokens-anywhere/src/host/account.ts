@@ -168,6 +168,16 @@ const WRITE_ALL: LocalFiles = {
   storeKey: () => true, writeModels: () => true, geminiNative: () => false, writable: false, save: async () => { throw new AnywhereError('failed') },
 }
 
+/** The page's own choice of local currency, as the plugin's configuration keeps it; the account's setting is only read. */
+export interface CurrencyChoice {
+  /** Undefined while the page follows the account's setting in the Tokens Anywhere console. */
+  localCurrency(): boolean | undefined
+  save(localCurrency: boolean): Promise<void>
+}
+
+/** Following the account, as a Host without the plugin's configuration has it. */
+const FOLLOW_ACCOUNT: CurrencyChoice = { localCurrency: () => undefined, save: async () => { throw new AnywhereError('failed') } }
+
 /** Sign-in, tokens, key, models and account state; every change runs in order through one queue. */
 export class AnywhereAccount {
   private attempt: Attempt | undefined
@@ -182,7 +192,7 @@ export class AnywhereAccount {
   private balance: AnywhereAccountSnapshot['balance']
   private balanceError: AnywhereProblem | undefined
   private balancePending: Promise<void> | undefined
-  /** The account's local currency preference, read with each balance; undefined until read. */
+  /** The account's local currency setting in the console, read with each balance; undefined until read, or where it cannot be. */
   private localCurrency: boolean | undefined
   /** The day's yuan rate at the Tokens Anywhere it came from, undefined in `rate` while there is none. */
   private yuanRate: { readonly origin: string; readonly rate: number | undefined; readonly checkedAt: number } | undefined
@@ -199,6 +209,7 @@ export class AnywhereAccount {
     /** The Tokens Anywhere to sign in to. */
     private readonly origin: string,
     private readonly local: LocalFiles = WRITE_ALL,
+    private readonly currency: CurrencyChoice = FOLLOW_ACCOUNT,
   ) {
     this.models = new AnywhereModels(credentials, settings, () => local.storeKey() && local.writeModels(), () => local.geminiNative())
   }
@@ -514,10 +525,17 @@ export class AnywhereAccount {
     return this.balancePending
   }
 
-  /** How the account shows money: dollars, with yuan beside them while its preference is on and there is a rate. */
+  /** How the account shows money: dollars, with yuan beside them while local currency is on and there is a rate. */
   private money(origin: string): AnywhereMoneyDisplay {
     const rate = this.yuanRate?.origin === origin ? this.yuanRate.rate : undefined
-    return { localCurrency: this.localCurrency ?? false, ...(rate === undefined ? {} : { cnyRate: rate }) }
+    // The page's own choice, else the account's setting in the console, else off.
+    return { localCurrency: this.currency.localCurrency() ?? this.localCurrency ?? false, ...(rate === undefined ? {} : { cnyRate: rate }) }
+  }
+
+  /** Turn local currency on or off for the page alone; the account's setting in the console stays as it is. */
+  async setLocalCurrency(change: { localCurrency?: unknown }): Promise<void> {
+    if (typeof change.localCurrency !== 'boolean') throw new AnywhereError('failed')
+    await this.currency.save(change.localCurrency)
   }
 
   /** Re-read the balance, the key and the model list. */
@@ -671,6 +689,10 @@ export function installAnywhereAccount(ctx: Context, settings: AnywhereSettings)
     get writable() { return settings.writable },
     save: change => settings.save(change),
   }
+  const currency: CurrencyChoice = {
+    localCurrency: () => settings.get('localCurrency'),
+    save: localCurrency => settings.save({ localCurrency }),
+  }
   ctx.inject(['connection', 'credentials', 'settings'], (inner) => {
     const override = process.env[TOKENS_ANYWHERE_URL_VARIABLE]
     const origin = tokensAnywhereOrigin(override)
@@ -679,7 +701,7 @@ export function installAnywhereAccount(ctx: Context, settings: AnywhereSettings)
     }
     let account: AnywhereAccount | undefined
     const shell = new AnywhereShell(() => { account?.windowClosed() }, () => { account?.linkOpened() })
-    account = new AnywhereAccount(inner.credentials, inner.settings, shell, origin, local)
+    account = new AnywhereAccount(inner.credentials, inner.settings, shell, origin, local, currency)
     const current = account
     inner.effect(() => () => { current.dispose() }, 'Anywhere account sign-in')
     // The Desktop's service comes and goes with its own generation; the account outlives it.
@@ -715,6 +737,7 @@ export function installAnywhereAccount(ctx: Context, settings: AnywhereSettings)
       [ANYWHERE_ACCOUNT_ROUTES.model, 'POST', body => current.changeModel(body)],
       [ANYWHERE_ACCOUNT_ROUTES.resetModels, 'POST', () => current.resetModels()],
       [ANYWHERE_ACCOUNT_ROUTES.local, 'POST', body => current.setLocal(body)],
+      [ANYWHERE_ACCOUNT_ROUTES.currency, 'POST', body => current.setLocalCurrency(body)],
       [ANYWHERE_ACCOUNT_ROUTES.copyKey, 'POST', () => current.copyKey()],
       [ANYWHERE_ACCOUNT_ROUTES.rotateKey, 'POST', () => current.rotateKey()],
       [ANYWHERE_ACCOUNT_ROUTES.revealFile, 'POST', async (body) => { current.revealFile(body) }],

@@ -199,10 +199,10 @@ export class TokensApi {
     return { available: String(value?.available ?? '0.000000'), held: String(value?.held ?? '0.000000') }
   }
 
-  /** Whether the account shows money in its language's currency beside dollars; on unless the user turned it off. */
+  /** Whether the account shows money in its language's currency beside dollars, as set in the console; off unless it says so. */
   async preferences(signal: AbortSignal): Promise<{ localCurrency: boolean }> {
     const { body } = await this.call('/api/v1/me/preferences', {}, signal)
-    return { localCurrency: (body as { localCurrency?: unknown } | undefined)?.localCurrency !== false }
+    return { localCurrency: (body as { localCurrency?: unknown } | undefined)?.localCurrency === true }
   }
 
   /** The grant's own key, made on first call and returned as it is now afterwards (rotated keys included). */

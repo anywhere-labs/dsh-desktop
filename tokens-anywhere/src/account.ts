@@ -28,6 +28,8 @@ export const ANYWHERE_ACCOUNT_ROUTES = {
   usage: '/api/tokens-anywhere/usage',
   /** GET reads where the page shows besides Settings; POST `{ sidebar?, conversation? }` changes it. */
   placement: '/api/tokens-anywhere/placement',
+  /** POST `{ localCurrency }`: whether the page shows amounts in the local currency too; the account's own setting stays as it is. */
+  currency: '/api/tokens-anywhere/currency',
   /** POST `{ storeKey?, writeModels?, geminiNative? }`: what the account writes into DSH's local files, and how. */
   local: '/api/tokens-anywhere/local',
   /** POST: the key's secret, for the clipboard. */
@@ -223,11 +225,11 @@ export interface AnywhereAccountSnapshot {
 
 /**
  * How Tokens Anywhere's console shows money (web/lib/local-currency.ts): every amount is US dollars, and a reader whose
- * language has a currency of its own sees it beside them at the day's rate, display only, while the account's local
- * currency preference is on. The page reads Chinese as yuan; English stays in dollars.
+ * language has a currency of its own sees it beside them at the day's rate, display only, while local currency is on.
+ * The page reads Chinese as yuan; English stays in dollars.
  */
 export interface AnywhereMoneyDisplay {
-  /** The account's preference (`GET /api/v1/me/preferences`), which Tokens Anywhere turns on for every new account. */
+  /** Whether local currency is on: the page's own choice, else the account's setting (`GET /api/v1/me/preferences`), else off. */
   readonly localCurrency: boolean
   /** How many yuan a US dollar buys (`GET /api/v1/exchange-rates`); absent while there is no rate. */
   readonly cnyRate?: number

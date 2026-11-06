@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Tokens Anywhere for DeepSeek Harness. Sign in to Tokens Anywhere with an Agents Anywhere account, and its models (DeepSeek, Claude, GPT and Gemini) are set up as `llm-pi-ai` provider routes, one per vendor, with no API key to enter. Its page also shows the balance and the usage by day and model. Amounts are US dollars, as Tokens Anywhere bills; in Chinese the page shows yuan at the day's rate with the dollars beside them while the account's Show local currency setting is on, as the Tokens Anywhere console does.
+Tokens Anywhere for DeepSeek Harness. Sign in to Tokens Anywhere with an Agents Anywhere account, and its models (DeepSeek, Claude, GPT and Gemini) are set up as `llm-pi-ai` provider routes, one per vendor, with no API key to enter. Its page also shows the balance and the usage by day and model. Amounts are US dollars, as Tokens Anywhere bills; in Chinese the page shows yuan at the day's rate with the dollars beside them while Show local currency is on, as the Tokens Anywhere console does.
 
 ## In DSH Next
 
@@ -20,7 +20,7 @@ The account's key is for this computer only. The account page's Settings tab cop
 
 ## Display
 
-The account page is in Settings. On its Display tab it can also add an entry to the left sidebar (on by default) and a View tab beside every conversation (off by default). Both choices are the plugin's configuration (`sidebar` and `conversation`), saved in the active Profile.
+The account page is in Settings. On its Display tab it can also add an entry to the left sidebar (on by default) and a View tab beside every conversation (off by default). Both choices are the plugin's configuration (`sidebar` and `conversation`), saved in the active Profile. Show local currency, on the same tab, follows the account's setting in the Tokens Anywhere console, and stays off where the console says nothing; changing it here keeps the page's own choice (`localCurrency`) and leaves the console's setting alone.
 
 ## Development
 
