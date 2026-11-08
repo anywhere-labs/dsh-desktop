@@ -21,6 +21,7 @@ import { installOfficialComputerUseStyles, registerDesktopSettingsIcon } from '.
 import { desktopDirectoryPicker, registerDesktopDirectoryPicker } from './directory-picker.ts'
 import { SettingsRequests } from './settings-requests.tsx'
 import type { DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
+import { registerProviderVisibility } from '../../../dsh-plugin-desktop/src/client/provider-visibility-card.tsx'
 import { installRendererRecovery } from './renderer-recovery.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -30,10 +31,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['slots', 'layout', 'locale']
+export const inject = ['slots', 'layout', 'locale', 'remote', 'remote.llm', 'remote.settings', 'remote.session', 'modelDirectories']
 
 export function apply(ctx: Context): void {
   ctx.effect(installUiDiagnostics, 'AA and Plugins client lifecycle diagnostics')
+  registerProviderVisibility(ctx)
   ctx.effect(() => ctx.locale.register('desktop-next', {
     zh: { settings: '桌面设置', language: 'zh', safeMode: '安全模式', safeModeDetail: '当前使用临时环境。退出安全模式并重启后返回原 Profile，临时数据不会保留。', dismiss: '关闭提示', recovery: '打开恢复助手' },
     en: { settings: 'Desktop settings', language: 'en', safeMode: 'Safe mode', safeModeDetail: 'You are using a temporary environment. Exiting Safe Mode and restarting returns to the original Profile and removes the temporary data.', dismiss: 'Dismiss notice', recovery: 'Open recovery assistant' },
