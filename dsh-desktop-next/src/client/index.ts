@@ -9,6 +9,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { installDesktopSettingsStyles } from './desktop-settings-styles.ts'
 import { installSidebarFooterStyles, setSidebarFooterBalanced, setSidebarFooterCompat } from './sidebar-footer-styles.ts'
+import { installGlobalPanelFold } from './global-panel-fold.ts'
 import { NextSettingsAdapter } from './settings-adapter.ts'
 import { NextDesktopSettings, NextDesktopActions } from './settings.tsx'
 import { installWindowStyles } from './styles.ts'
@@ -59,6 +60,7 @@ export function apply(ctx: Context): void {
       return () => { void dispose() }
     }, 'Native Desktop permissions')
     ctx.effect(installSidebarFooterStyles, 'Shared Desktop sidebar footer layout')
+    ctx.effect(() => installGlobalPanelFold(), 'Desktop global sidebar panel folding')
     const adapter = new NextSettingsAdapter(window.desktopNext)
     ctx.effect(() => {
       const syncSidebarFooterCompat = (): void => {
