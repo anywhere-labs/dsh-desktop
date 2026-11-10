@@ -1,0 +1,93 @@
+From d7027d8fc2cc7408d790c105118c34c80b419e4a Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Fri, 23 Oct 2026 16:04:42 +0800
+Subject: [PATCH 12/13] docs(slots): record the Workspace edit and Files root
+ slots
+
+Both language sides describe sidebar.workspaces.workspace.edit and the root-scoped sidebar.right.tab.files.actions, and the pairing record is re-recorded with verify-translation-pairing --write (the hashes in the working copy did not match either side).
+---
+ docs/subsystems/slots.i18n.yaml | 4 ++--
+ docs/subsystems/slots.md        | 6 +++++-
+ docs/subsystems/slots.zh.md     | 6 +++++-
+ 3 files changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/docs/subsystems/slots.i18n.yaml b/docs/subsystems/slots.i18n.yaml
+index a78b1185a1..6afd105694 100644
+--- a/docs/subsystems/slots.i18n.yaml
++++ b/docs/subsystems/slots.i18n.yaml
+@@ -3,8 +3,8 @@
+ # After editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write docs/subsystems/slots.md
+ /web-client-slots:
+-  en: bda026282132e290
+-  zh: 3e3faf96c72420d6
++  en: 0fa0402daf4596b1
++  zh: bfd1c8a552eb654b
+ /web-client-slots/declaration-and-lifecycle:
+   en: f2d2c0d3b8f14ec7
+   zh: 441ed13ff3f81d2a
+diff --git a/docs/subsystems/slots.md b/docs/subsystems/slots.md
+index 13b47b7460..54ec755462 100644
+--- a/docs/subsystems/slots.md
++++ b/docs/subsystems/slots.md
+@@ -8,6 +8,8 @@ This page documents slot ownership, component inputs, extension APIs, and the sh
+ 
+ `plugins.bundle.config` supplies bundle detail configuration, keyed by npm package name. `plugins.bundle.activation` renders optional guidance after user-requested enablement, with owner callbacks to dismiss or open that bundle’s details. `conversation.input.activity` supplies one action between the model selector and Send, with toolbar expansion released on unmount.
+ 
++`sidebar.workspaces.workspace.edit` is a root-scoped `single` child rendered inside the Workspace edit dialog; its owner supplies `workspaceId`, the primary `path`, and `title`. `sidebar.right.tab.files.actions` is a root-scoped `list` rendered after the Files tab reload control; each contribution receives the displayed `absolutePath`, canonical Session `workspacePath`, and asynchronous `onRootChange(path)` owner callback. The callback settles after the prior tree closes and the replacement root opens. Integrations must persist Host authorization for an alternate root before calling it; this changes neither Session cwd nor the Workspace identity. Root scope lets Workspace-wide source state be shared by the edit dialog and every open Files tab.
++
+ ## Declaration and lifecycle
+ 
+ `SlotMap` is the compile-time registry. A package declaration-merges the key, cardinality, scope, owner props, keyed props, and optional slot-level inject face. The runtime declaration is the matching `children` entry on the component that owns the render location.
+@@ -119,6 +121,7 @@ root
+ │  ├─ sidebar.footer.action
+ │  ├─ sidebar.workspaces
+ │  │  ├─ sidebar.workspaces.directoryFlow
++│  │  ├─ sidebar.workspaces.workspace.edit
+ │  │  ├─ sidebar.workspaces.session.menu.item
+ │  │  └─ sidebar.workspaces.session.row.action
+ │  └─ sidebar.settings
+@@ -179,7 +182,8 @@ root
+ │  └─ rightbar.session
+ │     ├─ sidebar.right.pane.tab
+ │     │  ├─ sidebar.right.tab.guide
+-│     │  └─ sidebar.right.tab.guide.entry
++│     │  ├─ sidebar.right.tab.guide.entry
++│     │  └─ sidebar.right.tab.files.actions
+ │     ├─ sidebar.right.pane.tab.title
+ │     └─ sidebar.right.tab.menu.item
+ ├─ shell.leading
+diff --git a/docs/subsystems/slots.zh.md b/docs/subsystems/slots.zh.md
+index 42bf724545..0635d53104 100644
+--- a/docs/subsystems/slots.zh.md
++++ b/docs/subsystems/slots.zh.md
+@@ -8,6 +8,8 @@ Slots 是 Web Client 的类型化 React 组合系统。[`dsh-client-ui-slots`](.
+ 
+ `plugins.bundle.config` 以 npm 包名为 key，提供 Bundle 详情配置。`plugins.bundle.activation` 在用户显式启用后渲染可选引导，由拥有者提供关闭引导和打开该 Bundle 详情的回调。`conversation.input.activity` 提供模型选择器与发送按钮之间的单个活动控件，可展开工具栏并在卸载时释放展开状态。
+ 
++`sidebar.workspaces.workspace.edit` 是工作区编辑对话框内部的 root 作用域 `single` child；owner 提供 `workspaceId`、主目录 `path` 和 `title`。`sidebar.right.tab.files.actions` 是 Files 标签页刷新控件之后的 root 作用域 `list`；每项 contribution 会收到当前显示的 `absolutePath`、规范的 Session `workspacePath`，以及异步 owner callback `onRootChange(path)`。callback 会在旧目录树关闭、新根目录打开后 settle。集成方必须在调用前先为替代目录持久化 Host 授权；这不会改变 Session cwd 或 Workspace 身份。root scope 让编辑框和所有已打开 Files 标签页可以共享工作区级 source 状态。
++
+ ## 声明与生命周期
+ 
+ `SlotMap` 是编译期注册表。包通过声明合并写入 key、cardinality（基数）、scope、owner props、keyed props 与可选的 slot 级 inject face。运行时声明则是拥有该渲染位置的组件在 `children` 中给出的对应条目。
+@@ -119,6 +121,7 @@ root
+ │  ├─ sidebar.footer.action
+ │  ├─ sidebar.workspaces
+ │  │  ├─ sidebar.workspaces.directoryFlow
++│  │  ├─ sidebar.workspaces.workspace.edit
+ │  │  ├─ sidebar.workspaces.session.menu.item
+ │  │  └─ sidebar.workspaces.session.row.action
+ │  └─ sidebar.settings
+@@ -179,7 +182,8 @@ root
+ │  └─ rightbar.session
+ │     ├─ sidebar.right.pane.tab
+ │     │  ├─ sidebar.right.tab.guide
+-│     │  └─ sidebar.right.tab.guide.entry
++│     │  ├─ sidebar.right.tab.guide.entry
++│     │  └─ sidebar.right.tab.files.actions
+ │     ├─ sidebar.right.pane.tab.title
+ │     └─ sidebar.right.tab.menu.item
+ ├─ shell.leading
+-- 
+2.43.0
+

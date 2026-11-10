@@ -1,0 +1,129 @@
+- id: desktop-shell
+  name: dsh-plugin-desktop
+  config:
+    mode: compatibility
+    macosMaterial: transparent
+    windowsMaterial: off
+    openBrowser: true
+    networkExposure: loopback
+- id: desktop-notifications
+  name: dsh-plugin-desktop/notifications
+  config:
+    enabled: true
+    notifyOnTurnCompletion: true
+    notifyOnTurnFailure: true
+    notifyOnJobCompletion: true
+    notifyOnJobFailure: true
+    notifyOnScheduleCompletion: true
+    notifyOnScheduleFailure: true
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: github-copilot
+    model: gpt-6-sol
+- id: ui-settings-account
+  name: "@deepseek-ai/dsh-client-ui-settings-account"
+  config:
+    version: 1
+    step: done
+    purpose: development
+    process: detailed
+    completion: completed
+    usage: detailed
+    developerTools: true
+- id: ui-chat
+  name: "@deepseek-ai/dsh-client-ui-chat"
+  config:
+    transcriptView: detailed
+    performanceUsage: detailed
+- id: ui-settings
+  name: "@deepseek-ai/dsh-client-ui-settings"
+  config:
+    enabled: true
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      github-copilot:
+        maxRequestImageBytes: 1048576
+        maxRequestBytes: 2097152
+      amazon-bedrock: {}
+      xiaomi-token-plan-cn:
+        apiKeyEnv: XIAOMI_TOKEN_PLAN_CN_API_KEY
+- id: ui-theme
+  name: "@deepseek-ai/dsh-client-ui-theme"
+  config:
+    preference: system
+    fontSize: 17
+- id: permission
+  name: "@deepseek-ai/dsh-permission-presets"
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+    defaultPreset: danger-full-access
+- id: session-log-deepseek
+  name: "@deepseek-ai/dsh-session-log-deepseek"
+  config:
+    enabled: false
+# 桌面 Web 载体层（dsh-web-app）默认把压缩三件套 disabled:true，且补丁是浅合并——
+# 必须显式 disabled:false 才能启用（2026-10-23 离线合成 probe 实证）。
+# compaction-basic：自动/溢出压缩后端。kimi-k3 窗口 1048576 token × 0.35
+# ≈ 36.7 万 token（≈1.2~1.8MiB）即压缩，先于 2MiB 字节保险丝；其余模型默认。
+- id: compaction-basic
+  name: "@deepseek-ai/dsh-compaction-basic"
+  disabled: false
+  config:
+    modelPolicies:
+      - provider: github-copilot
+        model: kimi-k3
+        thresholdRatio: 0.35
+        retainRatio: 0.08
+# tool-result-pruner：压缩前修剪 >8KB 工具输出（byte-guard-recovery 的第 1 级也依赖它）。
+# byte-guard-recovery 不在此列：它由 plugins/dsh-byte-guard-recovery/cordis.patch.yml 的
+# bundle 补丁自行插入，且只在 profile 目录里以 file: 依赖存在，不进装机包。
+- id: tool-result-pruner
+  name: "@deepseek-ai/dsh-compaction-tool-result-pruner"
+  disabled: false
+# command-compact：恢复 /compact 手动压缩命令。
+- id: command-compact
+  name: "@deepseek-ai/dsh-command-compact"
+  disabled: false
+- id: mnemon
+  name: dsh-mnemon
+  config:
+    remoteAccess: read-only
+    timeoutMs: 10000
+    defaultRecallLimit: 10
+    embedding:
+      enabled: false
+      endpoint: http://localhost:11434
+      model: nomic-embed-text
+    recallQuality:
+      policy: strict-v1
+      lowScoreThreshold: 0.25
+      highScoreThreshold: 0.6
+      candidateMultiplier: 3
+      maxMediumResults: 4
+      maxUnknownResults: 2
+    routingGuidance: true
+    tabEnabled: true
+    writeEnabled: true
+    lifecycleEnabled: true
+    recallMode: guided
+    writebackMode: guided
+    idleReviewMs: 30000
+    memoryView:
+      strategyTypeId: default-three-tier
+      entries:
+        include:mnemon-strategy-auto-capture:
+          config: {}
+- id: mnemon-strategy-auto-capture
+  disabled: false

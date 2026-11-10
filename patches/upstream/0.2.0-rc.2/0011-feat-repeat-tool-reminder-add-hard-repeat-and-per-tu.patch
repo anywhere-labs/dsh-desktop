@@ -1,0 +1,229 @@
+From 1b4ae96fc1fbf00da7b32fdf5e161671e1ee1b1f Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Fri, 23 Oct 2026 16:03:52 +0800
+Subject: [PATCH 11/13] feat(repeat-tool-reminder): add hard repeat and
+ per-turn caps
+
+Adds blockAt and maxTrackedCallsPerTurn as opt-in hard boundaries returned as ordinary pre-execution denials, validated as integers >= 0 and cleared by a new user message. The dsh base bundle turns them on (8 / 24) as a stopgap against self-reply loops.
+---
+ packages/bundle/base/cordis.patch.yml         |  4 ++
+ packages/guard/repeat-tool-reminder/README.md | 11 +++--
+ .../guard/repeat-tool-reminder/src/index.ts   | 39 ++++++++++++++--
+ .../tests/repeat-tool-reminder.spec.ts        | 46 +++++++++++++++++++
+ 4 files changed, 93 insertions(+), 7 deletions(-)
+
+diff --git a/packages/bundle/base/cordis.patch.yml b/packages/bundle/base/cordis.patch.yml
+index 9c35ebf5c2..907af344d5 100644
+--- a/packages/bundle/base/cordis.patch.yml
++++ b/packages/bundle/base/cordis.patch.yml
+@@ -456,6 +456,10 @@
+       name: '@deepseek-ai/dsh-repeat-tool-reminder'
+       config:
+         thresholds: [3, 5, 8]
++        # Stop exact-call loops and cap tracked exploration per user turn.
++        # The package keeps both controls disabled by default for downstream compatibility.
++        blockAt: 8
++        maxTrackedCallsPerTurn: 24
+         argumentsPreviewChars: 500
+ 
+     # The shared base enables the stable model-facing web_search and web_fetch
+diff --git a/packages/guard/repeat-tool-reminder/README.md b/packages/guard/repeat-tool-reminder/README.md
+index 13035b68e8..e93d48e479 100644
+--- a/packages/guard/repeat-tool-reminder/README.md
++++ b/packages/guard/repeat-tool-reminder/README.md
+@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
+ 
+ ## Summary
+ 
+-This package helps a model escape loops in which it calls the same tool with identical arguments without making progress. At configured repeat counts, it asks the model to inspect the previous result and change approach or finish. The reminder is advisory: it never blocks or delays a legitimate repeated call. Repeats are tracked separately for each agent and cleared by a new user message. The `dsh` base bundle enables the package with reminders at 3, 5, and 8 repeats.
++This package helps an agent escape tool loops and contain runaway exploration. At configured repeat counts, it asks the model to inspect the previous result and change approach or finish. Optional hard boundaries can deny an exact repeat and cap tracked calls within one user turn. The hard boundaries are disabled by package defaults for compatibility; the `dsh` base bundle enables `blockAt: 8` and `maxTrackedCallsPerTurn: 24` as a stopgap against self-reply loops. Repeats and budgets are tracked separately for each agent and cleared by a new user message.
+ 
+ ## Table of Contents
+ 
+@@ -39,6 +39,8 @@ When you want to change when reminders fire or which tools they cover, mount the
+ - name: '@deepseek-ai/dsh-repeat-tool-reminder'
+   config:
+     thresholds: [3, 5, 8]        # remind at 3, 5, and 8 consecutive repeats
++    blockAt: 8                    # deny the next exact repeat; 0 disables
++    maxTrackedCallsPerTurn: 24    # deny after 24 tracked calls; 0 disables
+     include: []                  # track every tool; list patterns to track only some
+     exclude: [todo_write]        # never track these tools
+     argumentsPreviewChars: 500   # cap on arguments shown in the detailed reminder
+@@ -47,6 +49,8 @@ When you want to change when reminders fire or which tools they cover, mount the
+ | Field | Default | Meaning |
+ |---|---|---|
+ | `thresholds` | `[3, 5, 8]` | Repeat counts that trigger a reminder |
++| `blockAt` | `0` | Hard-deny the next exact repeat at this count; `0` is advisory-only |
++| `maxTrackedCallsPerTurn` | `0` | Hard-deny tracked calls after this per-user-turn budget; `0` disables |
+ | `include` | `[]` | Only these tools are tracked; empty means every tool |
+ | `exclude` | `[]` | These tools are never tracked; calls to them neither count nor reset |
+ | `argumentsPreviewChars` | `500` | How many characters of the repeated arguments the detailed reminder shows |
+@@ -55,7 +59,7 @@ Invalid configuration fails at startup with a clear error — an empty `threshol
+ 
+ ### What you get
+ 
+-With the defaults, a model that repeats the same call with identical arguments receives a short reminder on the third repeat — to analyze the previous result before calling again — and detailed reminders on the fifth and eighth, naming the tool and the repeated arguments so it can decide whether to change approach, gather more evidence, or finish. A new user message clears the count, so a fresh instruction is never treated as a loop. Reminders appear in the conversation after the repeated call's result, attributed to the plugin, so the model reads them like any other message.
++With the package defaults, a model that repeats the same call with identical arguments receives a short reminder on the third repeat and detailed reminders on the fifth and eighth. When `blockAt` is enabled, the next exact repeat is denied before execution. When `maxTrackedCallsPerTurn` is enabled, the next tracked call after the per-user-turn budget is denied. A new user message clears the chain and budget, so a fresh instruction is never treated as a loop. Reminders appear after the tool result, attributed to the plugin; hard stops are returned as ordinary pre-execution denials so downstream policy can still observe them.
+ 
+ -----
+ 
+@@ -168,7 +172,8 @@ These limits define when the guard is a poor fit. They are current package const
+ 
+ - **Exact-match detection only** — canonicalization is a deep key-sort, so near-identical variants (a tweaked path, extra whitespace inside a value) evade the chain; fuzzy matching is rejected pending evidence of need.
+ - **Compaction does not reset chains** — a chain spanning a compaction checkpoint keeps counting.
+-- **Advisory only** — escalating to a blocking form at a high threshold is not implemented, though `PostToolDecision` already supports blocking.
++- **Semantic scope drift is not inferred** — the guard does not understand whether two different searches have the same human objective; use `maxTrackedCallsPerTurn` as the coarse stopgap until a task-scoped progress contract exists.
++- **Hard boundaries are deployment policy** — `blockAt` and `maxTrackedCallsPerTurn` deny calls and may stop legitimate long tasks; tune them per profile, and keep the package defaults disabled for compatibility.
+ - **No subagent chain-sharing** — chains stay isolated per agent; a parent and its subagent repeating the same call never combine.
+ - **Legitimate idempotent polling still draws nudges** past the thresholds — the pressure valves are the `thresholds`/`exclude` config.
+ - **Past the highest threshold a chain goes silent** — reminders fire only at exact configured counts, never beyond them.
+diff --git a/packages/guard/repeat-tool-reminder/src/index.ts b/packages/guard/repeat-tool-reminder/src/index.ts
+index a79722aad0..3867915d59 100644
+--- a/packages/guard/repeat-tool-reminder/src/index.ts
++++ b/packages/guard/repeat-tool-reminder/src/index.ts
+@@ -19,7 +19,7 @@ declare module '@deepseek-ai/dsh-llm' {
+ 
+ import type { MessageSource } from '@deepseek-ai/dsh-llm'
+ import type { UserMessage } from '@deepseek-ai/dsh-session'
+-import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
++import type { PostToolDecision, PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
+ 
+ export const name = 'repeat-tool-reminder'
+ 
+@@ -35,6 +35,10 @@ export const name = 'repeat-tool-reminder'
+ export interface Config {
+   /** Consecutive-repeat counts that trigger a reminder (default `[3, 5, 8]`). */
+   thresholds?: number[]
++  /** Hard-deny the next exact repeat at this count; `0` disables blocking (default `0`). */
++  blockAt?: number
++  /** Hard-deny tracked calls after this many calls in one user turn; `0` disables the budget (default `0`). */
++  maxTrackedCallsPerTurn?: number
+   /** Tool-name patterns to track; empty means every tool is tracked. */
+   include?: string[]
+   /** Tool-name patterns transparent to the chain (neither count nor reset). */
+@@ -51,6 +55,8 @@ export interface Config {
+ 
+ export const Config: z<Config> = z.object({
+   thresholds: z.array(z.number()).default([3, 5, 8]),
++  blockAt: z.number().default(0),
++  maxTrackedCallsPerTurn: z.number().default(0),
+   include: z.array(z.string()).default([]),
+   exclude: z.array(z.string()).default([]),
+   argumentsPreviewChars: z.number().default(500),
+@@ -159,6 +165,7 @@ function prependContext(ours: UserMessage, theirs: UserMessage[] | undefined): U
+ interface Chain {
+   key: string
+   count: number
++  calls: number
+ }
+ 
+ /**
+@@ -170,6 +177,13 @@ export function apply(ctx: Context, config: Config): void {
+   // schemastery's .default() guarantees the fields are set after validation.
+   const thresholds = validateThresholds(config.thresholds as number[])
+   const thresholdSet = new Set(thresholds)
++  const blockAt = config.blockAt as number
++  const maxTrackedCallsPerTurn = config.maxTrackedCallsPerTurn as number
++  for (const [name, value] of [['blockAt', blockAt], ['maxTrackedCallsPerTurn', maxTrackedCallsPerTurn]] as const) {
++    if (!Number.isInteger(value) || value < 0) {
++      throw new Error(`repeat-tool-reminder: invalid ${name} ${value} — must be an integer >= 0`)
++    }
++  }
+   const includePatterns = (config.include as string[]).map(wildcardToRegExp)
+   const excludePatterns = (config.exclude as string[]).map(wildcardToRegExp)
+   const argumentsPreviewChars = config.argumentsPreviewChars as number
+@@ -202,7 +216,8 @@ export function apply(ctx: Context, config: Config): void {
+     const key = JSON.stringify([exec.name, canonical])
+     const chain = chains.get(exec.agent)
+     const count = chain !== undefined && chain.key === key ? chain.count + 1 : 1
+-    chains.set(exec.agent, { key, count })
++    const calls = (chain?.calls ?? 0) + 1
++    chains.set(exec.agent, { key, count, calls })
+     if (!thresholdSet.has(count)) return undefined
+     const text = count === thresholds[0]
+       ? GENTLE_REMINDER
+@@ -213,8 +228,24 @@ export function apply(ctx: Context, config: Config): void {
+     })
+   }
+ 
+-  // Observe-and-enrich, never veto: count first (state advances regardless of
+-  // the downstream outcome), DELEGATE so a later listener can still block or
++  // Optional hard boundary: deny the next exact repeat or any tracked call after
++  // the per-turn budget. Defaults are disabled so existing consumers retain the
++  // advisory contract; deployments can opt into a fail-safe stopgap.
++  ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
++    if (!exec.agent || !tracked(exec.name)) return next()
++    const state = chains.get(exec.agent)
++    const key = JSON.stringify([exec.name, canonicalize(exec.arguments)])
++    if (state !== undefined && blockAt > 0 && state.key === key && state.count + 1 >= blockAt) {
++      return { kind: 'deny', reason: `repeat-tool-reminder: blocked exact repeat at ${blockAt} calls; inspect the latest result and finish or change scope` }
++    }
++    if (state !== undefined && maxTrackedCallsPerTurn > 0 && state.calls >= maxTrackedCallsPerTurn) {
++      return { kind: 'deny', reason: `repeat-tool-reminder: blocked after ${maxTrackedCallsPerTurn} tracked calls in one user turn; summarize current evidence instead of expanding scope` }
++    }
++    return next()
++  })
++
++  // Observe-and-enrich: count first (state advances regardless of the
++  // downstream outcome), DELEGATE so a later listener can still block or
+   // replace, then fold the reminder onto whatever came back — additionalContexts
+   // rides both decision variants, so a blocked call still gets the nudge.
+   ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
+diff --git a/packages/guard/repeat-tool-reminder/tests/repeat-tool-reminder.spec.ts b/packages/guard/repeat-tool-reminder/tests/repeat-tool-reminder.spec.ts
+index ccaad2300b..e0363bba51 100644
+--- a/packages/guard/repeat-tool-reminder/tests/repeat-tool-reminder.spec.ts
++++ b/packages/guard/repeat-tool-reminder/tests/repeat-tool-reminder.spec.ts
+@@ -406,4 +406,50 @@ describe('config validation fails loud', () => {
+     const ctx2 = await spine()
+     await expect(ctx2.plugin(RepeatToolGuard, { argumentsPreviewChars: 12.5 })).rejects.toThrow(/argumentsPreviewChars/)
+   })
++
++  it('rejects invalid hard-stop settings', async () => {
++    const ctx = await spine()
++    await expect(ctx.plugin(RepeatToolGuard, { blockAt: 1 })).rejects.toThrow(/blockAt/)
++    const ctx2 = await spine()
++    await expect(ctx2.plugin(RepeatToolGuard, { maxTrackedCallsPerTurn: 1.5 })).rejects.toThrow(/maxTrackedCallsPerTurn/)
++  })
++})
++
++describe('hard loop boundaries', () => {
++  it('denies the next exact repeat before execution when blockAt is reached', async () => {
++    const ctx = await harness({ blockAt: 3 })
++    const adapter = new MockAdapter([
++      toolCallResponse('c1', 'probe', { q: 'same' }),
++      toolCallResponse('c2', 'probe', { q: 'same' }),
++      toolCallResponse('c3', 'probe', { q: 'same' }),
++      textResponse('done'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
++    await waitForIdle(ctx, agent)
++
++    const results = agent.session.snapshotEvents().filter((e): e is SessionEvent<'tool/result'> => e.type === 'tool/result')
++    expect(results).toHaveLength(3)
++    expect(results[2]!.data.message.isError).toBe(true)
++    expect(results[2]!.data.message.content).toEqual([{ type: 'text', text: expect.stringContaining('blocked exact repeat') }])
++  })
++
++  it('denies tracked calls after the per-user-turn budget', async () => {
++    const ctx = await harness({ maxTrackedCallsPerTurn: 2 })
++    const adapter = new MockAdapter([
++      toolCallResponse('c1', 'probe', { q: 1 }),
++      toolCallResponse('c2', 'other', { q: 2 }),
++      textResponse('done'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
++    await waitForIdle(ctx, agent)
++
++    const results = agent.session.snapshotEvents().filter((e): e is SessionEvent<'tool/result'> => e.type === 'tool/result')
++    expect(results).toHaveLength(2)
++    expect(results[1]!.data.message.isError).toBe(true)
++    expect(results[1]!.data.message.content).toEqual([{ type: 'text', text: expect.stringContaining('blocked after 2 tracked calls') }])
++  })
+ })
+-- 
+2.43.0
+

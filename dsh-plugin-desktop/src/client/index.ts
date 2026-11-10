@@ -1,12 +1,18 @@
 import { installUiDiagnostics } from './ui-diagnostics.ts'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type {} from '@deepseek-ai/dsh-api-session-controller/remote'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar-files/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only service and SlotMap convergence for the Desktop settings section.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings-models/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only service convergence for the launch-folder bridge's scoped inject.
@@ -21,13 +27,37 @@ import './onboarding.css'
 import { applyAdvancedShell } from './advanced-shell.ts'
 import { startRendererBootReporter } from './boot-health.ts'
 import { applyDesktopSettings } from './desktop-settings.ts'
+import { AndroidLogcatDrawer } from './AndroidLogcatDrawer.tsx'
+import { AndroidLogcatLauncher } from './AndroidLogcatLauncher.tsx'
+import {
+  ANDROID_LOGCAT_LOCALE_NAMESPACE,
+  androidLogcatEn,
+  androidLogcatZh,
+} from './android-logcat-locales.ts'
+import { createAndroidLogcatStore } from './android-logcat-store.ts'
+import { installAndroidLogcatStyles } from './android-logcat-styles.ts'
+import { createGitReviewClient } from './git-review-api.ts'
+import { GitReviewPanel, GIT_REVIEW_TAB_ID } from './GitReviewPanel.tsx'
+import { GIT_REVIEW_LOCALE_NAMESPACE, gitReviewEn, gitReviewZh } from './git-review-locales.ts'
+import {
+  createGitReviewDeliverablesRedirectDefinition,
+  createGitReviewTabDefinition,
+  GIT_REVIEW_DELIVERABLES_REDIRECT_KIND,
+} from './git-review-tab.ts'
+import { installGitReviewStyles } from './git-review-styles.ts'
 import { installDesktopDirectoryPickerBridge } from './directory-picker.ts'
 import { parseDesktopClientEnvironment } from './environment.ts'
 import { applyExtendedShell } from './extended-shell.ts'
 import { installDesktopLaunchWorkspaceBridge } from './launch-workspace.ts'
+import { applyDesktopFileContextMenu } from './desktop-file-context-menu.tsx'
 import { DESKTOP_SETTINGS_FORMS_SERVICE } from './settings-bridge.ts'
 import { installSidebarFooterStyles } from './sidebar-footer-styles.ts'
+import { applyDesktopWorkspaceSources } from './WorkspaceSources.tsx'
 import { desktopWindowService, provideDesktopWindow } from './window-service.ts'
+import { applyDesktopTerminalPanel } from './desktop-terminal-panel.ts'
+// Type-only service convergence for the terminal panel's coordinator.
+import type {} from '@deepseek-ai/dsh-api-terminal-controller/client'
+import type {} from '@deepseek-ai/dsh-client-shortcuts/client'
 
 export { applyAdvancedShell } from './advanced-shell.ts'
 export { applyDesktopSettings } from './desktop-settings.ts'
@@ -122,6 +152,7 @@ export const inject = [
   'locale',
   'connection',
   'remote',
+  'remote.session',
   DESKTOP_SETTINGS_FORMS_SERVICE,
   'sessions',
   'theme',
@@ -133,11 +164,38 @@ export function apply(ctx: ClientContext): void {
   const environment = parseDesktopClientEnvironment(window.location.search)
   if (!environment) return
   ctx.effect(installUiDiagnostics, 'Desktop client failure diagnostics')
+  const androidLogcatStore = createAndroidLogcatStore()
+  ctx.effect(
+    () => ctx.locale.register(ANDROID_LOGCAT_LOCALE_NAMESPACE, { zh: androidLogcatZh, en: androidLogcatEn }),
+    'dsh-plugin-desktop: android logcat dictionaries',
+  )
+  ctx.effect(
+    () => installAndroidLogcatStyles('dsh-plugin-desktop'),
+    'dsh-plugin-desktop: android logcat styles',
+  )
+  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
+    id: 'desktop-android-logcat',
+    order: 30,
+    label: () => ctx.locale.bind(ANDROID_LOGCAT_LOCALE_NAMESPACE)('launcher'),
+    locale: ANDROID_LOGCAT_LOCALE_NAMESPACE,
+    store: androidLogcatStore,
+  }, AndroidLogcatLauncher))
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'desktop-android-logcat',
+    order: 30,
+    locale: ANDROID_LOGCAT_LOCALE_NAMESPACE,
+    store: androidLogcatStore,
+  }, AndroidLogcatDrawer))
+  applyDesktopTerminalPanel(ctx)
   ctx.effect(
     () => provideDesktopWindow(ctx, desktopWindowService(environment)),
     'dsh-plugin-desktop: native window geometry service',
   )
   const desktopSettings = applyDesktopSettings(ctx, environment)
+  applyDesktopFileContextMenu(ctx)
+  applyDesktopWorkspaceSources(ctx, environment.platform)
   registerPluginControls(ctx)
   registerDesktopOnboarding(ctx, (snapshot, locale, finish, renderNavigation) => createElement<{ embedded?: EmbeddedSetupWizard }>(SetupWizardApp, {
     embedded: { input: snapshot.input, locale, renderNavigation, finish: selection => finish(snapshot.profile, selection) },
@@ -160,6 +218,76 @@ export function apply(ctx: ClientContext): void {
   }
   if (environment.mode === 'advanced') applyAdvancedShell(ctx, environment)
   if (environment.mode === 'extended') applyExtendedShell(ctx, environment, desktopSettings)
+  ctx.effect(() => ctx.locale.register(GIT_REVIEW_LOCALE_NAMESPACE, { zh: gitReviewZh, en: gitReviewEn }),
+    'dsh-plugin-desktop: Git Review dictionaries')
+  ctx.effect(() => installGitReviewStyles('dsh-plugin-desktop'), 'dsh-plugin-desktop: Git Review styles')
+  // A Guide page is Session-scoped, so Git Review can never switch to another Workspace.
+  ctx.inject(['uiWorkspace', 'sidebarRight', 'sidebarRightTabs'], (scope: ClientContext) => {
+    const client = createGitReviewClient()
+    scope.effect(() => {
+      const pending = new Set<() => void>()
+      const openFile = (sessionId: SessionId, cwd: string, path: string): void => {
+        const address = fileAddressFor(sessionId, cwd, path)
+        const mounted = scope.sidebarRight.mounted
+        if (mounted.getSnapshot() === sessionId) {
+          scope.sidebarRight.openResource(address)
+          return
+        }
+        let finished = false
+        let unsubscribe = (): void => {}
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        const finish = (): void => {
+          if (finished) return
+          finished = true
+          unsubscribe()
+          if (timeout !== undefined) clearTimeout(timeout)
+          pending.delete(finish)
+        }
+        const reveal = (): void => {
+          if (mounted.getSnapshot() !== sessionId) return
+          finish()
+          try { scope.sidebarRight.openResource(address) }
+          catch (cause) { console.error('dsh-plugin-desktop: could not open review file', cause) }
+        }
+        timeout = setTimeout(() => {
+          finish()
+          console.warn(`dsh-plugin-desktop: timed out waiting for Session ${sessionId} before opening a review file`)
+        }, 10_000)
+        unsubscribe = mounted.subscribe(reveal)
+        pending.add(finish)
+        try {
+          scope.uiWorkspace.openSession(sessionId)
+          reveal()
+        } catch (cause) {
+          finish()
+          console.error('dsh-plugin-desktop: could not select review Session', cause)
+        }
+      }
+      const t = scope.locale.bind(GIT_REVIEW_LOCALE_NAMESPACE)
+      const removeType = scope.sidebarRightTabs.register(createGitReviewTabDefinition(t))
+      const removeDeliverablesRedirect = scope.sidebarRightTabs.register(createGitReviewDeliverablesRedirectDefinition(t))
+      const removePage = scope.slots.inject('sidebar.right.pane.tab', () => {
+        const inject = () => ({ client, openFile, platform: environment.platform })
+        const removeReviewPage = scope.slots.register({
+          name: 'sidebar.right.pane.tab', key: GIT_REVIEW_TAB_ID, locale: GIT_REVIEW_LOCALE_NAMESPACE, inject,
+        }, GitReviewPanel)
+        const removeDeliverablesRedirectPage = scope.slots.register({
+          name: 'sidebar.right.pane.tab', key: GIT_REVIEW_DELIVERABLES_REDIRECT_KIND,
+          locale: GIT_REVIEW_LOCALE_NAMESPACE, inject,
+        }, GitReviewPanel)
+        return () => {
+          removeReviewPage()
+          removeDeliverablesRedirectPage()
+        }
+      })
+      return () => {
+        removeType()
+        removeDeliverablesRedirect()
+        removePage()
+        for (const dispose of [...pending]) dispose()
+      }
+    }, 'dsh-plugin-desktop: Git Review guide page')
+  })
   // Scoped rather than module-level on purpose: the shells above provide
   // `layout`, and upstream's `uiWorkspace` injects it. Naming `uiWorkspace` in
   // the module-level inject list would deadlock the two against each other.

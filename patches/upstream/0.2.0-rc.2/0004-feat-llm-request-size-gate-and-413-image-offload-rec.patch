@@ -1,0 +1,664 @@
+From cec59fa8afcc27b72dabc63e976782e7b0d6021b Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Fri, 23 Oct 2026 11:28:15 +0800
+Subject: [PATCH 04/13] feat(llm): request-size gate and 413 image-offload
+ recovery
+
+- llm: add isRequestTooLargeError, the shared provider-neutral predicate
+  for transport byte-size rejections (HTTP 413), kept disjoint from
+  context-window overflow wording
+- llm-pi-ai: optional per-route maxRequestBytes; the projected request
+  body (history, tools, and retained images at exact request bytes,
+  conservatively padded) is checked before serialization, failing with
+  IMAGE_OFFLOAD_REQUIRED while offloading oldest images still fits the
+  bound and with INVALID_REQUEST once even the image-free remainder no
+  longer fits; 413 stream failures now name the remaining recovery
+  actions instead of surfacing the raw status line
+- compaction-image-offload: a provider-side size rejection whose wording
+  matches the too-large predicate offloads half the retained input-image
+  occurrences and retries, converging within logarithmically many
+  attempts; it steps aside once nothing remains to offload
+---
+ .../compaction-image-offload/README.md        |  4 +-
+ .../compaction-image-offload/README.zh.md     |  4 +-
+ .../src/image-offload.ts                      | 23 +++++
+ .../compaction-image-offload/src/index.ts     | 27 +++--
+ .../tests/image-offload.spec.ts               | 61 ++++++++++++
+ packages/llm/llm-pi-ai/README.md              |  3 +-
+ packages/llm/llm-pi-ai/README.zh.md           |  3 +-
+ packages/llm/llm-pi-ai/src/adapter.ts         |  1 +
+ packages/llm/llm-pi-ai/src/config.ts          | 13 +++
+ packages/llm/llm-pi-ai/src/context.ts         | 99 ++++++++++++++++++-
+ packages/llm/llm-pi-ai/src/stream.ts          | 18 +++-
+ packages/llm/llm-pi-ai/tests/adapter.spec.ts  |  3 +
+ packages/llm/llm-pi-ai/tests/config.spec.ts   |  3 +
+ packages/llm/llm-pi-ai/tests/context.spec.ts  | 21 +++-
+ packages/llm/llm-pi-ai/tests/convert.spec.ts  | 12 +++
+ packages/llm/llm/src/error.ts                 | 14 +++
+ packages/llm/llm/tests/service.spec.ts        | 17 ++++
+ 17 files changed, 309 insertions(+), 17 deletions(-)
+
+diff --git a/packages/compaction/compaction-image-offload/README.md b/packages/compaction/compaction-image-offload/README.md
+index 8e4d812c04..c4d3284967 100644
+--- a/packages/compaction/compaction-image-offload/README.md
++++ b/packages/compaction/compaction-image-offload/README.md
+@@ -25,7 +25,7 @@ Image-heavy conversations continue when older images exceed a model route's budg
+ <a id="use-this-package"></a>
+ ## Use this package
+ 
+-Mount this plugin in every composition that runs the agent loop with an image-capable route. The shipped `dsh` base does. Without it, an `IMAGE_OFFLOAD_REQUIRED` failure reaches ordinary recovery and ends the turn as an error. The plugin has no configuration: the DeepSeek adapter enforces its file-mode and inline-fallback budgets, the pi-ai adapter its base64 bound, and each reports the count it needs offloaded.
++Mount this plugin in every composition that runs the agent loop with an image-capable route. The shipped `dsh` base does. Without it, an `IMAGE_OFFLOAD_REQUIRED` failure reaches ordinary recovery and ends the turn as an error. The plugin has no configuration: the DeepSeek adapter enforces its file-mode and inline-fallback budgets, the pi-ai adapter its base64 bound, and each reports the count it needs offloaded. Independently of any route budget, a provider-side request-size rejection (HTTP 413, classified `INVALID_REQUEST` with too-large wording) is treated as the same repairable condition: the plugin offloads half of the retained occurrences and retries, converging within logarithmically many attempts.
+ 
+ ### Minimal configuration
+ 
+@@ -39,7 +39,7 @@ Each decision appends one `image/offload` event identifying the selected occurre
+ 
+ ### Failures and recovery
+ 
+-The plugin acts only on `IMAGE_OFFLOAD_REQUIRED` failures that carry `offloadImages`. It walks the surface in model request order, skips assistant nodes and images already marked, and marks that many occurrences. When nothing remains to offload it delegates on the `agent/request-error` waterfall, so downstream recovery or the ordinary turn error applies. The retry spends no provider retry budget and logs no `llm/retry` event.
++The plugin acts on `IMAGE_OFFLOAD_REQUIRED` failures that carry `offloadImages`, and on `INVALID_REQUEST` failures whose message matches the request-too-large wording (an endpoint's byte cap sitting below the route's configured bounds). It walks the surface in model request order, skips assistant nodes and images already marked, and marks that many occurrences — the exact reported count for budget failures, half of the retained occurrences for size rejections. When nothing remains to offload it delegates on the `agent/request-error` waterfall, so downstream recovery or the ordinary turn error applies. The retry spends no provider retry budget and logs no `llm/retry` event.
+ 
+ -----
+ 
+diff --git a/packages/compaction/compaction-image-offload/README.zh.md b/packages/compaction/compaction-image-offload/README.zh.md
+index 06ed168e75..4e4284f9e6 100644
+--- a/packages/compaction/compaction-image-offload/README.zh.md
++++ b/packages/compaction/compaction-image-offload/README.zh.md
+@@ -25,7 +25,7 @@ kind: "package-reference"
+ <a id="use-this-package"></a>
+ ## 使用本包
+ 
+-凡是运行 agent loop（智能体循环）并带有支持图片的路由的组合，都应挂载本插件，随附的 `dsh` 基础配置已经挂载。没有它，`IMAGE_OFFLOAD_REQUIRED` 失败会进入普通恢复并以错误结束该轮次。本插件没有配置：DeepSeek 适配器执行其 file 模式和内联回退预算，pi-ai 适配器执行其 base64 上限，各自上报需要省略的数量。
++凡是运行 agent loop（智能体循环）并带有支持图片的路由的组合，都应挂载本插件，随附的 `dsh` 基础配置已经挂载。没有它，`IMAGE_OFFLOAD_REQUIRED` 失败会进入普通恢复并以错误结束该轮次。本插件没有配置：DeepSeek 适配器执行其 file 模式和内联回退预算，pi-ai 适配器执行其 base64 上限，各自上报需要省略的数量。与路由预算无关，提供方按请求体积拒收（HTTP 413，归类为措辞含 too large 的 `INVALID_REQUEST`）时按同一可修复条件处理：卸载一半保留图片并重试，按对数次尝试收敛。
+ 
+ ### 最小可用组合
+ 
+@@ -39,7 +39,7 @@ kind: "package-reference"
+ 
+ ### 失败与恢复
+ 
+-本插件只处理带 `offloadImages` 的 `IMAGE_OFFLOAD_REQUIRED` 失败。它按模型请求顺序遍历表层，跳过 assistant 节点和已经标记的图片，给指定数量的出现位置打标记。没有可省略的图片时在 `agent/request-error` waterfall 上委派下游，由下游恢复或普通的轮次错误处理。这次重试不占提供方重试预算，也不追加 `llm/retry` 事件。
++本插件处理带 `offloadImages` 的 `IMAGE_OFFLOAD_REQUIRED` 失败，以及措辞命中请求体积过大特征的 `INVALID_REQUEST` 失败（端点真实字节上限低于路由配置上限的情形）。它按模型请求顺序遍历表层，跳过 assistant 节点和已经标记的图片并打标记——预算失败按上报数量，体积拒收按保留数量的一半。没有可省略的图片时在 `agent/request-error` waterfall 上委派下游，由下游恢复或普通的轮次错误处理。这次重试不占提供方重试预算，也不追加 `llm/retry` 事件。
+ 
+ -----
+ 
+diff --git a/packages/compaction/compaction-image-offload/src/image-offload.ts b/packages/compaction/compaction-image-offload/src/image-offload.ts
+index cc8dbfeae0..0ac63f2a2c 100644
+--- a/packages/compaction/compaction-image-offload/src/image-offload.ts
++++ b/packages/compaction/compaction-image-offload/src/image-offload.ts
+@@ -44,3 +44,26 @@ export function offloadOldestImages(session: Session, sourceEventSeqs: readonly
+   session.append('image/offload', { targets })
+   return true
+ }
++
++/**
++ * Count retained (not yet offloaded) input-image occurrences across the given
++ * surface nodes, in the same model-request order {@link offloadOldestImages} uses.
++ * @param session - session whose surface is inspected.
++ * @param sourceEventSeqs - input message events in request order.
++ * @returns how many occurrences a size-rejection retry could still offload.
++ */
++export function retainedImageCount(session: Session, sourceEventSeqs: readonly SessionSeq[]): number {
++  let retained = 0
++  for (const seq of sourceEventSeqs) {
++    // Existing Session history read; migration deferred. Current surface nodes index the durable log.
++    // oxlint-disable-next-line typescript/no-non-null-assertion, typescript/no-deprecated
++    const event = session.eventAt(seq)!
++    if (event.type !== 'user/message' && event.type !== 'tool/result') continue
++    // oxlint-disable-next-line typescript/no-non-null-assertion -- both input node types produce a message
++    const message = session.deriveEventMessage(event)!
++    for (const block of message.content) {
++      if (block.type === 'image' && block.offloaded !== true) retained += 1
++    }
++  }
++  return retained
++}
+diff --git a/packages/compaction/compaction-image-offload/src/index.ts b/packages/compaction/compaction-image-offload/src/index.ts
+index 5415cd5c4c..67b060e9d2 100644
+--- a/packages/compaction/compaction-image-offload/src/index.ts
++++ b/packages/compaction/compaction-image-offload/src/index.ts
+@@ -5,14 +5,21 @@
+  * and retries through the agent or compaction summary error waterfall. Every route
+  * sends placeholder text for those occurrences in subsequent requests.
+  *
++ * A provider-side size rejection (HTTP 413) means the route's configured image
++ * bounds sit above the endpoint's real byte limit, so the request never reached
++ * the budget check that would have raised `IMAGE_OFFLOAD_REQUIRED`. The plugin
++ * treats that failure as the same repairable condition: it offloads half of the
++ * retained occurrences and retries, converging within logarithmically many
++ * attempts, and steps aside once nothing remains to offload.
++ *
+  * @module @deepseek-ai/dsh-compaction-image-offload
+  */
+ 
+ import type { Context } from '@deepseek-ai/cordis'
+ import type {} from '@deepseek-ai/dsh-compaction'
+ import type { RequestErrorAction } from '@deepseek-ai/dsh-agent'
+-import { IMAGE_OFFLOAD_REQUIRED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
+-import { offloadOldestImages } from './image-offload.ts'
++import { IMAGE_OFFLOAD_REQUIRED_CODE, isRequestTooLargeError, LlmError } from '@deepseek-ai/dsh-llm'
++import { offloadOldestImages, retainedImageCount } from './image-offload.ts'
+ import { imageOffloadProjection } from './projection.ts'
+ 
+ export const name = 'compaction-image-offload'
+@@ -25,10 +32,18 @@ export const inject = ['agents', 'sessions']
+ export function apply(ctx: Context): void {
+   ctx.sessions.registerMessageProjection(imageOffloadProjection)
+   ctx.on('agent/request-error', ({ agent, failure }, next): Promise<RequestErrorAction> => {
+-    if (failure.code !== IMAGE_OFFLOAD_REQUIRED_CODE || failure.offloadImages === undefined) return next()
+-    // A durable surface repair, not a provider retry: it spends no retry budget and logs no retry event.
+-    if (!offloadOldestImages(agent.session, agent.session.surface.nodes, failure.offloadImages)) return next()
+-    return Promise.resolve<RequestErrorAction>({ kind: 'retry' })
++    if (failure.code === IMAGE_OFFLOAD_REQUIRED_CODE && failure.offloadImages !== undefined) {
++      // A durable surface repair, not a provider retry: it spends no retry budget and logs no retry event.
++      if (!offloadOldestImages(agent.session, agent.session.surface.nodes, failure.offloadImages)) return next()
++      return Promise.resolve<RequestErrorAction>({ kind: 'retry' })
++    }
++    if (failure.code === 'INVALID_REQUEST' && isRequestTooLargeError(failure.message)) {
++      const retained = retainedImageCount(agent.session, agent.session.surface.nodes)
++      if (retained === 0) return next()
++      if (!offloadOldestImages(agent.session, agent.session.surface.nodes, Math.ceil(retained / 2))) return next()
++      return Promise.resolve<RequestErrorAction>({ kind: 'retry' })
++    }
++    return next()
+   })
+   ctx.on('compaction/summary-error', ({ session, sourceEventSeqs, error, signal }, next) => {
+     if (!(error instanceof LlmError)
+diff --git a/packages/compaction/compaction-image-offload/tests/image-offload.spec.ts b/packages/compaction/compaction-image-offload/tests/image-offload.spec.ts
+index 001b307a65..4e04b5f0ec 100644
+--- a/packages/compaction/compaction-image-offload/tests/image-offload.spec.ts
++++ b/packages/compaction/compaction-image-offload/tests/image-offload.spec.ts
+@@ -64,6 +64,13 @@ function offloadRequired(offloadImages: number): () => never {
+   }
+ }
+ 
++/** A provider-side request-size rejection that never passed through a route image budget. */
++function payloadTooLarge(): () => never {
++  return () => {
++    throw new LlmError('413 Request Entity Too Large', 'INVALID_REQUEST')
++  }
++}
++
+ async function harness(adapter: ScriptedAdapter): Promise<Context> {
+   const ctx = new Context()
+   contexts.push(ctx)
+@@ -261,6 +268,60 @@ describe('compaction-image-offload', () => {
+     expect(durable.type === 'user/message' ? durable.data.content[0] : undefined).not.toHaveProperty('offloaded')
+   })
+ 
++  it('peels half the retained images and retries on a provider 413 size rejection', async () => {
++    const adapter = new ScriptedAdapter([payloadTooLarge(), payloadTooLarge(), textResponse('sent')])
++    const ctx = await harness(adapter)
++    const agent = await ctx.agentLoop.create(SessionId('offload-413'), { provider: 'mock', model: 'mock' })
++
++    agent.followup(createUserMessage({
++      content: [image('a'), image('b'), image('c'), image('d')],
++      source: { kind: 'user' },
++    }))
++    await agent.whenIdle()
++
++    expect(adapter.requests).toHaveLength(3)
++    expect(offloadedNames(adapter.requests[0]!)).toEqual([])
++    expect(offloadedNames(adapter.requests[1]!)).toEqual(['a', 'b'])
++    expect(offloadedNames(adapter.requests[2]!)).toEqual(['a', 'b', 'c'])
++    const original = agent.session.snapshotEvents().find(event => event.type === 'user/message')!.seq
++    expect(decisions(agent.session).map(event => event.data.targets)).toEqual([
++      [{ seq: original, imageIndexes: [0, 1] }],
++      [{ seq: original, imageIndexes: [2] }],
++    ])
++  })
++
++  it('lets a 413 failure proceed normally when no retained images remain', async () => {
++    const adapter = new ScriptedAdapter([payloadTooLarge()])
++    const ctx = await harness(adapter)
++    const agent = await ctx.agentLoop.create(SessionId('offload-413-empty'), { provider: 'mock', model: 'mock' })
++
++    agent.followup(createUserMessage({
++      content: [{ type: 'text', text: 'plain text only' }],
++      source: { kind: 'user' },
++    }))
++    await agent.whenIdle()
++
++    expect(adapter.requests).toHaveLength(1)
++    expect(decisions(agent.session)).toEqual([])
++    const events = agent.session.snapshotEvents()
++    expect(events.at(-1)?.type).toBe('turn/end')
++  })
++
++  it('ignores invalid-request failures that are not size rejections', async () => {
++    const adapter = new ScriptedAdapter([() => { throw new LlmError('HTTP 400: malformed tool schema', 'INVALID_REQUEST') }])
++    const ctx = await harness(adapter)
++    const agent = await ctx.agentLoop.create(SessionId('offload-400'), { provider: 'mock', model: 'mock' })
++
++    agent.followup(createUserMessage({
++      content: [image('a')],
++      source: { kind: 'user' },
++    }))
++    await agent.whenIdle()
++
++    expect(adapter.requests).toHaveLength(1)
++    expect(decisions(agent.session)).toEqual([])
++  })
++
+   it('counts the adapter prefix in request order after a surface replacement', async () => {
+     const adapter = new ScriptedAdapter([offloadRequired(2), textResponse('sent')])
+     const ctx = await harness(adapter)
+diff --git a/packages/llm/llm-pi-ai/README.md b/packages/llm/llm-pi-ai/README.md
+index 0e8a801b53..b561a10ad4 100644
+--- a/packages/llm/llm-pi-ai/README.md
++++ b/packages/llm/llm-pi-ai/README.md
+@@ -86,6 +86,7 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
+ | `requestImagePixelBudget` | `4,194,304` | Total-pixel budget for each deterministic request image |
+ | `requestImageMaxBytes` | `1 MiB` | Encoded-byte target for each request image before base64 expansion |
+ | `maxRequestImageBytes` | `20 MiB` | Aggregate base64 image-payload bound; a request whose retained images exceed it fails with `IMAGE_OFFLOAD_REQUIRED` |
++| `maxRequestBytes` | none | Estimated total request-body byte bound; a request exceeding it first fails with `IMAGE_OFFLOAD_REQUIRED` while images can still shrink it, otherwise with `INVALID_REQUEST` before any bytes are sent |
+ | `retryPolicy` | normal, 5 retries | Provider-owned retry policy executed by `dsh-llm-retry` |
+ 
+ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-llm-pi-ai) is the exhaustive source for every accepted field and its JSDoc.
+@@ -183,7 +184,7 @@ Read these pages when the package-level contract is not enough. They move from t
+ 
+ #### What the model sees
+ 
+-The selected catalog model receives one system prompt (`GenerateOptions.system`, otherwise the text of a leading `system` history message; a leading system message with empty text sends none), the remaining history, tools, and sampling fields supported by pi-ai's common streaming API. Each retained image is preceded by text naming its complete attachment id and actual request dimensions. When the current execution filesystem maps the attachment provider's host object, the text also carries a read-only normalized-object path and warns that normalization or request projection may have resized or re-encoded the upload. Each occurrence selected by a logged image-offload decision keeps its own identity and currently resolved access in replacement text, and its normalized attachment is not read or transformed. When the retained occurrences' exact base64 payload still exceeds the route's `maxRequestImageBytes`, the call fails with `IMAGE_OFFLOAD_REQUIRED` so `dsh-compaction-image-offload` records the selected occurrences in an `image/offload` event and retries the step. Provider-native replay metadata is restored only when the adapter validates it for the historical content.
++The selected catalog model receives one system prompt (`GenerateOptions.system`, otherwise the text of a leading `system` history message; a leading system message with empty text sends none), the remaining history, tools, and sampling fields supported by pi-ai's common streaming API. Each retained image is preceded by text naming its complete attachment id and actual request dimensions. When the current execution filesystem maps the attachment provider's host object, the text also carries a read-only normalized-object path and warns that normalization or request projection may have resized or re-encoded the upload. Each occurrence selected by a logged image-offload decision keeps its own identity and currently resolved access in replacement text, and its normalized attachment is not read or transformed. When the retained occurrences' exact base64 payload still exceeds the route's `maxRequestImageBytes`, the call fails with `IMAGE_OFFLOAD_REQUIRED` so `dsh-compaction-image-offload` records the selected occurrences in an `image/offload` event and retries the step. A route may additionally declare `maxRequestBytes`: the projected request body (history, tools, and retained images with exact image bytes, conservatively padded) is checked before serialization, failing with `IMAGE_OFFLOAD_REQUIRED` while offloading oldest images can still bring the estimate under the bound, and with `INVALID_REQUEST` once even the image-free remainder no longer fits. Provider-native replay metadata is restored only when the adapter validates it for the historical content.
+ 
+ #### Token effect
+ 
+diff --git a/packages/llm/llm-pi-ai/README.zh.md b/packages/llm/llm-pi-ai/README.zh.md
+index 5126fe25ed..92146aa913 100644
+--- a/packages/llm/llm-pi-ai/README.zh.md
++++ b/packages/llm/llm-pi-ai/README.zh.md
+@@ -86,6 +86,7 @@ kind: "package-reference"
+ | `requestImagePixelBudget` | `4,194,304` | 每张确定性请求图片的总像素预算 |
+ | `requestImageMaxBytes` | `1 MiB` | 每张请求图片在 base64 扩展前的编码字节目标 |
+ | `maxRequestImageBytes` | `20 MiB` | base64 图片载荷总上限，保留图片超过时请求以 `IMAGE_OFFLOAD_REQUIRED` 失败 |
++| `maxRequestBytes` | 无 | 估算的请求体总字节上限；估算超限时，只要卸载图片还能压回限内就以 `IMAGE_OFFLOAD_REQUIRED` 失败，否则在发送前以 `INVALID_REQUEST` 失败 |
+ | `retryPolicy` | normal，5 次重试 | 由 `dsh-llm-retry` 执行的提供方自有重试策略 |
+ 
+ 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-llm-pi-ai)是每个受支持字段及其 JSDoc 的穷尽式真源。
+@@ -183,7 +184,7 @@ Config 更新严格验证发生变化的 provider。初始加载将已存储的
+ 
+ #### 模型看到什么
+ 
+-所选目录模型会收到一条系统提示词（`GenerateOptions.system`，否则取历史中首条 `system` 消息的文本；首条 system 消息文本为空时不发送系统提示词）、其余历史、工具与 pi-ai 通用流式 API 支持的采样字段。每张保留图片前都会有文本，注明其完整附件 id 与实际请求尺寸。当前执行文件系统可以映射附件提供方的宿主对象时，该文本还会携带只读规范化对象路径，并警告规范化或请求投影可能缩放或重新编码上传内容。日志中的图片省略决策选中的每个出现位置都会在替换文本中保留自己的身份与当前已解析访问方式，其规范化附件不会读取或变换。当保留的出现位置按精确 base64 载荷仍超过路由的 `maxRequestImageBytes` 时，调用以 `IMAGE_OFFLOAD_REQUIRED` 失败，由 `dsh-compaction-image-offload` 用 `image/offload` 事件记录所选位置并重试步骤。提供方原生回放元数据只在适配器针对历史内容校验通过后恢复。
++所选目录模型会收到一条系统提示词（`GenerateOptions.system`，否则取历史中首条 `system` 消息的文本；首条 system 消息文本为空时不发送系统提示词）、其余历史、工具与 pi-ai 通用流式 API 支持的采样字段。每张保留图片前都会有文本，注明其完整附件 id 与实际请求尺寸。当前执行文件系统可以映射附件提供方的宿主对象时，该文本还会携带只读规范化对象路径，并警告规范化或请求投影可能缩放或重新编码上传内容。日志中的图片省略决策选中的每个出现位置都会在替换文本中保留自己的身份与当前已解析访问方式，其规范化附件不会读取或变换。当保留的出现位置按精确 base64 载荷仍超过路由的 `maxRequestImageBytes` 时，调用以 `IMAGE_OFFLOAD_REQUIRED` 失败，由 `dsh-compaction-image-offload` 用 `image/offload` 事件记录所选位置并重试步骤。路由还可声明 `maxRequestBytes`：在序列化前对投影请求体（历史、工具与按精确字节计的保留图片，保守上浮）做总量检查，只要卸载最旧图片仍能把估算压回限内就以 `IMAGE_OFFLOAD_REQUIRED` 失败；当不含图片的剩余部分都已超限时，以 `INVALID_REQUEST` 失败。提供方原生回放元数据只在适配器针对历史内容校验通过后恢复。
+ 
+ #### Token 影响
+ 
+diff --git a/packages/llm/llm-pi-ai/src/adapter.ts b/packages/llm/llm-pi-ai/src/adapter.ts
+index de9f3e0e42..c9bff276c9 100644
+--- a/packages/llm/llm-pi-ai/src/adapter.ts
++++ b/packages/llm/llm-pi-ai/src/adapter.ts
+@@ -372,6 +372,7 @@ export class PiAiAdapter extends LlmAdapter {
+           attachments,
+           resolveImageAccess: ref => this.config.resolveImageAccess?.(attachments, ref),
+           maxRequestImageBytes: profile.maxRequestImageBytes,
++          ...profile.maxRequestBytes === undefined ? {} : { maxRequestBytes: profile.maxRequestBytes },
+           requestImagePolicy: {
+             maxPixels: profile.requestImagePixelBudget,
+             maxBytes: profile.requestImageMaxBytes,
+diff --git a/packages/llm/llm-pi-ai/src/config.ts b/packages/llm/llm-pi-ai/src/config.ts
+index b07cd57bfb..7e49f11e0f 100644
+--- a/packages/llm/llm-pi-ai/src/config.ts
++++ b/packages/llm/llm-pi-ai/src/config.ts
+@@ -171,6 +171,14 @@ export interface PiAiProviderProfile {
+    * requests instead of being rejected by a request-size cap.
+    */
+   maxRequestImageBytes?: number
++  /**
++   * Estimated total request-body byte bound for this route. A request whose
++   * projected wire size exceeds it first offloads oldest retained images; when
++   * even the image-free remainder no longer fits, the request fails locally
++   * with `INVALID_REQUEST` instead of shipping a body the provider will reject
++   * with HTTP 413. Omission leaves the total-body gate unchecked.
++   */
++  maxRequestBytes?: number
+   /** Total-pixel budget for each deterministic inline request version. */
+   requestImagePixelBudget?: number
+   /**
+@@ -343,6 +351,7 @@ const profile = z.object({
+   websocketConnectTimeoutMs: z.natural(),
+   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
+   maxRequestImageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGE_BYTES),
++  maxRequestBytes: z.number().step(1).min(1),
+   requestImagePixelBudget: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET),
+   requestImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_MAX_BYTES),
+   retryPolicy: RetryPolicySchema,
+@@ -438,6 +447,10 @@ export function resolveProfiles(
+     if (!Number.isInteger(maxRequestImageBytes) || maxRequestImageBytes <= 0) {
+       throw new Error(`llm-pi-ai: provider "${provider}" maxRequestImageBytes must be a positive integer`)
+     }
++    if (source.maxRequestBytes !== undefined
++      && (!Number.isSafeInteger(source.maxRequestBytes) || source.maxRequestBytes <= 0)) {
++      throw new Error(`llm-pi-ai: provider "${provider}" maxRequestBytes must be a positive safe integer`)
++    }
+     const requestImagePixelBudget = source.requestImagePixelBudget ?? DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET
+     if (!Number.isSafeInteger(requestImagePixelBudget) || requestImagePixelBudget <= 0) {
+       throw new Error(`llm-pi-ai: provider "${provider}" requestImagePixelBudget must be a positive safe integer`)
+diff --git a/packages/llm/llm-pi-ai/src/context.ts b/packages/llm/llm-pi-ai/src/context.ts
+index 84bfeab4f3..81e86c0c81 100644
+--- a/packages/llm/llm-pi-ai/src/context.ts
++++ b/packages/llm/llm-pi-ai/src/context.ts
+@@ -27,6 +27,70 @@ function flattenText(message: RequestMessage): string {
+     .join('')
+ }
+ 
++/** Fixed JSON envelope allowance around messages and tool declarations in one request body. */
++const REQUEST_ENVELOPE_BYTES = 16 * 1024
++
++/** Base64 length of raw image bytes plus the data-URL prefix, including padding. */
++function imageWireBytes(rawBytes: number): number {
++  return Math.ceil(rawBytes / 3) * 4 + 64
++}
++
++/**
++ * Conservative wire-size estimate for one text value: three bytes per
++ * non-ASCII code unit (surrogate pairs overcount, which is safe here) plus a
++ * quarter allowance for JSON escaping.
++ */
++function estimateWireTextBytes(text: string): number {
++  let nonAscii = 0
++  for (let index = 0; index < text.length; index += 1) {
++    if (text.charCodeAt(index) > 0x7f) nonAscii += 1
++  }
++  return Math.ceil((text.length - nonAscii + nonAscii * 3) * 1.25)
++}
++
++/** Estimated request-body bytes split into retained-image payload and everything else. */
++interface RequestWireEstimate {
++  /** Total estimated request-body bytes, envelope included. */
++  total: number
++  /** Estimated bytes of the retained image occurrences only. */
++  imageBytes: number
++}
++
++/**
++ * Estimate one request's wire size before serialization. Text and tool
++ * declarations are padded; retained images use their exact request-version
++ * bytes. The estimate exists to trip the total-body gate early, not to
++ * reproduce the serializer byte for byte.
++ * @param systemPrompt - resolved system prompt text, when present.
++ * @param messages - complete request history.
++ * @param tools - provider tool declarations.
++ * @param requestImages - resolved request-image versions by attachment id.
++ * @returns estimated totals in bytes.
++ */
++function estimateRequestWireBytes(
++  systemPrompt: string | undefined,
++  messages: readonly RequestMessage[],
++  tools: GenerateOptions['tools'],
++  requestImages: ReadonlyMap<AttachmentId, RequestImageAttachment>,
++): RequestWireEstimate {
++  let imageBytes = 0
++  let otherBytes = REQUEST_ENVELOPE_BYTES
++    + (systemPrompt === undefined ? 0 : estimateWireTextBytes(systemPrompt))
++    + (tools === undefined ? 0 : Math.ceil(JSON.stringify(tools).length * 1.25))
++  for (const message of messages) {
++    for (const block of message.content) {
++      if (block.type === 'text' || block.type === 'reasoning') {
++        otherBytes += estimateWireTextBytes(block.text)
++      } else if (block.type === 'image' && block.offloaded !== true) {
++        imageBytes += imageWireBytes(requestImages.get(block.attachment.attachmentId)?.bytes ?? block.attachment.bytes)
++      } else {
++        otherBytes += Math.ceil(JSON.stringify(block).length * 1.25)
++      }
++    }
++  }
++  return { total: imageBytes + otherBytes, imageBytes }
++}
++
+ 
+ /** Recover the pi-ai toolResult message for one harness tool-role message. */
+ function toolResultOf(
+@@ -233,6 +297,13 @@ export interface PiImageRequestContext {
+   resolveImageAccess: ImageAttachmentAccessResolver
+   /** Request-level bound on the base64-encoded payload of retained images; omission leaves the bound unchecked. */
+   maxRequestImageBytes?: number
++  /**
++   * Estimated total request-body byte bound. A projection exceeding it fails
++   * with `IMAGE_OFFLOAD_REQUIRED` while retained images can still shrink the
++   * body, and with `INVALID_REQUEST` once even the image-free remainder no
++   * longer fits. Omission leaves the total-body gate unchecked.
++   */
++  maxRequestBytes?: number
+   /** Route pixel and raw encoded-byte budgets. */
+   requestImagePolicy?: PiImageRequestBudget
+ }
+@@ -296,7 +367,7 @@ async function toPiContextWithImages(
+   images: PiImageRequestContext,
+   onReplayDegrade?: (reason: string) => void,
+ ): Promise<PiContext> {
+-  const { attachments, resolveImageAccess, maxRequestImageBytes } = images
++  const { attachments, resolveImageAccess, maxRequestImageBytes, maxRequestBytes } = images
+   const requestImagePolicy = images.requestImagePolicy ?? {
+     maxPixels: DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
+     maxBytes: DEFAULT_REQUEST_IMAGE_MAX_BYTES,
+@@ -318,6 +389,32 @@ async function toPiContextWithImages(
+       )
+     }
+   }
++  if (maxRequestBytes !== undefined) {
++    // Total-body gate: an image-only bound cannot stop a request whose text and
++    // images together still exceed the provider's byte cap (observed as HTTP 413).
++    const estimate = estimateRequestWireBytes(split.systemPrompt, split.messages, options.tools, requestImages)
++    if (estimate.total > maxRequestBytes) {
++      const nonImageBytes = estimate.total - estimate.imageBytes
++      if (estimate.imageBytes > 0 && nonImageBytes < maxRequestBytes) {
++        const offloadImages = requiredImageOffload(
++          split.messages,
++          { representation: 'base64', maxBytes: maxRequestBytes - nonImageBytes },
++          block => (requestImages.get(block.attachment.attachmentId) as RequestImageAttachment).bytes,
++        )
++        if (offloadImages > 0) {
++          throw new LlmError(
++            `pi-ai request body is estimated at ${estimate.total} bytes, exceeding the ${maxRequestBytes}-byte bound; ${offloadImages} more oldest occurrence(s) must be offloaded.`,
++            IMAGE_OFFLOAD_REQUIRED_CODE,
++            { offloadImages },
++          )
++        }
++      }
++      throw new LlmError(
++        `pi-ai request body is estimated at ${estimate.total} bytes, exceeding the ${maxRequestBytes}-byte bound even without images; start a new session or shorten the input`,
++        'INVALID_REQUEST',
++      )
++    }
++  }
+   const exactMessages = projectOffloadedImages(
+     split.messages,
+     ref => offloadedImageText(ref, resolveImageAccess(ref)),
+diff --git a/packages/llm/llm-pi-ai/src/stream.ts b/packages/llm/llm-pi-ai/src/stream.ts
+index 30e9c79412..47a0d5df07 100644
+--- a/packages/llm/llm-pi-ai/src/stream.ts
++++ b/packages/llm/llm-pi-ai/src/stream.ts
+@@ -9,7 +9,7 @@
+  */
+ 
+ import { brandString } from '@deepseek-ai/dsh-brand'
+-import { CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, LlmError, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
++import { CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, isRequestTooLargeError, LlmError, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
+ import type { FinishReason, StreamChunk, TokenUsage, ToolCallId } from '@deepseek-ai/dsh-llm'
+ import { isContextOverflow } from '@earendil-works/pi-ai/utils/overflow'
+ import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '@earendil-works/pi-ai'
+@@ -45,7 +45,7 @@ function classifyPiAiError(message: string): string {
+   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
+   // A rejected request body (gateway or provider size cap): resending the
+   // same request cannot succeed, so it is invalid, not transient.
+-  if (/\b413\b|failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large/i.test(message)) return 'INVALID_REQUEST'
++  if (isRequestTooLargeError(message)) return 'INVALID_REQUEST'
+   if (/\b400\b|invalid.?request/i.test(message)) return 'INVALID_REQUEST'
+   if (/\b5\d\d\b/.test(message)) return 'SERVER'
+   if (/\btime(?:d)?\s*out\b|timeout/i.test(message)) return 'TIMEOUT'
+@@ -122,7 +122,19 @@ export function mapStopReason(message: AssistantMessage, contextWindow?: number)
+     }
+     case 'error': {
+       const text = message.errorMessage ?? 'pi-ai stream error'
+-      return { kind: 'error', failure: { message: text, code: classifyPiAiError(text) } }
++      const code = classifyPiAiError(text)
++      // A size rejection reaches the user only after durable image offload could
++      // not repair it, so the message names the remaining recovery actions.
++      if (code === 'INVALID_REQUEST' && isRequestTooLargeError(text)) {
++        return {
++          kind: 'error',
++          failure: {
++            message: `the request exceeded the provider's request-size limit (HTTP 413); start a new session or shorten the input (${text.trim()})`,
++            code,
++          },
++        }
++      }
++      return { kind: 'error', failure: { message: text, code } }
+     }
+   }
+ }
+diff --git a/packages/llm/llm-pi-ai/tests/adapter.spec.ts b/packages/llm/llm-pi-ai/tests/adapter.spec.ts
+index ba7bac9085..3a5d7722e8 100644
+--- a/packages/llm/llm-pi-ai/tests/adapter.spec.ts
++++ b/packages/llm/llm-pi-ai/tests/adapter.spec.ts
+@@ -835,6 +835,9 @@ describe('provider profile lifecycle', () => {
+       .toBe(DEFAULT_MAX_REQUEST_IMAGE_BYTES)
+     expect(resolveProfiles({ openai: { maxRequestImageBytes: 1024 } }).get('openai')?.maxRequestImageBytes)
+       .toBe(1024)
++    expect(resolveProfiles({ openai: {} }).get('openai')?.maxRequestBytes).toBeUndefined()
++    expect(resolveProfiles({ openai: { maxRequestBytes: 2_000_000 } }).get('openai')?.maxRequestBytes)
++      .toBe(2_000_000)
+   })
+ 
+   it.each([
+diff --git a/packages/llm/llm-pi-ai/tests/config.spec.ts b/packages/llm/llm-pi-ai/tests/config.spec.ts
+index fe667fe58d..93493f00eb 100644
+--- a/packages/llm/llm-pi-ai/tests/config.spec.ts
++++ b/packages/llm/llm-pi-ai/tests/config.spec.ts
+@@ -91,6 +91,9 @@ describe('request image policy bounds', () => {
+     ['requestImagePixelBudget', Number.MAX_SAFE_INTEGER + 1, /requestImagePixelBudget must be a positive safe integer/],
+     ['requestImageMaxBytes', 0, /requestImageMaxBytes must be a positive safe integer/],
+     ['requestImageMaxBytes', 1.5, /requestImageMaxBytes must be a positive safe integer/],
++    ['maxRequestBytes', 0, /maxRequestBytes must be a positive safe integer/],
++    ['maxRequestBytes', -2, /maxRequestBytes must be a positive safe integer/],
++    ['maxRequestBytes', 1.5, /maxRequestBytes must be a positive safe integer/],
+   ] as const)('rejects %s=%s at service resolution', (field, value, message) => {
+     const programmatic = {
+       providers: {
+diff --git a/packages/llm/llm-pi-ai/tests/context.spec.ts b/packages/llm/llm-pi-ai/tests/context.spec.ts
+index 181d10191c..7eed24337f 100644
+--- a/packages/llm/llm-pi-ai/tests/context.spec.ts
++++ b/packages/llm/llm-pi-ai/tests/context.spec.ts
+@@ -6,7 +6,7 @@ import type {
+   ImageRequestTarget,
+   RequestImageAttachment,
+ } from '@deepseek-ai/dsh-attachment'
+-import { createDeveloperMessage, ToolCallId, createAssistantMessage, createMessage, createToolResultMessage, createUserMessage, offloadedImageText } from '@deepseek-ai/dsh-llm'
++import { createDeveloperMessage, ToolCallId, createAssistantMessage, createMessage, createToolResultMessage, createUserMessage, IMAGE_OFFLOAD_REQUIRED_CODE, offloadedImageText } from '@deepseek-ai/dsh-llm'
+ import type { ContentBlock, GenerateOptions, Message, RequestUserInput } from '@deepseek-ai/dsh-llm'
+ import type { ContextFormed } from '@deepseek-ai/dsh-llm'
+ import { toPiContext } from '../src/context.ts'
+@@ -123,6 +123,25 @@ describe('pi-ai request context conversion', () => {
+     expect(read).not.toHaveBeenCalled()
+   })
+ 
++  it('requires image offload when the estimated request body exceeds maxRequestBytes', async () => {
++    const store = projectionStore(vi.fn(
++      (value: ImageAttachmentRef) => Promise.resolve(requestImage(value, new Uint8Array(40_000))),
++    ))
++    const message = user([{ type: 'text', text: 'x'.repeat(1_000) }, { type: 'image', attachment: ref }])
++    await expect(toPiContext(request([message]), imageContext(store, { maxRequestBytes: 30_000 })))
++      .rejects.toMatchObject({ code: IMAGE_OFFLOAD_REQUIRED_CODE, failure: { offloadImages: 1 } })
++    // The same request passes when the total-body gate is not configured.
++    await expect(toPiContext(request([message]), imageContext(store))).resolves.toBeTruthy()
++  })
++
++  it('fails locally when even the image-free body exceeds maxRequestBytes', async () => {
++    const message = user([{ type: 'text', text: 'x'.repeat(100_000) }])
++    await expect(toPiContext(request([message]), imageContext(attachments, { maxRequestBytes: 30_000 })))
++      .rejects.toMatchObject({ code: 'INVALID_REQUEST' })
++    await expect(toPiContext(request([message]), imageContext(attachments, { maxRequestBytes: 30_000 })))
++      .rejects.toThrow(/even without images/)
++  })
++
+   it('omits absent and empty request-level optional fields', () => {
+     const base = { provider: 'openai', model: 'gpt-4.1', messages: [] }
+     expect(toPiContext(base)).toEqual({ messages: [] })
+diff --git a/packages/llm/llm-pi-ai/tests/convert.spec.ts b/packages/llm/llm-pi-ai/tests/convert.spec.ts
+index 005c12596c..d0a0cae78d 100644
+--- a/packages/llm/llm-pi-ai/tests/convert.spec.ts
++++ b/packages/llm/llm-pi-ai/tests/convert.spec.ts
+@@ -938,6 +938,18 @@ describe('mapStopReason / mapUsage', () => {
+     }))).toMatchObject({ kind: 'error', failure: { code: 'PI_AI_ERROR' } })
+   })
+ 
++  it('explains a request-size rejection with the remaining recovery actions', () => {
++    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: '413 Request Entity Too Large\n' })))
++      .toEqual({
++        kind: 'error',
++        failure: {
++          message: "the request exceeded the provider's request-size limit (HTTP 413); "
++            + 'start a new session or shorten the input (413 Request Entity Too Large)',
++          code: 'INVALID_REQUEST',
++        },
++      })
++  })
++
+   it.each([
+     'other side closed',
+     'HTTP2 request did not get a response',
+diff --git a/packages/llm/llm/src/error.ts b/packages/llm/llm/src/error.ts
+index 430f031ea1..3156051150 100644
+--- a/packages/llm/llm/src/error.ts
++++ b/packages/llm/llm/src/error.ts
+@@ -102,6 +102,20 @@ export function isQuotaExceededError(detail: string): boolean {
+     || /\bout[\s_-]+of[\s_-]+(?:credits?|budget)\b/i.test(detail)
+ }
+ 
++/**
++ * Recognize wording that identifies a request rejected for its transport byte
++ * size (an HTTP 413 from a gateway or provider size cap), as opposed to a
++ * model context-window overflow. Recovery means shrinking the request —
++ * offloading images or starting a fresh session — not resending it.
++ * @param detail - provider error code/type/message text joined into one string.
++ * @returns true only for request-body-size rejections, never for context overflow.
++ */
++export function isRequestTooLargeError(detail: string): boolean {
++  return /\b413\b/.test(detail)
++    || /failed to buffer the request body:\s*length limit exceeded/i.test(detail)
++    || /\b(?:payload|request body|request entity)[\s_-]+too[\s_-]+large\b/i.test(detail)
++}
++
+ /**
+  * Render a thrown value with its full `cause` chain and AggregateError
+  * members, so transport wrappers like undici's `TypeError: fetch failed`
+diff --git a/packages/llm/llm/tests/service.spec.ts b/packages/llm/llm/tests/service.spec.ts
+index 5179e88c59..0ad3b8096b 100644
+--- a/packages/llm/llm/tests/service.spec.ts
++++ b/packages/llm/llm/tests/service.spec.ts
+@@ -7,6 +7,7 @@ import LlmRuntime, {
+   HarnessError,
+   isContextWindowExceededError,
+   isQuotaExceededError,
++  isRequestTooLargeError,
+   LlmAdapter,
+   LlmError,
+   ProviderRequestId,
+@@ -130,6 +131,22 @@ describe('LlmRuntime', () => {
+     expect(isContextWindowExceededError('context window size must be positive')).toBe(false)
+   })
+ 
++  it('distinguishes transport request-size rejections from context overflow', () => {
++    for (const detail of [
++      '413 Request Entity Too Large',
++      'HTTP 413: Payload Too Large',
++      'Failed to buffer the request body: length limit exceeded',
++      'payload too large',
++      'request body too large',
++    ]) {
++      expect(isRequestTooLargeError(detail)).toBe(true)
++      expect(isContextWindowExceededError(detail)).toBe(false)
++    }
++    expect(isRequestTooLargeError('input is too long for this model')).toBe(false)
++    expect(isRequestTooLargeError('request too large for model context')).toBe(false)
++    expect(isRequestTooLargeError('invalid input: temperature exceeds maximum allowed value')).toBe(false)
++  })
++
+   it('distinguishes exhausted account quota from transient rate limiting', () => {
+     for (const detail of [
+       'insufficient_quota',
+-- 
+2.43.0
+

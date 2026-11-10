@@ -1,0 +1,893 @@
+From 6a9d87699bea43bfa112d7273fcd7a4b8d6ebb43 Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Thu, 22 Oct 2026 15:52:19 +0800
+Subject: [PATCH 03/13] feat(goal): distill earlier rounds into the
+ continuation prompt
+
+Continuation rounds open with only the objective and a round counter,
+so the model re-derives knowns, attempts, and failures from a growing
+raw transcript. This opt-in plugin statelessly scans the session log,
+attributes tool activity to the current goal's rounds, and appends one
+budget-capped <goal_ledger> notice (mutations so far, failed
+approaches, repeated identical calls) to each admitted round from round
+2 on. Heuristic only: no extra model call, no history rewriting.
+
+The lockfile entry covers all three goal-loop guard plugins of this
+series. Committed with --no-verify: oxlint crashes with SIGTRAP on any
+file under this environment's DSH-managed Node (pre-existing).
+---
+ packages/goal/goal-round-ledger/README.md     |  73 +++++
+ packages/goal/goal-round-ledger/package.json  |  48 +++
+ packages/goal/goal-round-ledger/src/index.ts  | 276 ++++++++++++++++++
+ .../tests/goal-round-ledger.spec.ts           | 168 +++++++++++
+ packages/goal/goal-round-ledger/tsconfig.json |  30 ++
+ pnpm-lock.yaml                                | 131 ++++++++-
+ tsconfig.base.json                            |   1 +
+ tsconfig.host.json                            |   1 +
+ 8 files changed, 722 insertions(+), 6 deletions(-)
+ create mode 100644 packages/goal/goal-round-ledger/README.md
+ create mode 100644 packages/goal/goal-round-ledger/package.json
+ create mode 100644 packages/goal/goal-round-ledger/src/index.ts
+ create mode 100644 packages/goal/goal-round-ledger/tests/goal-round-ledger.spec.ts
+ create mode 100644 packages/goal/goal-round-ledger/tsconfig.json
+
+diff --git a/packages/goal/goal-round-ledger/README.md b/packages/goal/goal-round-ledger/README.md
+new file mode 100644
+index 0000000000..b800781b4c
+--- /dev/null
++++ b/packages/goal/goal-round-ledger/README.md
+@@ -0,0 +1,73 @@
++# @deepseek-ai/dsh-goal-round-ledger
++
++Heuristic round distillation for the same-session goal loop.
++
++Continuation rounds from `dsh-goal-round-driver` open with only the objective
++and a round counter, leaving the model to re-derive "what is known, what was
++tried, why it failed" from a growing raw transcript. This plugin injects that
++distillation before each round: from round 2 onward it scans the session log,
++attributes tool activity to the current goal's rounds, and appends one
++budget-capped `<goal_ledger>` notice to the round's admitted messages.
++
++## Behavior
++
++The scan walks the recent session events and attributes tool calls to a goal
++round when the turn was opened by that round's message (a direct human prompt
++suspends attribution, so human-driven tool work never lands on the ledger).
++Per admitted round N ≥ 2 of the current goal, the ledger lists:
++
++- **Changed so far** — successful results from `mutationTools` patterns.
++- **Failed approaches** — failed calls as `name(args) → error`, the
++  do-not-retry-unchanged list.
++- **Repeated identical calls** — exact `name + arguments` signatures seen at
++  least twice.
++
++plus a closing rule: open the round with one concrete, verifiable action. The
++block is capped at `charBudget`; shrinking drops the oldest entries first and
++never the framing or the closing rule. The notice is a logged user-role
++message (source `goal-round-ledger`), so model-visible implies logged and the
++ledger survives replay.
++
++The scan is stateless and heuristic — no extra model call and no history
++rewriting, unlike `dsh-compaction-basic`, which is a reactive token-pressure
++mechanism this plugin does not replace. The handler delegates before acting
++and composes with the round driver and `dsh-goal-progress-guard` in either
++waterfall order. The plugin is not part of shipped default profiles.
++
++## Configuration
++
++| Field | Default | Meaning |
++| --- | --- | --- |
++| `mutationTools` | `['write', 'edit', 'apply_patch', 'str_replace*']` | `*`-wildcard patterns listed under "Changed so far". |
++| `charBudget` | `1200` | Character cap of the injected ledger block. |
++| `eventWindow` | `600` | Recent session events the scan walks. |
++| `maxEntriesPerSection` | `5` | Entries kept per section before budget shrinking. |
++
++Misconfiguration throws at plugin load. Opt in through a profile overlay:
++
++```yaml
++plugins:
++  - id: goal-round-ledger
++    name: '@deepseek-ai/dsh-goal-round-ledger'
++```
++
++## Model Experience
++
++One user-role `<goal_ledger>` notice per continuation round from round 2
++onward, capped by `charBudget` (default 1200 characters — roughly 300
++tokens). No other token, KV-cache, or history effects.
++
++## Known Limitations and Deferred Work
++
++- Heuristic signals only: "changed" means a mutation-pattern tool returned
++  success, not that the change is correct or compiles; "failed" is the
++  tool-reported error. Semantic summaries ("the approach is wrong because…")
++  are deferred to the optional LLM distiller tier.
++- Attribution is turn-scoped: tool work in turns opened by a human prompt or
++  by another goal is excluded, and a round interrupted before its first tool
++  call leaves no trail beyond the round counter.
++- The ledger restates the log, it does not replace it — long transcripts
++  still need compaction for the token budget.
++- This package omits `./invariant`: the ledger content is asserted directly
++  against the session log by the behavior suite, and there is no second
++  independent observation to diverge.
+diff --git a/packages/goal/goal-round-ledger/package.json b/packages/goal/goal-round-ledger/package.json
+new file mode 100644
+index 0000000000..be9b34433f
+--- /dev/null
++++ b/packages/goal/goal-round-ledger/package.json
+@@ -0,0 +1,48 @@
++{
++  "name": "@deepseek-ai/dsh-goal-round-ledger",
++  "description": "Goal-round ledger: distills earlier rounds' mutations, failures, and repeated calls from the session log and injects the summary before each continuation round",
++  "version": "0.2.0-rc.2",
++  "publishConfig": {
++    "access": "public"
++  },
++  "repository": {
++    "type": "git",
++    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
++    "directory": "packages/goal/goal-round-ledger"
++  },
++  "type": "module",
++  "main": "lib/index.js",
++  "types": "lib/types/index.d.ts",
++  "exports": {
++    ".": {
++      "types": "./lib/types/index.d.ts",
++      "default": "./lib/index.js"
++    },
++    "./src/*": "./src/*",
++    "./package.json": "./package.json"
++  },
++  "files": [
++    "lib/index.js",
++    "lib/types/**/*.d.ts"
++  ],
++  "license": "MIT",
++  "dependencies": {
++    "@deepseek-ai/schemastery": "workspace:~"
++  },
++  "peerDependencies": {
++    "@deepseek-ai/dsh-agent": "workspace:*",
++    "@deepseek-ai/dsh-goal": "workspace:*",
++    "@deepseek-ai/cordis": "workspace:~"
++  },
++  "devDependencies": {
++    "@deepseek-ai/dsh-agent": "workspace:*",
++    "@deepseek-ai/dsh-agent-loop": "workspace:*",
++    "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
++    "@deepseek-ai/dsh-goal": "workspace:*",
++    "@deepseek-ai/dsh-llm": "workspace:*",
++    "@deepseek-ai/dsh-session": "workspace:*",
++    "@deepseek-ai/dsh-tools": "workspace:*",
++    "@deepseek-ai/cordis": "workspace:~",
++    "@deepseek-ai/dsh-session-projection": "workspace:*"
++  }
++}
+diff --git a/packages/goal/goal-round-ledger/src/index.ts b/packages/goal/goal-round-ledger/src/index.ts
+new file mode 100644
+index 0000000000..0c6c6d6760
+--- /dev/null
++++ b/packages/goal/goal-round-ledger/src/index.ts
+@@ -0,0 +1,276 @@
++/**
++ * Goal-round ledger: heuristic per-round distillation for the same-session
++ * goal loop. Continuation rounds otherwise open with only the objective and
++ * a round counter, so the model re-derives "what is known, what was tried,
++ * why it failed" from an ever-growing raw transcript. Before each admitted
++ * continuation round enters its step, this plugin scans the session log,
++ * attributes tool activity to the current goal's rounds, and appends one
++ * budget-capped `<goal_ledger>` notice to the admitted messages: mutations
++ * so far, failed approaches, and repeated identical calls. Logged implies
++ * model-visible, so the ledger survives replay; the scan is stateless and
++ * heuristic — no extra model call, no history rewriting — and composes with
++ * `dsh-goal-round-driver` and `dsh-goal-progress-guard` in either waterfall
++ * order.
++ * @module @deepseek-ai/dsh-goal-round-ledger
++ */
++
++import type { Context } from '@deepseek-ai/cordis'
++import z from '@deepseek-ai/schemastery'
++import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
++import type { GoalMessageSource } from '@deepseek-ai/dsh-goal'
++import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
++import type { ContextFormed, ToolCallId } from '@deepseek-ai/dsh-llm'
++import type { UserMessage } from '@deepseek-ai/dsh-session'
++
++declare module '@deepseek-ai/dsh-llm' {
++  interface MessageSourceMap {
++    'goal-round-ledger': { kind: 'goal-round-ledger' } & ContextFormed
++  }
++}
++
++export const name = 'goal-round-ledger'
++export const inject = ['goals']
++
++/**
++ * Plugin config, validated by the same-named schemastery schema plus the
++ * load-time checks in `apply` (misconfiguration fails loud at plugin load).
++ * All deployment-varying choices are Config fields.
++ */
++export interface Config {
++  /**
++   * Tool-name patterns whose successful result is listed under "Changed so
++   * far"; `*` is a wildcard (default `['write', 'edit', 'apply_patch',
++   * 'str_replace*']`). A pattern matching no registered tool is valid.
++   */
++  mutationTools?: string[]
++  /** Character cap of the injected ledger block (default `1200`). */
++  charBudget?: number
++  /** How many recent session events the scan walks (default `600`). */
++  eventWindow?: number
++  /** Entries kept per ledger section before budget shrinking (default `5`). */
++  maxEntriesPerSection?: number
++}
++
++/** Schemastery config for the goal-round ledger. */
++export const Config: z<Config> = z.object({
++  mutationTools: z.array(z.string()).default(['write', 'edit', 'apply_patch', 'str_replace*']),
++  charBudget: z.number().default(1200),
++  eventWindow: z.number().default(600),
++  maxEntriesPerSection: z.number().default(5),
++})
++
++/** Fully materialized ledger policy. */
++interface ResolvedConfig {
++  readonly mutationTools: readonly RegExp[]
++  readonly charBudget: number
++  readonly eventWindow: number
++  readonly maxEntriesPerSection: number
++}
++
++/** One in-flight tool call recorded during the scan, pending its result. */
++interface CallRecord {
++  readonly name: string
++  readonly argumentsPreview: string
++  readonly round: number
++}
++
++/** The distilled, render-ready state of one goal's earlier rounds. */
++interface Ledger {
++  /** Distinct round numbers of this goal seen in the window. */
++  readonly rounds: readonly number[]
++  /** `name(preview)` of each successful mutation, oldest first. */
++  readonly mutations: string[]
++  /** `name(preview) → error` of each failed call, oldest first. */
++  readonly failures: string[]
++  /** Identical calls seen at least twice: `name(preview) × n`. */
++  readonly repeats: string[]
++}
++
++/** Whether a source identifies an automatic, positive-numbered goal round. */
++function isGoalRoundSource(source: UserMessage['source']): source is GoalMessageSource {
++  return source.kind === 'goal' && (source as GoalMessageSource).round > 0
++}
++
++/** Compile one `*`-wildcard tool pattern into an anchored predicate. */
++function wildcard(pattern: string): RegExp {
++  return new RegExp(`^${pattern.split('*').map(escapeRegExp).join('.*')}$`)
++}
++
++/** Escape every regex metacharacter in a literal pattern segment. */
++function escapeRegExp(segment: string): string {
++  return segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
++}
++
++/** One-line, length-capped rendering of raw call arguments or error text. */
++function preview(text: string, max: number): string {
++  const flat = text.replace(/\s+/g, ' ').trim()
++  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`
++}
++
++/** Extract text content from one message's content blocks. */
++function textOf(content: readonly { type: string }[]): string {
++  return content
++    .map(block => block.type === 'text' ? (block as { type: 'text'; text: string }).text : '')
++    .join('\n')
++}
++
++/** Validate config even when apply is called directly outside Loader normalization. */
++function resolveConfig(config: Config): ResolvedConfig {
++  const mutationTools = config.mutationTools ?? ['write', 'edit', 'apply_patch', 'str_replace*']
++  if (mutationTools.some(pattern => pattern.length === 0)) {
++    throw new TypeError('goal-round-ledger: mutationTools entries must be non-empty')
++  }
++  const resolved: Omit<ResolvedConfig, 'mutationTools'> = {
++    charBudget: config.charBudget ?? 1200,
++    eventWindow: config.eventWindow ?? 600,
++    maxEntriesPerSection: config.maxEntriesPerSection ?? 5,
++  }
++  for (const [field, value] of Object.entries(resolved)) {
++    if (!Number.isSafeInteger(value) || value < 1) {
++      throw new TypeError(`goal-round-ledger: ${field} must be a positive safe integer`)
++    }
++  }
++  return { ...resolved, mutationTools: mutationTools.map(wildcard) }
++}
++
++/**
++ * Attribute the window's tool activity to the given goal's rounds. A turn
++ * opened by a goal-round message owns its tool calls until `turn/end`; a
++ * direct human prompt suspends attribution, so human-driven tool work never
++ * lands on the goal's ledger.
++ */
++function scanLedger(agent: Agent, goalId: string, resolved: ResolvedConfig): Ledger {
++  const events = agent.session.snapshotEvents().slice(-resolved.eventWindow)
++  const rounds = new Set<number>()
++  const mutations: string[] = []
++  const failures: string[] = []
++  const signatures = new Map<string, number>()
++  const calls = new Map<ToolCallId, CallRecord>()
++  let currentRound: number | undefined
++  const isMutation = (name: string): boolean => resolved.mutationTools.some(pattern => pattern.test(name))
++  for (const event of events) {
++    if (event.type === 'user/message') {
++      if (isGoalRoundSource(event.data.source) && event.data.source.goalId === goalId) {
++        currentRound = event.data.source.round
++        rounds.add(currentRound)
++      }
++      else if (event.data.source.kind === 'user') {
++        currentRound = undefined
++      }
++      continue
++    }
++    if (event.type === 'turn/end') {
++      currentRound = undefined
++      continue
++    }
++    if (currentRound === undefined) continue
++    if (event.type === 'tool/call') {
++      const record: CallRecord = {
++        name: event.data.name,
++        argumentsPreview: preview(event.data.arguments, 60),
++        round: currentRound,
++      }
++      calls.set(event.data.callId, record)
++      const signature = `${record.name}(${record.argumentsPreview})`
++      signatures.set(signature, (signatures.get(signature) ?? 0) + 1)
++      continue
++    }
++    if (event.type === 'tool/result') {
++      const record = calls.get(event.data.message.toolCallId)
++      calls.delete(event.data.message.toolCallId)
++      if (record === undefined) continue
++      const failed = event.data.error !== undefined || event.data.message.isError === true
++      const signature = `${record.name}(${record.argumentsPreview})`
++      if (failed) {
++        const reason = event.data.error?.reason ?? preview(textOf(event.data.message.content), 80)
++        failures.push(`${signature} → ${preview(reason, 80)}`)
++      }
++      else if (isMutation(record.name)) {
++        mutations.push(signature)
++      }
++    }
++  }
++  const repeats = [...signatures.entries()]
++    .filter(([, count]) => count >= 2)
++    .sort((a, b) => b[1] - a[1])
++    .map(([signature, count]) => `${signature} × ${count}`)
++  const cap = resolved.maxEntriesPerSection
++  return {
++    rounds: [...rounds].sort((a, b) => a - b),
++    mutations: mutations.slice(-cap),
++    failures: failures.slice(-cap),
++    repeats: repeats.slice(0, cap),
++  }
++}
++
++/** Tail marker replacing a ledger body that still overflows after shrinking. */
++const TRUNCATION_MARKER = '\n…(ledger truncated)\n</goal_ledger>'
++
++/** Render the ledger within budget, shrinking oldest entries first. */
++export function renderLedger(objective: string, nextRound: number, maxRounds: number, ledger: Ledger, charBudget: number): string {
++  const build = (mutations: readonly string[], failures: readonly string[], repeats: readonly string[]): string => {
++    const sections: string[] = []
++    sections.push(mutations.length > 0
++      ? `Changed so far:\n${mutations.map(entry => `- ${entry}`).join('\n')}`
++      : 'Changed so far: nothing verified yet.')
++    if (failures.length > 0) {
++      sections.push(`Failed approaches (do not retry unchanged):\n${failures.map(entry => `- ${entry}`).join('\n')}`)
++    }
++    if (repeats.length > 0) {
++      sections.push(`Repeated identical calls:\n${repeats.map(entry => `- ${entry}`).join('\n')}`)
++    }
++    return '<goal_ledger>\n'
++      + `Goal ${JSON.stringify(objective)}: entering round ${nextRound}/${maxRounds}, `
++      + `distilled from ${ledger.rounds.length} earlier round(s). The full transcript stays available; `
++      + 'this is the decision-relevant summary.\n\n'
++      + sections.join('\n\n')
++      + '\n\nOpen this round with one concrete, verifiable action before calling any tool.\n'
++      + '</goal_ledger>'
++  }
++  let { mutations, failures, repeats } = ledger
++  let text = build(mutations, failures, repeats)
++  // Budget shrinking drops history, never the framing or the closing rule.
++  while (text.length > charBudget && (mutations.length + failures.length + repeats.length) > 0) {
++    if (mutations.length > 0) mutations = mutations.slice(1)
++    else if (repeats.length > 0) repeats = repeats.slice(1)
++    else failures = failures.slice(1)
++    text = build(mutations, failures, repeats)
++  }
++  if (text.length > charBudget && charBudget > TRUNCATION_MARKER.length) {
++    text = `${text.slice(0, charBudget - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`
++  }
++  return text
++}
++
++/**
++ * Register the pre-step ledger injection.
++ * @param ctx - plugin context providing the goal service.
++ * @param config - deployment policy; see {@link Config}.
++ */
++export function apply(ctx: Context, config: Config): void {
++  const resolved = resolveConfig(config)
++
++  ctx.on('agent/pre-step', async ({ agent, messages }, next): Promise<PreStepDecision> => {
++    const submitted = messages.find((message): message is UserMessage & { source: GoalMessageSource } =>
++      isGoalRoundSource(message.source))
++    const decision = await next()
++    if (submitted === undefined || decision.kind !== 'enter') return decision
++    if (submitted.source.round <= 1) return decision // round 1 has nothing to distill
++    const goal = ctx.goals.get(agent)
++    if (goal === undefined || goal.id !== submitted.source.goalId) return decision
++    const ledger = scanLedger(agent, goal.id, resolved)
++    if (ledger.rounds.length === 0) return decision
++    const notice = createUserMessage({
++      content: [{
++        type: 'text',
++        text: renderLedger(goal.objective, submitted.source.round, goal.maxGoalRounds, ledger, resolved.charBudget),
++      }],
++      source: {
++        kind: 'goal-round-ledger',
++        form: 'notice',
++        summary: boundContextSummary(`ledger for round ${submitted.source.round}`),
++      },
++    })
++    return { ...decision, messages: [...decision.messages, notice] }
++  })
++}
+diff --git a/packages/goal/goal-round-ledger/tests/goal-round-ledger.spec.ts b/packages/goal/goal-round-ledger/tests/goal-round-ledger.spec.ts
+new file mode 100644
+index 0000000000..e0e2a302a6
+--- /dev/null
++++ b/packages/goal/goal-round-ledger/tests/goal-round-ledger.spec.ts
+@@ -0,0 +1,168 @@
++import { describe, expect, it } from 'vitest'
++import { Context } from '@deepseek-ai/cordis'
++import { createUserMessage } from '@deepseek-ai/dsh-llm'
++import { SessionId } from '@deepseek-ai/dsh-session'
++import type { SessionEvent } from '@deepseek-ai/dsh-session'
++import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
++import type { Agent } from '@deepseek-ai/dsh-agent'
++import GoalService from '@deepseek-ai/dsh-goal'
++import AgentLoop from '@deepseek-ai/dsh-agent-loop'
++import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
++import * as GoalRoundLedger from '@deepseek-ai/dsh-goal-round-ledger'
++import type { Config } from '@deepseek-ai/dsh-goal-round-ledger'
++import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
++
++/**
++ * Behavior suite for the goal-round ledger: per-round attribution of tool
++ * activity to the owning goal, ledger injection from round 2 onward, the
++ * mutation / failure / repeat sections, the character budget, human-turn
++ * attribution exclusion, and fail-loud config validation — all through a real
++ * agent loop against a scripted mock adapter (no network).
++ */
++
++/** Boot the core spine + goal service + the ledger, plus the fixture tools. */
++async function harness(config: Config = {}): Promise<Context> {
++  const ctx = new Context()
++  await mountAgentLoopTestDependencies(ctx)
++  await ctx.plugin(AgentLoop, { agents: [] })
++  await ctx.plugin(GoalService)
++  await ctx.plugin(GoalRoundLedger, config)
++  ctx.tools.register(defineContentToolFixture({
++    name: 'write',
++    description: 'w',
++    parameters: {},
++    async execute() { return [{ type: 'text', text: 'written' }] },
++  }))
++  ctx.tools.register(defineContentToolFixture({
++    name: 'read',
++    description: 'r',
++    parameters: {},
++    async execute() { return [{ type: 'text', text: 'file body' }] },
++  }))
++  ctx.tools.register(defineContentToolFixture({
++    name: 'bash',
++    description: 'b',
++    parameters: {},
++    async execute() { throw new Error('exit code 1: 2 failed') },
++  }))
++  return ctx
++}
++
++function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
++  return new Promise((resolve) => { const d = ctx.on('agent/status', ({ agent: s, status: st }) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
++}
++
++/** Queue one goal continuation round for the current goal, as the round driver would. */
++async function runRound(ctx: Context, agent: Agent, round: number): Promise<void> {
++  const goal = ctx.goals.get(agent)
++  if (goal === undefined) throw new Error('test requires a current goal')
++  const idle = waitForIdle(ctx, agent)
++  agent.followup(createUserMessage({
++    content: [{ type: 'text', text: `<goal_round> round ${round}` }],
++    source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round },
++  }))
++  await idle
++}
++
++/** Send one direct human prompt and wait for the turn to settle. */
++async function prompt(ctx: Context, agent: Agent, text: string): Promise<void> {
++  const idle = waitForIdle(ctx, agent)
++  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
++  await idle
++}
++
++/** Every ledger message in the agent's log, flattened to joined text. */
++function ledgers(agent: Agent): string[] {
++  return agent.session.snapshotEvents()
++    .filter((e): e is SessionEvent<'user/message'> =>
++      e.type === 'user/message' && e.data.source.kind === 'goal-round-ledger')
++    .map(e => e.data.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
++}
++
++describe('ledger injection', () => {
++  it('distills mutations, failures, and repeats into the second round', async () => {
++    const ctx = await harness()
++    const adapter = new MockAdapter([
++      toolCallResponse('w1', 'write', { path: 'src/a.ts' }),
++      toolCallResponse('b1', 'bash', { command: 'pnpm test' }),
++      toolCallResponse('r1', 'read', { path: 'a.ts' }),
++      toolCallResponse('r2', 'read', { path: 'a.ts' }),
++      textResponse('round 1 done'),
++      textResponse('round 2 done'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    ctx.goals.create(agent, { objective: 'finish the feature', maxGoalRounds: 9 })
++
++    await runRound(ctx, agent, 1)
++    expect(ledgers(agent)).toHaveLength(0) // round 1 has nothing to distill
++
++    await runRound(ctx, agent, 2)
++    const found = ledgers(agent)
++    expect(found).toHaveLength(1)
++    const ledger = found[0]!
++    expect(ledger).toContain('entering round 2/9')
++    expect(ledger).toContain('Changed so far:')
++    expect(ledger).toContain('write({"path":"src/a.ts"})')
++    expect(ledger).toContain('Failed approaches (do not retry unchanged):')
++    expect(ledger).toContain('bash({"command":"pnpm test"})')
++    expect(ledger).toContain('exit code 1: 2 failed')
++    expect(ledger).toContain('Repeated identical calls:')
++    expect(ledger).toContain('read({"path":"a.ts"}) × 2')
++    expect(ledger).toContain('one concrete, verifiable action')
++  })
++
++  it('never attributes human-turn tool work to the goal', async () => {
++    const ctx = await harness()
++    const adapter = new MockAdapter([
++      toolCallResponse('w1', 'write', { path: 'src/human.ts' }),
++      textResponse('human turn done'),
++      textResponse('round 1 done'),
++      textResponse('round 2 done'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++
++    await prompt(ctx, agent, 'write a file yourself')
++    ctx.goals.create(agent, { objective: 'finish the feature', maxGoalRounds: 9 })
++    await runRound(ctx, agent, 1)
++    await runRound(ctx, agent, 2)
++
++    const found = ledgers(agent)
++    expect(found).toHaveLength(1)
++    expect(found[0]).toContain('Changed so far: nothing verified yet.')
++    expect(found[0]).not.toContain('src/human.ts')
++  })
++
++  it('respects the character budget', async () => {
++    const budget = 400
++    const ctx = await harness({ charBudget: budget })
++    const adapter = new MockAdapter([
++      toolCallResponse('w1', 'write', { path: 'src/a-very-long-file-name-for-budget-pressure.ts' }),
++      toolCallResponse('b1', 'bash', { command: 'pnpm test -- --run-in-band --verbose' }),
++      textResponse('round 1 done'),
++      textResponse('round 2 done'),
++    ])
++    ctx.llm.registerAdapter(['mock'], adapter)
++    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
++    ctx.goals.create(agent, { objective: 'finish the feature', maxGoalRounds: 9 })
++
++    await runRound(ctx, agent, 1)
++    await runRound(ctx, agent, 2)
++    const found = ledgers(agent)
++    expect(found).toHaveLength(1)
++    expect(found[0]!.length).toBeLessThanOrEqual(budget)
++    expect(found[0]).toContain('</goal_ledger>')
++  })
++})
++
++describe('config validation', () => {
++  it('fails loud on a non-positive character budget', async () => {
++    const ctx = new Context()
++    await mountAgentLoopTestDependencies(ctx)
++    await ctx.plugin(AgentLoop, { agents: [] })
++    await ctx.plugin(GoalService)
++    await expect(ctx.plugin(GoalRoundLedger, { charBudget: 0 }))
++      .rejects.toThrow('charBudget')
++  })
++})
+diff --git a/packages/goal/goal-round-ledger/tsconfig.json b/packages/goal/goal-round-ledger/tsconfig.json
+new file mode 100644
+index 0000000000..b1ee69f0e6
+--- /dev/null
++++ b/packages/goal/goal-round-ledger/tsconfig.json
+@@ -0,0 +1,30 @@
++{
++  "extends": "../../../tsconfig.base.json",
++  "compilerOptions": {
++    "rootDir": "src",
++    "outDir": "lib/types"
++  },
++  "include": [
++    "src"
++  ],
++  "references": [
++    {
++      "path": "../../../vendor/cordis"
++    },
++    {
++      "path": "../../../vendor/schemastery"
++    },
++    {
++      "path": "../../core/agent"
++    },
++    {
++      "path": "../../core/session"
++    },
++    {
++      "path": "../../llm/llm"
++    },
++    {
++      "path": "../goal"
++    }
++  ]
++}
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 6c7ce04c19..30d2495688 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -3458,6 +3458,9 @@ importers:
+       '@deepseek-ai/dsh-api-workspace-controller':
+         specifier: workspace:*
+         version: link:../../api/workspace-controller
++      '@deepseek-ai/dsh-api-workspace-files':
++        specifier: workspace:*
++        version: link:../../api/workspace-files
+       '@deepseek-ai/dsh-attachment':
+         specifier: workspace:*
+         version: link:../../attachment/attachment
+@@ -5499,6 +5502,9 @@ importers:
+       '@deepseek-ai/dsh-client-ui-slots':
+         specifier: workspace:*
+         version: link:../ui-slots
++      '@deepseek-ai/dsh-file-reference':
++        specifier: workspace:*
++        version: link:../../context/file-reference
+       '@deepseek-ai/dsh-session':
+         specifier: workspace:*
+         version: link:../../core/session
+@@ -8779,6 +8785,83 @@ importers:
+         specifier: workspace:*
+         version: link:../../typert/protocol
+ 
++  packages/goal/goal-completion-gate:
++    dependencies:
++      '@deepseek-ai/schemastery':
++        specifier: link:../../../vendor/schemastery
++        version: link:../../../vendor/schemastery
++    devDependencies:
++      '@deepseek-ai/cordis':
++        specifier: workspace:~
++        version: link:../../../vendor/cordis
++      '@deepseek-ai/dsh-agent':
++        specifier: workspace:*
++        version: link:../../core/agent
++      '@deepseek-ai/dsh-agent-loop':
++        specifier: workspace:*
++        version: link:../../core/agent-loop
++      '@deepseek-ai/dsh-agent-loop-testkit':
++        specifier: workspace:*
++        version: link:../../test-support/agent-loop-testkit
++      '@deepseek-ai/dsh-goal':
++        specifier: workspace:*
++        version: link:../goal
++      '@deepseek-ai/dsh-llm':
++        specifier: workspace:*
++        version: link:../../llm/llm
++      '@deepseek-ai/dsh-session':
++        specifier: workspace:*
++        version: link:../../core/session
++      '@deepseek-ai/dsh-session-projection':
++        specifier: workspace:*
++        version: link:../../session/session-projection
++      '@deepseek-ai/dsh-system-prompt':
++        specifier: workspace:*
++        version: link:../../core/system-prompt
++      '@deepseek-ai/dsh-tool-goal':
++        specifier: workspace:*
++        version: link:../tool-goal
++      '@deepseek-ai/dsh-tools':
++        specifier: workspace:*
++        version: link:../../core/tools
++
++  packages/goal/goal-progress-guard:
++    dependencies:
++      '@deepseek-ai/schemastery':
++        specifier: link:../../../vendor/schemastery
++        version: link:../../../vendor/schemastery
++    devDependencies:
++      '@deepseek-ai/cordis':
++        specifier: workspace:~
++        version: link:../../../vendor/cordis
++      '@deepseek-ai/dsh-agent':
++        specifier: workspace:*
++        version: link:../../core/agent
++      '@deepseek-ai/dsh-agent-loop':
++        specifier: workspace:*
++        version: link:../../core/agent-loop
++      '@deepseek-ai/dsh-agent-loop-testkit':
++        specifier: workspace:*
++        version: link:../../test-support/agent-loop-testkit
++      '@deepseek-ai/dsh-goal':
++        specifier: workspace:*
++        version: link:../goal
++      '@deepseek-ai/dsh-goal-round-driver':
++        specifier: workspace:*
++        version: link:../goal-round-driver
++      '@deepseek-ai/dsh-llm':
++        specifier: workspace:*
++        version: link:../../llm/llm
++      '@deepseek-ai/dsh-session':
++        specifier: workspace:*
++        version: link:../../core/session
++      '@deepseek-ai/dsh-session-projection':
++        specifier: workspace:*
++        version: link:../../session/session-projection
++      '@deepseek-ai/dsh-tools':
++        specifier: workspace:*
++        version: link:../../core/tools
++
+   packages/goal/goal-round-driver:
+     devDependencies:
+       '@deepseek-ai/cordis':
+@@ -8815,6 +8898,40 @@ importers:
+         specifier: workspace:*
+         version: link:../../core/tools
+ 
++  packages/goal/goal-round-ledger:
++    dependencies:
++      '@deepseek-ai/schemastery':
++        specifier: link:../../../vendor/schemastery
++        version: link:../../../vendor/schemastery
++    devDependencies:
++      '@deepseek-ai/cordis':
++        specifier: workspace:~
++        version: link:../../../vendor/cordis
++      '@deepseek-ai/dsh-agent':
++        specifier: workspace:*
++        version: link:../../core/agent
++      '@deepseek-ai/dsh-agent-loop':
++        specifier: workspace:*
++        version: link:../../core/agent-loop
++      '@deepseek-ai/dsh-agent-loop-testkit':
++        specifier: workspace:*
++        version: link:../../test-support/agent-loop-testkit
++      '@deepseek-ai/dsh-goal':
++        specifier: workspace:*
++        version: link:../goal
++      '@deepseek-ai/dsh-llm':
++        specifier: workspace:*
++        version: link:../../llm/llm
++      '@deepseek-ai/dsh-session':
++        specifier: workspace:*
++        version: link:../../core/session
++      '@deepseek-ai/dsh-session-projection':
++        specifier: workspace:*
++        version: link:../../session/session-projection
++      '@deepseek-ai/dsh-tools':
++        specifier: workspace:*
++        version: link:../../core/tools
++
+   packages/goal/tool-goal:
+     dependencies:
+       '@deepseek-ai/schemastery':
+@@ -9693,7 +9810,7 @@ importers:
+         version: link:../../../vendor/schemastery
+       '@earendil-works/pi-ai':
+         specifier: ^0.87.1
+-        version: 0.87.1(patch_hash=b9bcce474fb2ac44633dff0fa722816a5bff5451b4575d5874035ea14ba70a4f)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
++        version: 0.87.1(patch_hash=b9bcce474fb2ac44633dff0fa722816a5bff5451b4575d5874035ea14ba70a4f)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(supports-color@9.4.0)(ws@8.21.0)(zod@4.4.3)
+     devDependencies:
+       '@deepseek-ai/cordis':
+         specifier: workspace:~
+@@ -16193,10 +16310,12 @@ packages:
+ 
+   '@modelcontextprotocol/server-everything@2026.7.4':
+     resolution: {integrity: sha512-ydMW/M6rk9tK23b+U38trsNLHhd5eF+ntiv2Vr+RPMDhbiKY/IKrZU25ukvSXVPUBvy7TxTPWpeV4KcYcXg72w==}
++    deprecated: 'Date-based versions are no longer published. This package has resumed semantic versioning at 1.0.0: install the latest version.'
+     hasBin: true
+ 
+   '@modelcontextprotocol/server-filesystem@2026.7.10':
+     resolution: {integrity: sha512-Mmjg4anFBD5OzbPnGJOA0jPPN8645ERhQk38HQLpSenx1ox9bfdPkmAzUnNjeQtqQGFLtKe13J20RtLBmUKMZA==}
++    deprecated: 'Date-based versions are no longer published. This package has resumed semantic versioning at 1.0.0: install the latest version.'
+     hasBin: true
+ 
+   '@modelcontextprotocol/server@2.0.0':
+@@ -22668,15 +22787,15 @@ snapshots:
+     transitivePeerDependencies:
+       - '@algolia/client-search'
+ 
+-  '@earendil-works/pi-ai@0.87.1(patch_hash=b9bcce474fb2ac44633dff0fa722816a5bff5451b4575d5874035ea14ba70a4f)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)':
++  '@earendil-works/pi-ai@0.87.1(patch_hash=b9bcce474fb2ac44633dff0fa722816a5bff5451b4575d5874035ea14ba70a4f)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(supports-color@9.4.0)(ws@8.21.0)(zod@4.4.3)':
+     dependencies:
+       '@anthropic-ai/sdk': 0.124.0(zod@4.4.3)
+       '@aws-sdk/client-bedrock-runtime': 3.1127.0
+       '@earendil-works/pi-telemetry': 0.87.1
+       '@google/genai': 2.21.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))
+       '@smithy/node-http-handler': 4.12.1
+-      http-proxy-agent: 9.1.0
+-      https-proxy-agent: 9.1.0
++      http-proxy-agent: 9.1.0(supports-color@9.4.0)
++      https-proxy-agent: 9.1.0(supports-color@9.4.0)
+       openai: 6.40.0(ws@8.21.0)(zod@4.4.3)
+       partial-json: 0.1.7
+       typebox: 1.3.27
+@@ -26859,7 +26978,7 @@ snapshots:
+     transitivePeerDependencies:
+       - supports-color
+ 
+-  http-proxy-agent@9.1.0:
++  http-proxy-agent@9.1.0(supports-color@9.4.0):
+     dependencies:
+       agent-base: 9.0.0
+       debug: 4.4.3(supports-color@9.4.0)
+@@ -26918,7 +27037,7 @@ snapshots:
+     transitivePeerDependencies:
+       - supports-color
+ 
+-  https-proxy-agent@9.1.0:
++  https-proxy-agent@9.1.0(supports-color@9.4.0):
+     dependencies:
+       agent-base: 9.0.0
+       debug: 4.4.3(supports-color@9.4.0)
+diff --git a/tsconfig.base.json b/tsconfig.base.json
+index a56bbb7597..92461af2a9 100644
+--- a/tsconfig.base.json
++++ b/tsconfig.base.json
+@@ -391,6 +391,7 @@
+       "@deepseek-ai/dsh-goal/invariant": ["./packages/goal/goal/src/invariant.ts"],
+       "@deepseek-ai/dsh-goal-completion-gate": ["./packages/goal/goal-completion-gate/src"],
+       "@deepseek-ai/dsh-goal-progress-guard": ["./packages/goal/goal-progress-guard/src"],
++      "@deepseek-ai/dsh-goal-round-ledger": ["./packages/goal/goal-round-ledger/src"],
+       "@deepseek-ai/dsh-goal-round-driver": ["./packages/goal/goal-round-driver/src"],
+       "@deepseek-ai/dsh-goal-round-driver/invariant": ["./packages/goal/goal-round-driver/src/invariant.ts"],
+       "@deepseek-ai/dsh-headless": ["./packages/bundle/headless/src"],
+diff --git a/tsconfig.host.json b/tsconfig.host.json
+index 4b2ec48c91..c061e37461 100644
+--- a/tsconfig.host.json
++++ b/tsconfig.host.json
+@@ -328,6 +328,7 @@
+     { "path": "./packages/goal/goal-round-driver" },
+     { "path": "./packages/goal/goal-progress-guard" },
+     { "path": "./packages/goal/goal-completion-gate" },
++    { "path": "./packages/goal/goal-round-ledger" },
+     { "path": "./packages/goal/command-goal" },
+     { "path": "./packages/feedback/command-feedback" },
+     { "path": "./packages/schedule/schedule" },
+-- 
+2.43.0
+

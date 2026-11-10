@@ -36,6 +36,7 @@ if (JSON.stringify(workspace.workspaces) !== JSON.stringify([
   'dsh-desktop-next',
   'dsh-community-fabric',
   'dsh-community-market',
+  'dsh-ide-git',
 ])) {
   fail('the root Yarn workspace must contain the desktop, community-fabric, and community-market packages')
 }

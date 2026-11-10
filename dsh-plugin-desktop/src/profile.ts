@@ -23,7 +23,6 @@ import {
   loadOptionalPatches,
   loadOverlayPatches,
   PROFILE_PATCH_FILENAME,
-  PROFILE_TEMPLATES,
   PROFILES_DIR,
   readProfileManifest,
   resolveProfileDir,
@@ -32,6 +31,7 @@ import {
   type ProfileManifest,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 import { isMap, isPair, isScalar, isSeq, parseAllDocuments, parseDocument, type Pair, type YAMLMap } from 'yaml'
 import { findOverlayPackage, resolveOverlayPackage } from './package-overlay.ts'
 import { removeLinkProjectionsSafely } from './link-projections.ts'

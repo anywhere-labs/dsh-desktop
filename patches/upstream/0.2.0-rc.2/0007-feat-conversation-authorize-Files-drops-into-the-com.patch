@@ -1,0 +1,595 @@
+From 7b93156e204ca464bc560bda0dba1d84bb915c95 Mon Sep 17 00:00:00 2001
+From: fengshuai <shuai.feng@sunmi.com>
+Date: Fri, 23 Oct 2026 16:03:08 +0800
+Subject: [PATCH 07/13] feat(conversation): authorize Files drops into the
+ composer
+
+Adds authorizeDraggedReference to the session input deps and wires it from the input hub through the Host's workspace-files face, so a dropped tree row inserts its mention only after the Host re-checks the path against the target Session. The editor defers the Lexical insert until authorization settles and re-checks the draft revision.
+
+One over-long guard line rewrapped under 140 columns; no behavior change.
+---
+ packages/client/ui-conversation/package.json  |   3 +
+ .../ui-conversation/src/client/apply.ts       |   2 +-
+ .../src/client/input/drag-authorization.ts    |  46 +++++++
+ .../src/client/input/editor/runtime.ts        |  83 +++++++++++-
+ .../src/client/input/facade.ts                |   9 ++
+ .../ui-conversation/src/client/input/hub.ts   |   4 +
+ .../tests/apply-inject.client.spec.tsx        |   1 +
+ .../tests/apply-wiring.client.spec.tsx        |   1 +
+ .../tests/assembly-surfaces.client.spec.tsx   |   1 +
+ .../tests/drag-authorization.client.spec.ts   |  86 ++++++++++++
+ .../tests/input-bar.client.spec.tsx           | 126 ++++++++++++++++++
+ 11 files changed, 358 insertions(+), 4 deletions(-)
+ create mode 100644 packages/client/ui-conversation/src/client/input/drag-authorization.ts
+ create mode 100644 packages/client/ui-conversation/tests/drag-authorization.client.spec.ts
+
+diff --git a/packages/client/ui-conversation/package.json b/packages/client/ui-conversation/package.json
+index 73b7c388bb..d02ceebaa8 100644
+--- a/packages/client/ui-conversation/package.json
++++ b/packages/client/ui-conversation/package.json
+@@ -28,7 +28,9 @@
+   "dsh": {
+     "client": {
+       "inject": [
++        "@deepseek-ai/dsh-api-remotes",
+         "@deepseek-ai/dsh-api-session-controller",
++        "@deepseek-ai/dsh-api-workspace-files",
+         "@deepseek-ai/dsh-client-file-upload",
+         "@deepseek-ai/dsh-client-locale",
+         "@deepseek-ai/dsh-client-ui-layout",
+@@ -55,6 +57,7 @@
+     "@deepseek-ai/cordis": "workspace:~",
+     "@deepseek-ai/dsh-api-remotes": "workspace:*",
+     "@deepseek-ai/dsh-api-session-controller": "workspace:*",
++    "@deepseek-ai/dsh-api-workspace-files": "workspace:*",
+     "@deepseek-ai/dsh-api-workspace-controller": "workspace:*",
+     "@deepseek-ai/dsh-attachment": "workspace:*",
+     "@deepseek-ai/dsh-brand": "workspace:*",
+diff --git a/packages/client/ui-conversation/src/client/apply.ts b/packages/client/ui-conversation/src/client/apply.ts
+index 0fc9b2560c..2bce445ea8 100644
+--- a/packages/client/ui-conversation/src/client/apply.ts
++++ b/packages/client/ui-conversation/src/client/apply.ts
+@@ -54,7 +54,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+ 
+ /** Services required by the Conversation plugin. */
+ export const inject = [
+-  'slots', 'sessions', 'fileUpload', 'uiSession', 'uiWorkspace', 'locale', 'configForms',
++  'slots', 'sessions', 'fileUpload', 'uiSession', 'uiWorkspace', 'locale', 'configForms', 'remote', 'remote.workspaceFiles',
+ ]
+ 
+ /** Conversation runtime configuration. */
+diff --git a/packages/client/ui-conversation/src/client/input/drag-authorization.ts b/packages/client/ui-conversation/src/client/input/drag-authorization.ts
+new file mode 100644
+index 0000000000..97d81d9ab4
+--- /dev/null
++++ b/packages/client/ui-conversation/src/client/input/drag-authorization.ts
+@@ -0,0 +1,46 @@
++import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
++import type {} from '@deepseek-ai/dsh-api-workspace-files/remote'
++import type { SessionId } from '@deepseek-ai/dsh-session/types'
++
++/** The Host directory-list capability needed to prove one dropped child is in the active workspace root. */
++export type WorkspaceReferenceListRemote = {
++  readonly workspaceFiles: Pick<ClientRemote['workspaceFiles'], 'list'>
++}
++
++/** Check that the Host currently lists this exact child with the claimed kind. */
++export function createWorkspaceReferenceAuthorizer(
++  remote: WorkspaceReferenceListRemote,
++  sessionId: SessionId,
++): (path: string, kind: 'file' | 'directory', signal: AbortSignal) => Promise<boolean> {
++  return async (path, kind, signal) => {
++    const child = parentAndName(path)
++    if (child === undefined) return false
++    try {
++      const result = await remote.workspaceFiles.list(sessionId, child.parent, signal)
++      // Listing responses name the directory relative to the active workspace
++      // root (which may be a Host-selected attached root), not as an absolute path.
++      return result.ok
++        && result.value.entries.some(entry => entry.name === child.name && entry.type === kind)
++    } catch {
++      return false
++    }
++  }
++}
++
++/** Split an absolute dropped child path without depending on a Node path implementation in the browser. */
++function parentAndName(path: string): { parent: string; name: string } | undefined {
++  const windowsPath = /^[A-Za-z]:[\\/]/u.test(path) || /^\\\\[^\\]+\\[^\\]+/u.test(path)
++  const normalized = windowsPath ? path.replaceAll('\\', '/') : path
++  if (!normalized.startsWith('/') && !/^[A-Za-z]:\//u.test(normalized)) return undefined
++  const slash = normalized.lastIndexOf('/')
++  const name = normalized.slice(slash + 1)
++  if (slash < 0 || name.length === 0) return undefined
++  const parent = slash === 0
++    ? '/'
++    : slash === 2 && /^[A-Za-z]:\//u.test(normalized)
++      ? normalized.slice(0, 3)
++      : normalized.slice(0, slash)
++  return parent.length === 0 ? undefined : { parent, name }
++}
++
++export default createWorkspaceReferenceAuthorizer
+diff --git a/packages/client/ui-conversation/src/client/input/editor/runtime.ts b/packages/client/ui-conversation/src/client/input/editor/runtime.ts
+index cf83316fea..489587282f 100644
+--- a/packages/client/ui-conversation/src/client/input/editor/runtime.ts
++++ b/packages/client/ui-conversation/src/client/input/editor/runtime.ts
+@@ -3,9 +3,13 @@ import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
+ import type { LexicalEditor, NodeKey } from 'lexical'
+ import {
+   $addUpdateTag, $createParagraphNode, $createTextNode, $getRoot, $getSelection, $isRangeSelection,
+-  BLUR_COMMAND, CLEAR_HISTORY_COMMAND, COMMAND_PRIORITY_CRITICAL, createEditor, HISTORY_MERGE_TAG, PASTE_TAG,
+-  RootNode, SELECTION_CHANGE_COMMAND, SKIP_DOM_SELECTION_TAG,
++  BLUR_COMMAND, CLEAR_HISTORY_COMMAND, COMMAND_PRIORITY_CRITICAL, createEditor, DRAGOVER_COMMAND, DROP_COMMAND,
++  HISTORY_MERGE_TAG, PASTE_TAG, RootNode, SELECTION_CHANGE_COMMAND, SKIP_DOM_SELECTION_TAG,
+ } from 'lexical'
++import {
++  FILE_REFERENCE_DRAG_TYPE, fileReferenceDragText, parseFileReferenceDrag,
++} from '@deepseek-ai/dsh-file-reference/grammar'
++import type { FileReferenceDragPayload } from '@deepseek-ai/dsh-file-reference/grammar'
+ import { registerPlainText } from '@lexical/plain-text'
+ import { createEmptyHistoryState, registerHistory } from '@lexical/history'
+ import { mergeRegister } from '@lexical/utils'
+@@ -28,6 +32,12 @@ interface DraftEditorRuntimeDeps {
+   readonly activeClaimToken: () => string | null
+   readonly lexicon: () => Lexicon
+   readonly resolveLexicon: () => ObservableSnapshot<Lexicon> | undefined
++  /** Host list-based proof that a dropped path is a child of an authorized workspace directory. */
++  readonly authorizeDraggedReference?: (
++    path: string,
++    kind: FileReferenceDragPayload['kind'],
++    signal: AbortSignal,
++  ) => Promise<boolean>
+ }
+ 
+ /**
+@@ -41,16 +51,37 @@ const REFERENCE_PLACEHOLDER_RE = /[\uE100-\uE11D\uFFFC]/gu
+ /** Undo merge window for contiguous typing, in ms (the old machine's mergeWindowMs). */
+ const HISTORY_MERGE_DELAY_MS = 1000
+ 
++/** Convert the untrusted transfer into the same structured chip used by file-reference picks. */
++function referenceForDraggedPath(payload: FileReferenceDragPayload): ReferenceInsert | undefined {
++  const clipboardText = fileReferenceDragText(payload)
++  if (clipboardText === undefined) return undefined
++  const path = payload.path.replace(/[\\/]+$/u, '')
++  const name = path.split(/[\\/]/u).at(-1) || payload.path
++  const directory = payload.kind === 'directory'
++  return {
++    source: 'reference',
++    ref: clipboardText,
++    label: directory ? `${name}/` : name,
++    appearance: directory ? 'folder' : 'file',
++    clipboardText,
++  }
++}
++
+ /** One model-owned editor; registration and disposal remain with its model. */
+ export class DraftEditorRuntime {
+   /** The editor bound by the Composer's contenteditable host. */
+   readonly editor: LexicalEditor
+   private projected: EditorProjection = { detectText: '', clipboardText: '', occurrences: [], selection: null, caret: null }
++  /** Monotonic content revision for invalidating asynchronous Host checks after any intervening edit. */
++  private draftRevision = 0
+   /** Stable occurrence ids per chip NodeKey (undo restores keys, so ids survive it too). */
+   private readonly occurrenceIds = new Map<NodeKey, number>()
+   private occurrenceSeq = 0
+   /** Live lexicon subscription disposer; undefined until the controller resolves. */
+   private lexiconOff: (() => void) | undefined
++  /** Pending Host path checks are retired with this Session's editor. */
++  private readonly dragDropAbort = new AbortController()
++  private disposed = false
+ 
+   /** @param deps - model callbacks used by editor listeners and transforms. */
+   constructor(private readonly deps: DraftEditorRuntimeDeps) {
+@@ -76,6 +107,48 @@ export class DraftEditorRuntime {
+     }
+     const unregister = mergeRegister(
+       registerPlainText(this.editor),
++      this.editor.registerCommand(DRAGOVER_COMMAND, (event) => {
++        const transfer = event.dataTransfer
++        if (transfer === null || !Array.from(transfer.types).includes(FILE_REFERENCE_DRAG_TYPE)) return false
++        event.preventDefault()
++        transfer.dropEffect = 'copy'
++        return true
++      }, COMMAND_PRIORITY_CRITICAL),
++      this.editor.registerCommand(DROP_COMMAND, (event) => {
++        const transfer = event.dataTransfer
++        if (transfer === null || !Array.from(transfer.types).includes(FILE_REFERENCE_DRAG_TYPE)) return false
++        // Once our custom MIME is present, never fall through to plain text:
++        // a malformed/denied payload must not become an unverified @ mention.
++        event.preventDefault()
++        const payload = parseFileReferenceDrag(transfer.getData(FILE_REFERENCE_DRAG_TYPE))
++        if (payload === undefined) return true
++        const reference = referenceForDraggedPath(payload)
++        if (reference === undefined) return true
++        // A DataTransfer is attacker-controlled. Consume the drop now, then
++        // require a fresh Host directory listing to prove the exact child is
++        // visible under this Session's currently authorized workspace root.
++        const draftAtDrop = this.projected.clipboardText
++        const revisionAtDrop = this.draftRevision
++        const signal = this.dragDropAbort.signal
++        let authorization: Promise<boolean>
++        try {
++          authorization = this.deps.authorizeDraggedReference?.(payload.path, payload.kind, signal)
++            ?? Promise.resolve(false)
++        } catch {
++          return true
++        }
++        void authorization.then((authorized) => {
++          if (!authorized || this.disposed || signal.aborted
++            || this.draftRevision !== revisionAtDrop || this.projected.clipboardText !== draftAtDrop) return
++          this.editor.update(() => {
++            // A drag can enter a never-focused composer with no Lexical selection.
++            // Establish the document end only after Host authorization succeeds.
++            if ($getSelection() === null) $getRoot().selectEnd()
++            this.insertFileReferences([reference])
++          }, { discrete: true })
++        }).catch(() => {})
++        return true
++      }, COMMAND_PRIORITY_CRITICAL),
+       this.editor.registerCommand(BLUR_COMMAND, () => {
+         // Finish this batch before an explicit focus can restore its updated selection.
+         this.editor.update(preserveExternalSelection, { discrete: true })
+@@ -92,6 +165,8 @@ export class DraftEditorRuntime {
+       () => { this.lexiconOff?.() },
+     )
+     return () => {
++      this.disposed = true
++      this.dragDropAbort.abort()
+       unregister()
+       this.editor.setRootElement(null)
+     }
+@@ -142,8 +217,10 @@ export class DraftEditorRuntime {
+   refreshProjection(): EditorProjection {
+     this.ensureLexiconSubscription()
+     const prev = this.projected
+-    this.projected = this.editor.getEditorState().read(() =>
++    const next = this.editor.getEditorState().read(() =>
+       $projectComposer(key => this.occurrenceIdOf(key)))
++    if (next.clipboardText !== prev.clipboardText) this.draftRevision += 1
++    this.projected = next
+     return prev
+   }
+ 
+diff --git a/packages/client/ui-conversation/src/client/input/facade.ts b/packages/client/ui-conversation/src/client/input/facade.ts
+index 79aa620f34..ee2476c02e 100644
+--- a/packages/client/ui-conversation/src/client/input/facade.ts
++++ b/packages/client/ui-conversation/src/client/input/facade.ts
+@@ -47,6 +47,12 @@ export interface SessionInputDeps {
+   messageSubmitted?: (submission: MessageSubmission) => void
+   /** Enter adjudication face resolver; absent/undefined answer = every '/' line falls to the default sink. */
+   inputTriggers?: (() => InputTriggerController | undefined) | undefined
++  /** Host proof for a Files-tree drop; absent means fail closed. */
++  authorizeDraggedReference?: (
++    path: string,
++    kind: 'file' | 'directory',
++    signal: AbortSignal,
++  ) => Promise<boolean>
+   /** PopupSelect shell face resolver (dismissal on submit lock / escape). */
+   popup?: (() => PopupDismissFace | undefined) | undefined
+   /** Agent Inbox projection; its next-turn list is overlaid onto InputState.queue. */
+@@ -173,6 +179,9 @@ export class SessionInputShell implements SessionInput {
+       activeClaimToken: () => this.activeClaimToken(),
+       lexicon: () => this.lexicon.getSnapshot(),
+       resolveLexicon: () => this.deps.inputTriggers?.()?.lexicon,
++      ...(this.deps.authorizeDraggedReference === undefined
++        ? {}
++        : { authorizeDraggedReference: this.deps.authorizeDraggedReference }),
+     })
+     this.unregister = this.draftEditor.register()
+     this.state = createSnapshotStore<InputState>(this.compose())
+diff --git a/packages/client/ui-conversation/src/client/input/hub.ts b/packages/client/ui-conversation/src/client/input/hub.ts
+index 8a908bb7b0..3bf0a6cdd5 100644
+--- a/packages/client/ui-conversation/src/client/input/hub.ts
++++ b/packages/client/ui-conversation/src/client/input/hub.ts
+@@ -8,6 +8,8 @@
+  * real host entity, so the sink is one unconditional prompt path.
+  */
+ import type {} from '@deepseek-ai/dsh-client-product-analytics/client'
++import type {} from '@deepseek-ai/dsh-api-remotes/client'
++import type {} from '@deepseek-ai/dsh-api-workspace-files/remote'
+ import type { ModelSelectionProjection } from '@deepseek-ai/dsh-api-session-controller/types'
+ import type { PlanProjection } from '@deepseek-ai/dsh-plan-mode/types'
+ import type { GoalProjection } from '@deepseek-ai/dsh-goal/types'
+@@ -27,6 +29,7 @@ import type { ComposerKeyboard } from '../contract/draft-editor.ts'
+ import type { InputSubmitMode } from '../contract/composer-submission.ts'
+ import type { PopupDismissFace } from './facade.ts'
+ import { SessionInputShell } from './facade.ts'
++import { createWorkspaceReferenceAuthorizer } from './drag-authorization.ts'
+ import { reportMessageSubmission } from './submission-analytics.ts'
+ 
+ /** Structural command face for per-session popup resolution. */
+@@ -113,6 +116,7 @@ export class InputHub implements SessionInputResolver {
+       },
+       messageSubmitted: (submission) => { reportMessageSubmission(this.rootCtx, submission) },
+       inputTriggers: () => this.controller(actx),
++      authorizeDraggedReference: createWorkspaceReferenceAuthorizer(this.rootCtx.remote, session.sessionId),
+       popup: () => this.popup(actx),
+       inbox: session.projections.faceOf('inbox') as ObservableSnapshot<InboxState | undefined>,
+       defaultSink: (text, attachmentIds, mode, signal) => this.sink(session, text, attachmentIds, mode, signal),
+diff --git a/packages/client/ui-conversation/tests/apply-inject.client.spec.tsx b/packages/client/ui-conversation/tests/apply-inject.client.spec.tsx
+index be25e250d3..53472f49cd 100644
+--- a/packages/client/ui-conversation/tests/apply-inject.client.spec.tsx
++++ b/packages/client/ui-conversation/tests/apply-inject.client.spec.tsx
+@@ -39,6 +39,7 @@ function sessionFakeFor() {
+ 
+ async function bench() {
+   const runtime = await SlotTestRuntime.create()
++  runtime.ctx.provide('remote.workspaceFiles', { list: vi.fn() } as never)
+   const rootUpload = vi.fn(() => Promise.resolve({
+     ok: true as const,
+     value: {
+diff --git a/packages/client/ui-conversation/tests/apply-wiring.client.spec.tsx b/packages/client/ui-conversation/tests/apply-wiring.client.spec.tsx
+index 138436b764..7796749baa 100644
+--- a/packages/client/ui-conversation/tests/apply-wiring.client.spec.tsx
++++ b/packages/client/ui-conversation/tests/apply-wiring.client.spec.tsx
+@@ -14,6 +14,7 @@ const SID = 'session-1' as SessionId
+ 
+ async function bench(options: { declareConversation?: boolean } = {}) {
+   const runtime = await SlotTestRuntime.create()
++  runtime.ctx.provide('remote.workspaceFiles', { list: vi.fn() } as never)
+   const developerTools = createSnapshotStore(true)
+   runtime.ctx.provide('uiWorkspace', {
+     openWorkspace: vi.fn(async (_workspaceId: unknown, beforeOpen: (id: SessionId) => void) => {
+diff --git a/packages/client/ui-conversation/tests/assembly-surfaces.client.spec.tsx b/packages/client/ui-conversation/tests/assembly-surfaces.client.spec.tsx
+index e4c2a2c037..410cd9a20b 100644
+--- a/packages/client/ui-conversation/tests/assembly-surfaces.client.spec.tsx
++++ b/packages/client/ui-conversation/tests/assembly-surfaces.client.spec.tsx
+@@ -54,6 +54,7 @@ const LAYOUT_CHILDREN = {
+ } as const
+ 
+ function provideWorkspaceNavigation(runtime: SlotTestRuntime): (id: SessionId) => void {
++  runtime.ctx.provide('remote.workspaceFiles', { list: vi.fn() } as never)
+   let mainReference: ReturnType<typeof runtime.sessions.retain> | undefined
+   const openSession = (id: SessionId): void => {
+     const next = runtime.sessions.retain(id, { source: 'mainView' })
+diff --git a/packages/client/ui-conversation/tests/drag-authorization.client.spec.ts b/packages/client/ui-conversation/tests/drag-authorization.client.spec.ts
+new file mode 100644
+index 0000000000..6aacd5a67e
+--- /dev/null
++++ b/packages/client/ui-conversation/tests/drag-authorization.client.spec.ts
+@@ -0,0 +1,86 @@
++import { describe, expect, it, vi } from 'vitest'
++import type { SessionId } from '@deepseek-ai/dsh-session/types'
++import {
++  createWorkspaceReferenceAuthorizer,
++  type WorkspaceReferenceListRemote,
++} from '../src/client/input/drag-authorization.ts'
++
++const sessionId = 'workspace-session' as SessionId
++const signal = new AbortController().signal
++
++function listingRemote() {
++  const list = vi.fn(async (_sessionId: SessionId, _path: string, _signal: AbortSignal) => ({
++    ok: true as const,
++    value: {
++      path: '',
++      entries: [
++        { name: 'notes.data', type: 'file' as const },
++        { name: 'research', type: 'directory' as const },
++      ],
++      truncated: false,
++    },
++  }))
++  return {
++    remote: { workspaceFiles: { list } } as unknown as WorkspaceReferenceListRemote,
++    list,
++  }
++}
++
++describe('Host authorization of composer file drops', () => {
++  it('proves exact file and directory children through the Host listing endpoint', async () => {
++    const { remote, list } = listingRemote()
++    const authorize = createWorkspaceReferenceAuthorizer(remote, sessionId)
++
++    await expect(authorize('/home/work/notes.data', 'file', signal)).resolves.toBe(true)
++    await expect(authorize('/home/work/research', 'directory', signal)).resolves.toBe(true)
++
++    expect(list).toHaveBeenNthCalledWith(1, sessionId, '/home/work', signal)
++    expect(list).toHaveBeenNthCalledWith(2, sessionId, '/home/work', signal)
++  })
++
++  it('accepts the Host relative listing path for a selected attached root', async () => {
++    const list = vi.fn(async () => ({
++      ok: true as const,
++      value: {
++        path: 'reports',
++        entries: [{ name: 'notes.data', type: 'file' as const }],
++        truncated: false,
++      },
++    }))
++    const authorize = createWorkspaceReferenceAuthorizer({ workspaceFiles: { list } }, sessionId)
++
++    await expect(authorize('/mnt/attached/reports/notes.data', 'file', signal)).resolves.toBe(true)
++    expect(list).toHaveBeenCalledWith(sessionId, '/mnt/attached/reports', signal)
++  })
++
++  it('rejects absent children and mismatched file/folder claims', async () => {
++    const { remote } = listingRemote()
++    const authorize = createWorkspaceReferenceAuthorizer(remote, sessionId)
++
++    await expect(authorize('/home/work/research', 'file', signal)).resolves.toBe(false)
++    await expect(authorize('/home/work/missing.txt', 'file', signal)).resolves.toBe(false)
++  })
++
++  it('preserves a literal backslash in a POSIX filename', async () => {
++    const name = 'notes\\draft.data'
++    const list = vi.fn(async (_sessionId: SessionId, path: string, _signal?: AbortSignal) => ({
++      ok: true as const,
++      value: { path, entries: [{ name, type: 'file' as const }], truncated: false },
++    }))
++    const authorize = createWorkspaceReferenceAuthorizer({ workspaceFiles: { list } }, sessionId)
++
++    await expect(authorize(`/home/work/${name}`, 'file', signal)).resolves.toBe(true)
++    expect(list).toHaveBeenCalledWith(sessionId, '/home/work', signal)
++  })
++
++  it('rejects relative paths and lists Windows drive-root children with an absolute parent', async () => {
++    const { remote, list } = listingRemote()
++    const authorize = createWorkspaceReferenceAuthorizer(remote, sessionId)
++
++    await expect(authorize('workspace/notes.data', 'file', signal)).resolves.toBe(false)
++    expect(list).not.toHaveBeenCalled()
++
++    await expect(authorize('C:\\notes.data', 'file', signal)).resolves.toBe(true)
++    expect(list).toHaveBeenCalledWith(sessionId, 'C:/', signal)
++  })
++})
+diff --git a/packages/client/ui-conversation/tests/input-bar.client.spec.tsx b/packages/client/ui-conversation/tests/input-bar.client.spec.tsx
+index 3b025155eb..38d6e95165 100644
+--- a/packages/client/ui-conversation/tests/input-bar.client.spec.tsx
++++ b/packages/client/ui-conversation/tests/input-bar.client.spec.tsx
+@@ -25,6 +25,7 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
+ import type { Context } from '@deepseek-ai/cordis'
+ import type { SessionId } from '@deepseek-ai/dsh-session/types'
+ import type { SubmitOutcome } from '../src/client/contract/input.ts'
++import { FILE_REFERENCE_DRAG_TYPE, serializeFileReferenceDrag } from '@deepseek-ai/dsh-file-reference/grammar'
+ import { SessionInputShell } from '../src/client/input/facade.ts'
+ import { $replaceDetectSpanWithText, $selectDetectSpan } from '../src/client/input/editor/span-map.ts'
+ import type {
+@@ -87,6 +88,8 @@ interface BenchOptions {
+   nextStep?: InboxState['next-step']
+   /** The hub's steer-all face (empty-draft accelerated Enter). */
+   steerQueue?: () => void
++  /** Host-owned path check for Files-tree drag data. */
++  authorizeDraggedReference?: (path: string, kind: 'file' | 'directory', signal: AbortSignal) => Promise<boolean>
+   variant?: 'hero' | 'composer'
+   placeholder?: string
+   t?: InputBarProps['t']
+@@ -139,6 +142,9 @@ function bench(over?: BenchOptions) {
+       'next-step': over?.nextStep ?? [],
+     }),
+     ...(over?.steerQueue !== undefined ? { steerQueue: over.steerQueue } : {}),
++    ...(over?.authorizeDraggedReference !== undefined
++      ? { authorizeDraggedReference: over.authorizeDraggedReference }
++      : {}),
+     // Lexicon-only stub: adjudication untouched (undefined slash methods are
+     // never reached — these benches drive plain-draft flows only).
+     ...(lex !== undefined
+@@ -1777,3 +1783,123 @@ it('places context usage below the composer and hides it until the activity clos
+   expect(view.getByRole('dialog', { name: '上下文已用' })).toBeTruthy()
+   expect(view.getByRole('button', { name: '发送消息' })).toBeTruthy()
+ })
++
++describe('workspace file drag into composer', () => {
++  it('accepts a Host-authorized custom MIME file and folder path as structured references', async () => {
++    const authorizeDraggedReference = vi.fn((_path: string, _kind: 'file' | 'directory', _signal: AbortSignal) => Promise.resolve(true))
++    const { textarea, shell } = bench({ authorizeDraggedReference })
++    const file = { path: '/home/fate/code/Fate Docs/data.unknown-ext', kind: 'file' as const }
++    const folder = { path: '/home/fate/code/Fate Docs/research', kind: 'directory' as const }
++    const filePayload = serializeFileReferenceDrag(file)
++    const folderPayload = serializeFileReferenceDrag(folder)
++    if (filePayload === undefined || folderPayload === undefined) throw new Error('expected valid drag payloads')
++    const values = new Map<string, string>([[FILE_REFERENCE_DRAG_TYPE, filePayload]])
++    const dataTransfer = {
++      types: [FILE_REFERENCE_DRAG_TYPE],
++      dropEffect: 'none',
++      getData: vi.fn((type: string) => values.get(type) ?? ''),
++    }
++
++    expect(fireEvent.dragOver(textarea, { dataTransfer })).toBe(false)
++    expect(dataTransfer.dropEffect).toBe('copy')
++    expect(fireEvent.drop(textarea, { dataTransfer })).toBe(false)
++    expect(dataTransfer.getData).toHaveBeenCalledWith(FILE_REFERENCE_DRAG_TYPE)
++    expect(dataTransfer.getData).toHaveReturnedWith(filePayload)
++    expect(authorizeDraggedReference).toHaveBeenCalledWith(file.path, 'file', expect.any(AbortSignal))
++    await vi.waitFor(() => {
++      expect(shell.snapshot.occurrences).toEqual(expect.arrayContaining([
++        expect.objectContaining({
++          source: 'reference',
++          ref: '@"/home/fate/code/Fate Docs/data.unknown-ext"',
++          label: 'data.unknown-ext',
++          appearance: 'file',
++        }),
++      ]))
++    })
++    expect(shell.snapshot.attachmentIds).toEqual([])
++
++    values.set(FILE_REFERENCE_DRAG_TYPE, folderPayload)
++    expect(fireEvent.dragOver(textarea, { dataTransfer })).toBe(false)
++    expect(fireEvent.drop(textarea, { dataTransfer })).toBe(false)
++    expect(dataTransfer.getData).toHaveBeenCalledWith(FILE_REFERENCE_DRAG_TYPE)
++    expect(authorizeDraggedReference).toHaveBeenCalledWith(folder.path, 'directory', expect.any(AbortSignal))
++    await vi.waitFor(() => {
++      expect(shell.snapshot.occurrences).toEqual(expect.arrayContaining([
++        expect.objectContaining({
++          source: 'reference',
++          ref: '@"/home/fate/code/Fate Docs/research/"',
++          label: 'research/',
++          appearance: 'folder',
++        }),
++      ]))
++    })
++    expect(shell.snapshot.attachmentIds).toEqual([])
++  })
++
++  it('does not turn a forged DataTransfer path into a reference when Host denies it', async () => {
++    const authorizeDraggedReference = vi.fn(() => Promise.resolve(false))
++    const { textarea, shell } = bench({ authorizeDraggedReference })
++    const payload = serializeFileReferenceDrag({ path: '/etc/passwd', kind: 'file' })
++    if (payload === undefined) throw new Error('expected valid drag payload')
++    const dataTransfer = {
++      types: [FILE_REFERENCE_DRAG_TYPE],
++      dropEffect: 'none',
++      getData: (type: string) => type === FILE_REFERENCE_DRAG_TYPE ? payload : '',
++    }
++
++    expect(fireEvent.drop(textarea, { dataTransfer })).toBe(false)
++    expect(authorizeDraggedReference).toHaveBeenCalledWith('/etc/passwd', 'file', expect.any(AbortSignal))
++    await Promise.resolve()
++    expect(shell.snapshot.occurrences).toEqual([])
++  })
++
++  it('consumes malformed custom drag data instead of inserting its plain-text fallback', async () => {
++    const { textarea, shell } = bench()
++    const dataTransfer = {
++      types: [FILE_REFERENCE_DRAG_TYPE, 'text/plain'],
++      dropEffect: 'none',
++      getData: (type: string) => type === FILE_REFERENCE_DRAG_TYPE
++        ? '{malformed'
++        : '@"/etc/passwd"',
++    }
++
++    expect(fireEvent.drop(textarea, { dataTransfer })).toBe(false)
++    await Promise.resolve()
++    expect(shell.snapshot.occurrences).toEqual([])
++  })
++
++  it('fails closed when no Host authorization service is available', async () => {
++    const { textarea, shell } = bench()
++    const payload = serializeFileReferenceDrag({ path: '/home/work/notes.data', kind: 'file' })
++    if (payload === undefined) throw new Error('expected valid drag payload')
++    const dataTransfer = {
++      types: [FILE_REFERENCE_DRAG_TYPE],
++      dropEffect: 'none',
++      getData: (type: string) => type === FILE_REFERENCE_DRAG_TYPE ? payload : '',
++    }
++
++    expect(fireEvent.drop(textarea, { dataTransfer })).toBe(false)
++    await Promise.resolve()
++    expect(shell.snapshot.occurrences).toEqual([])
++  })
++
++  it('does not insert an authorized late result into a draft changed after drop', async () => {
++    const gate = Promise.withResolvers<boolean>()
++    const { textarea, shell } = bench({ draft: 'original', authorizeDraggedReference: () => gate.promise })
++    const payload = serializeFileReferenceDrag({ path: '/home/work/notes.data', kind: 'file' })
++    if (payload === undefined) throw new Error('expected valid drag payload')
++    const dataTransfer = {
++      types: [FILE_REFERENCE_DRAG_TYPE],
++      dropEffect: 'none',
++      getData: (type: string) => type === FILE_REFERENCE_DRAG_TYPE ? payload : '',
++    }
++
++    fireEvent.drop(textarea, { dataTransfer })
++    act(() => { shell.setDraft('new draft') })
++    act(() => { shell.setDraft('original') })
++    await act(async () => { gate.resolve(true); await gate.promise })
++    await Promise.resolve()
++    expect(shell.snapshot.draft).toBe('original')
++    expect(shell.snapshot.occurrences).toEqual([])
++  })
++})
+-- 
+2.43.0
+

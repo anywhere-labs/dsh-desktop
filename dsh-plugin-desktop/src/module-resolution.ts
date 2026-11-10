@@ -168,6 +168,20 @@ function isWithin(
     )
 }
 
+/**
+ * True for a path relative to a Profile directory that the Loader itself owns:
+ * the directory, its direct files, and its `.cordis` helper directory, where
+ * cordis-plugin-loader writes the project resolver used as an import parent.
+ * Never a nested directory, which could belong to another Profile.
+ */
+function isProfileBridgeOffset(offset: string): boolean {
+  if (offset === '') return true
+  if (offset === '..' || isAbsolute(offset)) return false
+  const segments = offset.split(sep)
+  return segments.length === 1
+    || (segments.length === 2 && segments[0] === '.cordis')
+}
+
 function isLexicalProfileBoundary(
   registration: ProfileResolverRegistration,
   url: string | undefined,
@@ -175,11 +189,7 @@ function isLexicalProfileBoundary(
   if (url === registration.profileBaseUrl) return true
   const candidate = filePath(url)
   if (candidate === undefined) return false
-  const offset = relative(registration.profileDirectory, candidate)
-  // The native Loader has used the directory URL, package.json, and cordis
-  // config files as its parentURL across supported Node releases. Restrict the
-  // bridge to that directory and its direct files, never another Profile.
-  return offset === '' || (!offset.includes(sep) && offset !== '..' && !isAbsolute(offset))
+  return isProfileBridgeOffset(relative(registration.profileDirectory, candidate))
 }
 
 function isCanonicalProfileBoundary(
@@ -189,7 +199,7 @@ function isCanonicalProfileBoundary(
   const candidate = filePath(canonicalUrl)
   if (candidate === undefined) return false
   const offset = relative(canonicalPath(registration, registration.profileDirectory), candidate)
-  return offset === '' || (!offset.includes(sep) && offset !== '..' && !isAbsolute(offset))
+  return isProfileBridgeOffset(offset)
 }
 
 function isSharedFallbackPath(registration: ProfileResolverRegistration, candidate: string): boolean {

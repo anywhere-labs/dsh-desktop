@@ -23,6 +23,14 @@
       name: dsh-plugin-desktop/profiles
     - id: desktop-updates
       name: dsh-plugin-desktop/updates
+    - id: desktop-android-logcat
+      name: dsh-plugin-desktop/android-logcat
+    - id: desktop-git-review
+      name: dsh-plugin-desktop/git-review
+    - id: desktop-goal-loop-containment
+      name: dsh-plugin-desktop/goal-loop-containment
+    - id: desktop-ide-git
+      name: dsh-ide-git
 
 # A desktop launch has no terminal operator waiting for the Web readiness line.
 - id: web-runtime
@@ -31,3 +39,25 @@
     printUrl: false
     surfaceContext: true
     trustedHosts: []
+
+# Size-capped model endpoints (observed: GitHub Copilot rejects multi-image
+# sessions with HTTP 413) need durable images stored small, not merely rejected
+# large: normalize every saved image to a 1568px long edge within 240KiB, so
+# several inline screenshots stay well under a 1MiB-class request-body limit.
+- id: attachment-local
+  config:
+    normalizedImageMaxBytes: 245760
+    normalizedImageMaxDimension: 1568
+
+# Desktop owns goal-loop containment in the plugin above, which measures progress
+# per goal round and can clear its own counters. The core guard's hard count caps
+# are keyed on a human message only, so an automatic goal round that reaches them
+# stays denied forever and the round loop spins without doing work. Keep the
+# advisory reminders, drop the two hard caps.
+- id: repeat-tool-reminder
+  name: '@deepseek-ai/dsh-repeat-tool-reminder'
+  config:
+    thresholds: [3, 5, 8]
+    blockAt: 0
+    maxTrackedCallsPerTurn: 0
+    argumentsPreviewChars: 500

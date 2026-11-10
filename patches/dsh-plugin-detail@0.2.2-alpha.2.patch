@@ -1,0 +1,46 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -310,6 +310,28 @@ function markdownOf(bytes) {
+ 	return new TextDecoder().decode(bytes).replace(/^\uFEFF/u, "").replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/u, "");
+ }
+ /**
++* DSH Desktop: README translations of a package that declares no `meta.detail`, by the names READMEs commonly use. A
++* Chinese display language reads a Chinese one and any other an English one, the language every chain ends in; the
++* README follows, which DSH packages that also ship an English translation write in Chinese.
++*/
++const TRANSLATED_READMES = {
++	zh: ["README.zh.md", "README.zh-CN.md", "README-zh.md", "README-zh-CN.md", "README_zh.md", "README_ZH.md", "README_CN.md"],
++	en: ["README.en.md", "README.en-US.md", "README-en.md", "README_en.md", "README_EN.md"]
++};
++/** DSH Desktop: the first translated README a package has; every name is read at once, and a failed earlier read is thrown. */
++async function translatedReadme(files, dir, languages, maxBytes, signal) {
++	const names = TRANSLATED_READMES[languages[0].split("-")[0] === "zh" ? "zh" : "en"];
++	const reads = names.map((name) => files.read(joinPath(dir, name), maxBytes, signal).then((bytes) => ({ bytes }), (error) => ({ error })));
++	for (const [index, name] of names.entries()) {
++		const result = await reads[index];
++		if ("error" in result) throw result.error;
++		if (result.bytes !== void 0) return {
++			path: joinPath(dir, name),
++			bytes: result.bytes
++		};
++	}
++}
++/**
+ * Read a package's detail document: the Markdown file that `meta.detail` in its `locale/<language>.json` names for the
+ * first language of the chain that declares one, otherwise its README.
+ * @param files - the package's files.
+@@ -333,6 +355,13 @@ async function readPackageDocument(files, dir, languages, maxBytes, signal) {
+ 			markdown: markdownOf(bytes)
+ 		};
+ 	}
++	// DSH Desktop: a translated README before the README; see TRANSLATED_READMES.
++	const translated = await translatedReadme(files, dir, languages, maxBytes, signal);
++	if (translated !== void 0) return {
++		origin: "readme",
++		path: translated.path,
++		markdown: markdownOf(translated.bytes)
++	};
+ 	const readme = await files.readme(dir, maxBytes, signal);
+ 	return readme === void 0 ? void 0 : {
+ 		origin: "readme",

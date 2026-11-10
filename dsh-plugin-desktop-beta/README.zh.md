@@ -8,7 +8,7 @@
 
 ## 架构
 
-Electron 可执行文件只包含最小启动代码。它获取单实例锁、解析当前选中的 DSH profile、提供原生运行时能力，并在 Electron main 进程中启动 Host Cordis 根。`desktop-shell` Host 插件通过 Cordis effect 拥有 `BrowserWindow`、导航策略、settings namespace，以及关闭与退出生命周期。原生 runtime 拥有实体托盘；`desktop-shell`、`desktop-profiles`、`desktop-terminal` 与 `desktop-updates` 则通过有序 item registry 提供 effect-scoped 命令。
+Electron main 进程获取单实例锁、解析当前选中的 DSH profile，并持有原生运行时能力。Host Cordis 根通过结构化 IPC 在独立的 Electron Node 模式子进程中启动，避免 Host 插件占用 Chromium Utility 进程的分配器；Host 意外退出不会重放正在执行的工作。`desktop-shell` Host 插件通过 Cordis effect 拥有 `BrowserWindow`、导航策略、settings namespace，以及关闭与退出生命周期。原生 runtime 拥有实体托盘；`desktop-shell`、`desktop-profiles`、`desktop-terminal` 与 `desktop-updates` 则通过有序 item registry 提供 effect-scoped 命令。
 
 三种呈现模式都复用现有 Web carrier。profile 挂载普通 `dsh-base` 与 `dsh-web-app` bundle。Host 默认把 HTTP 与 WebSocket surface 绑定到 `127.0.0.1` 的临时端口；只有明确确认的局域网设置才会绑定所有接口，Electron 则始终从 loopback 地址在沙箱 renderer 中加载同源页面。Electron 不维护自有插件 roster，不使用 preload bridge，renderer 也不会获得原始 Electron API。
 
@@ -65,6 +65,10 @@ Cordis row 会在 profile 激活期间登记原生窗口参数。Launcher 只在
 本次 alpha runtime 迁移不再携带 Desktop 自有的工作区文件夹拖放行为或聊天附件拖放隔离补丁。在按 alpha Client UI 重新评估这些交互前，请使用普通工作区选择流程。
 
 在所有呈现模式下，Windows PowerShell 都会保留上游 `pwsh-sandbox` 行为与 Windows ACL confinement。Launcher generation 只会把该 Host provider 替换为同一 package 中的 `dsh-plugin-desktop-beta/windows-pwsh-sandbox` 子路径。对于与上游 ACL runner 完全匹配的 argv，adapter 会让打包后的 Electron executable 通过私有 trampoline 以 Node 模式启动。Trampoline 会先精确校验上游 runner，再在导入它之前移除 Node-mode 环境变量，并确保自身这个原本没有 console 的 Windows 进程拥有一个没有窗口的 console：Windows 11 24H2 及更高版本会直接分配，更早的版本则附加到一个短暂运行、不受限的 `cmd.exe` 的无窗口 console；只有两者都失败时，才分配普通 console 并将其隐藏。受限 PowerShell 进程随后可以继承该 console，而不必在已经使用受限 token 时自行创建，也不会有 console 窗口被交给 Windows Terminal。Console 分配失败会通过现有带签名的 runner 失败路径退出；全部 ACL policy 与后续失败处理仍委托给上游 runner。Desktop deploy root 还会保留 Yarn patch，在两条原生受限进程路径上把 `STARTF_USESHOWWINDOW`、现有的 `STARTF_USESTDHANDLES` 与 `SW_HIDE` 组合起来。它不会使用与上游实现不兼容的 `CREATE_NO_WINDOW` 或 `CREATE_NEW_CONSOLE` flag。直接使用 `danger-full-access` 的 PowerShell、macOS 与 Linux 执行路径保持不变；Windows confinement 失败时不会自动回退到不受限执行。
+
+### 目标续轮死循环止血
+
+自动续轮的目标可能卡住：Agent 反复搜索、读取并重试同一个检查，却拿不到新证据，而下一轮仍会被自动排队。Desktop Host 插件 `dsh-plugin-desktop-beta/goal-loop-containment` 只用本地测量判定死循环——每一轮的工具调用次数、成功数、失败数、耗时，以及被重复最多的完全相同调用——当连续若干轮没有进展、或同一个调用反复出现时介入。它先停掉续轮，再向模型发送一条隐藏请求，要求分析这一轮为什么耗时这么久、卡在哪里，分析轮一结束就重新武装目标，因此未完成的目标仍会自动继续。介入次数用尽后插件把目标标记为 blocked，把循环交回人工处理，而不是继续消耗轮次。可调项：`enabled`、`stallRounds`、`repeatLimit`、`maxInterventions`、`argumentsPreviewChars`。Desktop profile 保留上游 `repeat-tool-reminder` 的提醒，并把它的两项硬性次数上限（`blockAt`、`maxTrackedCallsPerTurn`）清零，因为该守卫只在人工消息时重置计数：自动续轮内一旦触顶，之后的每次调用都会被永久拒绝。
 
 ## 扩展窗口模式
 
