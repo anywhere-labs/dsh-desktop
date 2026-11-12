@@ -27,3 +27,11 @@
 复用现有真实 Host smoke，不新增独立测试文件：临时 Profile 放入不兼容 storage-domain 99.0.0；核心服务必须 active，冲突包保持原样。实际创建工作区和会话、停止 Host、重新启动并读取；启用官方翻译 bundle 后调用 cotTranslation/limits；确认没有 Tokens 插件；主动停用核心存储时必须返回明确错误。
 
 Beta／Next 的 Node 与 Electron Node 模式均通过上述回归。两端完整 check 各 134 文件、1243 通过、10 跳过；共享 Stable 测试 35 文件、389 通过。覆盖销毁后 console 事件、摘要／折叠详情、冻结与脱敏及历史日志隔离。所有运行使用临时 home；没有启动图形应用、执行翻译请求或修改真实用户 Profile。未声称已在真实用户 Profile 上完成升级验收。
+
+## 构建时运行时下载中断（2026-11-12）
+
+准备 mac-x64 Python／Node 资源时出现 `TypeError: terminated`，底层为 `UND_ERR_SOCKET: other side closed`，说明接收过程中连接关闭。桌面下载器原先没有重试，并且错误缺少资源地址。
+
+Beta／Next 下载器现对连接中断、超时与 HTTP 408／429／5xx 最多尝试三次，分别等待 1、2 秒；重试包含响应体读取。最终错误携带 URL、尝试次数和底层原因。404、摘要不匹配等直接失败；完整下载通过锁定摘要验证后才原子写入缓存。
+
+复用两端 primary-runtime 测试文件，覆盖响应体中断后恢复、重试上限、永久 HTTP 错误、摘要失败和缓存复用。两端运行时相关测试各 31 通过、1 跳过，类型与 variants 检查通过。实际重新执行 Next prepare:runtime 成功：mac-arm64／mac-x64 资源准备和结构校验通过；arm64 的 Python 文档往返与 Node／pnpm 执行通过，本机无法执行 x64，该执行检查明确跳过。未启动图形应用。
