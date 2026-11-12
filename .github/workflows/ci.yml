@@ -45,6 +45,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
+          node scripts/check-mojibake.mjs
           node --test scripts/bilingual-docs.test.mjs
           node scripts/verify-bilingual-docs.mjs
           node --test scripts/market-dependency-direction.test.mjs
