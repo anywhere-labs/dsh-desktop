@@ -17,6 +17,7 @@ export class DesktopDiagnostics {
   private readonly marker: string
   private history: LogHistory | undefined
   private text = ''
+  private currentText = ''
   /** Bumped whenever the readable text or a partial process line changes; the file is rewritten only then. */
   private textRevision = 0
   private writtenRevision = -1
@@ -78,7 +79,9 @@ export class DesktopDiagnostics {
     this.pending.push(line); this.pendingBytes += Buffer.byteLength(line) + 1
     if (!input.historyOnly) {
       const detail = record.error === undefined ? '' : ` ${JSON.stringify(record.error)}`
-      this.text = (this.text + `${record.time} [${level}] ${record.message ? record.message + ' ' : ''}[${record.source}] ${record.event}${record.operationId ? ` (${record.operationId})` : ''}${record.fields ? ` ${JSON.stringify(record.fields)}` : ''}${detail}\n`).slice(-LIMIT)
+      const readable = `${record.time} [${level}] ${record.message ? record.message + ' ' : ''}[${record.source}] ${record.event}${record.operationId ? ` (${record.operationId})` : ''}${record.fields ? ` ${JSON.stringify(record.fields)}` : ''}${detail}\n`
+      this.text = (this.text + readable).slice(-LIMIT)
+      this.currentText = (this.currentText + readable).slice(-LIMIT)
       this.textRevision++
     }
     if (level === 'error' || this.pendingBytes >= MAX_PENDING) this.flush()
@@ -145,7 +148,7 @@ export class DesktopDiagnostics {
     const level = /\b(error|fatal)\b/iu.test(line) ? 'error' : /\bwarn/iu.test(line) ? 'warn' : /\bdebug\b/iu.test(line) ? 'debug' : 'info'
     if (LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(this.level)) this.record({ source: `host.${stream}`, event: 'output', level, message: line, pid, developer: level === 'debug' })
   }
-  snapshot(): string { return maskSecrets(this.text + [...this.partial.values()].filter(buffer => buffer.text).map(buffer => `\n${buffer.text}`).join('')).slice(-LIMIT) }
+  snapshot(currentRun = false): string { return maskSecrets((currentRun ? this.currentText : this.text) + [...this.partial.values()].filter(buffer => buffer.text).map(buffer => `\n${buffer.text}`).join('')).slice(-LIMIT) }
   flush(): void {
     clearTimeout(this.timer); this.timer = undefined
     try {

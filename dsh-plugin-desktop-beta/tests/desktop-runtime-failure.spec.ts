@@ -74,6 +74,7 @@ it('reports a Host that ends during startup as Plugin Host startup and clears th
   expect(runtime.state()).not.toHaveProperty('failureStage')
   expect(runtime.state()).not.toHaveProperty('failureExit')
   expect(runtime.state()).not.toHaveProperty('failureReport')
+  expect(runtime.state()).not.toHaveProperty('failureContext')
 })
 
 it('names preparation and Desktop action failures without inventing a Host exit', async () => {
@@ -88,17 +89,23 @@ it('names preparation and Desktop action failures without inventing a Host exit'
 })
 
 it('keeps the failure that opened recovery and reports a later failed action beside it', async () => {
-  const { runtime, onFailure, history } = await fixture({ prepareEnvironment: async () => { throw new Error('login shell timed out') } })
+  const { runtime, onFailure, history } = await fixture({ prepareEnvironment: async () => { throw new Error('login shell timed out', { cause: new Error('initial activation failed; token=abcdef') }) } })
   await expect(runtime.start()).rejects.toThrow('login shell timed out')
   await vi.waitFor(() => expect(onFailure).toHaveBeenCalledOnce())
   const report = await runtime.failureReportFile()
   expect(report).toMatch(/-shell-environment\.log$/u)
+  const context = runtime.state().failureContext!
+  expect(context).toContain('initial activation failed; token=****')
+  expect(context).not.toContain('abcdef')
+  runtime.diagnostics.append('later recovery action')
   runtime.report(new Error('Diagnostics export failed: token=abcdef'))
   expect(runtime.state()).toMatchObject({ failureStage: 'shell-environment', failure: 'login shell timed out', actionFailure: 'Diagnostics export failed: token=****' })
   runtime.report(new Error('Renderer recovery exhausted'), 'renderer-runtime')
   expect(runtime.state()).toMatchObject({ failureStage: 'shell-environment', failure: 'login shell timed out' })
   expect(onFailure).toHaveBeenCalledOnce()
   expect(await runtime.failureReportFile()).toBe(report)
+  expect(runtime.state().failureContext).toBe(context)
+  expect(context).not.toContain('later recovery action')
   expect(history().filter(record => record.event === 'runtime.failed').map(record => record.fields)).toEqual([
     { stage: 'shell-environment' },
     { stage: 'desktop-runtime', recoveryReason: 'shell-environment' },
@@ -151,5 +158,6 @@ it.skipIf(process.platform === 'win32')('keeps recovery usable when the report c
   runtime.report(new Error('Invalid Next Profile manifest'), 'profile-composition')
   expect(onFailure).toHaveBeenCalledOnce()
   expect(await runtime.failureReportFile()).toBeUndefined()
+  expect(runtime.state().failureContext).toContain('Invalid Next Profile manifest')
   expect(runtime.state()).toMatchObject({ failureStage: 'profile-composition', failure: 'Invalid Next Profile manifest', failureReport: { status: 'failed' } })
 })

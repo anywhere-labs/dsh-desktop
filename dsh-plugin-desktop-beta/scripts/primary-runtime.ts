@@ -1,3 +1,4 @@
+import { OFFICE_SKILLS_IN_PACKAGE } from './upstream-family.ts'
 /** Prepare pinned, relocatable script interpreters without installing into the build host; ported from the upstream builder. */
 
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -285,7 +286,7 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
     const assets = options.skillSource ?? join(dirname(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-skill-office/package.json')), 'assets')
     await Promise.all([
       copyPrimaryRuntime(output, destination, manifest),
-      prepareOfficeSkillAssets(assets, join(paths.runtime, 'office-skills')),
+      OFFICE_SKILLS_IN_PACKAGE ? Promise.resolve() : prepareOfficeSkillAssets(assets, join(paths.runtime, 'office-skills')),
     ])
   } finally {
     rmSync(staging, { recursive: true, force: true })

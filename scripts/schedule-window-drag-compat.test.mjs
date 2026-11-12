@@ -26,7 +26,7 @@ for (const workspace of ['dsh-plugin-desktop-beta', 'dsh-desktop-next']) {
     // The heading row's styles put the strip above the title inside the row, like the Plugins
     // page head, but upstream never marked it. Carry patches/dsh-client-ui-schedule@<version>.patch
     // to every new runtime until upstream marks the row itself.
-    assert.match(source, /className: TaskManagerPage_module_css_default\.pageHeading,\n(?:\s*\/\/[^\n]*\n)?\s*"data-window-drag": true,/u,
+    assert.match(source, /className:\s*TaskManagerPage_module_css_default\.pageHeading,\s*(?:\/\/[^\n]*\n\s*)?"data-window-drag":\s*true,/u,
       'the automation page heading row lacks data-window-drag')
   })
 }
