@@ -26,6 +26,13 @@ export const RENDERER_SAMPLE_TIMEOUT_MS = 3000
 export const RENDERER_FAILURE_SAMPLE_MS = 750
 /** Upper bound of the failure-path sample; a timeout is itself recorded as evidence. */
 export const RENDERER_FAILURE_TIMEOUT_MS = 1500
+/**
+ * The rolling last-known sample is shorter than a report-time sample: it is insurance for a page
+ * that may not answer later, not a diagnosis of any particular moment.
+ */
+export const RENDERER_ROLLING_SAMPLE_MS = 500
+/** Bound of one rolling refresh; a page that misses it simply keeps the previous sample. */
+export const RENDERER_ROLLING_TIMEOUT_MS = 1000
 const MAX_ANIMATIONS = 40
 const MAX_LAYERS = 20
 const MAX_TEXT = 200
@@ -88,6 +95,12 @@ export interface RendererDiagnosticsUnavailable {
 }
 
 export type RendererDiagnostics = RendererDiagnosticsSnapshot | RendererDiagnosticsUnavailable
+
+/** A sample kept from an earlier moment, with its age read when a report uses it. */
+export interface RendererEvidence {
+  sample: RendererDiagnosticsSnapshot
+  ageMs: number
+}
 
 /** The part of a page's `WebContents` the collection needs. */
 export interface RendererDiagnosticsTarget {

@@ -190,3 +190,20 @@ it('writes a report without renderer evidence when no window exists to ask', asy
   await vi.waitFor(() => { expect(history().some(record => record.event === 'failure.snapshot' && record.fields?.reason === 'no-window')).toBe(true) })
   expect(readFileSync(file, 'utf8')).not.toContain('--- renderer at failure ---')
 })
+
+it('falls back to the last known renderer sample when the page cannot answer', async () => {
+  const { runtime } = await fixture({ rendererEvidence: () => ({
+    sample: {
+      available: true as const, sampledAt: '2026-11-13T00:00:00.000Z', sampleMs: 500,
+      view: { visibility: 'visible', focused: true, reducedMotion: false, width: 1280, height: 840, devicePixelRatio: 2 },
+      dom: { elements: 12 }, animations: [], animationsTotal: 0, layers: [],
+      frameLoop: { frames: 30, elapsedMs: 500, framesPerSecond: 60, sampledBy: 'raf' as const },
+      longTasks: null,
+    },
+    ageMs: 42_000,
+  }) })
+  runtime.report(new Error('the interface stopped answering'), 'renderer-runtime')
+  const file = await runtime.failureReportFile()
+  if (file === undefined) throw new Error('expected a saved failure report')
+  await vi.waitFor(() => { expect(readFileSync(file, 'utf8')).toContain('last known: 42 s before the failure') })
+})
