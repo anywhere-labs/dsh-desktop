@@ -111,7 +111,7 @@ Start the desktop application explicitly when a graphical session is available:
 yarn dev
 ```
 
-`dev` builds before launching. It does not require a separate manual build. `dev` and `start` also prepare the bundled interpreter payload under `.desktop-build/runtime` before the shell starts, as upstream Desktop's development launcher does, so the Office skills are available in development; the first launch downloads the archives and wheels the upstream lock pins, and `yarn prepare:runtime` runs that step alone.
+`dev` builds before launching. It does not require a separate manual build. `dev` and `start` also prepare the bundled interpreter payload under `.desktop-build/runtime` before the shell starts, as upstream Desktop's development launcher does, so the Office skills are available in development. Like that launcher, they prepare only the payload of the CPU the shell runs on; packaging prepares both macOS CPUs. The first launch downloads the archives and wheels the upstream lock pins for that CPU, and `yarn prepare:runtime` runs that step alone.
 
 The headless-safe launcher surfaces can be exercised without importing or starting Electron:
 

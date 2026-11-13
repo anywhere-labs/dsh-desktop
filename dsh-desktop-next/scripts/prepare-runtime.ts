@@ -24,14 +24,17 @@ export interface NextRuntimeTarget {
  * @param platform - Electron platform being packaged.
  * @param hostArch - Build host architecture, used on Linux where packages are single-architecture.
  * @param env - Process environment inspected for single-architecture smoke selection.
+ * @param macCpus - Darwin CPUs to prepare instead, such as the single CPU of a development launch.
  * @returns Locked targets and their CPUs.
  */
 export function nextRuntimeTargets(
   platform: NodeJS.Platform,
   hostArch: string = process.arch,
   env: NodeJS.ProcessEnv = process.env,
+  macCpus?: readonly NextRuntimeArch[],
 ): readonly NextRuntimeTarget[] {
   if (platform === 'darwin') {
+    if (macCpus !== undefined) return macCpus.map(arch => ({ target: `mac-${arch}`, arch }))
     const arch = macSmokeArchitecture(env)
     if (arch === 'arm64') return [{ target: 'mac-arm64', arch: 'arm64' }]
     if (arch === 'x64') return [{ target: 'mac-x64', arch: 'x64' }]
@@ -93,6 +96,8 @@ export interface PrepareNextRuntimeOptions {
   readonly platform: NodeJS.Platform
   readonly version: string
   readonly hostArch?: string
+  /** Darwin CPUs to prepare instead; see {@link nextRuntimeTargets}. */
+  readonly macCpus?: readonly NextRuntimeArch[]
   readonly log?: (message: string) => void
 }
 
@@ -106,7 +111,7 @@ export async function prepareNextRuntime(options: PrepareNextRuntimeOptions): Pr
   const paths = nextRuntimeBuildPaths(options.desktopRoot)
   const log = options.log ?? console.log
   rmSync(paths.runtime, { recursive: true, force: true })
-  const targets = nextRuntimeTargets(options.platform, options.hostArch)
+  const targets = nextRuntimeTargets(options.platform, options.hostArch, process.env, options.macCpus)
   if (targets.length === 0) {
     log(`Next ships no interpreter payload for ${options.platform}`)
     return paths.runtime
@@ -129,11 +134,13 @@ export async function prepareNextRuntime(options: PrepareNextRuntimeOptions): Pr
  * @param platform - Platform the payloads target.
  * @param log - Progress output.
  * @param hostArch - Build host architecture, used on Linux where packages are single-architecture.
+ * @param macCpus - Darwin CPUs prepared instead; see {@link nextRuntimeTargets}.
  * @returns CPUs whose payload ran.
  */
-export function smokeNextRuntime(runtimeRoot: string, platform: NodeJS.Platform, log: (message: string) => void = console.log, hostArch: string = process.arch): NextRuntimeArch[] {
+export function smokeNextRuntime(runtimeRoot: string, platform: NodeJS.Platform, log: (message: string) => void = console.log, hostArch: string = process.arch,
+  macCpus?: readonly NextRuntimeArch[]): NextRuntimeArch[] {
   const executed: NextRuntimeArch[] = []
-  for (const { arch } of nextRuntimeTargets(platform, hostArch)) {
+  for (const { arch } of nextRuntimeTargets(platform, hostArch, process.env, macCpus)) {
     const root = primaryRuntimeDirectory(runtimeRoot, arch)
     const launcher = platform === 'darwin' && arch === 'x64' && process.arch === 'arm64' && rosettaAvailable() ? ['/usr/bin/arch', '-x86_64'] : undefined
     if (smokePrimaryRuntime(root, { launcher })) {
@@ -163,11 +170,13 @@ function requireFile(path: string, description: string): void {
  * @param platform - Platform the package targets.
  * @param expectedVersion - Product version every manifest must record.
  * @param hostArch - Build host architecture, used on Linux where packages are single-architecture.
+ * @param macCpus - Darwin CPUs prepared instead; see {@link nextRuntimeTargets}.
  * @returns The verified payloads in target order.
  */
-export function verifyNextRuntimeTree(runtimeRoot: string, platform: NodeJS.Platform, expectedVersion: string, hostArch: string = process.arch): VerifiedNextRuntime[] {
+export function verifyNextRuntimeTree(runtimeRoot: string, platform: NodeJS.Platform, expectedVersion: string, hostArch: string = process.arch,
+  macCpus?: readonly NextRuntimeArch[]): VerifiedNextRuntime[] {
   const verified: VerifiedNextRuntime[] = []
-  for (const { arch } of nextRuntimeTargets(platform, hostArch)) {
+  for (const { arch } of nextRuntimeTargets(platform, hostArch, process.env, macCpus)) {
     const directory = primaryRuntimeDirectory(runtimeRoot, arch)
     const manifestFile = join(directory, 'runtime.json')
     requireFile(manifestFile, `${arch} payload manifest`)
@@ -203,6 +212,7 @@ export function verifyNextRuntimeTree(runtimeRoot: string, platform: NodeJS.Plat
  * @param platform - Platform the package targets.
  * @param expectedVersion - Product version every manifest must record.
  * @param hostArch - Build host architecture, used on Linux where packages are single-architecture.
+ * @param macCpus - Darwin CPUs prepared instead; see {@link nextRuntimeTargets}.
  * @returns The verified payloads when the existing tree can be reused, or an empty array.
  */
 export function reusableNextRuntimeTree(
@@ -210,11 +220,12 @@ export function reusableNextRuntimeTree(
   platform: NodeJS.Platform,
   expectedVersion: string,
   hostArch: string = process.arch,
+  macCpus?: readonly NextRuntimeArch[],
 ): VerifiedNextRuntime[] {
-  const targets = nextRuntimeTargets(platform, hostArch)
+  const targets = nextRuntimeTargets(platform, hostArch, process.env, macCpus)
   if (targets.length === 0 || !existsSync(runtimeRoot)) return []
   try {
-    const verified = verifyNextRuntimeTree(runtimeRoot, platform, expectedVersion, hostArch)
+    const verified = verifyNextRuntimeTree(runtimeRoot, platform, expectedVersion, hostArch, macCpus)
     const expectedArchs = new Set<string>(targets.map(item => item.arch))
     if (readdirSync(runtimeRoot).some(entry => !expectedArchs.has(entry))) return []
     const lock = readPrimaryRuntimeLock()
@@ -236,13 +247,16 @@ if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.m
   const desktopRoot = resolve(import.meta.dirname, '..')
   const version = expectedNextVersion(desktopRoot)
   const paths = nextRuntimeBuildPaths(desktopRoot)
-  const reusable = reusableNextRuntimeTree(paths.runtime, process.platform, version)
+  // `dev` and `start` run this entry, and the development shell selects the payload of its own CPU (src/main.ts), so a
+  // Mac prepares that one, as upstream's development launcher does. Packaging prepares every CPU through package.ts.
+  const macCpus = process.platform === 'darwin' ? [process.arch === 'x64' ? 'x64' : 'arm64'] as const : undefined
+  const reusable = reusableNextRuntimeTree(paths.runtime, process.platform, version, process.arch, macCpus)
   if (reusable.length > 0) {
     console.log(`Reusing prepared primary runtime for ${reusable.map(item => item.arch).join(', ')}`)
   } else {
-    const root = await prepareNextRuntime({ desktopRoot, platform: process.platform, version })
-    verifyNextRuntimeTree(root, process.platform, version)
-    smokeNextRuntime(root, process.platform)
+    const root = await prepareNextRuntime({ desktopRoot, platform: process.platform, version, macCpus })
+    verifyNextRuntimeTree(root, process.platform, version, process.arch, macCpus)
+    smokeNextRuntime(root, process.platform, console.log, process.arch, macCpus)
   }
-  if (process.platform === 'darwin') prepareCuaNative(desktopRoot, [process.arch === 'x64' ? 'x64' : 'arm64'])
+  if (macCpus !== undefined) prepareCuaNative(desktopRoot, macCpus)
 }

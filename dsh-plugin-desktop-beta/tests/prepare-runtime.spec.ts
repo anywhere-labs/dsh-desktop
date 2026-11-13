@@ -60,6 +60,13 @@ it('ships both Darwin CPUs by default or the requested smoke CPU, Windows x64, t
   expect(nextRuntimeTargets('freebsd')).toEqual([])
 })
 
+it('prepares only the Darwin CPUs a caller names, as a development launch names its own, and ignores them elsewhere', () => {
+  expect(nextRuntimeTargets('darwin', 'arm64', {}, ['arm64'])).toEqual([{ target: 'mac-arm64', arch: 'arm64' }])
+  expect(nextRuntimeTargets('darwin', 'x64', { DSH_MAC_SMOKE_ARCH: 'arm64' }, ['x64'])).toEqual([{ target: 'mac-x64', arch: 'x64' }])
+  expect(nextRuntimeTargets('win32', 'x64', {}, ['arm64'])).toEqual([{ target: 'win-x64', arch: 'x64' }])
+  expect(nextRuntimeTargets('linux', 'arm64', {}, ['x64'])).toEqual([{ target: 'linux-arm64', arch: 'arm64' }])
+})
+
 it('lays out each CPU payload beside its Office resources under the build directory', () => {
   expect(nextRuntimeBuildPaths('/next')).toEqual({ runtime: join('/next', '.desktop-build', 'runtime'), downloads: join('/next', '.desktop-build', 'downloads') })
   expect(primaryRuntimeDirectory('/resources/runtime', 'x64')).toBe(join('/resources/runtime', 'x64', 'primary-runtime'))
@@ -148,4 +155,17 @@ it('reuses a runtime tree only when every target matches the current lock digest
   rmSync(join(root, 'stale'), { recursive: true, force: true })
   writePayload(root, 'x64', { manifest: { payloadDigest: '0'.repeat(64) } })
   expect(reusableNextRuntimeTree(root, 'darwin', '2.0.0-beta.1')).toEqual([])
+})
+
+it('reuses a tree only for the CPUs it was prepared for, so development and packaging each prepare their own', () => {
+  const lock = readPrimaryRuntimeLock()
+  const pnpmVersion = (JSON.parse(readFileSync(createRequire(import.meta.url).resolve('pnpm'), 'utf8')) as { version: string }).version
+  const root = fixture()
+  writePayload(root, 'arm64', { manifest: { payloadDigest: primaryRuntimePayloadDigest('mac-arm64', lock, pnpmVersion) } })
+  expect(verifyNextRuntimeTree(root, 'darwin', '2.0.0-beta.1', 'arm64', ['arm64'])).toHaveLength(1)
+  expect(reusableNextRuntimeTree(root, 'darwin', '2.0.0-beta.1', 'arm64', ['arm64'])).toHaveLength(1)
+  expect(reusableNextRuntimeTree(root, 'darwin', '2.0.0-beta.1')).toEqual([])
+  writePayload(root, 'x64', { manifest: { payloadDigest: primaryRuntimePayloadDigest('mac-x64', lock, pnpmVersion) } })
+  expect(reusableNextRuntimeTree(root, 'darwin', '2.0.0-beta.1')).toHaveLength(2)
+  expect(reusableNextRuntimeTree(root, 'darwin', '2.0.0-beta.1', 'arm64', ['arm64'])).toEqual([])
 })

@@ -111,7 +111,7 @@ yarn check
 yarn dev
 ```
 
-`dev` 会在启动前自动构建，不需要另行手动构建。`dev` 和 `start` 还会在壳启动前于 `.desktop-build/runtime` 下准备随包解释器载荷，与上游桌面端的开发启动器一致，因此开发运行中也有 Office 技能；首次启动会下载上游锁文件固定的压缩包和 wheel，`yarn prepare:runtime` 可单独执行这一步。
+`dev` 会在启动前自动构建，不需要另行手动构建。`dev` 和 `start` 还会在壳启动前于 `.desktop-build/runtime` 下准备随包解释器载荷，与上游桌面端的开发启动器一致，因此开发运行中也有 Office 技能。和该启动器一样，它们只准备壳所运行 CPU 的那份载荷，打包时才会同时准备 macOS 两种 CPU 的载荷。首次启动会下载上游锁文件为该 CPU 固定的压缩包和 wheel，`yarn prepare:runtime` 可单独执行这一步。
 
 以下 headless-safe 启动器入口不会导入或启动 Electron：
 
