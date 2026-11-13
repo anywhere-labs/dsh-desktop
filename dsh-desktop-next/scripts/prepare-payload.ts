@@ -11,7 +11,7 @@ import { packagingStep, packagingStepSync } from './packaging-step.ts'
 import { windowsCodePayload, writeWindowsCodeFiles } from './windows-asar-unpack.ts'
 
 /** Shell entries copied beside the dependency tree; `package.json` is written separately. */
-const SHELL_ENTRIES = ['lib', 'assets', 'build/app-icon.ico', 'build/app-icon.png', 'build/app-icon-mac.png',
+const SHELL_ENTRIES = ['lib', 'assets', 'build/app-icon.ico', 'build/app-icon.png', 'build/app-icon-mac.png', 'build/icons/128x128.png',
   'cordis.patch.yml', 'host.cordis.patch.yml', 'scripts/node-bin'] as const
 
 /** Names electron-builder's walker never copies; the inventory has to agree with it. */
