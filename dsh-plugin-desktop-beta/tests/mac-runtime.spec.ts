@@ -2,7 +2,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
-import { assertMacPackagesRunnable, DEFAULT_MAC_RELEASE_ARCHS, macDmgArch, macPackageCpus, macReleaseArchs, nextMacNativeEntries, PACKAGED_RUNTIME_DIR, stagePackagedRuntime } from '../scripts/mac-runtime.ts'
+import { assertMacPackagesRunnable, DEFAULT_MAC_RELEASE_ARCHS, macDmgArch, macPackageCpus, macReleaseArchs, macReleaseNotarization, nextMacNativeEntries, PACKAGED_RUNTIME_DIR, stagePackagedRuntime } from '../scripts/mac-runtime.ts'
 
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
@@ -21,6 +21,14 @@ it('builds a DMG per CPU and the universal one older installations update to, un
   for (const value of ['arm64,arm64', 'amd64', 'arm64,,x64', 'mac-arm64']) {
     expect(() => macReleaseArchs({ DSH_MAC_RELEASE_ARCHS: value }), value).toThrow('DSH_MAC_RELEASE_ARCHS must list arm64, x64 or universal')
   }
+})
+
+it('signs without notarizing only a drill build that asks for it', () => {
+  expect(macReleaseNotarization({}, undefined)).toBe(true)
+  expect(macReleaseNotarization({ DSH_MAC_SKIP_NOTARIZATION: '0' }, '2.0.22-beta.2')).toBe(true)
+  expect(macReleaseNotarization({ DSH_MAC_SKIP_NOTARIZATION: '1' }, '2.0.22-beta.2')).toBe(false)
+  expect(() => macReleaseNotarization({ DSH_MAC_SKIP_NOTARIZATION: '1' }, undefined)).toThrow('only for drill builds')
+  expect(() => macReleaseNotarization({ DSH_MAC_SKIP_NOTARIZATION: 'yes' }, '2.0.22-beta.2')).toThrow('must be 1 or unset')
 })
 
 it('reads the package a DMG holds from the architecture electron-builder names it after', () => {

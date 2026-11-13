@@ -12,7 +12,7 @@ import { packageMacSmoke } from '../../dsh-plugin-desktop/scripts/package-mac.ts
 import { macSmokeArchitecture } from '../../dsh-plugin-desktop/scripts/mac-universal.ts'
 import { createWindowsPackageOptions, packageWindowsArtifact, packageWindowsInstaller } from '../../dsh-plugin-desktop/scripts/package-win.ts'
 import { DESKTOP_RUNTIME_FILE } from '../src/runtime-tree.ts'
-import { assertMacPackagesRunnable, macPackageCpus, macReleaseArchs, prepareNextMacRuntime, stagePackagedRuntime, type MacPackageArch, type MacPackageCpu } from './mac-runtime.ts'
+import { assertMacPackagesRunnable, macPackageCpus, macReleaseArchs, macReleaseNotarization, prepareNextMacRuntime, stagePackagedRuntime, type MacPackageArch, type MacPackageCpu } from './mac-runtime.ts'
 import { linuxPackageTargets, macSmokeTarget } from './package-targets.ts'
 import { rosettaAvailable } from './primary-runtime.ts'
 import { runNextPackagingCommand } from './packaging-command.ts'
@@ -141,9 +141,10 @@ if (mode === 'dir') {
   const releaseArchs = macReleaseArchs(process.env)
   assertMacPackagesRunnable(releaseArchs, process.arch, rosettaAvailable)
   const releaseCpus = (['arm64', 'x64'] as const).filter(cpu => releaseArchs.some(arch => macPackageCpus(arch).includes(cpu)))
+  const notarize = macReleaseNotarization(process.env, TEST_BUILD_VERSION)
   // The preflight the shared release flow repeats; the payload signatures must carry the identity it selects.
   const releaseEnvironment = adaptMacReleaseEnvironment(process.env)
-  const ready = assertMacReleaseReady({ env: releaseEnvironment, platform: process.platform,
+  const ready = assertMacReleaseReady({ env: releaseEnvironment, platform: process.platform, notarize,
     listCodeSigningIdentities: () => listCodeSigningIdentities(withoutMacReleaseSecrets(releaseEnvironment)) })
   await prepareInterpreters(root => withMacSigningIdentity(releaseEnvironment, ready.identity, async (signer) => {
     for (const { arch } of nextRuntimeTargets('darwin', process.arch, process.env, releaseCpus)) {
@@ -151,8 +152,8 @@ if (mode === 'dir') {
       console.log(`Signed ${String(signed)} native files of the ${arch} primary runtime as ${ready.identity}`)
     }
   }), releaseCpus)
-  console.log(`Building the macOS DMGs for ${releaseArchs.join(', ')}`)
-  releaseMac({ ...shared, listCodeSigningIdentities, targets: releaseArchs, prepareRuntime: target => { prepareRuntime('darwin', target) } })
+  console.log(`Building the macOS DMGs for ${releaseArchs.join(', ')}${notarize ? '' : ', signed without notarization for a drill'}`)
+  releaseMac({ ...shared, listCodeSigningIdentities, targets: releaseArchs, notarize, prepareRuntime: target => { prepareRuntime('darwin', target) } })
 } else if (mode === 'mac-smoke') {
   assertMacPackagesRunnable([macSmokeArchitecture(process.env)], process.arch, rosettaAvailable)
   await prepareInterpreters()

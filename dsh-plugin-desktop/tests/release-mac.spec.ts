@@ -141,6 +141,26 @@ describe('macOS release command boundary', () => {
     expect(calls[6]?.env).toEqual({ PATH: '/usr/bin' })
   })
 
+  it('signs a drill build without notarizing it and tells the verifier so', () => {
+    const calls: CommandCall[] = []
+    const logs: string[] = []
+    releaseMac({ ...baseOptions({ PATH: '/usr/bin' }, calls, [], logs), targets: ['arm64'], notarize: false })
+
+    expect(calls).toHaveLength(5)
+    expect(calls[3]?.args).toContain('--config.forceCodeSigning=true')
+    expect(calls[3]?.args).toContain('--config.mac.notarize=false')
+    expect(calls[4]?.env).toEqual({ PATH: '/usr/bin', DSH_MAC_SKIP_NOTARIZATION: '1' })
+    expect(logs[0]).toContain('notarization skipped for a drill build')
+  })
+
+  it('never lets a notarized release skip the verifier notarization checks', () => {
+    const calls: CommandCall[] = []
+    releaseMac(baseOptions({ PATH: '/usr/bin', APPLE_KEYCHAIN_PROFILE: 'dsh-notary', DSH_MAC_SKIP_NOTARIZATION: '1' }, calls))
+
+    expect(calls[3]?.args).toContain('--config.mac.notarize=true')
+    expect(calls[4]?.env.DSH_MAC_SKIP_NOTARIZATION).toBeUndefined()
+  })
+
   it('adapts the existing P12 variables only for electron-builder', () => {
     const calls: CommandCall[] = []
     const p12Password = 'p12-password-that-must-not-be-logged'

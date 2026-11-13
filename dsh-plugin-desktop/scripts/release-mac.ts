@@ -45,6 +45,11 @@ export interface MacReleaseOptions {
   readonly targets?: readonly MacReleaseTarget[]
   /** Validate and prepare the runtime trees the next DMG packages. */
   readonly prepareRuntime: (target: MacReleaseTarget) => void
+  /**
+   * Notarize the DMGs. Only a drill build passes false: it is signed for the in-app updater, which checks the signing
+   * team, and Gatekeeper refuses it when it is opened from a download. Defaults to true.
+   */
+  readonly notarize?: boolean
 }
 
 function listCodeSigningIdentities(env: NodeJS.ProcessEnv): string {
@@ -93,15 +98,18 @@ function defaultReleaseOptions(): MacReleaseOptions {
  * @param options - Injectable process and command boundaries.
  */
 export function releaseMac(options: MacReleaseOptions = defaultReleaseOptions()): void {
+  const notarize = options.notarize !== false
   const releaseEnvironment = adaptMacReleaseEnvironment(options.env)
   const buildEnvironment = withoutMacReleaseSecrets(releaseEnvironment)
   const result = assertMacReleaseReady({
     env: releaseEnvironment,
     platform: options.platform,
+    notarize,
     listCodeSigningIdentities: () => options.listCodeSigningIdentities(buildEnvironment),
   })
   options.log(
-    `macOS release preflight passed: ${result.identity}; signing via ${result.signing}; notarization via ${result.notarization}`,
+    `macOS release preflight passed: ${result.identity}; signing via ${result.signing}; ${result.notarization === 'skipped'
+      ? 'notarization skipped for a drill build' : `notarization via ${result.notarization}`}`,
   )
 
   // The workspace check includes the package build and repository-layout gate. Signing
@@ -119,16 +127,20 @@ export function releaseMac(options: MacReleaseOptions = defaultReleaseOptions())
     options.prepareRuntime(target)
     options.run('yarn', [
       'exec', 'electron-builder', '--mac', 'dmg', `--${target}`,
-      '--config.forceCodeSigning=true', '--config.mac.notarize=true',
+      '--config.forceCodeSigning=true', `--config.mac.notarize=${String(notarize)}`,
       '--config.npmRebuild=false',
       `--config.directories.output=${options.outputDir}`,
     ], options.desktopRoot, electronBuilderEnvironment(releaseEnvironment))
   }
+  // The verifier leaves out the Gatekeeper and stapler checks only for a DMG built without notarization.
+  const verifyEnvironment = { ...buildEnvironment }
+  if (notarize) delete verifyEnvironment.DSH_MAC_SKIP_NOTARIZATION
+  else verifyEnvironment.DSH_MAC_SKIP_NOTARIZATION = '1'
   options.run(
     process.execPath,
     ['scripts/verify-mac-release.ts', options.outputDir],
     options.desktopRoot,
-    buildEnvironment,
+    verifyEnvironment,
   )
 }
 

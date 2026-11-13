@@ -39,7 +39,8 @@ export function expectedMacDmgs(dmgs: readonly string[], expected: readonly MacP
  * the mount point, and the same application checks run in place.
  * @param signed - Whether a signed release is verified; smokes skip the signature and notarization checks.
  * @param distDir - Output directory of the build.
- * @param env - Environment selecting the smoke architecture and target.
+ * @param env - Environment selecting the smoke architecture and target; `DSH_MAC_SKIP_NOTARIZATION=1` marks a drill
+ * build signed without notarization, whose Gatekeeper and stapler checks are left out.
  * @param run - Executes one verification command.
  * @param dmg - The package and DMG to check; without one, the `DSH_MAC_SMOKE_ARCH` package and every DMG in the directory.
  * @returns Options for the shared release verifier.
@@ -50,6 +51,7 @@ export function nextMacVerification(signed: boolean, distDir: string, env: NodeJ
   const cpus = macPackageCpus(arch)
   const slices: string[] = cpus.map(cpu => cpu === 'x64' ? 'x86_64' : 'arm64')
   const inPlace = !signed && dmg === undefined && macSmokeTarget(env) === 'dir' ? join(distDir, macApplicationDirectory(arch)) : undefined
+  const notarized = signed && env.DSH_MAC_SKIP_NOTARIZATION !== '1'
   return { distDir, productName: 'DSH Desktop Beta', nativeEntries: nextMacNativeEntries(cpus),
     // Next archives its application; native files live beside the archive.
     unpackedRoot: appPath => join(appPath, 'Contents', 'Resources', 'app.asar.unpacked'),
@@ -64,6 +66,8 @@ export function nextMacVerification(signed: boolean, distDir: string, env: NodeJ
     run: (command, args) => {
       if (inPlace !== undefined && command === 'hdiutil') return
       if (!signed && ['codesign', 'spctl', 'xcrun'].includes(command)) return
+      // A drill build signed without notarization carries no ticket for Gatekeeper or the stapler to accept.
+      if (signed && !notarized && ['spctl', 'xcrun'].includes(command)) return
       // The shared verifier asks for both slices of the main executable; verifyRuntime requires the package's exact set.
       if (command === 'lipo' && args[1] === '-verify_arch' && args[0]?.includes('/Contents/MacOS/') && !slices.includes(args[2]!)) return
       run(command, args)

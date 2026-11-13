@@ -60,6 +60,22 @@ export function macReleaseArchs(env: NodeJS.ProcessEnv): readonly MacPackageArch
 }
 
 /**
+ * Whether a signed release notarizes its DMGs. A drill build, one packaged with a test build version
+ * (`DSH_NEXT_BUILD_VERSION`), may set `DSH_MAC_SKIP_NOTARIZATION=1` to be signed without being notarized: the in-app
+ * updater installs it, since it checks the signing team, while Gatekeeper refuses it when it is opened from a download.
+ * @param env - Packaging environment.
+ * @param testBuildVersion - The drill build version, when one is set.
+ * @returns False only for a drill build that skips notarization.
+ */
+export function macReleaseNotarization(env: NodeJS.ProcessEnv, testBuildVersion: string | undefined): boolean {
+  const value = env.DSH_MAC_SKIP_NOTARIZATION?.trim()
+  if (value === undefined || value === '' || value === '0') return true
+  if (value !== '1') throw new Error(`DSH_MAC_SKIP_NOTARIZATION must be 1 or unset; received ${JSON.stringify(value)}`)
+  if (testBuildVersion === undefined) throw new Error('DSH_MAC_SKIP_NOTARIZATION is only for drill builds, which set DSH_NEXT_BUILD_VERSION')
+  return false
+}
+
+/**
  * The package a DMG holds, from the `${arch}` electron-builder writes before the extension.
  * @param path - DMG path or name.
  * @returns The package, or undefined for a name without one.

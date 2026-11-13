@@ -132,6 +132,20 @@ describe('macOS release preflight', () => {
     })).toThrow('APPLE_KEYCHAIN_PROFILE')
   })
 
+  it('waives the notarization credentials only for a build that asks not to notarize, never the signing checks', () => {
+    const options = { platform: 'darwin' as const, listCodeSigningIdentities: () => DEVELOPER_ID_OUTPUT }
+    expect(assertMacReleaseReady({ ...options, env: {}, notarize: false })).toEqual({
+      identity: 'Developer ID Application: Mengxin Yang (TEAM123456)',
+      notarization: 'skipped',
+      signing: 'keychain',
+    })
+    expect(() => assertMacReleaseReady({ ...options, env: {} })).toThrow('macOS notarization credentials are required')
+    expect(() => assertMacReleaseReady({ ...options, env: { CSC_IDENTITY_AUTO_DISCOVERY: 'false' }, notarize: false }))
+      .toThrow('would disable macOS release signing')
+    expect(() => assertMacReleaseReady({ ...options, env: {}, notarize: false, listCodeSigningIdentities: () => '0 valid identities found' }))
+      .toThrow('Developer ID Application certificate')
+  })
+
   it('removes every recognized release variable from ordinary build environments', () => {
     const input = {
       SAFE_BUILD_VALUE: 'kept',

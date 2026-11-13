@@ -105,4 +105,18 @@ describe('macOS smoke verification', () => {
       rmSync(dist, { recursive: true, force: true })
     }
   })
+
+  it('leaves out the Gatekeeper and stapler checks only for a drill build signed without notarization', () => {
+    const commands: Command[] = []
+    const record = (command: string, args: readonly string[]) => { commands.push([command, ...args]) }
+    const dmg = { arch: 'arm64' as const, path: '/repo/dist/mac-release/DSH-Desktop-Beta-2.0.22-beta.2-arm64.dmg' }
+    const drill = nextMacVerification(true, '/repo/dist/mac-release', { DSH_MAC_SKIP_NOTARIZATION: '1' }, record, dmg)
+    drill.run('spctl', ['--assess', '--type', 'execute', '/app'])
+    drill.run('xcrun', ['stapler', 'validate', '/app'])
+    expect(commands).toEqual([])
+    const release = nextMacVerification(true, '/repo/dist/mac-release', {}, record, dmg)
+    release.run('spctl', ['--assess', '--type', 'execute', '/app'])
+    release.run('xcrun', ['stapler', 'validate', '/app'])
+    expect(commands).toEqual([['spctl', '--assess', '--type', 'execute', '/app'], ['xcrun', 'stapler', 'validate', '/app']])
+  })
 })
