@@ -24,6 +24,7 @@ import { resolveDesktopShellEnvironment, type DesktopShellEnvironmentResolution 
 import { ensureUtf8Locale } from './shell-locale.ts'
 import { DEFAULT_PROFILE, NATIVE_ACCESS_HEADER, type DesktopCommand, type DesktopState, type DesktopSettingsPage } from './desktop-contract.ts'
 import { portsChanged, parsePreferences } from './desktop-preferences.ts'
+import { hostStartupLimitTitle, hostStartupTimeoutFromId, hostStartupTimeoutLabel } from './host-startup-limit.ts'
 import { NativeDesktop, applyWindowMaterial } from './native-desktop.ts'
 import { desktopLanAddresses } from './lan-addresses.ts'
 import { createLanHttpsCertificate, lanHttpsCertificateDiagnostic } from './lan-https-certificate.ts'
@@ -221,6 +222,7 @@ const runtime = new NextDesktopRuntime({
   onRestart: () => run({ type: 'restart' }),
   onTerminal: () => run({ type: 'terminal' }),
   onNotification: notification => native.notify(notification),
+  onStartupSlow: notice => quitting || !app.isReady() ? () => {} : native.notifyStartupSlow(notice),
   onPlatformSession: session => platformView.setSession(session),
   onPlatformLogin: (request) => {
     if (quitting || !app.isReady()) return
@@ -1017,6 +1019,18 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
         : t('应用将退出恢复助手，重新启动原 Profile。', 'The app will leave the recovery assistant and restart the original Profile.'))) return
     relaunch = relaunchArguments(process.argv.slice(1), false, false)
     app.quit()
+    return
+  }
+  if (action === 'host-startup-timeout') {
+    // The original environment's limit; Safe Mode keeps its own fixed one.
+    const limit = hostStartupTimeoutFromId(input.id)
+    runtime.saveStartupTimeout(limit)
+    runtime.diagnostics.record({ source: 'desktop', event: 'host.start-limit.saved', fields: { limit, safeMode: runtime.safeMode } })
+    const zh = language() === 'zh'
+    const restart = runtime.safeMode ? t('退出安全模式并重启', 'Exit Safe Mode and Restart') : t('退出并重启', 'Quit and restart')
+    recoveryNotice = { tone: 'success', title: hostStartupLimitTitle(zh),
+      body: t(`已改为${limit === 'none' ? '' : ' '}${hostStartupTimeoutLabel(limit, zh)}。请点击“${restart}”使其生效。`,
+        `${limit === 'none' ? 'The startup limit is removed' : `The startup limit is now ${String(limit)} seconds`}. Choose “${restart}” to apply it.`) }
     return
   }
   const directory = runtime.profiles.directory(runtime.selected)

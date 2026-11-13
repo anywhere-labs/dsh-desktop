@@ -27,6 +27,7 @@ import { installSkillBadgeResolution } from './skill-badge.ts'
 import { formatFatalDiagnostic } from './fatal-diagnostic.ts'
 import * as desktopOffice from './office.ts'
 import { resolveOfficeConfig } from './office.ts'
+import { readStartupEntries } from './startup-entries.ts'
 
 export async function main(): Promise<void> {
   // The Host lists and reads user workspaces; see asar-archive-policy.ts.
@@ -122,6 +123,18 @@ export async function main(): Promise<void> {
       return
     }
     if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'shutdown') void stop().catch(fatal)
+    if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'startup-entries') {
+      // The shell asks while the profile still starts; the answer names what holds `loader.await()`.
+      const query = value as { requestId?: unknown }
+      if (!Number.isSafeInteger(query.requestId)) return
+      let answer: object
+      try {
+        const entries = readStartupEntries()
+        answer = entries === undefined ? { error: 'The Host has not started loading plugins yet' } : { entries }
+      } catch (error) { answer = { error: `Could not read the Loader: ${String(error)}` } }
+      void send({ type: 'startup-entries', requestId: query.requestId, ...answer }).catch(fatal)
+      return
+    }
     if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'injections') {
       // dsh 0.1.7 serves the boot graph as revision-addressed combo bundles, and registering a
       // plugin rebuilds that table. A document reloading against the table captured at startup

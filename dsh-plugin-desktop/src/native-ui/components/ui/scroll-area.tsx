@@ -1,9 +1,10 @@
 import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area'
 import { cn } from '../../lib/utils.ts'
 
-function ScrollArea({ className, children, ...props }: ScrollAreaPrimitive.Root.Props): JSX.Element {
+/** `viewportClassName` bounds content that sizes itself, such as a log capped by `max-h-*`. */
+function ScrollArea({ className, viewportClassName, children, ...props }: ScrollAreaPrimitive.Root.Props & { readonly viewportClassName?: string }): JSX.Element {
   return <ScrollAreaPrimitive.Root className={cn('relative', className)} data-slot="scroll-area" {...props}>
-    <ScrollAreaPrimitive.Viewport className="size-full rounded-[inherit] outline-none transition-[color,box-shadow] focus-visible:ring-3 focus-visible:ring-ring/50" data-slot="scroll-area-viewport">
+    <ScrollAreaPrimitive.Viewport className={cn('size-full rounded-[inherit] outline-none transition-[color,box-shadow] focus-visible:ring-3 focus-visible:ring-ring/50', viewportClassName)} data-slot="scroll-area-viewport">
       {children}
     </ScrollAreaPrimitive.Viewport>
     <ScrollBar />

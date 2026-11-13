@@ -15,6 +15,7 @@ import { hostExitDetail } from '../exit-code.ts'
 import { recoverySupport } from '../recovery-support.ts'
 import './theme.css'
 import { Onboarding } from './onboarding.tsx'
+import { STARTUP_LIMIT_ACTION, StartupLimitCard } from './startup-limit.tsx'
 
 function App() {
   const adapter = useMemo(() => window.desktopNext ? new NextSettingsAdapter(window.desktopNext) : undefined, [])
@@ -55,7 +56,7 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
       const recoveryActions = ['open-checkpoint', 'preview-checkpoint', 'preview-uninstall',
         'preview-disable', 'preview-enable', 'open-settings-document',
         'open-profile-patch', 'open-profile-manifest', 'show-diagnostics', 'show-failure-report', 'begin-change-data-directory',
-        'restore-default-data-directory', 'factory-reset']
+        'restore-default-data-directory', 'factory-reset', STARTUP_LIMIT_ACTION]
       if (recoveryActions.includes(url.hostname)) {
         const slot = /^slot-([123])$/.exec(url.searchParams.get('id') ?? '')
         const id = slot ? state?.recovery?.checkpoints[Number(slot[1]) - 1]?.id : url.searchParams.get('id') ?? undefined
@@ -129,7 +130,9 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     terminalAvailable: state.platform === 'darwin' || state.platform === 'win32', safeModeAvailable: !state.safeMode, safeModeActive: state.safeMode,
     quickActions, notice: notice ?? (busy ? undefined : state.recovery?.notice),
   }
-  return <RecoveryApp state={recovery} copy={copy} support={recoverySupport(locale)} />
+  return <RecoveryApp state={recovery} copy={copy} support={recoverySupport(locale)}
+    quickCards={<StartupLimitCard locale={locale} value={state.hostStartupTimeout} safeMode={state.safeMode}
+      timeout={state.safeMode ? undefined : state.failureTimeout} restart={copy.restart} pluginsTab={copy.tabs.plugins} />} />
 }
 
 createRoot(document.getElementById('root')!).render(<CSPProvider disableStyleElements><App /></CSPProvider>)

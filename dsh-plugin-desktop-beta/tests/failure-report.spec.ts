@@ -31,6 +31,16 @@ it('renders the failure with the Host diagnostic or the shell error details, mas
   expect(shell.endsWith('log line 5999\n\n')).toBe(true)
 })
 
+it('lists every plugin a timed-out start was still loading right after the failure (#1617)', () => {
+  const report = renderFailureReport({ ...base, failure: 'Host startup exceeded 60 seconds\nStill loading: magpie-mcp-deepwiki (@deepseek-ai/dsh-mcp-client, starting, 47 s).',
+    startup: { seconds: 60, pending: [{ id: 'magpie-mcp-deepwiki', name: '@deepseek-ai/dsh-mcp-client', phase: 'starting', waitedMs: 46_700 },
+      { id: 'token=abcdef', name: '@fixture/plugin', phase: 'importing', waitedMs: 1_200 }] } })
+  expect(report).toContain('starting, 47 s).\n\n--- plugins still loading at the 60-second startup limit ---\n'
+    + 'magpie-mcp-deepwiki (@deepseek-ai/dsh-mcp-client): starting, 47 s since the Host created it\n'
+    + 'token=**** (@fixture/plugin): importing, 1 s since the Host created it\n\n--- recent log')
+  expect(renderFailureReport({ ...base, startup: { seconds: 120 } })).toContain('--- plugins still loading at the 120-second startup limit ---\n(the Host did not answer)\n')
+})
+
 it('writes private reports that are never replaced and keeps the newest ten beside unrelated log files', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'next-failure-report-'))
   directories.push(directory)

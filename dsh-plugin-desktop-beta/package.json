@@ -310,6 +310,7 @@
       "default": "./lib/permissions.js"
     },
     "./package.json": "./package.json",
+    "./startup-entries": "./lib/startup-entries.js",
     "./webserver": "./lib/webserver.js"
   },
   "dsh": {

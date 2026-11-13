@@ -1,6 +1,7 @@
 /** General renderer state omits credentials; browser login links use a separate native operation. */
 import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
 import type { DesktopHostExit } from './exit-code.ts'
+import { DEFAULT_HOST_STARTUP_TIMEOUT, type DesktopStartupTimeoutFailure, type HostStartupTimeout } from './host-startup-limit.ts'
 import type { Features, OnboardingChoices } from './profiles.ts'
 import type { DesktopLanHttpsRuntimeSnapshot } from './lan-https-runtime.ts'
 import type { DesktopPermissions } from './permissions.ts'
@@ -37,13 +38,15 @@ export interface DesktopPreferences {
   jobFailed: boolean
   scheduleCompleted: boolean
   scheduleFailed: boolean
+  /** How long a Host start may take before recovery opens; stored apart, see desktop-preferences.ts. */
+  hostStartupTimeout: HostStartupTimeout
 }
 
 export const DEFAULT_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
   closeToTray: true, macosMaterial: 'transparent', windowsMaterial: 'off', linuxMaterial: 'off',
   browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
   sidebarFooterCompat: true, sidebarFooterBalanced: true, notifications: true, turnCompleted: true, turnFailed: true, jobCompleted: false, jobFailed: false,
-  scheduleCompleted: true, scheduleFailed: true,
+  scheduleCompleted: true, scheduleFailed: true, hostStartupTimeout: DEFAULT_HOST_STARTUP_TIMEOUT,
 })
 
 /** Fixed startup defaults matching Beta's disposable Safe Mode settings. */
@@ -51,7 +54,7 @@ export const SAFE_MODE_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze
   ...DEFAULT_PREFERENCES, macosMaterial: 'off', windowsMaterial: 'off', linuxMaterial: 'off',
   browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
   sidebarFooterCompat: true, sidebarFooterBalanced: true, notifications: false, turnCompleted: false, turnFailed: false, jobCompleted: false, jobFailed: false,
-  scheduleCompleted: false, scheduleFailed: false,
+  scheduleCompleted: false, scheduleFailed: false, hostStartupTimeout: DEFAULT_HOST_STARTUP_TIMEOUT,
 })
 
 /** A failure report being written, saved to `file`, or not written. */
@@ -70,6 +73,8 @@ export interface DesktopState {
   failureStage?: DesktopFailureStage
   /** How the Host ended, when its exit is the failure. */
   failureExit?: DesktopHostExit
+  /** The limit a Host start exceeded and what it was still loading, when that is the failure. */
+  failureTimeout?: DesktopStartupTimeoutFailure
   /** The report saved in the logs directory when `failure` opened recovery. */
   failureReport?: DesktopFailureReport
   /** Frozen, masked failure context, including the original error and this run’s log. */
@@ -77,6 +82,8 @@ export interface DesktopState {
   /** A Desktop action that failed after `failure`; shown beside it, never replacing it. */
   actionFailure?: string
   safeMode: boolean
+  /** The Host startup limit saved for the original environment, which Safe Mode does not apply. */
+  hostStartupTimeout?: HostStartupTimeout
   /** The selected Profile needs Desktop setup in the running official client. */
   onboarding?: boolean
   /** Initial saved choice for setup; live state belongs to pluginManager. */

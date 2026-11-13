@@ -7,6 +7,7 @@ import { appendFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { inspect } from 'node:util'
 import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
+import { startupEntriesSection, type DesktopStartupTimeoutFailure } from './host-startup-limit.ts'
 import { maskSecrets } from './mask-secrets.ts'
 import { privateDirectory } from './private-files.ts'
 import type { RendererDiagnostics, RendererDiagnosticsSnapshot, RendererEvidence } from './renderer-diagnostics.ts'
@@ -30,6 +31,8 @@ export interface FailureReportInput {
   readonly hostDiagnostic?: string | undefined
   /** An error raised by the shell, whose stack, properties and cause chain the report adds. */
   readonly error?: Error | undefined
+  /** The limit a Host start exceeded and every entry it was still loading. */
+  readonly startup?: DesktopStartupTimeoutFailure | undefined
   /** Launch and session facts for the header, in order. */
   readonly facts: readonly (readonly [name: string, value: string])[]
   /** The readable log when the failure was reported. */
@@ -76,6 +79,7 @@ export function renderFailureReport(input: FailureReportInput): string {
     '--- failure (as shown in the recovery assistant) ---',
     maskSecrets(input.failure),
   ]
+  if (input.startup !== undefined) lines.push('', ...startupEntriesSection(input.startup).map(line => maskSecrets(line)))
   if (input.hostDiagnostic !== undefined) {
     lines.push('', '--- Host diagnostic (as reported by the Host process) ---', maskSecrets(input.hostDiagnostic))
   }

@@ -155,6 +155,35 @@ describe('desktop host process', () => {
     await expect(host.updateTasks('inspect')).rejects.toThrow('Host is unavailable')
   })
 
+  it('asks a starting Host which Loader entries hold it, and refuses a malformed answer (#1617)', async () => {
+    const runtime = projectWithHost(`
+      let asked = 0
+      process.on('message', message => {
+        if (message.type !== 'startup-entries') return
+        asked++
+        if (asked === 1) process.send({ type: 'startup-entries', requestId: message.requestId, entries: [{ id: 'magpie-mcp-deepwiki', name: '@deepseek-ai/dsh-mcp-client', phase: 'starting', waitedMs: 46700 }] })
+        else if (asked === 2) process.send({ type: 'startup-entries', requestId: message.requestId, error: 'The Host has not started loading plugins' })
+        else process.send({ type: 'startup-entries', requestId: message.requestId, entries: [{ id: 'fixture', name: 'fixture', phase: 'active', waitedMs: 1 }] })
+      })
+      // Readiness never comes; this tells the test the listener above is in place.
+      process.send({ type: 'notification', notification: { outcome: 'turn-failed' } })
+    `)
+    const onFailure = vi.fn()
+    let listening!: () => void
+    const listener = new Promise<void>(resolve => { listening = resolve })
+    const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env, onFailure,
+      undefined, undefined, undefined, undefined, () => { listening() })
+    hosts.push(host)
+    await expect(host.startupEntries()).rejects.toThrow('Next Host is unavailable')
+    const starting = host.start()
+    await listener
+    expect(await host.startupEntries()).toEqual([{ id: 'magpie-mcp-deepwiki', name: '@deepseek-ai/dsh-mcp-client', phase: 'starting', waitedMs: 46700 }])
+    await expect(host.startupEntries()).rejects.toThrow('The Host has not started loading plugins')
+    await expect(host.startupEntries()).rejects.toThrow('invalid IPC event')
+    await expect(starting).rejects.toThrow('invalid IPC event')
+    expect(onFailure).toHaveBeenCalledOnce()
+  })
+
   it.each([
     'process.exit(17)',
     'process.exit(0)',

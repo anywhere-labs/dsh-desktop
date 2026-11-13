@@ -52,7 +52,7 @@ export function writeApplication(root: string, release = FIXTURE_RELEASE): void 
  */
 export function completeApplication(root: string): void {
   for (const path of ['lib/host.js', 'lib/client.js', 'lib/preload-app.cjs', 'lib/preload-shell.cjs', 'lib/preload-platform-account.cjs', 'lib/native-ui/index.html',
-    'cordis.patch.yml', 'host.cordis.patch.yml', 'scripts/node-bin/node', 'scripts/node-bin/node.cmd',
+    'lib/startup-entries.js', 'cordis.patch.yml', 'host.cordis.patch.yml', 'scripts/node-bin/node', 'scripts/node-bin/node.cmd',
     'assets/tray-iconTemplate.png', 'assets/tray-icon-blue.png', 'build/app-icon.ico', 'build/app-icon.png', 'build/app-icon-mac.png']) {
     mkdirSync(join(root, path, '..'), { recursive: true })
     writeFileSync(join(root, path), `payload:${path}\n`)

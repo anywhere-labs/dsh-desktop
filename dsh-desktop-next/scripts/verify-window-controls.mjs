@@ -865,6 +865,26 @@ try {
   await dataDirectory.getByText('DSH_DESKTOP_NEXT_HOME', { exact: true }).waitFor()
   assert.equal(await dataDirectory.getByText(/优先于/).count(), 0)
   await page.waitForFunction(() => [...document.querySelectorAll('[data-next-data-directory] button')].every(button => !button.disabled))
+  // The Host startup limit (#1569): the presets, a limit saved outside them, and Safe Mode's fixed one.
+  const startupLimit = settings.locator('[data-next-startup-limit]')
+  const startupLimitValue = () => page.evaluate(() => document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.textContent)
+  assert.equal(await startupLimitValue(), '60 秒（默认）')
+  await startupLimit.getByText('插件服务（Host）启动时限', { exact: true }).waitFor()
+  assert.equal(await startupLimit.getByText(/官方/).count(), 0)
+  await startupLimit.getByRole('button', { name: /^(插件服务（Host）启动时限|Plugin service \(Host\) startup limit)$/ }).click()
+  await page.getByRole('menu').getByRole('menuitem', { name: '不限时', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.textContent === '不限时')
+  await page.waitForFunction(() => !document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.disabled)
+  assert.equal(controlCommands.filter(command => command.type === 'preferences').at(-1).preferences.hostStartupTimeout, 'none')
+  controlState.preferences = { ...controlState.preferences, hostStartupTimeout: 200 }
+  await page.waitForFunction(() => document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.textContent === '200 秒')
+  controlState.safeMode = true
+  await page.waitForFunction(() => document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.disabled === true)
+  await startupLimit.getByText('安全模式固定使用 60 秒。', { exact: true }).waitFor()
+  controlState.safeMode = false
+  await page.waitForFunction(() => document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.disabled === false)
+  await startupLimit.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: join(screenshots, 'desktop-startup-limit.png'), animations: 'disabled' })
   assert.equal(await settings.getByRole('radio', { name: /^broken/ }).getAttribute('aria-disabled'), 'true')
   assert.equal(await settings.getByRole('radio', { name: /增强模式|扩展模式|Advanced mode|Extended mode/ }).count(), 0)
   assert.equal(await settings.locator('#dsh-desktop-market-title, #dsh-desktop-aa-title').count(), 0)
@@ -1005,6 +1025,42 @@ try {
   assert.deepEqual(controlCommands.at(-1), { type: 'recovery-action', action: 'open-profile-manifest' })
   await recoveryPage.getByRole('link', { name: /保存诊断|导出诊断/ }).click()
   assert.equal(controlCommands.at(-1).type, 'diagnostics')
+  // Long text scrolls with the window's own thin scrollbar, not the platform one (the diagnostics log here).
+  const fixtureLogs = controlState.logs
+  controlState.logs = Array.from({ length: 200 }, (_, index) => `fixture log line ${String(index)}`).join('\n')
+  const logView = recoveryPage.getByRole('tabpanel').locator('pre', { hasText: 'fixture log line 199' }).locator('xpath=ancestor::*[@data-slot="scroll-area-viewport"][1]')
+  await logView.waitFor()
+  assert.deepEqual(await logView.evaluate(view => ({ bounded: view.clientHeight <= 256 && view.scrollHeight > view.clientHeight,
+    thumb: view.parentElement?.querySelector('[data-slot="scroll-area-thumb"]') !== null })), { bounded: true, thumb: true })
+  await logView.scrollIntoViewIfNeeded()
+  await recoveryPage.screenshot({ path: join(screenshots, 'recovery-diagnostics-log.png'), animations: 'disabled' })
+  controlState.logs = fixtureLogs
+  await recoveryPage.getByRole('tabpanel').locator('pre', { hasText: 'fixture log line 199' }).waitFor({ state: 'detached' })
+  assert.equal(await recoveryPage.locator('pre').evaluateAll(blocks => blocks.every(block => block.closest('[data-slot="scroll-area-viewport"]') !== null
+    && getComputedStyle(block).overflowY === 'visible')), true)
+  // The original environment's Host startup limit sits on the quick recovery tab, after Safe Mode (#1569).
+  assert.equal(await recoveryPage.locator('[data-next-startup-limit]').count(), 0)
+  controlState.hostStartupTimeout = 200
+  await recoveryPage.getByRole('tab', { name: '快速恢复' }).click()
+  const recoveryLimit = recoveryPage.locator('[data-next-startup-limit]')
+  await recoveryLimit.getByRole('heading', { name: '插件服务（Host）启动时限' }).waitFor()
+  await recoveryLimit.getByText('200 秒', { exact: true }).waitFor()
+  assert.equal(await recoveryLimit.getByRole('link').count(), 6)
+  assert.equal(await recoveryLimit.getByText(/官方/).count(), 0)
+  // Screenshots come before the clicks: a click's own state refresh then never overlaps a capture.
+  await recoveryLimit.scrollIntoViewIfNeeded()
+  await recoveryPage.screenshot({ path: join(screenshots, 'recovery-startup-limit.png'), animations: 'disabled' })
+  await recoveryLimit.getByRole('link', { name: '不限时', exact: true }).click()
+  assert.deepEqual(controlCommands.at(-1), { type: 'recovery-action', action: 'host-startup-timeout', id: 'none' })
+  // A start that ran out of time adds what it was still loading to the same card (#1617).
+  controlState.failureTimeout = { seconds: 60, pending: [{ id: 'magpie-mcp-deepwiki', name: '@deepseek-ai/dsh-mcp-client', phase: 'starting', waitedMs: 46_700 }] }
+  await recoveryLimit.getByText('这次启动在 60 秒内没有就绪，仍在加载 magpie-mcp-deepwiki。可以延长时限后点击“退出并重启”，也可以在“插件管理”页停用拖慢启动的插件。', { exact: true }).waitFor()
+  await recoveryLimit.scrollIntoViewIfNeeded()
+  await recoveryPage.screenshot({ path: join(screenshots, 'recovery-startup-timeout.png'), animations: 'disabled' })
+  await recoveryLimit.getByRole('link', { name: '180 秒', exact: true }).click()
+  assert.deepEqual(controlCommands.at(-1), { type: 'recovery-action', action: 'host-startup-timeout', id: '180' })
+  delete controlState.failureTimeout
+  await recoveryLimit.locator('[data-next-startup-timeout]').waitFor({ state: 'detached' })
   // An action that failed after the reason, such as from the tray, appears beside it without replacing it.
   controlState.actionFailure = 'Fixture: the terminal could not open'
   await recoveryPage.locator('[data-sonner-toast]').getByText('操作未完成', { exact: true }).waitFor()
