@@ -113,13 +113,12 @@ describe('models', () => {
     expect(native.map(model => model.route)).toEqual([ANYWHERE_ROUTE_IDS.gemini, ANYWHERE_ROUTE_IDS.gemini])
   })
 
-  it('writes a Gemini route in Google\'s format with the levels of pi-ai\'s catalog, thinking by default', () => {
-    const models = planAnywhereModels({
-      chat: [], anthropic: [], gemini: ['gemini-2.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-4-argon'], priced, profiles,
-      geminiNative: true,
-    })
+  it('writes a Gemini route in Google\'s format with the levels of pi-ai\'s catalog it accepts, thinking by default', () => {
+    const listed = ['gemini-2.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-4-argon']
+    const models = planAnywhereModels({ chat: listed, anthropic: [], gemini: listed, priced, profiles, geminiNative: true })
+    // Gemini's own protocol takes minimal to high under their own names and no Off, as rc.3's Models page checks.
     expect(Object.fromEntries(models.map(model => [model.id, model.thinking]))).toEqual({
-      'gemini-2.5-flash': ['off', 'minimal', 'low', 'medium', 'high'],
+      'gemini-2.5-flash': ['minimal', 'low', 'medium', 'high'],
       'gemini-3.1-pro-preview': ['low', 'medium', 'high'],
       'gemini-3.5-flash': ['minimal', 'low', 'medium', 'high'],
       // Not in the catalog: the levels every catalogued Gemini 3 offers.
@@ -128,9 +127,12 @@ describe('models', () => {
     const route = anywhereRoutes(models, 'https://tokens.example/', true)[ANYWHERE_ROUTE_IDS.gemini]
     expect(route).toMatchObject({ api: 'google-generative-ai', baseURL: 'https://tokens.example/v1beta', apiKeyEnv: ANYWHERE_API_KEY_REF, reasoning: 'high' })
     const byId = new Map(route?.models.map(model => [model.id, model]))
-    expect(byId.get('gemini-2.5-flash')?.reasoningEfforts).toEqual({ off: null, minimal: 'minimal', low: 'low', medium: 'medium', high: 'high' })
+    expect(byId.get('gemini-2.5-flash')?.reasoningEfforts).toEqual({ minimal: 'minimal', low: 'low', medium: 'medium', high: 'high' })
     expect(byId.get('gemini-3.5-flash')?.reasoningEfforts).toEqual({ minimal: 'minimal', low: 'low', medium: 'medium', high: 'high' })
     expect(byId.get('gemini-3.5-flash')?.compat).toBeUndefined()
+    // Through Chat Completions, Gemini 2.5 Flash can still turn thinking off.
+    const chat = new Map(anywhereRoutes(planAnywhereModels({ chat: listed, anthropic: [], gemini: listed, priced, profiles }), 'https://tokens.example/')[ANYWHERE_ROUTE_IDS.gemini]?.models.map(model => [model.id, model]))
+    expect(chat.get('gemini-2.5-flash')?.reasoningEfforts).toEqual({ off: null, minimal: 'minimal', low: 'low', medium: 'medium', high: 'high' })
   })
 
   it('writes Chat Completions routes per vendor and an Anthropic route, all thinking by default', () => {

@@ -42,6 +42,8 @@ interface OfficialCatalog {
   readonly ModelListEditor: ComponentType<{
     models: readonly ModelDraft[]
     reasoningLevels: readonly string[]
+    /** Whether the route's protocol accepts only those levels, each sent under its own name. */
+    reasoningLevelsOnly?: boolean
     defaultInput?: readonly string[]
     overridden?: boolean
     onChange: (models: ModelDraft[]) => void
@@ -63,8 +65,11 @@ interface OfficialCatalog {
   }>
   modelDrafts(value: unknown): ModelDraft[]
   validateDeepSeekModels(value: unknown): RowFailure | undefined
-  validateReasoningEfforts(value: unknown): RowFailure | undefined
+  /** @param only - the levels the route's protocol accepts, each sent under its own name; undefined accepts any. */
+  validateReasoningEfforts(value: unknown, only?: readonly string[]): RowFailure | undefined
   reasoningLevelChoices(namespace: OfficialNamespace, schema: unknown): string[]
+  /** Narrow the schema's levels to those a route's protocol accepts. */
+  protocolReasoningLevels(protocol: string | undefined, levels: readonly string[]): { levels: readonly string[]; levelsOnly: boolean }
 }
 
 /** What the official Models section is injected with: its store, writes, schema helpers and copy. */
@@ -340,8 +345,13 @@ function RouteEditor({ face, catalog, namespace, route, auto, onSaved }: {
   const baseURL = textOf('baseURL')
   const api = textOf('api')
   const defaultInput = schema.getPath(fallback, ['defaultInput'])
-  const reasoningLevels = useMemo(() => catalog.reasoningLevelChoices(namespace, schema), [catalog, namespace, schema])
-  const rowFailure = catalog.validateDeepSeekModels(draft) ?? catalog.validateReasoningEfforts(draft)
+  // As on the official route card: Gemini's own protocol offers only minimal to high, each sent under its own name.
+  const reasoning = useMemo(
+    () => catalog.protocolReasoningLevels(api, catalog.reasoningLevelChoices(namespace, schema)),
+    [api, catalog, namespace, schema],
+  )
+  const rowFailure = catalog.validateDeepSeekModels(draft)
+    ?? catalog.validateReasoningEfforts(draft, reasoning.levelsOnly ? reasoning.levels : undefined)
 
   const save = async (): Promise<void> => {
     setBusy(true)
@@ -363,7 +373,8 @@ function RouteEditor({ face, catalog, namespace, route, auto, onSaved }: {
     <div className="dshAnywhereRouteEditor">
       <ModelListEditor
         models={draft}
-        reasoningLevels={reasoningLevels}
+        reasoningLevels={reasoning.levels}
+        reasoningLevelsOnly={reasoning.levelsOnly}
         {...(Array.isArray(defaultInput) ? { defaultInput: defaultInput as string[] } : {})}
         {...(auto === undefined ? {} : { overridden: stableJson(draft) !== stableJson(auto), onReset: () => { setDraft([...auto]) } })}
         onChange={setDraft}

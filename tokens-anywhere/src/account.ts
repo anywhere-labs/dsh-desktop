@@ -437,12 +437,19 @@ const DEEPSEEK_COMPAT = {
 const GEMINI_CHAT_COMPAT = { supportsStore: false, supportsDeveloperRole: false } as const
 
 /**
+ * The levels Gemini's own protocol accepts: pi-ai's Gemini implementation sends only these, each under its own name,
+ * and fails a request naming anything else, so the official Models page offers no Off on such a route either.
+ */
+const GEMINI_NATIVE_LEVELS: readonly ThinkingLevel[] = ['minimal', 'low', 'medium', 'high']
+
+/**
  * The levels a DSH profile declares for a catalog thinking map. In pi-ai's catalog a level left out keeps its default
  * wire value and only `xhigh` and `max` must be named; a DSH profile offers exactly the levels it declares. So a
  * missing `off` becomes "off, send nothing", missing standard levels are declared under their own names (Claude takes
  * them as efforts, Chat Completions as `reasoning_effort`), and `minimal`, which Claude has no effort for, is dropped.
+ * @param geminiNative - the model is Gemini on Gemini's own protocol, which keeps only {@link GEMINI_NATIVE_LEVELS}.
  */
-function declaredThinking(levels: CatalogThinking, family: AnywhereModelFamily): Partial<Record<ThinkingLevel, string | null>> {
+function declaredThinking(levels: CatalogThinking, family: AnywhereModelFamily, geminiNative = false): Partial<Record<ThinkingLevel, string | null>> {
   const declared: Partial<Record<ThinkingLevel, string | null>> = {}
   for (const level of THINKING_LEVELS) {
     const wire = levels[level]
@@ -451,6 +458,9 @@ function declaredThinking(levels: CatalogThinking, family: AnywhereModelFamily):
     if (level === 'off') declared.off = null
     else if (level === 'xhigh' || level === 'max' || (level === 'minimal' && family === 'claude')) continue
     else declared[level] = level
+  }
+  if (family === 'gemini' && geminiNative) {
+    for (const level of THINKING_LEVELS) if (!GEMINI_NATIVE_LEVELS.includes(level) || declared[level] !== level) delete declared[level]
   }
   return declared
 }
@@ -530,7 +540,7 @@ export function planAnywhereModels(input: {
     const contextWindow = typeof profile?.contextWindow === 'number' ? profile.contextWindow : undefined
     const maxTokens = priced.get(id)?.maxOutputTokens ?? undefined
     const levels = KNOWN_THINKING[id]?.levels ?? FAMILY_THINKING[family]
-    const declared = levels === undefined ? [] : Object.keys(declaredThinking(levels, family))
+    const declared = levels === undefined ? [] : Object.keys(declaredThinking(levels, family, input.geminiNative === true))
     // A model offering nothing but `off` does not think.
     const thinking = declared.some(level => level !== 'off') ? declared : []
     return {
@@ -567,7 +577,7 @@ export function anywhereRoutes(models: readonly AnywhereModelView[], origin: str
     const entries = models.filter(model => model.enabled && model.route === id).map((model): PiAiRouteModel => {
       const known = KNOWN_THINKING[model.id]
       const levels = known?.levels ?? FAMILY_THINKING[model.family]
-      const efforts = levels === undefined ? undefined : declaredThinking(levels, model.family)
+      const efforts = levels === undefined ? undefined : declaredThinking(levels, model.family, api === 'google-generative-ai')
       const compat: Record<string, string | boolean> = {
         ...(model.family === 'deepseek' ? DEEPSEEK_COMPAT : {}),
         ...(model.family === 'gemini' && api === 'openai-completions' ? GEMINI_CHAT_COMPAT : {}),
