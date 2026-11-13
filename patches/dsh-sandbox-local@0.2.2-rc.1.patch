@@ -1,8 +1,33 @@
 diff --git a/lib/index.js b/lib/index.js
-index b1f0d6cfc7..fa6af3268a 100644
+index b1f0d6c..45c84cc 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -415,7 +415,19 @@ var LocalSandboxProvider = class extends SandboxProvider {
+@@ -1,7 +1,7 @@
+ import { spawnSync } from "node:child_process";
+ import { existsSync, mkdtempSync, rmSync } from "node:fs";
+ import { tmpdir } from "node:os";
+-import { join } from "node:path";
++import { dirname, join } from "node:path";
+ import { fileURLToPath } from "node:url";
+ import { LAUNCHER_BIN, LAUNCHER_FAILURE_EXIT, grantArgs, launcherPath, probe } from "@deepseek-ai/node-addon-system/landlock-run";
+ import z from "@deepseek-ai/schemastery";
+@@ -33,6 +33,15 @@ function bwrapProfileArgs(policy) {
+ 	];
+ 	if (policy.mode === "workspace-write") {
+ 		args.push("--tmpfs", "/tmp");
++		// DSH Desktop: an AppImage run keeps this process's own executable
++		// (process.execPath, the Node runner confined commands start from)
++		// below /tmp/.mount_* (or /tmp/appimage_extracted_* when extracted).
++		// The tmpfs masks that mount, so bwrap can no longer exec the runner
++		// and every confined command fails with ENOENT. Re-expose exactly the
++		// executable's directory read-only: the host /tmp itself stays masked,
++		// and the AppImage mount is read-only already.
++		const executableDir = dirname(process.execPath);
++		if (executableDir.startsWith("/tmp/")) args.push("--ro-bind", executableDir, executableDir);
+ 		for (const root of workspaceWritableRoots(policy)) args.push("--bind", root, root);
+ 	}
+ 	return args;
+@@ -415,7 +424,19 @@ var LocalSandboxProvider = class extends SandboxProvider {
  		}
  		const key = JSON.stringify([String(sessionId), workspaceRoot]);
  		const existing = this.tempCapabilities.get(key);
