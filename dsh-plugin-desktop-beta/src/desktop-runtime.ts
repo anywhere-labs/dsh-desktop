@@ -12,7 +12,7 @@ import { DEFAULT_PREFERENCES, DEFAULT_PROFILE, SAFE_MODE_PREFERENCES, type Deskt
 import { DesktopDiagnostics } from './diagnostics.ts'
 import type { DesktopHostExit } from './exit-code.ts'
 import { appendFailureReport, renderFailureReport, rendererFailureSection, writeFailureReport, type FailureReportInput } from './failure-report.ts'
-import { collectRendererDiagnostics, rendererDiagnosticsFields, RENDERER_FAILURE_SAMPLE_MS, RENDERER_FAILURE_TIMEOUT_MS, type RendererDiagnostics, type RendererDiagnosticsTarget } from './renderer-diagnostics.ts'
+import { collectRendererDiagnostics, rendererDiagnosticsFields, RENDERER_FAILURE_SAMPLE_MS, RENDERER_FAILURE_TIMEOUT_MS, type RendererDiagnostics, type RendererDiagnosticsTarget, type RendererEvidence } from './renderer-diagnostics.ts'
 import { DesktopMemoryMonitor, type DesktopMemoryProbe } from './memory-monitor.ts'
 import { NextRecovery } from './recovery.ts'
 import { maskSecrets } from './mask-secrets.ts'
@@ -49,6 +49,8 @@ interface RuntimeOptions {
   onPermission?(action: DesktopPermissionAction, permission: DesktopPermission): Promise<DesktopPermissionSnapshot>
   /** The main window's page, sampled when a failure report is written; undefined until that window exists. */
   renderer?(): RendererDiagnosticsTarget | undefined
+  /** The last sample of the page that answered earlier, for a report written after it stopped answering. */
+  rendererEvidence?(): RendererEvidence | undefined
   /** The current Host's account grant for the embedded Platform page, or null once it has none. */
   onPlatformSession?(session: PlatformSession | null): void
   onPlatformLogin?(request: DesktopPlatformLoginRequest): void
@@ -403,9 +405,11 @@ export class NextDesktopRuntime {
   private async appendRendererEvidence(file: string | undefined, sampling: Promise<RendererDiagnostics>): Promise<void> {
     try {
       const renderer = await sampling
+      const lastKnown = this.options.rendererEvidence?.()
       // The log keeps the sample even when no file could receive the section.
-      this.diagnostics.record({ source: 'renderer', event: 'failure.snapshot', fields: rendererDiagnosticsFields(renderer) })
-      const section = rendererFailureSection(renderer)
+      this.diagnostics.record({ source: 'renderer', event: 'failure.snapshot',
+        fields: { ...rendererDiagnosticsFields(renderer), lastKnownAgeMs: lastKnown?.ageMs ?? null } })
+      const section = rendererFailureSection(renderer, lastKnown)
       if (section === '' || file === undefined) return
       await appendFailureReport(file, section)
     } catch (cause) {

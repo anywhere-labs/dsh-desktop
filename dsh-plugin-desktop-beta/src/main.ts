@@ -57,6 +57,7 @@ import { manualUpdateHint, releaseNotesUrl, updateLabel } from './update-state.t
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
 import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCause } from './renderer-recovery.ts'
 import { collectRendererDiagnostics, rendererDiagnosticsFields } from './renderer-diagnostics.ts'
+import { RollingRendererEvidence } from './renderer-evidence.ts'
 import { deElevateAtStartup, lowIntegrityAtStartup, windowsElevation } from './windows-elevation.ts'
 import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure } from './sandbox-launch.ts'
 import { pickOutsideProgramDirectory, programDirectory, programDirectoryRefusal, refusedProgramDirectoryOverlap, type ProgramDirectoryOverlap, type ProgramDirectoryPurpose } from './program-directory.ts'
@@ -177,6 +178,11 @@ const platformView = new DesktopPlatformView(join(root, 'lib', 'preload-platform
   () => language() === 'zh' ? 'zh_CN' : 'en_US', process.platform === 'darwin' || process.platform === 'win32' ? process.platform : null, dshVersion)
 /** The bundled interpreter payload of this CPU: beside the archive when packaged, prepared by `prepare:runtime` in development. */
 const primaryRuntime = join(app.isPackaged ? join(process.resourcesPath, 'runtime') : join(root, '.desktop-build', 'runtime'), process.arch, 'primary-runtime')
+/**
+ * The last sample of a page that still answered. A failure report written after a renderer crash or
+ * a hang has nothing to ask, so it falls back to this instead of saying only "unavailable".
+ */
+const rendererEvidence = new RollingRendererEvidence(() => mainWindow?.webContents)
 const runtime = new NextDesktopRuntime({
   home, root, primaryRuntime, executable: process.execPath, addresses: () => [...desktopLanAddresses()], systemProxy: () => systemProxy,
   prepareEnvironment: () => prepareHostEnvironment(),
@@ -192,6 +198,7 @@ const runtime = new NextDesktopRuntime({
   },
   // Read lazily: the window exists only after the runtime starts.
   renderer: () => mainWindow?.webContents,
+  rendererEvidence: () => rendererEvidence.last(),
   ...(safeModeRequested ? { stateHome: electronData } : {}),
   certificate: async addresses => {
     try {
@@ -582,7 +589,11 @@ function resetRendererRecovery(owner: BrowserWindow): void {
     reload: () => loadMainDocument(owner, 'recovery'),
     exhausted: detail => runtime.report(new Error(`Renderer recovery exhausted: ${detail}`), rendererHealthy ? 'renderer-runtime' : 'renderer-startup'),
     healthy: () => { rendererHealthy = true },
-    record: (event, fields) => runtime.diagnostics.record({ source: 'renderer', event, fields }),
+    record: (event, fields) => {
+      runtime.diagnostics.record({ source: 'renderer', event, fields })
+      // A freshly mounted interface is the sample worth keeping until the next periodic one.
+      if (event === 'renderer.ready') void rendererEvidence.refresh()
+    },
   })
 }
 
@@ -1244,6 +1255,7 @@ function timed<T>(operation: Promise<T>): Promise<Timed<T>> {
 async function main(): Promise<void> {
   await app.whenReady()
   if (quitting) return
+  rendererEvidence.start()
   let inputRevision = 0
   let inputBlocked = false
   desktopShortcuts = installDesktopShortcuts(() => mainWindow, app.getPath('userData'),
@@ -1511,6 +1523,7 @@ app.on('before-quit', event => {
   event.preventDefault()
   quitting = true
   rendererRecovery?.stop()
+  rendererEvidence.stop()
   // Pending evidence lands now; a Host that dies of OOM while stopping is written at once.
   runtime.memory.stop()
   runtime.diagnostics.record({ source: 'electron', event: 'shutdown.start' })

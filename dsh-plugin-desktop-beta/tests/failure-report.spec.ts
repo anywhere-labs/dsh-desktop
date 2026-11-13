@@ -83,3 +83,13 @@ it('appends late evidence to a written report without rewriting it, masked', asy
   expect(combined).toContain('evidence token=****')
   expect(combined).not.toContain('private-value')
 })
+
+it('shows the last known sample when the page could not be sampled for the report', () => {
+  const crashed = rendererFailureSection({ available: false, reason: 'no-window' }, { sample: rendererSample, ageMs: 42_000 })
+  expect(crashed).toContain('--- renderer at failure ---\nunavailable: no-window\n\nlast known: 42 s before the failure\nsampled: 750 ms')
+  expect(crashed).toContain('last known: 42 s before the failure')
+  expect(crashed).toContain('dsh-state-dot-spin on svg::before')
+  // Nothing was ever sampled and there is no window: startup reports stay unchanged.
+  expect(rendererFailureSection({ available: false, reason: 'no-window' })).toBe('')
+  expect(rendererFailureSection({ available: false, reason: 'timeout' }, { sample: rendererSample, ageMs: 125_000 })).toContain('last known: 2 min before the failure')
+})
