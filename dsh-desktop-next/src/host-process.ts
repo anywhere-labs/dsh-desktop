@@ -8,6 +8,7 @@ import { MAX_HEADER_BYTES } from './browser-sessions.ts'
 import { desktopNodeEnvironment } from './node-environment.ts'
 import type { DesktopNotification } from './desktop-contract.ts'
 import { exitSummary } from './exit-code.ts'
+import { isDesktopStartupEntry, MAX_STARTUP_ENTRIES, type DesktopStartupEntry } from './host-startup-limit.ts'
 import { isHostMemoryUsage, type HostMemoryUsage, type MemoryHostExit } from './memory-monitor.ts'
 import { isDesktopNotification } from './notifications.ts'
 import type { DesktopPermission, DesktopPermissionAction, DesktopPermissionSnapshot } from './permissions.ts'
@@ -57,7 +58,15 @@ interface InjectionsEvent {
   readonly error?: string
 }
 
-type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
+/** The Loader entries a starting Host still waits on (src/host/startup-entries.ts). */
+interface StartupEntriesEvent {
+  readonly type: 'startup-entries'
+  readonly requestId: number
+  readonly entries?: readonly DesktopStartupEntry[] | undefined
+  readonly error?: string
+}
+
+type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | StartupEntriesEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
   readonly type: 'update-tasks'
   readonly requestId: number
   readonly active: boolean
@@ -126,6 +135,10 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
     case 'injections':
       return Number.isSafeInteger(candidate.requestId) && (candidate.error === undefined || typeof candidate.error === 'string')
         && (candidate.injections === undefined || Array.isArray(candidate.injections))
+    case 'startup-entries':
+      return Number.isSafeInteger(candidate.requestId) && (candidate.error === undefined || typeof candidate.error === 'string')
+        && (candidate.entries === undefined || (Array.isArray(candidate.entries) && candidate.entries.length <= MAX_STARTUP_ENTRIES
+          && candidate.entries.every(isDesktopStartupEntry)))
     default:
       return false
   }
@@ -248,6 +261,7 @@ export class DesktopHostProcess {
   private readonly accessRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private readonly loggingRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private readonly injectionRequests = new Map<number, { resolve: (injections: readonly unknown[]) => void; reject: (error: Error) => void }>()
+  private readonly startupQueries = new Map<number, { resolve: (entries: readonly DesktopStartupEntry[]) => void; reject: (error: Error) => void }>()
   /** Authorizes the workspace files native file drags borrow, where the followed DSH release drags files natively. */
   readonly dragResources = createFileDragAuthorization?.(message => new Promise<void>((resolve, reject) => {
     const child = this.child
@@ -382,6 +396,11 @@ export class DesktopHostProcess {
         if (message.error === undefined && message.injections !== undefined) request?.resolve(message.injections)
         else request?.reject(new Error(message.error ?? 'Next Host omitted Web boot injections'))
       }
+      else if (message.type === 'startup-entries') {
+        const query = this.startupQueries.get(message.requestId)
+        if (message.error === undefined && message.entries !== undefined) query?.resolve(message.entries)
+        else query?.reject(new Error(message.error ?? 'Next Host omitted its startup entries'))
+      }
       else {
         const query = this.taskQueries.get(message.requestId)
         if (message.error === undefined) query?.resolve(message.active)
@@ -469,6 +488,25 @@ export class DesktopHostProcess {
   }
 
   /**
+   * Ask a starting Host which Loader entries still hold its startup.
+   * @returns Those entries, the longest-waiting first; rejects when the Host cannot say within three seconds.
+   */
+  async startupEntries(): Promise<readonly DesktopStartupEntry[]> {
+    const child = this.child
+    if (!child?.connected || this.stopping || this.failureReported) throw new Error('Next Host is unavailable')
+    const requestId = this.nextControlId++
+    const end = this.controlOperation('startup-entries', requestId)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await new Promise<readonly DesktopStartupEntry[]>((resolve, reject) => {
+        this.startupQueries.set(requestId, { resolve, reject })
+        timer = setTimeout(() => { reject(new Error('Startup entry query timed out')) }, 3_000)
+        child.send({ type: 'startup-entries', requestId }, error => { if (error !== null) reject(error) })
+      }).catch(error => { end(error); throw error })
+    } finally { end(); clearTimeout(timer); this.startupQueries.delete(requestId) }
+  }
+
+  /**
    * Inspect active work or lock request admission for update handoff.
    * @param action - Read-only inspection, admission lock, or recovery unlock.
    * @returns Whether live tasks would be affected. Locking drains admitted API requests before inspecting tasks;
@@ -536,6 +574,8 @@ export class DesktopHostProcess {
     this.loggingRequests.clear()
     for (const request of this.injectionRequests.values()) request.reject(error)
     this.injectionRequests.clear()
+    for (const query of this.startupQueries.values()) query.reject(error)
+    this.startupQueries.clear()
     this.dragResources?.fail(error)
     if (!this.failureReported && !this.stopping) {
       this.failureReported = true

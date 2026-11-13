@@ -27,6 +27,7 @@ const fixture = vi.hoisted(() => ({
   runtime: undefined as { actionFailure: string } | undefined,
   failureReportFile: vi.fn(async (): Promise<string | undefined> => undefined),
   dragResource: vi.fn(async (_address: string, _signal: AbortSignal): Promise<null> => null),
+  saveStartupTimeout: vi.fn(),
   onPermission: undefined as ConstructorParameters<typeof NextDesktopRuntime>[0]['onPermission'],
   startupElevation: { relaunched: false, state: {} } as ReturnType<typeof import('../src/windows-elevation.ts').deElevateAtStartup>,
   elevation: undefined as import('../src/windows-elevation.ts').WindowsElevation | undefined,
@@ -61,6 +62,7 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
   actionFailure = ''
   failureReportFile = fixture.failureReportFile
   dragResource = fixture.dragResource
+  saveStartupTimeout = fixture.saveStartupTimeout
   constructor(options: ConstructorParameters<typeof NextDesktopRuntime>[0]) {
     fixture.runtimeOptions = options
     fixture.runtime = this
@@ -1803,6 +1805,32 @@ it('reveals the saved failure report, explains a missing one, and clears the pre
     fixture.failureReportFile.mockResolvedValueOnce(report)
     await expect(command(sender, { type: 'recovery-action', action: 'show-failure-report' })).rejects.toThrow(`找不到诊断报告：${report}`)
     expect(shell.showItemInFolder).toHaveBeenCalledOnce()
+  } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it('saves the Host startup limit from recovery and says how to apply it (#1569)', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-startup-limit-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const argv = [...process.argv]
+  process.argv.push('--next-recovery')
+  fixture.saveStartupTimeout.mockClear()
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const window = fixture.windows[0]
+    const sender = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
+    const command = fixture.handlers.get('dsh-next:command')!
+    const state = () => fixture.handlers.get('dsh-next:state')!(sender)
+    await command(sender, { type: 'recovery-action', action: 'host-startup-timeout', id: '300' })
+    expect(fixture.saveStartupTimeout).toHaveBeenCalledExactlyOnceWith(300)
+    expect(state().recovery.notice).toEqual({ tone: 'success', title: '插件服务（Host）启动时限', body: '已改为 300 秒。请点击“退出并重启”使其生效。' })
+    await command(sender, { type: 'recovery-action', action: 'host-startup-timeout', id: 'none' })
+    expect(fixture.saveStartupTimeout).toHaveBeenLastCalledWith('none')
+    expect(state().recovery.notice.body).toBe('已改为不限时。请点击“退出并重启”使其生效。')
+    for (const id of ['30', 'forever', undefined]) {
+      await expect(command(sender, { type: 'recovery-action', action: 'host-startup-timeout', id })).rejects.toThrow('Invalid Host startup limit')
+    }
+    expect(fixture.saveStartupTimeout).toHaveBeenCalledTimes(2)
   } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 

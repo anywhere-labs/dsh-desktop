@@ -12,6 +12,8 @@ import { DEFAULT_PREFERENCES, DEFAULT_PROFILE, SAFE_MODE_PREFERENCES, type Deskt
 import { DesktopDiagnostics } from './diagnostics.ts'
 import type { DesktopHostExit } from './exit-code.ts'
 import { appendFailureReport, renderFailureReport, rendererFailureSection, writeFailureReport, type FailureReportInput } from './failure-report.ts'
+import { DEFAULT_HOST_STARTUP_TIMEOUT, DesktopHostStartupTimeoutError, HOST_STARTUP_NOTICE_MS, isHostStartupTimeout, startupEntriesSummary,
+  type DesktopStartupEntry, type DesktopStartupNotice, type DesktopStartupTimeoutFailure, type HostStartupTimeout } from './host-startup-limit.ts'
 import { collectRendererDiagnostics, rendererDiagnosticsFields, RENDERER_FAILURE_SAMPLE_MS, RENDERER_FAILURE_TIMEOUT_MS, type RendererDiagnostics, type RendererDiagnosticsTarget, type RendererEvidence } from './renderer-diagnostics.ts'
 import { DesktopMemoryMonitor, type DesktopMemoryProbe } from './memory-monitor.ts'
 import { NextRecovery } from './recovery.ts'
@@ -46,6 +48,8 @@ interface RuntimeOptions {
   onRestart(): void
   onTerminal(): void
   onNotification(notification: DesktopNotification): void
+  /** Tell the user once that a Host start allowed more than a minute is still going; the result withdraws the notice. */
+  onStartupSlow?(notice: DesktopStartupNotice): () => void
   onPermission?(action: DesktopPermissionAction, permission: DesktopPermission): Promise<DesktopPermissionSnapshot>
   /** The main window's page, sampled when a failure report is written; undefined until that window exists. */
   renderer?(): RendererDiagnosticsTarget | undefined
@@ -73,6 +77,7 @@ export class NextDesktopRuntime {
   failure = ''
   failureStage: DesktopFailureStage | undefined
   failureExit: DesktopHostExit | undefined
+  failureTimeout: DesktopStartupTimeoutFailure | undefined
   /** A Desktop action that failed while `failure` is shown; the next action clears it. */
   actionFailure = ''
   startup: Promise<void> = Promise.resolve()
@@ -81,6 +86,9 @@ export class NextDesktopRuntime {
   lan: DesktopLanHttpsRuntime | undefined
   private safeHome: string | undefined
   private hostProcess: DesktopHostProcess | undefined
+  /** The Host startup limit saved for the original environment, which recovery shows and changes even in Safe Mode. */
+  private savedStartupTimeout: HostStartupTimeout = DEFAULT_HOST_STARTUP_TIMEOUT
+  private readonly preferenceWarning = (message: string): void => { this.diagnostics.append(message, 'warn') }
   /** Where a backend failure stops the Desktop: preparation, Host startup, or a Host that was running. */
   private hostStage: DesktopFailureStage = 'host-boot'
   private failureContext: string | undefined
@@ -95,7 +103,7 @@ export class NextDesktopRuntime {
   constructor(readonly options: RuntimeOptions) {
     this.profiles = new NextProfiles(options.home)
     this.recovery = new NextRecovery(this.profiles)
-    this.settings = new DesktopPreferenceStore(options.stateHome ?? options.home)
+    this.settings = new DesktopPreferenceStore(options.stateHome ?? options.home, this.preferenceWarning)
     this.diagnostics = new DesktopDiagnostics(options.home)
     this.operationHistory = createOperationHistory?.(join(dirname(this.diagnostics.file), 'plugin-operations'))
     this.memory = new DesktopMemoryMonitor({ probe: options.memoryProbe,
@@ -121,8 +129,12 @@ export class NextDesktopRuntime {
       if (this.safeMode) this.diagnostics.append(`Original Profile selection is unavailable: ${String(error)}`, 'warn')
       else this.report(error, 'profile-selection')
     }
+    let read = false
     if (this.safeMode) this.preferences = { ...SAFE_MODE_PREFERENCES }
-    else try { this.preferences = this.settings.read() } catch (error) { this.report(error, 'runtime-bootstrap') }
+    else try { this.preferences = this.settings.read(); read = true } catch (error) { this.report(error, 'runtime-bootstrap') }
+    // Safe Mode and an unreadable preference file still show recovery the limit saved apart from it.
+    this.savedStartupTimeout = read ? this.preferences.hostStartupTimeout
+      : new DesktopPreferenceStore(this.options.home, this.preferenceWarning).readExtra().hostStartupTimeout
     this.diagnostics.level = this.preferences.logLevel
     this.diagnostics.developer = this.preferences.developerLogging
   }
@@ -149,6 +161,9 @@ export class NextDesktopRuntime {
     this.failureExit = error instanceof DesktopHostExitError
       ? { code: error.exitCode, signal: error.signal, output: maskSecrets(error.output),
         ...(error.fatal === undefined ? {} : { fatal: maskSecrets(error.fatal) }) } : undefined
+    this.failureTimeout = error instanceof DesktopHostStartupTimeoutError
+      ? { seconds: error.seconds, ...(error.pending === undefined ? {} : { pending: error.pending }),
+        ...(error.unanswered === undefined ? {} : { unanswered: maskSecrets(error.unanswered) }) } : undefined
     this.actionFailure = ''
     this.diagnostics.record({ source: 'desktop', event: 'runtime.failed', level: 'error', error, fields: { stage } })
     // A pending memory snapshot lands before recovery mode stops the Host and closes the main window.
@@ -172,6 +187,7 @@ export class NextDesktopRuntime {
     this.failure = ''
     this.failureStage = undefined
     this.failureExit = undefined
+    this.failureTimeout = undefined
     this.failureReport = undefined
     this.failureContext = undefined
     this.actionFailure = ''
@@ -202,7 +218,7 @@ export class NextDesktopRuntime {
     await change()
     if (!this.safeMode) {
       this.cleanupSafeHome()
-      if (wasSafe) this.preferences = new DesktopPreferenceStore(this.options.home).read()
+      if (wasSafe) this.preferences = new DesktopPreferenceStore(this.options.home, this.preferenceWarning).read()
     }
     await this.start()
   }
@@ -221,8 +237,22 @@ export class NextDesktopRuntime {
   writePreferences(value: unknown): void {
     if (this.safeMode) throw new Error('Desktop preferences are fixed in Safe Mode')
     this.preferences = this.settings.write(parsePreferences(value))
+    this.savedStartupTimeout = this.preferences.hostStartupTimeout
     this.diagnostics.level = this.preferences.logLevel
     this.diagnostics.developer = this.preferences.developerLogging
+    this.options.onChange()
+  }
+
+  /**
+   * Save the original environment's Host startup limit from the recovery assistant, in Safe Mode too. Only
+   * the extra preference file changes, so an unreadable desktop-preferences.json is not replaced by defaults.
+   * @param value - Seconds, or `'none'`; the next Host start of the original environment applies it.
+   */
+  saveStartupTimeout(value: HostStartupTimeout): void {
+    if (!isHostStartupTimeout(value)) throw new Error('Invalid Host startup limit')
+    new DesktopPreferenceStore(this.options.home, this.preferenceWarning).writeExtra({ hostStartupTimeout: value })
+    this.savedStartupTimeout = value
+    if (!this.safeMode) this.preferences = { ...this.preferences, hostStartupTimeout: value }
     this.options.onChange()
   }
 
@@ -293,7 +323,7 @@ export class NextDesktopRuntime {
     }
   }
 
-  state(): Pick<DesktopState, 'selected' | 'profiles' | 'unavailableProfiles' | 'features' | 'preferences' | 'phase' | 'busy' | 'failure' | 'failureStage' | 'failureExit' | 'failureReport' | 'failureContext' | 'actionFailure' | 'safeMode' | 'home' | 'browserUrl' | 'lan' | 'checkpoint' | 'logs'> {
+  state(): Pick<DesktopState, 'selected' | 'profiles' | 'unavailableProfiles' | 'features' | 'preferences' | 'phase' | 'busy' | 'failure' | 'failureStage' | 'failureExit' | 'failureTimeout' | 'failureReport' | 'failureContext' | 'actionFailure' | 'safeMode' | 'hostStartupTimeout' | 'home' | 'browserUrl' | 'lan' | 'checkpoint' | 'logs'> {
     let features = { ...DEFAULT_FEATURES }
     let profiles: string[] = []
     let checkpoint: DesktopState['checkpoint'] = null
@@ -309,9 +339,10 @@ export class NextDesktopRuntime {
     try { const saved = this.recovery.latest(this.selected); if (saved) checkpoint = { created: saved.created } } catch { /* Recovery remains usable without backups. */ }
     return { selected: this.selected, profiles, unavailableProfiles: profiles.filter(name => !this.profiles.selectable(name)), features, preferences: { ...this.preferences }, phase: this.recoveryMode ? 'recovery' : !this.auth && failure ? 'error' : this.backend.state.phase,
       busy: this.busy, failure, ...(failureStage === undefined ? {} : { failureStage }), ...(this.failureExit === undefined ? {} : { failureExit: this.failureExit }),
+      ...(this.failureTimeout === undefined ? {} : { failureTimeout: this.failureTimeout }),
       ...(this.failureContext === undefined ? {} : { failureContext: this.failureContext }),
       ...(this.failureReport === undefined ? {} : { failureReport: this.failureReport }), ...(this.actionFailure ? { actionFailure: this.actionFailure } : {}),
-      safeMode: this.safeMode, home: this.options.home,
+      safeMode: this.safeMode, hostStartupTimeout: this.savedStartupTimeout, home: this.options.home,
       browserUrl: this.auth && this.preferences.browserAccess && !this.safeMode ? new URL(this.auth.url).origin : null,
       lan: this.lan?.snapshot() ?? null, checkpoint, logs: this.diagnostics.snapshot() }
   }
@@ -371,7 +402,9 @@ export class NextDesktopRuntime {
       facts: [['run', this.diagnostics.runId], ...(hostRun === undefined ? [] : [['host run', hostRun] as const]), ...launch, ['arch', process.arch], ['profile', this.selected]],
       hostDiagnostic: error instanceof DesktopHostFatalError ? error.diagnostic : undefined,
       // The Host's own diagnostic, or its exit code and stderr tail, describe a Host failure; a shell error adds its stack.
-      error: error instanceof Error && !(error instanceof DesktopHostFatalError) && !(error instanceof DesktopHostExitError) ? error : undefined,
+      error: error instanceof Error && !(error instanceof DesktopHostFatalError) && !(error instanceof DesktopHostExitError)
+        && !(error instanceof DesktopHostStartupTimeoutError) ? error : undefined,
+      startup: this.failureTimeout,
       log: this.diagnostics.snapshot(true),
       auxiliary: this.operationHistory?.reportNote,
     }
@@ -430,6 +463,58 @@ export class NextDesktopRuntime {
     }
   }
 
+  /**
+   * Watch one Host start against its limit. A start allowed more than a minute, or no limit, tells the user
+   * once after a minute where recovery is; at the limit the start fails, naming what the Host still loads.
+   * @param host - The starting Host, asked which Loader entries hold it.
+   * @param limit - Seconds, or `'none'` to wait for the Host like upstream Desktop.
+   * @returns `expired`, which rejects at the limit and never settles without one, and `settle`, which ends the watch.
+   */
+  private watchStartup(host: DesktopHostProcess, limit: HostStartupTimeout): { expired: Promise<never>; settle(): void } {
+    const timers: ReturnType<typeof setTimeout>[] = []
+    let settled = false
+    let withdraw: (() => void) | undefined
+    const after = (delay: number, act: () => Promise<void>): void => {
+      const timer = setTimeout(() => { void act() }, delay)
+      timer.unref()
+      timers.push(timer)
+    }
+    const pending = async (event: string, level: 'warn' | 'error'): Promise<{ entries?: readonly DesktopStartupEntry[]; unanswered?: string }> => {
+      let answer: { entries?: readonly DesktopStartupEntry[]; unanswered?: string }
+      try { answer = { entries: await host.startupEntries() } } catch (error) {
+        answer = { unanswered: error instanceof Error ? error.message : String(error) }
+      }
+      if (!settled) {
+        this.diagnostics.record({ source: 'desktop', event, level, message: startupEntriesSummary(answer.entries, answer.unanswered),
+          fields: { limit, pending: answer.entries?.length ?? null }, data: { entries: answer.entries ?? null } })
+      }
+      return answer
+    }
+    if (limit === 'none' || limit * 1000 > HOST_STARTUP_NOTICE_MS) {
+      after(HOST_STARTUP_NOTICE_MS, async () => {
+        const { entries } = await pending('host.start.slow', 'warn')
+        if (settled) return
+        try { withdraw = this.options.onStartupSlow?.({ limit, pending: entries }) } catch (error) {
+          this.diagnostics.append(`Startup notice: ${String(error)}`, 'warn')
+        }
+      })
+    }
+    const expired = new Promise<never>((_resolve, reject) => {
+      if (limit === 'none') return
+      after(limit * 1000, async () => {
+        const { entries, unanswered } = await pending('host.start.pending', 'error')
+        if (!settled) reject(new DesktopHostStartupTimeoutError(limit, entries, unanswered))
+      })
+    })
+    // A start that settles while the Host is being asked leaves this rejection to nobody.
+    expired.catch(() => {})
+    return { expired, settle: () => {
+      settled = true
+      for (const timer of timers) clearTimeout(timer)
+      withdraw?.()
+    } }
+  }
+
   private createHost(onFailure: (error: Error) => void) {
     const { options } = this
     const actualHome = this.safeMode ? this.safeHome! : options.home
@@ -454,13 +539,11 @@ export class NextDesktopRuntime {
     this.hostProcess = host
     return {
       start: async (): Promise<void> => {
-        let timer: ReturnType<typeof setTimeout> | undefined
-        const started = this.diagnostics.operation('desktop', 'host.start', { profile, safeMode: this.safeMode })
+        const limit = effective.hostStartupTimeout
+        const started = this.diagnostics.operation('desktop', 'host.start', { profile, safeMode: this.safeMode, limit })
+        const watch = this.watchStartup(host, limit)
         try {
-          const ready = await Promise.race([host.start(), new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(() => reject(new Error('Host startup exceeded 60 seconds')), 60_000)
-            timer.unref()
-          })]).finally(() => clearTimeout(timer))
+          const ready = await Promise.race([host.start(), watch.expired]).finally(() => { watch.settle() })
           const url = new URL(ready.url)
           if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1') throw new Error('Next Host must use loopback HTTP')
           if (!ready.injections) throw new Error('Next Host omitted Web boot injections')

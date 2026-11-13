@@ -209,6 +209,8 @@ DSH Desktop Beta 将 UTF-8 日志写入独立的 Electron 用户数据目录：W
 
 故障打开恢复助手时，Beta 会把这次故障保存到数据目录（默认 `~/.dsh-beta`）下的 `logs/dsh-plugin-desktop-beta-failure-<UTC 时间>-<阶段>.log`，“快速恢复”页的 **诊断报告** 可在文件夹中定位该文件。与 DSH 0.2.2 的 Desktop 一样，Beta 还会为这些报告保留近期插件操作：经官方插件管理器进行的安装、卸载、启用和停用（插件页、插件市场和社区市场都经由它），以及 dsh-market 通过桌面端 `desktopPnpm.runPlugin` 执行的插件命令。每条记录只包含操作、包名或插件条目、请求的精确版本、结果或退出码，以及观察到该操作的 Host 运行；其他包说明符可能包含路径或凭据，不会记录。记录保存在 `logs/plugin-operations/`，分两段，每段不超过 256 KiB。报告保存后，Worker 会在 500 毫秒内追加最多 100 条近期记录（不超过 64 KiB）；Host 故障的报告还会写明对应的 `host run`。这些记录只是上下文，不能证明故障原因：通过命令行或手动改文件做的修改不会记录，缺少记录也不代表没有改动。
 
+插件服务（Host）需在启动时限内就绪，否则停止启动并打开恢复助手。默认 60 秒；“桌面设置 → 桌面工具”和恢复助手“快速恢复”页的“插件服务（Host）启动时限”卡片可选 60、120、180、300、600 秒或“不限时”，下次启动插件服务时生效，安全模式固定使用 60 秒。不限时会一直等待插件服务就绪；插件服务退出或报错时仍会打开恢复助手，托盘和应用菜单也始终提供恢复助手、安全模式和退出。时限超过 60 秒（包括不限时）时，启动满 1 分钟仍未就绪会发一次系统通知，列出仍在加载的插件并说明恢复助手的入口。超时打开恢复助手时，故障报告紧接在故障之后列出仍在加载的插件条目（条目 id、模块、阶段和已等待时长），日志以 `host.start.pending` 记录同一份列表；列表来自 `host.cordis.patch.yml` 中的 `desktop-next-startup-entries` 插件行，它在启动期间读取 Loader 中尚未完成的条目。“快速恢复”页的时限卡片也会说明这次超时和仍在加载的插件。该设置保存在数据目录的 `desktop-preferences-extra.json`，而不是 `desktop-preferences.json`：已发布的版本遇到后者中不认识的键会进入恢复，却不读取前者，因此降级后仍能启动。前者损坏或值无效时按默认值处理并记入日志。
+
 ## 原生生命周期
 
 关闭窗口会隐藏窗口，Host Cordis 树继续运行。托盘可以重新打开窗口、选择激活 profile、打开隔离的 DSH 终端、检查 stable release、通过标准 settings namespace 更改模式，或请求显式退出。Profile 与模式切换都会先 dispose 当前 Cordis 树，再让 Electron relaunch。原生退出、`SIGINT` 与 `SIGTERM` 也会在退出前请求 dispose；超过五秒或收到重复请求时会强制完成最终退出。导航与重定向被限制在确切的 loopback origin；外部 HTTP、HTTPS 与邮件链接由操作系统打开；renderer 启用 `contextIsolation` 与 Chromium sandbox，并关闭 Node integration。
