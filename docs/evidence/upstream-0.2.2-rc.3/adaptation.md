@@ -20,3 +20,5 @@
 - 市场 328 项、共享 Stable 389 项、根布局与兼容性 136 项通过。
 - Agents Anywhere 官方 main 更新至 4f5dcd2c35c8908e2f2d61f3b5e2c5e08cd90e5c，运行时 peers 对齐 rc.3；dshmarket 保持当前 latest 1.73.19。
 - 未启动图形应用、未导入真实用户聊天记录、未执行 Windows 安装；上述测试不代替这些验收。
+
+PR #1634 的跨平台 CI 补充暴露了 Office 技能包的解包配置漏项：现已把 Office 技能包和官方 macOS CUA provider 加入实际 asarUnpack，与 payload 审计及 Host 物理路径解析保持一致。目录选择补齐 workspace.picker.directoryFlow，保证导入页也使用 Desktop 原生选择器。窗口检查使用官方 sidebar-opener 标记，并按有效拖动区域验证点击能力，移除对旧全局 no-drag 样式的假设。两端相关单测、类型检查和本地完整无头窗口检查通过。

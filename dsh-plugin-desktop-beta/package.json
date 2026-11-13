@@ -506,7 +506,9 @@
       "**/node_modules/pnpm/**/*",
       ".desktop-build/payload/scripts/node-bin/**/*",
       ".desktop-build/payload/assets/**/*",
-      ".desktop-build/payload/build/**/*"
+      ".desktop-build/payload/build/**/*",
+      "**/node_modules/@deepseek-ai/dsh-skill-office/**/*",
+      "**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/**/*"
     ]
   }
 }
