@@ -262,8 +262,8 @@ patchPackage('dsh-client-ui-open-in-app', ({ once }) => {
   once('gnometerminal:`app.gnometerminal`,', 'gnometerminal:`app.gnometerminal`,ptyxis:`app.ptyxis`,gnomeconsole:`app.gnomeconsole`,')
   once('"app.gnometerminal":`GNOME Terminal`,', '"app.gnometerminal":`GNOME Terminal`,"app.ptyxis":`Ptyxis`,"app.gnomeconsole":`GNOME Console`,')
 })
-// The Tokens Anywhere page edits its routes with the official catalog editor, under each protocol's reasoning rules.
+// The Tokens Anywhere page edits its routes with the official catalog and retry editors, under each protocol's reasoning rules.
 patchPackage('dsh-client-ui-settings-models', ({ once }) => {
   once('const injected=()=>({controller,hooks:{snapshot:controller.store},operations,schema,t});',
-    'const injected=()=>({controller,hooks:{snapshot:controller.store},operations,schema,t,desktopCatalog:{ModelListEditor,EditorFooter,modelDrafts,validateDeepSeekModels,validateReasoningEfforts,reasoningLevelChoices,protocolReasoningLevels}});')
+    'const injected=()=>({controller,hooks:{snapshot:controller.store},operations,schema,t,desktopCatalog:{ModelListEditor,EditorFooter,modelDrafts,validateDeepSeekModels,validateReasoningEfforts,reasoningLevelChoices,protocolReasoningLevels,RetryPolicyEditor,retryPolicyDefaults,retryPolicyFailure}});')
 })

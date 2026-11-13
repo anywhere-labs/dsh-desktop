@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness 的 Tokens Anywhere 插件。用 Agents Anywhere 账号登录 Tokens Anywhere 后，它的模型（DeepSeek、Claude、GPT 和 Gemini）会按模型供应商自动配置成 `llm-pi-ai` 模型路由，每个供应商一条，不需要填写 API Key。它的页面还能查看余额，以及按天、按模型统计的用量。金额以美元计，和 Tokens Anywhere 的计费一致；中文界面下，开着“显示当地货币”时，页面改按当天汇率以人民币显示，取整方式和 Tokens Anywhere 控制台一样。
+DeepSeek Harness 的 Tokens Anywhere 插件。用 Agents Anywhere 账号登录 Tokens Anywhere 后，它的模型（DeepSeek、Claude、GPT 和 Gemini）会按模型供应商自动配置成 `llm-pi-ai` 模型路由，每个供应商一条，不需要填写 API Key。在“模型”页开启自定义配置后，可以用官方的模型编辑器修改每条路由，包括它的重试策略。它的页面还能查看余额，以及按天、按模型统计的用量。金额以美元计，和 Tokens Anywhere 的计费一致；中文界面下，开着“显示当地货币”时，页面改按当天汇率以人民币显示，取整方式和 Tokens Anywhere 控制台一样。
 
 ## 在 DSH Next 中
 
