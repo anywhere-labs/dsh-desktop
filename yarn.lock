@@ -6249,6 +6249,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deepseek-ai/dsh-http-proxy@patch:@deepseek-ai/dsh-http-proxy@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-http-proxy-0.2.2-rc.3.tgz#./patches/dsh-http-proxy@0.2.2-rc.3.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.2.2-rc.3
+  resolution: "@deepseek-ai/dsh-http-proxy@patch:@deepseek-ai/dsh-http-proxy@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-http-proxy-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-http-proxy-0.2.2-rc.3.tgz%3A%3Ahash=8e4949&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-http-proxy@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=239068&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    undici: "npm:8.11.2"
+  peerDependencies:
+    "@deepseek-ai/cordis": ~4.1.0
+  checksum: 10c0/8350c46578ced7d5cb532b939c29f7f2cbc9d519b56c3d6e6a471f1a4437b52aab09d0d2bc09c09f5230261904486eeae4c83121e0a899ab2cb5fdcc4f0d0074
+  languageName: node
+  linkType: hard
+
 "@deepseek-ai/dsh-jobs-local@file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-jobs-local-0.2.1-rc.3.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.1-rc.3
   resolution: "@deepseek-ai/dsh-jobs-local@file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-jobs-local-0.2.1-rc.3.tgz#vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-jobs-local-0.2.1-rc.3.tgz::hash=1a2d19&locator=deepseek-harness-desktop%40workspace%3A."
