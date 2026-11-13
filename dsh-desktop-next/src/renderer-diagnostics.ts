@@ -19,6 +19,13 @@ import { maskSecrets } from './mask-secrets.ts'
 export const RENDERER_SAMPLE_MS = 1000
 /** A busy or frozen renderer must not hold the export open. */
 export const RENDERER_SAMPLE_TIMEOUT_MS = 3000
+/**
+ * The failure path samples a shorter window: a report is written while the user is being moved to
+ * recovery, so the evidence must arrive quickly and can never delay that move.
+ */
+export const RENDERER_FAILURE_SAMPLE_MS = 750
+/** Upper bound of the failure-path sample; a timeout is itself recorded as evidence. */
+export const RENDERER_FAILURE_TIMEOUT_MS = 1500
 const MAX_ANIMATIONS = 40
 const MAX_LAYERS = 20
 const MAX_TEXT = 200

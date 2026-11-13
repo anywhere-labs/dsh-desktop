@@ -190,6 +190,8 @@ const runtime = new NextDesktopRuntime({
         ...(memory === undefined ? {} : { commitLimit: memory.swapTotal * 1024, commitFree: memory.swapFree * 1024 }) }
     },
   },
+  // Read lazily: the window exists only after the runtime starts.
+  renderer: () => mainWindow?.webContents,
   ...(safeModeRequested ? { stateHome: electronData } : {}),
   certificate: async addresses => {
     try {
