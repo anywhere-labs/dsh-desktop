@@ -1,3 +1,4 @@
+import { OFFICE_SKILLS_IN_PACKAGE, prepareCuaNative } from './upstream-family.ts'
 /** Prepare, execute and check the bundled interpreter payloads for every CPU one Next package carries. */
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -187,7 +188,7 @@ export function verifyNextRuntimeTree(runtimeRoot: string, platform: NodeJS.Plat
       }
     }
     const skills = officeSkillsDirectory(runtimeRoot, arch)
-    for (const skill of ['office', 'office-docx', 'office-pptx', 'office-xlsx', 'office-render', 'office-recalculate', 'office-export-pdf']) {
+    for (const skill of OFFICE_SKILLS_IN_PACKAGE ? [] : ['office', 'office-docx', 'office-pptx', 'office-xlsx', 'office-render', 'office-recalculate', 'office-export-pdf']) {
       requireFile(join(skills, skill, 'SKILL.md'), `${arch} ${skill} skill`)
     }
     verified.push({ arch, directory, manifest })
@@ -243,4 +244,5 @@ if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.m
     verifyNextRuntimeTree(root, process.platform, version)
     smokeNextRuntime(root, process.platform)
   }
+  if (process.platform === 'darwin') prepareCuaNative(desktopRoot, [process.arch === 'x64' ? 'x64' : 'arm64'])
 }

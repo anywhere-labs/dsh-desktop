@@ -91,6 +91,7 @@ export interface RecoveryState {
   readonly locale: DesktopLocale
   readonly failureStage: DesktopFailureStage
   readonly failureDetail: string
+  readonly failureContext?: string
   readonly requested?: boolean
   readonly snapshot?: RecoverySnapshot
   readonly snapshotError?: string
@@ -254,8 +255,26 @@ function DiagnosticsPanel({ copy, state }: { readonly copy: DesktopRecoveryCopy;
   return <PanelScroll><Card><CardHeader><CardTitle>{copy.diagnostics}</CardTitle><CardDescription>{state.diagnostics.status === 'idle' ? copy.saveDiagnostics : state.diagnostics.status === 'saving' ? copy.savingDiagnostics : state.diagnostics.status === 'saved' ? copy.diagnosticsSaved : copy.diagnosticsFailed}</CardDescription></CardHeader><CardContent className="space-y-2">{state.diagnostics.filename === undefined ? null : <code className="block break-all rounded-lg bg-muted p-3 text-xs">{state.diagnostics.filename}</code>}<p className="text-xs text-muted-foreground">{copy.privacy}</p>{state.logs && <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 text-xs">{state.logs}</pre>}</CardContent><CardFooter className="flex-wrap justify-end gap-2"><Action action={state.diagnostics.status === 'saved' ? 'show-diagnostics' : 'export-diagnostics'} icon={<Archive />}>{state.diagnostics.status === 'saved' ? copy.showDiagnostics : copy.saveDiagnostics}</Action></CardFooter></Card>{state.configurationAvailable ? <Card><CardHeader><CardTitle>{copy.configurationFiles}</CardTitle><CardDescription>{copy.configurationFilesBody}</CardDescription></CardHeader><CardFooter className="flex-wrap gap-2 pt-6"><Action action="open-settings-document" icon={<FilePenLine />}>{copy.openSettingsDocument}</Action><Action action="open-profile-patch" icon={<FilePenLine />}>{copy.openProfilePatch}</Action><Action action="open-profile-manifest" icon={<FilePenLine />}>{copy.openProfileManifest}</Action><Action action="open-profile-directory" icon={<FolderOpen />}>{copy.openProfileDirectory}</Action></CardFooter></Card> : null}</PanelScroll>
 }
 
+/** Summary stays visible; the captured failure remains inspectable without changing tabs. */
+export function RecoveryFailureDetails({ locale, detail }: { locale: DesktopLocale; detail: string }) {
+  const [copied, setCopied] = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
+  const t = (zh: string, en: string) => locale === 'zh' ? zh : en
+  return <details className="mt-3" data-recovery-failure-details>
+    <summary className="cursor-pointer text-sm font-medium">{t('完整错误与日志', 'Full error and logs')}</summary>
+    <div className="mt-2 flex items-center gap-3">
+      <Button size="sm" variant="outline" onClick={async () => {
+        try { await navigator.clipboard.writeText(detail); setCopied(true); setCopyFailed(false) }
+        catch { setCopied(false); setCopyFailed(true) }
+      }}>{copied ? t('已复制', 'Copied') : t('复制详情', 'Copy details')}</Button>
+      {copyFailed ? <span role="status" className="text-xs text-muted-foreground">{t('复制失败，请选择下方文本复制。', 'Copy failed. Select the text below to copy it.')}</span> : null}
+    </div>
+    <pre className="mt-2 max-h-64 select-text overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 text-xs leading-relaxed">{detail}</pre>
+  </details>
+}
+
 function Reason({ copy, state }: { readonly copy: DesktopRecoveryCopy; readonly state: RecoveryState }): JSX.Element {
-  return <Card className={cn('shrink-0', state.requested === true ? 'border-border' : 'border-amber-500/50')}><CardContent className="flex gap-4 p-4"><div className="mt-0.5 shrink-0">{state.requested === true ? <LifeBuoy className="size-5 text-muted-foreground" /> : <AlertTriangle className="size-5 text-amber-500" />}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h2 className="text-sm font-semibold">{copy.reason}</h2>{state.snapshot === undefined ? null : <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">{copy.currentProfile}: {state.snapshot.profileName}</span>}{state.profileDirectory === undefined ? null : <span className="inline-flex min-w-0 max-w-full items-center rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground"><span className="shrink-0">{copy.currentProfileDirectory}:&nbsp;</span><code className="truncate select-text" title={state.profileDirectory}>{state.profileDirectory}</code></span>}</div>{state.requested === true ? <><p className="mt-1 text-sm font-medium">{copy.requestedMode}</p><p className="mt-1 text-sm text-muted-foreground">{copy.requestedBody}</p></> : <><p className="mt-1 text-xs text-muted-foreground">{isRuntimeFailureStage(state.failureStage) ? copy.runtimeFailureStage : copy.failureStage}: {copy.stageLabels[state.failureStage]}</p><pre className="mt-2 max-h-20 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-2.5 text-xs leading-relaxed">{state.failureDetail}</pre></>}</div></CardContent></Card>
+  return <Card className={cn('shrink-0', state.requested === true ? 'border-border' : 'border-amber-500/50')}><CardContent className="flex gap-4 p-4"><div className="mt-0.5 shrink-0">{state.requested === true ? <LifeBuoy className="size-5 text-muted-foreground" /> : <AlertTriangle className="size-5 text-amber-500" />}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h2 className="text-sm font-semibold">{copy.reason}</h2>{state.snapshot === undefined ? null : <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">{copy.currentProfile}: {state.snapshot.profileName}</span>}{state.profileDirectory === undefined ? null : <span className="inline-flex min-w-0 max-w-full items-center rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground"><span className="shrink-0">{copy.currentProfileDirectory}:&nbsp;</span><code className="truncate select-text" title={state.profileDirectory}>{state.profileDirectory}</code></span>}</div>{state.requested === true ? <><p className="mt-1 text-sm font-medium">{copy.requestedMode}</p><p className="mt-1 text-sm text-muted-foreground">{copy.requestedBody}</p></> : <><p className="mt-1 text-xs text-muted-foreground">{isRuntimeFailureStage(state.failureStage) ? copy.runtimeFailureStage : copy.failureStage}: {copy.stageLabels[state.failureStage]}</p><pre className="mt-2 max-h-20 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-2.5 text-xs leading-relaxed">{state.failureDetail.split("\n").slice(0, 2).join("\n")}</pre><RecoveryFailureDetails locale={state.locale} detail={state.failureContext ?? [state.failureDetail, state.logs].filter(Boolean).join("\n\n")} /></>}</div></CardContent></Card>
 }
 
 /** Keep the recovery terminal pill opposite the platform's native controls. */

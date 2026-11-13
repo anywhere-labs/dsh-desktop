@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import type {
-  BundleInfo,
+  BundleInfo as OfficialBundleInfo,
   ChangeResult,
   PackageResult,
   PluginInfo,
@@ -50,6 +50,9 @@ function snapshot(): CatalogSnapshot {
     page: {},
   }
 }
+
+/** Legacy runtime fixture retained for Stable/Next compatibility. */
+type BundleInfo = OfficialBundleInfo & { updatable?: boolean }
 
 /** One profile bundle as the official manager lists it: installed, selected, and removable unless overridden. */
 function bundle(name: string, overrides: Partial<BundleInfo> = {}): BundleInfo {
@@ -194,16 +197,19 @@ describe('official inventory projection', () => {
     }))).toMatchObject({ toggleable: true, error: 'incompatible-version' })
   })
 
-  it('offers updates only for bundles the manager updates, and only from releases with version operations', () => {
-    expect(marketInstallationView(bundle('dsh-plugin-user', { updatable: true }), true)).toMatchObject({ updatable: true })
-    expect(marketInstallationView(bundle('dsh-plugin-user', { updatable: true }))).toMatchObject({ updatable: false })
-    expect(marketInstallationView(bundle('dsh-plugin-git', { updatable: false }), true)).toMatchObject({ updatable: false })
-    expect(marketInstallationView(bundle('dsh-plugin-locked', {
-      updatable: true, removable: false, readOnlyReason: 'management-required',
-    }), true)).toMatchObject({ updatable: false })
-    // DSH releases before 0.2.2 report no `updatable` flag at all.
-    const { updatable: _, ...legacy } = bundle('dsh-plugin-legacy')
-    expect(marketInstallationView(legacy as BundleInfo, true)).toMatchObject({ updatable: false })
+  it.each<{ label: string; fields: Partial<BundleInfo>; versionOperations: boolean; expected: boolean }>([
+    { label: 'legacy registry support', fields: { updatable: true }, versionOperations: true, expected: true },
+    { label: 'legacy without version operations', fields: { updatable: true }, versionOperations: false, expected: false },
+    { label: 'legacy non-updatable bundle', fields: { updatable: false }, versionOperations: true, expected: false },
+    { label: 'old runtime without an update flag', fields: {}, versionOperations: true, expected: false },
+    { label: 'rc.2 registry', fields: { update: 'registry' }, versionOperations: true, expected: true },
+    { label: 'rc.2 registry without version operations', fields: { update: 'registry' }, versionOperations: false, expected: false },
+    { label: 'rc.2 Git takes precedence over legacy flag', fields: { update: 'git', updatable: true }, versionOperations: true, expected: false },
+    { label: 'protected legacy bundle', fields: { updatable: true, removable: false, readOnlyReason: 'management-required' }, versionOperations: true, expected: false },
+    { label: 'protected rc.2 registry bundle', fields: { update: 'registry', removable: false, readOnlyReason: 'management-required' }, versionOperations: true, expected: false },
+  ])('projects update availability: $label', ({ fields, versionOperations, expected }) => {
+    const { updatable: _legacyFlag, ...base } = bundle('dsh-plugin-user')
+    expect(marketInstallationView({ ...base, ...fields }, versionOperations)).toMatchObject({ updatable: expected })
   })
 
   it('lists neither official plugins nor Desktop built-in bundles', () => {

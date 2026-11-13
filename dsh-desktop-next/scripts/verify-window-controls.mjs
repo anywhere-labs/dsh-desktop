@@ -171,13 +171,13 @@ try {
   // A mounted official shell is healthy without waiting for connection/session probes.
   await page.waitForFunction(() => globalThis.__NEXT_TEST_BOOT__.rendererStatus === 'healthy')
   const collapse = page.getByRole('button', { name: /^(收起侧边栏|Collapse sidebar)$/ })
-  const reopen = page.locator('[data-sidebar-header-controls]').getByRole('button', { name: /^(打开侧边栏|Open sidebar)$/ })
+  const reopen = page.locator('div:has(> [data-sidebar-opener])').getByRole('button', { name: /^(打开侧边栏|Open sidebar)$/ })
   const conversationHeader = page.locator('header[data-window-drag]:has([data-conversation-header-leading])')
   const drag = page.locator('header[data-window-drag]:has([data-conversation-header-leading]), [data-plugin-page-header][data-window-drag]')
   const dragRegion = () => drag.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))
   const checkModalDrag = async () => {
     const modal = page.getByRole('dialog').last()
-    assert.equal(await modal.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
+    assert.notEqual(await modal.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'drag')
     assert.equal(await modal.evaluate(element => {
       let portal = element
       while (portal.parentElement !== document.body) portal = portal.parentElement
@@ -268,8 +268,8 @@ try {
     }
   })
   // A control inside a scroller whose box reaches a chrome row must change nothing about that row: its empty
-  // run still drags and its controls stay clickable. Without the Desktop window styles the official rules alone
-  // let the control punch the row; once they stop doing so, retire the reset in src/client/styles.ts.
+  // run still drags and its controls stay clickable. rc.2 scopes the official controls to chrome rows,
+  // so both the official rules and the remaining Desktop styles must preserve the row.
   const checkRowAboveScroller = async (row, scroller) => {
     await installDragRegions()
     const result = await row.evaluate(async (element, hostSelector) => {
@@ -311,12 +311,19 @@ try {
       return { drags: before.filter(region => region === 'drag').length, punched: differs(official), changed: differs(corrected) }
     }, scroller)
     assert.ok(result.drags > 0, `The row above ${scroller} declares no drag: ${JSON.stringify(result)}`)
-    assert.ok(result.punched > 0, `The official rules no longer let a control in ${scroller} punch the row: ${JSON.stringify(result)}`)
+    assert.equal(result.punched, 0, `The official scoped no-drag rules must preserve the row above ${scroller}: ${JSON.stringify(result)}`)
     assert.equal(result.changed, 0, `A control in ${scroller} changes the drag surface of the row above it: ${JSON.stringify(result)}`)
+  }
+  const checkClickableRegion = async locator => {
+    await installDragRegions()
+    assert.notEqual(await locator.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      return globalThis.__nextDragRegions([[box.x + box.width / 2, box.y + box.height / 2]])[0]
+    }), 'drag', 'The effective region at the control must accept clicks')
   }
   const expand = async () => {
     await reopen.waitFor({ state: 'visible' })
-    assert.equal(await reopen.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
+    await checkClickableRegion(reopen)
     await reopen.click()
     await reopen.waitFor({ state: 'hidden' })
     await collapse.waitFor({ state: 'visible' })
@@ -339,10 +346,10 @@ try {
   for (const index of [0, 1]) await checkRowAboveScroller(page.locator('[data-window-drag]:not(header)').nth(index), '[role="tree"]')
   await collapse.click()
   await reopen.waitFor({ state: 'visible' })
-  assert.equal(await page.locator('[data-sidebar-header-controls] button').count(), 2,
+  assert.equal(await page.locator('div:has(> [data-sidebar-opener]) button').count(), 2,
     'Conversation headers keep both official sidebar and new-session controls')
   await checkRowAboveScroller(conversationHeader, '[data-conversation-scroll]')
-  // Only a surface that can escape the transcript keeps its subtraction.
+  // Transcript descendants declare no region; actual modal portals are checked separately.
   assert.deepEqual(await page.evaluate(() => {
     const plain = document.createElement('button')
     const menu = document.createElement('div')
@@ -353,7 +360,7 @@ try {
     plain.remove()
     menu.remove()
     return regions
-  }), ['none', 'no-drag', 'no-drag'])
+  }), ['none', 'none', 'none'])
   mkdirSync(screenshots, { recursive: true })
   await page.screenshot({ path: join(screenshots, 'new-session-collapsed.png'), animations: 'disabled' })
   // A tray/shortcut request activates the official Settings trigger even with the sidebar collapsed.
@@ -595,7 +602,7 @@ try {
   }
   await checkDrag()
   const refresh = page.getByRole('button', { name: /^(刷新|Refresh)$/ })
-  assert.equal(await refresh.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
+  await checkClickableRegion(refresh)
   await refresh.click()
   const pluginPanel = page.locator('[data-plugin-panel]')
   // dsh 0.2.2 scrolls the page body under a pinned header bar; earlier releases scroll the whole panel.
@@ -606,19 +613,21 @@ try {
     await page.waitForFunction(() => Number.parseFloat(getComputedStyle(document.querySelector('[data-shell-overlay]').parentElement).gridTemplateColumns) === 0)
     // dsh 0.1.7 moved the occupant out of the per-page `plugins.header.leading` seat into the
     // frame's `shell.leading` seat, which renders both controls whatever page is showing.
-    assert.equal(await page.locator('[data-sidebar-header-controls] button').count(), 2,
+    assert.equal(await page.locator('div:has(> [data-sidebar-opener]) button').count(), 2,
       'Plugins reuses the frame window-chrome seat with both sidebar and new-session controls')
     const geometry = await reopen.evaluate(button => {
       const box = button.getBoundingClientRect()
       return { x: box.x, y: box.y, width: box.width, height: box.height,
         inPageHeader: !!button.closest('[data-plugin-page-header]'),
         clickable: button.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)),
-        region: getComputedStyle(button).getPropertyValue('-webkit-app-region') }
+        region: globalThis.__nextDragRegions([[box.x + box.width / 2, box.y + box.height / 2]])[0] }
     })
     // 0.1.7 positions that seat itself (`.leadingSeat` at top 11px / left 88px), so the seat's own
     // offset decides the placement without any Next sidebar-control CSS.
-    assert.deepEqual(geometry, { x: 88, y: 11, width: 28, height: 28,
-      inPageHeader: false, clickable: true, region: 'no-drag' },
+    assert.notEqual(geometry.region, 'drag')
+    const { region, ...placement } = geometry
+    assert.deepEqual(placement, { x: 88, y: 11, width: 28, height: 28,
+      inPageHeader: false, clickable: true },
     'The official toggle stays beside the native traffic lights, independently of the centered content and scrolling')
   }
   const checkPluginHeader = async () => {
@@ -650,7 +659,7 @@ try {
   assert.ok(Math.abs((await pluginHeader.getByRole('heading', { level: 1 }).boundingBox()).x - (await controls.boundingBox()).x) < 1,
     'A wide window keeps the title aligned with the centered content column')
   const addPlugin = page.getByRole('button', { name: /^(添加插件|Add plugin)$/ })
-  assert.equal(await addPlugin.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
+  await checkClickableRegion(addPlugin)
   await addPlugin.click()
   await page.getByRole('dialog').waitFor()
   await page.getByRole('dialog').press('Escape')

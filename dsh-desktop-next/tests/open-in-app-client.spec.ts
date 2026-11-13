@@ -28,7 +28,7 @@ async function client(apps: string[]) {
   }
   let plugin: Plugin
   const source = readFileSync(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-client-ui-open-in-app/client'), 'utf8')
-  runInNewContext(source, { fetch, console, window: { __ModuleLoader__: {
+  runInNewContext(source, { fetch, console, AbortController, window: { __ModuleLoader__: {
     load: (entry: { factory: (require: (id: string) => unknown) => Plugin }) => { plugin = entry.factory(id => modules[id] ?? {}) },
   } } })
   let dictionaries: Record<string, Record<string, string>> = {}

@@ -6,6 +6,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { LEGACY_AGENT_TEAM_BUNDLE } from './upstream-family.ts'
 import { DesktopHostProcess } from '../lib/host-process.js'
 import { NextRecovery } from '../lib/recovery.js'
 import { NEXT_PACKAGE, NextProfiles } from '../lib/profiles.js'
@@ -69,6 +70,16 @@ try {
   await runner.dispose()
   const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
   assert.ok(manifest.dsh.profile.bundles.includes('fixture-next-plugin'), 'Official plugin operations must activate the bundle')
+  // A newer optional bundle can hoist another runtime into a shared Profile.
+  // Its core package must not replace the desktop's pinned storage service.
+  const shadow = join(dir, 'node_modules', '@deepseek-ai', 'dsh-storage-domain')
+  mkdirSync(shadow, { recursive: true })
+  writeFileSync(join(shadow, 'package.json'), JSON.stringify({
+    name: '@deepseek-ai/dsh-storage-domain', version: '99.0.0', type: 'module',
+    exports: { '.': './index.js', './package.json': './package.json' },
+    peerDependencies: { '@deepseek-ai/dsh-storage': '99.0.0' },
+  }))
+  writeFileSync(join(shadow, 'index.js'), "throw new Error('Profile shadow must never load')\n")
   let { origin, cookie } = await boot('desktop')
   assert.ok(existsSync(join(home, '.agents-anywhere', 'dsh-bridge-next')),
     'AA must resolve its default shared state inside the smoke user home')
@@ -116,6 +127,25 @@ try {
     assert.equal(row?.enabled, true, `Web composition must mount ${name}: ${JSON.stringify(row)}`)
     assert.equal(row?.fiberPhase, 'active', JSON.stringify(row))
   }
+  for (const name of ['@deepseek-ai/dsh-storage-domain', '@deepseek-ai/dsh-workspace',
+    '@deepseek-ai/dsh-api-workspace-controller', '@deepseek-ai/dsh-api-session-controller']) {
+    const row = officialRows.find(row => row.moduleName === name)
+    assert.equal(row?.fiberPhase, 'active', `Core service unavailable: ${JSON.stringify(row)}`)
+  }
+  assert.equal(officialRows.some(row => row.moduleName === 'tokens-anywhere'), false)
+  assert.equal(JSON.parse(readFileSync(join(shadow, 'package.json'), 'utf8')).version, '99.0.0',
+    'Runtime isolation must leave installed Profile packages untouched')
+  const translation = await rpc('setBundleEnabled', {
+    name: '@deepseek-ai/dsh-experimental-cot-translation-bundle', enabled: true,
+  })
+  assert.equal(translation.application, 'applied', JSON.stringify(translation))
+  assert.ok((await rpc('limits', {}, 'cotTranslation')).maxTextChars > 0,
+    'Translation settings must resolve the Host service without sending translation requests')
+  const workspacePath = join(home, 'workspace')
+  mkdirSync(workspacePath)
+  const createdWorkspace = await rpc('create', { request: { path: workspacePath } }, 'workspace')
+  const createdSession = await rpc('create', { request: { cwd: workspacePath } }, 'session')
+  assert.ok((await rpc('list', { _request: {} }, 'session')).items.some(item => item.sessionId === createdSession.sessionId))
   const retiredSchedule = '@deepseek-ai/dsh-experimental-schedule-bundle'
   assert.equal((await rpc('listBundles')).some(bundle => bundle.name === retiredSchedule), false,
     `Official Plugins overview must not offer the retired ${retiredSchedule}`)
@@ -123,9 +153,9 @@ try {
   const disabledSchedule = await rpc('setPluginEnabled', { id: scheduleRow.entryId, enabled: false })
   assert.equal(disabledSchedule.application, 'applied', JSON.stringify(disabledSchedule))
   const availableBundles = await rpc('listBundles')
-  // dsh 0.1.7 deleted `-web-profile` and merged its `ui-agent-team` row into `-profile`.
+  // Older runtimes offer Team as a bundle; rc.2 composes its services into Web.
   for (const [name, rowIds] of [
-    ['@deepseek-ai/dsh-experimental-agent-team-profile', ['agent-team', 'ui-agent-team']],
+    ...(LEGACY_AGENT_TEAM_BUNDLE ? [[LEGACY_AGENT_TEAM_BUNDLE, ['agent-team', 'ui-agent-team']]] : []),
   ]) {
     const bundle = availableBundles.find(row => row.name === name)
     assert.ok(bundle, `Official Plugins overview must offer ${name}`)
@@ -135,10 +165,18 @@ try {
     assert.equal(bundle.error, undefined)
     for (const rowId of rowIds) assert.ok(bundle.rows.some(row => row.rowId === rowId), JSON.stringify(bundle))
   }
+  if (!LEGACY_AGENT_TEAM_BUNDLE) {
+    assert.equal(availableBundles.some(row => row.name === '@deepseek-ai/dsh-experimental-agent-team-profile'), false)
+    for (const name of ['@deepseek-ai/dsh-agent-team', '@deepseek-ai/dsh-client-ui-agent-team']) {
+      const row = officialRows.find(row => row.moduleName === name)
+      assert.equal(row?.enabled, true, `Official Web must compose ${name}`)
+      assert.equal(row?.fiberPhase, 'active', JSON.stringify(row))
+    }
+  }
   // Official packages the installation declares among its optional bundles (Beta's OAR subagents) start switched
   // off, and switching one on starts every row its patch inserts.
   const installation = JSON.parse(readFileSync(NEXT_PACKAGE, 'utf8'))
-  for (const name of installation.dsh.optionalBundles.filter(name => name.startsWith('@deepseek-ai/'))) {
+  for (const name of [...installation.dsh.optionalBundles.filter(name => name.startsWith('@deepseek-ai/')), '@deepseek-ai/dsh-deepseek-chat-import']) {
     const bundle = (await rpc('listBundles')).find(row => row.name === name)
     assert.ok(bundle?.official && bundle.optional && !bundle.enabled && bundle.rows.length > 0, JSON.stringify(bundle))
     assert.equal(bundle.error, undefined, JSON.stringify(bundle))
@@ -149,6 +187,7 @@ try {
       const plugin = plugins.find(plugin => plugin.entryId !== undefined && plugin.entryId === row.entryId)
       assert.equal(plugin?.fiberPhase, 'active', `${name} row ${row.rowId}: ${JSON.stringify(plugin)}`)
     }
+    if (name === '@deepseek-ai/dsh-deepseek-chat-import') assert.ok((await rpc('limits', {}, 'deepseekChatImport')).maxUploadBytes > 0)
     // Rows with launch choices switch through the configuration editor; the shipped choice leaves no Profile override.
     const launchPresets = async (body) => {
       const response = await fetch(`${origin}/api/desktop-next/launch-presets`, body === undefined ? { headers: { cookie, origin } }
@@ -187,6 +226,10 @@ try {
   await rpc('setBundleEnabled', { name: packages[2], enabled: false })
   await stop()
   ;({ origin, cookie } = await boot('desktop'))
+  assert.equal((await rpc('create', { request: { path: workspacePath } }, 'workspace')).workspace.id, createdWorkspace.workspace.id)
+  assert.ok((await rpc('list', { _request: {} }, 'session')).items.some(item => item.sessionId === createdSession.sessionId),
+    'Existing sessions must remain readable after restarting with a mixed-version Profile')
+
   const restartedSchedule = (await rpc('listPlugins')).find(row => row.moduleName === scheduleModules[0])
   assert.equal(restartedSchedule?.enabled, false, `Schedule switch must survive restart: ${JSON.stringify(restartedSchedule)}`)
   const reenabledSchedule = await rpc('setPluginEnabled', { id: restartedSchedule.entryId, enabled: true })
@@ -410,7 +453,13 @@ try {
     await stop()
     console.log('Onboarding Cua native provider activation and teardown passed without capturing screens, sending input or prompting for OS permissions.')
   }
-  console.log(`Next Host smoke passed (${process.argv.includes('--electron') ? 'Electron Node mode' : 'Node'}): authenticated ${upstreamVersion} Web, exclusive market selection and independent AA persisted, official row toggles, dshmarket offline install and cross-market toggle and removal through the official manager, official install/remove with a freshly published locked dependency, native dshmarket update origin gate, graceful shutdown, recovery boot, profile switch and a second computer-use registry beside Computer Use (Next).`)
+  manager.create('core-disabled')
+  writeFileSync(join(manager.directory('core-disabled'), 'cordis.patch.yml'), '- id: storage-domain\n  disabled: true\n')
+  await assert.rejects(boot('core-disabled'), /Desktop core services unavailable:.*storageDomain/u,
+    'Missing core services must fail startup explicitly instead of showing an empty session list')
+  await host.stop()
+  host = undefined
+  console.log(`Next Host smoke passed (${process.argv.includes('--electron') ? 'Electron Node mode' : 'Node'}): authenticated ${upstreamVersion} Web, mixed-version Profile isolation, persisted workspace/session reads, translation limits, no Tokens entry, exclusive market selection and independent AA persisted, official row toggles, dshmarket offline install and cross-market toggle and removal through the official manager, official install/remove with a freshly published locked dependency, native dshmarket update origin gate, graceful shutdown, recovery boot, profile switch and a second computer-use registry beside Computer Use (Next).`)
 } finally {
   await runner?.dispose()
   await host?.stop()

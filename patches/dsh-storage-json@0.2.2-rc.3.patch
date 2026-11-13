@@ -1,0 +1,31 @@
+diff --git a/lib/index.js b/lib/index.js
+index faa5d80..5407fa9 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -95,7 +95,7 @@ function serialize(name, state) {
+ function parse(text, descriptor) {
+ 	let document;
+ 	try {
+-		document = JSON.parse(text);
++		document = JSON.parse(text.replace(/^\uFEFF/, ""));
+ 	} catch (error) {
+ 		throw new StorageError("malformed-medium", `unit '${descriptor.name}': file is not valid JSON`, { cause: error });
+ 	}
+@@ -150,7 +150,7 @@ function serializeRecord(version, value) {
+ function parseRecord(text, versions) {
+ 	let document;
+ 	try {
+-		document = JSON.parse(text);
++		document = JSON.parse(text.replace(/^\uFEFF/, ""));
+ 	} catch {
+ 		return;
+ 	}
+@@ -396,7 +396,7 @@ async function bootstrapLegacyUnit(descriptor, dir, state) {
+ 	}
+ 	let document;
+ 	try {
+-		document = JSON.parse(text);
++		document = JSON.parse(text.replace(/^\uFEFF/, ""));
+ 	} catch {
+ 		return;
+ 	}

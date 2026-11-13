@@ -114,6 +114,7 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
   ]
   const recovery: RecoveryState = {
     locale, failureStage: state.failureStage ?? 'host-boot',
+    failureContext: state.failureContext,
     failureDetail: state.failureExit === undefined ? state.failure : hostExitDetail(state.failureExit, locale), requested: !state.failure,
     snapshot: { profileName: state.selected, bundles: state.recovery?.bundles ?? [], checkpoints: (['slot-1', 'slot-2', 'slot-3'] as const).map((slotId, index) => {
       const checkpoint = state.recovery?.checkpoints[index]

@@ -491,6 +491,13 @@ it('captures scoped client errors with either Electron console-message signature
     consoleMessage.emit('console-message', {}, 2)
     consoleMessage.emit('console-message', {}, 2, 'unrelated output')
     expect(fixture.diagnosticAppend).toHaveBeenCalledTimes(3)
+    Object.assign(fixture.preferences, { developerLogging: false })
+    consoleMessage.emit('console-message', { level: 'warning', message: 'web boot: warning: optional plugin loading', sourceId: 'dsh-app://app/assets/entry.js', lineNumber: 25 })
+    expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ level: 'warn', developer: false, fields: { webContentsId: consoleMessage.id, sourceId: 'dsh-app://app/assets/entry.js', lineNumber: 25 } }))
+    const owner = fixture.windows[0]
+    Object.defineProperty(owner, 'webContents', { get() { throw new Error('Object has been destroyed') } })
+    expect(() => consoleMessage.emit('console-message', { level: 'error', message: 'late teardown error' })).not.toThrow()
+    expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ message: 'late teardown error', fields: { webContentsId: consoleMessage.id } }))
     expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ source: 'renderer', event: 'console', message: '[next-ui-diagnostic] aa=false', level: 'warn', developer: true }))
     expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ source: 'renderer', level: 'error', developer: false }))
   } finally {
@@ -507,6 +514,7 @@ it('keeps the Windows caption buttons transparent so full-window official surfac
     await import('../src/main.ts')
     await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
     const window = fixture.windows[0]
+    expect(window.options.backgroundColor).toBe('#1b1b1c')
     expect(window.options.titleBarOverlay).toEqual({ height: 40, color: '#00000000', symbolColor: '#f9fafb' })
     const sender = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
     const appearance = fixture.handlers.get('dsh-next:windows-appearance')!

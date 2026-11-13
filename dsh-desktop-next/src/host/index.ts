@@ -6,7 +6,7 @@ import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { hostOperationDiagnostics, installHostFileDragResources, webIndexInjections } from '../upstream-family.ts'
+import { OFFICE_IN_WEB_PROFILE, installOfficeSkillResolution, installOfficialCuaResolution, hostOperationDiagnostics, installHostFileDragResources, webIndexInjections } from '../upstream-family.ts'
 import { loadNextProfile, NEXT_PACKAGE, readNextProfilePatches } from '../profiles.ts'
 import { bundledPnpmInvocation } from '../bundled-pnpm.ts'
 import { configureNextBrowserAccess } from '../desktop-browser-access.ts'
@@ -38,10 +38,12 @@ export async function main(): Promise<void> {
   if (!runtimeDir || !projectDir || !home || !process.send) throw new Error('Next Host requires runtime, profile, home and IPC')
   // The Office engine runs as a native child process, so an archived payload resolves it to its unpacked copy.
   installOfficeEngineResolution(runtimeDir)
+  installOfficeSkillResolution?.(runtimeDir)
   // The Creator preset reads its skills through the Host's filesystem service, which cannot stat inside the archive.
   installAgentPresetResolution(runtimeDir)
   // The computer-use driver hands its library path to the system loader, which reads no archive.
   installCuaDriverResolution(runtimeDir)
+  installOfficialCuaResolution(runtimeDir)
   // The badge skill tells the model to take its PNG from the directory it announces, which shells and the Host's filesystem service cannot read inside the archive.
   installSkillBadgeResolution(runtimeDir)
   // Linux sharp must not load its native backends beside the GLib Electron links; it runs its WebAssembly build instead.
@@ -59,10 +61,15 @@ export async function main(): Promise<void> {
   delete process.env[SYSTEM_PROXY_ENV]
   const packageManager = bundledPnpmInvocation(runtimeDir)
   const profile = loadNextProfile(projectDir, home, NEXT_PACKAGE, packageManager)
+  const office = resolveOfficeConfig(runtimeDir, primaryRuntime, home)
   const runtimePatch = join(projectDir, 'desktop-next.runtime.patch.json')
   atomicJson(runtimePatch, [
     { id: 'desktop-next-webserver', config: { host: '127.0.0.1', port: preferences.port } },
     { id: 'connection', config: { trustedHosts } },
+    ...(OFFICE_IN_WEB_PROFILE && office ? [
+      { id: 'workspace-dependencies', disabled: false, config: office },
+      { id: 'skill-office', config: { pythonEnvironment: 'workspace-dependencies' } },
+    ] : []),
   ])
   // runProfile installs the outbound proxy policy from this environment before any plugin mounts.
   const { environment, resolution: proxy } = withSystemProxy(loadLayeredEnv('dsh-desktop-next'), systemProxy, trustedHosts as string[])
@@ -143,11 +150,14 @@ export async function main(): Promise<void> {
   // The shell signs the official account plugin's embedded Platform pages (top-up, usage) in with this grant.
   if (!stopping) installPlatformSessionPublisher(ctx, (session) => { void send({ type: 'platform-session', session }).catch(() => {}) })
   // Office skills and the workspace dependency tool need the bundled payload; a packaged Host without it fails here.
-  const office = resolveOfficeConfig(runtimeDir, primaryRuntime, home)
   if (office === undefined) hostLog({ source: 'host', event: 'office.unavailable', level: 'warn', fields: { source: primaryRuntime } })
-  else {
+  else if (!OFFICE_IN_WEB_PROFILE) {
     const mounted = hostOperation('host', 'office.mount', { source: office.source })
     try { await ctx.plugin(desktopOffice, office); mounted() } catch (error) { mounted(error); throw error }
+  }
+  const missingCore = ['storageDomain', 'workspaceRegistry', 'sessionController'].filter(name => ctx.get(name) === undefined)
+  if (missingCore.length > 0) {
+    throw new Error(`Desktop core services unavailable: ${missingCore.join(', ')}. Check plugin compatibility and startup errors in the recovery report.`)
   }
   hostLog({ source: 'host', event: 'process.ready' })
   await send({ type: 'ready', url: ctx.connection.authenticatedUrl(`http://127.0.0.1:${ctx.webServer.port}`),

@@ -379,6 +379,8 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     ...(process.platform !== 'darwin' ? { icon: unpackedPath(join(root, 'build', process.platform === 'win32' ? 'app-icon.ico' : 'app-icon.png')) } : {}),
     ...(!primary ? auxiliaryWindowChromeOptions() : {}),
     ...(process.platform === 'win32' && primary ? {
+      // Match the official initial canvas before the renderer paints its theme.
+      backgroundColor: nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb',
       titleBarStyle: 'hidden' as const,
       titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: WINDOWS_CAPTION_FILL,
         symbolColor: nativeTheme.shouldUseDarkColors ? '#f9fafb' : '#0f1115' },
@@ -392,27 +394,35 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     // `DesktopBrowserGuests` issued the lease, and the guest itself never gets the tag.
     webPreferences: { preload: join(root, 'lib', preload), contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: primary },
   })
+  // Keep the primitive ID: late console events can arrive after the native window is destroyed.
+  const consoleWebContentsId = window.webContents.id
   let intervalStart = Date.now()
   let count = 0
   let failureCount = 0
   // The Host log otherwise misses client slot failures: the renderer can retire
   // an entry (and its portalled dialog) without crashing the Electron process.
-  window.webContents.on('console-message', (event, _level, legacyMessage) => {
+  window.webContents.on('console-message', (event, _level, legacyMessage, legacyLine, legacySource) => {
     // Electron versions differ: older runtimes pass the message as the third
     // argument, newer ones put it on the event. Never assume either exists.
     const message = typeof legacyMessage === 'string' ? legacyMessage : event?.message
     if (typeof message !== 'string') return
     const level = typeof event?.level === 'string' ? event.level : _level
     const failure = level === 'error' || level === 3 || message.includes('[next-ui-error]') || message.includes('slot entry crashed') || message.includes('slot factory occurrence crashed')
-    if (!failure && !runtime.preferences.developerLogging) return
+    const bootWarning = message.startsWith('web boot: warning')
+    const important = failure || bootWarning
+    if (!important && !runtime.preferences.developerLogging) return
     if (Date.now() - intervalStart >= 1000) { intervalStart = Date.now(); count = 0; failureCount = 0 }
-    const currentCount = failure ? ++failureCount : ++count
+    const currentCount = important ? ++failureCount : ++count
     if (currentCount > 100) {
       if (currentCount === 101) runtime.diagnostics.record({ source: 'renderer', event: 'console.rate-limited', level: 'warn' })
       return
     }
-    runtime.diagnostics.record({ source: 'renderer', event: 'console', level: failure ? 'error' : level === 'warning' || level === 2 ? 'warn' : 'info',
-      message: message.slice(0, 8192), developer: !failure, fields: { webContentsId: window.webContents.id } })
+    const sourceId = typeof event?.sourceId === 'string' ? event.sourceId : legacySource
+    const lineNumber = typeof event?.lineNumber === 'number' ? event.lineNumber : legacyLine
+    runtime.diagnostics.record({ source: 'renderer', event: 'console', level: failure ? 'error' : bootWarning || level === 'warning' || level === 2 ? 'warn' : 'info',
+      message: message.slice(0, 8192), developer: !important, fields: { webContentsId: consoleWebContentsId,
+        ...(typeof sourceId === 'string' ? { sourceId: sourceId.slice(0, 2048) } : {}),
+        ...(Number.isFinite(lineNumber) ? { lineNumber } : {}) } })
   })
   window.once('ready-to-show', () => {
     const maximize = restored?.maximized === true && !quitting && !window.isDestroyed()

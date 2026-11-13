@@ -1,3 +1,4 @@
+import { OFFICE_SKILLS_IN_PACKAGE } from '../scripts/upstream-family.ts'
 import { createRequire } from 'node:module'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -108,11 +109,14 @@ it('rejects a missing CPU, another version, a payload without Node, or a foreign
   expect(() => verifyNextRuntimeTree(slice, 'darwin', '2.0.0-beta.1')).toThrow('expected a thin x64 executable')
 })
 
-it('rejects missing entry points and Office resources', () => {
+it('rejects a missing Python entry point', () => {
   const python = fixture()
   writePayload(python, 'arm64', { omit: ['dependencies/python/bin/python3'] })
   writePayload(python, 'x64')
   expect(() => verifyNextRuntimeTree(python, 'darwin', '2.0.0-beta.1')).toThrow('missing arm64 Python interpreter')
+})
+
+it.skipIf(OFFICE_SKILLS_IN_PACKAGE)('requires copied Office skills for legacy runtimes', () => {
   const router = fixture()
   writePayload(router, 'arm64')
   writePayload(router, 'x64', { omit: ['office-skills/office/SKILL.md'] })
@@ -120,6 +124,15 @@ it('rejects missing entry points and Office resources', () => {
   const skill = fixture()
   writePayload(skill, 'arm64', { omit: ['office-skills/office-xlsx/SKILL.md'] })
   expect(() => verifyNextRuntimeTree(skill, 'darwin', '2.0.0-beta.1')).toThrow('missing arm64 office-xlsx skill')
+})
+
+it.runIf(OFFICE_SKILLS_IN_PACKAGE)('accepts a runtime without copied Office skills when skills ship in the package', () => {
+  const root = fixture()
+  for (const arch of ['arm64', 'x64'] as const) {
+    writePayload(root, arch)
+    rmSync(officeSkillsDirectory(root, arch), { recursive: true, force: true })
+  }
+  expect(verifyNextRuntimeTree(root, 'darwin', '2.0.0-beta.1')).toHaveLength(2)
 })
 
 it('reuses a runtime tree only when every target matches the current lock digest and version', () => {

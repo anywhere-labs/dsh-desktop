@@ -1,3 +1,4 @@
+import { OFFICE_SKILL_UNPACKED, OFFICIAL_CUA_UNPACKED } from './upstream-family.ts'
 /** Read, audit and verify the archived Next payload after Electron Builder assembled it from the prepared tree. */
 import { createHash } from 'node:crypto'
 import { closeSync, existsSync, lstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs'
@@ -169,6 +170,8 @@ function isNativeImage(head: Buffer): boolean {
  * the Connector project. All of them need physical files.
  */
 const REQUIRED_UNPACKED = [
+  ...OFFICIAL_CUA_UNPACKED === undefined ? [] : [OFFICIAL_CUA_UNPACKED],
+  ...OFFICE_SKILL_UNPACKED === undefined ? [] : [OFFICE_SKILL_UNPACKED],
   /^scripts\/node-bin\//u, /^assets\//u, /^build\//u, /^node_modules\/pnpm\//u,
   /^node_modules\/@agents-anywhere\/dsh-bridge-next\/lib\/bundled-connector\//u,
   // The Creator preset mounts this package's skills through the Host's filesystem service, which stats with bigint

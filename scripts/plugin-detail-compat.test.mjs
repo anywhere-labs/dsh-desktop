@@ -136,10 +136,14 @@ for (const workspace of ['dsh-plugin-desktop-beta', 'dsh-desktop-next']) {
     for (const name of README_BUNDLES) {
       const bundleManifest = installed(require, `${name}/package.json`)
       if (bundleManifest === undefined) continue
-      await t.test(`${name} shows README.zh.md to a Chinese display language`, async () => {
+      await t.test(`${name} follows official localized details or the README fallback`, async () => {
         const files = localFiles(dirname(bundleManifest), JSON.parse(readFileSync(bundleManifest, 'utf8')).version)
         const paths = Object.fromEntries(await Promise.all(DISPLAY_LANGUAGES.map(async language => [language, (await read(files, language)).path])))
-        assert.deepEqual(paths, byLanguage('README.md', { zh: 'README.zh.md' }))
+        const expected = Object.fromEntries(DISPLAY_LANGUAGES.map(language => {
+          const locale = JSON.parse(readFileSync(join(dirname(bundleManifest), 'locale', `${language}.json`), 'utf8'))
+          return [language, locale.meta?.detail ?? (language === 'zh' ? 'README.zh.md' : 'README.md')]
+        }))
+        assert.deepEqual(paths, expected)
       })
     }
   })

@@ -203,3 +203,17 @@ it('describes local minidumps in exports without including or following them', (
     files: [{ name: 'pending/host.dmp', bytes: 19, modified: expect.any(String) }] })
   expect(exported).not.toContain('private-memory')
 })
+
+
+it('keeps previous-run history out of the current failure context', () => {
+  const home = temporary()
+  const previous = diagnostics(home)
+  previous.append('old unrelated failure'); previous.flush()
+  const current = diagnostics(home)
+  current.append('current plugin load')
+  current.hostChunk('unfinished current output', 'stderr')
+  expect(current.snapshot()).toContain('old unrelated failure')
+  expect(current.snapshot(true)).not.toContain('old unrelated failure')
+  expect(current.snapshot(true)).toContain('current plugin load')
+  expect(current.snapshot(true)).toContain('unfinished current output')
+})

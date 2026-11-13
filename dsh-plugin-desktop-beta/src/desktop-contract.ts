@@ -72,6 +72,8 @@ export interface DesktopState {
   failureExit?: DesktopHostExit
   /** The report saved in the logs directory when `failure` opened recovery. */
   failureReport?: DesktopFailureReport
+  /** Frozen, masked failure context, including the original error and this run’s log. */
+  failureContext?: string
   /** A Desktop action that failed after `failure`; shown beside it, never replacing it. */
   actionFailure?: string
   safeMode: boolean
