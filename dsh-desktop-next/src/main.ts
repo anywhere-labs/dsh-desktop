@@ -15,7 +15,7 @@ import { claimDesktopSingleInstance } from './single-instance.ts'
 import { NEXT_PACKAGE, NextProfiles, parseFeatures, profileName } from './profiles.ts'
 import { APP_URL, IPC, SHELL_URL } from './ipc.ts'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
-import { preferredDesktopLocale, resolveDesktopLocale } from './menu-locale.ts'
+import { preferredDesktopLocale, resolveDesktopLocale, roleApplicationMenuTemplate } from './menu-locale.ts'
 import { NativeLocaleStore } from './native-locale.ts'
 import { NextDesktopRuntime } from './desktop-runtime.ts'
 import { probeSystemProxy, type DesktopSystemProxyProbe } from './system-proxy.ts'
@@ -1440,9 +1440,9 @@ async function main(): Promise<void> {
   }
   native.createTray()
   updates.start()
-  Menu.setApplicationMenu(process.platform === 'win32' ? null : Menu.buildFromTemplate([
-    { label: 'DSH NEXT', submenu: native.items() }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
-  ]))
+  Menu.setApplicationMenu(process.platform === 'win32' ? null : Menu.buildFromTemplate(
+    roleApplicationMenuTemplate(native.items(), windowsLanguage),
+  ))
   if (process.platform === 'win32') {
     ipcMain.handle(IPC.windowsMenu, (event, name: unknown, x: unknown, y: unknown) => {
       assertSender(event, mainWindow, APP_URL)
