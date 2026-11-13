@@ -60,7 +60,7 @@ import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCa
 import { collectRendererDiagnostics, rendererDiagnosticsFields } from './renderer-diagnostics.ts'
 import { RollingRendererEvidence } from './renderer-evidence.ts'
 import { deElevateAtStartup, lowIntegrityAtStartup, windowsElevation } from './windows-elevation.ts'
-import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure } from './sandbox-launch.ts'
+import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure, DISABLE_GPU_SANDBOX_ARGUMENT, gpuSandboxBreakpoint, gpuSandboxFallbackArguments } from './sandbox-launch.ts'
 import { pickOutsideProgramDirectory, programDirectory, programDirectoryRefusal, refusedProgramDirectoryOverlap, type ProgramDirectoryOverlap, type ProgramDirectoryPurpose } from './program-directory.ts'
 import { startCrashReporting } from './crash-reporting.ts'
 
@@ -1629,6 +1629,20 @@ if (ownsInstance) {
     if (details.reason !== 'clean-exit' && !quitting) runtime.memory.incident({ process: 'child', type: details.type, reason: details.reason, exitCode: details.exitCode })
     const failure = gpuLaunchFailure(process.platform, details)
     if (failure && !quitting) reportSandboxLaunchFailure(failure)
+    // A GPU child that dies with STATUS_BREAKPOINT (0x80000003) leaves Chromium no working GPU mode, and the
+    // browser process ends before any window exists. Relaunch once with only the GPU sandbox disabled; the flag
+    // stays on the command line, so a second failure is not retried into a loop.
+    if (!quitting && gpuSandboxBreakpoint(process.platform, details)) {
+      const fallback = gpuSandboxFallbackArguments(process.argv.slice(1))
+      if (fallback !== undefined) {
+        quitting = true
+        runtime.diagnostics.record({ source: 'electron', event: 'sandbox.gpu-breakpoint-fallback', level: 'warn',
+          fields: { exitCode: details.exitCode, argument: DISABLE_GPU_SANDBOX_ARGUMENT } })
+        runtime.diagnostics.flush()
+        relaunchApp(app, fallback)
+        app.exit(0)
+      }
+    }
   })
   app.on('render-process-gone', (_event, contents, details) => {
     const failure = rendererLaunchFailure(process.platform, details)
