@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { NextDesktopRuntime } from '../src/desktop-runtime.ts'
 import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, type DesktopHostObserver } from '../src/host-process.ts'
 import { historyFiles } from '../src/log-history.ts'
+import { DesktopHostRecovery } from '../src/host-recovery.ts'
 
 vi.mock('../src/web-document.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/web-document.ts')>(),
@@ -15,9 +16,50 @@ vi.mock('../src/web-document.ts', async importOriginal => ({
 const runtimes: NextDesktopRuntime[] = []
 const directories: string[] = []
 afterEach(async () => {
+  vi.useRealTimers()
   await Promise.all(runtimes.splice(0).map(runtime => runtime.close()))
   await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
   vi.restoreAllMocks()
+})
+
+it('routes a running Host failure to opt-in app recovery without starting a replacement Host', async () => {
+  let host: DesktopHostProcess | undefined
+  const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockImplementation(function (this: DesktopHostProcess) {
+    host = this
+    return Promise.resolve({ url: 'http://127.0.0.1:43120/?token=fixture', injections: [] })
+  })
+  vi.spyOn(DesktopHostProcess.prototype, 'stop').mockResolvedValue()
+  const { runtime, onFailure } = await fixture()
+  const relaunch = vi.fn()
+  const recovery = new DesktopHostRecovery({ enabled: true, file: join(directories.at(-1)!, 'host-recovery.json'),
+    available: () => !runtime.closing, relaunch, fallback: vi.fn(), record() {} })
+  onFailure.mockImplementation(() => recovery.handle(runtime.failureStage))
+  await runtime.start()
+  vi.useFakeTimers()
+  const internals = host as unknown as { onFailure(error: Error): void }
+  internals.onFailure(new DesktopHostExitError(1, null, ''))
+  expect(runtime.failureStage).toBe('host-runtime')
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(relaunch).toHaveBeenCalledOnce()
+  // The existing backend owns cleanup. Only the outer app may relaunch after that cleanup.
+  expect(start).toHaveBeenCalledOnce()
+  vi.useRealTimers()
+  expect(await runtime.failureReportFile()).toBeDefined()
+  recovery.stop()
+})
+
+it('keeps startup failures on the manual path even when Host recovery is enabled', async () => {
+  vi.spyOn(DesktopHostProcess.prototype, 'start').mockRejectedValue(new DesktopHostExitError(1, null, ''))
+  vi.spyOn(DesktopHostProcess.prototype, 'stop').mockResolvedValue()
+  const { runtime, onFailure } = await fixture()
+  const relaunch = vi.fn()
+  const recovery = new DesktopHostRecovery({ enabled: true, file: join(directories.at(-1)!, 'host-recovery.json'),
+    available: () => !runtime.closing, relaunch, fallback: vi.fn(), record() {} })
+  onFailure.mockImplementation(() => recovery.handle(runtime.failureStage))
+  await expect(runtime.start()).rejects.toThrow('exited')
+  expect(onFailure).toHaveReturnedWith(false)
+  expect(relaunch).not.toHaveBeenCalled()
+  recovery.stop()
 })
 
 async function fixture(options: Partial<ConstructorParameters<typeof NextDesktopRuntime>[0]> = {}, prepare?: (home: string) => Promise<void>) {

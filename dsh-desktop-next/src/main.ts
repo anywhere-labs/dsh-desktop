@@ -63,6 +63,7 @@ import { deElevateAtStartup, lowIntegrityAtStartup, windowsElevation } from './w
 import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure } from './sandbox-launch.ts'
 import { pickOutsideProgramDirectory, programDirectory, programDirectoryRefusal, refusedProgramDirectoryOverlap, type ProgramDirectoryOverlap, type ProgramDirectoryPurpose } from './program-directory.ts'
 import { startCrashReporting } from './crash-reporting.ts'
+import { DesktopHostRecovery, HOST_RECOVERY_ENV } from './host-recovery.ts'
 
 // Below Medium integrity Chromium cannot start its GPU process and ends the launch without a word (#1564).
 const lowIntegrity = lowIntegrityAtStartup({ platform: process.platform, argv: process.argv, executable: process.execPath })
@@ -213,7 +214,9 @@ const runtime = new NextDesktopRuntime({
       throw error
     }
   },
-  onFailure: () => { if (app.isReady()) openControls('recovery') },
+  onFailure: () => {
+    if (app.isReady() && !hostRecovery.handle(runtime.failureStage)) openControls('recovery')
+  },
   onChange: () => {
     if (!app.isReady()) return
     if (runtime.backend.state.phase === 'ready') rendererRecovery?.booted()
@@ -251,6 +254,23 @@ const runtime = new NextDesktopRuntime({
   },
 })
 if (ownsInstance) runtime.diagnostics.crashDumps = crashDumps
+const hostRecovery = new DesktopHostRecovery({
+  enabled: process.env[HOST_RECOVERY_ENV] === '1',
+  file: join(normalElectronData, 'host-recovery.json'),
+  available: () => !quitting && !runtime.closing && !runtime.safeMode && !runtime.recoveryMode
+    && !runtime.busy && !installingUpdate && !onboarding && recoveryRequest === undefined,
+  relaunch: () => {
+    // The normal shutdown waits for Host cleanup and the failure report before relaunching.
+    // There is deliberately no session/prompt, resume, or tool retry here.
+    relaunch = relaunchArguments(process.argv.slice(1), false, false)
+    app.quit()
+  },
+  fallback: () => { if (!quitting && !installingUpdate && recoveryRequest === undefined) openControls('recovery') },
+  record: (event, fields) => {
+    runtime.diagnostics.record({ source: 'desktop', event, fields })
+    runtime.diagnostics.flush()
+  },
+})
 const platformLogin = new PlatformLoginWindow({
   BrowserWindow, session: partition => session.fromPartition(partition), host: () => runtime.auth,
   parent: () => mainWindow, title: () => t('登录 DeepSeek', 'Sign in to DeepSeek'), dark: () => nativeTheme.shouldUseDarkColors,
@@ -497,6 +517,7 @@ function openSettings(page: DesktopSettingsPage = 'general'): void {
 
 function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' | 'recovery' | 'permissions' | 'onboarding' = 'general'): void {
   if (quitting) return
+  if (page === 'recovery') hostRecovery.stop()
   if (page === 'general' || page === 'tools' || page === 'permissions') { openSettings(page === 'permissions' ? 'permissions' : 'general'); return }
   if (page === 'recovery' && !runtime.safeMode && !runtime.recoveryMode) {
     rendererRecovery?.stop()
@@ -723,6 +744,7 @@ async function command(value: unknown, source: 'app' | 'shell' | 'native' = 'app
   // Match Stable's restartRequest lifetime: share an in-flight request and
   // release it after success, cancellation or failure so recovery can retry.
   if (['safe-mode', 'normal-mode', 'recover', 'restart', 'rollback', 'repair-global', 'restart-app', 'restart-recovery'].includes(type)) {
+    hostRecovery.stop()
     if (recoveryRequest !== undefined) return recoveryRequest
     const request = loggedCommand(input, type, source).finally(() => {
       if (recoveryRequest === request) recoveryRequest = undefined
@@ -1536,6 +1558,7 @@ app.on('before-quit', event => {
   if (quitting || !ownsInstance) return
   event.preventDefault()
   quitting = true
+  hostRecovery.stop()
   rendererRecovery?.stop()
   rendererEvidence.stop()
   // Pending evidence lands now; a Host that dies of OOM while stopping is written at once.
