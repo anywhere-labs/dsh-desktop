@@ -4,6 +4,7 @@ import { request as requestHttp, type IncomingHttpHeaders, type IncomingMessage,
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
 import { isIPv4, Socket } from 'node:net'
 import type { Duplex } from 'node:stream'
+import { DESKTOP_LAN_HTTPS_CA_PATH } from './lan-https-ca-route.ts'
 import { MAX_HEADER_BYTES } from './browser-sessions.ts'
 import { NATIVE_ACCESS_HEADER as DESKTOP_RENDERER_ACCESS_HEADER } from './desktop-contract.ts'
 
@@ -20,6 +21,8 @@ export interface LanHttpsIngressOptions {
   readonly requestedPort: number
   readonly key: string | Buffer
   readonly cert: string | Buffer
+  /** Public CA PEM published only after LAN Host validation. */
+  readonly caCertificate: string | Buffer
   /** Stable identity of the CA shown by the Desktop trust flow. */
   readonly caFingerprint: string
   /** Startup-sampled LAN IPv4 literals accepted in the external Host header. */
@@ -182,6 +185,7 @@ export class LanHttpsIngress {
   private readonly requestedPort: number
   private readonly key: string | Buffer
   private readonly cert: string | Buffer
+  private readonly caCertificate: string | Buffer
   private readonly caFingerprint: string
   private readonly addresses: readonly string[]
   private readonly allowedAddresses: ReadonlySet<string>
@@ -195,6 +199,7 @@ export class LanHttpsIngress {
     this.requestedPort = exactPort(options.requestedPort, true, 'LAN HTTPS requested port')
     this.key = copyTlsValue(options.key, 'private key')
     this.cert = copyTlsValue(options.cert, 'certificate')
+    this.caCertificate = copyTlsValue(options.caCertificate, 'CA certificate')
     const fingerprint = options.caFingerprint.trim()
     if (fingerprint.length === 0) throw new TypeError('dsh-desktop-next: LAN HTTPS CA fingerprint must not be empty')
     this.caFingerprint = fingerprint
@@ -226,10 +231,33 @@ export class LanHttpsIngress {
     socket.once('close', () => this.sockets.delete(socket))
   }
 
+  private serveCaCertificate(request: IncomingMessage, response: ServerResponse): void {
+    request.resume()
+    const contentLength = Buffer.byteLength(this.caCertificate)
+    response.setHeader('cache-control', 'no-store')
+    response.setHeader('content-type', 'application/x-x509-ca-cert')
+    response.setHeader('content-disposition', 'attachment; filename="dsh-desktop-ca.crt"')
+    response.setHeader('x-content-type-options', 'nosniff')
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      response.statusCode = 405
+      response.setHeader('allow', 'GET, HEAD')
+      response.setHeader('content-length', 0)
+      response.end()
+      return
+    }
+    response.setHeader('content-length', contentLength)
+    response.statusCode = 200
+    response.end(request.method === 'HEAD' ? undefined : this.caCertificate)
+  }
+
   private proxyHttp(request: IncomingMessage, response: ServerResponse): void {
     if (!permits(request.headers, this.allowedAddresses)) {
       request.resume()
       reject(response, 403, 'forbidden')
+      return
+    }
+    if (request.url === DESKTOP_LAN_HTTPS_CA_PATH) {
+      this.serveCaCertificate(request, response)
       return
     }
 
