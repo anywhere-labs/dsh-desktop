@@ -102,10 +102,36 @@ index 9c54621..b3a8a6d 100644
  	if (api.setConsoleCtrlHandler(null, 1) === 0) fail(`SetConsoleCtrlHandler failed (Win32 ${api.getLastError()})`);
  	let ownedTempDir;
 diff --git a/lib/types-DXWX0PXB.js b/lib/types-DXWX0PXB.js
-index 6783e8a..a207087 100644
+index 6783e8a..80dc892 100644
 --- a/lib/types-DXWX0PXB.js
 +++ b/lib/types-DXWX0PXB.js
-@@ -590,6 +590,66 @@ function hasForeignGrant(oldAcl, sidPtr) {
+@@ -1,4 +1,5 @@
+ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
++import { readdirSync } from "node:fs";
+ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+ import { ERROR_INSUFFICIENT_BUFFER, Win32Error, allocPtrSlot, allocUint32, decodePtr, decodeUint32, drainPipe, extendWin32ProcessBindings, isNullPtr, isNullPtr as isNullPtr$1, spawnInheritedJobProcess, spawnPipedProcess, throwLastError, throwLastError as throwLastError$1, throwWin32, waitForProcessExit } from "@deepseek-ai/dsh-win32-process";
+ import { createHash } from "node:crypto";
+@@ -224,6 +225,19 @@ function bindings() {
+ 			PPVOID,
+ 			PPVOID
+ 		]),
++		treeSetNamedSecurityInfoW: bind(advapi32, "TreeSetNamedSecurityInfoW", "uint32", [
++			"str16",
++			"int",
++			"uint32",
++			PVOID,
++			PVOID,
++			PVOID,
++			PVOID,
++			"uint32",
++			PVOID,
++			"int",
++			PVOID
++		]),
+ 		getTempPathW: bind(kernel32, "GetTempPathW", "uint32", ["uint32", PVOID]),
+ 		setEnvironmentVariableW: bind(kernel32, "SetEnvironmentVariableW", "int", ["str16", "str16"]),
+ 		setConsoleCtrlHandler: bind(kernel32, "SetConsoleCtrlHandler", "int", [PVOID, "int"]),
+@@ -590,6 +604,147 @@ function hasForeignGrant(oldAcl, sidPtr) {
  * @param worldSidPtr - the Everyone SID the ambient-delete deny names.
  */
  function grantWrite(api, path, sidPtr, lowLabelSidPtr, worldSidPtr) {
@@ -128,6 +154,7 @@ index 6783e8a..a207087 100644
 +		}
 +		grantWriteOnce(api, path, sidPtr, lowLabelSidPtr, worldSidPtr);
 +	}
++	labelExistingEntries(api, path);
 +}
 +/**
 +* DSH Desktop: add an inheritable WRITE_OWNER grant for the directory's
@@ -167,6 +194,86 @@ index 6783e8a..a207087 100644
 +function assertOutsideProgramDirectory(path) {
 +	const program = dirname(process.execPath);
 +	if (containsDirectory(path, program) || containsDirectory(program, path)) throw new Error(`Windows ACL workspace must not overlap the program directory: workspace=${path}; program=${program}. Its Low integrity label would stop the program from starting; use a workspace outside the program directory.`);
++}
++/**
++* DSH Desktop: label entries below a granted directory that the grant's
++* propagation did not reach (#1627). SetNamedSecurityInfoW skips an entry it
++* cannot change at that moment, such as one that refuses WRITE_OWNER, and
++* still reports success. Once the root carries the exact ACE, deny and label,
++* grantWriteOnce never revisits the tree, so such an entry stays unlabeled
++* (Medium) and the Low-integrity child cannot write it. Every entry that
++* {@link unlabeledEntries} finds inherits its parent's label again, with its
++* subtree, through TreeSetNamedSecurityInfoW. The walk skips entries it still
++* cannot change, keeps explicit labels and does not follow junctions; it does
++* not restore a missing capability ACE. Best effort: a failure leaves the
++* labels as they were.
++* @param api - the binding table.
++* @param path - the directory that received the grant.
++*/
++function labelExistingEntries(api, path) {
++	try {
++		const entries = unlabeledEntries(api, path);
++		if (entries.length === 0) return;
++		// An empty label ACL leaves each entry the label it inherits; a NULL one fails with 1336.
++		const inherited = api.localAlloc(64, 8);
++		if (isNullPtr$1(inherited)) return;
++		try {
++			if (api.initializeAcl(inherited, 8, 2) !== 0) withPathLock(api, path, () => {
++				for (const entry of entries) api.treeSetNamedSecurityInfoW(entry, 1, 16, null, null, null, inherited, 1, null, 1, null);
++			});
++		} finally {
++			api.localFree(inherited);
++		}
++	} catch {}
++}
++/**
++* DSH Desktop: the entries below `path` without a mandatory label, breadth
++* first: every top-level entry, then the directories inside labeled
++* directories, with at most 2000 label reads so large trees stay cheap. Links
++* are not followed, an unreadable entry counts as labeled, and an unlabeled
++* entry's own subtree is not searched.
++* @param api - the binding table.
++* @param path - the directory that received the grant.
++* @returns the unlabeled entries found.
++*/
++function unlabeledEntries(api, path) {
++	const found = [];
++	const queue = [path];
++	let reads = 0;
++	for (let index = 0; index < queue.length && reads < 2000; index++) {
++		let entries;
++		try {
++			entries = readdirSync(queue[index], { withFileTypes: true });
++		} catch {
++			continue;
++		}
++		for (const entry of entries) {
++			if (entry.isSymbolicLink() || (index > 0 && !entry.isDirectory())) continue;
++			if (++reads > 2000) break;
++			const child = join(queue[index], entry.name);
++			if (!hasMandatoryLabel(api, child)) found.push(child);
++			else if (entry.isDirectory()) queue.push(child);
++		}
++	}
++	return found;
++}
++/**
++* DSH Desktop: whether a path carries any mandatory label. An unreadable path
++* counts as labeled, so only a label known to be missing starts the walk.
++* @param api - the binding table.
++* @param path - the file or directory to inspect.
++* @returns whether the path has a label of any level.
++*/
++function hasMandatoryLabel(api, path) {
++	let security;
++	try {
++		security = readCurrentSecurity(api, path);
++	} catch {
++		return true;
++	}
++	const labeled = security.labelAcl !== null && decodeUint16At(security.labelAcl, 4) > 0;
++	if (security.descriptor !== null) api.localFree(security.descriptor);
++	return labeled;
 +}
 +function grantWriteOnce(api, path, sidPtr, lowLabelSidPtr, worldSidPtr) {
  	withPathLock(api, path, () => {
