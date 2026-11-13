@@ -71,7 +71,7 @@ export function nextMacVerification(signed: boolean, distDir: string, env: NodeJ
       // The shared verifier asks for both slices of the main executable; verifyRuntime requires the package's exact set.
       if (command === 'lipo' && args[1] === '-verify_arch' && args[0]?.includes('/Contents/MacOS/') && !slices.includes(args[2]!)) return
       run(command, args)
-      if (signed && command === 'codesign' && args.includes('--verify')) verifyNextMacEntitlements(args.at(-1)!)
+      if (signed && command === 'codesign' && args.includes('--verify')) verifyNextMacEntitlements(args.at(-1)!, undefined, slices)
     } }
 }
 
