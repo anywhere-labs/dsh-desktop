@@ -41,11 +41,13 @@ corepack yarn workspace dsh-desktop-next verify:onboarding
 
 ## 应用图标资源
 
-`build/app-icon.icon` 是可编辑的 Icon Composer 工程，保留最终 NEXT 徽标布局和 System Dark 背景。在安装了 Xcode 27 和 Icon Composer 的 Mac 上，从仓库根目录运行 `corepack yarn icons:export --channel next`，可更新 `build/app-icon.png`、Windows 使用的 `build/app-icon.ico`、Linux 图标集 `build/icons/`、原生编译生成的 `build/app-icon.icns` 和开发运行的 Dock 图标 `build/app-icon-mac.png`。这些文件需与 `build/app-icon.resources.json` 一起提交；`corepack yarn icons:check` 可在任何系统中无界面验证。
+`build/app-icon.icon` 是可编辑的 Icon Composer 工程：浅瓷（Porcelain）鲸尾图案，即浅瓷渐变背景上的钴蓝描边 `whale-cobalt.svg`，并保留 NEXT 徽标布局。在安装了 Xcode 27 和 Icon Composer 的 Mac 上，从仓库根目录运行 `corepack yarn icons:export --channel next`，可更新 `build/app-icon.png`、Windows 使用的 `build/app-icon.ico`、Linux 图标集 `build/icons/`、原生编译生成的 `build/app-icon.icns`、开发运行的 Dock 图标 `build/app-icon-mac.png` 和 `assets/` 中的托盘图。这些文件需与 `build/app-icon.resources.json` 一起提交；`corepack yarn icons:check` 可在任何系统中无界面验证。
 
 Next 的 macOS 打包与 Stable、Beta 一样，直接使用分层 `.icon` 源工程编译 `Assets.car`。PNG Dock 图标仅用于未打包的开发运行；Windows 和 Linux 窗口分别使用 ICO 与 PNG 导出资源。
 
 Linux 图标集按 hicolor 主题的尺寸，从 16 到 512 像素每档一张 PNG。Debian 包和 AppImage 把每张装进对应的 `hicolor/<size>x<size>/apps` 目录，桌面环境在这里查找桌面条目的 `Icon=dsh-desktop-next`；该主题没有 1024 像素目录，只有一张 1024 像素的 PNG 会让启动器和任务栏找不到图标。`corepack yarn icons:export --channel next --linux` 只从已提交的 `build/app-icon.png` 重新生成这组图标，无需 Xcode。
+
+托盘图从同一鲸尾图层裁出：`assets/tray-iconTemplate.png` 及其 `@2x` 图是由 macOS 菜单栏自动着色的模板图；`assets/tray-icon-blue.png` 及其 1.25x、1.5x、2x 图保留 `#3563BF` 描边色，供 Windows 和 Linux 使用。
 
 ## 使用
 

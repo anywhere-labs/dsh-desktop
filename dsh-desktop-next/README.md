@@ -41,11 +41,13 @@ Set `DSH_NEXT_TEST_BROWSER_CHANNEL=chrome` to use an installed Google Chrome ins
 
 ## App icon resources
 
-`build/app-icon.icon` is the editable Icon Composer project with the final NEXT badge layout and System Dark background. On macOS with Xcode 27 and Icon Composer, run `corepack yarn icons:export --channel next` from the repository root to refresh `build/app-icon.png`, the Windows `build/app-icon.ico`, the Linux icon set `build/icons/`, native compiler output `build/app-icon.icns`, and the development Dock image `build/app-icon-mac.png`. Commit these files and `build/app-icon.resources.json` together; `corepack yarn icons:check` verifies them headlessly on any OS.
+`build/app-icon.icon` is the editable Icon Composer project: the Porcelain whale-tail artwork, a cobalt `whale-cobalt.svg` stroke on a light porcelain gradient, with the NEXT badge layout. On macOS with Xcode 27 and Icon Composer, run `corepack yarn icons:export --channel next` from the repository root to refresh `build/app-icon.png`, the Windows `build/app-icon.ico`, the Linux icon set `build/icons/`, native compiler output `build/app-icon.icns`, the development Dock image `build/app-icon-mac.png`, and the tray images in `assets/`. Commit these files and `build/app-icon.resources.json` together; `corepack yarn icons:check` verifies them headlessly on any OS.
 
 Next macOS packaging consumes the layered `.icon` source and compiles `Assets.car`, as Stable and Beta do. The raster Dock image is used only during unpackaged development; Windows and Linux windows use their ICO and PNG exports respectively.
 
 The Linux icon set holds one PNG per hicolor theme size from 16 to 512 pixels. The Debian package and the AppImage install each one under the matching `hicolor/<size>x<size>/apps` directory, where desktop environments look up the desktop entry's `Icon=dsh-desktop-next`; the theme declares no 1024-pixel directory, so a single 1024-pixel PNG would leave launchers and taskbars without an icon. `corepack yarn icons:export --channel next --linux` re-derives only this set from the committed `build/app-icon.png` and needs no Xcode.
+
+The tray images are cut from the same whale layer: `assets/tray-iconTemplate.png` and its `@2x` image are macOS template images that the menu bar colors itself, and `assets/tray-icon-blue.png` with its 1.25x, 1.5x and 2x images keeps the `#3563BF` stroke color for Windows and Linux.
 
 ## Usage
 
