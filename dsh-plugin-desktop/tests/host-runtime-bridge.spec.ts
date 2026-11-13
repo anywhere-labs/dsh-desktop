@@ -55,9 +55,10 @@ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on c
     await shell.requestModeChange('extended')
     expect(mode).toHaveBeenCalledWith('extended')
     const setup = { mode: 'extended', macosMaterial: 'transparent', windowsMaterial: 'off', openBrowser: false,
-      networkExposure: 'loopback', notifications: { enabled: true, notifyOnTurnCompletion: true,
-        notifyOnTurnFailure: true, notifyOnJobCompletion: true, notifyOnJobFailure: true,
-        notifyOnScheduleCompletion: true, notifyOnScheduleFailure: true } } as const
+      networkExposure: 'loopback', notifications: { enabled: true, notifyOnApprovalRequest: true,
+        notifyOnTurnCompletion: true, notifyOnTurnFailure: true, notifyOnJobCompletion: true,
+        notifyOnJobFailure: true, notifyOnScheduleCompletion: true, notifyOnScheduleFailure: true,
+        notifyOnUserQuestion: true, showResponsePreview: true } } as const
     await shell.applySetupSettings?.(setup)
     expect(spec.applySetupSettings).toHaveBeenCalledWith(setup)
     expect(runtime.locale).toBe('zh')

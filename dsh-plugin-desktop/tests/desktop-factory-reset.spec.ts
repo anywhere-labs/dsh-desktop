@@ -51,6 +51,9 @@ describe('Desktop factory reset', () => {
         notifyOnJobFailure: false,
         notifyOnScheduleCompletion: false,
         notifyOnScheduleFailure: false,
+        notifyOnApprovalRequest: false,
+        notifyOnUserQuestion: false,
+        showResponsePreview: false,
       },
     }
     for (const profile of [...profiles, unrelated]) {
