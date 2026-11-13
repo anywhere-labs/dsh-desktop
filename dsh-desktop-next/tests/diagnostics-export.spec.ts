@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { DesktopDiagnostics } from '../src/diagnostics.ts'
 import { DEFAULT_PREFERENCES, type DesktopState } from '../src/desktop-contract.ts'
+import type { RendererDiagnostics } from '../src/renderer-diagnostics.ts'
 
 const fixture = vi.hoisted(() => ({ workers: [] as any[] }))
 vi.mock('node:worker_threads', async () => {
@@ -16,22 +17,40 @@ vi.mock('node:worker_threads', async () => {
 const logs: DesktopDiagnostics[] = []
 const homes: string[] = []
 afterEach(() => { for (const log of logs.splice(0)) log.flush(); for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true }); fixture.workers = []; vi.useRealTimers() })
-function exportJob() {
+function exportJob(renderer?: RendererDiagnostics) {
   const home = mkdtempSync(join(tmpdir(), 'next-export-test-')); homes.push(home)
   const log = new DesktopDiagnostics(home); logs.push(log)
   log.record({ source: 'electron', event: 'export-test' })
   const state = { version: 'test', platform: 'test', selected: 'desktop', profiles: [], phase: 'ready', safeMode: false,
     failure: '', preferences: { ...DEFAULT_PREFERENCES }, features: { market: false, remoteControl: false }, trayAvailable: true, browserUrl: null, lan: null, unavailableProfiles: [], busy: false, home, notificationsAvailable: true, checkpoint: null, logs: '' } satisfies DesktopState
-  return { task: log.exportTo(join(home, 'report.json'), state), worker: fixture.workers.at(-1) }
+  return { task: log.exportTo(join(home, 'report.json'), state, renderer), worker: fixture.workers.at(-1) }
 }
 
 it('exports off-thread and settles success once even when a worker subsequently exits', async () => {
   const { task, worker } = exportJob()
   expect(worker.entry.pathname).toContain('diagnostics-export.ts')
-  expect(JSON.parse(worker.options.workerData.summary)).toMatchObject({ version: 2, log: expect.stringContaining('export-test') })
+  expect(JSON.parse(worker.options.workerData.summary)).toMatchObject({ version: 3, renderer: null, log: expect.stringContaining('export-test') })
   worker.emit('message', { ok: true }); worker.emit('exit', 0)
   await expect(task).resolves.toBeUndefined()
   expect(worker.terminate).toHaveBeenCalledOnce()
+})
+
+it('carries the renderer sample beside the main-process evidence', async () => {
+  const renderer: RendererDiagnostics = {
+    available: true, sampledAt: '2026-11-13T00:00:00.000Z', sampleMs: 1000,
+    view: { visibility: 'visible', focused: false, reducedMotion: false, width: 1280, height: 840, devicePixelRatio: 2 },
+    dom: { elements: 900 }, animations: [{ name: 'spin', target: 'svg', pseudo: null, iterations: null, infinite: true, currentTime: 10 }],
+    animationsTotal: 1, layers: [], frameLoop: { frames: 60, elapsedMs: 1000, framesPerSecond: 60, sampledBy: 'raf' },
+    longTasks: null,
+  }
+  const { task, worker } = exportJob(renderer)
+  expect(JSON.parse(worker.options.workerData.summary).renderer).toMatchObject({
+    available: true,
+    animations: [{ name: 'spin', target: 'svg', infinite: true }],
+    frameLoop: { framesPerSecond: 60 },
+  })
+  worker.emit('message', { ok: true })
+  await expect(task).resolves.toBeUndefined()
 })
 
 it.each(['error', 'exit'])('reports a worker %s without leaving an unresolved export', async type => {

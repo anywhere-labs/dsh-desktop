@@ -56,6 +56,7 @@ import { macUpdateArch } from './update-arch.ts'
 import { manualUpdateHint, releaseNotesUrl, updateLabel } from './update-state.ts'
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
 import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCause } from './renderer-recovery.ts'
+import { collectRendererDiagnostics, rendererDiagnosticsFields } from './renderer-diagnostics.ts'
 import { deElevateAtStartup, lowIntegrityAtStartup, windowsElevation } from './windows-elevation.ts'
 import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure } from './sandbox-launch.ts'
 import { pickOutsideProgramDirectory, programDirectory, programDirectoryRefusal, refusedProgramDirectoryOverlap, type ProgramDirectoryOverlap, type ProgramDirectoryPurpose } from './program-directory.ts'
@@ -843,16 +844,28 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
     if (type === 'export-ca' || type === 'diagnostics') {
       const certificate = runtime.lan?.caCertificate
       if (type === 'export-ca' && !certificate) throw new Error('LAN certificate is unavailable')
+      // Sample the page while the save dialog is open: the renderer is the only part of the
+      // export that has to be asked, and the dialog covers its sampling second.
+      const sampling = type === 'diagnostics' ? collectRendererDiagnostics(mainWindow?.webContents) : undefined
       const owner = raiseDialogOwner()
       const options = { title: type === 'export-ca' ? t('导出局域网 CA 证书', 'Export LAN CA certificate') : t('导出诊断（分享前请检查内容）', 'Export diagnostics (review before sharing)'),
         defaultPath: type === 'export-ca' ? 'dsh-desktop-next-ca.crt' : `dsh-desktop-next-diagnostics-${Date.now()}.json`,
         filters: [{ name: type === 'export-ca' ? 'CA certificate' : 'Diagnostics', extensions: [type === 'export-ca' ? 'crt' : 'json'] }] }
       const result = await (owner === undefined ? dialog.showSaveDialog(options) : dialog.showSaveDialog(owner, options))
-      if (!result.canceled && result.filePath && !quitting) {
-        if (type === 'export-ca') await writeFile(result.filePath, certificate!, { mode: 0o600 })
-        else await runtime.diagnostics.exportTo(result.filePath, state())
-        if (type === 'diagnostics') diagnosticsFile = result.filePath
+      if (result.canceled || !result.filePath || quitting) {
+        // A cancelled export drops the sample; observe it so a future failure cannot surface
+        // as an unhandled rejection in the fail-loud main process.
+        void sampling?.catch(() => {})
+        return
       }
+      if (type === 'export-ca') await writeFile(result.filePath, certificate!, { mode: 0o600 })
+      else {
+        // Sampling never fails the export; an unsampled renderer is itself diagnostic.
+        const renderer = await sampling!
+        runtime.diagnostics.record({ source: 'renderer', event: 'export.snapshot', fields: rendererDiagnosticsFields(renderer) })
+        await runtime.diagnostics.exportTo(result.filePath, state(), renderer)
+      }
+      if (type === 'diagnostics') diagnosticsFile = result.filePath
       return
     }
     if (type === 'preferences') {
