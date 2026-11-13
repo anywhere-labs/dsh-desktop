@@ -7581,7 +7581,7 @@ __metadata:
 
 "@deepseek-ai/dsh-sandbox-local@patch:@deepseek-ai/dsh-sandbox-local@file%3Avendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-sandbox-local-0.2.2-rc.1.tgz#./patches/dsh-sandbox-local@0.2.2-rc.1.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.2-rc.1
-  resolution: "@deepseek-ai/dsh-sandbox-local@patch:@deepseek-ai/dsh-sandbox-local@file%3Avendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-sandbox-local-0.2.2-rc.1.tgz%23vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-sandbox-local-0.2.2-rc.1.tgz%3A%3Ahash=e607b2&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-sandbox-local@0.2.2-rc.1.patch::version=0.2.2-rc.1&hash=646d70&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-sandbox-local@patch:@deepseek-ai/dsh-sandbox-local@file%3Avendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-sandbox-local-0.2.2-rc.1.tgz%23vendor/dsh-runtime/0.2.2-rc.1/deepseek-ai-dsh-sandbox-local-0.2.2-rc.1.tgz%3A%3Ahash=e607b2&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-sandbox-local@0.2.2-rc.1.patch::version=0.2.2-rc.1&hash=01e4c9&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-sandbox-windows-acl": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-util-values": "npm:0.2.2-rc.1"
@@ -7592,7 +7592,7 @@ __metadata:
     "@deepseek-ai/dsh-llm": 0.2.2-rc.1
     "@deepseek-ai/dsh-sandbox": 0.2.2-rc.1
     "@deepseek-ai/dsh-session": 0.2.2-rc.1
-  checksum: 10c0/eb549c306d1bbaef745db07761c0db13e4cbbba6d8b243c6789723186fcd5fcfc9039bbc4d19a53bfd87b4d32ebcc5f81a655a527c132b77846abececc3819fc
+  checksum: 10c0/8662b122852e13b98b45791e050dbf07f42e1f04b6a8c1796375153f72e763e06168552da549cdbb9329fcbc562a52f49fb50d0993ce5f4a05c4c22cf44cd2aa
   languageName: node
   linkType: hard
 
