@@ -15,7 +15,7 @@ const require = createRequire(join(root, 'dsh-plugin-desktop-beta/package.json')
 const MagicString = require('magic-string')
 const remapping = require('@jridgewell/remapping')
 const ts = require('typescript')
-const version = '0.2.2-rc.2'
+const version = '0.2.2-rc.3'
 
 function onboarding() {
   function DesktopOnboardingNavigation({ busy, t, onBack, onSkip }) {

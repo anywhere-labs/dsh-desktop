@@ -176,7 +176,7 @@ try {
   // Official packages the installation declares among its optional bundles (Beta's OAR subagents) start switched
   // off, and switching one on starts every row its patch inserts.
   const installation = JSON.parse(readFileSync(NEXT_PACKAGE, 'utf8'))
-  for (const name of installation.dsh.optionalBundles.filter(name => name.startsWith('@deepseek-ai/'))) {
+  for (const name of [...installation.dsh.optionalBundles.filter(name => name.startsWith('@deepseek-ai/')), '@deepseek-ai/dsh-deepseek-chat-import']) {
     const bundle = (await rpc('listBundles')).find(row => row.name === name)
     assert.ok(bundle?.official && bundle.optional && !bundle.enabled && bundle.rows.length > 0, JSON.stringify(bundle))
     assert.equal(bundle.error, undefined, JSON.stringify(bundle))
@@ -187,6 +187,7 @@ try {
       const plugin = plugins.find(plugin => plugin.entryId !== undefined && plugin.entryId === row.entryId)
       assert.equal(plugin?.fiberPhase, 'active', `${name} row ${row.rowId}: ${JSON.stringify(plugin)}`)
     }
+    if (name === '@deepseek-ai/dsh-deepseek-chat-import') assert.ok((await rpc('limits', {}, 'deepseekChatImport')).maxUploadBytes > 0)
     // Rows with launch choices switch through the configuration editor; the shipped choice leaves no Profile override.
     const launchPresets = async (body) => {
       const response = await fetch(`${origin}/api/desktop-next/launch-presets`, body === undefined ? { headers: { cookie, origin } }

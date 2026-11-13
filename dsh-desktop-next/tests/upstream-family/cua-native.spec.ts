@@ -19,7 +19,7 @@ function desktop(options: { bundle?: boolean; provider?: boolean } = {}): string
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'desktop-cua-native-')))
   roots.push(root)
   const bundle = options.bundle ?? true
-  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'dsh-desktop-next', dependencies: bundle ? { [BUNDLE]: '0.2.2-rc.2' } : {} }))
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'dsh-desktop-next', dependencies: bundle ? { [BUNDLE]: '0.2.2-rc.3' } : {} }))
   for (const [name, installed] of [[BUNDLE, bundle], [PROVIDER, bundle && (options.provider ?? true)]] as const) {
     if (!installed) continue
     mkdirSync(join(root, 'node_modules', name), { recursive: true })
