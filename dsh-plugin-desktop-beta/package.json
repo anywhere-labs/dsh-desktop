@@ -16,7 +16,7 @@
     "node": ">=24.9.0"
   },
   "scripts": {
-    "build": "node ../scripts/run-parallel.mjs \"tsdown\" \"vite build --config vite.client.config.ts\" \"vite build --config vite.native-ui.config.ts\"",
+    "build": "node scripts/clean.mjs && node ../scripts/run-parallel.mjs \"tsdown\" \"vite build --config vite.client.config.ts\" \"vite build --config vite.native-ui.config.ts\" && node scripts/verify-build-output.mjs",
     "typecheck": "node ../scripts/run-parallel.mjs \"tsc --noEmit\" \"tsc -p tsconfig.packaging.json --noEmit\"",
     "test": "vitest run",
     "verify:host": "node scripts/verify-host.mjs",
