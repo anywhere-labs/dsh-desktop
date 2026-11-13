@@ -227,12 +227,12 @@ patchPackage('dsh-experimental-inspector', ({ once }) => {
   return `${folder}/${matches[0]}`
 })
 
-// Preserve master’s program-directory protection and owner-grant repair alongside Electron’s console bootstrap.
+// Preserve master’s program-directory protection, owner-grant repair and existing-entry labeling alongside Electron’s console bootstrap.
 patchPackage('dsh-sandbox-windows-acl', ({ once, cwd }) => {
   const typesFile = readdirSync(join(cwd, 'lib')).find(file => /^types-.*\.js$/u.test(file))
   assert.ok(typesFile)
-  const aclPatch = readFileSync(join(root, 'patches/dsh-sandbox-windows-acl@0.2.2-rc.1.patch'), 'utf8')
-    .split('diff --git a/lib/runner.js')[0].replaceAll('types-DFdfvhLN.js', typesFile)
+  const desktopPatch = readFileSync(join(root, 'patches/dsh-sandbox-windows-acl@0.2.2-rc.3.patch'), 'utf8')
+  const aclPatch = desktopPatch.slice(desktopPatch.indexOf('diff --git a/lib/types-')).replaceAll('types-DXWX0PXB.js', typesFile)
   execFileSync('git', ['apply', '-'], { cwd, input: aclPatch })
   once('import { join } from "node:path";', 'import { join } from "node:path";\nimport { spawn } from "node:child_process";\nimport { createRequire } from "node:module";')
   once('async function main() {', readFileSync(new URL('./windows-console-bootstrap.js', import.meta.url), 'utf8') + '\nasync function main() {')
