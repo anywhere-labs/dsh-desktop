@@ -1,8 +1,8 @@
 diff --git a/lib/index.js b/lib/index.js
-index 39401ea..71fe21d 100644
+index 927ba78..1e0a98c 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -1125,6 +1125,10 @@ function readBundlePatches(binName, context, initialProfile) {
+@@ -1906,6 +1906,10 @@ function readBundlePatches(binName, context, initialProfile) {
  * @returns Detached ordered patches; this function does not update the Loader.
  */
  function readProfilePatches(binName, context, initialProfile) {
@@ -13,7 +13,7 @@ index 39401ea..71fe21d 100644
  	const patches = structuredClone([
  		...readBundlePatches(binName, context, initialProfile),
  		...initialProfile?.patches ?? loadOptionalPatches(binName, context.patchPath) ?? [],
-@@ -2261,10 +2265,15 @@ function patchWarning(ctx) {
+@@ -3047,10 +3051,15 @@ function patchWarning(ctx) {
  function manifestOf(ctx, name, parentURL) {
  	if (name.startsWith("cordis:")) return void 0;
  	const specifier = name.startsWith("#") ? resolvePluginResource(name, parentURL) : name;
@@ -30,6 +30,16 @@ index 39401ea..71fe21d 100644
  	if (bare !== void 0 && packages === void 0) for (const path of createRequire(parentURL).resolve.paths(bare)) {
  		const filename = join(path, bare, "package.json");
  		if (existsSync(filename)) return readManifest(filename);
+@@ -4549,7 +4558,8 @@ async function recompose(ctx, patches, binName, options, withResolution) {
+ 	let applying = false;
+ 	let stopped = [];
+ 	try {
+-		const entry = bootstrapIncludes.get(ctx);
++		// Fall back to the Loader when dsh-app-boot is loaded from both the host bundle and profile node_modules.
++		const entry = bootstrapIncludes.get(ctx) ?? [...(ctx.loader?.entries?.() ?? [])].find((e) => e.options?.id === "include" && e.options?.name === "cordis:include");
+ 		if (entry === void 0) throw new Error(`${binName}: profile reload requires the root Include entry`);
+ 		const previousFailures = (await inactiveEntries(ctx, false)).map((failure) => ({
+ 			entry: failure.entry,
 diff --git a/lib/types/profile-context.d.ts b/lib/types/profile-context.d.ts
 index ef6fc6a..77c159f 100644
 --- a/lib/types/profile-context.d.ts
