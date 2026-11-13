@@ -152,7 +152,7 @@ Var pid
       Var dshText
       Var dshMessage
 
-      !include "${DSH_INSTALLER_SCRIPTS_DIR}/installer-directories.nsh"
+      !include "${DSH_INSTALLER_SCRIPTS_DIR}\installer-directories.nsh"
 
       ; Append one timestamped line to the UTF-16LE Setup log. Logging never
       ; affects the installation.

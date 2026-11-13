@@ -77,7 +77,7 @@ it('keeps the Setup log and the directory attempts beside the updater cache, out
 
 it('loads the transaction only into installers that embed 7-Zip', () => {
   const header = macro('customHeader')
-  expect(header).toMatch(/!ifndef BUILD_UNINSTALLER\s+!ifdef DSH_SEVENZIP_PATH[\s\S]*!include "\$\{DSH_INSTALLER_SCRIPTS_DIR\}\/installer-directories.nsh"/u)
+  expect(header).toMatch(/!ifndef BUILD_UNINSTALLER\s+!ifdef DSH_SEVENZIP_PATH[\s\S]*!include "\$\{DSH_INSTALLER_SCRIPTS_DIR\}\\installer-directories.nsh"/u)
   // The transaction's functions expand the failure macros, whose variables must exist first.
   expect(header.indexOf('Var dshMessage')).toBeLessThan(header.indexOf('!include'))
   expect(macro('customInit')).toMatch(/!ifdef DSH_SEVENZIP_PATH\s+!insertmacro dshBeginInstallLog/u)
