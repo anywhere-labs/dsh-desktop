@@ -132,6 +132,13 @@ try {
     const row = officialRows.find(row => row.moduleName === name)
     assert.equal(row?.fiberPhase, 'active', `Core service unavailable: ${JSON.stringify(row)}`)
   }
+  // DeepSeek account notifications render in the official account menu: the
+  // card plugin reads the account state that account settings publish.
+  for (const name of ['@deepseek-ai/dsh-client-ui-settings-account', '@deepseek-ai/dsh-client-ui-account-notifications']) {
+    const row = officialRows.find(row => row.moduleName === name)
+    assert.equal(row?.enabled, true, `Web composition must mount ${name}: ${JSON.stringify(row)}`)
+    assert.equal(row?.fiberPhase, 'active', JSON.stringify(row))
+  }
   // The row the shell asks while a profile starts (#1617); a ready Host waits on nothing.
   const startupRow = officialRows.find(row => row.moduleName === 'dsh-plugin-desktop-beta/startup-entries')
   assert.equal(startupRow?.fiberPhase, 'active', `Startup entries row unavailable: ${JSON.stringify(startupRow)}`)
@@ -347,6 +354,8 @@ try {
   assert.ok(html.includes('dsh-community-market'), 'Market client must appear in the boot manifest')
   assert.ok(html.includes('"id":"dsh-plugin-desktop-beta"'), 'Next window controls must be a client boot entry')
   assert.ok(html.includes('@agents-anywhere/dsh-bridge-next'), 'AA client must appear in the boot manifest')
+  assert.ok(html.includes('"id":"@deepseek-ai/dsh-client-ui-account-notifications"'), 'Account notification cards must be a client boot entry')
+  assert.ok(html.includes('globalThis["__DSH_ACCOUNT_NOTIFICATIONS_CONFIG__"]'), 'Account notifications must receive their polling interval')
   assert.equal(html.includes('"id":"dshmarket"'), false, 'The other market client must be unloaded')
   const installedAgain = await rpc('installBundle', { spec: fixture })
   assert.equal(installedAgain.application, 'applied', JSON.stringify(installedAgain))
