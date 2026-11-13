@@ -241,6 +241,8 @@ patchPackage('dsh-sandbox-windows-acl', ({ once, cwd }) => {
 
 // These master fixes remain necessary in rc.2; upstream has not absorbed them.
 patchPackage('dsh-sandbox-local', ({ once }) => {
+  once('import { join } from "node:path";', 'import { dirname, join } from "node:path";')
+  once('args.push("--tmpfs", "/tmp");', 'args.push("--tmpfs", "/tmp");\n\t\t// Preserve the read-only AppImage runner mount beneath the masked /tmp.\n\t\tconst executableDir = dirname(process.execPath);\n\t\tif (executableDir.startsWith("/tmp/")) args.push("--ro-bind", executableDir, executableDir);')
   once('const existing = this.tempCapabilities.get(key);\n\t\tif (existing !== void 0) return existing;',
     'const existing = this.tempCapabilities.get(key);\n\t\tif (existing !== void 0) {\n\t\t\tif (existsSync(existing.dir)) return existing;\n\t\t\tthis.tempCapabilities.delete(key);\n\t\t\tthis.ctx.logger.warn(`sandbox-local: windows-acl private temp ${existing.dir} was removed; creating a new one`);\n\t\t\ttry { existing.grant.dispose(); } catch (error) { this.ctx.logger.warn(error); }\n\t\t}');
 }, () => 'lib/index.js')
