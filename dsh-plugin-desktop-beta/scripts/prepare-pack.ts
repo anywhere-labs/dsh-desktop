@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { nextPackagingTarget, PAYLOAD_DIR } from './packaged-payload.ts'
 import { officeUnpackPatterns } from './office-packages.ts'
 import { applyWindowsUnpack } from './windows-asar-unpack.ts'
+import { installWindowsDirectoryInstaller } from './windows-directory-installer.ts'
 import { packagingStepSync } from './packaging-step.ts'
 
 interface PackContext {
@@ -36,6 +37,8 @@ export default async function beforePack(context: PackContext): Promise<void> {
     const files = packagingStepSync('builder:prepare-pe-unpack', () => applyWindowsUnpack(context.packager.config,
       context.packager.info.appDir, join(context.packager.projectDir, ...PAYLOAD_DIR.split('/'))))
     console.log(`Next Windows payload unpacks ${String(files.length)} discovered PE files`)
+    // The NSIS installer replaces the installation through staged directories.
+    installWindowsDirectoryInstaller()
   }
   await Promise.resolve()
 }

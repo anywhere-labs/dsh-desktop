@@ -32,6 +32,7 @@
     "start": "yarn prepare:runtime && node scripts/start.mjs",
     "verify:desktop-runtime": "node scripts/verify-desktop-runtime.mjs",
     "verify:safe-cleanup": "node scripts/verify-safe-cleanup.mjs",
+    "verify:installer-directories": "node scripts/verify-installer-directories.ts",
     "icons:export": "node ../scripts/export-app-icons.mjs --channel next",
     "prepare:runtime": "node scripts/prepare-runtime.ts",
     "package:dir": "yarn build && node scripts/package.ts dir",

@@ -157,7 +157,8 @@ jobs:
             "xvfb-run --auto-servernum yarn workspace dsh-plugin-desktop-beta verify:protocol --no-sandbox" \
             "xvfb-run --auto-servernum yarn workspace dsh-plugin-desktop-beta verify:sidebar-browser --no-sandbox"
 
-  # Windows on a real runner: the upstream toolchain smoke, then unsigned NSIS and portable builds.
+  # Windows on a real runner: the upstream toolchain smoke, then the unsigned NSIS build, its directory
+  # installer smoke, and the portable build.
   # The package gate runs once; both artifacts reuse its build output.
   desktop-windows:
     needs: changes
@@ -218,6 +219,10 @@ jobs:
           # CI artifacts are never published; skipping compression saves minutes.
           DSH_WINDOWS_PACKAGE_COMPRESSION: store
         run: yarn workspace dsh-plugin-desktop-beta dist:win
+      # The installer's staged directory replacement against private directories: updates, held files,
+      # rollback, a location this account may not write to, and a payload missing an application file.
+      - name: Smoke the Windows directory installer
+        run: yarn workspace dsh-plugin-desktop-beta verify:installer-directories
       - name: Build Windows portable archive
         env:
           DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
