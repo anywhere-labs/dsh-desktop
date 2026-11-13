@@ -402,6 +402,9 @@ function createWindow(preload: string, primary = false): BrowserWindow {
       vibrancy: runtime.preferences.macosMaterial === 'transparent' ? 'sidebar' as const : undefined,
       visualEffectState: 'active' as const, backgroundColor: '#00000000',
     } : {}),
+    // Linux keeps the full application menu (and its accelerators) but out of sight;
+    // a single Alt reveals it, matching the Windows window that displays no menu at all.
+    ...(process.platform === 'linux' ? { autoHideMenuBar: true } : {}),
     // `webviewTag` only on the application document: every attachment is still refused unless
     // `DesktopBrowserGuests` issued the lease, and the guest itself never gets the tag.
     webPreferences: { preload: join(root, 'lib', preload), contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: primary },
