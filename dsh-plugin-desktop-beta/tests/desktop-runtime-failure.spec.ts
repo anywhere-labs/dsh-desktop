@@ -161,3 +161,49 @@ it.skipIf(process.platform === 'win32')('keeps recovery usable when the report c
   expect(runtime.state().failureContext).toContain('Invalid Next Profile manifest')
   expect(runtime.state()).toMatchObject({ failureStage: 'profile-composition', failure: 'Invalid Next Profile manifest', failureReport: { status: 'failed' } })
 })
+
+it('appends what the renderer was drawing to the failure report it writes', async () => {
+  const executeJavaScript = vi.fn(async () => ({
+    view: { visibility: 'visible', focused: false, reducedMotion: false, width: 1280, height: 840, devicePixelRatio: 2 },
+    dom: { elements: 99 },
+    animations: [{ name: 'dsh-state-dot-spin', target: 'svg', pseudo: '::before', iterations: null, infinite: true, currentTime: 12 }],
+    animationsTotal: 1,
+    layers: [],
+    frameLoop: { frames: 30, elapsedMs: 750, framesPerSecond: 40, sampledBy: 'raf' },
+    longTasks: null,
+  }))
+  const { runtime, history } = await fixture({ renderer: () => ({ isDestroyed: () => false, executeJavaScript }) })
+  runtime.report(new Error('the interface failed'))
+  const file = await runtime.failureReportFile()
+  if (file === undefined) throw new Error('expected a saved failure report')
+  await vi.waitFor(() => { expect(readFileSync(file, 'utf8')).toContain('--- renderer at failure ---') })
+  expect(readFileSync(file, 'utf8')).toContain('dsh-state-dot-spin on svg::before (infinite)')
+  expect(executeJavaScript).toHaveBeenCalledOnce()
+  await vi.waitFor(() => { expect(history().some(record => record.event === 'failure.snapshot' && record.fields?.available === true)).toBe(true) })
+})
+
+it('writes a report without renderer evidence when no window exists to ask', async () => {
+  const { runtime, history } = await fixture()
+  runtime.report(new Error('startup failed'), 'runtime-bootstrap')
+  const file = await runtime.failureReportFile()
+  if (file === undefined) throw new Error('expected a saved failure report')
+  await vi.waitFor(() => { expect(history().some(record => record.event === 'failure.snapshot' && record.fields?.reason === 'no-window')).toBe(true) })
+  expect(readFileSync(file, 'utf8')).not.toContain('--- renderer at failure ---')
+})
+
+it('falls back to the last known renderer sample when the page cannot answer', async () => {
+  const { runtime } = await fixture({ rendererEvidence: () => ({
+    sample: {
+      available: true as const, sampledAt: '2026-11-13T00:00:00.000Z', sampleMs: 500,
+      view: { visibility: 'visible', focused: true, reducedMotion: false, width: 1280, height: 840, devicePixelRatio: 2 },
+      dom: { elements: 12 }, animations: [], animationsTotal: 0, layers: [],
+      frameLoop: { frames: 30, elapsedMs: 500, framesPerSecond: 60, sampledBy: 'raf' as const },
+      longTasks: null,
+    },
+    ageMs: 42_000,
+  }) })
+  runtime.report(new Error('the interface stopped answering'), 'renderer-runtime')
+  const file = await runtime.failureReportFile()
+  if (file === undefined) throw new Error('expected a saved failure report')
+  await vi.waitFor(() => { expect(readFileSync(file, 'utf8')).toContain('last known: 42 s before the failure') })
+})

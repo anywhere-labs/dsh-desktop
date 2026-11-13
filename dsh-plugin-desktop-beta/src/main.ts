@@ -56,6 +56,8 @@ import { macUpdateArch } from './update-arch.ts'
 import { manualUpdateHint, releaseNotesUrl, updateLabel } from './update-state.ts'
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
 import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCause } from './renderer-recovery.ts'
+import { collectRendererDiagnostics, rendererDiagnosticsFields } from './renderer-diagnostics.ts'
+import { RollingRendererEvidence } from './renderer-evidence.ts'
 import { deElevateAtStartup, lowIntegrityAtStartup, windowsElevation } from './windows-elevation.ts'
 import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure } from './sandbox-launch.ts'
 import { pickOutsideProgramDirectory, programDirectory, programDirectoryRefusal, refusedProgramDirectoryOverlap, type ProgramDirectoryOverlap, type ProgramDirectoryPurpose } from './program-directory.ts'
@@ -176,6 +178,11 @@ const platformView = new DesktopPlatformView(join(root, 'lib', 'preload-platform
   () => language() === 'zh' ? 'zh_CN' : 'en_US', process.platform === 'darwin' || process.platform === 'win32' ? process.platform : null, dshVersion)
 /** The bundled interpreter payload of this CPU: beside the archive when packaged, prepared by `prepare:runtime` in development. */
 const primaryRuntime = join(app.isPackaged ? join(process.resourcesPath, 'runtime') : join(root, '.desktop-build', 'runtime'), process.arch, 'primary-runtime')
+/**
+ * The last sample of a page that still answered. A failure report written after a renderer crash or
+ * a hang has nothing to ask, so it falls back to this instead of saying only "unavailable".
+ */
+const rendererEvidence = new RollingRendererEvidence(() => mainWindow?.webContents)
 const runtime = new NextDesktopRuntime({
   home, root, primaryRuntime, executable: process.execPath, addresses: () => [...desktopLanAddresses()], systemProxy: () => systemProxy,
   prepareEnvironment: () => prepareHostEnvironment(),
@@ -189,6 +196,9 @@ const runtime = new NextDesktopRuntime({
         ...(memory === undefined ? {} : { commitLimit: memory.swapTotal * 1024, commitFree: memory.swapFree * 1024 }) }
     },
   },
+  // Read lazily: the window exists only after the runtime starts.
+  renderer: () => mainWindow?.webContents,
+  rendererEvidence: () => rendererEvidence.last(),
   ...(safeModeRequested ? { stateHome: electronData } : {}),
   certificate: async addresses => {
     try {
@@ -579,7 +589,11 @@ function resetRendererRecovery(owner: BrowserWindow): void {
     reload: () => loadMainDocument(owner, 'recovery'),
     exhausted: detail => runtime.report(new Error(`Renderer recovery exhausted: ${detail}`), rendererHealthy ? 'renderer-runtime' : 'renderer-startup'),
     healthy: () => { rendererHealthy = true },
-    record: (event, fields) => runtime.diagnostics.record({ source: 'renderer', event, fields }),
+    record: (event, fields) => {
+      runtime.diagnostics.record({ source: 'renderer', event, fields })
+      // A freshly mounted interface is the sample worth keeping until the next periodic one.
+      if (event === 'renderer.ready') void rendererEvidence.refresh()
+    },
   })
 }
 
@@ -843,16 +857,28 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
     if (type === 'export-ca' || type === 'diagnostics') {
       const certificate = runtime.lan?.caCertificate
       if (type === 'export-ca' && !certificate) throw new Error('LAN certificate is unavailable')
+      // Sample the page while the save dialog is open: the renderer is the only part of the
+      // export that has to be asked, and the dialog covers its sampling second.
+      const sampling = type === 'diagnostics' ? collectRendererDiagnostics(mainWindow?.webContents) : undefined
       const owner = raiseDialogOwner()
       const options = { title: type === 'export-ca' ? t('导出局域网 CA 证书', 'Export LAN CA certificate') : t('导出诊断（分享前请检查内容）', 'Export diagnostics (review before sharing)'),
         defaultPath: type === 'export-ca' ? 'dsh-plugin-desktop-beta-ca.crt' : `dsh-plugin-desktop-beta-diagnostics-${Date.now()}.json`,
         filters: [{ name: type === 'export-ca' ? 'CA certificate' : 'Diagnostics', extensions: [type === 'export-ca' ? 'crt' : 'json'] }] }
       const result = await (owner === undefined ? dialog.showSaveDialog(options) : dialog.showSaveDialog(owner, options))
-      if (!result.canceled && result.filePath && !quitting) {
-        if (type === 'export-ca') await writeFile(result.filePath, certificate!, { mode: 0o600 })
-        else await runtime.diagnostics.exportTo(result.filePath, state())
-        if (type === 'diagnostics') diagnosticsFile = result.filePath
+      if (result.canceled || !result.filePath || quitting) {
+        // A cancelled export drops the sample; observe it so a future failure cannot surface
+        // as an unhandled rejection in the fail-loud main process.
+        void sampling?.catch(() => {})
+        return
       }
+      if (type === 'export-ca') await writeFile(result.filePath, certificate!, { mode: 0o600 })
+      else {
+        // Sampling never fails the export; an unsampled renderer is itself diagnostic.
+        const renderer = await sampling!
+        runtime.diagnostics.record({ source: 'renderer', event: 'export.snapshot', fields: rendererDiagnosticsFields(renderer) })
+        await runtime.diagnostics.exportTo(result.filePath, state(), renderer)
+      }
+      if (type === 'diagnostics') diagnosticsFile = result.filePath
       return
     }
     if (type === 'preferences') {
@@ -1229,6 +1255,7 @@ function timed<T>(operation: Promise<T>): Promise<Timed<T>> {
 async function main(): Promise<void> {
   await app.whenReady()
   if (quitting) return
+  rendererEvidence.start()
   let inputRevision = 0
   let inputBlocked = false
   desktopShortcuts = installDesktopShortcuts(() => mainWindow, app.getPath('userData'),
@@ -1496,6 +1523,7 @@ app.on('before-quit', event => {
   event.preventDefault()
   quitting = true
   rendererRecovery?.stop()
+  rendererEvidence.stop()
   // Pending evidence lands now; a Host that dies of OOM while stopping is written at once.
   runtime.memory.stop()
   runtime.diagnostics.record({ source: 'electron', event: 'shutdown.start' })

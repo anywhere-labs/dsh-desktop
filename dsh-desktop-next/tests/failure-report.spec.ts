@@ -2,7 +2,7 @@ import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
-import { FAILURE_REPORTS_RETAINED, renderFailureReport, writeFailureReport, type FailureReportInput } from '../src/failure-report.ts'
+import { FAILURE_REPORTS_RETAINED, appendFailureReport, renderFailureReport, rendererFailureSection, writeFailureReport, type FailureReportInput } from '../src/failure-report.ts'
 
 const directories: string[] = []
 afterEach(async () => { await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true }))) })
@@ -43,4 +43,53 @@ it('writes private reports that are never replaced and keeps the newest ten besi
   if (process.platform !== 'win32') expect((await stat(files.at(-1)!)).mode & 0o777).toBe(0o600)
   expect((await readdir(directory)).sort()).toEqual([...files.slice(2).map(file => basename(file)), 'desktop-next.log', 'startup-2026-09-22T16-10-41.999Z-cli.log'].sort())
   await expect(writeFailureReport(directory, at(FAILURE_REPORTS_RETAINED + 1))).rejects.toThrow('EEXIST')
+})
+
+const rendererSample = {
+  available: true as const, sampledAt: '2026-11-13T00:00:00.000Z', sampleMs: 750,
+  view: { visibility: 'visible', focused: false, reducedMotion: false, width: 1280, height: 840, devicePixelRatio: 2 },
+  dom: { elements: 4321 },
+  animations: [{ name: 'dsh-state-dot-spin', target: 'svg', pseudo: '::before', iterations: null, infinite: true, currentTime: 321.5 }],
+  animationsTotal: 1,
+  layers: [{ tag: 'div', id: 'portal', className: 'menu surface', position: 'fixed', children: 2, attributes: { 'data-slot': 'menu' } }],
+  frameLoop: { frames: 44, elapsedMs: 750, framesPerSecond: 58, sampledBy: 'raf' as const },
+  longTasks: { count: 1, totalMs: 64 },
+}
+
+it('renders what the renderer was drawing for a failure report', () => {
+  const section = rendererFailureSection(rendererSample)
+  expect(section).toContain('--- renderer at failure ---')
+  expect(section).toContain('sampled: 750 ms, 44 frames (58/s, raf)')
+  expect(section).toContain('window: visible, unfocused, 1280x840@2x')
+  expect(section).toContain('long tasks: 1 in 64 ms')
+  expect(section).toContain('animations: 1 running of 1')
+  expect(section).toContain('  dsh-state-dot-spin on svg::before (infinite) at 321.5 ms')
+  expect(section).toContain('body layers: 1')
+  expect(section).toContain('  div#portal.menu.surface fixed, 2 children')
+  expect(rendererFailureSection({ available: false, reason: 'no-window' })).toBe('')
+  expect(rendererFailureSection({ available: false, reason: 'timeout' })).toContain('--- renderer at failure ---\nunavailable: timeout\n')
+  expect(rendererFailureSection({ available: false, reason: 'error', detail: 'probe failed' })).toContain('unavailable: error (probe failed)')
+})
+
+it('appends late evidence to a written report without rewriting it, masked', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'next-failure-appendix-'))
+  directories.push(directory)
+  const file = await writeFailureReport(directory, base)
+  const written = await readFile(file, 'utf8')
+  await appendFailureReport(file, `${rendererFailureSection(rendererSample)}evidence token=private-value\n`)
+  const combined = await readFile(file, 'utf8')
+  expect(combined.startsWith(written)).toBe(true)
+  expect(combined).toContain('--- renderer at failure ---')
+  expect(combined).toContain('evidence token=****')
+  expect(combined).not.toContain('private-value')
+})
+
+it('shows the last known sample when the page could not be sampled for the report', () => {
+  const crashed = rendererFailureSection({ available: false, reason: 'no-window' }, { sample: rendererSample, ageMs: 42_000 })
+  expect(crashed).toContain('--- renderer at failure ---\nunavailable: no-window\n\nlast known: 42 s before the failure\nsampled: 750 ms')
+  expect(crashed).toContain('last known: 42 s before the failure')
+  expect(crashed).toContain('dsh-state-dot-spin on svg::before')
+  // Nothing was ever sampled and there is no window: startup reports stay unchanged.
+  expect(rendererFailureSection({ available: false, reason: 'no-window' })).toBe('')
+  expect(rendererFailureSection({ available: false, reason: 'timeout' }, { sample: rendererSample, ageMs: 125_000 })).toContain('last known: 2 min before the failure')
 })

@@ -11,7 +11,8 @@ import { DEFAULT_FEATURES, NextProfiles } from './profiles.ts'
 import { DEFAULT_PREFERENCES, DEFAULT_PROFILE, SAFE_MODE_PREFERENCES, type DesktopBrowserLinks, type DesktopFailureReport, type DesktopPreferences, type DesktopState, type DesktopNotification } from './desktop-contract.ts'
 import { DesktopDiagnostics } from './diagnostics.ts'
 import type { DesktopHostExit } from './exit-code.ts'
-import { renderFailureReport, writeFailureReport, type FailureReportInput } from './failure-report.ts'
+import { appendFailureReport, renderFailureReport, rendererFailureSection, writeFailureReport, type FailureReportInput } from './failure-report.ts'
+import { collectRendererDiagnostics, rendererDiagnosticsFields, RENDERER_FAILURE_SAMPLE_MS, RENDERER_FAILURE_TIMEOUT_MS, type RendererDiagnostics, type RendererDiagnosticsTarget, type RendererEvidence } from './renderer-diagnostics.ts'
 import { DesktopMemoryMonitor, type DesktopMemoryProbe } from './memory-monitor.ts'
 import { NextRecovery } from './recovery.ts'
 import { maskSecrets } from './mask-secrets.ts'
@@ -46,6 +47,10 @@ interface RuntimeOptions {
   onTerminal(): void
   onNotification(notification: DesktopNotification): void
   onPermission?(action: DesktopPermissionAction, permission: DesktopPermission): Promise<DesktopPermissionSnapshot>
+  /** The main window's page, sampled when a failure report is written; undefined until that window exists. */
+  renderer?(): RendererDiagnosticsTarget | undefined
+  /** The last sample of the page that answered earlier, for a report written after it stopped answering. */
+  rendererEvidence?(): RendererEvidence | undefined
   /** The current Host's account grant for the embedded Platform page, or null once it has none. */
   onPlatformSession?(session: PlatformSession | null): void
   onPlatformLogin?(request: DesktopPlatformLoginRequest): void
@@ -82,6 +87,8 @@ export class NextDesktopRuntime {
   private failureReport: DesktopFailureReport | undefined
   /** Settles once the current report is saved or has failed; never rejects. */
   private failureReportWrite: Promise<void> = Promise.resolve()
+  /** Evidence appended after a saved report; awaited on close so a quitting Desktop still writes it. */
+  private failureEvidenceWrite: Promise<void> = Promise.resolve()
   /** Plugin operations journaled for failure reports, where the followed DSH release reports them. */
   private readonly operationHistory: ReturnType<NonNullable<typeof createOperationHistory>> | undefined
 
@@ -344,6 +351,7 @@ export class NextDesktopRuntime {
     this.cleanupSafeHome()
     // A report started just before quitting is completed, not left partially written.
     await this.failureReportWrite
+    await this.failureEvidenceWrite
     await this.operationHistory?.close()
     this.diagnostics.flush()
   }
@@ -352,6 +360,9 @@ export class NextDesktopRuntime {
   private saveFailureReport(error: unknown, stage: DesktopFailureStage): void {
     const report: DesktopFailureReport = { status: 'pending' }
     this.failureReport = report
+    // Sample at report time, which is as close to the failure as the window allows; the evidence
+    // follows the written report so the basic file never waits for it.
+    const sampling = this.sampleRenderer()
     const launch = Object.entries(this.diagnostics.launch ?? {}).flatMap(([name, value]) => value === undefined ? [] : [[name, String(value)] as const])
     // A Host failure names the run whose plugin operation records the appended history shows.
     const hostRun = stage === 'host-boot' || stage === 'host-runtime' ? this.operationHistory?.runId : undefined
@@ -370,10 +381,40 @@ export class NextDesktopRuntime {
       this.diagnostics.record({ source: 'desktop', event: 'failure-report.saved', fields: { stage, file } })
       // Recent plugin operations follow the basic report, which stays complete without them.
       this.operationHistory?.append(file)
+      this.failureEvidenceWrite = this.appendRendererEvidence(file, sampling)
     }, (cause: unknown) => {
       if (this.failureReport === report) this.failureReport = { status: 'failed' }
       this.diagnostics.record({ source: 'desktop', event: 'failure-report.failed', level: 'warn', error: cause, fields: { stage } })
+      this.failureEvidenceWrite = this.appendRendererEvidence(undefined, sampling)
     })
+  }
+
+  /** Take the renderer sample a failure report appends; never rejects. */
+  private sampleRenderer(): Promise<RendererDiagnostics> {
+    let target: RendererDiagnosticsTarget | undefined
+    try { target = this.options.renderer?.() } catch { target = undefined }
+    return collectRendererDiagnostics(target, { sampleMs: RENDERER_FAILURE_SAMPLE_MS, timeoutMs: RENDERER_FAILURE_TIMEOUT_MS })
+  }
+
+  /**
+   * Append the renderer evidence to a saved report. The sample can be missing or unavailable, which
+   * the report states instead; losing it only costs that section.
+   * @param file - the saved report, or undefined when it could not be written.
+   * @param sampling - the sample taken when the report was written.
+   */
+  private async appendRendererEvidence(file: string | undefined, sampling: Promise<RendererDiagnostics>): Promise<void> {
+    try {
+      const renderer = await sampling
+      const lastKnown = this.options.rendererEvidence?.()
+      // The log keeps the sample even when no file could receive the section.
+      this.diagnostics.record({ source: 'renderer', event: 'failure.snapshot',
+        fields: { ...rendererDiagnosticsFields(renderer), lastKnownAgeMs: lastKnown?.ageMs ?? null } })
+      const section = rendererFailureSection(renderer, lastKnown)
+      if (section === '' || file === undefined) return
+      await appendFailureReport(file, section)
+    } catch (cause) {
+      this.diagnostics.record({ source: 'desktop', event: 'failure-report.evidence-failed', level: 'warn', error: cause, fields: { section: 'renderer' } })
+    }
   }
 
   private cleanupSafeHome(): void {
