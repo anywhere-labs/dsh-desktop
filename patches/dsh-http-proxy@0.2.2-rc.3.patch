@@ -1,0 +1,20 @@
+diff --git a/lib/index.js b/lib/index.js
+index ef4f70f..55e7c8a 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -433,7 +433,14 @@ async function createPolicyDispatcher(policy, options = {}) {
+ async function installGlobalProxy(policy, options = {}) {
+ 	const previousPolicy = active;
+ 	if (policy.source === "none") {
+-		if (previousPolicy === void 0) {
++		// Node 24 runs `fetch()` on its internal undici 7 client, whose HTTP/1 parser asserts
++		// `!this.paused` when the peer closes a socket while a response body is paused
++		// (nodejs/undici#5360; desktop#1626). That assertion is thrown from a socket callback, so it
++		// reaches DSH's fail-loud handler and ends the Host. The bundled undici 8 dispatcher carries
++		// upstream's fix, so a direct policy installs it instead of keeping the built-in client.
++		// A runtime whose own undici already contains the fix keeps the no-op path.
++		const undiciMajor = Number.parseInt(process.versions.undici ?? "", 10);
++		if (previousPolicy === void 0 && undiciMajor >= 8) {
+ 			active = policy;
+ 			return () => {
+ 				active = previousPolicy;

@@ -1,3 +1,4 @@
+import { OFFICE_SKILL_UNPACKED, OFFICIAL_CUA_UNPACKED } from './upstream-family.ts'
 /** Read, audit and verify the archived Next payload after Electron Builder assembled it from the prepared tree. */
 import { createHash } from 'node:crypto'
 import { closeSync, existsSync, lstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs'
@@ -169,6 +170,8 @@ function isNativeImage(head: Buffer): boolean {
  * the Connector project. All of them need physical files.
  */
 const REQUIRED_UNPACKED = [
+  ...OFFICIAL_CUA_UNPACKED === undefined ? [] : [OFFICIAL_CUA_UNPACKED],
+  ...OFFICE_SKILL_UNPACKED === undefined ? [] : [OFFICE_SKILL_UNPACKED],
   /^scripts\/node-bin\//u, /^assets\//u, /^build\//u, /^node_modules\/pnpm\//u,
   /^node_modules\/@agents-anywhere\/dsh-bridge-next\/lib\/bundled-connector\//u,
   // The Creator preset mounts this package's skills through the Host's filesystem service, which stats with bigint
@@ -268,11 +271,11 @@ export function auditNextPayload(source: PayloadSource, target: NextPackagingTar
  */
 export function verifyNextPayload(source: PayloadSource): void {
   // `host.cordis.patch.yml` and `scripts/node-bin` are read from the packaged application by the
-  // Host: the overlay swaps the official webserver for Next's private loopback one, and the shims
-  // put a `node` on the package manager's PATH. Both are invisible to a `yarn start` run, which
-  // resolves them in the source tree, so only this check keeps them in the payload.
+  // Host: the overlay swaps the official webserver for Next's private loopback one and mounts the
+  // startup-entries row, and the shims put a `node` on the package manager's PATH. All are invisible
+  // to a `yarn start` run, which resolves them in the source tree, so only this check keeps them in the payload.
   for (const path of ['lib/main.js', 'lib/host.js', 'lib/client.js', 'lib/preload-app.cjs', 'lib/preload-shell.cjs', 'lib/preload-platform-account.cjs',
-    'lib/native-ui/index.html', 'cordis.patch.yml', 'host.cordis.patch.yml',
+    'lib/native-ui/index.html', 'lib/startup-entries.js', 'cordis.patch.yml', 'host.cordis.patch.yml',
     'scripts/node-bin/node', 'scripts/node-bin/node.cmd',
     'assets/tray-iconTemplate.png', 'assets/tray-icon-blue.png']) {
     if (source.entry(path) === undefined) throw new Error(`Missing Next payload: ${path}`)

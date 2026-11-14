@@ -1,0 +1,74 @@
+diff --git a/cordis.patch.yml b/cordis.patch.yml
+new file mode 100644
+index 0000000..f1e52c0
+--- /dev/null
++++ b/cordis.patch.yml
+@@ -0,0 +1,31 @@
++# DSH Desktop ships this provider as an optional bundle. The rows are the
++# README's example composition: Codex and Claude Code providers and the
++# subagent_oar tool. Claude Code runs in acceptEdits instead of the example's
++# dontAsk: it can change files in the task's directory, as Codex can in its
++# workspace-write sandbox, and anything else that would ask for approval is
++# refused.
++- insert:
++    - id: experimental-subagent-oar-codex
++      name: '@deepseek-ai/dsh-experimental-subagent-oar'
++      config:
++        runtime: codex
++        providerName: oar-codex
++        launchArgs:
++          - -c
++          - sandbox_mode="workspace-write"
++    - id: experimental-subagent-oar-claude
++      name: '@deepseek-ai/dsh-experimental-subagent-oar'
++      config:
++        runtime: claude
++        providerName: oar-claude
++        launchArgs:
++          - --permission-mode
++          - acceptEdits
++          - --permission-prompts
++          - none
++    - id: tool-subagent-oar
++      name: '@deepseek-ai/dsh-experimental-tool-subagent-oar'
++      config:
++        providers:
++          codex: oar-codex
++          claude: oar-claude
+diff --git a/package.json b/package.json
+index e04d30c..0cd004a 100644
+--- a/package.json
++++ b/package.json
+@@ -20,7 +20,8 @@
+     },
+     "./src/*": "./src/*",
+     "./package.json": "./package.json",
+-    "./locale/*.json": "./locale/*.json"
++    "./locale/*.json": "./locale/*.json",
++    "./cordis.patch.yml": "./cordis.patch.yml"
+   },
+   "files": [
+     "icon.svg",
+@@ -30,7 +31,8 @@
+     "lib/types/**/*.d.ts",
+     "lib/types/**/*.d.ts.map",
+     "lib/**/*.js.map",
+-    "src"
++    "src",
++    "cordis.patch.yml"
+   ],
+   "license": "MIT",
+   "icon": "./icon.svg",
+@@ -71,5 +73,10 @@
+     "@deepseek-ai/dsh-tools": "0.2.2-rc.2",
+     "@deepseek-ai/dsh-agent-loop-testkit": "0.2.2-rc.2",
+     "@deepseek-ai/dsh-experimental-tool-subagent-oar": "0.2.2-rc.2"
++  },
++  "dsh": {
++    "bundle": {
++      "patch": "./cordis.patch.yml"
++    }
+   }
+-}
+\ No newline at end of file
++}

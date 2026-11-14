@@ -13,7 +13,7 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { atomicJson, readPrivateFile } from '../private-files.ts'
-import { officialComputerUse } from '../upstream-family.ts'
+import { legacyAgentOwner, officialComputerUse } from '../upstream-family.ts'
 
 export const COMPUTER_USE_SETTINGS_ROUTE = '/api/desktop-next/computer-use'
 export const COMPUTER_USE_SETTINGS_FILE = 'desktop-next.computer-use.json'
@@ -174,9 +174,7 @@ export function installComputerUseCommand(ctx: Context, profileDir: string): Com
           }
         }
         const activeAgent: Agent = currentAgent
-        currentAgent = runtimeCtx.agents
-          .list()
-          .find(candidate => runtimeCtx.agents.isOwnedBy(activeAgent.id, candidate))
+        currentAgent = legacyAgentOwner?.(runtimeCtx, activeAgent)
       }
       return false
     }

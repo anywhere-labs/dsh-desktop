@@ -125,7 +125,8 @@ it('exports bounded historical records with a second redaction pass and explicit
   sink.append([JSON.stringify({ text: 'token=private-value', filler: 'z'.repeat(700) }), JSON.stringify({ text: 'newer', filler: 'z'.repeat(700) })])
   const exported = exportHistory(directory, log.export(state), 1024)
   const data = JSON.parse(exported)
-  expect(data.version).toBe(2)
+  expect(data.version).toBe(3)
+  expect(data.renderer).toBeNull()
   expect(data.history.omittedFiles).toBe(1)
   expect(data.history.records).toHaveLength(1)
   expect(exported).not.toContain('private-value')
@@ -202,4 +203,18 @@ it('describes local minidumps in exports without including or following them', (
   expect(JSON.parse(exported).crashDumps).toEqual({ location: 'electron-user-data/Crashpad', count: 1,
     files: [{ name: 'pending/host.dmp', bytes: 19, modified: expect.any(String) }] })
   expect(exported).not.toContain('private-memory')
+})
+
+
+it('keeps previous-run history out of the current failure context', () => {
+  const home = temporary()
+  const previous = diagnostics(home)
+  previous.append('old unrelated failure'); previous.flush()
+  const current = diagnostics(home)
+  current.append('current plugin load')
+  current.hostChunk('unfinished current output', 'stderr')
+  expect(current.snapshot()).toContain('old unrelated failure')
+  expect(current.snapshot(true)).not.toContain('old unrelated failure')
+  expect(current.snapshot(true)).toContain('current plugin load')
+  expect(current.snapshot(true)).toContain('unfinished current output')
 })

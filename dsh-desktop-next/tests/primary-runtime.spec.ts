@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { zipSync } from 'fflate'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import {
   downloadPrimaryRuntimeAsset, machOArchitectures, parsePrimaryRuntimeLock, prepareOfficeSkillAssets, primaryRuntimePayloadDigest,
   readPrimaryRuntimeLock, smokePrimaryRuntime, unpackPrimaryRuntimeWheel, type PrimaryRuntimeLock,
@@ -104,6 +104,50 @@ it('extracts a hash-verified cached library without a Python installer or networ
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+it('retries a terminated response body and caches only the complete verified download', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-download-'))
+  const bytes = Buffer.from('complete archive')
+  const hash = createHash('sha256').update(bytes).digest('hex')
+  const closed = new TypeError('terminated', { cause: Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }) })
+  const request = vi.fn().mockResolvedValueOnce(new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new Uint8Array([1, 2])); controller.error(closed) },
+  }))).mockImplementation(async () => {
+    expect(await readdir(root)).toEqual([])
+    return new Response(bytes)
+  })
+  vi.stubGlobal('fetch', request)
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const archive = await downloadPrimaryRuntimeAsset('https://example.invalid/node.tar.gz', hash, root)
+    expect(await readFile(archive, 'utf8')).toBe('complete archive')
+    expect(await downloadPrimaryRuntimeAsset('https://example.invalid/node.tar.gz', hash, root)).toBe(archive)
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(await readdir(root)).toEqual([hash])
+  } finally { vi.unstubAllGlobals(); vi.restoreAllMocks(); await rm(root, { recursive: true, force: true }) }
+})
+
+it.each([
+  ['missing', 1, 'HTTP 404'], ['unavailable', 3, 'HTTP 503'],
+  ['socket', 3, 'UND_ERR_SOCKET'], ['checksum', 1, 'checksum mismatch'],
+] as const)('reports a %s download failure without caching partial or invalid bytes', async (kind, attempts, message) => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-download-failure-'))
+  const url = 'https://example.invalid/python.tar.gz'
+  const request = vi.fn(async () => {
+    if (kind === 'socket') throw new TypeError('fetch failed', { cause: { code: 'UND_ERR_SOCKET' } })
+    return new Response('invalid', { status: kind === 'missing' ? 404 : kind === 'unavailable' ? 503 : 200 })
+  })
+  vi.stubGlobal('fetch', request)
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const result = downloadPrimaryRuntimeAsset(url, '0'.repeat(64), root)
+    await expect(result).rejects.toThrow(message)
+    await expect(result).rejects.toThrow(url)
+    if (kind !== 'checksum') await expect(result).rejects.toThrow(`after ${attempts} attempt(s)`)
+    expect(request).toHaveBeenCalledTimes(attempts)
+    expect(await readdir(root)).toEqual([])
+  } finally { vi.unstubAllGlobals(); vi.restoreAllMocks(); await rm(root, { recursive: true, force: true }) }
 })
 
 it('fully extracts a large deflate-compressed wheel entry', async () => {

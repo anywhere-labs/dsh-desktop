@@ -3,12 +3,14 @@
  * opens so that one file can be attached to a support request. Every failure text and the log tail
  * are masked like the readable log; the diagnostics export remains the complete package.
  */
-import { readdir, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { inspect } from 'node:util'
 import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
+import { startupEntriesSection, type DesktopStartupTimeoutFailure } from './host-startup-limit.ts'
 import { maskSecrets } from './mask-secrets.ts'
 import { privateDirectory } from './private-files.ts'
+import type { RendererDiagnostics, RendererDiagnosticsSnapshot, RendererEvidence } from './renderer-diagnostics.ts'
 
 /** Reports kept after each write; older ones are removed by file name order. */
 export const FAILURE_REPORTS_RETAINED = 10
@@ -29,6 +31,8 @@ export interface FailureReportInput {
   readonly hostDiagnostic?: string | undefined
   /** An error raised by the shell, whose stack, properties and cause chain the report adds. */
   readonly error?: Error | undefined
+  /** The limit a Host start exceeded and every entry it was still loading. */
+  readonly startup?: DesktopStartupTimeoutFailure | undefined
   /** Launch and session facts for the header, in order. */
   readonly facts: readonly (readonly [name: string, value: string])[]
   /** The readable log when the failure was reported. */
@@ -75,6 +79,7 @@ export function renderFailureReport(input: FailureReportInput): string {
     '--- failure (as shown in the recovery assistant) ---',
     maskSecrets(input.failure),
   ]
+  if (input.startup !== undefined) lines.push('', ...startupEntriesSection(input.startup).map(line => maskSecrets(line)))
   if (input.hostDiagnostic !== undefined) {
     lines.push('', '--- Host diagnostic (as reported by the Host process) ---', maskSecrets(input.hostDiagnostic))
   }
@@ -85,6 +90,59 @@ export function renderFailureReport(input: FailureReportInput): string {
   lines.push('', '--- recent log (oldest first) ---', input.log === '' ? '(no log lines were recorded)' : maskSecrets(logTail(input.log)), '')
   if (input.auxiliary !== undefined) lines.push('--- auxiliary diagnostics ---', ...input.auxiliary, '')
   return lines.join('\n')
+}
+
+/**
+ * Render the renderer evidence appended to a failure report.
+ * @param renderer - the sample taken while the report was written.
+ * @param lastKnown - the last sample that answered earlier, used when the page cannot be sampled now.
+ * @returns the section, ending in a blank line, or '' when there is nothing to report.
+ */
+export function rendererFailureSection(renderer: RendererDiagnostics, lastKnown?: RendererEvidence): string {
+  // Nothing was ever sampled and there is no window now: startup failures stay as they were.
+  if (!renderer.available && renderer.reason === 'no-window' && lastKnown === undefined) return ''
+  const lines = ['--- renderer at failure ---', ...rendererStatus(renderer)]
+  if (lastKnown !== undefined) {
+    lines.push('', `last known: ${ageText(lastKnown.ageMs)} before the failure`, ...rendererLines(lastKnown.sample))
+  }
+  return `${lines.join('\n')}\n`
+}
+
+function rendererStatus(renderer: RendererDiagnostics): string[] {
+  if (!renderer.available) return [`unavailable: ${renderer.reason}${renderer.detail === undefined ? '' : ` (${renderer.detail.replace(/\s+/gu, ' ')})`}`]
+  return rendererLines(renderer)
+}
+
+function rendererLines(renderer: RendererDiagnosticsSnapshot): string[] {
+  return [
+    `sampled: ${String(renderer.sampleMs)} ms, ${String(renderer.frameLoop.frames)} frames (${String(renderer.frameLoop.framesPerSecond)}/s, ${renderer.frameLoop.sampledBy})`,
+    `window: ${renderer.view.visibility}, ${renderer.view.focused === true ? 'focused' : renderer.view.focused === false ? 'unfocused' : 'focus unknown'}${renderer.view.reducedMotion === true ? ', reduced motion' : ''}, ${size(renderer.view.width, renderer.view.height)}@${String(renderer.view.devicePixelRatio ?? '?')}x`,
+    `dom: ${String(renderer.dom.elements ?? '?')} elements`,
+    `long tasks: ${renderer.longTasks === null ? 'unmeasured' : `${String(renderer.longTasks.count)} in ${String(renderer.longTasks.totalMs)} ms`}`,
+    `animations: ${String(renderer.animations.length)} running of ${String(renderer.animationsTotal)}`,
+    ...renderer.animations.map(animation => `  ${animation.name} on ${animation.target}${animation.pseudo ?? ''}${animation.infinite ? ' (infinite)' : ''}${animation.currentTime === null ? '' : ` at ${String(animation.currentTime)} ms`}`),
+    `body layers: ${String(renderer.layers.length)}`,
+    ...renderer.layers.map(layer => `  ${layer.tag}${layer.id === null ? '' : `#${layer.id}`}${layer.className === null ? '' : `.${layer.className.trim().split(/\s+/u).slice(0, 3).join('.')}`} ${layer.position}, ${String(layer.children)} children`),
+  ]
+}
+
+function size(width: number | null, height: number | null): string {
+  return `${String(width ?? '?')}x${String(height ?? '?')}`
+}
+
+function ageText(ageMs: number): string {
+  const seconds = Math.max(0, Math.round(ageMs / 1000))
+  return seconds < 90 ? `${String(seconds)} s` : `${String(Math.round(seconds / 60))} min`
+}
+
+/**
+ * Append evidence collected after the basic report was written, without rewriting that report.
+ * Appended text is masked exactly like the report itself.
+ * @param file - the report file.
+ * @param text - the section to append.
+ */
+export async function appendFailureReport(file: string, text: string): Promise<void> {
+  await appendFile(file, `\n${maskSecrets(text)}`, { mode: 0o600 })
 }
 
 /**

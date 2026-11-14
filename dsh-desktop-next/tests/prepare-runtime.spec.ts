@@ -1,3 +1,4 @@
+import { OFFICE_SKILLS_IN_PACKAGE } from '../scripts/upstream-family.ts'
 import { createRequire } from 'node:module'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -59,6 +60,13 @@ it('ships both Darwin CPUs by default or the requested smoke CPU, Windows x64, t
   expect(nextRuntimeTargets('freebsd')).toEqual([])
 })
 
+it('prepares only the Darwin CPUs a caller names, as a development launch names its own, and ignores them elsewhere', () => {
+  expect(nextRuntimeTargets('darwin', 'arm64', {}, ['arm64'])).toEqual([{ target: 'mac-arm64', arch: 'arm64' }])
+  expect(nextRuntimeTargets('darwin', 'x64', { DSH_MAC_SMOKE_ARCH: 'arm64' }, ['x64'])).toEqual([{ target: 'mac-x64', arch: 'x64' }])
+  expect(nextRuntimeTargets('win32', 'x64', {}, ['arm64'])).toEqual([{ target: 'win-x64', arch: 'x64' }])
+  expect(nextRuntimeTargets('linux', 'arm64', {}, ['x64'])).toEqual([{ target: 'linux-arm64', arch: 'arm64' }])
+})
+
 it('lays out each CPU payload beside its Office resources under the build directory', () => {
   expect(nextRuntimeBuildPaths('/next')).toEqual({ runtime: join('/next', '.desktop-build', 'runtime'), downloads: join('/next', '.desktop-build', 'downloads') })
   expect(primaryRuntimeDirectory('/resources/runtime', 'x64')).toBe(join('/resources/runtime', 'x64', 'primary-runtime'))
@@ -108,11 +116,14 @@ it('rejects a missing CPU, another version, a payload without Node, or a foreign
   expect(() => verifyNextRuntimeTree(slice, 'darwin', '2.0.0-next')).toThrow('expected a thin x64 executable')
 })
 
-it('rejects missing entry points and Office resources', () => {
+it('rejects a missing Python entry point', () => {
   const python = fixture()
   writePayload(python, 'arm64', { omit: ['dependencies/python/bin/python3'] })
   writePayload(python, 'x64')
   expect(() => verifyNextRuntimeTree(python, 'darwin', '2.0.0-next')).toThrow('missing arm64 Python interpreter')
+})
+
+it.skipIf(OFFICE_SKILLS_IN_PACKAGE)('requires copied Office skills for legacy runtimes', () => {
   const router = fixture()
   writePayload(router, 'arm64')
   writePayload(router, 'x64', { omit: ['office-skills/office/SKILL.md'] })
@@ -120,6 +131,15 @@ it('rejects missing entry points and Office resources', () => {
   const skill = fixture()
   writePayload(skill, 'arm64', { omit: ['office-skills/office-xlsx/SKILL.md'] })
   expect(() => verifyNextRuntimeTree(skill, 'darwin', '2.0.0-next')).toThrow('missing arm64 office-xlsx skill')
+})
+
+it.runIf(OFFICE_SKILLS_IN_PACKAGE)('accepts a runtime without copied Office skills when skills ship in the package', () => {
+  const root = fixture()
+  for (const arch of ['arm64', 'x64'] as const) {
+    writePayload(root, arch)
+    rmSync(officeSkillsDirectory(root, arch), { recursive: true, force: true })
+  }
+  expect(verifyNextRuntimeTree(root, 'darwin', '2.0.0-next')).toHaveLength(2)
 })
 
 it('reuses a runtime tree only when every target matches the current lock digest and version', () => {
@@ -135,4 +155,17 @@ it('reuses a runtime tree only when every target matches the current lock digest
   rmSync(join(root, 'stale'), { recursive: true, force: true })
   writePayload(root, 'x64', { manifest: { payloadDigest: '0'.repeat(64) } })
   expect(reusableNextRuntimeTree(root, 'darwin', '2.0.0-next')).toEqual([])
+})
+
+it('reuses a tree only for the CPUs it was prepared for, so development and packaging each prepare their own', () => {
+  const lock = readPrimaryRuntimeLock()
+  const pnpmVersion = (JSON.parse(readFileSync(createRequire(import.meta.url).resolve('pnpm'), 'utf8')) as { version: string }).version
+  const root = fixture()
+  writePayload(root, 'arm64', { manifest: { payloadDigest: primaryRuntimePayloadDigest('mac-arm64', lock, pnpmVersion) } })
+  expect(verifyNextRuntimeTree(root, 'darwin', '2.0.0-next', 'arm64', ['arm64'])).toHaveLength(1)
+  expect(reusableNextRuntimeTree(root, 'darwin', '2.0.0-next', 'arm64', ['arm64'])).toHaveLength(1)
+  expect(reusableNextRuntimeTree(root, 'darwin', '2.0.0-next')).toEqual([])
+  writePayload(root, 'x64', { manifest: { payloadDigest: primaryRuntimePayloadDigest('mac-x64', lock, pnpmVersion) } })
+  expect(reusableNextRuntimeTree(root, 'darwin', '2.0.0-next')).toHaveLength(2)
+  expect(reusableNextRuntimeTree(root, 'darwin', '2.0.0-next', 'arm64', ['arm64'])).toEqual([])
 })

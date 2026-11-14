@@ -111,7 +111,7 @@ yarn check
 yarn dev
 ```
 
-`dev` 会在启动前自动构建，不需要另行手动构建。`dev` 和 `start` 还会在壳启动前于 `.desktop-build/runtime` 下准备随包解释器载荷，与上游桌面端的开发启动器一致，因此开发运行中也有 Office 技能；首次启动会下载上游锁文件固定的压缩包和 wheel，`yarn prepare:runtime` 可单独执行这一步。
+`dev` 会在启动前自动构建，不需要另行手动构建。`dev` 和 `start` 还会在壳启动前于 `.desktop-build/runtime` 下准备随包解释器载荷，与上游桌面端的开发启动器一致，因此开发运行中也有 Office 技能。和该启动器一样，它们只准备壳所运行 CPU 的那份载荷，打包时才会同时准备 macOS 两种 CPU 的载荷。首次启动会下载上游锁文件为该 CPU 固定的压缩包和 wheel，`yarn prepare:runtime` 可单独执行这一步。
 
 以下 headless-safe 启动器入口不会导入或启动 Electron：
 
@@ -209,6 +209,8 @@ DSH Desktop Beta 将 UTF-8 日志写入独立的 Electron 用户数据目录：W
 
 故障打开恢复助手时，Beta 会把这次故障保存到数据目录（默认 `~/.dsh-beta`）下的 `logs/dsh-plugin-desktop-beta-failure-<UTC 时间>-<阶段>.log`，“快速恢复”页的 **诊断报告** 可在文件夹中定位该文件。与 DSH 0.2.2 的 Desktop 一样，Beta 还会为这些报告保留近期插件操作：经官方插件管理器进行的安装、卸载、启用和停用（插件页、插件市场和社区市场都经由它），以及 dsh-market 通过桌面端 `desktopPnpm.runPlugin` 执行的插件命令。每条记录只包含操作、包名或插件条目、请求的精确版本、结果或退出码，以及观察到该操作的 Host 运行；其他包说明符可能包含路径或凭据，不会记录。记录保存在 `logs/plugin-operations/`，分两段，每段不超过 256 KiB。报告保存后，Worker 会在 500 毫秒内追加最多 100 条近期记录（不超过 64 KiB）；Host 故障的报告还会写明对应的 `host run`。这些记录只是上下文，不能证明故障原因：通过命令行或手动改文件做的修改不会记录，缺少记录也不代表没有改动。
 
+插件服务（Host）需在启动时限内就绪，否则停止启动并打开恢复助手。默认 60 秒；“桌面设置 → 桌面工具”和恢复助手“快速恢复”页的“插件服务（Host）启动时限”卡片可选 60、120、180、300、600 秒或“不限时”，下次启动插件服务时生效，安全模式固定使用 60 秒。不限时会一直等待插件服务就绪；插件服务退出或报错时仍会打开恢复助手，托盘和应用菜单也始终提供恢复助手、安全模式和退出。时限超过 60 秒（包括不限时）时，启动满 1 分钟仍未就绪会发一次系统通知，列出仍在加载的插件并说明恢复助手的入口。超时打开恢复助手时，故障报告紧接在故障之后列出仍在加载的插件条目（条目 id、模块、阶段和已等待时长），日志以 `host.start.pending` 记录同一份列表；列表来自 `host.cordis.patch.yml` 中的 `desktop-next-startup-entries` 插件行，它在启动期间读取 Loader 中尚未完成的条目。“快速恢复”页的时限卡片也会说明这次超时和仍在加载的插件。该设置保存在数据目录的 `desktop-preferences-extra.json`，而不是 `desktop-preferences.json`：已发布的版本遇到后者中不认识的键会进入恢复，却不读取前者，因此降级后仍能启动。前者损坏或值无效时按默认值处理并记入日志。
+
 ## 原生生命周期
 
 关闭窗口会隐藏窗口，Host Cordis 树继续运行。托盘可以重新打开窗口、选择激活 profile、打开隔离的 DSH 终端、检查 stable release、通过标准 settings namespace 更改模式，或请求显式退出。Profile 与模式切换都会先 dispose 当前 Cordis 树，再让 Electron relaunch。原生退出、`SIGINT` 与 `SIGTERM` 也会在退出前请求 dispose；超过五秒或收到重复请求时会强制完成最终退出。导航与重定向被限制在确切的 loopback origin；外部 HTTP、HTTPS 与邮件链接由操作系统打开；renderer 启用 `contextIsolation` 与 Chromium sandbox，并关闭 Node integration。
@@ -221,11 +223,11 @@ Stable 与 Beta 在 Windows、macOS 和 Linux 上均关闭 ASAR。打包后的 E
 
 `yarn package:dir` 为当前宿主平台创建未封装目录。如果应用目录缺少 desktop 更新与终端模块、DSH CLI bootstrap、内置 pnpm 入口或物理 deployment package，packaged-runtime gate 会拒绝该产物。Electron Builder 会把根 manifest、desktop runtime 与完整依赖树输出到 `resources/app/`（macOS 为 `Contents/Resources/app/`）；Host profile boot 与 CLI bootstrap 都会使用这棵物理树，因此 DSH profile fallback 的符号链接不会指向虚拟 ASAR 目录。
 
-可编辑的图标工程位于 `build/app-icon.icon`，使用 System Dark 背景，保留 BETA 徽标。macOS 打包直接把这个分层源工程编译为 `Assets.car`，并声明 `CFBundleIconName`；打包后的应用保留原生 Dock 图标。Apple 编译器同时生成 `build/app-icon.icns`，用于较旧的 macOS 和 DMG 卷图标。Composer 导出的 `build/app-icon.png` 是 Linux 窗口图标，并作为 Windows `build/app-icon.ico` 的来源；ICO 提供常用高 DPI 档位的精确帧，保留对应版本的图案，供应用程序、NSIS 安装器和卸载器使用。它同时生成 Linux 图标集 `build/icons/`：按 hicolor 主题的尺寸，从 16 到 512 像素每档一张 PNG，因为该主题没有 1024 像素目录。Debian 包和 AppImage 把每张装进对应的 `hicolor/<size>x<size>/apps` 目录，桌面环境在这里查找桌面条目的 `Icon=dsh-desktop-beta`。带内边距的 `build/app-icon-mac.png` 仅用于未打包的 Electron 开发运行，此时还没有编译后的应用包。
+可编辑的图标工程位于 `build/app-icon.icon`：浅瓷（Porcelain）鲸尾图案，即浅瓷渐变背景上的钴蓝描边 `whale-cobalt.svg`，保留 BETA 徽标。macOS 打包直接把这个分层源工程编译为 `Assets.car`，并声明 `CFBundleIconName`；打包后的应用保留原生 Dock 图标。Apple 编译器同时生成 `build/app-icon.icns`，用于较旧的 macOS 和 DMG 卷图标。Composer 导出的 `build/app-icon.png` 是 Linux 窗口图标，并作为 Windows `build/app-icon.ico` 的来源；ICO 提供常用高 DPI 档位的精确帧，保留对应版本的图案，供应用程序、NSIS 安装器和卸载器使用。它同时生成 Linux 图标集 `build/icons/`：按 hicolor 主题的尺寸，从 16 到 512 像素每档一张 PNG，因为该主题没有 1024 像素目录。Debian 包和 AppImage 把每张装进对应的 `hicolor/<size>x<size>/apps` 目录，桌面环境在这里查找桌面条目的 `Icon=dsh-desktop-beta`。带内边距的 `build/app-icon-mac.png` 仅用于未打包的 Electron 开发运行，此时还没有编译后的应用包。
 
 在 Icon Composer 保存工程后，在安装了 Xcode 27 和 Icon Composer 的 Mac 上，从仓库根目录运行 `corepack yarn icons:export --channel beta`。省略 `--channel` 可一起导出 Stable、Beta 和 Next。加上 `--linux` 则只从已提交的 PNG 重新生成 Beta 和 Next 的 Linux 图标集，无需 Xcode。请同时提交工程、所有导出资源和 `build/app-icon.resources.json`；`corepack yarn icons:check` 可在任何系统上检查资源是否过期或缺失，无需 Xcode。macOS 原生打包要求 Xcode 26 或更新版本；若 `xcode-select` 指向 Command Line Tools，请为打包命令设置 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，导出脚本则会自动查找完整 Xcode 安装。
 
-`build/tray-icon.svg` 是品牌蓝托盘源文件：构建过程会派生由 macOS 系统自动着色的模板图，以及固定品牌蓝的 Windows 与 Linux 托盘图。
+`icons:export` 从同一鲸尾图层裁出 `assets/` 中的托盘图：`tray-iconTemplate.png` 及其 `@2x` 图是由 macOS 菜单栏自动着色的模板图；`tray-icon-blue.png` 及其 1.25x、1.5x、2x 图保留 `#3563BF` 描边色，供 Windows 和 Linux 使用。资源记录同样覆盖这些托盘图，`icons:check` 也会拒绝过期的托盘图。
 
 ### WSL Linux 无界面检查
 

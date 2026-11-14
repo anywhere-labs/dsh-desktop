@@ -24,6 +24,7 @@ import { resolveDesktopShellEnvironment, type DesktopShellEnvironmentResolution 
 import { ensureUtf8Locale } from './shell-locale.ts'
 import { DEFAULT_PROFILE, NATIVE_ACCESS_HEADER, type DesktopCommand, type DesktopState, type DesktopSettingsPage } from './desktop-contract.ts'
 import { portsChanged, parsePreferences } from './desktop-preferences.ts'
+import { hostStartupLimitTitle, hostStartupTimeoutFromId, hostStartupTimeoutLabel } from './host-startup-limit.ts'
 import { NativeDesktop, applyWindowMaterial } from './native-desktop.ts'
 import { desktopLanAddresses } from './lan-addresses.ts'
 import { createLanHttpsCertificate, lanHttpsCertificateDiagnostic } from './lan-https-certificate.ts'
@@ -56,6 +57,8 @@ import { macUpdateArch } from './update-arch.ts'
 import { manualUpdateHint, releaseNotesUrl, updateLabel } from './update-state.ts'
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
 import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCause } from './renderer-recovery.ts'
+import { collectRendererDiagnostics, rendererDiagnosticsFields } from './renderer-diagnostics.ts'
+import { RollingRendererEvidence } from './renderer-evidence.ts'
 import { deElevateAtStartup, lowIntegrityAtStartup, windowsElevation } from './windows-elevation.ts'
 import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure } from './sandbox-launch.ts'
 import { pickOutsideProgramDirectory, programDirectory, programDirectoryRefusal, refusedProgramDirectoryOverlap, type ProgramDirectoryOverlap, type ProgramDirectoryPurpose } from './program-directory.ts'
@@ -176,6 +179,11 @@ const platformView = new DesktopPlatformView(join(root, 'lib', 'preload-platform
   () => language() === 'zh' ? 'zh_CN' : 'en_US', process.platform === 'darwin' || process.platform === 'win32' ? process.platform : null, dshVersion)
 /** The bundled interpreter payload of this CPU: beside the archive when packaged, prepared by `prepare:runtime` in development. */
 const primaryRuntime = join(app.isPackaged ? join(process.resourcesPath, 'runtime') : join(root, '.desktop-build', 'runtime'), process.arch, 'primary-runtime')
+/**
+ * The last sample of a page that still answered. A failure report written after a renderer crash or
+ * a hang has nothing to ask, so it falls back to this instead of saying only "unavailable".
+ */
+const rendererEvidence = new RollingRendererEvidence(() => mainWindow?.webContents)
 const runtime = new NextDesktopRuntime({
   home, root, primaryRuntime, executable: process.execPath, addresses: () => [...desktopLanAddresses()], systemProxy: () => systemProxy,
   prepareEnvironment: () => prepareHostEnvironment(),
@@ -189,6 +197,9 @@ const runtime = new NextDesktopRuntime({
         ...(memory === undefined ? {} : { commitLimit: memory.swapTotal * 1024, commitFree: memory.swapFree * 1024 }) }
     },
   },
+  // Read lazily: the window exists only after the runtime starts.
+  renderer: () => mainWindow?.webContents,
+  rendererEvidence: () => rendererEvidence.last(),
   ...(safeModeRequested ? { stateHome: electronData } : {}),
   certificate: async addresses => {
     try {
@@ -211,6 +222,7 @@ const runtime = new NextDesktopRuntime({
   onRestart: () => run({ type: 'restart' }),
   onTerminal: () => run({ type: 'terminal' }),
   onNotification: notification => native.notify(notification),
+  onStartupSlow: notice => quitting || !app.isReady() ? () => {} : native.notifyStartupSlow(notice),
   onPlatformSession: session => platformView.setSession(session),
   onPlatformLogin: (request) => {
     if (quitting || !app.isReady()) return
@@ -379,6 +391,8 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     ...(process.platform !== 'darwin' ? { icon: unpackedPath(join(root, 'build', process.platform === 'win32' ? 'app-icon.ico' : 'app-icon.png')) } : {}),
     ...(!primary ? auxiliaryWindowChromeOptions() : {}),
     ...(process.platform === 'win32' && primary ? {
+      // Match the official initial canvas before the renderer paints its theme.
+      backgroundColor: nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb',
       titleBarStyle: 'hidden' as const,
       titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: WINDOWS_CAPTION_FILL,
         symbolColor: nativeTheme.shouldUseDarkColors ? '#f9fafb' : '#0f1115' },
@@ -392,27 +406,35 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     // `DesktopBrowserGuests` issued the lease, and the guest itself never gets the tag.
     webPreferences: { preload: join(root, 'lib', preload), contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: primary },
   })
+  // Keep the primitive ID: late console events can arrive after the native window is destroyed.
+  const consoleWebContentsId = window.webContents.id
   let intervalStart = Date.now()
   let count = 0
   let failureCount = 0
   // The Host log otherwise misses client slot failures: the renderer can retire
   // an entry (and its portalled dialog) without crashing the Electron process.
-  window.webContents.on('console-message', (event, _level, legacyMessage) => {
+  window.webContents.on('console-message', (event, _level, legacyMessage, legacyLine, legacySource) => {
     // Electron versions differ: older runtimes pass the message as the third
     // argument, newer ones put it on the event. Never assume either exists.
     const message = typeof legacyMessage === 'string' ? legacyMessage : event?.message
     if (typeof message !== 'string') return
     const level = typeof event?.level === 'string' ? event.level : _level
     const failure = level === 'error' || level === 3 || message.includes('[next-ui-error]') || message.includes('slot entry crashed') || message.includes('slot factory occurrence crashed')
-    if (!failure && !runtime.preferences.developerLogging) return
+    const bootWarning = message.startsWith('web boot: warning')
+    const important = failure || bootWarning
+    if (!important && !runtime.preferences.developerLogging) return
     if (Date.now() - intervalStart >= 1000) { intervalStart = Date.now(); count = 0; failureCount = 0 }
-    const currentCount = failure ? ++failureCount : ++count
+    const currentCount = important ? ++failureCount : ++count
     if (currentCount > 100) {
       if (currentCount === 101) runtime.diagnostics.record({ source: 'renderer', event: 'console.rate-limited', level: 'warn' })
       return
     }
-    runtime.diagnostics.record({ source: 'renderer', event: 'console', level: failure ? 'error' : level === 'warning' || level === 2 ? 'warn' : 'info',
-      message: message.slice(0, 8192), developer: !failure, fields: { webContentsId: window.webContents.id } })
+    const sourceId = typeof event?.sourceId === 'string' ? event.sourceId : legacySource
+    const lineNumber = typeof event?.lineNumber === 'number' ? event.lineNumber : legacyLine
+    runtime.diagnostics.record({ source: 'renderer', event: 'console', level: failure ? 'error' : bootWarning || level === 'warning' || level === 2 ? 'warn' : 'info',
+      message: message.slice(0, 8192), developer: !important, fields: { webContentsId: consoleWebContentsId,
+        ...(typeof sourceId === 'string' ? { sourceId: sourceId.slice(0, 2048) } : {}),
+        ...(Number.isFinite(lineNumber) ? { lineNumber } : {}) } })
   })
   window.once('ready-to-show', () => {
     const maximize = restored?.maximized === true && !quitting && !window.isDestroyed()
@@ -569,7 +591,11 @@ function resetRendererRecovery(owner: BrowserWindow): void {
     reload: () => loadMainDocument(owner, 'recovery'),
     exhausted: detail => runtime.report(new Error(`Renderer recovery exhausted: ${detail}`), rendererHealthy ? 'renderer-runtime' : 'renderer-startup'),
     healthy: () => { rendererHealthy = true },
-    record: (event, fields) => runtime.diagnostics.record({ source: 'renderer', event, fields }),
+    record: (event, fields) => {
+      runtime.diagnostics.record({ source: 'renderer', event, fields })
+      // A freshly mounted interface is the sample worth keeping until the next periodic one.
+      if (event === 'renderer.ready') void rendererEvidence.refresh()
+    },
   })
 }
 
@@ -833,16 +859,28 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
     if (type === 'export-ca' || type === 'diagnostics') {
       const certificate = runtime.lan?.caCertificate
       if (type === 'export-ca' && !certificate) throw new Error('LAN certificate is unavailable')
+      // Sample the page while the save dialog is open: the renderer is the only part of the
+      // export that has to be asked, and the dialog covers its sampling second.
+      const sampling = type === 'diagnostics' ? collectRendererDiagnostics(mainWindow?.webContents) : undefined
       const owner = raiseDialogOwner()
       const options = { title: type === 'export-ca' ? t('导出局域网 CA 证书', 'Export LAN CA certificate') : t('导出诊断（分享前请检查内容）', 'Export diagnostics (review before sharing)'),
         defaultPath: type === 'export-ca' ? 'dsh-desktop-next-ca.crt' : `dsh-desktop-next-diagnostics-${Date.now()}.json`,
         filters: [{ name: type === 'export-ca' ? 'CA certificate' : 'Diagnostics', extensions: [type === 'export-ca' ? 'crt' : 'json'] }] }
       const result = await (owner === undefined ? dialog.showSaveDialog(options) : dialog.showSaveDialog(owner, options))
-      if (!result.canceled && result.filePath && !quitting) {
-        if (type === 'export-ca') await writeFile(result.filePath, certificate!, { mode: 0o600 })
-        else await runtime.diagnostics.exportTo(result.filePath, state())
-        if (type === 'diagnostics') diagnosticsFile = result.filePath
+      if (result.canceled || !result.filePath || quitting) {
+        // A cancelled export drops the sample; observe it so a future failure cannot surface
+        // as an unhandled rejection in the fail-loud main process.
+        void sampling?.catch(() => {})
+        return
       }
+      if (type === 'export-ca') await writeFile(result.filePath, certificate!, { mode: 0o600 })
+      else {
+        // Sampling never fails the export; an unsampled renderer is itself diagnostic.
+        const renderer = await sampling!
+        runtime.diagnostics.record({ source: 'renderer', event: 'export.snapshot', fields: rendererDiagnosticsFields(renderer) })
+        await runtime.diagnostics.exportTo(result.filePath, state(), renderer)
+      }
+      if (type === 'diagnostics') diagnosticsFile = result.filePath
       return
     }
     if (type === 'preferences') {
@@ -981,6 +1019,18 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
         : t('应用将退出恢复助手，重新启动原 Profile。', 'The app will leave the recovery assistant and restart the original Profile.'))) return
     relaunch = relaunchArguments(process.argv.slice(1), false, false)
     app.quit()
+    return
+  }
+  if (action === 'host-startup-timeout') {
+    // The original environment's limit; Safe Mode keeps its own fixed one.
+    const limit = hostStartupTimeoutFromId(input.id)
+    runtime.saveStartupTimeout(limit)
+    runtime.diagnostics.record({ source: 'desktop', event: 'host.start-limit.saved', fields: { limit, safeMode: runtime.safeMode } })
+    const zh = language() === 'zh'
+    const restart = runtime.safeMode ? t('退出安全模式并重启', 'Exit Safe Mode and Restart') : t('退出并重启', 'Quit and restart')
+    recoveryNotice = { tone: 'success', title: hostStartupLimitTitle(zh),
+      body: t(`已改为${limit === 'none' ? '' : ' '}${hostStartupTimeoutLabel(limit, zh)}。请点击“${restart}”使其生效。`,
+        `${limit === 'none' ? 'The startup limit is removed' : `The startup limit is now ${String(limit)} seconds`}. Choose “${restart}” to apply it.`) }
     return
   }
   const directory = runtime.profiles.directory(runtime.selected)
@@ -1219,6 +1269,7 @@ function timed<T>(operation: Promise<T>): Promise<Timed<T>> {
 async function main(): Promise<void> {
   await app.whenReady()
   if (quitting) return
+  rendererEvidence.start()
   let inputRevision = 0
   let inputBlocked = false
   desktopShortcuts = installDesktopShortcuts(() => mainWindow, app.getPath('userData'),
@@ -1486,6 +1537,7 @@ app.on('before-quit', event => {
   event.preventDefault()
   quitting = true
   rendererRecovery?.stop()
+  rendererEvidence.stop()
   // Pending evidence lands now; a Host that dies of OOM while stopping is written at once.
   runtime.memory.stop()
   runtime.diagnostics.record({ source: 'electron', event: 'shutdown.start' })

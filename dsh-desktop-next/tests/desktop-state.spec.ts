@@ -33,6 +33,38 @@ it('keeps desktop preferences separate from the Host and validates all IPC-contr
   expect(portsChanged({ ...DEFAULT_PREFERENCES }, { ...DEFAULT_PREFERENCES, port: 3210 })).toBe(true)
 })
 
+it('keeps the Host startup limit out of the file released builds validate, and reads its own file leniently', () => {
+  const { home } = environment()
+  const warnings: string[] = []
+  const store = new DesktopPreferenceStore(home, message => { warnings.push(message) })
+  expect(parsePreferences({ hostStartupTimeout: 180 }).hostStartupTimeout).toBe(180)
+  expect(parsePreferences({ hostStartupTimeout: 'none' }).hostStartupTimeout).toBe('none')
+  for (const hostStartupTimeout of [59, 601, 90.5, '180', null, 'unlimited']) expect(() => parsePreferences({ hostStartupTimeout })).toThrow('hostStartupTimeout')
+  store.write({ ...DEFAULT_PREFERENCES, closeToTray: false, hostStartupTimeout: 300 })
+  // 2.0.22 and earlier reject any unknown key in desktop-preferences.json, so a downgrade must find none there.
+  const main = JSON.parse(readFileSync(store.file, 'utf8')) as Record<string, unknown>
+  expect(Object.keys(main).sort()).toEqual(Object.keys(DEFAULT_PREFERENCES).filter(key => key !== 'hostStartupTimeout').sort())
+  expect(JSON.parse(readFileSync(store.extraFile, 'utf8'))).toEqual({ hostStartupTimeout: 300 })
+  expect(new DesktopPreferenceStore(home).read()).toMatchObject({ closeToTray: false, hostStartupTimeout: 300 })
+  // A later release's keys survive, and an invalid value falls back to the default instead of opening recovery.
+  writeFileSync(store.extraFile, JSON.stringify({ hostStartupTimeout: 5, laterPreference: 'kept' }))
+  expect(store.read().hostStartupTimeout).toBe(60)
+  expect(warnings).toEqual([`Ignored an invalid hostStartupTimeout in ${store.extraFile}`])
+  store.writeExtra({ hostStartupTimeout: 'none' })
+  expect(JSON.parse(readFileSync(store.extraFile, 'utf8'))).toEqual({ hostStartupTimeout: 'none', laterPreference: 'kept' })
+  expect(() => store.writeExtra({ hostStartupTimeout: 30 })).toThrow('hostStartupTimeout')
+  for (const text of ['{broken', '[]', 'null']) {
+    writeFileSync(store.extraFile, text)
+    expect(store.readExtra()).toEqual({ hostStartupTimeout: 60 })
+  }
+  // Only the extra file changes: an unreadable main file is never replaced by defaults.
+  writeFileSync(store.file, '{broken preferences')
+  store.writeExtra({ hostStartupTimeout: 120 })
+  expect(readFileSync(store.file, 'utf8')).toBe('{broken preferences')
+  expect(store.readExtra()).toEqual({ hostStartupTimeout: 120 })
+  expect(() => store.read()).toThrow()
+})
+
 it('backs up a malformed manifest, repairs without deleting data, and restores the last working config', async () => {
   const { profiles, recovery, home } = environment()
   const dir = profiles.directory('desktop')

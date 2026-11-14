@@ -8,6 +8,7 @@ import { maskSecrets } from './mask-secrets.ts'
 import { LogHistory, type LogHistoryOptions } from './log-history.ts'
 import { HOST_LOG_PREFIX, LOG_LEVELS, isLogInput, sanitize, type LogInput, type LogRecord } from './log-record.ts'
 import type { DesktopPreferences, DesktopState } from './desktop-contract.ts'
+import type { RendererDiagnostics } from './renderer-diagnostics.ts'
 
 const LIMIT = 128 * 1024
 const MAX_PENDING = 1024 * 1024
@@ -17,6 +18,7 @@ export class DesktopDiagnostics {
   private readonly marker: string
   private history: LogHistory | undefined
   private text = ''
+  private currentText = ''
   /** Bumped whenever the readable text or a partial process line changes; the file is rewritten only then. */
   private textRevision = 0
   private writtenRevision = -1
@@ -78,7 +80,9 @@ export class DesktopDiagnostics {
     this.pending.push(line); this.pendingBytes += Buffer.byteLength(line) + 1
     if (!input.historyOnly) {
       const detail = record.error === undefined ? '' : ` ${JSON.stringify(record.error)}`
-      this.text = (this.text + `${record.time} [${level}] ${record.message ? record.message + ' ' : ''}[${record.source}] ${record.event}${record.operationId ? ` (${record.operationId})` : ''}${record.fields ? ` ${JSON.stringify(record.fields)}` : ''}${detail}\n`).slice(-LIMIT)
+      const readable = `${record.time} [${level}] ${record.message ? record.message + ' ' : ''}[${record.source}] ${record.event}${record.operationId ? ` (${record.operationId})` : ''}${record.fields ? ` ${JSON.stringify(record.fields)}` : ''}${detail}\n`
+      this.text = (this.text + readable).slice(-LIMIT)
+      this.currentText = (this.currentText + readable).slice(-LIMIT)
       this.textRevision++
     }
     if (level === 'error' || this.pendingBytes >= MAX_PENDING) this.flush()
@@ -145,7 +149,7 @@ export class DesktopDiagnostics {
     const level = /\b(error|fatal)\b/iu.test(line) ? 'error' : /\bwarn/iu.test(line) ? 'warn' : /\bdebug\b/iu.test(line) ? 'debug' : 'info'
     if (LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(this.level)) this.record({ source: `host.${stream}`, event: 'output', level, message: line, pid, developer: level === 'debug' })
   }
-  snapshot(): string { return maskSecrets(this.text + [...this.partial.values()].filter(buffer => buffer.text).map(buffer => `\n${buffer.text}`).join('')).slice(-LIMIT) }
+  snapshot(currentRun = false): string { return maskSecrets((currentRun ? this.currentText : this.text) + [...this.partial.values()].filter(buffer => buffer.text).map(buffer => `\n${buffer.text}`).join('')).slice(-LIMIT) }
   flush(): void {
     clearTimeout(this.timer); this.timer = undefined
     try {
@@ -168,22 +172,28 @@ export class DesktopDiagnostics {
       while (this.pendingBytes > MAX_PENDING && this.pending.length) { this.pendingBytes -= Buffer.byteLength(this.pending.shift()!) + 1; this.droppedRecords++ }
     }
   }
-  export(state: DesktopState): string {
-    return JSON.stringify({ format: 'dsh-plugin-desktop-beta-diagnostics', version: 2, created: new Date().toISOString(), runId: this.runId,
+  /**
+   * Build the readable summary of an export.
+   * @param state - the Desktop state shown in the summary.
+   * @param renderer - the page sample taken at export time; null when it is unavailable.
+   */
+  export(state: DesktopState, renderer?: RendererDiagnostics): string {
+    return JSON.stringify({ format: 'dsh-plugin-desktop-beta-diagnostics', version: 3, created: new Date().toISOString(), runId: this.runId,
       application: { version: state.version, platform: state.platform, versions: process.versions },
       runtime: sanitize({ profile: state.selected, profiles: state.profiles, phase: state.phase, safeMode: state.safeMode,
         failure: state.failure, features: state.features, preferences: state.preferences,
         trayAvailable: state.trayAvailable, browserUrl: state.browserUrl, lan: state.lan }),
+      renderer: sanitize(renderer ?? null),
       logging: { storageError: this.storageError ?? null, droppedRecords: this.droppedRecords }, pendingOperations: this.pendingOperations(),
       crashDumps: this.crashDumps === undefined ? null : { location: relative(join(this.file, '..', '..'), this.crashDumps).split(sep).join('/'), ...crashDumpInventory(this.crashDumps) },
       log: this.snapshot() }, null, 2) + '\n'
   }
   /** Export history off the Electron main thread; terminate stalled workers. */
-  exportTo(file: string, state: DesktopState): Promise<void> {
+  exportTo(file: string, state: DesktopState, renderer?: RendererDiagnostics): Promise<void> {
     this.flush()
     const extension = import.meta.url.endsWith('.ts') ? 'ts' : 'js'
     const worker = new Worker(new URL(`./diagnostics-export.${extension}`, import.meta.url), {
-      workerData: { kind: 'dsh-next-diagnostics-export', directory: join(this.file, '..'), file, summary: this.export(state) },
+      workerData: { kind: 'dsh-next-diagnostics-export', directory: join(this.file, '..'), file, summary: this.export(state, renderer) },
       resourceLimits: { maxOldGenerationSizeMb: 512 },
     })
     return new Promise((resolve, reject) => {
