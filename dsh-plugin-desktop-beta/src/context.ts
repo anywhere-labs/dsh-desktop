@@ -17,7 +17,10 @@
  * The short-term/long-term boundary is the recall step: L0–L2 live in the live
  * context, while L3 lives on disk and re-enters context as a `user/message`
  * (source kind `desktop-memory`) at the first step of a turn — once per memory
- * version — when `recall` is enabled.
+ * version — when `recall` is enabled. Fold input, fold output at recall, file
+ * recall, and the durable record itself are all bounded; identical fold output
+ * refreshes metadata without bumping the recall version, and `memoryTtlDays`
+ * (0 = forever) can expire records so stale summaries stop re-entering context.
  *
  * The optional `fileIndex`/`fileRecall` pair adds a second durable surface: the
  * `index_file` tool stores a marked file's path, reason, and bounded head
@@ -87,8 +90,14 @@ const memoryRecord = zod.object({
   content: zod.string(),
   /** How many L1 checkpoints were folded into this record. */
   foldedSummaries: zod.number().int().nonnegative(),
-  /** Creation time in Unix epoch milliseconds. */
+  /** Creation time in Unix epoch milliseconds; also the recall version key. */
   createdAt: zod.number().int().nonnegative(),
+  /** Last write time in Unix epoch milliseconds (dedup refreshes without re-injecting). */
+  updatedAt: zod.number().int().nonnegative().optional(),
+  /** Expiry time in Unix epoch milliseconds; absent means the record never expires. */
+  expiresAt: zod.number().int().nonnegative().optional(),
+  /** Where the record came from; `fold` for plugin-condensed summaries. */
+  source: zod.enum(['fold']).optional(),
 })
 
 /** One indexed "important file": its path, why it matters, and bounded head content. */
@@ -136,6 +145,8 @@ export interface Config {
   l2Model: string
   /** Inject the durable session summary at the first step of a turn. */
   recall: boolean
+  /** Days a folded memory stays recallable; 0 keeps it forever. */
+  memoryTtlDays: number
   /** Register the `index_file` tool and persist marked files into the `files` table. */
   fileIndex: boolean
   /** Inject the indexed-file list (paths and notes) at the first step of a turn. */
@@ -149,6 +160,7 @@ export const Config: z<Config> = z.object({
   l2Provider: z.string().default(''),
   l2Model: z.string().default(''),
   recall: z.boolean().default(true),
+  memoryTtlDays: z.number().step(1).min(0).max(3650).default(0),
   fileIndex: z.boolean().default(false),
   fileRecall: z.boolean().default(false),
 })
@@ -171,6 +183,15 @@ const INDEX_FILE_DESCRIPTION =
 const MAX_INDEX_FILE_BYTES = 1_048_576
 /** Hard character bound for the cached head content (guards context bloat on recall). */
 const MAX_INDEX_CONTENT_CHARS = 16_000
+/** Hard character bound for one L1 checkpoint sent to the L2 fold. */
+const MAX_FOLD_CHECKPOINT_CHARS = 8_000
+/** Hard character bound for all L1 checkpoints in one L2 fold request. */
+const MAX_FOLD_INPUT_CHARS = 24_000
+/** Hard character bound for recalled durable memory (a fold output is model-authored). */
+const MAX_RECALL_CHARS = 12_000
+/** Hard character bound for the recalled file list. */
+const MAX_FILES_RECALL_CHARS = 12_000
+const DAY_MS = 86_400_000
 
 /** Canonical output of `index_file`: what was indexed and how it was bounded. */
 const INDEX_FILE_OUTPUT_SCHEMA = {
@@ -200,6 +221,43 @@ function textOf(blocks: readonly ContentBlock[]): string {
     if (block.type === 'text') text += block.text
   }
   return text
+}
+
+/**
+ * Bound the checkpoint batch before it enters one L2 fold request. Each
+ * checkpoint is capped, then the newest whole checkpoints are kept within the
+ * total budget; later checkpoints supersede earlier ones, so dropping the
+ * oldest loses the least information.
+ * @param summaries - chronological L1 checkpoint texts.
+ * @returns checkpoint markdown plus an omission note when any were dropped.
+ */
+function boundCheckpoints(summaries: readonly string[]): string {
+  const bounded = summaries.map(summary => summary.length > MAX_FOLD_CHECKPOINT_CHARS
+    ? `${summary.slice(0, MAX_FOLD_CHECKPOINT_CHARS)}\n[checkpoint truncated]`
+    : summary)
+  const kept: { index: number; text: string }[] = []
+  let total = 0
+  for (let index = bounded.length - 1; index >= 0; index--) {
+    const text = `### Checkpoint ${index + 1}\n${bounded[index]}`
+    if (kept.length > 0 && total + text.length > MAX_FOLD_INPUT_CHARS) break
+    kept.unshift({ index, text })
+    total += text.length + 2
+  }
+  const omitted = summaries.length - kept.length
+  const note = omitted === 0 ? '' : `[${omitted} earlier checkpoint(s) omitted to fit the fold budget]\n\n`
+  return note + kept.map(entry => entry.text).join('\n\n')
+}
+
+/**
+ * Bound model-authored memory before it re-enters context. The fold output is
+ * conditioned on bounded input, but a provider can still return more than the
+ * recall budget, so recall enforces its own hard cap.
+ * @param text - durable memory content.
+ * @returns content within the recall budget, with an explicit truncation mark.
+ */
+function boundRecallText(text: string): string {
+  if (text.length <= MAX_RECALL_CHARS) return text
+  return `${text.slice(0, MAX_RECALL_CHARS)}\n\n[durable memory truncated at ${MAX_RECALL_CHARS} characters]`
 }
 
 /**
@@ -234,14 +292,21 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return parts.join(',')
   }
 
-  /** Render the remembered-file list as a stable Markdown block for recall. */
+  /** Render the remembered-file list as a stable, bounded Markdown block for recall. */
   function renderFilesList(): string {
     const records = [...files.entries()].sort((a, b) => a[1].path.localeCompare(b[1].path))
     const lines = [FILES_RECALL_PREAMBLE, '']
+    let total = lines.join('\n').length
+    let rendered = 0
     for (const [, record] of records) {
-      lines.push(`## ${record.path}`)
-      if (record.note.length > 0) lines.push(`> ${record.note}`)
-      lines.push('')
+      const block = [`## ${record.path}`, ...(record.note.length > 0 ? [`> ${record.note}`] : [])].join('\n')
+      if (rendered > 0 && total + block.length + 2 > MAX_FILES_RECALL_CHARS) break
+      lines.push(block, '')
+      total += block.length + 2
+      rendered++
+    }
+    if (rendered < records.length) {
+      lines.push(`(${records.length - rendered} more file(s) omitted to fit the recall budget)`)
     }
     return lines.join('\n').trimEnd()
   }
@@ -287,9 +352,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       ctx.logger.warn('desktop-context: no provider/model for the session-summary fold; skipping')
       return
     }
-    const checkpoints = summaries
-      .map((summary, index) => `### Checkpoint ${index + 1}\n${summary}`)
-      .join('\n\n')
+    const checkpoints = boundCheckpoints(summaries)
     const messages: RequestMessage[] = [{
       role: 'user',
       content: [{ type: 'text', text: `${FOLD_INSTRUCTION}\n\n${checkpoints}` }],
@@ -314,11 +377,28 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         ctx.logger.warn('desktop-context: session-summary fold produced no text; skipping')
         return
       }
-      await memories.put(String(session.id), {
+      const key = String(session.id)
+      const now = Date.now()
+      const expiresAt = config.memoryTtlDays > 0 ? now + config.memoryTtlDays * DAY_MS : undefined
+      const existing = memories.get(key)
+      // Identical output means the fold added no information: refresh metadata
+      // without changing `createdAt`, so the stable version is not re-injected.
+      if (existing !== undefined && existing.content === content) {
+        await memories.put(key, {
+          ...existing,
+          updatedAt: now,
+          ...(expiresAt === undefined ? {} : { expiresAt }),
+        })
+        return
+      }
+      await memories.put(key, {
         level: 'session',
         content,
         foldedSummaries: summaries.length,
-        createdAt: Date.now(),
+        createdAt: now,
+        updatedAt: now,
+        source: 'fold',
+        ...(expiresAt === undefined ? {} : { expiresAt }),
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -389,7 +469,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
     if (config.recall) {
       const record = memories.get(sessionId)
-      if (record !== undefined && injectedAt.get(sessionId) !== record.createdAt) {
+      const ttlMs = config.memoryTtlDays * DAY_MS
+      // Records written before TTL was enabled have no `expiresAt`; fall back to
+      // their creation time so enabling TTL also ages out legacy memory.
+      const expiresAt = record === undefined
+        ? undefined
+        : record.expiresAt ?? (ttlMs > 0 ? record.createdAt + ttlMs : undefined)
+      const expired = expiresAt !== undefined && expiresAt <= Date.now()
+      if (record !== undefined && !expired && injectedAt.get(sessionId) !== record.createdAt) {
         injectedAt.set(sessionId, record.createdAt)
         const source: DesktopMemorySource = {
           kind: 'desktop-memory',
@@ -400,7 +487,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         }
         injected.push(createUserMessage({
           source,
-          content: [{ type: 'text', text: `${RECALL_PREAMBLE}\n\n${record.content}` }],
+          content: [{ type: 'text', text: `${RECALL_PREAMBLE}\n\n${boundRecallText(record.content)}` }],
         }))
       }
     }

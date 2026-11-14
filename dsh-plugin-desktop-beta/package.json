@@ -19,6 +19,7 @@
     "build": "node scripts/clean.mjs && node ../scripts/run-parallel.mjs \"tsdown\" \"vite build --config vite.client.config.ts\" \"vite build --config vite.native-ui.config.ts\" && node scripts/verify-build-output.mjs",
     "typecheck": "node ../scripts/run-parallel.mjs \"tsc --noEmit\" \"tsc -p tsconfig.packaging.json --noEmit\"",
     "test": "vitest run",
+    "eval:context": "vitest run tests/context-golden.spec.ts",
     "verify:host": "node scripts/verify-host.mjs",
     "verify:host:electron": "node scripts/verify-host.mjs --electron",
     "verify:frontend": "node scripts/verify-frontend.mjs",
