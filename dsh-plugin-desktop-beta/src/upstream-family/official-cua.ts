@@ -8,7 +8,7 @@ export const OFFICIAL_CUA_PROVIDER_PACKAGE = '@deepseek-ai/dsh-experimental-cua-
 /**
  * Keep the official Computer Use helper startable.
  *
- * The provider looks up `native/bin/darwin-<arch>/dsh-cua-native` below its own package directory, which it
+ * The provider looks up `native/bin/darwin-<arch>/current.json` and its selected application below its own package directory, which it
  * derives from `import.meta.url`, and starts it as a child process; Desktop packaging compiles that helper
  * (scripts/cua-native.ts). A child process reads no archive, so packaging keeps the whole package unpacked
  * beside the archive, and the provider runs from that copy.

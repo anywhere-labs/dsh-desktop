@@ -1,7 +1,7 @@
 /** Provide the macOS helper of the official Computer Use bundle where its provider starts it, compiling it when the release ships none. */
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { OFFICIAL_CUA_PROVIDER_PACKAGE } from '../../src/upstream-family/official-cua.ts'
@@ -11,9 +11,6 @@ export const OFFICIAL_COMPUTER_USE_BUNDLE = '@deepseek-ai/dsh-cua-bundle'
 
 /** CPUs as the provider names its helper directories. */
 export type CuaNativeArch = 'arm64' | 'x64'
-
-/** Every CPU a universal macOS package carries a helper for. */
-export const CUA_NATIVE_ARCHS: readonly CuaNativeArch[] = ['arm64', 'x64']
 
 /** Runs `/usr/bin/xcrun` with these arguments and throws when it fails. */
 export type RunXcrun = (args: readonly string[]) => void
@@ -44,37 +41,19 @@ export function cuaNativePackageDir(desktopRoot: string): string | undefined {
  * @param arch - Helper CPU.
  * @returns Slash-separated path below the provider's package directory.
  */
-export function cuaNativeExecutable(arch: CuaNativeArch): string {
-  return `native/bin/darwin-${arch}/dsh-cua-native`
+export function cuaNativeExecutable(arch: CuaNativeArch, packageDir: string): string {
+  const directory = `native/bin/darwin-${arch}`
+  const receipt = JSON.parse(readFileSync(join(packageDir, directory, 'current.json'), 'utf8')) as { bundle?: unknown }
+  if (typeof receipt.bundle !== 'string' || !/^[a-f0-9]{64}$/u.test(receipt.bundle)) throw new Error('Invalid official CUA application receipt')
+  const path = `${directory}/${receipt.bundle}/DSH Computer Use.app/Contents/MacOS/dsh-cua-native`
+  accessSync(join(packageDir, path), constants.X_OK)
+  return path
 }
 
 /**
- * The helpers a packaged application must carry, as entries of the universal native-file inventory.
- * @param desktopRoot - Desktop package root.
- * @returns One thin executable per CPU, or none when the package does not ship the official bundle.
- */
-export function cuaNativeEntries(desktopRoot: string): { arch: 'arm64' | 'x86_64'; path: string }[] {
-  if (cuaNativePackageDir(desktopRoot) === undefined) return []
-  return CUA_NATIVE_ARCHS.map(arch => ({
-    arch: arch === 'x64' ? 'x86_64' : 'arm64',
-    path: `node_modules/${OFFICIAL_CUA_PROVIDER_PACKAGE}/${cuaNativeExecutable(arch)}`,
-  }))
-}
-
-/**
- * Prepare the helpers the official Computer Use provider starts from `native/bin/darwin-<arch>/dsh-cua-native`
- * below its package directory. The provider's README and published `files` place compiled helpers there, so a
- * helper the official release ships is used as published: Desktop only makes it executable and never compiles
- * or rewrites it. Desktop builds only the helpers the package lacks (0.2.2-alpha.2 ships none), with the
- * arguments the provider itself uses in a source checkout and one incremental SwiftPM build per CPU under
- * `.desktop-build/cua-native/<arch>`. The sha256 of each helper Desktop writes is recorded there, outside the
- * package, so a later run rebuilds only a helper whose bytes still match that record; reinstalling the package
- * removes such a helper. A changed helper replaces the previous file by rename, so a running helper keeps its
- * own executable.
- * @param desktopRoot - Desktop package root.
- * @param archs - CPUs to prepare.
- * @param run - `xcrun` executor; the Swift toolchain of Xcode or the Command Line Tools must be installed.
- * @returns Absolute paths of the prepared helpers; empty when the package does not ship the official bundle.
+ * Use a published signed application unchanged, or invoke the official application builder.
+ * Each immutable application is selected by current.json; locally built applications are
+ * tracked outside the package so subsequent builds can refresh their sources.
  */
 export function prepareCuaNative(desktopRoot: string, archs: readonly CuaNativeArch[], run: RunXcrun = runXcrun): string[] {
   const packageDir = cuaNativePackageDir(desktopRoot)
@@ -82,23 +61,17 @@ export function prepareCuaNative(desktopRoot: string, archs: readonly CuaNativeA
   return archs.map((arch) => {
     const scratch = join(desktopRoot, '.desktop-build', 'cua-native', arch)
     const record = join(scratch, 'written-helper.sha256')
-    const executable = join(packageDir, ...cuaNativeExecutable(arch).split('/'))
-    const written = existsSync(record) ? readFileSync(record, 'utf8') : undefined
-    if (existsSync(executable) && sha256(readFileSync(executable)) !== written) {
-      chmodSync(executable, 0o755)
-      return executable
+    const directory = join(packageDir, 'native', 'bin', `darwin-${arch}`)
+    if (existsSync(join(directory, 'current.json'))) {
+      const existing = join(packageDir, cuaNativeExecutable(arch, packageDir))
+      // Published signed bundles are authoritative. Only rebuild a helper this workspace produced.
+      if (!existsSync(record) || sha256(readFileSync(existing)) !== readFileSync(record, 'utf8')) return existing
     }
-    run(['swift', 'build', '--package-path', join(packageDir, 'native'), '--scratch-path', scratch,
-      '--configuration', 'release', '--product', 'dsh-cua-native', '--arch', arch === 'x64' ? 'x86_64' : 'arm64'])
-    const built = readFileSync(join(scratch, 'release', 'dsh-cua-native'))
-    if (!existsSync(executable) || !readFileSync(executable).equals(built)) {
-      mkdirSync(dirname(executable), { recursive: true })
-      const staged = `${executable}.${String(process.pid)}.tmp`
-      writeFileSync(staged, built, { mode: 0o755 })
-      renameSync(staged, executable)
-    }
-    writeFileSync(record, sha256(built))
-    chmodSync(executable, 0o755)
+    run(['python3', join(packageDir, 'native', 'build_app.py'), '--scratch-path', scratch,
+      '--output-directory', directory, '--arch', arch === 'x64' ? 'x86_64' : 'arm64', '--variant', 'release', '--identity', '-'])
+    const executable = join(packageDir, cuaNativeExecutable(arch, packageDir))
+    mkdirSync(scratch, { recursive: true })
+    writeFileSync(record, sha256(readFileSync(executable)))
     return executable
   })
 }

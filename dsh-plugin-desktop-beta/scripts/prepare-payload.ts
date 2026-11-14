@@ -1,3 +1,4 @@
+import { prepareCuaNative } from './upstream-family.ts'
 /** Materialize the Next payload independently of Electron Builder, then seal it. */
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -251,6 +252,12 @@ export async function preparePayload(options: PreparePayloadOptions): Promise<De
   const transformMain = createTransformer(output, {}, options.extraMetadata)
   const mainManifest = await packagingStep('payload:transform-main-manifest', async () => transformMain(join(output, 'package.json')))
   if (mainManifest != null) writeFileSync(join(output, 'package.json'), mainManifest)
+  if (target.platform === 'darwin') {
+    packagingStepSync('payload:prepare-cua', () => prepareCuaNative(desktopRoot, target.archs.map((arch) => {
+      if (arch !== 'arm64' && arch !== 'x64') throw new Error(`Unsupported macOS CUA architecture: ${arch}`)
+      return arch
+    })))
+  }
   const closure = packagingStepSync('payload:collect-dependencies', () => collectProductionClosure(desktopRoot, target))
   const modules = join(output, 'node_modules')
   packagingStepSync('payload:copy-dependencies', () => {

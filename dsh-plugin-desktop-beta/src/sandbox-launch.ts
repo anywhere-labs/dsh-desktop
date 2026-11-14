@@ -4,10 +4,11 @@
  * When the sandbox cannot create the GPU process, Chromium retries in every GPU mode and then ends the
  * browser process on purpose ("GPU process isn't usable. Goodbye."), so the user only sees that nothing
  * opens (#1487). Electron reports each failed launch before that point, and a native dialog needs neither a
- * renderer nor the GPU process, so it can still explain the cause.
+ * renderer nor the GPU process, so it can still explain the cause. A launch below Medium integrity ends the
+ * same way and is explained at startup, before any child exists (#1564).
  */
 import { win32 } from 'node:path'
-import { ERROR_ELEVATION_REQUIRED, KEEP_ELEVATED_ARGUMENT, type StartupElevation, type WindowsElevation } from './windows-elevation.ts'
+import { ERROR_ELEVATION_REQUIRED, KEEP_ELEVATED_ARGUMENT, type LowIntegrityLaunch, type StartupElevation, type WindowsElevation } from './windows-elevation.ts'
 
 /** A sandboxed child that Windows never created. */
 export interface SandboxLaunchFailure {
@@ -118,6 +119,38 @@ export function sandboxLaunchDialog(context: SandboxLaunchContext): SandboxLaunc
       : t('Chromium 沙箱未能启动渲染进程，DSH Desktop Beta 无法显示窗口，即将退出。', 'The Chromium sandbox could not start the renderer process, so DSH Desktop Beta cannot show a window and will quit.'),
     detail: [cause.join('\n'), t(`程序位置：${context.executable}`, `Program: ${context.executable}`), code, workaround].join('\n\n'),
     button: t('退出', 'Quit'),
+  }
+}
+
+/** Quote a folder for Command Prompt and PowerShell alike; a trailing backslash would escape the closing quote. */
+function quotedFolder(folder: string): string {
+  return `"${folder.endsWith('\\') ? `${folder}\\` : folder}"`
+}
+
+/**
+ * Write the explanation of a launch below Medium integrity: the folder whose Low label the program inherits
+ * and the command that removes it, or the Low integrity process that started the program.
+ * @param launch - the executable and the folder its label comes from.
+ * @param language - message language.
+ * @returns message box text; the startup error box has a single fixed button.
+ */
+export function lowIntegrityLaunchDialog(launch: LowIntegrityLaunch, language: 'zh' | 'en'): Omit<SandboxLaunchDialog, 'button'> {
+  const t = (chinese: string, english: string): string => language === 'zh' ? chinese : english
+  const cause = launch.labeled === undefined
+    ? [t('程序文件没有低完整性标签，所以是一个低完整性进程启动了 DSH Desktop Beta，例如在沙箱中运行的命令或终端。请从开始菜单或桌面快捷方式启动。',
+      'The program file carries no Low integrity label, so a Low integrity process started DSH Desktop Beta, such as a command or terminal running in the sandbox. Start it from the Start menu or a desktop shortcut.')]
+    : [t(`程序文件带有低完整性（Low）标签，标签来自：${launch.labeled}`, `The program file carries a Low integrity label, which comes from: ${launch.labeled}`),
+      t('这通常是因为这个文件夹被设成了工作区：Windows 沙箱给工作区授予写权限时，会给整个目录树加上这个标签。',
+        'This usually means that folder was used as a workspace: when the Windows sandbox grants write access to a workspace, it gives the whole folder tree this label.'),
+      t('请在命令提示符或 PowerShell 中运行下面的命令（通常不需要管理员身份），然后重新启动 DSH Desktop Beta：',
+        'Run this command in Command Prompt or PowerShell (administrator rights are usually not needed), then start DSH Desktop Beta again:'),
+      `icacls ${quotedFolder(launch.labeled)} /setintegritylevel "(OI)(CI)Medium" /T /C /Q`,
+      t('之后请换用安装目录以外的文件夹作为工作区。', 'Afterwards, use a folder outside the installation folder as the workspace.')]
+  return {
+    title: t('DSH Desktop Beta 无法启动', 'DSH Desktop Beta cannot start'),
+    message: t('DSH Desktop Beta 正以低完整性级别运行，Chromium 在这个级别无法启动 GPU 进程，程序即将退出。',
+      'DSH Desktop Beta is running at Low integrity, where Chromium cannot start its GPU process, so it will quit.'),
+    detail: [...cause, t(`程序位置：${launch.executable}`, `Program: ${launch.executable}`)].join('\n\n'),
   }
 }
 

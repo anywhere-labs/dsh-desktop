@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { runInNewContext } from 'node:vm'
 
-// `check:layout` also runs in CI jobs that never install dependencies (upstream-command-windows).
+// `check:layout` can run before dependencies are installed.
 // Without an install there is neither TypeScript nor the inspector package to read, so skip there.
 function loadTypeScript() {
   try {
@@ -32,8 +32,8 @@ function nodes(file, predicate) {
 // Each workspace follows its own upstream.json channel runtime.
 const workspaceVersions = {
   'dsh-plugin-desktop': '0.2.1-rc.3',
-  'dsh-plugin-desktop-beta': '0.2.2-alpha.2',
-  'dsh-desktop-next': '0.2.1-rc.5',
+  'dsh-plugin-desktop-beta': '0.2.2-rc.3',
+  'dsh-desktop-next': '0.2.2-rc.3',
 }
 
 for (const [workspace, version] of Object.entries(workspaceVersions)) {

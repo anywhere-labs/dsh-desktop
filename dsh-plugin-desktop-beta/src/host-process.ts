@@ -3,14 +3,16 @@
 import type { LogInput } from './log-record.ts'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
+import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { MAX_HEADER_BYTES } from './browser-sessions.ts'
 import { desktopNodeEnvironment } from './node-environment.ts'
 import type { DesktopNotification } from './desktop-contract.ts'
 import { exitSummary } from './exit-code.ts'
+import { isDesktopStartupEntry, MAX_STARTUP_ENTRIES, type DesktopStartupEntry } from './host-startup-limit.ts'
 import { isHostMemoryUsage, type HostMemoryUsage, type MemoryHostExit } from './memory-monitor.ts'
 import { isDesktopNotification } from './notifications.ts'
 import type { DesktopPermission, DesktopPermissionAction, DesktopPermissionSnapshot } from './permissions.ts'
-import { isOperationEvidence } from './upstream-family.ts'
+import { createFileDragAuthorization, isOperationEvidence } from './upstream-family.ts'
 
 interface ReadyEvent {
   readonly type: 'ready'
@@ -26,21 +28,9 @@ interface FatalEvent {
 }
 
 /**
- * Host-only credentials for an embedded Platform document, mirroring
- * `PlatformSession` in dsh 0.1.7's `@deepseek-ai/dsh-deepseek-account`
- * (`packages/credentials/deepseek-account/src/index.ts:13-20`). Declared here
- * rather than imported: Next does not depend on that package, and this shape is
- * only ever reached by structural validation of a child IPC payload.
+ * Host-only credentials for the embedded Platform page (src/platform-view.ts), published by
+ * src/host/platform-session.ts; isDesktopHostEvent validates every field of this child IPC payload.
  */
-export interface PlatformSession {
-  readonly origin: string
-  readonly token: string
-  /** Optional dist query value selecting the embedded frontend deployment. */
-  readonly embeddedPageDist?: string
-  /** Private deployment headers for native requests; excluded from renderer bootstrap. */
-  readonly requestHeaders?: Readonly<Record<string, string>>
-}
-
 interface PlatformSessionEvent {
   readonly type: 'platform-session'
   readonly session: PlatformSession | null
@@ -68,7 +58,15 @@ interface InjectionsEvent {
   readonly error?: string
 }
 
-type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
+/** The Loader entries a starting Host still waits on (src/host/startup-entries.ts). */
+interface StartupEntriesEvent {
+  readonly type: 'startup-entries'
+  readonly requestId: number
+  readonly entries?: readonly DesktopStartupEntry[] | undefined
+  readonly error?: string
+}
+
+type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | StartupEntriesEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
   readonly type: 'update-tasks'
   readonly requestId: number
   readonly active: boolean
@@ -78,6 +76,13 @@ type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | Platfor
 const MAX_HOST_DIAGNOSTIC_CHARS = 64 * 1024
 /** The stderr tail an exit failure carries; the complete lines remain in the Host output log. */
 const MAX_EXIT_OUTPUT_CHARS = 4 * 1024
+/**
+ * The first line of upstream's fail-loud report, such as `dsh: fatal load failure: Error: …`. The Host
+ * prints it once and exits with 1 after a teardown whose own output can push it out of the stderr tail.
+ */
+const FAIL_LOUD_LINE = /^[^\s:]+: fatal (?:load failure|uncaught exception): .*$/mu
+/** Longest fatal line an exit failure carries; the error's name and message come first. */
+const MAX_FATAL_LINE_CHARS = 1024
 
 function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
   if (typeof message !== 'object' || message === null || !('type' in message)) return false
@@ -94,6 +99,9 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
       if (session === null) return true
       if (typeof session !== 'object' || !('origin' in session) || !('token' in session)
         || typeof session.origin !== 'string' || typeof session.token !== 'string' || session.token.length === 0) return false
+      // The shell keys the page's persistent storage by this ID; null selects disposable storage.
+      if (!('userId' in session) || (session.userId !== null
+        && (typeof session.userId !== 'string' || session.userId.length === 0))) return false
       if ('embeddedPageDist' in session && typeof session.embeddedPageDist !== 'string') return false
       if ('requestHeaders' in session && (typeof session.requestHeaders !== 'object' || session.requestHeaders === null
         || Array.isArray(session.requestHeaders)
@@ -127,6 +135,10 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
     case 'injections':
       return Number.isSafeInteger(candidate.requestId) && (candidate.error === undefined || typeof candidate.error === 'string')
         && (candidate.injections === undefined || Array.isArray(candidate.injections))
+    case 'startup-entries':
+      return Number.isSafeInteger(candidate.requestId) && (candidate.error === undefined || typeof candidate.error === 'string')
+        && (candidate.entries === undefined || (Array.isArray(candidate.entries) && candidate.entries.length <= MAX_STARTUP_ENTRIES
+          && candidate.entries.every(isDesktopStartupEntry)))
     default:
       return false
   }
@@ -181,14 +193,21 @@ export class DesktopHostFatalError extends Error {
  * plugins print freely, so the final lines rarely name the cause of a native crash.
  */
 export class DesktopHostExitError extends Error {
+  readonly #fatal: string | undefined
+
   /**
    * @param exitCode - The process exit code; Windows exception codes arrive as unsigned values.
    * @param signal - The signal that terminated the process, if any.
    * @param output - The last stderr text, at most a few kilobytes and starting at a line boundary when possible.
+   * @param fatal - The first line of the fatal error the Host reported before it exited, if it reported one.
    */
-  constructor(readonly exitCode: number | null, readonly signal: NodeJS.Signals | null, readonly output: string) {
-    super(`dsh desktop host ${exitSummary({ code: exitCode, signal })}${output === '' ? '' : `\nLast Host stderr (may be unrelated to the exit):\n${output}`}`)
+  constructor(readonly exitCode: number | null, readonly signal: NodeJS.Signals | null, readonly output: string, fatal?: string) {
+    super(`dsh desktop host ${exitSummary({ code: exitCode, signal })}${fatal === undefined ? '' : `\nHost fatal error: ${fatal}`}${output === '' ? '' : `\nLast Host stderr (may be unrelated to the exit):\n${output}`}`)
+    this.#fatal = fatal
   }
+
+  /** The Host's fatal line; a getter so `util.inspect` of this error does not repeat it after the message. */
+  get fatal(): string | undefined { return this.#fatal }
 }
 
 /** Main-process observers of Host facts that are not failures. Observers must not throw. */
@@ -213,6 +232,16 @@ function exitOutput(stderr: string): string {
   return line === -1 ? tail : tail.slice(line + 1)
 }
 
+/**
+ * @param stderr - The Host's retained stderr.
+ * @returns The first line of the fatal error the Host reported, or `undefined` when it reported none.
+ */
+export function exitFatalLine(stderr: string): string | undefined {
+  const line = FAIL_LOUD_LINE.exec(stderr)?.[0].trimEnd()
+  if (line === undefined || line.length <= MAX_FATAL_LINE_CHARS) return line
+  return `${line.slice(0, MAX_FATAL_LINE_CHARS - 1).replace(/[\uD800-\uDBFF]$/u, '')}…`
+}
+
 /** One Web backend running under the Electron executable in Node mode. */
 export class DesktopHostProcess {
   private child: ChildProcess | undefined
@@ -232,6 +261,13 @@ export class DesktopHostProcess {
   private readonly accessRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private readonly loggingRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private readonly injectionRequests = new Map<number, { resolve: (injections: readonly unknown[]) => void; reject: (error: Error) => void }>()
+  private readonly startupQueries = new Map<number, { resolve: (entries: readonly DesktopStartupEntry[]) => void; reject: (error: Error) => void }>()
+  /** Authorizes the workspace files native file drags borrow, where the followed DSH release drags files natively. */
+  readonly dragResources = createFileDragAuthorization?.(message => new Promise<void>((resolve, reject) => {
+    const child = this.child
+    if (!child?.connected || this.stopping || this.failureReported) { reject(new Error('Next Host is unavailable')); return }
+    child.send(message, (error) => { if (error === null) resolve(); else reject(error) })
+  }))
 
   /**
    * @param node - Absolute Electron executable in Node mode.
@@ -299,6 +335,8 @@ export class DesktopHostProcess {
     child.on('message', (message: unknown) => {
       // Like memory readings, operation evidence is observational and never reaches control handling.
       try { if ((this.observer?.operation ?? isOperationEvidence)?.(message) === true) return } catch { /* A failing observer leaves the message to the events below. */ }
+      // An authorization answer settles its own request; a malformed one fails below as invalid IPC.
+      if (this.dragResources?.receive(message) === true) return
       if (!isDesktopHostEvent(message)) {
         this.fail(new Error('dsh desktop host sent an invalid IPC event'))
         child.kill('SIGTERM')
@@ -311,7 +349,10 @@ export class DesktopHostProcess {
       }
       this.diagnostic({ source: 'host.ipc', event: 'received', developer: true, pid: child.pid, fields: { type: message.type, ...('requestId' in message ? { requestId: message.requestId } : {}) } })
       if (message.type === 'ready') this.readyResolve({ url: message.url, injections: message.injections })
-      else if (message.type === 'platform-session') this.onPlatformSession?.(message.session)
+      else if (message.type === 'platform-session') {
+        // A stopping or failed Host may only withdraw its grant; stop() and fail() already did.
+        if (message.session === null || (!this.stopping && !this.failureReported)) this.onPlatformSession?.(message.session)
+      }
       else if (message.type === 'platform-login') {
         if (!this.stopping && !this.failureReported) {
           this.onPlatformLogin?.(message.action === 'open' ? { action: 'open', url: message.url } : { action: 'close', focus: message.focus })
@@ -355,6 +396,11 @@ export class DesktopHostProcess {
         if (message.error === undefined && message.injections !== undefined) request?.resolve(message.injections)
         else request?.reject(new Error(message.error ?? 'Next Host omitted Web boot injections'))
       }
+      else if (message.type === 'startup-entries') {
+        const query = this.startupQueries.get(message.requestId)
+        if (message.error === undefined && message.entries !== undefined) query?.resolve(message.entries)
+        else query?.reject(new Error(message.error ?? 'Next Host omitted its startup entries'))
+      }
       else {
         const query = this.taskQueries.get(message.requestId)
         if (message.error === undefined) query?.resolve(message.active)
@@ -366,7 +412,7 @@ export class DesktopHostProcess {
       child.once('close', (code, signal) => {
         this.diagnostic({ source: 'host.process', event: 'exit', pid: child.pid, level: this.stopping && code === 0 ? 'info' : 'error', fields: { exitCode: code, signal, expected: this.stopping, acknowledged: this.shutdownCompleted } })
         try { this.observer?.exited?.({ code, signal, expected: this.stopping }, child.pid) } catch { /* Observational only. */ }
-        this.fail(new DesktopHostExitError(code, signal, exitOutput(this.stderr)))
+        this.fail(new DesktopHostExitError(code, signal, exitOutput(this.stderr), exitFatalLine(this.stderr)))
         resolve()
       })
     })
@@ -442,6 +488,25 @@ export class DesktopHostProcess {
   }
 
   /**
+   * Ask a starting Host which Loader entries still hold its startup.
+   * @returns Those entries, the longest-waiting first; rejects when the Host cannot say within three seconds.
+   */
+  async startupEntries(): Promise<readonly DesktopStartupEntry[]> {
+    const child = this.child
+    if (!child?.connected || this.stopping || this.failureReported) throw new Error('Next Host is unavailable')
+    const requestId = this.nextControlId++
+    const end = this.controlOperation('startup-entries', requestId)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await new Promise<readonly DesktopStartupEntry[]>((resolve, reject) => {
+        this.startupQueries.set(requestId, { resolve, reject })
+        timer = setTimeout(() => { reject(new Error('Startup entry query timed out')) }, 3_000)
+        child.send({ type: 'startup-entries', requestId }, error => { if (error !== null) reject(error) })
+      }).catch(error => { end(error); throw error })
+    } finally { end(); clearTimeout(timer); this.startupQueries.delete(requestId) }
+  }
+
+  /**
    * Inspect active work or lock request admission for update handoff.
    * @param action - Read-only inspection, admission lock, or recovery unlock.
    * @returns Whether live tasks would be affected. Locking drains admitted API requests before inspecting tasks;
@@ -509,6 +574,9 @@ export class DesktopHostProcess {
     this.loggingRequests.clear()
     for (const request of this.injectionRequests.values()) request.reject(error)
     this.injectionRequests.clear()
+    for (const query of this.startupQueries.values()) query.reject(error)
+    this.startupQueries.clear()
+    this.dragResources?.fail(error)
     if (!this.failureReported && !this.stopping) {
       this.failureReported = true
       try { this.onFailure?.(error) } catch (listenerError) {

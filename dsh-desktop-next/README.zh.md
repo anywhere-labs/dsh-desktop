@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-基于 DeepSeek Harness **0.1.6-alpha.2** 的独立实验包。主窗口直接加载官方发布的 `@deepseek-ai/dsh-web-frontend`，复用官方 Web 应用、插件管理器和基本桌面样式；Next 添加系统托盘、桌面设置和工具、Profile、恢复、Agents Anywhere 手机远控、社区市场和 dshmarket。
+基于 DeepSeek Harness **0.2.2-rc.1** 的独立实验包。主窗口直接加载官方发布的 `@deepseek-ai/dsh-web-frontend`，复用官方 Web 应用、插件管理器和基本桌面样式；Next 添加系统托盘、桌面设置和工具、Profile、恢复、Agents Anywhere 手机远控、社区市场和 dshmarket。
 
 ## 开发与验证
 
@@ -17,7 +17,7 @@ corepack yarn dev:next
 
 `check:next` 构建市场与 Next，执行类型检查、单元测试、官方前端与沙箱 preload 检查，以及临时目录中的真实 Host 检查，不打开图形应用。后者使用离线本地测试插件验证 pnpm、通过官方插件管理器完成的市场开关与卸载、鉴权、Profile 切换和恢复后启动，并清理测试进程与文件。额外的真实运行时检查覆盖原生 HTTP/WebSocket 访问限制、浏览器访问切换、损坏清单、独立安全模式、全局补丁修复与进程退出。
 
-`dev:next` 是显式的图形启动命令；已有构建可用 `corepack yarn start:next` 启动。两者都会在壳启动前于 `.desktop-build/runtime` 下准备随包解释器载荷，与上游桌面端的开发启动器一致，因此开发运行中也有 Office 技能；首次启动会下载锁定的压缩包和 wheel。Electron 二进制尚未缓存时会下载。需要额外检查真实 Electron Node 模式时，先完成构建，再运行：
+`dev:next` 是显式的图形启动命令；已有构建可用 `corepack yarn start:next` 启动。两者都会在壳启动前于 `.desktop-build/runtime` 下准备随包解释器载荷，与上游桌面端的开发启动器一致，因此开发运行中也有 Office 技能。和该启动器一样，它们只准备壳所运行 CPU 的那份载荷，打包时才会同时准备 macOS 两种 CPU 的载荷。首次启动会下载该 CPU 锁定的压缩包和 wheel。Electron 二进制尚未缓存时会下载。需要额外检查真实 Electron Node 模式时，先完成构建，再运行：
 
 ```sh
 corepack yarn workspace dsh-desktop-next verify:host:electron
@@ -37,15 +37,17 @@ corepack yarn workspace dsh-desktop-next verify:window-controls
 corepack yarn workspace dsh-desktop-next verify:onboarding
 ```
 
-设置 `DSH_NEXT_TEST_BROWSER_CHANNEL=chrome` 可使用已安装的 Google Chrome。截图保存在 `dsh-desktop-next/.desktop-next/verification/`。macOS 原生窗口拖动仍需手工验证。Next 使用官方前端的窗口拖动区域归属、交互控件排除规则、弹窗 Portal 几何布局和 Electron 拖动区域重算监听器。会话顶栏和插件页顶栏各自持有拖动区域；官方框架把侧栏和新会话控件放在 macOS 红黄绿按钮旁。Next 不增加标题行拖动覆盖、固定标题带、侧栏控件定位或弹窗／全屏拖动覆盖。
+设置 `DSH_NEXT_TEST_BROWSER_CHANNEL=chrome` 可使用已安装的 Google Chrome。截图保存在 `dsh-desktop-next/.desktop-next/verification/`。macOS 原生窗口拖动仍需手工验证。Next 使用官方前端的窗口拖动区域归属、交互控件排除规则、弹窗 Portal 几何布局和 Electron 拖动区域重算监听器。会话顶栏和插件页顶栏各自持有拖动区域；官方框架把侧栏和新会话控件放在 macOS 红黄绿按钮旁。Next 不增加标题行拖动覆盖、固定标题带、侧栏控件定位或弹窗／全屏拖动覆盖。唯一的例外是这些行下方滚动区里的内容：Chromium 收集拖动区域时不按滚动容器裁剪，滚到行下面的控件会把自己的整个盒子从行里减掉。`src/client/styles.ts` 去掉这些盒子以及插件页顶栏收起后未绘制的部分，`verify:window-controls` 对每一行都带一组只用官方规则的对照。
 
 ## 应用图标资源
 
-`build/app-icon.icon` 是可编辑的 Icon Composer 工程，保留最终 NEXT 徽标布局和 System Dark 背景。在安装了 Xcode 27 和 Icon Composer 的 Mac 上，从仓库根目录运行 `corepack yarn icons:export --channel next`，可更新 `build/app-icon.png`、Windows 使用的 `build/app-icon.ico`、Linux 图标集 `build/icons/`、原生编译生成的 `build/app-icon.icns` 和开发运行的 Dock 图标 `build/app-icon-mac.png`。这些文件需与 `build/app-icon.resources.json` 一起提交；`corepack yarn icons:check` 可在任何系统中无界面验证。
+`build/app-icon.icon` 是可编辑的 Icon Composer 工程：浅瓷（Porcelain）鲸尾图案，即浅瓷渐变背景上的钴蓝描边 `whale-cobalt.svg`，并保留 NEXT 徽标布局。在安装了 Xcode 27 和 Icon Composer 的 Mac 上，从仓库根目录运行 `corepack yarn icons:export --channel next`，可更新 `build/app-icon.png`、Windows 使用的 `build/app-icon.ico`、Linux 图标集 `build/icons/`、原生编译生成的 `build/app-icon.icns`、开发运行的 Dock 图标 `build/app-icon-mac.png` 和 `assets/` 中的托盘图。这些文件需与 `build/app-icon.resources.json` 一起提交；`corepack yarn icons:check` 可在任何系统中无界面验证。
 
 Next 的 macOS 打包与 Stable、Beta 一样，直接使用分层 `.icon` 源工程编译 `Assets.car`。PNG Dock 图标仅用于未打包的开发运行；Windows 和 Linux 窗口分别使用 ICO 与 PNG 导出资源。
 
 Linux 图标集按 hicolor 主题的尺寸，从 16 到 512 像素每档一张 PNG。Debian 包和 AppImage 把每张装进对应的 `hicolor/<size>x<size>/apps` 目录，桌面环境在这里查找桌面条目的 `Icon=dsh-desktop-next`；该主题没有 1024 像素目录，只有一张 1024 像素的 PNG 会让启动器和任务栏找不到图标。`corepack yarn icons:export --channel next --linux` 只从已提交的 `build/app-icon.png` 重新生成这组图标，无需 Xcode。
+
+托盘图从同一鲸尾图层裁出：`assets/tray-iconTemplate.png` 及其 `@2x` 图是由 macOS 菜单栏自动着色的模板图；`assets/tray-icon-blue.png` 及其 1.25x、1.5x、2x 图保留 `#3563BF` 描边色，供 Windows 和 Linux 使用。
 
 ## 使用
 
@@ -53,7 +55,11 @@ Linux 图标集按 hicolor 主题的尺寸，从 16 到 512 像素每档一张 P
 
 - **托盘与后台运行：** 沿用原桌面版的常用项顺序：打开主窗口、重新加载界面、退出并重启、打开 DSH 终端、导出诊断、进入／退出安全模式、Profile 选择与新建。另保留桌面设置和恢复助手入口；原生菜单跟随应用内语言。开启后台运行且托盘可用时，关闭主窗口不会停止 Host 和远控连接；明确退出或重启应用时，先隐藏已有窗口，再等待 HTTPS 入口与 Host 清理完成，最后退出或重新启动应用；仅重启 Host 时保留主窗口。系统托盘不可用时，关闭主窗口会退出应用，避免留下无法重新打开的进程。
 - **侧边栏浏览器：** 桌面应用复用官方浏览器工具栏，由隔离的 Electron `WebContentsView` 承载网页。GitHub 等禁止 iframe 嵌入的网站按顶层页面加载，保留 CSP 与 `X-Frame-Options`。前进、后退与地址栏跟随真实导航。视图跟随分栏尺寸和缩放，避让调整宽度的拖动区域，在弹窗或其他分栏遮挡时隐藏，并随标签关闭或渲染器退出而释放。每个标签使用临时会话，不含应用 preload、应用 Cookie、Node 接口、下载或自动授权。普通 Web 客户端继续使用官方 iframe。
-- **桌面设置：** 后台运行、macOS 透明材质、本机和局域网访问、日志级别，以及用户回合完成／失败时的独立通知开关。后台任务不发送通知。沿用原桌面版的分组卡片、Profile 选择和通知开关；开关与材质即时保存。官方设置顶部提供终端和重启菜单，包含重新加载界面、重启应用和重启到恢复模式。与原桌面版保持一致，Windows 不提供材质选项，始终使用不透明窗口；旧的 Acrylic 或 Mica 偏好按关闭读取。通知还需系统授权，仅在主窗口未聚焦时显示。成功通知以本轮用户消息为标题、AI 最后一条可见回复为正文，过长内容会截断；失败通知显示通用状态，子代理和自动回合不发送通知。
+- **DeepSeek 充值与用量：** 与官方桌面端一致，官方账号插件的充值和用量入口（首次引导的额度页、额度不足提示以及**设置 → 账号与余额**）会在主窗口上叠加一个 Electron `WebContentsView` 打开 DeepSeek 开放平台页面。Host 经私有 IPC 把已登录账号的开放平台凭证交给主进程；只有该页面自己的沙箱 preload 在开放平台域名下才能拿到 token。支付等外部链接在系统浏览器中打开。每个账号使用独立的存储分区，页面关闭和应用退出时都会清除其中的登录数据（cookie、IndexedDB、缓存和 service worker）。
+- **文件操作：** 官方图片和文件右键菜单提供**复制图片**、**下载**和**另存为…**，由只接受主应用页面的原生文件操作实现。**下载**在 Downloads 目录中预留不重名的文件名，**另存为…**在该目录打开原生保存对话框；完成后返回目标路径，菜单提示可通过现有的 Host 路径打开 API 显示文件。两者都使用 Chromium URL 下载，并通过私有 URL fragment 与 Desktop 自身的 Host 路由下载互不干扰。`DSH_DESKTOP_FILE_DOWNLOAD_TIMEOUT_MS` 限定 Chromium 创建下载前的启动期限（300000 毫秒），不限制原生保存对话框的停留时间；网络错误中断的下载会立即失败，不会等待恢复。复制跨域图片时，主进程在内存会话中通过 Chromium 网络栈读取，因此与显示该图片的窗口一样遵循系统代理和证书。这些读取不携带凭据，逐次校验重定向，拒绝应用 Host 及其回环别名，在主框架导航时终止，并使用 `DSH_DESKTOP_IMAGE_READ_TIMEOUT_MS`（30000 毫秒）与 `DSH_DESKTOP_IMAGE_READ_MAX_BYTES`（67108864 字节）。随后渲染进程把图片转换为 PNG 并写入 Clipboard API。
+- **文件拖拽：** 从对话或文档预览中拖出图片时，与官方桌面端一样通过 Electron 原生拖拽交付文件；只有主应用页面可以准备或开始拖拽。会话可读取的工作区图片直接出借原文件：Host 通过其文件系统服务授权，并经私有 Host IPC 通道返回路径、大小和 SHA-256，渲染进程因此从不提供路径；主进程在拖拽开始前再次校验摘要并确认文件未变。其他图片以及 Host 不出借的工作区文件会复制到私有临时目录，总计不超过 64 MiB；已交付的副本保留 60 秒供接收方读取，应用退出时删除全部副本。服务器未发送 CORS 头的跨域图片仍使用 Chromium 自身的图片拖拽。
+- **桌面设置：** 后台运行、macOS 透明材质、本机和局域网访问、日志级别、插件服务（Host）启动时限，以及用户回合完成／失败时的独立通知开关。后台任务不发送通知。沿用原桌面版的分组卡片、Profile 选择和通知开关；开关与材质即时保存。官方设置顶部提供终端和重启菜单，包含重新加载界面、重启应用和重启到恢复模式。与原桌面版保持一致，Windows 不提供材质选项，始终使用不透明窗口；旧的 Acrylic 或 Mica 偏好按关闭读取。通知还需系统授权，仅在主窗口未聚焦时显示。成功通知以本轮用户消息为标题、AI 最后一条可见回复为正文，过长内容会截断；失败通知显示通用状态，子代理和自动回合不发送通知。
+- **插件服务（Host）启动时限：** 插件服务需在时限内就绪，否则停止启动并打开恢复助手。默认 60 秒；“桌面设置 → 桌面工具”和恢复助手的“快速恢复”页可选 60、120、180、300、600 秒或“不限时”，下次启动插件服务时生效。手动写入的 60 到 600 之间的整数秒同样有效。选择不限时后会一直等待插件服务就绪；插件服务退出或报错时仍会打开恢复助手，托盘和应用菜单也始终可以打开恢复助手、进入安全模式或退出。时限超过 60 秒（包括不限时）时，启动满 1 分钟仍未就绪会发一次系统通知，列出仍在加载的插件并说明恢复助手的入口；就绪、失败或停止后撤回通知。安全模式固定使用 60 秒。
 - **Profile：** 首次启动和隔离的安全模式默认使用 `desktop`。已有的选择继续保留，包括此前名为 `default` 的 Profile；不会重命名或覆盖已有目录。支持新建、切换、打开目录或移除未使用的 Profile。托盘的新建入口直接聚焦名称，创建后可切换；损坏的清单或缺少 Next bundle 的 Profile 标为不可用，切换当前 Profile 不会重复重启。移除操作将文件移入恢复备份目录，当前 Profile 和 `desktop` 不可移除。Profile 分别保存插件依赖、激活列表和补丁；会话、设置和凭据仍按上游规则在同一个 Next home 内共享，不提供账号或数据隔离。
 - **首次引导：** 先按桌面端自己的 Profile 完成记录或主动重新打开请求判断是否显示桌面设置。需要引导时，在启动 Host 之前先打开轻量独立欢迎窗口，展示 Next 六步引导流程：欢迎、插件市场、远程控制、Computer Use（Next，含现有系统权限弹窗）、浏览器访问、恢复说明。返回保留草稿；完成时保存 Profile 功能、浏览器访问设置和 Computer Use provider，最后记录完成，随后按所选配置一次性启动 Host 并打开主窗口；跳过保留原配置并启动 Host。主窗口打开后，通过续接槽展示 DeepSeek 账号登录引导卡片（完成引导后），随后交由官方按账号、API Key 和官方进度独立判断是否显示账号引导；两者不代替对方完成或重置记录。未完成的引导下次继续，已完成的 Profile 不自动重复（修复 Profile 会重置这些选择，修复后会再次引导），安全模式和恢复模式绕过桌面引导。“桌面设置 → 桌面工具 → 设置向导”可确认重启并带入当前配置。
 - **插件市场：** 新 Profile 默认不启用插件市场。官方**插件**页顶部的开关可启用或停用上次在当前页面选择的市场；没有选择记录时默认启用 `dsh-community-market`。也可直接选择 `dsh-community-market` 或 `dshmarket`。选项复用旧版桌面的名称、说明和仓库链接。选择一个市场时，官方插件管理器会在同一次操作中停用另一个，并保留已安装的插件。社区市场保留侧边栏入口；dshmarket 保留**设置 → 插件市场**入口。社区市场沿用发现、来源管理、安装预览、确认安装、启用/停用开关和卸载流程。包操作通过官方插件管理器执行，无需重启即可生效；macOS 和 Windows 也支持市场中的终端入口。
@@ -65,6 +71,12 @@ Linux 图标集按 hicolor 主题的尺寸，从 16 到 512 像素每档一张 P
 侧边栏扩展入口复用原桌面的底部布局：多个入口纵向排列在设置上方，数量较多时在限定高度内滚动，保留工作区列表空间。
 
 **自动化任务**位于官方“插件”分组，沿用上游插图、实验性标记、原生启用开关和组件详情。它是可选插件，默认关闭。Next 保留现有的 Schedule 选择及其旧版 Profile 迁移，不另设独立的“定时任务”卡片。
+
+**OAR 子智能体。** **插件**页在 Computer Use（Next）下方列出 OAR 子智能体。它的开关默认关闭，打开后启用官方 `@deepseek-ai/dsh-experimental-subagent-oar` 提供方。Next 将它作为可选组合包随安装提供，组合方式与提供方 README 的示例一致，只有 Claude Code 的权限模式不同：Codex 以 `-c sandbox_mode="workspace-write"` 启动，Claude Code 以 `--permission-mode acceptEdits --permission-prompts none` 启动，两者都能修改任务目录里的文件。其他需要确认的操作（例如大多数 shell 命令），Claude Code 一律拒绝，除非它自己的设置已预先放行（`permissions.allow`）；示例中的 `dontAsk` 会让它只能读。模型通过 `subagent_oar` 工具把一个独立文本任务交给其中之一。每个任务都使用本机已安装的 Codex 或 Claude Code 命令行，以及该命令行自己的登录和设置，因此请先安装并登录。这些进程在 DSH 的命令沙箱之外运行，它们自身的审批请求也不会转到 DSH 界面。点卡片标题会打开官方插件页，列出该组合包的三行。在这个页面上，每个提供方行的「配置」入口会打开它的启动选项：Claude Code 可选只读、可改文件（默认）、自动审核或完全放行；Codex 可选只读、可写工作区（默认）或不限制。保存后，官方配置编辑器把选择记录到当前 Profile 的补丁里并重启这一行，之后委派的任务按新设置启动；重新选回默认会删除这条覆盖。这一行必须在运行才能修改。该版本以普通包发布这个提供方；`patches/dsh-experimental-subagent-oar@<version>.patch` 在安装时为已安装的包加上组合包声明。
+
+**发布版默认隐藏的官方插件。** DSH 0.2.2 把 LiveShare、Ralph 和会话搜索标为默认不列出，官方插件管理器要等 Profile 启用它们后才会显示。Next 通过版本限定的补丁（`patches/dsh-experimental-liveshare@<version>.patch` 以及 Ralph、会话搜索对应的补丁）在**插件**页像其他可选组合包一样列出它们；LiveShare 的补丁还让它的 owner gateway worker 以 Electron 的 Node 模式启动。包里没有 `meta.detail` 文档时，插件详情页在中文界面显示中文 README 译本（例如 `README.zh.md` 或 `README_CN.md`），在其他语言界面显示英文译本（例如 `README.en.md`），都没有时才回退到 `README.md`（`patches/dsh-plugin-detail@<version>.patch`）。
+
+**更新后的按需插件。** 官方 Codex、Claude Code 子智能体和官方 Computer Use 按需安装到 Profile，版本锁定为安装它们时的 DSH 版本。它们依赖的 DSH 包由 pnpm 放在 Profile 的 `node_modules` 顶层，运行时解析会优先使用这些副本，而不是安装包自带的。更新到其他 DSH 版本后，核心插件会因此加载旧副本，子智能体工具随之消失，或者 Host 无法启动；这些插件本身也不再匹配新版本。因此，Next 在 Host 解析 Profile 之前，用内置 pnpm 离线移除为其他版本安装的按需插件，效果与在**插件**页移除相同，并在日志中写明移除了哪些。之后**插件**页把它们显示为未安装，打开开关即可安装当前版本。移除失败只记录日志，Host 照常启动，下次启动时重试。
 
 ### 浏览器与局域网访问
 
@@ -100,7 +112,9 @@ export async function record(ctx: Context) {
 
 Computer Use（Next）是桌面端自带的电脑操作，基于内置的官方 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native`，**默认停用**。在**插件**页顶部的 Computer Use（Next）分区中启用，并查看实际加载状态。入口复用官方插件槽位、开关和插件管理服务；Profile 条目 ID 为 `computer-use-cua-driver-native`。操作和截图沿用现有对话工具卡片及图片附件；理解截图需要模型路由声明支持图片输入。开关左侧的齿轮打开授权弹窗。默认情况下，会话运行 `/computer-use` 后才加载其工具和提示词，`/computer-use off` 将其移除；也可在其插件页改为在所有会话中常驻。
 
-版本限定的 Yarn 补丁位于 `patches/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.2.patch`。存在 `desktopPermissions` 时，`check_permissions` 通过桌面服务查询权限；`prompt: true` 为缺失的权限打开授权弹窗，再以 `prompt: false` 由驱动执行只读检查。驱动始终报告其实际权限，不根据桌面返回值假定授权成功。没有桌面服务时保留上游行为。固定的 `@trycua/cua-driver@0.28.0` 二进制、操作工具、图片处理和关闭流程保持上游实现。只能注册一个 provider，但这不会自动串行化多个会话对同一桌面的操作。
+**官方 Computer Use。** DSH 0.2.2 新增官方 Computer Use bundle `@deepseek-ai/dsh-cua-bundle`（仅 macOS）。官方发布版不随包提供它，而是由插件管理器从官方目录提供，并按需安装到当前 Profile；Next 同样不随安装包提供。官方目录默认隐藏这个 bundle，因此 `patches/dsh-official-bundles@<version>.patch` 让它显示出来。于是在 macOS 上，**插件**页会像官方的 Codex、Claude Code 子智能体一样把它标为「未安装」；打开开关即可下载并安装，连同官方发布流程构建、签名并公证的 helper 应用一起装好。其他平台仍不显示它。`computer-use` 注册服务条目和 provider 条目共用 `computerUse: computer-use-next` 隔离域，因此官方 bundle 可以同时挂载自己的注册服务。官方 provider 服务 PTC 会话。在它服务的会话中，Computer Use（Next）不加载工具和提示词，也不提供 `/computer-use` 命令；官方 provider 不再服务该会话后（例如会话切换到其他模式，或关闭官方 bundle），命令随即恢复，无需重启。其他会话、Windows 和 Linux、官方 helper 无法启动的 macOS 14 以下版本，以及没有加载官方 provider 的会话，继续使用 Computer Use（Next），它支持 macOS、Windows 和 Linux。Computer Use（Next）的插件页提供 macOS Computer Use 一行，带有官方 bundle 的开关；当前 Profile 还没有安装时，打开开关会先安装。该开关仅在 macOS 14 及以上可用；其他系统上保持关闭且不可操作。开启后，点击这一行可打开它在**插件**页中的详情页。
+
+版本限定的 Yarn 补丁位于 `patches/dsh-experimental-computer-use-cua-driver-native@<version>.patch`。存在 `desktopPermissions` 时，`check_permissions` 通过桌面服务查询权限；`prompt: true` 为缺失的权限打开授权弹窗，再以 `prompt: false` 由驱动执行只读检查。驱动始终报告其实际权限，不根据桌面返回值假定授权成功。没有桌面服务时保留上游行为。固定的 `@trycua/cua-driver@0.28.0` 二进制、操作工具、图片处理和关闭流程保持上游实现。只能注册一个 provider，但这不会自动串行化多个会话对同一桌面的操作。
 
 单元测试对安装后的补丁插件使用模拟原生 SDK。可选的原生验证要求 SDK 支持当前平台，会加载并关闭真实插件，不发送输入、不截图：
 
@@ -121,15 +135,19 @@ corepack yarn workspace dsh-desktop-next verify:host --computer-use
 - **回滚 Profile：** 先备份当前文件、校验备份摘要，再恢复最近一次成功启动 Host 时的配置。范围为 `package.json`、`cordis.patch.yml` 和 Next 功能开关，不包含已安装插件的版本或共享数据。
 - **全局补丁修复：** 单独备份并停用 home 级 `cordis.patch.yml`，会影响所有 Next Profile。修复 Profile 不会自动改动全局补丁。
 
-故障打开恢复助手时，Next 会把这次故障保存为 `home/logs/dsh-desktop-next-failure-<UTC 时间>-<阶段>.log`，供反馈问题时附上。报告包括恢复助手显示的故障、Host 自己报告的诊断或壳层错误的堆栈与 cause 链、启动信息，以及最近 64 KiB 可读日志。Host 启动失败时，报告还包含 `util.inspect` 会省略的配置路径和启动条目。报告与日志一样经过脱敏，仅当前用户可读，保留最近 10 份。“快速恢复”页的“诊断报告”可在文件夹中定位该文件；未能保存时，该卡片改为提供“导出诊断信息”。
+故障打开恢复助手时，Next 会把这次故障保存为 `home/logs/dsh-desktop-next-failure-<UTC 时间>-<阶段>.log`，供反馈问题时附上。报告包括恢复助手显示的故障、Host 自己报告的诊断或壳层错误的堆栈与 cause 链、启动信息，以及最近 64 KiB 可读日志。基础文件写好后还会追加最近的插件操作记录和渲染层采样，列出当时正在运行的动画、body 直属浮层和观察到的帧率。应用运行期间会在内存中保留最近一次采样，因此页面停止响应后写出的报告仍会给出最后一次采样的内容，以及当前无法采样的原因。Host 启动失败时，报告还包含 `util.inspect` 会省略的配置路径和启动条目，以及 DSH 0.2.2 为失败启动记录的插件状态和缺失服务。报告与日志一样经过脱敏，仅当前用户可读，保留最近 10 份。“快速恢复”页的“诊断报告”可在文件夹中定位该文件；未能保存时，该卡片改为提供“导出诊断信息”。
 
-备份保存在 `home/recovery/`。诊断导出为大小受限的 JSON，包含版本、状态和脱敏日志，不读取会话或凭据文件。日志仍可能包含本机路径和插件输出，分享前请检查。本地桌面日志保存在 `home/logs/desktop-next.log`，上限为 128 KiB。桌面设置独立保存在 `home/desktop-preferences.json`，不依赖 Host 设置服务。主窗口会按上次的位置、大小和最大化状态重新打开，记录在 `home/desktop-window-state.json`；删除该文件即可恢复默认大小。
+插件服务启动超时时，报告紧接在故障之后列出当时仍在加载的插件条目：条目 id、模块、阶段（导入、启动或停止）以及条目创建后的等待时长；`host.start.pending` 日志记录同一份列表，时限超过 60 秒时 1 分钟的提示也会以 `host.start.slow` 记录一次。列表来自 `host.cordis.patch.yml` 中的 `desktop-next-startup-entries` 插件行：插件服务要等 Loader 全部结束才就绪，这一行在启动期间读取 Loader 中尚未完成的条目，壳层通过私有 IPC 询问它，最多等待 3 秒。插件都已加载、插件服务仍在完成自身启动时，报告会写明这一点；插件服务没有应答或还没开始加载插件时，报告会写明原因。此时“快速恢复”页的“插件服务（Host）启动时限”卡片会说明这次超时和仍在加载的插件；选择更长的时限后点击“退出并重启”即可生效。
+
+与 DSH 0.2.2 的 Desktop 一样，Next 还会为这些报告保留近期插件操作：经官方插件管理器进行的安装、卸载、启用和停用（插件页、插件市场和社区市场都经由它），以及 dsh-market 通过桌面端 `desktopPnpm.runPlugin` 执行的插件命令。每条记录只包含操作、包名或插件条目、请求的精确版本、结果或退出码，以及观察到该操作的 Host 运行；其他包说明符可能包含路径或凭据，不会记录。记录保存在 `home/logs/plugin-operations/`，分两段，每段不超过 256 KiB。报告保存后，Worker 会在 500 毫秒内追加最多 100 条近期记录（不超过 64 KiB）；Host 故障的报告还会写明对应的 `host run`。这些记录只是上下文，不能证明故障原因：通过命令行或手动改文件做的修改不会记录，缺少记录也不代表没有改动。
+
+备份保存在 `home/recovery/`。诊断导出为大小受限的 JSON，包含版本、状态和脱敏日志，不读取会话或凭据文件。日志仍可能包含本机路径和插件输出，分享前请检查。本地桌面日志保存在 `home/logs/desktop-next.log`，上限为 128 KiB。桌面设置独立保存在 `home/desktop-preferences.json`，不依赖 Host 设置服务。2.0.22 之后新增的设置（目前只有插件服务启动时限）另存于 `home/desktop-preferences-extra.json`：已发布的版本遇到前者中不认识的键会进入恢复，而它们不读取后者，因此降级后仍能启动，再次升级时设置还在。后者损坏或值无效时按默认值处理并记入日志，不会进入恢复；其中较新版本写入的键会原样保留。恢复助手修改时限时只改写后者，安全模式下改的也是原环境的这个文件。主窗口会按上次的位置、大小和最大化状态重新打开，记录在 `home/desktop-window-state.json`；删除该文件即可恢复默认大小。
 
 开发和安装版的默认数据目录均为用户目录下的 `~/.dsh`，与 Stable 共用 Profile 和数据；Next 的选定 Profile、桌面偏好等仍使用各自命名的配置文件。Next 不使用现有 `DSH_HOME` 来选择数据目录。恢复出厂仍作用于当前整个数据目录，包括与 Stable 共用的数据。
 
 数据目录按以下顺序确定，桌面设置的“数据目录”一行会标出当前目录的来源：
 
-1. **应用内选择：** 在桌面设置或恢复助手中切换的目录。这项选择保存在系统应用数据目录下 `DSH NEXT/home/desktop-next-location.json`（开发运行时为 `.desktop-next/home/`），位置固定，不随环境变量移动；已有的手动选择继续有效。恢复助手中的“恢复默认”会删除这项选择。
+1. **应用内选择：** 在桌面设置或恢复助手中切换的目录。这项选择保存在系统应用数据目录下 `DSH NEXT/home/desktop-next-location.json`（开发运行时为 `.desktop-next/home/`），位置固定，不随环境变量移动；已有的手动选择继续有效。恢复助手中的“恢复默认”会删除这项选择。安装目录及其中的文件夹不能选作数据目录，因为更新会替换其中的文件，卸载会删除整个安装目录。
 2. **`DSH_DESKTOP_NEXT_HOME`：** 没有应用内选择时使用的绝对路径。环境变量只在进程启动时读取，应用内重启（包括托盘的“退出并重启”）会沿用旧进程的环境。修改这个变量后，请完全退出 Next，再从开始菜单、程序坞或新打开的终端启动。
 3. **默认目录：** 前两项都没有时使用 `~/.dsh`。
 
@@ -144,6 +162,12 @@ corepack yarn workspace dsh-desktop-next verify:host --computer-use
 在部分 Windows 环境中，应用以管理员身份运行时，Chromium 沙箱无法创建 GPU 进程和渲染进程；不加处理的话，这样的启动约一秒后会无声退出。因此，打包版 Next 如果以拆分令牌中提权的一半启动（UAC 开启时），例如通过“以管理员身份运行”、管理员终端或提权的安装程序启动，会在启动任何子进程之前用桌面 shell 的普通令牌重新启动一次自身，做法与 Chromium 的 `base::win::RunDeElevated` 相同。重新启动的进程沿用原有参数和工作目录，环境变量按用户配置重新生成。如需保留有意的管理员启动，请加上 `--next-keep-elevated`。关闭 UAC 或使用内置 Administrator 账户时没有可以回到的普通令牌，这类启动会保持提权。
 
 如果 Windows 上沙箱化的 GPU 进程或渲染进程仍然无法启动，Next 会显示原生对话框后退出，而不是直接消失。对话框按当前提权状态说明可能原因和取消“以管理员身份运行”的方法，给出 Chromium 沙箱错误码，并说明临时绕过参数 `--no-sandbox`：它会关闭所有页面的沙箱，包括侧边栏浏览器打开的网站。桌面日志以 `sandbox.launch-failed` 记录这次失败。
+
+### Windows 下以低完整性级别启动
+
+以低于 Medium 的完整性级别启动时，GPU 进程同样无法启动，而且重新启动也无济于事：Windows 启动程序时，进程的完整性级别不会高于程序文件标签的级别。Windows 沙箱会给每个工作区的整个目录树加上可继承的 Low 标签，所以如果工作区就是安装目录、包含安装目录或位于安装目录中，Next 自身也会被加上这个标签，之后的每次启动都会无声退出（#1564）。因此在 Windows 上，选择工作区文件夹时会拒绝这样的文件夹并说明原因；无论工作区是怎样添加的，Desktop 对 `@deepseek-ai/dsh-sandbox-windows-acl` 的补丁都会拒绝给与当前程序目录重叠的工作区授予写权限，相应的沙箱命令会带着这个原因失败。
+
+如果 Next 仍以低于 Medium 的完整性级别启动，它会在启动任何子进程之前显示原生对话框并退出。程序文件带有 Low 标签时，对话框会给出标签来源的最上层文件夹，以及恢复 Medium 完整性的 `icacls … /setintegritylevel "(OI)(CI)Medium" /T /C /Q` 命令；否则说明 Next 是由低完整性进程启动的，例如在沙箱中运行的命令或终端。带 `--no-sandbox` 或 `--disable-gpu-sandbox` 启动时跳过这项检查，因为此时 GPU 进程不需要沙箱。
 
 ## 架构与来源
 
@@ -166,7 +190,7 @@ alpha.1 的无端口管道方案已被 alpha.2 的 WebServer 方案替代。本�
 
 Next 是正式的 Profile bundle，因此上游插件管理器重新组合配置时仍保留附加能力。版本限定的补丁从安装清单读取 `dsh.optionalBundles` 和 `dsh.exclusiveBundles`，并为发布版插件管理界面添加 `plugins.overview`、`plugins.bundle.hidden` 槽位。Next 通过槽位添加顶部设置并隐藏重复的 bundle 卡片；未声明互斥组的安装保持原管理器行为。dshmarket 的安装接口调用官方 `runPluginCommand`，使用 Next 当前 Profile、安装路径和内置 pnpm，不依赖系统 PATH 中的 pnpm。开发目录启动时，只为 Next 自身在 `home/profiles/node_modules` 建立一个受管链接；其他依赖由 alpha.2 的 runtime resolver 解析。所有上游运行时依赖来自发布包，不链接或改写 `deepseek-harness/` 源码。
 
-[upstream-reference.json](upstream-reference.json) 记录参考提交和复制文件的原始摘要；原始许可保存在 [LICENSE.upstream](LICENSE.upstream)。
+[upstream-reference.json](upstream-reference.json) 记录参考提交和复制文件的原始摘要；仍沿用更早上游原件的副本会单独写明该原件的提交和版本。原始许可保存在 [LICENSE.upstream](LICENSE.upstream)。
 
 ## 当前边界
 
@@ -174,7 +198,7 @@ Next 是正式的 Profile bundle，因此上游插件管理器重新组合配置
 
 ## 打包与更新
 
-产品版本为 `2.0.21-next`。在仓库根目录运行：
+产品版本为 `2.0.22-next`。在仓库根目录运行：
 
 ```sh
 corepack yarn package:dir:next
@@ -187,7 +211,7 @@ corepack yarn dist:win:next
 
 归档遵循上游桌面端的文件策略，而且载荷有两个彼此独立的来源，就像上游桌面端先准备 dsh 目录树、再交给 electron-builder 归档一样。每次运行 electron-builder 之前，`scripts/prepare-payload.ts` 都会物化 `.desktop-build/payload/`：壳文件；按 electron-builder 的方式转换过的应用清单，其中已套用来自 `DSH_NEXT_BUILD_VERSION` 的演练版本并移除仅构建使用的字段；以及按 Node 的解析方式从已安装目录树复制出的生产依赖闭包，复制时套用文件策略（source map、TypeScript 声明、构建缓存、包管理器元数据、其他平台的 LibreOffice 引擎和 node-pty 预构建文件），嵌套的 `node_modules` 保持安装器放置的位置，链接进来的 `dsh-community-market` 工作区按其发布文件列表复制，每个依赖的清单也按 electron-builder 的方式清理。随后准备步骤在载荷根目录封存 `desktop-runtime.json`：Next、dsh、Electron 与 pnpm 版本，平台及载荷所含原生文件的架构（macOS 为两种 Darwin CPU，Windows 为 x64），每个直接依赖的共享包记录，以及每个文件的字节数、SHA-256、可执行位和 Mach-O 标记；描述文件写入后立即对照准备好的目录树校验。electron-builder 通过两个文件集把该目录原样归档，即载荷本身和它的根 `node_modules`（否则 electron-builder 会把后者排除在外）；它在 `beforeBuild` 中放弃自己的依赖收集，并按配置的模式解包原生模块、可执行文件和需经 shell 执行的文件。`afterPack` 钩子把组装好的归档及其解包文件当作这份安装的第二个副本打开：检查每个打包清单声明的依赖闭包都能解析，拒绝策略要求省略的任何条目以及留在归档内的原生代码或需经 shell 执行的文件，并要求归档逐字节内嵌准备步骤封存的描述文件、且与其清单完全一致，不一致时指出第一个有差异的文件。universal macOS 构建会对每个 CPU 各执行一次钩子，再对合并后的应用执行一次；三份归档都来自同一棵准备好的目录树，所以 universal 构建直接保留一份归档而不合并两份（`mergeASARs: false`）。合并只会改写一类载荷文件：@electron/universal 会解析应用里的每一个 `Info.plist`，包括解包文件中嵌套 bundle 的，注入归档完整性信息后重新序列化；这样的文件只有在准备树中的原件仍与其记录一致、且两者解析后除 `ElectronAsarIntegrity` 外内容完全相同时才被接受，构建日志会列出它们。所有产物构建完成后，再以同样的容忍规则加上代码签名容忍，把最终应用与归档内的描述文件比对，因为 electron-builder 在此之后才签名解包的 Mach-O 文件和嵌套 bundle，签名本身由 `verify-mac-release.ts` 验证；随后用打包好的 Electron 以 Node 模式从归档导入壳模块，并用私有数据目录从归档启动真实 Host，期间启用社区市场并执行一次诊断导出以运行其 worker 线程，若 Host 向普通浏览器暴露应用则判定失败。安装版启动时从归档内读取描述文件，并与自身版本、已安装的 `@deepseek-ai/dsh`、平台和 CPU 比对；不一致时打开恢复助手而不进入工作区。
 
-与上游桌面端一样，安装包在归档之外携带 primary runtime，位于 `Contents/Resources/runtime`（Windows 为 `resources/runtime`）：上游锁文件固定的独立 Python 3.12 及 numpy、pandas、python-docx、python-pptx、openpyxl、Pillow、lxml、XlsxWriter，独立 Node，随包 pnpm，以及每份载荷旁的 Office 技能资源。macOS 发布包是一个 universal 应用，因此每个 CPU 各带一份载荷，`runtime/arm64/primary-runtime` 和 `runtime/x64/primary-runtime`，各自带有自己的 `office-skills`；安装版壳按自身运行的 CPU 选择载荷并交给 Host。Windows 只带 `runtime/x64`。每次运行 electron-builder 之前，`scripts/prepare-runtime.ts` 把上游锁文件（`deepseek-harness/scripts/primary-runtime/lock.json`）固定的压缩包和 wheel 下载到 `.desktop-build/downloads`，在 `.desktop-build/runtime/<cpu>` 下组装每份载荷并按上游方式裁剪 NumPy 与 pandas 的测试套件，写入记录产品版本和载荷摘要的 `runtime.json`，校验整棵树（清单的平台、CPU 和版本，Node 与 pnpm 入口，所声明 CPU 的 thin Mach-O 解释器，Office 检查器和技能），再执行本机能运行的载荷：本机 CPU 的那份，以及 Apple Silicon 主机装有 Rosetta 时的 Intel 那份。electron-builder 把这棵树作为 extra resources 原样复制；`afterPack` 钩子和最终产物检查会再次校验，`verify-mac-release.ts` 则在挂载的镜像中运行本机载荷。`dev` 和 `start` 脚本在每次开发启动前准备同一棵树，与上游桌面端的 `dev.ts` 一致；`corepack yarn workspace dsh-desktop-next prepare:runtime` 可单独执行这一步。只有 `.desktop-build/runtime/<cpu>/primary-runtime` 存在时 Host 才挂载 Office 技能，因此无头 Host 检查可以在没有载荷时启动；打包后的 Host 则要求载荷存在，缺失即失败。
+与上游桌面端一样，安装包在归档之外携带 primary runtime，位于 `Contents/Resources/runtime`（Windows 为 `resources/runtime`）：上游锁文件固定的独立 Python 3.12 及 numpy、pandas、python-docx、python-pptx、openpyxl、Pillow、lxml、XlsxWriter，独立 Node，随包 pnpm，以及每份载荷旁的 Office 技能资源。macOS 发布包是一个 universal 应用，因此每个 CPU 各带一份载荷，`runtime/arm64/primary-runtime` 和 `runtime/x64/primary-runtime`，各自带有自己的 `office-skills`；安装版壳按自身运行的 CPU 选择载荷并交给 Host。Windows 只带 `runtime/x64`。每次运行 electron-builder 之前，`scripts/prepare-runtime.ts` 把上游锁文件（`deepseek-harness/scripts/primary-runtime/lock.json`）固定的压缩包和 wheel 下载到 `.desktop-build/downloads`，在 `.desktop-build/runtime/<cpu>` 下组装每份载荷并按上游方式裁剪 NumPy 与 pandas 的测试套件，写入记录产品版本和载荷摘要的 `runtime.json`，校验整棵树（清单的平台、CPU 和版本，Node 与 pnpm 入口，所声明 CPU 的 thin Mach-O 解释器，Office 检查器和技能），再执行本机能运行的载荷：本机 CPU 的那份，以及 Apple Silicon 主机装有 Rosetta 时的 Intel 那份。electron-builder 把这棵树作为 extra resources 原样复制；`afterPack` 钩子和最终产物检查会再次校验，`verify-mac-release.ts` 则在挂载的镜像中运行本机载荷。`dev` 和 `start` 脚本在每次开发启动前准备这棵树，但只放壳所运行 CPU 的那份载荷，与上游桌面端的 `dev.ts` 只准备本机目标一致；`corepack yarn workspace dsh-desktop-next prepare:runtime` 可单独执行这一步。只有 `.desktop-build/runtime/<cpu>/primary-runtime` 存在时 Host 才挂载 Office 技能，因此无头 Host 检查可以在没有载荷时启动；打包后的 Host 则要求载荷存在，缺失即失败。
 
 Host 挂载上游的 Office 组合：`load_workspace_dependencies` 工具首次使用时把本 CPU 的载荷安装到 `<home>/dsh-runtimes/dsh-next-primary-runtime`（Next 自己的目录，因为 Next 与官方桌面端共用 `~/.dsh`，而该工具会替换清单不同的安装），以及 `office-docx`、`office-pptx`、`office-xlsx` 技能，它们拿到随包 Node 和解包后的 LibreOffice Kit CLI。CLI 由这个独立 Node 运行，而它读不了归档，所以 `beforePack` 钩子把两个 CPU 的完整 Office 包闭包解包在归档旁，载荷审计也要求这些根目录在那里。
 
@@ -195,7 +219,7 @@ Host 挂载上游的 Office 组合：`load_workspace_dependencies` 工具首次�
 
 桌面设置和托盘均可检查更新。安装版启动后延迟检查，之后每 6 小时检查一次；只有用户点击下载才下载。托盘显示字节数或百分比，完成后点击“安装并重启”。安装前先隐藏窗口并停止 Host。macOS 校验 Next 身份、版本和签名团队，将已下载 DMG 中的应用封装为本地 ZIP，交给 Electron 的 Squirrel.Mac 原生更新器验证和替换；不会改写应用目录或降低签名要求。身份和版本校验读取挂载镜像中的 `Contents/Resources/app/package.json`，归档后的发布版正是为这一步保留了归档内清单的副本。Windows 校验 Next 安装器身份和版本，交接给 NSIS 静默更新并重新启动。开发运行只允许检查，不替换源码或 Electron 开发运行时。
 
-服务契约沿用 AA landingpage：`GET https://www.dshdesktop.cn/api/desktop/version`，请求头 `X-DSH-Desktop-Channel: next` 和当前版本；安装标识只发给版本接口。下载使用 `/api/downloads/mac` 或 `/api/downloads/windows`，固定 `X-DSH-Desktop-Target-Version`，跨存储重定向不携带这些请求头。仅接受 Next 版本，服务提供 SHA-256 时强制校验；错误、空渠道和旧版服务均不会显示“已是最新版本”。服务端必须部署 Next 通道支持并配置真实产物，且版本与包内版本一致（支持 `x.y.z-next` 和 `x.y.z-next.N`）。
+服务契约沿用 AA landingpage：`GET https://www.dshdesktop.cn/api/desktop/version`，请求头 `X-DSH-Desktop-Channel: next` 和当前版本；安装标识只发给版本接口。下载使用 `/api/downloads/mac` 或 `/api/downloads/windows`，固定 `X-DSH-Desktop-Target-Version`。在 macOS 上，这两个请求还会携带 `X-DSH-Desktop-Arch: arm64` 或 `x64`，即这台 Mac 的 CPU；经 Rosetta 转译运行的 Intel 版发送 `arm64`，因此下一次更新换成 Apple Silicon 版。服务据此返回该 CPU 的 DMG，某版本没有该 CPU 的 DMG 时返回 universal DMG，提供的摘要也必须属于这个 DMG。不发送 CPU 的客户端（按 CPU 分包之前的版本都是这样）必须拿到一个仍有 universal DMG 的版本，因为更新器只安装版本与检查结果一致的应用。跨存储重定向不携带这些请求头。仅接受 Next 版本，服务提供 SHA-256 时强制校验；错误、空渠道和旧版服务均不会显示“已是最新版本”。服务端必须部署 Next 通道支持并配置真实产物，且版本与包内版本一致（支持 `x.y.z-next` 和 `x.y.z-next.N`）。
 
 安装包字节改由 Chromium 的 `net.request` 传输，而不再使用 `net.fetch`：在 `redirect: 'manual'` 下 Electron 的 fetch 会拒绝重定向并抛出 `Redirect was cancelled`，而不是把 3xx 响应交回来，因此服务端指向存储路径的 `302` 永远无法被跟随。新传输层每一跳单独发起一个请求，每一跳都用同一条 HTTPS 与默认端口规则校验，首跳之后不再携带发布选择头，安装包流量走非持久化会话分区，因此不携带任何应用 Cookie。macOS 与 Windows 的下载端点都会重定向到存储路径；只能接受直接 `200` 的客户端无法完成更新。
 
@@ -210,7 +234,7 @@ Next 在 `<数据目录>/logs/desktop-next.log` 保存可直接阅读的近期�
 
 主窗口每加载一个文档，都会记录一条 `renderer.navigation`，写明由什么发起：`open`（Next 打开窗口）、`recovery`（渲染进程自动恢复）、`reload`（重新加载命令，或 Host 重启后替换文档）或 `page`（其他来源，例如页面脚本或插件重新加载文档），并记录是否由某个 frame 发起。界面挂载完成时，文档记录 `renderer.ready`；只有自动恢复加载的文档改为记录带尝试次数的 `renderer.recovery.healthy`。因此，没有 `renderer.recovery.*` 记录的重新加载不是自动恢复造成的。
 
-**导出诊断** 会生成版本 2 的 JSON 包，包含应用及运行状态、近期日志、未完成操作、本地崩溃转储的文件名、大小和时间（不含文件内容），以及最多 50 MiB 的历史证据。导出在独立 Worker 中进行，超时期限为 60 秒，并报告未纳入的文件数；不会遍历 Profile、凭据或对话数据。
+**导出诊断** 会生成版本 3 的 JSON 包，包含应用及运行状态、近期日志、未完成操作、主窗口渲染层的有界采样（正在运行的动画及其目标元素、body 直属浮层，以及一秒内观察到的帧率与长任务）、本地崩溃转储的文件名、大小和时间（不含文件内容），以及最多 50 MiB 的历史证据。采样只记录元素名与选择器，不读取页面文本。导出在独立 Worker 中进行，超时期限为 60 秒，并报告未纳入的文件数；不会遍历 Profile、凭据或对话数据。
 
 官方启动器没有挂载前的 Context 钩子，因此 Next 回放有限的日志缓冲、记录启动完成后的插件状态，并保留原始进程输出和致命错误；不在官方缓冲中的极早期调试日志无法补录。这是进程及应用日志，不包含操作系统系统调用追踪。Electron Crashpad 另在本地运行且不上传，Electron 进程或 Node 模式 Host 的原生崩溃会在 `electron-user-data/Crashpad` 中留下 minidump。
 

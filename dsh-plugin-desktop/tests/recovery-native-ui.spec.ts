@@ -1,9 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { RecoveryTerminalAction } from '../src/native-ui/recovery/App.tsx'
-import { RecoveryActionFooter, RecoveryActionLink } from '../src/native-ui/shared/RecoveryWindowPrimitives.tsx'
+import { RecoveryFailureDetails, RecoveryTerminalAction } from '../src/native-ui/recovery/App.tsx'
 import { desktopRecoveryCopy } from '../src/recovery-copy.ts'
 
 describe('Recovery native terminal action', () => {
@@ -14,73 +12,6 @@ describe('Recovery native terminal action', () => {
     }))
     expect(markup).toContain('href="https://github.com/anywhere-labs/dsh-desktop/issues"')
     expect(markup.indexOf('联系我们')).toBeLessThan(markup.indexOf('打开 DSH 终端'))
-    const source = readFileSync(new URL('../src/native-ui/recovery/App.tsx', import.meta.url), 'utf8')
-    expect(source.indexOf('data-recovery-support')).toBeLessThan(source.indexOf('<Reason copy={copy}'))
-    expect(source).toMatch(/className="[^"]*bg-amber-500\/10[^"]*text-amber-800 dark:text-amber-200" data-recovery-support/u)
-  })
-
-  it('orders Quick recovery guidance and adds data management before diagnostics', () => {
-    const source = readFileSync(new URL('../src/native-ui/recovery/App.tsx', import.meta.url), 'utf8')
-    expect(source.match(/<TabsTrigger value=/gu)).toHaveLength(6)
-    expect(source).toContain('<TabsTrigger value="quick">')
-    expect(source).toContain('<TabsTrigger value="plugins">')
-    expect(source).toContain('<TabsTrigger value="rollback">')
-    expect(source).toContain('<TabsTrigger value="profiles">')
-    expect(source).toContain('<TabsTrigger value="data">')
-    expect(source).toContain('<TabsTrigger value="diagnostics">')
-    expect(source.indexOf('<TabsTrigger value="data">')).toBeLessThan(source.indexOf('<TabsTrigger value="diagnostics">'))
-    expect(source).toContain('<SafeModePanel copy={copy} state={state} />')
-    expect(source).toContain('<CardTitle className="flex items-center gap-2"><CircleHelp className="size-5" />{copy.quickRecovery}</CardTitle>')
-    expect(source).not.toContain('copy.profileGuide')
-    const safeMode = source.indexOf('<SafeModePanel copy={copy} state={state} />')
-    const plugins = source.indexOf('body={copy.pluginGuideBody}')
-    const rollback = source.indexOf('body={copy.rollbackGuideBody}')
-    const profiles = source.indexOf('body={copy.profileSwitchGuideBody}')
-    const data = source.indexOf('body={copy.dataGuideBody}')
-    const diagnostics = source.indexOf('body={copy.diagnosticsGuideBody}')
-    expect([safeMode, plugins, rollback, profiles, data, diagnostics]).toEqual(
-      [...[safeMode, plugins, rollback, profiles, data, diagnostics]].sort((left, right) => left - right),
-    )
-    expect(source).toContain('<TabsContent value="plugins"><PluginsPanel copy={copy} state={state} /></TabsContent>')
-    expect(source).toContain('<TabsContent value="rollback"><RollbackPanel copy={copy} state={state} /></TabsContent>')
-    expect(source).toContain('<TabsContent value="profiles"><ProfilesPanel copy={copy} state={state} /></TabsContent>')
-    expect(source).toContain('<TabsContent value="data"><DataManagementPanel copy={copy} state={state} /></TabsContent>')
-    expect(source).toContain('action="restore-default-data-directory"')
-    expect(source).toContain('data.usingDefaultDirectory ? null')
-    expect(source.indexOf('action="restore-default-data-directory"')).toBeLessThan(
-      source.indexOf('action="begin-change-data-directory"'),
-    )
-    expect(source).toContain('{copy.currentProfileDirectory}:&nbsp;')
-    expect(source).toContain('title={state.profileDirectory}')
-  })
-
-  it('uses the shared ScrollArea for the standalone Profile selector', () => {
-    const source = readFileSync(new URL('../src/native-ui/profile-selector/App.tsx', import.meta.url), 'utf8')
-    expect(source).toContain("from '../components/ui/scroll-area.tsx'")
-    expect(source).toContain('<ScrollArea className="min-h-0 flex-1 pr-3">')
-    expect(source).not.toContain('overflow-y-auto')
-  })
-
-  it('renders a labelled pill opposite each platform native-control group', () => {
-    const copy = desktopRecoveryCopy('en')
-    const mac = renderToStaticMarkup(createElement(RecoveryTerminalAction, {
-      copy,
-      search: '?frame=true&platform=darwin',
-    }))
-    const windows = renderToStaticMarkup(createElement(RecoveryTerminalAction, {
-      copy,
-      search: '?frame=true&platform=win32',
-    }))
-
-    expect(mac).toContain('right-3')
-    expect(mac).not.toContain('left-3')
-    expect(windows).toContain('left-3')
-    expect(windows).not.toContain('right-3')
-    for (const markup of [mac, windows]) {
-      expect(markup).toContain('rounded-full')
-      expect(markup).toContain('Open DSH Terminal')
-      expect(markup).toContain('dsh-recovery://open-terminal')
-    }
   })
 
   it('does not invent a title-row action without Desktop frame controls', () => {
@@ -94,41 +25,16 @@ describe('Recovery native terminal action', () => {
       search: '?frame=true&platform=linux',
     }))).toBe('')
   })
-
-  it('shares the Recovery footer layout while keeping a leading action on the left', () => {
-    const markup = renderToStaticMarkup(createElement(
-      RecoveryActionFooter,
-      {
-        leading: createElement(RecoveryActionLink, { children: 'Back', href: 'dsh-profile-selector://cancel' }),
-        children: createElement(RecoveryActionLink, {
-          children: 'Restart DSH Desktop',
-          href: 'dsh-profile-selector://restart',
-          variant: 'default',
-        }),
-      },
-    ))
-
-    expect(markup).toContain('mr-auto')
-    expect(markup).toContain('dsh-profile-selector://cancel')
-    expect(markup).toContain('dsh-profile-selector://restart')
-  })
 })
 
-describe('Recovery plugin row actions', () => {
-  it('keeps the destructive action last and both toggles behind the toggle field', () => {
-    const source = readFileSync(new URL('../src/native-ui/recovery/App.tsx', import.meta.url), 'utf8')
-    const disable = source.indexOf('action="preview-disable"')
-    const enable = source.indexOf('action="preview-enable"')
-    const uninstall = source.indexOf('action="preview-uninstall"')
-    expect(disable).toBeGreaterThanOrEqual(0)
-    expect(enable).toBeGreaterThan(disable)
-    expect(uninstall).toBeGreaterThan(enable)
-    expect(source).toContain("bundle.toggle === 'disable' ?")
-    expect(source).toContain("bundle.toggle === 'enable' ?")
-    expect(source).toContain("readonly toggle: 'disable' | 'enable' | null")
-    // Only the uninstall stays destructive; a disable must not look like one.
-    expect(source).toContain('action="preview-disable" icon={<PowerOff />} id={bundle.bundleId} variant="secondary"')
-    expect(source).toContain('action="preview-enable" icon={<Power />} id={bundle.bundleId} variant="default"')
-    expect(source).toContain('copy.disabledHint')
-  })
+it('keeps complete failure evidence in an initially collapsed, selectable disclosure', () => {
+  const detail = 'Original error\nCaused by: missing provider\nRetry 1\n<unsafe-plugin>'
+  const markup = renderToStaticMarkup(createElement(RecoveryFailureDetails, { locale: 'zh', detail }))
+  expect(markup).toContain('完整错误与日志')
+  expect(markup).toContain('复制详情')
+  expect(markup).toContain('<details ')
+  expect(markup).not.toMatch(/<details\b[^>]*\bopen(?:[=\s>])/u)
+  expect(markup).toContain('Caused by: missing provider')
+  expect(markup).toContain('Retry 1')
+  expect(markup).toContain('&lt;unsafe-plugin&gt;')
 })

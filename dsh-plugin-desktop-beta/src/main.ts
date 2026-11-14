@@ -10,8 +10,9 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { app, BrowserWindow, clipboard, crashReporter, dialog, ipcMain, Menu, nativeTheme, net, Notification, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
 import { appRequestHeaders, forwardWebRequest, serveWebDocument } from './web-document.ts'
 import { installAppDownloads } from './app-downloads.ts'
+import { installDesktopFileDrag, installFileActions, liveshareOwnerLogin } from './upstream-family.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
-import { NEXT_PACKAGE, parseFeatures, profileName } from './profiles.ts'
+import { NEXT_PACKAGE, NextProfiles, parseFeatures, profileName } from './profiles.ts'
 import { APP_URL, IPC, SHELL_URL } from './ipc.ts'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 import { preferredDesktopLocale, resolveDesktopLocale } from './menu-locale.ts'
@@ -23,10 +24,12 @@ import { resolveDesktopShellEnvironment, type DesktopShellEnvironmentResolution 
 import { ensureUtf8Locale } from './shell-locale.ts'
 import { DEFAULT_PROFILE, NATIVE_ACCESS_HEADER, type DesktopCommand, type DesktopState, type DesktopSettingsPage } from './desktop-contract.ts'
 import { portsChanged, parsePreferences } from './desktop-preferences.ts'
+import { hostStartupLimitTitle, hostStartupTimeoutFromId, hostStartupTimeoutLabel } from './host-startup-limit.ts'
 import { NativeDesktop, applyWindowMaterial } from './native-desktop.ts'
 import { desktopLanAddresses } from './lan-addresses.ts'
 import { createLanHttpsCertificate, lanHttpsCertificateDiagnostic } from './lan-https-certificate.ts'
 import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-terminal.ts'
+import { dshCommandArguments, dshCommandInvocation } from './dsh-command.ts'
 import { createPackageRunner } from './extensions.ts'
 import { bundledPnpmEntry } from './bundled-pnpm.ts'
 import { applyDesktopPackageManagerPolicy } from './pnpm-policy.ts'
@@ -45,16 +48,29 @@ import { assertBackupLocation, backupDirectoryName, copyDataDirectory } from './
 import { maskSecrets } from './mask-secrets.ts'
 import { DesktopBrowserGuests } from './browser-guests.ts'
 import { PlatformLoginWindow } from './platform-login-window.ts'
+import { DesktopPlatformView, platformBounds } from './platform-view.ts'
+import { PLATFORM_IPC } from './platform-ipc.ts'
 import { NextUpdates } from './updates.ts'
 import { createArtifactRequest } from './update-transport.ts'
 import { NextUpdateInstaller } from './update-installer.ts'
-import { updateLabel } from './update-state.ts'
+import { macUpdateArch } from './update-arch.ts'
+import { manualUpdateHint, releaseNotesUrl, updateLabel } from './update-state.ts'
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
 import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCause } from './renderer-recovery.ts'
-import { deElevateAtStartup, windowsElevation } from './windows-elevation.ts'
-import { createSandboxLaunchReporter, gpuLaunchFailure, rendererLaunchFailure } from './sandbox-launch.ts'
+import { collectRendererDiagnostics, rendererDiagnosticsFields } from './renderer-diagnostics.ts'
+import { RollingRendererEvidence } from './renderer-evidence.ts'
+import { deElevateAtStartup, lowIntegrityAtStartup, windowsElevation } from './windows-elevation.ts'
+import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure } from './sandbox-launch.ts'
+import { pickOutsideProgramDirectory, programDirectory, programDirectoryRefusal, refusedProgramDirectoryOverlap, type ProgramDirectoryOverlap, type ProgramDirectoryPurpose } from './program-directory.ts'
 import { startCrashReporting } from './crash-reporting.ts'
 
+// Below Medium integrity Chromium cannot start its GPU process and ends the launch without a word (#1564).
+const lowIntegrity = lowIntegrityAtStartup({ platform: process.platform, argv: process.argv, executable: process.execPath })
+if (lowIntegrity) {
+  const text = lowIntegrityLaunchDialog(lowIntegrity, preferredDesktopLocale(app.getPreferredSystemLanguages()))
+  dialog.showErrorBox(text.title, `${text.message}\n\n${text.detail}`)
+  app.exit(1)
+}
 // An elevated Windows launch restarts with the user's normal token before Chromium starts any child (#1487).
 const startupElevation = deElevateAtStartup({ platform: process.platform, packaged: app.isPackaged, argv: process.argv, executable: process.execPath })
 if (startupElevation.relaunched) app.exit(0)
@@ -64,6 +80,8 @@ const startupElevationState = startupElevation.relaunched ? {} : startupElevatio
 applyDesktopPackageManagerPolicy(process.env)
 
 const root = dirname(NEXT_PACKAGE)
+// Workspace and data directory choices stay out of the installation (#1564).
+const program = programDirectory(process.platform, process.execPath)
 // Read once: an in-app relaunch inherits this process's environment, not later user variables.
 const environmentHome = process.env[DATA_DIRECTORY_VARIABLE] || undefined
 // The in-app choice keeps its former Next-owned anchor, whatever the variable says.
@@ -72,6 +90,9 @@ const locationFile = dataDirectoryLocationFile(locationRoot)
 const dataLocation = readDataDirectory(locationRoot, environmentHome)
 const home = dataLocation.home
 let dataSource = dataLocation.source
+// Linux has no tray terminal; `<app> dsh …` is its `dsh` command and never opens the desktop (#1568).
+const dshArguments = dshCommandArguments(process.argv, process.platform, process.defaultApp === true)
+if (dshArguments !== undefined) execDshCommand(dshArguments)
 const normalElectronData = join(home, 'electron-user-data')
 privateDirectory(normalElectronData)
 app.setName('DSH Desktop Beta')
@@ -110,6 +131,8 @@ let pendingNavigation: { readonly owner: BrowserWindow; readonly cause: Exclude<
 let rendererHealthy = false
 // Storage partitions outlive individual windows, so the guest owner is process-scoped.
 let desktopShortcuts: ReturnType<typeof installDesktopShortcuts> | undefined
+/** Removes the native file drag's temporary exports, where the followed DSH release drags files natively. */
+let disposeFileDrag: (() => Promise<void>) | undefined
 const browserGuests = new DesktopBrowserGuests(() => runtime.auth ? [new URL(runtime.auth.url).origin] : [])
 let shellWindow: BrowserWindow | undefined
 let recoveryRunner: ReturnType<typeof createPackageRunner> | undefined
@@ -149,9 +172,18 @@ if (ownsInstance) {
 // Finder and Dock launches carry no login-shell exports. Reading them takes one login shell's startup
 // and no Electron API, so it overlaps Electron's own startup; the Host still waits for the result.
 const shellEnvironment = ownsInstance ? readShellEnvironment() : undefined
-const t = (zh: string, en: string): string => windowsLanguage.toLowerCase().startsWith('zh') ? zh : en
+const language = (): 'zh' | 'en' => windowsLanguage.toLowerCase().startsWith('zh') ? 'zh' : 'en'
+const t = (zh: string, en: string): string => language() === 'zh' ? zh : en
+/** The official account plugin's embedded Platform page; the Host supplies its grant and the application renderer asks for pages. */
+const platformView = new DesktopPlatformView(join(root, 'lib', 'preload-platform-account.cjs'),
+  () => language() === 'zh' ? 'zh_CN' : 'en_US', process.platform === 'darwin' || process.platform === 'win32' ? process.platform : null, dshVersion)
 /** The bundled interpreter payload of this CPU: beside the archive when packaged, prepared by `prepare:runtime` in development. */
 const primaryRuntime = join(app.isPackaged ? join(process.resourcesPath, 'runtime') : join(root, '.desktop-build', 'runtime'), process.arch, 'primary-runtime')
+/**
+ * The last sample of a page that still answered. A failure report written after a renderer crash or
+ * a hang has nothing to ask, so it falls back to this instead of saying only "unavailable".
+ */
+const rendererEvidence = new RollingRendererEvidence(() => mainWindow?.webContents)
 const runtime = new NextDesktopRuntime({
   home, root, primaryRuntime, executable: process.execPath, addresses: () => [...desktopLanAddresses()], systemProxy: () => systemProxy,
   prepareEnvironment: () => prepareHostEnvironment(),
@@ -165,6 +197,9 @@ const runtime = new NextDesktopRuntime({
         ...(memory === undefined ? {} : { commitLimit: memory.swapTotal * 1024, commitFree: memory.swapFree * 1024 }) }
     },
   },
+  // Read lazily: the window exists only after the runtime starts.
+  renderer: () => mainWindow?.webContents,
+  rendererEvidence: () => rendererEvidence.last(),
   ...(safeModeRequested ? { stateHome: electronData } : {}),
   certificate: async addresses => {
     try {
@@ -187,6 +222,8 @@ const runtime = new NextDesktopRuntime({
   onRestart: () => run({ type: 'restart' }),
   onTerminal: () => run({ type: 'terminal' }),
   onNotification: notification => native.notify(notification),
+  onStartupSlow: notice => quitting || !app.isReady() ? () => {} : native.notifyStartupSlow(notice),
+  onPlatformSession: session => platformView.setSession(session),
   onPlatformLogin: (request) => {
     if (quitting || !app.isReady()) return
     if (request.action === 'close') {
@@ -226,6 +263,7 @@ const updateInstaller = new NextUpdateInstaller({ platform: process.platform, ex
   language: () => windowsLanguage,
   log: error => runtime.diagnostics.append(String(error), 'warn') })
 const updates = new NextUpdates({ version, platform: process.platform, packaged: app.isPackaged, userData: electronData,
+  arch: process.platform === 'darwin' ? macUpdateArch(process.arch, app.runningUnderARM64Translation) : undefined,
   request: (url, init) => net.fetch(url, { ...init, credentials: 'omit' }),
   artifactRequest: createArtifactRequest(),
   changed: () => { if (app.isReady() && !quitting) native.refresh() },
@@ -263,7 +301,7 @@ function state(): DesktopState {
   }
   return { ...runtime.state(), recovery, dataDirectory: { source: dataSource, environmentHome: environmentHome === undefined ? null : resolve(environmentHome) },
     onboarding, ...(onboarding ? { onboardingComputerUse } : {}), platform: process.platform, version,
-    ...(['darwin', 'win32'].includes(process.platform) ? { updates: updates.snapshot() } : {}),
+    ...(['darwin', 'win32', 'linux'].includes(process.platform) ? { updates: updates.snapshot() } : {}),
     trayAvailable: native.available, notificationsAvailable: Notification.isSupported() }
 }
 function run(value: DesktopCommand): void { void command(value, 'native').catch(error => runtime.report(error)) }
@@ -353,6 +391,8 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     ...(process.platform !== 'darwin' ? { icon: unpackedPath(join(root, 'build', process.platform === 'win32' ? 'app-icon.ico' : 'app-icon.png')) } : {}),
     ...(!primary ? auxiliaryWindowChromeOptions() : {}),
     ...(process.platform === 'win32' && primary ? {
+      // Match the official initial canvas before the renderer paints its theme.
+      backgroundColor: nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb',
       titleBarStyle: 'hidden' as const,
       titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: WINDOWS_CAPTION_FILL,
         symbolColor: nativeTheme.shouldUseDarkColors ? '#f9fafb' : '#0f1115' },
@@ -366,27 +406,35 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     // `DesktopBrowserGuests` issued the lease, and the guest itself never gets the tag.
     webPreferences: { preload: join(root, 'lib', preload), contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: primary },
   })
+  // Keep the primitive ID: late console events can arrive after the native window is destroyed.
+  const consoleWebContentsId = window.webContents.id
   let intervalStart = Date.now()
   let count = 0
   let failureCount = 0
   // The Host log otherwise misses client slot failures: the renderer can retire
   // an entry (and its portalled dialog) without crashing the Electron process.
-  window.webContents.on('console-message', (event, _level, legacyMessage) => {
+  window.webContents.on('console-message', (event, _level, legacyMessage, legacyLine, legacySource) => {
     // Electron versions differ: older runtimes pass the message as the third
     // argument, newer ones put it on the event. Never assume either exists.
     const message = typeof legacyMessage === 'string' ? legacyMessage : event?.message
     if (typeof message !== 'string') return
     const level = typeof event?.level === 'string' ? event.level : _level
     const failure = level === 'error' || level === 3 || message.includes('[next-ui-error]') || message.includes('slot entry crashed') || message.includes('slot factory occurrence crashed')
-    if (!failure && !runtime.preferences.developerLogging) return
+    const bootWarning = message.startsWith('web boot: warning')
+    const important = failure || bootWarning
+    if (!important && !runtime.preferences.developerLogging) return
     if (Date.now() - intervalStart >= 1000) { intervalStart = Date.now(); count = 0; failureCount = 0 }
-    const currentCount = failure ? ++failureCount : ++count
+    const currentCount = important ? ++failureCount : ++count
     if (currentCount > 100) {
       if (currentCount === 101) runtime.diagnostics.record({ source: 'renderer', event: 'console.rate-limited', level: 'warn' })
       return
     }
-    runtime.diagnostics.record({ source: 'renderer', event: 'console', level: failure ? 'error' : level === 'warning' || level === 2 ? 'warn' : 'info',
-      message: message.slice(0, 8192), developer: !failure, fields: { webContentsId: window.webContents.id } })
+    const sourceId = typeof event?.sourceId === 'string' ? event.sourceId : legacySource
+    const lineNumber = typeof event?.lineNumber === 'number' ? event.lineNumber : legacyLine
+    runtime.diagnostics.record({ source: 'renderer', event: 'console', level: failure ? 'error' : bootWarning || level === 'warning' || level === 2 ? 'warn' : 'info',
+      message: message.slice(0, 8192), developer: !important, fields: { webContentsId: consoleWebContentsId,
+        ...(typeof sourceId === 'string' ? { sourceId: sourceId.slice(0, 2048) } : {}),
+        ...(Number.isFinite(lineNumber) ? { lineNumber } : {}) } })
   })
   window.once('ready-to-show', () => {
     const maximize = restored?.maximized === true && !quitting && !window.isDestroyed()
@@ -412,7 +460,18 @@ function createWindow(preload: string, primary = false): BrowserWindow {
   const openExternal = (url: string): void => {
     try { if (['https:', 'http:', 'mailto:'].includes(new URL(url).protocol)) void shell.openExternal(url).catch(error => runtime.report(error)) } catch { /* Ignore malformed external links. */ }
   }
-  window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' } })
+  // Pages open their windows in the system browser, except the Relay sign-in popup the LiveShare owner page opens.
+  const ownerLogin = primary ? liveshareOwnerLogin : undefined
+  window.webContents.setWindowOpenHandler((details) => {
+    if (ownerLogin?.accepts(details)) return { action: 'allow', overrideBrowserWindowOptions: ownerLogin.windowOptions(window) }
+    openExternal(details.url)
+    return { action: 'deny' }
+  })
+  if (ownerLogin !== undefined) {
+    window.webContents.on('did-create-window', (child) => {
+      ownerLogin.guard(child.webContents, { hostOrigin: () => runtime.auth === undefined ? undefined : new URL(runtime.auth.url).origin, openExternal })
+    })
+  }
   window.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith(primary ? APP_URL : SHELL_URL)) { event.preventDefault(); openExternal(url) }
   })
@@ -532,7 +591,11 @@ function resetRendererRecovery(owner: BrowserWindow): void {
     reload: () => loadMainDocument(owner, 'recovery'),
     exhausted: detail => runtime.report(new Error(`Renderer recovery exhausted: ${detail}`), rendererHealthy ? 'renderer-runtime' : 'renderer-startup'),
     healthy: () => { rendererHealthy = true },
-    record: (event, fields) => runtime.diagnostics.record({ source: 'renderer', event, fields }),
+    record: (event, fields) => {
+      runtime.diagnostics.record({ source: 'renderer', event, fields })
+      // A freshly mounted interface is the sample worth keeping until the next periodic one.
+      if (event === 'renderer.ready') void rendererEvidence.refresh()
+    },
   })
 }
 
@@ -602,6 +665,14 @@ async function confirmed(message: string, detail = t('将停止当前 Host，正
   const result = await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
   return result.response === 0 && !quitting
 }
+/** Explain a folder choice that overlaps the installation; true opens the folder dialog again. */
+async function chooseAgain(purpose: ProgramDirectoryPurpose, overlap: ProgramDirectoryOverlap, owner: BrowserWindow | undefined): Promise<boolean> {
+  const text = programDirectoryRefusal(purpose, overlap, program, language())
+  const options = { type: 'warning' as const, title: text.title, message: text.message, detail: text.detail,
+    buttons: [...text.buttons], defaultId: 0, cancelId: 1, noLink: true }
+  const result = await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
+  return result.response === 0 && !quitting
+}
 /** Say where Profile repair saved the previous configuration before the relaunch opens Desktop setup. */
 async function announceRepair(backup: string): Promise<void> {
   const owner = raiseDialogOwner()
@@ -618,22 +689,29 @@ function confirmLanAccess(): Promise<boolean> {
     t('同一网络中的设备可以连接。请仅向可信设备分享登录链接，并在设备上核对和信任 CA 证书。', 'Devices on your local network can connect. Share login links only with trusted devices, and verify and trust the CA certificate on each device.'),
   )
 }
+/** Linux packages are not installed in the app: open the release page, which carries every package format. */
+function openUpdateDownload(version: string | undefined): void {
+  void shell.openExternal(releaseNotesUrl(version)).catch(error => runtime.diagnostics.append(String(error), 'warn'))
+}
 async function promptAvailableUpdate(): Promise<void> {
   if (quitting || runtime.busy) return
   const snapshot = updates.snapshot()
-  if (snapshot.phase !== 'available' || !snapshot.installable) return
+  const manual = process.platform === 'linux'
+  if (snapshot.phase !== 'available' || !snapshot.installable && !manual) return
   const owner = raiseDialogOwner()
   const options = {
     type: 'info' as const,
     title: 'DSH Desktop Beta',
     message: updateLabel(snapshot, windowsLanguage),
-    buttons: [t('下载更新', 'Download update'), t('稍后', 'Later')],
+    buttons: [manual ? t('前往下载', 'Open download page') : t('下载更新', 'Download update'), t('稍后', 'Later')],
     defaultId: 0,
     cancelId: 1,
-    detail: t('下载完成后可一键安装并重启。', 'When the download finishes, choose Install and restart.'),
+    detail: manual ? manualUpdateHint(windowsLanguage) : t('下载完成后可一键安装并重启。', 'When the download finishes, choose Install and restart.'),
   }
   const choice = await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
-  if (choice.response === 0 && !quitting && !runtime.busy) void updates.download()
+  if (choice.response !== 0 || quitting) return
+  if (manual) openUpdateDownload(snapshot.version)
+  else if (!runtime.busy) void updates.download()
 }
 async function openPath(path: string): Promise<void> { const error = await shell.openPath(path); if (error) throw new Error(error) }
 
@@ -671,20 +749,22 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
   if (type === 'close-controls') { shellWindow?.close(); return }
   if (type === 'quit') { app.quit(); return }
   if (['check-updates', 'download-update', 'install-update'].includes(type)) {
-    if (!['darwin', 'win32'].includes(process.platform) || quitting || runtime.busy) return
+    if (!['darwin', 'win32', 'linux'].includes(process.platform) || quitting || runtime.busy) return
     if (type === 'check-updates') {
       void updates.check().then(async () => {
         if (source !== 'native' || quitting) return
         const snapshot = updates.snapshot()
-        if (snapshot.phase === 'available' && snapshot.installable) await promptAvailableUpdate()
+        if (snapshot.phase === 'available' && (snapshot.installable || process.platform === 'linux')) await promptAvailableUpdate()
         else {
           const owner = raiseDialogOwner()
           const options = { type: 'info' as const, title: 'DSH Desktop Beta', message: updateLabel(snapshot, windowsLanguage) }
           await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
         }
       }).catch(error => runtime.diagnostics.append(String(error), 'warn'))
-    } else if (type === 'download-update') void updates.download()
-    else {
+    } else if (type === 'download-update') {
+      if (process.platform === 'linux') openUpdateDownload(updates.snapshot().version)
+      else void updates.download()
+    } else {
       if (updates.snapshot().phase !== 'ready') return
       void updates.install()
     }
@@ -779,16 +859,28 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
     if (type === 'export-ca' || type === 'diagnostics') {
       const certificate = runtime.lan?.caCertificate
       if (type === 'export-ca' && !certificate) throw new Error('LAN certificate is unavailable')
+      // Sample the page while the save dialog is open: the renderer is the only part of the
+      // export that has to be asked, and the dialog covers its sampling second.
+      const sampling = type === 'diagnostics' ? collectRendererDiagnostics(mainWindow?.webContents) : undefined
       const owner = raiseDialogOwner()
       const options = { title: type === 'export-ca' ? t('导出局域网 CA 证书', 'Export LAN CA certificate') : t('导出诊断（分享前请检查内容）', 'Export diagnostics (review before sharing)'),
         defaultPath: type === 'export-ca' ? 'dsh-plugin-desktop-beta-ca.crt' : `dsh-plugin-desktop-beta-diagnostics-${Date.now()}.json`,
         filters: [{ name: type === 'export-ca' ? 'CA certificate' : 'Diagnostics', extensions: [type === 'export-ca' ? 'crt' : 'json'] }] }
       const result = await (owner === undefined ? dialog.showSaveDialog(options) : dialog.showSaveDialog(owner, options))
-      if (!result.canceled && result.filePath && !quitting) {
-        if (type === 'export-ca') await writeFile(result.filePath, certificate!, { mode: 0o600 })
-        else await runtime.diagnostics.exportTo(result.filePath, state())
-        if (type === 'diagnostics') diagnosticsFile = result.filePath
+      if (result.canceled || !result.filePath || quitting) {
+        // A cancelled export drops the sample; observe it so a future failure cannot surface
+        // as an unhandled rejection in the fail-loud main process.
+        void sampling?.catch(() => {})
+        return
       }
+      if (type === 'export-ca') await writeFile(result.filePath, certificate!, { mode: 0o600 })
+      else {
+        // Sampling never fails the export; an unsampled renderer is itself diagnostic.
+        const renderer = await sampling!
+        runtime.diagnostics.record({ source: 'renderer', event: 'export.snapshot', fields: rendererDiagnosticsFields(renderer) })
+        await runtime.diagnostics.exportTo(result.filePath, state(), renderer)
+      }
+      if (type === 'diagnostics') diagnosticsFile = result.filePath
       return
     }
     if (type === 'preferences') {
@@ -929,6 +1021,18 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
     app.quit()
     return
   }
+  if (action === 'host-startup-timeout') {
+    // The original environment's limit; Safe Mode keeps its own fixed one.
+    const limit = hostStartupTimeoutFromId(input.id)
+    runtime.saveStartupTimeout(limit)
+    runtime.diagnostics.record({ source: 'desktop', event: 'host.start-limit.saved', fields: { limit, safeMode: runtime.safeMode } })
+    const zh = language() === 'zh'
+    const restart = runtime.safeMode ? t('退出安全模式并重启', 'Exit Safe Mode and Restart') : t('退出并重启', 'Quit and restart')
+    recoveryNotice = { tone: 'success', title: hostStartupLimitTitle(zh),
+      body: t(`已改为${limit === 'none' ? '' : ' '}${hostStartupTimeoutLabel(limit, zh)}。请点击“${restart}”使其生效。`,
+        `${limit === 'none' ? 'The startup limit is removed' : `The startup limit is now ${String(limit)} seconds`}. Choose “${restart}” to apply it.`) }
+    return
+  }
   const directory = runtime.profiles.directory(runtime.selected)
   const files: Record<string, string> = {
     'open-settings-document': join(home, 'settings.yaml'),
@@ -1002,6 +1106,23 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
   throw new Error('Unknown recovery action')
 }
 
+/**
+ * Replace this process with the packaged CLI on this launch's data directory and selected Profile.
+ * An unreadable data directory choice sends the desktop into recovery, so no command runs on the fallback.
+ */
+function execDshCommand(args: readonly string[]): never {
+  if (dataLocation.error) {
+    console.error(`dsh-plugin-desktop-beta: the data directory choice cannot be read; open DSH Desktop Beta to repair it: ${dataLocation.error}`)
+    return process.exit(1)
+  }
+  let profile: string | undefined
+  try { profile = new NextProfiles(home).active } catch (error) {
+    console.error(`dsh-plugin-desktop-beta: the selected Profile cannot be read; name one with --profile: ${String(error)}`)
+  }
+  const command = dshCommandInvocation({ executable: process.execPath, root, args, home, profile, environment: process.env })
+  return process.execve!(command.file, command.args, command.env)
+}
+
 function rememberLaunchDirectory(directory: string): void {
   try { rememberDataDirectory(locationRoot, directory) } catch (error) { runtime.diagnostics.append(`Data directory record: ${String(error)}`, 'warn') }
 }
@@ -1052,8 +1173,10 @@ async function changeDataDirectory(restoreDefault: boolean): Promise<void> {
   if (!restoreDefault) {
     const owner = raiseDialogOwner()
     const options: OpenDialogOptions = { properties: ['openDirectory', 'createDirectory'] }
-    const choice = await (owner === undefined ? dialog.showOpenDialog(options) : dialog.showOpenDialog(owner, options))
-    const selected = choice.canceled ? undefined : choice.filePaths[0]
+    const selected = await pickOutsideProgramDirectory(async () => {
+      const choice = await (owner === undefined ? dialog.showOpenDialog(options) : dialog.showOpenDialog(owner, options))
+      return choice.canceled ? undefined : choice.filePaths[0]
+    }, choice => refusedProgramDirectoryOverlap('data', choice, program), overlap => chooseAgain('data', overlap, owner))
     if (!selected || !isAbsolute(selected)) return
     target = selected
   }
@@ -1146,6 +1269,7 @@ function timed<T>(operation: Promise<T>): Promise<Timed<T>> {
 async function main(): Promise<void> {
   await app.whenReady()
   if (quitting) return
+  rendererEvidence.start()
   let inputRevision = 0
   let inputBlocked = false
   desktopShortcuts = installDesktopShortcuts(() => mainWindow, app.getPath('userData'),
@@ -1244,6 +1368,20 @@ async function main(): Promise<void> {
     assertSender(event, mainWindow, APP_URL)
     return browserGuests.release(event.sender, lease)
   })
+  // The Platform page's own preload asks for its credentials synchronously; bootstrap answers only that view's main frame.
+  ipcMain.on(PLATFORM_IPC.bootstrap, (event) => {
+    try { event.returnValue = platformView.bootstrap(event) } catch { event.returnValue = null }
+  })
+  ipcMain.handle(PLATFORM_IPC.open, (event, page: unknown, bounds: unknown) => {
+    assertSender(event, mainWindow, APP_URL)
+    if (page !== 'usage' && page !== 'top-up') throw new Error('Invalid Platform page')
+    return platformView.open(mainWindow!, page, platformBounds(bounds))
+  })
+  ipcMain.handle(PLATFORM_IPC.bounds, (event, bounds: unknown) => {
+    assertSender(event, mainWindow, APP_URL)
+    platformView.setBounds(platformBounds(bounds))
+  })
+  ipcMain.handle(PLATFORM_IPC.close, (event) => { assertSender(event, mainWindow, APP_URL); platformView.close() })
   ipcMain.handle(IPC.permissionQuery, (event, permission: unknown) => { assertDesktopSender(event); return permissions.query(permission) })
   const permissionGesture = async (event: IpcMainInvokeEvent): Promise<void> => {
     assertDesktopSender(event)
@@ -1271,6 +1409,14 @@ async function main(): Promise<void> {
       return forwardWebRequest(new Request(url, { headers: { [NATIVE_ACCESS_HEADER]: auth.token } }), auth.url, auth.cookie, auth.token)
     },
   })
+  installFileActions?.({ app, ipcMain, net, session }, (event) => {
+    assertSender(event, mainWindow, APP_URL)
+    return mainWindow!
+  }, () => runtime.auth?.url)
+  disposeFileDrag = installDesktopFileDrag?.({ app, ipcMain }, (event) => {
+    assertSender(event, mainWindow, APP_URL)
+    return mainWindow!
+  }, (address, signal) => runtime.dragResource(address, signal))
   ipcMain.handle(IPC.material, event => { assertSender(event, mainWindow, APP_URL); return windowMaterial(runtime.preferences) })
   ipcMain.handle(IPC.command, (event, value: unknown) => { assertDesktopSender(event); return command(value, event.sender === shellWindow?.webContents ? 'shell' : 'app') })
   let picking: Promise<string | null> | undefined
@@ -1278,8 +1424,10 @@ async function main(): Promise<void> {
     assertSender(event, mainWindow, APP_URL)
     const window = mainWindow!
     show(window)
-    picking ??= dialog.showOpenDialog(window, { properties: ['openDirectory', 'createDirectory'] })
-      .then(result => result.canceled ? null : result.filePaths[0] ?? null).finally(() => { picking = undefined })
+    picking ??= pickOutsideProgramDirectory(
+      () => dialog.showOpenDialog(window, { properties: ['openDirectory', 'createDirectory'] }).then(result => result.canceled ? undefined : result.filePaths[0]),
+      choice => refusedProgramDirectoryOverlap('workspace', choice, program), overlap => chooseAgain('workspace', overlap, window))
+      .then(path => path ?? null).finally(() => { picking = undefined })
     return picking
   })
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
@@ -1307,6 +1455,7 @@ async function main(): Promise<void> {
     }
     if (language === windowsLanguage) return
     windowsLanguage = language
+    platformView.notifyLocaleChanged()
     native.refresh()
   })
   ipcMain.handle(IPC.localeRead, event => {
@@ -1388,6 +1537,7 @@ app.on('before-quit', event => {
   event.preventDefault()
   quitting = true
   rendererRecovery?.stop()
+  rendererEvidence.stop()
   // Pending evidence lands now; a Host that dies of OOM while stopping is written at once.
   runtime.memory.stop()
   runtime.diagnostics.record({ source: 'electron', event: 'shutdown.start' })
@@ -1437,7 +1587,13 @@ app.on('before-quit', event => {
   platformLogin.close()
   const updatesDone = runtime.diagnostics.operation('electron', 'updates.dispose')
   const recoveryDone = runtime.diagnostics.operation('electron', 'recovery.dispose')
-  void Promise.all([updates.dispose(installingUpdate).then(() => updatesDone(), error => { updatesDone(error); throw error }), (async () => { try { await recoveryRunner?.dispose(); recoveryDone() } catch (error) { recoveryDone(error); throw error }; await runtime.close() })()]).then(async () => {
+  // Clears the Platform page's sign-in before exit or an installer handoff; a failed cleanup is recorded,
+  // not a failed shutdown, and the next page open clears that storage again.
+  const platformDone = runtime.diagnostics.operation('electron', 'platform.dispose')
+  void Promise.all([updates.dispose(installingUpdate).then(() => updatesDone(), error => { updatesDone(error); throw error }), (async () => { try { await recoveryRunner?.dispose(); recoveryDone() } catch (error) { recoveryDone(error); throw error }; await runtime.close() })(),
+    platformView.dispose().then(() => platformDone(), error => platformDone(error)),
+    // A temporary drag export that cannot be removed is recorded, not a failed shutdown.
+    disposeFileDrag?.().catch(error => runtime.diagnostics.append(`File drag cleanup: ${String(error)}`, 'warn'))]).then(async () => {
     if (!finish()) return
     // A staged installer must survive until handoff; the next boot removes it.
     if (safeModeRequested && !installingUpdate) {

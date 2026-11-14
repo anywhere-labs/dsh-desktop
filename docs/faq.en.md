@@ -6,7 +6,7 @@ This page answers common questions about installation, supported platforms, the 
 
 ## What is DSH Desktop?
 
-DSH Desktop is an open-source DeepSeek Harness desktop client for Windows and macOS. It packages the official Harness local Web UI, Host service, and plugin system into a native desktop application with a window, system tray, terminal, updates, and profile management.
+DSH Desktop is an open-source DeepSeek Harness desktop client for Windows, macOS, and Linux. It packages the official Harness local Web UI, Host service, and plugin system into a native desktop application with a window, system tray, terminal, updates, and profile management.
 
 ## Is this an official DeepSeek product?
 
@@ -14,7 +14,7 @@ No. DSH Desktop is an independent, community-maintained open-source project. It 
 
 ## Which operating systems are supported?
 
-Current release installers support Windows x64 and universal macOS (Intel and Apple Silicon). Linux x64 AppImage and deb artifacts are built by CI but have not shipped with any published release yet; until you see Linux artifacts in the release notes, cross-platform compatibility code in the source tree does not imply that an installer has been released for that platform. Linux arm64 artifacts are not offered.
+Current release installers support Windows x64, universal macOS (Intel and Apple Silicon), and Linux (x64 and arm64). Linux comes as deb, AppImage, and tar.gz packages published only on [GitHub Releases](https://github.com/anywhere-labs/dsh-desktop/releases/latest); see [Linux installation in the README](../README.en.md#linux) for which to pick and how to install it.
 
 ## Do I need to install Node.js, pnpm, or DSH?
 
@@ -44,6 +44,8 @@ No plugins are copied automatically. Each profile has its own bundle and depende
 
 Packaged applications check for stable releases in the background but never install silently. A newer version requires confirmation. Before downloading, a native save dialog lets you choose the installer's directory and filename; cancelling it does not start a download. macOS downloads and opens a DMG; Windows downloads and starts an NSIS installer. After the upgrade and next launch, the app asks whether to delete or keep the installer. Network and download failures leave the current installation intact.
 
+Linux builds cannot install updates in the app: they also check in the background and tell you about a new version, and **Open download page** opens that version's release page, where you download the deb, AppImage, or tar.gz that matches your installation and update manually.
+
 ## Does the app use my system proxy?
 
 Yes. At startup the app reads the operating system's proxy configuration — Windows Internet options, macOS network settings, Linux desktop settings, including automatic configuration scripts (PAC/WPAD) — and applies it to everything it sends: model conversations, web fetches, web search, MCP servers, plugin installs, and commands the app starts in its terminal. Turning on the "system proxy" switch in a client such as Clash or v2rayN is enough; nothing needs to be entered in the app.
@@ -59,4 +61,4 @@ A few rules worth knowing:
 
 ## Where can I download the app or report a problem?
 
-Download from the [project download page](https://www.dshdesktop.cn/) or the [latest GitHub Release](https://github.com/anywhere-labs/deepseek-harness-desktop/releases/latest). Check the [troubleshooting section](user-guide.en.md#troubleshooting) first. If the problem remains, open a [GitHub Issue](https://github.com/anywhere-labs/deepseek-harness-desktop/issues/new/choose) with the operating system, app version, reproduction steps, and error details.
+Download from the [project download page](https://www.dshdesktop.cn/) or the [latest GitHub Release](https://github.com/anywhere-labs/deepseek-harness-desktop/releases/latest); Linux packages are published only on GitHub Releases. Check the [troubleshooting section](user-guide.en.md#troubleshooting) first. If the problem remains, open a [GitHub Issue](https://github.com/anywhere-labs/deepseek-harness-desktop/issues/new/choose) with the operating system, app version, reproduction steps, and error details.

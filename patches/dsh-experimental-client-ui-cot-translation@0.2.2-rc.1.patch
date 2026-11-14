@@ -1,0 +1,14 @@
+diff --git a/lib/client.js b/lib/client.js
+index d374027ac8..20a93a17fa 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -1144,6 +1144,9 @@ window.__ModuleLoader__.load({
+ 				throw error;
+ 			}
+ 			if (initial === void 0) return;
++			// DSH Desktop: a LiveShare reader may not read the owner's translation limits; the reasoning stays as written
++			// there instead of the reader's whole page failing to load.
++			if (!initial.ok && initial.error?.code === "remote-access/denied") return;
+ 			if (!initial.ok) throw initial.error;
+ 			const preferences = (0, _deepseek_ai_dsh_client_store.createSnapshotStore)(initial.value.preferences);
+ 			const translationLimit = (0, _deepseek_ai_dsh_client_store.createSnapshotStore)(initial.value.maxTextChars);

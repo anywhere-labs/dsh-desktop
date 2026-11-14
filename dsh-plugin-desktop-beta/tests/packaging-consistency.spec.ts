@@ -19,7 +19,7 @@ const pkgName = (JSON.parse(readFileSync(new URL('package.json', packageRoot), '
 const manifest = JSON.parse(readFileSync(new URL('package.json', packageRoot), 'utf8')) as {
   name: string
   exports: Record<string, { types?: string; default?: string } | string>
-  build?: { files?: string[] }
+  build?: { files?: { from?: string; filter?: string[] }[] | string[] }
   dsh?: { bundle?: { patch?: string } }
 }
 
@@ -32,6 +32,9 @@ for (const m of tsdownSource.matchAll(/['"]([\w][\w/.-]*)['"]\s*:\s*['"](src\/[\
   tsdownEntryKeys.add(m[1] as string)
 }
 for (const m of tsdownSource.matchAll(/^\s*(\w+)\s*:\s*['"](src\/[\w/.-]+\.ts)['"]/gm)) {
+  tsdownEntryKeys.add(m[1] as string)
+}
+for (const m of tsdownSource.matchAll(/(?:^|[{,])\s*(\w+)\s*:\s*['"](src\/[\w/.-]+\.ts)['"]/g)) {
   tsdownEntryKeys.add(m[1] as string)
 }
 
@@ -86,12 +89,14 @@ describe('desktop packaging chain consistency', () => {
 
   it('ships the runtime entry files inside the electron-builder bundle', () => {
     const files = manifest.build?.files ?? []
-    expect(files).toContain('lib/**')
-    expect(files).toContain('cordis.patch.yml')
-    expect(files).toContain('package.json')
-    // The preload/native-ui planes are produced into lib/ (covered by `lib/**`);
-    // the npm publish `files` must additionally cover the .cjs preload outputs.
-    const publishFiles = (manifest as { files?: string[] }).files ?? []
-    expect(publishFiles).toContain('lib/**/*.cjs')
+    const roots = files.map(entry => (typeof entry === 'string' ? entry : entry.from))
+    expect(roots, 'electron-builder must archive the prepared payload').toContain('.desktop-build/payload')
+    expect(manifest.dsh?.bundle?.patch).toBe('./cordis.patch.yml')
+    // The payload tree keeps the runtime entry files at its root; the prepared
+    // payload (not the project root) is what Electron Builder archives.
+    const payloadSource = readFileSync(new URL('scripts/packaged-payload.ts', packageRoot), 'utf8')
+    for (const name of ["'lib'", "'cordis.patch.yml'", "'package.json'"]) {
+      expect(payloadSource, `prepared payload must carry ${name}`).toContain(name)
+    }
   })
 })

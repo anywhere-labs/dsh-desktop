@@ -3,6 +3,7 @@ import { unpackedPath } from './asar-archive-policy.ts'
 import { join } from 'node:path'
 import { Menu, nativeImage, nativeTheme, Notification, Tray, type BrowserWindow } from 'electron'
 import { desktopMenu } from './desktop-menu.ts'
+import { startupNoticeCopy, type DesktopStartupNotice } from './host-startup-limit.ts'
 import { notificationCopy, notificationEnabled } from './notifications.ts'
 import type { DesktopCommand, DesktopPreferences, DesktopState, DesktopNotification } from './desktop-contract.ts'
 import { windowMaterial } from './window-material.ts'
@@ -62,6 +63,21 @@ export class NativeDesktop {
     notification.once('failed', (_event, error) => { this.notifications.delete(notification); this.options.warn(error) })
     notification.show()
     if (this.notifications.size > 10) { const oldest = this.notifications.values().next().value!; oldest.close(); this.notifications.delete(oldest) }
+  }
+  /**
+   * Say once that a Host start allowed more than a minute is still going, and where recovery is: the
+   * Windows tray icon is often hidden among the overflow icons.
+   * @returns Withdraws the notification once the start settles.
+   */
+  notifyStartupSlow(notice: DesktopStartupNotice): () => void {
+    if (!Notification.isSupported()) return () => {}
+    const notification = new Notification(startupNoticeCopy(notice, this.options.language(), process.platform, this.available))
+    this.notifications.add(notification)
+    notification.once('click', this.options.show)
+    notification.once('close', () => this.notifications.delete(notification))
+    notification.once('failed', (_event, error) => { this.notifications.delete(notification); this.options.warn(error) })
+    notification.show()
+    return () => { if (this.notifications.delete(notification)) notification.close() }
   }
   notifyUpdate(version: string, onSelect: () => void): void {
     if (!Notification.isSupported()) { onSelect(); return }

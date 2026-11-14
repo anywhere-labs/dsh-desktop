@@ -78,7 +78,7 @@ interface RegisteredRoute {
 async function createAgentInTest(
   ctx: Context,
   id: string,
-  options?: { parentSession?: SessionId; owner?: Agent },
+  options?: { parentSession?: SessionId },
 ): Promise<{ agent: Agent; scope: Scope; steer: ReturnType<typeof vi.fn> }> {
   const session = ctx.sessions.create(SessionId(id), {
     ...(options?.parentSession ? { meta: { parentSession: options.parentSession } } : {}),
@@ -101,12 +101,7 @@ async function createAgentInTest(
       { inject: ['tools', 'systemPrompt', 'commands', 'sessions', 'agents'] },
     ),
   )
-  if (options?.owner) {
-    ctx.agents.enter(agent, options.owner)
-    await ctx.agents.announce(agent, 'startup')
-  } else {
-    await ctx.agents.register(agent)
-  }
+  await ctx.agents.register(agent)
   return { agent, scope, steer }
 }
 
@@ -243,7 +238,6 @@ describe('installComputerUseCommand', () => {
     // Subagent spawned under Session A inherits Session A's enabled state
     const { agent: subagentA } = await createAgentInTest(ctx, 'subagent-a', {
       parentSession: agentA.id,
-      owner: agentA,
     })
     const assemblySubagent = await ctx.systemPrompt.assemble(assembleContextFor(subagentA))
     expect(assemblySubagent.tools.map(tool => tool.name)).toContain(

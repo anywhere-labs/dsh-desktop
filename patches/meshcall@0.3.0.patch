@@ -1,0 +1,12 @@
+diff --git a/dist/src/client.js b/dist/src/client.js
+index fe69181..dd478b9 100644
+--- a/dist/src/client.js
++++ b/dist/src/client.js
+@@ -410,6 +410,7 @@ export class MeshCallClient {
+             });
+         }
+         this.calls.set(callId, pending);
++        result.catch(() => undefined); // #1574: a deadline, abort or peer error during the call.open write must not be unhandled
+         return { pending, result };
+     }
+     async pumpInput(callId, pending, items, stop) {

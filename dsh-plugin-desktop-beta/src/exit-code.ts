@@ -48,6 +48,8 @@ export interface DesktopProcessExit {
 /** Host exit facts shown by the recovery assistant; `output` is the last stderr text before the exit. */
 export interface DesktopHostExit extends DesktopProcessExit {
   readonly output: string
+  /** The first line of the fatal error the Host reported before it exited, if it reported one. */
+  readonly fatal?: string
 }
 
 /**
@@ -91,8 +93,9 @@ export function exitMeaning(exit: DesktopProcessExit, locale: 'zh' | 'en'): stri
 }
 
 /**
- * Recovery detail for a Host that ended: the exit and its usual meaning, then the last stderr text
- * labelled as possibly unrelated, because plugins print freely and the final lines rarely name a crash.
+ * Recovery detail for a Host that ended: the exit and its usual meaning, the fatal error the Host reported
+ * when it reported one, then the last stderr text labelled as possibly unrelated, because plugins print
+ * freely and the final lines rarely name a crash.
  * @param exit - How the Host ended and its last stderr text.
  * @param locale - Display language.
  * @returns Plain text for the recovery assistant's failure detail.
@@ -106,6 +109,9 @@ export function hostExitDetail(exit: DesktopHostExit, locale: 'zh' | 'en'): stri
       : zh ? `插件服务进程已退出，退出码 ${codeText(exit.code, locale)}` : `The Plugin Host process exited with code ${codeText(exit.code, locale)}`
   const meaning = exitMeaning(exit, locale)
   const summary = meaning === undefined ? ended : `${ended}${zh ? '：' : ': '}${meaning}`
-  if (exit.output === '') return summary
-  return `${summary}\n\n${zh ? '退出前最后的 stderr 输出（可能与退出原因无关）：' : 'Last stderr output before the exit (may be unrelated to the cause):'}\n${exit.output}`
+  // The fatal line names the cause, so it stays in view above the tail, which may no longer contain it.
+  const cause = exit.fatal === undefined ? summary
+    : `${summary}\n${zh ? '插件服务报告的致命错误：' : 'Fatal error reported by the Plugin Host: '}${exit.fatal}`
+  if (exit.output === '') return cause
+  return `${cause}\n\n${zh ? '退出前最后的 stderr 输出（可能与退出原因无关）：' : 'Last stderr output before the exit (may be unrelated to the cause):'}\n${exit.output}`
 }

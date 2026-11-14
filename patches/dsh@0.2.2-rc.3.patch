@@ -1,0 +1,25 @@
+diff --git a/lib/profile-boot-QhDEDXsF.js b/lib/profile-boot-QhDEDXsF.js
+index 01109f4..f2017cc 100644
+--- a/lib/profile-boot-QhDEDXsF.js
++++ b/lib/profile-boot-QhDEDXsF.js
+@@ -301,6 +301,7 @@ async function runProfile(options) {
+ 		const profileContext = {
+ 			name: options.profile,
+ 			...options.packageManager === void 0 ? {} : { packageManager: options.packageManager },
++			...options.resolvedProfile?.readPatches === void 0 ? {} : { readPatches: options.resolvedProfile.readPatches },
+ 			dir: composed.profile.dir,
+ 			patchPath: composed.profile.patchPath,
+ 			installAnchor: options.resolvedProfile?.installAnchor ?? INSTALL_ANCHOR,
+diff --git a/lib/types/profile-boot.d.ts b/lib/types/profile-boot.d.ts
+index b4131a6..9b729a7 100644
+--- a/lib/types/profile-boot.d.ts
++++ b/lib/types/profile-boot.d.ts
+@@ -65,6 +65,8 @@ export interface ResolvedProfileRuntime {
+     profile: Profile;
+     /** Absolute package.json path of the application's dsh installation. */
+     installAnchor: string;
++    /** Application-owned composition for subsequent configuration edits and HMR. */
++    readPatches?: ProfileContext['readPatches'];
+ }
+ /** Options for {@link runProfile}. */
+ export interface RunProfileOptions {

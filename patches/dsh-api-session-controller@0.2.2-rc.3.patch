@@ -1,0 +1,18 @@
+diff --git a/lib/index.js b/lib/index.js
+index 55a7343..0729e79 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -3183,7 +3183,13 @@ let SessionSkillCatalog = (() => {
+ 						cwd = observation.projections.values.workingDirectory ?? observation.header.cwd ?? this.ctx.workingDirectory.defaultDirectory;
+ 						agentPreset = observation.projections.values.agentPreset ?? void 0;
+ 						const live = this.ctx.agents.get(sessionId);
++						try {
+ 						if (live !== void 0) cwd = await this.ctx.workingDirectory.ensure(live, signal);
++						} catch (error) {
++							// A Session whose project directory and recorded original are both gone still lists its user and
++							// bundled skills under the recorded directory; failing here empties the composer's `/` skill group.
++							if (error?.name !== "WorkingDirectoryError" || error.code !== "WORKING_DIRECTORY_UNAVAILABLE") throw error;
++						}
+ 					} catch (e_1) {
+ 						env_2.error = e_1;
+ 						env_2.hasError = true;

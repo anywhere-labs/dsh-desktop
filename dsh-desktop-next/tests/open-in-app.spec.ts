@@ -10,9 +10,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 const fixture = vi.hoisted(() => ({
   platform: 'darwin', spawn: vi.fn(), execFile: vi.fn(), exitCode: 0,
   directories: new Set<string>(), files: new Set<string>(), aliases: new Map<string, string>(),
+  executables: new Map<string, string>(), contents: new Map<string, string>(),
 }))
 const workspace = '/fixture/workspace with spaces 中文'
 const localAppData = '/fixture/local'
+const dataDirectory = '/fixture/share'
 const githubDirectory = `${localAppData}/GitHubDesktop/app-1.0`
 const terminalAlias = `${localAppData}/Microsoft/WindowsApps/wt.exe`
 const terminalPackage = 'C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal_1.24.11911.0_x64__8wekyb3d8bbwe\\wt.exe'
@@ -38,7 +40,11 @@ vi.mock('node:fs/promises', async importOriginal => ({
     if (path.replaceAll('\\', '/') === `${localAppData}/GitHubDesktop`) return ['app-1.0']
     throw missing()
   },
-  readFile: async () => { throw missing() },
+  readFile: async (path: string) => {
+    const content = fixture.contents.get(path.replaceAll('\\', '/'))
+    if (content === undefined) throw missing()
+    return content
+  },
   // An App Execution Alias is a reparse point: lstat sees a link, and its target is the packaged executable.
   lstat: async (path: string) => {
     if (!fixture.aliases.has(path.replaceAll('\\', '/'))) throw missing()
@@ -57,10 +63,14 @@ vi.mock('@deepseek-ai/dsh-native-command', async importOriginal => ({
   // dsh 0.1.7 resolves Linux desktop entries through this helper. It is pure path
   // arithmetic, so the real one is used alongside the captured command boundary.
   desktopDataDirectories: (await importOriginal<typeof import('@deepseek-ai/dsh-native-command')>()).desktopDataDirectories,
+  // Linux icons follow a desktop entry's Icon= key; the real helpers parse the entry and read the fixture icon.
+  desktopEntryFields: (await importOriginal<typeof import('@deepseek-ai/dsh-native-command')>()).desktopEntryFields,
+  desktopApplicationIcon: (await importOriginal<typeof import('@deepseek-ai/dsh-native-command')>()).desktopApplicationIcon,
 }))
 
 beforeEach(() => {
   fixture.directories.clear(); fixture.files.clear(); fixture.aliases.clear()
+  fixture.executables.clear(); fixture.contents.clear()
   fixture.directories.add(workspace)
   fixture.platform = 'darwin'; fixture.exitCode = 0
   fixture.execFile.mockReset().mockImplementation((_command, _args, _options, callback) => {
@@ -72,6 +82,8 @@ beforeEach(() => {
     return child
   })
   vi.stubEnv('LOCALAPPDATA', localAppData)
+  vi.stubEnv('XDG_DATA_HOME', `${dataDirectory}-home`)
+  vi.stubEnv('XDG_DATA_DIRS', dataDirectory)
   vi.stubEnv('ELECTRON_RUN_AS_NODE', '1')
   vi.stubEnv('electron_run_as_node', '1')
   vi.stubEnv('EDITOR_TEST_PLAIN', 'retained')
@@ -85,7 +97,7 @@ function routes() {
     get: () => createLaunchEnvironmentSnapshot([{ source: 'process', values: {} }]),
     effect: (register: () => unknown) => register(),
     connection: { requestRejection: () => undefined },
-    subprocess: { resolveExecutable: async (name: string) => name === 'code' ? '/fixture/bin/code' : null },
+    subprocess: { resolveExecutable: async (name: string) => name === 'code' ? '/fixture/bin/code' : fixture.executables.get(name) ?? null },
     webServer: { register: (route: { path: string; handler: (request: IncomingMessage, response: ServerResponse) => Promise<void> }) => {
       handlers.set(route.path, route.handler)
       return () => {}
@@ -207,4 +219,22 @@ it.each([
   await routes().icon('windowsterminal')
   const extraction = fixture.execFile.mock.calls.find(([command]) => command === 'powershell.exe')
   expect(extraction?.[1].at(-2).replaceAll('\\', '/')).toBe(source.replaceAll('\\', '/'))
+})
+
+it.each([
+  // Ptyxis ignores --working-directory unless it opens a new window or tab.
+  ['ptyxis', 'ptyxis', 'org.gnome.Ptyxis', ['--new-window', `--working-directory=${workspace}`]],
+  ['gnomeconsole', 'kgx', 'org.gnome.Console', [`--working-directory=${workspace}`]],
+] as const)('offers %s, a default Linux terminal the official list lacks, on the workspace', async (app, command, desktopId, args) => {
+  fixture.platform = 'linux'
+  expect((await routes()(app)).statusCode).toBe(400)
+  fixture.executables.set(command, `/usr/bin/${command}`)
+  const open = routes()
+  expect((await open(app)).statusCode).toBe(200)
+  expect(fixture.spawn.mock.calls[0]!.slice(0, 2)).toEqual([`/usr/bin/${command}`, args])
+  // Its icon comes from its desktop entry, like GNOME Terminal's.
+  const icon = `${dataDirectory}/icons/hicolor/scalable/apps/${desktopId}.svg`
+  fixture.contents.set(`${dataDirectory}/applications/${desktopId}.desktop`, `[Desktop Entry]\nExec=${command}\nIcon=${desktopId}\n`)
+  fixture.files.add(icon); fixture.contents.set(icon, '<svg/>')
+  expect((await open.icon(app)).body).toBe('<svg/>')
 })

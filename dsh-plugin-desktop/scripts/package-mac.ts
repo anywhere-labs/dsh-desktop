@@ -62,6 +62,8 @@ export interface MacSmokePackageOptions {
   readonly prepareRuntime: () => void
   /** Absolute electron-builder CLI module. */
   readonly builderCli: string
+  /** Electron Builder target: the DMG by default, or only the application directory, whose verifier then checks it in place. */
+  readonly target?: 'dmg' | 'dir'
   /** Absolute packaged-DMG verification script. */
   readonly verifier: string
   /** Node executable used to run package-local scripts. */
@@ -158,11 +160,15 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
   }
 
   const architecture = macSmokeArchitecture(options.env)
+  const target = options.target ?? 'dmg'
   const compression = macCompressionOverride(options.env)
   const cleanEnvironment = withoutMacReleaseSecrets(options.env)
   options.log('Building an unsigned macOS DMG smoke; signing and notarization are release-only steps.')
   if (architecture !== 'universal') {
     options.log(`Packaging only the ${architecture} application; the universal merge is skipped.`)
+  }
+  if (target === 'dir') {
+    options.log('Packaging only the application directory; the DMG is skipped.')
   }
   if (compression !== undefined) {
     options.log(`Packaging the macOS DMG smoke with ${compression} compression.`)
@@ -184,7 +190,7 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
     [
       options.builderCli,
       '--mac',
-      'dmg',
+      target,
       `--${architecture}`,
       '--publish',
       'never',

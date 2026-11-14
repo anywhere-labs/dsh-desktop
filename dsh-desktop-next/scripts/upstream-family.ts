@@ -4,8 +4,10 @@
  * here so that the rest of the scripts stay mirrored.
  */
 
-// dsh 0.2.1 ships no official Computer Use bundle, so packaging builds no helper and checks no provider.
-export const cuaNativeEntries: ((desktopRoot: string) => { arch: 'arm64' | 'x86_64'; path: string }[]) | undefined = undefined
-export const prepareCuaNative: ((desktopRoot: string, archs: readonly ('arm64' | 'x64')[]) => string[]) | undefined = undefined
-export const OFFICIAL_CUA_UNPACKED: RegExp | undefined = undefined
-export const PACKAGED_OFFICIAL_CUA_SMOKE: string | undefined = undefined
+// rc.2 ships Computer Use in the optional installation catalog; its native app needs a physical path.
+export const OFFICE_SKILLS_IN_PACKAGE = true
+export const OFFICE_SKILL_UNPACKED: RegExp | undefined = /^node_modules\/@deepseek-ai\/dsh-skill-office\//u
+export const LEGACY_AGENT_TEAM_BUNDLE: string | undefined = undefined
+
+export { prepareCuaNative } from './upstream-family/cua-native.ts'
+export const OFFICIAL_CUA_UNPACKED: RegExp | undefined = /^node_modules\/@deepseek-ai\/dsh-experimental-cua-macos\//u

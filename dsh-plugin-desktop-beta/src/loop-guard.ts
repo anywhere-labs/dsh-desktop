@@ -38,6 +38,10 @@ interface LoopGuardSource {
 }
 
 declare module '@deepseek-ai/dsh-llm' {
+  interface LlmRequestPurposeMap {
+    compaction: true
+  }
+
   interface MessageSourceMap {
     'desktop-loop-guard': LoopGuardSource
   }

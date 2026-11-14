@@ -19,7 +19,7 @@ it('declares every official optional bundle as a discoverable, version-aligned i
 
 it('archives the application like upstream Desktop while keeping fuses and native inventory aligned with Stable', () => {
   const next = read('../package.json'); const stable = read('../../dsh-plugin-desktop/package.json')
-  expect(next.version).toBe('2.0.21-beta.1')
+  expect(next.version).toBe('2.0.23-beta.1')
   expect(next.desktopName).toBe(`${next.build.linux.executableName}.desktop`)
   expect(next.repository).toEqual({ type: 'git', url: stable.repository.url, directory: 'dsh-plugin-desktop-beta' })
   expect(next.build.appId).toBe('ai.deepseek.dsh.desktop.beta')
@@ -33,7 +33,8 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
     '**/@deepseek-ai/node-addon-system-*/bin/landlock-run', '**/@vscode/ripgrep-*/bin/rg', '**/@dataiku/uv-*/bin/uv', '**/meshcall-router-*/bin/*',
     '**/node_modules/@deepseek-ai/libreoffice-kit-*/**/*', '**/node_modules/pnpm/**/*',
     '**/node_modules/@agents-anywhere/dsh-bridge-next/lib/bundled-connector/**/*', '**/node_modules/@deepseek-ai/dsh-agent-preset/**/*',
-    '**/node_modules/@deepseek-ai/dsh-skill-badge/**/*', '**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/**/*']))
+    '**/node_modules/@deepseek-ai/dsh-skill-badge/**/*', '**/node_modules/@deepseek-ai/dsh-skill-office/**/*',
+    '**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/**/*']))
   // The prepared tree is archived verbatim, as upstream archives its prepared dsh tree: one file set for the
   // shell files and one for the dependency tree, because electron-builder leaves out a file set's root node_modules.
   expect(next.build.files).toEqual([{ from: '.desktop-build/payload', filter: ['**/*'] },
@@ -51,11 +52,11 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
   expect(next.build.afterAllArtifactBuild).toBe('./scripts/verify-fuses.ts')
   expect(next.build.electronFuses).toEqual(stable.build.electronFuses)
   // Stable's rule already keeps the interpreter payloads and the wheels' .dylibs directories, identical across the two
-  // CPU builds. Next adds its own per-CPU native packages, pnpm's reflink addons from its bundled dist/node_modules,
-  // the official Computer Use helpers and the terminal helpers of `@earendil-works/pi-tui`, which Beta's OAR subagents
-  // depend on; both CPU builds carry these for both CPUs.
+  // CPU builds. Next adds its own per-CPU native packages, pnpm's reflink addons from its bundled dist/node_modules
+  // and the terminal helpers of `@earendil-works/pi-tui`, which Beta's OAR subagents depend on; both CPU builds carry
+  // these for both CPUs.
   expect(next.build.mac.x64ArchFiles).toBe(stable.build.mac.x64ArchFiles
-    .replace('sherpa-onnx-darwin-*/**}', 'sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**,@deepseek-ai/dsh-experimental-cua-macos/native/bin/**,@earendil-works/pi-tui/native/darwin/prebuilds/**}'))
+    .replace('sherpa-onnx-darwin-*/**}', 'sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**,@earendil-works/pi-tui/native/darwin/prebuilds/**,@deepseek-ai/dsh-experimental-cua-macos/native/bin/darwin-*/**,@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-*/**}'))
   // Both CPU payloads ride beside the archive as extra resources; electron-builder must not re-sign the pre-signed payloads.
   // macOS also carries the manifest copy the updaters shipped in 2.0.14-beta.1 through 2.0.17-beta.1 read beside the archive.
   expect(next.build.mac.extraResources).toEqual([{ from: '.desktop-build/runtime', to: 'runtime' }, { from: '.desktop-build/payload/package.json', to: 'app/package.json' }])
@@ -94,4 +95,15 @@ it('gives the Linux packages a hicolor icon for every theme size up to 512 pixel
   } finally {
     rmSync(outDir, { recursive: true, force: true })
   }
+})
+
+it('makes the Debian package depend on the GBM and ALSA libraries the executable links', () => {
+  const next = read('../package.json')
+  // A depends list replaces electron-builder's default Depends, so it keeps every default and appends what the executable
+  // also links: none of the defaults pulls in libgbm.so.1 or libasound.so.2, and on minimal Debian and Ubuntu systems the
+  // installed application then cannot start. Since the 64-bit time_t transition libasound2 is a virtual package, and
+  // OSS4's ALSA emulation provides it without a version; the version bound leaves only the real ALSA library to apt.
+  const require = createRequire(new URL('../package.json', import.meta.url))
+  const { default: FpmTarget } = require('app-builder-lib/out/targets/FpmTarget.js')
+  expect(next.build.deb.depends).toEqual([...FpmTarget.prototype.getDefaultDepends.call(undefined, 'deb'), 'libgbm1', 'libasound2 (>= 1.0.17)'])
 })

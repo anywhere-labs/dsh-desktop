@@ -29,6 +29,11 @@
     # Hard loop breaker plus the mandatory de-noised reflection/reset.
     - id: desktop-loop-guard
       name: dsh-plugin-desktop-beta/loop-guard
+    # Local-only per-turn measurements: token surfaces, cache reuse, latency,
+    # tool reliability, and retries. One JSONL line per turn under the DSH
+    # home; nothing is uploaded.
+    - id: desktop-telemetry
+      name: dsh-plugin-desktop-beta/telemetry
     # Keyless DuckDuckGo search backend (default off). Enable by removing the
     # `disabled` below and pinning `searchProvider: duckduckgo` on the `web` row.
     - id: desktop-web-search

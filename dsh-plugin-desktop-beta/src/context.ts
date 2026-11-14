@@ -70,6 +70,10 @@ interface DesktopFilesSource {
 }
 
 declare module '@deepseek-ai/dsh-llm' {
+  interface LlmRequestPurposeMap {
+    compaction: true
+  }
+
   interface MessageSourceMap {
     'desktop-memory': DesktopMemorySource
     'desktop-files': DesktopFilesSource

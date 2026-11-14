@@ -74,7 +74,7 @@ it('reads the Desktop preload bridge only when it exposes a pick call', () => {
   return expect(picker!.pick()).resolves.toBe('/picked')
 })
 
-it('shadows both directory-flow holes below the Host-mounted occupant and withdraws as one effect', async () => {
+it('shadows all directory-flow holes below the Host-mounted occupant and withdraws as one effect', async () => {
   const injections: string[] = []
   const registrations: { name: string; priority?: number; inject?: () => unknown; component: unknown }[] = []
   const disposed: string[] = []
@@ -101,7 +101,7 @@ it('shadows both directory-flow holes below the Host-mounted occupant and withdr
     return dispose
   } } }
   registerDesktopDirectoryPicker(ctx as never, picker)
-  // The sidebar hole waits inside the hero hole's injection: both declarations must be live.
+  // The sidebar hole waits inside the hero hole's injection: all declarations must be live.
   expect(injections).toEqual([...DIRECTORY_FLOW_HOLES])
   expect(registrations.map(entry => [entry.name, entry.priority, entry.component])).toEqual(
     DIRECTORY_FLOW_HOLES.map(name => [name, DESKTOP_DIRECTORY_FLOW_PRIORITY, NativeDirectoryFlow]))
