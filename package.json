@@ -1558,6 +1558,8 @@
     "test:conversation-draft-compat": "node --test scripts/conversation-draft-compat.test.mjs",
     "test:storage-json-compat": "node --test scripts/storage-json-compat.test.mjs",
     "test:session-reference-compat": "node --test scripts/session-reference-compat.test.mjs",
-    "test:listed-bundles-compat": "node --test scripts/listed-bundles-compat.test.mjs"
+    "test:listed-bundles-compat": "node --test scripts/listed-bundles-compat.test.mjs",
+    "check:encoding": "node scripts/check-mojibake.mjs",
+    "export:source": "node scripts/export-source-txt.mjs"
   }
 }

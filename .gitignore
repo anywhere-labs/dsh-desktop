@@ -21,3 +21,7 @@ dsh-desktop-next/.desktop-build/
 dsh-plugin-desktop/.desktop-build/
 dsh-plugin-desktop-beta/.desktop-next/
 dsh-plugin-desktop-beta/.desktop-build/
+
+# local-only workspace: personal notes and experiments must never be published
+notes/
+dsh-plugin-desktop-local/
