@@ -418,6 +418,7 @@ const CSS = `
    the dark palette's light text. An opaque option fill keeps that list readable;
    the closed control is unchanged, and macOS's native menu ignores it. */
 body[data-ds-dark-theme] select :is(option, optgroup) { background-color: var(--dsw-alias-bg-layer-2); }
+.dshProviderVisibilitySwitch { flex: 0 0 auto; }
 `
 
 /** Install one scoped stylesheet; tolerate headless Client boot. */

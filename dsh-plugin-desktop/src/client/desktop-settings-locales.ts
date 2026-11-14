@@ -129,6 +129,8 @@ export const zh = {
   jobFailure: '后台任务失败',
   scheduleCompletion: '自动化任务完成',
   scheduleFailure: '自动化任务失败',
+  providerVisibilityEnable: '在模型清单中显示',
+  providerVisibilityDisable: '从模型清单中隐藏',
 } as const
 
 export type DesktopSettingsLocaleKey = keyof typeof zh
@@ -262,4 +264,6 @@ export const en: Record<DesktopSettingsLocaleKey, string> = {
   jobFailure: 'Background job failed',
   scheduleCompletion: 'Automation task completed',
   scheduleFailure: 'Automation task failed',
+  providerVisibilityEnable: 'Show in model picker',
+  providerVisibilityDisable: 'Hide from model picker',
 }

@@ -1,0 +1,16 @@
+diff --git a/lib/index.js b/lib/index.js
+@@ -1083,7 +1083,13 @@
+ 	retryPolicy: RetryPolicySchema
+ });
+ /** Runtime schema for {@link Config}. */
+-const Config = z.object({ providers: z.dict(profile).default({}).volatile() });
++// Desktop: persisted provider-group visibility. Only the ids a user hid are
++// stored; an unlisted provider id stays enabled. Kept at the top level so the
++// profile dictionary's keys remain exclusively provider routes.
++const Config = z.object({
++	providers: z.dict(profile).default({}).volatile(),
++	disabledProviders: z.array(z.string()).default([]).volatile()
++});
+ /**
+ * Reject new or changed provider profiles that cannot be served. Unchanged
+ * stored profiles may need repair after a catalog upgrade and do not block

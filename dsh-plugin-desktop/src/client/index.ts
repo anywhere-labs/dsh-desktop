@@ -25,6 +25,7 @@ import { installDesktopDirectoryPickerBridge } from './directory-picker.ts'
 import { parseDesktopClientEnvironment } from './environment.ts'
 import { applyExtendedShell } from './extended-shell.ts'
 import { installDesktopLaunchWorkspaceBridge } from './launch-workspace.ts'
+import { registerProviderVisibility } from './provider-visibility-card.tsx'
 import { DESKTOP_SETTINGS_FORMS_SERVICE } from './settings-bridge.ts'
 import { installSidebarFooterStyles } from './sidebar-footer-styles.ts'
 import { desktopWindowService, provideDesktopWindow } from './window-service.ts'
@@ -122,6 +123,10 @@ export const inject = [
   'locale',
   'connection',
   'remote',
+  'remote.llm',
+  'remote.settings',
+  'remote.session',
+  'modelDirectories',
   DESKTOP_SETTINGS_FORMS_SERVICE,
   'sessions',
   'theme',
@@ -138,6 +143,7 @@ export function apply(ctx: ClientContext): void {
     'dsh-plugin-desktop: native window geometry service',
   )
   const desktopSettings = applyDesktopSettings(ctx, environment)
+  registerProviderVisibility(ctx)
   registerPluginControls(ctx)
   registerDesktopOnboarding(ctx, (snapshot, locale, finish, renderNavigation) => createElement<{ embedded?: EmbeddedSetupWizard }>(SetupWizardApp, {
     embedded: { input: snapshot.input, locale, renderNavigation, finish: selection => finish(snapshot.profile, selection) },

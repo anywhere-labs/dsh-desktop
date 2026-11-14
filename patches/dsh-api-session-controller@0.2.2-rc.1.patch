@@ -1,0 +1,43 @@
+diff --git a/lib/index.js b/lib/index.js
+@@ -471,7 +471,24 @@
+ * @returns successful non-empty provider groups and isolated provider failures.
+ */
+ async function buildModelCatalog(ctx, defaultSelection = ctx.agentDefaultModel.currentSelection()) {
+-	const providers = ctx.llm.listProviders();
++	// Desktop: hide provider groups the user turned off in Settings > Models.
++	// The list lives in the llm-pi-ai settings namespace (one variant-neutral
++	// location that also applies to the DeepSeek official group). Plugin-managed
++	// groups have no configurable-provider entry and are never listed here.
++	const disabledProviders = (() => {
++		const settings = ctx.get("settings");
++		if (settings === void 0) return new Set();
++		try {
++			const namespaces = settings.describe({ redactSecrets: true });
++			const ns = namespaces.find((entry) => entry.ns === "llm-pi-ai");
++			const value = ns?.value;
++			const raw = value !== null && typeof value === "object" ? Reflect.get(value, "disabledProviders") : void 0;
++			return new Set(Array.isArray(raw) ? raw.filter((id) => typeof id === "string") : []);
++		} catch {
++			return new Set();
++		}
++	})();
++	const providers = ctx.llm.listProviders().filter((provider) => !disabledProviders.has(provider.id));
+ 	const catalog = await Promise.all(providers.map(async (provider) => {
+ 		try {
+ 			const models = await ctx.llm.listModels(provider.id);
+@@ -512,12 +529,13 @@
+ 			};
+ 		}
+ 	}));
+-	const groups = catalog.flatMap((item) => item.kind === "group" ? [item.group] : []).filter((group) => group.models.length > 0);
++	const groups = catalog.flatMap((item) => item.kind === "group" ? [item.group] : []).filter((group) => group.models.length > 0 && !disabledProviders.has(group.id));
++	const failures = catalog.flatMap((item) => item.kind === "failure" ? [item.failure] : []).filter((failure) => !disabledProviders.has(failure.id));
+ 	return {
+ 		default: { ...defaultSelection },
+ 		routableProviders: groups.map((group) => group.id),
+ 		groups,
+-		failures: catalog.flatMap((item) => item.kind === "failure" ? [item.failure] : [])
++		failures
+ 	};
+ }
+ /**
