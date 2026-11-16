@@ -26,6 +26,9 @@
     "node-pty@npm:1.2.0-beta.15": "patch:node-pty@npm%3A1.2.0-beta.15#./patches/node-pty@1.2.0-beta.15.patch",
     "@earendil-works/pi-ai@npm:^1.1.0": "patch:@earendil-works/pi-ai@npm%3A1.1.0#./patches/pi-ai@1.1.0.patch",
     "@earendil-works/pi-telemetry@npm:^1.1.0": "1.1.0",
+    "@earendil-works/pi-ai@npm:1.3.0": "patch:@earendil-works/pi-ai@npm%3A1.3.0#./patches/pi-ai@1.3.0.patch",
+    "@earendil-works/pi-ai@npm:^1.3.0": "patch:@earendil-works/pi-ai@npm%3A1.3.0#./patches/pi-ai@1.3.0.patch",
+    "@earendil-works/pi-coding-agent@npm:^1.3.0": "1.3.0",
     "@vscode/ripgrep@npm:1.18.0": "patch:@vscode/ripgrep@npm%3A1.18.0#./patches/vscode-ripgrep@1.18.0.patch",
     "@vscode/ripgrep@npm:^1.18.0": "patch:@vscode/ripgrep@npm%3A1.18.0#./patches/vscode-ripgrep@1.18.0.patch",
     "meshcall@npm:0.3.0": "patch:meshcall@npm%3A0.3.0#./patches/meshcall@0.3.0.patch",
@@ -717,7 +720,6 @@
     "@deepseek-ai/dsh-webhook@npm:^0.2.1-rc.3": "file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-webhook-0.2.1-rc.3.tgz",
     "@deepseek-ai/dsh-webhook-github@npm:0.2.1-rc.3": "file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-webhook-github-0.2.1-rc.3.tgz",
     "@deepseek-ai/dsh-webhook-github@npm:^0.2.1-rc.3": "file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-webhook-github-0.2.1-rc.3.tgz",
-    "dshmarket@npm:1.73.19": "patch:dshmarket@npm%3A1.73.19#./.yarn/patches/dshmarket-desktop.patch",
     "@agents-anywhere/dsh-bridge-next": "file:vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c4f5dcd2c35c8.r6c2a8ac0.tgz",
     "@deepseek-ai/dsh-brand@npm:0.2.2-rc.3": "file:vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-brand-0.2.2-rc.3.tgz",
     "@deepseek-ai/dsh-brand@npm:^0.2.2-rc.3": "file:vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-brand-0.2.2-rc.3.tgz",
@@ -1468,7 +1470,8 @@
     "@deepseek-ai/dsh-webhook@npm:0.2.2-rc.3": "file:vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-webhook-0.2.2-rc.3.tgz",
     "@deepseek-ai/dsh-webhook@npm:^0.2.2-rc.3": "file:vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-webhook-0.2.2-rc.3.tgz",
     "@deepseek-ai/dsh-webhook-github@npm:0.2.2-rc.3": "file:vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-webhook-github-0.2.2-rc.3.tgz",
-    "@deepseek-ai/dsh-webhook-github@npm:^0.2.2-rc.3": "file:vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-webhook-github-0.2.2-rc.3.tgz"
+    "@deepseek-ai/dsh-webhook-github@npm:^0.2.2-rc.3": "file:vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-webhook-github-0.2.2-rc.3.tgz",
+    "dshmarket@npm:1.73.20": "patch:dshmarket@npm%3A1.73.20#./.yarn/patches/dshmarket-desktop.patch"
   },
   "dependenciesMeta": {
     "@deepseek-ai/dsh-subprocess-local": {
