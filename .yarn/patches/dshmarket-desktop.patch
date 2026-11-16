@@ -1,8 +1,8 @@
 diff --git a/client/client.js b/client/client.js
-index aa8000a..3e89ac7 100644
+index d42ff3e..ce8f788 100644
 --- a/client/client.js
 +++ b/client/client.js
-@@ -13544,7 +13544,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
+@@ -14785,7 +14785,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
  					return next;
  				});
  			}, []);
@@ -11,7 +11,7 @@ index aa8000a..3e89ac7 100644
  			const updatableNames = Object.keys(installed).filter((name) => name !== selfName && !effectiveDisabledSet.has(name) && isPluginUpdatable(name, String(installed[name]), updates[name], updatedNames));
  			const batchUpdatableNames = updatableNames.filter((name) => updates[name]?.restoreRequired !== true);
  			const ignoredUpdateSet = (0, react.useMemo)(() => new Set(ignoredUpdateNames), [ignoredUpdateNames]);
-@@ -14883,7 +14883,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
+@@ -16144,7 +16144,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
  			]);
  			const batchActions = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
  				(() => {
@@ -21,10 +21,10 @@ index aa8000a..3e89ac7 100644
  					return status && status.updateAvailable && !updatedNames.includes(self) && !quietUpdateSet.has(self) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
  						variant: "primary",
 diff --git a/lib/routes.js b/lib/routes.js
-index 510cea1..c1e5baa 100644
+index 9eaaa23..8d3b304 100644
 --- a/lib/routes.js
 +++ b/lib/routes.js
-@@ -2325,7 +2325,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -2404,7 +2404,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
          // unreleased work.
          const channel = activeChannel();
          const installed = readInstalled(config.profile, activeProfileDir);
@@ -33,34 +33,30 @@ index 510cea1..c1e5baa 100644
              .filter(name => SELF_NAMES.has(name))
              .map(name => [name, channel]));
          const onlineSourceFor = new Map();
-@@ -2515,7 +2515,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
-                 }
-                 try {
-                     const { channelFor, onlineSourceFor, catalogNpmByRepo, releaseSources } = await updateCheckInputs();
--                    const updates = await checkUpdates(config.profile, forceCheckFrom(request), activeProfileDir, channelFor, onlineSourceFor, catalogNpmByRepo, { holdYoungReleases: config.desktopHost === true, releaseSources });
-+                    const updates = await checkUpdates(config.profile, forceCheckFrom(request), activeProfileDir, channelFor, onlineSourceFor, catalogNpmByRepo, { holdYoungReleases: config.desktopHost === true, releaseSources }, new Map([['dshmarket', marketVersion()]]));
-                     // `packages` carries the same objects the single-package endpoint
-                     // returns, so one parser serves both. Only updatable ones: a badge
-                     // wants the count, a panel wants the rows, and neither wants to
-@@ -2562,7 +2562,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
-                         // or a catalog-matched local package answers here with the
-                         // release it can be compared against rather than with nothing.
-                         const { channelFor, onlineSourceFor, catalogNpmByRepo, releaseSources } = await updateCheckInputs();
--                        const update = (await checkUpdates(config.profile, force, activeProfileDir, channelFor, onlineSourceFor, catalogNpmByRepo, { holdYoungReleases: config.desktopHost === true, releaseSources }))[name];
-+                        const update = (await checkUpdates(config.profile, force, activeProfileDir, channelFor, onlineSourceFor, catalogNpmByRepo, { holdYoungReleases: config.desktopHost === true, releaseSources }, new Map([['dshmarket', marketVersion()]])))[name];
-                         if (update === undefined) {
-                             sendJson(response, 404, { schema: UPDATE_API_V1_SCHEMA, error: 'plugin is not installed' });
-                             return;
-@@ -4506,7 +4506,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
-                     catch (error) {
-                         logEvent('warn', 'updates', `package source lookup failed — ${error instanceof Error ? error.message : String(error)}`);
-                     }
--                    const updates = await checkUpdates(config.profile, force, activeProfileDir, channelFor, onlineSourceFor, catalogNpmByRepo, { holdYoungReleases: config.desktopHost === true, releaseSources });
-+                    const updates = await checkUpdates(config.profile, force, activeProfileDir, channelFor, onlineSourceFor, catalogNpmByRepo, { holdYoungReleases: config.desktopHost === true, releaseSources }, new Map([['dshmarket', marketVersion()]]));
-                     for (const [name, migration] of sourceMigrationFor) {
-                         const status = updates[name];
-                         if (status !== undefined)
-@@ -4931,7 +4931,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -2473,6 +2473,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+         intervalHours: marketState.backgroundUpdateIntervalHours,
+         inventory: () => {
+             const installed = readInstalled(config.profile, activeProfileDir);
++            // DSH Desktop bundles the market outside the Profile; check it like an installed plugin.
++            installed.dshmarket ??= marketVersion();
+             const commits = readLockCommits(config.profile, activeProfileDir);
+             return {
+                 context: JSON.stringify([activeProfileDir, activeChannel(), config.region, marketState.githubProxy]),
+@@ -2513,10 +2515,12 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+         },
+         check: async (force) => {
+             const installed = readInstalled(config.profile, activeProfileDir);
++            // DSH Desktop bundles the market outside the Profile; check it like an installed plugin.
++            installed.dshmarket ??= marketVersion();
+             if (Object.keys(installed).length === 0)
+                 return { updates: {} };
+             const { channelFor, onlineSourceFor, catalogNpmByRepo, releaseSources, sourceMigrationFor, lookupFailed } = await updateCheckInputs();
+-            const checked = await checkUpdates(config.profile, force, activeProfileDir, channelFor, onlineSourceFor, catalogNpmByRepo, { holdYoungReleases: config.desktopHost === true, releaseSources });
++            const checked = await checkUpdates(config.profile, force, activeProfileDir, channelFor, onlineSourceFor, catalogNpmByRepo, { holdYoungReleases: config.desktopHost === true, releaseSources }, new Map([['dshmarket', marketVersion()]]));
+             const updates = {};
+             for (const [name, status] of Object.entries(checked)) {
+                 const sourceMigration = sourceMigrationFor.get(name);
+@@ -5159,7 +5163,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
                              });
                              return;
                          }
@@ -70,7 +66,7 @@ index 510cea1..c1e5baa 100644
                          if (spec === undefined || INBOX_BUNDLES.has(name)) {
                              sendJson(response, 400, { error: 'plugin is not installed' });
                              return;
-@@ -5125,7 +5126,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -5353,7 +5358,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
                          // Desktop boundary; it is what turns a silent skip into a
                          // failure with a name.
                          if (usesNpmUpdateTarget) {
@@ -80,7 +76,7 @@ index 510cea1..c1e5baa 100644
                              // #991: Revalidate under the mutation lock against the CURRENT registry
                              // and profile policy. The client's target is an optimistic concurrency
                              // token, never an authorization to bypass pnpm's release-age window.
-@@ -5385,7 +5387,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -5613,7 +5619,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
                          // one needs a refresh, not a restart.
                          const wasLive = verifyActivation(config.profile, name, liveNames(), activeProfileDir, disabled.has(name)).state === 'live'
                              && hasHostHalf(config.profile, name, activeProfileDir);
@@ -90,7 +86,7 @@ index 510cea1..c1e5baa 100644
                          // #874: on DSH Desktop a generation-managed plugin is materialised
                          // by the host and its `dependencies` entry is suspended while pnpm
                          // runs, so the profile lockfile never records it. Read here, before
-@@ -5488,6 +5491,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -5716,6 +5723,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
                          // well as after.
                          const bundlesBefore = brokenClientBundles(config.profile, activeProfileDir);
                          const manifestBefore = manifestCapture.snapshot;
@@ -98,7 +94,7 @@ index 510cea1..c1e5baa 100644
                          const lockfileCapture = captureProfileLockfile();
                          const previousVersionZh = beforeVersion === null ? '更新前版本未知' : `更新前版本为 v${beforeVersion}`;
                          const previousVersionEn = beforeVersion === null ? 'the previous version is unknown' : `the previous version was v${beforeVersion}`;
-@@ -6020,14 +6024,16 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -6248,14 +6256,16 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
                          if (ok) {
                              const stack = readBundleStack(activeProfileDir);
                              const trial = trialValidate(activeProfileDir, stack.community, hostAnchorOption);
@@ -118,33 +114,34 @@ index 510cea1..c1e5baa 100644
                                      ? 'the composition would not boot'
                                      : `${firstIssue.layer}: ${firstIssue.message}`;
 diff --git a/lib/updates.js b/lib/updates.js
-index eae0d78..cd04c0f 100644
+index 47e4ffc..ee5ac34 100644
 --- a/lib/updates.js
 +++ b/lib/updates.js
-@@ -766,22 +766,28 @@ catalogNpmByRepo = new Map(),
+@@ -771,7 +771,7 @@ catalogNpmByRepo = new Map(),
   * with `--config.minimum-release-age=0` and CAN install a young release.
   * Hiding those on the CLI would suppress updates that work.
   */
 -options = {}) {
 +options = {}, hostProvidedNpmVersions = new Map()) {
      const activeProfileDir = profileDir(profile, explicitDir);
-     // The channel is part of the key: switching to betas has to change the
+     const installed = readInstalled(profile, activeProfileDir);
+     const lockCommits = readLockCommits(profile, activeProfileDir);
+@@ -781,15 +781,21 @@ options = {}) {
      // answer immediately, and a cache keyed on the profile alone would serve
      // the stable verdict for the rest of the TTL — reading as "the setting did
      // nothing".
--    const cacheKey = `${activeProfileDir}\u0000${options.holdYoungReleases === true ? 'hold' : 'any'}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}\u0000${[...onlineSourceFor].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${[...catalogNpmByRepo].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${options.holdYoungReleases === true ? profilePolicyFingerprint(activeProfileDir) : ''}` + JSON.stringify([...(options.releaseSources ?? [])]);
-+    const cacheKey = `${activeProfileDir}\u0000${options.holdYoungReleases === true ? 'hold' : 'any'}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}\u0000${[...onlineSourceFor].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${[...catalogNpmByRepo].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${options.holdYoungReleases === true ? profilePolicyFingerprint(activeProfileDir) : ''}` + JSON.stringify([...(options.releaseSources ?? [])]) + "\u0000" + JSON.stringify([...hostProvidedNpmVersions]);
+-    const cacheKey = `${activeProfileDir}\u0000${options.holdYoungReleases === true ? 'hold' : 'any'}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}\u0000${[...onlineSourceFor].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${[...catalogNpmByRepo].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${options.holdYoungReleases === true ? profilePolicyFingerprint(activeProfileDir) : ''}` + JSON.stringify([...(options.releaseSources ?? [])]) + installedIdentity + JSON.stringify([...lockCommits].sort());
++    const cacheKey = `${activeProfileDir}\u0000${options.holdYoungReleases === true ? 'hold' : 'any'}\u0000${[...channelFor].map(([n, c]) => `${n}:${c}`).sort().join(',')}\u0000${[...onlineSourceFor].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${[...catalogNpmByRepo].map(([n, s]) => `${n}:${s}`).sort().join(',')}\u0000${options.holdYoungReleases === true ? profilePolicyFingerprint(activeProfileDir) : ''}` + JSON.stringify([...(options.releaseSources ?? [])]) + installedIdentity + JSON.stringify([...lockCommits].sort()) + "\u0000" + JSON.stringify([...hostProvidedNpmVersions]);
      if (!force && updatesCache?.key === cacheKey && Date.now() < updatesCache.recheckAt) {
          return updatesCache.data;
      }
-     const installed = readInstalled(profile, activeProfileDir);
+     const generation = ++updateCheckGeneration;
 +    const provided = new Map();
 +    for (const [name, version] of hostProvidedNpmVersions) {
 +        if (installed[name] !== undefined) continue;
 +        installed[name] = version;
 +        provided.set(name, version);
 +    }
-     const lockCommits = readLockCommits(profile, activeProfileDir);
      const result = {};
      let nextCandidateMaturityAt = Infinity;
      await Promise.all(Object.entries(installed).map(async ([name, spec]) => {

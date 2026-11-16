@@ -169,7 +169,7 @@ describe('dsh-market Desktop install compatibility', () => {
     const loaded = await import(routesUrl) as {
       mountMarketRoutes: (
         host: object,
-        config: { profile: string; profileDirectory: string; allowRestart: boolean },
+        config: { profile: string; profileDirectory: string; allowRestart: boolean; region?: string },
       ) => () => void
     }
     const routes = new Map<string, (request: object, response: object) => void | Promise<void>>()
@@ -182,7 +182,9 @@ describe('dsh-market Desktop install compatibility', () => {
       },
       loader: { entries: () => [] },
       plugin: () => ({ await: async () => undefined, dispose: () => undefined }),
-    }, { profile: 'desktop', profileDirectory: profileDir, allowRestart: false })
+      // From 1.73.20 the market discards an update check whose region changed while it ran, and a Profile
+      // without a saved region probes one in the background on mount; a fixed region keeps that probe out.
+    }, { profile: 'desktop', profileDirectory: profileDir, allowRestart: false, region: 'global' })
 
     let status = 0
     let body = ''
