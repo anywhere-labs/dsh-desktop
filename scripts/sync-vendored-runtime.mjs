@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { basename, join, relative, resolve } from 'node:path'
+import { retiredRuntimePaths } from './retired-runtime-versions.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const upstreamPath = join(root, 'upstream.json')
@@ -215,6 +216,9 @@ function checkVendor() {
       }
     }
   }
+  const retired = retiredRuntimePaths(channelVersions, readdirSync(join(root, 'vendor', 'dsh-runtime')),
+    readdirSync(join(root, 'patches')))
+  if (retired.length > 0) fail(`no upstream.json channel uses ${retired.join(', ')}; delete them`)
   process.stdout.write(
     `sync-vendored-runtime: ${channel} ${String(manifest.packages.length)} packages from ${manifest.commit.slice(0, 10)} are verified\n`,
   )
