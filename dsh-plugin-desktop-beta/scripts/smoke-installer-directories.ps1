@@ -95,7 +95,13 @@ try {
         Invoke-Checked 'icacls.exe' @($caseRoot, '/deny', "${account}:(WD,AD)")
         $denied = $true
       }
-      $start = @{ FilePath = $probe; ArgumentList = '/S'; WindowStyle = 'Hidden'; PassThru = $true }
+      # Start Setup as the in-app updater does: Node's spawn calls CreateProcess. Start-Process would use
+      # ShellExecuteEx, which zone-checks a Low-labeled program like a download and then waits on a SmartScreen
+      # dialog that nobody can close on a runner.
+      $start = [System.Diagnostics.ProcessStartInfo]::new($probe)
+      $start.ArgumentList.Add('/S')
+      $start.UseShellExecute = $false
+      $start.CreateNoWindow = $true
       if ($mode -eq 'outer-instance') {
         # An in-app update starts Setup in the application's working directory: the installation.
         $start.WorkingDirectory = $target
@@ -111,7 +117,8 @@ try {
         $env:TEMP = $lowTemp
         $env:TMP = $lowTemp
       }
-      try { $process = Start-Process @start } finally { $env:TEMP = $savedTemp; $env:TMP = $savedTmp }
+      # Setup inherits this process's environment, including the TEMP set above.
+      try { $process = [System.Diagnostics.Process]::Start($start) } finally { $env:TEMP = $savedTemp; $env:TMP = $savedTmp }
       if ($mode -eq 'transient-lock') {
         $deadline = [Diagnostics.Stopwatch]::StartNew()
         $observedFailure = $false
