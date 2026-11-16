@@ -1,3 +1,5 @@
+import type { MenuItemConstructorOptions } from 'electron'
+
 /** Built-in Desktop languages and the native-menu copy. */
 const en = { application: 'Application', edit: 'Edit', menuBar: 'Application menu',
   undo: 'Undo', redo: 'Redo', cut: 'Cut', copy: 'Copy', paste: 'Paste', delete: 'Delete', selectAll: 'Select All',
@@ -28,30 +30,28 @@ export function resolveDesktopLocale(language: string) {
  * `role` menus stay English, so expand them with the same bilingual copy Windows
  * already uses; macOS keeps the roles and the system-owned translations.
  */
-export function roleApplicationMenuTemplate(appItems: import('electron').MenuItemConstructorOptions[], language: string): import('electron').MenuItemConstructorOptions[] {
+export function roleApplicationMenuTemplate(appItems: MenuItemConstructorOptions[], language: string): MenuItemConstructorOptions[] {
+  const application: MenuItemConstructorOptions = { label: 'DSH NEXT', submenu: appItems }
+  if (process.platform !== 'linux') return [application, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]
   const { messages: m } = resolveDesktopLocale(language)
   return [
-    { label: 'DSH NEXT', submenu: appItems },
-    ...(process.platform === 'linux' ? [
-      { label: m.edit, submenu: [
-        { role: 'undo', label: m.undo }, { role: 'redo', label: m.redo },
-        { type: 'separator' as const },
-        { role: 'cut', label: m.cut }, { role: 'copy', label: m.copy }, { role: 'paste', label: m.paste },
-        { role: 'delete', label: m.delete },
-        { type: 'separator' as const }, { role: 'selectAll', label: m.selectAll },
-      ] },
-      { label: m.view, submenu: [
-        { role: 'reload', label: m.reload }, { role: 'forceReload', label: m.forceReload },
-        { role: 'toggleDevTools', label: m.toggleDevTools },
-        { type: 'separator' as const },
-        { role: 'resetZoom', label: m.actualSize }, { role: 'zoomIn', label: m.zoomIn }, { role: 'zoomOut', label: m.zoomOut },
-        { type: 'separator' as const }, { role: 'togglefullscreen', label: m.toggleFullScreen },
-      ] },
-      { label: m.window, submenu: [
-        { role: 'minimize', label: m.minimize }, { role: 'close', label: m.close },
-      ] },
-    ] : [
-      { role: 'editMenu' as const }, { role: 'viewMenu' as const }, { role: 'windowMenu' as const },
-    ]),
+    application,
+    { label: m.edit, submenu: [
+      { role: 'undo', label: m.undo }, { role: 'redo', label: m.redo },
+      { type: 'separator' },
+      { role: 'cut', label: m.cut }, { role: 'copy', label: m.copy }, { role: 'paste', label: m.paste },
+      { role: 'delete', label: m.delete },
+      { type: 'separator' }, { role: 'selectAll', label: m.selectAll },
+    ] },
+    { label: m.view, submenu: [
+      { role: 'reload', label: m.reload }, { role: 'forceReload', label: m.forceReload },
+      { role: 'toggleDevTools', label: m.toggleDevTools },
+      { type: 'separator' },
+      { role: 'resetZoom', label: m.actualSize }, { role: 'zoomIn', label: m.zoomIn }, { role: 'zoomOut', label: m.zoomOut },
+      { type: 'separator' }, { role: 'togglefullscreen', label: m.toggleFullScreen },
+    ] },
+    { label: m.window, submenu: [
+      { role: 'minimize', label: m.minimize }, { role: 'close', label: m.close },
+    ] },
   ]
 }

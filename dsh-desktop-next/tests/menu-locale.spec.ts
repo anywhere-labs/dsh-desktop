@@ -1,5 +1,8 @@
-import { expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { preferredDesktopLocale, resolveDesktopLocale, roleApplicationMenuTemplate } from '../src/menu-locale.ts'
+
+// Restore the mocked `process.platform` even when an assertion fails, so later specs see the real one.
+afterEach(() => { vi.restoreAllMocks() })
 
 it.each([
   [['zh-Hans-CN', 'en-US'], 'zh'], [['zh-Hant-TW'], 'zh'], [['zh_CN'], 'zh'],
@@ -15,32 +18,23 @@ it('keeps bare role menus when the platform is not Linux', () => {
     { label: 'DSH NEXT', submenu: [{ label: 'App' }] },
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   ])
-  vi.restoreAllMocks()
 })
 
 it('expands bilingual role menus on Linux', () => {
   vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
-  const template = roleApplicationMenuTemplate([{ label: '应用' }], 'zh-CN')
-  expect(template[0]).toEqual({ label: 'DSH NEXT', submenu: [{ label: '应用' }] })
-  const [, edit, view, window] = template as Array<{ label?: string; submenu?: Array<{ role?: string; label?: string }> }>
-  expect(edit.label).toBe('编辑')
-  expect(edit.submenu).toContainEqual({ role: 'undo', label: '撤销' })
-  expect(edit.submenu).toContainEqual({ role: 'selectAll', label: '全选' })
-  expect(view.label).toBe('查看')
-  expect(view.submenu).toContainEqual({ role: 'reload', label: '重新加载' })
-  expect(view.submenu).toContainEqual({ role: 'togglefullscreen', label: '切换全屏' })
-  expect(window.label).toBe('窗口')
-  expect(window.submenu).toContainEqual({ role: 'minimize', label: '最小化' })
-  expect(window.submenu).toContainEqual({ role: 'close', label: '关闭' })
-  vi.restoreAllMocks()
+  expect(roleApplicationMenuTemplate([{ label: '应用' }], 'zh-CN')).toMatchObject([
+    { label: 'DSH NEXT', submenu: [{ label: '应用' }] },
+    { label: '编辑', submenu: expect.arrayContaining([{ role: 'undo', label: '撤销' }, { role: 'selectAll', label: '全选' }]) },
+    { label: '查看', submenu: expect.arrayContaining([{ role: 'reload', label: '重新加载' }, { role: 'togglefullscreen', label: '切换全屏' }]) },
+    { label: '窗口', submenu: expect.arrayContaining([{ role: 'minimize', label: '最小化' }, { role: 'close', label: '关闭' }]) },
+  ])
 })
 
 it('keeps English role menus on Linux when the language is English', () => {
   vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
-  const [, edit] = roleApplicationMenuTemplate([], 'en-US') as Array<{ label?: string; submenu?: Array<{ role?: string; label?: string }> }>
-  expect(edit.label).toBe('Edit')
-  expect(edit.submenu).toContainEqual({ role: 'undo', label: 'Undo' })
-  vi.restoreAllMocks()
+  expect(roleApplicationMenuTemplate([], 'en-US')[1]).toMatchObject({
+    label: 'Edit', submenu: expect.arrayContaining([{ role: 'undo', label: 'Undo' }]),
+  })
 })
 
 it('exposes view and window strings alongside the edit copy', () => {
