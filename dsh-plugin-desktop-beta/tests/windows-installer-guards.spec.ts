@@ -43,13 +43,18 @@ it('removes the replaced version before relaunching an in-app update', () => {
 
 it('explains each failure in both languages with the installer, the download page and the safety of user data', () => {
   expect(script).toContain('!define DSH_DOWNLOAD_URL "https://dshdesktop.cn"')
-  for (const name of ['customInstallerStageFailed', 'customInstallerStaged', 'customInstallerExtractFailed', 'customInstallerDirectoryFailed']) {
+  for (const name of ['customInstallerStageFailed', 'customInstallerStaged', 'customInstallerExtractFailed', 'customInstallerDirectoryFailed',
+    'dshRequireMediumIntegrity']) {
     const body = macro(name)
     for (const text of ['MessageBox', '用户数据不在安装目录中，不受影响', 'Your user data is stored outside the installation folder and is not affected',
-      '$EXEPATH', '${DSH_DOWNLOAD_URL}', '$dshInstallLog']) {
+      '$EXEPATH', '${DSH_DOWNLOAD_URL}', '!insertmacro dshAppendInstallLog']) {
       expect(body, `${name}: ${text}`).toContain(text)
     }
+    // The log line closes the message, after every other text.
+    expect(body.lastIndexOf('StrCpy $dshMessage'), name).toBeLessThan(body.indexOf('!insertmacro dshAppendInstallLog'))
   }
+  // A message names the log only when Setup could write it.
+  expect(macro('dshAppendInstallLog')).toMatch(/\$\{if\} \$dshInstallLog != ""\s+StrCpy \$dshMessage "\$dshMessage\$\\r\$\\n\$\\r\$\\n安装日志 \/ Setup log:\$\\r\$\\n\$dshInstallLog"/u)
   const stage = macro('customInstallerStageFailed')
   expect(stage).toContain('当前账户可能没有这个位置的写入权限')
   expect(stage).toContain('Your account may not be allowed to write there')
@@ -66,8 +71,13 @@ it('explains each failure in both languages with the installer, the download pag
 it('keeps the Setup log and the directory attempts beside the updater cache, outside the installation', () => {
   const begin = macro('dshBeginInstallLog')
   // Per-machine installers still write below the account's own local application data.
-  expect(begin).toMatch(/SetShellVarContext current[\s\S]*StrCpy \$dshInstallLogDir "\$LOCALAPPDATA\\\$\{DSH_UPDATER_CACHE_NAME\}"[\s\S]*SetShellVarContext all/u)
-  expect(begin).toContain('StrCpy $dshInstallLog "$dshInstallLogDir\\install.log"')
+  expect(begin).toMatch(/SetShellVarContext current\s+\$\{endIf\}\s+StrCpy \$dshInstallLogDir "\$LOCALAPPDATA\\\$\{DSH_UPDATER_CACHE_NAME\}"[\s\S]*SetShellVarContext all/u)
+  // Where that folder takes no log, Setup keeps it in its own temporary folder.
+  expect(begin).toMatch(/!insertmacro dshOpenInstallLog\s+\$\{if\} \$dshInstallLog == ""\s+StrCpy \$dshInstallLogDir "\$TEMP\\\$\{DSH_UPDATER_CACHE_NAME\}"\s+!insertmacro dshOpenInstallLog/u)
+  expect(begin.indexOf('!insertmacro dshOpenInstallLog')).toBeLessThan(begin.indexOf('!insertmacro dshLog'))
+  const open = macro('dshOpenInstallLog')
+  expect(open).toContain('StrCpy $dshInstallLog "$dshInstallLogDir\\install.log"')
+  expect(open).toMatch(/FileOpen \$0 \$dshInstallLog a\s+\$\{if\} \$\{Errors\}\s+StrCpy \$dshInstallLog ""/u)
   expect(script).toContain('!define DSH_INSTALLER_LOG_DIR "$dshInstallLogDir"')
   expect(macro('customInstallerDirectoryFailed')).toContain(
     'kernel32::CopyFileW(w "$PLUGINSDIR\\directory-operations.log", w "$dshDirectoryLogDirectory\\directory-operations.log", i 0)')
@@ -80,5 +90,30 @@ it('loads the transaction only into installers that embed 7-Zip', () => {
   expect(header).toMatch(/!ifndef BUILD_UNINSTALLER\s+!ifdef DSH_SEVENZIP_PATH[\s\S]*!include "\$\{DSH_INSTALLER_SCRIPTS_DIR\}\\installer-directories.nsh"/u)
   // The transaction's functions expand the failure macros, whose variables must exist first.
   expect(header.indexOf('Var dshMessage')).toBeLessThan(header.indexOf('!include'))
+  expect(header.indexOf('Var dshIntegrity')).toBeLessThan(header.indexOf('!include'))
   expect(macro('customInit')).toMatch(/!ifdef DSH_SEVENZIP_PATH\s+!insertmacro dshBeginInstallLog/u)
+  expect(macro('preInit')).toMatch(/^\s*!ifndef BUILD_UNINSTALLER\s+!ifdef DSH_SEVENZIP_PATH\s/u)
+})
+
+it('leaves the directory Setup started in before anything else, so an elevating Setup never holds the installation', () => {
+  // An in-app update starts Setup in the application's working directory, normally the installation, which Windows
+  // refuses to rename while a process works there; the elevating outer Setup waits there for its elevated copy.
+  expect(macro('preInit')).toMatch(/!ifdef DSH_SEVENZIP_PATH\s+SetOutPath \$TEMP\s+!insertmacro dshRequireMediumIntegrity\s+!endif/u)
+})
+
+it('stops below Medium integrity before anything changes, and never on a level it cannot read', () => {
+  const read = macro('dshReadIntegrity')
+  // TokenIntegrityLevel (25) of this process; a mandatory label SID has exactly one sub-authority, the level.
+  expect(read).toContain("advapi32::OpenProcessToken(p r0, i 0x8, *p .r0) i .r1")
+  expect(read).toContain("advapi32::GetTokenInformation(p r0, i 25, p r2, i 64, *i .r3) i .r1")
+  expect(read).toMatch(/IntOp \$1 \$1 & 0xFF\s+\$\{if\} \$1 = 1\s+System::Call 'advapi32::GetSidSubAuthority\(p r3, i 0\) p \.r1'\s+System::Call '\*\$1\(i \.r1\)'\s+StrCpy \$dshIntegrity \$1/u)
+  expect(read.indexOf('StrCpy $dshIntegrity ""')).toBeLessThan(read.indexOf('OpenProcessToken'))
+  const medium = macro('dshRequireMediumIntegrity')
+  expect(medium).toMatch(/!insertmacro dshReadIntegrity\s+\$\{if\} \$dshIntegrity != ""\s+\$\{andIf\} \$dshIntegrity < 8192\s/u)
+  // At that level Setup can write only its own temporary folder, so the log goes there.
+  expect(medium).toMatch(/StrCpy \$dshInstallLogDir "\$TEMP\\\$\{DSH_UPDATER_CACHE_NAME\}"\s+!insertmacro dshOpenInstallLog/u)
+  expect(medium).toContain('runs at integrity level $dshIntegrity, below Medium (8192)')
+  expect(medium).toContain('“工作区内修改”沙箱的工作区')
+  expect(medium).toContain('DSH workspace-write sandbox workspace')
+  expect(medium).toMatch(/MessageBox MB_OK\|MB_ICONSTOP "\$dshMessage" \/SD IDOK\s+!insertmacro dshLog "Setup cancelled: it runs below Medium integrity"\s+SetErrorLevel 2\s+!insertmacro dshQuit/u)
 })

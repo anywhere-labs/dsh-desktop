@@ -1,13 +1,14 @@
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, expect, it, vi } from 'vitest'
 import { NextUpdateSettings } from '../src/client/updates.tsx'
 import { DEFAULT_PREFERENCES, type DesktopState } from '../src/desktop-contract.ts'
 import { NextUpdates, type NextUpdateOptions } from '../src/updates.ts'
+import { updateDownloadDirectory } from '../src/update-downloads.ts'
 import { serveMacUpdate } from '../src/mac-update-feed.ts'
 import { releaseNotesUrl, updateAction, updateLabel, type NextUpdateState } from '../src/update-state.ts'
 import type { UpdateRequest } from '../../dsh-plugin-desktop/src/update-checker.ts'
@@ -129,6 +130,32 @@ it('downloads a Next installer through the injected artifact transport', async (
   expect(updates.snapshot()).toMatchObject({ phase: 'ready', version: '2.0.20-next.1' })
   expect(artifactRequest).toHaveBeenCalledOnce()
   expect(options.prepare).toHaveBeenCalledOnce()
+})
+it('keeps Windows installers in the system temporary directory, which no sandbox workspace may contain', () => {
+  expect(updateDownloadDirectory('win32')).toBe(join(tmpdir(), 'dsh-desktop-next-updates'))
+  expect(updateDownloadDirectory('darwin')).toBeUndefined()
+  expect(updateDownloadDirectory('linux')).toBeUndefined()
+})
+it('downloads into the configured directory and removes earlier downloads there and beside the update state', async () => {
+  const downloads = await mkdtemp(join(tmpdir(), 'next-update-downloads-')); roots.push(downloads)
+  const installer = Buffer.alloc(1024); installer.write('MZ', 0, 'latin1'); installer.writeUInt32LE(64, 0x3c); installer.write('PE\0\0', 64, 'latin1')
+  const request = vi.fn<UpdateRequest>(async () => Response.json({ version: '2.0.20-next.1', channel: 'next' }))
+  const artifactRequest = vi.fn<UpdateArtifactRequest>(async url => ({ response: new Response(installer), finalUrl: url }))
+  const { updates, options } = await fixture({ platform: 'win32', downloads, request, artifactRequest, prepare: vi.fn(async () => {}) })
+  const state = join(options.userData, 'next-updates')
+  for (const directory of [join(state, 'download-earlier'), join(downloads, 'download-earlier'), join(downloads, 'unrelated')]) {
+    await mkdir(directory, { recursive: true })
+  }
+  await updates.download()
+  expect(updates.snapshot().phase).toBe('ready')
+  const [path, , directory] = vi.mocked(options.prepare).mock.calls[0]!
+  expect(dirname(directory)).toBe(downloads)
+  expect(dirname(path)).toBe(directory)
+  expect(existsSync(join(state, 'download-earlier'))).toBe(false)
+  expect(existsSync(join(downloads, 'download-earlier'))).toBe(false)
+  expect(existsSync(join(downloads, 'unrelated'))).toBe(true)
+  // The notification state stays with the rest of the application data.
+  expect(existsSync(join(state, 'state.json'))).toBe(true)
 })
 it('serves only the private archive to the native updater and closes its loopback listener', async () => {
   const root = await mkdtemp(join(tmpdir(), 'next-feed-test-')); roots.push(root)

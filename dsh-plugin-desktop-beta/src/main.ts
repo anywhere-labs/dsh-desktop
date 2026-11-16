@@ -51,6 +51,7 @@ import { PlatformLoginWindow } from './platform-login-window.ts'
 import { DesktopPlatformView, platformBounds } from './platform-view.ts'
 import { PLATFORM_IPC } from './platform-ipc.ts'
 import { NextUpdates } from './updates.ts'
+import { updateDownloadDirectory } from './update-downloads.ts'
 import { createArtifactRequest } from './update-transport.ts'
 import { NextUpdateInstaller } from './update-installer.ts'
 import { macUpdateArch } from './update-arch.ts'
@@ -263,6 +264,7 @@ const updateInstaller = new NextUpdateInstaller({ platform: process.platform, ex
   language: () => windowsLanguage,
   log: error => runtime.diagnostics.append(String(error), 'warn') })
 const updates = new NextUpdates({ version, platform: process.platform, packaged: app.isPackaged, userData: electronData,
+  downloads: updateDownloadDirectory(process.platform),
   arch: process.platform === 'darwin' ? macUpdateArch(process.arch, app.runningUnderARM64Translation) : undefined,
   request: (url, init) => net.fetch(url, { ...init, credentials: 'omit' }),
   artifactRequest: createArtifactRequest(),

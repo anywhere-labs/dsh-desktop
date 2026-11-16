@@ -8,6 +8,9 @@ LoadLanguageFile "${NSISDIR}\Contrib\Language files\English.nlf"
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 
+!define PRODUCT_NAME "Smoke"
+!define VERSION "1.0.0"
+!define DSH_UPDATER_CACHE_NAME "dsh-directory-smoke-updater"
 !define APP_EXECUTABLE_FILENAME "Smoke.exe"
 !define UNINSTALL_FILENAME "Uninstall Smoke.exe"
 !macro installApplicationFiles
@@ -16,7 +19,24 @@ LoadLanguageFile "${NSISDIR}\Contrib\Language files\English.nlf"
 !include "..\..\..\dsh-plugin-desktop\build\installer.nsh"
 !insertmacro customHeader
 
+; electron-builder inserts preInit first in its own .onInit.
+Function .onInit
+  !insertmacro preInit
+FunctionEnd
+
 Section
+  !ifdef OUTER_INSTANCE
+    ; Like an elevating Setup, this instance waits for its copy to install, in the directory it started in unless
+    ; preInit left it. Exec starts the copy in the output directory.
+    ${GetParameters} $R0
+    ClearErrors
+    ${GetOptions} $R0 "/INNER" $R1
+    ${If} ${Errors}
+      ExecWait '"$EXEPATH" /S /INNER' $0
+      SetErrorLevel $0
+      Quit
+    ${EndIf}
+  !endif
   InitPluginsDir
   FileOpen $0 "${TARGET_DIR}.plugin-dir.tmp" w
   FileWriteUTF16LE /BOM $0 "$PLUGINSDIR"

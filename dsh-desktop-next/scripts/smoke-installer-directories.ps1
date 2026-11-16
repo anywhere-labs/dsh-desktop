@@ -27,7 +27,11 @@ $expectedLog = @{
   'cancelled' = @('Staged the new version in')
   'denied' = @('Cannot create', '(Win32 error 5:', 'Setup cancelled: the installation location is not writable')
   'incomplete' = @('Staged files are missing: resources\app.asar; the installation folder is unchanged')
+  'outer-instance' = @('Staged the new version in')
+  'low-integrity' = @('runs at integrity level 4096, below Medium (8192)', 'Setup cancelled: it runs below Medium integrity')
 }
+# Cases that replace the installation.
+$succeeding = @('first', 'upgrade', 'transient-lock', 'outer-instance')
 # Failed directory operations the Setup log directory keeps: phase pattern and number of attempts.
 $expectedOperations = @{
   'locked' = @('^backup: Windows error: (5|32|33)$', 10)
@@ -56,10 +60,11 @@ try {
   [System.IO.File]::WriteAllText($brokenArchive, 'invalid archive')
   $account = '*' + [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 
-  foreach ($mode in @('first', 'upgrade', 'transient-lock', 'locked', 'locked-stage', 'missing-stage', 'restore-conflict', 'broken', 'cancelled', 'denied', 'incomplete')) {
+  foreach ($mode in @('first', 'upgrade', 'transient-lock', 'locked', 'locked-stage', 'missing-stage', 'restore-conflict', 'broken', 'cancelled', 'denied', 'incomplete', 'outer-instance', 'low-integrity')) {
     $caseRoot = Join-Path $scratch $mode
     $target = Join-Path $caseRoot 'Application'
     $logDir = Join-Path $caseRoot 'installer-logs'
+    $lowTemp = Join-Path $caseRoot 'low-temp'
     New-Item -ItemType Directory -Path $logDir | Out-Null
     if ($mode -ne 'first') {
       New-Item -ItemType Directory -Path $target | Out-Null
@@ -76,6 +81,7 @@ try {
     if ($mode -eq 'locked-stage') { $compileArgs += '/DLOCKED_STAGE' }
     if ($mode -eq 'restore-conflict') { $compileArgs += '/DRESTORE_CONFLICT' }
     if ($mode -eq 'cancelled') { $compileArgs += '/DCANCELLED' }
+    if ($mode -eq 'outer-instance') { $compileArgs += '/DOUTER_INSTANCE' }
     Invoke-Checked $Makensis ($compileArgs + $fixture)
     $handle = $null
     $process = $null
@@ -89,7 +95,23 @@ try {
         Invoke-Checked 'icacls.exe' @($caseRoot, '/deny', "${account}:(WD,AD)")
         $denied = $true
       }
-      $process = Start-Process -FilePath $probe -ArgumentList '/S' -WindowStyle Hidden -PassThru
+      $start = @{ FilePath = $probe; ArgumentList = '/S'; WindowStyle = 'Hidden'; PassThru = $true }
+      if ($mode -eq 'outer-instance') {
+        # An in-app update starts Setup in the application's working directory: the installation.
+        $start.WorkingDirectory = $target
+      }
+      $savedTemp = $env:TEMP
+      $savedTmp = $env:TMP
+      if ($mode -eq 'low-integrity') {
+        # An installer saved below a workspace-write workspace carries its Low label, so Windows runs it at Low
+        # integrity. NSIS starts only with a temporary directory it can write at that level.
+        New-Item -ItemType Directory -Path $lowTemp | Out-Null
+        Invoke-Checked 'icacls.exe' @($lowTemp, '/setintegritylevel', '(OI)(CI)Low')
+        Invoke-Checked 'icacls.exe' @($probe, '/setintegritylevel', 'Low')
+        $env:TEMP = $lowTemp
+        $env:TMP = $lowTemp
+      }
+      try { $process = Start-Process @start } finally { $env:TEMP = $savedTemp; $env:TMP = $savedTmp }
       if ($mode -eq 'transient-lock') {
         $deadline = [Diagnostics.Stopwatch]::StartNew()
         $observedFailure = $false
@@ -118,7 +140,7 @@ try {
         $process.WaitForExit()
         throw "Directory smoke $mode did not exit within 60 seconds"
       }
-      $expectedExit = if ($mode -in @('first', 'upgrade', 'transient-lock')) { 0 } else { 2 }
+      $expectedExit = if ($mode -in $succeeding) { 0 } else { 2 }
       if ($process.ExitCode -ne $expectedExit) {
         throw "Directory smoke $mode exited with $($process.ExitCode), expected $expectedExit"
       }
@@ -130,7 +152,13 @@ try {
       }
       if ($denied) { Invoke-Checked 'icacls.exe' @($caseRoot, '/remove:d', $account) }
     }
-    $installLog = [IO.File]::ReadAllText((Join-Path $logDir 'install.log'))
+    $installLog = if ($mode -eq 'low-integrity') {
+      # Setup stopped in .onInit and kept its log in the only temporary folder it can write.
+      if (Test-Path -LiteralPath (Join-Path $logDir 'install.log')) { throw "Directory smoke $mode staged at low integrity" }
+      [IO.File]::ReadAllText((Join-Path $lowTemp 'dsh-directory-smoke-updater\install.log'))
+    } else {
+      [IO.File]::ReadAllText((Join-Path $logDir 'install.log'))
+    }
     foreach ($expected in $expectedLog[$mode]) {
       if (-not $installLog.Contains($expected)) { throw "Directory smoke $mode Setup log lacks '$expected':`n$installLog" }
     }
@@ -158,15 +186,15 @@ try {
       Write-Output "Directory replacement smoke passed: $mode"
       continue
     }
-    $expectedAsset = if ($mode -in @('first', 'upgrade', 'transient-lock')) { 'new asset' } else { 'old asset' }
+    $expectedAsset = if ($mode -in $succeeding) { 'new asset' } else { 'old asset' }
     if ([System.IO.File]::ReadAllText((Join-Path $target 'asset.txt')) -ne $expectedAsset) {
       throw "Directory smoke $mode changed the wrong version"
     }
-    $expectObsolete = $mode -notin @('first', 'upgrade', 'transient-lock')
+    $expectObsolete = $mode -notin $succeeding
     if ((Test-Path -LiteralPath (Join-Path $target 'obsolete.txt')) -ne $expectObsolete) {
       throw "Directory smoke $mode did not preserve the expected old-only file state"
     }
-    if (@(Get-ChildItem -LiteralPath $caseRoot -Directory | Where-Object Name -notin @('Application', 'installer-logs')).Count -ne 0) {
+    if (@(Get-ChildItem -LiteralPath $caseRoot -Directory | Where-Object Name -notin @('Application', 'installer-logs', 'low-temp')).Count -ne 0) {
       throw "Directory smoke $mode left transaction directories behind"
     }
     Write-Output "Directory replacement smoke passed: $mode"
