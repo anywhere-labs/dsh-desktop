@@ -1,5 +1,5 @@
 /** Main-process update ownership survives a stopped or broken Profile Host. */
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { checkForDesktopUpdate, type UpdateCheckResult, type UpdateRequest } from '../../dsh-plugin-desktop/src/update-checker.ts'
 import { desktopUpdateFilename, downloadDesktopUpdate, type UpdateArtifactRequest } from '../../dsh-plugin-desktop/src/update-download.ts'
@@ -13,6 +13,8 @@ export interface NextUpdateOptions {
   platform: string
   packaged: boolean
   userData: string
+  /** Directory for downloaded installers; defaults to the update state directory in userData. */
+  downloads?: string
   /** CPU of this Mac. The version check and the download name it, so the service answers with that CPU's installer. */
   arch?: UpdateArch
   /** Fetch adapter for the version check. */
@@ -40,6 +42,7 @@ export class NextUpdates {
     this.state = { phase: 'idle', installable: options.packaged && ['darwin', 'win32'].includes(options.platform) }
   }
   snapshot(): NextUpdateState { return { ...this.state } }
+  private get downloads(): string { return this.options.downloads ?? join(this.options.userData, 'next-updates') }
   private initializeCache(): Promise<void> {
     return this.cacheReady ??= (async () => {
       const cache = join(this.options.userData, 'next-updates')
@@ -49,11 +52,18 @@ export class NextUpdates {
         const parsed = text ? JSON.parse(text) as { notifiedVersion?: unknown } : undefined
         if (typeof parsed?.notifiedVersion === 'string') this.notifiedVersion = parsed.notifiedVersion
       } catch (error) { this.options.log(error) }
-      // One primary process owns this userData tree. Clean our previous process's
-      // completed installers/partial files; never delete arbitrary files in userData.
-      for (const entry of await readdir(cache, { withFileTypes: true })) {
-        if (entry.isDirectory() && /^download-[A-Za-z0-9]+$/.test(entry.name)) {
-          await rm(join(cache, entry.name), { recursive: true, force: true }).catch(this.options.log)
+      // One primary process owns this userData tree and the download directory. Clean our previous process's
+      // completed installers/partial files; never delete arbitrary files there. Earlier releases downloaded
+      // beside the update state, so clean that directory as well.
+      for (const directory of new Set([cache, this.downloads])) {
+        const entries = await readdir(directory, { withFileTypes: true }).catch((error: unknown) => {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+          throw error
+        })
+        for (const entry of entries) {
+          if (entry.isDirectory() && /^download-[A-Za-z0-9]+$/.test(entry.name)) {
+            await rm(join(directory, entry.name), { recursive: true, force: true }).catch(this.options.log)
+          }
         }
       }
     })()
@@ -138,9 +148,9 @@ export class NextUpdates {
         if (result.status !== 'update-available') { this.set({ phase: 'current', version: result.latestVersion }); return }
         if (result.latestVersion !== this.notifiedVersion) this.recordNotifiedVersion(result.latestVersion)
         const platform = this.options.platform as 'darwin' | 'win32'
-        const cache = join(this.options.userData, 'next-updates'); privateDirectory(cache)
+        const downloads = this.downloads; await mkdir(downloads, { recursive: true, mode: 0o700 })
         if (this.directory) await rm(this.directory, { recursive: true, force: true })
-        const directory = this.directory = await mkdtemp(join(cache, 'download-'))
+        const directory = this.directory = await mkdtemp(join(downloads, 'download-'))
         this.set({ phase: 'downloading', version: result.latestVersion, received: 0, total: undefined })
         let lastProgress = 0
         const path = await downloadDesktopUpdate({ platform, version: result.latestVersion, channel: 'beta',

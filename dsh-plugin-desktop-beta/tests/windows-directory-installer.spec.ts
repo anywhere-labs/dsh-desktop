@@ -48,6 +48,17 @@ it('stages before stopping the application and promotes before registering the i
   expect(result).not.toContain('File /oname=uninstallerIcon.ico')
 })
 
+it('runs preInit in an elevating Setup before it waits for its elevated copy', () => {
+  // Desktop allows elevation, which upstream does not: the outer Setup finishes .onInit, elevates from the
+  // install-mode page and waits there in the directory it holds until the elevated copy has replaced the installation.
+  const onInit = /^Function \.onInit\n([\s\S]*?)^FunctionEnd/mu.exec(template('installer.nsi'))?.[1] ?? ''
+  expect(onInit).toMatch(/^ {2}SetOutPath \$INSTDIR\n/mu)
+  expect(onInit.indexOf('!insertmacro preInit')).toBeGreaterThan(onInit.indexOf('SetOutPath $INSTDIR'))
+  expect(onInit.indexOf('!insertmacro preInit')).toBeLessThan(onInit.indexOf('!insertmacro initMultiUser'))
+  // An in-app update of a per-machine installation forces that mode (customInstallMode) and elevates from the page.
+  expect(template('multiUserUi.nsh')).toMatch(/\$\{if\} \$isForceMachineInstall == "1"[\s\S]*?!insertmacro UAC_RunElevated\s+Quit\s/u)
+})
+
 it.each([
   '!include installer.nsh',
   '!insertmacro setLinkVars',

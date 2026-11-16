@@ -2,6 +2,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { constants } from 'node:fs'
 import { access, lstat, mkdir, readdir, readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -135,7 +136,11 @@ export class NextUpdateInstaller {
   async stage(): Promise<void> {
     const prepared = this.prepared
     if (!prepared) throw new Error('No prepared Next update')
-    if (this.options.platform === 'win32') return
+    if (this.options.platform === 'win32') {
+      // The installer waits in the system temporary directory, which cleanup tools empty. Notice before quitting for it.
+      await access(prepared.path, constants.R_OK)
+      return
+    }
     if (this.nativeReady) return
     if (!prepared.bundle || !prepared.installed || !prepared.directory) throw new Error('No prepared Next update')
     const stat = await lstat(prepared.bundle)
@@ -172,7 +177,9 @@ export class NextUpdateInstaller {
     }
     if (this.options.platform !== 'win32' || !this.prepared) throw new Error('No prepared update installer')
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(this.prepared!.path, ['--updated', '--force-run'], { detached: true, stdio: 'ignore', shell: false, windowsHide: false })
+      // The installer renames the installation, which Windows refuses while any process works in it. This application
+      // usually does: its shortcuts start it there, and an elevating installer keeps the directory it started in.
+      const child = spawn(this.prepared!.path, ['--updated', '--force-run'], { detached: true, stdio: 'ignore', shell: false, windowsHide: false, cwd: tmpdir() })
       child.once('error', reject)
       child.once('spawn', () => { child.off('error', reject); child.on('error', this.options.log); child.unref(); resolve() })
     })

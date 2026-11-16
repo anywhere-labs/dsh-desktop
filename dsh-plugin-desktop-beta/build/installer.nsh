@@ -89,6 +89,20 @@ Var pid
   dsh_installer_app_stopped:
 !macroend
 
+; .onInit inserts this first. An in-app update starts Setup in the application's
+; working directory, normally the installation itself, and Windows refuses to
+; rename a directory any process works in. An elevating Setup waits there for its
+; elevated copy, which then cannot replace the installation, so leave it first, as
+; electron-builder's uninstaller does before removing it.
+!macro preInit
+  !ifndef BUILD_UNINSTALLER
+    !ifdef DSH_SEVENZIP_PATH
+      SetOutPath $TEMP
+      !insertmacro dshRequireMediumIntegrity
+    !endif
+  !endif
+!macroend
+
 ; Override /S when an older updater (<= 2.0.18-next) launches an in-app update
 ; with ['/S', '--updated', '--force-run'], so the new installer still displays
 ; the visible extraction progress window.
@@ -151,6 +165,7 @@ Var pid
       Var dshErrorText
       Var dshText
       Var dshMessage
+      Var dshIntegrity
 
       !include "${DSH_INSTALLER_SCRIPTS_DIR}\installer-directories.nsh"
 
@@ -199,15 +214,19 @@ Var pid
 
 ; The Setup log sits beside electron-builder's per-user installer copy, outside
 ; $INSTDIR and the transaction directories, so it outlives a failed installation.
+; Where that folder takes no log, Setup keeps it in its own temporary folder.
 !macro dshBeginInstallLog
   ${if} $installMode == "all"
     SetShellVarContext current
   ${endIf}
   StrCpy $dshInstallLogDir "$LOCALAPPDATA\${DSH_UPDATER_CACHE_NAME}"
-  StrCpy $dshInstallLog "$dshInstallLogDir\install.log"
-  CreateDirectory $dshInstallLogDir
   ${if} $installMode == "all"
     SetShellVarContext all
+  ${endIf}
+  !insertmacro dshOpenInstallLog
+  ${if} $dshInstallLog == ""
+    StrCpy $dshInstallLogDir "$TEMP\${DSH_UPDATER_CACHE_NAME}"
+    !insertmacro dshOpenInstallLog
   ${endIf}
   ${if} ${isUpdated}
     StrCpy $dshText "update"
@@ -218,6 +237,96 @@ Var pid
     StrCpy $dshText "$dshText, silent"
   ${endIf}
   !insertmacro dshLog "${PRODUCT_NAME} ${VERSION} $dshText ($installMode) from $EXEPATH"
+!macroend
+
+; Set $dshInstallLog to install.log in $dshInstallLogDir if Setup can append to
+; it there, else to "", which turns logging off.
+!macro dshOpenInstallLog
+  Push $0
+  CreateDirectory $dshInstallLogDir
+  StrCpy $dshInstallLog "$dshInstallLogDir\install.log"
+  ClearErrors
+  FileOpen $0 $dshInstallLog a
+  ${if} ${Errors}
+    StrCpy $dshInstallLog ""
+  ${else}
+    FileClose $0
+  ${endIf}
+  ClearErrors
+  Pop $0
+!macroend
+
+; End a failure message with the Setup log, if Setup could write one.
+!macro dshAppendInstallLog
+  ${if} $dshInstallLog != ""
+    StrCpy $dshMessage "$dshMessage$\r$\n$\r$\n安装日志 / Setup log:$\r$\n$dshInstallLog"
+  ${endIf}
+!macroend
+
+; Set $dshIntegrity to the integrity level of this process (the mandatory label
+; RID: 4096 Low, 8192 Medium, 12288 High), or to "" if it cannot be read.
+!macro dshReadIntegrity
+  Push $0
+  Push $1
+  Push $2
+  Push $3
+  StrCpy $dshIntegrity ""
+  System::Call 'kernel32::GetCurrentProcess() p .r0'
+  ; TOKEN_QUERY
+  System::Call 'advapi32::OpenProcessToken(p r0, i 0x8, *p .r0) i .r1'
+  ${if} $1 <> 0
+    ; TokenIntegrityLevel (25) returns TOKEN_MANDATORY_LABEL followed by its SID;
+    ; 64 bytes hold both.
+    System::Alloc 64
+    Pop $2
+    System::Call 'advapi32::GetTokenInformation(p r0, i 25, p r2, i 64, *i .r3) i .r1'
+    ${if} $1 <> 0
+      ; Label.Sid. A mandatory label SID has one sub-authority: the level.
+      System::Call '*$2(p .r3)'
+      System::Call 'advapi32::GetSidSubAuthorityCount(p r3) p .r1'
+      System::Call '*$1(i .r1)'
+      IntOp $1 $1 & 0xFF
+      ${if} $1 = 1
+        System::Call 'advapi32::GetSidSubAuthority(p r3, i 0) p .r1'
+        System::Call '*$1(i .r1)'
+        StrCpy $dshIntegrity $1
+      ${endIf}
+    ${endIf}
+    System::Free $2
+    System::Call 'kernel32::CloseHandle(p r0)'
+  ${endIf}
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
+!macroend
+
+; Windows starts a program at the lower of its parent's integrity level and the
+; label of its file, which a download takes from its folder. DSH labels a
+; workspace-write workspace Low for good, so an installer saved there runs Low.
+; Below Medium, Setup can write neither the installation, the registry nor its
+; usual log, and nothing it starts runs any higher: explain and stop before
+; anything changes. A level that cannot be read never stops Setup.
+!macro dshRequireMediumIntegrity
+  !insertmacro dshReadIntegrity
+  ${if} $dshIntegrity != ""
+  ${andIf} $dshIntegrity < 8192
+    ; Setup's temporary folder is the one it can write at this level.
+    StrCpy $dshInstallLogDir "$TEMP\${DSH_UPDATER_CACHE_NAME}"
+    !insertmacro dshOpenInstallLog
+    !insertmacro dshLog "${PRODUCT_NAME} ${VERSION} from $EXEPATH runs at integrity level $dshIntegrity, below Medium (8192)"
+    StrCpy $dshMessage "安装程序正以低完整性级别运行，无法写入安装目录和注册表，重试也不会成功。$\r$\n$\r$\n"
+    StrCpy $dshMessage "$dshMessage通常是因为安装包所在的文件夹或它的上级（例如 DSH 的数据目录）曾被 DSH 用作“工作区内修改”沙箱的工作区；从这样的文件夹或 DSH 沙箱命令中启动的程序都以低完整性运行。安装包：$\r$\n$EXEPATH$\r$\n$\r$\n"
+    StrCpy $dshMessage "$dshMessage请从 ${DSH_DOWNLOAD_URL} 下载安装包，在“下载”文件夹中双击运行。安装目录没有任何改动，已安装的版本仍可使用。用户数据不在安装目录中，不受影响。$\r$\n$\r$\n"
+    StrCpy $dshMessage "$dshMessageSetup is running at low integrity, so it cannot write the installation folder or the registry, and retrying does not help.$\r$\n$\r$\n"
+    StrCpy $dshMessage "$dshMessageThe folder holding the installer, or a folder above it (such as the DSH data folder), was most likely a DSH workspace-write sandbox workspace. Programs started from such a folder or from a DSH sandbox command run at low integrity. Installer:$\r$\n$EXEPATH$\r$\n$\r$\n"
+    StrCpy $dshMessage "$dshMessageDownload the installer from ${DSH_DOWNLOAD_URL} and run it from your Downloads folder. Nothing in the installation folder was changed; an installed version keeps working. Your user data is stored outside the installation folder and is not affected."
+    !insertmacro dshAppendInstallLog
+    MessageBox MB_OK|MB_ICONSTOP "$dshMessage" /SD IDOK
+    !insertmacro dshLog "Setup cancelled: it runs below Medium integrity"
+    SetErrorLevel 2
+    !insertmacro dshQuit
+  ${endIf}
 !macroend
 
 ; Set $dshErrorText to the system's description of a Win32 error code.
@@ -285,8 +394,8 @@ Var pid
     StrCpy $dshMessage "$dshMessage或从 ${DSH_DOWNLOAD_URL} 下载。用户数据不在安装目录中，不受影响。$\r$\n$\r$\n"
     StrCpy $dshMessage "$dshMessageSetup cannot write to the installation location:$\r$\n$dshText$\r$\nSystem error $dshStageError: $dshErrorText$\r$\n$\r$\n"
     StrCpy $dshMessage "$dshMessageYour account may not be allowed to write there, or security software is blocking Setup. Click Cancel, then run the installer again and choose a location you can write to (such as the default one). If you have fixed the permissions or allowed Setup, click Retry. Installer:$\r$\n$EXEPATH$\r$\n"
-    StrCpy $dshMessage "$dshMessageor download it from ${DSH_DOWNLOAD_URL}. Your user data is stored outside the installation folder and is not affected.$\r$\n$\r$\n"
-    StrCpy $dshMessage "$dshMessage安装日志 / Setup log:$\r$\n$dshInstallLog"
+    StrCpy $dshMessage "$dshMessageor download it from ${DSH_DOWNLOAD_URL}. Your user data is stored outside the installation folder and is not affected."
+    !insertmacro dshAppendInstallLog
     MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$dshMessage" /SD IDCANCEL IDRETRY dsh_installer_stage_retry
     !insertmacro dshLog "Setup cancelled: the installation location is not writable"
     SetErrorLevel 2
@@ -323,8 +432,8 @@ Var pid
     StrCpy $dshMessage "$dshMessage或从 ${DSH_DOWNLOAD_URL} 下载。用户数据不在安装目录中，不受影响。$\r$\n$\r$\n"
     StrCpy $dshMessage "$dshMessageThe new version is incomplete. Missing:$\r$\n$dshText$\r$\n$\r$\n"
     StrCpy $dshMessage "$dshMessageThe installation folder was left unchanged; an installed version keeps working. Security software usually removed or blocked the extracted files. Allow Setup in it, then run the installer again:$\r$\n$EXEPATH$\r$\n"
-    StrCpy $dshMessage "$dshMessageor download it from ${DSH_DOWNLOAD_URL}. Your user data is stored outside the installation folder and is not affected.$\r$\n$\r$\n"
-    StrCpy $dshMessage "$dshMessage安装日志 / Setup log:$\r$\n$dshInstallLog"
+    StrCpy $dshMessage "$dshMessageor download it from ${DSH_DOWNLOAD_URL}. Your user data is stored outside the installation folder and is not affected."
+    !insertmacro dshAppendInstallLog
     MessageBox MB_OK|MB_ICONSTOP "$dshMessage" /SD IDOK
     SetErrorLevel 2
     !insertmacro dshQuit
@@ -339,8 +448,8 @@ Var pid
   StrCpy $dshMessage "$dshMessage或从 ${DSH_DOWNLOAD_URL} 下载。用户数据不在安装目录中，不受影响。$\r$\n$\r$\n"
   StrCpy $dshMessage "$dshMessageSetup could not extract the new version (7-Zip exit code $R0).$\r$\n$\r$\n"
   StrCpy $dshMessage "$dshMessageThe installation folder was left unchanged; an installed version keeps working. Low disk space or security software is the usual cause. Fix it, then run the installer again:$\r$\n$EXEPATH$\r$\n"
-  StrCpy $dshMessage "$dshMessageor download it from ${DSH_DOWNLOAD_URL}. Your user data is stored outside the installation folder and is not affected.$\r$\n$\r$\n"
-  StrCpy $dshMessage "$dshMessage安装日志 / Setup log:$\r$\n$dshInstallLog"
+  StrCpy $dshMessage "$dshMessageor download it from ${DSH_DOWNLOAD_URL}. Your user data is stored outside the installation folder and is not affected."
+  !insertmacro dshAppendInstallLog
   MessageBox MB_OK|MB_ICONSTOP "$dshMessage" /SD IDOK
 !macroend
 
@@ -364,7 +473,7 @@ Var pid
   ${else}
     StrCpy $dshMessage "$dshMessageThe previous version could not be moved back (system error $dshRestoreError). It is complete in:$\r$\n$dshOldDirectory$\r$\nDo not delete this folder; contact us with the Setup log before reinstalling. Installer:$\r$\n$EXEPATH$\r$\n"
   ${endIf}
-  StrCpy $dshMessage "$dshMessageor download it from ${DSH_DOWNLOAD_URL}. Your user data is stored outside the installation folder and is not affected.$\r$\n$\r$\n"
-  StrCpy $dshMessage "$dshMessage安装日志 / Setup log:$\r$\n$dshInstallLog"
+  StrCpy $dshMessage "$dshMessageor download it from ${DSH_DOWNLOAD_URL}. Your user data is stored outside the installation folder and is not affected."
+  !insertmacro dshAppendInstallLog
   MessageBox MB_OK|MB_ICONSTOP "$dshMessage" /SD IDOK
 !macroend
