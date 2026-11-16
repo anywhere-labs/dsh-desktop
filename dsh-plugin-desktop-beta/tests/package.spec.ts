@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { OPTIONAL_BUNDLES } from '../src/upstream-family.ts'
+import { PACKAGED_RUNTIME_DIR } from '../scripts/mac-runtime.ts'
 import { expect, it } from 'vitest'
 const read = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
 it('declares every official optional bundle as a discoverable, version-aligned installation dependency', () => {
@@ -19,7 +20,7 @@ it('declares every official optional bundle as a discoverable, version-aligned i
 
 it('archives the application like upstream Desktop while keeping fuses and native inventory aligned with Stable', () => {
   const next = read('../package.json'); const stable = read('../../dsh-plugin-desktop/package.json')
-  expect(next.version).toBe('2.0.22-beta.1')
+  expect(next.version).toBe('2.0.23-beta.1')
   expect(next.desktopName).toBe(`${next.build.linux.executableName}.desktop`)
   expect(next.repository).toEqual({ type: 'git', url: stable.repository.url, directory: 'dsh-plugin-desktop-beta' })
   expect(next.build.appId).toBe('ai.deepseek.dsh.desktop.beta')
@@ -33,7 +34,8 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
     '**/@deepseek-ai/node-addon-system-*/bin/landlock-run', '**/@vscode/ripgrep-*/bin/rg', '**/@dataiku/uv-*/bin/uv', '**/meshcall-router-*/bin/*',
     '**/node_modules/@deepseek-ai/libreoffice-kit-*/**/*', '**/node_modules/pnpm/**/*',
     '**/node_modules/@agents-anywhere/dsh-bridge-next/lib/bundled-connector/**/*', '**/node_modules/@deepseek-ai/dsh-agent-preset/**/*',
-    '**/node_modules/@deepseek-ai/dsh-skill-badge/**/*']))
+    '**/node_modules/@deepseek-ai/dsh-skill-badge/**/*', '**/node_modules/@deepseek-ai/dsh-skill-office/**/*',
+    '**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/**/*']))
   // The prepared tree is archived verbatim, as upstream archives its prepared dsh tree: one file set for the
   // shell files and one for the dependency tree, because electron-builder leaves out a file set's root node_modules.
   expect(next.build.files).toEqual([{ from: '.desktop-build/payload', filter: ['**/*'] },
@@ -55,10 +57,11 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
   // and the terminal helpers of `@earendil-works/pi-tui`, which Beta's OAR subagents depend on; both CPU builds carry
   // these for both CPUs.
   expect(next.build.mac.x64ArchFiles).toBe(stable.build.mac.x64ArchFiles
-    .replace('sherpa-onnx-darwin-*/**}', 'sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**,@earendil-works/pi-tui/native/darwin/prebuilds/**}'))
-  // Both CPU payloads ride beside the archive as extra resources; electron-builder must not re-sign the pre-signed payloads.
+    .replace('sherpa-onnx-darwin-*/**}', 'sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**,@earendil-works/pi-tui/native/darwin/prebuilds/**,@deepseek-ai/dsh-experimental-cua-macos/native/bin/darwin-*/**,@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-*/**}'))
+  // The CPU payloads ride beside the archive as extra resources; electron-builder must not re-sign the pre-signed payloads.
+  // A macOS package copies only those of its own CPUs, which packaging stages from the prepared tree for each package.
   // macOS also carries the manifest copy the updaters shipped in 2.0.14-beta.1 through 2.0.17-beta.1 read beside the archive.
-  expect(next.build.mac.extraResources).toEqual([{ from: '.desktop-build/runtime', to: 'runtime' }, { from: '.desktop-build/payload/package.json', to: 'app/package.json' }])
+  expect(next.build.mac.extraResources).toEqual([{ from: PACKAGED_RUNTIME_DIR, to: 'runtime' }, { from: '.desktop-build/payload/package.json', to: 'app/package.json' }])
   expect(next.build.win.extraResources).toEqual([{ from: '.desktop-build/runtime', to: 'runtime' }])
   expect(next.build.linux.extraResources).toEqual([{ from: '.desktop-build/runtime', to: 'runtime' }])
   expect(next.build.extraResources).toBeUndefined()

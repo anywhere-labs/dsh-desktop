@@ -657,23 +657,22 @@ it('removes official on-demand bundles installed for another DSH release before 
   const manager = profiles()
   const dir = manager.ensure('desktop')
   const release = getDshRuntimeVersion()
-  const [claude, codex, computerUse] = ON_DEMAND_BUNDLES as [string, string, string]
-  // Codex pins an older release; Computer Use was saved for one but never placed.
-  saveOnDemand(dir, { [claude]: release, [codex]: '0.2.1-rc.5', [computerUse]: '0.2.2-alpha.3' }, { [computerUse]: undefined })
+  const [claude, codex] = ON_DEMAND_BUNDLES as [string, string]
+  // Codex pins an older release; the installed bundle was never placed.
+  saveOnDemand(dir, { [claude]: release, [codex]: '0.2.2-rc.1' }, { [codex]: undefined })
   const pnpm = fakePnpm(manager.home)
   const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
   try {
     const profile = loadNextProfile(dir, manager.home, NEXT_PACKAGE, pnpm.invocation)
-    expect(pnpm.calls()).toEqual([{ args: ['--config.offline=true', 'remove', codex, computerUse], cwd: realpathSync(dir) }])
+    expect(pnpm.calls()).toEqual([{ args: ['--config.offline=true', 'remove', codex], cwd: realpathSync(dir) }])
     const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
     expect(manifest.dependencies).toEqual({ [claude]: release })
     expect(manifest.dsh.profile.bundles).toContain(claude)
     expect(manifest.dsh.profile.bundles).not.toContain(codex)
-    expect(manifest.dsh.profile.bundles).not.toContain(computerUse)
     expect(existsSync(join(dir, 'node_modules', codex))).toBe(false)
     expect(profile.layers.map(layer => layer.packageName)).toContain(claude)
     expect(profile.layers.map(layer => layer.packageName)).not.toContain(codex)
-    expect(stderr).toHaveBeenCalledWith(expect.stringContaining(`removed ${codex}, ${computerUse} from Profile desktop`))
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining(`removed ${codex} from Profile desktop`))
   } finally { stderr.mockRestore() }
 })
 

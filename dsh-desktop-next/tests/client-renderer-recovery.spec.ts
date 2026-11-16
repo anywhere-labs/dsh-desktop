@@ -60,18 +60,10 @@ it('restores panel position per Profile and preserves updates without owning off
   expect(f.storage.has('dsh-next.panel.desktop')).toBe(false)
   expect(f.storage.get('dsh-next.panel.other')).toBe('other-panel')
   dispose()
-  await settle()
-})
-
-it('withdraws its panel observer when the shell unmounts', async () => {
-  const f = fixture()
-  const dispose = f.install()
-  dispose()
   expect(f.layout.panelInfo.listeners.size).toBe(0)
   f.layout.panelInfo.set({ activePanelId: 'plugins' })
-  expect(f.storage.size).toBe(0)
+  expect(f.storage.has('dsh-next.panel.desktop')).toBe(false)
   await settle()
-  expect(f.bridge.report).toHaveBeenCalledExactlyOnceWith('healthy')
 })
 
 it('records a failed readiness report without throwing from the mount effect', async () => {

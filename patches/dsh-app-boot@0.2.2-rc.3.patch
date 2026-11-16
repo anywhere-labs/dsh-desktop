@@ -1,0 +1,87 @@
+diff --git a/lib/index.js b/lib/index.js
+index 0fda9d3..327d956 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1911,6 +1911,10 @@ function readBundlePatches(binName, context, initialProfile) {
+ * @returns Detached ordered patches; this function does not update the Loader.
+ */
+ function readProfilePatches(binName, context, initialProfile) {
++	// Embedded launchers own their filtered bundle graph and final platform overlays.
++	// A pending patch document still has to reach them: the config editor composes
++	// its edit before persisting it, and judges the write against that composition.
++	if (context.readPatches !== void 0) return structuredClone(context.readPatches(initialProfile?.patches));
+ 	const patches = structuredClone([
+ 		...readBundlePatches(binName, context, initialProfile),
+ 		...initialProfile?.patches ?? loadOptionalPatches(binName, context.patchPath) ?? [],
+@@ -2094,7 +2098,14 @@ function prefixes(path) {
+ 	return canonical === configured ? [configured] : [configured, canonical];
+ }
+ function compileResolution(resolution) {
++	// Desktop owns one pinned official runtime. A shared Profile may contain
++	// another release hoisted by an optional bundle; it must not replace core
++	// services. CLI profiles retain upstream's local-package precedence.
++	const desktop = resolution.entries.some((entry) => entry.scope === "installation" &&
++		["dsh-desktop-next", "dsh-plugin-desktop-beta"].includes(entry.name));
+ 	return {
++		desktopPackages: new Set(desktop ? resolution.entries.filter((entry) => entry.scope === "installation" &&
++			/^@deepseek-ai\/(?:dsh(?:-.+)?|cordis(?:-plugin-.+)?|schemastery|cosmokit)$/.test(entry.name)).map((entry) => entry.name) : []),
+ 		entries: new Map(resolution.entries.map((entry) => [entry.name, {
+ 			...entry,
+ 			realDir: canonicalPath(entry.packageDir)
+@@ -2406,6 +2417,11 @@ var ResolutionRouter = class {
+ 		const memo = layer.kind === "profile" && (cjs === void 0 || cjs.cacheable);
+ 		const name = barePackageName(request);
+ 		if (name === void 0) return void 0;
++		if (resolution.desktopPackages.has(name)) {
++			const state = { route: { kind: "interception", entry: resolution.entries.get(name), after: layer.after } };
++			if (memo) requests.set(request, state);
++			return state;
++		}
+ 		if (parentRoutes.selfReferenceName === void 0 || !memo) parentRoutes.selfReferenceName = selfReferenceName(parent);
+ 		if (parentRoutes.selfReferenceName === name || parentRoutes.selfReferenceName === null) {
+ 			const state = { route: { kind: "native" } };
+@@ -2522,7 +2538,7 @@ var ResolutionRouter = class {
+ 	routeLocalPackage(request, parentRoutes, resolution) {
+ 		const name = barePackageName(request);
+ 		const { layer } = parentRoutes;
+-		if (name === void 0 || layer.kind !== "profile" || !layer.active || !resolution.localPackageNames.has(name)) return void 0;
++		if (name === void 0 || layer.kind !== "profile" || !layer.active || !resolution.localPackageNames.has(name) || resolution.desktopPackages.has(name)) return void 0;
+ 		const state = { route: { kind: "native" } };
+ 		parentRoutes.requests.set(request, state);
+ 		return state;
+@@ -3052,10 +3068,15 @@ function patchWarning(ctx) {
+ function manifestOf(ctx, name, parentURL) {
+ 	if (name.startsWith("cordis:")) return void 0;
+ 	const specifier = name.startsWith("#") ? resolvePluginResource(name, parentURL) : name;
++	const bare = barePackageName(specifier);
++	const resolveManifest = ctx.get("profileContext")?.resolvePackageManifest;
++	if (bare !== void 0 && resolveManifest !== void 0) {
++		const filename = resolveManifest(bare);
++		return filename === void 0 ? void 0 : readManifest(filename);
++	}
+ 	const packages = ctx.get("pluginPackages");
+ 	const pkg = packages?.packageOf(specifier, parentURL);
+ 	if (pkg !== void 0) return readManifest(pkg.manifestPath);
+-	const bare = barePackageName(specifier);
+ 	if (bare !== void 0 && packages === void 0) for (const path of createRequire(parentURL).resolve.paths(bare)) {
+ 		const filename = join(path, bare, "package.json");
+ 		if (existsSync(filename)) return readManifest(filename);
+diff --git a/lib/types/profile-context.d.ts b/lib/types/profile-context.d.ts
+index ef6fc6a..77c159f 100644
+--- a/lib/types/profile-context.d.ts
++++ b/lib/types/profile-context.d.ts
+@@ -8,6 +8,14 @@ export interface ProfilePnpmInvocation {
+ }
+ /** Current profile facts; scheduling and mutation belong to their callers. */
+ export interface ProfileContext {
++    /** Embedded launcher's authoritative package selection for compatibility preflight. */
++    readonly resolvePackageManifest?: (packageName: string) => string | undefined;
++    /**
++     * Embedded launcher composition, shared by management operations and HMR.
++     * @param profilePatches Pending profile patch document to compose instead of
++     * the one on disk; omitted by callers that have not staged an edit.
++     */
++    readonly readPatches?: (profilePatches?: readonly PatchOptions[]) => readonly PatchOptions[];
+     readonly name: string;
+     /** Packaged applications supply their bundled runtime instead of a PATH executable. */
+     readonly packageManager?: ProfilePnpmInvocation;

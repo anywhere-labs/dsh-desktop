@@ -1,0 +1,30 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -91,7 +91,7 @@
+ function parse(text, descriptor) {
+ 	let document;
+ 	try {
+-		document = JSON.parse(text);
++		document = JSON.parse(text.replace(/^\uFEFF/, ""));
+ 	} catch (error) {
+ 		throw new StorageError("malformed-medium", `unit '${descriptor.name}': file is not valid JSON`, { cause: error });
+ 	}
+@@ -146,7 +146,7 @@
+ function parseRecord(text, versions) {
+ 	let document;
+ 	try {
+-		document = JSON.parse(text);
++		document = JSON.parse(text.replace(/^\uFEFF/, ""));
+ 	} catch {
+ 		return;
+ 	}
+@@ -378,7 +378,7 @@
+ 	}
+ 	let document;
+ 	try {
+-		document = JSON.parse(text);
++		document = JSON.parse(text.replace(/^\uFEFF/, ""));
+ 	} catch {
+ 		return;
+ 	}

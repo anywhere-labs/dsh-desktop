@@ -6,7 +6,7 @@ import { expect, it, vi } from 'vitest'
 /** Run the installed official view; only React scheduling and external services are replaced. */
 function fixture(nativeBridge = true, lastVisible: unknown = null, apiKeyBridge?: object) {
   const source = readFileSync(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-client-ui-settings-account/client'), 'utf8')
-    .replace('return module.exports;', 'module.exports.testEntry = DesktopOnboardingEntry; module.exports.readKeys = readOnboardingApiKeyPresence; return module.exports;')
+    .replace(/return module\.exports(?=[;}])/, 'module.exports.testEntry = DesktopOnboardingEntry; module.exports.readKeys = readOnboardingApiKeyPresence; return module.exports')
   let entry: (props: any) => any
   let readKeys: (ctx: any) => Promise<boolean>
   const jsx = (type: any, props: any) => ({ type, props })
@@ -45,7 +45,9 @@ it.each([
   const result = view.render(String(step), String(status), String(account), Boolean(visible))
   expect(view.renderSlot).toHaveBeenCalledWith('onboarding.desktop.before', expect.anything(), expect.anything())
   expect(view.useOnboarding).not.toHaveBeenCalled()
-  expect(result.fallback.type.name).toBe('OnboardingSurface')
+  const fallback = result.fallback.type.name === 'DesktopOnboardingContinuationPage'
+    ? result.fallback.type(result.fallback.props) : result.fallback
+  expect(fallback.type.name).toBe('OnboardingSurface')
   const page = result.renderSurface('Existing Desktop wizard')
   expect(page.type(page.props).type.name).toBe('OnboardingSurface')
 })

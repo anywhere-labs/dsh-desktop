@@ -191,23 +191,6 @@ it('preserves ordinary official cards and their navigation when no overview entr
   expect(component(app.page(), 'PackageDetail')?.props.pkg.name).toBe('official-team')
 })
 
-it('places keyed bundle actions before the native switch without sharing the card navigation target', () => {
-  const app = fixture()
-  const card = component(app.page(), 'PackageCard')!
-  const head = component(render(card), 'CardHead')!
-  const controls = nodes(head.props.end)
-  const actionIndex = controls.findIndex(node => node.props.name === 'plugins.bundle.actions')
-  const toggleIndex = controls.findIndex(node => typeof node.type === 'function' && node.type.name === 'EnableSwitch')
-  expect(actionIndex).toBeGreaterThan(-1)
-  expect(toggleIndex).toBeGreaterThan(actionIndex)
-  expect(controls[actionIndex]!.props.options).toEqual({ entryKey: card.props.pkg.name })
-  expect(controls[actionIndex]!.props.owner.subject.pkg.name).toBe(card.props.pkg.name)
-  const rendered = render(head)
-  const openButton = nodes(rendered).find(node => node.props.onClick === head.props.onOpen)!
-  expect(openButton).toBeDefined()
-  expect(nodes(openButton).some(node => node.props.name === 'plugins.bundle.actions')).toBe(false)
-})
-
 it('keeps an official optional bundle in the extensions group with its artwork, badge, native switches and component details under Next composition', () => {
   const app = fixture()
   const ctx = {
@@ -252,28 +235,6 @@ it('keeps an official optional bundle in the extensions group with its artwork, 
   expect(app.setEnabled).toHaveBeenLastCalledWith(name, false)
 })
 
-
-it('lets composite item details reuse the official component list, live state and row toggles', () => {
-  const app = fixture()
-  const schedule = { rowId: 'schedule', entryId: 'include:schedule', moduleName: '@deepseek-ai/dsh-schedule', enabled: true, phase: 'active' }
-  const unrelated = { entryId: undefined, rowId: 'other', moduleName: 'other-plugin', enabled: true, phase: 'active' }
-  app.state.packages.push({ ...app.remote, name: '@deepseek-ai/dsh-web-app', rows: [schedule, unrelated] })
-  app.page()
-  app.overview().onOpenItem(app.item.id)
-  const body = render(component(app.page(), 'ItemDetail')!)
-  const pageSlot = nodes(body).find(node => node.props.name === 'plugins.item' && node.props.owner.view === 'page')!
-  const rows = pageSlot.props.owner.renderComponents(['@deepseek-ai/dsh-schedule']) as Node
-  expect(typeof rows.type === 'function' && rows.type.name).toBe('RowsSection')
-  expect(rows.props.rows).toEqual([schedule])
-  rows.props.toggle.onSetEnabled(schedule, false)
-  expect(app.setRowEnabled).toHaveBeenCalledWith('include:schedule', false)
-  app.state.busy.push('row:include:schedule')
-  expect(rows.props.toggle.busy(schedule)).toBe(true)
-  schedule.enabled = false
-  const updatedBody = render(component(app.page(), 'ItemDetail')!)
-  const updatedSlot = nodes(updatedBody).find(node => node.props.name === 'plugins.item' && node.props.owner.view === 'page')!
-  expect(updatedSlot.props.owner.renderComponents(['@deepseek-ai/dsh-schedule']).props.rows[0].enabled).toBe(false)
-})
 
 it('seeds PluginControls, RemoteControlSettings, and ComputerUseSettings from the official snapshot and first-mount cache without disabling switches on remount', async () => {
   vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })

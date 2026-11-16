@@ -1,0 +1,33 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -313,19 +313,25 @@
+ /**
+ * Extract Markdown mentions and bare canonical URIs from one text value.
+ * Explicit Markdown mentions fail on any malformed URI. Bare text is treated
+-* as a reference only when it has a non-empty base64url-shaped payload, then
+-* still fails if that candidate is not canonical.
++* as a reference only when it is a canonical URI; any other bare candidate
++* stays in the text unchanged.
+ * @param text - host text to normalize.
+ * @returns readable text and structured references in appearance order.
+ */
+ function parseSessionReferenceText(text) {
+ 	const references = [];
+ 	return {
+-		text: text.replace(/@\[((?:\\.|[^\\\]])*)\]\((dsh-session:[^\s)]*)\)|(dsh-session:[A-Za-z0-9_-]+)/gu, (_match, rawLabel, markdownUri, bareUri) => {
++		text: text.replace(/@\[((?:\\.|[^\\\]])*)\]\((dsh-session:[^\s)]*)\)|(dsh-session:[A-Za-z0-9_-]+)/gu, (match, rawLabel, markdownUri, bareUri) => {
+ 			const uri = markdownUri ?? bareUri;
+ 			/* v8 ignore next -- the two-alternative regex always captures exactly one URI group. */
+ 			if (uri === void 0) throw new SessionReferenceError("session reference URI is missing", "SESSION_REFERENCE_INVALID_REFERENCE");
+-			const sessionId = decodeSessionReferenceUri(uri);
++			let sessionId;
++			try {
++				sessionId = decodeSessionReferenceUri(uri);
++			} catch (error) {
++				if (markdownUri === void 0) return match;
++				throw error;
++			}
+ 			const label = rawLabel === void 0 ? sessionId : unescapeLabel(rawLabel);
+ 			references.push({
+ 				sessionId,

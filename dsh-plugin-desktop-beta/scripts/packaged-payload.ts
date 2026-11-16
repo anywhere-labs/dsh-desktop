@@ -1,3 +1,4 @@
+import { OFFICE_SKILL_UNPACKED, OFFICIAL_CUA_UNPACKED } from './upstream-family.ts'
 /** Read, audit and verify the archived Next payload after Electron Builder assembled it from the prepared tree. */
 import { createHash } from 'node:crypto'
 import { closeSync, existsSync, lstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs'
@@ -6,23 +7,35 @@ import { dirname, join } from 'node:path'
 import { basename as posixBasename, dirname as posixDirname } from 'node:path/posix'
 import { getRawHeader } from '@electron/asar'
 import { nextRuntimeFileExclusion, nextRuntimePackageExclusion, type NextPackagingTarget, type RuntimePackageConstraints } from './runtime-file-policy.ts'
-import { DESKTOP_RUNTIME_FILE, parseDesktopRuntime, verifyPayload, type DesktopRuntimeDescriptor, type DesktopRuntimeFile, type NextRelease, type PayloadEntry, type PayloadSource, type VerifyPayloadOptions } from '../src/runtime-tree.ts'
+import { macPackageCpus, type MacPackageArch } from './mac-runtime.ts'
+import { DESKTOP_RUNTIME_FILE, parseDesktopRuntime, readDesktopRuntime, verifyPayload, type DesktopRuntimeDescriptor, type DesktopRuntimeFile, type NextRelease, type PayloadEntry, type PayloadSource, type VerifyPayloadOptions } from '../src/runtime-tree.ts'
 
 /** Application-relative directory holding the prepared payload that Electron Builder archives verbatim. */
 export const PAYLOAD_DIR = '.desktop-build/payload'
 
 /**
  * Architectures whose native dependencies one Next package carries.
- * macOS releases are universal and the Yarn tree installs both Darwin CPU variants, so even a
- * single-architecture directory build ships both; Windows releases are x64 only.
+ * A macOS package carries one CPU or, as the universal application, both; Windows releases are x64 only.
  * @param platform - Electron platform being packaged.
  * @param hostArch - Build host architecture, used for platforms without a release target.
+ * @param macArch - The macOS package; universal unless one CPU is selected.
  * @returns Platform and architectures recorded in the payload descriptor.
  */
-export function nextPackagingTarget(platform: NodeJS.Platform, hostArch: string = process.arch): NextPackagingTarget {
-  if (platform === 'darwin') return { platform, archs: ['arm64', 'x64'] }
+export function nextPackagingTarget(platform: NodeJS.Platform, hostArch: string = process.arch, macArch: MacPackageArch = 'universal'): NextPackagingTarget {
+  if (platform === 'darwin') return { platform, archs: macPackageCpus(macArch) }
   if (platform === 'win32') return { platform, archs: ['x64'] }
   return { platform, archs: [hostArch] }
+}
+
+/**
+ * Target of the payload prepared for the package being built, as its sealed descriptor records it. Electron
+ * Builder's hooks package whatever was prepared, so they read the target from there rather than deriving it again.
+ * @param projectDir - Application package directory.
+ * @returns Platform and architectures of the prepared payload.
+ */
+export function preparedPackagingTarget(projectDir: string): NextPackagingTarget {
+  const { platform, archs } = readDesktopRuntime(join(projectDir, ...PAYLOAD_DIR.split('/'), DESKTOP_RUNTIME_FILE))
+  return { platform, archs }
 }
 
 interface AsarFile { readonly size: number; readonly offset?: string; readonly executable?: boolean; readonly unpacked?: boolean }
@@ -169,6 +182,8 @@ function isNativeImage(head: Buffer): boolean {
  * the Connector project. All of them need physical files.
  */
 const REQUIRED_UNPACKED = [
+  ...OFFICIAL_CUA_UNPACKED === undefined ? [] : [OFFICIAL_CUA_UNPACKED],
+  ...OFFICE_SKILL_UNPACKED === undefined ? [] : [OFFICE_SKILL_UNPACKED],
   /^scripts\/node-bin\//u, /^assets\//u, /^build\//u, /^node_modules\/pnpm\//u,
   /^node_modules\/@agents-anywhere\/dsh-bridge-next\/lib\/bundled-connector\//u,
   // The Creator preset mounts this package's skills through the Host's filesystem service, which stats with bigint
@@ -268,11 +283,11 @@ export function auditNextPayload(source: PayloadSource, target: NextPackagingTar
  */
 export function verifyNextPayload(source: PayloadSource): void {
   // `host.cordis.patch.yml` and `scripts/node-bin` are read from the packaged application by the
-  // Host: the overlay swaps the official webserver for Next's private loopback one, and the shims
-  // put a `node` on the package manager's PATH. Both are invisible to a `yarn start` run, which
-  // resolves them in the source tree, so only this check keeps them in the payload.
+  // Host: the overlay swaps the official webserver for Next's private loopback one and mounts the
+  // startup-entries row, and the shims put a `node` on the package manager's PATH. All are invisible
+  // to a `yarn start` run, which resolves them in the source tree, so only this check keeps them in the payload.
   for (const path of ['lib/main.js', 'lib/host.js', 'lib/client.js', 'lib/preload-app.cjs', 'lib/preload-shell.cjs', 'lib/preload-platform-account.cjs',
-    'lib/native-ui/index.html', 'cordis.patch.yml', 'host.cordis.patch.yml',
+    'lib/native-ui/index.html', 'lib/startup-entries.js', 'cordis.patch.yml', 'host.cordis.patch.yml',
     'scripts/node-bin/node', 'scripts/node-bin/node.cmd',
     'assets/tray-iconTemplate.png', 'assets/tray-icon-blue.png']) {
     if (source.entry(path) === undefined) throw new Error(`Missing Next payload: ${path}`)

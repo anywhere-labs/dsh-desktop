@@ -117,7 +117,7 @@ async function installOfficialComputerUse(ctx: Context): Promise<() => Promise<v
       cua.installCua(inner, cua.CuaConfig({}), {
         helperPath: join(tmpdir(), 'dsh-cua-native'),
         createChannel: () => { throw new Error('official Computer Use fixtures start no helper') },
-        guidance: 'Official Computer Use guidance', description: 'Official Computer Use',
+        guidance: 'Official Computer Use guidance', capabilities: { platform: 'macos', systemPointer: true, methods: [], appLevelAccessibility: true, keyboard: ['app'], browser: false, coordinateSpace: 'screenshot-pixels' },
         permissionParameters: (_method, permission) => ({ permission }),
       })
     },

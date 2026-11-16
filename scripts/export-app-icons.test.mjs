@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { checkIconResources, iconSourceDigest, LINUX_ICON_SIZES } from './export-app-icons.mjs'
+import { checkIconResources, iconSourceDigest, LINUX_ICON_SIZES, TRAY_ICONS } from './export-app-icons.mjs'
 
 test('resource checks reject edited vector layers, edited exports and missing exports without Xcode', () => {
   const directory = mkdtempSync(join(tmpdir(), 'dsh-icons-'))
@@ -56,6 +56,33 @@ test('Linux resource checks require every hicolor size and reject other sizes th
     assert.throws(() => checkIconResources(directory, { linux: true }), /resources are stale/)
     // Stable keeps its committed set outside the record.
     assert.doesNotThrow(() => checkIconResources(directory))
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('tray resource checks require every tray image in the synced assets directory', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsh-icons-'))
+  const build = join(directory, 'build')
+  const source = join(build, 'app-icon.icon')
+  mkdirSync(source, { recursive: true })
+  mkdirSync(join(directory, 'assets'))
+  writeFileSync(join(source, 'icon.json'), '{"fill":"system-dark"}')
+  const names = ['app-icon.png', 'app-icon-mac.png', 'app-icon.icns', 'app-icon.ico', ...TRAY_ICONS.map(([name]) => `../assets/${name}`)]
+  for (const name of names) writeFileSync(join(build, name), name)
+  writeFileSync(join(build, 'app-icon.resources.json'), JSON.stringify({
+    source: 'app-icon.icon', sourceSha256: iconSourceDigest(source),
+    outputs: Object.fromEntries(names.map(name => [name, createHash('sha256').update(readFileSync(join(build, name))).digest('hex')])),
+  }))
+  try {
+    assert.doesNotThrow(() => checkIconResources(build, { tray: true }))
+    writeFileSync(join(directory, 'assets/tray-iconTemplate@2x.png'), 'previous artwork')
+    assert.throws(() => checkIconResources(build, { tray: true }), /resources are stale/)
+    writeFileSync(join(directory, 'assets/tray-iconTemplate@2x.png'), '../assets/tray-iconTemplate@2x.png')
+    rmSync(join(directory, 'assets/tray-icon-blue@1.5x.png'))
+    assert.throws(() => checkIconResources(build, { tray: true }), /resources are stale/)
+    // Stable keeps its tray images outside the record.
+    assert.doesNotThrow(() => checkIconResources(build))
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

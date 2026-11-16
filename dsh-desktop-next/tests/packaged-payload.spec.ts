@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createPackageWithOptions } from '@electron/asar'
 import { afterEach, expect, it } from 'vitest'
-import { archivedPayload, auditNextPayload, nextPackagingTarget, nextPayloadRelease, universalMergeRewrite, UPDATER_MANIFEST_SHIM_MAX_BYTES, verifyArchiveAgainstPrepared, verifyNextPayload, verifyNextRuntime, verifyUpdaterManifestShim } from '../scripts/packaged-payload.ts'
+import { archivedPayload, auditNextPayload, nextPackagingTarget, nextPayloadRelease, PAYLOAD_DIR, preparedPackagingTarget, universalMergeRewrite, UPDATER_MANIFEST_SHIM_MAX_BYTES, verifyArchiveAgainstPrepared, verifyNextPayload, verifyNextRuntime, verifyUpdaterManifestShim } from '../scripts/packaged-payload.ts'
 import { DESKTOP_RUNTIME_FILE, physicalPayload, readDesktopRuntime, sealPayload } from '../src/runtime-tree.ts'
 import { completeApplication, FIXTURE_RELEASE, FIXTURE_SHARED, writeApplication, writePackage } from './runtime-fixture.ts'
 
@@ -50,8 +50,25 @@ async function assembled(extra: (app: string) => void = () => {}, seal = true): 
 
 it('describes the architectures each release target carries', () => {
   expect(nextPackagingTarget('darwin')).toEqual({ platform: 'darwin', archs: ['arm64', 'x64'] })
+  expect(nextPackagingTarget('darwin', 'arm64', 'universal')).toEqual({ platform: 'darwin', archs: ['arm64', 'x64'] })
+  // A macOS package for one CPU carries that CPU whichever CPU builds it.
+  expect(nextPackagingTarget('darwin', 'x64', 'arm64')).toEqual({ platform: 'darwin', archs: ['arm64'] })
+  expect(nextPackagingTarget('darwin', 'arm64', 'x64')).toEqual({ platform: 'darwin', archs: ['x64'] })
   expect(nextPackagingTarget('win32')).toEqual({ platform: 'win32', archs: ['x64'] })
   expect(nextPackagingTarget('linux', 'arm64')).toEqual({ platform: 'linux', archs: ['arm64'] })
+})
+
+it('reads the target the packaging hooks follow from the descriptor sealed into the prepared payload', () => {
+  const project = mkdtempSync(join(tmpdir(), 'desktop-prepared-target-'))
+  roots.push(project)
+  const app = join(project, ...PAYLOAD_DIR.split('/'))
+  writeApplication(app)
+  completeApplication(app)
+  const manifest = JSON.parse(readFileSync(join(app, 'package.json'), 'utf8')) as { dependencies: Record<string, string> }
+  sealPayload(physicalPayload(app), join(app, DESKTOP_RUNTIME_FILE), FIXTURE_RELEASE, Object.keys(manifest.dependencies), { platform: 'darwin', archs: ['arm64'] })
+  expect(preparedPackagingTarget(project)).toEqual({ platform: 'darwin', archs: ['arm64'] })
+  rmSync(join(app, DESKTOP_RUNTIME_FILE))
+  expect(() => preparedPackagingTarget(project)).toThrow()
 })
 
 it('reads archive entries from their offsets, unpacked entries from the physical sibling and the embedded descriptor', async () => {

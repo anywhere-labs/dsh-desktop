@@ -113,6 +113,54 @@ describe('macOS release command boundary', () => {
     expect(logs[0]).not.toContain(appPassword)
   })
 
+  it('builds one DMG per target into the same output, preparing the runtime of each target first', () => {
+    const calls: CommandCall[] = []
+    const order: string[] = []
+    releaseMac({
+      ...baseOptions({
+        PATH: '/usr/bin',
+        APPLE_ID: 'developer@example.test',
+        APPLE_APP_SPECIFIC_PASSWORD: 'notary-password',
+        APPLE_TEAM_ID: 'TEAM123456',
+      }, calls),
+      targets: ['arm64', 'x64', 'universal'],
+      prepareRuntime: target => { order.push(`prepare ${target}`) },
+      run: (command, args, cwd, commandEnv) => {
+        calls.push({ command, args: [...args], cwd, env: { ...commandEnv } })
+        if (args.includes('electron-builder')) order.push(`build ${args[4]!}`)
+      },
+    })
+
+    expect(order).toEqual(['prepare arm64', 'build --arm64', 'prepare x64', 'build --x64', 'prepare universal', 'build --universal'])
+    expect(calls).toHaveLength(7)
+    for (const build of calls.slice(3, 6)) {
+      expect(build.args).toContain('--config.directories.output=/repo/dsh-plugin-desktop/dist/mac-release')
+      expect(build.env.APPLE_TEAM_ID).toBe('TEAM123456')
+    }
+    expect(calls[6]?.args).toEqual(['scripts/verify-mac-release.ts', '/repo/dsh-plugin-desktop/dist/mac-release'])
+    expect(calls[6]?.env).toEqual({ PATH: '/usr/bin' })
+  })
+
+  it('signs a drill build without notarizing it and tells the verifier so', () => {
+    const calls: CommandCall[] = []
+    const logs: string[] = []
+    releaseMac({ ...baseOptions({ PATH: '/usr/bin' }, calls, [], logs), targets: ['arm64'], notarize: false })
+
+    expect(calls).toHaveLength(5)
+    expect(calls[3]?.args).toContain('--config.forceCodeSigning=true')
+    expect(calls[3]?.args).toContain('--config.mac.notarize=false')
+    expect(calls[4]?.env).toEqual({ PATH: '/usr/bin', DSH_MAC_SKIP_NOTARIZATION: '1' })
+    expect(logs[0]).toContain('notarization skipped for a drill build')
+  })
+
+  it('never lets a notarized release skip the verifier notarization checks', () => {
+    const calls: CommandCall[] = []
+    releaseMac(baseOptions({ PATH: '/usr/bin', APPLE_KEYCHAIN_PROFILE: 'dsh-notary', DSH_MAC_SKIP_NOTARIZATION: '1' }, calls))
+
+    expect(calls[3]?.args).toContain('--config.mac.notarize=true')
+    expect(calls[4]?.env.DSH_MAC_SKIP_NOTARIZATION).toBeUndefined()
+  })
+
   it('adapts the existing P12 variables only for electron-builder', () => {
     const calls: CommandCall[] = []
     const p12Password = 'p12-password-that-must-not-be-logged'

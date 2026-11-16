@@ -1,6 +1,6 @@
 {
   "source": "app-icon.icon",
-  "sourceSha256": "2c06807796aeedfa92c945554955356830ee5e7aa35684b491f54a740c837a16",
+  "sourceSha256": "68ecf0eaeff9df86863c817977bdbfc3e20dbc6ec294fbd9666c3bff37f13fb6",
   "mac": {
     "input": "app-icon.icon",
     "legacy": "app-icon.icns",
@@ -26,19 +26,29 @@
       512
     ]
   },
+  "tray": {
+    "input": "app-icon.icon/Assets/whale-cobalt.svg",
+    "color": "#3563BF"
+  },
   "outputs": {
-    "app-icon.png": "897343a299d1b3b47eb4ea37d3dea1ac5aee7c3d4a2cdbcd6ff4e93303fa0ad9",
-    "app-icon-mac.png": "5d35071f1d575e251a3c1bb8b8a7b3ba779471b91cbfa374b05f3a93db703287",
-    "app-icon.ico": "a1a6c879c5fb999515b54dd6133150e075d02628b87a4ccb89926d5241665bf6",
-    "app-icon.icns": "7218691684dd053ce9b7a2a39ddc27df2eecab5add61d1858ef9d2c6cb6a7df7",
-    "icons/16x16.png": "627301dacf883cf32f39b3ef58e932b6385d45d68c85a1bf24bc5ca8154935b3",
-    "icons/22x22.png": "0aa7644cd33e8a8e6ae5203e2b120898d46bc1a51ff6445b5c077d1d3cbeff12",
-    "icons/24x24.png": "db94f022f406017a3f6fdb37d177d4e1f0dedb7d01e59324ca7f933294caa6cf",
-    "icons/32x32.png": "8b8b6cdf79836554a4af36d644afab536400322ce27df8bc546e4604c3e4f6b6",
-    "icons/48x48.png": "5d0911acfeeeab6d01d85b20b0ad677fffd6334087fcf2870d11654063fd4e65",
-    "icons/64x64.png": "fd980a04447bff756a032c10d6365b5ac7434d348f3d8295dfa12138781d8da6",
-    "icons/128x128.png": "8d0ba1b037e15af98bdd4057cc39cb3f7d54f74f91ad4970ec122d202dab23d6",
-    "icons/256x256.png": "f022bf3cbdacad43fbd5d94f76399066170a19d288b351b75f0460560cf8ccb9",
-    "icons/512x512.png": "8dde023a0c64d68ae41c15898bcd42c94a4088f7abd2b995b3e80def35aaffa0"
+    "app-icon.png": "e2152db62fda7b0a60674e9a33ff4fc86b9f796f7831d75fe0354911ef2c6bc6",
+    "app-icon-mac.png": "8a1f4b2dd13beccef7e64119cc4892b599135ec67e0cbcea3bda5e233bbfeeac",
+    "app-icon.ico": "242aaef8c6bdf0485f7c19e464ba4ea4a03b1220d82ba8505f4acec7b4216398",
+    "app-icon.icns": "088d50aef607ea4a611ade886fbe58c0040c285b091f35c838de9cf6c036c4be",
+    "icons/16x16.png": "0aedbee1ec744ee6f53a81e0dd16d0d9be11756a004c232b92acb106e2a5393b",
+    "icons/22x22.png": "abe8e0db23e44e965c939c1b9a2fe8e5debbf7b30ba97126d6ad767510590253",
+    "icons/24x24.png": "630598bbb383d317e58eaeae1d4cd5e05141dec94e4bbcd36741818aa05f1f4d",
+    "icons/32x32.png": "c3a96fa0ffd2b171020a9e57d6eb9f62ac8aea23c7683dee02628e67f561f7d9",
+    "icons/48x48.png": "801742497838b133538c680d51b82bab8426e951374f54aeb738b06dd7546269",
+    "icons/64x64.png": "0f3a3bc5c7da36afd437697b5c0b4483582b37adc8c5380409b662b97ddaa06f",
+    "icons/128x128.png": "fa2fe1c701f8fa8c0937ee0291656516792f77a73386f83fd1660253b8f60ebc",
+    "icons/256x256.png": "2a8bb934c6dfbac280c88be4dfc1106b06caf4164f37fd6c2224b73147daf1df",
+    "icons/512x512.png": "c0c6b61daf9dde2ef88dc6fd027ecf9ddd130cf1d4c6094459dc5fda3fc08fb5",
+    "../assets/tray-iconTemplate.png": "cd8b3de8326c6a337cda51bfea690f977684a0826414751a788002b355212bc4",
+    "../assets/tray-iconTemplate@2x.png": "01dc75ccfdddcddfec1789bb992ab29dd3e639af3e34b44c53624ab0d373751b",
+    "../assets/tray-icon-blue.png": "f73e4bb123bbdb4241045ef371588fdeda78d638379488867b9f7ce8a48f4148",
+    "../assets/tray-icon-blue@1.25x.png": "0b9766c2e74415e4b1f5d5cc93cfece2d56243ce64254634ed7eb216971417ed",
+    "../assets/tray-icon-blue@1.5x.png": "c0ca43112fa0eca9a7ef13ebb3f101f5107e51c4b12025152df9f9efa3e4db45",
+    "../assets/tray-icon-blue@2x.png": "774f72f2f557edfd19e14879509c55498a1ab79473ada5054d6d52349f3281ac"
   }
 }

@@ -1,3 +1,4 @@
+import { OFFICE_SKILLS_IN_PACKAGE } from '../scripts/upstream-family.ts'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -18,17 +19,19 @@ const require = createRequire(import.meta.url)
 const officeAssets = join(dirname(require.resolve('@deepseek-ai/dsh-skill-office/package.json')), 'assets')
 const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
 
-it('loads Office skills with the bundled Node and the installed CLI, and removes them on disposal', async () => {
+it('loads this runtime’s Office skills and removes their registrations on disposal', async () => {
   const root = await mkdtemp(join(tmpdir(), 'next-office-'))
   vi.stubEnv('DSH_HOME', root)
   const ctx = new Context()
   try {
     const source = join(root, 'runtime', 'arm64', 'primary-runtime')
     const assets = join(root, 'runtime', 'arm64', 'office-skills')
-    await cp(officeAssets, assets, { recursive: true })
     const nodeDirectory = join(source, 'dependencies', 'node', 'bin')
-    await mkdir(nodeDirectory, { recursive: true })
-    await cp(process.execPath, join(nodeDirectory, nodeName))
+    if (!OFFICE_SKILLS_IN_PACKAGE) {
+      await cp(officeAssets, assets, { recursive: true })
+      await mkdir(nodeDirectory, { recursive: true })
+      await cp(process.execPath, join(nodeDirectory, nodeName))
+    }
     ctx.baseUrl = pathToFileURL(root).href + '/'
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
@@ -54,14 +57,20 @@ it('loads Office skills with the bundled Node and the installed CLI, and removes
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['office', 'office-docx', 'office-export-pdf', 'office-pptx', 'office-recalculate', 'office-render', 'office-xlsx'])
-    expect((await ctx.skills.get('office-pptx'))?.resourceBase).toEqual({ kind: 'directory', path: join(assets, 'office-pptx').split(sep).join('/') })
-    expect((await ctx.skills.get('office-pptx'))?.content).toContain('office-render')
-    expect((await ctx.skills.get('office-pptx'))?.content).not.toContain(nodeDirectory)
-    const content = (await ctx.skills.get('office-render'))?.content ?? ''
-    expect(content).toContain('libreofficeKit')
-    expect(content).toContain(JSON.stringify(join(nodeDirectory, nodeName)).slice(1, -1))
-    expect(content).toContain(JSON.stringify(join(dirname(require.resolve('@deepseek-ai/libreoffice-kit/package.json')), 'lib', 'cli.js')).slice(1, -1))
+    if (OFFICE_SKILLS_IN_PACKAGE) {
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['office', 'office-docx', 'office-pptx', 'office-xlsx'])
+      expect((await ctx.skills.get('office-pptx'))?.resourceBase).toEqual({ kind: 'directory', path: join(officeAssets, 'office-pptx').split(sep).join('/') })
+      expect(await ctx.skills.get('office-render')).toBeUndefined()
+    } else {
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['office', 'office-docx', 'office-export-pdf', 'office-pptx', 'office-recalculate', 'office-render', 'office-xlsx'])
+      expect((await ctx.skills.get('office-pptx'))?.resourceBase).toEqual({ kind: 'directory', path: join(assets, 'office-pptx').split(sep).join('/') })
+      expect((await ctx.skills.get('office-pptx'))?.content).toContain('office-render')
+      expect((await ctx.skills.get('office-pptx'))?.content).not.toContain(nodeDirectory)
+      const content = (await ctx.skills.get('office-render'))?.content ?? ''
+      expect(content).toContain('libreofficeKit')
+      expect(content).toContain(JSON.stringify(join(nodeDirectory, nodeName)).slice(1, -1))
+      expect(content).toContain(JSON.stringify(join(dirname(require.resolve('@deepseek-ai/libreoffice-kit/package.json')), 'lib', 'cli.js')).slice(1, -1))
+    }
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['load_workspace_dependencies'])
     const entry = [...ctx.loader.entries()].find(entry => entry.options.name === 'office')
     expect(entry).toBeDefined()

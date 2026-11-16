@@ -10,7 +10,7 @@ import type { DesktopBridge, DesktopPreferences, DesktopState } from '../desktop
 import { installPluginControlsStyles } from '../client/plugin-controls-styles.ts'
 import { OFFICIAL_PLUGIN_INDEX } from '../upstream-family-labels.ts'
 import './onboarding.css'
-import whaleArtwork from '../../build/app-icon.icon/Assets/DeepSeek.svg'
+import whaleArtwork from '../../build/app-icon.icon/Assets/whale-cobalt.svg'
 // Reuse the portable device family artwork and composition from the AA landing page.
 import phoneArtwork from './assets/agents-anywhere-phone.webp'
 import tabletArtwork from './assets/agents-anywhere-tablet.webp'

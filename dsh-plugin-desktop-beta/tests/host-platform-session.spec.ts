@@ -1,5 +1,5 @@
-import { Context } from '@deepseek-ai/cordis'
-import { DeepSeekAccount, type AccountView, type PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
+import { Context, Service } from '@deepseek-ai/cordis'
+import { type AccountView, type AccountUpdate, type PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { expect, it } from 'vitest'
 import { installPlatformSessionPublisher } from '../src/host/platform-session.ts'
 
@@ -8,7 +8,8 @@ const state: AccountView = {
   links: { usageUrl: 'https://platform.example/usage', topUpUrl: 'https://platform.example/top_up' },
 }
 
-class Account extends DeepSeekAccount {
+class Account extends Service {
+  constructor(ctx: Context) { super(ctx, 'deepseekAccount') }
   getDeviceIdentity = async () => ({ osVersion: 'test-os' })
   fail = false
   identityChangesRequested = false
@@ -16,23 +17,21 @@ class Account extends DeepSeekAccount {
   reading = Promise.withResolvers<undefined>()
   finished = Promise.withResolvers<undefined>()
   read: () => Promise<PlatformSession | null> = async () => ({ origin: 'https://platform.example', userId: null, token: 'test' })
-  override async getState() { return state }
-  override async getProfile() { return null }
-  override async getBalance() { return null }
-  override async getUnnotifiedBonuses() { return null }
-  override async ackBonusNotified() { return false }
-  override async startSignIn() { return state }
-  override async cancelSignIn() { return state }
-  override async signOut() { return state }
-  override async rejectToken() {}
-  override async resolveToken() { return undefined }
-  override async getPlatformSession() { this.reading.resolve(undefined); return this.read() }
-  override async *watch(signal: AbortSignal, includeIdentityChanges = false) {
+  async getState() { return state }
+  async getProfile() { return null }
+  async getBalance() { return null }
+  async startSignIn() { return state }
+  async cancelSignIn() { return state }
+  async signOut() { return state }
+  async rejectToken() {}
+  async resolveToken() { return undefined }
+  async getPlatformSession() { this.reading.resolve(undefined); return this.read() }
+  async *watch(signal: AbortSignal, includeIdentityChanges = false) {
     this.identityChangesRequested = includeIdentityChanges
     const abort = () => { this.ended.resolve(undefined) }
     signal.addEventListener('abort', abort, { once: true })
     try {
-      yield state
+      yield { type: 'snapshot', state } satisfies AccountUpdate
       await this.ended.promise
       if (this.fail) throw new Error('fixture subscription failure')
     } finally {

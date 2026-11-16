@@ -14,7 +14,7 @@ import { pluginMarketPatch } from './profile-plugin-market.ts'
 import { RETIRED_SCHEDULE_BUNDLE, retiredSchedulePatch } from './profile-schedule.ts'
 import { removeLinkProjectionsSafely } from '../../dsh-plugin-desktop/src/link-projections.ts'
 import { insideArchive, unpackedPath } from './asar-archive-policy.ts'
-import { ON_DEMAND_BUNDLES, PROFILE_TEMPLATES } from './upstream-family.ts'
+import { ON_DEMAND_BUNDLES, PROFILE_TEMPLATES, RETIRED_PROFILE_BUNDLES } from './upstream-family.ts'
 
 export const NEXT_PACKAGE = fileURLToPath(new URL('../package.json', import.meta.url))
 export const WEB_BUNDLES = [...PROFILE_TEMPLATES.web!.bundles]
@@ -135,6 +135,7 @@ export class NextProfiles {
       }
     } else this.setFeatures(name, DEFAULT_FEATURES)
     this.migrateSchedule(name)
+    this.retireUpstreamBundles(name)
     return dir
   }
   create(name: string): string {
@@ -144,7 +145,18 @@ export class NextProfiles {
     initProfile(dir, WEB_BUNDLES)
     this.setFeatures(name, DEFAULT_FEATURES)
     this.migrateSchedule(name)
+    this.retireUpstreamBundles(name)
     return dir
+  }
+  /** Remove obsolete upstream bundle selections after a recovery backup; keep all user patches. */
+  private retireUpstreamBundles(name: string): void {
+    if (RETIRED_PROFILE_BUNDLES.length === 0) return
+    const manifest = this.manifest(name)
+    const bundles = manifest.dsh.profile.bundles.filter(bundle => !RETIRED_PROFILE_BUNDLES.includes(bundle))
+    if (bundles.length === manifest.dsh.profile.bundles.length) return
+    new NextRecovery(this).backup(name, 'before-upstream-bundle-retirement')
+    manifest.dsh.profile.bundles = bundles
+    atomicJson(join(this.directory(name), 'package.json'), manifest)
   }
   features(name: string): Features {
     const manifest = this.manifest(name)

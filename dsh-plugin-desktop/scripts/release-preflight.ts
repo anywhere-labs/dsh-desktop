@@ -27,14 +27,16 @@ export interface MacReleasePreflightOptions {
   readonly platform: NodeJS.Platform
   /** Return the valid code-signing identities visible to the build process. */
   readonly listCodeSigningIdentities: () => string
+  /** Whether the release is notarized; only a signed drill build may pass false. Defaults to true. */
+  readonly notarize?: boolean
 }
 
 /** Safe release facts confirmed by the preflight. */
 export interface MacReleasePreflightResult {
   /** Developer ID Application identity that electron-builder may select. */
   readonly identity: string
-  /** Credential mechanism that electron-builder will use for notarization. */
-  readonly notarization: NotarizationCredentialSource
+  /** Credential mechanism that electron-builder will use for notarization, or `skipped` for a drill build. */
+  readonly notarization: NotarizationCredentialSource | 'skipped'
   /** Credential mechanism that electron-builder will use for signing. */
   readonly signing: SigningCredentialSource
 }
@@ -162,7 +164,7 @@ function developerIdApplications(output: string): readonly string[] {
 }
 
 /**
- * Assert that macOS distribution signing and notarization cannot be skipped.
+ * Assert that macOS distribution signing cannot be skipped, nor notarization unless a signed drill build asks.
  * @param options - Process inputs and code-signing identity lookup.
  * @returns The non-secret release selections confirmed by the checks.
  */
@@ -210,7 +212,7 @@ export function assertMacReleaseReady(options: MacReleasePreflightOptions): MacR
 
   return {
     identity,
-    notarization: resolveNotarizationCredentials(options.env),
+    notarization: options.notarize === false ? 'skipped' : resolveNotarizationCredentials(options.env),
     signing,
   }
 }

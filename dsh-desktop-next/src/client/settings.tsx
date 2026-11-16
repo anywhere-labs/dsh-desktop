@@ -5,6 +5,7 @@ import { DesktopSettingsSection, DesktopSettingsSelect, DesktopSettingsToggleRow
 import { DesktopNativeActions } from '../../../dsh-plugin-desktop/src/client/DesktopNativeActions.tsx'
 import { en, zh, type DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
 import type { DesktopCommand, DesktopState } from '../desktop-contract.ts'
+import { DEFAULT_HOST_STARTUP_TIMEOUT, HOST_STARTUP_TIMEOUT_PRESETS, hostStartupLimitTitle, hostStartupTimeoutLabel, type HostStartupTimeout } from '../host-startup-limit.ts'
 import { NextSettingsAdapter } from './settings-adapter.ts'
 import { DesktopPermissionsSection } from './permissions.tsx'
 import { useDesktopState } from './desktop-state.ts'
@@ -95,6 +96,34 @@ function NextDataDirectory({ state, language, unavailable, run }: { state: Deskt
   </div>
 }
 
+/**
+ * How long the Host may take to start before recovery opens (#1569). A limit saved outside the presets,
+ * such as one edited by hand, stays listed. Safe Mode applies its own fixed limit.
+ */
+function NextStartupLimit({ state, language, save }: { state: DesktopState; language: string; save(value: HostStartupTimeout): void }) {
+  const zh = language.startsWith('zh')
+  const t = (cn: string, en: string): string => zh ? cn : en
+  const value = state.preferences.hostStartupTimeout ?? DEFAULT_HOST_STARTUP_TIMEOUT
+  const choices = typeof value === 'number' && !HOST_STARTUP_TIMEOUT_PRESETS.includes(value)
+    ? [...HOST_STARTUP_TIMEOUT_PRESETS.filter(preset => preset !== 'none' && preset < value), value, ...HOST_STARTUP_TIMEOUT_PRESETS.filter(preset => preset === 'none' || preset > value)]
+    : HOST_STARTUP_TIMEOUT_PRESETS
+  return <div className="dshDesktopSettingsUpdateRow" data-next-startup-limit="">
+    <span className="dshDesktopSettingsToggleCopy">
+      <span className="dshDesktopSettingsToggleLabel">{hostStartupLimitTitle(zh)}</span>
+      <p className="dshDesktopSettingsToggleDescription">{state.safeMode ? t('安全模式固定使用 60 秒。', 'Safe Mode always allows 60 seconds.')
+        : t('插件服务需在此时间内就绪，否则打开恢复助手。插件较多或电脑较慢时可以延长。下次启动插件服务时生效。',
+          'The plugin service must be ready within this time, or the recovery assistant opens. Allow longer when many plugins are installed or the computer is slow. Applies the next time the plugin service starts.')}</p>
+    </span>
+    <DesktopSettingsSelect
+      ariaLabel={hostStartupLimitTitle(zh)}
+      value={String(value)}
+      disabled={state.safeMode}
+      options={choices.map(choice => ({ value: String(choice), label: hostStartupTimeoutLabel(choice, zh) }))}
+      onChange={choice => { save(choice === 'none' ? 'none' : Number(choice)) }}
+    />
+  </div>
+}
+
 /** Next-only preferences use the existing Desktop form and switch components. */
 function NextDesktopOptions({ adapter, state, language }: { adapter: NextSettingsAdapter; state: DesktopState; language: string }) {
   const t = (cn: string, en: string): string => language.startsWith('zh') ? cn : en
@@ -144,6 +173,7 @@ function NextDesktopOptions({ adapter, state, language }: { adapter: NextSetting
         disabled={state.safeMode}
         onChange={developerLogging => { void savePreference({ developerLogging }) }}
       />
+      <NextStartupLimit state={state} language={language} save={hostStartupTimeout => { void savePreference({ hostStartupTimeout }) }} />
       <div className="dshDesktopSettingsUpdateRow">
         <span className="dshDesktopSettingsChoiceCopy">
           <span className="dshDesktopSettingsChoiceTitle">{t('恢复助手', 'Recovery assistant')}</span>

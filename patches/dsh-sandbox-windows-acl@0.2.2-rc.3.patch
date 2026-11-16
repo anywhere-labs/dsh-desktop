@@ -1,0 +1,281 @@
+diff --git a/lib/runner.js b/lib/runner.js
+index 9c54621..b3a8a6d 100644
+--- a/lib/runner.js
++++ b/lib/runner.js
+@@ -1,6 +1,8 @@
+ import { a as workspaceWriteSid, i as tempWriteSid, l as win32, s as assertTempRootOutsideWorkspace, t as AclSandbox } from "./types-DXWX0PXB.js";
+ import { closeSync, existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+ import { join } from "node:path";
++import { spawn } from "node:child_process";
++import { createRequire } from "node:module";
+ import { SUBPROCESS_CONTROL_ENV, SUBPROCESS_CONTROL_FD } from "@deepseek-ai/dsh-subprocess/control";
+ //#region lib/types/runner.js
+ /**
+@@ -110,6 +112,81 @@ function parseArgs(raw) {
+ function requireDirectory(label, path) {
+ 	if (!existsSync(path) || !statSync(path).isDirectory()) fail(`${label} is not an existing directory: ${path}`);
+ }
++/**
++* DSH Desktop: an Electron host owns no console, and a restricted child that
++* must create its own dies with 0xC0000142 on some systems (#991, #1538).
++* Give it one to inherit, without a window that Windows Terminal could show
++* (#1268), as Stable's trampoline does: AllocConsoleWithOptions on Windows 11
++* 24H2+, else the console of a hidden cmd.exe, else a hidden AllocConsole.
++*/
++async function ensureConsoleHost() {
++	if (process.platform !== "win32") return;
++	const koffi = createRequire(import.meta.url)("koffi");
++	const kernel32 = koffi.load("kernel32.dll");
++	if (kernel32.func("uint32 __stdcall GetConsoleCP()")() !== 0) return;
++	if (allocWindowlessConsole(koffi, kernel32)) return;
++	if (await attachDonorConsole(kernel32.func("int __stdcall AttachConsole(uint32)"))) return;
++	if (kernel32.func("int __stdcall AllocConsole()")() === 0) fail(`AllocConsole failed (Win32 ${kernel32.func("uint32 __stdcall GetLastError()")()})`);
++	const consoleWindow = kernel32.func("void * __stdcall GetConsoleWindow()")();
++	if (consoleWindow !== null) koffi.load("user32.dll").func("int __stdcall ShowWindow(void *, int)")(consoleWindow, 0);
++}
++function allocWindowlessConsole(koffi, kernel32) {
++	let allocate;
++	try {
++		const options = koffi.pointer(koffi.struct({
++			mode: "int",
++			useShowWindow: "int",
++			showWindow: "uint16"
++		}));
++		allocate = kernel32.func("AllocConsoleWithOptions", "int32", [options, koffi.out(koffi.pointer("int"))]);
++	} catch {
++		return false;
++	}
++	const result = [0];
++	return allocate({
++		mode: 2,
++		useShowWindow: 0,
++		showWindow: 0
++	}, result) >= 0 && result[0] !== 0;
++}
++function attachDonorConsole(attachConsole) {
++	return new Promise((resolve) => {
++		const donor = spawn(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "cmd.exe"), [
++			"/d",
++			"/q",
++			"/k",
++			"echo ready"
++		], {
++			stdio: [
++				"pipe",
++				"pipe",
++				"ignore"
++			],
++			windowsHide: true
++		});
++		let output = "";
++		let settled = false;
++		const finish = (attached) => {
++			if (settled) return;
++			settled = true;
++			clearTimeout(timer);
++			donor.stdout.destroy();
++			donor.stdin.end();
++			if (!attached) donor.kill();
++			resolve(attached);
++		};
++		const timer = setTimeout(() => finish(false), 1e4);
++		donor.on("error", () => finish(false));
++		donor.stdin.on("error", () => {});
++		donor.once("exit", () => finish(false));
++		donor.stdout.setEncoding("utf8");
++		donor.stdout.on("data", (chunk) => {
++			output += chunk;
++			if (output.includes("ready") && donor.pid !== void 0) finish(attachConsole(donor.pid) !== 0);
++		});
++	});
++}
++
+ async function main() {
+ 	const parsed = parseArgs(process.argv.slice(2));
+ 	requireDirectory("--workspace", parsed.workspace);
+@@ -118,6 +195,7 @@ async function main() {
+ 	if (parsed.mode === "read-only" && seamManaged) fail("read-only does not accept --write-sid or --temp-write-sid");
+ 	if (parsed.mode === "workspace-write" && parsed.writeSid === void 0 !== (parsed.tempWriteSid === void 0)) fail("workspace-write requires --write-sid and --temp-write-sid together");
+ 	if (parsed.mode === "workspace-write") assertTempRootOutsideWorkspace(parsed.workspace, parsed.temp);
++	await ensureConsoleHost();
+ 	const api = await win32();
+ 	if (api.setConsoleCtrlHandler(null, 1) === 0) fail(`SetConsoleCtrlHandler failed (Win32 ${api.getLastError()})`);
+ 	let ownedTempDir;
+diff --git a/lib/types-DXWX0PXB.js b/lib/types-DXWX0PXB.js
+index 6783e8a..80dc892 100644
+--- a/lib/types-DXWX0PXB.js
++++ b/lib/types-DXWX0PXB.js
+@@ -1,4 +1,5 @@
+ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
++import { readdirSync } from "node:fs";
+ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+ import { ERROR_INSUFFICIENT_BUFFER, Win32Error, allocPtrSlot, allocUint32, decodePtr, decodeUint32, drainPipe, extendWin32ProcessBindings, isNullPtr, isNullPtr as isNullPtr$1, spawnInheritedJobProcess, spawnPipedProcess, throwLastError, throwLastError as throwLastError$1, throwWin32, waitForProcessExit } from "@deepseek-ai/dsh-win32-process";
+ import { createHash } from "node:crypto";
+@@ -224,6 +225,19 @@ function bindings() {
+ 			PPVOID,
+ 			PPVOID
+ 		]),
++		treeSetNamedSecurityInfoW: bind(advapi32, "TreeSetNamedSecurityInfoW", "uint32", [
++			"str16",
++			"int",
++			"uint32",
++			PVOID,
++			PVOID,
++			PVOID,
++			PVOID,
++			"uint32",
++			PVOID,
++			"int",
++			PVOID
++		]),
+ 		getTempPathW: bind(kernel32, "GetTempPathW", "uint32", ["uint32", PVOID]),
+ 		setEnvironmentVariableW: bind(kernel32, "SetEnvironmentVariableW", "int", ["str16", "str16"]),
+ 		setConsoleCtrlHandler: bind(kernel32, "SetConsoleCtrlHandler", "int", [PVOID, "int"]),
+@@ -590,6 +604,147 @@ function hasForeignGrant(oldAcl, sidPtr) {
+ * @param worldSidPtr - the Everyone SID the ambient-delete deny names.
+ */
+ function grantWrite(api, path, sidPtr, lowLabelSidPtr, worldSidPtr) {
++	assertOutsideProgramDirectory(path);
++	try {
++		grantWriteOnce(api, path, sidPtr, lowLabelSidPtr, worldSidPtr);
++	} catch (error) {
++		// DSH Desktop: a workspace on a non-system drive such as D: usually
++		// inherits only Modify for Authenticated Users, so even its owner lacks
++		// WRITE_OWNER and the label write fails with ERROR_ACCESS_DENIED. The
++		// owner's implicit WRITE_DAC lets it grant itself WRITE_OWNER (which a
++		// Full-control workspace already has), after which the grant is retried
++		// once. A directory the caller does not own still reports the original
++		// failure.
++		if (!(error instanceof Win32Error) || error.api !== "SetNamedSecurityInfoW" || error.win32Code !== 5) throw error;
++		try {
++			grantOwnerWriteOwner(api, path);
++		} catch {
++			throw error;
++		}
++		grantWriteOnce(api, path, sidPtr, lowLabelSidPtr, worldSidPtr);
++	}
++	labelExistingEntries(api, path);
++}
++/**
++* DSH Desktop: add an inheritable WRITE_OWNER grant for the directory's
++* current owner through a DACL-only merge (owner-implicit WRITE_DAC is enough
++* for it), so the label write in {@link grantWriteOnce} is permitted on the
++* directory and on every child that inherits the entry.
++* @param api - the binding table.
++* @param path - the directory whose owner gains WRITE_OWNER.
++*/
++function grantOwnerWriteOwner(api, path) {
++	withPathLock(api, path, () => {
++		const ownerSlot = allocPtrSlot();
++		const groupSlot = allocPtrSlot();
++		const daclSlot = allocPtrSlot();
++		const saclSlot = allocPtrSlot();
++		const descriptorSlot = allocPtrSlot();
++		const readResult = api.getNamedSecurityInfoW(path, 1, 5, ownerSlot, groupSlot, daclSlot, saclSlot, descriptorSlot);
++		if (readResult !== 0) throwWin32(api, "GetNamedSecurityInfoW", readResult, `grantOwnerWriteOwner(${path})`);
++		const owner = decodePtr(ownerSlot);
++		const descriptor = decodePtr(descriptorSlot);
++		if (owner === null) {
++			if (descriptor !== null) api.localFree(descriptor);
++			throw new Win32Error("GetNamedSecurityInfoW", 1336, `grantOwnerWriteOwner(${path}): no owner`);
++		}
++		mergeAndApply(api, path, buildExplicitAccess(owner, 1, 524288), decodePtr(daclSlot), { kind: "keep" }, descriptor, "grantOwnerWriteOwner");
++	});
++}
++/**
++* DSH Desktop: refuse a grant that overlaps the running program's directory.
++* The grant's Low label is inheritable and SetNamedSecurityInfoW propagates it
++* to every existing child. A workspace that is or holds the program directory
++* hands it to the executable, whose next launch then runs at Low integrity,
++* where Chromium cannot start its GPU process (#1564); a workspace inside the
++* program directory hands it to the program's own executables.
++* @param path - the directory that would gain the grant.
++*/
++function assertOutsideProgramDirectory(path) {
++	const program = dirname(process.execPath);
++	if (containsDirectory(path, program) || containsDirectory(program, path)) throw new Error(`Windows ACL workspace must not overlap the program directory: workspace=${path}; program=${program}. Its Low integrity label would stop the program from starting; use a workspace outside the program directory.`);
++}
++/**
++* DSH Desktop: label entries below a granted directory that the grant's
++* propagation did not reach (#1627). SetNamedSecurityInfoW skips an entry it
++* cannot change at that moment, such as one that refuses WRITE_OWNER, and
++* still reports success. Once the root carries the exact ACE, deny and label,
++* grantWriteOnce never revisits the tree, so such an entry stays unlabeled
++* (Medium) and the Low-integrity child cannot write it. Every entry that
++* {@link unlabeledEntries} finds inherits its parent's label again, with its
++* subtree, through TreeSetNamedSecurityInfoW. The walk skips entries it still
++* cannot change, keeps explicit labels and does not follow junctions; it does
++* not restore a missing capability ACE. Best effort: a failure leaves the
++* labels as they were.
++* @param api - the binding table.
++* @param path - the directory that received the grant.
++*/
++function labelExistingEntries(api, path) {
++	try {
++		const entries = unlabeledEntries(api, path);
++		if (entries.length === 0) return;
++		// An empty label ACL leaves each entry the label it inherits; a NULL one fails with 1336.
++		const inherited = api.localAlloc(64, 8);
++		if (isNullPtr$1(inherited)) return;
++		try {
++			if (api.initializeAcl(inherited, 8, 2) !== 0) withPathLock(api, path, () => {
++				for (const entry of entries) api.treeSetNamedSecurityInfoW(entry, 1, 16, null, null, null, inherited, 1, null, 1, null);
++			});
++		} finally {
++			api.localFree(inherited);
++		}
++	} catch {}
++}
++/**
++* DSH Desktop: the entries below `path` without a mandatory label, breadth
++* first: every top-level entry, then the directories inside labeled
++* directories, with at most 2000 label reads so large trees stay cheap. Links
++* are not followed, an unreadable entry counts as labeled, and an unlabeled
++* entry's own subtree is not searched.
++* @param api - the binding table.
++* @param path - the directory that received the grant.
++* @returns the unlabeled entries found.
++*/
++function unlabeledEntries(api, path) {
++	const found = [];
++	const queue = [path];
++	let reads = 0;
++	for (let index = 0; index < queue.length && reads < 2000; index++) {
++		let entries;
++		try {
++			entries = readdirSync(queue[index], { withFileTypes: true });
++		} catch {
++			continue;
++		}
++		for (const entry of entries) {
++			if (entry.isSymbolicLink() || (index > 0 && !entry.isDirectory())) continue;
++			if (++reads > 2000) break;
++			const child = join(queue[index], entry.name);
++			if (!hasMandatoryLabel(api, child)) found.push(child);
++			else if (entry.isDirectory()) queue.push(child);
++		}
++	}
++	return found;
++}
++/**
++* DSH Desktop: whether a path carries any mandatory label. An unreadable path
++* counts as labeled, so only a label known to be missing starts the walk.
++* @param api - the binding table.
++* @param path - the file or directory to inspect.
++* @returns whether the path has a label of any level.
++*/
++function hasMandatoryLabel(api, path) {
++	let security;
++	try {
++		security = readCurrentSecurity(api, path);
++	} catch {
++		return true;
++	}
++	const labeled = security.labelAcl !== null && decodeUint16At(security.labelAcl, 4) > 0;
++	if (security.descriptor !== null) api.localFree(security.descriptor);
++	return labeled;
++}
++function grantWriteOnce(api, path, sidPtr, lowLabelSidPtr, worldSidPtr) {
+ 	withPathLock(api, path, () => {
+ 		const { oldAcl, labelAcl, descriptor } = readCurrentSecurity(api, path);
+ 		if (oldAcl !== null && labelAcl !== null && hasExactGrant(oldAcl, sidPtr) && hasExactDeny(oldAcl, worldSidPtr) && hasExactLabel(labelAcl, lowLabelSidPtr)) {

@@ -1,0 +1,13 @@
+diff --git a/lib/devtools/chunks/legacy-DsqUVAMA.js b/lib/devtools/chunks/legacy-DsqUVAMA.js
+index f842e13..2926d6b 100644
+--- a/lib/devtools/chunks/legacy-DsqUVAMA.js
++++ b/lib/devtools/chunks/legacy-DsqUVAMA.js
+@@ -867,7 +867,7 @@ var Wn = function(e, t, n, r, i) {
+ 	setWhitelistedShortcuts(e) {}
+ 	setEyeDropperActive(e) {}
+ 	showCertificateViewer(e) {}
+-	reattach(e) {}
++	reattach(e) { e(); }
+ 	readyForTest() {}
+ 	connectionReady() {}
+ 	setOpenNewWindowForPopups(e) {}

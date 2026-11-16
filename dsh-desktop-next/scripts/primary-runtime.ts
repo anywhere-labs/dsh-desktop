@@ -1,3 +1,4 @@
+import { OFFICE_SKILLS_IN_PACKAGE } from './upstream-family.ts'
 /** Prepare pinned, relocatable script interpreters without installing into the build host; ported from the upstream builder. */
 
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -7,6 +8,7 @@ import { cp } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import extractZip from 'extract-zip'
 import { x as extractTar } from 'tar'
 import { copyPrimaryRuntime, parsePrimaryRuntime, workspaceDependencyPaths, type PrimaryRuntimeManifest } from '@deepseek-ai/dsh-tool-workspace-dependencies'
@@ -100,6 +102,37 @@ export function readPrimaryRuntimeLock(path: string = join(UPSTREAM_PRIMARY_RUNT
   return parsePrimaryRuntimeLock(JSON.parse(readFileSync(path, 'utf8')))
 }
 
+// Retry transport failures through body consumption: fetch can succeed before the socket closes.
+const TRANSIENT_DOWNLOAD_CODES = new Set(['UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH'])
+
+async function fetchPrimaryRuntimeAsset(url: string, timeout: number): Promise<Buffer> {
+  const attempts = 3
+  for (let attempt = 1; ; attempt++) {
+    let retryableStatus = false
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(timeout) })
+      if (!response.ok) {
+        retryableStatus = response.status === 408 || response.status === 429 || response.status >= 500
+        await response.body?.cancel().catch(() => {})
+        throw new Error(`HTTP ${String(response.status)}`)
+      }
+      return Buffer.from(await response.arrayBuffer())
+    } catch (cause) {
+      const failure = cause as { name?: string; code?: string; cause?: { code?: string }; message?: string }
+      const code = failure?.cause?.code ?? failure?.code
+      const retryable = retryableStatus || failure?.name === 'TimeoutError'
+        || (code !== undefined && TRANSIENT_DOWNLOAD_CODES.has(code))
+      const detail = [failure?.message ?? String(cause), code].filter(Boolean).join(' / ')
+      if (!retryable || attempt === attempts) {
+        throw new Error(`primary runtime download failed after ${String(attempt)} attempt(s): ${url}: ${detail}`, { cause })
+      }
+      console.warn(`primary runtime download interrupted (${String(attempt)}/${String(attempts)}): ${url}: ${detail}; retrying`)
+      await delay(attempt * 1_000)
+    }
+  }
+}
+
 /**
  * Download or reuse an archive only when its bytes match the release lock.
  * @param url - Locked archive URL.
@@ -118,9 +151,7 @@ export async function downloadPrimaryRuntimeAsset(url: string, sha256: string, c
     cached = false
     const timeout = Number(process.env.DSH_RESOURCE_DOWNLOAD_TIMEOUT_MS ?? '300000')
     if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2_147_483_647) throw new Error('DSH_RESOURCE_DOWNLOAD_TIMEOUT_MS must be an integer from 1 to 2147483647')
-    const response = await fetch(url, { signal: AbortSignal.timeout(timeout) })
-    if (!response.ok) throw new Error(`primary runtime download: ${String(response.status)} ${url}`)
-    bytes = Buffer.from(await response.arrayBuffer())
+    bytes = await fetchPrimaryRuntimeAsset(url, timeout)
   }
   if (createHash(algorithm).update(bytes).digest('hex') !== sha256) {
     rmSync(destination, { force: true })
@@ -285,7 +316,7 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
     const assets = options.skillSource ?? join(dirname(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-skill-office/package.json')), 'assets')
     await Promise.all([
       copyPrimaryRuntime(output, destination, manifest),
-      prepareOfficeSkillAssets(assets, join(paths.runtime, 'office-skills')),
+      OFFICE_SKILLS_IN_PACKAGE ? Promise.resolve() : prepareOfficeSkillAssets(assets, join(paths.runtime, 'office-skills')),
     ])
   } finally {
     rmSync(staging, { recursive: true, force: true })

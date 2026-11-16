@@ -37,8 +37,8 @@ type PlatformOwner = Pick<EventEmitter, 'on' | 'removeListener'> & {
 
 type PlatformSender = { sender: object; senderFrame: Pick<WebFrameMain, 'url'> | null }
 
-/** The official client identity headers; the account package also loads Cordis and the model layer, so the first page loads it, not shell startup. */
-type PlatformHeaders = Pick<typeof import('@deepseek-ai/dsh-deepseek-account'), 'mergePlatformCookies' | 'platformClientHeaders'>
+/** Official client identity headers from the lightweight metadata entry point. */
+type PlatformHeaders = Pick<typeof import('@deepseek-ai/dsh-deepseek-account/client-metadata'), 'mergePlatformCookies' | 'platformClientHeaders'>
 
 /** Native view and its credential snapshot are discarded together. */
 export class DesktopPlatformView {
@@ -112,7 +112,7 @@ export class DesktopPlatformView {
     let client: PlatformHeaders
     try {
       // Sanitize persisted authentication even after an unclean previous process exit.
-      [failure, client] = await Promise.all([this.cleanStorage(browserSession), this.headers ??= import('@deepseek-ai/dsh-deepseek-account')])
+      [failure, client] = await Promise.all([this.cleanStorage(browserSession), this.headers ??= import('@deepseek-ai/dsh-deepseek-account/client-metadata')])
     } catch (error) {
       if (generation === this.generation) this.close()
       throw error

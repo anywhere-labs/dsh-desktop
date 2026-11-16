@@ -8,3 +8,7 @@
       config:
         host: 127.0.0.1
         port: 0
+# Lets the shell ask a slow start which plugins it still waits for (#1617).
+- insert:
+    - id: desktop-next-startup-entries
+      name: dsh-plugin-desktop-beta/startup-entries

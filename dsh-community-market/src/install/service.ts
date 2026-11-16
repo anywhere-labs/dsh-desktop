@@ -392,8 +392,8 @@ export function marketInstallationView(bundle: BundleInfo, updates = false): Mar
     // A bundle the Host cannot read can still be switched off, never on.
     toggleable: editable && (bundle.enabled || bundle.error === undefined),
     removable: editable && bundle.removable,
-    // Releases before 0.2.2 report no `updatable` flag.
-    updatable: updates && editable && bundle.updatable === true,
+    // rc.2 distinguishes registry updates from pinned Git updates. This UI lists registry versions.
+    updatable: updates && editable && ('update' in bundle ? bundle.update === 'registry' : 'updatable' in bundle && bundle.updatable === true),
     ...(bundle.error === undefined ? {} : { error: bundle.error.code }),
   }
 }

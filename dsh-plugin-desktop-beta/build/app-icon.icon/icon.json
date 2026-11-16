@@ -1,5 +1,7 @@
 {
-  "fill" : "system-dark",
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:0.93000,0.95000,0.98000,1.00000"
+  },
   "groups" : [
     {
       "layers" : [
@@ -28,25 +30,18 @@
     {
       "layers" : [
         {
-          "image-name" : "DeepSeek.svg",
-          "name" : "DeepSeek",
-          "position" : {
-            "scale" : 1,
-            "translation-in-points" : [
-              27,
-              23
-            ]
-          }
+          "image-name" : "whale-cobalt.svg",
+          "name" : "whale-cobalt"
         }
       ],
-      "name" : "DeepSeek",
+      "name" : "whale-cobalt",
       "shadow" : {
         "kind" : "neutral",
-        "opacity" : 0.5
+        "opacity" : 0.18
       },
       "translucency" : {
         "enabled" : true,
-        "value" : 0.3
+        "value" : 0.12
       }
     }
   ],

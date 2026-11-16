@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 /** Preload bridge of the Desktop document; the official native flow consumes the same name. */
 export const DESKTOP_DIRECTORY_PICKER_GLOBAL = '__DSH_DIRECTORY_PICKER__'
 /** The ui-workspace directory-flow holes: the conversation empty-state picker and the sidebar browser. */
-export const DIRECTORY_FLOW_HOLES = ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'] as const
+export const DIRECTORY_FLOW_HOLES = ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow', 'workspace.picker.directoryFlow'] as const
 /** Below the Host-mounted occupant's default 0: the lowest live entry of a single hole renders. */
 export const DESKTOP_DIRECTORY_FLOW_PRIORITY = -1
 
@@ -92,17 +92,18 @@ export function NativeDirectoryFlow(props: DirectoryFlowOwnerProps & NativeDirec
 }
 
 /**
- * Shadow both directory-flow holes with the Desktop occupant. Both declarations must be
- * live before the pair installs; the generator makes the two registrations one effect, so
- * a conflict in the second hole rolls the first back instead of leaving a partial mix.
+ * Shadow all directory-flow holes with the Desktop occupant. All declarations must be
+ * live before the set installs; the generator makes the registrations one effect, so
+ * a conflict in a later hole rolls the first back instead of leaving a partial mix.
  * @param ctx - Client root context carrying the slot registry.
  * @param picker - The Desktop preload bridge.
  */
 export function registerDesktopDirectoryPicker(ctx: Context, picker: DesktopDirectoryPicker): void {
   const injected = (): NativeDirectoryFlowInjected => ({ pick: () => picker.pick() })
-  const [hero, sidebar] = DIRECTORY_FLOW_HOLES
-  ctx.slots.inject(hero, () => ctx.slots.inject(sidebar, function* () {
+  const [hero, sidebar, pickerFlow] = DIRECTORY_FLOW_HOLES
+  ctx.slots.inject(hero, () => ctx.slots.inject(sidebar, () => ctx.slots.inject(pickerFlow, function* () {
     yield ctx.slots.register({ name: hero, inject: injected, priority: DESKTOP_DIRECTORY_FLOW_PRIORITY }, NativeDirectoryFlow)
     yield ctx.slots.register({ name: sidebar, inject: injected, priority: DESKTOP_DIRECTORY_FLOW_PRIORITY }, NativeDirectoryFlow)
-  }))
+    yield ctx.slots.register({ name: pickerFlow, inject: injected, priority: DESKTOP_DIRECTORY_FLOW_PRIORITY }, NativeDirectoryFlow)
+  })))
 }

@@ -171,13 +171,13 @@ try {
   // A mounted official shell is healthy without waiting for connection/session probes.
   await page.waitForFunction(() => globalThis.__NEXT_TEST_BOOT__.rendererStatus === 'healthy')
   const collapse = page.getByRole('button', { name: /^(收起侧边栏|Collapse sidebar)$/ })
-  const reopen = page.locator('[data-sidebar-header-controls]').getByRole('button', { name: /^(打开侧边栏|Open sidebar)$/ })
+  const reopen = page.locator('div:has(> [data-sidebar-opener])').getByRole('button', { name: /^(打开侧边栏|Open sidebar)$/ })
   const conversationHeader = page.locator('header[data-window-drag]:has([data-conversation-header-leading])')
   const drag = page.locator('header[data-window-drag]:has([data-conversation-header-leading]), [data-plugin-page-header][data-window-drag]')
   const dragRegion = () => drag.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))
   const checkModalDrag = async () => {
     const modal = page.getByRole('dialog').last()
-    assert.equal(await modal.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
+    assert.notEqual(await modal.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'drag')
     assert.equal(await modal.evaluate(element => {
       let portal = element
       while (portal.parentElement !== document.body) portal = portal.parentElement
@@ -268,8 +268,8 @@ try {
     }
   })
   // A control inside a scroller whose box reaches a chrome row must change nothing about that row: its empty
-  // run still drags and its controls stay clickable. Without the Desktop window styles the official rules alone
-  // let the control punch the row; once they stop doing so, retire the reset in src/client/styles.ts.
+  // run still drags and its controls stay clickable. rc.2 scopes the official controls to chrome rows,
+  // so both the official rules and the remaining Desktop styles must preserve the row.
   const checkRowAboveScroller = async (row, scroller) => {
     await installDragRegions()
     const result = await row.evaluate(async (element, hostSelector) => {
@@ -311,12 +311,19 @@ try {
       return { drags: before.filter(region => region === 'drag').length, punched: differs(official), changed: differs(corrected) }
     }, scroller)
     assert.ok(result.drags > 0, `The row above ${scroller} declares no drag: ${JSON.stringify(result)}`)
-    assert.ok(result.punched > 0, `The official rules no longer let a control in ${scroller} punch the row: ${JSON.stringify(result)}`)
+    assert.equal(result.punched, 0, `The official scoped no-drag rules must preserve the row above ${scroller}: ${JSON.stringify(result)}`)
     assert.equal(result.changed, 0, `A control in ${scroller} changes the drag surface of the row above it: ${JSON.stringify(result)}`)
+  }
+  const checkClickableRegion = async locator => {
+    await installDragRegions()
+    assert.notEqual(await locator.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      return globalThis.__nextDragRegions([[box.x + box.width / 2, box.y + box.height / 2]])[0]
+    }), 'drag', 'The effective region at the control must accept clicks')
   }
   const expand = async () => {
     await reopen.waitFor({ state: 'visible' })
-    assert.equal(await reopen.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
+    await checkClickableRegion(reopen)
     await reopen.click()
     await reopen.waitFor({ state: 'hidden' })
     await collapse.waitFor({ state: 'visible' })
@@ -339,10 +346,10 @@ try {
   for (const index of [0, 1]) await checkRowAboveScroller(page.locator('[data-window-drag]:not(header)').nth(index), '[role="tree"]')
   await collapse.click()
   await reopen.waitFor({ state: 'visible' })
-  assert.equal(await page.locator('[data-sidebar-header-controls] button').count(), 2,
+  assert.equal(await page.locator('div:has(> [data-sidebar-opener]) button').count(), 2,
     'Conversation headers keep both official sidebar and new-session controls')
   await checkRowAboveScroller(conversationHeader, '[data-conversation-scroll]')
-  // Only a surface that can escape the transcript keeps its subtraction.
+  // Transcript descendants declare no region; actual modal portals are checked separately.
   assert.deepEqual(await page.evaluate(() => {
     const plain = document.createElement('button')
     const menu = document.createElement('div')
@@ -353,7 +360,7 @@ try {
     plain.remove()
     menu.remove()
     return regions
-  }), ['none', 'no-drag', 'no-drag'])
+  }), ['none', 'none', 'none'])
   mkdirSync(screenshots, { recursive: true })
   await page.screenshot({ path: join(screenshots, 'new-session-collapsed.png'), animations: 'disabled' })
   // A tray/shortcut request activates the official Settings trigger even with the sidebar collapsed.
@@ -595,7 +602,7 @@ try {
   }
   await checkDrag()
   const refresh = page.getByRole('button', { name: /^(刷新|Refresh)$/ })
-  assert.equal(await refresh.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
+  await checkClickableRegion(refresh)
   await refresh.click()
   const pluginPanel = page.locator('[data-plugin-panel]')
   // dsh 0.2.2 scrolls the page body under a pinned header bar; earlier releases scroll the whole panel.
@@ -606,19 +613,21 @@ try {
     await page.waitForFunction(() => Number.parseFloat(getComputedStyle(document.querySelector('[data-shell-overlay]').parentElement).gridTemplateColumns) === 0)
     // dsh 0.1.7 moved the occupant out of the per-page `plugins.header.leading` seat into the
     // frame's `shell.leading` seat, which renders both controls whatever page is showing.
-    assert.equal(await page.locator('[data-sidebar-header-controls] button').count(), 2,
+    assert.equal(await page.locator('div:has(> [data-sidebar-opener]) button').count(), 2,
       'Plugins reuses the frame window-chrome seat with both sidebar and new-session controls')
     const geometry = await reopen.evaluate(button => {
       const box = button.getBoundingClientRect()
       return { x: box.x, y: box.y, width: box.width, height: box.height,
         inPageHeader: !!button.closest('[data-plugin-page-header]'),
         clickable: button.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)),
-        region: getComputedStyle(button).getPropertyValue('-webkit-app-region') }
+        region: globalThis.__nextDragRegions([[box.x + box.width / 2, box.y + box.height / 2]])[0] }
     })
     // 0.1.7 positions that seat itself (`.leadingSeat` at top 11px / left 88px), so the seat's own
     // offset decides the placement without any Next sidebar-control CSS.
-    assert.deepEqual(geometry, { x: 88, y: 11, width: 28, height: 28,
-      inPageHeader: false, clickable: true, region: 'no-drag' },
+    assert.notEqual(geometry.region, 'drag')
+    const { region, ...placement } = geometry
+    assert.deepEqual(placement, { x: 88, y: 11, width: 28, height: 28,
+      inPageHeader: false, clickable: true },
     'The official toggle stays beside the native traffic lights, independently of the centered content and scrolling')
   }
   const checkPluginHeader = async () => {
@@ -650,7 +659,7 @@ try {
   assert.ok(Math.abs((await pluginHeader.getByRole('heading', { level: 1 }).boundingBox()).x - (await controls.boundingBox()).x) < 1,
     'A wide window keeps the title aligned with the centered content column')
   const addPlugin = page.getByRole('button', { name: /^(添加插件|Add plugin)$/ })
-  assert.equal(await addPlugin.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region')), 'no-drag')
+  await checkClickableRegion(addPlugin)
   await addPlugin.click()
   await page.getByRole('dialog').waitFor()
   await page.getByRole('dialog').press('Escape')
@@ -856,6 +865,26 @@ try {
   await dataDirectory.getByText('DSH_DESKTOP_NEXT_HOME', { exact: true }).waitFor()
   assert.equal(await dataDirectory.getByText(/优先于/).count(), 0)
   await page.waitForFunction(() => [...document.querySelectorAll('[data-next-data-directory] button')].every(button => !button.disabled))
+  // The Host startup limit (#1569): the presets, a limit saved outside them, and Safe Mode's fixed one.
+  const startupLimit = settings.locator('[data-next-startup-limit]')
+  const startupLimitValue = () => page.evaluate(() => document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.textContent)
+  assert.equal(await startupLimitValue(), '60 秒（默认）')
+  await startupLimit.getByText('插件服务（Host）启动时限', { exact: true }).waitFor()
+  assert.equal(await startupLimit.getByText(/官方/).count(), 0)
+  await startupLimit.getByRole('button', { name: /^(插件服务（Host）启动时限|Plugin service \(Host\) startup limit)$/ }).click()
+  await page.getByRole('menu').getByRole('menuitem', { name: '不限时', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.textContent === '不限时')
+  await page.waitForFunction(() => !document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.disabled)
+  assert.equal(controlCommands.filter(command => command.type === 'preferences').at(-1).preferences.hostStartupTimeout, 'none')
+  controlState.preferences = { ...controlState.preferences, hostStartupTimeout: 200 }
+  await page.waitForFunction(() => document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.textContent === '200 秒')
+  controlState.safeMode = true
+  await page.waitForFunction(() => document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.disabled === true)
+  await startupLimit.getByText('安全模式固定使用 60 秒。', { exact: true }).waitFor()
+  controlState.safeMode = false
+  await page.waitForFunction(() => document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.disabled === false)
+  await startupLimit.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: join(screenshots, 'desktop-startup-limit.png'), animations: 'disabled' })
   assert.equal(await settings.getByRole('radio', { name: /^broken/ }).getAttribute('aria-disabled'), 'true')
   assert.equal(await settings.getByRole('radio', { name: /增强模式|扩展模式|Advanced mode|Extended mode/ }).count(), 0)
   assert.equal(await settings.locator('#dsh-desktop-market-title, #dsh-desktop-aa-title').count(), 0)
@@ -996,6 +1025,42 @@ try {
   assert.deepEqual(controlCommands.at(-1), { type: 'recovery-action', action: 'open-profile-manifest' })
   await recoveryPage.getByRole('link', { name: /保存诊断|导出诊断/ }).click()
   assert.equal(controlCommands.at(-1).type, 'diagnostics')
+  // Long text scrolls with the window's own thin scrollbar, not the platform one (the diagnostics log here).
+  const fixtureLogs = controlState.logs
+  controlState.logs = Array.from({ length: 200 }, (_, index) => `fixture log line ${String(index)}`).join('\n')
+  const logView = recoveryPage.getByRole('tabpanel').locator('pre', { hasText: 'fixture log line 199' }).locator('xpath=ancestor::*[@data-slot="scroll-area-viewport"][1]')
+  await logView.waitFor()
+  assert.deepEqual(await logView.evaluate(view => ({ bounded: view.clientHeight <= 256 && view.scrollHeight > view.clientHeight,
+    thumb: view.parentElement?.querySelector('[data-slot="scroll-area-thumb"]') !== null })), { bounded: true, thumb: true })
+  await logView.scrollIntoViewIfNeeded()
+  await recoveryPage.screenshot({ path: join(screenshots, 'recovery-diagnostics-log.png'), animations: 'disabled' })
+  controlState.logs = fixtureLogs
+  await recoveryPage.getByRole('tabpanel').locator('pre', { hasText: 'fixture log line 199' }).waitFor({ state: 'detached' })
+  assert.equal(await recoveryPage.locator('pre').evaluateAll(blocks => blocks.every(block => block.closest('[data-slot="scroll-area-viewport"]') !== null
+    && getComputedStyle(block).overflowY === 'visible')), true)
+  // The original environment's Host startup limit sits on the quick recovery tab, after Safe Mode (#1569).
+  assert.equal(await recoveryPage.locator('[data-next-startup-limit]').count(), 0)
+  controlState.hostStartupTimeout = 200
+  await recoveryPage.getByRole('tab', { name: '快速恢复' }).click()
+  const recoveryLimit = recoveryPage.locator('[data-next-startup-limit]')
+  await recoveryLimit.getByRole('heading', { name: '插件服务（Host）启动时限' }).waitFor()
+  await recoveryLimit.getByText('200 秒', { exact: true }).waitFor()
+  assert.equal(await recoveryLimit.getByRole('link').count(), 6)
+  assert.equal(await recoveryLimit.getByText(/官方/).count(), 0)
+  // Screenshots come before the clicks: a click's own state refresh then never overlaps a capture.
+  await recoveryLimit.scrollIntoViewIfNeeded()
+  await recoveryPage.screenshot({ path: join(screenshots, 'recovery-startup-limit.png'), animations: 'disabled' })
+  await recoveryLimit.getByRole('link', { name: '不限时', exact: true }).click()
+  assert.deepEqual(controlCommands.at(-1), { type: 'recovery-action', action: 'host-startup-timeout', id: 'none' })
+  // A start that ran out of time adds what it was still loading to the same card (#1617).
+  controlState.failureTimeout = { seconds: 60, pending: [{ id: 'magpie-mcp-deepwiki', name: '@deepseek-ai/dsh-mcp-client', phase: 'starting', waitedMs: 46_700 }] }
+  await recoveryLimit.getByText('这次启动在 60 秒内没有就绪，仍在加载 magpie-mcp-deepwiki。可以延长时限后点击“退出并重启”，也可以在“插件管理”页停用拖慢启动的插件。', { exact: true }).waitFor()
+  await recoveryLimit.scrollIntoViewIfNeeded()
+  await recoveryPage.screenshot({ path: join(screenshots, 'recovery-startup-timeout.png'), animations: 'disabled' })
+  await recoveryLimit.getByRole('link', { name: '180 秒', exact: true }).click()
+  assert.deepEqual(controlCommands.at(-1), { type: 'recovery-action', action: 'host-startup-timeout', id: '180' })
+  delete controlState.failureTimeout
+  await recoveryLimit.locator('[data-next-startup-timeout]').waitFor({ state: 'detached' })
   // An action that failed after the reason, such as from the tray, appears beside it without replacing it.
   controlState.actionFailure = 'Fixture: the terminal could not open'
   await recoveryPage.locator('[data-sonner-toast]').getByText('操作未完成', { exact: true }).waitFor()

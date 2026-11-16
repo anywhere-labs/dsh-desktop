@@ -71,8 +71,27 @@ it('launches the Windows NSIS installer visibly without /S so progress is shown 
   expect(spawnMock).toHaveBeenCalledWith(
     exe,
     ['--updated', '--force-run'],
-    expect.objectContaining({ detached: true, stdio: 'ignore', windowsHide: false }),
+    // The installer renames the installation, so it must not inherit this application's working directory there.
+    expect.objectContaining({ detached: true, stdio: 'ignore', windowsHide: false, cwd: tmpdir() }),
   )
+})
+
+it('notices a Windows installer removed from the temporary directory before the application quits for it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'next-win-update-removed-')); roots.push(root)
+  const exe = join(root, 'DSH-NEXT-Setup-2.0.18-next.1.exe')
+  await writeFile(exe, 'installer')
+  execFileMock.mockImplementation((_file: string, _args: string[], _opts: unknown, callback: (err: Error | null, stdout: string, stderr: string) => void) => {
+    callback(null, JSON.stringify({ ProductName: 'DSH NEXT', ProductVersion: '2.0.18-next.1' }), '')
+  })
+  const installer = new NextUpdateInstaller({
+    platform: 'win32',
+    executable: 'C:\\Users\\user\\AppData\\Local\\Programs\\DSH NEXT\\DSH NEXT.exe',
+    log: vi.fn(),
+  })
+  await installer.prepare(exe, '2.0.18-next.1', root, new AbortController().signal)
+  await rm(exe)
+  await expect(installer.stage()).rejects.toThrow()
+  expect(spawnMock).not.toHaveBeenCalled()
 })
 
 it('stages the verified macOS app bundle and launches the detached progress updater script', async () => {

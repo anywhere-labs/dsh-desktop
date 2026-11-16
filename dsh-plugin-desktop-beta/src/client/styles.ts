@@ -29,28 +29,7 @@ body [data-shortcut-modal='settings'] > nav > :last-child {
   scrollbar-gutter: stable;
 }
 
-/* Chromium collects app-region boxes without clipping them, in document order, and the last box
-   containing a point decides it. A control scrolled beneath a chrome row therefore subtracts its
-   whole box from the row's drag, which the official frontend leaves unguarded. The scrollers below
-   chrome rows (the transcript, the Plugins page, the workspace list and dock pane bodies) never paint
-   their content over a drag row, so that content declares no region; the reset on each root also stops
-   a region inherited from a pane body. Surfaces that can escape a scroller and the rows pinned inside
-   one keep theirs. The control list is the official interactive no-drag list, whose html-prefixed
-   specificity a scoped rule can only override with !important. */
-@scope (html[data-platform='darwin'] :is([data-conversation-scroll], [data-plugin-body], [role='tree'], :is([data-dockkit-content], [data-dockkit-pane]) > :not(:first-child) > *))
-  to (dialog, [popover], [role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox'], [role='tooltip'], [data-window-drag], [data-plugin-bar]) {
-  :scope,
-  :is(
-    button, a, input, select, textarea, summary, [contenteditable='true'], [tabindex],
-    [role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox'], [role='tooltip'],
-    [role='button'], [role='link'], [role='tab'], [role='menuitem'], [role='menuitemcheckbox'],
-    [role='menuitemradio'], [role='option'], [role='checkbox'], [role='radio'], [role='switch'],
-    [role='slider'], [role='combobox'], [role='textbox']
-  ) {
-    -webkit-app-region: initial !important;
-  }
-}
-
+/* rc.2 scopes interactive no-drag regions to chrome rows; use the official scrolling behavior. */
 /* The collapsed Plugins head keeps its resting box but paints only its top part, and the content
    below that part is visible, so only the painted part drags. */
 html[data-platform='darwin'] [data-plugin-bar][data-natural] [data-window-drag]::after {

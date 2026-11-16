@@ -18,9 +18,29 @@ export const LINUX_ICON_SIZES = Object.freeze([16, 22, 24, 32, 48, 64, 128, 256,
 const LINUX_ICON_CHANNELS = new Set(['beta', 'next'])
 // electron-builder's Linux targets install every file in the set directory named like this.
 const LINUX_SIZED_ICON = /^\d+(?:x\d+)?\.png$/i
+// Beta and Next load these from their synced assets directory; Stable keeps the images its own generator derives.
+const TRAY_ICON_CHANNELS = new Set(['beta', 'next'])
+// The composition's whale layer, drawn once in the color the Windows and Linux images keep.
+const TRAY_SOURCE = 'app-icon.icon/Assets/whale-cobalt.svg'
+const TRAY_COLOR = '#3563BF'
+/** Template images the macOS menu bar tints itself, then the fixed-color Windows and Linux images per scale factor. */
+export const TRAY_ICONS = Object.freeze([
+  ['tray-iconTemplate.png', '#000000', 16],
+  ['tray-iconTemplate@2x.png', '#000000', 32],
+  ['tray-icon-blue.png', TRAY_COLOR, 16],
+  ['tray-icon-blue@1.25x.png', TRAY_COLOR, 20],
+  ['tray-icon-blue@1.5x.png', TRAY_COLOR, 24],
+  ['tray-icon-blue@2x.png', TRAY_COLOR, 32],
+])
 const outputs = ['app-icon.png', 'app-icon-mac.png', 'app-icon.ico', 'app-icon.icns']
 const linuxOutputs = LINUX_ICON_SIZES.map(size => `icons/${size}x${size}.png`)
+const trayOutputs = TRAY_ICONS.map(([name]) => `../assets/${name}`)
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
+
+/** The exports a record covers, relative to the channel's build directory. */
+function recordedOutputs({ linux, tray }) {
+  return [...outputs, ...(linux ? linuxOutputs : []), ...(tray ? trayOutputs : [])]
+}
 
 /** Include every vector layer, not just icon.json, when detecting stale exports. */
 export function iconSourceDigest(directory) {
@@ -40,13 +60,14 @@ export function iconSourceDigest(directory) {
 /**
  * Fail on source edits or missing/modified platform exports on any build host.
  * @param {string} buildDirectory - a channel's build directory.
- * @param {{ linux?: boolean }} [options] - `linux` also requires the Linux set and rejects any other size in its directory.
+ * @param {{ linux?: boolean, tray?: boolean }} [options] - `linux` also requires the Linux set and rejects any other size in its directory;
+ * `tray` also requires the tray images in the package's assets directory.
  */
-export function checkIconResources(buildDirectory, { linux = false } = {}) {
+export function checkIconResources(buildDirectory, { linux = false, tray = false } = {}) {
   const record = JSON.parse(readFileSync(join(buildDirectory, 'app-icon.resources.json'), 'utf8'))
   const stale = () => { throw new Error(`${buildDirectory}: icon resources are stale; run corepack yarn icons:export on macOS and commit the results`) }
   if (record.source !== 'app-icon.icon' || record.sourceSha256 !== iconSourceDigest(join(buildDirectory, 'app-icon.icon'))) stale()
-  for (const name of linux ? [...outputs, ...linuxOutputs] : outputs) {
+  for (const name of recordedOutputs({ linux, tray })) {
     if (!existsSync(join(buildDirectory, name)) || record.outputs?.[name] !== hash(readFileSync(join(buildDirectory, name)))) stale()
   }
   if (linux && readdirSync(join(buildDirectory, 'icons')).some(name => LINUX_SIZED_ICON.test(name) && !linuxOutputs.includes(`icons/${name}`))) stale()
@@ -85,15 +106,36 @@ async function generateLinuxIconSet(source, directory) {
   }
 }
 
-/** Serialize the resource record; Beta and Next also record their Linux set. */
+/**
+ * Crop the whale layer to its stroke and render each tray image in its color.
+ * @param {string} source - absolute path to the composition's whale layer.
+ * @param {string} directory - the package's assets directory.
+ */
+async function generateTrayIcons(source, directory) {
+  const sharp = createRequire(join(root, 'dsh-plugin-desktop/package.json'))('sharp')
+  const vector = readFileSync(source, 'utf8')
+  if (vector.split(TRAY_COLOR).length !== 2) throw new Error(`${source} must draw the whale in ${TRAY_COLOR} exactly once`)
+  for (const [name, color, size] of TRAY_ICONS) {
+    // Rasterize far above the largest image, then drop the composition margin around the glyph.
+    const glyph = await sharp(Buffer.from(vector.replace(TRAY_COLOR, color)), { density: 144 }).trim({ threshold: 0 }).png().toBuffer()
+    await sharp(glyph, { failOn: 'warning' })
+      .resize({ width: size, height: size, fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 }, kernel: sharp.kernel.lanczos3 })
+      .png({ compressionLevel: 9, progressive: false, adaptiveFiltering: false, palette: false })
+      .toFile(join(directory, name))
+  }
+}
+
+/** Serialize the resource record; Beta and Next also record their Linux set and tray images. */
 function resourceRecord(buildDirectory, sourceSha256, channel) {
   const linux = LINUX_ICON_CHANNELS.has(channel)
+  const tray = TRAY_ICON_CHANNELS.has(channel)
   return `${JSON.stringify({
     source: 'app-icon.icon', sourceSha256,
     mac: { input: 'app-icon.icon', legacy: 'app-icon.icns', catalogName: 'Icon' },
     png: { platform: 'macOS', rendition: 'Default', designGeneration: 27, size: 1024 },
     ...(linux ? { linux: { input: 'app-icon.png', sizes: LINUX_ICON_SIZES } } : {}),
-    outputs: Object.fromEntries((linux ? [...outputs, ...linuxOutputs] : outputs).map(name => [name, hash(readFileSync(join(buildDirectory, name)))])),
+    ...(tray ? { tray: { input: TRAY_SOURCE, color: TRAY_COLOR } } : {}),
+    outputs: Object.fromEntries(recordedOutputs({ linux, tray }).map(name => [name, hash(readFileSync(join(buildDirectory, name)))])),
   }, null, 2)}\n`
 }
 
@@ -104,7 +146,7 @@ async function main() {
   const selected = Object.entries(ICON_PACKAGES).filter(([channel]) => requested === 'all' || requested === channel)
   if (args.includes('--check')) {
     for (const [channel, name] of selected) {
-      checkIconResources(join(root, name, 'build'), { linux: LINUX_ICON_CHANNELS.has(channel) })
+      checkIconResources(join(root, name, 'build'), { linux: LINUX_ICON_CHANNELS.has(channel), tray: TRAY_ICON_CHANNELS.has(channel) })
       console.log(`icons: ${channel} source and all platform resources match`)
     }
     return
@@ -116,10 +158,11 @@ async function main() {
     if (linuxSelected.length === 0) throw new Error('--linux exports the Beta and Next sets; Stable keeps its committed one')
     for (const [channel, name] of linuxSelected) {
       const build = join(root, name, 'build')
-      checkIconResources(build)
+      const tray = TRAY_ICON_CHANNELS.has(channel)
+      checkIconResources(build, { tray })
       await generateLinuxIconSet(join(build, 'app-icon.png'), join(build, 'icons'))
       writeFileSync(join(build, 'app-icon.resources.json'), resourceRecord(build, iconSourceDigest(join(build, 'app-icon.icon')), channel))
-      checkIconResources(build, { linux: true })
+      checkIconResources(build, { linux: true, tray })
       console.log(`icons: ${channel} exported the Linux set from the committed PNG`)
     }
     return
@@ -151,10 +194,12 @@ async function main() {
     await generateWindowsAppIcon(join(build, 'app-icon.png'), join(build, 'app-icon.ico'))
     const linux = LINUX_ICON_CHANNELS.has(channel)
     if (linux) await generateLinuxIconSet(join(build, 'app-icon.png'), join(build, 'icons'))
+    const tray = TRAY_ICON_CHANNELS.has(channel)
+    if (tray) await generateTrayIcons(join(build, TRAY_SOURCE), join(root, name, 'assets'))
     if (sourceSha256 !== iconSourceDigest(source)) throw new Error('Icon source changed while exporting; save the document and run icons:export again')
     writeFileSync(join(build, 'app-icon.resources.json'), resourceRecord(build, sourceSha256, channel))
-    checkIconResources(build, { linux })
-    console.log(`icons: ${channel} exported PNG, ICO${linux ? ', the Linux set' : ''} and native ICNS; layered Assets.car compilation passed (${assetCatalog.length} bytes)`)
+    checkIconResources(build, { linux, tray })
+    console.log(`icons: ${channel} exported PNG, ICO${linux ? ', the Linux set' : ''}${tray ? ', the tray images' : ''} and native ICNS; layered Assets.car compilation passed (${assetCatalog.length} bytes)`)
   }
 }
 
