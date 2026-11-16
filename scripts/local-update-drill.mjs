@@ -9,19 +9,25 @@
  *   node scripts/local-update-drill.mjs check --channel next [--app "/Applications/DSH NEXT.app"]
  *   sudo node scripts/local-update-drill.mjs start      # hosts, trust and HTTPS :443 until Ctrl+C, then restores
  *   sudo node scripts/local-update-drill.mjs restore    # cleanup when start did not exit normally
+ *   node scripts/local-update-drill.mjs probe [--channel next]   # the app's network stack against the running drill
  *   node scripts/local-update-drill.mjs status
  *
  * Routing follows the planned service rules: a request naming its CPU (`X-DSH-Desktop-Arch`) gets that CPU's DMG, or
  * the universal one; a request naming none gets the bridge version when one is configured (installations from before
  * per-CPU DMGs), else the universal DMG, else nothing. Downloads are pinned with `X-DSH-Desktop-Target-Version` and
  * redirect to the artifact path on the same name, as the real service redirects to storage.
+ *
+ * `check` drives the updater modules with Node's TLS and an explicit CA, so it cannot see what the app's Chromium
+ * network stack accepts; `probe`, which `start` also runs once the server listens, fetches the version check through
+ * Electron's `net.fetch` like the app does.
  */
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHash, X509Certificate } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { createReadStream, existsSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer, request as httpsRequest } from 'node:https'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
@@ -34,6 +40,8 @@ const STATE = join(ROOT, '.build', 'update-drill')
 const CONFIG = join(STATE, 'drill.json')
 const CERTIFICATE = join(STATE, 'server.pem')
 const KEY = join(STATE, 'server-key.pem')
+const PROBE = join(ROOT, 'scripts', 'local-update-drill-probe.cjs')
+const PROBE_HEADER = 'X-DSH-Drill-Probe'
 const HOSTS = '/etc/hosts'
 const SYSTEM_KEYCHAIN = '/Library/Keychains/System.keychain'
 const BEGIN = '# BEGIN DSH LOCAL UPDATE DRILL'
@@ -181,8 +189,9 @@ async function prepare(values) {
 
 function logRequest(request, url, log) {
   const header = name => request.headers[name.toLowerCase()] ?? '-'
+  const probe = request.headers[PROBE_HEADER.toLowerCase()] === undefined ? '' : '（自检）'
   log(`[${new Date().toLocaleTimeString()}] ${request.method} ${url.pathname} channel=${header('X-DSH-Desktop-Channel')} `
-    + `installed=${header('X-DSH-Desktop-Version')} arch=${header('X-DSH-Desktop-Arch')} target=${header('X-DSH-Desktop-Target-Version')}`)
+    + `installed=${header('X-DSH-Desktop-Version')} arch=${header('X-DSH-Desktop-Arch')} target=${header('X-DSH-Desktop-Target-Version')}${probe}`)
 }
 
 /**
@@ -267,7 +276,10 @@ async function start() {
   for (const message of warnings(config)) console.log(`⚠️  ${message}`)
   const hosts = await readFile(HOSTS, 'utf8')
   if (!existsSync(join(STATE, 'hosts.before.txt'))) await writeFile(join(STATE, 'hosts.before.txt'), hosts, { mode: 0o600 })
-  run('/usr/bin/security', ['add-trusted-cert', '-d', '-r', 'trustRoot', '-p', 'ssl', '-s', DOMAIN, '-k', SYSTEM_KEYCHAIN, CERTIFICATE], { stdio: 'inherit' })
+  // Trust for SSL without a hostname constraint (`-s`): Chromium's macOS trust store skips trust settings that carry
+  // one, so the app would refuse the certificate although `security verify-cert` accepts it. The certificate itself
+  // names only the update host and cannot sign others (CA:FALSE).
+  run('/usr/bin/security', ['add-trusted-cert', '-d', '-r', 'trustRoot', '-p', 'ssl', '-k', SYSTEM_KEYCHAIN, CERTIFICATE], { stdio: 'inherit' })
   const mapped = hostsWithDrill(hosts, true)
   if (mapped !== hosts) await writeFile(HOSTS, mapped)
   flushDns()
@@ -279,7 +291,7 @@ async function start() {
     await Promise.all(servers.map(server => new Promise(done => { server.closeAllConnections(); server.close(done) })))
     await restore()
   })().catch(error => { console.error(error.message); process.exitCode = 1 })
-  for (const host of ['127.0.0.1', '::1']) {
+  await Promise.all(['127.0.0.1', '::1'].map(host => new Promise(listening => {
     const server = createServer({ key, cert, minVersion: 'TLSv1.2' }, drillHandler(config))
     servers.push(server)
     server.on('error', error => {
@@ -287,25 +299,118 @@ async function start() {
       if (host === '::1' && ['EADDRNOTAVAIL', 'EAFNOSUPPORT'].includes(error.code)) {
         console.log(`⚠️  ::1:443 不可用（${error.code}），只用 127.0.0.1`)
         servers.splice(servers.indexOf(server), 1)
-        return
+      } else {
+        console.error(`${host}:443 ${error.message}`)
+        void stop()
       }
-      console.error(`${host}:443 ${error.message}`)
-      void stop()
+      listening()
     })
-    server.listen(443, host)
-  }
+    server.listen(443, host, listening)
+  })))
+  if (stopping !== undefined) return
   const addresses = await lookup(DOMAIN, { all: true })
-  console.log(`${DOMAIN} 现在解析到 ${addresses.map(item => item.address).join(', ')}；证书校验：${trustStatus()}`)
+  console.log(`${DOMAIN} 现在解析到 ${addresses.map(item => item.address).join(', ')}；钥匙串校验：${trustStatus()}`)
   for (const [channel, release] of Object.entries(config.channels)) {
     console.log(`  ${channel}: ${release.version}（${Object.keys(release.mac).join('、')}）${release.bridge ? `，不带 CPU 的客户端拿到 ${release.bridge.version}` : ''}`)
   }
-  console.log('用 Cmd+Q 完全退出应用后重新打开，在设置或托盘里检查更新。这里会显示应用发来的请求头。按 Ctrl+C 停止并恢复 hosts 和证书。')
+  let refused = false
+  for (const channel of Object.keys(config.channels)) {
+    const verdict = probeVerdict(await runProbe(channel))
+    console.log(`应用网络栈自检（${channel}）：${verdict.text}`)
+    refused ||= verdict.ok === false
+  }
+  console.log(refused
+    ? '自检没有通过，应用里检查更新也会失败。按 Ctrl+C 停止并恢复 hosts 和证书，处理上面的问题后再 start。'
+    : '用 Cmd+Q 完全退出应用后重新打开，在设置或托盘里检查更新。这里会显示应用发来的请求头。按 Ctrl+C 停止并恢复 hosts 和证书。')
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(signal, () => { void stop() })
+}
+
+/**
+ * The command that runs the probe: directly, or, from a root process sudo started, as the user who ran sudo and in
+ * their login session, so that it sees their trust settings and window server as the app does.
+ * @param electron - Electron executable.
+ * @param args - Probe script and its arguments.
+ * @param uid - User ID of this process.
+ * @param sudoUid - `SUDO_UID` of this process.
+ * @returns Executable and arguments.
+ */
+export function probeCommand(electron, args, uid, sudoUid) {
+  if (uid !== 0) return [electron, ...args]
+  if (sudoUid === undefined || !/^[1-9]\d*$/u.test(sudoUid)) throw new Error('root 下的自检只能由普通用户经 sudo 启动，才能以该用户身份运行')
+  return ['/bin/launchctl', 'asuser', sudoUid, '/usr/bin/sudo', '-u', `#${sudoUid}`, '-H', electron, ...args]
+}
+
+/**
+ * Summarize a probe result for the drill log.
+ * @param result - Parsed probe output: an HTTP status and body, the error `net.fetch` raised, or why the probe did not run.
+ * @returns Whether the app's network stack reached the drill service (undefined when the probe did not run), and why.
+ */
+export function probeVerdict(result) {
+  if (result.probeFailed !== undefined) return { ok: undefined, text: `自检没能运行（${result.probeFailed}），可另开终端运行 probe 复查` }
+  if (result.status === 200) {
+    let version
+    try { version = JSON.parse(result.body ?? '').version } catch { version = undefined }
+    return typeof version === 'string'
+      ? { ok: true, text: `通过，应用的网络栈连上了演练服务，检查更新会拿到 ${version}` }
+      : { ok: false, text: `未通过，演练服务的回复无法解析（${result.body ?? ''}）` }
+  }
+  if (result.status !== undefined) return { ok: false, text: `未通过，演练服务返回 HTTP ${result.status}（${result.body ?? ''}）` }
+  const error = result.error ?? '自检没有输出结果'
+  if (error.includes('ERR_CERT')) return { ok: false, text: `未通过，应用不信任演练证书（${error}）` }
+  if (/ERR_CONNECTION_(?:REFUSED|RESET|CLOSED)|ERR_ADDRESS_UNREACHABLE/u.test(error)) return { ok: false, text: `未通过，连不上本机 443（${error}）` }
+  if (error.includes('ERR_NAME_NOT_RESOLVED')) return { ok: false, text: `未通过，${DOMAIN} 没有解析到本机（${error}）` }
+  return { ok: false, text: `未通过（${error}）` }
+}
+
+/**
+ * Fetch the version check through Electron's network stack (`net.fetch` on the default session), as the installed app
+ * does: Chromium's DNS, proxy and certificate checks apply, unlike in `check`.
+ * @param channel - Drill channel; the Electron of its package, the version the app ships, runs the probe.
+ * @returns Parsed probe output.
+ */
+async function runProbe(channel) {
+  let command
+  try {
+    const electron = createRequire(join(ROOT, PACKAGES[channel], 'package.json'))('electron')
+    const app = APPLICATIONS[channel]
+    const installed = existsSync(app)
+      ? run('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', join(app, 'Contents', 'Info.plist')]).stdout.trim() : 'unknown'
+    command = probeCommand(electron, [PROBE, channel, installed, process.arch === 'x64' ? 'x64' : 'arm64'], process.getuid?.() ?? -1, process.env.SUDO_UID)
+  } catch (error) {
+    return { probeFailed: error.message }
+  }
+  // Asynchronous on purpose: from `start`, the probe calls the server this process runs.
+  return new Promise(settle => {
+    const child = spawn(command[0], command.slice(1), { cwd: tmpdir(), stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', chunk => { stdout += chunk })
+    child.stderr.on('data', chunk => { stderr += chunk })
+    const timer = setTimeout(() => child.kill('SIGKILL'), 45_000)
+    child.on('error', error => { clearTimeout(timer); settle({ probeFailed: error.message }) })
+    child.on('close', code => {
+      clearTimeout(timer)
+      const line = stdout.split('\n').find(item => item.startsWith('DRILL_PROBE '))
+      if (line !== undefined) settle(JSON.parse(line.slice('DRILL_PROBE '.length)))
+      else settle({ probeFailed: `退出码 ${String(code)}：${stderr.trim().split('\n').slice(-2).join(' | ')}` })
+    })
+  })
+}
+
+async function probe(values) {
+  const config = await readConfig()
+  const channels = values.channel === undefined ? Object.keys(config.channels) : [values.channel]
+  for (const channel of channels) {
+    if (config.channels[channel] === undefined) throw new Error(`还没有登记 ${channel} 通道，请先 prepare`)
+    const verdict = probeVerdict(await runProbe(channel))
+    console.log(`应用网络栈自检（${channel}）：${verdict.text}`)
+    if (verdict.ok !== true) process.exitCode = 1
+  }
 }
 
 function trustStatus() {
   const result = run('/usr/bin/security', ['verify-cert', '-c', CERTIFICATE, '-p', 'ssl', '-s', DOMAIN], { allowFailure: true })
-  return result.status === 0 ? '系统信任通过' : `未通过（${(result.stderr || result.stdout).trim()}）`
+  return result.status === 0 ? '通过' : `未通过（${(result.stderr || result.stdout).trim()}）`
 }
 
 function flushDns() {
@@ -349,7 +454,7 @@ async function status() {
     if (release.bridge) console.log(`  不带 CPU 的客户端：${release.bridge.version} ${release.bridge.dmg.filename}`)
   }
   const hosts = await readFile(HOSTS, 'utf8')
-  console.log(`hosts 映射：${hosts.includes(BEGIN) ? '生效中' : '未设置'}；证书：${existsSync(CERTIFICATE) ? trustStatus() : '未生成'}`)
+  console.log(`hosts 映射：${hosts.includes(BEGIN) ? '生效中' : '未设置'}；钥匙串校验：${existsSync(CERTIFICATE) ? trustStatus() : '证书未生成'}`)
   for (const message of warnings(config)) console.log(`⚠️  ${message}`)
 }
 
@@ -466,7 +571,8 @@ async function main() {
   else if (command === 'restore') await restore()
   else if (command === 'check') await check(values)
   else if (command === 'status') await status()
-  else throw new Error('用法：prepare | check | start | restore | status，见文件开头说明')
+  else if (command === 'probe') await probe(values)
+  else throw new Error('用法：prepare | check | start | restore | probe | status，见文件开头说明')
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
