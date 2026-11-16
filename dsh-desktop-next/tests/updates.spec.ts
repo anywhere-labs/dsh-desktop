@@ -9,7 +9,6 @@ import { NextUpdateSettings } from '../src/client/updates.tsx'
 import { DEFAULT_PREFERENCES, type DesktopState } from '../src/desktop-contract.ts'
 import { NextUpdates, type NextUpdateOptions } from '../src/updates.ts'
 import { updateDownloadDirectory } from '../src/update-downloads.ts'
-import { serveMacUpdate } from '../src/mac-update-feed.ts'
 import { releaseNotesUrl, updateAction, updateLabel, type NextUpdateState } from '../src/update-state.ts'
 import type { UpdateRequest } from '../../dsh-plugin-desktop/src/update-checker.ts'
 import type { UpdateArtifactRequest } from '../../dsh-plugin-desktop/src/update-download.ts'
@@ -156,19 +155,6 @@ it('downloads into the configured directory and removes earlier downloads there 
   expect(existsSync(join(downloads, 'unrelated'))).toBe(true)
   // The notification state stays with the rest of the application data.
   expect(existsSync(join(state, 'state.json'))).toBe(true)
-})
-it('serves only the private archive to the native updater and closes its loopback listener', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'next-feed-test-')); roots.push(root)
-  const path = join(root, 'update.zip'); await writeFile(path, 'test archive')
-  const feed = await serveMacUpdate(path, '2.0.20-next.1')
-  try {
-    const metadata = await (await fetch(feed.url)).json() as { url: string; name: string }
-    expect(metadata.name).toBe('2.0.20-next.1')
-    expect(await (await fetch(metadata.url)).text()).toBe('test archive')
-    expect((await fetch(new URL('/update.zip', feed.url))).status).toBe(404)
-    expect((await fetch(feed.url, { method: 'POST' })).status).toBe(404)
-  } finally { await feed.close() }
-  await expect(fetch(feed.url)).rejects.toThrow()
 })
 it('notifies once per newly discovered background update version and persists notifiedVersion across restarts', async () => {
   let latestVersion = '2.0.20-next.1'

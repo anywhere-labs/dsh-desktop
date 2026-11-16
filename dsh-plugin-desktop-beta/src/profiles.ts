@@ -392,7 +392,7 @@ export function loadNextProfile(projectDir: string, home: string, installAnchor 
   if (pnpm !== undefined) retireStaleOnDemandBundles(manager, basename(projectDir), pnpm)
   // Upstream bundle discovery walks physical node_modules before installing its
   // runtime resolver. Project only this application's bundle, not its dependency
-  // tree; the alpha.2 runtime resolver owns all other package fallbacks. No
+  // tree; the runtime resolver owns all other package fallbacks. No
   // filesystem link can enter app.asar: a packaged application leaves the resolver
   // to supply its own package and removes a link a development launch left behind.
   const modules = join(home, 'profiles', 'node_modules')

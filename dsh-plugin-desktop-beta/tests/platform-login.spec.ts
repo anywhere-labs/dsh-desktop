@@ -9,7 +9,7 @@ function account(states: Attempt[]): PlatformLoginAccount & { signals: AbortSign
     signals,
     async *watch(signal) {
       signals.push(signal)
-      for (const attempt of states) yield { attempt }
+      for (const attempt of states) yield { type: 'snapshot', state: { attempt } }
     },
   }
 }
