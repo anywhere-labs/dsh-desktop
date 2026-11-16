@@ -477,7 +477,7 @@ it('preserves safe desktop state and blocks relaunch when final Host shutdown fa
   }
 })
 
-it('captures scoped client errors with either Electron console-message signature without crashing on missing text', async () => {
+it('captures scoped client errors from Electron console-message events without crashing on missing text', async () => {
   const home = mkdtempSync(join(tmpdir(), 'next-console-message-'))
   vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
   try {
@@ -488,10 +488,10 @@ it('captures scoped client errors with either Electron console-message signature
     await vi.waitFor(() => expect(fixture.diagnosticAppend.mock.calls.filter(([record]) => record?.event === 'shell-environment.resolved')).toEqual([[expect.objectContaining({ source: 'desktop' })]]))
     fixture.diagnosticAppend.mockClear()
     Object.assign(fixture.preferences, { developerLogging: true })
-    consoleMessage.emit('console-message', {}, 2, '[next-ui-diagnostic] aa=false')
+    consoleMessage.emit('console-message', { level: 'warning', message: '[next-ui-diagnostic] aa=false' })
     consoleMessage.emit('console-message', { message: "slot entry crashed in 'sidebar.footer.action': error" })
-    consoleMessage.emit('console-message', {}, 2)
-    consoleMessage.emit('console-message', {}, 2, 'unrelated output')
+    consoleMessage.emit('console-message', { level: 'warning' })
+    consoleMessage.emit('console-message', { level: 'warning', message: 'unrelated output' })
     expect(fixture.diagnosticAppend).toHaveBeenCalledTimes(3)
     Object.assign(fixture.preferences, { developerLogging: false })
     consoleMessage.emit('console-message', { level: 'warning', message: 'web boot: warning: optional plugin loading', sourceId: 'dsh-app://app/assets/entry.js', lineNumber: 25 })

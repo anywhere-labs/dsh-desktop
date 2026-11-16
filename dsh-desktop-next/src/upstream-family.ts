@@ -101,26 +101,10 @@ export function wrapFallback(fallback: WebFallback, wrap: ResponderWrappers): We
   return typeof fallback === 'function' ? wrap.handler(fallback) : { resource: wrap.resource(fallback.resource) }
 }
 
-/** Legacy registry ownership fallback; rc.2 uses the session's direct creator link. */
-export const legacyAgentOwner: ((ctx: Context, agent: import('@deepseek-ai/dsh-agent').Agent) => import('@deepseek-ai/dsh-agent').Agent | undefined) | undefined = undefined
-
 /** Profile selections retired by this upstream family; session data is never rewritten. */
 export const RETIRED_PROFILE_BUNDLES: readonly string[] = ['@deepseek-ai/dsh-experimental-agent-team-profile', '@deepseek-ai/dsh-experimental-agent-team-web-profile', '@deepseek-ai/dsh-experimental-tool-worktree']
 
-/** Account watch changed from a bare state to a typed state envelope in rc.2. */
-export function accountWatchState<T>(update: T | { state: T }): T {
-  return typeof update === 'object' && update !== null && 'state' in update ? update.state : update as T
-}
-
-/** Office configuration follows this runtime's published skill contract. */
-export function officeSkillConfig(source: string, packageRoot: string) {
-  return { pythonEnvironment: 'workspace-dependencies' as const }
-}
-
 /** Office skills now reside in their package and must be readable by external tools. */
 export function installOfficeSkillResolution(runtimeDir: string) { return installUnpackedPackageResolution(runtimeDir, '@deepseek-ai/dsh-skill-office', 'Office skills') }
-
-/** rc.2 already mounts Office in Web; configure those rows instead of registering duplicate plugins. */
-export const OFFICE_IN_WEB_PROFILE = true
 
 export { OFFICIAL_CUA_PROVIDER_PACKAGE, installOfficialCuaResolution } from './upstream-family/official-cua.ts'

@@ -28,7 +28,6 @@ export function projectSettings(state: DesktopState, links: DesktopBrowserLinks 
 export class NextSettingsAdapter {
   private current: DesktopState | undefined
   private persisted: DesktopState | undefined
-  private fallbackBalanced: boolean | undefined
   private pendingSaves = 0
   private listeners = new Set<() => void>()
   private tail: Promise<unknown> = Promise.resolve()
@@ -54,7 +53,7 @@ export class NextSettingsAdapter {
     const p = state.preferences
     const shellWritable = !state.safeMode
     const notificationWritable = !state.safeMode && state.notificationsAvailable
-    const nextShell: DesktopShellSettings = { mode: 'compatibility', macosMaterial: p.macosMaterial, windowsMaterial: p.windowsMaterial, linuxMaterial: p.linuxMaterial, port: p.port, openBrowser: p.browserAccess, networkExposure: p.networkExposure, logLevel: p.logLevel, sidebarFooterCompat: p.sidebarFooterCompat ?? true, sidebarFooterBalanced: p.sidebarFooterBalanced ?? this.fallbackBalanced ?? true }
+    const nextShell: DesktopShellSettings = { mode: 'compatibility', macosMaterial: p.macosMaterial, windowsMaterial: p.windowsMaterial, linuxMaterial: p.linuxMaterial, port: p.port, openBrowser: p.browserAccess, networkExposure: p.networkExposure, logLevel: p.logLevel, sidebarFooterCompat: p.sidebarFooterCompat ?? true, sidebarFooterBalanced: p.sidebarFooterBalanced ?? true }
     const nextNotification: DesktopNotificationSettings = { enabled: p.notifications, notifyOnTurnCompletion: p.turnCompleted, notifyOnTurnFailure: p.turnFailed, notifyOnJobCompletion: p.jobCompleted, notifyOnJobFailure: p.jobFailed, notifyOnScheduleCompletion: p.scheduleCompleted, notifyOnScheduleFailure: p.scheduleFailed }
     if (!previous || this.shellSnapshot.writable !== shellWritable || JSON.stringify(this.shellSnapshot.value) !== JSON.stringify(nextShell)) {
       this.shellSnapshot = this.snapshot(nextShell, shellWritable)
@@ -100,22 +99,7 @@ export class NextSettingsAdapter {
         const state = this.persisted ?? await this.refresh()
         const preferences = { ...state.preferences, ...patch }
         if (!preferences.browserAccess) preferences.networkExposure = 'loopback'
-        try {
-          await this.bridge.command({ type: 'preferences', preferences })
-          if (patch.sidebarFooterBalanced !== undefined) this.fallbackBalanced = undefined
-        } catch (cause) {
-          if (
-            patch.sidebarFooterBalanced !== undefined
-            && cause instanceof Error
-            && cause.message.includes('Unknown Desktop preference')
-          ) {
-            this.fallbackBalanced = patch.sidebarFooterBalanced
-            const { sidebarFooterBalanced: _, ...legacyPreferences } = preferences
-            await this.bridge.command({ type: 'preferences', preferences: legacyPreferences as DesktopPreferences })
-          } else {
-            throw cause
-          }
-        }
+        await this.bridge.command({ type: 'preferences', preferences })
       } finally {
         this.pendingSaves -= 1
         await this.settle()

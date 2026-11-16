@@ -1,4 +1,4 @@
-/** Alpha.2 shared Web profile runner, hosted by an Electron Node-mode child. */
+/** Shared Web profile runner, hosted by an Electron Node-mode child. */
 import { auditHostPlugins, configureHostLogging, hostLog, hostOperation } from './logging.ts'
 import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -6,7 +6,7 @@ import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { OFFICE_IN_WEB_PROFILE, installOfficeSkillResolution, installOfficialCuaResolution, hostOperationDiagnostics, installHostFileDragResources, webIndexInjections } from '../upstream-family.ts'
+import { installOfficeSkillResolution, installOfficialCuaResolution, hostOperationDiagnostics, installHostFileDragResources, webIndexInjections } from '../upstream-family.ts'
 import { loadNextProfile, NEXT_PACKAGE, readNextProfilePatches } from '../profiles.ts'
 import { bundledPnpmInvocation } from '../bundled-pnpm.ts'
 import { configureNextBrowserAccess } from '../desktop-browser-access.ts'
@@ -25,7 +25,6 @@ import { installOfficeEngineResolution } from './office-engine.ts'
 import { installSharpWasmResolution } from './sharp-wasm.ts'
 import { installSkillBadgeResolution } from './skill-badge.ts'
 import { formatFatalDiagnostic } from './fatal-diagnostic.ts'
-import * as desktopOffice from './office.ts'
 import { resolveOfficeConfig } from './office.ts'
 import { readStartupEntries } from './startup-entries.ts'
 
@@ -39,7 +38,7 @@ export async function main(): Promise<void> {
   if (!runtimeDir || !projectDir || !home || !process.send) throw new Error('Next Host requires runtime, profile, home and IPC')
   // The Office engine runs as a native child process, so an archived payload resolves it to its unpacked copy.
   installOfficeEngineResolution(runtimeDir)
-  installOfficeSkillResolution?.(runtimeDir)
+  installOfficeSkillResolution(runtimeDir)
   // The Creator preset reads its skills through the Host's filesystem service, which cannot stat inside the archive.
   installAgentPresetResolution(runtimeDir)
   // The computer-use driver hands its library path to the system loader, which reads no archive.
@@ -67,7 +66,7 @@ export async function main(): Promise<void> {
   atomicJson(runtimePatch, [
     { id: 'desktop-next-webserver', config: { host: '127.0.0.1', port: preferences.port } },
     { id: 'connection', config: { trustedHosts } },
-    ...(OFFICE_IN_WEB_PROFILE && office ? [
+    ...(office ? [
       { id: 'workspace-dependencies', disabled: false, config: office },
       { id: 'skill-office', config: { pythonEnvironment: 'workspace-dependencies' } },
     ] : []),
@@ -111,7 +110,9 @@ export async function main(): Promise<void> {
     try { await running?.shutdown.shutdown(0); end() } catch (error) { end(error); throw error }
     await send({ type: 'shutdown-complete' })
     if (process.connected) process.disconnect()
-    process.exit(0)
+    // A handle a disposed plugin left open would otherwise keep the Host alive past the shell's graceful deadline.
+    // A Host whose startup failed keeps the exit code fatal() set, as upstream Desktop's Host does.
+    if (running !== undefined) process.exit(0)
   })()
   process.on('message', (value: unknown) => {
     if (dragResources?.receive(value) === true) return
@@ -162,12 +163,8 @@ export async function main(): Promise<void> {
   operations?.observe(ctx)
   // The shell signs the official account plugin's embedded Platform pages (top-up, usage) in with this grant.
   if (!stopping) installPlatformSessionPublisher(ctx, (session) => { void send({ type: 'platform-session', session }).catch(() => {}) })
-  // Office skills and the workspace dependency tool need the bundled payload; a packaged Host without it fails here.
+  // The runtime patch above mounts Office from the bundled payload; a development tree without a prepared payload runs without it.
   if (office === undefined) hostLog({ source: 'host', event: 'office.unavailable', level: 'warn', fields: { source: primaryRuntime } })
-  else if (!OFFICE_IN_WEB_PROFILE) {
-    const mounted = hostOperation('host', 'office.mount', { source: office.source })
-    try { await ctx.plugin(desktopOffice, office); mounted() } catch (error) { mounted(error); throw error }
-  }
   const missingCore = ['storageDomain', 'workspaceRegistry', 'sessionController'].filter(name => ctx.get(name) === undefined)
   if (missingCore.length > 0) {
     throw new Error(`Desktop core services unavailable: ${missingCore.join(', ')}. Check plugin compatibility and startup errors in the recovery report.`)

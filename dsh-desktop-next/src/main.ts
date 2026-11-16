@@ -415,13 +415,11 @@ function createWindow(preload: string, primary = false): BrowserWindow {
   let failureCount = 0
   // The Host log otherwise misses client slot failures: the renderer can retire
   // an entry (and its portalled dialog) without crashing the Electron process.
-  window.webContents.on('console-message', (event, _level, legacyMessage, legacyLine, legacySource) => {
-    // Electron versions differ: older runtimes pass the message as the third
-    // argument, newer ones put it on the event. Never assume either exists.
-    const message = typeof legacyMessage === 'string' ? legacyMessage : event?.message
+  window.webContents.on('console-message', (event) => {
+    // Electron puts the message, its level and its source on the event; never assume the text exists.
+    const { message, level, sourceId, lineNumber } = event
     if (typeof message !== 'string') return
-    const level = typeof event?.level === 'string' ? event.level : _level
-    const failure = level === 'error' || level === 3 || message.includes('[next-ui-error]') || message.includes('slot entry crashed') || message.includes('slot factory occurrence crashed')
+    const failure = level === 'error' || message.includes('[next-ui-error]') || message.includes('slot entry crashed') || message.includes('slot factory occurrence crashed')
     const bootWarning = message.startsWith('web boot: warning')
     const important = failure || bootWarning
     if (!important && !runtime.preferences.developerLogging) return
@@ -431,9 +429,7 @@ function createWindow(preload: string, primary = false): BrowserWindow {
       if (currentCount === 101) runtime.diagnostics.record({ source: 'renderer', event: 'console.rate-limited', level: 'warn' })
       return
     }
-    const sourceId = typeof event?.sourceId === 'string' ? event.sourceId : legacySource
-    const lineNumber = typeof event?.lineNumber === 'number' ? event.lineNumber : legacyLine
-    runtime.diagnostics.record({ source: 'renderer', event: 'console', level: failure ? 'error' : bootWarning || level === 'warning' || level === 2 ? 'warn' : 'info',
+    runtime.diagnostics.record({ source: 'renderer', event: 'console', level: failure ? 'error' : bootWarning || level === 'warning' ? 'warn' : 'info',
       message: message.slice(0, 8192), developer: !important, fields: { webContentsId: consoleWebContentsId,
         ...(typeof sourceId === 'string' ? { sourceId: sourceId.slice(0, 2048) } : {}),
         ...(Number.isFinite(lineNumber) ? { lineNumber } : {}) } })

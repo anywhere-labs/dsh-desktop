@@ -1,4 +1,3 @@
-import { accountWatchState } from '../upstream-family.ts'
 /**
  * Hand DeepSeek Platform sign-in attempts to the Electron shell.
  *
@@ -16,9 +15,9 @@ interface PlatformLoginAttempt {
   readonly authorizeUrl?: string | undefined
 }
 
-/** The `watch` face of the Host's `deepseekAccount` service. */
+/** The `watch` face of the Host's `deepseekAccount` service: typed updates that each carry the whole state. */
 export interface PlatformLoginAccount {
-  watch(signal: AbortSignal): AsyncIterable<{ readonly attempt: PlatformLoginAttempt | null } | { readonly type: string; readonly state: { readonly attempt: PlatformLoginAttempt | null } }>
+  watch(signal: AbortSignal): AsyncIterable<{ readonly type: string; readonly state: { readonly attempt: PlatformLoginAttempt | null } }>
 }
 
 /**
@@ -44,7 +43,7 @@ export async function watchPlatformLogin(
   let opened: string | undefined
   let ended: string | undefined
   for await (const view of account.watch(signal)) {
-    const attempt = accountWatchState(view).attempt
+    const attempt = view.state.attempt
     if (attempt === null) continue
     if (attempt.phase === 'waiting-browser' && attempt.authorizeUrl !== undefined && opened !== attempt.id) {
       opened = attempt.id

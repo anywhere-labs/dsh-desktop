@@ -11,15 +11,17 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import * as officeSkills from '@deepseek-ai/dsh-skill-office'
+import * as workspaceDependencies from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import { expect, it, vi } from 'vitest'
-import * as desktopOffice from '../src/host/office.ts'
 import { PRIMARY_RUNTIME_INSTALL_NAME, resolveOfficeConfig } from '../src/host/office.ts'
 
 const require = createRequire(import.meta.url)
 const officeAssets = join(dirname(require.resolve('@deepseek-ai/dsh-skill-office/package.json')), 'assets')
 const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
 
-it('loads this runtime’s Office skills and removes their registrations on disposal', async () => {
+// The Host's runtime patch configures these two rows of the Web profile with the resolved payload.
+it('loads this runtime’s Office skills as the runtime patch configures them and removes their registrations on disposal', async () => {
   const root = await mkdtemp(join(tmpdir(), 'next-office-'))
   vi.stubEnv('DSH_HOME', root)
   const ctx = new Context()
@@ -35,11 +37,9 @@ it('loads this runtime’s Office skills and removes their registrations on disp
     ctx.baseUrl = pathToFileURL(root).href + '/'
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
-    expect('default' in desktopOffice).toBe(false)
-    expect(ctx.loader.unwrapExports(desktopOffice)).toBe(desktopOffice)
     const modules = new Map<string, unknown>([
-      ['agents', AgentRegistry], ['systemPrompt', SystemPrompt], ['tools', ToolRuntime],
-      ['skills', SkillRegistry], ['office', desktopOffice],
+      ['agents', AgentRegistry], ['systemPrompt', SystemPrompt], ['tools', ToolRuntime], ['skills', SkillRegistry],
+      ['workspace-dependencies', workspaceDependencies], ['skill-office', officeSkills],
     ])
     ctx.loader.internal = {
       version: 'v2',
@@ -50,9 +50,10 @@ it('loads this runtime’s Office skills and removes their registrations on disp
     } as unknown as NonNullable<typeof ctx.loader.internal>
     const config = join(root, 'cordis.yml')
     await writeFile(config, [
-      '- name: agents', '- name: systemPrompt', '- name: tools', '- name: skills', '- name: office',
+      '- name: agents', '- name: systemPrompt', '- name: tools', '- name: skills', '- name: workspace-dependencies',
       '  config:', `    source: ${JSON.stringify(source)}`,
-      `    root: ${JSON.stringify(join(root, 'installed'))}`, '',
+      `    root: ${JSON.stringify(join(root, 'installed'))}`,
+      '- name: skill-office', '  config:', '    pythonEnvironment: workspace-dependencies', '',
     ].join('\n'))
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
@@ -72,9 +73,9 @@ it('loads this runtime’s Office skills and removes their registrations on disp
       expect(content).toContain(JSON.stringify(join(dirname(require.resolve('@deepseek-ai/libreoffice-kit/package.json')), 'lib', 'cli.js')).slice(1, -1))
     }
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['load_workspace_dependencies'])
-    const entry = [...ctx.loader.entries()].find(entry => entry.options.name === 'office')
-    expect(entry).toBeDefined()
-    await entry?.fiber?.dispose()
+    const entries = [...ctx.loader.entries()].filter(entry => ['skill-office', 'workspace-dependencies'].includes(String(entry.options.name)))
+    expect(entries).toHaveLength(2)
+    for (const entry of entries) await entry.fiber?.dispose()
     expect(await ctx.skills.list()).toEqual([])
     expect(ctx.tools.schemas()).toEqual([])
   } finally {

@@ -1,4 +1,4 @@
-/** Alpha.2 boot, directory-picker, host-path and Platform-page contracts; no generic IPC bridge. */
+/** Boot, directory-picker, host-path and Platform-page contracts; no generic IPC bridge. */
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC } from './ipc.ts'
 import { PLATFORM_IPC } from './platform-ipc.ts'

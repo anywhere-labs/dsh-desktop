@@ -24,7 +24,7 @@ export function updateLabel(state: NextUpdateState, language: string): string {
     case 'error':
       if (state.error === 'development') return t('开发环境可检查更新，请使用安装版进行更新。', 'Updates can be checked in development. Install a packaged build to update.')
       if (state.error === 'unsupported') return t('当前平台暂不支持应用内更新。', 'In-app updates are unavailable on this platform.')
-      if (state.error === 'service') return t('暂时无法获取 Next 更新，请稍后重试。', 'Next updates are temporarily unavailable. Try again later.')
+      if (state.error === 'service') return t('暂时无法获取更新，请稍后重试。', 'Updates are temporarily unavailable. Try again later.')
       return t('更新未完成，请重试。', 'The update could not be completed. Please retry.')
     default: return t('检查更新', 'Check for updates')
   }
