@@ -28,6 +28,16 @@ it('checks both architectures in the main app and all four Helpers', () => {
   }
 })
 
+it('checks only the slice a single-CPU package carries', () => {
+  const read = vi.fn((_path: string, arch: string) => {
+    if (arch !== 'arm64') throw new Error('object file format unrecognized, invalid, or unsuitable')
+    return granted
+  })
+  verifyNextMacEntitlements('/mounted/DSH Desktop Beta.app', read, ['arm64'])
+  expect(read).toHaveBeenCalledTimes(5)
+  expect(read.mock.calls.every(([, arch]) => arch === 'arm64')).toBe(true)
+})
+
 it.each([undefined, false, 'true'])('rejects missing or non-boolean audio input grants: %s', value => {
   expect(() => verifyNextMacEntitlements('/mounted/DSH Desktop Beta.app', (path, arch) =>
     path.endsWith('Helper.app') && arch === 'x86_64'

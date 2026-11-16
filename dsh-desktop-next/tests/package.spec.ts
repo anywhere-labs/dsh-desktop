@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { OPTIONAL_BUNDLES } from '../src/upstream-family.ts'
+import { PACKAGED_RUNTIME_DIR } from '../scripts/mac-runtime.ts'
 import { expect, it } from 'vitest'
 const read = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
 it('declares every official optional bundle as a discoverable, version-aligned installation dependency', () => {
@@ -57,9 +58,10 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
   // these for both CPUs.
   expect(next.build.mac.x64ArchFiles).toBe(stable.build.mac.x64ArchFiles
     .replace('sherpa-onnx-darwin-*/**}', 'sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**,@earendil-works/pi-tui/native/darwin/prebuilds/**,@deepseek-ai/dsh-experimental-cua-macos/native/bin/darwin-*/**,@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-*/**}'))
-  // Both CPU payloads ride beside the archive as extra resources; electron-builder must not re-sign the pre-signed payloads.
+  // The CPU payloads ride beside the archive as extra resources; electron-builder must not re-sign the pre-signed payloads.
+  // A macOS package copies only those of its own CPUs, which packaging stages from the prepared tree for each package.
   // macOS also carries the manifest copy the updaters shipped in 2.0.14-next through 2.0.17-next read beside the archive.
-  expect(next.build.mac.extraResources).toEqual([{ from: '.desktop-build/runtime', to: 'runtime' }, { from: '.desktop-build/payload/package.json', to: 'app/package.json' }])
+  expect(next.build.mac.extraResources).toEqual([{ from: PACKAGED_RUNTIME_DIR, to: 'runtime' }, { from: '.desktop-build/payload/package.json', to: 'app/package.json' }])
   expect(next.build.win.extraResources).toEqual([{ from: '.desktop-build/runtime', to: 'runtime' }])
   expect(next.build.linux.extraResources).toEqual([{ from: '.desktop-build/runtime', to: 'runtime' }])
   expect(next.build.extraResources).toBeUndefined()
