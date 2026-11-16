@@ -176,6 +176,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.product == 'true' && github.event_name != 'schedule'
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
         with:
@@ -241,7 +242,9 @@ jobs:
         run: yarn workspace dsh-plugin-desktop-beta dist:win
       # The installer's staged directory replacement against private directories: updates, held files,
       # rollback, a location this account may not write to, and a payload missing an application file.
+      # It takes well under a minute; a Setup or PowerShell call that never returns fails here, not at the job limit.
       - name: Smoke the Windows directory installer
+        timeout-minutes: 10
         run: yarn workspace dsh-plugin-desktop-beta verify:installer-directories
       - name: Build Windows portable archive
         env:
