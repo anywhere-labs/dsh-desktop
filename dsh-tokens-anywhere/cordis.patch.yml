@@ -1,0 +1,4 @@
+- insert:
+    - id: tokens-anywhere
+      name: '@agents-anywhere/dsh-tokens-anywhere'
+      config: {}

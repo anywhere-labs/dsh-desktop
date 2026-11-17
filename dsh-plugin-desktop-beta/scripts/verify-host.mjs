@@ -143,7 +143,7 @@ try {
   const startupRow = officialRows.find(row => row.moduleName === 'dsh-plugin-desktop-beta/startup-entries')
   assert.equal(startupRow?.fiberPhase, 'active', `Startup entries row unavailable: ${JSON.stringify(startupRow)}`)
   assert.deepEqual(await host.startupEntries(), [])
-  assert.equal(officialRows.some(row => row.moduleName === 'tokens-anywhere'), false)
+  assert.equal(officialRows.some(row => row.moduleName === '@agents-anywhere/dsh-tokens-anywhere'), false)
   assert.equal(JSON.parse(readFileSync(join(shadow, 'package.json'), 'utf8')).version, '99.0.0',
     'Runtime isolation must leave installed Profile packages untouched')
   const translation = await rpc('setBundleEnabled', {
