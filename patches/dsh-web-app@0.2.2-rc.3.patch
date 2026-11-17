@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index c6726c4..c982ec1 100644
+index c6726c4..20a2bbd 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -37,6 +37,7 @@ const Config = z.object({
@@ -10,16 +10,11 @@ index c6726c4..c982ec1 100644
  try {
    const { default: open } = await import(${JSON.stringify(BROWSER_OPENER_MODULE)})
    const launcher = await open(process.argv[1])
-@@ -89,7 +90,11 @@ function spawnBrowserLauncher(url) {
+@@ -89,6 +90,7 @@ function spawnBrowserLauncher(url) {
  		"--",
  		url
  	], {
--		env: scrubbedParentEnv(),
 +		windowsHide: true,
-+		env: {
-+			...scrubbedParentEnv(),
-+			ELECTRON_RUN_AS_NODE: "1"
-+		},
+ 		env: scrubbedParentEnv(),
  		stdio: [
  			"ignore",
- 			"inherit",
