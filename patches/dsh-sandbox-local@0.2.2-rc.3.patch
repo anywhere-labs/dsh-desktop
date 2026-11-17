@@ -1,17 +1,16 @@
 diff --git a/lib/index.js b/lib/index.js
-index 8820a6d..3325a4a 100644
+index 8820a6d..b5a051e 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -1,7 +1,7 @@
- import { spawnSync } from "node:child_process";
+@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
  import { existsSync, mkdtempSync, rmSync } from "node:fs";
  import { tmpdir } from "node:os";
--import { join } from "node:path";
-+import { dirname, join } from "node:path";
+ import { join } from "node:path";
++import { dirname } from "node:path";
  import { fileURLToPath } from "node:url";
  import { LAUNCHER_BIN, LAUNCHER_FAILURE_EXIT, grantArgs, launcherPath, probe } from "@deepseek-ai/node-addon-system/landlock-run";
  import z from "@deepseek-ai/schemastery";
-@@ -33,6 +33,9 @@ function bwrapProfileArgs(policy) {
+@@ -33,6 +34,9 @@ function bwrapProfileArgs(policy) {
  	];
  	if (policy.mode === "workspace-write") {
  		args.push("--tmpfs", "/tmp");
@@ -21,17 +20,15 @@ index 8820a6d..3325a4a 100644
  		for (const root of workspaceWritableRoots(policy)) args.push("--bind", root, root);
  	}
  	return args;
-@@ -442,7 +445,12 @@ var LocalSandboxProvider = class extends SandboxProvider {
+@@ -442,6 +446,11 @@ var LocalSandboxProvider = class extends SandboxProvider {
  		}
  		const key = JSON.stringify([String(sessionId), workspaceRoot]);
  		const existing = this.tempCapabilities.get(key);
--		if (existing !== void 0) return existing;
-+		if (existing !== void 0) {
-+			if (existsSync(existing.dir)) return existing;
++		if (existing !== void 0 && !existsSync(existing.dir)) {
 +			this.tempCapabilities.delete(key);
 +			this.ctx.logger.warn(`sandbox-local: windows-acl private temp ${existing.dir} was removed; creating a new one`);
 +			try { existing.grant.dispose(); } catch (error) { this.ctx.logger.warn(error); }
-+		}
++		} else
+ 		if (existing !== void 0) return existing;
  		let tempDir;
  		try {
- 			tempDir = mkdtempSync(join(tmpdir(), "dsh-"));
