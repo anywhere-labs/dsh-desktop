@@ -1,16 +1,34 @@
 /** Sequence existing Desktop setup content inside the official onboarding surface. */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-account/client'
 import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DesktopOnboardingBridge, DesktopOnboardingSnapshot } from '../../../dsh-plugin-desktop/src/setup-onboarding-bridge.ts'
+import { ONBOARDING_STYLE_ATTRIBUTE } from './onboarding-style-scope.ts'
 
 export type SetupNavigation = PropsRuntime<'onboarding.desktop.before'>['renderNavigation']
 export type SetupContent = (snapshot: DesktopOnboardingSnapshot, locale: 'zh' | 'en', finish: DesktopOnboardingBridge['finish'], renderNavigation: SetupNavigation) => ReactNode
 
 function pendingSnapshot(value: DesktopOnboardingSnapshot | null): DesktopOnboardingSnapshot | null {
   return value?.required || value?.accountPending || value?.restartPending ? value : null
+}
+
+/** Mounted onboarding style scopes; the last one to unmount clears the root mark. */
+let styleScopes = 0
+
+/** Marks the document root, activating the onboarding-only stylesheet while this element is mounted. */
+export function OnboardingStyleScope(): null {
+  useLayoutEffect(() => {
+    const root = document.documentElement
+    styleScopes += 1
+    root.setAttribute(ONBOARDING_STYLE_ATTRIBUTE, '')
+    return () => {
+      styleScopes -= 1
+      if (styleScopes === 0) root.removeAttribute(ONBOARDING_STYLE_ATTRIBUTE)
+    }
+  }, [])
+  return null
 }
 
 export function registerDesktopOnboarding(ctx: Context, content: SetupContent): void {
@@ -28,6 +46,10 @@ function DesktopOnboarding({ bridge, content, zh, renderSurface, renderLoading, 
   const [error, setError] = useState('')
   const [revision, refresh] = useState(0)
   const [busy, setBusy] = useState(false)
+  // Desktop content and its loading state occupy the official surface with the onboarding-only
+  // styles; the official flow returned by renderNext keeps the ordinary shell styles.
+  const surface = (children: ReactNode) => <>{renderSurface(children)}<OnboardingStyleScope /></>
+  const loading = () => <>{renderLoading()}<OnboardingStyleScope /></>
   useEffect(() => {
     let disposed = false
     void bridge.read().then(value => {
@@ -46,10 +68,10 @@ function DesktopOnboarding({ bridge, content, zh, renderSurface, renderLoading, 
     }).catch(cause => { if (!disposed) setError(String(cause)) })
     return () => { disposed = true }
   }, [bridge, snapshot, accountStatus])
-  if (error) return renderSurface(<div role="alert" style={{ padding: 48 }}>
+  if (error) return surface(<div role="alert" style={{ padding: 48 }}>
     <p>{error}</p><Button onClick={() => { setError(''); setSnapshot(undefined); refresh(value => value + 1) }}>{zh ? '重试' : 'Retry'}</Button>
   </div>)
-  if (snapshot === undefined) return renderLoading()
+  if (snapshot === undefined) return loading()
   if (snapshot === null) return renderNext()
   if (!snapshot.required && !snapshot.accountPending) {
     // Use the official transient portal; onboarding-only styles are inactive
@@ -67,7 +89,7 @@ function DesktopOnboarding({ bridge, content, zh, renderSurface, renderLoading, 
       onDone={() => { setSnapshot(null) }} /></>
   }
   if (!snapshot.required) {
-    if (accountStatus === 'credential-stored') return renderLoading()
+    if (accountStatus === 'credential-stored') return loading()
     const dismiss = async (login: boolean) => {
       if (busy) return
       setBusy(true)
@@ -79,7 +101,7 @@ function DesktopOnboarding({ bridge, content, zh, renderSurface, renderLoading, 
       } catch (cause) { setError(String(cause)) }
       finally { setBusy(false) }
     }
-    return renderSurface(<section className="dshDesktopAccountSetup" aria-labelledby="desktop-account-title" aria-busy={busy}>
+    return surface(<section className="dshDesktopAccountSetup" aria-labelledby="desktop-account-title" aria-busy={busy}>
       <div>
         <h1 id="desktop-account-title">{zh ? '桌面设置已完成' : 'Desktop setup is complete'}</h1>
         <p>{zh ? `登录 DeepSeek，开始使用 Profile「${snapshot.profile}」。` : `Sign in to DeepSeek to get started with Profile “${snapshot.profile}”.`}</p>
@@ -92,7 +114,7 @@ function DesktopOnboarding({ bridge, content, zh, renderSurface, renderLoading, 
       </div>
     </section>)
   }
-  return renderSurface(<div className="dshDesktopSetupContent" data-platform={snapshot.input.platform}>{content(snapshot, zh ? 'zh' : 'en', async (profile, selection) => {
+  return surface(<div className="dshDesktopSetupContent" data-platform={snapshot.input.platform}>{content(snapshot, zh ? 'zh' : 'en', async (profile, selection) => {
     await bridge.finish(profile, selection)
     // Stable/Beta keep this renderer alive; Next still applies through its Host restart.
     if (snapshot.edition === 'desktop') {

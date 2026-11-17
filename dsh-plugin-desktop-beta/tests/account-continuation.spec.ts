@@ -1,7 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { registerDesktopOnboarding } from '../src/client/onboarding.tsx'
+import { OnboardingStyleScope, registerDesktopOnboarding } from '../src/client/onboarding.tsx'
+import { ONBOARDING_STYLE_ATTRIBUTE } from '../src/client/onboarding-style-scope.ts'
 
-const hooks = vi.hoisted(() => ({ values: [] as unknown[], setters: [] as ReturnType<typeof vi.fn>[], effects: [] as (() => unknown)[] }))
+const hooks = vi.hoisted(() => ({ values: [] as unknown[], setters: [] as ReturnType<typeof vi.fn>[], effects: [] as (() => unknown)[], layoutEffects: [] as (() => unknown)[] }))
 // Vitest aliases these shared peers to Next's installed copies.
 vi.mock('react', async importOriginal => ({
   ...await importOriginal<typeof import('react')>(),
@@ -11,6 +12,7 @@ vi.mock('react', async importOriginal => ({
     return [hooks.values.shift(), setter]
   },
   useEffect: (effect: () => unknown) => { hooks.effects.push(effect) },
+  useLayoutEffect: (effect: () => unknown) => { hooks.layoutEffects.push(effect) },
 }))
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({ Button: 'button', Toast: 'official-toast' }))
 afterEach(() => { vi.unstubAllGlobals() })
@@ -63,7 +65,7 @@ it('hands an explicitly skipped Desktop setup to the official decision', async (
 
 it('hands an already signed-in Profile to the official flow without showing login', async () => {
   const view = fixture(true)
-  expect(view.result).toBe('Loading')
+  expect(view.result.props.children[0]).toBe('Loading')
   hooks.effects[1]!()
   await vi.waitFor(() => expect(hooks.setters[0]).toHaveBeenCalledWith(null))
   expect(view.bridge.dismissAccount).toHaveBeenCalledExactlyOnceWith('work')
@@ -135,4 +137,31 @@ it('dismisses the official toast without restarting or discarding saved settings
   expect(hooks.setters[0]).toHaveBeenCalledWith(null)
   expect(view.bridge.applyPending).not.toHaveBeenCalled()
   expect(view.bridge.finish).not.toHaveBeenCalled()
+})
+
+it('activates the onboarding-only styles with Desktop content and its loading state, not the official flow', () => {
+  const marked = (node: any) => node?.props?.children?.[1]?.type === OnboardingStyleScope
+  expect(marked(fixture(false).result)).toBe(true)
+  expect(marked(fixture(true).result)).toBe(true)
+  expect(marked(fixture(false, true).result)).toBe(true)
+  const official = fixture(false, false, false, { accountPending: false, restartPending: true })
+  expect(marked(official.result)).toBe(false)
+  expect(official.renderWithSnapshot(null)).toBeUndefined()
+})
+
+it('keeps the root mark until the last onboarding style scope unmounts', () => {
+  const attributes = new Set<string>()
+  vi.stubGlobal('document', { documentElement: {
+    setAttribute: (name: string) => { attributes.add(name) },
+    removeAttribute: (name: string) => { attributes.delete(name) },
+  } })
+  hooks.layoutEffects = []
+  expect(OnboardingStyleScope()).toBeNull()
+  OnboardingStyleScope()
+  const [first, second] = hooks.layoutEffects.map(effect => effect() as () => void)
+  expect(attributes.has(ONBOARDING_STYLE_ATTRIBUTE)).toBe(true)
+  first!()
+  expect(attributes.has(ONBOARDING_STYLE_ATTRIBUTE)).toBe(true)
+  second!()
+  expect(attributes.has(ONBOARDING_STYLE_ATTRIBUTE)).toBe(false)
 })

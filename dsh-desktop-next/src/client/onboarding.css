@@ -28,7 +28,9 @@
   --color-ring: var(--ring);
 }
 
-body:has(.dshDesktopOnboardingContent) {
+/* `:scope` is the marked document root, so these rules hold only while the
+   Desktop surface is shown, at the specificity of a `body:has()` condition. */
+:scope body {
   --background: var(--dsw-alias-bg-base);
   --foreground: var(--dsw-alias-label-primary);
   --card: var(--dsw-alias-bg-layer-1);
@@ -93,5 +95,5 @@ body:has(.dshDesktopOnboardingContent) {
 
 /* The official onboarding surface is at 900; original wizard confirmations
    are portalled to body and must remain above it. */
-body:has(.dshDesktopOnboardingContent) [data-slot="dialog-overlay"],
-body:has(.dshDesktopOnboardingContent) [data-slot="dialog-content"] { z-index: 901; -webkit-app-region: no-drag; }
+:scope body [data-slot="dialog-overlay"],
+:scope body [data-slot="dialog-content"] { z-index: 901; -webkit-app-region: no-drag; }
