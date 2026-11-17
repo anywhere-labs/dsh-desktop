@@ -227,7 +227,7 @@ export function Onboarding({ state, locale, bridge }: { state: Pick<DesktopState
           {page === 5 && <div className="next-onboarding-recovery">
             <h2 className="next-onboarding-recovery-title"><LifeBuoy aria-hidden="true" />{t('恢复助手', 'Recovery Assistant')}</h2>
             <ol>
-              <li><strong>{t('打开恢复助手', 'Open the recovery assistant')}</strong><p>{t('托盘菜单 → 恢复助手。也可以在设置的“重启”菜单中选择进入恢复模式，或在桌面设置最底部快速进入。', 'Choose Recovery Assistant in the tray menu, restart into recovery from the Restart menu in Settings, or open it from the bottom of Desktop settings.')}</p></li>
+              <li><strong>{t('打开恢复助手', 'Open the recovery assistant')}</strong><p>{t('托盘菜单 → 恢复助手。也可以在设置的“重启”菜单中选择进入恢复模式，或在桌面设置的“诊断与恢复”中打开。', 'Choose Recovery Assistant in the tray menu, restart into recovery from the Restart menu in Settings, or open it from Diagnostics in Desktop settings.')}</p></li>
               <li><strong>{t('选择恢复方式', 'Choose a recovery option')}</strong><p>{t('尝试临时安全模式、修复 Profile，或回滚到最近成功启动的配置。', 'Try temporary safe mode, repair the Profile, or restore its last successful-start configuration.')}</p></li>
               <li><strong>{t('回到工作中', 'Get back to work')}</strong><p>{t('完成后点击“启动或重试”。仍有问题时，可以导出诊断信息。', 'Choose “Start or retry” when ready. If the issue remains, export diagnostics for help.')}</p></li>
             </ol>
