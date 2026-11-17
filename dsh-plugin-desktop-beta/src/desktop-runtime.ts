@@ -19,6 +19,7 @@ import { collectRendererDiagnostics, rendererDiagnosticsFields, RENDERER_FAILURE
 import { DesktopMemoryMonitor, type DesktopMemoryProbe } from './memory-monitor.ts'
 import { NextRecovery } from './recovery.ts'
 import { maskSecrets } from './mask-secrets.ts'
+import { portConflict } from './port-conflict.ts'
 import { privateDirectory } from './private-files.ts'
 import { authenticateWebHost } from './web-document.ts'
 import { DesktopLanHttpsRuntime } from './lan-https-runtime.ts'
@@ -342,7 +343,7 @@ export class NextDesktopRuntime {
   }
 
   /** The Desktop state without `logs`: only the recovery assistant shows them, so only its window pays for a snapshot. */
-  state(): Pick<DesktopState, 'selected' | 'profiles' | 'unavailableProfiles' | 'features' | 'preferences' | 'phase' | 'busy' | 'failure' | 'failureStage' | 'failureExit' | 'failureTimeout' | 'failureReport' | 'failureContext' | 'actionFailure' | 'safeMode' | 'hostStartupTimeout' | 'home' | 'browserUrl' | 'lan' | 'checkpoint'> {
+  state(): Pick<DesktopState, 'selected' | 'profiles' | 'unavailableProfiles' | 'features' | 'preferences' | 'phase' | 'busy' | 'failure' | 'failureStage' | 'failureExit' | 'failureTimeout' | 'portConflict' | 'failureReport' | 'failureContext' | 'actionFailure' | 'safeMode' | 'hostStartupTimeout' | 'home' | 'browserUrl' | 'lan' | 'checkpoint'> {
     let features = { ...DEFAULT_FEATURES }
     let profiles: string[] = []
     let checkpoint: DesktopState['checkpoint'] = null
@@ -356,9 +357,12 @@ export class NextDesktopRuntime {
     try { profiles = this.profiles.list() } catch (error) { unreadable(error) }
     if (!this.safeMode) try { features = this.profiles.features(this.selected) } catch (error) { unreadable(error) }
     try { const saved = this.recovery.latest(this.selected); if (saved) checkpoint = { created: saved.created } } catch { /* Recovery remains usable without backups. */ }
+    // The Host's own diagnostic in the frozen context names a port another program holds.
+    const conflict = failureStage === 'host-boot' || failureStage === 'host-runtime' ? portConflict(this.failureContext ?? failure, this.preferences.port) : undefined
     return { selected: this.selected, profiles, unavailableProfiles: profiles.filter(name => !this.profiles.selectable(name)), features, preferences: { ...this.preferences }, phase: this.recoveryMode ? 'recovery' : !this.auth && failure ? 'error' : this.backend.state.phase,
       busy: this.busy, failure, ...(failureStage === undefined ? {} : { failureStage }), ...(this.failureExit === undefined ? {} : { failureExit: this.failureExit }),
       ...(this.failureTimeout === undefined ? {} : { failureTimeout: this.failureTimeout }),
+      ...(conflict === undefined ? {} : { portConflict: conflict }),
       ...(this.failureContext === undefined ? {} : { failureContext: this.failureContext }),
       ...(this.failureReport === undefined ? {} : { failureReport: this.failureReport }), ...(this.actionFailure ? { actionFailure: this.actionFailure } : {}),
       safeMode: this.safeMode, hostStartupTimeout: this.savedStartupTimeout, home: this.options.home,
@@ -420,6 +424,9 @@ export class NextDesktopRuntime {
       time: new Date(), stage, failure: this.failure,
       facts: [['run', this.diagnostics.runId], ...(hostRun === undefined ? [] : [['host run', hostRun] as const]), ...launch, ['arch', process.arch], ['profile', this.selected]],
       hostDiagnostic: error instanceof DesktopHostFatalError ? error.diagnostic : undefined,
+      // A Host that failed loud printed why; its whole retained stderr follows the readable log.
+      hostCrash: error instanceof DesktopHostExitError ? error.crash : undefined,
+      hostStderr: error instanceof DesktopHostExitError || error instanceof DesktopHostFatalError ? error.stderr : undefined,
       // The Host's own diagnostic, or its exit code and stderr tail, describe a Host failure; a shell error adds its stack.
       error: error instanceof Error && !(error instanceof DesktopHostFatalError) && !(error instanceof DesktopHostExitError)
         && !(error instanceof DesktopHostStartupTimeoutError) ? error : undefined,

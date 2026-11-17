@@ -14,6 +14,7 @@ import { installDesktopFileDrag, installFileActions, liveshareOwnerLogin } from 
 import { claimDesktopSingleInstance } from './single-instance.ts'
 import { NEXT_PACKAGE, NextProfiles, parseFeatures, profileName } from './profiles.ts'
 import { APP_URL, IPC, SHELL_URL } from './ipc.ts'
+import { clientDiagnosticRecord, parseClientDiagnostic } from './client-diagnostic.ts'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 import { preferredDesktopLocale, resolveDesktopLocale, roleApplicationMenuTemplate } from './menu-locale.ts'
 import { NativeLocaleStore } from './native-locale.ts'
@@ -132,6 +133,10 @@ let rendererDocumentId = ''
 let pendingNavigation: { readonly owner: BrowserWindow; readonly cause: Exclude<DesktopNavigationCause, 'page'> } | undefined
 /** The main window's interface has mounted at least once, so a later renderer failure stops a running Desktop. */
 let rendererHealthy = false
+/** The main-window document whose Next client reports its own failures, and the newest client logger message recorded from it. */
+let clientReports: { readonly document: string; sn: number } | undefined
+/** Console copies of what the Next client reports itself: slot crashes, and errors and rejections nothing caught. */
+const CLIENT_REPORTED = /^(?:slot entry crashed in '|slot factory occurrence crashed in '|Uncaught )/u
 // Storage partitions outlive individual windows, so the guest owner is process-scoped.
 let desktopShortcuts: ReturnType<typeof installDesktopShortcuts> | undefined
 /** Removes the native file drag's temporary exports, where the followed DSH release drags files natively. */
@@ -469,7 +474,10 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     // Electron puts the message, its level and its source on the event; never assume the text exists.
     const { message, level, sourceId, lineNumber } = event
     if (typeof message !== 'string') return
-    const failure = level === 'error' || message.includes('[next-ui-error]') || message.includes('slot entry crashed') || message.includes('slot factory occurrence crashed')
+    // The Next client reports slot crashes and uncaught errors with their plugin and stack; the main frame's
+    // console copies would only repeat those records.
+    if (window === mainWindow && clientReports?.document === rendererDocumentId && event.frame?.parent === null && CLIENT_REPORTED.test(message)) return
+    const failure = level === 'error'
     const bootWarning = message.startsWith('web boot: warning')
     const important = failure || bootWarning
     if (!important && !runtime.preferences.developerLogging) return
@@ -1086,6 +1094,14 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
         `${limit === 'none' ? 'The startup limit is removed' : `The startup limit is now ${String(limit)} seconds`}. Choose “${restart}” to apply it.`) }
     return
   }
+  if (action === 'automatic-port') {
+    // Safe Mode's settings are fixed and always let the Host choose its port.
+    runtime.writePreferences({ ...runtime.preferences, port: 0 })
+    runtime.diagnostics.record({ source: 'desktop', event: 'host.port.automatic' })
+    recoveryNotice = { tone: 'success', title: t('已改用自动端口', 'Automatic port set'),
+      body: t('插件服务下次启动时会选一个空闲端口。请点击“退出并重启”使其生效。', 'The plugin service picks a free port the next time it starts. Choose “Quit and restart” to apply it.') }
+    return
+  }
   const directory = runtime.profiles.directory(runtime.selected)
   const files: Record<string, string> = {
     'open-settings-document': join(home, 'settings.yaml'),
@@ -1369,6 +1385,25 @@ async function main(): Promise<void> {
     if (!isDesktopRendererStatus(status)) throw new Error('Invalid renderer status')
     if (documentId !== rendererDocumentId || !documentId) return
     rendererRecovery?.report(status)
+  })
+  // Sent without an answer, so a rejected sender or report is dropped here rather than thrown.
+  ipcMain.on(IPC.rendererDiagnostic, (event, documentId: unknown, value: unknown) => {
+    try { assertSender(event, mainWindow, APP_URL) } catch { return }
+    if (!documentId || documentId !== rendererDocumentId) return
+    const report = parseClientDiagnostic(value)
+    if (report === undefined) return
+    if (report.kind === 'ready') {
+      // A client plugin reloaded in place announces itself again; what this document recorded stays recorded.
+      if (clientReports?.document !== rendererDocumentId) clientReports = { document: rendererDocumentId, sn: -1 }
+      return
+    }
+    if (report.kind === 'log') {
+      // The reloaded plugin replays the logger's buffer; this document's messages are recorded once.
+      if (clientReports?.document !== rendererDocumentId || report.sn <= clientReports.sn) return
+      clientReports.sn = report.sn
+    }
+    const record = clientDiagnosticRecord(report)
+    if (record !== undefined) runtime.diagnostics.record(record)
   })
   ipcMain.handle(IPC.failed, (event, message: unknown, documentId: unknown) => {
     assertSender(event, mainWindow, APP_URL)

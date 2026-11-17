@@ -78,6 +78,8 @@ export interface DesktopState {
   failureExit?: DesktopHostExit
   /** The limit a Host start exceeded and what it was still loading, when that is the failure. */
   failureTimeout?: DesktopStartupTimeoutFailure
+  /** The port another program holds, when the Host could not listen on it. */
+  portConflict?: import('./port-conflict.ts').DesktopPortConflict
   /** The report saved in the logs directory when `failure` opened recovery. */
   failureReport?: DesktopFailureReport
   /** Frozen, masked failure context, including the original error and this run’s log. */
@@ -155,6 +157,8 @@ export interface DesktopBridge {
 export interface DesktopRendererBridge {
   profile(): string
   report(status: import('./renderer-recovery.ts').DesktopRendererStatus): Promise<void>
+  /** A client failure for the Desktop log; delivered without an answer, and dropped for an earlier document. */
+  diagnostic?(report: import('./client-diagnostic.ts').ClientDiagnostic): void
 }
 
 declare global { interface Window { desktopNext?: DesktopBridge } }

@@ -22,6 +22,7 @@ import { desktopDirectoryPicker, registerDesktopDirectoryPicker } from './direct
 import { SettingsRequests } from './settings-requests.tsx'
 import type { DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
 import { installRendererRecovery } from './renderer-recovery.ts'
+import { installClientDiagnostics } from './client-diagnostics.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -35,6 +36,9 @@ export const inject = ['slots', 'layout', 'locale']
 
 export function apply(ctx: Context): void {
   ctx.effect(installUiDiagnostics, 'AA and Plugins client lifecycle diagnostics')
+  // Only the Desktop main window has the channel; an ordinary browser keeps its console.
+  const diagnostic = window.desktopNext?.renderer?.diagnostic
+  if (diagnostic) ctx.effect(() => installClientDiagnostics(ctx, diagnostic), 'Client failure reports')
   ctx.effect(() => ctx.locale.register('desktop-next', {
     zh: { settings: '桌面设置', language: 'zh', safeMode: '安全模式', safeModeDetail: '当前使用临时环境。退出安全模式并重启后返回原 Profile，临时数据不会保留。', dismiss: '关闭提示', recovery: '打开恢复助手' },
     en: { settings: 'Desktop settings', language: 'en', safeMode: 'Safe mode', safeModeDetail: 'You are using a temporary environment. Exiting Safe Mode and restarting returns to the original Profile and removes the temporary data.', dismiss: 'Dismiss notice', recovery: 'Open recovery assistant' },
@@ -113,10 +117,6 @@ function installUiDiagnostics(): () => void {
       plugins: document.querySelector('[data-next-plugin-controls]') !== null,
     }
   }
-  const onError = (event: ErrorEvent): void => { console.error(`[next-ui-error] ${String(event.error?.stack ?? event.message).slice(0, 8192)}`) }
-  const onRejection = (event: PromiseRejectionEvent): void => { console.error(`[next-ui-error] ${String(event.reason?.stack ?? event.reason).slice(0, 8192)}`) }
-  window.addEventListener('error', onError)
-  window.addEventListener('unhandledrejection', onRejection)
   let previous = read()
   let lastInput = 'none'
   const trace = (message: string): void => { console.warn(`[next-ui-diagnostic] ${message}`) }
@@ -148,8 +148,6 @@ function installUiDiagnostics(): () => void {
   document.addEventListener('pointerdown', onPointerDown, true)
   document.addEventListener('keydown', onKeyDown, true)
   return () => {
-    window.removeEventListener('error', onError)
-    window.removeEventListener('unhandledrejection', onRejection)
     observer.disconnect()
     document.removeEventListener('pointerdown', onPointerDown, true)
     document.removeEventListener('keydown', onKeyDown, true)

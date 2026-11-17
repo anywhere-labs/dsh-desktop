@@ -26,6 +26,7 @@ import { installSharpWasmResolution } from './sharp-wasm.ts'
 import { installSkillBadgeResolution } from './skill-badge.ts'
 import { formatFatalDiagnostic } from './fatal-diagnostic.ts'
 import { resolveOfficeConfig } from './office.ts'
+import { PluginSummary, recordSkippedBundles } from './plugin-summary.ts'
 import { readStartupEntries } from './startup-entries.ts'
 
 export async function main(): Promise<void> {
@@ -61,6 +62,7 @@ export async function main(): Promise<void> {
   delete process.env[SYSTEM_PROXY_ENV]
   const packageManager = bundledPnpmInvocation(runtimeDir)
   const profile = loadNextProfile(projectDir, home, NEXT_PACKAGE, packageManager)
+  recordSkippedBundles(profile.skippedBundles, hostLog)
   const office = resolveOfficeConfig(runtimeDir, primaryRuntime, home)
   const runtimePatch = join(projectDir, 'desktop-next.runtime.patch.json')
   atomicJson(runtimePatch, [
@@ -173,6 +175,10 @@ export async function main(): Promise<void> {
   await send({ type: 'ready', url: ctx.connection.authenticatedUrl(`http://127.0.0.1:${ctx.webServer.port}`),
     injections: webIndexInjections(ctx) })
   auditHostPlugins(ctx)
+  // Whatever the logging setting: which enabled plugins failed, never loaded or still wait, now and after each change.
+  const plugins = new PluginSummary(hostLog)
+  plugins.observe(ctx)
+  void plugins.summarize(ctx, 'ready')
   const account = ctx.get('deepseekAccount') as PlatformLoginAccount | undefined
   if (account !== undefined && !stopping) {
     // A broken watcher only loses the automatic browser hand-off; the dialog still offers the link.

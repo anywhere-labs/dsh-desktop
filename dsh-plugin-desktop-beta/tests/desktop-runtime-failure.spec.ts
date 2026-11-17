@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { NextDesktopRuntime } from '../src/desktop-runtime.ts'
 import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, type DesktopHostObserver } from '../src/host-process.ts'
+import { hostCrash } from '../src/host-crash.ts'
 import { historyFiles } from '../src/log-history.ts'
 
 vi.mock('../src/web-document.ts', async importOriginal => ({
@@ -141,6 +142,7 @@ it('saves a masked report of the failure that opened recovery, with the Host dia
   runtime.diagnostics.begin({ version: '2.0.21-beta.1', platform: 'darwin' })
   await expect(runtime.start()).rejects.toThrow('startup failed')
   await vi.waitFor(() => expect(onFailure).toHaveBeenCalledOnce())
+  expect(runtime.state()).not.toHaveProperty('portConflict')
   const file = await runtime.failureReportFile()
   expect(file).toMatch(/[\\/]logs[\\/]dsh-plugin-desktop-beta-failure-[^\\/]+-host-boot\.log$/u)
   expect(runtime.state().failureReport).toEqual({ status: 'saved', file })
@@ -149,6 +151,35 @@ it('saves a masked report of the failure that opened recovery, with the Host dia
   expect(text).toContain('--- failure (as shown in the recovery assistant) ---\ndsh-plugin-desktop-beta: startup failed\n')
   expect(text).toContain('Configuration file: /profiles/desktop/cordis.yml\nAuthorization: Bearer ****\n')
   expect(text).not.toContain('--- error details ---')
+  expect(text).not.toContain('packages in its stack')
+})
+
+it('names the port another program holds when the Host cannot listen on it', async () => {
+  vi.spyOn(DesktopHostProcess.prototype, 'stop').mockResolvedValue()
+  vi.spyOn(DesktopHostProcess.prototype, 'start').mockRejectedValueOnce(new DesktopHostFatalError('dsh-plugin-desktop-beta: startup failed',
+    'StartupError: dsh-plugin-desktop-beta: 1 required entry did not activate\nwebserver (@deepseek-ai/dsh-host-webserver): failed: Error: listen EADDRINUSE: address already in use 127.0.0.1:3000'))
+  const { runtime, onFailure } = await fixture()
+  runtime.writePreferences({ ...runtime.preferences, port: 3000 })
+  await expect(runtime.start()).rejects.toThrow('startup failed')
+  await vi.waitFor(() => expect(onFailure).toHaveBeenCalledOnce())
+  expect(runtime.state().portConflict).toEqual({ address: '127.0.0.1:3000', port: 3000 })
+  runtime.report(new Error('Invalid Next Profile manifest'), 'profile-composition')
+  expect(runtime.state().portConflict).toEqual({ address: '127.0.0.1:3000', port: 3000 })
+  // Switched to an automatic port, the Host cannot conflict on its next start.
+  runtime.writePreferences({ ...runtime.preferences, port: 0 })
+  expect(runtime.state()).not.toHaveProperty('portConflict')
+})
+
+it('reports a fail-loud Host crash with its block, the packages in its stack and the retained stderr', async () => {
+  const { runtime } = await fixture()
+  const stderr = 'dsh-plugin-desktop-beta: outbound proxy = none\n[flaky] tick\ndsh: fatal uncaught exception: TypeError: tick failed\n'
+    + '    at tick (/profile/node_modules/.pnpm/dsh-flaky@2.1.0/node_modules/dsh-flaky/lib/index.js:4:7)\n[flaky] disposing token=private-value\n'
+  runtime.report(new DesktopHostExitError(1, null, '[flaky] disposing', 'dsh: fatal uncaught exception: TypeError: tick failed', { stderr, crash: hostCrash(stderr) }), 'host-runtime')
+  const text = readFileSync((await runtime.failureReportFile())!, 'utf8')
+  expect(text).toContain('--- Host fatal error (as the Host printed it before exiting) ---\ndsh: fatal uncaught exception: TypeError: tick failed\n    at tick (/profile/')
+  expect(text).toContain('packages in its stack, innermost first: dsh-flaky@2.1.0\nfirst package outside DeepSeek Harness: dsh-flaky@2.1.0\n')
+  expect(text).toContain('--- Host stderr (oldest first) ---\ndsh-plugin-desktop-beta: outbound proxy = none\n[flaky] tick\n')
+  expect(text).not.toContain('private-value')
 })
 
 it('includes repeat counts not yet due in the failure report it writes', async () => {

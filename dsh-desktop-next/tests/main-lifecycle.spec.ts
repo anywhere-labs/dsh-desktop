@@ -521,6 +521,46 @@ it('captures scoped client errors from Electron console-message events without c
   }
 })
 
+it('records client failure reports from the main window\'s current document and drops their console copies', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-client-reports-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  fixture.hostReady = true
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const main = fixture.windows[0]
+    const sender = { sender: main.webContents, senderFrame: main.webContents.mainFrame }
+    const { documentId } = await fixture.handlers.get('dsh-next:boot')!(sender)
+    const report = fixture.handlers.get('dsh-next:renderer-diagnostic')!
+    fixture.diagnosticAppend.mockClear()
+    const error = { name: 'TypeError', message: 'render failed', stack: 'TypeError: render failed\n    at Panel' }
+    const crash = { kind: 'slot-crash', slot: 'sidebar.footer.action', plugin: 'dsh-wallpaper-engine', abdicated: true, error }
+    report(sender, documentId, { kind: 'ready' })
+    report(sender, documentId, crash)
+    report(sender, 'an-earlier-document', crash)
+    report({ sender: {}, senderFrame: { url: 'dsh-app://app/' } }, documentId, crash)
+    report(sender, documentId, { ...crash, slot: 'x'.repeat(600) })
+    report(sender, documentId, { kind: 'log', level: 'warn', logger: 'loader', entry: 'dsh-x/client', message: 'entry failed', sn: 5 })
+    // The client plugin reloads in place: it announces itself again and replays the logger's buffer.
+    report(sender, documentId, { kind: 'ready' })
+    report(sender, documentId, { kind: 'log', level: 'warn', logger: 'loader', entry: 'dsh-x/client', message: 'replayed', sn: 5 })
+    report(sender, documentId, { kind: 'log', level: 'error', logger: 'hmr', entry: null, message: 'after the reload', sn: 6 })
+    expect(fixture.diagnosticAppend.mock.calls.map(([record]) => [record.source, record.event, record.message, record.fields?.plugin ?? record.fields?.entry])).toEqual([
+      ['renderer.client', 'slot.crashed', 'TypeError: render failed', 'dsh-wallpaper-engine'],
+      ['renderer.client', 'log', 'entry failed', 'dsh-x/client'],
+      ['renderer.client', 'log', 'after the reload', null],
+    ])
+    fixture.diagnosticAppend.mockClear()
+    main.webContents.emit('console-message', { level: 'error', message: "slot entry crashed in 'sidebar.footer.action': TypeError", frame: { parent: null } })
+    main.webContents.emit('console-message', { level: 'error', message: 'Uncaught TypeError: render failed', frame: { parent: null } })
+    main.webContents.emit('console-message', { level: 'error', message: 'Uncaught Error: in an embedded frame', frame: { parent: {} } })
+    main.webContents.emit('console-message', { level: 'error', message: 'Failed to load resource', frame: { parent: null } })
+    expect(fixture.diagnosticAppend.mock.calls.map(([record]) => record.message)).toEqual(['Uncaught Error: in an embedded frame', 'Failed to load resource'])
+  } finally {
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+})
+
 it('keeps the Windows caption buttons transparent so full-window official surfaces show beneath them', async () => {
   const home = mkdtempSync(join(tmpdir(), 'next-windows-caption-'))
   vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
@@ -1935,6 +1975,25 @@ it('saves the Host startup limit from recovery and says how to apply it (#1569)'
       await expect(command(sender, { type: 'recovery-action', action: 'host-startup-timeout', id })).rejects.toThrow('Invalid Host startup limit')
     }
     expect(fixture.saveStartupTimeout).toHaveBeenCalledTimes(2)
+  } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it('switches a fixed Host port to automatic from recovery and says how to apply it', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-automatic-port-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const argv = [...process.argv]
+  process.argv.push('--next-recovery')
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    Object.assign(fixture.preferences, { port: 3000 })
+    const window = fixture.windows[0]
+    const sender = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
+    const command = fixture.handlers.get('dsh-next:command')!
+    await command(sender, { type: 'recovery-action', action: 'automatic-port' })
+    expect((fixture.preferences as { port?: number }).port).toBe(0)
+    expect(fixture.handlers.get('dsh-next:state')!(sender).recovery.notice).toEqual({ tone: 'success', title: '已改用自动端口',
+      body: '插件服务下次启动时会选一个空闲端口。请点击“退出并重启”使其生效。' })
   } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 
