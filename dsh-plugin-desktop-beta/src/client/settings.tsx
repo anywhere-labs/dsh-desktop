@@ -5,6 +5,7 @@ import { DesktopSettingsSection, DesktopSettingsSelect, DesktopSettingsToggleRow
 import { DesktopNativeActions } from '../../../dsh-plugin-desktop/src/client/DesktopNativeActions.tsx'
 import { en, zh, type DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
 import type { DesktopCommand, DesktopState } from '../desktop-contract.ts'
+import { NextAppIconSetting } from './app-icon-setting.tsx'
 import { DEFAULT_HOST_STARTUP_TIMEOUT, HOST_STARTUP_TIMEOUT_PRESETS, hostStartupLimitTitle, hostStartupTimeoutLabel, type HostStartupTimeout } from '../host-startup-limit.ts'
 import { NextSettingsAdapter } from './settings-adapter.ts'
 import { DesktopPermissionsSection } from './permissions.tsx'
@@ -42,6 +43,7 @@ export function NextDesktopSettings({ adapter, language, onOpenPlugins }: { adap
       <Button variant="outline" size="sm" className="dshDesktopSettingsButton" onClick={onOpenPlugins}>{language.startsWith('zh') ? '前往插件页面' : 'Go to Plugins'}</Button>
     </div>}
     browserActions={state && <NextBrowserActions adapter={adapter} state={state} language={language} />}
+    presentationRows={state && <NextAppIconSetting state={state} language={language} run={command => adapter.command(command)} />}
     extraSections={<>
       {adapter.bridge.permissions && <DesktopPermissionsSection service={adapter.bridge.permissions} language={language} />}
       {state && <NextDesktopOptions adapter={adapter} state={state} language={language} />}

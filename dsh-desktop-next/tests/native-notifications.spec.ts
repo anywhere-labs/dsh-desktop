@@ -26,7 +26,7 @@ it('uses notification switches saved by the settings form on every native delive
   })
   const native = new NativeDesktop({
     root: '/fixture', language: () => 'en', state: () => state, window: () => undefined,
-    show() {}, run() {}, warn() {},
+    show() {}, run() {}, warn() {}, appIcon: () => 'default', dark: () => false, packaged: true, windows: () => [], dock: () => undefined,
   })
   const completed = { outcome: 'turn-completed', userMessage: 'Prompt', assistantMessage: 'Reply' } as const
   const failed = { outcome: 'turn-failed' } as const

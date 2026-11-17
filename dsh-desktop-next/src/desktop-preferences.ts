@@ -1,5 +1,6 @@
 /** Preferences remain readable when no Host or user plugin can start. */
 import { join } from 'node:path'
+import { isDesktopAppIcon } from './app-icon.ts'
 import { DEFAULT_PREFERENCES, type DesktopPreferences } from './desktop-contract.ts'
 import { isHostStartupTimeout } from './host-startup-limit.ts'
 import { atomicJson, readPrivateFile } from './private-files.ts'
@@ -12,6 +13,7 @@ import { atomicJson, readPrivateFile } from './private-files.ts'
  */
 const EXTRA_PREFERENCES = {
   hostStartupTimeout: isHostStartupTimeout,
+  appIcon: isDesktopAppIcon,
 } as const satisfies { readonly [K in keyof DesktopPreferences]?: (value: unknown) => value is DesktopPreferences[K] }
 
 type ExtraPreferenceKey = keyof typeof EXTRA_PREFERENCES

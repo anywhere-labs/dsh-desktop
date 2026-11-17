@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { DesktopBackendController } from './backend-controller.ts'
 import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, type DesktopPlatformLoginRequest } from './host-process.ts'
+import { isDesktopAppIcon } from './app-icon.ts'
 import { DesktopPreferenceStore, parsePreferences } from './desktop-preferences.ts'
 import { DEFAULT_FEATURES, NextProfiles } from './profiles.ts'
 import { DEFAULT_PREFERENCES, DEFAULT_PROFILE, SAFE_MODE_PREFERENCES, type DesktopBrowserLinks, type DesktopFailureReport, type DesktopPreferences, type DesktopState, type DesktopNotification } from './desktop-contract.ts'
@@ -135,6 +136,8 @@ export class NextDesktopRuntime {
     // Safe Mode and an unreadable preference file still show recovery the limit saved apart from it.
     this.savedStartupTimeout = read ? this.preferences.hostStartupTimeout
       : new DesktopPreferenceStore(this.options.home, this.preferenceWarning).readExtra().hostStartupTimeout
+    // The icon is saved apart too: an unreadable preference file must not turn the shortcuts that show it back.
+    if (!this.safeMode && !read) this.preferences = { ...this.preferences, appIcon: this.settings.readExtra().appIcon }
     this.diagnostics.level = this.preferences.logLevel
     this.diagnostics.developer = this.preferences.developerLogging
   }
@@ -255,6 +258,19 @@ export class NextDesktopRuntime {
     new DesktopPreferenceStore(this.options.home, this.preferenceWarning).writeExtra({ hostStartupTimeout: value })
     this.savedStartupTimeout = value
     if (!this.safeMode) this.preferences = { ...this.preferences, hostStartupTimeout: value }
+    this.options.onChange()
+  }
+
+  /**
+   * Save the app icon on its own, so setup can change it before any other preference is chosen. Only the extra
+   * preference file changes; the change notification lets the native shell show the icon at once.
+   * @param value - `default` or `classic`; anything else is refused, and so is any choice in Safe Mode.
+   */
+  saveAppIcon(value: unknown): void {
+    if (!isDesktopAppIcon(value)) throw new Error('Invalid app icon')
+    if (this.safeMode) throw new Error('Desktop preferences are fixed in Safe Mode')
+    this.settings.writeExtra({ appIcon: value })
+    this.preferences = { ...this.preferences, appIcon: value }
     this.options.onChange()
   }
 

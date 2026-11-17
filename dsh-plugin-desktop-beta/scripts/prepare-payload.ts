@@ -12,8 +12,14 @@ import { DESKTOP_RUNTIME_FILE, physicalPayload, sealPayloadAsync, type DesktopRu
 import { packagingStep, packagingStepSync } from './packaging-step.ts'
 import { windowsCodePayload, writeWindowsCodeFiles } from './windows-asar-unpack.ts'
 
-/** Shell entries copied beside the dependency tree; `package.json` is written separately. */
+/**
+ * Shell entries copied beside the dependency tree; `package.json` is written separately. Windows and Linux show the
+ * Dark rendition while the system theme is dark, and the classic icon set is the artwork users can switch the app
+ * to; `assets` carries its tray images. Shortcuts and the Linux desktop entry name these files too.
+ */
 const SHELL_ENTRIES = ['lib', 'assets', 'build/app-icon.ico', 'build/app-icon.png', 'build/app-icon-mac.png',
+  'build/app-icon-dark.ico', 'build/app-icon-dark.png',
+  'build/classic/app-icon.ico', 'build/classic/app-icon.png', 'build/classic/app-icon-mac.png',
   'cordis.patch.yml', 'host.cordis.patch.yml', 'scripts/node-bin'] as const
 
 /** Names electron-builder's walker never copies; the inventory has to agree with it. */

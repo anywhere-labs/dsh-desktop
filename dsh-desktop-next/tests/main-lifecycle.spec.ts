@@ -28,6 +28,8 @@ const fixture = vi.hoisted(() => ({
   failureReportFile: vi.fn(async (): Promise<string | undefined> => undefined),
   dragResource: vi.fn(async (_address: string, _signal: AbortSignal): Promise<null> => null),
   saveStartupTimeout: vi.fn(),
+  saveAppIcon: vi.fn(),
+  dockIcon: vi.fn(),
   onPermission: undefined as ConstructorParameters<typeof NextDesktopRuntime>[0]['onPermission'],
   startupElevation: { relaunched: false, state: {} } as ReturnType<typeof import('../src/windows-elevation.ts').deElevateAtStartup>,
   elevation: undefined as import('../src/windows-elevation.ts').WindowsElevation | undefined,
@@ -63,6 +65,7 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
   failureReportFile = fixture.failureReportFile
   dragResource = fixture.dragResource
   saveStartupTimeout = fixture.saveStartupTimeout
+  saveAppIcon(value: 'default' | 'classic') { fixture.saveAppIcon(value); this.preferences.appIcon = value; fixture.runtimeOptions!.onChange() }
   constructor(options: ConstructorParameters<typeof NextDesktopRuntime>[0]) {
     fixture.runtimeOptions = options
     fixture.runtime = this
@@ -99,8 +102,10 @@ vi.mock('electron', async () => {
     setName() {}, setPath: (name: string, path: string) => fixture.appPaths.set(name, path), getPath: (name: string) => fixture.appPaths.get(name) ?? process.env.DSH_DESKTOP_NEXT_HOME, getLocale: () => 'en-US', getPreferredSystemLanguages: () => ['zh-Hans-CN', 'en-US'], isReady: () => true, whenReady: async () => {},
     requestSingleInstanceLock: () => { fixture.lockPaths.push(fixture.appPaths.get('userData')!); return fixture.ownsInstance }, exit: vi.fn(), relaunch: vi.fn(), focus: vi.fn(), quit: vi.fn(() => app.emit('before-quit', { preventDefault() {} })),
     getAppMetrics: () => [],
+    dock: { setIcon: fixture.dockIcon },
   })
   class BrowserWindow extends EventEmitter {
+    static getAllWindows() { return fixture.windows.filter(window => !window.destroyed) }
     visible = false
     loadedUrls: string[] = []
     webContents = Object.assign(new EventEmitter(), { id: fixture.windows.length + 1,
@@ -139,6 +144,7 @@ vi.mock('electron', async () => {
     setBackgroundMaterial() {}
     setTitleBarOverlay = vi.fn()
     setProgressBar = vi.fn()
+    setIcon = vi.fn()
     async loadURL(url: string) {
       this.webContents.mainFrame.url = url; this.loadedUrls.push(url)
       this.webContents.emit('did-start-navigation', {}, url, false, true)
@@ -150,7 +156,9 @@ vi.mock('electron', async () => {
     destroyed = false
     menu: any
     tooltip = ''
-    constructor() { super(); fixture.trays.push(this) }
+    images: string[]
+    constructor(image: { path: string }) { super(); this.images = [image.path]; fixture.trays.push(this) }
+    setImage(image: { path: string }) { this.images.push(image.path) }
     isDestroyed() { return this.destroyed }
     setToolTip(value: string) { this.tooltip = value }
     setTitle() {}
@@ -160,8 +168,8 @@ vi.mock('electron', async () => {
   return { app, BrowserWindow, Tray, autoUpdater: Object.assign(new EventEmitter(), { setFeedURL: vi.fn(), checkForUpdates: vi.fn(), quitAndInstall: vi.fn() }), net: { fetch: vi.fn() },
     crashReporter: { start: fixture.crashStart },
     Notification: class { static isSupported() { return false } },
-    clipboard: {}, dialog: { showMessageBox: vi.fn(async () => ({ response: 0 })), showMessageBoxSync: vi.fn(() => 0), showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) }, shell: { showItemInFolder: vi.fn(), openExternal: vi.fn(async () => {}) }, safeStorage: {}, nativeTheme: { shouldUseDarkColors: true, on() {} },
-    nativeImage: { createFromPath: () => ({ isEmpty: () => false, setTemplateImage() {} }) },
+    clipboard: {}, dialog: { showMessageBox: vi.fn(async () => ({ response: 0 })), showMessageBoxSync: vi.fn(() => 0), showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) }, shell: { showItemInFolder: vi.fn(), openExternal: vi.fn(async () => {}) }, safeStorage: {}, nativeTheme: Object.assign(new EventEmitter(), { shouldUseDarkColors: true, shouldUseDarkColorsForSystemIntegratedUI: false }),
+    nativeImage: { createFromPath: (path: string) => ({ path, isEmpty: () => false, setTemplateImage() {} }), createEmpty: () => ({ path: '', isEmpty: () => true }) },
     // Templates stay plain arrays for tray assertions; the popup spy is non-enumerable.
     Menu: { buildFromTemplate: (items: any) => Object.defineProperty(items, 'popup', { value: (options: unknown) => fixture.popup(items, options), configurable: true }), setApplicationMenu() {} },
     protocol: { registerSchemesAsPrivileged: fixture.registerSchemes, handle() {} },
@@ -184,13 +192,16 @@ beforeEach(async () => {
   fixture.needsOnboarding = false; fixture.corruptProfile = false; fixture.restart.mockReset(); fixture.hostReady = false
   fixture.plugin.mockReset(); fixture.pluginDone.mockReset().mockResolvedValue({ exitCode: 0 });
   fixture.load.mockReset(); fixture.report.mockReset(); fixture.diagnosticAppend.mockReset(); fixture.diagnosticSnapshot.mockClear();
+  fixture.saveAppIcon.mockReset(); fixture.dockIcon.mockReset()
   fixture.terminalTarget.mockReset(); fixture.openTerminal.mockClear(); fixture.popup.mockClear(); fixture.registerSchemes.mockClear()
   fixture.crashStart.mockReset(); for (const action of Object.values(fixture.memory)) action.mockReset()
   fixture.stop.mockReset().mockResolvedValue(undefined); fixture.start.mockClear(); fixture.close.mockReset().mockResolvedValue(undefined)
   fixture.startupElevation = { relaunched: false, state: {} }; fixture.elevation = undefined
-  const { app, autoUpdater, dialog, shell } = await import('electron')
+  const { app, autoUpdater, dialog, nativeTheme, shell } = await import('electron')
   autoUpdater.removeAllListeners()
   app.removeAllListeners()
+  nativeTheme.removeAllListeners()
+  Object.assign(nativeTheme, { shouldUseDarkColorsForSystemIntegratedUI: false })
   vi.mocked(app.relaunch).mockClear()
   vi.mocked(app.quit).mockClear()
   vi.mocked(app.exit).mockClear()
@@ -1328,6 +1339,50 @@ it.each(['complete', 'official', 'skip'] as const)('shows first-run onboarding w
     })
     await expect(setup(mainSender, { action: 'finish', profile: 'desktop' })).rejects.toThrow('unavailable')
   } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it.each(['darwin', 'win32'] as const)('shows the app icon chosen during setup at once, before any Host starts, on %s', async target => {
+  const home = mkdtempSync(join(tmpdir(), 'next-onboarding-icon-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  fixture.needsOnboarding = true
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: target })
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const window = fixture.windows[0]
+    const sender = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
+    const command = fixture.handlers.get('dsh-next:command')!
+    const tray = target === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon-blue.png'
+    expect(fixture.trays[0].images).toEqual([expect.stringMatching(new RegExp(`[\\\\/]assets[\\\\/]${tray.replace('.', '\\.')}$`))])
+    if (target === 'win32') {
+      expect(window.options.icon).toMatch(/[\\/]build[\\/]app-icon\.ico$/)
+      // A dark taskbar shows the whale tail's Dark rendition at once, and a light one the default again.
+      const { nativeTheme } = await import('electron')
+      Object.assign(nativeTheme, { shouldUseDarkColorsForSystemIntegratedUI: true })
+      nativeTheme.emit('updated')
+      expect(window.setIcon).toHaveBeenLastCalledWith(expect.stringMatching(/[\\/]build[\\/]app-icon-dark\.ico$/))
+      Object.assign(nativeTheme, { shouldUseDarkColorsForSystemIntegratedUI: false })
+      nativeTheme.emit('updated')
+      expect(window.setIcon).toHaveBeenLastCalledWith(expect.stringMatching(/[\\/]build[\\/]app-icon\.ico$/))
+    }
+    window.setIcon.mockClear()
+    await command(sender, { type: 'app-icon', appIcon: 'classic' })
+    expect(fixture.saveAppIcon).toHaveBeenCalledExactlyOnceWith('classic')
+    expect(fixture.start).not.toHaveBeenCalled()
+    expect(fixture.trays[0].images.at(-1)).toMatch(new RegExp(`[\\\\/]assets[\\\\/]classic[\\\\/]${tray.replace('.', '\\.')}$`))
+    if (target === 'darwin') {
+      expect(fixture.dockIcon).toHaveBeenLastCalledWith(expect.stringMatching(/[\\/]build[\\/]classic[\\/]app-icon-mac\.png$/))
+      expect(window.setIcon).not.toHaveBeenCalled()
+    } else {
+      expect(window.setIcon).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/[\\/]build[\\/]classic[\\/]app-icon\.ico$/))
+      // Windows opened later, such as the sign-in window, take the choice when Electron announces them.
+      const { app } = await import('electron')
+      const later = { setIcon: vi.fn() }
+      app.emit('browser-window-created', {}, later)
+      expect(later.setIcon).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/[\\/]build[\\/]classic[\\/]app-icon\.ico$/))
+    }
+  } finally { Object.defineProperty(process, 'platform', platform); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 
 it('reopens setup through a confirmed relaunch without resetting the Profile or stopping the Host before hiding windows', async () => {

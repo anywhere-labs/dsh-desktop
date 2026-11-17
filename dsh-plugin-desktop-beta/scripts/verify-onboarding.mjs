@@ -118,7 +118,27 @@ try {
   await openShell()
   assert.notEqual(await shell.evaluate(element => getComputedStyle(element).getPropertyValue('--spacing').trim()), '')
   assert.match(await shell.locator('h1').innerText(), /DSH Desktop Beta/)
+  // The first page offers the classic icon; the choice is saved at once and the wordmark follows it.
+  const whale = () => shell.locator('.next-onboarding-whale').evaluate(node => node.style.maskImage)
+  assert.equal(await shell.getByRole('radio', { name: '默认', exact: true }).isChecked(), true)
+  assert.equal(await shell.getByRole('radio', { name: '经典', exact: true }).isChecked(), false)
+  assert.equal(await shell.locator('.next-onboarding-icon-choice img').evaluateAll(images => images.length === 2 && images.every(image => image.complete && image.naturalWidth > 0)), true)
+  for (const element of await shell.locator('.next-onboarding-icon-choice, .next-onboarding-icon-choice [role="radio"]').all()) {
+    assert.equal(await element.evaluate(node => getComputedStyle(node).getPropertyValue('-webkit-app-region')), 'no-drag', 'Icon choices must subtract the drag region')
+  }
+  assert.match(await whale(), /whale-cobalt/)
   await page.screenshot({ path: join(screenshots, 'onboarding-official-welcome.png') })
+  await shell.getByText('经典', { exact: true }).click()
+  await shell.getByRole('radio', { name: '经典', exact: true, checked: true }).waitFor()
+  assert.match(await whale(), /DeepSeek/)
+  assert.deepEqual(standaloneCommands.splice(0), [{ type: 'app-icon', appIcon: 'classic' }])
+  await page.evaluate(async () => {
+    await Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => {})))
+  })
+  await page.screenshot({ path: join(screenshots, 'onboarding-official-welcome-classic.png') })
+  await shell.getByText('默认', { exact: true }).click()
+  await shell.getByRole('radio', { name: '默认', exact: true, checked: true }).waitFor()
+  assert.deepEqual(standaloneCommands.splice(0), [{ type: 'app-icon', appIcon: 'default' }])
   await next()
   const backBounds = await shell.getByRole('button', { name: /^(上一步|Back)$/ }).boundingBox()
   const progressBounds = await shell.locator('.next-onboarding-progress').boundingBox()
@@ -242,7 +262,7 @@ try {
   await next(); await shell.getByRole('switch').check(); await skip()
   assert.deepEqual(standaloneCommands.at(-1), { type: 'onboarding-skip', profile: 'desktop' })
   assert.deepEqual(errors, [])
-  console.log(`Next onboarding passed in standalone pre-Host shell and official account continuation: independent native eligibility, official progress ${officialPending ? 'unfinished' : 'completed'}, state-read and save retries, six pages, artwork, back navigation, choices, skip, completion, inert cleanup, and no repeat.`)
+  console.log(`Next onboarding passed in standalone pre-Host shell and official account continuation: independent native eligibility, official progress ${officialPending ? 'unfinished' : 'completed'}, state-read and save retries, six pages, artwork, the app icon choice, back navigation, choices, skip, completion, inert cleanup, and no repeat.`)
 } catch (error) {
   console.error(errors)
   if (page) { console.error(await page.locator('body').innerText()); await page.screenshot({ path: join(screenshots, 'onboarding-failure.png') }).catch(() => {}) }

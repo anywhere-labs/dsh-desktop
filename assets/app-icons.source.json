@@ -14,6 +14,20 @@
       "next"
     ]
   },
+  "classic": {
+    "source": "The Beta and Next compositions from before the whale tail (59dce7d328^), restored unchanged: the logo layer with the system-dark fill and the badge each channel still uses.",
+    "artwork": {
+      "next": "dsh-desktop-next/build/classic/app-icon.icon",
+      "beta": "dsh-plugin-desktop-beta/build/classic/app-icon.icon"
+    },
+    "tray": "icons:export copies Stable's dsh-plugin-desktop/build/tray-*.png unchanged into each package's assets/classic directory: Beta and Next showed exactly those images before the whale tail.",
+    "use": "Users can choose this set in Desktop settings or on the first setup page. The running app then shows it in the Dock, window frames and tray. On Windows the app also points the shortcuts of this installation at its ICO, and on Linux a marked per-user copy of the package's desktop entry names its image; the macOS bundle keeps the default icon.",
+    "dark": "The composition already uses the system-dark fill, so its Dark rendition is the same image, pixel for pixel; the set exports none."
+  },
+  "dark": {
+    "source": "Icon Composer's Dark rendition of the Beta and Next default composition, exported by icons:export as app-icon-dark.png with app-icon-dark.ico and app-icon-preview-dark.png.",
+    "use": "Windows and Linux show it while the system theme is dark, as macOS does with the layered source: on Windows the theme of the taskbar and Start menu, on Linux the theme the app follows. It covers window icons, the shortcuts and the desktop entry; the tray keeps its glyph."
+  },
   "artwork": {
     "stable": "dsh-plugin-desktop/build/app-icon.icon",
     "next": "dsh-desktop-next/build/app-icon.icon",
@@ -42,7 +56,8 @@
       "1",
       "--design-generation",
       "27"
-    ]
+    ],
+    "pickers": "Beta and Next also export app-icon-preview.png, 128 pixels, for the default and classic sets, and app-icon-preview-dark.png for the default one; Desktop settings and setup show them as the choices, in the page's theme."
   },
   "exportCommand": "corepack yarn icons:export",
   "verifyCommand": "corepack yarn icons:check",

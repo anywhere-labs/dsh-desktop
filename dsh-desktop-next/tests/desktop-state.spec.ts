@@ -43,8 +43,8 @@ it('keeps the Host startup limit out of the file released builds validate, and r
   store.write({ ...DEFAULT_PREFERENCES, closeToTray: false, hostStartupTimeout: 300 })
   // 2.0.22 and earlier reject any unknown key in desktop-preferences.json, so a downgrade must find none there.
   const main = JSON.parse(readFileSync(store.file, 'utf8')) as Record<string, unknown>
-  expect(Object.keys(main).sort()).toEqual(Object.keys(DEFAULT_PREFERENCES).filter(key => key !== 'hostStartupTimeout').sort())
-  expect(JSON.parse(readFileSync(store.extraFile, 'utf8'))).toEqual({ hostStartupTimeout: 300 })
+  expect(Object.keys(main).sort()).toEqual(Object.keys(DEFAULT_PREFERENCES).filter(key => key !== 'hostStartupTimeout' && key !== 'appIcon').sort())
+  expect(JSON.parse(readFileSync(store.extraFile, 'utf8'))).toEqual({ hostStartupTimeout: 300, appIcon: 'default' })
   expect(new DesktopPreferenceStore(home).read()).toMatchObject({ closeToTray: false, hostStartupTimeout: 300 })
   // A later release's keys survive, and an invalid value falls back to the default instead of opening recovery.
   writeFileSync(store.extraFile, JSON.stringify({ hostStartupTimeout: 5, laterPreference: 'kept' }))
@@ -55,14 +55,35 @@ it('keeps the Host startup limit out of the file released builds validate, and r
   expect(() => store.writeExtra({ hostStartupTimeout: 30 })).toThrow('hostStartupTimeout')
   for (const text of ['{broken', '[]', 'null']) {
     writeFileSync(store.extraFile, text)
-    expect(store.readExtra()).toEqual({ hostStartupTimeout: 60 })
+    expect(store.readExtra()).toEqual({ hostStartupTimeout: 60, appIcon: 'default' })
   }
   // Only the extra file changes: an unreadable main file is never replaced by defaults.
   writeFileSync(store.file, '{broken preferences')
   store.writeExtra({ hostStartupTimeout: 120 })
   expect(readFileSync(store.file, 'utf8')).toBe('{broken preferences')
-  expect(store.readExtra()).toEqual({ hostStartupTimeout: 120 })
+  expect(store.readExtra()).toEqual({ hostStartupTimeout: 120, appIcon: 'default' })
   expect(() => store.read()).toThrow()
+})
+
+it('keeps the app icon beside the startup limit, out of the file released builds validate', () => {
+  const { home } = environment()
+  const warnings: string[] = []
+  const store = new DesktopPreferenceStore(home, message => { warnings.push(message) })
+  expect(parsePreferences({ appIcon: 'classic' }).appIcon).toBe('classic')
+  for (const appIcon of ['whale-tail', '', null, 1]) expect(() => parsePreferences({ appIcon })).toThrow('appIcon')
+  store.write({ ...DEFAULT_PREFERENCES, appIcon: 'classic' })
+  expect(JSON.parse(readFileSync(store.file, 'utf8'))).not.toHaveProperty('appIcon')
+  expect(JSON.parse(readFileSync(store.extraFile, 'utf8'))).toEqual({ hostStartupTimeout: 60, appIcon: 'classic' })
+  expect(new DesktopPreferenceStore(home).read().appIcon).toBe('classic')
+  // Setup saves the icon alone; a 2.0.23 extra file without it reads as the default.
+  writeFileSync(store.extraFile, JSON.stringify({ hostStartupTimeout: 300 }))
+  expect(store.readExtra()).toEqual({ hostStartupTimeout: 300, appIcon: 'default' })
+  store.writeExtra({ appIcon: 'classic' })
+  expect(JSON.parse(readFileSync(store.extraFile, 'utf8'))).toEqual({ hostStartupTimeout: 300, appIcon: 'classic' })
+  expect(() => store.writeExtra({ appIcon: 'neon' as 'classic' })).toThrow('appIcon')
+  writeFileSync(store.extraFile, JSON.stringify({ appIcon: 'neon' }))
+  expect(store.read().appIcon).toBe('default')
+  expect(warnings).toEqual([`Ignored an invalid appIcon in ${store.extraFile}`])
 })
 
 it('backs up a malformed manifest, repairs without deleting data, and restores the last working config', async () => {

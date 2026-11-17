@@ -12,6 +12,14 @@
     "designGeneration": 27,
     "size": 1024
   },
+  "preview": {
+    "input": "app-icon.png",
+    "size": 128
+  },
+  "dark": {
+    "rendition": "Dark",
+    "input": "app-icon.icon"
+  },
   "linux": {
     "input": "app-icon.png",
     "sizes": [
@@ -35,6 +43,10 @@
     "app-icon-mac.png": "8a1f4b2dd13beccef7e64119cc4892b599135ec67e0cbcea3bda5e233bbfeeac",
     "app-icon.ico": "242aaef8c6bdf0485f7c19e464ba4ea4a03b1220d82ba8505f4acec7b4216398",
     "app-icon.icns": "088d50aef607ea4a611ade886fbe58c0040c285b091f35c838de9cf6c036c4be",
+    "app-icon-preview.png": "fa2fe1c701f8fa8c0937ee0291656516792f77a73386f83fd1660253b8f60ebc",
+    "app-icon-dark.png": "3184905d1c8f084b93178fc91a33d429009edbc1d12505b39c925a4c07b4206e",
+    "app-icon-dark.ico": "257026772c8807a447a24ca80118f2e5f5454f77b095adaac7f748fea4a2ed68",
+    "app-icon-preview-dark.png": "2c7b0069b4cd67c5aeacb3ad86d3421819fbaa5ebfc46261c61440d635b75e64",
     "icons/16x16.png": "0aedbee1ec744ee6f53a81e0dd16d0d9be11756a004c232b92acb106e2a5393b",
     "icons/22x22.png": "abe8e0db23e44e965c939c1b9a2fe8e5debbf7b30ba97126d6ad767510590253",
     "icons/24x24.png": "630598bbb383d317e58eaeae1d4cd5e05141dec94e4bbcd36741818aa05f1f4d",

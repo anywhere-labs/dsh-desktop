@@ -229,6 +229,10 @@ Stable 与 Beta 在 Windows、macOS 和 Linux 上均关闭 ASAR。打包后的 E
 
 `icons:export` 从同一鲸尾图层裁出 `assets/` 中的托盘图：`tray-iconTemplate.png` 及其 `@2x` 图是由 macOS 菜单栏自动着色的模板图；`tray-icon-blue.png` 及其 1.25x、1.5x、2x 图保留 `#3563BF` 描边色，供 Windows 和 Linux 使用。资源记录同样覆盖这些托盘图，`icons:check` 也会拒绝过期的托盘图。
 
+`build/classic/` 保留 Beta 换用鲸尾之前的 DeepSeek 鲸鱼图标。用户可以在桌面设置或设置向导第一页的 **应用图标** 中切换回它。其中的 `app-icon.icon` 是原先的工程，原样恢复；`icons:export` 为它生成除 Linux 图标集以外同样的导出文件，记录在 `build/classic/app-icon.resources.json` 中，并把 Stable 的托盘图原样复制到 `assets/classic/`。对默认的鲸尾图标，它还导出 Icon Composer 的深色（Dark）版本：`build/app-icon-dark.png` 和 `build/app-icon-dark.ico`；经典工程本身就是系统深色背景，深色版本与原图完全相同，因此不单独导出。两套图标各有一张 128 像素的 `app-icon-preview.png`，默认图标另有 `app-icon-preview-dark.png`，桌面设置和设置向导按页面的深浅色主题显示它们；`--linux` 也会重新生成这些缩略图。
+
+在 macOS 上，这一选项更改运行中的应用在程序坞和菜单栏中的图标；已签名的应用包在访达、通知以及应用未运行时的程序坞里仍显示默认图标。Windows 和 Linux 的安装包没有签名，应用在这两个平台改得更彻底。在 Windows 上，应用把这次安装的快捷方式指向所选的 ICO，范围包括两处桌面、两处开始菜单以及任务栏和开始菜单的固定项：只处理以应用名称开头、启动本程序、且仍显示应用自身图标的 `.lnk` 文件，并且每次启动都重新应用一次，因为安装程序会重建快捷方式。为所有用户安装的快捷方式需要管理员权限，保持默认，程序文件本身也是如此。在 Linux 上，应用把安装包的桌面入口复制到 `~/.local/share/applications`，`Icon` 设为所选图片，`TryExec` 设为本程序（卸载安装包后菜单会忽略这份副本），并加上 `X-DSH-Desktop-App-Icon` 标记；选回默认图标时删除副本，没有标记的副本属于用户自己，保持不动；AppImage 只更改窗口和托盘。系统使用深色主题时，窗口、快捷方式和桌面入口显示深色版本，与 macOS 处理分层图标的方式一致：Windows 以任务栏和开始菜单的主题为准，Linux 以应用所跟随的主题为准。托盘图保持不变。安全模式显示默认图标，也不改动快捷方式和桌面入口。
+
 ### WSL Linux 无界面检查
 
 在 Windows 工作站上，WSL2 适合覆盖 Linux 无界面的 build、typecheck 和 unit test。请使用 WSL 内部安装的 Linux Node.js，不要使用 WSL 通过挂载的 Windows `PATH` 继承到的 Windows Node.js 或 Corepack shim。使用 `nvm` 时，每个 shell 先执行 `source ~/.nvm/nvm.sh`，再运行 Corepack 命令：
