@@ -6,6 +6,8 @@ export interface NextUpdateState {
   total?: number
   error?: 'service' | 'download' | 'prepare' | 'install' | 'development' | 'unsupported'
   installable: boolean
+  /** A Windows copy run from the portable ZIP, which Setup cannot replace. */
+  portable?: boolean
 }
 
 export function updateLabel(state: NextUpdateState, language: string): string {
@@ -37,9 +39,23 @@ export function updateAction(state: NextUpdateState): 'check-updates' | 'downloa
   return undefined
 }
 
-/** Linux has no in-app installer: an update is downloaded from its release page, which carries every package format. */
-export function manualUpdateHint(language: string): string {
-  return language.toLowerCase().startsWith('zh')
+/**
+ * Linux has no in-app installer, and Setup would install a second copy instead of replacing a portable one, so both
+ * download an update from its release page, which carries every package format.
+ */
+export function manualUpdate(state: NextUpdateState, platform: string): boolean {
+  return platform === 'linux' || state.portable === true
+}
+
+/** How to install that update by hand: the matching Linux package, or a new portable ZIP in place of this folder. */
+export function manualUpdateHint(language: string, portable = false): string {
+  const zh = language.toLowerCase().startsWith('zh')
+  if (portable) {
+    return zh
+      ? '便携版需要手动更新：在发布页下载新的便携版 ZIP，退出应用后解压到新文件夹，用它替换当前文件夹。'
+      : 'Portable copies update manually: download the new portable ZIP from the release page, quit the app, and extract it to a new folder that replaces this one.'
+  }
+  return zh
     ? 'Linux 版需要手动更新：在发布页下载与当前安装方式相同的安装包（deb、AppImage 或 tar.gz）。'
     : 'Linux builds update manually: download the package that matches your installation (deb, AppImage or tar.gz) from the release page.'
 }
