@@ -168,6 +168,8 @@ export class NextDesktopRuntime {
     this.diagnostics.record({ source: 'desktop', event: 'runtime.failed', level: 'error', error, fields: { stage } })
     // A pending memory snapshot lands before recovery mode stops the Host and closes the main window.
     this.memory.settle()
+    // Repeat counts not yet due belong in the report's log too.
+    this.diagnostics.flush(true)
     this.saveFailureReport(error, stage)
     this.options.onFailure()
     this.options.onChange()
@@ -323,7 +325,8 @@ export class NextDesktopRuntime {
     }
   }
 
-  state(): Pick<DesktopState, 'selected' | 'profiles' | 'unavailableProfiles' | 'features' | 'preferences' | 'phase' | 'busy' | 'failure' | 'failureStage' | 'failureExit' | 'failureTimeout' | 'failureReport' | 'failureContext' | 'actionFailure' | 'safeMode' | 'hostStartupTimeout' | 'home' | 'browserUrl' | 'lan' | 'checkpoint' | 'logs'> {
+  /** The Desktop state without `logs`: only the recovery assistant shows them, so only its window pays for a snapshot. */
+  state(): Pick<DesktopState, 'selected' | 'profiles' | 'unavailableProfiles' | 'features' | 'preferences' | 'phase' | 'busy' | 'failure' | 'failureStage' | 'failureExit' | 'failureTimeout' | 'failureReport' | 'failureContext' | 'actionFailure' | 'safeMode' | 'hostStartupTimeout' | 'home' | 'browserUrl' | 'lan' | 'checkpoint'> {
     let features = { ...DEFAULT_FEATURES }
     let profiles: string[] = []
     let checkpoint: DesktopState['checkpoint'] = null
@@ -344,7 +347,7 @@ export class NextDesktopRuntime {
       ...(this.failureReport === undefined ? {} : { failureReport: this.failureReport }), ...(this.actionFailure ? { actionFailure: this.actionFailure } : {}),
       safeMode: this.safeMode, hostStartupTimeout: this.savedStartupTimeout, home: this.options.home,
       browserUrl: this.auth && this.preferences.browserAccess && !this.safeMode ? new URL(this.auth.url).origin : null,
-      lan: this.lan?.snapshot() ?? null, checkpoint, logs: this.diagnostics.snapshot() }
+      lan: this.lan?.snapshot() ?? null, checkpoint }
   }
 
   browserLinks(): DesktopBrowserLinks {

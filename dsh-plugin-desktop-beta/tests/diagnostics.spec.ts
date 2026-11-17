@@ -2,7 +2,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, u
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import { DesktopDiagnostics } from '../src/diagnostics.ts'
+import { DesktopDiagnostics, READABLE_INTERVAL_MS } from '../src/diagnostics.ts'
 import { LogHistory, historyFiles } from '../src/log-history.ts'
 import { HOST_LOG_PREFIX, sanitize } from '../src/log-record.ts'
 import { exportHistory } from '../src/diagnostics-export.ts'
@@ -12,7 +12,7 @@ const homes: string[] = []
 const logs: DesktopDiagnostics[] = []
 const temporary = () => { const home = mkdtempSync(join(tmpdir(), 'next-logging-')); homes.push(home); return home }
 const diagnostics = (home = temporary()) => { const log = new DesktopDiagnostics(home); logs.push(log); return log }
-afterEach(() => { for (const log of logs.splice(0)) log.flush(); vi.useRealTimers(); for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true }) })
+afterEach(() => { for (const log of logs.splice(0)) log.flush(true); vi.useRealTimers(); for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true }) })
 const state = { version: 'next-test', platform: 'test', selected: 'desktop', profiles: ['desktop'], phase: 'ready', safeMode: false,
   failure: '', features: { market: false, remoteControl: false }, preferences: { ...DEFAULT_PREFERENCES }, trayAvailable: true,
   browserUrl: null, lan: null } as DesktopState
@@ -166,13 +166,57 @@ it('rewrites the readable log only when its text changed and keeps history-only 
   expect(records(home).map(record => record.event)).toEqual(['visible', 'memory.sample'])
   expect(records(home).at(-1)).not.toHaveProperty('historyOnly')
   expect(readFileSync(readable, 'utf8')).not.toContain('memory.sample')
-  // An unfinished process line is part of the readable snapshot, so it does count as a change.
+  // An unfinished process line is part of the readable snapshot, so it does count as a change once the copy is due.
   log.hostChunk('partial output without newline', 'stdout', 7); log.flush()
+  expect(lstatSync(readable).ino).toBe(written)
+  log.flush(true)
   expect(lstatSync(readable).ino).not.toBe(written)
   expect(readFileSync(readable, 'utf8')).toContain('partial output without newline')
   const framed = `${HOST_LOG_PREFIX}${JSON.stringify({ source: 'host', event: 'hidden', historyOnly: true })}\n`
   log.hostChunk(framed, 'stdout', 8); log.flush()
   expect(records(home).some(record => record.event === 'hidden')).toBe(false)
+})
+
+it('writes history at once but rewrites the readable copy at most every five seconds unless the log is opened', () => {
+  vi.useFakeTimers()
+  const home = temporary(); const log = diagnostics(home)
+  const readable = join(home, 'logs', 'desktop-next.log')
+  log.record({ source: 'desktop', event: 'first' }); log.flush()
+  expect(readFileSync(readable, 'utf8')).toContain('first')
+  log.record({ source: 'desktop', event: 'second' }); log.flush()
+  expect(records(home).map(record => record.event)).toEqual(['first', 'second'])
+  expect(readFileSync(readable, 'utf8')).not.toContain('second')
+  vi.advanceTimersByTime(READABLE_INTERVAL_MS)
+  expect(readFileSync(readable, 'utf8')).toContain('second')
+  log.record({ source: 'desktop', event: 'third' }); log.flush(true)
+  expect(readFileSync(readable, 'utf8')).toContain('third')
+})
+
+it('folds repeated plugin output, counts output beyond the source budget and never limits lifecycle records', () => {
+  vi.useFakeTimers()
+  const home = temporary(); const log = diagnostics(home)
+  for (let index = 0; index < 300; index++) log.hostChunk(`[liveshare] share offline attempt=${index} reason=connect ECONNREFUSED\n`, 'stderr', 21)
+  for (let index = 0; index < 400; index++) log.hostChunk(`${HOST_LOG_PREFIX}${JSON.stringify({ source: 'host.kernel.noisy', event: 'log', level: 'warn', message: `distinct ${'x'.repeat(index)}` })}\n`, 'stdout', 21)
+  for (let index = 0; index < 300; index++) log.record({ source: 'desktop', event: 'lifecycle', fields: { index } })
+  log.end(true)
+  const history = records(home)
+  expect(history.filter(record => record.source === 'host.stderr' && record.event === 'output')).toHaveLength(1)
+  expect(history.find(record => record.event === 'output.repeated')).toMatchObject({ level: 'info', pid: 21, fields: { repeats: 299 } })
+  expect(history.filter(record => record.source === 'host.kernel.noisy' && record.event === 'log')).toHaveLength(200)
+  expect(history.find(record => record.event === 'log.dropped')).toMatchObject({ source: 'host.kernel.noisy', level: 'warn', fields: { dropped: 200, errors: 0 } })
+  expect(history.filter(record => record.event === 'lifecycle')).toHaveLength(300)
+  expect(log.snapshot()).toContain('[host.stderr] output.repeated {"repeats":299')
+})
+
+it('writes a folded line\'s count when it falls due even if nothing else is logged', () => {
+  vi.useFakeTimers()
+  const home = temporary(); const log = diagnostics(home)
+  log.hostChunk('[plugin] reconnect failed attempt=1\n', 'stderr', 5)
+  log.hostChunk('[plugin] reconnect failed attempt=2\n', 'stderr', 5)
+  vi.advanceTimersByTime(1000)
+  expect(records(home).map(record => record.event)).toEqual(['output'])
+  vi.advanceTimersByTime(60_000)
+  expect(records(home).at(-1)).toMatchObject({ source: 'host.stderr', event: 'output.repeated', pid: 5, fields: { repeats: 1 } })
 })
 
 it('keeps structured evidence in history only and refuses it from framed process output', () => {

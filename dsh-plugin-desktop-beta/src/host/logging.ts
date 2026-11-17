@@ -108,18 +108,31 @@ export function installHostLogging(ctx: Context): void {
     try {
       for await (const chunk of next()) { chunks++; yield chunk }
       outcome = options.signal?.aborted ? 'cancelled' : 'completed'
-    } catch (error) { failed = true; end(error, { outcome: options.signal?.aborted ? 'cancelled' : 'failed', chunks }); throw error }
+    } catch (error) {
+      failed = true
+      // A cancelled request ends like a completed one: stopping a turn is not a failure.
+      if (options.signal?.aborted) end(undefined, { outcome: 'cancelled', chunks })
+      else end(error, { outcome: 'failed', chunks })
+      throw error
+    }
     finally { if (!failed) end(undefined, { outcome, chunks }) }
   })
   ctx.on('tools/execute', async (exec, next) => {
-    const end = hostOperation('host.tools', 'execute', { callId: String(exec.callId), rootCallId: String(exec.rootCallId),
-      tool: exec.name, sessionId: exec.agent ? String(exec.agent.id) : null }, true)
+    const call = { callId: String(exec.callId), rootCallId: String(exec.rootCallId), tool: exec.name, sessionId: exec.agent ? String(exec.agent.id) : null }
+    const end = hostOperation('host.tools', 'execute', call, true)
     try {
       const result = await next()
-      if (result.isError) end(new Error(result.error.message), { failureCode: result.error.info?.code ?? null, cancelled: exec.signal.aborted })
-      else end(undefined, { cancelled: exec.signal.aborted, contentBlocks: result.content.length })
+      if (result.isError && !exec.signal.aborted) {
+        // The model received an error result: one warning for the call, not an application failure.
+        hostLog({ source: 'host.tools', event: 'execute.error-result', level: 'warn', fields: { ...call, failureCode: result.error.info?.code ?? null } })
+      }
+      end(undefined, { cancelled: exec.signal.aborted, isError: result.isError === true, contentBlocks: result.content.length })
       return result
-    } catch (error) { end(error); throw error }
+    } catch (error) {
+      // Only a tool that throws, rather than one that was cancelled, is a failure of the tool or its plugin.
+      if (exec.signal.aborted) end(undefined, { cancelled: true }); else end(error)
+      throw error
+    }
   })
   ctx.inject(['sessions'], child => {
     child.on('session/event', (session, event) => {
@@ -137,8 +150,8 @@ export function installHostLogging(ctx: Context): void {
       if (event.type === 'tool/call') hostLog({ source: 'host.session', event: event.type,
         fields: { ...coordinates, turn: event.data.turn, step: event.data.step,
           callId: String(event.data.callId), tool: event.data.name }, developer: true })
-      if (event.type === 'tool/result') hostLog({ source: 'host.session', event: event.type,
-        level: event.data.message.isError ? 'error' : 'info', developer: !event.data.message.isError,
+      // Session coordinates only; a failed result is already recorded once as `host.tools execute.error-result`.
+      if (event.type === 'tool/result') hostLog({ source: 'host.session', event: event.type, developer: true,
         fields: { ...coordinates, turn: event.data.turn, step: event.data.step,
           callId: String(event.data.message.toolCallId), isError: event.data.message.isError ?? false,
           failureCode: event.data.error?.code ?? null } })
