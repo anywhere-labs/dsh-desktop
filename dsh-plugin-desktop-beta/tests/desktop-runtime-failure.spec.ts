@@ -151,6 +151,16 @@ it('saves a masked report of the failure that opened recovery, with the Host dia
   expect(text).not.toContain('--- error details ---')
 })
 
+it('includes repeat counts not yet due in the failure report it writes', async () => {
+  const { runtime, onFailure } = await fixture()
+  for (let index = 0; index < 5; index++) runtime.diagnostics.hostChunk(`[plugin] reconnect failed attempt=${index}\n`, 'stderr', 9)
+  runtime.report(new Error('Invalid Next Profile manifest'), 'profile-composition')
+  expect(onFailure).toHaveBeenCalledOnce()
+  const text = readFileSync((await runtime.failureReportFile())!, 'utf8')
+  expect(text).toContain('[plugin] reconnect failed attempt=0 [host.stderr] output')
+  expect(text).toMatch(/\[host\.stderr\] output\.repeated \{"repeats":4,/u)
+})
+
 it.skipIf(process.platform === 'win32')('keeps recovery usable when the report cannot be saved', async () => {
   const outside = await mkdtemp(join(tmpdir(), 'next-failure-outside-'))
   directories.push(outside)

@@ -6,22 +6,48 @@ import { crashDumpInventory } from './crash-reporting.ts'
 import { atomicJson, atomicText, readPrivateFile } from './private-files.ts'
 import { maskSecrets } from './mask-secrets.ts'
 import { LogHistory, type LogHistoryOptions } from './log-history.ts'
+import { LogLimiter } from './log-limiter.ts'
 import { HOST_LOG_PREFIX, LOG_LEVELS, isLogInput, sanitize, type LogInput, type LogRecord } from './log-record.ts'
 import type { DesktopPreferences, DesktopState } from './desktop-contract.ts'
 import type { RendererDiagnostics } from './renderer-diagnostics.ts'
 
 const LIMIT = 128 * 1024
 const MAX_PENDING = 1024 * 1024
+/** Pending records reach the history within this delay; an error-level record is written at once. */
+const FLUSH_DELAY_MS = 200
+/** The readable copy is rewritten at most this often, and at once when the run ends or the log directory is opened. */
+export const READABLE_INTERVAL_MS = 5_000
+/** Lines that plugins control: Host process output and plugin loggers. Repeats fold and each source is rate-limited. */
+const LIMITED_SOURCE = /^host\.(?:stdout|stderr|kernel\.)/u
+
+/** Readable lines of the current run, oldest first, within a character budget; a single longer line is kept whole. */
+class TextTail {
+  private lines: string[] = []
+  private head = 0
+  chars = 0
+  constructor(private readonly limit: number) {}
+  push(line: string): void {
+    this.lines.push(line); this.chars += line.length
+    while (this.chars > this.limit && this.lines.length - this.head > 1) this.chars -= this.lines[this.head++]!.length
+    // Release dropped lines in batches instead of shifting the array for every line.
+    if (this.head >= 1024 && this.head * 2 >= this.lines.length) { this.lines = this.lines.slice(this.head); this.head = 0 }
+  }
+  text(): string { return (this.head === 0 ? this.lines : this.lines.slice(this.head)).join('') }
+}
+
 export class DesktopDiagnostics {
   readonly file: string
   readonly runId = randomUUID()
   private readonly marker: string
   private history: LogHistory | undefined
-  private text = ''
-  private currentText = ''
+  /** Readable text that earlier runs left; it gives way as the current run fills the window. */
+  private previous = ''
+  private readonly current = new TextTail(LIMIT)
+  private readonly limiter = new LogLimiter()
   /** Bumped whenever the readable text or a partial process line changes; the file is rewritten only then. */
   private textRevision = 0
   private writtenRevision = -1
+  private readableWrittenAt = 0
   private partial = new Map<string, { text: string; dropping: boolean; pid?: number }>()
   private pending: string[] = []
   private pendingBytes = 0
@@ -30,6 +56,10 @@ export class DesktopDiagnostics {
   private droppedRecords = 0
   private active = new Map<string, { source: string; event: string; started: number }>()
   private timer: ReturnType<typeof setTimeout> | undefined
+  private readableTimer: ReturnType<typeof setTimeout> | undefined
+  /** Fires when the next repeat or dropped count falls due; `countDue` is the time it was set for. */
+  private countTimer: ReturnType<typeof setTimeout> | undefined
+  private countDue: number | undefined
   level: DesktopPreferences['logLevel'] = 'info'
   developer = false
   /** Electron's Crashpad directory; exports describe its minidumps without including them. */
@@ -40,7 +70,7 @@ export class DesktopDiagnostics {
     const directory = join(home, 'logs')
     this.file = join(directory, 'desktop-next.log')
     this.marker = join(directory, 'active-run.json')
-    try { this.text = readPrivateFile(this.file, LIMIT * 4)?.slice(-LIMIT) ?? '' } catch { /* Logging cannot prevent recovery. */ }
+    try { this.previous = readPrivateFile(this.file, LIMIT * 4)?.slice(-LIMIT) ?? '' } catch { /* Logging cannot prevent recovery. */ }
     try { this.history = new LogHistory(directory, options) } catch { /* Retain the recent log when history is unavailable. */ }
   }
   /** Called only by the single-instance owner, after preferences are loaded. */
@@ -60,13 +90,22 @@ export class DesktopDiagnostics {
   }
   end(clean: boolean): void {
     this.record({ source: 'electron', event: clean ? 'run.end' : 'run.forced-exit', level: clean ? 'info' : 'error', fields: { pendingOperations: this.active.size } })
-    this.flush()
+    this.flush(true)
     try { atomicJson(this.marker, { runId: this.runId, pid: process.pid, ended: new Date().toISOString(), clean }) } catch { /* Best effort. */ }
   }
   record(input: LogInput): void {
     const level = input.level ?? 'info'
     // Basic lifecycle evidence is never disabled by a verbosity setting.
     if (input.developer && (!this.developer || LOG_LEVELS.indexOf(level) < LOG_LEVELS.indexOf(this.level))) return
+    let urgent = false
+    if (LIMITED_SOURCE.test(input.source)) { for (const admitted of this.limiter.admit(input)) urgent = this.enqueue(admitted) || urgent }
+    else urgent = this.enqueue(input)
+    if (urgent || this.pendingBytes >= MAX_PENDING) this.flush()
+    else { this.timer ??= setTimeout(() => this.flush(), FLUSH_DELAY_MS); this.timer.unref() }
+  }
+  /** Add one accepted record to the pending history and the readable text; true when it must be written at once. */
+  private enqueue(input: LogInput): boolean {
+    const level = input.level ?? 'info'
     if (input.operationId) {
       if (input.event.endsWith('.start')) this.active.set(input.operationId, { source: input.source, event: input.event.slice(0, -6), started: Date.now() })
       else if (/\.(complete|failed)$/u.test(input.event)) this.active.delete(input.operationId)
@@ -80,13 +119,11 @@ export class DesktopDiagnostics {
     this.pending.push(line); this.pendingBytes += Buffer.byteLength(line) + 1
     if (!input.historyOnly) {
       const detail = record.error === undefined ? '' : ` ${JSON.stringify(record.error)}`
-      const readable = `${record.time} [${level}] ${record.message ? record.message + ' ' : ''}[${record.source}] ${record.event}${record.operationId ? ` (${record.operationId})` : ''}${record.fields ? ` ${JSON.stringify(record.fields)}` : ''}${detail}\n`
-      this.text = (this.text + readable).slice(-LIMIT)
-      this.currentText = (this.currentText + readable).slice(-LIMIT)
+      this.current.push(`${record.time} [${level}] ${record.message ? record.message + ' ' : ''}[${record.source}] ${record.event}${record.operationId ? ` (${record.operationId})` : ''}${record.fields ? ` ${JSON.stringify(record.fields)}` : ''}${detail}\n`)
+      if (this.current.chars >= LIMIT) this.previous = ''
       this.textRevision++
     }
-    if (level === 'error' || this.pendingBytes >= MAX_PENDING) this.flush()
-    else { this.timer ??= setTimeout(() => this.flush(), 200); this.timer.unref() }
+    return level === 'error'
   }
   append(message: string, level: DesktopPreferences['logLevel'] = 'info'): void {
     if (LOG_LEVELS.indexOf(level) < LOG_LEVELS.indexOf(this.level)) return
@@ -149,28 +186,56 @@ export class DesktopDiagnostics {
     const level = /\b(error|fatal)\b/iu.test(line) ? 'error' : /\bwarn/iu.test(line) ? 'warn' : /\bdebug\b/iu.test(line) ? 'debug' : 'info'
     if (LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(this.level)) this.record({ source: `host.${stream}`, event: 'output', level, message: line, pid, developer: level === 'debug' })
   }
-  snapshot(currentRun = false): string { return maskSecrets((currentRun ? this.currentText : this.text) + [...this.partial.values()].filter(buffer => buffer.text).map(buffer => `\n${buffer.text}`).join('')).slice(-LIMIT) }
-  flush(): void {
+  snapshot(currentRun = false): string {
+    const text = (currentRun ? this.current.text() : this.previous + this.current.text()).slice(-LIMIT)
+    return maskSecrets(text + [...this.partial.values()].filter(buffer => buffer.text).map(buffer => `\n${buffer.text}`).join('')).slice(-LIMIT)
+  }
+  /**
+   * Write pending records to the history now. The readable copy follows at most every
+   * {@link READABLE_INTERVAL_MS}: history-only records and quiet periods leave it alone, and rewriting
+   * its 128 KiB on every flush would cost a busy session a 128 KiB write every 200 ms.
+   * @param readable - Also rewrite the readable copy and write every pending repeat count now, as when
+   *   the run ends, a failure report is written or the user opens the log directory.
+   */
+  flush(readable = false): void {
     clearTimeout(this.timer); this.timer = undefined
+    for (const count of this.limiter.drain(Date.now(), readable)) this.enqueue(count)
+    this.scheduleCounts()
     try {
       if (this.pending.length) {
         this.history ??= new LogHistory(join(this.file, '..'))
         this.history.append(this.pending)
         this.pending = []; this.pendingBytes = 0
       }
-      // History-only records leave the readable text unchanged; rewriting its 128 KiB file every
-      // time would turn a quiet 30-second sampler into hundreds of MiB of writes a day.
-      if (this.writtenRevision !== this.textRevision) {
-        const revision = this.textRevision
-        atomicText(this.file, this.snapshot())
-        this.writtenRevision = revision
-      }
+      this.writeReadable(readable)
       this.storageError = undefined
     } catch (error) {
       this.storageError = maskSecrets(String(error)).slice(0, 2048)
       // Bound memory even when disk remains full; never recurse through console logging.
       while (this.pendingBytes > MAX_PENDING && this.pending.length) { this.pendingBytes -= Buffer.byteLength(this.pending.shift()!) + 1; this.droppedRecords++ }
     }
+  }
+  /** Wake up when the next repeat or dropped count falls due, even if nothing else is logged until then. */
+  private scheduleCounts(): void {
+    const due = this.limiter.nextDue()
+    if (due === this.countDue) return
+    clearTimeout(this.countTimer); this.countTimer = undefined; this.countDue = due
+    if (due === undefined) return
+    this.countTimer = setTimeout(() => { this.countTimer = undefined; this.countDue = undefined; this.flush() }, Math.max(0, due - Date.now()))
+    this.countTimer.unref()
+  }
+  private writeReadable(now: boolean): void {
+    if (this.writtenRevision === this.textRevision) { clearTimeout(this.readableTimer); this.readableTimer = undefined; return }
+    const wait = this.readableWrittenAt + READABLE_INTERVAL_MS - Date.now()
+    if (!now && wait > 0) {
+      this.readableTimer ??= setTimeout(() => { this.readableTimer = undefined; this.flush() }, wait)
+      this.readableTimer.unref()
+      return
+    }
+    clearTimeout(this.readableTimer); this.readableTimer = undefined
+    const revision = this.textRevision
+    atomicText(this.file, this.snapshot())
+    this.writtenRevision = revision; this.readableWrittenAt = Date.now()
   }
   /**
    * Build the readable summary of an export.

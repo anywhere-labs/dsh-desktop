@@ -74,15 +74,41 @@ it('returns the identical tool result while recording execution metadata without
   expect(JSON.stringify(events)).not.toContain('private')
 })
 
-it('keeps failed tool outcomes and errors visible when developer logging is disabled', async () => {
+it('keeps one warning per error result and an error only for a throwing tool when developer logging is disabled', async () => {
   const { ctx, records, dispatch } = await environment(false)
   const exec = { callId: 'call-a', rootCallId: 'call-a', name: 'bash', signal: new AbortController().signal }
-  const failure = { isError: true, error: { message: 'failed', info: { code: 'ABORTED' } }, content: [] }
+  const failure = { isError: true, error: { message: 'private failure detail', info: { code: 'ABORTED' } }, content: [] }
   await expect(dispatch('tools/execute', exec, async () => failure)).resolves.toBe(failure)
-  expect(records().at(-1)).toMatchObject({ event: 'execute.failed', level: 'error', fields: { failureCode: 'ABORTED' } })
+  expect(records()).toEqual([expect.objectContaining({ source: 'host.tools', event: 'execute.error-result', level: 'warn',
+    fields: expect.objectContaining({ callId: 'call-a', tool: 'bash', failureCode: 'ABORTED' }) })])
+  expect(JSON.stringify(records())).not.toContain('private failure detail')
+  const thrown = new Error('plugin bug')
+  await expect(dispatch('tools/execute', { ...exec, callId: 'call-b' }, async () => { throw thrown })).rejects.toBe(thrown)
+  expect(records().at(-1)).toMatchObject({ event: 'execute.failed', level: 'error', fields: { callId: 'call-b' }, error: { message: 'plugin bug' } })
   expect(records().some(record => record.event === 'execute.start')).toBe(false)
+  ctx.emit('internal/status', { state: 2, entry: { id: 'plugin-a', options: { name: 'example-module' } } } as never, 1 as never)
+  ctx.provide('sessions', {} as never)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  ctx.emit('session/event', { header: { id: 'session-a' } } as never, { type: 'tool/result', seq: 4, time: 1,
+    data: { turn: 1, step: 1, message: { toolCallId: 'call-a', isError: true }, error: { code: 'ABORTED' } } } as never)
+  expect(records()).toHaveLength(2)
   ctx.logger('test').debug('should be hidden')
   expect(JSON.stringify(records())).not.toContain('should be hidden')
+})
+
+it('records cancelled tools and model requests as completions, not failures', async () => {
+  const { records, dispatch } = await environment()
+  const controller = new AbortController(); controller.abort()
+  const exec = { callId: 'call-a', rootCallId: 'call-a', name: 'bash', signal: controller.signal }
+  const cancelled = { isError: true, error: { message: 'cancelled', info: { code: 'ABORTED' } }, content: [] }
+  await expect(dispatch('tools/execute', exec, async () => cancelled)).resolves.toBe(cancelled)
+  const abort = new Error('aborted')
+  await expect(dispatch('tools/execute', { ...exec, callId: 'call-b' }, async () => { throw abort })).rejects.toBe(abort)
+  const stream = dispatch('llm/stream', { provider: 'test', model: 'example', messages: [], signal: controller.signal }, async function* () { throw abort })
+  await expect(stream.next()).rejects.toBe(abort)
+  expect(records().filter(record => record.level === 'error' || record.level === 'warn')).toEqual([])
+  expect(records().filter(record => record.event.endsWith('.complete')).map(record => record.fields.cancelled ?? record.fields.outcome))
+    .toEqual([true, true, 'cancelled'])
 })
 
 it('records the retry decision while delegating the official request-error waterfall exactly once', async () => {

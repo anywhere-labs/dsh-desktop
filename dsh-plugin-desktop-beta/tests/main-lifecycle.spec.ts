@@ -14,7 +14,7 @@ afterEach(() => { for (const listener of process.listeners('uncaughtExceptionMon
 
 const fixture = vi.hoisted(() => ({
   windows: [] as any[], trays: [] as any[], handlers: new Map<string, (...args: any[]) => any>(),
-  load: vi.fn(), report: vi.fn(), plugin: vi.fn(), pluginDone: vi.fn(), diagnosticAppend: vi.fn(),
+  load: vi.fn(), report: vi.fn(), plugin: vi.fn(), pluginDone: vi.fn(), diagnosticAppend: vi.fn(), diagnosticSnapshot: vi.fn(() => 'fixture log'),
   terminalTarget: vi.fn(), openTerminal: vi.fn(), popup: vi.fn(), registerSchemes: vi.fn(),
   crashStart: vi.fn(), memory: { start: vi.fn(), stop: vi.fn(), settle: vi.fn(), incident: vi.fn(), hostMemory: vi.fn(), hostExited: vi.fn() },
   stop: vi.fn(async () => {}),
@@ -57,7 +57,7 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
   async injections() { return [] }
   profiles: NextProfiles
   recovery: import('../src/recovery.ts').NextRecovery
-  diagnostics = { append: fixture.diagnosticAppend, flush: vi.fn(), hostChunk: vi.fn(), record: fixture.diagnosticAppend, operation: vi.fn(() => vi.fn()), begin: vi.fn(), end: vi.fn(), pendingOperations: vi.fn(() => []) }
+  diagnostics = { append: fixture.diagnosticAppend, flush: vi.fn(), hostChunk: vi.fn(), record: fixture.diagnosticAppend, operation: vi.fn(() => vi.fn()), begin: vi.fn(), end: vi.fn(), pendingOperations: vi.fn(() => []), snapshot: fixture.diagnosticSnapshot }
   memory = fixture.memory
   actionFailure = ''
   failureReportFile = fixture.failureReportFile
@@ -82,7 +82,7 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
   browserLinks() { return { localUrl: null, lanUrls: [] } }
   state() { return { selected: 'desktop', profiles: ['desktop'], unavailableProfiles: [], features: fixture.corruptProfile ? { remoteControl: false, market: true } : this.profiles.features(this.selected),
     preferences: this.preferences, phase: this.recoveryMode ? 'recovery' : fixture.phase, busy: this.busy, failure: 'Fixture Host failure', safeMode: this.safeMode,
-    home: 'temporary', browserUrl: null, lan: null, checkpoint: null, logs: '' } }
+    home: 'temporary', browserUrl: null, lan: null, checkpoint: null } }
   report = fixture.report
 } } })
 vi.mock('../src/extensions.ts', async importOriginal => {
@@ -183,7 +183,7 @@ beforeEach(async () => {
   fixture.phase = 'ready'
   fixture.needsOnboarding = false; fixture.corruptProfile = false; fixture.restart.mockReset(); fixture.hostReady = false
   fixture.plugin.mockReset(); fixture.pluginDone.mockReset().mockResolvedValue({ exitCode: 0 });
-  fixture.load.mockReset(); fixture.report.mockReset(); fixture.diagnosticAppend.mockReset();
+  fixture.load.mockReset(); fixture.report.mockReset(); fixture.diagnosticAppend.mockReset(); fixture.diagnosticSnapshot.mockClear();
   fixture.terminalTarget.mockReset(); fixture.openTerminal.mockClear(); fixture.popup.mockClear(); fixture.registerSchemes.mockClear()
   fixture.crashStart.mockReset(); for (const action of Object.values(fixture.memory)) action.mockReset()
   fixture.stop.mockReset().mockResolvedValue(undefined); fixture.start.mockClear(); fixture.close.mockReset().mockResolvedValue(undefined)
@@ -212,6 +212,9 @@ it('repairs a crashed renderer and fences old document reports while preserving 
     await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
     const main = fixture.windows[0]
     const sender = { sender: main.webContents, senderFrame: main.webContents.mainFrame }
+    // The main window's settings poll the state every two seconds; they never pay for a log snapshot.
+    expect(fixture.handlers.get('dsh-next:state')!(sender).logs).toBe('')
+    expect(fixture.diagnosticSnapshot).not.toHaveBeenCalled()
     const boot = fixture.handlers.get('dsh-next:boot')!
     const report = fixture.handlers.get('dsh-next:renderer-status')!
     vi.useFakeTimers({ shouldClearNativeTimers: true })
@@ -1130,7 +1133,8 @@ it('boots recovery in the preferred OS language even when the app locale is Engl
     const controls = fixture.windows[0]
     expect(controls.webContents.mainFrame.url).toBe(`dsh-app://shell/index.html?locale=zh&platform=${process.platform}&frame=${process.platform !== 'linux'}#recovery`)
     const sender = { sender: controls.webContents, senderFrame: controls.webContents.mainFrame }
-    expect(fixture.handlers.get('dsh-next:state')!(sender).phase).toBe('recovery')
+    // The recovery assistant in the shell window is the one view that shows the recent log.
+    expect(fixture.handlers.get('dsh-next:state')!(sender)).toMatchObject({ phase: 'recovery', logs: 'fixture log' })
     expect(fixture.trays[0].tooltip).toContain('recovery')
     expect(fixture.start).not.toHaveBeenCalled()
     fixture.trays[0].menu[0].click()

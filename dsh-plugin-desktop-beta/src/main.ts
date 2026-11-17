@@ -287,7 +287,12 @@ const updates = new NextUpdates({ version, platform: process.platform, packaged:
   },
 })
 
-function state(): DesktopState {
+/**
+ * The complete Desktop state.
+ * @param withLogs - Include the masked recent log, which only the recovery assistant in the shell window shows;
+ *   the main window's settings poll this state every two seconds and would otherwise pay for a 128 KiB snapshot.
+ */
+function state(withLogs = false): DesktopState {
   // A broken in-app choice is still a choice that "Restore default" can remove.
   const usingDefaultDirectory = dataSource !== 'desktop' && !dataLocation.error
   let recovery: DesktopState['recovery']
@@ -301,7 +306,7 @@ function state(): DesktopState {
     recovery = { bundles: [], checkpoints: [], profileDirectory: join(home, 'profiles', runtime.selected),
       usingDefaultDirectory, error: String(error), diagnosticsFile, notice: recoveryNotice }
   }
-  return { ...runtime.state(), recovery, dataDirectory: { source: dataSource, environmentHome: environmentHome === undefined ? null : resolve(environmentHome) },
+  return { ...runtime.state(), logs: withLogs ? runtime.diagnostics.snapshot() : '', recovery, dataDirectory: { source: dataSource, environmentHome: environmentHome === undefined ? null : resolve(environmentHome) },
     onboarding, ...(onboarding ? { onboardingComputerUse } : {}), platform: process.platform, version,
     ...(['darwin', 'win32', 'linux'].includes(process.platform) ? { updates: updates.snapshot() } : {}),
     trayAvailable: native.available, notificationsAvailable: Notification.isSupported() }
@@ -590,7 +595,9 @@ function resetRendererRecovery(owner: BrowserWindow): void {
     exhausted: detail => runtime.report(new Error(`Renderer recovery exhausted: ${detail}`), rendererHealthy ? 'renderer-runtime' : 'renderer-startup'),
     healthy: () => { rendererHealthy = true },
     record: (event, fields) => {
-      runtime.diagnostics.record({ source: 'renderer', event, fields })
+      // A scheduled or exhausted recovery means the page failed; the report it leads to records the failure itself.
+      const level = event === 'renderer.recovery.scheduled' || event === 'renderer.recovery.exhausted' ? 'warn' : 'info'
+      runtime.diagnostics.record({ source: 'renderer', event, level, fields })
       // A freshly mounted interface is the sample worth keeping until the next periodic one.
       if (event === 'renderer.ready') void rendererEvidence.refresh()
     },
@@ -838,7 +845,7 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
     }
     if (type === 'open-home') { await openPath(home); return }
     if (type === 'open-profile') { await openPath(runtime.profiles.directory(runtime.selected)); return }
-    if (type === 'open-logs') { runtime.diagnostics.flush(); await openPath(dirname(runtime.diagnostics.file)); return }
+    if (type === 'open-logs') { runtime.diagnostics.flush(true); await openPath(dirname(runtime.diagnostics.file)); return }
     if (type === 'open-backups') { privateDirectory(runtime.recovery.directory); await openPath(runtime.recovery.directory); return }
     if (type === 'change-data-directory' || type === 'backup-data-directory') {
       if (runtime.safeMode || runtime.recoveryMode) throw new Error(t('安全模式和恢复模式下请使用恢复助手。', 'In Safe Mode or recovery mode, use the recovery assistant.'))
@@ -1319,7 +1326,7 @@ async function main(): Promise<void> {
     if (documentId !== undefined && documentId !== rendererDocumentId) return
     failRenderer(mainWindow!, new Error(message.slice(0, 4096)))
   })
-  ipcMain.handle(IPC.state, event => { assertDesktopSender(event); return state() })
+  ipcMain.handle(IPC.state, event => { assertDesktopSender(event); return state(event.sender !== mainWindow?.webContents) })
   ipcMain.handle('dsh-desktop:setup-onboarding', async (event, request: unknown) => {
     assertSender(event, mainWindow, APP_URL)
     if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('Invalid setup request')
@@ -1634,7 +1641,8 @@ if (ownsInstance) {
       reportSandboxLaunchFailure(failure)
     }
   })
-  app.once('will-quit', () => runtime.diagnostics.flush())
+  // Every way out leaves a current readable copy, not one up to five seconds old.
+  app.once('will-quit', () => runtime.diagnostics.flush(true))
   const { elevation, kept, error, win32Code } = startupElevationState
   runtime.diagnostics.begin({ version, platform: process.platform, electron: process.versions.electron ?? '', node: process.version, safeMode: safeModeRequested,
     ...(dshVersion === undefined ? {} : { dsh: dshVersion }),
