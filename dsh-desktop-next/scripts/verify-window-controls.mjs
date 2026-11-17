@@ -112,6 +112,7 @@ try {
     window.desktopNext.renderer = {
       profile: () => 'desktop',
       report: async status => { globalThis.__NEXT_TEST_BOOT__.rendererStatus = status },
+      diagnostic: report => { (globalThis.__NEXT_TEST_DIAGNOSTICS__ ??= []).push(report) },
     }
     window.desktopNext.onOpenSettings = listener => {
       window.__nextTestOpenSettings = listener
@@ -171,6 +172,8 @@ try {
   await page.goto(streamBaseUrl)
   // A mounted official shell is healthy without waiting for connection/session probes.
   await page.waitForFunction(() => globalThis.__NEXT_TEST_BOOT__.rendererStatus === 'healthy')
+  // The Next client opened its failure reports on the official slot registry and client logger.
+  await page.waitForFunction(() => globalThis.__NEXT_TEST_DIAGNOSTICS__?.[0]?.kind === 'ready')
   const collapse = page.getByRole('button', { name: /^(收起侧边栏|Collapse sidebar)$/ })
   const reopen = page.locator('div:has(> [data-sidebar-opener])').getByRole('button', { name: /^(打开侧边栏|Open sidebar)$/ })
   const conversationHeader = page.locator('header[data-window-drag]:has([data-conversation-header-leading])')

@@ -319,6 +319,26 @@ process.stderr.write("plugin started\\n" + report + "plugin teardown\\n".repeat(
     expect(exit.fatal).toBe('dsh: fatal load failure: MeshCallError: Call deadline exceeded')
     expect(exit.output).not.toContain('fatal load failure')
     expect(exit.message).toBe(`dsh desktop host exited with code 1\nHost fatal error: ${exit.fatal!}\nLast Host stderr (may be unrelated to the exit):\n${exit.output}`)
+    // The whole block and the retained stderr travel beside the message, for the failure report.
+    expect(exit.crash).toEqual({ label: 'load failure', text: 'dsh: fatal load failure: MeshCallError: Call deadline exceeded\n    at localDeadlineError (client.js:781:12)', packages: [] })
+    expect(exit.stderr?.startsWith('plugin started\n')).toBe(true)
+  })
+
+  it('records a fail-loud crash with the packages in its stack before the exit it causes', async () => {
+    const runtime = projectWithHost(`
+const report = "dsh-desktop-next: fatal uncaught exception: TypeError: tick failed\\n    at tick (/profile/node_modules/.pnpm/dsh-flaky@2.1.0/node_modules/dsh-flaky/lib/index.js:4:7)\\n"
+process.stderr.write(report + "[flaky] disposing\\n", () => { process.exitCode = 1; process.disconnect() })
+`)
+    const diagnostic = vi.fn()
+    const host = new DesktopHostProcess(process.execPath, runtime, runtime, undefined, process.env, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, diagnostic)
+    hosts.push(host)
+    const failure = await host.start().catch((error: unknown) => error) as DesktopHostExitError
+    expect(failure.crash?.packages).toEqual(['dsh-flaky@2.1.0'])
+    const records = diagnostic.mock.calls.map(([record]) => record).filter(record => record.source === 'host.process')
+    expect(records.map(record => record.event).slice(-2)).toEqual(['fatal', 'exit'])
+    expect(records.at(-2)).toMatchObject({ level: 'error', message: 'dsh-desktop-next: fatal uncaught exception: TypeError: tick failed',
+      fields: { label: 'uncaught exception', packages: 'dsh-flaky@2.1.0', outsidePackage: 'dsh-flaky@2.1.0' } })
   })
 
   it('settles teardown when the executable cannot be spawned', async () => {

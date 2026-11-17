@@ -7,6 +7,7 @@ import { appendFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { inspect } from 'node:util'
 import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
+import { outsidePackage, stackPackages, type HostCrash } from './host-crash.ts'
 import { startupEntriesSection, type DesktopStartupTimeoutFailure } from './host-startup-limit.ts'
 import { maskSecrets } from './mask-secrets.ts'
 import { privateDirectory } from './private-files.ts'
@@ -16,6 +17,8 @@ import type { RendererDiagnostics, RendererDiagnosticsSnapshot, RendererEvidence
 export const FAILURE_REPORTS_RETAINED = 10
 /** Characters of the readable log a report repeats. */
 const LOG_TAIL_CHARS = 64 * 1024
+/** Characters of the Host's stderr a report repeats; the shell retains no more. */
+const STDERR_TAIL_CHARS = 64 * 1024
 /** Upper bound of the inspected error section. */
 const ERROR_DETAIL_CHARS = 64 * 1024
 /** The exact generated name syntax; pruning touches only files that match it. */
@@ -29,6 +32,10 @@ export interface FailureReportInput {
   readonly failure: string
   /** The Host's own diagnostic, when it reported the failure over IPC before exiting. */
   readonly hostDiagnostic?: string | undefined
+  /** The fail-loud block a Host printed before it exited. */
+  readonly hostCrash?: HostCrash | undefined
+  /** The Host's retained stderr, for a failure the Host process caused. */
+  readonly hostStderr?: string | undefined
   /** An error raised by the shell, whose stack, properties and cause chain the report adds. */
   readonly error?: Error | undefined
   /** The limit a Host start exceeded and every entry it was still loading. */
@@ -54,16 +61,25 @@ function bounded(text: string, limit: number, label: string): string {
   return text.length <= limit ? text : `${text.slice(0, limit).replace(/[\uD800-\uDBFF]$/u, '')}\n… (${label} cut at ${String(limit)} characters)`
 }
 
-function logTail(log: string): string {
-  if (log.length <= LOG_TAIL_CHARS) return log
-  const tail = log.slice(-LOG_TAIL_CHARS)
+function tailLines(text: string, limit: number, omitted: string): string {
+  if (text.length <= limit) return text
+  const tail = text.slice(-limit)
   const line = tail.indexOf('\n')
-  return `… (earlier log lines omitted)\n${line === -1 ? tail : tail.slice(line + 1)}`
+  return `… (${omitted})\n${line === -1 ? tail : tail.slice(line + 1)}`
+}
+
+/** Name the packages a stack runs through; a stack that names none adds nothing. */
+function packageLines(packages: readonly string[]): string[] {
+  if (packages.length === 0) return []
+  const outside = outsidePackage(packages)
+  return [`packages in its stack, innermost first: ${packages.join(', ')}`,
+    ...(outside === undefined ? [] : [`first package outside DeepSeek Harness: ${outside}`])]
 }
 
 /**
- * Render one report: header facts, the failure as shown, the Host's own diagnostic or the shell
- * error's details, the end of the readable log, and the note about any auxiliary diagnostics.
+ * Render one report: header facts, the failure as shown, the Host's own diagnostic or fail-loud block
+ * with the packages their stacks name, or the shell error's details, the end of the readable log and of
+ * the Host's stderr, and the note about any auxiliary diagnostics.
  * @param input - The failure and its context.
  * @returns The complete file content, with secret-shaped text masked.
  */
@@ -81,13 +97,19 @@ export function renderFailureReport(input: FailureReportInput): string {
   ]
   if (input.startup !== undefined) lines.push('', ...startupEntriesSection(input.startup).map(line => maskSecrets(line)))
   if (input.hostDiagnostic !== undefined) {
-    lines.push('', '--- Host diagnostic (as reported by the Host process) ---', maskSecrets(input.hostDiagnostic))
+    lines.push('', '--- Host diagnostic (as reported by the Host process) ---', maskSecrets(input.hostDiagnostic), ...packageLines(stackPackages(input.hostDiagnostic)))
+  }
+  if (input.hostCrash !== undefined) {
+    lines.push('', '--- Host fatal error (as the Host printed it before exiting) ---', maskSecrets(input.hostCrash.text), ...packageLines(input.hostCrash.packages))
   }
   if (input.error !== undefined) {
     const details = inspect(input.error, { depth: 6, maxArrayLength: 50, maxStringLength: 16 * 1024, breakLength: 120 })
     lines.push('', '--- error details ---', maskSecrets(bounded(details, ERROR_DETAIL_CHARS, 'error details')))
   }
-  lines.push('', '--- recent log (oldest first) ---', input.log === '' ? '(no log lines were recorded)' : maskSecrets(logTail(input.log)), '')
+  lines.push('', '--- recent log (oldest first) ---', input.log === '' ? '(no log lines were recorded)' : maskSecrets(tailLines(input.log, LOG_TAIL_CHARS, 'earlier log lines omitted')), '')
+  if (input.hostStderr !== undefined && input.hostStderr.trim() !== '') {
+    lines.push('--- Host stderr (oldest first) ---', maskSecrets(tailLines(input.hostStderr.trimEnd(), STDERR_TAIL_CHARS, 'earlier stderr omitted')), '')
+  }
   if (input.auxiliary !== undefined) lines.push('--- auxiliary diagnostics ---', ...input.auxiliary, '')
   return lines.join('\n')
 }

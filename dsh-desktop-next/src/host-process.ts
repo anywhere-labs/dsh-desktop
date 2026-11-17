@@ -8,6 +8,7 @@ import { MAX_HEADER_BYTES } from './browser-sessions.ts'
 import { desktopNodeEnvironment } from './node-environment.ts'
 import type { DesktopNotification } from './desktop-contract.ts'
 import { exitSummary } from './exit-code.ts'
+import { FAIL_LOUD_LINE, hostCrash, outsidePackage, stackPackages, type HostCrash } from './host-crash.ts'
 import { isDesktopStartupEntry, MAX_STARTUP_ENTRIES, type DesktopStartupEntry } from './host-startup-limit.ts'
 import { isHostMemoryUsage, type HostMemoryUsage, type MemoryHostExit } from './memory-monitor.ts'
 import { isDesktopNotification } from './notifications.ts'
@@ -76,11 +77,6 @@ type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | Platfor
 const MAX_HOST_DIAGNOSTIC_CHARS = 64 * 1024
 /** The stderr tail an exit failure carries; the complete lines remain in the Host output log. */
 const MAX_EXIT_OUTPUT_CHARS = 4 * 1024
-/**
- * The first line of upstream's fail-loud report, such as `dsh: fatal load failure: Error: …`. The Host
- * prints it once and exits with 1 after a teardown whose own output can push it out of the stderr tail.
- */
-const FAIL_LOUD_LINE = /^[^\s:]+: fatal (?:load failure|uncaught exception): .*$/mu
 /** Longest fatal line an exit failure carries; the error's name and message come first. */
 const MAX_FATAL_LINE_CHARS = 1024
 
@@ -174,18 +170,31 @@ export class DesktopHostUncleanExitError extends Error {}
  */
 export class DesktopHostFatalError extends Error {
   readonly #diagnostic: string | undefined
+  readonly #stderr: string | undefined
 
   /**
    * @param message - The Host's failure message.
    * @param diagnostic - The Host's inspected error, when the Host supplied one.
+   * @param stderr - The Host's stderr retained when the report arrived, at most 64 KiB.
    */
-  constructor(message: string, diagnostic: string | undefined) {
+  constructor(message: string, diagnostic: string | undefined, stderr?: string) {
     super(message)
     this.#diagnostic = diagnostic
+    this.#stderr = stderr
   }
 
   /** The Host's inspected error; a getter so `util.inspect` of this error does not repeat it as an escaped property. */
   get diagnostic(): string | undefined { return this.#diagnostic }
+  /** The Host's stderr when the report arrived; the lines after it can still be on their way. */
+  get stderr(): string | undefined { return this.#stderr }
+}
+
+/** What a Host left behind besides its exit status. */
+export interface DesktopHostExitEvidence {
+  /** The Host's retained stderr, at most 64 KiB. */
+  readonly stderr: string
+  /** The fail-loud block the Host printed before it exited, if it printed one. */
+  readonly crash?: HostCrash | undefined
 }
 
 /**
@@ -194,20 +203,27 @@ export class DesktopHostFatalError extends Error {
  */
 export class DesktopHostExitError extends Error {
   readonly #fatal: string | undefined
+  readonly #evidence: DesktopHostExitEvidence | undefined
 
   /**
    * @param exitCode - The process exit code; Windows exception codes arrive as unsigned values.
    * @param signal - The signal that terminated the process, if any.
    * @param output - The last stderr text, at most a few kilobytes and starting at a line boundary when possible.
    * @param fatal - The first line of the fatal error the Host reported before it exited, if it reported one.
+   * @param evidence - The retained stderr and the fail-loud block, for the failure report.
    */
-  constructor(readonly exitCode: number | null, readonly signal: NodeJS.Signals | null, readonly output: string, fatal?: string) {
+  constructor(readonly exitCode: number | null, readonly signal: NodeJS.Signals | null, readonly output: string, fatal?: string, evidence?: DesktopHostExitEvidence) {
     super(`dsh desktop host ${exitSummary({ code: exitCode, signal })}${fatal === undefined ? '' : `\nHost fatal error: ${fatal}`}${output === '' ? '' : `\nLast Host stderr (may be unrelated to the exit):\n${output}`}`)
     this.#fatal = fatal
+    this.#evidence = evidence
   }
 
   /** The Host's fatal line; a getter so `util.inspect` of this error does not repeat it after the message. */
   get fatal(): string | undefined { return this.#fatal }
+  /** The Host's retained stderr, at most 64 KiB. */
+  get stderr(): string | undefined { return this.#evidence?.stderr }
+  /** The fail-loud block the Host printed before it exited, with the packages its stack runs through. */
+  get crash(): HostCrash | undefined { return this.#evidence?.crash }
 }
 
 /** Main-process observers of Host facts that are not failures. Observers must not throw. */
@@ -362,7 +378,13 @@ export class DesktopHostProcess {
         if (this.stopping) this.shutdownCompleted = true
         else this.fail(new Error('dsh desktop host acknowledged an unrequested shutdown'))
       }
-      else if (message.type === 'fatal') this.fail(new DesktopHostFatalError(message.message, message.diagnostic))
+      else if (message.type === 'fatal') {
+        // The packages its stack names reach the timeline at once; the complete diagnostic goes to the failure report.
+        const packages = message.diagnostic === undefined ? [] : stackPackages(message.diagnostic)
+        this.diagnostic({ source: 'host.process', event: 'fatal', level: 'error', pid: child.pid, message: message.message.slice(0, MAX_FATAL_LINE_CHARS),
+          fields: { label: 'reported', packages: packages.join(', ') || null, outsidePackage: outsidePackage(packages) ?? null } })
+        this.fail(new DesktopHostFatalError(message.message, message.diagnostic, this.stderr))
+      }
       else if (message.type === 'notification') {
         if (!this.stopping && !this.failureReported) this.onNotification?.(message.notification)
       }
@@ -410,9 +432,15 @@ export class DesktopHostProcess {
     child.once('error', (error) => { this.fail(error) })
     this.exitPromise = new Promise<void>((resolve) => {
       child.once('close', (code, signal) => {
+        // A fail-loud block in the retained stderr is the Host's own account of why it is exiting.
+        const crash = hostCrash(this.stderr)
+        if (crash !== undefined) {
+          this.diagnostic({ source: 'host.process', event: 'fatal', level: 'error', pid: child.pid, message: exitFatalLine(this.stderr),
+            fields: { label: crash.label, packages: crash.packages.join(', ') || null, outsidePackage: outsidePackage(crash.packages) ?? null } })
+        }
         this.diagnostic({ source: 'host.process', event: 'exit', pid: child.pid, level: this.stopping && code === 0 ? 'info' : 'error', fields: { exitCode: code, signal, expected: this.stopping, acknowledged: this.shutdownCompleted } })
         try { this.observer?.exited?.({ code, signal, expected: this.stopping }, child.pid) } catch { /* Observational only. */ }
-        this.fail(new DesktopHostExitError(code, signal, exitOutput(this.stderr), exitFatalLine(this.stderr)))
+        this.fail(new DesktopHostExitError(code, signal, exitOutput(this.stderr), exitFatalLine(this.stderr), { stderr: this.stderr, crash }))
         resolve()
       })
     })

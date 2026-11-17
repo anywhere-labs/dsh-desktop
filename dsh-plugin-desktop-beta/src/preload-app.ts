@@ -33,6 +33,7 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
     renderer: {
       profile: () => profile,
       report: (status: unknown) => ipcRenderer.invoke(IPC.rendererStatus, documentId, status),
+      diagnostic: (report: unknown) => { ipcRenderer.send(IPC.rendererDiagnostic, documentId, report) },
     },
     permissions: permissionBridge(),
     onOpenSettings,
