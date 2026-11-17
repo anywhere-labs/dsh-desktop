@@ -12,6 +12,8 @@ export interface NextUpdateOptions {
   version: string
   platform: string
   packaged: boolean
+  /** A Windows copy run from the portable ZIP: Setup cannot replace it, so its updates are downloaded by hand. */
+  portable?: boolean
   userData: string
   /** Directory for downloaded installers; defaults to the update state directory in userData. */
   downloads?: string
@@ -39,7 +41,9 @@ export class NextUpdates {
   private cacheReady?: Promise<void>
   private disposed = false
   constructor(private readonly options: NextUpdateOptions) {
-    this.state = { phase: 'idle', installable: options.packaged && ['darwin', 'win32'].includes(options.platform) }
+    const portable = options.portable === true
+    this.state = { phase: 'idle', installable: options.packaged && ['darwin', 'win32'].includes(options.platform) && !portable,
+      ...(portable ? { portable } : {}) }
   }
   snapshot(): NextUpdateState { return { ...this.state } }
   private get downloads(): string { return this.options.downloads ?? join(this.options.userData, 'next-updates') }
@@ -106,8 +110,9 @@ export class NextUpdates {
   }
   private async query(signal: AbortSignal): Promise<UpdateCheckResult | null> {
     let installationId
-    // The privacy policy limits the installation UUID to the macOS and Windows update flow, so Linux checks without it.
-    if (this.state.installable) {
+    // The privacy policy names packaged macOS and Windows builds, portable copies included, as the ones that send the
+    // installation UUID, so Linux checks without it.
+    if (this.options.packaged && ['darwin', 'win32'].includes(this.options.platform)) {
       try { installationId = await getOrCreateDesktopInstallationId(this.options.userData) } catch (error) { this.options.log(error) }
     }
     return checkForDesktopUpdate({ currentVersion: this.options.version, channel: 'beta', installationId,

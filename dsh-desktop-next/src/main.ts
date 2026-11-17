@@ -53,10 +53,11 @@ import { DesktopPlatformView, platformBounds } from './platform-view.ts'
 import { PLATFORM_IPC } from './platform-ipc.ts'
 import { NextUpdates } from './updates.ts'
 import { updateDownloadDirectory } from './update-downloads.ts'
+import { isWindowsPortableCopy } from './update-portable.ts'
 import { createArtifactRequest } from './update-transport.ts'
 import { NextUpdateInstaller } from './update-installer.ts'
 import { macUpdateArch } from './update-arch.ts'
-import { manualUpdateHint, releaseNotesUrl, updateLabel } from './update-state.ts'
+import { manualUpdate, manualUpdateHint, releaseNotesUrl, updateLabel } from './update-state.ts'
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
 import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCause } from './renderer-recovery.ts'
 import { collectRendererDiagnostics, rendererDiagnosticsFields } from './renderer-diagnostics.ts'
@@ -268,6 +269,7 @@ const updateInstaller = new NextUpdateInstaller({ platform: process.platform, ex
   language: () => windowsLanguage,
   log: error => runtime.diagnostics.append(String(error), 'warn') })
 const updates = new NextUpdates({ version, platform: process.platform, packaged: app.isPackaged, userData: electronData,
+  portable: isWindowsPortableCopy(process.platform, app.isPackaged, process.execPath),
   downloads: updateDownloadDirectory(process.platform),
   arch: process.platform === 'darwin' ? macUpdateArch(process.arch, app.runningUnderARM64Translation) : undefined,
   request: (url, init) => net.fetch(url, { ...init, credentials: 'omit' }),
@@ -737,14 +739,14 @@ function confirmLanAccess(): Promise<boolean> {
     t('同一网络中的设备可以连接。请仅向可信设备分享登录链接，并在设备上核对和信任 CA 证书。', 'Devices on your local network can connect. Share login links only with trusted devices, and verify and trust the CA certificate on each device.'),
   )
 }
-/** Linux packages are not installed in the app: open the release page, which carries every package format. */
+/** Linux packages and portable Windows copies are not installed in the app: open the release page, which carries every package format. */
 function openUpdateDownload(version: string | undefined): void {
   void shell.openExternal(releaseNotesUrl(version)).catch(error => runtime.diagnostics.append(String(error), 'warn'))
 }
 async function promptAvailableUpdate(): Promise<void> {
   if (quitting || runtime.busy) return
   const snapshot = updates.snapshot()
-  const manual = process.platform === 'linux'
+  const manual = manualUpdate(snapshot, process.platform)
   if (snapshot.phase !== 'available' || !snapshot.installable && !manual) return
   const owner = raiseDialogOwner()
   const options = {
@@ -754,7 +756,7 @@ async function promptAvailableUpdate(): Promise<void> {
     buttons: [manual ? t('前往下载', 'Open download page') : t('下载更新', 'Download update'), t('稍后', 'Later')],
     defaultId: 0,
     cancelId: 1,
-    detail: manual ? manualUpdateHint(windowsLanguage) : t('下载完成后可一键安装并重启。', 'When the download finishes, choose Install and restart.'),
+    detail: manual ? manualUpdateHint(windowsLanguage, snapshot.portable) : t('下载完成后可一键安装并重启。', 'When the download finishes, choose Install and restart.'),
   }
   const choice = await (owner === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(owner, options))
   if (choice.response !== 0 || quitting) return
@@ -804,7 +806,7 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
       void updates.check().then(async () => {
         if (source !== 'native' || quitting) return
         const snapshot = updates.snapshot()
-        if (snapshot.phase === 'available' && (snapshot.installable || process.platform === 'linux')) await promptAvailableUpdate()
+        if (snapshot.phase === 'available' && (snapshot.installable || manualUpdate(snapshot, process.platform))) await promptAvailableUpdate()
         else {
           const owner = raiseDialogOwner()
           const options = { type: 'info' as const, title: 'DSH NEXT', message: updateLabel(snapshot, windowsLanguage) }
@@ -812,7 +814,8 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
         }
       }).catch(error => runtime.diagnostics.append(String(error), 'warn'))
     } else if (type === 'download-update') {
-      if (process.platform === 'linux') openUpdateDownload(updates.snapshot().version)
+      const snapshot = updates.snapshot()
+      if (manualUpdate(snapshot, process.platform)) openUpdateDownload(snapshot.version)
       else void updates.download()
     } else {
       if (updates.snapshot().phase !== 'ready') return

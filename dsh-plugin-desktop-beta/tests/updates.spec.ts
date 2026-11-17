@@ -9,7 +9,8 @@ import { NextUpdateSettings } from '../src/client/updates.tsx'
 import { DEFAULT_PREFERENCES, type DesktopState } from '../src/desktop-contract.ts'
 import { NextUpdates, type NextUpdateOptions } from '../src/updates.ts'
 import { updateDownloadDirectory } from '../src/update-downloads.ts'
-import { releaseNotesUrl, updateAction, updateLabel, type NextUpdateState } from '../src/update-state.ts'
+import { isWindowsPortableCopy } from '../src/update-portable.ts'
+import { manualUpdate, manualUpdateHint, releaseNotesUrl, updateAction, updateLabel, type NextUpdateState } from '../src/update-state.ts'
 import type { UpdateRequest } from '../../dsh-plugin-desktop/src/update-checker.ts'
 import type { UpdateArtifactRequest } from '../../dsh-plugin-desktop/src/update-download.ts'
 
@@ -97,6 +98,36 @@ it('polls on Linux without the installation UUID, notifies once and leaves the d
   await updates.download()
   expect(updates.snapshot()).toMatchObject({ phase: 'error', error: 'unsupported' })
   expect(request).toHaveBeenCalledOnce()
+})
+it('recognizes a packaged Windows copy without the uninstaller Setup writes beside it as portable', () => {
+  const executable = 'D:\\Tools\\DSH Desktop Beta\\DSH Desktop Beta.exe'
+  const probe = vi.fn((_path: string) => false)
+  expect(isWindowsPortableCopy('win32', true, executable, probe)).toBe(true)
+  expect(probe).toHaveBeenCalledExactlyOnceWith('D:\\Tools\\DSH Desktop Beta\\Uninstall DSH Desktop Beta.exe')
+  const installed = 'C:\\Users\\user\\AppData\\Local\\Programs\\DSH Desktop Beta\\DSH Desktop Beta.EXE'
+  expect(isWindowsPortableCopy('win32', true, installed, path => path === 'C:\\Users\\user\\AppData\\Local\\Programs\\DSH Desktop Beta\\Uninstall DSH Desktop Beta.exe')).toBe(false)
+  // Development runs and the other platforms are never portable copies, and nothing is probed for them.
+  for (const [platform, packaged] of [['win32', false], ['darwin', true], ['linux', true]] as const) {
+    expect(isWindowsPortableCopy(platform, packaged, executable, probe)).toBe(false)
+  }
+  expect(probe).toHaveBeenCalledOnce()
+})
+it('leaves the update of a portable Windows copy to the release page, but identifies its checks like any Windows build', async () => {
+  const { updates, options, request, artifactRequest } = await fixture({ platform: 'win32', portable: true })
+  expect(updates.snapshot()).toEqual({ phase: 'idle', installable: false, portable: true })
+  await updates.check()
+  expect(updates.snapshot()).toMatchObject({ phase: 'available', version: '2.0.20-beta.2', installable: false, portable: true })
+  expect(manualUpdate(updates.snapshot(), 'win32')).toBe(true)
+  // PRIVACY.md: packaged macOS and Windows builds send the installation UUID with the version check.
+  expect(new Headers(request.mock.calls[0]![1].headers).get('X-DSH-Desktop-Installation-Id')).toMatch(/^[0-9a-f-]{36}$/)
+  // Setup would install a second copy instead of replacing this one, so nothing is downloaded.
+  await updates.download()
+  expect(updates.snapshot()).toMatchObject({ phase: 'error', error: 'unsupported', portable: true })
+  expect(artifactRequest).not.toHaveBeenCalled(); expect(options.prepare).not.toHaveBeenCalled()
+  const installed = await fixture({ platform: 'win32' })
+  expect(installed.updates.snapshot()).toEqual({ phase: 'idle', installable: true })
+  expect(manualUpdate(installed.updates.snapshot(), 'win32')).toBe(false)
+  expect(manualUpdate({ phase: 'idle', installable: false }, 'linux')).toBe(true)
 })
 it('rechecks the selected version before downloading, and preserves preparation failures for retry', async () => {
   const { updates, options } = await fixture({ prepare: async () => { throw new Error('Signature mismatch') } })
@@ -215,6 +246,22 @@ it('shows update status and controls on every platform, and sends Linux to the r
   expect(macHtml).not.toContain('Linux 版需要手动更新')
   // A development build cannot download, but it is not sent elsewhere either.
   expect(render('darwin', { phase: 'available', version: '2.0.21-beta.1', installable: false })).toMatch(/<button[^>]*disabled=""[^>]*>下载更新<\/button>/)
+})
+it('sends a portable Windows copy to the release page with instructions for replacing its folder', () => {
+  const render = (updates: NextUpdateState, language = 'zh-CN') =>
+    renderToStaticMarkup(createElement(NextUpdateSettings, { state: { ...baseState, platform: 'win32', updates }, language, run: vi.fn() }))
+  const portable: NextUpdateState = { phase: 'available', version: '2.0.21-beta.1', installable: false, portable: true }
+  const html = render(portable)
+  expect(html).toContain('便携版需要手动更新：在发布页下载新的便携版 ZIP，退出应用后解压到新文件夹，用它替换当前文件夹。')
+  expect(html).toMatch(/<button[^>]*>前往下载<\/button>/)
+  expect(html).not.toMatch(/<button[^>]*disabled/)
+  expect(html).not.toContain('应用内安装更新需要使用 macOS 或 Windows 安装版。')
+  expect(render(portable, 'en')).toContain(manualUpdateHint('en', true))
+  expect(manualUpdateHint('en', true)).toContain('portable ZIP')
+  // An installed copy keeps downloading and installing in the app.
+  const installed = render({ phase: 'available', version: '2.0.21-beta.1', installable: true })
+  expect(installed).toMatch(/<button[^>]*>下载更新<\/button>/)
+  expect(installed).not.toContain('便携版需要手动更新')
 })
 it('names the release notes page after the latest channel version reported by the update service', () => {
   const releases = 'https://github.com/anywhere-labs/dsh-desktop/releases'

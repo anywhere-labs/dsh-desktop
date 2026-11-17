@@ -902,6 +902,51 @@ it('sends an available Linux update to its release page from the tray and Settin
   }
 })
 
+it('sends an available update of a portable Windows copy to its release page instead of running Setup', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-portable-update-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+  const portable = vi.fn(() => true)
+  let snapshot = { phase: 'current', version: '2.0.21-beta.1', installable: false }
+  const check = vi.fn(async () => { snapshot = { phase: 'available', version: '2.0.22-beta.1', installable: false } })
+  const download = vi.fn(async () => {})
+  vi.doMock('../src/update-portable.ts', () => ({ isWindowsPortableCopy: portable }))
+  vi.doMock('../src/updates.ts', () => ({ NextUpdates: class {
+    constructor(private options: { portable?: boolean }) {}
+    snapshot() { return { ...snapshot, ...this.options.portable ? { portable: true } : {} } }
+    start() {}
+    check = check
+    download = download
+    dispose = async () => {}
+  } }))
+  const { app, dialog, shell } = await import('electron')
+  vi.mocked(dialog.showMessageBox).mockClear()
+  vi.mocked(shell.openExternal).mockClear()
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    expect(portable).toHaveBeenCalledExactlyOnceWith('win32', app.isPackaged, process.execPath)
+    const window = fixture.windows[0]
+    const sender = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
+    expect(fixture.handlers.get('dsh-next:state')!(sender).updates).toEqual({ ...snapshot, portable: true })
+    fixture.trays[0].menu.find((item: any) => item.label === '已是最新版本').click()
+    await vi.waitFor(() => expect(shell.openExternal).toHaveBeenCalledOnce())
+    expect(check).toHaveBeenCalledOnce()
+    expect(dialog.showMessageBox).toHaveBeenCalledOnce()
+    expect(vi.mocked(dialog.showMessageBox).mock.calls[0]!.at(-1)).toMatchObject({ message: '发现新版本 2.0.22-beta.1',
+      buttons: ['前往下载', '稍后'], detail: expect.stringContaining('便携版 ZIP') })
+    expect(shell.openExternal).toHaveBeenLastCalledWith(`https://github.com/anywhere-labs/dsh-desktop/releases/tag/v${snapshot.version}`)
+    await fixture.handlers.get('dsh-next:command')!(sender, { type: 'download-update' })
+    expect(shell.openExternal).toHaveBeenCalledTimes(2)
+    expect(download).not.toHaveBeenCalled()
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+    vi.doUnmock('../src/updates.ts'); vi.doUnmock('../src/update-portable.ts')
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+})
+
 it.each(['darwin', 'win32'] as const)('reopens the main window at its saved bounds, maximized again on %s, and saves each settled change', async platformName => {
   const home = mkdtempSync(join(tmpdir(), 'main-window-restore-'))
   vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
