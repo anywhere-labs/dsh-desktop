@@ -168,6 +168,6 @@ it('saves the original limit from recovery and Safe Mode without replacing a bro
   normal.initialize()
   normal.writePreferences({ ...normal.preferences, hostStartupTimeout: 120 })
   expect(normal.state().hostStartupTimeout).toBe(120)
-  expect(JSON.parse(readFileSync(extraFile(settings), 'utf8'))).toEqual({ hostStartupTimeout: 120 })
+  expect(JSON.parse(readFileSync(extraFile(settings), 'utf8'))).toEqual({ hostStartupTimeout: 120, appIcon: 'default' })
   expect(JSON.parse(readFileSync(join(settings, 'desktop-preferences.json'), 'utf8'))).not.toHaveProperty('hostStartupTimeout')
 })

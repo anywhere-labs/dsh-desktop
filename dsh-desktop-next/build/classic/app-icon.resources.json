@@ -1,0 +1,35 @@
+{
+  "source": "app-icon.icon",
+  "sourceSha256": "005450a20348fe258498e0ad3f01db7455f5ff334764e0b31519d8c0da09934a",
+  "mac": {
+    "input": "app-icon.icon",
+    "legacy": "app-icon.icns",
+    "catalogName": "Icon"
+  },
+  "png": {
+    "platform": "macOS",
+    "rendition": "Default",
+    "designGeneration": 27,
+    "size": 1024
+  },
+  "preview": {
+    "input": "app-icon.png",
+    "size": 128
+  },
+  "tray": {
+    "copiedFrom": "dsh-plugin-desktop/build"
+  },
+  "outputs": {
+    "app-icon.png": "b6103232a0769bb05522370bb2690b5b66caa5e81c2abbefdd6f65d7e6d78df6",
+    "app-icon-mac.png": "aa7364928b221e4e595e57c3e1fb3c8e8837085d0a9e696d93e56e2592493a42",
+    "app-icon.ico": "e1ea4b54e6192c52272d069562fb99cb8ad076b6ec7523c0edc6933a802feb49",
+    "app-icon.icns": "15ddd193634ff7ec57343fd043b8877b5a35c57fc63ae460da9c50738917c487",
+    "app-icon-preview.png": "de77218eb3d6b28b3cb903c459761378496898407af79c4292fe7cdc370cb9ac",
+    "../../assets/classic/tray-iconTemplate.png": "873fdf1de2a02dca3d68afb36246527ce40f76e3613c5f04d035f754e2cd0f7c",
+    "../../assets/classic/tray-iconTemplate@2x.png": "082974015c60f893d37a8824153c1db32f8f7313257b6bfcae5679ba9dcb7eb1",
+    "../../assets/classic/tray-icon-blue.png": "2ed86cdac5478a8cf52a5af090928bca57c5b8dc89a521efd20650f46c262d01",
+    "../../assets/classic/tray-icon-blue@1.25x.png": "2cb14b771fa66e95e1eea8269cd9d6b434e31520b9c81fdd89b3c589562eaa49",
+    "../../assets/classic/tray-icon-blue@1.5x.png": "0d607589af6abe2789c87996b76b56e1f1f9c5b18f891be5f09b6cf3ce70e86e",
+    "../../assets/classic/tray-icon-blue@2x.png": "9a8670930e5ec64e59dcd46661b6b5dc19eafecf5395c1ed322fd24d0bbd80db"
+  }
+}

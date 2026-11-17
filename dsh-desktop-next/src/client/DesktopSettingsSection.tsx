@@ -69,6 +69,8 @@ export interface DesktopSettingsSectionInjected {
   readonly openPlugins?: () => void
   readonly introNotice?: ReactNode
   readonly browserActions?: ReactNode
+  /** Rows the host adds at the top of the window appearance group. */
+  readonly presentationRows?: ReactNode
   readonly extraSections?: ReactNode
 }
 
@@ -451,6 +453,7 @@ export function DesktopSettingsSection({
   openPlugins,
   introNotice,
   browserActions,
+  presentationRows,
   extraSections,
 }: DesktopSettingsSectionInjected & Pick<PropsLocale<'desktop.settings'>, 't'> & Partial<PropsRuntime<'settings.section'>>) {
   const desktop = useScope(desktopSettings)
@@ -884,6 +887,7 @@ export function DesktopSettingsSection({
             status={mode === 'advanced' ? t('selected') : undefined}
           />
         </div>}
+        {presentationRows}
         {platform === 'darwin' && (
           <div className="dshDesktopSettingsMaterialField" data-desktop-material-row="">
             <span className="dshDesktopSettingsMaterialCopy">

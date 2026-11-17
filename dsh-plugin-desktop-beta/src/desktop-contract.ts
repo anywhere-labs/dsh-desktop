@@ -1,5 +1,6 @@
 /** General renderer state omits credentials; browser login links use a separate native operation. */
 import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
+import type { DesktopAppIcon } from './app-icon.ts'
 import type { DesktopHostExit } from './exit-code.ts'
 import { DEFAULT_HOST_STARTUP_TIMEOUT, type DesktopStartupTimeoutFailure, type HostStartupTimeout } from './host-startup-limit.ts'
 import type { Features, OnboardingChoices } from './profiles.ts'
@@ -40,13 +41,15 @@ export interface DesktopPreferences {
   scheduleFailed: boolean
   /** How long a Host start may take before recovery opens; stored apart, see desktop-preferences.ts. */
   hostStartupTimeout: HostStartupTimeout
+  /** The artwork in the Dock, window frames and tray; stored apart, see desktop-preferences.ts. */
+  appIcon: DesktopAppIcon
 }
 
 export const DEFAULT_PREFERENCES: Readonly<DesktopPreferences> = Object.freeze({
   closeToTray: true, macosMaterial: 'transparent', windowsMaterial: 'off', linuxMaterial: 'off',
   browserAccess: false, networkExposure: 'loopback', port: 0, lanPort: 0, logLevel: 'info', developerLogging: false,
   sidebarFooterCompat: true, sidebarFooterBalanced: true, notifications: true, turnCompleted: true, turnFailed: true, jobCompleted: false, jobFailed: false,
-  scheduleCompleted: true, scheduleFailed: true, hostStartupTimeout: DEFAULT_HOST_STARTUP_TIMEOUT,
+  scheduleCompleted: true, scheduleFailed: true, hostStartupTimeout: DEFAULT_HOST_STARTUP_TIMEOUT, appIcon: 'default',
 })
 
 /** Fixed startup defaults matching Beta's disposable Safe Mode settings. */
@@ -125,6 +128,8 @@ export type DesktopCommand =
   | ({ type: 'onboarding-complete'; profile: string; browserAccess?: boolean; networkExposure?: 'loopback' | 'lan' } & OnboardingChoices)
   | { type: 'onboarding-skip'; profile: string }
   | { type: 'confirm-lan' }
+  /** Save and show an app icon at once; Safe Mode keeps the default. */
+  | { type: 'app-icon'; appIcon: DesktopAppIcon }
   | { type: 'open-browser-url' | 'copy-browser-url'; url: string }
   | { type: 'create' | 'switch' | 'delete'; name: string }
   | { type: 'features'; features: Features }

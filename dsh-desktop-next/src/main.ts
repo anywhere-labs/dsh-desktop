@@ -22,10 +22,12 @@ import { probeSystemProxy, type DesktopSystemProxyProbe } from './system-proxy.t
 import { readSystemProxyConfiguration } from './system-proxy-configuration.ts'
 import { resolveDesktopShellEnvironment, type DesktopShellEnvironmentResolution } from './shell-environment.ts'
 import { ensureUtf8Locale } from './shell-locale.ts'
+import type { DesktopAppIcon } from './app-icon.ts'
 import { DEFAULT_PROFILE, NATIVE_ACCESS_HEADER, type DesktopCommand, type DesktopState, type DesktopSettingsPage } from './desktop-contract.ts'
 import { portsChanged, parsePreferences } from './desktop-preferences.ts'
 import { hostStartupLimitTitle, hostStartupTimeoutFromId, hostStartupTimeoutLabel } from './host-startup-limit.ts'
-import { NativeDesktop, applyWindowMaterial } from './native-desktop.ts'
+import { NativeDesktop, appWindowIcon, applyWindowMaterial } from './native-desktop.ts'
+import { syncLinuxDesktopEntry, syncWindowsShortcuts, windowsShortcutDirectories } from './installed-app-icon.ts'
 import { desktopLanAddresses } from './lan-addresses.ts'
 import { createLanHttpsCertificate, lanHttpsCertificateDiagnostic } from './lan-https-certificate.ts'
 import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-terminal.ts'
@@ -41,7 +43,6 @@ import { windowMaterial } from './window-material.ts'
 import { captureMainWindowState, FileMainWindowStateStore, fitMainWindowBounds, sameMainWindowState, type MainWindowState } from './main-window-state.ts'
 import { DE_ELEVATED_ARGUMENT, ONBOARDING_ARGUMENT, RECOVERY_ARGUMENT, SAFE_ARGUMENT, relaunchApp, relaunchArguments } from './relaunch.ts'
 import { DESKTOP_RUNTIME_FILE, readInstalledPackageVersion, verifyPackagedRuntimeIdentity } from './runtime-tree.ts'
-import { unpackedPath } from './asar-archive-policy.ts'
 import { createNativePermissions, installMediaPermissions } from './electron-permissions.ts'
 import { DATA_DIRECTORY_VARIABLE, dataDirectoryChange, dataDirectoryLocationFile, dataDirectoryLocationRoot, readDataDirectory, rememberDataDirectory, sameDirectory, validateDataDirectory } from './data-directory.ts'
 import { assertBackupLocation, backupDirectoryName, copyDataDirectory } from './data-backup.ts'
@@ -156,7 +157,8 @@ let hostEnvironmentReady: Promise<void> | undefined
 let windowsLanguage = 'en'
 const require = createRequire(NEXT_PACKAGE)
 const webRoot = dirname(require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html'))
-const version = (JSON.parse(readFileSync(NEXT_PACKAGE, 'utf8')) as { version: string }).version
+const manifest = JSON.parse(readFileSync(NEXT_PACKAGE, 'utf8')) as { version: string; desktopName?: string }
+const version = manifest.version
 /** The dsh runtime beside this shell; a development tree may hoist it elsewhere, and the packaged check then reports it. */
 let dshVersion: string | undefined
 try { dshVersion = readInstalledPackageVersion(root, '@deepseek-ai/dsh') } catch { /* Not installed beside the shell; only diagnostics lose the field. */ }
@@ -258,7 +260,9 @@ const platformLogin = new PlatformLoginWindow({
   warn: error => runtime.diagnostics.append(String(error), 'warn'),
 })
 const native = new NativeDesktop({ root, language: () => windowsLanguage, state, window: () => mainWindow,
-  show: openMain, run, warn: error => runtime.diagnostics.append(String(error), 'warn') })
+  show: openMain, run, warn: error => runtime.diagnostics.append(String(error), 'warn'),
+  appIcon: (): DesktopAppIcon => runtime.preferences.appIcon, dark: systemDark, packaged: app.isPackaged,
+  windows: () => BrowserWindow.getAllWindows(), dock: () => app.dock, installed: applyInstalledAppIcon })
 const permissions = createNativePermissions()
 const updateInstaller = new NextUpdateInstaller({ platform: process.platform, executable: process.execPath,
   language: () => windowsLanguage,
@@ -286,6 +290,45 @@ const updates = new NextUpdates({ version, platform: process.platform, packaged:
     } finally { runtime.busy = false; if (!quitting) native.refresh() }
   },
 })
+
+/**
+ * Whether Windows and Linux show the Dark rendition of the app icon, as macOS does with the bundle's layered icon:
+ * on Windows while the taskbar and Start menu are dark, whatever theme apps use; on Linux while the theme the app
+ * follows is dark, which is the system's unless the app has a theme of its own. macOS needs no help.
+ */
+function systemDark(): boolean {
+  if (process.platform === 'win32') return nativeTheme.shouldUseDarkColorsForSystemIntegratedUI
+  return process.platform === 'linux' && nativeTheme.shouldUseDarkColors
+}
+
+/**
+ * Show the app icon in what the installed package shows outside the running app: the Windows shortcuts and the Linux
+ * desktop entry, which no signature covers. The default whale tail in a light theme is what the package installed,
+ * the program's own icon and the package's desktop entry. Development runs leave the installed app alone, and Safe
+ * Mode leaves the saved choice in place. It runs after the current event, so reading shortcuts never holds up a window.
+ * @param icon - The saved choice.
+ * @param dark - Whether the system theme is dark.
+ */
+function applyInstalledAppIcon(icon: DesktopAppIcon, dark: boolean): void {
+  if (!app.isPackaged || runtime.safeMode || (process.platform !== 'win32' && process.platform !== 'linux')) return
+  const platform = process.platform
+  const packaged = icon === 'default' && !dark
+  const label = icon === 'classic' ? 'classic' : dark ? 'dark' : 'default'
+  setImmediate(() => {
+    if (quitting) return
+    try {
+      const result = platform === 'win32'
+        ? syncWindowsShortcuts({ icon: packaged ? process.execPath : appWindowIcon(root, platform, icon, dark)!,
+          ours: [appWindowIcon(root, platform, 'default', true)!, appWindowIcon(root, platform, 'classic')!], execPath: process.execPath, name: 'DSH NEXT',
+          directories: windowsShortcutDirectories({ desktop: app.getPath('desktop'), appData: app.getPath('appData') }, process.env), shell })
+        : manifest.desktopName === undefined ? { changed: [], failed: [] }
+          : syncLinuxDesktopEntry({ image: packaged ? undefined : appWindowIcon(root, platform, icon, dark), label, execPath: process.execPath,
+            desktopId: manifest.desktopName, home: app.getPath('home'), env: process.env })
+      for (const path of result.changed) runtime.diagnostics.append(`App icon ${label}: updated ${path}`)
+      for (const path of result.failed) runtime.diagnostics.append(`App icon ${label}: could not update ${path}`, 'warn')
+    } catch (error) { runtime.diagnostics.append(`App icon ${label}: ${String(error)}`, 'warn') }
+  })
+}
 
 /**
  * The complete Desktop state.
@@ -395,7 +438,7 @@ function createWindow(preload: string, primary = false): BrowserWindow {
   const window = new BrowserWindow({ width: MAIN_WINDOW_WIDTH, height: MAIN_WINDOW_HEIGHT, minWidth: MAIN_WINDOW_MIN_WIDTH, minHeight: MAIN_WINDOW_MIN_HEIGHT,
     ...(restored?.bounds ?? {}),
     show: false, title: 'DSH NEXT',
-    ...(process.platform !== 'darwin' ? { icon: unpackedPath(join(root, 'build', process.platform === 'win32' ? 'app-icon.ico' : 'app-icon.png')) } : {}),
+    ...(process.platform !== 'darwin' ? { icon: appWindowIcon(root, process.platform, runtime.preferences.appIcon, systemDark()) } : {}),
     ...(!primary ? auxiliaryWindowChromeOptions() : {}),
     ...(process.platform === 'win32' && primary ? {
       // Match the official initial canvas before the renderer paints its theme.
@@ -747,6 +790,8 @@ async function loggedCommand(input: Record<string, unknown>, type: string, sourc
 
 async function performCommand(input: Record<string, unknown>, type: string, source: 'app' | 'shell' | 'native'): Promise<boolean | void> {
   if (type === 'confirm-lan') return confirmLanAccess()
+  // Setup offers the choice before the Host starts; the change notification shows the icon at once.
+  if (type === 'app-icon') { runtime.saveAppIcon(input.appIcon); return }
   if (type === 'controls') {
     if (input.page !== undefined && (typeof input.page !== 'string' || !['general', 'profiles', 'create-profile', 'tools', 'recovery', 'permissions'].includes(input.page))) throw new Error('Invalid controls page')
     openControls(input.page as Parameters<typeof openControls>[0]); return
@@ -1285,6 +1330,8 @@ async function main(): Promise<void> {
     })
   app.once('will-quit', () => { desktopShortcuts?.dispose() })
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(join(root, 'build', 'app-icon-mac.png'))
+  // The sign-in window and page popups take the chosen frame icon too.
+  app.on('browser-window-created', (_event, window) => native.decorateWindow(window))
   // Recovery can open without a Host; Chromium's app locale may differ from the OS language.
   windowsLanguage = preferredDesktopLocale([...app.getPreferredSystemLanguages(), app.getLocale()])
   // Before any Profile is read or set up in a directory this launch may give up.
@@ -1471,6 +1518,7 @@ async function main(): Promise<void> {
     for (const window of [mainWindow, shellWindow]) {
       if (window && !window.isDestroyed()) applyWindowMaterial(window, runtime.preferences)
     }
+    native.appearanceChanged()
   })
   runtime.safeMode = safeModeRequested
   runtime.recoveryMode = process.argv.includes(RECOVERY_ARGUMENT)

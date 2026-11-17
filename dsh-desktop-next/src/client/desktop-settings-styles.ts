@@ -338,6 +338,39 @@ button.dshDesktopSettingsButton:disabled {
   font-size: 11px;
   line-height: 1.4;
 }
+.dshDesktopSettingsIconChoices { display: flex; flex: 0 0 auto; gap: 8px; }
+.dshDesktopSettingsIconChoice,
+button.dshDesktopSettingsIconChoice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  width: 72px;
+  padding: 8px 6px 6px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+}
+.dshDesktopSettingsIconChoice :is(picture, img) { display: block; }
+.dshDesktopSettingsIconChoice img { width: 40px; height: 40px; }
+.dshDesktopSettingsIconChoice:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.dshDesktopSettingsIconChoice:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+.dshDesktopSettingsIconChoice[aria-checked="true"] {
+  border-color: var(--dsw-alias-brand-primary);
+  box-shadow: 0 0 0 1px var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary);
+}
+.dshDesktopSettingsIconChoice:disabled { cursor: not-allowed; }
+.dshDesktopSettingsIconChoice:disabled:not([aria-checked="true"]) { opacity: .58; }
 .dshDesktopSettingsMaterialCopy { min-width: 0; }
 .dshDesktopSettingsSelect,
 button.dshDesktopSettingsSelect {

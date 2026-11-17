@@ -6,11 +6,14 @@ import { Switch } from '../../../dsh-plugin-desktop/src/native-ui/components/ui/
 import { RadioGroup, RadioGroupItem } from '../../../dsh-plugin-desktop/src/native-ui/components/ui/radio-group.tsx'
 import { Alert, AlertDescription } from '../../../dsh-plugin-desktop/src/native-ui/components/ui/alert.tsx'
 import { DesktopFrame } from '../../../dsh-plugin-desktop/src/native-ui/shared/DesktopFrame.tsx'
+import { appIconLabel, DESKTOP_APP_ICONS, isDesktopAppIcon, type DesktopAppIcon } from '../app-icon.ts'
 import type { DesktopBridge, DesktopPreferences, DesktopState } from '../desktop-contract.ts'
+import { AppIconPreview } from '../client/app-icon-previews.tsx'
 import { installPluginControlsStyles } from '../client/plugin-controls-styles.ts'
 import { OFFICIAL_PLUGIN_INDEX } from '../upstream-family-labels.ts'
 import './onboarding.css'
 import whaleArtwork from '../../build/app-icon.icon/Assets/whale-cobalt.svg'
+import classicWhaleArtwork from '../../build/classic/app-icon.icon/Assets/DeepSeek.svg'
 // Reuse the portable device family artwork and composition from the AA landing page.
 import phoneArtwork from './assets/agents-anywhere-phone.webp'
 import tabletArtwork from './assets/agents-anywhere-tablet.webp'
@@ -18,7 +21,7 @@ type Market = 'community' | 'dsh'
 // Keep official dialog dependencies out of recovery and the earlier setup pages.
 const DesktopPermissionsButton = lazy(() => import('../client/permissions.tsx').then(module => ({ default: module.DesktopPermissionsButton })))
 
-export function Onboarding({ state, locale, bridge }: { state: Pick<DesktopState, 'selected' | 'features' | 'onboardingComputerUse'> & { platform?: string; preferences?: Pick<DesktopPreferences, 'browserAccess' | 'networkExposure'> & Partial<Pick<DesktopPreferences, 'macosMaterial'>> }; locale: 'zh' | 'en'; bridge: Pick<DesktopBridge, 'command' | 'permissions'> }) {
+export function Onboarding({ state, locale, bridge }: { state: Pick<DesktopState, 'selected' | 'features' | 'onboardingComputerUse'> & { platform?: string; preferences?: Pick<DesktopPreferences, 'browserAccess' | 'networkExposure'> & Partial<Pick<DesktopPreferences, 'macosMaterial' | 'appIcon'>> }; locale: 'zh' | 'en'; bridge: Pick<DesktopBridge, 'command' | 'permissions'> }) {
   const t = (zh: string, en: string) => locale === 'zh' ? zh : en
   const platform = state.platform ?? document.documentElement.dataset.platform ?? new URLSearchParams(location.search).get('platform') ?? undefined
   const material = platform === 'darwin' ? (state.preferences?.macosMaterial ?? (document.documentElement.dataset.material === 'off' ? 'off' : 'transparent')) : 'off'
@@ -34,6 +37,8 @@ export function Onboarding({ state, locale, bridge }: { state: Pick<DesktopState
   const [computerUse, setComputerUse] = useState(state.onboardingComputerUse ?? false)
   const [browserAccess, setBrowserAccess] = useState(state.preferences?.browserAccess ?? false)
   const [networkExposure, setNetworkExposure] = useState<'loopback' | 'lan'>(state.preferences?.browserAccess && state.preferences?.networkExposure === 'lan' ? 'lan' : 'loopback')
+  const [appIcon, setAppIcon] = useState<DesktopAppIcon>(state.preferences?.appIcon ?? 'default')
+  const appIconRequest = useRef(0)
   const confirmingLan = useRef(false)
   const slide = useRef<HTMLDivElement>(null)
   const navigationLock = useRef(false)
@@ -78,6 +83,19 @@ export function Onboarding({ state, locale, bridge }: { state: Pick<DesktopState
     navigationLock.current = false
   }
 
+  // Unlike the other choices, the icon is saved and shown at once, so skipping setup keeps it.
+  function chooseAppIcon(value: string) {
+    if (!isDesktopAppIcon(value) || value === appIcon || disabled) return
+    const previous = appIcon
+    const request = ++appIconRequest.current
+    setAppIcon(value); setFailure('')
+    void bridge.command({ type: 'app-icon', appIcon: value }).catch(error => {
+      if (!mounted.current || request !== appIconRequest.current) return
+      setAppIcon(previous)
+      setFailure(error instanceof Error ? error.message : String(error))
+    })
+  }
+
   async function finish(skip: boolean) {
     if (saving.current || navigationLock.current) return
     saving.current = true
@@ -114,6 +132,17 @@ export function Onboarding({ state, locale, bridge }: { state: Pick<DesktopState
           {page > 0 && <p className="next-onboarding-eyebrow">{steps[page]}</p>}
           <h1 id="onboarding-title" tabIndex={-1}>{titles[page]!.split('\n').map((line, i) => <span className="next-onboarding-reveal" key={i} style={{ animationDelay: `${80 + i * 130}ms` }}>{line}</span>)}</h1>
           <p className="next-onboarding-description next-onboarding-reveal">{descriptions[page]}</p>
+          {page === 0 && <div className="next-onboarding-option next-onboarding-reveal">
+            <div className="next-onboarding-toggle"><span id="onboarding-app-icon">{t('应用图标', 'App icon')}</span></div>
+            <RadioGroup aria-labelledby="onboarding-app-icon" className="next-onboarding-icon-choices" value={appIcon} disabled={disabled} onValueChange={value => { chooseAppIcon(String(value)) }}>
+              {DESKTOP_APP_ICONS.map(icon => <label className="next-onboarding-choice next-onboarding-icon-choice" data-selected={appIcon === icon} key={icon}>
+                <AppIconPreview icon={icon} size={36} />
+                <span className="next-onboarding-choice-copy"><strong id={`app-icon-${icon}`}>{appIconLabel(icon, locale === 'zh')}</strong></span>
+                <RadioGroupItem value={icon} aria-labelledby={`app-icon-${icon}`} />
+              </label>)}
+            </RadioGroup>
+            <p>{t('以后也可以在桌面设置中切换。', 'You can also switch icons later in Desktop settings.')}</p>
+          </div>}
           {page === 1 && <div className="next-onboarding-option next-onboarding-reveal">
             <div className="next-onboarding-toggle"><label htmlFor="onboarding-market">{t('启用插件市场', 'Enable plugin market')}</label><Switch id="onboarding-market" checked={marketEnabled} disabled={disabled} onCheckedChange={setMarketEnabled} /></div>
             <p>{t('以后也可以在插件页面开启或调整。', 'You can also enable or change this later in Plugins.')}</p>
@@ -141,7 +170,7 @@ export function Onboarding({ state, locale, bridge }: { state: Pick<DesktopState
         </section>
         <aside className="next-onboarding-panel next-onboarding-reveal" aria-label={steps[page]}>
           {page === 0 && <div className="next-onboarding-wordmark" aria-hidden="true">
-            <span className="next-onboarding-whale" style={{ maskImage: `url("${whaleArtwork}")` }} /><span>BETA</span>
+            <span key={appIcon} className="next-onboarding-whale" style={{ maskImage: `url("${appIcon === 'classic' ? classicWhaleArtwork : whaleArtwork}")` }} /><span>BETA</span>
           </div>}
           {page === 1 && <div className="grid w-full gap-3" aria-label={t('插件市场', 'Plugin market')}>
             <RadioGroup aria-label={t('内置插件市场', 'Built-in plugin markets')} className="next-onboarding-choice-group" value={market} disabled={disabled || !marketEnabled} onValueChange={value => { if (marketEnabled) setMarket(value as Market) }}>

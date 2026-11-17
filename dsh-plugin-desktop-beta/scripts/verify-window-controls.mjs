@@ -102,6 +102,7 @@ try {
         ? { state: 'ready', actualPort: 43121, addresses: ['192.168.1.20', '10.0.0.20'], caFingerprint: 'a'.repeat(64), errorCode: null }
         : null
     }
+    if (command.type === 'app-icon') controlState.preferences = { ...controlState.preferences, appIcon: command.appIcon }
     if (command.type === 'switch') controlState.selected = command.name
     if (command.type === 'features') controlState.features = command.features
     if (command.type === 'create') controlState.profiles.push(command.name)
@@ -816,6 +817,28 @@ try {
   await page.getByRole('button', { name: /^(桌面设置|Desktop settings)$/ }).click()
   await settings.getByRole('heading', { name: /^(DSH Desktop Beta 设置|DSH Desktop Beta settings)$/ }).waitFor()
   assert.equal(await settings.locator('nav').count(), 0)
+  // The app icon leads the window appearance rows; a choice is saved and shown at once, by keyboard too.
+  const appIcon = settings.locator('[data-next-app-icon]')
+  const checkedIcon = () => page.evaluate(() => document.querySelector('[data-next-app-icon] [role="radio"][aria-checked="true"]')?.textContent)
+  await appIcon.getByText('应用图标', { exact: true }).waitFor()
+  assert.equal(await appIcon.evaluate(row => row.nextElementSibling?.matches('[data-desktop-material-row]')), true)
+  assert.equal(await appIcon.locator('img').evaluateAll(images => images.length === 2 && images.every(image => image.complete && image.naturalWidth > 0)), true)
+  assert.equal(await checkedIcon(), '默认')
+  await appIcon.getByRole('radio', { name: '经典', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('[data-next-app-icon] [role="radio"][aria-checked="true"]')?.textContent === '经典')
+  assert.deepEqual(controlCommands.at(-1), { type: 'app-icon', appIcon: 'classic' })
+  assert.equal(controlState.preferences.appIcon, 'classic')
+  await appIcon.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: join(screenshots, 'desktop-app-icon.png'), animations: 'disabled' })
+  await appIcon.getByRole('radio', { name: '经典', exact: true }).press('ArrowLeft')
+  await page.waitForFunction(() => document.querySelector('[data-next-app-icon] [role="radio"][aria-checked="true"]')?.textContent === '默认')
+  assert.deepEqual(controlCommands.at(-1), { type: 'app-icon', appIcon: 'default' })
+  controlState.safeMode = true
+  await page.waitForFunction(() => [...document.querySelectorAll('[data-next-app-icon] [role="radio"]')].every(button => button.disabled))
+  await appIcon.getByText('安全模式固定使用默认图标。', { exact: true }).waitFor()
+  controlState.safeMode = false
+  await page.waitForFunction(() => [...document.querySelectorAll('[data-next-app-icon] [role="radio"]')].every(button => !button.disabled))
+  assert.equal(await checkedIcon(), '默认')
   const updateSection = settings.locator('[data-next-updates]')
   const releaseNotes = updateSection.getByRole('link', { name: /^(更新公告|Release notes)$/ })
   assert.equal(await releaseNotes.getAttribute('href'), `https://github.com/anywhere-labs/dsh-desktop/releases/tag/v${controlState.version}`)
