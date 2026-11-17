@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Editor Access (ACP)",
+    "description": "Lets Zed and other ACP editors use this running DSH. After enabling, set ~/.agents-anywhere/dsh-acp/bin/dsh-acp as the editor's agent command."
+  }
+}

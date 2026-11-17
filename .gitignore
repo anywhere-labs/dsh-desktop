@@ -13,6 +13,7 @@ dsh-plugin-desktop/dist/
 dsh-plugin-desktop/lib/
 dsh-community-market/lib/
 dsh-tokens-anywhere/lib/
+dsh-acp-bridge/lib/
 
 .env.yarn
 dsh-desktop-next/lib/
