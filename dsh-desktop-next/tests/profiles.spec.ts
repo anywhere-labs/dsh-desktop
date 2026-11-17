@@ -739,3 +739,20 @@ it('leaves no Profile link into an archived installation and points the AA bridg
   expect(lstatSync(link).isSymbolicLink()).toBe(true)
   expect(JSON.parse(readFileSync(join(dir, 'desktop-next.cordis.patch.json'), 'utf8'))).toEqual([{ id: 'agents-anywhere-bridge-next', config: { dshHome: manager.home } }])
 })
+
+it('tolerates empty or whitespace-only cordis.patch.yml without throwing', () => {
+  const manager = profiles()
+  const home = manager.home
+  const desktop = manager.ensure('desktop')
+  writeFileSync(join(home, 'cordis.patch.yml'), '   \n\n  ')
+  writeFileSync(join(desktop, 'cordis.patch.yml'), '')
+  expect(() => readNextProfilePatches(desktop, home, [])).not.toThrow()
+})
+
+it('tolerates comment-only cordis.patch.yml without throwing', () => {
+  const manager = profiles()
+  const home = manager.home
+  const desktop = manager.ensure('desktop')
+  writeFileSync(join(home, 'cordis.patch.yml'), '# Only comments\n# in this patch\n')
+  expect(() => readNextProfilePatches(desktop, home, [])).not.toThrow()
+})
