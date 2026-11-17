@@ -130,6 +130,11 @@ jobs:
       # Beta smokes below run too. Once Beta mirrors Next, the root check runs only the Beta specs its
       # channel-specific files can change; the variant verifier keeps that choice in step with
       # upstream.json. The packaging jobs boot the packaged Beta Host on every OS.
+      # The login-shell specs read real zsh, bash and fish startup files with each shell the runner has;
+      # the image has only bash.
+      - name: Install zsh and fish for the login-shell specs
+        if: needs.changes.outputs.product == 'true'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends zsh fish
       - if: needs.changes.outputs.product == 'true'
         run: yarn check
       - name: Resolve Playwright version
@@ -431,7 +436,8 @@ jobs:
         with:
           path: ${{ steps.cua-helper.outputs.dir }}/native/bin
           key: cua-helper-${{ runner.os }}-${{ runner.arch }}-${{ env.MAC_SMOKE_ARCH }}-${{ steps.cua-helper.outputs.swift }}-${{ hashFiles(format('{0}/package.json', steps.cua-helper.outputs.dir), format('{0}/native/**', steps.cua-helper.outputs.dir), 'dsh-plugin-desktop-beta/scripts/upstream-family/cua-native.ts') }}
-      # Unit suites run on Linux; the Beta specs that only run on macOS run here.
+      # Unit suites run on Linux; the Beta specs with macOS-only cases run here, and so does the real
+      # login-shell spec with macOS's own zsh and bash.
       - name: Run the macOS-only Beta specs
         run: node scripts/test-platform-specs.mjs
       - run: yarn workspace dsh-plugin-desktop-beta check:mac-package:platform
