@@ -208,7 +208,7 @@ try {
   await shell.getByRole('radio', { name: '局域网', exact: true, checked: true }).waitFor()
   await page.screenshot({ path: join(screenshots, 'onboarding-official-browser-access.png') })
   await next()
-  assert.match(await shell.locator('.next-onboarding-recovery').innerText(), /桌面设置最底部/)
+  assert.match(await shell.locator('.next-onboarding-recovery').innerText(), /桌面设置的“诊断与恢复”中打开/)
   rejectSave = true
   await finish()
   await shell.getByRole('alert').filter({ hasText: 'could not save Profile' }).waitFor()

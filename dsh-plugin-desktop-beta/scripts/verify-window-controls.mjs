@@ -805,8 +805,20 @@ try {
   await page.getByRole('button', { name: /^(桌面设置|Desktop settings)$/ }).click()
   const settings = page.locator('[data-next-desktop-settings]')
   await settings.getByRole('heading', { name: /^(DSH Desktop Beta 设置|DSH Desktop Beta settings)$/ }).waitFor()
+  // Four tabs group the page and General opens first; a hidden tab stays mounted, and only one panel shows.
+  const settingsTabs = settings.getByRole('tablist', { name: '桌面设置分类' })
+  assert.deepEqual(await settingsTabs.getByRole('tab').allTextContents(), ['通用', 'Profile 与数据', '浏览器与局域网', '诊断与恢复'])
+  assert.equal(await settingsTabs.getByRole('tab', { selected: true }).textContent(), '通用')
+  const openSettingsTab = async name => {
+    await settingsTabs.getByRole('tab', { name, exact: true }).click()
+    await settings.getByRole('tabpanel', { name, exact: true }).waitFor()
+    assert.equal(await settings.getByRole('tabpanel').count(), 1)
+  }
+  await openSettingsTab('浏览器与局域网')
+  assert.equal(await settings.locator('[data-desktop-settings-tab="general"] [data-next-app-icon]').count(), 1)
   const pluginNotice = settings.locator('[data-next-plugin-settings-notice]')
   await pluginNotice.getByText('插件市场和远程控制设置已移至插件页面。', { exact: true }).waitFor()
+  await pluginNotice.scrollIntoViewIfNeeded()
   await page.screenshot({ path: join(screenshots, 'desktop-plugin-settings-notice.png'), animations: 'disabled' })
   await pluginNotice.getByRole('button', { name: /^(前往插件页面|Go to Plugins)$/ }).click()
   await page.getByRole('dialog', { name: /^(设置|Settings)$/ }).waitFor({ state: 'hidden' })
@@ -817,6 +829,7 @@ try {
   await page.getByRole('button', { name: /^(桌面设置|Desktop settings)$/ }).click()
   await settings.getByRole('heading', { name: /^(DSH Desktop Beta 设置|DSH Desktop Beta settings)$/ }).waitFor()
   assert.equal(await settings.locator('nav').count(), 0)
+  assert.equal(await settingsTabs.getByRole('tab', { selected: true }).textContent(), '通用')
   // The app icon leads the window appearance rows; a choice is saved and shown at once, by keyboard too.
   const appIcon = settings.locator('[data-next-app-icon]')
   const checkedIcon = () => page.evaluate(() => document.querySelector('[data-next-app-icon] [role="radio"][aria-checked="true"]')?.textContent)
@@ -856,29 +869,69 @@ try {
   await updateSection.getByRole('button', { name: /安装并重启|Install and restart/ }).click()
   assert.equal(controlCommands.at(-1).type, 'install-update')
   controlState.updates = { phase: 'idle', installable: true }
-  const setupWizard = settings.getByRole('button', { name: /^(设置向导|Setup wizard)$/ })
+  // The setup wizard has its own row in General, between system permissions and app updates.
+  const setupWizardRow = settings.locator('[data-next-setup-wizard]')
+  const setupWizard = setupWizardRow.getByRole('button', { name: /^(重新打开|Reopen)$/ })
+  await setupWizardRow.getByRole('heading', { name: /^(设置向导|Setup wizard)$/ }).waitFor()
+  assert.equal(await setupWizardRow.evaluate(row => row.previousElementSibling?.getAttribute('aria-label') === '系统权限'
+    && row.nextElementSibling?.matches('[data-next-updates]')), true)
   await setupWizard.click()
   assert.equal(controlCommands.at(-1).type, 'restart-onboarding')
-  assert.equal(await setupWizard.evaluate(button => button === button.parentElement.firstElementChild), true)
-  await page.waitForFunction(() => [...document.querySelectorAll('[data-next-desktop-settings] button')].some(button => /^(设置向导|Setup wizard)$/.test(button.textContent) && !button.disabled))
+  await page.waitForFunction(() => document.querySelector('[data-next-setup-wizard] button')?.disabled === false)
   controlState.safeMode = true
-  await page.waitForFunction(() => [...document.querySelectorAll('[data-next-desktop-settings] button')].some(button => /^(设置向导|Setup wizard)$/.test(button.textContent) && button.disabled))
+  await page.waitForFunction(() => document.querySelector('[data-next-setup-wizard] button')?.disabled === true)
   controlState.safeMode = false
-  await page.waitForFunction(() => [...document.querySelectorAll('[data-next-desktop-settings] button')].some(button => /^(设置向导|Setup wizard)$/.test(button.textContent) && !button.disabled))
-  await settings.locator('.dshDesktopSettingsGroup').filter({ has: page.getByRole('heading', { name: /^(桌面工具|Desktop tools)$/ }) }).scrollIntoViewIfNeeded()
+  await page.waitForFunction(() => document.querySelector('[data-next-setup-wizard] button')?.disabled === false)
+  await setupWizardRow.scrollIntoViewIfNeeded()
   await page.screenshot({ path: join(screenshots, 'desktop-setup-wizard-entry.png'), animations: 'disabled' })
-  // The loaded data directory sits between the tool buttons and the log level, with the
-  // recovery assistant's switch and a backup before any reset.
+  // Profiles & data: the data directory follows the Profile list, above the folder buttons,
+  // with the recovery assistant's switch and a backup before any reset.
+  await openSettingsTab('Profile 与数据')
+  assert.equal(await settings.getByRole('radio', { name: /^broken/ }).getAttribute('aria-disabled'), 'true')
+  // Profile cards use the official settings card material in both themes; the current Profile takes the selected
+  // fill and border.
+  for (const colorScheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme })
+    await page.waitForFunction(dark => document.body.hasAttribute('data-ds-dark-theme') === dark, colorScheme === 'dark')
+    // The cards fade between themes; read their colors once the transitions end.
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-desktop-settings-tab="profiles"] .dshDesktopSettingsChoice')]
+      .every(card => card.getAnimations().length === 0))
+    const profileCards = await settings.locator('[data-desktop-settings-tab="profiles"]').evaluate(panel => {
+      const resolve = (property, value) => {
+        const probe = document.createElement('span')
+        probe.style.setProperty(property, value)
+        panel.append(probe)
+        const resolved = getComputedStyle(probe).getPropertyValue(property)
+        probe.remove()
+        return resolved
+      }
+      const cards = [...panel.querySelectorAll('.dshDesktopSettingsChoice')]
+      const selected = getComputedStyle(cards.find(card => card.dataset.selected === 'true'))
+      const other = getComputedStyle(cards.find(card => card.dataset.selected !== 'true' && card.getAttribute('aria-disabled') !== 'true'))
+      return {
+        fill: other.backgroundColor === resolve('background-color', 'var(--dsw-alias-settings-card-fill)'),
+        stroke: other.borderTopColor === resolve('border-top-color', 'var(--dsw-alias-settings-card-stroke)'),
+        selectedFill: selected.backgroundColor === resolve('background-color', 'var(--dsw-alias-bg-module-platform)'),
+        selectedBorder: selected.borderTopColor === resolve('border-top-color', 'var(--dsw-alias-border-selected)'),
+        radius: selected.borderTopLeftRadius === resolve('border-top-left-radius', 'var(--dsw-radius-xl)'),
+      }
+    })
+    assert.deepEqual(profileCards, { fill: true, stroke: true, selectedFill: true, selectedBorder: true, radius: true }, colorScheme)
+    await settings.locator('#dsh-desktop-profile-title').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: join(screenshots, `desktop-profiles-${colorScheme}.png`), animations: 'disabled' })
+  }
   const dataDirectory = settings.locator('[data-next-data-directory]')
   await dataDirectory.locator('code').getByText('[temporary test home]', { exact: true }).waitFor()
   await dataDirectory.getByText('应用内选择', { exact: true }).waitFor()
   await dataDirectory.getByText('应用内选择优先于 DSH_DESKTOP_NEXT_HOME。如需重置当前数据目录，请先备份，再到恢复助手中操作。', { exact: true }).waitFor()
-  assert.equal(await dataDirectory.evaluate(row => row.previousElementSibling?.classList.contains('dshDesktopSettingsToolActions')
-    && row.nextElementSibling?.classList.contains('dshDesktopSettingsMaterialField')), true)
+  assert.equal(await dataDirectory.evaluate(row => row.parentElement?.previousElementSibling?.getAttribute('aria-labelledby') === 'dsh-desktop-profile-title'
+    && row.nextElementSibling?.classList.contains('dshDesktopSettingsToolActions')), true)
   await dataDirectory.getByRole('button', { name: /^(切换|Change)$/ }).click()
   assert.equal(controlCommands.at(-1).type, 'change-data-directory')
   await dataDirectory.getByRole('button', { name: /^(备份|Back up)$/ }).click()
   assert.equal(controlCommands.at(-1).type, 'backup-data-directory')
+  await settings.getByRole('button', { name: /^(打开 Profile 目录|Open Profile directory)$/ }).click()
+  assert.equal(controlCommands.at(-1).type, 'open-profile')
   await dataDirectory.scrollIntoViewIfNeeded()
   await page.screenshot({ path: join(screenshots, 'desktop-data-directory.png'), animations: 'disabled' })
   controlState.safeMode = true
@@ -888,7 +941,11 @@ try {
   await dataDirectory.getByText('DSH_DESKTOP_NEXT_HOME', { exact: true }).waitFor()
   assert.equal(await dataDirectory.getByText(/优先于/).count(), 0)
   await page.waitForFunction(() => [...document.querySelectorAll('[data-next-data-directory] button')].every(button => !button.disabled))
-  // The Host startup limit (#1569): the presets, a limit saved outside them, and Safe Mode's fixed one.
+  // Diagnostics: logging and developer tools, then the Host startup limit (#1569): the presets,
+  // a limit saved outside them, and Safe Mode's fixed one.
+  await openSettingsTab('诊断与恢复')
+  await settings.getByRole('button', { name: /^(打开日志目录|Open log directory)$/ }).click()
+  assert.equal(controlCommands.at(-1).type, 'open-logs')
   const startupLimit = settings.locator('[data-next-startup-limit]')
   const startupLimitValue = () => page.evaluate(() => document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.textContent)
   assert.equal(await startupLimitValue(), '60 秒（默认）')
@@ -908,13 +965,13 @@ try {
   await page.waitForFunction(() => document.querySelector('[data-next-startup-limit] .dshDesktopSettingsSelect')?.disabled === false)
   await startupLimit.scrollIntoViewIfNeeded()
   await page.screenshot({ path: join(screenshots, 'desktop-startup-limit.png'), animations: 'disabled' })
-  assert.equal(await settings.getByRole('radio', { name: /^broken/ }).getAttribute('aria-disabled'), 'true')
   assert.equal(await settings.getByRole('radio', { name: /增强模式|扩展模式|Advanced mode|Extended mode/ }).count(), 0)
   assert.equal(await settings.locator('#dsh-desktop-market-title, #dsh-desktop-aa-title').count(), 0)
+  await openSettingsTab('通用')
   const closeToTray = settings.getByRole('switch', { name: /关闭窗口后保持后台运行|Keep running after closing the window/ })
   assert.equal(await closeToTray.isChecked(), true)
   await closeToTray.click()
-  await page.waitForFunction(() => !document.querySelector('.dshDesktopSettingsGroup:last-child button')?.disabled)
+  await settings.getByRole('switch', { name: /关闭窗口后保持后台运行|Keep running after closing the window/, checked: false }).waitFor()
   assert.ok(controlCommands.some(command => command.type === 'preferences' && !command.preferences.closeToTray))
   assert.equal(await settings.getByRole('heading', { name: /^(端口设置|Port settings)$/ }).count(), 0)
   assert.equal(await settings.getByRole('spinbutton').count(), 0)
@@ -956,6 +1013,7 @@ try {
   controlState.platform = 'darwin'
   await actions.getByRole('button', { name: /打开 DSH 终端|Open DSH Terminal/ }).waitFor({ state: 'visible' })
   // Each local/LAN login link has its own row and native open/copy target.
+  await openSettingsTab('浏览器与局域网')
   const webSettings = settings.locator('section[aria-labelledby="dsh-desktop-web-title"]')
   const browserAccess = webSettings.getByRole('switch', { name: /允许在浏览器中打开|Allow opening this Profile in a browser/ })
   const lanAccess = webSettings.getByRole('switch', { name: /局域网访问|Local-network access/ })
@@ -994,8 +1052,10 @@ try {
   assert.equal(await loginRows.count(), 1)
   await browserAccess.click()
   await loginRows.first().waitFor({ state: 'hidden' })
+  await openSettingsTab('通用')
   await settings.locator('#dsh-desktop-notifications-title').scrollIntoViewIfNeeded()
   await page.screenshot({ path: join(screenshots, 'desktop-notification-settings.png'), animations: 'disabled' })
+  await openSettingsTab('Profile 与数据')
   await settings.getByRole('radio', { name: /^work/ }).click()
   await page.waitForFunction(() => [...document.querySelectorAll('[role="radio"]')].some(el => el.textContent.startsWith('work') && el.getAttribute('aria-checked') === 'true'))
   assert.deepEqual(controlCommands.at(-1), { type: 'switch', name: 'work' })

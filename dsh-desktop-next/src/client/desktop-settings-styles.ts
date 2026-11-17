@@ -34,6 +34,32 @@ const CSS = `
   padding-top: 16px;
   border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
+/* The official SegmentedTabs at the Plugins page's width rules; a label that cannot fit ends in an ellipsis. */
+.dshDesktopSettingsTabs {
+  align-self: flex-start;
+  box-sizing: border-box;
+  width: fit-content;
+  min-width: 240px;
+  max-width: 100%;
+}
+.dshDesktopSettingsTabs [role="tab"] { min-width: 0; }
+.dshDesktopSettingsTabLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dshDesktopSettingsTabPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+.dshDesktopSettingsTabPanel[hidden] { display: none; }
+.dshDesktopSettingsTabPanel > .dshDesktopSettingsGroup:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
 .dshDesktopSettingsList { display: grid; gap: 8px; }
 .dshDesktopSettingsChoice {
   display: flex;
@@ -94,6 +120,25 @@ const CSS = `
   box-shadow: 0 0 0 1px var(--dsw-alias-brand-primary);
 }
 .dshDesktopSettingsChoice[aria-disabled="true"]:not([data-selected="true"]) { opacity: .58; }
+/* Inside Desktop settings, choice cards such as the Profiles use the official settings card material
+   (docs/ui-radius.md#settings-cards). A selected card takes the platform fill and the selected border,
+   as the default Agent preset does. */
+.dshDesktopSettings .dshDesktopSettingsChoice {
+  padding: 14px 16px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-settings-card-fill);
+  transition: border-color .16s, background .16s;
+}
+.dshDesktopSettings .dshDesktopSettingsChoice[data-selected="true"] {
+  border-color: var(--dsw-alias-border-selected);
+  box-shadow: none;
+  background: var(--dsw-alias-bg-module-platform);
+}
+.dshDesktopSettings .dshDesktopSettingsChoice:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
 .dshDesktopSettingsChoiceCopy { display: block; flex: 1; min-width: 0; }
 .dshDesktopSettingsToggleCopy {
   display: flex;

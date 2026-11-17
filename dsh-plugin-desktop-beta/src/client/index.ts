@@ -26,6 +26,7 @@ import { installRendererRecovery } from './renderer-recovery.ts'
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     'desktop.settings': DesktopSettingsLocaleKey | 'sidebarFooterCompat' | 'sidebarFooterCompatBody' | 'sidebarFooterBalanced' | 'sidebarFooterBalancedBody'
+      | 'tabs' | 'tabGeneral' | 'tabProfiles' | 'tabAccess' | 'tabDiagnostics'
     'desktop-next': 'settings' | 'language' | 'safeMode' | 'safeModeDetail' | 'recovery' | 'dismiss'
   }
 }
