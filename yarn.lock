@@ -2011,7 +2011,7 @@ __metadata:
 
 "@deepseek-ai/dsh-app-boot@patch:@deepseek-ai/dsh-app-boot@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-app-boot-0.2.2-rc.3.tgz#./patches/dsh-app-boot@0.2.2-rc.3.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.2-rc.3
-  resolution: "@deepseek-ai/dsh-app-boot@patch:@deepseek-ai/dsh-app-boot@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-app-boot-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-app-boot-0.2.2-rc.3.tgz%3A%3Ahash=cf7f34&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-app-boot@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=f6ab13&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-app-boot@patch:@deepseek-ai/dsh-app-boot@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-app-boot-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-app-boot-0.2.2-rc.3.tgz%3A%3Ahash=cf7f34&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-app-boot@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=2a5fc7&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-atomic-write": "npm:0.2.2-rc.3"
     "@deepseek-ai/dsh-native-command": "npm:0.2.2-rc.3"
@@ -2030,7 +2030,7 @@ __metadata:
     "@deepseek-ai/cordis-plugin-loader": ~1.1.0
     "@deepseek-ai/dsh-home-paths": 0.2.2-rc.3
     "@deepseek-ai/dsh-launch-environment": 0.2.2-rc.3
-  checksum: 10c0/e0c923012576e67a18176878bd7920ee8d3168b470e4af8b20cf1c63760064d25f8df10b31a3a14cae3b1c8f487363e94ed7eb10e8c4fc7c885fc9bedbda46c7
+  checksum: 10c0/348786d5a978347ebf2640432f8716ad6ef6b01a3579be486f8305e14c2f7bad4d7c48d385c712f616043466f14adaf98ce4fa5d49b3d30d71b45a726228ebf3
   languageName: node
   linkType: hard
 
@@ -5044,7 +5044,7 @@ __metadata:
 
 "@deepseek-ai/dsh-experimental-liveshare@patch:@deepseek-ai/dsh-experimental-liveshare@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-experimental-liveshare-0.2.2-rc.3.tgz#./patches/dsh-experimental-liveshare@0.2.2-rc.3.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.2-rc.3
-  resolution: "@deepseek-ai/dsh-experimental-liveshare@patch:@deepseek-ai/dsh-experimental-liveshare@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-experimental-liveshare-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-experimental-liveshare-0.2.2-rc.3.tgz%3A%3Ahash=4b2367&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-experimental-liveshare@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=b0e750&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-experimental-liveshare@patch:@deepseek-ai/dsh-experimental-liveshare@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-experimental-liveshare-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-experimental-liveshare-0.2.2-rc.3.tgz%3A%3Ahash=4b2367&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-experimental-liveshare@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=28e692&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-atomic-write": "npm:0.2.2-rc.3"
     "@deepseek-ai/dsh-brand": "npm:0.2.2-rc.3"
@@ -5060,7 +5060,7 @@ __metadata:
   peerDependencies:
     "@deepseek-ai/cordis": ~4.1.0
     "@deepseek-ai/dsh-scope": 0.2.2-rc.3
-  checksum: 10c0/7dbe72d5e38a1aeb16c09b24c313fdb06fc4d0ad9a9bc035f072955d139e2c114f7e0b47abf9017409d00dfb709a92a8e72f0d5dbfacea49dea87445f81c4379
+  checksum: 10c0/537f06abaa5e4b62868290f8b72f6eba0345186c394415249e7480e8570c7b51b77c898bc09184b3a054cd0ed24b63b6b889665f7163b40f882f29fa729d403f
   languageName: node
   linkType: hard
 
@@ -6030,13 +6030,13 @@ __metadata:
 
 "@deepseek-ai/dsh-host-directory-picker-browse@patch:@deepseek-ai/dsh-host-directory-picker-browse@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-host-directory-picker-browse-0.2.2-rc.3.tgz#./patches/dsh-host-directory-picker-browse@0.2.2-rc.3.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.2-rc.3
-  resolution: "@deepseek-ai/dsh-host-directory-picker-browse@patch:@deepseek-ai/dsh-host-directory-picker-browse@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-host-directory-picker-browse-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-host-directory-picker-browse-0.2.2-rc.3.tgz%3A%3Ahash=b7e7a7&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-host-directory-picker-browse@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=50d617&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-host-directory-picker-browse@patch:@deepseek-ai/dsh-host-directory-picker-browse@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-host-directory-picker-browse-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-host-directory-picker-browse-0.2.2-rc.3.tgz%3A%3Ahash=b7e7a7&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-host-directory-picker-browse@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=74fb93&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-host-directory-picker": "npm:0.2.2-rc.3"
     "@deepseek-ai/schemastery": "npm:~3.19.0"
   peerDependencies:
     "@deepseek-ai/cordis": ~4.1.0
-  checksum: 10c0/501f2d5cc93d444f3add886cb45b42ffac015e73f6283ea31a48d9c81b0eeca2a49d054edd59ee9d4b6b60ea71bf23a6b8c50399f771d7622582ce7ac0c5f324
+  checksum: 10c0/7fadb2269cf111c0a25b454b27364171af610d2b28c78f579e2a53e5727b3bf6d8ddbc17feeb44a58bc94a94f80d8294733fdb31599a916e0fbbd8c738ec75da
   languageName: node
   linkType: hard
 
@@ -6284,12 +6284,12 @@ __metadata:
 
 "@deepseek-ai/dsh-http-proxy@patch:@deepseek-ai/dsh-http-proxy@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-http-proxy-0.2.2-rc.3.tgz#./patches/dsh-http-proxy@0.2.2-rc.3.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.2-rc.3
-  resolution: "@deepseek-ai/dsh-http-proxy@patch:@deepseek-ai/dsh-http-proxy@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-http-proxy-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-http-proxy-0.2.2-rc.3.tgz%3A%3Ahash=8e4949&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-http-proxy@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=239068&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-http-proxy@patch:@deepseek-ai/dsh-http-proxy@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-http-proxy-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-http-proxy-0.2.2-rc.3.tgz%3A%3Ahash=8e4949&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-http-proxy@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=174b0d&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     undici: "npm:8.11.2"
   peerDependencies:
     "@deepseek-ai/cordis": ~4.1.0
-  checksum: 10c0/8350c46578ced7d5cb532b939c29f7f2cbc9d519b56c3d6e6a471f1a4437b52aab09d0d2bc09c09f5230261904486eeae4c83121e0a899ab2cb5fdcc4f0d0074
+  checksum: 10c0/b27f2da13a7bca09e2b276abe3af5728fae37f003e5f68bb1c3b735e86e8d69f8e21d52c755f03b83beb32403b9efd0bd6d42bbb04b835684295ac83f0bb73ee
   languageName: node
   linkType: hard
 
@@ -7595,7 +7595,7 @@ __metadata:
 
 "@deepseek-ai/dsh-sandbox-local@patch:@deepseek-ai/dsh-sandbox-local@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-sandbox-local-0.2.2-rc.3.tgz#./patches/dsh-sandbox-local@0.2.2-rc.3.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.2-rc.3
-  resolution: "@deepseek-ai/dsh-sandbox-local@patch:@deepseek-ai/dsh-sandbox-local@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-sandbox-local-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-sandbox-local-0.2.2-rc.3.tgz%3A%3Ahash=2d9106&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-sandbox-local@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=ad12c8&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-sandbox-local@patch:@deepseek-ai/dsh-sandbox-local@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-sandbox-local-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-sandbox-local-0.2.2-rc.3.tgz%3A%3Ahash=2d9106&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-sandbox-local@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=e001a3&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-sandbox-windows-acl": "npm:0.2.2-rc.3"
     "@deepseek-ai/dsh-util-values": "npm:0.2.2-rc.3"
@@ -7606,7 +7606,7 @@ __metadata:
     "@deepseek-ai/dsh-llm": 0.2.2-rc.3
     "@deepseek-ai/dsh-sandbox": 0.2.2-rc.3
     "@deepseek-ai/dsh-session": 0.2.2-rc.3
-  checksum: 10c0/f10198228e6a2c78b73811dbb8d2644d9cfc2a51d7dff3750b2047c4511cb61327d114a3214e05888b26289b111a3ec02665e07323347628709573338b73d34e
+  checksum: 10c0/4232738070647770fd5137d977968048e14c2e30286ac5ac79dc8da013185ea078b1419d484c4ff7b6c070a55b1acf8d27fec29938afbec1b7af61ad550784f1
   languageName: node
   linkType: hard
 
@@ -8536,7 +8536,7 @@ __metadata:
 
 "@deepseek-ai/dsh-session-reference@patch:@deepseek-ai/dsh-session-reference@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-session-reference-0.2.2-rc.3.tgz#./patches/dsh-session-reference@0.2.2-rc.3.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.2-rc.3
-  resolution: "@deepseek-ai/dsh-session-reference@patch:@deepseek-ai/dsh-session-reference@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-session-reference-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-session-reference-0.2.2-rc.3.tgz%3A%3Ahash=8b60b1&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-session-reference@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=76b8a5&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-session-reference@patch:@deepseek-ai/dsh-session-reference@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-session-reference-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-session-reference-0.2.2-rc.3.tgz%3A%3Ahash=8b60b1&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-session-reference@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=04caf1&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-brand": "npm:0.2.2-rc.3"
     "@deepseek-ai/dsh-util-values": "npm:0.2.2-rc.3"
@@ -8562,7 +8562,7 @@ __metadata:
       optional: true
     "@deepseek-ai/dsh-spill":
       optional: true
-  checksum: 10c0/8fc1d1cd9a93f612c17c2cc2c657e63ae005ec346b7cb75886b1cb70a50bd77119e8587076356357de672665b0529a5b602a5641fe940a8af4cd610764a0b44e
+  checksum: 10c0/7b875182efb334e718acde9db1bf791e44b04aadb027de579f1b3f79cddd33f9015f158ae96066b574d786df9ade6579f81ef86a05bafa1792d42727c2bc9318
   languageName: node
   linkType: hard
 
@@ -9188,13 +9188,13 @@ __metadata:
 
 "@deepseek-ai/dsh-storage-json@patch:@deepseek-ai/dsh-storage-json@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-storage-json-0.2.2-rc.3.tgz#./patches/dsh-storage-json@0.2.2-rc.3.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.2-rc.3
-  resolution: "@deepseek-ai/dsh-storage-json@patch:@deepseek-ai/dsh-storage-json@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-storage-json-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-storage-json-0.2.2-rc.3.tgz%3A%3Ahash=889e93&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-storage-json@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=56e45d&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-storage-json@patch:@deepseek-ai/dsh-storage-json@file%3Avendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-storage-json-0.2.2-rc.3.tgz%23vendor/dsh-runtime/0.2.2-rc.3/deepseek-ai-dsh-storage-json-0.2.2-rc.3.tgz%3A%3Ahash=889e93&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-storage-json@0.2.2-rc.3.patch::version=0.2.2-rc.3&hash=36fc60&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:~3.19.0"
   peerDependencies:
     "@deepseek-ai/cordis": ~4.1.0
     "@deepseek-ai/dsh-storage": 0.2.2-rc.3
-  checksum: 10c0/4c6f36ea92fdf421a67e773a2925d16fde0b7ad4165d97c2bc06e78c43f3e930de7c91d07da38be8af6323ef31b8602748ca33667545a8306343d9145ba9179b
+  checksum: 10c0/93e036ffba2ac14db240f4007bdb14959b83aa42f041b9323e1e3242ee4fd4bdd53f59f70a23877c0dbc91758c436d2141d5a0c9aa2acc5029061b0767dfcd5b
   languageName: node
   linkType: hard
 

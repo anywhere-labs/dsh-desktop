@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index 0fda9d3..cf11d35 100644
+index 0fda9d3..8a617f2 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -1911,6 +1911,10 @@ function readBundlePatches(binName, context, initialProfile) {
@@ -40,12 +40,12 @@ index 0fda9d3..cf11d35 100644
  		if (parentRoutes.selfReferenceName === void 0 || !memo) parentRoutes.selfReferenceName = selfReferenceName(parent);
  		if (parentRoutes.selfReferenceName === name || parentRoutes.selfReferenceName === null) {
  			const state = { route: { kind: "native" } };
-@@ -2522,7 +2538,7 @@ var ResolutionRouter = class {
- 	routeLocalPackage(request, parentRoutes, resolution) {
+@@ -2523,6 +2539,8 @@ var ResolutionRouter = class {
  		const name = barePackageName(request);
  		const { layer } = parentRoutes;
--		if (name === void 0 || layer.kind !== "profile" || !layer.active || !resolution.localPackageNames.has(name)) return void 0;
-+		if (name === void 0 || layer.kind !== "profile" || !layer.active || !resolution.localPackageNames.has(name) || resolution.desktopPackages.has(name)) return void 0;
+ 		if (name === void 0 || layer.kind !== "profile" || !layer.active || !resolution.localPackageNames.has(name)) return void 0;
++		// Desktop: a core package of the pinned runtime is never a Profile-local package.
++		if (resolution.desktopPackages.has(name)) return void 0;
  		const state = { route: { kind: "native" } };
  		parentRoutes.requests.set(request, state);
  		return state;
