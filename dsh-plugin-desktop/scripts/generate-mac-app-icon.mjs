@@ -34,7 +34,6 @@ export async function generateMacAppIcon(source = sourcePath, output = outputPat
     || metadata.height !== MAC_APP_ICON_CANVAS_SIZE
     || metadata.space !== 'rgb16'
     || metadata.depth !== 'ushort'
-    || metadata.bitsPerSample !== 16
     || metadata.channels !== 4
     || metadata.hasAlpha !== true
     || metadata.icc === undefined
@@ -75,7 +74,6 @@ export async function generateMacAppIcon(source = sourcePath, output = outputPat
     || generated.height !== MAC_APP_ICON_CANVAS_SIZE
     || generated.space !== 'rgb16'
     || generated.depth !== 'ushort'
-    || generated.bitsPerSample !== 16
     || generated.channels !== 4
     || generated.hasAlpha !== true
     || generated.icc?.equals(metadata.icc) !== true

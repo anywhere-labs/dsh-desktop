@@ -82,8 +82,7 @@ function editorProps(platform = 'linux'): WorkspaceSourcesEditorProps {
 function rootActionProps(platform = 'linux'): WorkspaceSourcesRootActionProps {
   return {
     absolutePath: WORKSPACE,
-    workspacePath: WORKSPACE,
-    onRootChange: vi.fn(async (_path: string) => {}),
+    reload: vi.fn(),
     useRemoteAccess,
     useSessionAccess,
     useWorkspaceAccess,

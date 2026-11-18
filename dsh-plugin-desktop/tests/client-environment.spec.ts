@@ -58,6 +58,7 @@ describe('desktop client environment', () => {
         'sidebar.footer.action', 'shell.overlay',
         'settings.models.provider-card', 'settings.section', 'settings.section.icon', 'settings.action', 'plugins.bundle.hidden',
         'conversation.input.left', 'sidebar.workspaces.workspace.edit', 'sidebar.right.tab.files.actions',
+        'sidebar.right.tab.files.path',
       ])
       expect(effect.mock.calls.map(([, label]) => label)).not.toContain('desktop: independent compatibility frame styles')
     } finally {

@@ -1,0 +1,79 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -1710,6 +1710,26 @@
++		/**
++		* The `files` header's default path drawing: the owner's absolute root.
++		* @param props - composed slot props.
++		* @returns the workspace path label with its directory menu trigger.
++		*/
++		function FilesPath({ absolutePath, sessionId, useContextMenu }) {
++			const { getTriggerProps } = useContextMenu();
++			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.PathLabel, {
++				path: absolutePath,
++				className: FilesBody_module_css_default.path,
++				"data-files-path": true,
++				...getTriggerProps({
++					kind: "directory",
++					value: {
++						sessionId,
++						path: absolutePath
++					}
++				})
++			});
++		}
+ 		/**
+ 		* The `files` page body.
+ 		* @param props - composed slot props.
+ 		* @returns the header above the pane's navigator, or the workspace line.
+ 		*/
+ 		function FilesBody(props) {
+@@ -1758,15 +1778,4 @@
+ 					children: [
+-						(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.PathLabel, {
+-							path: cwd,
+-							className: FilesBody_module_css_default.path,
+-							"data-files-path": true,
+-							...getTriggerProps({
+-								kind: "directory",
+-								value: {
+-									sessionId,
+-									path: cwd
+-								}
+-							})
+-						}),
++						renderSlot("sidebar.right.tab.files.path", { absolutePath: cwd }),
+ 						(0, react_jsx_runtime.jsx)("span", {
+ 							hidden: true,
+@@ -1803,3 +1812,5 @@
+ 						}),
+-						renderSlot("sidebar.right.tab.files.actions", { absolutePath: cwd })
++						renderSlot("sidebar.right.tab.files.actions", { absolutePath: cwd, reload: () => {
++							refresh(panel.id);
++						} })
+ 					]
+@@ -2234,8 +2245,14 @@
+ 				children: { "sidebar.right.tab.files.actions": {
+ 					kind: "list",
+ 					scope: "session"
++				}, "sidebar.right.tab.files.path": {
++					kind: "single",
++					scope: "session"
+ 				} }
+ 			}, FilesBody)), "ui-sidebar-files: files tab body");
++			ctx.effect(() => ctx.slots.inject("sidebar.right.tab.files.path", () => ctx.slots.register({
++				name: "sidebar.right.tab.files.path"
++			}, FilesPath)), "ui-sidebar-files: files path");
+ 			ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab.title", () => ctx.slots.register({
+ 				name: "sidebar.right.pane.tab.title",
+ 				key: FILES_ID
+diff --git a/lib/types/client/index.d.ts b/lib/types/client/index.d.ts
+--- a/lib/types/client/index.d.ts
++++ b/lib/types/client/index.d.ts
+@@ -15,4 +15,6 @@
+             owner: {
+                 /** Absolute directory path displayed by the file tree. */
+                 readonly absolutePath: string;
++                /** Re-list this pane's tree after the browsed root changes. */
++                readonly reload: () => void;
+             };

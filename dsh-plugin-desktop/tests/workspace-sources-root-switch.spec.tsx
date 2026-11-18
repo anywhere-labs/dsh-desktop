@@ -72,8 +72,8 @@ describe('Workspace source root switching', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   })
 
-  it('switches only the Files tree root and hands the owner no way to move the Session cwd', async () => {
-    const onRootChange = vi.fn(async (_path: string) => {})
+  it('switches only the Files tree root, re-lists it, and never moves the Session cwd', async () => {
+    const reload = vi.fn()
     const selectRoot = vi.fn(async (
       _workspacePath: string,
       _root: string,
@@ -82,8 +82,7 @@ describe('Workspace source root switching', () => {
     ) => { await change(ATTACHED) })
     const select = await render({
       absolutePath: WORKSPACE,
-      workspacePath: WORKSPACE,
-      onRootChange,
+      reload,
       useSessions,
       useSessionStatus,
       useSessionRetainInfo,
@@ -108,11 +107,10 @@ describe('Workspace source root switching', () => {
     await choose(select, ATTACHED)
 
     expect(selectRoot).toHaveBeenCalledWith(WORKSPACE, ATTACHED, expect.any(Function), expect.any(Function))
-    const [keyedWorkspace, keyedRoot, change] = selectRoot.mock.calls[0]!
+    const [keyedWorkspace, keyedRoot] = selectRoot.mock.calls[0]!
     expect(keyedWorkspace).toBe(WORKSPACE)
     expect(keyedRoot).toBe(ATTACHED)
-    await change(ATTACHED)
-    expect(onRootChange).not.toHaveBeenCalled()
+    expect(reload).toHaveBeenCalledTimes(1)
   })
 
   it('keys the selection by the tree root after that root moved to an attached source', async () => {
@@ -124,8 +122,7 @@ describe('Workspace source root switching', () => {
     ) => {})
     const select = await render({
       absolutePath: ATTACHED,
-      workspacePath: WORKSPACE,
-      onRootChange: vi.fn(async (_path: string) => {}),
+      reload: vi.fn(),
       useSessions,
       useSessionStatus,
       useSessionRetainInfo,

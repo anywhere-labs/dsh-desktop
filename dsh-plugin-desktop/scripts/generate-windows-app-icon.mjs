@@ -155,7 +155,6 @@ export async function generateWindowsAppIcon(source = sourcePath, output = outpu
     || metadata.height !== SOURCE_CANVAS_SIZE
     || metadata.space !== 'rgb16'
     || metadata.depth !== 'ushort'
-    || metadata.bitsPerSample !== 16
     || metadata.channels !== 4
     || metadata.hasAlpha !== true
     || metadata.icc === undefined

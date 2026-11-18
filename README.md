@@ -82,13 +82,25 @@ Profile 的 bundle 顺序里还包含官方包 `@deepseek-ai/dsh-base`、`@deeps
 - Debian SHA-256：`2915f6ed9be7beddf42159c9553f1d1473f99b06982e663fa3236356f2a28479`
 - 当前已验证 `.deb` 资产大小：242,430,032 bytes。
 
-`2.0.18` 只在 `fate-dev` 分支本地出包，未发布到 Release：
+`2.0.18` 与 `2.0.19` 只在 `fate-dev` 分支本地出包，未发布到 Release：
 
 | 版本 | 本机产物 | 状态 |
 | --- | --- | --- |
+| 2.0.19 | `dsh-plugin-desktop/dist/DSH-Desktop-2.0.19-amd64.deb`（361,862,744 bytes，SHA-256 `25dad9d934691ef27fd631f74aab7977f3812a8ad789aa605ebc7a9e0ca6e447`） | 图像链路降到 sharp 0.33.5 的首个包；解包后 `resources/app/node_modules/sharp` 为 `0.33.5`、libvips 为 `libvips-cpp.so.42`；同样由 `./scripts/build-ubuntu.sh` 生成，带本机运行时覆盖层，只用于本机验证 |
 | 2.0.18 | `dsh-plugin-desktop/dist/DSH-Desktop-2.0.18-amd64.deb`（363,598,336 bytes，SHA-256 `d40534c09bc75b6360502beb0f5580249b6c091049f1015ec3f9852974036b35`） | 由 `./scripts/build-ubuntu.sh` 生成；子模块当时检出在本地系列分支上，包内带本机运行时覆盖层，只用于本机验证 |
 
 ## 代码改动记录 / Release Note
+
+### Host 图像链路降到 sharp 0.33.5（2026-11-06，2.0.19）
+
+- 现象：Host utility 进程被 SIGTRAP 打死（`lifecycle-events/startup.jsonl` 记 `exitCode: 133`、`disposition: unexpected`、`uptimeMs: 8405111.834`，2.0.18），Crashpad 只留一份 minidump（`6abe6e81-48e9-41e8-bae8-f4374fd4fca9.dmp`，`pid=2123571`、`code=0x5`、`module=dsh-desktop +0x93dcba8`）。当天 12:06 那次 2.0.17 崩溃签名相同，与三通道拉齐 rc.1 无关。同时段日志里 `GLib-GObject-CRITICAL … g_object_ref/g_object_unref: assertion 'G_IS_OBJECT (object)' failed` 累计 14,784 行，最后一批停在崩溃前 10 ms。
+- 实测分界：同样的三步图像操作（`metadata()` + `raw()` 全解码 + `rotate().toColourspace('srgb').resize().png()`）在 Electron 的 Node 模式里跑，sharp 0.35.5（libvips 8.18.7）报 279 行、sharp 0.34.2（libvips 8.16.x）报 156 行、sharp 0.33.5（libvips 8.15.3）只报 6 行且没有一条 GObject 断言；普通 node 跑同一个脚本是 0 行。三者输出字节一致，所以这是配置冲突，不是能力差异。
+- 冲突来源：装机二进制 `ldd` 显示 Electron 直接链系统 `libglib/libgobject/libgio` 2.80，而 `@img/sharp-libvips-linux-x64` 的 `libvips-cpp.so` 又静态捆绑一份 glib 并导出 1672 个 `g_*` 符号；同一个进程里两套 GObject 状态互相指错对象。试过且无效的旋钮：`LD_PRELOAD` 自带的 libvips、`LD_PRELOAD` 系统 `libgobject/libglib/libgio`、`SHARP_IGNORE_GLOBAL_LIBVIPS=1`——三者都压不住洪水。
+- 配置层挡不住：`@deepseek-ai/dsh-attachment-local/lib/index.js:213` 的 `canPassThroughNormalization` 除三条尺寸限制外还要求非 gif、非动画、`!carriesMetadata`、`depth === "uchar"`、`space === "srgb"`，带元数据的截图无论多小都会进 sharp；而 186 行的 `detectImage` 每次收图都 `image.raw().toBuffer()` 全解码，"根本不加载 sharp" 在上游这条链路里做不到。顺带纠正：`config/desktop-profile/cordis.patch.yml` 里 `github-copilot.maxRequestImageBytes` 只是本机 Profile 快照（实际生效文件是 `~/.dsh/profiles/desktop/cordis.patch.yml`，装载顺序 bundles → profile → home，见 `dsh-plugin-desktop/src/profile.ts:1700-1703`），它不进产物、也不参与归一化判定。
+- 落地的改法（都能编进产物）：根 `package.json` 的 `resolutions` 加 `"sharp@npm:0.35.5": "0.33.5"`——上游 `@deepseek-ai/dsh-attachment-local` 精确依赖 `sharp: 0.35.5`，只有改道这一条路；`scripts/prepare-local-runtime.mjs` 的依赖图校验原本会因此拒绝本机覆盖层（`... needs sharp@0.35.5, but Desktop resolves 0.33.5`），加了 14 行纯新增的 `desktopDependencyOverrides`：只有解析结果正好等于记录值才放行，其余依赖照旧严格；`dsh-plugin-desktop/package.json` 自有依赖同步成 `0.33.5`，产品版本 `2.0.18` → `2.0.19`；`scripts/mac-universal.ts` 里写死的 macOS 原生文件名按 0.33.5 的真实布局改成 `node_modules/@img/sharp-darwin-{arm64,x64}/lib/sharp-darwin-{arm64,x64}.node` 与 `node_modules/@img/sharp-libvips-darwin-{arm64,x64}/lib/libvips-cpp.42.dylib`。四个 workspace（Desktop / Beta / Next / Market）解析后都是 `0.33.5`。
+- 跟着版本变小的只有断言冗余：`bitsPerSample` 是 sharp 0.34 才新增的 metadata 字段，0.33.5 不返回，而 16 位这件事已经由 `space: 'rgb16'` 与 `depth: 'ushort'` 钉住，所以 `tests/package.spec.ts` 的 macOS 图标用例和 `scripts/generate-mac-app-icon.mjs`、`scripts/generate-windows-app-icon.mjs` 的入口校验各删掉这一条；其余字段（`channels/hasAlpha/icc`、`trim` 后 824x824 与 `-100/-100` 偏移）两版实测完全一致。
+- 自证：用 `@deepseek-ai/dsh-attachment-local` 真实导出 `normalizeImage`、以 `carriesMetadata: true` 强制走 sharp 阶梯，0.35.5 与 0.33.5 的输出完全一致（`image/jpeg 2364x1773`、1,354,217 bytes），断言行 279 → 6。
+- 代价与未覆盖：libvips 从 8.18.7 退回 8.15.3，捆绑组件跟着退（`uhdr` 没有了、`xml2` 换回 `xml`，aom 3.15.1→3.9.1、heif 1.23.5→1.18.2、webp 1.6.0→1.4.0、mozjpeg 提交号→4.1.5），HDR 与较新解码器的支持面变小；`g_datalist_id_set_data_full: assertion 'key_id > 0' failed` 仍有 6 行；洪水与 SIGTRAP 之间只证到"崩溃时洪水仍在刷 + 这是唯一实测有差异的变量"，`dsh-desktop +0x93dcba8` 至今没解出精确函数，所以这一版是止血，不能写成根因已确认。
 
 ### 三通道统一到 0.2.2-rc.1（2026-11-06）
 

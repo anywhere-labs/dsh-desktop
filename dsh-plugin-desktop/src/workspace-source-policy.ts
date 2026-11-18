@@ -20,7 +20,7 @@ function remapAbsolutePath(path: string, primaryRoot: string, selectedRoot: stri
 
 type SandboxOperations = Pick<SandboxProvider, 'confine'>
 type FilesystemOperations = Pick<FileSystem, 'resolve' | 'contains' | 'writeText' | 'editText'>
-type WorkspaceFileOperations = Pick<WorkspaceFiles, 'read' | 'readBytes' | 'stat' | 'list' | 'changes'>
+type WorkspaceFileOperations = Pick<WorkspaceFiles, 'read' | 'readBytes' | 'stat' | 'list' | 'changes' | 'search'>
 
 /** Install Desktop source-root extensions around the existing enforcing providers. */
 export function installWorkspaceSourcePolicy(
@@ -90,12 +90,14 @@ export function installWorkspaceSourcePolicy(
     stat: Object.getOwnPropertyDescriptor(workspaceFiles, 'stat'),
     list: Object.getOwnPropertyDescriptor(workspaceFiles, 'list'),
     changes: Object.getOwnPropertyDescriptor(workspaceFiles, 'changes'),
+    search: Object.getOwnPropertyDescriptor(workspaceFiles, 'search'),
   }
   const originalRead = workspaceFiles.read.bind(workspaceFiles)
   const originalReadBytes = workspaceFiles.readBytes.bind(workspaceFiles)
   const originalStat = workspaceFiles.stat.bind(workspaceFiles)
   const originalList = workspaceFiles.list.bind(workspaceFiles)
   const originalChanges = workspaceFiles.changes.bind(workspaceFiles)
+  const originalSearch = workspaceFiles.search.bind(workspaceFiles)
   const selectedRootFor = (primaryRoot: string): string =>
     platform === 'win32' ? primaryRoot : sourceRoots.selectedRoot(primaryRoot)
   const selectedScope = (scope: WorkspaceFileScope): WorkspaceFileScope => ({
@@ -119,6 +121,8 @@ export function installWorkspaceSourcePolicy(
     originalList(selectedScope(scope), mapPath(scope, path), signal)
   const changesReplacement: WorkspaceFiles['changes'] = (scope, path, signal) =>
     originalChanges(selectedScope(scope), mapPath(scope, path), signal)
+  const searchReplacement: WorkspaceFiles['search'] = (scope, request, signal) =>
+    originalSearch(selectedScope(scope), request, signal)
 
   Object.defineProperties(workspaceFiles, {
     read: { configurable: true, writable: true, value: readReplacement },
@@ -126,6 +130,7 @@ export function installWorkspaceSourcePolicy(
     stat: { configurable: true, writable: true, value: statReplacement },
     list: { configurable: true, writable: true, value: listReplacement },
     changes: { configurable: true, writable: true, value: changesReplacement },
+    search: { configurable: true, writable: true, value: searchReplacement },
   })
 
   return () => {
@@ -137,6 +142,7 @@ export function installWorkspaceSourcePolicy(
     if (workspaceFiles.stat === statReplacement) restore(workspaceFiles, 'stat', workspaceFileDescriptors.stat)
     if (workspaceFiles.list === listReplacement) restore(workspaceFiles, 'list', workspaceFileDescriptors.list)
     if (workspaceFiles.changes === changesReplacement) restore(workspaceFiles, 'changes', workspaceFileDescriptors.changes)
+    if (workspaceFiles.search === searchReplacement) restore(workspaceFiles, 'search', workspaceFileDescriptors.search)
   }
 }
 

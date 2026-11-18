@@ -291,6 +291,7 @@ function createHarness(
       stat: vi.fn(),
       list: vi.fn(),
       changes: vi.fn(),
+      search: vi.fn(),
     },
     fileReferences: { list: vi.fn(async () => []) },
     agents: { get: vi.fn() },

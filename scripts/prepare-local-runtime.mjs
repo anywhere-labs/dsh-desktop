@@ -35,6 +35,15 @@ const channels = ['stable', 'beta']
 // such a patch a stable target file before adding an overlay-only source edit.
 const overlayPinnedPackages = new Set(['@deepseek-ai/dsh-experimental-inspector'])
 
+// sharp is the one native dependency Desktop pins below what a runtime package
+// declares. sharp 0.34+ bundles libvips 8.16/8.18, whose statically linked glib
+// also exports its GObject symbols into a process that has already linked the
+// system glib through Electron; every raster call then floods
+// `GLib-GObject-CRITICAL ... G_IS_OBJECT (object)` until the Host utility process
+// dies on SIGTRAP. libvips 8.15.3 (sharp 0.33.5) produces byte-identical output
+// without that flood, so the graph check accepts exactly this recorded version.
+const desktopDependencyOverrides = new Map([['sharp', '0.33.5']])
+
 function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'))
 }
@@ -174,18 +183,20 @@ function desktopPatchesFor(name, version) {
 }
 
 function applyDesktopPatches(packageRoot, name, version) {
+  // A local source build reindents emitted js relative to the official tarball the patch was cut against.
+  const ignoreWhitespace = '--ignore-whitespace'
   for (const patchPath of desktopPatchesFor(name, version)) {
-    const forward = spawnSync('git', ['-C', packageRoot, 'apply', '--check', patchPath], {
+    const forward = spawnSync('git', ['-C', packageRoot, 'apply', '--check', ignoreWhitespace, patchPath], {
       cwd: root,
       encoding: 'utf8',
       maxBuffer: 8 * 1024 * 1024,
     })
     if (forward.error !== undefined) throw forward.error
     if (forward.status === 0) {
-      run('git', ['-C', packageRoot, 'apply', patchPath], root)
+      run('git', ['-C', packageRoot, 'apply', ignoreWhitespace, patchPath], root)
       continue
     }
-    const reverse = spawnSync('git', ['-C', packageRoot, 'apply', '--reverse', '--check', patchPath], {
+    const reverse = spawnSync('git', ['-C', packageRoot, 'apply', '--reverse', '--check', ignoreWhitespace, patchPath], {
       cwd: root,
       encoding: 'utf8',
       maxBuffer: 8 * 1024 * 1024,
@@ -394,6 +405,11 @@ function validateRuntimeDependencies(packageRoot, manifest) {
     if (resolved === null) {
       if (optional) return
       throw new Error(`${manifest.name} needs ${name}@${String(range)}, but it is not installed in this Desktop workspace`)
+    }
+    const override = desktopDependencyOverrides.get(name)
+    if (override !== undefined) {
+      if (resolved.version === override) return
+      throw new Error(`${manifest.name} needs ${name}@${String(range)}; Desktop overrides it to ${override}, but resolves ${String(resolved.version)}`)
     }
     if (!satisfiesRange(resolved.version, String(range))) {
       throw new Error(`${manifest.name} needs ${name}@${String(range)}, but Desktop resolves ${String(resolved.version)}`)

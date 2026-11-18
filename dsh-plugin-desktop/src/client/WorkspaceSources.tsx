@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-context-menu/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-files/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
@@ -10,6 +11,7 @@ import {
   IconCloseOutlineRegular,
   IconFolderOpenOutlineRegular,
   IconPlusOutlineRegular,
+  PathLabel,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   addDesktopWorkspaceSource,
@@ -23,8 +25,19 @@ import {
   workspaceRootForPath,
 } from './workspace-root-selection.ts'
 import { createWorkspaceSourcesStore } from './workspace-sources-store.ts'
-import type { WorkspaceSourcesStore } from './workspace-sources-store.ts'
+import type { WorkspaceSourcesSnapshot, WorkspaceSourcesStore } from './workspace-sources-store.ts'
 import { installWorkspaceSourcesStyles } from './workspace-sources-styles.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    /** The `files` header's path label; the patched upstream body declares and defaults it. */
+    'sidebar.right.tab.files.path': {
+      kind: 'single'
+      scope: 'session'
+      owner: { readonly absolutePath: string }
+    }
+  }
+}
 
 const classes = {
   editor: 'dshWorkspaceSourcesEditor',
@@ -54,6 +67,7 @@ const classes = {
   rootActionIcon: 'dshWorkspaceSourcesRootActionIcon',
   rootActionChevron: 'dshWorkspaceSourcesRootActionChevron',
   rootSelect: 'dshWorkspaceSourcesRootSelect',
+  path: 'dshWorkspaceSourcesPath',
 } as const
 
 type PublishWorkspaceSources = (
@@ -95,7 +109,10 @@ export type WorkspaceSourcesRootActionProps = Omit<PropsRuntime<'sidebar.right.t
   & PropsLocale<'desktop.settings'>
   & PropsStore<WorkspaceSourcesStore>
   & InjectFace<WorkspaceSourcesRootActionInjected>
-  & { readonly workspacePath?: string; readonly onRootChange?: (path: string) => Promise<void> }
+
+export type WorkspaceSourcesPathProps = PropsRuntime<'sidebar.right.tab.files.path'>
+  & PropsStore<WorkspaceSourcesStore>
+  & InjectFace<Pick<WorkspaceSourcesRootActionInjected, 'platform'>>
 
 function basename(path: string): string {
   const parts = path.split(/[\\/]/u).filter(Boolean)
@@ -109,6 +126,13 @@ function displayRoot(path: string, primary: boolean, t: WorkspaceSourcesRootActi
 
 function describeFailure(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** The root the Host actually lists for a Workspace: its selected source, or the Workspace itself. */
+function browsedRoot(workspacePath: string, snapshot: WorkspaceSourcesSnapshot | undefined, platform: string): string {
+  if (platform === 'win32' || snapshot === undefined) return workspacePath
+  const roots = [workspacePath, ...snapshot.sources]
+  return roots.includes(snapshot.selectedRoot) ? snapshot.selectedRoot : workspacePath
 }
 
 /** Manage Desktop-owned additional roots from the browser-owned Workspace Edit dialog. */
@@ -210,6 +234,7 @@ export function WorkspaceSourcesRootAction({
   platform,
   load,
   selectRoot,
+  reload,
   useStore,
 }: WorkspaceSourcesRootActionProps) {
   // The supported Files action owner exposes the current absolute root only.
@@ -234,14 +259,13 @@ export function WorkspaceSourcesRootAction({
     ? [workspacePath]
     : [workspacePath, ...(snapshot?.sources ?? [])]
   const currentRoot = workspaceRootForPath(absolutePath, roots, platform)
-  const selectedRoot = platform !== 'win32' && snapshot !== undefined && roots.includes(snapshot.selectedRoot)
-    ? snapshot.selectedRoot
-    : workspacePath
+  const selectedRoot = browsedRoot(workspacePath, snapshot, platform)
 
   const changeRoot = (root: string): void => {
     setBusy(true)
     setFailure(undefined)
-    void selectRoot(workspacePath, root, async () => {}, value => publish(workspacePath, value))
+    // The tree keeps the Session cwd as its identity, so only an explicit re-list picks up the Host's new root.
+    void selectRoot(workspacePath, root, async () => { reload() }, value => publish(workspacePath, value))
       .catch(error => { setFailure(describeFailure(error)) })
       .finally(() => { setBusy(false) })
   }
@@ -275,12 +299,29 @@ export function WorkspaceSourcesRootAction({
   )
 }
 
+/** Label the Files header with the root the tree lists, not the Session cwd the Host remaps away from. */
+export function WorkspaceSourcesPath({ absolutePath, sessionId, useStore, useContextMenu, platform }: WorkspaceSourcesPathProps) {
+  const snapshot = useStore(state => state[absolutePath])
+  const { getTriggerProps } = useContextMenu()
+  const root = browsedRoot(absolutePath, snapshot, platform)
+  return (
+    <PathLabel
+      path={root}
+      className={classes.path}
+      data-files-path
+      {...getTriggerProps({ kind: 'directory', value: { sessionId, path: root } })}
+    />
+  )
+}
+
 export type { WorkspaceSourcesResponse }
 
-/** Register the same source snapshot at the Workspace editor and Files toolbar. */
+/** Register the source snapshots at the Workspace editor and Files toolbar. */
 export function applyDesktopWorkspaceSources(ctx: ClientContext, platform: string): void {
   ctx.effect(() => installWorkspaceSourcesStyles('dsh-plugin-desktop'), 'dsh-plugin-desktop: Workspace Sources styles')
-  const store = createWorkspaceSourcesStore()
+  // One store handle pins one slot scope, and these two seats differ (root vs session).
+  const editorStore = createWorkspaceSourcesStore()
+  const rootActionStore = createWorkspaceSourcesStore()
   const queue = createWorkspaceSourcesQueue()
   const load: LoadWorkspaceSources = (workspacePath, publishSnapshot) =>
     queue(workspacePath, async () => {
@@ -307,7 +348,7 @@ export function applyDesktopWorkspaceSources(ctx: ClientContext, platform: strin
   ctx.slots.inject('sidebar.workspaces.workspace.edit', () => ctx.slots.register({
     name: 'sidebar.workspaces.workspace.edit',
     locale: 'desktop.settings',
-    store,
+    store: editorStore,
     inject: editorInjected,
   }, WorkspaceSourcesEditor))
   ctx.slots.inject('sidebar.right.tab.files.actions', () => ctx.slots.register({
@@ -315,7 +356,14 @@ export function applyDesktopWorkspaceSources(ctx: ClientContext, platform: strin
     id: 'desktop-workspace-sources',
     order: 100,
     locale: 'desktop.settings',
-    store,
+    store: rootActionStore,
     inject: rootActionInjected,
   }, WorkspaceSourcesRootAction))
+  // Shadow the patched upstream default path drawing; both seats share the session-scoped store.
+  ctx.slots.inject('sidebar.right.tab.files.path', () => ctx.slots.register({
+    name: 'sidebar.right.tab.files.path',
+    priority: -1,
+    store: rootActionStore,
+    inject: rootActionInjected,
+  }, WorkspaceSourcesPath))
 }
