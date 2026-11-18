@@ -23,6 +23,8 @@ import { SettingsRequests } from './settings-requests.tsx'
 import type { DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
 import { installRendererRecovery } from './renderer-recovery.ts'
 import { installClientDiagnostics } from './client-diagnostics.ts'
+import { registerRendererLanding } from './renderer-landing.tsx'
+import { rendererLandingOf } from '../renderer-landing.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -58,6 +60,8 @@ export function apply(ctx: Context): void {
       name: 'shell.overlay', id: 'desktop-next-renderer-health', order: 0,
       inject: () => ({ ctx }),
     }, RendererHealth))
+    const landing = rendererLandingOf(window.desktopNext.renderer?.landing?.())
+    if (landing) registerRendererLanding(ctx, landing)
     const permissions = window.desktopNext.permissions
     if (permissions) ctx.effect(() => {
       const dispose = ctx.reflect.provide('desktopPermissions', permissions)

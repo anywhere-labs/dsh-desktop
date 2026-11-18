@@ -45,7 +45,8 @@ interface RuntimeOptions {
   /** Electron process and system memory readings for memory evidence; omitted where Electron is absent. */
   memoryProbe?: DesktopMemoryProbe
   certificate(addresses: readonly string[]): Promise<DesktopLanHttpsCertificate>
-  onFailure(): void
+  /** A failure opened recovery; `stage` says where it stopped the Desktop. */
+  onFailure(stage?: DesktopFailureStage): void
   onChange(): void
   onRestart(): void
   onTerminal(): void
@@ -175,7 +176,7 @@ export class NextDesktopRuntime {
     // Repeat counts not yet due belong in the report's log too.
     this.diagnostics.flush(true)
     this.saveFailureReport(error, stage)
-    this.options.onFailure()
+    this.options.onFailure(stage)
     this.options.onChange()
   }
 
@@ -190,13 +191,7 @@ export class NextDesktopRuntime {
 
   start(): Promise<void> {
     this.recoveryMode = false
-    this.failure = ''
-    this.failureStage = undefined
-    this.failureExit = undefined
-    this.failureTimeout = undefined
-    this.failureReport = undefined
-    this.failureContext = undefined
-    this.actionFailure = ''
+    this.clearFailure()
     this.startup = this.backend.start(async () => {
       this.hostStage = 'shell-environment'
       await this.options.prepareEnvironment?.()
@@ -215,6 +210,27 @@ export class NextDesktopRuntime {
     // The backend publishes failures after owned process cleanup.
     void this.startup.catch(() => {})
     return this.startup
+  }
+
+  /**
+   * Leave recovery without touching the Host, which kept running through a failure that never involved it,
+   * such as a renderer that kept crashing (#1690).
+   */
+  resume(): void {
+    if (!this.recoveryMode || this.backend.state.phase !== 'ready' || !this.auth) throw new Error('The Host is not running')
+    this.recoveryMode = false
+    this.clearFailure()
+    this.options.onChange()
+  }
+
+  private clearFailure(): void {
+    this.failure = ''
+    this.failureStage = undefined
+    this.failureExit = undefined
+    this.failureTimeout = undefined
+    this.failureReport = undefined
+    this.failureContext = undefined
+    this.actionFailure = ''
   }
 
   async restart(change: () => void | Promise<void> = () => {}): Promise<void> {

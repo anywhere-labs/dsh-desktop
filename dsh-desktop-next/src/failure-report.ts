@@ -140,6 +140,7 @@ function rendererLines(renderer: RendererDiagnosticsSnapshot): string[] {
     `sampled: ${String(renderer.sampleMs)} ms, ${String(renderer.frameLoop.frames)} frames (${String(renderer.frameLoop.framesPerSecond)}/s, ${renderer.frameLoop.sampledBy})`,
     `window: ${renderer.view.visibility}, ${renderer.view.focused === true ? 'focused' : renderer.view.focused === false ? 'unfocused' : 'focus unknown'}${renderer.view.reducedMotion === true ? ', reduced motion' : ''}, ${size(renderer.view.width, renderer.view.height)}@${String(renderer.view.devicePixelRatio ?? '?')}x`,
     `dom: ${String(renderer.dom.elements ?? '?')} elements`,
+    `js heap: ${renderer.memory ? `${String(renderer.memory.usedMB)} MB used, ${String(renderer.memory.totalMB)} MB allocated, ${String(renderer.memory.limitMB)} MB limit` : 'unmeasured'}`,
     `long tasks: ${renderer.longTasks === null ? 'unmeasured' : `${String(renderer.longTasks.count)} in ${String(renderer.longTasks.totalMs)} ms`}`,
     `animations: ${String(renderer.animations.length)} running of ${String(renderer.animationsTotal)}`,
     ...renderer.animations.map(animation => `  ${animation.name} on ${animation.target}${animation.pseudo ?? ''}${animation.infinite ? ' (infinite)' : ''}${animation.currentTime === null ? '' : ` at ${String(animation.currentTime)} ms`}`),

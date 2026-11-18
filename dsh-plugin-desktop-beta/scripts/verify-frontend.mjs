@@ -48,6 +48,10 @@ for (const platform of ['darwin', 'win32', 'linux']) {
   const userActivation = { isActive: false }
   // Stands in for Electron's webUtils: only Files the shell handed to the page have a host path.
   const hostPaths = new Map()
+  // The official client's saved main-view selection, and the main process holding that Session back (#1690).
+  const storage = new Map([['dsh.sessions.current', JSON.stringify({ sessionId: 'session-1' })]])
+  const landing = { sessionId: 'session-1', failures: 2, reason: 'crashed', exitCode: -2147483645 }
+  const synchronous = []
   for (const [entry, hostname] of [['preload-app.cjs', 'app'], ['preload-shell.cjs', 'shell']]) {
     const listeners = new Map()
     // The shared map answers the per-platform assertions below; this one records a single entry,
@@ -65,17 +69,22 @@ for (const platform of ['darwin', 'win32', 'linux']) {
             if (args[0] === 'dsh-next:browser-acquire') return Promise.resolve({ lease: 'lease-1', partition: 'partition-1' })
             return Promise.resolve(undefined)
           }, send() {},
+          sendSync: (...args) => { synchronous.push(args); return landing },
           on: (channel, listener) => listeners.set(channel, listener), removeListener: channel => listeners.delete(channel), off: channel => listeners.delete(channel),
         }, webUtils: { getPathForFile: file => hostPaths.get(file) ?? '' } }
       },
       process: { platform }, location: { protocol: 'dsh-app:', hostname },
       document: { readyState: 'loading', documentElement: { dataset, style: { setProperty() {} } } },
-      window: { addEventListener() {} }, console,
+      window: { addEventListener() {}, localStorage: { getItem: key => storage.get(key) ?? null, removeItem: key => { storage.delete(key) } } }, console,
       navigator: { userActivation },
     }, { filename: entry })
     if (hostname === 'app') {
       const health = own.get('desktopNext').renderer
       assert.equal(typeof health?.report, 'function')
+      assert.deepEqual(synchronous, [['dsh-next:renderer-landing', 'session-1']], 'The preload asks once, before page scripts run')
+      assert.equal(storage.has('dsh.sessions.current'), false, 'A held-back Session leaves the selection the official client restores')
+      assert.deepEqual({ ...health.landing() }, landing)
+      assert.equal(health.landing(), null, 'Each document tells its landing once')
       await own.get('dshDesktopBoot').ready()
       assert.equal(health.profile(), 'desktop')
       await health.report('healthy')
@@ -158,6 +167,7 @@ for (const platform of ['darwin', 'win32', 'linux']) {
       assert.equal(own.has('dshDesktop'), false, 'Only the application document may reach guest browsers')
       assert.equal(own.has('__DSH_HOST_PATHS__'), false, 'Only the application document may read host paths of its files')
       assert.equal(own.has('dshPlatform'), false, 'Only the application document may open Platform pages')
+      assert.equal(synchronous.length, 1, 'Recovery pages never ask about the application selection')
     }
   }
   assert.equal(dataset.platform, platform)

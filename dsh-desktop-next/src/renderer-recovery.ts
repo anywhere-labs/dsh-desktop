@@ -66,7 +66,13 @@ export class NextRendererRecovery {
     this.acceptHealth()
   }
 
-  fail(detail: string): void {
+  /**
+   * Schedule the next reload, or give up once the retry budget is spent. Failures arriving while a reload is
+   * scheduled belong to the same incident, so the first one names it.
+   * @param detail - what failed, for the records and the report an exhausted recovery opens.
+   * @param fields - structured evidence the records keep, such as the renderer's exit reason and code.
+   */
+  fail(detail: string, fields: Readonly<Record<string, string | number>> = {}): void {
     if (!this.available() || this.phase === 'scheduled') return
     this.clearTimer()
     this.clearStableTimer()
@@ -74,12 +80,12 @@ export class NextRendererRecovery {
     const delay = RETRY_DELAYS_MS[this.attempts]
     if (delay === undefined) {
       this.phase = 'exhausted'
-      this.options.record('renderer.recovery.exhausted', { attempt: this.attempts, detail })
+      this.options.record('renderer.recovery.exhausted', { ...fields, attempt: this.attempts, detail })
       this.options.exhausted(detail)
       return
     }
     this.phase = 'scheduled'
-    this.options.record('renderer.recovery.scheduled', { attempt: this.attempts + 1, delayMs: delay, detail })
+    this.options.record('renderer.recovery.scheduled', { ...fields, attempt: this.attempts + 1, delayMs: delay, detail })
     this.timer = setTimeout(() => {
       this.timer = undefined
       if (!this.available()) return

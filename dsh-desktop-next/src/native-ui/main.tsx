@@ -17,6 +17,7 @@ import './theme.css'
 import { Onboarding } from './onboarding.tsx'
 import { STARTUP_LIMIT_ACTION, StartupLimitCard } from './startup-limit.tsx'
 import { AUTOMATIC_PORT_ACTION, PortConflictCard } from './port-conflict.tsx'
+import { REOPEN_MAIN_ACTION, RendererRecoveryCard } from './renderer-recovery.tsx'
 
 function App() {
   const adapter = useMemo(() => window.desktopNext ? new NextSettingsAdapter(window.desktopNext) : undefined, [])
@@ -53,6 +54,7 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
         'open-profile-creator': { type: 'controls', page: 'create-profile' }, create: { type: 'controls', page: 'create-profile' },
         recover: { type: 'recover' }, 'repair-global': { type: 'repair-global' },
         'open-home': { type: 'open-home' }, 'open-logs': { type: 'open-logs' },
+        [REOPEN_MAIN_ACTION]: { type: 'reopen-main' },
       }
       const recoveryActions = ['open-checkpoint', 'preview-checkpoint', 'preview-uninstall',
         'preview-disable', 'preview-enable', 'open-settings-document',
@@ -132,6 +134,7 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     quickActions, notice: notice ?? (busy ? undefined : state.recovery?.notice),
   }
   return <RecoveryApp state={recovery} copy={copy} support={recoverySupport(locale)}
+    leadQuickCards={state.hostRunning === true ? <RendererRecoveryCard locale={locale} /> : undefined}
     quickCards={<>
       {state.portConflict && <PortConflictCard locale={locale} conflict={state.portConflict} safeMode={state.safeMode} restart={copy.restart} />}
       <StartupLimitCard locale={locale} value={state.hostStartupTimeout} safeMode={state.safeMode}

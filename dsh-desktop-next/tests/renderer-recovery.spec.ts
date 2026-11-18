@@ -169,3 +169,22 @@ it('ignores a rejected navigation after a newer document or shutdown supersedes 
   expect(f.reload).toHaveBeenCalledOnce()
   f.recovery.stop()
 })
+
+it('keeps the first failure’s exit reason and code on the scheduled and exhausted records (#1690)', async () => {
+  const f = fixture()
+  const crash = { reason: 'crashed', exitCode: -2147483645 }
+  for (const delay of [0, 1000, 3000]) {
+    f.recovery.fail('Renderer: crashed, exited with 0x80000003', crash)
+    // A navigation failure of the same incident arrives while the reload is scheduled and names nothing new.
+    f.recovery.fail('same crash')
+    await vi.advanceTimersByTimeAsync(delay)
+  }
+  expect(f.record.mock.calls.filter(([event]) => event === 'renderer.recovery.scheduled').map(([, fields]) => fields)).toEqual([
+    { ...crash, attempt: 1, delayMs: 0, detail: 'Renderer: crashed, exited with 0x80000003' },
+    { ...crash, attempt: 2, delayMs: 1000, detail: 'Renderer: crashed, exited with 0x80000003' },
+    { ...crash, attempt: 3, delayMs: 3000, detail: 'Renderer: crashed, exited with 0x80000003' },
+  ])
+  f.recovery.fail('Renderer: crashed, exited with 0x80000003', crash)
+  expect(f.record).toHaveBeenLastCalledWith('renderer.recovery.exhausted', { ...crash, attempt: 3, detail: 'Renderer: crashed, exited with 0x80000003' })
+  expect(f.exhausted).toHaveBeenCalledExactlyOnceWith('Renderer: crashed, exited with 0x80000003')
+})

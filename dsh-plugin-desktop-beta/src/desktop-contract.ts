@@ -86,6 +86,8 @@ export interface DesktopState {
   failureContext?: string
   /** A Desktop action that failed after `failure`; shown beside it, never replacing it. */
   actionFailure?: string
+  /** Recovery opened over a Host that is still running, as after a renderer-only failure; its tasks continue. */
+  hostRunning?: boolean
   safeMode: boolean
   /** The Host startup limit saved for the original environment, which Safe Mode does not apply. */
   hostStartupTimeout?: HostStartupTimeout
@@ -138,6 +140,8 @@ export type DesktopCommand =
   | { type: 'preferences'; preferences: DesktopPreferences }
   | { type: 'controls'; page?: 'general' | 'profiles' | 'create-profile' | 'tools' | 'recovery' | 'permissions' }
   | { type: 'restart-app' | 'restart-recovery' | 'restart-onboarding' | 'close-controls' }
+  /** Leave a recovery that kept its Host running and open the main window again. */
+  | { type: 'reopen-main' }
   | { type: 'change-data-directory' | 'backup-data-directory' }
   | { type: 'restart' | 'recover' | 'safe-mode' | 'normal-mode' | 'rollback' | 'repair-global'
     | 'reload' | 'devtools' | 'terminal' | 'open-home' | 'open-profile' | 'open-logs' | 'open-backups'
@@ -159,6 +163,8 @@ export interface DesktopRendererBridge {
   report(status: import('./renderer-recovery.ts').DesktopRendererStatus): Promise<void>
   /** A client failure for the Desktop log; delivered without an answer, and dropped for an earlier document. */
   diagnostic?(report: import('./client-diagnostic.ts').ClientDiagnostic): void
+  /** The Session this document started without, after it kept taking the renderer down (#1690). */
+  landing?(): import('./renderer-landing.ts').RendererLanding | null
 }
 
 declare global { interface Window { desktopNext?: DesktopBridge } }

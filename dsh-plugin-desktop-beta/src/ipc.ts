@@ -3,7 +3,7 @@ export const IPC = {
   shortcutsGet: 'dsh-next:shortcuts-get', shortcutsEdit: 'dsh-next:shortcuts-edit',
   shortcutsChanged: 'dsh-next:shortcuts-changed', shortcutsRecording: 'dsh-next:shortcuts-recording',
   boot: 'dsh-next:boot', failed: 'dsh-next:failed', directory: 'dsh-next:directory',
-  rendererStatus: 'dsh-next:renderer-status', rendererDiagnostic: 'dsh-next:renderer-diagnostic',
+  rendererStatus: 'dsh-next:renderer-status', rendererDiagnostic: 'dsh-next:renderer-diagnostic', rendererLanding: 'dsh-next:renderer-landing',
   state: 'dsh-next:state', command: 'dsh-next:command',
   settingsOpen: 'dsh-next:settings-open', settingsTake: 'dsh-next:settings-take',
   browserLinks: 'dsh-next:browser-links',

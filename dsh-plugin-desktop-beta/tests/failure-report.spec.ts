@@ -59,6 +59,7 @@ const rendererSample = {
   available: true as const, sampledAt: '2026-11-13T00:00:00.000Z', sampleMs: 750,
   view: { visibility: 'visible', focused: false, reducedMotion: false, width: 1280, height: 840, devicePixelRatio: 2 },
   dom: { elements: 4321 },
+  memory: { usedMB: 812.2, totalMB: 900, limitMB: 3586 },
   animations: [{ name: 'dsh-state-dot-spin', target: 'svg', pseudo: '::before', iterations: null, infinite: true, currentTime: 321.5 }],
   animationsTotal: 1,
   layers: [{ tag: 'div', id: 'portal', className: 'menu surface', position: 'fixed', children: 2, attributes: { 'data-slot': 'menu' } }],
@@ -72,6 +73,8 @@ it('renders what the renderer was drawing for a failure report', () => {
   expect(section).toContain('sampled: 750 ms, 44 frames (58/s, raf)')
   expect(section).toContain('window: visible, unfocused, 1280x840@2x')
   expect(section).toContain('long tasks: 1 in 64 ms')
+  expect(section).toContain('js heap: 812.2 MB used, 900 MB allocated, 3586 MB limit')
+  expect(rendererFailureSection({ ...rendererSample, memory: null })).toContain('js heap: unmeasured')
   expect(section).toContain('animations: 1 running of 1')
   expect(section).toContain('  dsh-state-dot-spin on svg::before (infinite) at 321.5 ms')
   expect(section).toContain('body layers: 1')

@@ -12,8 +12,11 @@ import { onOpenSettings } from './preload-settings.ts'
 import { createDesktopKeyboardBridge } from './preload-keyboard.ts'
 import { createDesktopBrowserBridge } from './preload-browser.ts'
 import { createDesktopFileActionsBridge, createDesktopFileDragBridge } from './upstream-family-preload.ts'
+import { landRendererDocument } from './renderer-landing.ts'
 
 if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
+  // Before any page script reads it, drop a selection the Desktop holds back after repeated renderer failures (#1690).
+  let landing = landRendererDocument(sessionId => ipcRenderer.sendSync(IPC.rendererLanding, sessionId), () => window.localStorage)
   let documentId: string | undefined
   let profile = ''
   markDocumentPlatform()
@@ -34,6 +37,8 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
       profile: () => profile,
       report: (status: unknown) => ipcRenderer.invoke(IPC.rendererStatus, documentId, status),
       diagnostic: (report: unknown) => { ipcRenderer.send(IPC.rendererDiagnostic, documentId, report) },
+      // Answered once per document, so a client plugin reloaded in place does not repeat the notice.
+      landing: () => { const value = landing ?? null; landing = undefined; return value },
     },
     permissions: permissionBridge(),
     onOpenSettings,

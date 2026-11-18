@@ -75,12 +75,24 @@ export interface RendererFrameLoop {
   sampledBy: 'raf' | 'timer'
 }
 
+/**
+ * The page's V8 heap from `performance.memory`, in MB. Chromium coarsens the used and allocated sizes, which is
+ * enough to tell a heap at its limit from a renderer that failed far below it (#1690).
+ */
+export interface RendererHeap {
+  usedMB: number
+  totalMB: number
+  limitMB: number
+}
+
 export interface RendererDiagnosticsSnapshot {
   available: true
   sampledAt: string
   sampleMs: number
   view: RendererView
   dom: { elements: number | null }
+  /** Absent or null when the page did not report its heap. */
+  memory?: RendererHeap | null
   animations: RendererAnimation[]
   animationsTotal: number
   layers: RendererLayer[]
@@ -255,9 +267,14 @@ export function rendererDiagnosticsProbe(sampleMs: number = RENDERER_SAMPLE_MS):
   let focused = null;
   let reducedMotion = null;
   let elements = null;
+  let memory = null;
   try { focused = typeof document.hasFocus === 'function' ? document.hasFocus() === true : null; } catch (error) {}
   try { reducedMotion = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)').matches === true : null; } catch (error) {}
   try { elements = document.getElementsByTagName('*').length; } catch (error) {}
+  try {
+    const heap = performance.memory;
+    if (heap !== undefined && heap !== null) memory = { used: heap.usedJSHeapSize, total: heap.totalJSHeapSize, limit: heap.jsHeapSizeLimit };
+  } catch (error) {}
   return {
     view: {
       visibility: clip(document.visibilityState, 20),
@@ -268,6 +285,7 @@ export function rendererDiagnosticsProbe(sampleMs: number = RENDERER_SAMPLE_MS):
       devicePixelRatio: typeof devicePixelRatio === 'number' ? devicePixelRatio : null,
     },
     dom: { elements: elements },
+    memory: memory,
     animations: animations,
     animationsTotal: animationsTotal,
     layers: layers,
@@ -344,6 +362,9 @@ export function rendererDiagnosticsFields(renderer: RendererDiagnostics): Record
     reducedMotion: renderer.view.reducedMotion,
     visibility: renderer.view.visibility,
     longTasks: renderer.longTasks === null ? null : renderer.longTasks.count,
+    elements: renderer.dom.elements,
+    heapUsedMB: renderer.memory?.usedMB ?? null,
+    heapLimitMB: renderer.memory?.limitMB ?? null,
   }
 }
 
@@ -395,6 +416,7 @@ function snapshotOf(value: unknown, sampleMs: number): RendererDiagnosticsSnapsh
       devicePixelRatio: numberOrNull(view.devicePixelRatio, 2),
     },
     dom: { elements: countOf(dom?.elements) },
+    memory: heapOf(source?.memory),
     animations: animationsOf(source?.animations),
     animationsTotal: countOf(source?.animationsTotal) ?? 0,
     layers: layersOf(source?.layers),
@@ -406,6 +428,16 @@ function snapshotOf(value: unknown, sampleMs: number): RendererDiagnosticsSnapsh
     },
     longTasks: longTasks === undefined ? null : { count: countOf(longTasks.count) ?? 0, totalMs: numberOrNull(longTasks.totalMs, 1) ?? 0 },
   }
+}
+
+/** The page's heap in MB, or null unless all three sizes are plausible byte counts. */
+function heapOf(value: unknown): RendererHeap | null {
+  const heap = recordOf(value)
+  if (heap === undefined) return null
+  const [used, total, limit] = [countOf(heap.used), countOf(heap.total), countOf(heap.limit)]
+  if (used === null || total === null || limit === null || limit === 0) return null
+  const megabytes = (bytes: number): number => Math.round(bytes / 104_857.6) / 10
+  return { usedMB: megabytes(used), totalMB: megabytes(total), limitMB: megabytes(limit) }
 }
 
 function animationsOf(value: unknown): RendererAnimation[] {

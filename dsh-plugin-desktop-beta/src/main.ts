@@ -62,6 +62,9 @@ import { manualUpdate, manualUpdateHint, releaseNotesUrl, updateLabel } from './
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
 import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCause } from './renderer-recovery.ts'
 import { collectRendererDiagnostics, rendererDiagnosticsFields } from './renderer-diagnostics.ts'
+import { isSessionId, RendererSessionGuard, type RendererLanding } from './renderer-landing.ts'
+import { exitSummary } from './exit-code.ts'
+import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
 import { RollingRendererEvidence } from './renderer-evidence.ts'
 import { deElevateAtStartup, lowIntegrityAtStartup, windowsElevation } from './windows-elevation.ts'
 import { createSandboxLaunchReporter, gpuLaunchFailure, lowIntegrityLaunchDialog, rendererLaunchFailure } from './sandbox-launch.ts'
@@ -133,6 +136,8 @@ let rendererDocumentId = ''
 let pendingNavigation: { readonly owner: BrowserWindow; readonly cause: Exclude<DesktopNavigationCause, 'page'> } | undefined
 /** The main window's interface has mounted at least once, so a later renderer failure stops a running Desktop. */
 let rendererHealthy = false
+/** Which Session each renderer failure showed, so one that keeps crashing it stops reopening on its own (#1690). */
+const rendererSessions = new RendererSessionGuard()
 /** The main-window document whose Next client reports its own failures, and the newest client logger message recorded from it. */
 let clientReports: { readonly document: string; sn: number } | undefined
 /** Console copies of what the Next client reports itself: slot crashes, and errors and rejections nothing caught. */
@@ -222,7 +227,7 @@ const runtime = new NextDesktopRuntime({
       throw error
     }
   },
-  onFailure: () => { if (app.isReady()) openControls('recovery') },
+  onFailure: stage => { if (app.isReady()) openControls('recovery', { keepHost: rendererFailureKeepsHost(stage) }) },
   onChange: () => {
     if (!app.isReady()) return
     if (runtime.backend.state.phase === 'ready') rendererRecovery?.booted()
@@ -357,6 +362,7 @@ function state(withLogs = false): DesktopState {
       usingDefaultDirectory, error: String(error), diagnosticsFile, notice: recoveryNotice }
   }
   return { ...runtime.state(), logs: withLogs ? runtime.diagnostics.snapshot() : '', recovery, dataDirectory: { source: dataSource, environmentHome: environmentHome === undefined ? null : resolve(environmentHome) },
+    ...(runtime.recoveryMode && runtime.backend.state.phase === 'ready' && runtime.auth !== undefined ? { hostRunning: true } : {}),
     onboarding, ...(onboarding ? { onboardingComputerUse } : {}), platform: process.platform, version,
     ...(['darwin', 'win32', 'linux'].includes(process.platform) ? { updates: updates.snapshot() } : {}),
     trayAvailable: native.available, notificationsAvailable: Notification.isSupported() }
@@ -551,7 +557,17 @@ function openSettings(page: DesktopSettingsPage = 'general'): void {
   mainWindow?.webContents.send(IPC.settingsOpen)
 }
 
-function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' | 'recovery' | 'permissions' | 'onboarding' = 'general'): void {
+/**
+ * A renderer that keeps failing never involved the Host, so recovery leaves a ready Host running and its tasks
+ * continue (#1690). Actions that need the Host stopped, such as repair or Safe Mode, stop it themselves.
+ * @param stage - where the failure that opens recovery stopped the Desktop.
+ * @returns whether recovery may open without stopping the Host.
+ */
+function rendererFailureKeepsHost(stage: DesktopFailureStage | undefined): boolean {
+  return (stage === 'renderer-runtime' || stage === 'renderer-startup') && runtime.backend.state.phase === 'ready' && runtime.auth !== undefined
+}
+
+function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' | 'recovery' | 'permissions' | 'onboarding' = 'general', options: { readonly keepHost?: boolean } = {}): void {
   if (quitting) return
   if (page === 'general' || page === 'tools' || page === 'permissions') { openSettings(page === 'permissions' ? 'permissions' : 'general'); return }
   if (page === 'recovery' && !runtime.safeMode && !runtime.recoveryMode) {
@@ -563,11 +579,15 @@ function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' 
     mainWindow = undefined
     replacingWindow = true
     try { previousMain?.destroy() } finally { replacingWindow = false }
-    const stopping = runtime.backend.stop().finally(() => {
-      if (recoveryStopping === stopping) recoveryStopping = undefined
-    })
-    recoveryStopping = stopping
-    void stopping.catch(error => runtime.diagnostics.append(String(error), 'error'))
+    if (options.keepHost === true) {
+      runtime.diagnostics.record({ source: 'desktop', event: 'recovery.host-kept', level: 'warn', fields: { stage: runtime.failureStage ?? 'unknown' } })
+    } else {
+      const stopping = runtime.backend.stop().finally(() => {
+        if (recoveryStopping === stopping) recoveryStopping = undefined
+      })
+      recoveryStopping = stopping
+      void stopping.catch(error => runtime.diagnostics.append(String(error), 'error'))
+    }
     native.refresh()
   }
   const locale = nativeLocale.resolve(runtime.selected, windowsLanguage)
@@ -630,7 +650,10 @@ function openMain(): void {
     runtime.diagnostics.record({ source: 'renderer', event: 'process-gone', level: 'error', fields: { reason: details.reason, exitCode: details.exitCode } })
     if (details.reason === 'clean-exit') return
     runtime.memory.incident({ process: 'renderer', reason: details.reason, exitCode: details.exitCode })
-    failRenderer(owner, new Error(`Renderer: ${details.reason}`))
+    rendererSessions.failed(details.reason, details.exitCode)
+    // The exit code stays on the recovery records and the report an exhausted recovery opens.
+    failRenderer(owner, new Error(`Renderer: ${details.reason}, ${exitSummary({ code: details.exitCode, signal: null })}`),
+      { reason: details.reason, exitCode: details.exitCode })
   })
   mainWindow.webContents.on('preload-error', (_event, _path, error) => failRenderer(owner, error))
   mainWindow.webContents.on('did-fail-load', (_event, code, message, _url, isMain) => {
@@ -657,9 +680,9 @@ function resetRendererRecovery(owner: BrowserWindow): void {
   })
 }
 
-function failRenderer(owner: BrowserWindow, error: unknown): void {
+function failRenderer(owner: BrowserWindow, error: unknown, fields?: Readonly<Record<string, string | number>>): void {
   if (quitting || runtime.recoveryMode || mainWindow !== owner || owner.isDestroyed()) return
-  rendererRecovery?.fail(error instanceof Error ? error.message : String(error))
+  rendererRecovery?.fail(error instanceof Error ? error.message : String(error), fields)
 }
 /** Cancelled or retired window navigations are not Host failures. */
 async function loadMainDocument(owner: BrowserWindow, cause: Exclude<DesktopNavigationCause, 'page'>): Promise<void> {
@@ -884,6 +907,13 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
     if (type === 'reload') {
       if (runtime.recoveryMode || onboarding) { openMain(); return }
       await reloadMain(); return
+    }
+    if (type === 'reopen-main') {
+      // Only a recovery that kept its Host running returns to the main window without a restart.
+      runtime.resume()
+      openMain()
+      shellWindow?.close()
+      return
     }
     if (type === 'devtools') { openMain(); (runtime.recoveryMode || onboarding ? shellWindow : mainWindow)!.webContents.toggleDevTools(); return }
     if (type === 'recovery-action') {
@@ -1404,6 +1434,22 @@ async function main(): Promise<void> {
     }
     const record = clientDiagnosticRecord(report)
     if (record !== undefined) runtime.diagnostics.record(record)
+  })
+  // Every main-window preload asks this synchronously before page scripts run, so it is always answered:
+  // an unanswered sendSync would hold the page. The answer is the Session the document must start without.
+  ipcMain.on(IPC.rendererLanding, (event, sessionId: unknown) => {
+    let answer: RendererLanding | null = null
+    try {
+      assertSender(event, mainWindow, APP_URL)
+      const failure = rendererSessions.landing(isSessionId(sessionId) ? sessionId : undefined)
+      if (failure !== undefined) {
+        runtime.diagnostics.record({ source: 'renderer', event: 'renderer.failure.session', level: failure.held ? 'warn' : 'info',
+          fields: { conversation: failure.sessionId, failures: failure.failures, held: failure.held, reason: failure.reason, exitCode: failure.exitCode } })
+        if (failure.held) answer = { sessionId: failure.sessionId, failures: failure.failures, reason: failure.reason, exitCode: failure.exitCode }
+      }
+    } catch { /* A rejected sender learns nothing. */ }
+    // Electron sends the reply the moment returnValue is assigned, so it is assigned once, with the final answer.
+    event.returnValue = answer
   })
   ipcMain.handle(IPC.failed, (event, message: unknown, documentId: unknown) => {
     assertSender(event, mainWindow, APP_URL)

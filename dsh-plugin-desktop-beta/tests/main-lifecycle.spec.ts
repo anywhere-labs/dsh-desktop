@@ -5,11 +5,14 @@ import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { DEFAULT_PREFERENCES, SAFE_MODE_PREFERENCES } from '../src/desktop-contract.ts'
 import type { NextDesktopRuntime } from '../src/desktop-runtime.ts'
+import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
 import { NEXT_PACKAGE, NextProfiles } from '../src/profiles.ts'
 import { NextRecovery } from '../src/recovery.ts'
 import { installDesktopFileDrag, installFileActions } from '../src/upstream-family.ts'
 
 const originalMonitors = new Set(process.listeners('uncaughtExceptionMonitor'))
+/** A renderer that died with an access violation, as recovery reports it once retries run out. */
+const EXHAUSTED = 'Renderer recovery exhausted: Renderer: crashed, exited with 0xC0000005 (3221225477, STATUS_ACCESS_VIOLATION)'
 afterEach(() => { for (const listener of process.listeners('uncaughtExceptionMonitor')) if (!originalMonitors.has(listener)) process.off('uncaughtExceptionMonitor', listener) })
 
 const fixture = vi.hoisted(() => ({
@@ -28,6 +31,7 @@ const fixture = vi.hoisted(() => ({
   failureReportFile: vi.fn(async (): Promise<string | undefined> => undefined),
   dragResource: vi.fn(async (_address: string, _signal: AbortSignal): Promise<null> => null),
   saveStartupTimeout: vi.fn(),
+  resume: vi.fn(),
   saveAppIcon: vi.fn(),
   dockIcon: vi.fn(),
   onPermission: undefined as ConstructorParameters<typeof NextDesktopRuntime>[0]['onPermission'],
@@ -81,6 +85,7 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
   start = fixture.start
   close = fixture.close
   async restart(change: () => Promise<void>) { await fixture.stop(); await change(); this.recoveryMode = false; await fixture.restart() }
+  resume() { if (!this.recoveryMode) throw new Error('The Host is not running'); this.recoveryMode = false; fixture.resume() }
   terminalTarget = fixture.terminalTarget
   browserLinks() { return { localUrl: null, lanUrls: [] } }
   state() { return { selected: 'desktop', profiles: ['desktop'], unavailableProfiles: [], features: fixture.corruptProfile ? { remoteControl: false, market: true } : this.profiles.features(this.selected),
@@ -192,7 +197,7 @@ beforeEach(async () => {
   fixture.needsOnboarding = false; fixture.corruptProfile = false; fixture.restart.mockReset(); fixture.hostReady = false
   fixture.plugin.mockReset(); fixture.pluginDone.mockReset().mockResolvedValue({ exitCode: 0 });
   fixture.load.mockReset(); fixture.report.mockReset(); fixture.diagnosticAppend.mockReset(); fixture.diagnosticSnapshot.mockClear();
-  fixture.saveAppIcon.mockReset(); fixture.dockIcon.mockReset()
+  fixture.saveAppIcon.mockReset(); fixture.dockIcon.mockReset(); fixture.resume.mockReset()
   fixture.terminalTarget.mockReset(); fixture.openTerminal.mockClear(); fixture.popup.mockClear(); fixture.registerSchemes.mockClear()
   fixture.crashStart.mockReset(); for (const action of Object.values(fixture.memory)) action.mockReset()
   fixture.stop.mockReset().mockResolvedValue(undefined); fixture.start.mockClear(); fixture.close.mockReset().mockResolvedValue(undefined)
@@ -333,11 +338,11 @@ it.skipIf(installDesktopFileDrag)('registers no file drag where the followed DSH
   } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 
-it('uses the existing recovery assistant only after exhausting automatic renderer repair', async () => {
+it('opens the recovery assistant only after exhausting automatic renderer repair, keeping a ready Host and its tasks (#1690)', async () => {
   const home = mkdtempSync(join(tmpdir(), 'next-renderer-exhausted-'))
   vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
   fixture.hostReady = true
-  fixture.report.mockImplementation(() => fixture.runtimeOptions!.onFailure())
+  fixture.report.mockImplementation((_error: unknown, stage?: DesktopFailureStage) => fixture.runtimeOptions!.onFailure(stage))
   try {
     await import('../src/main.ts')
     await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
@@ -350,12 +355,89 @@ it('uses the existing recovery assistant only after exhausting automatic rendere
     }
     expect(main.loadedUrls).toHaveLength(4)
     main.webContents.emit('render-process-gone', {}, { reason: 'crashed', exitCode: -1073741819 })
-    expect(fixture.report).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'Renderer recovery exhausted: Renderer: crashed' }), 'renderer-startup')
+    expect(fixture.report).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: EXHAUSTED }), 'renderer-startup')
     expect(fixture.memory.incident).toHaveBeenCalledTimes(4)
     expect(fixture.memory.incident).toHaveBeenLastCalledWith({ process: 'renderer', reason: 'crashed', exitCode: -1073741819 })
-    expect(fixture.stop).toHaveBeenCalledOnce()
+    expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ event: 'renderer.recovery.exhausted',
+      fields: { reason: 'crashed', exitCode: -1073741819, attempt: 3, detail: EXHAUSTED.slice('Renderer recovery exhausted: '.length) } }))
+    expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ event: 'recovery.host-kept' }))
+    expect(fixture.stop).not.toHaveBeenCalled()
     expect(main.destroyed).toBe(true)
-    expect(fixture.windows[1].loadedUrls[0]).toContain('#recovery')
+    const recovery = fixture.windows[1]
+    expect(recovery.loadedUrls[0]).toContain('#recovery')
+    const shell = { sender: recovery.webContents, senderFrame: recovery.webContents.mainFrame }
+    expect(fixture.handlers.get('dsh-next:state')!(shell).hostRunning).toBe(true)
+    // The way back keeps the running Host: no stop, no restart, a new main window over it.
+    await fixture.handlers.get('dsh-next:command')!(shell, { type: 'reopen-main' })
+    expect(fixture.resume).toHaveBeenCalledOnce()
+    expect(fixture.stop).not.toHaveBeenCalled()
+    expect(fixture.restart).not.toHaveBeenCalled()
+    expect(recovery.destroyed).toBe(true)
+    expect(fixture.windows[2].loadedUrls).toEqual(['dsh-app://app/'])
+  } finally { vi.useRealTimers(); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it('still stops a Host that is not running cleanly when renderer repair is exhausted', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-renderer-exhausted-host-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  fixture.report.mockImplementation((_error: unknown, stage?: DesktopFailureStage) => fixture.runtimeOptions!.onFailure(stage))
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const main = fixture.windows[0]
+    vi.useFakeTimers()
+    for (const delay of [0, 1000, 3000]) {
+      main.webContents.emit('render-process-gone', {}, { reason: 'crashed', exitCode: -1073741819 })
+      await vi.advanceTimersByTimeAsync(delay)
+    }
+    main.webContents.emit('render-process-gone', {}, { reason: 'crashed', exitCode: -1073741819 })
+    expect(fixture.report).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: EXHAUSTED }), 'renderer-startup')
+    expect(fixture.stop).toHaveBeenCalledOnce()
+    const recovery = fixture.windows[1]
+    const shell = { sender: recovery.webContents, senderFrame: recovery.webContents.mainFrame }
+    expect(fixture.handlers.get('dsh-next:state')!(shell).hostRunning).toBeUndefined()
+  } finally { vi.useRealTimers(); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it('starts the next document without a Session that took the renderer down twice (#1690)', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-renderer-landing-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  fixture.hostReady = true
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const main = fixture.windows[0]
+    const sender = { sender: main.webContents, senderFrame: main.webContents.mainFrame }
+    const landing = fixture.handlers.get('dsh-next:renderer-landing')!
+    // Like Electron, the reply goes out on the first assignment to returnValue; a later one is lost.
+    const ask = (sessionId: unknown, from: object = sender): unknown => {
+      const replies: unknown[] = []
+      const event = Object.defineProperty({ ...from }, 'returnValue', { set: (value: unknown) => { replies.push(value) } })
+      landing(event, sessionId)
+      expect(replies).toHaveLength(1)
+      return replies[0]
+    }
+    const breakpoint = { reason: 'crashed', exitCode: -2147483645 }
+    vi.useFakeTimers()
+    expect(ask('session-1')).toBeNull()
+    main.webContents.emit('render-process-gone', {}, breakpoint)
+    await vi.advanceTimersByTimeAsync(0)
+    // The first failure restores the Session, so a one-off crash costs nothing.
+    expect(ask('session-1')).toBeNull()
+    main.webContents.emit('render-process-gone', {}, breakpoint)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(main.loadedUrls).toHaveLength(3)
+    expect(ask('session-1')).toEqual({ sessionId: 'session-1', failures: 2, ...breakpoint })
+    const sessions = fixture.diagnosticAppend.mock.calls.map(([record]) => record).filter(record => record?.event === 'renderer.failure.session')
+    expect(sessions.map(record => [record.level, record.fields])).toEqual([
+      ['info', { conversation: 'session-1', failures: 1, held: false, ...breakpoint }],
+      ['warn', { conversation: 'session-1', failures: 2, held: true, ...breakpoint }],
+    ])
+    // Every caller gets an answer, or its page would hang; a foreign or malformed one learns nothing.
+    main.webContents.emit('render-process-gone', {}, breakpoint)
+    expect(ask('session-1', { sender: {}, senderFrame: {} })).toBeNull()
+    expect(ask({ sessionId: 'session-1' })).toBeNull()
+    expect(ask('session-1')).toBeNull()
   } finally { vi.useRealTimers(); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 
@@ -390,7 +472,7 @@ it('records who started each main-window document, and reports exhaustion after 
       await vi.advanceTimersByTimeAsync(delay)
     }
     main.webContents.emit('render-process-gone', {}, { reason: 'crashed', exitCode: -1073741819 })
-    expect(fixture.report).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'Renderer recovery exhausted: Renderer: crashed' }), 'renderer-runtime')
+    expect(fixture.report).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: EXHAUSTED }), 'renderer-runtime')
   } finally { vi.useRealTimers(); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 

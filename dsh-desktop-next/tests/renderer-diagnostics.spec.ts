@@ -19,6 +19,7 @@ function page(execute: (code: string) => Promise<unknown>, destroyed = false) {
 const sample = () => ({
   view: { visibility: 'visible', focused: false, reducedMotion: false, width: 1280, height: 840, devicePixelRatio: 2 },
   dom: { elements: 12_345 },
+  memory: { used: 851_443_712, total: 943_718_400, limit: 3_760_193_536 },
   animations: [{ name: 'dsh-row-shimmer-sweep_1rdzk_1', target: 'span.decoration', pseudo: null, iterations: null, infinite: true, currentTime: 812.5 }],
   animationsTotal: 3,
   layers: [{ tag: 'div', id: 'portal', className: 'menu-surface', position: 'fixed', children: 2, attributes: { 'data-slot': 'menu' } }],
@@ -42,6 +43,7 @@ it('carries the page sample into the export shape', async () => {
     sampleMs: RENDERER_SAMPLE_MS,
     view: { visibility: 'visible', focused: false, reducedMotion: false, width: 1280, height: 840, devicePixelRatio: 2 },
     dom: { elements: 12_345 },
+    memory: { usedMB: 812, totalMB: 900, limitMB: 3586 },
     animationsTotal: 3,
     animations: [{ name: 'dsh-row-shimmer-sweep_1rdzk_1', target: 'span.decoration', infinite: true, currentTime: 812.5 }],
     layers: [{ tag: 'div', id: 'portal', position: 'fixed', attributes: { 'data-slot': 'menu' } }],
@@ -57,6 +59,7 @@ it('clips and caps what a broken page reports', async () => {
   const { target } = page(async () => ({
     view: { visibility: 'visible', focused: 'yes', reducedMotion: 1, width: 'wide', height: null, devicePixelRatio: Number.NaN },
     dom: { elements: -1 },
+    memory: { used: -1, total: 'large', limit: 0 },
     animations,
     animationsTotal: 1e9,
     layers,
@@ -72,6 +75,7 @@ it('clips and caps what a broken page reports', async () => {
   expect(view.layers[0]).toMatchObject({ className: 'c'.repeat(160), children: 0, attributes: { 'data-x': 'y'.repeat(120) } })
   expect(view.view).toMatchObject({ focused: null, reducedMotion: null, width: null, devicePixelRatio: null })
   expect(view.dom.elements).toBeNull()
+  expect(view.memory).toBeNull()
   expect(view.frameLoop).toEqual({ frames: 0, elapsedMs: 1000, framesPerSecond: 0, sampledBy: 'raf' })
   expect(view.longTasks).toBeNull()
 })
@@ -134,13 +138,14 @@ it('runs the probe against a minimal page and reports what it sees', async () =>
   let clock = 0
   const schedule: (() => void)[] = []
   const run = new Function('document', 'performance', 'requestAnimationFrame', 'setTimeout', 'clearTimeout', 'getComputedStyle', 'matchMedia', 'innerWidth', 'innerHeight', 'devicePixelRatio', 'PerformanceObserver', `return ${rendererDiagnosticsProbe(50)}`)
-  const pending = run(pageDocument, { now: () => (clock += 20) }, (callback: () => void) => { schedule.push(callback) },
+  const pending = run(pageDocument, { now: () => (clock += 20), memory: { usedJSHeapSize: 10, totalJSHeapSize: 20, jsHeapSizeLimit: 30 } }, (callback: () => void) => { schedule.push(callback) },
     () => 0, () => {}, () => ({ position: 'fixed' }), () => ({ matches: false }), 800, 600, 2, undefined)
   while (schedule.length > 0) schedule.shift()!()
   const snapshot = await pending
   expect(snapshot).toMatchObject({
     view: { visibility: 'visible', focused: false, reducedMotion: false, width: 800, height: 600, devicePixelRatio: 2 },
     dom: { elements: 3 },
+    memory: { used: 10, total: 20, limit: 30 },
     animations: [{ name: 'spin', target: 'svg', pseudo: '::before', infinite: true, iterations: null, currentTime: 120 }],
     animationsTotal: 1,
     layers: [{ tag: 'div', id: 'portal', className: 'menu', position: 'fixed', children: 1, attributes: { 'data-slot': 'menu' } }],
@@ -155,6 +160,7 @@ it('summarizes the sample for the readable log', async () => {
   expect(rendererDiagnosticsFields(renderer)).toEqual({
     available: true, animations: 1, animationsTotal: 3, layers: 1, framesPerSecond: 58,
     sampledBy: 'raf', focused: false, reducedMotion: false, visibility: 'visible', longTasks: 2,
+    elements: 12_345, heapUsedMB: 812, heapLimitMB: 3586,
   })
   expect(rendererDiagnosticsFields({ available: false, reason: 'timeout' })).toEqual({ available: false, reason: 'timeout' })
 })
