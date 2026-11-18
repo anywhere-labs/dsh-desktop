@@ -1,0 +1,13 @@
+diff --git a/package.json b/package.json
+index 9c0cb64..40a73d6 100644
+--- a/package.json
++++ b/package.json
+@@ -148,7 +148,7 @@
+   "dsh": {
+     "bundle": {
+       "patch": "./cordis.patch.yml",
+-      "listedByDefault": false
++      "listedByDefault": true
+     },
+     "client": {
+       "inject": [
