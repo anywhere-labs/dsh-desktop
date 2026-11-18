@@ -38,8 +38,9 @@ export async function until(check: () => boolean, label: string, timeoutMs = 10_
   if (!check()) throw new Error(`Timed out: ${label}`)
 }
 
-export async function connect(acpHome: string, capabilities: ClientCapabilities = {}): Promise<TestClient> {
-  const child = spawn(process.execPath, [stdioScript, '--home', acpHome], { stdio: ['pipe', 'pipe', 'pipe'] })
+/** `execArgv` goes to the launcher's Node.js, for example `--import` to load a probe first. */
+export async function connect(acpHome: string, capabilities: ClientCapabilities = {}, options: { execArgv?: string[] } = {}): Promise<TestClient> {
+  const child = spawn(process.execPath, [...options.execArgv ?? [], stdioScript, '--home', acpHome], { stdio: ['pipe', 'pipe', 'pipe'] })
   let stderr = ''
   child.stderr.setEncoding('utf8').on('data', (chunk: string) => { stderr += chunk })
   const exited = new Promise<void>(resolve => child.once('exit', () => resolve()))

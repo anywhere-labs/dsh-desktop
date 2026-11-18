@@ -39,50 +39,89 @@ function openInteractionEvents(wireStream: Context['typertGateway']['wireStream'
   return Reflect.apply(open, wireStream, args)
 }
 
+/** The gateway's view of requests still waiting for an answer (0.2.2 and later). */
+interface PendingEvents { getPendingRemoteEvents?(): readonly { event: string, agentId: string }[] }
+
 export class InteractionStream {
   private clientId: string | undefined
   private activeContext: Context | undefined
+  private gateway: PendingEvents | undefined
+  /** Ends the current stream only; the run loop then opens the next one at once. */
+  private connection: AbortController | undefined
+  private readonly readyWaiters = new Set<() => void>()
+  private closed = false
   private readonly dispose: () => Promise<void>
   get available(): boolean { return this.clientId !== undefined }
 
   constructor(ctx: Context, receive: (frame: Record<string, unknown>) => Promise<void>, log: Log) {
     const scope = ctx.inject(['typertGateway', 'connection'], ready => {
       const abort = new AbortController()
+      this.gateway = ready.typertGateway as unknown as PendingEvents
       const run = async () => {
         let failed = false
         while (!abort.signal.aborted) {
+          const connection = new AbortController()
+          this.connection = connection
+          const signal = AbortSignal.any([abort.signal, connection.signal])
           try {
-            const stream = await openInteractionEvents(ready.typertGateway.wireStream, abort.signal, interactionPeer(ready.connection))
+            const stream = await openInteractionEvents(ready.typertGateway.wireStream, signal, interactionPeer(ready.connection))
             for await (const value of stream) {
-              if (abort.signal.aborted) break
+              if (signal.aborted) break
               const frame = record(value)
               if (frame.type === 'ready' && typeof frame.clientId === 'string') {
                 if (failed) log.info('acp-bridge: interaction stream recovered')
                 failed = false
                 this.clientId = frame.clientId
                 this.activeContext = ready
+                for (const wake of [...this.readyWaiters]) wake()
               } else await receive(frame)
             }
           } catch (error) {
             // Report once per outage so retries neither hide a mismatch nor flood the log.
-            if (!abort.signal.aborted && !failed) log.warn('acp-bridge: interaction stream failed', error)
-            failed = true
+            if (!signal.aborted && !failed) log.warn('acp-bridge: interaction stream failed', error)
+            if (!signal.aborted) failed = true
           } finally {
             this.clientId = undefined
             this.activeContext = undefined
+            if (this.connection === connection) this.connection = undefined
           }
+          // A requested reconnect opens the next stream at once: DSH delivers every waiting request to a new stream.
+          if (connection.signal.aborted && !abort.signal.aborted) continue
           try { await delay(500, undefined, { signal: abort.signal }) } catch { break }
         }
       }
       ready.effect(() => {
         const task = run()
-        return async () => { abort.abort(); await task }
+        return async () => { abort.abort(); this.gateway = undefined; await task }
       }, 'agents-anywhere-acp-bridge: interaction stream')
     })
     this.dispose = async () => { await scope.dispose() }
   }
 
+  /** Whether DSH still waits for an answer to one of `events` from this Agent. */
+  waiting(agentId: string, events: readonly string[]): boolean {
+    let pending: readonly { event: string, agentId: string }[] | undefined
+    try { pending = this.gateway?.getPendingRemoteEvents?.() } catch { pending = undefined }
+    return Boolean(pending?.some(item => item.agentId === agentId && events.includes(item.event)))
+  }
+
+  /** Reopen the stream, so DSH delivers the requests that are still waiting again. */
+  reconnect(): void { this.connection?.abort() }
+
+  /** Resolves once a stream is connected, after `timeoutMs`, or when the plugin unloads. */
+  private connected(timeoutMs: number): Promise<void> {
+    if (this.clientId || this.closed) return Promise.resolve()
+    return new Promise(resolve => {
+      const done = () => { clearTimeout(timer); this.readyWaiters.delete(done); resolve() }
+      const timer = setTimeout(done, timeoutMs)
+      timer.unref?.()
+      this.readyWaiters.add(done)
+    })
+  }
+
   async reply(eventId: string, outcome: InteractionOutcome): Promise<void> {
+    // A reconnect re-delivers the request; the answer goes to the stream DSH now expects it on.
+    await this.connected(5_000)
     const ctx = this.activeContext, clientId = this.clientId
     if (!ctx || !clientId) throw new Error('DSH interaction stream is not connected.')
     const rpcId = randomUUID()
@@ -99,5 +138,9 @@ export class InteractionStream {
     }
   }
 
-  async close(): Promise<void> { await this.dispose() }
+  async close(): Promise<void> {
+    this.closed = true
+    for (const wake of [...this.readyWaiters]) wake()
+    await this.dispose()
+  }
 }

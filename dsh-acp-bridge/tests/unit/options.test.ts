@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller'
-import { carriedEffort, configOptions, findModel, planValue } from '../../src/acp/options.js'
+import { carriedEffort, configOptions, findModel, switchValue } from '../../src/acp/options.js'
 import { launcherScript } from '../../src/launcher.js'
 import { endpointProof, parseRecord, validProof } from '../../src/endpoint.js'
 import { homeSocket, pipeEndpoint, RPC_SERVICE } from '../../src/paths.js'
@@ -37,20 +37,25 @@ test('model options group routable providers and keep provider/model values', ()
   assert.equal(unknown?.type === 'select' && JSON.stringify(unknown.options).includes('other/x'), true, 'the current model stays selectable')
 })
 
-test('permission, preset and plan options', () => {
+test('permission, preset, plan and team options', () => {
   const options = configOptions({
     permission: { choices: [{ id: 'workspace-write', name: '工作区可写' }], current: 'workspace-write' },
     preset: { choices: [{ id: 'standard', name: '标准' }, { id: 'minimal', name: '极简' }], current: 'minimal' },
     plan: { active: true, booleanOptions: false },
+    team: { active: false, booleanOptions: false },
   })
-  assert.deepEqual(options.map(option => [option.id, option.category ?? null]), [['permission', 'mode'], ['agent_preset', null], ['plan_mode', null]])
+  assert.deepEqual(options.map(option => [option.id, option.category ?? null]),
+    [['permission', 'mode'], ['agent_preset', null], ['plan_mode', null], ['agent_team', null]])
   const plan = options.find(option => option.id === 'plan_mode')
   assert.equal(plan?.type === 'select' && plan.currentValue, 'on', 'clients without boolean options get a select')
+  const team = options.find(option => option.id === 'agent_team')
+  assert.equal(team?.type === 'select' && team.currentValue, 'off')
+  assert.match(team?.description ?? '', /缓存/u, 'the switch warns about cache reuse, as DSH Desktop asks before disabling it')
   const boolean = configOptions({ plan: { active: false, booleanOptions: true } })[0]
   assert.deepEqual(boolean && { type: boolean.type, value: boolean.currentValue }, { type: 'boolean', value: false })
-  assert.equal(planValue('on'), true)
-  assert.equal(planValue(false), false)
-  assert.equal(planValue('maybe'), undefined)
+  assert.equal(switchValue('on'), true)
+  assert.equal(switchValue(false), false)
+  assert.equal(switchValue('maybe'), undefined)
 })
 
 test('model values and effort carry-over', () => {

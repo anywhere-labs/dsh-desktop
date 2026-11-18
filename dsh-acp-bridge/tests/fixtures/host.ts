@@ -12,6 +12,7 @@ import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import AgentPreset from '@deepseek-ai/dsh-agent-preset'
 import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
+import TeamService from '@deepseek-ai/dsh-agent-team'
 import Gateway from '@deepseek-ai/dsh-api-gateway'
 import * as Remotes from '@deepseek-ai/dsh-api-remotes'
 import SessionController from '@deepseek-ai/dsh-api-session-controller'
@@ -30,13 +31,18 @@ import Shell from '@deepseek-ai/dsh-shell'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
+import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as AskUserTool from '@deepseek-ai/dsh-tool-ask-user'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import * as SubagentTool from '@deepseek-ai/dsh-tool-subagent'
+import * as TodoTool from '@deepseek-ai/dsh-tool-todo'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import Approval from '@deepseek-ai/dsh-user-approval'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
@@ -47,6 +53,7 @@ import { pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { MeshCallClient } from 'meshcall'
 import { readRecords, type EndpointRecord } from '../../src/endpoint.js'
+import { interactionPeer } from '../../src/acp/interaction-stream.js'
 import type * as BridgePlugin from '../../src/index.js'
 import { RPC_SERVICE, TOKEN_METADATA } from '../../src/paths.js'
 
@@ -85,21 +92,29 @@ function aborted(signal: AbortSignal | undefined): Promise<never> {
   })
 }
 
-/** The latest tool result, else the latest message a person wrote (DSH appends runtime context after it). */
+/**
+ * The latest tool result, else the latest message a person wrote (DSH appends runtime context after
+ * it), else a subagent's completion notice when that came after the person's message.
+ */
 function lastText(options: GenerateOptions): { role: string, text: string } {
   const messages = options.messages as readonly Message[]
   const last = messages.at(-1)
   if (last?.role === 'tool') return { role: 'tool', text: '' }
-  const user = messages.findLast(message => message.role === 'user' && message.source?.kind === 'user')
+  const user = messages.findLast(message => message.role === 'user' && (message.source?.kind === 'user' || message.source?.kind === 'subagent-settled'))
+  if (user?.source?.kind === 'subagent-settled') return { role: 'notice', text: '' }
   return { role: 'user', text: (user?.content ?? []).map(block => block.text ?? '').join('') }
 }
 
 /**
  * The scripted model. The latest message decides what it does:
  * - a tool result: reply 「工具完成」;
+ * - a subagent's completion notice: reply 「收到结果」;
+ * - 「派助手」: start a background subagent with the `subagent` tool, whose task is 「后台工作」;
+ * - 「后台工作」 (the subagent's own model): hold until `child` opens, then reply 「后台完成」;
  * - 「调用工具」: call the approval-gated `danger` tool;
  * - 「提问」: call `ask_user_question` with a single-choice and a free-text question;
  * - 「单选」: call `ask_user_question` with one single-choice question;
+ * - 「计划」: write a three-item todo list with `todo_write`;
  * - 「等待」: stream 「开始」, then hold until cancelled;
  * - 「分段」: stream 「你好前半」, wait for `midway`, then stream 「后半」;
  * - anything else: think, then stream 「你好」.
@@ -109,6 +124,8 @@ export class ScriptAdapter extends LlmAdapter {
   requests: GenerateOptions[] = []
   unavailable = false
   midway = new Gate()
+  /** Holds every subagent until the test opens it. */
+  child = new Gate()
   override async listModels(provider: string) {
     return ['text', 'thinking'].map(id => ({ provider, id, name: id === 'text' ? 'Text' : 'Thinking' }))
   }
@@ -134,6 +151,14 @@ export class ScriptAdapter extends LlmAdapter {
     }
     if (last.role === 'tool') {
       yield* text('工具完成')
+    } else if (last.role === 'notice') {
+      yield* text('收到结果')
+    } else if (last.text.includes('后台工作')) {
+      await Promise.race([this.child.wait(), aborted(options.signal)])
+      yield* text('后台完成')
+    } else if (last.text.includes('派助手')) {
+      yield* call('subagent', { description: '后台任务', prompt: '后台工作：等放行后回复' })
+      return
     } else if (last.text.includes('调用工具')) {
       yield* call('danger', { target: '/etc/hosts' })
       return
@@ -146,6 +171,11 @@ export class ScriptAdapter extends LlmAdapter {
     } else if (last.text.includes('单选')) {
       yield* call('ask_user_question', { questions: [
         { id: 'mode', header: '模式', question: '选择模式', options: [{ label: '标准' }, { label: '快速', description: '少做检查' }] },
+      ] })
+      return
+    } else if (last.text.includes('计划')) {
+      yield* call('todo_write', { todos: [
+        { content: '读代码', status: 'completed' }, { content: '写测试', status: 'in_progress' }, { content: '提交', status: 'pending' },
       ] })
       return
     } else if (last.text.includes('分段')) {
@@ -192,6 +222,22 @@ export async function ready(acpHome: string): Promise<EndpointRecord> {
     if (Date.now() > deadline) throw new Error('The ACP endpoint did not become ready')
     await delay(20)
   }
+}
+
+/**
+ * A DSH Desktop window: an owner interaction stream that receives every
+ * approval and question and holds it, as a card nobody has clicked yet.
+ * Returns the stop function.
+ */
+export function holdInteractions(ctx: Context): () => void {
+  const abort = new AbortController()
+  const open = ctx.typertGateway.wireStream.open as (...args: unknown[]) => Promise<AsyncIterable<unknown>>
+  void (async () => {
+    const stream = await Reflect.apply(open, ctx.typertGateway.wireStream,
+      ['$events', { args: {} }, (async function* () {})(), interactionPeer(ctx.connection), abort.signal])
+    for await (const _frame of stream) { /* shown, never answered */ }
+  })().catch(() => undefined)
+  return () => abort.abort()
 }
 
 /** What the bridge reports about itself over RPC. */
@@ -242,6 +288,10 @@ export interface Host {
 export interface HostOptions {
   /** Runs before the plugin starts, for example to leave records behind in its home. */
   prepare?(acpHome: string): Promise<void>
+  /** Mount DSH's subagents with the in-process backend and the `subagent` tool, as the base bundle does. */
+  subagents?: boolean
+  /** Also mount DSH's Team mode (`ctx.agentTeams`), the 「启用智能体团队协作」 switch; implies `subagents`. */
+  agentTeams?: boolean
   /** Directory name of the plugin home under the test root. */
   homeName?: string
 }
@@ -269,6 +319,7 @@ export async function startHost(options: HostOptions = {}): Promise<Host> {
     await ctx.plugin(SystemPrompt).await()
     await ctx.plugin(ToolRuntime).await()
     await ctx.plugin(NativeToolExecutor).await()
+    await ctx.plugin(TodoTool, { allowParallelInProgress: false }).await()
     await ctx.plugin(AgentRegistry).await()
     await ctx.plugin(AgentLoop, { agents: [] }).await()
     await ctx.plugin(AgentDefaultModel, { provider: 'test', model: 'text' }).await()
@@ -291,6 +342,13 @@ export async function startHost(options: HostOptions = {}): Promise<Host> {
     new HostConnectionService(ctx, [], {} as ConstructorParameters<typeof HostConnectionService>[2])
     await ctx.plugin(FileUploads).await()
     await ctx.plugin(LocalFileSystem).await()
+    if (options.subagents || options.agentTeams) {
+      await ctx.plugin(WorkingDirectory).await()
+      await ctx.plugin(SubagentRuntime).await()
+      await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }).await()
+      await ctx.plugin(SubagentTool, { provider: 'spawn', toolName: 'subagent' }).await()
+    }
+    if (options.agentTeams) await ctx.plugin(TeamService).await()
     await ctx.plugin(SessionController, { nativeOpen: false }).await()
     await ctx.plugin(UserQuestionService).await()
     await ctx.plugin(AskUserTool).await()

@@ -11,6 +11,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-attachment'
+import type {} from '@deepseek-ai/dsh-client-file-upload'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '@deepseek-ai/dsh-session-title'
@@ -24,6 +25,14 @@ import type { Log } from './log.js'
 interface PlanService {
   get(agent: Agent): { active: boolean, pending?: boolean }
   set(agent: Agent, active: boolean): unknown
+}
+
+/** DSH's Team mode (`@deepseek-ai/dsh-agent-team`), read structurally: compositions without agent teams have none. */
+export interface TeamService {
+  /** Whether Team tools and guidance are on for the Agent's subagent tree. */
+  isEnabled(agent: Agent): boolean
+  /** Save the root Session's choice; subagents and tasks stay. */
+  setEnabled(agent: Agent, enabled: boolean, signal?: AbortSignal): Promise<void>
 }
 
 /** A DSH failure the ACP client should see with its message. */
@@ -52,6 +61,27 @@ export class DshHost {
 
   live(id: string): Agent | undefined {
     return this.ctx.get('agents')?.get(id as SessionId)
+  }
+
+  /** Whether the session's Agent finished its turn within `timeoutMs`. */
+  async idle(id: string, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    while (this.live(id)?.status === 'running') {
+      if (Date.now() > deadline) return false
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    return true
+  }
+
+  /**
+   * Wait for work in the Agent's subagent tree, read structurally like the official dsh-acp
+   * does, so compositions without subagents work unchanged.
+   * @returns whether work was joined; the caller then checks the Agent again.
+   */
+  async treeWork(agent: Agent): Promise<boolean> {
+    const subagents = (this.ctx as unknown as { get(name: string): unknown }).get('subagents') as
+      { waitForTreeWork?(root: Agent): Promise<boolean> } | undefined
+    return typeof subagents?.waitForTreeWork === 'function' ? await subagents.waitForTreeWork(agent) : false
   }
 
   /** The session's Agent, resuming it when DSH has not loaded it yet. */
@@ -108,6 +138,13 @@ export class DshHost {
     value ??= (this.ctx as unknown as { get(name: string): unknown }).get('planMode')
     const service = record(value)
     return typeof service.get === 'function' && typeof service.set === 'function' ? value as PlanService : undefined
+  }
+
+  /** The service behind DSH's 「启用智能体团队协作」 switch, when DSH composes agent teams. */
+  agentTeams(): TeamService | undefined {
+    const value = (this.ctx as unknown as { get(name: string): unknown }).get('agentTeams')
+    const service = record(value)
+    return typeof service.isEnabled === 'function' && typeof service.setEnabled === 'function' ? value as TeamService : undefined
   }
 
   presentCall(agent: Agent | undefined, name: string, args: unknown): ToolCallView | undefined {

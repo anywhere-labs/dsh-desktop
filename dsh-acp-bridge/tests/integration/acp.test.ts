@@ -16,7 +16,7 @@ test('a new ACP session streams a DSH reply and creates a normal DSH session', {
     const capabilities = client.initialized.agentCapabilities
     assert.equal(client.initialized.protocolVersion, 1)
     assert.equal(capabilities?.loadSession, true)
-    assert.deepEqual(capabilities?.sessionCapabilities, { list: {}, resume: {}, close: {} })
+    assert.deepEqual(capabilities?.sessionCapabilities, { list: {}, resume: {}, close: {}, delete: {}, fork: {} })
     assert.equal(capabilities?.promptCapabilities?.image, true)
 
     const created = await client.connection.agent.request(methods.agent.session.new, { cwd: host.workspace, mcpServers: [] })
@@ -280,6 +280,7 @@ test('configuration and slash commands act on the shared DSH session', { timeout
 
     const changed = await client.connection.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: 'permission', value: 'danger-full-access' })
     assert.equal(option(changed.configOptions, 'permission')?.currentValue, 'danger-full-access')
+    assert.equal(option(changed.configOptions, 'agent_team'), undefined, 'no team switch where DSH has no agent teams')
     assert.equal(host.ctx.permissionPresets.current(host.ctx.agents.get(sessionId as never)!.session), 'danger-full-access')
 
     const menu = client.updates.findLast(item => item.update.sessionUpdate === 'available_commands_update')

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  addUsage, expandStreamRecords, PromptError, promptParts, questionChoices, questionForm, slashCommand, stopReason, toolCallUpdate, toolKind,
+  addUsage, expandStreamRecords, planEntries, PromptError, promptParts, questionChoices, questionForm, slashCommand, stopReason, toolCallUpdate, toolKind,
   toolResultUpdate,
 } from '../../src/acp/convert.js'
 
@@ -21,14 +21,26 @@ test('prompt blocks become DSH prompt parts', () => {
   ])
   assert.deepEqual(promptParts([{ type: 'resource', resource: { uri: 'file:///x.jpg', mimeType: 'image/jpeg', blob: png } }]),
     [{ type: 'image', mediaType: 'image/jpeg', data: png, name: 'x.jpg' }])
+  assert.deepEqual(promptParts([{ type: 'text', text: '看看' }, { type: 'resource', resource: { uri: 'file:///work/%E6%8A%A5%E5%91%8A.pdf', mimeType: 'application/pdf', blob: png } }]),
+    [{ type: 'text', text: '看看' }, { type: 'upload', data: png, name: '报告.pdf' }], 'other binary resources are uploaded as files')
 })
 
 test('unsupported prompt content is refused before reaching DSH', () => {
   assert.throws(() => promptParts([{ type: 'audio', data: png, mimeType: 'audio/wav' }]), PromptError)
   assert.throws(() => promptParts([{ type: 'image', data: png, mimeType: 'image/tiff' }]), /图片类型/u)
   assert.throws(() => promptParts([{ type: 'image', data: 'not base64!', mimeType: 'image/png' }]), /base64/u)
-  assert.throws(() => promptParts([{ type: 'resource', resource: { uri: 'file:///a.bin', blob: png } }]), /二进制/u)
+  assert.throws(() => promptParts([{ type: 'resource', resource: { uri: 'file:///a.bin', blob: 'not base64!' } }]), /文件数据/u)
   assert.throws(() => promptParts([{ type: 'text', text: '   ' }]), /不能为空/u)
+})
+
+test('the DSH todo list becomes plan entries', () => {
+  assert.deepEqual(planEntries([{ content: '读代码', status: 'completed' }, { content: '写测试', status: 'in_progress' }, { content: '提交', status: 'pending' }]), [
+    { content: '读代码', priority: 'medium', status: 'completed' },
+    { content: '写测试', priority: 'medium', status: 'in_progress' },
+    { content: '提交', priority: 'medium', status: 'pending' },
+  ])
+  assert.deepEqual(planEntries(null), [], 'no list is no plan')
+  assert.deepEqual(planEntries([{ content: '坏状态', status: 'done' }, { status: 'pending' }]), [], 'malformed items are left out')
 })
 
 test('slash commands are recognized only at the start of the prompt', () => {

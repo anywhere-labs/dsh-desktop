@@ -72,6 +72,13 @@ class StderrLogger implements RpcLogger {
 
 const logger = new StderrLogger(Boolean(process.env.DSH_ACP_DEBUG))
 
+// meshcall 0.3.0 can report a call that failed while it was still being opened as an unhandled
+// rejection, although the caller awaits the same failure (anywhere-labs/deepseek-harness-desktop#1574).
+// Every path here awaits its own errors, so a stray one must not end the editor's agent process.
+process.on('unhandledRejection', reason => {
+  process.stderr.write(`dsh-acp-bridge: 忽略了一个未处理的异步错误：${reason instanceof Error ? reason.message : String(reason)}\n`)
+})
+
 function metadata(record: EndpointRecord) { return { [TOKEN_METADATA]: record.token } }
 
 interface Connected { record: EndpointRecord, client: MeshCallClient, info: Message }

@@ -9,6 +9,7 @@ export const OPTION = {
   permission: 'permission',
   preset: 'agent_preset',
   plan: 'plan_mode',
+  team: 'agent_team',
 } as const
 
 /** The effort value that means "the model's own default". */
@@ -16,13 +17,18 @@ export const DEFAULT_EFFORT = 'default'
 
 export interface Choice { id: string, name: string, description?: string }
 
+/** An on/off option: a boolean for clients that render them, an `on`/`off` select otherwise. */
+export interface Switch { active: boolean, booleanOptions: boolean }
+
 export interface ConfigState {
   catalog?: ModelCatalog | undefined
   model?: ModelSelection | undefined
   permission?: { choices: readonly Choice[], current: string } | undefined
   /** Only before DSH creates the session: the preset composes the Agent. */
   preset?: { choices: readonly Choice[], current: string } | undefined
-  plan?: { active: boolean, booleanOptions: boolean } | undefined
+  plan?: Switch | undefined
+  /** DSH's Team mode, the 「启用智能体团队协作」 switch of its model menu. */
+  team?: Switch | undefined
 }
 
 /** `provider/model`; the provider is everything before the first slash. */
@@ -92,17 +98,23 @@ export function configOptions(state: ConfigState): SessionConfigOption[] {
     options.push({ id: OPTION.preset, name: 'Agent 模式', description: '只能在发送第一条消息前选择。', type: 'select',
       currentValue: state.preset.current, options: state.preset.choices.map(choice) })
   }
-  if (state.plan) {
-    options.push(state.plan.booleanOptions
-      ? { id: OPTION.plan, name: '计划模式', type: 'boolean', currentValue: state.plan.active }
-      : { id: OPTION.plan, name: '计划模式', type: 'select', currentValue: state.plan.active ? 'on' : 'off',
-        options: [{ value: 'off', name: '关闭' }, { value: 'on', name: '开启' }] })
+  if (state.plan) options.push(switchOption(OPTION.plan, '计划模式', undefined, state.plan))
+  if (state.team) {
+    options.push(switchOption(OPTION.team, '智能体团队协作',
+      '开启后 Agent 可以组建子 Agent 团队，用共享任务板分工协作；会话开始后关闭可能影响缓存复用，增加后续 token 用量。', state.team))
   }
   return options
 }
 
-/** A plan-mode value from either the boolean or the select form. */
-export function planValue(value: unknown): boolean | undefined {
+function switchOption(id: string, name: string, description: string | undefined, state: Switch): SessionConfigOption {
+  return state.booleanOptions
+    ? { id, name, ...(description ? { description } : {}), type: 'boolean', currentValue: state.active }
+    : { id, name, ...(description ? { description } : {}), type: 'select', currentValue: state.active ? 'on' : 'off',
+      options: [{ value: 'off', name: '关闭' }, { value: 'on', name: '开启' }] }
+}
+
+/** An on/off value from either the boolean or the select form. */
+export function switchValue(value: unknown): boolean | undefined {
   if (typeof value === 'boolean') return value
   if (value === 'on' || value === 'true') return true
   if (value === 'off' || value === 'false') return false

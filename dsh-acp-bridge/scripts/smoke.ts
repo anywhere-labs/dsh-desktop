@@ -226,6 +226,11 @@ class Output {
       case 'usage_update':
         this.note(`[上下文] 已用 ${update.used} / ${update.size} tokens`)
         break
+      case 'plan': {
+        const marks: Record<string, string> = { completed: '✓', in_progress: '▶', pending: '○' }
+        this.note(update.entries.length ? `[计划] ${update.entries.map(entry => `${marks[entry.status] ?? '·'}${entry.content}`).join(' / ')}` : '[计划] 已清空')
+        break
+      }
       default:
         this.note(`[${update.sessionUpdate}]`)
     }

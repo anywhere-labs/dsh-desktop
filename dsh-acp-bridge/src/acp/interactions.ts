@@ -46,6 +46,7 @@ const KINDS: Readonly<Record<string, 'approval' | 'question'>> = { 'approval/req
 export class InteractionHub {
   private readonly targets = new Set<InteractionTarget>()
   private readonly pending = new Map<string, { abort: AbortController, settledElsewhere: boolean }>()
+  private reconnecting = false
   /** One stream for both kinds: DSH delivers every waterfall to every stream, and each delivery needs exactly one reply. */
   private readonly stream: InteractionStream
 
@@ -62,7 +63,22 @@ export class InteractionHub {
   /** Sessions currently following, across every connection. */
   get size(): number { return this.targets.size }
 
-  add(target: InteractionTarget): void { this.targets.add(target) }
+  /**
+   * A session a client opens may have requests DSH sent while nobody here
+   * could answer them; this bridge passed those on, and they now wait in DSH
+   * Desktop. A new stream receives every waiting request again, so the client
+   * that just opened the session is asked too.
+   */
+  add(target: InteractionTarget): void {
+    this.targets.add(target)
+    if (this.reconnecting || !this.stream.waiting(target.dshId, Object.keys(KINDS))) return
+    this.reconnecting = true
+    queueMicrotask(() => {
+      this.reconnecting = false
+      this.stream.reconnect()
+    })
+  }
+
   remove(target: InteractionTarget): void { this.targets.delete(target) }
 
   private async receive(frame: Record<string, unknown>): Promise<void> {

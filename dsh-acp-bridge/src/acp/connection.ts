@@ -7,6 +7,7 @@
 import { agent as acpAgent, methods, PROTOCOL_VERSION, RequestError, type AgentConnection, type ClientCapabilities, type InitializeResponse,
   type ListSessionsResponse, type SessionInfo, type SessionUpdate, type Stream } from '@agentclientprotocol/sdk'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { PromptError, record, type Fields } from './convert.js'
@@ -36,6 +37,12 @@ async function directory(cwd: unknown): Promise<string> {
 }
 
 function encodeCursor(offset: number): string { return Buffer.from(JSON.stringify({ offset })).toString('base64url') }
+
+/** A directory as the file system names it: links resolved, and case folded where Windows ignores it. */
+async function canonical(path: string): Promise<string> {
+  const real = await realpath(path).catch(() => resolve(path))
+  return process.platform === 'win32' ? real.toLowerCase() : real
+}
 function decodeCursor(cursor: unknown): number {
   if (cursor === undefined || cursor === null) return 0
   try {
@@ -69,6 +76,8 @@ export class AcpConnection implements AcpClient {
       .onRequest(methods.agent.session.resume, ({ params }) => guard(async () => ({ configOptions: await this.open(params.sessionId, params.cwd, params.mcpServers, false) })))
       .onRequest(methods.agent.session.list, ({ params, signal }) => guard(() => this.list(params.cwd, params.cursor, signal)))
       .onRequest(methods.agent.session.close, ({ params }) => guard(async () => { await this.closeSession(params.sessionId); return {} }))
+      .onRequest(methods.agent.session.delete, ({ params }) => guard(async () => { await this.deleteSession(params.sessionId); return {} }))
+      .onRequest(methods.agent.session.fork, ({ params }) => guard(() => this.fork(params.sessionId, params.cwd, params.mcpServers)))
       .onRequest(methods.agent.session.setConfigOption, ({ params }) => guard(async () => ({
         configOptions: await this.session(params.sessionId).setConfig(params.configId, (params as Fields).value) })))
       .onRequest(methods.agent.session.prompt, ({ params, signal }) => guard(() => this.session(params.sessionId).prompt(params.prompt, signal)))
@@ -90,7 +99,7 @@ export class AcpConnection implements AcpClient {
         loadSession: true,
         promptCapabilities: { image: this.host.imagesSupported, audio: false, embeddedContext: true },
         mcpCapabilities: { http: false, sse: false },
-        sessionCapabilities: { list: {}, resume: {}, close: {} },
+        sessionCapabilities: { list: {}, resume: {}, close: {}, delete: {}, fork: {} },
         // Prompts sent while a turn runs wait in the DSH queue. Not in the ACP schema: this is the
         // flag clients read to allow sending mid-turn, first advertised by claude-agent-acp.
         _meta: { claudeCode: { promptQueueing: true } },
@@ -157,20 +166,65 @@ export class AcpConnection implements AcpClient {
     await session?.close()
   }
 
+  /**
+   * `session/delete`: archive the session in DSH, where it can be restored. The
+   * prompts this connection started are cancelled first; a turn someone else
+   * runs is not this client's to stop, so the session is left alone then.
+   */
+  private async deleteSession(id: string): Promise<void> {
+    const ours = this.sessions.get(id)?.busy ?? false
+    await this.closeSession(id)
+    if (this.host.workspaces.archivedSessionIds.includes(id as SessionId)) return
+    if (ours) await this.host.idle(id, 5_000)
+    try {
+      await this.host.workspaces.archiveSession(id as SessionId)
+    } catch (error) {
+      if (Array.isArray(record(error).activity)) throw RequestError.invalidParams(undefined, '这个会话在 DSH 里还有任务在运行，请等它结束或在 DSH 里停止后再删除。')
+      const code = record(error).code
+      if (code === 'session/not-found' || /not found|does not exist/iu.test(hostMessage(error))) throw RequestError.invalidParams(undefined, 'DSH 中没有这个会话。')
+      throw error
+    }
+  }
+
+  /** `session/fork`: DSH copies the session's history up to its last finished turn; the copy is followed like `session/resume`. */
+  private async fork(sessionId: string, cwd: unknown, mcpServers: unknown) {
+    const path = await directory(cwd)
+    this.ignoreMcp(mcpServers)
+    let forked: string
+    try {
+      forked = (await this.host.controller.fork({ sessionId: sessionId as SessionId })).sessionId
+    } catch (error) {
+      const code = record(error).code
+      if (code === 'session/not-found' || code === 'gateway/not-found') throw RequestError.invalidParams(undefined, 'DSH 中没有这个会话。')
+      throw new HostError(`DSH 无法复制这个会话：${hostMessage(error)}`)
+    }
+    this.ensureOpen()
+    return { sessionId: forked, configOptions: await this.open(forked, path, undefined, false) }
+  }
+
   /** DSH's own session list: top-level, non-archived conversations, newest first. */
   private async list(cwd: unknown, cursor: unknown, signal: AbortSignal): Promise<ListSessionsResponse> {
     let filter: string | undefined
     if (cwd !== undefined && cwd !== null) {
       if (typeof cwd !== 'string' || !isAbsolute(cwd)) throw RequestError.invalidParams(undefined, 'cwd 必须是绝对路径。')
-      filter = await realpath(cwd).catch(() => resolve(cwd))
+      filter = await canonical(cwd)
     }
     const offset = decodeCursor(cursor)
     const archived = new Set<string>(this.host.workspaces.archivedSessionIds)
     const { items } = await this.host.controller.list({}, signal)
-    const rows = items.filter((item: SessionSummary) => item.origin !== 'subagent' && item.parentSessionId === undefined
-      && !item.blank && typeof item.cwd === 'string' && !archived.has(item.sessionId)
-      && (filter === undefined || resolve(item.cwd) === filter))
-      .sort((a: SessionSummary, b: SessionSummary) => b.updatedAt - a.updatedAt)
+    const candidates = items.filter((item: SessionSummary) => item.origin !== 'subagent' && item.parentSessionId === undefined
+      && !item.blank && typeof item.cwd === 'string' && !archived.has(item.sessionId))
+    // DSH keeps each session's directory as it was opened, links and all: compare both sides resolved.
+    const resolved = new Map<string, Promise<string>>()
+    const directoryOf = (path: string) => {
+      let value = resolved.get(path)
+      if (!value) resolved.set(path, value = canonical(path))
+      return value
+    }
+    const matched = filter === undefined ? candidates
+      : (await Promise.all(candidates.map(async item => await directoryOf(item.cwd!) === filter ? item : undefined)))
+        .filter((item): item is SessionSummary => item !== undefined)
+    const rows = matched.sort((a: SessionSummary, b: SessionSummary) => b.updatedAt - a.updatedAt)
     const page = rows.slice(offset, offset + LIST_PAGE)
     const sessions: SessionInfo[] = page.map((item: SessionSummary) => {
       const title = item.projections?.values.title

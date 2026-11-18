@@ -4,7 +4,7 @@
  */
 
 import type {
-  ContentBlock as AcpContent, SessionUpdate, StopReason, ToolCallContent, ToolCallLocation, ToolKind, Usage,
+  ContentBlock as AcpContent, PlanEntry, SessionUpdate, StopReason, ToolCallContent, ToolCallLocation, ToolKind, Usage,
 } from '@agentclientprotocol/sdk'
 import type { PromptContentPart } from '@deepseek-ai/dsh-api-session-controller'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
@@ -63,13 +63,19 @@ function imagePart(data: string, mimeType: string | null | undefined, uri: strin
   return { type: 'image', mediaType, data, ...(uri ? { name: leaf(uri) } : {}) }
 }
 
+/** A binary file the editor attached; the session uploads it to DSH, which turns it into a `file` part. */
+export interface UploadPart { type: 'upload', data: string, name?: string }
+
+/** A prompt part before uploads: what DSH takes, or a file still to upload. */
+export type PromptInput = PromptContentPart | UploadPart
+
 /**
  * ACP prompt blocks → DSH prompt parts. Adjacent text is joined, resource links
- * become markdown links, embedded text resources become tagged context; audio
- * and binary resources that are not images are refused.
+ * become markdown links, embedded text resources become tagged context, and
+ * embedded binary resources that are not images become uploads; audio is refused.
  */
-export function promptParts(blocks: readonly AcpContent[]): PromptContentPart[] {
-  const parts: PromptContentPart[] = []
+export function promptParts(blocks: readonly AcpContent[]): PromptInput[] {
+  const parts: PromptInput[] = []
   let text = ''
   const flush = () => { if (text) { parts.push({ type: 'text', text }); text = '' } }
   for (const block of blocks) {
@@ -92,8 +98,13 @@ export function promptParts(blocks: readonly AcpContent[]): PromptContentPart[] 
         } else if ('blob' in resource && imageMediaType(resource.mimeType)) {
           flush()
           parts.push(imagePart(resource.blob, resource.mimeType, resource.uri))
+        } else if ('blob' in resource && typeof resource.blob === 'string') {
+          if (!resource.blob || !BASE64.test(resource.blob)) throw new PromptError('文件数据必须是标准 base64。')
+          flush()
+          const name = resource.uri ? leaf(resource.uri) : ''
+          parts.push({ type: 'upload', data: resource.blob, ...(name ? { name } : {}) })
         } else {
-          throw new PromptError('不支持嵌入二进制资源，请改为文件链接或图片。')
+          throw new PromptError('不支持这种嵌入资源，请改为文件链接。')
         }
         break
       }
@@ -106,6 +117,23 @@ export function promptParts(blocks: readonly AcpContent[]): PromptContentPart[] 
   flush()
   if (!parts.some(part => part.type !== 'text' || part.text.trim())) throw new PromptError('消息不能为空。')
   return parts
+}
+
+const PLAN_STATUSES = new Set(['pending', 'in_progress', 'completed'])
+
+/**
+ * DSH's todo list (the `todos` projection or a `todo/write` snapshot) → ACP
+ * plan entries. DSH items carry no priority; null or a malformed list is no plan.
+ */
+export function planEntries(todos: unknown): PlanEntry[] {
+  if (!Array.isArray(todos)) return []
+  const entries: PlanEntry[] = []
+  for (const raw of todos) {
+    const item = record(raw)
+    if (typeof item.content !== 'string' || typeof item.status !== 'string' || !PLAN_STATUSES.has(item.status)) continue
+    entries.push({ content: item.content, priority: 'medium', status: item.status as PlanEntry['status'] })
+  }
+  return entries
 }
 
 /** The slash command a prompt starts with, when its first block is text. */

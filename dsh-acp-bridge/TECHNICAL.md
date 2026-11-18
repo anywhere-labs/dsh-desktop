@@ -47,6 +47,7 @@ The plugin listens directly inside the DSH process (MeshCall direct mode, no Rou
 - If a directory the plugin uses is a symbolic link, not a directory, or owned by another user, the plugin refuses to start; it never follows the link or changes its permissions.
 - Every DSH process that loads the plugin writes one record and removes its own record and socket when the plugin unloads. A starting plugin removes records whose process has exited, and the launcher never picks such a record.
 - The launcher tries the records from the newest to the oldest start time: it first calls `hello` with a random nonce and verifies the proof, skips the record when verification fails (a reused PID, or a socket or pipe name taken by another program), and only after a successful verification sends the token with `info` and `connect`. `--instance` selects an instance by ID prefix.
+- meshcall 0.3.0 can report a call that failed while it was still being opened as an unhandled promise rejection, although the caller awaits the same failure (DSH Desktop patches it, see anywhere-labs/deepseek-harness-desktop#1574). The launcher writes such a rejection to standard error and keeps forwarding instead of exiting.
 - The Windows named pipe is `\\.\pipe\agents-anywhere-dsh-acp-<first 16 ID characters>`; the same proof and token tell the two sides apart.
 
 ## ACP mapping
@@ -55,17 +56,19 @@ The plugin listens directly inside the DSH process (MeshCall direct mode, no Rou
 
 | Method | Behavior |
 | --- | --- |
-| `initialize` | Protocol version 1; declares `loadSession`, `session/list`, `resume` and `close`; declares images when attachment storage is available; declares embedded context; declares no MCP transport; declares `_meta.claudeCode.promptQueueing`, which is not part of the ACP schema but is the flag clients read before they send a prompt while a turn runs (first advertised by claude-agent-acp) |
+| `initialize` | Protocol version 1; declares `loadSession`, `session/list`, `resume`, `close`, `delete` and `fork`; declares images when attachment storage is available; declares embedded context; declares no MCP transport; declares `_meta.claudeCode.promptQueueing`, which is not part of the ACP schema but is the flag clients read before they send a prompt while a turn runs (first advertised by claude-agent-acp) |
 | `session/new` | Checks that `cwd` is an existing absolute directory (resolved to its real path), only allocates a session ID and returns the configuration options; DSH creates the session with the first message |
 | `session/load` | Follows the session and replays its latest 1000 messages (user messages, reasoning, replies, tool cards) before responding; a step still being generated continues streaming |
 | `session/resume` | Follows the session without replay |
-| `session/list` | The Session Controller's session list without subagent, blank or archived sessions, filtered by the real path of `cwd`, newest update first, 100 per page |
+| `session/list` | The Session Controller's session list without subagent, blank or archived sessions, newest update first, 100 per page. With `cwd`, both it and each session's directory are resolved to real paths before they are compared (case-insensitively on Windows): DSH keeps a directory as it was opened, through a symbolic link for example |
 | `session/close` | Cancels the task this connection started that is still running, and stops following |
+| `session/delete` | Archives the session in DSH, which leaves `session/list` and can be restored in DSH. This connection's own prompts in the session are cancelled first, and the plugin waits up to 5 seconds for that turn to end; while a turn started by DSH Desktop or another client runs, the request fails and the session stays |
+| `session/fork` | DSH copies the session's history up to its last finished turn into a new session, which the connection then follows like `session/resume`; the original is not changed |
 | `session/set_config_option` | See the configuration options below; returns the complete configuration |
-| `session/prompt` | A registered slash command runs directly; any other input goes to DSH as a queued message, and the request returns when the turn that took the message ends. A prompt sent while another one of the session is still running waits in the DSH queue, as Enter does in DSH Desktop during a reply, and runs in a turn of its own; the plugin hands the messages to DSH in the order they were sent |
+| `session/prompt` | A registered slash command runs directly; any other input goes to DSH as a queued message, and the request returns when the turn that took the message ends. A prompt sent while another one of the session is still running waits in the DSH queue, as Enter does in DSH Desktop during a reply, and runs in a turn of its own; the plugin hands the messages to DSH in the order they were sent. Embedded binary resources other than images are uploaded into the session's Agent first, as DSH Desktop uploads the files a user adds, and go with the message as file attachments |
 | `session/cancel`, `$/cancel_request` | `session/cancel` stops every prompt this connection sent in the session, `$/cancel_request` stops one. While DSH is still creating the session or a command is still running, the message is not sent and the command is aborted; a message still queued is removed from the queue; a turn already running is cancelled as DSH's Stop does, which keeps other clients' queued messages. Cancelling a running turn also withdraws the messages this connection queued behind it (see "Turns and stop reasons") |
 
-Not supported: `session/set_mode`, `fork`, `delete`, additional working directories, client-declared MCP servers, and the client's file and terminal methods (the Agent never calls them).
+Not supported: `session/set_mode`, additional working directories, client-declared MCP servers, and the client's file and terminal methods (the Agent never calls them).
 
 ### Updates
 
@@ -76,6 +79,7 @@ Not supported: `session/set_mode`, `fork`, `delete`, additional working director
 | `assistant/message` | Only the parts not already streamed (images included), followed by `usage_update` |
 | `tool/call`, `tool/result` | `tool_call`, `tool_call_update`; the content follows the tool's own presentation (diff, terminal, search, read, web), and without one the kind is inferred from the tool name |
 | `session/title` | `session_info_update` |
+| The todo list (`todo/write`, and the `todos` projection when a client opens the session) | `plan`, one entry per item with priority `medium`; DSH clears the list when the next turn starts, and the plan is then sent empty |
 | Changes of model, permission, Agent mode or plan mode | The configuration options are recomputed and `config_option_update` is sent only when they changed |
 | The first message creates the session | `config_option_update` with the options of the created session: `agent_preset` is gone, and `plan_mode` appears when DSH has loaded plan mode |
 | Changes to the command or skill catalog | `available_commands_update` |
@@ -93,17 +97,22 @@ When `session/load` arrives halfway through a step, the snapshot holds that step
 | `permission` | `mode` | DSH permission presets; an existing session switches through the `/permission` command, as DSH's own composer does |
 | `agent_preset` | None | Present only before the first message |
 | `plan_mode` | None | Present once the session exists and DSH has loaded plan mode; a boolean when the client declares support for boolean options, otherwise an `on`/`off` select |
+| `agent_team` | None | DSH's Team mode, the 「启用智能体团队协作」 switch of its model menu (`ctx.agentTeams` of `@deepseek-ai/dsh-agent-team`); present when DSH composes agent teams, as a boolean or an `on`/`off` select like `plan_mode`. It turns the shared task board, its tools and guidance on or off for the whole subagent tree, not subagents themselves. New sessions start without it; a choice made before the first message is applied when DSH creates the session. Unlike DSH Desktop, the client asks for no confirmation before turning it off, so the option's description mentions the cache cost |
 
 ### Turns and stop reasons
 
 Each prompt gets a `requestId`, which DSH records on the queued message and in `user/message.source.rpcId`. When a turn starts, DSH takes the oldest queued message for it, and writes `user/message` only after the model resolves, so a turn can fail or be cancelled before the message is written. The plugin therefore follows the queue, for each prompt of this connection:
 
 - it keeps a copy of the queue, starting from the `inbox` projection of the follow snapshot and applying `agent/inbox/spliced`;
-- when this message is taken (a removal without `outcome`), it records the current turn and returns at that turn's `turn/end`;
+- when this message is taken (a removal without `outcome`), it records the current turn, and from that turn's `turn/end` waits for the session to go quiet (below);
 - when this message is discarded (`outcome: "canceled"`, by this client's cancellation, by DSH Desktop or by another client), it returns `cancelled`;
 - `user/message` still confirms the same turn.
 
-`usage` is the sum over the turn's steps. The response leaves after the last update of its turn and before any update of the next one: ACP updates do not name the prompt they belong to, so clients file each update under the prompt they have no response for yet.
+A subagent started with the `subagent` tool works in the background after its turn ends, and its result reaches the Agent as a message (`source.kind: "subagent-settled"`) that starts another root turn. Like the official `@deepseek-ai/dsh-acp`, the plugin therefore returns a prompt only once the session is quiet: the Agent is idle (`whenIdle`), its subagent tree has no work (`ctx.subagents.waitForTreeWork`, read structurally, so compositions without subagents work unchanged), no event was written meanwhile (`session.seq`), and the follow stream has delivered every event up to that point. Every root turn until then is part of the prompt, whether a subagent's result or another client's message started it, as in the official implementation. Two cases end the wait early: this connection's next prompt being taken by a turn, which answers the waiting prompt before the next one's first update, and cancellation (below).
+
+`usage` is the sum over the steps of every turn the prompt took part in. The response leaves after the last update of its last turn and before any update of the next one: ACP updates do not name the prompt they belong to, so clients file each update under the prompt they have no response for yet.
+
+The last turn the prompt took part in decides how it ends:
 
 | `turn/end` | `stopReason` |
 | --- | --- |
@@ -113,7 +122,7 @@ Each prompt gets a `requestId`, which DSH records on the queued message and in `
 | `aborted` (by a hook), `blocked`, `forked` | `end_turn` |
 | `error` | A JSON-RPC internal error carrying DSH's error message |
 
-Once the client has asked to cancel, the prompt returns `cancelled` however the turn ends.
+Once the client has asked to cancel, the prompt returns `cancelled` however the turn ends. A prompt that waits for its subagents returns `cancelled` at once, as in the official implementation: a root turn still running is cancelled, and the subagents keep working, as they do after DSH Desktop's Stop. `session/close` and a lost connection do the same and never tear the subagent tree down, since the session is DSH Desktop's too.
 
 After a turn that completes, DSH goes on to the next queued message. After any other ending (cancelled, failed, blocked), it takes no queued message until new input arrives, and DSH Desktop keeps them waiting in its queue. An ACP prompt cannot wait for that, so when such a turn ends and the Agent stays idle, the plugin removes the messages this connection still has in the queue and ends their prompts: with `cancelled` after a cancelled turn, otherwise with a JSON-RPC error saying that the message was not sent.
 
@@ -124,6 +133,8 @@ DSH sends every approval or question to all owner clients (DSH Desktop, Web, the
 - Approvals: DSH delivers an approval on the interaction stream, which can overtake the `tool/call` event on the follow stream, while ACP clients look up the tool card a permission request points at by its ID. The plugin therefore waits, for at most 2 seconds, until it has seen the matching tool call, sends the earlier updates, and then sends `session/request_permission` with the card's ID and title (some clients show only the request) and the options "Allow once" and "Reject". A call this connection never received as a card (it attached without replay, or the call did not arrive in time) is described in full in the request instead. When the client cancels or fails, it replies `next` so other clients can answer.
 - Questions: when the client declares `elicitation.form`, it sends a form. A single choice becomes `oneOf`, a multiple choice `items.anyOf`, and a question without options a required text field; an optional question gets an extra "other answer" field, which replaces the selected option of a single choice. An accepted form becomes the DSH answer; declining or cancelling counts as the user cancelling the questions. A client without forms gets single-choice questions, plan reviews included, as `session/request_permission` choices: each question opens a card of its own (the plan of a review is its content), then a request points at it with one option per answer, and the card closes with the choice. Options of an approval question keep their grant and refusal kinds, and a plan review offers "Approve plan" and "Keep planning". Dismissing a question leaves the whole request to DSH. A request with a multiple-choice or typed answer still gets a short notice, and is left to DSH.
 - When the session closes, stops being followed or loses its connection, the requests still waiting are withdrawn.
+- Subagents never reach this channel. DSH starts an in-process subagent with the approval policy `never` (`approval/policy` with `source: "delegation"` in the child's log), so an approval it asks for is rejected on the spot (`approval/asked`, then `approval/decided` with `rejected`, delivered to no client), and `ask_user_question` fails with "human interaction is unavailable while the calling agent is owned by another live agent". DSH Desktop sees none of them either, so there is nothing to forward. A subagent inherits the parent's permission preset only when it is `auto` or `danger-full-access`.
+- A request DSH sent before any ACP connection followed its session was passed on with `next`, and waits in DSH Desktop or another client. The gateway delivers every request that is still waiting to a newly opened interaction stream, so when a connection starts following a session for which the gateway reports waiting approvals or questions (`getPendingRemoteEvents`), the plugin reopens its stream and the request reaches the client too. A decision already in progress replies on the new stream; nothing is held back, so DSH behaves as before when no client answers.
 
 ## Design decisions
 
@@ -149,10 +160,12 @@ corepack yarn workspace @agents-anywhere/dsh-acp-bridge check
 - creation, streamed replies, listing and replay (including a load halfway through a step), and live sync of messages from other clients;
 - cancellation at each moment after sending, while DSH creates the session, while a slash command runs, and when DSH Desktop removes the queued message;
 - prompts sent while another one runs: each waits in the DSH queue and gets a turn of its own; `session/cancel` with queued prompts, cancelling one queued prompt, cancelling the running one, and a turn ahead of them that fails or is stopped by another client;
+- subagents (the in-process backend and the `subagent` tool, as the base bundle mounts them): a prompt returns only after its subagent and the turn its result starts; cancelling, closing and the next prompt while the prompt waits; and a DSH Desktop message during the wait;
 - an error when model resolution fails, without locking the session;
-- approvals (each request after the card it points at, DSH falling back when the client gives no answer, and withdrawing the client's request when DSH answers first), forms, single-choice questions for clients without forms, and image input;
-- configuration, sync of model switches made in DSH, and slash commands;
-- token checks, endpoint proof, the temporary directory for overlong paths, and the launcher;
+- approvals (each request after the card it points at, DSH falling back when the client gives no answer, withdrawing the client's request when DSH answers first, and a request DSH was already waiting for when the client opened the session), forms, single-choice questions for clients without forms, image input and file attachments;
+- the todo list as the plan, `session/delete` (including a session DSH Desktop still runs), `session/fork`, and the `cwd` filter of `session/list` through a symbolic link;
+- configuration, sync of model switches made in DSH, the agent team switch in both directions (with agent teams mounted as in the base bundle), and slash commands;
+- token checks, endpoint proof, the temporary directory for overlong paths, the launcher, and a launcher that keeps forwarding after a late unhandled rejection;
 - no remaining follows, and an undisturbed DSH, after a client is killed while creating a session, opening a session or running a turn, after `session/close`, and after repeated loads.
 
 To link-install into a local DSH for manual testing:

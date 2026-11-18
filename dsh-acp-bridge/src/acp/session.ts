@@ -14,13 +14,13 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import {
-  addUsage, expandStreamRecords, PromptError, promptParts, questionChoices, questionForm, record, slashCommand, stopReason, textContent,
-  toolCallUpdate, toolResultUpdate, parseArguments, type ChoiceQuestion, type Fields, type QuestionAnswer, type QuestionForm,
+  addUsage, expandStreamRecords, planEntries, PromptError, promptParts, questionChoices, questionForm, record, slashCommand, stopReason, textContent,
+  toolCallUpdate, toolResultUpdate, parseArguments, type ChoiceQuestion, type Fields, type PromptInput, type QuestionAnswer, type QuestionForm,
 } from './convert.js'
 import { HostError, hostMessage, type DshHost } from './host.js'
 import type { ApprovalDecision, ApprovalRequest, InteractionHub, InteractionTarget, QuestionDecision, QuestionRequest } from './interactions.js'
 import type { Log } from './log.js'
-import { carriedEffort, catalogEntry, configOptions, DEFAULT_EFFORT, findModel, OPTION, planValue, type ConfigState } from './options.js'
+import { carriedEffort, catalogEntry, configOptions, DEFAULT_EFFORT, findModel, OPTION, switchValue, type ConfigState } from './options.js'
 
 /** The ACP side a session talks to: the connection, or a test double. */
 export interface AcpClient {
@@ -49,6 +49,16 @@ interface Inflight {
   usage: Usage | undefined
   /** How the prompt ends once its message leaves the queue without a turn: cancelled unless set otherwise. */
   withdrawn: Result | undefined
+  /** How the last turn the prompt took part in ended. */
+  ended: ReturnType<typeof stopReason> | undefined
+  /**
+   * Its own turn ended, and it now waits until the Agent and its subagent tree are quiet,
+   * as the official dsh-acp does: a subagent's result starts another root turn, which is
+   * part of this prompt, as is every root turn until then.
+   */
+  settling: boolean
+  /** The quiet watch runs once per prompt. */
+  watching: boolean
   /** Aborted by `session/cancel` and `session/close`: stops a command that is still running. */
   abort: AbortController
   settle(result: Result): void
@@ -75,7 +85,7 @@ interface Call { name: string, args: unknown, title: string, shown: boolean }
 export const LOAD_MESSAGES = 1000
 /** Token deltas are batched this long, so the client gets ~25 updates per second at most. */
 const DELTA_MS = 40
-const CONFIG_EVENTS = /^(?:model\/selection|permission\/preset|agent-preset\/selected|plan\/)/u
+const CONFIG_EVENTS = /^(?:model\/selection|permission\/preset|agent-preset\/selected|plan\/|team\/mode)/u
 const MAX_CALLS = 256
 /** How long an approval waits for the card of its tool call before it describes the call itself. */
 const CARD_WAIT_MS = 2_000
@@ -103,7 +113,7 @@ export interface PendingOptions { cwd: string, model?: ModelSelection, permissio
 export class AcpSession implements InteractionTarget {
   dshId: string
   private state: 'pending' | 'attached' | 'closed'
-  private readonly pending: { model: ModelSelection | undefined, modelChosen: boolean, permission: string | undefined, preset: string | undefined }
+  private readonly pending: { model: ModelSelection | undefined, modelChosen: boolean, permission: string | undefined, preset: string | undefined, team: boolean | undefined }
   private materializing: Promise<void> | undefined
   private created = false
   private follow: AbortController | undefined
@@ -115,6 +125,9 @@ export class AcpSession implements InteractionTarget {
   /** Admissions in send order, so DSH queues the messages in the order the client sent them. */
   private admissions: Promise<unknown> = Promise.resolve()
   private stallTimer: ReturnType<typeof setTimeout> | undefined
+  /** The last event the follow stream delivered and this session handled. */
+  private seen = -1
+  private readonly seenWaiters = new Set<{ seq: number, resolve: () => void }>()
   private inbox: Inbox | undefined
   private turn: number | undefined
   private attempt: Attempt | undefined
@@ -125,6 +138,8 @@ export class AcpSession implements InteractionTarget {
   /** Approvals waiting for the card of their tool call, by call ID. */
   private readonly cardWaiters = new Map<string, Set<() => void>>()
   private lastConfig = ''
+  /** The plan entries the client was last sent; `[]` while it shows no plan. */
+  private lastPlan = '[]'
   private lastCommands = ''
   private refreshTimer: ReturnType<typeof setTimeout> | undefined
   private questionNoticeSent = false
@@ -135,7 +150,7 @@ export class AcpSession implements InteractionTarget {
     private readonly client: AcpClient, private readonly log: Log, private readonly existing: boolean, pending?: PendingOptions) {
     this.dshId = id
     this.state = 'pending'
-    this.pending = { model: pending?.model, modelChosen: false, permission: pending?.permission, preset: pending?.preset }
+    this.pending = { model: pending?.model, modelChosen: false, permission: pending?.permission, preset: pending?.preset, team: undefined }
   }
 
   /** A new conversation: DSH creates the session with the first prompt, so idle threads cost nothing. */
@@ -155,6 +170,9 @@ export class AcpSession implements InteractionTarget {
   }
 
   get closed(): boolean { return this.state === 'closed' }
+
+  /** This client has prompts in the session that have not ended yet. */
+  get busy(): boolean { return this.inflights.length > 0 }
 
   // ── follow ──────────────────────────────────────────────────────────────
 
@@ -194,6 +212,8 @@ export class AcpSession implements InteractionTarget {
     const previous = this.state
     this.state = 'attached'
     this.hub.add(this)
+    // The snapshot holds every event up to its cursor; live events follow without gaps.
+    this.seen = snapshot.cursor
     let options: SessionConfigOption[] = []
     try {
       // Queue state as of the snapshot; later splices arrive as live events.
@@ -202,6 +222,8 @@ export class AcpSession implements InteractionTarget {
         this.send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `（只显示最近 ${LOAD_MESSAGES} 条消息，更早的历史请在 DSH 中查看。）\n\n` } })
       }
       for (const entry of snapshot.records) this.handle(entry, mode)
+      // The current todo list, whichever history window the client was sent.
+      this.showPlan(snapshot.projections.values.todos)
       const title = snapshot.projections.values.title
       if (typeof title === 'string' && title) this.send({ sessionUpdate: 'session_info_update', title })
       const active = snapshot.assistantStream?.activeAttempt
@@ -249,10 +271,32 @@ export class AcpSession implements InteractionTarget {
     this.hub.remove(this)
     this.interactions.abort()
     if (this.stallTimer) clearTimeout(this.stallTimer)
+    this.releaseSeen()
     for (const inflight of this.inflights.splice(0)) {
       inflight.abort.abort()
       inflight.settle({ error: internal('DSH 已停止这个会话。') })
     }
+  }
+
+  /** The follow stream delivered every event up to `seq`, and they are handled. */
+  private followed(seq: number): void {
+    if (seq > this.seen) this.seen = seq
+    for (const waiter of [...this.seenWaiters]) {
+      if (waiter.seq > this.seen) continue
+      this.seenWaiters.delete(waiter)
+      waiter.resolve()
+    }
+  }
+
+  /** Resolves once the follow stream has delivered and this session has handled every event up to `seq`. */
+  private caughtUp(seq: number): Promise<void> {
+    if (this.seen >= seq || this.closed) return Promise.resolve()
+    return new Promise(resolve => { this.seenWaiters.add({ seq, resolve }) })
+  }
+
+  private releaseSeen(): void {
+    for (const waiter of [...this.seenWaiters]) waiter.resolve()
+    this.seenWaiters.clear()
   }
 
   private handle(frame: SessionFollowFrame, mode: Mode): void {
@@ -262,11 +306,28 @@ export class AcpSession implements InteractionTarget {
     }
     if (frame.type !== 'event') return
     const event = frame.event
+    try {
+      this.event(event, mode)
+    } finally {
+      if (mode === 'live') this.followed(event.seq)
+    }
+  }
+
+  private event(event: SessionWireEvent, mode: Mode): void {
     const data = record(event.data)
     if (mode === 'live') this.flushDelta()
     switch (event.type) {
       case 'turn/start':
-        if (typeof data.turn === 'number') this.turn = data.turn
+        if (typeof data.turn === 'number') {
+          this.turn = data.turn
+          // A prompt that waits for quiet takes in every root turn until then; subagent results start them.
+          if (mode === 'live') for (const inflight of this.inflights) if (inflight.settling) inflight.turn = data.turn
+        }
+        // DSH starts every turn without a todo list.
+        if (mode === 'live') this.showPlan(null)
+        break
+      case 'todo/write':
+        if (mode === 'live') this.showPlan(data.todos)
         break
       case 'user/message':
         this.userMessage(event, data, mode)
@@ -305,16 +366,26 @@ export class AcpSession implements InteractionTarget {
     const source = record(data.source)
     const inflight = mode === 'live' ? this.mine(data) : undefined
     if (inflight) {
-      if (!inflight.claimed) {
-        inflight.claimed = true
-        inflight.turn = this.turn
-      }
+      if (!inflight.claimed) this.claim(inflight)
       return
     }
     // Messages typed in DSH Desktop, AA or another ACP client; the client shows its own already.
     if (mode === 'fold' || source.kind !== 'user' || replaced(event)) return
     const blocks = Array.isArray(data.content) ? data.content : []
     this.enqueue(() => this.chunks('user_message_chunk', blocks))
+  }
+
+  /**
+   * A turn took this prompt's message. A prompt of this client still waiting for quiet ends
+   * first: ACP updates name no prompt, so the earlier one must be answered before this
+   * one's first update.
+   */
+  private claim(inflight: Inflight): void {
+    for (const earlier of [...this.inflights]) {
+      if (earlier !== inflight && earlier.settling) this.finish(earlier, this.outcome(earlier))
+    }
+    inflight.claimed = true
+    inflight.turn = this.turn
   }
 
   /**
@@ -336,8 +407,7 @@ export class AcpSession implements InteractionTarget {
         // Removed from the queue before any turn took it: here, in DSH Desktop or by another client.
         this.finish(inflight, inflight.withdrawn ?? CANCELLED)
       } else {
-        inflight.claimed = true
-        inflight.turn = this.turn
+        this.claim(inflight)
       }
     }
   }
@@ -430,20 +500,78 @@ export class AcpSession implements InteractionTarget {
     })
   }
 
+  /** Send the todo list as the client's plan when it changed; an empty plan clears one the client shows. */
+  private showPlan(todos: unknown): void {
+    const entries = planEntries(todos)
+    const json = JSON.stringify(entries)
+    if (json === this.lastPlan) return
+    this.lastPlan = json
+    this.send({ sessionUpdate: 'plan', entries })
+  }
+
   private turnEnded(data: Fields): void {
     this.questionNoticeSent = false
     this.refreshCommands()
     for (const inflight of [...this.inflights]) {
       if (!inflight.claimed || (inflight.turn !== undefined && inflight.turn !== data.turn)) continue
-      const result = stopReason(data.reason, inflight.cancelRequested)
-      this.finish(inflight, 'error' in result
-        ? { error: internal(result.error) }
-        : { response: { stopReason: result.stopReason, ...(inflight.usage ? { usage: inflight.usage } : {}) } })
+      inflight.ended = stopReason(data.reason, inflight.cancelRequested)
+      // Cancelled by this client: it ends now, and subagents it started keep working.
+      if (inflight.cancelRequested) {
+        this.finish(inflight, this.outcome(inflight))
+        continue
+      }
+      inflight.settling = true
+      this.settle(inflight)
     }
     // A turn that completes moves DSH on to the next queued message. Any other ending
     // (cancelled, failed, blocked) leaves the queue waiting for new input.
     const kind = record(data.reason).kind
     if (kind !== 'completed' && kind !== 'max-tokens') this.scheduleStallCheck(kind === 'aborted' ? CANCELLED : { error: internal(STALLED) })
+  }
+
+  /** How a prompt ends now: the last turn it took part in decides, as in the official dsh-acp. */
+  private outcome(inflight: Inflight): Result {
+    const ended = inflight.ended
+    if (inflight.cancelRequested || !ended) return CANCELLED
+    if ('error' in ended) return { error: internal(ended.error) }
+    return { response: { stopReason: ended.stopReason, ...(inflight.usage ? { usage: inflight.usage } : {}) } }
+  }
+
+  /** Watch, once per prompt, for the Agent and its subagent tree to go quiet. */
+  private settle(inflight: Inflight): void {
+    if (inflight.watching) return
+    inflight.watching = true
+    void this.quiesce(inflight).catch(error => {
+      this.log.debug('acp-bridge: waiting for the session to go quiet failed', error)
+      if (!this.inflights.includes(inflight)) return
+      this.flushDelta()
+      this.finish(inflight, this.outcome(inflight))
+    })
+  }
+
+  /**
+   * End the prompt once the Agent is idle, its subagent tree has no work, no event was written
+   * meanwhile, and the client has every update up to that point; the official dsh-acp settles
+   * a prompt the same way. A subagent's result wakes the Agent for another turn, which this
+   * prompt takes in, so the wait repeats. Without subagents the Agent is quiet at once.
+   */
+  private async quiesce(inflight: Inflight): Promise<void> {
+    const waiting = () => inflight.settling && this.inflights.includes(inflight)
+    for (;;) {
+      const agent = this.host.live(this.dshId)
+      if (!agent) break
+      await agent.whenIdle()
+      if (!waiting()) return
+      const seq = Number(agent.session.seq)
+      const joined = await this.host.treeWork(agent)
+      if (!waiting()) return
+      if (joined || agent.status !== 'idle' || Number(agent.session.seq) !== seq) continue
+      await this.caughtUp(seq - 1)
+      if (!waiting()) return
+      if (agent.status === 'idle' && Number(agent.session.seq) === seq) break
+    }
+    this.flushDelta()
+    this.finish(inflight, this.outcome(inflight))
   }
 
   private scheduleStallCheck(result: Result): void {
@@ -558,11 +686,35 @@ export class AcpSession implements InteractionTarget {
 
   // ── prompts ─────────────────────────────────────────────────────────────
 
-  private parts(blocks: readonly AcpContent[]): PromptContentPart[] {
+  private parts(blocks: readonly AcpContent[]): PromptInput[] {
     try { return promptParts(blocks) } catch (error) {
       if (error instanceof PromptError) throw invalid(error.message)
       throw error
     }
+  }
+
+  /**
+   * Upload the files the editor attached into the session's Agent, which hands
+   * back the receipts DSH prompts carry. Undefined when the prompt was
+   * cancelled meanwhile.
+   */
+  private async upload(parts: readonly PromptInput[], inflight: Inflight): Promise<PromptContentPart[] | undefined> {
+    if (!parts.some(part => part.type === 'upload')) return parts as PromptContentPart[]
+    const uploads = this.host.ctx.get('fileUploads')
+    if (!uploads) throw invalid('这个 DSH 没有加载文件上传，不能附带文件。')
+    const agent = await this.host.agent(this.dshId)
+    const content: PromptContentPart[] = []
+    for (const part of parts) {
+      if (part.type !== 'upload') { content.push(part); continue }
+      try {
+        const value = await uploads.upload(agent, { data: part.data, ...(part.name ? { name: part.name } : {}) }, inflight.abort.signal)
+        content.push({ type: 'file', receiptId: value.receiptId })
+      } catch (error) {
+        if (this.closed || inflight.cancelRequested) return undefined
+        throw invalid(`DSH 没有接收这个文件：${hostMessage(error)}`)
+      }
+    }
+    return content
   }
 
   private release(inflight: Inflight): void {
@@ -585,7 +737,8 @@ export class AcpSession implements InteractionTarget {
     let settle!: (result: Result) => void
     const settled = new Promise<Result>(resolve => { settle = resolve })
     const inflight: Inflight = { requestId: randomUUID(), admitted: false, claimed: false, turn: undefined,
-      cancelRequested: false, usage: undefined, withdrawn: undefined, abort: new AbortController(), settle }
+      cancelRequested: false, usage: undefined, withdrawn: undefined, ended: undefined, settling: false, watching: false,
+      abort: new AbortController(), settle }
     this.inflights.push(inflight)
     const onAbort = () => { void this.cancelPrompt(inflight).catch(error => this.log.warn('acp-bridge: cancel failed', error)) }
     signal.addEventListener('abort', onAbort, { once: true })
@@ -606,7 +759,9 @@ export class AcpSession implements InteractionTarget {
         parts = this.parts(blocks)
         if (this.closed || inflight.cancelRequested) return stopped()
       }
-      if (!await this.admit(inflight, parts!)) return stopped()
+      const content = await this.upload(parts!, inflight)
+      if (!content || this.closed || inflight.cancelRequested) return stopped()
+      if (!await this.admit(inflight, content)) return stopped()
       if (inflight.cancelRequested) void this.stopTurn(inflight).catch(error => this.log.warn('acp-bridge: cancel failed', error))
       const result = await settled
       if ('error' in result) throw result.error
@@ -728,6 +883,26 @@ export class AcpSession implements InteractionTarget {
     // Not in the queue any more: a turn took it, and that turn is cancelled.
     if (!this.inflights.includes(inflight)) return
     try { this.host.controller.cancel({ sessionId: this.dshId as SessionId }) } catch (error) { this.log.debug('acp-bridge: turn not cancelled', error) }
+    if (inflight.settling) this.endSettling(inflight)
+  }
+
+  /**
+   * A cancelled prompt that waits for quiet ends without waiting for its subagents, which keep
+   * working, as in the official dsh-acp. A root turn still running is part of it: that turn's
+   * end ends the prompt, and the Agent going idle does if no turn end comes.
+   */
+  private endSettling(inflight: Inflight): void {
+    if (!this.inflights.includes(inflight)) return
+    const agent = this.host.live(this.dshId)
+    if (agent?.status === 'running') {
+      void agent.whenIdle().then(() => this.endSettling(inflight), () => undefined)
+      return
+    }
+    void this.caughtUp(agent ? Number(agent.session.seq) - 1 : this.seen).then(() => {
+      if (!this.inflights.includes(inflight)) return
+      this.flushDelta()
+      this.finish(inflight, CANCELLED)
+    })
   }
 
   // ── creation ────────────────────────────────────────────────────────────
@@ -766,6 +941,11 @@ export class AcpSession implements InteractionTarget {
     const permissions = this.host.ctx.get('permissionPresets')
     if (this.pending.permission && permissions && permissions.current(agent.session) !== this.pending.permission) {
       permissions.set(agent.session, this.pending.permission)
+    }
+    const teams = this.host.agentTeams()
+    if (this.pending.team !== undefined && teams && teams.isEnabled(agent) !== this.pending.team) {
+      await teams.setEnabled(agent, this.pending.team)
+      open()
     }
     await this.host.ctx.get('sessions')?.flush(agent.session)
     open()
@@ -938,13 +1118,16 @@ export class AcpSession implements InteractionTarget {
     const catalog = await this.host.catalog()
     const model = await this.currentModel(catalog)
     const choices = this.host.permissionChoices()
+    const teams = this.host.agentTeams()
     if (this.state === 'pending') {
       const permission = this.pending.permission ?? this.host.defaultPermission()
       const preset = this.pending.preset ?? this.host.defaultPreset()
       const presets = preset ? await this.host.presetChoices().catch(() => []) : []
       return { catalog, model,
         ...(permission ? { permission: { choices, current: permission } } : {}),
-        ...(preset && presets.length ? { preset: { choices: presets, current: preset } } : {}) }
+        ...(preset && presets.length ? { preset: { choices: presets, current: preset } } : {}),
+        // DSH starts new sessions without Team mode unless a deployment enables it by default.
+        ...(teams ? { team: { active: this.pending.team ?? false, booleanOptions: this.client.booleanOptions } } : {}) }
     }
     const agent = this.host.live(this.dshId)
     const projected = record((await this.projections()).permissions).currentValue
@@ -952,9 +1135,12 @@ export class AcpSession implements InteractionTarget {
     const plan = agent ? this.host.planMode(agent) : undefined
     let active: boolean | undefined
     try { active = plan && agent ? plan.get(agent).active : undefined } catch { active = undefined }
+    let team: boolean | undefined
+    try { team = teams && agent ? teams.isEnabled(agent) : undefined } catch { team = undefined }
     return { catalog, model,
       ...(permission ? { permission: { choices, current: permission } } : {}),
-      ...(active !== undefined ? { plan: { active, booleanOptions: this.client.booleanOptions } } : {}) }
+      ...(active !== undefined ? { plan: { active, booleanOptions: this.client.booleanOptions } } : {}),
+      ...(team !== undefined ? { team: { active: team, booleanOptions: this.client.booleanOptions } } : {}) }
   }
 
   async configOptions(): Promise<SessionConfigOption[]> {
@@ -994,13 +1180,24 @@ export class AcpSession implements InteractionTarget {
         break
       }
       case OPTION.plan: {
-        const active = planValue(value)
+        const active = switchValue(value)
         if (active === undefined || this.state !== 'attached') throw invalid('计划模式需要在会话开始后切换。')
         const agent = await this.host.agent(this.dshId)
         const plan = this.host.planMode(agent)
         if (!plan) throw invalid('当前 DSH 没有加载计划模式。')
         plan.set(agent, active)
         await this.host.ctx.get('sessions')?.flush(agent.session)
+        break
+      }
+      case OPTION.team: {
+        const active = switchValue(value)
+        const teams = this.host.agentTeams()
+        if (!teams) throw invalid('当前 DSH 没有加载智能体团队协作。')
+        if (active === undefined) throw invalid('智能体团队协作只能开启或关闭。')
+        // Before the first message the choice waits, and DSH applies it when the message creates the session.
+        if (this.state === 'pending') { this.pending.team = active; break }
+        const agent = await this.host.agent(this.dshId)
+        try { await teams.setEnabled(agent, active) } catch (error) { throw invalid(`DSH 没有切换智能体团队协作：${hostMessage(error)}`) }
         break
       }
       default:
@@ -1075,6 +1272,7 @@ export class AcpSession implements InteractionTarget {
     this.follow = undefined
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     if (this.stallTimer) clearTimeout(this.stallTimer)
+    this.releaseSeen()
     for (const pending of this.inflights.splice(0)) {
       pending.abort.abort()
       pending.settle(CANCELLED)
