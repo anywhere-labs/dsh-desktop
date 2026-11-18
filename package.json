@@ -719,7 +719,7 @@
     "@deepseek-ai/dsh-webhook@npm:^0.2.1-rc.3": "file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-webhook-0.2.1-rc.3.tgz",
     "@deepseek-ai/dsh-webhook-github@npm:0.2.1-rc.3": "file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-webhook-github-0.2.1-rc.3.tgz",
     "@deepseek-ai/dsh-webhook-github@npm:^0.2.1-rc.3": "file:vendor/dsh-runtime/0.2.1-rc.3/deepseek-ai-dsh-webhook-github-0.2.1-rc.3.tgz",
-    "@agents-anywhere/dsh-bridge-next": "file:vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c856026dd5e74.rfc23c8a3.tgz",
+    "@agents-anywhere/dsh-bridge-next": "file:vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c76f97145facf.rfc23c8a3.tgz",
     "dshmarket@npm:1.73.20": "patch:dshmarket@npm%3A1.73.20#./.yarn/patches/dshmarket-desktop.patch",
     "@deepseek-ai/dsh-brand@npm:0.2.2-rc.4": "file:vendor/dsh-runtime/0.2.2-rc.4/deepseek-ai-dsh-brand-0.2.2-rc.4.tgz",
     "@deepseek-ai/dsh-brand@npm:^0.2.2-rc.4": "file:vendor/dsh-runtime/0.2.2-rc.4/deepseek-ai-dsh-brand-0.2.2-rc.4.tgz",
