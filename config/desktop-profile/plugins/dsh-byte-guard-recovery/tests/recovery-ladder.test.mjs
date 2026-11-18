@@ -1,4 +1,4 @@
-import { apply } from '/home/fate/.dsh/profiles/desktop/plugins/dsh-byte-guard-recovery/index.js';
+import { apply } from '../index.js';
 
 // ---- fake harness -----------------------------------------------------
 function makeCtx({ pruner, compaction, meter }) {
@@ -161,7 +161,7 @@ function check(name, cond, detail = '') {
   check('4 end cut not mid tool-call', after, endEvent.type);
 }
 
-// case 5: attempts exhausted -> delegate with a loud warn
+// case 5: attempts exhausted -> veto the recovery chain so the turn ends with the byte error
 {
   const meter = { estimateMessage: () => 5 };
   const ctx = makeCtx({ pruner: { pruneSession: () => ({ pruned: [], charsRemoved: 0 }) }, compaction: null, meter });
@@ -170,8 +170,9 @@ function check(name, cond, detail = '') {
   const r = [];
   for (let i = 0; i < 6; i++) r.push(await drive(ctx, session));
   check('5 first three retried', r.slice(0, 3).every(x => x.out?.kind === 'retry'), JSON.stringify(r.map(x => x.out ?? 'next')));
-  check('5 later delegated', r[3].delegated && r[4].delegated && r[5].delegated, JSON.stringify(r.map(x => x.out ?? 'next')));
-  check('5 give-up logged', ctx.logs.some(l => l[1].includes('giving up') || l[1].includes('giving up after') || l[1].includes('attempt(s)')), JSON.stringify(ctx.logs.map(l => l[1])));
+  check('5 later vetoed, not delegated', r.slice(3).every(x => x.delegated === false && x.out === undefined), JSON.stringify(r.map(x => [x.delegated, x.out ?? 'next'])));
+  check('5 no content discarded after exhaustion', session.appended.filter(e => e.type === 'compaction/prune').length === 3);
+  check('5 end-turn logged', ctx.logs.some(l => l[1].includes('ending this turn')), JSON.stringify(ctx.logs.map(l => l[1])));
 }
 
 // case 6: prune sheds content -> retry without touching compaction

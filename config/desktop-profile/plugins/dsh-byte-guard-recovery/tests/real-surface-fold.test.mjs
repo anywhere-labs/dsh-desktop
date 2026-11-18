@@ -1,7 +1,7 @@
 import { foldSurface, deriveEventMessage } from '/home/fate/Tools/Deepseek/dsh-desktop/deepseek-harness/packages/core/session/src/index.ts';
 import { foldSurfaceProjection } from '/home/fate/Tools/Deepseek/dsh-desktop/deepseek-harness/packages/llm/token-meter/src/surface-projection.ts';
 import { estimateMessage } from '/home/fate/Tools/Deepseek/dsh-desktop/deepseek-harness/packages/llm/token-meter/src/estimate.ts';
-import { apply } from '/home/fate/.dsh/profiles/desktop/plugins/dsh-byte-guard-recovery/index.js';
+import { apply } from '../index.js';
 
 // ---- real session fold over a synthetic log ---------------------------
 const SURFACE = new Set(['system/message', 'developer/message', 'user/message', 'assistant/message', 'tool/result']);

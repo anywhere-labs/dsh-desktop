@@ -17,7 +17,9 @@ pi-ai 通道的 `maxRequestBytes` 本地保险丝（或端点 HTTP 413）触发�
 
 ## 恢复阶梯
 
-一次 `agent/request-error` 事件只走一级，成功后立刻 `{ kind: 'retry' }` 重试原请求；连续封顶 `maxAttempts`（默认 3），agent 回到 idle 清零。
+一次 `agent/request-error` 事件只走一级，成功后立刻 `{ kind: 'retry' }` 重试原请求；同一轮内累计封顶 `maxAttempts`（默认 3），agent 回到 idle 清零。
+
+封顶后**不调 `next()`**：cordis waterfall 里不转发即否决整条恢复链，`agent/request-error` 的内置行为本就把 `action` 置空，agent-loop 随即抛 `LlmError` 结束本轮并在客户端报出真实的字节原因。这样止损口径是确定的——不会再让后续每一步都重新撞闸、把一轮拖成几十分钟的空转。第 2/3 级「本轮修不动但预算还没用完」的分支仍然 `next()`，把机会留给官方恢复链。
 
 1. **修剪**：`toolResultPruner.pruneSession()` 把 >8KB 的工具输出截成头 4KB + 尾 1KB。不调模型，毫秒级。
 2. **就地摘要**：`compaction.compactRegion(start, end, agent, signal)` —— 活动轮可用的公开入口，把最旧一段交给 LLM 压成摘要节点。**不能**用 `compactNow()`，它走 `agent.runMaintenance()`，在活动轮必抛 busy。
@@ -36,7 +38,7 @@ pi-ai 通道的 `maxRequestBytes` 本地保险丝（或端点 HTTP 413）触发�
 
 ## 自证
 
-`tests/` 下三个用例直接打 profile 里的生效副本（路径写死），用仓库子模块的真实源码做校验面：
+`tests/` 下三个用例直接打本目录的 `index.js`（仓库源码即校验面，不再写死 profile 路径），用仓库子模块的真实源码做校验面：
 
 ```bash
 cd deepseek-harness   # 子模块，供测试 import 真实 session/token-meter/compaction 源码

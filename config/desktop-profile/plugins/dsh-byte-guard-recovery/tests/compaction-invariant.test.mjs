@@ -2,7 +2,7 @@ import { foldSurface, deriveEventMessage } from '/home/fate/Tools/Deepseek/dsh-d
 import { apply as installCompactionInvariant } from '/home/fate/Tools/Deepseek/dsh-desktop/deepseek-harness/packages/compaction/compaction/src/invariant.ts';
 import { foldSurfaceProjection } from '/home/fate/Tools/Deepseek/dsh-desktop/deepseek-harness/packages/llm/token-meter/src/surface-projection.ts';
 import { estimateMessage } from '/home/fate/Tools/Deepseek/dsh-desktop/deepseek-harness/packages/llm/token-meter/src/estimate.ts';
-import { apply as plugin } from '/home/fate/.dsh/profiles/desktop/plugins/dsh-byte-guard-recovery/index.js';
+import { apply as plugin } from '../index.js';
 
 // ---- a session whose appends run the REAL compaction invariant --------
 const invariantEvents = [];

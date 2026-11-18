@@ -75,8 +75,13 @@
     enabled: false
 # 桌面 Web 载体层（dsh-web-app）默认把压缩三件套 disabled:true，且补丁是浅合并——
 # 必须显式 disabled:false 才能启用（2026-10-23 离线合成 probe 实证）。
-# compaction-basic：自动/溢出压缩后端。kimi-k3 窗口 1048576 token × 0.35
-# ≈ 36.7 万 token（≈1.2~1.8MiB）即压缩，先于 2MiB 字节保险丝；其余模型默认。
+# compaction-basic：自动/溢出压缩后端。modelPolicies 按 provider+model 精确匹配
+# （config.ts resolveTargetPolicy），未列出的模型走 0.8/0.16 默认。
+# 三个大窗口模型的窗口 × 0.8 都远大于 2MiB 字节闸（约 50 万 token），默认策略
+# 永远先不触发，请求体一路涨到 pi-ai 的 maxRequestBytes 才报错。0.35 让压缩先于
+# 字节闸：kimi-k3 1048576×0.35 ≈ 36.7 万 token，gpt-6-sol/gpt-6-luna 1000000×0.35
+# = 35 万 token，按 ≈3.5~4.5 字节/token 即 ≈1.2~1.6MiB。
+# 窗口取自本机会话日志 request/context 实测值。
 - id: compaction-basic
   name: "@deepseek-ai/dsh-compaction-basic"
   disabled: false
@@ -84,6 +89,14 @@
     modelPolicies:
       - provider: github-copilot
         model: kimi-k3
+        thresholdRatio: 0.35
+        retainRatio: 0.08
+      - provider: github-copilot
+        model: gpt-6-sol
+        thresholdRatio: 0.35
+        retainRatio: 0.08
+      - provider: github-copilot
+        model: gpt-6-luna
         thresholdRatio: 0.35
         retainRatio: 0.08
 # tool-result-pruner：压缩前修剪 >8KB 工具输出（byte-guard-recovery 的第 1 级也依赖它）。

@@ -15,7 +15,8 @@
  *               compaction/prune + user/message 覆盖，占位消息带
  *               byte-guard-discard 来源，会话日志保留原文可回放
  *     → 每级真正缩小表层后返回 { kind: 'retry' } 透明重试原请求
- *     → 连续尝试封顶 maxAttempts 次（默认 3），agent 回到 idle 时清零
+ *     → 同一轮内累计 maxAttempts 次（默认 3）后否决恢复链，本轮以真实字节原因
+ *       确定性结束；agent 回到 idle（一轮结束）时计数清零
  *
  * 抛弃窗口：每轮丢最旧的 discardRatio（默认 25%）表层节点，配对平衡取整，
  * 保护首条 system/developer 之前的头部与最近 keepRecentNodes（默认 20）条。
@@ -252,12 +253,16 @@ export function apply(ctx, config) {
     if (signal?.aborted || !isByteGuardFailure(failure)) return next();
     const current = state.get(agent) ?? { attempts: 0, discardOnly: false };
     if (current.attempts >= options.maxAttempts) {
+      // 止损：不调用 next() 即否决整条恢复链（cordis 约定：监听器不转发即短路），
+      // 让 agent 抛出带真实字节原因的 LlmError 结束本轮。放行的话官方压缩/卸载链
+      // 会把这一轮继续一步接一步地拖着跑，直到「even without images」硬失败，
+      // 用户看到的是 endless treadmill 而不是明确的失败。
       ctx.logger.warn(
-        `byte-guard-recovery: giving up after ${current.attempts} recovery attempt(s) `
+        `byte-guard-recovery: ending this turn after ${current.attempts} recovery attempt(s) `
         + `(surface nodes ${agent.session.surface.nodes.length}); the oversized content is in the `
         + `protected head/tail or a single node, or compaction and pruning cannot fit the body limit`
       );
-      return next();
+      return undefined;
     }
     current.attempts += 1;
     state.set(agent, current);
