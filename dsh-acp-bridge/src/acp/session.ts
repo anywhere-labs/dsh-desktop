@@ -704,6 +704,28 @@ export class AcpSession implements InteractionTarget {
   }
 
   /**
+   * Refuse images before DSH creates, uploads or sends anything when the model
+   * the message will run on declares no image input, which DSH would refuse
+   * when the message arrives. A model that declares nothing is left to DSH,
+   * which accepts its images, as it does in DSH Desktop.
+   */
+  private async checkImages(parts: readonly PromptInput[], signal: AbortSignal): Promise<void> {
+    if (!parts.some(part => part.type === 'image')) return
+    const route = await this.nextModel()
+    const input = route && await this.host.imageInput(route, signal)
+    if (input?.accepted === false) throw invalid(`当前模型「${input.name}」不支持图片输入，请先切换到支持图片输入的模型。`)
+  }
+
+  /**
+   * The model DSH will run the next message on. A session DSH has not created
+   * gets the client's choice or DSH's default; one still opening is unknown.
+   */
+  private async nextModel(): Promise<ModelSelection | undefined> {
+    if (this.state === 'pending') return this.existing ? undefined : this.pending.modelChosen ? this.pending.model : this.host.defaultModel()
+    return await this.currentModel(undefined) ?? this.host.defaultModel()
+  }
+
+  /**
    * Upload the files the editor attached into the session's Agent, which hands
    * back the receipts DSH prompts carry. Undefined when the prompt was
    * cancelled meanwhile.
@@ -755,6 +777,8 @@ export class AcpSession implements InteractionTarget {
     if (signal.aborted) onAbort()
     const stopped = (): PromptResponse => { this.release(inflight); return { stopReason: 'cancelled' } }
     try {
+      if (parts) await this.checkImages(parts, inflight.abort.signal)
+      if (this.closed || inflight.cancelRequested) return stopped()
       try { await this.materialize() } catch (error) {
         if (this.closed || inflight.cancelRequested) return stopped()
         throw error
@@ -773,6 +797,7 @@ export class AcpSession implements InteractionTarget {
           return inflight.cancelRequested ? { stopReason: 'cancelled' } : reply
         }
         parts = this.parts(blocks)
+        await this.checkImages(parts, inflight.abort.signal)
         if (this.closed || inflight.cancelRequested) return stopped()
       }
       const content = await this.upload(parts!, inflight)
@@ -803,7 +828,11 @@ export class AcpSession implements InteractionTarget {
           sessionId: this.dshId as SessionId, mode: 'queue', content: parts }, new AbortController().signal)
       } catch (error) {
         const message = hostMessage(error)
-        throw record(error).code === 'gateway/bad-request' ? invalid(message) : internal(`DSH 没有接收这条消息：${message}`)
+        const code = record(error).code
+        if (code === 'gateway/bad-request') throw invalid(message)
+        // An image or file DSH cannot take is the client's input to change, not a DSH failure.
+        if (code === 'session/attachment-invalid') throw invalid(`DSH 没有接收这条消息：${message}`)
+        throw internal(`DSH 没有接收这条消息：${message}`)
       }
       inflight.admitted = true
       return true

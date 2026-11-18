@@ -21,7 +21,7 @@ import { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 import FileUploads from '@deepseek-ai/dsh-client-file-upload'
 import Commands from '@deepseek-ai/dsh-commands'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
-import LlmRuntime, { LlmAdapter, ReasoningEffortId, ToolCallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { LlmAdapter, ReasoningEffortId, ToolCallId, type GenerateOptions, type ModelModality, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import PermissionPresets from '@deepseek-ai/dsh-permission-presets'
 import SessionStore from '@deepseek-ai/dsh-session'
 import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -120,10 +120,13 @@ function lastText(options: GenerateOptions): { role: string, text: string } {
  * - 「分段」: stream 「你好前半」, wait for `midway`, then stream 「后半」;
  * - anything else: think, then stream 「你好」.
  * While `unavailable` is set, resolving any model fails, as with a provider offline.
+ * `modalities` holds the input each model declares (`text`, the default, takes
+ * images; `thinking` takes text only); a model left out declares nothing.
  */
 export class ScriptAdapter extends LlmAdapter {
   requests: GenerateOptions[] = []
   unavailable = false
+  modalities = new Map<string, readonly ModelModality[]>([['text', ['text', 'image']], ['thinking', ['text']]])
   midway = new Gate()
   /** Holds every subagent until the test opens it. */
   child = new Gate()
@@ -132,7 +135,8 @@ export class ScriptAdapter extends LlmAdapter {
   }
   override async resolveModel(provider: string, model: string) {
     if (model === 'invalid' || this.unavailable) throw new Error('模型服务暂时不可用')
-    return { provider, id: model, name: model, contextWindow: 64_000, ...(model === 'thinking' ? { reasoning: {
+    const inputModalities = this.modalities.get(model)
+    return { provider, id: model, name: model, contextWindow: 64_000, ...(inputModalities ? { inputModalities } : {}), ...(model === 'thinking' ? { reasoning: {
       efforts: ['low', 'high'].map(id => ({ id: ReasoningEffortId(id), name: id })), defaultEffort: ReasoningEffortId('low'),
     } } : {}) }
   }

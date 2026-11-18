@@ -5,22 +5,27 @@
 
 import type { AvailableCommand, ContentBlock as AcpContent } from '@agentclientprotocol/sdk'
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-client-file-upload'
 import type {} from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-workspace'
-import { record } from './convert.js'
+import { imageMediaType, record } from './convert.js'
 import { McpMounts } from './mcp.js'
 import type { Choice } from './options.js'
 import type { Log } from './log.js'
+
+/** `initialize` gives up on a model lookup after this, so a slow provider does not hold up the connection. */
+const MODEL_INFO_MS = 5_000
 
 /** DSH's plan mode service, read structurally: older compositions have none. */
 interface PlanService {
@@ -60,7 +65,39 @@ export class DshHost {
 
   get controller() { return this.ctx.sessionController }
   get workspaces() { return this.ctx.workspaceRegistry }
-  get imagesSupported(): boolean { return Boolean(this.ctx.get('attachments')) }
+
+  /** The model DSH gives a session that has not chosen one. */
+  defaultModel(): ModelSelection | undefined {
+    try { return this.ctx.get('agentDefaultModel')?.currentSelection() } catch { return undefined }
+  }
+
+  /**
+   * What the model declares about image input, which DSH checks when a message
+   * with images arrives; undefined when it declares nothing or the lookup fails.
+   */
+  async imageInput(route: { provider: string, model: string }, signal?: AbortSignal): Promise<{ name: string, accepted: boolean } | undefined> {
+    const llm = this.ctx.get('llm')
+    if (!llm) return undefined
+    try {
+      const info = await llm.resolveModelInfo(route.provider, route.model, signal)
+      return info.inputModalities ? { name: info.name, accepted: info.inputModalities.includes('image') } : undefined
+    } catch (error) {
+      this.log.debug('acp-bridge: model information unavailable', error)
+      return undefined
+    }
+  }
+
+  /**
+   * Whether ACP clients are told they may send images, decided as the official
+   * dsh-acp does: DSH stores images, and the model new sessions start with
+   * declares image input. Whatever DSH cannot tell counts as no.
+   */
+  async imagesAdvertised(): Promise<boolean> {
+    const types = this.ctx.get('attachments')?.imageLimits?.mediaTypes ?? []
+    if (!types.some(type => imageMediaType(type))) return false
+    const route = this.defaultModel()
+    return route !== undefined && (await this.imageInput(route, AbortSignal.timeout(MODEL_INFO_MS)))?.accepted === true
+  }
 
   live(id: string): Agent | undefined {
     return this.ctx.get('agents')?.get(id as SessionId)

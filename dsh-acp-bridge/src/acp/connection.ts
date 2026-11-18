@@ -95,13 +95,13 @@ export class AcpConnection implements AcpClient {
   private async initialize(capabilities: ClientCapabilities | undefined): Promise<InitializeResponse> {
     this.capabilities = capabilities ?? {}
     // Stdio servers are always accepted where DSH's MCP client is installed; SSE is deprecated, as in the official dsh-acp.
-    const mcp = await mcpModules()
+    const [mcp, image] = await Promise.all([mcpModules(), this.host.imagesAdvertised()])
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentInfo: { name: 'agents-anywhere-dsh', title: 'DeepSeek Harness', version: this.identity.version },
       agentCapabilities: {
         loadSession: true,
-        promptCapabilities: { image: this.host.imagesSupported, audio: false, embeddedContext: true },
+        promptCapabilities: { image, audio: false, embeddedContext: true },
         mcpCapabilities: { http: mcp !== undefined, sse: false },
         sessionCapabilities: { list: {}, resume: {}, close: {}, delete: {}, fork: {} },
         // Prompts sent while a turn runs wait in the DSH queue. Not in the ACP schema: this is the
