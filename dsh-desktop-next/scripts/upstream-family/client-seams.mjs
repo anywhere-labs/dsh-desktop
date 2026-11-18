@@ -15,7 +15,7 @@ const require = createRequire(join(root, 'dsh-desktop-next/package.json'))
 const MagicString = require('magic-string')
 const remapping = require('@jridgewell/remapping')
 const ts = require('typescript')
-const version = '0.2.2-rc.3'
+const version = '0.2.2-rc.4'
 
 function onboarding() {
   function DesktopOnboardingNavigation({ busy, t, onBack, onSkip }) {
@@ -231,7 +231,7 @@ patchPackage('dsh-experimental-inspector', ({ once }) => {
 patchPackage('dsh-sandbox-windows-acl', ({ once, cwd }) => {
   const typesFile = readdirSync(join(cwd, 'lib')).find(file => /^types-.*\.js$/u.test(file))
   assert.ok(typesFile)
-  const desktopPatch = readFileSync(join(root, 'patches/dsh-sandbox-windows-acl@0.2.2-rc.3.patch'), 'utf8')
+  const desktopPatch = readFileSync(join(root, `patches/dsh-sandbox-windows-acl@${version}.patch`), 'utf8')
   const aclPatch = desktopPatch.slice(desktopPatch.indexOf('diff --git a/lib/types-')).replaceAll('types-DXWX0PXB.js', typesFile)
   execFileSync('git', ['apply', '-'], { cwd, input: aclPatch })
   once('import { join } from "node:path";', 'import { join } from "node:path";\nimport { spawn } from "node:child_process";\nimport { createRequire } from "node:module";')

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-基于 DeepSeek Harness **0.2.2-rc.1** 的独立实验包。主窗口直接加载官方发布的 `@deepseek-ai/dsh-web-frontend`，复用官方 Web 应用、插件管理器和基本桌面样式；Next 添加系统托盘、桌面设置和工具、Profile、恢复、Agents Anywhere 手机远控、社区市场和 dshmarket。
+基于 DeepSeek Harness **0.2.2-rc.4** 的独立实验包。主窗口直接加载官方发布的 `@deepseek-ai/dsh-web-frontend`，复用官方 Web 应用、插件管理器和基本桌面样式；Next 添加系统托盘、桌面设置和工具、Profile、恢复、Agents Anywhere 手机远控、社区市场和 dshmarket。
 
 ## 开发与验证
 
@@ -78,7 +78,7 @@ Linux 图标集按 hicolor 主题的尺寸，从 16 到 512 像素每档一张 P
 
 **OAR 子智能体。** **插件**页在 Computer Use（Next）下方列出 OAR 子智能体。它的开关默认关闭，打开后启用官方 `@deepseek-ai/dsh-experimental-subagent-oar` 提供方。Next 将它作为可选组合包随安装提供，组合方式与提供方 README 的示例一致，只有 Claude Code 的权限模式不同：Codex 以 `-c sandbox_mode="workspace-write"` 启动，Claude Code 以 `--permission-mode acceptEdits --permission-prompts none` 启动，两者都能修改任务目录里的文件。其他需要确认的操作（例如大多数 shell 命令），Claude Code 一律拒绝，除非它自己的设置已预先放行（`permissions.allow`）；示例中的 `dontAsk` 会让它只能读。模型通过 `subagent_oar` 工具把一个独立文本任务交给其中之一。每个任务都使用本机已安装的 Codex 或 Claude Code 命令行，以及该命令行自己的登录和设置，因此请先安装并登录。这些进程在 DSH 的命令沙箱之外运行，它们自身的审批请求也不会转到 DSH 界面。点卡片标题会打开官方插件页，列出该组合包的三行。在这个页面上，每个提供方行的「配置」入口会打开它的启动选项：Claude Code 可选只读、可改文件（默认）、自动审核或完全放行；Codex 可选只读、可写工作区（默认）或不限制。保存后，官方配置编辑器把选择记录到当前 Profile 的补丁里并重启这一行，之后委派的任务按新设置启动；重新选回默认会删除这条覆盖。这一行必须在运行才能修改。该版本以普通包发布这个提供方；`patches/dsh-experimental-subagent-oar@<version>.patch` 在安装时为已安装的包加上组合包声明。
 
-**发布版默认隐藏的官方插件。** DSH 0.2.2 把 LiveShare、Ralph 和会话搜索标为默认不列出，官方插件管理器要等 Profile 启用它们后才会显示。Next 通过版本限定的补丁（`patches/dsh-experimental-liveshare@<version>.patch` 以及 Ralph、会话搜索对应的补丁）在**插件**页像其他可选组合包一样列出它们；LiveShare 的补丁还让它的 owner gateway worker 以 Electron 的 Node 模式启动。包里没有 `meta.detail` 文档时，插件详情页在中文界面显示中文 README 译本（例如 `README.zh.md` 或 `README_CN.md`），在其他语言界面显示英文译本（例如 `README.en.md`），都没有时才回退到 `README.md`（`patches/dsh-plugin-detail@<version>.patch`）。
+**发布版默认隐藏的官方插件。** DSH 0.2.2 把 LiveShare、Ralph 和会话搜索标为默认不列出，官方插件管理器要等 Profile 启用它们后才会显示。Next 通过版本限定的补丁（`patches/dsh-experimental-liveshare@<version>.patch` 以及 Ralph、会话搜索对应的补丁）在**插件**页像其他可选组合包一样列出它们。包里没有 `meta.detail` 文档时，插件详情页在中文界面显示中文 README 译本（例如 `README.zh.md` 或 `README_CN.md`），在其他语言界面显示英文译本（例如 `README.en.md`），都没有时才回退到 `README.md`（`patches/dsh-plugin-detail@<version>.patch`）。
 
 **更新后的按需插件。** 官方 Codex、Claude Code 子智能体和官方 Computer Use 按需安装到 Profile，版本锁定为安装它们时的 DSH 版本。它们依赖的 DSH 包由 pnpm 放在 Profile 的 `node_modules` 顶层，运行时解析会优先使用这些副本，而不是安装包自带的。更新到其他 DSH 版本后，核心插件会因此加载旧副本，子智能体工具随之消失，或者 Host 无法启动；这些插件本身也不再匹配新版本。因此，Next 在 Host 解析 Profile 之前，用内置 pnpm 离线移除为其他版本安装的按需插件，效果与在**插件**页移除相同，并在日志中写明移除了哪些。之后**插件**页把它们显示为未安装，打开开关即可安装当前版本。移除失败只记录日志，Host 照常启动，下次启动时重试。
 

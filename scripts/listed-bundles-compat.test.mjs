@@ -35,35 +35,39 @@ const typescript = installed(createRequire(resolve('dsh-plugin-desktop-beta/pack
 const ts = typescript === undefined ? undefined : createRequire(import.meta.url)(typescript)
 
 /**
- * Read the installed `TunnelWorker.start()`, which launches LiveShare's owner gateway worker.
+ * Read the installed `TunnelWorker.start()`, which launches LiveShare's owner gateway worker, and the module-level
+ * `workerNodeModeEnv()` it calls to hand the Host's Electron Node mode to the worker (dsh 0.2.2-rc.4).
  * @param entry - the installed LiveShare host module.
- * @returns the method's source text.
+ * @returns the source text of the method and of the helper.
  */
 function gatewayStart(entry) {
   const file = ts.createSourceFile(entry, readFileSync(entry, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
   const methods = []
+  const helpers = []
   const visit = node => {
     const worker = ts.isClassDeclaration(node) && node.name?.text === 'TunnelWorker' ? node
       : ts.isVariableDeclaration(node) && node.name.getText(file) === 'TunnelWorker' && node.initializer !== undefined
         && ts.isClassExpression(node.initializer) ? node.initializer : undefined
     if (worker !== undefined) methods.push(...worker.members.filter(member => ts.isMethodDeclaration(member) && member.name.getText(file) === 'start'))
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'workerNodeModeEnv') helpers.push(node)
     ts.forEachChild(node, visit)
   }
   visit(file)
   assert.equal(methods.length, 1, 'Expected one official TunnelWorker.start()')
-  return methods[0].getText(file)
+  assert.equal(helpers.length, 1, 'Expected one official workerNodeModeEnv()')
+  return { method: methods[0].getText(file), helper: helpers[0].getText(file) }
 }
 
 /**
  * Run the installed `start()` against stand-ins for its process, file and spawn calls.
- * @param method - the method's source text.
- * @param electron - the Host's `process.versions.electron`, or undefined under plain Node.
+ * @param start - the source text of the method and of its helper.
+ * @param env - the Host's environment besides `NODE_ENV`.
  * @returns the environment the gateway worker is started with.
  */
-function gatewayEnvironment(method, electron) {
+function gatewayEnvironment(start, env) {
   const launches = []
-  const worker = runInNewContext(`({ ${method} })`, {
-    process: { env: { NODE_ENV: 'production' }, versions: electron === undefined ? {} : { electron } },
+  const worker = runInNewContext(`${start.helper}\n({ ${start.method} })`, {
+    process: { env: { NODE_ENV: 'production', ...env } },
     tmpdir: () => 'tmp',
     join: (...parts) => parts.join('/'),
     mkdtempSync: prefix => `${prefix}0`,
@@ -106,14 +110,16 @@ for (const workspace of ['dsh-plugin-desktop-beta', 'dsh-desktop-next']) {
       assert.notEqual(bundle.dsh?.bundle?.listedByDefault, false)
     })
     if (name !== LIVESHARE) continue
-    test(`${workspace}: LiveShare starts its gateway worker in Electron's Node mode`, {
+    // Desktop runs the Host on its Electron executable with ELECTRON_RUN_AS_NODE set (`desktopNodeEnvironment`), and the
+    // worker runs the same executable: without the mode it would start a second Electron application.
+    test(`${workspace}: LiveShare starts its gateway worker in the Host's Electron Node mode`, {
       skip: (bundleManifest === undefined && notInstalled) || (ts === undefined && 'typescript is not installed; run corepack yarn install'),
     }, () => {
-      const method = gatewayStart(join(dirname(bundleManifest), 'lib', 'index.js'))
-      const desktop = gatewayEnvironment(method, '44.7.0')
+      const start = gatewayStart(join(dirname(bundleManifest), 'lib', 'index.js'))
+      const desktop = gatewayEnvironment(start, { ELECTRON_RUN_AS_NODE: '1' })
       assert.equal(desktop.ELECTRON_RUN_AS_NODE, '1')
       assert.equal(desktop.LIVESHARE_TUNNEL_MODE, 'gateway')
-      assert.equal(Object.hasOwn(gatewayEnvironment(method, undefined), 'ELECTRON_RUN_AS_NODE'), false)
+      assert.equal(Object.hasOwn(gatewayEnvironment(start, {}), 'ELECTRON_RUN_AS_NODE'), false)
     })
   }
 }
