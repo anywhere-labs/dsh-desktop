@@ -56,19 +56,30 @@ DSH 进程里的插件
 
 | 方法 | 行为 |
 | --- | --- |
-| `initialize` | 协议版本 1；声明 `loadSession`、`session/list`、`resume`、`close`、`delete`、`fork`；附件存储可用时声明图片；声明嵌入上下文；不声明 MCP 传输；声明 `_meta.claudeCode.promptQueueing`，它不属于 ACP 规范，但客户端靠这个标记判断能否在一轮进行中继续发消息（最早由 claude-agent-acp 声明） |
-| `session/new` | 校验 `cwd` 为存在的绝对目录（转为真实路径），只分配会话 ID 并返回配置项；第一条消息时才在 DSH 中创建 |
-| `session/load` | 跟随会话，先回放最近 1000 条消息（用户消息、思考、回复、工具卡片），再响应；正在生成的一步会接着逐字发送 |
-| `session/resume` | 跟随会话但不回放 |
+| `initialize` | 协议版本 1；声明 `loadSession`、`session/list`、`resume`、`close`、`delete`、`fork`；附件存储可用时声明图片；声明嵌入上下文；插件旁边装有 DSH 的 MCP 客户端时声明 HTTP MCP 服务器（stdio 按规范总是支持，已弃用的 SSE 不声明）；声明 `_meta.claudeCode.promptQueueing`，它不属于 ACP 规范，但客户端靠这个标记判断能否在一轮进行中继续发消息（最早由 claude-agent-acp 声明） |
+| `session/new` | 校验 `cwd` 为存在的绝对目录（转为真实路径）和客户端声明的 MCP 服务器，只分配会话 ID 并返回配置项；第一条消息时才在 DSH 中创建，MCP 服务器在这条消息交给 DSH 之前挂上 |
+| `session/load` | 跟随会话，先回放最近 1000 条消息（用户消息、思考、回复、工具卡片），挂上客户端声明的 MCP 服务器后再响应；正在生成的一步会接着逐字发送 |
+| `session/resume` | 跟随会话但不回放；同样先挂上客户端声明的 MCP 服务器 |
 | `session/list` | Session Controller 的会话列表，去掉子 Agent、空白和已归档的会话，按更新时间倒序，每页 100 条。带 `cwd` 时，它和每个会话的目录都先解析成真实路径再比较（Windows 上不区分大小写）：DSH 按打开时的写法保存目录，例如经过符号链接的路径 |
-| `session/close` | 取消本连接发起、仍在进行的任务，停止跟随 |
+| `session/close` | 取消本连接发起、仍在进行的任务，停止跟随，卸下只有本连接声明的 MCP 服务器 |
 | `session/delete` | 在 DSH 里归档这个会话：它从 `session/list` 消失，之后可以在 DSH 里恢复。先取消本连接在这个会话里的消息，并最多等 5 秒让那一轮结束；DSH Desktop 或其他客户端发起的一轮还在运行时，请求失败，会话保留 |
-| `session/fork` | DSH 把会话到最后一轮结束为止的历史复制成一个新会话，本连接随后像 `session/resume` 一样跟随它；原会话不变 |
+| `session/fork` | 先校验客户端声明的 MCP 服务器，有误时不复制；DSH 把会话到最后一轮结束为止的历史复制成一个新会话，本连接随后像 `session/resume` 一样跟随它；原会话不变 |
 | `session/set_config_option` | 见下文配置项，返回完整配置 |
 | `session/prompt` | 已注册的斜杠命令直接执行；其他输入作为排队消息发给 DSH，等这条消息所在的轮次结束后返回。同一会话还有消息在执行时再发的消息，会和在 DSH Desktop 里回复期间按回车一样在 DSH 队列里等待，轮到时单独占一轮；插件按发送顺序把消息交给 DSH。图片以外的嵌入二进制资源，会先像 DSH Desktop 上传用户添加的文件一样上传到会话的 Agent，再作为文件附件随消息发出 |
 | `session/cancel`、`$/cancel_request` | `session/cancel` 停止这条连接在该会话里发出的全部消息，`$/cancel_request` 只停止一条。DSH 还在创建会话或命令还在执行时，不再发送这条消息、中止命令；消息还在排队时把它移出队列；已开始执行时像 DSH 的停止按钮一样取消这一轮，其他客户端排队的消息保留。取消正在执行的一轮时，这条连接排在它后面的消息也会撤回（见「轮次与停止原因」） |
 
-不支持：`session/set_mode`、额外工作目录、客户端声明的 MCP 服务器、客户端的文件读写和终端（Agent 从不调用这些方法）。
+不支持：`session/set_mode`、额外工作目录、客户端的文件读写和终端（Agent 从不调用这些方法）。
+
+### MCP 服务器
+
+和官方 dsh-acp 一样，客户端在 `session/new`、`session/load`、`session/resume` 和 `session/fork` 里声明的每个 MCP 服务器，都成为会话 Agent 作用域里的一个 DSH `mcp-client`：工具名是 `mcp__<名称>__<工具>`，只有这个会话的 Agent 和它派出的子 Agent 看得到。检查规则也照官方：只接受稳定的 stdio 和 HTTP 传输；stdio 的命令必须是绝对路径，在会话的工作目录里启动；不符合 `[A-Za-z0-9_-]{1,32}` 的名称换成固定的新名称（名称的字母部分加散列）；重名的服务器和无效、重复的环境变量或请求头返回参数错误；每个服务器都必须连上并列出工具（`failOnStartupError`），否则挂载它的请求失败并给出服务器名。
+
+DSH 的会话是共享的，所以挂载按跟随这个会话的客户端计算：
+
+- 同一个 Agent 里，名称和配置都相同的声明共用一个服务器，最后一个声明它的客户端关闭会话、断开连接或被 DSH 结束跟随时才卸下；同名但配置不同的声明返回参数错误。
+- 每个服务器挂在 `createScope(agent.ctx, agent)` 建出的作用域里，和 DSH 的 CUA、内置浏览器给运行中的 Agent 添加工具的方式相同。插件从自己的安装位置加载 `@deepseek-ai/dsh-mcp-client` 和 `@deepseek-ai/dsh-scope`；装在 DSH Desktop 的 Profile 里时它们是插件自带的副本，`mcp-client` 认不出 DSH 给 Agent 打的作用域标记，会把不同会话里的同名服务器当成冲突。用这份副本在 `agent.ctx` 下按 Agent 再建一层作用域后，DSH 仍按继承来的标记把工具登记给这个 Agent，`mcp-client` 也按 Agent 区分名称。挂上后再检查一次：工具出现在所有会话共用的视图里时，立即卸下并报错。
+- 打开会话时挂到当时的 Agent；每条消息交给 DSH 之前，确认挂载的仍是会话当前的 Agent，DSH 换了 Agent 就重新挂。
+- 插件旁边没有这两个包时，`initialize` 不声明 HTTP，客户端声明的服务器在日志里记一行后忽略。
 
 ### 更新
 
@@ -165,6 +176,7 @@ corepack yarn workspace @agents-anywhere/dsh-acp-bridge check
 - 审批（请求排在它指向的卡片之后、客户端放弃作答时由 DSH 回落处理、DSH 先作答时撤回客户端上的请求、客户端打开会话前 DSH 就在等的请求）、表单、不支持表单的客户端回答单选问题、图片输入和文件附件；
 - 待办清单作为计划、`session/delete`（包括 DSH Desktop 还在运行的会话）、`session/fork`，以及 `session/list` 经过符号链接的 `cwd` 过滤；
 - 配置与 DSH 端切换模型的同步、智能体团队协作开关的双向同步（按基础 bundle 的方式挂载智能体团队）、斜杠命令；
+- 客户端声明的 MCP 服务器（用测试里的本地 stdio 服务器）：新会话第一条消息时挂上、只属于这个会话、关闭后进程结束；声明有误时在创建或复制会话之前返回参数错误；服务器起不来时消息报错并给出名称；两个客户端共用同一个声明、同名不同配置被拒绝；`session/load` 时挂上、断开连接后卸下；
 - 令牌校验、端点身份证明、超长路径改用临时目录、启动脚本，以及启动脚本遇到迟到的未处理拒绝后继续转发；
 - 客户端在创建会话、打开会话或执行中途被杀死、`session/close`、重复 load 之后不残留跟随，DSH 不受影响。
 
@@ -182,4 +194,6 @@ dsh plugin --profile desktop add "link:$PWD"
 
 修复审查发现的问题后，用同一环境复验：`--check` 经过端点身份证明后连接成功；没有模型密钥时连续两条消息都返回错误，会话没有被锁住；发送后立即取消返回 `cancelled`；斜杠命令、列表、另一连接回放、开关计划模式、切换权限和 `session/close` 正常，另一连接收到配置变化；DSH 收到 SIGINT 后删除端点记录和套接字，启动脚本随即提示没有正在运行的 DSH。
 
-自动化检查和这次联调都没有覆盖：真实模型的回复、真实的 Zed 等编辑器、DSH Desktop 的 Electron 运行环境、Windows 命名管道、同时运行多个 DSH，以及自动化检查所用的 0.2.2-rc.4、这次联调所用的 0.2.2-rc.3 以外的 DSH 版本。
+MCP 联调记录（2026-11-18）：在进程内的测试 DSH 里用 DSH 的 MCP 管理器配置 Context7（HTTP 和 stdio 各一个），ACP 会话里的两次工具调用和返回的文档都完整到达客户端。插件自带副本的情况，用 Next 工作区里单独安装的 `mcp-client` 和 `dsh-scope` 代替插件的副本（DSH 用另一份）来验证：两个会话声明同名的 stdio 服务器，各自只看到自己的工具，关闭一个不影响另一个；不经过插件建的作用域、直接挂进 `agent.ctx` 时，第二个会话报服务器名已被占用。
+
+自动化检查和这些联调都没有覆盖：真实模型的回复、真实的 Zed 等编辑器、DSH Desktop 的 Electron 运行环境（包括装进 Profile 的插件挂载编辑器声明的 MCP 服务器）、Windows 命名管道、同时运行多个 DSH，以及自动化检查所用的 0.2.2-rc.4、2026-11-17 联调所用的 0.2.2-rc.3 以外的 DSH 版本。

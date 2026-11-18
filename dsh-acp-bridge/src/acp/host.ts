@@ -18,6 +18,7 @@ import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { record } from './convert.js'
+import { McpMounts } from './mcp.js'
 import type { Choice } from './options.js'
 import type { Log } from './log.js'
 
@@ -50,6 +51,8 @@ export function hostMessage(error: unknown): string {
 export class DshHost {
   private catalogTask: Promise<ModelCatalog> | undefined
   private catalogAt = 0
+  /** MCP servers ACP clients declared, mounted per Agent and shared by every connection. */
+  readonly mcp = new McpMounts()
 
   constructor(readonly ctx: Context, readonly log: Log) {
     ctx.on('llm/adapters-updated', () => { this.catalogTask = undefined }, { global: true })

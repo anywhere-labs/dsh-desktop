@@ -111,6 +111,7 @@ function lastText(options: GenerateOptions): { role: string, text: string } {
  * - a subagent's completion notice: reply 「收到结果」;
  * - 「派助手」: start a background subagent with the `subagent` tool, whose task is 「后台工作」;
  * - 「后台工作」 (the subagent's own model): hold until `child` opens, then reply 「后台完成」;
+ * - 「MCP」: call the first MCP tool (`mcp__…`) offered to the model with `{ text: '你好' }`, or reply 「没有 MCP 工具」;
  * - 「调用工具」: call the approval-gated `danger` tool;
  * - 「提问」: call `ask_user_question` with a single-choice and a free-text question;
  * - 「单选」: call `ask_user_question` with one single-choice question;
@@ -156,6 +157,13 @@ export class ScriptAdapter extends LlmAdapter {
     } else if (last.text.includes('后台工作')) {
       await Promise.race([this.child.wait(), aborted(options.signal)])
       yield* text('后台完成')
+    } else if (last.text.includes('MCP')) {
+      const tool = (options.tools ?? []).find(item => item.name.startsWith('mcp__'))
+      if (tool) {
+        yield* call(tool.name, { text: '你好' })
+        return
+      }
+      yield* text('没有 MCP 工具')
     } else if (last.text.includes('派助手')) {
       yield* call('subagent', { description: '后台任务', prompt: '后台工作：等放行后回复' })
       return

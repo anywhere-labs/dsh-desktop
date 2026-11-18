@@ -14,6 +14,7 @@ import { PromptError, record, type Fields } from './convert.js'
 import { HostError, hostMessage, type DshHost } from './host.js'
 import type { InteractionHub } from './interactions.js'
 import type { Log } from './log.js'
+import { McpConfigError, mcpModules, McpStartError, resolveDeclarations, type McpDeclaration } from './mcp.js'
 import { AcpSession, type AcpClient } from './session.js'
 
 const LIST_PAGE = 100
@@ -22,7 +23,8 @@ export interface BridgeIdentity { version: string }
 
 function toRequestError(error: unknown): RequestError {
   if (error instanceof RequestError) return error
-  if (error instanceof PromptError) return RequestError.invalidParams(undefined, error.message)
+  if (error instanceof PromptError || error instanceof McpConfigError) return RequestError.invalidParams(undefined, error.message)
+  if (error instanceof McpStartError) return RequestError.internalError(undefined, error.message)
   if (error instanceof HostError) return error.invalid ? RequestError.invalidParams(undefined, error.message) : RequestError.internalError(undefined, error.message)
   return RequestError.internalError(undefined, hostMessage(error))
 }
@@ -90,15 +92,17 @@ export class AcpConnection implements AcpClient {
     await this.close()
   }
 
-  private initialize(capabilities: ClientCapabilities | undefined): InitializeResponse {
+  private async initialize(capabilities: ClientCapabilities | undefined): Promise<InitializeResponse> {
     this.capabilities = capabilities ?? {}
+    // Stdio servers are always accepted where DSH's MCP client is installed; SSE is deprecated, as in the official dsh-acp.
+    const mcp = await mcpModules()
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentInfo: { name: 'agents-anywhere-dsh', title: 'DeepSeek Harness', version: this.identity.version },
       agentCapabilities: {
         loadSession: true,
         promptCapabilities: { image: this.host.imagesSupported, audio: false, embeddedContext: true },
-        mcpCapabilities: { http: false, sse: false },
+        mcpCapabilities: { http: mcp !== undefined, sse: false },
         sessionCapabilities: { list: {}, resume: {}, close: {}, delete: {}, fork: {} },
         // Prompts sent while a turn runs wait in the DSH queue. Not in the ACP schema: this is the
         // flag clients read to allow sending mid-turn, first advertised by claude-agent-acp.
@@ -108,11 +112,19 @@ export class AcpConnection implements AcpClient {
     }
   }
 
-  /** MCP servers come from DSH's own configuration; client-declared ones are not mounted. */
-  private ignoreMcp(servers: unknown): void {
-    if (!Array.isArray(servers) || !servers.length || this.mcpWarned) return
-    this.mcpWarned = true
-    this.log.info(`acp-bridge: ignoring ${servers.length} MCP server(s) declared by the ACP client; DSH uses its own MCP configuration`)
+  /**
+   * The client's MCP servers for a session in `cwd`, checked before DSH creates or opens anything.
+   * Without DSH's MCP client beside the plugin they cannot be mounted and are left out.
+   */
+  private async declarations(servers: unknown, cwd: string): Promise<McpDeclaration[]> {
+    if (!Array.isArray(servers) || !servers.length) return []
+    const modules = await mcpModules()
+    if (modules) return resolveDeclarations(modules.client, servers, cwd)
+    if (!this.mcpWarned) {
+      this.mcpWarned = true
+      this.log.info(`acp-bridge: ignoring ${servers.length} MCP server(s) declared by the ACP client: @deepseek-ai/dsh-mcp-client is not installed beside the plugin`)
+    }
+    return []
   }
 
   private ensureOpen(): void {
@@ -121,12 +133,12 @@ export class AcpConnection implements AcpClient {
 
   private async newSession(cwd: unknown, mcpServers: unknown) {
     const path = await directory(cwd)
-    this.ignoreMcp(mcpServers)
+    const mcp = await this.declarations(mcpServers, path)
     const catalog = await this.host.catalog()
     this.ensureOpen()
     const permission = this.host.defaultPermission()
     const preset = this.host.defaultPreset()
-    const session = AcpSession.create(this.host, this.hub, this, this.log, { cwd: path,
+    const session = AcpSession.create(this.host, this.hub, this, this.log, { cwd: path, mcp,
       ...(catalog?.default ? { model: catalog.default } : {}), ...(permission ? { permission } : {}), ...(preset ? { preset } : {}) })
     this.sessions.set(session.id, session)
     return { sessionId: session.id, configOptions: await session.configOptions() }
@@ -135,14 +147,15 @@ export class AcpConnection implements AcpClient {
   /**
    * The session is registered before it starts following, so a closing
    * connection or `session/close` reaches it; loading the same session again
-   * closes the earlier view, including one still opening.
+   * closes the earlier view, including one still opening. The client's MCP
+   * servers are mounted before the response.
    */
-  private async open(sessionId: string, cwd: unknown, mcpServers: unknown, replay: boolean) {
+  private async open(sessionId: string, cwd: unknown, mcpServers: unknown, replay: boolean, declared?: McpDeclaration[]) {
     const path = await directory(cwd)
-    this.ignoreMcp(mcpServers)
+    const mcp = declared ?? await this.declarations(mcpServers, path)
     await this.closeSession(sessionId)
     this.ensureOpen()
-    const session = AcpSession.existing(this.host, this.hub, this, this.log, sessionId, path)
+    const session = AcpSession.existing(this.host, this.hub, this, this.log, sessionId, path, mcp)
     this.sessions.set(sessionId, session)
     try {
       await session.open(replay)
@@ -189,7 +202,8 @@ export class AcpConnection implements AcpClient {
   /** `session/fork`: DSH copies the session's history up to its last finished turn; the copy is followed like `session/resume`. */
   private async fork(sessionId: string, cwd: unknown, mcpServers: unknown) {
     const path = await directory(cwd)
-    this.ignoreMcp(mcpServers)
+    // Checked first, so a declaration the client has to fix leaves no copy behind.
+    const mcp = await this.declarations(mcpServers, path)
     let forked: string
     try {
       forked = (await this.host.controller.fork({ sessionId: sessionId as SessionId })).sessionId
@@ -199,7 +213,7 @@ export class AcpConnection implements AcpClient {
       throw new HostError(`DSH 无法复制这个会话：${hostMessage(error)}`)
     }
     this.ensureOpen()
-    return { sessionId: forked, configOptions: await this.open(forked, path, undefined, false) }
+    return { sessionId: forked, configOptions: await this.open(forked, path, undefined, false, mcp) }
   }
 
   /** DSH's own session list: top-level, non-archived conversations, newest first. */

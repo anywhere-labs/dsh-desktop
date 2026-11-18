@@ -18,6 +18,7 @@ This is a DSH plugin, published as the npm package `@agents-anywhere/dsh-acp-bri
 - Keep sending while a reply is still running: as when Enter is pressed in DSH Desktop during a reply, each further message waits in the DSH queue and runs in a turn of its own once the one before it ends.
 - When the Agent hands work to subagents, the editor's request stays open until the subagents finish and the Agent has replied to their results, as with the official DSH ACP agent.
 - Delete a session from the editor's history: DSH archives it, and it can be restored in DSH. Editors that support forking can continue a copy of a session, which DSH lists as a session of its own.
+- MCP servers configured in the editor (stdio and HTTP) are mounted for the session, and their tools belong to that session alone, as with the official DSH ACP agent. MCP servers configured in DSH itself work in the editor's sessions too.
 
 ## Installation
 
@@ -74,7 +75,8 @@ The plugin's own log lines are in the DSH log and start with `acp-bridge`.
 ## Notes and limitations
 
 - A new session is created in DSH only when its first message is sent, under the workspace of its working directory; merely opening an editor panel leaves no empty session behind.
-- MCP servers declared by the editor are not loaded; sessions use DSH's own MCP configuration.
+- MCP servers declared by the editor start when a new session's first message is sent or when an existing session is opened, and stop when the editor closes the session or disconnects. When a server does not start, that message or the opening fails and names the server. A stdio server's command must be an absolute path, and it runs in the session's working directory; the deprecated SSE transport is not supported.
+- Sessions are shared: while the editor is connected, messages sent to the session from DSH Desktop or other clients can use its MCP tools too. Clients that declare the same server (same name and configuration) share one connection; one session cannot hold two different servers under the same name, so the client that opens the session later gets an error. A server named like one configured in DSH replaces that one in the session. Mounting or unmounting servers changes the session's tool list, so the next turn cannot reuse the earlier cache.
 - Audio input is not supported; whether images can be used depends on the selected model.
 - Opening an existing session replays its latest 1000 messages; earlier history is available in DSH.
 - When the editor closes a session or disconnects, the tasks it started and that are still running are cancelled and the messages it queued are withdrawn; tasks started from DSH Desktop or other clients are unaffected.
@@ -92,6 +94,7 @@ The plugin's own log lines are in the DSH log and start with `acp-bridge`.
 - The plugin listens only where the current user can reach it: a private Unix socket on macOS and Linux, a named pipe on Windows. A connection must also present a random token, stored in a file only the current user can read and regenerated every time DSH starts.
 - Before sending the token, the launcher has the other side prove that it holds that token; an endpoint that cannot prove it (for example one taken over by another program after DSH exited) is skipped and never receives the token or any conversation.
 - A local user who can run the launcher can use every DSH session on this computer, just as in DSH Desktop.
+- Stdio MCP servers declared by the editor are started by DSH as the current user and, like the MCP servers configured in DSH itself, do not run in DSH's sandbox.
 
 ## Development
 

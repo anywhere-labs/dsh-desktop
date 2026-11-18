@@ -6,6 +6,7 @@
  */
 
 import { RequestError, type ContentBlock as AcpContent, type PromptResponse, type SessionConfigOption, type SessionUpdate, type ToolCallContent, type Usage } from '@agentclientprotocol/sdk'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {
   ModelCatalog, ModelSelection, PromptContentPart, SessionAssistantStreamFrame, SessionFollowFrame, SessionPromptRequest,
   SessionUpdateQueueRequest, SessionWireEvent,
@@ -20,6 +21,7 @@ import {
 import { HostError, hostMessage, type DshHost } from './host.js'
 import type { ApprovalDecision, ApprovalRequest, InteractionHub, InteractionTarget, QuestionDecision, QuestionRequest } from './interactions.js'
 import type { Log } from './log.js'
+import { mcpModules, type McpDeclaration } from './mcp.js'
 import { carriedEffort, catalogEntry, configOptions, DEFAULT_EFFORT, findModel, OPTION, switchValue, type ConfigState } from './options.js'
 
 /** The ACP side a session talks to: the connection, or a test double. */
@@ -108,7 +110,7 @@ export async function samePath(a: string, b: string): Promise<boolean> {
   try { return await realpath(a) === await realpath(b) } catch { return false }
 }
 
-export interface PendingOptions { cwd: string, model?: ModelSelection, permission?: string, preset?: string }
+export interface PendingOptions { cwd: string, model?: ModelSelection, permission?: string, preset?: string, mcp?: readonly McpDeclaration[] }
 
 export class AcpSession implements InteractionTarget {
   dshId: string
@@ -145,9 +147,14 @@ export class AcpSession implements InteractionTarget {
   private questionNoticeSent = false
   /** Withdraws this session's open permission requests and forms when it closes. */
   private readonly interactions = new AbortController()
+  /** The Agent this client's MCP servers are mounted in, and their release. */
+  private mcpAgent: Agent | undefined
+  private mcpRelease: (() => Promise<void>) | undefined
+  private mcpMounting: Promise<void> = Promise.resolve()
 
   private constructor(readonly id: string, private readonly cwd: string, private readonly host: DshHost, private readonly hub: InteractionHub,
-    private readonly client: AcpClient, private readonly log: Log, private readonly existing: boolean, pending?: PendingOptions) {
+    private readonly client: AcpClient, private readonly log: Log, private readonly existing: boolean,
+    private readonly mcp: readonly McpDeclaration[], pending?: PendingOptions) {
     this.dshId = id
     this.state = 'pending'
     this.pending = { model: pending?.model, modelChosen: false, permission: pending?.permission, preset: pending?.preset, team: undefined }
@@ -155,18 +162,20 @@ export class AcpSession implements InteractionTarget {
 
   /** A new conversation: DSH creates the session with the first prompt, so idle threads cost nothing. */
   static create(host: DshHost, hub: InteractionHub, client: AcpClient, log: Log, options: PendingOptions): AcpSession {
-    return new AcpSession(randomUUID(), options.cwd, host, hub, client, log, false, options)
+    return new AcpSession(randomUUID(), options.cwd, host, hub, client, log, false, options.mcp ?? [], options)
   }
 
   /** An existing DSH session; `open` starts following it. The caller can close it while it opens. */
-  static existing(host: DshHost, hub: InteractionHub, client: AcpClient, log: Log, id: string, cwd: string): AcpSession {
-    return new AcpSession(id, cwd, host, hub, client, log, true)
+  static existing(host: DshHost, hub: InteractionHub, client: AcpClient, log: Log, id: string, cwd: string,
+    mcp: readonly McpDeclaration[] = []): AcpSession {
+    return new AcpSession(id, cwd, host, hub, client, log, true, mcp)
   }
 
-  /** Follow the session from now on; `replay` sends its history first. */
+  /** Follow the session from now on; `replay` sends its history first. The client's MCP servers are mounted before it returns. */
   async open(replay: boolean): Promise<void> {
     if (this.host.workspaces.archivedSessionIds.includes(this.id as SessionId)) throw invalid('这个会话已在 DSH 中归档。')
     await this.attach(replay ? 'replay' : 'fold', this.cwd)
+    await this.mountMcp()
   }
 
   get closed(): boolean { return this.state === 'closed' }
@@ -272,6 +281,7 @@ export class AcpSession implements InteractionTarget {
     this.interactions.abort()
     if (this.stallTimer) clearTimeout(this.stallTimer)
     this.releaseSeen()
+    void this.releaseMcp()
     for (const inflight of this.inflights.splice(0)) {
       inflight.abort.abort()
       inflight.settle({ error: internal('DSH 已停止这个会话。') })
@@ -746,6 +756,12 @@ export class AcpSession implements InteractionTarget {
     const stopped = (): PromptResponse => { this.release(inflight); return { stopReason: 'cancelled' } }
     try {
       try { await this.materialize() } catch (error) {
+        if (this.closed || inflight.cancelRequested) return stopped()
+        throw error
+      }
+      if (this.closed || inflight.cancelRequested) return stopped()
+      // The first turn of a new session already has the client's MCP tools, as in the official dsh-acp.
+      try { await this.mountMcp() } catch (error) {
         if (this.closed || inflight.cancelRequested) return stopped()
         throw error
       }
@@ -1258,9 +1274,50 @@ export class AcpSession implements InteractionTarget {
     })().catch(error => this.log.debug('acp-bridge: command catalog refresh failed', error))
   }
 
+  // ── MCP ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Mount this client's MCP servers in the session's Agent, as the official dsh-acp does when it
+   * composes the Agent, and again in a new Agent if DSH replaced it. Serialized; a mount the
+   * session's close overtakes is undone.
+   */
+  private mountMcp(): Promise<void> {
+    if (!this.mcp.length) return Promise.resolve()
+    const task = this.mcpMounting.then(() => this.mountMcpNow())
+    this.mcpMounting = task.catch(() => undefined)
+    return task
+  }
+
+  private async mountMcpNow(): Promise<void> {
+    if (this.closed) throw closedError()
+    const live = this.host.live(this.dshId)
+    if (live && live === this.mcpAgent) return
+    const modules = await mcpModules()
+    if (!modules) return
+    const agent = live ?? await this.host.agent(this.dshId)
+    if (this.closed) throw closedError()
+    if (agent === this.mcpAgent) return
+    await this.releaseMcp()
+    const release = await this.host.mcp.acquire(modules, agent, this.mcp, this)
+    if (this.closed) {
+      await release()
+      throw closedError()
+    }
+    this.mcpAgent = agent
+    this.mcpRelease = release
+  }
+
+  /** The servers leave the Agent unless another client declared them too. */
+  private async releaseMcp(): Promise<void> {
+    const release = this.mcpRelease
+    this.mcpAgent = undefined
+    this.mcpRelease = undefined
+    await release?.().catch(error => this.log.warn('acp-bridge: MCP servers not unmounted', error))
+  }
+
   // ── lifecycle ───────────────────────────────────────────────────────────
 
-  /** `session/close` or a closed connection: cancel the prompts this client started and stop following. */
+  /** `session/close` or a closed connection: cancel the prompts this client started, stop following and unmount its MCP servers. */
   async close(): Promise<void> {
     if (this.closed) return
     if (this.inflights.length) await this.cancel().catch(error => this.log.debug('acp-bridge: cancel on close failed', error))
@@ -1277,5 +1334,6 @@ export class AcpSession implements InteractionTarget {
       pending.abort.abort()
       pending.settle(CANCELLED)
     }
+    await this.releaseMcp()
   }
 }

@@ -48,6 +48,8 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4 || ~4.1.0",
+    "@deepseek-ai/dsh-mcp-client": ">=0.2.2-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-scope": ">=0.2.2-rc.1 <0.3.0-0",
     "@deepseek-ai/dsh-typert-protocol": ">=0.2.2-rc.1 <0.3.0-0",
     "@deepseek-ai/schemastery": "~3.18.4 || ~3.19.0"
   },
@@ -88,6 +90,8 @@
     "@deepseek-ai/dsh-http-proxy": "0.2.2-rc.4",
     "@deepseek-ai/dsh-launch-environment": "0.2.2-rc.4",
     "@deepseek-ai/dsh-llm": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-mcp-client": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-mcp-resources": "0.2.2-rc.4",
     "@deepseek-ai/dsh-native-command": "0.2.2-rc.4",
     "@deepseek-ai/dsh-permission-presets": "0.2.2-rc.4",
     "@deepseek-ai/dsh-sandbox": "0.2.2-rc.4",

@@ -59,6 +59,8 @@ __metadata:
     "@deepseek-ai/dsh-http-proxy": "npm:0.2.2-rc.4"
     "@deepseek-ai/dsh-launch-environment": "npm:0.2.2-rc.4"
     "@deepseek-ai/dsh-llm": "npm:0.2.2-rc.4"
+    "@deepseek-ai/dsh-mcp-client": "npm:0.2.2-rc.4"
+    "@deepseek-ai/dsh-mcp-resources": "npm:0.2.2-rc.4"
     "@deepseek-ai/dsh-native-command": "npm:0.2.2-rc.4"
     "@deepseek-ai/dsh-permission-presets": "npm:0.2.2-rc.4"
     "@deepseek-ai/dsh-sandbox": "npm:0.2.2-rc.4"
@@ -106,6 +108,8 @@ __metadata:
     zod: "npm:^4.1.0"
   peerDependencies:
     "@deepseek-ai/cordis": ~4.0.4 || ~4.1.0
+    "@deepseek-ai/dsh-mcp-client": ">=0.2.2-rc.1 <0.3.0-0"
+    "@deepseek-ai/dsh-scope": ">=0.2.2-rc.1 <0.3.0-0"
     "@deepseek-ai/dsh-typert-protocol": ">=0.2.2-rc.1 <0.3.0-0"
     "@deepseek-ai/schemastery": ~3.18.4 || ~3.19.0
   bin:
