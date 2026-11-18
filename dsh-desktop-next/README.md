@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-A separate experimental package based on DeepSeek Harness **0.2.2-rc.4**. The main window loads the official published `@deepseek-ai/dsh-web-frontend`, sharing the official Web application, plugin manager, and basic Desktop presentation. Next adds the system tray, desktop preferences and tools, Profiles, recovery, Agents Anywhere remote control, Community Market, and dshmarket.
+A separate experimental package based on DeepSeek Harness **0.2.2-rc.5**. The main window loads the official published `@deepseek-ai/dsh-web-frontend`, sharing the official Web application, plugin manager, and basic Desktop presentation. Next adds the system tray, desktop preferences and tools, Profiles, recovery, Agents Anywhere remote control, Community Market, and dshmarket.
 
 ## Development and verification
 
