@@ -21,7 +21,7 @@ This is a DSH plugin, published as the npm package `@agents-anywhere/dsh-acp-bri
 
 ## Installation
 
-DSH must be on the 0.2.2 release line (`>=0.2.2-rc.1 <0.3.0-0`); automated checks cover 0.2.2-rc.3 only.
+DSH must be on the 0.2.2 release line (`>=0.2.2-rc.1 <0.3.0-0`); automated checks cover 0.2.2-rc.4 only.
 
 - **DeepSeek Harness Desktop**: open "Plugins" → "Add plugin" in the left sidebar, enter the package name `@agents-anywhere/dsh-acp-bridge`, install it, enable it and restart.
 - **DSH installed from the command line**: for example, for the `desktop` profile:

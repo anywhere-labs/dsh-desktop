@@ -182,4 +182,4 @@ dsh plugin --profile desktop add "link:$PWD"
 
 修复审查发现的问题后，用同一环境复验：`--check` 经过端点身份证明后连接成功；没有模型密钥时连续两条消息都返回错误，会话没有被锁住；发送后立即取消返回 `cancelled`；斜杠命令、列表、另一连接回放、开关计划模式、切换权限和 `session/close` 正常，另一连接收到配置变化；DSH 收到 SIGINT 后删除端点记录和套接字，启动脚本随即提示没有正在运行的 DSH。
 
-自动化检查和这次联调都没有覆盖：真实模型的回复、真实的 Zed 等编辑器、DSH Desktop 的 Electron 运行环境、Windows 命名管道、同时运行多个 DSH，以及 0.2.2-rc.3 以外的 DSH 版本。
+自动化检查和这次联调都没有覆盖：真实模型的回复、真实的 Zed 等编辑器、DSH Desktop 的 Electron 运行环境、Windows 命名管道、同时运行多个 DSH，以及自动化检查所用的 0.2.2-rc.4、这次联调所用的 0.2.2-rc.3 以外的 DSH 版本。
