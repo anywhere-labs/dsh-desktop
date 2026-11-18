@@ -1,19 +1,19 @@
 {
   "repository": "https://github.com/anywhere-labs/Agents-Anywhere.git",
   "branch": "main",
-  "commit": "856026dd5e745bae1b5199f15b077a103a1a2392",
+  "commit": "76f97145facf18571724205bcd5cfebecf3592ea",
   "packageDirectory": "dsh-bridge-next",
   "sourceVersion": "2.2.0",
-  "desktopVersion": "2.2.0-desktop.c856026dd5e74.rfc23c8a3",
-  "artifact": "agents-anywhere-dsh-bridge-next-2.2.0-desktop.c856026dd5e74.rfc23c8a3.tgz",
-  "sha256": "a34511ed269c99088ec27c79fae4f095c4d8df03a0c7359a0cfadcde1bb81484",
+  "desktopVersion": "2.2.0-desktop.c76f97145facf.rfc23c8a3",
+  "artifact": "agents-anywhere-dsh-bridge-next-2.2.0-desktop.c76f97145facf.rfc23c8a3.tgz",
+  "sha256": "3ec73f2702abe84b3aba6543a78c15f0cb2a5f983e9b77fa181555171b809fa7",
   "runtimePeers": {
     "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.3 || 0.2.2-rc.4",
     "@deepseek-ai/dsh-llm": "0.2.1-rc.3 || 0.2.2-rc.4",
     "@deepseek-ai/dsh-session": "0.2.1-rc.3 || 0.2.2-rc.4"
   },
   "manifestChanges": [
-    "version set to 2.2.0-desktop.c856026dd5e74.rfc23c8a3",
+    "version set to 2.2.0-desktop.c76f97145facf.rfc23c8a3",
     "release staging removes prepack/postpack hooks; build, typecheck and check:build run explicitly",
     "release staging pins the AA build-time DSH type graph to the source devDependencies",
     "@deepseek-ai/dsh-typert-protocol peer accepts 0.2.1-rc.3 || 0.2.2-rc.4",
