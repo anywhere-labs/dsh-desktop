@@ -92,9 +92,23 @@ DSH 加载插件后，会在本机写入一个启动脚本：
 
 - 所有通信只在本机进行，不经过 Agents Anywhere Server，也不需要账号。
 - 插件只在当前用户可访问的位置监听：macOS、Linux 上是权限为私有的 Unix 套接字，Windows 上是命名管道。连接还要提供一个随机令牌，令牌保存在只有当前用户能读的文件里，每次 DSH 启动都会重新生成。
-- 启动脚本在发送令牌之前，会先让对方证明自己持有这个令牌；证明不对的端点（例如 DSH 退出后被别的程序占用）会被跳过，令牌和对话内容不会交给它。
-- 能运行启动脚本的本机用户，可以像在 DSH Desktop 里一样使用这台电脑上的所有 DSH 会话。
+- 启动脚本和客户端接口在发送令牌之前，会先让对方证明自己持有这个令牌；证明不对的端点（例如 DSH 退出后被别的程序占用）会被跳过，令牌和对话内容不会交给它。
+- 能运行启动脚本的本机用户，可以像在 DSH Desktop 里一样使用这台电脑上的所有 DSH 会话；这个用户通过客户端接口运行的程序也一样。
 - 编辑器声明的 stdio MCP 服务器由 DSH 以当前用户的身份启动，和 DSH 自己配置的 MCP 服务器一样不在 DSH 的沙箱里运行。
+
+## 从其他程序连接
+
+其他程序可以不经过启动脚本，直接通过插件的本机 RPC 连接正在运行的 DSH。这层 RPC 是有兼容约定的公开接口。包的 `client` 入口只需要 Node.js：它负责找到 DSH、确认身份，并打开可以交给 ACP SDK 的 ACP 连接。
+
+```ts
+import { client } from '@agentclientprotocol/sdk'
+import { connectDsh } from '@agents-anywhere/dsh-acp-bridge/client'
+
+const dsh = await connectDsh()
+const acp = client({ name: 'my-tool' }).connect(dsh.openAcpStream())
+```
+
+契约内容、兼容约定和完整的客户端接口见[技术说明](TECHNICAL.zh.md#本机-rpc)。
 
 ## 开发
 

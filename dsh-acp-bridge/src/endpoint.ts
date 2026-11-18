@@ -1,20 +1,22 @@
 /**
  * Endpoint records: one JSON file per running plugin instance, written by the
- * plugin and read by the stdio launcher. Node built-ins only.
+ * plugin and read by its RPC clients. Part of the local RPC contract (see
+ * contract.ts): records of another contract version are skipped. Node built-ins only.
  */
 
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { endpointsDirectory, RPC_SERVICE, type LocalEndpoint } from './paths.js'
+import { CONTRACT_VERSION, PROTOCOL, RPC_SERVICE } from './contract.js'
+import { endpointsDirectory, type LocalEndpoint } from './paths.js'
 
 export interface EndpointRecord {
-  version: 1
+  version: typeof CONTRACT_VERSION
   protocol: 'meshcall'
-  service: string
+  service: typeof RPC_SERVICE
   instanceId: string
   pid: number
-  /** ISO time the plugin instance started serving; the launcher prefers the newest. */
+  /** ISO time the plugin instance started serving; clients prefer the newest. */
   startedAt: string
   endpoint: LocalEndpoint
   /** Required as call metadata; the record file is readable by its owner only. */
@@ -29,6 +31,7 @@ function object(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
+/** A record of this contract version; unknown fields are ignored, so later additions stay readable. */
 export function parseRecord(text: string): EndpointRecord | undefined {
   let value: Record<string, unknown> | undefined
   try { value = object(JSON.parse(text)) } catch { return undefined }
@@ -36,14 +39,14 @@ export function parseRecord(text: string): EndpointRecord | undefined {
   const endpoint = object(value.endpoint)
   const local = typeof endpoint?.unixPath === 'string' && endpoint.unixPath ? { unixPath: endpoint.unixPath }
     : typeof endpoint?.pipe === 'string' && endpoint.pipe ? { pipe: endpoint.pipe } : undefined
-  if (value.version !== 1 || value.protocol !== 'meshcall' || value.service !== RPC_SERVICE || !local
+  if (value.version !== CONTRACT_VERSION || value.protocol !== 'meshcall' || value.service !== RPC_SERVICE || !local
     || typeof value.instanceId !== 'string' || !value.instanceId
     || typeof value.pid !== 'number' || !Number.isSafeInteger(value.pid) || value.pid <= 0
     || typeof value.startedAt !== 'string' || Number.isNaN(Date.parse(value.startedAt))
     || typeof value.token !== 'string' || value.token.length < 32
     || typeof value.bridgeVersion !== 'string') return undefined
   return {
-    version: 1, protocol: 'meshcall', service: RPC_SERVICE, instanceId: value.instanceId, pid: value.pid,
+    version: CONTRACT_VERSION, protocol: 'meshcall', service: RPC_SERVICE, instanceId: value.instanceId, pid: value.pid,
     startedAt: value.startedAt, endpoint: local, token: value.token, bridgeVersion: value.bridgeVersion,
     ...(typeof value.runtimeVersion === 'string' ? { runtimeVersion: value.runtimeVersion } : {}),
   }
@@ -93,7 +96,7 @@ export async function readRecords(home: string): Promise<StoredRecord[]> {
  * or a squatted pipe name therefore never receives the token or ACP traffic.
  */
 export function endpointProof(token: string, nonce: string): string {
-  return createHmac('sha256', token).update(`agents-anywhere-dsh-acp/1 endpoint ${nonce}`).digest('base64url')
+  return createHmac('sha256', token).update(`${PROTOCOL}/${CONTRACT_VERSION} endpoint ${nonce}`).digest('base64url')
 }
 
 export function validProof(token: string, nonce: string, proof: unknown): boolean {

@@ -22,19 +22,58 @@ The plugin inside the DSH process
 
 The plugin creates no Agent of its own. Everything goes through the Session Controller that the DSH Web client uses, so DSH keeps managing the sessions: DSH Desktop, the Agents Anywhere plugin and several ACP connections can use one session at the same time.
 
+Programs can skip the launcher: the public client in `lib/client.js` opens the same call (see [Client API](#client-api)), and the launcher itself is built on it.
+
 ## Local RPC
 
-The plugin listens directly inside the DSH process (MeshCall direct mode, no Router) as the service `aa.dsh.acp.v1.Acp`:
+The plugin listens directly inside the DSH process (MeshCall direct mode, no Router). This local RPC is a public interface, contract version 1: besides the launcher, other programs of the same user can reach DSH through it, with the client API below or with any MeshCall client that follows the contract. The service is `aa.dsh.acp.v1.Acp`:
 
 | Method | Shape | Description |
 | --- | --- | --- |
-| `hello` | Unary | No token required. Takes `{nonce}` (16–256 characters) and returns `{proof}`: an HMAC-SHA256 (base64url) of `agents-anywhere-dsh-acp/1 endpoint <nonce>` keyed with the token. The launcher uses it to confirm that the endpoint is the process that wrote the record |
-| `info` | Unary | Returns the plugin and DSH versions, the ACP protocol version, the number of connections (`connections`), the number of followed sessions (`followed`), and whether approvals and questions are connected (`interactions.approvals/questions`) |
+| `hello` | Unary | No token required. Takes `{nonce}` (16–256 characters) and returns `{proof}`: an HMAC-SHA256 (base64url) of `agents-anywhere-dsh-acp/1 endpoint <nonce>` keyed with the token. Clients use it to confirm that the endpoint is the process that wrote the record |
+| `info` | Unary | Returns `{protocol: "agents-anywhere-dsh-acp", version: 1, acpProtocolVersion, bridgeVersion, runtimeVersion?, pid, connections, followed, interactions: {approvals, questions}}`: the plugin and DSH versions, the ACP protocol version, the DSH process, the number of ACP connections, the number of followed sessions, and whether approvals and questions are connected |
 | `connect` | Duplex | The request is `{}`; input and output items are ACP JSON-RPC messages, never rewritten; when either side ends, this ACP connection ends |
 
 - `info` and `connect` require the call metadata `aa-acp-token` to match the token in the endpoint record, compared through fixed-length digests in constant time.
 - Frames keep MeshCall's default limit of 64 MiB; the client pings every 15 seconds and the server disconnects only after 45 seconds without data.
-- The RPC layer evolves with the package version and is not an external contract; the stable external interface is ACP on the launcher's stdio.
+
+### Contract and compatibility
+
+Contract version 1 is made of the endpoint records (`version: 1`), the service `aa.dsh.acp.v1.Acp` with its three methods and their fields, the call metadata `aa-acp-token`, the endpoint proof over `agents-anywhere-dsh-acp/1 endpoint <nonce>`, and the `protocol` and `version` that `info` reports. `tests/unit/contract.test.ts` pins these values.
+
+- Within version 1, changes only add: new optional fields in records and in `info`, and new methods. Clients ignore fields they do not know.
+- A breaking change (renaming or removing a field, a method or the metadata key, or changing the proof) takes version 2: the service `aa.dsh.acp.v2.Acp`, records with `version: 2` and the proof prefix `agents-anywhere-dsh-acp/2`. Clients of version 1 skip records of another version and report that no DSH is running instead of failing in the middle of a session.
+- The package version follows semantic versioning for this contract: a breaking change is a major release.
+- What `connect` carries is ACP: `initialize` negotiates its version on each connection, independently of the contract version.
+
+### Client API
+
+`@agents-anywhere/dsh-acp-bridge/client` needs only Node.js and meshcall, not DSH. The launcher is built on it.
+
+| Export | Description |
+| --- | --- |
+| `connectDsh(options?)` | Tries the running instances from the newest, has each prove that it holds its record's token before the token is sent, and returns a `DshConnection`. Options: `home` (the records' directory), `instance` (an instance ID or a prefix of it), `timeoutMs` for `hello` and `info` (5000 by default), `peerId` and `logger` |
+| `DshConnection` | `record` and `info` of the instance reached; `fetchInfo()` for current figures; `openAcpStream()` opens one ACP connection as a stream for the ACP SDK's `client(...).connect()`; `openAcpCall()` opens one as the raw duplex call (`send`, `closeSend`, `cancel` and async iteration); `close()` ends every ACP connection opened through it |
+| `listInstances(options?)` | The records of the running instances of contract version 1, newest first |
+| `acpStream(call)` | A raw call as an ACP SDK stream |
+| `DshAcpError` | `code` is `no-instance` (no running DSH, or none matching `instance`) or `unreachable` (every instance failed); `failures` lists each instance tried, as `unproven` or `error` |
+| `CONTRACT_VERSION`, `PROTOCOL`, `RPC_SERVICE`, `TOKEN_METADATA`, `defaultHome()` | The contract identifiers and the default records directory |
+
+```ts
+import { client, methods } from '@agentclientprotocol/sdk'
+import { connectDsh } from '@agents-anywhere/dsh-acp-bridge/client'
+
+const dsh = await connectDsh()
+const acp = client({ name: 'my-tool' }).connect(dsh.openAcpStream())
+await acp.agent.request(methods.agent.initialize, { protocolVersion: 1, clientCapabilities: {} })
+const { sessionId } = await acp.agent.request(methods.agent.session.new, { cwd: process.cwd(), mcpServers: [] })
+await acp.agent.request(methods.agent.session.prompt, { sessionId, prompt: [{ type: 'text', text: 'Hello' }] })
+await dsh.close()
+```
+
+- Each ACP connection follows the rules of an editor connection: when it ends, the prompts it started that are still running are cancelled and its queued messages are withdrawn.
+- The client never reconnects: an endpoint belongs to one DSH process, and a restarted DSH serves a new one. Call `connectDsh` again, then `initialize` and `session/load` or `session/resume` to continue a session.
+- Programs in other languages can implement the contract directly: read the record, check the `hello` proof, send the token as call metadata, and exchange ACP messages over `connect`, with a MeshCall client that reaches Unix sockets or named pipes. Only the TypeScript client has been verified.
 
 ### Endpoint records and the launcher
 
@@ -45,9 +84,9 @@ The plugin listens directly inside the DSH process (MeshCall direct mode, no Rou
 | `bin/dsh-acp`, `bin/dsh-acp.cmd` | The launcher, which runs this package's `lib/stdio.js` with the DSH process's `process.execPath`. When DSH runs on Electron and itself runs with `ELECTRON_RUN_AS_NODE=1` (proof that this Electron allows Node mode), the launcher sets the same variable; any other Electron host uses `node` from `PATH` instead, so the launcher never starts a second application |
 
 - If a directory the plugin uses is a symbolic link, not a directory, or owned by another user, the plugin refuses to start; it never follows the link or changes its permissions.
-- Every DSH process that loads the plugin writes one record and removes its own record and socket when the plugin unloads. A starting plugin removes records whose process has exited, and the launcher never picks such a record.
-- The launcher tries the records from the newest to the oldest start time: it first calls `hello` with a random nonce and verifies the proof, skips the record when verification fails (a reused PID, or a socket or pipe name taken by another program), and only after a successful verification sends the token with `info` and `connect`. `--instance` selects an instance by ID prefix.
-- meshcall 0.3.0 can report a call that failed while it was still being opened as an unhandled promise rejection, although the caller awaits the same failure (DSH Desktop patches it, see anywhere-labs/deepseek-harness-desktop#1574). The launcher writes such a rejection to standard error and keeps forwarding instead of exiting.
+- Every DSH process that loads the plugin writes one record and removes its own record and socket when the plugin unloads. A starting plugin removes records whose process has exited, and clients never pick such a record.
+- Clients try the records from the newest to the oldest start time: they first call `hello` with a random nonce and verify the proof, skip the record when verification fails (a reused PID, or a socket or pipe name taken by another program), and only after a successful verification send the token with `info` and `connect`. The launcher's `--instance` and the client's `instance` select an instance by ID prefix.
+- meshcall 0.3.0 can report a call that failed while it was still being opened as an unhandled promise rejection, although the caller awaits the same failure (DSH Desktop patches it, see anywhere-labs/deepseek-harness-desktop#1574). The launcher writes such a rejection to standard error and keeps forwarding instead of exiting; a long-running program that uses the client should handle `unhandledRejection` the same way.
 - The Windows named pipe is `\\.\pipe\agents-anywhere-dsh-acp-<first 16 ID characters>`; the same proof and token tell the two sides apart.
 
 ## ACP mapping
@@ -178,6 +217,7 @@ corepack yarn workspace @agents-anywhere/dsh-acp-bridge check
 - configuration, sync of model switches made in DSH, the agent team switch in both directions (with agent teams mounted as in the base bundle), and slash commands;
 - MCP servers the client declares (with a local stdio server from the tests): mounted with a new session's first message, visible to that session only, and their process ended on close; declarations with errors refused as invalid params before a session is created or copied; a server that does not start failing the prompt with its name; two clients sharing one declaration, and a different server under the same name refused; mounting on `session/load` and unmounting on disconnect;
 - token checks, endpoint proof, the temporary directory for overlong paths, the launcher, and a launcher that keeps forwarding after a late unhandled rejection;
+- the public client, loaded from the built package: the ACP SDK over its stream and a raw call, refusing an endpoint that cannot prove itself before sending it the token, offering only running instances of contract version 1, failing at once when DSH exits, and needing nothing beyond Node.js and meshcall; and the pinned contract values;
 - no remaining follows, and an undisturbed DSH, after a client is killed while creating a session, opening a session or running a turn, after `session/close`, and after repeated loads.
 
 To link-install into a local DSH for manual testing:

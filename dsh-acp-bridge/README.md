@@ -92,9 +92,23 @@ The plugin's own log lines are in the DSH log and start with `acp-bridge`.
 
 - All communication stays on this computer. It does not pass through the Agents Anywhere Server and needs no account.
 - The plugin listens only where the current user can reach it: a private Unix socket on macOS and Linux, a named pipe on Windows. A connection must also present a random token, stored in a file only the current user can read and regenerated every time DSH starts.
-- Before sending the token, the launcher has the other side prove that it holds that token; an endpoint that cannot prove it (for example one taken over by another program after DSH exited) is skipped and never receives the token or any conversation.
-- A local user who can run the launcher can use every DSH session on this computer, just as in DSH Desktop.
+- Before sending the token, the launcher and the client API have the other side prove that it holds that token; an endpoint that cannot prove it (for example one taken over by another program after DSH exited) is skipped and never receives the token or any conversation.
+- A local user who can run the launcher can use every DSH session on this computer, just as in DSH Desktop; so can the programs that user runs through the client API.
 - Stdio MCP servers declared by the editor are started by DSH as the current user and, like the MCP servers configured in DSH itself, do not run in DSH's sandbox.
+
+## Connecting from other programs
+
+Programs can skip the launcher and connect to the running DSH through the plugin's local RPC, a public interface with compatibility rules. The package's `client` entry point needs only Node.js: it finds DSH, checks it, and opens ACP connections for the ACP SDK.
+
+```ts
+import { client } from '@agentclientprotocol/sdk'
+import { connectDsh } from '@agents-anywhere/dsh-acp-bridge/client'
+
+const dsh = await connectDsh()
+const acp = client({ name: 'my-tool' }).connect(dsh.openAcpStream())
+```
+
+The contract, its compatibility rules and the whole client API are in the [technical notes](TECHNICAL.md#local-rpc).
 
 ## Development
 

@@ -3,7 +3,7 @@ import ts from 'typescript'
 
 export default defineConfig({
   name: 'plugin',
-  entry: { index: 'src/index.ts', stdio: 'src/stdio.ts' },
+  entry: { index: 'src/index.ts', client: 'src/client.ts', stdio: 'src/stdio.ts' },
   tsconfig: 'tsconfig.host.json',
   outDir: 'lib',
   platform: 'node',

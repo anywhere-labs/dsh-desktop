@@ -1,25 +1,33 @@
 /**
- * The MeshCall service the plugin serves: one duplex call carries one ACP
- * connection's JSON-RPC messages, unchanged, in both directions.
+ * The MeshCall service the plugin serves, local RPC contract version 1 (see
+ * contract.ts): one duplex call carries one ACP connection's JSON-RPC
+ * messages, unchanged, in both directions.
  */
 
 import type { AnyMessage, Stream } from '@agentclientprotocol/sdk'
 import { method, PermissionDeniedError, query, service, z, type DuplexChannel, type RpcContext } from 'meshcall'
 import { createHash, timingSafeEqual } from 'node:crypto'
+import { CONTRACT_VERSION, PROTOCOL, RPC_SERVICE, TOKEN_METADATA, type BridgeInfo } from './contract.js'
 import { endpointProof } from './endpoint.js'
-import { RPC_SERVICE, TOKEN_METADATA } from './paths.js'
 
 type Message = Record<string, unknown>
 
 /** What the RPC layer needs from the plugin. */
 export interface AcpServer {
-  info(): Message
+  info(): BridgeInfo
   serve(stream: Stream, signal: AbortSignal): Promise<void>
 }
 
 const payload = z.looseObject({})
 const helloRequest = z.object({ nonce: z.string().min(16).max(256) })
 const helloResponse = z.object({ proof: z.string() })
+// Loose objects: later releases of this contract version may add fields.
+const infoResponse = z.looseObject({
+  protocol: z.literal(PROTOCOL), version: z.literal(CONTRACT_VERSION), acpProtocolVersion: z.int().min(0),
+  bridgeVersion: z.string(), runtimeVersion: z.string().optional(), pid: z.int().min(0),
+  connections: z.int().min(0), followed: z.int().min(0),
+  interactions: z.looseObject({ approvals: z.boolean(), questions: z.boolean() }),
+})
 
 function sameToken(given: string | undefined, expected: string): boolean {
   if (!given) return false
@@ -67,8 +75,8 @@ export class AcpRpcService {
     return { proof: endpointProof(this.token, request.nonce) }
   }
 
-  @query({ description: 'Identify the bridge, the DSH it runs in and the ACP version it speaks.', request: payload, response: payload })
-  async info(_request: Message, context: RpcContext): Promise<Message> {
+  @query({ description: 'Identify the bridge, the DSH it runs in and the ACP version it speaks.', request: payload, response: infoResponse })
+  async info(_request: Message, context: RpcContext): Promise<z.input<typeof infoResponse>> {
     this.authorize(context)
     return this.server.info()
   }

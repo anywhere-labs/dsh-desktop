@@ -22,19 +22,58 @@ DSH 进程里的插件
 
 插件不创建自己的 Agent，所有操作都走 DSH Web 客户端使用的 Session Controller，因此会话由 DSH 统一管理：DSH Desktop、Agents Anywhere 插件和多个 ACP 连接可以同时使用同一个会话。
 
+其他程序可以不经过启动脚本：`lib/client.js` 里的公开客户端打开的是同一种调用（见[客户端接口](#客户端接口)），启动脚本本身也建立在它上面。
+
 ## 本机 RPC
 
-插件在 DSH 进程里直接监听（MeshCall 直连模式，不需要 Router），服务名 `aa.dsh.acp.v1.Acp`：
+插件在 DSH 进程里直接监听（MeshCall 直连模式，不需要 Router）。这层本机 RPC 是公开接口，契约版本 1：除了启动脚本，同一用户的其他程序也可以通过它连接 DSH，用下面的客户端接口，或者用任何遵守这份契约的 MeshCall 客户端。服务名 `aa.dsh.acp.v1.Acp`：
 
 | 方法 | 形状 | 说明 |
 | --- | --- | --- |
-| `hello` | 一元 | 不需要令牌。请求 `{nonce}`（16–256 个字符），返回 `{proof}`：以令牌为密钥、对 `agents-anywhere-dsh-acp/1 endpoint <nonce>` 计算的 HMAC-SHA256（base64url）。启动脚本用它确认端点确实是写下这条记录的进程 |
-| `info` | 一元 | 返回插件和 DSH 版本、ACP 协议版本、当前连接数（`connections`）、正在跟随的会话数（`followed`），以及审批和提问是否已接通（`interactions.approvals/questions`） |
+| `hello` | 一元 | 不需要令牌。请求 `{nonce}`（16–256 个字符），返回 `{proof}`：以令牌为密钥、对 `agents-anywhere-dsh-acp/1 endpoint <nonce>` 计算的 HMAC-SHA256（base64url）。客户端用它确认端点确实是写下这条记录的进程 |
+| `info` | 一元 | 返回 `{protocol: "agents-anywhere-dsh-acp", version: 1, acpProtocolVersion, bridgeVersion, runtimeVersion?, pid, connections, followed, interactions: {approvals, questions}}`：插件和 DSH 版本、ACP 协议版本、DSH 进程、ACP 连接数、正在跟随的会话数，以及审批和提问是否已接通 |
 | `connect` | 双向流 | 请求为 `{}`；输入、输出条目都是 ACP JSON-RPC 消息，不做任何改写；任一方结束即断开这个 ACP 连接 |
 
 - `info` 和 `connect` 要求调用 metadata `aa-acp-token` 与端点记录中的令牌一致，比较使用定长摘要和常量时间比较。
 - 帧上限沿用 MeshCall 默认的 64 MiB；客户端每 15 秒 ping 一次，服务端 45 秒无数据才断开。
-- RPC 这一层随包版本演进，不作为对外契约；对外稳定的接口是启动脚本 stdio 上的 ACP。
+
+### 契约与兼容
+
+契约版本 1 包括：端点记录（`version: 1`）、服务 `aa.dsh.acp.v1.Acp` 及其三个方法和字段、调用 metadata `aa-acp-token`、基于 `agents-anywhere-dsh-acp/1 endpoint <nonce>` 的端点证明，以及 `info` 返回的 `protocol` 和 `version`。`tests/unit/contract.test.ts` 把这些值固定下来。
+
+- 版本 1 之内只做增加：记录和 `info` 里增加可选字段、增加方法。客户端忽略不认识的字段。
+- 不兼容的改动（改名或删除字段、方法、metadata 名，或者改端点证明）进入版本 2：服务名 `aa.dsh.acp.v2.Acp`、`version: 2` 的记录、证明前缀 `agents-anywhere-dsh-acp/2`。版本 1 的客户端会跳过其他版本的记录，报告没有正在运行的 DSH，而不是在会话中途出错。
+- 包的版本号对这份契约遵循语义化版本：不兼容的改动发布为主版本。
+- `connect` 里传的是 ACP：它的版本由每个连接的 `initialize` 协商，和契约版本无关。
+
+### 客户端接口
+
+`@agents-anywhere/dsh-acp-bridge/client` 只需要 Node.js 和 meshcall，不需要 DSH。启动脚本就建立在它上面。
+
+| 导出 | 说明 |
+| --- | --- |
+| `connectDsh(options?)` | 从最新启动的实例开始逐个尝试，先让对方证明持有记录里的令牌，再发出令牌，返回 `DshConnection`。选项：`home`（记录所在目录）、`instance`（实例 ID 或其前缀）、`hello` 和 `info` 的 `timeoutMs`（默认 5000）、`peerId`、`logger` |
+| `DshConnection` | 连上的实例的 `record` 和 `info`；`fetchInfo()` 读取最新状态；`openAcpStream()` 打开一个 ACP 连接，作为交给 ACP SDK `client(...).connect()` 的流；`openAcpCall()` 打开一个原始双向流调用（`send`、`closeSend`、`cancel` 和异步迭代）；`close()` 结束经它打开的所有 ACP 连接 |
+| `listInstances(options?)` | 正在运行的契约版本 1 实例的记录，从新到旧 |
+| `acpStream(call)` | 把原始调用包装成 ACP SDK 的流 |
+| `DshAcpError` | `code` 为 `no-instance`（没有正在运行的 DSH，或者没有匹配 `instance` 的）或 `unreachable`（每个实例都失败了）；`failures` 列出尝试过的每个实例，原因为 `unproven` 或 `error` |
+| `CONTRACT_VERSION`、`PROTOCOL`、`RPC_SERVICE`、`TOKEN_METADATA`、`defaultHome()` | 契约标识和默认的记录目录 |
+
+```ts
+import { client, methods } from '@agentclientprotocol/sdk'
+import { connectDsh } from '@agents-anywhere/dsh-acp-bridge/client'
+
+const dsh = await connectDsh()
+const acp = client({ name: 'my-tool' }).connect(dsh.openAcpStream())
+await acp.agent.request(methods.agent.initialize, { protocolVersion: 1, clientCapabilities: {} })
+const { sessionId } = await acp.agent.request(methods.agent.session.new, { cwd: process.cwd(), mcpServers: [] })
+await acp.agent.request(methods.agent.session.prompt, { sessionId, prompt: [{ type: 'text', text: '你好' }] })
+await dsh.close()
+```
+
+- 每个 ACP 连接遵循和编辑器连接一样的规则：连接结束时，它发起、还在执行的任务会被取消，它排队的消息会被撤回。
+- 客户端不会自动重连：一个端点只属于一个 DSH 进程，DSH 重启后换成新的端点。重新调用 `connectDsh`，再 `initialize`，然后用 `session/load` 或 `session/resume` 接着使用会话。
+- 其他语言的程序可以直接实现这份契约：读记录、核对 `hello` 的证明、把令牌放进调用 metadata、在 `connect` 上收发 ACP 消息，需要能连 Unix 套接字或命名管道的 MeshCall 客户端。目前只验证过 TypeScript 客户端。
 
 ### 端点记录与启动脚本
 
@@ -45,9 +84,9 @@ DSH 进程里的插件
 | `bin/dsh-acp`、`bin/dsh-acp.cmd` | 启动脚本，用 DSH 进程的 `process.execPath` 运行本包的 `lib/stdio.js`。DSH 运行在 Electron 上、且自身以 `ELECTRON_RUN_AS_NODE=1` 运行时（说明这个 Electron 允许 Node 模式），脚本同样设置这个变量；其他 Electron 宿主改用 `PATH` 里的 `node`，避免拉起第二个应用 |
 
 - 插件使用的目录如果是符号链接、不是目录或属于其他用户，插件拒绝启动，不会跟随链接或修改其权限。
-- 每个加载了插件的 DSH 进程各写一条记录；卸载插件时删除自己的记录和套接字。插件启动时删除进程已退出的记录，启动脚本也从不选择这样的记录。
-- 启动脚本按启动时间从新到旧尝试各条记录：先用随机 nonce 调用 `hello` 并校验证明，校验不通过（PID 被复用、套接字或管道名被别的程序占用）就跳过，校验通过后才在 `info` 和 `connect` 中发送令牌。`--instance` 按 ID 前缀指定实例。
-- meshcall 0.3.0 可能把一个还在建立时就失败的调用报告为未处理的 Promise 拒绝，尽管调用方会等待并处理同一个失败（DSH Desktop 打了补丁，见 anywhere-labs/deepseek-harness-desktop#1574）。启动脚本遇到这种情况只把它写到标准错误，继续转发，不会退出。
+- 每个加载了插件的 DSH 进程各写一条记录；卸载插件时删除自己的记录和套接字。插件启动时删除进程已退出的记录，客户端也从不选择这样的记录。
+- 客户端按启动时间从新到旧尝试各条记录：先用随机 nonce 调用 `hello` 并校验证明，校验不通过（PID 被复用、套接字或管道名被别的程序占用）就跳过，校验通过后才在 `info` 和 `connect` 中发送令牌。启动脚本的 `--instance` 和客户端的 `instance` 按 ID 前缀指定实例。
+- meshcall 0.3.0 可能把一个还在建立时就失败的调用报告为未处理的 Promise 拒绝，尽管调用方会等待并处理同一个失败（DSH Desktop 打了补丁，见 anywhere-labs/deepseek-harness-desktop#1574）。启动脚本遇到这种情况只把它写到标准错误，继续转发，不会退出；使用客户端接口、需要长时间运行的程序也应该这样处理 `unhandledRejection`。
 - Windows 命名管道为 `\\.\pipe\agents-anywhere-dsh-acp-<ID 前 16 位>`，同样依靠上面的证明和令牌区分双方。
 
 ## ACP 映射
@@ -178,6 +217,7 @@ corepack yarn workspace @agents-anywhere/dsh-acp-bridge check
 - 配置与 DSH 端切换模型的同步、智能体团队协作开关的双向同步（按基础 bundle 的方式挂载智能体团队）、斜杠命令；
 - 客户端声明的 MCP 服务器（用测试里的本地 stdio 服务器）：新会话第一条消息时挂上、只属于这个会话、关闭后进程结束；声明有误时在创建或复制会话之前返回参数错误；服务器起不来时消息报错并给出名称；两个客户端共用同一个声明、同名不同配置被拒绝；`session/load` 时挂上、断开连接后卸下；
 - 令牌校验、端点身份证明、超长路径改用临时目录、启动脚本，以及启动脚本遇到迟到的未处理拒绝后继续转发；
+- 公开客户端（从构建产物加载）：经它的流使用 ACP SDK、原始调用、对无法证明身份的端点在发出令牌前就拒绝、只提供正在运行的契约版本 1 实例、DSH 退出后立即失败、除 Node.js 和 meshcall 外没有其他依赖；以及固定下来的契约值；
 - 客户端在创建会话、打开会话或执行中途被杀死、`session/close`、重复 load 之后不残留跟随，DSH 不受影响。
 
 链接安装到本机 DSH 做手动联调：

@@ -1,12 +1,9 @@
-/** Per-user locations shared by the DSH plugin and its stdio launcher. Node built-ins only. */
+/** Per-user locations shared by the DSH plugin and its RPC clients. Node built-ins only. */
 
 import { userInfo } from 'node:os'
 import { join } from 'node:path'
 
-/** MeshCall service the plugin serves; one duplex call per ACP connection. */
-export const RPC_SERVICE = 'aa.dsh.acp.v1.Acp'
-/** Call metadata carrying the endpoint token from the endpoint record. */
-export const TOKEN_METADATA = 'aa-acp-token'
+export { RPC_SERVICE, TOKEN_METADATA } from './contract.js'
 
 export type LocalEndpoint = { unixPath: string } | { pipe: string }
 

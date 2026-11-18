@@ -2,7 +2,7 @@
  * Manual checks against a running DSH that loaded the plugin. Development only; not published.
  *
  *   yarn smoke rpc   the plugin's MeshCall endpoint: endpoint records, endpoint proof, token checks, info,
- *                    and one ACP message over the duplex call, without the launcher
+ *                    one ACP message over the duplex call, and the public client with the ACP SDK
  *   yarn smoke acp   an ACP client on the generated launcher, started the way an editor starts it
  */
 
@@ -20,6 +20,7 @@ import { createInterface } from 'node:readline/promises'
 import { Readable, Writable } from 'node:stream'
 import { setTimeout as delay } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
+import { connectDsh } from '../src/client.js'
 import { processAlive, readRecords, validProof } from '../src/endpoint.js'
 import { defaultHome, endpointsDirectory, launcherPath, RPC_SERVICE, TOKEN_METADATA } from '../src/paths.js'
 
@@ -29,7 +30,8 @@ type Approve = 'ask' | 'allow' | 'reject'
 const USAGE = `用法：yarn smoke <rpc|acp> [选项]
 
 rpc  检查插件的 MeshCall 端点：端点记录、身份证明、令牌校验、info，
-     再直接经 duplex 调用收发一条 ACP 消息（不经过启动脚本）
+     再直接经 duplex 调用收发一条 ACP 消息（不经过启动脚本），
+     最后用公开的客户端接口和 ACP SDK 连一次
 acp  像编辑器一样启动生成的启动脚本，作为 ACP 客户端操作 DSH：
      initialize → session/list、session/new 或 session/load → 配置 → prompt
 
@@ -140,6 +142,21 @@ async function rpc(home: string): Promise<number> {
     check(false, 'RPC 调用失败', message(error))
   } finally {
     await client.close().catch(() => undefined)
+  }
+  // The public client other programs use, with the ACP SDK on its stream.
+  try {
+    const dsh = await connectDsh({ home, instance: record.instanceId })
+    try {
+      const connection = acpClient({ name: 'dsh-acp-smoke' }).connect(dsh.openAcpStream())
+      const initialized = await withTimeout(connection.agent.request(methods.agent.initialize, { protocolVersion: 1, clientCapabilities: {} }), 10_000, 'initialize')
+      check(initialized.protocolVersion === 1, '公开客户端接口（connectDsh 加 ACP SDK）连上 DSH 并完成 initialize',
+        `契约版本 ${dsh.info.version}，插件 ${dsh.info.bridgeVersion}`)
+      connection.close()
+    } finally {
+      await dsh.close()
+    }
+  } catch (error) {
+    check(false, '公开客户端接口连接失败', message(error))
   }
   console.log(failed ? `\n${failed} 项未通过。` : '\n全部通过。')
   return failed ? 1 : 0

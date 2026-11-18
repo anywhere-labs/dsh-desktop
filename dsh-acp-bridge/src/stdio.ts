@@ -3,21 +3,19 @@
  * stdio ⇄ RPC bridge for ACP clients such as Zed.
  *
  * An ACP client starts this script and speaks newline-delimited JSON-RPC on
- * its stdin/stdout. The script finds a running DSH that loaded the plugin
- * (through the endpoint records), opens one MeshCall duplex call and forwards
- * every message unchanged in both directions. Stdout carries protocol messages
- * only; diagnostics go to stderr.
+ * its stdin/stdout. The script reaches a running DSH that loaded the plugin
+ * through the public RPC client (client.ts), opens one ACP connection on it
+ * and forwards every message unchanged in both directions. Stdout carries
+ * protocol messages only; diagnostics go to stderr.
  */
 
-import { randomBytes } from 'node:crypto'
 import { once } from 'node:events'
 import { createInterface } from 'node:readline'
-import { MeshCallClient, type LogContext, type LogLevel, type RpcLogger } from 'meshcall'
-import { processAlive, readRecords, validProof, type EndpointRecord } from './endpoint.js'
-import { defaultHome, RPC_SERVICE, TOKEN_METADATA } from './paths.js'
+import type { LogContext, LogLevel, RpcLogger } from 'meshcall'
+import { connectDsh, DshAcpError, listInstances, type AcpMessage, type DshConnection } from './client.js'
+import { defaultHome } from './paths.js'
 
 interface Options { home: string, instance?: string, check: boolean, list: boolean }
-type Message = Record<string, unknown>
 
 const USAGE = `用法：dsh-acp-bridge [选项]
 
@@ -79,40 +77,29 @@ process.on('unhandledRejection', reason => {
   process.stderr.write(`dsh-acp-bridge: 忽略了一个未处理的异步错误：${reason instanceof Error ? reason.message : String(reason)}\n`)
 })
 
-function metadata(record: EndpointRecord) { return { [TOKEN_METADATA]: record.token } }
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
-interface Connected { record: EndpointRecord, client: MeshCallClient, info: Message }
-
-/** The newest live instance that answers; older ones are tried when it does not. */
-async function connect(options: Options): Promise<Connected> {
-  const records = (await readRecords(options.home)).map(stored => stored.record)
-    .filter(record => processAlive(record.pid))
-    .filter(record => options.instance === undefined || record.instanceId.startsWith(options.instance))
-  if (!records.length) {
-    fail(options.instance === undefined
-      ? '没有找到正在运行的 DSH。请启动 DSH，并在 DSH 中启用插件 @agents-anywhere/dsh-acp-bridge。'
-      : `没有找到实例 ${options.instance}，运行 --list 查看可以连接的实例。`)
-  }
-  let lastError: unknown
-  for (const record of records) {
-    const client = new MeshCallClient(record.endpoint, `dsh-acp-stdio-${process.pid}`, { logger, retry: false })
-    try {
-      // The endpoint proves it wrote this record before the token leaves this process.
-      const nonce = randomBytes(24).toString('base64url')
-      const hello = await client.unary<Message, Message>(RPC_SERVICE, 'hello', { nonce }, { timeoutMs: 5_000 })
-      if (!validProof(record.token, nonce, hello.proof)) throw new Error(`实例 ${record.instanceId} 无法证明身份，已跳过`)
-      const info = await client.unary<Message, Message>(RPC_SERVICE, 'info', {}, { metadata: metadata(record), timeoutMs: 5_000 })
-      return { record, client, info }
-    } catch (error) {
-      lastError = error
-      await client.close().catch(() => undefined)
+/** The newest live instance that proves itself; the reason in Chinese when there is none. */
+async function connect(options: Options): Promise<DshConnection> {
+  try {
+    return await connectDsh({ home: options.home, peerId: `dsh-acp-stdio-${process.pid}`, logger,
+      ...(options.instance === undefined ? {} : { instance: options.instance }) })
+  } catch (error) {
+    if (!(error instanceof DshAcpError)) fail(`无法连接 DSH：${errorText(error)}`)
+    if (error.code === 'no-instance') {
+      fail(options.instance === undefined
+        ? '没有找到正在运行的 DSH。请启动 DSH，并在 DSH 中启用插件 @agents-anywhere/dsh-acp-bridge。'
+        : `没有找到实例 ${options.instance}，运行 --list 查看可以连接的实例。`)
     }
+    const last = error.failures.at(-1)
+    fail(`无法连接 DSH：${last?.reason === 'unproven' ? `实例 ${last.instanceId} 无法证明身份，已跳过` : errorText(last?.error ?? error)}`)
   }
-  fail(`无法连接 DSH：${lastError instanceof Error ? lastError.message : String(lastError)}`)
 }
 
 async function list(options: Options): Promise<void> {
-  const records = (await readRecords(options.home)).map(stored => stored.record).filter(record => processAlive(record.pid))
+  const records = await listInstances({ home: options.home })
   if (!records.length) { process.stdout.write('没有正在运行的 DSH 实例。\n'); return }
   for (const record of records) {
     process.stdout.write(`${record.instanceId}  pid ${record.pid}  启动于 ${record.startedAt}  DSH ${record.runtimeVersion ?? '未知'}  插件 ${record.bridgeVersion}\n`)
@@ -126,14 +113,14 @@ async function write(line: string): Promise<void> {
 const PARSE_ERROR = { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }
 
 /** Forward messages until either side ends. Resolves with the process exit code. */
-async function forward({ record, client }: Connected): Promise<number> {
-  const call = client.duplex<Message, Message, Message>(RPC_SERVICE, 'connect', {}, { metadata: metadata(record) })
+async function forward(connection: DshConnection): Promise<number> {
+  const call = connection.openAcpCall()
   let serverEnded = false
   const output = (async () => {
     for await (const message of call) await write(`${JSON.stringify(message)}\n`)
   })().then(() => { serverEnded = true }, (error: unknown) => {
     serverEnded = true
-    process.stderr.write(`dsh-acp-bridge: DSH 连接中断：${error instanceof Error ? error.message : String(error)}\n`)
+    process.stderr.write(`dsh-acp-bridge: DSH 连接中断：${errorText(error)}\n`)
     throw error
   })
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })
@@ -149,11 +136,11 @@ async function forward({ record, client }: Connected): Promise<number> {
         await write(`${JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } })}\n`)
         continue
       }
-      await call.send(message as Message)
+      await call.send(message as AcpMessage)
     }
     if (!serverEnded) await call.closeSend()
   } catch (error) {
-    if (!serverEnded) process.stderr.write(`dsh-acp-bridge: 发送失败：${error instanceof Error ? error.message : String(error)}\n`)
+    if (!serverEnded) process.stderr.write(`dsh-acp-bridge: 发送失败：${errorText(error)}\n`)
   }
   try {
     await output
@@ -166,18 +153,18 @@ async function forward({ record, client }: Connected): Promise<number> {
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2))
   if (options.list) { await list(options); return }
-  const connected = await connect(options)
+  const connection = await connect(options)
   if (options.check) {
-    process.stdout.write(`${JSON.stringify({ instanceId: connected.record.instanceId, pid: connected.record.pid, ...connected.info }, null, 2)}\n`)
-    await connected.client.close()
+    process.stdout.write(`${JSON.stringify({ instanceId: connection.record.instanceId, ...connection.info }, null, 2)}\n`)
+    await connection.close()
     return
   }
-  const stop = () => { void connected.client.close().finally(() => process.exit(0)) }
+  const stop = () => { void connection.close().finally(() => process.exit(0)) }
   process.once('SIGINT', stop)
   process.once('SIGTERM', stop)
-  const code = await forward(connected)
-  await connected.client.close().catch(() => undefined)
+  const code = await forward(connection)
+  await connection.close().catch(() => undefined)
   process.exit(code)
 }
 
-main().catch((error: unknown) => fail(error instanceof Error ? error.message : String(error)))
+main().catch((error: unknown) => fail(errorText(error)))

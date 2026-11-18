@@ -16,6 +16,7 @@ import { AcpConnection } from './acp/connection.js'
 import { DshHost } from './acp/host.js'
 import { InteractionHub } from './acp/interactions.js'
 import type { Log } from './acp/log.js'
+import { CONTRACT_VERSION, PROTOCOL, type BridgeInfo } from './contract.js'
 import { processAlive, readRecords, writeRecord, type EndpointRecord } from './endpoint.js'
 import { writeLauncher } from './launcher.js'
 import { endpointName, homeSocket, pipeEndpoint, RPC_SERVICE, type LocalEndpoint } from './paths.js'
@@ -84,9 +85,9 @@ export class AcpBridge implements AcpServer {
     ctx.on('commands/change', () => { for (const connection of this.connections) connection.refreshCommands() }, { global: true })
   }
 
-  info(): Record<string, unknown> {
+  info(): BridgeInfo {
     return {
-      protocol: 'agents-anywhere-dsh-acp', version: 1, acpProtocolVersion: PROTOCOL_VERSION,
+      protocol: PROTOCOL, version: CONTRACT_VERSION, acpProtocolVersion: PROTOCOL_VERSION,
       bridgeVersion: BRIDGE_VERSION, ...(RUNTIME_VERSION ? { runtimeVersion: RUNTIME_VERSION } : {}),
       pid: process.pid, connections: this.connections.size, followed: this.hub.size, interactions: this.hub.available,
     }
@@ -138,7 +139,7 @@ export class AcpBridge implements AcpServer {
     this.server = server
     if ('unixPath' in endpoint) await chmod(endpoint.unixPath, 0o600).catch(() => undefined)
     const record: EndpointRecord = {
-      version: 1, protocol: 'meshcall', service: RPC_SERVICE, instanceId, pid: process.pid,
+      version: CONTRACT_VERSION, protocol: 'meshcall', service: RPC_SERVICE, instanceId, pid: process.pid,
       startedAt: new Date().toISOString(), endpoint, token, bridgeVersion: BRIDGE_VERSION,
       ...(RUNTIME_VERSION ? { runtimeVersion: RUNTIME_VERSION } : {}),
     }
