@@ -1,8 +1,8 @@
 diff --git a/client/client.js b/client/client.js
-index eb06545..f0a1811 100644
+index ecbcb0a..53d6e75 100644
 --- a/client/client.js
 +++ b/client/client.js
-@@ -15776,7 +15776,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
+@@ -15968,7 +15968,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
  					return next;
  				});
  			}, []);
@@ -11,7 +11,7 @@ index eb06545..f0a1811 100644
  			const updatableNames = Object.keys(installed).filter((name) => name !== selfName && !effectiveDisabledSet.has(name) && isPluginUpdatable(name, String(installed[name]), updates[name], updatedNames));
  			const batchUpdatableNames = updatableNames.filter((name) => updates[name]?.restoreRequired !== true);
  			const ignoredUpdateSet = (0, react.useMemo)(() => new Set(ignoredUpdateNames), [ignoredUpdateNames]);
-@@ -17175,7 +17175,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
+@@ -17379,7 +17379,7 @@ window.__ModuleLoader__.load({ id: "dshmarket", factory: (require) => {
  			const showMarketWait = typeof heldMarketVersion?.latest === "string" && heldMarketVersion.latest !== "" && heldMarketVersion.latest !== eligibleMarketVersion && !updatedNames.includes(selfName) && !quietUpdateSet.has(selfName);
  			const batchActions = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
  				(() => {
@@ -21,10 +21,10 @@ index eb06545..f0a1811 100644
  					return status && status.updateAvailable && !updatedNames.includes(self) && !quietUpdateSet.has(self) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
  						variant: "primary",
 diff --git a/lib/routes.js b/lib/routes.js
-index 2978d26..c64e8e5 100644
+index 1d57d0d..49bd1dc 100644
 --- a/lib/routes.js
 +++ b/lib/routes.js
-@@ -2912,7 +2912,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -2913,7 +2913,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
          // unreleased work.
          const channel = activeChannel();
          const installed = readInstalled(config.profile, activeProfileDir);
@@ -33,8 +33,8 @@ index 2978d26..c64e8e5 100644
              .filter(name => SELF_NAMES.has(name))
              .map(name => [name, channel]));
          const onlineSourceFor = new Map();
-@@ -2981,6 +2981,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
-         intervalHours: marketState.backgroundUpdateIntervalHours,
+@@ -2983,6 +2983,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+         overlay: updates => applyProfileBlockers(updates, activeProfileDir),
          inventory: () => {
              const installed = readInstalled(config.profile, activeProfileDir);
 +            // DSH Desktop bundles the market outside the Profile; check it like an installed plugin.
@@ -42,7 +42,7 @@ index 2978d26..c64e8e5 100644
              const commits = readLockCommits(config.profile, activeProfileDir);
              return {
                  context: JSON.stringify([activeProfileDir, activeChannel(), config.region, marketState.githubProxy]),
-@@ -3021,10 +3023,12 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -3023,10 +3025,12 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
          },
          check: async (force) => {
              const installed = readInstalled(config.profile, activeProfileDir);
@@ -56,7 +56,7 @@ index 2978d26..c64e8e5 100644
              const updates = {};
              for (const [name, status] of Object.entries(checked)) {
                  const sourceMigration = sourceMigrationFor.get(name);
-@@ -5694,7 +5698,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -5698,7 +5702,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
                              });
                              return;
                          }
@@ -66,7 +66,7 @@ index 2978d26..c64e8e5 100644
                          if (spec === undefined || INBOX_BUNDLES.has(name)) {
                              sendJson(response, 400, { error: 'plugin is not installed' });
                              return;
-@@ -5889,7 +5894,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -5893,7 +5898,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
                          // Desktop boundary; it is what turns a silent skip into a
                          // failure with a name.
                          if (usesNpmUpdateTarget) {
@@ -76,7 +76,7 @@ index 2978d26..c64e8e5 100644
                              // #991: Revalidate under the mutation lock against the CURRENT registry
                              // and profile policy. The client's target is an optimistic concurrency
                              // token, never an authorization to bypass pnpm's release-age window.
-@@ -6149,7 +6155,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -6153,7 +6159,8 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
                          // one needs a refresh, not a restart.
                          const wasLive = verifyActivation(config.profile, name, liveNames(), activeProfileDir, disabled.has(name)).state === 'live'
                              && hasHostHalf(config.profile, name, activeProfileDir);
@@ -86,7 +86,7 @@ index 2978d26..c64e8e5 100644
                          // #874: on DSH Desktop a generation-managed plugin is materialised
                          // by the host and its `dependencies` entry is suspended while pnpm
                          // runs, so the profile lockfile never records it. Read here, before
-@@ -6252,6 +6259,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -6256,6 +6263,7 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
                          // well as after.
                          const bundlesBefore = brokenClientBundles(config.profile, activeProfileDir);
                          const manifestBefore = manifestCapture.snapshot;
@@ -94,7 +94,7 @@ index 2978d26..c64e8e5 100644
                          const lockfileCapture = captureProfileLockfile();
                          const previousVersionZh = beforeVersion === null ? '更新前版本未知' : `更新前版本为 v${beforeVersion}`;
                          const previousVersionEn = beforeVersion === null ? 'the previous version is unknown' : `the previous version was v${beforeVersion}`;
-@@ -6883,14 +6891,16 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
+@@ -6906,14 +6914,16 @@ export function mountMarketRoutes(host, config, commandRuntime, agentsLookup, ho
                          if (ok) {
                              const stack = readBundleStack(activeProfileDir);
                              const trial = trialValidate(activeProfileDir, stack.community, hostAnchorOption);
@@ -114,10 +114,10 @@ index 2978d26..c64e8e5 100644
                                      ? 'the composition would not boot'
                                      : `${firstIssue.layer}: ${firstIssue.message}`;
 diff --git a/lib/updates.js b/lib/updates.js
-index 47e4ffc..ee5ac34 100644
+index 461faa5..8a438b8 100644
 --- a/lib/updates.js
 +++ b/lib/updates.js
-@@ -771,7 +771,7 @@ catalogNpmByRepo = new Map(),
+@@ -787,7 +787,7 @@ catalogNpmByRepo = new Map(),
   * with `--config.minimum-release-age=0` and CAN install a young release.
   * Hiding those on the CLI would suppress updates that work.
   */
@@ -126,7 +126,7 @@ index 47e4ffc..ee5ac34 100644
      const activeProfileDir = profileDir(profile, explicitDir);
      const installed = readInstalled(profile, activeProfileDir);
      const lockCommits = readLockCommits(profile, activeProfileDir);
-@@ -781,15 +781,21 @@ options = {}) {
+@@ -797,15 +797,21 @@ options = {}) {
      // answer immediately, and a cache keyed on the profile alone would serve
      // the stable verdict for the rest of the TTL — reading as "the setting did
      // nothing".
