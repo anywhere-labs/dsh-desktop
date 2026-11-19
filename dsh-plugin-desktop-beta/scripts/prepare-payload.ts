@@ -1,6 +1,6 @@
 import { prepareCuaNative } from './upstream-family.ts'
 /** Materialize the Next payload independently of Electron Builder, then seal it. */
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, statSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -216,10 +216,16 @@ function copyPackage(pkg: ClosurePackage, modules: string, target: NextPackaging
   const destination = join(modules, ...pkg.destination.split('/'))
   const keep: Keep = (path, name) => path.split('/')[0] !== 'node_modules' && !IGNORED_NAMES.has(name)
     && nextRuntimeFileExclusion(`${pkg.destination}/${path}`, target) === undefined
-  if (!pkg.workspace) { copyTree(pkg.source, destination, keep); return }
-  for (const entry of publishedEntries(pkg.source)) {
+  if (!pkg.workspace) copyTree(pkg.source, destination, keep)
+  else for (const entry of publishedEntries(pkg.source)) {
     if (!keep(entry, basename(entry))) continue
     copyTree(join(pkg.source, entry), join(destination, entry), (path, name) => keep(`${entry}/${path}`, name))
+  }
+  // uv's npm platform packages ship bin/uv as 0644. Its postinstall normally adds execution
+  // bits, but dependency scripts are disabled here. Normalize the copied payload before sealing.
+  if (target.platform !== 'win32' && target.archs.some(arch => pkg.name === `@dataiku/uv-${target.platform}-${arch}`)) {
+    const binary = join(destination, 'bin', 'uv')
+    chmodSync(binary, statSync(binary).mode | 0o111)
   }
 }
 
