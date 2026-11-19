@@ -41,6 +41,7 @@ test('another running DSH that serves the plugin takes the launcher over', { tim
   const first = await startHost({ acpHome })
   const second = await startHost({ acpHome })
   try {
+    assert.equal((await readRecords(acpHome)).length, 2, 'both instances are ready before either unloads')
     await first.unload()
     const [remaining] = await readRecords(acpHome)
     assert.ok(remaining?.record.launcher, 'records carry what their launcher runs')

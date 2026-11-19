@@ -45,7 +45,7 @@ import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -53,6 +53,8 @@ import { pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { MeshCallClient } from 'meshcall'
 import { readRecords, type EndpointRecord } from '../../src/endpoint.js'
+import { launcherScript } from '../../src/launcher.js'
+import { launcherPath } from '../../src/paths.js'
 import { interactionPeer } from '../../src/acp/interaction-stream.js'
 import type * as BridgePlugin from '../../src/index.js'
 import { RPC_SERVICE, TOKEN_METADATA } from '../../src/paths.js'
@@ -218,17 +220,18 @@ async function mountRemoteAccess(ctx: Context): Promise<void> {
   await ctx.plugin((await import(pathToFileURL(path).href)).default).await()
 }
 
-/** The endpoint answers and DSH already delivers approvals and questions to it. */
-export async function ready(acpHome: string): Promise<EndpointRecord> {
+/** A newly started endpoint answers, has a launcher, and receives approvals and questions. */
+export async function ready(acpHome: string, existing: ReadonlySet<string> = new Set()): Promise<EndpointRecord> {
   const deadline = Date.now() + 15_000
   for (;;) {
-    const [stored] = await readRecords(acpHome)
+    const stored = (await readRecords(acpHome)).find(item => !existing.has(item.record.instanceId))
     if (stored) {
       const client = new MeshCallClient(stored.record.endpoint, undefined, { retry: false })
       try {
         const info = await client.unary<object, { interactions?: { approvals?: boolean, questions?: boolean } }>(RPC_SERVICE, 'info', {},
           { metadata: { [TOKEN_METADATA]: stored.record.token }, timeoutMs: 2_000 })
-        if (info.interactions?.approvals && info.interactions.questions) return stored.record
+        if (info.interactions?.approvals && info.interactions.questions && stored.record.launcher
+          && await readFile(launcherPath(acpHome), 'utf8') === launcherScript(stored.record.launcher)) return stored.record
       } catch { /* not serving yet */ } finally { await client.close() }
     }
     if (Date.now() > deadline) throw new Error('The ACP endpoint did not become ready')
@@ -399,9 +402,10 @@ export async function startHost(options: HostOptions = {}): Promise<Host> {
     await options.prepare?.(acpHome)
     // The built package, as DSH loads it; typed from the source so type checks run before the build.
     const plugin = await import(new URL('../../lib/index.js', import.meta.url).href) as typeof BridgePlugin
+    const existing = new Set((await readRecords(acpHome)).map(item => item.record.instanceId))
     const bridge = ctx.plugin(plugin, { home: acpHome })
     await bridge.await()
-    await ready(acpHome)
+    await ready(acpHome, existing)
     let disposed: Promise<void> | undefined
     const dispose = () => disposed ??= ctx.fiber.dispose().then(() => undefined)
     return { ctx, root, acpHome, workspace, adapter, waits, dispose,
