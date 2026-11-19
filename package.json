@@ -1544,6 +1544,8 @@
     "test:aa-release": "node --test scripts/agents-anywhere-release-policy.test.mjs",
     "test:beta-variant": "node scripts/test-beta-variant.mjs",
     "test:stable-shared": "node scripts/test-stable-shared.mjs",
+    "dev:linux:headless": "node dsh-desktop-next/scripts/headless/dev.mjs",
+    "test:linux:headless": "yarn workspace dsh-desktop-next exec vitest run tests/headless",
     "dev:next": "yarn market:prepare && yarn aa:prepare-release && yarn workspace dsh-community-market build && yarn workspace dsh-desktop-next dev",
     "start:next": "yarn market:prepare && yarn workspace dsh-desktop-next start",
     "check:next": "yarn workspace dsh-community-market build && yarn workspace dsh-desktop-next check",

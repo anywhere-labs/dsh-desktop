@@ -12,7 +12,14 @@ that binary. GUI arguments and internal Node-mode invocations are forwarded inta
 `afterPack` installs this launcher, and the final artifact verifier exercises it.
 The development start script also forwards headless arguments to Node mode.
 
-Initial invocation (development feature, not yet a released user instruction):
+Source development on Linux: `corepack yarn dev:linux:headless` prepares the same
+Market/AA prerequisites as `dev:next`, builds Next and its runtime, then starts
+without a display. Defaults to `~/.dsh-next-headless-dev` and loopback port 18080;
+`--data-dir`, `--profile` and `--port` override these. Unsupported hosts fail before
+preparation; `--help` works everywhere. Entry unit tests on macOS or Linux use
+`corepack yarn test:linux:headless`.
+
+Initial packaged invocation (development feature, not yet a released user instruction):
 
 ```sh
 dsh-desktop-next --headless --data-dir /absolute/dedicated-server-data --profile desktop --port 18080
