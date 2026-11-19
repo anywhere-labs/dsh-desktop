@@ -14,6 +14,13 @@ if (!existsSync(join(market, 'lib/client.js'))) throw new Error('Build the Commu
 const electron = require('electron')
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
-const child = spawn(electron, [root], { cwd: root, env, stdio: 'inherit' })
+const args = [root]
+// next-server:start
+if (process.argv.includes('--headless')) {
+  env.ELECTRON_RUN_AS_NODE = '1'
+  args.splice(0, 1, join(root, 'lib/headless.js'), ...process.argv.slice(2))
+}
+// next-server:end
+const child = spawn(electron, args, { cwd: root, env, stdio: 'inherit' })
 child.once('error', error => { console.error(error); process.exitCode = 1 })
 child.once('exit', code => { process.exitCode = code ?? 1 })

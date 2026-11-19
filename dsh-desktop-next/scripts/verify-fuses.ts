@@ -1,3 +1,6 @@
+// next-server:start
+import { LINUX_BINARY } from './headless/linux-launcher.ts'
+// next-server:end
 /** Verify every final Next executable: fuses, the sealed archive, a RunAsNode import smoke and a real Host boot. */
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
@@ -57,6 +60,11 @@ async function verifyFinalArtifacts(result: { outDir: string }): Promise<string[
     'linux-arm64-unpacked/dsh-desktop-next']
   // A macOS release packages one CPU after another into the same output directory, and each run verifies the
   // application it packaged, which afterPack has checked: macOS packages always pass through afterPack.
+// next-server:start
+  for (let i = 0; i < paths.length; i++) {
+    if (paths[i]!.startsWith('linux')) paths[i] = join(dirname(paths[i]!), LINUX_BINARY)
+  }
+// next-server:end
   const executables = paths.map(path => join(result.outDir, path))
     .filter(path => existsSync(path) && (!path.includes('.app/') || verifiedPackagedResources.has(resolve(dirname(path), '../Resources'))))
   if (!executables.length) throw new Error('No packaged Next executable to verify')
@@ -114,6 +122,11 @@ async function verifyFinalArtifacts(result: { outDir: string }): Promise<string[
       // The same Electron, in Node mode, starts the real Host from the archive with a private home.
       runPackagedNode(path, ['--expose-internals', join(desktopRoot, 'scripts', 'packaged-host-smoke.mjs'), root], 300_000, 'Packaged Next Host smoke failed'),
     ])
+// next-server:start
+    if (target.platform === 'linux') {
+      await runPackagedNode(path, [join(desktopRoot, 'scripts/headless/verify-linux-entry.mjs'), dirname(path)], 120_000, 'Packaged headless entry failed')
+    }
+// next-server:end
   }
   return []
 }

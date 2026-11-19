@@ -286,6 +286,9 @@ export function auditNextPayload(source: PayloadSource, target: NextPackagingTar
  * @param source - Assembled payload.
  */
 export function verifyNextPayload(source: PayloadSource): void {
+// next-server:start
+  if (source.entry('lib/headless.js') === undefined) throw new Error('Missing Next payload: lib/headless.js')
+// next-server:end
   // `host.cordis.patch.yml` and `scripts/node-bin` are read from the packaged application by the
   // Host: the overlay swaps the official webserver for Next's private loopback one and mounts the
   // startup-entries row, and the shims put a `node` on the package manager's PATH. All are invisible

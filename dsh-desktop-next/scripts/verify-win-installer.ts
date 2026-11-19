@@ -28,7 +28,11 @@ if (verifyMode === 'win-portable') {
   const targets = linuxPackageTargets(process.env)
   if (targets.includes('AppImage')) assertAppImage(join(root, 'dist', `DSH-NEXT-${version}-${arm64 ? 'arm64' : 'x86_64'}.AppImage`), 'Next AppImage')
   if (targets.includes('deb')) assertDebArchive(join(root, 'dist', `DSH-NEXT-${version}-${arm64 ? 'arm64' : 'amd64'}.deb`), 'Next Debian package')
-  assertElfExecutable(join(root, 'dist', arm64 ? 'linux-arm64-unpacked' : 'linux-unpacked', 'dsh-desktop-next'), 'Next Linux application')
+  const executable = ['dsh-desktop-next']
+// next-server:start
+  executable[0] = 'dsh-desktop-next.bin'
+// next-server:end
+  assertElfExecutable(join(root, 'dist', arm64 ? 'linux-arm64-unpacked' : 'linux-unpacked', executable[0]!), 'Next Linux application')
 } else {
   assertPortableExecutable(join(root, 'dist', `DSH-NEXT-${version}-x64-Setup.exe`), 'Next NSIS installer')
   assertPortableExecutable(join(root, 'dist', 'win-unpacked', 'DSH NEXT.exe'), 'Next application')

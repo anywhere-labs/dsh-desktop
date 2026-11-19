@@ -150,6 +150,7 @@ const FILE_SPECIFIC_PAIRS = {
 }
 
 const GLOBAL_PAIRS = [
+  ["const executable = ['dsh-desktop-next']", "const executable = ['dsh-desktop-beta']"],
   ['linux-unpacked/dsh-desktop-next', 'linux-unpacked/dsh-desktop-beta'],
   ['linux-arm64-unpacked/dsh-desktop-next', 'linux-arm64-unpacked/dsh-desktop-beta'],
   ["'linux-unpacked', 'dsh-desktop-next'", "'linux-unpacked', 'dsh-desktop-beta'"],
@@ -208,10 +209,15 @@ export function expectedBetaCheck(upstreamChannels = channels) {
     ? BETA_MIRROR_CHECK
     : BETA_OWN_RELEASE_CHECK
 }
+// Product-specific server entry remains Next-owned even when upstream versions converge.
+const NEXT_SERVER_DIRECTORIES = ['src/headless/', 'scripts/headless/', 'tests/headless/']
+const nextServerFile = path => NEXT_SERVER_DIRECTORIES.some(prefix => path.startsWith(prefix))
+const NEXT_SERVER_REGION = /^[ \t]*\/\/ next-server:start\n[\s\S]*?^[ \t]*\/\/ next-server:end\n/gmu
+const withoutNextServer = text => text.replace(NEXT_SERVER_REGION, '')
 const NEXT_LEAD_REGION = /^[ \t]*\/\/ next-lead:start\n[\s\S]*?^[ \t]*\/\/ next-lead:end\n/gmu
 
 function withoutNextLead(text) {
-  return text.replace(NEXT_LEAD_REGION, '')
+  return withoutNextServer(text).replace(NEXT_LEAD_REGION, '')
 }
 
 export function toBetaContent(relativePath, sourceText) {
@@ -312,7 +318,7 @@ export function syncVariants(direction = 'beta-to-next') {
   const sourceName = isBetaToNext ? 'dsh-plugin-desktop-beta' : 'dsh-desktop-next'
   const targetName = isBetaToNext ? 'dsh-desktop-next' : 'dsh-plugin-desktop-beta'
   const transform = isBetaToNext ? toNextContent : toBetaContent
-  const ownedByTarget = relPath => runtimesDiffer && isUpstreamFamily(relPath)
+  const ownedByTarget = relPath => nextServerFile(relPath) || runtimesDiffer && isUpstreamFamily(relPath)
 
   const sourcePaths = new Set(SYNCED_FILES)
   for (const dir of SYNCED_DIRECTORIES) {
@@ -357,6 +363,10 @@ export function verifyVariants() {
   }
   const allPaths = collectSyncedPaths()
   for (const relPath of [...new Set([...allPaths, ...UPSTREAM_FAMILY_FILES])].sort()) {
+    if (nextServerFile(relPath)) {
+      if (existsSync(join(betaRoot, relPath))) differences.push(`${relPath} (server mode belongs to Next only)`)
+      continue
+    }
     if (runtimesDiffer && isUpstreamFamilyModule(relPath)) continue
     const nextFile = join(nextRoot, ...relPath.split('/'))
     const betaFile = join(betaRoot, ...relPath.split('/'))
@@ -385,7 +395,7 @@ export function verifyVariants() {
         : expectedBeta === actualBeta && expectedNext === withoutNextLead(actualNext)
       if (!aligned) {
         differences.push(relPath)
-      } else if (!runtimesDiffer && actualNext !== withoutNextLead(actualNext)) {
+      } else if (!runtimesDiffer && withoutNextServer(actualNext) !== withoutNextLead(actualNext)) {
         differences.push(`${relPath} (Beta now uses Next's runtime; remove the next-lead markers and share their lines)`)
       }
     }

@@ -1,3 +1,6 @@
+// next-server:start
+import { installLinuxLauncher } from './headless/linux-launcher.ts'
+// next-server:end
 /** Cross-check the assembled `app.asar` payload against the prepared tree before signing, without a GUI. */
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -67,6 +70,9 @@ export default async function afterPack(context: PackContext): Promise<void> {
   } finally { source.close() }
   const runtimes = packagingStepSync('runtime:verify-packaged', () => verifyPackagedNextRuntime(join(resources, 'runtime'), platform, expectedNextVersion(context.packager.projectDir), target.archs))
   for (const runtime of runtimes) console.log(`Verified the ${runtime.arch} primary runtime: Python ${runtime.manifest.python}, Node ${runtime.manifest.node}, pnpm ${runtime.manifest.pnpm}`)
+// next-server:start
+  if (platform === 'linux') installLinuxLauncher(context.appOutDir)
+// next-server:end
   verifiedPackagedResources.add(resolve(resources))
   await Promise.resolve()
 }

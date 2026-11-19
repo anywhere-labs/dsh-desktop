@@ -28,7 +28,8 @@ if (verifyMode === 'win-portable') {
   const targets = linuxPackageTargets(process.env)
   if (targets.includes('AppImage')) assertAppImage(join(root, 'dist', `DSH-Desktop-Beta-${version}-${arm64 ? 'arm64' : 'x86_64'}.AppImage`), 'Next AppImage')
   if (targets.includes('deb')) assertDebArchive(join(root, 'dist', `DSH-Desktop-Beta-${version}-${arm64 ? 'arm64' : 'amd64'}.deb`), 'Next Debian package')
-  assertElfExecutable(join(root, 'dist', arm64 ? 'linux-arm64-unpacked' : 'linux-unpacked', 'dsh-desktop-beta'), 'Next Linux application')
+  const executable = ['dsh-desktop-beta']
+  assertElfExecutable(join(root, 'dist', arm64 ? 'linux-arm64-unpacked' : 'linux-unpacked', executable[0]!), 'Next Linux application')
 } else {
   assertPortableExecutable(join(root, 'dist', `DSH-Desktop-Beta-${version}-x64-Setup.exe`), 'Next NSIS installer')
   assertPortableExecutable(join(root, 'dist', 'win-unpacked', 'DSH Desktop Beta.exe'), 'Next application')
