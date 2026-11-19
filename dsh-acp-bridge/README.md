@@ -4,7 +4,7 @@
 
 Connect applications, scripts and automation tools to DeepSeek Harness (DSH) sessions, models and tools through the [Agent Client Protocol](https://agentclientprotocol.com) (ACP).
 
-This is a DSH plugin, published as the npm package `@agents-anywhere/dsh-acp-bridge`. It runs inside the DSH process and shares its sessions with DSH Desktop: a conversation started in an external client appears in the DSH Desktop sidebar, and an existing DSH conversation can continue from a client. It reuses DSH's runtime and configuration, needs no separate profile, and needs no Agents Anywhere sign-in.
+This is a DSH plugin, published as the npm package `@agents-anywhere/dsh-acp-bridge`. It runs inside the DSH process and shares its sessions with DSH Desktop: a conversation started in an external client appears in the DSH Desktop sidebar, and an existing DSH conversation can continue from a client. It reuses DSH's runtime and configuration, needs no separate profile, and needs no Agents Anywhere sign-in. When DSH Desktop is not running, the launcher can start it automatically.
 
 There are two ways to connect:
 
@@ -69,9 +69,19 @@ Add an external Agent to Zed's `settings.json`, with `command` set to the full p
 
 Then choose "DSH" in Zed's Agent panel to start a conversation. Other ACP clients likewise take the launcher as their Agent command.
 
-## Connection
+## Connection and automatic startup
 
-DSH must be running. When it is not, the launcher exits at once and says why; quitting DSH or unloading the plugin disconnects the client, and reopening the conversation reconnects it.
+The client connects to the plugin inside DSH. When DSH Desktop is not running, the launcher starts the DSH Desktop that wrote it in the background: it shows only its tray icon and opens no window (earlier DSH Desktop releases open their window as usual), and the launcher connects once the plugin is ready. It waits up to 90 seconds; `--start-timeout <seconds>` changes that, and `--no-start` turns the start off. Put these arguments in the client's launch arguments (for example, Zed's `args`).
+
+The launcher follows the plugin: it stays when DSH quits, for the next automatic start, and is removed when the plugin is disabled or uninstalled in DSH; the client then reports that the command does not exist. When another running DSH has also loaded the plugin, that DSH takes the launcher over instead.
+
+In these cases the launcher says why and exits:
+
+- The plugin is still not ready when the wait ends: usually the current DSH Profile has not enabled the plugin, or DSH is in first-run setup, recovery or an update.
+- The plugin was removed while DSH was not running, so the launcher could not be removed with it: install the plugin again, and DSH writes a new launcher.
+- DSH was uninstalled or moved: open DSH, and it writes a new launcher.
+
+The DSH command line installed from npm and the AppImage build of DSH are not started automatically; open DSH first. Quitting DSH or unloading the plugin disconnects the client, and reopening the conversation reconnects it.
 
 ## Troubleshooting
 
@@ -81,7 +91,7 @@ The launcher can be run directly in a terminal:
 ~/.agents-anywhere/dsh-acp/bin/dsh-acp --check
 ```
 
-`--check` connects to the running DSH and prints the DSH version, the plugin version and whether approvals and questions are connected. `--list` lists the DSH processes it can connect to; with several running, it connects to the most recently started one, and `--instance <instance ID>` picks another. With the environment variable `DSH_ACP_DEBUG=1`, connection diagnostics are written to standard error.
+`--check` connects to the running DSH (it never starts one) and prints the DSH version, the plugin version and whether approvals and questions are connected. `--list` lists the DSH processes it can connect to; with several running, it connects to the most recently started one, and `--instance <instance ID>` picks another. With the environment variable `DSH_ACP_DEBUG=1`, connection diagnostics are written to standard error.
 
 The plugin's own log lines are in the DSH log and start with `acp-bridge`.
 

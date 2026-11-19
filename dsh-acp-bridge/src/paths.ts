@@ -19,6 +19,10 @@ export function endpointsDirectory(home: string): string {
   return join(home, 'endpoints')
 }
 
+export function socketsDirectory(home: string): string {
+  return join(home, 'sockets')
+}
+
 export function launcherPath(home: string, platform: NodeJS.Platform = process.platform): string {
   return join(home, 'bin', platform === 'win32' ? 'dsh-acp.cmd' : 'dsh-acp')
 }
@@ -38,6 +42,6 @@ export function pipeEndpoint(instanceId: string): LocalEndpoint {
  * carries the full path either way.
  */
 export function homeSocket(home: string, instanceId: string): string | undefined {
-  const path = join(home, 'sockets', `${endpointName(instanceId)}.sock`)
+  const path = join(socketsDirectory(home), `${endpointName(instanceId)}.sock`)
   return Buffer.byteLength(path) < 100 ? path : undefined
 }

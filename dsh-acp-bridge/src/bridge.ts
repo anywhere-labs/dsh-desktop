@@ -18,7 +18,7 @@ import { InteractionHub } from './acp/interactions.js'
 import type { Log } from './acp/log.js'
 import { CONTRACT_VERSION, PROTOCOL, type BridgeInfo } from './contract.js'
 import { processAlive, readRecords, writeRecord, type EndpointRecord } from './endpoint.js'
-import { writeLauncher } from './launcher.js'
+import { withdrawLauncher, writeLauncher, type LauncherTarget } from './launcher.js'
 import { endpointName, homeSocket, pipeEndpoint, RPC_SERVICE, type LocalEndpoint } from './paths.js'
 import { AcpRpcService, type AcpServer } from './rpc.js'
 
@@ -76,6 +76,8 @@ export class AcpBridge implements AcpServer {
   private readonly connections = new Set<AcpConnection>()
   private server: MeshCallServer | undefined
   private published: { path: string, endpoint: LocalEndpoint } | undefined
+  /** What the launcher written by this instance runs, once it was written. */
+  private launcher: { instanceId: string, target: LauncherTarget } | undefined
   private closed = false
   private starting: Promise<void> | undefined
 
@@ -138,21 +140,39 @@ export class AcpBridge implements AcpServer {
     if (this.closed) { await server.close().catch(() => undefined); return }
     this.server = server
     if ('unixPath' in endpoint) await chmod(endpoint.unixPath, 0o600).catch(() => undefined)
-    const record: EndpointRecord = {
-      version: CONTRACT_VERSION, protocol: 'meshcall', service: RPC_SERVICE, instanceId, pid: process.pid,
-      startedAt: new Date().toISOString(), endpoint, token, bridgeVersion: BRIDGE_VERSION,
-      ...(RUNTIME_VERSION ? { runtimeVersion: RUNTIME_VERSION } : {}),
-    }
-    this.published = { path: await writeRecord(home, record), endpoint }
     // DSH Desktop runs its host with ELECTRON_RUN_AS_NODE=1, which proves its binary allows
     // Node mode. Any other Electron host could start a second app instead: use Node from PATH.
     const electron = Boolean(process.versions.electron)
     const runtime = electron && process.env.ELECTRON_RUN_AS_NODE !== '1' ? 'node' : process.execPath
-    const launcher = await writeLauncher(home, {
+    const launcher: LauncherTarget = {
       runtime, electron: electron && runtime === process.execPath,
       script: fileURLToPath(new URL('./stdio.js', import.meta.url)),
-    })
-    this.log.info(`acp-bridge: ACP clients can start ${launcher}`)
+    }
+    const record: EndpointRecord = {
+      version: CONTRACT_VERSION, protocol: 'meshcall', service: RPC_SERVICE, instanceId, pid: process.pid,
+      startedAt: new Date().toISOString(), endpoint, token, bridgeVersion: BRIDGE_VERSION,
+      ...(RUNTIME_VERSION ? { runtimeVersion: RUNTIME_VERSION } : {}), launcher,
+    }
+    this.published = { path: await writeRecord(home, record), endpoint }
+    const path = await writeLauncher(home, launcher)
+    this.launcher = { instanceId, target: launcher }
+    this.log.info(`acp-bridge: ACP clients can start ${path}`)
+  }
+
+  /**
+   * The plugin unloaded while DSH runs on (disabled, removed, uninstalled or reloaded): the launcher this
+   * instance wrote has nothing behind it. Another running DSH that serves the plugin takes it over; otherwise it
+   * is removed. Not called when DSH itself stops: the launcher then stays, to start DSH for the next editor.
+   */
+  async withdrawLauncher(): Promise<void> {
+    const launcher = this.launcher
+    if (!launcher) return
+    this.launcher = undefined
+    const others = (await readRecords(this.options.home)).map(stored => stored.record)
+      .filter(record => record.instanceId !== launcher.instanceId && processAlive(record.pid))
+    const succession = await withdrawLauncher(this.options.home, launcher.target, others)
+    if (succession.action === 'write') this.log.info(`acp-bridge: the launcher now runs ${succession.target.script}`)
+    else if (succession.action === 'remove') this.log.info('acp-bridge: removed the launcher with the plugin')
   }
 
   /** Records left by DSH processes that exited without unloading the plugin. */

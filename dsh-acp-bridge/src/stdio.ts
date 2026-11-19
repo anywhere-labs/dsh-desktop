@@ -12,22 +12,29 @@
 import { once } from 'node:events'
 import { createInterface } from 'node:readline'
 import type { LogContext, LogLevel, RpcLogger } from 'meshcall'
+import { desktopLaunch, startDesktop, waitForDsh, type DesktopLaunch } from './autostart.js'
 import { connectDsh, DshAcpError, listInstances, type AcpMessage, type DshConnection } from './client.js'
 import { defaultHome } from './paths.js'
 
-interface Options { home: string, instance?: string, check: boolean, list: boolean }
+interface Options { home: string, instance?: string, check: boolean, list: boolean, start: boolean, startTimeout: number }
+
+const PLUGIN = '@agents-anywhere/dsh-acp-bridge'
+const DEFAULT_START_TIMEOUT = 90
 
 const USAGE = `用法：dsh-acp-bridge [选项]
 
 通过 stdio 将 ACP 应用、脚本和自动化工具连接到 DeepSeek Harness。
-DSH 需要已启用插件 @agents-anywhere/dsh-acp-bridge。
+DSH 需要已启用插件 ${PLUGIN}。DSH Desktop 没有运行时，
+会在后台启动它（只显示托盘图标），等插件就绪后再连接。
 
 选项：
-  --instance <id>   连接指定的 DSH 实例（实例 ID 或其前缀）
-  --list            列出可以连接的 DSH 实例
-  --check           只检查连接，打印实例信息后退出
-  --home <目录>     读取其他位置的实例记录（默认 ~/.agents-anywhere/dsh-acp）
-  -h, --help        显示帮助
+  --instance <id>        连接指定的 DSH 实例（实例 ID 或其前缀）
+  --list                 列出可以连接的 DSH 实例
+  --check                只检查连接，打印实例信息后退出
+  --no-start             DSH 没有运行时直接报错，不启动它
+  --start-timeout <秒>   启动 DSH 后最多等待多少秒（默认 ${DEFAULT_START_TIMEOUT}）
+  --home <目录>          读取其他位置的实例记录（默认 ~/.agents-anywhere/dsh-acp）
+  -h, --help             显示帮助
 `
 
 function fail(message: string): never {
@@ -36,7 +43,7 @@ function fail(message: string): never {
 }
 
 function parseArgs(argv: readonly string[]): Options {
-  const options: Options = { home: defaultHome(), check: false, list: false }
+  const options: Options = { home: defaultHome(), check: false, list: false, start: true, startTimeout: DEFAULT_START_TIMEOUT }
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index]!
     const value = () => {
@@ -47,6 +54,12 @@ function parseArgs(argv: readonly string[]): Options {
     if (argument === '-h' || argument === '--help') { process.stdout.write(USAGE); process.exit(0) }
     else if (argument === '--check') options.check = true
     else if (argument === '--list') options.list = true
+    else if (argument === '--no-start') options.start = false
+    else if (argument === '--start-timeout') {
+      const seconds = Number(value())
+      if (!Number.isFinite(seconds) || seconds <= 0) fail('--start-timeout 需要一个正数（秒）')
+      options.startTimeout = seconds
+    }
     else if (argument === '--instance') options.instance = value()
     else if (argument === '--home') options.home = value()
     else fail(`未知选项 ${argument}，运行 --help 查看用法`)
@@ -83,19 +96,49 @@ function errorText(error: unknown): string {
 
 /** The newest live instance that proves itself; the reason in Chinese when there is none. */
 async function connect(options: Options): Promise<DshConnection> {
+  const attempt = () => connectDsh({ home: options.home, peerId: `dsh-acp-stdio-${process.pid}`, logger,
+    ...(options.instance === undefined ? {} : { instance: options.instance }) })
   try {
-    return await connectDsh({ home: options.home, peerId: `dsh-acp-stdio-${process.pid}`, logger,
-      ...(options.instance === undefined ? {} : { instance: options.instance }) })
+    return await attempt()
   } catch (error) {
-    if (!(error instanceof DshAcpError)) fail(`无法连接 DSH：${errorText(error)}`)
-    if (error.code === 'no-instance') {
-      fail(options.instance === undefined
-        ? '没有找到正在运行的 DSH。请启动 DSH，并在 DSH 中启用插件 @agents-anywhere/dsh-acp-bridge。'
-        : `没有找到实例 ${options.instance}，运行 --list 查看可以连接的实例。`)
-    }
-    const last = error.failures.at(-1)
-    fail(`无法连接 DSH：${last?.reason === 'unproven' ? `实例 ${last.instanceId} 无法证明身份，已跳过` : errorText(last?.error ?? error)}`)
+    // `--check` reports the state as it is; only an agent start brings DSH up.
+    const launch = options.start && !options.check && options.instance === undefined
+      && error instanceof DshAcpError && error.code === 'no-instance'
+      ? desktopLaunch(process.execPath, process.platform, Boolean(process.versions.electron))
+      : undefined
+    if (launch) return startAndConnect(options, launch, attempt)
+    failConnect(error, options)
   }
+}
+
+/** Start DSH Desktop in the background and connect once the plugin in it is ready. */
+async function startAndConnect(options: Options, launch: DesktopLaunch, attempt: () => Promise<DshConnection>): Promise<DshConnection> {
+  process.stderr.write(`dsh-acp-bridge: 没有正在运行的 DSH，正在后台启动 ${launch.name}，最多等待 ${options.startTimeout} 秒…\n`)
+  try {
+    await startDesktop(launch)
+  } catch (error) {
+    fail(`无法启动 ${launch.name}：${errorText(error)}。请手动打开 DSH，并在 DSH 中启用插件 ${PLUGIN}。`)
+  }
+  try {
+    return await waitForDsh(attempt, error => error instanceof DshAcpError, { timeoutMs: options.startTimeout * 1_000 })
+  } catch (error) {
+    if (error instanceof DshAcpError && error.code === 'no-instance') {
+      fail(`已启动 ${launch.name}，但 ${options.startTimeout} 秒内没有等到插件就绪。请打开 ${launch.name} 查看：`
+        + `当前 Profile 需要启用插件 ${PLUGIN}；DSH 正在首次设置、恢复或升级时，请先完成。`)
+    }
+    failConnect(error, options)
+  }
+}
+
+function failConnect(error: unknown, options: Options): never {
+  if (!(error instanceof DshAcpError)) fail(`无法连接 DSH：${errorText(error)}`)
+  if (error.code === 'no-instance') {
+    fail(options.instance === undefined
+      ? `没有找到正在运行的 DSH。请启动 DSH，并在 DSH 中启用插件 ${PLUGIN}。`
+      : `没有找到实例 ${options.instance}，运行 --list 查看可以连接的实例。`)
+  }
+  const last = error.failures.at(-1)
+  fail(`无法连接 DSH：${last?.reason === 'unproven' ? `实例 ${last.instanceId} 无法证明身份，已跳过` : errorText(last?.error ?? error)}`)
 }
 
 async function list(options: Options): Promise<void> {

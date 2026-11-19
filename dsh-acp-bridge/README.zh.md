@@ -4,7 +4,7 @@
 
 通过 [Agent Client Protocol](https://agentclientprotocol.com)（ACP），让应用、脚本和自动化工具使用 DeepSeek Harness（DSH）的会话、模型与工具。
 
-这是一个 DSH 插件，以 npm 包 `@agents-anywhere/dsh-acp-bridge` 发布。它运行在 DSH 进程里，和 DSH Desktop 使用同一套会话：在外部客户端开始的对话会出现在 DSH Desktop 的侧边栏，DSH 里已有的对话也可以从客户端继续。它复用 DSH 的运行环境和配置，不需要单独的 profile，也不需要登录 Agents Anywhere。
+这是一个 DSH 插件，以 npm 包 `@agents-anywhere/dsh-acp-bridge` 发布。它运行在 DSH 进程里，和 DSH Desktop 使用同一套会话：在外部客户端开始的对话会出现在 DSH Desktop 的侧边栏，DSH 里已有的对话也可以从客户端继续。它复用 DSH 的运行环境和配置，不需要单独的 profile，也不需要登录 Agents Anywhere。DSH Desktop 没有运行时，启动脚本可以自动启动它。
 
 提供两种接入方式：
 
@@ -69,9 +69,19 @@ DSH 加载插件后，会在本机写入一个启动脚本：
 
 然后在 Zed 的 Agent 面板里选择「DSH」开始对话。其他 ACP 客户端同样把启动脚本配置为 Agent 命令即可。
 
-## 连接
+## 连接与自动启动
 
-使用时 DSH 必须在运行。DSH 没有运行时，启动脚本会立即退出并提示原因；退出 DSH 或卸载插件后，客户端里的连接会断开，重新打开对话即可。
+客户端连接的是 DSH 进程里的插件。DSH Desktop 没有运行时，启动脚本会在后台启动写下它的那个 DSH Desktop：只显示托盘图标，不打开窗口（较早的 DSH Desktop 会照常打开窗口），等插件就绪后再连接。默认最多等 90 秒，可以用 `--start-timeout <秒>` 调整；不想自动启动时加上 `--no-start`。把这些参数填入客户端的启动参数配置中（例如 Zed 的 `args`）。
+
+启动脚本跟着插件走：退出 DSH 时它会保留，留给下次自动启动；在 DSH 里停用或卸载插件时，它会被删除，客户端随后会提示找不到这个命令。如果另一个正在运行的 DSH 也加载了插件，启动脚本改由那个 DSH 使用，不会删除。
+
+下面几种情况，启动脚本会说明原因并退出：
+
+- 等到超时插件还没有就绪：通常是 DSH 当前的 Profile 没有启用插件，或者 DSH 正在首次设置、恢复或升级；
+- 插件是在 DSH 没有运行时被移除的，启动脚本没来得及删除：重新安装插件后，DSH 会重新生成启动脚本；
+- DSH 已卸载或移动：打开 DSH 后会重新生成启动脚本。
+
+用 npm 安装的 DSH 命令行和 AppImage 版的 DSH 不会被自动启动，要先打开 DSH。退出 DSH 或卸载插件后，客户端里的连接会断开，重新打开对话即可。
 
 ## 排查问题
 
@@ -81,7 +91,7 @@ DSH 加载插件后，会在本机写入一个启动脚本：
 ~/.agents-anywhere/dsh-acp/bin/dsh-acp --check
 ```
 
-`--check` 连接正在运行的 DSH，打印 DSH 版本、插件版本，以及审批和提问是否已经接通；`--list` 列出可以连接的 DSH；同时运行多个 DSH 时，默认连接最后启动的那个，可以用 `--instance <实例 ID>` 指定。设置环境变量 `DSH_ACP_DEBUG=1` 后，连接过程的诊断信息会写到标准错误输出。
+`--check` 连接正在运行的 DSH（不会启动 DSH），打印 DSH 版本、插件版本，以及审批和提问是否已经接通；`--list` 列出可以连接的 DSH；同时运行多个 DSH 时，默认连接最后启动的那个，可以用 `--instance <实例 ID>` 指定。设置环境变量 `DSH_ACP_DEBUG=1` 后，连接过程的诊断信息会写到标准错误输出。
 
 插件自身的日志在 DSH 的日志里，以 `acp-bridge` 开头。
 

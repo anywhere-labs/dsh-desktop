@@ -8,6 +8,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { CONTRACT_VERSION, PROTOCOL, RPC_SERVICE } from './contract.js'
+import type { LauncherTarget } from './launcher.js'
 import { endpointsDirectory, type LocalEndpoint } from './paths.js'
 
 export interface EndpointRecord {
@@ -23,12 +24,22 @@ export interface EndpointRecord {
   token: string
   bridgeVersion: string
   runtimeVersion?: string
+  /** What this instance's launcher runs, so that it can take the launcher over when another instance unloads. */
+  launcher?: LauncherTarget
 }
 
 export interface StoredRecord { path: string, record: EndpointRecord }
 
 function object(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function launcherTarget(value: unknown): LauncherTarget | undefined {
+  const target = object(value)
+  return target && typeof target.runtime === 'string' && target.runtime && typeof target.electron === 'boolean'
+    && typeof target.script === 'string' && target.script
+    ? { runtime: target.runtime, electron: target.electron, script: target.script }
+    : undefined
 }
 
 /** A record of this contract version; unknown fields are ignored, so later additions stay readable. */
@@ -45,10 +56,13 @@ export function parseRecord(text: string): EndpointRecord | undefined {
     || typeof value.startedAt !== 'string' || Number.isNaN(Date.parse(value.startedAt))
     || typeof value.token !== 'string' || value.token.length < 32
     || typeof value.bridgeVersion !== 'string') return undefined
+  // Optional fields that do not parse are left out; the record itself stays usable.
+  const launcher = launcherTarget(value.launcher)
   return {
     version: CONTRACT_VERSION, protocol: 'meshcall', service: RPC_SERVICE, instanceId: value.instanceId, pid: value.pid,
     startedAt: value.startedAt, endpoint: local, token: value.token, bridgeVersion: value.bridgeVersion,
     ...(typeof value.runtimeVersion === 'string' ? { runtimeVersion: value.runtimeVersion } : {}),
+    ...(launcher ? { launcher } : {}),
   }
 }
 

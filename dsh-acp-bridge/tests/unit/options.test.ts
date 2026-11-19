@@ -85,6 +85,11 @@ test('endpoint records are validated and endpoints fit platform limits', () => {
   assert.equal(parseRecord(JSON.stringify({ ...record, service: 'other' })), undefined)
   assert.equal(parseRecord(JSON.stringify({ ...record, pid: -1 })), undefined)
   assert.equal(parseRecord('not json'), undefined)
+  const launcher = { runtime: '/Applications/D.app/Contents/MacOS/D', electron: true, script: '/p/lib/stdio.js' }
+  assert.deepEqual(parseRecord(JSON.stringify({ ...record, launcher }))?.launcher, launcher, 'a record says what its launcher runs')
+  const malformed = parseRecord(JSON.stringify({ ...record, launcher: { runtime: '/x', electron: 'yes', script: '/p/lib/stdio.js' } }))
+  assert.equal(malformed?.instanceId, 'abc', 'a malformed optional field does not cost the record')
+  assert.equal(malformed !== undefined && 'launcher' in malformed, false)
   const id = '0123456789abcdef-0123-4567-89ab-cdef01234567'
   assert.equal(homeSocket('/home/me/.agents-anywhere/dsh-acp', id), '/home/me/.agents-anywhere/dsh-acp/sockets/0123456789abcdef.sock')
   assert.equal(homeSocket(`/home/${'x'.repeat(120)}`, id), undefined, 'a path past sockaddr_un moves to a fresh temporary directory')

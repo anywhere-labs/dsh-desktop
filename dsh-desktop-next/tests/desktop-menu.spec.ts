@@ -60,7 +60,7 @@ it('checks for updates on Linux and hands an available one to the download actio
 })
 
 it('preserves application arguments while replacing one-shot launch modes', () => {
-  const argv = ['/fixture/lib/main.js', '--next-recovery', '--next-safe-mode', '--next-onboarding', '--next-de-elevated', '--next-keep-elevated', '--example=value']
+  const argv = ['/fixture/lib/main.js', '--next-recovery', '--next-safe-mode', '--next-onboarding', '--next-de-elevated', '--next-background', '--next-keep-elevated', '--example=value']
   expect(relaunchArguments(argv, true, true, true)).toEqual(['/fixture/lib/main.js', '--next-keep-elevated', '--example=value', '--next-recovery'])
   expect(relaunchArguments(argv, false, true, true)).toEqual(['/fixture/lib/main.js', '--next-keep-elevated', '--example=value', '--next-safe-mode'])
   expect(relaunchArguments(argv, false, false, true)).toEqual(['/fixture/lib/main.js', '--next-keep-elevated', '--example=value', '--next-onboarding'])

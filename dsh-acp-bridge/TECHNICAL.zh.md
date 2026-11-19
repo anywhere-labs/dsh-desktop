@@ -79,15 +79,27 @@ await dsh.close()
 
 | 路径（相对 `~/.agents-anywhere/dsh-acp`） | 内容 |
 | --- | --- |
-| `endpoints/<实例 ID>.json` | `{version: 1, protocol: "meshcall", service, instanceId, pid, startedAt, endpoint, token, bridgeVersion, runtimeVersion?}`，权限 0600，原子替换写入 |
+| `endpoints/<实例 ID>.json` | `{version: 1, protocol: "meshcall", service, instanceId, pid, startedAt, endpoint, token, bridgeVersion, runtimeVersion?, launcher?}`，权限 0600，原子替换写入。`launcher` 是这个实例的启动脚本运行的 `{runtime, electron, script}`，供接手启动脚本时使用 |
 | `sockets/<ID 前 16 位>.sock` | Unix 套接字，目录 0700、套接字 0600。路径超过 100 字节（`sockaddr_un` 的上限）时，改为在系统临时目录下用 `mkdtemp` 新建一个 0700 目录（名字以 `aa-dsh-acp-` 开头），卸载时连同目录删除 |
 | `bin/dsh-acp`、`bin/dsh-acp.cmd` | 启动脚本，用 DSH 进程的 `process.execPath` 运行本包的 `lib/stdio.js`。DSH 运行在 Electron 上、且自身以 `ELECTRON_RUN_AS_NODE=1` 运行时（说明这个 Electron 允许 Node 模式），脚本同样设置这个变量；其他 Electron 宿主改用 `PATH` 里的 `node`，避免拉起第二个应用 |
 
 - 插件使用的目录如果是符号链接、不是目录或属于其他用户，插件拒绝启动，不会跟随链接或修改其权限。
 - 每个加载了插件的 DSH 进程各写一条记录；卸载插件时删除自己的记录和套接字。插件启动时删除进程已退出的记录，客户端也从不选择这样的记录。
+- 启动脚本的去留：DSH 退出时保留，留给客户端下次自动启动 DSH；插件在 DSH 运行期间卸载（停用、移除、卸载或重新加载）时撤下。两者按插件外层的作用域区分：DSH 退出时外层先卸载，外层的 fiber 已经没有 ID，根 fiber 也已离开运行状态。撤下时，如果启动脚本已被别的实例重写，就保持不动；否则交给最新的、插件文件和程序都还在的另一个正在运行的实例（按它记录里的 `launcher` 重写），没有这样的实例就删除，并删掉插件建的空目录（`bin`、`endpoints`、`sockets` 和主目录本身）。
 - 客户端按启动时间从新到旧尝试各条记录：先用随机 nonce 调用 `hello` 并校验证明，校验不通过（PID 被复用、套接字或管道名被别的程序占用）就跳过，校验通过后才在 `info` 和 `connect` 中发送令牌。启动脚本的 `--instance` 和客户端的 `instance` 按 ID 前缀指定实例。
 - meshcall 0.3.0 可能把一个还在建立时就失败的调用报告为未处理的 Promise 拒绝，尽管调用方会等待并处理同一个失败（DSH Desktop 打了补丁，见 anywhere-labs/deepseek-harness-desktop#1574）。启动脚本遇到这种情况只把它写到标准错误，继续转发，不会退出；使用客户端接口、需要长时间运行的程序也应该这样处理 `unhandledRejection`。
 - Windows 命名管道为 `\\.\pipe\agents-anywhere-dsh-acp-<ID 前 16 位>`，同样依靠上面的证明和令牌区分双方。
+- 启动脚本运行前先检查本包的 `lib/stdio.js` 和运行环境（是绝对路径时）还在不在：插件已卸载、DSH 已卸载或移动时，打印原因并以 1 退出，不交给 Node.js 报模块错误。AppImage 版的程序只在它运行时存在（挂载在 `/tmp/.mount_*` 下），这时提示先打开 DSH。Windows 的 `.cmd` 先切换到代码页 65001，再读出中文提示。
+
+### 自动启动 DSH Desktop
+
+`lib/stdio.js` 找不到任何正在运行的实例（`no-instance`），且没有使用 `--instance`、`--check` 或 `--no-start` 时，启动写下它的 DSH Desktop，再等插件就绪：
+
+- 只有运行在 Electron 上的启动脚本（由 DSH Desktop 写下）才启动应用；运行在 Node.js 上的（由 DSH 命令行写下）照旧报错。
+- macOS 经 LaunchServices 启动：`open -n -g <应用包> --args --next-background`。作为客户端的子进程启动时，应用会把客户端当作 responsible process，本地网络访问会失效（anywhere-labs/deepseek-harness-desktop#1515）。`-n` 让已经运行的实例也收到这个参数。
+- Windows 和 Linux 以分离方式直接启动可执行文件，参数同样是 `--next-background`；环境变量去掉 `ELECTRON_RUN_AS_NODE`、`ELECTRON_NO_ATTACH_CONSOLE` 和 `NODE_OPTIONS`，应用按自己的方式启动。
+- DSH Desktop（Next 和 Beta）带 `--next-background` 启动时照常启动 Host，但只显示托盘图标、不打开窗口；托盘不可用时仍然打开窗口。已经运行的实例收到带这个参数的第二次启动时，不聚焦窗口。这个参数不会带进之后的重启。较早的版本会忽略它并打开窗口。
+- 随后每 0.5 秒连接一次，遇到 `DshAcpError`（还没有实例或暂时连不上）就继续等，最多等 `--start-timeout` 秒（默认 90；DSH Desktop 的 Host 启动上限默认 60 秒）。等到超时说明插件没有加载：DSH 当前的 Profile 没有启用插件，或者 DSH 停在首次设置、恢复或升级。
 
 ## ACP 映射
 
@@ -217,6 +229,7 @@ corepack yarn workspace @agents-anywhere/dsh-acp-bridge check
 - 配置与 DSH 端切换模型的同步、智能体团队协作开关的双向同步（按基础 bundle 的方式挂载智能体团队）、斜杠命令；
 - 客户端声明的 MCP 服务器（用测试里的本地 stdio 服务器）：新会话第一条消息时挂上、只属于这个会话、关闭后进程结束；声明有误时在创建或复制会话之前返回参数错误；服务器起不来时消息报错并给出名称；两个客户端共用同一个声明、同名不同配置被拒绝；`session/load` 时挂上、断开连接后卸下；
 - 令牌校验、端点身份证明、超长路径改用临时目录、启动脚本，以及启动脚本遇到迟到的未处理拒绝后继续转发；
+- 自动启动 DSH Desktop：各平台的启动方式、去掉 Node 模式的环境变量、`open` 失败和可执行文件不存在、插件在启动脚本找过一次之后才发布记录时照样连上；插件或 DSH 不在时启动脚本给出的提示（在 shell 里实际运行生成的脚本；Windows 脚本只检查文本）；启动脚本在 DSH 退出时保留、只卸载插件时删除，以及两个 DSH 共用主目录时由另一个接手；
 - 公开客户端（从构建产物加载）：经它的流使用 ACP SDK、原始调用、对无法证明身份的端点在发出令牌前就拒绝、只提供正在运行的契约版本 1 实例、DSH 退出后立即失败、除 Node.js 和 meshcall 外没有其他依赖；以及固定下来的契约值；
 - 客户端在创建会话、打开会话或执行中途被杀死、`session/close`、重复 load 之后不残留跟随，DSH 不受影响。
 
@@ -236,4 +249,4 @@ dsh plugin --profile desktop add "link:$PWD"
 
 MCP 联调记录（2026-11-18）：在进程内的测试 DSH 里用 DSH 的 MCP 管理器配置 Context7（HTTP 和 stdio 各一个），ACP 会话里的两次工具调用和返回的文档都完整到达客户端。插件自带副本的情况，用 Next 工作区里单独安装的 `mcp-client` 和 `dsh-scope` 代替插件的副本（DSH 用另一份）来验证：两个会话声明同名的 stdio 服务器，各自只看到自己的工具，关闭一个不影响另一个；不经过插件建的作用域、直接挂进 `agent.ctx` 时，第二个会话报服务器名已被占用。
 
-自动化检查和这些联调都没有覆盖：真实模型的回复、真实的 Zed 等编辑器、DSH Desktop 的 Electron 运行环境（包括装进 Profile 的插件挂载客户端声明的 MCP 服务器）、Windows 命名管道、同时运行多个 DSH，以及自动化检查所用的 0.2.2-rc.4、2026-11-17 联调所用的 0.2.2-rc.3 以外的 DSH 版本。
+自动化检查和这些联调都没有覆盖：真实模型的回复、真实的 Zed 等编辑器、DSH Desktop 的 Electron 运行环境（包括装进 Profile 的插件挂载客户端声明的 MCP 服务器，以及启动脚本在真实系统上启动 DSH Desktop、它只显示托盘图标）、Windows 命名管道、同时运行多个 DSH，以及自动化检查所用的 0.2.2-rc.4、2026-11-17 联调所用的 0.2.2-rc.3 以外的 DSH 版本。

@@ -292,8 +292,10 @@ export interface Host {
   adapter: ScriptAdapter
   /** Calls of the `/wait` command, which runs until cancelled. */
   waits: { started: number, stopped: number }
-  /** Unload every plugin, keeping the files for inspection. */
+  /** Unload every plugin, keeping the files for inspection: DSH stops. */
   dispose(): Promise<void>
+  /** Unload only the bridge plugin while DSH runs on, as disabling or uninstalling it does. */
+  unload(): Promise<void>
   close(): Promise<void>
 }
 
@@ -306,6 +308,8 @@ export interface HostOptions {
   agentTeams?: boolean
   /** Directory name of the plugin home under the test root. */
   homeName?: string
+  /** A plugin home outside the test root, to share one between hosts; `homeName` is then ignored. */
+  acpHome?: string
 }
 
 export async function startHost(options: HostOptions = {}): Promise<Host> {
@@ -391,15 +395,17 @@ export async function startHost(options: HostOptions = {}): Promise<Host> {
         return { kind: 'error', text: '已停止' }
       },
     })
-    const acpHome = join(root, options.homeName ?? 'acp')
+    const acpHome = options.acpHome ?? join(root, options.homeName ?? 'acp')
     await options.prepare?.(acpHome)
     // The built package, as DSH loads it; typed from the source so type checks run before the build.
     const plugin = await import(new URL('../../lib/index.js', import.meta.url).href) as typeof BridgePlugin
-    await ctx.plugin(plugin, { home: acpHome }).await()
+    const bridge = ctx.plugin(plugin, { home: acpHome })
+    await bridge.await()
     await ready(acpHome)
     let disposed: Promise<void> | undefined
     const dispose = () => disposed ??= ctx.fiber.dispose().then(() => undefined)
     return { ctx, root, acpHome, workspace, adapter, waits, dispose,
+      unload: async () => { await bridge.dispose() },
       close: async () => { await dispose(); await rm(root, { recursive: true, force: true }) } }
   } catch (error) {
     await ctx.fiber.dispose()

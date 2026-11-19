@@ -42,7 +42,7 @@ import { installEditingContextMenu } from '../../dsh-plugin-desktop/src/context-
 import { atomicJson, privateDirectory } from './private-files.ts'
 import { windowMaterial } from './window-material.ts'
 import { captureMainWindowState, FileMainWindowStateStore, fitMainWindowBounds, sameMainWindowState, type MainWindowState } from './main-window-state.ts'
-import { DE_ELEVATED_ARGUMENT, ONBOARDING_ARGUMENT, RECOVERY_ARGUMENT, SAFE_ARGUMENT, relaunchApp, relaunchArguments } from './relaunch.ts'
+import { BACKGROUND_ARGUMENT, DE_ELEVATED_ARGUMENT, ONBOARDING_ARGUMENT, RECOVERY_ARGUMENT, SAFE_ARGUMENT, relaunchApp, relaunchArguments } from './relaunch.ts'
 import { DESKTOP_RUNTIME_FILE, readInstalledPackageVersion, verifyPackagedRuntimeIdentity } from './runtime-tree.ts'
 import { createNativePermissions, installMediaPermissions } from './electron-permissions.ts'
 import { DATA_DIRECTORY_VARIABLE, dataDirectoryChange, dataDirectoryLocationFile, dataDirectoryLocationRoot, readDataDirectory, rememberDataDirectory, sameDirectory, validateDataDirectory } from './data-directory.ts'
@@ -1618,7 +1618,11 @@ async function main(): Promise<void> {
   }
   if (runtime.recoveryMode) openControls('recovery')
   else if (onboarding) openControls('onboarding')
-  else { void runtime.start().catch(() => {}); openMain() }
+  else {
+    void runtime.start().catch(() => {})
+    // A background start keeps to the tray; without one, the window is the only way to reach the app.
+    if (!process.argv.includes(BACKGROUND_ARGUMENT) || !native.available) openMain()
+  }
   app.on('activate', openMain)
   app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !native.available && !replacingWindow) app.quit() })
 }
