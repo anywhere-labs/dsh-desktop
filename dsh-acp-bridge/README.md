@@ -2,23 +2,30 @@
 
 [中文说明](README.zh.md)
 
-Lets editors and scripts that speak the [Agent Client Protocol](https://agentclientprotocol.com) (ACP), such as Zed, work directly with a running DeepSeek Harness (DSH).
+Connect applications, scripts and automation tools to DeepSeek Harness (DSH) sessions, models and tools through the [Agent Client Protocol](https://agentclientprotocol.com) (ACP).
 
-This is a DSH plugin, published as the npm package `@agents-anywhere/dsh-acp-bridge`. It runs inside the DSH process and shares its sessions with DSH Desktop: a conversation started in the editor appears in the DSH Desktop sidebar, and an existing DSH conversation can continue in the editor. It does not start another DSH, needs no separate profile, and needs no Agents Anywhere sign-in.
+This is a DSH plugin, published as the npm package `@agents-anywhere/dsh-acp-bridge`. It runs inside the DSH process and shares its sessions with DSH Desktop: a conversation started in an external client appears in the DSH Desktop sidebar, and an existing DSH conversation can continue from a client. It reuses DSH's runtime and configuration, needs no separate profile, and needs no Agents Anywhere sign-in.
+
+There are two ways to connect:
+
+- **ACP over stdio**: an ACP application or script runs the generated launcher and exchanges messages over standard input and output. Zed is one such client; a configuration example follows below.
+- **Local RPC client API**: programs use `@agents-anywhere/dsh-acp-bridge/client` to connect to a running DSH and open ACP connections. See [Connecting from other programs](#connecting-from-other-programs).
 
 ## What it does
 
-- Start a DSH session, or open an existing one with its history. One session can be used from DSH Desktop, Agents Anywhere and several editors at once; a message sent from any of them appears live in all the others.
-- Replies and reasoning stream as they are written. Tool calls appear as cards: file edits with diffs, commands with their output and exit code, and file reads that link to the location they read.
+These capabilities are exposed through ACP. How tool cards, forms, plans and menus are displayed and used depends on the client implementation.
+
+- Start a DSH session, or open an existing one with its history. One session can be used from DSH Desktop, Agents Anywhere and several clients at once; a message sent from any of them appears live in all the others.
+- Receive streaming replies and reasoning, and tool call updates with file diffs, command output and exit codes, and file locations. Clients can use these to display tool cards.
 - Choose the model, the reasoning effort and the permission preset. A new session can pick its Agent mode before the first message; plan mode can be switched once the session has started. Where DSH offers agent teams, the 「启用智能体团队协作」 switch of its model menu can be turned on and off at any time too.
-- When DSH asks to approve an operation, the editor offers "Allow once / Reject"; when the Agent asks a question with `ask_user_question`, the editor shows a form, or a list of choices in editors without forms. DSH Desktop can answer too, and the first answer counts. An approval or question DSH was already waiting for when the editor opened the session reaches the editor as well.
-- The Agent's todo list appears as the editor's plan and follows its progress.
+- When DSH asks to approve an operation, the client offers "Allow once / Reject"; when the Agent asks a question with `ask_user_question`, the client shows a form, or a list of choices in clients without forms. DSH Desktop can answer too, and the first answer counts. An approval or question DSH was already waiting for when the client opened the session reaches the client as well.
+- Receive the Agent's todo list and progress updates for display as a plan or for use in a script.
 - Type `/` for the commands DSH registers and the skills that can be invoked directly.
-- Send text, images (PNG, JPEG, WebP, GIF), file links, the selections an editor attaches and other files, which are uploaded to DSH like files added in DSH Desktop, and cancel a running task at any time.
+- Send text, images (PNG, JPEG, WebP, GIF), file links, the selections a client attaches and other files, which are uploaded to DSH like files added in DSH Desktop, and cancel a running task at any time.
 - Keep sending while a reply is still running: as when Enter is pressed in DSH Desktop during a reply, each further message waits in the DSH queue and runs in a turn of its own once the one before it ends.
-- When the Agent hands work to subagents, the editor's request stays open until the subagents finish and the Agent has replied to their results, as with the official DSH ACP agent.
-- Delete a session from the editor's history: DSH archives it, and it can be restored in DSH. Editors that support forking can continue a copy of a session, which DSH lists as a session of its own.
-- MCP servers configured in the editor (stdio and HTTP) are mounted for the session, and their tools belong to that session alone, as with the official DSH ACP agent. MCP servers configured in DSH itself work in the editor's sessions too.
+- When the Agent hands work to subagents, the client's request stays open until the subagents finish and the Agent has replied to their results, as with the official DSH ACP agent.
+- Delete a session from the client's history: DSH archives it, and it can be restored in DSH. Clients that support forking can continue a copy of a session, which DSH lists as a session of its own.
+- MCP servers configured in the client (stdio and HTTP) are mounted for the session, and their tools belong to that session alone, as with the official DSH ACP agent. MCP servers configured in DSH itself work in the client's sessions too.
 
 ## Installation
 
@@ -40,7 +47,11 @@ Once DSH loads the plugin, it writes a launcher on this computer:
 
 The launcher uses the Node.js runtime that DSH itself runs on (DSH Desktop included), so no separate Node.js installation is needed. DSH rewrites it every time it loads the plugin, so nothing needs editing after DSH is upgraded or moved.
 
-## Using it in Zed
+## Connecting an ACP client
+
+Set the full launcher path from the table above as the client's Agent command, using its settings for arguments and environment variables. Scripts can also run that command and exchange ACP messages over stdio.
+
+### Example: Zed
 
 Add an external Agent to Zed's `settings.json`, with `command` set to the full path of the launcher (Zed does not expand `~`):
 
@@ -58,7 +69,9 @@ Add an external Agent to Zed's `settings.json`, with `command` set to the full p
 
 Then choose "DSH" in Zed's Agent panel to start a conversation. Other ACP clients likewise take the launcher as their Agent command.
 
-DSH must be running. When it is not, the launcher exits at once and says why; quitting DSH or unloading the plugin disconnects the editor, and reopening the conversation reconnects it.
+## Connection
+
+DSH must be running. When it is not, the launcher exits at once and says why; quitting DSH or unloading the plugin disconnects the client, and reopening the conversation reconnects it.
 
 ## Troubleshooting
 
@@ -74,18 +87,18 @@ The plugin's own log lines are in the DSH log and start with `acp-bridge`.
 
 ## Notes and limitations
 
-- A new session is created in DSH only when its first message is sent, under the workspace of its working directory; merely opening an editor panel leaves no empty session behind.
-- MCP servers declared by the editor start when a new session's first message is sent or when an existing session is opened, and stop when the editor closes the session or disconnects. When a server does not start, that message or the opening fails and names the server. A stdio server's command must be an absolute path, and it runs in the session's working directory; the deprecated SSE transport is not supported.
-- Sessions are shared: while the editor is connected, messages sent to the session from DSH Desktop or other clients can use its MCP tools too. Clients that declare the same server (same name and configuration) share one connection; one session cannot hold two different servers under the same name, so the client that opens the session later gets an error. A server named like one configured in DSH replaces that one in the session. Mounting or unmounting servers changes the session's tool list, so the next turn cannot reuse the earlier cache.
-- Audio input is not supported. Whether the editor may attach images is decided once, when it connects, by DSH's default model (the model new sessions start with): editors are offered images only when that model takes image input, and switching a session to another model does not change this. After changing the default model, reconnect the editor. Each message is checked again against the session's current model: a message with images for a model that does not take image input fails at once, before DSH creates the session or receives the message; a model that does not declare its input types is left to DSH, which accepts the images, as in DSH Desktop.
+- A new session is created in DSH only when its first message is sent, under the workspace of its working directory; merely connecting over ACP or requesting a new session leaves no empty session behind.
+- MCP servers declared by the client start when a new session's first message is sent or when an existing session is opened, and stop when the client closes the session or disconnects. When a server does not start, that message or the opening fails and names the server. A stdio server's command must be an absolute path, and it runs in the session's working directory; the deprecated SSE transport is not supported.
+- Sessions are shared: while the client is connected, messages sent to the session from DSH Desktop or other clients can use its MCP tools too. Clients that declare the same server (same name and configuration) share one connection; one session cannot hold two different servers under the same name, so the client that opens the session later gets an error. A server named like one configured in DSH replaces that one in the session. Mounting or unmounting servers changes the session's tool list, so the next turn cannot reuse the earlier cache.
+- Audio input is not supported. Whether the client may attach images is decided once, when it connects, by DSH's default model (the model new sessions start with): clients are offered images only when that model takes image input, and switching a session to another model does not change this. After changing the default model, reconnect the client. Each message is checked again against the session's current model: a message with images for a model that does not take image input fails at once, before DSH creates the session or receives the message; a model that does not declare its input types is left to DSH, which accepts the images, as in DSH Desktop.
 - Opening an existing session replays its latest 1000 messages; earlier history is available in DSH.
-- When the editor closes a session or disconnects, the tasks it started and that are still running are cancelled and the messages it queued are withdrawn; tasks started from DSH Desktop or other clients are unaffected.
-- Deleting a session in the editor cancels the editor's own tasks in it first; a session DSH Desktop or another client is still running cannot be deleted from the editor.
-- While the editor's request waits for subagents, whatever the Agent does in the session belongs to that request, including replies to messages sent from DSH Desktop. Cancelling it in the editor returns at once and leaves the subagents running, as Stop does in DSH Desktop; closing the editor does not stop them either.
+- When the client closes a session or disconnects, the tasks it started and that are still running are cancelled and the messages it queued are withdrawn; tasks started from DSH Desktop or other clients are unaffected.
+- Deleting a session in the client cancels the client's own tasks in it first; a session DSH Desktop or another client is still running cannot be deleted from the client.
+- While the client's request waits for subagents, whatever the Agent does in the session belongs to that request, including replies to messages sent from DSH Desktop. Cancelling it in the client returns at once and leaves the subagents running, as Stop does in DSH Desktop; closing the client does not stop them either.
 - Subagents never ask a person. DSH starts them with the approval policy `never`, so an operation of theirs that would need approval is rejected on the spot, and `ask_user_question` fails inside a subagent; DSH Desktop shows nothing either. A subagent keeps the session's permission only when it is `danger-full-access` (or the experimental `auto`), so choose the permission before the Agent delegates.
-- Whether a message can be sent while a reply is running depends on the editor; the plugin declares the `promptQueueing` flag that editors check for it. When the reply ahead is cancelled or fails, the messages the editor queued behind it are withdrawn and need to be sent again, because DSH does not go on with its queue after such a reply.
-- When the editor stops reading the plugin's output for a long time (for example because it hangs), the plugin disconnects it; reopening the conversation reconnects.
-- Editors without forms show single-choice questions, plan reviews included, as a list of choices; a question that takes several choices or a typed answer must be answered in DSH there, and the conversation says so.
+- Whether a message can be sent while a reply is running depends on the client; the plugin declares the `promptQueueing` flag that clients check for it. When the reply ahead is cancelled or fails, the messages the client queued behind it are withdrawn and need to be sent again, because DSH does not go on with its queue after such a reply.
+- When the client stops reading the plugin's output for a long time (for example because it hangs), the plugin disconnects it; reopening the conversation reconnects.
+- Clients without forms show single-choice questions, plan reviews included, as a list of choices; a question that takes several choices or a typed answer must be answered in DSH there, and the conversation says so.
 - The Windows connection (a named pipe) has not been verified on a real machine.
 
 ## Data and security
@@ -94,7 +107,7 @@ The plugin's own log lines are in the DSH log and start with `acp-bridge`.
 - The plugin listens only where the current user can reach it: a private Unix socket on macOS and Linux, a named pipe on Windows. A connection must also present a random token, stored in a file only the current user can read and regenerated every time DSH starts.
 - Before sending the token, the launcher and the client API have the other side prove that it holds that token; an endpoint that cannot prove it (for example one taken over by another program after DSH exited) is skipped and never receives the token or any conversation.
 - A local user who can run the launcher can use every DSH session on this computer, just as in DSH Desktop; so can the programs that user runs through the client API.
-- Stdio MCP servers declared by the editor are started by DSH as the current user and, like the MCP servers configured in DSH itself, do not run in DSH's sandbox.
+- Stdio MCP servers declared by the client are started by DSH as the current user and, like the MCP servers configured in DSH itself, do not run in DSH's sandbox.
 
 ## Connecting from other programs
 
@@ -108,7 +121,7 @@ const dsh = await connectDsh()
 const acp = client({ name: 'my-tool' }).connect(dsh.openAcpStream())
 ```
 
-The contract, its compatibility rules and the whole client API are in the [technical notes](TECHNICAL.md#local-rpc).
+This API connects to a running DSH; it does not start Desktop automatically. The contract, its compatibility rules and the whole client API are in the [technical notes](TECHNICAL.md#local-rpc).
 
 ## Development
 

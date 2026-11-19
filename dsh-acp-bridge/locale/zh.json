@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "编辑器接入（ACP）",
-    "description": "让 Zed 等支持 ACP 的编辑器直接使用正在运行的 DSH。启用后，把 ~/.agents-anywhere/dsh-acp/bin/dsh-acp 配置为编辑器的 Agent 命令。"
+    "title": "ACP 接入",
+    "description": "通过 ACP 将应用、脚本和自动化工具接入 DSH，共用会话、模型与工具。支持 stdio 启动脚本和公开的本机 RPC 客户端接口。"
   }
 }

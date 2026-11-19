@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * stdio ⇄ RPC bridge for ACP clients such as Zed.
+ * stdio ⇄ RPC bridge for ACP applications, scripts and automation tools.
  *
  * An ACP client starts this script and speaks newline-delimited JSON-RPC on
  * its stdin/stdout. The script reaches a running DSH that loaded the plugin
@@ -19,7 +19,7 @@ interface Options { home: string, instance?: string, check: boolean, list: boole
 
 const USAGE = `用法：dsh-acp-bridge [选项]
 
-把 ACP 客户端（例如 Zed）的 stdio 接到正在运行的 DeepSeek Harness。
+通过 stdio 将 ACP 应用、脚本和自动化工具连接到 DeepSeek Harness。
 DSH 需要已启用插件 @agents-anywhere/dsh-acp-bridge。
 
 选项：

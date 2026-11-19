@@ -7,7 +7,7 @@ For development and integration testing. For usage, see the [README](README.md).
 ## Path
 
 ```text
-ACP client (Zed and others)
+ACP client (application, script or automation tool)
   │ stdio, one JSON-RPC message per line
   ▼
 lib/stdio.js (run by the launcher)
@@ -71,7 +71,7 @@ await acp.agent.request(methods.agent.session.prompt, { sessionId, prompt: [{ ty
 await dsh.close()
 ```
 
-- Each ACP connection follows the rules of an editor connection: when it ends, the prompts it started that are still running are cancelled and its queued messages are withdrawn.
+- Each ACP connection follows the same connection lifecycle rules: when it ends, the prompts it started that are still running are cancelled and its queued messages are withdrawn.
 - The client never reconnects: an endpoint belongs to one DSH process, and a restarted DSH serves a new one. Call `connectDsh` again, then `initialize` and `session/load` or `session/resume` to continue a session.
 - Programs in other languages can implement the contract directly: read the record, check the `hello` proof, send the token as call metadata, and exchange ACP messages over `connect`, with a MeshCall client that reaches Unix sockets or named pipes. Only the TypeScript client has been verified.
 
@@ -191,7 +191,7 @@ DSH sends every approval or question to all owner clients (DSH Desktop, Web, the
 - **Not mounting the official `@deepseek-ai/dsh-acp` directly**: the official implementation assembles its own Agent with `agents.create`, installs only model selection and MCP, and mounts no Agent preset; the DSH Desktop and Web profiles keep every tool in presets, so sessions mounted that way have no tools. It also owns its sessions exclusively, so sessions DSH has already loaded cannot be resumed.
 - **Built on the Session Controller**: the same multi-client semantics as the DSH Web client; sessions appear in DSH Desktop, and approvals and questions can be answered on either side.
 - **Following dsh-acp-enhanced's features without reusing its code**: it is a separate profile that owns its Agent; streaming, tool cards, forms, commands and history replay are reimplemented here on the Session Controller.
-- **Deferred creation**: editors call `session/new` for every conversation they open, so the session is created with the first message, leaving no empty sessions or idle Agents in DSH.
+- **Deferred creation**: a client's `session/new` request reserves an ID; DSH creates the session only with the first message, leaving no empty sessions or idle Agents behind.
 - **No escaping rejections**: DSH treats an unhandled promise rejection as fatal and ends the whole process, so every asynchronous path catches its errors; messages written after a connection ends are dropped.
 - **Close wins**: a session can be closed by `session/close` or a lost connection while `session/load` or the first message's session creation is in progress. The connection registers the session before following it, and every await is followed by a check for closure; a closed session stops following, sends no message and is never attached to approval routing again. Loading the same session again on one connection first closes the earlier view, including one still opening.
 - **Backlog limit**: when a client stops reading, MeshCall's flow control keeps sends waiting. Once more than 20000 updates are queued for one session, the connection is closed, so the DSH process's memory cannot grow without bound.
@@ -236,4 +236,4 @@ After the issues found in review were fixed, the same environment was checked ag
 
 MCP test record (2026-11-18): in the in-process test DSH, with Context7 configured through DSH's MCP manager (one HTTP and one stdio server), both tool calls of an ACP session and the documentation they returned reached the client in full. The plugin's own copies were verified with the separately installed `mcp-client` and `dsh-scope` of the Next workspace standing in for them while DSH used another copy: two sessions declaring a stdio server under the same name each saw only their own tools, and closing one left the other working; mounting straight into `agent.ctx`, without the scope the plugin makes, failed in the second session because the server name was taken.
 
-Neither the automated checks nor these manual runs covered: replies from a real model, real editors such as Zed, the Electron runtime of DSH Desktop (including a plugin installed in a profile mounting editor-declared MCP servers), Windows named pipes, several DSH processes at once, or DSH versions other than 0.2.2-rc.4 (the automated checks) and 0.2.2-rc.3 (the 2026-11-17 runs).
+Neither the automated checks nor these manual runs covered: replies from a real model, real editors such as Zed, the Electron runtime of DSH Desktop (including a plugin installed in a profile mounting client-declared MCP servers), Windows named pipes, several DSH processes at once, or DSH versions other than 0.2.2-rc.4 (the automated checks) and 0.2.2-rc.3 (the 2026-11-17 runs).

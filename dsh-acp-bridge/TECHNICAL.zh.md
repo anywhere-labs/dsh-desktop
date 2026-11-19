@@ -7,7 +7,7 @@
 ## 链路
 
 ```text
-ACP 客户端（Zed 等）
+ACP 客户端（应用、脚本、自动化工具）
   │ stdio，每行一条 JSON-RPC
   ▼
 lib/stdio.js（启动脚本运行它）
@@ -71,7 +71,7 @@ await acp.agent.request(methods.agent.session.prompt, { sessionId, prompt: [{ ty
 await dsh.close()
 ```
 
-- 每个 ACP 连接遵循和编辑器连接一样的规则：连接结束时，它发起、还在执行的任务会被取消，它排队的消息会被撤回。
+- 每个 ACP 连接遵循相同的连接生命周期规则：连接结束时，它发起、还在执行的任务会被取消，它排队的消息会被撤回。
 - 客户端不会自动重连：一个端点只属于一个 DSH 进程，DSH 重启后换成新的端点。重新调用 `connectDsh`，再 `initialize`，然后用 `session/load` 或 `session/resume` 接着使用会话。
 - 其他语言的程序可以直接实现这份契约：读记录、核对 `hello` 的证明、把令牌放进调用 metadata、在 `connect` 上收发 ACP 消息，需要能连 Unix 套接字或命名管道的 MeshCall 客户端。目前只验证过 TypeScript 客户端。
 
@@ -191,7 +191,7 @@ DSH 把每个审批或提问发给所有 owner 客户端（DSH Desktop、Web、A
 - **不直接挂官方 `@deepseek-ai/dsh-acp`**：官方实现用 `agents.create` 自己组装 Agent，只安装模型选择和 MCP，不挂 Agent 预设；DSH Desktop 和 Web 的 profile 把所有工具放在预设里，挂进去的会话没有工具。它还独占会话，DSH 已加载的会话无法恢复。
 - **建在 Session Controller 上**：与 DSH Web 客户端相同的多客户端语义，会话出现在 DSH Desktop，审批和提问可以在任一端回答。
 - **参考 dsh-acp-enhanced 的功能，不复用代码**：它是独立 profile，自己拥有 Agent；逐字输出、工具卡片、表单、命令和历史回放在这里基于 Session Controller 重新实现。
-- **延迟创建**：编辑器每开一个对话都会调用 `session/new`，第一条消息时才创建，避免在 DSH 里留下空会话和常驻 Agent。
+- **延迟创建**：客户端的 `session/new` 请求只预留 ID，第一条消息时才在 DSH 中创建会话，避免留下空会话和常驻 Agent。
 - **拒绝不外泄**：DSH 把未处理的 Promise 拒绝当作致命错误、会结束整个进程，所以所有异步路径都捕获错误；连接结束后写出的消息直接丢弃。
 - **关闭优先**：会话在 `session/load` 或首条消息创建会话期间都可能被 `session/close` 或断开连接关闭。连接在开始跟随之前就登记会话，每个 await 之后检查是否已关闭；已关闭就停止跟随，不再发送消息，也不会被重新挂回审批路由。同一连接再次 load 同一会话时，先关闭之前的视图（包括还在打开的）。
 - **积压上限**：客户端不读取输出时，MeshCall 的流控会让发送一直等待。单个会话排队的更新超过 20000 条时断开这个连接，避免 DSH 进程内存无限增长。
@@ -236,4 +236,4 @@ dsh plugin --profile desktop add "link:$PWD"
 
 MCP 联调记录（2026-11-18）：在进程内的测试 DSH 里用 DSH 的 MCP 管理器配置 Context7（HTTP 和 stdio 各一个），ACP 会话里的两次工具调用和返回的文档都完整到达客户端。插件自带副本的情况，用 Next 工作区里单独安装的 `mcp-client` 和 `dsh-scope` 代替插件的副本（DSH 用另一份）来验证：两个会话声明同名的 stdio 服务器，各自只看到自己的工具，关闭一个不影响另一个；不经过插件建的作用域、直接挂进 `agent.ctx` 时，第二个会话报服务器名已被占用。
 
-自动化检查和这些联调都没有覆盖：真实模型的回复、真实的 Zed 等编辑器、DSH Desktop 的 Electron 运行环境（包括装进 Profile 的插件挂载编辑器声明的 MCP 服务器）、Windows 命名管道、同时运行多个 DSH，以及自动化检查所用的 0.2.2-rc.4、2026-11-17 联调所用的 0.2.2-rc.3 以外的 DSH 版本。
+自动化检查和这些联调都没有覆盖：真实模型的回复、真实的 Zed 等编辑器、DSH Desktop 的 Electron 运行环境（包括装进 Profile 的插件挂载客户端声明的 MCP 服务器）、Windows 命名管道、同时运行多个 DSH，以及自动化检查所用的 0.2.2-rc.4、2026-11-17 联调所用的 0.2.2-rc.3 以外的 DSH 版本。
