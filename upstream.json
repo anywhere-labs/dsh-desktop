@@ -10,17 +10,17 @@
       "package": "dsh-plugin-desktop"
     },
     "beta": {
-      "commit": "3f321d32bfe382212a8ed8785c1d47a5a300aa23",
-      "sourceVersion": "0.2.2-rc.4",
-      "runtimePackageVersion": "0.2.2-rc.4",
-      "runtimeSource": "vendor/dsh-runtime/0.2.2-rc.4/manifest.json",
+      "commit": "9c2670d3bce5275e0d1610272958121af87787bb",
+      "sourceVersion": "0.2.2-rc.5",
+      "runtimePackageVersion": "0.2.2-rc.5",
+      "runtimeSource": "vendor/dsh-runtime/0.2.2-rc.5/manifest.json",
       "package": "dsh-plugin-desktop-beta"
     },
     "next": {
-      "commit": "3f321d32bfe382212a8ed8785c1d47a5a300aa23",
-      "sourceVersion": "0.2.2-rc.4",
-      "runtimePackageVersion": "0.2.2-rc.4",
-      "runtimeSource": "vendor/dsh-runtime/0.2.2-rc.4/manifest.json",
+      "commit": "9c2670d3bce5275e0d1610272958121af87787bb",
+      "sourceVersion": "0.2.2-rc.5",
+      "runtimePackageVersion": "0.2.2-rc.5",
+      "runtimeSource": "vendor/dsh-runtime/0.2.2-rc.5/manifest.json",
       "package": "dsh-desktop-next"
     }
   }

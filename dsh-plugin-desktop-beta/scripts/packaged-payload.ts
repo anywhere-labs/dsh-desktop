@@ -268,6 +268,10 @@ export function auditNextPayload(source: PayloadSource, target: NextPackagingTar
         }
       }
     }
+    if (target.platform !== 'win32' && /(?:^|\/)node_modules\/@dataiku\/uv-(?:linux|darwin)-(?:x64|arm64)\/bin\/uv$/u.test(entry.path)) {
+      if (!entry.executable) problems.push(`${entry.path}: bundled uv must be executable`)
+      if (!entry.unpacked) problems.push(`${entry.path}: bundled uv must be unpacked beside app.asar`)
+    }
     if (entry.unpacked) continue
     if (REQUIRED_UNPACKED.some(pattern => pattern.test(entry.path))) problems.push(`${entry.path}: must be unpacked beside app.asar`)
     else if (isNativeImage(entry.readHeader ? entry.readHeader(4) : entry.read().subarray(0, 4))) problems.push(`${entry.path}: native code is packed inside app.asar`)
