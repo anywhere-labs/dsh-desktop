@@ -1,10 +1,12 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { createPackageWithOptions } from '@electron/asar'
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
 import beforeBuild from '../scripts/before-build.ts'
-import { nextPackagingTarget, PAYLOAD_DIR, verifyNextPayload } from '../scripts/packaged-payload.ts'
+import { archivedPayload, auditNextPayload, nextPackagingTarget, PAYLOAD_DIR, verifyNextPayload } from '../scripts/packaged-payload.ts'
 import { collectProductionClosure, preparePayload, publishedEntries } from '../scripts/prepare-payload.ts'
 import { DESKTOP_RUNTIME_FILE, physicalPayload, readDesktopRuntime, verifyPayload } from '../src/runtime-tree.ts'
 import { completeApplication, FIXTURE_RELEASE, writeApplication, writePackage } from './runtime-fixture.ts'
@@ -240,4 +242,41 @@ it('declines electron-builder dependency handling once a matching payload is pre
     await expect(beforeBuild({ ...context, electronVersion: '45.0.0' })).rejects.toThrow(/declares Electron 44\.0\.0, but 45\.0\.0 is being packaged/u)
     await expect(beforeBuild({ ...context, platform: { nodeName: 'aix' } })).rejects.toThrow(/targets \w+, not aix/u)
   } finally { logged.mockRestore() }
+})
+
+// Reproduce npm's 0644 uv payload with lifecycle scripts disabled, then exercise the physical
+// executable after ASAR packing, including detection of a later permission regression.
+it.skipIf(!unix).each(['x64', 'arm64'])('prepares and packages executable Linux uv for %s', async (arch) => {
+  const { root, desktop } = workspace()
+  const name = `@dataiku/uv-linux-${arch}`
+  const manifestPath = join(desktop, 'package.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { dependencies: Record<string, string> }
+  manifest.dependencies[name] = '*'
+  writeFileSync(manifestPath, JSON.stringify(manifest))
+  const pkg = writePackage(join(desktop, 'node_modules'), name)
+  mkdirSync(join(pkg, 'bin'))
+  const original = join(pkg, 'bin', 'uv')
+  writeFileSync(original, '#!/bin/sh\nprintf "uv fixture\\n"\n')
+  chmodSync(original, 0o644)
+  const output = join(root, 'prepared')
+  const release = { platform: 'linux' as const, archs: [arch] }
+  const descriptor = await preparePayload({ desktopRoot: desktop, output, target: release, electronVersion: '44.0.0' })
+  const path = `node_modules/${name}/bin/uv`
+  expect(lstatSync(original).mode & 0o777).toBe(0o644)
+  expect(descriptor.files.find(file => file.path === path)?.executable).toBe(true)
+  const resources = join(root, 'resources')
+  mkdirSync(resources)
+  await createPackageWithOptions(output, join(resources, 'app.asar'), { unpack: '**/bin/uv' })
+  const binary = join(resources, 'app.asar.unpacked', path)
+  const run = spawnSync(binary, ['--version'], { encoding: 'utf8' })
+  expect(run.error).toBeUndefined()
+  expect(run.status).toBe(0)
+  expect(run.stdout).toBe('uv fixture\n')
+  const source = archivedPayload(resources)
+  try { expect(auditNextPayload(source, release).filter(problem => problem.startsWith(path))).toEqual([]) }
+  finally { source.close() }
+  chmodSync(binary, 0o644)
+  const broken = archivedPayload(resources)
+  try { expect(auditNextPayload(broken, release)).toContain(`${path}: bundled uv must be executable`) }
+  finally { broken.close() }
 })
