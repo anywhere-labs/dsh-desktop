@@ -99,6 +99,9 @@ test('a prompt sent while the previous one waits for subagents ends the previous
     const second = send(client, sessionId, hello)
     assert.equal((await first.response).stopReason, 'end_turn')
     await until(() => turnEnds(host, sessionId) === 2, 'the second prompt ran its turn')
+    // Host completion can precede delivery through the stdio child, especially under CI load.
+    // Wait for the update being compared, then still require the response to precede it on the wire.
+    await until(() => client.wire.slice(mark).includes('agent_thought_chunk'), 'the second turn reaches the client')
     const after = client.wire.slice(mark)
     assert.ok(after.indexOf('response') >= 0 && after.indexOf('response') < after.indexOf('agent_thought_chunk'),
       'the first prompt is answered before the second turn sends anything')
