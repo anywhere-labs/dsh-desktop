@@ -20,6 +20,7 @@ const nextReference = readJson('dsh-desktop-next/upstream-reference.json')
 const fabric = readJson('dsh-community-fabric/package.json')
 const market = readJson('dsh-community-market/package.json')
 const tokensAnywhere = readJson('dsh-tokens-anywhere/package.json')
+const acpBridge = readJson('dsh-acp-bridge/package.json')
 const upstreamPackage = readJson('deepseek-harness/package.json')
 
 if (stablePlugin.name !== 'dsh-plugin-desktop') fail('the stable Desktop workspace must retain dsh-plugin-desktop')
@@ -38,8 +39,9 @@ if (JSON.stringify(workspace.workspaces) !== JSON.stringify([
   'dsh-community-fabric',
   'dsh-community-market',
   'dsh-tokens-anywhere',
+  'dsh-acp-bridge',
 ])) {
-  fail('the root Yarn workspace must contain the desktop, community-fabric, community-market, and dsh-tokens-anywhere packages')
+  fail('the root Yarn workspace must contain the desktop, community-fabric, community-market, dsh-tokens-anywhere, and ACP bridge packages')
 }
 for (const [name, manifest] of [
   ['dsh-plugin-desktop', stablePlugin],
@@ -48,12 +50,14 @@ for (const [name, manifest] of [
   ['dsh-community-fabric', fabric],
   ['dsh-community-market', market],
   ['@agents-anywhere/dsh-tokens-anywhere', tokensAnywhere],
+  ['dsh-acp-bridge', acpBridge],
 ]) {
   if (manifest.packageManager !== undefined) fail(`${name} must inherit the root Yarn release`)
 }
 if (fabric.name !== 'dsh-community-fabric') fail('the Fabric workspace must own dsh-community-fabric')
 if (market.name !== 'dsh-community-market') fail('the market workspace must own dsh-community-market')
 if (tokensAnywhere.name !== '@agents-anywhere/dsh-tokens-anywhere') fail('the Tokens Anywhere workspace must own @agents-anywhere/dsh-tokens-anywhere')
+if (acpBridge.name !== '@agents-anywhere/dsh-acp-bridge') fail('the ACP bridge workspace must publish as @agents-anywhere/dsh-acp-bridge')
 const claudePath = resolve(root, 'CLAUDE.md')
 const claudeStat = lstatSync(claudePath)
 // Windows checkouts materialize the symlink as a regular file holding the
@@ -79,6 +83,10 @@ for (const legacyFile of [
   'dsh-community-market/pnpm-workspace.yaml',
   'dsh-tokens-anywhere/pnpm-lock.yaml',
   'dsh-tokens-anywhere/pnpm-workspace.yaml',
+  'dsh-acp-bridge/pnpm-lock.yaml',
+  'dsh-acp-bridge/pnpm-workspace.yaml',
+  'dsh-acp-bridge/yarn.lock',
+  'dsh-acp-bridge/.yarnrc.yml',
 ]) {
   if (existsSync(resolve(root, legacyFile))) fail(`${legacyFile} must not exist`)
 }
@@ -100,6 +108,7 @@ for (const [owner, manifest] of [
   ['fabric', fabric],
   ['market', market],
   ['tokens anywhere', tokensAnywhere],
+  ['ACP bridge', acpBridge],
 ]) {
   for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'resolutions']) {
     for (const [name, range] of Object.entries(manifest[field] ?? {})) {

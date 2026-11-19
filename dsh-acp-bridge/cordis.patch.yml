@@ -1,0 +1,4 @@
+- insert:
+    - id: agents-anywhere-acp-bridge
+      name: '@agents-anywhere/dsh-acp-bridge'
+      config: {}

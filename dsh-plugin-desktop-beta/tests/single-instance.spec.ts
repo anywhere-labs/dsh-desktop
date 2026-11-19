@@ -39,4 +39,19 @@ describe('desktop single-instance ownership', () => {
     secondInstance?.()
     expect(focus).toHaveBeenCalledOnce()
   })
+
+  it('leaves the windows alone when a launcher only needs the instance running', () => {
+    let secondInstance: ((event?: unknown, argv?: string[]) => void) | undefined
+    const focus = vi.fn()
+    const application = {
+      requestSingleInstanceLock: () => true,
+      quit: vi.fn(),
+      on: vi.fn((_event: 'second-instance', listener: (event?: unknown, argv?: string[]) => void) => { secondInstance = listener }),
+    } satisfies DesktopSingleInstanceApplication
+
+    expect(claimDesktopSingleInstance(application, focus)).toBe(true)
+    secondInstance?.({}, ['/Applications/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta', '--next-background'])
+    expect(focus).not.toHaveBeenCalled()
+    expect(application.quit).not.toHaveBeenCalled()
+  })
 })

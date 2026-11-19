@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "ACP 接入",
+    "description": "通过 ACP 将应用、脚本和自动化工具接入 DSH，共用会话、模型与工具。支持 stdio 启动脚本和公开的本机 RPC 客户端接口。"
+  }
+}

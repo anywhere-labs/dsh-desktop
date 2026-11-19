@@ -1,5 +1,6 @@
 /** Electron single-instance ownership before any Desktop profile lifecycle begins. */
 import { isDesktopInstallerQuitRequest } from '../../dsh-plugin-desktop/src/desktop-installer-quit.ts'
+import { BACKGROUND_ARGUMENT } from './relaunch.ts'
 
 /** Minimal Electron application operations needed for instance ownership. */
 export interface DesktopSingleInstanceApplication {
@@ -26,7 +27,8 @@ export function claimDesktopSingleInstance(
   if (isDesktopInstallerQuitRequest(invocation.argv, invocation.platform)) { application.quit(); return false }
   application.on('second-instance', (_event, argv = []) => {
     if (isDesktopInstallerQuitRequest(argv, invocation.platform)) application.quit()
-    else focusOwner()
+    // A launcher that only needs DSH running (the ACP bridge's, for an editor) leaves the windows alone.
+    else if (!argv.includes(BACKGROUND_ARGUMENT)) focusOwner()
   })
   return true
 }
