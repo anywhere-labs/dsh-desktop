@@ -104,9 +104,10 @@ export class NextUpdates {
     })().finally(() => { this.operation = undefined; this.controller = undefined })
     return this.operation
   }
-  /** Request options naming this Mac's CPU; unchanged where the platform names none. */
+  /** Request options naming the CPU of this Mac or Windows build; unchanged where the platform names none. */
   private withArch(init: RequestInit): RequestInit {
-    return this.options.platform !== 'darwin' || this.options.arch === undefined ? init : withUpdateArch(init, this.options.arch)
+    return (this.options.platform !== 'darwin' && this.options.platform !== 'win32') || this.options.arch === undefined
+      ? init : withUpdateArch(init, this.options.arch)
   }
   private async query(signal: AbortSignal): Promise<UpdateCheckResult | null> {
     let installationId
@@ -159,7 +160,7 @@ export class NextUpdates {
         const directory = this.directory = await mkdtemp(join(downloads, 'download-'))
         this.set({ phase: 'downloading', version: result.latestVersion, received: 0, total: undefined })
         let lastProgress = 0
-        const path = await downloadDesktopUpdate({ platform, arch, version: result.latestVersion, channel: 'beta',
+        const path = await downloadDesktopUpdate({ platform, version: result.latestVersion, channel: 'beta',
           destinationPath: join(directory, desktopUpdateFilename(platform, result.latestVersion, 'beta', arch)),
           request: (url, init) => this.options.artifactRequest(url, this.withArch(init)), expectedSha256: result.installerSha256?.[platform],
           signal: AbortSignal.any([signal, AbortSignal.timeout(60 * 60_000)]), onProgress: (received, total) => {
