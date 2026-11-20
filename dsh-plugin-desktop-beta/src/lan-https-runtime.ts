@@ -1,14 +1,12 @@
 /** Generation-scoped owner for the optional Desktop LAN HTTPS edge. */
 
 import type { DesktopLanHttpsCertificate } from './lan-https-certificate.ts'
+export { DESKTOP_LAN_HTTPS_CA_PATH } from './lan-https-ca-route.ts'
 import {
   LanHttpsIngress,
   type LanHttpsIngressSnapshot,
   type LanHttpsIngressState,
 } from './lan-https-ingress.ts'
-
-/** Public CA download path served through the Desktop Web carrier and HTTPS edge. */
-export const DESKTOP_LAN_HTTPS_CA_PATH = '/.well-known/dsh-desktop-ca.crt'
 
 /** Renderer-safe state for an available, inactive, or failed LAN HTTPS edge. */
 export interface DesktopLanHttpsRuntimeSnapshot {
@@ -112,6 +110,7 @@ export class DesktopLanHttpsRuntime {
       requestedPort: this.requestedPort,
       key: certificate.key,
       cert: certificate.cert,
+      caCertificate: certificate.caCertificate,
       caFingerprint: certificate.caFingerprint,
       allowedAddresses: certificate.addresses,
     })

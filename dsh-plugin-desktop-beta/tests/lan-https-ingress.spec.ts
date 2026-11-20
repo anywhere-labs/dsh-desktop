@@ -95,6 +95,7 @@ function options(targetPort: number, overrides: Partial<LanHttpsIngressOptions> 
     requestedPort: 0,
     key: leafPrivateKey,
     cert: leafCertificate,
+    caCertificate,
     caFingerprint: createHash('sha256').update(caCertificate).digest('hex'),
     allowedAddresses: [LAN_ADDRESS],
     ...overrides,
@@ -224,6 +225,77 @@ describe('LAN HTTPS ingress', () => {
     expect(chunks.join('')).toBe('data: first\n\ndata: second\n\n')
   })
 
+  it('serves the CA download from the HTTPS edge without proxying it to the loopback Host', async () => {
+    let backendHits = 0
+    const backend = createServer((_request, response) => {
+      backendHits += 1
+      response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+      response.end('not found')
+    })
+    auxiliaryServers.push(backend)
+    const ingress = await startIngress(await listen(backend))
+
+    const result = await httpsCall(ingress, '/.well-known/dsh-desktop-ca.crt')
+
+    expect(result.statusCode).toBe(200)
+    expect(result.headers).toMatchObject({
+      'content-type': 'application/x-x509-ca-cert',
+      'content-disposition': 'attachment; filename="dsh-desktop-ca.crt"',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+      'content-length': String(Buffer.byteLength(caCertificate)),
+    })
+    expect(result.body.toString('utf8')).toBe(caCertificate)
+    expect(backendHits).toBe(0)
+  })
+
+  it('supports HEAD but rejects unsafe methods for the CA download without proxying', async () => {
+    let backendHits = 0
+    const backend = createServer((_request, response) => {
+      backendHits += 1
+      response.end('unexpected')
+    })
+    auxiliaryServers.push(backend)
+    const ingress = await startIngress(await listen(backend))
+
+    const head = await httpsCall(ingress, '/.well-known/dsh-desktop-ca.crt', { method: 'HEAD' })
+    const post = await httpsCall(ingress, '/.well-known/dsh-desktop-ca.crt', { method: 'POST', body: 'ignored' })
+
+    expect(head.statusCode).toBe(200)
+    expect(head.headers).toMatchObject({
+      'content-type': 'application/x-x509-ca-cert',
+      'content-length': String(Buffer.byteLength(caCertificate)),
+    })
+    expect(head.body).toEqual(Buffer.alloc(0))
+    expect(post.statusCode).toBe(405)
+    expect(post.headers.allow).toBe('GET, HEAD')
+    expect(post.headers['content-length']).toBe('0')
+    expect(post.body).toEqual(Buffer.alloc(0))
+    expect(backendHits).toBe(0)
+  })
+
+  it('only handles the exact CA path at the HTTPS edge', async () => {
+    const observedPaths: string[] = []
+    const backend = createServer((request, response) => {
+      observedPaths.push(request.url ?? '')
+      response.end(`upstream:${request.url ?? ''}`)
+    })
+    auxiliaryServers.push(backend)
+    const ingress = await startIngress(await listen(backend))
+    const paths = [
+      '/.well-known/dsh-desktop-ca.crt?download=1',
+      '/.well-known%2Fdsh-desktop-ca.crt',
+      '/.well-known/dsh-desktop-ca.crt/',
+    ]
+
+    for (const path of paths) {
+      const result = await httpsCall(ingress, path)
+      expect(result.statusCode).toBe(200)
+      expect(result.body.toString('utf8')).toBe(`upstream:${path}`)
+    }
+    expect(observedPaths).toEqual(paths)
+  })
+
   it('streams a large request body and preserves browser authority while removing spoofable identity headers', async () => {
     let receivedHeaders: IncomingHttpHeaders | undefined
     const backend = createServer((request, response) => {
@@ -310,8 +382,8 @@ describe('LAN HTTPS ingress', () => {
     auxiliaryServers.push(backend)
     const ingress = await startIngress(await listen(backend))
 
-    const wrongHost = await httpsCall(ingress, '/', { headers: { host: '192.168.50.99' } })
-    const crossSite = await httpsCall(ingress, '/', { headers: { 'sec-fetch-site': 'cross-site' } })
+    const wrongHost = await httpsCall(ingress, '/.well-known/dsh-desktop-ca.crt', { headers: { host: '192.168.50.99' } })
+    const crossSite = await httpsCall(ingress, '/.well-known/dsh-desktop-ca.crt', { headers: { 'sec-fetch-site': 'cross-site' } })
 
     expect(wrongHost.statusCode).toBe(403)
     expect(wrongHost.body.toString('utf8')).toBe('forbidden')
