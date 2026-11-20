@@ -152,7 +152,10 @@ export async function checkForDesktopUpdate(
   } catch {
     return null
   }
-  if (response.status !== 200) return null
+  if (response.status !== 200) {
+    await response.body?.cancel().catch(() => undefined)
+    return null
+  }
 
   let body: string
   try {
@@ -222,6 +225,7 @@ async function readLimitedBody(response: Response): Promise<string> {
   if (declaredLength !== null
     && /^[0-9]+$/u.test(declaredLength)
     && BigInt(declaredLength) > BigInt(MAX_VERSION_RESPONSE_BYTES)) {
+    await response.body?.cancel().catch(() => undefined)
     throw new Error('version response is too large')
   }
 
@@ -236,12 +240,14 @@ async function readLimitedBody(response: Response): Promise<string> {
       if (chunk.done) break
       bytesRead += chunk.value.byteLength
       if (bytesRead > MAX_VERSION_RESPONSE_BYTES) {
-        await reader.cancel().catch(() => undefined)
         throw new Error('version response is too large')
       }
       body += decoder.decode(chunk.value, { stream: true })
     }
     return body + decoder.decode()
+  } catch (cause) {
+    await reader.cancel().catch(() => undefined)
+    throw cause
   } finally {
     reader.releaseLock()
   }
