@@ -1,5 +1,5 @@
 /** Shared Web profile runner, hosted by an Electron Node-mode child. */
-import { auditHostPlugins, configureHostLogging, hostLog, hostOperation } from './logging.ts'
+import { auditHostPlugins, configureHostLogging, hostHealth, hostLog, hostOperation } from './logging.ts'
 import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
@@ -82,7 +82,7 @@ export async function main(): Promise<void> {
     process.send(value, error => error ? reject(error) : resolveSend())
   })
   // Announced before the profile starts, so a startup failure and this run's plugin operations share one run identity.
-  const operations = hostOperationDiagnostics?.(send)
+  const operations = hostOperationDiagnostics?.(send, (key, active) => { hostHealth.activity(key, active) })
   const application = runProfile({
     environment, profile: basename(projectDir),
     resolvedProfile: { profile, installAnchor: NEXT_PACKAGE,
@@ -97,7 +97,7 @@ export async function main(): Promise<void> {
   // Memory evidence for the Desktop's incident snapshots. Pushed rather than requested, so a Host too
   // busy or too short of memory to answer still leaves its last reading behind (#1511).
   const memory = setInterval(() => {
-    try { void send({ type: 'memory', ...hostMemoryUsage(process.memoryUsage()) }).catch(() => {}) }
+    try { void send({ type: 'memory', ...hostMemoryUsage(process.memoryUsage()), eventLoopUtilization: hostHealth.sample() }).catch(() => {}) }
     catch { /* A failed reading drops only this sample. */ }
   }, MEMORY_SAMPLE_INTERVAL_MS)
   memory.unref()
@@ -106,6 +106,7 @@ export async function main(): Promise<void> {
   const stop = (): Promise<void> => stopping ??= (async () => {
     const end = hostOperation('host', 'shutdown')
     clearInterval(memory)
+    hostHealth.stop()
     accountWatch.abort()
     await dragResources?.stop()
     const running = await application.catch(() => undefined)

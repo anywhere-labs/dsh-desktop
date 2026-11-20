@@ -24,6 +24,7 @@ let runner
 let registry
 /** Every Platform grant the Hosts published to the shell, in order. */
 const platformSessions = []
+const operationRecords = []
 const pnpmInvocation = { command: executable, args: ['--expose-internals', bundledPnpmEntry(NEXT_PACKAGE)], env: {
   ELECTRON_RUN_AS_NODE: '1', DSH_DESKTOP_NODE_EXECUTABLE: executable,
   PATH: `${join(root, 'scripts', 'node-bin')}${delimiter}${process.env.PATH ?? ''}`,
@@ -32,7 +33,10 @@ async function boot(name) {
   host = new DesktopHostProcess(executable, root, manager.directory(name), undefined,
     { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' }, undefined, undefined, undefined,
     join(root, 'scripts', 'fixtures', 'isolated-user-host.mjs'), () => {}, undefined, undefined, undefined, undefined,
-    session => { platformSessions.push(session) })
+    session => { platformSessions.push(session) }, undefined, undefined, { operation: message => {
+      if (message?.type === 'plugin-operation') operationRecords.push(message.record)
+      return message?.type === 'starting' || message?.type === 'plugin-operation'
+    } })
   let timer
   const ready = await Promise.race([
     host.start(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Next Host smoke exceeded 60 seconds')), 60_000) }),
@@ -236,6 +240,8 @@ try {
   }
   await rpc('setBundleEnabled', { name: packages[2], enabled: false })
   await stop()
+  assert.ok(operationRecords.some(record => record.operation?.phase === 'settled'),
+    'Real Host plugin operations must deliver settled records for standard summaries through IPC')
   ;({ origin, cookie } = await boot('desktop'))
   assert.equal((await rpc('create', { request: { path: workspacePath } }, 'workspace')).workspace.id, createdWorkspace.workspace.id)
   assert.ok((await rpc('list', { _request: {} }, 'session')).items.some(item => item.sessionId === createdSession.sessionId),

@@ -107,7 +107,7 @@ export class NextDesktopRuntime {
     this.recovery = new NextRecovery(this.profiles)
     this.settings = new DesktopPreferenceStore(options.stateHome ?? options.home, this.preferenceWarning)
     this.diagnostics = new DesktopDiagnostics(options.home)
-    this.operationHistory = createOperationHistory?.(join(dirname(this.diagnostics.file), 'plugin-operations'))
+    this.operationHistory = createOperationHistory?.(join(dirname(this.diagnostics.file), 'plugin-operations'), input => this.diagnostics.record(input))
     this.memory = new DesktopMemoryMonitor({ probe: options.memoryProbe,
       record: input => { this.diagnostics.record(input) }, flush: () => { this.diagnostics.flush() } })
     this.backend = new DesktopBackendController(onFailure => this.createHost(onFailure), state => {
@@ -559,7 +559,7 @@ export class NextDesktopRuntime {
         ...(this.safeMode ? { DSH_TELEMETRY_DISABLED: '1' } : {}) },
       onFailure, options.primaryRuntime, undefined, join(options.root, 'lib', 'host.js'), options.onRestart, options.onNotification,
       (chunk, stream, pid) => this.diagnostics.hostChunk(chunk, stream, pid), options.onTerminal, options.onPermission, options.onPlatformSession, options.onPlatformLogin,
-      input => { if (input.event === 'exit') this.diagnostics.hostClosed(input.pid); this.diagnostics.record(input) },
+      input => { if (input.event === 'spawn') this.memory.hostStarted(input.pid); if (input.event === 'exit') this.diagnostics.hostClosed(input.pid); this.diagnostics.record(input) },
       { memory: (usage, pid) => { this.memory.hostMemory(usage, pid) }, exited: (exit, pid) => { this.memory.hostExited(exit, pid) },
         ...(this.operationHistory === undefined ? {} : { operation: this.operationHistory.host() }) })
     this.hostProcess = host

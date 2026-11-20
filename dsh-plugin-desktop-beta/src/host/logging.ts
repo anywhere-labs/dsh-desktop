@@ -1,5 +1,7 @@
 /** Observe official logging and event seams without changing their results or stream lifetime. */
 import { recordOfficialInspector, recordOfficialPluginInventory } from './official-diagnostics.ts'
+import { TurnDiagnostics, observeMcp } from './default-diagnostics.ts'
+import { HostHealth } from './health.ts'
 import { randomUUID } from 'node:crypto'
 import { Logger, type Context, type Exporter, type Message } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
@@ -12,6 +14,8 @@ import type { DesktopPreferences } from '../desktop-contract.ts'
 
 let preferences: Pick<DesktopPreferences, 'developerLogging' | 'logLevel'> = { developerLogging: false, logLevel: 'info' }
 let loggingContext: Context | undefined
+/** The Host's stall sampler: the logging plugin starts it, the 30-second memory push reads it. */
+export const hostHealth = new HostHealth(hostLog)
 let blocked = false
 let dropped = 0
 export function configureHostLogging(value: Pick<DesktopPreferences, 'developerLogging' | 'logLevel'>): void {
@@ -36,7 +40,13 @@ export function hostLog(input: LogInput): void {
   } catch { /* Diagnostics must never change the observed application. */ }
 }
 
-export function hostOperation(source: string, event: string, fields?: LogInput['fields'], developer = false) {
+/**
+ * Record the start and end of one operation.
+ * @param developer - Record the start and a successful end only with developer logging.
+ * @param failureDeveloper - Record a failure only with developer logging too, when a summary in the standard log counts it.
+ * @returns Ends the operation, with the error it failed with.
+ */
+export function hostOperation(source: string, event: string, fields?: LogInput['fields'], developer = false, failureDeveloper = false) {
   const operationId = randomUUID()
   const started = Date.now()
   hostLog({ source, event: `${event}.start`, fields, operationId, developer })
@@ -46,7 +56,7 @@ export function hostOperation(source: string, event: string, fields?: LogInput['
     finished = true
     hostLog({ source, event: `${event}.${error === undefined ? 'complete' : 'failed'}`, operationId,
       fields: { ...fields, ...result, durationMs: Date.now() - started },
-      level: error === undefined ? 'info' : 'error', developer: error === undefined && developer, error })
+      level: error === undefined ? 'info' : 'error', developer: (error === undefined || failureDeveloper) && developer, error })
   }
 }
 
@@ -73,6 +83,10 @@ export function auditHostPlugins(ctx: Context): void {
 
 /** Resources follow the capabilities fiber across reload and shutdown. */
 export function installHostLogging(ctx: Context): void {
+  hostHealth.start()
+  const turns = new TurnDiagnostics(hostLog, hostHealth)
+  observeMcp(ctx, hostLog)
+  ctx.effect(() => () => { turns.clear(); hostHealth.stop() }, 'Next Host health')
   loggingContext = ctx
   ctx.effect(() => () => { if (loggingContext === ctx) loggingContext = undefined }, 'Next logging context')
   ctx.inject(['inspector'], child => {
@@ -88,9 +102,11 @@ export function installHostLogging(ctx: Context): void {
     hostLog({ source: 'host.plugins', event: 'plugin.state', developer: true,
       fields: { pluginId: entry.id, module: entry.options.name, previous, state: fiber.state } })
   })
+  // Once per failure that ends a step or turn, with the error itself; `host.health turn.summary` adds the failed requests.
   ctx.on('agent/error', ({ agent, turn, step, error }) => hostLog({ source: 'host.agent', event: 'agent.failed',
     level: 'error', fields: { sessionId: String(agent.id), turn, step }, error }))
   ctx.on('agent/request-error', async ({ agent, turn, step, provider, failure }, next) => {
+    turns.failure(String(agent.id), turn, failure.code)
     hostLog({ source: 'host.llm', event: 'request.attempt-failed', level: 'warn', fields: {
       sessionId: String(agent.id), turn, step, provider, failureCode: failure.code }, developer: true })
     const action = await next()
@@ -99,9 +115,11 @@ export function installHostLogging(ctx: Context): void {
     return action
   })
   ctx.on('llm/stream', async function* (options, next) {
+    // A running turn's own requests are counted in its summary; auxiliary ones (titles, compaction, review) are not.
+    const summarized = options.purpose === undefined && options.sessionId !== undefined && turns.active(String(options.sessionId))
     const end = hostOperation('host.llm', 'request', { provider: options.provider, model: options.model,
       sessionId: options.sessionId ? String(options.sessionId) : null, purpose: options.purpose ?? null,
-      messageCount: options.messages.length, toolCount: options.tools?.length ?? 0 }, true)
+      messageCount: options.messages.length, toolCount: options.tools?.length ?? 0 }, true, summarized)
     let outcome = 'consumer-closed'
     let chunks = 0
     let failed = false
@@ -135,7 +153,13 @@ export function installHostLogging(ctx: Context): void {
     }
   })
   ctx.inject(['sessions'], child => {
+    child.on('session/disposed', session => turns.remove(String(session.header.id)))
     child.on('session/event', (session, event) => {
+      if (event.type === 'turn/start') turns.start(String(session.header.id), event.data.turn)
+      if (event.type === 'turn/end') turns.end(String(session.header.id), event.data.turn, event.data.reason.kind,
+        event.data.reason.kind === 'error' ? { code: event.data.reason.error.code, status: event.data.reason.error.status } : undefined)
+      // Everything below is developer-only; skip building it.
+      if (!preferences.developerLogging) return
       const coordinates = { sessionId: String(session.header.id), sessionEventType: event.type,
         sessionSequence: event.seq, sessionTime: event.time }
       if (event.type === 'turn/start' || event.type === 'turn/end' || event.type === 'step/start' || event.type === 'step/end') {

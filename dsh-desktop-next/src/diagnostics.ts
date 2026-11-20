@@ -17,8 +17,11 @@ const MAX_PENDING = 1024 * 1024
 const FLUSH_DELAY_MS = 200
 /** The readable copy is rewritten at most this often, and at once when the run ends or the log directory is opened. */
 export const READABLE_INTERVAL_MS = 5_000
-/** Lines that plugins control: Host process output, plugin loggers and client reports. Repeats fold and each source is rate-limited. */
-const LIMITED_SOURCE = /^(?:host\.(?:stdout|stderr|kernel\.)|renderer\.client$)/u
+/**
+ * Lines that plugins control: Host process output, plugin loggers, client reports and the Host health records that
+ * plugins trigger (MCP servers, turns, stalls). Repeats fold and each source is rate-limited.
+ */
+const LIMITED_SOURCE = /^(?:host\.(?:stdout|stderr|health$|kernel\.)|renderer\.client$)/u
 
 /** Readable lines of the current run, oldest first, within a character budget; a single longer line is kept whole. */
 class TextTail {

@@ -48,3 +48,18 @@ it('reports a pending count when its line is pushed out of the recent lines', ()
   limiter.admit(line('beta'), 2)
   expect(limiter.admit(line('gamma'), 3)).toEqual([expect.objectContaining({ event: 'output.repeated', message: 'alpha', fields: expect.objectContaining({ repeats: 1 }) }), line('gamma')])
 })
+
+it('folds structured lines only with the same text fields, and keeps those fields on the count', () => {
+  const limiter = new LogLimiter()
+  const status = (server: string, lastError: string): LogInput => ({ source: 'host.health', event: 'mcp.failed', level: 'warn', message: `MCP server ${server}: connection failed; retrying`,
+    fields: { server, lastError, attempt: 1 } })
+  expect(limiter.admit(status('github', 'connect ECONNREFUSED 127.0.0.1:8931'), 0)).toHaveLength(1)
+  // Another server is another line; the same server failing on another port is a repeat.
+  expect(limiter.admit(status('linear', 'connect ECONNREFUSED 127.0.0.1:8931'), 1)).toHaveLength(1)
+  expect(limiter.admit(status('github', 'connect ECONNREFUSED 127.0.0.1:8932'), 2)).toEqual([])
+  const kernel = (pluginId: string): LogInput => ({ source: 'host.kernel.loader', event: 'log', level: 'warn', message: 'apply failed', fields: { pluginId, hostSequence: 4 } })
+  expect(limiter.admit(kernel('include:a'), 3)).toHaveLength(1)
+  expect(limiter.admit(kernel('include:b'), 4)).toHaveLength(1)
+  expect(limiter.drain(minute + 3, true)).toEqual([expect.objectContaining({ source: 'host.health', event: 'mcp.failed.repeated',
+    fields: { server: 'github', lastError: 'connect ECONNREFUSED 127.0.0.1:8931', repeats: 1, from: new Date(0).toISOString(), to: new Date(2).toISOString() } })])
+})

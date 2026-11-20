@@ -1,6 +1,7 @@
 /**
  * Bounds what plugin-controlled sources (Host process output and plugin loggers) can write. A line that
- * repeats one of the source's recent lines is counted instead of written. The count is written as a
+ * repeats one of the source's recent lines (same level, event, message and string fields, digits aside)
+ * is counted instead of written. The count is written as a
  * `<event>.repeated` record one minute after the line first appeared, five minutes after that and then
  * every fifteen minutes while it keeps repeating; a line quiet for its current interval is forgotten, so
  * its next occurrence is written in full. Each source also spends from a token bucket; lines beyond it
@@ -47,10 +48,18 @@ interface Source {
 }
 
 const MESSAGE_KEY_CHARS = 512
+const FIELD_KEY_CHARS = 256
+
+/** Text fields name what a structured line is about (a plugin, server or session); numbers are measurements. */
+function identity(input: LogInput): Record<string, string> {
+  return Object.fromEntries(Object.entries(input.fields ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+}
 
 /** Digits vary between otherwise identical lines (counters, ports, timestamps), so they do not make a line new. */
 function lineKey(input: LogInput): string {
-  return `${input.level ?? 'info'}\u0000${input.event}\u0000${(input.message ?? '').slice(0, MESSAGE_KEY_CHARS).replace(/\d+/gu, '#')}`
+  const text = [(input.message ?? '').slice(0, MESSAGE_KEY_CHARS),
+    ...Object.entries(identity(input)).map(([key, value]) => `${key}=${value.slice(0, FIELD_KEY_CHARS)}`)].join('\u0000')
+  return `${input.level ?? 'info'}\u0000${input.event}\u0000${text.replace(/\d+/gu, '#')}`
 }
 
 function iso(time: number): string { return new Date(time).toISOString() }
@@ -154,8 +163,7 @@ export class LogLimiter {
       source: repeat.input.source, event: `${repeat.input.event}.repeated`, level: repeat.input.level ?? 'info',
       ...(repeat.input.message === undefined ? {} : { message: repeat.input.message }),
       ...(repeat.input.pid === undefined ? {} : { pid: repeat.input.pid }),
-      fields: { repeats: repeat.count, from: iso(repeat.since), to: iso(repeat.last),
-        ...(repeat.input.fields?.pluginId === undefined ? {} : { pluginId: repeat.input.fields.pluginId }) },
+      fields: { ...identity(repeat.input), repeats: repeat.count, from: iso(repeat.since), to: iso(repeat.last) },
     }
     repeat.count = 0; repeat.since = now
     return record

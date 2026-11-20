@@ -31,9 +31,11 @@ const MAX_PENDING_DELIVERIES = 32
  * @param send - IPC transport promise which settles when delivery succeeds or fails.
  * @param maxPending - Maximum number of outstanding deliveries; excess events are counted and omitted.
  * @param runId - Host lifetime identity announced before profile startup.
+ * @param activity - Told when an operation or command starts and ends; the Host samples its event loop faster meanwhile.
  */
 export function installOperationDiagnostics(
   ctx: Context, send: (record: OperationRecord) => Promise<void>, maxPending: number, runId: PluginOperationRunId,
+  activity?: (key: string, active: boolean) => void,
 ): void {
   if (!Number.isSafeInteger(maxPending) || maxPending < 1) throw new RangeError('Invalid diagnostic delivery budget')
   const pending = new Set<Promise<void>>()
@@ -52,9 +54,11 @@ export function installOperationDiagnostics(
     void delivery.then(() => { pending.delete(delivery) })
   }
   ctx.on('plugin-manager/operation', (operation) => {
+    activity?.(`operation:${operation.id}`, operation.phase === 'started')
     deliver(transportDropped => parsePluginOperationRecord({ runId, operation, transportDropped }))
   })
   ctx.on('desktop/plugin-command', (pluginCommand) => {
+    activity?.(`command:${pluginCommand.id}`, pluginCommand.phase === 'started')
     deliver(transportDropped => parsePluginCommandRecord({ runId, pluginCommand, transportDropped }))
   })
   ctx.effect(() => async () => {
@@ -67,15 +71,16 @@ export function installOperationDiagnostics(
  * Announce this Host run to the shell before the profile starts, so a startup failure and the run's
  * records share one identity.
  * @param send - IPC transport promise which settles when delivery succeeds or fails.
+ * @param activity - Told when an operation or command starts and ends.
  * @returns Installs the observation on the booted application's context.
  */
-export function hostOperationDiagnostics(send: (message: object) => Promise<void>): { observe(ctx: Context): void } {
+export function hostOperationDiagnostics(send: (message: object) => Promise<void>, activity?: (key: string, active: boolean) => void): { observe(ctx: Context): void } {
   const runId = randomUUID() as PluginOperationRunId
   // The shell drops records of a run it never saw announced, so a lost announcement loses only this run's records.
   void send({ type: 'starting', runId }).catch(() => {})
   return {
     observe(ctx) {
-      installOperationDiagnostics(ctx, record => send({ type: 'plugin-operation', record }), MAX_PENDING_DELIVERIES, runId)
+      installOperationDiagnostics(ctx, record => send({ type: 'plugin-operation', record }), MAX_PENDING_DELIVERIES, runId, activity)
     },
   }
 }

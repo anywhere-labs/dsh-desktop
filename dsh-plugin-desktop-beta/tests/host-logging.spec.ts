@@ -146,3 +146,64 @@ it('records lightweight plugin state transitions directly from fiber entry witho
     fields: { pluginId: 'plugin-a', module: 'example-module', previous: 1, state: 2 },
   })
 })
+
+it('summarizes a running turn\'s failed requests once and keeps the error that ended it, without prompts', async () => {
+  const { ctx, records, dispatch } = await environment(false)
+  ctx.provide('sessions', {} as never)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const session = { header: { id: 'a' } } as never
+  ctx.emit('session/event', session, { type: 'turn/start', seq: 1, time: 1, data: { turn: 1 } } as never)
+  for (let i = 0; i < 5; i++) await dispatch('agent/request-error', { agent: { id: 'a' }, turn: 1, step: 1, provider: 'test', failure: { code: 'NETWORK', message: 'socket hang up' } }, async () => ({ kind: 'retry' }))
+  const request = { provider: 'test', model: 'example', sessionId: 'a', messages: [{ role: 'user', content: 'private prompt' }] }
+  const failed = dispatch('llm/stream', request, async function* () { throw new Error('socket hang up') })
+  await expect(failed.next()).rejects.toThrow('socket hang up')
+  expect(records()).toEqual([])
+  // Auxiliary requests are not part of the turn's summary, so their failures stay in the standard log.
+  const title = dispatch('llm/stream', { ...request, purpose: 'session-title' }, async function* () { throw new Error('title failed') })
+  await expect(title.next()).rejects.toThrow('title failed')
+  ctx.emit('agent/error', { agent: { id: 'a' }, turn: 1, step: 1, error: new Error('Provider failed: Authorization: Bearer private-value') } as never)
+  ctx.emit('session/event', session, { type: 'turn/end', seq: 9, time: 9, data: { turn: 1, reason: { kind: 'error', error: { code: 'NETWORK', message: 'socket hang up', status: 503 } } } } as never)
+  expect(records().map(record => `${record.source} ${record.event}`)).toEqual(['host.llm request.failed', 'host.agent agent.failed', 'host.health turn.summary'])
+  expect(records()[0]).toMatchObject({ level: 'error', fields: { purpose: 'session-title' }, error: { message: 'title failed' } })
+  expect(records()[1]).toMatchObject({ level: 'error', fields: { sessionId: 'a', turn: 1 }, error: { message: 'Provider failed: Authorization: Bearer ****' } })
+  expect(records()[2]).toMatchObject({ level: 'error', message: 'Turn failed: NETWORK', fields: { sessionId: 'a', turn: 1, outcome: 'error', modelFailures: 5, failureCode: 'NETWORK', failureStatus: 503 } })
+  expect(JSON.stringify(records())).not.toContain('private')
+})
+
+it('records an MCP outage once with its last error, the end of retries and the recovery, and forgets removed servers', async () => {
+  const { ctx, records } = await environment(false)
+  let stopped = false
+  const snapshots: ((servers: { name: string }[] | undefined) => void)[] = []
+  ctx.provide('mcpManager', {
+    list: () => [{ name: 'early', status: { state: 'failed', reason: 'gave-up', lastError: 'spawn npx ENOENT' } }],
+    async *watch(signal: AbortSignal) {
+      signal.addEventListener('abort', () => { stopped = true; snapshots.splice(0).forEach(resolve => resolve(undefined)) }, { once: true })
+      while (!signal.aborted) {
+        const servers = await new Promise<{ name: string }[] | undefined>(resolve => { snapshots.push(resolve) })
+        if (servers === undefined) return
+        yield servers
+      }
+    },
+  } as never)
+  const tick = () => new Promise(resolve => setTimeout(resolve, 0))
+  await tick()
+  const status = (value: object, server = 'github') => ctx.emit('mcp-manager/status', server, value as never)
+  for (let attempt = 1; attempt < 10; attempt++) {
+    status({ state: 'reconnecting', attempt, maxAttempts: 10, nextRetryAtMs: 0, lastError: 'connect ECONNREFUSED 127.0.0.1:8931; Authorization: Bearer private-value' })
+  }
+  status({ state: 'failed', reason: 'gave-up', lastError: 'connect ECONNREFUSED 127.0.0.1:8931' }); status({ state: 'failed', reason: 'gave-up' })
+  status({ state: 'connected', toolCount: 4, connectedAt: 0 }); status({ state: 'connected', toolCount: 4, connectedAt: 0 })
+  expect(records().map(record => `${record.fields.server} ${record.event}`)).toEqual(['early mcp.gave-up', 'github mcp.failed', 'github mcp.gave-up', 'github mcp.recovered'])
+  expect(records()[1]).toMatchObject({ source: 'host.health', level: 'warn', message: 'MCP server github: connection failed; retrying',
+    fields: { state: 'reconnecting', attempt: 1, maxAttempts: 10, lastError: 'connect ECONNREFUSED 127.0.0.1:8931; Authorization: Bearer ****' } })
+  expect(records()[3]).toMatchObject({ level: 'info', fields: { state: 'connected', toolCount: 4 } })
+  expect(JSON.stringify(records())).not.toContain('private-value')
+  // A server removed during an outage starts clean when one is added again under its name.
+  status({ state: 'waiting-credentials', lastError: 'OAuth sign-in required' }, 'linear')
+  snapshots.shift()!([{ name: 'github' }])
+  await tick()
+  status({ state: 'connected', toolCount: 1, connectedAt: 0 }, 'linear')
+  expect(records().filter(record => record.fields.server === 'linear').map(record => record.event)).toEqual(['mcp.failed'])
+  await ctx.fiber.dispose()
+  expect(stopped).toBe(true)
+})
