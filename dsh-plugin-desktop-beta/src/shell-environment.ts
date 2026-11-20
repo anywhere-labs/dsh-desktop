@@ -10,12 +10,26 @@ import {
   scrubbedParentEnv,
 } from '@deepseek-ai/dsh-subprocess'
 
-const DEFAULT_CAPTURE_TIMEOUT_MS = 2_000
+/**
+ * Deadline that every candidate shell of one resolution shares: the time the official Desktop gives each
+ * candidate, here bounding all of them together.
+ */
+const DEFAULT_CAPTURE_TIMEOUT_MS = 10_000
 const MAX_CAPTURE_BYTES = 1024 * 1024
+
+/** System shells tried, in order, after the account's login shell, as in the official Desktop. */
+const FALLBACK_SHELLS: readonly string[] = ['/bin/zsh', '/bin/bash', '/bin/sh']
+
+/**
+ * Keeps oh-my-zsh update prompts and tmux autostart plugins from blocking a read without a terminal,
+ * as in the official Desktop. These names are never selected, so they stay out of the recovered exports.
+ */
+const PROBE_ENVIRONMENT = { DISABLE_AUTO_UPDATE: 'true', ZSH_TMUX_AUTOSTARTED: 'true', ZSH_TMUX_AUTOSTART: 'false' } as const
 
 const SUPPORTED_SHELL_ARGUMENTS = new Map<string, readonly string[]>([
   ['bash', ['-ilc']],
   ['fish', ['--login', '--interactive', '--command']],
+  ['sh', ['-ilc']],
   ['zsh', ['-ilc']],
 ])
 
@@ -68,21 +82,35 @@ export const DESKTOP_SHELL_ENVIRONMENT_KEYS: ReadonlySet<string> = new Set([
   'VOLTA_HOME',
 ])
 
+/** Why one candidate shell produced no usable environment. */
+export type DesktopShellCandidateFailureReason = 'unsupported-shell' | 'timed-out' | 'capture-failed' | 'missing-path'
+
+/** One candidate shell that produced no usable environment. */
+export interface DesktopShellCandidateFailure {
+  readonly shell: string
+  readonly reason: DesktopShellCandidateFailureReason
+}
+
 /** Environment updates recovered for the desktop Host. */
 export interface DesktopShellEnvironmentResolution {
   /** Selected entries to merge into `process.env`; inherited entries are omitted. */
   readonly updates: Readonly<Record<string, string>>
   /** Whether a login shell contributed any updates. */
   readonly source: 'process' | 'login-shell'
-  /** Stable diagnostic reason when the inherited process environment was retained. */
+  /** The shell whose exports were recovered. */
+  readonly shell?: string
+  /** Candidate shells that failed before the one used, or all of them, in the order tried. */
+  readonly failures?: readonly DesktopShellCandidateFailure[]
+  /**
+   * Stable diagnostic reason when the inherited process environment was retained: why the platform takes
+   * no login shell, `missing-shell` when the account names none, or why the account's own shell failed.
+   */
   readonly fallbackReason?:
     | 'not-packaged'
     | 'windows'
     | 'unsupported-platform'
     | 'missing-shell'
-    | 'unsupported-shell'
-    | 'capture-failed'
-    | 'missing-path'
+    | DesktopShellCandidateFailureReason
 }
 
 /** Inputs for {@link resolveDesktopShellEnvironment}. */
@@ -91,7 +119,11 @@ export interface ResolveDesktopShellEnvironmentOptions {
   readonly home: string
   readonly isPackaged: boolean
   readonly platform: NodeJS.Platform
+  /** The account's login shell; read from the account record, else `SHELL`, when omitted. */
   readonly shell?: string
+  /** Shells tried in order when the account's shell fails; `/bin/zsh`, `/bin/bash` and `/bin/sh` by default. */
+  readonly fallbackShells?: readonly string[]
+  /** Deadline shared by every candidate shell; 10 seconds by default. */
   readonly timeoutMs?: number
   readonly capture?: (shell: string, home: string, environment: NodeJS.ProcessEnv, timeoutMs: number) => Promise<NodeJS.ProcessEnv>
   /** Test seam for the official parent-environment scrub. */
@@ -128,11 +160,19 @@ export function parseShellEnvironment(payload: Buffer, startMarker: string, endM
 /**
  * Capture one interactive login shell's exported environment without accepting
  * startup-file stdout or stderr as environment records.
- * @param shell - Absolute zsh, bash, or fish executable.
+ *
+ * The capture completes at its end marker, as in the official Desktop: a program that a
+ * startup file starts in the background inherits the capture stream and can keep it open
+ * long after the shell exits. Such programs keep running, and the stream keeps draining so
+ * that their writes do not fail. A timeout or an oversized capture kills the shell's process
+ * group and settles without waiting for the stream to close.
+ * @param shell - Absolute zsh, bash, fish or sh executable.
  * @param home - Working directory for shell startup.
- * @param environment - Already-scrubbed environment inherited by the shell.
+ * @param environment - Already-scrubbed environment inherited by the shell; the capture adds
+ *   the variables that turn off oh-my-zsh update prompts and tmux autostart.
  * @param timeoutMs - Hard deadline before the shell is killed.
  * @returns Environment printed after the shell startup files finish.
+ * @throws An error named `TimeoutError` when the deadline passes first.
  */
 export async function captureLoginShellEnvironment(
   shell: string,
@@ -147,11 +187,12 @@ export async function captureLoginShellEnvironment(
   const nonce = randomBytes(16).toString('hex')
   const startMarker = `dsh-shell-env-start-${nonce}`
   const endMarker = `dsh-shell-env-end-${nonce}`
+  const endRecord = Buffer.from(`${endMarker}\0`)
   const command = `/usr/bin/printf '%s\\0' '${startMarker}'; /usr/bin/env -0; /usr/bin/printf '%s\\0' '${endMarker}'`
   const child = spawn(shell, [...shellArguments, command], {
     cwd: home,
     detached: true,
-    env: environment,
+    env: { ...environment, ...PROBE_ENVIRONMENT },
     stdio: ['ignore', 'pipe', 'ignore'],
     windowsHide: true,
   })
@@ -182,18 +223,22 @@ export async function captureLoginShellEnvironment(
   return await new Promise<NodeJS.ProcessEnv>((resolve, reject) => {
     const chunks: Buffer[] = []
     let byteLength = 0
-    let failure: Error | undefined
-    let reading = true
+    let settled = false
 
-    const stopReading = (): void => {
-      if (!reading) return
-      reading = false
+    const settle = (result: () => NodeJS.ProcessEnv): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
       output.off('data', accept)
+      try {
+        resolve(result())
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
     }
     const failAndKill = (error: Error): void => {
-      if (failure !== undefined) return
-      failure = error
-      stopReading()
+      if (settled) return
+      settle(() => { throw error })
       output.destroy()
       killShellTree()
     }
@@ -206,6 +251,10 @@ export async function captureLoginShellEnvironment(
           return
         }
         chunks.push(buffer)
+        const payload = Buffer.concat(chunks)
+        if (!payload.includes(endRecord)) return
+        settle(() => parseShellEnvironment(payload, startMarker, endMarker))
+        output.resume()
       } catch (error) {
         failAndKill(error instanceof Error ? error : new Error(String(error)))
       }
@@ -214,20 +263,10 @@ export async function captureLoginShellEnvironment(
     output.on('data', accept)
     child.once('error', failAndKill)
     const timer = setTimeout(() => {
-      failAndKill(new Error(`desktop shell environment timed out after ${String(timeoutMs)}ms`))
+      failAndKill(Object.assign(new Error(`desktop shell environment timed out after ${String(timeoutMs)}ms`), { name: 'TimeoutError' }))
     }, timeoutMs)
     child.once('close', () => {
-      clearTimeout(timer)
-      stopReading()
-      if (failure !== undefined) {
-        reject(failure)
-        return
-      }
-      try {
-        resolve(parseShellEnvironment(Buffer.concat(chunks), startMarker, endMarker))
-      } catch (error) {
-        reject(error instanceof Error ? error : new Error(String(error)))
-      }
+      settle(() => parseShellEnvironment(Buffer.concat(chunks), startMarker, endMarker))
     })
   })
 }
@@ -281,10 +320,18 @@ function resolveUserShell(options: ResolveDesktopShellEnvironmentOptions): strin
   return options.environment.SHELL
 }
 
+function supportedShell(shell: string): boolean {
+  return isAbsolute(shell) && SUPPORTED_SHELL_ARGUMENTS.has(basename(shell).toLowerCase())
+}
+
 /**
  * Resolve selected login-shell exports for a desktop Host launch.
+ *
+ * As in the official Desktop, the account's login shell is tried first and the system
+ * shells after it, until one prints a usable `PATH`; all of them share one deadline.
  * @param options - Platform, launch environment and optional capture seams.
- * @returns Updates for packaged Unix desktops, otherwise an empty update set.
+ * @returns Updates for packaged Unix desktops, otherwise an empty update set, with the
+ *   candidates that failed before. Never rejects; failures carry no shell output.
  */
 export async function resolveDesktopShellEnvironment(
   options: ResolveDesktopShellEnvironmentOptions,
@@ -295,25 +342,43 @@ export async function resolveDesktopShellEnvironment(
     return inheritedEnvironment('unsupported-platform')
   }
 
-  const shell = resolveUserShell(options)
-  if (shell === undefined || shell === '') return inheritedEnvironment('missing-shell')
-  if (!isAbsolute(shell) || !SUPPORTED_SHELL_ARGUMENTS.has(basename(shell).toLowerCase())) {
-    return inheritedEnvironment('unsupported-shell')
+  const account = resolveUserShell(options)
+  const failures: DesktopShellCandidateFailure[] = []
+  const candidates: string[] = []
+  if (account !== undefined && account !== '') {
+    if (supportedShell(account)) candidates.push(account)
+    else failures.push({ shell: account, reason: 'unsupported-shell' })
+  }
+  for (const shell of options.fallbackShells ?? FALLBACK_SHELLS) {
+    if (supportedShell(shell) && !candidates.includes(shell)) candidates.push(shell)
   }
 
-  try {
-    const scrubParent = options.scrubParent ?? scrubbedParentEnv
-    const captureEnvironment: NodeJS.ProcessEnv = {
-      ...scrubParent(),
-      HOME: options.home,
-      SHELL: shell,
+  const timeoutMs = options.timeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS
+  const capture = options.capture ?? captureLoginShellEnvironment
+  const scrubParent = options.scrubParent ?? scrubbedParentEnv
+  const startedAt = Date.now()
+  for (const [index, shell] of candidates.entries()) {
+    const remainingMs = index === 0 ? timeoutMs : timeoutMs - (Date.now() - startedAt)
+    // Candidates the shared deadline leaves no time for are not tried.
+    if (remainingMs <= 0) break
+    try {
+      const captureEnvironment: NodeJS.ProcessEnv = {
+        ...scrubParent(),
+        HOME: options.home,
+        SHELL: shell,
+      }
+      const captured = await capture(shell, options.home, captureEnvironment, remainingMs)
+      const updates = selectDesktopShellEnvironment(captured, options.environment)
+      if (updates.PATH !== undefined) {
+        return { updates, source: 'login-shell', shell, ...(failures.length === 0 ? {} : { failures }) }
+      }
+      failures.push({ shell, reason: 'missing-path' })
+    } catch (error) {
+      failures.push({ shell, reason: error instanceof Error && error.name === 'TimeoutError' ? 'timed-out' : 'capture-failed' })
     }
-    const capture = options.capture ?? captureLoginShellEnvironment
-    const captured = await capture(shell, options.home, captureEnvironment, options.timeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS)
-    const updates = selectDesktopShellEnvironment(captured, options.environment)
-    if (updates.PATH === undefined) return inheritedEnvironment('missing-path')
-    return { updates, source: 'login-shell' }
-  } catch {
-    return inheritedEnvironment('capture-failed')
   }
+  const fallbackReason = account === undefined || account === ''
+    ? 'missing-shell'
+    : failures.find(failure => failure.shell === account)?.reason ?? 'capture-failed'
+  return { updates: {}, source: 'process', fallbackReason, ...(failures.length === 0 ? {} : { failures }) }
 }

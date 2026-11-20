@@ -1336,7 +1336,9 @@ function prepareHostEnvironment(): Promise<void> {
     const fallbackLocale = ensureUtf8Locale(process.env, process.platform, app.getPreferredSystemLanguages())
     systemProxy = proxy.value
     runtime.diagnostics.record({ source: 'desktop', event: 'shell-environment.resolved', fields: { source: shell.value.source,
-      fallbackReason: shell.value.fallbackReason ?? null, recovered: Object.keys(shell.value.updates).join(' ') || null, fallbackLocale: fallbackLocale ?? null,
+      fallbackReason: shell.value.fallbackReason ?? null, shell: shell.value.shell ?? null,
+      shellFailures: shell.value.failures?.map(failure => `${failure.shell}: ${failure.reason}`).join(', ') ?? null,
+      recovered: Object.keys(shell.value.updates).join(' ') || null, fallbackLocale: fallbackLocale ?? null,
       shellMs: shell.ms, systemProxyMs: proxy.ms, systemProxyConfiguration: proxyConfiguration } })
   })()
 }
