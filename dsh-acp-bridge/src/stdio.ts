@@ -10,6 +10,7 @@
  */
 
 import { once } from 'node:events'
+import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
 import type { LogContext, LogLevel, RpcLogger } from 'meshcall'
 import { desktopLaunch, startDesktop, waitForDsh, type DesktopLaunch } from './autostart.js'
@@ -34,8 +35,14 @@ DSH 需要已启用插件 ${PLUGIN}。DSH Desktop 没有运行时，
   --no-start             DSH 没有运行时直接报错，不启动它
   --start-timeout <秒>   启动 DSH 后最多等待多少秒（默认 ${DEFAULT_START_TIMEOUT}）
   --home <目录>          读取其他位置的实例记录（默认 ~/.agents-anywhere/dsh-acp）
+  --version              显示插件版本
   -h, --help             显示帮助
 `
+
+/** The plugin version, as `--version` prints it; the package resolves itself. */
+function version(): string {
+  try { return String(createRequire(import.meta.url)(`${PLUGIN}/package.json`).version) } catch { return '0.0.0' }
+}
 
 function fail(message: string): never {
   process.stderr.write(`dsh-acp-bridge: ${message}\n`)
@@ -52,6 +59,8 @@ function parseArgs(argv: readonly string[]): Options {
       return next
     }
     if (argument === '-h' || argument === '--help') { process.stdout.write(USAGE); process.exit(0) }
+    // One line, the version alone: ACP clients read the last line of `--version` as the agent's version.
+    else if (argument === '--version') { process.stdout.write(`${version()}\n`); process.exit(0) }
     else if (argument === '--check') options.check = true
     else if (argument === '--list') options.list = true
     else if (argument === '--no-start') options.start = false

@@ -31,17 +31,35 @@ export interface ConfigState {
   team?: Switch | undefined
 }
 
-/** `provider/model`; the provider is everything before the first slash. */
+/**
+ * `JSON.stringify([provider, model])`, the value the official dsh-acp sends: model IDs may contain
+ * slashes, and clients that know DSH read the same value from either agent.
+ */
 export function modelValue(selection: Pick<ModelSelection, 'provider' | 'model'>): string {
-  return `${selection.provider}/${selection.model}`
+  return JSON.stringify([selection.provider, selection.model])
+}
+
+/** A model value, or the `provider/model` form earlier releases sent (the provider ends at the first slash). */
+export function parseModelValue(value: string): Pick<ModelSelection, 'provider' | 'model'> | undefined {
+  if (value.startsWith('[')) {
+    try {
+      const pair: unknown = JSON.parse(value)
+      if (Array.isArray(pair) && pair.length === 2 && typeof pair[0] === 'string' && pair[0] && typeof pair[1] === 'string' && pair[1]) {
+        return { provider: pair[0], model: pair[1] }
+      }
+    } catch { /* not a pair */ }
+    return undefined
+  }
+  const slash = value.indexOf('/')
+  if (slash <= 0 || slash === value.length - 1) return undefined
+  return { provider: value.slice(0, slash), model: value.slice(slash + 1) }
 }
 
 export function findModel(catalog: ModelCatalog | undefined, value: string): { provider: string, entry: ModelCatalogModel } | undefined {
-  const slash = value.indexOf('/')
-  if (slash <= 0 || slash === value.length - 1) return undefined
-  const provider = value.slice(0, slash), model = value.slice(slash + 1)
-  const entry = catalog?.groups.find(group => group.id === provider)?.models.find(item => item.id === model)
-  return entry ? { provider, entry } : undefined
+  const parsed = parseModelValue(value)
+  if (!parsed) return undefined
+  const entry = catalog?.groups.find(group => group.id === parsed.provider)?.models.find(item => item.id === parsed.model)
+  return entry ? { provider: parsed.provider, entry } : undefined
 }
 
 export function catalogEntry(catalog: ModelCatalog | undefined, selection: ModelSelection | undefined): ModelCatalogModel | undefined {

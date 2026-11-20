@@ -81,7 +81,8 @@ await dsh.close()
 | --- | --- |
 | `endpoints/<实例 ID>.json` | `{version: 1, protocol: "meshcall", service, instanceId, pid, startedAt, endpoint, token, bridgeVersion, runtimeVersion?, launcher?}`，权限 0600，原子替换写入。`launcher` 是这个实例的启动脚本运行的 `{runtime, electron, script}`，供接手启动脚本时使用 |
 | `sockets/<ID 前 16 位>.sock` | Unix 套接字，目录 0700、套接字 0600。路径超过 100 字节（`sockaddr_un` 的上限）时，改为在系统临时目录下用 `mkdtemp` 新建一个 0700 目录（名字以 `aa-dsh-acp-` 开头），卸载时连同目录删除 |
-| `bin/dsh-acp`、`bin/dsh-acp.cmd` | 启动脚本，用 DSH 进程的 `process.execPath` 运行本包的 `lib/stdio.js`。DSH 运行在 Electron 上、且自身以 `ELECTRON_RUN_AS_NODE=1` 运行时（说明这个 Electron 允许 Node 模式），脚本同样设置这个变量；其他 Electron 宿主改用 `PATH` 里的 `node`，避免拉起第二个应用 |
+| `bin/dsh-acp`、`bin/dsh-acp.cmd` | 启动脚本，用 DSH 进程的 `process.execPath` 运行本包的 `lib/stdio.js`。DSH 运行在 Electron 上、且自身以 `ELECTRON_RUN_AS_NODE=1` 运行时（说明这个 Electron 允许 Node 模式），脚本同样设置这个变量；其他 Electron 宿主改用 `PATH` 里的 `node`，避免拉起第二个应用。`--version` 只输出一行插件版本，不连接 DSH，客户端可以照 ACP Agent 的惯例用它读版本 |
+| `bin/dsh-acp.json` | 启动描述 `{version: 1, command, args, env}`：启动脚本运行的程序、参数（`lib/stdio.js`）和要加的环境变量。不经 shell 启动进程的程序（例如在 Windows 上运行不了 `.cmd` 的程序）按它直接启动，自己的参数接在 `args` 后面。和启动脚本一起写入、保留、交接和删除；版本 1 之内只增加字段 |
 
 - 插件使用的目录如果是符号链接、不是目录或属于其他用户，插件拒绝启动，不会跟随链接或修改其权限。
 - 每个加载了插件的 DSH 进程各写一条记录；卸载插件时删除自己的记录和套接字。插件启动时删除进程已退出的记录，客户端也从不选择这样的记录。
@@ -107,7 +108,7 @@ await dsh.close()
 
 | 方法 | 行为 |
 | --- | --- |
-| `initialize` | 协议版本 1；声明 `loadSession`、`session/list`、`resume`、`close`、`delete`、`fork`；DSH 的附件存储接收 PNG、JPEG、WebP 或 GIF，且新会话使用的模型（DSH 的默认模型）声明支持图片输入时才声明图片，和官方 dsh-acp 的判断一样；DSH 判断不了的情况（模型没有声明、查询失败或超过 5 秒）都按不支持处理；声明嵌入上下文；插件旁边装有 DSH 的 MCP 客户端时声明 HTTP MCP 服务器（stdio 按规范总是支持，已弃用的 SSE 不声明）；声明 `_meta.claudeCode.promptQueueing`，它不属于 ACP 规范，但客户端靠这个标记判断能否在一轮进行中继续发消息（最早由 claude-agent-acp 声明） |
+| `initialize` | 协议版本 1；声明 `loadSession`、`session/list`、`resume`、`close`、`delete`、`fork`；DSH 的附件存储接收 PNG、JPEG、WebP 或 GIF，且新会话使用的模型（DSH 的默认模型）声明支持图片输入时才声明图片，和官方 dsh-acp 的判断一样；DSH 判断不了的情况（模型没有声明、查询失败或超过 5 秒）都按不支持处理；声明嵌入上下文；插件旁边装有 DSH 的 MCP 客户端时声明 HTTP MCP 服务器（stdio 按规范总是支持，已弃用的 SSE 不声明）；声明 `_meta.claudeCode.promptQueueing`，它不属于 ACP 规范，但客户端靠这个标记判断能否在一轮进行中继续发消息（最早由 claude-agent-acp 声明）；在响应顶层声明 `_meta.steering.supported: true`，表示支持下面的 `_session/steering` |
 | `session/new` | 校验 `cwd` 为存在的绝对目录（转为真实路径）和客户端声明的 MCP 服务器，只分配会话 ID 并返回配置项；第一条消息时才在 DSH 中创建，MCP 服务器在这条消息交给 DSH 之前挂上 |
 | `session/load` | 跟随会话，先回放最近 1000 条消息（用户消息、思考、回复、工具卡片），挂上客户端声明的 MCP 服务器后再响应；正在生成的一步会接着逐字发送 |
 | `session/resume` | 跟随会话但不回放；同样先挂上客户端声明的 MCP 服务器 |
@@ -117,6 +118,7 @@ await dsh.close()
 | `session/fork` | 先校验客户端声明的 MCP 服务器，有误时不复制；DSH 把会话到最后一轮结束为止的历史复制成一个新会话，本连接随后像 `session/resume` 一样跟随它；原会话不变 |
 | `session/set_config_option` | 见下文配置项，返回完整配置 |
 | `session/prompt` | 已注册的斜杠命令直接执行；其他输入作为排队消息发给 DSH，等这条消息所在的轮次结束后返回。同一会话还有消息在执行时再发的消息，会和在 DSH Desktop 里回复期间按回车一样在 DSH 队列里等待，轮到时单独占一轮；插件按发送顺序把消息交给 DSH。图片以外的嵌入二进制资源，会先像 DSH Desktop 上传用户添加的文件一样上传到会话的 Agent，再作为文件附件随消息发出。带图片的消息先按它要用的模型检查（会话当前的模型；DSH 还没创建的会话用客户端选的模型或 DSH 的默认模型）：这个模型声明不支持图片输入时，请求以参数错误结束，DSH 不创建会话、不上传文件，也收不到消息；模型没有声明时交给 DSH，DSH 会接收图片。DSH 收消息时拒绝的图片或文件，同样报参数错误 |
+| `_session/steering` | 插话扩展，和 Codex、Claude 的 ACP Agent 同名同形：参数 `{sessionId, prompt}`（`_meta.steering.idleBehavior` 不用读），返回 `{outcome}`。会话有一轮正在执行时，内容按 `session/prompt` 的规则检查和转换后，以 `mode: "steer"` 交给 DSH，和 DSH Desktop 的插话一样在这一轮的下一步交给模型，返回 `injected`；这一轮已到收尾时 DSH 会为它再执行一步。DSH 还没创建会话或没有在执行时返回 `promptRequired`，由客户端改发普通消息：插话从不开启新的一轮，否则这一轮没有消息可以回应。插话写进 DSH 的消息不再回显给发出它的连接，其他连接照常收到 `user_message_chunk` |
 | `session/cancel`、`$/cancel_request` | `session/cancel` 停止这条连接在该会话里发出的全部消息，`$/cancel_request` 只停止一条。DSH 还在创建会话或命令还在执行时，不再发送这条消息、中止命令；消息还在排队时把它移出队列；已开始执行时像 DSH 的停止按钮一样取消这一轮，其他客户端排队的消息保留。取消正在执行的一轮时，这条连接排在它后面的消息也会撤回（见「轮次与停止原因」） |
 
 不支持：`session/set_mode`、额外工作目录、客户端的文件读写和终端（Agent 从不调用这些方法）。
@@ -145,8 +147,15 @@ DSH 的会话是共享的，所以挂载按跟随这个会话的客户端计算�
 | 模型、权限、Agent 模式、计划模式的变化 | 重新计算配置项，有变化才发 `config_option_update` |
 | 第一条消息创建了会话 | 发 `config_option_update`，内容是创建后的配置项：去掉 `agent_preset`，DSH 加载了计划模式时加上 `plan_mode` |
 | 命令或技能目录变化 | `available_commands_update` |
+| 一轮开始、结束（`turn/start`、`turn/end`） | `session_info_update`，只带 `_meta.dsh.turnEvent`，见下文 |
 
 一步输出没有完成就被放弃时，已经发出的文字无法撤回，会补一句提示，完成的消息随后完整发出。
+
+ACP 只用 `session/prompt` 的返回表示一轮结束，DSH Desktop、其他客户端发的消息和子 Agent 的结果开启的轮次，客户端都不知道何时结束。所以插件对跟随中的会话，在每一轮开始和结束时各发一条只带 `_meta` 的 `session_info_update`（规范说明这个更新的字段都可省略，用于自定义元数据）。格式取自 Agents Anywhere DSH bridge 契约 3.0 第 7 节的 `turnEvent`，读它的客户端可以共用同一段代码：
+
+- 开始：`{sessionId, phase: "started", turn, seq}`，`turn` 是 DSH 的轮次号，`seq` 是 `turn/start` 事件的序号。它不在 `turn/start` 到达时就发，而是和这一轮的第一条更新一起发：DSH 先开新的一轮、再从队列取消息，这条连接上一条消息的返回结果要排在新一轮之前。
+- 结束：`{sessionId, phase: "ended", turn, seq, stopReason, reason}`，排在这一轮最后一条更新之后、由它结束的消息返回之前。`stopReason` 用 ACP 的停止原因（和 `session/prompt` 的规则相同；失败的一轮为 `end_turn`），`reason` 是 DSH 的 `{kind}`，失败时另带 `message`。
+- 只在实时跟随时发送，回放不发；在一轮进行中打开会话的客户端只会收到这一轮的结束。
 
 在一步输出到一半时 `session/load`，快照里这一步是 DSH 的压缩记录（`text-chunks`、`reasoning-chunks` 等），插件展开后先发出已生成的部分，后续片段接着实时发送；遇到无法识别的记录就不回放这一步，等它完成后完整发出。
 
@@ -154,7 +163,7 @@ DSH 的会话是共享的，所以挂载按跟随这个会话的客户端计算�
 
 | ID | 类别 | 说明 |
 | --- | --- | --- |
-| `model` | `model` | 值为 `provider/model`，按可路由的 provider 分组；切换时保留当前推理强度，新模型不支持则用其默认值 |
+| `model` | `model` | 值为 `JSON.stringify([provider, model])`，和官方 dsh-acp 相同，模型 ID 里有斜杠也不会混淆；也接受早期版本的 `provider/model`（第一个斜杠前为 provider）。按可路由的 provider 分组；切换时保留当前推理强度，新模型不支持则用其默认值 |
 | `reasoning_effort` | `thought_level` | 当前模型声明了推理强度才出现；模型没有默认值时多一个 `default` |
 | `permission` | `mode` | DSH 权限预设；已有会话通过 `/permission` 命令切换，和 DSH 自己的输入框一致 |
 | `agent_preset` | 无 | 只在第一条消息前出现 |
@@ -222,14 +231,16 @@ corepack yarn workspace @agents-anywhere/dsh-acp-bridge check
 - 新建、流式回复、列表与回放（包括一步输出到一半时 load）、其他客户端消息的实时同步；
 - 取消：发送后的各个时机、DSH 创建会话期间、斜杠命令执行期间，以及 DSH Desktop 把排队消息删除；
 - 一轮进行中继续发的消息：各自在 DSH 队列里等待、单独占一轮；有排队消息时的 `session/cancel`、取消其中一条排队的消息、取消正在执行的那一条，以及排在前面的一轮失败或被其他客户端停止；
+- 插话：一轮执行到一半时插入，DSH 为它再执行一步、模型收到插话内容；不回显给发出它的连接，其他连接收到；会话还没创建或空闲时返回 `promptRequired`；空内容、未知会话和缺参数报错；
+- 轮次边界：开始排在这一轮第一条更新之前，结束排在最后一条更新之后、消息返回之前；排队的下一条消息的一轮在上一条返回之后才开始；DSH Desktop 开启的一轮，只跟随会话的连接同样收到开始和结束；
 - 子 Agent（按基础 bundle 的方式挂载进程内后端和 `subagent` 工具）：消息要等它派出的子 Agent 以及子 Agent 结果开启的那一轮都结束才返回；等待期间的取消、关闭和下一条消息；以及等待期间 DSH Desktop 发来的消息；
 - 模型解析失败时返回错误、会话不被锁住；
 - 审批（请求排在它指向的卡片之后、客户端放弃作答时由 DSH 回落处理、DSH 先作答时撤回客户端上的请求、客户端打开会话前 DSH 就在等的请求）、表单、不支持表单的客户端回答单选问题、图片输入（按 DSH 的默认模型声明、模型不支持图片输入时在 DSH 创建会话前拒绝、模型没有声明时交给 DSH、DSH 自己的拒绝报参数错误）和文件附件；
 - 待办清单作为计划、`session/delete`（包括 DSH Desktop 还在运行的会话）、`session/fork`，以及 `session/list` 经过符号链接的 `cwd` 过滤；
-- 配置与 DSH 端切换模型的同步、智能体团队协作开关的双向同步（按基础 bundle 的方式挂载智能体团队）、斜杠命令；
+- 配置与 DSH 端切换模型的同步（模型值用官方格式，也接受早期的 `provider/model`）、智能体团队协作开关的双向同步（按基础 bundle 的方式挂载智能体团队）、斜杠命令；
 - 客户端声明的 MCP 服务器（用测试里的本地 stdio 服务器）：新会话第一条消息时挂上、只属于这个会话、关闭后进程结束；声明有误时在创建或复制会话之前返回参数错误；服务器起不来时消息报错并给出名称；两个客户端共用同一个声明、同名不同配置被拒绝；`session/load` 时挂上、断开连接后卸下；
-- 令牌校验、端点身份证明、超长路径改用临时目录、启动脚本，以及启动脚本遇到迟到的未处理拒绝后继续转发；
-- 自动启动 DSH Desktop：各平台的启动方式、去掉 Node 模式的环境变量、`open` 失败和可执行文件不存在、插件在启动脚本找过一次之后才发布记录时照样连上；插件或 DSH 不在时启动脚本给出的提示（在 shell 里实际运行生成的脚本；Windows 脚本只检查文本）；启动脚本在 DSH 退出时保留、只卸载插件时删除，以及两个 DSH 共用主目录时由另一个接手；
+- 令牌校验、端点身份证明、超长路径改用临时目录、启动脚本、不连接 DSH 的 `--version`，以及启动脚本遇到迟到的未处理拒绝后继续转发；
+- 自动启动 DSH Desktop：各平台的启动方式、去掉 Node 模式的环境变量、`open` 失败和可执行文件不存在、插件在启动脚本找过一次之后才发布记录时照样连上；插件或 DSH 不在时启动脚本给出的提示（在 shell 里实际运行生成的脚本；Windows 脚本只检查文本）；启动脚本在 DSH 退出时保留、只卸载插件时删除，以及两个 DSH 共用主目录时由另一个接手；启动描述随启动脚本写入、保留、交接和删除，按它直接启动能连上 DSH；
 - 公开客户端（从构建产物加载）：经它的流使用 ACP SDK、原始调用、对无法证明身份的端点在发出令牌前就拒绝、只提供正在运行的契约版本 1 实例、DSH 退出后立即失败、除 Node.js 和 meshcall 外没有其他依赖；以及固定下来的契约值；
 - 客户端在创建会话、打开会话或执行中途被杀死、`session/close`、重复 load 之后不残留跟随，DSH 不受影响。
 

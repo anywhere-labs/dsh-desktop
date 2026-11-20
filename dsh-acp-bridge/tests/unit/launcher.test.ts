@@ -6,7 +6,15 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { RPC_SERVICE } from '../../src/contract.js'
 import type { EndpointRecord } from '../../src/endpoint.js'
-import { launcherScript, launcherSuccession, type LauncherTarget } from '../../src/launcher.js'
+import { launchInfo, launcherScript, launcherSuccession, type LauncherTarget } from '../../src/launcher.js'
+
+test('the launch description lets programs that cannot run the script start the bridge themselves', () => {
+  // Windows programs that start processes without a shell cannot run `dsh-acp.cmd`.
+  assert.deepEqual(launchInfo({ runtime: 'C:\\Program Files\\DSH NEXT\\DSH NEXT.exe', electron: true, script: 'C:\\p\\lib\\stdio.js' }),
+    { version: 1, command: 'C:\\Program Files\\DSH NEXT\\DSH NEXT.exe', args: ['C:\\p\\lib\\stdio.js'], env: { ELECTRON_RUN_AS_NODE: '1' } })
+  assert.deepEqual(launchInfo({ runtime: 'node', electron: false, script: '/p/lib/stdio.js' }),
+    { version: 1, command: 'node', args: ['/p/lib/stdio.js'], env: {} })
+})
 
 test('the launcher names a missing plugin or DSH instead of failing inside the runtime', { skip: process.platform === 'win32' }, () => {
   const directory = mkdtempSync(join(tmpdir(), 'dsh-acp-launcher-'))

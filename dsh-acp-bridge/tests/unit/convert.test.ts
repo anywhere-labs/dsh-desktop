@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   addUsage, expandStreamRecords, planEntries, PromptError, promptParts, questionChoices, questionForm, slashCommand, stopReason, toolCallUpdate, toolKind,
-  toolResultUpdate,
+  toolResultUpdate, turnEnd,
 } from '../../src/acp/convert.js'
 
 const png = 'iVBORw0KGgo='
@@ -59,6 +59,16 @@ test('turn ends map to ACP stop reasons', () => {
   assert.deepEqual(stopReason({ kind: 'aborted', reason: { kind: 'hook' } }, false), { stopReason: 'end_turn' })
   assert.deepEqual(stopReason({ kind: 'error', error: { message: 'rate limited' } }, false), { error: 'DSH 这一轮执行失败：rate limited' })
   assert.deepEqual(stopReason({ kind: 'error', error: {} }, true), { stopReason: 'cancelled' })
+})
+
+test('turn boundaries tell clients how a turn ended, whoever started it', () => {
+  assert.deepEqual(turnEnd({ kind: 'completed' }), { stopReason: 'end_turn', reason: { kind: 'completed' } })
+  assert.deepEqual(turnEnd({ kind: 'max-tokens' }), { stopReason: 'max_tokens', reason: { kind: 'max-tokens' } })
+  assert.deepEqual(turnEnd({ kind: 'aborted', reason: { kind: 'user' } }), { stopReason: 'cancelled', reason: { kind: 'aborted' } })
+  // ACP has no stop reason for a failure; the native kind and DSH's message say what went wrong.
+  assert.deepEqual(turnEnd({ kind: 'error', error: { message: 'rate limited' } }), { stopReason: 'end_turn', reason: { kind: 'error', message: 'rate limited' } })
+  assert.deepEqual(turnEnd({ kind: 'blocked' }), { stopReason: 'end_turn', reason: { kind: 'blocked' } })
+  assert.deepEqual(turnEnd(undefined), { stopReason: 'end_turn', reason: { kind: 'unknown' } })
 })
 
 test('the compact stream of a step in progress expands to chunks', () => {

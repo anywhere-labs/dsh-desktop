@@ -4,7 +4,8 @@
  * connection follows sessions rather than owning them.
  */
 
-import { agent as acpAgent, methods, PROTOCOL_VERSION, RequestError, type AgentConnection, type ClientCapabilities, type InitializeResponse,
+import { agent as acpAgent, methods, PROTOCOL_VERSION, RequestError, type AgentConnection, type ClientCapabilities, type ContentBlock as AcpContent,
+  type InitializeResponse,
   type ListSessionsResponse, type SessionInfo, type SessionUpdate, type Stream } from '@agentclientprotocol/sdk'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -39,6 +40,19 @@ async function directory(cwd: unknown): Promise<string> {
 }
 
 function encodeCursor(offset: number): string { return Buffer.from(JSON.stringify({ offset })).toString('base64url') }
+
+/**
+ * `_session/steering` parameters: the steering extension of the Codex and Claude ACP agents, which clients
+ * such as Agents Anywhere find through `_meta.steering.supported` in `initialize`. `_meta.steering.idleBehavior`
+ * needs no reading: an idle session always answers `promptRequired`.
+ */
+function steeringParams(raw: unknown): { sessionId: string, prompt: AcpContent[] } {
+  const params = record(raw)
+  if (typeof params.sessionId !== 'string' || !Array.isArray(params.prompt)) {
+    throw RequestError.invalidParams(undefined, '插话需要 sessionId 和 prompt。')
+  }
+  return { sessionId: params.sessionId, prompt: params.prompt as AcpContent[] }
+}
 
 /** A directory as the file system names it: links resolved, and case folded where Windows ignores it. */
 async function canonical(path: string): Promise<string> {
@@ -83,6 +97,7 @@ export class AcpConnection implements AcpClient {
       .onRequest(methods.agent.session.setConfigOption, ({ params }) => guard(async () => ({
         configOptions: await this.session(params.sessionId).setConfig(params.configId, (params as Fields).value) })))
       .onRequest(methods.agent.session.prompt, ({ params, signal }) => guard(() => this.session(params.sessionId).prompt(params.prompt, signal)))
+      .onRequest('_session/steering', steeringParams, ({ params }) => guard(() => this.session(params.sessionId).steer(params.prompt)))
       .onNotification(methods.agent.session.cancel, ({ params }) => {
         void this.sessions.get(params.sessionId)?.cancel().catch(error => this.log.warn('acp-bridge: cancel failed', error))
       })
@@ -109,6 +124,8 @@ export class AcpConnection implements AcpClient {
         _meta: { claudeCode: { promptQueueing: true } },
       },
       authMethods: [],
+      // `_session/steering` adds input to the running turn; found in the top-level `_meta`, as with Codex and Claude.
+      _meta: { steering: { supported: true } },
     }
   }
 

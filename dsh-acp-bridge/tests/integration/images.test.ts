@@ -55,14 +55,14 @@ test('an image for a model without image input is refused before DSH creates the
   const client = await connect(host.acpHome)
   try {
     const { sessionId } = await client.connection.agent.request(methods.agent.session.new, { cwd: host.workspace, mcpServers: [] })
-    await client.connection.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: 'model', value: 'test/thinking' })
+    await client.connection.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: 'model', value: '["test","thinking"]' })
     await refused(client.connection.agent.request(methods.agent.session.prompt, { sessionId, prompt: [...picture, report] }),
       /thinking.*不支持图片/u)
     assert.equal(host.ctx.agents.get(sessionId as never), undefined, 'DSH created no session')
     assert.equal((await host.ctx.sessionController.list({}, new AbortController().signal)).items.length, 0)
 
     // With a model that takes images, the same message goes through.
-    await client.connection.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: 'model', value: 'test/text' })
+    await client.connection.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: 'model', value: '["test","text"]' })
     const response = await client.connection.agent.request(methods.agent.session.prompt, { sessionId, prompt: [...picture, report] })
     assert.equal(response.stopReason, 'end_turn')
     assert.ok(receivedImage(host), 'the model received the image')

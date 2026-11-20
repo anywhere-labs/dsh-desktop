@@ -17,7 +17,7 @@ export interface TestClient {
   updates: SessionNotification[]
   permissions: RequestPermissionRequest[]
   forms: CreateElicitationRequest[]
-  /** What arrived from the agent, in wire order: `response`, a request's method, or a session update's kind. */
+  /** What arrived from the agent, in wire order: `response`, a request's method, a session update's kind, or `turn:<phase>` for a turn boundary. */
   wire: string[]
   answerPermission: (request: RequestPermissionRequest, signal: AbortSignal) => RequestPermissionResponse | Promise<RequestPermissionResponse>
   answerForm: (request: CreateElicitationRequest, signal: AbortSignal) => CreateElicitationResponse | Promise<CreateElicitationResponse>
@@ -52,8 +52,10 @@ export async function connect(acpHome: string, capabilities: ClientCapabilities 
       const lines = (partial + chunk.toString('utf8')).split('\n')
       partial = lines.pop() ?? ''
       for (const line of lines.filter(item => item.trim())) {
-        const message = JSON.parse(line) as { method?: string, params?: { update?: { sessionUpdate?: string } } }
-        wire.push(message.method === 'session/update' ? message.params?.update?.sessionUpdate ?? 'update' : message.method ?? 'response')
+        const message = JSON.parse(line) as { method?: string, params?: { update?: { sessionUpdate?: string, _meta?: { dsh?: { turnEvent?: { phase?: string } } } } } }
+        const update = message.params?.update
+        const phase = update?.sessionUpdate === 'session_info_update' ? update._meta?.dsh?.turnEvent?.phase : undefined
+        wire.push(message.method === 'session/update' ? phase ? `turn:${phase}` : update?.sessionUpdate ?? 'update' : message.method ?? 'response')
       }
       callback(null, chunk)
     },

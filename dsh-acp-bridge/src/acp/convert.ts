@@ -153,15 +153,34 @@ export function stopReason(reason: unknown, cancelRequested: boolean): { stopRea
     case 'max-tokens': return { stopReason: 'max_tokens' }
     case 'interrupted': return { stopReason: 'cancelled' }
     case 'aborted': return { stopReason: record(value.reason).kind === 'hook' && !cancelRequested ? 'end_turn' : 'cancelled' }
-    case 'error': {
-      if (cancelRequested) return { stopReason: 'cancelled' }
-      const error = record(value.error)
-      const message = typeof error.message === 'string' && error.message ? error.message
-        : typeof error.code === 'string' ? error.code : '模型请求失败'
-      return { error: `DSH 这一轮执行失败：${message}` }
-    }
+    case 'error': return cancelRequested ? { stopReason: 'cancelled' } : { error: `DSH 这一轮执行失败：${turnError(value)}` }
     default: return { stopReason: cancelRequested ? 'cancelled' : 'end_turn' }
   }
+}
+
+function turnError(reason: Fields): string {
+  const error = record(reason.error)
+  return typeof error.message === 'string' && error.message ? error.message : typeof error.code === 'string' ? error.code : '模型请求失败'
+}
+
+/** How a DSH turn ended, in ACP words where ACP has them and DSH's own kind (and failure message) besides. */
+export interface TurnEnd { stopReason: StopReason, reason: { kind: string, message?: string } }
+
+export function turnEnd(reason: unknown): TurnEnd {
+  const value = record(reason)
+  const kind = typeof value.kind === 'string' ? value.kind : 'unknown'
+  const outcome = stopReason(reason, false)
+  // ACP has no stop reason for a failed turn; the kind says so.
+  return { stopReason: 'stopReason' in outcome ? outcome.stopReason : 'end_turn', reason: { kind, ...(kind === 'error' ? { message: turnError(value) } : {}) } }
+}
+
+/**
+ * A turn boundary on the ordered update stream: ACP reports a turn's end only by answering the prompt that
+ * started it, so clients learn nothing of turns DSH Desktop, other clients or subagent results start. The
+ * shape is the `turnEvent` of the Agents Anywhere DSH bridge contract (3.0 §7), which readers of either share.
+ */
+export function turnBoundary(event: { sessionId: string, phase: 'started' | 'ended', turn: number, seq: number } & Partial<TurnEnd>): SessionUpdate {
+  return { sessionUpdate: 'session_info_update', _meta: { dsh: { turnEvent: event } } }
 }
 
 /** Token counts of one turn, summed over its assistant messages. */

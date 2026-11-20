@@ -21,15 +21,16 @@ test('a new ACP session streams a DSH reply and creates a normal DSH session', {
 
     const created = await client.connection.agent.request(methods.agent.session.new, { cwd: host.workspace, mcpServers: [] })
     const options = created.configOptions ?? []
-    assert.equal(option(options, 'model')?.currentValue, 'test/text')
+    assert.equal(option(options, 'model')?.currentValue, '["test","text"]')
     assert.equal(option(options, 'permission')?.currentValue, 'workspace-write')
     assert.equal(option(options, 'agent_preset')?.currentValue, 'standard')
     // Nothing exists in DSH until the first prompt.
     assert.equal(host.ctx.agents.get(created.sessionId as never), undefined)
 
+    // A value in the provider/model form earlier releases sent still selects the model.
     const switched = await client.connection.agent.request(methods.agent.session.setConfigOption, {
       sessionId: created.sessionId, configId: 'model', value: 'test/thinking' })
-    assert.equal(option(switched.configOptions, 'model')?.currentValue, 'test/thinking')
+    assert.equal(option(switched.configOptions, 'model')?.currentValue, '["test","thinking"]')
     assert.equal(option(switched.configOptions, 'reasoning_effort')?.currentValue, 'low')
 
     const response = await client.connection.agent.request(methods.agent.session.prompt, {
@@ -70,7 +71,7 @@ test('another client lists and loads the session, then sees messages sent from D
     await assert.rejects(second.connection.agent.request(methods.agent.session.load, { sessionId, cwd: host.root, mcpServers: [] }),
       /工作目录/u, 'a session opens only in its own workspace')
     const loaded = await second.connection.agent.request(methods.agent.session.load, { sessionId, cwd: host.workspace, mcpServers: [] })
-    assert.equal(option(loaded.configOptions ?? [], 'model')?.currentValue, 'test/text')
+    assert.equal(option(loaded.configOptions ?? [], 'model')?.currentValue, '["test","text"]')
     assert.equal(option(loaded.configOptions ?? [], 'agent_preset'), undefined, 'the preset is fixed once the session exists')
     assert.equal(second.text('user_message_chunk', sessionId), '打个招呼', 'history is replayed before the response')
     assert.equal(second.text('agent_thought_chunk', sessionId), '想一想')
@@ -398,7 +399,7 @@ test('images reach the model and model changes made in DSH reach the client', { 
     // DSH Desktop switches the model of the same session.
     await host.ctx.sessionController.selectModel({ sessionId: sessionId as never, provider: 'test', model: 'thinking' })
     await until(() => client.updates.some(item => item.update.sessionUpdate === 'config_option_update'
-      && option((item.update as { configOptions: SessionConfigOption[] }).configOptions, 'model')?.currentValue === 'test/thinking'),
+      && option((item.update as { configOptions: SessionConfigOption[] }).configOptions, 'model')?.currentValue === '["test","thinking"]'),
     'the client follows the model chosen in DSH')
   } finally {
     await client.close()
