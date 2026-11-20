@@ -1,11 +1,12 @@
-/** The CPU this Mac names to the release service, which answers with the installer built for it. */
+/** The CPU a Mac or Windows installation names to the release service, which answers with the installer built for it. */
 
-/** CPUs the macOS packages are built for. */
+/** CPUs the macOS and Windows packages are built for. */
 export type UpdateArch = 'arm64' | 'x64'
 
 /**
  * Request header naming the CPU the installer must run on natively. The release service answers with that CPU's
- * installer, or the universal one; a service that ignores the header serves the universal installer.
+ * installer, or on macOS the universal one; a service that ignores the header serves the universal DMG on macOS and
+ * the x64 installer on Windows.
  */
 export const DESKTOP_ARCH_HEADER = 'X-DSH-Desktop-Arch'
 
