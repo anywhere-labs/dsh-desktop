@@ -10,7 +10,7 @@ export const IPC = {
   browserAcquire: 'dsh-next:browser-acquire', browserRelease: 'dsh-next:browser-release',
   browserOpenRequested: 'dsh-next:browser-open-requested',
   permissionQuery: 'dsh-next:permission-query', permissionRequest: 'dsh-next:permission-request', permissionSettings: 'dsh-next:permission-settings',
-  material: 'dsh-next:material',
+  material: 'dsh-next:material', windowFullscreen: 'dsh-next:window-fullscreen',
   locale: 'dsh-next:locale', localeRead: 'dsh-next:locale-read',
   nativeThemeSet: 'dsh-next:native-theme-set', windowsAppearance: 'dsh-next:windows-appearance', windowsMenu: 'dsh-next:windows-menu',
 } as const

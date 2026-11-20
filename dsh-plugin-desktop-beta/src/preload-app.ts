@@ -2,7 +2,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC } from './ipc.ts'
 import { PLATFORM_IPC } from './platform-ipc.ts'
-import { markDocumentPlatform } from './preload-platform.ts'
+import { markDocumentPlatform, syncWindowFullscreen } from './preload-platform.ts'
 import { syncNativeTheme } from './preload-theme.ts'
 import { syncWindowsAppearance } from './preload-windows.ts'
 import { syncWindowMaterial } from './preload-material.ts'
@@ -17,6 +17,7 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
   let documentId: string | undefined
   let profile = ''
   markDocumentPlatform()
+  syncWindowFullscreen()
   syncNativeTheme()
   syncNativeLocale()
   syncWindowsAppearance()
