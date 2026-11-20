@@ -52,7 +52,7 @@ export function apply(ctx: Context): void {
   // Desktop, whatever directory flow the Host mounted; ordinary browsers have no bridge.
   const directoryPicker = desktopDirectoryPicker()
   if (directoryPicker) registerDesktopDirectoryPicker(ctx, directoryPicker)
-  registerDesktopOnboarding(ctx, () => null)
+  registerDesktopOnboarding(ctx)
   if (window.desktopNext?.state) {
     ctx.slots.inject('shell.overlay', () => ctx.slots.register({
       name: 'shell.overlay', id: 'desktop-next-renderer-health', order: 0,

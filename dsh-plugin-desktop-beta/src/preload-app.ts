@@ -28,7 +28,6 @@ if (location.protocol === 'dsh-app:' && location.hostname === 'app') {
   contextBridge.exposeInMainWorld('dshDesktopSetup', {
     read: () => ipcRenderer.invoke('dsh-desktop:setup-onboarding', { action: 'read' }),
     dismissAccount: (profile: string) => ipcRenderer.invoke('dsh-desktop:setup-onboarding', { action: 'dismiss-account', profile }),
-    finish: (profile: string, selection?: unknown) => ipcRenderer.invoke('dsh-desktop:setup-onboarding', { action: 'finish', profile, selection }),
   })
   contextBridge.exposeInMainWorld('desktopNext', {
     renderer: {
