@@ -16,7 +16,7 @@ export const betaRoot = resolve(import.meta.dirname, '..', 'dsh-plugin-desktop-b
 
 /** Beta specs, relative to the package, that the Windows and macOS packaging jobs run. */
 export const PLATFORM_SPECS = {
-  win32: ['tests/windows-elevation.spec.ts', 'tests/workspace-file-drive-path.spec.ts'],
+  win32: ['tests/windows-cli-signals.spec.ts', 'tests/windows-elevation.spec.ts', 'tests/workspace-file-drive-path.spec.ts'],
   darwin: ['tests/office-packages.spec.ts', 'tests/shell-environment.spec.ts', 'tests/shell-locale.spec.ts'],
 }
 

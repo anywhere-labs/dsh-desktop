@@ -1,6 +1,6 @@
 import { delimiter, dirname, join } from 'node:path'
 import { expect, it, vi } from 'vitest'
-import { desktopCliPackageManager, runDesktopDshCli, withDefaultDesktopProfile } from '../src/desktop-cli.ts'
+import { deliverWindowsConsoleSignals, desktopCliPackageManager, runDesktopDshCli, withDefaultDesktopProfile } from '../src/desktop-cli.ts'
 import { bundledPnpmEntry } from '../src/bundled-pnpm.ts'
 import { NEXT_PACKAGE } from '../src/profiles.ts'
 import { PNPM_IGNORE_MINIMUM_RELEASE_AGE } from '../src/pnpm-policy.ts'
@@ -54,4 +54,18 @@ it('reads removed Windows Acrylic and Mica preferences as an opaque window', () 
   expect(windowMaterial({ ...DEFAULT_PREFERENCES }, 'linux')).toBe('off')
   expect(windowMaterial({ ...DEFAULT_PREFERENCES }, 'darwin')).toBe('transparent')
   expect(windowMaterial({ ...DEFAULT_PREFERENCES, macosMaterial: 'off' }, 'darwin')).toBe('off')
+})
+
+it('registers the Windows console handler before the CLI starts, and starts the CLI without it', () => {
+  const install = vi.fn()
+  const warn = vi.fn()
+  deliverWindowsConsoleSignals('win32', install, warn)
+  expect(install).toHaveBeenCalledOnce()
+  expect(warn).not.toHaveBeenCalled()
+
+  deliverWindowsConsoleSignals('win32', () => { throw new Error('kernel32.dll is unavailable') }, warn)
+  expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('kernel32.dll is unavailable'))
+
+  for (const platform of ['darwin', 'linux'] as const) deliverWindowsConsoleSignals(platform, install, warn)
+  expect(install).toHaveBeenCalledOnce()
 })

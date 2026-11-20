@@ -10,6 +10,7 @@ import { profileName as assertDesktopProfileName } from './profiles.ts'
 import { applyDesktopPackageManagerPolicy, withoutForwardedDesktopPnpmPolicy } from './pnpm-policy.ts'
 import { bundledPnpmInvocation, ELECTRON_HEADERS_URL } from './bundled-pnpm.ts'
 import { disableAsarArchiveView, type AsarArchiveProcess } from './asar-archive-policy.ts'
+import { installWindowsCliSignals } from './windows-cli-signals.ts'
 
 const DEFAULT_PROFILE = 'DSH_DESKTOP_DEFAULT_PROFILE'
 const DSH_ENTRY_URL = pathToFileURL(
@@ -110,12 +111,31 @@ export async function runDesktopDshCli(
   await (await load(DSH_ENTRY_URL)).runCli({ manageDesktopProfile: true, packageManager: desktopCliPackageManager() })
 }
 
+/**
+ * Let Ctrl+C and Ctrl+Break reach the CLI's own listeners on Windows, where Electron's Node mode would otherwise end
+ * the process at once. A handler that cannot be registered keeps that native behavior, and the CLI still starts.
+ * @param platform - Platform the CLI runs on.
+ * @param install - Console handler registration.
+ * @param warn - Receives the reason when the handler is missing.
+ */
+export function deliverWindowsConsoleSignals(
+  platform: NodeJS.Platform = process.platform,
+  install: () => void = installWindowsCliSignals,
+  warn: (message: string) => void = message => { process.stderr.write(message) },
+): void {
+  if (platform !== 'win32') return
+  try { install() } catch (cause) {
+    warn(`dsh-desktop-next: Ctrl+C will end dsh without its own cleanup: ${cause instanceof Error ? cause.message : String(cause)}\n`)
+  }
+}
+
 function isDirectExecution(): boolean {
   const entry = process.argv[1]
   return entry !== undefined && fileURLToPath(import.meta.url) === entry
 }
 
 if (isDirectExecution()) {
+  deliverWindowsConsoleSignals()
   void runDesktopDshCli().catch((cause: unknown) => {
     process.stderr.write(`dsh-desktop-next: failed to start packaged dsh: ${cause instanceof Error ? cause.stack ?? cause.message : String(cause)}\n`)
     process.exitCode = 1
