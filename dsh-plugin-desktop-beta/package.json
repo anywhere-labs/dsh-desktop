@@ -19,6 +19,7 @@
     "build": "node scripts/clean.mjs && node ../scripts/run-parallel.mjs \"tsdown\" \"vite build --config vite.client.config.ts\" \"vite build --config vite.native-ui.config.ts\" && node scripts/verify-build-output.mjs",
     "typecheck": "node ../scripts/run-parallel.mjs \"tsc --noEmit\" \"tsc -p tsconfig.packaging.json --noEmit\"",
     "test": "vitest run",
+    "eval:context": "vitest run tests/context-golden.spec.ts",
     "verify:host": "node scripts/verify-host.mjs",
     "verify:host:electron": "node scripts/verify-host.mjs --electron",
     "verify:frontend": "node scripts/verify-frontend.mjs",
@@ -244,7 +245,8 @@
     "pnpm": "11.28.5",
     "react": "18.3.1",
     "selfsigned": "5.5.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "zod": "4.6.6"
   },
   "optionalDependencies": {
     "@img/sharp-wasm32": "0.35.5"
@@ -310,8 +312,12 @@
       "types": "./src/permissions.ts",
       "default": "./lib/permissions.js"
     },
+    "./context": "./lib/context.js",
+    "./loop-guard": "./lib/loop-guard.js",
+    "./telemetry": "./lib/telemetry.js",
     "./package.json": "./package.json",
     "./startup-entries": "./lib/startup-entries.js",
+    "./web-search": "./lib/web-search.js",
     "./webserver": "./lib/webserver.js"
   },
   "dsh": {

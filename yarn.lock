@@ -19452,6 +19452,7 @@ __metadata:
     vite: "npm:8.2.1"
     vitest: "npm:4.1.8"
     yaml: "npm:^2.9.0"
+    zod: "npm:4.6.6"
     zustand: "npm:~4.4.7"
   dependenciesMeta:
     "@img/sharp-wasm32":
@@ -19689,6 +19690,7 @@ __metadata:
     vite: "npm:8.2.1"
     vitest: "npm:4.1.8"
     yaml: "npm:^2.9.0"
+    zod: "npm:^4.4.3"
   peerDependencies:
     electron: 44.7.0
   bin:
