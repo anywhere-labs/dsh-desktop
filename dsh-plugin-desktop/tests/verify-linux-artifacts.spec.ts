@@ -47,7 +47,8 @@ afterEach(() => {
   for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-describe('Linux artifact verification', () => {
+// These artifacts require POSIX executable permission bits; Linux CI runs every assertion.
+describe.skipIf(process.platform === 'win32')('Linux artifact verification', () => {
   it('accepts the exact versioned AppImage, Debian package, and unpacked application', () => {
     const value = fixture()
 

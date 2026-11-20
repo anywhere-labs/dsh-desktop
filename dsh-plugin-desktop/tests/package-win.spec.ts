@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { join } from 'node:path'
 import {
   packageWindowsArtifact,
   packageWindowsInstaller,
@@ -235,4 +236,15 @@ describe('Windows x64 installer packaging', () => {
     expect(() => packageWindowsInstaller(value)).toThrow('headless check failed')
     expect(calls).toHaveLength(1)
   })
+})
+
+
+it('builds native ARM64 and reuses its own unpacked application when the channel supports it', () => {
+  const calls: CommandCall[] = []
+  const value = options(calls)
+  packageWindowsInstaller({ ...value, arch: 'arm64', supportedArchs: ['x64', 'arm64'],
+    env: { ...value.env, DSH_PACKAGE_CHECK_ALREADY_RAN: '1', DSH_WINDOWS_REUSE_UNPACKED: '1' } })
+  expect(calls[0]?.args).toContain('--arm64')
+  expect(calls[0]?.args).not.toContain('--x64')
+  expect(calls[0]?.args).toContain(`--prepackaged=${join(value.desktopRoot, 'dist', 'win-arm64-unpacked')}`)
 })

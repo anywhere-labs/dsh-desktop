@@ -1,0 +1,35 @@
+{
+  "nodeVersion": "24.21.0",
+  "pythonVersion": "3.12.14",
+  "pythonRelease": "20260901",
+  "pythonPackages": {
+    "numpy": "2.3.5",
+    "pandas": "3.0.1",
+    "Pillow": "12.3.0",
+    "lxml": "6.1.3"
+  },
+  "artifact": {
+    "nodeArchive": "win-arm64.zip",
+    "nodeSha256": "8779b1bde1d39f8d420e3b57aa657b39891af434d3de44a919044cec06785921",
+    "pythonTarget": "aarch64-pc-windows-msvc",
+    "pythonSha256": "72f4713d056a17961bdba7b43be82a878035040fa1eee30cfd5e43b91a2852d9",
+    "wheels": [
+      {
+        "url": "https://files.pythonhosted.org/packages/78/a6/aae5cc2ca78c45e64b9ef22f089141d661516856cf7c8a54ba434576900d/numpy-2.3.5-cp312-cp312-win_arm64.whl",
+        "sha256": "f28620fe26bee16243be2b7b874da327312240a7cdc38b769a697578d2100013"
+      },
+      {
+        "url": "https://files.pythonhosted.org/packages/86/4f/caf9952948fb00d23795f09b893d11f1cacb384e666854d87249530f7cbe/pandas-3.0.1-cp312-cp312-win_arm64.whl",
+        "sha256": "0f463ebfd8de7f326d38037c7363c6dacb857c5881ab8961fb387804d6daf2f7"
+      },
+      {
+        "url": "https://files.pythonhosted.org/packages/de/47/4845a0a6c0dbf1db8456bd9fc791f13c5ced7ced20606d08a0aacfd25b49/pillow-12.3.0-cp312-cp312-win_arm64.whl",
+        "sha256": "331b624368d4f1d069149002f25f44bc61c8919ce8ddb3c45bdad8f6e2d89510"
+      },
+      {
+        "url": "https://files.pythonhosted.org/packages/e4/1b/7bcebb7b6332cb3ae85e9c13b139adb6f23f75c71d84041c56a5005d9a29/lxml-6.1.3-cp312-cp312-win_arm64.whl",
+        "sha256": "1aeca87830c4fe649dcf93fe2b059525b71c72587f21be4ae4af7103082a79fa"
+      }
+    ]
+  }
+}

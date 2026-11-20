@@ -29,10 +29,9 @@ env:
   # Yarn enables hardened mode on every public pull request and re-resolves the whole lockfile.
   # Same-repository branches already have write access, so only fork pull requests keep it.
   YARN_ENABLE_HARDENED_MODE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'true' || 'false' }}
-  # What the packaging cache holds depends on the product version the prepared runtime records and
-  # on the Electron, electron-builder and pnpm releases it downloads or embeds, not on the lockfile.
+  # Download versions accompany the runtime input digest computed after installing locked dependencies.
   PACKAGING_CACHE_INPUTS: >-
-    const m = require('./dsh-plugin-desktop-beta/package.json');
+    const m = require('./' + (process.env.DSH_WINDOWS_WORKSPACE ?? 'dsh-plugin-desktop-beta') + '/package.json');
     [m.version, 'electron' + m.devDependencies.electron, 'builder' + m.devDependencies['electron-builder'], 'pnpm' + m.dependencies.pnpm].join('-')
 
 # Pull requests only restore caches; pushes, manual runs and the nightly schedule save them. Pull
@@ -180,8 +179,22 @@ jobs:
   desktop-windows:
     needs: changes
     if: needs.changes.outputs.product == 'true' && github.event_name != 'schedule'
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+        # The shared Beta payload covers both architectures on routine runs.
+        # Manual runs also build Next release candidates.
+        channel: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["beta", "next"]' || '["beta"]') }}
+        include:
+          - arch: x64
+            runner: windows-latest
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    env:
+      DSH_WINDOWS_WORKSPACE: ${{ matrix.channel == 'next' && 'dsh-desktop-next' || 'dsh-plugin-desktop-beta' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -191,6 +204,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24.14.0
+          architecture: ${{ matrix.arch }}
       - run: corepack enable
       # The portable-shell upstream scripts must resolve the pinned submodule's own pnpm release on Windows.
       - name: Resolve the upstream toolchain
@@ -206,26 +220,30 @@ jobs:
           key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
           restore-keys: |
             yarn-${{ runner.os }}-${{ runner.arch }}-
+      # Install only the selected channel and the shared packaging workspaces before hashing runtime inputs.
+      - name: Install the packaging workspaces
+        run: yarn workspaces focus ${{ env.DSH_WINDOWS_WORKSPACE }} dsh-plugin-desktop dsh-community-market
       - name: Resolve packaging cache inputs
         id: packaging-inputs
-        shell: bash
-        run: echo "versions=$(node -p "$PACKAGING_CACHE_INPUTS")" >> "$GITHUB_OUTPUT"
+        run: |
+          $versions = node -p $env:PACKAGING_CACHE_INPUTS
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $runtime = node "${{ env.DSH_WINDOWS_WORKSPACE }}/scripts/prepare-runtime.ts" --cache-key
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "versions=$versions" >> $env:GITHUB_OUTPUT
+          "runtime=$runtime" >> $env:GITHUB_OUTPUT
       - name: Restore primary runtime and Electron Builder downloads
         id: packaging-cache
         uses: actions/cache/restore@v6
         with:
           path: |
-            dsh-plugin-desktop-beta/.desktop-build/downloads
-            dsh-plugin-desktop-beta/.desktop-build/runtime
+            ${{ env.DSH_WINDOWS_WORKSPACE }}/.desktop-build/downloads
+            ${{ env.DSH_WINDOWS_WORKSPACE }}/.desktop-build/runtime
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
-          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-dsh-plugin-desktop-beta-${{ steps.packaging-inputs.outputs.versions }}-${{ hashFiles('deepseek-harness/scripts/primary-runtime/lock.json') }}
+          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ env.DSH_WINDOWS_WORKSPACE }}-${{ steps.packaging-inputs.outputs.versions }}-${{ steps.packaging-inputs.outputs.runtime }}
           restore-keys: |
-            packaging-downloads-${{ runner.os }}-${{ runner.arch }}-dsh-plugin-desktop-beta-
-      # Packaging needs Beta, the Stable scripts Beta imports and the market build. Focusing on them
-      # skips Next's dependency tree, about a third of a full install.
-      - name: Install the packaging workspaces
-        run: yarn workspaces focus dsh-plugin-desktop-beta dsh-plugin-desktop dsh-community-market
+            packaging-downloads-${{ runner.os }}-${{ runner.arch }}-${{ env.DSH_WINDOWS_WORKSPACE }}-
       - name: Save Yarn cache
         if: github.event_name != 'pull_request' && steps.yarn-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -234,31 +252,32 @@ jobs:
           key: ${{ steps.yarn-cache.outputs.cache-primary-key }}
       # Unit suites run on Linux; the Beta specs that only run on Windows run here.
       - name: Run the Windows-only Beta specs
+        if: matrix.channel == 'beta'
         run: node scripts/test-platform-specs.mjs
       # Typecheck is platform-neutral and already gated by `check`.
-      - run: yarn workspace dsh-plugin-desktop-beta check:win-package:platform
+      - run: yarn workspace ${{ env.DSH_WINDOWS_WORKSPACE }} check:win-package:platform
       - name: Build Windows installer
         env:
           DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
-          # CI artifacts are never published; skipping compression saves minutes.
-          DSH_WINDOWS_PACKAGE_COMPRESSION: store
+          # Automatic runs keep the upstream smoke cost; manual runs produce release candidates.
+          DSH_WINDOWS_PACKAGE_COMPRESSION: ${{ github.event_name == 'workflow_dispatch' && 'normal' || 'store' }}
           # The packaging phase journal; the step after the build adds its durations to the job summary.
           DSH_DESKTOP_PACKAGING_RUN_DIR: ${{ runner.temp }}
-        run: yarn workspace dsh-plugin-desktop-beta dist:win
+        run: yarn workspace ${{ env.DSH_WINDOWS_WORKSPACE }} dist:win
       # The installer's staged directory replacement against private directories: updates, held files,
       # rollback, a location this account may not write to, and a payload missing an application file.
       # It takes well under a minute; a Setup or PowerShell call that never returns fails here, not at the job limit.
       - name: Smoke the Windows directory installer
         timeout-minutes: 10
-        run: yarn workspace dsh-plugin-desktop-beta verify:installer-directories
+        run: yarn workspace ${{ env.DSH_WINDOWS_WORKSPACE }} verify:installer-directories
       - name: Build Windows portable archive
         env:
           DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
-          DSH_WINDOWS_PACKAGE_COMPRESSION: store
+          DSH_WINDOWS_PACKAGE_COMPRESSION: ${{ github.event_name == 'workflow_dispatch' && 'normal' || 'store' }}
           DSH_WINDOWS_REUSE_UNPACKED: '1'
           # The packaging phase journal; the step after the build adds its durations to the job summary.
           DSH_DESKTOP_PACKAGING_RUN_DIR: ${{ runner.temp }}
-        run: yarn workspace dsh-plugin-desktop-beta dist:win-portable
+        run: yarn workspace ${{ env.DSH_WINDOWS_WORKSPACE }} dist:win-portable
       - name: Summarize packaging phases
         if: ${{ !cancelled() }}
         run: node scripts/summarize-packaging-run.mjs "${{ runner.temp }}" "Windows packaging phases"
@@ -267,11 +286,31 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: |
-            dsh-plugin-desktop-beta/.desktop-build/downloads
-            dsh-plugin-desktop-beta/.desktop-build/runtime
+            ${{ env.DSH_WINDOWS_WORKSPACE }}/.desktop-build/downloads
+            ${{ env.DSH_WINDOWS_WORKSPACE }}/.desktop-build/runtime
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
           key: ${{ steps.packaging-cache.outputs.cache-primary-key }}
+
+      - name: Write release artifact checksums
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          $artifacts = Get-ChildItem -LiteralPath '${{ env.DSH_WINDOWS_WORKSPACE }}/dist' -File | Where-Object { $_.Name -like '*-${{ matrix.arch }}-Setup.exe' -or $_.Name -like '*-${{ matrix.arch }}-Portable.zip' }
+          if ($artifacts.Count -ne 2) { throw 'Expected one installer and one portable archive' }
+          $checksums = $artifacts | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name }
+          [IO.File]::WriteAllText('${{ env.DSH_WINDOWS_WORKSPACE }}/dist/SHA256SUMS-${{ matrix.arch }}.txt', ($checksums -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
+      - name: Upload Windows release candidates
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-${{ matrix.channel }}-${{ matrix.arch }}
+          path: |
+            ${{ env.DSH_WINDOWS_WORKSPACE }}/dist/*-${{ matrix.arch }}-Setup.exe
+            ${{ env.DSH_WINDOWS_WORKSPACE }}/dist/*-${{ matrix.arch }}-Portable.zip
+            ${{ env.DSH_WINDOWS_WORKSPACE }}/dist/SHA256SUMS-${{ matrix.arch }}.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
 
   # Linux x64 distribution artifacts built on a stock ubuntu runner, mirroring the Windows packaging
   # job: the unsigned AppImage, plus the Debian package outside pull requests.
@@ -301,9 +340,17 @@ jobs:
           key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
           restore-keys: |
             yarn-${{ runner.os }}-${{ runner.arch }}-
+      # Packaging needs Beta, the Stable scripts Beta imports and the market build. Focusing on them
+      # skips Next's dependency tree, about a third of a full install.
+      - name: Install the packaging workspaces
+        run: yarn workspaces focus dsh-plugin-desktop-beta dsh-plugin-desktop dsh-community-market
       - name: Resolve packaging cache inputs
         id: packaging-inputs
-        run: echo "versions=$(node -p "$PACKAGING_CACHE_INPUTS")" >> "$GITHUB_OUTPUT"
+        run: |
+          versions=$(node -p "$PACKAGING_CACHE_INPUTS")
+          runtime=$(node dsh-plugin-desktop-beta/scripts/prepare-runtime.ts --cache-key)
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
       - name: Restore primary runtime and Electron Builder downloads
         id: packaging-cache
         uses: actions/cache/restore@v6
@@ -314,13 +361,9 @@ jobs:
             ~/.cache/electron
             ~/.cache/electron-builder
             ~/.cache/node-gyp
-          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-dsh-plugin-desktop-beta-${{ steps.packaging-inputs.outputs.versions }}-${{ hashFiles('deepseek-harness/scripts/primary-runtime/lock.json') }}
+          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-dsh-plugin-desktop-beta-${{ steps.packaging-inputs.outputs.versions }}-${{ steps.packaging-inputs.outputs.runtime }}
           restore-keys: |
             packaging-downloads-${{ runner.os }}-${{ runner.arch }}-dsh-plugin-desktop-beta-
-      # Packaging needs Beta, the Stable scripts Beta imports and the market build. Focusing on them
-      # skips Next's dependency tree, about a third of a full install.
-      - name: Install the packaging workspaces
-        run: yarn workspaces focus dsh-plugin-desktop-beta dsh-plugin-desktop dsh-community-market
       # The check job saves the complete Yarn cache this job restores, so this job does not save a subset.
       - run: yarn workspace dsh-plugin-desktop-beta check:linux-package:platform
       - name: Build Linux artifacts
@@ -381,9 +424,17 @@ jobs:
           key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
           restore-keys: |
             yarn-${{ runner.os }}-${{ runner.arch }}-
+      # Packaging needs Beta, the Stable scripts Beta imports and the market build. Focusing on them
+      # skips Next's dependency tree, about a third of a full install.
+      - name: Install the packaging workspaces
+        run: yarn workspaces focus dsh-plugin-desktop-beta dsh-plugin-desktop dsh-community-market
       - name: Resolve packaging cache inputs
         id: packaging-inputs
-        run: echo "versions=$(node -p "$PACKAGING_CACHE_INPUTS")" >> "$GITHUB_OUTPUT"
+        run: |
+          versions=$(node -p "$PACKAGING_CACHE_INPUTS")
+          runtime=$(node dsh-plugin-desktop-beta/scripts/prepare-runtime.ts --cache-key)
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
       - name: Restore primary runtime and Electron Builder downloads
         id: packaging-cache
         uses: actions/cache/restore@v6
@@ -394,7 +445,7 @@ jobs:
             ~/Library/Caches/electron
             ~/Library/Caches/electron-builder
             ~/Library/Caches/node-gyp
-          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-dsh-plugin-desktop-beta-${{ env.MAC_SMOKE_ARCH }}-${{ steps.packaging-inputs.outputs.versions }}-${{ hashFiles('deepseek-harness/scripts/primary-runtime/lock.json') }}
+          key: packaging-downloads-${{ runner.os }}-${{ runner.arch }}-dsh-plugin-desktop-beta-${{ env.MAC_SMOKE_ARCH }}-${{ steps.packaging-inputs.outputs.versions }}-${{ steps.packaging-inputs.outputs.runtime }}
           restore-keys: |
             packaging-downloads-${{ runner.os }}-${{ runner.arch }}-dsh-plugin-desktop-beta-${{ env.MAC_SMOKE_ARCH }}-
             packaging-downloads-${{ runner.os }}-${{ runner.arch }}-dsh-plugin-desktop-beta-
@@ -403,10 +454,6 @@ jobs:
       - name: Keep only the arm64 runtime
         if: env.MAC_SMOKE_ARCH != 'universal'
         run: rm -rf dsh-plugin-desktop-beta/.desktop-build/runtime/x64
-      # Packaging needs Beta, the Stable scripts Beta imports and the market build. Focusing on them
-      # skips Next's dependency tree, about a third of a full install.
-      - name: Install the packaging workspaces
-        run: yarn workspaces focus dsh-plugin-desktop-beta dsh-plugin-desktop dsh-community-market
       - name: Save Yarn cache
         if: github.event_name != 'pull_request' && steps.yarn-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6

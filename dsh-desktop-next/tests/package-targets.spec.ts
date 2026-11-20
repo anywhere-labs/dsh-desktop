@@ -83,12 +83,12 @@ describe('macOS smoke verification', () => {
     const commands: Command[] = []
     const options = nextMacVerification(false, '/repo/dist/mac-smoke', { DSH_MAC_SMOKE_ARCH: 'arm64', DSH_MAC_SMOKE_TARGET: 'dir' },
       (command, args) => { commands.push([command, ...args]) })
-    const app = '/repo/dist/mac-smoke/mac-arm64/DSH NEXT.app'
+    const app = join('/repo/dist/mac-smoke', 'mac-arm64', 'DSH NEXT.app')
     expect(verifyMacRelease({ ...options, verifyRuntime: () => undefined }).appPath).toBe(app)
     expect(commands.map(([command]) => command)).not.toContain('hdiutil')
-    expect(commands).toContainEqual(['lipo', `${app}/Contents/MacOS/DSH NEXT`, '-verify_arch', 'arm64'])
-    expect(commands).not.toContainEqual(['lipo', `${app}/Contents/MacOS/DSH NEXT`, '-verify_arch', 'x86_64'])
-    expect(commands).toContainEqual(['lipo', `${app}/Contents/Resources/app.asar.unpacked/node_modules/fixture-native/bin/uv`, '-verify_arch', 'arm64'])
+    expect(commands).toContainEqual(['lipo', join(app, 'Contents', 'MacOS', 'DSH NEXT'), '-verify_arch', 'arm64'])
+    expect(commands).not.toContainEqual(['lipo', join(app, 'Contents', 'MacOS', 'DSH NEXT'), '-verify_arch', 'x86_64'])
+    expect(commands).toContainEqual(['lipo', join(app, 'Contents', 'Resources', 'app.asar.unpacked', 'node_modules', 'fixture-native', 'bin', 'uv'), '-verify_arch', 'arm64'])
   })
 
   it('mounts the DMG for a DMG smoke and always for a signed release', () => {

@@ -15,7 +15,7 @@ export const PAYLOAD_DIR = '.desktop-build/payload'
 
 /**
  * Architectures whose native dependencies one Next package carries.
- * A macOS package carries one CPU or, as the universal application, both; Windows releases are x64 only.
+ * A macOS package carries one CPU or, as the universal application, both; Windows releases carry the native host CPU.
  * @param platform - Electron platform being packaged.
  * @param hostArch - Build host architecture, used for platforms without a release target.
  * @param macArch - The macOS package; universal unless one CPU is selected.
@@ -23,7 +23,7 @@ export const PAYLOAD_DIR = '.desktop-build/payload'
  */
 export function nextPackagingTarget(platform: NodeJS.Platform, hostArch: string = process.arch, macArch: MacPackageArch = 'universal'): NextPackagingTarget {
   if (platform === 'darwin') return { platform, archs: macPackageCpus(macArch) }
-  if (platform === 'win32') return { platform, archs: ['x64'] }
+  if (platform === 'win32' && hostArch !== 'x64' && hostArch !== 'arm64') throw new Error(`Unsupported Windows payload architecture: ${hostArch}`)
   return { platform, archs: [hostArch] }
 }
 

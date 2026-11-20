@@ -594,9 +594,14 @@ the package names, versions, and licenses for transparency.
 | sharp | 0.35.5 | Apache-2.0 |
 | shebang-command | 2.0.0 | MIT |
 | shebang-regex | 3.0.0 | MIT |
-| sherpa-onnx-darwin-arm64 | 1.13.8 | Apache-2.0 |
-| sherpa-onnx-darwin-x64 | 1.13.8 | Apache-2.0 |
-| sherpa-onnx-node | 1.13.8 | Apache-2.0 |
+| sherpa-onnx-darwin-arm64 | 2.0.1 | Apache-2.0 |
+| sherpa-onnx-darwin-x64 | 2.0.1 | Apache-2.0 |
+| sherpa-onnx-linux-arm64 | 2.0.1 | Apache-2.0 |
+| sherpa-onnx-linux-x64 | 2.0.1 | Apache-2.0 |
+| sherpa-onnx-win-arm64 | 2.0.1 | Apache-2.0 |
+| sherpa-onnx-win-ia32 | 2.0.1 | Apache-2.0 |
+| sherpa-onnx-win-x64 | 2.0.1 | Apache-2.0 |
+| sherpa-onnx-node | 2.0.1 | Apache-2.0 |
 | signal-exit | 4.1.0 | ISC |
 | sonner | 2.0.8 | MIT |
 | standardwebhooks | 1.1.1 | MIT |

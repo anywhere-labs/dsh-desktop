@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createElement } from 'react'
@@ -34,6 +35,22 @@ async function fixture(overrides: Partial<NextUpdateOptions> = {}) {
   return { updates, options, request, artifactRequest }
 }
 
+it('keeps an ARM64 update on its own release asset and digest through installer preparation', async () => {
+  const bytes = Buffer.alloc(512)
+  bytes.write('MZ'); bytes.writeUInt32LE(128, 60); bytes.write('PE\0\0', 128)
+  const digest = createHash('sha256').update(bytes).digest('hex')
+  const artifactRequest = vi.fn<UpdateArtifactRequest>(async url => ({ response: new Response(bytes), finalUrl: url }))
+  const prepare = vi.fn(async (path: string) => { expect(await readFile(path)).toEqual(bytes); expect(path).toContain('-arm64-Setup.exe') })
+  const request = vi.fn<UpdateRequest>(async () => Response.json({ version: '2.0.20-next.1', channel: 'next', sha256: { windows: 'a'.repeat(64), windowsArm64: digest } }))
+  const { updates } = await fixture({ platform: 'win32', arch: 'arm64', artifactRequest, prepare, request })
+  await updates.download()
+  expect(updates.snapshot().phase).toBe('ready')
+  expect(prepare).toHaveBeenCalledOnce()
+  expect(new Headers(request.mock.calls[0]![1].headers).has('X-DSH-Desktop-Arch')).toBe(false)
+  expect(new Headers(artifactRequest.mock.calls[0]![1].headers).has('X-DSH-Desktop-Arch')).toBe(false)
+  expect(artifactRequest.mock.calls[0]?.[0]).toMatch(/^https:\/\/github\.com\/anywhere-labs\/dsh-desktop\/releases\/download\/v.*-arm64-Setup\.exe$/)
+})
+
 it('checks without downloading; download completion waits for an explicit installation', async () => {
   const { updates, options, request } = await fixture()
   await updates.check()
@@ -66,8 +83,8 @@ it('names the CPU of this Mac on the version check and on the first download req
   expect(new Headers(downloadInit.headers).get('X-DSH-Desktop-Arch')).toBe('arm64')
   expect(new Headers(downloadInit.headers).get('X-DSH-Desktop-Target-Version')).toBe('2.0.20-next.1')
 })
-it('leaves requests without a CPU header where the platform names none', async () => {
-  const { updates, request, artifactRequest } = await fixture({ platform: 'win32' })
+it.each(['x64', 'arm64'] as const)('keeps Windows %s requests free of the Mac CPU header', async arch => {
+  const { updates, request, artifactRequest } = await fixture({ platform: 'win32', arch })
   await updates.check()
   expect(new Headers(request.mock.calls[0]![1].headers).has('X-DSH-Desktop-Arch')).toBe(false)
   expect(artifactRequest).not.toHaveBeenCalled()

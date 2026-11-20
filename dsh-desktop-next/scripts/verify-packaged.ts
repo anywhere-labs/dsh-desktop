@@ -1,6 +1,7 @@
 /** Cross-check the assembled `app.asar` payload against the prepared tree before signing, without a GUI. */
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { assertWindowsArchitecture, verifyWindowsNativeTree, windowsArchitecture } from '../../dsh-plugin-desktop/scripts/windows-architecture.ts'
 import { archivedPayload, auditNextPayload, PAYLOAD_DIR, preparedPackagingTarget, verifyArchiveAgainstPrepared, verifyNextPayload, verifyUpdaterManifestShim } from './packaged-payload.ts'
 import { expectedNextVersion, verifyPackagedNextRuntime } from './prepare-runtime.ts'
 import { DESKTOP_RUNTIME_FILE } from '../src/runtime-tree.ts'
@@ -49,6 +50,12 @@ export default async function afterPack(context: PackContext): Promise<void> {
   // A directory build packages the universal payload into an application for the build host's CPU.
   if (platform === 'darwin' && target.archs.length === 1 && BUILDER_ARCHS[context.arch] !== target.archs[0]) {
     throw new Error(`Next payload was prepared for ${target.archs[0]!}, but electron-builder packaged ${BUILDER_ARCHS[context.arch] ?? `architecture ${String(context.arch)}`}`)
+  }
+  if (platform === 'win32') {
+    const arch = windowsArchitecture()
+    assertWindowsArchitecture(join(context.appOutDir, 'DSH NEXT.exe'), arch)
+    const nativeFiles = verifyWindowsNativeTree(join(resources, 'app.asar.unpacked'), arch)
+    console.log(`Verified ${nativeFiles} native Windows ${arch} addons and DLLs`)
   }
   const source = packagingStepSync('archive:open', () => archivedPayload(resources))
   try {

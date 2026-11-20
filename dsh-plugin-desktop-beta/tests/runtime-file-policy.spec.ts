@@ -38,6 +38,9 @@ it('omits development artifacts while preserving executable modules, assets and 
     '@mixmark-io/domino/.yarn/versions/release.yml',
     '@deepseek-ai/libreoffice-kit-wasm/assets/soffice.data',
     '@deepseek-ai/libreoffice-kit-darwin-arm64/bin/libreoffice-kit',
+    '@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-arm64/frame-forwarding.node',
+    '@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-x64/frame-forwarding.node',
+    '@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/win32-arm64/frame-forwarding.node',
     '@img/sharp-wasm32/lib/sharp-wasm32-0.35.5.node.wasm',
     '@img/sharp-linux-x64/lib/sharp-linux-x64.node',
     '@img/sharp-darwin-arm64/lib/sharp-darwin-arm64.node',
@@ -67,6 +70,8 @@ it('omits development artifacts while preserving executable modules, assets and 
     '@deepseek-ai/libreoffice-kit-win32-x64/bin/libreoffice-kit.exe',
     '@deepseek-ai/libreoffice-kit-win32-x64/sources/core-source.json',
     '@deepseek-ai/libreoffice-kit-win32-x64/licenses/MPL-2.0.txt',
+    '@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/win32-x64/frame-forwarding.node',
+    '@deepseek-ai/libreoffice-kit/frame-forwarding/sdk.json',
   ]
   try {
     const sealedSource = runtimeFixture(source)
@@ -126,6 +131,9 @@ it('retains native prebuilds and Office engines for every architecture of a univ
   expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit/lib/cli.js', universal)).toBeUndefined()
   for (const arch of ['arm64', 'x64']) {
     expect(nextRuntimeFileExclusion(`pnpm/dist/node_modules/@reflink/reflink-darwin-${arch}/package.json`, universal)).toBeUndefined()
+    expect(nextRuntimeFileExclusion(`@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-${arch}/frame-forwarding.node`, universal)).toBeUndefined()
+    expect(nextRuntimeFileExclusion(`@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/win32-${arch}/frame-forwarding.node`, universal)).toBeDefined()
+    expect(nextRuntimeFileExclusion(`@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-${arch}/frame-forwarding.node`, linuxX64)).toBeDefined()
   }
   expect(nextRuntimeFileExclusion('pnpm/dist/node_modules/@reflink/reflink-linux-arm64-gnu/package.json', linuxX64)).toBeDefined()
   expect(nextRuntimeFileExclusion('pnpm/dist/node_modules/@reflink/reflink-linux-x64-musl/package.json', linuxX64)).toBeUndefined()
@@ -174,4 +182,23 @@ it('selects native packages by published OS and CPU constraints, including unive
   expect(nextRuntimePackageExclusion({ os: ['!darwin'], cpu: ['!arm64'] }, windows)).toBeUndefined()
   expect(nextRuntimePackageExclusion({ cpu: ['!x64'] }, windows)).toBeDefined()
   expect(nextRuntimePackageExclusion({ os: ['any', '!win32'] }, windows)).toBeDefined()
+})
+
+
+it('keeps native ARM64 ConPTY helpers and removes x64 prebuilds from Windows ARM64', () => {
+  const arm64 = { platform: 'win32' as const, archs: ['arm64'] }
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/win32-arm64/frame-forwarding.node', arm64)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/win32-x64/frame-forwarding.node', arm64)).toBeDefined()
+  expect(nextRuntimeFileExclusion('@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-arm64/frame-forwarding.node', arm64)).toBeDefined()
+  expect(nextRuntimeFileExclusion('@earendil-works/pi-tui/native/linux/prebuilds/linux-arm64/linux-platform-x11.node', arm64)).toBeDefined()
+  expect(nextRuntimeFileExclusion('@earendil-works/pi-tui/native/win32/prebuilds/win32-x64/win32-platform.node', arm64)).toBeDefined()
+  expect(nextRuntimeFileExclusion('@earendil-works/pi-tui/native/win32/prebuilds/win32-arm64/win32-platform.node', arm64)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('@earendil-works/pi-tui/native/darwin/prebuilds/darwin-arm64/darwin-platform.node', arm64)).toBeDefined()
+  expect(nextRuntimeFileExclusion('@earendil-works/pi-tui/native/darwin/prebuilds/darwin-arm64/darwin-platform.node', { platform: 'darwin', archs: ['arm64', 'x64'] })).toBeUndefined()
+  expect(nextRuntimeFileExclusion('node-pty/prebuilds/win32-arm64/conpty.node', arm64)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('node-pty/prebuilds/win32-x64/conpty.node', arm64)).toBeDefined()
+  expect(nextRuntimeFileExclusion('node-pty/third_party/conpty/1.25.260303002/win10-arm64/conpty.dll', arm64)).toBeUndefined()
+  expect(nextRuntimeFileExclusion('node-pty/third_party/conpty/1.25.260303002/win10-x64/conpty.dll', arm64)).toBeDefined()
+  expect(nextRuntimePackageExclusion({ os: ['win32'], cpu: ['arm64'] }, arm64)).toBeUndefined()
+  expect(nextRuntimePackageExclusion({ os: ['win32'], cpu: ['x64'] }, arm64)).toBeDefined()
 })

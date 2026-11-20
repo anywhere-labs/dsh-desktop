@@ -68,7 +68,7 @@ it('stages the payloads of the package CPUs from the prepared tree, keeping link
   const bin = join(staged, 'arm64', 'primary-runtime', 'dependencies', 'python', 'bin')
   expect(lstatSync(join(bin, 'python3')).isSymbolicLink()).toBe(true)
   expect(readlinkSync(join(bin, 'python3'))).toBe('python3.12')
-  expect(statSync(join(bin, 'python3.12')).mode & 0o777).toBe(0o755)
+  if (process.platform !== 'win32') expect(statSync(join(bin, 'python3.12')).mode & 0o777).toBe(0o755)
   // The next package replaces the staging of the previous one; the prepared tree is never changed.
   expect(readdirSync(stagePackagedRuntime(desktopRoot, runtime, ['x64']))).toEqual(['x64'])
   expect(readdirSync(stagePackagedRuntime(desktopRoot, runtime, ['arm64', 'x64'])).sort()).toEqual(['arm64', 'x64'])

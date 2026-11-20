@@ -107,7 +107,7 @@ it('loads real sharp through @img/sharp-wasm32 and encodes PNG images when platf
     'const sharp = require("sharp")',
     'const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 12, g: 34, b: 56 } } }).png().toBuffer()',
     'const meta = await sharp(png).metadata()',
-    `const wasm = Object.keys(require.cache).some(path => path.includes(${JSON.stringify(`${SHARP_WASM_PACKAGE}/`)}))`,
+    `const wasm = Object.keys(require.cache).some(path => path.split(${JSON.stringify(sep)}).join('/').includes(${JSON.stringify(`${SHARP_WASM_PACKAGE}/`)}))`,
     'console.log(JSON.stringify({ format: meta.format, width: meta.width, height: meta.height, wasm }))',
   ].join('\n')
   const result = spawnSync(process.execPath, ['--input-type=module', '--eval', script], { encoding: 'utf8' })

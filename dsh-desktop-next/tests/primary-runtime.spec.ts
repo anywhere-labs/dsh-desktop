@@ -6,11 +6,11 @@ import { zipSync } from 'fflate'
 import { expect, it, vi } from 'vitest'
 import {
   downloadPrimaryRuntimeAsset, machOArchitectures, parsePrimaryRuntimeLock, prepareOfficeSkillAssets, primaryRuntimePayloadDigest,
-  readPrimaryRuntimeLock, smokePrimaryRuntime, unpackPrimaryRuntimeWheel, type PrimaryRuntimeLock,
+  readPrimaryRuntimeLock, withWindowsArm64Runtime, smokePrimaryRuntime, unpackPrimaryRuntimeWheel, type PrimaryRuntimeLock,
 } from '../scripts/primary-runtime.ts'
 
 type Mutable<T> = { -readonly [K in keyof T]: Mutable<T[K]> }
-const lock = readPrimaryRuntimeLock()
+const lock = readPrimaryRuntimeLock(undefined, 'win-arm64')
 const mutableLock = (): Mutable<PrimaryRuntimeLock> => structuredClone(lock) as Mutable<PrimaryRuntimeLock>
 
 const libraryWheel = Buffer.from('UEsDBAoAAAAAAASeLl0sYMPjDAAAAAwAAAAJAAAAc2FtcGxlLnB5c2FtcGxlID0gNDIKUEsBAh4DCgAAAAAABJ4uXSxgw+MMAAAADAAAAAkAAAAAAAAAAQAAAKSBAAAAAHNhbXBsZS5weVBLBQYAAAAAAQABADcAAAAzAAAAAAA=', 'base64')
@@ -18,7 +18,7 @@ const relocatedWheel = Buffer.from('UEsDBAoAAAAAAASeLl3x0Nj9FAAAABQAAAAeAAAAc2Ft
 const externalLibraryWheel = Buffer.from('UEsDBBQAAAAAAAAAIVyBOE8OHAAAABwAAAAhAAAAc2FtcGxlLTEuMC5kYXRhL3B1cmVsaWIvc2FtcGxlLnB5cmVxdWlyZXMgbGlicmFyeSByZWxvY2F0aW9uClBLAQIUAxQAAAAAAAAAIVyBOE8OHAAAABwAAAAhAAAAAAAAAAAAAACAAQAAAABzYW1wbGUtMS4wLmRhdGEvcHVyZWxpYi9zYW1wbGUucHlQSwUGAAAAAAEAAQBPAAAAWwAAAAAA', 'base64')
 
 it('pins the Darwin, Windows and Linux targets Next packages and the distributions the Office smoke imports', () => {
-  for (const target of ['mac-arm64', 'mac-x64', 'win-x64', 'linux-x64', 'linux-arm64'] as const) expect(lock.targets[target].wheels.length).toBeGreaterThan(0)
+  for (const target of ['mac-arm64', 'mac-x64', 'win-x64', 'win-arm64', 'linux-x64', 'linux-arm64'] as const) expect(lock.targets[target]?.wheels.length).toBeGreaterThan(0)
   for (const name of ['numpy', 'pandas', 'python-docx', 'python-pptx', 'openpyxl', 'Pillow', 'lxml', 'XlsxWriter']) expect(lock.pythonPackages).toHaveProperty(name)
 })
 
@@ -241,5 +241,41 @@ it('reads the CPU of thin Mach-O files and every slice of a fat archive', async 
     expect(machOArchitectures(join(root, 'fat'))).toEqual(['x64', 'arm64'])
     expect(machOArchitectures(join(root, 'script.py'))).toEqual([])
     expect(machOArchitectures(join(root, 'short'))).toEqual([])
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it('rejects missing Windows ARM64 pins and an extension from another interpreter release', () => {
+  const upstream = mutableLock()
+  const extension = { ...upstream, artifact: upstream.targets['win-arm64'] }
+  Reflect.deleteProperty(upstream.targets, 'win-arm64')
+  expect(() => primaryRuntimePayloadDigest('win-arm64', parsePrimaryRuntimeLock(upstream), '11.7.0')).toThrow('missing target win-arm64')
+  expect(withWindowsArm64Runtime(upstream, extension).targets['win-arm64']?.nodeArchive).toBe('win-arm64.zip')
+  expect(() => withWindowsArm64Runtime(upstream, { ...extension, artifact: undefined })).toThrow('malformed target win-arm64')
+  expect(() => withWindowsArm64Runtime(upstream, { ...extension, nodeVersion: '99.0.0' })).toThrow('nodeVersion differs')
+  expect(() => withWindowsArm64Runtime(upstream, { ...extension, pythonPackages: { numpy: '0.0.0' } })).toThrow('numpy differs')
+  expect(() => withWindowsArm64Runtime(upstream, { ...extension, artifact: { ...extension.artifact, pythonSha256: 'bad' } })).toThrow('malformed target win-arm64')
+})
+
+// Refreshing another platform must not require updating Windows ARM64's supplemental pins.
+it('loads Windows ARM64 pins only when that target is requested', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-target-lock-'))
+  try {
+    const upstream = mutableLock()
+    Reflect.deleteProperty(upstream.targets, 'win-arm64')
+    upstream.nodeVersion = '99.0.0'
+    const path = join(root, 'lock.json')
+    await writeFile(path, JSON.stringify(upstream))
+    for (const target of ['mac-arm64', 'mac-x64', 'win-x64', 'linux-arm64', 'linux-x64'] as const) {
+      const selected = readPrimaryRuntimeLock(path, target)
+      expect(selected.nodeVersion).toBe('99.0.0')
+      expect(selected.targets['win-arm64']).toBeUndefined()
+      expect(primaryRuntimePayloadDigest(target, selected, '11.7.0')).toMatch(/^[a-f0-9]{64}$/u)
+    }
+    expect(readPrimaryRuntimeLock(path).nodeVersion).toBe('99.0.0')
+    expect(() => readPrimaryRuntimeLock(path, 'win-arm64')).toThrow('nodeVersion differs')
+    // Upstream's own ARM64 pins, once supplied, do not depend on the Desktop extension.
+    upstream.targets['win-arm64'] = mutableLock().targets['win-arm64']!
+    await writeFile(path, JSON.stringify(upstream))
+    expect(readPrimaryRuntimeLock(path, 'win-arm64').nodeVersion).toBe('99.0.0')
   } finally { await rm(root, { recursive: true, force: true }) }
 })

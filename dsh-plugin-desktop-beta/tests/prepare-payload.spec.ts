@@ -175,7 +175,7 @@ it('stops on a missing required dependency and on publish patterns it cannot hon
   expect(() => collectProductionClosure(desktop)).toThrow(/dependency peer-user required by dsh-plugin-desktop-beta is not installed/u)
 })
 
-it('prunes only incompatible optional packages and their exclusive dependencies before copying and sealing', async () => {
+it.each(['x64', 'arm64'])('prunes incompatible optional packages and their exclusive dependencies for Windows %s', async (windowsArch) => {
   const { root, desktop } = workspace()
   const modules = join(desktop, 'node_modules')
   const manifest = JSON.parse(readFileSync(join(desktop, 'package.json'), 'utf8')) as {
@@ -203,7 +203,7 @@ it('prunes only incompatible optional packages and their exclusive dependencies 
   const data = JSON.parse(readFileSync(nestedManifest, 'utf8')) as Record<string, unknown>
   writeFileSync(nestedManifest, JSON.stringify({ ...data, optionalDependencies: { '@fixture/nested-arm64': '*' } }))
   for (const platform of ['win32', 'darwin', 'linux'] as const) {
-    const release = nextPackagingTarget(platform, 'arm64')
+    const release = nextPackagingTarget(platform, windowsArch)
     const names = collectProductionClosure(desktop, release).map(pkg => pkg.name)
     for (const [name, os, cpu] of natives) {
       const keep = os === platform && release.archs.includes(cpu)
@@ -212,22 +212,23 @@ it('prunes only incompatible optional packages and their exclusive dependencies 
     }
     expect(names).toContain('assets-arm64')
     expect(names).toContain('neutral.d.ts')
-    expect(names).not.toContain('@fixture/nested-arm64')
+    expect(names.includes('@fixture/nested-arm64')).toBe(platform === 'win32' && release.archs.includes('arm64'))
   }
   const output = join(root, 'payload')
-  const release = nextPackagingTarget('win32')
+  const release = nextPackagingTarget('win32', windowsArch)
   const descriptor = await preparePayload({ desktopRoot: desktop, output, target: release, electronVersion: '44.0.0' })
-  expect(existsSync(join(output, 'node_modules', '@fixture', 'windows-x64', 'package.json'))).toBe(true)
-  expect(existsSync(join(output, 'node_modules', '@fixture', 'windows-arm64'))).toBe(false)
-  expect(existsSync(join(output, 'node_modules', 'nested-user', 'node_modules', '@fixture', 'nested-arm64'))).toBe(false)
-  expect(descriptor.files.some(file => file.path.includes('@fixture/windows-arm64/'))).toBe(false)
+  expect(existsSync(join(output, 'node_modules', '@fixture', 'windows-x64', 'package.json'))).toBe(windowsArch === 'x64')
+  expect(existsSync(join(output, 'node_modules', '@fixture', 'windows-arm64'))).toBe(windowsArch === 'arm64')
+  expect(existsSync(join(output, 'node_modules', 'nested-user', 'node_modules', '@fixture', 'nested-arm64'))).toBe(windowsArch === 'arm64')
+  expect(descriptor.files.some(file => file.path.includes('@fixture/windows-arm64/'))).toBe(windowsArch === 'arm64')
   expect(() => verifyNextPayload(physicalPayload(output))).not.toThrow()
   // The development installation is untouched, and a required edge cannot silently disappear.
   expect(existsSync(join(nested, 'package.json'))).toBe(true)
-  writePackage(modules, 'required-native-user', { peerDependencies: { '@fixture/windows-arm64': '*' } })
+  const incompatible = windowsArch === 'arm64' ? 'windows-x64' : 'windows-arm64'
+  writePackage(modules, 'required-native-user', { peerDependencies: { [`@fixture/${incompatible}`]: '*' } })
   manifest.dependencies['required-native-user'] = '*'
   writeFileSync(join(desktop, 'package.json'), JSON.stringify(manifest))
-  expect(() => collectProductionClosure(desktop, release)).toThrow(/windows-arm64 required by required-native-user cannot be packaged/u)
+  expect(() => collectProductionClosure(desktop, release)).toThrow(`${incompatible} required by required-native-user cannot be packaged`)
 })
 
 it('declines electron-builder dependency handling once a matching payload is prepared', async () => {

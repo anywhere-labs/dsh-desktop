@@ -165,8 +165,8 @@ const GLOBAL_PAIRS = [
   ["'X-DSH-Desktop-Channel': 'next'", "'X-DSH-Desktop-Channel': 'beta'"],
   ["toBe('next')", "toBe('beta')"],
   [
-    "desktopUpdateFilename(platform, result.latestVersion, 'next')",
-    "desktopUpdateFilename(platform, result.latestVersion, 'beta')",
+    "desktopUpdateFilename(platform, result.latestVersion, 'next'",
+    "desktopUpdateFilename(platform, result.latestVersion, 'beta'",
   ],
 ]
 

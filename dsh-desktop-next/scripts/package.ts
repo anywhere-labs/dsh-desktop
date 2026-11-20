@@ -161,12 +161,12 @@ if (mode === 'dir') {
     builderCli: require.resolve('electron-builder/cli.js'), verifier: join(desktopRoot, 'scripts/verify-mac-smoke.ts'), nodeExecutable: process.execPath })
 } else if (mode === 'win') {
   await prepareInterpreters()
-  packageWindowsInstaller({ ...createWindowsPackageOptions(), desktopRoot, workspaceRoot, run, prepareRuntime,
+  packageWindowsInstaller({ ...createWindowsPackageOptions(), supportedArchs: ['x64', 'arm64'], desktopRoot, workspaceRoot, run, prepareRuntime,
     verifier: join(desktopRoot, 'scripts/verify-win-installer.ts') })
 } else if (mode === 'win-portable') {
   await prepareInterpreters()
   const winOptions = createWindowsPackageOptions()
-  packageWindowsArtifact({ ...winOptions, env: { ...winOptions.env, DSH_PACKAGE_VERIFY_MODE: 'win-portable' }, desktopRoot, workspaceRoot, run, prepareRuntime,
+  packageWindowsArtifact({ ...winOptions, supportedArchs: ['x64', 'arm64'], env: { ...winOptions.env, DSH_PACKAGE_VERIFY_MODE: 'win-portable' }, desktopRoot, workspaceRoot, run, prepareRuntime,
     verifier: join(desktopRoot, 'scripts/verify-win-installer.ts') }, 'zip', 'portable archive')
 } else if (mode === 'linux') {
   await prepareInterpreters()
