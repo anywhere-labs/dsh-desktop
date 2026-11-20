@@ -16,6 +16,7 @@ const MAX_LABEL = 32
 
 /** The `process.memoryUsage()` figures a Host pushes over IPC, in bytes. */
 export interface HostMemoryUsage {
+  readonly eventLoopUtilization?: number
   readonly rss: number
   readonly heapTotal: number
   readonly heapUsed: number
@@ -30,7 +31,9 @@ const HOST_MEMORY_FIELDS = ['rss', 'heapTotal', 'heapUsed', 'external', 'arrayBu
  * @returns Only the numeric fields the Desktop records.
  */
 export function hostMemoryUsage(usage: HostMemoryUsage): HostMemoryUsage {
-  return { rss: usage.rss, heapTotal: usage.heapTotal, heapUsed: usage.heapUsed, external: usage.external, arrayBuffers: usage.arrayBuffers }
+  const elu = usage.eventLoopUtilization
+  return { ...(typeof elu === 'number' && Number.isFinite(elu) && elu >= 0 && elu <= 1 ? { eventLoopUtilization: elu } : {}),
+    rss: usage.rss, heapTotal: usage.heapTotal, heapUsed: usage.heapUsed, external: usage.external, arrayBuffers: usage.arrayBuffers }
 }
 
 /**
@@ -98,6 +101,7 @@ interface MemorySample {
   readonly host?: {
     readonly pid?: number
     readonly time: number
+    readonly eventLoopUtilization?: number
     readonly rssMB: number
     readonly heapUsedMB: number
     readonly heapTotalMB: number
@@ -132,6 +136,9 @@ const label = (value: unknown): string => String(value).slice(0, MAX_LABEL)
  * logging is on. A renderer, child-process or Host failure writes the ring once as an error-level
  * `memory.snapshot`, so the trend before the failure survives even with developer logging off.
  *
+ * The Host's 30-second push doubles as its heartbeat: a running Host that pushed nothing for two intervals is
+ * recorded once as `host.process heartbeat.missing`, and its next push as `heartbeat.recovered`.
+ *
  * A failed reading drops only that sample. Nothing here throws into its caller or reports a runtime
  * failure, and every timer is unreferenced.
  */
@@ -144,6 +151,9 @@ export class DesktopMemoryMonitor {
   private timer: ReturnType<typeof setInterval> | undefined
   private open: Incident | undefined
   private stopped = false
+  /** The running Host's last memory push, which doubles as its heartbeat. */
+  private heartbeat: { pid: number | undefined; time: number; missing: boolean } | undefined
+  private lastTick = Date.now()
 
   constructor(private readonly options: MonitorOptions) {}
 
@@ -163,11 +173,20 @@ export class DesktopMemoryMonitor {
   }
 
   /**
+   * Expect pushes from a newly spawned Host, and forget the previous Host's reading.
+   * @param pid - The new Host process id.
+   */
+  hostStarted(pid?: number): void { this.heartbeat = { pid, time: Date.now(), missing: false }; this.host = undefined }
+
+  /**
    * Keep the Host's latest push; the next sample carries it with its own time.
    * @param usage - The Host's `process.memoryUsage()` figures.
    * @param pid - The Host process id.
    */
   hostMemory(usage: HostMemoryUsage, pid?: number): void {
+    if (this.heartbeat && this.heartbeat.pid !== pid) return // A late message from a previous Host.
+    if (this.heartbeat?.missing) this.options.record({ source: 'host.process', event: 'heartbeat.recovered', ...(pid === undefined ? {} : { pid }), fields: { silenceMs: Date.now() - this.heartbeat.time } })
+    this.heartbeat = { pid, time: Date.now(), missing: false }
     this.host = { pid, time: Date.now(), usage: hostMemoryUsage(usage) }
   }
 
@@ -179,6 +198,7 @@ export class DesktopMemoryMonitor {
    * @param pid - The Host process id.
    */
   hostExited(exit: MemoryHostExit, pid?: number): void {
+    if (this.heartbeat?.pid === pid) this.heartbeat = undefined
     if (exit.expected && (exit.code === null || exit.code >>> 0 !== OOM_EXCEPTION_CODE)) return
     this.incident({ process: 'host', pid, exitCode: exit.code, signal: exit.signal, expected: exit.expected })
   }
@@ -228,6 +248,17 @@ export class DesktopMemoryMonitor {
   }
 
   private sample(log: boolean): void {
+    if (log) {
+      const now = Date.now()
+      // A Host that pushed nothing for two intervals is unresponsive; sleep or a blocked main loop is not evidence of that.
+      if (now - this.lastTick > MEMORY_SAMPLE_INTERVAL_MS * 2 && this.heartbeat) this.heartbeat.time = now
+      this.lastTick = now
+      const heartbeat = this.heartbeat
+      if (heartbeat && !heartbeat.missing && now - heartbeat.time > MEMORY_SAMPLE_INTERVAL_MS * 2) {
+        heartbeat.missing = true
+        this.options.record({ source: 'host.process', event: 'heartbeat.missing', level: 'warn', ...(heartbeat.pid === undefined ? {} : { pid: heartbeat.pid }), fields: { silenceMs: now - heartbeat.time } })
+      }
+    }
     let sample: MemorySample
     try { sample = this.read() } catch { return }
     this.ring.push({ sequence: ++this.sequence, sample })
@@ -256,7 +287,7 @@ export class DesktopMemoryMonitor {
       processes,
       ...(host === undefined ? {} : { host: {
         ...(host.pid === undefined ? {} : { pid: host.pid }), time: host.time,
-        rssMB: megabytes(host.usage.rss), heapUsedMB: megabytes(host.usage.heapUsed), heapTotalMB: megabytes(host.usage.heapTotal),
+        ...hostMemoryHealth(host.usage), rssMB: megabytes(host.usage.rss), heapUsedMB: megabytes(host.usage.heapUsed), heapTotalMB: megabytes(host.usage.heapTotal),
         externalMB: megabytes(host.usage.external), arrayBuffersMB: megabytes(host.usage.arrayBuffers),
       } }),
     }
@@ -275,4 +306,8 @@ function triggerRecord(trigger: MemoryIncidentTrigger): TriggerRecord {
 
 function triggerSummary(trigger: TriggerRecord): string {
   return [trigger.process, trigger.type, trigger.reason, trigger.exitCode ?? trigger.signal].filter(part => part !== undefined).join(' ')
+}
+
+function hostMemoryHealth(usage: HostMemoryUsage): { eventLoopUtilization?: number } {
+  return usage.eventLoopUtilization === undefined ? {} : { eventLoopUtilization: usage.eventLoopUtilization }
 }

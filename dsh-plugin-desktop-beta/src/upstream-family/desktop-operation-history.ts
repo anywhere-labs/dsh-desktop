@@ -1,11 +1,13 @@
 /**
  * The shell's plugin operation history for failure reports, kept as upstream Desktop keeps it from
  * dsh 0.2.2: each Host run announces an identity, the run's records are journaled, and recent records
- * are appended to a saved failure report by a bounded Worker.
+ * are appended to a saved failure report by a bounded Worker. Each finished operation is also one
+ * record in the standard log.
  */
+import type { LogInput } from '../log-record.ts'
 import { OperationJournal } from './operation-journal.ts'
 import { runOperationReportJob, type OperationReportJobResult } from './operation-report-job.ts'
-import { isOperationEvidence, parseOperationRecord } from './operation-record.ts'
+import { isOperationEvidence, parseOperationRecord, type OperationRecord } from './operation-record.ts'
 
 const JOURNAL_LIMITS = { segmentBytes: 256 * 1024, recordBytes: 4096, queuedBytes: 64 * 1024 }
 const REPORT_LIMITS = { bytes: 64 * 1024, recordBytes: 4096, records: 100, outputBytes: 64 * 1024 }
@@ -27,8 +29,11 @@ export class DesktopOperationHistory {
   private readonly abort = new AbortController()
   private stopping: Promise<void> | undefined
 
-  /** @param directory - The journal directory; created privately with the first record. */
-  constructor(private readonly directory: string) {}
+  /**
+   * @param directory - The journal directory; created privately with the first record.
+   * @param record - Writes the standard-log record of each finished operation.
+   */
+  constructor(private readonly directory: string, private readonly record?: (input: LogInput) => void) {}
 
   /**
    * Start accepting the announcement and records of one Host process; call once per spawned Host.
@@ -52,6 +57,10 @@ export class DesktopOperationHistory {
         } catch (_error) {
           // Losing a diagnostic record must not invalidate the Host's IPC channel.
         }
+        try {
+          const summary = operationSummary(record)
+          if (summary !== undefined) this.record?.(summary)
+        } catch (_error) { /* The journal keeps the record. */ }
       }
       return true
     }
@@ -104,8 +113,34 @@ export class DesktopOperationHistory {
 
 /**
  * @param directory - The journal directory.
+ * @param record - Writes the standard-log record of each finished operation.
  * @returns The shell's plugin operation history.
  */
-export function createOperationHistory(directory: string): DesktopOperationHistory {
-  return new DesktopOperationHistory(directory)
+export function createOperationHistory(directory: string, record?: (input: LogInput) => void): DesktopOperationHistory {
+  return new DesktopOperationHistory(directory, record)
+}
+
+/**
+ * The standard-log record of one finished plugin manager operation or plugin command.
+ * @param record - A journaled record of the current Host run.
+ * @returns Undefined while the operation is still running.
+ */
+export function operationSummary(record: OperationRecord): LogInput | undefined {
+  const facts = { runId: record.runId, transportDropped: record.transportDropped }
+  if ('operation' in record) {
+    const { id, ...operation } = record.operation
+    if (operation.phase === 'started') return undefined
+    const target = operation.target ?? 'plugins'
+    const failed = operation.phase === 'unknown' || operation.application === 'failed' || operation.errorCode !== undefined
+    const outcome = operation.phase === 'unknown' ? 'outcome unknown' : `${operation.application}${operation.errorCode === undefined ? '' : ` (${operation.errorCode})`}`
+    return { source: 'host.plugins', event: `operation.${operation.phase}`, level: failed ? 'warn' : 'info', operationId: id,
+      message: `Plugin ${operation.stage} ${target}: ${outcome}`, fields: { kind: 'manager', ...operation, ...facts } }
+  }
+  const { id, ...command } = record.pluginCommand
+  if (command.phase === 'started') return undefined
+  const target = command.target ?? 'plugins'
+  const outcome = command.phase === 'unknown' ? 'outcome unknown' : command.exitCode === null ? `ended by ${command.signal ?? 'a signal'}` : `exit ${command.exitCode}`
+  return { source: 'host.plugins', event: `operation.${command.phase}`, operationId: id,
+    level: command.phase === 'unknown' || command.exitCode !== 0 ? 'warn' : 'info',
+    message: `Plugin command ${command.action} ${target}: ${outcome}`, fields: { kind: 'command', ...command, ...facts } }
 }

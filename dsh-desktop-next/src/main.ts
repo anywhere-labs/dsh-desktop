@@ -625,6 +625,18 @@ function openMain(): void {
     rendererRecovery?.loaded()
     if (runtime.backend.state.phase === 'ready') rendererRecovery?.booted()
   })
+  // Chromium reports a main window that stopped answering input, and again once it answers.
+  let unresponsiveAt: number | undefined
+  owner.on('unresponsive', () => {
+    if (quitting || mainWindow !== owner || unresponsiveAt !== undefined) return
+    unresponsiveAt = Date.now()
+    runtime.diagnostics.record({ source: 'renderer', event: 'window.unresponsive', level: 'warn' })
+  })
+  owner.on('responsive', () => {
+    if (quitting || mainWindow !== owner || unresponsiveAt === undefined) return
+    runtime.diagnostics.record({ source: 'renderer', event: 'window.responsive', fields: { durationMs: Date.now() - unresponsiveAt } })
+    unresponsiveAt = undefined
+  })
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     if (quitting || mainWindow !== owner || owner.isDestroyed() || runtime.recoveryMode) return
     // Preserve the native exit code even when automatic recovery succeeds.

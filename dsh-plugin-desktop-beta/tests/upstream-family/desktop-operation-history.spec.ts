@@ -108,3 +108,26 @@ it('bounds the wait for a collector that does not stop when the application quit
   expect(closed).toBe(true)
   expect(history.close()).toBe(history.close())
 })
+
+it('writes one standard record per finished operation of the announced run', async () => {
+  const { directory } = await fixture()
+  const log = vi.fn()
+  const history = new DesktopOperationHistory(directory, log)
+  const accept = history.host()
+  accept({ type: 'starting', runId })
+  const command = record('dsh-foo')
+  accept({ type: 'plugin-operation', record: command })
+  expect(log).not.toHaveBeenCalled()
+  accept({ type: 'plugin-operation', record: { ...command, pluginCommand: { ...command.pluginCommand, phase: 'settled', exitCode: 1 } } })
+  expect(log).toHaveBeenLastCalledWith({ source: 'host.plugins', event: 'operation.settled', level: 'warn', operationId: command.pluginCommand.id,
+    message: 'Plugin command remove dsh-foo: exit 1', fields: expect.objectContaining({ kind: 'command', action: 'remove', target: 'dsh-foo', exitCode: 1, runId }) })
+  accept({ type: 'plugin-operation', record: { ...command, runId: otherRun, pluginCommand: { ...command.pluginCommand, phase: 'unknown' } } })
+  const manager = { runId, transportDropped: 0, operation: { id: 'c254ab28-97c9-4382-95e6-2db9c66f98cb', time: '2026-10-19T00:00:02.000Z', reason: 'install', target: 'dsh-bar',
+    stage: 'install', phase: 'settled', application: 'applied', changed: true } }
+  accept({ type: 'plugin-operation', record: manager })
+  expect(log).toHaveBeenCalledTimes(2)
+  expect(log).toHaveBeenLastCalledWith(expect.objectContaining({ event: 'operation.settled', level: 'info', message: 'Plugin install dsh-bar: applied',
+    fields: expect.objectContaining({ kind: 'manager', application: 'applied', changed: true }) }))
+  await history.close()
+  expect(await journaled(directory)).toHaveLength(3)
+})
