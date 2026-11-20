@@ -659,6 +659,9 @@ describe('desktop Host plugin', () => {
       notifyOnJobFailure: true,
       notifyOnScheduleCompletion: true,
       notifyOnScheduleFailure: true,
+      notifyOnApprovalRequest: true,
+      notifyOnUserQuestion: true,
+      showResponsePreview: true,
     }
 
     await harness.shell()?.applySetupSettings?.({
@@ -714,6 +717,9 @@ describe('desktop Host plugin', () => {
         notifyOnJobFailure: false,
         notifyOnScheduleCompletion: false,
         notifyOnScheduleFailure: false,
+        notifyOnApprovalRequest: false,
+        notifyOnUserQuestion: false,
+        showResponsePreview: false,
       },
     })).rejects.toThrow('refused')
     await harness.notify({ mode: 'extended' })
@@ -748,6 +754,9 @@ describe('desktop Host plugin', () => {
         notifyOnJobFailure: false,
         notifyOnScheduleCompletion: false,
         notifyOnScheduleFailure: false,
+        notifyOnApprovalRequest: false,
+        notifyOnUserQuestion: false,
+        showResponsePreview: false,
       },
     })).rejects.toThrow('refused')
 

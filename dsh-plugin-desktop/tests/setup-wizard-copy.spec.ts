@@ -26,6 +26,9 @@ const input: DesktopSetupWizardInput = {
     notifyOnJobFailure: true,
     notifyOnScheduleCompletion: true,
     notifyOnScheduleFailure: true,
+    notifyOnApprovalRequest: true,
+    notifyOnUserQuestion: true,
+    showResponsePreview: true,
   },
 }
 
